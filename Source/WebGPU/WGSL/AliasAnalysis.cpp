@@ -57,17 +57,17 @@ public:
     {
     }
 
-    static MemoryLocation parameter(unsigned id) { return MemoryLocation { Kind::Parameter, id }; }
-    static MemoryLocation global(unsigned id) { return MemoryLocation { Kind::Global, id }; }
-    static MemoryLocation local(unsigned id) { return MemoryLocation { Kind::Local, id }; }
+    static MemoryLocation NODELETE parameter(unsigned id) { return MemoryLocation { Kind::Parameter, id }; }
+    static MemoryLocation NODELETE global(unsigned id) { return MemoryLocation { Kind::Global, id }; }
+    static MemoryLocation NODELETE local(unsigned id) { return MemoryLocation { Kind::Local, id }; }
 
-    Kind kind() const { return m_kind; }
-    unsigned id() const { return m_id; }
+    Kind NODELETE kind() const { return m_kind; }
+    unsigned NODELETE id() const { return m_id; }
 
-    bool isParameter() const { return m_kind == Kind::Parameter; }
-    bool isGlobal() const { return m_kind == Kind::Global; }
+    bool NODELETE isParameter() const { return m_kind == Kind::Parameter; }
+    bool NODELETE isGlobal() const { return m_kind == Kind::Global; }
 
-    bool operator==(const MemoryLocation& other) const
+    bool NODELETE operator==(const MemoryLocation& other) const
     {
         return m_kind == other.m_kind && m_id == other.m_id;
     }
@@ -100,7 +100,7 @@ private:
     {
     }
 
-    static MemoryLocation hashTableDeletedValue()
+    static MemoryLocation NODELETE hashTableDeletedValue()
     {
         return MemoryLocation { Kind::Invalid, std::numeric_limits<unsigned>::max() };
     }
@@ -122,8 +122,8 @@ public:
         m_string = valueString.toString();
     }
 
-    unsigned length() const { return m_string.length(); }
-    bool is8Bit() const { return m_string.is8Bit(); }
+    unsigned NODELETE length() const { return m_string.length(); }
+    bool NODELETE is8Bit() const { return m_string.is8Bit(); }
     template<typename CharacterType>
     void writeTo(std::span<CharacterType> destination) const
     {
@@ -139,7 +139,7 @@ private:
 
 namespace WGSL {
 
-inline void add(Hasher& hasher, const MemoryLocation& input)
+inline void NODELETE add(Hasher& hasher, const MemoryLocation& input)
 {
     WTF::add(hasher, input.kind());
     WTF::add(hasher, input.id());
@@ -147,10 +147,10 @@ inline void add(Hasher& hasher, const MemoryLocation& input)
 
 struct MemoryLocationHashTraits : SimpleClassHashTraits<MemoryLocation> {
     static const bool emptyValueIsZero = false;
-    static MemoryLocation emptyValue() { return MemoryLocation(); }
+    static MemoryLocation NODELETE emptyValue() { return MemoryLocation(); }
 
-    static void constructDeletedValue(MemoryLocation& slot) { new (NotNull, &slot) MemoryLocation { MemoryLocation::Kind::Invalid, std::numeric_limits<unsigned>::max() }; }
-    static bool isDeletedValue(const MemoryLocation& value)
+    static void NODELETE constructDeletedValue(MemoryLocation& slot) { new (NotNull, &slot) MemoryLocation { MemoryLocation::Kind::Invalid, std::numeric_limits<unsigned>::max() }; }
+    static bool NODELETE isDeletedValue(const MemoryLocation& value)
     {
         MemoryLocation deleted;
         constructDeletedValue(deleted);
@@ -283,7 +283,7 @@ void AliasAnalysis::visit(AST::CallExpression& call)
 
     auto it = m_functions.find(target->identifier().id());
     if (it == m_functions.end()) {
-        static constexpr SortedArraySet atomicWriteFunctions { std::to_array<ComparableASCIILiteral>({
+        static constexpr SortedArraySet atomicWriteFunctions { WTF::toArray<ComparableASCIILiteral>({
             "atomicAdd"_s,
             "atomicAnd"_s,
             "atomicCompareExchangeWeak"_s,

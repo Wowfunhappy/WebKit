@@ -24,7 +24,10 @@ function subtitleTrack(language) {
 }
 
 function contextmenuItem(title) {
-    return contextmenu[0].children.find((item) => item.title === title);
+    let items = contextmenu[0]?.children ?? [];
+    let languagesItem = items.find((item) => item.title === "Languages");
+    let tracks = languagesItem?.children ?? items;
+    return tracks.find((item) => item.title === title);
 }
 
 media.addEventListener("play", () => {
@@ -43,7 +46,8 @@ media.addEventListener("play", () => {
                 shouldBeUndefined("contextmenuItem('French').checked");
 
                 debug("Selecting 'French' text track...");
-                await UIHelper.chooseMenuAction("French");
+                await UIHelper.chooseLanguageInMediaContextMenu("French");
+
                 await UIHelper.waitForContextMenuToHide();
             }
 

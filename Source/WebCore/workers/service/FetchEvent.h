@@ -31,6 +31,7 @@
 #include <WebCore/ResourceError.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Expected.h>
+#include <wtf/Markable.h>
 
 namespace JSC {
 class JSGlobalObject;

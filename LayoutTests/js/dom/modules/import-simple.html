@@ -17,7 +17,7 @@ window.jsTestIsAsync = true;
 (async function() {
     debug('Module is not executed yet.');
     await import(`./resources/module-src-simple.js`);
-    finishJSTest();
+    setTimeout(finishJSTest, 0);
 }());
 </script>
 </body>

@@ -1,11 +1,11 @@
 
 PASS Scheme ftp (getting <a>.href)
 PASS Scheme file (getting <a>.href)
-FAIL Scheme gopher (getting <a>.href) assert_true: expected substring %E5 got gopher://example.invalid/?x=%C3%A5 expected true got false
 PASS Scheme http (getting <a>.href)
 PASS Scheme https (getting <a>.href)
 PASS Scheme ws (getting <a>.href)
 PASS Scheme wss (getting <a>.href)
+PASS Scheme gopher (getting <a>.href)
 PASS Scheme mailto (getting <a>.href)
 PASS Scheme data (getting <a>.href)
 PASS Scheme javascript (getting <a>.href)

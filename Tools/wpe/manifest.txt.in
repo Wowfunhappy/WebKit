@@ -65,6 +65,7 @@ directory Source/ThirdParty/pdfjs
 file Source/ThirdParty/pdfjs/web/locale/ca/viewer.ftl
 file Source/ThirdParty/skia/CMakeLists.txt
 file Source/ThirdParty/skia/LICENSE
+file Source/ThirdParty/skia/WebKitSkiaConfig.h
 directory Source/ThirdParty/skia/include
 directory Source/ThirdParty/skia/modules/skcms
 directory Source/ThirdParty/skia/modules/skresources/include
@@ -116,6 +117,7 @@ file Tools/CMakeLists.txt
 file Tools/PlatformWPE.cmake
 
 file Tools/Scripts/rewrite-compile-commands
+file Tools/Scripts/swift/swiftc-wrapper.sh
 
 directory ${CMAKE_BINARY_DIR}/Documentation/wpe-javascriptcore-${WPE_API_VERSION} Documentation/wpe-javascriptcore-${WPE_API_VERSION}
 directory ${CMAKE_BINARY_DIR}/Documentation/wpe-webkit-${WPE_API_VERSION} Documentation/wpe-webkit-${WPE_API_VERSION}

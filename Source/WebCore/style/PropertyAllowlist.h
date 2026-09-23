@@ -40,10 +40,12 @@ enum class PropertyAllowlist : uint8_t {
     CueSelector,
     CueBackground,
 #endif
+    Highlight,
 };
 
 PropertyAllowlist NODELETE propertyAllowlistForPseudoElement(PseudoElementType);
 
+bool NODELETE isValidHighlightStyleProperty(CSSPropertyID);
 bool NODELETE isValidMarkerStyleProperty(CSSPropertyID);
 #if ENABLE(VIDEO)
 bool NODELETE isValidCueStyleProperty(CSSPropertyID);

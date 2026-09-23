@@ -56,7 +56,8 @@ typedef MediaSourcePrivateGStreamer::RegisteredTrack RegisteredTrack;
 class AppendPipeline;
 class MediaSourcePrivateGStreamer;
 
-class SourceBufferPrivateGStreamer final : public SourceBufferPrivate, public CanMakeWeakPtr<SourceBufferPrivateGStreamer> {
+class SourceBufferPrivateGStreamer final : public SourceBufferPrivate, public CanMakeWeakPtr<SourceBufferPrivateGStreamer>
+{
 public:
     static bool isContentTypeSupported(const ContentType&);
     static Ref<SourceBufferPrivateGStreamer> create(MediaSourcePrivateGStreamer&, const ContentType&);
@@ -101,10 +102,6 @@ public:
     size_t platformMaximumBufferSize() const override;
     size_t platformEvictionThreshold() const final;
 
-    void willSeek();
-    bool isSeeking() const final;
-    void seekToTime(const MediaTime&) final;
-
 private:
     friend class AppendPipeline;
 
@@ -122,10 +119,6 @@ private:
     std::optional<MediaPromise::Producer> m_appendPromise;
 
     bool m_pendingInitializationSegmentForChangeType { false };
-
-    // Set while waiting for samples from the multiplatform layer after a seek has initiated.
-    // Unset once the samples are ready for the platform-specific layer.
-    bool m_seeking { false };
 
 #if !RELEASE_LOG_DISABLED
     const Ref<const Logger> m_logger;

@@ -66,7 +66,6 @@
 #include "RenderEmbeddedObject.h"
 #include "RenderImage.h"
 #include "RenderLayer.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTreeBuilder.h"
 #include "RenderTreeUpdater.h"
 #include "RenderView.h"
@@ -76,6 +75,7 @@
 #include "SecurityOrigin.h"
 #include "Settings.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleTreeResolver.h"
 #include "SubframeLoader.h"
 #include "TypedElementDescendantIteratorInlines.h"
@@ -85,6 +85,12 @@
 #include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(CONTENT_EXTENSIONS)
+#include "ContentExtensionsBackend.h"
+#include "ResourceLoadInfo.h"
+#include "UserContentProvider.h"
+#endif
 
 #if PLATFORM(COCOA)
 #include "YouTubePluginReplacement.h"
@@ -222,17 +228,17 @@ void HTMLPlugInElement::collectPresentationalHintsForAttribute(const QualifiedNa
     }
 }
 
-Node::InsertedIntoAncestorResult HTMLPlugInElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLPlugInElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = HTMLFrameOwnerElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLFrameOwnerElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
         document().didConnectPluginElement();
     return result;
 }
 
-void HTMLPlugInElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLPlugInElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLFrameOwnerElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLFrameOwnerElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         document().didDisconnectPluginElement();
 }
@@ -288,7 +294,7 @@ bool HTMLPlugInElement::supportsFocus() const
     return renderer && !renderer->isPluginUnavailable();
 }
 
-RenderPtr<RenderElement> HTMLPlugInElement::createPluginRenderer(RenderStyle&& style, const RenderTreePosition& insertionPosition)
+RenderPtr<RenderElement> HTMLPlugInElement::createPluginRenderer(Style::ComputedStyle&& style, const RenderTreePosition& insertionPosition)
 {
     if (m_pluginReplacement && m_pluginReplacement->willCreateRenderer()) {
         RenderPtr<RenderElement> renderer = m_pluginReplacement->createElementRenderer(*this, WTF::move(style), insertionPosition);
@@ -300,7 +306,7 @@ RenderPtr<RenderElement> HTMLPlugInElement::createPluginRenderer(RenderStyle&& s
     return createRenderer<RenderEmbeddedObject>(*this, WTF::move(style));
 }
 
-RenderPtr<RenderElement> HTMLPlugInElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition& insertionPosition)
+RenderPtr<RenderElement> HTMLPlugInElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition& insertionPosition)
 {
     ASSERT(document().backForwardCacheState() == Document::NotInBackForwardCache);
 
@@ -323,7 +329,7 @@ RenderPtr<RenderElement> HTMLPlugInElement::createElementRenderer(RenderStyle&& 
     return createPluginRenderer(WTF::move(style), insertionPosition);
 }
 
-bool HTMLPlugInElement::isReplaced(const RenderStyle*) const
+bool HTMLPlugInElement::isReplaced(const Style::ComputedStyle*) const
 {
     return !m_pluginReplacement || !m_pluginReplacement->willCreateRenderer();
 }
@@ -447,7 +453,7 @@ bool HTMLPlugInElement::requestObject(const String& relativeURL, const String& m
     Ref document = this->document();
     URL completedURL;
     if (!relativeURL.isEmpty())
-        completedURL = document->completeURL(relativeURL);
+        completedURL = document->encodingParseURL(relativeURL);
 
     if (ReplacementPlugin* replacement = pluginReplacementForType(completedURL, mimeType)) {
         LOG(Plugins, "%p - Found plug-in replacement for %s.", this, completedURL.string().utf8().data());
@@ -519,7 +525,7 @@ void HTMLPlugInElement::scheduleUpdateForAfterStyleResolution()
 bool HTMLPlugInElement::shouldBypassCSPForPDFPlugin(const String& contentType) const
 {
 #if ENABLE(PDF_PLUGIN)
-    return document().frame()->loader().client().shouldUsePDFPlugin(contentType, document().url().path());
+    return document().frame()->loader().client().shouldUsePDFPlugin(contentType, protect(document())->url().path());
 #else
     UNUSED_PARAM(contentType);
     return false;
@@ -534,7 +540,7 @@ RenderEmbeddedObject* HTMLPlugInElement::renderEmbeddedObject() const
 
 bool HTMLPlugInElement::canLoadURL(const String& relativeURL) const
 {
-    return canLoadURL(protect(document())->completeURL(relativeURL));
+    return canLoadURL(protect(document())->encodingParseURL(relativeURL));
 }
 
 bool HTMLPlugInElement::canLoadURL(const URL& completeURL) const
@@ -547,6 +553,20 @@ bool HTMLPlugInElement::canLoadURL(const URL& completeURL) const
             return false;
     }
 
+#if ENABLE(CONTENT_EXTENSIONS)
+    if (completeURL.isValid()) {
+        RefPtr page = document().page();
+        RefPtr frame = document().frame();
+        RefPtr documentLoader = frame ? frame->loader().documentLoader() : nullptr;
+        RefPtr userContentProvider = frame ? frame->userContentProvider() : nullptr;
+        if (page && documentLoader && userContentProvider) {
+            auto results = userContentProvider->processContentRuleListsForLoad(*page, completeURL, ContentExtensions::ResourceType::Other, *documentLoader);
+            if (results.shouldBlock())
+                return false;
+        }
+    }
+#endif
+
     return !isProhibitedSelfReference(completeURL);
 }
 
@@ -558,7 +578,7 @@ bool HTMLPlugInElement::wouldLoadAsPlugIn(const String& relativeURL, const Strin
     ASSERT(document->frame());
     URL completedURL;
     if (!relativeURL.isEmpty())
-        completedURL = document->completeURL(relativeURL);
+        completedURL = document->encodingParseURL(relativeURL);
     return document->frame()->loader().client().objectContentType(completedURL, serviceType) == ObjectContentType::PlugIn;
 }
 
@@ -569,7 +589,7 @@ bool HTMLPlugInElement::isImageType()
 
     Ref document = this->document();
     if (RefPtr frame = document->frame())
-        return frame->loader().client().objectContentType(document->completeURL(m_url), m_serviceType) == ObjectContentType::Image;
+        return frame->loader().client().objectContentType(document->encodingParseURL(m_url), m_serviceType) == ObjectContentType::Image;
 
     return Image::supportsType(m_serviceType);
 }
@@ -688,14 +708,14 @@ bool HTMLPlugInElement::canLoadPlugInContent(const String& relativeURL, const St
     Ref document = this->document();
     URL completedURL;
     if (!relativeURL.isEmpty())
-        completedURL = document->completeURL(relativeURL);
+        completedURL = document->encodingParseURL(relativeURL);
 
     ASSERT(document->contentSecurityPolicy());
     CheckedRef contentSecurityPolicy = *document->contentSecurityPolicy();
 
     contentSecurityPolicy->upgradeInsecureRequestIfNeeded(completedURL, ContentSecurityPolicy::InsecureRequestType::Load);
 
-    if (!shouldBypassCSPForPDFPlugin(mimeType) && !contentSecurityPolicy->allowObjectFromSource(completedURL))
+    if (!shouldBypassCSPForPDFPlugin(mimeType) && !contentSecurityPolicy->allowObjectFromSource(completedURL, document->currentParserSourcePosition()))
         return false;
 
     RefPtr ownerElement = document->ownerElement();

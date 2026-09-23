@@ -59,9 +59,7 @@ CursorTheme::CursorTheme(std::unique_ptr<WPE::CursorTheme>&& theme)
 {
 }
 
-CursorTheme::~CursorTheme()
-{
-}
+CursorTheme::~CursorTheme() = default;
 
 const Vector<CursorTheme::Image>& CursorTheme::cursor(const char* name, double scale, std::optional<uint32_t> maxImages)
 {

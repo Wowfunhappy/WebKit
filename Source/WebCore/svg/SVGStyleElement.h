@@ -23,7 +23,6 @@
 
 #include "InlineStyleSheetOwner.h"
 #include "SVGElement.h"
-#include "Timer.h"
 
 namespace WebCore {
 
@@ -43,11 +42,11 @@ private:
     SVGStyleElement(const QualifiedName&, Document&, bool createdByParser);
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void childrenChanged(const ChildChange&) final;
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
     bool supportsFocus() const final { return false; }
 
     void finishParsingChildren() final;

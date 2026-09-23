@@ -99,6 +99,9 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         // See WI.Target.prototype.initialize.
 
         this._setConsoleClearAPIEnabled(target);
+
+        for (let channel of this._customLoggingChannels)
+            target.ConsoleAgent.setLoggingChannelLevel(channel.source, channel.level);
     }
 
     // Public
@@ -226,8 +229,8 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
 
         switch (reason) {
         case WI.ConsoleManager.ClearReason.Frontend:
-            // COMPATIBILITY (iOS 18.0, macOS 15.0): `Console.ClearReason.Frontend` did not exist yet.
-            // COMPATIBILITY (iOS 18.0, macOS 15.0): `Console.setConsoleClearAPIEnabled` did not exist yet.
+            // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.ClearReason.Frontend` did not exist yet.
+            // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.setConsoleClearAPIEnabled` did not exist yet.
             console.assert(InspectorBackend.hasCommand("Console.setConsoleClearAPIEnabled"));
             this._clearMessages();
             return;
@@ -314,7 +317,7 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
 
     _setConsoleClearAPIEnabled(target)
     {
-        // COMPATIBILITY (iOS 18.0, macOS 15.0): `Console.setConsoleClearAPIEnabled` did not exist yet.
+        // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.setConsoleClearAPIEnabled` did not exist yet.
         if (target.hasCommand("Console.setConsoleClearAPIEnabled"))
             target.ConsoleAgent.setConsoleClearAPIEnabled(WI.settings.consoleClearAPIEnabled.value);
     }

@@ -81,6 +81,7 @@ class NativeExecutable;
     macro(GetByIdCustomAccessorHandler, getByIdCustomAccessorHandler) \
     macro(GetByIdCustomValueHandler, getByIdCustomValueHandler) \
     macro(GetByIdGetterHandler, getByIdGetterHandler) \
+    macro(GetByIdMegamorphicGetterHandler, getByIdMegamorphicGetterHandler) \
     macro(GetByIdProxyObjectLoadHandler, getByIdProxyObjectLoadHandler) \
     macro(GetByIdModuleNamespaceLoadHandler, getByIdModuleNamespaceLoadHandler) \
     macro(PutByIdReplaceHandler, putByIdReplaceHandler) \
@@ -141,6 +142,38 @@ class NativeExecutable;
     macro(DeleteByValWithSymbolDeleteMissHandler, deleteByValWithSymbolDeleteMissHandler) \
     macro(CheckPrivateBrandHandler, checkPrivateBrandHandler) \
     macro(SetPrivateBrandHandler, setPrivateBrandHandler) \
+    macro(GetByValWithUndefinedKeyLoadOwnPropertyHandler, getByValWithUndefinedKeyLoadOwnPropertyHandler) \
+    macro(GetByValWithUndefinedKeyLoadPrototypePropertyHandler, getByValWithUndefinedKeyLoadPrototypePropertyHandler) \
+    macro(GetByValWithUndefinedKeyMissHandler, getByValWithUndefinedKeyMissHandler) \
+    macro(GetByValWithNullKeyLoadOwnPropertyHandler, getByValWithNullKeyLoadOwnPropertyHandler) \
+    macro(GetByValWithNullKeyLoadPrototypePropertyHandler, getByValWithNullKeyLoadPrototypePropertyHandler) \
+    macro(GetByValWithNullKeyMissHandler, getByValWithNullKeyMissHandler) \
+    macro(GetByValWithTrueKeyLoadOwnPropertyHandler, getByValWithTrueKeyLoadOwnPropertyHandler) \
+    macro(GetByValWithTrueKeyLoadPrototypePropertyHandler, getByValWithTrueKeyLoadPrototypePropertyHandler) \
+    macro(GetByValWithTrueKeyMissHandler, getByValWithTrueKeyMissHandler) \
+    macro(GetByValWithFalseKeyLoadOwnPropertyHandler, getByValWithFalseKeyLoadOwnPropertyHandler) \
+    macro(GetByValWithFalseKeyLoadPrototypePropertyHandler, getByValWithFalseKeyLoadPrototypePropertyHandler) \
+    macro(GetByValWithFalseKeyMissHandler, getByValWithFalseKeyMissHandler) \
+    macro(PutByValWithUndefinedKeyReplaceHandler, putByValWithUndefinedKeyReplaceHandler) \
+    macro(PutByValWithUndefinedKeyTransitionNonAllocatingHandler, putByValWithUndefinedKeyTransitionNonAllocatingHandler) \
+    macro(PutByValWithUndefinedKeyTransitionNewlyAllocatingHandler, putByValWithUndefinedKeyTransitionNewlyAllocatingHandler) \
+    macro(PutByValWithUndefinedKeyTransitionReallocatingHandler, putByValWithUndefinedKeyTransitionReallocatingHandler) \
+    macro(PutByValWithUndefinedKeyTransitionReallocatingOutOfLineHandler, putByValWithUndefinedKeyTransitionReallocatingOutOfLineHandler) \
+    macro(PutByValWithNullKeyReplaceHandler, putByValWithNullKeyReplaceHandler) \
+    macro(PutByValWithNullKeyTransitionNonAllocatingHandler, putByValWithNullKeyTransitionNonAllocatingHandler) \
+    macro(PutByValWithNullKeyTransitionNewlyAllocatingHandler, putByValWithNullKeyTransitionNewlyAllocatingHandler) \
+    macro(PutByValWithNullKeyTransitionReallocatingHandler, putByValWithNullKeyTransitionReallocatingHandler) \
+    macro(PutByValWithNullKeyTransitionReallocatingOutOfLineHandler, putByValWithNullKeyTransitionReallocatingOutOfLineHandler) \
+    macro(PutByValWithTrueKeyReplaceHandler, putByValWithTrueKeyReplaceHandler) \
+    macro(PutByValWithTrueKeyTransitionNonAllocatingHandler, putByValWithTrueKeyTransitionNonAllocatingHandler) \
+    macro(PutByValWithTrueKeyTransitionNewlyAllocatingHandler, putByValWithTrueKeyTransitionNewlyAllocatingHandler) \
+    macro(PutByValWithTrueKeyTransitionReallocatingHandler, putByValWithTrueKeyTransitionReallocatingHandler) \
+    macro(PutByValWithTrueKeyTransitionReallocatingOutOfLineHandler, putByValWithTrueKeyTransitionReallocatingOutOfLineHandler) \
+    macro(PutByValWithFalseKeyReplaceHandler, putByValWithFalseKeyReplaceHandler) \
+    macro(PutByValWithFalseKeyTransitionNonAllocatingHandler, putByValWithFalseKeyTransitionNonAllocatingHandler) \
+    macro(PutByValWithFalseKeyTransitionNewlyAllocatingHandler, putByValWithFalseKeyTransitionNewlyAllocatingHandler) \
+    macro(PutByValWithFalseKeyTransitionReallocatingHandler, putByValWithFalseKeyTransitionReallocatingHandler) \
+    macro(PutByValWithFalseKeyTransitionReallocatingOutOfLineHandler, putByValWithFalseKeyTransitionReallocatingOutOfLineHandler) \
 
 enum class CommonJITThunkID : uint8_t {
 #define JSC_DEFINE_COMMON_JIT_THUNK_ID(name, func) name,
@@ -171,9 +204,9 @@ public:
     MacroAssemblerCodeRef<JITThunkPtrTag> ctiStub(VM&, ThunkGenerator);
     MacroAssemblerCodeRef<JITThunkPtrTag> ctiSlowPathFunctionStub(VM&, SlowPathFunction);
 
-    NativeExecutable* hostFunctionStub(VM&, TaggedNativeFunction, TaggedNativeFunction constructor, ImplementationVisibility, const String& name);
-    NativeExecutable* hostFunctionStub(VM&, TaggedNativeFunction, TaggedNativeFunction constructor, ThunkGenerator, ImplementationVisibility, Intrinsic, const DOMJIT::Signature*, const String& name);
-    NativeExecutable* hostFunctionStub(VM&, TaggedNativeFunction, ThunkGenerator, ImplementationVisibility, Intrinsic, const String& name);
+    NativeExecutable* hostFunctionStub(VM&, TaggedNativeFunction, TaggedNativeFunction constructor, ImplementationVisibility, unsigned length, const String& name);
+    NativeExecutable* hostFunctionStub(VM&, TaggedNativeFunction, TaggedNativeFunction constructor, ThunkGenerator, ImplementationVisibility, Intrinsic, const DOMJIT::Signature*, unsigned length, const String& name);
+    NativeExecutable* hostFunctionStub(VM&, TaggedNativeFunction, ThunkGenerator, ImplementationVisibility, Intrinsic, unsigned length, const String& name);
 
     void initialize(VM&);
 
@@ -189,29 +222,30 @@ private:
     };
     using CTIStubMap = UncheckedKeyHashMap<ThunkGenerator, Entry>;
 
-    using HostFunctionKey = std::tuple<TaggedNativeFunction, TaggedNativeFunction, ImplementationVisibility, String>;
+    using HostFunctionKey = std::tuple<TaggedNativeFunction, TaggedNativeFunction, ImplementationVisibility, unsigned, String>;
 
     struct WeakNativeExecutableHash {
-        static inline unsigned hash(const Weak<NativeExecutable>&);
+        static inline unsigned NODELETE hash(const Weak<NativeExecutable>&);
         static inline unsigned hash(const NativeExecutable*);
         static unsigned hash(const HostFunctionKey& key)
         {
-            return hash(std::get<0>(key), std::get<1>(key), std::get<2>(key), std::get<3>(key));
+            return hash(std::get<0>(key), std::get<1>(key), std::get<2>(key), std::get<3>(key), std::get<4>(key));
         }
 
-        static inline bool equal(const Weak<NativeExecutable>&, const Weak<NativeExecutable>&);
+        static inline bool NODELETE equal(const Weak<NativeExecutable>&, const Weak<NativeExecutable>&);
         static inline bool equal(const Weak<NativeExecutable>&, const HostFunctionKey&);
         static inline bool equal(const Weak<NativeExecutable>&, const NativeExecutable*);
         static inline bool equal(const NativeExecutable&, const NativeExecutable&);
         static constexpr bool safeToCompareToEmptyOrDeleted = false;
 
     private:
-        static unsigned hash(TaggedNativeFunction function, TaggedNativeFunction constructor, ImplementationVisibility implementationVisibility, const String& name)
+        static unsigned hash(TaggedNativeFunction function, TaggedNativeFunction constructor, ImplementationVisibility implementationVisibility, unsigned length, const String& name)
         {
             Hasher hasher;
             WTF::add(hasher, function);
             WTF::add(hasher, constructor);
             WTF::add(hasher, implementationVisibility);
+            WTF::add(hasher, length);
             if (!name.isNull())
                 WTF::add(hasher, name);
             return hasher.hash();

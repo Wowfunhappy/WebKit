@@ -85,6 +85,9 @@ private:
     void updateProgress();
 
     WKPageRef createNewPage(WKPageRef, WKPageConfigurationRef);
+    static void runJavaScriptAlert(WKPageRef, WKStringRef, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptAlertResultListenerRef, const void* clientInfo);
+    static void runJavaScriptConfirm(WKPageRef, WKStringRef, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptConfirmResultListenerRef, const void* clientInfo);
+    static void runJavaScriptPrompt(WKPageRef, WKStringRef, WKStringRef, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptPromptResultListenerRef, const void* clientInfo);
 
     WKRetainPtr<WKViewRef> m_view;
     std::shared_ptr<WebContext> m_context;

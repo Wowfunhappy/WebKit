@@ -31,11 +31,9 @@
 
 namespace JSC {
 
-class JSPromise;
-
-class JSAsyncGenerator final : public JSInternalFieldObjectImpl<8> {
+class JSAsyncGenerator final : public JSInternalFieldObjectImpl<10> {
 public:
-    using Base = JSInternalFieldObjectImpl<8>;
+    using Base = JSInternalFieldObjectImpl<10>;
 
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
@@ -43,11 +41,14 @@ public:
         return vm.asyncGeneratorSpace<mode>();
     }
 
+    // JSC encoding of spec [[AsyncGeneratorState]]: suspended-start = Init; suspended-yield = positive
+    // state with reason Yield; executing = Executing or positive+Await (suspended mid-await); draining-queue
+    // = DrainingQueue; completed = Completed. https://tc39.es/ecma262/#sec-properties-of-asyncgenerator-instances
     enum class AsyncGeneratorState : int32_t {
         Completed = -1,
         Executing = -2,
         Init = 0,
-        AwaitingReturn = -3,
+        DrainingQueue = -3,
     };
     static_assert(static_cast<int32_t>(AsyncGeneratorState::Completed) == static_cast<int32_t>(JSGenerator::State::Completed));
     static_assert(static_cast<int32_t>(AsyncGeneratorState::Executing) == static_cast<int32_t>(JSGenerator::State::Executing));
@@ -56,9 +57,13 @@ public:
     enum class AsyncGeneratorSuspendReason : int32_t {
         Await = 0,
         Yield = 1,
+        // `yield*` delegation: the spec yields IteratorValue(innerResult) via AsyncGeneratorYield without an
+        // enclosing Await (unlike plain `yield`, which is AsyncGeneratorYield(? Await(value))). This reason
+        // tells the driver to deliver the value without awaiting it.
+        YieldNoAwait = 2,
     };
-    static constexpr int32_t reasonMask = 0x1;
-    static constexpr int32_t reasonShift = 1;
+    static constexpr int32_t reasonMask = 0x3;
+    static constexpr int32_t reasonShift = 2;
 
     enum class AsyncGeneratorResumeMode : int32_t {
         Empty = -1,
@@ -79,8 +84,10 @@ public:
         ResumeValue,
         ResumeMode,
         ResumePromise,
+        CachedDriverResult,
+        CachedDriverResultTarget,
     };
-    static_assert(numberOfInternalFields == 8);
+    static_assert(numberOfInternalFields == 10);
     static std::array<JSValue, numberOfInternalFields> initialValues()
     {
         return { {
@@ -91,6 +98,8 @@ public:
             jsNull(),
             jsUndefined(),
             jsNumber(static_cast<int32_t>(AsyncGeneratorResumeMode::Empty)),
+            jsUndefined(),
+            jsUndefined(),
             jsUndefined(),
         } };
     }
@@ -168,14 +177,39 @@ public:
         Base::internalField(static_cast<unsigned>(Field::ResumePromise)).set(vm, this, value);
     }
 
+    JSValue cachedDriverResult() const
+    {
+        return Base::internalField(static_cast<unsigned>(Field::CachedDriverResult)).get();
+    }
+
+    void setCachedDriverResult(VM& vm, JSValue value)
+    {
+        Base::internalField(static_cast<unsigned>(Field::CachedDriverResult)).set(vm, this, value);
+    }
+
+    JSValue cachedDriverResultTarget() const
+    {
+        return Base::internalField(static_cast<unsigned>(Field::CachedDriverResultTarget)).get();
+    }
+
+    void setCachedDriverResultTarget(VM& vm, JSValue value)
+    {
+        Base::internalField(static_cast<unsigned>(Field::CachedDriverResultTarget)).set(vm, this, value);
+    }
+
     bool isQueueEmpty() const
     {
         return resumeMode() == static_cast<int32_t>(AsyncGeneratorResumeMode::Empty);
     }
 
-    bool isExecutionState() const
+    // ~suspended-yield~: a positive state whose reason bits are Yield.
+    static bool isSuspendedYieldState(int32_t state)
     {
-        int32_t state = this->state();
+        return state > 0 && (state & reasonMask) == static_cast<int32_t>(AsyncGeneratorSuspendReason::Yield);
+    }
+
+    static bool isExecutingState(int32_t state)
+    {
         if (state == static_cast<int32_t>(AsyncGeneratorState::Executing))
             return true;
         if (state > 0 && (state & reasonMask) == static_cast<int32_t>(AsyncGeneratorSuspendReason::Await))
@@ -183,8 +217,12 @@ public:
         return false;
     }
 
-    void enqueue(VM&, JSValue value, int32_t resumeMode, JSPromise*);
-    std::tuple<JSValue, int32_t, JSPromise*> dequeue(VM&);
+    // A queued request settles one of two ways, distinguished by the settlement target's type:
+    //   - a real .next()/.throw()/.return() carries its result JSPromise; or
+    //   - a for-await driver carries its own generator/async-function driver (never a
+    //     JSPromise), resumed directly via an AsyncGeneratorDriverResume microtask.
+    void enqueue(VM&, JSValue value, int32_t resumeMode, JSObject* settlementTarget);
+    JSObject* dequeue(VM&);
 
     DECLARE_EXPORT_INFO;
 
@@ -194,5 +232,7 @@ private:
     JSAsyncGenerator(VM&, Structure*);
     void finishCreation(VM&);
 };
+
+JSValue asyncGeneratorNext(JSGlobalObject*, JSAsyncGenerator*, JSValue argument, MicrotaskCallCache*);
 
 } // namespace JSC

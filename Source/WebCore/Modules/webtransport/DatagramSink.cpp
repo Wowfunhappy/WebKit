@@ -29,6 +29,7 @@
 #include "Exception.h"
 #include "JSDOMConvertBufferSource.h"
 #include "JSDOMConvertUnion.h"
+#include "JSDOMPromiseDeferred.h"
 #include "ScriptExecutionContextInlines.h"
 #include "WebTransport.h"
 #include "WebTransportDatagramsWritable.h"
@@ -57,7 +58,7 @@ void DatagramSink::write(ScriptExecutionContext& context, JSC::JSValue value, DO
     if (m_isClosed)
         return promise.settle(Exception { ExceptionCode::InvalidStateError });
 
-    auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(context.globalObject());
+    auto& globalObject = *downcast<JSDOMGlobalObject>(context.globalObject());
     auto scope = DECLARE_THROW_SCOPE(globalObject.vm());
 
     auto bufferSource = convert<IDLUnion<IDLArrayBuffer, IDLArrayBufferView>>(globalObject, value);

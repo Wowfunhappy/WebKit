@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 #include "config.h"
 #include "ScopedName.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSStringValue.h"
 #include "StyleBuilderChecking.h"
 #include <wtf/text/TextStream.h>
 
@@ -35,33 +35,20 @@ namespace Style {
 
 // MARK: - Conversion
 
-auto CSSValueConversion<ScopedName>::operator()(BuilderState& state, const CSSPrimitiveValue& primitiveValue) -> ScopedName
-{
-    if (!primitiveValue.isCustomIdent()) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return { };
-    }
-
-    return {
-        .name = AtomString { primitiveValue.customIdent() },
-        .scopeOrdinal = state.styleScopeOrdinal()
-    };
-}
-
 auto CSSValueConversion<ScopedName>::operator()(BuilderState& state, const CSSValue& value) -> ScopedName
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return { };
-
-    if (!primitiveValue->isCustomIdent()) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return { };
+    if (RefPtr stringValue = dynamicDowncast<CSSStringValue>(value)) {
+        return ScopedName {
+            .name = AtomString { toStyleFromCSSValue<String>(state, value).value },
+            .scopeOrdinal = state.styleScopeOrdinal(),
+            .isIdentifier = false,
+        };
     }
 
     return ScopedName {
-        .name = AtomString { primitiveValue->customIdent() },
-        .scopeOrdinal = state.styleScopeOrdinal()
+        .name = toStyleFromCSSValue<CustomIdent>(state, value).value,
+        .scopeOrdinal = state.styleScopeOrdinal(),
+        .isIdentifier = true,
     };
 }
 

@@ -80,6 +80,7 @@ PASS Parsing: <http://[::127.0.0.1.]> against <http://example.org/foo/bar>
 PASS Parsing: <http://[0:0:0:0:0:0:13.1.68.3]> against <http://example.org/foo/bar>
 PASS Parsing: <http://[2001::1]:80> against <http://example.org/foo/bar>
 PASS Parsing: <http:/example.com/> against <http://example.org/foo/bar>
+PASS Parsing: <http:/> against <http://example.com/>
 PASS Parsing: <ftp:/example.com/> against <http://example.org/foo/bar>
 PASS Parsing: <https:/example.com/> against <http://example.org/foo/bar>
 PASS Parsing: <madeupscheme:/example.com/> against <http://example.org/foo/bar>
@@ -288,6 +289,8 @@ PASS Parsing: <http://[::.1]> against <http://other.com/>
 PASS Parsing: <http://[::%31]> against <http://other.com/>
 PASS Parsing: <http://%5B::1]> against <http://other.com/>
 PASS Parsing: <http://foo:💩@example.com/bar> against <http://other.com/>
+PASS Parsing: <https://localhost?q=🔥> without base
+PASS Parsing: <https://localhost#🔥> without base
 PASS Parsing: <#> against <test:test>
 PASS Parsing: <#x> against <data:,>
 PASS Parsing: <#x> against <about:blank>
@@ -487,11 +490,15 @@ PASS Parsing: <http://0xffffffff> against <http://other.com/>
 PASS Parsing: <http://0xffffffff1> against <http://other.com/>
 PASS Parsing: <http://256.256.256.256> against <http://other.com/>
 PASS Parsing: <https://0x.0x.0> without base
+PASS Parsing: <https://0x.0x.0x.0x> without base
+PASS Parsing: <https://00.00.00.00> without base
+PASS Parsing: <https://0000000000000000000000000000000000000000177.0.0.1> without base
 PASS Parsing: <https://0x100000000/test> without base
 PASS Parsing: <https://256.0.0.1/test> without base
 PASS Parsing: <https://%43%7C/> without base
 PASS Parsing: <asdf://%43|/> without base
 PASS Parsing: <asdf://%43%7C/> without base
+PASS Parsing: <..> against <abc://x/y/z/C:/>
 PASS Parsing: <\\\.\Y:> without base
 PASS Parsing: <\\\.\y:> without base
 PASS Parsing: <http://[1:0::]> against <http://example.net/>
@@ -723,5 +730,14 @@ PASS Parsing: <non-special:\/opaque> without base
 PASS Parsing: <non-special:/\path> without base
 PASS Parsing: <non-special://host\a> without base
 PASS Parsing: <non-special://host/a\b> without base
+PASS Parsing: <\a> against <foo://foo/a>
+PASS Parsing: <\/a> against <foo://foo/a>
+PASS Parsing: <\\a> against <foo://foo/a>
+PASS Parsing: <data:text/plain,test#<foo> <bar>> without base
+PASS Parsing: <about:blank#<foo> <bar>> without base
+PASS Parsing: <data:text/plain,test#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé> without base
+PASS Parsing: <about:blank#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé> without base
 PASS Parsing: <http://example.com/U+d800𐟾U+dfff﷐﷏﷯ﷰ￾￿?U+d800𐟾U+dfff﷐﷏﷯ﷰ￾￿> without base
 

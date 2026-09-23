@@ -32,7 +32,7 @@
 
 namespace WebCore {
 
-class WebGLTexture final : public WebGLObject {
+class WebGLTexture : public WebGLObject {
 public:
 
     virtual ~WebGLTexture();
@@ -48,7 +48,7 @@ public:
     bool isUsable() const { return object() && !isDeleted(); }
     bool isInitialized() const { return m_target; }
 
-private:
+protected:
     WebGLTexture(WebGLRenderingContextBase&, PlatformGLObject);
     WebGLTexture();
 

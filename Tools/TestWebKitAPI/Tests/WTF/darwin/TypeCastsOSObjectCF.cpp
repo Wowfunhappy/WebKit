@@ -25,7 +25,7 @@
 #import "config.h"
 #import <wtf/darwin/TypeCastsOSObject.h>
 
-#import "WTFTestUtilities.h"
+#import "Helpers/WTFTestUtilities.h"
 #import <wtf/StdLibExtras.h>
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/darwin/DispatchOSObject.h>
@@ -54,7 +54,7 @@ TEST(TypeCastsOSObjectCF, osObjectCast)
     EXPECT_EQ(1L, CFGetRetainCount(groupPtr));
 
     // Down cast.
-    auto object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+    OSObjectPtr object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
     uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
     EXPECT_EQ(object.get(), osObjectCast<dispatch_group_t>(object.get()));
     EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
@@ -67,7 +67,7 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast)
 
     // Same cast / up cast bad cast from CFTypeRef.
     {
-        auto objectCF = adoptCF<CFTypeRef>(dispatch_group_create());
+        RetainPtr objectCF = adoptCF<CFTypeRef>(dispatch_group_create());
         uintptr_t objectCFPtr = reinterpret_cast<uintptr_t>(objectCF.get());
         EXPECT_EQ(objectCF.get(), dynamicOSObjectCast<dispatch_group_t>(objectCF.get()));
         EXPECT_EQ(objectCF.get(), dynamicOSObjectCast<dispatch_object_t>(objectCF.get()));
@@ -77,7 +77,7 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast)
 
     // Down cast / bad cast.
     {
-        auto object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+        OSObjectPtr object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
         uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
         EXPECT_EQ(object.get(), dynamicOSObjectCast<dispatch_group_t>(object.get()));
         EXPECT_EQ(NULL, dynamicOSObjectCast<dispatch_source_t>(object.get()));
@@ -86,7 +86,7 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast)
 
     // Up cast / bad cast.
     {
-        auto object = adoptOSObject(dispatch_group_create());
+        OSObjectPtr object = adoptOSObject(dispatch_group_create());
         uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
         EXPECT_EQ(object.get(), dynamicOSObjectCast<dispatch_object_t>(object.get()));
         EXPECT_EQ(NULL, dynamicOSObjectCast<dispatch_source_t>(object.get()));
@@ -103,7 +103,7 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast)
 
     // Bad down cast.
     {
-        auto object = adoptOSObject(dispatch_queue_create("testQueue", NULL));
+        OSObjectPtr object = adoptOSObject(dispatch_queue_create("testQueue", NULL));
         uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
         EXPECT_EQ(NULL, dynamicOSObjectCast<dispatch_queue_global_t>(object.get()));
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
@@ -122,7 +122,7 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast_OSObjectPtr)
 
     // Down cast / bad cast.
     {
-        auto object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+        OSObjectPtr object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
         uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
 
@@ -145,7 +145,7 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast_OSObjectPtr)
 
     // Up cast.
     {
-        auto object = adoptOSObject(dispatch_group_create());
+        OSObjectPtr object = adoptOSObject(dispatch_group_create());
         uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
 
@@ -158,12 +158,69 @@ TEST(TypeCastsOSObjectCF, dynamicOSObjectCast_OSObjectPtr)
 
     // Bad up cast (excluding dispatch_object_t).
     {
-        auto object = adoptOSObject(dispatch_queue_create("testQueue", NULL));
+        OSObjectPtr object = adoptOSObject(dispatch_queue_create("testQueue", NULL));
         uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
 
         OSObjectPtr<dispatch_queue_global_t> objectCastBad = dynamicOSObjectCast<dispatch_queue_global_t>(WTF::move(object));
-        EXPECT_EQ(NULL, objectCastBad.get());
+        EXPECT_TRUE(!objectCastBad);
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+    }
+}
+
+TEST(TypeCastsOSObjectCF, dynamicOSObjectCast_const_OSObjectPtr)
+{
+    // Null cast.
+    {
+        OSObjectPtr<dispatch_object_t> object;
+        auto objectCast = dynamicOSObjectCast<dispatch_group_t>(object);
+        EXPECT_TRUE(!object);
+        EXPECT_TRUE(!objectCast);
+    }
+
+    // Down cast / bad cast.
+    {
+        OSObjectPtr object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+        uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        OSObjectPtr<dispatch_group_t> objectCast = dynamicOSObjectCast<dispatch_group_t>(object);
+        uintptr_t objectCastPtr = reinterpret_cast<uintptr_t>(objectCast.get());
+        EXPECT_NE(nullptr, object.get()); // Source should be unchanged.
+        EXPECT_EQ(objectPtr, objectCastPtr);
+        EXPECT_EQ(2L, CFGetRetainCount((CFTypeRef)objectCastPtr)); // Both object and objectCast retain it.
+
+        OSObjectPtr object2 = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+        uintptr_t objectPtr2 = reinterpret_cast<uintptr_t>(object2.get());
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr2));
+
+        OSObjectPtr<dispatch_source_t> objectCastBad = dynamicOSObjectCast<dispatch_source_t>(object2);
+        EXPECT_NE(nullptr, object2.get()); // Source should be unchanged.
+        EXPECT_TRUE(!objectCastBad);
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr2));
+    }
+
+    // Up cast.
+    {
+        OSObjectPtr object = adoptOSObject(dispatch_group_create());
+        uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        auto objectCast = dynamicOSObjectCast<dispatch_object_t>(object);
+        uintptr_t objectCastPtr = reinterpret_cast<uintptr_t>(objectCast.get());
+        EXPECT_NE(nullptr, object.get()); // Source should be unchanged.
+        EXPECT_EQ(objectPtr, objectCastPtr);
+        EXPECT_EQ(2L, CFGetRetainCount((CFTypeRef)objectCastPtr)); // Both object and objectCast retain it.
+    }
+
+    // Bad up cast (excluding dispatch_object_t).
+    {
+        OSObjectPtr object = adoptOSObject(dispatch_queue_create("testQueue", nullptr));
+        uintptr_t objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        OSObjectPtr<dispatch_queue_global_t> objectCastBad = dynamicOSObjectCast<dispatch_queue_global_t>(object);
+        EXPECT_TRUE(!objectCastBad);
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
     }
 }

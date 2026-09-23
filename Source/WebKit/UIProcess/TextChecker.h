@@ -68,7 +68,7 @@ public:
     static void toggleSubstitutionsPanelIsShowing();
 #endif
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || PLATFORM(WPE)
     static void setSpellCheckingLanguages(const Vector<String>&);
     static Vector<String> loadedSpellCheckingLanguages();
 #endif

@@ -27,6 +27,8 @@
 #include "config.h"
 #include "WebCoreTestSupport.h"
 
+#include "AXIsolatedTree.h"
+#include "AXTreeStore.h"
 #include "DeprecatedGlobalSettings.h"
 #include "DocumentFragment.h"
 #include "DocumentPage.h"
@@ -51,7 +53,9 @@
 #include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/IdentifierInlines.h>
 #include <JavaScriptCore/JITOperationList.h>
+#include <JavaScriptCore/JSObjectRef.h>
 #include <JavaScriptCore/JSValueRef.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/URLParser.h>
 
 #if PLATFORM(COCOA)
@@ -74,7 +78,7 @@ void injectInternalsObject(JSContextRef context)
     VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     JSLockHolder lock(vm);
-    JSDOMGlobalObject* globalObject = jsCast<JSDOMGlobalObject*>(lexicalGlobalObject);
+    JSDOMGlobalObject* globalObject = downcast<JSDOMGlobalObject>(lexicalGlobalObject);
     if (RefPtr document = dynamicDowncast<Document>(*globalObject->scriptExecutionContext())) {
         globalObject->putDirect(vm, Identifier::fromString(vm, Internals::internalsId), toJS(lexicalGlobalObject, globalObject, Internals::create(*document)));
         Options::useDollarVM() = true;
@@ -87,7 +91,7 @@ void resetInternalsObject(JSContextRef context)
 {
     JSGlobalObject* lexicalGlobalObject = toJS(context);
     JSLockHolder lock(lexicalGlobalObject);
-    JSDOMGlobalObject* globalObject = jsCast<JSDOMGlobalObject*>(lexicalGlobalObject);
+    JSDOMGlobalObject* globalObject = downcast<JSDOMGlobalObject>(lexicalGlobalObject);
     Ref document = downcast<Document>(*globalObject->scriptExecutionContext());
     RefPtr page = document->page();
     RELEASE_ASSERT_WITH_MESSAGE(page, "Frame or Page is nullptr when Document is in a bad state");
@@ -173,6 +177,28 @@ void setLinkedOnOrAfterEverythingForTesting()
 void setAccessibilityIsolatedTreeEnabled(bool isEnabled)
 {
     DeprecatedGlobalSettings::setIsAccessibilityIsolatedTreeEnabled(isEnabled);
+}
+
+bool isAccessibilityIsolatedTreeModeEnabled()
+{
+    return AXObjectCache::isIsolatedTreeEnabled();
+}
+
+static Function<void()>& accessibilityTestTeardownCallback()
+{
+    static NeverDestroyed<Function<void()>> callback;
+    return callback.get();
+}
+
+void setAccessibilityTestTeardownCallback(Function<void()>&& callback)
+{
+    accessibilityTestTeardownCallback() = WTF::move(callback);
+}
+
+void notifyAccessibilityTestTeardown()
+{
+    if (auto& callback = accessibilityTestTeardownCallback())
+        callback();
 }
 #endif
 

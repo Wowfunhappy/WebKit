@@ -27,9 +27,9 @@
 #pragma once
 
 #include <WebCore/StyleCounterStyle.h>
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 #include <wtf/Variant.h>
-#include <wtf/text/AtomString.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -43,9 +43,9 @@ struct ListStyleType {
     {
     }
 
-    ListStyleType(AtomString&& string)
+    ListStyleType(String&& string)
         : m_type { Type::String }
-        , m_identifier { WTF::move(string) }
+        , m_identifier { WTF::move(string.value) }
     {
     }
 
@@ -106,7 +106,7 @@ struct ListStyleType {
         case Type::None:
             return visitor(CSS::Keyword::None { });
         case Type::String:
-            return visitor(m_identifier);
+            return visitor(String { m_identifier });
         case Type::CounterStyle:
             return visitor(CounterStyle { { m_identifier } });
         }
@@ -143,7 +143,7 @@ private:
 
 template<> struct CSSValueConversion<ListStyleType> { auto operator()(BuilderState&, const CSSValue&) -> ListStyleType; };
 
-template<> struct CSSValueCreation<ListStyleType> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const ListStyleType&); };
+template<> struct CSSValueCreation<ListStyleType> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const ListStyleType&); };
 
 } // namespace Style
 } // namespace WebCore

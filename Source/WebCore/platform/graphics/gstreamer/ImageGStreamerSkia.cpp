@@ -28,9 +28,9 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER) && USE(SKIA)
 
+#include "ColorSpaceSkia.h"
 #include "NotImplemented.h"
 #include "PlatformVideoColorSpace.h"
-#include <skia/ColorSpaceSkia.h>
 #include <skia/core/SkImage.h>
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN

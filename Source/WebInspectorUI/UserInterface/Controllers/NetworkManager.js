@@ -197,7 +197,15 @@ WI.NetworkManager = class NetworkManager extends WI.Object
 
     initializeTarget(target)
     {
-        if (target.hasDomain("Page")) {
+        // In the frontend, enabling the Page domain on the Page target is the first
+        // step to bootstrap the page resource tree. However, under Site Isolation, the
+        // Page domain on the WebPage (multiplexing) target is initialized prior to
+        // committing any load, so enabling it here would clobber the actual resource
+        // tree that arrives later with an empty snapshot. We therefore skip the WebPage
+        // target and bootstrap from the per-page target, as it always has been; the
+        // aggregated cross-origin tree is fetched on demand via
+        // WI.backendTarget.PageAgent.getResourceTree().
+        if (target.hasDomain("Page") && target.type !== WI.TargetType.WebPage) {
             target.PageAgent.enable();
 
             if (!target.isProvisional)
@@ -215,6 +223,7 @@ WI.NetworkManager = class NetworkManager extends WI.Object
             target.NetworkAgent.enable();
             target.NetworkAgent.setResourceCachingDisabled(WI.settings.resourceCachingDisabled.value);
 
+            // COMPATIBILITY (macOS 26.4, iOS 26.4): Network.setClearResourceDataOnNavigate did not exist yet.
             if (target.hasCommand("Network.setClearResourceDataOnNavigate"))
                 target.NetworkAgent.setClearResourceDataOnNavigate(WI.settings.clearNetworkOnNavigate.value);
 
@@ -234,6 +243,16 @@ WI.NetworkManager = class NetworkManager extends WI.Object
 
         if (target.type === WI.TargetType.Worker)
             this.adoptOrphanedResourcesForTarget(target);
+
+        // Under Site Isolation, the first FrameTarget signals that ProxyingNetworkAgent
+        // is active on the multiplexing target. Enable Network on the multiplexing target
+        // now (deferred from MultiplexingBackendTarget.initialize because ProxyingNetworkAgent
+        // only exists when SI is active).
+        if (target.type === WI.TargetType.Frame && !this._enabledNetworkForSiteIsolation) {
+            this._enabledNetworkForSiteIsolation = true;
+            if (WI.backendTarget && WI.backendTarget.hasDomain("Network"))
+                this.initializeTarget(WI.backendTarget);
+        }
     }
 
     transitionPageTarget()
@@ -1200,6 +1219,24 @@ WI.NetworkManager = class NetworkManager extends WI.Object
         }
 
         let frame = this.frameForIdentifier(frameIdentifier);
+
+        // FIXME: <webkit.org/b/308896> Under Site Isolation, cross-origin iframe frames may
+        // not be in the frame map. They don't appear in getResourceTree (dynamically added) or
+        // Page.frameNavigated (RemoteFrame, not LocalFrame), and Page.frameDetached removes any
+        // stubs during the provisional frame commit lifecycle. Create a stub frame on-demand so
+        // the resource is added as a subresource (firing ResourceWasAdded) rather than being
+        // treated as the main resource of a brand-new frame (firing FrameWasAdded). This will be
+        // resolved when Page.getResourceTree supports Site Isolation cross-process frames.
+        if (!frame && frameIdentifier.startsWith("frame-")) {
+            let mainResource = new WI.Resource("about:blank");
+            frame = new WI.Frame(frameIdentifier, frameOptions.name, frameOptions.securityOrigin, null, mainResource);
+            this._frameIdentifierMap.set(frame.id, frame);
+            mainResource.markAsFinished();
+            if (this._mainFrame)
+                this._mainFrame.addChildFrame(frame);
+            this._dispatchFrameWasAddedEvent(frame);
+        }
+
         if (frame) {
             if (resourceOptions.type === InspectorBackend.Enum.Page.ResourceType.Document && frame.provisionalMainResource && frame.provisionalMainResource.url === url && frame.provisionalLoaderIdentifier === resourceOptions.loaderIdentifier)
                 resource = frame.provisionalMainResource;
@@ -1244,12 +1281,19 @@ WI.NetworkManager = class NetworkManager extends WI.Object
         console.assert(frame);
         console.assert(resource);
 
-        if (resource.loaderIdentifier !== frame.loaderIdentifier && !frame.provisionalLoaderIdentifier) {
+        if (resource.loaderIdentifier !== frame.loaderIdentifier && frame.loaderIdentifier && !frame.provisionalLoaderIdentifier) {
             // This is the start of a provisional load which happens before frameDidNavigate is called.
             // This resource will be the new mainResource if frameDidNavigate is called.
             frame.startProvisionalLoad(resource);
             return;
         }
+
+        // FIXME: Under Site Isolation, RemoteFrame stubs from Page.getResourceTree have no
+        // loaderIdentifier because the DocumentLoader lives in a different WebContent process.
+        // Once ProxyingPageAgent or frame target lifecycle reports the real loaderId, this
+        // workaround can be removed. rdar://170087346
+        if (!frame.loaderIdentifier && resource.loaderIdentifier)
+            frame._loaderIdentifier = resource.loaderIdentifier;
 
         // This is just another resource, either for the main loader or the provisional loader.
         console.assert(resource.loaderIdentifier === frame.loaderIdentifier || resource.loaderIdentifier === frame.provisionalLoaderIdentifier);

@@ -26,7 +26,7 @@
 #include "config.h"
 
 #include "MessageLog.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <thread>
 #include <wtf/Vector.h>
 
@@ -195,7 +195,7 @@ TEST(MessageLogTests, ConcurrentAddFromMultipleThreads)
     EXPECT_EQ(buffer.indexForTesting(), bufferSize);
 
     // Count messages from each thread
-    Vector<size_t> messageCounts(numThreads, 0);
+    Vector<size_t> messageCounts(FillWith { }, numThreads, 0);
 
     for (size_t i = 0; i < bufferSize; ++i) {
         bool found = false;

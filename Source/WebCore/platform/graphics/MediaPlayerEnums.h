@@ -121,6 +121,14 @@ enum class MediaPlayerSoundStageSize : uint8_t {
     Large,
 };
 
+enum class MediaPlayerViewportVisibility : uint8_t {
+    NotVisible,
+    IntersectingViewport,
+    VisibleInViewport,
+    VisibleInFullscreen,
+    VisibleInPictureInPicture,
+};
+
 class MediaPlayerEnums {
 public:
     using NetworkState = MediaPlayerNetworkState;
@@ -135,6 +143,7 @@ public:
     using PitchCorrectionAlgorithm = MediaPlayerPitchCorrectionAlgorithm;
     using NeedsRenderingModeChanged = MediaPlayerNeedsRenderingModeChanged;
     using SoundStageSize = MediaPlayerSoundStageSize;
+    using ViewportVisibility = MediaPlayerViewportVisibility;
 
     enum {
         VideoFullscreenModeNone = 0,
@@ -152,6 +161,7 @@ String convertEnumerationToString(MediaPlayerEnums::NetworkState);
 String convertEnumerationToString(MediaPlayerEnums::Preload);
 String convertEnumerationToString(MediaPlayerEnums::SupportsType);
 String convertEnumerationToString(MediaPlayerEnums::BufferingPolicy);
+WEBCORE_EXPORT String convertEnumerationToString(MediaPlayerEnums::ViewportVisibility);
 
 enum class VideoRendererPreference : uint8_t {
     PrefersDecompressionSession = 1 << 0,
@@ -170,6 +180,11 @@ enum class MediaPlaybackTargetType : uint8_t {
     Mock = 1 << 1,
     WirelessPlayback = 1 << 2,
     Serialized = 1 << 3,
+};
+
+enum class MediaPlayerScope : uint8_t {
+    Playback,
+    Supports,
 };
 
 } // namespace WebCore
@@ -201,6 +216,14 @@ struct LogArgument<WebCore::MediaPlayerEnums::BufferingPolicy> {
     static String toString(const WebCore::MediaPlayerEnums::BufferingPolicy policy)
     {
         return convertEnumerationToString(policy);
+    }
+};
+
+template <>
+struct LogArgument<WebCore::MediaPlayerEnums::ViewportVisibility> {
+    static String toString(const WebCore::MediaPlayerEnums::ViewportVisibility visibility)
+    {
+        return convertEnumerationToString(visibility);
     }
 };
 

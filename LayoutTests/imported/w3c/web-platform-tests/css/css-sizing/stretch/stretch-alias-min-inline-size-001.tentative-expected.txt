@@ -26,9 +26,7 @@ PASS [data-expected-width] 17
 PASS [data-expected-width] 18
 PASS [data-expected-width] 19
 PASS [data-expected-width] 20
-FAIL [data-expected-width] 21 assert_equals:
-<div class="test" data-expected-width="55"></div>
-width expected 55 but got 45
+PASS [data-expected-width] 21
 PASS [data-expected-width] 22
 PASS [data-expected-width] 23
 PASS [data-expected-width] 24
@@ -51,9 +49,7 @@ PASS [data-expected-width] 40
 PASS [data-expected-width] 41
 PASS [data-expected-width] 42
 PASS [data-expected-width] 43
-FAIL [data-expected-width] 44 assert_equals:
-<div class="test" data-expected-width="55" style="box-sizing: border-box;"></div>
-width expected 55 but got 45
+PASS [data-expected-width] 44
 PASS [data-expected-width] 45
 PASS [data-expected-width] 46
 

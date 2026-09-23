@@ -80,7 +80,7 @@ if (window.accessibilityController) {
 
         target4.ariaFlowToElements = [flow4];
         flow4.id = "flow4-new";
-        axFlow4 = accessibilityController.accessibleElementById("flow4-new");
+        axFlow4 = await waitForElementById("flow4-new");
         axTarget4 = accessibilityController.accessibleElementById("target4");
         await waitFor(() => axTarget4.ariaFlowToElementAtIndex(0));
         output += expect("axTarget4.ariaFlowToElementAtIndex(0).isEqual(axFlow4)", "true");

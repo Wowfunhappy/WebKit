@@ -25,7 +25,9 @@ import os
 import json
 import sys
 
-from multiprocessing import Process, Queue
+import multiprocessing as mp
+_mp_context = mp.get_context('fork')
+
 from webkitpy.common.system.filesystem import FileSystem
 from webkitpy.common.webkit_finder import WebKitFinder
 
@@ -138,8 +140,8 @@ class WebDriverW3CExecutor(WdspecExecutor):
 
         self._timeout = timeout
         self._expectations = expectations
-        self._test_queue = Queue()
-        self._result_queue = Queue()
+        self._test_queue = _mp_context.Queue()
+        self._result_queue = _mp_context.Queue()
 
     def setup(self):
         super(WebDriverW3CExecutor, self).setup(self.runner)
@@ -153,7 +155,7 @@ class WebDriverW3CExecutor(WdspecExecutor):
                 self.server_config,
                 self._timeout,
                 self._expectations)
-        self._process = Process(target=WebDriverW3CExecutor._runner, args=args)
+        self._process = _mp_context.Process(target=WebDriverW3CExecutor._runner, args=args)
         self._process.start()
 
     def teardown(self):

@@ -26,9 +26,11 @@
 #pragma once
 
 #include "CompositeEditCommand.h"
+#include "SimpleRange.h"
 
 namespace WebCore {
 
+class DocumentFragment;
 struct AttributedString;
 
 // A Writing Tools Composition command is essentially a wrapper around a group of Replace Selection commands,

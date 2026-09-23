@@ -26,8 +26,6 @@
 import WebKit_Internal
 #endif
 
-#if compiler(>=6.2)
-
 #if ENABLE_SWIFT_TEST_CONDITION
 final class TestWithSwiftConditionallyWeakRef {
     private weak var target: TestWithSwiftConditionally?
@@ -35,6 +33,7 @@ final class TestWithSwiftConditionallyWeakRef {
         self.target = target
     }
 
+    @used
     func getMessageTarget() -> TestWithSwiftConditionally? {
         target
     }
@@ -53,35 +52,4 @@ extension WebKit.TestWithSwiftConditionallyMessageForwarder {
         )
     }
 }
-#endif
-
-#else
-
-#if ENABLE_SWIFT_TEST_CONDITION
-final class TestWithSwiftConditionallyWeakRef {
-    private weak var target: TestWithSwiftConditionally?
-    init(target: TestWithSwiftConditionally) {
-        self.target = target
-    }
-
-    func getMessageTarget() -> TestWithSwiftConditionally? {
-        target
-    }
-}
-
-extension WebKit.TestWithSwiftConditionallyMessageForwarder {
-    static func create(target: TestWithSwiftConditionally) -> RefTestWithSwiftConditionallyMessageForwarder {
-        let weakRefContainer = TestWithSwiftConditionallyWeakRef(target: target)
-        // Safety: we're creating a pointer which will immediately be stored in a
-        // proper ref-counted reference on the C++ side before this call returns.
-        // Workaround for rdar://163107752.
-        return WebKit.TestWithSwiftConditionallyMessageForwarder.createFromWeak(
-            OpaquePointer(
-                Unmanaged.passRetained(weakRefContainer).toOpaque()
-            )
-        )
-    }
-}
-#endif
-
 #endif

@@ -70,7 +70,7 @@ static WebModel::Float4x4 makeTransformMatrix(
     return result;
 }
 
-static std::pair<simd_float4, simd_float4> computeMinAndMaxCorners(const Vector<WebModel::MeshPart>& parts, const Vector<WebModel::Float4x4>& instanceTransforms)
+static std::pair<simd_float4, simd_float4> computeMinAndMaxCorners(const Vector<WebModel::MeshPart>& parts, const Vector<WebModel::Float4x4>& instanceTransforms, const std::optional<WebModel::DeformationData>& deformationData)
 {
     simd_float4 minCorner4 = simd_make_float4(FLT_MAX, FLT_MAX, FLT_MAX, 1.f);
     simd_float4 maxCorner4 = simd_make_float4(-FLT_MAX, -FLT_MAX, -FLT_MAX, 1.f);
@@ -87,13 +87,35 @@ static std::pair<simd_float4, simd_float4> computeMinAndMaxCorners(const Vector<
         corners[6] = simd_make_float3(part.boundsMin.x, part.boundsMax.y, part.boundsMax.z);
         corners[7] = simd_make_float3(part.boundsMax.x, part.boundsMax.y, part.boundsMax.z);
 
-        for (auto& transform : instanceTransforms) {
-            for (int j = 0; j < 8; ++j) {
-                simd_float4 corner4 = simd_make_float4(corners[j].x, corners[j].y, corners[j].z, 1.f);
-                simd_float4 transformedCorner = simd_mul(transform, corner4);
+        Vector<simd_float4x4> rootSkinMatrices;
+        if (deformationData && deformationData->skinningData && !deformationData->skinningData->jointTransforms.isEmpty()) {
+            const auto& skinning = *deformationData->skinningData;
+            const simd_float4x4 geomBind = skinning.geometryBindTransform;
+            const auto& rootIndices = skinning.rootJointIndices;
+            const bool hasRootIndices = !rootIndices.isEmpty();
+            const size_t iterCount = hasRootIndices ? rootIndices.size() : 1;
+            rootSkinMatrices.reserveInitialCapacity(iterCount);
+            for (size_t r = 0; r < iterCount; ++r) {
+                uint32_t rootIdx = hasRootIndices ? rootIndices[r] : 0;
+                if (rootIdx >= skinning.jointTransforms.size())
+                    continue;
+                const simd_float4x4 invBind = (rootIdx < skinning.inverseBindPoses.size())
+                    ? static_cast<simd_float4x4>(skinning.inverseBindPoses[rootIdx])
+                    : matrix_identity_float4x4;
+                rootSkinMatrices.append(simd_mul(simd_mul(skinning.jointTransforms[rootIdx], invBind), geomBind));
+            }
+        } else
+            rootSkinMatrices.append(matrix_identity_float4x4);
 
-                minCorner4 = simd_min(transformedCorner, minCorner4);
-                maxCorner4 = simd_max(transformedCorner, maxCorner4);
+        for (auto& transform : instanceTransforms) {
+            for (const auto& skinMatrix : rootSkinMatrices) {
+                const simd_float4x4 worldTransform = simd_mul(transform, skinMatrix);
+                for (int j = 0; j < 8; ++j) {
+                    simd_float4 corner4 = simd_make_float4(corners[j].x, corners[j].y, corners[j].z, 1.f);
+                    simd_float4 transformedCorner = simd_mul(worldTransform, corner4);
+                    minCorner4 = simd_min(transformedCorner, minCorner4);
+                    maxCorner4 = simd_max(transformedCorner, maxCorner4);
+                }
             }
         }
     }
@@ -121,45 +143,35 @@ RemoteMeshProxy::~RemoteMeshProxy()
 #endif
 }
 
-#if ENABLE(GPU_PROCESS_MODEL)
-static WebModel::Float4x4 buildTranslation(float x, float y, float z)
-{
-    WebModel::Float4x4 result = matrix_identity_float4x4;
-    result.column3 = simd_make_float4(x, y, z, 1.f);
-    return result;
-}
-#endif
-
-void RemoteMeshProxy::update(const WebModel::UpdateMeshDescriptor& descriptor)
+void RemoteMeshProxy::update(Vector<WebModel::UpdateMeshDescriptor>&& descriptorArray)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    auto [minCorner, maxCorner] = computeMinAndMaxCorners(descriptor.parts, descriptor.instanceTransforms);
-    auto boundingBoxChanged = minCorner.x <= maxCorner.x && minCorner.y <= maxCorner.y && minCorner.z <= maxCorner.z;
-    boundingBoxChanged = boundingBoxChanged && (!simd_equal(m_minCorner, minCorner) || !simd_equal(m_maxCorner, maxCorner));
-    if (boundingBoxChanged) {
-        m_minCorner = simd_min(m_minCorner, minCorner);
-        m_maxCorner = simd_max(m_maxCorner, maxCorner);
+    bool needBoundingBoxUpdate = m_minCorner.x > m_maxCorner.x;
+    if (needBoundingBoxUpdate) {
+        for (auto& descriptor : descriptorArray) {
+            auto [minCorner, maxCorner] = computeMinAndMaxCorners(descriptor.parts, descriptor.instanceTransforms, descriptor.deformationData);
+            m_minCorner = simd_min(m_minCorner, minCorner);
+            m_maxCorner = simd_max(m_maxCorner, maxCorner);
+        }
     }
 
-    auto [center, extents] = getCenterAndExtents();
-    if (boundingBoxChanged)
-        setCameraDistance(std::max(extents.x, extents.y) * .5f);
-
-    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::Update(descriptor), [](auto) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::Update(WTF::move(descriptorArray)), [](auto) mutable {
     });
     UNUSED_VARIABLE(sendResult);
-    if (boundingBoxChanged)
-        setStageMode(m_stageMode);
 
+    if (needBoundingBoxUpdate)
+        computeTransform();
 #else
-    UNUSED_PARAM(descriptor);
+    UNUSED_PARAM(descriptorArray);
 #endif
 }
 
-void RemoteMeshProxy::render()
+void RemoteMeshProxy::render(uint32_t textureIndex, Function<void(bool)>&& completionHandler)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    auto sendResult = send(Messages::RemoteMesh::Render());
+    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::Render(textureIndex), [completionHandler = WTF::move(completionHandler)](bool result) mutable {
+        completionHandler(result);
+    });
     UNUSED_PARAM(sendResult);
 #endif
 }
@@ -174,10 +186,10 @@ void RemoteMeshProxy::setLabelInternal(const String& label)
 #endif
 }
 
-void RemoteMeshProxy::updateTexture(const WebModel::UpdateTextureDescriptor& descriptor)
+void RemoteMeshProxy::updateTexture(Vector<WebModel::UpdateTextureDescriptor>&& descriptor)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::UpdateTexture(descriptor), [](auto) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::UpdateTexture(WTF::move(descriptor)), [](auto) mutable {
     });
     UNUSED_VARIABLE(sendResult);
 #else
@@ -185,10 +197,10 @@ void RemoteMeshProxy::updateTexture(const WebModel::UpdateTextureDescriptor& des
 #endif
 }
 
-void RemoteMeshProxy::updateMaterial(const WebModel::UpdateMaterialDescriptor& descriptor)
+void RemoteMeshProxy::updateMaterial(Vector<WebModel::UpdateMaterialDescriptor>&& descriptor)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::UpdateMaterial(descriptor), [](auto) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::UpdateMaterial(WTF::move(descriptor)), [](auto) mutable {
     });
     UNUSED_VARIABLE(sendResult);
 #else
@@ -208,8 +220,10 @@ std::pair<simd_float4, simd_float4> RemoteMeshProxy::getCenterAndExtents() const
 void RemoteMeshProxy::setEntityTransform(const WebModel::Float4x4& transform)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
+    m_entityTransformSetByScript = true;
     m_transform = transform;
-    setStageMode(m_stageMode);
+    m_computedTransform = transform;
+    setEntityTransformInternal(transform);
 #else
     UNUSED_PARAM(transform);
 #endif
@@ -233,46 +247,65 @@ void RemoteMeshProxy::play(bool playing)
 #endif
 }
 
-void RemoteMeshProxy::setEnvironmentMap(const WebModel::ImageAsset& imageAsset)
+void RemoteMeshProxy::setEnvironmentMap(WebModel::UpdateTextureDescriptor&& imageAsset)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    auto sendResult = send(Messages::RemoteMesh::SetEnvironmentMap(imageAsset));
+    auto sendResult = send(Messages::RemoteMesh::SetEnvironmentMap(WTF::move(imageAsset)));
     UNUSED_PARAM(sendResult);
+#endif
+}
+
+void RemoteMeshProxy::updateContentsHeadroom(float headroom)
+{
+#if ENABLE(GPU_PROCESS_MODEL)
+    auto sendResult = send(Messages::RemoteMesh::UpdateContentsHeadroom(headroom));
+    UNUSED_PARAM(sendResult);
+#else
+    UNUSED_PARAM(headroom);
 #endif
 }
 
 #if PLATFORM(COCOA)
+void RemoteMeshProxy::sizeDidChange(unsigned width, unsigned height, CompletionHandler<void(Vector<MachSendRight>&&)>&& callback)
+{
+#if ENABLE(GPU_PROCESS_MODEL)
+    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::UpdateRenderBuffers(width, height), WTF::move(callback));
+    UNUSED_PARAM(sendResult);
+#else
+    UNUSED_PARAM(width);
+    UNUSED_PARAM(height);
+    callback({ });
+#endif
+}
+
+void RemoteMeshProxy::paintCurrentFrameToImageBuffer(WebCore::RenderingResourceIdentifier imageBufferIdentifier, uint32_t bufferIndex)
+{
+#if ENABLE(GPU_PROCESS_MODEL)
+    auto sendResult { sendSync(Messages::RemoteMesh::PaintCurrentFrameToImageBuffer(imageBufferIdentifier, bufferIndex)) };
+    UNUSED_VARIABLE(sendResult);
+#else
+    UNUSED_PARAM(imageBufferIdentifier);
+    UNUSED_PARAM(bufferIndex);
+#endif
+}
+
 std::optional<WebModel::Float4x4> RemoteMeshProxy::entityTransform() const
 {
-    return m_transform;
+    return m_computedTransform;
 }
 #endif
 
-void RemoteMeshProxy::setCameraDistance(float distance)
+void RemoteMeshProxy::setFOV(float fovY)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    if (areSameSignAndAlmostEqual(distance, m_cameraDistance))
-        return;
-
-    auto sendResult = send(Messages::RemoteMesh::SetCameraDistance(distance));
+    auto sendResult = send(Messages::RemoteMesh::SetFOV(fovY));
     UNUSED_PARAM(sendResult);
-    m_cameraDistance = distance;
 #else
-    UNUSED_PARAM(distance);
+    UNUSED_PARAM(fovY);
 #endif
 }
 
-void RemoteMeshProxy::setBackgroundColor(const WebModel::Float3& color)
-{
-#if ENABLE(GPU_PROCESS_MODEL)
-    auto sendResult = send(Messages::RemoteMesh::SetBackgroundColor(color));
-    UNUSED_PARAM(sendResult);
-#else
-    UNUSED_PARAM(color);
-#endif
-}
-
-bool RemoteMeshProxy::supportsTransform(const WebCore::TransformationMatrix& transformationMatrix) const
+bool RemoteMeshProxy::supportsTransform(const WebCore::TransformationMatrix& transformationMatrix)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
     const WebModel::Float4x4 matrix = static_cast<simd_float4x4>(transformationMatrix);
@@ -320,22 +353,77 @@ void RemoteMeshProxy::setScale(float scale)
 #endif
 }
 
+void RemoteMeshProxy::setViewportSize(float width, float height)
+{
+#if ENABLE(GPU_PROCESS_MODEL)
+    m_viewportWidth = width;
+    m_viewportHeight = height;
+    computeTransform();
+#endif
+}
+
 void RemoteMeshProxy::setStageMode(WebCore::StageModeOperation stageMode)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
+    auto previousStageMode = m_stageMode;
     m_stageMode = stageMode;
-    auto [center, extents] = getCenterAndExtents();
-    if (stageMode == WebCore::StageModeOperation::None) {
-        setEntityTransformInternal(buildTranslation(-center.x, -center.y, -center.z - .5f * extents.z));
+    if (m_stageMode == WebCore::StageModeOperation::Orbit)
+        m_entityTransformSetByScript = false;
+    bool returningToNoneFromOrbit = m_stageMode == WebCore::StageModeOperation::None && previousStageMode != WebCore::StageModeOperation::None;
+    if (!returningToNoneFromOrbit)
+        computeTransform();
+#else
+    UNUSED_PARAM(stageMode);
+#endif
+}
+
+void RemoteMeshProxy::processRemovals(Vector<WebModel::TypedResourceId>&& meshRemovals, Vector<WebModel::TypedResourceId>&& materialRemovals, Vector<WebModel::TypedResourceId>&& textureRemovals, CompletionHandler<void(bool)>&& completion)
+{
+#if ENABLE(GPU_PROCESS_MODEL)
+    auto sendResult = sendWithAsyncReply(Messages::RemoteMesh::ProcessRemovals(WTF::move(meshRemovals), WTF::move(materialRemovals), WTF::move(textureRemovals)), [completion = WTF::move(completion)](bool success) mutable {
+        completion(success);
+    });
+    UNUSED_VARIABLE(sendResult);
+#else
+    UNUSED_PARAM(meshRemovals);
+    UNUSED_PARAM(materialRemovals);
+    UNUSED_PARAM(textureRemovals);
+    completion(false);
+#endif
+}
+
+#if ENABLE(GPU_PROCESS_MODEL)
+void RemoteMeshProxy::computeTransform()
+{
+    if (m_entityTransformSetByScript)
         return;
+
+    static constexpr float kCSSPixelsPerMeter = 96 / 2.54 * 100;
+    // Fixed camera distance matching the ModelRenderer
+    static constexpr float kCameraDistance = 0.5;
+
+    auto [center, extents] = getCenterAndExtents();
+
+    float viewportWidth = m_viewportWidth / kCSSPixelsPerMeter;
+    float viewportHeight = m_viewportHeight / kCSSPixelsPerMeter;
+
+    float scale = 0;
+    float depth = 0;
+
+    if (m_stageMode == WebCore::StageModeOperation::None) {
+        if (std::fmin(extents.x, extents.y) > FLT_EPSILON)
+            scale = std::fmin(viewportWidth / extents.x, viewportHeight / extents.y);
+        depth = extents.z;
+    } else {
+        float boundingDiameter = simd_length(simd_make_float3(extents.x, extents.y, extents.z));
+        if (boundingDiameter > FLT_EPSILON)
+            scale = std::fmin(viewportWidth, viewportHeight) / boundingDiameter;
+        depth = boundingDiameter;
     }
 
     WebModel::Float4x4 result = matrix_identity_float4x4;
-    if (auto existingTransform = entityTransform())
+    if (auto existingTransform = m_transform)
         result = *existingTransform;
-
-    float maxExtent = simd_reduce_max(extents.xyz);
-    float scale = m_cameraDistance / maxExtent;
 
     result.column0 = scale * simd_normalize(result.column0);
     result.column1 = scale * simd_normalize(result.column1);
@@ -343,14 +431,15 @@ void RemoteMeshProxy::setStageMode(WebCore::StageModeOperation stageMode)
     result.column3 = simd_make_float4(
         -simd_dot(center.xyz, simd_make_float3(result.column0.x, result.column1.x, result.column2.x)),
         -simd_dot(center.xyz, simd_make_float3(result.column0.y, result.column1.y, result.column2.y)),
-        -simd_dot(center.xyz, simd_make_float3(result.column0.z, result.column1.z, result.column2.z)),
+        -simd_dot(center.xyz, simd_make_float3(result.column0.z, result.column1.z, result.column2.z)) - scale * depth / 2,
         1.f);
 
+    setFOV(2 * std::atan(viewportHeight / (2 * kCameraDistance)));
+
     setEntityTransformInternal(result);
-#else
-    UNUSED_PARAM(stageMode);
-#endif
+    m_computedTransform = result;
 }
+#endif
 
 #if ENABLE(GPU_PROCESS_MODEL)
 static simd_float4x4 buildRotation(float azimuth, float elevation)

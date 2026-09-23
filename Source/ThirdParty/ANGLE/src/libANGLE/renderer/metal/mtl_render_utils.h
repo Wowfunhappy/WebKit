@@ -28,7 +28,6 @@ namespace rx
 class BufferMtl;
 class ContextMtl;
 class DisplayMtl;
-class VisibilityBufferOffsetsMtl;
 
 namespace mtl
 {
@@ -126,19 +125,6 @@ struct TriFanOrLineLoopFromArrayParams
     BufferRef dstBuffer;
     // Must be multiples of kIndexBufferOffsetAlignment
     uint32_t dstOffset;
-};
-
-struct IndexConversionParams
-{
-
-    gl::DrawElementsType srcType;
-    uint32_t indexCount;
-    const BufferRef &srcBuffer;
-    uint32_t srcOffset;
-    const BufferRef &dstBuffer;
-    // Must be multiples of kIndexBufferOffsetAlignment
-    uint32_t dstOffset;
-    bool primitiveRestartEnabled = false;
 };
 
 struct IndexGenerationParams
@@ -379,7 +365,11 @@ class IndexGeneratorUtils final : angle::NonCopyable
 {
   public:
     angle::Result convertIndexBufferGPU(ContextMtl *contextMtl,
-                                        const IndexConversionParams &params);
+                                        gl::DrawElementsType srcType,
+                                        uint32_t indexCount,
+                                        const BufferSlice &srcBuffer,
+                                        const BufferSlice &dstBuffer,
+                                        bool primitiveRestartEnabled);
     angle::Result generateTriFanBufferFromArrays(ContextMtl *contextMtl,
                                                  const TriFanOrLineLoopFromArrayParams &params);
     // Generate triangle fan index buffer for glDrawElements().
@@ -476,12 +466,12 @@ class IndexGeneratorUtils final : angle::NonCopyable
 class VisibilityResultUtils final : angle::NonCopyable
 {
   public:
-    angle::Result combineVisibilityResult(
-        ContextMtl *contextMtl,
-        bool keepOldValue,
-        const VisibilityBufferOffsetsMtl &renderPassResultBufOffsets,
-        const BufferRef &renderPassResultBuf,
-        const BufferRef &finalResultBuf);
+    angle::Result combineVisibilityResult(ContextMtl *contextMtl,
+                                          bool keepOldValue,
+                                          size_t startOffset,
+                                          size_t numOffsets,
+                                          const BufferRef &renderPassResultBuf,
+                                          const BufferRef &finalResultBuf);
 
   private:
     angle::Result getVisibilityResultCombinePipeline(
@@ -703,7 +693,11 @@ class RenderUtils : angle::NonCopyable
 
     // See IndexGeneratorUtils
     angle::Result convertIndexBufferGPU(ContextMtl *contextMtl,
-                                        const IndexConversionParams &params);
+                                        gl::DrawElementsType srcType,
+                                        uint32_t indexCount,
+                                        const BufferSlice &srcBuffer,
+                                        const BufferSlice &dstBuffer,
+                                        bool primitiveRestartEnabled);
     angle::Result generateTriFanBufferFromArrays(ContextMtl *contextMtl,
                                                  const TriFanOrLineLoopFromArrayParams &params);
     angle::Result generateTriFanBufferFromElementsArray(ContextMtl *contextMtl,
@@ -725,7 +719,8 @@ class RenderUtils : angle::NonCopyable
 
     void combineVisibilityResult(ContextMtl *contextMtl,
                                  bool keepOldValue,
-                                 const VisibilityBufferOffsetsMtl &renderPassResultBufOffsets,
+                                 size_t startOffset,
+                                 size_t numOffsets,
                                  const BufferRef &renderPassResultBuf,
                                  const BufferRef &finalResultBuf);
 

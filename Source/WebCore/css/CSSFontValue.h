@@ -24,7 +24,6 @@
 
 namespace WebCore {
 
-class CSSPrimitiveValue;
 class CSSValue;
 class CSSValueList;
 
@@ -42,11 +41,11 @@ public:
     IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
 
     RefPtr<CSSValue> style;
-    RefPtr<CSSPrimitiveValue> variant;
-    RefPtr<CSSPrimitiveValue> weight;
-    RefPtr<CSSPrimitiveValue> width;
-    RefPtr<CSSPrimitiveValue> size;
-    RefPtr<CSSPrimitiveValue> lineHeight;
+    RefPtr<CSSValue> variant;
+    RefPtr<CSSValue> weight;
+    RefPtr<CSSValue> width;
+    RefPtr<CSSValue> size;
+    RefPtr<CSSValue> lineHeight;
     RefPtr<CSSValue> family;
 
 private:

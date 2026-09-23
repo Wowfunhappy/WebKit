@@ -14,5 +14,11 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/datalistoptions.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/input-text-datalist-appearance-expected-mismatch.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/input-text-datalist-appearance.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/input-text-datalist-removal-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/input-text-datalist-removal.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/input-text-focused-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-datalist-element/remove-datalist-crash.html

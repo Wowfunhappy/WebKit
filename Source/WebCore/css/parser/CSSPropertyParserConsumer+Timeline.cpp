@@ -42,9 +42,28 @@
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
 
-bool isAnimationRangeKeyword(CSSValueID id)
+bool isTimelineRangeName(CSSValueID id)
 {
-    return identMatches<CSSValueNormal, CSSValueCover, CSSValueContain, CSSValueEntry, CSSValueExit, CSSValueEntryCrossing, CSSValueExitCrossing, CSSValueScroll>(id);
+    // <timeline-range-name> = cover | contain | entry | exit | entry-crossing | exit-crossing | scroll
+    // https://drafts.csswg.org/scroll-animations-1/#typedef-timeline-range-name
+    // https://drafts.csswg.org/scroll-animations-1/#view-timelines-ranges
+
+    return identMatches<
+        CSSValueCover,
+        CSSValueContain,
+        CSSValueEntry,
+        CSSValueExit,
+        CSSValueEntryCrossing,
+        CSSValueExitCrossing,
+        CSSValueScroll
+    >(id);
+}
+
+static RefPtr<CSSValue> consumeTimelineRangeName(CSSParserTokenRange& range)
+{
+    if (isTimelineRangeName(range.peek().id()))
+        return CSSKeywordValue::create(CSS::Keyword { range.consumeIncludingWhitespace().id() });
+    return nullptr;
 }
 
 RefPtr<CSSValue> consumeAnimationTimelineScroll(CSSParserTokenRange& range, CSS::PropertyParserState&)
@@ -116,7 +135,7 @@ RefPtr<CSSValue> consumeSingleViewTimelineInsetItem(CSSParserTokenRange& range, 
         return nullptr;
 
     if (auto endInset = CSSPropertyParsing::consumeSingleViewTimelineInset(range, state)) {
-        if (endInset != startInset)
+        if (!endInset->equals(*startInset))
             return CSSValuePair::createNoncoalescing(startInset.releaseNonNull(), endInset.releaseNonNull());
     }
 
@@ -148,22 +167,27 @@ RefPtr<CSSValue> consumeSingleAnimationRange(CSSParserTokenRange& range, CSS::Pr
     // <'animation-range-{start|end}'> = normal | <length-percentage> | <timeline-range-name> <length-percentage>?
     // https://drafts.csswg.org/scroll-animations-1/#propdef-animation-range-start
 
-    auto isDefault = [&](auto& value) {
-        if (!value.isPercentage() || value.isCalculated())
-            return false;
-        auto percentageValue = value.resolveAsPercentageNoConversionDataRequired();
-        if (type == Style::SingleAnimationRangeType::Start)
-            return percentageValue == 0;
-        return percentageValue == 100;
+    auto isDefault = [](const auto& primitiveValue, auto type) {
+        return WTF::switchOn(primitiveValue,
+            [](const CSSPrimitiveValue::Calc&) {
+                return false;
+            },
+            [type](const CSSPrimitiveValue::Raw& raw) {
+                if (raw.unit != CSSUnitType::CSS_PERCENTAGE)
+                    return false;
+                if (type == Style::SingleAnimationRangeType::Start)
+                    return raw.value == 0;
+                return raw.value == 100;
+            }
+        );
     };
 
-    if (auto name = consumeIdent(range)) {
-        if (name->valueID() == CSSValueNormal)
-            return name;
-        if (!isAnimationRangeKeyword(name->valueID()))
-            return nullptr;
+    if (auto normal = consumeIdent<CSSValueNormal>(range))
+        return normal;
+
+    if (auto name = consumeTimelineRangeName(range)) {
         if (auto offset = CSSPrimitiveValueResolver<CSS::LengthPercentage<>>::consumeAndResolve(range, state)) {
-            if (isDefault(*offset))
+            if (isDefault(*offset, type))
                 return name;
             return CSSValuePair::createNoncoalescing(name.releaseNonNull(), offset.releaseNonNull());
         }

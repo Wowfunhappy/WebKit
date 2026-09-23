@@ -1,5 +1,5 @@
 // FIXME: use the assert library: https://bugs.webkit.org/show_bug.cgi?id=165684
-//@ skip if $memoryLimited
+//@ memoryHog!
 import Builder from '../Builder.js';
 
 function assert(b) {

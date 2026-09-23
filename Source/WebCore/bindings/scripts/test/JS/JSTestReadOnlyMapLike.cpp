@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMConvertStrings.h"
@@ -40,7 +41,6 @@
 #include <JavaScriptCore/BuiltinNames.h>
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -83,10 +83,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestReadOnlyMapLikePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestReadOnlyMapLikePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -132,12 +129,17 @@ static const std::array<HashTableValue, 8> JSTestReadOnlyMapLikePrototypeTableVa
 
 const ClassInfo JSTestReadOnlyMapLikePrototype::s_info = { "TestReadOnlyMapLike"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestReadOnlyMapLikePrototype) };
 
+JSC::Structure* JSTestReadOnlyMapLikePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestReadOnlyMapLikePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestReadOnlyMapLike::info(), JSTestReadOnlyMapLikePrototypeTableValues, *this);
-    putDirect(vm, vm.propertyNames->iteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    putDirect(vm, vm.propertyNames->iteratorSymbol, WebCore::getDirect(this, vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestReadOnlyMapLike::s_info = { "TestReadOnlyMapLike"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestReadOnlyMapLike) };
@@ -148,6 +150,19 @@ JSTestReadOnlyMapLike::JSTestReadOnlyMapLike(Structure* structure, JSDOMGlobalOb
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestReadOnlyMapLike>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestReadOnlyMapLike* JSTestReadOnlyMapLike::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestReadOnlyMapLike>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestReadOnlyMapLike* ptr = new (NotNull, JSC::allocateCell<JSTestReadOnlyMapLike>(vm)) JSTestReadOnlyMapLike(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestReadOnlyMapLike::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestReadOnlyMapLike::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -163,7 +178,7 @@ JSObject* JSTestReadOnlyMapLike::prototype(VM& vm, JSDOMGlobalObject& globalObje
 
 JSValue JSTestReadOnlyMapLike::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestReadOnlyMapLikeDOMConstructor, DOMConstructorID::TestReadOnlyMapLike>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestReadOnlyMapLikeDOMConstructor, DOMConstructorID::TestReadOnlyMapLike>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestReadOnlyMapLike::destroy(JSC::JSCell* cell)
@@ -176,10 +191,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestReadOnlyMapLikeConstructor, (JSGlobalObject* lexi
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestReadOnlyMapLikePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestReadOnlyMapLikePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestReadOnlyMapLike::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestReadOnlyMapLike::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestReadOnlyMapLike_sizeGetter(JSGlobalObject& lexicalGlobalObject, JSTestReadOnlyMapLike& thisObject)
@@ -308,12 +323,14 @@ JSC::GCClient::IsoSubspace* JSTestReadOnlyMapLike::subspaceForImpl(JSC::VM& vm)
 
 void JSTestReadOnlyMapLike::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestReadOnlyMapLike*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestReadOnlyMapLike>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestReadOnlyMapLikeOwner::JSTestReadOnlyMapLikeOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestReadOnlyMapLikeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -327,7 +344,7 @@ void JSTestReadOnlyMapLikeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestReadOnlyMapLike = static_cast<JSTestReadOnlyMapLike*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestReadOnlyMapLike->wrapped()).ptr(), jsTestReadOnlyMapLike);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestReadOnlyMapLike->wrapped(), jsTestReadOnlyMapLike);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -375,7 +392,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestReadOnlyMapLike* JSTestReadOnlyMapLike::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestReadOnlyMapLike*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestReadOnlyMapLike>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

@@ -44,9 +44,7 @@ BackgroundFetchEvent::BackgroundFetchEvent(enum EventInterfaceType eventInterfac
 {
 }
 
-BackgroundFetchEvent::~BackgroundFetchEvent()
-{
-}
+BackgroundFetchEvent::~BackgroundFetchEvent() = default;
 
 BackgroundFetchRegistration& BackgroundFetchEvent::registration() const
 {

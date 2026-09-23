@@ -77,9 +77,21 @@ static RetainPtr<CGPDFPageRef> systemPreviewLogo()
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ARKitBadgeSystemImage);
 
-RenderingResourceIdentifier ARKitBadgeSystemImage::imageIdentifier() const
+Ref<ARKitBadgeSystemImage> ARKitBadgeSystemImage::createWithoutImage()
 {
-    return m_image ? m_image->nativeImage()->renderingResourceIdentifier() : *m_renderingResourceIdentifier;
+    return adoptRef(*new ARKitBadgeSystemImage(std::nullopt, { }));
+}
+
+std::optional<RenderingResourceIdentifier> ARKitBadgeSystemImage::imageIdentifier() const
+{
+    if (m_image) {
+        if (RefPtr nativeImage = protect(m_image)->nativeImage())
+            return nativeImage->renderingResourceIdentifier();
+        return std::nullopt;
+    }
+    if (m_renderingResourceIdentifier)
+        return *m_renderingResourceIdentifier;
+    return std::nullopt;
 }
 
 void ARKitBadgeSystemImage::draw(GraphicsContext& graphicsContext, const FloatRect& rect) const
@@ -88,17 +100,9 @@ void ARKitBadgeSystemImage::draw(GraphicsContext& graphicsContext, const FloatRe
     if (!page)
         return;
 
-    static const int largeBadgeDimension = 70;
-    static const int largeBadgeOffset = 20;
-
-    static const int smallBadgeDimension = 35;
-    static const int smallBadgeOffset = 8;
-
-    static const int minimumSizeForLargeBadge = 240;
-
-    bool useSmallBadge = rect.width() < minimumSizeForLargeBadge || rect.height() < minimumSizeForLargeBadge;
-    int badgeOffset = useSmallBadge ? smallBadgeOffset : largeBadgeOffset;
-    int badgeDimension = useSmallBadge ? smallBadgeDimension : largeBadgeDimension;
+    bool useSmallBadge = rect.width() < BadgeMetrics::minimumSizeForLarge || rect.height() < BadgeMetrics::minimumSizeForLarge;
+    int badgeOffset = useSmallBadge ? BadgeMetrics::smallOffset : BadgeMetrics::largeOffset;
+    int badgeDimension = useSmallBadge ? BadgeMetrics::smallDimension : BadgeMetrics::largeDimension;
 
     int minimumDimension = badgeDimension + 2 * badgeOffset;
     if (rect.width() < minimumDimension || rect.height() < minimumDimension)
@@ -108,10 +112,8 @@ void ARKitBadgeSystemImage::draw(GraphicsContext& graphicsContext, const FloatRe
     CGRect insetBadgeRect = CGRectMake(rect.width() - badgeDimension - badgeOffset, badgeOffset, badgeDimension, badgeDimension);
     CGRect badgeRect = CGRectMake(0, 0, badgeDimension, badgeDimension);
 
-    if (!m_image || !m_image->nativeImage())
-        return;
-
-    CIImage *inputImage = [CIImage imageWithCGImage:m_image->nativeImage()->platformImage().get()];
+    RefPtr nativeImage = m_image ? protect(m_image)->nativeImage() : nullptr;
+    bool hasBackdropImage = !!nativeImage;
 
     // Create a circle to be used for the clipping path in the badge, as well as the drop shadow.
     RetainPtr<CGPathRef> circle = adoptCF(CGPathCreateWithRoundedRect(absoluteBadgeRect, badgeDimension / 2, badgeDimension / 2, nullptr));
@@ -156,53 +158,57 @@ void ARKitBadgeSystemImage::draw(GraphicsContext& graphicsContext, const FloatRe
 
     CGContextRestoreGState(ctx);
 
-    // Draw the blurred backdrop. Scale from intrinsic size to render size.
-    CGAffineTransform transform = CGAffineTransformIdentity;
-    transform = CGAffineTransformScale(transform, rect.width() / m_imageSize.width(), rect.height() / m_imageSize.height());
-    CIImage *scaledImage = [inputImage imageByApplyingTransform:transform];
-
-    // CoreImage coordinates are y-up, so we need to flip the badge rectangle within the image frame.
-    CGRect flippedInsetBadgeRect = CGRectMake(insetBadgeRect.origin.x, rect.height() - insetBadgeRect.origin.y - insetBadgeRect.size.height, badgeDimension, badgeDimension);
-
-    // Create a cropped region with pixel values extending outwards.
-    CIImage *clampedImage = [scaledImage imageByClampingToRect:flippedInsetBadgeRect];
-
-    // Blur.
-    CIImage *blurredImage = [clampedImage imageByApplyingGaussianBlurWithSigma:10];
-
-    // Saturate.
-    CIFilter *saturationFilter = [CIFilter filterWithName:@"CIColorControls"];
-    [saturationFilter setValue:blurredImage forKey:kCIInputImageKey];
-    [saturationFilter setValue:@1.8 forKey:kCIInputSaturationKey];
-
-    // Tint.
-    CIFilter *tintFilter1 = [CIFilter filterWithName:@"CIConstantColorGenerator"];
-    CIColor *tintColor1 = [CIColor colorWithRed:1 green:1 blue:1 alpha:0.18];
-    [tintFilter1 setValue:tintColor1 forKey:kCIInputColorKey];
-
-    // Blend the tint with the saturated output.
-    CIFilter *sourceOverFilter = [CIFilter filterWithName:@"CISourceOverCompositing"];
-    [sourceOverFilter setValue:tintFilter1.outputImage forKey:kCIInputImageKey];
-    [sourceOverFilter setValue:saturationFilter.outputImage forKey:kCIInputBackgroundImageKey];
-
-    RetainPtr<CIContext> ciContext = [CIContext context];
-
     RetainPtr<CGImageRef> cgImage;
-#if HAVE(IOSURFACE_COREIMAGE_SUPPORT)
-    if (isInGPUProcess()) {
-        // Crop the result to the badge location.
-        CIImage *croppedImage = [sourceOverFilter.outputImage imageByCroppingToRect:flippedInsetBadgeRect];
-        CIImage *translatedImage = [croppedImage imageByApplyingTransform:CGAffineTransformMakeTranslation(-flippedInsetBadgeRect.origin.x, -flippedInsetBadgeRect.origin.y)];
+    if (hasBackdropImage) {
+        CIImage *inputImage = [CIImage imageWithCGImage:nativeImage->platformImage().get()];
 
-        auto surfaceDimension = useSmallBadge ? smallBadgeDimension : largeBadgeDimension;
-        std::unique_ptr<IOSurface> badgeSurface = IOSurface::create(&IOSurfacePool::sharedPoolSingleton(), { surfaceDimension, surfaceDimension }, DestinationColorSpace::SRGB());
-        IOSurfaceRef surface = badgeSurface->surface();
-        [ciContext render:translatedImage toIOSurface:surface bounds:badgeRect colorSpace:sRGBColorSpaceSingleton()];
-        auto surfaceContext = badgeSurface->createPlatformContext();
-        cgImage = badgeSurface->createImage(surfaceContext.get());
-    } else
+        // Draw the blurred backdrop. Scale from intrinsic size to render size.
+        CGAffineTransform transform = CGAffineTransformIdentity;
+        transform = CGAffineTransformScale(transform, rect.width() / m_imageSize.width(), rect.height() / m_imageSize.height());
+        CIImage *scaledImage = [inputImage imageByApplyingTransform:transform];
+
+        // CoreImage coordinates are y-up, so we need to flip the badge rectangle within the image frame.
+        CGRect flippedInsetBadgeRect = CGRectMake(insetBadgeRect.origin.x, rect.height() - insetBadgeRect.origin.y - insetBadgeRect.size.height, badgeDimension, badgeDimension);
+
+        // Create a cropped region with pixel values extending outwards.
+        CIImage *clampedImage = [scaledImage imageByClampingToRect:flippedInsetBadgeRect];
+
+        // Blur.
+        CIImage *blurredImage = [clampedImage imageByApplyingGaussianBlurWithSigma:10];
+
+        // Saturate.
+        CIFilter *saturationFilter = [CIFilter filterWithName:@"CIColorControls"];
+        [saturationFilter setValue:blurredImage forKey:kCIInputImageKey];
+        [saturationFilter setValue:@1.8 forKey:kCIInputSaturationKey];
+
+        // Tint.
+        CIFilter *tintFilter1 = [CIFilter filterWithName:@"CIConstantColorGenerator"];
+        CIColor *tintColor1 = [CIColor colorWithRed:1 green:1 blue:1 alpha:0.18];
+        [tintFilter1 setValue:tintColor1 forKey:kCIInputColorKey];
+
+        // Blend the tint with the saturated output.
+        CIFilter *sourceOverFilter = [CIFilter filterWithName:@"CISourceOverCompositing"];
+        [sourceOverFilter setValue:tintFilter1.outputImage forKey:kCIInputImageKey];
+        [sourceOverFilter setValue:saturationFilter.outputImage forKey:kCIInputBackgroundImageKey];
+
+        RetainPtr<CIContext> ciContext = [CIContext context];
+
+#if HAVE(IOSURFACE_COREIMAGE_SUPPORT)
+        if (isInGPUProcess()) {
+            // Crop the result to the badge location.
+            CIImage *croppedImage = [sourceOverFilter.outputImage imageByCroppingToRect:flippedInsetBadgeRect];
+            CIImage *translatedImage = [croppedImage imageByApplyingTransform:CGAffineTransformMakeTranslation(-flippedInsetBadgeRect.origin.x, -flippedInsetBadgeRect.origin.y)];
+
+            auto surfaceDimension = useSmallBadge ? BadgeMetrics::smallDimension : BadgeMetrics::largeDimension;
+            std::unique_ptr<IOSurface> badgeSurface = IOSurface::create(&IOSurfacePool::sharedPoolSingleton(), { surfaceDimension, surfaceDimension }, DestinationColorSpace::SRGB());
+            IOSurfaceRef surface = badgeSurface->surface();
+            [ciContext render:translatedImage toIOSurface:surface bounds:badgeRect colorSpace:sRGBColorSpaceSingleton()];
+            auto surfaceContext = badgeSurface->createPlatformContext();
+            cgImage = badgeSurface->createImage(surfaceContext.get());
+        } else
 #endif
-    cgImage = adoptCF([ciContext createCGImage:sourceOverFilter.outputImage fromRect:flippedInsetBadgeRect]);
+        cgImage = adoptCF([ciContext createCGImage:sourceOverFilter.outputImage fromRect:flippedInsetBadgeRect]);
+    }
 
     // Before we render the result, we should clip to a circle around the badge rectangle.
     CGContextSaveGState(ctx);
@@ -214,7 +220,17 @@ void ARKitBadgeSystemImage::draw(GraphicsContext& graphicsContext, const FloatRe
     CGContextTranslateCTM(ctx, absoluteBadgeRect.origin.x, absoluteBadgeRect.origin.y);
     CGContextTranslateCTM(ctx, 0, badgeDimension);
     CGContextScaleCTM(ctx, 1, -1);
-    CGContextDrawImage(ctx, badgeRect, cgImage.get());
+
+    if (cgImage)
+        CGContextDrawImage(ctx, badgeRect, cgImage.get());
+    else {
+        // No backdrop image: fill the badge circle with a translucent neutral color so the PDF
+        // logo has a readable backdrop.
+        CGFloat backdropColorComponents[4] = { 1, 1, 1, 0.6 };
+        RetainPtr<CGColorRef> backdropColor = adoptCF(CGColorCreate(sRGBColorSpaceSingleton(), backdropColorComponents));
+        CGContextSetFillColorWithColor(ctx, backdropColor.get());
+        CGContextFillRect(ctx, badgeRect);
+    }
 
     CGSize pdfSize = CGPDFPageGetBoxRect(page.get(), kCGPDFMediaBox).size;
     CGFloat scaleX = badgeDimension / pdfSize.width;

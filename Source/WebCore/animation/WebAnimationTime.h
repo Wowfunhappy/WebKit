@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/CSSNumericValue.h>
+#include <wtf/Forward.h>
 #include <wtf/Seconds.h>
 
 namespace WebCore {
@@ -36,6 +37,7 @@ public:
     WEBCORE_EXPORT WebAnimationTime(std::optional<Seconds>, std::optional<double>);
 
     WEBCORE_EXPORT WebAnimationTime(const Seconds&);
+    WEBCORE_EXPORT WebAnimationTime(const ReducedResolutionSeconds&);
     WebAnimationTime(const CSSNumberish&);
 
     static WebAnimationTime NODELETE fromMilliseconds(double);
@@ -54,8 +56,8 @@ public:
     WebAnimationTime NODELETE matchingInfinity() const;
 
     bool NODELETE approximatelyEqualTo(const WebAnimationTime&) const;
-    bool approximatelyLessThan(const WebAnimationTime&) const;
-    bool approximatelyGreaterThan(const WebAnimationTime&) const;
+    bool NODELETE approximatelyLessThan(const WebAnimationTime&) const;
+    bool NODELETE approximatelyGreaterThan(const WebAnimationTime&) const;
 
     WebAnimationTime NODELETE operator+(const WebAnimationTime&) const;
     WebAnimationTime NODELETE operator-(const WebAnimationTime&) const;

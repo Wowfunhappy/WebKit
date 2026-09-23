@@ -88,6 +88,11 @@ public:
         (*this) = other;
     }
 
+    BitVector(BitVector&& other)
+        : m_bitsOrPointer(std::exchange(other.m_bitsOrPointer, makeInlineBits(0)))
+    {
+    }
+
 #if USE(CF)
     BitVector(CFBitVectorRef bitVector)
         : BitVector(CFBitVectorGetCount(bitVector))
@@ -109,13 +114,25 @@ public:
     
     BitVector& operator=(const BitVector& other)
     {
-        if (&other == this)
+        if (&other == this) [[unlikely]]
             return *this;
 
         if (isInline() && other.isInline())
             m_bitsOrPointer = other.m_bitsOrPointer;
         else
             setSlow(other);
+        return *this;
+    }
+
+    BitVector& operator=(BitVector&& other)
+    {
+        if (&other == this) [[unlikely]]
+            return *this;
+
+        if (!isInline() && !isEmptyOrDeletedValue())
+            OutOfLineBits::destroy(outOfLineBits());
+
+        m_bitsOrPointer = std::exchange(other.m_bitsOrPointer, makeInlineBits(0));
         return *this;
     }
 
@@ -240,7 +257,7 @@ public:
         m_bitsOrPointer &= other.m_bitsOrPointer;
         ASSERT(isInline());
     }
-    
+
     void exclude(const BitVector& other)
     {
         if (!isInline() || !other.isInline()) {
@@ -255,7 +272,7 @@ public:
     size_t bitCount() const
     {
         if (isInline())
-            return bitCount(cleanseInlineBits(m_bitsOrPointer));
+            return std::popcount(cleanseInlineBits(m_bitsOrPointer));
         return bitCountSlow();
     }
 
@@ -386,17 +403,17 @@ private:
     friend class JSC::CachedBitVector;
     friend class FixedBitVector;
 
-    static unsigned bitsInPointer()
+    static constexpr unsigned bitsInPointer()
     {
         return sizeof(void*) << 3;
     }
 
-    static unsigned maxInlineBits()
+    static constexpr unsigned maxInlineBits()
     {
         return bitsInPointer() - 1;
     }
 
-    static size_t byteCount(size_t bitCount)
+    static constexpr size_t byteCount(size_t bitCount)
     {
         return (bitCount + 7) >> 3;
     }
@@ -411,14 +428,7 @@ private:
     {
         return bits & ~(static_cast<uintptr_t>(1) << maxInlineBits());
     }
-    
-    static size_t bitCount(uintptr_t bits)
-    {
-        if (sizeof(uintptr_t) == 4)
-            return WTF::bitCount(static_cast<unsigned>(bits));
-        return WTF::bitCount(static_cast<uint64_t>(bits));
-    }
-    
+
     size_t findBitFast(size_t startIndex, bool value) const
     {
         if (isInline()) {
@@ -498,13 +508,13 @@ private:
     WTF_EXPORT_PRIVATE void filterSlow(const BitVector& other);
     WTF_EXPORT_PRIVATE void excludeSlow(const BitVector& other);
     
-    WTF_EXPORT_PRIVATE size_t bitCountSlow() const;
+    WTF_EXPORT_PRIVATE size_t NODELETE bitCountSlow() const;
     WTF_EXPORT_PRIVATE bool isEmptySlow() const;
     
     WTF_EXPORT_PRIVATE bool equalsSlowCase(const BitVector& other) const;
     bool equalsSlowCaseFast(const BitVector& other) const;
     bool equalsSlowCaseSimple(const BitVector& other) const;
-    WTF_EXPORT_PRIVATE uintptr_t hashSlowCase() const;
+    WTF_EXPORT_PRIVATE uintptr_t NODELETE hashSlowCase() const;
     
     std::span<uintptr_t> words() LIFETIME_BOUND
     {

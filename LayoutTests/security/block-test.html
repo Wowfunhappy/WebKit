@@ -1,3 +1,4 @@
+<!-- webkit-test-runner [ dumpResourceLoadCallbacks=true ] -->
 <html>
 <script>
     // Note that port "1" is tested by the initial load.
@@ -18,7 +19,6 @@
 
     if (window.testRunner) {
         testRunner.waitUntilDone();
-        testRunner.dumpResourceLoadCallbacks();
     }
 
     function nextBlockedPortTest() {

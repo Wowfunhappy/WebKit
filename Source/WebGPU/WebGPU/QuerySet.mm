@@ -253,10 +253,10 @@ void wgpuQuerySetSetLabel(WGPUQuerySet querySet, const char* label)
 
 uint32_t wgpuQuerySetGetCount(WGPUQuerySet querySet)
 {
-    return protect(WebGPU::fromAPI(querySet))->count();
+    return WebGPU::fromAPI(querySet).count();
 }
 
 WGPUQueryType wgpuQuerySetGetType(WGPUQuerySet querySet)
 {
-    return protect(WebGPU::fromAPI(querySet))->type();
+    return WebGPU::fromAPI(querySet).type();
 }

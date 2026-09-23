@@ -102,6 +102,31 @@ TEST(WTF, StringImplReplaceWithLiteral)
     ASSERT_TRUE(equal(testStringImpl.get(), "r555sum555"_s));
 }
 
+TEST(WTF, StringImplContainsOnlyLatin1)
+{
+    ASSERT_TRUE(StringImpl::create("abc"_s)->containsOnlyLatin1());
+    ASSERT_TRUE(StringImpl::create(""_span)->containsOnlyLatin1());
+
+    // 8-bit strings are Latin1 by construction, regardless of content (unchanged branch).
+    Latin1Character eightBitChars[] = { 0xFF, 0x00, 0x80 };
+    auto eightBit = StringImpl::create(std::span<const Latin1Character> { eightBitChars });
+    ASSERT_TRUE(eightBit->is8Bit());
+    ASSERT_TRUE(eightBit->containsOnlyLatin1());
+
+    // Explicitly char16_t-backed (so always 16-bit, regardless of String's own up/downconvert
+    // heuristics), with every code point still <= 0xFF: containsOnlyLatin1 must be true.
+    char16_t allLatin1Chars[] = { 'a', 'b', 0x00E9 /* é */, 0xFF, 'c' };
+    auto allLatin1Sixteen = StringImpl::create(std::span<const char16_t> { allLatin1Chars });
+    ASSERT_FALSE(allLatin1Sixteen->is8Bit());
+    ASSERT_TRUE(allLatin1Sixteen->containsOnlyLatin1());
+
+    // Same, but with one genuine non-Latin1 code point (> 0xFF).
+    char16_t nonLatin1Chars[] = { 'a', 'b', 0x00E9 /* é */, 0x65E5 /* 日 */, 'c' };
+    auto nonLatin1 = StringImpl::create(std::span<const char16_t> { nonLatin1Chars });
+    ASSERT_FALSE(nonLatin1->is8Bit());
+    ASSERT_FALSE(nonLatin1->containsOnlyLatin1());
+}
+
 TEST(WTF, StringImplEqualIgnoringASCIICaseBasic)
 {
     auto a = StringImpl::create("aBcDeFG"_s);
@@ -709,7 +734,7 @@ static void doStaticStringImplTests(StaticStringImplTestSet testSet, String& hel
     // We're relying on an ASSERT in setHash() to detect that the hash hasn't
     // already been set. If the hash has already been set, the hash() method
     // will not call setHash().
-    ASSERT_EQ(hello.hash(), 10404096U);
+    ASSERT_EQ(hello.hash(), 14060208U);
 }
 
 TEST(WTF, StaticStringImpl)
@@ -876,6 +901,65 @@ TEST(WTF, CreateSubstringSharingImpl)
     auto small16Bit = StringImpl::createSubstringSharingImpl(*base.impl(), 0, 3);
     ASSERT_TRUE(!small16Bit->is8Bit());
     ASSERT_TRUE(equal(small16Bit.ptr(), String::fromUTF8("日本語").impl()));
+}
+
+TEST(WTF, StringImplCodePointAtASCII)
+{
+    auto string = StringImpl::create("Hello"_s);
+    ASSERT_EQ(string->codePointAt(0), static_cast<char32_t>('H'));
+    ASSERT_EQ(string->codePointAt(4), static_cast<char32_t>('o'));
+}
+
+TEST(WTF, StringImplCodePointAtBMP)
+{
+    // U+00E9 (LATIN SMALL LETTER E WITH ACUTE) - single 16-bit code unit.
+    auto string = String::fromUTF8("caf\xC3\xA9");
+    ASSERT_FALSE(string.impl()->is8Bit());
+    ASSERT_EQ(string.impl()->codePointAt(0), static_cast<char32_t>('c'));
+    ASSERT_EQ(string.impl()->codePointAt(3), 0x00E9u);
+}
+
+TEST(WTF, StringImplCodePointAtSupplementary)
+{
+    // U+1F600 (GRINNING FACE) is encoded as a surrogate pair: D83D DE00.
+    auto string = String::fromUTF8("A\xF0\x9F\x98\x80Z");
+    ASSERT_FALSE(string.impl()->is8Bit());
+    ASSERT_EQ(string.impl()->length(), 4u); // 'A' + surrogate pair + 'Z'
+    ASSERT_EQ(string.impl()->codePointAt(0), static_cast<char32_t>('A'));
+    ASSERT_EQ(string.impl()->codePointAt(1), 0x1F600u);
+    ASSERT_EQ(string.impl()->codePointAt(3), static_cast<char32_t>('Z'));
+}
+
+TEST(WTF, StringImplCodePointAtLoneSurrogate)
+{
+    // Construct a string with lone surrogates directly via 16-bit code units.
+    std::array<char16_t, 5> data { 0xD800, u'A', 0xDC00, u'B', 0xD83D };
+    auto string = StringImpl::create(std::span<const char16_t> { data });
+    ASSERT_EQ(string->length(), 5u);
+
+    // Lone lead surrogate at index 0 (not followed by a trail).
+    ASSERT_EQ(string->codePointAt(0), 0xD800u);
+
+    // Regular character.
+    ASSERT_EQ(string->codePointAt(1), static_cast<char32_t>('A'));
+
+    // Lone trail surrogate at index 2 (not preceded by a lead in terms of this API).
+    ASSERT_EQ(string->codePointAt(2), 0xDC00u);
+
+    // Regular character.
+    ASSERT_EQ(string->codePointAt(3), static_cast<char32_t>('B'));
+
+    // Lone lead surrogate at end of string.
+    ASSERT_EQ(string->codePointAt(4), 0xD83Du);
+}
+
+TEST(WTF, StringImplCodePointAtNUL)
+{
+    // Ensure actual NUL character is distinguishable from lone surrogates.
+    std::array<char16_t, 2> data { 0x0000, 0xD800 };
+    auto string = StringImpl::create(std::span<const char16_t> { data });
+    ASSERT_EQ(string->codePointAt(0), 0u);
+    ASSERT_EQ(string->codePointAt(1), 0xD800u);
 }
 
 } // namespace TestWebKitAPI

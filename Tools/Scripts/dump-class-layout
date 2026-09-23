@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2011-2015 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -46,12 +46,12 @@ def webkit_build_dir():
     scriptpath = os.path.dirname(os.path.realpath(__file__))
     return subprocess.check_output([os.path.join(scriptpath, "webkit-build-directory"), "--top-level"]).decode().strip()
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description='Dumps the in-memory layout of the given class or classes, showing padding holes.')
     parser.add_argument('framework', metavar='framework',
         help='name of the framework containing the class (e.g. "WebCore")')
-    parser.add_argument('classname', metavar='classname',
-        help='name of the class or struct to dump')
+    parser.add_argument('classname', metavar='classname', nargs='+',
+        help='name of the class or struct to dump (may specify multiple classes)')
 
     parser.add_argument('-b', '--build-directory', dest='build_directory', action='store',
         help='Path to the directory under which build files are kept (should not include configuration)')
@@ -68,7 +68,7 @@ def main():
     parser.add_argument('-s', '--skip-nested', dest='skip_nested', default=False, action='store_true',
         help='Do not traverse nested classes and structs')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     build_dir = webkit_build_dir()
 
     if args.config is None:
@@ -83,9 +83,17 @@ def main():
         target_path = os.path.join(build_dir, args.config, args.framework + ".framework", args.framework);
     
     lldb_instance = LLDBDebuggerInstance(target_path, args.arch)
-    class_layout = lldb_instance.layout_for_classname(args.classname, args.skip_nested)
-    if class_layout is not None:
-        class_layout.dump()
+
+    # Check if stdout is a TTY to determine if we should use colors
+    use_colors = sys.stdout.isatty()
+
+    for i, classname in enumerate(args.classname):
+        if i > 0:
+            print()  # Add blank line between multiple class dumps
+
+        class_layout = lldb_instance.layout_for_classname(classname, args.skip_nested)
+        if class_layout is not None:
+            class_layout.dump(colorize=use_colors)
 
 
 if __name__ == "__main__":

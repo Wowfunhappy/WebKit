@@ -41,6 +41,7 @@
 
 namespace WebCore {
 
+// https://html.spec.whatwg.org/multipage/webstorage.html#concept-storage-broadcast
 template<StorageType storageType>
 static void dispatchStorageEvents(const String& key, const String& oldValue, const String& newValue, const SecurityOrigin& securityOrigin, const String& url, NOESCAPE const Function<bool(Storage&)>& isSourceStorage, NOESCAPE const Function<bool(Page&)>& isRelevantPage)
 {
@@ -62,8 +63,8 @@ static void dispatchStorageEvents(const String& key, const String& oldValue, con
     for (auto& window : windows) {
         RefPtr document = window->document();
         auto result = isLocalStorage(storageType) ? window->localStorage() : window->sessionStorage();
-        if (!result.hasException()) // https://html.spec.whatwg.org/multipage/webstorage.html#the-storage-event:event-storage
-            document->queueTaskToDispatchEventOnWindow(TaskSource::DOMManipulation, StorageEvent::create(eventNames().storageEvent, key, oldValue, newValue, url, RefPtr { result.releaseReturnValue() }.get()));
+        if (!result.hasException())
+            document->queueTaskToDispatchEventOnWindow(window, TaskSource::DOMManipulation, StorageEvent::create(eventNames().storageEvent, key, oldValue, newValue, url, protect(result.releaseReturnValue())));
     }
 }
 

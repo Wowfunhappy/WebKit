@@ -28,7 +28,6 @@
 
 #include "Document.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "ScriptWrappableInlines.h"
 #include "Settings.h"
 #include "StyledElement.h"

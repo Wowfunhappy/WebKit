@@ -191,13 +191,17 @@ static inline bool isObjectClassAllowed(id object, const AllowedClassHashSet& al
 template<typename T, typename>
 std::optional<RetainPtr<T>> decodeRequiringAllowedClasses(Decoder& decoder)
 {
-#if ASSERT_ENABLED && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Preserve the native secure coder's class assertions for Data Detectors.
+// #if ASSERT_ENABLED && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if ASSERT_ENABLED && (!HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS)))
     auto allowedClasses = decoder.allowedClasses();
 #endif
     auto result = decodeObjectDirectlyRequiringAllowedClasses<T>(decoder);
     if (!result)
         return std::nullopt;
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Preserve the native secure coder's class assertions for Data Detectors.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
     ASSERT(!*result || isObjectClassAllowed((*result).get(), allowedClasses));
 #endif
     return { *result };
@@ -209,7 +213,9 @@ std::optional<T> decodeRequiringAllowedClasses(Decoder& decoder)
     auto result = decodeObjectDirectlyRequiringAllowedClasses<T>(decoder);
     if (!result)
         return std::nullopt;
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Preserve the native secure coder's class assertions for Data Detectors.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
     ASSERT(!*result || isObjectClassAllowed((*result).get(), decoder.allowedClasses()));
 #endif
     return { *result };
@@ -223,7 +229,9 @@ template<typename T> struct ArgumentCoder<T *> {
     }
 };
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors retains the native secure-coding payload wrapper.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 template<typename T> struct ArgumentCoder<CoreIPCRetainPtr<T>> {
     template<typename U = T>
     static void encode(Encoder& encoder, const CoreIPCRetainPtr<U>& object)

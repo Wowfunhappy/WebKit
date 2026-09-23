@@ -40,11 +40,13 @@ class PlacedGridItem;
 class UnplacedGridItem;
 
 struct ComputedSizes;
+struct FlexTrack;
 struct GridAreaLines;
 struct GridItemRect;
 struct TrackSizingFunctions;
+struct TrackSizingItem;
 struct UnsizedTrack;
-struct FlexTrack;
+
 
 using BorderBoxPositions = Vector<LayoutUnit>;
 using FlexTracks = Vector<FlexTrack>;
@@ -57,7 +59,7 @@ using PlacedGridItems = Vector<PlacedGridItem>;
 using PlacedGridItemSpanList = Vector<WTF::Range<size_t>>;
 using TrackSizes = Vector<LayoutUnit>;
 using TrackSizingFunctionsList = Vector<TrackSizingFunctions>;
-using TrackSizingGridItemConstraintList = Vector<LayoutUnit>;
+using TrackSizingItemList = Vector<TrackSizingItem>;
 using UnsizedTracks = Vector<UnsizedTrack>;
 using UsedBlockSizes = Vector<LayoutUnit>;
 using UsedBorderAndPaddingList = Vector<LayoutUnit>;

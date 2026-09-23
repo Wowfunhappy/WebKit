@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,8 @@
 #include "StyleUnevaluatedCalculation.h"
 
 #include "StyleCalculationValue.h"
+#include "StyleZoomPrimitives.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace Style {
@@ -40,14 +42,8 @@ UnevaluatedCalculationBase::UnevaluatedCalculationBase(Ref<Calculation::Value>&&
 {
 }
 
-UnevaluatedCalculationBase::UnevaluatedCalculationBase(Calculation::Child&& root, CSS::Category category, CSS::Range range)
-    : m_calc {
-        Calculation::Value::create(
-            category,
-            CSS::Range { range.min, range.max },
-            Calculation::Tree { WTF::move(root) }
-        )
-    }
+UnevaluatedCalculationBase::UnevaluatedCalculationBase(Calculation::Child&& root)
+    : m_calc { Calculation::Value::create(Calculation::Tree { WTF::move(root) }) }
 {
 }
 
@@ -58,9 +54,34 @@ UnevaluatedCalculationBase& UnevaluatedCalculationBase::operator=(UnevaluatedCal
 
 UnevaluatedCalculationBase::~UnevaluatedCalculationBase() = default;
 
+Ref<Calculation::Value> CLANG_POINTER_CONVERSION Calculation::protect(Calculation::Value& value)
+{
+    return value;
+}
+
+Calculation::Value& UnevaluatedCalculationBase::leakRef()
+{
+    return m_calc.leakRef();
+}
+
+double UnevaluatedCalculationBase::evaluateBase(CSS::Range range, double percentageBasis, const ZoomFactor& zoom) const
+{
+    return protect(m_calc)->evaluate(range, percentageBasis, zoom);
+}
+
+double UnevaluatedCalculationBase::evaluateBase(CSS::Range range, double percentageBasis, const ZoomNeeded& token) const
+{
+    return protect(m_calc)->evaluate(range, percentageBasis, token);
+}
+
 bool UnevaluatedCalculationBase::equal(const UnevaluatedCalculationBase& other) const
 {
     return arePointingToEqualData(m_calc, other.m_calc);
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, const UnevaluatedCalculationBase& value)
+{
+    return ts << protect(value.calculation()).get();
 }
 
 } // namespace Style

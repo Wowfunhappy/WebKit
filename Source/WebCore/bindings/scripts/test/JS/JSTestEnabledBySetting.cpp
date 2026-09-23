@@ -28,6 +28,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMExceptionHandling.h"
@@ -41,7 +42,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -98,10 +98,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestEnabledBySettingPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestEnabledBySettingPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -152,7 +149,7 @@ template<> void JSTestEnabledBySettingDOMConstructor::initializeProperties(VM& v
     putDirect(vm, vm.propertyNames->name, nameString, JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
     putDirect(vm, vm.propertyNames->prototype, JSTestEnabledBySetting::prototype(vm, globalObject), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::DontDelete);
     reifyStaticProperties(vm, JSTestEnabledBySetting::info(), JSTestEnabledBySettingConstructorTableValues, *this);
-    if (!downcast<Document>(jsCast<JSDOMGlobalObject*>(&globalObject)->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (!downcast<Document>((&globalObject)->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         auto propertyName = Identifier::fromString(vm, "enabledBySettingConstant"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
@@ -185,55 +182,60 @@ static const std::array<HashTableValue, 6> JSTestEnabledBySettingPrototypeTableV
 
 const ClassInfo JSTestEnabledBySettingPrototype::s_info = { "TestEnabledBySetting"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestEnabledBySettingPrototype) };
 
+JSC::Structure* JSTestEnabledBySettingPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestEnabledBySettingPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestEnabledBySetting::info(), JSTestEnabledBySettingPrototypeTableValues, *this);
     bool hasDisabledRuntimeProperties = false;
 #if ENABLE(TEST_FEATURE)
-    if (!downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (!downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "enabledBySettingOperation"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
 #endif
 #if ENABLE(TEST_FEATURE)
-    if (!downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (!downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "enabledBySettingAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
 #endif
 #if ENABLE(TEST_FEATURE)
-    if (!(downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled && downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().otherTestSettingEnabled)) {
+    if (!(downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingEnabled && downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().otherTestSettingEnabled)) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "enabledByTwoSettingsAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
 #endif
-    if (!(downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingFromPartialInterfaceAttributeEnabled && downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingFromPartialInterfaceEnabled)) {
+    if (!(downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingFromPartialInterfaceAttributeEnabled && downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingFromPartialInterfaceEnabled)) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "supplementalAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
-    if (!downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (!downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "enabledBySettingConstant"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (hasDisabledRuntimeProperties && structure()->isDictionary())
         flattenDictionaryObject(vm);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestEnabledBySetting::s_info = { "TestEnabledBySetting"_s, &Base::s_info, &JSTestEnabledBySettingTable, nullptr, CREATE_METHOD_TABLE(JSTestEnabledBySetting) };
@@ -250,14 +252,27 @@ void JSTestEnabledBySetting::finishCreation(VM& vm)
     Base::finishCreation(vm);
     ASSERT(inherits(info()));
 
-    if (downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled)
+    if (downcast<Document>(realm()->scriptExecutionContext())->settingsValues().testSettingEnabled)
         putDirectCustomAccessor(vm, builtinNames(vm).TestSubObjEnabledBySettingPublicName(), CustomGetterSetter::create(vm, jsTestEnabledBySetting_TestSubObjEnabledBySettingConstructor, nullptr), attributesForStructure(static_cast<unsigned>(JSC::PropertyAttribute::DontEnum)));
-    if (downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled)
+    if (downcast<Document>(realm()->scriptExecutionContext())->settingsValues().testSettingEnabled)
         putDirectCustomAccessor(vm, builtinNames(vm).TestSubObjEnabledBySettingPrivatePrivateName(), CustomGetterSetter::create(vm, jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivateConstructor, nullptr), attributesForStructure(static_cast<unsigned>(JSC::PropertyAttribute::DontEnum)));
-    if (downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (downcast<Document>(realm()->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         putDirectCustomAccessor(vm, builtinNames(vm).TestSubObjEnabledBySettingPrivatePublicPublicName(), CustomGetterSetter::create(vm, jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivatePublicConstructor, nullptr), attributesForStructure(static_cast<unsigned>(JSC::PropertyAttribute::DontEnum)));
         putDirectCustomAccessor(vm, builtinNames(vm).TestSubObjEnabledBySettingPrivatePublicPrivateName(), CustomGetterSetter::create(vm, jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivatePublicConstructor, nullptr), attributesForStructure(static_cast<unsigned>(JSC::PropertyAttribute::DontEnum)));
     }
+}
+
+JSTestEnabledBySetting* JSTestEnabledBySetting::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestEnabledBySetting>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestEnabledBySetting* ptr = new (NotNull, JSC::allocateCell<JSTestEnabledBySetting>(vm)) JSTestEnabledBySetting(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestEnabledBySetting::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
 }
 
 JSObject* JSTestEnabledBySetting::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
@@ -274,7 +289,7 @@ JSObject* JSTestEnabledBySetting::prototype(VM& vm, JSDOMGlobalObject& globalObj
 
 JSValue JSTestEnabledBySetting::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestEnabledBySettingDOMConstructor, DOMConstructorID::TestEnabledBySetting>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestEnabledBySettingDOMConstructor, DOMConstructorID::TestEnabledBySetting>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestEnabledBySetting::destroy(JSC::JSCell* cell)
@@ -287,16 +302,16 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestEnabledBySettingConstructor, (JSGlobalObject* lex
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestEnabledBySettingPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestEnabledBySettingPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestEnabledBySetting::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestEnabledBySetting::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestEnabledBySetting_TestSubObjEnabledBySettingConstructorGetter(JSGlobalObject& lexicalGlobalObject, JSTestEnabledBySetting& thisObject)
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    return JSTestSubObj::getConstructor(JSC::getVM(&lexicalGlobalObject), thisObject.globalObject());
+    return JSTestSubObj::getConstructor(JSC::getVM(&lexicalGlobalObject), thisObject.realm());
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestEnabledBySetting_TestSubObjEnabledBySettingConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -307,7 +322,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestEnabledBySetting_TestSubObjEnabledBySettingConstr
 static inline JSValue jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivateConstructorGetter(JSGlobalObject& lexicalGlobalObject, JSTestEnabledBySetting& thisObject)
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    return JSTestSubObj::getConstructor(JSC::getVM(&lexicalGlobalObject), thisObject.globalObject());
+    return JSTestSubObj::getConstructor(JSC::getVM(&lexicalGlobalObject), thisObject.realm());
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivateConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -318,7 +333,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivat
 static inline JSValue jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivatePublicConstructorGetter(JSGlobalObject& lexicalGlobalObject, JSTestEnabledBySetting& thisObject)
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    return JSTestSubObj::getConstructor(JSC::getVM(&lexicalGlobalObject), thisObject.globalObject());
+    return JSTestSubObj::getConstructor(JSC::getVM(&lexicalGlobalObject), thisObject.realm());
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestEnabledBySetting_TestSubObjEnabledBySettingPrivatePublicConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -451,7 +466,7 @@ static inline JSC::EncodedJSValue jsTestEnabledBySettingPrototypeFunction_enable
     auto testParamConversionResult = convert<IDLDOMString>(*lexicalGlobalObject, argument0.value());
     if (testParamConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.enabledBySettingOperation(testParamConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.enabledBySettingOperation(testParamConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestEnabledBySettingPrototypeFunction_enabledBySettingOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -473,12 +488,14 @@ JSC::GCClient::IsoSubspace* JSTestEnabledBySetting::subspaceForImpl(JSC::VM& vm)
 
 void JSTestEnabledBySetting::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestEnabledBySetting*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestEnabledBySetting>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestEnabledBySettingOwner::JSTestEnabledBySettingOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestEnabledBySettingOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -492,7 +509,7 @@ void JSTestEnabledBySettingOwner::finalize(JSC::Handle<JSC::Unknown> handle, voi
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestEnabledBySetting = static_cast<JSTestEnabledBySetting*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestEnabledBySetting->wrapped()).ptr(), jsTestEnabledBySetting);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestEnabledBySetting->wrapped(), jsTestEnabledBySetting);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -540,7 +557,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestEnabledBySetting* JSTestEnabledBySetting::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestEnabledBySetting*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestEnabledBySetting>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

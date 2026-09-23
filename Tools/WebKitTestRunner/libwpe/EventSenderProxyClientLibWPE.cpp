@@ -66,7 +66,7 @@ EventSenderProxyClientLibWPE::~EventSenderProxyClientLibWPE() = default;
 
 struct wpe_view_backend* viewBackend(TestController& controller)
 {
-    return static_cast<PlatformWebViewClientLibWPE*>(controller.mainWebView()->platformWindow())->backend()->backend();
+    return static_cast<PlatformWebViewClientLibWPE*>(controller.targetView()->platformWindow())->backend()->backend();
 }
 
 static uint32_t secToMsTimestamp(double currentEventTime)

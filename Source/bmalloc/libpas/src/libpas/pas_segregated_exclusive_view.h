@@ -28,7 +28,6 @@
 
 #include "pas_compact_segregated_size_directory_ptr.h"
 #include "pas_lock.h"
-#include "pas_segregated_deallocation_mode.h"
 #include "pas_segregated_view.h"
 
 PAS_BEGIN_EXTERN_C;

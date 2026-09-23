@@ -28,9 +28,6 @@
     }
 
     promise_test((test) => {
-        if (window.testRunner)
-            testRunner.setUserMediaPermission(true);
-
         return navigator.mediaDevices.getUserMedia({audio: true}).then((localStream) => {
             test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
             var remoteTrack;

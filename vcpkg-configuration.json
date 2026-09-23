@@ -7,15 +7,17 @@
   "registries": [
     {
       "kind": "git",
-      "baseline": "f2cc8d17478bb2bbf7ff78b3efb604dc8acf5b24",
+      "baseline": "0895db3bb0f653fab1ef3d377d2c231c971063df",
       "repository": "https://github.com/WebKitForWindows/WebKitRequirements",
       "packages": [
         "cairo",
         "curl",
         "icu",
+        "libwebp",
         "openssl",
         "vcpkg-tool-meson",
-        "zlib"
+        "zlib",
+        "zlib-ng"
       ]
     }
   ],

@@ -25,8 +25,7 @@
 
 #pragma once
 
-#if ENABLE(ISO18013_DOCUMENT_REQUEST_INFO)
-
+#include <WebCore/X509SubjectKeyIdentifier.h>
 #include <wtf/Box.h>
 #include <wtf/HashMap.h>
 #include <wtf/Variant.h>
@@ -34,7 +33,7 @@
 
 namespace WebCore {
 
-using ISO18013IssuerIdentifiers = Vector<String>;
+using ISO18013IssuerIdentifiers = Vector<X509SubjectKeyIdentifier>;
 
 using ISO18013ElementReference = HashMap<String, String>;
 
@@ -81,5 +80,3 @@ struct ISO18013DocumentRequestInfo {
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(ISO18013_DOCUMENT_REQUEST_INFO)

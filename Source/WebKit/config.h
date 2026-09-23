@@ -34,7 +34,7 @@
 
 #ifdef __cplusplus
 
-// These undefs match up with defines in WebKit2Prefix.h for Mac OS X.
+// These undefs match up with defines in WebKitPrefix.h for Mac OS X.
 // Helps us catch if anyone uses new or delete by accident in code and doesn't include "config.h".
 #undef new
 #undef delete

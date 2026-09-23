@@ -39,8 +39,6 @@
 #include "VideoSinkGStreamer.h"
 #include "WebKitAudioSinkGStreamer.h"
 #include <fnmatch.h>
-#include <gst/audio/audio-info.h>
-#include <gst/gst.h>
 #include <mutex>
 #include <wtf/FileSystem.h>
 // MAVERICKS_BACKPORT: where this port keeps its plugins and its registry.
@@ -56,6 +54,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 #include <wtf/UUID.h>
+#include <wtf/ZippedRange.h>
 #include <wtf/glib/GMallocString.h>
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GThreadSafeWeakPtr.h>
@@ -71,6 +70,7 @@
 #if PLATFORM(COCOA)
 #include <CoreFoundation/CFFileDescriptor.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/RunLoop.h>
 #endif
 
 #if USE(GSTREAMER_MPEGTS)
@@ -119,6 +119,10 @@
 #include <gst/webrtc/webrtc-enumtypes.h>
 #endif
 
+#if USE(GSTREAMER_GL)
+#include <gst/gl/gl.h>
+#endif
+
 #if USE(GSTREAMER_FULL) && GST_CHECK_VERSION(1, 18, 0) && !GST_CHECK_VERSION(1, 20, 0)
 #define IS_GST_FULL_1_18 1
 #include <gst/gstinitstaticplugins.h>
@@ -163,11 +167,20 @@ bool getVideoSizeAndFormatFromCaps(const GstCaps* caps, WebCore::IntSize& size, 
         return false;
     }
 
+    GstVideoInfo info;
+    gst_video_info_init(&info);
+
+#if GST_CHECK_VERSION(1, 24, 0)
+    if (gst_video_is_dma_drm_caps(caps)) {
+        GstVideoInfoDmaDrm drmVideoInfo;
+        if (!gst_video_info_dma_drm_from_caps(&drmVideoInfo, caps) || !gst_video_info_dma_drm_to_video_info(&drmVideoInfo, &info))
+            return false;
+    }
+#endif
+
     GstStructure* structure = gst_caps_get_structure(caps, 0);
     if (!areEncryptedCaps(caps) && (!gst_structure_has_name(structure, "video/x-raw") || gst_structure_has_field(structure, "format"))) {
-        GstVideoInfo info;
-        gst_video_info_init(&info);
-        if (!gst_video_info_from_caps(&info, caps))
+        if (!GST_VIDEO_INFO_WIDTH(&info) && !gst_video_info_from_caps(&info, caps))
             return false;
 
         if (GST_VIDEO_INFO_FPS_N(&info))
@@ -222,11 +235,19 @@ std::optional<FloatSize> getVideoResolutionFromCaps(const GstCaps* caps)
     int width = 0, height = 0;
     int pixelAspectRatioNumerator = 1, pixelAspectRatioDenominator = 1;
 
+    GstVideoInfo info;
+    gst_video_info_init(&info);
+
+#if GST_CHECK_VERSION(1, 24, 0)
+    if (gst_video_is_dma_drm_caps(caps)) {
+        GstVideoInfoDmaDrm drmVideoInfo;
+        if (!gst_video_info_dma_drm_from_caps(&drmVideoInfo, caps) || !gst_video_info_dma_drm_to_video_info(&drmVideoInfo, &info))
+            return std::nullopt;
+    }
+#endif
     GstStructure* structure = gst_caps_get_structure(caps, 0);
     if (!areEncryptedCaps(caps) && (gst_structure_has_name(structure, "video/x-raw") || gst_structure_has_field(structure, "format"))) {
-        GstVideoInfo info;
-        gst_video_info_init(&info);
-        if (!gst_video_info_from_caps(&info, caps))
+        if (!GST_VIDEO_INFO_WIDTH(&info) && !gst_video_info_from_caps(&info, caps))
             return std::nullopt;
 
         width = GST_VIDEO_INFO_WIDTH(&info);
@@ -255,18 +276,24 @@ std::optional<FloatSize> getVideoResolutionFromCaps(const GstCaps* caps)
 
 bool getSampleVideoInfo(GstSample* sample, GstVideoInfo& videoInfo)
 {
-    if (!GST_IS_SAMPLE(sample))
+    if (!GST_IS_SAMPLE(sample)) [[unlikely]]
         return false;
 
     GstCaps* caps = gst_sample_get_caps(sample);
-    if (!caps)
+    if (!caps) [[unlikely]]
         return false;
+
+#if GST_CHECK_VERSION(1, 24, 0)
+    if (gst_video_is_dma_drm_caps(caps)) {
+        GstVideoInfoDmaDrm drmVideoInfo;
+        if (!gst_video_info_dma_drm_from_caps(&drmVideoInfo, caps))
+            return false;
+        return gst_video_info_dma_drm_to_video_info(&drmVideoInfo, &videoInfo);
+    }
+#endif
 
     gst_video_info_init(&videoInfo);
-    if (!gst_video_info_from_caps(&videoInfo, caps))
-        return false;
-
-    return true;
+    return gst_video_info_from_caps(&videoInfo, caps);
 }
 
 std::optional<WebCore::IntSize> getDisplaySize(WebCore::IntSize originalSize, int pixelAspectRatioNumerator, int pixelAspectRatioDenominator)
@@ -503,14 +530,13 @@ bool ensureGStreamerInitialized()
             WTFLogAlways("The USE_PLAYBIN3 variable was detected in the environment. Expect playback issues or please unset it.");
 
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
-        Vector<String> parameters = s_UIProcessCommandLineOptions.value_or(extractGStreamerOptionsFromCommandLine());
-        s_UIProcessCommandLineOptions.reset();
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
-        char** argv = g_new0(char*, parameters.size() + 2);
+        auto parameters = std::exchange(s_UIProcessCommandLineOptions, std::nullopt).value_or(extractGStreamerOptionsFromCommandLine());
         int argc = parameters.size() + 1;
-        argv[0] = g_strdup(FileSystem::currentExecutableName().data());
-        for (unsigned i = 0; i < parameters.size(); i++)
-            argv[i + 1] = g_strdup(parameters[i].utf8().data());
+        char** argv = g_new0(char*, argc + 1);
+        auto argvSpan = unsafeMakeSpan(argv, argc);
+        argvSpan[0] = g_strdup(FileSystem::currentExecutableName().data());
+        for (auto [arg, parameter] : zippedRange(argvSpan.subspan(1), parameters))
+            arg = g_strdup(parameter.utf8().data());
 
         GUniqueOutPtr<GError> error;
         isGStreamerInitialized = gst_init_check(&argc, &argv, &error.outPtr());
@@ -529,7 +555,6 @@ bool ensureGStreamerInitialized()
             if (!disableFastMalloc || disableFastMalloc == "0"_s)
                 gst_allocator_set_default(GST_ALLOCATOR(g_object_new(gst_allocator_fast_malloc_get_type(), nullptr)));
         }
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #if USE(GSTREAMER_MPEGTS)
         if (isGStreamerInitialized)
@@ -545,7 +570,7 @@ bool ensureGStreamerInitialized()
 static bool registerInternalVideoEncoder()
 {
 #if ENABLE(VIDEO)
-    if (auto factory = adoptGRef(gst_element_factory_find("webkitvideoencoder")))
+    if (GRefPtr factory = adoptGRef(gst_element_factory_find("webkitvideoencoder")))
         return false;
     return gst_element_register(nullptr, "webkitvideoencoder", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_VIDEO_ENCODER);
 #endif
@@ -622,7 +647,7 @@ void registerWebKitGStreamerElements()
         // to fallback to MSE when this happens.
         auto hlsSupport = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_ENABLE_HLS_SUPPORT"));
         if (!hlsSupport || hlsSupport == "0"_s) {
-            if (auto factory = adoptGRef(gst_element_factory_find("hlsdemux")))
+            if (GRefPtr factory = adoptGRef(gst_element_factory_find("hlsdemux")))
                 gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
         }
 
@@ -630,7 +655,7 @@ void registerWebKitGStreamerElements()
         // to fallback to MSE when this happens.
         auto dashSupport = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_ENABLE_DASH_SUPPORT"));
         if (!dashSupport || dashSupport == "0"_s) {
-            if (auto factory = adoptGRef(gst_element_factory_find("dashdemux")))
+            if (GRefPtr factory = adoptGRef(gst_element_factory_find("dashdemux")))
                 gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
         }
 
@@ -640,13 +665,13 @@ void registerWebKitGStreamerElements()
         if (gst_check_version(1, 22, 0)) {
             std::array<ASCIILiteral, 3> elementNames = { "dashdemux2"_s, "hlsdemux2"_s, "mssdemux2"_s };
             for (auto& elementName : elementNames) {
-                if (auto factory = adoptGRef(gst_element_factory_find(elementName)))
+                if (GRefPtr factory = adoptGRef(gst_element_factory_find(elementName)))
                     gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
             }
         }
 
         // Make sure isofmp4mux is auto-plugged in transcodebin pipelines.
-        if (auto factory = adoptGRef(gst_element_factory_find("isofmp4mux")))
+        if (GRefPtr factory = adoptGRef(gst_element_factory_find("isofmp4mux")))
             gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_PRIMARY + 1);
 
         // The VAAPI plugin is not much maintained anymore and prone to rendering issues. In the
@@ -655,14 +680,14 @@ void registerWebKitGStreamerElements()
         auto enableLegacyVAAPIPlugin = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_ENABLE_LEGACY_VAAPI"));
         if (enableLegacyVAAPIPlugin.isEmpty() || enableLegacyVAAPIPlugin == "0"_s) {
             auto* registry = gst_registry_get();
-            if (auto vaapiPlugin = adoptGRef(gst_registry_find_plugin(registry, "vaapi")))
+            if (GRefPtr vaapiPlugin = adoptGRef(gst_registry_find_plugin(registry, "vaapi")))
                 gst_registry_remove_plugin(registry, vaapiPlugin.get());
         }
 
         // Disable the pipewire device provider, usually the pulseaudio and v4l2 device providers would
         // be preferred anyway and pipewiresink is currently prone to deadlocks:
         // https://gitlab.freedesktop.org/pipewire/pipewire/-/issues/5171
-        if (auto pipewireDeviceProviderFactory = adoptGRef(gst_device_provider_factory_find("pipewiredeviceprovider")))
+        if (GRefPtr pipewireDeviceProviderFactory = adoptGRef(gst_device_provider_factory_find("pipewiredeviceprovider")))
             gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(pipewireDeviceProviderFactory.get()), GST_RANK_NONE);
 
         // Make sure the quirks are created as early as possible.
@@ -700,11 +725,15 @@ static HashMap<String, GRefPtr<GstElement>>& activePipelinesMap()
     return activePipelines.get();
 }
 
-void registerActivePipeline(const GRefPtr<GstElement>& pipeline)
+void registerActivePipeline(const GRefPtr<GstElement>& pipeline, const String& pipelineName)
 {
-    auto name = GMallocString::unsafeAdoptFromUTF8(gst_object_get_name(GST_OBJECT_CAST(pipeline.get())));
+    String key = pipelineName;
+    if (key.isEmpty()) {
+        auto name = GMallocString::unsafeAdoptFromUTF8(gst_object_get_name(GST_OBJECT_CAST(pipeline.get())));
+        key = name.span();
+    }
     Locker locker { s_activePipelinesMapLock };
-    activePipelinesMap().add(name.span(), GRefPtr<GstElement>(pipeline));
+    activePipelinesMap().add(key, GRefPtr<GstElement>(pipeline));
 }
 
 void unregisterPipeline(const GRefPtr<GstElement>& pipeline)
@@ -714,7 +743,13 @@ void unregisterPipeline(const GRefPtr<GstElement>& pipeline)
     activePipelinesMap().remove(name.span());
 }
 
-void WebCoreLogObserver::didLogMessage(const WTFLogChannel& channel, WTFLogLevel level, Vector<JSONLogValue>&& values)
+void unregisterPipeline(const String& pipelineName)
+{
+    Locker locker { s_activePipelinesMapLock };
+    activePipelinesMap().remove(pipelineName);
+}
+
+void WebCoreLogObserver::didLogMessage(const WTFLogChannel& channel, WTFLogLevel level, std::optional<WTFLogLocation> location, Vector<JSONLogValue>&& values)
 {
 #ifndef GST_DISABLE_GST_DEBUG
     if (!shouldEmitLogMessage(channel))
@@ -725,23 +760,11 @@ void WebCoreLogObserver::didLogMessage(const WTFLogChannel& channel, WTFLogLevel
         builder.append(value);
 
     auto logString = builder.toString();
-    GstDebugLevel gstDebugLevel;
-    switch (level) {
-    case WTFLogLevel::Error:
-        gstDebugLevel = GST_LEVEL_ERROR;
-        break;
-    case WTFLogLevel::Debug:
-        gstDebugLevel = GST_LEVEL_DEBUG;
-        break;
-    case WTFLogLevel::Always:
-    case WTFLogLevel::Info:
-        gstDebugLevel = GST_LEVEL_INFO;
-        break;
-    case WTFLogLevel::Warning:
-        gstDebugLevel = GST_LEVEL_WARNING;
-        break;
-    };
-    gst_debug_log(debugCategory(), gstDebugLevel, __FILE__, __FUNCTION__, __LINE__, nullptr, "%s", logString.utf8().data());
+    auto gstDebugLevel = gstDebugLevelFromWTFLogLevel(level);
+    const char* file = location ? location->file : __FILE__;
+    const char* function = location ? location->function : __FUNCTION__;
+    int line = location ? location->line : __LINE__;
+    gst_debug_log(debugCategory(), gstDebugLevel, file, function, line, nullptr, "%s", logString.utf8().data());
 #else
     UNUSED_PARAM(channel);
     UNUSED_PARAM(level);
@@ -784,7 +807,7 @@ void deinitializeGStreamer()
     bool isLeaksTracerActive = false;
     auto activeTracers = gst_tracing_get_active_tracers();
     while (activeTracers) {
-        auto tracer = adoptGRef(GST_TRACER_CAST(activeTracers->data));
+        GRefPtr tracer = adoptGRef(GST_TRACER_CAST(activeTracers->data));
         if (!isLeaksTracerActive && equal(unsafeSpan(G_OBJECT_TYPE_NAME(G_OBJECT(tracer.get()))), "GstLeaksTracer"_s))
             isLeaksTracerActive = true;
         activeTracers = g_list_delete_link(activeTracers, activeTracers);
@@ -891,21 +914,21 @@ GstMappedFrame::GstMappedFrame(GstMappedFrame&& other)
 {
     std::swap(m_frame, other.m_frame);
     other.m_frame.buffer = nullptr;
-}
-
-GstMappedFrame::GstMappedFrame(GstBuffer* buffer, const GstVideoInfo* info, GstMapFlags flags)
-{
-    // This cast can be removed once the GStreamer minimum version is raised to 1.20
-    gst_video_frame_map(&m_frame, const_cast<GstVideoInfo*>(info), buffer, flags);
+    std::swap(m_alignment, other.m_alignment);
+    std::swap(m_planeSizes, other.m_planeSizes);
 }
 
 GstMappedFrame::GstMappedFrame(const GRefPtr<GstSample>& sample, GstMapFlags flags)
 {
     GstVideoInfo info;
-    if (!gst_video_info_from_caps(&info, gst_sample_get_caps(sample.get())))
+    if (!getSampleVideoInfo(sample.get(), info))
         return;
 
-    gst_video_frame_map(&m_frame, &info, gst_sample_get_buffer(sample.get()), flags);
+    if (!gst_video_frame_map(&m_frame, &info, gst_sample_get_buffer(sample.get()), flags))
+        return;
+
+    gst_video_alignment_reset(&m_alignment);
+    gst_video_info_align_full(&info, &m_alignment, m_planeSizes.data());
 }
 
 GstMappedFrame::~GstMappedFrame()
@@ -974,7 +997,7 @@ std::span<uint8_t> GstMappedFrame::planeData(uint32_t planeIndex) const
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN; // GLib port
     auto data = reinterpret_cast<uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&m_frame, planeIndex));
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_END;
-    return unsafeMakeSpan(data, height() * planeStride(planeIndex));
+    return unsafeMakeSpan(data, planeHeight(planeIndex) * planeStride(planeIndex));
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN; // GLib port
@@ -982,6 +1005,12 @@ int GstMappedFrame::planeStride(uint32_t planeIndex) const
 {
     RELEASE_ASSERT(isValid());
     return GST_VIDEO_FRAME_PLANE_STRIDE(&m_frame, planeIndex);
+}
+
+size_t GstMappedFrame::planeHeight(uint32_t planeIndex) const
+{
+    RELEASE_ASSERT(isValid());
+    return GST_VIDEO_INFO_PLANE_HEIGHT(&m_frame.info, planeIndex, m_planeSizes.data());
 }
 
 #if USE(GSTREAMER_GL)
@@ -1107,7 +1136,7 @@ void disconnectSimpleBusMessageCallback(GstElement* pipeline)
     if (!handler)
         return;
 
-    auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
+    GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
     g_signal_handler_disconnect(bus.get(), handler);
     gst_bus_remove_signal_watch(bus.get());
     g_object_set_qdata(G_OBJECT(pipeline), customMessageHandlerQuark(), nullptr);
@@ -1205,23 +1234,39 @@ static void dispatchSimpleBusMessage(MessageBusData* data, GstMessage* message)
 }
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: emits one message per dispatch, as gst_bus_source_dispatch() does. The bus poll fd
-// stays readable while messages are pending, so the descriptor calls back again on a later run loop pass.
-// The bus and descriptor references cover a handler that tears the pipeline's bus data down.
+// MAVERICKS_BACKPORT: emits one message per dispatch, as gst_bus_source_dispatch() does. Upstream's bus watch is a
+// source at RunLoopDispatcher priority on the run loop's own context: it is served after the RunLoop work already
+// queued, and while messages are pending it is served again on the next iteration. Each emission is therefore
+// queued as RunLoop work, behind tasks a streaming thread dispatched before posting the message, and the next
+// pending message is queued the same way; the descriptor is re-armed once the bus is empty. An invalidated
+// descriptor means the pipeline's bus data was torn down.
+static void dispatchBusMessage(RetainPtr<CFFileDescriptorRef>&& fileDescriptor, GRefPtr<GstBus>&& bus)
+{
+    RunLoop::mainSingleton().dispatch([fileDescriptor = WTF::move(fileDescriptor), bus = WTF::move(bus)]() mutable {
+        if (!CFFileDescriptorIsValid(fileDescriptor.get()))
+            return;
+        if (GRefPtr<GstMessage> message = adoptGRef(gst_bus_pop(bus.get())))
+            gst_bus_async_signal_func(bus.get(), message.get(), nullptr);
+        if (!CFFileDescriptorIsValid(fileDescriptor.get()))
+            return;
+        if (gst_bus_have_pending(bus.get())) {
+            dispatchBusMessage(WTF::move(fileDescriptor), WTF::move(bus));
+            return;
+        }
+        CFFileDescriptorEnableCallBacks(fileDescriptor.get(), kCFFileDescriptorReadCallBack);
+    });
+}
+
 static void busMessagePollFDCallback(CFFileDescriptorRef fileDescriptor, CFOptionFlags, void* info)
 {
     auto* data = static_cast<MessageBusData*>(info);
-    RetainPtr protectedFileDescriptor = fileDescriptor;
-    GRefPtr<GstBus> bus = data->bus;
-    if (GRefPtr<GstMessage> message = adoptGRef(gst_bus_pop(bus.get())))
-        gst_bus_async_signal_func(bus.get(), message.get(), nullptr);
-    CFFileDescriptorEnableCallBacks(protectedFileDescriptor.get(), kCFFileDescriptorReadCallBack);
+    dispatchBusMessage(RetainPtr { fileDescriptor }, GRefPtr { data->bus });
 }
 #endif
 
 void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMessage*)>&& customHandler, AsynchronousPipelineDumping asynchronousPipelineDumping)
 {
-    auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
+    GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
 // MAVERICKS_BACKPORT: upstream's signal-watch registration at RunLoopDispatcher priority. Kept commented, not deleted: this port attaches the bus watch itself with its own priority (see below), so registering upstream's as well would deliver every message twice.
 //     gst_bus_add_signal_watch_full(bus.get(), RunLoopSourcePriority::RunLoopDispatcher);
 // (end MAVERICKS_BACKPORT restored block)
@@ -1284,8 +1329,8 @@ MAVERICKS_BACKPORT */
     // MAVERICKS_BACKPORT: on Cocoa there is no GLib GMainContext pumped on the main thread, so the
     // upstream gst_bus_add_signal_watch() path (a GSource attached to a GMainContext) would never
     // deliver async bus messages. Instead connect the handler to the bus "message" signal (as on GTK),
-    // and pump the bus from a CFRunLoopSource on the bus poll fd (busMessagePollFDCallback), which emits
-    // that signal for each queued message. The MessageBusData is owned by the pipeline qdata; its
+    // and pump the bus from a CFRunLoopSource on the bus poll fd (busMessagePollFDCallback), which queues
+    // the emission of that signal for each pending message as RunLoop work. The MessageBusData is owned by the pipeline qdata; its
     // GDestroyNotify (run on disconnect or pipeline destruction) tears the CF objects + signal handler
     // down before freeing the data.
     data->bus = bus;
@@ -1298,9 +1343,7 @@ MAVERICKS_BACKPORT */
     if (pollFD.fd >= 0) {
         CFFileDescriptorContext context = { 0, data, nullptr, nullptr, nullptr };
         data->busFileDescriptor = adoptCF(CFFileDescriptorCreate(kCFAllocatorDefault, pollFD.fd, false, busMessagePollFDCallback, &context));
-        // MAVERICKS_BACKPORT: GLib dispatches WebKit's earlier-attached work source before the bus.
-        // Order this source after RunLoopCF's order-0 work source to preserve that ordering.
-        data->busRunLoopSource = adoptCF(CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, data->busFileDescriptor.get(), 1));
+        data->busRunLoopSource = adoptCF(CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, data->busFileDescriptor.get(), 0));
         CFRunLoopAddSource(CFRunLoopGetMain(), data->busRunLoopSource.get(), kCFRunLoopCommonModes);
         CFFileDescriptorEnableCallBacks(data->busFileDescriptor.get(), kCFFileDescriptorReadCallBack);
     }
@@ -1398,7 +1441,7 @@ bool webkitGstSetElementStateSynchronously(GstElement* pipeline, GstState target
         return true;
     }
 
-    auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
+    GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
     gst_bus_enable_sync_message_emission(bus.get());
 
     auto cleanup = makeScopeExit([bus = GRefPtr<GstBus>(bus), pipeline, targetState] {
@@ -1418,7 +1461,7 @@ bool webkitGstSetElementStateSynchronously(GstElement* pipeline, GstState target
         return false;
 
     if (result == GST_STATE_CHANGE_ASYNC) {
-        while (auto message = adoptGRef(gst_bus_timed_pop_filtered(bus.get(), GST_CLOCK_TIME_NONE, GST_MESSAGE_STATE_CHANGED))) {
+        while (GRefPtr message = adoptGRef(gst_bus_timed_pop_filtered(bus.get(), GST_CLOCK_TIME_NONE, GST_MESSAGE_STATE_CHANGED))) {
             if (!messageHandler(message.get()))
                 return false;
 
@@ -1811,6 +1854,18 @@ GstClockTime webkitGstInitTime()
 
 PlatformVideoColorSpace videoColorSpaceFromCaps(const GstCaps* caps)
 {
+#if GST_CHECK_VERSION(1, 24, 0)
+    if (gst_video_is_dma_drm_caps(caps)) {
+        GstVideoInfoDmaDrm drmInfo;
+        if (!gst_video_info_dma_drm_from_caps(&drmInfo, caps))
+            return { };
+
+        GstVideoInfo info;
+        if (!gst_video_info_dma_drm_to_video_info(&drmInfo, &info))
+            return { };
+        return videoColorSpaceFromInfo(info);
+    }
+#endif
     GstVideoInfo info;
     if (!gst_video_info_from_caps(&info, caps))
         return { };
@@ -2191,7 +2246,7 @@ GRefPtr<GstBuffer> wrapSpanData(const std::span<const uint8_t>& span)
     Vector<uint8_t> data { span };
     auto bufferSize = data.size();
     auto bufferData = data.mutableSpan().data();
-    auto buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, bufferData, bufferSize, 0, bufferSize, new Vector<uint8_t>(WTF::move(data)), [](gpointer data) {
+    GRefPtr buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, bufferData, bufferSize, 0, bufferSize, new Vector<uint8_t>(WTF::move(data)), [](gpointer data) {
         delete static_cast<Vector<uint8_t>*>(data);
     }));
     return buffer;
@@ -2408,7 +2463,7 @@ bool setGstElementGLContext(GstElement* element, ASCIILiteral contextType)
 
 GstStateChangeReturn gstElementLockAndSetState(GstElement* element, GstState state)
 {
-    auto parent = adoptGRef(gst_element_get_parent(element));
+    GRefPtr parent = adoptGRef(gst_element_get_parent(element));
     if (parent)
         GST_STATE_LOCK(parent.get());
 
@@ -2451,7 +2506,7 @@ GRefPtr<GstElement> createVideoConvertScaleElement(const String& name)
     gst_bin_add_many(GST_BIN_CAST(bin.get()), videoScale, videoConvert, nullptr);
     gst_element_link(videoScale, videoConvert);
 
-    auto pad = adoptGRef(gst_element_get_static_pad(videoScale, "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(videoScale, "sink"));
     gst_element_add_pad(bin.get(), gst_ghost_pad_new("sink", pad.get()));
     pad = adoptGRef(gst_element_get_static_pad(videoConvert, "src"));
     gst_element_add_pad(bin.get(), gst_ghost_pad_new("src", pad.get()));
@@ -2474,6 +2529,22 @@ void dumpBinToDotFile(const GRefPtr<GstElement>& element, const String& filename
 {
     ASSERT(GST_IS_BIN(element.get()));
     dumpBinToDotFile(GST_BIN_CAST(element.get()), filename, details);
+}
+
+GstDebugLevel gstDebugLevelFromWTFLogLevel(WTFLogLevel level)
+{
+    switch (level) {
+    case WTFLogLevel::Error:
+        return GST_LEVEL_ERROR;
+    case WTFLogLevel::Debug:
+        return GST_LEVEL_DEBUG;
+    case WTFLogLevel::Always:
+    case WTFLogLevel::Info:
+        return GST_LEVEL_INFO;
+    case WTFLogLevel::Warning:
+        return GST_LEVEL_WARNING;
+    };
+    return GST_LEVEL_NONE;
 }
 
 #undef GST_CAT_DEFAULT

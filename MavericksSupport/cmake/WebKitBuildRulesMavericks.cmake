@@ -47,7 +47,7 @@ endmacro()
 # click measurement store keys its rows by it, so a driver without one both shares the login session's
 # storage and disagrees with itself across a process relaunch. Upstream's Xcode target takes the
 # identifier from Tools/WebKitTestRunner/Info.plist; a command-line tool carries that plist in a
-# __TEXT,__info_plist section rather than a Contents/Info.plist, the same way TestWebKitCocoa does.
+# __TEXT,__info_plist section rather than a Contents/Info.plist, the same way TestWebKitAPI does.
 macro(_MAVERICKS_STAMP_DRIVER_IDENTITY _target)
     if ("${_target}" STREQUAL "WebKitTestRunner")
         set(PRODUCT_NAME WebKitTestRunner)

@@ -270,6 +270,8 @@ String RemoteLayerTreeTransaction::description() const
         ts.dumpProperty("scrollOrigin"_s, m_scrollOrigin);
 
     ts.dumpProperty("root-layer"_s, m_rootLayerID);
+    if (remoteContextHostedIdentifier())
+        ts.dumpProperty("hosted-identifier"_s, *remoteContextHostedIdentifier());
 
     if (!m_createdLayers.isEmpty()) {
         TextStream::GroupScope group(ts);
@@ -277,6 +279,8 @@ String RemoteLayerTreeTransaction::description() const
         for (const auto& createdLayer : m_createdLayers) {
             TextStream::GroupScope group(ts);
             ts << createdLayer.type <<" " << createdLayer.layerID;
+            if (createdLayer.hostIdentifier())
+                ts << "(host " << *createdLayer.hostIdentifier() << ')';
             switch (createdLayer.type) {
             case WebCore::PlatformCALayer::LayerType::LayerTypeAVPlayerLayer:
                 ts << " (context-id "_s << createdLayer.hostingContextID() << ')';

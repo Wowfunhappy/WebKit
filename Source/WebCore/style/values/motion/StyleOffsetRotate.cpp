@@ -27,57 +27,63 @@
 #include "config.h"
 #include "StyleOffsetRotate.h"
 
+#include "CSSKeywordValue.h"
 #include "CSSOffsetRotateValue.h"
 #include "StyleBuilderState.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
+#include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace Style {
 
-using namespace CSS::Literals;
-
 // MARK: - Conversion
 
 auto CSSValueConversion<OffsetRotate>::operator()(BuilderState& state, const CSSValue& value) -> OffsetRotate
 {
-    RefPtr<const CSSPrimitiveValue> modifierValue;
-    RefPtr<const CSSPrimitiveValue> angleValue;
+    using namespace CSS::Literals;
 
     if (auto* offsetRotateValue = dynamicDowncast<CSSOffsetRotateValue>(value)) {
-        modifierValue = offsetRotateValue->modifier();
-        angleValue = offsetRotateValue->angle();
-    } else if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        // Values coming from CSSTypedOM didn't go through the parser and may not have been converted to a CSSOffsetRotateValue.
-        if (primitiveValue->valueID() == CSSValueAuto || primitiveValue->valueID() == CSSValueReverse)
-            modifierValue = primitiveValue;
-        else if (primitiveValue->isAngle())
-            angleValue = primitiveValue;
+        OffsetRotate::Angle angle = 0_css_deg;
+
+        if (auto* angleValue = offsetRotateValue->angle())
+            angle = toStyleFromCSSValue<OffsetRotate::Angle>(state, *angleValue);
+
+        if (auto* modifierValue = offsetRotateValue->modifier()) {
+            switch (modifierValue->valueID()) {
+            case CSSValueAuto:
+                return OffsetRotate { CSS::Keyword::Auto { }, angle };
+            case CSSValueReverse:
+                angle.value += 180.0f;
+                return OffsetRotate { CSS::Keyword::Auto { }, angle };
+            default:
+                state.setCurrentPropertyInvalidAtComputedValueTime();
+                return CSS::Keyword::Auto { };
+            }
+        }
+
+        return OffsetRotate { std::nullopt, angle };
     }
 
-    std::optional<CSS::Keyword::Auto> autoKeyword;
-    auto angleInDegrees = 0.0f;
-
-    if (angleValue)
-        angleInDegrees = angleValue->resolveAsAngle<float>(state.cssToLengthConversionData());
-
-    if (modifierValue) {
-        switch (modifierValue->valueID()) {
+    // Values coming from CSSTypedOM didn't go through the parser and may not have been converted to a CSSOffsetRotateValue.
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueAuto:
-            autoKeyword = CSS::Keyword::Auto { };
-            break;
+            return OffsetRotate { CSS::Keyword::Auto { }, 0_css_deg };
         case CSSValueReverse:
-            autoKeyword = CSS::Keyword::Auto { };
-            angleInDegrees += 180.0f;
-            break;
+            return OffsetRotate { CSS::Keyword::Auto { }, 180_css_deg };
         default:
-            ASSERT_NOT_REACHED();
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Auto { };
         }
     }
+    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
+        return OffsetRotate { std::nullopt, toStyleFromCSSValue<OffsetRotate::Angle>(state, *primitiveValue) };
 
-    return OffsetRotate { autoKeyword, OffsetRotate::Angle { angleInDegrees } };
+    state.setCurrentPropertyInvalidAtComputedValueTime();
+    return CSS::Keyword::Auto { };
 }
 
 // MARK: - Blending

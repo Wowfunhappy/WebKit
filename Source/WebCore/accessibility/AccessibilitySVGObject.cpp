@@ -28,12 +28,12 @@
 #include "config.h"
 #include "AccessibilitySVGObject.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXObjectCacheInlines.h"
 #include "AXUtilities.h"
 #include "AccessibilityObjectInlines.h"
 #include "ElementChildIteratorInlines.h"
 #include "ElementInlines.h"
-#include "EventTargetInlines.h"
 #include "HTMLNames.h"
 #include "RenderIterator.h"
 #include "RenderObject.h"
@@ -49,6 +49,7 @@
 #include "TypedElementDescendantIteratorInlines.h"
 #include "XLinkNames.h"
 #include <wtf/Language.h>
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
@@ -91,85 +92,124 @@ AccessibilityObject* AccessibilitySVGObject::targetForUseElement() const
     return cache ? cache->getOrCreate(target.element.get()) : nullptr;
 }
 
-template <typename ChildrenType>
-Element* AccessibilitySVGObject::childElementWithMatchingLanguage(ChildrenType& children) const
-{
-    String languageCode = languageIncludingAncestors();
-    if (languageCode.isEmpty())
-        languageCode = defaultLanguage();
-
-    // The best match for a group of child SVG2 'title' or 'desc' elements may be the one
-    // which lacks a 'lang' attribute value. However, indexOfBestMatchingLanguageInList()
-    // currently bases its decision on non-empty strings. Furthermore, we cannot count on
-    // that child element having a given position. So we'll look for such an element while
-    // building the language list and save it as our fallback.
-
-    RefPtr<Element> fallback;
-    Vector<String> childLanguageCodes;
-    Vector<Element*> elements;
-    for (Ref child : children) {
-        auto& lang = child->attributeWithoutSynchronization(SVGNames::langAttr);
-        childLanguageCodes.append(lang);
-        elements.append(child.ptr());
-
-        // The current draft of the SVG2 spec states if there are multiple equally-valid
-        // matches, the first match should be used.
-        if (lang.isEmpty() && !fallback)
-            fallback = child.ptr();
-    }
-
-    bool exactMatch;
-    size_t index = indexOfBestMatchingLanguageInList(languageCode, childLanguageCodes, exactMatch);
-    if (index < childLanguageCodes.size())
-        return elements[index];
-
-    return fallback.unsafeGet();
-}
-
 void AccessibilitySVGObject::accessibilityText(Vector<AccessibilityText>& textOrder) const
 {
-    String description = this->description();
-    if (!description.isEmpty())
-        textOrder.append(AccessibilityText(WTF::move(description), AccessibilityTextSource::Alternative));
+    // Compute both description and help text together to avoid redundant language
+    // matching, which showed up on samples taken on Speedometer 3.1.
+    auto [titleChild, descChild] = matchingTitleAndDescChildren();
 
-    String helptext = helpText();
+    String descriptionText = descriptionFromTitleChild(titleChild.get());
+    if (!descriptionText.isEmpty())
+        textOrder.append(AccessibilityText(descriptionText, AccessibilityTextSource::Alternative));
+
+    String helptext = helpTextFromChildren(titleChild.get(), descChild.get(), descriptionText);
     if (!helptext.isEmpty())
         textOrder.append(AccessibilityText(WTF::move(helptext), AccessibilityTextSource::Help));
 }
 
-String AccessibilitySVGObject::description() const
+void AccessibilitySVGObject::alternativeText(Vector<AccessibilityText>& textOrder) const
 {
-    // According to the SVG Accessibility API Mappings spec, the order of priority is:
-    // 1. aria-labelledby
-    // 2. aria-label
-    // 3. a direct child title element (selected according to language)
-    // 4. xlink:title attribute
-    // 5. for a use element, the accessible name calculated for the re-used content
-    // 6. for text container elements, the text content
+    // https://w3c.github.io/svg-aam/#mapping_additional_nd
+    // Per SVG-AAM §7.1, the accessible name comes from aria-labelledby/aria-label,
+    // a <title> child, xlink:title (on <a>), the <use> target, or alt (on <image>).
+    // Expose this as Alternative text so host-language parents (e.g. <a> or <button>)
+    // pick it up via textUnderElement when deriving their own accname.
+    String descriptionText = description();
+    if (!descriptionText.isEmpty())
+        textOrder.append(AccessibilityText(WTF::move(descriptionText), AccessibilityTextSource::Alternative));
+}
 
-    String ariaDescription = ariaAccessibilityDescription();
-    if (!ariaDescription.isEmpty())
-        return ariaDescription;
-
+auto AccessibilitySVGObject::matchingTitleAndDescChildren() const -> MatchingLanguageChildren
+{
     RefPtr element = this->element();
-    if (element) {
-        auto titleElements = childrenOfType<SVGTitleElement>(*element);
-        if (RefPtr titleChild = childElementWithMatchingLanguage(titleElements))
-            return titleChild->textContent();
+    if (!element)
+        return { };
+
+    // Iterate over SVG children once, bucketing <title> and <desc> elements,
+    // then do language matching with a single languageIncludingAncestors() call.
+    // This is an optimization based on a profile taken on Speedometer.
+    Vector<String> titleLangs;
+    Vector<Element*> titleElements;
+    RefPtr<Element> titleFallback;
+    bool hasTitleWithLang = false;
+    Vector<String> descLangs;
+    Vector<Element*> descElements;
+    RefPtr<Element> descFallback;
+    bool hasDescWithLang = false;
+
+    for (Ref child : childrenOfType<SVGElement>(*element)) {
+        const auto& lang = child->attributeWithoutSynchronization(SVGNames::langAttr);
+        if (is<SVGTitleElement>(child.get())) {
+            titleLangs.append(lang);
+            titleElements.append(const_cast<Element*>(static_cast<const Element*>(child.ptr())));
+            if (lang.isEmpty()) {
+                if (!titleFallback)
+                    titleFallback = child.ptr();
+            } else
+                hasTitleWithLang = true;
+        } else if (is<SVGDescElement>(child.get())) {
+            descLangs.append(lang);
+            descElements.append(const_cast<Element*>(static_cast<const Element*>(child.ptr())));
+            if (lang.isEmpty()) {
+                if (!descFallback)
+                    descFallback = child.ptr();
+            } else
+                hasDescWithLang = true;
+        }
     }
 
+    // If no child has a lang attribute, language matching can't improve on the
+    // fallback. Skip the expensive languageIncludingAncestors() and NSLocale calls.
+    if (!hasTitleWithLang && !hasDescWithLang)
+        return { WTF::move(titleFallback), WTF::move(descFallback) };
+
+    String languageCode = languageIncludingAncestors();
+    if (languageCode.isEmpty())
+        languageCode = defaultLanguage();
+
+    auto matchInList = [&](Vector<String>& langs, Vector<Element*>& elements, RefPtr<Element>& fallback) -> RefPtr<Element> {
+        bool exactMatch;
+        size_t index = indexOfBestMatchingLanguageInList(languageCode, langs, exactMatch);
+        if (index < langs.size())
+            return elements[index];
+        return fallback;
+    };
+
+    RefPtr titleChild = hasTitleWithLang ? matchInList(titleLangs, titleElements, titleFallback) : WTF::move(titleFallback);
+    RefPtr descChild = hasDescWithLang ? matchInList(descLangs, descElements, descFallback) : WTF::move(descFallback);
+    return { WTF::move(titleChild), WTF::move(descChild) };
+}
+
+String AccessibilitySVGObject::descriptionFromTitleChild(Element* titleChild) const
+{
+    // Priority per SVG AAM: aria-labelledby/label, title child, xlink:title, use target, alt.
+    String result = ariaAccessibilityDescription();
+    if (!result.isEmpty())
+        return result;
+
+    if (titleChild) {
+        result = titleChild->textContent();
+        if (!result.isEmpty())
+            return result;
+    }
+
+    RefPtr element = this->element();
     if (is<SVGAElement>(element.get())) {
         const auto& xlinkTitle = element->attributeWithoutSynchronization(XLinkNames::titleAttr);
         if (!xlinkTitle.isEmpty())
             return xlinkTitle;
     }
 
-    if (RefPtr target = targetForUseElement())
-        return target->description();
+    if (RefPtr target = targetForUseElement()) {
+        // Avoid infinite recursion from circular <use> references by tracking ones we're currently resolving.
+        static NeverDestroyed<HashSet<Element*>> elementsResolvingDescription;
+        if (elementsResolvingDescription->add(element.get()).isNewEntry) {
+            auto result = target->description();
+            elementsResolvingDescription->remove(element.get());
+            return result;
+        }
+    }
 
-    // FIXME: This is here to not break the svg-image.html test. But 'alt' is not
-    // listed as a supported attribute of the 'image' element in the SVG spec:
-    // https://www.w3.org/TR/SVG/struct.html#ImageElement
     if (m_renderer && m_renderer->isRenderOrLegacyRenderSVGImage()) {
         const auto& alt = getAttribute(HTMLNames::altAttr);
         if (!alt.isNull())
@@ -179,36 +219,53 @@ String AccessibilitySVGObject::description() const
     return { };
 }
 
-String AccessibilitySVGObject::helpText() const
+String AccessibilitySVGObject::helpTextFromChildren(Element* titleChild, Element* descChild, const String& descriptionText) const
 {
+    // Priority per SVG AAM: aria-describedby, desc child, use target, title child (if != description).
     RefPtr element = this->element();
     if (!element)
         return { };
 
-    // According to the SVG Accessibility API Mappings spec, the order of priority is:
-    // 1. aria-describedby
-    // 2. a direct child desc element
-    // 3. for a use element, the accessible description calculated for the re-used content
-    // 4. for text container elements, the text content, if not used for the name
-    // 5. a direct child title element that provides a tooltip, if not used for the name
+    String result = ariaDescribedByAttribute();
+    if (!result.isEmpty())
+        return result;
 
-    String describedBy = ariaDescribedByAttribute();
-    if (!describedBy.isEmpty())
-        return describedBy;
-
-    auto descriptionElements = childrenOfType<SVGDescElement>(*element);
-    if (RefPtr descriptionChild = childElementWithMatchingLanguage(descriptionElements))
-        return descriptionChild->textContent();
-
-    if (RefPtr target = targetForUseElement())
-        return target->helpText();
-
-    auto titleElements = childrenOfType<SVGTitleElement>(*element);
-    if (RefPtr titleChild = childElementWithMatchingLanguage(titleElements)) {
-        if (titleChild->textContent() != description())
-            return titleChild->textContent();
+    if (descChild) {
+        result = descChild->textContent();
+        if (!result.isEmpty())
+            return result;
     }
+
+    if (RefPtr target = targetForUseElement()) {
+        // Avoid infinite recursion from circular <use> references by tracking ones we're currently resolving.
+        static NeverDestroyed<HashSet<Element*>> elementsResolvingHelpText;
+        if (elementsResolvingHelpText->add(element.get()).isNewEntry) {
+            auto result = target->helpText();
+            elementsResolvingHelpText->remove(element.get());
+            return result;
+        }
+    }
+
+    if (titleChild) {
+        auto titleText = titleChild->textContent();
+        if (titleText != descriptionText)
+            return titleText;
+    }
+
     return { };
+}
+
+String AccessibilitySVGObject::description() const
+{
+    auto [titleChild, descChild] = matchingTitleAndDescChildren();
+    return descriptionFromTitleChild(titleChild.get());
+}
+
+String AccessibilitySVGObject::helpText() const
+{
+    auto [titleChild, descChild] = matchingTitleAndDescChildren();
+    String descriptionText = descriptionFromTitleChild(titleChild.get());
+    return helpTextFromChildren(titleChild.get(), descChild.get(), descriptionText);
 }
 
 bool AccessibilitySVGObject::hasTitleOrDescriptionChild() const
@@ -308,24 +365,26 @@ AccessibilityRole AccessibilitySVGObject::determineAccessibilityRole()
     if (m_ariaRole != AccessibilityRole::Unknown)
         return m_ariaRole;
 
+    RefPtr element = this->element();
+    if (is<SVGGElement>(element)) {
+        // https://w3c.github.io/svg-aam/#include_elements
+        // g elements are generic (like a div) unless they have a name or is focusable.
+        // Evaluated before the renderer check so display:contents <g> still exposes its role.
+        if (WebCore::hasAccNameAttribute(*element) || hasTitleOrDescriptionChild() || canSetFocusAttribute())
+            return AccessibilityRole::Group;
+        return AccessibilityRole::Generic;
+    }
+
     if (!m_renderer)
         return AccessibilityRole::Unknown;
 
     if (isAccessibilitySVGRoot())
         return AccessibilityRole::Generic;
 
-    RefPtr element = this->element();
     if (m_renderer->isRenderOrLegacyRenderSVGShape() || m_renderer->isRenderOrLegacyRenderSVGPath() || m_renderer->isRenderOrLegacyRenderSVGImage() || is<SVGUseElement>(element))
         return AccessibilityRole::Image;
     if (m_renderer->isRenderOrLegacyRenderSVGForeignObject())
         return AccessibilityRole::Generic;
-    if (is<SVGGElement>(element)) {
-        // https://w3c.github.io/svg-aam/#include_elements
-        // g elements are generic (like a div) unless they have a name or is focusable.
-        if (WebCore::hasAccNameAttribute(*element) || hasTitleOrDescriptionChild() || canSetFocusAttribute())
-            return AccessibilityRole::Group;
-        return AccessibilityRole::Generic;
-    }
     if (m_renderer->isRenderSVGInlineText())
         return AccessibilityRole::StaticText;
     if (m_renderer->isRenderSVGText())

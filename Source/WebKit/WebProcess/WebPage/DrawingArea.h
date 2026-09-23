@@ -49,6 +49,7 @@ class MachSendRight;
 namespace IPC {
 class Connection;
 class Decoder;
+enum class Critical : bool;
 }
 
 namespace WebCore {
@@ -176,7 +177,11 @@ public:
 #if USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
     virtual void updateGeometry(const WebCore::IntSize&, CompletionHandler<void()>&&) = 0;
     virtual bool enterAcceleratedCompositingModeIfNeeded() = 0;
-    virtual void backgroundColorDidChange() { };
+    virtual void backgroundColorDidChange() { }
+#endif
+
+#if USE(COORDINATED_GRAPHICS)
+    virtual void releaseMemory(WTF::Critical) { }
 #endif
 
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM) && (USE(GBM) || OS(ANDROID))

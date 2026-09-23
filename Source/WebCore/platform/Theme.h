@@ -34,7 +34,7 @@ class GraphicsContext;
 
 class Theme {
 public:
-    static Theme& singleton();
+    static Theme& NODELETE singleton();
 
     virtual void drawNamedImage(const String&, GraphicsContext&, const FloatSize&) const;
 

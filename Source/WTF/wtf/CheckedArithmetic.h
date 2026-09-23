@@ -26,6 +26,7 @@
 #pragma once
 
 #include <wtf/Assertions.h>
+#include <wtf/OverflowHandler.h>
 
 #include <limits>
 #include <stdint.h>
@@ -76,67 +77,6 @@ namespace WTF {
 enum class CheckedState {
     DidOverflow,
     DidNotOverflow
-};
-
-class AssertNoOverflow {
-public:
-    static NO_RETURN_DUE_TO_ASSERT void overflowed()
-    {
-        ASSERT_NOT_REACHED();
-    }
-
-    void clearOverflow() { }
-
-    static NO_RETURN_DUE_TO_CRASH void crash()
-    {
-        CRASH();
-    }
-
-public:
-    constexpr bool hasOverflowed() const { return false; }
-};
-
-class CrashOnOverflow {
-public:
-    static NO_RETURN_DUE_TO_CRASH void overflowed()
-    {
-        crash();
-    }
-
-    void clearOverflow() { }
-
-    static NO_RETURN_DUE_TO_CRASH void crash()
-    {
-        CRASH();
-    }
-
-public:
-    bool hasOverflowed() const { return false; }
-};
-
-class RecordOverflow {
-protected:
-    RecordOverflow()
-        : m_overflowed(false)
-    {
-    }
-
-    void clearOverflow()
-    {
-        m_overflowed = false;
-    }
-
-    static NO_RETURN_DUE_TO_CRASH void crash()
-    {
-        CRASH();
-    }
-
-public:
-    bool hasOverflowed() const { return m_overflowed; }
-    void overflowed() { m_overflowed = true; }
-
-private:
-    unsigned char m_overflowed;
 };
 
 template<typename, typename = CrashOnOverflow> class Checked;
@@ -291,7 +231,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
 
     [[nodiscard]] static inline bool add(LHS lhs, RHS rhs, ResultType& result)
     {
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         if constexpr (sizeof(LHS) <= sizeof(uint64_t) || sizeof(RHS) <= sizeof(uint64_t)) {
 #endif
             ResultType temp;
@@ -299,7 +239,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
                 return false;
             result = temp;
             return true;
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         }
 #endif
         if (signsMatch(lhs, rhs)) {
@@ -318,7 +258,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
 
     [[nodiscard]] static inline bool sub(LHS lhs, RHS rhs, ResultType& result)
     {
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         if constexpr (sizeof(LHS) <= sizeof(uint64_t) || sizeof(RHS) <= sizeof(uint64_t)) {
 #endif
             ResultType temp;
@@ -326,7 +266,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
                 return false;
             result = temp;
             return true;
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         }
 #endif
         if (!signsMatch(lhs, rhs)) {
@@ -348,7 +288,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
         // Don't use the builtin if the int128 type is WTF::[U]Int128Impl.
         // Also don't use the builtin for __[u]int128_t on Clang/Linux.
         // See https://bugs.llvm.org/show_bug.cgi?id=16404
-#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX))
+#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX)) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         if constexpr (sizeof(LHS) <= sizeof(uint64_t) || sizeof(RHS) <= sizeof(uint64_t)) {
 #endif
             ResultType temp;
@@ -356,7 +296,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
                 return false;
             result = temp;
             return true;
-#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX))
+#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX)) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         }
 #endif
 #endif
@@ -385,7 +325,9 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
 
     [[nodiscard]] static inline bool divide(LHS lhs, RHS rhs, ResultType& result)
     {
-        if (!rhs)
+        if (!rhs) [[unlikely]]
+            return false;
+        if (rhs == -1 && lhs == std::numeric_limits<ResultType>::min()) [[unlikely]]
             return false;
 
         result = lhs / rhs;
@@ -401,14 +343,14 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
     [[nodiscard]] static inline bool add(LHS lhs, RHS rhs, ResultType& result)
     {
         ResultType temp;
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         if constexpr (sizeof(LHS) <= sizeof(uint64_t) || sizeof(RHS) <= sizeof(uint64_t)) {
 #endif
             if (__builtin_add_overflow(lhs, rhs, &temp))
                 return false;
             result = temp;
             return true;
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         }
 #endif
         temp = lhs + rhs;
@@ -421,14 +363,14 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
     [[nodiscard]] static inline bool sub(LHS lhs, RHS rhs, ResultType& result)
     {
         ResultType temp;
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         if constexpr (sizeof(LHS) <= sizeof(uint64_t) || sizeof(RHS) <= sizeof(uint64_t)) {
 #endif
             if (__builtin_sub_overflow(lhs, rhs, &temp))
                 return false;
             result = temp;
             return true;
-#if !HAVE(INT128_T)
+#if !HAVE(INT128_T) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         }
 #endif
         temp = lhs - rhs;
@@ -444,7 +386,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
         // Don't use the builtin if the int128 type is WTF::Int128Impl.
         // Also don't use the builtin for __int128_t on Clang/Linux.
         // See https://bugs.llvm.org/show_bug.cgi?id=16404
-#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX))
+#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX)) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         if constexpr (sizeof(LHS) <= sizeof(uint64_t) || sizeof(RHS) <= sizeof(uint64_t)) {
 #endif
             ResultType temp;
@@ -452,7 +394,7 @@ template<typename LHS, typename RHS, typename ResultType> struct ArithmeticOpera
                 return false;
             result = temp;
             return true;
-#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX))
+#if !HAVE(INT128_T) || (COMPILER(CLANG) && OS(LINUX)) || HAVE(BROKEN_STATIC_ANALYZER_INT128_OVERFLOW)
         }
 #endif
 #endif
@@ -519,10 +461,12 @@ template<typename ResultType> struct ArithmeticOperations<int, unsigned, ResultT
 
     static inline bool divide(int64_t lhs, int64_t rhs, ResultType& result)
     {
-        if (!rhs)
+        if (!rhs) [[unlikely]]
             return false;
 
         int64_t temp = lhs / rhs;
+        if (!isInBounds<ResultType>(temp)) [[unlikely]]
+            return false;
         result = static_cast<ResultType>(temp);
         return true;
     }
@@ -819,19 +763,19 @@ public:
     }
 
     // Equality comparisons
-    template<typename V> bool operator==(Checked<T, V> rhs)
+    template<typename V> bool operator==(Checked<T, V> rhs) const
     {
         return value() == rhs.value();
     }
 
-    template<typename U> bool operator==(U rhs)
+    template<typename U> bool operator==(U rhs) const
     {
         if (this->hasOverflowed())
             this->crash();
         return safeEquals(m_value, rhs);
     }
     
-    template<typename U, typename V> bool operator==(Checked<U, V> rhs)
+    template<typename U, typename V> bool operator==(Checked<U, V> rhs) const
     {
         return value() == Checked(rhs.value());
     }
@@ -946,15 +890,11 @@ typedef Checked<int64_t, RecordOverflow> CheckedInt64;
 typedef Checked<uint64_t, RecordOverflow> CheckedUint64;
 typedef Checked<size_t, RecordOverflow> CheckedSize;
 
-template<typename T, typename U>
-Checked<T, RecordOverflow> checkedSum(U value)
+template<typename T, typename... Args>
+requires (sizeof...(Args) >= 2)
+Checked<T, RecordOverflow> checkedSum(Args... args)
 {
-    return Checked<T, RecordOverflow>(value);
-}
-template<typename T, typename U, typename... Args>
-Checked<T, RecordOverflow> checkedSum(U value, Args... args)
-{
-    return Checked<T, RecordOverflow>(value) + checkedSum<T>(args...);
+    return (... + Checked<T, RecordOverflow>(args));
 }
 
 template<typename T, typename U, typename V>
@@ -982,15 +922,11 @@ template<typename T> T sumIfNoOverflowOrFirstValue(T firstValue, T secondValue)
     return result.hasOverflowed() ? firstValue : result.value();
 }
 
-template<typename T, typename U>
-Checked<T, RecordOverflow> checkedProduct(U value)
+template<typename T, typename... Args>
+requires (sizeof...(Args) >= 2)
+Checked<T, RecordOverflow> checkedProduct(Args... args)
 {
-    return Checked<T, RecordOverflow>(value);
-}
-template<typename T, typename U, typename... Args>
-Checked<T, RecordOverflow> checkedProduct(U value, Args... args)
-{
-    return Checked<T, RecordOverflow>(value) * checkedProduct<T>(args...);
+    return (... * Checked<T, RecordOverflow>(args));
 }
 
 // Sometimes, you just want to check if some math would overflow - the code to do the math is
@@ -1017,7 +953,6 @@ inline ToType safeCast(FromType value)
 
 }
 
-using WTF::AssertNoOverflow;
 using WTF::Checked;
 using WTF::CheckedState;
 using WTF::CheckedInt8;
@@ -1029,8 +964,6 @@ using WTF::CheckedUint32;
 using WTF::CheckedInt64;
 using WTF::CheckedUint64;
 using WTF::CheckedSize;
-using WTF::CrashOnOverflow;
-using WTF::RecordOverflow;
 using WTF::checkedSum;
 using WTF::checkedDifference;
 using WTF::checkedProduct;

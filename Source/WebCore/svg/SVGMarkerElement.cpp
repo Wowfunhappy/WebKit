@@ -75,13 +75,13 @@ void SVGMarkerElement::attributeChanged(const QualifiedName& name, const AtomStr
         auto propertyValue = SVGPropertyTraits<SVGMarkerUnitsType>::fromString(*this, newValue);
         if (propertyValue != SVGMarkerUnitsType::Unknown)
             Ref { m_markerUnits }->setBaseValInternal<SVGMarkerUnitsType>(propertyValue);
-        return;
+        break;
     }
     case AttributeNames::orientAttr: {
         auto pair = SVGPropertyTraits<std::pair<SVGAngleValue, SVGMarkerOrientType>>::fromString(*this, newValue);
         m_orientAngle->setBaseValInternal(pair.first);
         Ref { m_orientType }->setBaseValInternal(pair.second);
-        return;
+        break;
     }
     case AttributeNames::refXAttr:
         Ref { m_refX }->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, newValue, parseError));
@@ -165,7 +165,7 @@ void SVGMarkerElement::setOrientToAuto()
 
 void SVGMarkerElement::setOrientToAngle(const SVGAngle& angle)
 {
-    m_orientAngle->baseVal()->newValueSpecifiedUnits(angle.unitType(), angle.valueInSpecifiedUnits());
+    protect(m_orientAngle)->baseVal()->newValueSpecifiedUnits(angle.unitType(), angle.valueInSpecifiedUnits());
     invalidateMarkerResource();
 }
 
@@ -175,7 +175,7 @@ void SVGMarkerElement::setOrientToAutoStartReverse()
     invalidateMarkerResource();
 }
 
-RenderPtr<RenderElement> SVGMarkerElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGMarkerElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGResourceMarker>(*this, WTF::move(style));

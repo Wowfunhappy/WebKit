@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/JSString.h>
 #include <WebCore/IDLTypes.h>
 #include <WebCore/JSDOMConvertBase.h>
 #include <WebCore/JSDOMGlobalObject.h>

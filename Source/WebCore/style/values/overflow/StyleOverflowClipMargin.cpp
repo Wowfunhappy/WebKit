@@ -26,8 +26,9 @@
 #include "config.h"
 #include "StyleOverflowClipMargin.h"
 
-#include "CSSPrimitiveValueMappings.h"
 #include "StyleBuilderChecking.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
@@ -35,57 +36,51 @@ namespace Style {
 auto CSSValueConversion<OverflowClipMargin>::operator()(BuilderState& state, const CSSValue& value) -> OverflowClipMargin
 {
     using namespace CSS::Literals;
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        if (primitiveValue->isLength())
-            return { toStyleFromCSSValue<OverflowClipMargin::Length>(state, *primitiveValue) };
 
-        if (primitiveValue->isValueID()) {
-            switch (primitiveValue->valueID()) {
-            case CSSValueBorderBox:
-            case CSSValueContentBox:
-            case CSSValuePaddingBox:
-                return fromCSSValue<VisualBox>(*primitiveValue);
-            default:
-                break;
-            }
+    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
+        return toStyleFromCSSValue<OverflowClipMargin::Length>(state, *primitiveValue);
+
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (auto valueID = keywordValue->valueID(); valueID) {
+        case CSSValueBorderBox:
+        case CSSValueContentBox:
+        case CSSValuePaddingBox:
+            return fromCSSValueID<VisualBox>(valueID);
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return 0_css_px;
         }
-
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return 0_css_px;
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue, 2>(state, value);
-
-    if (!list) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
+    auto list = requiredListDowncast<CSSValueList, CSSValue, 2>(state, value);
+    if (!list)
         return 0_css_px;
-    }
 
     std::optional<VisualBox> referenceBox;
     std::optional<OverflowClipMargin::Length> length;
 
     for (Ref item : *list) {
-        if (item->isValueID()) {
+        if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(item)) {
+            if (length) {
+                state.setCurrentPropertyInvalidAtComputedValueTime();
+                return 0_css_px;
+            }
+            length = toStyleFromCSSValue<OverflowClipMargin::Length>(state, *primitiveValue);
+        } else if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(item)) {
             if (referenceBox) {
                 state.setCurrentPropertyInvalidAtComputedValueTime();
                 return 0_css_px;
             }
-            switch (item->valueID()) {
+            switch (auto valueID = keywordValue->valueID(); valueID) {
             case CSSValueBorderBox:
             case CSSValueContentBox:
             case CSSValuePaddingBox:
-                referenceBox = fromCSSValue<VisualBox>(item);
+                referenceBox = fromCSSValueID<VisualBox>(valueID);
                 break;
             default:
                 state.setCurrentPropertyInvalidAtComputedValueTime();
                 return 0_css_px;
             }
-        } else if (item->isLength()) {
-            if (length) {
-                state.setCurrentPropertyInvalidAtComputedValueTime();
-                return 0_css_px;
-            }
-            length = toStyleFromCSSValue<OverflowClipMargin::Length>(state, item);
         } else {
             state.setCurrentPropertyInvalidAtComputedValueTime();
             return 0_css_px;

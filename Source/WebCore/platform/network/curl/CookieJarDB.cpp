@@ -428,7 +428,7 @@ std::optional<Vector<Cookie>> CookieJarDB::searchCookies(const URL& firstParty, 
         // https://tools.ietf.org/html/rfc6265#section-5.1.4 "Paths and Path-Match"
         bool isPathMatched = cookiePath == requestPath
             || (requestPath.startsWith(cookiePath) && cookiePath.endsWith('/'))
-            || (requestPath.startsWith(cookiePath) && (requestPath.characterAt(cookiePath.length()) == '/'));
+            || (requestPath.startsWith(cookiePath) && (requestPath.codeUnitAt(cookiePath.length()) == '/'));
 
         if (!isPathMatched)
             continue;

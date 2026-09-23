@@ -27,6 +27,7 @@
 #include "config.h"
 #include "WebProcessPool.h"
 
+#include "WebMemoryPressureHandler.h"
 #include "WebProcessCreationParameters.h"
 #include <WebCore/NotImplemented.h>
 
@@ -63,6 +64,8 @@ static void initializeRemoteInspectorServer(StringView address)
 
 void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization)
 {
+    WebKit::installMemoryPressureHandler();
+
 #if ENABLE(REMOTE_INSPECTOR)
     if (const char* address = getenv("WEBKIT_INSPECTOR_SERVER"))
         initializeRemoteInspectorServer(StringView::fromLatin1(address));

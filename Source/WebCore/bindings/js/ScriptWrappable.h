@@ -34,16 +34,18 @@
 #include <JavaScriptCore/Weak.h>
 #include <wtf/TZoneMalloc.h>
 
-namespace WebCore {
+namespace JSC {
+class JSObject;
+}
 
-class JSDOMObject;
+namespace WebCore {
 
 class ScriptWrappable {
     WTF_MAKE_TZONE_ALLOCATED(ScriptWrappable);
 public:
-    inline JSDOMObject* wrapper() const;
-    inline void setWrapper(JSDOMObject*, JSC::WeakHandleOwner*, void*);
-    inline void clearWrapper(JSDOMObject*);
+    inline JSC::JSObject* wrapper() const;
+    inline void setWrapper(JSC::JSObject*, JSC::WeakHandleOwner*, void*);
+    inline void clearWrapper(JSC::JSObject*);
 
     template<typename Derived>
     static constexpr ptrdiff_t offsetOfWrapper() { return CAST_OFFSET(Derived*, ScriptWrappable*) + OBJECT_OFFSETOF(ScriptWrappable, m_wrapper); }
@@ -52,7 +54,7 @@ protected:
     WEBCORE_EXPORT ~ScriptWrappable();
 
 private:
-    JSC::Weak<JSDOMObject> m_wrapper;
+    JSC::Weak<JSC::JSObject> m_wrapper;
 };
 
 } // namespace WebCore

@@ -4,10 +4,6 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "test_utils/CompilerTest.h"
 
 #include "test_utils/angle_test_configs.h"
@@ -109,6 +105,64 @@ void main()
     verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "gl_FragColor");
     verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "gl_FragData[0]");
     verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "gl_FragData[1]");
+}
+
+// Verifies that GL_NV_viewport_array2 is not requested in the shader if multiview is not enabled.
+TEST_P(GLSLOutputGLSLTest_ES3, NoNVMultiviewExtension)
+{
+    constexpr char kFS[] = R"(#version 300 es
+void main()
+{
+})";
+    compileShader(GL_FRAGMENT_SHADER, kFS);
+    verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "#extension GL_NV_viewport_array2");
+}
+
+// Verifies that GL_NV_viewport_array2 is not requested in the shader if multiview is enabled but
+// the selectViewInNvGLSLVertexShader compile flag is set.
+TEST_P(GLSLOutputGLSLTest_ES3, NoNVMultiviewExtensionIfVertexArray)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OVR_multiview"));
+
+    constexpr char kFS[] = R"(#version 300 es
+#extension GL_OVR_multiview : require
+void main()
+{
+})";
+    compileShader(GL_FRAGMENT_SHADER, kFS);
+    if (getEGLWindow()->isFeatureEnabled(Feature::MultiviewViaViewportArray))
+    {
+        verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "#extension GL_NV_viewport_array2");
+    }
+}
+
+// Verifies that GL_OVR_multiview and GL_OVR_multiview2 are not both enabled in the output.
+TEST_P(GLSLOutputGLSLTest_ES3, NoDoubleMultiviewExtension)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OVR_multiview"));
+
+    const size_t kExpect =
+        getEGLWindow()->isFeatureEnabled(Feature::MultiviewViaViewportArray) ? 0 : 1;
+
+    {
+        constexpr char kFS[] = R"(#version 300 es
+#extension GL_OVR_multiview : require
+void main()
+{
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        verifyCountInTranslation(GL_FRAGMENT_SHADER, "#extension GL_OVR_multiview", kExpect);
+    }
+
+    {
+        constexpr char kFS[] = R"(#version 300 es
+#extension GL_OVR_multiview2 : require
+void main()
+{
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        verifyCountInTranslation(GL_FRAGMENT_SHADER, "#extension GL_OVR_multiview", kExpect);
+    }
 }
 
 // Test the initialization of output variables with various qualifiers in a vertex shader.
@@ -339,13 +393,65 @@ void main() {
     for (highp int i = 0; i < 100; ++i) { }
 })";
     compileShader(GL_FRAGMENT_SHADER, kFS);
-    // The AST transformation (EnsureLoopForwardProgress ) expects a |for| loop, but the IR changes
-    // it to |while| before that's run.  So when the IR is used, the test would fail as the
-    // transformaiton is unable to correctly detect finite loops.
-    //
-    // Once the transformation is ported to the IR, the test verification can be enabled.
-    if (!getEGLWindow()->isFeatureEnabled(Feature::UseIr))
+    verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
+}
+
+// Test that loopForwardProgress() is not inserted when the for loop is obviously not an infinite
+// loop, where the condition involves read-only variables.
+TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, FiniteForWithReadOnlyComparator)
+{
+    // Uniform comparator is read-only and like a constant.
     {
+        constexpr char kFS[] = R"(#version 300 es
+uniform highp int c;
+void main() {
+    for (highp int i = 0; i < c; ++i) { }
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
+    }
+
+    // Uniform from a UBO is read-only and like a constant.
+    {
+        constexpr char kFS[] = R"(#version 300 es
+uniform Block {
+    highp int c;
+};
+void main() {
+    for (highp int i = 0; i < c; ++i) { }
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
+    }
+
+    // Uniform from a UBO, even if indexed and nested, is read-only and like a constant.
+    {
+        constexpr char kFS[] = R"(#version 300 es
+struct S {
+    highp int c[4];
+};
+uniform Block {
+    S s[3];
+} u;
+void main() {
+    for (highp int i = 0; i < u.s[1].c[2]; ++i) { }
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        // The AST transformation does not detect this as finite loop.
+        if (getEGLWindow()->isFeatureEnabled(Feature::UseIr))
+        {
+            verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
+        }
+    }
+
+    // Shader input is read-only and like a constant.
+    {
+        constexpr char kFS[] = R"(#version 300 es
+flat in mediump int v;
+void main() {
+    for (highp int i = 0; i < v; ++i) { }
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
         verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
     }
 }
@@ -353,15 +459,55 @@ void main() {
 // Test that loopForwardProgress() is inserted when the for loop is an infinite loop.
 TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, InfiniteFor)
 {
-    constexpr char kFS[] = R"(#version 300 es
+    // Loop counter resets in the loop body
+    {
+        constexpr char kFS[] = R"(#version 300 es
 void main() {
     for (highp int i = 0; i < 100; i++) { i = 0; }
 })";
-    compileShader(GL_FRAGMENT_SHADER, kFS);
-    if (!getEGLWindow()->isFeatureEnabled(Feature::UseIr))
-    {
+        compileShader(GL_FRAGMENT_SHADER, kFS);
         // One occurrence for defining |loopForwardProgress()|, and one call in the loop.
         verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 1 + 1);
+    }
+
+    // Loop condition is always false
+    {
+        constexpr char kFS[] = R"(precision mediump float;
+void main() {
+    for (int i = 0; i < i + 1; ++i) { }
+    gl_FragColor = vec4(1);
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        // One occurrence for defining |loopForwardProgress()|, and one call in the loop.
+        verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 1 + 1);
+    }
+
+    // Loop variable is modified inside the index of a read-only variable.
+    {
+        constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+
+uniform Block {
+    uint u[3];
+};
+
+out vec4 color;
+
+void main(void) {
+    color = vec4(1, 0, 0, 1);
+    for (uint i = 1u; i < u[--i]; ++i)
+    {
+        color.y += 0.1;
+    }
+})";
+        compileShader(GL_FRAGMENT_SHADER, kFS);
+        // The AST transformation looks at the qualifier for u[--i], sees it's a uniform, and
+        // doesn't realize it modifies |i|.
+        if (getEGLWindow()->isFeatureEnabled(Feature::UseIr))
+        {
+            // One occurrence for defining |loopForwardProgress()|, and one call in the loop.
+            verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 1 + 1);
+        }
     }
 }
 
@@ -380,11 +526,32 @@ void main() {
     }
 })";
     compileShader(GL_FRAGMENT_SHADER, kFS);
-    if (!getEGLWindow()->isFeatureEnabled(Feature::UseIr))
+    // One occurrence for defining |loopForwardProgress()|, and one call in each loop.
+    verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 2 + 1);
+}
+
+// Test that loopForwardProgress() is inserted when the loop variable is global.
+TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, InfiniteForWithGlobal)
+{
+    constexpr char kFS[] = R"(#version 300 es
+highp int i;
+void f()
+{
+    i = 0;
+}
+void main() {
+    for (i = 0; i < 100; i++)
     {
-        // One occurrence for defining |loopForwardProgress()|, and one call in each loop.
-        verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 2 + 1);
+        i = 0;
     }
+    for (i = 0; i < 100; i++)
+    {
+        f();
+    }
+})";
+    compileShader(GL_FRAGMENT_SHADER, kFS);
+    // One occurrence for defining |loopForwardProgress()|, and one call in each loop.
+    verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 2 + 1);
 }
 
 // Test that loopForwardProgress() is not inserted when the for loop is not an infinite loop,
@@ -411,16 +578,17 @@ void main() {
                          "for (uint i = 0u; i < 4294967295u; ++i) { }",
                          "for (uint i = 10u; i > 1u+3u ; --i) { }",
                          "const int z = 7; for (int i = 0; i < z; i++) { }",
-                         "for (int i = 0; i < 10; i++) { for (int j = 0; j < 1000; ++j) { }}"};
+                         "for (int i = 0; i < 10; i++) { for (int j = 0; j < 1000; ++j) { }}",
+                         "for (uint i = 10u; i >= 1u; --i) { }",
+                         "for (uint i = 0u; i <= 10u; ++i) { }",
+                         "for (int i = 0; i <= 2147483646; ++i) { }",
+                         "for (int i = 0; i >= -2147483647; --i) { }"};
 
     for (const char *test : kTests)
     {
         std::string shader = (std::stringstream() << kShaderPrefix << test << kShaderSuffix).str();
         compileShader(GL_FRAGMENT_SHADER, shader.c_str());
-        if (!getEGLWindow()->isFeatureEnabled(Feature::UseIr))
-        {
-            verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
-        }
+        verifyIsNotInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
     }
 }
 
@@ -432,32 +600,87 @@ TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, InfiniteFors)
 precision highp int;
 uniform int a;
 uniform uint b;
+int f() { return 0; }
 void main() {
 
 )";
     const char kShaderSuffix[] = "}\n";
-    const char *kTests[]{"for (;;) { }",
-                         "for (bool b = true; b; b = false) { }",
-                         "for (int i = 0; i < 10;) { }",
-                         "int i = 101; for (; i < 10; i+=2) { }",
-                         "int i = 101; for (; i < 10; i-=2) { }",
-                         "int z = 7; for (int i = 0; i < z; i++) { }",
-                         "for (int i = 0; i < 10; i++) { i++; }",
-                         "for (int i = 0; i < 10;) { i++; }",
-                         "for (int i = 0; i < a/2; i++) { }",
-                         "for (int i = 0; float(i) < 10e10; ++i) { }",
-                         "for (int i = 0; i < 10; i++) { for (int j = 0; j < 1000; ++i) { }}",
-                         "for (int i = 0; i != 1; i+=2) { }"};
+    const char *kTests[]{
+        "for (;;) { }",
+        "for (bool b = true; b; b = false) { }",
+        "for (int i = 0; i < 10;) { }",
+        "int i = 101; for (; i < 10; i+=2) { }",
+        "int i = 101; for (; i < 10; i-=2) { }",
+        "int z = 7; for (int i = 0; i < z; i++) { }",
+        "for (int i = 0; i < 10; i++) { i++; }",
+        "for (int i = 0; i < 10;) { i++; }",
+        "for (int i = 0; i < a/2; i++) { }",
+        "for (int i = 0; float(i) < 10e10; ++i) { }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; j < 1000; ++i) { }}",
+        "for (int i = 0; i != 1; i+=2) { }",
+        "for (int i = 0; i < 1; noop()) { }",
+        "uint i; for (i = 0u; i < 10u; i++) { for (i = 0u; i < 0u; i++) { } }",
+        "for (int i = 0; i < 10; i++) { int j; for (j = 0, i = 0; j < 10; j++) { } }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; i = 0, j < 10; j++) { } }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; j < 10; i = 0, j++) { } }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; j < 10; i--, j++) { } }",
+        "for (int i = 0; i < 10; f()) { }",
+        "for (int i = 0; i < 10; a == 0 ? i++ : i = 0) { }",
+        "for (uint i = 0u; i >= 0u; i--) { }",
+        "for (uint i = 0u; i >= 0u; i++) { }",
+        "for (uint i = 0u; i <= 4294967295u; i++) { }",
+        "for (int i = 0; i <= 2147483647; i++) { }",
+        "for (int i = 0; i >= -2147483647 - 1; i--) { }",
+        "const uint z = 0u; for (uint i = 0u; i >= z; i--) { }",
+        "for (int i = 0; i <= a; i++) { }",
+        "for (uint i = 0u; i >= b; i--) { }"};
 
     for (const char *test : kTests)
     {
+        SCOPED_TRACE(testing::Message() << "test: " << test);
         std::string shader = (std::stringstream() << kShaderPrefix << test << kShaderSuffix).str();
         compileShader(GL_FRAGMENT_SHADER, shader.c_str());
-        if (!getEGLWindow()->isFeatureEnabled(Feature::UseIr))
-        {
-            verifyIsInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
-        }
+        verifyIsInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");
     }
+}
+
+// Test that too-complex expressions are broken up in the IR.  With AST, the shader fails
+// compilation instead.
+TEST_P(WebGLGLSLOutputGLSLTest, ComplexExpression)
+{
+    ANGLE_SKIP_TEST_IF(!getEGLWindow()->isFeatureEnabled(Feature::UseIr));
+
+    std::ostringstream fs;
+    fs << R"(precision highp float;
+            uniform vec4 u_color;
+            void main()
+            {
+               gl_FragColor = u_color)";
+    for (uint32_t i = 0; i < 600; ++i)
+    {
+        fs << "+ vec4(" << i << ")";
+    }
+    fs << "; }";
+    compileShader(GL_FRAGMENT_SHADER, fs.str().c_str());
+    // The output contains (with a lot of parenthesization not shown):
+    //
+    //     webgl_FragColor = vec4(0.0, 0.0, 0.0, 0.0)
+    //               temp1 = _uu_color + vec4(0.0, 0.0, 0.0, 0.0)
+    //                                 + vec4(1.0, 1.0, 1.0, 1.0)
+    //                                 + ...
+    //                                 + vec4(127.0, 127.0, 127.0, 127.0);
+    //               temp2 =     temp1 + vec4(128.0, 128.0, 128.0, 128.0)
+    //                                 + ...
+    //                                 + vec4(255.0, 255.0, 255.0, 255.0);
+    //                    ...
+    //     webgl_FragColor =     temp3 + vec4(512.0, 512.0, 512.0, 512.0)
+    //                                 + ...
+    //                                 + vec4(599.0, 599.0, 599.0, 599.0);
+    verifyIsInTranslation(GL_FRAGMENT_SHADER, "vec4(127.0, 127.0, 127.0, 127.0)));");
+    verifyIsInTranslation(GL_FRAGMENT_SHADER, "vec4(255.0, 255.0, 255.0, 255.0)));");
+    verifyIsInTranslation(GL_FRAGMENT_SHADER, "vec4(383.0, 383.0, 383.0, 383.0)));");
+    verifyIsInTranslation(GL_FRAGMENT_SHADER, "vec4(511.0, 511.0, 511.0, 511.0)));");
+    verifyIsInTranslation(GL_FRAGMENT_SHADER, "vec4(599.0, 599.0, 599.0, 599.0)));");
 }
 }  // namespace
 

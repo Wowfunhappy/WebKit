@@ -26,27 +26,13 @@
 #import "config.h"
 #import "ServiceWorkerRoute.h"
 
-#import <pal/PALSwift.h>
-
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
+#import <pal/system/cocoa/RegexHelper.h>
 
 namespace WebCore {
 
 bool isRegexpMatching(const String& pattern, StringView value, bool shouldIgnoreCase)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
-    return pal::RegexHelper::match(pattern.createNSString().get(), value.createNSString().get(), shouldIgnoreCase);
-#else
-    UNUSED_PARAM(pattern);
-    UNUSED_PARAM(value);
-    UNUSED_PARAM(shouldIgnoreCase);
-    return false;
-#endif
+    return [WebPALRegexHelper matchPattern:pattern.createNSString().get() value:value.createNSString().get() shouldIgnoreCase:shouldIgnoreCase];
 }
 
 }

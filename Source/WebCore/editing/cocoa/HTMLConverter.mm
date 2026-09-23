@@ -103,7 +103,7 @@ NSFont *WebCore::WebDefaultFont()
         NSFont *font = [NSFont fontWithName:@"Helvetica" size:12];
         if (!font)
             font = [NSFont systemFontOfSize:12];
-        return RetainPtr { font };
+        return protect(font);
     }();
     return defaultFont.get().get();
 }

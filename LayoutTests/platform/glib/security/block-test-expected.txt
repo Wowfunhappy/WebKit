@@ -1,5 +1,4 @@
 CONSOLE MESSAGE: Not allowed to use restricted network port 1: http://255.255.255.255:1/test.jpg
-block-test.html - didFinishLoading
 CONSOLE MESSAGE: Not allowed to use restricted network port 7: http://255.255.255.255:7/test.jpg
 CONSOLE MESSAGE: Not allowed to use restricted network port 9: http://255.255.255.255:9/test.jpg
 CONSOLE MESSAGE: Not allowed to use restricted network port 11: http://255.255.255.255:11/test.jpg
@@ -67,25 +66,28 @@ CONSOLE MESSAGE: Not allowed to use restricted network port 6668: http://255.255
 CONSOLE MESSAGE: Not allowed to use restricted network port 6669: http://255.255.255.255:6669/test.jpg
 CONSOLE MESSAGE: Not allowed to use restricted network port 6679: http://255.255.255.255:6679/test.jpg
 CONSOLE MESSAGE: Not allowed to use restricted network port 6697: http://255.255.255.255:6697/test.jpg
-http://255.255.255.255:65535/test.jpg - willSendRequest <NSURLRequest URL http://255.255.255.255:65535/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
-http://255.255.255.255:65535/test.jpg - didFailLoadingWithError: <NSError domain g-io-error-quark, code 38, failing URL "http://255.255.255.255:65535/test.jpg">
 CONSOLE MESSAGE: Not allowed to use restricted network port 0: http://255.255.255.255:0/test.jpg
-http://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL http://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
-http://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain g-io-error-quark, code 38, failing URL "http://255.255.255.255/test.jpg">
-http://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL http://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
-http://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain g-io-error-quark, code 38, failing URL "http://255.255.255.255/test.jpg">
-ftp://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL ftp://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
 CONSOLE MESSAGE: FTP URLs are disabled
 CONSOLE MESSAGE: Cannot load image ftp://255.255.255.255/test.jpg due to access control checks.
-ftp://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain WebKitInternal, code 0, failing URL "ftp://255.255.255.255/test.jpg">
-ftp://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL ftp://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
 CONSOLE MESSAGE: FTP URLs are disabled
 CONSOLE MESSAGE: Cannot load image ftp://255.255.255.255/test.jpg due to access control checks.
-ftp://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain WebKitInternal, code 0, failing URL "ftp://255.255.255.255/test.jpg">
-ftp://255.255.255.255:22/test.jpg - willSendRequest <NSURLRequest URL ftp://255.255.255.255:22/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
 CONSOLE MESSAGE: FTP URLs are disabled
 CONSOLE MESSAGE: Cannot load image ftp://255.255.255.255:22/test.jpg due to access control checks.
-ftp://255.255.255.255:22/test.jpg - didFailLoadingWithError: <NSError domain WebKitInternal, code 0, failing URL "ftp://255.255.255.255:22/test.jpg">
 This test attempts to change the src of an IMG tag to all blocked ports to confirm that WebKit returns the correct error for them - blocked instead of cannot find. It also tries the FTP ports for exemptions. Due to the nature of this test, the results can only be processed automatically via DumpRenderTree
 
 
+block-test.html - willSendRequest <NSURLRequest URL block-test.html, main document URL block-test.html, http method GET> redirectResponse (null)
+block-test.html - didReceiveResponse <NSURLResponse block-test.html, http status code 0>
+block-test.html - didFinishLoading
+http://255.255.255.255:65535/test.jpg - willSendRequest <NSURLRequest URL http://255.255.255.255:65535/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
+http://255.255.255.255:65535/test.jpg - didFailLoadingWithError: <NSError domain g-io-error-quark, code 38, failing URL "http://255.255.255.255:65535/test.jpg">
+http://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL http://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
+http://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain g-io-error-quark, code 38, failing URL "http://255.255.255.255/test.jpg">
+http://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL http://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
+http://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain g-io-error-quark, code 38, failing URL "http://255.255.255.255/test.jpg">
+ftp://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL ftp://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
+ftp://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain WebKitInternal, code 0, failing URL "ftp://255.255.255.255/test.jpg">
+ftp://255.255.255.255/test.jpg - willSendRequest <NSURLRequest URL ftp://255.255.255.255/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
+ftp://255.255.255.255/test.jpg - didFailLoadingWithError: <NSError domain WebKitInternal, code 0, failing URL "ftp://255.255.255.255/test.jpg">
+ftp://255.255.255.255:22/test.jpg - willSendRequest <NSURLRequest URL ftp://255.255.255.255:22/test.jpg, main document URL block-test.html, http method GET> redirectResponse (null)
+ftp://255.255.255.255:22/test.jpg - didFailLoadingWithError: <NSError domain WebKitInternal, code 0, failing URL "ftp://255.255.255.255:22/test.jpg">

@@ -57,7 +57,7 @@ static void webkitTextSinkHandleSample(WebKitTextSink* self, GRefPtr<GstSample>&
     auto* priv = self->priv;
     /* MAVERICKS_BACKPORT: see gstStreamId above.
     if (!priv->streamId) {
-        auto pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
+        GRefPtr pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
         priv->streamId = getStreamIdFromPad(pad.get());
     }
 
@@ -91,7 +91,7 @@ static void webkitTextSinkConstructed(GObject* object)
     priv->appSink = makeGStreamerElement("appsink"_s);
     gst_bin_add(GST_BIN_CAST(sink), priv->appSink.get());
 
-    auto pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
     gst_element_add_pad(GST_ELEMENT_CAST(sink), gst_ghost_pad_new("sink", pad.get()));
 
     // MAVERICKS_BACKPORT: see gstStreamId above. Stream-start and samples arrive on the same streaming thread.
@@ -106,7 +106,7 @@ static void webkitTextSinkConstructed(GObject* object)
         return GST_PAD_PROBE_OK;
     }), priv, nullptr);
 
-    auto textCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
+    GRefPtr textCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
     g_object_set(priv->appSink.get(), "emit-signals", TRUE, "enable-last-sample", FALSE, "caps", textCaps.get(), nullptr);
 
     g_signal_connect(priv->appSink.get(), "new-sample", G_CALLBACK(+[](GstElement* appSink, WebKitTextSink* sink) -> GstFlowReturn {

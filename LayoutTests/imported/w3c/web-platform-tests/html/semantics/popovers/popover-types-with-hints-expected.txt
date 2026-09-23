@@ -1,11 +1,9 @@
 HintAsyncAsync
-Hint anchored to popover
 Hint
 Non-Nested hint
 
 FAIL manuals do not close popovers assert_equals: Error, index 1 (<div popover="hint">Hint</div>) expected false but got true
 FAIL autos close hints but not manuals assert_equals: Error, index 1 (<div popover="hint">Hint</div>) expected false but got true
-FAIL hint is not closed by pre-existing auto assert_equals: Error, index 2 (<div popover="">popover 3</div>) expected false but got true
 FAIL You can nest hint popovers assert_equals: Error, index 1 (<div popover="hint">Nested hint</div>) expected false but got true
 FAIL If a popover=auto is shown, it should hide any open popover=hint, including if the popover=hint is an ancestral popover of the popover=auto. (You can't nest a popover=auto inside a popover=hint) assert_equals: Error, index 0 (<div popover="hint">Hint
     </div>) expected false but got true

@@ -33,6 +33,7 @@
 #include "SyntaxChecker.h"
 #include "VariableEnvironment.h"
 #include <utility>
+#include <wtf/MathExtras.h>
 
 namespace JSC {
 
@@ -182,9 +183,9 @@ public:
     {
         return new (m_parserArena) SuperNode(location);
     }
-    ExpressionNode* createImportExpr(const JSTokenLocation& location, ExpressionNode* expr, ExpressionNode* option, const JSTextPosition& start, const JSTextPosition& divot, const JSTextPosition& end)
+    ExpressionNode* createImportExpr(const JSTokenLocation& location, ExpressionNode* expr, ExpressionNode* option, bool deferred, const JSTextPosition& start, const JSTextPosition& divot, const JSTextPosition& end)
     {
-        auto* node = new (m_parserArena) ImportNode(location, expr, option);
+        auto* node = new (m_parserArena) ImportNode(location, expr, option, deferred);
         setExceptionLocation(node, start, divot, end);
         return node;
     }
@@ -344,9 +345,9 @@ public:
         return node;
     }
 
-    ExpressionNode* createRegExp(const JSTokenLocation& location, const Identifier& pattern, const Identifier& flags, const JSTextPosition& start)
+    ExpressionNode* createRegExp(const JSTokenLocation& location, const Identifier& pattern, const Identifier& flags, const JSTextPosition& start, bool skipSyntaxCheck)
     {
-        if (Yarr::hasError(Yarr::checkSyntax(pattern.string(), flags.string())))
+        if (!skipSyntaxCheck && Yarr::hasError(Yarr::checkSyntax(pattern.string(), flags.string())))
             return nullptr;
         RegExpNode* node = new (m_parserArena) RegExpNode(location, pattern, flags);
         int size = pattern.length() + 2; // + 2 for the two /'s
@@ -388,6 +389,8 @@ public:
             metadata->setEcmaName(ident);
         } else if (rhs->isClassExprNode())
             static_cast<ClassExprNode*>(rhs)->setEcmaName(ident);
+        if (assignmentContext == AssignmentContext::AwaitUsingDeclarationStatement)
+            usesAwait();
         AssignResolveNode* node = new (m_parserArena) AssignResolveNode(location, ident, rhs, assignmentContext);
         setExceptionLocation(node, start, divot, end);
         return node;
@@ -416,6 +419,12 @@ public:
 
     DefineFieldNode* createDefineField(const JSTokenLocation& location, const Identifier& ident, ExpressionNode* initializer, DefineFieldNode::Type type)
     {
+        if (initializer && type != DefineFieldNode::Type::ComputedName) {
+            if (initializer->isBaseFuncExprNode())
+                static_cast<BaseFuncExprNode*>(initializer)->metadata()->setEcmaName(ident);
+            else if (initializer->isClassExprNode())
+                static_cast<ClassExprNode*>(initializer)->setEcmaName(ident);
+        }
         return new (m_parserArena) DefineFieldNode(location, ident, initializer, type);
     }
 
@@ -1067,6 +1076,8 @@ public:
 
     BindingPattern createBindingLocation(const JSTokenLocation&, const Identifier& boundProperty, const JSTextPosition& start, const JSTextPosition& end, AssignmentContext context)
     {
+        if (context == AssignmentContext::AwaitUsingDeclarationStatement)
+            usesAwait();
         return new (m_parserArena) BindingNode(boundProperty, start, end, context);
     }
 
@@ -1327,7 +1338,7 @@ ExpressionNode* ASTBuilder::makeDivNode(const JSTokenLocation& location, Express
         const NumberNode& numberExpr1 = static_cast<NumberNode&>(*expr1);
         const NumberNode& numberExpr2 = static_cast<NumberNode&>(*expr2);
         double result = numberExpr1.value() / numberExpr2.value();
-        if (static_cast<int64_t>(result) == result)
+        if (truncateDoubleToInt64(result) == result)
             return createNumberFromBinaryOperation(location, result, numberExpr1, numberExpr2);
         return createDoubleLikeNumber(location, result);
     }

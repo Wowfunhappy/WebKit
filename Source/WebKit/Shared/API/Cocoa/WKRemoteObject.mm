@@ -52,7 +52,7 @@
     return [super conformsToProtocol:protocol] || protocol_conformsToProtocol(retainPtr([_interface protocol]).get(), protocol);
 }
 
-static const char* methodArgumentTypeEncodingForSelector(Protocol *protocol, SEL selector)
+static const char* wkRemoteObject_methodArgumentTypeEncodingForSelector(Protocol *protocol, SEL selector)
 {
     // First look at required methods.
     struct objc_method_description method = protocol_getMethodDescription(protocol, selector, YES, YES);
@@ -74,7 +74,7 @@ static const char* methodArgumentTypeEncodingForSelector(Protocol *protocol, SEL
 
     RetainPtr protocol = [_interface protocol];
 
-    const char* types = methodArgumentTypeEncodingForSelector(protocol.get(), selector);
+    const char* types = wkRemoteObject_methodArgumentTypeEncodingForSelector(protocol.get(), selector);
     if (!types) {
         // We didn't find anything the protocol, fall back to the superclass.
         return [super methodSignatureForSelector:selector];

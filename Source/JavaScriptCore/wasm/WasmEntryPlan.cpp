@@ -229,10 +229,10 @@ void EntryPlan::compileFunctions()
     for (uint32_t index = functionIndex; index < functionIndexEnd; ++index)
         compileFunction(FunctionCodeIndex(index));
 
-    if (m_moduleInformation->m_usesModernExceptions.loadRelaxed() && m_moduleInformation->m_usesLegacyExceptions.loadRelaxed()) {
+    {
         Locker locker { m_lock };
-        fail(makeString("Module uses both legacy exceptions and try_table"_s));
-        return;
+        if (failIfMixedExceptionHandlingProposals())
+            return;
     }
 
     if (!areWasmToWasmStubsCompiled) {
@@ -265,6 +265,16 @@ void EntryPlan::complete()
         moveToState(State::Completed);
         runCompletionTasks();
     }
+}
+
+bool EntryPlan::failIfMixedExceptionHandlingProposals()
+{
+    if (m_moduleInformation->m_usesModernExceptions.loadRelaxed()
+        && m_moduleInformation->m_usesLegacyExceptions.loadRelaxed()) {
+        fail(makeString("Module uses both legacy exceptions and try_table"_s));
+        return true;
+    }
+    return false;
 }
 
 bool EntryPlan::completeSyncIfPossible()
@@ -302,7 +312,7 @@ void EntryPlan::generateStubsIfNecessary()
 
 bool EntryPlan::generateWasmToWasmStubs()
 {
-    m_wasmToWasmExitStubs.resize(m_moduleInformation->importFunctionTypeIndices.size());
+    m_wasmToWasmExitStubs.resize(m_moduleInformation->importFunctionTypeSignatureIndices.size());
     unsigned importFunctionIndex = 0;
     for (unsigned importIndex = 0; importIndex < m_moduleInformation->imports.size(); ++importIndex) {
         Import* import = &m_moduleInformation->imports[importIndex];
@@ -312,7 +322,7 @@ bool EntryPlan::generateWasmToWasmStubs()
 
 #if ENABLE(JIT)
         if (Options::useJIT()) {
-            auto binding = wasmToWasm(importFunctionIndex);
+            auto binding = wasmToWasm(m_moduleInformation, importFunctionIndex);
             if (!binding) [[unlikely]]
                 return false;
             m_wasmToWasmExitStubs[importFunctionIndex++] = binding.value();
@@ -333,9 +343,8 @@ bool EntryPlan::generateWasmToJSStubs()
     m_wasmToJSExitStubs.resize(importFunctionCount);
     for (unsigned importIndex = 0; importIndex < importFunctionCount; ++importIndex) {
 #if ENABLE(JIT)
-        Wasm::TypeIndex typeIndex = m_moduleInformation->importFunctionTypeIndices.at(importIndex);
         if (Options::useJIT()) {
-            auto binding = wasmToJS(typeIndex, importIndex);
+            auto binding = wasmToJS(m_moduleInformation, importIndex);
             if (!binding) [[unlikely]]
                 return false;
             m_wasmToJSExitStubs[importIndex] = binding.value();

@@ -39,7 +39,7 @@ class GStreamerVideoFrameLibWebRTC : public webrtc::RefCountedObject<webrtc::Vid
 public:
     static webrtc::scoped_refptr<webrtc::VideoFrameBuffer> create(GRefPtr<GstSample>&&);
 
-    const GRefPtr<GstSample>& sample() const { return m_sample; }
+    const GRefPtr<GstSample>& sample() const LIFETIME_BOUND { return m_sample; }
 
     // webrtc::VideoFrameBuffer interface.
     webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() final;

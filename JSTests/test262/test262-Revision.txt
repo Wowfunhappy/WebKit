@@ -1,2 +1,2 @@
 test262 remote url: https://github.com/tc39/test262.git
-test262 revision: ab1590d83d0ca04d9df620a6cbbd542b8325c83a
+test262 revision: 4249661388e5d3f92a85186213da140a6481490f

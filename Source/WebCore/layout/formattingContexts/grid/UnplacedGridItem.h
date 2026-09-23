@@ -94,7 +94,7 @@ private:
     friend class GridFormattingContext;
     friend class GridLayout;
     friend class PlacedGridItem;
-    friend void add(Hasher&, const WebCore::Layout::UnplacedGridItem&);
+    friend void NODELETE add(Hasher&, const WebCore::Layout::UnplacedGridItem&);
 };
 
 // https://drafts.csswg.org/css-grid-1/#auto-placement-algo

@@ -21,6 +21,7 @@
 #pragma once
 
 #include "JSWorkletGlobalScope.h"
+#include <WebCore/JSDOMBindingFacade.h>
 #include <WebCore/JSDOMWrapper.h>
 
 namespace WebCore {
@@ -31,21 +32,12 @@ class JSPaintWorkletGlobalScope : public JSWorkletGlobalScope {
 public:
     using Base = JSWorkletGlobalScope;
     using DOMWrapped = PaintWorkletGlobalScope;
-    static JSPaintWorkletGlobalScope* create(JSC::VM& vm, JSC::Structure* structure, Ref<PaintWorkletGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
-    {
-        JSPaintWorkletGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSPaintWorkletGlobalScope>(vm)) JSPaintWorkletGlobalScope(vm, structure, WTF::move(impl));
-        ptr->finishCreation(vm, proxy);
-        return ptr;
-    }
+    static JSPaintWorkletGlobalScope* create(JSC::VM&, JSC::Structure*, Ref<PaintWorkletGlobalScope>&&, JSC::JSGlobalProxy*);
 
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -87,10 +79,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSPaintWorkletGlobalScopePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSPaintWorkletGlobalScopePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)

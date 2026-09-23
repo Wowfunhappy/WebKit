@@ -48,6 +48,7 @@
 #import <WebCore/ExceptionData.h>
 #import <WebCore/UnvalidatedDigitalCredentialRequest.h>
 #import <WebCore/ValidatedMobileDocumentRequest.h>
+#import <WebCore/X509SubjectKeyIdentifier.h>
 #import <WebKit/WKIdentityDocumentPresentmentController.h>
 #import <WebKit/WKIdentityDocumentPresentmentError.h>
 #import <WebKit/WKIdentityDocumentPresentmentMobileDocumentRequest.h>
@@ -129,6 +130,21 @@ using WebCore::DigitalCredentialPresentationProtocol;
 
 #pragma mark - Adapter functions
 
+static RetainPtr<NSArray<NSData *>> mapIssuerIdentifiersFromX509Identifiers(const std::optional<WebCore::ISO18013IssuerIdentifiers>& identifiers)
+{
+    if (!identifiers || identifiers->isEmpty())
+        return nil;
+
+    RetainPtr mappedIdentifiers = adoptNS([[NSMutableArray alloc] initWithCapacity:identifiers->size()]);
+
+    for (const auto& identifier : *identifiers) {
+        RetainPtr nsData = toNSData(identifier.data);
+        [mappedIdentifiers addObject:nsData.get()];
+    }
+
+    return mappedIdentifiers;
+}
+
 static RetainPtr<NSArray<WKIdentityDocumentPresentmentMobileDocumentIndividualDocumentRequest *>> mapDocumentRequests(const Vector<WebCore::ISO18013DocumentRequest>& documentRequests)
 {
     RetainPtr<NSMutableArray<WKIdentityDocumentPresentmentMobileDocumentIndividualDocumentRequest *>> mappedDocumentRequests = adoptNS([[NSMutableArray alloc] init]);
@@ -152,7 +168,10 @@ static RetainPtr<NSArray<WKIdentityDocumentPresentmentMobileDocumentIndividualDo
         }
 
         RetainPtr documentType = validatedDocumentRequest.documentType.createNSString();
-        RetainPtr mappedDocumentRequest = adoptNS([WebKit::allocWKIdentityDocumentPresentmentMobileDocumentIndividualDocumentRequestInstance() initWithDocumentType:documentType.get() namespaces:namespaces.get()]);
+
+        RetainPtr issuerIdentifiers = mapIssuerIdentifiersFromX509Identifiers(validatedDocumentRequest.requestInfo ? validatedDocumentRequest.requestInfo->issuerIdentifiers : std::nullopt);
+
+        RetainPtr mappedDocumentRequest = adoptNS([WebKit::allocWKIdentityDocumentPresentmentMobileDocumentIndividualDocumentRequestInstance() initWithDocumentType:documentType.get() namespaces:namespaces.get() issuerIdentifiers:issuerIdentifiers.get()]);
         [mappedDocumentRequests addObject:mappedDocumentRequest.get()];
     }
 
@@ -366,7 +385,7 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
 {
     if (!response && !error) {
         LOG(DigitalCredentials, "No response or error from document provider.");
-        WebCore::ExceptionData exceptionData = { ExceptionCode::UnknownError, "No response from document provider."_s };
+        WebCore::ExceptionData exceptionData = { ExceptionCode::OperationError, "No response from document provider."_s };
         [self completeWith:makeUnexpected(exceptionData)];
         return;
     }
@@ -420,12 +439,9 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
     case WKIdentityDocumentPresentmentErrorRequestInProgress:
         exceptionData = { ExceptionCode::InvalidStateError, "Request already in progress."_s };
         break;
-    case WKIdentityDocumentPresentmentErrorCancelled:
-        exceptionData = { ExceptionCode::AbortError, "Request was cancelled."_s };
-        break;
     default:
         LOG(DigitalCredentials, "The error code was not in the case statement? %zd.", error.code);
-        exceptionData = { ExceptionCode::UnknownError, "Some other error."_s };
+        exceptionData = { ExceptionCode::OperationError, "The credential request failed."_s };
         RetainPtr debugDescription = error.userInfo[NSDebugDescriptionErrorKey] ?: error.userInfo[NSLocalizedDescriptionKey];
         LOG(DigitalCredentials, "Internal error: %@", debugDescription ? debugDescription.get() : @"Unknown error with no description.");
         break;
@@ -438,9 +454,7 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
             consoleMessage = makeString(consoleMessage, " ("_s, String(debugDescription.get()), ")"_s);
 
         auto targetFrameID = page->focusedFrame() ? page->focusedFrame()->frameID() : page->mainFrame()->frameID();
-        auto logLevel = exceptionData.code == ExceptionCode::AbortError ? MessageLevel::Warning : MessageLevel::Error;
-
-        page->addConsoleMessage(targetFrameID, MessageSource::JS, logLevel, makeString("Digital Credential request failed: "_s, consoleMessage));
+        page->addConsoleMessage(targetFrameID, MessageSource::JS, MessageLevel::Error, makeString("Digital Credential request failed: "_s, consoleMessage));
     }
 
     [self completeWith:makeUnexpected(exceptionData)];

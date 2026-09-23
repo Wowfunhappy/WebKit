@@ -1,6 +1,7 @@
 /*
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
  * Copyright (C) 2004, 2005, 2006, 2007, 2008, 2012, 2013, 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -110,19 +111,11 @@ CSSUnitCategory unitCategory(CSSUnitType type)
     case CSSUnitType::CSS_CQB:
     case CSSUnitType::CSS_CQMIN:
     case CSSUnitType::CSS_CQMAX:
-    case CSSUnitType::CSS_ATTR:
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
-    case CSSUnitType::CSS_DIMENSION:
-    case CSSUnitType::CSS_FONT_FAMILY:
-    case CSSUnitType::CSS_IDENT:
-    case CSSUnitType::CSS_PROPERTY_ID:
     case CSSUnitType::CSS_QUIRKY_EM:
-    case CSSUnitType::CSS_STRING:
     case CSSUnitType::CSS_UNKNOWN:
-    case CSSUnitType::CSS_VALUE_ID:
-    case CSSUnitType::CustomIdent:
         return CSSUnitCategory::Other;
     }
     ASSERT_NOT_REACHED();
@@ -202,11 +195,6 @@ TextStream& operator<<(TextStream& ts, CSSUnitType unitType)
     case CSSUnitType::CSS_S: ts << 's'; break;
     case CSSUnitType::CSS_HZ: ts << "hz"_s; break;
     case CSSUnitType::CSS_KHZ: ts << "khz"_s; break;
-    case CSSUnitType::CSS_DIMENSION: ts << "dimension"_s; break;
-    case CSSUnitType::CSS_STRING: ts << "string"_s; break;
-    case CSSUnitType::CSS_IDENT: ts << "ident"_s; break;
-    case CSSUnitType::CustomIdent: ts << "custom-ident"_s; break;
-    case CSSUnitType::CSS_ATTR: ts << "attr"_s; break;
     case CSSUnitType::CSS_VW: ts << "vw"_s; break;
     case CSSUnitType::CSS_VH: ts << "vh"_s; break;
     case CSSUnitType::CSS_VMIN: ts << "vmin"_s; break;
@@ -257,17 +245,20 @@ TextStream& operator<<(TextStream& ts, CSSUnitType unitType)
     case CSSUnitType::CSS_CALC: ts << "calc"_s; break;
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE: ts << "calc_percentage_with_angle"_s; break;
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH: ts << "calc_percentage_with_length"_s; break;
-    case CSSUnitType::CSS_FONT_FAMILY: ts << "font_family"_s; break;
-    case CSSUnitType::CSS_PROPERTY_ID: ts << "property_id"_s; break;
-    case CSSUnitType::CSS_VALUE_ID: ts << "value_id"_s; break;
     case CSSUnitType::CSS_QUIRKY_EM: ts << "quirky_em"_s; break;
     }
     return ts;
 }
 
-double conversionToCanonicalUnitsScaleFactor(CSSUnitType unit)
+std::optional<double> conversionToCanonicalUnitsScaleFactor(CSSUnitType unit)
 {
     switch (unit) {
+    case CSSUnitType::CSS_PX:
+    case CSSUnitType::CSS_DEG:
+    case CSSUnitType::CSS_S:
+    case CSSUnitType::CSS_HZ:
+    case CSSUnitType::CSS_DPPX:
+        return 1.0;
     case CSSUnitType::CSS_MS:
         return CSS::secondsPerMillisecond;
     case CSSUnitType::CSS_CM:
@@ -295,7 +286,7 @@ double conversionToCanonicalUnitsScaleFactor(CSSUnitType unit)
     case CSSUnitType::CSS_KHZ:
         return CSS::hertzPerKilohertz;
     default:
-        return 1.0;
+        return std::nullopt;
     }
 }
 
@@ -369,23 +360,95 @@ bool conversionToCanonicalUnitRequiresConversionData(CSSUnitType unit)
     case CSSUnitType::CSS_DPI:
     case CSSUnitType::CSS_DPCM:
     case CSSUnitType::CSS_FR:
-    case CSSUnitType::CSS_ATTR:
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
-    case CSSUnitType::CSS_DIMENSION:
-    case CSSUnitType::CSS_FONT_FAMILY:
-    case CSSUnitType::CSS_IDENT:
-    case CSSUnitType::CSS_PROPERTY_ID:
     case CSSUnitType::CSS_QUIRKY_EM:
-    case CSSUnitType::CSS_STRING:
     case CSSUnitType::CSS_UNKNOWN:
-    case CSSUnitType::CSS_VALUE_ID:
-    case CSSUnitType::CustomIdent:
         break;
     }
 
     return false;
+}
+
+ASCIILiteral unitTypeString(CSSUnitType unitType)
+{
+    switch (unitType) {
+    case CSSUnitType::CSS_CAP: return "cap"_s;
+    case CSSUnitType::CSS_CH: return "ch"_s;
+    case CSSUnitType::CSS_CM: return "cm"_s;
+    case CSSUnitType::CSS_CQB: return "cqb"_s;
+    case CSSUnitType::CSS_CQH: return "cqh"_s;
+    case CSSUnitType::CSS_CQI: return "cqi"_s;
+    case CSSUnitType::CSS_CQMAX: return "cqmax"_s;
+    case CSSUnitType::CSS_CQMIN: return "cqmin"_s;
+    case CSSUnitType::CSS_CQW: return "cqw"_s;
+    case CSSUnitType::CSS_DEG: return "deg"_s;
+    case CSSUnitType::CSS_DPCM: return "dpcm"_s;
+    case CSSUnitType::CSS_DPI: return "dpi"_s;
+    case CSSUnitType::CSS_DPPX: return "dppx"_s;
+    case CSSUnitType::CSS_DVB: return "dvb"_s;
+    case CSSUnitType::CSS_DVH: return "dvh"_s;
+    case CSSUnitType::CSS_DVI: return "dvi"_s;
+    case CSSUnitType::CSS_DVMAX: return "dvmax"_s;
+    case CSSUnitType::CSS_DVMIN: return "dvmin"_s;
+    case CSSUnitType::CSS_DVW: return "dvw"_s;
+    case CSSUnitType::CSS_EM: return "em"_s;
+    case CSSUnitType::CSS_EX: return "ex"_s;
+    case CSSUnitType::CSS_FR: return "fr"_s;
+    case CSSUnitType::CSS_GRAD: return "grad"_s;
+    case CSSUnitType::CSS_HZ: return "hz"_s;
+    case CSSUnitType::CSS_IC: return "ic"_s;
+    case CSSUnitType::CSS_IN: return "in"_s;
+    case CSSUnitType::CSS_KHZ: return "khz"_s;
+    case CSSUnitType::CSS_LH: return "lh"_s;
+    case CSSUnitType::CSS_LVB: return "lvb"_s;
+    case CSSUnitType::CSS_LVH: return "lvh"_s;
+    case CSSUnitType::CSS_LVI: return "lvi"_s;
+    case CSSUnitType::CSS_LVMAX: return "lvmax"_s;
+    case CSSUnitType::CSS_LVMIN: return "lvmin"_s;
+    case CSSUnitType::CSS_LVW: return "lvw"_s;
+    case CSSUnitType::CSS_MM: return "mm"_s;
+    case CSSUnitType::CSS_MS: return "ms"_s;
+    case CSSUnitType::CSS_PC: return "pc"_s;
+    case CSSUnitType::CSS_PERCENTAGE: return "%"_s;
+    case CSSUnitType::CSS_PT: return "pt"_s;
+    case CSSUnitType::CSS_PX: return "px"_s;
+    case CSSUnitType::CSS_Q: return "q"_s;
+    case CSSUnitType::CSS_RAD: return "rad"_s;
+    case CSSUnitType::CSS_RCAP: return "rcap"_s;
+    case CSSUnitType::CSS_RCH: return "rch"_s;
+    case CSSUnitType::CSS_REM: return "rem"_s;
+    case CSSUnitType::CSS_REX: return "rex"_s;
+    case CSSUnitType::CSS_RIC: return "ric"_s;
+    case CSSUnitType::CSS_RLH: return "rlh"_s;
+    case CSSUnitType::CSS_S: return "s"_s;
+    case CSSUnitType::CSS_SVB: return "svb"_s;
+    case CSSUnitType::CSS_SVH: return "svh"_s;
+    case CSSUnitType::CSS_SVI: return "svi"_s;
+    case CSSUnitType::CSS_SVMAX: return "svmax"_s;
+    case CSSUnitType::CSS_SVMIN: return "svmin"_s;
+    case CSSUnitType::CSS_SVW: return "svw"_s;
+    case CSSUnitType::CSS_TURN: return "turn"_s;
+    case CSSUnitType::CSS_VB: return "vb"_s;
+    case CSSUnitType::CSS_VH: return "vh"_s;
+    case CSSUnitType::CSS_VI: return "vi"_s;
+    case CSSUnitType::CSS_VMAX: return "vmax"_s;
+    case CSSUnitType::CSS_VMIN: return "vmin"_s;
+    case CSSUnitType::CSS_VW: return "vw"_s;
+    case CSSUnitType::CSS_X: return "x"_s;
+
+    case CSSUnitType::CSS_CALC:
+    case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE:
+    case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
+    case CSSUnitType::CSS_INTEGER:
+    case CSSUnitType::CSS_NUMBER:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_UNKNOWN:
+        return ""_s;
+    }
+    ASSERT_NOT_REACHED();
+    return ""_s;
 }
 
 } // namespace WebCore

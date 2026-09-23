@@ -28,7 +28,6 @@
 #include "config.h"
 
 #include <array>
-#include <climits>
 #include <cmath>
 #include <cstdarg>
 

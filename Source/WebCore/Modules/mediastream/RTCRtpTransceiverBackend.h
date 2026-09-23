@@ -31,7 +31,7 @@
 
 namespace WebCore {
 
-struct RTCRtpCodecCapability;
+struct RTCRtpCodec;
 template<typename> class ExceptionOr;
 
 class RTCRtpTransceiverBackend {
@@ -45,7 +45,7 @@ public:
     virtual String mid() = 0;
     virtual void stop() = 0;
     virtual bool stopped() const = 0;
-    virtual ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodecCapability>&) = 0;
+    virtual ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodec>&) = 0;
 
     virtual bool isLibWebRTCRtpTransceiverBackend() const { return false; }
 };

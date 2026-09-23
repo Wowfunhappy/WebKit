@@ -25,14 +25,14 @@
 
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
 namespace Style {
 
 struct SameSizeAsStyleBoxData : public RefCounted<SameSizeAsStyleBoxData> {
-    LengthWrapperData length[6];
+    PrimitiveData length[6];
     VerticalAlign verticalAlign;
     uint8_t bitfield;
     int m_zIndex[2];

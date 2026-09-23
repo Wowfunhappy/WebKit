@@ -34,12 +34,22 @@ body:has(option[value="two"]:checked) main { /* before applying masonry */
     grid-template-rows: auto;
     gap: 1rem;
 }
+@media (max-width: 500px) {
+    body:has(option[value="two"]:checked) main {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
 
 /* ---- Classic Masonry layout ---- */
 body:has(option[value="three"]:checked) main {
     display: grid-lanes;
     grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
     gap: 1rem;
+}
+@media (max-width: 500px) {
+    body:has(option[value="three"]:checked) main {
+        grid-template-columns: repeat(2, 1fr);
+    }
 }
 
 /* ---- First & last columns fixed size ---- */
@@ -48,6 +58,11 @@ body:has(option[value="four"]:checked) main {
     grid-template-columns: 14ch repeat(auto-fill, minmax(28ch, 1fr)) 14ch;
     gap: 1rem;
 }
+@media (max-width: 500px) {
+    body:has(option[value="four"]:checked) main {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
 
 /* ---- Alternating narrow & wide column ---- */
 body:has(option[value="five"]:checked) main {
@@ -55,12 +70,22 @@ body:has(option[value="five"]:checked) main {
     grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr) minmax(14rem, 2fr)) minmax(8rem, 1fr);
     gap: 1rem;
 }
+@media (max-width: 500px) {
+    body:has(option[value="five"]:checked) main {
+        grid-template-columns: 1fr 2fr;
+    }
+}
 
 /* ---- Fibonacci sequence ---- */
 body:has(option[value="ten"]:checked) main {
     display: grid-lanes;
     grid-template-columns: 1fr 1fr 2fr 3fr 5fr 8fr;
     gap: 1rem;
+}
+@media (max-width: 500px) {
+    body:has(option[value="ten"]:checked) main {
+        grid-template-columns: 1fr 1fr 2fr;
+    }
 }
 
 /* ---- Every 5th item is wider ---- */
@@ -70,6 +95,11 @@ body:has(option[value="six"]:checked) main {
     gap: 1rem;
     .card:nth-child(5n) {
         grid-column: span 2;
+    }
+}
+@media (max-width: 500px) {
+    body:has(option[value="six"]:checked) main {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
@@ -86,6 +116,11 @@ body:has(option[value="seven"]:checked) main {
     }
     img {
         border-radius: 0;
+    }
+}
+@media (max-width: 500px) {
+    body:has(option[value="seven"]:checked) main {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
@@ -113,7 +148,7 @@ body:has(option[value="eight"]:checked) {
             overflow: hidden;
         }
         @media (prefers-reduced-motion) {
-            /* There should be mitigation here. 
+            /* There should be mitigation here.
             Make the animation 0 seconds
             Once we figure out where to define the animation */
         }
@@ -122,6 +157,14 @@ body:has(option[value="eight"]:checked) {
         }
         img {
             border-radius: 0;
+        }
+    }
+}
+@media (max-width: 500px) {
+    body:has(option[value="eight"]:checked) main {
+        grid-template-columns: repeat(2, 1fr);
+        .expanded {
+            grid-column: 1 / -1;
         }
     }
 }
@@ -137,6 +180,16 @@ body:has(option[value="nine"]:checked) {
     img {
         width: auto;
         height: 150px;
+    }
+}
+@media (max-width: 500px) {
+    body:has(option[value="nine"]:checked) {
+        main {
+            grid-template-rows: repeat(5, 100px);
+        }
+        img {
+            height: 100px;
+        }
     }
 }
 

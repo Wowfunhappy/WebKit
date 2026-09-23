@@ -158,11 +158,11 @@ void SQLiteIDBTransaction::reset()
     ASSERT(m_blobTemporaryAndStoredFilenames.isEmpty());
 }
 
-std::unique_ptr<SQLiteIDBCursor> SQLiteIDBTransaction::maybeOpenBackingStoreCursor(IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range)
+std::unique_ptr<SQLiteIDBCursor> SQLiteIDBTransaction::maybeOpenBackingStoreCursor(IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range, IndexedDB::CursorDirection cursorDirection)
 {
     ASSERT(inProgressOrReadOnly());
 
-    auto cursor = SQLiteIDBCursor::maybeCreateBackingStoreCursor(*this, objectStoreID, indexID, range);
+    auto cursor = SQLiteIDBCursor::maybeCreateBackingStoreCursor(*this, objectStoreID, indexID, range, cursorDirection);
 
     if (cursor)
         m_backingStoreCursors.add(cursor.get());

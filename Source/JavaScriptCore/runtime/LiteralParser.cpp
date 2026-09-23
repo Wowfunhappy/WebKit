@@ -35,7 +35,6 @@
 #include "ObjectConstructor.h"
 #include <wtf/ASCIICType.h>
 #include <wtf/Range.h>
-#include <wtf/dtoa.h>
 #include <wtf/text/FastCharacterComparison.h>
 #include <wtf/text/MakeString.h>
 
@@ -95,11 +94,20 @@ bool LiteralParser<CharType, reviverMode>::tryJSONPParse(Vector<JSONPData>& resu
             switch (tokenType) {
             case TokLBracket: {
                 entry.m_type = JSONPPathEntryTypeLookup;
-                if (m_lexer.next() != TokNumber)
+                TokenType numberType = m_lexer.next();
+                if (numberType != TokNumber && numberType != TokNumberInt32)
                     return false;
-                double doubleIndex = m_lexer.currentToken()->numberToken;
-                int index = (int)doubleIndex;
-                if (index != doubleIndex || index < 0)
+                auto token = m_lexer.currentToken();
+                int index;
+                if (token->type == TokNumberInt32)
+                    index = token->int32Token;
+                else {
+                    double doubleIndex = token->numberToken;
+                    index = truncateDoubleToInt32(doubleIndex);
+                    if (index != doubleIndex)
+                        return false;
+                }
+                if (index < 0)
                     return false;
                 entry.m_pathIndex = index;
                 if (m_lexer.next() != TokRBracket)
@@ -150,6 +158,9 @@ bool LiteralParser<CharType, reviverMode>::tryJSONPParse(Vector<JSONPData>& resu
 template<typename CharType, JSONReviverMode reviverMode>
 ALWAYS_INLINE bool LiteralParser<CharType, reviverMode>::equalIdentifier(UniquedStringImpl* rep, typename Lexer::LiteralParserTokenPtr token)
 {
+    // In the literal parser, we don't want to follow property addition transitions if the property name is a symbol.
+    if (rep->isSymbol())
+        return false;
     if (token->type == TokIdentifier)
         return WTF::equal(rep, token->identifier());
     ASSERT(token->type == TokString);
@@ -183,23 +194,17 @@ ALWAYS_INLINE Identifier LiteralParser<CharType, reviverMode>::makeIdentifier(VM
 template<typename CharType, JSONReviverMode reviverMode>
 ALWAYS_INLINE JSString* LiteralParser<CharType, reviverMode>::makeJSString(VM& vm, typename Lexer::LiteralParserTokenPtr token)
 {
-    constexpr unsigned maxAtomizeStringLength = 10;
-    if (token->stringIs8Bit) {
-        if (token->stringOrIdentifierLength > maxAtomizeStringLength)
-            return jsNontrivialString(vm, String({ token->stringStart8, token->stringOrIdentifierLength }));
-        return jsString(vm, Identifier::fromString(vm, token->string8()).releaseImpl());
-    }
-    if (token->stringOrIdentifierLength > maxAtomizeStringLength)
-        return jsNontrivialString(vm, String({ token->stringStart16, token->stringOrIdentifierLength }));
-    return jsString(vm, Identifier::fromString(vm, token->string16()).releaseImpl());
+    if (token->stringIs8Bit)
+        return vm.jsonAtomStringCache.makeJSString(token->string8());
+    return vm.jsonAtomStringCache.makeJSString(token->string16());
 }
 
-[[maybe_unused]] static ALWAYS_INLINE bool cannotBeIdentPartOrEscapeStart(Latin1Character)
+[[maybe_unused]] static ALWAYS_INLINE bool NODELETE cannotBeIdentPartOrEscapeStart(Latin1Character)
 {
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-[[maybe_unused]] static ALWAYS_INLINE bool cannotBeIdentPartOrEscapeStart(char16_t)
+[[maybe_unused]] static ALWAYS_INLINE bool NODELETE cannotBeIdentPartOrEscapeStart(char16_t)
 {
     RELEASE_ASSERT_NOT_REACHED();
 }
@@ -727,7 +732,7 @@ static constexpr const bool safeStringLatin1CharactersInStrictJSON[256] = {
 };
 
 template <typename CharType>
-static ALWAYS_INLINE bool isJSONWhiteSpace(const CharType& c)
+static ALWAYS_INLINE bool NODELETE isJSONWhiteSpace(const CharType& c)
 {
     return tokenTypesOfLatin1Characters[static_cast<uint8_t>(c)] == TokErrorSpace && isLatin1(c);
 }
@@ -897,7 +902,7 @@ ALWAYS_INLINE void setParserTokenString<char16_t>(LiteralParserToken<char16_t>& 
 enum class SafeStringCharacterSet { Strict, Sloppy };
 
 template <SafeStringCharacterSet set>
-static ALWAYS_INLINE bool isSafeStringCharacter(Latin1Character c, Latin1Character terminator)
+static ALWAYS_INLINE bool NODELETE isSafeStringCharacter(Latin1Character c, Latin1Character terminator)
 {
     if constexpr (set == SafeStringCharacterSet::Strict)
         return safeStringLatin1CharactersInStrictJSON[c];
@@ -906,7 +911,7 @@ static ALWAYS_INLINE bool isSafeStringCharacter(Latin1Character c, Latin1Charact
 }
 
 template <SafeStringCharacterSet set>
-static ALWAYS_INLINE bool isSafeStringCharacter(char16_t c, char16_t terminator)
+static ALWAYS_INLINE bool NODELETE isSafeStringCharacter(char16_t c, char16_t terminator)
 {
     if (!isLatin1(c))
         return true;
@@ -914,7 +919,7 @@ static ALWAYS_INLINE bool isSafeStringCharacter(char16_t c, char16_t terminator)
 }
 
 template <SafeStringCharacterSet set>
-static ALWAYS_INLINE bool isSafeStringCharacterForIdentifier(char16_t c, char16_t terminator)
+static ALWAYS_INLINE bool NODELETE isSafeStringCharacterForIdentifier(char16_t c, char16_t terminator)
 {
     if constexpr (set == SafeStringCharacterSet::Strict)
         return isSafeStringCharacter<set>(static_cast<Latin1Character>(c), static_cast<Latin1Character>(terminator)) || !isLatin1(c);
@@ -1143,21 +1148,24 @@ TokenType LiteralParser<CharType, reviverMode>::Lexer::lexNumber(LiteralParserTo
     const int numberOfDigitsForSafeInt32 = 9; // The numbers from -999999999 to 999999999 are always in range of Int32.
     if (m_ptr < m_end && (*m_ptr != '.' && *m_ptr != 'e' && *m_ptr != 'E') && (m_ptr - start) <= numberOfDigitsForSafeInt32) {
         int32_t result = 0;
-        token.type = TokNumber;
         const CharType* cursor = start;
         do {
             result = result * 10 + (*cursor++) - '0';
         } while (cursor < m_ptr);
 
-        if (!negative)
-            token.numberToken = result;
-        else {
-            if (!result)
-                token.numberToken = -0.0;
-            else
-                token.numberToken = -result;
+        if (!negative) [[likely]] {
+            token.type = TokNumberInt32;
+            token.int32Token = result;
+            return TokNumberInt32;
         }
-        return TokNumber;
+        if (!result) [[unlikely]] {
+            token.type = TokNumber;
+            token.numberToken = -0.0;
+            return TokNumber;
+        }
+        token.type = TokNumberInt32;
+        token.int32Token = -result;
+        return TokNumberInt32;
     }
 
     size_t parsedLength = 0;
@@ -1238,6 +1246,11 @@ ALWAYS_INLINE JSValue LiteralParser<CharType, reviverMode>::parsePrimitiveValue(
     switch (m_lexer.currentToken()->type) {
     case TokString: {
         JSString* result = makeJSString(vm, m_lexer.currentToken());
+        m_lexer.next();
+        return result;
+    }
+    case TokNumberInt32: {
+        JSValue result = jsNumber(m_lexer.currentToken()->int32Token);
         m_lexer.next();
         return result;
     }
@@ -1433,9 +1446,9 @@ JSValue LiteralParser<CharType, reviverMode>::parseRecursively(VM& vm, uint8_t* 
                 PropertyOffset offset;
             };
 
-            auto* structure = object->structure();
+            auto* originalStructure = object->structure();
             auto property = [&, &vm = vm] ALWAYS_INLINE_LAMBDA -> Variant<ExistingProperty, Identifier> {
-                if (Structure* transition = structure->trySingleTransition()) {
+                if (Structure* transition = originalStructure->trySingleTransition()) {
                     // This check avoids hash lookup and refcount churn in the common case of a matching single transition.
                     SUPPRESS_UNCOUNTED_ARG if (transition->transitionKind() == TransitionKind::PropertyAddition
                         && !transition->transitionPropertyAttributes()
@@ -1445,11 +1458,11 @@ JSValue LiteralParser<CharType, reviverMode>::parseRecursively(VM& vm, uint8_t* 
                         else if (transition->transitionPropertyName() != vm.propertyNames->underscoreProto && m_visitedUnderscoreProto.isEmpty())
                             return ExistingProperty { transition, transition->transitionOffset() };
                     }
-                } else if (!structure->isDictionary()) {
+                } else if (!originalStructure->isDictionary()) {
                     // This check avoids refcount churn in the common case of a cached Identifier.
                     if (SUPPRESS_UNCOUNTED_LOCAL AtomStringImpl* ident = existingIdentifier(vm, m_lexer.currentToken())) {
                         PropertyOffset offset = 0;
-                        Structure* newStructure = Structure::addPropertyTransitionToExistingStructure(structure, ident, 0, offset);
+                        Structure* newStructure = Structure::addPropertyTransitionToExistingStructure(originalStructure, ident, 0, offset);
                         if (newStructure) [[likely]] {
                             if constexpr (parserMode == StrictJSON)
                                 return ExistingProperty { newStructure, offset };
@@ -1478,6 +1491,19 @@ JSValue LiteralParser<CharType, reviverMode>::parseRecursively(VM& vm, uint8_t* 
             if (!value) [[unlikely]]
                 return { };
 
+            // After parseRecursively, user code may have run (e.g. due to a __proto__ setter in a
+            // nested object), which may have changed the structure of the object. This invalidates
+            // any cached transition, so reset it to Identifier to take the slow path.
+            if constexpr (parserMode != StrictJSON) {
+                if (object->structure() != originalStructure && std::holds_alternative<ExistingProperty>(property)) [[unlikely]]
+                    property = Identifier::fromUid(vm, std::get<ExistingProperty>(property).structure->transitionPropertyName());
+            } else {
+                // StrictJSON can skip this entirely! There is no replacer/reviver and __proto__ setters in
+                // a strict JSON value cannot run user code, so the parent object's structure is guaranteed not to have
+                // transitioned during the recursive parse of `value`.
+                ASSERT(object->structure() == originalStructure);
+            }
+
             // When creating JSON object in this fast path, we know the following.
             //   1. The object is definitely JSFinalObject.
             //   2. The object rarely has duplicate properties.
@@ -1487,10 +1513,10 @@ JSValue LiteralParser<CharType, reviverMode>::parseRecursively(VM& vm, uint8_t* 
                 auto& [newStructure, offset] = std::get<ExistingProperty>(property);
 
                 Butterfly* newButterfly = object->butterfly();
-                if (structure->outOfLineCapacity() != newStructure->outOfLineCapacity()) {
-                    ASSERT(newStructure != structure);
-                    newButterfly = object->allocateMoreOutOfLineStorage(vm, structure->outOfLineCapacity(), newStructure->outOfLineCapacity());
-                    object->nukeStructureAndSetButterfly(vm, structure->id(), newButterfly);
+                if (originalStructure->outOfLineCapacity() != newStructure->outOfLineCapacity()) {
+                    ASSERT(newStructure != originalStructure);
+                    newButterfly = object->allocateMoreOutOfLineStorage(vm, originalStructure->outOfLineCapacity(), newStructure->outOfLineCapacity());
+                    object->nukeStructureAndSetButterfly(vm, originalStructure->id(), newButterfly);
                 }
 
                 validateOffset(offset);
@@ -1850,6 +1876,7 @@ JSValue LiteralParser<CharType, reviverMode>::parse(VM& vm, ParserState initialS
             switch (m_lexer.currentToken()->type) {
             case TokLBracket:
             case TokNumber:
+            case TokNumberInt32:
             case TokString: {
                 lastValue = parsePrimitiveValue(vm);
                 if (!lastValue) [[unlikely]]

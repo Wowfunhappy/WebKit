@@ -36,12 +36,11 @@
 namespace JSC { namespace Wasm {
 
 class FunctionIPIntMetadataGenerator;
-class TypeDefinition;
 struct ModuleInformation;
 struct FunctionDebugInfo;
 
-Expected<std::unique_ptr<FunctionIPIntMetadataGenerator>, String> parseAndCompileMetadata(std::span<const uint8_t>, const TypeDefinition&, ModuleInformation&, FunctionCodeIndex functionIndex);
-JS_EXPORT_PRIVATE void parseForDebugInfo(std::span<const uint8_t>, const TypeDefinition&, ModuleInformation&, FunctionCodeIndex, FunctionDebugInfo&);
+Expected<std::unique_ptr<FunctionIPIntMetadataGenerator>, String> parseAndCompileMetadata(std::span<const uint8_t>, const RTT&, ModuleInformation&, FunctionCodeIndex functionIndex);
+JS_EXPORT_PRIVATE void parseForDebugInfo(std::span<const uint8_t>, const RTT&, ModuleInformation&, FunctionCodeIndex, FunctionDebugInfo&);
 
 } // namespace JSC::Wasm
 
@@ -133,23 +132,58 @@ struct GlobalMetadata {
     uint8_t isRef; // 1B for ref flag
 };
 
-// Constant metadata structures
+// Metadata for instructions that pass a single index/offset to a C call.
+// Each category gets its own named type.
 
-struct Const32Metadata {
-    // instructionLength needs to go first because we encode small
-    // i32 as just instructionLength with the value embedded in bytecode.
-    InstructionLengthMetadata instructionLength;
-    uint32_t value;
-};
-
-struct Const64Metadata {
-    uint64_t value;
+struct TableAccessMetadata {
+    uint32_t index; // 4B for table index
     InstructionLengthMetadata instructionLength;
 };
 
-struct Const128Metadata {
-    v128_t value;
+struct RefFuncMetadata {
+    uint32_t index; // 4B for function space index
     InstructionLengthMetadata instructionLength;
+};
+
+struct ElemDropMetadata {
+    uint32_t index; // 4B for element index
+    InstructionLengthMetadata instructionLength;
+};
+
+struct DataAccessMetadata {
+    uint32_t index; // 4B for data index
+    InstructionLengthMetadata instructionLength;
+};
+
+struct MemoryInitMetadata {
+    uint8_t memoryIndex;
+    uint32_t dataIndex; // 4B for data index
+    InstructionLengthMetadata instructionLength;
+};
+
+struct MemoryFillMetadata {
+    uint8_t memoryIndex;
+    InstructionLengthMetadata instructionLength;
+};
+
+struct MemoryCopyMetadata {
+    uint8_t dstMemoryIndex;
+    uint8_t srcMemoryIndex;
+    InstructionLengthMetadata instructionLength;
+};
+
+struct AtomicMemoryAccessMetadata {
+    uint8_t memoryIndex;
+    uint64_t offset;
+    InstructionLengthMetadata instructionLength;
+};
+
+struct MemorySizeMetadata {
+    uint8_t memoryIndex;
+};
+
+struct MemoryGrowMetadata {
+    uint8_t memoryIndex;
 };
 
 struct TableInitMetadata {
@@ -177,6 +211,7 @@ struct TableCopyMetadata {
 // Metadata structure for calls:
 
 struct CallSignatureMetadata {
+    SUPPRESS_UNCOUNTED_MEMBER const Wasm::RTT* rtt; // 8B -- owner of shared call bytecode
     uint32_t stackFrameSize; // 4B for stack frame size
     uint16_t numExtraResults; // 2B for number of spots we need to reserve for returns
     uint16_t numArguments; // 2B for number of arguments, to figure out how much to move SP down by
@@ -214,24 +249,21 @@ struct CallMetadata {
     uint32_t callProfileIndex; // 4B for call profile index
     Wasm::FunctionSpaceIndex functionIndex; // 4B for decoded index
     CallSignatureMetadata signature;
-    CallArgumentBytecode argumentBytecode[0];
 };
 
 struct TailCallMetadata {
     uint8_t length; // 1B for instruction length
     uint32_t callProfileIndex; // 4B for call profile index
     Wasm::FunctionSpaceIndex functionIndex; // 4B for decoded index
+    SUPPRESS_UNCOUNTED_MEMBER const Wasm::RTT* rtt; // 8B for RTT
     int32_t callerStackArgSize; // 4B for caller stack size
-    CallArgumentBytecode argumentBytecode[0];
 };
 
 struct CallIndirectMetadata {
     uint8_t length; // 1B for length
     uint32_t callProfileIndex; // 4B for call profile index
     uint32_t tableIndex; // 4B for table index
-    SUPPRESS_UNCOUNTED_MEMBER const Wasm::RTT* rtt; // 8B for RTT
     CallSignatureMetadata signature;
-    CallArgumentBytecode argumentBytecode[0];
 };
 
 struct TailCallIndirectMetadata {
@@ -240,21 +272,19 @@ struct TailCallIndirectMetadata {
     uint32_t tableIndex; // 4B for table index
     SUPPRESS_UNCOUNTED_MEMBER const Wasm::RTT* rtt; // 8B for RTT
     int32_t callerStackArgSize; // 4B for caller stack size
-    CallArgumentBytecode argumentBytecode[0];
 };
 
 struct CallRefMetadata {
     uint8_t length; // 1B for length
     uint32_t callProfileIndex; // 4B for call profile index
     CallSignatureMetadata signature;
-    CallArgumentBytecode argumentBytecode[0];
 };
 
 struct TailCallRefMetadata {
     uint8_t length; // 1B for length
     uint32_t callProfileIndex; // 4B for call profile index
+    SUPPRESS_UNCOUNTED_MEMBER const Wasm::RTT* rtt; // 8B for RTT
     int32_t callerStackArgSize; // 4B for caller stack size
-    CallArgumentBytecode argumentBytecode[0];
 };
 
 // Metadata structure for returns:
@@ -272,7 +302,6 @@ enum class CallResultBytecode : uint8_t { // (mINT)
 struct CallReturnMetadata {
     uint32_t stackFrameSize; // 4B for stack frame size
     uint32_t firstStackResultSPOffset; // 4B for stack argument offset
-    CallResultBytecode resultBytecode[0];
 };
 
 // argumINT / uINT
@@ -287,7 +316,7 @@ enum class ArgumINTBytecode: uint8_t {
     NumOpcodes // this must be the last element of the enum!
 };
 
-enum class UIntBytecode: uint8_t {
+enum class UINTBytecode: uint8_t {
     RetGPR = 0x0, // 0x00 - 0x07: r0 - r7
     RetFPR = 0x8, // 0x08 - 0x0f: fr0 - fr7
     Stack = 0x10,
@@ -356,6 +385,7 @@ struct ArrayInitElemMetadata {
 struct RefTestCastMetadata {
     int32_t toHeapType;
     uint8_t length;
+    uint8_t allowNull;
 };
 
 #pragma pack()

@@ -28,9 +28,15 @@
 #include <WebCore/RenderStyleConstants.h>
 #include <WebCore/StyleCounterStyle.h>
 #include <WebCore/StyleImageWrapper.h>
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct Content;
+}
+
 namespace Style {
 
 // <leader()>            = leader( <leader-type> )
@@ -52,38 +58,52 @@ namespace Style {
 // MISSING from <alt-content>:
 //   <counter>
 
+struct ContentText {
+    String text;
+
+    bool operator==(const ContentText&) const = default;
+};
+DEFINE_TYPE_WRAPPER_GET(ContentText, text);
+
+struct ContentImage {
+    ImageWrapper image;
+
+    bool operator==(const ContentImage&) const = default;
+};
+DEFINE_TYPE_WRAPPER_GET(ContentImage, image);
+
+struct ContentCounter {
+    using CounterFunction = FunctionNotation<CSSValueCounter, CommaSeparatedTuple<CustomIdent, std::optional<CounterStyle>>>;
+    using CountersFunction = FunctionNotation<CSSValueCounters, CommaSeparatedTuple<CustomIdent, String, std::optional<CounterStyle>>>;
+
+    CustomIdent identifier;
+    String separator;
+    CounterStyle style;
+
+    template<typename... F> decltype(auto) switchOn(F&&...) const;
+
+    bool operator==(const ContentCounter&) const = default;
+};
+
+struct ContentQuote {
+    QuoteType quote;
+
+    bool operator==(const ContentQuote&) const = default;
+};
+DEFINE_TYPE_WRAPPER_GET(ContentQuote, quote);
+
 struct Content {
-    struct Text {
-        String text;
-
-        bool operator==(const Text&) const = default;
-    };
-    struct Image {
-        ImageWrapper image;
-
-        bool operator==(const Image&) const = default;
-    };
-    struct Counter {
-        AtomString identifier;
-        AtomString separator;
-        CounterStyle style;
-
-        template<typename... F> decltype(auto) switchOn(F&&...) const;
-
-        bool operator==(const Counter&) const = default;
-    };
-    struct Quote {
-        QuoteType quote;
-
-        bool operator==(const Quote&) const = default;
-    };
-    using ListItem = Variant<Text, Image, Counter, Quote>;
-    using List = SpaceSeparatedFixedVector<ListItem>;
+    using Text = ContentText;
+    using Image = ContentImage;
+    using Counter = ContentCounter;
+    using Quote = ContentQuote;
+    using VisibleContentListItem = Variant<Text, Image, Counter, Quote>;
+    using VisibleContentList = SpaceSeparatedFixedVector<VisibleContentListItem>;
 
     // FIXME: This struct could be optimized down to a pointer when unused by using TrailingArray.
     struct Data {
-        List list;
-        Markable<String> altText;
+        VisibleContentList visible;
+        Markable<String> alt;
 
         bool operator==(const Data&) const = default;
     };
@@ -117,7 +137,7 @@ struct Content {
         return WTF::switchOn(m_value, std::forward<F>(f)...);
     }
 
-    String altText() const;
+    WTF::String altText() const;
 
     bool operator==(const Content&) const = default;
 
@@ -129,39 +149,40 @@ private:
 template<size_t I> const auto& get(const Content::Data& value)
 {
     if constexpr (!I)
-        return value.list;
+        return value.visible;
     else if constexpr (I == 1)
-        return value.altText;
+        return value.alt;
 }
 
-DEFINE_TYPE_WRAPPER_GET(Content::Text, text);
-DEFINE_TYPE_WRAPPER_GET(Content::Image, image);
-DEFINE_TYPE_WRAPPER_GET(Content::Quote, quote);
-
-template<typename... F> decltype(auto) Content::Counter::switchOn(F&&... f) const
+template<typename... F> decltype(auto) ContentCounter::switchOn(F&&... f) const
 {
     auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
-    using CounterFunction = FunctionNotation<CSSValueCounter, CommaSeparatedTuple<CustomIdentifier, std::optional<CounterStyle>>>;
-    using CountersFunction = FunctionNotation<CSSValueCounters, CommaSeparatedTuple<CustomIdentifier, AtomString, std::optional<CounterStyle>>>;
-
-    if (separator.isEmpty()) {
+    if (separator.value.isEmpty()) {
         return visitor(CounterFunction {
-            .parameters = { CustomIdentifier { identifier }, style != nameString(CSSValueDecimal) ? std::make_optional(style) : std::nullopt }
+            .parameters = {
+                identifier,
+                style != CSSValueDecimal ? std::make_optional(style) : std::nullopt
+            }
         });
     } else {
         return visitor(CountersFunction {
-            .parameters = { CustomIdentifier { identifier }, separator, style != nameString(CSSValueDecimal) ? std::make_optional(style) : std::nullopt }
+            .parameters = {
+                identifier,
+                separator,
+                style != CSSValueDecimal ? std::make_optional(style) : std::nullopt
+            }
         });
     }
 }
 
 // MARK: - Conversion
 
-template<> struct CSSValueConversion<Content> { auto operator()(BuilderState&, const CSSValue&) -> Content; };
+template<> struct ToCSS<Content> { auto operator()(const Content&, const Style::ComputedStyle&) -> CSS::Content; };
+template<> struct ToStyle<CSS::Content> { auto operator()(const CSS::Content&, const BuilderState&) -> Content; };
 
-// `Content::Counter` is special-cased to return a `CSSCounterValue`.
-template<> struct CSSValueCreation<Content::Counter> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const Content::Counter&); };
+template<> struct CSSValueConversion<Content> { auto operator()(BuilderState&, const CSSValue&) -> Content; };
+template<> struct CSSValueCreation<Content> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const Content&); };
 
 } // namespace Style
 } // namespace WebCore

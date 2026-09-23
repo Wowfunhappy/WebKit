@@ -36,12 +36,13 @@ namespace WebCore {
 
 class LoadableTextTrack final : public TextTrack, private TextTrackLoaderClient {
     WTF_MAKE_TZONE_ALLOCATED(LoadableTextTrack);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LoadableTextTrack);
 public:
     static Ref<LoadableTextTrack> create(HTMLTrackElement&, const AtomString& kind, const AtomString& label, const AtomString& language);
 
     void scheduleLoad(const URL&);
 
-    size_t trackElementIndex();
+    size_t NODELETE trackElementIndex();
     HTMLTrackElement* trackElement() const { return m_trackElement.get(); }
 
     void ref() const final { TextTrack::ref(); }
@@ -57,8 +58,6 @@ private:
 
     AtomString id() const final;
     bool isDefault() const final;
-
-    void loadTimerFired();
 
 #if !RELEASE_LOG_DISABLED
     ASCIILiteral logClassName() const override { return "LoadableTextTrack"_s; }

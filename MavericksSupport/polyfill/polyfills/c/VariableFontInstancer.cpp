@@ -50,9 +50,9 @@ namespace {
 
 struct LegacyVariableFontAxis {
     uint32_t tag { 0 };
-    float minimumValue { 0 };
-    float defaultValue { 0 };
-    float maximumValue { 0 };
+    double minimumValue { 0 };
+    double defaultValue { 0 };
+    double maximumValue { 0 };
     int32_t fixedMinimumValue { 0 };
     int32_t fixedDefaultValue { 0 };
     int32_t fixedMaximumValue { 0 };
@@ -370,9 +370,9 @@ static std::vector<LegacyVariableFontAxis> parseFvarAxes(const ParsedSfnt& sfnt)
         axis.fixedMaximumValue = fvar.s32();
         fvar.u16(); // flags
         axis.nameID = fvar.u16();
-        axis.minimumValue = axis.fixedMinimumValue / 65536.0f;
-        axis.defaultValue = axis.fixedDefaultValue / 65536.0f;
-        axis.maximumValue = axis.fixedMaximumValue / 65536.0f;
+        axis.minimumValue = axis.fixedMinimumValue / 65536.0;
+        axis.defaultValue = axis.fixedDefaultValue / 65536.0;
+        axis.maximumValue = axis.fixedMaximumValue / 65536.0;
         if (fvar.failed() || axis.minimumValue > axis.defaultValue || axis.defaultValue > axis.maximumValue)
             return { };
         axes.push_back(axis);
@@ -381,47 +381,35 @@ static std::vector<LegacyVariableFontAxis> parseFvarAxes(const ParsedSfnt& sfnt)
 }
 
 // avar: piecewise-linear mapping of each axis's normalized coordinate.
-static bool applyAvar(const ParsedSfnt& sfnt, std::vector<float>& normalizedCoords)
+// OpenType normalization uses 16.16 arithmetic and returns F2DOT14 coordinates.
+static int64_t roundedDivision(int64_t numerator, int64_t denominator)
 {
-    if (!sfnt.find(avarTag))
-        return true;
-    Reader avar = sfnt.tableReader(avarTag);
-    uint16_t majorVersion = avar.u16();
-    avar.u16(); // minorVersion
-    avar.u16(); // reserved
-    uint16_t axisCount = avar.u16();
-    if (avar.failed() || majorVersion != 1 || axisCount != normalizedCoords.size())
-        return false;
-    for (uint16_t axis = 0; axis < axisCount; ++axis) {
-        uint16_t positionMapCount = avar.u16();
-        float coord = normalizedCoords[axis];
-        float mapped = coord;
-        float previousFrom = -2, previousTo = -2;
-        bool done = false;
-        for (uint16_t i = 0; i < positionMapCount; ++i) {
-            float from = avar.f2dot14();
-            float to = avar.f2dot14();
-            if (!done) {
-                if (coord == from) {
-                    mapped = to;
-                    done = true;
-                } else if (coord < from) {
-                    if (i && from != previousFrom)
-                        mapped = previousTo + (to - previousTo) * (coord - previousFrom) / (from - previousFrom);
-                    else
-                        mapped = to;
-                    done = true;
-                }
-            }
-            previousFrom = from;
-            previousTo = to;
-        }
-        if (avar.failed())
-            return false;
-        normalizedCoords[axis] = std::min(1.0f, std::max(-1.0f, mapped));
+    int64_t quotient = numerator / denominator;
+    int64_t remainder = numerator % denominator;
+    if (remainder < 0) {
+        --quotient;
+        remainder += denominator;
     }
-    return true;
+    return quotient + (remainder * 2 >= denominator);
 }
+
+static int32_t normalizedFixed(const LegacyVariableFontAxis& axis, double input)
+{
+    double clamped = std::min(axis.maximumValue, std::max(axis.minimumValue, input));
+    int64_t value = int64_t(std::floor(clamped * 65536.0 + 0.5));
+    int64_t origin = axis.fixedDefaultValue;
+    int64_t denominator = value < origin ? origin - int64_t(axis.fixedMinimumValue) : int64_t(axis.fixedMaximumValue) - origin;
+    if (value == origin || !denominator)
+        return 0;
+    return int32_t(std::max<int64_t>(-65536, std::min<int64_t>(65536, roundedDivision((value - origin) * 65536, denominator))));
+}
+
+static float normalizedF2Dot14(int32_t fixed)
+{
+    return float(std::floor((double(fixed) + 2) / 4) / 16384.0);
+}
+
+static bool applyAvar(const ParsedSfnt&, std::vector<float>&);
 
 // Packed point numbers (gvar serialized data). Returns false on parse failure.
 // An empty result with allPoints=true means "deltas apply to every point".
@@ -499,6 +487,541 @@ static float tupleScalar(const std::vector<float>& coords, const std::vector<flo
             scalar *= (upper - v) / (upper - peak);
     }
     return scalar;
+}
+
+struct MetricField {
+    uint32_t tag;
+    uint32_t table;
+    uint16_t offset;
+    bool isUnsigned { false };
+};
+
+static const std::vector<MetricField>& metricFields()
+{
+    constexpr uint32_t os2 = tagFor('O', 'S', '/', '2');
+    constexpr uint32_t vhea = tagFor('v', 'h', 'e', 'a');
+    constexpr uint32_t post = tagFor('p', 'o', 's', 't');
+    static const std::vector<MetricField> fields = {
+        { tagFor('h', 'a', 's', 'c'), os2, 68 },
+        { tagFor('h', 'd', 's', 'c'), os2, 70 },
+        { tagFor('h', 'l', 'g', 'p'), os2, 72 },
+        { tagFor('h', 'c', 'l', 'a'), os2, 74, true },
+        { tagFor('h', 'c', 'l', 'd'), os2, 76, true },
+        { tagFor('x', 'h', 'g', 't'), os2, 86 },
+        { tagFor('c', 'p', 'h', 't'), os2, 88 },
+        { tagFor('s', 'b', 'x', 's'), os2, 10 },
+        { tagFor('s', 'b', 'y', 's'), os2, 12 },
+        { tagFor('s', 'b', 'x', 'o'), os2, 14 },
+        { tagFor('s', 'b', 'y', 'o'), os2, 16 },
+        { tagFor('s', 'p', 'x', 's'), os2, 18 },
+        { tagFor('s', 'p', 'y', 's'), os2, 20 },
+        { tagFor('s', 'p', 'x', 'o'), os2, 22 },
+        { tagFor('s', 'p', 'y', 'o'), os2, 24 },
+        { tagFor('s', 't', 'r', 's'), os2, 26 },
+        { tagFor('s', 't', 'r', 'o'), os2, 28 },
+        { tagFor('h', 'c', 'r', 's'), hheaTag, 18 },
+        { tagFor('h', 'c', 'r', 'n'), hheaTag, 20 },
+        { tagFor('h', 'c', 'o', 'f'), hheaTag, 22 },
+        { tagFor('v', 'a', 's', 'c'), vhea, 4 },
+        { tagFor('v', 'd', 's', 'c'), vhea, 6 },
+        { tagFor('v', 'l', 'g', 'p'), vhea, 8 },
+        { tagFor('v', 'c', 'r', 's'), vhea, 18 },
+        { tagFor('v', 'c', 'r', 'n'), vhea, 20 },
+        { tagFor('v', 'c', 'o', 'f'), vhea, 22 },
+        { tagFor('u', 'n', 'd', 's'), post, 10 },
+        { tagFor('u', 'n', 'd', 'o'), post, 8 },
+    };
+    return fields;
+}
+
+class ItemVariationStore {
+public:
+    explicit ItemVariationStore(Reader reader)
+        : m_reader(reader)
+    {
+    }
+
+    bool initialize(const std::vector<float>& coords)
+    {
+        Reader store = m_reader;
+        uint16_t format = store.u16();
+        uint32_t regionOffset = store.u32();
+        m_dataCount = store.u16();
+        if (store.failed() || format != 1 || !store.bytesAt(8, size_t(m_dataCount) * 4) || !regionOffset || regionOffset > store.size())
+            return false;
+        Reader regions = store.slice(regionOffset, store.size() - regionOffset);
+        uint16_t axisCount = regions.u16();
+        uint16_t regionCount = regions.u16();
+        if (regions.failed() || axisCount != coords.size() || regionCount & 0x8000 || !regions.bytesAt(4, size_t(axisCount) * regionCount * 6))
+            return false;
+        m_scalars.reserve(regionCount);
+        std::vector<float> starts(axisCount), peaks(axisCount), ends(axisCount);
+        for (uint16_t region = 0; region < regionCount; ++region) {
+            for (uint16_t axis = 0; axis < axisCount; ++axis) {
+                starts[axis] = regions.f2dot14();
+                peaks[axis] = regions.f2dot14();
+                ends[axis] = regions.f2dot14();
+            }
+            m_scalars.push_back(tupleScalar(coords, peaks, &starts, &ends));
+        }
+        return true;
+    }
+
+    std::optional<double> delta(uint32_t index) const
+    {
+        if (index == 0xFFFFFFFF)
+            return 0;
+        uint16_t outer = index >> 16;
+        uint16_t inner = index;
+        if (outer >= m_dataCount)
+            return std::nullopt;
+        Reader store = m_reader;
+        store.seek(8 + size_t(outer) * 4);
+        uint32_t dataOffset = store.u32();
+        // A NULL subtable offset denotes items with no variation data.
+        if (!dataOffset)
+            return 0;
+        if (dataOffset > store.size())
+            return std::nullopt;
+        Reader data = store.slice(dataOffset, store.size() - dataOffset);
+        uint16_t itemCount = data.u16();
+        uint16_t wordDeltaCount = data.u16();
+        uint16_t indexCount = data.u16();
+        bool longWords = wordDeltaCount & 0x8000;
+        wordDeltaCount &= 0x7FFF;
+        size_t rowSize = size_t(wordDeltaCount) * (longWords ? 4 : 2);
+        if (data.failed() || inner >= itemCount || wordDeltaCount > indexCount)
+            return std::nullopt;
+        rowSize += size_t(indexCount - wordDeltaCount) * (longWords ? 2 : 1);
+        size_t rowsOffset = 6 + size_t(indexCount) * 2;
+        if (!data.bytesAt(6, size_t(indexCount) * 2) || !data.bytesAt(rowsOffset, size_t(itemCount) * rowSize))
+            return std::nullopt;
+        Reader row = data.slice(rowsOffset + size_t(inner) * rowSize, rowSize);
+        double result = 0;
+        for (uint16_t column = 0; column < indexCount; ++column) {
+            uint16_t region = data.u16();
+            if (region >= m_scalars.size())
+                return std::nullopt;
+            int32_t value = column < wordDeltaCount ? (longWords ? row.s32() : row.s16()) : (longWords ? row.s16() : int8_t(row.u8()));
+            result += double(m_scalars[region]) * value;
+        }
+        return row.failed() ? std::nullopt : std::optional<double>(result);
+    }
+
+private:
+    Reader m_reader;
+    uint16_t m_dataCount { 0 };
+    std::vector<float> m_scalars;
+};
+
+static std::optional<uint32_t> mappedVariationIndex(Reader map, uint32_t index)
+{
+    uint8_t format = map.u8();
+    uint8_t entryFormat = map.u8();
+    uint32_t count = format ? map.u32() : map.u16();
+    size_t entrySize = ((entryFormat >> 4) & 3) + 1;
+    unsigned innerBits = (entryFormat & 15) + 1;
+    if (map.failed() || format > 1 || entryFormat & 0xC0 || !map.bytesAt(map.position(), size_t(count) * entrySize))
+        return std::nullopt;
+    if (!count)
+        return index;
+    map.skip(size_t(std::min(index, count - 1)) * entrySize);
+    uint32_t packed = 0;
+    for (size_t i = 0; i < entrySize; ++i)
+        packed = (packed << 8) | map.u8();
+    uint32_t outer = packed >> innerBits;
+    if (outer > 0xFFFF)
+        return std::nullopt;
+    return (outer << 16) | (packed & ((uint32_t(1) << innerBits) - 1));
+}
+
+// MVAR deltas use font design units; avar2 deltas use F2DOT14 coordinate units.
+static bool metricVariations(const ParsedSfnt& sfnt, const std::vector<float>& coords, std::map<uint32_t, double>& deltas)
+{
+    constexpr uint32_t mvarTag = tagFor('M', 'V', 'A', 'R');
+    if (!sfnt.find(mvarTag))
+        return true;
+    Reader mvar = sfnt.tableReader(mvarTag);
+    uint16_t major = mvar.u16();
+    mvar.skip(4); // minor version and reserved
+    uint16_t recordSize = mvar.u16();
+    uint16_t recordCount = mvar.u16();
+    uint16_t storeOffset = mvar.u16();
+    if (mvar.failed() || major != 1 || recordSize < 8 || !mvar.bytesAt(12, size_t(recordSize) * recordCount))
+        return false;
+    if (!recordCount)
+        return true;
+    if (!storeOffset || storeOffset > mvar.size())
+        return false;
+    ItemVariationStore store(mvar.slice(storeOffset, mvar.size() - storeOffset));
+    if (!store.initialize(coords))
+        return false;
+    for (uint16_t record = 0; record < recordCount; ++record) {
+        mvar.seek(12 + size_t(record) * recordSize);
+        uint32_t tag = mvar.u32();
+        uint32_t index = mvar.u32();
+        bool knownTag = (tag >= tagFor('g', 's', 'p', '0') && tag <= tagFor('g', 's', 'p', '9'));
+        for (const auto& field : metricFields())
+            knownTag |= field.tag == tag;
+        if (!knownTag)
+            continue;
+        auto delta = store.delta(index);
+        if (!delta || !deltas.emplace(tag, *delta).second)
+            return false;
+    }
+    return true;
+}
+
+static bool applyAvar(const ParsedSfnt& sfnt, std::vector<float>& normalizedCoords)
+{
+    if (!sfnt.find(avarTag)) {
+        for (float& coordinate : normalizedCoords)
+            coordinate = normalizedF2Dot14(int32_t(coordinate * 65536));
+        return true;
+    }
+    Reader avar = sfnt.tableReader(avarTag);
+    uint16_t majorVersion = avar.u16();
+    avar.u16(); // minorVersion
+    avar.u16(); // reserved
+    uint16_t axisCount = avar.u16();
+    if (avar.failed() || (majorVersion != 1 && majorVersion != 2) || (axisCount != normalizedCoords.size() && !(majorVersion == 2 && !axisCount)))
+        return false;
+    for (uint16_t axis = 0; axis < axisCount; ++axis) {
+        uint16_t positionMapCount = avar.u16();
+        int32_t coord = int32_t(normalizedCoords[axis] * 65536);
+        int32_t mapped = coord;
+        int32_t previousFrom = -131072, previousTo = -131072;
+        bool done = false;
+        for (uint16_t i = 0; i < positionMapCount; ++i) {
+            int32_t from = int32_t(avar.s16()) * 4;
+            int32_t to = int32_t(avar.s16()) * 4;
+            if (!done) {
+                if (coord == from) {
+                    mapped = to;
+                    done = true;
+                } else if (coord < from) {
+                    if (i && from > previousFrom) {
+                        int64_t ratio = roundedDivision(int64_t(coord - previousFrom) * 65536, from - previousFrom);
+                        mapped = int32_t(previousTo + roundedDivision(ratio * (to - previousTo), 65536));
+                    } else
+                        mapped = to;
+                    done = true;
+                }
+            }
+            previousFrom = from;
+            previousTo = to;
+        }
+        if (avar.failed())
+            return false;
+        normalizedCoords[axis] = normalizedF2Dot14(std::max(-65536, std::min(65536, mapped)));
+    }
+    if (majorVersion == 2) {
+        if (!axisCount) {
+            for (float& coordinate : normalizedCoords)
+                coordinate = normalizedF2Dot14(int32_t(coordinate * 65536));
+        }
+        uint32_t mapOffset = avar.u32();
+        uint32_t storeOffset = avar.u32();
+        if (avar.failed() || mapOffset > avar.size() || storeOffset > avar.size())
+            return false;
+        ItemVariationStore store(avar.slice(storeOffset, avar.size() - storeOffset));
+        if (storeOffset && !store.initialize(normalizedCoords))
+            return false;
+        std::vector<float> finalCoords = normalizedCoords;
+        for (size_t axis = 0; axis < normalizedCoords.size(); ++axis) {
+            auto index = mapOffset ? mappedVariationIndex(avar.slice(mapOffset, avar.size() - mapOffset), uint32_t(axis)) : std::optional<uint32_t>(axis);
+            if (!index)
+                return false;
+            auto delta = storeOffset ? store.delta(*index) : std::optional<double>(0);
+            if (!delta)
+                return false;
+            double coordinate = std::floor(normalizedCoords[axis] * 16384.0 + 0.5) + std::floor(*delta + 0.5);
+            finalCoords[axis] = float(std::max(-16384.0, std::min(16384.0, coordinate)) / 16384.0);
+        }
+        normalizedCoords = std::move(finalCoords);
+    }
+    return true;
+}
+
+static bool applyMetricVariations(uint32_t table, std::vector<uint8_t>& bytes, const std::map<uint32_t, double>& deltas)
+{
+    auto apply = [&](uint32_t tag, size_t offset, bool isUnsigned) {
+        auto found = deltas.find(tag);
+        if (found == deltas.end())
+            return true;
+        if (offset + 2 > bytes.size())
+            return false;
+        uint16_t encoded = (uint16_t(bytes[offset]) << 8) | bytes[offset + 1];
+        double value = (isUnsigned ? int32_t(encoded) : int16_t(encoded)) + std::floor(found->second + 0.5);
+        if (value < (isUnsigned ? 0.0 : -32768.0) || value > (isUnsigned ? 65535.0 : 32767.0))
+            return false;
+        encoded = uint16_t(int32_t(value));
+        bytes[offset] = uint8_t(encoded >> 8);
+        bytes[offset + 1] = uint8_t(encoded);
+        return true;
+    };
+    for (const auto& field : metricFields()) {
+        if (field.table == table && !apply(field.tag, field.offset, field.isUnsigned))
+            return false;
+    }
+    if (table == tagFor('g', 'a', 's', 'p')) {
+        if (bytes.size() < 4)
+            return false;
+        uint16_t count = (uint16_t(bytes[2]) << 8) | bytes[3];
+        if (4 + size_t(count) * 4 > bytes.size())
+            return false;
+        // The last gasp range ends at the fixed 0xFFFF sentinel.
+        for (uint16_t i = 0; i < 10 && i + 1 < count; ++i) {
+            if (!apply(tagFor('g', 's', 'p', '0') + i, 4 + size_t(i) * 4, true))
+                return false;
+        }
+    }
+    return true;
+}
+
+static bool setOffset16(std::vector<uint8_t>& bytes, size_t position, size_t value)
+{
+    if (value > 0xFFFF || position + 2 > bytes.size())
+        return false;
+    bytes[position] = uint8_t(value >> 8);
+    bytes[position + 1] = uint8_t(value);
+    return true;
+}
+
+static std::optional<std::vector<uint8_t>> staticFeature(Reader layout, size_t offset, uint32_t tag, uint16_t totalLookups)
+{
+    layout.seek(offset);
+    uint16_t parameters = layout.u16();
+    uint16_t lookupCount = layout.u16();
+    size_t length = 4 + size_t(lookupCount) * 2;
+    const uint8_t* source = layout.bytesAt(offset, length);
+    if (layout.failed() || !source)
+        return std::nullopt;
+    std::vector<uint8_t> result(source, source + length);
+    for (uint16_t i = 0; i < lookupCount; ++i) {
+        if (layout.u16() >= totalLookups)
+            return std::nullopt;
+    }
+    if (!parameters)
+        return result;
+    size_t parameterLength = 0;
+    if (tag == tagFor('s', 'i', 'z', 'e'))
+        parameterLength = 10;
+    else if (tag >= tagFor('s', 's', '0', '1') && tag <= tagFor('s', 's', '2', '0') && (tag & 0xFF) >= '0' && (tag & 0xFF) <= '9')
+        parameterLength = 4;
+    else if ((tag >> 16) == (tagFor('c', 'v', 0, 0) >> 16) && ((tag >> 8) & 0xFF) >= '0' && ((tag >> 8) & 0xFF) <= '9' && (tag & 0xFF) >= '0' && (tag & 0xFF) <= '9' && (tag & 0xFFFF) != 0x3030) {
+        layout.seek(offset + parameters + 12);
+        parameterLength = 14 + size_t(layout.u16()) * 3;
+    } else
+        return std::nullopt;
+    const uint8_t* parameterBytes = layout.bytesAt(offset + parameters, parameterLength);
+    if (layout.failed() || !parameterBytes || !setOffset16(result, 0, result.size()))
+        return std::nullopt;
+    result.insert(result.end(), parameterBytes, parameterBytes + parameterLength);
+    return result;
+}
+
+static std::optional<std::vector<uint8_t>> staticScriptList(Reader layout, size_t offset)
+{
+    layout.seek(offset);
+    uint16_t count = layout.u16();
+    const uint8_t* records = layout.bytesAt(offset, 2 + size_t(count) * 6);
+    if (layout.failed() || !records)
+        return std::nullopt;
+    std::vector<uint8_t> result(records, records + 2 + size_t(count) * 6);
+    std::map<size_t, size_t> scriptOffsets;
+    for (uint16_t i = 0; i < count; ++i) {
+        layout.seek(offset + 2 + size_t(i) * 6 + 4);
+        size_t scriptOffset = offset + layout.u16();
+        auto known = scriptOffsets.find(scriptOffset);
+        if (known != scriptOffsets.end()) {
+            if (!setOffset16(result, 2 + size_t(i) * 6 + 4, known->second))
+                return std::nullopt;
+            continue;
+        }
+        layout.seek(scriptOffset);
+        uint16_t defaultOffset = layout.u16();
+        uint16_t languages = layout.u16();
+        size_t headerSize = 4 + size_t(languages) * 6;
+        const uint8_t* header = layout.bytesAt(scriptOffset, headerSize);
+        if (layout.failed() || !header)
+            return std::nullopt;
+        std::vector<uint8_t> script(header, header + headerSize);
+        std::map<size_t, size_t> languageOffsets;
+        for (uint32_t j = 0; j <= languages; ++j) {
+            size_t field = j ? 4 + size_t(j - 1) * 6 + 4 : 0;
+            layout.seek(scriptOffset + field);
+            uint16_t languageOffset = j ? layout.u16() : defaultOffset;
+            if (!languageOffset && !j)
+                continue;
+            auto knownLanguage = languageOffsets.find(languageOffset);
+            if (knownLanguage != languageOffsets.end()) {
+                if (!setOffset16(script, field, knownLanguage->second))
+                    return std::nullopt;
+                continue;
+            }
+            layout.seek(scriptOffset + languageOffset + 4);
+            size_t length = 6 + size_t(layout.u16()) * 2;
+            const uint8_t* language = layout.bytesAt(scriptOffset + languageOffset, length);
+            if (layout.failed() || !language || !setOffset16(script, field, script.size()))
+                return std::nullopt;
+            languageOffsets.emplace(languageOffset, script.size());
+            script.insert(script.end(), language, language + length);
+        }
+        if (!setOffset16(result, 2 + size_t(i) * 6 + 4, result.size()))
+            return std::nullopt;
+        scriptOffsets.emplace(scriptOffset, result.size());
+        result.insert(result.end(), script.begin(), script.end());
+    }
+    return result;
+}
+
+// Resolve the first matching GSUB/GPOS FeatureVariations record into a static FeatureList.
+static bool instanceLayoutFeatures(std::vector<uint8_t>& bytes, const std::vector<float>& coords)
+{
+    Reader layout(bytes.data(), bytes.size());
+    if (layout.u32() != 0x00010001)
+        return !layout.failed();
+    uint16_t scriptOffset = layout.u16();
+    uint16_t featureOffset = layout.u16();
+    uint16_t lookupOffset = layout.u16();
+    uint32_t variationsOffset = layout.u32();
+    if (layout.failed() || variationsOffset > bytes.size())
+        return false;
+    layout.seek(featureOffset);
+    uint16_t featureCount = layout.u16();
+    if (layout.failed() || !layout.bytesAt(featureOffset + 2, size_t(featureCount) * 6))
+        return false;
+    std::map<uint16_t, size_t> replacements;
+    if (variationsOffset) {
+        Reader variations = layout.slice(variationsOffset, bytes.size() - variationsOffset);
+        uint32_t version = variations.u32();
+        uint32_t count = variations.u32();
+        if (variations.failed() || (version == 0x00010000 && !variations.bytesAt(8, size_t(count) * 8)))
+            return false;
+        for (uint32_t i = 0; version == 0x00010000 && i < count; ++i) {
+            variations.seek(8 + size_t(i) * 8);
+            uint32_t conditionOffset = variations.u32();
+            uint32_t substitutionOffset = variations.u32();
+            bool matches = true;
+            if (conditionOffset) {
+                if (conditionOffset > variations.size())
+                    return false;
+                Reader conditions = variations.slice(conditionOffset, variations.size() - conditionOffset);
+                uint16_t conditionCount = conditions.u16();
+                if (conditions.failed() || !conditions.bytesAt(2, size_t(conditionCount) * 4))
+                    return false;
+                for (uint16_t c = 0; c < conditionCount; ++c) {
+                    conditions.seek(2 + size_t(c) * 4);
+                    uint32_t condition = conditions.u32();
+                    conditions.seek(condition);
+                    uint16_t format = conditions.u16();
+                    if (conditions.failed())
+                        return false;
+                    if (format != 1) {
+                        matches = false;
+                        continue;
+                    }
+                    uint16_t axis = conditions.u16();
+                    float minimum = conditions.f2dot14();
+                    float maximum = conditions.f2dot14();
+                    if (conditions.failed())
+                        return false;
+                    double coordinate = axis < coords.size() ? std::floor(coords[axis] * 16384.0 + 0.5) / 16384.0 : 0;
+                    matches &= axis < coords.size() && coordinate >= minimum && coordinate <= maximum;
+                }
+            }
+            if (!matches)
+                continue;
+            if (!substitutionOffset)
+                break;
+            if (substitutionOffset > variations.size())
+                return false;
+            Reader substitutions = variations.slice(substitutionOffset, variations.size() - substitutionOffset);
+            uint32_t substitutionVersion = substitutions.u32();
+            if (substitutions.failed())
+                return false;
+            if (substitutionVersion != 0x00010000)
+                continue;
+            uint16_t substitutionCount = substitutions.u16();
+            if (substitutions.failed() || !substitutions.bytesAt(6, size_t(substitutionCount) * 6))
+                return false;
+            for (uint16_t r = 0; r < substitutionCount; ++r) {
+                uint16_t feature = substitutions.u16();
+                uint32_t alternate = substitutions.u32();
+                if (feature >= featureCount || !alternate || alternate > substitutions.size()
+                    || !replacements.emplace(feature, size_t(variationsOffset) + substitutionOffset + alternate).second)
+                    return false;
+            }
+            break;
+        }
+    }
+    layout.seek(lookupOffset);
+    uint16_t lookupCount = layout.u16();
+    if (layout.failed() || !layout.bytesAt(lookupOffset + 2, size_t(lookupCount) * 2))
+        return false;
+    bool fits = true;
+    for (const auto& replacement : replacements) {
+        layout.seek(featureOffset + 2 + size_t(replacement.first) * 6);
+        uint32_t tag = layout.u32();
+        if (!staticFeature(layout, replacement.second, tag, lookupCount))
+            return false;
+        fits &= replacement.second >= featureOffset && replacement.second - featureOffset <= 0xFFFF;
+    }
+    if (fits) {
+        for (const auto& replacement : replacements) {
+            if (!setOffset16(bytes, featureOffset + 2 + size_t(replacement.first) * 6 + 4, replacement.second - featureOffset))
+                return false;
+        }
+        bytes[3] = 0; // Layout version 1.0; the extra header bytes are padding.
+        std::fill(bytes.begin() + 10, bytes.begin() + 14, 0);
+        return true;
+    }
+
+    // AlternateFeature offsets are 32-bit. Pack their static 16-bit references near
+    // the header while retaining every lookup's original relative offsets.
+    auto scripts = staticScriptList(layout, scriptOffset);
+    if (!scripts || lookupOffset > layout.size())
+        return false;
+    std::vector<uint8_t> features(2 + size_t(featureCount) * 6);
+    std::memcpy(features.data(), bytes.data() + featureOffset, features.size());
+    std::map<std::vector<uint8_t>, size_t> featurePositions;
+    for (uint16_t i = 0; i < featureCount; ++i) {
+        layout.seek(featureOffset + 2 + size_t(i) * 6);
+        uint32_t tag = layout.u32();
+        size_t original = size_t(featureOffset) + layout.u16();
+        auto replacement = replacements.find(i);
+        auto feature = staticFeature(layout, replacement == replacements.end() ? original : replacement->second, tag, lookupCount);
+        if (!feature)
+            return false;
+        auto known = featurePositions.find(*feature);
+        size_t position = known == featurePositions.end() ? features.size() : known->second;
+        if (!setOffset16(features, 2 + size_t(i) * 6 + 4, position))
+            return false;
+        if (known == featurePositions.end()) {
+            featurePositions.emplace(*feature, position);
+            features.insert(features.end(), feature->begin(), feature->end());
+        }
+    }
+    std::vector<uint8_t> lookups(bytes.begin() + lookupOffset, bytes.end());
+    const std::vector<uint8_t>* blocks[] = { &*scripts, &features, &lookups };
+    unsigned order[] = { 0, 1, 2 };
+    do {
+        std::vector<uint8_t> result { 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+        bool representable = true;
+        for (unsigned block : order) {
+            if (!setOffset16(result, 4 + block * 2, result.size()) || blocks[block]->size() > maximumAssembledFontSize - result.size()) {
+                representable = false;
+                break;
+            }
+            result.insert(result.end(), blocks[block]->begin(), blocks[block]->end());
+        }
+        if (representable) {
+            bytes = std::move(result);
+            return true;
+        }
+    } while (std::next_permutation(std::begin(order), std::end(order)));
+    return false;
 }
 
 struct GlyphPoint {
@@ -1021,11 +1544,11 @@ public:
     {
     }
 
-    CFDataRef instance(const std::vector<std::pair<uint32_t, float>>& pinnedAxisValues);
+    CFDataRef instance(const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues);
 
 private:
     bool parseMetricsTables();
-    bool computeNormalizedCoords(const std::vector<std::pair<uint32_t, float>>& pinnedAxisValues);
+    bool computeNormalizedCoords(const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues);
     bool instanceAllGlyphs();
     void resolveCompositeBBox(uint16_t glyphID, int depth);
     CFDataRef assemble();
@@ -1033,7 +1556,7 @@ private:
     const ParsedSfnt& m_sfnt;
     std::vector<LegacyVariableFontAxis> m_axes;
     std::vector<float> m_coords;
-    std::vector<float> m_pinnedDesignValues;
+    std::vector<double> m_pinnedDesignValues;
     uint16_t m_numGlyphs { 0 };
     uint16_t m_numberOfHMetrics { 0 };
     bool m_lsbIsXMin { false };
@@ -1095,7 +1618,7 @@ bool Instancer::parseMetricsTables()
     return !hmtx.failed();
 }
 
-bool Instancer::computeNormalizedCoords(const std::vector<std::pair<uint32_t, float>>& pinnedAxisValues)
+bool Instancer::computeNormalizedCoords(const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues)
 {
     m_axes = parseFvarAxes(m_sfnt);
     if (m_axes.empty())
@@ -1104,7 +1627,7 @@ bool Instancer::computeNormalizedCoords(const std::vector<std::pair<uint32_t, fl
     m_pinnedDesignValues.resize(m_axes.size());
     for (size_t i = 0; i < m_axes.size(); ++i) {
         const auto& axis = m_axes[i];
-        float value = axis.defaultValue;
+        double value = axis.defaultValue;
         for (const auto& [tag, pinnedValue] : pinnedAxisValues) {
             if (tag == axis.tag) {
                 value = pinnedValue;
@@ -1113,12 +1636,7 @@ bool Instancer::computeNormalizedCoords(const std::vector<std::pair<uint32_t, fl
         }
         value = std::min(axis.maximumValue, std::max(axis.minimumValue, value));
         m_pinnedDesignValues[i] = value;
-        float normalized = 0;
-        if (value < axis.defaultValue && axis.defaultValue > axis.minimumValue)
-            normalized = (value - axis.defaultValue) / (axis.defaultValue - axis.minimumValue);
-        else if (value > axis.defaultValue && axis.maximumValue > axis.defaultValue)
-            normalized = (value - axis.defaultValue) / (axis.maximumValue - axis.defaultValue);
-        m_coords[i] = std::min(1.0f, std::max(-1.0f, normalized));
+        m_coords[i] = normalizedFixed(axis, value) / 65536.0f;
     }
     return applyAvar(m_sfnt, m_coords);
 }
@@ -1260,6 +1778,10 @@ void Instancer::resolveCompositeBBox(uint16_t glyphID, int depth)
 
 CFDataRef Instancer::assemble()
 {
+    std::map<uint32_t, double> globalDeltas;
+    if (!metricVariations(m_sfnt, m_coords, globalDeltas))
+        return nullptr;
+
     // glyf + loca (always long offsets).
     Writer glyf;
     Writer loca;
@@ -1302,6 +1824,12 @@ CFDataRef Instancer::assemble()
         hmtx.u16(uint16_t(advance));
         hmtx.s16(clampToInt16(leftSideBearing));
     }
+
+    Reader os2Metrics = m_sfnt.tableReader(tagFor('O', 'S', '/', '2'));
+    Reader hheaMetrics = m_sfnt.tableReader(hheaTag);
+    const uint8_t* typo = os2Metrics.bytesAt(68, 6);
+    const uint8_t* horizontal = hheaMetrics.bytesAt(4, 6);
+    bool synchronizeVerticalMetrics = typo && horizontal && !std::memcmp(typo, horizontal, 6);
 
     std::vector<std::pair<uint32_t, std::vector<uint8_t>>> outTables;
     for (const auto& table : m_sfnt.tables) {
@@ -1351,6 +1879,19 @@ CFDataRef Instancer::assemble()
                 writeBE16At(16, clampToInt16(xMaxExtent));
             }
             writeBE16At(34, int16_t(m_numGlyphs));
+            if (synchronizeVerticalMetrics) {
+                const uint32_t tags[] = { tagFor('h', 'a', 's', 'c'), tagFor('h', 'd', 's', 'c'), tagFor('h', 'l', 'g', 'p') };
+                for (size_t i = 0; i < 3; ++i) {
+                    auto delta = globalDeltas.find(tags[i]);
+                    if (delta == globalDeltas.end())
+                        continue;
+                    int16_t original = int16_t((uint16_t(copy[4 + 2 * i]) << 8) | copy[5 + 2 * i]);
+                    double value = original + std::floor(delta->second + 0.5);
+                    if (value < -32768 || value > 32767)
+                        return nullptr;
+                    writeBE16At(4 + 2 * i, int16_t(value));
+                }
+            }
             break;
         }
         default:
@@ -1363,7 +1904,7 @@ CFDataRef Instancer::assemble()
                 };
                 for (size_t i = 0; i < m_axes.size(); ++i) {
                     if (m_axes[i].tag == tagFor('w', 'g', 'h', 't'))
-                        writeBE16At(4, uint16_t(std::min(1000.0f, std::max(1.0f, m_pinnedDesignValues[i]))));
+                        writeBE16At(4, uint16_t(std::min(1000.0, std::max(1.0, m_pinnedDesignValues[i]))));
                     else if (m_axes[i].tag == tagFor('w', 'd', 't', 'h')) {
                         static constexpr float widthClassPercentages[] = { 50, 62.5, 75, 87.5, 100, 112.5, 125, 150, 200 };
                         uint16_t widthClass = 5;
@@ -1381,12 +1922,16 @@ CFDataRef Instancer::assemble()
             }
             break;
         }
+        if ((table.tag == tagFor('G', 'S', 'U', 'B') || table.tag == tagFor('G', 'P', 'O', 'S')) && !instanceLayoutFeatures(copy, m_coords))
+            return nullptr;
+        if (!applyMetricVariations(table.tag, copy, globalDeltas))
+            return nullptr;
         outTables.emplace_back(table.tag, std::move(copy));
     }
     return assembleSfnt(m_sfnt.sfntVersion, outTables);
 }
 
-CFDataRef Instancer::instance(const std::vector<std::pair<uint32_t, float>>& pinnedAxisValues)
+CFDataRef Instancer::instance(const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues)
 {
     if (!m_sfnt.find(gvarTag) || !m_sfnt.find(glyfTag))
         return nullptr;
@@ -1407,7 +1952,7 @@ std::vector<LegacyVariableFontAxis> legacyVariableFontAxes(CFDataRef data)
     return parseFvarAxes(*sfnt);
 }
 
-CFDataRef createLegacyVariableFontInstance(CFDataRef data, const std::vector<std::pair<uint32_t, float>>& pinnedAxisValues)
+CFDataRef createLegacyVariableFontInstance(CFDataRef data, const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues)
 {
     auto sfnt = parseSfnt(data);
     if (!sfnt)
@@ -1426,6 +1971,21 @@ CFDataRef createFontDataWithVariationTablesStripped(CFDataRef input)
     if (!sfnt || !sfnt->find(fvarTag))
         return retainInput();
 
+    auto axes = parseFvarAxes(*sfnt);
+    std::vector<float> defaultCoords(axes.size(), 0);
+    if (!applyAvar(*sfnt, defaultCoords))
+        return retainInput();
+    std::map<uint32_t, double> defaultMetrics;
+    if (!metricVariations(*sfnt, defaultCoords, defaultMetrics))
+        return retainInput();
+    bool changesDefault = std::any_of(defaultCoords.begin(), defaultCoords.end(), [](float coordinate) { return coordinate != 0; })
+        || std::any_of(defaultMetrics.begin(), defaultMetrics.end(), [](const auto& metric) { return metric.second != 0; });
+    if (changesDefault && sfnt->find(gvarTag) && sfnt->find(glyfTag)) {
+        Instancer instancer(*sfnt);
+        if (CFDataRef instance = instancer.instance({ }))
+            return instance;
+        return retainInput();
+    }
     std::vector<std::pair<uint32_t, std::vector<uint8_t>>> outTables;
     for (const auto& table : sfnt->tables) {
         if (isVariationTableTag(table.tag))
@@ -1433,7 +1993,10 @@ CFDataRef createFontDataWithVariationTablesStripped(CFDataRef input)
         const uint8_t* bytes = sfnt->whole.bytesAt(table.offset, table.length);
         if (!bytes || !table.length)
             continue;
-        outTables.emplace_back(table.tag, std::vector<uint8_t>(bytes, bytes + table.length));
+        std::vector<uint8_t> copy(bytes, bytes + table.length);
+        if ((table.tag == tagFor('G', 'S', 'U', 'B') || table.tag == tagFor('G', 'P', 'O', 'S')) && !instanceLayoutFeatures(copy, defaultCoords))
+            return retainInput();
+        outTables.emplace_back(table.tag, std::move(copy));
     }
     if (outTables.empty() || outTables.size() == sfnt->tables.size())
         return retainInput();
@@ -1448,14 +2011,14 @@ CFDataRef createFontDataWithVariationTablesStripped(CFDataRef input)
 // axis named there takes that value clamped to its own range, any other axis stays at its fvar
 // default. Empty when the font is not instanceable or when nothing differs from the defaults —
 // in both cases the default master is the right answer and no cut is needed.
-std::vector<std::pair<uint32_t, float>> pinnedAxisValues(CFDataRef sfnt, CFDictionaryRef variations)
+std::vector<std::pair<uint32_t, double>> pinnedAxisValues(CFDataRef sfnt, CFDictionaryRef variations)
 {
     auto axes = legacyVariableFontAxes(sfnt);
     if (axes.empty())
         return { };
 
     // kCTFontVariationAttribute keys an axis by a CFNumber holding its four-character code.
-    std::vector<std::pair<uint32_t, float>> requested;
+    std::vector<std::pair<uint32_t, double>> requested;
     CFIndex count = CFDictionaryGetCount(variations);
     std::vector<const void*> keys(count ? count : 1);
     std::vector<const void*> values(count ? count : 1);
@@ -1469,15 +2032,15 @@ std::vector<std::pair<uint32_t, float>> pinnedAxisValues(CFDataRef sfnt, CFDicti
         if (CFGetTypeID(values[i]) != CFNumberGetTypeID())
             continue;
         double value = 0;
-        if (CFNumberGetValue(static_cast<CFNumberRef>(values[i]), kCFNumberDoubleType, &value))
-            requested.emplace_back(tag, static_cast<float>(value));
+        if (CFNumberGetValue(static_cast<CFNumberRef>(values[i]), kCFNumberDoubleType, &value) && !std::isnan(value))
+            requested.emplace_back(tag, value);
     }
 
-    std::vector<std::pair<uint32_t, float>> pins;
+    std::vector<std::pair<uint32_t, double>> pins;
     pins.reserve(axes.size());
     bool allDefault = true;
     for (const auto& axis : axes) {
-        float value = axis.defaultValue;
+        double value = axis.defaultValue;
         for (const auto& entry : requested) {
             if (entry.first == axis.tag)
                 value = entry.second;
@@ -1486,7 +2049,7 @@ std::vector<std::pair<uint32_t, float>> pinnedAxisValues(CFDataRef sfnt, CFDicti
         allDefault &= value == axis.defaultValue;
         pins.emplace_back(axis.tag, value);
     }
-    return allDefault ? std::vector<std::pair<uint32_t, float>> { } : pins;
+    return allDefault ? std::vector<std::pair<uint32_t, double>> { } : pins;
 }
 
 // Cutting an instance parses and re-emits the whole font, and CSS font-variation-settings is
@@ -1522,7 +2085,7 @@ std::string instanceCacheKey(CFDataRef sfnt, CFDictionaryRef variations)
             CFNumberGetValue(static_cast<CFNumberRef>(keys[i]), kCFNumberDoubleType, &tag);
         if (CFGetTypeID(values[i]) == CFNumberGetTypeID())
             CFNumberGetValue(static_cast<CFNumberRef>(values[i]), kCFNumberDoubleType, &value);
-        snprintf(buffer, sizeof(buffer), "%.0f=%.4f;", tag, value);
+        snprintf(buffer, sizeof(buffer), "%.0f=%a;", tag, value);
         entries.emplace_back(buffer);
     }
     // CFDictionary has no order; sort so that one requested set has one key.

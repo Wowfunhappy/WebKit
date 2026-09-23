@@ -35,25 +35,18 @@
 #include "pas_probabilistic_guard_malloc_allocator.h"
 
 #ifdef __APPLE__
+
+typedef struct {
+    crash_reporter_memory_reader_t crm_reader;
+    task_t task;
+} crash_reporter_reader_data;
+
 static void* pas_enumerator_reader_adapter(pas_enumerator* enumerator,
                                            void* remote_address, size_t size, void* arg)
 {
     PAS_UNUSED_PARAM(enumerator);
-    crash_reporter_memory_reader_t crm_reader = (crash_reporter_memory_reader_t)arg;
-    return crm_reader(0, (vm_address_t)remote_address, size);
-}
-
-static pas_enumerator* setup_enumerator_for_crash_reporting(mach_vm_address_t pas_dead_root,
-                                                           crash_reporter_memory_reader_t crm_reader)
-{
-    return pas_enumerator_create((pas_root*)pas_dead_root,
-                                pas_enumerator_reader_adapter,
-                                (void*)crm_reader,
-                                NULL, /* recorder */
-                                NULL, /* recorder_arg */
-                                pas_enumerator_do_not_record_meta_records,
-                                pas_enumerator_do_not_record_payload_records,
-                                pas_enumerator_do_not_record_object_records);
+    crash_reporter_reader_data* data = (crash_reporter_reader_data*)arg;
+    return data->crm_reader(data->task, (vm_address_t)remote_address, size);
 }
 
 static PAS_ALWAYS_INLINE bool PAS_WARN_UNUSED_RETURN pas_fault_address_is_in_bounds(addr64_t fault_address, addr64_t bottom, addr64_t top)
@@ -93,14 +86,26 @@ static PAS_ALWAYS_INLINE kern_return_t PAS_WARN_UNUSED_RETURN pas_update_report_
  */
 kern_return_t pas_report_crash_extract_pgm_failure(vm_address_t fault_address, mach_vm_address_t pas_dead_root, unsigned version, task_t task, pas_report_crash_pgm_report* report, crash_reporter_memory_reader_t crm_reader)
 {
-    PAS_UNUSED_PARAM(task);
+
+    crash_reporter_reader_data reader_data;
 
     if (!report)
         return KERN_INVALID_ARGUMENT;
     if (!crm_reader)
         return KERN_INVALID_ARGUMENT;
 
-    pas_enumerator* enumerator = setup_enumerator_for_crash_reporting(pas_dead_root, crm_reader);
+    reader_data.crm_reader = crm_reader;
+    reader_data.task = task;
+
+    pas_enumerator* enumerator = pas_enumerator_create(
+        (pas_root*)pas_dead_root,
+        pas_enumerator_reader_adapter,
+        (void*)&reader_data,
+        NULL, /* recorder */
+        NULL, /* recorder_arg */
+        pas_enumerator_do_not_record_meta_records,
+        pas_enumerator_do_not_record_payload_records,
+        pas_enumerator_do_not_record_object_records);
     if (!enumerator)
         return KERN_FAILURE;
 

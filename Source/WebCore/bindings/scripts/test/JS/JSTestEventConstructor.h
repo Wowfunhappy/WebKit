@@ -31,24 +31,14 @@ class JSTestEventConstructor : public JSEvent {
 public:
     using Base = JSEvent;
     using DOMWrapped = TestEventConstructor;
-    static JSTestEventConstructor* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestEventConstructor>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestEventConstructor* ptr = new (NotNull, JSC::allocateCell<JSTestEventConstructor>(vm)) JSTestEventConstructor(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestEventConstructor* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestEventConstructor>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::JSType(JSEventType), StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {

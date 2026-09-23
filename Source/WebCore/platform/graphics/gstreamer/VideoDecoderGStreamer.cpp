@@ -259,14 +259,14 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         harnessedElement = gst_bin_new(nullptr);
         gst_bin_add_many(GST_BIN_CAST(harnessedElement.get()), parserElement, element.get(), nullptr);
         gst_element_link(parserElement, element.get());
-        auto sinkPad = adoptGRef(gst_element_get_static_pad(parserElement, "sink"));
+        GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(parserElement, "sink"));
         gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("sink", sinkPad.get()));
-        auto srcPad = adoptGRef(gst_element_get_static_pad(element.get(), "src"));
+        GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(element.get(), "src"));
         gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("src", srcPad.get()));
     } else
         harnessedElement = WTF::move(element);
 
-    auto allowedSinkCaps = adoptGRef(gst_caps_new_empty());
+    GRefPtr allowedSinkCaps = adoptGRef(gst_caps_new_empty());
 #if USE(GSTREAMER_GL)
 #if USE(GBM)
     gst_caps_append(allowedSinkCaps.get(), buildDMABufCaps().leakRef());

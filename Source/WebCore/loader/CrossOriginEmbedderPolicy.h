@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/CrossOriginEmbedderPolicyValue.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
@@ -52,12 +53,6 @@ struct ReportingClient;
 class SecurityOriginData;
 
 enum class FetchOptionsDestination : uint8_t;
-
-// https://html.spec.whatwg.org/multipage/origin.html#embedder-policy-value
-enum class CrossOriginEmbedderPolicyValue : bool {
-    UnsafeNone,
-    RequireCORP
-};
 
 // https://html.spec.whatwg.org/multipage/origin.html#embedder-policy
 struct CrossOriginEmbedderPolicy {

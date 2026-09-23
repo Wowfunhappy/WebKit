@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -38,6 +38,7 @@
 #include "DocumentView.h"
 #include "ElementInlines.h"
 #include "Event.h"
+#include "EventLoop.h"
 #include "EventNames.h"
 #include "EventSender.h"
 #include "FrameDestructionObserverInlines.h"
@@ -58,6 +59,7 @@
 #include "RenderImage.h"
 #include "RenderSVGImage.h"
 #include "Settings.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Scope.h>
 #include <wtf/text/MakeString.h>
@@ -213,7 +215,7 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
     if (!document->hasLivingRenderTree())
         return;
 
-    AtomString attr = element->imageSourceURL();
+    auto attr = element->imageSourceURL();
 
     LOG_WITH_STREAM(LazyLoading, stream << "ImageLoader " << this << " updateFromElement, current URL is " << attr);
 
@@ -272,7 +274,7 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
                 return;
             }
         } else
-            imageURL = document->completeURL(attr);
+            imageURL = document->encodingParseURL(attr);
         m_pendingURL = attr;
     }
     ResourceRequest resourceRequest(WTF::move(imageURL));
@@ -351,6 +353,9 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
     RefPtr oldImage = m_image;
     if (newImage != oldImage || relevantMutation == RelevantMutation::Yes) {
         LOG_WITH_STREAM(LazyLoading, stream << " switching from old image " << oldImage.get() << " to image " << newImage.get() << " " << (newImage ? newImage->url() : URL()));
+
+        if (newImage != oldImage && hasPendingDecodePromises())
+            rejectDecodePromises("Aborted by source change."_s);
 
         m_hasPendingBeforeLoadEvent = false;
         if (m_hasPendingLoadEvent) {
@@ -514,8 +519,7 @@ void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetr
 
         setImageCompleteAndMaybeUpdateRenderer();
 
-        if (hasPendingDecodePromises())
-            decode();
+        decode();
         loadEventSender().dispatchEventSoon(*this, eventNames().loadEvent);
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
@@ -614,13 +618,21 @@ void ImageLoader::decode(Ref<DeferredPromise>&& promise)
         return;
     }
 
-    if (m_imageComplete)
-        decode();
+    if (m_imageComplete) {
+        Ref document = element().document();
+        document->eventLoop().queueMicrotask(document->vm(), [weakThis = WeakPtr { *this }]() mutable {
+            RefPtr protectedThis = weakThis;
+            if (!protectedThis || !protectedThis->m_imageComplete)
+                return;
+            protectedThis->decode();
+        });
+    }
 }
 
 void ImageLoader::decode()
 {
-    ASSERT(hasPendingDecodePromises());
+    if (!hasPendingDecodePromises())
+        return;
     
     if (!element().document().window()) {
         rejectDecodePromises("Inactive document."_s);
@@ -719,7 +731,8 @@ void ImageLoader::dispatchPendingLoadEvent()
     if (!m_image)
         return;
     m_hasPendingLoadEvent = false;
-    if (element().document().hasLivingRenderTree())
+    Ref protectedElement = element();
+    if (protectedElement->document().hasLivingRenderTree())
         dispatchLoadEvent();
 
     // Only consider updating the protection ref-count of the Element immediately before returning
@@ -733,8 +746,9 @@ void ImageLoader::dispatchPendingErrorEvent()
         return;
     m_hasPendingErrorEvent = false;
     loadEventSender().cancelEvent(*this, eventNames().errorEvent);
-    if (element().document().hasLivingRenderTree())
-        protect(element())->dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    Ref protectedElement = element();
+    if (protectedElement->document().hasLivingRenderTree())
+        protectedElement->dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
 
     // Only consider updating the protection ref-count of the Element immediately before returning
     // from this function as doing so might result in the destruction of this ImageLoader.
@@ -748,6 +762,8 @@ void ImageLoader::dispatchPendingLoadEvents(Page* page)
 
 void ImageLoader::elementDidMoveToNewDocument(Document& oldDocument)
 {
+    if (hasPendingDecodePromises())
+        rejectDecodePromises("Inactive document."_s);
     clearFailedLoadURL();
     clearImage();
     resetLazyImageLoading(oldDocument);
@@ -755,7 +771,7 @@ void ImageLoader::elementDidMoveToNewDocument(Document& oldDocument)
 
 inline void ImageLoader::clearFailedLoadURL()
 {
-    m_failedLoadURL = nullAtom();
+    m_failedLoadURL = { };
 }
 
 void ImageLoader::loadDeferredImage()

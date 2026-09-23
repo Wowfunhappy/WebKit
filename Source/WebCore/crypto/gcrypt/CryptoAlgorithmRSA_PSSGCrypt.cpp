@@ -44,7 +44,7 @@ static std::optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vect
         if (!digestAlgorithm)
             return std::nullopt;
 
-        auto digest = PAL::CryptoDigest::create(*digestAlgorithm);
+        auto digest = PAL::Crypto::CryptoDigest::create(*digestAlgorithm);
         if (!digest)
             return std::nullopt;
 
@@ -95,7 +95,7 @@ static std::optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_
         if (!digestAlgorithm)
             return std::nullopt;
 
-        auto digest = PAL::CryptoDigest::create(*digestAlgorithm);
+        auto digest = PAL::Crypto::CryptoDigest::create(*digestAlgorithm);
         if (!digest)
             return std::nullopt;
 

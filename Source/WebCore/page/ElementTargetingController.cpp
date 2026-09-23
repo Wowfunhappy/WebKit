@@ -54,8 +54,8 @@
 #include "HitTestResult.h"
 #include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
+#include "LocalNameWithNamespace.h"
 #include "NamedNodeMap.h"
-#include "NodeInlines.h"
 #include "NodeList.h"
 #include "NodeRenderStyle.h"
 #include "Page.h"
@@ -154,8 +154,8 @@ public:
         if (m_adjustmentToRestore.isEmpty())
             return;
 
-        m_element->setVisibilityAdjustment(m_adjustmentToRestore);
-        m_element->invalidateStyleAndRenderersForSubtree();
+        protect(m_element)->setVisibilityAdjustment(m_adjustmentToRestore);
+        protect(m_element)->invalidateStyleAndRenderersForSubtree();
     }
 
 private:
@@ -207,7 +207,7 @@ static inline bool querySelectorMatchesOneElement(const Element& element, const 
     auto result = container->querySelectorAll(selector);
     if (result.hasException())
         return false;
-    return result.returnValue()->length() == 1 && result.returnValue()->item(0) == &element;
+    return protect(result.returnValue())->length() == 1 && protect(result.returnValue())->item(0) == &element;
 }
 
 struct ChildElementPosition {
@@ -252,7 +252,7 @@ static inline String computeTagAndAttributeSelector(const Element& element, cons
     if (!element.hasAttributes())
         return emptyString();
 
-    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<QualifiedName>> attributesToExclude { std::initializer_list<QualifiedName> {
+    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<LocalNameWithNamespace>> attributesToExclude { std::initializer_list<LocalNameWithNamespace> {
         HTMLNames::classAttr,
         HTMLNames::idAttr,
         HTMLNames::styleAttr,
@@ -428,7 +428,7 @@ static String parentRelativeSelectorRecursive(Element& element, ElementSelectorC
 
 static String computeHasChildSelector(Element& element)
 {
-    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<QualifiedName>> tagsToCheckForUniqueAttributes { std::initializer_list<QualifiedName> {
+    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<LocalNameWithNamespace>> tagsToCheckForUniqueAttributes { std::initializer_list<LocalNameWithNamespace> {
         HTMLNames::aTag,
         HTMLNames::imgTag,
         HTMLNames::timeTag,
@@ -567,7 +567,7 @@ TargetedElementSelectors ElementTargetingController::selectorsForElement(Element
     });
 }
 
-static inline RectEdges<bool> NODELETE computeOffsetEdges(const RenderStyle& style)
+static inline RectEdges<bool> NODELETE computeOffsetEdges(const Style::ComputedStyle& style)
 {
     return {
         style.top().isSpecified(),
@@ -619,12 +619,12 @@ static String searchableTextForTarget(Element& target)
     size_t longestLength = 0;
     TextIterator iterator { makeRangeSelectingNodeContents(target), { TextIteratorBehavior::EmitsTextsWithoutTranscoding } };
     for (; !iterator.atEnd(); iterator.advance()) {
-        auto text = iterator.copyableText().text().toString().trim(isASCIIWhitespace);
+        auto text = iterator.copyableText().text().trim(isASCIIWhitespace);
         if (text.length() <= longestLength)
             continue;
 
         longestLength = text.length();
-        longestText = WTF::move(text);
+        longestText = text.toString();
     }
 
     auto documentElements = collectDocumentElementsFromChildFrames(target);
@@ -1085,7 +1085,7 @@ std::pair<Vector<Ref<Node>>, RefPtr<Element>> ElementTargetingController::findNo
     if (!foundElement)
         return { };
 
-    while (!foundElement->document().isTopDocument())
+    while (!protect(foundElement->document())->isTopDocument())
         foundElement = foundElement->document().ownerElement();
 
     if (!foundElement) {
@@ -1525,11 +1525,11 @@ bool ElementTargetingController::adjustVisibility(Vector<TargetedElementAdjustme
         changed = true;
 
         if (invalidateSubtree)
-            adjustedElement->invalidateStyleAndRenderersForSubtree();
+            protect(adjustedElement)->invalidateStyleAndRenderersForSubtree();
         else
-            adjustedElement->invalidateStyle();
+            protect(adjustedElement)->invalidateStyle();
         m_adjustedElements.add(element);
-        m_documentsAffectedByVisibilityAdjustment.add(element->document());
+        m_documentsAffectedByVisibilityAdjustment.add(protect(element->document()));
     }
 
     if (changed)
@@ -1564,7 +1564,7 @@ static void adjustRegionAfterViewportSizeChange(Region& region, FloatSize oldSiz
             if (std::abs(distanceToTopEdge - distanceToBottomEdge) < minimumDistanceToConsiderEdgesEquidistant)
                 adjustedRect.inflateY(heightDelta / 2);
             else if (distanceToBottomEdge < distanceToTopEdge)
-                adjustedRect.move(heightDelta, 0);
+                adjustedRect.move(0, heightDelta);
         }
 
         auto enclosingAdjustedRect = enclosingIntRect(adjustedRect);
@@ -1658,11 +1658,11 @@ void ElementTargetingController::adjustVisibilityInRepeatedlyTargetedRegions(Doc
             continue;
 
         if (invalidateSubtree)
-            adjustedElement->invalidateStyleAndRenderersForSubtree();
+            protect(adjustedElement)->invalidateStyleAndRenderersForSubtree();
         else
-            adjustedElement->invalidateStyle();
+            protect(adjustedElement)->invalidateStyle();
         m_adjustedElements.add(element);
-        m_documentsAffectedByVisibilityAdjustment.add(element->document());
+        m_documentsAffectedByVisibilityAdjustment.add(protect(element->document()));
     }
 
     dispatchVisibilityAdjustmentStateDidChange();
@@ -1714,17 +1714,17 @@ void ElementTargetingController::applyVisibilityAdjustmentFromSelectors()
         if (currentAdjustment.contains(adjustment))
             continue;
 
-        element->setVisibilityAdjustment(currentAdjustment | adjustment);
+        protect(element)->setVisibilityAdjustment(currentAdjustment | adjustment);
 
         if (adjustment == VisibilityAdjustment::Subtree)
-            element->invalidateStyleAndRenderersForSubtree();
+            protect(element)->invalidateStyleAndRenderersForSubtree();
         else
-            element->invalidateStyle();
+            protect(element)->invalidateStyle();
 
-        m_adjustedElements.add(*element);
-        m_documentsAffectedByVisibilityAdjustment.add(element->document());
+        m_adjustedElements.add(protect(*element));
+        m_documentsAffectedByVisibilityAdjustment.add(protect(element->document()));
 
-        if (auto clientRect = inflatedClientRectForAdjustmentRegionTracking(*element, viewportArea))
+        if (auto clientRect = inflatedClientRectForAdjustmentRegionTracking(protect(*element), viewportArea))
             adjustmentRegion.unite(*clientRect);
 
         matchingSelectors.append(WTF::move(selectorIncludingPseudo));
@@ -2098,17 +2098,15 @@ RefPtr<Image> ElementTargetingController::snapshotIgnoringVisibilityAdjustment(N
 
     auto backgroundColor = frameView->baseBackgroundColor();
     frameView->setBaseBackgroundColor(Color::transparentBlack);
-    frameView->setNodeToDraw(element.get());
     auto resetPaintingState = makeScopeExit([frameView, backgroundColor]() mutable {
         frameView->setBaseBackgroundColor(WTF::move(backgroundColor));
-        frameView->setNodeToDraw(nullptr);
     });
 
     auto snapshotRect = renderer->absoluteBoundingBoxRect();
     if (snapshotRect.isEmpty())
         return { };
 
-    auto buffer = snapshotFrameRect(*mainFrame, snapshotRect, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
+    auto buffer = snapshotFrameRect(*mainFrame, snapshotRect, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, element.get());
     return BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTF::move(buffer)));
 }
 

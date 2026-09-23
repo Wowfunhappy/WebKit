@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Holger Hans Peter Freyther
  *
  * This library is free software; you can redistribute it and/or
@@ -152,12 +152,6 @@ static inline std::pair<bool, bool> NODELETE expansionLocation(bool ideograph, b
     return std::make_pair(expandLeft, expandRight);
 }
 
-static void NODELETE expandWithInitialAdvance(GlyphBufferAdvance& advanceToExpand, const GlyphBufferAdvance& initialAdvance)
-{
-    setWidth(advanceToExpand, width(advanceToExpand) + width(initialAdvance));
-    setHeight(advanceToExpand, height(advanceToExpand) + height(initialAdvance));
-}
-
 void WidthIterator::applyInitialAdvance(GlyphBuffer& glyphBuffer, GlyphBufferAdvance initialAdvance, unsigned lastGlyphCount)
 {
     ASSERT(glyphBuffer.size() >= lastGlyphCount);
@@ -168,8 +162,7 @@ void WidthIterator::applyInitialAdvance(GlyphBuffer& glyphBuffer, GlyphBufferAdv
     ASSERT(lastGlyphCount || (!width(m_leftoverInitialAdvance) && !height(m_leftoverInitialAdvance)));
 
     if (rtl() && lastGlyphCount) {
-        auto& visuallyLastAdvance = glyphBuffer.advanceAt(lastGlyphCount);
-        expandWithInitialAdvance(visuallyLastAdvance, m_leftoverInitialAdvance);
+        glyphBuffer.expandAdvance(lastGlyphCount, m_leftoverInitialAdvance);
         m_runWidthSoFar += width(m_leftoverInitialAdvance);
         m_leftoverInitialAdvance = makeGlyphBufferAdvance();
     }
@@ -178,8 +171,7 @@ void WidthIterator::applyInitialAdvance(GlyphBuffer& glyphBuffer, GlyphBufferAdv
         m_leftoverInitialAdvance = initialAdvance;
     else {
         if (lastGlyphCount) {
-            auto& visuallyPreviousAdvance = glyphBuffer.advanceAt(lastGlyphCount - 1);
-            expandWithInitialAdvance(visuallyPreviousAdvance, initialAdvance);
+            glyphBuffer.expandAdvance(lastGlyphCount - 1, initialAdvance);
             m_runWidthSoFar += width(initialAdvance);
         } else
             glyphBuffer.expandInitialAdvance(initialAdvance);
@@ -301,6 +293,10 @@ struct AdvanceInternalState {
 
 void WidthIterator::commitCurrentFontRange(AdvanceInternalState& advanceInternalState)
 {
+    // advanceInternalState.lastGlyphCount is only synced to advanceInternalState.glyphBuffer.size() at the end of this function itself and lastGlyphCount is initialized to glyphBuffer.size(), we just have anything to commit if the glyphBuffer has grown bigger than lastGlyphCount since the last time commitCurrentFontRange was called, otherwise there is notthing to be committed.
+    if (advanceInternalState.lastGlyphCount == advanceInternalState.glyphBuffer.size())
+        return;
+
 #if ASSERT_ENABLED
     ASSERT(advanceInternalState.rangeFont);
     for (unsigned i = advanceInternalState.lastGlyphCount; i < advanceInternalState.glyphBuffer.size(); ++i)
@@ -418,20 +414,6 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
     float width = 0;
     unsigned clusterLength = 0;
     // We are iterating in string order, not glyph order. Compare this to ComplexTextController::adjustGlyphsAndAdvances()
-    if (!textIterator.consume(character, clusterLength))
-        return;
-
-    auto glyphData = m_fontCascade->glyphDataForCharacter(character, false, FontVariant::NormalVariant);
-
-    RefPtr halfWidthFont = applyTextSpacingTrimIfNeeded(glyphData, character, fontDescription.textSpacingTrim());
-
-    advanceInternalState.updateFont(glyphData.font ? protect(glyphData.font).get() : primaryFont.ptr());
-    auto capitalizedCharacter = capitalized(character);
-    if (shouldSynthesizeSmallCaps(smallCapsState.dontSynthesizeSmallCaps, advanceInternalState.font.get(), character, capitalizedCharacter, smallCapsState.fontVariantCaps, smallCapsState.engageAllSmallCapsProcessing))
-        smallCapsState.setSmallCapsData(advanceInternalState.font.get(), fontDescription);
-    advanceInternalState.rangeFont = fontForRange(advanceInternalState.font.get(), smallCapsState, smallCapsState.isSmallCaps);
-    advanceInternalState.nextRangeFont = advanceInternalState.rangeFont;
-
     while (textIterator.consume(character, clusterLength)) {
         // FIXME: Should we replace unpaired surrogates with the object replacement character?
         // Should we do this before or after shaping? What does a shaper do with an unpaired surrogate?
@@ -442,7 +424,7 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
             m_lastCharacterIndex = advanceInternalState.currentCharacterIndex;
         bool isDefaultIgnorable = isDefaultIgnorableCodePoint(character);
 
-        capitalizedCharacter = capitalized(character);
+        auto capitalizedCharacter = capitalized(character);
         char32_t characterToWrite = character;
 
         auto advanceToNextCharacter = [&] {
@@ -458,9 +440,9 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
             continue;
         }
 #endif
-        auto glyphData = m_fontCascade->glyphDataForCharacter(character, false, FontVariant::NormalVariant);
+        auto glyphData = m_fontCascade->glyphDataForCharacter(character, false, FontVariant::Normal);
 
-        halfWidthFont = applyTextSpacingTrimIfNeeded(glyphData, character, fontDescription.textSpacingTrim());
+        RefPtr halfWidthFont = applyTextSpacingTrimIfNeeded(glyphData, character, fontDescription.textSpacingTrim());
 
         advanceInternalState.updateFont(glyphData.font ? protect(glyphData.font).get() : primaryFont.ptr());
         smallCapsState.shouldSynthesizeCharacter = shouldSynthesizeSmallCaps(smallCapsState.dontSynthesizeSmallCaps, advanceInternalState.font.get(), character, capitalizedCharacter, smallCapsState.fontVariantCaps, smallCapsState.engageAllSmallCapsProcessing);
@@ -472,7 +454,7 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
             continue;
 
         if (rtl())
-            characterToWrite = u_charMirror(characterToWrite);
+            characterToWrite = mirrorCharacterIfNeeded(characterToWrite);
 
         Glyph glyph = glyphData.glyph;
         if (glyphData.font.get() != advanceInternalState.nextRangeFont || character != characterToWrite)
@@ -614,8 +596,8 @@ struct CharacterToGlyphMapping {
     Vector<float> advanceWidths;
 
     CharacterToGlyphMapping(unsigned length)
-        : characterIndexToGlyphIndexRange(length, std::nullopt)
-        , advanceWidths(length, 0)
+        : characterIndexToGlyphIndexRange(FillWith { }, length, std::nullopt)
+        , advanceWidths(FillWith { }, length, 0)
     {
     }
 };
@@ -637,7 +619,7 @@ static CharacterToGlyphMapping buildCharacterToGlyphMapping(const GlyphBuffer& g
     return mapping;
 }
 
-static void applyHorizontalGlyphStretch(GlyphBuffer& glyphBuffer, unsigned glyphBufferStartIndex, const TextRun& run)
+static void NODELETE applyHorizontalGlyphStretch(GlyphBuffer& glyphBuffer, unsigned glyphBufferStartIndex, const TextRun& run)
 {
     if (run.horizontalGlyphStretch() == 1)
         return;
@@ -660,9 +642,9 @@ TextSpacing::CharacterClass WidthIterator::applyTextAutospaceIfNeededAndGetChara
     if (textAutospace.isNoAutospace())
         return TextSpacing::CharacterClass::Undefined;
 
-    auto currentCharacterClass = TextSpacing::characterClass(m_run.get()[characterIndex]);
+    auto currentCharacterClass = TextSpacing::characterClass(m_run->text().codePointAt(characterIndex));
     if (textAutospace.shouldApplySpacing(currentCharacterClass, previousCharacterClass)) {
-        auto textAutospaceSpacing = TextAutospace::textAutospaceSize(protect(glyphBuffer.fontAt(glyphIndexRange.leadingGlyphIndex)));
+        auto textAutospaceSpacing = TextAutospace::textAutospaceSize(glyphBuffer.fontAt(glyphIndexRange.leadingGlyphIndex));
         glyphBuffer.expandAdvanceToLogicalRight(glyphIndexRange.leadingGlyphIndex, textAutospaceSpacing);
         m_runWidthSoFar += textAutospaceSpacing;
     }
@@ -763,15 +745,16 @@ void WidthIterator::applyCSSVisibilityRules(GlyphBuffer& glyphBuffer, unsigned g
 {
     // This function needs to be kept in sync with characterCanUseSimplifiedTextMeasuring().
 
-    Vector<unsigned> glyphsIndicesToBeDeleted;
-
     float yPosition = height(glyphBuffer.initialAdvance());
 
     auto adjustForSyntheticBold = [&](auto index) {
+        auto& advance = glyphBuffer.advances(index)[0];
+        // Only embolden glyphs that advance the pen, like the "zero width lurkers" letter-spacing guard.
+        if (!width(advance))
+            return;
         auto glyph = glyphBuffer.glyphAt(index);
         auto syntheticBoldOffset = glyph == deletedGlyph ? 0 : glyphBuffer.fontAt(index).syntheticBoldOffset();
         m_runWidthSoFar += syntheticBoldOffset;
-        auto& advance = glyphBuffer.advances(index)[0];
         setWidth(advance, width(advance) + syntheticBoldOffset);
     };
 

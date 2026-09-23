@@ -28,9 +28,9 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "SandboxExtension.h"
-#include <WebCore/MediaCanStartListener.h>
 #include <WebCore/MediaKeySystemClient.h>
 #include <WebCore/MediaKeySystemRequest.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
@@ -41,7 +41,7 @@ namespace WebKit {
 
 class WebPage;
 
-class MediaKeySystemPermissionRequestManager : private WebCore::MediaCanStartListener {
+class MediaKeySystemPermissionRequestManager : public AbstractRefCountedAndCanMakeWeakPtr<MediaKeySystemPermissionRequestManager> {
     WTF_MAKE_TZONE_ALLOCATED(MediaKeySystemPermissionRequestManager);
 public:
     explicit MediaKeySystemPermissionRequestManager(WebPage&);
@@ -57,13 +57,9 @@ public:
 private:
     void sendMediaKeySystemRequest(WebCore::MediaKeySystemRequest&);
 
-    // WebCore::MediaCanStartListener
-    void mediaCanStart(WebCore::Document&) final;
-
     WeakRef<WebPage> m_page;
 
     HashMap<WebCore::MediaKeySystemRequestIdentifier, Ref<WebCore::MediaKeySystemRequest>> m_ongoingMediaKeySystemRequests;
-    HashMap<Ref<WebCore::Document>, Vector<Ref<WebCore::MediaKeySystemRequest>>> m_pendingMediaKeySystemRequests;
 };
 
 } // namespace WebKit

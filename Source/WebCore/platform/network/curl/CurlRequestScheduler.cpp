@@ -28,6 +28,7 @@
 #include "config.h"
 #include "CurlRequestScheduler.h"
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/Threading.h>
 
 #if USE(CURL)
 
@@ -42,6 +43,11 @@ CurlRequestScheduler::CurlRequestScheduler(long maxConnects, long maxTotalConnec
     , m_maxTotalConnections(maxTotalConnections)
     , m_maxHostConnections(maxHostConnections)
 {
+}
+
+CurlRequestScheduler::~CurlRequestScheduler()
+{
+    stopThread();
 }
 
 bool CurlRequestScheduler::add(CurlRequestSchedulerClient* client)

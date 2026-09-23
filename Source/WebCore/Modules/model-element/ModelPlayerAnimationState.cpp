@@ -86,8 +86,7 @@ std::optional<double> ModelPlayerAnimationState::effectivePlaybackRate() const
 
 void ModelPlayerAnimationState::setPlaybackRate(double playbackRate)
 {
-    // FIXME (280081): Support negative playback rate
-    m_effectivePlaybackRate = fmax(playbackRate, 0);
+    m_effectivePlaybackRate = playbackRate;
 }
 
 std::optional<Seconds> ModelPlayerAnimationState::lastCachedCurrentTime() const
@@ -117,6 +116,8 @@ Seconds ModelPlayerAnimationState::currentTime() const
     Seconds estimatedCurrentTime = lastCachedCurrentTime + animationTimePassed;
     if (estimatedCurrentTime > m_duration)
         estimatedCurrentTime = m_loop ? estimatedCurrentTime % m_duration : m_duration;
+    else if (estimatedCurrentTime < 0_s)
+        estimatedCurrentTime = m_loop ? m_duration + (estimatedCurrentTime % m_duration) : 0_s;
     return estimatedCurrentTime;
 }
 

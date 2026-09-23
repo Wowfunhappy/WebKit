@@ -40,18 +40,18 @@ JSFunctionWithFields::JSFunctionWithFields(VM& vm, NativeExecutable* executable,
 {
 }
 
-JSFunctionWithFields* JSFunctionWithFields::create(VM& vm, JSGlobalObject* globalObject, NativeExecutable* executable, unsigned length, const String& name)
+JSFunctionWithFields* JSFunctionWithFields::create(VM& vm, JSGlobalObject* globalObject, NativeExecutable* executable)
 {
     JSFunctionWithFields* function = new (NotNull, allocateCell<JSFunctionWithFields>(vm)) JSFunctionWithFields(vm, executable, globalObject, globalObject->functionWithFieldsStructure());
-    ASSERT(function->structure()->globalObject());
-    function->finishCreation(vm, executable, length, name);
+    ASSERT(function->realm());
+    function->finishCreation(vm);
     return function;
 }
 
 template<typename Visitor>
 void JSFunctionWithFields::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSFunctionWithFields* thisObject = jsCast<JSFunctionWithFields*>(cell);
+    JSFunctionWithFields* thisObject = uncheckedDowncast<JSFunctionWithFields>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.appendValues(thisObject->m_internalFields, numberOfInternalFields);

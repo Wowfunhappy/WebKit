@@ -3,6 +3,8 @@
 #include "wk_polyfill.h"
 
 #include <Security/Security.h>
+#include <bsm/audit.h>
+#include <sys/socket.h>
 #include <dispatch/dispatch.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -95,9 +97,7 @@ WK_POLYFILL_ABSENT("Network", const char *, nw_endpoint_get_hostname, (const voi
 // gap-fill there COULD flip a probe and make a caller believe a feature exists. Those stay inventory,
 // and check-absent-references.sh splits the two cases on exactly this rule.)
 //
-// The signatures use opaque pointers rather than nw_*/MTL types: those headers describe frameworks
-// that are not here, and this file deliberately does not include them. Every parameter is
-// pointer-sized or an integer, so the ABI matches whatever a caller was compiled against.
+// Opaque Network objects retain their pointer ABI; audit tokens use their SDK structure type.
 //
 // Every body below aborts. There is no Network.framework to carry the operation out, and a WebTransport
 // endpoint that reports a created connection or an accepted send it never made stalls the caller
@@ -111,6 +111,21 @@ static void __attribute__((noreturn)) wkNoNetworkFramework(const char *symbol)
     fflush(stderr);
     abort();
 }
+
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_parameters_set_source_application, (void *parameters, audit_token_t token))
+{ (void)parameters; (void)token; wkNoNetworkFramework("nw_parameters_set_source_application"); }
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_parameters_set_source_application_by_bundle_id, (void *parameters, const char *identifier))
+{ (void)parameters; (void)identifier; wkNoNetworkFramework("nw_parameters_set_source_application_by_bundle_id"); }
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_parameters_set_account_id, (void *parameters, const char *identifier))
+{ (void)parameters; (void)identifier; wkNoNetworkFramework("nw_parameters_set_account_id"); }
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_parameters_set_is_known_tracker, (void *parameters, bool isKnownTracker))
+{ (void)parameters; (void)isKnownTracker; wkNoNetworkFramework("nw_parameters_set_is_known_tracker"); }
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_parameters_set_is_third_party_web_content, (void *parameters, bool isThirdParty))
+{ (void)parameters; (void)isThirdParty; wkNoNetworkFramework("nw_parameters_set_is_third_party_web_content"); }
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", int, nw_endpoint_get_type, (void *endpoint))
+{ (void)endpoint; wkNoNetworkFramework("nw_endpoint_get_type"); }
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", const struct sockaddr *, nw_endpoint_get_address, (void *endpoint))
+{ (void)endpoint; wkNoNetworkFramework("nw_endpoint_get_address"); }
 
 WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_endpoint_create_url, (const char *url))
 { (void)url; wkNoNetworkFramework("nw_endpoint_create_url"); }

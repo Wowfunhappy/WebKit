@@ -26,6 +26,9 @@
 #include "config.h"
 #include "CSSViewTransitionRule.h"
 
+#include "CSSCustomIdentValue.h"
+#include "CSSKeywordValue.h"
+#include "CSSMarkup.h"
 #include "CSSPropertyParser.h"
 #include "CSSStyleSheet.h"
 #include "CSSTokenizer.h"
@@ -40,13 +43,11 @@ namespace WebCore {
 
 static std::optional<ViewTransitionNavigation> NODELETE toViewTransitionNavigationEnum(RefPtr<CSSValue> navigation)
 {
-    if (!navigation || !navigation->isPrimitiveValue())
+    RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(navigation);
+    if (!keywordValue)
         return std::nullopt;
 
-    auto& primitiveNavigationValue = downcast<CSSPrimitiveValue>(*navigation);
-    ASSERT(primitiveNavigationValue.isValueID());
-
-    if (primitiveNavigationValue.valueID() == CSSValueAuto)
+    if (keywordValue->valueID() == CSSValueAuto)
         return ViewTransitionNavigation::Auto;
     return ViewTransitionNavigation::None;
 }
@@ -57,16 +58,23 @@ StyleRuleViewTransition::StyleRuleViewTransition(Ref<StyleProperties>&& properti
     m_navigation = toViewTransitionNavigationEnum(properties->getPropertyCSSValue(CSSPropertyNavigation));
 
     if (auto value = properties->getPropertyCSSValue(CSSPropertyTypes)) {
+        m_explicitlySetTypes = true;
+
         auto processSingleValue = [&](const CSSValue& currentValue) {
-            if (currentValue.isCustomIdent())
-                m_types.append(currentValue.customIdent());
+            if (RefPtr customIdentValue = dynamicDowncast<CSSCustomIdentValue>(currentValue)) {
+                // ident() is invalid in descriptors (https://github.com/w3c/csswg-drafts/issues/12219),
+                // so only plain identifiers apply.
+                if (auto* resolved = std::get_if<AtomString>(&customIdentValue->customIdent().value))
+                    m_types.append(*resolved);
+            }
         };
         if (auto* list = dynamicDowncast<CSSValueList>(*value)) {
             for (Ref currentValue : *list)
                 processSingleValue(currentValue);
         } else
             processSingleValue(*value);
-    }
+    } else
+        m_explicitlySetTypes = false;
 }
 
 Ref<StyleRuleViewTransition> StyleRuleViewTransition::create(Ref<StyleProperties>&& properties)
@@ -103,14 +111,21 @@ String CSSViewTransitionRule::cssText() const
         builder.append("; "_s);
     }
 
-    if (!types().isEmpty())
+    if (m_viewTransitionRule->explicitlySetTypes()) {
         builder.append("types:"_s);
-    for (auto& type : types()) {
-        builder.append(' ');
-        builder.append(type);
+
+        const auto& types = this->types();
+
+        if (!types.isEmpty()) {
+            for (auto& type : types) {
+                builder.append(' ');
+                serializeIdentifier(builder, type);
+            }
+        } else
+            builder.append(" none"_s);
+
+        builder.append("; "_s);
     }
-    if (!types().isEmpty())
-        builder.append('}');
 
     builder.append('}');
     return builder.toString();

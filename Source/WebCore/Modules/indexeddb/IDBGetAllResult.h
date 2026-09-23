@@ -52,18 +52,19 @@ public:
     IndexedDB::GetAllType type() const { return m_type; }
     const std::optional<IDBKeyPath>& keyPath() const LIFETIME_BOUND { return m_keyPath; }
     WEBCORE_EXPORT const Vector<IDBKeyData>& NODELETE keys() const;
+    WEBCORE_EXPORT const Vector<IDBKeyData>& NODELETE primaryKeys() const;
     WEBCORE_EXPORT const Vector<IDBValue>& NODELETE values() const;
 
     void addKey(IDBKeyData&&);
+    void addPrimaryKey(IDBKeyData&&);
     void addValue(IDBValue&&);
-
-    WEBCORE_EXPORT Vector<String> allBlobFilePaths() const;
 
 private:
     friend struct IPC::ArgumentCoder<IDBGetAllResult>;
-    IDBGetAllResult(IndexedDB::GetAllType type, Vector<IDBKeyData>&& keys, Vector<IDBValue>&& values, std::optional<IDBKeyPath>&& keyPath)
+    IDBGetAllResult(IndexedDB::GetAllType type, Vector<IDBKeyData>&& keys, Vector<IDBKeyData>&& primaryKeys, Vector<IDBValue>&& values, std::optional<IDBKeyPath>&& keyPath)
         : m_type(type)
         , m_keys(WTF::move(keys))
+        , m_primaryKeys(WTF::move(primaryKeys))
         , m_values(WTF::move(values))
         , m_keyPath(WTF::move(keyPath))
     {
@@ -73,6 +74,7 @@ private:
 
     IndexedDB::GetAllType m_type { IndexedDB::GetAllType::Keys };
     Vector<IDBKeyData> m_keys;
+    Vector<IDBKeyData> m_primaryKeys;
     Vector<IDBValue> m_values;
     std::optional<IDBKeyPath> m_keyPath;
 };

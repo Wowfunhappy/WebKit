@@ -38,8 +38,6 @@ JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_WELL_KNOWN_SYMBOL(INITIALIZE_BUILTIN_STATIC_
 JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_EXPLICIT_RESOURCE_MANAGEMENT_WELL_KNOWN_SYMBOL(INITIALIZE_BUILTIN_STATIC_SYMBOLS)
 #undef INITIALIZE_BUILTIN_STATIC_SYMBOLS
 
-SymbolImpl::StaticSymbolImpl intlLegacyConstructedSymbol { "IntlLegacyConstructedSymbol" };
-
 #define INITIALIZE_BUILTIN_PRIVATE_NAMES(name) SymbolImpl::StaticSymbolImpl name##PrivateName { #name, SymbolImpl::s_flagIsPrivate };
 JSC_FOREACH_BUILTIN_FUNCTION_NAME(INITIALIZE_BUILTIN_PRIVATE_NAMES)
 JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(INITIALIZE_BUILTIN_PRIVATE_NAMES)
@@ -78,7 +76,6 @@ BuiltinNames::BuiltinNames(VM& vm, CommonIdentifiers* commonIdentifiers)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(INITIALIZE_BUILTIN_NAMES_IN_JSC)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_WELL_KNOWN_SYMBOL(INITIALIZE_BUILTIN_SYMBOLS_IN_JSC)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_EXPLICIT_RESOURCE_MANAGEMENT_WELL_KNOWN_SYMBOL(INITIALIZE_BUILTIN_SYMBOLS_IN_JSC)
-    , m_intlLegacyConstructedSymbol(JSC::Identifier::fromUid(vm, &static_cast<SymbolImpl&>(Symbols::intlLegacyConstructedSymbol)))
     , m_dollarVMName(Identifier::fromString(vm, "$vm"_s))
     , m_dollarVMPrivateName(Identifier::fromUid(vm, &static_cast<SymbolImpl&>(Symbols::dollarVMPrivateName)))
     , m_polyProtoPrivateName(Identifier::fromUid(vm, &static_cast<SymbolImpl&>(Symbols::polyProtoPrivateName)))
@@ -102,12 +99,12 @@ using UTF16Buffer = WTF::HashTranslatorCharBuffer<char16_t>;
 template<typename CharacterType>
 struct CharBufferSeacher {
     using Buffer = WTF::HashTranslatorCharBuffer<CharacterType>;
-    static unsigned hash(const Buffer& buf)
+    static unsigned NODELETE hash(const Buffer& buf)
     {
         return buf.hash;
     }
 
-    static bool equal(const String& str, const Buffer& buf)
+    static bool NODELETE equal(const String& str, const Buffer& buf)
     {
         return WTF::equal(str.impl(), buf.characters);
     }

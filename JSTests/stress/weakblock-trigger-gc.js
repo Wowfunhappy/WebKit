@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--useJIT=0", "--useConcurrentGC=0")
 $vm.gc()
 let start = $vm.totalGCTime()

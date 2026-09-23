@@ -20,11 +20,11 @@
 
 #pragma once
 
-#include <JavaScriptCore/Debugger.h>
 #include <WebCore/ActivityState.h>
 #include <WebCore/AnimationFrameRate.h>
 #include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BoxExtents.h>
+#include <WebCore/BrowsingContextGroupIdentifier.h>
 #include <WebCore/Color.h>
 #include <WebCore/DocumentEnums.h>
 #include <WebCore/FindOptions.h>
@@ -46,18 +46,12 @@
 #include <WebCore/Supplementable.h>
 #include <WebCore/Timer.h>
 #include <WebCore/UserInterfaceLayoutDirection.h>
-#include <memory>
 #include <pal/SessionID.h>
-#include <wtf/Assertions.h>
 #include <wtf/CheckedPtr.h>
-#include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/OptionSet.h>
-#include <wtf/Platform.h>
 #include <wtf/ProcessID.h>
-#include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RobinHoodHashSet.h>
 #include <wtf/TZoneMalloc.h>
@@ -65,7 +59,6 @@
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
-#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(APPLICATION_MANIFEST)
@@ -81,6 +74,7 @@
 #endif
 
 namespace JSC {
+class Debugger;
 class JSGlobalObject;
 }
 
@@ -123,6 +117,7 @@ class Document;
 class DOMRectList;
 class DOMWrapperWorld;
 class DatabaseProvider;
+class DeviceOrientationAndMotionAccessController;
 class DeviceOrientationUpdateProvider;
 class DiagnosticLoggingClient;
 class DocumentSyncData;
@@ -157,6 +152,7 @@ class MediaPlaybackTarget;
 class MediaSessionCoordinatorPrivate;
 class MediaSessionManagerInterface;
 class ModelPlayerProvider;
+class NavigationAPIMethodTracker;
 class PageConfiguration;
 class PageGroup;
 class PageInspectorController;
@@ -207,6 +203,9 @@ class WheelEventDeltaFilter;
 class WheelEventTestMonitor;
 class WindowEventLoop;
 
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+class TextEffectController;
+#endif
 #if ENABLE(WRITING_TOOLS)
 class WritingToolsController;
 
@@ -232,11 +231,10 @@ struct ApplePayAMSUIRequest;
 struct AttributedString;
 struct CharacterRange;
 struct ClientOrigin;
+struct CueMatch;
 struct DocumentSyncSerializationData;
 struct FixedContainerEdges;
-struct NavigationAPIMethodTracker;
 struct ResolvedCaptionDisplaySettingsOptions;
-struct SpatialBackdropSource;
 struct SystemPreviewInfo;
 struct TextRecognitionResult;
 struct ViewportArguments;
@@ -388,12 +386,16 @@ public:
     WEBCORE_EXPORT static void updateStyleForAllPagesAfterGlobalChangeInEnvironment();
     WEBCORE_EXPORT static void clearPreviousItemFromAllPages(BackForwardFrameItemIdentifier);
 
-    WEBCORE_EXPORT void setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& topOrigin, const String& referrerPolicy, OptionSet<AdvancedPrivacyProtections>);
+    WEBCORE_EXPORT void setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& topOrigin, const String& referrerPolicy, OptionSet<AdvancedPrivacyProtections>, std::optional<bool> globalPrivacyControlEnabled);
 
     WEBCORE_EXPORT void updateStyleAfterChangeInEnvironment();
 
     // Utility pages (e.g. SVG image pages) don't have an identifier currently.
     std::optional<PageIdentifier> identifier() const { return m_identifier; }
+
+    std::optional<BrowsingContextGroupIdentifier> browsingContextGroupIdentifier() const { return m_browsingContextGroupIdentifier; }
+
+    void willEnterBackForwardCache();
 
     WEBCORE_EXPORT uint64_t renderTreeSize() const;
     WEBCORE_EXPORT void destroyRenderTrees();
@@ -420,6 +422,7 @@ public:
     EditorClient& editorClient() { return m_editorClient.get(); }
 
     WEBCORE_EXPORT LocalFrame* NODELETE localMainFrame() const;
+    WEBCORE_EXPORT bool hasAnyLocalFrame() const;
     WEBCORE_EXPORT Document* localTopDocument() const;
 
     Frame& mainFrame() const { return m_mainFrame.get(); }
@@ -458,7 +461,7 @@ public:
     const RegistrableDomain& openedByScriptDomain() const LIFETIME_BOUND { return m_openedByScriptDomain; }
     void setOpenedByScriptDomain(RegistrableDomain&& domain) { m_openedByScriptDomain = WTF::move(domain); }
 
-    WEBCORE_EXPORT void goToItem(LocalFrame& rootFrame, HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad);
+    WEBCORE_EXPORT void goToItem(LocalFrame& rootFrame, HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified);
     void goToItemForNavigationAPI(LocalFrame& rootFrame, HistoryItem&, FrameLoadType, LocalFrame& triggeringFrame, NavigationAPIMethodTracker*);
 
     WEBCORE_EXPORT void setGroupName(const String&);
@@ -568,6 +571,7 @@ public:
     WEBCORE_EXPORT unsigned markAllMatchesForText(const String&, FindOptions, bool shouldHighlight, unsigned maxMatchCount);
 
     WEBCORE_EXPORT void unmarkAllTextMatches();
+    WEBCORE_EXPORT void removeAllActiveTextMatches();
 
     WEBCORE_EXPORT void dispatchBeforePrintEvent();
     WEBCORE_EXPORT void dispatchAfterPrintEvent();
@@ -582,6 +586,10 @@ public:
         std::optional<uint32_t> indexForSelection;
     };
     WEBCORE_EXPORT MatchingRanges findTextMatches(const String&, FindOptions, unsigned maxCount, bool markMatches = true);
+
+#if ENABLE(VIDEO)
+    WEBCORE_EXPORT Vector<CueMatch> findCueMatches(const String&, FindOptions);
+#endif
 
 #if PLATFORM(COCOA)
     void platformInitialize();
@@ -630,7 +638,7 @@ public:
     WEBCORE_EXPORT void setZoomedOutPageScaleFactor(float);
     float zoomedOutPageScaleFactor() const { return m_zoomedOutPageScaleFactor; }
 
-    float deviceScaleFactor() const { return m_deviceScaleFactor; }
+    float NODELETE deviceScaleFactor() const { return m_deviceScaleFactor; }
     WEBCORE_EXPORT void setDeviceScaleFactor(float);
 
     float initialScaleIgnoringContentSize() const { return m_initialScaleIgnoringContentSize; }
@@ -669,9 +677,9 @@ public:
     const FloatBoxExtent& obscuredContentInsets() const LIFETIME_BOUND { return m_obscuredContentInsets; }
     WEBCORE_EXPORT void setObscuredContentInsets(const FloatBoxExtent&);
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool hasBannerViewOverlay() const { return m_hasBannerViewOverlay; }
-    WEBCORE_EXPORT void setHasBannerViewOverlay(bool);
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController() const { return m_hasRefreshController; }
+    WEBCORE_EXPORT void setHasRefreshController(bool);
 #endif
 
     WEBCORE_EXPORT void useSystemAppearanceChanged();
@@ -851,6 +859,11 @@ public:
 #endif
     bool imageAnimationEnabled() const { return m_imageAnimationEnabled; }
 
+#if ENABLE(ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL)
+    WEBCORE_EXPORT void NODELETE setVideoAutoplayPreviewsEnabled(bool);
+    bool videoAutoplayPreviewsEnabled() const { return m_videoAutoplayPreviewsEnabled; }
+#endif
+
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
     WEBCORE_EXPORT void setPrefersNonBlinkingCursor(bool);
     bool prefersNonBlinkingCursor() const { return m_prefersNonBlinkingCursor; };
@@ -921,10 +934,6 @@ public:
     WEBCORE_EXPORT void updateFixedContainerEdges(EnumSet<BoxSide>);
     const FixedContainerEdges& fixedContainerEdges() const LIFETIME_BOUND { return m_fixedContainerEdgesAndElements.first; }
     Element* NODELETE lastFixedContainer(BoxSide) const;
-
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    WEBCORE_EXPORT std::optional<SpatialBackdropSource> spatialBackdropSource() const;
-#endif
 
 #if HAVE(APP_ACCENT_COLORS) && PLATFORM(MAC)
     WEBCORE_EXPORT void NODELETE setAppUsesCustomAccentColor(bool);
@@ -1024,7 +1033,7 @@ public:
 
 #if ENABLE(MODEL_PROCESS)
     void incrementModelElementCount();
-    void decrementModelElementCount(unsigned);
+    void decrementModelElementCount();
 #endif
 
     std::optional<MediaSessionGroupIdentifier> NODELETE mediaSessionGroupIdentifier() const;
@@ -1074,9 +1083,6 @@ public:
 
     IDBClient::IDBConnectionToServer& idbConnection();
     WEBCORE_EXPORT IDBClient::IDBConnectionToServer* NODELETE optionalIDBConnection();
-    WEBCORE_EXPORT void clearIDBConnection();
-    WEBCORE_EXPORT void clearIDBConnectionOnAllDocuments();
-    WEBCORE_EXPORT void refreshIDBConnectionForWorkers();
 
     void setShowAllPlugins(bool showAll) { m_showAllPlugins = showAll; }
     bool showAllPlugins() const;
@@ -1148,12 +1154,17 @@ public:
     DeviceOrientationUpdateProvider* deviceOrientationUpdateProvider() const { return m_deviceOrientationUpdateProvider.get(); }
 #endif
 
+#if ENABLE(DEVICE_ORIENTATION)
+    DeviceOrientationAndMotionAccessController& deviceOrientationAndMotionAccessController();
+    WEBCORE_EXPORT void clearDeviceOrientationAndMotionPermissions();
+#endif
+
     WEBCORE_EXPORT void forEachDocument(NOESCAPE const Function<void(Document&)>&) const;
     bool findMatchingLocalDocument(NOESCAPE const Function<bool(Document&)>&) const;
     void forEachRenderableDocument(NOESCAPE const Function<void(Document&)>&) const;
     void forEachMediaElement(NOESCAPE const Function<void(HTMLMediaElement&)>&);
     static void forEachDocumentFromMainFrame(const Frame&, NOESCAPE const Function<void(Document&)>&);
-    void forEachLocalFrame(NOESCAPE const Function<void(LocalFrame&)>&);
+    WEBCORE_EXPORT void forEachLocalFrame(NOESCAPE const Function<void(LocalFrame&)>&);
     void forEachWindowEventLoop(NOESCAPE const Function<void(WindowEventLoop&)>&);
 
     bool shouldDisableCorsForRequestTo(const URL&) const;
@@ -1269,7 +1280,7 @@ public:
 #endif
 
 #if ENABLE(WRITING_TOOLS)
-    WEBCORE_EXPORT void willBeginWritingToolsSession(const std::optional<WritingTools::Session>&, CompletionHandler<void(const Vector<WritingTools::Context>&)>&&);
+    WEBCORE_EXPORT void willBeginWritingToolsSession(const std::optional<WritingTools::Session>&, WeakHashSet<Node, WeakPtrImplWithEventTargetData>&&, CompletionHandler<void(const Vector<WritingTools::Context>&)>&&);
 
     WEBCORE_EXPORT void didBeginWritingToolsSession(const WritingTools::Session&, const Vector<WritingTools::Context>&);
 
@@ -1299,6 +1310,9 @@ public:
     WEBCORE_EXPORT std::optional<SimpleRange> contextRangeForActiveWritingToolsSession() const;
     WEBCORE_EXPORT void intelligenceTextAnimationsDidComplete();
 #endif
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    TextEffectController& textEffectController() { return m_textEffectController.get(); }
+#endif
 
     bool hasActiveNowPlayingSession() const { return m_hasActiveNowPlayingSession; }
     void hasActiveNowPlayingSessionChanged();
@@ -1327,6 +1341,9 @@ public:
     WEBCORE_EXPORT void NODELETE startDeferringIntersectionObservations();
     WEBCORE_EXPORT void flushDeferredIntersectionObservations();
 
+    void recordResizeForIntersectionObserverQuirk() { m_lastResizeTimeForIOQuirk = MonotonicTime::now(); }
+    bool isWithinResizeDebounceWindow() const { return MonotonicTime::now() - m_lastResizeTimeForIOQuirk < 700_ms; }
+
     bool reportScriptTrackingPrivacy(const URL&, ScriptTrackingPrivacyCategory);
     bool shouldAllowScriptAccess(const URL&, const SecurityOrigin& topOrigin, ScriptTrackingPrivacyCategory) const;
     bool requiresScriptTrackingPrivacyProtections(const URL&) const;
@@ -1342,7 +1359,7 @@ public:
 #endif
 
 #if PLATFORM(COCOA)
-    const String& presentingApplicationBundleIdentifier() const LIFETIME_BOUND;
+    const String& NODELETE presentingApplicationBundleIdentifier() const LIFETIME_BOUND;
     WEBCORE_EXPORT void setPresentingApplicationBundleIdentifier(String&&);
 #endif
 
@@ -1467,6 +1484,7 @@ private:
     const UniqueRef<Internals> m_internals;
 
     std::optional<PageIdentifier> m_identifier;
+    std::optional<BrowsingContextGroupIdentifier> m_browsingContextGroupIdentifier;
     const UniqueRef<Chrome> m_chrome;
     const UniqueRef<DragCaretController> m_dragCaretController;
 
@@ -1515,7 +1533,6 @@ private:
     PlatformDisplayID m_displayID { 0 };
     std::optional<FramesPerSecond> m_displayNominalFramesPerSecond;
 
-    String m_groupName;
     bool m_openedByDOM { false };
     bool m_openedByDOMWithOpener { false };
 
@@ -1558,8 +1575,8 @@ private:
     
     bool m_suppressScrollbarAnimations { false };
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool m_hasBannerViewOverlay { false };
+#if HAVE(NSREFRESHCONTROLLER)
+    bool m_hasRefreshController { false };
 #endif
     ScrollElasticity m_verticalScrollElasticity { ScrollElasticity::Allowed };
     ScrollElasticity m_horizontalScrollElasticity { ScrollElasticity::Allowed };
@@ -1580,6 +1597,7 @@ private:
 
     bool m_canStartMedia { true };
     bool m_imageAnimationEnabled { true };
+    bool m_videoAutoplayPreviewsEnabled { true };
     // Elements containing animations that are individually playing (potentially overriding the page-wide m_imageAnimationEnabled state).
     WeakHashSet<HTMLImageElement, WeakPtrImplWithEventTargetData> m_individuallyPlayingAnimationElements;
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
@@ -1687,7 +1705,7 @@ private:
 
     const std::unique_ptr<PerformanceMonitor> m_performanceMonitor;
     const UniqueRef<LowPowerModeNotifier> m_lowPowerModeNotifier;
-    const UniqueRef<ThermalMitigationNotifier> m_thermalMitigationNotifier;
+    const Ref<ThermalMitigationNotifier> m_thermalMitigationNotifier;
     OptionSet<ThrottlingReason> m_throttlingReasons;
     OptionSet<ThrottlingReason> m_throttlingReasonsOverridenForTesting;
 
@@ -1730,6 +1748,10 @@ private:
 
 #if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
     RefPtr<DeviceOrientationUpdateProvider> m_deviceOrientationUpdateProvider;
+#endif
+
+#if ENABLE(DEVICE_ORIENTATION)
+    std::unique_ptr<DeviceOrientationAndMotionAccessController> m_deviceOrientationAndMotionAccessController;
 #endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
@@ -1817,6 +1839,9 @@ private:
 #if ENABLE(WRITING_TOOLS)
     const UniqueRef<WritingToolsController> m_writingToolsController;
 #endif
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    const UniqueRef<TextEffectController> m_textEffectController;
+#endif
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
     Headroom m_displayEDRHeadroom { Headroom::None };
@@ -1834,6 +1859,7 @@ private:
     bool m_shouldDeferResizeEvents { false };
     bool m_shouldDeferScrollEvents { false };
     bool m_shouldDeferIntersectionObservations { false };
+    MonotonicTime m_lastResizeTimeForIOQuirk;
 
     Ref<DocumentSyncData> m_topDocumentSyncData;
 

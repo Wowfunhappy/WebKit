@@ -26,4 +26,5 @@ import os
 
 extension Logger {
     static let viewGestures = Logger(subsystem: "com.apple.WebKit", category: "ViewGestures")
+    static let pdf = Logger(subsystem: "com.apple.WebKit", category: "PDF")
 }

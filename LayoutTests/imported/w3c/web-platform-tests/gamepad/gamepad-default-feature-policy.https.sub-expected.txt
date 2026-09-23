@@ -1,8 +1,0 @@
-
-
-Harness Error (TIMEOUT), message = null
-
-PASS Feature-Policy allow="gamepad" allows same-origin by default.
-TIMEOUT Feature-Policy allow="gamepad" allows cross-origin with feature allowed. Test timed out
-TIMEOUT Feature-Policy allow="gamepad" allows cross-origin by default. Test timed out
-

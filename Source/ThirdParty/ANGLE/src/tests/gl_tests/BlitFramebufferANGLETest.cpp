@@ -4,10 +4,7 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -485,7 +482,7 @@ TEST_P(BlitFramebufferANGLETest, BlitColorToDefault)
 // Blit color to/from default framebuffer with Flip-X/Flip-Y.
 TEST_P(BlitFramebufferANGLETest, BlitColorWithFlip)
 {
-    // OpenGL ES 3.0 / GL_NV_framebuffer_blit required for flip.
+    // OpenGL ES 3.0 or GL_NV_framebuffer_blit required for flip.
     ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
                        !IsGLExtensionEnabled("GL_NV_framebuffer_blit"));
 
@@ -604,10 +601,10 @@ TEST_P(BlitFramebufferANGLETest, BlitColorWithFlip)
 // Blit color to default framebuffer from another framebuffer with GL_MESA_framebuffer_flip_y.
 TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipSrc)
 {
-    // OpenGL ES 3.0 / GL_NV_framebuffer_blit required for flip.
-    ANGLE_SKIP_TEST_IF(
-        (getClientMajorVersion() < 3 && !IsGLExtensionEnabled("GL_NV_framebuffer_blit")) ||
-        !IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
+    // OpenGL ES 3.0 or GL_NV_framebuffer_blit required for flip.
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
+                       !IsGLExtensionEnabled("GL_NV_framebuffer_blit"));
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
 
     glBindFramebuffer(GL_FRAMEBUFFER, mUserFBO);
 
@@ -655,10 +652,10 @@ TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipSrc)
 // Blit color to y-flipped with GL_MESA_framebuffer_flip_y framebuffer from normal framebuffer.
 TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipDst)
 {
-    // OpenGL ES 3.0 / GL_NV_framebuffer_blit required for flip.
-    ANGLE_SKIP_TEST_IF(
-        (getClientMajorVersion() < 3 && !IsGLExtensionEnabled("GL_NV_framebuffer_blit")) ||
-        !IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
+    // OpenGL ES 3.0 or GL_NV_framebuffer_blit required for flip.
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
+                       !IsGLExtensionEnabled("GL_NV_framebuffer_blit"));
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
 
     glBindFramebuffer(GL_FRAMEBUFFER, mOriginalFBO);
 
@@ -723,10 +720,10 @@ TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipDst)
 // have different size.
 TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipSrcDst)
 {
-    // OpenGL ES 3.0 / GL_NV_framebuffer_blit required for flip.
-    ANGLE_SKIP_TEST_IF(
-        (getClientMajorVersion() < 3 && !IsGLExtensionEnabled("GL_NV_framebuffer_blit")) ||
-        !IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
+    // OpenGL ES 3.0 or GL_NV_framebuffer_blit required for flip.
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
+                       !IsGLExtensionEnabled("GL_NV_framebuffer_blit"));
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
 
     // Create a custom framebuffer as the default one cannot be flipped.
     GLTexture tex0;
@@ -802,10 +799,8 @@ TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipSrcDst)
 // Same as BlitColorWithMesaYFlip but uses an integer buffer format.
 TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipInteger)
 {
-    // OpenGL ES 3.0 / GL_NV_framebuffer_blit required for flip.
-    ANGLE_SKIP_TEST_IF(
-        (getClientMajorVersion() < 3 || !IsGLExtensionEnabled("GL_NV_framebuffer_blit")) ||
-        !IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_MESA_framebuffer_flip_y"));
 
     GLTexture tex0;
     glBindTexture(GL_TEXTURE_2D, tex0);
@@ -844,16 +839,8 @@ TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipInteger)
     glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    if (getClientMajorVersion() < 3)
-    {
-        glBlitFramebufferNV(0, 0, getWindowWidth(), getWindowHeight(), 0, 0, fb1_target_width,
-                            fb1_target_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
-    else
-    {
-        glBlitFramebuffer(0, 0, getWindowWidth(), getWindowHeight(), 0, 0, fb1_target_width,
-                          fb1_target_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
+    glBlitFramebuffer(0, 0, getWindowWidth(), getWindowHeight(), 0, 0, fb1_target_width,
+                      fb1_target_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
     EXPECT_GL_NO_ERROR();
 
@@ -884,16 +871,8 @@ TEST_P(BlitFramebufferANGLETest, BlitColorWithMesaYFlipInteger)
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    if (getClientMajorVersion() < 3)
-    {
-        glBlitFramebufferNV(0, 0, fb1_target_width, fb1_target_height, 0, 0, getWindowWidth(),
-                            getWindowHeight(), GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
-    else
-    {
-        glBlitFramebuffer(0, 0, fb1_target_width, fb1_target_height, 0, 0, getWindowWidth(),
-                          getWindowHeight(), GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
+    glBlitFramebuffer(0, 0, fb1_target_width, fb1_target_height, 0, 0, getWindowWidth(),
+                      getWindowHeight(), GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
     // And explicitly disable y-flip so that read does not implicitly use this flag.
     glFramebufferParameteriMESA(GL_DRAW_FRAMEBUFFER_ANGLE, GL_FRAMEBUFFER_FLIP_Y_MESA, 0);
@@ -3417,13 +3396,13 @@ TEST_P(BlitFramebufferTest, BlitWithDifferentSizesColorAttachments)
             switch ((x + 2 * y) % 3)
             {
                 case 0:
-                    texture_pattern[y * kWidth + x] = GLColor::red;
+                    ANGLE_UNSAFE_TODO(texture_pattern[y * kWidth + x]) = GLColor::red;
                     break;
                 case 1:
-                    texture_pattern[y * kWidth + x] = GLColor::green;
+                    ANGLE_UNSAFE_TODO(texture_pattern[y * kWidth + x]) = GLColor::green;
                     break;
                 case 2:
-                    texture_pattern[y * kWidth + x] = GLColor::blue;
+                    ANGLE_UNSAFE_TODO(texture_pattern[y * kWidth + x]) = GLColor::blue;
                     break;
                 default:
                     break;
@@ -3446,6 +3425,7 @@ TEST_P(BlitFramebufferTest, BlitWithDifferentSizesColorAttachments)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, smallColorBuffer,
                            0);
     EXPECT_GL_NO_ERROR();
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 
     GLFramebuffer dstFramebuffer;
     GLRenderbuffer dstRenderbuffer;
@@ -3498,7 +3478,6 @@ TEST_P(BlitFramebufferTest, BlitLargeColorSmallDepthAttachments)
     constexpr GLint kHeight = 48;
     GLFramebuffer srcFramebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, srcFramebuffer);
-    glDisable(GL_DEPTH_TEST);
 
     GLTexture srcLargeColorBuffer;
     glBindTexture(GL_TEXTURE_2D, srcLargeColorBuffer);
@@ -3513,6 +3492,10 @@ TEST_P(BlitFramebufferTest, BlitLargeColorSmallDepthAttachments)
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, kWidth / 2, kHeight / 2);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
                               srcSmallDepthBuffer);
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);
     ANGLE_GL_PROGRAM(drawGreen, essl3_shaders::vs::Simple(), essl3_shaders::fs::Green());
     drawQuad(drawGreen, essl3_shaders::PositionAttrib(), 0.5f);
 
@@ -3552,8 +3535,6 @@ TEST_P(BlitFramebufferTest, BlitLargeColorSmallDepthAttachments)
     }
 
     ANGLE_GL_PROGRAM(drawRed, essl3_shaders::vs::Simple(), essl3_shaders::fs::Red());
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(false);
     glDepthFunc(GL_LESS);
     drawQuad(drawRed, essl3_shaders::PositionAttrib(), 0.7f);
 
@@ -3575,7 +3556,6 @@ TEST_P(BlitFramebufferTest, BlitSmallColorLargeDepthAttachments)
     constexpr GLint kHeight = 48;
     GLFramebuffer srcFramebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, srcFramebuffer);
-    glDisable(GL_DEPTH_TEST);
 
     GLTexture srcSmallColorBuffer;
     glBindTexture(GL_TEXTURE_2D, srcSmallColorBuffer);
@@ -3590,6 +3570,10 @@ TEST_P(BlitFramebufferTest, BlitSmallColorLargeDepthAttachments)
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, kWidth, kHeight);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
                               srcLargeDepthBuffer);
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);
     ANGLE_GL_PROGRAM(drawGreen, essl3_shaders::vs::Simple(), essl3_shaders::fs::Green());
     drawQuad(drawGreen, essl3_shaders::PositionAttrib(), 0.5f);
 
@@ -3628,8 +3612,6 @@ TEST_P(BlitFramebufferTest, BlitSmallColorLargeDepthAttachments)
     }
 
     ANGLE_GL_PROGRAM(drawRed, essl3_shaders::vs::Simple(), essl3_shaders::fs::Red());
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(false);
     glDepthFunc(GL_LESS);
     drawQuad(drawRed, essl3_shaders::PositionAttrib(), 0.7f);
 
@@ -3971,12 +3953,12 @@ TEST_P(BlitFramebufferTestES31, DrawToSmallFBOThenResolveLargeFBO)
         const GLsizei width  = fboIndex == 0 ? kLargeWidth : kSmallWidth;
         const GLsizei height = fboIndex == 0 ? kLargeHeight : kSmallHeight;
 
-        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, textureMS[fboIndex]);
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, ANGLE_UNSAFE_TODO(textureMS[fboIndex]));
         glTexStorage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGBA8, width, height, GL_TRUE);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, fboMS[fboIndex]);
+        glBindFramebuffer(GL_FRAMEBUFFER, ANGLE_UNSAFE_TODO(fboMS[fboIndex]));
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE,
-                               textureMS[fboIndex], 0);
+                               ANGLE_UNSAFE_TODO(textureMS[fboIndex]), 0);
         ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 
         glViewport(0, 0, width, height);
@@ -4285,17 +4267,21 @@ TEST_P(BlitFramebufferTest, ResolveIntoSmallerFramebuffer)
 
     for (int i = 0; i < 2; ++i)
     {
-        glBindRenderbuffer(GL_RENDERBUFFER, rbo[i]);
+        glBindRenderbuffer(GL_RENDERBUFFER, ANGLE_UNSAFE_TODO(rbo[i]));
         if (i == 0)
         {
-            glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8, kSize[i], kSize[i]);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8,
+                                             ANGLE_UNSAFE_TODO(kSize[i]),
+                                             ANGLE_UNSAFE_TODO(kSize[i]));
         }
         else
         {
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, kSize[i], kSize[i]);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, ANGLE_UNSAFE_TODO(kSize[i]),
+                                  ANGLE_UNSAFE_TODO(kSize[i]));
         }
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo[i]);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, ANGLE_UNSAFE_TODO(fbo[i]));
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                  ANGLE_UNSAFE_TODO(rbo[i]));
     }
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
@@ -4323,17 +4309,21 @@ TEST_P(BlitFramebufferTest, ResolveIntoBiggerFramebuffer)
 
     for (int i = 0; i < 2; ++i)
     {
-        glBindRenderbuffer(GL_RENDERBUFFER, rbo[i]);
+        glBindRenderbuffer(GL_RENDERBUFFER, ANGLE_UNSAFE_TODO(rbo[i]));
         if (i == 0)
         {
-            glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8, kSize[i], kSize[i]);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8,
+                                             ANGLE_UNSAFE_TODO(kSize[i]),
+                                             ANGLE_UNSAFE_TODO(kSize[i]));
         }
         else
         {
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, kSize[i], kSize[i]);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, ANGLE_UNSAFE_TODO(kSize[i]),
+                                  ANGLE_UNSAFE_TODO(kSize[i]));
         }
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo[i]);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, ANGLE_UNSAFE_TODO(fbo[i]));
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                  ANGLE_UNSAFE_TODO(rbo[i]));
     }
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
@@ -4473,7 +4463,8 @@ ANGLE_INSTANTIATE_TEST_ES3_AND(BlitFramebufferTest,
                                    .disable(Feature::SupportsExtendedDynamicState)
                                    .disable(Feature::SupportsExtendedDynamicState2),
                                ES3_VULKAN().disable(Feature::SupportsExtendedDynamicState2),
-                               ES3_METAL().disable(Feature::HasShaderStencilOutput));
+                               ES3_METAL().disable(Feature::HasShaderStencilOutput),
+                               ES3_WEBGPU());
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BlitFramebufferTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(BlitFramebufferTestES31);

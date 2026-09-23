@@ -154,7 +154,7 @@ private:
         bool canOSREnter;
     };
 
-    bool canOSREnterAtLoopHint(FTL::CapabilityLevel level, const BasicBlock* block, unsigned nodeIndex)
+    bool NODELETE canOSREnterAtLoopHint(FTL::CapabilityLevel level, const BasicBlock* block, unsigned nodeIndex)
     {
         Node* node = block->at(nodeIndex);
         ASSERT(node->op() == LoopHint);

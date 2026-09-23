@@ -1,0 +1,11 @@
+PASS initial none keyword
+PASS auto and numeric offsets
+PASS comma-separated offsets
+PASS none clears existing regions
+PASS Apple property alias
+PASS inherited resolved offsets
+PASS multiple regions
+PASS serialized regions round trip
+PASS percentage offsets are rejected
+PASS missing closing parenthesis is rejected
+

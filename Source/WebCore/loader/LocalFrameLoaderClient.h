@@ -95,6 +95,7 @@ class ProtectionSpace;
 class RegistrableDomain;
 class RTCPeerConnectionHandler;
 class ResourceError;
+class ResourceTiming;
 class SecurityOrigin;
 class SharedBuffer;
 class SubstituteData;
@@ -108,6 +109,10 @@ enum class FromDownloadAttribute : bool { No , Yes };
 enum class IsSameDocumentNavigation : bool { No, Yes };
 enum class ShouldGoToHistoryItem : uint8_t { No, Yes, ItemUnknown };
 enum class ProcessSwapDisposition : uint8_t;
+enum class IFrameUnloadReason : bool { ResourceMonitor, MemoryMonitor };
+
+struct BackForwardFrameItemIdentifierType;
+using BackForwardFrameItemIdentifier = ProcessQualified<ObjectIdentifier<BackForwardFrameItemIdentifierType>>;
 
 struct BackForwardItemIdentifierType;
 struct StringWithDirection;
@@ -171,6 +176,7 @@ public:
     virtual void dispatchWillPerformClientRedirect(const URL&, double interval, WallTime fireDate, LockBackForwardList) = 0;
     virtual void dispatchDidChangeMainDocument() { }
     virtual void dispatchWillChangeDocument(const URL&, const URL&) { }
+    virtual void dispatchDidChangeCSPOriginsThatUpgradeInsecureNavigations(const HashSet<SecurityOriginData>&) { }
     virtual void dispatchDidNavigateWithinPage() { }
     virtual void dispatchDidChangeLocationWithinPage() = 0;
     virtual void dispatchDidPushStateWithinPage() = 0;
@@ -268,6 +274,10 @@ public:
     virtual void transitionToCommittedForNewPage(InitializingIframe) = 0;
 
     virtual void didRestoreFromBackForwardCache() = 0;
+
+    virtual void didCacheBackForwardItem(BackForwardItemIdentifier, BackForwardFrameItemIdentifier);
+    virtual void didEvictBackForwardItem(BackForwardItemIdentifier);
+    virtual void didTakeBackForwardItemForRestoration(BackForwardItemIdentifier);
 
     virtual bool canCachePage() const = 0;
     virtual void convertMainResourceLoadToDownload(DocumentLoader*, const ResourceRequest&, const ResourceResponse&) = 0;
@@ -368,15 +378,7 @@ public:
 
     virtual bool isParentProcessAFullWebBrowser() const { return false; }
 
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-    virtual void modelInlinePreviewUUIDs(CompletionHandler<void(Vector<String>)>&&) const { }
-#endif
-
     virtual void dispatchLoadEventToOwnerElementInAnotherProcess() = 0;
-
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    virtual void didAccessWindowProxyPropertyViaOpener(SecurityOriginData&&, WindowProxyProperty) { }
-#endif
 
     virtual void documentLoaderDetached(NavigationIdentifier, LoadWillContinueInAnotherProcess) { }
 
@@ -387,6 +389,8 @@ public:
 #if ENABLE(CONTENT_EXTENSIONS)
     virtual void didExceedNetworkUsageThreshold();
 #endif
+
+    virtual void applyMonitorUnloadToOwnerFrame(IFrameUnloadReason);
 
     virtual bool shouldSuppressLayoutMilestones() const { return false; }
 

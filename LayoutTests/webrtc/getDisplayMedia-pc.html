@@ -46,6 +46,7 @@
          var pc1, pc2;
          promise_test(async (test) => {
              const localStream = await callGetDisplayMedia({ video: { width: 1280, height:720 } });
+             test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
              const stream = await new Promise((resolve, reject) => {
                  createConnections((firstConnection) => {
                      pc1 = firstConnection;

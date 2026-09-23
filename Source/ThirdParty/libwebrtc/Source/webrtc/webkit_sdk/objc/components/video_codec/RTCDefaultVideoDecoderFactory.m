@@ -23,9 +23,6 @@
 #import "RTCH265ProfileLevelId.h"
 #import "RTCVideoDecoderH265.h"
 #endif
-#if !defined(DISABLE_RTC_AV1)
-#import "webkit_sdk/objc/api/video_codec/RTCVideoDecoderAV1.h"
-#endif
 
 #import <VideoToolbox/VideoToolbox.h>
 
@@ -122,11 +119,7 @@
         return [RTCVideoDecoderVP9 vp9Decoder];
       }
 #endif
-#if !defined(DISABLE_RTC_AV1)
-  } else if ([info.name isEqualToString:kRTCVideoCodecAv1Name]) {
-    return [RTCVideoDecoderAV1 av1Decoder];
   }
-#endif
 
   return nil;
 }

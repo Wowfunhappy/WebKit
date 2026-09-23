@@ -28,7 +28,7 @@
 #include "CSSValuePool.h"
 #include "InlineTextBoxStyle.h"
 #include "RenderStyleConstants.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleExtractor.h"
 
 namespace WebCore {
@@ -65,21 +65,29 @@ public:
         return true;
     }
 
-    static bool changeAffectsVisualOverflow(const RenderStyle& a, const RenderStyle& b)
+    static bool changeAffectsVisualOverflow(const Style::ComputedStyle& a, const Style::ComputedStyle& b)
     {
         auto nonInheritedDataChangeAffectsVisualOverflow = [&] {
             if (&a.nonInheritedData() == &b.nonInheritedData())
                 return false;
 
-            if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
-                && a.nonInheritedData().miscData->boxShadow != b.nonInheritedData().miscData->boxShadow)
-                return true;
+            if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()) {
+                if (a.nonInheritedData().miscData->boxShadow != b.nonInheritedData().miscData->boxShadow)
+                    return true;
+
+                if (a.nonInheritedData().miscData->filter.ptr() != b.nonInheritedData().miscData->filter.ptr()) {
+                    auto aOutsets = a.nonInheritedData().miscData->filter->filter.calculateOutsets(a.usedZoomForLength());
+                    auto bOutsets = b.nonInheritedData().miscData->filter->filter.calculateOutsets(b.usedZoomForLength());
+                    if (aOutsets != bOutsets)
+                        return true;
+                }
+            }
 
             if (a.nonInheritedData().backgroundData.ptr() != b.nonInheritedData().backgroundData.ptr()) {
                 auto aHasOutlineInVisualOverflow = a.hasOutlineInVisualOverflow();
                 auto bHasOutlineInVisualOverflow = b.hasOutlineInVisualOverflow();
                 if (aHasOutlineInVisualOverflow != bHasOutlineInVisualOverflow
-                    || (aHasOutlineInVisualOverflow && bHasOutlineInVisualOverflow && a.usedOutlineSize() != b.usedOutlineSize()))
+                    || (aHasOutlineInVisualOverflow && bHasOutlineInVisualOverflow && a.usedOutlineSize(a.usedZoomForLength(), a.deviceScaleFactor()) != b.usedOutlineSize(b.usedZoomForLength(), b.deviceScaleFactor())))
                     return true;
             }
 
@@ -133,7 +141,6 @@ public:
 
         // All text related properties influence layout.
         if (a.inheritedFlags.textAnchor != b.inheritedFlags.textAnchor
-            || a.inheritedFlags.glyphOrientationHorizontal != b.inheritedFlags.glyphOrientationHorizontal
             || a.inheritedFlags.glyphOrientationVertical != b.inheritedFlags.glyphOrientationVertical
             || a.nonInheritedFlags.alignmentBaseline != b.nonInheritedFlags.alignmentBaseline
             || a.nonInheritedFlags.dominantBaseline != b.nonInheritedFlags.dominantBaseline)
@@ -276,7 +283,8 @@ public:
 
         if (a.usedContain().contains(ContainValue::Size) != b.usedContain().contains(ContainValue::Size)
             || a.usedContain().contains(ContainValue::InlineSize) != b.usedContain().contains(ContainValue::InlineSize)
-            || a.usedContain().contains(ContainValue::Layout) != b.usedContain().contains(ContainValue::Layout))
+            || a.usedContain().contains(ContainValue::Layout) != b.usedContain().contains(ContainValue::Layout)
+            || a.usedContain().contains(ContainValue::Paint) != b.usedContain().contains(ContainValue::Paint))
             return true;
 
         // content-visibility:hidden turns on contain:size which requires relayout.
@@ -335,6 +343,7 @@ public:
             || a.lineFitEdge != b.lineFitEdge
             || a.usedZoom != b.usedZoom
             || a.textZoom != b.textZoom
+            || a.deviceScaleFactor != b.deviceScaleFactor
     #if ENABLE(TEXT_AUTOSIZING)
             || a.textSizeAdjust != b.textSizeAdjust
     #endif
@@ -385,9 +394,9 @@ public:
         return false;
     }
 
-    static bool changeRequiresLayout(const RenderStyle& a, const RenderStyle& b, OptionSet<DifferenceContextSensitiveProperty>& changedContextSensitiveProperties)
+    static bool changeRequiresLayout(const Style::ComputedStyle& a, const Style::ComputedStyle& b, OptionSet<DifferenceContextSensitiveProperty>& changedContextSensitiveProperties)
     {
-        if (&a.svgData() != &b.svgData() && svgDataChangeRequiresLayout(a.svgData(), b.svgData()))
+        SUPPRESS_UNCOUNTED_ARG if (&a.svgData() != &b.svgData() && svgDataChangeRequiresLayout(a.svgData(), b.svgData()))
             return true;
 
         if (&a.nonInheritedData() != &b.nonInheritedData()) {
@@ -445,16 +454,16 @@ public:
             return true;
 
         if (&a.nonInheritedData() != &b.nonInheritedData()) {
-            if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
+            SUPPRESS_UNCOUNTED_ARG if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
                 && miscDataChangeRequiresLayout(*a.nonInheritedData().miscData, *b.nonInheritedData().miscData, changedContextSensitiveProperties))
                 return true;
 
-            if (a.nonInheritedData().rareData.ptr() != b.nonInheritedData().rareData.ptr()
+            SUPPRESS_UNCOUNTED_ARG if (a.nonInheritedData().rareData.ptr() != b.nonInheritedData().rareData.ptr()
                 && rareDataChangeRequiresLayout(*a.nonInheritedData().rareData, *b.nonInheritedData().rareData, changedContextSensitiveProperties))
                 return true;
         }
 
-        if (&a.inheritedRareData() != &b.inheritedRareData()
+        SUPPRESS_UNCOUNTED_ARG if (&a.inheritedRareData() != &b.inheritedRareData()
             && rareInheritedDataChangeRequiresLayout(a.inheritedRareData(), b.inheritedRareData()))
             return true;
 
@@ -529,10 +538,10 @@ public:
             return true;
 
         if (aHasFirstLineStyle) {
-            auto* aFirstLineStyle = a.getCachedPseudoStyle({ PseudoElementType::FirstLine });
+            auto* aFirstLineStyle = a.pseudoElementStyle({ PseudoElementType::FirstLine });
             if (!aFirstLineStyle)
                 return true;
-            auto* bFirstLineStyle = b.getCachedPseudoStyle({ PseudoElementType::FirstLine });
+            auto* bFirstLineStyle = b.pseudoElementStyle({ PseudoElementType::FirstLine });
             if (!bFirstLineStyle)
                 return true;
             // FIXME: Not all first line style changes actually need layout.
@@ -545,7 +554,7 @@ public:
 
     // MARK: DifferenceResult::LayoutOutOfFlowMovementOnly
 
-    static bool changeRequiresOutOfFlowMovementLayoutOnly(const RenderStyle& a, const RenderStyle& b, OptionSet<DifferenceContextSensitiveProperty>&)
+    static bool changeRequiresOutOfFlowMovementLayoutOnly(const Style::ComputedStyle& a, const Style::ComputedStyle& b, OptionSet<DifferenceContextSensitiveProperty>&)
     {
         if (a.position() != PositionType::Absolute)
             return false;
@@ -593,7 +602,7 @@ public:
         return false;
     }
 
-    static bool changeRequiresLayerRepaint(const RenderStyle& a, const RenderStyle& b, OptionSet<DifferenceContextSensitiveProperty>& changedContextSensitiveProperties)
+    static bool changeRequiresLayerRepaint(const Style::ComputedStyle& a, const Style::ComputedStyle& b, OptionSet<DifferenceContextSensitiveProperty>& changedContextSensitiveProperties)
     {
         // Resolver has ensured that zIndex is non-auto only if it's applicable.
 
@@ -612,11 +621,11 @@ public:
                 }
             }
 
-            if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
+            SUPPRESS_UNCOUNTED_ARG if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
                 && miscDataChangeRequiresLayerRepaint(*a.nonInheritedData().miscData, *b.nonInheritedData().miscData, changedContextSensitiveProperties))
                 return true;
 
-            if (a.nonInheritedData().rareData.ptr() != b.nonInheritedData().rareData.ptr()
+            SUPPRESS_UNCOUNTED_ARG if (a.nonInheritedData().rareData.ptr() != b.nonInheritedData().rareData.ptr()
                 && rareDataChangeRequiresLayerRepaint(*a.nonInheritedData().rareData, *b.nonInheritedData().rareData, changedContextSensitiveProperties))
                 return true;
         }
@@ -645,7 +654,7 @@ public:
 
     // MARK: DifferenceResult::Repaint
 
-    static bool NODELETE requiresPainting(const RenderStyle& style)
+    static bool NODELETE requiresPainting(const Style::ComputedStyle& style)
     {
         if (style.usedVisibility() == Visibility::Hidden)
             return false;
@@ -794,7 +803,7 @@ public:
         ;
     }
 
-    inline static bool changedCustomPaintWatchedProperty(const RenderStyle& a, const NonInheritedRareData& aData, const RenderStyle& b, const NonInheritedRareData& bData)
+    inline static bool changedCustomPaintWatchedProperty(const Style::ComputedStyle& a, const NonInheritedRareData& aData, const Style::ComputedStyle& b, const NonInheritedRareData& bData)
     {
         auto& propertiesA = aData.customPaintWatchedProperties;
         auto& propertiesB = bData.customPaintWatchedProperties;
@@ -807,8 +816,8 @@ public:
             for (auto& watchPropertiesMap : { propertiesA, propertiesB }) {
                 for (auto& name : watchPropertiesMap) {
                     if (isCustomPropertyName(name)) {
-                        auto valueA = a.customPropertyValue(name);
-                        auto valueB = b.customPropertyValue(name);
+                        SUPPRESS_UNCOUNTED_LOCAL auto* valueA = a.customPropertyValue(name);
+                        SUPPRESS_UNCOUNTED_LOCAL auto* valueB = b.customPropertyValue(name);
 
                         if (valueA != valueB && (!valueA || !valueB || *valueA != *valueB))
                             return true;
@@ -826,12 +835,12 @@ public:
         return false;
     }
 
-    static bool changeRequiresRepaint(const RenderStyle& a, const RenderStyle& b, OptionSet<DifferenceContextSensitiveProperty>& changedContextSensitiveProperties)
+    static bool changeRequiresRepaint(const Style::ComputedStyle& a, const Style::ComputedStyle& b, OptionSet<DifferenceContextSensitiveProperty>& changedContextSensitiveProperties)
     {
         bool currentColorDiffers = a.inheritedData().color != b.inheritedData().color;
 
         if (currentColorDiffers || &a.svgData() != &b.svgData()) {
-            if (svgDataChangeRequiresRepaint(a.svgData(), b.svgData(), currentColorDiffers))
+            SUPPRESS_UNCOUNTED_ARG if (svgDataChangeRequiresRepaint(a.svgData(), b.svgData(), currentColorDiffers))
                 return true;
         }
 
@@ -846,7 +855,7 @@ public:
 
         if (currentColorDiffers || &a.nonInheritedData() != &b.nonInheritedData()) {
             if (currentColorDiffers || a.nonInheritedData().backgroundData.ptr() != b.nonInheritedData().backgroundData.ptr()) {
-                if (!isEquivalentForPainting(*a.nonInheritedData().backgroundData, *b.nonInheritedData().backgroundData, currentColorDiffers))
+                SUPPRESS_UNCOUNTED_ARG if (!isEquivalentForPainting(*a.nonInheritedData().backgroundData, *b.nonInheritedData().backgroundData, currentColorDiffers))
                     return true;
             }
 
@@ -857,20 +866,20 @@ public:
         }
 
         if (&a.nonInheritedData() != &b.nonInheritedData()) {
-            if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
+            SUPPRESS_UNCOUNTED_ARG if (a.nonInheritedData().miscData.ptr() != b.nonInheritedData().miscData.ptr()
                 && miscDataChangeRequiresRepaint(*a.nonInheritedData().miscData, *b.nonInheritedData().miscData, changedContextSensitiveProperties))
                 return true;
 
-            if (a.nonInheritedData().rareData.ptr() != b.nonInheritedData().rareData.ptr()
+            SUPPRESS_UNCOUNTED_ARG if (a.nonInheritedData().rareData.ptr() != b.nonInheritedData().rareData.ptr()
                 && rareDataChangeRequiresRepaint(*a.nonInheritedData().rareData, *b.nonInheritedData().rareData, changedContextSensitiveProperties))
                 return true;
         }
 
-        if (&a.inheritedRareData() != &b.inheritedRareData()
+        SUPPRESS_UNCOUNTED_ARG if (&a.inheritedRareData() != &b.inheritedRareData()
             && rareInheritedDataChangeRequiresRepaint(a.inheritedRareData(), b.inheritedRareData()))
             return true;
 
-        if (changedCustomPaintWatchedProperty(a, *a.nonInheritedData().rareData, b, *b.nonInheritedData().rareData))
+        SUPPRESS_UNCOUNTED_ARG if (changedCustomPaintWatchedProperty(a, *a.nonInheritedData().rareData, b, *b.nonInheritedData().rareData))
             return true;
 
         return false;
@@ -878,7 +887,7 @@ public:
 
     // MARK: DifferenceResult::RepaintIfText
 
-    static bool changeRequiresRepaintIfText(const RenderStyle& a, const RenderStyle& b, OptionSet<DifferenceContextSensitiveProperty>&)
+    static bool changeRequiresRepaintIfText(const Style::ComputedStyle& a, const Style::ComputedStyle& b, OptionSet<DifferenceContextSensitiveProperty>&)
     {
         // FIXME: Does this code need to consider currentColorDiffers? webkit.org/b/266833
         if (a.inheritedData().color != b.inheritedData().color)
@@ -907,7 +916,7 @@ public:
 
     // MARK: DifferenceResult::RecompositeLayer
 
-    static bool changeRequiresRecompositeLayer(const RenderStyle& a, const RenderStyle& b, OptionSet<DifferenceContextSensitiveProperty>&)
+    static bool changeRequiresRecompositeLayer(const Style::ComputedStyle& a, const Style::ComputedStyle& b, OptionSet<DifferenceContextSensitiveProperty>&)
     {
         if (a.inheritedFlags().pointerEvents != b.inheritedFlags().pointerEvents)
             return true;
@@ -930,7 +939,7 @@ public:
 
     // MARK: - Root Functions
 
-    static bool differenceRequiresLayerRepaint(const RenderStyle& a, const RenderStyle& b, bool isComposited)
+    static bool differenceRequiresLayerRepaint(const Style::ComputedStyle& a, const Style::ComputedStyle& b, bool isComposited)
     {
         auto changedContextSensitiveProperties = OptionSet<DifferenceContextSensitiveProperty>();
 
@@ -943,7 +952,7 @@ public:
         return false;
     }
 
-    static bool borderIsEquivalentForPainting(const RenderStyle& a, const RenderStyle& b)
+    static bool borderIsEquivalentForPainting(const Style::ComputedStyle& a, const Style::ComputedStyle& b)
     {
         bool colorDiffers = a.color() != b.color();
 
@@ -956,7 +965,7 @@ public:
         return isEquivalentForPainting(a.border(), b.border(), colorDiffers);
     }
 
-    static Difference difference(const RenderStyle& a, const RenderStyle& b)
+    static Difference difference(const Style::ComputedStyle& a, const Style::ComputedStyle& b)
     {
         auto changedContextSensitiveProperties = OptionSet<DifferenceContextSensitiveProperty>();
 
@@ -992,7 +1001,7 @@ public:
     // MARK: - Logging
 
 #if !LOG_DISABLED
-    static void dumpDifferences(TextStream& ts, const RenderStyle& a, const RenderStyle& b)
+    static void dumpDifferences(TextStream& ts, const Style::ComputedStyle& a, const Style::ComputedStyle& b)
     {
         a.nonInheritedData().dumpDifferences(ts, b.nonInheritedData());
         a.nonInheritedFlags().dumpDifferences(ts, b.nonInheritedFlags());
@@ -1008,17 +1017,17 @@ public:
 
 // MARK: - Exported Functions
 
-Difference difference(const RenderStyle& a, const RenderStyle& b)
+Difference difference(const Style::ComputedStyle& a, const Style::ComputedStyle& b)
 {
     return DifferenceFunctions::difference(a, b);
 }
 
-bool differenceRequiresLayerRepaint(const RenderStyle& a, const RenderStyle& b, bool isComposited)
+bool differenceRequiresLayerRepaint(const Style::ComputedStyle& a, const Style::ComputedStyle& b, bool isComposited)
 {
     return DifferenceFunctions::differenceRequiresLayerRepaint(a, b, isComposited);
 }
 
-bool borderIsEquivalentForPainting(const RenderStyle& a, const RenderStyle& b)
+bool borderIsEquivalentForPainting(const Style::ComputedStyle& a, const Style::ComputedStyle& b)
 {
     return DifferenceFunctions::borderIsEquivalentForPainting(a, b);
 }
@@ -1062,7 +1071,7 @@ TextStream& operator<<(TextStream& ts, DifferenceContextSensitiveProperty value)
 }
 
 #if !LOG_DISABLED
-void dumpDifferences(TextStream& ts, const RenderStyle& a, const RenderStyle& b)
+void dumpDifferences(TextStream& ts, const Style::ComputedStyle& a, const Style::ComputedStyle& b)
 {
     return DifferenceFunctions::dumpDifferences(ts, a, b);
 }

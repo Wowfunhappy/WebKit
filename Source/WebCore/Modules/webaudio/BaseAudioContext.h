@@ -37,13 +37,13 @@
 #include "OscillatorType.h"
 #include "PeriodicWaveConstraints.h"
 #include <atomic>
+#include <wtf/CurrentThread.h>
 #include <wtf/Forward.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/MainThread.h>
 #include <wtf/RecursiveLockAdapter.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Threading.h>
 
 namespace JSC {
 class ArrayBuffer;
@@ -188,8 +188,8 @@ public:
     // Thread Safety and Graph Locking:
     //
     
-    void setAudioThread(Thread& thread) { m_audioThreadUID = thread.uid(); } // FIXME: check either not initialized or the same
-    bool isAudioThread() const { return m_audioThreadUID == Thread::currentSingleton().uid(); }
+    void setAudioThread(uint32_t threadUID) { m_audioThreadUID = threadUID; } // FIXME: check either not initialized or the same
+    bool isAudioThread() const { return m_audioThreadUID == currentThreadID(); }
 
     // Returns true only after the audio thread has been started and then shutdown.
     bool isAudioThreadFinished() const { return m_isAudioThreadFinished; }
@@ -205,6 +205,9 @@ public:
     
     // In AudioNode::decrementConnectionCount() a tryLock() is used for calling decrementConnectionCountWithLock(), but if it fails keep track here.
     void addDeferredDecrementConnectionCount(AudioNode*);
+
+    // In AudioNode::deref() a tryLock() is used for calling derefWithLock(), but if it fails keep track here.
+    void addDeferredDeref(const AudioNode*);
 
     // Only accessed when the graph lock is held.
     void markSummingJunctionDirty(AudioSummingJunction*);
@@ -258,8 +261,11 @@ protected:
 
     void clear();
 
-    RefPtr<MediaSessionManagerInterface> mediaSessionManagerIfExists() const;
+    RefPtr<MediaSessionManagerInterface> NODELETE mediaSessionManagerIfExists() const;
     RefPtr<MediaSessionManagerInterface> mediaSessionManager() const;
+
+    // ActiveDOMObject.
+    void stop() override;
 
 protected:
     // Only accessed when the graph lock is held.
@@ -274,14 +280,12 @@ private:
 
     // In the audio thread at the start of each render cycle, we'll call handleDeferredDecrementConnectionCounts().
     void handleDeferredDecrementConnectionCounts();
+    void handleDeferredDerefs();
 
     // EventTarget
     enum EventTargetInterfaceType eventTargetInterface() const final;
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }
-
-    // ActiveDOMObject.
-    void stop() override;
 
     // When the context goes away, there might still be some sources which haven't finished playing.
     // Make sure to dereference them here.
@@ -360,6 +364,7 @@ private:
     Vector<CheckedPtr<AudioNode>> m_renderingAutomaticPullNodes;
     // Only accessed in the audio thread.
     Vector<CheckedPtr<AudioNode>> m_deferredBreakConnectionList;
+    Vector<CheckedPtr<AudioNode>> m_deferredDerefList;
     Vector<Vector<DOMPromiseDeferred<void>>> m_stateReactions;
 
     const Ref<AudioListener> m_listener;

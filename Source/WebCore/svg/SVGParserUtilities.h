@@ -38,7 +38,7 @@ enum class SuffixSkippingPolicy {
 };
 
 std::optional<float> NODELETE parseNumber(StringParsingBuffer<Latin1Character>&, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
-std::optional<float> parseNumber(StringParsingBuffer<char16_t>&, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
+std::optional<float> NODELETE parseNumber(StringParsingBuffer<char16_t>&, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
 std::optional<float> parseNumber(StringView, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
 
 std::optional<std::pair<float, float>> parseNumberOptionalNumber(StringView);
@@ -50,7 +50,7 @@ std::optional<FloatPoint> parsePoint(StringView);
 std::optional<FloatRect> parseRect(StringView);
 
 std::optional<FloatPoint> NODELETE parseFloatPoint(StringParsingBuffer<Latin1Character>&);
-std::optional<FloatPoint> parseFloatPoint(StringParsingBuffer<char16_t>&);
+std::optional<FloatPoint> NODELETE parseFloatPoint(StringParsingBuffer<char16_t>&);
 
 std::optional<std::pair<UnicodeRanges, HashSet<String>>> parseKerningUnicodeString(StringView);
 std::optional<HashSet<String>> parseGlyphName(StringView);

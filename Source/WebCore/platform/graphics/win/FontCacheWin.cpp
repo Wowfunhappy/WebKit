@@ -288,7 +288,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     }
 
     String familyName;
-    const Vector<String>* linkedFonts = 0;
+    const Vector<String>* linkedFonts = nullptr;
     unsigned linkedFontIndex = 0;
     while (hfont) {
         SelectObject(hdc, hfont);

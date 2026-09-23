@@ -99,6 +99,9 @@ public:
     const Site& site() const LIFETIME_BOUND { return m_site; }
     std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier() const { return m_serviceWorkerPageIdentifier; }
 
+    CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicyValue() const { return m_crossOriginEmbedderPolicyValue; }
+    void setCrossOriginEmbedderPolicyValue(CrossOriginEmbedderPolicyValue value) { m_crossOriginEmbedderPolicyValue = value; }
+
     virtual void connectionIsNoLongerNeeded() = 0;
     virtual void terminateDueToUnresponsiveness() = 0;
 
@@ -118,6 +121,7 @@ private:
     Site m_site;
     std::optional<ScriptExecutionContextIdentifier> m_serviceWorkerPageIdentifier;
     bool m_shouldTerminateWhenPossible { false };
+    CrossOriginEmbedderPolicyValue m_crossOriginEmbedderPolicyValue { CrossOriginEmbedderPolicyValue::UnsafeNone };
 };
 
 } // namespace WebCore

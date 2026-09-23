@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/CacheUpdate.h>
 #include <JavaScriptCore/LeafExecutable.h>
-#include <JavaScriptCore/ParserModes.h>
 #include <wtf/MallocSpan.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefCounted.h>

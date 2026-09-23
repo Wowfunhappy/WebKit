@@ -39,7 +39,10 @@
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
+#if !defined(WebCore_AVKitLibrary_SoftLinked)
+#define WebCore_AVKitLibrary_SoftLinked
 SOFTLINK_AVKIT_FRAMEWORK()
+#endif
 SOFT_LINK_CLASS_OPTIONAL(AVKit, AVRoutePickerView)
 
 using namespace WebCore;
@@ -266,7 +269,7 @@ void AVRoutePickerViewTargetPicker::devicePickerWasDismissed()
         return;
 
     callOnMainThread([self, protectedSelf = retainPtr(self)] {
-        if (CheckedPtr callback = m_callback.get())
+        if (CheckedPtr callback = m_callback)
             callback->devicePickerWasDismissed();
     });
 }
@@ -279,7 +282,7 @@ void AVRoutePickerViewTargetPicker::devicePickerWasDismissed()
         return;
 
     callOnMainThread([self, protectedSelf = retainPtr(self), notification = retainPtr(notification)] {
-        CheckedPtr callback = m_callback.get();
+        CheckedPtr callback = m_callback;
         if (!callback)
             return;
 

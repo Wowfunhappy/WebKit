@@ -26,20 +26,20 @@
 #include "config.h"
 #include "CSSOMColorValue.h"
 
-#include "CSSKeywordValue.h"
+#include "CSSOMKeywordValue.h"
 #include "CSSUnitValue.h"
 #include "CSSUnits.h"
 #include "ExceptionOr.h"
 
 namespace WebCore {
 
-RefPtr<CSSKeywordValue> CSSOMColorValue::colorSpace()
+RefPtr<CSSOMKeywordValue> CSSOMColorValue::colorSpace()
 {
     // FIXME: implement this.
     return nullptr;
 }
 
-RefPtr<CSSOMColorValue> CSSOMColorValue::to(CSSKeywordish)
+RefPtr<CSSOMColorValue> CSSOMColorValue::to(CSSOMKeywordish)
 {
     // FIXME: implement this.
     return nullptr;
@@ -64,9 +64,9 @@ ExceptionOr<RectifiedCSSColorPercent> CSSOMColorValue::rectifyCSSColorPercent(CS
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorPercent"_s };
         },
         [](String&& string) -> ExceptionOr<RectifiedCSSColorPercent> {
-            return { CSSKeywordValue::rectifyKeywordish(WTF::move(string)) };
+            return { CSSOMKeywordValue::rectifyKeywordish(WTF::move(string)) };
         },
-        [](Ref<CSSKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorPercent> {
+        [](Ref<CSSOMKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorPercent> {
             if (equalIgnoringASCIICase(keywordValue->value(), "none"_s))
                 return { WTF::move(keywordValue) };
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorPercent"_s };
@@ -87,9 +87,9 @@ ExceptionOr<RectifiedCSSColorAngle> CSSOMColorValue::rectifyCSSColorAngle(CSSCol
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorAngle"_s };
         },
         [](String&& string) -> ExceptionOr<RectifiedCSSColorAngle> {
-            return { CSSKeywordValue::rectifyKeywordish(WTF::move(string)) };
+            return { CSSOMKeywordValue::rectifyKeywordish(WTF::move(string)) };
         },
-        [](Ref<CSSKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorAngle> {
+        [](Ref<CSSOMKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorAngle> {
             if (equalIgnoringASCIICase(keywordValue->value(), "none"_s))
                 return { WTF::move(keywordValue) };
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorAngle"_s };
@@ -110,9 +110,9 @@ ExceptionOr<RectifiedCSSColorNumber> CSSOMColorValue::rectifyCSSColorNumber(CSSC
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorNumber"_s };
         },
         [](String&& string) -> ExceptionOr<RectifiedCSSColorNumber> {
-            return { CSSKeywordValue::rectifyKeywordish(WTF::move(string)) };
+            return { CSSOMKeywordValue::rectifyKeywordish(WTF::move(string)) };
         },
-        [](Ref<CSSKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorNumber> {
+        [](Ref<CSSOMKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorNumber> {
             if (equalIgnoringASCIICase(keywordValue->value(), "none"_s))
                 return { WTF::move(keywordValue) };
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorNumber"_s };
@@ -123,7 +123,7 @@ ExceptionOr<RectifiedCSSColorNumber> CSSOMColorValue::rectifyCSSColorNumber(CSSC
 CSSColorPercent CSSOMColorValue::toCSSColorPercent(const RectifiedCSSColorPercent& component)
 {
     return switchOn(component,
-        [](const Ref<CSSKeywordValue>& keywordValue) -> CSSColorPercent {
+        [](const Ref<CSSOMKeywordValue>& keywordValue) -> CSSColorPercent {
             return keywordValue;
         },
         [](const Ref<CSSNumericValue>& numericValue) -> CSSColorPercent {
@@ -147,7 +147,7 @@ CSSColorPercent CSSOMColorValue::toCSSColorPercent(const CSSNumberish& numberish
 CSSColorAngle CSSOMColorValue::toCSSColorAngle(const RectifiedCSSColorAngle& angle)
 {
     return switchOn(angle,
-        [](const Ref<CSSKeywordValue>& keywordValue) -> CSSColorAngle {
+        [](const Ref<CSSOMKeywordValue>& keywordValue) -> CSSColorAngle {
             return keywordValue;
         },
         [](const Ref<CSSNumericValue>& numericValue) -> CSSColorAngle {
@@ -159,7 +159,7 @@ CSSColorAngle CSSOMColorValue::toCSSColorAngle(const RectifiedCSSColorAngle& ang
 CSSColorNumber CSSOMColorValue::toCSSColorNumber(const RectifiedCSSColorNumber& number)
 {
     return switchOn(number,
-        [](const Ref<CSSKeywordValue>& keywordValue) -> CSSColorNumber {
+        [](const Ref<CSSOMKeywordValue>& keywordValue) -> CSSColorNumber {
             return keywordValue;
         },
         [](const Ref<CSSNumericValue>& numericValue) -> CSSColorNumber {

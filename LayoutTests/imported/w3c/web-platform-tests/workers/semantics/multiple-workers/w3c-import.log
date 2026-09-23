@@ -26,4 +26,5 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/workers/semantics/multiple-workers/008-1.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/semantics/multiple-workers/008.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/semantics/multiple-workers/008.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/semantics/multiple-workers/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/workers/semantics/multiple-workers/exposure.any.js

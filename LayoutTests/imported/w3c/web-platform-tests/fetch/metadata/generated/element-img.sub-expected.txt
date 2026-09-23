@@ -23,6 +23,12 @@ PASS sec-fetch-user - src - Not sent to non-trustworthy same-site destination, n
 PASS sec-fetch-user - srcset - Not sent to non-trustworthy same-site destination, no attributes
 PASS sec-fetch-user - src - Not sent to non-trustworthy cross-site destination, no attributes
 PASS sec-fetch-user - srcset - Not sent to non-trustworthy cross-site destination, no attributes
+PASS sec-fetch-storage-access - src - Not sent to non-trustworthy same-origin destination, no attributes
+PASS sec-fetch-storage-access - srcset - Not sent to non-trustworthy same-origin destination, no attributes
+PASS sec-fetch-storage-access - src - Not sent to non-trustworthy same-site destination, no attributes
+PASS sec-fetch-storage-access - srcset - Not sent to non-trustworthy same-site destination, no attributes
+PASS sec-fetch-storage-access - src - Not sent to non-trustworthy cross-site destination, no attributes
+PASS sec-fetch-storage-access - srcset - Not sent to non-trustworthy cross-site destination, no attributes
 PASS sec-fetch-site - src - HTTPS downgrade (header not sent), no attributes
 PASS sec-fetch-site - srcset - HTTPS downgrade (header not sent), no attributes
 PASS sec-fetch-site - src - HTTPS upgrade, no attributes

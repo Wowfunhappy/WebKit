@@ -23,8 +23,8 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-typedef (DOMString or CSSKeywordValue) CSSKeywordish;
-typedef (CSSNumericValue or CSSKeywordish) CSSPerspectiveValue;
+typedef (DOMString or CSSOMKeywordValue) CSSOMKeywordish;
+typedef (CSSNumericValue or CSSOMKeywordish) CSSPerspectiveValue;
 
 // https://drafts.css-houdini.org/css-typed-om/#cssperspective
 [

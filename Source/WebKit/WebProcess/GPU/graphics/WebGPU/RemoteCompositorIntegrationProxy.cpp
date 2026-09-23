@@ -70,7 +70,7 @@ void RemoteCompositorIntegrationProxy::prepareForDisplay(uint32_t frameIndex, Co
 {
     auto sendResult = sendSync(Messages::RemoteCompositorIntegration::PrepareForDisplay(frameIndex));
     UNUSED_VARIABLE(sendResult);
-    RefPtr { m_presentationContext }->present(frameIndex);
+    protect(m_presentationContext)->present(frameIndex);
 
     completionHandler();
 }

@@ -144,4 +144,9 @@ void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writa
     }
 }
 
+void OSAllocator::zeroFill(void* base, size_t size)
+{
+    memset(base, 0, size);
+}
+
 } // namespace WTF

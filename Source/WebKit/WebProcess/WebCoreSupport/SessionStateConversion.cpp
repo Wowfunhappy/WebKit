@@ -30,6 +30,7 @@
 #include <WebCore/BlobData.h>
 #include <WebCore/FormData.h>
 #include <WebCore/HistoryItem.h>
+#include <WebCore/SerializedScriptValue.h>
 #include <wtf/FileSystem.h>
 
 namespace WebKit {
@@ -81,6 +82,8 @@ Ref<FrameState> toFrameState(const HistoryItem& historyItem)
     frameState->documentSequenceNumber = historyItem.documentSequenceNumber();
     frameState->itemSequenceNumber = historyItem.itemSequenceNumber();
 
+    frameState->navigationAPIKey = historyItem.navigationAPIKey();
+
     frameState->scrollPosition = historyItem.scrollPosition();
     frameState->shouldRestoreScrollPosition = historyItem.shouldRestoreScrollPosition();
     frameState->pageScaleFactor = historyItem.pageScaleFactor();
@@ -94,11 +97,11 @@ Ref<FrameState> toFrameState(const HistoryItem& historyItem)
 
     frameState->itemID = historyItem.itemID();
     frameState->frameItemID = historyItem.frameItemID();
-    frameState->hasCachedPage = historyItem.isInBackForwardCache();
     frameState->shouldOpenExternalURLsPolicy = historyItem.shouldOpenExternalURLsPolicy();
     frameState->sessionStateObject = historyItem.stateObject();
     frameState->wasCreatedByJSWithoutUserInteraction = historyItem.wasCreatedByJSWithoutUserInteraction();
     frameState->wasRestoredFromSession = historyItem.wasRestoredFromSession();
+    frameState->isInitialAboutBlank = historyItem.isInitialAboutBlank();
     frameState->policyContainer = historyItem.policyContainer();
 
     static constexpr auto maxTitleLength = 1000u; // Closest power of 10 above the W3C recommendation for Title length.
@@ -154,6 +157,9 @@ static void applyFrameState(HistoryItemClient& client, HistoryItem& historyItem,
     historyItem.setDocumentSequenceNumber(frameState.documentSequenceNumber);
     historyItem.setItemSequenceNumber(frameState.itemSequenceNumber);
 
+    if (frameState.navigationAPIKey)
+        historyItem.setNavigationAPIKey(*frameState.navigationAPIKey);
+
     historyItem.setScrollPosition(frameState.scrollPosition);
     historyItem.setShouldRestoreScrollPosition(frameState.shouldRestoreScrollPosition);
     historyItem.setPageScaleFactor(frameState.pageScaleFactor);
@@ -169,6 +175,7 @@ static void applyFrameState(HistoryItemClient& client, HistoryItem& historyItem,
     historyItem.setStateObject(frameState.sessionStateObject.get());
     historyItem.setWasCreatedByJSWithoutUserInteraction(frameState.wasCreatedByJSWithoutUserInteraction);
     historyItem.setWasRestoredFromSession(frameState.wasRestoredFromSession);
+    historyItem.setIsInitialAboutBlank(frameState.isInitialAboutBlank);
     if (auto policyContainer = frameState.policyContainer)
         historyItem.setPolicyContainer(*policyContainer);
 

@@ -166,7 +166,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     if (!rootNode)
         REMOTE_LAYER_TREE_HOST_RELEASE_LOG("%p RemoteLayerTreeHost::updateLayerTree - failed to find root layer with ID %llu", this, transaction.rootLayerID() ? transaction.rootLayerID()->object().toUInt64() : 0);
 
-    if (m_rootNode.get() != rootNode.get() && mainFrameData) {
+    if (m_rootNode.get() != rootNode && mainFrameData) {
         m_rootNode = rootNode;
         rootLayerChanged = true;
     }
@@ -190,7 +190,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         RemoteLayerTreePropertyApplier::applyHierarchyUpdates(*node, properties.get(), m_nodes);
     }
 
-    if (auto contextHostedID = transaction.remoteContextHostedIdentifier()) {
+    if (auto contextHostedID = transaction.remoteContextHostedIdentifier(); contextHostedID && rootNode) {
         m_hostedLayers.set(*contextHostedID, rootNode->layerID());
         m_hostedLayersInProcess.ensure(processIdentifier, [] {
             return HashSet<WebCore::PlatformLayerIdentifier>();
@@ -234,7 +234,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     }
     
     for (const auto& layerAndClone : clonesToUpdate)
-        protect(layerForID(layerAndClone.layerID)).get().contents = protect(layerForID(layerAndClone.cloneLayerID)).get().contents;
+        [layerForID(layerAndClone.layerID) setContents:[layerForID(layerAndClone.cloneLayerID) contents]];
 
     for (auto& destroyedLayer : transaction.destroyedLayers())
         layerWillBeRemoved(processIdentifier, destroyedLayer);
@@ -382,12 +382,12 @@ void RemoteLayerTreeHost::clearLayers()
     m_rootNode = nullptr;
 }
 
-CALayer *RemoteLayerTreeHost::layerWithIDForTesting(WebCore::PlatformLayerIdentifier layerID) const
+RetainPtr<CALayer> RemoteLayerTreeHost::layerWithIDForTesting(WebCore::PlatformLayerIdentifier layerID) const
 {
     return layerForID(layerID);
 }
 
-CALayer *RemoteLayerTreeHost::layerForID(std::optional<WebCore::PlatformLayerIdentifier> layerID) const
+RetainPtr<CALayer> RemoteLayerTreeHost::layerForID(std::optional<WebCore::PlatformLayerIdentifier> layerID) const
 {
     RefPtr node = nodeForID(layerID);
     if (!node)
@@ -395,10 +395,10 @@ CALayer *RemoteLayerTreeHost::layerForID(std::optional<WebCore::PlatformLayerIde
     return node->layer();
 }
 
-
-CALayer *RemoteLayerTreeHost::rootLayer() const
+RetainPtr<CALayer> RemoteLayerTreeHost::rootLayer() const
 {
-    return m_rootNode ? m_rootNode->layer() : nil;
+    RefPtr rootNode = m_rootNode.get();
+    return rootNode ? rootNode->layer() : nil;
 }
 
 void RemoteLayerTreeHost::createLayer(const RemoteLayerTreeTransaction::LayerCreationProperties& properties)

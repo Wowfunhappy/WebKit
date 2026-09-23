@@ -32,6 +32,7 @@
 #import "WritingToolsTypes.h"
 #import <wtf/CheckedPtr.h>
 #import <wtf/TZoneMalloc.h>
+#import <wtf/WeakHashSet.h>
 #import <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -56,7 +57,7 @@ class WritingToolsController final : public CanMakeWeakPtr<WritingToolsControlle
 public:
     explicit WritingToolsController(Page&);
 
-    void willBeginWritingToolsSession(const std::optional<WritingTools::Session>&, CompletionHandler<void(const Vector<WritingTools::Context>&)>&&);
+    void willBeginWritingToolsSession(const std::optional<WritingTools::Session>&, WeakHashSet<Node, WeakPtrImplWithEventTargetData>&&, CompletionHandler<void(const Vector<WritingTools::Context>&)>&&);
 
     void didBeginWritingToolsSession(const WritingTools::Session&, const Vector<WritingTools::Context>&);
 
@@ -183,13 +184,15 @@ private:
     static String plainText(const SimpleRange&);
 
     template<WritingTools::Session::Type Type>
-    StateFromSessionType<Type>::Value* currentState();
+    StateFromSessionType<Type>::Value* NODELETE currentState();
 
     template<WritingTools::Session::Type Type>
     const StateFromSessionType<Type>::Value* currentState() const;
 
     std::optional<std::tuple<Node&, DocumentMarker&>> findTextSuggestionMarkerContainingRange(const SimpleRange&) const;
     std::optional<std::tuple<Node&, DocumentMarker&>> findTextSuggestionMarkerByID(const SimpleRange& outerRange, const WritingTools::TextSuggestion::ID&) const;
+
+    std::optional<SimpleRange> validatedRangeForSuggestionMarker(const SimpleRange& sessionRange, Node&, const DocumentMarker&, const String& expectedCurrentText) const;
 
     void replaceContentsOfRangeInSession(ProofreadingState&, const SimpleRange&, const String&);
     void replaceContentsOfRangeInSession(CompositionState&, const SimpleRange&, const AttributedString&, WritingToolsCompositionCommand::State);
@@ -219,10 +222,11 @@ private:
 
     void commitComposition(CompositionState&, Document&);
 
-    RefPtr<Document> document() const;
+    RefPtr<Document> NODELETE document() const;
 
     WeakPtr<Page> m_page;
     std::unique_ptr<State> m_state;
+    WeakHashSet<Node, WeakPtrImplWithEventTargetData> m_clientPreservedNodes;
 };
 
 } // namespace WebKit

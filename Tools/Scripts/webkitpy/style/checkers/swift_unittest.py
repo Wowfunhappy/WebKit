@@ -81,3 +81,54 @@ class SwiftCheckerTest(unittest.TestCase):
         ]
 
         self.assertEqual(errors, expected_errors)
+
+    def test_check_unsafe(self):
+        """Test _check_unsafe() method."""
+        errors = []
+
+        def _mock_handle_style_error(line_number, category, confidence, message):
+            errors.append((line_number, category, confidence, message))
+
+        checker = SwiftChecker("foo.swift", _mock_handle_style_error)
+
+        lines = [
+            'let x = unsafe ptr.pointee',          # 1: flagged
+            '// unsafe is fine in comments',         # 2: not flagged
+            '@unsafe func foo() {}',                 # 3: not flagged (@unsafe is ok)
+            'let s = "unsafe pointer"',              # 4: not flagged (string)
+            '/* unsafe block comment */',             # 5: not flagged (block comment)
+            'func safeFunc() {}',                    # 6: not flagged
+            'let y = unsafe something',              # 7: flagged
+        ]
+
+        checker._check_unsafe(lines)
+
+        expected_errors = [
+            (1, 'webkit/unsafe', 5, "Please avoid new use of 'unsafe' in WebKit. See https://github.com/WebKit/WebKit/wiki/Safer-Swift-Guidelines."),
+            (7, 'webkit/unsafe', 5, "Please avoid new use of 'unsafe' in WebKit. See https://github.com/WebKit/WebKit/wiki/Safer-Swift-Guidelines."),
+        ]
+
+        self.assertEqual(errors, expected_errors)
+
+    def test_check_safe(self):
+        """Test that @safe is flagged."""
+        errors = []
+
+        def _mock_handle_style_error(line_number, category, confidence, message):
+            errors.append((line_number, category, confidence, message))
+
+        checker = SwiftChecker("foo.swift", _mock_handle_style_error)
+
+        lines = [
+            '@safe func bar() {}',                   # 1: flagged
+            '@unsafe func baz() {}',                  # 2: not flagged
+            'func safeFunc() {}',                     # 3: not flagged
+        ]
+
+        checker._check_unsafe(lines)
+
+        expected_errors = [
+            (1, 'webkit/unsafe', 5, "Please avoid new use of '@safe' in WebKit. See https://github.com/WebKit/WebKit/wiki/Safer-Swift-Guidelines."),
+        ]
+
+        self.assertEqual(errors, expected_errors)

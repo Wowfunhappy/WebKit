@@ -55,7 +55,7 @@ struct JSAgentContext : public AgentContext {
     {
     }
 
-    JSC::JSGlobalObject& inspectedGlobalObject;
+    SUPPRESS_FORWARD_DECL_MEMBER JSC::JSGlobalObject& inspectedGlobalObject;
 };
 
 enum class DisconnectReason {

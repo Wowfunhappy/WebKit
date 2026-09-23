@@ -27,20 +27,36 @@
 #include "NavigationRequester.h"
 
 #include "Document.h"
+#include "FrameDestructionObserverInlines.h"
+#include "LocalFrame.h"
+#include "ProcessIdentifier.h"
 
 namespace WebCore {
 
 NavigationRequester NavigationRequester::from(Document& document)
 {
+    RefPtr frame = document.frame();
+    RefPtr parentFrame = frame ? frame->tree().parent() : nullptr;
+
     return {
-        document.url(),
+        document.url().isEmpty() ? aboutBlankURL() : document.url(),
         document.securityOrigin(),
         document.topOrigin(),
         document.policyContainer(),
         document.frameID(),
+        frame ? std::make_optional(frame->tree().top().frameID()) : std::nullopt,
         document.pageID(),
         document.identifier(),
-        document.sandboxFlags()
+        document.sandboxFlags(),
+        frame ? frame->sandboxFlagsFromSandboxAttributeNotCSP() : SandboxFlags { },
+        document.hasLoadedThirdPartyScript(),
+        document.hasLoadedThirdPartyFrame(),
+        frame ? frame->hasHadUserInteraction() : false,
+        [&] {
+            RefPtr parentOrigin = parentFrame ? parentFrame->frameDocumentSecurityOrigin() : nullptr;
+            return parentOrigin && parentOrigin->isSameOriginDomain(protect(document.topOrigin()));
+        }(),
+        Process::identifier()
     };
 }
 

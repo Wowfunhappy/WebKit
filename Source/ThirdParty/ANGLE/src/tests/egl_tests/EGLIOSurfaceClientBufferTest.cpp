@@ -6,13 +6,10 @@
 // EGLIOSurfaceClientBufferTest.cpp: tests for the EGL_ANGLE_iosurface_client_buffer extension.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "test_utils/ANGLETest.h"
 
 #include "common/mathutil.h"
+#include "common/unsafe_buffers.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
 
@@ -271,8 +268,9 @@ class IOSurfaceClientBufferTest : public ANGLETest<>
 
         IOSurfaceLock(ioSurface.get(), kIOSurfaceLockReadOnly, nullptr);
         std::array<T, dataSize> iosurfaceData;
-        memcpy(iosurfaceData.data(), IOSurfaceGetBaseAddressOfPlane(ioSurface.get(), plane),
-               sizeof(T) * data.size());
+        ANGLE_UNSAFE_TODO(memcpy(iosurfaceData.data(),
+                                 IOSurfaceGetBaseAddressOfPlane(ioSurface.get(), plane),
+                                 sizeof(T) * data.size()));
         IOSurfaceUnlock(ioSurface.get(), kIOSurfaceLockReadOnly, nullptr);
 
         if (internalFormat == GL_RGB && IsMac() && IsOpenGL())
@@ -313,7 +311,8 @@ class IOSurfaceClientBufferTest : public ANGLETest<>
     {
         // Write the data to the IOSurface
         IOSurfaceLock(ioSurface.get(), 0, nullptr);
-        memcpy(IOSurfaceGetBaseAddressOfPlane(ioSurface.get(), plane), data, dataSize);
+        ANGLE_UNSAFE_TODO(
+            memcpy(IOSurfaceGetBaseAddressOfPlane(ioSurface.get(), plane), data, dataSize));
         IOSurfaceUnlock(ioSurface.get(), 0, nullptr);
 
         GLTexture texture;
@@ -1414,6 +1413,32 @@ TEST_P(IOSurfaceClientBufferTest, MultisampledRenderToTextureBGRX)
 
 // TODO(cwallez@chromium.org): Test setting width and height to less than the IOSurface's work as
 // expected.
+
+// Test that binding an IOSurface and setting base level to 3 does not cause an error.
+TEST_P(IOSurfaceClientBufferTest, SetNonZeroBaseLevel)
+{
+    ANGLE_SKIP_TEST_IF(!hasIOSurfaceExt());
+    ANGLE_SKIP_TEST_IF(getGLTextureTarget() != GL_TEXTURE_2D);
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+
+    // Create a 1x1 IOSurface
+    ScopedIOSurfaceRef ioSurface = CreateSinglePlaneIOSurface(1, 1, 'BGRA', 4);
+
+    // Bind it to a texture
+    EGLSurface pbuffer;
+    GLTexture texture;
+    bindIOSurfaceToTexture(ioSurface, 1, 1, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, &pbuffer, &texture);
+
+    // Set base level to 3
+    glTexParameteri(getGLTextureTarget(), GL_TEXTURE_BASE_LEVEL, 3);
+    EXPECT_GL_NO_ERROR();
+
+    // Clean up
+    EGLBoolean result = eglReleaseTexImage(mDisplay, pbuffer, EGL_BACK_BUFFER);
+    EXPECT_EGL_TRUE(result);
+    result = eglDestroySurface(mDisplay, pbuffer);
+    EXPECT_EGL_TRUE(result);
+}
 
 ANGLE_INSTANTIATE_TEST(IOSurfaceClientBufferTest,
                        ES2_OPENGL(),

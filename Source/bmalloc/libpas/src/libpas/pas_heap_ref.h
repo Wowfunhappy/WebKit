@@ -28,7 +28,6 @@
 
 #include "pas_config.h"
 #include "pas_heap_ref_kind.h"
-#include "pas_segregated_heap_lookup_kind.h"
 #include "pas_utils.h"
 
 #include "pas_heap_ref_prefix.h"

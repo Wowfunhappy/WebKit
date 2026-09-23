@@ -45,6 +45,7 @@ typedef NS_ENUM(NSInteger, WKBackgroundFetchChange) {
     WKBackgroundFetchChangeUpdate,
 } WK_API_AVAILABLE(macos(14.0), ios(17.0));
 
+// FIXME: Remove WKWindowProxyProperty and didOpenDomainViaWindowOpen once clients stop referencing them.
 typedef NS_ENUM(NSInteger, WKWindowProxyProperty) {
     WKWindowProxyPropertyInitialOpen,
     WKWindowProxyPropertyPostMessage,
@@ -73,4 +74,5 @@ WK_API_AVAILABLE(macos(10.15), ios(13.0))
 - (void)websiteDataStore:(WKWebsiteDataStore *)dataStore didAllowPrivateTokenUsageByThirdPartyForTesting:(BOOL)wasAllowed forResourceURL:(NSURL *)resourceURL;
 - (void)websiteDataStore:(WKWebsiteDataStore *)dataStore domain:(NSString *)registrableDomain didExceedMemoryFootprintThreshold:(size_t)footprint withPageCount:(NSUInteger)pageCount processLifetime:(NSTimeInterval)processLifetime inForeground:(BOOL)inForeground wasPrivateRelayed:(BOOL)wasPrivateRelayed canSuspend:(BOOL)canSuspend;
 - (void)webCryptoMasterKey:(void (^)(NSData *))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0));
+- (void)didEvictDataForDomains:(NSArray<NSString *> *)domains;
 @end

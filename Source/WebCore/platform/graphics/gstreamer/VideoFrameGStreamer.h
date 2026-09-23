@@ -44,7 +44,7 @@ namespace WebCore {
 
 #if PLATFORM(COCOA)
 // MAVERICKS_BACKPORT: CoreVideo frames supply GstSamples to the GStreamer encoder.
-GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef, const MediaTime&);
+GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef, const MediaTime&, const PlatformVideoColorSpace&);
 #endif // MAVERICKS_BACKPORT: closes the CoreVideo bridge declaration above.
 
 class PixelBuffer;
@@ -98,7 +98,7 @@ public:
 
     GRefPtr<GstSample> downloadSample(std::optional<GstVideoFormat> = { });
 
-    GstSample* sample() const { return m_sample.get(); }
+    const GRefPtr<GstSample>& sample() const LIFETIME_BOUND { return m_sample; }
 
     RefPtr<ImageGStreamer> convertToImage();
 
@@ -124,6 +124,9 @@ public:
     std::optional<DMABufFormat> dmaBufFormat() const { return m_info.dmaBufFormat; }
 
     VideoFrameContentHint contentHint() const;
+
+    bool isEncoded() const final;
+    bool hasSameEncodedFormat(const VideoFrame&) const final;
 
 private:
     VideoFrameGStreamer(GRefPtr<GstSample>&&, const CreateOptions&, PlatformVideoColorSpace&&);

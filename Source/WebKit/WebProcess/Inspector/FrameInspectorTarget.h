@@ -31,7 +31,12 @@
 #include <memory>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/WeakRef.h>
+
+namespace WebCore {
+class LocalFrame;
+}
 
 namespace WebKit {
 
@@ -59,6 +64,8 @@ public:
 private:
     WeakRef<WebFrame> m_frame;
     std::unique_ptr<UIProcessForwardingFrontendChannel> m_channel;
+    // The WebCore::LocalFrame we registered m_channel with at connect() time.
+    WeakPtr<WebCore::LocalFrame> m_inspectedFrame;
 };
 
 } // namespace WebKit

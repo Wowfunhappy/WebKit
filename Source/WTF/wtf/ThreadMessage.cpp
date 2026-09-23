@@ -26,8 +26,6 @@
 #include "config.h"
 #include <wtf/ThreadMessage.h>
 
-#include <wtf/Lock.h>
-#include <wtf/Locker.h>
 
 namespace WTF {
 

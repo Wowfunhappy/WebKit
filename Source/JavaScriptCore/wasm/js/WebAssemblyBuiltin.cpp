@@ -33,6 +33,7 @@
 #include "JSWebAssemblyArrayInlines.h"
 #include "JSWebAssemblyInstance.h"
 #include "JSWebAssemblyRuntimeError.h"
+#include "OperationsInlines.h"
 #include <wtf/Vector.h>
 #include <wtf/text/MakeString.h>
 
@@ -158,17 +159,19 @@ bool WebAssemblyArrayMutI16TypeExpectation::isValid(const Wasm::Type& type) cons
 {
     if (!type.isRefNull())
         return false;
-    Ref<const Wasm::TypeDefinition> referentType = Wasm::TypeInformation::get(type.index);
-    if (!referentType->is<Wasm::ArrayType>())
+    RefPtr referentRTT = Wasm::TypeInformation::tryGetRTT(type.index);
+    if (!referentRTT || referentRTT->kind() != Wasm::RTTKind::Array)
         return false;
-    Wasm::FieldType elementType = referentType->as<Wasm::ArrayType>()->elementType();
+    Wasm::FieldType elementType = referentRTT->elementType();
     return elementType.mutability == Wasm::Mutability::Mutable
         && elementType.type.is<Wasm::PackedType>()
         && elementType.type.as<Wasm::PackedType>() == Wasm::PackedType::I16;
 }
 
-bool WebAssemblyBuiltinSignature::isValid(const Wasm::FunctionSignature& sig) const
+bool WebAssemblyBuiltinSignature::isValid(const Wasm::RTT& sig) const
 {
+    if (sig.kind() != Wasm::RTTKind::Function)
+        return false;
     if (sig.returnCount() != m_results.size() || sig.argumentCount() != m_params.size())
         return false;
     for (unsigned i = 0; i < sig.returnCount(); ++i) {
@@ -250,7 +253,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
 // Expands into code that verifies that the variable contains a (non-null) array of mutable i16s.
 #define ENSURE_ARRAY_MUT_I16(var) \
     { \
-        auto* tmpArray = jsDynamicCast<JSWebAssemblyArray*>(var); \
+        auto* tmpArray = dynamicDowncast<JSWebAssemblyArray>(var); \
         if (!tmpArray || !isMutI16Array(tmpArray)) [[unlikely]] \
             THROW_ILLEGAL_ARGUMENT_EXCEPTION; \
     }
@@ -261,7 +264,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     DEFINE_WASM_BUILTIN_HOST_FUNCTION(setName, builtinName, EncodedJSValue arg, const JSWebAssemblyInstance* wasmInstance) \
     { \
         JSValue value = JSValue::decode(arg); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_R_R(setName, builtinName) \
@@ -278,7 +281,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     DEFINE_WASM_BUILTIN_HOST_FUNCTION(setName, builtinName, EncodedJSValue arg, const JSWebAssemblyInstance* wasmInstance) \
     { \
         JSValue value = JSValue::decode(arg); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_I_R(setName, builtinName) \
@@ -295,7 +298,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
 #define DEFINE_BUILTIN_ENTRY_R_I(setName, builtinName) \
     DEFINE_WASM_BUILTIN_HOST_FUNCTION(setName, builtinName, int32_t arg, const JSWebAssemblyInstance* wasmInstance) \
     { \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), arg); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), arg); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_R_I(setName, builtinName) \
@@ -316,7 +319,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     { \
         JSValue left = JSValue::decode(arg0); \
         JSValue right = JSValue::decode(arg1); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), left, right); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), left, right); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_R_RR(setName, builtinName) \
@@ -335,7 +338,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     { \
         JSValue value0 = JSValue::decode(arg0); \
         JSValue value1 = JSValue::decode(arg1); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value0, value1); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value0, value1); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_I_RR(setName, builtinName) \
@@ -354,7 +357,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     DEFINE_WASM_BUILTIN_HOST_FUNCTION(setName, builtinName, EncodedJSValue arg0, int32_t arg1, const JSWebAssemblyInstance* wasmInstance) \
     { \
         JSValue value0 = JSValue::decode(arg0); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value0, arg1); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value0, arg1); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_I_RI(setName, builtinName) \
@@ -375,7 +378,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     DEFINE_WASM_BUILTIN_HOST_FUNCTION(setName, builtinName, EncodedJSValue arg0, int32_t arg1, int32_t arg2, const JSWebAssemblyInstance* wasmInstance) \
     { \
         JSValue value0 = JSValue::decode(arg0); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value0, arg1, arg2); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value0, arg1, arg2); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_R_RII(setName, builtinName) \
@@ -398,7 +401,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     DEFINE_WASM_BUILTIN_HOST_FUNCTION(setName, builtinName, EncodedJSValue arg0, int32_t arg1, int32_t arg2, const JSWebAssemblyInstance* wasmInstance) \
     { \
         JSValue value0 = JSValue::decode(arg0); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value0, arg1, arg2); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value0, arg1, arg2); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_R_AII(setName, builtinName) \
@@ -423,7 +426,7 @@ static bool isMutI16Array(const JSWebAssemblyArray* array)
     { \
         JSValue value0 = JSValue::decode(arg0); \
         JSValue value1 = JSValue::decode(arg1); \
-        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->globalObject(), value0, value1, arg2); \
+        return BUILTIN_IMPLEMENTATION_NAME(setName, builtinName)(wasmInstance->realm(), value0, value1, arg2); \
     }
 
 #define DEFINE_BUILTIN_JS_ENTRY_I_RAI(setName, builtinName) \
@@ -509,7 +512,7 @@ DEFINE_BUILTIN_IMPLEMENTATION(jsstring, fromCharCodeArray, JSGlobalObject* globa
 
     // At this point 'array' must be an (array mut i16), guaranteed by Wasm type rules
     // or by a runtime check in JS entrypoint wrapper.
-    auto* array = jsCast<JSWebAssemblyArray*>(arrayObject);
+    auto* array = uncheckedDowncast<JSWebAssemblyArray>(arrayObject);
     ASSERT(isMutI16Array(array));
 
     if (startArg < 0 || endArg < 0)
@@ -545,10 +548,10 @@ DEFINE_BUILTIN_IMPLEMENTATION_I32(jsstring, intoCharCodeArray, JSGlobalObject* g
     if (!arrayObject || !stringArg.isString()) [[unlikely]]
         THROW_ILLEGAL_ARGUMENT_EXCEPTION;
 
-    JSString* string = jsCast<JSString*>(stringArg);
+    JSString* string = uncheckedDowncast<JSString>(stringArg);
     // At this point 'array' must be an (array mut i16), guaranteed by Wasm type rules
     // or by a runtime check in JS entrypoint wrapper.
-    auto* array = jsCast<JSWebAssemblyArray*>(arrayObject);
+    auto* array = uncheckedDowncast<JSWebAssemblyArray>(arrayObject);
     ASSERT(isMutI16Array(array));
 
     size_t stringLength = string->length();
@@ -561,15 +564,10 @@ DEFINE_BUILTIN_IMPLEMENTATION_I32(jsstring, intoCharCodeArray, JSGlobalObject* g
 
     auto data = array->span<char16_t>();
     auto dest = data.subspan(start, stringLength);
-    auto stringValue = string->value(globalObject);
+    auto view = string->view(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
 
-    if (stringValue.data.is8Bit()) {
-        for (size_t i = 0; i < stringLength; ++i)
-            dest[i] = stringValue.data[i];
-    } else {
-        auto source = stringValue.data.span<char16_t>();
-        memcpySpan(dest, source);
-    }
+    view->getCharacters(dest);
 
     return toUCPUStrictInt32(stringLength);
 }

@@ -510,7 +510,7 @@ TextTrackCueList& TextTrack::ensureTextTrackCueList()
 int TextTrack::trackIndexRelativeToRenderedTracks()
 {
     if (!m_renderedTrackIndex) {
-        RefPtr textTrackList = this->textTrackList();
+        auto* textTrackList = this->textTrackList();
         if (!textTrackList)
             return 0;
 

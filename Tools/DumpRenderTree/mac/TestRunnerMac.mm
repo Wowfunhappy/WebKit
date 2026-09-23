@@ -1212,9 +1212,22 @@ void TestRunner::generateTestReport(JSStringRef message, JSStringRef group)
 
 #if PLATFORM(MAC)
 
+static bool isSecureEventInputEnabledInFrame(WebFrame *frame)
+{
+    if (dynamic_objc_cast<WebHTMLView>(frame.frameView.documentView)._secureEventInputEnabledForTesting)
+        return true;
+    for (WebFrame *childFrame in frame.childFrames) {
+        if (isSecureEventInputEnabledInFrame(childFrame))
+            return true;
+    }
+    return false;
+}
+
 bool TestRunner::isSecureEventInputEnabled() const
 {
-    return dynamic_objc_cast<WebHTMLView>(mainFrame.frameView.documentView)._secureEventInputEnabledForTesting;
+    // Each WebHTMLView owns its frame's secure-input state.
+    // return dynamic_objc_cast<WebHTMLView>(mainFrame.frameView.documentView)._secureEventInputEnabledForTesting;
+    return isSecureEventInputEnabledInFrame(mainFrame);
 }
 
 #endif // PLATFORM(MAC)

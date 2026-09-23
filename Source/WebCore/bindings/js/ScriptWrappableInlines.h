@@ -36,18 +36,18 @@
 
 namespace WebCore {
 
-inline JSDOMObject* ScriptWrappable::wrapper() const
+inline JSC::JSObject* ScriptWrappable::wrapper() const
 {
     return m_wrapper.get();
 }
 
-inline void ScriptWrappable::setWrapper(JSDOMObject* wrapper, JSC::WeakHandleOwner* wrapperOwner, void* context)
+inline void ScriptWrappable::setWrapper(JSC::JSObject* wrapper, JSC::WeakHandleOwner* wrapperOwner, void* context)
 {
     ASSERT(!m_wrapper);
-    m_wrapper = JSC::Weak<JSDOMObject>(wrapper, wrapperOwner, context);
+    m_wrapper = JSC::Weak<JSC::JSObject>(wrapper, wrapperOwner, context);
 }
 
-inline void ScriptWrappable::clearWrapper(JSDOMObject* wrapper)
+inline void ScriptWrappable::clearWrapper(JSC::JSObject* wrapper)
 {
     weakClear(m_wrapper, wrapper);
 }

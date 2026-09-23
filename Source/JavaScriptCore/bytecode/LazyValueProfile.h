@@ -67,7 +67,7 @@ public:
 
     void initialize(CompressedLazyValueProfileHolder&);
 
-    LazyOperandValueProfile* getIfPresent(const LazyOperandValueProfileKey& key) const;
+    LazyOperandValueProfile* NODELETE getIfPresent(const LazyOperandValueProfileKey& key) const;
 
     SpeculatedType prediction(const ConcurrentJSLocker&, const LazyOperandValueProfileKey&) const;
 private:

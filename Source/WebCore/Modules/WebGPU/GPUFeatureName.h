@@ -51,6 +51,8 @@ enum class GPUFeatureName : uint8_t {
     Float32Renderable,
     CoreFeaturesAndLimits,
     TextureFormatsTier1,
+    TextureFormatsTier2,
+    PrimitiveIndex,
 };
 
 inline WebGPU::FeatureName convertToBacking(GPUFeatureName featureName)
@@ -96,6 +98,10 @@ inline WebGPU::FeatureName convertToBacking(GPUFeatureName featureName)
         return WebGPU::FeatureName::CoreFeaturesAndLimits;
     case GPUFeatureName::TextureFormatsTier1:
         return WebGPU::FeatureName::TextureFormatsTier1;
+    case GPUFeatureName::TextureFormatsTier2:
+        return WebGPU::FeatureName::TextureFormatsTier2;
+    case GPUFeatureName::PrimitiveIndex:
+        return WebGPU::FeatureName::PrimitiveIndex;
     }
     RELEASE_ASSERT_NOT_REACHED();
 }

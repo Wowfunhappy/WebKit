@@ -150,6 +150,7 @@ public:
     WKRetainPtr<WKStringRef> getBackgroundFetchIdentifier();
     WKRetainPtr<WKStringRef> lastAddedBackgroundFetchIdentifier() const;
     WKRetainPtr<WKStringRef> lastRemovedBackgroundFetchIdentifier() const;
+    WKRetainPtr<WKStringRef> lastProvisionalNavigationFailureURL() const;
     WKRetainPtr<WKStringRef> lastUpdatedBackgroundFetchIdentifier() const;
     WKRetainPtr<WKStringRef> backgroundFetchState(WKStringRef);
 

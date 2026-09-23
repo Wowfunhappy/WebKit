@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleMaskMode.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -32,11 +33,11 @@ namespace Style {
 
 auto CSSValueConversion<MaskMode>::operator()(BuilderState& state, const CSSValue& value) -> MaskMode
 {
-    auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
         return MaskMode::MatchSource;
 
-    switch (primitiveValue->valueID()) {
+    switch (keywordValue->valueID()) {
     case CSSValueAlpha:
         return MaskMode::Alpha;
     case CSSValueLuminance:

@@ -45,7 +45,6 @@
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/p2p/base/basic_packet_socket_factory.h>
-#include <webrtc/rtc_base/third_party/sigslot/sigslot.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #endif
@@ -120,7 +119,7 @@ public:
     void closeSocket(WebCore::LibWebRTCSocketIdentifier);
 
 #if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
-    bool webRTCInterfaceMonitoringViaNWEnabled() const;
+    bool NODELETE webRTCInterfaceMonitoringViaNWEnabled() const;
     const std::optional<audit_token_t>& sourceApplicationAuditToken() const LIFETIME_BOUND { return m_sourceApplicationAuditToken; }
     const char* applicationBundleIdentifier() const LIFETIME_BOUND { return m_applicationBundleIdentifier.data(); }
 #endif

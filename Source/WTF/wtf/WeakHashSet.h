@@ -168,7 +168,7 @@ public:
     bool hasNullReferences() const
     {
         unsigned count = 0;
-        for (auto _ : m_set) {
+        for (auto& _ : m_set) {
             UNUSED_VARIABLE(_);
             ++count;
         }

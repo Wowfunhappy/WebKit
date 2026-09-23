@@ -43,12 +43,12 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSocketTask);
 
-Ref<WebSocketTask> WebSocketTask::create(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+Ref<WebSocketTask> WebSocketTask::create(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
-    return adoptRef(*new WebSocketTask(channel, webProxyPageID, frameID, pageID, WTF::move(sessionSet), request, clientOrigin, WTF::move(task), storedCredentialsPolicy));
+    return adoptRef(*new WebSocketTask(channel, webProxyPageID, frameID, pageID, WTF::move(sessionSet), request, clientOrigin, WTF::move(task), storedCredentialsPolicy, isInitiatedByDedicatedWorker));
 }
 
-WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
     : NetworkTaskCocoa(*channel.session())
     , m_channel(channel)
     , m_task(WTF::move(task))
@@ -58,19 +58,23 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifi
     , m_sessionSet(WTF::move(sessionSet))
     , m_partition(request.cachePartition())
     , m_storedCredentialsPolicy(storedCredentialsPolicy)
+    , m_isInitiatedByDedicatedWorker(isInitiatedByDedicatedWorker)
 {
     // We use topOrigin in case of service worker websocket connections, for which pageID does not link to a real page.
     // In that case, let's only call the callback for same origin loads.
     if (clientOrigin.topOrigin == clientOrigin.clientOrigin)
         m_topOrigin = clientOrigin.topOrigin;
 
-    bool shouldBlockCookies = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
-    if (CheckedPtr session = networkSession(); CheckedPtr networkStorageSession = session ? session->networkStorageSession() : nullptr) {
-        if (!shouldBlockCookies)
-            shouldBlockCookies = networkStorageSession->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request));
-    }
-    if (shouldBlockCookies)
+    auto thirdPartyCookieBlockingDecision = WebCore::ThirdPartyCookieBlockingDecision::None;
+    if (storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless)
+        thirdPartyCookieBlockingDecision = WebCore::ThirdPartyCookieBlockingDecision::All;
+    else if (CheckedPtr session = networkSession(); CheckedPtr networkStorageSession = session ? session->networkStorageSession() : nullptr)
+        thirdPartyCookieBlockingDecision = networkStorageSession->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request), m_isInitiatedByDedicatedWorker == IsInitiatedByDedicatedWorker::Yes);
+    if (WebCore::NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision))
         blockCookies();
+
+    // Enforcing SameSite cookie policy for WebSocket upgrade requests, independently of ITP.
+    updateTaskWithFirstPartyForSameSiteCookies(protect(m_task.get()).get(), request);
 
     readNextMessage();
     protect(m_channel)->didSendHandshakeRequest(ResourceRequest { [m_task currentRequest] });

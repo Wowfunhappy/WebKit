@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -38,7 +39,6 @@
 #include "ShadowRealmGlobalScope.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectPrototype.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -62,8 +62,8 @@ using JSShadowRealmGlobalScopeDOMConstructor = JSDOMConstructorNotConstructable<
 /* Hash table */
 
 static const struct CompactHashIndex JSShadowRealmGlobalScopeTableIndex[2] = {
-    { 0, -1 },
     { -1, -1 },
+    { 0, -1 },
 };
 
 
@@ -86,7 +86,7 @@ template<> void JSShadowRealmGlobalScopeDOMConstructor::initializeProperties(VM&
     JSString* nameString = jsNontrivialString(vm, "ShadowRealmGlobalScope"_s);
     m_originalName.set(vm, this, nameString);
     putDirect(vm, vm.propertyNames->name, nameString, JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
-    putDirect(vm, vm.propertyNames->prototype, globalObject.getPrototypeDirect(), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::DontDelete);
+    putDirect(vm, vm.propertyNames->prototype, WebCore::storedPrototype(globalObject.structure(), &globalObject), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::DontDelete);
 }
 
 const ClassInfo JSShadowRealmGlobalScope::s_info = { "ShadowRealmGlobalScope"_s, &Base::s_info, &JSShadowRealmGlobalScopeTable, nullptr, CREATE_METHOD_TABLE(JSShadowRealmGlobalScope) };
@@ -102,13 +102,25 @@ void JSShadowRealmGlobalScope::finishCreation(VM& vm, JSGlobalProxy* proxy)
 {
     Base::finishCreation(vm, proxy);
 
-    if (jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext()->settingsValues().webAPIsInShadowRealmEnabled)
+    if (realm()->scriptExecutionContext()->settingsValues().webAPIsInShadowRealmEnabled)
         putDirectCustomAccessor(vm, builtinNames(vm).ExposedStarPublicName(), CustomGetterSetter::create(vm, jsShadowRealmGlobalScope_ExposedStarConstructor, nullptr), attributesForStructure(static_cast<unsigned>(JSC::PropertyAttribute::DontEnum)));
+}
+
+JSShadowRealmGlobalScope* JSShadowRealmGlobalScope::create(JSC::VM& vm, JSC::Structure* structure, Ref<ShadowRealmGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
+{
+    JSShadowRealmGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSShadowRealmGlobalScope>(vm)) JSShadowRealmGlobalScope(vm, structure, WTF::move(impl));
+    ptr->finishCreation(vm, proxy);
+    return ptr;
+}
+
+JSC::Structure* JSShadowRealmGlobalScope::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
 }
 
 JSValue JSShadowRealmGlobalScope::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSShadowRealmGlobalScopeDOMConstructor, DOMConstructorID::ShadowRealmGlobalScope>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSShadowRealmGlobalScopeDOMConstructor, DOMConstructorID::ShadowRealmGlobalScope>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSShadowRealmGlobalScope::destroy(JSC::JSCell* cell)
@@ -121,10 +133,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsShadowRealmGlobalScopeConstructor, (JSGlobalObject* l
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSShadowRealmGlobalScopePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSShadowRealmGlobalScopePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSShadowRealmGlobalScope::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSShadowRealmGlobalScope::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsShadowRealmGlobalScope_ExposedStarConstructorGetter(JSGlobalObject& lexicalGlobalObject, JSShadowRealmGlobalScope& thisObject)
@@ -162,12 +174,14 @@ JSC::GCClient::IsoSubspace* JSShadowRealmGlobalScope::subspaceForImpl(JSC::VM& v
 
 void JSShadowRealmGlobalScope::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSShadowRealmGlobalScope*>(cell);
+    auto* thisObject = uncheckedDowncast<JSShadowRealmGlobalScope>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSShadowRealmGlobalScopeOwner::JSShadowRealmGlobalScopeOwner(ClangVTableWorkaroundTag) { }
 
 bool JSShadowRealmGlobalScopeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -181,12 +195,12 @@ void JSShadowRealmGlobalScopeOwner::finalize(JSC::Handle<JSC::Unknown> handle, v
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsShadowRealmGlobalScope = static_cast<JSShadowRealmGlobalScope*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsShadowRealmGlobalScope->wrapped()).ptr(), jsShadowRealmGlobalScope);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsShadowRealmGlobalScope->wrapped(), jsShadowRealmGlobalScope);
 }
 
 ShadowRealmGlobalScope* JSShadowRealmGlobalScope::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSShadowRealmGlobalScope*>(value))
+    if (auto* wrapper = dynamicDowncast<JSShadowRealmGlobalScope>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

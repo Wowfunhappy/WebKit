@@ -130,6 +130,7 @@ Shared/API/c/wpe/WKEventWPE.cpp
 Shared/Extensions/wpe/WebExtensionUtilitiesWPE.cpp
 
 UIProcess/API/glib/APIContentRuleListStoreGLib.cpp @no-unify
+UIProcess/API/glib/IconDatabase.cpp @no-unify
 UIProcess/API/glib/InputMethodFilter.cpp @no-unify
 UIProcess/API/glib/KeyAutoRepeatHandler.cpp @no-unify
 UIProcess/API/glib/WebKitApplicationInfo.cpp @no-unify
@@ -145,6 +146,7 @@ UIProcess/API/glib/WebKitDownload.cpp @no-unify
 UIProcess/API/glib/WebKitDownloadClient.cpp @no-unify
 UIProcess/API/glib/WebKitEditorState.cpp @no-unify
 UIProcess/API/glib/WebKitError.cpp @no-unify
+UIProcess/API/glib/WebKitFaviconDatabase.cpp @no-unify
 UIProcess/API/glib/WebKitFeature.cpp @no-unify
 UIProcess/API/glib/WebKitFileChooserRequest.cpp @no-unify
 UIProcess/API/glib/WebKitFindController.cpp @no-unify
@@ -152,6 +154,7 @@ UIProcess/API/glib/WebKitFormClient.cpp @no-unify
 UIProcess/API/glib/WebKitFormSubmissionRequest.cpp @no-unify
 UIProcess/API/glib/WebKitGeolocationManager.cpp @no-unify
 UIProcess/API/glib/WebKitGeolocationPermissionRequest.cpp @no-unify
+UIProcess/API/glib/WebKitIconLoadingClient.cpp @no-unify
 UIProcess/API/glib/WebKitImage.cpp @no-unify
 UIProcess/API/glib/WebKitInitialize.cpp @no-unify
 UIProcess/API/glib/WebKitInjectedBundleClient.cpp @no-unify
@@ -171,6 +174,7 @@ UIProcess/API/glib/WebKitOptionMenu.cpp @no-unify
 UIProcess/API/glib/WebKitOptionMenuItem.cpp @no-unify
 UIProcess/API/glib/WebKitPermissionRequest.cpp @no-unify
 UIProcess/API/glib/WebKitPermissionStateQuery.cpp @no-unify
+UIProcess/API/glib/WebKitPointerLockPermissionRequest.cpp @no-unify
 UIProcess/API/glib/WebKitPolicyDecision.cpp @no-unify
 UIProcess/API/glib/WebKitPrivate.cpp @no-unify
 UIProcess/API/glib/WebKitProtocolHandler.cpp @no-unify
@@ -248,9 +252,12 @@ UIProcess/glib/DisplayVBlankMonitorTimer.cpp
 UIProcess/glib/FenceMonitor.cpp
 UIProcess/glib/ScreenManager.cpp
 UIProcess/glib/SystemSettingsManagerProxy.cpp
+UIProcess/glib/TextCheckerGLib.cpp
 UIProcess/glib/WebPageProxyGLib.cpp
 UIProcess/glib/WebProcessPoolGLib.cpp
 UIProcess/glib/WebProcessProxyGLib.cpp
+UIProcess/glib/WebTextCheckerClient.cpp
+UIProcess/glib/WebTextChecker.cpp
 
 UIProcess/gstreamer/WebPageProxyGStreamer.cpp
 
@@ -290,6 +297,7 @@ UIProcess/wpe/WebPreferencesWPE.cpp
 UIProcess/wpe/WebContextMenuProxyWPE.cpp
 
 UIProcess/XR/openxr/OpenXRExtensions.cpp
+UIProcess/XR/openxr/OpenXRGraphicsBindingOpenGLES.cpp
 UIProcess/XR/openxr/OpenXRHitTestManager.cpp
 UIProcess/XR/openxr/OpenXRInput.cpp
 UIProcess/XR/openxr/OpenXRInputSource.cpp

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Nicholas Shanks <contact@nickshanks.com>
- * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@ FontDescription::FontDescription()
     , m_textRendering(std::to_underlying(TextRenderingMode::Auto))
     , m_script(USCRIPT_COMMON)
     , m_fontSynthesisWeight(std::to_underlying(FontSynthesisLonghandValue::Auto))
-    , m_fontSynthesisStyle(std::to_underlying(FontSynthesisLonghandValue::Auto))
+    , m_fontSynthesisStyle(std::to_underlying(FontSynthesisStyleLonghandValue::Auto))
     , m_fontSynthesisCaps(std::to_underlying(FontSynthesisLonghandValue::Auto))
     , m_variantCommonLigatures(std::to_underlying(FontVariantLigatures::Normal))
     , m_variantDiscretionaryLigatures(std::to_underlying(FontVariantLigatures::Normal))
@@ -65,7 +65,6 @@ FontDescription::FontDescription()
     , m_variantEastAsianRuby(std::to_underlying(FontVariantEastAsianRuby::Normal))
     , m_variantEmoji(std::to_underlying(FontVariantEmoji::Normal))
     , m_opticalSizing(std::to_underlying(FontOpticalSizing::Auto))
-    , m_fontStyleAxis(std::to_underlying(FontStyleAxis::slnt))
     , m_shouldAllowUserInstalledFonts(std::to_underlying(AllowUserInstalledFonts::No))
     , m_shouldDisableLigaturesForSpacing(false)
     , m_evaluationTimeZoomEnabled(false)
@@ -200,6 +199,22 @@ void FontDescription::setVariantLigatures(FontVariantLigaturesValues values)
     setVariantDiscretionaryLigatures(values.discretionary);
     setVariantHistoricalLigatures(values.historical);
     setVariantContextualAlternates(values.contextual);
+}
+
+// Resolves which axis a font's slope is applied to when realizing variations. The slnt variation
+// implements oblique values and ital=1 implements italic values. WebKit treats italic as a synonym
+// for oblique, which css-fonts-4 permits ("User agents may treat italic as a synonym for oblique"),
+// so when italic is requested against a face that exposes its slope on the 'slnt' axis (an
+// oblique-angle @font-face, no 'ital' axis) and no synthetic oblique applies, drive the 'slnt' axis
+// rather than the absent 'ital' axis.
+FontStyleAxis variationStyleAxis(const FontDescription& description, const FontSelectionSpecifiedCapabilities& faceCapabilities)
+{
+    auto axis = description.fontStyleAxis();
+    if (axis != FontStyleAxis::ital || faceCapabilities.faceAxis != FontStyleAxis::slnt)
+        return axis;
+    bool willSynthesizeOblique = description.allowsItalicOrObliqueFontSynthesisStyle()
+        && faceCapabilities.slope && !isItalic(faceCapabilities.slope->maximum);
+    return willSynthesizeOblique ? axis : FontStyleAxis::slnt;
 }
 
 } // namespace WebCore

@@ -27,6 +27,7 @@
 
 #import "BindableResource.h"
 #import <wtf/FastMalloc.h>
+#import <wtf/HashSet.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCounted.h>
 #import <wtf/TZoneMalloc.h>

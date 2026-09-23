@@ -27,6 +27,7 @@
 
 #import "WebSpeechRecognizerTask.h"
 #import <wtf/BlockPtr.h>
+#import <wtf/Markable.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -34,7 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface WebSpeechRecognizerTaskMock : WebSpeechRecognizerTask {
 @private
-    Markable<WebCore::SpeechRecognitionConnectionClientIdentifier> _identifier;
+    WTF::Markable<WebCore::SpeechRecognitionConnectionClientIdentifier> _identifier;
     BlockPtr<void(const WebCore::SpeechRecognitionUpdate&)> _delegateCallback;
     bool _doMultipleRecognitions;
     bool _hasSentSpeechStart;

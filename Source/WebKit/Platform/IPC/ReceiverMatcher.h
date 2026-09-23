@@ -29,6 +29,8 @@
 
 namespace IPC {
 
+enum class ReceiverName : uint8_t;
+
 struct ReceiverMatcher {
     // Matches all messages.
     ReceiverMatcher() = default;

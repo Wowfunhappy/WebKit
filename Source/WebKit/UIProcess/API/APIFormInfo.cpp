@@ -39,9 +39,7 @@ FormInfo::FormInfo(API::FrameInfo& frame, API::FrameInfo& sourceFrame, const WTF
 {
 }
 
-FormInfo::~FormInfo()
-{
-}
+FormInfo::~FormInfo() = default;
 
 API::FrameInfo* FormInfo::targetFrame() const
 {

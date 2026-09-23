@@ -32,12 +32,12 @@
 
 namespace WebCore {
 
-template<typename CharacterType> static bool isNotURLTerminatingChar(CharacterType character)
+template<typename CharacterType> static bool NODELETE isNotURLTerminatingChar(CharacterType character)
 {
     return character != '>';
 }
 
-template<typename CharacterType> static bool isValidParameterNameChar(CharacterType character)
+template<typename CharacterType> static bool NODELETE isValidParameterNameChar(CharacterType character)
 {
     // A separator, CTL or '%', '*' or '\'' means the char is not valid.
     // Definition as attr-char at https://tools.ietf.org/html/rfc5987
@@ -48,12 +48,12 @@ template<typename CharacterType> static bool isValidParameterNameChar(CharacterT
     return false;
 }
 
-template<typename CharacterType> static bool isParameterValueEnd(CharacterType character)
+template<typename CharacterType> static bool NODELETE isParameterValueEnd(CharacterType character)
 {
     return character == ';' || character == ',';
 }
 
-template<typename CharacterType> static bool isParameterValueChar(CharacterType character)
+template<typename CharacterType> static bool NODELETE isParameterValueChar(CharacterType character)
 {
     return !isTabOrSpace(character) && !isParameterValueEnd(character);
 }
@@ -92,12 +92,12 @@ template<typename CharacterType> static std::optional<String> findURLBoundaries(
     return String(urlStart.first(urlEnd - urlStart.data()));
 }
 
-template<typename CharacterType> static bool invalidParameterDelimiter(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> static bool NODELETE invalidParameterDelimiter(StringParsingBuffer<CharacterType>& buffer)
 {
     return !skipExactly(buffer, ';') && buffer.hasCharactersRemaining() && *buffer != ',';
 }
 
-template<typename CharacterType> static bool validFieldEnd(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> static bool NODELETE validFieldEnd(StringParsingBuffer<CharacterType>& buffer)
 {
     return buffer.atEnd() || *buffer == ',';
 }
@@ -113,7 +113,7 @@ template<typename CharacterType> static bool validFieldEnd(StringParsingBuffer<C
 // <cat.jpg>; rel=preload
 //            ^          ^
 //            position  end
-template<typename CharacterType> static bool parseParameterDelimiter(StringParsingBuffer<CharacterType>& buffer, bool& isValid)
+template<typename CharacterType> static bool NODELETE parseParameterDelimiter(StringParsingBuffer<CharacterType>& buffer, bool& isValid)
 {
     isValid = true;
     skipWhile<isTabOrSpace>(buffer);
@@ -199,7 +199,7 @@ template<typename CharacterType> static std::optional<LinkHeader::LinkParameterN
 // <cat.jpg>; rel="preload"; type="image/jpeg";
 //                         ^                   ^
 //                     position               end
-template<typename CharacterType> static bool skipQuotesIfNeeded(StringParsingBuffer<CharacterType>& buffer, bool& completeQuotes)
+template<typename CharacterType> static bool NODELETE skipQuotesIfNeeded(StringParsingBuffer<CharacterType>& buffer, bool& completeQuotes)
 {
     auto startSpan = buffer.span();
     unsigned char quote;
@@ -304,7 +304,7 @@ void LinkHeader::setValue(LinkParameterName name, String&& value)
     // FIXME: Add support for more header parameters as neccessary.
 }
 
-template<typename CharacterType> static void findNextHeader(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> static void NODELETE findNextHeader(StringParsingBuffer<CharacterType>& buffer)
 {
     skipUntil(buffer, ',');
     skipExactly(buffer, ',');

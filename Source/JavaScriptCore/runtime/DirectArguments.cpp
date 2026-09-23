@@ -37,6 +37,18 @@ STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(DirectArguments);
 
 const ClassInfo DirectArguments::s_info = { "Arguments"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(DirectArguments) };
 
+uint32_t DirectArguments::length(JSGlobalObject* globalObject) const
+{
+    VM& vm = getVM(globalObject);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    if (m_mappedArguments) [[unlikely]] {
+        JSValue value = get(globalObject, vm.propertyNames->length);
+        RETURN_IF_EXCEPTION(scope, { });
+        RELEASE_AND_RETURN(scope, value.toUInt32(globalObject));
+    }
+    return m_length;
+}
+
 DirectArguments::DirectArguments(VM& vm, Structure* structure, unsigned length, unsigned capacity)
     : GenericArgumentsImpl(vm, structure)
     , m_length(length)
@@ -79,14 +91,14 @@ DirectArguments* DirectArguments::createByCopying(JSGlobalObject* globalObject, 
     for (unsigned i = capacity; i--;)
         result->storage()[i].set(vm, result, callFrame->getArgumentUnsafe(i));
     
-    result->setCallee(vm, jsCast<JSFunction*>(callFrame->jsCallee()));
+    result->setCallee(vm, uncheckedDowncast<JSFunction>(callFrame->jsCallee()));
     
     return result;
 }
 
 size_t DirectArguments::estimatedSize(JSCell* cell, VM& vm)
 {
-    DirectArguments* thisObject = jsCast<DirectArguments*>(cell);
+    DirectArguments* thisObject = uncheckedDowncast<DirectArguments>(cell);
     size_t mappedArgumentsSize = thisObject->m_mappedArguments ? thisObject->mappedArgumentsSize() * sizeof(bool) : 0;
     size_t modifiedArgumentsSize = thisObject->m_modifiedArgumentsDescriptor ? thisObject->m_length * sizeof(bool) : 0;
     return Base::estimatedSize(cell, vm) + mappedArgumentsSize + modifiedArgumentsSize;
@@ -178,7 +190,7 @@ unsigned DirectArguments::mappedArgumentsSize()
 bool DirectArguments::isIteratorProtocolFastAndNonObservable()
 {
     Structure* structure = this->structure();
-    JSGlobalObject* globalObject = structure->globalObject();
+    JSGlobalObject* globalObject = structure->realm();
     if (!globalObject->isArgumentsPrototypeIteratorProtocolFastAndNonObservable())
         return false;
 

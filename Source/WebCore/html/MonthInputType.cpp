@@ -106,13 +106,16 @@ StepRange MonthInputType::createStepRange(AnyStepHandling anyStepHandling) const
     ASSERT(element());
     Ref element = *this->element();
     const Decimal stepBase = findStepBase(Decimal::fromDouble(monthDefaultStepBase));
-    const Decimal minimum = parseToNumber(element->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumMonth()));
-    const Decimal maximum = parseToNumber(element->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumMonth()));
+
+    RangeLimitations rangeLimitations = RangeLimitations::Invalid;
+    const Decimal minimum = extractStepRangeBound(minAttr, Decimal::fromDouble(DateComponents::minimumMonth()), rangeLimitations);
+    const Decimal maximum = extractStepRangeBound(maxAttr, Decimal::fromDouble(DateComponents::maximumMonth()), rangeLimitations);
+
     const Decimal step = StepRange::parseStep(anyStepHandling, monthStepDescription, element->attributeWithoutSynchronization(stepAttr));
-    return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, monthStepDescription);
+    return StepRange(stepBase, rangeLimitations, minimum, maximum, step, monthStepDescription);
 }
 
-Decimal MonthInputType::parseToNumber(const String& src, const Decimal& defaultValue) const
+Decimal MonthInputType::parseToNumber(StringView src, const Decimal& defaultValue) const
 {
     auto date = parseToDateComponents(src);
     if (!date)

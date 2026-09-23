@@ -42,9 +42,7 @@ GStreamerRtpSenderTransformBackend::GStreamerRtpSenderTransformBackend(const GRe
 {
 }
 
-GStreamerRtpSenderTransformBackend::~GStreamerRtpSenderTransformBackend()
-{
-}
+GStreamerRtpSenderTransformBackend::~GStreamerRtpSenderTransformBackend() = default;
 
 void GStreamerRtpSenderTransformBackend::setTransformableFrameCallback(Callback&& callback)
 {

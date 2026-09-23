@@ -261,6 +261,7 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
                     detail.range = detailNSRange;
                     detail.userDescription = [incomingDetail objectForKey:@"NSGrammarUserDescription"];
                     detail.guesses = makeVector<String>([incomingDetail objectForKey:@"NSGrammarCorrections"]);
+                    detail.uuid = [incomingDetail objectForKey:@"NSGrammarUUID"];
                     result.details.append(WTF::move(detail));
                 }
                 results.append(WTF::move(result));
@@ -386,6 +387,7 @@ static Vector<TextCheckingResult> convertExtendedCheckingResults(NSArray<NSTextC
                 detail.userDescription = [incomingDetail objectForKey:@"NSGrammarUserDescription"];
                 RetainPtr<NSArray> guesses = [incomingDetail objectForKey:@"NSGrammarCorrections"];
                 detail.guesses = makeVector<String>(guesses.get());
+                detail.uuid = [incomingDetail objectForKey:@"NSGrammarUUID"];
                 result.details.append(WTF::move(detail));
             }
             results.append(result);
@@ -402,19 +404,28 @@ void TextChecker::requestExtendedCheckingOfString(Ref<TextCheckerCompletion>&& t
         return;
     }
 
-    if (![textChecker respondsToSelector:@selector(requestProofreadingReviewOfString:range:language:options:completionHandler:)]) {
+    bool hasGrammarCheckingAPI = [textChecker respondsToSelector:@selector(requestGrammarCheckingOfString:range:waitForAllResults:completionHandler:)];
+    bool hasProofreadingReviewSPI = [textChecker respondsToSelector:@selector(requestProofreadingReviewOfString:range:language:options:completionHandler:)];
+    if (!hasGrammarCheckingAPI && !hasProofreadingReviewSPI) {
         textCheckerCompletion->didFinishCheckingText({ });
         return;
     }
 
     RetainPtr textString = textCheckerCompletion->textCheckingRequestData().text().createNSString();
     NSRange range = NSMakeRange(0, textCheckerCompletion->textCheckingRequestData().text().length());
-    [textChecker requestProofreadingReviewOfString:textString.get() range:range language:nil options:@{ } completionHandler:makeBlockPtr([textCompletion = WTF::move(textCheckerCompletion)](NSArray<NSTextCheckingResult *> *incomingResults) mutable {
+    auto completionHandler = makeBlockPtr([textCompletion = WTF::move(textCheckerCompletion)](NSArray<NSTextCheckingResult *> *incomingResults) mutable {
         auto results = convertExtendedCheckingResults(incomingResults);
         callOnMainRunLoop([textCompletion = WTF::move(textCompletion), results = crossThreadCopy(WTF::move(results))] {
             textCompletion->didFinishCheckingText(results);
         });
-    }).get()];
+    });
+
+    if (hasGrammarCheckingAPI) {
+        [textChecker requestGrammarCheckingOfString:textString.get() range:range waitForAllResults:YES completionHandler:completionHandler.get()];
+        return;
+    }
+
+    [textChecker requestProofreadingReviewOfString:textString.get() range:range language:nil options:@{ } completionHandler:completionHandler.get()];
 }
 
 } // namespace WebKit

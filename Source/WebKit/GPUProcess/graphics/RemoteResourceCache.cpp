@@ -87,10 +87,10 @@ RefPtr<Gradient> RemoteResourceCache::cachedGradient(RemoteGradientIdentifier id
     return m_gradients.get(identifier);
 }
 
-void RemoteResourceCache::cacheFilter(Ref<Filter>&& filter)
+bool RemoteResourceCache::cacheFilter(Ref<Filter>&& filter)
 {
     auto identifier = filter->renderingResourceIdentifier();
-    m_filters.add(identifier, WTF::move(filter));
+    return m_filters.add(identifier, WTF::move(filter)).isNewEntry;
 }
 
 bool RemoteResourceCache::releaseFilter(RenderingResourceIdentifier identifier)
@@ -103,10 +103,10 @@ RefPtr<Filter> RemoteResourceCache::cachedFilter(RenderingResourceIdentifier ide
     return m_filters.get(identifier);
 }
 
-void RemoteResourceCache::cacheFont(Ref<Font>&& font)
+bool RemoteResourceCache::cacheFont(Ref<Font>&& font)
 {
     auto identifier = font->renderingResourceIdentifier();
-    m_fonts.add(identifier, WTF::move(font));
+    return m_fonts.add(identifier, WTF::move(font)).isNewEntry;
 }
 
 bool RemoteResourceCache::releaseFont(RenderingResourceIdentifier identifier)
@@ -119,10 +119,10 @@ RefPtr<Font> RemoteResourceCache::cachedFont(RenderingResourceIdentifier identif
     return m_fonts.get(identifier);
 }
 
-void RemoteResourceCache::cacheFontCustomPlatformData(Ref<FontCustomPlatformData>&& customPlatformData)
+bool RemoteResourceCache::cacheFontCustomPlatformData(Ref<FontCustomPlatformData>&& customPlatformData)
 {
     auto identifier = customPlatformData->m_renderingResourceIdentifier;
-    m_fontCustomPlatformDatas.add(identifier, WTF::move(customPlatformData));
+    return m_fontCustomPlatformDatas.add(identifier, WTF::move(customPlatformData)).isNewEntry;
 }
 
 bool RemoteResourceCache::releaseFontCustomPlatformData(RenderingResourceIdentifier identifier)

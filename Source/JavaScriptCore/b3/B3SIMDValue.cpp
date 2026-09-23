@@ -32,8 +32,13 @@ namespace JSC { namespace B3 {
 
 SIMDValue::~SIMDValue() = default;
 
-void SIMDValue::dumpMeta(CommaPrinter&, PrintStream&) const
+void SIMDValue::dumpMeta(CommaPrinter& comma, PrintStream& out) const
 {
+    out.print(comma, m_simdInfo.lane);
+    if (m_simdInfo.signMode != SIMDSignMode::None)
+        out.print(comma, m_simdInfo.signMode);
+    if (m_immediate)
+        out.print(comma, "imm = ", m_immediate);
 }
 
 } } // namespace JSC::B3

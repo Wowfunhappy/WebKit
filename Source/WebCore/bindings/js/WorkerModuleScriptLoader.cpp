@@ -51,7 +51,7 @@ Ref<WorkerModuleScriptLoader> WorkerModuleScriptLoader::create(ModuleScriptLoade
 
 WorkerModuleScriptLoader::WorkerModuleScriptLoader(ModuleScriptLoaderClient& client, DeferredPromise& promise, WorkerScriptFetcher& scriptFetcher, RefPtr<JSC::ScriptFetchParameters>&& parameters)
     : ModuleScriptLoader(client, promise, scriptFetcher, WTF::move(parameters))
-    , m_scriptLoader(WorkerScriptLoader::create(WorkerScriptLoader::AlwaysUseUTF8::Yes))
+    , m_scriptLoader(WorkerScriptLoader::create())
 {
 }
 
@@ -88,12 +88,19 @@ void WorkerModuleScriptLoader::load(ScriptExecutionContext& context, URL&& sourc
     bool cspCheckFailed = false;
     ContentSecurityPolicyEnforcement contentSecurityPolicyEnforcement = ContentSecurityPolicyEnforcement::DoNotEnforce;
     if (!context.shouldBypassMainWorldContentSecurityPolicy()) {
+        std::optional<TextPosition> sourcePosition;
+        if (RefPtr document = dynamicDowncast<Document>(context))
+            sourcePosition = document->currentParserSourcePosition();
+
         CheckedPtr contentSecurityPolicy = context.contentSecurityPolicy();
-        if (fetchOptions.destination == FetchOptions::Destination::Script) {
-            cspCheckFailed = contentSecurityPolicy && !contentSecurityPolicy->allowScriptFromSource(m_sourceURL);
+        // Worklets and scripts are governed by script-src; workers are governed by worker-src.
+        bool shouldEnforceScriptSrc = fetchOptions.destination == FetchOptions::Destination::Script
+            || isWorkletDestination(fetchOptions.destination);
+        if (shouldEnforceScriptSrc) {
+            cspCheckFailed = contentSecurityPolicy && !contentSecurityPolicy->allowScriptFromSource(m_sourceURL, WTF::move(sourcePosition));
             contentSecurityPolicyEnforcement = ContentSecurityPolicyEnforcement::EnforceScriptSrcDirective;
         } else {
-            cspCheckFailed = contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(m_sourceURL);
+            cspCheckFailed = contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(m_sourceURL, WTF::move(sourcePosition));
             contentSecurityPolicyEnforcement = ContentSecurityPolicyEnforcement::EnforceWorkerSrcDirective;
         }
     }

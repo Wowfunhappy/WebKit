@@ -170,12 +170,12 @@ GStreamerInternalAudioEncoder::GStreamerInternalAudioEncoder(AudioEncoder::Descr
     m_outputCapsFilter = gst_element_factory_make("capsfilter", nullptr);
     gst_bin_add_many(GST_BIN_CAST(harnessedElement.get()), audioconvert, audioresample, m_inputCapsFilter.get(), m_encoder.get(), m_outputCapsFilter.get(), nullptr);
     gst_element_link_many(audioconvert, audioresample, m_inputCapsFilter.get(), m_encoder.get(), m_outputCapsFilter.get(), nullptr);
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(audioconvert, "sink"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(audioconvert, "sink"));
     gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("sink", sinkPad.get()));
-    auto srcPad = adoptGRef(gst_element_get_static_pad(m_outputCapsFilter.get(), "src"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(m_outputCapsFilter.get(), "src"));
     gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("src", srcPad.get()));
 
-    auto pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
     g_signal_connect_data(pad.get(), "notify::caps", G_CALLBACK(+[](GObject* pad, GParamSpec*, gpointer userData) {
         auto weakEncoder = static_cast<ThreadSafeWeakPtr<GStreamerInternalAudioEncoder>*>(userData);
         auto encoder = weakEncoder->get();
@@ -244,7 +244,7 @@ GStreamerInternalAudioEncoder::~GStreamerInternalAudioEncoder()
     if (!m_harness)
         return;
 
-    auto pad = adoptGRef(gst_element_get_static_pad(m_harness->element(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_harness->element(), "src"));
     g_signal_handlers_disconnect_by_data(pad.get(), this);
 }
 
@@ -319,17 +319,17 @@ String GStreamerInternalAudioEncoder::initialize(const String& codecName, const 
             g_object_set(m_encoder.get(), "bitrate", static_cast<int>(config.bitRate), nullptr);
     } else if (codecName.startsWith("pcm-"_s)) {
         auto components = codecName.split('-');
-        auto pcmFormat = components[1].convertToASCIILowercase();
+        auto& pcmFormat = components[1];
         GstAudioFormat gstPcmFormat = GST_AUDIO_FORMAT_UNKNOWN;
-        if (pcmFormat == "u8"_s)
+        if (equalLettersIgnoringASCIICase(pcmFormat, "u8"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_U8;
-        else if (pcmFormat == "s16"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "s16"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_S16;
-        else if (pcmFormat == "s24"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "s24"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_S24;
-        else if (pcmFormat == "s32"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "s32"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_S32;
-        else if (pcmFormat == "f32"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "f32"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_F32;
         else
             return makeString("Invalid LPCM codec format: "_s, pcmFormat);

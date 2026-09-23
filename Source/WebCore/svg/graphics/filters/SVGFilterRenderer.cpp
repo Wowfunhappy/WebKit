@@ -24,6 +24,7 @@
 #include "SVGFilterRenderer.h"
 
 #include "ElementChildIteratorInlines.h"
+#include "FilterImage.h"
 #include "FilterResults.h"
 #include "GeometryUtilities.h"
 #include "Logging.h"
@@ -37,9 +38,9 @@ namespace WebCore {
 
 static constexpr unsigned maxCountChildNodes = 200;
 
-RefPtr<SVGFilterRenderer> SVGFilterRenderer::create(SVGElement *contextElement, SVGFilterElement& filterElement, const FilterGeometry& geometry, OptionSet<FilterRenderingMode> preferredRenderingModes, const GraphicsContext& destinationContext, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
+RefPtr<SVGFilterRenderer> SVGFilterRenderer::create(SVGElement *contextElement, SVGFilterElement& filterElement, const FilterGeometry& geometry, OptionSet<FilterRenderingMode> preferredRenderingModes, OptionSet<FilterRenderingOption> renderingOptions, const GraphicsContext& destinationContext, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
 {
-    auto filter = adoptRef(*new SVGFilterRenderer(geometry, filterElement.primitiveUnits(), renderingResourceIdentifier));
+    Ref filter = adoptRef(*new SVGFilterRenderer(geometry, filterElement.primitiveUnits(), renderingOptions, renderingResourceIdentifier));
 
     auto result = buildExpression(contextElement, filterElement, filter, destinationContext);
     if (!result)
@@ -59,24 +60,23 @@ RefPtr<SVGFilterRenderer> SVGFilterRenderer::create(SVGElement *contextElement, 
     return filter;
 }
 
-Ref<SVGFilterRenderer> SVGFilterRenderer::create(SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, const FilterGeometry& geometry, OptionSet<FilterRenderingMode> preferredRenderingModes, bool showDebugOverlay, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
+Ref<SVGFilterRenderer> SVGFilterRenderer::create(SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, const FilterGeometry& geometry, OptionSet<FilterRenderingMode> preferredRenderingModes, OptionSet<FilterRenderingOption> renderingOptions, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
 {
-    Ref filter = adoptRef(*new SVGFilterRenderer(geometry, primitiveUnits, WTF::move(expression), WTF::move(effects), renderingResourceIdentifier));
+    Ref filter = adoptRef(*new SVGFilterRenderer(geometry, primitiveUnits, WTF::move(expression), WTF::move(effects), renderingOptions, renderingResourceIdentifier));
     // Setting filter rendering modes cannot be moved to the constructor because it ends up
     // calling supportedFilterRenderingModes() which is a virtual function.
     filter->setFilterRenderingModes(preferredRenderingModes);
-    filter->setIsShowingDebugOverlay(showDebugOverlay);
     return filter;
 }
 
-SVGFilterRenderer::SVGFilterRenderer(const FilterGeometry& geometry, SVGUnitTypes::SVGUnitType primitiveUnits, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
-    : Filter(Filter::Type::SVGFilterRenderer, geometry, renderingResourceIdentifier)
+SVGFilterRenderer::SVGFilterRenderer(const FilterGeometry& geometry, SVGUnitTypes::SVGUnitType primitiveUnits, OptionSet<FilterRenderingOption> renderingOptions, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
+    : Filter(Filter::Type::SVGFilterRenderer, geometry, renderingOptions, renderingResourceIdentifier)
     , m_primitiveUnits(primitiveUnits)
 {
 }
 
-SVGFilterRenderer::SVGFilterRenderer(const FilterGeometry& geometry, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
-    : Filter(Filter::Type::SVGFilterRenderer, geometry, renderingResourceIdentifier)
+SVGFilterRenderer::SVGFilterRenderer(const FilterGeometry& geometry, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, OptionSet<FilterRenderingOption> renderingOptions, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
+    : Filter(Filter::Type::SVGFilterRenderer, geometry, renderingOptions, renderingResourceIdentifier)
     , m_primitiveUnits(primitiveUnits)
     , m_expression(WTF::move(expression))
     , m_effects(WTF::move(effects))
@@ -315,7 +315,19 @@ void SVGFilterRenderer::mergeEffects(const FilterEffectVector& effects)
 
 RefPtr<FilterImage> SVGFilterRenderer::apply(const Filter&, FilterImage& sourceImage, FilterResults& results)
 {
-    return apply(&sourceImage, results);
+    if (areEssentiallyEqual(sourceImage.primitiveSubregion(), filterRegion()))
+        return apply(&sourceImage, results);
+
+    // Per the SVG spec, standard inputs (SourceGraphic, SourceAlpha, etc.) use
+    // the filter region as their default primitive subregion. The source image
+    // may come from an outer CSSFilterRenderer whose filter region is the
+    // element's bounding box, which is smaller than this SVG filter's region.
+    // Adjust the primitive subregion to match the SVG filter region so that
+    // downstream effects (e.g., feOffset) are not incorrectly clipped.
+    if (RefPtr input = FilterImage::create(filterRegion(), sourceImage, results.allocator()))
+        return apply(input.get(), results);
+
+    return nullptr;
 }
 
 RefPtr<FilterImage> SVGFilterRenderer::apply(FilterImage* sourceImage, FilterResults& results)
@@ -342,7 +354,7 @@ RefPtr<FilterImage> SVGFilterRenderer::apply(FilterImage* sourceImage, FilterRes
                 return nullptr;
 
             // Add sourceImage as an input to the SourceGraphic.
-            stack.append(Ref { *sourceImage });
+            stack.append(protect(*sourceImage));
         }
 
         // Need to remove the inputs here in case the effect already has a result.

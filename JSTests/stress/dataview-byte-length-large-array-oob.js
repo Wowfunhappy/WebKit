@@ -1,4 +1,4 @@
-//@skip if $memoryLimited
+//@ memoryHog!
 function test(v) {
     return v.byteLength;
 }

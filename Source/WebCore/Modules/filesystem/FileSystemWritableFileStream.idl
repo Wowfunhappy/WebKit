@@ -35,11 +35,10 @@ enum WriteCommandType {
     EnabledBySetting=FileSystemWritableStreamEnabled,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary WriteParams {
     required WriteCommandType type;
-    unsigned long long? size;
-    unsigned long long? position;
+    [ImplementationDefaultValue=null] unsigned long long? size;
+    [ImplementationDefaultValue=null] unsigned long long? position;
     (BufferSource or Blob or USVString)? data;
 };
 

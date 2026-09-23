@@ -290,7 +290,7 @@ AppendPipeline::AppendPipeline(SourceBufferPrivateGStreamer& sourceBufferPrivate
     registerActivePipeline(m_pipeline);
     connectSimpleBusMessageCallback(m_pipeline.get());
 
-    auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+    GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
     gst_bus_enable_sync_message_emission(bus.get());
 
     g_signal_connect(bus.get(), "sync-message::error", G_CALLBACK(+[](GstBus*, GstMessage* message, AppendPipeline* appendPipeline) {
@@ -315,7 +315,7 @@ AppendPipeline::~AppendPipeline()
     // when changing the pipeline state.
 
     if (m_pipeline) {
-        auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+        GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
         ASSERT(bus);
         g_signal_handlers_disconnect_by_data(bus.get(), this);
         gst_bus_disable_sync_message_emission(bus.get());
@@ -387,7 +387,7 @@ GstPadProbeReturn AppendPipeline::appsrcEndOfAppendCheckerProbe(GstPadProbeInfo*
     }
 
     GST_TRACE_OBJECT(pipeline(), "Posting end-of-append task to the main thread");
-    dumpBinToDotFile(m_pipeline, "end-of-append"_s);
+    dumpBinToDotFile(m_pipeline, makeString(unsafeSpan(GST_ELEMENT_NAME(m_pipeline.get())), "-end-of-append"_s));
     m_taskQueue.enqueueTask([this]() {
         handleEndOfAppend();
     });
@@ -397,11 +397,11 @@ GstPadProbeReturn AppendPipeline::appsrcEndOfAppendCheckerProbe(GstPadProbeInfo*
 void AppendPipeline::removeParserForDemuxerPad(const GRefPtr<GstPad>& pad)
 {
     ASSERT(isMainThread()); // MAVERICKS_BACKPORT: it reaches the pipeline and m_tracks.
-    auto peer = adoptGRef(gst_pad_get_peer(pad.get()));
+    GRefPtr peer = adoptGRef(gst_pad_get_peer(pad.get()));
     if (!peer)
         return;
 
-    auto parser = adoptGRef(gst_pad_get_parent_element(peer.get()));
+    GRefPtr parser = adoptGRef(gst_pad_get_parent_element(peer.get()));
     if (!parser) [[unlikely]]
         return;
 
@@ -415,11 +415,11 @@ void AppendPipeline::removeParserForDemuxerPad(const GRefPtr<GstPad>& pad)
     if (!matchingTrack)
         return;
 
-    auto srcPad = adoptGRef(gst_element_get_static_pad(parser.get(), "src"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(parser.get(), "src"));
     if (!srcPad) [[unlikely]]
         return;
 
-    auto parserPeerPad = adoptGRef(gst_pad_get_peer(srcPad.get()));
+    GRefPtr parserPeerPad = adoptGRef(gst_pad_get_peer(srcPad.get()));
     if (!parserPeerPad) [[unlikely]]
         return;
 
@@ -482,6 +482,7 @@ std::tuple<GRefPtr<GstCaps>, StreamType, FloatSize> AppendPipeline::parseDemuxer
 void AppendPipeline::appsinkCapsChanged(Track& track)
 {
     ASSERT(isMainThread());
+    GST_TRACE_OBJECT(pipeline(), "Processing caps-changed notification");
 
     // Consume any pending samples with the previous caps.
     consumeAppsinksAvailableSamples();
@@ -489,6 +490,7 @@ void AppendPipeline::appsinkCapsChanged(Track& track)
     GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(track.appsink.get(), "sink"));
     GRefPtr<GstCaps> caps = adoptGRef(gst_pad_get_current_caps(pad.get()));
 
+    GST_DEBUG_OBJECT(pipeline(), "Caps changed to %" GST_PTR_FORMAT, caps.get());
     if (!caps)
         return;
 
@@ -515,7 +517,7 @@ void AppendPipeline::appsinkCapsChanged(Track& track)
         track.ongoingChangeType = false;
     }
 
-    if (track.caps != caps)
+    if (!gst_caps_is_equal(track.caps.get(), caps.get()))
         track.caps = WTF::move(caps);
 }
 
@@ -547,13 +549,6 @@ void AppendPipeline::appsinkNewSample(const Track& track, GRefPtr<GstSample>&& s
 
     auto mediaSample = MediaSampleGStreamer::create(WTF::move(sample), track.presentationSize, track.trackId);
 
-    GST_TRACE_OBJECT(pipeline(), "append: trackId=%" PRIu64 " PTS=%s DTS=%s DUR=%s presentationSize=%.0fx%.0f",
-        mediaSample->trackID(),
-        mediaSample->presentationTime().toString().utf8().data(),
-        mediaSample->decodeTime().toString().utf8().data(),
-        mediaSample->duration().toString().utf8().data(),
-        mediaSample->presentationSize().width(), mediaSample->presentationSize().height());
-
     // Hack, rework when GStreamer >= 1.16 becomes a requirement:
     // We're not applying edit lists. GStreamer < 1.16 doesn't emit the correct segments to do so.
     // GStreamer fix in https://gitlab.freedesktop.org/gstreamer/gst-plugins-good/-/commit/c2a0da8096009f0f99943f78dc18066965be60f9
@@ -569,7 +564,7 @@ void AppendPipeline::appsinkNewSample(const Track& track, GRefPtr<GstSample>&& s
     // Because a track presentation time starting at some close to zero, but not exactly zero time can cause unexpected
     // results for applications, we extend the duration of this first sample to the left so that it starts at zero.
     if (mediaSample->decodeTime() == MediaTime::zeroTime() && mediaSample->presentationTime() > MediaTime::zeroTime()
-        && mediaSample->presentationTime() <= MediaTime(1, 10)
+        && mediaSample->presentationTime() <= MediaTime(1, 1)
         && mediaSample->isSync()) {
         GST_DEBUG_OBJECT(pipeline(), "Extending first sample to make it start at PTS=0");
         mediaSample->extendToTheBeginning();
@@ -973,9 +968,9 @@ static GRefPtr<GstCaps> aacSbrForceImplicitSignalling([[maybe_unused]] GstPad* p
     ASSERT_WITH_MESSAGE(writeResult, "AAC channels write failed");
 
     auto newCodecData = gst_bit_writer_get_data(&writer);
-    auto newCaps = adoptGRef(gst_caps_copy(caps));
+    GRefPtr newCaps = adoptGRef(gst_caps_copy(caps));
     gst_codec_utils_aac_caps_set_level_and_profile(newCaps.get(), newCodecData, 2);
-    auto newCodecDataBuffer = adoptGRef(gst_buffer_new_and_alloc(2));
+    GRefPtr newCodecDataBuffer = adoptGRef(gst_buffer_new_and_alloc(2));
     gst_buffer_fill(newCodecDataBuffer.get(), 0, newCodecData, 2);
     gst_caps_set_simple(newCaps.get(), "codec_data", GST_TYPE_BUFFER, newCodecDataBuffer.get(), nullptr);
     return newCaps;
@@ -1209,6 +1204,9 @@ bool AppendPipeline::recycleTrackForPad(GstPad* demuxerSrcPad)
 
     matchingTrack->demuxerSrcPad = demuxerSrcPad;
 
+    // Get the caps before stopping the parser and sink, since setting the state to GST_STATE_NULL clears sticky events.
+    GRefPtr<GstCaps> matchingTrackCaps = adoptGRef(gst_pad_get_current_caps(matchingTrack->entryPad.get()));
+
     // The https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/4535 merge request in qtdemux is causing EOS on
     // a "to be removed" stream before the no-more-pads message is triggered. That message makes AppendPipeline realize that
     // the stream is actually going to be removed. AppendPipeline may therefore be trying to reuse a former EOSed parser and
@@ -1219,12 +1217,11 @@ bool AppendPipeline::recycleTrackForPad(GstPad* demuxerSrcPad)
         gst_element_set_state(matchingTrack->parser.get(), GST_STATE_NULL);
     gst_element_set_state(matchingTrack->appsink.get(), GST_STATE_NULL);
 
-    GRefPtr<GstCaps> matchingTrackCaps = adoptGRef(gst_pad_get_current_caps(matchingTrack->entryPad.get()));
     if (!matchingTrack->isLinked() && !matchingTrack->ongoingChangeType && (!matchingTrackCaps || gst_caps_can_intersect(parsedCaps.get(), matchingTrackCaps.get())))
         linkPadWithTrack(demuxerSrcPad, *matchingTrack);
     else {
         // Unlink from old track and link to new track.
-        auto peer = adoptGRef(gst_pad_get_peer(matchingTrack->entryPad.get()));
+        GRefPtr peer = adoptGRef(gst_pad_get_peer(matchingTrack->entryPad.get()));
         if (peer.get() != demuxerSrcPad) {
             if (peer) {
                 GST_DEBUG_OBJECT(peer.get(), "Unlinking from track %" PRIu64 "", matchingTrack->trackId);
@@ -1240,7 +1237,7 @@ bool AppendPipeline::recycleTrackForPad(GstPad* demuxerSrcPad)
             matchingTrack->caps = WTF::move(parsedCaps);
             matchingTrack->presentationSize = presentationSize;
         } else
-            GST_DEBUG_OBJECT(pipeline(), "%" PRIu64 " track pads match, nothing to re-link", matchingTrack->trackId);
+            GST_DEBUG_OBJECT(pipeline(), "track %" PRIu64 " pads match, nothing to re-link", matchingTrack->trackId);
 
     }
 

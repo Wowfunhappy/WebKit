@@ -30,8 +30,8 @@
 #include "WebPage.h"
 #include <WebCore/FontCascadeInlines.h>
 #include <WebCore/FontSelector.h>
+#include <WebCore/PlatformRenderTheme.h>
 #include <WebCore/PopupMenuClient.h>
-#include <WebCore/RenderTheme.h>
 #include <WebCore/ScrollbarTheme.h>
 #include <WebCore/TextRun.h>
 

@@ -20,13 +20,40 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import io
+import os
 import unittest
 from unittest.mock import patch
 from urllib.error import URLError
 
 from webkitcorepy import autoinstall, OutputCapture
-from webkitcorepy.autoinstall import AutoInstall, Package
+from webkitcorepy.autoinstall import AutoInstall, Package, _default_pypi_indices, _pypi_indices_from_file
 from webkitcorepy.version import Version
+
+
+class DefaultPyPIIndexTest(unittest.TestCase):
+    def test_no_config(self):
+        with patch('os.path.isfile', return_value=False):
+            self.assertEqual(_default_pypi_indices(), ['pypi.org'])
+
+    def test_primary_index_only(self):
+        config = io.StringIO('[global]\nindex-url = https://internal.example.com/\n')
+        self.assertEqual(_pypi_indices_from_file(config), ['internal.example.com'])
+
+    def test_extra_index_only(self):
+        config = io.StringIO('[global]\nextra-index-url = https://extra.example.com/\n')
+        self.assertEqual(_pypi_indices_from_file(config), ['extra.example.com'])
+
+    def test_primary_and_extra_index(self):
+        config = io.StringIO('[global]\nindex-url = https://primary.example.com/\nextra-index-url = https://extra.example.com/\n')
+        result = _pypi_indices_from_file(config)
+        self.assertEqual(result[0], 'primary.example.com')
+        self.assertEqual(result[-1], 'extra.example.com')
+
+    def test_multiple_extra_indexes(self):
+        config = io.StringIO('[global]\nindex-url = https://primary.example.com/\nextra-index-url =\n    https://extra1.example.com/\n    https://extra2.example.com/\n')
+        result = _pypi_indices_from_file(config)
+        self.assertEqual(result, ['primary.example.com', 'extra1.example.com', 'extra2.example.com'])
 
 
 class ArchiveTest(unittest.TestCase):

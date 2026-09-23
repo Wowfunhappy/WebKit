@@ -25,9 +25,10 @@
 
 #pragma once
 
-#include "DeferTermination.h"
-#include "Heap.h"
-#include "VMTraps.h"
+#include <JavaScriptCore/DeferTermination.h>
+#include <JavaScriptCore/Heap.h>
+#include <JavaScriptCore/LazyProperty.h>
+#include <JavaScriptCore/VMTraps.h>
 #include <wtf/StdLibExtras.h>
 
 namespace JSC {

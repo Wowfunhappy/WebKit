@@ -36,6 +36,8 @@ class ContentSecurityPolicy;
 class SecurityOriginData;
 
 enum class IsSelfSource : bool { No, Yes };
+enum class SchemeMatchResult : uint8_t { NoMatch, Match, InsecureUpgradeMatch };
+enum class ShouldUpgradePorts : bool { No, Yes };
 
 class ContentSecurityPolicySource {
     WTF_MAKE_TZONE_ALLOCATED(ContentSecurityPolicySource);
@@ -47,10 +49,10 @@ public:
     operator SecurityOriginData() const;
 
 private:
-    bool schemeMatches(const URL&) const;
-    bool hostMatches(const URL&) const;
+    SchemeMatchResult schemeMatches(const URL&) const;
+    bool NODELETE hostMatches(const URL&) const;
     bool pathMatches(const URL&) const;
-    bool portMatches(const URL&) const;
+    bool portMatches(const URL&, ShouldUpgradePorts) const;
     bool NODELETE isSchemeOnly() const;
 
     const CheckedRef<const ContentSecurityPolicy> m_policy;

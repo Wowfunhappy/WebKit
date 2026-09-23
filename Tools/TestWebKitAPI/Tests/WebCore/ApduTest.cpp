@@ -78,7 +78,7 @@ TEST(ApduTest, TestDeserializeComplex)
     uint8_t ins = 0xAB;
     uint8_t p1 = 0xAC;
     uint8_t p2 = 0xAD;
-    Vector<uint8_t> data(ApduCommand::kApduMaxDataLength - ApduCommand::kApduMaxHeader - 2, 0x7F);
+    Vector<uint8_t> data(FillWith { }, ApduCommand::kApduMaxDataLength - ApduCommand::kApduMaxHeader - 2, 0x7F);
     Vector<uint8_t> message = { cla, ins, p1, p2, 0 };
     message.append((data.size() >> 8) & 0xff);
     message.append(data.size() & 0xff);

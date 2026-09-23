@@ -120,7 +120,7 @@ void createImageControls(HTMLElement& element)
     style->setTextContent(String { shadowStyle });
     shadowRoot->appendChild(WTF::move(style));
     
-    Ref button = HTMLButtonElement::create(HTMLNames::buttonTag, protect(element.document()), nullptr);
+    Ref button = HTMLButtonElement::create(HTMLNames::buttonTag, protect(element.document()));
     button->setIdAttribute(imageControlsButtonIdentifier());
     controlLayer->appendChild(button);
     controlLayer->setUserAgentPart(UserAgentParts::appleAttachmentControlsContainer());
@@ -186,7 +186,7 @@ bool handleEvent(HTMLElement& element, Event& event)
     return false;
 }
 
-static bool isImageMenuEnabled(HTMLElement& element)
+static bool NODELETE isImageMenuEnabled(HTMLElement& element)
 {
     if (auto* imageElement = dynamicDowncast<HTMLImageElement>(element))
         return imageElement->isImageMenuEnabled();

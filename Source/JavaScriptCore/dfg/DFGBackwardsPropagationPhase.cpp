@@ -28,7 +28,7 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGBlockMapInlines.h"
+#include <wtf/IndexMap.h>
 #include "DFGGraph.h"
 #include "DFGPhase.h"
 #include "JSCJSValueInlines.h"
@@ -46,7 +46,7 @@ class BackwardsPropagationPhase : public Phase {
 public:
     BackwardsPropagationPhase(Graph& graph)
         : Phase(graph, "backwards propagation"_s, !graph.afterFixup())
-        , m_flagsAtHead(graph)
+        , m_flagsAtHead(graph.numBlocks())
     {
     }
 
@@ -166,14 +166,6 @@ private:
     }
     
     template<int power>
-    bool isWithinPowerOfTwoNonRecursive(Node* node)
-    {
-        if (!node->isNumberConstant())
-            return false;
-        return isWithinPowerOfTwoForConstant<power>(node);
-    }
-    
-    template<int power>
     bool isWithinPowerOfTwo(Node* node)
     {
         switch (node->op()) {
@@ -187,9 +179,17 @@ private:
         case ArithBitAnd: {
             if (power > 31)
                 return true;
-            
-            return isWithinPowerOfTwoNonRecursive<power>(node->child1().node())
-                || isWithinPowerOfTwoNonRecursive<power>(node->child2().node());
+
+            // (x & mask) is only bounded by |mask| when mask is non-negative; a negative
+            // mask preserves the sign bit and the result can span the full int32 range.
+            auto isNonNegativeMaskWithinPower = [](Node* operand) {
+                if (!operand->isNumberConstant())
+                    return false;
+                double immediate = operand->asNumber();
+                return immediate >= 0 && immediate < (static_cast<int64_t>(1) << power);
+            };
+            return isNonNegativeMaskWithinPower(node->child1().node())
+                || isNonNegativeMaskWithinPower(node->child2().node());
         }
             
         case ArithBitOr:
@@ -228,12 +228,12 @@ private:
         return isWithinPowerOfTwo<power>(edge.node());
     }
 
-    static bool mergeFlags(NodeFlags& flagsRef, NodeFlags newFlags)
+    static bool NODELETE mergeFlags(NodeFlags& flagsRef, NodeFlags newFlags)
     {
         return checkAndSet(flagsRef, flagsRef | newFlags);
     }
 
-    bool mergeDefaultFlags(Node* node)
+    bool NODELETE mergeDefaultFlags(Node* node)
     {
         bool changed = false;
         if (node->flags() & NodeHasVarArgs) {
@@ -257,7 +257,7 @@ private:
         return changed;
     }
     
-    static constexpr NodeFlags VariableIsUsed = 1 << (1 + WTF::getMSBSetConstexpr(NodeBytecodeBackPropMask));
+    static constexpr NodeFlags VariableIsUsed = 1 << (1 + WTF::getMSBSet(NodeBytecodeBackPropMask));
     static_assert(!(VariableIsUsed & NodeBytecodeBackPropMask));
     static_assert(VariableIsUsed > NodeBytecodeBackPropMask, "Verify the above doesn't overflow");
     
@@ -350,7 +350,8 @@ private:
             break;
         }
 
-        case StringIndexOf: {
+        case StringIndexOf:
+        case StringLastIndexOf: {
             node->child1()->mergeFlags(NodeBytecodeUsesAsValue);
             node->child2()->mergeFlags(NodeBytecodeUsesAsValue);
             if (node->child3())
@@ -367,8 +368,23 @@ private:
             break;
         }
 
+        case StringSplit: {
+            node->child1()->mergeFlags(NodeBytecodeUsesAsValue);
+            node->child2()->mergeFlags(NodeBytecodeUsesAsValue);
+            node->child3()->mergeFlags(NodeBytecodeUsesAsValue);
+            break;
+        }
+
+        case StringMatch:
+        case StringSearch: {
+            node->child1()->mergeFlags(NodeBytecodeUsesAsValue);
+            node->child2()->mergeFlags(NodeBytecodeUsesAsValue);
+            break;
+        }
+
         case StringSlice:
-        case StringSubstring: {
+        case StringSubstring:
+        case StringSubstr: {
             node->child1()->mergeFlags(NodeBytecodeUsesAsValue);
             node->child2()->mergeFlags(NodeBytecodeUsesAsArrayIndex);
             if (node->child3())
@@ -392,7 +408,19 @@ private:
             break;
         }
 
-            
+        case ArrayConcatArray:
+        case ArrayConcatAppendOne: {
+            node->child1()->mergeFlags(NodeBytecodeUsesAsValue);
+            node->child2()->mergeFlags(NodeBytecodeUsesAsValue);
+            break;
+        }
+
+        case ArrayJoin: {
+            m_graph.varArgChild(node, 0)->mergeFlags(NodeBytecodeUsesAsValue);
+            m_graph.varArgChild(node, 1)->mergeFlags(NodeBytecodeUsesAsValue);
+            break;
+        }
+
         case UInt32ToNumber: {
             node->child1()->mergeFlags(flags);
             break;
@@ -692,7 +720,7 @@ private:
     
     bool m_allowNestedOverflowingAdditions;
 
-    BlockMap<Operands<NodeFlags>> m_flagsAtHead;
+    IndexMap<BasicBlock*, Operands<NodeFlags>> m_flagsAtHead;
     Operands<NodeFlags> m_currentFlags;
 };
 

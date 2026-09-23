@@ -54,7 +54,7 @@ static std::optional<String> contentTypeLookUpForKnownResource(const char* filen
     if (dotIndex != notFound && dotIndex < (fileName.length() - 1))
         extension = fileName.substring(dotIndex);
 
-    static constexpr SortedArrayMap mappings { std::to_array<std::pair<ComparableLettersLiteral, ASCIILiteral>>({
+    static constexpr SortedArrayMap mappings { WTF::toArray<std::pair<ComparableLettersLiteral, ASCIILiteral>>({
         { ".css"_s, "text/css"_s },
         { ".gif"_s, "image/gif"_s },
         { ".html"_s, "text/html"_s },

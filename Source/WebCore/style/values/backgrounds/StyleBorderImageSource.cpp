@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,8 @@
 #include "StyleBorderImageSource.h"
 
 #include "AnimationUtilities.h"
-#include "CSSValue.h"
+#include "CSSBorderImageSourceValue.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderState.h"
 
 namespace WebCore {
@@ -35,16 +36,58 @@ namespace Style {
 
 // MARK: - Conversion
 
+auto ToCSS<BorderImageSource>::operator()(const BorderImageSource& value, const Style::ComputedStyle& style) -> CSS::BorderImageSource
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Keyword::None& keyword) -> CSS::BorderImageSource {
+            return keyword;
+        },
+        [&](const ImageWrapper& imageWrapper) -> CSS::BorderImageSource {
+            return CSS::ImageWrapper { protect(imageWrapper.value)->computedStyleValue(style) };
+        }
+    );
+}
+
+auto ToStyle<CSS::BorderImageSource>::operator()(const CSS::BorderImageSource& value, const BuilderState& state) -> BorderImageSource
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Keyword::None& keyword) -> BorderImageSource {
+            return keyword;
+        },
+        [&](const CSS::ImageWrapper& imageWrapper) -> BorderImageSource {
+            RefPtr image = state.createStyleImage(protect(imageWrapper.value));
+            if (!image)
+                return CSS::Keyword::None { };
+            return ImageWrapper { image.releaseNonNull() };
+        }
+    );
+}
+
 auto CSSValueConversion<BorderImageSource>::operator()(BuilderState& state, const CSSValue& value) -> BorderImageSource
 {
-    if (value.valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
+    if (auto* sourceValue = dynamicDowncast<CSSBorderImageSourceValue>(value))
+        return toStyle(sourceValue->source(), state);
+
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
 
     RefPtr image = state.createStyleImage(value);
     if (!image)
         return CSS::Keyword::None { };
 
     return ImageWrapper { image.releaseNonNull() };
+}
+
+auto CSSValueCreation<BorderImageSource>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const BorderImageSource& value) -> Ref<CSSValue>
+{
+    return CSSBorderImageSourceValue::create(toCSS(value, style));
 }
 
 // MARK: - Blending
@@ -54,7 +97,7 @@ auto Blending<BorderImageSource>::canBlend(const BorderImageSource& a, const Bor
     return !a.isNone() && !b.isNone();
 }
 
-auto Blending<BorderImageSource>::blend(const BorderImageSource& a, const BorderImageSource& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> BorderImageSource
+auto Blending<BorderImageSource>::blend(const BorderImageSource& a, const BorderImageSource& b, const Style::ComputedStyle& aStyle, const Style::ComputedStyle& bStyle, const BlendingContext& context) -> BorderImageSource
 {
     if (context.isDiscrete) {
         ASSERT(!context.progress || context.progress == 1);

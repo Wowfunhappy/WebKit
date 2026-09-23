@@ -38,7 +38,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentSecurityPolicyMediaListDirective);
 
-template<typename CharacterType> static bool isMediaTypeCharacter(CharacterType c)
+template<typename CharacterType> static bool NODELETE isMediaTypeCharacter(CharacterType c)
 {
     return !isASCIIWhitespace(c) && c != '/';
 }

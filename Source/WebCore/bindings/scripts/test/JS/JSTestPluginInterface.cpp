@@ -27,6 +27,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -36,7 +37,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -69,10 +69,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestPluginInterfacePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestPluginInterfacePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -111,11 +108,16 @@ static const std::array<HashTableValue, 1> JSTestPluginInterfacePrototypeTableVa
 
 const ClassInfo JSTestPluginInterfacePrototype::s_info = { "TestPluginInterface"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestPluginInterfacePrototype) };
 
+JSC::Structure* JSTestPluginInterfacePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestPluginInterfacePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestPluginInterface::info(), JSTestPluginInterfacePrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestPluginInterface::s_info = { "TestPluginInterface"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestPluginInterface) };
@@ -126,6 +128,19 @@ JSTestPluginInterface::JSTestPluginInterface(Structure* structure, JSDOMGlobalOb
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestPluginInterface>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestPluginInterface* JSTestPluginInterface::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestPluginInterface>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestPluginInterface* ptr = new (NotNull, JSC::allocateCell<JSTestPluginInterface>(vm)) JSTestPluginInterface(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestPluginInterface::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::MayHaveIndexedAccessors);
+}
 
 JSObject* JSTestPluginInterface::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -141,7 +156,7 @@ JSObject* JSTestPluginInterface::prototype(VM& vm, JSDOMGlobalObject& globalObje
 
 JSValue JSTestPluginInterface::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestPluginInterfaceDOMConstructor, DOMConstructorID::TestPluginInterface>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestPluginInterfaceDOMConstructor, DOMConstructorID::TestPluginInterface>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestPluginInterface::destroy(JSC::JSCell* cell)
@@ -153,14 +168,14 @@ void JSTestPluginInterface::destroy(JSC::JSCell* cell)
 bool JSTestPluginInterface::legacyPlatformObjectGetOwnProperty(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot, bool ignoreNamedProperties)
 {
     UNUSED_PARAM(ignoreNamedProperties);
-    auto* thisObject = jsCast<JSTestPluginInterface*>(object);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (pluginElementCustomGetOwnPropertySlot(thisObject, lexicalGlobalObject, propertyName, slot))
         return true;
     ASSERT(slot.isTaintedByOpaqueObject());
     if (slot.isVMInquiry())
         return false;
-    return JSObject::getOwnPropertySlot(object, lexicalGlobalObject, propertyName, slot);
+    return WebCore::getOwnPropertySlot(object, lexicalGlobalObject, propertyName, slot);
 }
 
 bool JSTestPluginInterface::getOwnPropertySlot(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot)
@@ -172,7 +187,7 @@ bool JSTestPluginInterface::getOwnPropertySlot(JSObject* object, JSGlobalObject*
 bool JSTestPluginInterface::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* lexicalGlobalObject, unsigned index, PropertySlot& slot)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
-    auto* thisObject = jsCast<JSTestPluginInterface*>(object);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     auto propertyName = Identifier::from(vm, index);
     if (pluginElementCustomGetOwnPropertySlot(thisObject, lexicalGlobalObject, propertyName, slot))
@@ -185,14 +200,14 @@ bool JSTestPluginInterface::getOwnPropertySlotByIndex(JSObject* object, JSGlobal
 
 bool JSTestPluginInterface::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, JSValue value, PutPropertySlot& putPropertySlot)
 {
-    auto* thisObject = jsCast<JSTestPluginInterface*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     if (thisObject != putPropertySlot.thisValue()) [[unlikely]]
         return JSObject::put(thisObject, lexicalGlobalObject, propertyName, value, putPropertySlot);
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(jsDynamicCast<JSDOMGlobalObject*>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::put(thisObject, lexicalGlobalObject, propertyName, value, putPropertySlot);
     }
@@ -213,12 +228,12 @@ bool JSTestPluginInterface::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlob
 {
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(jsDynamicCast<JSDOMGlobalObject*>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::putByIndex(cell, lexicalGlobalObject, index, value, shouldThrow);
     }
 
-    auto* thisObject = jsCast<JSTestPluginInterface*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
@@ -238,7 +253,7 @@ bool JSTestPluginInterface::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlob
 
 CallData JSTestPluginInterface::getCallData(JSCell* cell)
 {
-    auto* thisObject = jsCast<JSTestPluginInterface*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     return pluginElementCustomGetCallData(thisObject);
@@ -248,10 +263,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestPluginInterfaceConstructor, (JSGlobalObject* lexi
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestPluginInterfacePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestPluginInterfacePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestPluginInterface::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestPluginInterface::getConstructor(vm, prototype->realm()));
 }
 
 JSC::GCClient::IsoSubspace* JSTestPluginInterface::subspaceForImpl(JSC::VM& vm)
@@ -267,7 +282,7 @@ JSC::GCClient::IsoSubspace* JSTestPluginInterface::subspaceForImpl(JSC::VM& vm)
 template<typename Visitor>
 void JSTestPluginInterface::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSTestPluginInterface*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 }
@@ -276,12 +291,14 @@ DEFINE_VISIT_CHILDREN(JSTestPluginInterface);
 
 void JSTestPluginInterface::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestPluginInterface*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestPluginInterface>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestPluginInterfaceOwner::JSTestPluginInterfaceOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestPluginInterfaceOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -295,7 +312,7 @@ void JSTestPluginInterfaceOwner::finalize(JSC::Handle<JSC::Unknown> handle, void
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestPluginInterface = static_cast<JSTestPluginInterface*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestPluginInterface->wrapped()).ptr(), jsTestPluginInterface);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestPluginInterface->wrapped(), jsTestPluginInterface);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -343,7 +360,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestPluginInterface* JSTestPluginInterface::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestPluginInterface*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestPluginInterface>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

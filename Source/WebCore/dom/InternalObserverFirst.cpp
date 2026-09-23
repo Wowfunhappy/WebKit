@@ -32,6 +32,7 @@
 #include "InternalObserver.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "Observable.h"
 #include "ScriptExecutionContext.h"
 #include "SubscribeOptions.h"

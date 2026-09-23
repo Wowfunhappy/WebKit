@@ -55,9 +55,7 @@ ScrollbarThemeIOS::ScrollbarThemeIOS()
 {
 }
 
-ScrollbarThemeIOS::~ScrollbarThemeIOS()
-{
-}
+ScrollbarThemeIOS::~ScrollbarThemeIOS() = default;
 
 void ScrollbarThemeIOS::preferencesChanged()
 {

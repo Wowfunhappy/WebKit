@@ -29,7 +29,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
-#include <JavaScriptCore/AbstractModuleRecord.h>
+#include <JavaScriptCore/CyclicModuleRecord.h>
 #include <JavaScriptCore/WasmCreationMode.h>
 #include <JavaScriptCore/WasmModuleInformation.h>
 
@@ -41,10 +41,10 @@ class WebAssemblyFunction;
 
 // Based on the WebAssembly.Instance specification
 // https://github.com/WebAssembly/design/blob/master/JS.md#webassemblyinstance-constructor
-class WebAssemblyModuleRecord final : public AbstractModuleRecord {
+class WebAssemblyModuleRecord final : public CyclicModuleRecord {
     friend class LLIntOffsetsExtractor;
 public:
-    using Base = AbstractModuleRecord;
+    using Base = CyclicModuleRecord;
 
     static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
@@ -63,7 +63,7 @@ public:
     static WebAssemblyModuleRecord* create(JSGlobalObject*, VM&, Structure*, const Identifier&, const Wasm::ModuleInformation&);
 
     void prepareLink(VM&, JSWebAssemblyInstance*);
-    Synchronousness link(JSGlobalObject*, JSValue scriptFetcher);
+    Synchronousness link(JSGlobalObject*, RefPtr<ScriptFetcher> = nullptr);
     void initializeImports(JSGlobalObject*, JSObject* importObject, Wasm::CreationMode);
     void initializeExports(JSGlobalObject*);
     JS_EXPORT_PRIVATE JSValue evaluate(JSGlobalObject*);
@@ -76,7 +76,7 @@ private:
     WebAssemblyModuleRecord(VM&, Structure*, const Identifier&);
 
     void finishCreation(JSGlobalObject*, VM&, const Wasm::ModuleInformation&);
-    JSValue evaluateConstantExpression(JSGlobalObject*, const Vector<uint8_t>&, const Wasm::ModuleInformation&, Wasm::Type, uint64_t&);
+    JSValue evaluateConstantExpression(JSGlobalObject*, const Wasm::ModuleInformation::ConstantExpressionAndSourceOffset&, const Wasm::ModuleInformation&, Wasm::Type, uint64_t&);
 
     WriteBarrier<JSWebAssemblyInstance> m_instance;
     WriteBarrier<JSObject> m_startFunction;

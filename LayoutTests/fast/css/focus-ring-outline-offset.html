@@ -1,17 +1,12 @@
-<html>
-<head>
+<!DOCTYPE html>
 <style>
-a:focus { outline-offset: 10px; }
-</style>
-<script>
-window.onload = function()
-{
-    document.getElementById("link").focus();
+div {
+    width: 100px;
+    height: 100px;
+    outline-style: auto;
+    outline-offset: 20px;
+    margin: 50px;
 }
-</script>
-</head>
-<body>
-<p>Assuming the port-specific theme draws focus rings, this test can be used to ensure that a focus ring is drawn with an outline offset of 10 px.</p>
-(Some filler text) <a id="link" href="#"/>Test</a>
-</body>
-</html>
+</style>
+<p>Test passes if the focus ring is drawn away from the box due to outline-offset.</p>
+<div></div>

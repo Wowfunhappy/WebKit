@@ -27,8 +27,9 @@
 #include "StyleRepeatStyle.h"
 
 #include "CSSBackgroundRepeatValue.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
@@ -47,8 +48,8 @@ auto CSSValueConversion<RepeatStyle>::operator()(BuilderState& state, const CSSV
     }
 
     // Values coming from CSS Typed OM may not have been converted to a CSSBackgroundRepeatValue.
-    auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue) {
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue) {
         return RepeatStyle {
             .values {
                 FillRepeat::Repeat,
@@ -57,7 +58,7 @@ auto CSSValueConversion<RepeatStyle>::operator()(BuilderState& state, const CSSV
         };
     }
 
-    if (primitiveValue->valueID() == CSSValueRepeatX) {
+    if (keywordValue->valueID() == CSSValueRepeatX) {
         return RepeatStyle {
             .values {
                 FillRepeat::Repeat,
@@ -65,7 +66,7 @@ auto CSSValueConversion<RepeatStyle>::operator()(BuilderState& state, const CSSV
             }
         };
     }
-    if (primitiveValue->valueID() == CSSValueRepeatY) {
+    if (keywordValue->valueID() == CSSValueRepeatY) {
         return RepeatStyle {
             .values {
                 FillRepeat::NoRepeat,
@@ -74,7 +75,7 @@ auto CSSValueConversion<RepeatStyle>::operator()(BuilderState& state, const CSSV
         };
     }
 
-    auto repeat = toStyleFromCSSValue<FillRepeat>(state, *primitiveValue);
+    auto repeat = toStyleFromCSSValue<FillRepeat>(state, *keywordValue);
     return RepeatStyle {
         .values {
             repeat,

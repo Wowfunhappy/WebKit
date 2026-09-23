@@ -38,15 +38,6 @@ struct ResolvedCaptionDisplaySettingsOptionsWrapper {
 
     using YPositionArea = ResolvedCaptionDisplaySettingsOptions::YPositionArea;
     std::optional<YPositionArea> yPositionArea;
-
-    ResolvedCaptionDisplaySettingsOptionsWrapper() = default;
-    ResolvedCaptionDisplaySettingsOptionsWrapper(const ResolvedCaptionDisplaySettingsOptions& options)
-        : xPositionArea { options.xPositionArea }
-        , yPositionArea { options.yPositionArea }
-    {
-        if (options.anchorBounds)
-            anchorBounds = DOMRect::create(*options.anchorBounds);
-    }
 };
 
 }

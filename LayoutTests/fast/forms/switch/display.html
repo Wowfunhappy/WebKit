@@ -7,13 +7,13 @@ control.style.display = "none";
 shouldBeEqualToString("getComputedStyle(control).display", "none");
 
 control.style.display = "inline";
-shouldBeEqualToString("getComputedStyle(control).display", "inline-grid");
+shouldBeEqualToString("getComputedStyle(control).display", "inline-block");
 
 control.style.display = "table";
-shouldBeEqualToString("getComputedStyle(control).display", "grid");
+shouldBeEqualToString("getComputedStyle(control).display", "block");
 
 control.style.display = "block";
-shouldBeEqualToString("getComputedStyle(control).display", "grid");
+shouldBeEqualToString("getComputedStyle(control).display", "block");
 
 control.style.display = "inline-grid";
 shouldBeEqualToString("getComputedStyle(control).display", "inline-grid");

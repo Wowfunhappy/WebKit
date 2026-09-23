@@ -47,11 +47,12 @@ public:
         bool recursive { false };
     };
 
-    WEBCORE_EXPORT static Ref<FileSystemDirectoryHandle> create(ScriptExecutionContext&, String&&, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
+    WEBCORE_EXPORT static Ref<FileSystemDirectoryHandle> create(ScriptExecutionContext&, String&&, FileSystemHandleGlobalIdentifier, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
+    WEBCORE_EXPORT static Ref<FileSystemDirectoryHandle> create(ScriptExecutionContext&, String&&, FileSystemHandleGlobalIdentifier);
     void getFileHandle(const String& name, const GetFileOptions&, DOMPromiseDeferred<IDLInterface<FileSystemFileHandle>>&&);
     void getDirectoryHandle(const String& name, const GetDirectoryOptions&, DOMPromiseDeferred<IDLInterface<FileSystemDirectoryHandle>>&&);
     void removeEntry(const String& name, const RemoveOptions&, DOMPromiseDeferred<void>&&);
-    void resolve(const FileSystemHandle&, DOMPromiseDeferred<IDLSequence<IDLUSVString>>&&);
+    void resolve(const FileSystemHandle&, DOMPromiseDeferred<IDLNullable<IDLSequence<IDLUSVString>>>&&);
 
     void getHandleNames(CompletionHandler<void(ExceptionOr<Vector<String>>&&)>&&);
     void getHandle(const String& name, CompletionHandler<void(ExceptionOr<Ref<FileSystemHandle>>&&)>&&);
@@ -77,7 +78,7 @@ public:
     Ref<Iterator> createIterator(ScriptExecutionContext*);
 
 private:
-    FileSystemDirectoryHandle(ScriptExecutionContext&, String&&, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
+    FileSystemDirectoryHandle(ScriptExecutionContext&, String&&, FileSystemHandleGlobalIdentifier, Markable<FileSystemHandleIdentifier>, RefPtr<FileSystemStorageConnection>&&);
 };
 
 } // namespace WebCore

@@ -28,22 +28,36 @@
 
 #if USE(COORDINATED_GRAPHICS)
 #include "BitmapTexturePool.h"
+#include "PlatformDisplay.h"
 #include "TextureMapper.h"
+
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkImage.h>
+#include <skia/core/SkYUVAInfo.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+#include <skia/gpu/ganesh/GrYUVABackendTextures.h>
+#include <skia/gpu/ganesh/SkImageGanesh.h>
+#include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
 
 namespace WebCore {
 
-std::unique_ptr<CoordinatedPlatformLayerBufferYUV> CoordinatedPlatformLayerBufferYUV::create(unsigned planeCount, std::array<unsigned, 4>&& planes, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
+std::unique_ptr<CoordinatedPlatformLayerBufferYUV> CoordinatedPlatformLayerBufferYUV::create(Format format, unsigned planeCount, std::array<unsigned, 4>&& planes, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
 {
-    return makeUnique<CoordinatedPlatformLayerBufferYUV>(planeCount, WTF::move(planes), WTF::move(yuvPlane), WTF::move(yuvPlaneOffset), yuvToRgbColorSpace, transferFunction, size, flags, WTF::move(fence));
+    return makeUnique<CoordinatedPlatformLayerBufferYUV>(format, planeCount, WTF::move(planes), WTF::move(yuvPlane), WTF::move(yuvPlaneOffset), yuvToRgbColorSpace, transferFunction, size, flags, WTF::move(fence));
 }
 
-std::unique_ptr<CoordinatedPlatformLayerBufferYUV> CoordinatedPlatformLayerBufferYUV::create(unsigned planeCount, Vector<RefPtr<BitmapTexture>, 4>&& textures, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
+std::unique_ptr<CoordinatedPlatformLayerBufferYUV> CoordinatedPlatformLayerBufferYUV::create(Format format, unsigned planeCount, Vector<RefPtr<BitmapTexture>, 4>&& textures, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
 {
-    return makeUnique<CoordinatedPlatformLayerBufferYUV>(planeCount, WTF::move(textures), WTF::move(yuvPlane), WTF::move(yuvPlaneOffset), yuvToRgbColorSpace, transferFunction, size, flags, WTF::move(fence));
+    return makeUnique<CoordinatedPlatformLayerBufferYUV>(format, planeCount, WTF::move(textures), WTF::move(yuvPlane), WTF::move(yuvPlaneOffset), yuvToRgbColorSpace, transferFunction, size, flags, WTF::move(fence));
 }
 
-CoordinatedPlatformLayerBufferYUV::CoordinatedPlatformLayerBufferYUV(unsigned planeCount, std::array<unsigned, 4>&& planes, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
+CoordinatedPlatformLayerBufferYUV::CoordinatedPlatformLayerBufferYUV(Format format, unsigned planeCount, std::array<unsigned, 4>&& planes, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
     : CoordinatedPlatformLayerBuffer(Type::YUV, size, flags, WTF::move(fence))
+    , m_format(format)
     , m_planeCount(planeCount)
     , m_planes(WTF::move(planes))
     , m_yuvPlane(WTF::move(yuvPlane))
@@ -53,8 +67,9 @@ CoordinatedPlatformLayerBufferYUV::CoordinatedPlatformLayerBufferYUV(unsigned pl
 {
 }
 
-CoordinatedPlatformLayerBufferYUV::CoordinatedPlatformLayerBufferYUV(unsigned planeCount, Vector<RefPtr<BitmapTexture>, 4>&& textures, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
+CoordinatedPlatformLayerBufferYUV::CoordinatedPlatformLayerBufferYUV(Format format, unsigned planeCount, Vector<RefPtr<BitmapTexture>, 4>&& textures, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
     : CoordinatedPlatformLayerBuffer(Type::YUV, size, flags, WTF::move(fence))
+    , m_format(format)
     , m_planeCount(planeCount)
     , m_textures(WTF::move(textures))
     , m_yuvPlane(WTF::move(yuvPlane))
@@ -123,6 +138,7 @@ void CoordinatedPlatformLayerBufferYUV::paintToTextureMapper(TextureMapper& text
 
     switch (m_planeCount) {
     case 1:
+        RELEASE_ASSERT(m_format == Format::AYUV);
         ASSERT(m_yuvPlane[0] == m_yuvPlane[1] && m_yuvPlane[1] == m_yuvPlane[2]);
         ASSERT(m_yuvPlaneOffset[0] == 2 && m_yuvPlaneOffset[1] == 1 && !m_yuvPlaneOffset[2]);
         textureMapper.drawTexturePackedYUV(m_planes[m_yuvPlane[0]], yuvToRgbMatrix, m_flags, targetRect, modelViewMatrix, opacity, textureMapperTransferFunction);
@@ -144,6 +160,138 @@ void CoordinatedPlatformLayerBufferYUV::paintToTextureMapper(TextureMapper& text
         break;
     }
 }
+
+#if USE(SKIA)
+sk_sp<SkImage> CoordinatedPlatformLayerBufferYUV::skiaImage()
+{
+    waitForContentsIfNeeded();
+
+    auto planeConfig = SkYUVAInfo::PlaneConfig::kUnknown;
+    auto subsampling = SkYUVAInfo::Subsampling::kUnknown;
+    GrGLTextureInfo externalTexture = { GL_TEXTURE_2D, 0, 0, skgpu::Protected::kNo };
+    std::array<GrBackendTexture, 4> backendTextures;
+
+    switch (m_planeCount) {
+    case 1:
+        RELEASE_ASSERT(m_format == Format::AYUV);
+        planeConfig = SkYUVAInfo::PlaneConfig::kYUVA;
+        subsampling = SkYUVAInfo::Subsampling::k444;
+
+        externalTexture.fID = m_planes[m_yuvPlane[0]];
+        externalTexture.fFormat = GL_RGBA8;
+        backendTextures[0] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+        break;
+    case 2:
+        RELEASE_ASSERT(m_format == Format::NV12 || m_format == Format::NV21 || m_format == Format::P010);
+        planeConfig = m_format == Format::NV21 ? SkYUVAInfo::PlaneConfig::kY_VU : SkYUVAInfo::PlaneConfig::kY_UV;
+        subsampling = SkYUVAInfo::Subsampling::k420;
+
+        externalTexture.fID = m_planes[m_yuvPlane[0]];
+        externalTexture.fFormat = m_format == Format::P010 ? GL_R16 : GL_R8;
+        backendTextures[0] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+
+        externalTexture.fID = m_planes[m_yuvPlane[1]];
+        externalTexture.fFormat = m_format == Format::P010 ? GL_RG16 : GL_RG8;
+        backendTextures[1] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height() / 2, skgpu::Mipmapped::kNo, externalTexture);
+        break;
+    case 3:
+        planeConfig = m_format == Format::YVU420 ? SkYUVAInfo::PlaneConfig::kY_V_U : SkYUVAInfo::PlaneConfig::kY_U_V;
+
+        externalTexture.fID = m_planes[m_yuvPlane[0]];
+        externalTexture.fFormat = GL_R8;
+        backendTextures[0] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+
+        switch (m_format) {
+        case Format::YUV420:
+        case Format::YVU420:
+            subsampling = SkYUVAInfo::Subsampling::k420;
+
+            externalTexture.fID = m_planes[m_yuvPlane[1]];
+            backendTextures[1] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height() / 2, skgpu::Mipmapped::kNo, externalTexture);
+            externalTexture.fID = m_planes[m_yuvPlane[2]];
+            backendTextures[2] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height() / 2, skgpu::Mipmapped::kNo, externalTexture);
+            break;
+        case Format::YUV444:
+            subsampling = SkYUVAInfo::Subsampling::k444;
+
+            externalTexture.fID = m_planes[m_yuvPlane[1]];
+            backendTextures[1] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+            externalTexture.fID = m_planes[m_yuvPlane[2]];
+            backendTextures[2] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+            break;
+        case Format::YUV411:
+            subsampling = SkYUVAInfo::Subsampling::k411;
+
+            externalTexture.fID = m_planes[m_yuvPlane[1]];
+            backendTextures[1] = GrBackendTextures::MakeGL(m_size.width() / 4, m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+            externalTexture.fID = m_planes[m_yuvPlane[2]];
+            backendTextures[2] = GrBackendTextures::MakeGL(m_size.width() / 4, m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+            break;
+        case Format::YUV422:
+            subsampling = SkYUVAInfo::Subsampling::k422;
+
+            externalTexture.fID = m_planes[m_yuvPlane[1]];
+            backendTextures[1] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+            externalTexture.fID = m_planes[m_yuvPlane[2]];
+            backendTextures[2] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+            break;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
+        break;
+    case 4:
+        RELEASE_ASSERT(m_format == Format::A420);
+        planeConfig = SkYUVAInfo::PlaneConfig::kY_U_V_A;
+        subsampling = SkYUVAInfo::Subsampling::k420;
+        externalTexture.fFormat = GL_R8;
+        externalTexture.fID = m_planes[m_yuvPlane[0]];
+        backendTextures[0] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+        externalTexture.fID = m_planes[m_yuvPlane[1]];
+        backendTextures[1] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height() / 2, skgpu::Mipmapped::kNo, externalTexture);
+        externalTexture.fID = m_planes[m_yuvPlane[2]];
+        backendTextures[2] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height() / 2, skgpu::Mipmapped::kNo, externalTexture);
+        externalTexture.fID = m_planes[m_yuvPlane[3]];
+        backendTextures[3] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+        break;
+    }
+
+    if (planeConfig == SkYUVAInfo::PlaneConfig::kUnknown)
+        return nullptr;
+
+    SkYUVColorSpace yuvaColorSpace = [&] {
+        switch (m_yuvToRgbColorSpace) {
+        case YuvToRgbColorSpace::Bt601:
+            return kRec601_Limited_SkYUVColorSpace;
+        case YuvToRgbColorSpace::Bt709:
+            return kRec709_Full_SkYUVColorSpace;
+        case YuvToRgbColorSpace::Bt2020:
+            return kBT2020_8bit_Full_SkYUVColorSpace;
+        case YuvToRgbColorSpace::Smpte240M:
+            return kSMPTE240_Full_SkYUVColorSpace;
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }();
+
+    SkYUVAInfo info(SkISize::Make(m_size.width(), m_size.height()), planeConfig, subsampling, yuvaColorSpace);
+    GrYUVABackendTextures yuvaBackendTextures(info, backendTextures.data(), kTopLeft_GrSurfaceOrigin);
+    if (!yuvaBackendTextures.isValid())
+        return nullptr;
+
+    sk_sp<SkColorSpace> colorSpace = [&] {
+        switch (m_transferFunction) {
+        case TransferFunction::Bt709:
+            return SkColorSpace::MakeRGB(SkNamedTransferFn::kRec709, SkNamedGamut::kSRGB);
+        case TransferFunction::Pq:
+            return SkColorSpace::MakeRGB(SkNamedTransferFn::kPQ, SkNamedGamut::kRec2020);
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }();
+
+    auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+    ASSERT(grContext);
+    return SkImages::TextureFromYUVATextures(grContext, yuvaBackendTextures, colorSpace);
+}
+#endif
 
 } // namespace WebCore
 

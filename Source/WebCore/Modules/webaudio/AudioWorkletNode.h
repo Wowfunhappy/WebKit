@@ -39,6 +39,10 @@ namespace JSC {
 class JSGlobalObject;
 } // namespace JSC
 
+namespace WTF {
+class Thread;
+}
+
 namespace WebCore {
 
 class AudioParamMap;
@@ -92,7 +96,7 @@ private:
     Lock m_processLock;
     RefPtr<AudioWorkletProcessor> m_processor; // Should only be used on the rendering thread.
     MemoryCompactLookupOnlyRobinHoodHashMap<String, std::unique_ptr<AudioFloatArray>> m_paramValuesMap;
-    RefPtr<Thread> m_workletThread;
+    RefPtr<WTF::Thread> m_workletThread;
 
     // Keeps the reference of AudioBus objects from AudioNodeInput and AudioNodeOutput in order
     // to pass them to AudioWorkletProcessor.

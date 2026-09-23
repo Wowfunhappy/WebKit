@@ -102,10 +102,7 @@ public:
 protected:
     VTTCueBox(Document&, VTTCue&);
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-
-private:
-    WeakPtr<VTTCue> m_cue;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 };
 
 // ----------------------------
@@ -118,7 +115,7 @@ class VTTCue
 {
     WTF_MAKE_TZONE_ALLOCATED(VTTCue);
 public:
-    static Ref<VTTCue> create(Document&, double start, double end, String&& content);
+    static ExceptionOr<Ref<VTTCue>> create(Document&, double start, double end, String&& content);
     static Ref<VTTCue> create(Document&, Ref<WebVTTCueData>&&);
 
     virtual ~VTTCue();
@@ -222,6 +219,8 @@ public:
     const LineAndPositionSetting& width() const LIFETIME_BOUND { return m_width; }
     const LineAndPositionSetting& height() const LIFETIME_BOUND { return m_height; }
 
+    virtual bool preventLineWrapping() const { return false; }
+
 protected:
     VTTCue(Document&, const MediaTime& start, const MediaTime& end, String&& content);
 
@@ -237,8 +236,6 @@ private:
 
     void createWebVTTNodeTree();
 
-    void parseSettings(const String&);
-
     void determineTextDirection();
     void calculateDisplayParameters();
     void calculateDisplayParametersWithRegion();
@@ -253,7 +250,7 @@ private:
         Align,
         Region
     };
-    CueSetting settingName(VTTScanner&);
+    CueSetting NODELETE settingName(VTTScanner&);
 
     void prepareToSpeak(SpeechSynthesis&, double, double, SpeakCueCompletionHandler&&) final;
     void beginSpeaking() final;

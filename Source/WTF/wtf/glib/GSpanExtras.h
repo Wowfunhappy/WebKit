@@ -94,12 +94,29 @@ inline std::span<const uint8_t> span(const GRefPtr<GBytes>& bytes LIFETIME_BOUND
 
 inline std::span<const uint8_t> span(GByteArray* array LIFETIME_BOUND)
 {
+    if (!array)
+        return { };
     return unsafeMakeSpan<const uint8_t>(array->data, array->len);
 }
 
 inline std::span<const uint8_t> span(const GRefPtr<GByteArray>& array LIFETIME_BOUND)
 {
     return span(array.get());
+}
+
+template <typename T = uint8_t*, typename = std::enable_if_t<std::is_pointer_v<T>>>
+inline std::span<T> span(GArray* array LIFETIME_BOUND)
+{
+    if (!array)
+        return { };
+
+    return unsafeMakeSpan(static_cast<T*>(static_cast<void*>(array->data)), array->len);
+}
+
+template <typename T = uint8_t*, typename = std::enable_if_t<std::is_pointer_v<T>>>
+inline std::span<T> span(GRefPtr<GArray>& array LIFETIME_BOUND)
+{
+    return span<T>(array.get());
 }
 
 inline std::span<const uint8_t> span(GVariant* variant LIFETIME_BOUND)
@@ -116,6 +133,8 @@ inline std::span<const uint8_t> span(const GRefPtr<GVariant>& variant LIFETIME_B
 
 static inline std::span<char*> span(char** strv LIFETIME_BOUND)
 {
+    if (!strv)
+        return { };
     auto size = g_strv_length(strv);
     return unsafeMakeSpan(strv, size);
 }
@@ -127,6 +146,8 @@ static inline std::span<char*> span(const GUniquePtr<char*>& strv LIFETIME_BOUND
 
 static inline std::span<const char* const> span(const char* const* strv LIFETIME_BOUND)
 {
+    if (!strv)
+        return { };
     auto size = g_strv_length(const_cast<char**>(strv));
     return unsafeMakeSpan(strv, size);
 }
@@ -135,7 +156,7 @@ template <typename T = void*, typename = std::enable_if_t<std::is_pointer_v<T>>>
 inline std::span<T> span(GPtrArray* array LIFETIME_BOUND)
 {
     if (!array)
-        return unsafeMakeSpan<T>(nullptr, 0);
+        return { };
 
     return unsafeMakeSpan(static_cast<T*>(static_cast<void*>(array->pdata)), array->len);
 }

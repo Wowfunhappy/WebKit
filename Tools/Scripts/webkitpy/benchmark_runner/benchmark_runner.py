@@ -23,7 +23,7 @@ class BenchmarkRunner(object):
     def __init__(self, plan_file, local_copy, count_override, timeout_override, build_dir, output_file, platform,
                  browser, browser_path, subtests=None, scale_unit=True, show_iteration_values=False, device_id=None,
                  diagnose_dir=None, generate_pgo_profiles=False, profile_output_dir=None, trace_type=None,
-                 profiling_interval=None, browser_args=None):
+                 profiling_interval=None, browser_args=None, http_server_type=None, http_server_port=0):
         self._plan_name, self._plan = BenchmarkRunner._load_plan_data(plan_file)
         if 'options' not in self._plan:
             self._plan['options'] = {}
@@ -34,6 +34,12 @@ class BenchmarkRunner(object):
         if timeout_override:
             self._plan['timeout'] = timeout_override
         self._subtests = self.validate_subtests(subtests) if subtests else None
+        if not self._subtests and self._plan.get('default_subtests'):
+            default = self._plan['default_subtests']
+            if default is True:
+                default = self._plan.get('subtests', {})
+            self._subtests = self.validate_subtests(
+                BenchmarkRunner.format_subtests(default))
         self._browser_driver = BrowserDriverFactory.create(platform, browser, browser_args)
         self._browser_path = browser_path
         self._build_dir = os.path.abspath(build_dir) if build_dir else None
@@ -154,6 +160,9 @@ class BenchmarkRunner(object):
     def _construct_subtest_url(self, subtests):
         if not subtests or not isinstance(subtests, collections.abc.Mapping) or 'subtest_url_format' not in self._plan:
             return ''
+        # As subtest URLs are concatenated directly, the format must account for this.
+        # MotionMark and JetStream start with '&', while Speedometer uses ',' separated values.
+        # If new plans are added, they must take this into account.
         subtest_url = ''
         for suite, tests in subtests.items():
             for test in tests:

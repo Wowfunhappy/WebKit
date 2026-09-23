@@ -36,6 +36,15 @@ PASS sec-fetch-user - source[srcset] - Not sent to non-trustworthy same-site des
 PASS sec-fetch-user - img[src] - Not sent to non-trustworthy cross-site destination, no attributes
 PASS sec-fetch-user - img[srcset] - Not sent to non-trustworthy cross-site destination, no attributes
 PASS sec-fetch-user - source[srcset] - Not sent to non-trustworthy cross-site destination, no attributes
+PASS sec-fetch-storage-access - img[src] - Not sent to non-trustworthy same-origin destination, no attributes
+PASS sec-fetch-storage-access - img[srcset] - Not sent to non-trustworthy same-origin destination, no attributes
+PASS sec-fetch-storage-access - source[srcset] - Not sent to non-trustworthy same-origin destination, no attributes
+PASS sec-fetch-storage-access - img[src] - Not sent to non-trustworthy same-site destination, no attributes
+PASS sec-fetch-storage-access - img[srcset] - Not sent to non-trustworthy same-site destination, no attributes
+PASS sec-fetch-storage-access - source[srcset] - Not sent to non-trustworthy same-site destination, no attributes
+PASS sec-fetch-storage-access - img[src] - Not sent to non-trustworthy cross-site destination, no attributes
+PASS sec-fetch-storage-access - img[srcset] - Not sent to non-trustworthy cross-site destination, no attributes
+PASS sec-fetch-storage-access - source[srcset] - Not sent to non-trustworthy cross-site destination, no attributes
 PASS sec-fetch-site - img[src] - HTTPS downgrade (header not sent), no attributes
 PASS sec-fetch-site - img[srcset] - HTTPS downgrade (header not sent), no attributes
 PASS sec-fetch-site - source[srcset] - HTTPS downgrade (header not sent), no attributes

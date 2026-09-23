@@ -29,6 +29,7 @@
 
 #if PLATFORM(COCOA)
 
+#import <QuartzCore/CALayer.h>
 #import <WebCore/PlatformDynamicRangeLimit.h>
 
 namespace WebCore {

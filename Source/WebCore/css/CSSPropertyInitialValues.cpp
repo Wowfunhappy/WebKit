@@ -27,16 +27,24 @@
 #include "CSSPropertyInitialValues.h"
 #include "CSSPropertyInitialValuesGeneratedInlines.h"
 
+#include "CSSBorderImageOutsetValue.h"
+#include "CSSBorderImageRepeatValue.h"
 #include "CSSBorderImageSliceValue.h"
+#include "CSSBorderImageSourceValue.h"
 #include "CSSBorderImageWidthValue.h"
+#include "CSSKeywordValueInlines.h"
+#include "CSSMaskBorderOutsetValue.h"
+#include "CSSMaskBorderRepeatValue.h"
+#include "CSSMaskBorderSliceValue.h"
+#include "CSSMaskBorderSourceValue.h"
+#include "CSSMaskBorderWidthValue.h"
 #include "CSSOffsetRotateValue.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyNames.h"
-#include "CSSQuadValue.h"
+#include "CSSUnevaluatedCalc.h"
 #include "CSSUnits.h"
 #include "CSSValueKeywords.h"
 #include "CSSValuePair.h"
-#include "RectBase.h"
 #include <wtf/Variant.h>
 #include <wtf/text/ASCIILiteral.h>
 
@@ -47,44 +55,46 @@ static bool NODELETE isValueIDPair(const CSSValue& value, CSSValueID valueID)
     return value.isPair() && isValueID(value.first(), valueID) && isValueID(value.second(), valueID);
 }
 
-static bool isNumber(const CSSPrimitiveValue& value, double number, CSSUnitType type)
+static bool NODELETE isNumber(const CSSPrimitiveValue& value, CSSPrimitiveValue::Raw number)
 {
-    return value.primitiveType() == type && !value.isCalculated() && value.valueNoConversionDataRequired<double>() == number;
+    return WTF::switchOn(value,
+        [&](const CSSPrimitiveValue::Calc&) {
+            return false;
+        },
+        [&](const CSSPrimitiveValue::Raw& raw) {
+            return raw == number;
+        }
+    );
 }
 
-static bool isNumber(const CSSPrimitiveValue* value, double number, CSSUnitType type)
+template<auto unit>
+static bool NODELETE isNumber(const CSSPrimitiveValue& value, CSS::ValueLiteral<unit> literal)
 {
-    return value && isNumber(*value, number, type);
+    return WTF::switchOn(value,
+        [&](const CSSPrimitiveValue::Calc&) {
+            return false;
+        },
+        [&](const CSSPrimitiveValue::Raw& raw) {
+            return raw.unit == toCSSUnitType(literal.unit)
+                && raw.value == literal.value;
+        }
+    );
 }
 
-static bool isNumber(const CSSValue& value, double number, CSSUnitType type)
+static bool NODELETE isNumber(const CSSPrimitiveValue* value, auto number)
 {
-    return isNumber(dynamicDowncast<CSSPrimitiveValue>(value), number, type);
+    return value && isNumber(*value, number);
 }
 
-static bool isNumber(const RectBase& quad, double number, CSSUnitType type)
+static bool NODELETE isNumber(const CSSValue& value, auto number)
 {
-    return isNumber(quad.top(), number, type)
-        && isNumber(quad.right(), number, type)
-        && isNumber(quad.bottom(), number, type)
-        && isNumber(quad.left(), number, type);
-}
-
-static bool NODELETE isValueID(const RectBase& quad, CSSValueID valueID)
-{
-    return isValueID(quad.top(), valueID)
-        && isValueID(quad.right(), valueID)
-        && isValueID(quad.bottom(), valueID)
-        && isValueID(quad.left(), valueID);
-}
-
-static bool isNumericQuad(const CSSValue& value, double number, CSSUnitType type)
-{
-    return value.isQuad() && isNumber(value.quad(), number, type);
+    return isNumber(dynamicDowncast<CSSPrimitiveValue>(value), number);
 }
 
 bool isInitialValueForLonghand(CSSPropertyID longhand, const CSSValue& value)
 {
+    using namespace CSS::Literals;
+
     if (value.isImplicitInitialValue())
         return true;
     switch (longhand) {
@@ -94,42 +104,68 @@ bool isInitialValueForLonghand(CSSPropertyID longhand, const CSSValue& value)
             return true;
         break;
     case CSSPropertyBorderImageOutset:
-    case CSSPropertyMaskBorderOutset:
-        if (isNumericQuad(value, 0, CSSUnitType::CSS_NUMBER))
-            return true;
-        break;
-    case CSSPropertyBorderImageRepeat:
-    case CSSPropertyMaskBorderRepeat:
-        if (isValueIDPair(value, CSSValueStretch))
-            return true;
-        break;
-    case CSSPropertyBorderImageSlice:
-        if (auto sliceValue = dynamicDowncast<CSSBorderImageSliceValue>(value)) {
-            if (!sliceValue->fill() && isNumber(sliceValue->slices(), 100, CSSUnitType::CSS_PERCENTAGE))
+        if (auto outsetValue = dynamicDowncast<CSSBorderImageOutsetValue>(value)) {
+            if (outsetValue->outsets().values.allOf([](auto& edge) { return edge == 0_css_number; }))
                 return true;
         }
         break;
+    case CSSPropertyMaskBorderOutset:
+        if (auto outsetValue = dynamicDowncast<CSSMaskBorderOutsetValue>(value)) {
+            if (outsetValue->outsets().values.allOf([](auto& edge) { return edge == 0_css_number; }))
+                return true;
+        }
+        break;
+    case CSSPropertyBorderImageRepeat:
+        if (auto repeatValue = dynamicDowncast<CSSBorderImageRepeatValue>(value)) {
+            if (repeatValue->repeats().values.allOf([](auto& edge) { return WTF::holdsAlternative<CSS::Keyword::Stretch>(edge); }))
+                return true;
+        }
+        break;
+    case CSSPropertyMaskBorderRepeat:
+        if (auto repeatValue = dynamicDowncast<CSSMaskBorderRepeatValue>(value)) {
+            if (repeatValue->repeats().values.allOf([](auto& edge) { return WTF::holdsAlternative<CSS::Keyword::Stretch>(edge); }))
+                return true;
+        }
+        break;
+    case CSSPropertyBorderImageSlice:
+        if (auto sliceValue = dynamicDowncast<CSSBorderImageSliceValue>(value)) {
+            if (!sliceValue->slices().fill.has_value() && sliceValue->slices().values.allOf([](auto& edge) { return edge == 100_css_percentage; }))
+                return true;
+        }
+        break;
+    case CSSPropertyMaskBorderSlice:
+        if (auto sliceValue = dynamicDowncast<CSSMaskBorderSliceValue>(value)) {
+            if (!sliceValue->slices().fill.has_value() && sliceValue->slices().values.allOf([](auto& edge) { return edge == 0_css_number; }))
+                return true;
+        }
+        return false;
     case CSSPropertyBorderImageWidth:
         if (auto widthValue = dynamicDowncast<CSSBorderImageWidthValue>(value)) {
-            if (!widthValue->overridesBorderWidths() && isNumber(widthValue->widths(), 1, CSSUnitType::CSS_NUMBER))
+            if (!widthValue->widths().legacyWebkitBorderImage && widthValue->widths().values.allOf([](auto& edge) { return edge == 1_css_number; }))
+                return true;
+        }
+        break;
+    case CSSPropertyMaskBorderWidth:
+        if (auto widthValue = dynamicDowncast<CSSMaskBorderWidthValue>(value)) {
+            if (widthValue->widths().values.allOf([](auto& edge) { return edge.isAuto(); }))
+                return true;
+        }
+        break;
+    case CSSPropertyBorderImageSource:
+        if (auto sourceValue = dynamicDowncast<CSSBorderImageSourceValue>(value)) {
+            if (sourceValue->source().isNone())
+                return true;
+        }
+        break;
+    case CSSPropertyMaskBorderSource:
+        if (auto sourceValue = dynamicDowncast<CSSMaskBorderSourceValue>(value)) {
+            if (sourceValue->source().isNone())
                 return true;
         }
         break;
     case CSSPropertyOffsetRotate:
         if (auto rotateValue = dynamicDowncast<CSSOffsetRotateValue>(value)) {
             if (rotateValue->isInitialValue())
-                return true;
-        }
-        break;
-    case CSSPropertyMaskBorderSlice:
-        if (auto sliceValue = dynamicDowncast<CSSBorderImageSliceValue>(value)) {
-            if (!sliceValue->fill() && isNumber(sliceValue->slices(), 0, CSSUnitType::CSS_NUMBER))
-                return true;
-        }
-        return false;
-    case CSSPropertyMaskBorderWidth:
-        if (auto widthValue = dynamicDowncast<CSSBorderImageWidthValue>(value)) {
-            if (!widthValue->overridesBorderWidths() && isValueID(widthValue->widths(), CSSValueAuto))
                 return true;
         }
         break;
@@ -140,8 +176,8 @@ bool isInitialValueForLonghand(CSSPropertyID longhand, const CSSValue& value)
         [&](CSSValueID initialValue) {
             return isValueID(value, initialValue);
         },
-        [&](InitialNumericValue initialValue) {
-            return isNumber(value, initialValue.number, initialValue.type);
+        [&](CSSPrimitiveValue::Raw initialValue) {
+            return isNumber(value, initialValue);
         }
     );
 }
@@ -152,36 +188,36 @@ ASCIILiteral initialValueTextForLonghand(CSSPropertyID longhand)
         [](CSSValueID value) {
             return nameLiteral(value);
         },
-        [](InitialNumericValue initialValue) {
-            switch (initialValue.type) {
+        [](CSSPrimitiveValue::Raw initialValue) {
+            switch (initialValue.unit) {
             case CSSUnitType::CSS_NUMBER:
-                if (initialValue.number == 0.0)
+                if (initialValue.value == 0.0)
                     return "0"_s;
-                if (initialValue.number == 1.0)
+                if (initialValue.value == 1.0)
                     return "1"_s;
-                if (initialValue.number == 2.0)
+                if (initialValue.value == 2.0)
                     return "2"_s;
-                if (initialValue.number == 4.0)
+                if (initialValue.value == 4.0)
                     return "4"_s;
-                if (initialValue.number == 8.0)
+                if (initialValue.value == 8.0)
                     return "8"_s;
                 break;
             case CSSUnitType::CSS_PERCENTAGE:
-                if (initialValue.number == 0.0)
+                if (initialValue.value == 0.0)
                     return "0%"_s;
-                if (initialValue.number == 50.0)
+                if (initialValue.value == 50.0)
                     return "50%"_s;
-                if (initialValue.number == 100.0)
+                if (initialValue.value == 100.0)
                     return "100%"_s;
                 break;
             case CSSUnitType::CSS_PX:
-                if (initialValue.number == 0.0)
+                if (initialValue.value == 0.0)
                     return "0px"_s;
-                if (initialValue.number == 1.0)
+                if (initialValue.value == 1.0)
                     return "1px"_s;
                 break;
             case CSSUnitType::CSS_S:
-                if (initialValue.number == 0.0)
+                if (initialValue.value == 0.0)
                     return "0s"_s;
                 break;
             default:
@@ -199,7 +235,7 @@ CSSValueID initialValueIDForLonghand(CSSPropertyID longhand)
         [](CSSValueID value) {
             return value;
         },
-        [](InitialNumericValue) {
+        [](CSSPrimitiveValue::Raw) {
             return CSSValueInvalid;
         }
     );

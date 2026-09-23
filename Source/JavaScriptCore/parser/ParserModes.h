@@ -26,9 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/ConstructAbility.h>
-#include <JavaScriptCore/ConstructorKind.h>
 #include <JavaScriptCore/Identifier.h>
-#include <JavaScriptCore/InlineAttribute.h>
 
 namespace JSC {
 

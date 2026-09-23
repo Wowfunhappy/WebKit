@@ -44,6 +44,7 @@
 #import "ElementInlines.h"
 #import "FontAttributes.h"
 #import "FontCascade.h"
+#import "TextRecognitionResult.h"
 #import "FrameDestructionObserverInlines.h"
 #import "FrameLoader.h"
 #import "FrameSelection.h"
@@ -62,11 +63,12 @@
 #import "PagePasteboardContext.h"
 #import "Pasteboard.h"
 #import "PasteboardStrategy.h"
+#import "PlatformNSAdaptiveImageGlyph.h"
 #import "PlatformStrategies.h"
 #import "RenderElement.h"
-#import "RenderStyle.h"
 #import "ReplaceSelectionCommand.h"
 #import "Settings.h"
+#import "StyleComputedStyle.h"
 #import "SystemSoundManager.h"
 #import "Text.h"
 #import "UTIUtilities.h"
@@ -94,7 +96,7 @@ void Editor::getPasteboardTypesAndDataForAttachment(Element& element, Vector<std
     auto elementRange = makeRangeSelectingNode(element);
     client()->getClientPasteboardData(elementRange, outTypesAndData);
 
-    outTypesAndData.append(std::make_pair(PasteboardCustomData::cocoaType(), PasteboardCustomData { element.document().originIdentifierForPasteboard(), { } }.createSharedBuffer()));
+    outTypesAndData.append(std::make_pair(PasteboardCustomData::cocoaType(), PasteboardCustomData { protect(element.document())->originIdentifierForPasteboard(), { } }.createSharedBuffer()));
 
     if (elementRange) {
         if (auto archive = LegacyWebArchive::create(*elementRange)) {
@@ -182,7 +184,7 @@ void Editor::writeSelectionToPasteboard(Pasteboard& pasteboard)
                 LegacyWebArchive::ShouldArchiveSubframes::No
             };
             if (document->settings().siteIsolationEnabled())
-                content.webArchive = LegacyWebArchive::createFromSelection(document->frame(), WTF::move(options));
+                content.webArchive = LegacyWebArchive::createFromSelection(protect(document->frame()), WTF::move(options));
             populateRichTextDataIfNeeded(content, document);
         }
         client()->getClientPasteboardData(selectedRange(), content.clientTypesAndData);
@@ -218,7 +220,7 @@ RefPtr<SharedBuffer> Editor::selectionInWebArchiveFormat()
 {
     if (ImageOverlay::isInsideOverlay(document().selection().selection()))
         return nullptr;
-    auto archive = LegacyWebArchive::createFromSelection(document().frame());
+    auto archive = LegacyWebArchive::createFromSelection(protect(document().frame()));
     if (!archive)
         return nullptr;
     return SharedBuffer::create(archive->rawDataRepresentation().get());
@@ -247,7 +249,7 @@ void Editor::replaceSelectionWithAttributedString(NSAttributedString *attributed
         return;
 
     if (document->selection().selection().isContentRichlyEditable()) {
-        if (auto fragment = createFragment(*document->frame(), attributedString)) {
+        if (auto fragment = createFragment(protect(*document->frame()), attributedString)) {
             if (shouldInsertFragment(*fragment, selectedRange(), EditorInsertAction::Pasted))
                 pasteAsFragment(fragment.releaseNonNull(), false, false, mailBlockquoteHandling);
         }
@@ -306,7 +308,7 @@ void Editor::takeFindStringFromSelection()
         return;
     }
 
-    auto stringFromSelection = document().frame()->displayStringModifiedByEncoding(selectedTextForDataTransfer());
+    auto stringFromSelection = protect(document().frame())->displayStringModifiedByEncoding(selectedTextForDataTransfer());
 #if PLATFORM(MAC)
     Vector<String> types;
     types.append(String(legacyStringPasteboardTypeSingleton()));
@@ -332,7 +334,7 @@ String Editor::platformContentTypeForBlobType(const String& type) const
 
 void Editor::readSelectionFromPasteboard(const String& pasteboardName)
 {
-    Ref dataTransfer = DataTransfer::createForCopyAndPaste(document(),
+    Ref dataTransfer = DataTransfer::createForCopyAndPaste(protect(document()),
         DataTransfer::StoreMode::Readonly,
         makeUnique<Pasteboard>(PagePasteboardContext::create(document().pageID()), pasteboardName));
 

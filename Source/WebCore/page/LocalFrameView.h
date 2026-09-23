@@ -36,13 +36,9 @@
 #include <WebCore/PaintPhase.h>
 #include <WebCore/RenderPtr.h>
 #include <WebCore/SimpleRange.h>
-#include <memory>
-#include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
-#include <wtf/OptionSet.h>
-#include <wtf/Platform.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakRef.h>
@@ -69,8 +65,8 @@ class RenderEmbeddedObject;
 class RenderLayer;
 class RenderLayerModelObject;
 class RenderObject;
+class RenderReplaced;
 class RenderScrollbarPart;
-class RenderStyle;
 class RenderView;
 class RenderWidget;
 class ScrollingCoordinator;
@@ -88,7 +84,11 @@ enum class StyleColorOptions : uint8_t;
 enum class TemporarySelectionOption : uint16_t;
 enum class TiledBackingScrollability : uint8_t;
 
-Pagination::Mode NODELETE paginationModeForRenderStyle(const RenderStyle&);
+namespace Style {
+class ComputedStyle;
+}
+
+Pagination::Mode NODELETE paginationModeForRenderStyle(const Style::ComputedStyle&);
 
 enum class LayoutViewportConstraint : bool { Unconstrained, ConstrainedToDocumentRect };
 
@@ -218,6 +218,9 @@ public:
     // True if the FrameView is not transparent, and the base background color is opaque.
     bool NODELETE hasOpaqueBackground() const;
 
+    void invalidateForFrameOwnerColorSchemeChange();
+
+    void invalidateForBaseBackgroundChange();
     WEBCORE_EXPORT Color NODELETE baseBackgroundColor() const;
     WEBCORE_EXPORT void setBaseBackgroundColor(const Color&);
     WEBCORE_EXPORT void updateBackgroundRecursively(const std::optional<Color>& backgroundColor);
@@ -249,6 +252,9 @@ public:
     WEBCORE_EXPORT void setSizeForCSSDefaultViewportUnits(FloatSize);
     void clearSizeOverrideForCSSDefaultViewportUnits();
     FloatSize sizeForCSSDefaultViewportUnits() const;
+
+    void setShouldUseDynamicViewportUnitsAsDefault(bool value) { m_shouldUseDynamicViewportUnitsAsDefault = value; }
+    bool shouldUseDynamicViewportUnitsAsDefault() const { return m_shouldUseDynamicViewportUnitsAsDefault; }
 
     WEBCORE_EXPORT void setOverrideSizeForCSSSmallViewportUnits(OverrideViewportSize);
     std::optional<OverrideViewportSize> overrideSizeForCSSSmallViewportUnits() const { return m_smallViewportSizeOverride; }
@@ -323,8 +329,11 @@ public:
     LayoutRect layoutViewportRectIncludingObscuredInsets() const;
 
     std::optional<LayoutRect> visibleRectOfChild(const Frame&) const final;
-    bool ownerElementOfChildFrameUsesDarkAppearance(const Frame&) const final;
-    
+    OptionSet<FrameOwnerElementAppearance> appearanceOfOwnerElementOfChildFrame(const Frame&) const final;
+    LayoutPoint childFrameOwnerContentBoxLocation(const Frame&) const final;
+    TransformationMatrix childFrameOwnerToRootContentTransform(const Frame&) const final;
+    TransformationMatrix absoluteToChildFrameOwnerLocalTransform(const Frame&) const final;
+
     static LayoutRect visibleDocumentRect(const FloatRect& visibleContentRect, float headerHeight, float footerHeight, const FloatSize& totalContentsSize, float pageScaleFactor);
 
     // This is different than visibleContentRect() in that it ignores negative (or overly positive)
@@ -382,7 +391,8 @@ public:
 
     // These layers are positioned differently when there are obscured content insets, a header, or a footer.
     // These value need to be computed on both the main thread and the scrolling thread.
-    static FloatRect insetClipLayerRect(const FloatPoint& scrollPosition, const FloatBoxExtent& obscuredContentInsets, const FloatSize& sizeForVisibleContent);
+    // FIXME (webkit.org/b/316233): this function should take scrollOffset instead of scrollPosition.
+    static FloatRect insetClipLayerRect(const FloatPoint& scrollPosition, const FloatSize& totalContentsSize, const FloatBoxExtent& obscuredContentInsets, const FloatSize& sizeForVisibleContent);
     WEBCORE_EXPORT static FloatPoint positionForRootContentLayer(const FloatPoint& scrollPosition, const FloatPoint& scrollOrigin, const FloatBoxExtent& obscuredContentInsets, float headerHeight);
     WEBCORE_EXPORT FloatPoint positionForRootContentLayer() const;
 
@@ -444,11 +454,10 @@ public:
     bool NODELETE isPainting() const;
     bool hasEverPainted() const { return !!m_lastPaintTime; }
     void setLastPaintTime(MonotonicTime lastPaintTime) { m_lastPaintTime = lastPaintTime; }
-    WEBCORE_EXPORT void setNodeToDraw(Node*);
 
     enum SelectionInSnapshot { IncludeSelection, ExcludeSelection };
     enum CoordinateSpaceForSnapshot { DocumentCoordinates, ViewCoordinates };
-    WEBCORE_EXPORT void paintContentsForSnapshot(GraphicsContext&, const IntRect& imageRect, SelectionInSnapshot shouldPaintSelection, CoordinateSpaceForSnapshot);
+    WEBCORE_EXPORT void paintContentsForSnapshot(GraphicsContext&, const IntRect& imageRect, Node* nodeToDraw, SelectionInSnapshot shouldPaintSelection, CoordinateSpaceForSnapshot);
 
     void paintOverhangAreas(GraphicsContext&, const IntRect& horizontalOverhangArea, const IntRect& verticalOverhangArea, const IntRect& dirtyRect) final;
     void paintScrollCorner(GraphicsContext&, const IntRect& cornerRect) final;
@@ -581,7 +590,7 @@ public:
 
     bool NODELETE shouldSuspendScrollAnimations() const final;
 
-    RenderBox* embeddedContentBox() const;
+    RenderReplaced* embeddedSVGRoot() const;
     
     WEBCORE_EXPORT void setTracksRepaints(bool);
     bool isTrackingRepaints() const { return m_isTrackingRepaints; }
@@ -656,9 +665,6 @@ public:
     WEBCORE_EXPORT void fireLayoutRelatedMilestonesIfNeeded();
     OptionSet<LayoutMilestone> milestonesPendingPaint() const { return m_milestonesPendingPaint; }
 
-    bool visualUpdatesAllowedByClient() const { return m_visualUpdatesAllowedByClient; }
-    WEBCORE_EXPORT void setVisualUpdatesAllowedByClient(bool);
-
     WEBCORE_EXPORT void setScrollPinningBehavior(ScrollPinningBehavior);
 
     ScrollBehaviorForFixedElements NODELETE scrollBehaviorForFixedElements() const;
@@ -687,7 +693,6 @@ public:
 
     void updateSnapOffsets() final;
     bool isScrollSnapInProgress() const final;
-    void updateScrollingCoordinatorScrollSnapProperties() const;
 
     float adjustVerticalPageScrollStepForFixedContent(float step) final;
 
@@ -754,7 +759,7 @@ public:
 
     void scrollbarWidthChanged(ScrollbarWidth) override;
 
-    std::optional<FrameIdentifier> NODELETE rootFrameID() const final;
+    WEBCORE_EXPORT std::optional<FrameIdentifier> NODELETE rootFrameID() const final;
 
     IntSize totalScrollbarSpace() const final;
     int scrollbarGutterWidth(bool isHorizontalWritingMode = true) const;
@@ -766,7 +771,7 @@ public:
     struct AutoPreventLayerAccess {
         AutoPreventLayerAccess(LocalFrameView* view)
             : frameView(view)
-            , oldPreventLayerAccess(view ? view->layerAccessPrevented() : false)
+            , oldPreventLayerAccess(view && view->layerAccessPrevented())
         {
             if (view)
                 view->setLayerAcessPrevented(true);
@@ -791,6 +796,7 @@ public:
     };
 #endif
     void scrollDidEnd() final;
+    void scrollOriginDidChange() final;
 
 private:
     explicit LocalFrameView(LocalFrame&);
@@ -938,6 +944,8 @@ private:
 
     void notifyScrollableAreasThatContentAreaWillPaint() const;
 
+    void paintContents(GraphicsContext&, const IntRect& dirtyRect, Node* subtreePaintRoot, SecurityOriginPaintPolicy, RegionContext*);
+
     bool hasCustomScrollbars() const;
 
     void updateScrollCorner() final;
@@ -997,7 +1005,6 @@ private:
 
     RefPtr<ContainerNode> m_maintainScrollPositionAnchor;
     RefPtr<ContainerNode> m_scheduledMaintainScrollPositionAnchor;
-    RefPtr<Node> m_nodeToDraw;
     std::optional<SimpleRange> m_pendingTextFragmentIndicatorRange;
     bool m_haveCreatedTextIndicator { false };
     String m_pendingTextFragmentIndicatorText;
@@ -1055,6 +1062,8 @@ private:
     std::optional<OverrideViewportSize> m_defaultViewportSizeOverride;
     std::optional<OverrideViewportSize> m_smallViewportSizeOverride;
     std::optional<OverrideViewportSize> m_largeViewportSizeOverride;
+
+    bool m_shouldUseDynamicViewportUnitsAsDefault { false };
 
     // The view size when autosizing.
     IntSize m_autoSizeConstraint;
@@ -1116,7 +1125,6 @@ private:
     bool m_needsDeferredScrollbarsUpdate { false };
     bool m_needsDeferredPositionScrollbarLayers { false };
     bool m_speculativeTilingEnabled { false };
-    bool m_visualUpdatesAllowedByClient { true };
     bool m_hasFlippedBlockRenderers { false };
     bool m_speculativeTilingDelayDisabledForTesting { false };
 

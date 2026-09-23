@@ -84,7 +84,8 @@ using GradientAngularColorStop = GradientColorStop<GradientAngularColorStopColor
 using GradientAngularColorStopList = GradientColorStopList<GradientAngularColorStop>;
 
 using GradientLinearColorStopColor = Markable<Color>;
-using GradientLinearColorStopPosition = std::optional<LengthPercentage<CSS::AllUnzoomed>>;
+// FIXME: `GradientLinearColorStopPosition` should use a range of `AllUnzoomed`, but doing so was causing imported/w3c/web-platform-tests/css/css-images/gradient/gradient-infinity-001.html to fail for the GTK/WPE graphics backends.
+using GradientLinearColorStopPosition = std::optional<LengthPercentage<AllLayoutUnitClampedUnzoomed>>;
 using GradientLinearColorStop = GradientColorStop<GradientLinearColorStopColor, GradientLinearColorStopPosition>;
 using GradientLinearColorStopList = GradientColorStopList<GradientLinearColorStop>;
 

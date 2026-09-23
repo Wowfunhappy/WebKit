@@ -23,15 +23,15 @@
 
 // FIXME: Eliminate this file since the refined API can now just go with the rest of the normal API where it belongs.
 
-#if !os(tvOS) && !os(watchOS)
-
 // Older versions of the Swift compiler fail to import WebKit_Private. Can be
 // removed when WebKit drops support for macOS Sonoma.
-#if ENABLE_WK_WEB_EXTENSIONS && compiler(>=6.1)
+#if ENABLE_WK_WEB_EXTENSIONS
 import WebKit_Private.WKWebExtensionPrivate
 #endif
 
-@available(iOS 14.0, macOS 10.16, *)
+@available(anyAppleOSAndDownlevels 14.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
 extension WKPDFConfiguration {
     // This is pre-existing API whose documentation does not use the source code.
     // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
@@ -41,7 +41,9 @@ extension WKPDFConfiguration {
     }
 }
 
-@available(iOS 14.0, macOS 10.16, *)
+@available(anyAppleOSAndDownlevels 14.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
 extension WKWebView {
     // This is pre-existing API whose documentation does not use the source code.
     // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
@@ -99,7 +101,9 @@ extension WKWebView {
     }
 }
 
-@available(iOS 15.0, macOS 12.0, *)
+@available(anyAppleOSAndDownlevels 15.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
 extension WKWebView {
     // This is pre-existing API whose documentation does not use the source code.
     // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
@@ -135,8 +139,8 @@ extension WKWebView {
     }
 }
 
-#if ENABLE_WK_WEB_EXTENSIONS && compiler(>=6.1)
-@available(iOS 18.4, macOS 15.4, visionOS 2.4, *)
+#if ENABLE_WK_WEB_EXTENSIONS
+@available(anyAppleOSAndDownlevels 18.4, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 extension WKWebExtension {
@@ -165,7 +169,7 @@ extension WKWebExtension {
     }
 }
 
-@available(iOS 18.4, macOS 15.4, visionOS 2.4, *)
+@available(anyAppleOSAndDownlevels 18.4, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 extension WKWebExtensionController {
@@ -188,7 +192,7 @@ extension WKWebExtensionController {
     }
 }
 
-@available(iOS 18.4, macOS 15.4, visionOS 2.4, *)
+@available(anyAppleOSAndDownlevels 18.4, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 extension WKWebExtensionContext {
@@ -211,5 +215,3 @@ extension WKWebExtensionContext {
     }
 }
 #endif
-
-#endif // !os(tvOS) && !os(watchOS)

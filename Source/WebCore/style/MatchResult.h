@@ -60,6 +60,13 @@ struct MatchResult : RefCounted<MatchResult> {
 
     bool isEmpty() const { return userAgentDeclarations.isEmpty() && userDeclarations.isEmpty() && authorDeclarations.isEmpty(); }
 
+    void copyDeclarationsFrom(const MatchResult& other)
+    {
+        userAgentDeclarations = other.userAgentDeclarations;
+        userDeclarations = other.userDeclarations;
+        authorDeclarations = other.authorDeclarations;
+    }
+
     bool cacheablePropertiesEqual(const MatchResult&) const;
 
 private:

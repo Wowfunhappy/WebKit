@@ -373,7 +373,7 @@ private:
         }
     }
 
-    static bool goesInTable(const Value* value)
+    static bool NODELETE goesInTable(const Value* value)
     {
         switch (value->opcode()) {
         case ConstDouble: {

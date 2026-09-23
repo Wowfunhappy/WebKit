@@ -158,11 +158,14 @@ JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject* globalObject, u
     return jsValueForDecodedNumericArgumentValue(globalObject, value, "uint64_t"_s);
 }
 
+// In 64-bit Linux size_t and uint64_t are the same type, so this is a redefinition of the above method.
+#if !OS(LINUX) || !CPU(ADDRESS64)
 template<>
 JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject* globalObject, size_t value)
 {
     return jsValueForDecodedNumericArgumentValue(globalObject, value, "size_t"_s);
 }
+#endif
 
 template<typename RectType>
 JSC::JSValue jsValueForDecodedArgumentRect(JSC::JSGlobalObject* globalObject, const RectType& value, const String& type)

@@ -37,6 +37,7 @@
 #include "ServiceWorker.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThreadableLoader.h"
+#include <WebCore/HTTPStatusCodes.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -111,11 +112,11 @@ bool WorkerFontLoadRequest::ensureCustomFontData()
     return m_fontCustomPlatformData.get();
 }
 
-RefPtr<Font> WorkerFontLoadRequest::createFont(const FontDescription& fontDescription, bool syntheticBold, bool syntheticItalic, const FontCreationContext& fontCreationContext)
+RefPtr<Font> WorkerFontLoadRequest::createFont(const FontDescription& fontDescription, const FontCreationContext& fontCreationContext)
 {
     ASSERT(m_fontCustomPlatformData);
     ASSERT(m_context);
-    return Font::create(m_fontCustomPlatformData->fontPlatformData(fontDescription, syntheticBold, syntheticItalic, fontCreationContext), Font::Origin::Remote);
+    return Font::create(m_fontCustomPlatformData->fontPlatformData(fontDescription, fontCreationContext), Font::Origin::Remote);
 }
 
 void WorkerFontLoadRequest::setClient(FontLoadRequestClient* client)
@@ -130,7 +131,7 @@ void WorkerFontLoadRequest::setClient(FontLoadRequestClient* client)
 
 void WorkerFontLoadRequest::didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse& response)
 {
-    if (response.httpStatusCode() / 100 != 2 && response.httpStatusCode())
+    if (!response.isSuccessful() && response.httpStatusCode())
         m_errorOccurred = true;
 }
 

@@ -117,7 +117,7 @@ private:
     bool inXMLFragmentSerialization() const { return m_serializationSyntax == SerializationSyntax::XML; }
     void generateUniquePrefix(QualifiedName&, const Namespaces&);
     QualifiedName xmlAttributeSerialization(const Attribute&, Namespaces*);
-    LocalFrame* frameForAttributeReplacement(const Element&) const;
+    LocalFrame* NODELETE frameForAttributeReplacement(const Element&) const;
     Attribute replaceAttributeIfNecessary(const Element&, const Attribute&);
     bool appendURLAttributeForReplacementIfNecessary(StringBuilder&, const Element&, Namespaces*);
     RefPtr<const ShadowRoot> suitableShadowRoot(const Node&);
@@ -128,6 +128,7 @@ private:
     const ResolveURLs m_resolveURLs;
     const SerializationSyntax m_serializationSyntax;
     unsigned m_prefixLevel { 0 };
+    Vector<std::pair<WeakRef<const Element, WeakPtrImplWithEventTargetData>, AtomString>> m_resolvedElementQualifiedNameStack;
     SerializeShadowRoots m_serializeShadowRoots;
     Vector<Ref<ShadowRoot>> m_explicitShadowRoots;
     Vector<MarkupExclusionRule> m_exclusionRules;

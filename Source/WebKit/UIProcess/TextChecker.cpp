@@ -28,7 +28,7 @@
 #include "config.h"
 #include "TextChecker.h"
 
-#if !PLATFORM(COCOA) && !PLATFORM(GTK)
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WPE)
 #include "TextCheckerState.h"
 #include <WebCore/NotImplemented.h>
 
@@ -160,4 +160,4 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag, S
 
 } // namespace WebKit 
 
-#endif // !PLATFORM(COCOA) && !PLATFORM(GTK)
+#endif // !PLATFORM(COCOA) && !PLATFORM(GTK) && && !PLATFORM(WPE)

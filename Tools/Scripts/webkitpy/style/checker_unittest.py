@@ -256,6 +256,14 @@ class GlobalVariablesTest(unittest.TestCase):
         assertNoCheck(os.path.join('Source', 'WebCore', 'PAL', 'pal', 'spi'),
                       "readability/naming/underscores")
 
+        # WebKit expected results inside the WPT tree should not be wpt-linted.
+        wpt_base = os.path.join('LayoutTests', 'imported', 'w3c', 'web-platform-tests')
+        assertCheck(os.path.join(wpt_base, 'css', 'foo.html'), 'wpt/lint')
+        assertNoCheck(os.path.join(wpt_base, 'css', 'foo-expected.txt'), 'wpt/lint')
+        assertNoCheck(os.path.join(wpt_base, 'css', 'foo-expected.html'), 'wpt/lint')
+        assertNoCheck(os.path.join(wpt_base, 'css', 'foo-expected.png'), 'wpt/lint')
+        assertNoCheck(os.path.join(wpt_base, 'css', 'foo-expected-mismatch.html'), 'wpt/lint')
+
     def test_max_reports_per_category(self):
         """Check that _MAX_REPORTS_PER_CATEGORY is valid."""
         all_categories = self._all_categories()
@@ -748,7 +756,7 @@ class StyleProcessor_CodeCoverageTest(LoggingTestCase):
             self.min_confidence = min_confidence
             self.style_error_handler = style_error_handler
 
-        def check(self, lines):
+        def check(self, lines, line_numbers=None):
             self.lines = lines
 
     class MockDispatcher(object):

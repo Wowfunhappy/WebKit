@@ -68,6 +68,7 @@ const mainModule = new WebAssembly.Module(wasm);
 const mainInstance = new WebAssembly.Instance(mainModule, {});
 const mainCompute = mainInstance.exports.compute;
 
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     mainCompute();

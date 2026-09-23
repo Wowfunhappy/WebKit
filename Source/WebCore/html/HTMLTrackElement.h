@@ -79,8 +79,8 @@ private:
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     bool NODELETE isURLAttribute(const Attribute&) const final;

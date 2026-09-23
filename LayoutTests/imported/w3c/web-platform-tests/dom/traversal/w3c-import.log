@@ -24,6 +24,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-currentNode.html
 /LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-previousNodeLastChildReject.html
 /LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-previousSiblingLastChildSkip.html
+/LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-realm.html
 /LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-traversal-reject.html
 /LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-traversal-skip-most.html
 /LayoutTests/imported/w3c/web-platform-tests/dom/traversal/TreeWalker-traversal-skip.html

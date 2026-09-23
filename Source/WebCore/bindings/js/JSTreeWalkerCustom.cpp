@@ -31,6 +31,8 @@ void JSTreeWalker::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     if (auto filter = wrapped().filter())
         addWebCoreOpaqueRoot(visitor, *filter);
+    addWebCoreOpaqueRoot(visitor, wrapped().root());
+    addWebCoreOpaqueRoot(visitor, wrapped().opaqueRootForCurrentNodeInGCThread());
 }
 
 DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSTreeWalker);

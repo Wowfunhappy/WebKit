@@ -104,7 +104,6 @@ private:
 
     FrameAgentContext frameAgentContext();
     void createConsoleAgent();
-    void createRuntimeAgent();
     void createLazyAgents();
 
     WeakRef<LocalFrame> m_frame;
@@ -117,7 +116,6 @@ private:
     Inspector::AgentRegistry m_agents;
 
     bool m_didCreateConsoleAgent { false };
-    bool m_didCreateRuntimeAgent { false };
     bool m_didCreateLazyAgents { false };
     WeakPtr<InspectorFrontendClient> m_inspectorFrontendClient;
 };

@@ -68,7 +68,9 @@ public:
 
     static ProfilerSupport& singleton();
 
-    static void dumpIonGraphFunction(const String& functionName, Ref<JSON::Object>&&);
+    static void dumpIonGraphFunction(const String& functionName, ASCIILiteral tier, bool osr, Ref<JSON::Object>&&);
+
+    static void barrierSync();
 
     static uint32_t getCurrentThreadID();
 

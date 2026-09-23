@@ -149,18 +149,21 @@ bool RemoteGraphicsContextGLProxy::enableExtension(GCGLExtension extension)
 
 void RemoteGraphicsContextGLProxy::initialize(const RemoteGraphicsContextGLInitializationState& initializationState)
 {
+    setContextAttributes(initializationState.attributes);
     m_knownActiveExtensions = EnumSet<GCGLExtension>::fromRaw(initializationState.knownActiveExtensions);
     m_requestableExtensions = EnumSet<GCGLExtension>::fromRaw(initializationState.requestableExtensions);
-    m_externalImageTarget = initializationState.externalImageTarget;
-    m_externalImageBindingQuery = initializationState.externalImageBindingQuery;
-}
-
-std::tuple<GCGLenum, GCGLenum> RemoteGraphicsContextGLProxy::externalImageTextureBindingPoint()
-{
-    if (isContextLost())
-        return std::make_tuple(0, 0);
-
-    return std::make_tuple(m_externalImageTarget, m_externalImageBindingQuery);
+    m_maxCombinedTextureImageUnits = initializationState.maxCombinedTextureImageUnits;
+    m_maxVertexAttribs = initializationState.maxVertexAttribs;
+    m_maxTextureSize = initializationState.maxTextureSize;
+    m_maxCubeMapTextureSize = initializationState.maxCubeMapTextureSize;
+    m_maxRenderbufferSize = initializationState.maxRenderbufferSize;
+    m_maxViewportDims = initializationState.maxViewportDims;
+    m_maxSamples = initializationState.maxSamples;
+    m_maxTransformFeedbackSeparateAttribs = initializationState.maxTransformFeedbackSeparateAttribs;
+    m_maxUniformBufferBindings = initializationState.maxUniformBufferBindings;
+    m_uniformBufferOffsetAlignment = initializationState.uniformBufferOffsetAlignment;
+    m_max3DTextureSize = initializationState.max3DTextureSize;
+    m_maxArrayTextureLayers = initializationState.maxArrayTextureLayers;
 }
 
 void RemoteGraphicsContextGLProxy::reshape(int width, int height)
@@ -225,11 +228,11 @@ bool RemoteGraphicsContextGLProxy::copyTextureFromVideoFrame(WebCore::VideoFrame
     if (isContextLost())
         return false;
 
-    auto sharedVideoFrame = m_sharedVideoFrameWriter.write(videoFrame, [this, protectedThis = Ref { *this }](auto& semaphore) {
+    auto sharedVideoFrame = m_sharedVideoFrameWriter.write(videoFrame, [this, protectedThis = protect(*this)](auto& semaphore) {
         auto sendResult = send(Messages::RemoteGraphicsContextGL::SetSharedVideoFrameSemaphore { semaphore });
         if (sendResult != IPC::Error::NoError)
             markContextLost();
-    }, [this, protectedThis = Ref { *this }](SharedMemory::Handle&& handle) {
+    }, [this, protectedThis = protect(*this)](SharedMemory::Handle&& handle) {
         auto sendResult = send(Messages::RemoteGraphicsContextGL::SetSharedVideoFrameMemory { WTF::move(handle) });
         if (sendResult != IPC::Error::NoError)
             markContextLost();

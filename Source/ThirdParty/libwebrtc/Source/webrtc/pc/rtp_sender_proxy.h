@@ -26,6 +26,7 @@
 #include "api/rtp_parameters.h"
 #include "api/rtp_sender_interface.h"
 #include "api/scoped_refptr.h"
+#include "api/sframe/sframe_encrypter_interface.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "pc/proxy.h"
 
@@ -58,14 +59,19 @@ PROXY_METHOD1(void, SetStreams, const std::vector<std::string>&)
 PROXY_METHOD1(void,
               SetFrameTransformer,
               scoped_refptr<FrameTransformerInterface>)
+PROXY_METHOD1(RTCErrorOr<scoped_refptr<SframeEncrypterInterface>>,
+              CreateSframeEncrypterOrError,
+              const SframeEncrypterInit&)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 PROXY_METHOD1(void,
               SetEncoderSelector,
               std::unique_ptr<VideoEncoderFactory::EncoderSelectorInterface>)
-
-#if defined(WEBRTC_WEBKIT_BUILD)
+#pragma clang diagnostic pop
+PROXY_METHOD1(void,
+              SetEncoderSelector,
+              scoped_refptr<VideoEncoderFactory::EncoderSelectorInterface>)
 PROXY_METHOD1(RTCError, GenerateKeyFrame, const std::vector<std::string>&)
-#endif
-
 END_PROXY_MAP(RtpSender)
 
 }  // namespace webrtc

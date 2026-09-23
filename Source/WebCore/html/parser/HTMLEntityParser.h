@@ -41,8 +41,8 @@ class SegmentedString;
 DecodedHTMLEntity consumeHTMLEntity(SegmentedString&, char16_t additionalAllowedCharacter = 0);
 
 // This function assumes the source is complete, and does not expect a null character.
-DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<Latin1Character>&);
-DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<char16_t>&);
+DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<Latin1Character>&, char16_t additionalAllowedCharacter = 0);
+DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<char16_t>&, char16_t additionalAllowedCharacter = 0);
 
 // This function does not check for "not enough characters" at all.
 DecodedHTMLEntity decodeNamedHTMLEntityForXMLParser(const char*);

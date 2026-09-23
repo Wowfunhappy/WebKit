@@ -32,7 +32,7 @@
 #include "JSTypedArrays.h"
 #include "TypedArrayController.h"
 #include "TypedArrays.h"
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -175,7 +175,7 @@ JSArrayBufferView::JSArrayBufferView(VM& vm, ConstructionContext& context)
 void JSArrayBufferView::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
-    ASSERT(jsDynamicCast<JSArrayBufferView*>(this));
+    ASSERT(is<JSArrayBufferView>(this));
     switch (m_mode) {
     case FastTypedArray:
         return;
@@ -195,7 +195,7 @@ void JSArrayBufferView::finishCreation(VM& vm)
     case GrowableSharedDataViewMode:
     case GrowableSharedAutoLengthDataViewMode:
         ASSERT(!butterfly());
-        vm.heap.addReference(this, jsCast<JSDataView*>(this)->possiblySharedBuffer());
+        vm.heap.addReference(this, uncheckedDowncast<JSDataView>(this)->possiblySharedBuffer());
         return;
     }
     RELEASE_ASSERT_NOT_REACHED();
@@ -204,7 +204,7 @@ void JSArrayBufferView::finishCreation(VM& vm)
 template<typename Visitor>
 void JSArrayBufferView::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSArrayBufferView* thisObject = jsCast<JSArrayBufferView*>(cell);
+    JSArrayBufferView* thisObject = uncheckedDowncast<JSArrayBufferView>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(cell, visitor);
 
@@ -242,7 +242,7 @@ JSArrayBuffer* JSArrayBufferView::unsharedJSBuffer(JSGlobalObject* globalObject)
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
     if (ArrayBuffer* buffer = unsharedBuffer())
-        return vm.m_typedArrayController->toJS(globalObject, this->globalObject(), *buffer);
+        return vm.m_typedArrayController->toJS(globalObject, this->realm(), *buffer);
     scope.throwException(globalObject, createOutOfMemoryError(globalObject));
     return nullptr;
 }
@@ -252,7 +252,7 @@ JSArrayBuffer* JSArrayBufferView::possiblySharedJSBuffer(JSGlobalObject* globalO
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
     if (ArrayBuffer* buffer = possiblySharedBuffer())
-        return vm.m_typedArrayController->toJS(globalObject, this->globalObject(), *buffer);
+        return vm.m_typedArrayController->toJS(globalObject, this->realm(), *buffer);
     scope.throwException(globalObject, createOutOfMemoryError(globalObject));
     return nullptr;
 }
@@ -265,7 +265,7 @@ void JSArrayBufferView::detachFromArrayBuffer()
     m_length = 0;
     m_byteOffset = 0;
     m_vector.clear();
-    globalObject()->notifyArrayBufferDetaching();
+    realm()->notifyArrayBufferDetaching();
 }
 
 ArrayBuffer* JSArrayBufferView::slowDownAndWasteMemory()
@@ -361,7 +361,7 @@ bool JSArrayBufferView::isIteratorProtocolFastAndNonObservable()
     if (!isTypedArrayType(type()))
         return false;
 
-    JSGlobalObject* globalObject = this->globalObject();
+    JSGlobalObject* globalObject = this->realm();
     TypedArrayType typedArrayType = JSC::typedArrayType(type());
     if (!globalObject->isTypedArrayPrototypeIteratorProtocolFastAndNonObservable(typedArrayType))
         return false;

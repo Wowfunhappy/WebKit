@@ -79,7 +79,7 @@ public:
         bool NODELETE isValid();
 
         const IDBKeyData& NODELETE key();
-        const IDBKeyData& NODELETE primaryKey();
+        const IDBKeyData& primaryKey();
         const ThreadSafeDataBuffer& value();
 
         Iterator& operator++();

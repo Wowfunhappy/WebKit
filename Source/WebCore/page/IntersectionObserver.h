@@ -30,8 +30,9 @@
 #include "GCReachableRef.h"
 #include "IntersectionObserverCallback.h"
 #include "IntersectionObserverMarginBox.h"
-#include "ReducedResolutionSeconds.h"
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakListHashSet.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -97,9 +98,9 @@ public:
     const IntersectionObserverMarginBox& rootMarginBox() const LIFETIME_BOUND { return m_rootMargin; }
     const IntersectionObserverMarginBox& scrollMarginBox() const LIFETIME_BOUND { return m_scrollMargin; }
     const Vector<double>& thresholds() const LIFETIME_BOUND { return m_thresholds; }
-    const Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>>& observationTargets() const LIFETIME_BOUND { return m_observationTargets; }
-    bool hasObservationTargets() const { return m_observationTargets.size(); }
-    bool isObserving(const Element&) const;
+    const WeakListHashSet<Element, WeakPtrImplWithEventTargetData>& observationTargets() const LIFETIME_BOUND { return m_observationTargets; }
+    bool hasObservationTargets() const { return !m_observationTargets.isEmptyIgnoringNullReferences(); }
+    bool NODELETE isObserving(const Element&) const;
 
     void observe(Element&);
     void unobserve(Element&);
@@ -133,6 +134,7 @@ private:
 
     struct IntersectionObservationState {
         FloatRect rootBounds;
+        // "Absolute" means in the absolute coordinate system of the target's frame.
         std::optional<FloatRect> absoluteIntersectionRect; // Only computed if intersecting.
         std::optional<FloatRect> absoluteTargetRect; // Only computed if first observation, or intersecting.
         std::optional<FloatRect> absoluteRootBounds; // Only computed if observationChanged.
@@ -154,7 +156,7 @@ private:
     IntersectionObserverMarginBox m_scrollMargin;
     Vector<double> m_thresholds;
     const Ref<IntersectionObserverCallback> m_callback;
-    Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_observationTargets;
+    WeakListHashSet<Element, WeakPtrImplWithEventTargetData> m_observationTargets;
     Vector<GCReachableRef<Element>> m_pendingTargets;
     Vector<Ref<IntersectionObserverEntry>> m_queuedEntries;
     Vector<GCReachableRef<Element>> m_targetsWaitingForFirstObservation;

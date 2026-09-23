@@ -85,6 +85,8 @@ struct PreviousLine {
     // Content width measured during line breaking (avoid double-measuring).
     std::optional<InlineLayoutUnit> trailingOverflowingContentWidth { };
     bool endsWithLineBreak { false };
+    // True when this line either has contentful inline or block content.
+    bool hasContentfulInFlowContent { false };
     TextDirection inlineBaseDirection { TextDirection::LTR };
     Vector<const Box*> suspendedFloats;
 };

@@ -129,8 +129,9 @@ void WebGeolocationManagerProxy::startUpdatingWithProxy(WebProcessProxy& proxy, 
     RefPtr page = WebProcessProxy::webPage(pageProxyID);
     MESSAGE_CHECK(proxy.connection(), !!page);
 
-    auto isValidAuthorizationToken = protect(page->geolocationPermissionRequestManager())->isValidAuthorizationToken(authorizationToken);
-    MESSAGE_CHECK(proxy.connection(), isValidAuthorizationToken);
+    auto authorizedDomain = protect(page->geolocationPermissionRequestManager())->registrableDomainForAuthorizationToken(authorizationToken);
+    MESSAGE_CHECK(proxy.connection(), !!authorizedDomain);
+    MESSAGE_CHECK(proxy.connection(), authorizedDomain->isEmpty() || *authorizedDomain == registrableDomain);
 
     auto& perDomainData = *m_perDomainData.ensure(registrableDomain, [] {
         return makeUnique<PerDomainData>();

@@ -32,7 +32,6 @@
 #include "GraphicsLayer.h"
 #include "GraphicsLayerContentsDisplayDelegate.h"
 #include "HTMLCanvasElement.h"
-#include "NodeInlines.h"
 #include "OffscreenCanvas.h"
 #include <wtf/TZoneMallocInlines.h>
 

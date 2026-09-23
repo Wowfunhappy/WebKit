@@ -46,9 +46,7 @@ ScrollingTreeOverflowScrollingNodeRemoteMac::ScrollingTreeOverflowScrollingNodeR
     m_delegate->initScrollbars();
 }
 
-ScrollingTreeOverflowScrollingNodeRemoteMac::~ScrollingTreeOverflowScrollingNodeRemoteMac()
-{
-}
+ScrollingTreeOverflowScrollingNodeRemoteMac::~ScrollingTreeOverflowScrollingNodeRemoteMac() = default;
 
 void ScrollingTreeOverflowScrollingNodeRemoteMac::repositionRelatedLayers()
 {

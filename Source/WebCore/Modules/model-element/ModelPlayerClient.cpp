@@ -26,6 +26,8 @@
 #include "config.h"
 #include "ModelPlayerClient.h"
 
+#include "SharedBuffer.h"
+
 namespace WebCore {
 
 ModelPlayerClient::~ModelPlayerClient() = default;

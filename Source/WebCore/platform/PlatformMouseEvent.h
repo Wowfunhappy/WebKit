@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,6 +39,8 @@ namespace WebCore {
 
 class PlatformMouseEvent : public PlatformEvent {
 public:
+    using CanInitiateDrag = MouseEventCanInitiateDrag;
+
     PlatformMouseEvent()
         : PlatformEvent(Type::MouseMoved)
     {
@@ -68,12 +70,12 @@ public:
     MouseButton button() const { return m_button; }
     unsigned short buttons() const { return m_buttons; }
     int clickCount() const { return m_clickCount; }
-    unsigned modifierFlags() const { return m_modifierFlags; }
     double force() const { return m_force; }
     SyntheticClickType syntheticClickType() const { return m_syntheticClickType; }
     PointerID pointerId() const { return m_pointerId; }
     const String& pointerType() const LIFETIME_BOUND { return m_pointerType; }
     MouseEventInputSource inputSource() const { return m_inputSource; }
+    CanInitiateDrag canInitiateDrag() const { return m_canInitiateDrag; }
 
     Vector<PlatformMouseEvent> coalescedEvents() const { return m_coalescedEvents; }
     Vector<PlatformMouseEvent> predictedEvents() const { return m_predictedEvents; }
@@ -107,11 +109,11 @@ protected:
     PointerID m_pointerId { mousePointerID };
     String m_pointerType { mousePointerEventType() };
     int m_clickCount { 0 };
-    unsigned m_modifierFlags { 0 };
     unsigned short m_buttons { 0 };
     Vector<PlatformMouseEvent> m_coalescedEvents;
     Vector<PlatformMouseEvent> m_predictedEvents;
     MouseEventInputSource m_inputSource { MouseEventInputSource::UserDriven };
+    CanInitiateDrag m_canInitiateDrag { CanInitiateDrag::Yes };
 #if PLATFORM(MAC)
     int m_eventNumber { 0 };
     int m_menuTypeForEvent { 0 };

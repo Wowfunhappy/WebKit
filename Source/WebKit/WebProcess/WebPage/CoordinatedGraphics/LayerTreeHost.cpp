@@ -52,6 +52,7 @@
 #include <WebCore/Settings.h>
 #include <WebCore/SkiaPaintingEngine.h>
 #include <WebCore/ThreadedScrollingTree.h>
+#include <WebCore/WindowEventLoop.h>
 #include <wtf/SetForScope.h>
 #include <wtf/SystemTracing.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -70,7 +71,6 @@ std::unique_ptr<LayerTreeHost> LayerTreeHost::create(WebPage& webPage)
 LayerTreeHost::LayerTreeHost(WebPage& webPage)
     : m_webPage(webPage)
     , m_sceneState(CoordinatedSceneState::create())
-    , m_skiaPaintingEngine(SkiaPaintingEngine::create())
 {
     {
         auto& rootLayer = m_sceneState->rootLayer();
@@ -87,6 +87,7 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage)
     }
 
     m_compositor = ThreadedCompositor::create(webPage, *this, m_sceneState.get());
+    m_skiaPaintingEngine = SkiaPaintingEngine::create(m_compositor->threadSafeGrContext());
 #if ENABLE(DAMAGE_TRACKING)
     std::optional<OptionSet<ThreadedCompositor::DamagePropagationFlags>> damagePropagationFlags;
     const auto& settings = webPage.corePage()->settings();
@@ -97,17 +98,18 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage)
         if (settings.useDamagingInformationForCompositing())
             damagePropagationFlags->add(ThreadedCompositor::DamagePropagationFlags::UseForCompositing);
     }
-    m_compositor->setDamagePropagationFlags(damagePropagationFlags);
+    m_compositor->setDamagePropagationSettings(damagePropagationFlags, settings.damageRectangleThreshold());
 #endif
 }
 
 LayerTreeHost::~LayerTreeHost()
 {
-    m_sceneState->invalidate();
-
     m_skiaPaintingEngine = nullptr;
 
+    // ThreadedCompositor must be invalidated before invalidating CoordinatedSceneState
+    // to invalidate pending layers in the compositor thread.
     m_compositor->invalidate();
+    m_sceneState->invalidate();
 }
 
 uint64_t LayerTreeHost::surfaceID() const
@@ -350,6 +352,7 @@ void LayerTreeHost::requestComposition(CompositionReason reason)
 {
 #if ENABLE(SCROLLING_THREAD)
     if (ScrollingThread::isCurrentThread()) {
+        m_sceneState->flushPendingState();
         if (!m_compositionRequiredInScrollingThread)
             return;
         m_compositionRequiredInScrollingThread = false;
@@ -384,7 +387,7 @@ Ref<CoordinatedImageBackingStore> LayerTreeHost::imageBackingStore(Ref<NativeIma
 {
     auto nativeImageID = nativeImage->uniqueID();
     auto addResult = m_imageBackingStores.ensure(nativeImageID, [&] {
-        return CoordinatedImageBackingStore::create(WTF::move(nativeImage));
+        return CoordinatedImageBackingStore::create(WTF::move(nativeImage), m_compositor->threadSafeGrContext());
     });
     return addResult.iterator->value;
 }
@@ -490,6 +493,7 @@ void LayerTreeHost::applyTransientZoomToLayers(double scale, FloatPoint origin)
     transform.translate(constrainedOrigin.x(), constrainedOrigin.y());
     transform.scale(scale);
 
+    Locker locker { zoomLayer->lock() };
     zoomLayer->setTransform(transform);
     zoomLayer->setAnchorPoint(FloatPoint3D());
     zoomLayer->setPosition(FloatPoint());
@@ -502,6 +506,11 @@ void LayerTreeHost::adjustTransientZoom(double scale, FloatPoint origin, FloatPo
     m_transientZoomOrigin = origin;
 
     applyTransientZoomToLayers(m_transientZoomScale, m_transientZoomOrigin);
+
+    if (m_isWaitingForRenderer)
+        scheduleRenderingUpdate();
+    else
+        updateRendering();
 }
 
 void LayerTreeHost::commitTransientZoom(double scale, FloatPoint origin, FloatPoint unscrolledOrigin)
@@ -512,7 +521,9 @@ void LayerTreeHost::commitTransientZoom(double scale, FloatPoint origin, FloatPo
         TransformationMatrix finalTransform;
         finalTransform.scale(scale);
 
-        layerForTransientZoom()->setTransform(finalTransform);
+        auto* zoomLayer = layerForTransientZoom();
+        Locker locker { zoomLayer->lock() };
+        zoomLayer->setTransform(finalTransform);
     }
 
     m_transientZoom = false;
@@ -562,6 +573,12 @@ void LayerTreeHost::fillGLInformation(RenderProcessInfo&& info, CompletionHandle
     else
         info.cpuPaintingThreadsCount = SkiaPaintingEngine::numberOfCPUPaintingThreads();
     m_compositor->fillGLInformation(WTF::move(info), WTF::move(completionHandler));
+}
+
+void LayerTreeHost::releaseMemory(WTF::Critical critical)
+{
+    PlatformDisplay::sharedDisplay().skiaReleaseUnusedResources(critical);
+    m_compositor->releaseMemory(critical);
 }
 
 } // namespace WebKit

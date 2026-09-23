@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 (function () {
     function shouldBe(actual, expected) {
         if (actual !== expected)

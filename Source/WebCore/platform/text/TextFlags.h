@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,10 +26,8 @@
 #pragma once
 
 #include <WebCore/FontTaggedSettings.h>
-#include <optional>
-#include <vector>
-#include <wtf/Hasher.h>
 #include <wtf/Markable.h>
+#include <wtf/text/WTFString.h>
 
 namespace WTF {
 class TextStream;
@@ -122,12 +120,19 @@ struct ExpansionBehavior {
 WTF::TextStream& operator<<(WTF::TextStream&, ExpansionBehavior::Behavior);
 WTF::TextStream& operator<<(WTF::TextStream&, ExpansionBehavior);
 
-enum class FontSynthesisLonghandValue : bool {
+enum class FontSynthesisLonghandValue : uint8_t {
     None,
-    Auto
+    Auto,
+};
+
+enum class FontSynthesisStyleLonghandValue : uint8_t {
+    None,
+    Auto,
+    ObliqueOnly
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, FontSynthesisLonghandValue);
+WTF::TextStream& operator<<(WTF::TextStream&, FontSynthesisStyleLonghandValue);
 
 enum class FontVariantLigatures : uint8_t { Normal, Yes, No };
 enum class FontVariantPosition : uint8_t { Normal, Subscript, Superscript };
@@ -379,7 +384,8 @@ enum class FontOpticalSizing : bool {
 WTF::TextStream& operator<<(WTF::TextStream&, FontOpticalSizing);
 
 // https://www.microsoft.com/typography/otspec/fvar.htm#VAT
-enum class FontStyleAxis : bool {
+enum class FontStyleAxis : uint8_t {
+    normal,
     slnt,
     ital
 };

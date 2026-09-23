@@ -128,12 +128,12 @@ ExceptionOr<void> AudioParamTimeline::setValueCurveAtTime(Vector<float>&& curve,
 
 static bool NODELETE isValidNumber(float x)
 {
-    return !std::isnan(x) && !std::isinf(x);
+    return std::isfinite(x);
 }
 
 static bool NODELETE isValidNumber(Seconds s)
 {
-    return !std::isnan(s.value()) && !std::isinf(s.value());
+    return std::isfinite(s.value());
 }
 
 ExceptionOr<void> AudioParamTimeline::insertEvent(ParamEvent&& event)

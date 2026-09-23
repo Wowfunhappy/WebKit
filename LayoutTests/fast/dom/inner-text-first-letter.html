@@ -82,13 +82,13 @@ shouldBe("document.getElementById('preSpaceFirst').innerText", "document.getElem
 shouldBe("document.getElementById('collapsedSpaceDivFirst').innerText", "document.getElementById('collapsedSpaceDivNormal').innerText");
 shouldBe("document.getElementById('firstCollapsedDivFirst').innerText", "document.getElementById('firstCollapsedDivNormal').innerText");
 shouldBe("document.getElementById('collapsedSpaceCollapsedDivFirst').innerText", "document.getElementById('collapsedSpaceCollapsedDivNormal').innerText");
-shouldBe("document.getElementById('collapsedSpaceCollapsedDivFirst').innerText", "'foo\\nabc\\n'");
+shouldBe("document.getElementById('collapsedSpaceCollapsedDivFirst').innerText", "'foo\\nabc'");
 shouldBe("document.getElementById('collapsedSpacePunctDivFirst').innerText", "document.getElementById('collapsedSpacePunctDivNormal').innerText");
-shouldBe("document.getElementById('collapsedSpacePunctDivFirst').innerText", "'foo\\n| abc\\n'");
+shouldBe("document.getElementById('collapsedSpacePunctDivFirst').innerText", "'foo\\n| abc'");
 shouldBe("document.getElementById('divSpanFirst').innerText", "document.getElementById('divSpanNormal').innerText");
 shouldBe("document.getElementById('invisiblePre').innerText", "''");
-shouldBe("document.getElementById('invisiblePreFirst').innerText", "'t\\n'");
-shouldBe("document.getElementById('invisible').innerText", "'test\\n'");
+shouldBe("document.getElementById('invisiblePreFirst').innerText", "'t'");
+shouldBe("document.getElementById('invisible').innerText", "'test'");
 shouldBe("document.getElementById('floatDt').innerText", "'Ab Cd E'");
 document.getElementById('tests').innerHTML = "";
 </script>

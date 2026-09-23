@@ -24,75 +24,32 @@
 
 #pragma once
 
+#include <WebCore/CSSGridAutoFlow.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
 namespace Style {
 
-// <'grid-auto-flow'> = normal | [ row | column ] || dense
-// https://drafts.csswg.org/css-grid-1/#grid-auto-flow-property
-struct GridAutoFlow {
-    enum class Direction : uint8_t { Normal, Row, Column };
-    enum class Packing : bool { Dense, Sparse };
+// FIXME: Style::GridAutoFlow and CSS::GridAutoFlow are identical and ideally would
+// be the same type using TreatAsNonConverting<>, but currently TreatAsNonConverting<>
+// cannot be used on types that are TreatAsVariantLike<>, which CSS::GridAutoFlow is.
 
-    constexpr GridAutoFlow(CSS::Keyword::Normal) { }
-    constexpr GridAutoFlow(CSS::Keyword::Row) : m_direction { static_cast<uint8_t>(Direction::Row) } { }
-    constexpr GridAutoFlow(CSS::Keyword::Row, CSS::Keyword::Dense) : m_direction { static_cast<uint8_t>(Direction::Row) }, m_packing { static_cast<uint8_t>(Packing::Dense) } { }
-    constexpr GridAutoFlow(CSS::Keyword::Column) : m_direction { static_cast<uint8_t>(Direction::Column) } { }
-    constexpr GridAutoFlow(CSS::Keyword::Column, CSS::Keyword::Dense) : m_direction { static_cast<uint8_t>(Direction::Column) }, m_packing { static_cast<uint8_t>(Packing::Dense) } { }
-    constexpr GridAutoFlow(CSS::Keyword::Dense) : m_packing { static_cast<uint8_t>(Packing::Dense) } { }
+// <'grid-auto-flow'> = normal | [ [ row | column ] || dense ]
+// FIXME: `normal` is not specified in the link below. Figure out where `normal` comes from and add link.
+// https://drafts.csswg.org/css-grid/#grid-auto-flow-property
+struct GridAutoFlow : CSS::GridAutoFlow {
+    using CSS::GridAutoFlow::GridAutoFlow;
 
-    constexpr Direction direction() const { return static_cast<Direction>(m_direction); }
-    constexpr Packing packing() const { return static_cast<Packing>(m_packing); }
-
-    constexpr bool isRow() const { return direction() == Direction::Row; }
-    constexpr bool isColumn() const { return direction() == Direction::Column; }
-    constexpr bool isDense() const { return packing() == Packing::Dense; }
-    constexpr bool isSparse() const { return packing() == Packing::Sparse; }
-
-    void setDirection(Direction direction) { m_direction = static_cast<uint8_t>(direction); }
-
-    template<typename... F> decltype(auto) switchOn(F&&...) const;
-
-    constexpr bool operator==(const GridAutoFlow&) const = default;
-
-private:
-    PREFERRED_TYPE(Direction) uint8_t m_direction : 2 { static_cast<uint8_t>(Direction::Normal) };
-    PREFERRED_TYPE(Packing) uint8_t m_packing : 1 { static_cast<uint8_t>(Packing::Sparse) };
-};
-
-template<typename... F> decltype(auto) GridAutoFlow::switchOn(F&&... f) const
-{
-    auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
-
-    switch (direction()) {
-    case Direction::Column:
-        switch (packing()) {
-        case Packing::Dense:
-            return visitor(SpaceSeparatedTuple { CSS::Keyword::Column { }, CSS::Keyword::Dense { } });
-        case Packing::Sparse:
-            return visitor(CSS::Keyword::Column { });
-        }
-    case Direction::Row:
-        switch (packing()) {
-        case Packing::Dense:
-            return visitor(SpaceSeparatedTuple { CSS::Keyword::Row { }, CSS::Keyword::Dense { } });
-        case Packing::Sparse:
-            return visitor(CSS::Keyword::Row { });
-        }
-    case Direction::Normal:
-        switch (packing()) {
-        case Packing::Dense:
-            return visitor(CSS::Keyword::Dense { });
-        case Packing::Sparse:
-            return visitor(CSS::Keyword::Normal { });
-        }
+    GridAutoFlow(CSS::GridAutoFlow base)
+        : CSS::GridAutoFlow { base }
+    {
     }
-}
+};
 
 // MARK: - Conversion
 
 template<> struct CSSValueConversion<GridAutoFlow> { GridAutoFlow NODELETE operator()(BuilderState&, const CSSValue&); };
+template<> struct CSSValueCreation<GridAutoFlow> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const GridAutoFlow&); };
 
 } // namespace Style
 } // namespace WebCore

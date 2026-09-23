@@ -33,15 +33,14 @@
 [
     JSGenerateToJSObject,
 ] dictionary Resource {
-    DOMString id;
-    DOMString url;
-    DOMString mimeType;
+    required DOMString id;
+    required DOMString url;
+    required DOMString mimeType;
 };
 
 [
     JSGenerateToJSObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary ResourceContent {
-    DOMString data;
-    boolean base64Encoded;
+    required DOMString data;
+    required boolean base64Encoded;
 };

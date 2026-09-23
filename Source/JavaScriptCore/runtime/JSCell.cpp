@@ -105,7 +105,7 @@ CallData JSCell::getConstructData(JSCell*)
 
 bool JSCell::isValidCallee() const
 {
-    return isObject() && asObject(this)->globalObject();
+    return isObject() && asObject(this)->realmMayBeNull();
 }
 
 bool JSCell::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName identifier, JSValue value, PutPropertySlot& slot)
@@ -149,38 +149,54 @@ bool JSCell::deletePropertyByIndex(JSCell* cell, JSGlobalObject* globalObject, u
 
 JSValue JSCell::toPrimitive(JSGlobalObject* globalObject, PreferredPrimitiveType preferredType) const
 {
-    if (const auto* string = jsDynamicCast<const JSString*>(this))
+    if (const auto* string = dynamicDowncast<JSString>(this))
         return string->toPrimitive(globalObject, preferredType);
-    if (const auto* symbol = jsDynamicCast<const Symbol*>(this))
+    if (const auto* symbol = dynamicDowncast<Symbol>(this))
         return symbol->toPrimitive(globalObject, preferredType);
-    if (const auto* bigInt = jsDynamicCast<const JSBigInt*>(this))
+    if (const auto* bigInt = dynamicDowncast<JSBigInt>(this))
         return bigInt->toPrimitive(globalObject, preferredType);
-    return jsSecureCast<const JSObject*>(this)->toPrimitive(globalObject, preferredType);
+    return downcast<JSObject>(this)->toPrimitive(globalObject, preferredType);
 }
 
 double JSCell::toNumber(JSGlobalObject* globalObject) const
 {
-    if (const auto* string = jsDynamicCast<const JSString*>(this))
+    if (const auto* string = dynamicDowncast<JSString>(this))
         return string->toNumber(globalObject);
-    if (const auto* symbol = jsDynamicCast<const Symbol*>(this))
+    if (const auto* symbol = dynamicDowncast<Symbol>(this))
         return symbol->toNumber(globalObject);
-    if (const auto* bigInt = jsDynamicCast<const JSBigInt*>(this))
+    if (const auto* bigInt = dynamicDowncast<JSBigInt>(this))
         return bigInt->toNumber(globalObject);
-    return jsSecureCast<const JSObject*>(this)->toNumber(globalObject);
+    return downcast<JSObject>(this)->toNumber(globalObject);
+}
+
+bool JSCell::isObjectSlow() const
+{
+    return isObject();
+}
+
+bool JSCell::validateIsNotSweeping() const
+{
+    ASSERT_IMPLIES(vm().currentThreadIsHoldingAPILock(), vm().heap.mutatorState() != MutatorState::Sweeping);
+    return !vm().currentThreadIsHoldingAPILock() || vm().heap.mutatorState() != MutatorState::Sweeping;
+}
+
+bool JSCell::inheritsSlow(const ClassInfo* info) const
+{
+    return inherits(info);
 }
 
 JSObject* JSCell::toObjectSlow(JSGlobalObject* globalObject) const
 {
     Integrity::auditStructureID(structureID());
     ASSERT(!isObject());
-    if (const auto* string = jsDynamicCast<const JSString*>(this))
+    if (const auto* string = dynamicDowncast<JSString>(this))
         return string->toObject(globalObject);
-    if (const auto* bigInt = jsDynamicCast<const JSBigInt*>(this))
+    if (const auto* bigInt = dynamicDowncast<JSBigInt>(this))
         return bigInt->toObject(globalObject);
-    return jsSecureCast<const Symbol*>(this)->toObject(globalObject);
+    return downcast<Symbol>(this)->toObject(globalObject);
 }
 
-void slowValidateCell(JSCell* cell)
+void NODELETE slowValidateCell(JSCell* cell)
 {
     ASSERT_GC_OBJECT_LOOKS_VALID(cell);
 }
@@ -251,7 +267,7 @@ JSString* JSCell::toStringSlowCase(JSGlobalObject* globalObject) const
 
     ASSERT(isSymbol() || isHeapBigInt());
     auto* emptyString = jsEmptyString(vm);
-    if (auto* bigInt = jsDynamicCast<JSBigInt*>(const_cast<JSCell*>(this))) {
+    if (auto* bigInt = dynamicDowncast<JSBigInt>(const_cast<JSCell*>(this))) {
         // FIXME: we should rather have two cases here: one-character string vs jsNonTrivialString for everything else.
         auto string = bigInt->toString(globalObject, 10);
         RETURN_IF_EXCEPTION(scope, emptyString);
@@ -277,8 +293,9 @@ void JSCellLock::unlockSlow()
 }
 
 #if CPU(X86_64)
-NEVER_INLINE NO_RETURN_DUE_TO_CRASH NOT_TAIL_CALLED void reportZappedCellAndCrash(Heap& heap, const JSCell* cell)
+NEVER_INLINE NO_RETURN_DUE_TO_CRASH NOT_TAIL_CALLED void reportZappedCellAndCrash(const JSCell* cell)
 {
+    Heap& heap = *cell->heap();
     MarkedBlock::Handle* foundBlockHandle = nullptr;
     uint64_t* cellWords = std::bit_cast<uint64_t*>(cell);
 

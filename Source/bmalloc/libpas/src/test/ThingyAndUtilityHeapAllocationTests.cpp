@@ -753,8 +753,7 @@ void testFreeListRefillSpans(unsigned prewarmObjectSize,
         objectSize,
         *pas_heap_config_segregated_page_config_ptr_for_variant(
             &thingy_heap_config,
-            variant),
-        pas_segregated_page_exclusive_role);
+            variant));
     unsigned numberOfObjectsPerSpan = numberOfObjects / numberOfSpans;
     CHECK(numberOfObjectsPerSpan >= 1);
     unsigned numberOfObjectsInLastSpan = numberOfObjects - numberOfObjectsPerSpan * (numberOfSpans - 1);
@@ -1180,8 +1179,7 @@ void testSpuriousEligibility()
     unsigned objectSize = 16;
     unsigned numberOfObjects =
         pas_segregated_page_number_of_objects(objectSize,
-                                              THINGY_HEAP_CONFIG.small_segregated_config,
-                                              pas_segregated_page_exclusive_role);
+                                              THINGY_HEAP_CONFIG.small_segregated_config);
     unsigned numberOfObjectsInFirstSpan = numberOfObjects / 2;
     unsigned numberOfObjectsInSecondSpan = numberOfObjects - numberOfObjectsInFirstSpan;
 
@@ -3026,7 +3024,7 @@ void addLargeHeapTests()
 }
 
 #if SEGHEAP
-void addMediumHeapTests()
+void addMediumSegregatedHeapTests()
 {
     DisableBitfit disableBitfit;
     
@@ -3050,15 +3048,15 @@ void addMediumHeapTests()
                  SIZE_CLASS_PROGRAM(
                      PrimitiveAllocator(2048), 2048, pas_medium_segregated_object_kind, 10, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(2072), 2296, pas_small_segregated_object_kind, 10, 3),
+                     PrimitiveAllocator(2072), 2560, pas_medium_segregated_object_kind, 10, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(1600), 1608, pas_small_segregated_object_kind, 10, 2),
+                     PrimitiveAllocator(1600), 2048, pas_medium_segregated_object_kind, 10, 1),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(1617), 2048, pas_medium_segregated_object_kind, 10, 1),
+                     PrimitiveAllocator(1617), 2048, pas_medium_segregated_object_kind, 10, 0),
                  SIZE_CLASS_PROGRAM(
                      AlignedPrimitiveAllocator(2048, 2048), 2048, pas_medium_segregated_object_kind, 10, 0),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(2072), 2296, pas_small_segregated_object_kind, 10, 1),
+                     PrimitiveAllocator(2072), 2560, pas_medium_segregated_object_kind, 10, 0),
                  SIZE_CLASS_PROGRAM(
                      PrimitiveAllocator(1617), 2048, pas_medium_segregated_object_kind, 10, 0)));
     ADD_TEST(testSizeClassCreation(
@@ -3078,41 +3076,55 @@ void addMediumHeapTests()
                      PrimitiveAllocator(4096), 4096, pas_medium_segregated_object_kind, 5, 0)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 4, 2),
+                     PrimitiveAllocator(8192), 8192, pas_medium_segregated_object_kind, 4, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16000), 16384, pas_medium_segregated_object_kind, 3, 1)));
+                     PrimitiveAllocator(10100), 10752, pas_medium_segregated_object_kind, 3, 2)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 4, 2),
+                     PrimitiveAllocator(10240), 10752, pas_medium_segregated_object_kind, 4, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(18712), 21504, pas_medium_segregated_object_kind, 3, 2)));
+                     PrimitiveAllocator(11730), 11776, pas_medium_segregated_object_kind, 3, 2)));
+}
+
+void addMediumBitfitHeapTests()
+{
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 4, 1),
                  SIZE_CLASS_PROGRAM(
-                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_segregated_object_kind, 3, 0),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(18712), 21504, pas_medium_segregated_object_kind, 3, 2),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 1)));
+                     PrimitiveAllocator(16000), 16384, pas_medium_bitfit_object_kind, 3, 1)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16896), 18432, pas_medium_segregated_object_kind, 3, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 4, 1),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 18432, pas_medium_segregated_object_kind, 3, 1),
-                 SIZE_CLASS_PROGRAM(
-                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_segregated_object_kind, 4, 2),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16896), 18432, pas_medium_segregated_object_kind, 3, 1),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 0)));
+                     PrimitiveAllocator(18712), 18944, pas_medium_bitfit_object_kind, 3, 1)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 1),
                  SIZE_CLASS_PROGRAM(
-                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_segregated_object_kind, 1, 0),
+                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_bitfit_object_kind, 3, 0),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16000), 16384, pas_medium_segregated_object_kind, 3, 1)));
+                     PrimitiveAllocator(18712), 18944, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 0)));
+    ADD_TEST(testSizeClassCreation(
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16880), 16896, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_bitfit_object_kind, 4, 0),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16896), 16896, pas_medium_bitfit_object_kind, 3, 0),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 0)));
+    ADD_TEST(testSizeClassCreation(
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_bitfit_object_kind, 1, 0),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16000), 16384, pas_medium_bitfit_object_kind, 3, 1)));
 }
 
 void addLargerThanMediumHeapTests()
@@ -3130,11 +3142,17 @@ void addMargeBitfitTests()
 {
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(20000), 21504, pas_medium_segregated_object_kind, 5, 2),
+                     PrimitiveAllocator(8000), 8192, pas_medium_segregated_object_kind, 5, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(30000), 32768, pas_marge_bitfit_object_kind, 5, 1),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 5, 1),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(29000), 32768, pas_marge_bitfit_object_kind, 5, 1)));
+                     PrimitiveAllocator(20000), 20480, pas_medium_bitfit_object_kind, 5, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(30000), 30208, pas_medium_bitfit_object_kind, 5, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(29000), 29184, pas_medium_bitfit_object_kind, 5, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(32770), 36864, pas_marge_bitfit_object_kind, 5, 1)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
                      PrimitiveAllocator(300000), 303104, pas_marge_bitfit_object_kind, 5, 1),
@@ -3192,7 +3210,8 @@ void addAllTestsImpl()
     if (hasScope("only-small"))
         addLargeHeapTests();
     else {
-        addMediumHeapTests();
+        addMediumSegregatedHeapTests();
+        addMediumBitfitHeapTests();
         addMargeBitfitTests();
         addLargerThanMediumHeapTests();
         addLargerThanMargeBitfitTests();
@@ -3238,16 +3257,18 @@ void addThingyAndUtilityHeapAllocationTests()
     // pas API outside of ADD_TEST().
     CHECK(!pas_bootstrap_free_heap.num_mapped_bytes);
 
-    ForceExclusives forceExclusives;
-    ForceTLAs forceTLAs;
-    EpochIsCounter epochIsCounter;
-
     {
         InstallVerifier installVerifier;
+        ForceTLAs forceTLAs;
+        EpochIsCounter epochIsCounter;
         addAllTests();
     }
-
-    addAllTests();
+    {
+        NoVerifier noVerifier;
+        ForceTLAs forceTLAs;
+        EpochIsCounter epochIsCounter;
+        addAllTests();
+    }
 #endif // PAS_ENABLE_THINGY
 }
 

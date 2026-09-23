@@ -60,13 +60,11 @@ public:
     WEBCORE_EXPORT int step();
     WEBCORE_EXPORT int reset();
     
-    // steps and finalizes the query.
-    // returns true if all 3 steps succeed with step() returning SQLITE_DONE
-    // returns false otherwise  
+    // Returns true if step() returns SQLITE_DONE, false otherwise.
     WEBCORE_EXPORT bool executeCommand();
 
-    // Returns -1 on last-step failing.  Otherwise, returns number of rows
-    // returned in the last step()
+    // Returns the number of columns in the current result row, or 0 if
+    // step() has not been called or did not return SQLITE_ROW.
     int columnCount();
 
     bool isReadOnly();

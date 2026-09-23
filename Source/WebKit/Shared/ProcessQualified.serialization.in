@@ -32,6 +32,7 @@ additional_forward_declaration: namespace WebCore { using ScrollingNodeIdentifie
 additional_forward_declaration: namespace WebCore { using SharedWorkerObjectIdentifierID = ObjectIdentifier<SharedWorkerObjectIdentifierType>; }
 additional_forward_declaration: namespace WebCore { using UserGestureTokenIdentifierID = ObjectIdentifier<UserGestureTokenIdentifierType>; }
 additional_forward_declaration: namespace WebCore { using WebLockIdentifierID = AtomicObjectIdentifier<WebLockIdentifierType>; }
+additional_forward_declaration: namespace WebCore { using ResourceLoaderIdentifier = AtomicObjectIdentifier<ResourceLoaderIdentifierType>; }
 
 header: <WebCore/ProcessQualified.h>
 [Alias=class ProcessQualified<BackForwardFrameItemIdentifierID>, AdditionalEncoder=StreamConnectionEncoder, CustomHeader] alias WebCore::BackForwardFrameItemIdentifier {
@@ -112,5 +113,11 @@ header: <WebCore/WebKitJSHandle.h>
 
 [Alias=class WebCore::ProcessQualified<ObjectIdentifier<WebKit::ContentWorldIdentifierType>>, CustomHeader] alias WebKit::ContentWorldIdentifier {
     WebKit::NonProcessQualifiedContentWorldIdentifier object();
+    WebCore::ProcessIdentifier processIdentifier();
+};
+
+header: <WebCore/ResourceLoaderIdentifier.h>
+[Alias=class ProcessQualified<ResourceLoaderIdentifier>, CustomHeader] alias WebCore::ScopedResourceLoaderIdentifier {
+    WebCore::ResourceLoaderIdentifier object();
     WebCore::ProcessIdentifier processIdentifier();
 };

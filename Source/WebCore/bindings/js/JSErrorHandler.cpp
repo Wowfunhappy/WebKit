@@ -38,12 +38,15 @@
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMWindow.h"
+#include "JSErrorEvent.h"
 #include "JSEvent.h"
 #include "JSExecState.h"
 #include "JSExecStateInstrumentation.h"
+#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/VMEntryScopeInlines.h>
 #include <wtf/Ref.h>
+#include <wtf/Scope.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -73,7 +76,7 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
     if (!jsFunction)
         return;
 
-    auto* isolatedWorld = this->isolatedWorld();
+    RefPtr isolatedWorld = this->isolatedWorld();
     if (!isolatedWorld) [[unlikely]]
         return;
 
@@ -86,7 +89,7 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
         Ref<JSErrorHandler> protectedThis(*this);
 
         RefPtr<Event> savedEvent;
-        auto* jsFunctionWindow = jsDynamicCast<JSDOMWindow*>(jsFunction->globalObject());
+        auto* jsFunctionWindow = dynamicDowncast<JSDOMWindow>(jsFunction->realm());
         if (jsFunctionWindow) {
             savedEvent = jsFunctionWindow->currentEvent();
 
@@ -95,33 +98,55 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
                 jsFunctionWindow->setCurrentEvent(errorEvent);
         }
 
-        MarkedArgumentBuffer args;
-        args.append(toJS<IDLDOMString>(*globalObject, errorEvent->message()));
-        args.append(toJS<IDLUSVString>(*globalObject, errorEvent->filename()));
-        args.append(toJS<IDLUnsignedLong>(errorEvent->lineno()));
-        args.append(toJS<IDLUnsignedLong>(errorEvent->colno()));
-        args.append(errorEvent->error(*globalObject));
-        ASSERT(!args.hasOverflowed());
+        auto restoreCurrentEventOnExit = makeScopeExit([&] {
+            if (jsFunctionWindow)
+                jsFunctionWindow->setCurrentEvent(savedEvent.get());
+        });
 
-        VM& vm = globalObject->vm();
-        VMEntryScope entryScope(vm, vm.entryScope ? vm.entryScope->globalObject() : globalObject);
+        auto exception = ([&] -> NakedPtr<JSC::Exception> {
+            VM& vm = globalObject->vm();
 
-        JSExecState::instrumentFunction(&scriptExecutionContext, callData);
+            MarkedArgumentBuffer args;
+            args.append(toJS<IDLDOMString>(*globalObject, errorEvent->message()));
+            args.append(toJS<IDLUSVString>(*globalObject, errorEvent->filename()));
+            args.append(toJS<IDLUnsignedLong>(errorEvent->lineno()));
+            args.append(toJS<IDLUnsignedLong>(errorEvent->colno()));
 
-        NakedPtr<JSC::Exception> exception;
-        JSValue returnValue = JSExecState::profiledCall(globalObject, JSC::ProfilingReason::Other, jsFunction, callData, globalObject, args, exception);
+            {
+                auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+                auto* jsErrorEvent = downcast<JSErrorEvent>(toJS(globalObject, globalObject, *errorEvent));
+                if (auto* exception = scope.exception()) [[unlikely]] {
+                    scope.clearException();
+                    return exception;
+                }
+                auto error = jsErrorEvent->error(*globalObject);
+                if (auto* exception = scope.exception()) [[unlikely]] {
+                    scope.clearException();
+                    return exception;
+                }
+                args.append(error);
+                ASSERT(!args.hasOverflowed());
+            }
 
-        InspectorInstrumentation::didCallFunction(&scriptExecutionContext);
+            VMEntryScope entryScope(vm, vm.entryScope ? vm.entryScope->globalObject() : globalObject);
 
-        if (exception)
-            reportException(jsFunction->globalObject(), exception);
-        else {
+            JSExecState::instrumentFunction(&scriptExecutionContext, callData);
+
+            NakedPtr<JSC::Exception> exception;
+            JSValue returnValue = JSExecState::profiledCall(globalObject, JSC::ProfilingReason::Other, jsFunction, callData, globalObject, args, exception);
+
+            InspectorInstrumentation::didCallFunction(&scriptExecutionContext);
+
+            if (exception) [[unlikely]]
+                return exception;
+
             if (returnValue.isTrue())
                 errorEvent->preventDefault();
-        }
 
-        if (jsFunctionWindow)
-            jsFunctionWindow->setCurrentEvent(savedEvent.get());
+            return nullptr;
+        }());
+        if (exception)
+            reportException(jsFunction->realm(), exception);
     }
 }
 

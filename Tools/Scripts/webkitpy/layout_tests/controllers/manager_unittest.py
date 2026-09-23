@@ -51,7 +51,7 @@ class ManagerTest(unittest.TestCase):
     def _get_manager(self):
         host = MockHost()
         port = host.port_factory.get('test-mac-leopard')
-        manager = Manager(port, options=MockOptions(test_list=None, http=True, verbose=False), printer=Mock())
+        manager = Manager(port, options=MockOptions(test_list=None, http=True, verbose=False, driver_names=list(port.DEFAULT_SUPPORTED_DRIVERS)), printer=Mock())
         return manager
 
     def test_look_for_new_crash_logs(self):
@@ -121,7 +121,9 @@ passes/text.html                       ['PASS']
 
         manager = self._get_manager()
         device_type = "DEVICE_TYPE"
-        manager._expectations[device_type] = parse_exp(get_test_names(), get_expectations())
+        driver_name = manager._driver_names[0]
+        manager._current_driver_name = driver_name
+        manager._expectations[(driver_name, device_type)] = parse_exp(get_test_names(), get_expectations())
         test_col_width = max(len(test) for test in get_test_names()) + 1
 
         initial_stdout = sys.stdout
@@ -139,3 +141,14 @@ passes/text.html                       ['PASS']
         # so if the output is not *exactly* as expected including whitespaces, this
         # could lead to unwanted effects, like blocking builds for a long time.
         self.assertEqual(get_printed_expectations(), out)
+
+    def test_print_expectations_no_tests_found(self):
+        # Passing a non-existent path should not raise ValueError from max() on an
+        # empty sequence; it should return 0 cleanly.
+        manager = self._get_manager()
+        manager._options.update(repeat_each=1, iterations=1)
+        device_type_list = manager._port.supported_device_types()
+        manager._create_port_for_driver = Mock(return_value=manager._port)
+        manager._collect_tests = Mock(return_value=({dt: [] for dt in device_type_list}, set()))
+        exit_code = manager.print_expectations(['this/file/does/not/exist.html'])
+        self.assertEqual(exit_code, 0)

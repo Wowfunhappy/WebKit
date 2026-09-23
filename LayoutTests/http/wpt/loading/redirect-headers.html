@@ -1,9 +1,9 @@
+<!-- webkit-test-runner [ dumpResourceLoadCallbacks=true ] -->
 <html>
 <script>
 if (window.testRunner) {
     testRunner.dumpAsText();
     testRunner.dumpFrameLoadCallbacks();
-    testRunner.dumpResourceLoadCallbacks();
     testRunner.dumpAllHTTPRedirectedResponseHeaders();
     testRunner.waitUntilDone();
 }
@@ -15,6 +15,6 @@ async function doTest()
     testRunner.notifyDone();
 }
 </script>
-<body onload="doTest();">
+<body onload="setTimeout(doTest, 100);">
 </body>
 </html>

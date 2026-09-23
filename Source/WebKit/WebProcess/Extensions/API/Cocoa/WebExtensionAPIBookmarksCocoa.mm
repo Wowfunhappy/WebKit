@@ -32,6 +32,7 @@
 #import "WebExtensionAPIBookmarks.h"
 #import "CocoaHelpers.h"
 #import "MessageSenderInlines.h"
+#import "WebExtensionAPIKeys.h"
 #import "WebExtensionBookmarksParameters.h"
 #import "WebExtensionContextMessages.h"
 #import "WebProcess.h"
@@ -40,17 +41,6 @@
 
 namespace WebKit {
 
-static NSString * const idKey = @"id";
-static NSString * const urlKey = @"url";
-static NSString * const titleKey = @"title";
-static NSString * const indexKey = @"index";
-static NSString * const parentIdKey = @"parentId";
-static NSString * const dateAddedKey = @"dateAdded";
-static NSString * const typeKey = @"type";
-static NSString * const queryKey = @"query";
-static NSString * const childrenKey = @"children";
-static NSString * const bookmarkKey = @"bookmark";
-static NSString * const folderKey = @"folder";
 
 static NSDictionary *toAPI(const WebExtensionBookmarksParameters& node)
 {

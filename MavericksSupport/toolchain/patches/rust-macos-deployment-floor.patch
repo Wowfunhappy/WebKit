@@ -1,0 +1,17 @@
+Rust's session code clamps the requested deployment target to this minimum
+before constructing LLVM's target triple. Permit Mavericks code generation;
+minimum_deployment_target still preserves AArch64 macOS's explicit 11.0 floor.
+The target standard library is rebuilt, with missing APIs supplied by the same
+shared implementations used by WebKit and its other native dependencies.
+
+--- a/compiler/rustc_target/src/spec/base/apple/mod.rs
++++ b/compiler/rustc_target/src/spec/base/apple/mod.rs
+@@ -308,7 +308,7 @@
+         // $ rustc --print deployment-target
+         // ```
+         let (major, minor, patch) = match os {
+-            Os::MacOs => (10, 12, 0),
++            Os::MacOs => (10, 9, 0),
+             Os::IOs => (10, 0, 0),
+             Os::TvOs => (10, 0, 0),
+             Os::WatchOs => (5, 0, 0),

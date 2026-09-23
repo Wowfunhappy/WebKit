@@ -827,7 +827,7 @@ class Git(Scm):
 
         default_branch = self.default_branch
         parsed_branch_point = None
-        log_format = ['-1', '--no-decorate', '--date=unix'] if include_log else ['-1', '--no-decorate', '--date=unix', '--format=short']
+        log_format = ['-1', '--no-decorate', '--date=unix', '--format=fuller'] if include_log else ['-1', '--no-decorate', '--date=unix', '--format=short']
 
         # Determine the `git log` output and branch for a given identifier
         if identifier is not None:
@@ -1365,7 +1365,7 @@ class Git(Scm):
             prune = True
         elif prune is None and self.config()['webkitscmpy.auto-prune'] == 'only-source':
             prune = remote in self.source_remotes()
-        command = [self.executable(), 'fetch', remote, '{}:{}'.format(branch, branch)]
+        command = [self.executable(), 'fetch', remote, '{}:{}'.format(branch, branch), '+refs/heads/{}:refs/remotes/{}/{}'.format(branch, remote, branch)]
         if prune:
             command.append('--prune')
         return run(command, cwd=self.root_path).returncode

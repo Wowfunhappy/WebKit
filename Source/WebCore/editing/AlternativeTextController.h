@@ -86,10 +86,11 @@ public:
     void handleAlternativeTextUIResult(const String& result) UNLESS_ENABLED({ UNUSED_PARAM(result); })
     void handleCancelOperation() UNLESS_ENABLED({ })
 
-    bool hasPendingCorrection() const UNLESS_ENABLED({ return false; })
+    bool NODELETE hasPendingCorrection() const UNLESS_ENABLED({ return false; })
     bool isSpellingMarkerAllowed(const SimpleRange& misspellingRange) const UNLESS_ENABLED({ UNUSED_PARAM(misspellingRange); return true; })
     bool isAutomaticSpellingCorrectionEnabled() UNLESS_ENABLED({ return false; })
     bool canEnableAutomaticSpellingCorrection() const UNLESS_ENABLED({ return false; })
+    bool isAlternativeTextUIActive() const UNLESS_ENABLED({ return false; })
     bool shouldRemoveMarkersUponEditing();
 
     void recordAutocorrectionResponse(AutocorrectionResponse, const String& replacedString, const SimpleRange& replacementRange) UNLESS_ENABLED({ UNUSED_PARAM(replacedString); UNUSED_PARAM(replacementRange); })

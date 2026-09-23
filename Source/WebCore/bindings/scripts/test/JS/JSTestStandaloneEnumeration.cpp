@@ -24,7 +24,7 @@
 
 #include "JSTestStandaloneEnumeration.h"
 
-#include <JavaScriptCore/JSCInlines.h>
+#include "JSDOMBindingFacade.h"
 #include <JavaScriptCore/JSString.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SortedArrayMap.h>
@@ -55,7 +55,7 @@ template<> JSString* convertEnumerationToJS(VM& vm, TestStandaloneEnumeration en
 
 template<> std::optional<TestStandaloneEnumeration> parseEnumerationFromString<TestStandaloneEnumeration>(const String& stringValue)
 {
-    static constexpr SortedArrayMap enumerationMapping { std::to_array<std::pair<ComparableASCIILiteral, TestStandaloneEnumeration>>({
+    static constexpr SortedArrayMap enumerationMapping { WTF::toArray<std::pair<ComparableASCIILiteral, TestStandaloneEnumeration>>({
         { "enum-value3"_s, TestStandaloneEnumeration::EnumValue3 },
         { "enumValue1"_s, TestStandaloneEnumeration::EnumValue1 },
         { "enumValue2"_s, TestStandaloneEnumeration::EnumValue2 },

@@ -34,26 +34,30 @@ WI.CSSObserver = class CSSObserver extends InspectorBackend.Dispatcher
 
     styleSheetChanged(styleSheetId)
     {
-        WI.cssManager.styleSheetChanged(styleSheetId);
+        WI.cssManager.styleSheetChanged(styleSheetId, this._target);
     }
 
     styleSheetAdded(styleSheetInfo)
     {
-        WI.cssManager.styleSheetAdded(styleSheetInfo);
+        WI.cssManager.styleSheetAdded(styleSheetInfo, this._target);
     }
 
     styleSheetRemoved(id)
     {
-        WI.cssManager.styleSheetRemoved(id);
+        WI.cssManager.styleSheetRemoved(id, this._target);
     }
 
     nodeLayoutFlagsChanged(nodeId, layoutFlags)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
         WI.domManager.nodeLayoutFlagsChanged(nodeId, layoutFlags);
     }
 
     nodeLayoutContextTypeChanged(nodeId, layoutContextType)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return;
         // COMPATIBILITY (macOS 13.0, iOS 16.0): CSS.nodeLayoutContextTypeChanged was renamed/expanded to CSS.nodeLayoutFlagsChanged.
         WI.domManager.nodeLayoutFlagsChanged(nodeId, [WI.DOMNode.LayoutFlag.Rendered, layoutContextType]);
     }

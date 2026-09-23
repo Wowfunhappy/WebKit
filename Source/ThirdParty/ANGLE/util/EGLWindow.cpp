@@ -37,6 +37,8 @@ ConfigParameters::ConfigParameters()
       stencilBits(-1),
       // The default value of EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE is EGL_FALSE.
       webGLCompatibility(false),
+      // The default value of EGL_CONTEXT_HARDENED_ANGLE is EGL_FALSE
+      hardenedContext(false),
       // The default value of EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE is EGL_FALSE.
       robustResourceInit(false),
       componentType(EGL_COLOR_COMPONENT_TYPE_FIXED_EXT),
@@ -53,6 +55,8 @@ ConfigParameters::ConfigParameters()
       clientArraysEnabled(true),
       // The default value of EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT is EGL_FALSE.
       robustAccess(false),
+      // Tests that require EGL_PBUFFER_BIT should request it explicitly.
+      pbuffer(false),
       // EGL_RENDER_BUFFER requires EGL 1.4+ or extension support.
       mutableRenderBuffer(false),
       samples(-1),
@@ -285,6 +289,9 @@ bool EGLWindow::initializeDisplay(OSWindow *osWindow,
         displayAttributes.push_back(reinterpret_cast<EGLAttrib>(enabledFeatureOverrides.data()));
     }
 
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE);
+    displayAttributes.push_back(osWindow->getNativeDisplayPlatformType());
+
     displayAttributes.push_back(EGL_NONE);
 
     if (driverType == angle::GLESDriverType::SystemWGL)
@@ -339,7 +346,8 @@ GLWindowResult EGLWindow::initializeSurface(OSWindow *osWindow,
 
     std::vector<EGLint> configAttributes = {
         EGL_SURFACE_TYPE,
-        EGL_WINDOW_BIT | (params.mutableRenderBuffer ? EGL_MUTABLE_RENDER_BUFFER_BIT_KHR : 0),
+        EGL_WINDOW_BIT | (params.pbuffer ? EGL_PBUFFER_BIT : 0) |
+            (params.mutableRenderBuffer ? EGL_MUTABLE_RENDER_BUFFER_BIT_KHR : 0),
         EGL_RED_SIZE,
         (mConfigParams.redBits >= 0) ? mConfigParams.redBits : EGL_DONT_CARE,
         EGL_GREEN_SIZE,
@@ -481,7 +489,8 @@ EGLContext EGLWindow::createContext(EGLContext share, EGLint *extraAttributes)
 
     bool hasWebGLCompatibility =
         strstr(displayExtensions, "EGL_ANGLE_create_context_webgl_compatibility") != nullptr;
-    if (mConfigParams.webGLCompatibility && !hasWebGLCompatibility)
+    if ((mConfigParams.webGLCompatibility || mConfigParams.hardenedContext) &&
+        !hasWebGLCompatibility)
     {
         fprintf(stderr, "EGL_ANGLE_create_context_webgl_compatibility missing.\n");
         return EGL_NO_CONTEXT;
@@ -590,6 +599,9 @@ EGLContext EGLWindow::createContext(EGLContext share, EGLint *extraAttributes)
         {
             contextAttributes.push_back(EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE);
             contextAttributes.push_back(mConfigParams.webGLCompatibility ? EGL_TRUE : EGL_FALSE);
+
+            contextAttributes.push_back(EGL_CONTEXT_HARDENED_ANGLE);
+            contextAttributes.push_back(mConfigParams.hardenedContext ? EGL_TRUE : EGL_FALSE);
         }
 
         if (hasCreateContextExtensionsEnabled)
@@ -853,6 +865,16 @@ EGLint EGLWindow::getEGLError()
 EGLWindow::Display EGLWindow::getCurrentDisplay()
 {
     return eglGetCurrentDisplay();
+}
+
+EGLWindow::Surface EGLWindow::getCurrentSurface(EGLint readdraw)
+{
+    return eglGetCurrentSurface(readdraw);
+}
+
+EGLContext EGLWindow::getCurrentContext()
+{
+    return eglGetCurrentContext();
 }
 
 GLWindowBase::Surface EGLWindow::createPbufferSurface(const EGLint *attrib_list)

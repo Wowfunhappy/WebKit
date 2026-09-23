@@ -25,7 +25,9 @@
 #include "config.h"
 #include "CSSColorValue.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
+#include "CSSValuePool.h"
+#include "CSSValueTypes+DeprecatedCSSOMValueCreation.h"
 
 namespace WebCore {
 
@@ -61,8 +63,11 @@ WebCore::Color CSSColorValue::absoluteColor(const CSSValue& value)
     if (RefPtr color = dynamicDowncast<CSSColorValue>(value))
         return color->color().absoluteColor();
 
-    if (auto valueID = value.valueID(); CSS::isAbsoluteColorKeyword(valueID))
-        return CSS::colorFromAbsoluteKeyword(valueID);
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        if (auto valueID = keywordValue->valueID(); CSS::isAbsoluteColorKeyword(valueID))
+            return CSS::colorFromAbsoluteKeyword(valueID);
+    }
+
     return { };
 }
 
@@ -79,6 +84,11 @@ bool CSSColorValue::equals(const CSSColorValue& other) const
 IterationStatus CSSColorValue::customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
 {
     return CSS::visitCSSValueChildren(func, m_color);
+}
+
+Ref<DeprecatedCSSOMValue> CSSColorValue::customCreateDeprecatedCSSOMWrapper(CSSStyleDeclaration& owner) const
+{
+    return CSS::createDeprecatedCSSOMValue(CSSValuePool::singleton(), owner, m_color);
 }
 
 } // namespace WebCore

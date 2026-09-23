@@ -71,7 +71,7 @@ textElement.setAttribute("systemLanguage", " \t\n1 2 3 4 5 6 7 8 9 10\t\n ");
 
 debug("");
 debug("Check SVStringList parsing");
-shouldBe("textElement.systemLanguage.length", "10");
+shouldBe("textElement.systemLanguage.length", "1");
 shouldBeEqualToString("SVGListToString(textElement.systemLanguage)", "[1 2 3 4 5 6 7 8 9 10]");
 
 textElement.setAttribute('transform', ' \t\nscale(2, 2) translate(10 10)\t\n ');

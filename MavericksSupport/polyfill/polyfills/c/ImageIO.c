@@ -1,12 +1,23 @@
-// ImageIO: the decode-policy entry points modern WebKit calls that 10.9's ImageIO does not export.
-// Nothing here decodes: this port hands image bytes to WebCore's own decoders, and what is left is
-// the process-wide restriction WebKit installs over whatever else in the process reaches ImageIO.
+// ImageIO decode policy and image metadata constants.
 #include "wk_polyfill.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreVideo/CVPixelBuffer.h>
+#include <IOSurface/IOSurface.h>
 #include <ImageIO/ImageIO.h>
 #include <objc/runtime.h>
 #include <stdbool.h>
+
+// Image metadata dictionary key, also consumed by the WKWebView image metadata API.
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGImagePropertyImageCount, CFSTR("ImageCount"));
+
+// Gain-map metadata and target pixel-buffer attributes.
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGImageAuxiliaryDataInfoMetadata, CFSTR("kCGImageAuxiliaryDataInfoMetadata"));
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGImageAuxiliaryDataInfoColorSpace, CFSTR("kCGImageAuxiliaryDataInfoColorSpace"));
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGTargetColorSpace, CFSTR("kCGTargetColorSpace"));
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGTargetHeadroom, CFSTR("kCGTargetHeadroom"));
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGTargetPixelFormat, CFSTR("kCGTargetPixelFormat"));
+WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGFlexRangeAlternateColorSpace, CFSTR("kCGFlexRangeAlternateColorSpace"));
 
 // ---------------------------------------------------------------------------------------------------
 // ImageIO decode-policy controls (newer, security hardening).

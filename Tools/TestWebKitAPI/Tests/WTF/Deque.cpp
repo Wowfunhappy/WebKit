@@ -295,4 +295,255 @@ TEST(WTF_Deque, StressAppendPrepend)
     EXPECT_TRUE(deque.isEmpty());
 }
 
+TEST(WTF_Deque, RemoveAllMatching)
+{
+    Deque<int> deque = { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    // Remove even numbers.
+    size_t removed = deque.removeAllMatching([](int value) { return !(value % 2); });
+    EXPECT_EQ(4u, removed);
+    EXPECT_EQ(4u, deque.size());
+
+    // Verify remaining elements and their order.
+    auto it = deque.begin();
+    EXPECT_EQ(1, *it);
+    ++it;
+    EXPECT_EQ(3, *it);
+    ++it;
+    EXPECT_EQ(5, *it);
+    ++it;
+    EXPECT_EQ(7, *it);
+    ++it;
+    EXPECT_TRUE(it == deque.end());
+}
+
+TEST(WTF_Deque, RemoveAllMatchingNone)
+{
+    Deque<int> deque = { 1, 2, 3 };
+
+    size_t removed = deque.removeAllMatching([](int) { return false; });
+    EXPECT_EQ(0u, removed);
+    EXPECT_EQ(3u, deque.size());
+}
+
+TEST(WTF_Deque, RemoveAllMatchingAll)
+{
+    Deque<int> deque = { 1, 2, 3, 4 };
+
+    size_t removed = deque.removeAllMatching([](int) { return true; });
+    EXPECT_EQ(4u, removed);
+    EXPECT_TRUE(deque.isEmpty());
+}
+
+TEST(WTF_Deque, RemoveAllMatchingSingleElement)
+{
+    Deque<int> deque = { 42 };
+
+    size_t removed = deque.removeAllMatching([](int value) { return value == 42; });
+    EXPECT_EQ(1u, removed);
+    EXPECT_TRUE(deque.isEmpty());
+}
+
+TEST(WTF_Deque, RemoveFirstMatching)
+{
+    Deque<int> deque = { 1, 2, 3, 2, 4 };
+
+    bool found = deque.removeFirstMatching([](int value) { return value == 2; });
+    EXPECT_TRUE(found);
+    EXPECT_EQ(4u, deque.size());
+
+    // Only the first 2 should be removed.
+    auto it = deque.begin();
+    EXPECT_EQ(1, *it);
+    ++it;
+    EXPECT_EQ(3, *it);
+    ++it;
+    EXPECT_EQ(2, *it);
+    ++it;
+    EXPECT_EQ(4, *it);
+
+    // No match.
+    found = deque.removeFirstMatching([](int value) { return value == 99; });
+    EXPECT_FALSE(found);
+    EXPECT_EQ(4u, deque.size());
+}
+
+TEST(WTF_Deque, TakeFirstWithPredicate)
+{
+    Deque<int> deque = { 1, 2, 3, 4, 5 };
+
+    // Take the first even number.
+    int result = deque.takeFirst([](int value) { return !(value % 2); });
+    EXPECT_EQ(2, result);
+    EXPECT_EQ(4u, deque.size());
+
+    // Verify remaining elements and order.
+    auto it = deque.begin();
+    EXPECT_EQ(1, *it); ++it;
+    EXPECT_EQ(3, *it); ++it;
+    EXPECT_EQ(4, *it); ++it;
+    EXPECT_EQ(5, *it); ++it;
+    EXPECT_TRUE(it == deque.end());
+}
+
+TEST(WTF_Deque, TakeFirstWithPredicateNoMatch)
+{
+    Deque<int> deque = { 1, 3, 5 };
+
+    int result = deque.takeFirst([](int value) { return !(value % 2); });
+    EXPECT_EQ(0, result);
+    EXPECT_EQ(3u, deque.size());
+
+    // Verify elements are unchanged.
+    auto it = deque.begin();
+    EXPECT_EQ(1, *it); ++it;
+    EXPECT_EQ(3, *it); ++it;
+    EXPECT_EQ(5, *it); ++it;
+    EXPECT_TRUE(it == deque.end());
+}
+
+TEST(WTF_Deque, TakeFirstWithPredicateFirstElement)
+{
+    Deque<int> deque = { 10, 1, 2, 3 };
+
+    int result = deque.takeFirst([](int value) { return value == 10; });
+    EXPECT_EQ(10, result);
+    EXPECT_EQ(3u, deque.size());
+    EXPECT_EQ(1, deque.first());
+}
+
+TEST(WTF_Deque, TakeFirstWithPredicateLastElement)
+{
+    Deque<int> deque = { 1, 2, 3, 10 };
+
+    int result = deque.takeFirst([](int value) { return value == 10; });
+    EXPECT_EQ(10, result);
+    EXPECT_EQ(3u, deque.size());
+    EXPECT_EQ(3, deque.last());
+}
+
+TEST(WTF_Deque, TakeFirstWithPredicateSingleElement)
+{
+    Deque<int> deque = { 42 };
+
+    int result = deque.takeFirst([](int value) { return value == 42; });
+    EXPECT_EQ(42, result);
+    EXPECT_TRUE(deque.isEmpty());
+}
+
+TEST(WTF_Deque, TakeLastWithPredicate)
+{
+    Deque<int> deque = { 1, 2, 3, 4, 5 };
+
+    // Take the last even number (should be 4, not 2).
+    int result = deque.takeLast([](int value) { return !(value % 2); });
+    EXPECT_EQ(4, result);
+    EXPECT_EQ(4u, deque.size());
+
+    // Verify remaining elements and order.
+    auto it = deque.begin();
+    EXPECT_EQ(1, *it); ++it;
+    EXPECT_EQ(2, *it); ++it;
+    EXPECT_EQ(3, *it); ++it;
+    EXPECT_EQ(5, *it); ++it;
+    EXPECT_TRUE(it == deque.end());
+}
+
+TEST(WTF_Deque, TakeLastWithPredicateNoMatch)
+{
+    Deque<int> deque = { 1, 3, 5 };
+
+    int result = deque.takeLast([](int value) { return !(value % 2); });
+    EXPECT_EQ(0, result);
+    EXPECT_EQ(3u, deque.size());
+
+    // Verify elements are unchanged.
+    auto it = deque.begin();
+    EXPECT_EQ(1, *it); ++it;
+    EXPECT_EQ(3, *it); ++it;
+    EXPECT_EQ(5, *it); ++it;
+    EXPECT_TRUE(it == deque.end());
+}
+
+TEST(WTF_Deque, TakeLastWithPredicateLastElement)
+{
+    Deque<int> deque = { 1, 2, 3, 10 };
+
+    int result = deque.takeLast([](int value) { return value == 10; });
+    EXPECT_EQ(10, result);
+    EXPECT_EQ(3u, deque.size());
+    EXPECT_EQ(3, deque.last());
+}
+
+TEST(WTF_Deque, TakeLastWithPredicateFirstElement)
+{
+    Deque<int> deque = { 10, 1, 2, 3 };
+
+    int result = deque.takeLast([](int value) { return value == 10; });
+    EXPECT_EQ(10, result);
+    EXPECT_EQ(3u, deque.size());
+    EXPECT_EQ(1, deque.first());
+}
+
+TEST(WTF_Deque, TakeFirstWithPredicateWrappedBuffer)
+{
+    Deque<int> deque;
+
+    // Force wrap-around: append then remove from front to advance m_start.
+    for (int i = 0; i < 14; ++i)
+        deque.append(i);
+    for (int i = 0; i < 12; ++i)
+        deque.removeFirst();
+    // Now m_start is advanced. Add more so elements wrap around.
+    for (int i = 14; i < 26; ++i)
+        deque.append(i);
+
+    // Deque contains [12, 13, 14, ..., 25] = 14 elements, wrapping around.
+    EXPECT_EQ(14u, deque.size());
+
+    // Take the first element matching > 20 (should be 21, not 12).
+    int result = deque.takeFirst([](int value) { return value == 21; });
+    EXPECT_EQ(21, result);
+    EXPECT_EQ(13u, deque.size());
+
+    // Verify order is preserved.
+    int expected = 12;
+    for (auto& element : deque) {
+        EXPECT_EQ(expected, element);
+        expected++;
+        if (expected == 21)
+            expected = 22; // 21 was removed
+    }
+}
+
+TEST(WTF_Deque, TakeLastWithPredicateWrappedBuffer)
+{
+    Deque<int> deque;
+
+    // Force wrap-around.
+    for (int i = 0; i < 14; ++i)
+        deque.append(i);
+    for (int i = 0; i < 12; ++i)
+        deque.removeFirst();
+    for (int i = 14; i < 26; ++i)
+        deque.append(i);
+
+    // Deque contains [12, 13, 14, ..., 25] = 14 elements, wrapping around.
+    EXPECT_EQ(14u, deque.size());
+
+    // Take the last even number (should be 24).
+    int result = deque.takeLast([](int value) { return !(value % 2); });
+    EXPECT_EQ(24, result);
+    EXPECT_EQ(13u, deque.size());
+
+    // Verify order is preserved.
+    int expected = 12;
+    for (auto& element : deque) {
+        EXPECT_EQ(expected, element);
+        expected++;
+        if (expected == 24)
+            expected = 25; // 24 was removed
+    }
+}
+
 } // namespace TestWebKitAPI

@@ -48,6 +48,11 @@ struct ScrollPropagationInfo {
     bool isHandled { false };
 };
 
+enum class AnimatedScrollType : uint8_t {
+    User,
+    Programmatic
+};
+
 class WEBCORE_EXPORT ScrollingTreeScrollingNode : public ScrollingTreeNode {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingTreeScrollingNode, WEBCORE_EXPORT);
     friend class ScrollingTreeScrollingNodeDelegate;
@@ -94,7 +99,7 @@ public:
 #endif
 
     virtual bool startAnimatedScrollToPosition(FloatPoint);
-    virtual void stopAnimatedScroll();
+    virtual void stopAnimatedScroll(EnumSet<AnimatedScrollType>);
 
     virtual void serviceScrollAnimation(MonotonicTime);
 
@@ -202,7 +207,7 @@ protected:
     bool overscrollBehaviorAllowsHorizontalRubberBand() const { return m_scrollableAreaParameters.horizontalOverscrollBehavior != OverscrollBehavior::None; }
     bool overscrollBehaviorAllowsVerticalRubberBand() const { return m_scrollableAreaParameters.verticalOverscrollBehavior != OverscrollBehavior::None; }
 
-    PlatformWheelEvent eventForPropagation(const PlatformWheelEvent&) const;
+    PlatformWheelEvent NODELETE eventForPropagation(const PlatformWheelEvent&) const;
     ScrollPropagationInfo NODELETE computeScrollPropagation(const FloatSize&) const;
     bool overscrollBehaviorAllowsRubberBand() const { return m_scrollableAreaParameters.horizontalOverscrollBehavior != OverscrollBehavior::None ||  m_scrollableAreaParameters.verticalOverscrollBehavior != OverscrollBehavior::None; }
 
@@ -210,6 +215,8 @@ protected:
     bool shouldRubberBandOnSide(BoxSide, RectEdges<bool> pinnedEdges) const;
 
     void handleScrollPositionRequest(const RequestedScrollData&);
+
+    float rubberbandHyperbolicCoefficientForTesting() const;
 
     void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const override;
 

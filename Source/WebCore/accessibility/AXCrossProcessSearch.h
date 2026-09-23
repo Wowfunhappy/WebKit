@@ -154,4 +154,34 @@ WEBCORE_EXPORT AccessibilitySearchResults mergeParentSearchResults(Accessibility
 // re-searching this frame during parent continuation.
 WEBCORE_EXPORT AccessibilitySearchResults performSearchWithParentCoordination(AXCoreObject& anchorObject, AccessibilitySearchCriteria&&, std::optional<FrameIdentifier> currentFrameID = std::nullopt);
 
+// Testing support: when enabled, performSearchWithParentCoordination injects a
+// mock parent search result if the parent search was dispatched. This allows
+// tests to verify that the parent search is correctly skipped (e.g., for
+// immediateDescendantsOnly searches) without relying on real cross-process IPC,
+// which deadlocks in the test runner purely due to a limitation in our testing
+// infrastructure.
+//
+// The deadlock occurs because the test runner (UI process) initiates accessibility
+// searches via AXUIElementCopyParameterizedAttributeValue, which is a synchronous
+// Mach IPC call that blocks the UI process main thread until the child web content
+// process returns a result. However, the child's search dispatches a parent search
+// via WebKit IPC (child -> UI process -> parent process), and the UI process must
+// process this IPC on its main thread to forward it to the parent. Since the main
+// thread is blocked waiting for the AXUIElementCopyParameterizedAttributeValue
+// reply, the parent search IPC cannot be forwarded, and the child eventually times
+// out waiting for parent results.
+//
+// In production, VoiceOver uses the system accessibility framework which does not
+// block the UI process in the same way, so this deadlock is test-infrastructure-
+// specific. If the test infrastructure is updated to avoid blocking the UI process
+// main thread during accessibility searches, this mock can be removed and tests
+// can rely on real cross-process parent search results instead.
+WEBCORE_EXPORT void NODELETE setShouldMockParentSearchResultsForTesting(bool);
+WEBCORE_EXPORT bool NODELETE shouldMockParentSearchResultsForTesting();
+
+// Same as above but for child frame (remote frame) search. When enabled,
+// dispatchRemoteFrameSearch injects a mock result instead of sending IPC.
+WEBCORE_EXPORT void NODELETE setShouldMockChildFrameSearchResultsForTesting(bool);
+WEBCORE_EXPORT bool NODELETE shouldMockChildFrameSearchResultsForTesting();
+
 } // namespace WebCore

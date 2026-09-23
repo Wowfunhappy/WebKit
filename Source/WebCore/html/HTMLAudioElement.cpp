@@ -30,6 +30,7 @@
 #include "HTMLAudioElement.h"
 
 #include "CommonAtomStrings.h"
+#include "EventTarget.h"
 #include "HTMLNames.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -59,6 +60,8 @@ Ref<HTMLAudioElement> HTMLAudioElement::createForLegacyFactoryFunction(Document&
     element->setAttributeWithoutSynchronization(srcAttr, src);
     return element;
 }
+
+HTMLAudioElement::~HTMLAudioElement() = default;
 
 }
 

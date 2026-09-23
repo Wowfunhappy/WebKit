@@ -50,6 +50,8 @@ enum class FeatureName : uint8_t {
     Float32Renderable,
     CoreFeaturesAndLimits,
     TextureFormatsTier1,
+    TextureFormatsTier2,
+    PrimitiveIndex,
 };
 
 } // namespace WebCore::WebGPU

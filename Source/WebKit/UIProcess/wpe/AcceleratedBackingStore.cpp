@@ -113,7 +113,7 @@ void AcceleratedBackingStore::updateSurfaceID(uint64_t surfaceID)
     m_surfaceID = surfaceID;
     if (m_surfaceID && m_webPage) {
         m_legacyMainFrameProcess = m_webPage->legacyMainFrameProcess();
-        Ref { *m_legacyMainFrameProcess }->addMessageReceiver(Messages::AcceleratedBackingStore::messageReceiverName(), m_surfaceID, *this);
+        protect(*m_legacyMainFrameProcess)->addMessageReceiver(Messages::AcceleratedBackingStore::messageReceiverName(), m_surfaceID, *this);
     }
 }
 
@@ -138,13 +138,13 @@ void AcceleratedBackingStore::notifyBufferConfigurationIfNeeded()
     wpe_view_buffers_changed(m_wpeView.get(), buffersSpan.data(), buffersSpan.size());
 }
 
-void AcceleratedBackingStore::didCreateDMABufBuffer(uint64_t id, const WebCore::IntSize& size, uint32_t format, Vector<WTF::UnixFileDescriptor>&& fds, Vector<uint32_t>&& offsets, Vector<uint32_t>&& strides, uint64_t modifier, RendererBufferFormat::Usage usage)
+void AcceleratedBackingStore::didCreateDMABufBuffer(uint64_t id, WebCore::DMABufBufferAttributes&& dmaBufAttributes, RendererBufferFormat::Usage usage)
 {
     Vector<int> fileDescriptors;
-    fileDescriptors.reserveInitialCapacity(fds.size());
-    for (auto& fd : fds)
+    fileDescriptors.reserveInitialCapacity(dmaBufAttributes.fds.size());
+    for (auto& fd : dmaBufAttributes.fds)
         fileDescriptors.append(fd.release());
-    GRefPtr<WPEBuffer> buffer = adoptGRef(WPE_BUFFER(wpe_buffer_dma_buf_new(wpe_view_get_display(m_wpeView.get()), size.width(), size.height(), format, fds.size(), fileDescriptors.mutableSpan().data(), offsets.mutableSpan().data(), strides.mutableSpan().data(), modifier)));
+    GRefPtr<WPEBuffer> buffer = adoptGRef(WPE_BUFFER(wpe_buffer_dma_buf_new(wpe_view_get_display(m_wpeView.get()), dmaBufAttributes.size.width(), dmaBufAttributes.size.height(), dmaBufAttributes.fourcc.value, dmaBufAttributes.fds.size(), fileDescriptors.mutableSpan().data(), dmaBufAttributes.offsets.mutableSpan().data(), dmaBufAttributes.strides.mutableSpan().data(), dmaBufAttributes.modifier)));
     g_object_set_data(G_OBJECT(buffer.get()), "wk-buffer-format-usage", GUINT_TO_POINTER(usage));
     m_bufferIDs.add(buffer.get(), id);
     m_buffers.add(id, WTF::move(buffer));

@@ -122,13 +122,7 @@ std::unique_ptr<PlatformControl> EmptyControlFactory::createPlatformSliderTrack(
     return nullptr;
 }
 
-std::unique_ptr<PlatformControl> EmptyControlFactory::createPlatformSwitchThumb(SwitchThumbPart&)
-{
-    notImplemented();
-    return nullptr;
-}
-
-std::unique_ptr<PlatformControl> EmptyControlFactory::createPlatformSwitchTrack(SwitchTrackPart&)
+std::unique_ptr<PlatformControl> EmptyControlFactory::createPlatformSwitch(SwitchPart&)
 {
     notImplemented();
     return nullptr;

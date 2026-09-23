@@ -83,7 +83,10 @@ private:
     bool isKeyboardFocusable(const FocusEventData&) const final;
     bool isMouseFocusable() const final;
     bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool NODELETE allowsHref() const;
     bool supportsFocus() const final;
+    int defaultTabIndex() const final;
+    Node::NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode& parentOfInsertedTree) final;
 };
 
 inline bool Node::hasTagName(const MathMLQualifiedName& name) const

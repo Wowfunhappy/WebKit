@@ -33,9 +33,7 @@ WebCredential::WebCredential(const WebCore::Credential& credential)
 {
 }
 
-WebCredential::~WebCredential()
-{
-}
+WebCredential::~WebCredential() = default;
 
 const WebCore::Credential& WebCredential::credential()
 {

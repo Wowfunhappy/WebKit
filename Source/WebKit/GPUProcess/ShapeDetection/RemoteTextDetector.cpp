@@ -29,6 +29,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "ArgumentCoders.h"
+#include "Logging.h"
 #include "RemoteRenderingBackend.h"
 #include "SharedPreferencesForWebProcess.h"
 #include <WebCore/DetectedTextInterface.h>
@@ -53,7 +54,7 @@ RemoteTextDetector::~RemoteTextDetector() = default;
 
 std::optional<SharedPreferencesForWebProcess> RemoteTextDetector::sharedPreferencesForWebProcess() const
 {
-    return Ref { m_renderingBackend.get() }->sharedPreferencesForWebProcess();
+    return m_renderingBackend.get().sharedPreferencesForWebProcess();
 }
 
 void RemoteTextDetector::detect(WebCore::RenderingResourceIdentifier renderingResourceIdentifier, CompletionHandler<void(Vector<WebCore::ShapeDetection::DetectedText>&&)>&& completionHandler)

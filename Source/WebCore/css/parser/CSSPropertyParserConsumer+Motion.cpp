@@ -26,6 +26,7 @@
 #include "config.h"
 #include "CSSPropertyParserConsumer+Motion.h"
 
+#include "CSSKeywordValueInlines.h"
 #include "CSSOffsetRotateValue.h"
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
@@ -54,7 +55,7 @@ static RefPtr<CSSValue> consumeRayFunction(CSSParserTokenRange& range, CSS::Prop
     // <ray-size> = closest-side | closest-corner | farthest-side | farthest-corner | sides
     // https://drafts.fxtf.org/motion-1/#ray-function
 
-    static constexpr SortedArrayMap sizeMap { std::to_array<std::pair<CSSValueID, CSS::RaySize>>({
+    static constexpr SortedArrayMap sizeMap { WTF::toArray<std::pair<CSSValueID, CSS::RaySize>>({
         { CSSValueClosestSide, CSS::RaySize { CSS::Keyword::ClosestSide { } } },
         { CSSValueClosestCorner, CSS::RaySize { CSS::Keyword::ClosestCorner { } } },
         { CSSValueFarthestSide, CSS::RaySize { CSS::Keyword::FarthestSide { } } },
@@ -182,7 +183,7 @@ RefPtr<CSSValue> consumeOffsetPath(CSSParserTokenRange& range, CSS::PropertyPars
         list.append(shapeOrRay.releaseNonNull());
 
     // Default value is border-box.
-    if (box && (box->valueID() != CSSValueBorderBox || !hasShapeOrRay))
+    if (box && (!isValueID(box, CSSValueBorderBox) || !hasShapeOrRay))
         list.append(box.releaseNonNull());
 
     if (list.isEmpty())

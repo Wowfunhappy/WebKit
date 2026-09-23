@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "Heap.h"
+#include <JavaScriptCore/Heap.h>
 #include <wtf/Noncopyable.h>
 
 namespace JSC {

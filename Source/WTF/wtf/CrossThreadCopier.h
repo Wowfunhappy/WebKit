@@ -355,7 +355,7 @@ template<typename T, typename U> struct CrossThreadCopierBase<false, false, Expe
             else
                 return CrossThreadCopier<T>::copy(source.value());
         }
-        return Unexpected<U>(CrossThreadCopier<U>::copy(source.error()));
+        return std::unexpected<U>(CrossThreadCopier<U>::copy(source.error()));
     }
 
     static Type copy(Type&& source)
@@ -366,7 +366,7 @@ template<typename T, typename U> struct CrossThreadCopierBase<false, false, Expe
             else
                 return CrossThreadCopier<T>::copy(WTF::move(source.value()));
         }
-        return Unexpected<U>(CrossThreadCopier<U>::copy(WTF::move(source.error())));
+        return std::unexpected<U>(CrossThreadCopier<U>::copy(WTF::move(source.error())));
     }
 };
 

@@ -78,7 +78,7 @@ public:
 
 private:
     Vector<Ref<ScrollTimeline>>& timelinesForName(const AtomString&) LIFETIME_BOUND;
-    Vector<WeakStyleable> relatedTimelineScopeElements(const CustomIdentifier&);
+    Vector<WeakStyleable> relatedTimelineScopeElements(const Style::CustomIdent&);
     void updateCSSAnimationsAssociatedWithNamedTimeline(const AtomString&);
 
     enum class AllowsDeferral : bool { No, Yes };

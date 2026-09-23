@@ -27,7 +27,6 @@
 #include <wtf/Threading.h>
 #include <wtf/text/ASCIIFastPath.h>
 #include <wtf/text/AtomStringTable.h>
-#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(WEB_THREAD)
@@ -37,6 +36,14 @@
 namespace WTF {
 
 using namespace Unicode;
+
+IGNORE_CLANG_WARNINGS_BEGIN("missing-noreturn")
+// Always destroyed via StringImpl::destroy().
+AtomStringImpl::~AtomStringImpl()
+{
+    RELEASE_ASSERT_NOT_REACHED();
+}
+IGNORE_CLANG_WARNINGS_END
 
 #if USE(WEB_THREAD)
 
@@ -237,6 +244,37 @@ struct BufferFromStaticDataTranslator {
     }
 };
 
+template<typename CharType>
+struct StaticStringAtomBuffer {
+    SUPPRESS_UNCOUNTED_MEMBER const StringImpl& staticImpl;
+    std::span<const CharType> characters;
+    unsigned hash;
+};
+
+// Translator that stores a StaticStringImpl directly in the atom table without
+// heap-allocating a copy. The StaticStringImpl must have been constructed with
+// StringImpl::StringAtom so that isAtom() returns true. This enables global
+// atom strings that share the same StringImpl* across all threads.
+template<typename CharType>
+struct StaticStringAtomTranslator {
+    using Buffer = StaticStringAtomBuffer<CharType>;
+
+    static unsigned NODELETE hash(const Buffer& buf)
+    {
+        return buf.hash;
+    }
+
+    static bool equal(AtomStringTable::StringEntry const& str, const Buffer& buf)
+    {
+        return WTF::equal(str.get(), buf.characters);
+    }
+
+    static void translate(AtomStringTable::StringEntry& location, const Buffer& buf, unsigned)
+    {
+        location = const_cast<StringImpl*>(&buf.staticImpl);
+    }
+};
+
 RefPtr<AtomStringImpl> AtomStringImpl::add(HashTranslatorCharBuffer<Latin1Character>& buffer)
 {
     if (!buffer.characters.data())
@@ -290,6 +328,20 @@ static Ref<AtomStringImpl> addStatic(AtomStringTableLocker& locker, StringTableI
 {
     ASSERT(base.length());
     ASSERT(base.isStatic());
+
+    // StaticStringImpl with StringAtom: store the static pointer directly in the
+    // atom table with no heap allocation. The isAtom() flag is already set at
+    // construction time, enabling uncheckedDowncast<AtomStringImpl> and the
+    // dynamicDowncast fast path in add(StringImpl&). All threads that register
+    // the same StaticStringImpl share the same StringImpl pointer.
+    if (base.isAtom()) {
+        if (base.is8Bit()) {
+            StaticStringAtomBuffer<Latin1Character> buffer { base, base.span8(), base.hash() };
+            return addToStringTable<StaticStringAtomBuffer<Latin1Character>, StaticStringAtomTranslator<Latin1Character>>(locker, atomStringTable, buffer);
+        }
+        StaticStringAtomBuffer<char16_t> buffer { base, base.span16(), base.hash() };
+        return addToStringTable<StaticStringAtomBuffer<char16_t>, StaticStringAtomTranslator<char16_t>>(locker, atomStringTable, buffer);
+    }
 
     if (base.is8Bit()) {
         Latin1Buffer buffer { base.span8(), base.hash() };
@@ -406,9 +458,8 @@ void AtomStringImpl::remove(AtomStringImpl* string)
     AtomStringTableLocker locker;
     auto& atomStringTable = stringTable();
     auto iterator = atomStringTable.find<AtomStringTableRemovalHashTranslator>(string);
-    ASSERT_WITH_MESSAGE(iterator != atomStringTable.end(), "The string being removed is an atom in the string table of an other thread!");
-    ASSERT(string == iterator->get());
-    atomStringTable.remove(iterator);
+    bool wasRemoved = atomStringTable.remove(iterator);
+    RELEASE_ASSERT(wasRemoved, "The string being removed is an atom in the string table of an other thread!");
 }
 
 RefPtr<AtomStringImpl> AtomStringImpl::lookUpSlowCase(StringImpl& string)

@@ -37,7 +37,7 @@ class ImageBufferCGPDFDocumentBackend : public ImageBufferCGBackend {
     WTF_MAKE_TZONE_ALLOCATED(ImageBufferCGPDFDocumentBackend);
     WTF_MAKE_NONCOPYABLE(ImageBufferCGPDFDocumentBackend);
 public:
-    WEBCORE_EXPORT static size_t calculateMemoryCost(const Parameters&);
+    WEBCORE_EXPORT static size_t NODELETE calculateMemoryCost(const Parameters&);
     WEBCORE_EXPORT static std::unique_ptr<ImageBufferCGPDFDocumentBackend> create(const Parameters&, const ImageBufferCreationContext&);
 
     ~ImageBufferCGPDFDocumentBackend();
@@ -54,8 +54,8 @@ private:
     RefPtr<NativeImage> copyNativeImage() final { return createNativeImageReference(); }
     RefPtr<NativeImage> createNativeImageReference() final { return nullptr; }
 
-    void getPixelBuffer(const IntRect&, PixelBuffer&) final { ASSERT_NOT_REACHED(); }
-    void putPixelBuffer(const PixelBufferSourceView&, const IntRect&, const IntPoint&, AlphaPremultiplication) final { ASSERT_NOT_REACHED(); }
+    void getPixelBuffer(const IntRect&, PixelBuffer&) final { RELEASE_ASSERT_NOT_REACHED(); }
+    void putPixelBuffer(const PixelBufferSourceView&, const IntRect&, const IntPoint&, AlphaPremultiplication) final { RELEASE_ASSERT_NOT_REACHED(); }
 
     RefPtr<SharedBuffer> sinkIntoPDFDocument() final;
 

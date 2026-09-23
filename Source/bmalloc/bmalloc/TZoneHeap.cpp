@@ -30,7 +30,7 @@
 
 #include "TZoneHeapManager.h"
 #include "bmalloc.h"
-#include "bmalloc_heap_internal.h"
+#include "bmalloc_heap_iso_internal.h"
 #include "bmalloc_heap_ref.h"
 
 #if !BUSE(LIBPAS)
@@ -53,7 +53,8 @@ void* tzoneAllocateNonCompactSlow(size_t requestedSize, const TZoneSpecification
             return tzoneAllocateNonCompactSlow(requestedSize, spec);
         }
 
-        RELEASE_BASSERT(tzoneMallocFallback == TZoneMallocFallback::ForceDebugMalloc);
+        RELEASE_BASSERT(tzoneMallocFallback == TZoneMallocFallback::ForceDebugMalloc
+            || tzoneMallocFallback == TZoneMallocFallback::ForceFastMalloc);
         return api::malloc(requestedSize, CompactAllocationMode::NonCompact);
     }
 
@@ -77,7 +78,8 @@ void* tzoneAllocateCompactSlow(size_t requestedSize, const TZoneSpecification& s
             return tzoneAllocateCompactSlow(requestedSize, spec);
         }
 
-        RELEASE_BASSERT(tzoneMallocFallback == TZoneMallocFallback::ForceDebugMalloc);
+        RELEASE_BASSERT(tzoneMallocFallback == TZoneMallocFallback::ForceDebugMalloc
+            || tzoneMallocFallback == TZoneMallocFallback::ForceFastMalloc);
         return api::malloc(requestedSize, CompactAllocationMode::Compact);
     }
 

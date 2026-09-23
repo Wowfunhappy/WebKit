@@ -907,7 +907,7 @@ HashMap<String, String> AccessibilityObjectAtspi::attributes() const
         map.add("autocomplete"_s, m_coreObject->autoCompleteValue());
 
     if (m_coreObject->supportsHasPopup())
-        map.add("haspopup"_s, m_coreObject->popupValue());
+        map.add("haspopup"_s, m_coreObject->popupValueString());
 
     if (m_coreObject->supportsCurrent())
         map.add("current"_s, m_coreObject->currentValue());

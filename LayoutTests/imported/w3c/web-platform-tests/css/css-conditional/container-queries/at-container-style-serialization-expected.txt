@@ -14,4 +14,6 @@ PASS Extra parens and Not
 PASS Subexpressions and extra parens
 PASS Multiple subexpressions and extra parens
 PASS Multiple subexpressions and unknowns
+PASS Escape custom property identifier
+PASS Escape custom property identifier - range syntax
 

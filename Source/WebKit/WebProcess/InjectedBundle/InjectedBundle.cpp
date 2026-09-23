@@ -84,8 +84,6 @@
 
 namespace WebKit {
 using namespace WebCore;
-using namespace JSC;
-
 RefPtr<InjectedBundle> InjectedBundle::create(WebProcessCreationParameters& parameters, RefPtr<API::Object>&& initializationUserData)
 {
     TraceScope scope(TracePointCode::CreateInjectedBundleStart, TracePointCode::CreateInjectedBundleEnd);
@@ -229,7 +227,7 @@ void InjectedBundle::garbageCollectJavaScriptObjectsOnAlternateThreadForDebuggin
 
 size_t InjectedBundle::javaScriptObjectsCount()
 {
-    JSLockHolder lock(commonVM());
+    JSC::JSLockHolder lock(commonVM());
     return commonVM().heap.objectCount();
 }
 
@@ -239,7 +237,7 @@ void InjectedBundle::reportException(JSContextRef context, JSValueRef exception)
         return;
 
     JSC::JSGlobalObject* globalObject = toJS(context);
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
 
     WebCore::reportExceptionIfJSDOMWindow(globalObject, toJS(globalObject, exception));
 }
@@ -298,7 +296,7 @@ std::optional<WTF::UUID> InjectedBundle::webNotificationID(JSContextRef jsContex
 Ref<API::Data> InjectedBundle::createWebDataFromUint8Array(JSContextRef context, JSValueRef data)
 {
     JSC::JSGlobalObject* globalObject = toJS(context);
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
     RefPtr<Uint8Array> arrayData = WebCore::toUnsharedUint8Array(globalObject->vm(), toJS(globalObject, data));
     return API::Data::create(arrayData->span());
 }

@@ -7,6 +7,6 @@ PASS Set no cookie with max-age=-20
 PASS Set multiple cookies with max-age attribute
 PASS Expire later cookie with same name and max-age=0
 PASS Expire later cookie with same name and max-age=0, and don't set cookie with max-age=0
-PASS Set mulitiple cookies with valid max-age values
+PASS Set multiple cookies with valid max-age values
 PASS Don't set multiple cookies with max-age=0
 

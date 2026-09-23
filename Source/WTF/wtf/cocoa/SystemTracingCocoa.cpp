@@ -28,8 +28,6 @@
 
 #if HAVE(OS_SIGNPOST)
 
-#import <dispatch/dispatch.h>
-#import <mach/mach_time.h>
 #import <wtf/ContinuousTime.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/OSObjectPtr.h>

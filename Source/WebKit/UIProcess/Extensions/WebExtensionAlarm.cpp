@@ -41,7 +41,7 @@ void WebExtensionAlarm::schedule()
 {
     m_parameters.nextScheduledTime = MonotonicTime::now() + initialInterval();
 
-    RELEASE_LOG_DEBUG(Extensions, "Scheduled alarm; initial = %{public}f seconds; repeat = %{public}f seconds", initialInterval().seconds(), repeatInterval().seconds());
+    RELEASE_LOG_DEBUG(Extensions, "Scheduled alarm; initial = %" PUBLIC_LOG "f seconds; repeat = %" PUBLIC_LOG "f seconds", initialInterval().seconds(), repeatInterval().seconds());
 
     m_timer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "WebExtensionAlarm::Timer"_s, this, &WebExtensionAlarm::fire);
     m_timer->startOneShot(initialInterval());

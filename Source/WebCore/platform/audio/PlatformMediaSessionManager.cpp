@@ -44,7 +44,7 @@ do { \
         if (logger().developerExtrasEnabled()) { \
             std::array<char, 1024> buffer { }; \
             SAFE_SPRINTF(std::span { buffer }, MESSAGE_PLATFORMMEDIASESSIONMANAGER_##formatString, ##__VA_ARGS__); \
-            logger().toObservers(logChannel(), WTFLogLevel::Always, String::fromUTF8(buffer.data())); \
+            logger().toObservers(logChannel(), WTFLogLevel::Always, { }, String::fromUTF8(buffer.data())); \
         } \
     } \
 } while (0)
@@ -138,10 +138,10 @@ WeakPtr<PlatformMediaSessionInterface> PlatformMediaSessionManager::bestEligible
     if (eligibleAudioVideoSessions.isEmpty()) {
         if (eligibleWebAudioSessions.isEmpty())
             return nullptr;
-        return RefPtr { eligibleWebAudioSessions[0].get() }->selectBestMediaSession(eligibleWebAudioSessions, purpose);
+        return protect(eligibleWebAudioSessions[0].get())->selectBestMediaSession(eligibleWebAudioSessions, purpose);
     }
 
-    return RefPtr { eligibleAudioVideoSessions[0].get() }->selectBestMediaSession(eligibleAudioVideoSessions, purpose);
+    return protect(eligibleAudioVideoSessions[0].get())->selectBestMediaSession(eligibleAudioVideoSessions, purpose);
 }
 
 } // namespace WebCore

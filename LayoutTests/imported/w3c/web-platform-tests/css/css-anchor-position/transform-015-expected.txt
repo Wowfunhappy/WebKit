@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Animation being updated Test timed out
+PASS Animation being updated
 

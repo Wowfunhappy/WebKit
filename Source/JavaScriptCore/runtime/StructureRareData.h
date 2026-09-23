@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/ClassInfo.h>
 #include <JavaScriptCore/JSCast.h>
 #include <JavaScriptCore/JSTypeInfo.h>
 #include <JavaScriptCore/PropertyOffset.h>
@@ -87,6 +86,9 @@ public:
 
     JSValue cachedSpecialProperty(CachedSpecialPropertyKey) const;
     void cacheSpecialProperty(JSGlobalObject*, VM&, Structure* baseStructure, JSValue, CachedSpecialPropertyKey, const PropertySlot&);
+
+    TriState cachedHasDefaultToPrimitiveFastAndNonObservable() const { return m_cachedHasDefaultToPrimitiveFastAndNonObservable; }
+    void setCachedHasDefaultToPrimitiveFastAndNonObservable(TriState mode) { m_cachedHasDefaultToPrimitiveFastAndNonObservable = mode; }
 
     JSPropertyNameEnumerator* cachedPropertyNameEnumerator() const;
     uintptr_t cachedPropertyNameEnumeratorAndFlag() const;
@@ -179,6 +181,7 @@ private:
     PropertyOffset m_maxOffset;
     PropertyOffset m_transitionOffset;
     unsigned m_activeReplacementWatchpointSet { 0 };
+    TriState m_cachedHasDefaultToPrimitiveFastAndNonObservable : 2 { TriState::Indeterminate };
 };
 
 } // namespace JSC

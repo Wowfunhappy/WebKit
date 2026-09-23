@@ -31,10 +31,7 @@
 #include "config.h"
 #include <wtf/UUID.h>
 
-#include <mutex>
-#include <wtf/ASCIICType.h>
 #include <wtf/CryptographicallyRandomNumber.h>
-#include <wtf/HexNumber.h>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SHA1.h>

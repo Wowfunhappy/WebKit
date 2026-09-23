@@ -3,7 +3,7 @@
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
  * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -31,6 +31,11 @@
 #include <WebCore/StyleMaskBorderWidth.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct MaskBorder;
+}
+
 namespace Style {
 
 // <'mask-border'> = <'mask-border-source'> || <'mask-border-slice'> [ / <'mask-border-width'>? [ / <'mask-border-outset'> ]? ]? || <'mask-border-repeat'> || <'mask-border-mode'>
@@ -60,12 +65,14 @@ struct MaskBorder {
 
 enum class MaskBorderSliceOverride : bool { None, AlwaysFill };
 
-template<> struct CSSValueConversion<MaskBorder> { auto operator()(BuilderState&, const CSSValue&, MaskBorderSliceOverride = MaskBorderSliceOverride::None) -> MaskBorder; };
-template<> struct CSSValueCreation<MaskBorder> { auto operator()(CSSValuePool&, const RenderStyle&, const MaskBorder&) -> Ref<CSSValue>; };
+template<> struct ToCSS<MaskBorder> { auto operator()(const MaskBorder&, const Style::ComputedStyle&) -> CSS::MaskBorder; };
+template<> struct ToStyle<CSS::MaskBorder> { auto operator()(const CSS::MaskBorder&, const BuilderState&, MaskBorderSliceOverride = MaskBorderSliceOverride::None) -> MaskBorder; };
+
+template<> struct CSSValueCreation<MaskBorder> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const MaskBorder&) -> Ref<CSSValue>; };
 
 // MARK: - Serialization
 
-template<> struct Serialize<MaskBorder> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const MaskBorder&); };
+template<> struct Serialize<MaskBorder> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const MaskBorder&); };
 
 // MARK: - Logging
 

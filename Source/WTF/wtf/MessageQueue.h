@@ -209,17 +209,10 @@ namespace WTF {
     inline void MessageQueue<DataType>::removeIf(Predicate&& predicate)
     {
         Locker lock { m_lock };
-        while (true) {
-            auto found = m_queue.findIf([&predicate](const std::unique_ptr<DataType>& ptr) -> bool {
-                ASSERT(ptr);
-                return predicate(*ptr);
-            });
-
-            if (found == m_queue.end())
-                break;
-
-            m_queue.remove(found);
-        }
+        m_queue.removeAllMatching([&predicate](const std::unique_ptr<DataType>& ptr) -> bool {
+            ASSERT(ptr);
+            return predicate(*ptr);
+        });
     }
 
     template<typename DataType>

@@ -91,7 +91,7 @@ static Vector<uint8_t> createAttestedCredentialDataFromU2fRegisterResponse(const
     if (credentialId.isEmpty())
         return { };
 
-    return buildAttestedCredentialData(Vector<uint8_t>(aaguidLength, 0), credentialId, publicKey);
+    return buildAttestedCredentialData(Vector<uint8_t>(FillWith { }, aaguidLength, 0), credentialId, publicKey);
 }
 
 static size_t NODELETE parseX509Length(const Vector<uint8_t>& u2fData, size_t offset)

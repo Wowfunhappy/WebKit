@@ -1,5 +1,6 @@
 
 PASS CSSPositionTryRule attribute values
+PASS CSSPositionTryRule escaped ident name
 PASS CSSPositionTryRule.style.setProperty setting allowed and disallowed properties
 PASS CSSPositionTryDescriptors.item
 PASS CSSPositionTryDescriptors.cssText

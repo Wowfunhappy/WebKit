@@ -24,14 +24,66 @@
  */
 
 #include "config.h"
+#include "XRCylinderLayer.h"
 
 #if ENABLE(WEBXR_LAYERS)
-#include "XRCylinderLayer.h"
+#include "WebXRRigidTransform.h"
+#include "WebXRSession.h"
+#include "XRLayerBacking.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-XRCylinderLayer::~XRCylinderLayer() = default;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(XRCylinderLayer);
 
+XRCylinderLayer::XRCylinderLayer(ScriptExecutionContext& scriptExecutionContext, WebXRSession& session, Ref<XRLayerBacking>&& backing, const XRCylinderLayerInit& init)
+    : XRCompositionLayer(&scriptExecutionContext, session, WTF::move(backing), init, init.space, init.transform)
+{
+    // Explicitly call setters to add validation.
+    setRadius(init.radius);
+    setCentralAngle(init.centralAngle);
+    setAspectRatio(init.aspectRatio);
+
+    setIsStatic(init.isStatic);
 }
 
+XRCylinderLayer::~XRCylinderLayer() = default;
+
+void XRCylinderLayer::setRadius(float radius)
+{
+    m_radius = std::max(std::numeric_limits<float>::epsilon(), radius);
+    setNeedsRedraw(true);
+}
+
+void XRCylinderLayer::setCentralAngle(float angle)
+{
+    // (0, 2 * pi) although specs recommend 1.9 * pi as a practical limit.
+    static constexpr float MaxCentralAngle = 1.9 * static_cast<float>(M_PI);
+
+    m_centralAngle = std::clamp(angle, std::numeric_limits<float>::epsilon(), MaxCentralAngle);
+    setNeedsRedraw(true);
+}
+
+void XRCylinderLayer::setAspectRatio(float ratio)
+{
+    m_aspectRatio = std::max(std::numeric_limits<float>::epsilon(), ratio);
+    setNeedsRedraw(true);
+}
+
+void XRCylinderLayer::fillInTypeSpecificDeviceLayerData(PlatformXR::DeviceLayer& layerData) const
+{
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    layerData.cylinderLayerData = {
+        .radius = m_radius,
+        .centralAngle = m_centralAngle,
+        .aspectRatio = m_aspectRatio,
+        .poseInLocalSpace = poseInLocalSpace(),
+    };
+#else
+    UNUSED_PARAM(layerData);
 #endif
+}
+
+} // namespace WebCore
+
+#endif // ENABLE(WEBXR_LAYERS)

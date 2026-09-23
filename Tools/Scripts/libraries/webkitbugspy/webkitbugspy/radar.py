@@ -28,6 +28,8 @@ import sys
 import time
 import webkitcorepy
 
+from urllib.parse import urlparse
+
 from webkitcorepy import Environment, decorators
 from webkitbugspy import Issue, Tracker as GenericTracker, User, name as library_name, version as library_version
 
@@ -41,6 +43,7 @@ class Priority(object):
 
 
 class Tracker(GenericTracker):
+    # Used by Tools/Scripts/hooks/prepare-commit-msg get_bugs_string().
     RES = [
         re.compile(r'<?rdar://problem/(?P<id>\d+)>?'),
         re.compile(r'<?radar://problem/(?P<id>\d+)>?'),
@@ -128,16 +131,29 @@ class Tracker(GenericTracker):
         self._invalid_keywords = set()
 
         self.library = self.radarclient()
-        authentication = authentication or (self.authentication() if self.library else None)
-        if authentication:
-            self.client = self.library.RadarClient(
-                authentication, self.library.ClientSystemIdentifier(library_name, str(library_version)),
+
+        self._authentication = authentication
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client:
+            return self._client
+
+        if self.authentication():
+            self._client = self.library.RadarClient(
+                self.authentication(), self.library.ClientSystemIdentifier(library_name, str(library_version)),
                 retry_policy=self.radarclient().RetryPolicy(),
             )
-        else:
-            self.client = None
+        return self._client
 
     def authentication(self):
+        if self._authentication:
+            return self._authentication
+
+        if not self.library:
+            return None
+
         identity = Environment.instance().get('RADAR_IDENTITY')
         username = Environment.instance().get('RADAR_USERNAME')
         password = Environment.instance().get('RADAR_PASSWORD')
@@ -146,22 +162,76 @@ class Tracker(GenericTracker):
 
         try:
             if identity and os.path.isdir(identity):
-                return self.library.AuthenticationStrategyNarrative(identity)
-            if username and password and totp_secret and totp_id:
-                return self.library.AuthenticationStrategySystemAccountOAuth(
+                self._authentication = self.library.AuthenticationStrategyNarrative(identity)
+            elif username and password and totp_secret and totp_id:
+                self._authentication = self.library.AuthenticationStrategySystemAccountOAuth(
                     username, password, totp_secret, totp_id,
                 )
-            return self.library.AuthenticationStrategyAppleConnect()
+            else:
+                self._authentication = self.library.AuthenticationStrategyAppleConnect()
         except Exception:
             sys.stderr.write('No valid authentication session for Radar\n')
+        return self._authentication
+
+    @classmethod
+    def parse_id(cls, string):
+        """Parse a radar URL string and return the numeric ID(s) as strings.
+
+        Returns a single ID string for one ID, a list of ID strings for
+        multiple IDs (ampersand-separated), or None for no match.
+        Accepts rdar://, radar://, and https://rdar.apple.com/ URL forms,
+        with optional angle brackets.
+        """
+        value = string.strip()
+        if not value:
             return None
 
+        # Strip optional angle brackets
+        if value.startswith('<') and value.endswith('>'):
+            value = value[1:-1].strip()
+
+        parsed = urlparse(value)
+
+        # https://rdar.apple.com/N form
+        if parsed.scheme == 'https' and parsed.netloc == 'rdar.apple.com':
+            id_part = parsed.path.lstrip('/')
+            if not id_part:
+                return None
+            parts = id_part.split('&')
+            ids = [p for p in parts if p.isdigit()]
+            if not ids:
+                return None
+            if len(ids) == 1:
+                return ids[0]
+            return ids
+
+        # rdar:// or radar:// forms
+        if parsed.scheme not in ('rdar', 'radar'):
+            return None
+
+        if parsed.netloc == 'problem':
+            id_part = parsed.path.lstrip('/')
+        else:
+            id_part = parsed.netloc
+
+        if not id_part:
+            return None
+
+        parts = id_part.split('&')
+        ids = [p for p in parts if p.isdigit()]
+        if not ids:
+            return None
+        if len(ids) == 1:
+            return ids[0]
+        return ids
+
     def from_string(self, string):
-        for regex in self.RES:
-            match = regex.match(string)
-            if match:
-                return self.issue(int(match.group('id')))
-        return None
+        result = type(self).parse_id(string)
+        if result is None:
+            return None
+        if isinstance(result, list):
+            result = result[0]
+        return self.issue(int(result))
 
     def user(self, name=None, username=None, email=None):
         user = super(Tracker, self).user(name=name, username=username, email=email)

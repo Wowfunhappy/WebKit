@@ -34,7 +34,8 @@ namespace WTF {
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BloomFilter);
 
 // Bloom filter with k=2. Uses 2^keyBits/8 bytes of memory.
-// False positive rate is approximately (1-e^(-2n/m))^2, where n is the number of unique 
+// The two hash functions are derived from a single unsigned hash using multiplicative hashing.
+// False positive rate is approximately (1-e^(-2n/m))^2, where n is the number of unique
 // keys and m is the table size (==2^keyBits).
 // See http://en.wikipedia.org/wiki/Bloom_filter
 template <unsigned keyBits>
@@ -66,6 +67,8 @@ public:
 private:
     static constexpr unsigned bitsPerPosition = 8 * sizeof(unsigned);
     static constexpr unsigned keyMask = (1 << keyBits) - 1;
+    // Golden ratio constant used for multiplicative hashing to derive the second hash function.
+    static constexpr unsigned goldenRatioHash = 0x9e3779b9u;
     static unsigned arrayIndex(unsigned key) { return key / bitsPerPosition; }
     static unsigned bitMask(unsigned key) { return 1 << (key % bitsPerPosition); }
     template <size_t hashSize> static std::pair<unsigned, unsigned> keysFromHash(const std::array<uint8_t, hashSize>&);
@@ -85,16 +88,14 @@ inline BloomFilter<keyBits>::BloomFilter()
 template <unsigned keyBits>
 inline bool BloomFilter<keyBits>::mayContain(unsigned hash) const
 {
-    // The top and bottom bits of the incoming hash are treated as independent bloom filter hash functions.
-    // This works well as long as the filter size is not much above 2^16.
-    return isBitSet(hash) && isBitSet(hash >> 16);
+    return isBitSet(hash) && isBitSet(hash * goldenRatioHash);
 }
 
 template <unsigned keyBits>
 inline void BloomFilter<keyBits>::add(unsigned hash)
 {
     setBit(hash);
-    setBit(hash >> 16);
+    setBit(hash * goldenRatioHash);
 }
 
 template <unsigned keyBits>
@@ -194,11 +195,13 @@ public:
 
 private:
     static constexpr unsigned keyMask = (1 << keyBits) - 1;
+    // Golden ratio constant used for multiplicative hashing to derive the second hash function.
+    static constexpr unsigned goldenRatioHash = 0x9e3779b9u;
 
     uint8_t& firstBucket(unsigned hash) { return m_buckets[hash & keyMask]; }
-    uint8_t& secondBucket(unsigned hash) { return m_buckets[(hash >> 16) & keyMask]; }
+    uint8_t& secondBucket(unsigned hash) { return m_buckets[(hash * goldenRatioHash) & keyMask]; }
     const uint8_t& firstBucket(unsigned hash) const { return m_buckets[hash & keyMask]; }
-    const uint8_t& secondBucket(unsigned hash) const { return m_buckets[(hash >> 16) & keyMask]; }
+    const uint8_t& secondBucket(unsigned hash) const { return m_buckets[(hash * goldenRatioHash) & keyMask]; }
 
     std::array<uint8_t, tableSize> m_buckets;
 };

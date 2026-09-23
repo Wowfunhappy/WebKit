@@ -48,6 +48,7 @@ std::optional<WebAssemblyCompileOptions> WebAssemblyCompileOptions::tryCreate(JS
     RETURN_IF_EXCEPTION(scope, std::nullopt);
     if (importedStringConstantsValue.isString()) {
         auto importedStringConstants = asString(importedStringConstantsValue)->value(globalObject);
+        RETURN_IF_EXCEPTION(scope, std::nullopt);
         options.m_importedStringConstants = makeString(StringView(importedStringConstants));
     } else if (!importedStringConstantsValue.isUndefined()) {
         auto error = createTypeError(globalObject, "importedStringConstants option value must be a string"_s);
@@ -63,6 +64,7 @@ std::optional<WebAssemblyCompileOptions> WebAssemblyCompileOptions::tryCreate(JS
         forEachInIterable(globalObject, builtinsValue, [&] (VM&, JSGlobalObject* globalObject, JSValue nextValue) {
             if (nextValue.isString()) {
                 auto contents = asString(nextValue)->value(globalObject);
+                RETURN_IF_EXCEPTION(scope, void());
                 String qualifiedName = makeString("wasm:"_s, StringView(contents));
                 options.m_qualifiedBuiltinSetNames.append(qualifiedName);
             } else
@@ -78,7 +80,7 @@ std::optional<WebAssemblyCompileOptions> WebAssemblyCompileOptions::tryCreate(JS
     return options;
 }
 
-static bool namesInclude(const String& expected, const Vector<String>& names)
+static bool NODELETE namesInclude(const String& expected, const Vector<String>& names)
 {
     for (auto& name : names) {
         if (name == expected)
@@ -136,13 +138,9 @@ bool WebAssemblyCompileOptions::validateImportForBuiltinSetNames(const Wasm::Imp
     // at `kindIndex`. The wrong import kind is equivalent in spec terms to `match_externtype` returning false in Step 7.
     if (import.kind != Wasm::ExternalKind::Function)
         return false;
-    Wasm::TypeIndex typeIndex = moduleInfo.importFunctionTypeIndices[import.kindIndex];
-    Ref<const Wasm::TypeDefinition> type = Wasm::TypeInformation::get(typeIndex);
-    if (!type->is<Wasm::FunctionSignature>())
-        return false;
-    SUPPRESS_UNCOUNTED_LOCAL auto* importSig = type->as<Wasm::FunctionSignature>();
-
-    return builtinSig.isValid(*importSig);
+    Wasm::TypeSignatureIndex typeSignatureIndex = moduleInfo.importFunctionTypeSignatureIndices[import.kindIndex];
+    SUPPRESS_UNCOUNTED_LOCAL auto& importRTT = moduleInfo.rtt(typeSignatureIndex);
+    return builtinSig.isValid(importRTT);
 }
 
 /**

@@ -160,7 +160,7 @@ String resolveAndCreateReadWriteDirectoryForSandboxExtension(StringView path);
 
 inline SandboxExtensionHandle::SandboxExtensionHandle() { }
 inline SandboxExtensionHandle::SandboxExtensionHandle(const SandboxExtensionHandle&) { }
-inline SandboxExtensionHandle::~SandboxExtensionHandle() { }
+inline SandboxExtensionHandle::~SandboxExtensionHandle() = default;
 inline RefPtr<SandboxExtension> SandboxExtension::create(Handle&&) { return nullptr; }
 inline auto SandboxExtension::createHandle(StringView, Type) -> std::optional<Handle> { return Handle { }; }
 inline auto SandboxExtension::createReadOnlyHandlesForFiles(ASCIILiteral, const Vector<String>&) -> Vector<Handle> { return { }; }
@@ -168,7 +168,7 @@ inline auto SandboxExtension::createHandleWithoutResolvingPath(StringView, Type)
 inline auto SandboxExtension::createHandleForReadWriteDirectory(StringView) -> std::optional<Handle> { return Handle { }; }
 inline auto SandboxExtension::createHandleForTemporaryFile(StringView, Type) -> std::optional<std::pair<Handle, String>> { return std::pair<Handle, String> { }; }
 inline auto SandboxExtension::createHandleForGenericExtension(ASCIILiteral) -> std::optional<Handle> { return Handle { }; }
-inline SandboxExtension::~SandboxExtension() { }
+inline SandboxExtension::~SandboxExtension() = default;
 inline bool SandboxExtension::revoke() { return true; }
 inline bool SandboxExtension::consume() { return true; }
 inline bool SandboxExtension::consumePermanently() { return true; }

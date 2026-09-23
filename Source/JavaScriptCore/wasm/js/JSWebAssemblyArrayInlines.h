@@ -40,12 +40,10 @@ TypeInfoBlob JSWebAssemblyArray::typeInfoBlob()
     return TypeInfoBlob(0, TypeInfo(WebAssemblyGCObjectType, StructureFlags));
 }
 
-WebAssemblyGCStructure* JSWebAssemblyArray::createStructure(VM& vm, JSGlobalObject* globalObject, Ref<const Wasm::TypeDefinition>&& unexpandedType, Ref<const Wasm::RTT>&& rtt)
+WebAssemblyGCStructure* JSWebAssemblyArray::createStructure(VM& vm, Ref<const Wasm::RTT>&& rtt)
 {
-    Ref<const Wasm::TypeDefinition> type { unexpandedType->expand() };
-    RELEASE_ASSERT(type->is<Wasm::ArrayType>());
     RELEASE_ASSERT(rtt->kind() == Wasm::RTTKind::Array);
-    return WebAssemblyGCStructure::create(vm, globalObject, TypeInfo(WebAssemblyGCObjectType, StructureFlags), info(), WTF::move(unexpandedType), WTF::move(type), WTF::move(rtt));
+    return WebAssemblyGCStructure::create(vm, TypeInfo(WebAssemblyGCObjectType, StructureFlags), info(), WTF::move(rtt));
 }
 
 template<typename T>
@@ -56,7 +54,7 @@ std::span<T> JSWebAssemblyArray::span() LIFETIME_BOUND
     if constexpr (std::is_same_v<T, v128_t>)
         data = WTF::roundUpToMultipleOf<16>(data);
     else
-        ASSERT(!needsAlignmentCheck(elementType().type));
+        data += alignmentShift(sizeof(T));
     ASSERT(data == this->bytes().data());
     return { std::bit_cast<T*>(data), size() };
 }
@@ -69,9 +67,12 @@ std::span<uint64_t> JSWebAssemblyArray::refTypeSpan() LIFETIME_BOUND
 
 std::span<uint8_t> JSWebAssemblyArray::bytes()
 {
-    if (!needsAlignmentCheck(elementType().type))
-        return { data(), sizeInBytes() };
-    return { WTF::roundUpToMultipleOf<16>(data()), sizeInBytes() };
+    uint8_t* start = data();
+    if (needsV128AlignmentMask(elementType().type))
+        start = WTF::roundUpToMultipleOf<16>(start);
+    else
+        start += alignmentShift(elementType().type.elementSize());
+    return { start, sizeInBytes() };
 }
 
 auto JSWebAssemblyArray::visitSpan(auto functor)

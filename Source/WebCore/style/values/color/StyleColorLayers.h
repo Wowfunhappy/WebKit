@@ -58,7 +58,7 @@ WebCore::Color resolveColor(const ColorLayers&, const WebCore::Color& currentCol
 bool containsCurrentColor(const ColorLayers&);
 
 void serializationForCSSTokenization(StringBuilder&, const CSS::SerializationContext&, const ColorLayers&);
-String serializationForCSSTokenization(const CSS::SerializationContext&, const ColorLayers&);
+WTF::String serializationForCSSTokenization(const CSS::SerializationContext&, const ColorLayers&);
 
 WTF::TextStream& operator<<(WTF::TextStream&, const ColorLayers&);
 

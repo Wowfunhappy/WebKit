@@ -129,7 +129,7 @@ public:
     }
 
     [[nodiscard]] inline constexpr ScalarRegisterSet toScalarRegisterSet() const;
-    [[nodiscard]] inline constexpr ScalarRegisterSet normalizeWidths() const;
+    [[nodiscard]] inline constexpr RegisterSet normalizeWidths() const;
 
     inline constexpr void forEach(const Invocable<void(Reg)> auto& func) const
     {
@@ -273,32 +273,33 @@ public:
 
     friend constexpr bool operator==(const RegisterSet&, const RegisterSet&) = default;
 
-    JS_EXPORT_PRIVATE static RegisterSet allGPRs();
-    JS_EXPORT_PRIVATE static RegisterSet allFPRs();
-    JS_EXPORT_PRIVATE static RegisterSet allRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE allGPRs();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE allFPRs();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE allRegisters();
     JS_EXPORT_PRIVATE static RegisterSet allScalarRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet stackRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet reservedHardwareRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet macroClobberedGPRs();
-    JS_EXPORT_PRIVATE static RegisterSet macroClobberedFPRs();
-    JS_EXPORT_PRIVATE static RegisterSet runtimeTagRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet specialRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet calleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet vmCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE stackRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE reservedHardwareRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE macroClobberedGPRs();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE macroClobberedFPRs();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE runtimeTagRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE specialRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE calleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE vmCalleeSaveRegisters();
     JS_EXPORT_PRIVATE static RegisterAtOffsetList* vmCalleeSaveRegisterOffsets();
-    JS_EXPORT_PRIVATE static RegisterSet llintBaselineCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet dfgCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet ftlCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet stubUnavailableRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet argumentGPRs();
-    JS_EXPORT_PRIVATE static RegisterSet argumentFPRs();
+    JS_EXPORT_PRIVATE static std::span<const int8_t> vmCalleeSaveBufferSlotsByRegIndex();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE llintBaselineCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE dfgCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE ftlCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE stubUnavailableRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE argumentGPRs();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE argumentFPRs();
 #if ENABLE(WEBASSEMBLY)
-    JS_EXPORT_PRIVATE static RegisterSet wasmPinnedRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet ipintCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet bbqCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE wasmPinnedRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE ipintCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE bbqCalleeSaveRegisters();
 #endif
-    JS_EXPORT_PRIVATE static RegisterSet registersToSaveForJSCall(RegisterSet live);
-    JS_EXPORT_PRIVATE static RegisterSet registersToSaveForCCall(RegisterSet live);
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE registersToSaveForJSCall(RegisterSet live);
+    JS_EXPORT_PRIVATE static RegisterSet NODELETE registersToSaveForCCall(RegisterSet live);
 
 private:
     inline constexpr void setAny(Reg reg) { ASSERT_UNDER_CONSTEXPR_CONTEXT(!reg.isFPR()); add(reg, IgnoreVectors); }
@@ -455,11 +456,11 @@ constexpr ScalarRegisterSet RegisterSet::toScalarRegisterSet() const
     return ScalarRegisterSet(*this);
 }
 
-constexpr ScalarRegisterSet RegisterSet::normalizeWidths() const
+constexpr RegisterSet RegisterSet::normalizeWidths() const
 {
-    auto bits = m_bits;
-    bits.merge(m_upperBits);
-    return ScalarRegisterSet { bits };
+    RegisterSet result = *this;
+    result.m_bits.merge(result.m_upperBits);
+    return result;
 }
 
 struct ScalarRegisterSetHash {

@@ -52,7 +52,7 @@ TEST(MonospaceFontsTest, EnsureMonospaceFontInvariants)
     if (results) {
         for (unsigned i = 0, count = CFArrayGetCount(results.get()); i < count; ++i) {
             RetainPtr fontDescriptor = static_cast<CTFontDescriptorRef>(CFArrayGetValueAtIndex(results.get(), i));
-            auto ctFont = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), 16.0, nullptr));
+            RetainPtr ctFont = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), 16.0, nullptr));
             FontPlatformData platformData(ctFont.get(), 16.0);
             FontCascade fontCascade(platformData);
             if (fontCascade.canTakeFixedPitchFastContentMeasuring()) {

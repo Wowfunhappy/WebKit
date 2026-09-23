@@ -123,13 +123,21 @@ public:
     void dataReceived(CachedResource&, const SharedBuffer&) override;
     void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) override;
 
+    void setShouldSuppressHLSSubtitles() { m_shouldSuppressHLSSubtitles = true; }
+
 private:
+
+    void sendPartialPlaylistLine(String&);
 
     MediaResource(MediaResourceLoader&, CachedResourceHandle<CachedRawResource>&&);
     void ensureShutdown();
     const Ref<MediaResourceLoader> m_loader;
     Atomic<bool> m_didPassAccessControlCheck { false };
     CachedResourceHandle<CachedRawResource> m_resource;
+
+    bool m_shouldSuppressHLSSubtitles { false };
+    size_t m_partialPlaylistByteCount { 0 };
+    String m_partialPlaylistLine;
 };
 
 } // namespace WebCore

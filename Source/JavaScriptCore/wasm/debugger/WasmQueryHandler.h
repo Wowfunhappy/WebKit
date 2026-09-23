@@ -56,13 +56,13 @@ public:
     void handleLibrariesRead(StringView packet);
     void handleWasmCallStack(StringView packet);
     void handleWasmLocal(StringView packet);
+    void handleWasmGlobal(StringView packet);
 
 private:
     DebugServer& m_debugServer;
 
     bool parseLibrariesReadPacket(StringView packet, size_t& offset, size_t& maxSize);
     bool handleChunkedLibrariesResponse(size_t offset, size_t maxSize, String& response);
-    String buildWasmCallStackResponse();
 };
 
 } // namespace Wasm

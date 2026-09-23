@@ -43,6 +43,11 @@ public:
     void add(const T& key, CounterType count = 1)
     {
         Locker locker(m_lock);
+        add(locker, key, count);
+    }
+
+    void add(const AbstractLocker&, const T& key, CounterType count = 1)
+    {
         if (!count)
             return;
         typename HashMap<T, CounterType>::AddResult result = m_map.add(key, count);

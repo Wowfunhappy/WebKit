@@ -61,7 +61,7 @@ extern RetainPtr<CFDictionaryRef> getCFStringAttributes(const Font& font, bool e
     std::array<CFTypeRef, 5> values;
 
     keys[0] = kCTFontAttributeName;
-    values[0] = protect(font)->platformData().ctFont();
+    values[0] = font.platformData().ctFont();
     size_t count = 1;
 
     RetainPtr<CFStringRef> localeString;

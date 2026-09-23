@@ -29,6 +29,10 @@
 #include "CallbackResult.h"
 #include <wtf/RefCounted.h>
 
+namespace JSC {
+class JSValue;
+}
+
 namespace WebCore {
 
 class ObservableInspectorAbortCallback : public RefCounted<ObservableInspectorAbortCallback>, public ActiveDOMCallback {

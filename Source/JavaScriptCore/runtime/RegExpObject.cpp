@@ -51,7 +51,7 @@ void RegExpObject::finishCreation(VM& vm)
 template<typename Visitor>
 void RegExpObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    RegExpObject* thisObject = jsCast<RegExpObject*>(cell);
+    RegExpObject* thisObject = uncheckedDowncast<RegExpObject>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.appendUnbarriered(thisObject->regExp());
@@ -64,7 +64,7 @@ bool RegExpObject::getOwnPropertySlot(JSObject* object, JSGlobalObject* globalOb
 {
     VM& vm = globalObject->vm();
     if (propertyName == vm.propertyNames->lastIndex) {
-        RegExpObject* regExp = jsCast<RegExpObject*>(object);
+        RegExpObject* regExp = uncheckedDowncast<RegExpObject>(object);
         unsigned attributes = regExp->lastIndexIsWritable() ? PropertyAttribute::DontDelete | PropertyAttribute::DontEnum : PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly;
         slot.setValue(regExp, attributes, regExp->getLastIndex());
         return true;
@@ -93,7 +93,7 @@ bool RegExpObject::defineOwnProperty(JSObject* object, JSGlobalObject* globalObj
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (propertyName == vm.propertyNames->lastIndex) {
-        RegExpObject* regExp = jsCast<RegExpObject*>(object);
+        RegExpObject* regExp = uncheckedDowncast<RegExpObject>(object);
         if (descriptor.configurablePresent() && descriptor.configurable())
             return typeError(globalObject, scope, shouldThrow, UnconfigurablePropertyChangeConfigurabilityError);
         if (descriptor.enumerablePresent() && descriptor.enumerable())
@@ -115,8 +115,10 @@ bool RegExpObject::defineOwnProperty(JSObject* object, JSGlobalObject* globalObj
             regExp->setLastIndex(globalObject, descriptor.value(), false);
             RETURN_IF_EXCEPTION(scope, false);
         }
-        if (descriptor.writablePresent() && !descriptor.writable())
+        if (descriptor.writablePresent() && !descriptor.writable()) {
             regExp->setLastIndexIsNotWritable();
+            regExp->realm()->regExpLastIndexWritableWatchpointSet().fireAll(vm, "RegExp lastIndex was made non-writable");
+        }
         return true;
     }
 
@@ -125,19 +127,19 @@ bool RegExpObject::defineOwnProperty(JSObject* object, JSGlobalObject* globalObj
 
 JSC_DEFINE_CUSTOM_SETTER(regExpObjectSetLastIndexStrict, (JSGlobalObject* globalObject, EncodedJSValue thisValue, EncodedJSValue value, PropertyName))
 {
-    return jsCast<RegExpObject*>(JSValue::decode(thisValue))->setLastIndex(globalObject, JSValue::decode(value), true);
+    return uncheckedDowncast<RegExpObject>(JSValue::decode(thisValue))->setLastIndex(globalObject, JSValue::decode(value), true);
 }
 
 JSC_DEFINE_CUSTOM_SETTER(regExpObjectSetLastIndexSloppy, (JSGlobalObject* globalObject, EncodedJSValue thisValue, EncodedJSValue value, PropertyName))
 {
-    return jsCast<RegExpObject*>(JSValue::decode(thisValue))->setLastIndex(globalObject, JSValue::decode(value), false);
+    return uncheckedDowncast<RegExpObject>(JSValue::decode(thisValue))->setLastIndex(globalObject, JSValue::decode(value), false);
 }
 
 bool RegExpObject::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    RegExpObject* thisObject = jsCast<RegExpObject*>(cell);
+    RegExpObject* thisObject = uncheckedDowncast<RegExpObject>(cell);
 
     if (propertyName == vm.propertyNames->lastIndex) {
         if (!thisObject->lastIndexIsWritable())

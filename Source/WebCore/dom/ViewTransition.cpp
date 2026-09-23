@@ -26,6 +26,7 @@
 #include "config.h"
 #include "ViewTransition.h"
 
+#include "CSSCustomIdentValue.h"
 #include "CSSFunctionValue.h"
 #include "CSSKeyframeRule.h"
 #include "CSSKeyframesRule.h"
@@ -44,26 +45,28 @@
 #include "JSDOMPromiseDeferred.h"
 #include "LayoutRect.h"
 #include "Logging.h"
-#include "RenderElementInlines.h"
+#include "PlatformScreen.h"
 #include "PseudoElementRequest.h"
 #include "RenderBoxInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderFragmentedFlow.h"
 #include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderLayerModelObject.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
 #include "RenderViewTransitionCapture.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleDocumentScope.h"
 #include "StyleExtractor.h"
 #include "StyleResolver.h"
-#include "StyleScope.h"
 #include "StyleTransformFunction.h"
 #include "StyleZoomPrimitivesInlines.h"
 #include "Styleable.h"
 #include "TransformState.h"
 #include "ViewTransitionTypeSet.h"
 #include "WebAnimation.h"
+#include <wtf/OrderedHashSet.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
@@ -115,6 +118,12 @@ RefPtr<ViewTransition> ViewTransition::resolveInboundCrossDocumentViewTransition
         return nullptr;
 
     if (MonotonicTime::now() - inboundViewTransitionParams->startTime > defaultTimeout)
+        return nullptr;
+
+    // Re-check against the new document's final origin, which may differ from the URL-derived
+    // origin used by DocumentLoader::navigationCanTriggerCrossDocumentViewTransition.
+    if (!inboundViewTransitionParams->oldDocumentOrigin
+        || !inboundViewTransitionParams->oldDocumentOrigin->isSameOriginAs(document.securityOrigin()))
         return nullptr;
 
     if (document.activeViewTransition())
@@ -382,17 +391,17 @@ static AtomString effectiveViewTransitionName(RenderLayerModelObject& renderer, 
             Ref element = *renderer.element();
             return makeAtomString("-ua-auto-"_s, String::number(element->nodeIdentifier().toRawValue()));
         },
-        [&](const CustomIdentifier& customIdentifier) {
+        [&](const Style::CustomIdent& customIdent) {
             SUPPRESS_UNCHECKED_LOCAL auto scope = computeScope();
             if (!scope)
                 return nullAtom();
 
-            return customIdentifier.value;
+            return customIdent.value;
         }
     );
 }
 
-static ExceptionOr<void> checkDuplicateViewTransitionName(const AtomString& name, ListHashSet<AtomString>& usedTransitionNames)
+static ExceptionOr<void> checkDuplicateViewTransitionName(const AtomString& name, OrderedHashSet<AtomString>& usedTransitionNames)
 {
     if (usedTransitionNames.contains(name))
         return Exception { ExceptionCode::InvalidStateError, makeString("Multiple elements found with view-transition-name: "_s, name) };
@@ -463,9 +472,14 @@ static RefPtr<ImageBuffer> snapshotElementVisualOverflowClippedToViewport(LocalF
     RefPtr frameView = frame.document()->view();
     if (!frameView)
         return nullptr;
-    auto hostWindow = frameView->root() ? protect(frameView->root())->hostWindow() : nullptr;
 
-    auto buffer = ImageBuffer::create(paintRect.size(), RenderingMode::Accelerated, RenderingPurpose::Snapshot, scaleFactor, DestinationColorSpace::SRGB(), PixelFormat::BGRA8, hostWindow);
+    auto hostWindow = frameView->root() ? protect(frameView->root())->hostWindow() : nullptr;
+    auto colorSpace = screenColorSpace(frameView);
+#if PLATFORM(IOS_FAMILY)
+    colorSpace = DestinationColorSpace::SRGB(); // FIXME: We should use the screen colorspace on iOS too, but that has blending issues: webkit.org/b/318764.
+#endif
+
+    auto buffer = ImageBuffer::create(paintRect.size(), RenderingMode::Accelerated, RenderingPurpose::Snapshot, scaleFactor, colorSpace, PixelFormat::BGRA8, hostWindow);
     if (!buffer)
         return nullptr;
 
@@ -541,7 +555,7 @@ ExceptionOr<void> ViewTransition::captureOldState()
 {
     if (!document())
         return { };
-    ListHashSet<AtomString> usedTransitionNames;
+    OrderedHashSet<AtomString> usedTransitionNames;
     Vector<CheckedRef<RenderLayerModelObject>> captureRenderers;
 
     // Ensure style & layout are up-to-date.
@@ -625,7 +639,7 @@ ExceptionOr<void> ViewTransition::captureNewState()
 {
     if (!document())
         return { };
-    ListHashSet<AtomString> usedTransitionNames;
+    OrderedHashSet<AtomString> usedTransitionNames;
     if (CheckedPtr view = document()->renderView()) {
         auto result = forEachRendererInPaintOrder([&](RenderLayerModelObject& renderer) -> ExceptionOr<void> {
             auto styleable = Styleable::fromRenderer(renderer);
@@ -668,9 +682,9 @@ void ViewTransition::setupDynamicStyleSheet(const AtomString& name, const Captur
     // image animation name rule
     if (capturedElement.oldImage) {
         CSSValueListBuilder list;
-        list.append(CSSPrimitiveValue::createCustomIdent("-ua-view-transition-fade-out"_s));
+        list.append(CSSCustomIdentValue::create(CSS::CustomIdent { "-ua-view-transition-fade-out"_s }));
         if (capturedElement.newElement)
-            list.append(CSSPrimitiveValue::createCustomIdent("-ua-mix-blend-mode-plus-lighter"_s));
+            list.append(CSSCustomIdentValue::create(CSS::CustomIdent { "-ua-mix-blend-mode-plus-lighter"_s }));
         Ref valueList = CSSValueList::createCommaSeparated(WTF::move(list));
         Ref props = MutableStyleProperties::create();
         props->setProperty(CSSPropertyAnimationName, WTF::move(valueList));
@@ -680,9 +694,9 @@ void ViewTransition::setupDynamicStyleSheet(const AtomString& name, const Captur
 
     if (capturedElement.newElement) {
         CSSValueListBuilder list;
-        list.append(CSSPrimitiveValue::createCustomIdent("-ua-view-transition-fade-in"_s));
+        list.append(CSSCustomIdentValue::create(CSS::CustomIdent { "-ua-view-transition-fade-in"_s }));
         if (capturedElement.oldImage)
-            list.append(CSSPrimitiveValue::createCustomIdent("-ua-mix-blend-mode-plus-lighter"_s));
+            list.append(CSSCustomIdentValue::create(CSS::CustomIdent { "-ua-mix-blend-mode-plus-lighter"_s }));
         Ref valueList = CSSValueList::createCommaSeparated(WTF::move(list));
         Ref props = MutableStyleProperties::create();
         props->setProperty(CSSPropertyAnimationName, WTF::move(valueList));
@@ -695,7 +709,7 @@ void ViewTransition::setupDynamicStyleSheet(const AtomString& name, const Captur
 
     // group animation name rule
     {
-        Ref list = CSSValueList::createCommaSeparated(CSSPrimitiveValue::createCustomIdent(makeString("-ua-view-transition-group-anim-"_s, name)));
+        Ref list = CSSValueList::createCommaSeparated(CSSCustomIdentValue::create(CSS::CustomIdent { makeAtomString("-ua-view-transition-group-anim-"_s, name) }));
         Ref props = MutableStyleProperties::create();
         props->setProperty(CSSPropertyAnimationName, WTF::move(list));
 
@@ -705,7 +719,7 @@ void ViewTransition::setupDynamicStyleSheet(const AtomString& name, const Captur
     // image pair isolation rule
     {
         Ref props = MutableStyleProperties::create();
-        props->setProperty(CSSPropertyIsolation, CSSPrimitiveValue::create(CSSValueID::CSSValueIsolate));
+        props->setProperty(CSSPropertyIsolation, CSSKeywordValue::create(CSSValueID::CSSValueIsolate));
 
         resolver->setViewTransitionStyles(CSSSelector::PseudoElement::ViewTransitionImagePair, name, props);
     }
@@ -714,7 +728,7 @@ void ViewTransition::setupDynamicStyleSheet(const AtomString& name, const Captur
         return;
 
     // group keyframes
-    static constexpr auto keyframeProperties = std::to_array<CSSPropertyID>({
+    static constexpr auto keyframeProperties = WTF::toArray<CSSPropertyID>({
         CSSPropertyWidth,
         CSSPropertyHeight,
         CSSPropertyTransform,
@@ -726,8 +740,10 @@ void ViewTransition::setupDynamicStyleSheet(const AtomString& name, const Captur
     Ref keyframes = StyleRuleKeyframes::create(AtomString(makeString("-ua-view-transition-group-anim-"_s, name)));
     keyframes->wrapperAppendKeyframe(WTF::move(keyframe));
 
-    // We can add this to the normal namespace, since we recreate the resolver when the view-transition ends.
-    resolver->addKeyframeStyle(WTF::move(keyframes));
+    // Register through the document scope so the keyframes are re-established if the resolver
+    // is recreated (e.g. by a stylesheet mutation) during the transition. The keyframes are
+    // discarded when the transition ends and the view transition styles are cleared.
+    document()->styleScope().addViewTransitionKeyframes(WTF::move(keyframes));
 }
 
 // https://drafts.csswg.org/css-view-transitions/#setup-transition-pseudo-elements
@@ -745,7 +761,7 @@ ExceptionOr<void> ViewTransition::checkForViewportSizeChange()
     if (!view)
         return Exception { ExceptionCode::InvalidStateError, "Skipping view transition because viewport size changed."_s };
 
-    Ref frame = protect(view->frameView())->frame();
+    Ref frame = view->frameView().frame();
     if (view->sizeForCSSLargeViewportUnits() != m_initialLargeViewportSize || m_initialPageZoom != (frame->pageZoomFactor() * frame->frameScaleFactor()))
         return Exception { ExceptionCode::InvalidStateError, "Skipping view transition because viewport size changed."_s };
     return { };
@@ -782,7 +798,7 @@ void ViewTransition::activateViewTransition()
     }
 
     if (RefPtr documentElement = document()->documentElement())
-        documentElement->invalidateStyleInternal();
+        documentElement->invalidateStyle();
 
     m_phase = ViewTransitionPhase::Animating;
 
@@ -872,7 +888,7 @@ void ViewTransition::clearViewTransition()
     document->setActiveViewTransition(nullptr);
 
     if (RefPtr documentElement = document->documentElement())
-        documentElement->invalidateStyleInternal();
+        documentElement->invalidateStyle();
 }
 
 // https://drafts.csswg.org/css-view-transitions-1/#snapshot-containing-block
@@ -909,7 +925,7 @@ void ViewTransition::copyElementBaseProperties(RenderLayerModelObject& renderer,
     ASSERT(styleable);
     Style::Extractor styleExtractor { &styleable->element, false, styleable->pseudoElementIdentifier };
 
-    static constexpr auto transitionProperties = std::to_array<CSSPropertyID>({
+    static constexpr auto transitionProperties = WTF::toArray<CSSPropertyID>({
         CSSPropertyWritingMode,
         CSSPropertyDirection,
         CSSPropertyTextOrientation,
@@ -1012,7 +1028,7 @@ void ViewTransition::updatePseudoElementStylesWrite()
 
     if (changed) {
         if (RefPtr documentElement = document->documentElement())
-            documentElement->invalidateStyleInternal();
+            documentElement->invalidateStyle();
     }
 }
 

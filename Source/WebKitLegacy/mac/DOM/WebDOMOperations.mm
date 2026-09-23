@@ -55,8 +55,7 @@
 #import <WebCore/PlatformWheelEvent.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderElement.h>
-#import <WebCore/RenderObjectInlines.h>
-#import <WebCore/RenderStyle+GettersInlines.h>
+#import <WebCore/RenderObjectStyle.h>
 #import <WebCore/RenderTreeAsText.h>
 #import <WebCore/ShadowRoot.h>
 #import <WebCore/SimpleRange.h>
@@ -67,8 +66,6 @@
 #import <wtf/Assertions.h>
 #import <wtf/text/MakeString.h>
 
-using namespace WebCore;
-using namespace JSC;
 
 @implementation DOMElement (WebDOMElementOperationsPrivate)
 
@@ -80,9 +77,9 @@ using namespace JSC;
     if (!value)
         return 0;
 
-    JSGlobalObject* lexicalGlobalObject = toJS(context);
-    JSLockHolder lock(lexicalGlobalObject);
-    return kit(JSElement::toWrapped(lexicalGlobalObject->vm(), toJS(lexicalGlobalObject, value)));
+    JSC::JSGlobalObject* lexicalGlobalObject = toJS(context);
+    JSC::JSLockHolder lock(lexicalGlobalObject);
+    return kit(WebCore::JSElement::toWrapped(lexicalGlobalObject->vm(), toJS(lexicalGlobalObject, value)));
 }
 
 @end
@@ -92,13 +89,13 @@ using namespace JSC;
 - (WebArchive *)webArchive
 {
     WebCore::LegacyWebArchive::ArchiveOptions options { WebCore::LegacyWebArchive::ShouldSaveScriptsFromMemoryCache::No };
-    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(*core(self), WTF::move(options))]).autorelease();
+    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(*core(self), WTF::move(options))]).autorelease();
 }
 
 - (WebArchive *)webArchiveByFilteringSubframes:(WebArchiveSubframeFilter)webArchiveSubframeFilter
 {
     WebCore::LegacyWebArchive::ArchiveOptions options { WebCore::LegacyWebArchive::ShouldSaveScriptsFromMemoryCache::No };
-    auto webArchive = adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(*core(self), WTF::move(options), [webArchiveSubframeFilter](LocalFrame& subframe) -> bool {
+    RetainPtr webArchive = adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(*core(self), WTF::move(options), [webArchiveSubframeFilter](WebCore::LocalFrame& subframe) -> bool {
         return webArchiveSubframeFilter(kit(&subframe));
     })]);
 
@@ -109,11 +106,11 @@ using namespace JSC;
 
 - (BOOL)isHorizontalWritingMode
 {
-    Node* node = core(self);
+    WebCore::Node* node = core(self);
     if (!node)
         return YES;
     
-    RenderObject* renderer = node->renderer();
+    WebCore::RenderObject* renderer = node->renderer();
     if (!renderer)
         return YES;
     
@@ -122,14 +119,14 @@ using namespace JSC;
 
 - (void)hidePlaceholder
 {
-    if (auto node = core(self); is<HTMLTextFormControlElement>(node))
-        downcast<HTMLTextFormControlElement>(*node).setCanShowPlaceholder(false);
+    if (auto node = core(self); is<WebCore::HTMLTextFormControlElement>(node))
+        downcast<WebCore::HTMLTextFormControlElement>(*node).setCanShowPlaceholder(false);
 }
 
 - (void)showPlaceholderIfNecessary
 {
-    if (auto node = core(self); is<HTMLTextFormControlElement>(node))
-        downcast<HTMLTextFormControlElement>(*node).setCanShowPlaceholder(true);
+    if (auto node = core(self); is<WebCore::HTMLTextFormControlElement>(node))
+        downcast<WebCore::HTMLTextFormControlElement>(*node).setCanShowPlaceholder(true);
 }
 
 #endif
@@ -142,9 +139,9 @@ using namespace JSC;
 {
     auto& node = *core(self);
 
-    String markupString = serializeFragment(node, SerializedNodes::SubtreeIncludingNode);
+    String markupString = serializeFragment(node, WebCore::SerializedNodes::SubtreeIncludingNode);
     auto nodeType = node.nodeType();
-    if (nodeType != NodeType::Document && nodeType != NodeType::DocumentType)
+    if (nodeType != WebCore::NodeType::Document && nodeType != WebCore::NodeType::DocumentType)
         markupString = makeString(documentTypeString(node.document()), markupString);
 
     return markupString.createNSString().autorelease();
@@ -169,7 +166,7 @@ using namespace JSC;
 
 - (NSURL *)URLWithAttributeString:(NSString *)string
 {
-    return core(self)->completeURL(string).createNSURL().autorelease();
+    return core(self)->encodingParseURL(string).createNSURL().autorelease();
 }
 
 @end
@@ -193,13 +190,13 @@ using namespace JSC;
 - (WebArchive *)webArchive
 {
     WebCore::LegacyWebArchive::ArchiveOptions options { WebCore::LegacyWebArchive::ShouldSaveScriptsFromMemoryCache::No };
-    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(makeSimpleRange(*core(self)), WTF::move(options))]).autorelease();
+    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(makeSimpleRange(*core(self)), WTF::move(options))]).autorelease();
 }
 
 - (NSString *)markupString
 {
     auto range = makeSimpleRange(*core(self));
-    return makeString(documentTypeString(range.start.document()), serializePreservingVisualAppearance(range, nullptr, AnnotateForInterchange::Yes)).createNSString().autorelease();
+    return makeString(documentTypeString(range.start.document()), serializePreservingVisualAppearance(range, nullptr, WebCore::AnnotateForInterchange::Yes)).createNSString().autorelease();
 }
 
 @end
@@ -226,22 +223,22 @@ using namespace JSC;
 
 - (BOOL)_isAutofilled
 {
-    return downcast<HTMLInputElement>(core((DOMElement *)self))->autofilled();
+    return downcast<WebCore::HTMLInputElement>(core((DOMElement *)self))->autofilled();
 }
 
 - (BOOL)_isAutoFilledAndViewable
 {
-    return downcast<HTMLInputElement>(core((DOMElement *)self))->autofilledAndViewable();
+    return downcast<WebCore::HTMLInputElement>(core((DOMElement *)self))->autofilledAndViewable();
 }
 
 - (void)_setAutofilled:(BOOL)autofilled
 {
-    downcast<HTMLInputElement>(core((DOMElement *)self))->setAutofilled(autofilled);
+    downcast<WebCore::HTMLInputElement>(core((DOMElement *)self))->setAutofilled(autofilled);
 }
 
 - (void)_setAutoFilledAndViewable:(BOOL)autoFilledAndViewable
 {
-    downcast<HTMLInputElement>(core((DOMElement *)self))->setAutofilledAndViewable(autoFilledAndViewable);
+    downcast<WebCore::HTMLInputElement>(core((DOMElement *)self))->setAutofilledAndViewable(autoFilledAndViewable);
 }
 
 @end
@@ -256,24 +253,24 @@ using namespace JSC;
 @end
 
 #if !PLATFORM(IOS_FAMILY)
-static NSEventPhase NODELETE toNSEventPhase(PlatformWheelEventPhase platformPhase)
+static NSEventPhase NODELETE toNSEventPhase(WebCore::PlatformWheelEventPhase platformPhase)
 {
     switch (platformPhase) {
-    case PlatformWheelEventPhase::None:
+    case WebCore::PlatformWheelEventPhase::None:
         return NSEventPhaseNone;
-    case PlatformWheelEventPhase::Began:
+    case WebCore::PlatformWheelEventPhase::Began:
         return NSEventPhaseBegan;
-    case PlatformWheelEventPhase::Stationary:
+    case WebCore::PlatformWheelEventPhase::Stationary:
         return NSEventPhaseStationary;
-    case PlatformWheelEventPhase::Changed:
+    case WebCore::PlatformWheelEventPhase::Changed:
         return NSEventPhaseChanged;
-    case PlatformWheelEventPhase::Ended:
+    case WebCore::PlatformWheelEventPhase::Ended:
         return NSEventPhaseEnded;
-    case PlatformWheelEventPhase::Cancelled:
+    case WebCore::PlatformWheelEventPhase::Cancelled:
         return NSEventPhaseCancelled;
-    case PlatformWheelEventPhase::MayBegin:
+    case WebCore::PlatformWheelEventPhase::MayBegin:
         return NSEventPhaseMayBegin;
-    case PlatformWheelEventPhase::WillBegin:
+    case WebCore::PlatformWheelEventPhase::WillBegin:
         return NSEventPhaseNone;
     }
 

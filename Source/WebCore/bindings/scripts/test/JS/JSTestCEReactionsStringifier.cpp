@@ -28,6 +28,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMExceptionHandling.h"
@@ -38,7 +39,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -79,10 +79,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestCEReactionsStringifierPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestCEReactionsStringifierPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -124,11 +121,16 @@ static const std::array<HashTableValue, 4> JSTestCEReactionsStringifierPrototype
 
 const ClassInfo JSTestCEReactionsStringifierPrototype::s_info = { "TestCEReactionsStringifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestCEReactionsStringifierPrototype) };
 
+JSC::Structure* JSTestCEReactionsStringifierPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestCEReactionsStringifierPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestCEReactionsStringifier::info(), JSTestCEReactionsStringifierPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestCEReactionsStringifier::s_info = { "TestCEReactionsStringifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestCEReactionsStringifier) };
@@ -139,6 +141,19 @@ JSTestCEReactionsStringifier::JSTestCEReactionsStringifier(Structure* structure,
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestCEReactionsStringifier>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestCEReactionsStringifier* JSTestCEReactionsStringifier::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestCEReactionsStringifier>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestCEReactionsStringifier* ptr = new (NotNull, JSC::allocateCell<JSTestCEReactionsStringifier>(vm)) JSTestCEReactionsStringifier(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestCEReactionsStringifier::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestCEReactionsStringifier::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -154,7 +169,7 @@ JSObject* JSTestCEReactionsStringifier::prototype(VM& vm, JSDOMGlobalObject& glo
 
 JSValue JSTestCEReactionsStringifier::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestCEReactionsStringifierDOMConstructor, DOMConstructorID::TestCEReactionsStringifier>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestCEReactionsStringifierDOMConstructor, DOMConstructorID::TestCEReactionsStringifier>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestCEReactionsStringifier::destroy(JSC::JSCell* cell)
@@ -167,10 +182,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactionsStringifierConstructor, (JSGlobalObjec
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestCEReactionsStringifierPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestCEReactionsStringifierPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestCEReactionsStringifier::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestCEReactionsStringifier::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestCEReactionsStringifier_valueGetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactionsStringifier& thisObject)
@@ -268,12 +283,14 @@ JSC::GCClient::IsoSubspace* JSTestCEReactionsStringifier::subspaceForImpl(JSC::V
 
 void JSTestCEReactionsStringifier::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestCEReactionsStringifier*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestCEReactionsStringifier>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestCEReactionsStringifierOwner::JSTestCEReactionsStringifierOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestCEReactionsStringifierOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -287,7 +304,7 @@ void JSTestCEReactionsStringifierOwner::finalize(JSC::Handle<JSC::Unknown> handl
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestCEReactionsStringifier = static_cast<JSTestCEReactionsStringifier*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestCEReactionsStringifier->wrapped()).ptr(), jsTestCEReactionsStringifier);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestCEReactionsStringifier->wrapped(), jsTestCEReactionsStringifier);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -335,7 +352,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestCEReactionsStringifier* JSTestCEReactionsStringifier::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestCEReactionsStringifier*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestCEReactionsStringifier>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

@@ -27,7 +27,6 @@
 #define PAS_UTILITY_HEAP_H
 
 #include "pas_allocation_kind.h"
-#include "pas_intrinsic_heap_support.h"
 #include "pas_allocator_counts.h"
 #include "pas_lock.h"
 #include "pas_segregated_heap.h"

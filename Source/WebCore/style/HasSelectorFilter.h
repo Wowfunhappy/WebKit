@@ -34,7 +34,7 @@ class Element;
 
 namespace Style {
 
-enum class MatchElement : uint8_t;
+struct MatchElement;
 
 class HasSelectorFilter {
     WTF_MAKE_TZONE_ALLOCATED(HasSelectorFilter);
@@ -43,7 +43,6 @@ public:
     HasSelectorFilter(const Element&, Type);
 
     Type type() const { return m_type; }
-    static std::optional<Type> NODELETE typeForMatchElement(MatchElement);
 
     using Key = unsigned;
     static Key makeKey(const CSSSelector& hasSelector);

@@ -461,6 +461,7 @@ const OpcodeIDWide32SizeWasm = 2 # Wide32 Prefix + OpcodeID(1 byte)
 
 const WTFConfig = _g_config + constexpr WTF::startOffsetOfWTFConfig
 const GigacageConfig = _g_config + constexpr Gigacage::startOffsetOfGigacageConfig
+const ExecutableAllocatorConfigOffset = constexpr WebConfig::startOffsetOfExecutableAllocatorConfig
 const JSCConfigOffset = constexpr WTF::offsetOfWTFConfigExtension
 const JSCConfigGateMapOffset = JSCConfigOffset + constexpr JSC::offsetOfJSCConfigGateMap
 
@@ -2414,11 +2415,21 @@ _js_trampoline_llint_function_for_construct_arity_check_tag_wide32:
     crash()
 
 # Value-representation-specific code.
+
+# Shared by LowLevelInterpreter64.asm and LowLevelInterpreter32_64.asm's op_async_iterator_next.
+# yield* forwards a resume value to next() (m_hasValue -> this + value); for-await leaves
+# m_hasValue false, so next() is called with just `this`.
+macro getArgumentIncludingThisCountForAsyncIteratorNext(size, dst)
+    getu(size, OpAsyncIteratorNext, m_hasValue, dst)
+    addi 1, dst
+end
+
 if JSVALUE64
     include LowLevelInterpreter64
 else
     include LowLevelInterpreter32_64
 end
+
 
 
 # Value-representation-agnostic code.
@@ -2459,6 +2470,7 @@ slowPathOp(typeof_is_object)
 slowPathOp(unreachable)
 slowPathOp(new_promise)
 slowPathOp(new_generator)
+slowPathOp(new_async_function_generator)
 
 macro llintSlowPathOp(opcodeName)
     llintOp(op_%opcodeName%, unused, macro (unused, unused, dispatch)
@@ -3084,6 +3096,32 @@ op(normal_osr_exit_trampoline, macro ()
     dispatch(0)
 end)
 
+op(array_sort_comparator_return_trampoline, macro ()
+    if (JSVALUE64 and not C_LOOP) or ARMv7
+        restoreStackPointerAfterCall()
+
+        if ARMv7
+            move cfr, a0
+            cCall4(_llint_slow_path_array_sort_comparator_return)
+        else
+            move cfr, a0
+            cCall2(_llint_slow_path_array_sort_comparator_return)
+        end
+
+        setupReturnToBaselineAfterCheckpointExitIfNeeded()
+        restoreStateAfterCCall()
+        branchIfException(_llint_throw_from_slow_path_trampoline)
+        if ARM64E
+            move r1, a0
+            leap _g_config, a2
+            jmp JSCConfigGateMapOffset + (constexpr Gate::loopOSREntry) * PtrSize[a2], NativeToJITGatePtrTag # JSEntryPtrTag
+        else
+            jmp r1, JSEntryPtrTag
+        end
+    else
+        notSupported()
+    end
+end)
 
 # Lastly, make sure that we can link even though we don't support all opcodes.
 # These opcodes should never arise when using LLInt or either JIT. We assert

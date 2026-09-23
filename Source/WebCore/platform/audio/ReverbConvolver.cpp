@@ -36,6 +36,7 @@
 #include "AudioBus.h"
 #include <mutex>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/Threading.h>
 
 namespace WebCore {
 

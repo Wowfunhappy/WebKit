@@ -27,14 +27,15 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "LayoutIntegrationLineLayout.h"
+#include "PlatformRenderTheme.h"
 #include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderChildIterator.h"
 #include "RenderElementInlines.h"
-#include "RenderStyle+SettersInlines.h"
 #include "RenderTheme.h"
 #include "RenderTreeBuilder.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -43,7 +44,7 @@ using namespace HTMLNames;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderButton);
 
-RenderButton::RenderButton(HTMLFormControlElement& element, RenderStyle&& style)
+RenderButton::RenderButton(HTMLFormControlElement& element, Style::ComputedStyle&& style)
     : RenderFlexibleBox(Type::Button, element, WTF::move(style))
 {
     ASSERT(isRenderButton());
@@ -58,7 +59,7 @@ HTMLFormControlElement& NODELETE RenderButton::formControlElement() const
 
 bool RenderButton::canBeSelectionLeaf() const
 {
-    return formControlElement().hasEditableStyle();
+    return protect(formControlElement())->hasEditableStyle();
 }
 
 bool RenderButton::hasLineIfEmpty() const
@@ -83,7 +84,7 @@ void RenderButton::setInnerRenderer(RenderBlock& innerRenderer)
     }
 }
 
-void RenderButton::updateAnonymousChildStyle(RenderStyle& childStyle) const
+void RenderButton::updateAnonymousChildStyle(Style::ComputedStyle& childStyle) const
 {
     childStyle.setFlexGrow(1.0f);
     // min-inline-size: 0; is needed for correct shrinking.
@@ -116,7 +117,7 @@ void RenderButton::setText(const String& str)
         return;
 
     if (!m_buttonText) {
-        auto newButtonText = createRenderer<RenderTextFragment>(document(), str);
+        auto newButtonText = createRenderer<RenderTextFragment>(protect(document()), str);
         m_buttonText = *newButtonText;
         // FIXME: This mutation should go through the normal RenderTreeBuilder path.
         if (RenderTreeBuilder::current())
@@ -154,7 +155,7 @@ bool RenderButton::canHaveGeneratedChildren() const
 LayoutRect RenderButton::controlClipRect(const LayoutPoint& additionalOffset) const
 {
     // Clip to the padding box to at least give content the extra padding space.
-    return LayoutRect(additionalOffset.x() + borderLeft(), additionalOffset.y() + borderTop(), width() - borderLeft() - borderRight(), height() - borderTop() - borderBottom());
+    return LayoutRect(additionalOffset.x() + borderLeft(), additionalOffset.y() + borderTop(), borderBoxWidth() - borderLeft() - borderRight(), borderBoxHeight() - borderTop() - borderBottom());
 }
 
 #if PLATFORM(IOS_FAMILY)

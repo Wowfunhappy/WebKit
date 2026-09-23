@@ -26,6 +26,7 @@
 #include "StyleURL.h"
 
 #include "CSSURLValue.h"
+#include "DeprecatedCSSOMValue.h"
 #include "Document.h"
 #include "StyleBuilderChecking.h"
 #include "StyleBuilderState.h"
@@ -56,7 +57,7 @@ auto toStyleWithScriptExecutionContext(const CSS::URL& url, const ScriptExecutio
 {
     if (url.resolved.isNull()) {
         return {
-            .resolved = context.completeURL(url.specified),
+            .resolved = context.encodingParseURL(url.specified),
             .modifiers = url.modifiers,
         };
     }
@@ -67,7 +68,7 @@ auto toStyleWithScriptExecutionContext(const CSS::URL& url, const ScriptExecutio
     };
 }
 
-auto ToCSS<URL>::operator()(const URL& url, const RenderStyle&) -> CSS::URL
+auto ToCSS<URL>::operator()(const URL& url, const Style::ComputedStyle&) -> CSS::URL
 {
     return {
         .specified = url.resolved.string(),
@@ -81,9 +82,14 @@ auto ToStyle<CSS::URL>::operator()(const CSS::URL& url, const BuilderState& stat
     return toStyleWithScriptExecutionContext(url, protect(state.document()));
 }
 
-Ref<CSSValue> CSSValueCreation<URL>::operator()(CSSValuePool&, const RenderStyle& style, const URL& value)
+Ref<CSSValue> CSSValueCreation<URL>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const URL& value)
 {
-    return CSSURLValue::create(toCSS(value, style));
+    return CSS::createCSSValue(pool, toCSS(value, style));
+}
+
+auto CSSValueConversion<URL>::operator()(BuilderState& state, const CSSURLValue& value) -> URL
+{
+    return toStyle(value.url(), state);
 }
 
 auto CSSValueConversion<URL>::operator()(BuilderState& state, const CSSValue& value) -> URL
@@ -93,9 +99,14 @@ auto CSSValueConversion<URL>::operator()(BuilderState& state, const CSSValue& va
     return { .resolved = WTF::URL { emptyString() }, .modifiers = { } };
 }
 
+Ref<DeprecatedCSSOMValue> DeprecatedCSSOMValueCreation<URL>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, CSSStyleDeclaration& owner, const URL& value)
+{
+    return CSS::createDeprecatedCSSOMValue(pool, owner, toCSS(value, style));
+}
+
 // MARK: - Serialization
 
-void Serialize<URL>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const URL& value)
+void Serialize<URL>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const URL& value)
 {
     CSS::serializationForCSS(builder, context, toCSS(value, style));
 }

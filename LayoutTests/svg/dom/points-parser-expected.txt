@@ -1,6 +1,4 @@
 CONSOLE MESSAGE: Error: Problem parsing points="a"
-CONSOLE MESSAGE: Error: Problem parsing points="10"
-CONSOLE MESSAGE: Error: Problem parsing points="10,"
 CONSOLE MESSAGE: Error: Problem parsing points="10,,"
 CONSOLE MESSAGE: Error: Problem parsing points="10,,10"
 CONSOLE MESSAGE: Error: Problem parsing points="10,10,"

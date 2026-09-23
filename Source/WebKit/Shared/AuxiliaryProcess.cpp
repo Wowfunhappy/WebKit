@@ -296,7 +296,7 @@ void AuxiliaryProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageNa
     CRASH();
 }
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
 void AuxiliaryProcess::didReceiveMemoryPressureEvent(bool isCritical)
 {
     MemoryPressureHandler::singleton().triggerMemoryPressureEvent(isCritical);

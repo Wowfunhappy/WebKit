@@ -100,7 +100,7 @@ void JSWorkerGlobalScopeBase::finishCreation(VM& vm, JSGlobalProxy* proxy)
 template<typename Visitor>
 void JSWorkerGlobalScopeBase::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSWorkerGlobalScopeBase* thisObject = jsCast<JSWorkerGlobalScopeBase*>(cell);
+    JSWorkerGlobalScopeBase* thisObject = uncheckedDowncast<JSWorkerGlobalScopeBase>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_proxy);
@@ -112,6 +112,11 @@ void JSWorkerGlobalScopeBase::destroy(JSCell* cell)
 {
     // We cannot rely on jsCast() during JSObject destruction.
     SUPPRESS_MEMORY_UNSAFE_CAST static_cast<JSWorkerGlobalScopeBase*>(cell)->JSWorkerGlobalScopeBase::~JSWorkerGlobalScopeBase();
+}
+
+JSC::Structure* JSWorkerGlobalScopeBase::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
 }
 
 bool JSWorkerGlobalScopeBase::supportsRichSourceInfo(const JSGlobalObject* object)
@@ -131,14 +136,14 @@ bool JSWorkerGlobalScopeBase::shouldInterruptScriptBeforeTimeout(const JSGlobalO
 
 RuntimeFlags JSWorkerGlobalScopeBase::javaScriptRuntimeFlags(const JSGlobalObject* object)
 {
-    const JSWorkerGlobalScopeBase *thisObject = jsCast<const JSWorkerGlobalScopeBase*>(object);
+    const JSWorkerGlobalScopeBase* thisObject = uncheckedDowncast<JSWorkerGlobalScopeBase>(object);
     return thisObject->m_wrapped->thread()->runtimeFlags();
 }
 
 JSC::ScriptExecutionStatus JSWorkerGlobalScopeBase::scriptExecutionStatus(JSC::JSGlobalObject* globalObject, JSC::JSObject* owner)
 {
     ASSERT_UNUSED(owner, globalObject == owner);
-    return jsCast<JSWorkerGlobalScopeBase*>(globalObject)->wrapped().jscScriptExecutionStatus();
+    return uncheckedDowncast<JSWorkerGlobalScopeBase>(globalObject)->wrapped().jscScriptExecutionStatus();
 }
 
 void JSWorkerGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, const String& source)

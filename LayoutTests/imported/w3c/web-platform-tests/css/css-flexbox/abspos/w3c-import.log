@@ -45,6 +45,12 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-002-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-002-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-002.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-003-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-003-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-safe-003.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-vertWM-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-vertWM-002.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/abspos/flex-abspos-staticpos-align-self-vertWM-003.html

@@ -30,8 +30,11 @@
 #include "MessageReceiver.h"
 #include "XRDeviceIdentifier.h"
 #include "XRDeviceProxy.h"
+#include <WebCore/IntSize.h>
 #include <WebCore/PlatformXR.h>
 #include <wtf/FastMalloc.h>
+#include <wtf/RefPtr.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 class SecurityOriginData;
@@ -53,9 +56,12 @@ public:
     void shutDownTrackingAndRendering();
     void didCompleteShutdownTriggeredBySystem();
     void requestFrame(std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&);
-    std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool);
+    std::optional<PlatformXR::LayerInfo> createLayerProjection(uint32_t, uint32_t, bool);
+#if ENABLE(WEBXR_LAYERS)
+    std::optional<PlatformXR::LayerInfo> createCompositionLayer(PlatformXR::CompositionLayerType, WebCore::IntSize, PlatformXR::LayerLayout);
+#endif
 #if USE(OPENXR)
-    void submitFrame(Vector<PlatformXR::Device::Layer>&&);
+    void submitFrame(Vector<PlatformXR::DeviceLayer>&&);
 #else
     void submitFrame();
 #endif
@@ -80,6 +86,7 @@ private:
     // Message handlers
     void sessionDidEnd(XRDeviceIdentifier);
     void sessionDidUpdateVisibilityState(XRDeviceIdentifier, PlatformXR::VisibilityState);
+    void sessionDidInitializeRendering(XRDeviceIdentifier, uint32_t width, uint32_t height, uint32_t arrayLength);
 
     PlatformXR::DeviceList m_devices;
     WeakRef<WebPage> m_page;

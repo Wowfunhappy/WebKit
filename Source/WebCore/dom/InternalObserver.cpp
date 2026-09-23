@@ -28,6 +28,7 @@
 
 #include "ContextDestructionObserverInlines.h"
 #include "JSDOMExceptionHandling.h"
+#include "Subscriber.h"
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/JSGlobalObject.h>

@@ -5067,7 +5067,17 @@ public:
     {
         m_assembler.addq_rr(src, dest);
     }
-    
+
+    void addCarry64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.adcq_rr(src, dest);
+    }
+
+    void subBorrow64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.sbbq_rr(src, dest);
+    }
+
     void add64(Address src, RegisterID dest)
     {
         m_assembler.addq_mr(src.offset, src.base, dest);
@@ -7814,7 +7824,24 @@ public:
 
     void vectorDupElement(SIMDLane simdLane, TrustedImm32 lane, FPRegisterID src, FPRegisterID dest)
     {
-        UNUSED_PARAM(simdLane); UNUSED_PARAM(lane); UNUSED_PARAM(src); UNUSED_PARAM(dest);
+        RELEASE_ASSERT(supportsAVX());
+        switch (simdLane) {
+        case SIMDLane::i64x2:
+        case SIMDLane::f64x2:
+            if (lane.m_value == 0)
+                m_assembler.vmovddup_rr(src, dest);
+            else
+                m_assembler.vpunpckhqdq_rrr(src, src, dest);
+            break;
+        case SIMDLane::i32x4:
+        case SIMDLane::f32x4: {
+            uint8_t imm = lane.m_value | (lane.m_value << 2) | (lane.m_value << 4) | (lane.m_value << 6);
+            m_assembler.vpshufd_i8rr(imm, src, dest);
+            break;
+        }
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
     }
 
     DEFINE_SIMD_FUNCS(vectorDupElement);
@@ -8301,6 +8328,71 @@ public:
         ASSERT(scalarTypeIsFloatingPoint(simdInfo.lane));
         vectorMul(simdInfo, mul1, mul2, scratch);
         vectorSub(simdInfo, addend, scratch, dest);
+    }
+
+    void vectorRelaxedMin(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        ASSERT(scalarTypeIsFloatingPoint(simdInfo.lane));
+        // Relaxed min allows implementation-defined behavior for NaN and -0/+0
+        // On x86, vminps/vminpd returns the second operand if either is NaN
+        if (simdInfo.lane == SIMDLane::f32x4)
+            m_assembler.vminps_rrr(right, left, dest);
+        else
+            m_assembler.vminpd_rrr(right, left, dest);
+    }
+
+    void vectorRelaxedMax(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        ASSERT(scalarTypeIsFloatingPoint(simdInfo.lane));
+        // Relaxed max allows implementation-defined behavior for NaN and -0/+0
+        // On x86, vmaxps/vmaxpd returns the second operand if either is NaN
+        if (simdInfo.lane == SIMDLane::f32x4)
+            m_assembler.vmaxps_rrr(right, left, dest);
+        else
+            m_assembler.vmaxpd_rrr(right, left, dest);
+    }
+
+    void vectorRelaxedQ15Mulr(FPRegisterID a, FPRegisterID b, FPRegisterID dest)
+    {
+        // Relaxed Q15 multiply - does not need saturation fixup
+        RELEASE_ASSERT(supportsAVX());
+        m_assembler.vpmulhrsw_rrr(b, a, dest);
+    }
+
+    void vectorRelaxedDotI8x16I7x16(FPRegisterID a, FPRegisterID b, FPRegisterID dest, FPRegisterID)
+    {
+        // Dot product of i8x16 producing i16x8
+        // vpmaddubsw treats first source (VEX.vvvv) as unsigned, second (ModRM) as signed
+        // b is i7x16 (0-127) → unsigned, a is i8x16 → signed
+        RELEASE_ASSERT(supportsAVX());
+        m_assembler.vpmaddubsw_rrr(a, b, dest);
+    }
+
+    void vectorRelaxedDotI8x16I7x16Add(FPRegisterID a, FPRegisterID b, FPRegisterID addend, FPRegisterID dest, FPRegisterID scratch1, FPRegisterID scratch2)
+    {
+        // Dot product of i8x16 producing i32x4 with accumulator
+        // First vpmaddubsw: b(unsigned) * a(signed) pairwise → i16x8
+        // Then vpmaddwd: sum adjacent i16 pairs → i32x4
+        // Finally add the accumulator
+        RELEASE_ASSERT(supportsAVX());
+        ASSERT(scratch1 != scratch2);
+        ASSERT(scratch1 != a);
+        ASSERT(scratch1 != b);
+        ASSERT(scratch1 != addend);
+        ASSERT(scratch1 != dest);
+        ASSERT(scratch2 != a);
+        ASSERT(scratch2 != b);
+        ASSERT(scratch2 != addend);
+        ASSERT(scratch2 != dest);
+        m_assembler.vpmaddubsw_rrr(a, b, scratch1);
+        // Create i16x8 vector of all 1s: vpcmpeqd sets all bits, then shift right by 15
+        m_assembler.vpcmpeqd_rrr(scratch2, scratch2, scratch2);
+        m_assembler.vpsrlw_i8rr(15, scratch2, scratch2);
+        // vpmaddwd sums adjacent i16 pairs to i32x4
+        m_assembler.vpmaddwd_rrr(scratch2, scratch1, scratch1);
+        m_assembler.vpaddd_rrr(addend, scratch1, dest);
     }
 
     void vectorDiv(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID dest)
@@ -9491,6 +9583,94 @@ public:
             RELEASE_ASSERT_NOT_REACHED();
         else
             RELEASE_ASSERT_NOT_REACHED();
+    }
+
+    void vectorZipLower(SIMDInfo simdInfo, FPRegisterID n, FPRegisterID m, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        switch (simdInfo.lane) {
+        case SIMDLane::i8x16:
+            m_assembler.vpunpcklbw_rrr(m, n, dest);
+            break;
+        case SIMDLane::i16x8:
+            m_assembler.vpunpcklwd_rrr(m, n, dest);
+            break;
+        case SIMDLane::i32x4:
+            m_assembler.vpunpckldq_rrr(m, n, dest);
+            break;
+        case SIMDLane::i64x2:
+            m_assembler.vpunpcklqdq_rrr(m, n, dest);
+            break;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
+    }
+
+    void vectorZipHigher(SIMDInfo simdInfo, FPRegisterID n, FPRegisterID m, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        switch (simdInfo.lane) {
+        case SIMDLane::i8x16:
+            m_assembler.vpunpckhbw_rrr(m, n, dest);
+            break;
+        case SIMDLane::i16x8:
+            m_assembler.vpunpckhwd_rrr(m, n, dest);
+            break;
+        case SIMDLane::i32x4:
+            m_assembler.vpunpckhdq_rrr(m, n, dest);
+            break;
+        case SIMDLane::i64x2:
+            m_assembler.vpunpckhqdq_rrr(m, n, dest);
+            break;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
+    }
+
+    void vectorUnzipEven(SIMDInfo simdInfo, FPRegisterID n, FPRegisterID m, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        switch (simdInfo.lane) {
+        case SIMDLane::i64x2:
+            m_assembler.vpunpcklqdq_rrr(m, n, dest);
+            break;
+        case SIMDLane::i32x4:
+            m_assembler.vshufps_i8rrr(0x88, m, n, dest);
+            break;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
+    }
+
+    void vectorUnzipOdd(SIMDInfo simdInfo, FPRegisterID n, FPRegisterID m, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        switch (simdInfo.lane) {
+        case SIMDLane::i64x2:
+            m_assembler.vpunpckhqdq_rrr(m, n, dest);
+            break;
+        case SIMDLane::i32x4:
+            m_assembler.vshufps_i8rrr(0xDD, m, n, dest);
+            break;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
+    }
+
+    void vectorExtractPair(SIMDInfo simdInfo, TrustedImm32 firstLane, FPRegisterID n, FPRegisterID m, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        ASSERT_UNUSED(simdInfo, simdInfo.lane == SIMDLane::i8x16);
+        m_assembler.vpalignr_i8rrr(firstLane.m_value, n, m, dest);
+    }
+
+    void vectorReverse(SIMDInfo simdInfo, TrustedImm32 groupSize, FPRegisterID input, FPRegisterID dest)
+    {
+        RELEASE_ASSERT(supportsAVX());
+        ASSERT_UNUSED(simdInfo, simdInfo.lane == SIMDLane::i32x4);
+        ASSERT_UNUSED(groupSize, groupSize.m_value == 8);
+        // Swap 32-bit pairs within 64-bit halves: REV64.4S
+        m_assembler.vpshufd_i8rr(0xB1, input, dest);
     }
 
     void vectorSwizzle(FPRegisterID a, FPRegisterID b, FPRegisterID dest)

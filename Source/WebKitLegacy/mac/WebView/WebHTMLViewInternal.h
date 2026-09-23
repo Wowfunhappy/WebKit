@@ -37,7 +37,8 @@
 
 namespace WebCore {
 class CachedImage;
-    class KeyboardEvent;
+class KeyboardEvent;
+enum class ScrollbarWidth : uint8_t;
 }
 
 #if PLATFORM(MAC)

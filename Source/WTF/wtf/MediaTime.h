@@ -68,7 +68,7 @@ public:
     double NODELETE toDouble() const;
     int64_t NODELETE toMicroseconds() const;
 
-    MediaTime& operator=(const MediaTime&) = default;
+    MediaTime& NODELETE operator=(const MediaTime&) = default;
     MediaTime& operator+=(const MediaTime& rhs) { return *this = *this + rhs; }
     MediaTime& operator-=(const MediaTime& rhs) { return *this = *this - rhs; }
     MediaTime operator+(const MediaTime& rhs) const;
@@ -80,7 +80,7 @@ public:
 
     WTF_EXPORT_PRIVATE friend std::partial_ordering operator<=>(const MediaTime&, const MediaTime&);
     friend bool operator==(const MediaTime& a, const MediaTime& b) { return is_eq(a <=> b); }
-    bool isBetween(const MediaTime&, const MediaTime&) const;
+    bool NODELETE isBetween(const MediaTime&, const MediaTime&) const;
 
     bool isValid() const { return m_timeFlags & Valid; }
     bool isInvalid() const { return !isValid(); }

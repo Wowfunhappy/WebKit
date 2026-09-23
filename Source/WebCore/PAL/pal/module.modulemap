@@ -28,3 +28,5 @@ module pal [system] {
 
     export *
 }
+
+// (v7) This comment ensures an incremental build causes this module to rebuild (rdar://170129992)

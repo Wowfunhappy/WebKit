@@ -31,6 +31,7 @@
 #include "InjectedBundlePage.h"
 #include "JSAccessibilityController.h"
 #include "StringFunctions.h"
+#include "WebCoreTestSupport.h"
 #include <WebKit/WKBundle.h>
 #include <WebKit/WKBundleFramePrivate.h>
 #include <WebKit/WKBundlePage.h>
@@ -131,9 +132,10 @@ Ref<AccessibilityUIElement> AccessibilityController::rootElement(JSContextRef co
         return AccessibilityUIElementClientMac::createForUIProcess();
 #endif
 
+    WKRetainPtr<WKBundleFrameRef> frame = WKBundleFrameForJavaScriptContext(context);
     PlatformUIElement root;
     executeOnAXThreadAndWait([&] () {
-        root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
+        root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(frame.get()));
     });
     return AccessibilityUIElement::create(root);
 }
@@ -141,7 +143,7 @@ Ref<AccessibilityUIElement> AccessibilityController::rootElement(JSContextRef co
 void AccessibilityController::executeOnAXThreadAndWait(Function<void()>&& function)
 {
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (m_accessibilityIsolatedTreeMode) {
+    if (WebCoreTestSupport::isAccessibilityIsolatedTreeModeEnabled()) {
         std::atomic<bool> complete = false;
         AXThread::dispatch([&function, &complete] {
             function();
@@ -162,7 +164,7 @@ void AccessibilityController::executeOnAXThreadAndWait(Function<void()>&& functi
 void AccessibilityController::executeOnAXThread(Function<void()>&& function)
 {
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (m_accessibilityIsolatedTreeMode) {
+    if (WebCoreTestSupport::isAccessibilityIsolatedTreeModeEnabled()) {
         AXThread::dispatch([function = WTF::move(function)] {
             function();
         });
@@ -240,6 +242,13 @@ void AXThread::dispatch(Function<void()>&& function)
     axThread.wakeUpRunLoop();
 }
 
+void AXThread::clearQueuedFunctions()
+{
+    auto& axThread = AXThread::singleton();
+    Locker locker { axThread.m_functionsMutex };
+    axThread.m_functions.clear();
+}
+
 void AXThread::dispatchBarrier(Function<void()>&& function)
 {
     dispatch([function = WTF::move(function)] () mutable {
@@ -282,7 +291,7 @@ void AXThread::dispatchFunctionsFromAXThread()
 
     {
         Locker locker { m_functionsMutex };
-        functions = WTF::move(m_functions);
+        functions = std::exchange(m_functions, { });
     }
 
     for (auto& function : functions)

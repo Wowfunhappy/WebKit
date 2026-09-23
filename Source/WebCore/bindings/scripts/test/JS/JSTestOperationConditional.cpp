@@ -29,6 +29,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -38,7 +39,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -85,10 +85,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestOperationConditionalPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestOperationConditionalPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -137,11 +134,16 @@ static const std::array<HashTableValue, 3> JSTestOperationConditionalPrototypeTa
 
 const ClassInfo JSTestOperationConditionalPrototype::s_info = { "TestOperationConditional"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestOperationConditionalPrototype) };
 
+JSC::Structure* JSTestOperationConditionalPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestOperationConditionalPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestOperationConditional::info(), JSTestOperationConditionalPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestOperationConditional::s_info = { "TestOperationConditional"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestOperationConditional) };
@@ -152,6 +154,19 @@ JSTestOperationConditional::JSTestOperationConditional(Structure* structure, JSD
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestOperationConditional>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestOperationConditional* JSTestOperationConditional::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestOperationConditional>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestOperationConditional* ptr = new (NotNull, JSC::allocateCell<JSTestOperationConditional>(vm)) JSTestOperationConditional(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestOperationConditional::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestOperationConditional::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -167,7 +182,7 @@ JSObject* JSTestOperationConditional::prototype(VM& vm, JSDOMGlobalObject& globa
 
 JSValue JSTestOperationConditional::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestOperationConditionalDOMConstructor, DOMConstructorID::TestOperationConditional>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestOperationConditionalDOMConstructor, DOMConstructorID::TestOperationConditional>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestOperationConditional::destroy(JSC::JSCell* cell)
@@ -180,10 +195,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestOperationConditionalConstructor, (JSGlobalObject*
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestOperationConditionalPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestOperationConditionalPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestOperationConditional::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestOperationConditional::getConstructor(vm, prototype->realm()));
 }
 
 #if ENABLE(ConditionBase)
@@ -194,7 +209,7 @@ static inline JSC::EncodedJSValue jsTestOperationConditionalPrototypeFunction_no
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.nonConditionalOperation(); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.nonConditionalOperation(); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestOperationConditionalPrototypeFunction_nonConditionalOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -212,7 +227,7 @@ static inline JSC::EncodedJSValue jsTestOperationConditionalPrototypeFunction_co
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.conditionalOperation(); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.conditionalOperation(); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestOperationConditionalPrototypeFunction_conditionalOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -234,12 +249,14 @@ JSC::GCClient::IsoSubspace* JSTestOperationConditional::subspaceForImpl(JSC::VM&
 
 void JSTestOperationConditional::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestOperationConditional*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestOperationConditional>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestOperationConditionalOwner::JSTestOperationConditionalOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestOperationConditionalOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -253,7 +270,7 @@ void JSTestOperationConditionalOwner::finalize(JSC::Handle<JSC::Unknown> handle,
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestOperationConditional = static_cast<JSTestOperationConditional*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestOperationConditional->wrapped()).ptr(), jsTestOperationConditional);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestOperationConditional->wrapped(), jsTestOperationConditional);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -301,7 +318,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestOperationConditional* JSTestOperationConditional::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestOperationConditional*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestOperationConditional>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

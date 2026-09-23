@@ -95,7 +95,7 @@ class JSTestChecker(object):
         self._host = SystemHost.get_default()
         self._fs = self._host.filesystem
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         """Run all the checks."""
         for file_group in KEEP_JS_TEST_FILES_IN_SYNC:
             if self._file_path in file_group:

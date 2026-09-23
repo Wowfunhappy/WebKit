@@ -223,26 +223,14 @@ static PKShippingContactEditingMode NODELETE toPKShippingContactEditingMode(WebC
     switch (shippingContactEditingMode) {
     case WebCore::ApplePayShippingContactEditingMode::Available:
     case WebCore::ApplePayShippingContactEditingMode::Enabled:
-#if USE(PKSHIPPINGCONTACTEDITINGMODEENABLED)
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        return PKShippingContactEditingModeEnabled;
-ALLOW_DEPRECATED_DECLARATIONS_END
-#else
         return PKShippingContactEditingModeAvailable;
-#endif
 
     case WebCore::ApplePayShippingContactEditingMode::StorePickup:
         return PKShippingContactEditingModeStorePickup;
     }
 
     ASSERT_NOT_REACHED();
-#if USE(PKSHIPPINGCONTACTEDITINGMODEENABLED)
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return PKShippingContactEditingModeEnabled;
-ALLOW_DEPRECATED_DECLARATIONS_END
-#else
     return PKShippingContactEditingModeAvailable;
-#endif
 }
 
 #endif // HAVE(PASSKIT_SHIPPING_CONTACT_EDITING_MODE)
@@ -411,11 +399,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
 #if HAVE(PASSKIT_DELEGATED_REQUEST)
-    if (auto isDelegatedRequest = paymentRequest.isDelegatedRequest()) {
-        // FIXME: <rdar://165836164> (Remove bincompat staging code from WebKit)
-        if ([result respondsToSelector:@selector(setIsDelegatedRequest:)])
-            [result setIsDelegatedRequest:*isDelegatedRequest];
-    }
+    if (auto isDelegatedRequest = paymentRequest.isDelegatedRequest())
+        [result setIsDelegatedRequest:*isDelegatedRequest];
 #endif
 
     return result;

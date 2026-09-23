@@ -40,9 +40,7 @@ BlockFormattingState::BlockFormattingState(LayoutState& layoutState, const Eleme
 {
 }
 
-BlockFormattingState::~BlockFormattingState()
-{
-}
+BlockFormattingState::~BlockFormattingState() = default;
 
 void BlockFormattingState::shrinkToFit()
 {

@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/ContentsFormat.h>
+#include <WebCore/GraphicsLayer.h>
 #include <WebCore/PlatformCALayer.h>
 
 OBJC_CLASS NSObject;

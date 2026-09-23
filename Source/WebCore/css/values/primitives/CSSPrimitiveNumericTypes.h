@@ -52,6 +52,11 @@ template<Range nR = All, Range pR = nR, typename V = double> struct NumberOrPerc
     {
     }
 
+    NumberOrPercentage(ValueLiteral<NumberUnit::Number> literal)
+        : value { Number { literal } }
+    {
+    }
+
     NumberOrPercentage(typename Percentage::Raw value)
         : value { Percentage { WTF::move(value) } }
     {
@@ -62,7 +67,54 @@ template<Range nR = All, Range pR = nR, typename V = double> struct NumberOrPerc
     {
     }
 
+    NumberOrPercentage(ValueLiteral<PercentageUnit::Percentage> literal)
+        : value { Percentage { literal } }
+    {
+    }
+
     bool operator==(const NumberOrPercentage&) const = default;
+
+    bool operator==(const Number& other) const
+    {
+        if (auto* number = std::get_if<Number>(&value))
+            return *number == other;
+        return false;
+    }
+
+    bool operator==(const typename Number::Raw& other) const
+    {
+        if (auto* number = std::get_if<Number>(&value))
+            return *number == other;
+        return false;
+    }
+
+    bool operator==(const ValueLiteral<NumberUnit::Number>& other) const
+    {
+        if (auto* number = std::get_if<Number>(&value))
+            return *number == other;
+        return false;
+    }
+
+    bool operator==(const Percentage& other) const
+    {
+        if (auto* percentage = std::get_if<Percentage>(&value))
+            return *percentage == other;
+        return false;
+    }
+
+    bool operator==(const typename Percentage::Raw& other) const
+    {
+        if (auto* percentage = std::get_if<Percentage>(&value))
+            return *percentage == other;
+        return false;
+    }
+
+    bool operator==(const ValueLiteral<PercentageUnit::Percentage>& other) const
+    {
+        if (auto* percentage = std::get_if<Percentage>(&value))
+            return *percentage == other;
+        return false;
+    }
 
     template<typename... F> decltype(auto) switchOn(F&&... f) const
     {
@@ -114,6 +166,11 @@ template<Range nR = All, Range pR = nR, typename V = double> struct NumberOrPerc
     {
     }
 
+    NumberOrPercentageResolvedToNumber(ValueLiteral<NumberUnit::Number> literal)
+        : value { Number { literal } }
+    {
+    }
+
     NumberOrPercentageResolvedToNumber(typename Percentage::Raw value)
         : value { Percentage { WTF::move(value) } }
     {
@@ -124,7 +181,54 @@ template<Range nR = All, Range pR = nR, typename V = double> struct NumberOrPerc
     {
     }
 
+    NumberOrPercentageResolvedToNumber(ValueLiteral<PercentageUnit::Percentage> literal)
+        : value { Percentage { literal } }
+    {
+    }
+
     bool operator==(const NumberOrPercentageResolvedToNumber&) const = default;
+
+    bool operator==(const Number& other) const
+    {
+        if (auto* number = std::get_if<Number>(&value))
+            return *number == other;
+        return false;
+    }
+
+    bool operator==(const typename Number::Raw& other) const
+    {
+        if (auto* number = std::get_if<Number>(&value))
+            return *number == other;
+        return false;
+    }
+
+    bool operator==(const ValueLiteral<NumberUnit::Number>& other) const
+    {
+        if (auto* number = std::get_if<Number>(&value))
+            return *number == other;
+        return false;
+    }
+
+    bool operator==(const Percentage& other) const
+    {
+        if (auto* percentage = std::get_if<Percentage>(&value))
+            return *percentage == other;
+        return false;
+    }
+
+    bool operator==(const typename Percentage::Raw& other) const
+    {
+        if (auto* percentage = std::get_if<Percentage>(&value))
+            return *percentage == other;
+        return false;
+    }
+
+    bool operator==(const ValueLiteral<PercentageUnit::Percentage>& other) const
+    {
+        if (auto* percentage = std::get_if<Percentage>(&value))
+            return *percentage == other;
+        return false;
+    }
 
     template<typename... F> decltype(auto) switchOn(F&&... f) const
     {

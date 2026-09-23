@@ -149,8 +149,8 @@ bool RemoteImageDecoderAVF::frameHasAlphaAtIndex(size_t index) const
 
 PlatformImagePtr RemoteImageDecoderAVF::createFrameImageAtIndex(size_t index, SubsamplingLevel, const DecodingOptions&)
 {
-    if (m_frameImages.contains(index))
-        return m_frameImages.get(index);
+    if (PlatformImagePtr image = m_frameImages.get(index))
+        return image;
 
     Ref protectedThis { *this };
     auto createFrameImage = [&protectedThis, index] {
@@ -171,10 +171,7 @@ PlatformImagePtr RemoteImageDecoderAVF::createFrameImageAtIndex(size_t index, Su
 
     callOnMainRunLoopAndWait(WTF::move(createFrameImage));
 
-    if (m_frameImages.contains(index))
-        return m_frameImages.get(index);
-
-    return nullptr;
+    return m_frameImages.get(index);
 }
 
 void RemoteImageDecoderAVF::setExpectedContentSize(long long expectedContentSize)

@@ -39,7 +39,7 @@ namespace WTR {
 LRESULT EventSenderProxy::dispatchMessage(UINT message, WPARAM wParam, LPARAM lParam)
 {
     MSG msg { };
-    msg.hwnd = WKViewGetWindow(m_testController->mainWebView()->platformView());
+    msg.hwnd = WKViewGetWindow(m_testController->targetView()->platformView());
     msg.message = message;
     msg.wParam = wParam;
     msg.lParam = lParam;

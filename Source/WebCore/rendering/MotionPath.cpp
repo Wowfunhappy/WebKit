@@ -32,7 +32,7 @@
 #include "PathTraversalState.h"
 #include "RenderBlock.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TransformOperationData.h"
 #include "TransformationMatrix.h"
 
@@ -188,95 +188,18 @@ bool MotionPath::needsUpdateAfterContainingBlockLayout(const Style::OffsetPath& 
         || WTF::holdsAlternative<Style::BasicShapePath>(offsetPath);
 }
 
-static double lengthForRayPath(const Style::Ray& ray, const MotionPathData& data)
+FloatPoint NODELETE MotionPathData::currentOffset() const
 {
-    auto& boundingBox = data.containingBlockBoundingRect.rect();
-    auto distances = distanceOfPointToSidesOfRect(boundingBox, data.usedStartingPosition);
-
-    return WTF::switchOn(ray.size,
-        [&](CSS::Keyword::ClosestSide) {
-            return std::min( { distances.top(), distances.bottom(), distances.left(), distances.right() } );
-        },
-        [&](CSS::Keyword::FarthestSide) {
-            return std::max( { distances.top(), distances.bottom(), distances.left(), distances.right() } );
-        },
-        [&](CSS::Keyword::FarthestCorner) {
-            return std::hypot(std::max(distances.left(), distances.right()), std::max(distances.top(), distances.bottom()));
-        },
-        [&](CSS::Keyword::ClosestCorner) {
-            return std::hypot(std::min(distances.left(), distances.right()), std::min(distances.top(), distances.bottom()));
-        },
-        [&](CSS::Keyword::Sides) {
-            return lengthOfRayIntersectionWithBoundingBox(boundingBox, std::make_pair(data.usedStartingPosition, ray.angle.value));
-        }
-    );
+    return FloatPoint(usedStartingPosition - offsetFromContainingBlock);
 }
 
-static double lengthForRayContainPath(const FloatRect& elementRect, double computedPathLength)
+FloatRoundedRect NODELETE MotionPathData::offsetRect() const
 {
-    return std::max(0.0, computedPathLength - (std::max(elementRect.width(), elementRect.height()) / 2));
-}
-
-static FloatPoint NODELETE currentOffsetForData(const MotionPathData& data)
-{
-    return FloatPoint(data.usedStartingPosition - data.offsetFromContainingBlock);
-}
-
-std::optional<Path> MotionPath::computePathForRay(const RayPathOperation& rayPathOperation, const TransformOperationData& transformData, Style::ZoomFactor)
-{
-    auto motionPathData = transformData.motionPathData;
-    if (!motionPathData || motionPathData->containingBlockBoundingRect.rect().isZero())
-        return std::nullopt;
-
-    auto elementBoundingBox = transformData.boundingBox;
-    double length = lengthForRayPath(*rayPathOperation.ray(), *motionPathData);
-    if (rayPathOperation.ray()->contain)
-        length = lengthForRayContainPath(elementBoundingBox, length);
-
-    auto radians = deg2rad(toPositiveAngle(rayPathOperation.ray()->angle.value) - 90.0);
-    auto point = FloatPoint(std::cos(radians) * length, std::sin(radians) * length);
-
-    Path path;
-    path.moveTo(currentOffsetForData(*motionPathData));
-    path.addLineTo(currentOffsetForData(*motionPathData) + point);
-    return path;
-}
-
-static FloatRoundedRect NODELETE offsetRectForData(const MotionPathData& data)
-{
-    auto rect = data.containingBlockBoundingRect;
-    auto shiftedPoint = data.offsetFromContainingBlock;
+    auto rect = containingBlockBoundingRect;
+    auto shiftedPoint = offsetFromContainingBlock;
     shiftedPoint.scale(-1);
     rect.setLocation(shiftedPoint);
     return rect;
-}
-
-std::optional<Path> MotionPath::computePathForBox(const BoxPathOperation&, const TransformOperationData& transformData, Style::ZoomFactor)
-{
-    if (auto motionPathData = transformData.motionPathData) {
-        Path path;
-        path.addRoundedRect(offsetRectForData(*motionPathData), PathRoundedRect::Strategy::PreferBezier);
-        return path;
-    }
-    return std::nullopt;
-}
-
-std::optional<Path> MotionPath::computePathForShape(const ShapePathOperation& pathOperation, const TransformOperationData& transformData, Style::ZoomFactor zoom)
-{
-    if (auto motionPathData = transformData.motionPathData) {
-        auto containingBlockRect = offsetRectForData(*motionPathData).rect();
-        return WTF::switchOn(pathOperation.shape(),
-            [&]<Style::ShapeWithCenterCoordinate T>(const T& shape) -> std::optional<Path> {
-                if (!shape->position)
-                    return Style::pathForCenterCoordinate(*shape, containingBlockRect, motionPathData->usedStartingPosition, zoom);
-                return Style::path(shape, containingBlockRect, zoom);
-            },
-            [&](const auto& shape) -> std::optional<Path> {
-                return Style::path(shape, containingBlockRect, zoom);
-            }
-        );
-    }
-    return pathOperation.pathForReferenceRect(transformData.boundingBox, zoom);
 }
 
 } // namespace WebCore

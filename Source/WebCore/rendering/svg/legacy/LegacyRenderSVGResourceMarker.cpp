@@ -23,6 +23,7 @@
 
 #include "config.h"
 #include "LegacyRenderSVGResourceMarker.h"
+#include "LegacyRenderSVGModelObjectInlines.h"
 
 #include "GraphicsContext.h"
 #include "LegacyRenderSVGResourceMarkerInlines.h"
@@ -34,7 +35,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyRenderSVGResourceMarker);
 
-LegacyRenderSVGResourceMarker::LegacyRenderSVGResourceMarker(SVGMarkerElement& element, RenderStyle&& style)
+LegacyRenderSVGResourceMarker::LegacyRenderSVGResourceMarker(SVGMarkerElement& element, Style::ComputedStyle&& style)
     : LegacyRenderSVGResourceContainer(Type::LegacySVGResourceMarker, element, WTF::move(style))
 {
 }

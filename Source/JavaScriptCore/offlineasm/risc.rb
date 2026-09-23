@@ -505,7 +505,7 @@ def riscLowerMisplacedAddresses(list)
             else
                 newList << node
             end
-            newList += postInstructions
+            newList.concat(postInstructions)
         else
             newList << node
         end

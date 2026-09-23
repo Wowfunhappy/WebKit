@@ -27,7 +27,7 @@
 
 #include "OrderIterator.h"
 #include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -38,7 +38,7 @@ enum class GridTrackSizingDirection : bool;
 
 using GridCell = Vector<SingleThreadWeakPtr<RenderBox>, 1>;
 using GridAsMatrix = Vector<Vector<GridCell>>;
-using OrderedTrackIndexSet = ListHashSet<size_t>;
+using OrderedTrackIndexSet = OrderedHashSet<size_t>;
 
 class GridArea;
 class GridSpan;

@@ -84,7 +84,7 @@ private:
     FindElementFromSelectorsResult findElementFromSelectors(const TargetedElementSelectors&);
     static FindElementFromSelectorsResult findElementFromSelectors(Document&, const TargetedElementSelectors&);
 
-    RefPtr<Document> mainDocument() const;
+    RefPtr<Document> NODELETE mainDocument() const;
 
     void dispatchVisibilityAdjustmentStateDidChange();
     void selectorBasedVisibilityAdjustmentTimerFired();

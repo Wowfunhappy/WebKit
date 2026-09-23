@@ -69,7 +69,6 @@ if (USE_GLIB)
     )
     list(APPEND WTF_PUBLIC_HEADERS
         glib/GMallocString.h
-        glib/GMutexLocker.h
         glib/GRefPtr.h
         glib/GSpanExtras.h
         glib/GThreadSafeWeakPtr.h

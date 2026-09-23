@@ -51,11 +51,7 @@ template<typename Primitive, typename Validator> struct NumberConsumerForInteger
         if (range.peek().numericValueType() != IntegerValueType)
             return std::nullopt;
 
-        auto rawValue = typename Primitive::Raw { CSS::IntegerUnit::Integer, range.peek().numericValue() };
-
-        if constexpr (rawValue.range.clampOptions != CSS::RangeClampOptions::Default)
-            rawValue = performParseTimeClamp(rawValue);
-
+        auto rawValue = performOptionalParseTimeClamp(typename Primitive::Raw { CSS::IntegerUnit::Integer, range.peek().numericValue() });
         if (!Validator::isValid(rawValue, options))
             return std::nullopt;
 
@@ -64,10 +60,13 @@ template<typename Primitive, typename Validator> struct NumberConsumerForInteger
     }
 };
 
-template<CSS::Range R, typename IntType>
-struct ConsumerDefinition<CSS::Integer<R, IntType>> {
-    using FunctionToken = FunctionConsumerForCalcValues<CSS::Integer<R, IntType>>;
-    using NumberToken = NumberConsumerForIntegerValues<CSS::Integer<R, IntType>, IntegerValidator>;
+template<auto R, typename V> struct ConsumerDefinition<CSS::Integer<R, V>> {
+    using FunctionToken = FunctionConsumerForCalcValues<CSS::Integer<R, V>>;
+    using NumberToken = NumberConsumerForIntegerValues<CSS::Integer<R, V>, IntegerValidator>;
+};
+
+template<auto R, typename V> struct ConsumerDefinition<CSS::IntegerRaw<R, V>> {
+    using NumberToken = NumberConsumerForIntegerValues<CSS::Integer<R, V>, IntegerValidator>;
 };
 
 } // namespace CSSPropertyParserHelpers

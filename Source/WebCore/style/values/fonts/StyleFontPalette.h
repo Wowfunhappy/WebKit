@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/FontPalette.h>
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
@@ -50,7 +51,7 @@ struct FontPalette {
     {
     }
 
-    FontPalette(CustomIdentifier&& identifier)
+    FontPalette(CustomIdent&& identifier)
         : m_platform { .type = WebCore::FontPalette::Type::Custom, .identifier = WTF::move(identifier.value) }
     {
     }
@@ -77,7 +78,7 @@ struct FontPalette {
         case WebCore::FontPalette::Type::Dark:
             return visitor(CSS::Keyword::Dark { });
         case WebCore::FontPalette::Type::Custom:
-            return visitor(CustomIdentifier { m_platform.identifier });
+            return visitor(CustomIdent { m_platform.identifier });
         }
         RELEASE_ASSERT_NOT_REACHED();
     }

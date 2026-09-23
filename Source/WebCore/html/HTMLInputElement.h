@@ -66,7 +66,7 @@ class HTMLInputElement final : public HTMLTextFormControlElement {
 public:
     USING_CAN_MAKE_WEAKPTR(HTMLElement);
 
-    static Ref<HTMLInputElement> create(const QualifiedName&, Document&, HTMLFormElement*, bool createdByParser);
+    static Ref<HTMLInputElement> create(const QualifiedName&, Document&, bool createdByParser);
     virtual ~HTMLInputElement();
 
     WEBCORE_EXPORT bool NODELETE alpha();
@@ -150,7 +150,7 @@ public:
     bool NODELETE isCheckbox() const;
     bool NODELETE isSwitch() const;
     bool NODELETE isCheckable() const;
-    bool NODELETE isRangeControl() const;
+    WEBCORE_EXPORT bool NODELETE isRangeControl() const;
     WEBCORE_EXPORT bool NODELETE isColorControl() const;
     // FIXME: It's highly likely that any call site calling this function should instead
     // be using a different one. Many input elements behave like text fields, and in addition
@@ -180,7 +180,7 @@ public:
 
     RefPtr<TextControlInnerTextElement> innerTextElement() const final;
     RefPtr<TextControlInnerTextElement> innerTextElementCreatingShadowSubtreeIfNeeded() final;
-    RenderStyle createInnerTextStyle(const RenderStyle&) final;
+    Style::ComputedStyle createInnerTextStyle(const Style::ComputedStyle&) final;
 
     HTMLElement* innerBlockElement() const;
     HTMLElement* innerSpinButtonElement() const;
@@ -201,7 +201,7 @@ public:
 
     // Checks if the specified string would be a valid value.
     // We should not call this for types with no string value such as CHECKBOX and RADIO.
-    bool isValidValue(const String&) const;
+    bool isValidValue(StringView) const;
     bool hasDirtyValue() const { return !m_valueIfDirty.isNull(); }
 
     String placeholder() const;
@@ -220,9 +220,9 @@ public:
     // delay the 'input' event with EventQueueScope.
     void setValueFromRenderer(const String&);
 
-    bool rendererIsNeeded(const RenderStyle&) final;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle* = nullptr) const final;
+    bool rendererIsNeeded(const Style::ComputedStyle&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
     void willAttachRenderers() final;
     void didAttachRenderers() final;
     void didDetachRenderers() final;
@@ -341,7 +341,7 @@ public:
 
     void capsLockStateMayHaveChanged();
 
-    bool shouldTruncateText(const RenderStyle&) const;
+    bool NODELETE shouldTruncateText(const Style::ComputedStyle&) const;
 
     String resultForDialogSubmit() const final;
 
@@ -363,7 +363,7 @@ public:
 
 private:
     enum class CreationType : uint8_t { Normal, ByParser, ByCloning };
-    HTMLInputElement(const QualifiedName&, Document&, HTMLFormElement*, CreationType);
+    HTMLInputElement(const QualifiedName&, Document&, CreationType);
 
     void defaultEventHandler(Event&) final;
 
@@ -374,9 +374,9 @@ private:
 
     void willChangeForm() final;
     void didChangeForm() final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     int defaultTabIndex() const final;
@@ -399,7 +399,7 @@ private:
 
     void resignStrongPasswordAppearance();
 
-    bool canHaveSelection() const;
+    bool NODELETE canHaveSelection() const;
     bool canStartSelection() const final;
 
     bool accessKeyAction(bool sendMouseEvents) final;
@@ -424,7 +424,7 @@ private:
     void resumeFromDocumentSuspension() final;
     void prepareForDocumentSuspension() final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     bool NODELETE needsSuspensionCallback();
     void registerForSuspensionCallbackIfNeeded();

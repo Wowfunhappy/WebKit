@@ -47,8 +47,8 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER_AND_EXPORT(MetaAllocatorFreeSpace, WTF_IN
 class MetaAllocatorTracker {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MetaAllocatorTracker);
 public:
-    void notify(MetaAllocatorHandle&);
-    void release(MetaAllocatorHandle&);
+    void NODELETE notify(MetaAllocatorHandle&);
+    void NODELETE release(MetaAllocatorHandle&);
 
     MetaAllocatorHandle* find(void* address)
     {

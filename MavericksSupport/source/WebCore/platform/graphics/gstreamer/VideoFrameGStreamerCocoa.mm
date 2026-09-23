@@ -171,6 +171,12 @@ void MediaPlayerPrivateGStreamer::sampleBufferDisplayLayerStatusDidFail()
     pushSampleToVideoLayer(true, true);
 }
 
+void MediaPlayerPrivateGStreamer::updateVideoFrameCounters(uint64_t totalFrameCount, uint64_t droppedFrameCount)
+{
+    m_totalVideoFrames = totalFrameCount;
+    m_droppedVideoFrames = droppedFrameCount;
+}
+
 PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
 {
     return m_videoLayerManager->videoInlineLayer();
@@ -229,7 +235,7 @@ void MediaPlayerPrivateGStreamer::setVideoFullscreenFrame(const FloatRect& frame
 #endif
 #endif
 
-GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, const MediaTime& presentationTime)
+GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, const MediaTime& presentationTime, const PlatformVideoColorSpace& colorSpace)
 {
     if (!pixelBuffer)
         return nullptr;
@@ -254,7 +260,6 @@ GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, cons
 
     GstVideoInfo videoInfo;
     gst_video_info_set_format(&videoInfo, videoFormat, width, height);
-    auto colorSpace = computeVideoFrameColorSpace(pixelBuffer);
     fillVideoInfoColorimetryFromColorSpace(&videoInfo, colorSpace);
     // A BGRA buffer carries no YCbCr matrix attachment, so the matrix GStreamer requires is supplied here.
     if (videoFormat == GST_VIDEO_FORMAT_BGRA)

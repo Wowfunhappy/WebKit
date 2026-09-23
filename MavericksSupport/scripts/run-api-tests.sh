@@ -7,7 +7,7 @@
 #
 # Usage:  bash MavericksSupport/scripts/run-api-tests.sh <binary> [gtest args...]
 #         bash MavericksSupport/scripts/run-api-tests.sh --port-surface
-#   e.g.  bash MavericksSupport/scripts/run-api-tests.sh TestWebKitCocoa --gtest_filter='WKHTTPCookieStore.*'
+#   e.g.  bash MavericksSupport/scripts/run-api-tests.sh TestWebKitAPI --gtest_filter='WKHTTPCookieStore.*'
 #         bash MavericksSupport/scripts/run-api-tests.sh TestWTF --gtest_list_tests
 #
 # Expectations live in MavericksSupport/tests/port-surface/api-tests.txt: `run <binary>` names the

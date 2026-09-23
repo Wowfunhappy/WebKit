@@ -54,22 +54,22 @@ TextPlaceholderElement::TextPlaceholderElement(Document& document, const LayoutS
     setInlineStyleProperty(CSSPropertyHeight, size.height(), CSSUnitType::CSS_PX);
 }
 
-auto TextPlaceholderElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto TextPlaceholderElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
     if (insertionType.treeScopeChanged) {
         if (RefPtr shadowHost = dynamicDowncast<HTMLTextFormControlElement>(parentOfInsertedTree.shadowHost()))
             shadowHost->setCanShowPlaceholder(false);
     }
-    return HTMLDivElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    return HTMLDivElement::insertionSteps(insertionType, parentOfInsertedTree);
 }
 
-void TextPlaceholderElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void TextPlaceholderElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     if (removalType.treeScopeChanged) {
         if (RefPtr shadowHost = dynamicDowncast<HTMLTextFormControlElement>(oldParentOfRemovedTree.shadowHost()))
             shadowHost->setCanShowPlaceholder(true);
     }
-    HTMLDivElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLDivElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 } // namespace WebCore

@@ -4,10 +4,7 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -62,7 +59,7 @@ class InstancingTest : public ANGLETest<>
     {
         for (unsigned i = 0; i < kMaxDrawn; ++i)
         {
-            mInstanceData[i] = i * kDrawSize;
+            ANGLE_UNSAFE_TODO(mInstanceData[i]) = i * kDrawSize;
         }
         glGenBuffers(1, &mInstanceBuffer);
         glBindBuffer(GL_ARRAY_BUFFER, mInstanceBuffer);
@@ -130,7 +127,7 @@ class InstancingTest : public ANGLETest<>
         ASSERT_TRUE(instanceAttrib == 0 || instanceAttrib == 1);
         const int positionAttrib = 1 - instanceAttrib;
 
-        glUseProgram(mProgram[instanceAttrib]);
+        glUseProgram(ANGLE_UNSAFE_TODO(mProgram[instanceAttrib]));
 
         glBindBuffer(GL_ARRAY_BUFFER, storage == Buffer ? mInstanceBuffer : 0);
         glVertexAttribPointer(instanceAttrib, 1, GL_FLOAT, GL_FALSE, 0,
@@ -239,7 +236,8 @@ class InstancingTest : public ANGLETest<>
             int iy = static_cast<int>((y + 1.0f) / 2.0f * getWindowHeight());
             for (unsigned j = 0; j < 8; j += 2)
             {
-                int ix = static_cast<int>((kPointVertices[j] + 1.0f) / 2.0f * getWindowWidth());
+                int ix = static_cast<int>((ANGLE_UNSAFE_TODO(kPointVertices[j]) + 1.0f) / 2.0f *
+                                          getWindowWidth());
                 EXPECT_PIXEL_COLOR_EQ(ix, iy, i <= lastDrawn ? GLColor::red : GLColor::blue)
                     << std::endl;
             }
@@ -549,8 +547,8 @@ void main()
 
     for (size_t i = 0; i < instances; ++i)
     {
-        glVertexAttrib3fv(1, transform + 3 * i);
-        glVertexAttrib3fv(2, colors + 3 * i);
+        glVertexAttrib3fv(1, ANGLE_UNSAFE_TODO(transform + 3 * i));
+        glVertexAttrib3fv(2, ANGLE_UNSAFE_TODO(colors + 3 * i));
 
         glDrawElements(GL_LINE_STRIP, ArraySize(lineloopAsStripIndices), GL_UNSIGNED_SHORT,
                        lineloopAsStripIndices);
@@ -614,6 +612,18 @@ class InstancingTestES31 : public InstancingTest
 {
   public:
     InstancingTestES31() {}
+};
+
+class RobustInstancingTestES3 : public InstancingTestES3
+{
+  public:
+    RobustInstancingTestES3()
+    {
+        if (!IsMac() && !IsIOS())
+        {
+            setRobustAccess(true);
+        }
+    }
 };
 
 // Verify that VertexAttribDivisor can update both binding divisor and attribBinding.
@@ -888,8 +898,87 @@ void main()
     }
 }
 
+// Regression test for out-of-bounds read during divisor emulation. http://crbug.com/500476886
+TEST_P(RobustInstancingTestES3, IncompleteStrideForLastVertex)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_KHR_robust_buffer_access_behavior"));
+
+    constexpr char kVS[] = R"(#version 300 es
+    layout(location=0) in vec4 a_inst;
+    layout(location=1) in float a_unused;
+    out vec4 v;
+    const vec2 coords[3] = vec2[](
+    vec2(-3.0, -3.0),
+    vec2( 3.0, -3.0),
+    vec2( 0.0,  3.0)
+    );
+    void main() {
+    v = a_inst + vec4(a_unused);
+    if (gl_InstanceID == 0) {
+      gl_Position = vec4(coords[gl_VertexID], 0.0, 1.0);
+    } else {
+      gl_Position = vec4(-2.0, -2.0, 0.0, 1.0);
+    }
+    })";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+in vec4 v;
+out vec4 o;
+void main() { o = v; })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Unused attrib 1
+    GLBuffer unusedBuf;
+    glBindBuffer(GL_ARRAY_BUFFER, unusedBuf);
+    std::vector<GLfloat> unusedData(1, 0.0f);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * unusedData.size(), unusedData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    // Instanced attrib 0
+    GLBuffer instBuf;
+    glBindBuffer(GL_ARRAY_BUFFER, instBuf);
+    std::vector<GLfloat> instData(64, 0.0f);  // 256 bytes
+    instData[59] = instData[60] = instData[61] = instData[62] = 1.0f;
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * instData.size(), instData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    // Buffer size = 256, offset = 236.
+    // bytes = 256 - 236 = 20. stride = 16, formatSize = 16.
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 16, reinterpret_cast<const void *>(236));
+
+    // Divisor > MaxVertexAttribDivisor will trigger emulation path.
+    // mMaxVertexAttribDivisor is clamped to 255 in the Vulkan backend, so 256 guarantees emulation.
+    // The previous bug resulted in GetVertexCountForRange returning an over-counted
+    // number of vertices, leading to an OOB read in StreamVertexDataWithDivisor.
+    GLuint divisor = 256;
+    glVertexAttribDivisor(0, divisor);
+
+    EXPECT_GL_NO_ERROR();
+
+    // The draw call should not crash. We need divisor + 1 instances to reach the second vertex
+    // and trigger the OOB read.
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, divisor + 1);
+
+    // Check the center pixel, which corresponds to gl_InstanceID == 0.
+    EXPECT_PIXEL_COLOR_NEAR(getWindowWidth() / 2, getWindowHeight() / 2,
+                            GLColor(255, 255, 255, 255), 1);
+
+    EXPECT_GL_NO_ERROR();
+}
+
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(InstancingTestES3);
 ANGLE_INSTANTIATE_TEST_ES3(InstancingTestES3);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RobustInstancingTestES3);
+ANGLE_INSTANTIATE_TEST_ES3(RobustInstancingTestES3);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(InstancingTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(InstancingTestES31);

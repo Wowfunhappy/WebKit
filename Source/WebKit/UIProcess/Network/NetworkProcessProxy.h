@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,6 +38,7 @@
 #include "SharedPreferencesForWebProcess.h"
 #include "UserContentControllerIdentifier.h"
 #include "WebsiteDataStore.h"
+#include <WebCore/CrossOriginEmbedderPolicyValue.h>
 #include <WebCore/CrossSiteNavigationDataTransfer.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NotificationEventType.h>
@@ -70,6 +71,7 @@ class SessionID;
 
 namespace WebCore {
 class AuthenticationChallenge;
+class CertificateInfo;
 class SharedBuffer;
 class ProtectionSpace;
 class ResourceRequest;
@@ -146,6 +148,7 @@ public:
     void dataTaskWithRequest(WebPageProxy&, PAL::SessionID, WebCore::ResourceRequest&&, const std::optional<WebCore::SecurityOriginData>& topOrigin, bool shouldRunAtForegroundPriority, CompletionHandler<void(API::DataTask&)>&&);
 
     void addAllowedFirstPartyForCookies(WebProcessProxy&, const WebCore::RegistrableDomain& firstPartyForCookies, LoadedWebArchive, CompletionHandler<void()>&&);
+    void addAllowedWebPageProxyIdentifier(WebProcessProxy&, WebPageProxyIdentifier);
     void addAllowedFilePaths(WebProcessProxy&, const Vector<String>& paths);
 
     void fetchWebsiteData(PAL::SessionID, OptionSet<WebsiteDataType>, OptionSet<WebsiteDataFetchOption>, CompletionHandler<void(WebsiteData)>&&);
@@ -153,6 +156,7 @@ public:
     void deleteWebsiteDataForOrigins(PAL::SessionID, OptionSet<WebKit::WebsiteDataType>, const Vector<WebCore::SecurityOriginData>& origins, const Vector<String>& cookieHostNames, const Vector<String>& HSTSCacheHostNames, const Vector<RegistrableDomain>&, CompletionHandler<void()>&&);
     void renameOriginInWebsiteData(PAL::SessionID, const WebCore::SecurityOriginData&, const WebCore::SecurityOriginData&, OptionSet<WebsiteDataType>, CompletionHandler<void()>&&);
     void websiteDataOriginDirectoryForTesting(PAL::SessionID, WebCore::ClientOrigin&&, OptionSet<WebsiteDataType>, CompletionHandler<void(const String&)>&&);
+    void lastPageLoadNetworkActivityCompletionCodeForTesting(PAL::SessionID, WebCore::PageIdentifier, CompletionHandler<void(std::optional<NetworkActivityTracker::CompletionCode>)>&&);
 
     void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>);
 
@@ -254,8 +258,7 @@ public:
 
     // ProcessThrottlerClient
     void sendProcessDidResume(ResumeReason) final;
-    ASCIILiteral clientName() const final { return "NetworkProcess"_s; }
-    
+
     static void NODELETE setSuspensionAllowedForTesting(bool);
     void sendProcessWillSuspendImminentlyForTesting();
 
@@ -298,6 +301,8 @@ public:
 #endif
 
     void isStorageSuspendedForTesting(PAL::SessionID, CompletionHandler<void(bool)>&&);
+    void canPrefetchDNSForTesting(PAL::SessionID, CompletionHandler<void(bool)>&&);
+    void prefetchedDNSHostnameCountForTesting(CompletionHandler<void(uint64_t)>&&);
 
     // ProcessThrottlerClient
     void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) final;
@@ -348,6 +353,8 @@ public:
 
     void navigateServiceWorkerClient(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, const URL&, CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)>&&);
 
+    void receivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier, String&& hostAndPort, WebCore::CertificateInfo&&);
+
     void cookiesDidChange(PAL::SessionID);
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
@@ -367,7 +374,10 @@ public:
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
     void allowEvaluatedURL(const WebCore::ParentalControlsURLFilterParameters&, CompletionHandler<void(bool)>&&);
+    void installMockParentalControlsURLFilterForTesting(Vector<URL>&& blockedURLs, CompletionHandler<void()>&&);
 #endif
+
+    void flushNetworkProcessIPC(CompletionHandler<void()>&&);
 
 private:
     explicit NetworkProcessProxy();
@@ -404,6 +414,7 @@ private:
     void logDiagnosticMessageWithResult(WebPageProxyIdentifier, const String& message, const String& description, uint32_t result, WebCore::ShouldSample);
     void logDiagnosticMessageWithValue(WebPageProxyIdentifier, const String& message, const String& description, double value, unsigned significantFigures, WebCore::ShouldSample);
     void logTestingEvent(PAL::SessionID, const String& event);
+    void didPerformEvictionForDomains(PAL::SessionID, const Vector<RegistrableDomain>&);
 
 #if ENABLE(CONTENT_EXTENSIONS)
     void contentExtensionRules(UserContentControllerIdentifier);
@@ -418,14 +429,14 @@ private:
     void requestBackgroundFetchPermission(PAL::SessionID, const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
     void notifyBackgroundFetchChange(PAL::SessionID, const String&, BackgroundFetchChange);
     void remoteWorkerContextConnectionNoLongerNeeded(RemoteWorkerType, WebCore::ProcessIdentifier);
-    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, WebCore::Site&&, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, PAL::SessionID, CompletionHandler<void(std::optional<WebCore::ProcessIdentifier>)>&&);
+    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, WebCore::Site&&, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, PAL::SessionID, WebCore::CrossOriginEmbedderPolicyValue, CompletionHandler<void(std::optional<WebCore::ProcessIdentifier>)>&&);
     void registerRemoteWorkerClientProcess(RemoteWorkerType, WebCore::ProcessIdentifier clientProcessIdentifier, WebCore::ProcessIdentifier remoteWorkerProcessIdentifier);
     void unregisterRemoteWorkerClientProcess(RemoteWorkerType, WebCore::ProcessIdentifier clientProcessIdentifier, WebCore::ProcessIdentifier remoteWorkerProcessIdentifier);
     void reportConsoleMessage(PAL::SessionID, const URL&, const WebCore::SecurityOriginData&, MessageSource, MessageLevel, const String& message, uint64_t requestIdentifier);
 
     void terminateWebProcess(WebCore::ProcessIdentifier);
 
-    void triggerBrowsingContextGroupSwitchForNavigation(WebPageProxyIdentifier, WebCore::NavigationIdentifier, WebCore::BrowsingContextGroupSwitchDecision, const WebCore::Site& responseSite, NetworkResourceLoadIdentifier existingNetworkResourceLoadIdentifierToResume, CompletionHandler<void(bool success)>&&);
+    void considerProcessSwapForNavigationResponse(WebPageProxyIdentifier, WebCore::NavigationIdentifier, WebCore::BrowsingContextGroupSwitchDecision, WebCore::NavigationResponseProcessSwapReason, const WebCore::Site& responseSite, NetworkResourceLoadIdentifier existingNetworkResourceLoadIdentifierToResume, CompletionHandler<void(std::optional<WebCore::ProcessIdentifier> destinationWebProcess)>&&);
 
     void requestStorageSpace(PAL::SessionID, const WebCore::ClientOrigin&, uint64_t quota, uint64_t currentSize, uint64_t spaceRequired, CompletionHandler<void(std::optional<uint64_t> quota)>&&);
     void increaseQuota(PAL::SessionID, const WebCore::ClientOrigin&, QuotaIncreaseRequestIdentifier, uint64_t currentQuota, uint64_t currentUsage, uint64_t spaceRequested);
@@ -486,6 +497,7 @@ private:
 
     WeakHashSet<WebsiteDataStore> m_websiteDataStores;
     WeakHashMap<WebProcessProxy, std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>> m_allowedFirstPartiesForCookies;
+    WeakHashMap<WebProcessProxy, HashSet<WebPageProxyIdentifier>> m_allowedWebPageProxyIdentifiers;
     WeakHashMap<WebProcessProxy, HashSet<String>> m_allowedFilePathsByProcess;
     HashMap<DataTaskIdentifier, Ref<API::DataTask>> m_dataTasks;
 #if PLATFORM(MAC)

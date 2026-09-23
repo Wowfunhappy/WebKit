@@ -44,10 +44,10 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ElementInternals);
 
 RefPtr<ShadowRoot> ElementInternals::shadowRoot() const
 {
-    RefPtr element = m_element.get();
+    auto* element = m_element.get();
     if (!element)
         return nullptr;
-    RefPtr shadowRoot = element->shadowRoot();
+    auto* shadowRoot = element->shadowRoot();
     if (!shadowRoot)
         return nullptr;
     if (!shadowRoot->isAvailableToElementInternals())
@@ -117,13 +117,13 @@ ExceptionOr<bool> ElementInternals::checkValidity()
 ExceptionOr<RefPtr<NodeList>> ElementInternals::labels()
 {
     if (RefPtr element = elementAsFormAssociatedCustom())
-        return element->asHTMLElement().labels();
+        return protect(element->asHTMLElement())->labels();
     return Exception { ExceptionCode::NotSupportedError };
 }
 
 FormAssociatedCustomElement* ElementInternals::elementAsFormAssociatedCustom() const
 {
-    if (RefPtr element = dynamicDowncast<HTMLMaybeFormAssociatedCustomElement>(m_element.get()))
+    if (auto* element = dynamicDowncast<HTMLMaybeFormAssociatedCustomElement>(m_element.get()))
         return element->formAssociatedCustomElementForElementInternals();
     return nullptr;
 }
@@ -143,7 +143,7 @@ void ElementInternals::setAttributeWithoutSynchronization(const QualifiedName& n
 
     protect(element->customElementDefaultARIA())->setValueForAttribute(name, value);
 
-    if (CheckedPtr cache = element->document().existingAXObjectCache())
+    if (CheckedPtr cache = protect(element->document())->existingAXObjectCache())
         cache->deferAttributeChangeIfNeeded(*element, name, oldValue, computeValueForAttribute(*element, name));
 }
 
@@ -168,7 +168,7 @@ void ElementInternals::setElementAttribute(const QualifiedName& name, Element* v
 
     protect(element->customElementDefaultARIA())->setElementForAttribute(name, value);
 
-    if (CheckedPtr cache = element->document().existingAXObjectCache())
+    if (CheckedPtr cache = protect(element->document())->existingAXObjectCache())
         cache->deferAttributeChangeIfNeeded(*element, name, oldValue, computeValueForAttribute(*element, name));
 }
 
@@ -194,7 +194,7 @@ void ElementInternals::setElementsArrayAttribute(const QualifiedName& name, std:
 
 CustomStateSet& ElementInternals::states()
 {
-    return m_element->ensureCustomStateSet();
+    return protect(m_element)->ensureCustomStateSet();
 }
 
 } // namespace WebCore

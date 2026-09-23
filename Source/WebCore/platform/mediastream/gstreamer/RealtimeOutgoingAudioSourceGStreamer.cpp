@@ -99,8 +99,8 @@ void RealtimeOutgoingAudioSourceGStreamer::setupDTMFSource(int pt)
 
     gstPayloaderSetPayloadType(m_dtmfSource, pt);
     gst_bin_add(GST_BIN_CAST(m_bin.get()), m_dtmfSource.get());
-    auto srcPad = adoptGRef(gst_element_get_static_pad(m_dtmfSource.get(), "src"));
-    auto sinkPad = adoptGRef(gst_element_request_pad_simple(m_rtpFunnel.get(), "sink_%u"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(m_dtmfSource.get(), "src"));
+    GRefPtr sinkPad = adoptGRef(gst_element_request_pad_simple(m_rtpFunnel.get(), "sink_%u"));
     gst_pad_link(srcPad.get(), sinkPad.get());
 }
 

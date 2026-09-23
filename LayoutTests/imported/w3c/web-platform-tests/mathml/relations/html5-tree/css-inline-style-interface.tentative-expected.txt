@@ -1,6 +1,7 @@
 This tests the presence and functionality of features of the `ElementCSSInlineStyle` interface for MathMLElements
 
 PASS The <math> element style property should be present and be functional.
+PASS The a's style property should be present and be functional.
 PASS The annotation's style property should be present and be functional.
 PASS The annotation-xml's style property should be present and be functional.
 PASS The maction's style property should be present and be functional.

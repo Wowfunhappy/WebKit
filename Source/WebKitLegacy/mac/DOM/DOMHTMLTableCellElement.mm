@@ -121,13 +121,13 @@
 - (int)rowSpan
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->rowSpanForBindings();
+    return IMPL->rowSpan();
 }
 
 - (void)setRowSpan:(int)newRowSpan
 {
     WebCore::JSMainThreadNullState state;
-    IMPL->setRowSpanForBindings(newRowSpan);
+    IMPL->setRowSpan(newRowSpan);
 }
 
 - (NSString *)headers

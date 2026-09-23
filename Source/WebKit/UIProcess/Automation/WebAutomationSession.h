@@ -39,6 +39,7 @@
 #include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NavigationIdentifier.h>
+#include <WebCore/SecurityOriginData.h>
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
@@ -50,6 +51,10 @@
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include <JavaScriptCore/RemoteAutomationTarget.h>
+#endif
+
+#if ENABLE(WEBDRIVER_BIDI)
+#include "IdentifierTypes.h"
 #endif
 
 namespace API {
@@ -87,7 +92,12 @@ class ViewSnapshot;
 class WebFrameProxy;
 class WebOpenPanelResultListenerProxy;
 class WebPageProxy;
+class WebPageInspectorController;
 class WebProcessPool;
+
+#if ENABLE(REMOTE_INSPECTOR)
+class InspectorPassthroughChannel;
+#endif
 
 #if ENABLE(WEBDRIVER_BIDI)
 class WebDriverBidiProcessor;
@@ -124,6 +134,10 @@ class WebAutomationSession final : public API::ObjectImpl<API::Object::Type::Aut
 
 #if ENABLE(WEBDRIVER_BIDI)
 friend class WebDriverBidiProcessor;
+#endif
+
+#if ENABLE(REMOTE_INSPECTOR)
+friend class InspectorPassthroughChannel;
 #endif
 
 public:
@@ -182,6 +196,7 @@ public:
     void contextCreatedForFrame(const WebFrameProxy&);
     void contextDestroyedForPage(const WebPageProxy&);
     void contextDestroyedForFrame(const WebFrameProxy&);
+    void setViewportForPage(WebPageProxy&, std::optional<int> width, std::optional<int> height, std::optional<double> devicePixelRatio, Inspector::CommandCallback<void>&&);
 #endif
     void willClosePage(const WebPageProxy&);
     void handleRunOpenPanel(const WebPageProxy&, const WebFrameProxy&, const API::OpenPanelParameters&, WebOpenPanelResultListenerProxy&);
@@ -295,8 +310,16 @@ public:
 
 #if ENABLE(WEBDRIVER_BIDI)
     Inspector::CommandResult<void> processBidiMessage(const String&) override;
+    Inspector::CommandResult<void> emitActiveBidiScriptRealmCreatedEvents() override;
     void sendBidiMessage(const String&);
+    WebDriverBidiProcessor& bidiProcessor() const { return m_bidiProcessor; }
 #endif
+
+#if ENABLE(REMOTE_INSPECTOR)
+    Inspector::CommandResult<void> sendInspectorMessage(const Inspector::Protocol::Automation::BrowsingContextHandle&, const String& message) override;
+#endif
+
+    void performApplicationCommand(const Inspector::Protocol::Automation::BrowsingContextHandle&, const String& commandName, const String& arguments, Inspector::CommandCallback<String>&&) override;
 
 #if PLATFORM(MAC)
     void inspectBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, std::optional<bool>&& enableAutoCapturing, Inspector::CommandCallback<void>&&) override;
@@ -321,6 +344,10 @@ public:
     String handleForWebPageProxy(const WebPageProxy&);
 
     Expected<PageAndFrameHandle, AutomationCommandError> extractBrowsingContextHandles(const String&);
+
+#if ENABLE(WEBDRIVER_BIDI)
+    bool isValidUserContext(const String& userContextID) const;
+#endif
 
 private:
     Ref<Inspector::Protocol::Automation::BrowsingContext> buildBrowsingContextForPage(WebPageProxy&, WebCore::FloatRect windowFrame);
@@ -349,6 +376,10 @@ private:
 
     // Called by WebAutomationSession messages.
     void logEntryAdded(const JSC::MessageSource&, const JSC::MessageLevel&, const String& messageText, const JSC::MessageType&, const WallTime&);
+#if ENABLE(WEBDRIVER_BIDI)
+    void scriptRealmCreated(WebCore::FrameIdentifier, RealmIdentifier, const WebCore::SecurityOriginData&);
+    void scriptRealmDestroyed(WebCore::FrameIdentifier, RealmIdentifier);
+#endif
 
     // Platform-dependent implementations.
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
@@ -356,7 +387,7 @@ private:
     void updateClickCount(MouseButton, const WebCore::IntPoint&, Seconds maxTime = 0.5_s, int maxDistance = 0);
     void NODELETE updateLastPosition(const WebCore::IntPoint&, int maxDistance = 0);
     void platformSimulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInViewport, OptionSet<WebEventModifier>, const String& pointerType);
-    static OptionSet<WebEventModifier> platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
+    static OptionSet<WebEventModifier> NODELETE platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
 #endif
 #if ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
     // Simulates a single touch point being pressed, moved, and released.
@@ -463,6 +494,25 @@ private:
     const Ref<Debuggable> m_debuggable;
 #endif
 
+    // Web Inspector backend passthrough: clients with the
+    // shouldEnableInspectorTesting capability can issue
+    // Automation.sendInspectorMessage to forward an Inspector backend
+    // command into a page's WebPageInspectorController; the controller's
+    // responses and events come back as Automation.receiveInspectorMessage.
+    // Each connected page owns its own InspectorPassthroughChannel so the
+    // outgoing event can name its source browsing context.
+#if ENABLE(REMOTE_INSPECTOR)
+    void sendInspectorMessageToClient(const String& browsingContextHandle, const String& message);
+    void disconnectInspectorPassthroughChannel(WebPageProxyIdentifier);
+    void disconnectAllInspectorPassthroughChannels();
+
+    HashMap<WebPageProxyIdentifier, std::unique_ptr<InspectorPassthroughChannel>> m_inspectorPassthroughChannels;
+#endif
+
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebAutomationSession)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::AutomationSession; }
+SPECIALIZE_TYPE_TRAITS_END()

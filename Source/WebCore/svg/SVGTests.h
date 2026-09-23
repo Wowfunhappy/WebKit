@@ -47,8 +47,8 @@ public:
     SVGStringList& systemLanguage() { return m_systemLanguage; }
 
 private:
-    Ref<SVGStringList> m_requiredExtensions;
-    Ref<SVGStringList> m_systemLanguage;
+    const Ref<SVGStringList> m_requiredExtensions;
+    const Ref<SVGStringList> m_systemLanguage;
 };
 
 class SVGTests {
@@ -60,7 +60,7 @@ public:
     static void addSupportedAttributes(MemoryCompactLookupOnlyRobinHoodHashSet<QualifiedName>&);
 
     SVGConditionalProcessingAttributes& conditionalProcessingAttributes();
-    SVGConditionalProcessingAttributes* conditionalProcessingAttributesIfExists() const;
+    SVGConditionalProcessingAttributes* NODELETE conditionalProcessingAttributesIfExists() const;
 
     // These methods are called from DOM through the super classes.
     SVGStringList& requiredExtensions() { return conditionalProcessingAttributes().requiredExtensions(); }

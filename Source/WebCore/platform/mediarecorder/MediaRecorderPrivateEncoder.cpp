@@ -128,20 +128,6 @@ static String codecStringForMediaVideoCodecId(FourCharCode codec)
     }
 }
 
-void MediaRecorderPrivateEncoder::compressedAudioOutputBufferCallback(void* MediaRecorderPrivateEncoder, CMBufferQueueTriggerToken)
-{
-    // We can only be called from the CoreMedia callback if we are still alive.
-    RefPtr encoder = static_cast<class MediaRecorderPrivateEncoder*>(MediaRecorderPrivateEncoder);
-
-    queueSingleton().dispatch([weakEncoder = ThreadSafeWeakPtr { *encoder }] {
-        if (auto strongEncoder = weakEncoder.get()) {
-            assertIsCurrent(queueSingleton());
-            strongEncoder->enqueueCompressedAudioSampleBuffers();
-            strongEncoder->partiallyFlushEncodedQueues();
-        }
-    });
-}
-
 bool MediaRecorderPrivateEncoder::initialize(const MediaRecorderPrivateOptions& options, UniqueRef<MediaRecorderPrivateWriter>&& writer)
 {
     assertIsMainThread();
@@ -351,7 +337,15 @@ void MediaRecorderPrivateEncoder::audioSamplesDescriptionChanged(const AudioStre
         .outputBitRate = m_audioBitsPerSecond ? std::optional { m_audioBitsPerSecond } : std::nullopt,
         .generateTimestamp = true
     };
-    m_audioConverter = AudioSampleBufferConverter::create(compressedAudioOutputBufferCallback, this, options);
+    m_audioConverter = AudioSampleBufferConverter::create([weakThis = ThreadSafeWeakPtr { *this }] {
+        queueSingleton().dispatch([weakThis] {
+            if (auto protectedThis = weakThis.get()) {
+                assertIsCurrent(queueSingleton());
+                protectedThis->enqueueCompressedAudioSampleBuffers();
+                protectedThis->partiallyFlushEncodedQueues();
+            }
+        });
+    }, options);
     if (!m_audioConverter) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateEncoder::audioSamplesDescriptionChanged: creation of converter failed");
         m_hadError = true;
@@ -640,7 +634,7 @@ Ref<GenericPromise> MediaRecorderPrivateEncoder::encodePendingVideoFrames(const 
     if (m_videoEncoderCreationPromise) {
         GenericPromise::Producer producer;
         Ref promise = producer.promise();
-        RefPtr { m_videoEncoderCreationPromise }->chainTo(WTF::move(producer));
+        protect(m_videoEncoderCreationPromise)->chainTo(WTF::move(producer));
         return promise;
     }
 
@@ -692,7 +686,7 @@ void MediaRecorderPrivateEncoder::processVideoEncoderActiveConfiguration(const V
             .size = configuration.visibleWidth && configuration.visibleHeight ? FloatSize { static_cast<float>(*configuration.visibleWidth), static_cast<float>(*configuration.visibleHeight) } : FloatSize { static_cast<float>(config.width), static_cast<float>(config.height) },
             .displaySize = configuration.displayWidth && configuration.displayHeight ? FloatSize { static_cast<float>(*configuration.displayWidth), static_cast<float>(*configuration.displayHeight) } : FloatSize { static_cast<float>(config.width), static_cast<float>(config.height) },
             .colorSpace = configuration.colorSpace.value_or(PlatformVideoColorSpace { }),
-            .extensionAtoms = configuration.description ? Vector<TrackInfo::AtomData> { 1, { computeBoxType(m_videoCodec), SharedBuffer::create(*configuration.description) } } : Vector<TrackInfo::AtomData> { }
+            .extensionAtoms = configuration.description ? Vector<TrackInfo::AtomData> { FillWith { }, 1, { computeBoxType(m_videoCodec), SharedBuffer::create(*configuration.description) } } : Vector<TrackInfo::AtomData> { }
         }
     });
     m_videoTrackInfo = videoInfo.copyRef();
@@ -729,7 +723,7 @@ void MediaRecorderPrivateEncoder::enqueueCompressedVideoFrame(VideoEncoder::Enco
 
     ASSERT(m_videoTrackInfo);
 
-    MediaSamplesBlock::SamplesVector vector(1, {
+    MediaSamplesBlock::SamplesVector vector(FillWith { }, 1, {
         .presentationTime = compressedFrameTime,
         .decodeTime = compressedFrameTime,
         .data = SharedBuffer::create(frame.data),

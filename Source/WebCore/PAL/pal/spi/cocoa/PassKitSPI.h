@@ -214,6 +214,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface PKPaymentAuthorizationController ()
 + (void)paymentServicesMerchantURLForAPIType:(PKPaymentRequestAPIType)APIType completion:(void(^)(NSURL *merchantURL, NSError *error))completion;
+#if HAVE(PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED)
++ (void)paymentServicesMerchantURLForAPIType:(PKPaymentRequestAPIType)APIType isDelegated:(BOOL)isDelegated completion:(void(^)(NSURL *merchantURL, NSError *error))completion;
+#endif
 @property (nonatomic, assign, nullable) id<PKPaymentAuthorizationControllerPrivateDelegate> privateDelegate;
 @end
 
@@ -302,6 +305,9 @@ typedef NS_OPTIONS(NSInteger, PKPaymentSetupFeatureSupportedOptions) {
 @interface PKPaymentAuthorizationViewController ()
 + (void)paymentServicesMerchantURL:(void(^)(NSURL *merchantURL, NSError *error))completion;
 + (void)paymentServicesMerchantURLForAPIType:(PKPaymentRequestAPIType)APIType completion:(void(^)(NSURL *merchantURL, NSError *error))completion;
+#if HAVE(PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED)
++ (void)paymentServicesMerchantURLForAPIType:(PKPaymentRequestAPIType)APIType isDelegated:(BOOL)isDelegated completion:(void(^)(NSURL *merchantURL, NSError *error))completion;
+#endif
 @property (nonatomic, assign, nullable) id<PKPaymentAuthorizationViewControllerPrivateDelegate> privateDelegate;
 @end
 
@@ -405,12 +411,5 @@ NS_ASSUME_NONNULL_END
 #define PAL_PASSKIT_SPI_GUARD_AGAINST_INDIRECT_INCLUSION
 #import "PassKitInstallmentsSPI.h"
 #undef PAL_PASSKIT_SPI_GUARD_AGAINST_INDIRECT_INCLUSION
-
-#if HAVE(PASSKIT_DELEGATED_REQUEST)
-// FIXME: <rdar://165836164> (Remove bincompat staging code from WebKit)
-@interface PKPaymentRequest (DelegatedRequest)
-@property (nonatomic, assign) BOOL isDelegatedRequest;
-@end
-#endif // HAVE(PASSKIT_DELEGATED_REQUEST)
 
 #endif // !__has_feature(modules)

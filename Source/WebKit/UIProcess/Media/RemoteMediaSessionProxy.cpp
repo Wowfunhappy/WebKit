@@ -28,6 +28,7 @@
 
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
 
+#include "MessageSenderInlines.h"
 #include "RemoteMediaSessionClientProxy.h"
 #include "RemoteMediaSessionManagerMessages.h"
 #include "RemoteMediaSessionManagerProxy.h"
@@ -48,9 +49,7 @@ RemoteMediaSessionProxy::RemoteMediaSessionProxy(const RemoteMediaSessionState& 
     setMediaSessionIdentifier(state.sessionIdentifier);
 }
 
-RemoteMediaSessionProxy::~RemoteMediaSessionProxy()
-{
-}
+RemoteMediaSessionProxy::~RemoteMediaSessionProxy() = default;
 
 void RemoteMediaSessionProxy::updateState(const RemoteMediaSessionState& remoteState)
 {

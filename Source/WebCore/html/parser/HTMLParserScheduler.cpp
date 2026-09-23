@@ -36,6 +36,7 @@
 #include "ScriptController.h"
 #include "ScriptElement.h"
 #include <wtf/TZoneMallocInlines.h>
+#include "FrameDestructionObserverInlines.h"
 
 namespace WebCore {
 
@@ -104,13 +105,18 @@ void HTMLParserScheduler::continueNextChunkTimerFired()
     ASSERT(!m_suspended);
     ASSERT(m_parser);
 
+    // If yield tokens are active, don't resume parsing. didEndYieldingParser()
+    // will schedule a new resume when the tokens are released.
+    if (m_documentHasActiveParserYieldTokens)
+        return;
+
     // FIXME: The timer class should handle timer priorities instead of this code.
     // If a layout is scheduled, wait again to let the layout timer run first.
     if (m_parser->document()->isLayoutPending()) {
         m_continueNextChunkTimer.startOneShot(0_s);
         return;
     }
-    m_parser->resumeParsingAfterYield();
+    Ref { *m_parser }->resumeParsingAfterYield();
 }
 
 static bool NODELETE parsingProgressedSinceLastYield(PumpSession& session)

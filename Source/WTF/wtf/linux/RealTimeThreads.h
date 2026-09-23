@@ -58,6 +58,8 @@ private:
     void realTimeKitMakeThreadRealTime(uint64_t processID, uint64_t threadID, uint32_t priority);
     void scheduleDiscardRealTimeKitProxy();
     void discardRealTimeKitProxyTimerFired();
+    void setupSignalHandler();
+    static gboolean signalCallback(gint, GIOCondition, gpointer);
 #endif
 
     Ref<ThreadGroup> m_threadGroup;

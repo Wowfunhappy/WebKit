@@ -188,8 +188,8 @@ layer at (0,0) size 800x600
                 chunk 1 text run 1 at (197.00,15.00) startOffset 0 endOffset 6 width 47.36: "Events"
           RenderSVGContainer {g} at (0,0) size 0x0
         RenderSVGContainer {g} at (263,279) size 301x301
-          RenderSVGPath {path} at (263,279) size 301x301 [stroke={[type=SOLID] [color=#696969]}] [fill={[type=SOLID] [color=#F0F8FF]}] [data="M 259 0 L 319 0 C 324.523 -0.00000953674 329 4.47715 329 10 L 329 20 L 340 20 L 340 200 L 0 200 L 0 20 L 259 20 Z"]
-          RenderSVGPath {path} at (506,422) size 52x52 [stroke={[type=SOLID] [color=#696969]}] [fill={[type=SOLID] [color=#D3D3D3]}] [data="M 259 0 L 319 0 C 324.523 -0.00000953674 329 4.47715 329 10 L 329 20 L 259 20 Z"]
+          RenderSVGPath {path} at (263,279) size 301x301 [stroke={[type=SOLID] [color=#696969]}] [fill={[type=SOLID] [color=#F0F8FF]}] [data="M 259 0 L 319 0 C 324.523 -0.0000107288 329 4.47714 329 10 L 329 20 L 340 20 L 340 200 L 0 200 L 0 20 L 259 20 Z"]
+          RenderSVGPath {path} at (506,422) size 52x52 [stroke={[type=SOLID] [color=#696969]}] [fill={[type=SOLID] [color=#D3D3D3]}] [data="M 259 0 L 319 0 C 324.523 -0.0000107288 329 4.47714 329 10 L 329 20 L 259 20 Z"]
           RenderSVGText {text} at (269,0) size 50x18 contains 1 chunk(s)
             RenderSVGTSpan {tspan} at (0,0) size 50x17
               RenderSVGInlineText {#text} at (0,0) size 50x17

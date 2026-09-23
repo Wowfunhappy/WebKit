@@ -25,8 +25,8 @@
  <div class="cs">
    <p>This line should be green.</p>
    <p class="A">This line should be green.</p>
-   <p class="span1"><SPAN>This line should be green.</span></p>
-   <p class="span2"><SPAN>This line should be green.</span></p>
+   <p class="span1"><SPAN>This line should be green.</SPAN></p>
+   <p class="span2"><SPAN>This line should be green.</SPAN></p>
  </div>
 
 

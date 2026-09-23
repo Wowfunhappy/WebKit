@@ -23,7 +23,6 @@
 
 #if USE(CF)
 
-#include <CoreFoundation/CoreFoundation.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/cf/VectorCF.h>
 #include <wtf/text/StringBuffer.h>
@@ -43,6 +42,18 @@ String::String(CFStringRef str)
         return;
     }
 
+    // Fast path: check if CF exposes its internal buffer directly.
+    if (auto span = CFStringGetLatin1CStringSpan(str); span.data()) {
+        m_impl = StringImpl::create(span);
+        return;
+    }
+
+    if (auto span = CFStringGetCharactersSpan(str); span.data()) {
+        m_impl = StringImpl::create8BitIfPossible(span);
+        return;
+    }
+
+    // Slow path: try converting to Latin1, then fall back to UTF-16.
     {
         StringBuffer<Latin1Character> buffer(size);
         CFIndex usedBufLen;

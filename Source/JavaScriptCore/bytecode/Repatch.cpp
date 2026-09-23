@@ -85,7 +85,7 @@ void linkMonomorphicCall(VM& vm, JSCell* owner, CallLinkInfo& callLinkInfo, Code
 {
     ASSERT(!callLinkInfo.stub());
 
-    CodeBlock* callerCodeBlock = jsDynamicCast<CodeBlock*>(owner); // WebAssembly -> JS stubs don't have a valid CodeBlock.
+    CodeBlock* callerCodeBlock = dynamicDowncast<CodeBlock>(owner); // WebAssembly -> JS stubs don't have a valid CodeBlock.
     ASSERT(owner);
 
     if (Options::forceICFailure()) [[unlikely]]
@@ -113,7 +113,7 @@ CodePtr<JSEntryPtrTag> jsToWasmICCodePtr(CodeSpecializationKind kind, JSObject* 
         return nullptr;
     if (kind != CodeSpecializationKind::CodeForCall)
         return nullptr;
-    if (auto* wasmFunction = jsDynamicCast<WebAssemblyFunction*>(callee))
+    if (auto* wasmFunction = dynamicDowncast<WebAssemblyFunction>(callee))
         return wasmFunction->jsCallICEntrypoint();
 #else
     UNUSED_PARAM(kind);
@@ -133,7 +133,7 @@ void linkPolymorphicCall(VM& vm, JSCell* owner, CallFrame* callFrame, CallLinkIn
         return;
     }
 
-    CodeBlock* callerCodeBlock = jsDynamicCast<CodeBlock*>(owner); // WebAssembly -> JS stubs don't have a valid CodeBlock.
+    CodeBlock* callerCodeBlock = dynamicDowncast<CodeBlock>(owner); // WebAssembly -> JS stubs don't have a valid CodeBlock.
     ASSERT(owner);
 #if ENABLE(WEBASSEMBLY)
     bool isWebAssembly = owner->inherits<JSWebAssemblyModule>();
@@ -190,7 +190,7 @@ void linkPolymorphicCall(VM& vm, JSCell* owner, CallFrame* callFrame, CallLinkIn
         CodeBlock* codeBlock = nullptr;
         if (variant.executable() && !variant.executable()->isHostFunction()) {
             ExecutableBase* executable = variant.executable();
-            codeBlock = jsCast<FunctionExecutable*>(executable)->codeBlockForCall();
+            codeBlock = uncheckedDowncast<FunctionExecutable>(executable)->codeBlockForCall();
             // If we cannot handle a callee, because we don't have a CodeBlock,
             // assume that it's better for this whole thing to be a virtual call.
             if (!codeBlock) {
@@ -279,7 +279,7 @@ void linkPolymorphicCall(VM& vm, JSCell* owner, CallFrame* callFrame, CallLinkIn
 
 #if ENABLE(JIT)
 
-static ECMAMode ecmaModeFor(PutByKind putByKind)
+static ECMAMode NODELETE ecmaModeFor(PutByKind putByKind)
 {
     switch (putByKind) {
     case PutByKind::ByIdSloppy:
@@ -359,7 +359,7 @@ static InlineCacheAction actionForCell(VM& vm, JSCell* cell)
     return AttemptToCache;
 }
 
-static bool forceICFailure(JSGlobalObject*)
+static bool NODELETE forceICFailure(JSGlobalObject*)
 {
     return Options::forceICFailure();
 }
@@ -376,15 +376,63 @@ ALWAYS_INLINE static void fireWatchpointsAndClearStubIfNeeded(VM& vm, PropertyIn
     }
 }
 
-inline CodePtr<CFunctionPtrTag> appropriateGetByOptimizeFunction(GetByKind kind)
+CacheableIdentifier nonStringPrimitiveKeyForSubscript(VM& vm, JSValue subscript)
+{
+    if (subscript.isUndefined())
+        return CacheableIdentifier::createFromImmortalIdentifier(vm.propertyNames->undefinedKeyword.impl());
+    if (subscript.isNull())
+        return CacheableIdentifier::createFromImmortalIdentifier(vm.propertyNames->nullKeyword.impl());
+    if (subscript.isTrue())
+        return CacheableIdentifier::createFromImmortalIdentifier(vm.propertyNames->trueKeyword.impl());
+    if (subscript.isFalse())
+        return CacheableIdentifier::createFromImmortalIdentifier(vm.propertyNames->falseKeyword.impl());
+    return { };
+}
+
+struct NonStringPrimitiveKeyInfo {
+    SUPPRESS_UNCOUNTED_MEMBER UniquedStringImpl* uid;
+    AccessCase::AccessType loadType;
+    AccessCase::AccessType missType;
+    AccessCase::AccessType replaceType;
+    AccessCase::AccessType transitionType;
+};
+
+static std::optional<NonStringPrimitiveKeyInfo> nonStringPrimitiveKeyInfoForUID(VM& vm, UniquedStringImpl* uid)
+{
+    if (uid == vm.propertyNames->undefinedKeyword.impl()) {
+        return NonStringPrimitiveKeyInfo {
+            uid, AccessCase::IndexedUndefinedKeyLoad, AccessCase::IndexedUndefinedKeyMiss,
+            AccessCase::IndexedUndefinedKeyReplace, AccessCase::IndexedUndefinedKeyTransition
+        };
+    }
+    if (uid == vm.propertyNames->nullKeyword.impl()) {
+        return NonStringPrimitiveKeyInfo {
+            uid, AccessCase::IndexedNullKeyLoad, AccessCase::IndexedNullKeyMiss,
+            AccessCase::IndexedNullKeyReplace, AccessCase::IndexedNullKeyTransition
+        };
+    }
+    if (uid == vm.propertyNames->trueKeyword.impl()) {
+        return NonStringPrimitiveKeyInfo {
+            uid, AccessCase::IndexedTrueKeyLoad, AccessCase::IndexedTrueKeyMiss,
+            AccessCase::IndexedTrueKeyReplace, AccessCase::IndexedTrueKeyTransition
+        };
+    }
+    if (uid == vm.propertyNames->falseKeyword.impl()) {
+        return NonStringPrimitiveKeyInfo {
+            uid, AccessCase::IndexedFalseKeyLoad, AccessCase::IndexedFalseKeyMiss,
+            AccessCase::IndexedFalseKeyReplace, AccessCase::IndexedFalseKeyTransition
+        };
+    }
+    return std::nullopt;
+}
+
+inline CodePtr<CFunctionPtrTag> NODELETE appropriateGetByOptimizeFunction(GetByKind kind)
 {
     switch (kind) {
     case GetByKind::ById:
         return operationGetByIdOptimize;
     case GetByKind::ByIdWithThis:
         return operationGetByIdWithThisOptimize;
-    case GetByKind::TryById:
-        return operationTryGetByIdOptimize;
     case GetByKind::ByIdDirect:
         return operationGetByIdDirectOptimize;
     case GetByKind::ByVal:
@@ -399,15 +447,13 @@ inline CodePtr<CFunctionPtrTag> appropriateGetByOptimizeFunction(GetByKind kind)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-inline CodePtr<CFunctionPtrTag> appropriateGetByGaveUpFunction(GetByKind kind)
+inline CodePtr<CFunctionPtrTag> NODELETE appropriateGetByGaveUpFunction(GetByKind kind)
 {
     switch (kind) {
     case GetByKind::ById:
         return operationGetByIdGaveUp;
     case GetByKind::ByIdWithThis:
         return operationGetByIdWithThisGaveUp;
-    case GetByKind::TryById:
-        return operationTryGetByIdGaveUp;
     case GetByKind::ByIdDirect:
         return operationGetByIdDirectGaveUp;
     case GetByKind::ByVal:
@@ -422,7 +468,7 @@ inline CodePtr<CFunctionPtrTag> appropriateGetByGaveUpFunction(GetByKind kind)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, CacheableIdentifier propertyName, const PropertySlot& slot, PropertyInlineCache& propertyCache, GetByKind kind)
+static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, CacheableIdentifier propertyName, const PropertySlot& slot, PropertyInlineCache& propertyCache, GetByKind kind, bool isNonStringPrimitiveKey)
 {
     VM& vm = globalObject->vm();
     AccessGenerationResult result;
@@ -446,8 +492,8 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
             if (isJSArray(baseCell)) {
                 if (propertyCache.cacheType() == CacheType::Unset
                     && slot.slotBase() == baseCell
-                    && InlineAccess::isCacheableArrayLength(propertyCache, jsCast<JSArray*>(baseCell))) {
-                    bool generatedCodeInline = InlineAccess::generateArrayLength(propertyCache, jsCast<JSArray*>(baseCell));
+                    && InlineAccess::isCacheableArrayLength(propertyCache, uncheckedDowncast<JSArray>(baseCell))) {
+                    bool generatedCodeInline = InlineAccess::generateArrayLength(propertyCache, uncheckedDowncast<JSArray>(baseCell));
                     if (generatedCodeInline) {
                         repatchSlowPathCall(codeBlock, propertyCache, appropriateGetByOptimizeFunction(kind));
                         propertyCache.initArrayLength(locker);
@@ -468,12 +514,12 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
                 }
 
                 newCase = AccessCase::create(vm, codeBlock, AccessCase::StringLength, lengthPropertyName);
-            } else if (DirectArguments* arguments = jsDynamicCast<DirectArguments*>(baseCell)) {
+            } else if (DirectArguments* arguments = dynamicDowncast<DirectArguments>(baseCell)) {
                 // If there were overrides, then we can handle this as a normal property load! Guarding
                 // this with such a check enables us to add an IC case for that load if needed.
                 if (!arguments->overrodeThings())
                     newCase = AccessCase::create(vm, codeBlock, AccessCase::DirectArgumentsLength, lengthPropertyName);
-            } else if (ScopedArguments* arguments = jsDynamicCast<ScopedArguments*>(baseCell)) {
+            } else if (ScopedArguments* arguments = dynamicDowncast<ScopedArguments>(baseCell)) {
                 // Ditto.
                 if (!arguments->overrodeThings())
                     newCase = AccessCase::create(vm, codeBlock, AccessCase::ScopedArgumentsLength, lengthPropertyName);
@@ -481,13 +527,13 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
         }
 
         if (!newCase && propertyName == vm.propertyNames->lastIndex) {
-            if (jsDynamicCast<RegExpObject*>(baseCell))
+            if (is<RegExpObject>(baseCell))
                 newCase = AccessCase::create(vm, codeBlock, AccessCase::RegExpLastIndexLoad, CacheableIdentifier::createFromImmortalIdentifier(vm.propertyNames->lastIndex.impl()));
         }
 
         if (!propertyName.isSymbol() && baseCell->inherits<JSModuleNamespaceObject>() && !slot.isUnset()) {
             if (auto moduleNamespaceSlot = slot.moduleNamespaceSlot())
-                newCase = ModuleNamespaceAccessCase::create(vm, codeBlock, propertyName, jsCast<JSModuleNamespaceObject*>(baseCell), moduleNamespaceSlot->environment, ScopeOffset(moduleNamespaceSlot->scopeOffset));
+                newCase = ModuleNamespaceAccessCase::create(vm, codeBlock, propertyName, uncheckedDowncast<JSModuleNamespaceObject>(baseCell), moduleNamespaceSlot->environment, ScopeOffset(moduleNamespaceSlot->scopeOffset));
         }
 
         if (!propertyName.isPrivateName() && baseCell->inherits<ProxyObject>()) {
@@ -522,7 +568,7 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
             if (baseCell->type() == GlobalProxyType) {
                 if (isPrivate)
                     return GiveUpOnCache;
-                baseValue = jsCast<JSGlobalProxy*>(baseCell)->target();
+                baseValue = uncheckedDowncast<JSGlobalProxy>(baseCell)->target();
                 baseCell = baseValue.asCell();
                 structure = baseCell->structure();
                 loadTargetFromProxy = true;
@@ -569,7 +615,7 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
                 if (structure->isDictionary()) {
                     if (structure->hasBeenFlattenedBefore())
                         return GiveUpOnCache;
-                    structure->flattenDictionaryStructure(vm, jsCast<JSObject*>(baseCell));
+                    structure->flattenDictionaryStructure(vm, uncheckedDowncast<JSObject>(baseCell));
                     return RetryCacheLater; // We may have changed property offsets.
                 }
 
@@ -621,25 +667,13 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
 
             JSFunction* getter = nullptr;
             if (slot.isCacheableGetter())
-                getter = jsDynamicCast<JSFunction*>(slot.getterSetter()->getter());
+                getter = dynamicDowncast<JSFunction>(slot.getterSetter()->getter());
 
             std::optional<DOMAttributeAnnotation> domAttribute;
             if (slot.isCacheableCustom() && slot.domAttribute())
                 domAttribute = slot.domAttribute();
 
-            if (kind == GetByKind::TryById) {
-                AccessCase::AccessType type;
-                if (slot.isCacheableValue())
-                    type = AccessCase::Load;
-                else if (slot.isUnset())
-                    type = AccessCase::Miss;
-                else if (slot.isCacheableGetter())
-                    type = AccessCase::GetGetter;
-                else
-                    RELEASE_ASSERT_NOT_REACHED();
-
-                newCase = ProxyableAccessCase::create(vm, codeBlock, type, propertyName, offset, structure, conditionSet, loadTargetFromProxy, slot.watchpointSet(), WTF::move(prototypeAccessChain));
-            } else if (!loadTargetFromProxy && getter && InlineCacheCompiler::canEmitIntrinsicGetter(propertyCache, getter, structure))
+            if (!loadTargetFromProxy && getter && InlineCacheCompiler::canEmitIntrinsicGetter(propertyCache, getter, structure))
                 newCase = IntrinsicGetterAccessCase::create(vm, codeBlock, propertyName, slot.cachedOffset(), structure, conditionSet, getter, WTF::move(prototypeAccessChain));
             else {
                 if (isPrivate) {
@@ -679,7 +713,24 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
 
         LOG_IC((ICEvent::GetByAddAccessCase, baseValue.classInfoOrNull(), slot.slotBase() == baseValue));
 
-        result = propertyCache.addAccessCase(locker, globalObject, codeBlock, ECMAMode::strict(), propertyName, WTF::move(newCase));
+        if (isNonStringPrimitiveKey) {
+            if (!newCase)
+                return GiveUpOnCache;
+            auto keyInfo = nonStringPrimitiveKeyInfoForUID(vm, propertyName.uid());
+            ASSERT(keyInfo);
+            switch (newCase->type()) {
+            case AccessCase::Load:
+                newCase->convertToNonStringPrimitiveKeyAccessType(keyInfo->loadType);
+                break;
+            case AccessCase::Miss:
+                newCase->convertToNonStringPrimitiveKeyAccessType(keyInfo->missType);
+                break;
+            default:
+                return GiveUpOnCache;
+            }
+        }
+
+        result = propertyCache.addAccessCase(locker, globalObject, codeBlock, ECMAMode::strict(), isNonStringPrimitiveKey ? nullptr : propertyName, WTF::move(newCase));
 
         if (result.generatedSomeCode())
             LOG_IC((ICEvent::GetByReplaceWithJump, baseValue.classInfoOrNull(), slot.slotBase() == baseValue));
@@ -692,11 +743,11 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
     return result.shouldGiveUpNow() ? GiveUpOnCache : RetryCacheLater;
 }
 
-void repatchGetBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, CacheableIdentifier propertyName, const PropertySlot& slot, PropertyInlineCache& propertyCache, GetByKind kind)
+void repatchGetBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, CacheableIdentifier propertyName, const PropertySlot& slot, PropertyInlineCache& propertyCache, GetByKind kind, bool isNonStringPrimitiveKey)
 {
     SuperSamplerScope superSamplerScope(false);
 
-    switch (tryCacheGetBy(globalObject, codeBlock, baseValue, propertyName, slot, propertyCache, kind)) {
+    switch (tryCacheGetBy(globalObject, codeBlock, baseValue, propertyName, slot, propertyCache, kind, isNonStringPrimitiveKey)) {
     case PromoteToMegamorphic: {
         switch (kind) {
         case GetByKind::ById:
@@ -729,6 +780,7 @@ void repatchGetBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue ba
 // Mainly used to transition from megamorphic case to generic case.
 void repatchGetBySlowPathCall(CodeBlock* codeBlock, PropertyInlineCache& propertyCache, GetByKind kind)
 {
+    ConcurrentJSLocker locker(codeBlock->m_lock);
     resetGetBy(codeBlock, propertyCache, kind);
     repatchSlowPathCall(codeBlock, propertyCache, appropriateGetByGaveUpFunction(kind));
 }
@@ -760,7 +812,7 @@ static InlineCacheAction tryCacheArrayGetByVal(JSGlobalObject* globalObject, Cod
         else if (base->type() == ProxyObjectType)
             accessType = AccessCase::IndexedProxyObjectLoad;
         else if (isTypedView(base->type())) {
-            auto* typedArray = jsCast<JSArrayBufferView*>(base);
+            auto* typedArray = uncheckedDowncast<JSArrayBufferView>(base);
 #if USE(JSVALUE32_64)
             if (typedArray->isResizableOrGrowableShared())
                 return GiveUpOnCache;
@@ -897,7 +949,7 @@ void repatchArrayGetByVal(JSGlobalObject* globalObject, CodeBlock* codeBlock, JS
     }
 }
 
-static CodePtr<CFunctionPtrTag> appropriatePutByGaveUpFunction(PutByKind putByKind)
+static CodePtr<CFunctionPtrTag> NODELETE appropriatePutByGaveUpFunction(PutByKind putByKind)
 {
     switch (putByKind) {
     case PutByKind::ByIdStrict:
@@ -933,11 +985,12 @@ static CodePtr<CFunctionPtrTag> appropriatePutByGaveUpFunction(PutByKind putByKi
 // Mainly used to transition from megamorphic case to generic case.
 void repatchPutBySlowPathCall(CodeBlock* codeBlock, PropertyInlineCache& propertyCache, PutByKind kind)
 {
+    ConcurrentJSLocker locker(codeBlock->m_lock);
     resetPutBy(codeBlock, propertyCache, kind);
     repatchSlowPathCall(codeBlock, propertyCache, appropriatePutByGaveUpFunction(kind));
 }
 
-static CodePtr<CFunctionPtrTag> appropriatePutByOptimizeFunction(PutByKind putByKind)
+static CodePtr<CFunctionPtrTag> NODELETE appropriatePutByOptimizeFunction(PutByKind putByKind)
 {
     switch (putByKind) {
     case PutByKind::ByIdStrict:
@@ -970,7 +1023,7 @@ static CodePtr<CFunctionPtrTag> appropriatePutByOptimizeFunction(PutByKind putBy
     return nullptr;
 }
 
-static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, Structure* oldStructure, CacheableIdentifier propertyName, const PutPropertySlot& slot, PropertyInlineCache& propertyCache, PutByKind putByKind)
+static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, Structure* oldStructure, CacheableIdentifier propertyName, const PutPropertySlot& slot, PropertyInlineCache& propertyCache, PutByKind putByKind, bool isNonStringPrimitiveKey)
 {
     VM& vm = globalObject->vm();
     AccessGenerationResult result;
@@ -986,8 +1039,18 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
 
         JSCell* baseCell = baseValue.asCell();
 
+        RefPtr<AccessCase> newCase;
+
+        if (propertyName == vm.propertyNames->length) {
+            if (baseCell->type() == ArrayType)
+                newCase = AccessCase::create(vm, codeBlock, AccessCase::ArrayLengthStore, propertyName);
+        } else if (propertyName == vm.propertyNames->lastIndex) {
+            if (is<RegExpObject>(baseCell))
+                newCase = AccessCase::create(vm, codeBlock, AccessCase::RegExpLastIndexStore, propertyName);
+        }
+
         bool isProxyObject = baseCell->type() == ProxyObjectType;
-        if (!isProxyObject) {
+        if (!newCase && !isProxyObject) {
             if (!slot.isCacheablePut() && !slot.isCacheableCustom() && !slot.isCacheableSetter())
                 return GiveUpOnCache;
 
@@ -1003,7 +1066,7 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
         
         bool isGlobalProxy = false;
         if (baseCell->type() == GlobalProxyType) {
-            baseCell = jsCast<JSGlobalProxy*>(baseCell)->target();
+            baseCell = uncheckedDowncast<JSGlobalProxy>(baseCell)->target();
             baseValue = baseCell;
             isGlobalProxy = true;
 
@@ -1036,13 +1099,6 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
             }
         }
 
-        RefPtr<AccessCase> newCase;
-
-        if (propertyName == vm.propertyNames->lastIndex) {
-            if (jsDynamicCast<RegExpObject*>(baseCell))
-                newCase = AccessCase::create(vm, codeBlock, AccessCase::RegExpLastIndexStore, propertyName);
-        }
-
         if (!newCase && slot.base() == baseValue && slot.isCacheablePut()) {
             if (slot.type() == PutPropertySlot::ExistingProperty) {
                 // This assert helps catch bugs if we accidentally forget to disable caching
@@ -1054,12 +1110,12 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
                 RELEASE_ASSERT(baseValue.asCell()->structure() == oldStructure);
 
                 oldStructure->didCachePropertyReplacement(vm, slot.cachedOffset());
-            
+
                 if (propertyCache.cacheType() == CacheType::Unset
                     && InlineAccess::canGenerateSelfPropertyReplace(propertyCache, slot.cachedOffset())
                     && !oldStructure->needImpurePropertyWatchpoint()
                     && !isGlobalProxy) {
-                    
+
                     bool generatedCodeInline = InlineAccess::generateSelfPropertyReplace(propertyCache, oldStructure, slot.cachedOffset());
                     if (generatedCodeInline) {
                         LOG_IC((ICEvent::PutBySelfPatch, oldStructure->classInfoForCells(), slot.base() == baseValue));
@@ -1142,7 +1198,7 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
 
                 newCase = AccessCase::createTransition(vm, codeBlock, propertyName, offset, oldStructure, newStructure, conditionSet, WTF::move(prototypeAccessChain), propertyCache);
             }
-        } else if (slot.isCacheableCustom() || slot.isCacheableSetter()) {
+        } else if (!newCase && (slot.isCacheableCustom() || slot.isCacheableSetter())) {
             if (slot.isCacheableCustom()) {
                 ObjectPropertyConditionSet conditionSet;
                 RefPtr<PolyProtoAccessChain> prototypeAccessChain;
@@ -1236,8 +1292,25 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
         }
 
         LOG_IC((ICEvent::PutByAddAccessCase, oldStructure->classInfoForCells(), slot.base() == baseValue));
-        
-        result = propertyCache.addAccessCase(locker, globalObject, codeBlock, slot.isStrictMode() ? ECMAMode::strict() : ECMAMode::sloppy(), propertyName, WTF::move(newCase));
+
+        if (isNonStringPrimitiveKey) {
+            if (!newCase)
+                return GiveUpOnCache;
+            auto keyInfo = nonStringPrimitiveKeyInfoForUID(vm, propertyName.uid());
+            ASSERT(keyInfo);
+            switch (newCase->type()) {
+            case AccessCase::Replace:
+                newCase->convertToNonStringPrimitiveKeyAccessType(keyInfo->replaceType);
+                break;
+            case AccessCase::Transition:
+                newCase->convertToNonStringPrimitiveKeyAccessType(keyInfo->transitionType);
+                break;
+            default:
+                return GiveUpOnCache;
+            }
+        }
+
+        result = propertyCache.addAccessCase(locker, globalObject, codeBlock, slot.isStrictMode() ? ECMAMode::strict() : ECMAMode::sloppy(), isNonStringPrimitiveKey ? nullptr : propertyName, WTF::move(newCase));
 
         if (result.generatedSomeCode())
             LOG_IC((ICEvent::PutByReplaceWithJump, oldStructure->classInfoForCells(), slot.base() == baseValue));
@@ -1249,11 +1322,11 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
     return result.shouldGiveUpNow() ? GiveUpOnCache : RetryCacheLater;
 }
 
-void repatchPutBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, Structure* oldStructure, CacheableIdentifier propertyName, const PutPropertySlot& slot, PropertyInlineCache& propertyCache, PutByKind putByKind)
+void repatchPutBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, JSValue baseValue, Structure* oldStructure, CacheableIdentifier propertyName, const PutPropertySlot& slot, PropertyInlineCache& propertyCache, PutByKind putByKind, bool isNonStringPrimitiveKey)
 {
     SuperSamplerScope superSamplerScope(false);
-    
-    switch (tryCachePutBy(globalObject, codeBlock, baseValue, oldStructure, propertyName, slot, propertyCache, putByKind)) {
+
+    switch (tryCachePutBy(globalObject, codeBlock, baseValue, oldStructure, propertyName, slot, propertyCache, putByKind, isNonStringPrimitiveKey)) {
     case PromoteToMegamorphic: {
         switch (putByKind) {
         case PutByKind::ByIdStrict:
@@ -1311,7 +1384,7 @@ static InlineCacheAction tryCacheArrayPutByVal(JSGlobalObject* globalObject, Cod
                 return RetryCacheLater;
             }
         } else if (isTypedView(base->type())) {
-            auto* typedArray = jsCast<JSArrayBufferView*>(base);
+            auto* typedArray = uncheckedDowncast<JSArrayBufferView>(base);
 #if USE(JSVALUE32_64)
             if (typedArray->isResizableOrGrowableShared())
                 return GiveUpOnCache;
@@ -1446,7 +1519,7 @@ static InlineCacheAction tryCacheDeleteBy(JSGlobalObject* globalObject, CodeBloc
         if (baseValue.asCell()->structure()->isDictionary()) {
             if (baseValue.asCell()->structure()->hasBeenFlattenedBefore())
                 return GiveUpOnCache;
-            jsCast<JSObject*>(baseValue)->flattenDictionaryObject(vm);
+            uncheckedDowncast<JSObject>(baseValue)->flattenDictionaryObject(vm);
             return RetryCacheLater;
         }
 
@@ -1515,7 +1588,7 @@ void repatchDeleteBy(JSGlobalObject* globalObject, CodeBlock* codeBlock, DeleteP
     }
 }
 
-inline CodePtr<CFunctionPtrTag> appropriateInByOptimizeFunction(InByKind kind)
+inline CodePtr<CFunctionPtrTag> NODELETE appropriateInByOptimizeFunction(InByKind kind)
 {
     switch (kind) {
     case InByKind::ById:
@@ -1528,7 +1601,7 @@ inline CodePtr<CFunctionPtrTag> appropriateInByOptimizeFunction(InByKind kind)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-inline CodePtr<CFunctionPtrTag> appropriateInByGaveUpFunction(InByKind kind)
+inline CodePtr<CFunctionPtrTag> NODELETE appropriateInByGaveUpFunction(InByKind kind)
 {
     switch (kind) {
     case InByKind::ById:
@@ -1544,6 +1617,7 @@ inline CodePtr<CFunctionPtrTag> appropriateInByGaveUpFunction(InByKind kind)
 // Mainly used to transition from megamorphic case to generic case.
 void repatchInBySlowPathCall(CodeBlock* codeBlock, PropertyInlineCache& propertyCache, InByKind kind)
 {
+    ConcurrentJSLocker locker(codeBlock->m_lock);
     resetInBy(codeBlock, propertyCache, kind);
     repatchSlowPathCall(codeBlock, propertyCache, appropriateInByGaveUpFunction(kind));
 }
@@ -1847,9 +1921,9 @@ static InlineCacheAction tryCacheInstanceOf(JSGlobalObject* globalObject, CodeBl
         JSCell* value = valueValue.asCell();
         Structure* structure = value->structure();
         RefPtr<AccessCase> newCase;
-        JSObject* prototype = jsDynamicCast<JSObject*>(prototypeValue);
+        JSObject* prototype = dynamicDowncast<JSObject>(prototypeValue);
         if (prototype) {
-            if (!jsDynamicCast<JSObject*>(value)) {
+            if (!is<JSObject>(value)) {
                 newCase = InstanceOfAccessCase::create(
                     vm, codeBlock, AccessCase::InstanceOfMiss, structure, ObjectPropertyConditionSet(),
                     prototype);
@@ -1915,7 +1989,7 @@ static InlineCacheAction tryCacheArrayInByVal(JSGlobalObject* globalObject, Code
         else if (base->type() == ProxyObjectType)
             accessType = AccessCase::IndexedProxyObjectIn;
         else if (isTypedView(base->type())) {
-            auto* typedArray = jsCast<JSArrayBufferView*>(base);
+            auto* typedArray = uncheckedDowncast<JSArrayBufferView>(base);
 #if USE(JSVALUE32_64)
             if (typedArray->isResizableOrGrowableShared())
                 return GiveUpOnCache;
@@ -2055,7 +2129,7 @@ void repatchInstanceOf(
 void linkDirectCall(DirectCallLinkInfo& callLinkInfo, CodeBlock* calleeCodeBlock, CodePtr<JSEntryPtrTag> codePtr)
 {
     // DirectCall is only used from DFG / FTL.
-    callLinkInfo.setCallTarget(jsCast<FunctionCodeBlock*>(calleeCodeBlock), CodeLocationLabel<JSEntryPtrTag>(codePtr));
+    callLinkInfo.setCallTarget(uncheckedDowncast<FunctionCodeBlock>(calleeCodeBlock), CodeLocationLabel<JSEntryPtrTag>(codePtr));
     if (calleeCodeBlock)
         calleeCodeBlock->linkIncomingCall(callLinkInfo.owner(), &callLinkInfo);
 }

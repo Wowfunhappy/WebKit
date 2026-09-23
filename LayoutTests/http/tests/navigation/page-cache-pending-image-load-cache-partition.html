@@ -1,4 +1,4 @@
-<!-- webkit-test-runner [ UsesBackForwardCache=true ] -->
+<!-- webkit-test-runner [ UsesBackForwardCache=true StorageBlockingPolicy=1 ] -->
 <!DOCTYPE html>
 <html>
 <body>
@@ -6,7 +6,6 @@
 <script>
 description('Tests that a page with a loading image goes into the page cache (with non-empty cache partition).');
 window.jsTestIsAsync = true;
-internals.settings.setStorageBlockingPolicy('BlockThirdParty');
 
 window.addEventListener("pageshow", function(event) {
     debug("pageshow - " + (event.persisted ? "" : "not ") + "from cache");

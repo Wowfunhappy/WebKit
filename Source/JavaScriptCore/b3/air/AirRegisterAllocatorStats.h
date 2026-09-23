@@ -60,12 +60,22 @@ namespace JSC { namespace B3 { namespace Air {
     macro(numSplitIntraBlockClusterTmpsSpilled) \
     macro(numSplitIntraBlockLoad)               \
     macro(numSplitIntraBlockStore)              \
+    macro(numSplitAroundLoop)                   \
+    macro(numSplitAroundLoopBothSpilled)        \
+    macro(numSplitAroundLoopLoopSpilled)        \
+    macro(numSplitAroundLoopNonLoopSpilled)     \
+    macro(numSplitAroundLoopZeroCostSpilled)    \
+    macro(numGroupTmpsCoalesced)                \
+    macro(numGroupsCreated)                     \
+    macro(numGroupMovesCoalesced)               \
+    macro(numGroupConstDefMerged)               \
+    macro(maxGroupSize)                         \
     macro(numInsts)                             \
 
 class AirAllocateRegistersStats {
 public:
-    AirAllocateRegistersStats(Bank bank)
-        : m_bank(bank) { }
+    AirAllocateRegistersStats(Bank bank, const String& label = { })
+        : m_bank(bank) { setLabel(label); }
 
     ASCIILiteral name() const
     {

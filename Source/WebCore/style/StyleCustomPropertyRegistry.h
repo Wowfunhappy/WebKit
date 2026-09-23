@@ -26,31 +26,29 @@
 
 #include "CSSRegisteredCustomProperty.h"
 #include "StyleRule.h"
+#include "StyleScope.h"
 #include <wtf/HashMap.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
-
-class RenderStyle;
-
 namespace Style {
 
+class ComputedStyle;
 class CustomProperty;
-class Scope;
 
 class CustomPropertyRegistry {
     WTF_MAKE_TZONE_ALLOCATED(CustomPropertyRegistry);
 public:
     CustomPropertyRegistry(Scope&);
 
-    const CSSRegisteredCustomProperty* NODELETE get(const AtomString&) const;
-    bool NODELETE isInherited(const AtomString&) const;
+    const CSSRegisteredCustomProperty* get(const AtomString&) const;
+    bool isInherited(const AtomString&) const;
 
     bool registerFromAPI(CSSRegisteredCustomProperty&&);
     void registerFromStylesheet(const StyleRuleProperty::Descriptor&);
     void clearRegisteredFromStylesheets();
 
-    const RenderStyle& initialValuePrototypeStyle() const LIFETIME_BOUND;
+    const Style::ComputedStyle& initialValuePrototypeStyle() const LIFETIME_BOUND;
 
     bool invalidatePropertiesWithViewportUnits(Document&);
 
@@ -67,7 +65,7 @@ private:
     UncheckedKeyHashMap<AtomString, UniqueRef<CSSRegisteredCustomProperty>> m_propertiesFromAPI;
     UncheckedKeyHashMap<AtomString, UniqueRef<CSSRegisteredCustomProperty>> m_propertiesFromStylesheet;
 
-    mutable std::unique_ptr<RenderStyle> m_initialValuePrototypeStyle;
+    mutable std::unique_ptr<Style::ComputedStyle> m_initialValuePrototypeStyle;
     mutable bool m_hasInvalidPrototypeStyle { false };
 };
 

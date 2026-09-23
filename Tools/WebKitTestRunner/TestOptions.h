@@ -56,6 +56,8 @@ public:
     bool allowsLinkPreview() const { return boolTestRunnerFeatureValue("allowsLinkPreview"); }
     bool appHighlightsEnabled() const { return boolTestRunnerFeatureValue("appHighlightsEnabled"); }
     bool allowTestOnlyIPC() const { return boolTestRunnerFeatureValue("allowTestOnlyIPC"); }
+    bool allowTestOnlyMockContentFilterIPC() const { return boolTestRunnerFeatureValue("allowTestOnlyMockContentFilterIPC"); }
+    bool allowTestOnlyOriginAccessAllowListIPC() const { return boolTestRunnerFeatureValue("allowTestOnlyOriginAccessAllowListIPC"); }
     bool dumpJSConsoleLogInStdErr() const { return boolTestRunnerFeatureValue("dumpJSConsoleLogInStdErr"); }
     bool editable() const { return boolTestRunnerFeatureValue("editable"); }
     bool enableInAppBrowserPrivacy() const { return boolTestRunnerFeatureValue("enableInAppBrowserPrivacy"); }
@@ -73,6 +75,7 @@ public:
     bool shouldPresentPopovers() const { return boolTestRunnerFeatureValue("shouldPresentPopovers"); }
     bool shouldShowSpellCheckingDots() const { return boolTestRunnerFeatureValue("spellCheckingDots"); }
     bool shouldShowTouches() const { return boolTestRunnerFeatureValue("shouldShowTouches"); }
+    bool shouldShowCursor() const { return boolTestRunnerFeatureValue("shouldShowCursor"); }
     bool shouldShowWindow() const { return boolTestRunnerFeatureValue("shouldShowWindow"); }
     bool textInteractionEnabled() const { return boolTestRunnerFeatureValue("textInteractionEnabled"); }
     bool useCharacterSelectionGranularity() const { return boolTestRunnerFeatureValue("useCharacterSelectionGranularity"); }
@@ -95,6 +98,9 @@ public:
     bool enableMetalShaderValidation() const { return boolTestRunnerFeatureValue("enableMetalShaderValidation"); }
     bool pageTopColorSamplingEnabled() const { return boolTestRunnerFeatureValue("pageTopColorSamplingEnabled"); }
     bool enhancedSecurityEnabled() const { return boolTestRunnerFeatureValue("enhancedSecurityEnabled"); }
+    bool globalPrivacyControl() const { return boolTestRunnerFeatureValue("globalPrivacyControl"); }
+    bool shouldDumpResourceLoadCallbacks() const { return boolTestRunnerFeatureValue("dumpResourceLoadCallbacks"); }
+    std::string resourceResponseMIMETypesToDump() const { return stringTestRunnerFeatureValue("dumpResourceResponseMIMETypes"); }
 
     double contentInsetTop() const { return doubleTestRunnerFeatureValue("contentInset.top"); }
     double obscuredInsetTop() const { return doubleTestRunnerFeatureValue("obscuredInset.top"); }

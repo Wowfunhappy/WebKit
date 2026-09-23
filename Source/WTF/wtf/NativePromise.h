@@ -38,6 +38,7 @@
 #include <wtf/Expected.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/Function.h>
 #include <wtf/FunctionDispatcher.h>
 #include <wtf/Lock.h>
 #include <wtf/Locker.h>
@@ -45,10 +46,8 @@
 #include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefPtr.h>
-#include <wtf/RunLoop.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeTraits.h>
-#include <wtf/Unexpected.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/MakeString.h>
@@ -375,7 +374,7 @@ public:
     using ResolveValueType = std::conditional_t<WithAutomaticCrossThreadCopy || WithCrossThreadCopy, typename CrossThreadCopier<ResolveValueT>::Type, ResolveValueT>;
     using RejectValueType = std::conditional_t<std::is_void_v<RejectValueT>, detail::VoidPlaceholder, std::conditional_t<WithAutomaticCrossThreadCopy || WithCrossThreadCopy, typename CrossThreadCopier<RejectValueT>::Type, RejectValueT>>;
     using Result = Expected<ResolveValueType, RejectValueType>;
-    using Error = Unexpected<RejectValueType>;
+    using Error = std::unexpected<RejectValueType>;
     using ResultRunnable = Function<Result(void)>;
 
     // used by IsConvertibleToNativePromise to determine how to cast the result.
@@ -492,9 +491,9 @@ private:
         Locker lock { m_lock };
         PROMISE_LOG(rejectSite, " rejecting ", *this);
         if constexpr (WithCrossThreadCopy || WithAutomaticCrossThreadCopy)
-            settleImpl(Unexpected<RejectValueT>(crossThreadCopy(std::forward<RejectValueType_>(rejectValue))), lock);
+            settleImpl(std::unexpected<RejectValueT>(crossThreadCopy(std::forward<RejectValueType_>(rejectValue))), lock);
         else
-            settleImpl(Unexpected<RejectValueT>(std::forward<RejectValueType_>(rejectValue)), lock);
+            settleImpl(std::unexpected<RejectValueT>(std::forward<RejectValueType_>(rejectValue)), lock);
     }
 
     template<typename = std::enable_if<std::is_void_v<RejectValueT>>>
@@ -1591,6 +1590,10 @@ struct LogArgument<GenericPromise> {
     {
         return makeString("GenericPromise"_s, LogArgument<const void*>::toString(&p), '<', LogArgument<Logger::LogSiteIdentifier>::toString(p.logSiteIdentifier()), '>');
     }
+};
+
+struct GenericPromiseConverter {
+    static auto convertError(auto&&) { return makeUnexpected(GenericPromise::RejectValueType { }); }
 };
 
 } // namespace WTF

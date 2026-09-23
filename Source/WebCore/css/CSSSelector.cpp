@@ -34,9 +34,10 @@
 #include "MutableCSSSelector.h"
 #include "SelectorPseudoTypeMap.h"
 #include <memory>
-#include <queue>
 #include <wtf/Assertions.h>
+#include <wtf/Deque.h>
 #include <wtf/Hasher.h>
+#include <wtf/SmallMap.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
@@ -368,21 +369,21 @@ std::optional<CSSSelector::PseudoElement> CSSSelector::parsePseudoElementName(St
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-const CSSSelector* CSSSelector::firstInCompound() const
+const CSSSelector* CSSSelector::rightmostInCompound() const
 {
     auto* selector = this;
-    while (!selector->isFirstInComplexSelector()) {
+    while (auto* preceding = selector->precedingInComplexSelector()) {
         if (selector->relation() != Relation::Subselector)
             break;
-        ++selector;
+        selector = preceding;
     }
     return selector;
 }
 
-const CSSSelector* CSSSelector::lastInCompound() const
+const CSSSelector* CSSSelector::leftmostInCompound() const
 {
     auto* selector = this;
-    while (!selector->isLastInComplexSelector()) {
+    while (!selector->m_isLastInComplexSelector) {
         auto* next = selector - 1;
         if (next->relation() != Relation::Subselector)
             break;
@@ -392,7 +393,7 @@ const CSSSelector* CSSSelector::lastInCompound() const
 }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-const CSSSelector* CSSSelector::precedingInCompound() const
+const CSSSelector* CSSSelector::followingInCompound() const
 {
     if (relation() != Relation::Subselector)
         return nullptr;
@@ -417,9 +418,9 @@ static void appendPseudoClassFunctionTail(StringBuilder& builder, const CSSSelec
 static void appendPossiblyQuotedIdentifier(StringBuilder& builder, const PossiblyQuotedIdentifier& identifier)
 {
     if (!identifier.wasQuoted)
-        serializeIdentifier(identifier.identifier, builder);
+        serializeIdentifier(builder, identifier.identifier);
     else
-        serializeString(identifier.identifier, builder);
+        serializeString(builder, identifier.identifier);
 }
 
 WTF::TextStream& operator<<(WTF::TextStream& ts, PossiblyQuotedIdentifier identifier)
@@ -476,7 +477,7 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
         if (identifier == starAtom())
             builder.append('*');
         else
-            serializeIdentifier(identifier, builder);
+            serializeIdentifier(builder, identifier);
     };
 
     StringBuilder builder;
@@ -498,12 +499,12 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
         }
         if (selector->match() == Match::Id) {
             builder.append('#');
-            serializeIdentifier(selector->serializingValue(), builder);
+            serializeIdentifier(builder, selector->serializingValue());
         } else if (selector->match() == Match::NestingParent) {
             builder.append('&');
         } else if (selector->match() == Match::Class) {
             builder.append('.');
-            serializeIdentifier(selector->serializingValue(), builder);
+            serializeIdentifier(builder, selector->serializingValue());
         } else if (selector->match() == Match::ForgivingUnknown || selector->match() == Match::ForgivingUnknownNestContaining) {
             builder.append(selector->value());
         } else if (selector->match() == Match::HasScope) {
@@ -555,7 +556,7 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
             }
             case PseudoClass::State:
                 builder.append('(');
-                serializeIdentifier(selector->argument(), builder);
+                serializeIdentifier(builder, selector->argument());
                 builder.append(')');
                 break;
             case PseudoClass::Heading:
@@ -572,7 +573,7 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
 
                 builder.append("("_s,
                     interleave(*selector->stringList(), [&](auto& builder, auto& partName) {
-                        serializeIdentifier(partName, builder);
+                        serializeIdentifier(builder, partName);
                     }, ", "_s),
                 ')');
                 break;
@@ -606,7 +607,7 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
 
                 builder.append("::part("_s,
                     interleave(*selector->stringList(), [&](auto& builder, auto& partName) {
-                        serializeIdentifier(partName, builder);
+                        serializeIdentifier(builder, partName);
                     }, ' '),
                 ')');
                 break;
@@ -628,7 +629,7 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
             default:
                 ASSERT(!pseudoElementMayHaveArgument(selector->pseudoElement()), "Missing serialization for pseudo-element argument");
                 builder.append("::"_s);
-                serializeIdentifier(selector->serializingValue(), builder);
+                serializeIdentifier(builder, selector->serializingValue());
                 break;
             }
         } else if (selector->isAttributeSelector()) {
@@ -665,11 +666,18 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
                 break;
             }
             if (selector->match() != Match::Set) {
-                serializeString(selector->serializingValue(), builder);
-                if (selector->attributeValueMatchingIsCaseInsensitive())
-                    builder.append(" i]"_s);
-                else
+                serializeString(builder, selector->serializingValue());
+                switch (selector->attributeMatchType()) {
+                case AttributeMatchType::Default:
                     builder.append(']');
+                    break;
+                case AttributeMatchType::CaseInsensitive:
+                    builder.append(" i]"_s);
+                    break;
+                case AttributeMatchType::CaseSensitive:
+                    builder.append(" s]"_s);
+                    break;
+                }
             }
         } else if (selector->match() == Match::PagePseudoClass) {
             switch (selector->pagePseudoClass()) {
@@ -741,7 +749,7 @@ void CSSSelector::setAttribute(const QualifiedName& value, AttributeMatchType ma
 {
     createRareData();
     m_data.rareData->attribute = value;
-    m_caseInsensitiveAttributeValueMatching = matchType == CaseInsensitive;
+    m_attributeMatchType = std::to_underlying(matchType);
 }
 
 void CSSSelector::setArgument(const AtomString& value)
@@ -864,12 +872,12 @@ CSSSelector::CSSSelector(const CSSSelector& other)
     , m_hasRareData(other.m_hasRareData)
     , m_isForPage(other.m_isForPage)
     , m_tagIsForNamespaceRule(other.m_tagIsForNamespaceRule)
-    , m_caseInsensitiveAttributeValueMatching(other.m_caseInsensitiveAttributeValueMatching)
+    , m_attributeMatchType(other.m_attributeMatchType)
     , m_isImplicit(other.m_isImplicit)
 {
     // Manually ref count the m_data union because they are stored as raw ptr, not as Ref.
     if (other.m_hasRareData)
-        m_data.rareData = &other.m_data.rareData->deepCopy().leakRef();
+        m_data.rareData = &protect(other.m_data.rareData)->deepCopy().leakRef();
     else if (other.match() == Match::Tag) {
         m_data.tagQName = other.m_data.tagQName;
         m_data.tagQName->ref();
@@ -889,21 +897,19 @@ CSSSelector::CSSSelector(const CSSSelector& other, MutableSelectorCopyTag)
 
 bool CSSSelector::visitSimpleSelectors(VisitFunctor&& functor, VisitFunctionalPseudoClasses visitFunctionalPseudoClasses, VisitOnlySubject visitOnlySubject) const
 {
-    std::queue<const CSSSelector*> worklist;
-    worklist.push(this);
-    while (!worklist.empty()) {
-        auto current = worklist.front();
-        worklist.pop();
+    Deque<const CSSSelector*, 16> worklist;
+    worklist.append(this);
+    while (!worklist.isEmpty()) {
+        auto current = worklist.takeFirst();
 
-        // Effective C++ advices for this cast to deal with generic const/non-const member function.
-        if (functor(*const_cast<CSSSelector*>(current)))
+        if (functor(*current))
             return true;
 
         // Visit the selector list member (if any) recursively (such as: :has(<list>), :is(<list>),...)
         if (visitFunctionalPseudoClasses == VisitFunctionalPseudoClasses::Yes) {
             if (auto selectorList = current->selectorList()) {
                 for (auto& selector : *selectorList)
-                    worklist.push(&selector);
+                    worklist.append(&selector);
             }
         }
 
@@ -911,7 +917,7 @@ bool CSSSelector::visitSimpleSelectors(VisitFunctor&& functor, VisitFunctionalPs
         if (auto next = current->precedingInComplexSelector()) {
             // We stop visiting at the end of the compound selector (= when relation is anything else than subselector) if we are in subject only mode.
             if (current->relation() != Relation::Subselector || visitOnlySubject != VisitOnlySubject::Yes)
-                worklist.push(next);
+                worklist.append(next);
         }
     }
     return false;
@@ -994,7 +1000,7 @@ bool complexSelectorMatchesElementBackedPseudoElement(const CSSSelector& complex
     };
 
     auto result = false;
-    for (auto* simpleSelector = &complexSelector; simpleSelector; simpleSelector = simpleSelector->precedingInCompound()) {
+    for (auto* simpleSelector = &complexSelector; simpleSelector; simpleSelector = simpleSelector->followingInCompound()) {
         if (simpleSelector->matchesPseudoElement()) {
             if (!isElementBacked(simpleSelector->pseudoElement()))
                 return false;
@@ -1008,7 +1014,7 @@ bool CSSSelector::simpleSelectorEqual(const CSSSelector& other) const
 {
     auto valuesEqual = [&] {
         if (m_hasRareData)
-            return m_data.rareData->equals(*other.m_data.rareData);
+            return protect(m_data.rareData)->equals(*protect(other.m_data.rareData));
         if (match() == Match::Tag)
             return *m_data.tagQName == *other.m_data.tagQName;
         return m_data.value == other.m_data.value;
@@ -1019,7 +1025,7 @@ bool CSSSelector::simpleSelectorEqual(const CSSSelector& other) const
         && m_pseudoType == other.m_pseudoType
         && m_hasRareData == other.m_hasRareData
         && m_tagIsForNamespaceRule == other.m_tagIsForNamespaceRule
-        && m_caseInsensitiveAttributeValueMatching == other.m_caseInsensitiveAttributeValueMatching
+        && m_attributeMatchType == other.m_attributeMatchType
         && m_isImplicit == other.m_isImplicit
         && valuesEqual();
 }

@@ -192,7 +192,7 @@ public:
     void setAttachedWindowHeight(unsigned);
     void setAttachedWindowWidth(unsigned);
 
-    void setSheetRect(const WebCore::FloatRect&);
+    void NODELETE setSheetRect(const WebCore::FloatRect&);
 
     void startWindowDrag();
 
@@ -310,7 +310,7 @@ private:
 
     unsigned inspectionLevel() const;
 
-    WebPreferences& inspectorPagePreferences() const;
+    WebPreferences& NODELETE inspectorPagePreferences() const;
 
 #if PLATFORM(MAC)
     void applyForcedAppearance();

@@ -1,7 +1,5 @@
 <!doctype html>
-<html>
-<head>
-<script src="../../resources/js-test-pre.js"></script>
+<script src="../../resources/js-test.js"></script>
 <style>
 input, textarea {
     background-color: white;
@@ -10,17 +8,14 @@ input, textarea {
     background-color: rgb(1, 2, 3);
 }
 </style>
-</head>
-<body>
-    <div>
-        <input id="input-with-renderer">
-        <textarea id="textarea-with-renderer"></textarea>
-    </div>
-    <div style="display:none;">
-        <input id="input-without-renderer">
-        <textarea id="textarea-without-renderer"></textarea>
-    </div>
-</body>
+<div>
+    <input id="input-with-renderer">
+    <textarea id="textarea-with-renderer"></textarea>
+</div>
+<div style="display:none;">
+    <input id="input-without-renderer">
+    <textarea id="textarea-without-renderer"></textarea>
+</div>
 <script>
 description('Test style update of the :placeholder-shown pseudo class.');
 
@@ -45,16 +40,10 @@ function setAttribute(attribute, value) {
 
 debug("Initial state is without placehoder.");
 testBackgroundColor(false);
-
-debug("Adding a valid placeholder matches.");
+debug("Adding a placeholder matches.");
 setAttribute("placeholder", "WebKit!");
 testBackgroundColor(true);
-
-debug("Using an invalid placeholder value does not match.");
-setAttribute("placeholder", "\n");
-testBackgroundColor(false);
-
-debug("Adding back a placehoder and an empty value. An empty value does not prevent matching.");
+debug("Adding a placehoder and an empty value. An empty value does not prevent matching.");
 setAttribute("placeholder", "WebKit!");
 inputCaseWithRenderer.value = "";
 textareaCaseWithRenderer.appendChild(document.createTextNode(""));
@@ -83,7 +72,7 @@ textareaCaseWithoutRenderer.appendChild(document.createTextNode("Foobar"));
 testBackgroundColor(false);
 
 debug("Removing the placeholder, we should not match.");
-setAttribute("placeholder", "");
+document.querySelectorAll('input, textarea').forEach(element => element.removeAttribute('placeholder'));
 testBackgroundColor(false);
 
 debug("Removing the value. We should still not match since the placeholder attribute was removed.");
@@ -111,5 +100,3 @@ inputCaseWithoutRenderer.value = "";
 textareaCaseWithoutRenderer.removeChild(textareaCaseWithoutRenderer.lastChild);
 testBackgroundColor(true);
 </script>
-<script src="../../resources/js-test-post.js"></script>
-</html>

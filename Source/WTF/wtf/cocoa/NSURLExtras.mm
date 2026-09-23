@@ -29,8 +29,6 @@
 #import "config.h"
 #import "NSURLExtras.h"
 
-#import <mutex>
-#import <wtf/Function.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/URL.h>

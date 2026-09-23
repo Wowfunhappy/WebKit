@@ -60,7 +60,7 @@ struct SVGPropertyTraits<CompositeOperationType> {
 
     static CompositeOperationType fromString(SVGElement&, const String& value)
     {
-        static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, CompositeOperationType>>({
+        static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, CompositeOperationType>>({
             { "arithmetic"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_ARITHMETIC },
             { "atop"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_ATOP },
             { "in"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_IN },

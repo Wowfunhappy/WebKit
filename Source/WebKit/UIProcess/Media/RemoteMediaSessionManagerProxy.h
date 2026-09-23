@@ -35,8 +35,12 @@
 #include <WebCore/AudioSession.h>
 #include <WebCore/MediaSessionIdentifier.h>
 #include <WebCore/PageIdentifier.h>
-#include <wtf/RefCounted.h>
+#include <wtf/HashMap.h>
+#include <wtf/Ref.h>
+#include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/MediaSessionManagerIOS.h>
@@ -57,8 +61,10 @@ namespace WebKit {
 
 class RemoteMediaSessionManagerAudioHardwareListener;
 class RemoteMediaSessionProxy;
+class WebPageProxy;
 class WebProcessProxy;
 struct RemoteMediaSessionState;
+struct SharedPreferencesForWebProcess;
 
 class RemoteMediaSessionManagerProxy
     : public WebCore::REMOTE_MEDIA_SESSION_MANAGER_BASE_CLASS
@@ -71,7 +77,7 @@ class RemoteMediaSessionManagerProxy
 public:
     USING_CAN_MAKE_WEAKPTR(MessageReceiver);
 
-    static RefPtr<RemoteMediaSessionManagerProxy> create(WebCore::PageIdentifier, WebProcessProxy&);
+    static RefPtr<RemoteMediaSessionManagerProxy> create(WebPageProxy&);
 
     virtual ~RemoteMediaSessionManagerProxy();
 
@@ -87,11 +93,10 @@ public:
 
     const Ref<WebProcessProxy> process() const { return m_process; }
 
-    void addRemoteMediaSessionManager(WebCore::PageIdentifier);
-    void removeRemoteMediaSessionManager(WebCore::PageIdentifier);
-
 private:
-    RemoteMediaSessionManagerProxy(WebCore::PageIdentifier, WebProcessProxy&);
+    friend class RemotePageMediaSessionManagerProxy;
+
+    RemoteMediaSessionManagerProxy(WebPageProxy&);
 
     // Messages
     void addMediaSession(RemoteMediaSessionState&&);
@@ -138,7 +143,6 @@ private:
     CategoryType categoryOverride() const final  { return m_audioConfiguration.categoryOverride; }
 #endif
 
-    void forEachRemoteSessionManager(NOESCAPE const Function<void(WebCore::PageIdentifier)>&);
     RefPtr<WebCore::PlatformMediaSessionInterface> findAndUpdateSession(RemoteMediaSessionState&);
     Ref<RemoteMediaSessionManagerAudioHardwareListener> ensureAudioHardwareListenerProxy(WebCore::AudioHardwareListener::Client&);
 
@@ -154,13 +158,13 @@ private:
     ASCIILiteral logClassName() const final;
 #endif
 
+    WeakPtr<WebPageProxy> m_page;
+    WebCore::PageIdentifier m_pageID;
     const Ref<WebProcessProxy> m_process;
-    WebCore::PageIdentifier m_localPageID;
     HashMap<WebCore::MediaSessionIdentifier, Ref<RemoteMediaSessionProxy>> m_sessionProxies;
-    HashSet<WebCore::PageIdentifier> m_remoteSessionManagerPages;
 
 #if PLATFORM(COCOA)
-    RefPtr<RemoteMediaSessionManagerAudioHardwareListener> m_audioHardwareListenerProxy;
+    ThreadSafeWeakPtr<RemoteMediaSessionManagerAudioHardwareListener> m_audioHardwareListenerProxy;
 #endif
 
 #if USE(AUDIO_SESSION)

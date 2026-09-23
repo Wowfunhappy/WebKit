@@ -27,6 +27,7 @@
 #include "GPUBuffer.h"
 
 #include "GPUDevice.h"
+#include "JSDOMConvertNull.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSGPUBufferMapState.h"
 
@@ -58,7 +59,8 @@ void GPUBuffer::setLabel(String&& label)
 
 void GPUBuffer::mapAsync(GPUMapModeFlags mode, GPUSize64 offset, std::optional<GPUSize64> size, MapAsyncPromise&& promise)
 {
-    if (m_pendingMapPromise) {
+    if (m_mapState != GPUBufferMapState::Unmapped) {
+        m_backing->generateAValidationError();
         promise.reject(Exception { ExceptionCode::OperationError, "pendingMapPromise"_s });
         return;
     }
@@ -68,7 +70,7 @@ void GPUBuffer::mapAsync(GPUMapModeFlags mode, GPUSize64 offset, std::optional<G
 
     m_pendingMapPromise = makeUnique<MapAsyncPromise>(promise);
     // FIXME: Should this capture a weak pointer to |this| instead?
-    m_backing->mapAsync(convertMapModeFlagsToBacking(mode), offset, size, [promise = WTF::move(promise), protectedThis = Ref { *this }, offset, size](bool success) mutable {
+    m_backing->mapAsync(convertMapModeFlagsToBacking(mode), offset, size, [promise = WTF::move(promise), protectedThis = protect(*this), offset, size](bool success) mutable {
         if (!protectedThis->m_pendingMapPromise) {
             if (protectedThis->m_destroyed)
                 promise.reject(Exception { ExceptionCode::OperationError, "buffer destroyed during mapAsync"_s });
@@ -159,7 +161,7 @@ ExceptionOr<Ref<JSC::ArrayBuffer>> GPUBuffer::getMappedRange(GPUSize64 offset, s
         return Exception { ExceptionCode::OperationError, "getMappedRangeFailed because offset + size > mappedRangeSize + mappedRangeOffset"_s };
 
     if (endOffset > m_bufferSize)
-        return Exception { ExceptionCode::OperationError, "validation failed endOffset > bufferSie"_s };
+        return Exception { ExceptionCode::OperationError, "validation failed endOffset > bufferSize"_s };
 
     if (containsRange(offset, endOffset, m_mappedRanges, m_mappedPoints))
         return Exception { ExceptionCode::OperationError, "validation failed - containsRange"_s };
@@ -193,7 +195,7 @@ ExceptionOr<Ref<JSC::ArrayBuffer>> GPUBuffer::getMappedRange(GPUSize64 offset, s
 void GPUBuffer::unmap(ScriptExecutionContext& scriptExecutionContext)
 {
     internalUnmap(scriptExecutionContext);
-    if (RefPtr device = m_device.get())
+    if (RefPtr device = m_device)
         device->removeBufferToUnmap(*this);
 }
 

@@ -42,6 +42,10 @@
 #include "RenderObjectInlines.h"
 #include "RenderReplaced.h"
 #include "RenderText.h"
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+#include "TextEffectController.h"
+#include "TextIndicator.h"
+#endif
 #include "RenderedDocumentMarker.h"
 #include "TextIterator.h"
 #include <stdio.h>
@@ -75,6 +79,9 @@ void DocumentMarkerController::detach()
     m_possiblyExistingMarkerTypes = { };
     m_fadeAnimationTimer.stop();
     m_writingToolsTextSuggestionAnimationTimer.stop();
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    m_appliedGrammarTextEffectUUIDs.clear();
+#endif
 }
 
 auto DocumentMarkerController::collectTextRanges(const SimpleRange& range) -> Vector<TextRange>
@@ -90,10 +97,36 @@ auto DocumentMarkerController::collectTextRanges(const SimpleRange& range) -> Ve
 bool DocumentMarkerController::addMarker(const SimpleRange& range, DocumentMarkerType type, const DocumentMarker::Data& data)
 {
     bool added = false;
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    RefPtr page = m_document->page();
+    const auto isGrammar = type == DocumentMarkerType::Grammar;
+    const auto textEffectsEnabled = page && page->settings().textEffectsEnabled();
+    auto needsTextEffect = false;
+    if (isGrammar && textEffectsEnabled) {
+        auto& grammarUUID = std::get<DocumentMarker::GrammarData>(data).uuid;
+        if (grammarUUID.isEmpty() || !m_appliedGrammarTextEffectUUIDs.contains(grammarUUID))
+            needsTextEffect = true;
+    }
+    RefPtr<TextIndicator> textIndicator;
+    if (needsTextEffect)
+        textIndicator = page->textEffectController().createTextIndicatorForRange(range);
+#endif
+
     for (auto& textPiece : collectTextRanges(range)) {
         if (addMarker(textPiece.node, { type, textPiece.range, DocumentMarker::Data { data } }))
             added = true;
     }
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    if (needsTextEffect) {
+        RefPtr decorationIndicator = page->textEffectController().createTextIndicatorForRange(range, IncludeDocumentMarkers::Yes);
+        page->textEffectController().addTextEffect(range, WTF::move(textIndicator), WTF::move(decorationIndicator));
+        auto& grammarUUID = std::get<DocumentMarker::GrammarData>(data).uuid;
+        if (!grammarUUID.isEmpty())
+            m_appliedGrammarTextEffectUUIDs.add(grammarUUID);
+    }
+#endif
     return added;
 }
 
@@ -146,6 +179,12 @@ void DocumentMarkerController::removeAllDictationStreamingOpacityMarkers()
 
 void DocumentMarkerController::removeMarkers(const SimpleRange& range, OptionSet<DocumentMarkerType> types, RemovePartiallyOverlappingMarker overlapRule)
 {
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    if (types.contains(DocumentMarkerType::Grammar)) {
+        if (RefPtr page = m_document->page())
+            page->textEffectController().removeTextEffect(range);
+    }
+#endif
     filterMarkers(range, nullptr, types, overlapRule);
 }
 
@@ -921,6 +960,15 @@ std::tuple<float, float> DocumentMarkerController::markerYPositionAndHeightForFo
     auto height = 0.13247 * fontSize;
 
     return { y, height };
+}
+
+size_t DocumentMarkerController::appliedGrammarTextEffectCount() const
+{
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    return m_appliedGrammarTextEffectUUIDs.size();
+#else
+    return 0;
+#endif
 }
 
 void addMarker(const SimpleRange& range, DocumentMarkerType type, const DocumentMarker::Data& data)

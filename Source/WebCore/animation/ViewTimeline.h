@@ -125,8 +125,8 @@ private:
     void cacheCurrentTime();
 
     struct SpecifiedViewTimelineInsets {
-        RefPtr<CSSPrimitiveValue> start;
-        RefPtr<CSSPrimitiveValue> end;
+        RefPtr<CSSValue> start;
+        RefPtr<CSSValue> end;
     };
 
     ExceptionOr<SpecifiedViewTimelineInsets> validateSpecifiedInsets(const ViewTimelineInsetValue, const Document&);

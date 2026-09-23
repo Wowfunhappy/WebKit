@@ -39,9 +39,7 @@ namespace JSC { namespace FTL {
 
 using namespace B3;
 
-CommonValues::CommonValues()
-{
-}
+CommonValues::CommonValues() = default;
 
 void CommonValues::initializeConstants(B3::Procedure& proc, B3::BasicBlock* block)
 {

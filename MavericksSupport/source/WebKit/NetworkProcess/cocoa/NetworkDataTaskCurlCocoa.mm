@@ -405,7 +405,7 @@ void NetworkDataTaskCurlCocoa::redirect()
     auto method = request.httpMethod();
     if ((m_status == 303 && method != "GET"_s && method != "HEAD"_s) || ((m_status == 301 || m_status == 302) && method == "POST"_s)) {
         request.setHTTPMethod("GET"_s);
-        request.setHTTPBody(nullptr);
+        clearCocoaCurlHTTPBody(request);
         for (auto name : { HTTPHeaderName::ContentLength, HTTPHeaderName::ContentType, HTTPHeaderName::ContentEncoding, HTTPHeaderName::ContentLanguage, HTTPHeaderName::ContentLocation, HTTPHeaderName::TransferEncoding })
             request.removeHTTPHeaderField(name);
     }
@@ -825,8 +825,7 @@ void NetworkDataTaskCurlCocoa::didReceiveHeaderFromMultipart(Vector<String>&& fi
         response.setHTTPHeaderField(name, value);
     }
     auto contentType = response.httpHeaderField(HTTPHeaderName::ContentType);
-    response.setMimeType(extractMIMETypeFromMediaType(contentType));
-    response.setTextEncodingName(extractCharsetFromMediaType(contentType).toString());
+    setCocoaCurlContentType(response, contentType);
     m_waitingForMultipartPolicy = true;
     // The parser enters WaitingForHeaderProcessing after returning from this callback.
     response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(m_metrics));
@@ -1031,9 +1030,8 @@ void NetworkDataTaskCurlCocoa::curlReceivedResponse(CocoaCurlTransferResponse&& 
     m_proxyPort = response.proxyPort;
     m_tlsState = m_transfer->tlsState();
     m_serverTrust = m_tlsState ? m_tlsState->trust : nullptr;
-    auto& type = m_responseContentType;
     m_noSniff = !m_shouldSniff || equalLettersIgnoringASCIICase(m_response.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);
-    m_responseNeedsSniff = m_shouldSniff && m_status != 204 && m_status != 304 && m_request.httpMethod() != "HEAD"_s && MIMESniffer::holdsResponseForSniffing(type);
+    m_responseNeedsSniff = m_shouldSniff && m_status != 204 && m_status != 304 && m_request.httpMethod() != "HEAD"_s && MIMESniffer::holdsResponseForSniffing(m_response.mimeType());
     // NetworkSessionCocoa's didReceiveResponse, which skips a 304 and reads nosniff off the response alone.
     if (!m_responseNeedsSniff && m_status != httpStatus304NotModified) {
         bool isNoSniff = equalLettersIgnoringASCIICase(m_response.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);
@@ -1064,7 +1062,7 @@ void NetworkDataTaskCurlCocoa::curlReceivedData(const SharedBuffer& data, Comple
             continueTransfer();
             return;
         }
-        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span().first(MIMESniffer::sniffedPrefixLength), m_responseContentType, m_noSniff));
+        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span().first(MIMESniffer::sniffedPrefixLength), m_response.mimeType(), m_responseContentType, m_noSniff));
         m_responseNeedsSniff = false;
         publishResponse();
         return;
@@ -1122,7 +1120,7 @@ void NetworkDataTaskCurlCocoa::curlCompleted(const ResourceError& error, const N
     // CFNetwork holds a response whose type is still being sniffed until its body is complete; a load
     // that fails first delivers only its error.
     if (m_responseNeedsSniff && error.isNull()) {
-        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span(), m_responseContentType, m_noSniff));
+        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span(), m_response.mimeType(), m_responseContentType, m_noSniff));
         m_responseNeedsSniff = false;
         publishResponse();
         return;

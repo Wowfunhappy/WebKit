@@ -33,11 +33,12 @@
 #if defined(JSC_GLIB_API_ENABLED)
 #include "JSAPIWrapperGlobalObject.h"
 #endif
+#include "JSBase.h"
 #include "JSGlobalObject.h"
 #include "JSObject.h"
 #include "JSObjectRef.h"
 #include "JSValueRef.h"
-#include <wtf/PlatformCallingConventions.h>
+#include <wtf/Platform.h>
 
 namespace JSC {
 
@@ -145,7 +146,7 @@ public:
     static JSCallbackObject* create(JSGlobalObject* globalObject, Structure* structure, JSClassRef classRef, void* data)
     {
         VM& vm = getVM(globalObject);
-        ASSERT_UNUSED(globalObject, !structure->globalObject() || structure->globalObject() == globalObject);
+        ASSERT_UNUSED(globalObject, !structure->realm() || structure->realm() == globalObject);
         JSCallbackObject* callbackObject = new (NotNull, allocateCell<JSCallbackObject>(vm)) JSCallbackObject(globalObject, structure, classRef, data);
         callbackObject->finishCreation(globalObject);
         return callbackObject;
@@ -247,7 +248,7 @@ template <class Parent>
 template<typename Visitor>
 void JSCallbackObject<Parent>::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSCallbackObject* thisObject = jsCast<JSCallbackObject*>(cell);
+    JSCallbackObject* thisObject = uncheckedDowncast<JSCallbackObject>(cell);
     ASSERT_GC_OBJECT_INHERITS((static_cast<Parent*>(thisObject)), JSCallbackObject<Parent>::info());
     Parent::visitChildren(thisObject, visitor);
     thisObject->m_callbackObjectData->visitChildren(visitor);

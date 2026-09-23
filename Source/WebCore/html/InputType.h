@@ -48,6 +48,7 @@ class BeforeTextInsertedEvent;
 class Chrome;
 class DOMFormData;
 class DateComponents;
+class Decimal;
 class DragData;
 class Event;
 class FileList;
@@ -57,7 +58,6 @@ class Icon;
 class KeyboardEvent;
 class MouseEvent;
 class Node;
-class RenderStyle;
 class StepRange;
 class TextControlInnerTextElement;
 class TouchEvent;
@@ -65,7 +65,12 @@ class TouchEvent;
 struct InputElementClickState;
 
 enum class AnyStepHandling : bool;
+enum class RangeLimitations : bool;
 enum class DateComponentsType : uint8_t;
+
+namespace Style {
+class ComputedStyle;
+}
 
 // An InputType object represents the type-specific part of an HTMLInputElement.
 // Do not expose instances of InputType and classes derived from it to classes
@@ -163,7 +168,7 @@ public:
 
     virtual const AtomString& formControlType() const = 0;
 
-    bool isValidValue(const String&) const;
+    bool isValidValue(StringView) const;
 
     // Type query functions.
 
@@ -237,21 +242,21 @@ public:
     // Validation functions.
 
     virtual String validationMessage() const;
-    virtual bool typeMismatchFor(const String&) const { return false; }
+    virtual bool typeMismatchFor(StringView) const { return false; }
     virtual bool NODELETE supportsRequired() const;
-    virtual bool valueMissing(const String&) const { return false; }
+    virtual bool valueMissing(StringView) const { return false; }
     virtual bool hasBadInput() const { return false; }
-    virtual bool patternMismatch(const String&) const { return false; }
-    bool rangeUnderflow(const String&) const;
-    bool rangeOverflow(const String&) const;
-    bool isInRange(const String&) const;
-    bool isOutOfRange(const String&) const;
+    virtual bool patternMismatch(StringView) const { return false; }
+    bool rangeUnderflow(StringView) const;
+    bool rangeOverflow(StringView) const;
+    bool isInRange(StringView) const;
+    bool isOutOfRange(StringView) const;
     virtual Decimal defaultValueForStepUp() const;
     double minimum() const;
     double maximum() const;
     virtual bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const;
     virtual float decorationWidth(float inputWidth) const;
-    bool stepMismatch(const String&) const;
+    bool stepMismatch(StringView) const;
     virtual bool getAllowedValueStep(Decimal*) const;
     virtual StepRange createStepRange(AnyStepHandling) const;
     virtual ExceptionOr<void> stepUp(int);
@@ -263,6 +268,10 @@ public:
     virtual String localizeValue(const String&) const;
     virtual String visibleValue() const;
     virtual bool isEmptyValue() const;
+
+    // Returns true if the value violates any step/range constraint (stepMismatch,
+    // rangeUnderflow, or rangeOverflow). Creates the StepRange only once.
+    bool hasStepRangeViolation(StringView) const;
 
     // Type check for the current input value. We do nothing for some types
     // though typeMismatchFor() does something for them because of value sanitization.
@@ -334,7 +343,7 @@ public:
     // Miscellaneous functions.
 
     virtual bool NODELETE rendererIsNeeded();
-    virtual RenderPtr<RenderElement> createInputRenderer(RenderStyle&&);
+    virtual RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&);
     virtual void addSearchResult();
     virtual void attach();
     virtual void detach();
@@ -368,7 +377,7 @@ public:
     // the Decimal value for the parsing result if the parsing
     // succeeds; Returns defaultValue otherwise. This function can
     // return NaN or Infinity only if defaultValue is NaN or Infinity.
-    virtual Decimal parseToNumber(const String&, const Decimal& defaultValue) const;
+    virtual Decimal parseToNumber(StringView, const Decimal& defaultValue) const;
 
     // Create a string representation of the specified Decimal value for the
     // input type. If NaN or Infinity is specified, this returns an empty
@@ -380,7 +389,7 @@ public:
     virtual unsigned height() const;
     virtual unsigned width() const;
 
-    bool isInvalid(const String&) const;
+    bool isInvalid(StringView) const;
 
     void dispatchSimulatedClickIfActive(KeyboardEvent&) const;
 
@@ -406,7 +415,8 @@ protected:
 
     HTMLInputElement* element() const { return m_element; }
     Chrome* NODELETE chrome() const;
-    Decimal parseToNumberOrNaN(const String&) const;
+    Decimal parseToNumberOrNaN(StringView) const;
+    Decimal extractStepRangeBound(const QualifiedName& attributeName, const Decimal& defaultValue, RangeLimitations&) const;
 
     // Derive the step base, following the HTML algorithm steps.
     Decimal findStepBase(const Decimal&) const;
@@ -414,6 +424,7 @@ protected:
 private:
     // Helper for stepUp()/stepDown(). Adds step value * count to the current value.
     ExceptionOr<void> applyStep(int count, AnyStepHandling, TextFieldEventBehavior);
+    std::optional<std::pair<Decimal, StepRange>> parsedValueAndStepRange(StringView) const;
 
     const Type m_type;
     bool m_hasCreatedShadowSubtree { false };

@@ -26,8 +26,8 @@
 #include "StyleClip.h"
 
 #include "AnimationUtilities.h"
-#include "CSSPrimitiveValue.h"
-#include "CSSRectValue.h"
+#include "CSSClipValue.h"
+#include "CSSKeywordValueInlines.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
@@ -43,45 +43,16 @@ auto CSSValueConversion<Clip>::operator()(BuilderState& state, const CSSValue& v
     if (isValueID(value, CSSValueAuto))
         return CSS::Keyword::Auto { };
 
-    RefPtr rectValue = requiredDowncast<CSSRectValue>(state, value);
-    if (!rectValue)
+    RefPtr clipValue = requiredDowncast<CSSClipValue>(state, value);
+    if (!clipValue)
         return CSS::Keyword::Auto { };
 
-    RefPtr primitiveValueTop = requiredDowncast<CSSPrimitiveValue>(state, rectValue->rect().top());
-    if (!primitiveValueTop)
-        return CSS::Keyword::Auto { };
-    RefPtr primitiveValueRight = requiredDowncast<CSSPrimitiveValue>(state, rectValue->rect().right());
-    if (!primitiveValueRight)
-        return CSS::Keyword::Auto { };
-    RefPtr primitiveValueBottom = requiredDowncast<CSSPrimitiveValue>(state, rectValue->rect().bottom());
-    if (!primitiveValueBottom)
-        return CSS::Keyword::Auto { };
-    RefPtr primitiveValueLeft = requiredDowncast<CSSPrimitiveValue>(state, rectValue->rect().left());
-    if (!primitiveValueLeft)
-        return CSS::Keyword::Auto { };
-
-    auto convertEdge = [&](Ref<const CSSPrimitiveValue>&& primitiveValue) -> ClipEdge {
-        if (isValueID(primitiveValue.get(), CSSValueAuto))
-            return CSS::Keyword::Auto { };
-        return toStyleFromCSSValue<Length<>>(state, primitiveValue);
-    };
-
-    return ClipRect {
-        convertEdge(primitiveValueTop.releaseNonNull()),
-        convertEdge(primitiveValueRight.releaseNonNull()),
-        convertEdge(primitiveValueBottom.releaseNonNull()),
-        convertEdge(primitiveValueLeft.releaseNonNull()),
-    };
+    return toStyle(clipValue->clip(), state);
 }
 
-Ref<CSSValue> CSSValueCreation<ClipRect>::operator()(CSSValuePool& pool, const RenderStyle& style, const ClipRect& clipRect)
+Ref<CSSValue> CSSValueCreation<Clip>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const Clip& clip)
 {
-    return CSSRectValue::create({
-        createCSSValue(pool, style, clipRect.value->top()),
-        createCSSValue(pool, style, clipRect.value->right()),
-        createCSSValue(pool, style, clipRect.value->bottom()),
-        createCSSValue(pool, style, clipRect.value->left()),
-    });
+    return CSSClipValue::create(toCSS(clip, style));
 }
 
 // MARK: - Blending

@@ -52,10 +52,6 @@ template<> struct WrapperTraits<WebPreferences> {
 
 @interface WKPreferences ()
 
-#if PLATFORM(IOS_FAMILY)
-@property (nonatomic) BOOL tabFocusesLinks;
-#endif
-
 @property (nonatomic, setter=_setUseSystemAppearance:) BOOL _useSystemAppearance;
 
 @end

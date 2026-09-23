@@ -79,6 +79,7 @@ RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *, uint64_t timestamp, bool 
 
 // Touches
 - (void)touchDown:(CGPoint)location touchCount:(NSUInteger)count completionBlock:(void (^)(void))completionBlock;
+- (void)touchDown:(CGPoint)location majorRadius:(CGFloat)majorRadius majorRadiusTolerance:(CGFloat)majorRadiusTolerance completionBlock:(void (^)(void))completionBlock;
 - (void)liftUp:(CGPoint)location touchCount:(NSUInteger)count completionBlock:(void (^)(void))completionBlock;
 
 // Stylus

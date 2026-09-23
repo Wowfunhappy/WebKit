@@ -29,6 +29,7 @@
 #import <string.h>
 #import <strings.h>
 #import <sys/stat.h>
+#import <sys/xattr.h>
 #import <mach/mach.h>
 #import <Security/Security.h>
 #import <objc/message.h>
@@ -134,8 +135,17 @@ static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
 // _saveCookies: is polyfilled further down, over 10.9's PRESENT argument-less -_saveCookies.
 // RFC 6265 5.1.3: a host-only cookie covers the host it names, a domain cookie that host and every
 // subdomain of it. Cookie domains are case-insensitive.
+// WebCore names a host in URL form, which brackets an IPv6 literal; the jar stores the bare address.
+static NSString *wk_jarHostForURLHost(NSString *host)
+{
+    if (host.length > 2 && [host hasPrefix:@"["] && [host hasSuffix:@"]"] && wk_hostIsIPAddress((CFStringRef)host))
+        return [host substringWithRange:NSMakeRange(1, host.length - 2)];
+    return host;
+}
+
 static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
 {
+    host = wk_jarHostForURLHost(host);
     if (!cookieDomain.length)
         return NO;
     if (!host.length)
@@ -214,6 +224,7 @@ static NSMutableArray<NSHTTPCookie *> *wk_cookiesStoredInDomains(CFHTTPCookieSto
 // the host and of each of its parents. 10.9 canonicalises a stored domain to lower case.
 static NSArray<NSString *> *wk_cookieDomainsMatchingHost(NSString *host)
 {
+    host = wk_jarHostForURLHost(host);
     NSMutableArray<NSString *> *domains = [NSMutableArray arrayWithObject:host];
     NSString *suffix = host;
     while (suffix.length) {
@@ -795,6 +806,9 @@ static NSURL *wk_cookieOriginURL(NSHTTPCookie *cookie)
 {
     if ([cookie.domain isEqualToString:@".^filecookies^"])
         return [NSURL fileURLWithPath:cookie.path.length ? cookie.path : @"/"];
+    // 10.9's -OriginURL writes an IPv6 domain unbracketed, which leaves the URL without a host.
+    if ([cookie.domain rangeOfString:@":"].location != NSNotFound && wk_hostIsIPAddress((CFStringRef)cookie.domain))
+        return [NSURL URLWithString:[NSString stringWithFormat:@"http://[%@]", cookie.domain]];
     return [cookie OriginURL];
 }
 
@@ -1139,16 +1153,14 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
     return WK_ORIGINAL_METHOD(BOOL, (id *, NSString *, NSError **), value, key, error);
 }
 // -setResourceValue:forKey:error: exists on 10.9 but does not know NSURLQuarantinePropertiesKey
-// (10.10+), the key that writes a file's LaunchServices quarantine dictionary. REPLACE it for WebKit's
-// callers: that one key is applied through LSSetItemAttribute/kLSItemQuarantineProperties, which is the
-// mechanism the modern key is implemented over -- WKShareSheet.mm's own comment names LSSetItemAttribute
-// as the call writing this key ends up making, and notes that it resets the quarantine flags, which is
-// why WKShareSheet re-applies them with qtn_file_set_flags immediately afterwards. Every other key
-// forwards to 10.9's implementation through WK_ORIGINAL_METHOD, so this cannot recurse into itself.
-//
-// Letting the unknown key fall through to 10.9 would not be a smaller divergence, it would be a silent
-// one: WKShareSheet treats a failed quarantine write as "do not share this file", so an unrouted key
-// turns every file share into a no-op.
+// (10.10+), the key that writes a file's LaunchServices quarantine dictionary, and implements
+// NSURLIsExcludedFromBackupKey over a service WebKit's sandboxes do not grant. REPLACE it for WebKit's
+// callers: the quarantine key is applied through LSSetItemAttribute/kLSItemQuarantineProperties, which is
+// the mechanism the modern key is implemented over -- WKShareSheet.mm's own comment names
+// LSSetItemAttribute as the call writing this key ends up making, and notes that it resets the
+// quarantine flags, which is why WKShareSheet re-applies them with qtn_file_set_flags immediately
+// afterwards. Every other key forwards to 10.9's implementation through WK_ORIGINAL_METHOD, so this
+// cannot recurse into itself.
 - (BOOL)setResourceValue:(id)value forKey:(NSURLResourceKey)key error:(NSError **)error
 {
 // The key is 10.10+ in the SDK and absent on the 10.9 runtime; c/Foundation.m supplies it.
@@ -1181,9 +1193,43 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
         }
         return YES;
     }
+#pragma clang diagnostic pop
+    // 10.9 implements NSURLIsExcludedFromBackupKey as CSBackupSetItemExcluded(), which writes the
+    // attribute through a Metadata item and so needs the Spotlight server, which WebKit's sandboxes do
+    // not grant. The key's modern implementation writes the attribute directly: Time Machine's
+    // exclusion attribute, whose value is "com.apple.backupd" as a binary property list, the bytes
+    // CSBackupSetItemExcluded writes. Clearing the key removes it.
+    if ([key isEqualToString:NSURLIsExcludedFromBackupKey]) {
+        if (![self isFileURL]) {
+            if (error)
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnsupportedSchemeError userInfo:nil];
+            return NO;
+        }
+        static const char attributeName[] = "com.apple.metadata:com_apple_backup_excludeItem";
+        const char *path = [self fileSystemRepresentation];
+        int result;
+        int savedErrno;
+        if ([value boolValue]) {
+            NSData *attribute = [NSPropertyListSerialization dataWithPropertyList:@"com.apple.backupd" format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
+            result = setxattr(path, attributeName, attribute.bytes, attribute.length, 0, 0);
+            savedErrno = errno;
+        } else {
+            result = removexattr(path, attributeName, 0);
+            savedErrno = errno;
+            if (result && savedErrno == ENOATTR)
+                result = 0;
+        }
+        if (result) {
+            if (error) {
+                NSError *underlying = [NSError errorWithDomain:NSPOSIXErrorDomain code:savedErrno userInfo:nil];
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:savedErrno == ENOENT ? NSFileNoSuchFileError : NSFileWriteUnknownError userInfo:@{ NSURLErrorKey: self, NSUnderlyingErrorKey: underlying }];
+            }
+            return NO;
+        }
+        return YES;
+    }
     return WK_ORIGINAL_METHOD(BOOL, (id, NSString *, NSError **), value, key, error);
 }
-#pragma clang diagnostic pop
 // -[NSURL initWithString:] and +[NSURL URLWithString:] throw NSInvalidArgumentException on a nil string
 // on 10.9 (modern Foundation returns nil). REPLACE both for WebKit's callers with the modern contract:
 // nil in -> nil out; any non-nil string forwards to 10.9's real implementation through
@@ -1331,177 +1377,6 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     [self _saveCookies];
     if (completionHandler)
         completionHandler();
-}
-@end
-
-// ---------------------------------------------------------------------------------------------------
-// Secure-coding archiver convenience API (10.11+/10.13+) built on the classic secure-coding primitives
-// present since 10.8. EVERY polyfill enforces requiresSecureCoding:YES (or honors the caller's BOOL) — never
-// a secure->insecure downgrade. The modern convenience methods return nil + *error on a malformed archive
-// rather than raising; the classic primitives RAISE (NSInvalidUnarchiveOperationException etc.). The
-// @try/@catch here is therefore REQUIRED to implement the modern non-throwing contract faithfully — it
-// converts the classic exception into the nil+error the caller expects (it is not a blanket swallow: the
-// callers explicitly branch on nil/error). -[NSKeyedUnarchiver initForReadingWithData:] and
-// -[NSKeyedArchiver initForWritingWithMutableData:] are deprecated (hence the -Wdeprecated push above).
-static id wk_unarchivedObjectOfClasses(NSSet *classes, NSData *data, NSError **error)
-{
-    if (error)
-        *error = nil;
-    NSKeyedUnarchiver *unarchiver = nil;
-    id object = nil;
-    @try {
-        // Modern +unarchivedObjectOfClasses:fromData:error: is NON-throwing (nil + *error). Both the classic
-        // initForReadingWithData: (RAISES "incomprehensible archive" on malformed/truncated input) and
-        // decodeObjectOfClasses: (raises on a class/format violation) are inside the @try, or an untrusted
-        // IPC/on-disk decode would crash instead of failing cleanly.
-        unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
-        [unarchiver setRequiresSecureCoding:YES];   // secure + class-restricted, matching the modern convenience
-        object = [unarchiver decodeObjectOfClasses:classes forKey:NSKeyedArchiveRootObjectKey];
-    } @catch (NSException *exception) {
-        object = nil;
-        if (error)
-// NSCoderReadCorruptError is an NSError-code enumerator, so it is a compile-time integer with no
-// runtime symbol behind it; there is nothing for 10.9 to be missing.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability"
-            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"decode failed" }];
-#pragma clang diagnostic pop
-    } @finally {
-        [unarchiver finishDecoding];   // send-to-nil no-op if the init raised (unarchiver stays nil)
-        [unarchiver release];
-    }
-    return object;
-}
-
-WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
-- (instancetype)initForReadingFromData:(NSData *)data error:(NSError **)error
-{
-    if (error)
-        *error = nil;
-    @try {
-        self = [self initForReadingWithData:data];
-        [self setRequiresSecureCoding:YES];   // initForReadingFromData:error: defaults to secure — never downgrade
-    } @catch (NSException *exception) {
-        // Modern initForReadingFromData:error: is NON-throwing (returns nil + *error). The classic
-        // initForReadingWithData: RAISES "incomprehensible archive" on malformed/truncated input, so it must
-        // be inside the @try or an untrusted-IPC/.webarchive decode would crash instead of failing cleanly.
-        // (self was consumed by the throwing initializer; releasing a half-initialized archiver is unsafe, so
-        // return nil directly — the rare-error-path leak of the alloc'd shell is preferable to a crash.)
-        if (error)
-            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"incomprehensible archive" }];
-        return nil;
-    }
-    return self;
-}
-- (void)setDecodingFailurePolicy:(NSDecodingFailurePolicy)policy
-{
-    // 10.9's sole decoding-failure behavior is NSDecodingFailurePolicyRaiseException — exactly what every
-    // WebKit caller requests; the decode polyfills @catch that raise. Nothing to configure.
-    (void)policy;
-}
-+ (id)unarchivedObjectOfClasses:(NSSet<Class> *)classes fromData:(NSData *)data error:(NSError **)error
-{
-    return wk_unarchivedObjectOfClasses(classes, data, error);
-}
-+ (id)unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data error:(NSError **)error
-{
-    return wk_unarchivedObjectOfClasses(cls ? [NSSet setWithObject:cls] : nil, data, error);
-}
-// The strict-secure sibling (Foundation SPI) differs only in the decoding mode it opts into, and 10.9
-// has no such mode to opt into — the same reason -_enableStrictSecureDecodingMode is a no-op here. The
-// decode runs under the secure-coding rules 10.9 does implement, restricted to the caller's class list.
-+ (id)_strictlyUnarchivedObjectOfClasses:(NSSet<Class> *)classes fromData:(NSData *)data error:(NSError **)error
-{
-    return wk_unarchivedObjectOfClasses(classes, data, error);
-}
-@end
-
-static char kWKKeyedArchiverDataKey;
-WK_POLYFILL_ADD_METHODS(NSKeyedArchiver)
-// -initRequiringSecureCoding: / -encodedData (10.13+): the classic pairing is an explicit mutable
-// data buffer plus finishEncoding. The buffer rides along as an associated object so encodedData can
-// answer it; encodedData finishes encoding on first read, exactly the modern property's contract.
-- (instancetype)initRequiringSecureCoding:(BOOL)requireSecure
-{
-    NSMutableData *data = [NSMutableData data];
-    self = [self initForWritingWithMutableData:data];
-    if (self) {
-        [self setRequiresSecureCoding:requireSecure];   // honor the caller's flag; never silently downgrade
-        objc_setAssociatedObject(self, &kWKKeyedArchiverDataKey, data, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    return self;
-}
-- (NSData *)encodedData
-{
-    // -finishEncoding unconditionally: measured on this host, 10.9's is idempotent (three consecutive
-    // calls all succeed and leave the archive intact), so there is nothing to guard against and a
-    // caller that finished the archive itself is not penalised.
-    [self finishEncoding];
-    // nil for an archiver built through some other initializer: only the paired init above records a
-    // buffer, and that pairing is the modern API's own (initRequiringSecureCoding: -> encodedData).
-    // Copied because the modern property vends immutable NSData; handing back the live NSMutableData
-    // would let a caller mutate the archive it just asked for.
-    NSMutableData *backing = objc_getAssociatedObject(self, &kWKKeyedArchiverDataKey);
-    return backing ? [[backing copy] autorelease] : nil;
-}
-+ (NSData *)archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error
-{
-    if (error)
-        *error = nil;
-    NSMutableData *data = [NSMutableData data];
-    NSKeyedArchiver *archiver = [[NSKeyedArchiver alloc] initForWritingWithMutableData:data];
-    [archiver setRequiresSecureCoding:requireSecure];   // honor the caller's flag; never silently downgrade
-    NSData *result = nil;
-    @try {
-        [archiver encodeObject:root forKey:NSKeyedArchiveRootObjectKey];
-        [archiver finishEncoding];
-        result = data;
-    } @catch (NSException *exception) {
-        result = nil;
-        if (error)
-            // An NSError-code enumerator: a compile-time integer with no runtime symbol.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability-new"
-            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderInvalidValueError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"archive failed" }];
-#pragma clang diagnostic pop
-    }
-    [archiver release];
-    return result;
-}
-@end
-// +unarchiveTopLevelObjectWithData:error: (10.11+) is the NON-SECURE, NON-throwing top-level decode:
-// any NSCoding graph, no class list, nil + *error instead of a raise. 10.9 has only the raising
-// +unarchiveObjectWithData:, so the raise is converted here into the modern contract, exactly as the
-// secure siblings above do. Kept distinct from unarchivedObjectOfClasses:fromData:error: because the
-// contracts differ: this one does NOT require secure coding and does not restrict the class set, which
-// is what a caller decoding an arbitrary embedder-supplied object needs.
-WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
-+ (id)unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
-{
-    if (error)
-        *error = nil;
-    if (!data) {
-        if (error)
-            // An NSError-code enumerator: a compile-time integer with no runtime symbol.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability"
-            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderValueNotFoundError userInfo:nil];
-#pragma clang diagnostic pop
-        return nil;
-    }
-    typedef id (*WKUnarchiveFn)(id, SEL, NSData *);
-    WKUnarchiveFn original = (WKUnarchiveFn)objc_msgSend;
-    @try {
-        return original(self, sel_registerName("unarchiveObjectWithData:"), data);
-    } @catch (NSException *exception) {
-        if (error)
-            // An NSError-code enumerator: a compile-time integer with no runtime symbol.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability"
-            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"unarchive failed" }];
-#pragma clang diagnostic pop
-        return nil;
-    }
 }
 @end
 
@@ -2469,6 +2344,205 @@ WK_POLYFILL_ADD_METHODS(NSURLCredential)
 }
 @end
 
+// -[NSURLRequest _webKitPropertyListData] / -_initWithWebKitPropertyListData: (Foundation, 15.0+): a
+// request dictionary carrying Foundation properties, CFNetwork body data/file parts and protocol
+// properties. WebKit's IPC coder applies its own body and protocol-property restrictions.
+//
+// "isHTTP" records the presence of CFNetwork's lazily created HTTP message.
+// "isMutable" follows the class; the initializer answers an NSMutableURLRequest when the
+// dictionary asks for one and an NSURLRequest over the same CFURLRequest otherwise.
+typedef const struct _CFURLRequest *WKCFURLRequestRef;
+extern CFIndex CFURLRequestGetRequestPriority(WKCFURLRequestRef);
+extern CFArrayRef CFURLRequestCopyHTTPRequestBodyParts(WKCFURLRequestRef);
+extern void CFURLRequestSetHTTPRequestBodyParts(struct _CFURLRequest *, CFArrayRef);
+
+// 10.9's CFNetwork exports these two; the build SDK's CFNetwork stub does not list them.
+WK_SYSTEM_FN("CFNetwork", CFDictionaryRef, _CFURLRequestGetProtocolProperties, (WKCFURLRequestRef));
+WK_SYSTEM_FN("CFNetwork", const void *, _CFURLRequestGetHTTPMessage, (WKCFURLRequestRef));
+
+extern void CFURLRequestSetRequestPriority(struct _CFURLRequest *, CFIndex);
+extern void _CFURLRequestSetProtocolProperty(struct _CFURLRequest *, CFStringRef, CFTypeRef);
+
+@interface NSURLRequest (WKCFURLRequestInitializer)
+- (instancetype)_initWithCFURLRequest:(CFTypeRef)request;
+@end
+
+static WKCFURLRequestRef wk_cfURLRequest(id request)
+{
+    static SEL cfRequestSelector;
+    if (!cfRequestSelector)
+        cfRequestSelector = sel_registerName("_CFURLRequest");
+    return ((WKCFURLRequestRef (*)(id, SEL))objc_msgSend)(request, cfRequestSelector);
+}
+
+WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
+- (NSDictionary *)_webKitPropertyListData
+{
+    WKCFURLRequestRef cfRequest = wk_cfURLRequest(self);
+    if (!cfRequest)
+        return nil;
+    NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity:16];
+    [dictionary setObject:@([self isKindOfClass:[NSMutableURLRequest class]]) forKey:@"isMutable"];
+    NSURL *url = self.URL;
+    if (url)
+        [dictionary setObject:url forKey:@"URL"];
+    [dictionary setObject:@(self.timeoutInterval) forKey:@"timeout"];
+    [dictionary setObject:@((unsigned char)self.cachePolicy) forKey:@"cachePolicy"];
+    NSURL *mainDocumentURL = self.mainDocumentURL;
+    if (mainDocumentURL)
+        [dictionary setObject:mainDocumentURL forKey:@"mainDocumentURL"];
+    [dictionary setObject:@(self.HTTPShouldHandleCookies) forKey:@"shouldHandleHTTPCookies"];
+    [dictionary setObject:@(wk_requestExplicitFlags((CFTypeRef)cfRequest)) forKey:@"explicitFlags"];
+    [dictionary setObject:@(self.allowsCellularAccess) forKey:@"allowCellular"];
+    BOOL preventsIdleSystemSleep = ((BOOL (*)(id, SEL))objc_msgSend)(self, sel_registerName("preventsIdleSystemSleep"));
+    [dictionary setObject:@(preventsIdleSystemSleep) forKey:@"preventsIdleSystemSleep"];
+    [dictionary setObject:@((unsigned char)self.networkServiceType) forKey:@"networkServiceType"];
+    [dictionary setObject:@((int)CFURLRequestGetRequestPriority(cfRequest)) forKey:@"requestPriority"];
+
+    BOOL isHTTP = WK_SYSTEM(_CFURLRequestGetHTTPMessage) && WK_SYSTEM(_CFURLRequestGetHTTPMessage)(cfRequest);
+    [dictionary setObject:@(isHTTP) forKey:@"isHTTP"];
+    if (isHTTP) {
+        NSString *method = self.HTTPMethod;
+        if (method)
+            [dictionary setObject:method forKey:@"httpMethod"];
+        NSDictionary *fields = self.allHTTPHeaderFields;
+        NSMutableDictionary *headerFields = [NSMutableDictionary dictionaryWithCapacity:fields.count];
+        for (NSString *name in fields) {
+            NSString *value = [fields objectForKey:name];
+            if ([name isKindOfClass:[NSString class]] && [value isKindOfClass:[NSString class]])
+                [headerFields setObject:@[ value ] forKey:name];
+        }
+        [dictionary setObject:headerFields forKey:@"headerFields"];
+    }
+
+    NSData *body = self.HTTPBody;
+    if (body)
+        [dictionary setObject:body forKey:@"body"];
+    NSArray *bodyParts = [(NSArray *)CFURLRequestCopyHTTPRequestBodyParts(cfRequest) autorelease];
+    if (bodyParts)
+        [dictionary setObject:bodyParts forKey:@"bodyParts"];
+
+    NSString *boundInterfaceIdentifier = ((NSString *(*)(id, SEL))objc_msgSend)(self, sel_registerName("boundInterfaceIdentifier"));
+    if ([boundInterfaceIdentifier isKindOfClass:[NSString class]])
+        [dictionary setObject:boundInterfaceIdentifier forKey:@"boundInterfaceIdentifier"];
+    NSArray *fallbackEncodings = ((NSArray *(*)(id, SEL))objc_msgSend)(self, sel_registerName("contentDispositionEncodingFallbackArray"));
+    if ([fallbackEncodings isKindOfClass:[NSArray class]])
+        [dictionary setObject:fallbackEncodings forKey:@"contentDispositionEncodingFallbackArray"];
+
+    NSDictionary *protocolProperties = WK_SYSTEM(_CFURLRequestGetProtocolProperties) ? (NSDictionary *)WK_SYSTEM(_CFURLRequestGetProtocolProperties)(cfRequest) : nil;
+    NSString *siteForCookiesKey = @"_kCFHTTPCookiePolicyPropertySiteForCookies";
+    id siteForCookies = [protocolProperties objectForKey:siteForCookiesKey];
+    if (siteForCookies && ![siteForCookies isKindOfClass:[NSString class]]) {
+        // CFNetwork stores NSURL, but CoreIPCNSURLRequest's dictionary schema requires NSString.
+        // An empty URL/string records cross-site; an absent property records unspecified.
+        NSMutableDictionary *normalized = [[protocolProperties mutableCopy] autorelease];
+        NSString *address = [siteForCookies isKindOfClass:[NSURL class]] ? [siteForCookies absoluteString] : nil;
+        if (address)
+            [normalized setObject:address forKey:siteForCookiesKey];
+        else
+            [normalized removeObjectForKey:siteForCookiesKey];
+        protocolProperties = normalized;
+    }
+    if (protocolProperties.count)
+        [dictionary setObject:[[protocolProperties copy] autorelease] forKey:@"protocolProperties"];
+    return dictionary;
+}
+
+- (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)dictionary
+{
+    [self release];
+    NSURL *url = wk_valueOfClass(dictionary, @"URL", [NSURL class]);
+    NSNumber *timeout = wk_valueOfClass(dictionary, @"timeout", [NSNumber class]);
+    NSNumber *cachePolicy = wk_valueOfClass(dictionary, @"cachePolicy", [NSNumber class]);
+    NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:url
+        cachePolicy:cachePolicy ? (NSURLRequestCachePolicy)[cachePolicy unsignedCharValue] : NSURLRequestUseProtocolCachePolicy
+        timeoutInterval:timeout ? [timeout doubleValue] : 60];
+    if (!request)
+        return nil;
+    struct _CFURLRequest *cfRequest = (struct _CFURLRequest *)wk_cfURLRequest(request);
+
+    NSURL *mainDocumentURL = wk_valueOfClass(dictionary, @"mainDocumentURL", [NSURL class]);
+    if (mainDocumentURL)
+        request.mainDocumentURL = mainDocumentURL;
+    NSNumber *value = wk_valueOfClass(dictionary, @"shouldHandleHTTPCookies", [NSNumber class]);
+    if (value && [value boolValue] != request.HTTPShouldHandleCookies)
+        request.HTTPShouldHandleCookies = [value boolValue];
+    value = wk_valueOfClass(dictionary, @"allowCellular", [NSNumber class]);
+    if (value)
+        request.allowsCellularAccess = [value boolValue];
+    value = wk_valueOfClass(dictionary, @"preventsIdleSystemSleep", [NSNumber class]);
+    if (value)
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(request, sel_registerName("setPreventsIdleSystemSleep:"), [value boolValue]);
+    value = wk_valueOfClass(dictionary, @"networkServiceType", [NSNumber class]);
+    if (value)
+        request.networkServiceType = (NSURLRequestNetworkServiceType)[value unsignedCharValue];
+    value = wk_valueOfClass(dictionary, @"requestPriority", [NSNumber class]);
+    // The native priority setter materializes an HTTP message, including for an unchanged default.
+    if (value && cfRequest && [value intValue] != CFURLRequestGetRequestPriority(cfRequest))
+        CFURLRequestSetRequestPriority(cfRequest, [value intValue]);
+
+    NSString *method = wk_valueOfClass(dictionary, @"httpMethod", [NSString class]);
+    if (method)
+        request.HTTPMethod = method;
+    NSDictionary *headerFields = wk_valueOfClass(dictionary, @"headerFields", [NSDictionary class]);
+    for (NSString *name in headerFields) {
+        if (![name isKindOfClass:[NSString class]])
+            continue;
+        id fieldValue = [headerFields objectForKey:name];
+        if ([fieldValue isKindOfClass:[NSString class]])
+            [request addValue:fieldValue forHTTPHeaderField:name];
+        else if ([fieldValue isKindOfClass:[NSArray class]]) {
+            for (id item in (NSArray *)fieldValue) {
+                if ([item isKindOfClass:[NSString class]])
+                    [request addValue:item forHTTPHeaderField:name];
+            }
+        }
+    }
+
+    NSData *body = wk_valueOfClass(dictionary, @"body", [NSData class]);
+    if (body)
+        request.HTTPBody = body;
+    NSArray *bodyParts = wk_valueOfClass(dictionary, @"bodyParts", [NSArray class]);
+    if (bodyParts)
+        CFURLRequestSetHTTPRequestBodyParts(cfRequest, (CFArrayRef)bodyParts);
+
+    NSString *identifier = wk_valueOfClass(dictionary, @"boundInterfaceIdentifier", [NSString class]);
+    if (identifier)
+        ((void (*)(id, SEL, NSString *))objc_msgSend)(request, sel_registerName("setBoundInterfaceIdentifier:"), identifier);
+    NSArray *encodings = wk_valueOfClass(dictionary, @"contentDispositionEncodingFallbackArray", [NSArray class]);
+    if (encodings)
+        ((void (*)(id, SEL, NSArray *))objc_msgSend)(request, sel_registerName("setContentDispositionEncodingFallbackArray:"), encodings);
+
+    NSDictionary *protocolProperties = wk_valueOfClass(dictionary, @"protocolProperties", [NSDictionary class]);
+    for (id key in protocolProperties) {
+        if (![key isKindOfClass:[NSString class]] || !cfRequest)
+            continue;
+        id property = [protocolProperties objectForKey:key];
+        if ([key isEqualToString:@"_kCFHTTPCookiePolicyPropertySiteForCookies"]) {
+            // Restore the native URL consumed by ResourceRequestCocoa, including an empty URL.
+            if (![property isKindOfClass:[NSString class]])
+                continue;
+            property = [NSURL URLWithString:property];
+            if (!property)
+                continue;
+        }
+        _CFURLRequestSetProtocolProperty(cfRequest, (CFStringRef)key, (CFTypeRef)property);
+    }
+
+    NSNumber *explicitFlags = wk_valueOfClass(dictionary, @"explicitFlags", [NSNumber class]);
+    if (explicitFlags)
+        wk_requestSetExplicitFlags((CFTypeRef)cfRequest, [explicitFlags unsignedShortValue]);
+
+    NSNumber *isMutable = wk_valueOfClass(dictionary, @"isMutable", [NSNumber class]);
+    if (isMutable && ![isMutable boolValue]) {
+        NSURLRequest *immutable = [[NSURLRequest alloc] _initWithCFURLRequest:(CFTypeRef)cfRequest];
+        [request release];
+        return (id)immutable;
+    }
+    return (id)request;
+}
+@end
+
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).
@@ -3019,13 +3093,6 @@ WK_POLYFILL_ADD_METHODS(NSProgress)
 - (NSProgressFileOperationKind)fileOperationKind { return [[self userInfo] objectForKey:NSProgressFileOperationKindKey]; }
 - (void)setFileURL:(NSURL *)url { [self setUserInfoObject:url forKey:NSProgressFileURLKey]; }
 - (NSURL *)fileURL { return [[self userInfo] objectForKey:NSProgressFileURLKey]; }
-@end
-
-// -[NSKeyedUnarchiver _enableStrictSecureDecodingMode] (10.13+) opts an unarchiver into rejecting the
-// looser decodes that older secure coding tolerated. 10.9 has no such mode to enable, so doing nothing
-// IS this OS's behaviour -- the decode simply runs under the secure-coding rules 10.9 does implement.
-WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
-- (void)_enableStrictSecureDecodingMode { }
 @end
 
 // ---------------------------------------------------------------------------------------------------

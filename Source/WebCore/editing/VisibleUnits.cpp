@@ -29,6 +29,7 @@
 
 #include "BoundaryPointInlines.h"
 #include "Document.h"
+#include "Editing.h"
 #include "EditingInlines.h"
 #include "HTMLBRElement.h"
 #include "HTMLElement.h"
@@ -43,8 +44,8 @@
 #include "Range.h"
 #include "RenderBlockFlow.h"
 #include "RenderObjectStyle.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderedPosition.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "TextBoundaries.h"
 #include "TextIterator.h"
@@ -112,7 +113,7 @@ static Position nextLineCandidatePosition(Node* node, const VisiblePosition& vis
     RefPtr highestRoot = highestEditableRoot(visiblePosition.deepEquivalent(), editableType);
     RefPtr nextNode = nextLeafWithSameEditability(node, editableType);
     while (nextNode && (!nextNode->renderer() || inSameLine(firstPositionInOrBeforeNode(nextNode.get()), visiblePosition)))
-        nextNode = nextLeafWithSameEditability(nextNode.get(), ContentIsEditable);
+        nextNode = nextLeafWithSameEditability(nextNode.get(), editableType);
 
     while (nextNode && !nextNode->isShadowRoot()) {
         if (highestEditableRoot(firstPositionInOrBeforeNode(nextNode.get()), editableType) != highestRoot)
@@ -319,7 +320,7 @@ static VisiblePosition visualWordPosition(const VisiblePosition& visiblePosition
     if (visiblePosition.isNull() || !visiblePosition.deepEquivalent().document())
         return VisiblePosition();
 
-    visiblePosition.deepEquivalent().document()->updateLayoutIgnorePendingStylesheets();
+    protect(visiblePosition.deepEquivalent().document())->updateLayoutIgnorePendingStylesheets();
 
     TextDirection blockDirection = directionOfEnclosingBlock(visiblePosition.deepEquivalent());
     InlineIterator::LeafBoxIterator previouslyVisitedBox;
@@ -855,7 +856,7 @@ static VisiblePosition endPositionForLine(const VisiblePosition& c, LineEndpoint
         int endOffset = endTextBox.start();
         if (!endTextBox.isLineBreak())
             endOffset += endTextBox.length();
-        pos = Position(endTextNode.releaseNonNull(), endOffset);
+        pos = Position(endTextNode.releaseNonNull(), convertOffsetInTextFragmentToNodeOffset(endTextBox.renderer(), endOffset));
     } else
         pos = positionAfterNode(*endNode);
 
@@ -1233,7 +1234,7 @@ RefPtr<Node> findEndOfParagraph(Node* startNode, Node* highestRoot, Node* stayIn
                 }
             }
             node = n;
-            offset = r->caretMaxOffset();
+            offset = caretMaxOffset(*n);
             n = NodeTraversal::next(*n, stayInsideBlock);
         } else if (editingIgnoresContent(*n) || isRenderedTable(n.get())) {
             node = n;

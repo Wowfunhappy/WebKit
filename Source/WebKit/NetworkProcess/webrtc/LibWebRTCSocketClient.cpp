@@ -54,7 +54,10 @@ LibWebRTCSocketClient::LibWebRTCSocketClient(WebCore::LibWebRTCSocketIdentifier 
     m_socket->RegisterReceivedPacketCallback([this](auto* socket, auto& packet) {
         signalReadPacket(socket, packet.payload().data(), packet.payload().size(), packet.source_address(), packet.arrival_time()->us_or(0));
     });
-    m_socket->SignalSentPacket.connect(this, &LibWebRTCSocketClient::signalSentPacket);
+    m_socket->SubscribeSentPacket(this, [this](auto* socket, const auto& info) {
+        LibWebRTCSocketClient::signalSentPacket(socket, info);
+    });
+
     m_socket->SubscribeCloseEvent(this, [this](webrtc::AsyncPacketSocket* socket, int error) {
         signalClose(socket, error);
     });
@@ -63,14 +66,30 @@ LibWebRTCSocketClient::LibWebRTCSocketClient(WebCore::LibWebRTCSocketIdentifier 
     case Type::ServerConnectionTCP:
         return;
     case Type::ClientTCP:
-        m_socket->SignalConnect.connect(this, &LibWebRTCSocketClient::signalConnect);
-        m_socket->SignalAddressReady.connect(this, &LibWebRTCSocketClient::signalAddressReady);
+        m_socket->SubscribeConnect(this, [this](auto* socket) {
+            LibWebRTCSocketClient::signalConnect(socket);
+        });
+        m_socket->SubscribeAddressReady(this, [this](auto* socket, const auto& address) {
+            LibWebRTCSocketClient::signalAddressReady(socket, address);
+        });
         return;
     case Type::UDP:
-        m_socket->SignalConnect.connect(this, &LibWebRTCSocketClient::signalConnect);
+        m_socket->SubscribeConnect(this, [this](auto* socket) {
+            LibWebRTCSocketClient::signalConnect(socket);
+        });
         signalAddressReady();
         return;
     }
+}
+
+LibWebRTCSocketClient::~LibWebRTCSocketClient()
+{
+    m_socket->DeregisterReceivedPacketCallback();
+    m_socket->UnsubscribeSentPacket(this);
+    m_socket->UnsubscribeCloseEvent(this);
+    m_socket->UnsubscribeConnect(this);
+    if (m_type == Type::ClientTCP)
+        m_socket->UnsubscribeAddressReady(this);
 }
 
 void LibWebRTCSocketClient::sendTo(std::span<const uint8_t> data, const webrtc::SocketAddress& socketAddress, const webrtc::AsyncSocketPacketOptions& options)

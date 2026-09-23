@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPICommands.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -47,10 +48,6 @@
 
 namespace WebKit {
 
-static NSString * const descriptionKey = @"description";
-static NSString * const shortcutKey = @"shortcut";
-static NSString * const newShortcutKey = @"newShortcut";
-static NSString * const oldShortcutKey = @"oldShortcut";
 
 static inline NSDictionary *toAPI(const WebExtensionCommandParameters& command)
 {

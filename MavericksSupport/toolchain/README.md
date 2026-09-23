@@ -56,3 +56,28 @@ The in-tree clang is the bootstrap compiler for the next one:
    `.gitignore` (`/clang/bin/clang-NN`).
 
 4. `rm -rf build && ./bootstrap.sh`, rebuild WebKit, then `git add vendor/clang`.
+
+## Rust
+
+`scripts/build_rust.sh` prepares the Rust compiler used by the closed-caption
+dependency. Producers source `scripts/rust-env.sh` for Cargo, the selected
+compiler and its host wrapper. `rust-bootstrap-inputs.json` pins the official
+nightly dated 2026-08-12, matching compiler source and LLVM, and the compiler-rt
+sources required by the host tools. Generated products and caches live in
+`build/rust`, `build/rust-bootstrap` and `build/rust-mavericks`.
+
+The source compiler permits the x86_64 macOS deployment floor of 10.9, preserving
+Darwin's ABI and AArch64's 11.0 minimum. Its host sysroot includes the full
+upstream library target. Bootstrap checks the compiler's reported deployment
+target, emitted Mach-O metadata, and actual Cargo build-script and procedural
+macro execution. Source and runtime fingerprints govern reuse under shared
+mutation locks.
+
+Host tools bind missing system APIs through a two-level libSystem reexport
+backed by the shared polyfill implementations. The matching LLVM provider is
+retained, and its tools use native libc++ after an import audit. Explicit-target
+Cargo builds rebuild `std` and `panic_unwind` for 10.9 and link the dependency
+gap archive. `scripts/test_rust_target.py` verifies the target dylib's deployment
+metadata and executes unwinding, destructors, threads, entropy, clocks and file
+copying with the native unwinder. It keeps the test library resident through
+process exit, matching GStreamer's plugin lifetime.

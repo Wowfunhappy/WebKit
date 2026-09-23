@@ -50,7 +50,6 @@
 #include "HTMLStyleElement.h"
 #include "ImageOverlayController.h"
 #include "MediaControlsHost.h"
-#include "NodeInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderImage.h"
@@ -147,7 +146,7 @@ std::optional<CharacterRange> characterRange(const VisibleSelection& selection)
         return std::nullopt;
 
     std::optional<SimpleRange> imageOverlayRange;
-    for (Ref ancestor : ancestorsOfType<HTMLDivElement>(*selection.start().containerNode())) {
+    for (Ref ancestor : ancestorsOfType<HTMLDivElement>(protect(*selection.start().containerNode()))) {
         if (ancestor->getIdAttribute() == imageOverlayElementIdentifier()) {
             imageOverlayRange = makeRangeSelectingNodeContents(ancestor);
             break;
@@ -276,9 +275,9 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
             return nullptr;
 
         auto& containerClass = controlsHost->mediaControlsContainerClassName();
-        for (Ref child : childrenOfType<HTMLDivElement>(*shadowRoot)) {
-            if (child->hasClassName(containerClass))
-                return &child.get();
+        for (auto& child : childrenOfType<HTMLDivElement>(*shadowRoot)) {
+            if (child.hasClassName(containerClass))
+                return &child;
         }
         return nullptr;
     })();
@@ -349,7 +348,7 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
                     return false;
 
                 for (size_t childIndex = 0; childIndex < childResults.size(); ++childIndex) {
-                    if (childResults[childIndex].text != StringView(childTextElements[childIndex]->textContent()).trim(deprecatedIsSpaceOrNewline))
+                    if (childResults[childIndex].text != StringView(protect(childTextElements[childIndex])->textContent()).trim(deprecatedIsSpaceOrNewline))
                         return false;
                 }
             }
@@ -370,7 +369,7 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
         })();
 
         if (!canUseExistingElements) {
-            elements.root->removeChildren();
+            protect(elements.root)->removeChildren();
             elements = { elements.root, { }, { }, { } };
         }
     }
@@ -397,14 +396,14 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
         elements.lines.reserveInitialCapacity(result.lines.size());
         for (auto& line : result.lines) {
             Ref lineContainer = HTMLDivElement::create(document.get());
-            lineContainer->classList().add(imageOverlayLineClass());
-            elements.root->appendChild(lineContainer);
+            protect(lineContainer)->classList().add(imageOverlayLineClass());
+            protect(elements.root)->appendChild(lineContainer);
             LineElements lineElements { lineContainer, { }, { } };
             lineElements.children.reserveInitialCapacity(line.children.size());
             for (size_t childIndex = 0; childIndex < line.children.size(); ++childIndex) {
                 auto& child = line.children[childIndex];
                 Ref textContainer = HTMLDivElement::create(document.get());
-                textContainer->classList().add(imageOverlayTextClass());
+                protect(textContainer)->classList().add(imageOverlayTextClass());
                 lineContainer->appendChild(textContainer);
                 textContainer->appendChild(Text::create(document.get(), child.hasLeadingWhitespace ? makeString('\n', child.text) : String { child.text }));
                 lineElements.children.append(WTF::move(textContainer));
@@ -423,8 +422,8 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
         elements.dataDetectors.reserveInitialCapacity(result.dataDetectors.size());
         for (auto& dataDetector : result.dataDetectors) {
             auto dataDetectorContainer = DataDetection::createElementForImageOverlay(document.get(), dataDetector);
-            dataDetectorContainer->classList().add(imageOverlayDataDetectorClass());
-            elements.root->appendChild(dataDetectorContainer);
+            protect(dataDetectorContainer)->classList().add(imageOverlayDataDetectorClass());
+            protect(elements.root)->appendChild(dataDetectorContainer);
             elements.dataDetectors.append(WTF::move(dataDetectorContainer));
         }
 #endif // ENABLE(DATA_DETECTION)
@@ -432,7 +431,7 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
         elements.blocks.reserveInitialCapacity(result.blocks.size());
         for (auto& block : result.blocks) {
             Ref blockContainer = HTMLDivElement::create(document.get());
-            blockContainer->classList().add(imageOverlayBlockClass());
+            protect(blockContainer)->classList().add(imageOverlayBlockClass());
             auto lines = block.text.split(newlineCharacter);
             for (auto&& textContent : WTF::move(lines)) {
                 if (blockContainer->hasChildNodes())
@@ -444,7 +443,7 @@ static Elements updateSubtree(HTMLElement& element, const TextRecognitionResult&
             if (lines.size() > maxLineCountForCenterAlignedText)
                 blockContainer->setInlineStyleProperty(CSSPropertyTextAlign, CSSValueStart);
 
-            elements.root->appendChild(blockContainer);
+            protect(elements.root)->appendChild(blockContainer);
             elements.blocks.append(WTF::move(blockContainer));
         }
     }
@@ -691,7 +690,7 @@ void updateWithTextRecognitionResult(HTMLElement& element, const TextRecognition
         if (++currentIteration > iterationLimit) {
             // Fall back to the largest font size that still vertically fits within the container.
             for (auto& state : elementsToAdjust)
-                state.container->setInlineStyleProperty(CSSPropertyFontSize, state.targetSize.height() * state.minScale, CSSUnitType::CSS_PX);
+                protect(state.container)->setInlineStyleProperty(CSSPropertyFontSize, state.targetSize.height() * state.minScale, CSSUnitType::CSS_PX);
             break;
         }
     }

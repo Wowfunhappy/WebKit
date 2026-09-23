@@ -118,8 +118,8 @@ public:
     void drawDotsForDocumentMarker(const WebCore::FloatRect&, const WebCore::DocumentMarkerLineStyle&);
     void drawEllipse(const WebCore::FloatRect&);
     void drawPath(const WebCore::Path&);
-    void drawFocusRingPath(const WebCore::Path&, float outlineWidth, const WebCore::Color&);
-    void drawFocusRingRects(const Vector<WebCore::FloatRect>&, float outlineOffset, float outlineWidth, const WebCore::Color&);
+    void drawFocusRingPath(const WebCore::Path&, float outlineWidth, const WebCore::Color&, float zoomFactor);
+    void drawFocusRingRects(const Vector<WebCore::FloatRect>&, float outlineWidth, const WebCore::Color&, float zoomFactor);
     void fillRect(const WebCore::FloatRect&, WebCore::RequiresClipToRect);
     void fillRectWithColor(const WebCore::FloatRect&, const WebCore::Color&);
     void fillRectWithGradient(const WebCore::FloatRect&, Ref<WebCore::Gradient>&&);
@@ -127,26 +127,22 @@ public:
     void fillCompositedRect(const WebCore::FloatRect&, const WebCore::Color&, WebCore::CompositeOperator, WebCore::BlendMode);
     void fillRoundedRect(const WebCore::FloatRoundedRect&, const WebCore::Color&, WebCore::BlendMode);
     void fillRectWithRoundedHole(const WebCore::FloatRect&, const WebCore::FloatRoundedRect&, const WebCore::Color&);
-#if ENABLE(INLINE_PATH_DATA)
     void fillLine(const WebCore::PathDataLine&);
     void fillArc(const WebCore::PathArc&);
     void fillClosedArc(const WebCore::PathClosedArc&);
     void fillQuadCurve(const WebCore::PathDataQuadCurve&);
     void fillBezierCurve(const WebCore::PathDataBezierCurve&);
-#endif
     void fillPathSegment(const WebCore::PathSegment&);
     void fillPath(const WebCore::Path&);
     void fillCachedPath(RemotePathImplIdentifier);
     void fillEllipse(const WebCore::FloatRect&);
     void strokeRect(const WebCore::FloatRect&, float lineWidth);
-#if ENABLE(INLINE_PATH_DATA)
     void strokeLine(const WebCore::PathDataLine&);
-    void strokeLineWithColorAndThickness(const WebCore::PathDataLine&, std::optional<WebCore::PackedColor::RGBA> strokeColor, std::optional<float> strokeThickness);
+    void strokeLinesWithColorAndThickness(std::span<const WebCore::PathDataLineColorThickness>);
     void strokeArc(const WebCore::PathArc&);
     void strokeClosedArc(const WebCore::PathClosedArc&);
     void strokeQuadCurve(const WebCore::PathDataQuadCurve&);
     void strokeBezierCurve(const WebCore::PathDataBezierCurve&);
-#endif
     void strokePathSegment(const WebCore::PathSegment&);
     void strokePath(const WebCore::Path&);
     void strokeEllipse(const WebCore::FloatRect&);

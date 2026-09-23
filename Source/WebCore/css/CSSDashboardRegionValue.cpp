@@ -30,7 +30,7 @@ String CSSDashboardRegionValue::customCSSText(const CSS::SerializationContext& c
     StringBuilder result;
     for (auto& region : m_regions) {
         if (!result.isEmpty())
-            result.append(", "_s);
+            result.append(' ');
 
         if (region.geometryType == 0 /* None */) {
             result.append("none"_s);

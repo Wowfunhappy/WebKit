@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include <WebCore/CSSPrimitiveKeywordList.h>
+#include <WebCore/CSSKeywordList.h>
 #include <WebCore/CSSPrimitiveNumericConcepts.h>
 #include <WebCore/CSSPrimitiveNumericRaw.h>
 #include <WebCore/CSSUnevaluatedCalc.h>
@@ -61,9 +61,9 @@ template<typename T> struct PrimitiveDataMarkableTraits {
 
 // MARK: - Index
 
-template<Numeric N, PrimitiveKeyword... Ks> struct PrimitiveDataIndex {
+template<Numeric N, SpecificKeyword... Ks> struct PrimitiveDataIndex {
     using NumericType = N;
-    using Keywords = PrimitiveKeywordList<Ks...>;
+    using Keywords = KeywordList<Ks...>;
 
     using Raw = typename N::Raw;
     using Calc = typename N::Calc;
@@ -234,7 +234,7 @@ union PrimitiveDataPayload {
 
 // MARK: - PrimitiveData
 
-template<Numeric N, PrimitiveKeyword... Ks> struct PrimitiveData {
+template<Numeric N, SpecificKeyword... Ks> struct PrimitiveData {
     using Index = PrimitiveDataIndex<N, Ks...>;
     using Payload = PrimitiveDataPayload;
 
@@ -251,7 +251,7 @@ template<Numeric N, PrimitiveKeyword... Ks> struct PrimitiveData {
     }
 
     PrimitiveData(Calc calc)
-        : payload { &protect(calc.calcValue()).leakRef() }
+        : payload { &calc.leakRef() }
         , index { calc }
     {
     }

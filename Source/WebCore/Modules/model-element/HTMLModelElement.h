@@ -51,6 +51,10 @@
 #include <WebCore/StageModeOperations.h>
 #endif
 
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+#include <WebCore/PlatformDynamicRangeLimit.h>
+#endif
+
 namespace WebCore {
 
 class CachedResourceRequest;
@@ -58,6 +62,9 @@ class DOMMatrixReadOnly;
 class DOMPointReadOnly;
 class Event;
 class Exception;
+class FloatPoint;
+class FloatRect;
+class GraphicsContext;
 class GraphicsLayer;
 class LayoutPoint;
 class LayoutSize;
@@ -141,12 +148,6 @@ public:
     void animationCurrentTime(CurrentTimePromise&&);
     void setAnimationCurrentTime(double, DOMPromiseDeferred<void>&&);
 
-    using HasAudioPromise = DOMPromiseDeferred<IDLBoolean>;
-    void hasAudio(HasAudioPromise&&);
-    using IsMutedPromise = DOMPromiseDeferred<IDLBoolean>;
-    void isMuted(IsMutedPromise&&);
-    void setIsMuted(bool, DOMPromiseDeferred<void>&&);
-
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     bool immersive() const;
     void requestImmersive(DOMPromiseDeferred<void>&&);
@@ -154,7 +155,7 @@ public:
     void exitImmersivePresentation(CompletionHandler<void()>&&);
 #endif
 
-    bool supportsDragging() const;
+    WEBCORE_EXPORT bool supportsDragging() const;
     bool isDraggableIgnoringAttributes() const final;
 
     bool NODELETE isInteractive() const;
@@ -189,9 +190,7 @@ public:
 
     void sizeMayHaveChanged();
 
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-    WEBCORE_EXPORT String inlinePreviewUUIDForTesting() const;
-#endif
+    void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&);
 
     size_t NODELETE memoryCost() const;
 #if ENABLE(RESOURCE_USAGE)
@@ -200,6 +199,11 @@ public:
 
     bool isIntersectingViewport() const { return m_isIntersectingViewport; }
     void viewportIntersectionChanged(bool isIntersecting);
+
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+    void dynamicRangeLimitDidChange(PlatformDynamicRangeLimit);
+    std::optional<double> getEffectiveDynamicRangeLimitValue() const;
+#endif
 
     WEBCORE_EXPORT String modelElementStateForTesting() const;
 
@@ -211,6 +215,7 @@ private:
     void modelDidChange();
     void createModelPlayer();
     void deleteModelPlayer();
+    void deletePendingModelPlayer();
     void unloadModelPlayer(bool onSuspend);
     void reloadModelPlayer();
     void startLoadModelTimer();
@@ -236,9 +241,10 @@ private:
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
     // Rendering overrides.
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle* = nullptr) const final { return true; }
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final { return true; }
     void didAttachRenderers() final;
+    void willDetachRenderers() final;
 
     // CachedRawResourceClient overrides.
     void dataReceived(CachedResource&, const SharedBuffer&) final;
@@ -265,15 +271,20 @@ private:
     bool isVisible() const final;
     void logWarning(ModelPlayer&, const String&) final;
 
-    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType , ContainerNode& parentOfInsertedTree) override;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
+    Node::NeedsPostConnectionSteps insertionSteps(InsertionType , ContainerNode& parentOfInsertedTree) override;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
 
     void defaultEventHandler(Event&) final;
     void dragDidStart(WebCore::MouseRelatedEvent&);
     void dragDidChange(WebCore::MouseRelatedEvent&);
     void dragDidEnd(WebCore::MouseRelatedEvent&);
 
+    void logInteractionDiagnostic();
+
     LayoutPoint flippedLocationInElementForMouseEvent(WebCore::MouseRelatedEvent&);
+#if USE(SYSTEM_PREVIEW)
+    bool isPointInSystemPreviewBadge(const FloatPoint&) const;
+#endif
 
     void setAnimationIsPlaying(bool, DOMPromiseDeferred<void>&&);
 
@@ -307,6 +318,10 @@ private:
     void updateStageMode();
 #endif
 
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+    void updateScreenHeadroom(float currentEDRHeadroom, bool suppressEDR);
+#endif
+
     void modelResourceFinished();
     void sourceRequestResource();
     bool shouldDeferLoading() const;
@@ -318,6 +333,7 @@ private:
 
     URL m_sourceURL;
     CachedResourceHandle<CachedRawResource> m_resource;
+    String m_originalMIMEType;
     SharedBufferBuilder m_data;
     mutable std::atomic<size_t> m_dataMemoryCost { 0 };
     size_t m_reportedDataMemoryCost { 0 };
@@ -331,8 +347,12 @@ private:
     bool m_isDragging { false };
     bool m_shouldCreateModelPlayerUponRendererAttachment { false };
     bool m_isIntersectingViewport { false };
+#if ENABLE(MODEL_PROCESS)
+    bool m_didIncrementModelElementCount { false };
+#endif
 
     RefPtr<ModelPlayer> m_modelPlayer;
+    RefPtr<ModelPlayer> m_pendingModelPlayer;
     EventLoopTimerHandle m_loadModelTimer;
 
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)
@@ -359,10 +379,19 @@ private:
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     bool m_detachedForImmersive { false };
+    unsigned m_immersiveDetachGeneration { 0 };
     void setDetachedForImmersive(bool);
 
     Vector<CompletionHandler<void(ExceptionOr<RefPtr<ModelPlayer>>)>> m_modelPlayerCreationCallbacks;
     void ensureModelPlayer(CompletionHandler<void(ExceptionOr<RefPtr<ModelPlayer>>)>&&);
+#endif
+
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+    PlatformDynamicRangeLimit m_dynamicRangeLimit { PlatformDynamicRangeLimit::initialValue() };
+    using ScreenPropertiesChangedObserver = Observer<void(uint32_t)>;
+    RefPtr<ScreenPropertiesChangedObserver> m_screenPropertiesChangedObserver;
+    float m_currentEDRHeadroom { 1.f };
+    bool m_suppressEDR { false };
 #endif
 
     void NODELETE triggerModelPlayerCreationCallbacksIfNeeded(ExceptionOr<RefPtr<ModelPlayer>>&&);

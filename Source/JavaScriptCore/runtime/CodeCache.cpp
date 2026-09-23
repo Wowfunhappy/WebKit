@@ -27,7 +27,11 @@
 #include "CodeCache.h"
 
 #include "BytecodeGenerator.h"
+#include "DirectEvalExecutable.h"
 #include "IndirectEvalExecutable.h"
+#include "ModuleProgramExecutable.h"
+#include "ProgramExecutable.h"
+#include "VariableEnvironmentInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
@@ -131,8 +135,8 @@ UnlinkedEvalCodeBlock* generateUnlinkedCodeBlockForDirectEval(VM& vm, DirectEval
 }
 
 template <class UnlinkedCodeBlockType>
-std::enable_if_t<!std::is_same<UnlinkedCodeBlockType, UnlinkedEvalCodeBlock>::value, UnlinkedCodeBlockType*>
-recursivelyGenerateUnlinkedCodeBlock(VM& vm, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, JSParserScriptMode scriptMode, OptionSet<CodeGenerationMode> codeGenerationMode, ParserError& error, EvalContextType evalContextType)
+    requires (!std::same_as<UnlinkedCodeBlockType, UnlinkedEvalCodeBlock>)
+UnlinkedCodeBlockType* recursivelyGenerateUnlinkedCodeBlock(VM& vm, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, JSParserScriptMode scriptMode, OptionSet<CodeGenerationMode> codeGenerationMode, ParserError& error, EvalContextType evalContextType)
 {
     bool isArrowFunctionContext = false;
     UnlinkedCodeBlockType* unlinkedCodeBlock = generateUnlinkedCodeBlockImpl<UnlinkedCodeBlockType>(vm, source, lexicallyScopedFeatures, scriptMode, codeGenerationMode, error, evalContextType, DerivedContextType::None, isArrowFunctionContext);
@@ -212,7 +216,7 @@ UnlinkedFunctionExecutable* CodeCache::getUnlinkedGlobalFunctionExecutable(VM& v
         lexicallyScopedFeatures,
         JSParserScriptMode::Classic,
         DerivedContextType::None,
-        EvalContextType::None,
+        EvalContextType::FunctionEvalContext,
         isArrowFunctionContext,
         codeGenerationMode,
         functionConstructorParametersEndPosition);
@@ -251,7 +255,7 @@ UnlinkedFunctionExecutable* CodeCache::getUnlinkedGlobalFunctionExecutable(VM& v
     // The Function constructor only has access to global variables, so no variables will be under TDZ unless they're
     // in the global lexical environment, which we always TDZ check accesses from.
     ConstructAbility constructAbility = constructAbilityForParseMode(metadata->parseMode());
-    UnlinkedFunctionExecutable* functionExecutable = UnlinkedFunctionExecutable::create(vm, source, metadata, UnlinkedNormalFunction, constructAbility, InlineAttribute::None, JSParserScriptMode::Classic, nullptr, std::nullopt, std::nullopt, DerivedContextType::None, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None);
+    UnlinkedFunctionExecutable* functionExecutable = UnlinkedFunctionExecutable::create(vm, source, metadata, UnlinkedNormalFunction, constructAbility, InlineAttribute::None, JSParserScriptMode::Classic, nullptr, std::nullopt, std::nullopt, DerivedContextType::None, EvalContextType::FunctionEvalContext, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None);
 
     if (!source.provider()->sourceURLDirective().isNull())
         functionExecutable->setSourceURLDirective(source.provider()->sourceURLDirective());
@@ -279,7 +283,7 @@ void CodeCache::write()
 
 void writeCodeBlock(const SourceCodeKey& key, const SourceCodeValue& value)
 {
-    UnlinkedCodeBlock* codeBlock = jsDynamicCast<UnlinkedCodeBlock*>(value.cell.get());
+    UnlinkedCodeBlock* codeBlock = dynamicDowncast<UnlinkedCodeBlock>(value.cell.get());
     if (!codeBlock)
         return;
 

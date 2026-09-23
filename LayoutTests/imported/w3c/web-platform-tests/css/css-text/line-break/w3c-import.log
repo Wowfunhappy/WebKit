@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-anywhere-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-anywhere-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-anywhere-002-expected.html
@@ -182,3 +183,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-strict-hyphens-002.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-strict-hyphens-003-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-strict-hyphens-003.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/line-break/line-break-var-substitution.html

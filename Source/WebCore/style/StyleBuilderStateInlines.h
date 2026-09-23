@@ -26,8 +26,8 @@
 
 #pragma once
 
-#include "RenderStyle+SettersInlines.h"
 #include "StyleBuilderState.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleFontSizeFunctions.h"
 #include "StyleZoom.h"
 
@@ -78,13 +78,15 @@ inline void BuilderState::setFontDescriptionFontSize(float fontSize)
 
 inline void BuilderState::setFontDescriptionFamilies(FontFamilies&& families)
 {
-    if (m_style.fontDescription().families() == families.toPlatform() && m_style.fontDescription().isSpecifiedFont() == families.isSpecifiedFont())
+    bool hasAuthorSpecifiedNonGenericPrimaryFont = families.hasAuthorSpecifiedNonGenericPrimaryFont();
+    if (m_style.fontDescription().families() == families.toPlatform()
+        && m_style.fontDescription().hasAuthorSpecifiedNonGenericPrimaryFont() == hasAuthorSpecifiedNonGenericPrimaryFont)
         return;
 
     m_fontDirty = true;
     auto& fontCascade = m_style.mutableFontCascadeWithoutUpdate();
     fontCascade.mutableFontDescription().setFamilies(families.takePlatform());
-    fontCascade.mutableFontDescription().setIsSpecifiedFont(families.isSpecifiedFont());
+    fontCascade.mutableFontDescription().setHasAuthorSpecifiedNonGenericPrimaryFont(hasAuthorSpecifiedNonGenericPrimaryFont);
     fontCascade.updateUseBackslashAsYenSymbol();
 }
 
@@ -147,7 +149,7 @@ inline void BuilderState::setFontDescriptionFontSynthesisSmallCaps(FontSynthesis
     m_style.mutableFontDescriptionWithoutUpdate().setFontSynthesisSmallCaps(WTF::move(fontSynthesisSmallCaps));
 }
 
-inline void BuilderState::setFontDescriptionFontSynthesisStyle(FontSynthesisLonghandValue fontSynthesisStyle)
+inline void BuilderState::setFontDescriptionFontSynthesisStyle(FontSynthesisStyleLonghandValue fontSynthesisStyle)
 {
     if (m_style.fontDescription().fontSynthesisStyle() == fontSynthesisStyle)
         return;

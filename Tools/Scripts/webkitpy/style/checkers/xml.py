@@ -32,7 +32,7 @@ class XMLChecker(object):
         self._handle_style_error = handle_style_error
         self._handle_style_error.turn_off_line_filtering()
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         parser = expat.ParserCreate()
         try:
             for line in lines:

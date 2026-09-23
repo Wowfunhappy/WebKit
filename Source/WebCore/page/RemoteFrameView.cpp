@@ -26,7 +26,12 @@
 #include "config.h"
 #include "RemoteFrameView.h"
 
+#include "AXObjectCache.h"
+#include "Chrome.h"
+#include "ChromeClient.h"
+#include "DocumentPage.h"
 #include "GraphicsContext.h"
+#include "Page.h"
 #include "RemoteFrame.h"
 #include "RemoteFrameClient.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -49,8 +54,16 @@ void RemoteFrameView::setFrameRect(const IntRect& newRect)
 {
     IntRect oldRect = frameRect();
     setFrameRectWithoutSync(newRect);
-    if (newRect != oldRect)
+    if (newRect != oldRect) {
         m_frame->client().frameRectDidChange(newRect);
+
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+        if (AXObjectCache::accessibilityEnabled()) {
+            if (RefPtr page = m_frame->page())
+                page->chrome().client().scheduleAccessibilityFrameGeometryUpdate();
+        }
+#endif
+    }
 }
 
 LayoutRect RemoteFrameView::layoutViewportRect() const
@@ -60,18 +73,42 @@ LayoutRect RemoteFrameView::layoutViewportRect() const
 
 std::optional<LayoutRect> RemoteFrameView::visibleRectOfChild(const Frame& child) const
 {
-    auto maybeInfo = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.getOptional(child.frameID());
-    return maybeInfo.and_then([] (auto& info) {
-        return info.visibleRectInParent;
-    });
+    if (RefPtr info = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.get(child.frameID()))
+        return info->visibleRectInParent();
+
+    return std::nullopt;
 }
 
-bool RemoteFrameView::ownerElementOfChildFrameUsesDarkAppearance(const Frame& child) const
+OptionSet<FrameOwnerElementAppearance> RemoteFrameView::appearanceOfOwnerElementOfChildFrame(const Frame& child) const
 {
-    auto maybeInfo = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.getOptional(child.frameID());
-    return maybeInfo.transform([] (auto& info) {
-        return info.useDarkAppearance;
-    }).value_or(false);
+    if (RefPtr info = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.get(child.frameID()))
+        return info->ownerElementAppearance();
+
+    return { };
+}
+
+LayoutPoint RemoteFrameView::childFrameOwnerContentBoxLocation(const Frame& child) const
+{
+    if (RefPtr info = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.get(child.frameID()))
+        return info->contentBoxLocation();
+
+    return { };
+}
+
+TransformationMatrix RemoteFrameView::childFrameOwnerToRootContentTransform(const Frame& child) const
+{
+    if (RefPtr info = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.get(child.frameID()))
+        return info->childFrameOwnerToRootContentTransform();
+
+    return { };
+}
+
+TransformationMatrix RemoteFrameView::absoluteToChildFrameOwnerLocalTransform(const Frame& child) const
+{
+    if (RefPtr info = m_frame->frameTreeSyncData().childrenFrameLayoutInfo.get(child.frameID()))
+        return info->absoluteToChildFrameOwnerLocalTransform();
+
+    return { };
 }
 
 // FIXME: Implement all the stubs below.

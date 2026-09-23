@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPIDevToolsInspectedWindow.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS) && ENABLE(INSPECTOR_EXTENSIONS)
 
@@ -40,12 +41,6 @@
 #import "WebExtensionTabIdentifier.h"
 #import "WebExtensionUtilities.h"
 #import "WebProcess.h"
-
-static NSString * const frameURLKey = @"frameURL";
-static NSString * const ignoreCacheKey = @"ignoreCache";
-
-static NSString * const isExceptionKey = @"isException";
-static NSString * const valueKey = @"value";
 
 namespace WebKit {
 
@@ -67,7 +62,7 @@ void WebExtensionAPIDevToolsInspectedWindow::eval(WebPageProxyIdentifier webPage
         frameURL = URL { url };
 
         if (!frameURL.value().isValid()) {
-            *outExceptionString = toErrorString(nullString(), frameURLKey, @"'%@' is not a valid URL", url).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), frameURLKey, makeString("'"_s, String(url), "' is not a valid URL"_s)).createNSString().autorelease();
             return;
         }
     }

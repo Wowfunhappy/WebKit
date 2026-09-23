@@ -140,11 +140,23 @@ class Version(object):
         return True if does_match is None else does_match
 
     def _strip_zeros(self):
+        """Return the version components as a list with trailing zero components removed.
+
+        Iterates from the end of the component list and records how many consecutive
+        zeros appear before the first non-zero value (i), then slices them off.
+
+        Examples:
+            Version(1, 2, 3)       -> [1, 2, 3]   (no trailing zeros)
+            Version(1, 2, 0)       -> [1, 2]       (one trailing zero stripped)
+            Version(1, 2, 0, 0, 0) -> [1, 2]       (three trailing zeros stripped)
+            Version(0, 0, 3)       -> [0, 0, 3]    (leading zeros preserved)
+            Version(1, 0, 0, 0, 3) -> [1, 0, 0, 0, 3]  (no trailing zeros, nano is non-zero)
+        """
         parts = list(self)
         for i, part in enumerate(reversed(parts)):
             if part != 0:
                 break
-        return parts[:-i]
+        return parts[:len(parts) - i]
 
     # 11.2 is in 11, but 11 is not in 11.2
     def __contains__(self, version):

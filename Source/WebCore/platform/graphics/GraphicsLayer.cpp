@@ -133,7 +133,7 @@ static RepaintMap& NODELETE repaintRectMap()
     return map;
 }
 
-#if !USE(CA)
+#if !USE(CA) && !USE(COORDINATED_GRAPHICS)
 bool GraphicsLayer::supportsLayerType(Type type)
 {
     switch (type) {
@@ -169,7 +169,7 @@ public:
     static EmptyGraphicsLayerClient& singleton();
 };
 
-EmptyGraphicsLayerClient& EmptyGraphicsLayerClient::singleton()
+EmptyGraphicsLayerClient& NODELETE EmptyGraphicsLayerClient::singleton()
 {
     static NeverDestroyed<EmptyGraphicsLayerClient> client;
     return client;
@@ -244,10 +244,10 @@ void GraphicsLayer::willBeDestroyed()
     client().verifyNotPainting();
 #endif
     if (m_replicaLayer)
-        m_replicaLayer->setReplicatedLayer(nullptr);
+        protect(m_replicaLayer)->setReplicatedLayer(nullptr);
 
     if (m_replicatedLayer)
-        m_replicatedLayer->setReplicatedByLayer(nullptr);
+        protect(m_replicatedLayer.get())->setReplicatedByLayer(nullptr);
 
     if (m_maskLayer) {
         m_maskLayer->setParent(nullptr);
@@ -491,7 +491,7 @@ void GraphicsLayer::setOpacity(float opacity)
 void GraphicsLayer::removeFromParent()
 {
     if (m_parent)
-        m_parent->willModifyChildren();
+        protect(m_parent.get())->willModifyChildren();
 
     // removeFromParentInternal is nonvirtual, for use in willBeDestroyed,
     // which is called from destructors.
@@ -535,7 +535,7 @@ void GraphicsLayer::setVideoGravity(MediaPlayerVideoGravity gravity)
 
 Path GraphicsLayer::shapeLayerPath() const
 {
-#if USE(CA)
+#if USE(CA) || USE(COORDINATED_GRAPHICS)
     return m_shapeLayerPath;
 #else
     return Path();
@@ -544,7 +544,7 @@ Path GraphicsLayer::shapeLayerPath() const
 
 void GraphicsLayer::setShapeLayerPath(const Path& path)
 {
-#if USE(CA)
+#if USE(CA) || USE(COORDINATED_GRAPHICS)
     m_shapeLayerPath = path;
 #else
     UNUSED_PARAM(path);
@@ -553,7 +553,7 @@ void GraphicsLayer::setShapeLayerPath(const Path& path)
 
 WindRule GraphicsLayer::shapeLayerWindRule() const
 {
-#if USE(CA)
+#if USE(CA) || USE(COORDINATED_GRAPHICS)
     return m_shapeLayerWindRule;
 #else
     return WindRule::NonZero;
@@ -562,7 +562,7 @@ WindRule GraphicsLayer::shapeLayerWindRule() const
 
 void GraphicsLayer::setShapeLayerWindRule(WindRule windRule)
 {
-#if USE(CA)
+#if USE(CA) || USE(COORDINATED_GRAPHICS)
     m_shapeLayerWindRule = windRule;
 #else
     UNUSED_PARAM(windRule);
@@ -579,10 +579,10 @@ void GraphicsLayer::noteDeviceOrPageScaleFactorChangedIncludingDescendants()
     deviceOrPageScaleFactorChanged();
 
     if (m_maskLayer)
-        m_maskLayer->deviceOrPageScaleFactorChanged();
+        protect(m_maskLayer)->deviceOrPageScaleFactorChanged();
 
     if (m_replicaLayer)
-        m_replicaLayer->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
+        protect(m_replicaLayer)->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
 
     for (auto& layer : children())
         layer->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
@@ -600,7 +600,7 @@ void GraphicsLayer::setReplicatedByLayer(RefPtr<GraphicsLayer>&& layer)
         return;
 
     if (m_replicaLayer)
-        m_replicaLayer->setReplicatedLayer(nullptr);
+        protect(m_replicaLayer)->setReplicatedLayer(nullptr);
 
     if (layer)
         layer->setReplicatedLayer(this);
@@ -860,8 +860,8 @@ void GraphicsLayer::setAcceleratedEffectsAndBaseValues(AcceleratedEffects&& effe
     if (!m_effectStack)
         m_effectStack = AcceleratedEffectStack::create();
 
-    m_effectStack->setEffects(WTF::move(effects));
-    m_effectStack->setBaseValues(WTF::move(baseValues));
+    protect(m_effectStack)->setEffects(WTF::move(effects));
+    protect(m_effectStack)->setBaseValues(WTF::move(baseValues));
 }
 #endif
 
@@ -1045,7 +1045,7 @@ void GraphicsLayer::dumpProperties(TextStream& ts, OptionSet<LayerTreeAsTextOpti
         ts << ")\n"_s;
 
         TextStream::IndentScope indentScope(ts);
-        m_maskLayer->dumpLayer(ts, options);
+        protect(m_maskLayer)->dumpLayer(ts, options);
     }
 
     if (m_replicaLayer) {
@@ -1055,7 +1055,7 @@ void GraphicsLayer::dumpProperties(TextStream& ts, OptionSet<LayerTreeAsTextOpti
         ts << ")\n"_s;
 
         TextStream::IndentScope indentScope(ts);
-        m_replicaLayer->dumpLayer(ts, options);
+        protect(m_replicaLayer)->dumpLayer(ts, options);
     }
 
     if (m_replicatedLayer) {

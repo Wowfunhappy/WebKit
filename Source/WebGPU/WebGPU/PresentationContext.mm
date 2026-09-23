@@ -103,7 +103,7 @@ void wgpuSwapChainRelease(WGPUSwapChain swapChain)
 
 WGPUTextureFormat wgpuSurfaceGetPreferredFormat(WGPUSurface surface, WGPUAdapter adapter)
 {
-    return protect(WebGPU::fromAPI(surface))->getPreferredFormat(protect(WebGPU::fromAPI(adapter)));
+    return WebGPU::fromAPI(surface).getPreferredFormat(WebGPU::fromAPI(adapter));
 }
 
 WGPUTexture wgpuSwapChainGetCurrentTexture(WGPUSwapChain swapChain, uint32_t index)

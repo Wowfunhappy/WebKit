@@ -32,6 +32,7 @@ DECLARE_SYSTEM_HEADER
 #if USE(APPLE_INTERNAL_SDK)
 
 #import <RunningBoardServices/RunningBoardServices.h>
+#import <RunningBoardServices/RBSProcessHandle_Private.h>
 
 extern const NSTimeInterval RBSProcessTimeLimitationNone;
 
@@ -54,6 +55,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface RBSDomainAttribute : RBSAttribute
 + (instancetype)attributeWithDomain:(NSString *)domain name:(NSString *)name;
+@end
+
+@interface RBSGrant : RBSAttribute
+@end
+
+@interface RBSHereditaryGrant : RBSGrant
++ (instancetype)grantWithNamespace:(NSString *)endowmentNamespace sourceEnvironment:(NSString *)sourceEnvironment attributes:(nullable NSArray<RBSAttribute *> *)attributes;
 @end
 
 @interface RBSTarget : NSObject
@@ -94,9 +102,15 @@ typedef NS_ENUM(uint8_t, RBSTaskState) {
     RBSTaskStateRunningScheduled        = 4,
 };
 
+@interface RBSProcessEndowmentInfo : NSObject
+@property (nonatomic, readonly, copy) NSString *endowmentNamespace;
+@property (nonatomic, readonly, copy, nullable) NSString *environment;
+@end
+
 @interface RBSProcessState : NSObject
 @property (nonatomic, readonly, assign) RBSTaskState taskState;
 @property (nonatomic, readonly, copy) NSSet<NSString *> *endowmentNamespaces;
+@property (nonatomic, readonly, copy, nullable) NSSet<RBSProcessEndowmentInfo *> *endowmentInfos;
 @end
 
 extern const NSTimeInterval RBSProcessTimeLimitationNone;
@@ -109,6 +123,7 @@ extern const NSTimeInterval RBSProcessTimeLimitationNone;
 + (RBSProcessHandle *)handleForIdentifier:(RBSProcessIdentifier *)identifier error:(NSError **)outError;
 + (RBSProcessHandle *)currentProcess;
 @property (nonatomic, readonly, assign) pid_t pid;
+@property (nonatomic, readonly, assign, getter=isManaged) BOOL managed;
 @property (nonatomic, readonly, strong) RBSProcessState *currentState;
 @property (nonatomic, readonly, strong) RBSProcessLimitations *activeLimitations;
 @property (nonatomic, readonly, strong, nullable) RBSProcessHandle *hostProcess;
@@ -152,6 +167,7 @@ typedef NS_OPTIONS(NSUInteger, RBSProcessStateValues) {
     RBSProcessStateValueTerminationResistance   = (1 << 2),
     RBSProcessStateValueLegacyAssertions        = (1 << 3),
     RBSProcessStateValueModernAssertions        = (1 << 4),
+    RBSProcessStateValueEndowmentInfos          = (1 << 5),
 };
 @end
 

@@ -51,7 +51,6 @@
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Threading.h>
 #include <wtf/URLHash.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakPtr.h>
@@ -99,7 +98,7 @@ public:
         Identifier identifier() const { return m_identifier; }
 
         WEBCORE_EXPORT void didResolveRegistrationPromise(const ServiceWorkerRegistrationKey&);
-        WEBCORE_EXPORT RefPtr<SWServerRegistration> doRegistrationMatching(const SecurityOriginData& topOrigin, const URL& clientURL);
+        WEBCORE_EXPORT void doRegistrationMatching(const SecurityOriginData& topOrigin, const URL& clientURL, CompletionHandler<void(std::optional<ServiceWorkerRegistrationData>&&)>&&);
         void resolveRegistrationReadyRequests(SWServerRegistration&);
 
         using ExceptionOrBackgroundFetchInformationCallback = CompletionHandler<void(Expected<std::optional<BackgroundFetchInformation>, ExceptionData>&&)>;
@@ -179,7 +178,8 @@ public:
     WEBCORE_EXPORT SWServerRegistration* getRegistration(const ServiceWorkerRegistrationKey&);
     void addRegistration(Ref<SWServerRegistration>&&);
     void removeRegistration(ServiceWorkerRegistrationIdentifier);
-    WEBCORE_EXPORT Vector<ServiceWorkerRegistrationData> getRegistrations(const SecurityOriginData& topOrigin, const URL& clientURL);
+    WEBCORE_EXPORT void getRegistrations(const SecurityOriginData& topOrigin, const URL& clientURL, CompletionHandler<void(Vector<ServiceWorkerRegistrationData>&&)>&&);
+    WEBCORE_EXPORT RefPtr<SWServerRegistration> doRegistrationMatchingSync(const SecurityOriginData& topOrigin, const URL& clientURL);
     WEBCORE_EXPORT void storeRegistrationsOnDisk(CompletionHandler<void()>&&);
 
     WEBCORE_EXPORT void scheduleJob(ServiceWorkerJobData&&);
@@ -233,10 +233,8 @@ public:
 
     void addRegistrationFromStore(ServiceWorkerContextData&&, CompletionHandler<void()>&&);
     WEBCORE_EXPORT void didSaveWorkerScriptsToDisk(ServiceWorkerIdentifier, ScriptBuffer&& mainScript, MemoryCompactRobinHoodHashMap<URL, ScriptBuffer>&& importedScripts);
-    void registrationStoreImportComplete();
-    void registrationStoreDatabaseFailedToOpen();
-    void storeRegistrationForWorker(SWServerWorker&);
-    void loadWorkerScripts(const SWServerWorker&, CompletionHandler<void()>&&);
+    void storeRegistrationForWorkerIfNecessary(SWServerWorker&);
+    void loadWorkerScripts(const SWServerWorker&, CompletionHandler<void(bool)>&&);
 
     WEBCORE_EXPORT void getOriginsWithRegistrations(CompletionHandler<void(const HashSet<SecurityOriginData>&)>&&);
 
@@ -249,11 +247,13 @@ public:
     WEBCORE_EXPORT void removeContextConnection(SWServerToContextConnection&);
     WEBCORE_EXPORT void terminateIdleServiceWorkers(SWServerToContextConnection&);
 
-    WEBCORE_EXPORT SWServerToContextConnection* contextConnectionForRegistrableDomain(const RegistrableDomain&);
-    WEBCORE_EXPORT void createContextConnection(const Site&, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier);
+    using ContextConnectionKey = std::pair<RegistrableDomain, CrossOriginEmbedderPolicyValue>;
+    WEBCORE_EXPORT SWServerToContextConnection* contextConnectionForRegistrableDomain(const RegistrableDomain&, CrossOriginEmbedderPolicyValue);
+    WEBCORE_EXPORT void forEachContextConnectionForRegistrableDomain(const RegistrableDomain&, NOESCAPE const Function<void(SWServerToContextConnection&)>&);
+    WEBCORE_EXPORT void createContextConnection(const Site&, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CrossOriginEmbedderPolicyValue);
 
-    bool isImportCompleted() const { return m_importCompleted; }
-    WEBCORE_EXPORT void whenImportIsCompleted(CompletionHandler<void()>&&);
+    WEBCORE_EXPORT bool isImportCompletedForOrigin(const SecurityOriginData& topOrigin) const;
+    WEBCORE_EXPORT void importRegistrationsForOrigin(const SecurityOriginData& topOrigin, CompletionHandler<void()>&&);
 
     void softUpdate(SWServerRegistration&);
 
@@ -304,6 +304,7 @@ public:
     WEBCORE_EXPORT void postMessageToServiceWorkerClient(ScriptExecutionContextIdentifier, const MessageWithMessagePorts&, ServiceWorkerIdentifier, const SecurityOriginData&, NOESCAPE const Function<void(ScriptExecutionContextIdentifier, const MessageWithMessagePorts&, const ServiceWorkerData&, const SecurityOriginData&)>&);
 
     WEBCORE_EXPORT OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtectionsFromClient(const ClientOrigin&) const;
+    WEBCORE_EXPORT std::optional<bool> globalPrivacyControlEnabledFromClient(const ClientOrigin&) const;
 
     bool isProcessTerminationDelayEnabled() const { return m_isProcessTerminationDelayEnabled; }
 
@@ -315,6 +316,8 @@ public:
 
     WEBCORE_EXPORT void addRoutes(ServiceWorkerRegistrationIdentifier, Vector<ServiceWorkerRoute>&&, CompletionHandler<void(Expected<void, ExceptionData>&&)>&&);
     WEBCORE_EXPORT bool addHandlerIfHasControlledClients(CompletionHandler<void()>&&);
+
+    bool hasPendingConnectionDomain(const ContextConnectionKey& key) const { return m_pendingConnectionDomains.contains(key); }
 
 private:
     SWServer(SWServerDelegate&, UniqueRef<SWOriginStore>&&, bool processTerminationDelayEnabled, String&& registrationDatabaseDirectory, PAL::SessionID, bool shouldRunServiceWorkersOnMainThreadForTesting, bool hasServiceWorkerEntitlement, std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue, ServiceWorkerIsInspectable);
@@ -334,9 +337,8 @@ private:
 
     void terminatePreinstallationWorker(SWServerWorker&);
 
-    void clearInternal(Function<bool(const ServiceWorkerRegistrationKey&)>&& matches, CompletionHandler<void()>&&);
+    void clearInternal(const SecurityOriginData& topOrigin, Function<bool(const ServiceWorkerRegistrationKey&)>&& matches, CompletionHandler<void()>&&);
 
-    WEBCORE_EXPORT RefPtr<SWServerRegistration> doRegistrationMatching(const SecurityOriginData& topOrigin, const URL& clientURL);
     void runServiceWorkerIfNecessary(SWServerWorker&, RunServiceWorkerCallback&&);
     bool runServiceWorker(ServiceWorkerIdentifier);
     bool runServiceWorker(SWServerWorker&);
@@ -344,14 +346,16 @@ private:
     void tryInstallContextData(const std::optional<ProcessIdentifier>&, ServiceWorkerContextData&&);
     void installContextData(const ServiceWorkerContextData&);
 
-    SWServerRegistration* registrationFromServiceWorkerIdentifier(ServiceWorkerIdentifier);
+    SWServerRegistration* NODELETE registrationFromServiceWorkerIdentifier(ServiceWorkerIdentifier);
 
     void performGetOriginsWithRegistrationsCallbacks();
+    HashSet<ClientOrigin> allClientOrigins() const;
 
     void contextConnectionCreated(SWServerToContextConnection&);
 
     void updateAppInitiatedValueForWorkers(const ClientOrigin&, LastNavigationWasAppInitiated);
-    void whenImportIsCompletedIfNeeded(CompletionHandler<void()>&&);
+    void originImportComplete(const SecurityOriginData& topOrigin, MonotonicTime startTime);
+    void fireAllOriginImportCallbacks();
 
     ResourceRequest createScriptRequest(const URL&, const ServiceWorkerJobData&, SWServerRegistration&);
 
@@ -384,22 +388,29 @@ private:
 
     const UniqueRef<SWOriginStore> m_originStore;
     RefPtr<SWRegistrationStore> m_registrationStore;
-    HashMap<RegistrableDomain, Vector<ServiceWorkerContextData>> m_pendingContextDatas;
-    HashMap<RegistrableDomain, HashMap<ServiceWorkerIdentifier, Vector<RunServiceWorkerCallback>>> m_serviceWorkerRunRequests;
+    HashMap<ContextConnectionKey, Vector<ServiceWorkerContextData>> m_pendingContextDatas;
+    HashMap<ContextConnectionKey, HashMap<ServiceWorkerIdentifier, Vector<RunServiceWorkerCallback>>> m_serviceWorkerRunRequests;
     PAL::SessionID m_sessionID;
-    bool m_importCompleted { false };
     bool m_isProcessTerminationDelayEnabled { true };
-    Vector<CompletionHandler<void()>> m_clearCompletionCallbacks;
     Vector<CompletionHandler<void(const HashSet<SecurityOriginData>&)>> m_getOriginsWithRegistrationsCallbacks;
-    HashMap<RegistrableDomain, WeakRef<SWServerToContextConnection>> m_contextConnections;
+    Vector<CompletionHandler<void(HashSet<ClientOrigin>&&)>> m_getAllOriginsCallbacks;
+    HashMap<ContextConnectionKey, WeakRef<SWServerToContextConnection>> m_contextConnections;
 
-    HashSet<RegistrableDomain> m_pendingConnectionDomains;
-    Vector<CompletionHandler<void()>> m_importCompletedCallbacks;
+    HashSet<ContextConnectionKey> m_pendingConnectionDomains;
+
+    // Top origins whose registrations have been fully imported from the store into m_scopeToRegistrationMap.
+    HashSet<SecurityOriginData> m_importedTopOrigins;
+    // Origins known to have registrations on disk but not yet imported. Populated by the origin list import at startup,
+    // and drained as origins are lazily imported.
+    HashSet<ClientOrigin> m_originsYetToBeImported;
+    HashMap<SecurityOriginData, Vector<CompletionHandler<void()>>> m_pendingOriginImportCallbacks;
 
     HashSet<RegistrableDomain> m_appBoundDomains;
     bool m_shouldRunServiceWorkersOnMainThreadForTesting { false };
     bool m_hasServiceWorkerEntitlement { false };
     bool m_hasReceivedAppBoundDomains { false };
+    bool m_originListImportComplete { false };
+    uint64_t m_clearAllCounter { 0 };
     unsigned m_uniqueRegistrationCount { 0 };
     std::optional<unsigned> m_overrideServiceWorkerRegistrationCountTestingValue;
     uint64_t m_focusOrder { 0 };

@@ -27,6 +27,7 @@
 #include <WebCore/CSSProperty.h>
 #include <WebCore/CSSPropertyNames.h>
 #include <WebCore/CSSStyleDeclaration.h>
+#include <WebCore/MutableStyleProperties.h>
 #include <WebCore/StyleRuleType.h>
 #include <WebCore/StyledElement.h>
 #include <wtf/HashMap.h>

@@ -61,11 +61,6 @@
 #include "RemoteCDMInstanceProxy.h"
 #endif
 
-#if ENABLE(MEDIA_SOURCE)
-#include "RemoteMediaSourceIdentifier.h"
-#include "RemoteMediaSourceProxy.h"
-#endif
-
 #if PLATFORM(COCOA)
 #include "SharedCARingBuffer.h"
 #endif
@@ -129,7 +124,6 @@ public:
 
     WebCore::MediaPlayerIdentifier identifier() const { return m_id; }
     void invalidate();
-    void connectionToWebProcessClosed();
 
     // Ensure that all previously queued messages to the content process have completed.
     Ref<WebCore::MediaPromise> commitAllTransactions();
@@ -157,9 +151,6 @@ public:
     void prepareForRendering();
 
     void load(URL&&, std::optional<SandboxExtension::Handle>&&, const WebCore::MediaPlayerLoadOptions&, CompletionHandler<void(RemoteMediaPlayerConfiguration&&)>&&);
-#if ENABLE(MEDIA_SOURCE)
-    void loadMediaSource(URL&&, const WebCore::MediaPlayerLoadOptions&, RemoteMediaSourceIdentifier, CompletionHandler<void(RemoteMediaPlayerConfiguration&&)>&&);
-#endif
     void cancelLoad();
 
     void prepareToPlay();
@@ -167,7 +158,7 @@ public:
     void play();
     void pause();
 
-    void seekToTarget(const WebCore::SeekTarget&);
+    void seekToTarget(const WebCore::SeekTarget&, CompletionHandler<void(Expected<WebCore::MediaTimeUpdateData, WebCore::PlatformMediaError>)>&&);
 
     void setVolumeLocked(bool);
     void setVolume(double);
@@ -179,6 +170,9 @@ public:
     void setPitchCorrectionAlgorithm(WebCore::MediaPlayer::PitchCorrectionAlgorithm);
 
     void setPageIsVisible(bool);
+
+    using ViewportVisibility = WebCore::MediaPlayer::ViewportVisibility;
+    void setViewportVisibility(ViewportVisibility);
     void setShouldMaintainAspectRatio(bool);
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void setVideoFullscreenGravity(WebCore::MediaPlayerEnums::VideoGravity);
@@ -216,8 +210,6 @@ public:
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(ENCRYPTED_MEDIA)
     void setShouldContinueAfterKeyNeeded(bool);
 #endif
-
-    void notifyActiveSourceBuffersChanged();
 
     void applicationWillResignActive();
     void applicationDidBecomeActive();
@@ -258,7 +250,6 @@ private:
     void mediaPlayerReadyStateChanged() final;
     void mediaPlayerVolumeChanged() final;
     void mediaPlayerMuteChanged() final;
-    void mediaPlayerSeeked(const MediaTime&) final;
     void mediaPlayerTimeChanged() final;
     void mediaPlayerDurationChanged() final;
     void mediaPlayerSizeChanged() final;
@@ -266,7 +257,6 @@ private:
     void mediaPlayerPlaybackStateChanged() final;
     void mediaPlayerResourceNotSupported() final;
     void mediaPlayerEngineFailedToLoad() final;
-    void mediaPlayerActiveSourceBuffersChanged() final;
     void mediaPlayerBufferedTimeRangesChanged() final;
     void mediaPlayerSeekableTimeRangesChanged() final;
     bool mediaPlayerRenderingCanBeAccelerated() final;
@@ -400,6 +390,10 @@ private:
     void setHasMessageClientForTesting(bool);
     void sendInternalMessage(const WebCore::MessageForTesting&) final;
 
+#if PLATFORM(MAC)
+    void screenReservedChanged(bool);
+#endif
+
 #if !RELEASE_LOG_DISABLED
     const Logger& mediaPlayerLogger() final { return m_logger; }
     uint64_t mediaPlayerLogIdentifier() { return m_configuration.logIdentifier; }
@@ -425,9 +419,6 @@ private:
     RemoteMediaPlayerState m_cachedState;
     RemoteMediaPlayerProxyConfiguration m_configuration;
     PerformTaskAtTimeCompletionHandler m_performTaskAtTimeCompletionHandler;
-#if ENABLE(MEDIA_SOURCE)
-    RefPtr<RemoteMediaSourceProxy> m_mediaSourceProxy;
-#endif
 
     Seconds m_videoPlaybackMetricsUpdateInterval;
     MonotonicTime m_nextPlaybackQualityMetricsUpdateTime;

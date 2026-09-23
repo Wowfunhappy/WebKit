@@ -73,9 +73,9 @@ public:
 
     Device& device() const { return m_device; }
     void makeInvalid();
-    size_t sizeOfVertexDynamicOffsets() const;
-    size_t sizeOfFragmentDynamicOffsets() const;
-    size_t sizeOfComputeDynamicOffsets() const;
+    size_t NODELETE sizeOfVertexDynamicOffsets() const;
+    size_t NODELETE sizeOfFragmentDynamicOffsets() const;
+    size_t NODELETE sizeOfComputeDynamicOffsets() const;
 
     bool updateVertexOffsets(uint32_t, const Vector<uint32_t>&, std::span<uint32_t> destination);
     bool updateFragmentOffsets(uint32_t, const Vector<uint32_t>&, std::span<uint32_t> destination);
@@ -88,9 +88,9 @@ private:
     PipelineLayout(Device&);
 
     using DynamicOffsetMapValue = std::optional<uint32_t>;
-    DynamicOffsetMapValue vertexOffsetForBindGroup(uint32_t) const;
-    DynamicOffsetMapValue fragmentOffsetForBindGroup(uint32_t) const;
-    DynamicOffsetMapValue computeOffsetForBindGroup(uint32_t) const;
+    DynamicOffsetMapValue NODELETE vertexOffsetForBindGroup(uint32_t) const;
+    DynamicOffsetMapValue NODELETE fragmentOffsetForBindGroup(uint32_t) const;
+    DynamicOffsetMapValue NODELETE computeOffsetForBindGroup(uint32_t) const;
 
     std::optional<Vector<Ref<BindGroupLayout>>> m_bindGroupLayouts;
     using DynamicOffsetMap = HashMap<uint32_t, DynamicOffsetMapValue, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;

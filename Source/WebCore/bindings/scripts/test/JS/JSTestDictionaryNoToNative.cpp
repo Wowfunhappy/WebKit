@@ -21,10 +21,10 @@
 #include "config.h"
 #include "JSTestDictionaryNoToNative.h"
 
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertOptional.h"
 #include "JSDOMGlobalObject.h"
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <type_traits>
 #include <wtf/IsIncreasing.h>
@@ -49,7 +49,7 @@ JSC::JSObject* convertDictionaryToJS(JSC::JSGlobalObject& lexicalGlobalObject, J
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    auto result = constructEmptyObject(&lexicalGlobalObject, globalObject.objectPrototype());
+    auto result = WebCore::constructEmptyObject(&lexicalGlobalObject, globalObject.objectPrototype());
 
     if (!IDLDouble::isNullValue(dictionary.member)) {
         auto memberValue = toJS<IDLDouble>(lexicalGlobalObject, throwScope, IDLDouble::extractValueFromNullable(dictionary.member));
@@ -83,7 +83,7 @@ template<> ConversionResult<IDLDictionary<TestDictionaryNoToNative::GenerateKeyw
     if (isNullOrUndefined)
         memberValue = jsUndefined();
     else {
-        memberValue = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "member"_s));
+        memberValue = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "member"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto memberConversionResult = convert<IDLOptional<IDLDouble>>(lexicalGlobalObject, memberValue);

@@ -955,6 +955,9 @@ end
 def readTextFile(fileName)
     data = IO::read(fileName)
 
+    # https://commits.webkit.org/310937@main broke builds because the files contained non-ASCII characters. Let's forbid non-ASCII early so we don't hit problems downstream.
+    raise "#{fileName} contains non-ASCII characters" unless data.ascii_only?
+
     # On Windows, files may contain CRLF line endings (for example, git client might
     # automatically replace \n with \r\n on Windows) which will fail our parsing.
     # Thus, we'll just remove all \r from the data (keeping just the \n characters)

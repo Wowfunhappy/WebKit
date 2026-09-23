@@ -36,14 +36,12 @@
 #include "ExceptionOr.h"
 #include "StyleBuilder.h"
 #include "StyleCustomPropertyRegistry.h"
+#include "StyleDocumentScope.h"
 #include "StyleResolver.h"
-#include "StyleScope.h"
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DOMCSSRegisterCustomProperty);
-
-using namespace Style;
 
 ExceptionOr<void> DOMCSSRegisterCustomProperty::registerProperty(Document& document, const DOMCSSCustomPropertyDescriptor& descriptor)
 {
@@ -63,18 +61,18 @@ ExceptionOr<void> DOMCSSRegisterCustomProperty::registerProperty(Document& docum
     if (!descriptor.initialValue.isNull()) {
         CSSTokenizer tokenizer(descriptor.initialValue);
 
-        auto parsedInitialValue = CustomPropertyRegistry::parseInitialValue(document, descriptor.name, *syntax, tokenizer.tokenRange());
+        auto parsedInitialValue = Style::CustomPropertyRegistry::parseInitialValue(document, descriptor.name, *syntax, tokenizer.tokenRange());
 
         if (!parsedInitialValue) {
-            if (parsedInitialValue.error() == CustomPropertyRegistry::ParseInitialValueError::NotComputationallyIndependent)
+            if (parsedInitialValue.error() == Style::CustomPropertyRegistry::ParseInitialValueError::NotComputationallyIndependent)
                 return Exception { ExceptionCode::SyntaxError, "The given initial value must be computationally independent."_s };
 
-            ASSERT(parsedInitialValue.error() == CustomPropertyRegistry::ParseInitialValueError::DidNotParse);
+            ASSERT(parsedInitialValue.error() == Style::CustomPropertyRegistry::ParseInitialValueError::DidNotParse);
             return Exception { ExceptionCode::SyntaxError, "The given initial value does not parse for the given syntax."_s };
         }
 
         initialValue = parsedInitialValue->first;
-        if (parsedInitialValue->second == CustomPropertyRegistry::ViewportUnitDependency::Yes) {
+        if (parsedInitialValue->second == Style::CustomPropertyRegistry::ViewportUnitDependency::Yes) {
             initialValueTokensForViewportUnits = CSSVariableData::create(tokenizer.tokenRange());
             document.setHasStyleWithViewportUnits();
         }

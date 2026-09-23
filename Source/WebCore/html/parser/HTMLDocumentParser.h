@@ -72,7 +72,7 @@ public:
     HTMLTokenizer& tokenizer() LIFETIME_BOUND;
     TextPosition textPosition() const final;
 
-    bool isOnStackOfOpenElements(Element&) const;
+    bool NODELETE isOnStackOfOpenElements(Element&) const;
 
 protected:
     explicit HTMLDocumentParser(HTMLDocument&, OptionSet<ParserContentPolicy> = DefaultParserContentPolicy);
@@ -132,7 +132,7 @@ private:
     void end();
 
     bool NODELETE isParsingFragment() const;
-    bool isScheduledForResume() const;
+    bool NODELETE isScheduledForResume() const;
     bool NODELETE inPumpSession() const;
     bool shouldDelayEnd() const;
 

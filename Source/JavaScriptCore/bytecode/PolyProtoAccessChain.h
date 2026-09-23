@@ -49,9 +49,9 @@ public:
 
     void dump(Structure* baseStructure, PrintStream& out) const;
 
-    bool operator==(const PolyProtoAccessChain&) const;
+    bool NODELETE operator==(const PolyProtoAccessChain&) const;
 
-    bool needImpurePropertyWatchpoint(VM&) const;
+    bool NODELETE needImpurePropertyWatchpoint(VM&) const;
 
     template <typename Func>
     void forEach(VM&, Structure* baseStructure, const Func& func) const

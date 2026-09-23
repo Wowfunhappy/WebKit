@@ -37,7 +37,7 @@ function adopt(value, onAsyncDispose)
     if (!@isCallable(onAsyncDispose))
         @throwTypeError("AsyncDisposableStack.prototype.adopt requires that onAsyncDispose argument be a callable");
 
-    var closure = () => { onAsyncDispose.@call(@undefined, value); }
+    var closure = () => onAsyncDispose.@call(@undefined, value);
     @addDisposableResource(@getAsyncDisposableStackInternalField(this, @asyncDisposableStackFieldCapability), @undefined, /* isAsync */ true, closure);
 
     return value;
@@ -88,6 +88,8 @@ function disposeAsync()
     var i = stack.length;
     var thrown = false;
     var suppressed;
+    var needsAwait = false;
+    var hasAwaited = false;
 
     var handleError = (result) => {
         if (thrown)
@@ -99,20 +101,40 @@ function disposeAsync()
         loop();
     };
 
+    var finish = () => {
+        if (thrown)
+            @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, suppressed);
+        else
+            @resolvePromiseWithFirstResolvingFunctionCallCheck(promise, @undefined);
+    };
+
     var loop = () => {
-        if (i) {
+        while (i) {
             var resource = stack[--i];
-            try {
-                @promiseResolve(@Promise, resource.method.@call(resource.value)).@then(loop, handleError);
-            } catch (error) {
-                handleError(error);
+            if (resource.method === @undefined) {
+                needsAwait = true;
+                continue;
             }
-        } else {
-            if (thrown)
-                @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, suppressed);
-            else
-               @resolvePromiseWithFirstResolvingFunctionCallCheck(promise, @undefined);
+            var result;
+            try {
+                result = resource.method.@call(resource.value);
+            } catch (error) {
+                if (thrown)
+                    suppressed = new @SuppressedError(error, suppressed);
+                else {
+                    thrown = true;
+                    suppressed = error;
+                }
+                continue;
+            }
+            hasAwaited = true;
+            @promiseResolve(@Promise, result).@then(loop, handleError);
+            return;
         }
+        if (needsAwait && !hasAwaited)
+            @promiseResolve(@Promise, @undefined).@then(finish, finish);
+        else
+            finish();
     };
 
     loop();
@@ -153,7 +175,7 @@ function use(value)
     if (@getAsyncDisposableStackInternalField(this, @asyncDisposableStackFieldState) === @AsyncDisposableStackStateDisposed)
         throw new @ReferenceError("AsyncDisposableStack.prototype.use requires that |this| be a pending AsyncDisposableStack object");
 
-    @addDisposableResource(@getDisposableStackInternalField(this, @disposableStackFieldCapability), value, /* isAsync */ true);
+    @addDisposableResource(@getAsyncDisposableStackInternalField(this, @asyncDisposableStackFieldCapability), value, /* isAsync */ true);
 
     return value;
 }

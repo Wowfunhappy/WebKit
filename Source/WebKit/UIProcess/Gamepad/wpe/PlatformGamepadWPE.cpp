@@ -29,6 +29,7 @@
 #include "GamepadProviderWPE.h"
 
 #if ENABLE(GAMEPAD) && ENABLE(WPE_PLATFORM)
+#include <WebCore/SharedGamepadValue.h>
 #include <wpe/wpe-platform.h>
 #include <wtf/TZoneMallocInlines.h>
 

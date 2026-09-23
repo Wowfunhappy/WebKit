@@ -62,12 +62,12 @@ struct CGSubimageRequest {
 };
 
 struct CGSubimageCacheAdder {
-    static unsigned hash(const CGSubimageRequest& value)
+    static unsigned NODELETE hash(const CGSubimageRequest& value)
     {
         return CGSubimageCacheWithTimer::CacheHash::hash(value.image.get(), value.rect);
     }
 
-    static bool equal(const CGSubimageCacheWithTimer::CacheEntry& a, const CGSubimageRequest& b)
+    static bool NODELETE equal(const CGSubimageCacheWithTimer::CacheEntry& a, const CGSubimageRequest& b)
     {
         return a.image == b.image && a.rect == b.rect;
     }

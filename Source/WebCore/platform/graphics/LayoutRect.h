@@ -176,8 +176,8 @@ public:
         return maxX > LayoutUnit::nearlyMin() && maxX < LayoutUnit::nearlyMax() && maxY > LayoutUnit::nearlyMin() && maxY < LayoutUnit::nearlyMax();
     }
     
-    bool intersects(const LayoutRect&) const;
-    WEBCORE_EXPORT bool contains(const LayoutRect&) const;
+    bool NODELETE intersects(const LayoutRect&) const;
+    WEBCORE_EXPORT bool NODELETE contains(const LayoutRect&) const;
     bool containsX(const LayoutRect& other) const { return x() <= other.x() && other.maxX() <= maxX(); }
     bool containsY(const LayoutRect& other) const { return y() <= other.y() && other.maxY() <= maxY(); }
 
@@ -187,7 +187,7 @@ public:
         { return px >= x() && px < maxX() && py >= y() && py < maxY(); }
     bool contains(const LayoutPoint& point) const { return contains(point.x(), point.y()); }
 
-    void intersect(const LayoutRect&);
+    WEBCORE_EXPORT void intersect(const LayoutRect&);
     bool edgeInclusiveIntersect(const LayoutRect&);
     WEBCORE_EXPORT void unite(const LayoutRect&);
     void uniteEvenIfEmpty(const LayoutRect&);

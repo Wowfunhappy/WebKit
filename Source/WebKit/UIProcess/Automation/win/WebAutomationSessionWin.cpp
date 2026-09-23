@@ -359,7 +359,7 @@ void WebAutomationSession::platformSimulateKeySequence(WebPageProxy& page, const
     //        If we need that information, the 4th argument should be set to an appropriate value, not 0.
     // https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-char
     // https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input#keystroke-message-flags
-    NativeWebKeyboardEvent event(hwnd, WM_CHAR, keySequence.characterAt(0), 0, { });
+    NativeWebKeyboardEvent event(hwnd, WM_CHAR, keySequence.codeUnitAt(0), 0, { });
     page.handleKeyboardEvent(event);
 }
 

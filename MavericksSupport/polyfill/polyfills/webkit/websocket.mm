@@ -155,6 +155,7 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     BOOL _awaitingCredential;       // the connection is held while the session delegate chooses a credential
     NSString *_targetHost;          // origin host (for CONNECT + TLS peer name)
     UInt32 _targetPort;             // origin port
+    BOOL _forwardedByProxy;         // ws:// sent to an HTTP proxy as an absolute-form request
 
     NSMutableData *_inBuffer;       // raw bytes from the socket (handshake then frames)
     NSMutableData *_outBuffer;      // bytes pending write to the socket
@@ -1006,7 +1007,10 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
     // PAC scripts and an implicit loopback exclusion, and reading the fields alone tunnels hosts the rest
     // of the system reaches directly. That is answered per URL, so it is asked per URL here, with the
     // http(s) form of the target that CFNetwork resolves proxies against.
-    NSDictionary *sys = (__bridge_transfer NSDictionary *)CFNetworkCopySystemProxySettings();
+    // A session routes its tasks by its configuration's proxy dictionary; an empty one means the system settings.
+    NSDictionary *sys = _session.configuration.connectionProxyDictionary;
+    if (!sys.count)
+        sys = (__bridge_transfer NSDictionary *)CFNetworkCopySystemProxySettings();
     NSString *proxyHost = nil;
     NSNumber *proxyPort = nil;
     // An IPv6 literal reaches here unbracketed, because -[NSURL host] strips the brackets. Handing that
@@ -1058,11 +1062,14 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
     curl_easy_setopt(_curl, CURLOPT_OPENSOCKETDATA, _gate);
     curl_easy_setopt(_curl, CURLOPT_CLOSESOCKETFUNCTION, cocoaCurlSocketGateClose);
     curl_easy_setopt(_curl, CURLOPT_CLOSESOCKETDATA, _gate);
+    _forwardedByProxy = NO;
     if (proxyHost.length) {
         NSString *proxyURL = [NSString stringWithFormat:@"http://%@:%u", proxyHost,
             proxyPort ? proxyPort.unsignedIntValue : (secure ? 443 : 80)];
         curl_easy_setopt(_curl, CURLOPT_PROXY, proxyURL.UTF8String);
-        curl_easy_setopt(_curl, CURLOPT_HTTPPROXYTUNNEL, 1L);
+        // An HTTP proxy forwards a ws:// upgrade in absolute form; wss:// is tunnelled.
+        _forwardedByProxy = !secure;
+        curl_easy_setopt(_curl, CURLOPT_HTTPPROXYTUNNEL, secure ? 1L : 0L);
     } else {
         curl_easy_setopt(_curl, CURLOPT_PROXY, "");
         curl_easy_setopt(_curl, CURLOPT_NOPROXY, "*");
@@ -1370,10 +1377,13 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
     // The port is omitted only when it is the default FOR THIS SCHEME, as WebSocketHandshake's
     // hostName() does: "ws://h:443" must send "Host: h:443", and "wss://h:80" must send "Host: h:80".
     BOOL defaultPort = (url.port == nil) || (url.port.unsignedIntValue == (_secure ? 443 : 80));
-    NSString *hostHeader = defaultPort ? url.host : [NSString stringWithFormat:@"%@:%@", url.host, url.port];
+    // -[NSURL host] answers an IPv6 literal without its brackets, which the Host header keeps.
+    NSString *host = [url.host rangeOfString:@":"].location != NSNotFound ? [NSString stringWithFormat:@"[%@]", url.host] : url.host;
+    NSString *hostHeader = defaultPort ? host : [NSString stringWithFormat:@"%@:%@", host, url.port];
+    NSString *target = _forwardedByProxy ? [NSString stringWithFormat:@"ws://%@%@", hostHeader, resource] : resource;
 
     NSMutableString *req = [NSMutableString string];
-    [req appendFormat:@"GET %@ HTTP/1.1\r\n", resource];
+    [req appendFormat:@"GET %@ HTTP/1.1\r\n", target];
     [req appendFormat:@"Host: %@\r\n", hostHeader];
     [req appendString:@"Upgrade: websocket\r\n"];
     [req appendString:@"Connection: Upgrade\r\n"];

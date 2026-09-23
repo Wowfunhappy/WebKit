@@ -69,9 +69,6 @@ private:
 
     void setLabelInternal(const String&) final;
 
-    TextureFormat m_format { TextureFormat::Rgba8unorm };
-    TextureDimension m_dimension { TextureDimension::_2d };
-
     WebGPUPtr<WGPUTexture> m_backing;
     const Ref<ConvertToBackingContext> m_convertToBackingContext;
 };

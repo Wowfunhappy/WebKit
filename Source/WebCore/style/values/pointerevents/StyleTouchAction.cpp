@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleTouchAction.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -32,8 +33,8 @@ namespace Style {
 
 auto CSSValueConversion<TouchAction>::operator()(BuilderState& state, const CSSValue& value) -> TouchAction
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueAuto:
             return CSS::Keyword::Auto { };
         case CSSValueNone:
@@ -52,7 +53,7 @@ auto CSSValueConversion<TouchAction>::operator()(BuilderState& state, const CSSV
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::Auto { };
 

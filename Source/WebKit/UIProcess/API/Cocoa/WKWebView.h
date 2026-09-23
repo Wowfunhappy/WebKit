@@ -49,11 +49,17 @@ NS_ASSUME_NONNULL_BEGIN
 @class WKFindConfiguration;
 @class WKFindResult;
 @class WKFrameInfo;
+@class WKImmersiveEnvironment;
 @class WKNavigation;
 @class WKPDFConfiguration;
 @class WKSnapshotConfiguration;
 @class WKWebViewConfiguration;
 
+#if TARGET_OS_OSX
+@class NSRefreshController;
+#endif
+
+@protocol WKImmersiveEnvironmentDelegate;
 @protocol WKNavigationDelegate;
 @protocol WKUIDelegate;
 
@@ -130,7 +136,7 @@ typedef NS_ENUM(NSInteger, WKFullscreenState) {
  @param url The URL to which to navigate.
  @result A new navigation for the given request.
  */
-- (nullable WKNavigation *)loadURL:(NSURL *)url NS_SWIFT_NAME(load(_:)) WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+- (nullable WKNavigation *)loadURL:(NSURL *)url NS_SWIFT_NAME(load(_:)) WK_API_AVAILABLE(macos(27.0), ios(27.0), visionos(27.0));
 
 /*! @abstract Navigates to the requested file URL on the filesystem.
  @param URL The file URL to which to navigate.
@@ -726,8 +732,22 @@ typedef NS_OPTIONS(NSUInteger, WKWebViewDataType) {
 @property (nonatomic) UIEdgeInsets obscuredContentInsets WK_API_AVAILABLE(ios(26.0), visionos(26.0));
 #endif
 
-#if 0 // API_WEBKIT_ADDITIONS_REPLACEMENT
-#import <WebKitAdditions/WKWebViewAdditions.h>
+#if defined(TARGET_OS_VISION) && TARGET_OS_VISION
+/*! @abstract The delegate that manages immersive environment presentation.
+ */
+@property (nullable, nonatomic, weak) id <WKImmersiveEnvironmentDelegate> immersiveEnvironmentDelegate WK_API_AVAILABLE(visionos(27.0));
+
+/*! @abstract Dismisses the currently presented immersive environment.
+ */
+- (void)dismissImmersiveEnvironmentWithCompletionHandler:(NS_SWIFT_UI_ACTOR void (^)(void))completionHandler NS_SWIFT_ASYNC_NAME(dismissImmersiveEnvironment()) WK_API_AVAILABLE(visionos(27.0));
+#endif
+
+#if TARGET_OS_OSX && __MAC_OS_X_VERSION_MIN_REQUIRED >= 270000
+/* @abstract The refresh controller associated with the web view.
+ @discussion Setting this property adds the refresh controller above the web
+ content when scrolling past the top of the page.
+ */
+@property (strong, nullable) NSRefreshController *refreshController WK_API_AVAILABLE(macos(27.0));
 #endif
 
 @end

@@ -28,6 +28,8 @@
 
 #include <JavaScriptCore/Debugger.h>
 #include <JavaScriptCore/JSRunLoopTimer.h>
+#include <JavaScriptCore/Strong.h>
+#include <JavaScriptCore/VM.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/WorkerThreadType.h>
 #include <wtf/CheckedPtr.h>
@@ -100,8 +102,10 @@ public:
     void disableWebAssembly(const String& errorMessage);
     void setTrustedTypesEnforcement(JSC::TrustedTypesEnforcement);
 
+    enum class ParseResult : bool { Failed, Succeeded };
+
     void evaluate(const ScriptSourceCode&, String* returnedExceptionMessage = nullptr);
-    void evaluate(const ScriptSourceCode&, NakedPtr<JSC::Exception>& returnedException, String* returnedExceptionMessage = nullptr);
+    ParseResult evaluate(const ScriptSourceCode&, NakedPtr<JSC::Exception>& returnedException, String* returnedExceptionMessage = nullptr);
 
     JSC::JSValue evaluateModule(const URL&, JSC::AbstractModuleRecord&, JSC::JSValue awaitedValue, JSC::JSValue resumeMode);
 

@@ -2,6 +2,9 @@ ifneq ($(USE_WORKSPACE),NO)
 
 SCHEME = Everything up to WebKit + Tools
 SCRIPTS_PATH = Tools/Scripts
+
+analyze: SCHEME = Everything up to WebKit
+
 include Makefile.shared
 
 else

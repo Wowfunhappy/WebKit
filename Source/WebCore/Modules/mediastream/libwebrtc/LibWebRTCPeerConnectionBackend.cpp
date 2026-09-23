@@ -282,18 +282,18 @@ void LibWebRTCPeerConnectionBackend::doAddIceCandidate(RTCIceCandidate& candidat
     m_endpoint->addIceCandidate(WTF::move(rtcCandidate), WTF::move(callback));
 }
 
-Ref<RTCRtpReceiver> LibWebRTCPeerConnectionBackend::createReceiver(UniqueRef<LibWebRTCRtpReceiverBackend>&& backend)
+Ref<RTCRtpReceiver> LibWebRTCPeerConnectionBackend::createReceiver(LibWebRTCRtpReceiverBackendAndSource&& backendAndSource)
 {
     Ref document = downcast<Document>(*m_peerConnection->scriptExecutionContext());
 
-    auto source = backend->createSource(document.get());
+    auto sourceId = backendAndSource.source->persistentID();
+    auto trackId = createVersion4UUIDString();
+    m_trackIds.add(WTF::move(sourceId), trackId);
 
-    // Remote source is initially muted and will be unmuted when receiving the first packet.
-    source->setMuted(true);
-    Ref remoteTrackPrivate = MediaStreamTrackPrivate::create(document->logger(), WTF::move(source), createVersion4UUIDString());
+    Ref remoteTrackPrivate = MediaStreamTrackPrivate::create(document->logger(), WTF::move(backendAndSource.source), WTF::move(trackId));
     Ref remoteTrack = MediaStreamTrack::create(document.get(), WTF::move(remoteTrackPrivate));
 
-    return RTCRtpReceiver::create(*this, WTF::move(remoteTrack), WTF::move(backend));
+    return RTCRtpReceiver::create(*this, WTF::move(remoteTrack), WTF::move(backendAndSource.backend));
 }
 
 std::unique_ptr<RTCDataChannelHandler> LibWebRTCPeerConnectionBackend::createDataChannelHandler(const String& label, const RTCDataChannelInit& options)
@@ -332,7 +332,10 @@ ExceptionOr<Ref<RTCRtpSender>> LibWebRTCPeerConnectionBackend::addTrack(MediaStr
 
     Ref sender = RTCRtpSender::create(peerConnection, track, WTF::move(senderBackend));
     sender->setMediaStreamIds(mediaStreamIds);
-    Ref receiver = createReceiver(transceiverBackend->createReceiverBackend());
+
+    Ref document = downcast<Document>(*m_peerConnection->scriptExecutionContext());
+    Ref receiver = createReceiver(transceiverBackend->createReceiverBackend(document.get()));
+
     Ref transceiver = RTCRtpTransceiver::create(sender.copyRef(), WTF::move(receiver), makeUniqueRefFromNonNullUniquePtr(WTF::move(transceiverBackend)));
     peerConnection->addInternalTransceiver(WTF::move(transceiver));
     return sender;
@@ -348,7 +351,7 @@ ExceptionOr<Ref<RTCRtpTransceiver>> LibWebRTCPeerConnectionBackend::addTransceiv
     auto backends = result.releaseReturnValue();
     Ref peerConnection = m_peerConnection;
     Ref sender = RTCRtpSender::create(peerConnection, std::forward<T>(trackOrKind), WTF::move(backends.senderBackend));
-    auto receiver = createReceiver(WTF::move(backends.receiverBackend));
+    auto receiver = createReceiver(WTF::move(backends.receiverBackendAndSource));
     auto transceiver = RTCRtpTransceiver::create(WTF::move(sender), WTF::move(receiver), WTF::move(backends.transceiverBackend));
     peerConnection->addInternalTransceiver(transceiver.copyRef());
     return transceiver;
@@ -369,16 +372,14 @@ void LibWebRTCPeerConnectionBackend::setSenderSourceFromTrack(LibWebRTCRtpSender
     m_endpoint->setSenderSourceFromTrack(sender, track);
 }
 
-static inline LibWebRTCRtpTransceiverBackend& NODELETE backendFromRTPTransceiver(RTCRtpTransceiver& transceiver)
-{
-    return downcast<LibWebRTCRtpTransceiverBackend>(transceiver.backend());
-}
-
 void LibWebRTCPeerConnectionBackend::addInternalTransceiver(UniqueRef<LibWebRTCRtpTransceiverBackend>&& transceiverBackend, RealtimeMediaSource::Type type)
 {
     Ref peerConnection = m_peerConnection;
     Ref sender = RTCRtpSender::create(peerConnection, type == RealtimeMediaSource::Type::Audio ? "audio"_s : "video"_s, transceiverBackend->createSenderBackend(*this, nullptr));
-    Ref receiver = createReceiver(transceiverBackend->createReceiverBackend());
+
+    Ref document = downcast<Document>(*m_peerConnection->scriptExecutionContext());
+    Ref receiver = createReceiver(transceiverBackend->createReceiverBackend(document.get()));
+
     Ref transceiver = RTCRtpTransceiver::create(WTF::move(sender), WTF::move(receiver), WTF::move(transceiverBackend));
     peerConnection->addInternalTransceiver(WTF::move(transceiver));
 }

@@ -67,14 +67,13 @@ public:
 #endif
 
     WEBCORE_EXPORT void setActiveScrollSnapIndices(ScrollingNodeID, std::optional<unsigned> horizontalIndex, std::optional<unsigned> verticalIndex);
-    WEBCORE_EXPORT void updateScrollSnapPropertiesWithFrameView(const LocalFrameView&) override;
 
     WEBCORE_EXPORT void updateIsMonitoringWheelEventsForFrameView(const LocalFrameView&) override;
 
     void reportExposedUnfilledArea(MonotonicTime, unsigned unfilledArea);
     void reportSynchronousScrollingReasonsChanged(MonotonicTime, OptionSet<SynchronousScrollingReason>);
 
-    bool scrollAnimatorEnabled() const;
+    bool NODELETE scrollAnimatorEnabled() const;
 
     virtual void hasNodeWithAnimatedScrollChanged(bool) { };
 
@@ -158,8 +157,7 @@ private:
     WEBCORE_EXPORT void setPositionedNodeConstraints(ScrollingNodeID, const AbsolutePositionConstraints&) override;
     WEBCORE_EXPORT void setRelatedOverflowScrollingNodes(ScrollingNodeID, Vector<ScrollingNodeID>&&) override;
 
-    using LayoutViewportOriginOrOverrideRect = Variant<std::optional<FloatPoint>, std::optional<FloatRect>>;
-    WEBCORE_EXPORT void reconcileScrollingState(LocalFrameView&, const FloatPoint&, const LayoutViewportOriginOrOverrideRect&, ScrollType, ViewportRectStability, ScrollingLayerPositionAction);
+    void reconcileScrollingState(LocalFrameView&, const FloatPoint&, const std::optional<LayoutViewportOriginOrOverrideRect>&, ScrollType, ViewportRectStability, ScrollingLayerPositionAction);
     void reconcileScrollPosition(LocalFrameView&, ScrollingLayerPositionAction);
 
     WEBCORE_EXPORT void scrollBySimulatingWheelEventForTesting(ScrollingNodeID, FloatSize) final;
@@ -187,7 +185,7 @@ private:
     void updateEventTrackingRegions(FrameIdentifier rootFrameID);
     
     void applyScrollPositionUpdate(ScrollUpdate&&, ScrollType, ViewportRectStability);
-    void updateScrollPositionAfterAsyncScroll(ScrollingNodeID, FloatPoint, std::optional<FloatPoint> layoutViewportOrigin, ScrollingLayerPositionAction, ScrollType, ViewportRectStability);
+    void updateScrollPositionAfterAsyncScroll(ScrollingNodeID, FloatPoint, const std::optional<LayoutViewportOriginOrOverrideRect>&, ScrollingLayerPositionAction, ScrollType, ViewportRectStability);
     void animatedScrollWillStartForNode(ScrollingNodeID);
     void animatedScrollDidEndForNode(ScrollingNodeID);
     void wheelEventScrollWillStartForNode(ScrollingNodeID);
@@ -202,7 +200,7 @@ private:
     WEBCORE_EXPORT void setScrollbarEnabled(Scrollbar&) override;
     WEBCORE_EXPORT void setScrollbarWidth(ScrollableArea&, ScrollbarWidth) override;
 
-    void hysterisisTimerFired(PAL::HysteresisState);
+    void NODELETE hysterisisTimerFired(PAL::HysteresisState);
 
     SmallMap<FrameIdentifier, UniqueRef<ScrollingStateTree>> m_scrollingStateTrees;
     RefPtr<ScrollingTree> m_scrollingTree;

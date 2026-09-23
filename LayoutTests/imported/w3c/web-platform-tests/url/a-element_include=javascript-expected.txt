@@ -10,7 +10,7 @@ PASS Parsing: <> against <about:blank>
 PASS Parsing: <javascript://example.com:8080/pathname?search#hash> against <about:blank>
 PASS Parsing: <javascript:///test> against <about:blank>
 PASS Parsing: <javascript://test/a/../b> against <about:blank>
-FAIL Parsing: <javascript://:443> against <about:blank> assert_unreached: Expected URL to fail parsing Reached unreachable code
-FAIL Parsing: <javascript://test:test> against <about:blank> assert_unreached: Expected URL to fail parsing Reached unreachable code
-FAIL Parsing: <javascript://[:1]> against <about:blank> assert_unreached: Expected URL to fail parsing Reached unreachable code
+PASS Parsing: <javascript://:443> against <about:blank>
+PASS Parsing: <javascript://test:test> against <about:blank>
+PASS Parsing: <javascript://[:1]> against <about:blank>
 Link with embedded \n is parsed correctly

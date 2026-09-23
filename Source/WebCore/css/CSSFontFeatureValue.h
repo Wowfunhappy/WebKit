@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include "CSSPrimitiveNumericTypes.h"
 #include "CSSValue.h"
 #include "FontTaggedSettings.h"
 
@@ -33,29 +34,22 @@ namespace WebCore {
 
 class CSSFontFeatureValue final : public CSSValue {
 public:
-    static Ref<CSSFontFeatureValue> create(FontTag&& tag, Ref<CSSValue>&& value)
+    static Ref<CSSFontFeatureValue> create(FontTag&& tag, CSS::Integer<CSS::Nonnegative>&& value)
     {
         return adoptRef(*new CSSFontFeatureValue(WTF::move(tag), WTF::move(value)));
     }
 
     const FontTag& tag() const LIFETIME_BOUND { return m_tag; }
-    const CSSValue& value() const { return m_value; }
+    const CSS::Integer<CSS::Nonnegative>& value() const { return m_value; }
     String customCSSText(const CSS::SerializationContext&) const;
 
     bool equals(const CSSFontFeatureValue&) const;
 
-    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
-    {
-        if (func(m_value.get()) == IterationStatus::Done)
-            return IterationStatus::Done;
-        return IterationStatus::Continue;
-    }
-
 private:
-    CSSFontFeatureValue(FontTag&&, Ref<CSSValue>&&);
+    CSSFontFeatureValue(FontTag&&, CSS::Integer<CSS::Nonnegative>&&);
 
-    FontTag m_tag;
-    const Ref<CSSValue> m_value;
+    const FontTag m_tag;
+    const CSS::Integer<CSS::Nonnegative> m_value;
 };
 
 } // namespace WebCore

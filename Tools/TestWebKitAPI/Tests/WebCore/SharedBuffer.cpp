@@ -28,7 +28,7 @@
 #include "config.h"
 
 #include "SharedBufferTest.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <WebCore/SharedBuffer.h>
 #if ENABLE(MHTML)
@@ -131,9 +131,9 @@ TEST_F(FragmentedSharedBufferTest, getReturnsContiguous)
 
 TEST_F(FragmentedSharedBufferTest, tryCreateArrayBufferLargeSegments)
 {
-    Vector<uint8_t> vector0(0x4000, 'a');
-    Vector<uint8_t> vector1(0x4000, 'b');
-    Vector<uint8_t> vector2(0x4000, 'c');
+    Vector<uint8_t> vector0(FillWith { }, 0x4000, 'a');
+    Vector<uint8_t> vector1(FillWith { }, 0x4000, 'b');
+    Vector<uint8_t> vector2(FillWith { }, 0x4000, 'c');
 
     SharedBufferBuilder builder(std::in_place, WTF::move(vector0));
     builder.append(WTF::move(vector1));
@@ -402,6 +402,58 @@ TEST_F(FragmentedSharedBufferTest, extractData)
     EXPECT_FALSE(original->isEmpty());
     ASSERT_EQ(original->segmentsCount(), 1u);
     EXPECT_GT(original->begin()->segment->size(), 0u);
+}
+
+TEST_F(FragmentedSharedBufferTest, isSpanWithinBounds)
+{
+    // Use a Provider-backed SharedBuffer so the underlying data lives in our
+    // controlled allocation, allowing safe pointer arithmetic to construct
+    // out-of-bounds spans for testing.
+    Vector<uint8_t> backing(FillWith { }, 200, 'x');
+    auto* base = backing.span().data();
+    constexpr size_t bufferOffset = 50;
+    constexpr size_t bufferSize = 100;
+    auto bufferDataSpan = std::span<const uint8_t>(base + bufferOffset, bufferSize);
+    auto buffer = SharedBuffer::create(DataSegment::Provider {
+        [bufferDataSpan]() { return bufferDataSpan; }
+    });
+    auto bufferSpan = buffer->span();
+    ASSERT_EQ(bufferSpan.data(), base + bufferOffset);
+    ASSERT_EQ(bufferSpan.size(), bufferSize);
+
+    // Fully within bounds.
+    EXPECT_TRUE(buffer->isSpanWithinBounds(bufferSpan));
+    EXPECT_TRUE(buffer->isSpanWithinBounds(bufferSpan.subspan(0, 50)));
+    EXPECT_TRUE(buffer->isSpanWithinBounds(bufferSpan.subspan(50)));
+    EXPECT_TRUE(buffer->isSpanWithinBounds(bufferSpan.subspan(10, 80)));
+
+    // Empty spans at boundaries.
+    EXPECT_TRUE(buffer->isSpanWithinBounds(bufferSpan.subspan(0, 0)));
+    EXPECT_TRUE(buffer->isSpanWithinBounds(bufferSpan.subspan(bufferSize, 0)));
+
+    // Span starts before buffer but ends within it.
+    std::span<const uint8_t> startsBeforeEndsWithin(base + bufferOffset - 10, 50);
+    EXPECT_FALSE(buffer->isSpanWithinBounds(startsBeforeEndsWithin));
+
+    // Span starts within buffer but extends past the end.
+    std::span<const uint8_t> startsWithinEndsPast(base + bufferOffset + 80, 30);
+    EXPECT_FALSE(buffer->isSpanWithinBounds(startsWithinEndsPast));
+
+    // Span entirely before buffer.
+    std::span<const uint8_t> entirelyBefore(base, 20);
+    EXPECT_FALSE(buffer->isSpanWithinBounds(entirelyBefore));
+
+    // Span entirely after buffer.
+    std::span<const uint8_t> entirelyAfter(base + bufferOffset + bufferSize + 10, 20);
+    EXPECT_FALSE(buffer->isSpanWithinBounds(entirelyAfter));
+
+    // Empty span before buffer.
+    std::span<const uint8_t> emptyBefore(base, 0);
+    EXPECT_FALSE(buffer->isSpanWithinBounds(emptyBefore));
+
+    // Empty span after buffer.
+    std::span<const uint8_t> emptyAfter(base + bufferOffset + bufferSize + 10, 0);
+    EXPECT_FALSE(buffer->isSpanWithinBounds(emptyAfter));
 }
 
 TEST_F(FragmentedSharedBufferTest, copyIsContiguous)

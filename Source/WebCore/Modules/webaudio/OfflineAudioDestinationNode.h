@@ -27,7 +27,10 @@
 
 #include "AudioDestinationNode.h"
 #include <wtf/RefPtr.h>
-#include <wtf/Threading.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
@@ -73,7 +76,7 @@ private:
     const Ref<AudioBus> m_renderBus;
     
     // Rendering thread.
-    RefPtr<Thread> m_renderThread;
+    RefPtr<WTF::Thread> m_renderThread;
     size_t m_framesToProcess;
     size_t m_destinationOffset { 0 };
     bool m_startedRendering { false };

@@ -95,8 +95,6 @@ private:
 
     bool isMuted() const final { return configuration().isMuted; }
 
-    bool isActive() const final { return configuration().isActive; }
-
     void beginInterruptionForTesting() final;
     void endInterruptionForTesting() final;
     void clearInterruptionFlagForTesting() final { m_isInterruptedForTesting = false; }

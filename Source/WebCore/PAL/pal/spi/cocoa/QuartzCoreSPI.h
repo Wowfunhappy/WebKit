@@ -66,10 +66,6 @@ DECLARE_SYSTEM_HEADER
 #import <QuartzCore/CARemoteEffectPrivate.h>
 #endif
 
-#if ENABLE(ARKIT_INLINE_PREVIEW)
-#import <QuartzCore/CAFenceHandle.h>
-#endif
-
 #endif // __OBJC__
 
 #else
@@ -84,16 +80,6 @@ typedef struct _CARenderContext CARenderContext;
 @interface CADisplayLink ()
 @property (readonly, nonatomic) CFTimeInterval maximumRefreshRate;
 @property (readonly, nonatomic) CADisplay *display;
-@end
-#endif
-
-#if ENABLE(ARKIT_INLINE_PREVIEW)
-@interface CAFenceHandle : NSObject
-@end
-
-@interface CAFenceHandle ()
-- (mach_port_t)copyPort;
-- (void)invalidate;
 @end
 #endif
 
@@ -130,10 +116,6 @@ typedef struct _CARenderContext CARenderContext;
 @property (strong) CALayer *layer;
 @property CGColorSpaceRef colorSpace;
 @property (readonly) CARenderContext* renderContext;
-
-#if ENABLE(ARKIT_INLINE_PREVIEW_IOS)
--(BOOL)addFence:(CAFenceHandle *)handle;
-#endif
 
 @end
 
@@ -218,6 +200,7 @@ typedef enum {
 + (CATransactionPhase)currentPhase;
 + (void)synchronize;
 + (uint32_t)currentState;
++ (void)setDefaultDisableRunLoopObserverCommits:(BOOL)flag;
 @end
 
 @interface CALayerHost : CALayer

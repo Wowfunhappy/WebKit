@@ -27,15 +27,16 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "B3Type.h"
 #include "WasmOps.h"
 
 namespace JSC { namespace Wasm {
-
 
 AddressType::AddressType(AddressType::Kind addressType) : m_type(addressType) { };
 
 AddressType::AddressType(bool is64Bit) : m_type(is64Bit ? AddressType::I64 : AddressType::I32) { };
 
+static constexpr const char* invalidAddressTypeConversion = "Invalid Wasm Type to AddressType conversion";
 
 AddressType::AddressType(TypeKind typeKind)
 {
@@ -47,11 +48,27 @@ AddressType::AddressType(TypeKind typeKind)
         m_type = AddressType::I64;
         break;
     default:
-        RELEASE_ASSERT_NOT_REACHED("Invalid Wasm Type to AddressType conversion");
+        RELEASE_ASSERT_NOT_REACHED(invalidAddressTypeConversion);
     }
 }
 
-TypeKind AddressType::asTypeKind() const
+#if !PLATFORM(PLAYSTATION)
+AddressType::AddressType(B3::Type type)
+{
+    switch (type.kind()) {
+    case B3::TypeKind::Int32:
+        m_type = AddressType::I32;
+        break;
+    case B3::TypeKind::Int64:
+        m_type = AddressType::I64;
+        break;
+    default:
+        RELEASE_ASSERT_NOT_REACHED(invalidAddressTypeConversion);
+    }
+}
+#endif
+
+TypeKind AddressType::asWasmTypeKind() const
 {
     switch (m_type) {
     case AddressType::I32:
@@ -59,8 +76,23 @@ TypeKind AddressType::asTypeKind() const
     case AddressType::I64:
         return TypeKind::I64;
     }
-    RELEASE_ASSERT_NOT_REACHED("Invalid Wasm Type to AddressType conversion");
+
+    RELEASE_ASSERT_NOT_REACHED(invalidAddressTypeConversion);
 }
+
+#if !PLATFORM(PLAYSTATION)
+B3::TypeKind AddressType::asB3TypeKind() const
+{
+    switch (m_type) {
+    case AddressType::I32:
+        return B3::TypeKind::Int32;
+    case AddressType::I64:
+        return B3::TypeKind::Int64;
+    }
+
+    RELEASE_ASSERT_NOT_REACHED(invalidAddressTypeConversion);
+}
+#endif
 
 bool operator==(const AddressType& lhs, const AddressType& rhs)
 {

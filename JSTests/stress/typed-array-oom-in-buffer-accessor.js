@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ requireOptions("--useGC=0")
 let z = new Float64Array(1000);
 

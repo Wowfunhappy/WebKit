@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <link rel="help" href="https://drafts.csswg.org/css-align-3/#baseline-export">
-<link rel="stylesheet" type="text/css" href="/fonts/ahem.css" />
+<link rel="stylesheet" href="/fonts/ahem.css" />
 <style>
 #target {
-  font-family: Ahem;
   writing-mode: vertical-rl;
   display: flex;
   align-items: baseline;
@@ -16,32 +15,29 @@
 }
 #target > :nth-child(1) {
   background: lime;
-  font-size: 30px;
-  line-height: 30px;
+  font: 30px/1 Ahem;
   writing-mode: vertical-rl;
 }
 #target > :nth-child(2) {
   background: hotpink;
-  font-size: 20px;
-  line-height: 20px;
+  font: 20px/1 Ahem;
   writing-mode: vertical-rl;
 }
 #target > :nth-child(3) {
   background: cyan;
+  font: 16px/1 Ahem;
   width: 40px;
   height: 40px;
   writing-mode: horizontal-tb;
 }
 #target > :nth-child(4) {
   background: lime;
-  font-size: 30px;
-  line-height: 30px;
+  font: 30px/1 Ahem;
   writing-mode: vertical-lr;
 }
 #target > :nth-child(5) {
   background: hotpink;
-  font-size: 20px;
-  line-height: 20px;
+  font: 20px/1 Ahem;
   writing-mode: vertical-lr;
 }
 </style>

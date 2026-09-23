@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/IDLTypes.h>
 #include <WebCore/JSDOMConvertBase.h>
 

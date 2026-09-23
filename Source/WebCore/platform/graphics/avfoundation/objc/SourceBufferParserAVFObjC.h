@@ -46,13 +46,16 @@ typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
 
 namespace WebCore {
 
+class ContentType;
+class ISOBMFFPreParser;
+
 class SourceBufferParserAVFObjC final
     : public SourceBufferParser
     , private LoggerHelper {
 public:
     static MediaPlayerEnums::SupportsType isContentTypeSupported(const ContentType&);
 
-    SourceBufferParserAVFObjC(const MediaSourceConfiguration&);
+    SourceBufferParserAVFObjC(const ContentType&, const MediaSourceConfiguration&);
     virtual ~SourceBufferParserAVFObjC();
 
     AVStreamDataParser* streamDataParser() const { return m_parser.get(); }
@@ -84,7 +87,8 @@ private:
 
     RetainPtr<AVStreamDataParser> m_parser;
     RetainPtr<WebAVStreamDataParserListener> m_delegate;
-    MediaSourceConfiguration m_configuration;
+    const MediaSourceConfiguration m_configuration;
+    const std::unique_ptr<ISOBMFFPreParser> m_preParser;
     bool m_parserStateWasReset { false };
     std::optional<int> m_lastErrorCode;
 

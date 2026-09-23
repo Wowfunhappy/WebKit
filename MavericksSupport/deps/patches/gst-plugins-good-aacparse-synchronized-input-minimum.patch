@@ -1,0 +1,33 @@
+Subject: aacparse: restore the synchronized frame-input minimum
+
+Initial synchronization retains next-frame-size + ADTS_MAX_SIZE as GstBaseParse's
+minimum. A smaller complete final ADTS packet then waits for EOS or unrelated
+future input. Raw AAC MSE appends need each complete packet before updateend.
+
+After synchronization the seven-byte ADTS header supplies the current packet
+size. Retain incomplete packet bytes through needed_data, then reset the minimum
+to the header length after a complete frame. Preserve the larger lookahead while
+lost-sync validation is required.
+
+MavericksSupport/tests/aac-parser-append covers byte identity, five append sizes,
+partial final-frame completion, truncated EOS, resync, and seven/nine-byte headers.
+
+--- a/gst/audioparsers/gstaacparse.c
++++ b/gst/audioparsers/gstaacparse.c
+@@ -459,6 +459,16 @@
+        to get the correct sync, and this avoids losing two frames when
+        a single bit corruption happens. */
+     if (drain || !GST_BASE_PARSE_LOST_SYNC (aacparse)) {
++      /* Once synchronized, the current header supplies the frame size.
++       * Do not retain the next-frame lookahead threshold from sync detection:
++       * a shorter complete final frame must not wait for more input or EOS.
++       * The lost-sync branch below restores lookahead when it is needed. */
++      if (*framesize > avail) {
++        *needed_data = *framesize;
++        gst_base_parse_set_min_frame_size (GST_BASE_PARSE (aacparse), *framesize);
++        return FALSE;
++      }
++      gst_base_parse_set_min_frame_size (GST_BASE_PARSE (aacparse), ADTS_HEADERS_LENGTH);
+       return TRUE;
+     }
+ 

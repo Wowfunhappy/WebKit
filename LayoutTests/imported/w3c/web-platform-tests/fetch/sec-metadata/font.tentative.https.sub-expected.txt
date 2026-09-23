@@ -1,8 +1,0 @@
-1
-2
-3
-
-FAIL Same-Origin font assert_equals: destination expected (string) "font" but got (undefined) undefined
-FAIL Same-Site font assert_equals: destination expected (string) "font" but got (undefined) undefined
-FAIL Cross-Site font assert_equals: destination expected (string) "font" but got (undefined) undefined
-

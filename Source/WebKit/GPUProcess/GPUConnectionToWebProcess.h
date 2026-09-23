@@ -143,6 +143,7 @@ public:
     // IPC::Connection::Client, WebCore::NowPlayingManagerClient.
     void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
     void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
+    using ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::controlBlock;
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_sharedPreferencesForWebProcess; }
     const SharedPreferencesForWebProcess& sharedPreferencesForWebProcessValue() const LIFETIME_BOUND { return m_sharedPreferencesForWebProcess; }
@@ -309,9 +310,6 @@ private:
     void clearNowPlayingInfo();
     void setNowPlayingInfo(WebCore::NowPlayingInfo&&);
 
-#if ENABLE(MEDIA_SOURCE)
-    void enableMockMediaSource();
-#endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     void updateSampleBufferDisplayLayerBoundsAndPosition(WebKit::SampleBufferDisplayLayerIdentifier, WebCore::FloatRect, std::optional<WTF::MachSendRightAnnotated>&&);
 #endif
@@ -437,7 +435,7 @@ private:
     HashMap<std::pair<WebPageProxyIdentifier, WebCore::PageIdentifier>, std::unique_ptr<LayerHostingContext>> m_visibilityPropagationContexts;
 #endif
 
-    using RemoteAudioHardwareListenerMap = HashMap<RemoteAudioHardwareListenerIdentifier, std::unique_ptr<RemoteAudioHardwareListenerProxy>>;
+    using RemoteAudioHardwareListenerMap = HashMap<RemoteAudioHardwareListenerIdentifier, Ref<RemoteAudioHardwareListenerProxy>>;
     RemoteAudioHardwareListenerMap m_remoteAudioHardwareListenerMap;
 
 #if USE(GRAPHICS_LAYER_WC)
@@ -448,9 +446,6 @@ private:
     RefPtr<RemoteRemoteCommandListenerProxy> m_remoteRemoteCommandListener;
     bool m_isActiveNowPlayingProcess { false };
     const bool m_isLockdownModeEnabled { false };
-#if ENABLE(MEDIA_SOURCE)
-    bool m_mockMediaSourceEnabled { false };
-#endif
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     HashMap<WebCore::PageIdentifier, String> m_mediaPlaybackEnvironments;

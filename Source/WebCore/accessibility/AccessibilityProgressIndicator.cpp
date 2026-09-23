@@ -21,6 +21,7 @@
 #include "config.h"
 #include "AccessibilityProgressIndicator.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXLoggerBase.h"
 #include "AXObjectCacheInlines.h"
 #include "AccessibilityObjectInlines.h"

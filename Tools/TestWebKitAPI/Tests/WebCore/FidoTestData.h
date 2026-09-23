@@ -87,7 +87,7 @@ constexpr std::array<uint8_t, 73> kU2fRegisterCommandApduWithGoogleLegacyAppidSu
 
 // Sample U2F sign request parameters used in example 7 of the CTAP spec.
 // https://fidoalliance.org/specs/fido-v2.0-ps-20170927/fido-client-to-authenticator-protocol-v2.0-ps-20170927.html#using-the-ctap2-authenticatormakecredential-command-with-ctap1-u2f-authenticators
-constexpr auto kU2fSignKeyHandle = std::to_array<uint8_t>({
+constexpr auto kU2fSignKeyHandle = WTF::toArray<uint8_t>({
     0x3E, 0xBD, 0x89, 0xBF, 0x77, 0xEC, 0x50, 0x97, 0x55, 0xEE, 0x9C,
     0x26, 0x35, 0xEF, 0xAA, 0xAC, 0x7B, 0x2B, 0x9C, 0x5C, 0xEF, 0x17,
     0x36, 0xC3, 0x71, 0x7D, 0xA4, 0x85, 0x34, 0xC8, 0xC6, 0xB6, 0x54,
@@ -97,7 +97,7 @@ constexpr auto kU2fSignKeyHandle = std::to_array<uint8_t>({
 });
 
 // Signed signature of above |kU2fSignKeyHandle|.
-constexpr auto kU2fSignature = std::to_array<uint8_t>({
+constexpr auto kU2fSignature = WTF::toArray<uint8_t>({
     0x30, 0x44, 0x02, 0x20, 0x7B, 0xDE, 0x0A, 0x52, 0xAC, 0x1F, 0x4C, 0x8B,
     0x27, 0xE0, 0x03, 0xA3, 0x70, 0xCD, 0x66, 0xA4, 0xC7, 0x11, 0x8D, 0xD2,
     0x2D, 0x54, 0x47, 0x83, 0x5F, 0x45, 0xB9, 0x9C, 0x68, 0x42, 0x3F, 0xF7,
@@ -106,7 +106,7 @@ constexpr auto kU2fSignature = std::to_array<uint8_t>({
     0xF5, 0xF6, 0xAF, 0xA3, 0x5A, 0xAD, 0x53, 0x73, 0x85, 0x8E,
 });
 
-constexpr auto kU2fSignCommandApdu = std::to_array<uint8_t>({
+constexpr auto kU2fSignCommandApdu = WTF::toArray<uint8_t>({
     // CLA, INS, P1, P2 APDU instruction parameters
     0x00, 0x02, 0x03, 0x00,
     // Data Length (3 bytes in big endian order)
@@ -132,7 +132,7 @@ constexpr auto kU2fSignCommandApdu = std::to_array<uint8_t>({
     0x00, 0x00,
 });
 
-constexpr auto kU2fAppIDSignCommandApdu = std::to_array<uint8_t>({
+constexpr auto kU2fAppIDSignCommandApdu = WTF::toArray<uint8_t>({
     // CLA, INS, P1, P2 APDU instruction parameters
     0x00, 0x02, 0x03, 0x00,
     // Data Length (3 bytes in big endian order)
@@ -158,7 +158,7 @@ constexpr auto kU2fAppIDSignCommandApdu = std::to_array<uint8_t>({
     0x00, 0x00,
 });
 
-constexpr auto kU2fCheckOnlySignCommandApdu = std::to_array<uint8_t>({
+constexpr auto kU2fCheckOnlySignCommandApdu = WTF::toArray<uint8_t>({
     // CLA, INS, P1, P2 APDU instruction parameters
     0x00, 0x02, 0x07, 0x00,
     // Data Length (3 bytes in big endian order).
@@ -184,7 +184,7 @@ constexpr auto kU2fCheckOnlySignCommandApdu = std::to_array<uint8_t>({
     0x00, 0x00,
 });
 
-constexpr auto kU2fFakeRegisterCommand = std::to_array<uint8_t>({
+constexpr auto kU2fFakeRegisterCommand = WTF::toArray<uint8_t>({
     // CLA, INS, P1, P2 APDU instructions
     0x00, 0x01, 0x03, 0x00,
     // Data length in 3 bytes in big endian order.
@@ -206,7 +206,7 @@ constexpr auto kU2fFakeRegisterCommand = std::to_array<uint8_t>({
 // U2F response blob produced by a U2F registration request used in example 6
 // of the CTAP spec.
 // https://fidoalliance.org/specs/fido-v2.0-rd-20170927/fido-client-to-authenticator-protocol-v2.0-rd-20170927.html
-constexpr auto kTestU2fRegisterResponse = std::to_array<uint8_t>({
+constexpr auto kTestU2fRegisterResponse = WTF::toArray<uint8_t>({
     // Reserved byte
     0x05,
     // User public key
@@ -287,7 +287,7 @@ constexpr auto kTestU2fRegisterResponse = std::to_array<uint8_t>({
 
 // EC public key encoded in COSE_Key format extracted from above
 // |kTestU2fRegisterResponse|.
-constexpr auto kTestECPublicKeyCOSE = std::to_array<uint8_t>({
+constexpr auto kTestECPublicKeyCOSE = WTF::toArray<uint8_t>({
     // Map(5)
     0xA5,
     // kty: EC key type
@@ -336,7 +336,7 @@ constexpr auto kTestECPublicKeyCOSE = std::to_array<uint8_t>({
 // 6E631B1E40183C08FDA53FA4A8F85A05693944AE179A1339D002D15CABD810090EC722EF5DE \
 // F9965A371D415D624B68A2707CAD97BCDD1785AF97E258F33DF56A031AA0356D8E8D5EBCADC \
 // 74E071636C6B110ACE5CC9B90DFEACAE640FF1BB0F1FE5DB4EFF7A95F060733F5']}
-constexpr auto kU2fAttestationStatementCBOR = std::to_array<uint8_t>({
+constexpr auto kU2fAttestationStatementCBOR = WTF::toArray<uint8_t>({
     // Map(2)
     0xA2,
     // Text(3)
@@ -416,7 +416,7 @@ constexpr auto kU2fAttestationStatementCBOR = std::to_array<uint8_t>({
 // U2F response blob produced by a U2F sign request used in example 7 of the
 // CTAP spec.
 // https://fidoalliance.org/specs/fido-v2.0-ps-20170927/fido-client-to-authenticator-protocol-v2.0-ps-20170927.html#using-the-ctap2-authenticatorgetassertion-command-with-ctap1-u2f-authenticators
-constexpr auto kTestU2fSignResponse = std::to_array<uint8_t>({
+constexpr auto kTestU2fSignResponse = WTF::toArray<uint8_t>({
     // User presence
     0x01,
     // Sign count(4 bytes)
@@ -432,7 +432,7 @@ constexpr auto kTestU2fSignResponse = std::to_array<uint8_t>({
 
 // The authenticator data for sign responses extracted from above
 // |kTestU2fSignResponse|.
-constexpr auto kTestSignAuthenticatorData = std::to_array<uint8_t>({
+constexpr auto kTestSignAuthenticatorData = WTF::toArray<uint8_t>({
     // SHA256 hash of kTestRelyingPartyId
     0x11, 0x94, 0x22, 0x8D, 0xA8, 0xFD, 0xBD, 0xEE, 0xFD, 0x26, 0x1B, 0xD7,
     0xB6, 0x59, 0x5C, 0xFD, 0x70, 0xA5, 0x0D, 0x70, 0xC6, 0x40, 0x7B, 0xCF,
@@ -444,7 +444,7 @@ constexpr auto kTestSignAuthenticatorData = std::to_array<uint8_t>({
 });
 
 // CTAP requests ---------------------------------------------------------------
-constexpr auto kCtapMakeCredentialRequest = std::to_array<uint8_t>({
+constexpr auto kCtapMakeCredentialRequest = WTF::toArray<uint8_t>({
     // authenticatorMakeCredential command
     0x01,
     // map(5)
@@ -530,7 +530,7 @@ constexpr auto kCtapMakeCredentialRequest = std::to_array<uint8_t>({
     0xf5
 });
 
-constexpr auto kCtapMakeCredentialRequestShort = std::to_array<uint8_t>({
+constexpr auto kCtapMakeCredentialRequestShort = WTF::toArray<uint8_t>({
     // authenticatorMakeCredential command
     0x01,
     // map(4)
@@ -604,7 +604,7 @@ constexpr auto kCtapMakeCredentialRequestShort = std::to_array<uint8_t>({
     0x6a, 0x70, 0x75, 0x62, 0x6C, 0x69, 0x63, 0x2D, 0x6B, 0x65, 0x79,
 });
 
-constexpr auto kCtapMakeCredentialRequestShortWithLargeBlob = std::to_array<uint8_t>({
+constexpr auto kCtapMakeCredentialRequestShortWithLargeBlob = WTF::toArray<uint8_t>({
     // authenticatorMakeCredential command
     0x01,
     // map(5)
@@ -690,7 +690,7 @@ constexpr auto kCtapMakeCredentialRequestShortWithLargeBlob = std::to_array<uint
     0x68, 0x72, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64,
 });
 
-constexpr auto kCtapMakeCredentialRequestWithPin = std::to_array<uint8_t>({
+constexpr auto kCtapMakeCredentialRequestWithPin = WTF::toArray<uint8_t>({
     // authenticatorMakeCredential command
     0x01,
     // map(7)
@@ -785,7 +785,7 @@ constexpr auto kCtapMakeCredentialRequestWithPin = std::to_array<uint8_t>({
     0x01,
 });
 
-constexpr auto kTestComplexCtapGetAssertionRequest = std::to_array<uint8_t>({
+constexpr auto kTestComplexCtapGetAssertionRequest = WTF::toArray<uint8_t>({
     // authenticatorGetAssertion command
     0x02,
     // map(4)
@@ -847,7 +847,7 @@ constexpr auto kTestComplexCtapGetAssertionRequest = std::to_array<uint8_t>({
     0xf5,
 });
 
-constexpr auto kTestComplexCtapGetAssertionRequestShort = std::to_array<uint8_t>({
+constexpr auto kTestComplexCtapGetAssertionRequestShort = WTF::toArray<uint8_t>({
     // authenticatorGetAssertion command
     0x02,
     // map(4)
@@ -905,7 +905,7 @@ constexpr auto kTestComplexCtapGetAssertionRequestShort = std::to_array<uint8_t>
     0xf5,
 });
 
-constexpr auto kTestComplexCtapGetAssertionRequestWithPin = std::to_array<uint8_t>({
+constexpr auto kTestComplexCtapGetAssertionRequestWithPin = WTF::toArray<uint8_t>({
     // authenticatorGetAssertion command
     0x02,
     // map(6)
@@ -976,7 +976,7 @@ constexpr auto kTestComplexCtapGetAssertionRequestWithPin = std::to_array<uint8_
     0x01,
 });
 
-constexpr auto kTestComplexCtapGetAssertionRequestWithLargeBlobRead = std::to_array<uint8_t>({
+constexpr auto kTestComplexCtapGetAssertionRequestWithLargeBlobRead = WTF::toArray<uint8_t>({
     // authenticatorGetAssertion command
     0x02,
     // map(5)
@@ -1050,7 +1050,7 @@ constexpr auto kTestComplexCtapGetAssertionRequestWithLargeBlobRead = std::to_ar
     0xf5,
 });
 
-constexpr auto kTestComplexCtapGetAssertionRequestWithLargeBlobWrite = std::to_array<uint8_t>({
+constexpr auto kTestComplexCtapGetAssertionRequestWithLargeBlobWrite = WTF::toArray<uint8_t>({
     // authenticatorGetAssertion command
     0x02,
     // map(5)
@@ -1129,7 +1129,7 @@ constexpr auto kTestComplexCtapGetAssertionRequestWithLargeBlobWrite = std::to_a
 
 // A sample well formed response to CTAP AuthenticatorGetInfo request. Cross
 // platform device that supports resident key, and user verification.
-constexpr auto kTestAuthenticatorGetInfoResponse = std::to_array<uint8_t>({
+constexpr auto kTestAuthenticatorGetInfoResponse = WTF::toArray<uint8_t>({
     0x00, 0xA6, 0x01, 0x82, 0x68, 0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F,
     0x30, 0x66, 0x55, 0x32, 0x46, 0x5F, 0x56, 0x32, 0x02, 0x82, 0x63, 0x75,
     0x76, 0x6D, 0x6B, 0x68, 0x6D, 0x61, 0x63, 0x2D, 0x73, 0x65, 0x63, 0x72,
@@ -1143,7 +1143,7 @@ constexpr auto kTestAuthenticatorGetInfoResponse = std::to_array<uint8_t>({
 // AuthenticatorGetInfo request with all configurations equal to that of
 // kTestAuthenticatorGetInfoResponse except platform device option is set to
 // true.
-constexpr auto kTestGetInfoResponsePlatformDevice = std::to_array<uint8_t>({
+constexpr auto kTestGetInfoResponsePlatformDevice = WTF::toArray<uint8_t>({
     0x00, 0xA6, 0x01, 0x82, 0x68, 0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F,
     0x30, 0x66, 0x55, 0x32, 0x46, 0x5F, 0x56, 0x32, 0x02, 0x82, 0x63, 0x75,
     0x76, 0x6D, 0x6B, 0x68, 0x6D, 0x61, 0x63, 0x2D, 0x73, 0x65, 0x63, 0x72,
@@ -1157,7 +1157,7 @@ constexpr auto kTestGetInfoResponsePlatformDevice = std::to_array<uint8_t>({
     0x19, 0x04, 0xB0, 0x06, 0x81, 0x01,
 });
 
-constexpr auto kTestGetInfoResponsePlatformDevice2 = std::to_array<uint8_t>({
+constexpr auto kTestGetInfoResponsePlatformDevice2 = WTF::toArray<uint8_t>({
     0x00, 0xA6, 0x01, 0x83, 0x68, 0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F,
     0x30, 0x66, 0x55, 0x32, 0x46, 0x5F, 0x56, 0x32, 0x6C, 0x46, 0x49, 0x44,
     0x4F, 0x5F, 0x32, 0x5F, 0x31, 0x5F, 0x50, 0x52, 0x45, 0x02, 0x82, 0x63,
@@ -1175,7 +1175,7 @@ constexpr auto kTestGetInfoResponsePlatformDevice2 = std::to_array<uint8_t>({
 
 
 // A Sample well formed response to CTAP MakeCredential request.
-constexpr auto kTestMakeCredentialResponse = std::to_array<uint8_t>({
+constexpr auto kTestMakeCredentialResponse = WTF::toArray<uint8_t>({
     // Success status byte
     0x00,
     // Map(03)
@@ -1250,7 +1250,7 @@ constexpr auto kTestMakeCredentialResponse = std::to_array<uint8_t>({
 // Below |kCtap2MakeCredentialCertificate|, |kCtap2MakeCredentialAuthData|, and
 // |kCtap2MakeCredentialSignature| leverage example 4 of the CTAP spec.
 // https://fidoalliance.org/specs/fido-v2.0-ps-20170927/fido-client-to-authenticator-protocol-v2.0-ps-20170927.html
-constexpr auto kCtap2MakeCredentialCertificate = std::to_array<uint8_t>({
+constexpr auto kCtap2MakeCredentialCertificate = WTF::toArray<uint8_t>({
     0x30, 0x82, 0x01, 0x93, 0x30, 0x82, 0x01, 0x38, 0xa0, 0x03, 0x02, 0x01,
     0x02, 0x02, 0x09, 0x00, 0x85, 0x9b, 0x72, 0x6c, 0xb2, 0x4b, 0x4c, 0x29,
     0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02,
@@ -1287,7 +1287,7 @@ constexpr auto kCtap2MakeCredentialCertificate = std::to_array<uint8_t>({
     0xc5, 0xd3, 0x43, 0xcb, 0x2f, 0x11, 0x3d, 0xa2, 0x37, 0x23, 0xf3
 });
 
-constexpr auto kCtap2MakeCredentialAuthData = std::to_array<uint8_t>({
+constexpr auto kCtap2MakeCredentialAuthData = WTF::toArray<uint8_t>({
     0x11, 0x94, 0x22, 0x8D, 0xA8, 0xFD, 0xBD, 0xEE, 0xFD, 0x26, 0x1B, 0xD7,
     0xB6, 0x59, 0x5C, 0xFD, 0x70, 0xA5, 0x0D, 0x70, 0xC6, 0x40, 0x7B, 0xCF,
     0x01, 0x3D, 0xE9, 0x6D, 0x4E, 0xFB, 0x17, 0xDE, 0x41, 0x00, 0x00, 0x00,
@@ -1303,7 +1303,7 @@ constexpr auto kCtap2MakeCredentialAuthData = std::to_array<uint8_t>({
     0xd4, 0x89, 0x4c, 0x15, 0xac, 0x58, 0x5b, 0xd2, 0x36, 0x84
 });
 
-constexpr auto kCtap2MakeCredentialSignature = std::to_array<uint8_t>({
+constexpr auto kCtap2MakeCredentialSignature = WTF::toArray<uint8_t>({
     0x30, 0x45, 0x02, 0x20, 0x13, 0xf7, 0x3c, 0x5d, 0x9d, 0x53, 0x0e, 0x8c,
     0xc1, 0x5c, 0xc9, 0xbd, 0x96, 0xad, 0x58, 0x6d, 0x39, 0x36, 0x64, 0xe4,
     0x62, 0xd5, 0xf0, 0x56, 0x12, 0x35, 0xe6, 0x35, 0x0f, 0x2b, 0x72, 0x89,
@@ -1312,19 +1312,19 @@ constexpr auto kCtap2MakeCredentialSignature = std::to_array<uint8_t>({
     0x99, 0x59, 0x94, 0x80, 0x78, 0xb0, 0x9f, 0x4b, 0xdc, 0x62, 0x29
 });
 
-constexpr auto kCtap2MakeCredentialCredentialId = std::to_array<uint8_t>({
+constexpr auto kCtap2MakeCredentialCredentialId = WTF::toArray<uint8_t>({
     0x89, 0x59, 0xce, 0xad, 0x5b, 0x5c, 0x48, 0x16,
     0x4e, 0x8a, 0xbc, 0xd6, 0xd9, 0x43, 0x5c, 0x6f
 });
 
-constexpr auto kCtap2GetAssertionAuthData = std::to_array<uint8_t>({
+constexpr auto kCtap2GetAssertionAuthData = WTF::toArray<uint8_t>({
     0x62, 0x5d, 0xda, 0xdf, 0x74, 0x3f, 0x57, 0x27, 0xe6, 0x6b,
     0xba, 0x8c, 0x2e, 0x38, 0x79, 0x22, 0xd1, 0xaf, 0x43, 0xc5,
     0x03, 0xd9, 0x11, 0x4a, 0x8f, 0xba, 0x10, 0x4d, 0x84, 0xd0,
     0x2b, 0xfa, 0x01, 0x00, 0x00, 0x00, 0x11
 });
 
-constexpr auto kCtap2GetAssertionSignature = std::to_array<uint8_t>({
+constexpr auto kCtap2GetAssertionSignature = WTF::toArray<uint8_t>({
     0x30, 0x45, 0x02, 0x20, 0x4a, 0x5a, 0x9d, 0xd3, 0x92, 0x98, 0x14, 0x9d,
     0x90, 0x47, 0x69, 0xb5, 0x1a, 0x45, 0x14, 0x33, 0x00, 0x6f, 0x18, 0x2a,
     0x34, 0xfb, 0xdf, 0x66, 0xde, 0x5f, 0xc7, 0x17, 0xd7, 0x5f, 0xb3, 0x50,
@@ -1333,13 +1333,13 @@ constexpr auto kCtap2GetAssertionSignature = std::to_array<uint8_t>({
     0x74, 0xc7, 0x47, 0x90, 0xea, 0xab, 0xb1, 0x44, 0x11, 0xe7, 0xa0
 });
 
-constexpr auto kCtap2GetAssertionUserHandle = std::to_array<uint8_t>({
+constexpr auto kCtap2GetAssertionUserHandle = WTF::toArray<uint8_t>({
     0x30, 0x82, 0x01, 0x93, 0x30, 0x82, 0x01, 0x38, 0xa0, 0x03, 0x02, 0x01,
     0x02, 0x30, 0x82, 0x01, 0x93, 0x30, 0x82, 0x01, 0x38, 0xa0, 0x03, 0x02,
     0x01, 0x02, 0x30, 0x82, 0x01, 0x93, 0x30, 0x82
 });
 
-constexpr auto kDeviceGetAssertionResponseShort = std::to_array<uint8_t>({
+constexpr auto kDeviceGetAssertionResponseShort = WTF::toArray<uint8_t>({
     // Success response code
     0x00,
     // map(3)
@@ -1391,7 +1391,7 @@ constexpr auto kDeviceGetAssertionResponseShort = std::to_array<uint8_t>({
     0x74, 0xc7, 0x47, 0x90, 0xea, 0xab, 0xb1, 0x44, 0x11, 0xe7, 0xa0,
 });
 
-constexpr auto kDeviceGetAssertionResponse = std::to_array<uint8_t>({
+constexpr auto kDeviceGetAssertionResponse = WTF::toArray<uint8_t>({
     // Success response code
     0x00,
     // map(4)
@@ -1457,7 +1457,7 @@ constexpr auto kDeviceGetAssertionResponse = std::to_array<uint8_t>({
     0x01, 0x02, 0x30, 0x82, 0x01, 0x93, 0x30, 0x82,
 });
 
-constexpr auto kDeviceGetAssertionResponseLong = std::to_array<uint8_t>({
+constexpr auto kDeviceGetAssertionResponseLong = WTF::toArray<uint8_t>({
     // Success response code
     0x00,
     // map(5)
@@ -1558,12 +1558,12 @@ constexpr auto kDeviceGetAssertionResponseLong = std::to_array<uint8_t>({
 
 // CTAP PIN
 
-constexpr auto kCtap2PinAuth = std::to_array<uint8_t>({
+constexpr auto kCtap2PinAuth = WTF::toArray<uint8_t>({
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
     0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 });
 
-constexpr auto kCtapClientPinRetries = std::to_array<uint8_t>({
+constexpr auto kCtapClientPinRetries = WTF::toArray<uint8_t>({
     // authenticatorClientPIN command
     0x06,
     // map(2)
@@ -1578,7 +1578,7 @@ constexpr auto kCtapClientPinRetries = std::to_array<uint8_t>({
     0x01,
 });
 
-constexpr auto kCtapClientPinKeyAgreement = std::to_array<uint8_t>({
+constexpr auto kCtapClientPinKeyAgreement = WTF::toArray<uint8_t>({
     // authenticatorClientPIN command
     0x06,
     // map(2)
@@ -1593,7 +1593,7 @@ constexpr auto kCtapClientPinKeyAgreement = std::to_array<uint8_t>({
     0x02,
 });
 
-constexpr auto kCtapClientPinTokenResponse = std::to_array<uint8_t>({
+constexpr auto kCtapClientPinTokenResponse = WTF::toArray<uint8_t>({
     // Success
     0x00,
     // map(1)
@@ -1607,7 +1607,7 @@ constexpr auto kCtapClientPinTokenResponse = std::to_array<uint8_t>({
     0xF6, 0x1E, 0x41, 0xF7,
 });
 
-constexpr auto kCtapClientPinKeyAgreementResponse = std::to_array<uint8_t>({
+constexpr auto kCtapClientPinKeyAgreementResponse = WTF::toArray<uint8_t>({
     // Success
     0x00,
     // map(1)
@@ -1640,7 +1640,7 @@ constexpr auto kCtapClientPinKeyAgreementResponse = std::to_array<uint8_t>({
     0x70, 0x45, 0xF4, 0x61, 0x2F, 0xB2, 0x0C, 0x91,
 });
 
-constexpr auto kCtapClientPinInvalidKeyAgreementResponse = std::to_array<uint8_t>({
+constexpr auto kCtapClientPinInvalidKeyAgreementResponse = WTF::toArray<uint8_t>({
     // Success
     0x00,
     // map(1)
@@ -1673,7 +1673,7 @@ constexpr auto kCtapClientPinInvalidKeyAgreementResponse = std::to_array<uint8_t
     0x70, 0x45, 0xF4, 0x61, 0x2F, 0xB2, 0x0C, 0x91,
 });
 
-constexpr auto kCtapClientPinRetriesResponse = std::to_array<uint8_t>({
+constexpr auto kCtapClientPinRetriesResponse = WTF::toArray<uint8_t>({
     // Success
     0x00,
     // map(1)
@@ -1684,7 +1684,7 @@ constexpr auto kCtapClientPinRetriesResponse = std::to_array<uint8_t>({
     0x08,
 });
 
-constexpr auto kTestGetInfoResponseDeviceYubikey5c = std::to_array<uint8_t>({
+constexpr auto kTestGetInfoResponseDeviceYubikey5c = WTF::toArray<uint8_t>({
     // Success
     0x00,
     0xAA, 0x01, 0x83, 0x66, 0x55, 0x32, 0x46, 0x5F, 0x56, 0x32, 0x68, 0x46,
@@ -1721,7 +1721,7 @@ constexpr auto kTestGetInfoResponseDeviceYubikey5c = std::to_array<uint8_t>({
 
 // CBOR-encoded makeCredential response with hmac-secret: true extension
 // Base64: testHmacSecretMakeCredentialMessageBase64 from util.js
-constexpr auto kTestMakeCredentialResponseWithHmacSecret = std::to_array<uint8_t>({
+constexpr auto kTestMakeCredentialResponseWithHmacSecret = WTF::toArray<uint8_t>({
     0x00, 0xA3, 0x01, 0x64, 0x6E, 0x6F, 0x6E, 0x65, 0x02, 0x58, 0xD2, 0x49, 0x96, 0x0D, 0xE5,
     0x88, 0x0E, 0x8C, 0x68, 0x74, 0x34, 0x17, 0x0F, 0x64, 0x76, 0x60, 0x5B, 0x8F, 0xE4, 0xAE,
     0xB9, 0xA2, 0x86, 0x32, 0xC7, 0x99, 0x5C, 0xF3, 0xBA, 0x83, 0x1D, 0x97, 0x63, 0xC5, 0x00,
@@ -1740,7 +1740,7 @@ constexpr auto kTestMakeCredentialResponseWithHmacSecret = std::to_array<uint8_t
 });
 
 // CBOR-encoded getAssertion response with hmac-secret extension (32 bytes)
-constexpr auto kTestGetAssertionResponseWithHmacSecret = std::to_array<uint8_t>({
+constexpr auto kTestGetAssertionResponseWithHmacSecret = WTF::toArray<uint8_t>({
     0x00, 0xA3, 0x01, 0xA2, 0x62, 0x69, 0x64, 0x58, 0x40, 0x28, 0x08, 0xAD, 0xCE, 0xE8, 0xFE,
     0x4E, 0xC9, 0x73, 0x7A, 0x57, 0xF7, 0xFE, 0xF6, 0x70, 0x20, 0x6B, 0x43, 0x40, 0xD8, 0x28,
     0x29, 0xE1, 0x5D, 0xE6, 0x81, 0x22, 0x79, 0x8C, 0xE1, 0xCB, 0x30, 0x3A, 0xE6, 0xC6, 0x9F,
@@ -1761,7 +1761,7 @@ constexpr auto kTestGetAssertionResponseWithHmacSecret = std::to_array<uint8_t>(
 });
 
 // CBOR-encoded getAssertion response with hmac-secret extension (64 bytes for 2 salts)
-constexpr auto kTestGetAssertionResponseWithHmacSecret64 = std::to_array<uint8_t>({
+constexpr auto kTestGetAssertionResponseWithHmacSecret64 = WTF::toArray<uint8_t>({
     0x00, 0xA3, 0x01, 0xA2, 0x62, 0x69, 0x64, 0x58, 0x40, 0x28, 0x08, 0xAD, 0xCE, 0xE8, 0xFE,
     0x4E, 0xC9, 0x73, 0x7A, 0x57, 0xF7, 0xFE, 0xF6, 0x70, 0x20, 0x6B, 0x43, 0x40, 0xD8, 0x28,
     0x29, 0xE1, 0x5D, 0xE6, 0x81, 0x22, 0x79, 0x8C, 0xE1, 0xCB, 0x30, 0x3A, 0xE6, 0xC6, 0x9F,

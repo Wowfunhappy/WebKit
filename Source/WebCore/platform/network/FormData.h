@@ -124,7 +124,7 @@ public:
         MultipartFormData // for multipart/form-data
     };
 
-    WEBCORE_EXPORT static Ref<FormData> NODELETE create();
+    WEBCORE_EXPORT static Ref<FormData> create();
     WEBCORE_EXPORT static Ref<FormData> create(std::span<const uint8_t>);
     WEBCORE_EXPORT static Ref<FormData> create(const CString&);
     WEBCORE_EXPORT static Ref<FormData> create(Vector<uint8_t>&&);

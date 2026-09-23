@@ -63,11 +63,11 @@ public:
     void deref() const final { RefCounted::deref(); }
     USING_CAN_MAKE_WEAKPTR(EventTarget);
 
-    bool ordered() const { return *m_options.ordered; }
+    bool ordered() const { return m_options.ordered; }
     std::optional<unsigned short> maxPacketLifeTime() const { return m_options.maxPacketLifeTime; }
     std::optional<unsigned short> maxRetransmits() const { return m_options.maxRetransmits; }
     String protocol() const { return m_options.protocol; }
-    bool negotiated() const { return *m_options.negotiated; };
+    bool negotiated() const { return m_options.negotiated; }
     std::optional<unsigned short> id() const;
     RTCPriorityType priority() const { return m_options.priority; };
     const RTCDataChannelInit& options() const LIFETIME_BOUND { return m_options; }

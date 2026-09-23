@@ -23,6 +23,7 @@
 #pragma once
 
 #include <WebCore/Color.h>
+#include <WebCore/DestinationColorSpace.h>
 #include <WebCore/FilterEffect.h>
 
 namespace WebCore {

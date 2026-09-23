@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleWebKitInitialLetter.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
@@ -36,11 +37,16 @@ namespace Style {
 
 auto CSSValueConversion<WebkitInitialLetter>::operator()(BuilderState& state, const CSSValue& value) -> WebkitInitialLetter
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        if (primitiveValue->valueID() == CSSValueNormal)
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        if (keywordValue->valueID() == CSSValueNormal)
             return CSS::Keyword::Normal { };
-        return { toStyleFromCSSValue<Number<CSS::Nonnegative, float>>(state, *primitiveValue) };
+
+        state.setCurrentPropertyInvalidAtComputedValueTime();
+        return CSS::Keyword::Normal { };
     }
+
+    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
+        return { toStyleFromCSSValue<Number<CSS::Nonnegative, float>>(state, *primitiveValue) };
 
     auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
     if (!pair)

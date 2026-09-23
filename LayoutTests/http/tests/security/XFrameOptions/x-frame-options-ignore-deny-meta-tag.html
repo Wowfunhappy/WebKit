@@ -1,8 +1,9 @@
+<!-- webkit-test-runner [ dumpResourceLoadCallbacks=true ] -->
 <script>
     if (window.testRunner) {
+        internals.clearMemoryCache();
         testRunner.dumpAsText();
         testRunner.dumpChildFramesAsText();
-        testRunner.dumpResourceLoadCallbacks();
         testRunner.waitUntilDone();
     }
 
@@ -13,7 +14,8 @@
             console.log("FAIL: Could not read contentWindow.location.href");
         else
             console.log("PASS: Could read contentWindow.location.href");
-        testRunner.notifyDone();
+
+        setTimeout(() => testRunner.notifyDone(), 0);
     }
 </script>
 

@@ -31,13 +31,7 @@ namespace WebCore {
 class JSTestObj : public JSDOMWrapper<TestObj> {
 public:
     using Base = JSDOMWrapper<TestObj>;
-    static JSTestObj* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestObj>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestObj* ptr = new (NotNull, JSC::allocateCell<JSTestObj>(vm)) JSTestObj(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestObj* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestObj>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -55,11 +49,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::MayHaveIndexedAccessors);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     mutable JSC::WriteBarrier<JSC::Unknown> m_cachedAttribute1;
     mutable JSC::WriteBarrier<JSC::Unknown> m_cachedAttribute2;
@@ -98,8 +88,12 @@ protected:
 
 class JSTestObjOwner final : public JSC::WeakHandleOwner {
 public:
+    JSTestObjOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSTestObjOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, TestObj*)

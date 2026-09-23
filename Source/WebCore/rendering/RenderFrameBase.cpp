@@ -39,14 +39,33 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderFrameBase);
 
-RenderFrameBase::RenderFrameBase(Type type, HTMLFrameElementBase& element, RenderStyle&& style)
+RenderFrameBase::RenderFrameBase(Type type, HTMLFrameElementBase& element, Style::ComputedStyle&& style)
     : RenderWidget(type, element, WTF::move(style))
 {
 }
 
 RenderFrameBase::~RenderFrameBase() = default;
 
-inline bool shouldExpandFrame(LayoutUnit width, LayoutUnit height, bool hasFixedWidth, bool hasFixedHeight)
+void RenderFrameBase::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
+{
+    RenderWidget::styleDidChange(diff, oldStyle);
+
+    if (!oldStyle || diff < Style::DifferenceResult::Repaint)
+        return;
+
+    RefPtr childFrameView = dynamicDowncast<LocalFrameView>(widget());
+    if (!childFrameView)
+        return;
+
+    RefPtr document = this->document();
+
+    if (document->useDarkAppearance(oldStyle) != document->useDarkAppearance(protect(&style()))) {
+        childFrameView->invalidateForFrameOwnerColorSchemeChange();
+        protect(childFrameView->layoutContext())->scheduleLayout();
+    }
+}
+
+inline bool NODELETE shouldExpandFrame(LayoutUnit width, LayoutUnit height, bool hasFixedWidth, bool hasFixedHeight)
 {
     // If the size computed to zero never expand.
     if (!width || !height)

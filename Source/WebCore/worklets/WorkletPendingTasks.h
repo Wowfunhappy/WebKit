@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "Exception.h"
 #include "JSDOMPromiseDeferredForward.h"
 #include <wtf/RefCounted.h>
 #include <wtf/UniqueRef.h>

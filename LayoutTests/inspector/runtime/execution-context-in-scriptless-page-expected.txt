@@ -3,6 +3,7 @@ Test that Runtime.executionContextCreated event is fired even for pages without 
 
 == Running test suite: Runtime.executionContextCreated.ContextWithoutScript
 -- Running test case: Runtime.executionContextCreated.ContextWithoutScript.SubFrame
-PASS: Should receive Runtime.executionContextCreated notification.
-PASS: Should be able to evaluate in subframe.
+PASS: Should receive execution context for script-less subframe.
+PASS: Should be able to evaluate in subframe. Result:
+data:text/html,<p>No JavaScript.</p>
 

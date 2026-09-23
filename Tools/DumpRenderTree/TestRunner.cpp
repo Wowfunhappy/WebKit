@@ -193,20 +193,6 @@ static JSValueRef dumpUserGestureInFrameLoadCallbacksCallback(JSContextRef conte
     return JSValueMakeUndefined(context);
 }
 
-static JSValueRef dumpResourceLoadCallbacksCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
-{
-    TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
-    controller->setDumpResourceLoadCallbacks(true);
-    return JSValueMakeUndefined(context);
-}
-
-static JSValueRef dumpResourceResponseMIMETypesCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
-{
-    TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
-    controller->setDumpResourceResponseMIMETypes(true);
-    return JSValueMakeUndefined(context);
-}
-
 static JSValueRef dumpSelectionRectCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
@@ -309,7 +295,7 @@ static JSValueRef setAudioResultCallback(JSContextRef context, JSObjectRef funct
     JSC::VM& vm = toJS(context)->vm();
     JSC::JSLockHolder lock(vm);
 
-    JSC::JSArrayBufferView* jsBufferView = JSC::jsDynamicCast<JSC::JSArrayBufferView*>(toJS(toJS(context), arguments[0]));
+    JSC::JSArrayBufferView* jsBufferView = dynamicDowncast<JSC::JSArrayBufferView>(toJS(toJS(context), arguments[0]));
     ASSERT(jsBufferView);
     RefPtr<JSC::ArrayBufferView> bufferView = jsBufferView->unsharedImpl();
     auto buffer = static_cast<const uint8_t*>(bufferView->baseAddress());
@@ -2006,8 +1992,6 @@ const JSStaticFunction* TestRunner::staticFunctions()
         { "dumpFrameLoadCallbacks", dumpFrameLoadCallbacksCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "dumpProgressFinishedCallback", dumpProgressFinishedCallbackCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "dumpUserGestureInFrameLoadCallbacks", dumpUserGestureInFrameLoadCallbacksCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },        
-        { "dumpResourceLoadCallbacks", dumpResourceLoadCallbacksCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
-        { "dumpResourceResponseMIMETypes", dumpResourceResponseMIMETypesCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "dumpSelectionRect", dumpSelectionRectCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "dumpSourceAsWebArchive", dumpSourceAsWebArchiveCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "dumpStatusCallbacks", dumpStatusCallbacksCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
@@ -2189,6 +2173,12 @@ void TestRunner::waitToDumpWatchdogTimerFired()
     notifyDone();
 }
 
+void TestRunner::dumpResourceLoadCallbacks()
+{
+    for (auto callback : std::exchange(m_resourceLoadCallbacks, { }))
+        printf("%s\n", callback.c_str()); // NOLINT
+}
+
 void TestRunner::setGeolocationPermissionCommon(bool allow)
 {
     m_isGeolocationPermissionSet = true;
@@ -2368,7 +2358,7 @@ void TestRunner::setOpenPanelFilesMediaIcon(JSContextRef context, JSValueRef med
     JSC::VM& vm = toJS(context)->vm();
     JSC::JSLockHolder lock(vm);
     
-    JSC::JSArrayBufferView* jsBufferView = JSC::jsDynamicCast<JSC::JSArrayBufferView*>(toJS(toJS(context), mediaIcon));
+    JSC::JSArrayBufferView* jsBufferView = dynamicDowncast<JSC::JSArrayBufferView>(toJS(toJS(context), mediaIcon));
     ASSERT(jsBufferView);
     RefPtr<JSC::ArrayBufferView> bufferView = jsBufferView->unsharedImpl();
     auto buffer = static_cast<const uint8_t*>(bufferView->baseAddress());
@@ -2401,3 +2391,8 @@ bool TestRunner::isSecureEventInputEnabled() const
 }
 
 #endif
+
+void TestRunner::addResourceLoadCallback(std::string callbackString)
+{
+    m_resourceLoadCallbacks.push_back(callbackString);
+}

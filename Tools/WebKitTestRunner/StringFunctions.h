@@ -175,3 +175,33 @@ inline WTF::String addLeadingSpaceStripTrailingSpacesAddNewline(const WTF::Strin
 }
 
 } // namespace WTR
+
+namespace WTF {
+
+template<> class StringTypeAdapter<WKStringRef> {
+public:
+    StringTypeAdapter(WKStringRef);
+    unsigned length() const { return m_string ? WKStringGetLength(m_string) : 0; }
+    bool is8Bit() const { return !m_string; }
+    template<typename CharacterType> void writeTo(std::span<CharacterType>) const;
+
+private:
+    WKStringRef m_string;
+};
+
+inline StringTypeAdapter<WKStringRef>::StringTypeAdapter(WKStringRef string)
+    : m_string { string }
+{
+}
+
+template<> inline void StringTypeAdapter<WKStringRef>::writeTo<Latin1Character>(std::span<Latin1Character>) const
+{
+}
+
+template<> inline void StringTypeAdapter<WKStringRef>::writeTo<char16_t>(std::span<char16_t> destination) const
+{
+    if (m_string)
+        WKStringGetCharacters(m_string, reinterpret_cast<WKChar*>(destination.data()), WKStringGetLength(m_string));
+}
+
+}

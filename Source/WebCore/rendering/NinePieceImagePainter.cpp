@@ -31,7 +31,7 @@
 #include "ImageQualityController.h"
 #include "LayoutRect.h"
 #include "RenderStyleConstants.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleImage.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/Vector.h>
@@ -210,7 +210,7 @@ static FloatSize NODELETE computeMiddleTileScale(const Vector<FloatSize, MaxPiec
 
 static Vector<FloatSize, MaxPiece> computeTileScales(const Vector<FloatRect, MaxPiece>& destinationRects, const Vector<FloatRect, MaxPiece>& sourceRects, NinePieceImageRule hRule, NinePieceImageRule vRule)
 {
-    Vector<FloatSize, MaxPiece> scales(MaxPiece, FloatSize(1, 1));
+    Vector<FloatSize, MaxPiece> scales(FillWith { }, MaxPiece, FloatSize(1, 1));
 
     scales[TopPiece]    = computeSideTileScale(TopPiece,    destinationRects, sourceRects);
     scales[RightPiece]  = computeSideTileScale(RightPiece,  destinationRects, sourceRects);
@@ -223,14 +223,16 @@ static Vector<FloatSize, MaxPiece> computeTileScales(const Vector<FloatRect, Max
 }
 
 template<typename T>
-static void paintNinePieceImage(const T& ninePieceImage, GraphicsContext& graphicsContext, const RenderElement* renderer, const RenderStyle& style, const LayoutRect& destination, const LayoutSize& source, float deviceScaleFactor, ImagePaintingOptions options)
+static void paintNinePieceImage(const T& ninePieceImage, GraphicsContext& graphicsContext, const RenderElement* renderer, const Style::ComputedStyle& style, const LayoutRect& destination, const LayoutSize& source, float deviceScaleFactor, ImagePaintingOptions options)
 {
     auto styleImage = ninePieceImage.source().tryStyleImage();
     ASSERT(styleImage);
     ASSERT(styleImage->isLoaded(renderer));
 
+    auto zoom = style.usedZoomForLength();
+
     auto sourceSlices      = computeSlices(source, ninePieceImage.slice(), styleImage->imageScaleFactor());
-    auto destinationSlices = computeSlices(destination.size(), ninePieceImage.width(), Style::evaluate<LayoutBoxExtent>(style.usedBorderWidths().to<Style::LineWidthBox>(), Style::ZoomNeeded { }), sourceSlices, style.usedZoomForLength());
+    auto destinationSlices = computeSlices(destination.size(), ninePieceImage.width(), Style::evaluate<LayoutBoxExtent>(style.usedBorderWidths().to<Style::LineWidthBox>(), zoom, deviceScaleFactor), sourceSlices, zoom);
 
     scaleSlicesIfNeeded(destination.size(), destinationSlices, deviceScaleFactor);
 
@@ -268,12 +270,12 @@ static void paintNinePieceImage(const T& ninePieceImage, GraphicsContext& graphi
 
 // MARK: - Painter entry point
 
-void NinePieceImagePainter::paint(const Style::BorderImage& ninePieceImage, GraphicsContext& graphicsContext, const RenderElement* renderer, const RenderStyle& style, const LayoutRect& destination, const LayoutSize& source, float deviceScaleFactor, ImagePaintingOptions options)
+void NinePieceImagePainter::paint(const Style::BorderImage& ninePieceImage, GraphicsContext& graphicsContext, const RenderElement* renderer, const Style::ComputedStyle& style, const LayoutRect& destination, const LayoutSize& source, float deviceScaleFactor, ImagePaintingOptions options)
 {
     return paintNinePieceImage(ninePieceImage, graphicsContext, renderer, style, destination, source, deviceScaleFactor, options);
 }
 
-void NinePieceImagePainter::paint(const Style::MaskBorder& ninePieceImage, GraphicsContext& graphicsContext, const RenderElement* renderer, const RenderStyle& style, const LayoutRect& destination, const LayoutSize& source, float deviceScaleFactor, ImagePaintingOptions options)
+void NinePieceImagePainter::paint(const Style::MaskBorder& ninePieceImage, GraphicsContext& graphicsContext, const RenderElement* renderer, const Style::ComputedStyle& style, const LayoutRect& destination, const LayoutSize& source, float deviceScaleFactor, ImagePaintingOptions options)
 {
     return paintNinePieceImage(ninePieceImage, graphicsContext, renderer, style, destination, source, deviceScaleFactor, options);
 }

@@ -32,19 +32,14 @@
 #include "Options.h"
 #include "ProfilerSupport.h"
 #include "SourceProvider.h"
-#include <array>
 #include <fcntl.h>
 #include <mutex>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <wtf/DataLog.h>
 #include <wtf/FileSystem.h>
-#include <wtf/MonotonicTime.h>
 #include <wtf/PageBlock.h>
 #include <wtf/ProcessID.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/text/MakeString.h>
-#include <wtf/text/StringConcatenate.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -215,11 +210,11 @@ void PerfLog::flush(const AbstractLocker&)
     m_file.flush();
 }
 
-void PerfLog::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> code, std::unique_ptr<IRDumpDebugInfo>&& debugInfo, std::unique_ptr<SourceCodeDumpDebugInfo>&& sourceCodeDebugInfo)
+void PerfLog::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> code, std::unique_ptr<IRDumpDebugInfo>&& irDebugInfo, std::unique_ptr<SourceCodeDumpDebugInfo>&& sourceCodeDebugInfo)
 {
     auto timestamp = ProfilerSupport::generateTimestamp();
     auto tid = ProfilerSupport::getCurrentThreadID();
-    ProfilerSupport::singleton().queue().dispatch([name = name, code, tid, timestamp, debugInfo = WTF::move(debugInfo), sourceCodeDebugInfo = WTF::move(sourceCodeDebugInfo)] {
+    ProfilerSupport::singleton().queue().dispatch([name = name, code, tid, timestamp, irDebugInfo = WTF::move(irDebugInfo), sourceCodeDebugInfo = WTF::move(sourceCodeDebugInfo)] {
         PerfLog& logger = singleton();
         size_t size = code.size();
         auto* executableAddress = code.code().untaggedPtr<const uint8_t*>();
@@ -230,8 +225,16 @@ void PerfLog::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> c
 
         CString irFilePath;
         Vector<std::pair<uint32_t, uint32_t>> lineEntries;
-        if (debugInfo) {
-            auto baseName = makeString("irdump-"_s, String::fromUTF8(debugInfo->functionName.span()), "-"_s, WTF::getCurrentProcessID(), "-"_s, timestamp);
+        struct SourceEntry {
+            uint32_t codeOffset;
+            uint32_t line;
+            uint32_t column;
+            CString filePath;
+        };
+        Vector<SourceEntry> sourceEntries;
+
+        if (irDebugInfo) {
+            auto baseName = makeString("irdump-"_s, String::fromUTF8(irDebugInfo->functionName.span()), "-"_s, WTF::getCurrentProcessID(), "-"_s, timestamp);
 
             String filePath;
             FileSystem::FileHandle handle;
@@ -247,7 +250,7 @@ void PerfLog::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> c
 
             if (handle) {
                 // Write sequential IR dump file from irLines.
-                for (auto& irLine : debugInfo->irLines) {
+                for (auto& irLine : irDebugInfo->irLines) {
                     CString line;
                     if (irLine.opName)
                         line = toCString("  ", irLine.opName, "\n");
@@ -259,8 +262,17 @@ void PerfLog::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> c
                 irFilePath = FileSystem::fileSystemRepresentation(filePath);
 
                 // Convert code entries to (codeOffset, 1-based lineNumber) pairs.
-                for (auto& codeEntry : debugInfo->codeEntries)
+                for (auto& codeEntry : irDebugInfo->codeEntries)
                     lineEntries.append({ codeEntry.codeOffset, codeEntry.irLineIndex + 1 });
+            }
+        }
+
+        if (sourceCodeDebugInfo) {
+            const CString& sourceCodeDumpDir = logger.m_sourceCodeDumpDirectory;
+            for (auto& entry : sourceCodeDebugInfo->codeEntries) {
+                CString filePath = protect(entry.sourceProvider)->sourceCodeDumpFilePath(sourceCodeDumpDir);
+                if (!filePath.isNull())
+                    sourceEntries.append({ entry.codeOffset, entry.lineColumn.line, entry.lineColumn.column, WTF::move(filePath) });
             }
         }
 
@@ -289,42 +301,26 @@ void PerfLog::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> c
             }
         }
 
-        if (sourceCodeDebugInfo && !sourceCodeDebugInfo->codeEntries.isEmpty()) {
-            struct SourceEntry {
-                uint32_t codeOffset;
-                uint32_t line;
-                uint32_t column;
-                CString filePath;
-            };
-            Vector<SourceEntry> sourceEntries;
-            const CString& sourceCodeDumpDir = logger.m_sourceCodeDumpDirectory;
-            for (auto& entry : sourceCodeDebugInfo->codeEntries) {
-                CString filePath = protect(entry.sourceProvider)->sourceCodeDumpFilePath(sourceCodeDumpDir);
-                if (!filePath.isNull())
-                    sourceEntries.append({ entry.codeOffset, entry.lineColumn.line, entry.lineColumn.column, WTF::move(filePath) });
-            }
+        if (!sourceEntries.isEmpty()) {
+            JITDump::DebugInfoRecord debugRecord;
+            debugRecord.header.timestamp = timestamp;
+            debugRecord.codeAddress = std::bit_cast<uintptr_t>(executableAddress);
+            debugRecord.nrEntry = sourceEntries.size();
 
-            if (!sourceEntries.isEmpty()) {
-                JITDump::DebugInfoRecord debugRecord;
-                debugRecord.header.timestamp = timestamp;
-                debugRecord.codeAddress = std::bit_cast<uintptr_t>(executableAddress);
-                debugRecord.nrEntry = sourceEntries.size();
+            uint32_t totalSize = sizeof(JITDump::DebugInfoRecord);
+            for (auto& sourceEntry : sourceEntries)
+                totalSize += sizeof(JITDump::DebugEntry) + (sourceEntry.filePath.length() + 1);
+            debugRecord.header.totalSize = totalSize;
 
-                uint32_t totalSize = sizeof(JITDump::DebugInfoRecord);
-                for (auto& sourceEntry : sourceEntries)
-                    totalSize += sizeof(JITDump::DebugEntry) + (sourceEntry.filePath.length() + 1);
-                debugRecord.header.totalSize = totalSize;
+            logger.write(locker, unsafeMakeSpan(std::bit_cast<char*>(&debugRecord), sizeof(JITDump::DebugInfoRecord)));
 
-                logger.write(locker, unsafeMakeSpan(std::bit_cast<char*>(&debugRecord), sizeof(JITDump::DebugInfoRecord)));
-
-                for (auto& sourceEntry : sourceEntries) {
-                    JITDump::DebugEntry debugEntry;
-                    debugEntry.codeAddress = std::bit_cast<uintptr_t>(executableAddress) + sourceEntry.codeOffset;
-                    debugEntry.line = sourceEntry.line;
-                    debugEntry.discrim = sourceEntry.column;
-                    logger.write(locker, unsafeMakeSpan(std::bit_cast<char*>(&debugEntry), sizeof(JITDump::DebugEntry)));
-                    logger.write(locker, sourceEntry.filePath.spanIncludingNullTerminator());
-                }
+            for (auto& sourceEntry : sourceEntries) {
+                JITDump::DebugEntry debugEntry;
+                debugEntry.codeAddress = std::bit_cast<uintptr_t>(executableAddress) + sourceEntry.codeOffset;
+                debugEntry.line = sourceEntry.line;
+                debugEntry.discrim = sourceEntry.column;
+                logger.write(locker, unsafeMakeSpan(std::bit_cast<char*>(&debugEntry), sizeof(JITDump::DebugEntry)));
+                logger.write(locker, sourceEntry.filePath.spanIncludingNullTerminator());
             }
         }
 

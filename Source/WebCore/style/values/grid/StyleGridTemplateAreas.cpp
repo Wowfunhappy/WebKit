@@ -26,6 +26,7 @@
 #include "StyleGridTemplateAreas.h"
 
 #include "CSSGridTemplateAreasValue.h"
+#include "CSSKeywordValueInlines.h"
 #include "StyleBuilderChecking.h"
 #include "StyleGridTrackSizingDirection.h"
 #include <algorithm>
@@ -40,12 +41,12 @@ static GridNamedLinesMap initializeImplicitNamedGridLines(const GridNamedAreaMap
     for (auto& area : namedGridAreas.map) {
         auto areaSpan = direction == GridTrackSizingDirection::Rows ? area.value.rows : area.value.columns;
         {
-            auto& startVector = namedGridLines.map.add(makeString(area.key, "-start"_s), Vector<unsigned>()).iterator->value;
+            auto& startVector = namedGridLines.map.add(CustomIdent { makeAtomString(area.key, "-start"_s) }, Vector<unsigned>()).iterator->value;
             startVector.append(areaSpan.startLine());
             std::ranges::sort(startVector);
         }
         {
-            auto& endVector = namedGridLines.map.add(makeString(area.key, "-end"_s), Vector<unsigned>()).iterator->value;
+            auto& endVector = namedGridLines.map.add(CustomIdent { makeAtomString(area.key, "-end"_s) }, Vector<unsigned>()).iterator->value;
             endVector.append(areaSpan.endLine());
             std::ranges::sort(endVector);
         }
@@ -84,7 +85,7 @@ auto CSSValueConversion<GridTemplateAreas>::operator()(BuilderState& state, cons
     return GridTemplateAreas { gridTemplateAreasValue->areas().map };
 }
 
-auto CSSValueCreation<GridTemplateAreas>::operator()(CSSValuePool& pool, const RenderStyle& style, const GridTemplateAreas& value) -> Ref<CSSValue>
+auto CSSValueCreation<GridTemplateAreas>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const GridTemplateAreas& value) -> Ref<CSSValue>
 {
     return WTF::switchOn(value,
         [&](const CSS::Keyword::None& keyword) -> Ref<CSSValue> {
@@ -98,7 +99,7 @@ auto CSSValueCreation<GridTemplateAreas>::operator()(CSSValuePool& pool, const R
 
 // MARK: - Serialization
 
-void Serialize<GridTemplateAreas>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const GridTemplateAreas& value)
+void Serialize<GridTemplateAreas>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const GridTemplateAreas& value)
 {
     WTF::switchOn(value,
         [&](const CSS::Keyword::None& keyword) {

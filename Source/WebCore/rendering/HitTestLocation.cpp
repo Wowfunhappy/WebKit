@@ -34,12 +34,12 @@ HitTestLocation::HitTestLocation(const LayoutPoint& point)
 {
 }
 
-HitTestLocation::HitTestLocation(const FloatPoint& point, const FloatQuad& quad)
+HitTestLocation::HitTestLocation(const FloatPoint& point, const FloatQuad& quad, RectBased rectBased)
     : m_point { flooredLayoutPoint(point) }
     , m_boundingBox { quad.enclosingBoundingBox() }
     , m_transformedPoint { point }
     , m_transformedRect { quad }
-    , m_isRectBased { true }
+    , m_isRectBased { rectBased == RectBased::Yes }
     , m_isRectilinear { quad.isRectilinear() }
 {
 }
@@ -64,29 +64,11 @@ HitTestLocation::HitTestLocation(const HitTestLocation& other, const LayoutSize&
     move(offset);
 }
 
-HitTestLocation::HitTestLocation(const HitTestLocation& other)
-    : m_point(other.m_point)
-    , m_boundingBox(other.m_boundingBox)
-    , m_transformedPoint(other.m_transformedPoint)
-    , m_transformedRect(other.m_transformedRect)
-    , m_isRectBased(other.m_isRectBased)
-    , m_isRectilinear(other.m_isRectilinear)
-{
-}
+HitTestLocation::HitTestLocation(const HitTestLocation&) = default;
 
 HitTestLocation::~HitTestLocation() = default;
 
-HitTestLocation& HitTestLocation::operator=(const HitTestLocation& other)
-{
-    m_point = other.m_point;
-    m_boundingBox = other.m_boundingBox;
-    m_transformedPoint = other.m_transformedPoint;
-    m_transformedRect = other.m_transformedRect;
-    m_isRectBased = other.m_isRectBased;
-    m_isRectilinear = other.m_isRectilinear;
-
-    return *this;
-}
+HitTestLocation& HitTestLocation::operator=(const HitTestLocation&) = default;
 
 void HitTestLocation::move(const LayoutSize& offset)
 {

@@ -68,6 +68,7 @@ struct MarkedText : public CanMakeCheckedPtr<MarkedText, WTF::DefaultedOperatorE
         DraggedContent,
         TransparentContent,
         DictationStreamingOpacity,
+        ActiveTextMatch,
     };
 
     enum class PaintPhase {

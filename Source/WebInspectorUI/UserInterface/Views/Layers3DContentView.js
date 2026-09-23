@@ -252,7 +252,13 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         if (documentNode === this._documentNode)
             return false;
 
-        this._scene.children.length = 0;
+        this._pendingTextureLoads.clear();
+
+        for (let layerGroup of this._layerGroupsById.values()) {
+            this._disposeLayerGroupChildren(layerGroup);
+            this._scene.remove(layerGroup);
+        }
+
         this._layerGroupsById.clear();
         this._layers.length = 0;
 
@@ -265,21 +271,37 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
     {
         // FIXME: This should be made into the basic usage of the manager, if not the agent itself.
         //        At that point, we can remove this duplication from the visualization and sidebar.
-        let {removals, additions} = WI.layerTreeManager.layerTreeMutations(this._layers, newLayers);
+        let {preserved, removals, additions} = WI.layerTreeManager.layerTreeMutations(this._layers, newLayers);
 
         for (let layer of removals) {
             let layerGroup = this._layerGroupsById.get(layer.layerId);
+            this._disposeLayerGroupChildren(layerGroup);
             this._scene.remove(layerGroup);
             this._layerGroupsById.delete(layer.layerId);
+            this._pendingTextureLoads.delete(layer.layerId);
         }
 
         if (this._selectedLayerGroup && !this._layerGroupsById.get(this._selectedLayerGroup.userData.layer.layerId))
-            this.selectedLayerGroup = null;
+            this._selectedLayerGroup = null;
 
         for (let layer of additions) {
             let layerGroup = this._createLayerGroup(layer);
             this._layerGroupsById.set(layer.layerId, layerGroup);
             this._scene.add(layerGroup);
+        }
+
+        for (let layer of preserved) {
+            let layerGroup = this._layerGroupsById.get(layer.layerId);
+            let previousLayer = layerGroup.userData.layer;
+            layerGroup.userData.layer = layer;
+
+            if (WI.settings.experimentalLayers3DShowLayerContents.value && layer.paintCount !== previousLayer.paintCount) {
+                this._disposeLayerGroupChildren(layerGroup);
+                while (layerGroup.children.length > 0)
+                    layerGroup.remove(layerGroup.children[0]);
+
+                this._populateLayerGroup(layerGroup, layer);
+            }
         }
 
         // FIXME: Update the backend to provide a literal "layer tree" so we can decide z-indices less naively.
@@ -311,6 +333,9 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         let outlineMesh = this._createLayerMesh(layer.compositedBounds, {isOutline: true});
         layerGroup.add(fillMesh, outlineMesh);
 
+        if (layerGroup === this._selectedLayerGroup)
+            this._applyLayerGroupStyle(layerGroup, WI.Layers3DContentView._selectedLayerColor);
+
         if (WI.settings.experimentalLayers3DShowLayerContents.value) {
             this._loadLayerTexture(layer, (texture) => {
                 if (!texture)
@@ -328,9 +353,12 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
                 fillMesh.material?.map?.dispose();
                 fillMesh.material?.dispose();
 
-                let texturedMesh = this._createLayerMesh(layer.bounds, {texture});
+                let texturedMesh = this._createLayerMesh(layer.compositedBounds, {texture});
                 layerGroup.add(texturedMesh);
                 layerGroup.add(outlineMesh);
+
+                if (layerGroup === this._selectedLayerGroup)
+                    this._applyLayerGroupStyle(layerGroup, WI.Layers3DContentView._selectedLayerColor);
             });
         }
     }
@@ -375,6 +403,15 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
             };
             textureLoader.load(content, onLoad, onProgress, onError);
         });
+    }
+
+    _disposeLayerGroupChildren(layerGroup)
+    {
+        for (let child of layerGroup.children) {
+            child.geometry?.dispose();
+            child.material?.map?.dispose();
+            child.material?.dispose();
+        }
     }
 
     _createLayerMesh({x, y, width, height}, {isOutline, texture} = {})
@@ -463,19 +500,30 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
 
     _updateLayerGroupSelection(layerGroup)
     {
-        let setColor = ({fill, stroke}) => {
-            let [plane, outline] = this._selectedLayerGroup.children;
-            plane.material.color.set(fill);
-            outline.material.color.set(stroke);
-        };
-
         if (this._selectedLayerGroup)
-            setColor(WI.Layers3DContentView._layerColor);
+            this._applyLayerGroupStyle(this._selectedLayerGroup, WI.Layers3DContentView._layerColor);
 
         this._selectedLayerGroup = layerGroup;
 
         if (this._selectedLayerGroup)
-            setColor(WI.Layers3DContentView._selectedLayerColor);
+            this._applyLayerGroupStyle(this._selectedLayerGroup, WI.Layers3DContentView._selectedLayerColor);
+    }
+
+    _applyLayerGroupStyle(layerGroup, color)
+    {
+        let [plane, outline] = layerGroup.children;
+        if (!plane)
+            return;
+
+        let isTextured = !!plane.material.map;
+
+        if (isTextured) {
+            let isSelected = color === WI.Layers3DContentView._selectedLayerColor;
+            plane.material.opacity = isSelected ? 0.85 : 1.0;
+        } else
+            plane.material.color.set(color.fill);
+
+        outline.material.color.set(color.stroke);
     }
 
     _centerOnSelection()
@@ -490,6 +538,9 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
 
     _resetCamera()
     {
+        if (!this._layers.length)
+            return;
+
         let {x, y, width, height} = this._layers[0].bounds;
         this._controls.target.set(x + (width / 2), -y - (height / 2), 0);
         this._camera.position.set(x + (width / 2), -y - (height / 2), this._controls.maxDistance - WI.Layers3DContentView._zPadding / 2);
@@ -530,6 +581,17 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         this._pendingTextureLoads.clear();
 
         this._refreshAllLayers();
+
+        // z-interval changes between textured (10) and non-textured (25) modes,
+        // so reposition layers and update camera constraints to match.
+        let zInterval = this._zInterval();
+        this._layers.forEach((layer, index) => {
+            let layerGroup = this._layerGroupsById.get(layer.layerId);
+            layerGroup?.position.set(0, 0, index * zInterval);
+        });
+
+        this._boundingBox.setFromObject(this._scene);
+        this._controls.maxDistance = this._boundingBox.max.z + WI.Layers3DContentView._zPadding;
     }
 
     _handleRefreshLayersButtonClicked(event)
@@ -597,6 +659,9 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         this._visibleDimensionsElement.textContent = `${layer.bounds.width}px ${multiplicationSign} ${layer.bounds.height}px`;
 
         WI.layerTreeManager.reasonsForCompositingLayer(layer, (compositingReasons) => {
+            if (this._selectedLayerGroup?.userData.layer.layerId !== layer.layerId)
+                return;
+
             this._updateReasonsList(compositingReasons);
             this._layerInfoElement.classList.remove("hidden");
         });

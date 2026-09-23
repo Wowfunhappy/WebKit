@@ -26,7 +26,6 @@
 #pragma once
 
 #include <JavaScriptCore/Subspace.h>
-#include <JavaScriptCore/SubspaceAccess.h>
 
 namespace JSC {
 

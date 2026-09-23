@@ -29,7 +29,7 @@
 #include "Interpreter.h"
 #include "JSCJSValueInlines.h"
 #include "JSObjectInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 #include "JSWebAssemblyException.h"
 #include "WasmTag.h"
 
@@ -58,7 +58,7 @@ Structure* Exception::createStructure(VM& vm, JSGlobalObject* globalObject, JSVa
 template<typename Visitor>
 void Exception::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    Exception* thisObject = jsCast<Exception*>(cell);
+    Exception* thisObject = uncheckedDowncast<Exception>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 
@@ -96,7 +96,7 @@ void Exception::tryUnwrapValueForJSTag(VM& vm)
     if (!m_value)
         return;
 
-    if (auto* exception = jsDynamicCast<JSWebAssemblyException*>(m_value.get())) {
+    if (auto* exception = dynamicDowncast<JSWebAssemblyException>(m_value.get())) {
         if (&exception->tag() == &Wasm::Tag::jsExceptionTag()) {
             m_value.set(vm, this, JSValue::decode(exception->payload().at(0)));
             return;

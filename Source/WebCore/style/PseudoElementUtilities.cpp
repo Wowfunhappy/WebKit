@@ -36,17 +36,17 @@ namespace WebCore::Style {
 
 static RefPtr<Element> findElementForUserAgentPart(Element& host, const AtomString& userAgentPartName)
 {
-    RefPtr shadowRoot = host.userAgentShadowRoot();
+    auto* shadowRoot = host.userAgentShadowRoot();
     if (!shadowRoot)
         return nullptr;
-    for (Ref descendant : descendantsOfType<Element>(*shadowRoot)) {
-        if (descendant->userAgentPart() == userAgentPartName)
-            return descendant.ptr();
+    for (auto& descendant : descendantsOfType<Element>(*shadowRoot)) {
+        if (descendant.userAgentPart() == userAgentPartName)
+            return &descendant;
     }
     return nullptr;
 }
 
-ResolvedComputedPseudoElement resolveComputedPseudoElement(Element& element, const String& pseudoElement)
+ResolvedComputedPseudoElement resolveComputedPseudoElement(Element& element, const WTF::String& pseudoElement)
 {
     auto identifier = CSSSelectorParser::parsePseudoElement(pseudoElement, CSSSelectorParserContext { protect(element.document()) });
     if (!identifier)

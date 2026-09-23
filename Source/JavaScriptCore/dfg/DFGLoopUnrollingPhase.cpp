@@ -29,6 +29,7 @@
 #if ENABLE(DFG_JIT)
 
 #include "CodeOrigin.h"
+#include "DFGBasicBlockInlines.h"
 #include "DFGBlockInsertionSet.h"
 #include "DFGCFAPhase.h"
 #include "DFGCloneHelper.h"
@@ -38,7 +39,6 @@
 #include "DFGNodeType.h"
 #include "DFGPhase.h"
 #include "FunctionAllowlist.h"
-#include <wtf/IndexMap.h>
 
 namespace JSC {
 namespace DFG {
@@ -60,28 +60,28 @@ public:
             }
         }
 
-        uint32_t loopSize() { return loop->size(); }
-        BasicBlock* loopBody(uint32_t i) { return loop->at(i).node(); }
-        BasicBlock* header() const { return loop->header().node(); }
+        uint32_t NODELETE loopSize() { return loop->size(); }
+        BasicBlock* NODELETE loopBody(uint32_t i) { return loop->at(i).node(); }
+        BasicBlock* NODELETE header() const { return loop->header().node(); }
         // If operand is a constant, it indicates that we can do fully unrolling.
-        bool shouldFullyUnroll() const { return std::holds_alternative<CheckedInt32>(operand) && std::holds_alternative<CheckedInt32>(initialValue); }
+        bool NODELETE shouldFullyUnroll() const { return std::holds_alternative<CheckedInt32>(operand) && std::holds_alternative<CheckedInt32>(initialValue); }
 
-        Node* condition() const
+        Node* NODELETE condition() const
         {
             if (tail && tail->terminal()->isBranch())
                 return tail->terminal()->child1().node();
             return nullptr;
         }
 
-        bool shouldInvertCondition() const
+        bool NODELETE shouldInvertCondition() const
         {
             ASSERT(invertCondition.has_value());
             return *invertCondition;
         }
-        BasicBlock*& loopTarget(BasicBlock* tail) const { return tail->successor(shouldInvertCondition()); }
-        BasicBlock*& exitTarget(BasicBlock* tail) const { return tail->successor(!shouldInvertCondition()); }
+        BasicBlock*& NODELETE loopTarget(BasicBlock* tail) const { return tail->successor(shouldInvertCondition()); }
+        BasicBlock*& NODELETE exitTarget(BasicBlock* tail) const { return tail->successor(!shouldInvertCondition()); }
 
-        bool isInductionVariable(Node* node) { return node->operand() == inductionVariable->operand(); }
+        bool NODELETE isInductionVariable(Node* node) { return node->operand() == inductionVariable->operand(); }
         void dump(PrintStream& out) const;
 
         bool isProfitableToUnroll();
@@ -95,9 +95,9 @@ public:
         bool isLocalAccessNode(Node*);
 
         // Ratio of this count to total material node count
-        double ratio(uint32_t count) { return materialNodeCount ? static_cast<double>(count) / materialNodeCount : 0.0; }
+        double NODELETE ratio(uint32_t count) { return materialNodeCount ? static_cast<double>(count) / materialNodeCount : 0.0; }
 
-        uint32_t generalUnrollSizeLimit() { return shouldFullyUnroll() ? Options::maxLoopUnrollingBodyNodeSize() : Options::maxPartialLoopUnrollingBodyNodeSize(); }
+        uint32_t NODELETE generalUnrollSizeLimit() { return shouldFullyUnroll() ? Options::maxLoopUnrollingBodyNodeSize() : Options::maxPartialLoopUnrollingBodyNodeSize(); }
 
         // Used for early bailout during loop node scanning; combines general and special-case size limits.
         uint32_t maxAllowedUnrollSize() { return std::max(generalUnrollSizeLimit(), Options::maxNumericHotLoopSize()); }
@@ -174,7 +174,7 @@ public:
         m_graph.ensureCPSNaturalLoops();
 
         uint32_t loopCount = m_graph.m_cpsNaturalLoops->numLoops();
-        Vector<std::tuple<const NaturalLoop*, int32_t>, 16> loops(loopCount, std::tuple { nullptr, INT_MIN });
+        Vector<std::tuple<const NaturalLoop*, int32_t>, 16> loops(FillWith { }, loopCount, std::tuple { nullptr, INT_MIN });
         for (uint32_t loopIndex = loopCount; loopIndex--;) {
             const NaturalLoop& loop = m_graph.m_cpsNaturalLoops->loop(loopIndex);
             ASSERT(loop.index() == loopIndex && std::get<1>(loops[loopIndex]) == INT_MIN);
@@ -277,7 +277,7 @@ public:
 
     // Returns the true successor of a block prior to edge-breaking by skipping through
     // intermediate jump pads inserted on critical edges.
-    BasicBlock* loopAnalysisSuccessor(BasicBlock* successor)
+    BasicBlock* NODELETE loopAnalysisSuccessor(BasicBlock* successor)
     {
         while (successor->isJumpPad())
             successor = successor->successor(0);
@@ -518,7 +518,7 @@ public:
                     return false;
                 }
 
-                if (node->op() == StringFromCharCode) {
+                if (node->op() == StringFromCharCode || node->op() == StringFromCodePoint) {
                     // Not supported due to performance regression rdar://150526635
                     dataLogLnIf(Options::verboseLoopUnrolling(), "Skipping loop with header ", *data.header(), " since ", node, "<", node->op(), "> is not supported");
                     return false;
@@ -686,7 +686,7 @@ void LoopUnrollingPhase::LoopData::analyzeLoopNode(Graph& graph, Node* node)
 void LoopUnrollingPhase::dumpLoopNodeTypeStats(LoopData& data)
 {
     dataLogLn("Loop unrolling candidate of function ", m_graph.m_codeBlock->inferredNameWithHash(), " with data=", data);
-    Vector<uint32_t> counter(numberOfNodeTypes + 1, 0);
+    Vector<uint32_t> counter(FillWith { }, numberOfNodeTypes + 1, 0);
     for (uint32_t i = 0; i < data.loopSize(); ++i) {
         BasicBlock* body = data.loopBody(i);
         for (Node* node : *body)
@@ -772,7 +772,7 @@ void LoopUnrollingPhase::LoopData::dump(PrintStream& out) const
 }
 
 // FIXME: Add more condition and update operations if they are profitable.
-bool LoopUnrollingPhase::isSupportedConditionOp(NodeType op)
+bool NODELETE LoopUnrollingPhase::isSupportedConditionOp(NodeType op)
 {
     switch (op) {
     case CompareLess:
@@ -787,7 +787,7 @@ bool LoopUnrollingPhase::isSupportedConditionOp(NodeType op)
     }
 }
 
-bool LoopUnrollingPhase::isSupportedUpdateOp(NodeType op)
+bool NODELETE LoopUnrollingPhase::isSupportedUpdateOp(NodeType op)
 {
     switch (op) {
     case ArithAdd:
@@ -875,6 +875,7 @@ bool LoopUnrollingPhase::LoopData::isMaterialNode(Graph& graph, Node* node)
     case PhantomNewAsyncGeneratorFunction:
     case PhantomNewAsyncFunction:
     case PhantomNewInternalFieldObject:
+    case PhantomNewPromise:
     case PhantomCreateActivation:
     case PhantomDirectArguments:
     case PhantomCreateRest:
@@ -919,6 +920,7 @@ bool LoopUnrollingPhase::LoopData::isNumericComputationNode(Node* node)
     case ArithF16Round:
     case ArithPow:
     case ArithRandom:
+    case DateNow:
     case ArithRound:
     case ArithFloor:
     case ArithCeil:
@@ -944,7 +946,7 @@ bool LoopUnrollingPhase::LoopData::isNumericComputationNode(Node* node)
     }
 }
 
-bool LoopUnrollingPhase::LoopData::isLocalAccessNode(Node* node)
+bool NODELETE LoopUnrollingPhase::LoopData::isLocalAccessNode(Node* node)
 {
     switch (node->op()) {
     case GetLocal:

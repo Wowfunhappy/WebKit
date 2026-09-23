@@ -33,7 +33,9 @@
 #if ENABLE(REVEAL)
 
 #import "DocumentPage.h"
+#import "DocumentView.h"
 #import "Editing.h"
+#import "EditingInlines.h"
 #import "FocusController.h"
 #import "FrameDestructionObserverInlines.h"
 #import "FrameSelection.h"
@@ -56,8 +58,8 @@
 #if PLATFORM(MAC)
 #import <Quartz/Quartz.h>
 #else
-#import <PDFKit/PDFKit.h>
 #import <pal/spi/ios/UIKitSPI.h>
+#import <PDFKit/PDFKit.h>
 
 #import <pal/ios/UIKitSoftLink.h>
 #endif

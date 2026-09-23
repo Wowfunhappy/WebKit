@@ -97,9 +97,13 @@ static void dump(TextStream& ts, const ScrollingStateScrollingNode& node, bool c
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::SnapOffsetsInfo)) {
         ts.dumpProperty("horizontal snap offsets"_s, node.snapOffsetsInfo().horizontalSnapOffsets);
         ts.dumpProperty("vertical snap offsets"_s, node.snapOffsetsInfo().verticalSnapOffsets);
-        ts.dumpProperty("current horizontal snap point index"_s, node.currentHorizontalSnapPointIndex());
-        ts.dumpProperty("current vertical snap point index"_s, node.currentVerticalSnapPointIndex());
     }
+
+    if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::CurrentHorizontalSnapOffsetIndex))
+        ts.dumpProperty("current horizontal snap point index"_s, node.currentHorizontalSnapPointIndex());
+
+    if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::CurrentVerticalSnapOffsetIndex))
+        ts.dumpProperty("current vertical snap point index"_s, node.currentVerticalSnapPointIndex());
 
 #if ENABLE(SCROLLING_THREAD)
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::ReasonsForSynchronousScrolling))

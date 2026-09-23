@@ -289,7 +289,7 @@ void CocoaCurlResourceHandle::redirect()
     auto method = request.httpMethod();
     if ((status == 303 && method != "GET"_s && method != "HEAD"_s) || ((status == 301 || status == 302) && method == "POST"_s)) {
         request.setHTTPMethod("GET"_s);
-        request.setHTTPBody(nullptr);
+        clearCocoaCurlHTTPBody(request);
         for (auto field : { HTTPHeaderName::ContentLength, HTTPHeaderName::ContentType, HTTPHeaderName::ContentEncoding, HTTPHeaderName::ContentLanguage, HTTPHeaderName::ContentLocation, HTTPHeaderName::TransferEncoding })
             request.removeHTTPHeaderField(field);
     }
@@ -455,9 +455,8 @@ void CocoaCurlResourceHandle::publishResponse()
         return;
     auto& response = m_response.response;
     if (!m_useResponse && m_sniffed.isEmpty() && !m_result) {
-        auto& type = m_response.contentType;
         m_noSniff = !m_handle->shouldContentSniff() || equalLettersIgnoringASCIICase(response.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);
-        m_needsSniff = m_handle->shouldContentSniff() && response.httpStatusCode() != 204 && response.httpStatusCode() != 304 && m_request.httpMethod() != "HEAD"_s && MIMESniffer::holdsResponseForSniffing(type);
+        m_needsSniff = m_handle->shouldContentSniff() && response.httpStatusCode() != 204 && response.httpStatusCode() != 304 && m_request.httpMethod() != "HEAD"_s && MIMESniffer::holdsResponseForSniffing(response.mimeType());
         if (m_needsSniff) {
             continueTransfer();
             return;
@@ -505,7 +504,7 @@ void CocoaCurlResourceHandle::publishCachedResponse(ResourceResponse&& response,
     m_response.response = WTF::move(response);
     m_metrics = { };
     m_metrics.redirectCount = m_redirects;
-    if (ResourceResponse::isRedirectionStatusCode(m_response.response.httpStatusCode()) && !m_response.response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
+    if (isHttpRedirectStatus(m_response.response.httpStatusCode()) && !m_response.response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
         redirect();
         return;
     }
@@ -536,7 +535,7 @@ void CocoaCurlResourceHandle::curlReceivedData(const SharedBuffer& data, Complet
     if (m_needsSniff) {
         m_sniffed.append(data.span());
         if (m_sniffed.size() >= MIMESniffer::sniffedPrefixLength) {
-            m_response.response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffed.span().first(MIMESniffer::sniffedPrefixLength), m_response.contentType, m_noSniff));
+            m_response.response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffed.span().first(MIMESniffer::sniffedPrefixLength), m_response.response.mimeType(), m_response.contentType, m_noSniff));
             m_needsSniff = false;
             publishResponse();
         } else
@@ -582,8 +581,7 @@ void CocoaCurlResourceHandle::didReceiveHeaderFromMultipart(Vector<String>&& fie
         response.setHTTPHeaderField(name, value);
     }
     auto type = response.httpHeaderField(HTTPHeaderName::ContentType);
-    response.setMimeType(extractMIMETypeFromMediaType(type));
-    response.setTextEncodingName(extractCharsetFromMediaType(type).toString());
+    setCocoaCurlContentType(response, type);
     m_waitingForPolicy = true;
     auto callback = [loader = Ref { *this }, response = WTF::move(response)]() mutable {
         RefPtr handle = loader->m_handle;
@@ -665,7 +663,7 @@ void CocoaCurlResourceHandle::curlCompleted(const ResourceError& error, const Ne
     // NSURLConnection holds a response whose type is still being sniffed until its body is complete; a load
     // that fails first delivers only its error.
     if (m_needsSniff && error.isNull()) {
-        m_response.response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffed.span(), m_response.contentType, m_noSniff));
+        m_response.response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffed.span(), m_response.response.mimeType(), m_response.contentType, m_noSniff));
         m_needsSniff = false;
         publishResponse();
         return;

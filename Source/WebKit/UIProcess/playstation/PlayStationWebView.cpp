@@ -82,9 +82,7 @@ PlayStationWebView::PlayStationWebView(const API::PageConfiguration& conf)
 
 #endif // USE(WPE_BACKEND_PLAYSTATION)
 
-PlayStationWebView::~PlayStationWebView()
-{
-}
+PlayStationWebView::~PlayStationWebView() = default;
 
 void PlayStationWebView::setClient(std::unique_ptr<API::ViewClient>&& client)
 {

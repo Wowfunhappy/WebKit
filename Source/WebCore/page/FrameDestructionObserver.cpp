@@ -44,27 +44,17 @@ FrameDestructionObserver::~FrameDestructionObserver()
 void FrameDestructionObserver::observeFrame(LocalFrame* frame)
 {
     if (m_frame)
-        m_frame->removeDestructionObserver(*this);
+        protect(m_frame)->removeDestructionObserver(*this);
 
     m_frame = frame;
 
     if (m_frame)
-        m_frame->addDestructionObserver(*this);
+        protect(m_frame)->addDestructionObserver(*this);
 }
 
 void FrameDestructionObserver::frameDestroyed()
 {
     m_frame = nullptr;
-}
-
-// MAVERICKS_BACKPORT: out-of-line definition. frame() is declared non-inline in the header (the inline
-// keyword was removed to avoid -Wundefined-inline under the new SDK). Its only definition used to be the
-// `inline` one in FrameDestructionObserverInlines.h, which emits NO out-of-line symbol — so callers that
-// include only FrameDestructionObserver.h (e.g. JSWindowProxy.cpp's cross-tab window-proxy check) crashed
-// at runtime with a dyld lazy-bind failure (Symbol not found: WebCore::FrameDestructionObserver::frame()).
-LocalFrame* FrameDestructionObserver::frame() const
-{
-    return m_frame.get();
 }
 
 void FrameDestructionObserver::willDetachPage()

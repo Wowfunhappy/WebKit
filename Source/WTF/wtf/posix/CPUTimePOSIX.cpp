@@ -27,7 +27,6 @@
 #include <wtf/CPUTime.h>
 
 #include <sys/resource.h>
-#include <sys/time.h>
 #include <time.h>
 
 namespace WTF {

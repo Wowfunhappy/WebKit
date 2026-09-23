@@ -81,6 +81,7 @@ public:
     ~GraphicsContextGLCocoa();
     IOSurface* NODELETE displayBufferSurface();
 
+    // MAVERICKS_BACKPORT: upstream EGL target query for CGL IOSurfaces.
     std::tuple<GCGLenum, GCGLenum> externalImageTextureBindingPoint() final;
 
     enum class PbufferAttachmentUsage { Read, Write, ReadWrite };

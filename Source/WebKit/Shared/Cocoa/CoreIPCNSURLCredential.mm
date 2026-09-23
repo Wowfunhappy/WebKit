@@ -121,7 +121,7 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
                 break;
             }
             id value = [attributes objectForKey:key];
-            if (![value isKindOfClass:NSString.class] || ![value isKindOfClass:NSNumber.class] || ![value isKindOfClass:NSDate.class]) {
+            if (![value isKindOfClass:NSString.class] && ![value isKindOfClass:NSNumber.class] && ![value isKindOfClass:NSDate.class]) {
                 ASSERT_NOT_REACHED();
                 break;
             }
@@ -158,7 +158,7 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
     if ([flags isKindOfClass:NSDictionary.class]) {
         Vector<WebKit::CoreIPCNSURLCredentialData::Flags> vector;
         vector.reserveCapacity(flags.count);
-        for (NSString *key in attributes) {
+        for (NSString *key in flags) {
             if (![key isKindOfClass:NSString.class]) {
                 ASSERT_NOT_REACHED();
                 break;
@@ -265,7 +265,7 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
                         value = d.toID();
                     }
                 );
-                [attributes setObject:attributes.get() forKey:attributePair.first.toID().get()];
+                [attributes setObject:value.get() forKey:attributePair.first.toID().get()];
             }
             [dict setObject:attributes.get() forKey:@"attributes"];
         }

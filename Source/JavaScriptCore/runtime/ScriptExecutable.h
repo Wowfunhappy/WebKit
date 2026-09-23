@@ -26,6 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/ExecutableBase.h>
+#include <JavaScriptCore/Intrinsic.h>
 #include <JavaScriptCore/ParserModes.h>
 #include <JavaScriptCore/ProfilerJettisonReason.h>
 
@@ -54,13 +55,13 @@ public:
     const String& sourceURLStripped() const LIFETIME_BOUND { return m_source.provider()->sourceURLStripped(); }
     const String& preRedirectURL() const LIFETIME_BOUND { return m_source.provider()->preRedirectURL(); }
     int firstLine() const { return m_source.firstLine().oneBasedInt(); }
-    JS_EXPORT_PRIVATE int lastLine() const;
+    JS_EXPORT_PRIVATE int NODELETE lastLine() const;
     unsigned startColumn() const { return m_source.startColumn().oneBasedInt(); }
-    JS_EXPORT_PRIVATE unsigned endColumn() const;
+    JS_EXPORT_PRIVATE unsigned NODELETE endColumn() const;
 
-    std::optional<int> overrideLineNumber(VM&) const;
-    unsigned typeProfilingStartOffset() const;
-    unsigned typeProfilingEndOffset() const;
+    std::optional<int> NODELETE overrideLineNumber(VM&) const;
+    unsigned NODELETE typeProfilingStartOffset() const;
+    unsigned NODELETE typeProfilingEndOffset() const;
 
     bool usesArguments() const { return m_features & ArgumentsFeature; }
     bool isArrowFunctionContext() const { return m_isArrowFunctionContext; }
@@ -91,7 +92,7 @@ public:
         
     DECLARE_EXPORT_INFO;
 
-    void recordParse(CodeFeatures, LexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn);
+    void NODELETE recordParse(CodeFeatures, LexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn);
     void installCode(CodeBlock*);
     void installCode(VM&, CodeBlock*, CodeType, CodeSpecializationKind, Profiler::JettisonReason);
     CodeBlock* newCodeBlockFor(CodeSpecializationKind, JSFunction*, JSScope*);
@@ -122,14 +123,14 @@ public:
     template <typename ExecutableType>
     void prepareForExecution(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
 
-    ScriptExecutable* topLevelExecutable();
+    ScriptExecutable* NODELETE topLevelExecutable();
     JSArray* createTemplateObject(JSGlobalObject*, JSTemplateObjectDescriptor*);
 
 private:
     friend class ExecutableBase;
     void prepareForExecutionImpl(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
 
-    bool hasClearableCode() const;
+    bool NODELETE hasClearableCode() const;
 
     TemplateObjectMap& ensureTemplateObjectMap(VM&);
 

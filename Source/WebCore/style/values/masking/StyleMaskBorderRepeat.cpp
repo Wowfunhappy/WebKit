@@ -26,25 +26,63 @@
 #include "config.h"
 #include "StyleMaskBorderRepeat.h"
 
-#include "CSSValuePair.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "CSSMaskBorderRepeatValue.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 // MARK: - Conversion
 
+static auto toCSSMaskBorderRepeatValue(const MaskBorderRepeat::Value& value) -> CSS::MaskBorderRepeat::Value
+{
+    switch (value) {
+    case NinePieceImageRule::Stretch: return CSS::Keyword::Stretch { };
+    case NinePieceImageRule::Round:   return CSS::Keyword::Round { };
+    case NinePieceImageRule::Space:   return CSS::Keyword::Space { };
+    case NinePieceImageRule::Repeat:  return CSS::Keyword::Repeat { };
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+static auto toStyleMaskBorderRepeatValue(const CSS::MaskBorderRepeat::Value& value) -> MaskBorderRepeat::Value
+{
+    return WTF::switchOn(value,
+        [](CSS::Keyword::Stretch) { return NinePieceImageRule::Stretch; },
+        [](CSS::Keyword::Round)   { return NinePieceImageRule::Round; },
+        [](CSS::Keyword::Space)   { return NinePieceImageRule::Space; },
+        [](CSS::Keyword::Repeat)  { return NinePieceImageRule::Repeat; }
+    );
+}
+
+auto ToCSS<MaskBorderRepeat>::operator()(const MaskBorderRepeat& value, const Style::ComputedStyle&) -> CSS::MaskBorderRepeat
+{
+    return { {
+        toCSSMaskBorderRepeatValue(value.values.width()),
+        toCSSMaskBorderRepeatValue(value.values.height()),
+    } };
+}
+
+auto ToStyle<CSS::MaskBorderRepeat>::operator()(const CSS::MaskBorderRepeat& value, const BuilderState&) -> MaskBorderRepeat
+{
+    return {
+        toStyleMaskBorderRepeatValue(value.values.width()),
+        toStyleMaskBorderRepeatValue(value.values.height()),
+    };
+}
+
 auto CSSValueConversion<MaskBorderRepeat>::operator()(BuilderState& state, const CSSValue& value) -> MaskBorderRepeat
 {
-    if (auto* pairValue = dynamicDowncast<CSSValuePair>(value)) {
-        return MaskBorderRepeat {
-            toStyleFromCSSValue<NinePieceImageRule>(state, pairValue->first()),
-            toStyleFromCSSValue<NinePieceImageRule>(state, pairValue->second()),
-        };
-    }
+    if (RefPtr repeatValue = dynamicDowncast<CSSMaskBorderRepeatValue>(value))
+        return toStyle(repeatValue->repeats(), state);
 
-    // Values coming from CSS Typed OM may not have been converted to a CSSValuePair.
+    // Values coming from CSS Typed OM may not have been converted to a CSSMaskBorderRepeatValue.
     return toStyleFromCSSValue<NinePieceImageRule>(state, value);
+}
+
+auto CSSValueCreation<MaskBorderRepeat>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const MaskBorderRepeat& value) -> Ref<CSSValue>
+{
+    return CSSMaskBorderRepeatValue::create(toCSS(value, style));
 }
 
 } // namespace Style

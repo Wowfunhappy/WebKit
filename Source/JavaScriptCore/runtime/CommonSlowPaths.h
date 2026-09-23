@@ -31,6 +31,7 @@
 #include "ExceptionHelpers.h"
 #include "FunctionCodeBlock.h"
 #include "JSCellButterfly.h"
+#include "JSGlobalProxy.h"
 #include "JSPropertyNameEnumerator.h"
 #include "ScopedArguments.h"
 #include "SlowPathFunction.h"
@@ -127,14 +128,14 @@ inline bool canAccessArgumentIndexQuickly(JSObject& object, uint32_t index)
 {
     switch (object.type()) {
     case DirectArgumentsType: {
-        DirectArguments* directArguments = jsCast<DirectArguments*>(&object);
-        if (directArguments->isMappedArgumentInDFG(index))
+        auto& directArguments = uncheckedDowncast<DirectArguments>(object);
+        if (directArguments.isMappedArgumentInDFG(index))
             return true;
         break;
     }
     case ScopedArgumentsType: {
-        ScopedArguments* scopedArguments = jsCast<ScopedArguments*>(&object);
-        if (scopedArguments->isMappedArgumentInDFG(index))
+        auto& scopedArguments = uncheckedDowncast<ScopedArguments>(object);
+        if (scopedArguments.isMappedArgumentInDFG(index))
             return true;
         break;
     }
@@ -147,7 +148,7 @@ inline bool canAccessArgumentIndexQuickly(JSObject& object, uint32_t index)
 ALWAYS_INLINE Structure* originalStructureBeforePut(JSCell* cell)
 {
     if (cell->type() == GlobalProxyType)
-        return jsCast<JSGlobalProxy*>(cell)->target()->structure();
+        return uncheckedDowncast<JSGlobalProxy>(cell)->target()->structure();
     return cell->structure();
 }
 
@@ -183,7 +184,7 @@ static ALWAYS_INLINE void putDirectWithReify(VM& vm, JSGlobalObject* globalObjec
     auto scope = DECLARE_THROW_SCOPE(vm);
     bool isJSFunction = baseObject->inherits<JSFunction>();
     if (isJSFunction) {
-        JSFunction* jsFunction = jsCast<JSFunction*>(baseObject);
+        JSFunction* jsFunction = uncheckedDowncast<JSFunction>(baseObject);
 
         if (propertyName == vm.propertyNames->prototype) {
             slot.disableCaching();
@@ -220,7 +221,7 @@ static ALWAYS_INLINE void putDirectAccessorWithReify(VM& vm, JSGlobalObject* glo
     bool isJSFunction = baseObject->inherits<JSFunction>();
     if (isJSFunction) {
         ASSERT(propertyName != vm.propertyNames->prototype);
-        jsCast<JSFunction*>(baseObject)->reifyLazyPropertyIfNeeded<>(vm, globalObject, propertyName);
+        uncheckedDowncast<JSFunction>(baseObject)->reifyLazyPropertyIfNeeded<>(vm, globalObject, propertyName);
         RETURN_IF_EXCEPTION(scope, void());
     }
 
@@ -231,7 +232,7 @@ static ALWAYS_INLINE void putDirectAccessorWithReify(VM& vm, JSGlobalObject* glo
 
 inline JSArray* allocateNewArrayBuffer(VM& vm, Structure* structure, JSCellButterfly* immutableButterfly)
 {
-    JSGlobalObject* globalObject = structure->globalObject();
+    JSGlobalObject* globalObject = structure->realm();
     Structure* originalStructure = globalObject->originalArrayStructureForIndexingType(immutableButterfly->indexingMode());
     ASSERT(originalStructure->indexingMode() == immutableButterfly->indexingMode());
     ASSERT(isCopyOnWrite(immutableButterfly->indexingMode()));
@@ -325,6 +326,7 @@ JSC_DECLARE_COMMON_SLOW_PATH(slow_path_instanceof_custom_from_instanceof);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_throw_static_error_from_instanceof);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_new_promise);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_new_generator);
+JSC_DECLARE_COMMON_SLOW_PATH(slow_path_new_async_function_generator);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_new_array_with_spread);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_new_array_with_species);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_new_array_buffer);
@@ -335,5 +337,8 @@ JSC_DECLARE_COMMON_SLOW_PATH(iterator_open_try_fast_wide32);
 JSC_DECLARE_COMMON_SLOW_PATH(iterator_next_try_fast_narrow);
 JSC_DECLARE_COMMON_SLOW_PATH(iterator_next_try_fast_wide16);
 JSC_DECLARE_COMMON_SLOW_PATH(iterator_next_try_fast_wide32);
+JSC_DECLARE_COMMON_SLOW_PATH(async_iterator_open_try_fast_narrow);
+JSC_DECLARE_COMMON_SLOW_PATH(async_iterator_open_try_fast_wide16);
+JSC_DECLARE_COMMON_SLOW_PATH(async_iterator_open_try_fast_wide32);
 
 } // namespace JSC

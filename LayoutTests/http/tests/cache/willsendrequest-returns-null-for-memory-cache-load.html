@@ -3,9 +3,9 @@
 <head>
     <script>
         if (window.testRunner) {
+            testRunner.clearMemoryCache();
             testRunner.dumpAsText();
             testRunner.waitUntilDone();
-            testRunner.dumpResourceLoadCallbacks();
         }
     
         function loadCachedImageInIFrame()
@@ -13,8 +13,9 @@
             var iframe = document.createElement("iframe");
             document.body.appendChild(iframe);
             iframe.onload = function() {
+                console.log("This test passes if it does not print 'FAIL'")
                 if (window.testRunner)
-                    testRunner.notifyDone();
+                    setTimeout(() => testRunner.notifyDone(), 0);
             }
             iframe.src = "resources/cached-image.html";
         }

@@ -123,9 +123,9 @@ Cache::Cache(NetworkProcess& networkProcess, const String& storageDirectory, Ref
             if (RefPtr protectedThis = weakThis.get())
                 updateSpeculativeLoadManagerEnabledState();
         });
-        m_thermalMitigationNotifier = makeUnique<WebCore::ThermalMitigationNotifier>([this, weakThis = WeakPtr { *this }](bool) {
-            if (RefPtr protectedThis = weakThis.get())
-                updateSpeculativeLoadManagerEnabledState();
+        m_thermalMitigationNotifier = WebCore::ThermalMitigationNotifier::create([weakThis = WeakPtr { *this }](bool) {
+            if (RefPtr protectedThis = weakThis)
+                protectedThis->updateSpeculativeLoadManagerEnabledState();
         });
         if (shouldUseSpeculativeLoadManager())
             m_speculativeLoadManager = makeUnique<SpeculativeLoadManager>(*this, protect(m_storage));
@@ -149,9 +149,7 @@ Cache::Cache(NetworkProcess& networkProcess, const String& storageDirectory, Ref
     }
 }
 
-Cache::~Cache()
-{
-}
+Cache::~Cache() = default;
 
 size_t Cache::capacity() const
 {
@@ -189,7 +187,7 @@ static bool NODELETE cachePolicyAllowsExpired(WebCore::ResourceRequestCachePolic
     return false;
 }
 
-static UseDecision responseNeedsRevalidation(NetworkSession& networkSession, const WebCore::ResourceResponse& response, WallTime timestamp, std::optional<Seconds> maxStale)
+static UseDecision responseNeedsRevalidation(NetworkSession& networkSession, const WebCore::ResourceResponse& response, WallTime timestamp, const WebCore::CacheControlDirectives& requestDirectives)
 {
     if (response.cacheControlContainsNoCache())
         return UseDecision::Validate;
@@ -197,6 +195,19 @@ static UseDecision responseNeedsRevalidation(NetworkSession& networkSession, con
     auto age = WebCore::computeCurrentAge(response, timestamp);
     auto lifetime = WebCore::computeFreshnessLifetimeForHTTPFamily(response, timestamp);
 
+    // Request max-age=0 (like no-cache) always forces revalidation.
+    if (requestDirectives.maxAge && requestDirectives.maxAge.value() == 0_ms)
+        return UseDecision::Validate;
+
+    if (age <= lifetime) {
+        if (requestDirectives.maxAge && age > requestDirectives.maxAge.value())
+            return UseDecision::Validate;
+
+        if (requestDirectives.minFresh && age + requestDirectives.minFresh.value() > lifetime)
+            return UseDecision::Validate;
+    }
+
+    auto maxStale = requestDirectives.maxStale;
     auto maximumStaleness = maxStale ? maxStale.value() : 0_ms;
     bool hasExpired = age - lifetime > maximumStaleness;
     if (hasExpired && !maxStale && networkSession.isStaleWhileRevalidateEnabled()) {
@@ -222,11 +233,11 @@ static UseDecision responseNeedsRevalidation(NetworkSession& networkSession, con
     auto requestDirectives = WebCore::parseCacheControlDirectives(request.httpHeaderFields());
     if (requestDirectives.noCache)
         return UseDecision::Validate;
-    // For requests we ignore max-age values other than zero.
-    if (requestDirectives.maxAge && requestDirectives.maxAge.value() == 0_ms)
+    // A request carrying no-store must not be satisfied from cache.
+    if (requestDirectives.noStore)
         return UseDecision::Validate;
 
-    return responseNeedsRevalidation(networkSession, response, timestamp, requestDirectives.maxStale);
+    return responseNeedsRevalidation(networkSession, response, timestamp, requestDirectives);
 }
 
 static UseDecision makeUseDecision(NetworkProcess& networkProcess, PAL::SessionID sessionID, const Entry& entry, const WebCore::ResourceRequest& request)
@@ -291,12 +302,14 @@ static StoreDecision makeStoreDecision(const WebCore::ResourceRequest& originalR
     if (response.cacheControlContainsNoStore())
         return StoreDecision::NoDueToNoStoreResponse;
 
+    if (response.httpStatusCode() == httpStatus304NotModified)
+        return StoreDecision::NoDueToHTTPStatusCode;
+
     if (!WebCore::isStatusCodeCacheableByDefault(response.httpStatusCode())) {
         // http://tools.ietf.org/html/rfc7234#section-4.3.2
         bool hasExpirationHeaders = response.expires() || response.cacheControlMaxAge();
-        bool expirationHeadersAllowCaching = WebCore::isStatusCodePotentiallyCacheable(response.httpStatusCode()) && hasExpirationHeaders;
-        if (!expirationHeadersAllowCaching)
-            return StoreDecision::NoDueToHTTPStatusCode;
+        if (!hasExpirationHeaders && !response.cacheControlContainsPublic())
+            return StoreDecision::NoDueToMissingExpirationHeaders;
     }
 
     // FIXME: We are not correctly computing the redirected request URL in case original request
@@ -453,6 +466,13 @@ void Cache::retrieve(const WebCore::ResourceRequest& request, std::optional<Glob
         ASSERT(record.key == storageKey);
 
         auto entry = Entry::decodeStorageRecord(record);
+
+        // FIXME: This is a workaround for rdar://181130091, which we can drop after a release.
+        if (entry && entry->response().httpStatusCode() == httpStatus304NotModified) {
+            LOG(NetworkCache, "(NetworkProcess) discarding poisoned 304 entry from disk cache (rdar://181130091)");
+            completeRetrieve(WTF::move(completionHandler), nullptr, info);
+            return false;
+        }
 
         auto useDecision = entry ? makeUseDecision(networkProcess, sessionID, *entry, request) : UseDecision::NoDueToDecodeFailure;
         info.useDecision = useDecision;
@@ -762,6 +782,24 @@ void Cache::fetchData(bool shouldComputeSize, CompletionHandler<void(Vector<Webs
             return WebsiteData::Entry { originAndSize.key, WebsiteDataType::DiskCache, originAndSize.value };
         });
         completionHandler(WTF::move(entries));
+    });
+}
+
+void Cache::fetchOriginAccessTimes(CompletionHandler<void(HashMap<WebCore::RegistrableDomain, WallTime>&&)>&& completionHandler)
+{
+    HashMap<WebCore::RegistrableDomain, WallTime> originAccessTimes;
+    m_storage->traverse(resourceType(), { Storage::TraverseFlag::LastAccessedRecordPerPartition }, [completionHandler = WTF::move(completionHandler), originAccessTimes = WTF::move(originAccessTimes)](const Storage::Record* record, const Storage::RecordInfo& recordInfo) mutable {
+        if (!record) {
+            completionHandler(WTF::move(originAccessTimes));
+            return;
+        }
+
+        auto& partition = record->key.partition();
+        if (partition.isEmpty())
+            return;
+
+        auto domain = WebCore::RegistrableDomain::uncheckedCreateFromRegistrableDomainString(partition);
+        originAccessTimes.set(WTF::move(domain), recordInfo.lastAccessTime);
     });
 }
 

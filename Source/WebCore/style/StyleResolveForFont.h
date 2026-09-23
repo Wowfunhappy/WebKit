@@ -50,7 +50,6 @@ FontSelectionValue fontWeightFromCSSValueDeprecated(const CSSValue&);
 
 FontSelectionValue fontStretchFromCSSValueDeprecated(const CSSValue&);
 
-FontSelectionValue fontStyleAngleFromCSSValueDeprecated(const CSSValue&);
 std::optional<FontSelectionValue> fontStyleAngleFromCSSFontStyleWithAngleValueDeprecated(const CSSFontStyleWithAngleValue&);
 std::optional<FontSelectionValue> fontStyleFromCSSValueDeprecated(const CSSValue&);
 

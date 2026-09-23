@@ -18,7 +18,7 @@ if (ENABLE_LAYOUT_TESTS)
         add_subdirectory(ImageDiff)
     endif ()
 
-    if (ENABLE_WEBKIT_LEGACY)
+    if (ENABLE_WEBKIT_LEGACY AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         add_subdirectory(DumpRenderTree)
     endif ()
 

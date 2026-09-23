@@ -55,6 +55,7 @@ public:
     void setUseDarkAppearance(bool);
     void setHoveredAndPressedParts(ScrollbarPart hoveredPart, ScrollbarPart pressedPart);
     void setOpacity(float);
+    void setScrollbarColor(const std::optional<ScrollbarColor>&);
     void setScrollbarLayoutDirection(UserInterfaceLayoutDirection);
 
 private:

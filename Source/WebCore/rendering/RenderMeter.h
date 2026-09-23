@@ -31,10 +31,10 @@ class RenderMeter final : public RenderBlockFlow {
     WTF_MAKE_TZONE_ALLOCATED(RenderMeter);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMeter);
 public:
-    RenderMeter(HTMLElement&, RenderStyle&&);
+    RenderMeter(HTMLElement&, Style::ComputedStyle&&);
     virtual ~RenderMeter();
 
-    HTMLMeterElement* meterElement() const;
+    HTMLMeterElement* NODELETE meterElement() const;
     void updateFromElement() override;
 
 private:

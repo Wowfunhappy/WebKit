@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-bdi-element/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-bdi-element/bdi-auto-dir-default-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-bdi-element/bdi-auto-dir-default-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-bdi-element/bdi-auto-dir-default.html

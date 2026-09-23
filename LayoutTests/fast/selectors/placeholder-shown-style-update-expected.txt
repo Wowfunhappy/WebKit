@@ -8,17 +8,12 @@ PASS getComputedStyle(document.getElementById("input-with-renderer")).background
 PASS getComputedStyle(document.getElementById("textarea-with-renderer")).backgroundColor is "rgb(255, 255, 255)"
 PASS getComputedStyle(document.getElementById("input-without-renderer")).backgroundColor is "rgb(255, 255, 255)"
 PASS getComputedStyle(document.getElementById("textarea-without-renderer")).backgroundColor is "rgb(255, 255, 255)"
-Adding a valid placeholder matches.
+Adding a placeholder matches.
 PASS getComputedStyle(document.getElementById("input-with-renderer")).backgroundColor is "rgb(1, 2, 3)"
 PASS getComputedStyle(document.getElementById("textarea-with-renderer")).backgroundColor is "rgb(1, 2, 3)"
 PASS getComputedStyle(document.getElementById("input-without-renderer")).backgroundColor is "rgb(1, 2, 3)"
 PASS getComputedStyle(document.getElementById("textarea-without-renderer")).backgroundColor is "rgb(1, 2, 3)"
-Using an invalid placeholder value does not match.
-PASS getComputedStyle(document.getElementById("input-with-renderer")).backgroundColor is "rgb(255, 255, 255)"
-PASS getComputedStyle(document.getElementById("textarea-with-renderer")).backgroundColor is "rgb(255, 255, 255)"
-PASS getComputedStyle(document.getElementById("input-without-renderer")).backgroundColor is "rgb(255, 255, 255)"
-PASS getComputedStyle(document.getElementById("textarea-without-renderer")).backgroundColor is "rgb(255, 255, 255)"
-Adding back a placehoder and an empty value. An empty value does not prevent matching.
+Adding a placehoder and an empty value. An empty value does not prevent matching.
 PASS getComputedStyle(document.getElementById("input-with-renderer")).backgroundColor is "rgb(1, 2, 3)"
 PASS getComputedStyle(document.getElementById("textarea-with-renderer")).backgroundColor is "rgb(1, 2, 3)"
 PASS getComputedStyle(document.getElementById("input-without-renderer")).backgroundColor is "rgb(1, 2, 3)"

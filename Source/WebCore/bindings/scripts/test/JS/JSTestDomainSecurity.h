@@ -29,13 +29,7 @@ namespace WebCore {
 class JSTestDomainSecurity : public JSDOMWrapper<TestDomainSecurity> {
 public:
     using Base = JSDOMWrapper<TestDomainSecurity>;
-    static JSTestDomainSecurity* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDomainSecurity>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestDomainSecurity* ptr = new (NotNull, JSC::allocateCell<JSTestDomainSecurity>(vm)) JSTestDomainSecurity(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestDomainSecurity* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestDomainSecurity>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -44,11 +38,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -68,8 +58,12 @@ protected:
 
 class JSTestDomainSecurityOwner final : public JSC::WeakHandleOwner {
 public:
+    JSTestDomainSecurityOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSTestDomainSecurityOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, TestDomainSecurity*)

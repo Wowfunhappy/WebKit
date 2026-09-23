@@ -28,6 +28,7 @@
 
 #include "Document.h"
 #include "Editing.h"
+#include "EditingInlines.h"
 #include "EditingStyle.h"
 #include "ElementInlines.h"
 #include "HTMLBRElement.h"
@@ -37,6 +38,9 @@
 #include "NodeName.h"
 #include "NodeTraversal.h"
 #include "PositionInlines.h"
+#include "RenderObject.h"
+#include "RenderObjectStyle.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "Text.h"
 #include "VisibleUnits.h"
@@ -55,7 +59,7 @@ static RefPtr<Element> highestVisuallyEquivalentDivBelowRoot(Element* startBlock
     // We don't want to return a root node (if it happens to be a div, e.g., in a document fragment) because there are no
     // siblings for us to append to.
     while (!currentBlock->nextSibling() && currentBlock->parentElement()->hasTagName(divTag) && currentBlock->parentElement()->parentElement()) {
-        if (currentBlock->parentElement()->hasAttributes())
+        if (protect(currentBlock->parentElement())->hasAttributes())
             break;
         currentBlock = currentBlock->parentElement();
     }
@@ -84,7 +88,7 @@ void InsertParagraphSeparatorCommand::calculateStyleBeforeInsertion(const Positi
         return;
 
     m_style = EditingStyle::create(position, EditingStyle::PropertiesToInclude::EditingPropertiesInEffect);
-    protect(m_style)->mergeTypingStyle(*position.document());
+    protect(m_style)->mergeTypingStyle(protect(*position.document()));
 }
 
 void InsertParagraphSeparatorCommand::applyStyleAfterInsertion(Node* originalEnclosingBlock)
@@ -139,7 +143,7 @@ Ref<Element> InsertParagraphSeparatorCommand::cloneHierarchyUnderNewBlock(const 
     // Make clones of ancestors in between the start node and the start block.
     RefPtr<Element> parent = WTF::move(blockToInsert);
     for (size_t i = ancestors.size(); i != 0; --i) {
-        auto child = ancestors[i - 1]->cloneElementWithoutChildren(document(), nullptr);
+        auto child = protect(ancestors[i - 1])->cloneElementWithoutChildren(document(), nullptr);
         // It should always be okay to remove id from the cloned elements, since the originals are not deleted.
         child->removeAttribute(idAttr);
         appendNode(child.copyRef(), parent.releaseNonNull());
@@ -149,7 +153,7 @@ Ref<Element> InsertParagraphSeparatorCommand::cloneHierarchyUnderNewBlock(const 
     return parent.releaseNonNull();
 }
 
-static bool isPhrasingContent(const Node& node)
+static bool NODELETE isPhrasingContent(const Node& node)
 {
     auto* element = dynamicDowncast<Element>(node);
     if (!element)
@@ -336,7 +340,7 @@ void InsertParagraphSeparatorCommand::doApply()
         // Recreate the same structure in the new paragraph.
 
         Vector<Ref<Element>> ancestors;
-        getAncestorsInsideBlock(positionOutsideTabSpan(insertionPosition).deprecatedNode(), startBlock.get(), ancestors);
+        getAncestorsInsideBlock(protect(positionOutsideTabSpan(insertionPosition).deprecatedNode()), startBlock.get(), ancestors);
         Ref parent = cloneHierarchyUnderNewBlock(ancestors, WTF::move(blockToInsert));
 
         if (!appendBlockPlaceholder(parent.copyRef()))
@@ -375,7 +379,7 @@ void InsertParagraphSeparatorCommand::doApply()
         // Recreate the same structure in the new paragraph.
 
         Vector<Ref<Element>> ancestors;
-        getAncestorsInsideBlock(positionAvoidingSpecialElementBoundary(positionOutsideTabSpan(insertionPosition)).deprecatedNode(), startBlock.get(), ancestors);
+        getAncestorsInsideBlock(protect(positionAvoidingSpecialElementBoundary(positionOutsideTabSpan(insertionPosition)).deprecatedNode()), startBlock.get(), ancestors);
 
         auto parent = cloneHierarchyUnderNewBlock(ancestors, WTF::move(blockToInsert));
         if (!appendBlockPlaceholder(WTF::move(parent)))
@@ -420,7 +424,7 @@ void InsertParagraphSeparatorCommand::doApply()
 
     // If the returned position lies either at the end or at the start of an element that is ignored by editing
     // we should move to its upstream or downstream position.
-    if (editingIgnoresContent(*insertionPosition.deprecatedNode())) {
+    if (editingIgnoresContent(protect(*insertionPosition.deprecatedNode()))) {
         if (insertionPosition.atLastEditingPositionForNode())
             insertionPosition = insertionPosition.downstream();
         else if (insertionPosition.atFirstEditingPositionForNode())
@@ -446,7 +450,7 @@ void InsertParagraphSeparatorCommand::doApply()
             positionAfterSplit = firstPositionInNode(*textNode);
             if (!textNode->previousSibling())
                 return; // Bail out if mutation events detachd the split text node.
-            insertionPosition.moveToPosition(textNode->previousSibling(), insertionPosition.offsetInContainerNode());
+            insertionPosition.moveToPosition(protect(textNode->previousSibling()), insertionPosition.offsetInContainerNode());
             visiblePos = VisiblePosition(insertionPosition);
         }
     }
@@ -499,7 +503,7 @@ void InsertParagraphSeparatorCommand::doApply()
             ASSERT(!positionAfterSplit.containerNode()->renderer() || positionAfterSplit.containerNode()->renderer()->style().collapseWhiteSpace());
             deleteInsignificantTextDownstream(positionAfterSplit);
             if (is<Text>(*positionAfterSplit.deprecatedNode()))
-                insertTextIntoNode(downcast<Text>(*positionAfterSplit.containerNode()), 0, nonBreakingSpaceString());
+                insertTextIntoNode(downcast<Text>(protect(*positionAfterSplit.containerNode())), 0, nonBreakingSpaceString());
         }
     }
 

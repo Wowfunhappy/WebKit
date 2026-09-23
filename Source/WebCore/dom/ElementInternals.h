@@ -81,7 +81,7 @@ private:
     {
     }
 
-    FormAssociatedCustomElement* elementAsFormAssociatedCustom() const;
+    FormAssociatedCustomElement* NODELETE elementAsFormAssociatedCustom() const;
 
     WeakPtr<HTMLElement, WeakPtrImplWithEventTargetData> m_element;
 };

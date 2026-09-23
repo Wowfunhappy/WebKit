@@ -36,7 +36,6 @@
 #include <wpe/GRefPtrWPE.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/WTFGType.h>
-#include <wtf/text/CString.h>
 
 #ifndef EGL_DRM_RENDER_NODE_FILE_EXT
 #define EGL_DRM_RENDER_NODE_FILE_EXT 0x3377
@@ -75,7 +74,7 @@ static gboolean wpeDisplayQtQuickConnect(WPEDisplay* display, GError** error)
         return FALSE;
     }
 
-    CString drmDevice;
+    const char* drmDevice = nullptr;
     const char* extensions = eglQueryDeviceStringEXT(eglDevice, EGL_EXTENSIONS);
     if (epoxy_extension_in_string(extensions, "EGL_EXT_device_drm"))
         drmDevice = eglQueryDeviceStringEXT(eglDevice, EGL_DRM_DEVICE_FILE_EXT);
@@ -84,7 +83,7 @@ static gboolean wpeDisplayQtQuickConnect(WPEDisplay* display, GError** error)
         return FALSE;
     }
 
-    CString drmRenderNode;
+    const char* drmRenderNode = nullptr;
     if (epoxy_extension_in_string(extensions, "EGL_EXT_device_drm_render_node"))
         drmRenderNode = eglQueryDeviceStringEXT(eglDevice, EGL_DRM_RENDER_NODE_FILE_EXT);
     else {
@@ -92,7 +91,7 @@ static gboolean wpeDisplayQtQuickConnect(WPEDisplay* display, GError** error)
         return FALSE;
     }
 
-    priv->drmDevice = adoptGRef(wpe_drm_device_new(drmDevice.data(), drmRenderNode.data()));
+    priv->drmDevice = adoptGRef(wpe_drm_device_new(drmDevice, drmRenderNode));
     return TRUE;
 }
 

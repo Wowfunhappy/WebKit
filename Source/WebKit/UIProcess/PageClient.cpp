@@ -32,6 +32,10 @@
 
 namespace WebKit {
 
+PageClient::PageClient(ClangVTableWorkaroundTag)
+{
+}
+
 #if ENABLE(VIDEO)
 void PageClient::showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier, const WebCore::ResolvedCaptionDisplaySettingsOptions&, CompletionHandler<void(Expected<void, WebCore::ExceptionData>&&)>&& completionHandler)
 {

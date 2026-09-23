@@ -33,6 +33,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-color-interpolation.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-inheritance-not-in-rendertree-01.tentative.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-inheritance-not-in-rendertree-02.tentative.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-objectBoundingBox-absolute-units-expected.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-objectBoundingBox-absolute-units.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-transform-01-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-transform-01.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/gradient-transform-02-expected.svg
@@ -55,6 +57,10 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/pattern-transform-03.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/pattern-viewbox-01-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/pattern-viewbox-01.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/percent-encoded-fragment-fill-stroke-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/percent-encoded-fragment-fill-stroke-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/percent-encoded-fragment-fill-stroke.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/percent-encoded-fragment-refs.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/radialgradient-basic-002-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/radialgradient-basic-002-ref.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/pservers/reftests/radialgradient-basic-002.svg

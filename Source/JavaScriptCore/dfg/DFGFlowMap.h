@@ -44,6 +44,10 @@ public:
     FlowMap(Graph& graph)
         : m_graph(graph)
     {
+        unsigned initialCapacity = m_graph.maxNodeCount();
+        m_map.reserveInitialCapacity(initialCapacity);
+        if (m_graph.m_form == SSA)
+            m_shadowMap.reserveInitialCapacity(initialCapacity);
         resize();
     }
     

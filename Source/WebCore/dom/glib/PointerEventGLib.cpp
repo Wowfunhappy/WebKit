@@ -77,9 +77,14 @@ Ref<PointerEvent> PointerEvent::create(const AtomString& type, const PlatformTou
 // the ids 0 and 1 are used for the pointer ids of mouse and pen/stylus.
 static constexpr unsigned touchMinimumPointerId = WebCore::mousePointerID + 1;
 
+unsigned PointerEvent::pointerIdForTouchPoint(const PlatformTouchPoint& point)
+{
+    return touchMinimumPointerId + point.id();
+}
+
 PointerEvent::PointerEvent(const AtomString& type, const PlatformTouchEvent& event, const Vector<Ref<PointerEvent>>& coalescedEvents, const Vector<Ref<PointerEvent>>& predictedEvents, CanBubble canBubble, IsCancelable isCancelable, unsigned index, bool isPrimary, Ref<WindowProxy>&& view, const DoublePoint& touchDelta)
     : MouseEvent(EventInterfaceType::PointerEvent, type, canBubble, isCancelable, typeIsComposed(type), event.timestamp(), WTF::move(view), 0, event.touchPoints().at(index).pos(), event.touchPoints().at(index).pos(), touchDelta.x(), touchDelta.y(), event.modifiers(), buttonForType(type), buttonsForType(type), nullptr, 0, SyntheticClickType::NoTap, { }, { }, std::nullopt, IsSimulated::No, IsTrusted::Yes)
-    , m_pointerId(touchMinimumPointerId + event.touchPoints().at(index).id())
+    , m_pointerId(pointerIdForTouchPoint(event.touchPoints().at(index)))
     , m_width(2 * event.touchPoints().at(index).radius().width())
     , m_height(2 * event.touchPoints().at(index).radius().height())
     , m_pressure(event.touchPoints().at(index).force())

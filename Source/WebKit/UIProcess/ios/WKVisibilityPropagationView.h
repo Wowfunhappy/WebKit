@@ -23,19 +23,20 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if HAVE(VISIBILITY_PROPAGATION_VIEW) && USE(EXTENSIONKIT)
+#if HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 #import <UIKit/UIKit.h>
 
 namespace WebKit {
 class AuxiliaryProcessProxy;
+using LayerHostingContextID = uint32_t;
 }
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface WKVisibilityPropagationView : UIView
 
-- (void)propagateVisibilityToProcess:(WebKit::AuxiliaryProcessProxy&)process;
+- (void)propagateVisibilityToProcess:(WebKit::AuxiliaryProcessProxy&)process contextID:(WebKit::LayerHostingContextID)contextID;
 - (void)stopPropagatingVisibilityToProcess:(WebKit::AuxiliaryProcessProxy&)process;
 - (void)clear;
 
@@ -43,4 +44,4 @@ NS_ASSUME_NONNULL_BEGIN
 
 NS_ASSUME_NONNULL_END
 
-#endif // HAVE(VISIBILITY_PROPAGATION_VIEW) && USE(EXTENSIONKIT)
+#endif // HAVE(VISIBILITY_PROPAGATION_VIEW)

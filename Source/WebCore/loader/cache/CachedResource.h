@@ -139,7 +139,7 @@ public:
 
     const ResourceRequest& resourceRequest() const LIFETIME_BOUND { return m_resourceRequest; }
     const URL& url() const LIFETIME_BOUND { return m_resourceRequest.url(); }
-    const String& cachePartition() const LIFETIME_BOUND { return m_resourceRequest.cachePartition(); }
+    String cachePartition() const { return m_resourceRequest.cachePartition(); }
     PAL::SessionID sessionID() const { return m_sessionID; }
     const CookieJar* cookieJar() const { return m_cookieJar.get(); }
     Type type() const { return m_type; }
@@ -267,6 +267,8 @@ public:
     void setIsPreloaded(bool isPreloaded) { m_isPreloaded = isPreloaded; }
     bool isLinkPreload() const { return m_isLinkPreload; }
     void setLinkPreload() { m_isLinkPreload = true; }
+    bool isLinkModulePreload() const { return m_isLinkModulePreload; }
+    void setLinkModulePreload() { m_isLinkModulePreload = true; }
     bool hasUnknownEncoding() { return m_hasUnknownEncoding; }
     void setHasUnknownEncoding(bool hasUnknownEncoding) { m_hasUnknownEncoding = hasUnknownEncoding; }
 
@@ -420,6 +422,7 @@ private:
     bool m_inCache : 1 { false };
     bool m_loading : 1 { false };
     bool m_isLinkPreload : 1;
+    bool m_isLinkModulePreload : 1;
     bool m_hasUnknownEncoding : 1;
     bool m_switchingClientsToRevalidatedResource : 1 { false };
     bool m_ignoreForRequestCount : 1;

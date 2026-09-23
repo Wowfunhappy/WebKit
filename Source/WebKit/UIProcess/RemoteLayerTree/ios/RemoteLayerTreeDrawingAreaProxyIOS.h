@@ -64,6 +64,8 @@ private:
 
     void didRefreshDisplay() override;
 
+    void didCommitLayerTree(IPC::Connection&, const RemoteLayerTreeTransaction&, const RemoteScrollingCoordinatorTransaction&, const std::optional<MainFrameData>&, const TransactionID&) override;
+
     void windowScreenDidChange(WebCore::PlatformDisplayID) override;
 
     std::optional<WebCore::FramesPerSecond> displayNominalFramesPerSecond() override;

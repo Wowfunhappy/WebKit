@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +34,7 @@
 #include "CSSFunctionValue.h"
 #include "CSSKeywordValue.h"
 #include "CSSNumericFactory.h"
-#include "CSSNumericValue.h"
+#include "CSSPrimitiveValue.h"
 #include "CSSStyleValueFactory.h"
 #include "CSSUnitValue.h"
 #include "DOMMatrix.h"
@@ -47,7 +48,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CSSPerspective);
 static ExceptionOr<CSSPerspectiveValue> checkLength(CSSPerspectiveValue length)
 {
     // https://drafts.css-houdini.org/css-typed-om/#dom-cssperspective-cssperspective
-    auto checkKeywordValue = [](Ref<CSSKeywordValue> value) -> ExceptionOr<CSSPerspectiveValue> {
+    auto checkKeywordValue = [](Ref<CSSOMKeywordValue> value) -> ExceptionOr<CSSPerspectiveValue> {
         if (!equalLettersIgnoringASCIICase(value->value(), "none"_s))
             return Exception { ExceptionCode::TypeError };
         return { WTF::move(value) };
@@ -59,7 +60,7 @@ static ExceptionOr<CSSPerspectiveValue> checkLength(CSSPerspectiveValue length)
             return { WTF::move(value) };
         },
         [&](String&& value) {
-            return checkKeywordValue(CSSKeywordValue::rectifyKeywordish(WTF::move(value)));
+            return checkKeywordValue(CSSOMKeywordValue::rectifyKeywordish(WTF::move(value)));
         },
         checkKeywordValue
     );
@@ -85,17 +86,16 @@ ExceptionOr<Ref<CSSPerspective>> CSSPerspective::create(Ref<const CSSFunctionVal
         return Exception { ExceptionCode::TypeError, "Unexpected number of values."_s };
     }
 
-    auto keywordOrNumeric = CSSStyleValueFactory::reifyValue(document, *cssFunctionValue->item(0), std::nullopt);
-    if (keywordOrNumeric.hasException())
-        return keywordOrNumeric.releaseException();
-    Ref keywordOrNumericValue = keywordOrNumeric.returnValue();
-    return [&] -> ExceptionOr<Ref<CSSPerspective>> {
-        if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(keywordOrNumericValue))
-            return CSSPerspective::create(keywordValue.releaseNonNull());
-        if (RefPtr numericValue = dynamicDowncast<CSSNumericValue>(keywordOrNumericValue))
-            return CSSPerspective::create(numericValue.releaseNonNull());
-        return Exception { ExceptionCode::TypeError, "Expected a CSSNumericValue."_s };
-    }();
+    Ref parameterValue = *cssFunctionValue->item(0);
+    if (RefPtr numericParameterValue = dynamicDowncast<CSSPrimitiveValue>(parameterValue.get())) {
+        auto numericValue = CSSNumericValue::reifyValue(document, *numericParameterValue);
+        if (numericValue.hasException())
+            return numericValue.releaseException();
+        return CSSPerspective::create(CSSPerspectiveValue { numericValue.releaseReturnValue() });
+    } else if (RefPtr keywordParameterValue = dynamicDowncast<CSSKeywordValue>(parameterValue.get()))
+        return CSSPerspective::create(CSSPerspectiveValue { CSSOMKeywordValue::reifyValue(document, *keywordParameterValue) });
+
+    return Exception { ExceptionCode::TypeError, "Expected a CSSNumericValue or CSSKeywordValue."_s };
 }
 
 CSSPerspective::CSSPerspective(CSSPerspectiveValue length)
@@ -137,7 +137,7 @@ void CSSPerspective::serialize(StringBuilder& builder) const
         [&](const String& value) {
             builder.append(value);
         },
-        [&](const Ref<CSSKeywordValue>& value) {
+        [&](const Ref<CSSOMKeywordValue>& value) {
             value->serialize(builder);
         }
     );
@@ -173,7 +173,7 @@ RefPtr<CSSValue> CSSPerspective::toCSSValue() const
             // FIXME: Implement this.
             return nullptr;
         },
-        [](const Ref<CSSKeywordValue>& keywordValue) -> RefPtr<CSSValue> {
+        [](const Ref<CSSOMKeywordValue>& keywordValue) -> RefPtr<CSSValue> {
             return keywordValue->toCSSValue();
         }
     );

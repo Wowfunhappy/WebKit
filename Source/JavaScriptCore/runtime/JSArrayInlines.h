@@ -26,12 +26,69 @@
 #include <JavaScriptCore/Error.h>
 #include <JavaScriptCore/JSArray.h>
 #include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/ResourceExhaustion.h>
 #include <JavaScriptCore/ScopedArguments.h>
 #include <JavaScriptCore/Structure.h>
+#include <JavaScriptCore/StructureArrayStorageInlines.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
+
+inline JSArray* JSArray::tryCreate(VM& vm, Structure* structure, unsigned initialLength, unsigned vectorLengthHint)
+{
+    ASSERT(vectorLengthHint >= initialLength);
+    unsigned outOfLineStorage = structure->outOfLineCapacity();
+
+    Butterfly* butterfly;
+    IndexingType indexingType = structure->indexingType();
+    if (!hasAnyArrayStorage(indexingType)) [[likely]] {
+        ASSERT(
+            hasUndecided(indexingType)
+            || hasInt32(indexingType)
+            || hasDouble(indexingType)
+            || hasContiguous(indexingType));
+
+        if (vectorLengthHint > MAX_STORAGE_VECTOR_LENGTH) [[unlikely]]
+            return nullptr;
+
+        unsigned vectorLength = Butterfly::optimalContiguousVectorLength(structure, vectorLengthHint);
+        void* temp = vm.auxiliarySpace().allocate(
+            vm,
+            Butterfly::totalSize(0, outOfLineStorage, true, vectorLength * sizeof(EncodedJSValue)),
+            nullptr, AllocationFailureMode::ReturnNull);
+        if (!temp)
+            return nullptr;
+        butterfly = Butterfly::fromBase(temp, 0, outOfLineStorage);
+        butterfly->setVectorLength(vectorLength);
+        butterfly->setPublicLength(initialLength);
+        Butterfly::clearRange(indexingType, butterfly, 0, vectorLength);
+    } else {
+        ASSERT(
+            indexingType == ArrayWithSlowPutArrayStorage
+            || indexingType == ArrayWithArrayStorage);
+        butterfly = tryCreateArrayButterfly(vm, nullptr, initialLength);
+        if (!butterfly)
+            return nullptr;
+        for (unsigned i = 0; i < BASE_ARRAY_STORAGE_VECTOR_LEN; ++i)
+            butterfly->arrayStorage()->m_vector[i].clear();
+    }
+
+    return createWithButterfly(vm, nullptr, structure, butterfly);
+}
+
+inline JSArray* JSArray::tryCreate(VM& vm, Structure* structure, unsigned initialLength)
+{
+    return tryCreate(vm, structure, initialLength, initialLength);
+}
+
+inline JSArray* JSArray::create(VM& vm, Structure* structure, unsigned initialLength)
+{
+    JSArray* result = JSArray::tryCreate(vm, structure, initialLength);
+    RELEASE_ASSERT_RESOURCE_AVAILABLE(result, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+    return result;
+}
 
 inline Structure* JSArray::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype, IndexingType indexingType)
 {
@@ -80,7 +137,7 @@ ALWAYS_INLINE bool JSArray::holesMustForwardToPrototype() const
 {
     Structure* structure = this->structure();
     if (type() == ArrayType) [[likely]] {
-        JSGlobalObject* globalObject = structure->globalObject();
+        JSGlobalObject* globalObject = structure->realm();
         if (structure->hasMonoProto() && structure->storedPrototype() == globalObject->arrayPrototype() && globalObject->arrayPrototypeChainIsSane()) [[likely]]
             return false;
     }
@@ -106,7 +163,7 @@ inline bool JSArray::canFastAppend(JSArray* otherArray) const
 
 inline bool JSArray::canDoFastIndexedAccess() const
 {
-    JSGlobalObject* globalObject = this->globalObject();
+    JSGlobalObject* globalObject = this->realm();
     if (!globalObject->arrayPrototypeChainIsSane())
         return false;
 
@@ -126,7 +183,7 @@ inline bool JSArray::canDoFastIndexedAccess() const
 
 ALWAYS_INLINE bool JSArray::definitelyNegativeOneMiss() const
 {
-    JSGlobalObject* globalObject = this->globalObject();
+    JSGlobalObject* globalObject = this->realm();
     if (!globalObject->arrayPrototypeChainIsSane())
         return false;
 
@@ -153,15 +210,15 @@ ALWAYS_INLINE uint64_t toLength(JSGlobalObject* globalObject, JSObject* object)
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
     if (isJSArray(object)) [[likely]]
-        return jsCast<JSArray*>(object)->length();
+        return uncheckedDowncast<JSArray>(object)->length();
 
     switch (object->type()) {
     case DirectArgumentsType:
-        RELEASE_AND_RETURN(scope, jsCast<DirectArguments*>(object)->length(globalObject));
+        RELEASE_AND_RETURN(scope, uncheckedDowncast<DirectArguments>(object)->length(globalObject));
     case ScopedArgumentsType:
-        RELEASE_AND_RETURN(scope, jsCast<ScopedArguments*>(object)->length(globalObject));
+        RELEASE_AND_RETURN(scope, uncheckedDowncast<ScopedArguments>(object)->length(globalObject));
     case ClonedArgumentsType:
-        RELEASE_AND_RETURN(scope, jsCast<ClonedArguments*>(object)->length(globalObject));
+        RELEASE_AND_RETURN(scope, uncheckedDowncast<ClonedArguments>(object)->length(globalObject));
     default:
         break;
     }

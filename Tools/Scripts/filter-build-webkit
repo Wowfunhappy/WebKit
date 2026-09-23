@@ -65,6 +65,7 @@ use constant {
     STYLE_HEADER => 1,
     STYLE_SUCCESS => 2,
     STYLE_ALERT => 3,
+    STYLE_ERROR => 4,
 
     HTML_HEADER =><<HTMLHEADER,
 <html>
@@ -77,6 +78,9 @@ use constant {
             p.alert { border-left-color: red; color: red; margin: 1.5em 0 0 0; }
             p.alert + p { margin: 1.5em 0 0 0; }
             p.alert + p.alert { margin: 0; }
+            p.error { border-left-color: magenta; color: magenta; margin: 1.5em 0 0 0; }
+            p.error + p { margin: 1.5em 0 0 0; }
+            p.error + p.error { margin: 0; }
             p.success { color: green; }
         </style>
     </head>
@@ -248,7 +252,7 @@ sub main() {
             printLine($line, $target, $project, STYLE_PLAIN);
         } elsif ($line =~ /compile-sandbox.sh\s+(\S+)/) {
             printLine("compile-sandbox.sh ".$1, $target, $project, STYLE_PLAIN);
-        } elsif ($line =~ /^Scripts\/generate-unified-source-bundles.rb/) {
+        } elsif ($line =~ /^Scripts\/generate-unified-source-bundles.py/) {
             printLine("Generating unified sources", $target, $project, STYLE_PLAIN);
         } elsif ($line =~ /^ruby JavaScriptCore\/generator\/main.rb JavaScriptCore\/bytecode\/BytecodeList.rb.*/) {
             printLine("Generating bytecode list", $target, $project, STYLE_PLAIN);
@@ -315,7 +319,8 @@ sub main() {
             if (($line =~ /\*\* BUILD FAILED \*\*/) || ($line =~ /^Build FAILED./)) {
                 $buildFailed = 1;
             }
-            printLine($line, $target, $project, $buildFinished ? STYLE_SUCCESS : STYLE_ALERT);
+            my $alertStyle = ($line =~ /error:/) ? STYLE_ERROR : STYLE_ALERT;
+            printLine($line, $target, $project, $buildFinished ? STYLE_SUCCESS : $alertStyle);
         }
     }
 
@@ -344,6 +349,7 @@ sub printLine($$$$)
         $line = escapeHTML($line);
         if    ($style == STYLE_HEADER)  { print OUTPUT_HANDLE "<h2>$line</h2>"; }
         elsif ($style == STYLE_SUCCESS) { print OUTPUT_HANDLE "<p class=\"success\">$line</p>"; }
+        elsif ($style == STYLE_ERROR)   { print OUTPUT_HANDLE "<p class=\"error\">$line</p>"; }
         elsif ($style == STYLE_ALERT)   { print OUTPUT_HANDLE "<p class=\"alert\">$line</p>"; }
         else                            { print OUTPUT_HANDLE "<p>$line</p>"; }
         OUTPUT_HANDLE->flush();
@@ -363,16 +369,18 @@ sub printLine($$$$)
         $reset = color("reset");
         if ($style == STYLE_HEADER)    { $color = color("blue"); }
         elsif ($style == STYLE_SUCCESS) { $color = color("green"); }
+        elsif ($style == STYLE_ERROR)   { $color = color("magenta"); }
         elsif ($style == STYLE_ALERT)   { $color = color("red"); }
         if ($outputFormat eq "oneline") {
             $erase = "\33[2K\r";
-            if ($style != STYLE_ALERT && $style != STYLE_SUCCESS) {
+            if ($style != STYLE_ALERT && $style != STYLE_ERROR && $style != STYLE_SUCCESS) {
                 $endl = "\r";
             }
         }
     } elsif ($outputFormat eq "debug") {
         if ($style == STYLE_HEADER)    { $color = "HEADER:"; }
         elsif ($style == STYLE_SUCCESS) { $color = "SUCCESS:"; }
+        elsif ($style == STYLE_ERROR)   { $color = "ERROR:"; }
         elsif ($style == STYLE_ALERT)   { $color = "ALERT:"; }
     }
     print OUTPUT_HANDLE $erase, $context, $color, $line, $reset, $endl;

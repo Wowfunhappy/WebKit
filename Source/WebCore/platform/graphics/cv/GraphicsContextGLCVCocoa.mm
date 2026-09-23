@@ -74,6 +74,7 @@ static constexpr auto s_yuvVertexShaderTexture2D {
     "}"_s
 };
 
+// MAVERICKS_BACKPORT: upstream rectangle-texture shader for CGL video planes.
 static constexpr auto s_yuvVertexShaderTextureRectangle {
     "attribute vec2 a_position;"
     "uniform vec2 u_yTextureSize;"
@@ -115,6 +116,7 @@ constexpr auto s_yuvFragmentShaderTexture2D {
     "}"_s
 };
 
+// MAVERICKS_BACKPORT: upstream rectangle-texture shader for CGL video planes.
 static constexpr auto s_yuvFragmentShaderTextureRectangle {
     "precision mediump float;"
     "uniform sampler2DRect u_yTexture;"
@@ -188,11 +190,11 @@ static TransferFunctionCV transferFunctionFromString(CFStringRef string)
         return TransferFunctionCV::kITU_R_601_4;
     if (CFEqual(string, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995))
         return TransferFunctionCV::kSMPTE_240M_1995;
-    if (canLoad_CoreVideo_kCVImageBufferYCbCrMatrix_DCI_P3() && CFEqual(string, kCVImageBufferYCbCrMatrix_DCI_P3))
+    if (CFEqual(string, kCVImageBufferYCbCrMatrix_DCI_P3))
         return TransferFunctionCV::kDCI_P3;
-    if (canLoad_CoreVideo_kCVImageBufferYCbCrMatrix_P3_D65() && CFEqual(string, kCVImageBufferYCbCrMatrix_P3_D65))
+    if (CFEqual(string, kCVImageBufferYCbCrMatrix_P3_D65))
         return TransferFunctionCV::kP3_D65;
-    if (canLoad_CoreVideo_kCVImageBufferYCbCrMatrix_ITU_R_2020() && CFEqual(string, kCVImageBufferYCbCrMatrix_ITU_R_2020))
+    if (CFEqual(string, kCVImageBufferYCbCrMatrix_ITU_R_2020))
         return TransferFunctionCV::kITU_R_2020;
     return TransferFunctionCV::Unknown;
 }
@@ -495,6 +497,7 @@ GraphicsContextGLCVCocoa::GraphicsContextGLCVCocoa(GraphicsContextGLCocoa& owner
         EGL_DestroyContext(display, context);
     });
 
+    // MAVERICKS_BACKPORT: upstream CGL video-plane extension selection.
     const bool useTexture2D = m_owner->drawingBufferTextureTarget() == GL_TEXTURE_2D;
 
 #if PLATFORM(MAC)
@@ -515,6 +518,11 @@ GraphicsContextGLCVCocoa::GraphicsContextGLCVCocoa(GraphicsContextGLCocoa& owner
         GL_DeleteProgram(yuvProgram);
     });
     // These are written so strlen might be compile-time.
+    // MAVERICKS_BACKPORT: select upstream shaders matching the CGL video texture target.
+    // GLint vsLength = s_yuvVertexShaderTexture2D.length();
+    // GLint fsLength = s_yuvFragmentShaderTexture2D.length();
+    // const char* vertexShaderSource = s_yuvVertexShaderTexture2D;
+    // const char* fragmentShaderSource = s_yuvFragmentShaderTexture2D;
     GLint vsLength = useTexture2D ? s_yuvVertexShaderTexture2D.length() : s_yuvVertexShaderTextureRectangle.length();
     GLint fsLength = useTexture2D ? s_yuvFragmentShaderTexture2D.length() : s_yuvFragmentShaderTextureRectangle.length();
     const char* vertexShaderSource = useTexture2D ? s_yuvVertexShaderTexture2D : s_yuvVertexShaderTextureRectangle;
@@ -697,6 +705,7 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
     auto uvPlaneWidth = IOSurfaceGetWidthOfPlane(surface.get(), 1);
     auto uvPlaneHeight = IOSurfaceGetHeightOfPlane(surface.get(), 1);
 
+    // MAVERICKS_BACKPORT: upstream target selection for CGL video-plane IOSurfaces.
     GLenum videoTextureTarget = m_owner->drawingBufferTextureTarget();
 
     GLuint uvTexture = 0;
@@ -705,6 +714,13 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
         GL_DeleteTextures(1, &uvTexture);
     });
     GL_ActiveTexture(GL_TEXTURE1);
+    // MAVERICKS_BACKPORT: bind the video plane with its CGL IOSurface target.
+    // GL_BindTexture(GL_TEXTURE_2D, uvTexture);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // auto uvHandle = WebCore::createPbufferAndAttachIOSurface(m_display, m_config, GL_TEXTURE_2D, EGL_IOSURFACE_READ_HINT_ANGLE, GL_RG, uvPlaneWidth, uvPlaneHeight, GL_UNSIGNED_BYTE, surface.get(), 1);
     GL_BindTexture(videoTextureTarget, uvTexture);
     GL_TexParameteri(videoTextureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     GL_TexParameteri(videoTextureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -723,6 +739,13 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
         GL_DeleteTextures(1, &yTexture);
     });
     GL_ActiveTexture(GL_TEXTURE0);
+    // MAVERICKS_BACKPORT: bind the video plane with its CGL IOSurface target.
+    // GL_BindTexture(GL_TEXTURE_2D, yTexture);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // auto yHandle = WebCore::createPbufferAndAttachIOSurface(m_display, m_config, GL_TEXTURE_2D, EGL_IOSURFACE_READ_HINT_ANGLE, GL_RED, yPlaneWidth, yPlaneHeight, GL_UNSIGNED_BYTE, surface.get(), 0);
     GL_BindTexture(videoTextureTarget, yTexture);
     GL_TexParameteri(videoTextureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     GL_TexParameteri(videoTextureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -745,7 +768,7 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
     GL_Uniform2f(m_uvTextureSizeUniformLocation, uvPlaneWidth, uvPlaneHeight);
 
     auto range = pixelRangeFromPixelFormat(pixelFormat);
-    auto transferFunction = transferFunctionFromString(RetainPtr { dynamic_cf_cast<CFStringRef>(CVBufferGetAttachment(image.get(), kCVImageBufferYCbCrMatrixKey, nil)) }.get());
+    auto transferFunction = transferFunctionFromString(protect(dynamic_cf_cast<CFStringRef>(CVBufferGetAttachment(image.get(), kCVImageBufferYCbCrMatrixKey, nil))).get());
     auto colorMatrix = YCbCrToRGBMatrixForRangeAndTransferFunction(range, transferFunction);
     GL_UniformMatrix4fv(m_colorMatrixUniformLocation, 1, GL_FALSE, colorMatrix);
 

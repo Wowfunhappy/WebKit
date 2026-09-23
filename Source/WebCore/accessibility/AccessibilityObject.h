@@ -103,6 +103,19 @@ public:
     AXObjectRareData& ensureRareData();
     bool needsRareData() const { return isTable() || isExposedTableRow(); }
 
+    // Bit flags stored in the uint16_t portion of m_rareDataWithBitfields.
+    static constexpr uint16_t ignoreARIAHiddenBit = 1 << 0;
+    bool shouldIgnoreARIAHidden() const { return m_rareDataWithBitfields.type() & ignoreARIAHiddenBit; }
+    void setShouldIgnoreARIAHidden(bool value)
+    {
+        auto bits = m_rareDataWithBitfields.type();
+        if (value)
+            bits |= ignoreARIAHiddenBit;
+        else
+            bits &= ~ignoreARIAHiddenBit;
+        m_rareDataWithBitfields.setType(bits);
+    }
+
     bool hasDirtySubtree() const { return m_subtreeDirty; }
 
     bool isInDescriptionListDetail() const;
@@ -275,7 +288,7 @@ public:
     RenderObject* renderer() const override { return nullptr; }
     CheckedPtr<RenderObject> rendererOrNearestAncestor() const;
     // Resolves the computed style if necessary (and safe to do so).
-    const RenderStyle* style() const;
+    const Style::ComputedStyle* style() const;
 
     // Note: computeIsIgnored does not consider whether an object is ignored due to presence of modals.
     // Use isIgnored as the word of law when determining if an object is ignored.
@@ -305,7 +318,7 @@ public:
 
     bool supportsARIAOwns() const override { return false; }
 
-    String explicitPopupValue() const final;
+    AccessibilityPopupValue popupValue() const final;
     bool hasDatalist() const;
     bool supportsHasPopup() const final;
     bool pressedIsPresent() const final;
@@ -327,7 +340,7 @@ public:
 
     // This function checks if the object should be ignored when there's a modal dialog displayed.
     virtual bool ignoredFromModalPresence() const;
-    bool isModalDescendant(Node&) const;
+    bool NODELETE isModalDescendant(Node&) const;
     bool isModalNode() const final;
 
     bool supportsSetSize() const final;
@@ -383,6 +396,7 @@ public:
     virtual void recomputeAriaRole() { }
     virtual AccessibilityRole ariaRoleAttribute() const { return AccessibilityRole::Unknown; }
     bool hasExplicitGenericRole() const { return ariaRoleAttribute() == AccessibilityRole::Generic; }
+    bool hasExplicitGroupRole() const final { return ariaRoleAttribute() == AccessibilityRole::Group; }
     bool hasImplicitGenericRole() const { return role() == AccessibilityRole::Generic && !hasExplicitGenericRole(); }
     bool ariaRoleHasPresentationalChildren() const;
     bool inheritsPresentationalRole() const override { return false; }
@@ -454,6 +468,8 @@ public:
     String brailleLabel() const override { return getAttribute(HTMLNames::aria_braillelabelAttr); }
     String brailleRoleDescription() const override { return getAttribute(HTMLNames::aria_brailleroledescriptionAttr); }
     String embeddedImageDescription() const final;
+    FloatSize imageDataSize() const final;
+    RefPtr<SharedBuffer> imageData(const AXImageDataParameters&) const final;
     std::optional<AccessibilityChildrenVector> imageOverlayElements() override { return std::nullopt; }
     String extendedDescription() const final;
 
@@ -471,6 +487,11 @@ public:
     String ariaRoleDescription() const final { return getAttributeTrimmed(HTMLNames::aria_roledescriptionAttr); };
 
     inline AXObjectCache* axObjectCache() const;
+
+    // This exists to enable an optimization in ownerParentObject(), which is called as part of parentObject(),
+    // one of our hottest functions. If no object has an owns-relationship (which is the most common case -- at
+    // the time of writing, 86% of all page loads don't use aria-owns a single time), we can fast-path exit ownerParentObject().
+    inline bool anyObjectHasAriaOwns() const;
 
     static AccessibilityObject* anchorElementForNode(Node&);
     static AccessibilityObject* headingElementForNode(Node*);
@@ -500,6 +521,9 @@ public:
     static TextIterator textIteratorIgnoringFullSizeKana(const SimpleRange&);
     CharacterRange selectedTextRange() const override { return { }; }
     int insertionPointLineNumber() const override { return -1; }
+#if ENABLE(WRITING_TOOLS)
+    bool writingToolsAvailable() const final;
+#endif // ENABLE(WRITING_TOOLS)
 
     URL url() const override { return URL(); }
     VisibleSelection selection() const final;
@@ -555,10 +579,14 @@ public:
 
     void performDismissActionIgnoringResult() final { performDismissAction(); }
     bool press() override;
+    bool syncPress() override { return press(); }
+    bool performShowMenuAction();
 
     std::optional<AccessibilityOrientation> explicitOrientation() const override { return std::nullopt; }
     void increment() override { }
     void decrement() override { }
+    void syncIncrement() override { increment(); }
+    void syncDecrement() override { decrement(); }
     virtual bool toggleDetailsAncestor() { return false; }
     // Reveals details elements and hidden="until-found" elements.
     virtual void revealAncestors() { }
@@ -953,7 +981,7 @@ protected:
     bool allowsTextRanges() const;
     unsigned getLengthForTextRange() const;
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     void verifyChildrenIndexInParent() const final { return AXCoreObject::verifyChildrenIndexInParent(m_children); }
 #endif
     void NODELETE resetChildrenIndexInParent() const;
@@ -1049,10 +1077,10 @@ private:
 }; // class AXChildIterator
 
 #if PLATFORM(COCOA)
-// Helpers to extract information from RenderStyle needed for accessibility purposes.
-RetainPtr<CTFontRef> fontFrom(const RenderStyle&);
-Color textColorFrom(const RenderStyle&);
-Color backgroundColorFrom(const RenderStyle&);
+// Helpers to extract information from Style::ComputedStyle needed for accessibility purposes.
+RetainPtr<CTFontRef> fontFrom(const Style::ComputedStyle&);
+Color textColorFrom(const Style::ComputedStyle&);
+Color backgroundColorFrom(const Style::ComputedStyle&);
 #endif // PLATFORM(COCOA)
 
 } // namespace WebCore

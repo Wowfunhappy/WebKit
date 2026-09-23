@@ -26,7 +26,9 @@
 #include "config.h"
 #include "Origin.h"
 
+#include "ElementInlines.h"
 #include "ExceptionOr.h"
+#include "HTMLNames.h"
 #include "JSDOMBindingSecurity.h"
 #include "JSDOMBindingSecurityInlines.h"
 #include "JSDOMGlobalObject.h"
@@ -38,12 +40,17 @@
 #include "JSHTMLAreaElement.h"
 #include "JSMessageEvent.h"
 #include "JSOrigin.h"
+#include "JSSVGAElement.h"
 #include "JSWorkerGlobalScope.h"
 #include "LocalDOMWindow.h"
+#include "SVGNames.h"
 #include "SecurityOrigin.h"
+#include "XLinkNames.h"
 #include <wtf/URL.h>
 
 namespace WebCore {
+
+using namespace HTMLNames;
 
 Origin::Origin(Ref<SecurityOrigin>&& securityOrigin)
     : m_origin(WTF::move(securityOrigin))
@@ -85,28 +92,32 @@ ExceptionOr<Ref<Origin>> Origin::from(ScriptExecutionContext& context, JSC::JSVa
         Ref worker = jsWorker->wrapped();
         if (RefPtr securityOrigin = worker->securityOrigin())
             return create(securityOrigin.releaseNonNull());
-    } else if (auto* jsMessageEvent = JSC::jsDynamicCast<JSMessageEvent*>(value)) {
+    } else if (auto* jsMessageEvent = dynamicDowncast<JSMessageEvent>(value)) {
         Ref messageEvent = jsMessageEvent->wrapped();
         if (RefPtr securityOrigin = messageEvent->securityOrigin())
             return create(securityOrigin.releaseNonNull());
-    } else if (auto* jsExtendableMessageEvent = JSC::jsDynamicCast<JSExtendableMessageEvent*>(value)) {
+    } else if (auto* jsExtendableMessageEvent = dynamicDowncast<JSExtendableMessageEvent>(value)) {
         Ref extendableMessageEvent = jsExtendableMessageEvent->wrapped();
         if (RefPtr securityOrigin = extendableMessageEvent->securityOrigin())
             return create(securityOrigin.releaseNonNull());
-    } else if (auto* jsOrigin = JSC::jsDynamicCast<JSOrigin*>(value)) {
+    } else if (auto* jsOrigin = dynamicDowncast<JSOrigin>(value)) {
         Ref origin = jsOrigin->wrapped();
         return create(origin->m_origin.copyRef());
-    } else if (auto* jsDOMURL = JSC::jsDynamicCast<JSDOMURL*>(value)) {
+    } else if (auto* jsDOMURL = dynamicDowncast<JSDOMURL>(value)) {
         Ref domURL = jsDOMURL->wrapped();
         return create(SecurityOrigin::create(domURL->href()));
-    } else if (auto* jsAElement = JSC::jsDynamicCast<JSHTMLAnchorElement*>(value)) {
+    } else if (auto* jsAElement = dynamicDowncast<JSHTMLAnchorElement>(value)) {
         Ref aElement = jsAElement->wrapped();
         if (aElement->hasAttributeWithoutSynchronization(hrefAttr))
             return create(SecurityOrigin::create(aElement->href()));
-    } else if (auto* jsAreaElement = JSC::jsDynamicCast<JSHTMLAreaElement*>(value)) {
+    } else if (auto* jsAreaElement = dynamicDowncast<JSHTMLAreaElement>(value)) {
         Ref areaElement = jsAreaElement->wrapped();
         if (areaElement->hasAttributeWithoutSynchronization(hrefAttr))
             return create(SecurityOrigin::create(areaElement->href()));
+    } else if (auto* jsSVGAElement = dynamicDowncast<JSSVGAElement>(value)) {
+        Ref svgAElement = jsSVGAElement->wrapped();
+        if (svgAElement->hasAttribute(SVGNames::hrefAttr) || svgAElement->hasAttribute(XLinkNames::hrefAttr))
+            return create(SecurityOrigin::create(svgAElement->hrefURL()));
     }
     return Exception { ExceptionCode::TypeError };
 }

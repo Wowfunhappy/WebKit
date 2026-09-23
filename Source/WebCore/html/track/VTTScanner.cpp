@@ -137,20 +137,22 @@ unsigned VTTScanner::scanDigits(unsigned& number)
     return numDigits;
 }
 
-bool VTTScanner::scanFloat(float& number, bool* isNegative)
+bool VTTScanner::scanDouble(double& number, bool* isNegative)
 {
     bool negative = scan('-');
     Run integerRun = collectWhile<isASCIIDigit>();
 
     advance(integerRun.length());
     Run decimalRun = createRun(position(), position());
-    if (scan('.')) {
+    bool hasDot = scan('.');
+    if (hasDot) {
         decimalRun = collectWhile<isASCIIDigit>();
         advance(decimalRun.length());
     }
 
-    // At least one digit required.
-    if (integerRun.isEmpty() && decimalRun.isEmpty()) {
+    // At least one digit required, and if there is a dot it must have
+    // digits on both sides.
+    if (integerRun.isEmpty() || (hasDot && decimalRun.isEmpty())) {
         // Restore to starting position.
         seekTo(integerRun.start());
         return false;
@@ -159,13 +161,16 @@ bool VTTScanner::scanFloat(float& number, bool* isNegative)
     Run floatRun = createRun(integerRun.start(), position());
     bool validNumber;
     if (m_is8Bit)
-        number = charactersToFloat(floatRun.span8(), &validNumber);
+        number = charactersToDouble(floatRun.span8(), &validNumber);
     else
-        number = charactersToFloat(floatRun.span16(), &validNumber);
+        number = charactersToDouble(floatRun.span16(), &validNumber);
 
-    if (!validNumber)
-        number = std::numeric_limits<float>::max();
-    else if (negative)
+    if (!validNumber || !std::isfinite(number)) {
+        seekTo(integerRun.start());
+        return false;
+    }
+
+    if (negative && number)
         number = -number;
 
     if (isNegative)

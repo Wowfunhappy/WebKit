@@ -38,6 +38,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #include "ExecutionHandlerIdleStopTest.h"
 #include "ExecutionHandlerTest.h"
+#include "ExecutionHandlerVMLifecycleTest.h"
 #include "GDBPacketParserTest.h"
 #include "InitializeThreading.h"
 #include "Options.h"
@@ -315,15 +316,19 @@ static void testWASMVirtualAddressOperators()
     dataLogLn("\n--- WASM Debugger Idle VM Stress Tests ---");
     int idleStopTestsFailed = testExecutionHandlerIdleStop();
 
+    dataLogLn("\n--- WASM Debugger VM Lifecycle Race Tests ---");
+    int vmLifecycleTestsFailed = testExecutionHandlerVMLifecycle();
+
     dataLogLn("===============================================");
     dataLogLn("Combined Test Results:");
     dataLogLn("  VirtualAddress Tests - PASSED (assertion-based)");
     dataLogLn("  WASM Debug Info Tests - See detailed results above");
     dataLogLn("  WASM Debugger Stress Tests - See detailed results above");
     dataLogLn("  WASM Debugger Idle VM Tests - See detailed results above");
-    dataLogLn("  Total Failures: ", testsFailed, " (VirtualAddress) + ", debugInfoTestsFailed, " (Debug Info) + ", executionHandlerTestsFailed, " (Stress) + ", idleStopTestsFailed, " (Idle VM) = ", testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed + idleStopTestsFailed);
+    dataLogLn("  WASM Debugger VM Lifecycle Race Tests - See detailed results above");
+    dataLogLn("  Total Failures: ", testsFailed, " (VirtualAddress) + ", debugInfoTestsFailed, " (Debug Info) + ", executionHandlerTestsFailed, " (Stress) + ", idleStopTestsFailed, " (Idle VM) + ", vmLifecycleTestsFailed, " (VM Lifecycle) = ", testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed + idleStopTestsFailed + vmLifecycleTestsFailed);
 
-    int totalFailures = testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed + idleStopTestsFailed;
+    int totalFailures = testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed + idleStopTestsFailed + vmLifecycleTestsFailed;
     if (!totalFailures) {
         dataLogLn("All tests PASSED!");
         dataLogLn("WASM debugger infrastructure is working correctly");

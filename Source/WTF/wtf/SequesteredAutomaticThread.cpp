@@ -26,9 +26,6 @@
 #include "config.h"
 #include <wtf/SequesteredAutomaticThread.h>
 
-#include <wtf/SequesteredImmortalHeap.h>
-#include <wtf/TZoneMallocInlines.h>
-
 namespace WTF {
 
 #if USE(PROTECTED_JIT_STACKS)

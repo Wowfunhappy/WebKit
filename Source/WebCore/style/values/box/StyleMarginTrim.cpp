@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleMarginTrim.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -33,8 +34,8 @@ namespace Style {
 auto CSSValueConversion<MarginTrim>::operator()(BuilderState& state, const CSSValue& value) -> MarginTrim
 {
     // See if value is "block" or "inline" before trying to parse a list
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueBlock:
             return { Style::MarginTrimSide::BlockStart, Style::MarginTrimSide::BlockEnd };
         case CSSValueInline:
@@ -53,7 +54,7 @@ auto CSSValueConversion<MarginTrim>::operator()(BuilderState& state, const CSSVa
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::None { };
 

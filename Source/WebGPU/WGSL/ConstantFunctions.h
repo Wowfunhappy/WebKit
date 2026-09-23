@@ -269,7 +269,19 @@ template<Constraint constraint, typename Functor>
 template<typename U>
 struct StaticCast {
     template<typename T>
-    static U cast(T t) { return static_cast<U>(t); }
+    static U cast(T t)
+    {
+        if constexpr (std::is_integral_v<U> && !std::is_same_v<U, bool> && (std::is_floating_point_v<T> || std::is_same_v<T, half>)) {
+            if constexpr (std::is_same_v<T, half>) {
+                static const half max = 0x1.ffcp15;
+                static const half lowest = -max;
+                return U(std::clamp(t, std::max(T(std::numeric_limits<U>::min()), lowest), max));
+            } else if (std::is_same_v<T, float>)
+                return U(std::clamp(t, T(std::numeric_limits<U>::min()), T(std::numeric_limits<U>::max() - ((128 << (!std::is_signed_v<U>)) - 1))));
+        }
+
+        return static_cast<U>(t);
+    }
 };
 
 template<typename U>
@@ -504,8 +516,13 @@ CONSTANT_FUNCTION(Add)
         return { { result } };
     }
 
-    return constantBinaryOperation<Constraints::Number>(arguments, [&]<typename T>(T left, T right) -> T {
-        return left + right;
+    return constantBinaryOperation<Constraints::Number>(arguments, [&]<typename T>(T left, T right) -> ConstantResult {
+        auto result = static_cast<T>(left + right);
+        if constexpr (std::is_floating_point_v<T> || std::is_same_v<T, half>) {
+            if (!std::isfinite(static_cast<double>(result)))
+                return makeUnexpected("addition overflow"_s);
+        }
+        return { { result } };
     });
 }
 
@@ -529,8 +546,13 @@ CONSTANT_FUNCTION(Minus)
         return { { result } };
     }
 
-    return constantBinaryOperation<Constraints::Number>(arguments, [&]<typename T>(T left, T right) -> T {
-        return left - right;
+    return constantBinaryOperation<Constraints::Number>(arguments, [&]<typename T>(T left, T right) -> ConstantResult {
+        auto result = static_cast<T>(left - right);
+        if constexpr (std::is_floating_point_v<T> || std::is_same_v<T, half>) {
+            if (!std::isfinite(static_cast<double>(result)))
+                return makeUnexpected("subtraction overflow"_s);
+        }
+        return { { result } };
     });
 }
 
@@ -605,8 +627,13 @@ CONSTANT_FUNCTION(Multiply)
         return { { result } };
     }
 
-    return constantBinaryOperation<Constraints::Number>(arguments, [&]<typename T>(T left, T right) -> T {
-        return left * right;
+    return constantBinaryOperation<Constraints::Number>(arguments, [&]<typename T>(T left, T right) -> ConstantResult {
+        auto result = static_cast<T>(left * right);
+        if constexpr (std::is_floating_point_v<T> || std::is_same_v<T, half>) {
+            if (!std::isfinite(static_cast<double>(result)))
+                return makeUnexpected("multiply overflow"_s);
+        }
+        return { { result } };
     });
 }
 
@@ -734,8 +761,14 @@ CONSTANT_FUNCTION(BitwiseShiftRight)
     ASSERT(arguments.size() == 2);
     const auto& shift = [&]<typename T>(T left, uint32_t right) -> ConstantResult {
         constexpr auto bitSize = sizeof(T) * 8;
-        if (right >= bitSize)
-            return makeUnexpected(makeString("shift right value must be less than the bit width of the shifted value, which is "_s, bitSize));
+        if constexpr (std::is_same_v<T, int64_t>) {
+            // Abstract-int right shifts are permitted to shift by >= bitwidth
+            if (right >= bitSize)
+                return { left < 0 ? T(-1) : T(0) };
+        } else {
+            if (right >= bitSize)
+                return makeUnexpected(makeString("shift right value must be less than the bit width of the shifted value, which is "_s, bitSize));
+        }
         return { left >> right };
     };
 
@@ -1244,13 +1277,17 @@ CONSTANT_FUNCTION(Ldexp)
     UNUSED_PARAM(resultType);
     return scalarOrVector([&](const auto& e1, auto& e2) -> ConstantResult {
         if (auto* abstractE1 = std::get_if<double>(&e1)) {
-            auto abstractE2 = std::get<int64_t>(e2);
             constexpr int64_t bias = 1023;
-            if (abstractE2 + bias <= 0)
+            int64_t e2Value;
+            if (auto* abstractE2 = std::get_if<int64_t>(&e2))
+                e2Value = *abstractE2;
+            else
+                e2Value = std::get<int32_t>(e2);
+            if (e2Value + bias <= 0)
                 return { static_cast<double>(0) };
-            if (abstractE2 > bias + 1)
+            if (e2Value > bias + 1)
                 return makeUnexpected(makeString("e2 must be less than or equal to "_s, bias + 1));
-            return { std::ldexp(*abstractE1, abstractE2) };
+            return { std::ldexp(*abstractE1, static_cast<int>(e2Value)) };
         }
 
         auto i32E2 = std::get<int32_t>(e2);
@@ -1336,7 +1373,11 @@ CONSTANT_FUNCTION(Normalize)
 BINARY_OPERATION(Pow, Float, [&]<typename T>(T base, T exp) -> ConstantResult {
     if (base < 0)
         return makeUnexpected(makeString("pow called with negative base ("_s, String::number(base), ")"_s));
+    if (!base && exp <= 0)
+        return makeUnexpected(makeString("pow called with base 0 and non-positive exponent ("_s, String::number(exp), ")"_s));
     auto result = std::pow(base, exp);
+    if (!std::isfinite(result))
+        return makeUnexpected("pow overflow"_s);
     return { { T(result) } };
 });
 
@@ -1386,10 +1427,10 @@ CONSTANT_FUNCTION(Refract)
     const auto& refract = [&]<typename T>(T e3) -> ConstantResult {
         auto* elementType = std::get<Types::Vector>(*resultType).element;
         CALL(dot, Dot, elementType, { e2, e1 });
-        CALL(pow, Pow, elementType, { dot, static_cast<T>(2.0) });
-        CALL(sub, Minus, elementType, { static_cast<T>(1.0), pow });
-        CALL(pow2, Pow, elementType, { e3, static_cast<T>(2.0) });
-        CALL(mul, Multiply, elementType, { pow2, sub });
+        CALL(dotSquared, Multiply, elementType, { dot, dot });
+        CALL(sub, Minus, elementType, { static_cast<T>(1.0), dotSquared });
+        CALL(e3Squared, Multiply, elementType, { e3, e3 });
+        CALL(mul, Multiply, elementType, { e3Squared, sub });
         CALL(k, Minus, elementType, { static_cast<T>(1.0), mul });
         CALL(lt, Lt, elementType, { k, static_cast<T>(0.0) });
 
@@ -1787,7 +1828,7 @@ CONSTANT_FUNCTION(Bitcast)
 #undef CONSTANT_FUNCTION
 
 #define VALIDATION_FUNCTION(name) \
-    [[maybe_unused]] static std::optional<String>(validate ## name)(const FixedVector<std::optional<ConstantValue>>& arguments)
+    [[maybe_unused]] static std::optional<String>(validate ## name)(const FixedVector<std::optional<ConstantValue>>& arguments, const FixedVector<const Type*>& parameterTypes)
 
 #define CALL_(__tmp, __variable, __fnName, ...) \
     auto __tmp = constant##__fnName(__VA_ARGS__); \
@@ -1800,6 +1841,7 @@ CONSTANT_FUNCTION(Bitcast)
 
 VALIDATION_FUNCTION(Clamp)
 {
+    UNUSED_PARAM(parameterTypes);
     if (arguments[1] && arguments[2]) {
         CALL(gt, Gt, nullptr, { *arguments[1], *arguments[2] });
         CALL(any, Any, nullptr, { gt });
@@ -1810,8 +1852,71 @@ VALIDATION_FUNCTION(Clamp)
     return std::nullopt;
 }
 
+static bool containsInfinity(const ConstantValue& value)
+{
+    if (auto* f = std::get_if<float>(&value))
+        return std::isinf(*f);
+    if (auto* h = std::get_if<half>(&value))
+        return std::isinf(static_cast<float>(*h));
+    if (auto* d = std::get_if<double>(&value))
+        return std::isinf(*d);
+    if (auto* v = std::get_if<ConstantVector>(&value)) {
+        for (auto& element : v->elements) {
+            if (containsInfinity(element))
+                return true;
+        }
+    }
+    return false;
+}
+
+VALIDATION_FUNCTION(Add)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (arguments[0] && arguments[1] && !arguments[0]->isMatrix()) {
+        auto result = constantBinaryOperation<Constraints::Number>({ *arguments[0], *arguments[1] }, [&]<typename T>(T left, T right) -> T {
+            return left + right;
+        });
+        if (!result)
+            return { result.error() };
+        if (containsInfinity(*result))
+            return { makeString("addition of ("_s, *arguments[0], ") and ("_s, *arguments[1], ") overflows"_s) };
+    }
+    return std::nullopt;
+}
+
+VALIDATION_FUNCTION(Minus)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (arguments.size() == 2 && arguments[0] && arguments[1] && !arguments[0]->isMatrix()) {
+        auto result = constantBinaryOperation<Constraints::Number>({ *arguments[0], *arguments[1] }, [&]<typename T>(T left, T right) -> T {
+            return left - right;
+        });
+        if (!result)
+            return { result.error() };
+        if (containsInfinity(*result))
+            return { makeString("subtraction of ("_s, *arguments[0], ") and ("_s, *arguments[1], ") overflows"_s) };
+    }
+    return std::nullopt;
+}
+
+VALIDATION_FUNCTION(Multiply)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (arguments[0] && arguments[1] && !arguments[0]->isMatrix() && !arguments[1]->isMatrix()) {
+        auto result = constantBinaryOperation<Constraints::Number>({ *arguments[0], *arguments[1] }, [&]<typename T>(T left, T right) -> T {
+            return left * right;
+        });
+        if (!result)
+            return { result.error() };
+        if (containsInfinity(*result))
+            return { makeString("multiplication of ("_s, *arguments[0], ") and ("_s, *arguments[1], ") overflows"_s) };
+    }
+    return std::nullopt;
+}
+
 VALIDATION_FUNCTION(Smoothstep)
 {
+    UNUSED_PARAM(parameterTypes);
     if (arguments[0] && arguments[1]) {
         CALL(equal, Equal, nullptr, { *arguments[0], *arguments[1] });
         CALL(any, Any, nullptr, { equal });
@@ -1819,6 +1924,136 @@ VALIDATION_FUNCTION(Smoothstep)
             return { makeString("smoothstep called with low ("_s, *arguments[0], ") equal high ("_s, *arguments[1], ")"_s) };
     }
 
+    return std::nullopt;
+}
+
+VALIDATION_FUNCTION(Divide)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (arguments[0] && arguments[1]) {
+        auto result = constantDivide(nullptr, { *arguments[0], *arguments[1] });
+        if (!result)
+            return { result.error() };
+    } else if (arguments[1]) {
+        // right / right only errors for integer zero, which is exactly
+        // the case where division is invalid regardless of the dividend.
+        auto result = constantDivide(nullptr, { *arguments[1], *arguments[1] });
+        if (!result)
+            return { result.error() };
+    }
+
+    return std::nullopt;
+}
+
+VALIDATION_FUNCTION(Modulo)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (arguments[0] && arguments[1]) {
+        auto result = constantModulo(nullptr, { *arguments[0], *arguments[1] });
+        if (!result)
+            return { result.error() };
+    } else if (arguments[1]) {
+        auto result = constantModulo(nullptr, { *arguments[1], *arguments[1] });
+        if (!result)
+            return { result.error() };
+    }
+
+    return std::nullopt;
+}
+
+static int32_t ldexpBiasForType(const Type* type)
+{
+    if (auto* vectorType = std::get_if<Types::Vector>(type))
+        type = vectorType->element;
+    if (auto* primitive = std::get_if<Types::Primitive>(type)) {
+        switch (primitive->kind) {
+        case Types::Primitive::F16:
+            return 15;
+        case Types::Primitive::F32:
+            return 127;
+        case Types::Primitive::AbstractFloat:
+        case Types::Primitive::AbstractInt:
+            return 1023;
+        default:
+            break;
+        }
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+VALIDATION_FUNCTION(Ldexp)
+{
+    if (!arguments[1])
+        return std::nullopt;
+
+    int32_t bias = ldexpBiasForType(parameterTypes[0]);
+    int32_t maxExponent = bias + 1;
+
+    auto checkScalar = [&](const ConstantValue& value) -> bool {
+        if (auto* i32 = std::get_if<int32_t>(&value))
+            return *i32 > maxExponent;
+        if (auto* abstractInt = std::get_if<int64_t>(&value))
+            return *abstractInt > maxExponent;
+        return false;
+    };
+
+    auto& e2 = *arguments[1];
+    if (auto* vec = std::get_if<ConstantVector>(&e2)) {
+        for (auto& element : vec->elements) {
+            if (checkScalar(element))
+                return { makeString("e2 must be less than or equal to "_s, maxExponent) };
+        }
+        return std::nullopt;
+    }
+    if (checkScalar(e2))
+        return { makeString("e2 must be less than or equal to "_s, maxExponent) };
+    return std::nullopt;
+}
+
+static bool shiftAmountExceedsBitWidth(const std::optional<ConstantValue>& lhs, const std::optional<ConstantValue>& rhs)
+{
+    if (!rhs)
+        return false;
+
+    unsigned bitWidth = 32;
+    if (lhs) {
+        auto& lhsValue = *lhs;
+        if (auto* vec = std::get_if<ConstantVector>(&lhsValue)) {
+            if (std::get_if<int64_t>(&vec->elements[0]))
+                bitWidth = 64;
+        } else if (std::get_if<int64_t>(&lhsValue))
+            bitWidth = 64;
+    }
+
+    auto checkScalarExceedsBitWidth = [&](const ConstantValue& value) -> bool {
+        if (auto* u = std::get_if<uint32_t>(&value))
+            return *u >= bitWidth;
+        return false;
+    };
+
+    if (auto* vec = std::get_if<ConstantVector>(&*rhs)) {
+        for (auto& element : vec->elements) {
+            if (checkScalarExceedsBitWidth(element))
+                return true;
+        }
+        return false;
+    }
+    return checkScalarExceedsBitWidth(*rhs);
+}
+
+VALIDATION_FUNCTION(BitwiseShiftLeft)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (shiftAmountExceedsBitWidth(arguments[0], arguments[1]))
+        return { "shift left value must be less than the bit width of the shifted value, which is 32"_s };
+    return std::nullopt;
+}
+
+VALIDATION_FUNCTION(BitwiseShiftRight)
+{
+    UNUSED_PARAM(parameterTypes);
+    if (shiftAmountExceedsBitWidth(arguments[0], arguments[1]))
+        return { "shift right value must be less than the bit width of the shifted value, which is 32"_s };
     return std::nullopt;
 }
 

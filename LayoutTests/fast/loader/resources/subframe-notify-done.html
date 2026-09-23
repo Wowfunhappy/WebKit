@@ -2,9 +2,8 @@
 <head>
 <script>
 function loaded() {
-    if (window.testRunner) {
-        testRunner.notifyDone();
-    }
+    if (window.testRunner)
+        setTimeout(() => testRunner.notifyDone(), 0);
 }
 </script>
 </head>

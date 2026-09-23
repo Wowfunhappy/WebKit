@@ -137,7 +137,7 @@ private:
 
     void timerFired();
     void notify();
-    RefPtr<Page> currentPage() const;
+    RefPtr<Page> NODELETE currentPage() const;
 
     WeakRef<PageGroup> m_pageGroup;
     mutable CaptionDisplayMode m_displayMode;

@@ -1,8 +1,5 @@
-//@ requireOptions("--useWasmSIMD=1", "--useWasmRelaxedSIMD=1", "--useWasmIPIntSIMD=0")
+//@ requireOptions("--useWasmSIMD=1", "--useWasmRelaxedSIMD=1")
 //@ skip if !$isSIMDPlatform
-//@ $skipModes << "wasm-no-jit".to_sym
-//@ $skipModes << "wasm-no-wasm-jit".to_sym
-// FIXME: remove --useWasmIPIntSIMD=0 and don't skip no jit modes once IPInt support is implemented
 import { instantiate } from "../wabt-wrapper.js"
 import * as assert from "../assert.js"
 

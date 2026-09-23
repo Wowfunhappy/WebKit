@@ -29,6 +29,7 @@
 #include "FrameSelection.h"
 #include "ReplaceSelectionCommand.h"
 #include "TextIterator.h"
+#include "VisibleUnits.h"
 
 namespace WebCore {
 

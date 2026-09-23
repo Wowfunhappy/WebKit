@@ -28,14 +28,14 @@
 
 #pragma once
 
-#include "AccessibilityNodeObject.h"
+#include "AccessibilityRenderObject.h"
 
 namespace WebCore {
 
 class HTMLElement;
 class HTMLSelectElement;
 
-class AccessibilityListBoxOption final : public AccessibilityNodeObject {
+class AccessibilityListBoxOption final : public AccessibilityRenderObject {
 public:
     static Ref<AccessibilityListBoxOption> create(AXID, HTMLElement&, AXObjectCache&);
     virtual ~AccessibilityListBoxOption();
@@ -44,9 +44,10 @@ public:
     void setSelected(bool) final;
 
 private:
+    explicit AccessibilityListBoxOption(AXID, RenderObject&, AXObjectCache&);
     explicit AccessibilityListBoxOption(AXID, HTMLElement&, AXObjectCache&);
 
-    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::ListBoxOption; }
+    AccessibilityRole determineAccessibilityRole() final;
     bool isEnabled() const final;
     bool isSelectedOptionActive() const final;
     String stringValue() const final;
@@ -64,7 +65,7 @@ private:
         m_subtreeDirty = false;
     }
     bool canHaveChildren() const final { return false; }
-    HTMLSelectElement* listBoxOptionParentNode() const;
+    HTMLSelectElement* NODELETE listBoxOptionParentNode() const;
     int listBoxOptionIndex() const;
     IntRect listBoxOptionRect() const;
     AccessibilityObject* listBoxOptionAccessibilityObject(HTMLElement*) const;

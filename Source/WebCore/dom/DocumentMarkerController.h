@@ -30,6 +30,7 @@
 #include <WebCore/Timer.h>
 #include <memory>
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakRef.h>
@@ -70,6 +71,8 @@ public:
     WEBCORE_EXPORT void addTransparentContentMarker(const SimpleRange&, WTF::UUID);
     WEBCORE_EXPORT void addDictationStreamingOpacityMarker(const SimpleRange&, float opacity);
     WEBCORE_EXPORT void removeAllDictationStreamingOpacityMarkers();
+
+    WEBCORE_EXPORT size_t appliedGrammarTextEffectCount() const;
 
     void copyMarkers(Node& source, OffsetRange, Node& destination);
     bool hasMarkers() const;
@@ -140,6 +143,10 @@ private:
 
     Timer m_fadeAnimationTimer;
     Timer m_writingToolsTextSuggestionAnimationTimer;
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    HashSet<String> m_appliedGrammarTextEffectUUIDs;
+#endif
 };
 
 
@@ -151,7 +158,7 @@ WEBCORE_EXPORT void DocumentMarkerController::forEach<DocumentMarkerController::
 
 WEBCORE_EXPORT void addMarker(const SimpleRange&, DocumentMarkerType, const DocumentMarker::Data& = { });
 void addMarker(Node&, unsigned startOffset, unsigned length, DocumentMarkerType, DocumentMarker::Data&& = { });
-void removeMarkers(const SimpleRange&, OptionSet<DocumentMarkerType> = DocumentMarker::allMarkers(), RemovePartiallyOverlappingMarker = RemovePartiallyOverlappingMarker::No);
+WEBCORE_EXPORT void removeMarkers(const SimpleRange&, OptionSet<DocumentMarkerType> = DocumentMarker::allMarkers(), RemovePartiallyOverlappingMarker = RemovePartiallyOverlappingMarker::No);
 
 WEBCORE_EXPORT SimpleRange makeSimpleRange(Node&, const DocumentMarker&);
 

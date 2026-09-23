@@ -54,6 +54,7 @@ my (
     $accessibilityIsolatedTreeSupport,
     $applePaySupport,
     $applicationManifestSupport,
+    $assertsEnabled,
     $asyncScrollingSupport,
     $attachmentElementSupport,
     $autocapitalizeSupport,
@@ -78,7 +79,6 @@ my (
     $encryptedMediaSupport,
     $fatalWarnings,
     $ftlJITSupport,
-    $ftpDirSupport,
     $fullscreenAPISupport,
     $gamepadSupport,
     $geolocationSupport,
@@ -130,6 +130,7 @@ my (
     $spellcheckSupport,
     $svgFontsSupport,
     $swiftDemoUriScheme,
+    $swiftBackForwardList,
     $isoMallocSupport,
     $systemMallocSupport,
     $mimallocSupport,
@@ -165,6 +166,10 @@ my (
 );
 
 my @features = (
+
+    { option => "asserts", desc => "Toggle assertions (CMake only). Defaults to disable on Release, enable on Debug.",
+      define => "ENABLE_ASSERTS", value => \$assertsEnabled, },
+
     { option => "fatal-warnings", desc => "Toggle warnings as errors (CMake only)",
       define => "DEVELOPER_MODE_FATAL_WARNINGS", value => \$fatalWarnings },
 
@@ -230,9 +235,6 @@ my @features = (
 
     { option => "ftl-jit", desc => "Toggle FTL JIT support",
       define => "ENABLE_FTL_JIT", value => \$ftlJITSupport },
-
-    { option => "ftpdir", desc => "Toggle FTP Directory support",
-      define => "ENABLE_FTPDIR", value => \$ftpDirSupport },
 
     { option => "fullscreen-api", desc => "Toggle Fullscreen API support",
       define => "ENABLE_FULLSCREEN_API", value => \$fullscreenAPISupport },
@@ -365,6 +367,9 @@ my @features = (
 
     { option => "swift-demo-uri-scheme", desc => "Toggle demo Swift x-swift-demo: URI handler",
       define => "ENABLE_SWIFT_DEMO_URI_SCHEME", value => \$swiftDemoUriScheme},
+
+    { option => "swift-back-forward-list", desc => "Use Swift version of WebBackForwardList",
+      define => "ENABLE_BACK_FORWARD_LIST_SWIFT", value => \$swiftBackForwardList},
 
     { option => "telephone-number-detection", desc => "Toggle telephone number detection support",
       define => "ENABLE_TELEPHONE_NUMBER_DETECTION", value => \$telephoneNumberDetectionSupport },

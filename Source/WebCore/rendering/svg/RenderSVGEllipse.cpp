@@ -27,6 +27,7 @@
 
 #include "config.h"
 #include "RenderSVGEllipse.h"
+#include "RenderObjectNode.h"
 
 #include "RenderSVGShapeInlines.h"
 #include "SVGCircleElement.h"
@@ -38,7 +39,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGEllipse);
 
-RenderSVGEllipse::RenderSVGEllipse(SVGGraphicsElement& element, RenderStyle&& style)
+RenderSVGEllipse::RenderSVGEllipse(SVGGraphicsElement& element, Style::ComputedStyle&& style)
     : RenderSVGShape(Type::SVGEllipse, element, WTF::move(style))
 {
 }
@@ -60,11 +61,8 @@ void RenderSVGEllipse::updateShapeFromElement()
     calculateRadiiAndCenter();
 
     // Spec: "A negative value is illegal. A value of zero disables rendering of the element."
-    if (m_radii.isEmpty()) {
-        // We set this for getBBox().
-        m_fillBoundingBox = FloatRect(m_center.x() - m_radii.width(), m_center.y() - m_radii.height(), 2 * m_radii.width(), 2 * m_radii.height());
+    if (m_radii.isEmpty())
         return;
-    }
 
     if (m_radii.width() == m_radii.height())
         m_shapeType = ShapeType::Circle;

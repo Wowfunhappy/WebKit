@@ -27,11 +27,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <WebCore/Exception.h>
-#include <utility>
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/Expected.h>
-#include <wtf/StdLibExtras.h>
-#include <wtf/Unexpected.h>
 
 namespace WebCore {
 

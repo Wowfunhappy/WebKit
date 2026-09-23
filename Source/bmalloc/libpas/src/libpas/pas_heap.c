@@ -33,11 +33,9 @@
 #include "pas_heap_config.h"
 #include "pas_heap_inlines.h"
 #include "pas_heap_ref.h"
-#include "pas_heap_table.h"
 #include "pas_immortal_heap.h"
 #include "pas_log.h"
 #include "pas_mar_registry.h"
-#include "pas_monotonic_time.h"
 #include "pas_primitive_heap_ref.h"
 #include "pas_probabilistic_guard_malloc_allocator.h"
 #include "pas_segregated_size_directory.h"
@@ -74,8 +72,8 @@ pas_heap* pas_heap_create(pas_heap_ref* heap_ref,
     heap->type = heap_ref->type;
     pas_segregated_heap_construct(
         &heap->segregated_heap, heap, config, runtime_config);
-    pas_large_heap_construct(&heap->megapage_large_heap, true);
-    pas_large_heap_construct(&heap->large_heap, false);
+    pas_large_heap_construct(&heap->megapage_large_heap, config->large_map_variant, true);
+    pas_large_heap_construct(&heap->large_heap, config->large_map_variant, false);
     heap->heap_ref = heap_ref;
     heap->heap_ref_kind = heap_ref_kind;
     heap->config_kind = config->kind;

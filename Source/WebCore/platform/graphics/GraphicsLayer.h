@@ -149,7 +149,7 @@ public:
     WEBCORE_EXPORT virtual String debugName() const;
 
     GraphicsLayer* parent() const { return m_parent; }
-    void setParent(GraphicsLayer*); // Internal use only.
+    void NODELETE setParent(GraphicsLayer*); // Internal use only.
     
     // Returns true if the layer has the given layer as an ancestor (excluding self).
     bool NODELETE hasAncestor(GraphicsLayer*) const;
@@ -287,7 +287,7 @@ public:
     virtual void setAppleVisualEffectData(AppleVisualEffectData effectData) { m_appleVisualEffectData = effectData; }
 #endif
 
-    bool needsBackdrop() const;
+    bool NODELETE needsBackdrop() const;
 
     // The color used to paint the layer background. Pass an invalid color to remove it.
     // Note that this covers the entire layer. Use setContentsToSolidColor() if the color should
@@ -515,7 +515,7 @@ public:
     void resetTrackedRepaints();
     WEBCORE_EXPORT void addRepaintRect(const FloatRect&);
 
-    static bool supportsLayerType(Type);
+    static bool NODELETE supportsLayerType(Type);
     static bool NODELETE supportsContentsTiling();
 
     WEBCORE_EXPORT void updateDebugIndicators();
@@ -696,6 +696,9 @@ protected:
 #if USE(CA)
     Path m_shadowPath;
     MediaPlayerVideoGravity m_videoGravity { MediaPlayerVideoGravity::ResizeAspect };
+#endif
+
+#if USE(CA) || USE(COORDINATED_GRAPHICS)
     WindRule m_shapeLayerWindRule { WindRule::NonZero };
     Path m_shapeLayerPath;
 #endif

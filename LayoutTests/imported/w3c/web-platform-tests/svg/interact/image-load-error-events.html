@@ -71,7 +71,7 @@
     const watcher = expectEvents(t, image, ['load']);
     const url = getUrl('existing-slow');
     svg.appendChild(image).setAttribute('href', url);
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => t.step_timeout(resolve, 0));
     image.remove();
     await watcher;
   }, document.title + ', external reference, existing, detached');
@@ -82,7 +82,7 @@
     const watcher = expectEvents(t, image, ['error']);
     const url = getUrl('non-existing-slow');
     svg.appendChild(image).setAttribute('href', url);
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => t.step_timeout(resolve, 0));
     image.remove();
     await watcher;
   }, document.title + ', external reference, non-existing, detached');

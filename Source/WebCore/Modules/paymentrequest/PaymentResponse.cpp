@@ -30,6 +30,7 @@
 
 #include "Document.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "NotImplemented.h"
 #include "PaymentComplete.h"
 #include "PaymentCompleteDetails.h"
@@ -38,6 +39,7 @@
 #include <JavaScriptCore/ThrowScope.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
+#include "ContextDestructionObserverInlines.h"
 
 namespace WebCore {
 

@@ -25,12 +25,13 @@
 
 #include "config.h"
 
-#include "Utilities.h"
+#include "Helpers/Utilities.h"
 #include <wtf/CheckedPtr.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/Threading.h>
+#include <wtf/TypeCasts.h>
 #include <wtf/UniquelyOwned.h>
 #include <wtf/UniquelyOwnedPtr.h>
 #include <wtf/Vector.h>
@@ -442,5 +443,96 @@ TEST(WTF_CheckedPtrDeathTest, UniquelyOwnedCheckedPtrCheckFailure)
 #endif
 }
 #endif
+
+class CheckedBaseForIsAnyOf : public CanMakeCheckedPtr<CheckedBaseForIsAnyOf> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(CheckedBaseForIsAnyOf);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CheckedBaseForIsAnyOf);
+public:
+    virtual ~CheckedBaseForIsAnyOf() = default;
+    virtual bool isDerivedCheckedA() const { return false; }
+    virtual bool isDerivedCheckedB() const { return false; }
+};
+
+class DerivedCheckedA : public CheckedBaseForIsAnyOf {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DerivedCheckedA);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DerivedCheckedA);
+public:
+    bool isDerivedCheckedA() const override { return true; }
+};
+
+class DerivedCheckedB : public CheckedBaseForIsAnyOf {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DerivedCheckedB);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DerivedCheckedB);
+public:
+    bool isDerivedCheckedB() const override { return true; }
+};
+
+} // namespace TestWebKitAPI
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(TestWebKitAPI::DerivedCheckedA)
+    static bool isType(const TestWebKitAPI::CheckedBaseForIsAnyOf& object) { return object.isDerivedCheckedA(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(TestWebKitAPI::DerivedCheckedB)
+    static bool isType(const TestWebKitAPI::CheckedBaseForIsAnyOf& object) { return object.isDerivedCheckedB(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+namespace TestWebKitAPI {
+
+TEST(WTF_CheckedPtr, IsAnyOfNonConst)
+{
+    {
+        // Object is DerivedCheckedB. isAnyOf<DerivedCheckedA, CheckedBaseForIsAnyOf> should
+        // return true because everything is-a CheckedBaseForIsAnyOf.
+        auto object = makeUnique<DerivedCheckedB>();
+        CheckedPtr<CheckedBaseForIsAnyOf> ptr = object.get();
+
+        // Non-const overload: the bug causes this to call
+        //   is<DerivedCheckedA, CheckedBaseForIsAnyOf>(ptr.get())
+        // which resolves as is<DerivedCheckedA>(CheckedBaseForIsAnyOf*),
+        // only checking DerivedCheckedA and ignoring CheckedBaseForIsAnyOf entirely.
+        // The object is DerivedCheckedB, not DerivedCheckedA, so the buggy code returns false.
+        bool result = isAnyOf<DerivedCheckedA, CheckedBaseForIsAnyOf>(ptr);
+        EXPECT_TRUE(result);
+    }
+
+    {
+        // Same pointer value but const: uses the correct const overload which
+        // properly delegates to isAnyOf<> on the raw pointer.
+        auto object = makeUnique<DerivedCheckedB>();
+        const CheckedPtr<CheckedBaseForIsAnyOf> constPtr = object.get();
+        bool constResult = isAnyOf<DerivedCheckedA, CheckedBaseForIsAnyOf>(constPtr);
+        EXPECT_TRUE(constResult);
+    }
+
+    {
+        // Verify single-type isAnyOf works on non-const (unaffected by the bug).
+        auto object = makeUnique<DerivedCheckedA>();
+        CheckedPtr<CheckedBaseForIsAnyOf> ptr = object.get();
+        EXPECT_TRUE(isAnyOf<DerivedCheckedA>(ptr));
+        EXPECT_FALSE(isAnyOf<DerivedCheckedB>(ptr));
+    }
+
+    {
+        // Two derived types on non-const CheckedPtr: would not have compiled before the fix
+        // because is<DerivedCheckedA, DerivedCheckedB>(CheckedBaseForIsAnyOf*) requires an
+        // implicit downcast from CheckedBaseForIsAnyOf* to DerivedCheckedB*.
+        auto object = makeUnique<DerivedCheckedA>();
+        CheckedPtr<CheckedBaseForIsAnyOf> ptr = object.get();
+        bool matchesAorB = isAnyOf<DerivedCheckedA, DerivedCheckedB>(ptr);
+        EXPECT_TRUE(matchesAorB);
+
+        auto objectB = makeUnique<DerivedCheckedB>();
+        CheckedPtr<CheckedBaseForIsAnyOf> ptrB = objectB.get();
+        bool matchesBorA = isAnyOf<DerivedCheckedA, DerivedCheckedB>(ptrB);
+        EXPECT_TRUE(matchesBorA);
+
+        // Base object matches neither derived type.
+        auto base = makeUnique<CheckedBaseForIsAnyOf>();
+        CheckedPtr<CheckedBaseForIsAnyOf> ptrBase = base.get();
+        bool matchesNeither = isAnyOf<DerivedCheckedA, DerivedCheckedB>(ptrBase);
+        EXPECT_FALSE(matchesNeither);
+    }
+}
 
 } // namespace TestWebKitAPI

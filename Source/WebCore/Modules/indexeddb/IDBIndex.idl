@@ -43,17 +43,22 @@ typedef (DOMString or sequence<DOMString>) IDBKeyPath;
 
     [NewObject] IDBRequest get(IDBKeyRange? key);
     [NewObject, CallWith=CurrentGlobalObject] IDBRequest get(any key);
+
     [NewObject] IDBRequest getKey(IDBKeyRange? key);
     [NewObject, CallWith=CurrentGlobalObject] IDBRequest getKey(any key);
-    [NewObject] IDBRequest getAll(optional IDBKeyRange? range = null, optional [EnforceRange] unsigned long count);
-    [NewObject, CallWith=CurrentGlobalObject] IDBRequest getAll(any key, optional [EnforceRange] unsigned long count);
-    [NewObject] IDBRequest getAllKeys(optional IDBKeyRange? range = null, optional [EnforceRange] unsigned long count);
-    [NewObject, CallWith=CurrentGlobalObject] IDBRequest getAllKeys(any key, optional [EnforceRange] unsigned long count);
+
+    [NewObject, CallWith=CurrentGlobalObject] IDBRequest getAll(optional any queryOrOptions, optional [EnforceRange] unsigned long count);
+
+    [NewObject, CallWith=CurrentGlobalObject] IDBRequest getAllKeys(optional any queryOrOptions, optional [EnforceRange] unsigned long count);
+
+    [NewObject, CallWith=CurrentGlobalObject, EnabledBySetting=IndexedDBGetAllRecordsAndGetAllOptionsEnabled] IDBRequest getAllRecords(optional IDBGetAllOptions options = {});
+
     [NewObject] IDBRequest count(optional IDBKeyRange? range = null);
     [NewObject, CallWith=CurrentGlobalObject] IDBRequest count(any key);
 
     [NewObject] IDBRequest openCursor(optional IDBKeyRange? range = null, optional IDBCursorDirection direction = "next");
     [NewObject, CallWith=CurrentGlobalObject] IDBRequest openCursor(any key, optional IDBCursorDirection direction = "next");
+
     [NewObject] IDBRequest openKeyCursor(optional IDBKeyRange? range = null, optional IDBCursorDirection direction = "next");
     [NewObject, CallWith=CurrentGlobalObject] IDBRequest openKeyCursor(any key, optional IDBCursorDirection direction = "next");
 };

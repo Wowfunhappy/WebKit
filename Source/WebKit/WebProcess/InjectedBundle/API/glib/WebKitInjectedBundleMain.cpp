@@ -21,7 +21,7 @@
 
 #include "InjectedBundle.h"
 #include "WebProcessExtensionManager.h"
-#include <WebKit/WKBundleAPICast.h>
+#include "WKBundleAPICast.h"
 #include <WebKit/WKBundleInitialize.h>
 
 using namespace WebKit;

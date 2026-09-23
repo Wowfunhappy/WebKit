@@ -34,17 +34,13 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <JavaScriptCore/GCIncomingRefCounted.h>
 #include <JavaScriptCore/Watchpoint.h>
 #include <JavaScriptCore/Weak.h>
-#include <JavaScriptCore/WeakImpl.h>
 #include <wtf/CagedPtr.h>
 #include <wtf/CheckedArithmetic.h>
-#include <wtf/PackedRefPtr.h>
 #include <wtf/SharedTask.h>
-#include <wtf/StdIntExtras.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>
-#include <wtf/text/WTFString.h>
 
 namespace JSC {
 
@@ -131,49 +127,10 @@ class ArrayBufferContents final {
     WTF_MAKE_NONCOPYABLE(ArrayBufferContents);
 public:
     ArrayBufferContents() = default;
-    ArrayBufferContents(void* data, size_t sizeInBytes, std::optional<size_t> maxByteLength, ArrayBufferDestructorFunction&& destructor)
-        : m_data(data)
-        , m_destructor(WTF::move(destructor))
-        , m_sizeInBytes(sizeInBytes)
-        , m_maxByteLength(maxByteLength.value_or(sizeInBytes))
-        , m_hasMaxByteLength(!!maxByteLength)
-    {
-        RELEASE_ASSERT(m_sizeInBytes <= MAX_ARRAY_BUFFER_SIZE);
-    }
-
-    ArrayBufferContents(std::span<const uint8_t> data, std::optional<size_t> maxByteLength, ArrayBufferDestructorFunction&& destructor)
-        : ArrayBufferContents(const_cast<uint8_t*>(data.data()), data.size(), maxByteLength, WTF::move(destructor))
-    {
-    }
-
-    ArrayBufferContents(Ref<SharedArrayBufferContents>&& shared, bool forceFixedLengthIfWasm = true)
-        : m_shared(WTF::move(shared))
-        , m_memoryHandle(m_shared->memoryHandle())
-        , m_sizeInBytes(m_shared->sizeInBytes(std::memory_order_seq_cst))
-    {
-        RELEASE_ASSERT(m_sizeInBytes <= MAX_ARRAY_BUFFER_SIZE);
-        bool adjustedForceFixedLengthIfWasm = forceFixedLengthIfWasm || !Options::useWasmMemoryToBufferAPIs();
-        if (m_shared->mode() == SharedArrayBufferContents::Mode::WebAssembly && adjustedForceFixedLengthIfWasm) {
-            m_hasMaxByteLength = false;
-            m_maxByteLength = m_sizeInBytes;
-        } else {
-            m_hasMaxByteLength = !!m_shared->maxByteLength();
-            m_maxByteLength = m_shared->maxByteLength().value_or(m_sizeInBytes);
-        }
-        // data() cannot destroy m_shared here so the code is safe as is so avoid
-        // refing for performance reasons.
-        SUPPRESS_UNCOUNTED_ARG m_data = DataType { m_shared->data() };
-    }
-
-    ArrayBufferContents(void* data, size_t sizeInBytes, size_t maxByteLength, Ref<BufferMemoryHandle>&& memoryHandle)
-        : m_data(data)
-        , m_memoryHandle(WTF::move(memoryHandle))
-        , m_sizeInBytes(sizeInBytes)
-        , m_maxByteLength(maxByteLength)
-        , m_hasMaxByteLength(true)
-    {
-        RELEASE_ASSERT(m_sizeInBytes <= MAX_ARRAY_BUFFER_SIZE);
-    }
+    ArrayBufferContents(void* data, size_t sizeInBytes, std::optional<size_t> maxByteLength, ArrayBufferDestructorFunction&&);
+    ArrayBufferContents(std::span<const uint8_t> data, std::optional<size_t> maxByteLength, ArrayBufferDestructorFunction&&);
+    ArrayBufferContents(Ref<SharedArrayBufferContents>&&, bool forceFixedLengthIfWasm = true);
+    ArrayBufferContents(void* data, size_t sizeInBytes, size_t maxByteLength, Ref<BufferMemoryHandle>&&);
 
     JS_EXPORT_PRIVATE static std::optional<ArrayBufferContents> fromSpan(std::span<const uint8_t>);
 
@@ -328,9 +285,8 @@ public:
     inline void pinAndLock();
     inline bool isLocked();
 
-    void makeWasmMemory();
+    void NODELETE makeWasmMemory();
     inline bool isWasmMemory();
-    void setAssociatedWasmMemory(Wasm::Memory*);
     // When a resizable buffer is associated with a non-shared Wasm memory, this function is called by the memory's growthSuccessCallback.
     void refreshAfterWasmMemoryGrow(Wasm::Memory*);
 
@@ -361,8 +317,8 @@ private:
     static Ref<ArrayBuffer> createInternal(ArrayBufferContents&&, const void*, size_t);
     static RefPtr<ArrayBuffer> tryCreate(size_t numElements, unsigned elementByteSize, std::optional<size_t> maxByteLength, ArrayBufferContents::InitializationPolicy);
     ArrayBuffer(ArrayBufferContents&&);
-    inline size_t clampIndex(double index) const;
-    static inline size_t clampValue(double x, size_t left, size_t right);
+    inline size_t NODELETE clampIndex(double index) const;
+    static inline size_t NODELETE clampValue(double x, size_t left, size_t right);
 
     void notifyDetaching(VM&);
 
@@ -373,7 +329,6 @@ public:
 private:
     Checked<unsigned> m_pinCount { 0 };
     bool m_isWasmMemory { false };
-    WeakPtr<Wasm::Memory> m_associatedWasmMemory;
     // m_locked == true means that some API user fetched m_contents directly from a TypedArray object,
     // the buffer is backed by a WebAssembly.Memory, or is a SharedArrayBuffer.
     bool m_locked { false };

@@ -110,6 +110,7 @@ enum {
     kIOHIDEventFieldDigitizerMajorRadius = kIOHIDEventFieldDigitizerX + 20,
     kIOHIDEventFieldDigitizerMinorRadius,
     kIOHIDEventFieldDigitizerIsDisplayIntegrated = kIOHIDEventFieldDigitizerMajorRadius + 5,
+    kIOHIDEventFieldDigitizerQualityRadiiAccuracy,
 };
 
 enum {

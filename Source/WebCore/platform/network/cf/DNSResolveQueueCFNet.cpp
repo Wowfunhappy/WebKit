@@ -167,7 +167,8 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
         Vector<IPAddress> result;
         result.reserveInitialCapacity(count);
         for (size_t i = 0; i < count; i++) {
-            if (OSObjectPtr resolvedEndpoint = dynamicOSObjectCast<nw_endpoint_t>(nw_array_get_object_at_index(resolvedEndpoints, i))) {
+            // FIXME: Reintroduce dynamicOSObjectCast use once macOS 26 Tahoe is the oldest supported release.
+            if (RetainPtr resolvedEndpoint = reinterpret_cast<nw_endpoint_t>(nw_array_get_object_at_index(resolvedEndpoints, i))) {
                 if (auto address = extractIPAddress(nw_endpoint_get_address(resolvedEndpoint.get())))
                     result.append(WTF::move(*address));
             }
@@ -179,6 +180,8 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
         else
             callCompletionHandler(WTF::move(result));
     }).get());
+
+    ++m_prefetchedHostnameCountForTesting;
 }
 #else // MAVERICKS_BACKPORT: Network.framework is absent below 10.14; the lookup goes through dns_sd (DNSServiceGetAddrInfo).
 class DNSAddressAccumulator : public RefCounted<DNSAddressAccumulator> {

@@ -29,10 +29,13 @@
 #include "RegularExpression.h"
 
 #include "Yarr.h"
+#include "YarrFlags.h"
 #include "YarrInterpreter.h"
+#include "YarrSyntaxChecker.h"
 #include <wtf/Assertions.h>
 #include <wtf/BumpPointerAllocator.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -42,20 +45,30 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RegularExpression);
 
 class RegularExpression::Private : public RefCounted<RegularExpression::Private> {
 public:
-    static Ref<Private> create(StringView pattern, OptionSet<Flags> flags)
+    static Ref<Private> create(StringView pattern, OptionSet<Flags> flags, MatchMode matchMode)
     {
-        return adoptRef(*new Private(pattern, flags));
+        return adoptRef(*new Private(pattern, flags, matchMode));
     }
 
 private:
-    Private(StringView pattern, OptionSet<Flags> flags)
-        : m_regExpByteCode(compile(pattern, flags))
+    Private(StringView pattern, OptionSet<Flags> flags, MatchMode matchMode)
+        : m_regExpByteCode(compile(pattern, flags, matchMode))
     {
     }
 
-    std::unique_ptr<BytecodePattern> compile(StringView patternString, OptionSet<Flags> flags)
+    std::unique_ptr<BytecodePattern> compile(StringView patternString, OptionSet<Flags> flags, MatchMode matchMode)
     {
         ASSERT(!(flags - OptionSet<Flags> { Flags::IgnoreCase, Flags::Multiline, Flags::UnicodeSets }));
+
+        if (matchMode == MatchMode::EntireInput) {
+            // Validate the raw pattern syntax first since wrapping with ^(?:...)$
+            // can turn an invalid pattern into a valid one (e.g. "a)(b" becomes "^(?:a)(b)$").
+            auto syntaxCheckFlags = flagsString(flags);
+            if (checkSyntax(patternString, StringView::fromLatin1(syntaxCheckFlags.data())) != ErrorCode::NoError)
+                return nullptr;
+            auto anchoredPattern = makeString("^(?:"_s, patternString, ")$"_s);
+            return compile(anchoredPattern, flags, MatchMode::Partial);
+        }
 
         YarrPattern pattern(patternString, flags, m_constructionErrorCode);
         if (hasError(m_constructionErrorCode)) {
@@ -77,23 +90,16 @@ public:
     std::unique_ptr<BytecodePattern> m_regExpByteCode;
 };
 
-RegularExpression::RegularExpression(StringView pattern, OptionSet<Flags> flags)
-    : d(Private::create(pattern, flags))
+RegularExpression::RegularExpression(StringView pattern, OptionSet<Flags> flags, MatchMode matchMode)
+    : d(Private::create(pattern, flags, matchMode))
 {
 }
 
-RegularExpression::RegularExpression(const RegularExpression& re)
-    : d(re.d)
-{
-}
-
+RegularExpression::RegularExpression(const RegularExpression&) = default;
 RegularExpression::~RegularExpression() = default;
-
-RegularExpression& RegularExpression::operator=(const RegularExpression& re)
-{
-    d = re.d;
-    return *this;
-}
+RegularExpression& RegularExpression::operator=(const RegularExpression&) = default;
+RegularExpression::RegularExpression(RegularExpression&&) = default;
+RegularExpression& RegularExpression::operator=(RegularExpression&&) = default;
 
 int RegularExpression::match(StringView str, unsigned startFrom, int* matchLength) const
 {
@@ -103,7 +109,7 @@ int RegularExpression::match(StringView str, unsigned startFrom, int* matchLengt
     if (str.isNull())
         return -1;
 
-    int offsetVectorSize = (d->m_numSubpatterns + 1) * 2;
+    int offsetVectorSize = d->m_regExpByteCode->m_offsetsSize;
     unsigned* offsetVector;
     Vector<unsigned, 32> nonReturnedOvector;
 

@@ -28,7 +28,7 @@
 #include "NavigatorUABrandVersion.h"
 #include <WebCore/IDLTypes.h>
 #include <WebCore/JSDOMPromiseDeferredForward.h>
-#include <wtf/Forward.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {

@@ -1,20 +1,26 @@
 /*
- * Copyright (C) 2025 Igalia, S.L.
+ * Copyright (C) 2025-2026 Igalia, S.L.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * aint with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -22,16 +28,18 @@
 #if ENABLE(WEBXR) && USE(OPENXR)
 #include "OpenXRSwapchain.h"
 
+#include "OpenXRGraphicsBinding.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(OpenXRSwapchain);
 
-std::unique_ptr<OpenXRSwapchain> OpenXRSwapchain::create(XrSession session, const XrSwapchainCreateInfo& info, HasAlpha hasAlpha)
+std::unique_ptr<OpenXRSwapchain> OpenXRSwapchain::create(XrSession session, const XrSwapchainCreateInfo& info, HasAlpha hasAlpha, const OpenXRGraphicsBinding& graphicsBinding)
 {
     ASSERT(session != XR_NULL_HANDLE);
-    ASSERT(info.faceCount == 1);
+    // faceCount is 1 for regular swapchains and 6 for cube (cubemap) swapchains.
+    ASSERT(info.faceCount == 1 || info.faceCount == 6);
 
     XrSwapchain swapchain { XR_NULL_HANDLE };
     CHECK_XRCMD(xrCreateSwapchain(session, &info, &swapchain));
@@ -40,31 +48,19 @@ std::unique_ptr<OpenXRSwapchain> OpenXRSwapchain::create(XrSession session, cons
         return nullptr;
     }
 
-    uint32_t imageCount;
-    CHECK_XRCMD(xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr));
-    if (!imageCount) {
-        LOG(XR, "xrEnumerateSwapchainImages(): no images\n");
+    auto imageHandles = graphicsBinding.enumerateSwapchainImages(swapchain);
+    if (imageHandles.isEmpty()) {
+        xrDestroySwapchain(swapchain);
         return nullptr;
     }
 
-    Vector<XrSwapchainImageOpenGLESKHR> imageBuffers(imageCount, [] {
-        return createOpenXRStruct<XrSwapchainImageOpenGLESKHR, XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR>();
-    }());
-
-    Vector<XrSwapchainImageBaseHeader*> imageHeaders = imageBuffers.map([](auto& image) {
-        return (XrSwapchainImageBaseHeader*) &image;
-    });
-
-    // Get images from an XrSwapchain
-    CHECK_XRCMD(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, imageHeaders[0]));
-
-    return std::unique_ptr<OpenXRSwapchain>(new OpenXRSwapchain(swapchain, info, WTF::move(imageBuffers), hasAlpha));
+    return std::unique_ptr<OpenXRSwapchain>(new OpenXRSwapchain(swapchain, info, WTF::move(imageHandles), hasAlpha));
 }
 
-OpenXRSwapchain::OpenXRSwapchain(XrSwapchain swapchain, const XrSwapchainCreateInfo& info, Vector<XrSwapchainImageOpenGLESKHR>&& imageBuffers, HasAlpha hasAlpha)
+OpenXRSwapchain::OpenXRSwapchain(XrSwapchain swapchain, const XrSwapchainCreateInfo& info, Vector<uint64_t>&& imageHandles, HasAlpha hasAlpha)
     : m_swapchain(swapchain)
     , m_createInfo(info)
-    , m_imageBuffers(WTF::move(imageBuffers))
+    , m_imageHandles(WTF::move(imageHandles))
     , m_hasAlpha(hasAlpha)
 {
 }
@@ -77,20 +73,20 @@ OpenXRSwapchain::~OpenXRSwapchain()
         xrDestroySwapchain(m_swapchain);
 }
 
-std::optional<PlatformGLObject> OpenXRSwapchain::acquireImage()
+std::optional<uint64_t> OpenXRSwapchain::acquireImage()
 {
     RELEASE_ASSERT_WITH_MESSAGE(!m_acquiredTexture , "Expected no acquired images. ReleaseImage not called?");
 
     auto acquireInfo = createOpenXRStruct<XrSwapchainImageAcquireInfo, XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO>();
     uint32_t swapchainImageIndex = 0;
     CHECK_XRCMD(xrAcquireSwapchainImage(m_swapchain, &acquireInfo, &swapchainImageIndex));
-    ASSERT(swapchainImageIndex < m_imageBuffers.size());
+    ASSERT(swapchainImageIndex < m_imageHandles.size());
 
     auto waitInfo = createOpenXRStruct<XrSwapchainImageWaitInfo, XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO>();
     waitInfo.timeout = XR_INFINITE_DURATION;
     CHECK_XRCMD(xrWaitSwapchainImage(m_swapchain, &waitInfo));
 
-    m_acquiredTexture = m_imageBuffers[swapchainImageIndex].image;
+    m_acquiredTexture = m_imageHandles[swapchainImageIndex];
 
     return m_acquiredTexture;
 }

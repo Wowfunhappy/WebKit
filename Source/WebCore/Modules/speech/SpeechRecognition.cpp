@@ -41,6 +41,10 @@
 #include "SpeechRecognitionResultList.h"
 #include <wtf/TZoneMallocInlines.h>
 
+#if ENABLE(MEDIA_STREAM)
+#include "RealtimeMediaSource.h"
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SpeechRecognition);
@@ -56,7 +60,7 @@ SpeechRecognition::SpeechRecognition(Document& document)
     : ActiveDOMObject(document)
 {
     if (RefPtr page = document.page()) {
-        lazyInitialize(m_connection, Ref { page->speechRecognitionConnection() });
+        lazyInitialize(m_connection, protect(page->speechRecognitionConnection()));
         m_connection->registerClient(*this);
     }
 }
@@ -112,6 +116,11 @@ void SpeechRecognition::stop()
 {
     abortRecognition();
 
+#if ENABLE(MEDIA_STREAM)
+    if (RefPtr captureSource = m_captureSource.get())
+        captureSource->stop();
+#endif
+
     if (!m_connection)
         return;
     m_connection->unregisterClient(*this);
@@ -127,6 +136,13 @@ void SpeechRecognition::didStart()
 
     queueTaskToDispatchEvent(*this, TaskSource::Speech, Event::create(eventNames().startEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
+
+#if ENABLE(MEDIA_STREAM)
+void SpeechRecognition::captureSourceCreated(RealtimeMediaSource& source)
+{
+    m_captureSource = source;
+}
+#endif
 
 void SpeechRecognition::didStartCapturingAudio()
 {

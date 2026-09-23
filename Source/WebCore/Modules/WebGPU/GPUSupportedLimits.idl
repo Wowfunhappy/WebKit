@@ -53,7 +53,6 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long long maxBufferSize;
     readonly attribute unsigned long maxVertexAttributes;
     readonly attribute unsigned long maxVertexBufferArrayStride;
-    readonly attribute unsigned long maxInterStageShaderComponents;
     readonly attribute unsigned long maxInterStageShaderVariables;
     readonly attribute unsigned long maxColorAttachments;
     readonly attribute unsigned long maxColorAttachmentBytesPerSample;
@@ -63,4 +62,8 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxComputeWorkgroupSizeY;
     readonly attribute unsigned long maxComputeWorkgroupSizeZ;
     readonly attribute unsigned long maxComputeWorkgroupsPerDimension;
+    readonly attribute unsigned long maxStorageBuffersInFragmentStage;
+    readonly attribute unsigned long maxStorageTexturesInFragmentStage;
+    readonly attribute unsigned long maxStorageBuffersInVertexStage;
+    readonly attribute unsigned long maxStorageTexturesInVertexStage;
 };

@@ -33,7 +33,7 @@ if (window.accessibilityController) {
     window.jsTestIsAsync = true;
 
     setTimeout(async function() {
-        await waitFor(() => accessibilityController.rootElement.x != 0);
+        await waitForFrameGeometryReady();
 
         var line = accessibilityController.accessibleElementById("line");
         // Line text from first text marker (add one to make sure we get the first marker for THIS line).

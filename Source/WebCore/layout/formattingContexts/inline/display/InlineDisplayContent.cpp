@@ -50,10 +50,10 @@ void Content::append(Content&& newContent)
     boxes.appendVector(WTF::move(newContent.boxes));
 
     if (newContent.lineEllipses) {
-        if (!lineEllipses) {
+        if (!lineEllipses)
             lineEllipses = makeUnique<LineEllipses>();
+        if (lineEllipses->size() < oldLineCount)
             lineEllipses->grow(oldLineCount);
-        }
         lineEllipses->appendVector(WTF::move(*newContent.lineEllipses));
     }
 }

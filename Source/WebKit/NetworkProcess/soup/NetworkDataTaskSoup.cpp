@@ -37,6 +37,7 @@
 #include "WebKitDirectoryInputStream.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/HTTPParsers.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/OriginAccessPatterns.h>
@@ -381,14 +382,45 @@ void NetworkDataTaskSoup::sendRequestCallback(SoupSession* soupSession, GAsyncRe
         task->didSendRequest(WTF::move(inputStream));
 }
 
+enum class ShouldStartHTTPRedirection {
+    No,
+    Yes,
+    Blocked
+};
+
+static ShouldStartHTTPRedirection shouldStartHTTPRedirection(const WebCore::ResourceResponse& response)
+{
+    auto status = response.httpStatusCode();
+    if (!SOUP_STATUS_IS_REDIRECTION(status))
+        return ShouldStartHTTPRedirection::No;
+
+    // Some 3xx status codes aren't actually redirects.
+    if (status == 300 || status == 304 || status == 305 || status == 306)
+        return ShouldStartHTTPRedirection::No;
+
+    auto location = response.httpHeaderField(HTTPHeaderName::Location);
+    if (location.isEmpty())
+        return ShouldStartHTTPRedirection::No;
+    if (location.startsWith("file:"_s))
+        return ShouldStartHTTPRedirection::Blocked;
+
+    return ShouldStartHTTPRedirection::Yes;
+}
+
 void NetworkDataTaskSoup::didSendRequest(GRefPtr<GInputStream>&& inputStream)
 {
     m_response = ResourceResponse(m_soupMessage.get(), m_sniffedContentType);
 
-    if (shouldStartHTTPRedirection()) {
+    switch (shouldStartHTTPRedirection(m_response)) {
+    case ShouldStartHTTPRedirection::Yes:
         m_inputStream = WTF::move(inputStream);
         skipInputStreamForRedirection();
         return;
+    case ShouldStartHTTPRedirection::Blocked:
+        didFail(blockedError(m_currentRequest));
+        return;
+    case ShouldStartHTTPRedirection::No:
+        break;
     }
 
     if (m_response.isMultipart())
@@ -411,7 +443,7 @@ void NetworkDataTaskSoup::dispatchDidReceiveResponse()
     // FIXME: This cannot be eliminated until other code no longer relies on ResourceResponse's NetworkLoadMetrics.
     m_response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(m_networkLoadMetrics));
 
-    didReceiveResponse(ResourceResponse(m_response), NegotiatedLegacyTLS::No, PrivateRelayed::No, std::nullopt, [this, protectedThis = Ref { *this }](PolicyAction policyAction) {
+    didReceiveResponse(ResourceResponse(m_response), NegotiatedLegacyTLS::No, PrivateRelayed::No, std::nullopt, [this, protectedThis = protect(*this)](PolicyAction policyAction) {
         if (m_state == State::Canceling || m_state == State::Completed) {
             clearRequest();
             return;
@@ -636,7 +668,7 @@ void NetworkDataTaskSoup::authenticate(AuthenticationChallenge&& challenge)
     if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && persistentCredentialStorageEnabled()) {
         auto protectionSpace = challenge.protectionSpace();
         protect(m_session->networkStorageSession())->getCredentialFromPersistentStorage(protectionSpace, m_cancellable.get(),
-            [this, protectedThis = Ref { *this }, authChallenge = WTF::move(challenge)] (Credential&& credential) mutable {
+            [this, protectedThis = protect(*this), authChallenge = WTF::move(challenge)] (Credential&& credential) mutable {
                 if (m_state == State::Canceling || m_state == State::Completed || !m_client) {
                     clearRequest();
                     return;
@@ -651,7 +683,7 @@ void NetworkDataTaskSoup::authenticate(AuthenticationChallenge&& challenge)
 
 void NetworkDataTaskSoup::continueAuthenticate(AuthenticationChallenge&& challenge)
 {
-    m_client->didReceiveChallenge(AuthenticationChallenge(challenge), NegotiatedLegacyTLS::No, [this, protectedThis = Ref { *this }, challenge](AuthenticationChallengeDisposition disposition, const Credential& credential) {
+    m_client->didReceiveChallenge(AuthenticationChallenge(challenge), NegotiatedLegacyTLS::No, [this, protectedThis = protect(*this), challenge](AuthenticationChallengeDisposition disposition, const Credential& credential) {
         if (m_state == State::Canceling || m_state == State::Completed) {
             cancelAuthentication(challenge);
             clearRequest();
@@ -743,25 +775,6 @@ static bool shouldRedirectAsGET(SoupMessage* message, bool crossOrigin)
     return false;
 }
 
-bool NetworkDataTaskSoup::shouldStartHTTPRedirection()
-{
-    ASSERT(m_soupMessage);
-    ASSERT(!m_response.isNull());
-
-    auto status = m_response.httpStatusCode();
-    if (!SOUP_STATUS_IS_REDIRECTION(status))
-        return false;
-
-    // Some 3xx status codes aren't actually redirects.
-    if (status == 300 || status == 304 || status == 305 || status == 306)
-        return false;
-
-    if (m_response.httpHeaderField(HTTPHeaderName::Location).isEmpty())
-        return false;
-
-    return true;
-}
-
 void NetworkDataTaskSoup::continueHTTPRedirection()
 {
     ASSERT(m_soupMessage);
@@ -784,7 +797,7 @@ void NetworkDataTaskSoup::continueHTTPRedirection()
 
     m_networkLoadMetrics.hasCrossOriginRedirect = m_networkLoadMetrics.hasCrossOriginRedirect || !SecurityOrigin::create(m_currentRequest.url())->canRequest(request.url(), WebCore::EmptyOriginAccessPatterns::singleton());
 
-    if (m_response.httpStatusCode() == 307 || m_response.httpStatusCode() == 308) {
+    if (m_response.httpStatusCode() == httpStatus307TemporaryRedirect || m_response.httpStatusCode() == httpStatus308PermanentRedirect) {
         ASSERT(m_lastHTTPMethod == request.httpMethod());
         RefPtr body = m_firstRequest.httpBody();
         if (body && !body->isEmpty() && !equalLettersIgnoringASCIICase(m_lastHTTPMethod, "get"_s))
@@ -840,7 +853,7 @@ void NetworkDataTaskSoup::continueHTTPRedirection()
     clearRequest();
 
     auto response = ResourceResponse(m_response);
-    m_client->willPerformHTTPRedirection(WTF::move(response), WTF::move(request), [this, protectedThis = Ref { *this }, wasBlockingCookies, userAgent = WTF::move(userAgent)](const ResourceRequest& newRequest) {
+    m_client->willPerformHTTPRedirection(WTF::move(response), WTF::move(request), [this, protectedThis = protect(*this), wasBlockingCookies, userAgent = WTF::move(userAgent)](const ResourceRequest& newRequest) {
         if (newRequest.isNull() || m_state == State::Canceling)
             return;
 
@@ -1200,7 +1213,7 @@ void NetworkDataTaskSoup::download()
     ASSERT(m_pendingDownloadLocation);
     ASSERT(!m_response.isNull());
 
-    if (m_response.httpStatusCode() >= 400) {
+    if (m_response.httpStatusCode() >= httpStatus400BadRequest) {
         didFailDownload(downloadNetworkError(m_response.url(), m_response.httpStatusText()));
         return;
     }

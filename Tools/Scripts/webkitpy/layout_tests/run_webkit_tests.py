@@ -31,6 +31,7 @@
 import logging
 import optparse
 import os
+import sys
 import traceback
 
 from webkitpy.common.host import Host
@@ -78,27 +79,35 @@ def main(argv, stdout, stderr):
     log_stack_trace_on_signal('SIGTERM', output_file=stack_trace_path)
     log_stack_trace_on_signal('SIGINT', output_file=stack_trace_path)
 
+    # Handle print_expectations or print_summary
     if options.print_expectations or options.print_summary:
-        return _print_expectations(port, options, args, stderr)
+        logger = logging.getLogger()
+        logger.setLevel(logging.DEBUG if options.debug_rwt_logging else logging.INFO)
+        printer = printing.Printer(port, options, stderr, logger=logger)
+
+        _set_up_derived_options(port, options)
+        manager = Manager(port, options, printer)
+
+        if options.print_expectations:
+            return manager.print_expectations(args)
+        else:
+            return manager.print_summary(args)
 
     try:
         # Force all tests to use a smaller stack so that stack overflow tests can run faster.
         stackSizeInBytes = int(1.5 * 1024 * 1024)
         options.additional_env_var.append('JSC_maxPerThreadStackUsage=' + str(stackSizeInBytes))
         options.additional_env_var.append('__XPC_JSC_maxPerThreadStackUsage=' + str(stackSizeInBytes))
-        options.additional_env_var.append('JSC_useSharedArrayBuffer=1')
-        options.additional_env_var.append('__XPC_JSC_useSharedArrayBuffer=1')
         options.additional_env_var.append('JSC_useRecursiveJSONParse=0')
         options.additional_env_var.append('__XPC_JSC_useRecursiveJSONParse=0')
         run_details = run(port, options, args, stderr)
-        if run_details.exit_code != -1 and run_details.skipped_all_tests:
-            return run_details.exit_code
-        if run_details.exit_code != -1 and not run_details.initial_results.keyboard_interrupted:
+
+        if run_details.exit_code != -1 and not run_details.skipped_all_tests and not run_details.initial_results.keyboard_interrupted:
             bot_printer = buildbot_results.BuildBotPrinter(stdout, options.debug_rwt_logging)
             bot_printer.print_results(run_details)
 
         return run_details.exit_code
-    # We still need to handle KeyboardInterrupt, at least for webkitpy unittest cases.
+
     except KeyboardInterrupt:
         return INTERRUPTED_EXIT_STATUS
     except BaseException as e:
@@ -363,6 +372,9 @@ def parse_args(args):
             "--site-isolation", action="store_true", default=False,
             help=("Run each test with and without site isolation enabled and compare the results. Uses site-isolation test expectations")),
         optparse.make_option(
+            "--site-isolation-enabled-by-default", action="store_true", default=False,
+            help=("Run all tests with site isolation enabled by default (simulating SiteIsolationEnabled=true as the default preference). Individual tests can still opt out with SiteIsolationEnabled=false. Compares against expected.txt, preferring mac-site-isolation/ios-site-isolation baselines.")),
+        optparse.make_option(
             "--load-in-cross-origin-iframe", action="store_true", default=False,
             help=("Run each test in a cross origin iframe.")),
         optparse.make_option(
@@ -375,6 +387,7 @@ def parse_args(args):
             "--prefer-integrated-gpu", action="store_true", default=False,
             help=("Prefer using the lower-power integrated GPU on a dual-GPU system. Note that other running applications and the tests themselves can override this request.")),
         optparse.make_option("--show-window", action="store_true", default=False, help="Make the test runner window visible during testing."),
+        optparse.make_option("--show-cursor", action="store_true", default=False, help="Show the cursor overlay in the test runner window during testing (for debugging). Use with --show-window"),
         optparse.make_option("--self-compare-with-header", help="Run all tests as A/B tests between the default configuration and the given test features header (ignoring expected results)."),
     ]))
 
@@ -393,9 +406,6 @@ def parse_args(args):
         option_parser.add_option_group(option_group)
 
     options, args = option_parser.parse_args(args)
-
-    if len(options.driver_names) > 1:
-        raise ValueError('Too many drivers specified')
 
     if options.webgl_test_suite:
         if not args:
@@ -449,30 +459,13 @@ def parse_args(args):
     return options, args
 
 
-def _print_expectations(port, options, args, logging_stream):
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG if options.debug_rwt_logging else logging.INFO)
-    try:
-        printer = printing.Printer(port, options, logging_stream, logger=logger)
-
-        _set_up_derived_options(port, options)
-        manager = Manager(port, options, printer)
-
-        if options.print_expectations:
-            exit_code = manager.print_expectations(args)
-        else:
-            exit_code = manager.print_summary(args)
-        _log.debug("Printing expectations completed, Exit status: %d", exit_code)
-        return exit_code
-    except Exception as error:
-        _log.error('Error printing expectations: {}'.format(error))
-        return -1
-    finally:
-        printer.cleanup()
 
 
 def _set_up_derived_options(port, options):
     """Sets the options values that depend on other options values."""
+    if not options.driver_names:
+        options.driver_names = [port.driver_name()]
+
     if not options.child_processes:
         options.child_processes = os.environ.get('WEBKIT_TEST_CHILD_PROCESSES')
 
@@ -520,6 +513,28 @@ def _set_up_derived_options(port, options):
             raise RuntimeError('--site-isolation implicitly sets the result flavor, this should not be overridden')
         options.result_report_flavor = 'site-isolation'
 
+    if port.port_name == "mac" and options.site_isolation_enabled_by_default:
+        host = Host()
+        host.initialize_scm()
+        options.additional_expectations.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/mac-site-isolation/TestExpectations'))
+        if not options.additional_platform_directory:
+            options.additional_platform_directory = []
+        options.additional_platform_directory.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/mac-site-isolation'))
+        if options.result_report_flavor:
+            raise RuntimeError('--site-isolation-enabled-by-default implicitly sets the result flavor, this should not be overridden')
+        options.result_report_flavor = 'site-isolation'
+
+    if port.port_name.startswith(('ios', 'iphone', 'ipad')) and options.site_isolation_enabled_by_default:
+        host = Host()
+        host.initialize_scm()
+        options.additional_expectations.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/ios-site-isolation/TestExpectations'))
+        if not options.additional_platform_directory:
+            options.additional_platform_directory = []
+        options.additional_platform_directory.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/ios-site-isolation'))
+        if options.result_report_flavor:
+            raise RuntimeError('--site-isolation-enabled-by-default implicitly sets the result flavor, this should not be overridden')
+        options.result_report_flavor = 'site-isolation'
+
     if options.additional_platform_directory:
         additional_platform_directories = []
         for path in options.additional_platform_directory:
@@ -561,6 +576,7 @@ def _set_up_derived_options(port, options):
     if options.run_singly:
         options.verbose = True
 
+
 def run(port, options, args, logging_stream):
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG if options.debug_rwt_logging else logging.INFO)
@@ -575,6 +591,12 @@ def run(port, options, args, logging_stream):
                 _log.debug('Enabled coredumps for test run')
             except (ModuleNotFoundError, ValueError, OSError) as e:
                 _log.error('Failed to enable coredumps: %s' % str(e))
+        if sys.platform.startswith('linux'):
+            try:
+                from webkitpy.port.linux_get_crash_log import GDBCrashLogStartupHandler
+                GDBCrashLogStartupHandler()
+            except (OSError, ImportError) as e:
+                _log.error(f'Failed to initialize crash log handler: {e}')
 
         _set_up_derived_options(port, options)
         manager = Manager(port, options, printer)

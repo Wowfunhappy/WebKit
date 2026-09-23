@@ -601,9 +601,7 @@ void ScrollingEffectsController::stopDeferringWheelEventTestCompletion(WheelEven
 // Currently, only Mac supports momentum srolling-based scrollsnapping and rubber banding
 // so all of these methods are a noop on non-Mac platforms.
 #if !PLATFORM(MAC)
-ScrollingEffectsController::~ScrollingEffectsController()
-{
-}
+ScrollingEffectsController::~ScrollingEffectsController() = default;
 
 void ScrollingEffectsController::stopAllTimers()
 {

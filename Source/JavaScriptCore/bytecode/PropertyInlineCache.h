@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,6 @@
 #include "CodeBlock.h"
 #include "CodeOrigin.h"
 #include "InlineCacheCompiler.h"
-#include "Instruction.h"
 #include "JITStubRoutine.h"
 #include "MacroAssembler.h"
 #include "Options.h"
@@ -37,8 +36,6 @@
 #include "PropertyInlineCacheSummary.h"
 #include "RegisterSet.h"
 #include "Structure.h"
-#include "StructureSet.h"
-#include <wtf/Box.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -59,7 +56,6 @@ class PolymorphicAccess;
     macro(GetById) \
     macro(GetByIdWithThis) \
     macro(GetByIdDirect) \
-    macro(TryGetById) \
     macro(GetByVal) \
     macro(GetByValWithThis) \
     macro(PutByIdStrict) \
@@ -99,6 +95,30 @@ enum class AccessType : int8_t {
 static constexpr unsigned numberOfAccessTypes = 0 JSC_FOR_EACH_PROPERTY_INLINE_CACHE_ACCESS_TYPE(JSC_INCREMENT_ACCESS_TYPE);
 #undef JSC_INCREMENT_ACCESS_TYPE
 
+// This file defines two distinct inline cache (IC) dispatch strategies used across
+// JSC's JIT tiers. Both strategies work the same way conceptually: each IC site is
+// guarded by one or more conditions, either runtime checks (e.g. a structureID
+// comparison, a property UID check) or Watchpoints on values assumed to be stable.
+// When a guard passes, the IC performs the cached access; when it fails, we fall
+// through to the next case or the slow path, which may add new cases.
+//
+// The two strategies differ in how they store and dispatch through those cases:
+//
+//   HandlerIC: used by Baseline JIT and DFG. The call site never modifies machine
+//   code; instead it loads a pointer to the head of a singly-linked list of
+//   InlineCacheHandler nodes and dispatches through them at runtime.
+//
+//   RepatchingIC: used by FTL only. The call site owns a fixed-size
+//   slab of inline machine code embedded in the compiled function body. That slab
+//   is rewritten at runtime as new cases are learned.
+//
+// The choice between them is a throughput vs. cost tradeoff. RepatchingIC can generate
+// bespoke, case-specific code and, once sufficiently polymorphic, dispatch via a binary switch,
+// which is meaningfully faster than walking a chain of indirect branches.
+// However, rewriting machine code at runtime is expensive. So we only pay that
+// cost in the FTL, where we have substantially more profiling and thus think the code
+// is most likely to be in a steady state.
+
 enum class PropertyInlineCacheType : uint8_t { Handler, Repatching };
 
 struct UnlinkedPropertyInlineCache;
@@ -115,8 +135,8 @@ public:
     ~PropertyInlineCache();
 
     void initGetByIdSelf(const ConcurrentJSLockerBase&, CodeBlock*, Structure* inlineAccessBaseStructure, PropertyOffset);
-    void initArrayLength(const ConcurrentJSLockerBase&);
-    void initStringLength(const ConcurrentJSLockerBase&);
+    void NODELETE initArrayLength(const ConcurrentJSLockerBase&);
+    void NODELETE initStringLength(const ConcurrentJSLockerBase&);
     void initPutByIdReplace(const ConcurrentJSLockerBase&, CodeBlock*, Structure* inlineAccessBaseStructure, PropertyOffset);
     void initInByIdSelf(const ConcurrentJSLockerBase&, CodeBlock*, Structure* inlineAccessBaseStructure, PropertyOffset);
 
@@ -127,7 +147,7 @@ public:
     void deref();
     void aboutToDie();
 
-    void initializePredefinedRegisters();
+    void NODELETE initializePredefinedRegisters();
 
     DECLARE_VISIT_AGGREGATE;
 
@@ -144,7 +164,7 @@ public:
 
     CacheableIdentifier identifier() const { return m_identifier; }
 
-    bool containsPC(void* pc) const;
+    bool NODELETE containsPC(void* pc) const;
 
     JSValueRegs valueRegs() const
     {
@@ -363,7 +383,13 @@ public:
     static constexpr ptrdiff_t offsetOfHandler() { return OBJECT_OFFSETOF(PropertyInlineCache, m_handler); }
     static constexpr ptrdiff_t offsetOfGlobalObject() { return OBJECT_OFFSETOF(PropertyInlineCache, m_globalObject); }
 
+    InlineCacheHandler* firstHandler() const { return m_handler.get(); }
+
     JSGlobalObject* globalObject() const { return m_globalObject; }
+
+    inline ScalarRegisterSet usedRegisters() const;
+    inline void setUsedRegisters(ScalarRegisterSet);
+    inline void removeUsedRegister(GPRReg);
 
     void resetStubAsJumpInAccess(CodeBlock*);
 
@@ -415,8 +441,6 @@ private:
     Variant<std::monostate, Vector<StructureID>, Vector<std::tuple<StructureID, CacheableIdentifier>>> m_bufferedStructures WTF_GUARDED_BY_LOCK(m_bufferedStructuresLock);
 public:
 
-    ScalarRegisterSet usedRegisters;
-
     CallSiteIndex callSiteIndex;
 
     // FIXME: These should only be needed by the repatching ICs but it's slightly non-trivial to move them there as different AccessTypes use different pinned registers.
@@ -461,8 +485,109 @@ public:
     const PropertyInlineCacheType m_icType : 1;
 };
 
-// HandlerPropertyInlineCache: Used by Baseline JIT and DFG.
-// Data-only dispatch through a handler chain — code is never rewritten.
+// HandlerPropertyInlineCache
+// ==========================
+// Implements handler-list dispatch. The call site never modifies machine code;
+// instead, as new cases are learned, handler nodes are prepended to a linked list
+// that the call site walks at runtime.
+//
+// Call site layout (Baseline / DFG JIT):
+//
+//     load  handlerGPR, [PropertyInlineCache + offsetOfHandler]   // head of list
+//     call  [handlerGPR + InlineCacheHandler::offsetOfJumpTarget] // enter first handler
+//
+// Handler chain layout in memory:
+//
+//   PropertyInlineCache
+//   +------------------+
+//   | m_handler        |---> InlineCacheHandler #N  (most recently added, checked first)
+//   +------------------+     +-------------------+
+//                            | structureID        |
+//                            | offset / uid       |
+//                            | m_next             |---> InlineCacheHandler #N-1
+//                            +-------------------+     +-------------------+
+//                                                      | ...               |
+//                                                      | m_next            |---> (slow-path handler)
+//                                                      +-------------------+
+//
+// Most handler stubs follow a uniform pattern compiled by InlineCacheCompiler::compileHandler():
+//
+//     emitDataICPrologue()       // x86_64 pushes FP; ARM64E tags return address;
+//                                //   other ISAs do nothing. callFrameRegister is NOT updated.
+//     check guard                // e.g. do a structure check: load from base, compare against
+//                                //   [handlerGPR + offsetOfStructureID]
+//     --- on match ---
+//     perform access             // load / store, depending on AccessCase kind
+//     emitDataICEpilogue()       // minimal inverse of prologue
+//     return
+//
+//     --- on match (JS/C++ call needed, e.g. getter/setter/custom accessor) ---
+//     emitDataICPrepareForCall() // lazily save LR/FP now that we know we need a full frame
+//     call into JS/C++
+//     emitDataICRestoreAfterCall() // restore LR/FP
+//     emitDataICEpilogue()
+//     return
+//
+//     --- on miss ---
+//     load  handlerGPR, [handlerGPR + offsetOfNext]
+//     jump  [handlerGPR + offsetOfJumpTarget]            // offset skips prologue
+//
+// Not modifying callFrameRegister is important because it means handler stubs execute in the caller's frame
+// context, so exception unwinding and CallFrame* access via callFrameRegister need no special
+// handling in the handler prologue/epilogue. The lazy save/restore pattern also means that
+// simple load/store handlers (the common case) pay no frame-setup cost at all.
+//
+// The terminal handler is always the slow-path. It calls m_slowOperation
+// to fall back to the C++ runtime. The slow path may generate and prepend a new
+// InlineCacheHandler to the front of the list (LIFO ordering).
+//
+// Cached-field fast path (m_inlinedHandler):
+//
+// For simple access patterns (GetByIdSelf, PutByIdReplace, InByIdSelf, etc.) that match
+// preconfiguredCacheType, we also store the handler in m_inlinedHandler and write the
+// structure, offset, and holder into the IC's own fields (m_inlineAccessBaseStructureID,
+// byIdSelfOffset, m_inlineHolder). The JIT emits a structure check inline at the call
+// site (before loading m_handler) that can succeed without touching the chain at all.
+// These fields are read from memory at runtime, so no constants are embedded in the
+// generated assembly.
+//
+// Watchpoint invalidation:
+//
+// Some access cases (e.g. loading a property from a prototype assumed not to change)
+// attach a PropertyInlineCacheClearingWatchpoint to the relevant WatchpointSet. When
+// the watchpoint fires, PropertyInlineCacheClearingWatchpoint::fireInternal() eventually calls
+// resetStubAsJumpInAccess(). That function walks the entire m_handler chain calling
+// removeOwner() on each node, then assigns m_handler to a freshly generated slow-path
+// handler, dropping the old chain's RefPtr and potentially running every
+// InlineCacheHandler destructor in the chain.
+//
+// N.B. A watchpoint can fire while a handler stub is mid-execution — for example, a
+// getter or custom accessor calls JS, that JS mutates a prototype, and the watchpoint
+// fires before the getter returns. We rely on two distinct practices to avoid
+// use-after-free:
+//
+//   1. InlineCacheHandler struct: if the chain is reset while a stub is on the
+//      stack and no other Ref holds the node, the InlineCacheHandler wrapper and its
+//      trailing DataOnlyCallLinkInfo array are freed immediately. This is safe because
+//      handler stubs access InlineCacheHandler fields only before making calls: the
+//      structure check and the m_next load both occur on the miss path, ahead of any
+//      JS call. After the call returns, the result is in a register and the stub
+//      performs the epilogue and returns without touching the handler struct again.
+//
+//   2. Machine code: each InlineCacheHandler holds a
+//      Ref<GCAwareJITStubRoutine>. GCAwareJITStubRoutine does not free the routine
+//      immediately when its refcount reaches zero; it sets m_isJettisoned = true and
+//      defers actual deletion until the GC confirms that the routine is no longer on
+//      any call stack. So the code being executed remains valid even if m_handler is
+//      cleared under us.
+//
+// Shared handler thunks:
+//
+// Many common handler shapes (e.g. getByIdLoadOwnPropertyHandler, putByIdReplaceHandler)
+// are pre-compiled as shared thunks stored in VM::m_sharedJITStubs. compileHandler()
+// reuses an existing shared stub before generating a new one, so multiple IC sites with
+// the same access pattern share the same machine code. This sharing works because
+// everything is data only, unlike with repatching ICs.
 class HandlerPropertyInlineCache final : public PropertyInlineCache {
     WTF_MAKE_NONCOPYABLE(HandlerPropertyInlineCache);
 public:
@@ -486,8 +611,77 @@ public:
     RefPtr<InlineCacheHandler> m_inlinedHandler;
 };
 
-// RepatchingPropertyInlineCache: Used by FTL (when handler IC is not enabled) and 32-bit DFG.
-// Classic inline cache where code is recompiled/repatched on the fly.
+// RepatchingPropertyInlineCache
+// =============================
+// Implements slab-patching dispatch (used by FTL only). The call site owns a
+// fixed-size region of inline machine code embedded in the compiled function body.
+// When new cases are learned, we rewrite either that slab in place, or a
+// separately-allocated stub it jumps to.
+//
+// Inline code region layout inside the JIT-compiled function body:
+//
+//   startLocation --> +--------------------------------------+
+//                     |  inline IC code (inlineCodeSize      |
+//                     |  bytes; initially: call to slow path)|
+//                     +--------------------------------------+
+//   doneLocation  --> (next instruction in the function)
+//
+// The IC evolves through the following states:
+//
+//   1. [slow path]: initial state; the slab contains a call to operationXyzOptimize.
+//
+//   2. [inline access]: after the first hit. InlineAccess patches the slab in-place
+//      with a monomorphic structure check and access (e.g. a direct load at a known
+//      offset). No separate stub is needed yet.
+//
+//   3. [jump -> stub]: when a second structure is seen, rewireStubAsJumpInAccess()
+//      overwrites the slab with a direct jump to a PolymorphicAccess stub. The stub
+//      holds all accumulated AccessCases compiled together by InlineCacheCompiler::compile().
+//
+// The stub uses one of two dispatch strategies, chosen when the stub is (re)generated:
+//
+//   Cascade (linear, newest-first):
+//       case N:   check guard --match--> perform access, jump to doneLocation
+//                              --miss --> fall through
+//       case N-1: check guard --match--> perform access, jump to doneLocation
+//                              --miss --> fall through
+//       ...
+//       slow path
+//
+//   BinarySwitch (O(log n)):  used when every case is guarded solely by a structure
+//       check (no proxies, no non-structure guards). A balanced binary tree of
+//       structureID comparisons is emitted; each leaf performs its access and jumps
+//       to doneLocation. We cannot use this form if any case involves a proxy, since
+//       proxies require additional checks beyond the structureID.
+//
+// Because compiling a new stub is expensive, new cases are buffered in the
+// PolymorphicAccess case list and the stub is only regenerated when bufferingCountdown
+// reaches zero (reset to Options::repatchBufferingCountdown() after each regeneration).
+// This batches multiple new cases into a single regeneration pass.
+//
+// Why only in FTL:
+//
+// Rewriting machine code at runtime incurs instruction cache flushes and, on some
+// platforms, requires toggling memory write permissions. The generated stub code is
+// also bespoke (built for exactly the set of cases we have seen), so every new case
+// requires a full recompile of the entire stub. The payoff is tight dispatch: no
+// indirect branches through a handler chain, and potentially O(log n) dispatch via
+// binary switch. This tradeoff is only worthwhile in the FTL, where a function is
+// hot enough to amortize the patching cost over many executions.
+//
+// Watchpoint invalidation:
+//
+// Cases that depend on stable conditions (prototype-chain stability, equivalence of a
+// property value, etc.) register watchpoints on the relevant WatchpointSets. When a
+// watchpoint fires, PropertyInlineCacheClearingWatchpoint::fireInternal() eventually calls
+// resetStubAsJumpInAccess(). For RepatchingIC that function overwrites the inline slab
+// with a jump back to the slow path and drops the reference to the PolymorphicAccess
+// stub; the IC then begins accumulating cases from scratch.
+//
+// If a stub is mid-execution when the watchpoint fires (e.g. a polymorphic accessor
+// case calls JS), the machine code is protected by GCAwareJITStubRoutine (as described above),
+// this guarantees the code of the stub is still valid. No inline slabs can be at the
+// first instruction when this rewrite happens either.
 class RepatchingPropertyInlineCache final : public PropertyInlineCache {
     WTF_MAKE_NONCOPYABLE(RepatchingPropertyInlineCache);
 public:
@@ -504,6 +698,8 @@ public:
     CodeLocationCall<JSInternalPtrTag> m_slowPathCallLocation;
     std::unique_ptr<PolymorphicAccess> m_stub;
 
+    ScalarRegisterSet m_usedRegisters;
+
     uint32_t inlineCodeSize() const
     {
         int32_t inlineSize = MacroAssembler::differenceBetweenCodePtr(startLocation, doneLocation);
@@ -512,13 +708,30 @@ public:
     }
 };
 
+inline ScalarRegisterSet PropertyInlineCache::usedRegisters() const
+{
+    if (auto* repatching = dynamicDowncast<RepatchingPropertyInlineCache>(*this))
+        return repatching->m_usedRegisters;
+    return RegisterSet::stubUnavailableRegisters().toScalarRegisterSet();
+}
+
+inline void PropertyInlineCache::setUsedRegisters(ScalarRegisterSet value)
+{
+    ASSERT(is<RepatchingPropertyInlineCache>(*this));
+    downcast<RepatchingPropertyInlineCache>(*this).m_usedRegisters = value;
+}
+
+inline void PropertyInlineCache::removeUsedRegister(GPRReg reg)
+{
+    ASSERT(is<RepatchingPropertyInlineCache>(*this));
+    downcast<RepatchingPropertyInlineCache>(*this).m_usedRegisters.remove(reg);
+}
+
 inline auto appropriateGetByIdOptimizeFunction(AccessType type) -> decltype(&operationGetByIdOptimize)
 {
     switch (type) {
     case AccessType::GetById:
         return operationGetByIdOptimize;
-    case AccessType::TryGetById:
-        return operationTryGetByIdOptimize;
     case AccessType::GetByIdDirect:
         return operationGetByIdDirectOptimize;
     case AccessType::GetPrivateNameById:
@@ -535,8 +748,6 @@ inline auto appropriateGetByIdGenericFunction(AccessType type) -> decltype(&oper
     switch (type) {
     case AccessType::GetById:
         return operationGetByIdGeneric;
-    case AccessType::TryGetById:
-        return operationTryGetByIdGeneric;
     case AccessType::GetByIdDirect:
         return operationGetByIdDirectGeneric;
     case AccessType::GetPrivateNameById:
@@ -595,7 +806,6 @@ inline bool hasConstantIdentifier(AccessType accessType)
     case AccessType::DeleteByIdStrict:
     case AccessType::DeleteByIdSloppy:
     case AccessType::InById:
-    case AccessType::TryGetById:
     case AccessType::GetByIdDirect:
     case AccessType::GetById:
     case AccessType::GetPrivateNameById:

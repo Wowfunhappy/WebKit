@@ -114,6 +114,17 @@ void BidiBrowserAgent::willClosePage(const WebPageProxy& page)
     m_userContextsPendingDeletion.remove(it);
 }
 
+bool BidiBrowserAgent::isValidUserContext(const String& userContextID) const
+{
+    if (userContextID.isEmpty())
+        return false;
+
+    if (userContextID == defaultUserContextID())
+        return true;
+
+    return m_userContexts.contains(userContextID);
+}
+
 // MARK: Inspector::BidiBrowserDispatcherHandler methods.
 
 CommandResult<void> BidiBrowserAgent::close()

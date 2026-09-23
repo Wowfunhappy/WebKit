@@ -47,9 +47,9 @@ void GeolocationPermissionRequestManagerProxy::invalidateRequests()
     m_pendingRequests.clear();
 }
 
-Ref<GeolocationPermissionRequestProxy> GeolocationPermissionRequestManagerProxy::createRequest(GeolocationIdentifier geolocationID, WebProcessProxy& process)
+Ref<GeolocationPermissionRequestProxy> GeolocationPermissionRequestManagerProxy::createRequest(GeolocationIdentifier geolocationID, WebProcessProxy& process, WebCore::RegistrableDomain&& registrableDomain)
 {
-    Ref request = GeolocationPermissionRequestProxy::create(*this, geolocationID, process);
+    Ref request = GeolocationPermissionRequestProxy::create(*this, geolocationID, process, WTF::move(registrableDomain));
     m_pendingRequests.add(geolocationID, request);
     return request;
 }
@@ -67,7 +67,7 @@ void GeolocationPermissionRequestManagerProxy::didReceiveGeolocationPermissionDe
 #if ENABLE(GEOLOCATION)
     String authorizationToken = allowed ? createVersion4UUIDString() : String();
     if (!authorizationToken.isNull())
-        m_validAuthorizationTokens.add(authorizationToken);
+        m_validAuthorizationTokens.add(authorizationToken, it->value->registrableDomain());
     if (RefPtr process = it->value->process())
         process->send(Messages::WebPage::DidReceiveGeolocationPermissionDecision(geolocationID, authorizationToken), page->webPageIDInProcess(*process));
 #else
@@ -80,6 +80,16 @@ void GeolocationPermissionRequestManagerProxy::didReceiveGeolocationPermissionDe
 bool GeolocationPermissionRequestManagerProxy::isValidAuthorizationToken(const String& authorizationToken) const
 {
     return !authorizationToken.isNull() && m_validAuthorizationTokens.contains(authorizationToken);
+}
+
+std::optional<WebCore::RegistrableDomain> GeolocationPermissionRequestManagerProxy::registrableDomainForAuthorizationToken(const String& authorizationToken) const
+{
+    if (authorizationToken.isNull())
+        return std::nullopt;
+    auto it = m_validAuthorizationTokens.find(authorizationToken);
+    if (it == m_validAuthorizationTokens.end())
+        return std::nullopt;
+    return it->value;
 }
 
 void GeolocationPermissionRequestManagerProxy::revokeAuthorizationToken(const String& authorizationToken)

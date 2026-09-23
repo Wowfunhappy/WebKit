@@ -32,6 +32,7 @@
 #include "StyleSVGPathData.h"
 
 #include "AnimationUtilities.h"
+#include "CSSKeywordValue.h"
 #include "CSSPathValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
@@ -43,12 +44,14 @@ namespace Style {
 
 auto CSSValueConversion<SVGPathData>::operator()(BuilderState& state, const CSSValue& value) -> SVGPathData
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        if (primitiveValue->valueID() == CSSValueNone)
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
             return CSS::Keyword::None { };
-
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
     }
 
     RefPtr pathValue = requiredDowncast<CSSPathValue>(state, value);
@@ -58,7 +61,7 @@ auto CSSValueConversion<SVGPathData>::operator()(BuilderState& state, const CSSV
     return toStyle(pathValue->path(), state);
 }
 
-auto CSSValueCreation<SVGPathData>::operator()(CSSValuePool& pool, const RenderStyle& style, const SVGPathData& value) -> Ref<CSSValue>
+auto CSSValueCreation<SVGPathData>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const SVGPathData& value) -> Ref<CSSValue>
 {
     if (value.isNone())
         return createCSSValue(pool, style, CSS::Keyword::None { });
@@ -67,7 +70,7 @@ auto CSSValueCreation<SVGPathData>::operator()(CSSValuePool& pool, const RenderS
 
 // MARK: - Serialization
 
-void Serialize<SVGPathData>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const SVGPathData& value)
+void Serialize<SVGPathData>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const SVGPathData& value)
 {
     if (value.isNone()) {
         serializationForCSS(builder, context, style, CSS::Keyword::None { });

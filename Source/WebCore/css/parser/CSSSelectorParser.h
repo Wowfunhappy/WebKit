@@ -59,6 +59,8 @@ public:
 
     static bool supportsComplexSelector(CSSParserTokenRange, const CSSSelectorParserContext&);
     static CSSSelectorList resolveNestingParent(const CSSSelectorList& nestedSelectorList, const CSSSelectorList* parentResolvedSelectorList, bool parentRuleIsScope = false);
+    static CSSSelectorList makeHasScopeSelector(const Vector<const CSSSelector*>& compoundSelectors);
+    static CSSSelectorList makeHasArgumentWithScope(const CSSSelector& hasArgument, const CSSSelector& scopeSelector);
     static std::optional<Style::PseudoElementIdentifier> parsePseudoElement(const String&, const CSSSelectorParserContext&);
 
 private:
@@ -76,8 +78,6 @@ private:
 
     // This doesn't include element names, since they're handled specially.
     std::unique_ptr<MutableCSSSelector> consumeSimpleSelector(CSSParserTokenRange&);
-
-    bool consumeName(CSSParserTokenRange&, AtomString& name, AtomString& namespacePrefix);
 
     // These will return nullptr when the selector is invalid.
     std::unique_ptr<MutableCSSSelector> consumeId(CSSParserTokenRange&);
@@ -112,6 +112,12 @@ private:
     bool m_disableForgivingParsing { false };
     const MutableCSSSelector* m_precedingPseudoElement { nullptr };
 };
+
+struct ParsedQualifiedName {
+    AtomString name;
+    AtomString namespacePrefix;
+};
+std::optional<ParsedQualifiedName> consumeQualifiedName(CSSParserTokenRange&);
 
 std::optional<CSSSelectorList> parseCSSSelectorList(CSSParserTokenRange, const CSSSelectorParserContext&, StyleSheetContents* = nullptr, CSSParserEnum::NestedContext = { });
 

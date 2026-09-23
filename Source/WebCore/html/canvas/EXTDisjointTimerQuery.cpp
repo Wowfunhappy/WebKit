@@ -56,10 +56,10 @@ bool EXTDisjointTimerQuery::supported(GraphicsContextGL& context)
     return context.supportsExtension(GCGLExtension::EXT_disjoint_timer_query);
 }
 
-RefPtr<WebGLTimerQueryEXT> EXTDisjointTimerQuery::createQueryEXT()
+Ref<WebGLTimerQueryEXT> EXTDisjointTimerQuery::createQueryEXT()
 {
     if (isContextLost())
-        return nullptr;
+        return WebGLTimerQueryEXT::createLost();
     return WebGLTimerQueryEXT::create(context().get());
 }
 
@@ -98,7 +98,7 @@ GCGLboolean EXTDisjointTimerQuery::isQueryEXT(WebGLTimerQueryEXT* query)
     Ref context = this->context();
     if (!context->validateIsWebGLObject(query))
         return false;
-    return context->graphicsContextGL()->isQueryEXT(query->object());
+    return protect(context->graphicsContextGL())->isQueryEXT(query->object());
 }
 
 void EXTDisjointTimerQuery::beginQueryEXT(GCGLenum target, WebGLTimerQueryEXT& query)
@@ -133,16 +133,14 @@ void EXTDisjointTimerQuery::beginQueryEXT(GCGLenum target, WebGLTimerQueryEXT& q
 
     context->m_activeQuery = &query;
 
-    context->graphicsContextGL()->beginQueryEXT(target, query.object());
+    protect(context->graphicsContextGL())->beginQueryEXT(target, query.object());
 }
 
-void EXTDisjointTimerQuery::endQueryEXT(GCGLenum target)
+void EXTDisjointTimerQuery::endQueryEXT(ScriptExecutionContext& scriptExecutionContext, GCGLenum target)
 {
     if (isContextLost())
         return;
     Ref context = this->context();
-    if (!context->scriptExecutionContext())
-        return;
 
     Locker locker { context->objectGraphLock() };
 
@@ -156,22 +154,19 @@ void EXTDisjointTimerQuery::endQueryEXT(GCGLenum target)
         return;
     }
 
-    context->graphicsContextGL()->endQueryEXT(target);
+    protect(context->graphicsContextGL())->endQueryEXT(target);
 
     // A query's result must not be made available until control has returned to the user agent's main loop.
-    context->scriptExecutionContext()->eventLoop().queueMicrotask(context->scriptExecutionContext()->vm(), [query = WTF::move(context->m_activeQuery)] {
+    protect(scriptExecutionContext.eventLoop())->queueMicrotask(scriptExecutionContext.vm(), [query = context->m_activeQuery.releaseNonNull()] {
         query->makeResultAvailable();
     });
 }
 
-void EXTDisjointTimerQuery::queryCounterEXT(WebGLTimerQueryEXT& query, GCGLenum target)
+void EXTDisjointTimerQuery::queryCounterEXT(ScriptExecutionContext& scriptExecutionContext, WebGLTimerQueryEXT& query, GCGLenum target)
 {
     if (isContextLost())
         return;
     Ref context = this->context();
-    if (!context->scriptExecutionContext())
-        return;
-
     if (!context->validateWebGLObject("queryCounterEXT"_s, query))
         return;
 
@@ -190,8 +185,8 @@ void EXTDisjointTimerQuery::queryCounterEXT(WebGLTimerQueryEXT& query, GCGLenum 
     protect(context->graphicsContextGL())->queryCounterEXT(query.object(), target);
 
     // A query's result must not be made available until control has returned to the user agent's main loop.
-    context->scriptExecutionContext()->eventLoop().queueMicrotask(context->scriptExecutionContext()->vm(), [&] {
-        query.makeResultAvailable();
+    protect(scriptExecutionContext.eventLoop())->queueMicrotask(scriptExecutionContext.vm(), [query = protect(query)] {
+        query->makeResultAvailable();
     });
 }
 
@@ -212,7 +207,7 @@ WebGLAny EXTDisjointTimerQuery::getQueryEXT(GCGLenum target, GCGLenum pname)
             return toWebGLAny(context->m_activeQuery);
         return nullptr;
     case GraphicsContextGL::QUERY_COUNTER_BITS_EXT:
-        return context->graphicsContextGL()->getQueryiEXT(target, pname);
+        return protect(context->graphicsContextGL())->getQueryiEXT(target, pname);
     }
     context->synthesizeGLError(GraphicsContextGL::INVALID_ENUM, "getQueryEXT"_s, "invalid parameter name"_s);
     return nullptr;
@@ -241,11 +236,11 @@ WebGLAny EXTDisjointTimerQuery::getQueryObjectEXT(WebGLTimerQueryEXT& query, GCG
     case GraphicsContextGL::QUERY_RESULT_EXT:
         if (!query.isResultAvailable())
             return 0;
-        return static_cast<unsigned long long>(context->graphicsContextGL()->getQueryObjectui64EXT(query.object(), pname));
+        return static_cast<unsigned long long>(protect(context->graphicsContextGL())->getQueryObjectui64EXT(query.object(), pname));
     case GraphicsContextGL::QUERY_RESULT_AVAILABLE_EXT:
         if (!query.isResultAvailable())
             return false;
-        return static_cast<bool>(context->graphicsContextGL()->getQueryObjectiEXT(query.object(), pname));
+        return static_cast<bool>(protect(context->graphicsContextGL())->getQueryObjectiEXT(query.object(), pname));
     }
     context->synthesizeGLError(GraphicsContextGL::INVALID_ENUM, "getQueryObjectEXT"_s, "invalid parameter name"_s);
     return nullptr;

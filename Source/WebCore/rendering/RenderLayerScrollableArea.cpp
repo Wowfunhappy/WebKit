@@ -54,17 +54,20 @@
 #include "DocumentInlines.h"
 #include "DocumentView.h"
 #include "Editor.h"
+#include "ElementInlines.h"
+#include "ElementInlinesLight.h"
 #include "ElementRuleCollector.h"
 #include "EventHandler.h"
 #include "FocusController.h"
+#include "FrameInlines.h"
 #include "FrameSelection.h"
+#include "GraphicsLayer.h"
 #include "HTMLBodyElement.h"
 #include "HTMLHtmlElement.h"
 #include "HitTestResult.h"
 #include "InspectorInstrumentation.h"
 #include "LayoutScope.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderElementInlines.h"
@@ -77,15 +80,16 @@
 #include "RenderObjectInlines.h"
 #include "RenderScrollbar.h"
 #include "RenderScrollbarPart.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "ScrollAnchoringController.h"
 #include "ScrollAnimator.h"
 #include "ScrollbarTheme.h"
+#include "ScrollbarUpdateScope.h"
 #include "ScrollbarsController.h"
 #include "ScrollingCoordinator.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -240,8 +244,8 @@ void RenderLayerScrollableArea::applyPostLayoutScrollPositionIfNeeded()
     if (!m_postLayoutScrollPosition)
         return;
 
-    scrollToOffset(scrollOffsetFromPosition(m_postLayoutScrollPosition.value()));
-    m_postLayoutScrollPosition = std::nullopt;
+    auto position = std::exchange(m_postLayoutScrollPosition, std::nullopt);
+    scrollToOffset(scrollOffsetFromPosition(*position));
 }
 
 void RenderLayerScrollableArea::scrollToXPosition(int x, const ScrollPositionChangeOptions& options)
@@ -308,18 +312,27 @@ void RenderLayerScrollableArea::stopAsyncAnimatedScroll()
 
 ScrollOffset RenderLayerScrollableArea::scrollToOffset(const ScrollOffset& scrollOffset, const ScrollPositionChangeOptions& options)
 {
+    ScrollOffset clampedScrollOffset = options.clamping == ScrollClamping::Clamped ? clampScrollOffset(scrollOffset) : scrollOffset;
+    ScrollOffset snappedOffset = ceiledIntPoint(scrollAnimator().scrollOffsetAdjustedForSnapping(clampedScrollOffset, options.snapPointSelectionMethod));
+    auto snappedPosition = scrollPositionFromOffset(snappedOffset);
+
     if (scrollAnimationStatus() == ScrollAnimationStatus::Animating) {
+        // If a smooth scroll animation is already running and the new request is also
+        // animated, retarget the running animation to the new destination instead of
+        // cancelling it. Cancelling tears the animation down, which prematurely fires a
+        // scrollend event at the current intermediate position rather than running to
+        // the new destination.
+        if (options.animated == ScrollIsAnimated::Yes && scrollAnimator().retargetRunningAnimation(snappedPosition))
+            return snappedOffset;
         scrollAnimator().cancelAnimations();
         stopAsyncAnimatedScroll();
     }
-    ScrollOffset clampedScrollOffset = options.clamping == ScrollClamping::Clamped ? clampScrollOffset(scrollOffset) : scrollOffset;
+
     if (clampedScrollOffset == this->scrollOffset())
         return clampedScrollOffset;
 
     auto scrollTypeScope = ScrollTypeScope(*this, options.type);
 
-    ScrollOffset snappedOffset = ceiledIntPoint(scrollAnimator().scrollOffsetAdjustedForSnapping(clampedScrollOffset, options.snapPointSelectionMethod));
-    auto snappedPosition = scrollPositionFromOffset(snappedOffset);
     if (options.animated == ScrollIsAnimated::Yes) {
         registerScrollableAreaForAnimatedScroll();
         ScrollableArea::scrollToPositionWithAnimation(snappedPosition, options);
@@ -437,7 +450,9 @@ void RenderLayerScrollableArea::scrollTo(const ScrollPosition& position)
     if (scrollsOverflow())
         view.frameView().didChangeScrollOffset();
 
-    view.frameView().viewportContentsChanged();
+    if (!view.frameView().layoutContext().isInRenderTreeLayout())
+        view.frameView().viewportContentsChanged();
+
     protect(frame->editor())->renderLayerDidScroll(m_layer);
 }
 
@@ -490,11 +505,8 @@ void RenderLayerScrollableArea::updateMarqueePosition()
     if (!m_marquee)
         return;
 
-    // FIXME: would like to use SetForScope<> but it doesn't work with bitfields.
-    bool oldUpdatingMarqueePosition = m_updatingMarqueePosition;
-    m_updatingMarqueePosition = true;
+    SetForScope updatingMarqueePosition(m_updatingMarqueePosition, true);
     m_marquee->updateMarqueePosition();
-    m_updatingMarqueePosition = oldUpdatingMarqueePosition;
 }
 
 void RenderLayerScrollableArea::createOrDestroyMarquee()
@@ -678,7 +690,7 @@ void RenderLayerScrollableArea::availableContentSizeChanged(AvailableSizeChangeR
 bool RenderLayerScrollableArea::shouldSuspendScrollAnimations() const
 {
     auto& renderer = m_layer.renderer();
-    return protect(renderer.view().frameView())->shouldSuspendScrollAnimations();
+    return renderer.view().frameView().shouldSuspendScrollAnimations();
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -868,8 +880,8 @@ void RenderLayerScrollableArea::createScrollbarsController()
 
 static inline RenderElement* rendererForScrollbar(RenderLayerModelObject& renderer)
 {
-    if (RefPtr element = renderer.element()) {
-        if (RefPtr shadowRoot = element->containingShadowRoot()) {
+    if (auto* element = renderer.element()) {
+        if (auto* shadowRoot = element->containingShadowRoot()) {
             if (shadowRoot->mode() == ShadowRootMode::UserAgent)
                 return shadowRoot->host()->renderer();
         }
@@ -1113,13 +1125,13 @@ bool RenderLayerScrollableArea::positionOverflowControls(const IntSize& offsetFr
         }
     }
 
-    if (m_scrollCorner && m_scrollCorner->frameRect() != rects.scrollCorner) {
-        m_scrollCorner->setFrameRect(rects.scrollCorner);
+    if (m_scrollCorner && m_scrollCorner->borderBoxRectInContainer() != rects.scrollCorner) {
+        m_scrollCorner->setBorderBoxInContainer(rects.scrollCorner);
         changed = true;
     }
 
-    if (m_resizer && m_resizer->frameRect() != rects.resizer) {
-        m_resizer->setFrameRect(rects.resizer);
+    if (m_resizer && m_resizer->borderBoxRectInContainer() != rects.resizer) {
+        m_resizer->setBorderBoxInContainer(rects.resizer);
         changed = true;
     }
     return changed;
@@ -1205,14 +1217,14 @@ bool RenderLayerScrollableArea::hasHorizontalOverflow() const
 {
     ASSERT(!m_scrollDimensionsDirty);
 
-    return scrollWidth() > roundToInt(m_layer.renderBox()->clientWidth());
+    return scrollWidth() > roundToInt(m_layer.renderBox()->paddingBoxWidth());
 }
 
 bool RenderLayerScrollableArea::hasVerticalOverflow() const
 {
     ASSERT(!m_scrollDimensionsDirty);
 
-    return scrollHeight() > roundToInt(m_layer.renderBox()->clientHeight());
+    return scrollHeight() > roundToInt(m_layer.renderBox()->paddingBoxHeight());
 }
 
 void RenderLayerScrollableArea::updateScrollbarPresenceAndState(std::optional<bool> hasHorizontalOverflow, std::optional<bool> hasVerticalOverflow)
@@ -1260,7 +1272,7 @@ void RenderLayerScrollableArea::updateScrollbarPresenceAndState(std::optional<bo
         Ref { *m_vBar }->setEnabled(verticalBarState == ScrollbarState::Enabled);
 }
 
-void RenderLayerScrollableArea::updateScrollbarsAfterStyleChange(const RenderStyle* oldStyle)
+void RenderLayerScrollableArea::updateScrollbarsAfterStyleChange(const Style::ComputedStyle* oldStyle)
 {
     // Overflow is a box concept.
     RenderBox* box = m_layer.renderBox();
@@ -1290,109 +1302,12 @@ void RenderLayerScrollableArea::updateScrollbarsAfterStyleChange(const RenderSty
     }
 }
 
-void RenderLayerScrollableArea::updateScrollbarsAfterLayout()
-{
-    CheckedPtr box = m_layer.renderBox();
-    ASSERT(box);
-
-    // List box parts handle the scrollbars by themselves so we have nothing to do.
-    if (box->style().usedAppearance() == StyleAppearance::Listbox)
-        return;
-
-    bool hadHorizontalScrollbar = hasHorizontalScrollbar();
-    bool hadVerticalScrollbar = hasVerticalScrollbar();
-
-    bool hasHorizontalOverflow = this->hasHorizontalOverflow();
-    bool hasVerticalOverflow = this->hasVerticalOverflow();
-
-    updateScrollbarPresenceAndState(hasHorizontalOverflow, hasVerticalOverflow);
-
-    // Scrollbars with auto behavior may need to lay out again if scrollbars got added or removed.
-    bool autoHorizontalScrollBarChanged = box->hasAutoScrollbar(ScrollbarOrientation::Horizontal) && (hadHorizontalScrollbar != hasHorizontalScrollbar());
-    bool autoVerticalScrollBarChanged = box->hasAutoScrollbar(ScrollbarOrientation::Vertical) && (hadVerticalScrollbar != hasVerticalScrollbar());
-
-    if (autoHorizontalScrollBarChanged || autoVerticalScrollBarChanged) {
-        if (autoVerticalScrollBarChanged && shouldPlaceVerticalScrollbarOnLeft())
-            computeScrollOrigin();
-
-        m_layer.updateSelfPaintingLayer();
-
-        auto& renderer = m_layer.renderer();
-        renderer.document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
-        renderer.repaint();
-
-        if (renderer.style().overflowX() == Overflow::Auto || renderer.style().overflowY() == Overflow::Auto) {
-            if (!m_inOverflowRelayout) {
-                SetForScope inOverflowRelayoutScope(m_inOverflowRelayout, true);
-                renderer.setNeedsLayout(MarkOnlyThis);
-                if (CheckedPtr block = dynamicDowncast<RenderBlock>(renderer)) {
-                    // FIXME: Calling layoutBlock here is a bit of a layering violation.
-                    auto scope = LayoutScope { *block };
-                    block->scrollbarsChanged(autoHorizontalScrollBarChanged, autoVerticalScrollBarChanged);
-                    block->layoutBlock(RelayoutChildren::Yes);
-                } else
-                    renderer.layout();
-            }
-        }
-
-        // FIXME: This does not belong here.
-        auto* parent = renderer.parent();
-        if (CheckedPtr parentFlexibleBox = dynamicDowncast<RenderFlexibleBox>(parent); parentFlexibleBox && renderer.isRenderBox())
-            parentFlexibleBox->clearCachedMainSizeForFlexItem(*m_layer.renderBox());
-    }
-
-    // Set up the range.
-    if (RefPtr hBar = m_hBar)
-        hBar->setProportion(roundToInt(box->clientWidth()), m_scrollWidth);
-    if (RefPtr vBar = m_vBar)
-        vBar->setProportion(roundToInt(box->clientHeight()), m_scrollHeight);
-
-    updateScrollbarSteps();
-
-    auto hasScrollableOverflow = [&]() {
-        if (hasVerticalOverflow && m_layer.renderBox()->scrollsOverflowY())
-            return true;
-
-        if (hasHorizontalOverflow && m_layer.renderBox()->scrollsOverflowX())
-            return true;
-
-        return false;
-    };
-
-    updateScrollableAreaSet(hasScrollableOverflow());
-
-    if (CheckedPtr scrollAnchoringController = this->scrollAnchoringController())
-        scrollAnchoringController->scrollerDidLayout();
-}
-
-void RenderLayerScrollableArea::updateScrollbarSteps()
-{
-    if (!m_hBar && !m_vBar)
-        return;
-
-    CheckedPtr box = m_layer.renderBox();
-    ASSERT(box);
-
-    LayoutRect paddedLayerBounds(0_lu, 0_lu, box->clientWidth(), box->clientHeight());
-    paddedLayerBounds.contract(box->scrollPaddingForViewportRect(paddedLayerBounds));
-
-    // Set up the  page step/line step.
-    if (RefPtr hBar = m_hBar) {
-        int width = roundToInt(paddedLayerBounds.width());
-        hBar->setSteps(Scrollbar::pixelsPerLineStep(width), Scrollbar::pageStep(width));
-    }
-    if (RefPtr vBar = m_vBar) {
-        int height = roundToInt(paddedLayerBounds.height());
-        vBar->setSteps(Scrollbar::pixelsPerLineStep(height), Scrollbar::pageStep(height));
-    }
-}
-
 // This is called from layout code (before updateLayerPositions).
-void RenderLayerScrollableArea::updateScrollInfoAfterLayout()
+std::optional<ScrollbarUpdateScope> RenderLayerScrollableArea::updateScrollInfoAfterLayout()
 {
-    RenderBox* box = m_layer.renderBox();
+    CheckedPtr box = m_layer.renderBox();
     if (!box)
-        return;
+        return { };
 
     m_scrollDimensionsDirty = true;
     auto originalScrollPosition = scrollPosition();
@@ -1415,25 +1330,55 @@ void RenderLayerScrollableArea::updateScrollInfoAfterLayout()
         }
     }
 
-    updateScrollbarsAfterLayout();
+    // List box parts handle the scrollbars by themselves so we have nothing to do.
+    if (box->style().usedAppearance() == StyleAppearance::Listbox)
+        return { };
 
-    LOG_WITH_STREAM(Scrolling, stream << "RenderLayerScrollableArea [" << scrollingNodeID() << "] updateScrollInfoAfterLayout - new scroll width " << m_scrollWidth << " scroll height " << m_scrollHeight
-        << " rubber banding " << isRubberBandInProgress() << " user scrolling " << isUserScrollInProgress() << " scroll position updated from " << originalScrollPosition << " to " << scrollPosition());
+    bool hadHorizontalScrollbar = hasHorizontalScrollbar();
+    bool hadVerticalScrollbar = hasVerticalScrollbar();
 
-    if (originalScrollPosition != scrollPosition())
-        scrollToPositionWithoutAnimation(IntPoint(scrollPosition()));
+    bool hasHorizontalOverflow = this->hasHorizontalOverflow();
+    bool hasVerticalOverflow = this->hasVerticalOverflow();
 
-    if (m_layer.isComposited()) {
-        m_layer.setNeedsCompositingGeometryUpdate();
-        m_layer.setNeedsCompositingConfigurationUpdate();
+    updateScrollbarPresenceAndState(hasHorizontalOverflow, hasVerticalOverflow);
+
+    // Scrollbars with auto behavior may need to lay out again if scrollbars got added or removed.
+    EnumSet<ScrollbarOrientation> autoScrollbarChanges;
+    if (box->hasAutoScrollbar(ScrollbarOrientation::Horizontal) && (hadHorizontalScrollbar != hasHorizontalScrollbar()))
+        autoScrollbarChanges.add(ScrollbarOrientation::Horizontal);
+
+    if (box->hasAutoScrollbar(ScrollbarOrientation::Vertical) && (hadVerticalScrollbar != hasVerticalScrollbar()))
+        autoScrollbarChanges.add(ScrollbarOrientation::Vertical);
+
+    if (!autoScrollbarChanges.isEmpty()) {
+        if (autoScrollbarChanges.contains(ScrollbarOrientation::Vertical) && shouldPlaceVerticalScrollbarOnLeft())
+            computeScrollOrigin();
+        m_layer.updateSelfPaintingLayer();
     }
 
-    if (canUseCompositedScrolling())
-        m_layer.setNeedsPostLayoutCompositingUpdate();
+    return ScrollbarUpdateScope { *this, originalScrollPosition, autoScrollbarChanges, hasHorizontalOverflow ? HasHorizontalOverflow::Yes : HasHorizontalOverflow::No, hasVerticalOverflow ? HasVerticalOverflow::Yes : HasVerticalOverflow::No };
+}
 
-    resnapAfterLayout();
+void RenderLayerScrollableArea::updateScrollbarSteps()
+{
+    if (!m_hBar && !m_vBar)
+        return;
 
-    InspectorInstrumentation::didAddOrRemoveScrollbars(m_layer.renderer());
+    CheckedPtr box = m_layer.renderBox();
+    ASSERT(box);
+
+    LayoutRect paddedLayerBounds(0_lu, 0_lu, box->paddingBoxWidth(), box->paddingBoxHeight());
+    paddedLayerBounds.contract(box->scrollPaddingForViewportRect(paddedLayerBounds));
+
+    // Set up the  page step/line step.
+    if (RefPtr hBar = m_hBar) {
+        int width = roundToInt(paddedLayerBounds.width());
+        hBar->setSteps(Scrollbar::pixelsPerLineStep(width), Scrollbar::pageStep(width));
+    }
+    if (RefPtr vBar = m_vBar) {
+        int height = roundToInt(paddedLayerBounds.height());
+        vBar->setSteps(Scrollbar::pixelsPerLineStep(height), Scrollbar::pageStep(height));
+    }
 }
 
 bool RenderLayerScrollableArea::overflowControlsIntersectRect(const IntRect& localRect) const
@@ -1487,9 +1432,9 @@ void RenderLayerScrollableArea::paintOverflowControls(GraphicsContext& context, 
         // It's not necessary to do the second pass if the scrollbars paint into layers.
         if ((m_hBar && layerForHorizontalScrollbar()) || (m_vBar && layerForVerticalScrollbar()))
             return;
-        IntRect localDamgeRect = damageRect;
-        localDamgeRect.moveBy(-paintOffset);
-        if (!overflowControlsIntersectRect(localDamgeRect))
+        IntRect localDamageRect = damageRect;
+        localDamageRect.moveBy(-paintOffset);
+        if (!overflowControlsIntersectRect(localDamageRect))
             return;
 
         CheckedPtr paintingRoot = m_layer.enclosingCompositingLayer();
@@ -1681,11 +1626,11 @@ void RenderLayerScrollableArea::updateSnapOffsets()
     if (!box)
         return;
 
-    if (!hasScrollSnappedBoxes(*box)) {
+    if (!mayHaveScrollSnappedBoxes(*box)) {
         clearSnapOffsets();
         return;
     }
-    updateSnapOffsetsForScrollableArea(*this, *box, box->style(), box->paddingBoxRect(), box->style().writingMode(), protect(m_layer.renderer().document().focusedElement()).get());
+    updateSnapOffsetsForScrollableArea(*this, *box, box->style(), box->paddingBoxRect(), box->style().writingMode(), protect(m_layer.renderer().document().focusedElement()).get(), protect(m_layer.renderer().document().cssTarget()).get());
 }
 
 bool RenderLayerScrollableArea::isScrollSnapInProgress() const
@@ -1830,7 +1775,7 @@ void RenderLayerScrollableArea::updateScrollCornerStyle()
 {
     auto& renderer = m_layer.renderer();
     RenderElement* actualRenderer = rendererForScrollbar(renderer);
-    auto corner = (renderer.hasNonVisibleOverflow() && !renderer.style().usesStandardScrollbarStyle()) ? actualRenderer->getUncachedPseudoStyle({ PseudoElementType::WebKitScrollbarCorner }, &actualRenderer->style()) : nullptr;
+    auto corner = (renderer.hasNonVisibleOverflow() && !renderer.style().usesStandardScrollbarStyle()) ? actualRenderer->resolvePseudoElementStyle({ PseudoElementType::WebKitScrollbarCorner }, &actualRenderer->style()) : nullptr;
 
     if (!corner) {
         clearScrollCorner();
@@ -1861,7 +1806,7 @@ void RenderLayerScrollableArea::updateResizerStyle()
 
     auto& renderer = m_layer.renderer();
     RenderElement* actualRenderer = rendererForScrollbar(renderer);
-    auto resizer = renderer.hasNonVisibleOverflow() ? actualRenderer->getUncachedPseudoStyle({ PseudoElementType::WebKitResizer }, &actualRenderer->style()) : nullptr;
+    auto resizer = renderer.hasNonVisibleOverflow() ? actualRenderer->resolvePseudoElementStyle({ PseudoElementType::WebKitResizer }, &actualRenderer->style()) : nullptr;
 
     if (!resizer) {
         clearResizer();
@@ -1942,54 +1887,58 @@ void RenderLayerScrollableArea::panScrollFromPoint(const IntPoint& sourcePoint)
     scrollByRecursively(adjustedScrollDelta(delta));
 }
 
-static LayoutRect getLocalExposeRect(const LayoutRect& absoluteRect, RenderBox* box, int verticalScrollbarWidth, const LayoutRect& layerBounds)
+static LayoutRect computeLocalExposeRect(const LayoutRect& absoluteRect, RenderBox* box)
 {
-    LayoutRect localExposeRect(box->absoluteToLocalQuad(FloatQuad(FloatRect(absoluteRect))).boundingBox());
-
-    // localExposedRect is now the absolute rect in local coordinates, but relative to the
-    // border edge. Make the rectangle relative to the scrollable area.
-    localExposeRect.moveBy(-LayoutPoint(box->borderLeft(), box->borderTop()));
-
-    if (box->shouldPlaceVerticalScrollbarOnLeft()) {
-        // For `direction: rtl; writing-mode: horizontal-{tb,bt}` and `writing-mode: vertical-rl`
-        // boxes, the scroll bar is on the left side. The visible rect starts from the right side
-        // of the scroll bar. So the x of localExposeRect should start from the same position too.
-        localExposeRect.moveBy(LayoutPoint(-verticalScrollbarWidth, 0));
-    }
-
-    // scroll-padding applies to the scroll container, but expand the rectangle that we want to expose in order
-    // simulate padding the scroll container. This rectangle is passed up the tree of scrolling elements to
-    // ensure that the padding on this scroll container is maintained.
-    localExposeRect.expand(box->scrollPaddingForViewportRect(layerBounds));
-    return localExposeRect;
+    return LayoutRect { box->absoluteToLocalQuad(FloatQuad(FloatRect(absoluteRect))).boundingBox() };
 }
 
 LayoutRect RenderLayerScrollableArea::scrollRectToVisible(const LayoutRect& absoluteRect, const ScrollRectToVisibleOptions& options)
 {
     RenderBox* box = layer().renderBox();
     ASSERT(box);
-    
-    LayoutRect layerBounds(0_lu, 0_lu, box->clientWidth(), box->clientHeight());
 
-    LayoutRect localExposeRect = getLocalExposeRect(absoluteRect, box, verticalScrollbarWidth(), layerBounds);
+    auto scrollingViewport = box->paddingBoxRect();
+
+    auto scrollPadding = box->scrollPaddingForViewportRect(scrollingViewport);
+    if ((scrollPadding.left() + scrollPadding.right()) > scrollingViewport.width()) {
+        auto shrinkFactor = static_cast<float>(scrollingViewport.width()) / (scrollPadding.left() + scrollPadding.right());
+        scrollPadding.left() *= shrinkFactor;
+        scrollPadding.right() *= shrinkFactor;
+    }
+
+    if ((scrollPadding.top() + scrollPadding.bottom()) > scrollingViewport.height()) {
+        auto shrinkFactor = static_cast<float>(scrollingViewport.height()) / (scrollPadding.top() + scrollPadding.bottom());
+        scrollPadding.top() *= shrinkFactor;
+        scrollPadding.bottom() *= shrinkFactor;
+    }
+
+    auto scrollingViewportWithPadding = scrollingViewport;
+    scrollingViewportWithPadding.contract(scrollPadding);
+
+    auto localExposeRect = computeLocalExposeRect(absoluteRect, box);
     std::optional<LayoutRect> localVisiblityRect;
     if (options.visibilityCheckRect)
-        localVisiblityRect = getLocalExposeRect(*options.visibilityCheckRect, box, verticalScrollbarWidth(), layerBounds);
+        localVisiblityRect = computeLocalExposeRect(*options.visibilityCheckRect, box);
 
-    auto revealRect = getRectToExposeForScrollIntoView(layerBounds, localExposeRect, options.alignX, options.alignY, localVisiblityRect);
+    auto revealRect = getRectToExposeForScrollIntoView(scrollingViewportWithPadding, localExposeRect, options.alignX, options.alignY, localVisiblityRect);
+    revealRect.move(-scrollingViewportWithPadding.x(), -scrollingViewportWithPadding.y());
+
     auto scrollPositionOptions = ScrollPositionChangeOptions::createProgrammatic();
     if (!box->frame().eventHandler().autoscrollInProgress() && box->element() && useSmoothScrolling(options.behavior, protect(box->element()).get()))
         scrollPositionOptions.animated = ScrollIsAnimated::Yes;
-    if (auto result = updateScrollPositionForScrollIntoView(scrollPositionOptions, revealRect, localExposeRect))
+
+    if (auto result = updateScrollPositionForScrollIntoView(scrollPositionOptions, toLayoutSize(revealRect.location()), localExposeRect))
         return result.value();
+
     return absoluteRect;
 }
-std::optional<LayoutRect> RenderLayerScrollableArea::updateScrollPositionForScrollIntoView(const ScrollPositionChangeOptions& options, const LayoutRect& revealRect, const LayoutRect& localExposeRect)
+
+std::optional<LayoutRect> RenderLayerScrollableArea::updateScrollPositionForScrollIntoView(const ScrollPositionChangeOptions& options, const LayoutSize& revealOffset, const LayoutRect& localExposeRect)
 {
     RenderBox* box = m_layer.renderBox();
     ASSERT(box);
 
-    ScrollOffset clampedScrollOffset = clampScrollOffset(scrollOffset() + toIntSize(roundedIntRect(revealRect).location()));
+    ScrollOffset clampedScrollOffset = clampScrollOffset(scrollOffset() + roundedIntSize(revealOffset));
     if (clampedScrollOffset == scrollOffset() && scrollAnimationStatus() == ScrollAnimationStatus::NotAnimating)
         return std::nullopt;
 
@@ -1999,7 +1948,7 @@ std::optional<LayoutRect> RenderLayerScrollableArea::updateScrollPositionForScro
     IntSize scrollOffsetDifference = realScrollOffset - oldScrollOffset;
     auto localExposeRectScrolled = localExposeRect;
     localExposeRectScrolled.move(-scrollOffsetDifference);
-    return LayoutRect(box->localToAbsoluteQuad(FloatQuad(FloatRect(localExposeRectScrolled)), UseTransforms).boundingBox());
+    return LayoutRect(box->localToAbsoluteQuad(FloatQuad(FloatRect(localExposeRectScrolled)), MapCoordinatesMode::UseTransforms).boundingBox());
 }
 
 void RenderLayerScrollableArea::scrollByRecursively(const IntSize& delta, ScrollableArea** scrolledArea)

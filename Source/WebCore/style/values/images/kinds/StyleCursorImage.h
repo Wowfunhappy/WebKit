@@ -38,8 +38,10 @@ namespace Style {
 class CursorImage final : public MultiImage {
     WTF_MAKE_TZONE_ALLOCATED(CursorImage);
 public:
-    static Ref<CursorImage> create(const Ref<Image>&, std::optional<IntPoint>, const URL&);
-    static Ref<CursorImage> create(Ref<Image>&&, std::optional<IntPoint>, URL&&);
+    using HotSpot = SpaceSeparatedPoint<Number<>>;
+
+    static Ref<CursorImage> create(const Ref<Image>&, std::optional<HotSpot>, const URL&);
+    static Ref<CursorImage> create(Ref<Image>&&, std::optional<HotSpot>, URL&&);
     virtual ~CursorImage();
 
     bool operator==(const Image&) const final;
@@ -48,18 +50,19 @@ public:
 
     bool usesDataProtocol() const final;
 
-    std::optional<IntPoint> hotSpot() const { return m_hotSpot; }
+    std::optional<HotSpot> hotSpot() const { return m_hotSpot; }
 
 private:
-    explicit CursorImage(const Ref<Image>&, std::optional<IntPoint> hotSpot, const URL&);
-    explicit CursorImage(Ref<Image>&&, std::optional<IntPoint> hotSpot, URL&&);
+    explicit CursorImage(const Ref<Image>&, std::optional<HotSpot>, const URL&);
+    explicit CursorImage(Ref<Image>&&, std::optional<HotSpot>, URL&&);
 
     void setContainerContextForRenderer(const RenderElement& renderer, const FloatSize& containerSize, float containerZoom, const WTF::URL& = WTF::URL()) final;
-    Ref<CSSValue> computedStyleValue(const RenderStyle&) const final;
+    Ref<CSSValue> computedStyleValue(const Style::ComputedStyle&) const final;
+    Ref<DeprecatedCSSOMValue> computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle&, CSSStyleDeclaration&) const final;
     ImageWithScale selectBestFitImage(const Document&) final;
 
     const Ref<Image> m_image;
-    std::optional<IntPoint> m_hotSpot;
+    const std::optional<HotSpot> m_hotSpot;
     URL m_originalURL;
 };
 

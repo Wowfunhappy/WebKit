@@ -34,7 +34,7 @@ class SVGFELightElement : public SVGElement {
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFELightElement);
 public:
     virtual Ref<LightSource> lightSource() const = 0;
-    static SVGFELightElement* findLightElement(const SVGElement*);
+    static SVGFELightElement* NODELETE findLightElement(const SVGElement*);
 
     float azimuth() const { return m_azimuth->currentValue(); }
     float elevation() const { return m_elevation->currentValue(); }
@@ -63,7 +63,7 @@ public:
 protected:
     SVGFELightElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) override { return false; }
 
 private:
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;

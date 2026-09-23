@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--watchdog=1000", "--watchdog-exception-ok")
 
 try {

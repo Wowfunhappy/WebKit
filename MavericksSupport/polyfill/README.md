@@ -27,7 +27,7 @@ named after the system framework or library that owns the symbols** (the first a
 | Directory | Lands in | Holds |
 |---|---|---|
 | `c/` | `libpolyfill.a`, force-loaded into **every** WebKit image, hidden | C functions and data constants, and the load-time patches that run from a constructor. `CoreText.c`, `AppKit.m`, `libSystem.m` (libc, dyld, xpc, dispatch, os_log, pthread, mach), `Security.c`, `CFNetwork.c`, `GStreamer.c` … A helper two files need goes in a header in `c/`. |
-| `methods/` | `libpolyfill_methods.a`, force-loaded into **WebCore** (with the selref-scope mechanism) | Objective-C methods on system classes, by the framework owning the class: `AppKit.m`, `Foundation.m`, `QuartzCore.m`, `PDFKit.m`, `AVFoundation.m` … |
+| `methods/` | `libpolyfill_methods.a`, force-loaded into **WebCore** (with the selref-scope mechanism) | Objective-C methods on system classes, by the framework owning the class: `AppKit.m`, `Foundation.m`, `QuartzCore.m`, `PDFKit.m`, `AVFoundation.m` … Also the absent classes written over a library only WebCore links: `CryptoKitPrivate.m`, over BoringSSL. |
 | `classes/` | `libpolyfill_classes.dylib`, one shared, exported definition each | Objective-C classes 10.9 does not have at all, by owning framework. |
 | `shared/` | `libpolyfill.a` **and** the vendored non-WebKit builds (`deps/build_deps.sh`, `toolchain/scripts/build_python3.sh`) | Plain C compiled against the host headers, with no `wk_polyfill.h` dependency: the libc gap-fills (`shared/LICENSE`, wrapper headers in `shared/include/`) and this port's own. A registry entry may be added under `#ifdef WK_POLYFILL_REGISTERED`, which only this layer's build defines — that is how `jit.c`'s deliberate `mmap` override shows up in `WK_POLYFILL_REPORT`. Put a polyfill here only when something outside WebKit compiles it. |
 | `webkit/` | `libpolyfill_webkit.a`, force-loaded into **WebKit.framework** only (ARC) | Units whose ObjC classes must register in WebKit alone: `websocket.mm` (NSURLSessionWebSocketTask over CFStream), the stub classes Safari binds out of WebKit. |
@@ -121,7 +121,9 @@ including the initial, old, new, and prior values. State changes bracket a coher
 
 ### An Objective-C class 10.9 lacks entirely
 
-Add the stub to `classes/<Framework>.m`.
+Add the stub to `classes/<Framework>.m`. A class whose implementation needs a library only WebCore links
+(the vendored BoringSSL) goes in `methods/<Framework>.m` instead, hidden and privately named
+(`WK_PRIV_CLASS`), with its `WK_POLYFILL_CLASS` registration beside it.
 
 ### Looking up a private symbol of a system framework
 

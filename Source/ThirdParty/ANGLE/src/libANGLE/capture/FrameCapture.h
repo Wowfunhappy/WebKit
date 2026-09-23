@@ -327,6 +327,13 @@ class ResourceTracker final : angle::NonCopyable
 
     std::map<GLuint, egl::ImageID> &getTextureIDToImageTable() { return mMatchTextureIDToImage; }
 
+    std::map<egl::ImageID, std::vector<uint8_t>> &getImageDataMap() { return mImageDataMap; }
+
+    std::map<gl::ContextID, std::set<GLuint>> &getExternalImageBindingsToRestore()
+    {
+        return mExternalImageBindingsToRestore;
+    }
+
     void setShaderProgramType(gl::ShaderProgramID id, angle::ShaderProgramType type)
     {
         mShaderProgramType[id] = type;
@@ -367,6 +374,8 @@ class ResourceTracker final : angle::NonCopyable
         mDefaultUniformsToReset.clear();
         mDefaultUniformResetCalls.clear();
         mDefaultUniformBaseLocations.clear();
+        mImageDataMap.clear();
+        mExternalImageBindingsToRestore.clear();
     }
 
   private:
@@ -406,6 +415,8 @@ class ResourceTracker final : angle::NonCopyable
     std::map<gl::ContextID, TrackedResourceArray> mTrackedResourcesPerContext;
     std::map<EGLImage, egl::AttributeMap> mMatchImageToAttribs;
     std::map<GLuint, egl::ImageID> mMatchTextureIDToImage;
+    std::map<egl::ImageID, std::vector<uint8_t>> mImageDataMap;
+    std::map<gl::ContextID, std::set<GLuint>> mExternalImageBindingsToRestore;
     std::map<gl::ShaderProgramID, ShaderProgramType> mShaderProgramType;
 };
 
@@ -849,6 +860,7 @@ class FrameCaptureShared final : angle::NonCopyable
                             bool persistent);
 
     void trackTextureUpdate(const gl::Context *context, const CallCapture &call);
+    void trackFramebufferAttachmentUpdate(const gl::Context *context, const CallCapture &call);
     void trackImageUpdate(const gl::Context *context, const CallCapture &call);
     void trackDefaultUniformUpdate(const gl::Context *context, const CallCapture &call);
     void trackVertexArrayUpdate(const gl::Context *context, const CallCapture &call);
@@ -1044,6 +1056,8 @@ class FrameCaptureShared final : angle::NonCopyable
     void scanSetupCalls(std::vector<CallCapture> &setupCalls);
 
     std::vector<CallCapture> mFrameCalls;
+    std::vector<size_t> mClientVertexArrayCallIndices;
+    gl::AttributesMask mClientVertexArrayDirtyAttribMask;
 
     // We save one large buffer of binary data for the whole CPP replay.
     // This simplifies a lot of file management.
@@ -1057,7 +1071,7 @@ class FrameCaptureShared final : angle::NonCopyable
     std::string mOutDirectory;
     std::string mCaptureLabel;
     bool mCompression;
-    gl::AttribArray<int> mClientVertexArrayMap;
+    gl::AttribArray<const void *> mClientVertexArrayData;
     uint32_t mFrameIndex;
     uint32_t mCaptureStartFrame;
     uint32_t mCaptureEndFrame;
@@ -1265,9 +1279,9 @@ void CaptureGetParameter(const gl::State &glState,
                          ParamCapture *paramCapture);
 
 void CaptureGetActiveUniformBlockivParameters(const gl::State &glState,
-                                              gl::ShaderProgramID handle,
-                                              gl::UniformBlockIndex uniformBlockIndex,
-                                              GLenum pname,
+                                              gl::ShaderProgramID programPacked,
+                                              gl::UniformBlockIndex uniformBlockIndexPacked,
+                                              gl::UniformBlockParameter pnamePacked,
                                               ParamCapture *paramCapture);
 
 template <typename T>

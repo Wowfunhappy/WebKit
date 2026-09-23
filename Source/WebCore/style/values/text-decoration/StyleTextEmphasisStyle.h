@@ -25,6 +25,7 @@
 #pragma once
 
 #include <WebCore/RenderStyleConstants.h>
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
@@ -48,8 +49,19 @@ struct TextEmphasisStyle {
 
         bool operator==(const Shape&) const = default;
     };
+    struct CustomMark {
+        AtomString value;
 
-    Variant<CSS::Keyword::None, Shape, AtomString> value;
+        template<typename... F> decltype(auto) switchOn(F&&... f) const
+        {
+            auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
+            return visitor(String { value });
+        }
+
+        bool operator==(const CustomMark&) const = default;
+    };
+
+    Variant<CSS::Keyword::None, Shape, CustomMark> value;
 
     TextEmphasisStyle(CSS::Keyword::None keyword)
         : value { keyword }
@@ -61,12 +73,12 @@ struct TextEmphasisStyle {
     {
     }
 
-    TextEmphasisStyle(AtomString&& customMark)
+    TextEmphasisStyle(CustomMark&& customMark)
         : value { WTF::move(customMark) }
     {
     }
 
-    bool isNone() const { return holdsAlternative<CSS::Keyword::None>(value); }
+    bool isNone() const { return WTF::holdsAlternative<CSS::Keyword::None>(value); }
 
     // String representation of the mark.
     const AtomString& markString() const;
@@ -87,4 +99,5 @@ template<> struct CSSValueConversion<TextEmphasisStyle> { auto operator()(Builde
 } // namespace WebCore
 
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::TextEmphasisStyle::Shape);
+DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::TextEmphasisStyle::CustomMark);
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::TextEmphasisStyle);

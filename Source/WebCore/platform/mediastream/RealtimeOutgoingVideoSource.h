@@ -40,6 +40,8 @@
 
 namespace WebCore {
 
+struct PlatformVideoColorSpace;
+
 class RealtimeOutgoingVideoSource
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RealtimeOutgoingVideoSource, WTF::DestructionThread::Main>
     , public webrtc::VideoTrackSourceInterface
@@ -74,7 +76,7 @@ public:
 protected:
     explicit RealtimeOutgoingVideoSource(Ref<MediaStreamTrackPrivate>&&);
 
-    void sendFrame(webrtc::scoped_refptr<webrtc::VideoFrameBuffer>&&);
+    void sendFrame(webrtc::scoped_refptr<webrtc::VideoFrameBuffer>&&, const PlatformVideoColorSpace&);
     bool isSilenced() const { return m_muted || !m_enabled; }
 
     virtual webrtc::scoped_refptr<webrtc::VideoFrameBuffer> createBlackFrame(size_t width, size_t height) = 0;
@@ -108,9 +110,9 @@ private:
     void UnregisterObserver(webrtc::ObserverInterface*) final { }
 
     // VideoTrackSourceInterface API
-    bool is_screencast() const final { return false; }
+    bool is_screencast() const final;
     std::optional<bool> needs_denoising() const final { return std::optional<bool>(); }
-    bool GetStats(Stats*) final { return false; };
+    bool GetStats(Stats*) final;
     bool SupportsEncodedOutput() const final { return false; }
     void GenerateKeyFrame() final { }
     void AddEncodedSink(webrtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>*) final { }
@@ -147,11 +149,13 @@ private:
 
     bool m_enabled { true };
     bool m_muted { false };
-    uint32_t m_width { 0 };
-    uint32_t m_height { 0 };
+    Lock m_frameSizeLock;
+    uint32_t m_width WTF_GUARDED_BY_LOCK(m_frameSizeLock) { 0 };
+    uint32_t m_height WTF_GUARDED_BY_LOCK(m_frameSizeLock) { 0 };
     std::optional<double> m_maxFrameRate;
     std::optional<double> m_maxPixelCount;
     std::atomic<double> m_videoFrameScaling { 1.0 };
+    std::atomic<bool> m_isScreencast { false };
     bool m_enableVideoFrameScaling { true };
     bool m_isObservingVideoFrames { false };
 

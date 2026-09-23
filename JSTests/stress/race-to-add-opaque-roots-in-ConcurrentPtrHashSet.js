@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--verifyGC=true", "--slowPathAllocsBetweenGCs=2")
 //@ slow!
 

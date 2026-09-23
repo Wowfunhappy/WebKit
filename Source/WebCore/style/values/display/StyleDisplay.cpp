@@ -27,6 +27,7 @@
 #include "StyleDisplay.h"
 
 #include "AnimationUtilities.h"
+#include "CSSKeywordValue.h"
 #include "CSSPropertyParserConsumer+Display.h"
 #include "StyleBuilderChecking.h"
 #include <wtf/EnumeratedArray.h>
@@ -89,8 +90,8 @@ auto CSSValueConversion<Display>::operator()(BuilderState& state, const CSSValue
     using enum CSSPropertyParserHelpers::DisplayOutside;
     using enum CSSPropertyParserHelpers::DisplayInside;
 
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         // [ <display-outside> || <display-inside> ]
         case CSSValueBlock:
             return DisplayType::BlockFlow;
@@ -164,7 +165,7 @@ auto CSSValueConversion<Display>::operator()(BuilderState& state, const CSSValue
         }
     }
 
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
     if (!pair)
         return DisplayType::InlineFlow;
 

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "SharedWorkerGlobalScope.h"
 
+#include "Blob.h"
 #include "EventNames.h"
 #include "IDBConnectionProxy.h"
 #include "Logging.h"

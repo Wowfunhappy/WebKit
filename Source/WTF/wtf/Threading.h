@@ -51,6 +51,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/ThreadingEnums.h>
 #include <wtf/Vector.h>
 #include <wtf/WordLock.h>
 #include <wtf/text/AtomStringTable.h>
@@ -85,22 +86,6 @@ class PrintStream;
 
 WTF_EXPORT_PRIVATE void initialize();
 
-enum class GCThreadType : uint8_t {
-    None = 0,
-    Main,
-    Helper,
-};
-
-enum class ThreadType : uint8_t {
-    Unknown = 0,
-    JavaScript,
-    Compiler,
-    GarbageCollection,
-    Network,
-    Graphics,
-    Audio,
-};
-
 class ThreadSuspendLocker {
     WTF_MAKE_NONCOPYABLE(ThreadSuspendLocker);
 public:
@@ -131,19 +116,8 @@ public:
 
     WTF_EXPORT_PRIVATE ~Thread();
 
-    enum class QOS {
-        UserInteractive,
-        UserInitiated,
-        Default,
-        Utility,
-        Background
-    };
-
-    enum class SchedulingPolicy : uint8_t {
-        Other = 0,
-        FIFO,
-        Realtime,
-    };
+    using QOS = ThreadQOS;
+    using SchedulingPolicy = ThreadSchedulingPolicy;
 
     // These are not necessarily the system defaults, but they are what WebKit
     // chooses to be the default for newly created WTF::Threads
@@ -236,7 +210,7 @@ public:
 #if HAVE(THREAD_TIME_CONSTRAINTS)
     // Set thread timing constraints, which allows the scheduler to demote
     // threads which exceed their own reported constraints.
-    WTF_EXPORT_PRIVATE void setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPremptable);
+    WTF_EXPORT_PRIVATE void setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPreemptable);
 #endif
 
     // Called in the thread during initialization.
@@ -320,8 +294,11 @@ public:
 #endif
 
 protected:
-    explicit Thread(SchedulingPolicy schedulingPolicy)
+    enum class IsMain : uint8_t { No, Yes, Unknown };
+
+    explicit Thread(SchedulingPolicy schedulingPolicy, IsMain isMain = IsMain::Unknown)
         : m_isRealtime(schedulingPolicy == SchedulingPolicy::Realtime)
+        , m_uid(isMain == IsMain::Yes ? 1 : ++s_uid)
     {
     }
 
@@ -405,7 +382,7 @@ protected:
     StackBounds m_stack { StackBounds::emptyBounds() };
     ThreadSafeWeakHashSet<ThreadGroup> m_threadGroups;
     PlatformThreadHandle m_handle;
-    uint32_t m_uid { ++s_uid };
+    const uint32_t m_uid;
 #if OS(WINDOWS)
     ThreadIdentifier m_id { 0 };
 #elif OS(DARWIN)

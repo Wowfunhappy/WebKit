@@ -47,7 +47,7 @@ private:
     void setEncoding(const String&) final;
     ASCIILiteral encoding() const final;
 
-    Ref<TextResourceDecoder> m_decoder;
+    const Ref<TextResourceDecoder> m_decoder;
     std::optional<String> m_text;
 };
 

@@ -45,6 +45,7 @@
 #include <JavaScriptCore/TypedArrayInlines.h>
 #include <JavaScriptCore/Uint16Array.h>
 #include <wtf/MainThread.h>
+#include <wtf/NativePromise.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SoftLinking.h>
 #include <wtf/SortedArrayMap.h>
@@ -69,7 +70,7 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer& play
     , m_delayCharacteristicsChangedNotification(0)
     , m_mainThreadCallPending(false)
     , m_assetIsPlayable(false)
-    , m_visible(false)
+    , m_pageIsVisible(false)
     , m_loadingMetadata(false)
     , m_isAllowedToRender(false)
     , m_cachedHasAudio(false)
@@ -262,16 +263,25 @@ MediaTime MediaPlayerPrivateAVFoundation::duration() const
     return m_cachedDuration;
 }
 
-void MediaPlayerPrivateAVFoundation::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MediaPlayerPrivateAVFoundation::seekToTarget(const SeekTarget& target)
 {
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
     if (m_seeking) {
         ALWAYS_LOG(LOGIDENTIFIER, "saving pending seek");
-        m_pendingSeek = [weakThis = ThreadSafeWeakPtr { * this }, target]() {
+        m_pendingSeek = [weakThis = ThreadSafeWeakPtr { * this }, target] {
             if (RefPtr protectedThis = weakThis.get())
-                protectedThis->seekToTarget(target);
+                protectedThis->seekInternal(target);
         };
-        return;
+        return *m_seekPromise;
     }
+
+    Ref promise = m_seekPromise->promise();
+    seekInternal(target);
+    return promise;
+}
+
+void MediaPlayerPrivateAVFoundation::seekInternal(const SeekTarget& target)
+{
     m_seeking = true;
 
     if (!metaDataAvailable())
@@ -375,6 +385,7 @@ void MediaPlayerPrivateAVFoundation::setReadyState(MediaPlayer::ReadyState state
         return;
 
     auto oldState = std::exchange(m_readyState, state);
+    resolveSeekPromiseIfNeeded();
     RefPtr player = m_player.get();
     if (player)
         player->readyStateChanged();
@@ -469,7 +480,7 @@ bool MediaPlayerPrivateAVFoundation::isReadyForVideoSetup() const
     // AVFoundation will not return true for firstVideoFrameAvailable until
     // an AVPlayerLayer has been added to the AVPlayerItem, so allow video setup
     // here if a video track to trigger allocation of a AVPlayerLayer.
-    return (m_isAllowedToRender || m_cachedHasVideo) && m_readyState >= MediaPlayer::ReadyState::HaveMetadata && m_visible;
+    return (m_isAllowedToRender || m_cachedHasVideo) && m_readyState >= MediaPlayer::ReadyState::HaveMetadata && m_pageIsVisible;
 }
 
 void MediaPlayerPrivateAVFoundation::prepareForRendering()
@@ -598,16 +609,26 @@ void MediaPlayerPrivateAVFoundation::updateStates()
 
 void MediaPlayerPrivateAVFoundation::setPageIsVisible(bool visible)
 {
-    if (m_visible == visible)
+    if (m_pageIsVisible == visible)
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER, visible);
 
-    m_visible = visible;
+    m_pageIsVisible = visible;
     if (visible)
         setUpVideoRendering();
 
-    platformSetVisible(visible);
+    platformPageIsVisibleChanged(visible);
+}
+
+void MediaPlayerPrivateAVFoundation::setViewportVisibility(ViewportVisibility visibility)
+{
+    if (m_viewportVisibility == visibility)
+        return;
+
+    ALWAYS_LOG(LOGIDENTIFIER, visibility);
+    m_viewportVisibility = visibility;
+    platformViewportVisibilityChanged(visibility);
 }
 
 void MediaPlayerPrivateAVFoundation::acceleratedRenderingStateChanged()
@@ -684,9 +705,16 @@ void MediaPlayerPrivateAVFoundation::seekCompleted(bool finished)
 
     updateStates();
 
-    if (RefPtr player = m_player.get()) {
-        player->seeked(m_lastSeekTime);
-        player->timeChanged();
+    resolveSeekPromiseIfNeeded();
+}
+
+void MediaPlayerPrivateAVFoundation::resolveSeekPromiseIfNeeded()
+{
+    if (m_readyState < MediaPlayer::ReadyState::HaveCurrentData || m_seeking)
+        return;
+    if (auto seekPromise = std::exchange(m_seekPromise, std::nullopt)) {
+        ALWAYS_LOG(LOGIDENTIFIER, "resolving seekPromise at time: ", m_lastSeekTime);
+        seekPromise->resolve(m_lastSeekTime);
     }
 }
 

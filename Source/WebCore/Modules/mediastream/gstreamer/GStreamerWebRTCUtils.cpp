@@ -32,9 +32,11 @@
 #include <openssl/ssl.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WallTime.h>
 #include <wtf/WeakRandomNumber.h>
+#include <wtf/glib/GMallocString.h>
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -418,9 +420,8 @@ std::optional<Ref<RTCCertificate>> generateCertificate(Ref<SecurityOrigin>&& ori
 
     switch (info.type) {
     case PeerConnectionBackend::CertificateInformation::Type::ECDSAP256: {
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN;
-        privateKey.reset(EVP_EC_gen("prime256v1"));
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END;
+        char curveName[] = "prime256v1";
+        privateKey.reset(EVP_PKEY_Q_keygen(nullptr, nullptr, "EC", curveName));
         if (!privateKey)
             return { };
         break;
@@ -560,7 +561,7 @@ std::optional<int> payloadTypeForEncodingName(const String& encodingName)
 
 GRefPtr<GstCaps> capsFromRtpCapabilities(const RTPHeaderExtensionMapping& extensionMapping, const RTCRtpCapabilities& capabilities, Function<void(GstStructure*)> supplementCapsCallback)
 {
-    auto caps = adoptGRef(gst_caps_new_empty());
+    GRefPtr caps = adoptGRef(gst_caps_new_empty());
     for (unsigned index = 0; auto& codec : capabilities.codecs) {
         auto components = codec.mimeType.split('/');
         auto* codecStructure = gst_structure_new("application/x-rtp", "media", G_TYPE_STRING, components[0].ascii().data(),
@@ -619,7 +620,7 @@ GRefPtr<GstCaps> capsFromSDPMedia(const GstSDPMedia* media)
 {
     ensureDebugCategoryInitialized();
     unsigned numberOfFormats = gst_sdp_media_formats_len(media);
-    auto caps = adoptGRef(gst_caps_new_empty());
+    GRefPtr caps = adoptGRef(gst_caps_new_empty());
     for (unsigned i = 0; i < numberOfFormats; i++) {
         auto rtpMap = CStringView::unsafeFromUTF8(gst_sdp_media_get_attribute_val_n(media, "rtpmap", i));
         if (!rtpMap) {
@@ -734,7 +735,7 @@ StatsTimestampConverter& StatsTimestampConverter::singleton()
     return sharedInstance;
 }
 
-Seconds StatsTimestampConverter::convertFromMonotonicTime(Seconds value) const
+ReducedResolutionSeconds StatsTimestampConverter::convertFromMonotonicTime(Seconds value) const
 {
     auto monotonicOffset = value - m_initialMonotonicTime;
     auto newTimestamp = m_epoch.secondsSinceEpoch() + monotonicOffset;
@@ -746,15 +747,8 @@ void forEachTransceiver(const GRefPtr<GstElement>& webrtcBin, Function<bool(GRef
     GRefPtr<GArray> transceivers;
     g_signal_emit_by_name(webrtcBin.get(), "get-transceivers", &transceivers.outPtr());
 
-    if (!transceivers || !transceivers->len)
-        return;
-
-    for (unsigned index = 0; index < transceivers->len; index++) {
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN; // GLib port
-        GRefPtr current = g_array_index(transceivers.get(), GstWebRTCRTPTransceiver*, index);
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END;
-
-        if (function(WTF::move(current)))
+    for (auto* transceiver : span<GstWebRTCRTPTransceiver*>(transceivers)) {
+        if (function(transceiver))
             break;
     }
 }
@@ -790,6 +784,16 @@ void SDPStringBuilder::appendAttribute(const GstSDPAttribute* attribute)
             return;
         if (!GStreamerRegistryScanner::singleton().isRtpHeaderExtensionSupported(tokens[1]))
             return;
+    }
+
+    if (key == "rtpmap"_s) {
+        auto tokens = value.split(' ');
+        if (tokens.size() < 2) [[unlikely]]
+            return;
+
+        // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/work_items/2511
+        if (startsWith(tokens[1], "OPUS"_s))
+            value = makeStringByReplacingAll(value, "OPUS"_s, "opus"_s);
     }
 
     m_stringBuilder.append("a="_s, key);
@@ -884,13 +888,13 @@ SDPStringBuilder::SDPStringBuilder(const GstSDPMessage* sdp)
     }
 
     if (auto name = CStringView::unsafeFromUTF8(gst_sdp_message_get_session_name(sdp)))
-        m_stringBuilder.append("s="_s, name.span(), CRLF);
+        m_stringBuilder.append("s="_s, name, CRLF);
 
     if (auto info = CStringView::unsafeFromUTF8(gst_sdp_message_get_information(sdp)))
-        m_stringBuilder.append("i="_s, info.span(), CRLF);
+        m_stringBuilder.append("i="_s, info, CRLF);
 
     if (auto uri = CStringView::unsafeFromUTF8(gst_sdp_message_get_uri(sdp)))
-        m_stringBuilder.append("u="_s, uri.span(), CRLF);
+        m_stringBuilder.append("u="_s, uri, CRLF);
 
     unsigned totalEmails = gst_sdp_message_emails_len(sdp);
     for (unsigned i = 0; i < totalEmails; i++)
@@ -915,11 +919,10 @@ SDPStringBuilder::SDPStringBuilder(const GstSDPMessage* sdp)
 
             m_stringBuilder.append("t="_s, unsafeSpan(time->start), ' ', unsafeSpan(time->stop), CRLF);
             if (time->repeat) {
-                WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN; // GLib port
-                m_stringBuilder.append("r="_s, unsafeSpan(g_array_index(time->repeat, char*, 0)));
-                for (unsigned ii = 1; ii < time->repeat->len; ii++)
-                    m_stringBuilder.append(' ', unsafeSpan(g_array_index(time->repeat, char*, ii)));
-                WTF_ALLOW_UNSAFE_BUFFER_USAGE_END;
+                auto repeatSpan = span<char*>(time->repeat);
+                m_stringBuilder.append("r="_s, unsafeSpan(consume(repeatSpan)));
+                for (const auto* repeat : repeatSpan)
+                    m_stringBuilder.append(' ', unsafeSpan(repeat));
                 m_stringBuilder.append(CRLF);
             }
         }
@@ -975,7 +978,7 @@ GRefPtr<GstCaps> extractMidAndRidFromRTPBuffer(const GstMappedRtpBuffer& buffer,
     GST_DEBUG("Looking for mid and rid ext ids in %u SDP medias", totalMedias);
     for (unsigned i = 0; i < totalMedias; i++) {
         const auto media = gst_sdp_message_get_media(sdp, i);
-        auto mediaCaps = adoptGRef(gst_caps_new_empty_simple("application/x-rtp"));
+        GRefPtr mediaCaps = adoptGRef(gst_caps_new_empty_simple("application/x-rtp"));
         uint8_t midExtID = 0;
         uint8_t ridExtID = 0;
 
@@ -1010,7 +1013,7 @@ GRefPtr<GstCaps> extractMidAndRidFromRTPBuffer(const GstMappedRtpBuffer& buffer,
         GST_DEBUG("Probed midExtID %u and ridExtID %u from SDP", midExtID, ridExtID);
 
         uint16_t bits;
-        auto bytes = adoptGRef(gst_rtp_buffer_get_extension_bytes(buffer.mappedData(), &bits));
+        GRefPtr bytes = adoptGRef(gst_rtp_buffer_get_extension_bytes(buffer.mappedData(), &bits));
         if (!bytes)
             continue;
 

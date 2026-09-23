@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "LegacyRenderSVGImage.h"
+#include "LegacyRenderSVGModelObjectInlines.h"
 
 #include "FloatQuad.h"
 #include "GraphicsContext.h"
@@ -49,10 +50,8 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyRenderSVGImage);
 
-LegacyRenderSVGImage::LegacyRenderSVGImage(SVGImageElement& element, RenderStyle&& style)
+LegacyRenderSVGImage::LegacyRenderSVGImage(SVGImageElement& element, Style::ComputedStyle&& style)
     : LegacyRenderSVGModelObject(Type::LegacySVGImage, element, WTF::move(style), SVGModelObjectFlag::UsesBoundaryCaching)
-    , m_needsBoundariesUpdate(true)
-    , m_needsTransformUpdate(true)
     , m_imageResource(makeUniqueRef<RenderImageResource>())
 {
     imageResource().initialize(*this);
@@ -67,7 +66,7 @@ void LegacyRenderSVGImage::notifyFinished(CachedResource& newImage, const Networ
         return;
 
     if (RefPtr image = dynamicDowncast<SVGImageElement>(LegacyRenderSVGModelObject::element()))
-        page().didFinishLoadingImageForSVGImage(*image);
+        protect(page())->didFinishLoadingImageForSVGImage(*image);
 
     LegacyRenderSVGModelObject::notifyFinished(newImage, metrics, loadWillContinueInAnotherProcess);
 }
@@ -122,7 +121,7 @@ bool LegacyRenderSVGImage::updateImageViewport()
     m_objectBoundingBox = calculateObjectBoundingBox();
 
     bool updatedViewport = false;
-    URL imageSourceURL = document().completeURL(imageElement().imageSourceURL());
+    URL imageSourceURL = protect(document())->encodingParseURL(protect(imageElement())->imageSourceURL());
 
     // Images with preserveAspectRatio=none should force non-uniform scaling. This can be achieved
     // by setting the image's container size to its intrinsic size.
@@ -158,7 +157,7 @@ void LegacyRenderSVGImage::layout()
 
     bool transformOrBoundariesUpdate = m_needsTransformUpdate || m_needsBoundariesUpdate;
     if (m_needsTransformUpdate) {
-        m_localTransform = imageElement().animatedLocalTransform();
+        m_localTransform = protect(imageElement())->animatedLocalTransform();
         m_needsTransformUpdate = false;
     }
 
@@ -233,6 +232,9 @@ void LegacyRenderSVGImage::paintForeground(PaintInfo& paintInfo)
     ImagePaintingOptions options = {
         imageOrientation(),
         ImageQualityController::chooseInterpolationQualityForSVG(paintInfo.context(), *this, *image),
+        settings().imageSubsamplingEnabled() ? AllowImageSubsampling::Yes : AllowImageSubsampling::No,
+        settings().showDebugBorders() ? ShowDebugBackground::Yes : ShowDebugBackground::No,
+        settings().hdrAcceleratedApplyGainMapEnabled() ? AllowAcceleratedApplyGainMap::Yes : AllowAcceleratedApplyGainMap::No,
         paintInfo.paintBehavior.contains(PaintBehavior::DrawsHDRContent) ? DrawsHDRContent::Yes : DrawsHDRContent::No,
         style().dynamicRangeLimit().toPlatformDynamicRangeLimit()
     };
@@ -252,8 +254,8 @@ void LegacyRenderSVGImage::invalidateBufferedForeground()
 
 bool LegacyRenderSVGImage::nodeAtFloatPoint(const HitTestRequest& request, HitTestResult& result, const FloatPoint& pointInParent, HitTestAction hitTestAction)
 {
-    // We only draw in the forground phase, so we only hit-test then.
-    if (hitTestAction != HitTestForeground)
+    // We only draw in the foreground phase, so we only hit-test then.
+    if (hitTestAction != HitTestAction::Foreground)
         return false;
 
     PointerEventsHitRules hitRules(PointerEventsHitRules::HitTestingTargetType::SVGImage, request, usedPointerEvents());

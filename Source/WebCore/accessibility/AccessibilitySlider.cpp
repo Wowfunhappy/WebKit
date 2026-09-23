@@ -29,6 +29,7 @@
 #include "config.h"
 #include "AccessibilitySlider.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AccessibilityObjectInlines.h"
 #include "AXLoggerBase.h"
 #include "AXObjectCache.h"
@@ -37,9 +38,9 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "RenderSlider.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SliderThumbElement.h"
 #include "StyleAppearance.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/Scope.h>
 
 namespace WebCore {
@@ -103,7 +104,7 @@ void AccessibilitySlider::addChildren()
     else
         addChild(thumb.get());
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     verifyChildrenIndexInParent();
 #endif
 }
@@ -172,7 +173,7 @@ LayoutRect AccessibilitySliderThumb::elementRect() const
     if (!m_parent)
         return LayoutRect();
 
-    auto* sliderRenderer = dynamicDowncast<RenderSlider>(m_parent->renderer());
+    CheckedPtr sliderRenderer = dynamicDowncast<RenderSlider>(protect(m_parent)->renderer());
     if (!sliderRenderer)
         return LayoutRect();
     if (CheckedPtr thumbRenderer = protect(sliderRenderer->element())->sliderThumbElement()->renderer())

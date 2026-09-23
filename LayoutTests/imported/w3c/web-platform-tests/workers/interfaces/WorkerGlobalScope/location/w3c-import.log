@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/WorkerGlobalScope/location/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/WorkerGlobalScope/location/helper-redirect.py
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/WorkerGlobalScope/location/members.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/WorkerGlobalScope/location/members.js

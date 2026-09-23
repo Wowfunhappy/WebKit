@@ -44,7 +44,7 @@ if (ENABLE_WEBGL)
     WEBKIT_COPY_FILES(ANGLEWebGLHeaders
         DESTINATION ${ANGLE_FRAMEWORK_HEADERS_DIR}/ANGLE
         FILES ${ANGLE_WEBGL_HEADERS}
-        FLATTENED
+        FLATTENED NO_SYMLINK  # adjust-angle-include-paths.py rewrites these in-place
     )
 endif ()
 
@@ -52,7 +52,7 @@ endif ()
 WEBKIT_COPY_FILES(GLSLANGHeaders
     DESTINATION ${ANGLE_FRAMEWORK_HEADERS_DIR}/ANGLE
     FILES ${glslang_headers}
-    FLATTENED
+    FLATTENED NO_SYMLINK  # adjust-angle-include-paths.py rewrites these in-place
 )
 
 WEBKIT_COPY_FILES(ANGLEHeaders

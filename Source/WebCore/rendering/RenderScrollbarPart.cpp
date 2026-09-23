@@ -31,8 +31,10 @@
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderScrollbar.h"
 #include "RenderScrollbarTheme.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
+#include "StylePrimitiveNumericTypes+EvaluationMinimum.h"
 #include <wtf/StackStats.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -40,7 +42,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderScrollbarPart);
 
-RenderScrollbarPart::RenderScrollbarPart(Document& document, RenderStyle&& style, RenderScrollbar* scrollbar, ScrollbarPart part)
+RenderScrollbarPart::RenderScrollbarPart(Document& document, Style::ComputedStyle&& style, RenderScrollbar* scrollbar, ScrollbarPart part)
     : RenderBlock(Type::ScrollbarPart, document, WTF::move(style), { })
     , m_scrollbar(scrollbar)
     , m_part(part)
@@ -65,11 +67,11 @@ void RenderScrollbarPart::layout()
 void RenderScrollbarPart::layoutHorizontalPart()
 {
     if (m_part == ScrollbarBGPart) {
-        setWidth(m_scrollbar->width());
+        setBorderBoxWidth(protect(m_scrollbar.get())->width());
         computeScrollbarHeight();
     } else {
         computeScrollbarWidth();
-        setHeight(m_scrollbar->height());
+        setBorderBoxHeight(protect(m_scrollbar.get())->height());
     }
 }
 
@@ -77,11 +79,11 @@ void RenderScrollbarPart::layoutVerticalPart()
 {
     if (m_part == ScrollbarBGPart) {
         computeScrollbarWidth();
-        setHeight(m_scrollbar->height());
+        setBorderBoxHeight(protect(m_scrollbar.get())->height());
     } else {
-        setWidth(m_scrollbar->width());
+        setBorderBoxWidth(protect(m_scrollbar.get())->width());
         computeScrollbarHeight();
-    } 
+    }
 }
 
 static int calcScrollbarThicknessUsing(const Style::PreferredSize& preferredSize, Style::ZoomFactor zoomFactor)
@@ -107,13 +109,13 @@ static int calcScrollbarThicknessUsing(const Style::MaximumSize& maximumSize, St
 
 void RenderScrollbarPart::computeScrollbarWidth()
 {
-    if (!m_scrollbar->owningRenderer())
+    if (!protect(m_scrollbar.get())->owningRenderer())
         return;
     auto zoomFactor = style().usedZoomForLength();
     auto width = calcScrollbarThicknessUsing(style().width(), zoomFactor);
     auto minWidth = calcScrollbarThicknessUsing(style().minWidth(), zoomFactor);
     auto maxWidth = style().maxWidth().isNone() ? width : calcScrollbarThicknessUsing(style().maxWidth(), zoomFactor);
-    setWidth(std::max(minWidth, std::min(maxWidth, width)));
+    setBorderBoxWidth(std::max(minWidth, std::min(maxWidth, width)));
     
     // Buttons and track pieces can all have margins along the axis of the scrollbar. 
     m_marginBox.setLeft(Style::evaluateMinimum<LayoutUnit>(style().marginLeft(), 0_lu, style().usedZoomForLength()));
@@ -122,20 +124,20 @@ void RenderScrollbarPart::computeScrollbarWidth()
 
 void RenderScrollbarPart::computeScrollbarHeight()
 {
-    if (!m_scrollbar->owningRenderer())
+    if (!protect(m_scrollbar.get())->owningRenderer())
         return;
     auto zoomFactor = style().usedZoomForLength();
     auto height = calcScrollbarThicknessUsing(style().height(), zoomFactor);
     auto minHeight = calcScrollbarThicknessUsing(style().minHeight(), zoomFactor);
     auto maxHeight = style().maxHeight().isNone() ? height : calcScrollbarThicknessUsing(style().maxHeight(), zoomFactor);
-    setHeight(std::max(minHeight, std::min(maxHeight, height)));
+    setBorderBoxHeight(std::max(minHeight, std::min(maxHeight, height)));
 
     // Buttons and track pieces can all have margins along the axis of the scrollbar. 
     m_marginBox.setTop(Style::evaluateMinimum<LayoutUnit>(style().marginTop(), 0_lu, style().usedZoomForLength()));
     m_marginBox.setBottom(Style::evaluateMinimum<LayoutUnit>(style().marginBottom(), 0_lu, style().usedZoomForLength()));
 }
 
-void RenderScrollbarPart::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderScrollbarPart::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderBlock::styleDidChange(diff, oldStyle);
     setInline(false);
@@ -143,13 +145,13 @@ void RenderScrollbarPart::styleDidChange(Style::Difference diff, const RenderSty
     setFloating(false);
     setHasNonVisibleOverflow(false);
     if (oldStyle && m_scrollbar && m_part != NoPart && diff >= Style::DifferenceResult::Repaint)
-        m_scrollbar->theme().invalidatePart(*m_scrollbar, m_part);
+        m_scrollbar->theme().invalidatePart(protect(*m_scrollbar), m_part);
 }
 
 void RenderScrollbarPart::imageChanged(WrappedImagePtr image, const IntRect* rect)
 {
     if (m_scrollbar && m_part != NoPart)
-        m_scrollbar->theme().invalidatePart(*m_scrollbar, m_part);
+        m_scrollbar->theme().invalidatePart(protect(*m_scrollbar), m_part);
     else {
         CheckedRef frameView = view().frameView();
         if (frameView->isFrameViewScrollCorner(*this)) {
@@ -165,8 +167,8 @@ void RenderScrollbarPart::paintIntoRect(GraphicsContext& graphicsContext, const 
 {
     // Make sure our dimensions match the rect.
     setLocation(rect.location() - toLayoutSize(paintOffset));
-    setWidth(rect.width());
-    setHeight(rect.height());
+    setBorderBoxWidth(rect.width());
+    setBorderBoxHeight(rect.height());
 
     if (graphicsContext.paintingDisabled() || style().opacity().isTransparent())
         return;
@@ -177,7 +179,7 @@ void RenderScrollbarPart::paintIntoRect(GraphicsContext& graphicsContext, const 
     if (needsTransparencyLayer) {
         graphicsContext.save();
         graphicsContext.clip(rect);
-        graphicsContext.beginTransparencyLayer(style().opacity().value.value);
+        graphicsContext.beginTransparencyLayer(Style::evaluate<float>(style().opacity()));
     }
     
     // Now do the paint.
@@ -202,7 +204,7 @@ RenderBox* RenderScrollbarPart::rendererOwningScrollbar() const
 {
     if (!m_scrollbar)
         return nullptr;
-    return m_scrollbar->owningRenderer();
+    return protect(m_scrollbar.get())->owningRenderer();
 }
 
 }

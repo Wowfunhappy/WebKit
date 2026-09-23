@@ -23,6 +23,20 @@ PASS: Layout context should now be `flex`.
 PASS: Layout context should now be `grid`.
 PASS: Layout context should now be `flex`.
 
+-- Running test case: CSS.nodeLayoutContextTypeChanged.Subgrid
+PASS: Layout context should be `subgrid`.
+
+-- Running test case: CSS.nodeLayoutContextTypeChanged.SubgridToNonGrid
+PASS: Layout context should be `subgrid`.
+PASS: Layout context should now be `null`.
+
+-- Running test case: CSS.nodeLayoutContextTypeChanged.GridLanes
+PASS: Layout context should be `grid-lanes`.
+
+-- Running test case: CSS.nodeLayoutContextTypeChanged.GridLanesToGrid
+PASS: Layout context should be `grid-lanes`.
+PASS: Layout context should now be `grid`.
+
 -- Running test case: CSS.nodeLayoutContextTypeChanged.NotFlex.SubmitInput
 PASS: Layout context should be `null`.
 

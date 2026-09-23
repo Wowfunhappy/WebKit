@@ -48,6 +48,8 @@ use Text::ParseWords;
 
 sub writeCongrats();
 
+maybeEnterWebKitContainerSDK();
+
 checkRequiredSystemConfig();
 setConfiguration();
 
@@ -55,10 +57,6 @@ if (shouldBuildForCrossTarget()) {
     print("Enabling cross-build for target machine: '". getCrossTargetName() . "'\n");
     my @command = (File::Spec->catfile(sourceDir(), "Tools", "Scripts", "build-webkit"));
     runInCrossTargetEnvironment(@command);
-} elsif (shouldUseFlatpak()) {
-    print "Building flatpak based environment\n";
-    my @command = (File::Spec->catfile(sourceDir(), "Tools", "Scripts", "build-webkit"));
-    runInFlatpak(@command);
 }
 maybeUseContainerSDKRootDir();
 
@@ -130,6 +128,7 @@ Usage: $programName [options] [options to pass to build system]
   --analyze                         Enable static anaylsis (Apple platforms only)
   --lto-mode=<mode>                 Set Link Time Optimization mode (full, thin, or none) (LLVM only)
   --cross-target=<target_machine>   Use the cross-toolchain-helper to build WebKit for the specified machine (Linux platforms only)
+  --result-bundle-path=<path>       Write an .xcresult bundle of the build to <path> (Apple platforms only)
 
   --gtk                             Build the GTK+ port
   --haiku                           Build the Haiku port
@@ -209,9 +208,25 @@ if ((isAppleWebKit() || isPlayStation()) && !-d "WebKitLibraries") {
 
 if (isWinCrossCompileFromLinux()) {
     $ENV{"VCPKG_ROOT"} = winCrossCompileVcpkgRoot();
-    # Prevent pkg-config from finding host system packages during cross-compilation.
+    # Prevent pkg-config from finding host system packages during cross-compilation,
+    # but still allow finding vcpkg.
     # The triplet sets VCPKG_ENV_PASSTHROUGH_UNTRACKED to forward this to port builds.
     $ENV{"PKG_CONFIG_LIBDIR"} = "";
+    $ENV{"PKG_CONFIG_PATH"} = "";
+    my $vcpkgPkgConfig = File::Spec->catdir(productDir(), "vcpkg_installed", "x64-windows-webkit", "lib", "pkgconfig");
+    $ENV{"PKG_CONFIG_LIBDIR"} = $vcpkgPkgConfig;
+    $ENV{"PKG_CONFIG_PATH"} = "";
+    # The WebKit container sdk sets these, causing interference.
+    delete $ENV{"C_INCLUDE_PATH"};
+    delete $ENV{"CPLUS_INCLUDE_PATH"};
+    delete $ENV{"CPATH"};
+    delete $ENV{"LIBRARY_PATH"};
+    delete $ENV{"LD_LIBRARY_PATH"};
+    delete $ENV{"LDFLAGS"};
+    delete $ENV{"CFLAGS"};
+    delete $ENV{"CXXFLAGS"};
+    delete $ENV{"CPPFLAGS"};
+    delete $ENV{"CMAKE_PREFIX_PATH"};
     # Add WebKitLibraries/windows/bin to PATH for dummy pwsh (satisfies vcpkg's PowerShell check)
     my $winBinDir = File::Spec->catdir(sourceDir(), "WebKitLibraries", "windows", "bin");
     $ENV{"PATH"} = "$winBinDir:$ENV{PATH}";
@@ -276,6 +291,12 @@ if (isCMakeBuild() && !isAnyWindows() && !isWin()) {
     my $maxCPULoad = maxCPULoad() if $makeArgs !~ /-l\s*\d+\.?\d*/;
     $makeArgs .= " -l" . maxCPULoad() if defined $maxCPULoad;
 
+    # Disable experimental features by default when using CMake on macOS,
+    # since the Xcode build does not enable them either.
+    if (isAppleCocoaWebKit()) {
+        $noExperimentalFeatures = 1;
+    }
+
     # We remove CMakeCache to avoid the bots reusing cached flags when
     # we enable new features. This forces a reconfiguration.
     my @featureArgs = cmakeArgsFromFeatures(@features, !$noExperimentalFeatures);
@@ -316,6 +337,11 @@ if (isWin() || isPlayStation() || (isJSCOnly() && isWindows())) {
 
     push @cmakeArgs, vcpkgArgsFromFeatures(@features, !$noExperimentalFeatures) if shouldUseVcpkg();
 
+    if (($ENV{'WK_USE_CCACHE'} // "") eq "YES") {
+        # Allow ccache to hit when building on different directories
+        $ENV{"CCACHE_BASEDIR"} //= sourceDir();
+    }
+
     chdirWebKit();
     if (exitStatus(generateBuildSystemFromCMakeProject($prefixPath, @featureArgs, @cmakeArgs))) {
         die "Run Visual Studio installation vcvars.bat before build-webkit when using ninja";
@@ -341,6 +367,8 @@ if (isWin() || isPlayStation() || (isJSCOnly() && isWindows())) {
     push @local_options, XcodeStaticAnalyzerOption() if $shouldRunStaticAnalyzer;
     push @local_options, "WK_LTO_MODE=$ltoMode" if ($ltoMode ne "default");
     push @local_options, XcodeExportCompileCommandsOptions() if $exportCompileCommands;
+    push @local_options, "ENABLE_MODULE_VERIFIER=NO";
+    push @local_options, "ENABLE_WK_LIBRARY_MODULE_VERIFIER=NO";
     # FIXME: Move this setting to xcconfigs once all local Xcode builds of WebKit
     # happen in the workspace. When this is only passed on the command line, it
     # invalidates build results made in the IDE (rdar://88135402).

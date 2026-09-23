@@ -46,6 +46,7 @@ public:
     static Ref<WebPageProxyTesting> create(WebPageProxy& page) { return adoptRef(*new WebPageProxyTesting(page)); }
 
     void isLayerTreeFrozen(CompletionHandler<void(bool)>&&);
+    void numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&&);
     void dispatchActivityStateUpdate();
     void setCrossSiteLoadWithLinkDecorationForTesting(const URL& fromURL, const URL& toURL, bool wasFiltered, CompletionHandler<void()>&&);
     void setPermissionLevel(const String& origin, bool allowed);
@@ -74,8 +75,8 @@ public:
     void waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&&);
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    void setIndexOfGetDisplayMediaDeviceSelectedForTesting(std::optional<unsigned>);
-    void setSystemCanPromptForGetDisplayMediaForTesting(bool);
+    void NODELETE setIndexOfGetDisplayMediaDeviceSelectedForTesting(std::optional<unsigned>);
+    void NODELETE setSystemCanPromptForGetDisplayMediaForTesting(bool);
 #endif
 
     void setObscuredContentInsets(float top, float right, float bottom, float left, CompletionHandler<void()>&&);
@@ -84,6 +85,8 @@ public:
 
     void setTracksRepaints(bool, CompletionHandler<void()>&&);
     void displayAndTrackRepaints(CompletionHandler<void()>&&);
+
+    void storageAreaMapCount(CompletionHandler<void(uint64_t)>&&);
 
 private:
     explicit WebPageProxyTesting(WebPageProxy&);

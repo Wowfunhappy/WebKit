@@ -38,14 +38,14 @@
 #import "WebExtensionTabIdentifier.h"
 #import "WebExtensionUtilities.h"
 #import "WebExtensionWindowIdentifier.h"
+#import "WebProcess/Extensions/API/Cocoa/WebExtensionAPIKeys.h"
 #import "_WKResourceLoadInfo.h"
+#import <wtf/text/MakeString.h>
 
 using namespace WebKit;
 
-static NSString *urlsKey = @"urls";
-static NSString *typesKey = @"types";
-
-static NSString *windowIdKey = @"windowId";
+static NSString * const urlsKey = @"urls";
+static NSString * const typesKey = @"types";
 
 _WKWebExtensionWebRequestResourceType NODELETE toWebExtensionWebRequestResourceType(const ResourceLoadInfo& resourceLoadInfo)
 {
@@ -131,7 +131,7 @@ static NSArray<WKWebExtensionMatchPattern *> *toMatchPatterns(NSArray<NSString *
         WKWebExtensionMatchPattern *pattern = [[WKWebExtensionMatchPattern alloc] initWithString:rawPattern error:&error];
         if (!pattern) {
             if (outErrorMessage)
-                *outErrorMessage = toErrorString(nullString(), urlsKey, @"'%@' is an invalid match pattern. %@", rawPattern, error.localizedDescription).createNSString().autorelease();
+                *outErrorMessage = toErrorString(nullString(), urlsKey, makeString("'"_s, String(rawPattern), "' is an invalid match pattern. "_s, String(error.localizedDescription))).createNSString().autorelease();
             return nil;
         }
 
@@ -164,7 +164,7 @@ static NSNumber *toResourceType(NSString *typeString, NSString **outErrorMessage
 
     NSNumber *typeAsNumber = validTypes[typeString];
     if (!typeAsNumber) {
-        *outErrorMessage = toErrorString(nullString(), typesKey, @"'%@' is an unknown resource type", typeString).createNSString().autorelease();
+        *outErrorMessage = toErrorString(nullString(), typesKey, makeString("'"_s, String(typeString), "' is an unknown resource type"_s)).createNSString().autorelease();
         return nil;
     }
 

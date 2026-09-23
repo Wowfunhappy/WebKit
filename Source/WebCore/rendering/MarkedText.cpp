@@ -34,9 +34,9 @@
 #include "RenderBoxModelObject.h"
 #include "RenderHighlight.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "RenderedDocumentMarker.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextBoxSelectableRange.h"
 #include <algorithm>
 #include <ranges>
@@ -114,7 +114,7 @@ Vector<MarkedText> MarkedText::collectForHighlights(const RenderText& renderer, 
     auto& parentStyle = parentRenderer.style();
     if (auto highlightRegistry = renderer.document().highlightRegistryIfExists()) {
         for (auto& highlightName : highlightRegistry->highlightNames()) {
-            auto renderStyle = parentRenderer.getUncachedPseudoStyle({ PseudoElementType::Highlight, highlightName }, &parentStyle);
+            auto renderStyle = parentRenderer.resolvePseudoElementStyle({ PseudoElementType::Highlight, highlightName }, &parentStyle);
             if (!renderStyle)
                 continue;
             if (renderStyle->textDecorationLineInEffect().isNone() && phase == PaintPhase::Decoration)
@@ -196,7 +196,7 @@ Vector<MarkedText> MarkedText::collectForDocumentMarkers(const RenderText& rende
     if (!markerController)
         return { };
 
-    auto markers = markerController->markersFor(*renderer.textNode());
+    auto markers = markerController->markersFor(*protect(renderer.textNode()));
 
     auto markedTextTypeForMarkerType = [] (DocumentMarkerType type) {
         switch (type) {
@@ -218,6 +218,8 @@ Vector<MarkedText> MarkedText::collectForDocumentMarkers(const RenderText& rende
         case DocumentMarkerType::DictationPhraseWithAlternatives:
             return MarkedText::Type::DictationPhraseWithAlternatives;
 #endif
+        case DocumentMarkerType::ActiveTextMatch:
+            return MarkedText::Type::ActiveTextMatch;
         default:
             return MarkedText::Type::Unmarked;
         }
@@ -250,6 +252,10 @@ Vector<MarkedText> MarkedText::collectForDocumentMarkers(const RenderText& rende
         case DocumentMarkerType::TextMatch:
             if (!renderer.frame().editor().markedTextMatchesAreHighlighted())
                 continue;
+            if (phase == MarkedText::PaintPhase::Decoration)
+                continue;
+            break;
+        case DocumentMarkerType::ActiveTextMatch:
             if (phase == MarkedText::PaintPhase::Decoration)
                 continue;
             break;
@@ -309,6 +315,7 @@ Vector<MarkedText> MarkedText::collectForDocumentMarkers(const RenderText& rende
         // FIXME: See <rdar://problem/8933352>. Also, remove the PLATFORM(IOS_FAMILY)-guard.
         case DocumentMarkerType::DictationPhraseWithAlternatives:
 #endif
+        case DocumentMarkerType::ActiveTextMatch:
         case DocumentMarkerType::TextMatch: {
             auto [clampedStart, clampedEnd] = selectableRange.clamp(marker->startOffset(), marker->endOffset());
 
@@ -362,7 +369,7 @@ Vector<MarkedText> MarkedText::collectForDictationStreamingOpacity(const RenderT
     if (!markerController)
         return { };
 
-    auto markers = markerController->markersFor(*renderer.textNode(), DocumentMarkerType::DictationStreamingOpacity);
+    auto markers = markerController->markersFor(*protect(renderer.textNode()), DocumentMarkerType::DictationStreamingOpacity);
     if (markers.isEmpty())
         return { };
 

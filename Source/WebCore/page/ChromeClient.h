@@ -171,6 +171,7 @@ struct SimpleRange;
 struct StringWithDirection;
 struct SystemPreviewInfo;
 struct TextRecognitionOptions;
+struct TextEffectData;
 struct ViewportArguments;
 struct WindowFeatures;
 
@@ -294,6 +295,7 @@ public:
     virtual IntRect rootViewToAccessibilityScreen(const IntRect&) const = 0;
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     virtual void requestFrameScreenPosition(FrameIdentifier) const { }
+    virtual void scheduleAccessibilityFrameGeometryUpdate() const { }
 #endif
 #if PLATFORM(IOS_FAMILY)
     virtual void relayAccessibilityNotification(String&&, RetainPtr<NSData>&&) const = 0;
@@ -328,6 +330,7 @@ public:
 
     virtual void contentsSizeChanged(LocalFrame&, const IntSize&) const = 0;
     virtual void intrinsicContentsSizeChanged(const IntSize&) const = 0;
+    virtual void scrollOriginDidChange(const LocalFrame&) const { }
 
     virtual void scrollContainingScrollViewsToRevealRect(const IntRect&) const { }; // Currently only Mac has a non empty implementation.
     virtual void scrollMainFrameToRevealRect(const IntRect&) const { };
@@ -345,9 +348,6 @@ public:
     virtual void themeColorChanged() const { }
     virtual void pageExtendedBackgroundColorDidChange() const { }
     virtual void sampledPageTopColorChanged() const { }
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    virtual void spatialBackdropSourceChanged() const { }
-#endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     virtual void allowImmersiveElement(CompletionHandler<void(bool)>&& completion) const { completion(false); }
@@ -361,13 +361,6 @@ public:
 #endif
 
     virtual void exceededDatabaseQuota(LocalFrame&, const String& databaseName, DatabaseDetails) = 0;
-
-    // Callback invoked when the application cache fails to save a cache object
-    // because storing it would grow the database file past its defined maximum
-    // size or past the amount of free space on the device. 
-    // The chrome client would need to take some action such as evicting some
-    // old caches.
-    virtual void reachedMaxAppCacheSize(int64_t) { }
 
     WEBCORE_EXPORT virtual std::unique_ptr<WorkerClient> createWorkerClient(SerialFunctionDispatcher&);
 
@@ -427,16 +420,17 @@ public:
     virtual void updateTextIndicator(RefPtr<TextIndicator>&&) const = 0;
 
     virtual void runOpenPanel(LocalFrame&, FileChooser&) = 0;
+    WEBCORE_EXPORT virtual void transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&);
     virtual void showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&& callback) { callback(false); }
     virtual void showContactPicker(ContactsRequestData&&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&& callback) { callback(std::nullopt); }
 
 #if ENABLE(WEB_AUTHN)
-    virtual void showDigitalCredentialsPicker(const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
+    virtual void showDigitalCredentialsChooser(const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
     {
         completionHandler(makeUnexpected(ExceptionData { ExceptionCode::NotSupportedError, "Digital credentials are not supported."_s }));
     }
 
-    virtual void dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& completionHandler)
+    virtual void dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& completionHandler)
     {
         completionHandler(false);
     }
@@ -700,7 +694,7 @@ public:
     virtual RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) = 0;
 
     virtual void hasStorageAccess(RegistrableDomain&& /*subFrameDomain*/, RegistrableDomain&& /*topFrameDomain*/, LocalFrame&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
-    virtual void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame&, StorageAccessScope scope, HasOrShouldIgnoreUserGesture, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler) { completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, WTF::move(topFrameDomain), WTF::move(subFrameDomain) }); }
+    virtual void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame&, StorageAccessScope scope, HasUserGestureOrNoUserGestureRequired, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler) { completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, WTF::move(topFrameDomain), WTF::move(subFrameDomain) }); }
     virtual bool hasPageLevelStorageAccess(const RegistrableDomain& /*topLevelDomain*/, const RegistrableDomain& /*resourceDomain*/) const { return false; }
 
     virtual void setLoginStatus(RegistrableDomain&&, IsLoggedIn, CompletionHandler<void()>&&) { }
@@ -794,6 +788,15 @@ public:
     virtual void saveSnapshotOfTextPlaceholderForAnimation(const SimpleRange&) { };
 
     virtual void clearAnimationsForActiveWritingToolsSession() { };
+
+    virtual void showWritingToolsAffordance() { }
+
+    virtual bool writingToolsAvailable() const { return false; }
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    virtual void addTextEffectForID(const WTF::UUID&, TextEffectData&&, RefPtr<TextIndicator>&&, RefPtr<TextIndicator>&&) { }
+    virtual void removeTextEffectForID(const WTF::UUID&) { }
+#endif
 #endif
 
     virtual void setIsInRedo(bool) { }

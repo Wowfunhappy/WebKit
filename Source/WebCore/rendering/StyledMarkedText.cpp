@@ -29,42 +29,46 @@
 #include "ColorBlending.h"
 #include "ElementRuleCollector.h"
 #include "RenderElement.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "RenderTheme.h"
 #include "RenderedDocumentMarker.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
-static void computeStyleForPseudoElementStyle(StyledMarkedText::Style& style, const RenderStyle* pseudoElementStyle, const PaintInfo& paintInfo)
+static void computeStyleForPseudoElementStyle(StyledMarkedText::Style& style, const Style::ComputedStyle* pseudoElementStyle, const PaintInfo& paintInfo)
 {
     if (!pseudoElementStyle)
         return;
 
     style.backgroundColor = pseudoElementStyle->visitedDependentBackgroundColorApplyingColorFilter(paintInfo.paintBehavior);
-    style.textStyles.fillColor = pseudoElementStyle->usedStrokeColor();
+    style.textStyles.fillColor = pseudoElementStyle->visitedDependentTextFillColorApplyingColorFilter(paintInfo.paintBehavior);
     style.textStyles.strokeColor = pseudoElementStyle->usedStrokeColor();
     style.textStyles.hasExplicitlySetFillColor = pseudoElementStyle->hasExplicitlySetColor();
 
     auto color = TextDecorationPainter::decorationColor(*pseudoElementStyle, paintInfo.paintBehavior);
     auto decorationStyle = pseudoElementStyle->textDecorationStyle();
+    auto thickness = pseudoElementStyle->textDecorationThickness();
     auto decorations = pseudoElementStyle->textDecorationLineInEffect();
 
     if (decorations.hasUnderline()) {
         style.textDecorationStyles.underline.color = color;
         style.textDecorationStyles.underline.decorationStyle = decorationStyle;
+        style.textDecorationStyles.underline.thickness = thickness;
     }
     if (decorations.hasOverline()) {
         style.textDecorationStyles.overline.color = color;
         style.textDecorationStyles.overline.decorationStyle = decorationStyle;
+        style.textDecorationStyles.overline.thickness = thickness;
     }
     if (decorations.hasLineThrough()) {
         style.textDecorationStyles.linethrough.color = color;
         style.textDecorationStyles.linethrough.decorationStyle = decorationStyle;
+        style.textDecorationStyles.linethrough.thickness = thickness;
     }
 }
 
-static StyledMarkedText resolveStyleForMarkedText(const MarkedText& markedText, const StyledMarkedText::Style& baseStyle, const RenderText& renderer, const RenderStyle& lineStyle, const PaintInfo& paintInfo)
+static StyledMarkedText resolveStyleForMarkedText(const MarkedText& markedText, const StyledMarkedText::Style& baseStyle, const RenderText& renderer, const Style::ComputedStyle& lineStyle, const PaintInfo& paintInfo)
 {
     static constexpr OptionSet systemAppearanceOptions { StyleColorOptions::UseSystemAppearance };
 
@@ -87,7 +91,7 @@ static StyledMarkedText resolveStyleForMarkedText(const MarkedText& markedText, 
         break;
     }
     case MarkedText::Type::Highlight: {
-        auto renderStyle = renderer.parent()->getUncachedPseudoStyle({ PseudoElementType::Highlight, markedText.highlightName }, &renderer.style());
+        auto renderStyle = renderer.parent()->resolvePseudoElementStyle({ PseudoElementType::Highlight, markedText.highlightName }, &renderer.style());
         computeStyleForPseudoElementStyle(style, renderStyle.get(), paintInfo);
         break;
     }
@@ -138,6 +142,7 @@ static StyledMarkedText resolveStyleForMarkedText(const MarkedText& markedText, 
             style.backgroundColor = selectionBackgroundColor.invertedColorWithAlpha(1.0);
         break;
     }
+    case MarkedText::Type::ActiveTextMatch:
     case MarkedText::Type::TextMatch: {
         // Text matches always use the light system appearance.
 #if PLATFORM(MAC)
@@ -152,7 +157,7 @@ static StyledMarkedText resolveStyleForMarkedText(const MarkedText& markedText, 
     return styledMarkedText;
 }
 
-StyledMarkedText::Style StyledMarkedText::computeStyleForUnmarkedMarkedText(const RenderText& renderer, const RenderStyle& lineStyle, bool isFirstLine, const PaintInfo& paintInfo)
+StyledMarkedText::Style StyledMarkedText::computeStyleForUnmarkedMarkedText(const RenderText& renderer, const WebCore::Style::ComputedStyle& lineStyle, bool isFirstLine, const PaintInfo& paintInfo)
 {
     StyledMarkedText::Style style;
     style.textDecorationStyles = TextDecorationPainter::stylesForRenderer(renderer, lineStyle.textDecorationLineInEffect(), isFirstLine, paintInfo.paintBehavior);
@@ -161,7 +166,7 @@ StyledMarkedText::Style StyledMarkedText::computeStyleForUnmarkedMarkedText(cons
     return style;
 }
 
-static TextDecorationPainter::Styles computeStylesForTextDecorations(const TextDecorationPainter::Styles& previousTextDecorationStyles, const TextDecorationPainter::Styles& currentTextDecorationStyles)
+static TextDecorationPainter::Styles NODELETE computeStylesForTextDecorations(const TextDecorationPainter::Styles& previousTextDecorationStyles, const TextDecorationPainter::Styles& currentTextDecorationStyles)
 {
     auto textDecorations = TextDecorationPainter::textDecorationsInEffectForStyle(currentTextDecorationStyles);
 
@@ -173,14 +178,17 @@ static TextDecorationPainter::Styles computeStylesForTextDecorations(const TextD
     if (textDecorations.hasUnderline()) {
         textDecorationStyles.underline.color = currentTextDecorationStyles.underline.color;
         textDecorationStyles.underline.decorationStyle = currentTextDecorationStyles.underline.decorationStyle;
+        textDecorationStyles.underline.thickness = currentTextDecorationStyles.underline.thickness;
     }
     if (textDecorations.hasOverline()) {
         textDecorationStyles.overline.color = currentTextDecorationStyles.overline.color;
         textDecorationStyles.overline.decorationStyle = currentTextDecorationStyles.overline.decorationStyle;
+        textDecorationStyles.overline.thickness = currentTextDecorationStyles.overline.thickness;
     }
     if (textDecorations.hasLineThrough()) {
         textDecorationStyles.linethrough.color = currentTextDecorationStyles.linethrough.color;
         textDecorationStyles.linethrough.decorationStyle = currentTextDecorationStyles.linethrough.decorationStyle;
+        textDecorationStyles.linethrough.thickness = currentTextDecorationStyles.linethrough.thickness;
     }
     return textDecorationStyles;
 }
@@ -225,7 +233,7 @@ static Vector<StyledMarkedText> coalesceAdjacentWithSameRanges(Vector<StyledMark
     return frontmostMarkedTexts;
 }
 
-static void orderHighlights(const ListHashSet<AtomString>& markedTextsNames, Vector<MarkedText>& markedTexts)
+static void orderHighlights(const OrderedHashSet<AtomString>& markedTextsNames, Vector<MarkedText>& markedTexts)
 {
     if (markedTexts.isEmpty())
         return;
@@ -257,7 +265,7 @@ Vector<StyledMarkedText> StyledMarkedText::subdivideAndResolve(const Vector<Mark
         return { };
 
     // Keep track of original order of highlights.
-    ListHashSet<AtomString> markedTextsNames;
+    OrderedHashSet<AtomString> markedTextsNames;
     for (auto& markedText : textsToSubdivide) {
         if (!markedText.highlightName.isNull())
             markedTextsNames.add(markedText.highlightName);

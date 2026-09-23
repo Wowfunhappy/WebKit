@@ -23,6 +23,7 @@ list(APPEND TestWebCore_SOURCES
     Tests/WebCore/win/DIBPixelData.cpp
     Tests/WebCore/win/LinkedFonts.cpp
     Tests/WebCore/win/WebCoreBundle.cpp
+    Tests/WebCore/win/WindowsKeyNames.cpp
 
     win/TestWebCoreStubs.cpp
 )
@@ -70,7 +71,7 @@ if (ENABLE_WEBKIT)
     list(APPEND TestWebKit_SOURCES
         ${test_main_SOURCES}
 
-        Tests/WebKit/CookieStorageFile.cpp
+        Tests/WebKit/WKPage/CookieStorageFile.cpp
 
         win/PlatformUtilitiesWin.cpp
         win/PlatformWebViewWin.cpp

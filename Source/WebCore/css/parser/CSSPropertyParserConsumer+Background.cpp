@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
- * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,10 @@
 
 #include "CSSBackgroundRepeatValue.h"
 #include "CSSBorderImage.h"
+#include "CSSBorderImageOutsetValue.h"
+#include "CSSBorderImageRepeatValue.h"
 #include "CSSBorderImageSliceValue.h"
+#include "CSSBorderImageSourceValue.h"
 #include "CSSBorderImageWidthValue.h"
 #include "CSSBorderRadius.h"
 #include "CSSBoxShadowPropertyValue.h"
@@ -46,17 +49,17 @@
 #include "CSSPropertyParserConsumer+LengthDefinitions.h"
 #include "CSSPropertyParserConsumer+LengthPercentageDefinitions.h"
 #include "CSSPropertyParserConsumer+List.h"
+#include "CSSPropertyParserConsumer+Masking.h"
 #include "CSSPropertyParserConsumer+MetaConsumer.h"
 #include "CSSPropertyParserConsumer+NumberDefinitions.h"
 #include "CSSPropertyParserConsumer+PercentageDefinitions.h"
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserState.h"
 #include "CSSPropertyParsing.h"
-#include "CSSQuadValue.h"
-#include "CSSReflectValue.h"
 #include "CSSValueKeywords.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
+#include "CSSWebkitBoxReflectValue.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
@@ -153,35 +156,180 @@ std::optional<CSS::BorderRadius> consumeUnresolvedWebKitBorderRadius(CSSParserTo
 
 // MARK: - Border Image
 
-RefPtr<CSSValue> consumeBorderImageSlice(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageSliceFillDefault defaultFill)
+std::optional<CSS::BorderImageSource> consumeUnresolvedBorderImageSource(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'border-image-source'> = none | <image>
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-source
+
+    if (auto keyword = consumeSpecificUnresolvedIdent<CSS::Keyword::None>(range))
+        return CSS::BorderImageSource { WTF::move(*keyword) };
+
+    if (RefPtr image = consumeImage(range, state))
+        return CSS::BorderImageSource { image.releaseNonNull() };
+
+    return std::nullopt;
+}
+
+RefPtr<CSSValue> consumeBorderImageSource(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'border-image-source'> = none | <image>
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-source
+
+    if (auto unresolved = consumeUnresolvedBorderImageSource(range, state))
+        return CSSBorderImageSourceValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+std::optional<CSS::BorderImageOutset> consumeUnresolvedBorderImageOutset(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'border-image-outset'> = [ <length [0,∞]> | <number [0,∞]> ]{1,4}
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-outset
+
+    std::array<std::optional<CSS::BorderImageOutset::Value>, 4> values;
+
+    for (auto& value : values) {
+        value = MetaConsumer<CSS::BorderImageOutset::Value::Number>::consume(range, state);
+        if (!value)
+            value = MetaConsumer<CSS::BorderImageOutset::Value::Length>::consume(range, state);
+        if (!value)
+            break;
+    }
+    if (!values[0])
+        return std::nullopt;
+
+    return CSS::BorderImageOutset {
+        .values = completeQuadFromArray<CSS::BorderImageOutset::Edges>(WTF::move(values)),
+    };
+}
+
+RefPtr<CSSValue> consumeBorderImageOutset(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'border-image-outset'> = [ <length [0,∞]> | <number [0,∞]> ]{1,4}
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-outset
+
+    if (auto unresolved = consumeUnresolvedBorderImageOutset(range, state))
+        return CSSBorderImageOutsetValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+std::optional<CSS::BorderImageRepeat> consumeUnresolvedBorderImageRepeat(CSSParserTokenRange& range, CSS::PropertyParserState&)
+{
+    // <'border-image-repeat'> = [ stretch | repeat | round | space ]{1,2}
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-repeat
+
+    std::array<std::optional<CSS::BorderImageRepeat::Value>, 2> values;
+
+    values[0] = consumeSpecificUnresolvedIdent<CSS::BorderImageRepeat::Value>(range);
+    if (!values[0])
+        return std::nullopt;
+
+    values[1] = consumeSpecificUnresolvedIdent<CSS::BorderImageRepeat::Value>(range);
+    if (!values[1])
+        values[1] = values[0];
+
+    return CSS::BorderImageRepeat {
+        .values = { WTF::move(*values[0]), WTF::move(*values[1]) }
+    };
+}
+
+RefPtr<CSSValue> consumeBorderImageRepeat(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'border-image-repeat'> = [ stretch | repeat | round | space ]{1,2}
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-repeat
+
+    if (auto unresolved = consumeUnresolvedBorderImageRepeat(range, state))
+        return CSSBorderImageRepeatValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+std::optional<CSS::BorderImageSlice> consumeUnresolvedBorderImageSlice(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageSliceOverride overridesSlice)
 {
     // <'border-image-slice'> = [<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?
     // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-slice
 
-    bool fill = consumeIdentRaw<CSSValueFill>(range).has_value();
-    std::array<RefPtr<CSSPrimitiveValue>, 4> slices;
+    auto fill = consumeSpecificUnresolvedIdent<CSS::Keyword::Fill>(range);
 
-    for (auto& value : slices) {
-        value = CSSPrimitiveValueResolver<CSS::Percentage<CSS::Nonnegative>>::consumeAndResolve(range, state);
+    std::array<std::optional<CSS::BorderImageSlice::Value>, 4> values;
+
+    for (auto& value : values) {
+        value = MetaConsumer<CSS::BorderImageSlice::Value::Percentage>::consume(range, state);
         if (!value)
-            value = CSSPrimitiveValueResolver<CSS::Number<CSS::Nonnegative>>::consumeAndResolve(range, state);
+            value = MetaConsumer<CSS::BorderImageSlice::Value::Number>::consume(range, state);
         if (!value)
             break;
     }
-    if (!slices[0])
-        return nullptr;
-    if (consumeIdent<CSSValueFill>(range)) {
-        if (fill)
-            return nullptr;
-        fill = true;
+    if (!values[0])
+        return std::nullopt;
+
+    if (!fill)
+        fill = consumeSpecificUnresolvedIdent<CSS::Keyword::Fill>(range);
+
+    // NOTE: For backwards compatibility, -webkit-border-image sets fill unconditionally.
+    if (overridesSlice == BorderImageSliceOverride::AlwaysFill)
+        fill = CSS::Keyword::Fill { };
+
+    return CSS::BorderImageSlice {
+        .values = completeQuadFromArray<CSS::BorderImageSlice::Edges>(WTF::move(values)),
+        .fill = fill,
+        .legacyWebkitBorderImage = overridesSlice == BorderImageSliceOverride::AlwaysFill, // MAVERICKS_BACKPORT: explicit fill in standard CSS has standard border widths.
+    };
+}
+
+RefPtr<CSSValue> consumeBorderImageSlice(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageSliceOverride overridesSlice)
+{
+    // <'border-image-slice'> = [<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-slice
+
+    if (auto unresolved = consumeUnresolvedBorderImageSlice(range, state, overridesSlice))
+        return CSSBorderImageSliceValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+std::optional<CSS::BorderImageWidth> consumeUnresolvedBorderImageWidth(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageWidthOverridesWidthForLength overridesWidth)
+{
+    // <'border-image-width'> = [ <length-percentage [0,∞]> | <number [0,∞]> | auto ]{1,4}
+    // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-width
+
+    bool hasLength = false;
+    std::array<std::optional<CSS::BorderImageWidth::Value>, 4> values;
+
+    for (auto& value : values) {
+        if (auto number = MetaConsumer<CSS::BorderImageWidth::Value::Number>::consume(range, state)) {
+            value = CSS::BorderImageWidth::Value { WTF::move(*number) };
+            continue;
+        }
+
+        // FIXME: Figure out and document why overrideParserMode is explicitly set to HTMLStandardMode here or remove the special case.
+        // FIXME: As this falls into the "<length> ambiguous with <number>" case, this should probably be `.unitlessZeroLength = UnitlessZeroQuirk::Forbid` in case the order of checks ever changes.
+
+        if (auto lengthPercentage = MetaConsumer<CSS::BorderImageWidth::Value::LengthPercentage>::consume(range, state, { .overrideParserMode = HTMLStandardMode })) {
+            hasLength = WTF::switchOn(*lengthPercentage,
+                [](const CSS::LengthPercentage<CSS::Nonnegative>::Calc& calc) {
+                    return calc.primitiveType() == CSSUnitType::CSS_PX;
+                },
+                [](const CSS::LengthPercentage<CSS::Nonnegative>::Raw& raw) {
+                    return raw.unit != CSS::PercentageUnit::Percentage;
+                }
+            );
+            value = CSS::BorderImageWidth::Value { WTF::move(*lengthPercentage) };
+            continue;
+        }
+
+        if (auto autoKeyword = consumeSpecificUnresolvedIdent<CSS::Keyword::Auto>(range)) {
+            value = CSS::BorderImageWidth::Value { WTF::move(*autoKeyword) };
+            continue;
+        }
+
+        break;
     }
-    complete4Sides(slices);
 
-    // NOTE: For backwards compatibility, -webkit-border-image, -webkit-mask-box-image and -webkit-box-reflect set fill unconditionally.
-    if (defaultFill == BorderImageSliceFillDefault::Yes)
-        fill = true;
+    if (!values[0])
+        return std::nullopt;
 
-    return CSSBorderImageSliceValue::create({ slices[0].releaseNonNull(), slices[1].releaseNonNull(), slices[2].releaseNonNull(), slices[3].releaseNonNull() }, fill);
+    return CSS::BorderImageWidth {
+        .values = completeQuadFromArray<CSS::BorderImageWidth::Edges>(WTF::move(values)),
+        .legacyWebkitBorderImage = (overridesWidth == BorderImageWidthOverridesWidthForLength::Yes && hasLength),
+    };
 }
 
 RefPtr<CSSValue> consumeBorderImageWidth(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageWidthOverridesWidthForLength overridesWidth)
@@ -189,72 +337,46 @@ RefPtr<CSSValue> consumeBorderImageWidth(CSSParserTokenRange& range, CSS::Proper
     // <'border-image-width'> = [ <length-percentage [0,∞]> | <number [0,∞]> | auto ]{1,4}
     // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-width
 
-    std::array<RefPtr<CSSPrimitiveValue>, 4> widths;
-
-    bool hasLength = false;
-    for (auto& value : widths) {
-        value = CSSPrimitiveValueResolver<CSS::Number<CSS::Nonnegative>>::consumeAndResolve(range, state);
-        if (value)
-            continue;
-
-        // FIXME: Figure out and document why overrideParserMode is explicitly set to HTMLStandardMode here or remove the special case.
-        // FIXME: As this falls into the "<length> ambiguous with <number>" case, this should probably be `.unitlessZeroLength = UnitlessZeroQuirk::Forbid` in case the order of checks ever changes.
-        if (auto numericValue = CSSPrimitiveValueResolver<CSS::LengthPercentage<CSS::Nonnegative>>::consumeAndResolve(range, state, { .overrideParserMode = HTMLStandardMode })) {
-            if (numericValue->isLength())
-                hasLength = true;
-            value = numericValue;
-            continue;
-        }
-        value = consumeIdent<CSSValueAuto>(range);
-        if (!value)
-            break;
-    }
-    if (!widths[0])
-        return nullptr;
-    complete4Sides(widths);
-
-    return CSSBorderImageWidthValue::create(
-        {
-            widths[0].releaseNonNull(),
-            widths[1].releaseNonNull(),
-            widths[2].releaseNonNull(),
-            widths[3].releaseNonNull()
-        },
-        overridesWidth == BorderImageWidthOverridesWidthForLength::Yes && hasLength
-    );
+    if (auto unresolved = consumeUnresolvedBorderImageWidth(range, state, overridesWidth))
+        return CSSBorderImageWidthValue::create(WTF::move(*unresolved));
+    return nullptr;
 }
 
-std::optional<CSS::BorderImageComponents> consumeBorderImageComponents(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageSliceFillDefault defaultFill, BorderImageWidthOverridesWidthForLength overridesWidth)
+std::optional<CSS::BorderImage> consumeUnresolvedBorderImage(CSSParserTokenRange& range, CSS::PropertyParserState& state, BorderImageSliceOverride overridesSlice, BorderImageWidthOverridesWidthForLength overridesWidth)
 {
     // <'border-image'> = <'border-image-source'>
     //                 || <'border-image-slice'> [ / <'border-image-width'> | / <'border-image-width'>? / <'border-image-outset'> ]?
     //                 || <'border-image-repeat'>
     // https://drafts.csswg.org/css-backgrounds/#propdef-border-image
 
-    CSS::BorderImageComponents components;
+    std::optional<CSS::BorderImageSource> source;
+    std::optional<CSS::BorderImageSlice> slice;
+    std::optional<CSS::BorderImageWidth> width;
+    std::optional<CSS::BorderImageOutset> outset;
+    std::optional<CSS::BorderImageRepeat> repeat;
 
     do {
-        if (!components.source) {
-            components.source = consumeImageOrNone(range, state);
-            if (components.source)
+        if (!source) {
+            source = consumeUnresolvedBorderImageSource(range, state);
+            if (source)
                 continue;
         }
-        if (!components.repeat) {
-            components.repeat = CSSPropertyParsing::consumeBorderImageRepeat(range);
-            if (components.repeat)
+        if (!repeat) {
+            repeat = consumeUnresolvedBorderImageRepeat(range, state);
+            if (repeat)
                 continue;
         }
-        if (!components.slice) {
-            components.slice = consumeBorderImageSlice(range, state, defaultFill);
-            if (components.slice) {
-                ASSERT(!components.width && !components.outset);
+        if (!slice) {
+            slice = consumeUnresolvedBorderImageSlice(range, state, overridesSlice);
+            if (slice) {
+                ASSERT(!width && !outset);
                 if (consumeSlashIncludingWhitespace(range)) {
-                    components.width = consumeBorderImageWidth(range, state, overridesWidth);
+                    width = consumeUnresolvedBorderImageWidth(range, state, overridesWidth);
                     if (consumeSlashIncludingWhitespace(range)) {
-                        components.outset = CSSPropertyParsing::consumeBorderImageOutset(range, state);
-                        if (!components.outset)
+                        outset = consumeUnresolvedBorderImageOutset(range, state);
+                        if (!outset)
                             return { };
-                    } else if (!components.width)
+                    } else if (!width)
                         return { };
                 }
             } else
@@ -263,7 +385,13 @@ std::optional<CSS::BorderImageComponents> consumeBorderImageComponents(CSSParser
             return { };
     } while (!range.atEnd());
 
-    return components;
+    return CSS::BorderImage {
+        .borderImageSource = WTF::move(source),
+        .borderImageSlice = WTF::move(slice),
+        .borderImageWidth = WTF::move(width),
+        .borderImageOutset = WTF::move(outset),
+        .borderImageRepeat = WTF::move(repeat),
+    };
 }
 
 // MARK: - Background Size
@@ -277,7 +405,7 @@ template<CSSPropertyID property> static RefPtr<CSSValue> consumeBackgroundSize(C
         return consumeIdent(range);
 
     bool shouldCoalesce = true;
-    RefPtr<CSSPrimitiveValue> horizontal = consumeIdent<CSSValueAuto>(range);
+    RefPtr<CSSValue> horizontal = consumeIdent<CSSValueAuto>(range);
     if (!horizontal) {
         horizontal = CSSPrimitiveValueResolver<CSS::LengthPercentage<CSS::Nonnegative>>::consumeAndResolve(range, state);
         if (!horizontal)
@@ -285,7 +413,7 @@ template<CSSPropertyID property> static RefPtr<CSSValue> consumeBackgroundSize(C
         shouldCoalesce = false;
     }
 
-    RefPtr<CSSPrimitiveValue> vertical;
+    RefPtr<CSSValue> vertical;
     if (!range.atEnd()) {
         vertical = consumeIdent<CSSValueAuto>(range);
         if (!vertical)
@@ -296,7 +424,7 @@ template<CSSPropertyID property> static RefPtr<CSSValue> consumeBackgroundSize(C
             // Legacy syntax: "-webkit-background-size: 10px" is equivalent to "background-size: 10px 10px".
             vertical = horizontal;
         } else if constexpr (property == CSSPropertyBackgroundSize) {
-            vertical = CSSPrimitiveValue::create(CSSValueAuto);
+            vertical = CSSKeywordValue::create(CSSValueAuto);
         } else if constexpr (property == CSSPropertyMaskSize) {
             return horizontal;
         }
@@ -485,33 +613,55 @@ RefPtr<CSSValue> consumeWebkitBoxShadow(CSSParserTokenRange& range, CSS::Propert
 
 // MARK: - Reflect (non-standard)
 
+static std::optional<CSS::WebkitBoxReflection> consumeUnresolvedWebkitBoxReflection(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <-webkit-box-reflection> = [ above | below | left | right ] <length-percentage>? <mask-border>?
+
+    using namespace CSS::Literals;
+
+    auto direction = consumeSpecificUnresolvedIdent<CSS::WebkitBoxReflection::Direction>(range);
+    if (!direction)
+        return std::nullopt;
+
+    std::optional<CSS::WebkitBoxReflection::Offset> offset;
+    if (!range.atEnd()) {
+        offset = MetaConsumer<CSS::WebkitBoxReflection::Offset>::consume(range, state);
+        if (!offset)
+            return std::nullopt;
+    }
+
+    std::optional<CSS::WebkitBoxReflection::Mask> mask;
+    if (!range.atEnd()) {
+        mask = consumeUnresolvedMaskBorder(range, state, MaskBorderSliceOverride::AlwaysFill);
+        if (!mask)
+            return std::nullopt;
+    }
+
+    return CSS::WebkitBoxReflection {
+        .direction = WTF::move(*direction),
+        .offset = offset.value_or(CSS::WebkitBoxReflection::Offset { 0_css_px }),
+        .mask = mask.value_or(CSS::WebkitBoxReflection::Mask { }),
+    };
+}
+
+static std::optional<CSS::WebkitBoxReflect> consumeUnresolvedWebkitBoxReflect(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'-webkit-box-reflect'> = none | [ [ above | below | left | right ] <length-percentage>? <mask-border>? ]
+    // NOTE: There is no standard associated with this property.
+
+    if (auto keyword = consumeSpecificUnresolvedIdent<CSS::Keyword::None>(range))
+        return CSS::WebkitBoxReflect { WTF::move(*keyword) };
+    return consumeUnresolvedWebkitBoxReflection(range, state);
+}
+
 RefPtr<CSSValue> consumeWebkitBoxReflect(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    if (range.peek().id() == CSSValueNone)
-        return consumeIdent(range);
+    // <'-webkit-box-reflect'> = none | [ [ above | below | left | right ] <length-percentage>? <mask-border>? ]
+    // NOTE: There is no standard associated with this property.
 
-    auto direction = consumeIdentRaw<CSSValueAbove, CSSValueBelow, CSSValueLeft, CSSValueRight>(range);
-    if (!direction)
-        return nullptr;
-
-    // FIXME: Does not seem right to create "0px" here. We'd like to omit "0px" when serializing if there is also no image.
-    RefPtr<CSSPrimitiveValue> offset;
-    if (range.atEnd())
-        offset = CSSPrimitiveValue::create(0, CSSUnitType::CSS_PX);
-    else {
-        offset = CSSPrimitiveValueResolver<CSS::LengthPercentage<>>::consumeAndResolve(range, state);
-        if (!offset)
-            return nullptr;
-    }
-
-    RefPtr<CSSValue> mask;
-    if (!range.atEnd()) {
-        auto components = consumeBorderImageComponents(range, state, BorderImageSliceFillDefault::Yes);
-        if (!components)
-            return nullptr;
-        mask = createBorderImageValue(WTF::move(*components));
-    }
-    return CSSReflectValue::create(*direction, offset.releaseNonNull(), WTF::move(mask));
+    if (auto unresolved = consumeUnresolvedWebkitBoxReflect(range, state))
+        return CSSWebkitBoxReflectValue::create(WTF::move(*unresolved));
+    return nullptr;
 }
 
 #if ENABLE(DASHBOARD_SUPPORT)
@@ -537,6 +687,9 @@ RefPtr<CSSValue> consumeWebkitDashboardRegion(CSSParserTokenRange& range, CSS::P
         CSSParserTokenRange rangeCopy = range;
         CSSParserTokenRange args = consumeFunction(rangeCopy);
 
+        if (rangeCopy.end() == args.end())
+            return nullptr;
+
         CSSDashboardRegionValue::Region region;
 
         // First argument is an arbitrary label (e.g. "control").
@@ -560,16 +713,16 @@ RefPtr<CSSValue> consumeWebkitDashboardRegion(CSSParserTokenRange& range, CSS::P
 
         // The four offsets are optional; when omitted the element's own box is used.
         if (!args.atEnd()) {
-            RefPtr<CSSPrimitiveValue> offsets[4];
+            RefPtr<CSSValue> offsets[4];
             for (int i = 0; i < 4; ++i) {
-                if (i && requireCommas && !consumeCommaIncludingWhitespace(args))
+                if (requireCommas && !consumeCommaIncludingWhitespace(args))
                     return nullptr;
                 if (args.atEnd())
                     return nullptr;
                 if (args.peek().id() == CSSValueAuto)
                     offsets[i] = consumeIdent<CSSValueAuto>(args);
                 else
-                    offsets[i] = CSSPrimitiveValueResolver<CSS::LengthPercentage<>>::consumeAndResolve(args, state);
+                    offsets[i] = CSSPrimitiveValueResolver<CSS::Length<>>::consumeAndResolve(args, state);
                 if (!offsets[i])
                     return nullptr;
             }

@@ -547,6 +547,45 @@ TEST(WTF_TextBreakIterator, CFBackwardDeletion)
     }
 }
 
+TEST(WTF_TextBreakIterator, CFStringTokenizerSetTextWithPriorContext)
+{
+    // Tests that setText() correctly accounts for prior context length in the
+    // tokenizer range. Previously, setText() passed CFRangeMake(0, m_stringLength)
+    // instead of CFRangeMake(0, m_stringLength + m_priorContextLength), which
+    // truncated the end of the string when prior context was non-empty.
+    auto string = u"some words here"_str;
+    WTF::TextBreakIteratorCF iterator(string, { }, WTF::TextBreakIteratorCF::Mode::LineBreak, AtomString("en_US"_str));
+
+    // Now call setText with a non-empty prior context, exercising the bug fix.
+    auto context = u"hello "_str;
+    auto newString = u"world test"_str;
+    iterator.setText(newString, context.span16());
+
+    // "hello world test" has line breaks after "hello " and "world ".
+    // Relative to newString, breaks are at 6 and 10 (end).
+    auto result1 = iterator.following(0);
+    ASSERT_TRUE(result1.has_value());
+    EXPECT_EQ(*result1, 6U);
+
+    // following(6) should find the next break at 10 (end of string).
+    // With the bug, position 6 + priorContextLength(6) = 12 in the combined string
+    // would be outside the truncated range, causing this to fail.
+    auto result2 = iterator.following(6);
+    ASSERT_TRUE(result2.has_value());
+    EXPECT_EQ(*result2, 10U);
+
+    // following() at end of string should return nullopt.
+    EXPECT_FALSE(iterator.following(newString.length()).has_value());
+
+    // isBoundary() at end of string should return true.
+    EXPECT_TRUE(iterator.isBoundary(newString.length()));
+
+    // preceding() from end of string should find the last break.
+    auto result3 = iterator.preceding(newString.length());
+    ASSERT_TRUE(result3.has_value());
+    EXPECT_EQ(*result3, 6U);
+}
+
 #endif // USE(CF)
 
 } // namespace TestWebKitAPI

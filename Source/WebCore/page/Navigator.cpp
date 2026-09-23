@@ -102,7 +102,7 @@ const String& Navigator::userAgent() const
 #endif
 
     if (m_userAgent.isNull())
-        m_userAgent = frame->loader().userAgent(frame->document()->url());
+        m_userAgent = frame->loader().userAgent(protect(frame->document())->url());
     return m_userAgent;
 }
 
@@ -135,7 +135,7 @@ static std::optional<URL> shareableURLForShareData(ScriptExecutionContext& conte
     if (data.url.isNull())
         return std::nullopt;
 
-    auto url = context.completeURL(data.url);
+    auto url = context.encodingParseURL(data.url);
     if (!url.isValid())
         return std::nullopt;
     if (!url.protocolIsInHTTPFamily())
@@ -412,7 +412,7 @@ Document* Navigator::document()
     return frame ? frame->document() : nullptr;
 }
 
-void Navigator::setAppBadge(std::optional<unsigned long long> badge, Ref<DeferredPromise>&& promise)
+void Navigator::setAppBadge(ScriptExecutionContext& callingContext, std::optional<unsigned long long> badge, Ref<DeferredPromise>&& promise)
 {
     RefPtr frame = this->frame();
     if (!frame) {
@@ -432,13 +432,25 @@ void Navigator::setAppBadge(std::optional<unsigned long long> badge, Ref<Deferre
         return;
     }
 
-    page->badgeClient().setAppBadge(frame.get(), SecurityOriginData::fromLocalFrame(frame.get()), badge);
+    RefPtr callingOrigin = callingContext.securityOrigin();
+    if (!callingOrigin) {
+        promise->reject(ExceptionCode::InvalidStateError);
+        return;
+    }
+
+    Ref topOrigin = callingContext.topOrigin();
+    if (!callingOrigin->isSameOriginAs(topOrigin.get())) {
+        promise->reject(ExceptionCode::SecurityError);
+        return;
+    }
+
+    page->badgeClient().setAppBadge(frame.get(), SecurityOriginData::fromFrame(*frame), badge);
     promise->resolve();
 }
 
-void Navigator::clearAppBadge(Ref<DeferredPromise>&& promise)
+void Navigator::clearAppBadge(ScriptExecutionContext& callingContext, Ref<DeferredPromise>&& promise)
 {
-    setAppBadge(0, WTF::move(promise));
+    setAppBadge(callingContext, 0, WTF::move(promise));
 }
 
 int Navigator::maxTouchPoints() const

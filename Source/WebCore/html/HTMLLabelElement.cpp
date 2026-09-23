@@ -34,6 +34,7 @@
 #include "HTMLNames.h"
 #include "MouseEvent.h"
 #include "SelectionRestorationMode.h"
+#include "Settings.h"
 #include "TypedElementDescendantIteratorInlines.h"
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -222,9 +223,9 @@ bool HTMLLabelElement::accessKeyAction(bool sendMouseEvents)
     return HTMLElement::accessKeyAction(sendMouseEvents);
 }
 
-auto HTMLLabelElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto HTMLLabelElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
-    auto result = HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (parentOfInsertedTree.isInTreeScope() && insertionType.treeScopeChanged) {
         Ref newScope = parentOfInsertedTree.treeScope();
@@ -249,7 +250,7 @@ void HTMLLabelElement::updateLabel(TreeScope& scope, const AtomString& oldForAtt
         scope.addLabel(newForAttributeValue, *this);
 }
 
-void HTMLLabelElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLLabelElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     if (oldParentOfRemovedTree.isInTreeScope() && removalType.treeScopeChanged) {
         Ref oldScope = oldParentOfRemovedTree.treeScope();
@@ -257,7 +258,7 @@ void HTMLLabelElement::removedFromAncestor(RemovalType removalType, ContainerNod
             updateLabel(oldScope, attributeWithoutSynchronization(forAttr), nullAtom());
     }
 
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 } // namespace

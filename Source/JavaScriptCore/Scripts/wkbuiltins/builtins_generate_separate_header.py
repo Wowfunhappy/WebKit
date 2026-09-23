@@ -104,6 +104,10 @@ class FunctionExecutable;
             (["WebCore"],
                 ("JavaScriptCore", "runtime/JSFunction.h"),
             ),
+
+            (["WebCore"],
+                ("JavaScriptCore", "heap/SlotVisitorInlines.h"),
+            ),
         ]
 
         return '\n'.join(self.generate_includes_from_entries(header_includes))

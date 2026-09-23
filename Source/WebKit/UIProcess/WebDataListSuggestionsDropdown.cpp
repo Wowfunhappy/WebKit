@@ -35,9 +35,7 @@ WebDataListSuggestionsDropdown::WebDataListSuggestionsDropdown(WebPageProxy& pag
 {
 }
 
-WebDataListSuggestionsDropdown::~WebDataListSuggestionsDropdown()
-{
-}
+WebDataListSuggestionsDropdown::~WebDataListSuggestionsDropdown() = default;
 
 void WebDataListSuggestionsDropdown::show(WebCore::DataListSuggestionInformation&& information)
 {

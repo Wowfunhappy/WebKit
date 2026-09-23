@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,16 +35,22 @@
 #include <limits>
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 
+#include "CoreVideoSoftLink.h"
+
 namespace WebCore {
 
-
-RefPtr<NativeImage> NativeImage::create(PlatformImagePtr&& image)
+RefPtr<NativeImage> NativeImage::create(PlatformImagePtr&& image, std::optional<GainMap>&& gainMap)
 {
     if (!image)
         return nullptr;
     if (CGImageGetWidth(image.get()) > std::numeric_limits<int>::max() || CGImageGetHeight(image.get()) > std::numeric_limits<int>::max())
         return nullptr;
-    return adoptRef(*new NativeImage(WTF::move(image)));
+    return adoptRef(*new NativeImage(WTF::move(image), WTF::move(gainMap)));
+}
+
+RefPtr<NativeImage> NativeImage::create(PlatformImagePtr&& image)
+{
+    return create(WTF::move(image), std::nullopt);
 }
 
 RefPtr<NativeImage> NativeImage::createTransient(PlatformImagePtr&& image)
@@ -73,6 +79,15 @@ bool NativeImage::hasAlpha() const
     return (info >= kCGImageAlphaPremultipliedLast) && (info <= kCGImageAlphaFirst);
 }
 
+size_t NativeImage::sizeInBytes() const
+{
+    CheckedSize height = CGImageGetHeight(m_platformImage);
+    CheckedSize sizeInBytes = height * CGImageGetBytesPerRow(m_platformImage);
+    if (m_gainMap)
+        sizeInBytes += CVPixelBufferGetDataSize(m_gainMap->gainMapPixelBuffer);
+    return sizeInBytes;
+}
+
 DestinationColorSpace NativeImage::colorSpace() const
 {
     return DestinationColorSpace(CGImageGetColorSpace(m_platformImage.get()));
@@ -80,15 +95,22 @@ DestinationColorSpace NativeImage::colorSpace() const
 
 void NativeImage::computeHeadroom() const
 {
+    constexpr float whiteLevel = 203.0; // Default reference white 203 nits
+    constexpr float peakLevel = 1000.0; // Default to 1000 nits
+    constexpr auto gainMapImageHeadroom = Headroom(peakLevel / whiteLevel);
+
 #if HAVE(SUPPORT_HDR_DISPLAY)
     float headroom = CGImageGetContentHeadroom(m_platformImage.get());
-    m_headroom = Headroom(std::max<float>(headroom, Headroom::None));
+    m_baseImageHeadroom = Headroom(std::max<float>(headroom, Headroom::None));
+#else
+    m_baseImageHeadroom = Headroom::None;
 #endif
-}
 
-Headroom NativeImage::headroom() const
-{
-    return m_headroom;
+    if (hasHDRGainMap()) {
+        m_headroom = gainMapImageHeadroom;
+        ASSERT(m_baseImageHeadroom == Headroom::None);
+    } else
+        m_headroom = m_baseImageHeadroom;
 }
 
 std::optional<Color> NativeImage::singlePixelSolidColor() const
@@ -117,7 +139,6 @@ void NativeImage::clearSubimages()
     CGSubimageCacheWithTimer::clearImage(platformImage().get());
 #endif
 }
-
 
 } // namespace WebCore
 

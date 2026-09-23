@@ -54,7 +54,7 @@ private:
     WebXRHitTestResult(WebXRFrame&, WebXRSpace&, const PlatformXR::FrameData::HitTestResult&);
 
     const Ref<WebXRFrame> m_frame;
-    Ref<WebXRSpace> m_space;
+    const Ref<WebXRSpace> m_space;
     PlatformXR::FrameData::HitTestResult m_result;
 };
 

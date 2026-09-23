@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/CallMode.h>
 #include <JavaScriptCore/CodeBlock.h>
 #include <JavaScriptCore/CodeBlockHash.h>
 #include <JavaScriptCore/CodeOrigin.h>
@@ -52,7 +53,7 @@ struct InlineCallFrame {
         CallVarargs,
         ConstructVarargs,
         TailCallVarargs,
-        
+
         // For these, the stackOffset incorporates the argument count plus the true return PC
         // slot.
         GetterCall,
@@ -62,6 +63,7 @@ struct InlineCallFrame {
         ProxyObjectInCall,
         BoundFunctionCall,
         BoundFunctionTailCall,
+        ArraySortComparatorCall,
     };
     static constexpr unsigned bitWidthOfKind = 4;
 
@@ -76,6 +78,7 @@ struct InlineCallFrame {
         case ProxyObjectStoreCall:
         case ProxyObjectInCall:
         case BoundFunctionCall:
+        case ArraySortComparatorCall:
             return CallMode::Regular;
         case TailCall:
         case TailCallVarargs:
@@ -128,6 +131,7 @@ struct InlineCallFrame {
         case ProxyObjectInCall:
         case BoundFunctionCall:
         case BoundFunctionTailCall:
+        case ArraySortComparatorCall:
             return CodeSpecializationKind::CodeForCall;
         case Construct:
         case ConstructVarargs:
@@ -227,6 +231,7 @@ struct InlineCallFrame {
     JSFunction* calleeForCallFrame(CallFrame*) const;
     
     CString inferredName() const;
+    String inferredNameWithHash() const;
     CodeBlockHash hash() const;
     
     void setStackOffset(signed offset)

@@ -533,9 +533,9 @@ public:
     bool multiline() const { return m_flags.contains(Flags::Multiline); }
     bool hasIndices() const { return m_flags.contains(Flags::HasIndices); }
     bool sticky() const { return m_flags.contains(Flags::Sticky); }
-    bool unicode() const { return m_flags.contains(Flags::Unicode); }
-    bool unicodeSets() const { return m_flags.contains(Flags::UnicodeSets); }
-    bool eitherUnicode() const { return unicode() || unicodeSets(); }
+    bool NODELETE unicode() const { return m_flags.contains(Flags::Unicode); }
+    bool NODELETE unicodeSets() const { return m_flags.contains(Flags::UnicodeSets); }
+    bool NODELETE eitherUnicode() const { return unicode() || unicodeSets(); }
     bool dotAll() const { return m_flags.contains(Flags::DotAll); }
 
     std::unique_ptr<ByteDisjunction> m_body;

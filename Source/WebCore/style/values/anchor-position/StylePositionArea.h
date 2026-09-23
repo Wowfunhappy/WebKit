@@ -55,7 +55,7 @@ struct PositionAreaValue {
 
     ItemPosition NODELETE defaultAlignmentForAxis(BoxAxis, WritingMode containerWritingMode, WritingMode selfWritingMode) const;
 
-    constexpr bool operator==(const PositionAreaValue&) const = default;
+    constexpr bool NODELETE operator==(const PositionAreaValue&) const = default;
 
 private:
     PositionAreaSpan m_blockOrXAxis;
@@ -87,11 +87,11 @@ private:
 // MARK: - Conversion
 
 template<> struct CSSValueConversion<PositionArea> { PositionArea NODELETE operator()(BuilderState&, const CSSValue&); };
-template<> struct CSSValueCreation<PositionAreaValue> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const PositionAreaValue&); };
+template<> struct CSSValueCreation<PositionAreaValue> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const PositionAreaValue&); };
 
 // MARK: - Serialization
 
-template<> struct Serialize<PositionAreaValue> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const PositionAreaValue&); };
+template<> struct Serialize<PositionAreaValue> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const PositionAreaValue&); };
 
 // MARK: - Logging
 

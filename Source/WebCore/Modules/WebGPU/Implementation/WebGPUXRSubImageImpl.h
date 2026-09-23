@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if HAVE(WEBGPU_IMPLEMENTATION)
+#if HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)
 
 #include "WebGPUPtr.h"
 #include "WebGPUXRSubImage.h"
@@ -72,4 +72,4 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WebGPU::XRSubImageImpl)
     static bool isType(const WebCore::WebGPU::XRSubImage& xrSubImage) { return xrSubImage.isXRSubImageImpl(); }
 SPECIALIZE_TYPE_TRAITS_END()
 
-#endif // HAVE(WEBGPU_IMPLEMENTATION)
+#endif // HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)

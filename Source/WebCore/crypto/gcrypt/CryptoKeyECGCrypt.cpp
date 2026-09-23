@@ -550,7 +550,7 @@ bool CryptoKeyEC::platformAddFieldElements(JsonWebKey& jwk) const
             if (d && d->size() <= uncompressedFieldElementSize) {
                 // Zero-pad the private key data up to the field element size, if necessary.
                 if (d->size() < uncompressedFieldElementSize) {
-                    Vector<uint8_t> paddedData(uncompressedFieldElementSize - d->size(), 0);
+                    Vector<uint8_t> paddedData(FillWith { }, uncompressedFieldElementSize - d->size(), 0);
                     paddedData.appendVector(*d);
                     *d = WTF::move(paddedData);
                 }
@@ -673,7 +673,7 @@ Vector<uint8_t> CryptoKeyEC::platformExportPkcs8() const
 
             // Zero-pad the private key data up to the field element size, if necessary.
             if (data->size() < uncompressedFieldElementSize) {
-                Vector<uint8_t> paddedData(uncompressedFieldElementSize - data->size(), 0);
+                Vector<uint8_t> paddedData(FillWith { }, uncompressedFieldElementSize - data->size(), 0);
                 paddedData.appendVector(*data);
                 *data = WTF::move(paddedData);
             }

@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include "Counters.h"
+#include "Helpers/Counters.h"
 #include "MoveOnly.h"
 #include <wtf/InlineWeakPtr.h>
 #include <wtf/ListHashSet.h>
@@ -541,7 +541,7 @@ class ListHashSetReferencedItem : public RefCounted<ListHashSetReferencedItem> {
 public:
     static Ref<ListHashSetReferencedItem> create()
     {
-        auto result = adoptRef(*new ListHashSetReferencedItem());
+        Ref result = adoptRef(*new ListHashSetReferencedItem());
         return result;
     }
 

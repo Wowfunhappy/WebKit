@@ -24,17 +24,11 @@
 */
 
 // https://w3c.github.io/webrtc-pc/#dom-rtcrtpcodecparameters
-// FIXME: `RTCRtpCodecParameters` should inherit from `RTCRtpCodec`.
 [
     Conditional=WEB_RTC,
     EnabledBySetting=PeerConnectionEnabled,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
-] dictionary RTCRtpCodecParameters {
-    unsigned short payloadType;
-    DOMString mimeType;
-    unsigned long clockRate;
-    unsigned short channels = 1;
-    DOMString sdpFmtpLine;
+] dictionary RTCRtpCodecParameters : RTCRtpCodec {
+    required unsigned short payloadType;
 };

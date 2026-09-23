@@ -77,12 +77,8 @@ text, tspan, tref {
 
 /* states */
 
-:focus {
-#if defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY
-    outline: auto 3px -webkit-focus-ring-color;
-#else
-    outline: auto 5px -webkit-focus-ring-color;
-#endif
+:focus-visible {
+    outline-style: auto;
 }
 
 *:not(svg),

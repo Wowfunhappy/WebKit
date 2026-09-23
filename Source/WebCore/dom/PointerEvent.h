@@ -53,7 +53,7 @@ class PointerEvent : public MouseEvent {
     WTF_MAKE_TZONE_ALLOCATED(PointerEvent);
 public:
     struct Init : MouseEventInit {
-        PointerID pointerId { mousePointerID };
+        long pointerId { mousePointerID };
         double width { 1 };
         double height { 1 };
         float pressure { 0 };
@@ -103,6 +103,10 @@ public:
     static Ref<PointerEvent> create(const PlatformTouchEvent&, const Vector<Ref<PointerEvent>>& coalescedEvents, const Vector<Ref<PointerEvent>>& predictedEvents, unsigned touchIndex, bool isPrimary, Ref<WindowProxy>&&, const DoublePoint& touchDelta = { });
     static Ref<PointerEvent> create(const PlatformTouchEvent&, const Vector<Ref<PointerEvent>>& coalescedEvents, const Vector<Ref<PointerEvent>>& predictedEvents, CanBubble, IsCancelable, unsigned touchIndex, bool isPrimary, Ref<WindowProxy>&& view, const DoublePoint& touchDelta = { });
     static Ref<PointerEvent> create(const AtomString& type, const PlatformTouchEvent&, const Vector<Ref<PointerEvent>>& coalescedEvents, const Vector<Ref<PointerEvent>>& predictedEvents, unsigned touchIndex, bool isPrimary, Ref<WindowProxy>&&, const DoublePoint& touchDelta = { });
+#endif
+
+#if ENABLE(TOUCH_EVENTS) && (PLATFORM(WPE) || PLATFORM(GTK))
+    static unsigned pointerIdForTouchPoint(const PlatformTouchPoint&);
 #endif
 
     virtual ~PointerEvent();

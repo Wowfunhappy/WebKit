@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include "CSSTransition.h"
 #include "StyleOriginatedAnimationEvent.h"
 
 namespace WebCore {
@@ -39,6 +40,7 @@ public:
     }
 
     struct Init : EventInit {
+        RefPtr<CSSTransition> animation;
         String propertyName { emptyString() };
         double elapsedTime { 0 };
         String pseudoElement { emptyString() };
@@ -51,6 +53,7 @@ public:
 
     virtual ~CSSTransitionEvent();
 
+    RefPtr<CSSTransition> cssTransition() const { return dynamicDowncast<CSSTransition>(animation()); }
     const String& propertyName() const LIFETIME_BOUND { return m_propertyName; }
 
 private:

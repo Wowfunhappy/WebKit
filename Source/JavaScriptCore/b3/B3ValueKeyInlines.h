@@ -115,27 +115,31 @@ inline ValueKey::ValueKey(Kind kind, Type type, SIMDInfo simdInfo, Value* a, Val
     u.indices[2] = immediate;
 }
 
-inline ValueKey::ValueKey(Kind kind, Type type, Value* child, unsigned packedFlags, const Wasm::RTT* rtt)
+inline ValueKey::ValueKey(Kind kind, Type type, Value* child, Value* optionalChild2, unsigned packedFlags, const Wasm::RTT* rtt)
     : m_kind(kind)
     , m_type(type)
 {
     u.indices[0] = child->index();
-    u.indices[1] = packedFlags;
+    u.indices[1] = optionalChild2 ? optionalChild2->index() : UINT_MAX;
+    static_assert(::allowCompactPointers<Wasm::RTT*>());
     if (rtt) {
         uint64_t rttPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(rtt));
         u.indices[2] = static_cast<unsigned>(rttPtr);
-        u.indices[3] = static_cast<unsigned>(rttPtr >> 32);
+        u.indices[3] = static_cast<unsigned>(rttPtr >> 32) | (packedFlags << 16);
+    } else {
+        u.indices[2] = 0;
+        u.indices[3] = packedFlags << 16;
     }
 }
 
-inline ValueKey::ValueKey(Kind kind, Type type, Value* child, unsigned packedFlags, int32_t targetHeapType)
+inline ValueKey::ValueKey(Kind kind, Type type, Value* child, Value* optionalChild2, unsigned packedFlags, int32_t targetHeapType)
     : m_kind(kind)
     , m_type(type)
 {
     u.indices[0] = child->index();
-    u.indices[1] = packedFlags;
+    u.indices[1] = optionalChild2 ? optionalChild2->index() : UINT_MAX;
     u.indices[2] = static_cast<unsigned>(targetHeapType);
-    u.indices[3] = 0;
+    u.indices[3] = packedFlags << 16;
 }
 
 inline Value* ValueKey::child(Procedure& proc, unsigned index) const

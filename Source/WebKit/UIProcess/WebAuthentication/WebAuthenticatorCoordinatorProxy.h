@@ -92,6 +92,9 @@ public:
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
+    // IPC::MessageReceiver.
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
+
 #if HAVE(WEB_AUTHN_AS_MODERN)
     static WeakPtr<WebAuthenticatorCoordinatorProxy>& NODELETE activeConditionalMediationProxy();
     void pauseConditionalAssertion(CompletionHandler<void()>&&);
@@ -105,12 +108,9 @@ private:
 
     using QueryCompletionHandler = CompletionHandler<void(bool)>;
 
-    // IPC::MessageReceiver.
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
-
     // Receivers.
-    void makeCredential(WebCore::FrameIdentifier, FrameInfoData&&, WebCore::PublicKeyCredentialCreationOptions&&, WebCore::MediationRequirement, RequestCompletionHandler&&);
-    void getAssertion(WebCore::FrameIdentifier, FrameInfoData&&, WebCore::PublicKeyCredentialRequestOptions&&, WebCore::MediationRequirement, std::optional<WebCore::SecurityOriginData>, RequestCompletionHandler&&);
+    void makeCredential(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::PublicKeyCredentialCreationOptions&&, WebCore::MediationRequirement, RequestCompletionHandler&&);
+    void getAssertion(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::PublicKeyCredentialRequestOptions&&, WebCore::MediationRequirement, std::optional<WebCore::SecurityOriginData>, RequestCompletionHandler&&);
     void isUserVerifyingPlatformAuthenticatorAvailable(const WebCore::SecurityOriginData&, QueryCompletionHandler&&);
     void isConditionalMediationAvailable(const WebCore::SecurityOriginData&, QueryCompletionHandler&&);
     void getClientCapabilities(const WebCore::SecurityOriginData&, CapabilitiesCompletionHandler&&);
@@ -139,6 +139,7 @@ private:
 #endif
 
     void performRequest(WebAuthenticationRequestData&&, RequestCompletionHandler&&);
+    void performRequestWithValidatedRelyingPartyIdentifier(WebAuthenticationRequestData&&, RequestCompletionHandler&&);
 
 #if HAVE(UNIFIED_ASC_AUTH_UI)
     RetainPtr<ASCCredentialRequestContext> contextForRequest(WebAuthenticationRequestData&&);

@@ -32,7 +32,7 @@ namespace JSC {
 
 const ClassInfo JSPromiseCombinatorsGlobalContext::s_info = { "PromiseCombinatorsGlobalContext"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(JSPromiseCombinatorsGlobalContext) };
 
-JSPromiseCombinatorsGlobalContext* JSPromiseCombinatorsGlobalContext::create(VM& vm, JSValue promise, JSValue values, JSValue remainingElementsCount)
+JSPromiseCombinatorsGlobalContext* JSPromiseCombinatorsGlobalContext::create(VM& vm, JSValue promise, JSValue values, uint64_t remainingElementsCount)
 {
     auto* structure = vm.promiseCombinatorsGlobalContextStructure.get();
     JSPromiseCombinatorsGlobalContext* result = new (NotNull, allocateCell<JSPromiseCombinatorsGlobalContext>(vm)) JSPromiseCombinatorsGlobalContext(vm, structure, promise, values, remainingElementsCount);
@@ -48,12 +48,11 @@ Structure* JSPromiseCombinatorsGlobalContext::createStructure(VM& vm, JSGlobalOb
 template<typename Visitor>
 void JSPromiseCombinatorsGlobalContext::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSPromiseCombinatorsGlobalContext*>(cell);
+    auto* thisObject = uncheckedDowncast<JSPromiseCombinatorsGlobalContext>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_promise);
     visitor.append(thisObject->m_values);
-    visitor.append(thisObject->m_remainingElementsCount);
 }
 
 DEFINE_VISIT_CHILDREN(JSPromiseCombinatorsGlobalContext);

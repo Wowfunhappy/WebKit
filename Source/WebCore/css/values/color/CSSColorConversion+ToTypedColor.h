@@ -41,9 +41,11 @@ template<typename Descriptor, unsigned Index> float convertToTypeColorComponent(
     constexpr auto min = info.min * info.numberMultiplier;
     constexpr auto max = info.max * info.numberMultiplier;
 
-    if constexpr (info.type == ColorComponentType::Angle)
+    if constexpr (info.type == ColorComponentType::Angle) {
+        if (shouldTreatAngleComponentValueAsInfinite(number.value))
+            return 0;
         return normalizeHue(number.value);
-    else if constexpr (info.min == -std::numeric_limits<double>::infinity() && info.max == std::numeric_limits<double>::infinity())
+    } else if constexpr (info.min == -std::numeric_limits<double>::infinity() && info.max == std::numeric_limits<double>::infinity())
         return number.value * multiplier;
     else if constexpr (info.min == -std::numeric_limits<double>::infinity())
         return std::min(number.value * multiplier, max);

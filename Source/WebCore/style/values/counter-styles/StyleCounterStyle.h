@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,24 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct CounterStyle;
+}
+
 namespace Style {
 
 // <counter-style> = <custom-ident excluding=none>
 // https://drafts.csswg.org/css-counter-styles-3/#typedef-counter-style
 struct CounterStyle {
-    CustomIdentifier identifier;
+    CustomIdent identifier;
 
     bool operator==(const CounterStyle&) const = default;
-    bool operator==(const CustomIdentifier& other) const { return identifier == other; }
+    bool operator==(const CustomIdent& other) const { return identifier == other; }
     bool operator==(const AtomString& other) const { return identifier.value == other; }
     bool operator==(CSSValueID other) const { return identifier.value == nameString(other); }
 };
@@ -44,6 +50,8 @@ DEFINE_TYPE_WRAPPER_GET(CounterStyle, identifier);
 
 // MARK: - Conversion
 
+template<> struct ToCSS<CounterStyle> { auto operator()(const CounterStyle&, const Style::ComputedStyle&) -> CSS::CounterStyle; };
+template<> struct ToStyle<CSS::CounterStyle> { auto operator()(const CSS::CounterStyle&, const BuilderState&) -> CounterStyle; };
 template<> struct CSSValueConversion<CounterStyle> { auto operator()(BuilderState&, const CSSValue&) -> CounterStyle; };
 
 } // namespace Style

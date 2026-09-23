@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/FontBaseline.h>
 #include <WebCore/InlineLevelBox.h>
 #include <WebCore/InlineLine.h>
 #include <WebCore/InlineRect.h>

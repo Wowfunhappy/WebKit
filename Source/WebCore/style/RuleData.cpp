@@ -88,19 +88,31 @@ static inline MatchBasedOnRuleHash NODELETE computeMatchBasedOnRuleHash(const CS
 static inline PropertyAllowlist determinePropertyAllowlist(const CSSSelector& selector)
 {
     for (const CSSSelector* component = &selector; component; component = component->precedingInComplexSelector()) {
+        if (component->match() == CSSSelector::Match::PseudoElement) {
+            switch (component->pseudoElement()) {
+            case CSSSelector::PseudoElement::GrammarError:
+            case CSSSelector::PseudoElement::Highlight:
+            case CSSSelector::PseudoElement::Selection:
+            case CSSSelector::PseudoElement::SpellingError:
+            case CSSSelector::PseudoElement::TargetText:
+                return PropertyAllowlist::Highlight;
+            case CSSSelector::PseudoElement::Marker:
+                return PropertyAllowlist::Marker;
 #if ENABLE(VIDEO)
-        // Property allow-list for `::cue`:
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::UserAgentPart && component->value() == UserAgentParts::cue())
-            return PropertyAllowlist::Cue;
-        // Property allow-list for `::cue(selector)`:
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::Cue)
-            return PropertyAllowlist::CueSelector;
-        // Property allow-list for '::-internal-cue-background':
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::UserAgentPart && component->value() == UserAgentParts::internalCueBackground())
-            return PropertyAllowlist::CueBackground;
+            case CSSSelector::PseudoElement::UserAgentPart:
+                if (component->value() == UserAgentParts::cue())
+                    return PropertyAllowlist::Cue;
+                // Property allow-list for '::-internal-cue-background':
+                if (component->value() == UserAgentParts::internalCueBackground())
+                    return PropertyAllowlist::CueBackground;
+                break;
+            case CSSSelector::PseudoElement::Cue:
+                return PropertyAllowlist::CueSelector;
 #endif
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::Marker)
-            return propertyAllowlistForPseudoElement(PseudoElementType::Marker);
+            default:
+                break;
+            }
+        }
 
         if (const auto* selectorList = selector.selectorList()) {
             for (auto& subSelector : *selectorList) {

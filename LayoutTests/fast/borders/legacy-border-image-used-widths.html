@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<title>Legacy border-image used widths</title>
+<script>
+if (window.testRunner)
+    testRunner.dumpAsText();
+</script>
+<body>
+<pre id="results"></pre>
+<script>
+const image = 'url("resources/border-image.png")';
+function check(label, declaration, expected, borderStyle = "none") {
+    const element = document.createElement("div");
+    element.style.cssText = `width: 20px; height: 20px; border: 6px ${borderStyle}; ${declaration}`;
+    document.body.appendChild(element);
+    const width = element.getBoundingClientRect().width;
+    document.getElementById("results").appendChild(document.createTextNode(
+        (width === expected ? "PASS " : `FAIL (got ${width}, expected ${expected}) `) + label + "\n"));
+    element.remove();
+}
+check("legacy percentage slices", `-webkit-border-image: ${image} 30%;`, 32);
+check("standard shorthand with fill", `border-image: ${image} 30% fill;`, 20);
+check("standard longhand with fill", `border-image-source: ${image}; border-image-slice: 30% fill;`, 20);
+check("standard hidden border with fill", `border-image: ${image} 30% fill;`, 20, "hidden");
+check("legacy length width override", `-webkit-border-image: ${image} 30% / 4px;`, 28);
+check("standard width retains no border", `border-image: ${image} 30% fill / 4px;`, 20);
+check("standard slice resets legacy provenance", `-webkit-border-image: ${image} 30%; border-image-slice: 30% fill;`, 20);
+check("legacy shorthand sets provenance after standard", `border-image: ${image} 30% fill; -webkit-border-image: ${image} 30%;`, 32);
+</script>

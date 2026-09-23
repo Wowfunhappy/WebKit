@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 // This tests can easily use more than the 600M that $memoryLimited devices
 // are capped at due JSCTEST_memoryLimit. Skip it to avoid the crash as a

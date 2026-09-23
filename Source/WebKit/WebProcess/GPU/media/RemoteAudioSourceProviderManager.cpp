@@ -26,12 +26,16 @@
 #include "config.h"
 #include "RemoteAudioSourceProviderManager.h"
 
+#include "Connection.h"
 #include "GPUProcessConnection.h"
 #include "Logging.h"
 #include "RemoteAudioSourceProvider.h"
 #include "RemoteAudioSourceProviderManagerMessages.h"
 #include "SharedCARingBuffer.h"
 #include "WebProcess.h"
+#include <WebCore/CAAudioStreamDescription.h>
+#include <WebCore/SharedMemory.h>
+#include <WebCore/WebAudioBufferList.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
@@ -39,117 +43,117 @@
 namespace WebKit {
 using namespace WebCore;
 
-RemoteAudioSourceProviderManager::RemoteAudioSourceProviderManager()
-    : m_queue(WorkQueue::create("RemoteAudioSourceProviderManager"_s, WorkQueue::QOS::UserInteractive))
+RemoteAudioSourceProviderManager::RemoteAudioSourceProviderManager(IPC::Connection& connection)
+    : m_connection { connection }
+    , m_queue { WorkQueue::create("RemoteAudioSourceProviderManager"_s, WorkQueue::QOS::UserInteractive) }
 {
+    connection.addWorkQueueMessageReceiver(Messages::RemoteAudioSourceProviderManager::messageReceiverName(), m_queue, *this);
 }
 
 RemoteAudioSourceProviderManager::~RemoteAudioSourceProviderManager()
 {
-    ASSERT(!m_connection);
+    ASSERT(!m_connection.get());
 }
 
 void RemoteAudioSourceProviderManager::stopListeningForIPC()
 {
-    setConnection(nullptr);
-}
-
-void RemoteAudioSourceProviderManager::setConnection(RefPtr<IPC::Connection>&& connection)
-{
-    if (m_connection == connection)
-        return;
-
-    if (RefPtr previousConnection = m_connection)
-        previousConnection->removeWorkQueueMessageReceiver(Messages::RemoteAudioSourceProviderManager::messageReceiverName());
-
-    m_connection = connection.copyRef();
-
-    if (connection)
-        connection->addWorkQueueMessageReceiver(Messages::RemoteAudioSourceProviderManager::messageReceiverName(), m_queue, *this);
+    if (RefPtr connection = m_connection.get()) {
+        connection->removeWorkQueueMessageReceiver(Messages::RemoteAudioSourceProviderManager::messageReceiverName());
+        m_connection = nullptr;
+    }
 }
 
 void RemoteAudioSourceProviderManager::addProvider(Ref<RemoteAudioSourceProvider>&& provider)
 {
-    ASSERT(WTF::isMainRunLoop());
-    setConnection(WebProcess::singleton().ensureGPUProcessConnection().connection());
-
     m_queue->dispatch([this, protectedThis = Ref { *this }, provider = WTF::move(provider)]() mutable {
         auto identifier = provider->identifier();
 
         ASSERT(!m_providers.contains(identifier));
-        m_providers.add(identifier, makeUnique<RemoteAudio>(WTF::move(provider)));
+        m_providers.add(identifier, WTF::move(provider));
     });
 }
 
 void RemoteAudioSourceProviderManager::removeProvider(MediaPlayerIdentifier identifier)
 {
-    ASSERT(WTF::isMainRunLoop());
-
     m_queue->dispatch([this, protectedThis = Ref { *this }, identifier] {
         ASSERT(m_providers.contains(identifier));
         m_providers.remove(identifier);
     });
 }
 
-void RemoteAudioSourceProviderManager::audioStorageChanged(MediaPlayerIdentifier identifier, ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description)
+RefPtr<RemoteAudioSourceProvider> RemoteAudioSourceProviderManager::providerFor(MediaPlayerIdentifier identifier)
 {
-    ASSERT(!WTF::isMainRunLoop());
+    assertIsCurrent(m_queue);
 
     auto iterator = m_providers.find(identifier);
-    if (iterator == m_providers.end()) {
+    if (iterator == m_providers.end())
+        return nullptr;
+    return iterator->value.ptr();
+}
+
+void RemoteAudioSourceProviderManager::audioStorageChanged(MediaPlayerIdentifier identifier, ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description)
+{
+    assertIsCurrent(m_queue);
+
+    RefPtr provider = providerFor(identifier);
+    if (!provider) {
         RELEASE_LOG_ERROR(Media, "Unable to find provider %llu for storageChanged", identifier.toUInt64());
         return;
     }
-    iterator->value->setStorage(WTF::move(handle), description);
-}
-
-void RemoteAudioSourceProviderManager::audioSamplesAvailable(MediaPlayerIdentifier identifier, uint64_t startFrame, uint64_t numberOfFrames, bool needsFlush)
-{
-    ASSERT(!WTF::isMainRunLoop());
-
-    auto iterator = m_providers.find(identifier);
-    if (iterator == m_providers.end()) {
-        RELEASE_LOG_ERROR(Media, "Unable to find provider %llu for audioSamplesAvailable", identifier.toUInt64());
-        return;
-    }
-    iterator->value->audioSamplesAvailable(startFrame, numberOfFrames, needsFlush);
-}
-
-WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioSourceProviderManager::RemoteAudio);
-
-RemoteAudioSourceProviderManager::RemoteAudio::RemoteAudio(Ref<RemoteAudioSourceProvider>&& provider)
-    : m_provider(WTF::move(provider))
-{
-}
-
-void RemoteAudioSourceProviderManager::RemoteAudio::setStorage(ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description)
-{
-    m_buffer = nullptr;
     handle.takeOwnershipOfMemory(MemoryLedger::Media);
-    m_ringBuffer = ConsumerSharedCARingBuffer::map(description, WTF::move(handle));
-    if (!m_ringBuffer)
+    auto ringBuffer = ConsumerSharedCARingBuffer::map(description, WTF::move(handle));
+    if (!ringBuffer)
         return;
-    m_description = description;
-    m_buffer = makeUnique<WebAudioBufferList>(description);
+
+    provider->audioStorageChanged(WTF::move(ringBuffer), description);
 }
 
-void RemoteAudioSourceProviderManager::RemoteAudio::audioSamplesAvailable(uint64_t startFrame, uint64_t numberOfFrames, bool needsFlush)
+void RemoteAudioSourceProviderManager::setNeedsFlush(WebCore::MediaPlayerIdentifier identifier)
 {
-    if (!m_buffer) {
-        RELEASE_LOG_ERROR(Media, "buffer for audio provider %llu is null", m_provider->identifier().toUInt64());
+    assertIsCurrent(m_queue);
+
+    if (RefPtr provider = providerFor(identifier)) {
+        provider->setNeedsFlush();
         return;
     }
 
-    if (!WebAudioBufferList::isSupportedDescription(*m_description, numberOfFrames)) {
-        RELEASE_LOG_ERROR(Media, "Unable to support description with given number of frames for audio provider %llu", m_provider->identifier().toUInt64());
+    RELEASE_LOG_ERROR(Media, "Unable to find provider %llu for setNeedsFlush", identifier.toUInt64());
+}
+
+void RemoteAudioSourceProviderManager::setPlaybackRate(WebCore::MediaPlayerIdentifier identifier, double playbackRate)
+{
+    assertIsCurrent(m_queue);
+
+    if (RefPtr provider = providerFor(identifier)) {
+        provider->setPlaybackRate(playbackRate);
         return;
     }
 
-    m_buffer->setSampleCount(numberOfFrames);
+    RELEASE_LOG_ERROR(Media, "Unable to find provider %llu for setPlaybackRate", identifier.toUInt64());
+}
 
-    m_ringBuffer->fetch(m_buffer->list(), numberOfFrames, startFrame);
+void RemoteAudioSourceProviderManager::setPreservesPitch(WebCore::MediaPlayerIdentifier identifier, bool preservesPitch)
+{
+    assertIsCurrent(m_queue);
 
-    m_provider->audioSamplesAvailable(*m_buffer, *m_description, numberOfFrames, needsFlush);
+    if (RefPtr provider = providerFor(identifier)) {
+        provider->setPreservesPitch(preservesPitch);
+        return;
+    }
+
+    RELEASE_LOG_ERROR(Media, "Unable to find provider %llu for setPreservesPitch", identifier.toUInt64());
+}
+
+void RemoteAudioSourceProviderManager::setVolume(WebCore::MediaPlayerIdentifier identifier, double volume)
+{
+    assertIsCurrent(m_queue);
+
+    if (RefPtr provider = providerFor(identifier)) {
+        provider->setVolume(volume);
+        return;
+    }
+
+    RELEASE_LOG_ERROR(Media, "Unable to find provider %llu for setVolume", identifier.toUInt64());
 }
 
 }

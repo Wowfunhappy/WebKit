@@ -1940,6 +1940,44 @@ WK_POLYFILL_REPLACES("CoreText", CFDataRef, CTFontCopyTable, (CTFontRef font, CT
     return copied;
 }
 
+// FontParser's averaged glyph heights include overshoot. OS/2 supplies the font's
+// typographic cap and x heights, including MVAR deltas in a realized static instance.
+static bool wk_os2Height(CTFontRef font, CFIndex offset, CGFloat *height)
+{
+    if (!font)
+        return false;
+    CFDataRef nativeVariations = WK_ORIGINAL(CTFontCopyTable)(font, 'MVAR', kCTFontTableOptionNoOptions);
+    if (nativeVariations) {
+        CFRelease(nativeVariations);
+        return false;
+    }
+    CFDataRef os2 = wk_fontTable(font, sel_registerName("wk_os2Style"), kCTFontTableOS2);
+    if (!os2 || CFDataGetLength(os2) < offset + 2)
+        return false;
+    const UInt8 *bytes = CFDataGetBytePtr(os2);
+    uint16_t version = ((uint16_t)bytes[0] << 8) | bytes[1];
+    int16_t units = (int16_t)(((uint16_t)bytes[offset] << 8) | bytes[offset + 1]);
+    unsigned unitsPerEm = CTFontGetUnitsPerEm(font);
+    if (version < 2 || !units || !unitsPerEm)
+        return false;
+    CGFloat scale = CTFontGetSize(font) / unitsPerEm;
+    CGAffineTransform matrix = CGAffineTransformScale(CTFontGetMatrix(font), scale, scale);
+    *height = CGPointApplyAffineTransform(CGPointMake(0, units), matrix).y;
+    return true;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetCapHeight, (CTFontRef font))
+{
+    CGFloat height;
+    return wk_os2Height(font, 88, &height) ? height : WK_ORIGINAL(CTFontGetCapHeight)(font);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetXHeight, (CTFontRef font))
+{
+    CGFloat height;
+    return wk_os2Height(font, 86, &height) ? height : WK_ORIGINAL(CTFontGetXHeight)(font);
+}
+
 // A copy's attributes with their variation request rewritten against the axes of the font being copied,
 // or NULL when the request realizes as it stands. 10.9 lays a request it realizes over the copied font's
 // own variation, and copies under one it drops at the default instance: Skia varied to {wght 1.5454}
@@ -5292,6 +5330,54 @@ WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     if (arrivedGlyphs != inlineGlyphs)
         free(arrivedGlyphs);
     return zero;   // a transformed glyph array starts at the origin; there is no initial advance to report
+}
+
+// 10.9 stores a line's shaping advance in TLine, separately from each TRun's advance.
+// A retained CTRun keeps this first-visual-run contribution after its CTLine is released.
+static const void *wk_lineInitialAdvanceKey(void)
+{
+    return sel_registerName("wk_lineInitialAdvance");
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTLineGetGlyphRuns, (CTLineRef line))
+{
+    CFArrayRef runs = WK_ORIGINAL(CTLineGetGlyphRuns)(line);
+    if (!line || !runs || !CFArrayGetCount(runs))
+        return runs;
+
+    // CTLineGetTypographicBounds reads CTLine's TLine at +0x28; TLine::CachePositions
+    // reads its shaping advance at +0xa8/+0xb0 before positioning the first run.
+    const char *nativeLine;
+    memcpy(&nativeLine, (const char *)line + 0x28, sizeof(nativeLine));
+    CGSize initial;
+    memcpy(&initial, nativeLine + 0xa8, sizeof(initial));
+    if (!initial.width && !initial.height)
+        return runs;
+
+    id run = (id)(void *)CFArrayGetValueAtIndex(runs, 0);
+    objc_sync_enter(run);
+    if (!objc_getAssociatedObject(run, wk_lineInitialAdvanceKey())) {
+        CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&initial, sizeof(initial));
+        if (!data)
+            abort();
+        objc_setAssociatedObject(run, wk_lineInitialAdvanceKey(), (id)(void *)data, OBJC_ASSOCIATION_RETAIN);
+        CFRelease(data);
+    }
+    objc_sync_exit(run);
+    return runs;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CGSize, CTRunGetInitialAdvance, (CTRunRef run))
+{
+    CGSize initial = WK_ORIGINAL(CTRunGetInitialAdvance)(run);
+    CFDataRef data = run ? (CFDataRef)objc_getAssociatedObject((id)(void *)run, wk_lineInitialAdvanceKey()) : NULL;
+    if (data) {
+        CGSize lineInitial;
+        memcpy(&lineInitial, CFDataGetBytePtr(data), sizeof(lineInitial));
+        initial.width += lineInitial.width;
+        initial.height += lineInitial.height;
+    }
+    return initial;
 }
 
 // 10.9 encodes mark placement in paint advances. Base advances keep mark glyphs at zero,

@@ -30,9 +30,12 @@
 #include <WebCore/GamepadProvider.h>
 #include <WebCore/GamepadProviderClient.h>
 #include <WebCore/PlatformGamepad.h>
+#include <WebCore/SharedGamepadValue.h>
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -68,7 +71,6 @@ private:
     unsigned indexForNewlyConnectedDevice();
 
     bool m_shouldMakeGamepadsVisible { false };
-    size_t m_initialGamepadsCount { 0 };
     Vector<WeakPtr<PlatformGamepad>> m_gamepadVector;
 
     // We create our own Gamepad type - to wrap both HID and GameController gamepads -
@@ -100,7 +102,6 @@ private:
     };
 
     WeakHashMap<PlatformGamepad, std::unique_ptr<PlatformGamepadWrapper>> m_gamepadMap;
-    bool m_hidImportComplete { false };
     bool m_usesOnlyHIDProvider { false };
 };
 

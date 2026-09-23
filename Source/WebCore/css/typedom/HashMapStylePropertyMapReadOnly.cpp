@@ -27,6 +27,7 @@
 #include "HashMapStylePropertyMapReadOnly.h"
 
 #include "CSSPropertyParser.h"
+#include "Document.h"
 
 namespace WebCore {
 

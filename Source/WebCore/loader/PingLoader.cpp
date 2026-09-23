@@ -38,6 +38,7 @@
 #include "ContentRuleListResults.h"
 #include "ContentSecurityPolicy.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentResourceLoader.h"
 #include "FrameLoader.h"
 #include "HTTPHeaderValues.h"
@@ -59,6 +60,7 @@
 #include "UserContentController.h"
 #include "ViolationReportType.h"
 #include <wtf/text/CString.h>
+#include "LocalFrameInlines.h"
 
 namespace WebCore {
 
@@ -140,7 +142,7 @@ void PingLoader::sendPing(LocalFrame& frame, URL&& sendPingURL, const URL& desti
 #endif
 
     Ref document = *frame.document();
-    if (!protect(document->contentSecurityPolicy())->allowConnectToSource(pingURL))
+    if (!protect(document->contentSecurityPolicy())->allowConnectToSource(pingURL, document->currentParserSourcePosition()))
         return;
     protect(document->contentSecurityPolicy())->upgradeInsecureRequestIfNeeded(request, ContentSecurityPolicy::InsecureRequestType::Load);
 
@@ -248,7 +250,7 @@ void PingLoader::startPingLoad(LocalFrame& frame, ResourceRequest& request, HTTP
 
     // FIXME: Deprecate the ping load code path.
     if (platformStrategies()->loaderStrategy()->usePingLoad()) {
-        InspectorInstrumentation::willSendRequestOfType(&frame, identifier, protect(frame.loader().activeDocumentLoader()), request, InspectorInstrumentation::LoadType::Ping);
+        InspectorInstrumentation::willSendRequestOfType(&frame, identifier, protect(frame.loader().activeDocumentLoader()), request, Inspector::UncachedLoadType::Ping);
 
         platformStrategies()->loaderStrategy()->startPingLoad(frame, request, WTF::move(originalRequestHeaders), options, policyCheck, [protectedFrame = Ref { frame }, identifier] (const ResourceError& error, const ResourceResponse& response) {
             if (!response.isNull())

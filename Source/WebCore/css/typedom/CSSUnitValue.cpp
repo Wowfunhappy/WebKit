@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -69,7 +70,7 @@ ASCIILiteral CSSUnitValue::unit() const
 
 ASCIILiteral CSSUnitValue::unitSerialization() const
 {
-    return CSSPrimitiveValue::unitTypeString(m_unit);
+    return unitTypeString(m_unit);
 }
 
 void CSSUnitValue::serialize(StringBuilder& builder, OptionSet<SerializationArguments>) const
@@ -91,6 +92,27 @@ ExceptionOr<Ref<CSSUnitValue>> CSSUnitValue::create(double value, const String& 
     return unitValue;
 }
 
+ExceptionOr<Ref<CSSUnitValue>> CSSUnitValue::reifyValue(Document&, const CSSValue& cssValue)
+{
+    auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(cssValue);
+    if (!primitiveValue)
+        return Exception { ExceptionCode::TypeError };
+
+    return WTF::switchOn(*primitiveValue,
+        [&](const CSSPrimitiveValue::Calc&) -> ExceptionOr<Ref<CSSUnitValue>> {
+            return Exception { ExceptionCode::TypeError };
+        },
+        [&](const CSSPrimitiveValue::Raw& raw) -> ExceptionOr<Ref<CSSUnitValue>> {
+            if (raw.unit == CSSUnitType::CSS_INTEGER) {
+                // Integer is special cased to resolved the same as <number>.
+                return CSSUnitValue::create(raw.value, CSSUnitType::CSS_NUMBER);
+            } else {
+                return CSSUnitValue::create(raw.value, raw.unit);
+            }
+        }
+    );
+}
+
 CSSUnitValue::CSSUnitValue(double value, CSSUnitType unit)
     : CSSNumericValue(CSSNumericType::create(unit).value_or(CSSNumericType()))
     , m_value(value)
@@ -104,7 +126,7 @@ RefPtr<CSSUnitValue> CSSUnitValue::convertTo(CSSUnitType unit) const
     if (unitCategory(unitEnum()) != unitCategory(unit))
         return nullptr;
 
-    return create(m_value * conversionToCanonicalUnitsScaleFactor(unitEnum()) / conversionToCanonicalUnitsScaleFactor(unit), unit);
+    return create(m_value * conversionToCanonicalUnitsScaleFactor(unitEnum()).value_or(1) / conversionToCanonicalUnitsScaleFactor(unit).value_or(1), unit);
 }
 
 auto CSSUnitValue::toSumValue() const -> std::optional<SumValue>
@@ -114,7 +136,7 @@ auto CSSUnitValue::toSumValue() const -> std::optional<SumValue>
     if (canonicalUnit == CSSUnitType::CSS_UNKNOWN)
         canonicalUnit = m_unit;
     
-    auto convertedValue = m_value * conversionToCanonicalUnitsScaleFactor(unitEnum()) / conversionToCanonicalUnitsScaleFactor(canonicalUnit);
+    auto convertedValue = m_value * conversionToCanonicalUnitsScaleFactor(unitEnum()).value_or(1) / conversionToCanonicalUnitsScaleFactor(canonicalUnit).value_or(1);
 
     if (m_unit == CSSUnitType::CSS_NUMBER)
         return { { { convertedValue, { } } } };

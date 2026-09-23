@@ -326,7 +326,7 @@ Vector<uint8_t> encodeGetAssertionRequestAsCBOR(const Vector<uint8_t>& hash, con
 Vector<uint8_t> encodeBogusRequestForAuthenticatorSelection()
 {
     CBORValue::MapValue cborMap;
-    cborMap[CBORValue(kCtapMakeCredentialClientDataHashKey)] = CBORValue(Vector<uint8_t>(0, 32));
+    cborMap[CBORValue(kCtapMakeCredentialClientDataHashKey)] = CBORValue(Vector<uint8_t>(FillWith { }, 0, 32));
     CBORValue::MapValue rpMap;
     rpMap.emplace(CBORValue(kEntityNameMapKey), CBORValue("notarealwebsite.com"));
     rpMap.emplace(CBORValue(kEntityIdMapKey), CBORValue("notarealwebsite.com"));

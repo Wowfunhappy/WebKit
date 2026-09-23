@@ -56,7 +56,7 @@ HDC GraphicsContext::getWindowsContext(const IntRect& dstRect, bool supportAlpha
     // Create a bitmap DC in which to draw.
     BitmapInfo bitmapInfo = BitmapInfo::create(dstRect.size());
 
-    void* pixels = 0;
+    void* pixels = nullptr;
     HBITMAP bitmap = ::CreateDIBSection(nullptr, &bitmapInfo, DIB_RGB_COLORS, &pixels, 0, 0);
     if (!bitmap)
         return 0;

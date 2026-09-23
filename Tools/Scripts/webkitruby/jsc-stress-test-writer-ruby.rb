@@ -381,7 +381,7 @@ class Plan < BasePlan
 end
 
 class TestRunnerShell < TestRunner
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         File.open("#{@runnerDir + "runscript"}", "w") { |f|
             runlist.each { |plan|
                 if completedPlans.include?(plan)
@@ -405,9 +405,10 @@ class TestRunnerMake < TestRunner
         outp.puts "\truby test_script_#{index}"
         target
     end
-    def prepareRunnerForRemote(runlist, serialPlans, completedPlans, remoteIndex)
+    def prepareRunnerForRemote(runlist, serialPlans, exclusivePlans, completedPlans, remoteIndex)
         runPlans = []
         serialRunPlans = []
+        exclusiveRunPlans = []
         runlist.each {
             | plan |
             if completedPlans.include?(plan)
@@ -416,6 +417,8 @@ class TestRunnerMake < TestRunner
             if @remoteHosts.nil? or plan.index % @remoteHosts.length == remoteIndex
                 if serialPlans.include?(plan)
                     serialRunPlans << plan
+                elsif exclusivePlans.include?(plan)
+                    exclusiveRunPlans << plan
                 else
                     runPlans << plan
                 end
@@ -424,17 +427,36 @@ class TestRunnerMake < TestRunner
 
         File.open(@runnerDir + "Makefile.#{remoteIndex}", "w") {
             | outp |
+            all_deps = []
+
             if serialRunPlans.empty?
-                outp.puts("all: parallel")
+                all_deps << "parallel"
             else
-                serialPrereq = "test_done_#{serialRunPlans[-1].index}"
-                outp.puts("all: #{serialPrereq}")
+                all_deps << "test_done_#{serialRunPlans[-1].index}"
+            end
+
+            if !exclusiveRunPlans.empty?
+                all_deps << "test_done_#{exclusiveRunPlans[-1].index}"
+            end
+
+            outp.puts("all: " + all_deps.join(" "))
+
+            if !serialRunPlans.empty?
                 prev_target = "parallel"
                 serialRunPlans.each {
                     | plan |
                     prev_target = output_target(outp, plan, [prev_target])
                 }
             end
+
+            if !exclusiveRunPlans.empty?
+                prev_target = nil
+                exclusiveRunPlans.each {
+                    | plan |
+                    prev_target = output_target(outp, plan, prev_target ? [prev_target] : [])
+                }
+            end
+
             parallelTargets = runPlans.collect {
                 | plan |
                 output_target(outp, plan, [])
@@ -442,13 +464,13 @@ class TestRunnerMake < TestRunner
             outp.puts("parallel: " + parallelTargets.join(" "))
         }
     end
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         if remoteHosts.nil?
-            prepareRunnerForRemote(runlist, serialPlans, completedPlans, 0)
+            prepareRunnerForRemote(runlist, serialPlans, exclusivePlans, completedPlans, 0)
         else
             remoteHosts.each_index {
                 |remoteIndex|
-                prepareRunnerForRemote(runlist, serialPlans, completedPlans, remoteIndex)
+                prepareRunnerForRemote(runlist, serialPlans, exclusivePlans, completedPlans, remoteIndex)
             }
         end
     end
@@ -458,7 +480,7 @@ class TestRunnerMake < TestRunner
 end
 
 class TestRunnerRuby < TestRunner
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         File.open(@runnerDir + "runscript", "w") {
             | outp |
             runlist.each {

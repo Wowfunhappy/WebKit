@@ -120,7 +120,7 @@ macro(WEBKIT_OPTION_BEGIN)
     else ()
         set(ENABLE_JIT_DEFAULT OFF)
         set(ENABLE_FTL_DEFAULT OFF)
-        set(USE_SYSTEM_MALLOC_DEFAULT OFF)
+        set(USE_SYSTEM_MALLOC_DEFAULT ON)
         set(USE_MIMALLOC_DEFAULT OFF)
         set(ENABLE_C_LOOP_DEFAULT ON)
         set(ENABLE_SAMPLING_PROFILER_DEFAULT OFF)
@@ -145,14 +145,64 @@ macro(WEBKIT_OPTION_BEGIN)
         set(ENABLE_UNIFIED_BUILDS_DEFAULT ON)
     endif ()
 
+    # Default the Swift prototype features on for GTK/WPE, but only when the toolchain
+    # can build it: Clang (not GCC) with a new-enough Swift. Otherwise they stay off;
+    # an explicit -D against such a toolchain is rejected in WEBKIT_OPTION_END.
+    #
+    # If either value was already set before this point (e.g. by a platform config),
+    # keep whatever is already defined and only fill in the one(s) still unset.
+    # When cross-building default to off, because the auto-detection here would pick
+    # up the host swiftc instead of a cross-aware one and break the target build.
+    if (NOT DEFINED ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT OR NOT DEFINED ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT)
+        if (CMAKE_CROSSCOMPILING)
+            set(_swift_features_default OFF)
+        elseif (COMPILER_IS_CLANG)
+            _WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT(_swift_interop_ok)
+            if (_swift_interop_ok)
+                set(_swift_features_default ON)
+            else ()
+                set(_swift_features_default OFF)
+            endif ()
+        else ()
+            set(_swift_features_default OFF)
+        endif ()
+
+        if (NOT DEFINED ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT)
+            set(ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT ${_swift_features_default})
+        endif ()
+        if (NOT DEFINED ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT)
+            set(ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT ${_swift_features_default})
+        endif ()
+    endif ()
+
     WEBKIT_OPTION_DEFINE(ENABLE_ACCESSIBILITY_ISOLATED_TREE "Toggle accessibility isolated tree support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_API_TESTS "Enable public API unit tests" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY "Toggle Apple Pay support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_AUTOMATIC_RELOAD_LINE_ITEM "Toggle Apple Pay automatic reload line item support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS "Toggle Apple Pay automatic reload payments support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_COUPON_CODE "Toggle Apple Pay coupon code support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_DEFERRED_LINE_ITEM "Toggle Apple Pay deferred line item support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_DEFERRED_PAYMENTS "Toggle Apple Pay deferred payments support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_DELEGATED_REQUEST "Toggle Apple Pay delegated request support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_DISBURSEMENTS "Toggle Apple Pay disbursements support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_INSTALLMENTS "Toggle Apple Pay installments support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_LATER "Toggle Apple Pay Later support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_LATER_AVAILABILITY "Toggle Apple Pay Later availability support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_MERCHANT_CATEGORY_CODE "Toggle Apple Pay merchant category code support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_MULTI_MERCHANT_PAYMENTS "Toggle Apple Pay multi-merchant payments support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_PAYMENT_ORDER_DETAILS "Toggle Apple Pay payment order details support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_RECURRING_LINE_ITEM "Toggle Apple Pay recurring line item support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_RECURRING_PAYMENTS "Toggle Apple Pay recurring payments support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_SELECTED_SHIPPING_METHOD "Toggle Apple Pay selected shipping method support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE "Toggle Apple Pay shipping contact editing mode support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_SHIPPING_METHOD_DATE_COMPONENTS_RANGE "Toggle Apple Pay shipping method date range support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLICATION_MANIFEST "Toggle Application Manifest support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_ASYNC_SCROLLING "Enable asynchronous scrolling" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_ATTACHMENT_ELEMENT "Toggle Attachment Element support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_AUTOCAPITALIZE "Toggle autocapitalize support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_AV1 "Toggle AV1 codec support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_AVF_CAPTIONS "Toggle AVFoundation caption support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_BACK_FORWARD_LIST_SWIFT "Toggle Swift back forward list" PRIVATE ${ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT})
     WEBKIT_OPTION_DEFINE(ENABLE_BREAKPAD "Toggle breakpad minidump support." PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_BUBBLEWRAP_SANDBOX "Toggle Bubblewrap sandboxing support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_CACHE_PARTITIONING "Toggle cache partitioning support" PRIVATE OFF)
@@ -170,7 +220,6 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_ENCRYPTED_MEDIA "Toggle EME V3 support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_EXPERIMENTAL_FEATURES "Enable experimental features" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_FTL_JIT "Toggle FTL JIT support" PRIVATE ${ENABLE_FTL_DEFAULT})
-    WEBKIT_OPTION_DEFINE(ENABLE_FTPDIR "Toggle FTP Directory support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_FULLSCREEN_API "Toggle Fullscreen API support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_GAMEPAD "Toggle Gamepad support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_GEOLOCATION "Toggle Geolocation support" PRIVATE ON)
@@ -196,11 +245,13 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SESSION_COORDINATOR "Toggle Media Session Coordinator support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SESSION_PLAYLIST "Toggle Media Session Playlist support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SOURCE "Toggle Media Source support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SOURCE_IN_WORKERS "Toggle Media Source in Workers support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_STATISTICS "Toggle Media Statistics support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_STREAM "Toggle Media Stream support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MEMORY_SAMPLER "Toggle Memory Sampler support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MHTML "Toggle MHTML support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MINIBROWSER "Toggle MiniBrowser compilation." PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_MODEL_ELEMENT "Toggle Model Element support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MOUSE_CURSOR_SCALE "Toggle Scaled mouse cursor support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_NAVIGATOR_STANDALONE "Toogle standalone navigator support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_NOTIFICATIONS "Toggle Notifications support" PRIVATE ON)
@@ -209,10 +260,14 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_ORIENTATION_EVENTS "Toggle Orientation Events support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PAYMENT_REQUEST "Toggle Payment Request support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PDFJS "Toggle PDF documents support using PDF.js" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_PDF_HUD "Toggle PDF HUD support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_PDF_PLUGIN "Toggle PDF plugin support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PDFKIT_PLUGIN "Toggle PDFKit plugin support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_UNIFIED_PDF "Toggle unified PDF support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PERIODIC_MEMORY_MONITOR "Toggle periodical memory monitor support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PICTURE_IN_PICTURE_API "Toggle Picture-in-Picture API support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_POINTER_LOCK "Toggle pointer lock support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 "Toggle display-p3 PredefinedColorSpace enum values" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_REFTRACKER "Enable debugging tools for tracking RAII objects" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_RELEASE_LOG "Toggle release log support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_REMOTE_INSPECTOR "Toggle remote inspector support" PRIVATE ON)
@@ -224,7 +279,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_SMOOTH_SCROLLING "Toggle smooth scrolling" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_SPEECH_SYNTHESIS "Toggle Speech Synthesis API support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_SPELLCHECK "Toggle Spellchecking support (requires Enchant)" PRIVATE OFF)
-    WEBKIT_OPTION_DEFINE(ENABLE_SWIFT_DEMO_URI_SCHEME "Toggle Swift demo URI feature" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_SWIFT_DEMO_URI_SCHEME "Toggle Swift demo URI feature" PRIVATE ${ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT})
     WEBKIT_OPTION_DEFINE(ENABLE_TELEPHONE_NUMBER_DETECTION "Toggle telephone number detection support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_TEXT_AUTOSIZING "Toggle automatic text size adjustment support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_THUNDER "Toggle EME V3 Thunder support" PRIVATE OFF)
@@ -248,6 +303,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBGL "Toggle WebGL support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBGPU "Toggle WebGPU support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBKIT_OVERFLOW_SCROLLING_CSS_PROPERTY "Toggle accelerated scrolling support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_WEBKIT_TOUCH_CALLOUT_CSS_PROPERTY "Toggle -webkit-touch-callout CSS property" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBXR "Toggle WebXR support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBXR_HIT_TEST "Toggle WebXR Hit Test Module support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBXR_LAYERS "Toggle WebXR Layers support" PRIVATE OFF)
@@ -258,6 +314,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_WEB_RTC "Toggle WebRTC support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WIRELESS_PLAYBACK_TARGET "Toggle wireless playback target support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WK_WEB_EXTENSIONS "Toggle WebExtensions support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_WRITING_TOOLS "Toggle Writing Tools support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_XSLT "Toggle XSLT support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(USE_AVIF "Toggle support for AVIF images." PRIVATE ON)
     WEBKIT_OPTION_DEFINE(USE_LCMS "Toggle support for image color management using libcms2" PRIVATE ON)
@@ -267,9 +324,11 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(USE_SKIA_ENCODERS "Whether to use Skia image encoders" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(USE_SYSTEM_MALLOC "Toggle system allocator instead of WebKit's custom allocator" PRIVATE ${USE_SYSTEM_MALLOC_DEFAULT})
     WEBKIT_OPTION_DEFINE(USE_MIMALLOC "Toggle mimalloc instead of WebKit's custom allocator" PRIVATE ${USE_MIMALLOC_DEFAULT})
+    WEBKIT_OPTION_DEFINE(USE_PGO_PROFILE "Use PGO profile data for optimization (set PGO_PROFILE_PATH)" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(USE_WOFF2 "Toggle support for WOFF2 Web Fonts through libwoff2" PRIVATE ON)
 
     WEBKIT_OPTION_CONFLICT(ENABLE_JIT ENABLE_C_LOOP)
+    WEBKIT_OPTION_CONFLICT(ENABLE_LLVM_PROFILE_GENERATION USE_PGO_PROFILE)
     WEBKIT_OPTION_CONFLICT(ENABLE_SAMPLING_PROFILER ENABLE_C_LOOP)
     WEBKIT_OPTION_CONFLICT(ENABLE_WEBASSEMBLY ENABLE_C_LOOP)
 
@@ -295,28 +354,28 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEPEND(USE_SKIA_ENCODERS USE_SKIA)
 endmacro()
 
-macro(_WEBKIT_OPTION_ENFORCE_DEPENDS _name)
+function(_WEBKIT_OPTION_ENFORCE_DEPENDS _name _resultvar)
     foreach (_dependency ${_WEBKIT_AVAILABLE_OPTIONS_${_name}_DEPENDENCIES})
         if (NOT ${_dependency})
             message(STATUS "Disabling ${_name} since ${_dependency} is disabled.")
-            set(${_name} OFF)
-            set(_OPTION_CHANGED TRUE)
+            set(${_name} OFF CACHE BOOL "" FORCE)
+            set(${_resultvar} TRUE PARENT_SCOPE)
             break ()
         endif ()
     endforeach ()
-endmacro()
+endfunction()
 
-macro(_WEBKIT_OPTION_ENFORCE_ALL_DEPENDS)
+function(_WEBKIT_OPTION_ENFORCE_ALL_DEPENDS)
     set(_OPTION_CHANGED TRUE)
     while (${_OPTION_CHANGED})
         set(_OPTION_CHANGED FALSE)
         foreach (_name ${_WEBKIT_AVAILABLE_OPTIONS})
             if (${_name})
-                _WEBKIT_OPTION_ENFORCE_DEPENDS(${_name})
+                _WEBKIT_OPTION_ENFORCE_DEPENDS(${_name} _OPTION_CHANGED)
             endif ()
         endforeach ()
     endwhile ()
-endmacro()
+endfunction()
 
 macro(_WEBKIT_OPTION_ENFORCE_CONFLICTS _name)
     foreach (_conflict ${_WEBKIT_AVAILABLE_OPTIONS_${_name}_CONFLICTS})
@@ -333,6 +392,54 @@ macro(_WEBKIT_OPTION_ENFORCE_ALL_CONFLICTS)
         endif ()
     endforeach ()
 endmacro()
+
+# Probe whether the Swift toolchain is new enough for WebKit's Swift/C++ reverse
+# interop, which needs the -emit-clang-header-min-access frontend flag (first
+# shipped in Swift 6.3; 6.2 and earlier reject it with "unknown argument"). Tests
+# the flag directly instead of parsing version strings, and is biased toward
+# "supported": only that exact diagnostic counts as too-old, so an unrelated
+# probe failure or a future flag rename just lets the build proceed.
+function(_WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT _result_var)
+    if (DEFINED SWIFT_CXX_INTEROP_SUPPORTED)
+        set(${_result_var} ${SWIFT_CXX_INTEROP_SUPPORTED} PARENT_SCOPE)
+        return()
+    endif ()
+
+    # enable_language(Swift) hasn't run yet and gets replaced by swiftc-wrapper
+    # anyway, so resolve swiftc from PATH like the wrapper does on non-Apple hosts.
+    set(_swiftc "${CMAKE_Swift_COMPILER}")
+    if (NOT _swiftc OR _swiftc MATCHES "swiftc-wrapper")
+        find_program(_WEBKIT_PROBE_SWIFTC NAMES swiftc)
+        set(_swiftc "${_WEBKIT_PROBE_SWIFTC}")
+    endif ()
+
+    set(_supported FALSE)
+    set(_version "not found")
+    if (_swiftc)
+        execute_process(COMMAND "${_swiftc}" --version
+            OUTPUT_VARIABLE _version OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        string(REGEX REPLACE "\n.*" "" _version "${_version}")
+
+        set(_probe_src "${CMAKE_BINARY_DIR}/CMakeFiles/swift-interop-probe.swift")
+        set(_probe_hdr "${CMAKE_BINARY_DIR}/CMakeFiles/swift-interop-probe.h")
+        file(WRITE "${_probe_src}" "public func __webkitSwiftInteropProbe() {}\n")
+        execute_process(
+            COMMAND "${_swiftc}" -typecheck
+                -emit-clang-header-path "${_probe_hdr}"
+                -Xfrontend -emit-clang-header-min-access -Xfrontend internal
+                "${_probe_src}"
+            RESULT_VARIABLE _probe_result OUTPUT_QUIET ERROR_VARIABLE _probe_stderr)
+        if (NOT _probe_stderr MATCHES "unknown argument: '-emit-clang-header-min-access'")
+            set(_supported TRUE)
+        endif ()
+        file(REMOVE "${_probe_src}" "${_probe_hdr}")
+    endif ()
+
+    set(SWIFT_CXX_INTEROP_SUPPORTED ${_supported} CACHE INTERNAL
+        "Whether the Swift toolchain supports the C++-interop reverse-header flags WebKit needs")
+    set(SWIFT_DETECTED_VERSION "${_version}" CACHE INTERNAL "Detected Swift toolchain version string")
+    set(${_result_var} ${_supported} PARENT_SCOPE)
+endfunction()
 
 macro(WEBKIT_OPTION_END)
     set(_SETTING_WEBKIT_OPTIONS FALSE)
@@ -368,9 +475,39 @@ macro(WEBKIT_OPTION_END)
         endif ()
     endforeach ()
 
-    # We currently have one feature which requires Swift support - in future
-    # this list will grow.
-    if (ENABLE_SWIFT_DEMO_URI_SCHEME)
+    # Swift/C++ interop is Clang-only: GCC builds link but crash at runtime (the
+    # Swift-emitted C++ thunks rely on Clang ABI details), so refuse to configure
+    # a Swift feature under a non-Clang compiler.
+    if (NOT COMPILER_IS_CLANG)
+        if (ENABLE_SWIFT_DEMO_URI_SCHEME OR ENABLE_BACK_FORWARD_LIST_SWIFT)
+            message(FATAL_ERROR
+                "Swift/C++ interop on the GLib ports requires Clang, but the "
+                "configured C++ compiler is ${CMAKE_CXX_COMPILER_ID}. Re-run "
+                "the configure step with CC=clang CXX=clang++, or pass "
+                "-DENABLE_SWIFT_DEMO_URI_SCHEME=OFF "
+                "-DENABLE_BACK_FORWARD_LIST_SWIFT=OFF.")
+        endif ()
+    endif ()
+
+    # A Swift feature still on with a too-old toolchain was requested explicitly
+    # (the default declines to auto-enable it), so fail loudly rather than drop it
+    # silently. Apple is gated elsewhere; non-Clang is already rejected above.
+    if (NOT APPLE AND COMPILER_IS_CLANG AND (ENABLE_SWIFT_DEMO_URI_SCHEME OR ENABLE_BACK_FORWARD_LIST_SWIFT))
+        _WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT(_swift_interop_ok)
+        if (NOT _swift_interop_ok)
+            message(FATAL_ERROR
+                "ENABLE_SWIFT_DEMO_URI_SCHEME / ENABLE_BACK_FORWARD_LIST_SWIFT "
+                "were requested, but the Swift toolchain is too old for WebKit's "
+                "Swift/C++ interop: it lacks the -emit-clang-header-min-access "
+                "frontend flag, first shipped in Swift 6.3 (6.2 and earlier do "
+                "not have it). Detected: ${SWIFT_DETECTED_VERSION}. Install Swift "
+                "6.3 or newer from swift.org and reconfigure, or pass "
+                "-DENABLE_SWIFT_DEMO_URI_SCHEME=OFF "
+                "-DENABLE_BACK_FORWARD_LIST_SWIFT=OFF.")
+        endif ()
+    endif ()
+
+    if (ENABLE_SWIFT_DEMO_URI_SCHEME OR ENABLE_BACK_FORWARD_LIST_SWIFT)
         set(SWIFT_REQUIRED ON)
     else ()
         set(SWIFT_REQUIRED OFF)
@@ -457,8 +594,13 @@ macro(CREATE_CONFIGURATION_HEADER)
     file(REMOVE "${CMAKE_BINARY_DIR}/cmakeconfig.h.tmp")
 endmacro()
 
-macro(GET_WEBKIT_CONFIG_VARIABLES _var_name)
-    set(${_var_name} ${_WEBKIT_CONFIG_FILE_VARIABLES})
+macro(GET_WEBKIT_CONFIG_VARIABLES _set_vars)
+    set(${_set_vars} "")
+    foreach (_variable_name ${_WEBKIT_CONFIG_FILE_VARIABLES})
+        if (${${_variable_name}})
+            list(APPEND ${_set_vars} ${_variable_name})
+        endif ()
+    endforeach ()
 endmacro()
 
 macro(WEBKIT_CHECK_HAVE_INCLUDE _variable _header)
@@ -478,11 +620,6 @@ endmacro()
 
 macro(WEBKIT_CHECK_HAVE_STRUCT _variable _struct _member _header)
     check_struct_has_member(${_struct} ${_member} "${_header}" ${_variable}_value)
-    SET_AND_EXPOSE_TO_BUILD(${_variable} ${${_variable}_value})
-endmacro()
-
-macro(WEBKIT_CHECK_SOURCE_COMPILES _variable _source)
-    check_cxx_source_compiles("${_source}" ${_variable}_value)
     SET_AND_EXPOSE_TO_BUILD(${_variable} ${${_variable}_value})
 endmacro()
 

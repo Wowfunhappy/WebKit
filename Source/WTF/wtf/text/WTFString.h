@@ -46,12 +46,14 @@ namespace WTF {
 
 WTF_EXPORT_PRIVATE double charactersToDouble(std::span<const Latin1Character>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE double charactersToDouble(std::span<const char16_t>, bool* ok = nullptr);
+WTF_EXPORT_PRIVATE double charactersToFixedDouble(std::span<const Latin1Character>, bool* ok = nullptr);
+WTF_EXPORT_PRIVATE double charactersToFixedDouble(std::span<const char16_t>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const Latin1Character>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const char16_t>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const Latin1Character>, size_t& parsedLength);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const char16_t>, size_t& parsedLength);
 
-template<bool isSpecialCharacter(char16_t), typename CharacterType, std::size_t Extent> bool containsOnly(std::span<const CharacterType, Extent>);
+template<bool isSpecialCharacter(char16_t), typename CharacterType, std::size_t Extent> bool NODELETE containsOnly(std::span<const CharacterType, Extent>);
 
 enum class TrailingZerosPolicy : bool { Keep, Truncate };
 
@@ -128,8 +130,8 @@ public:
     WTF_EXPORT_PRIVATE Expected<CString, UTF8ConversionError> tryGetUTF8(ConversionMode) const;
     WTF_EXPORT_PRIVATE Expected<CString, UTF8ConversionError> tryGetUTF8() const;
 
-    char16_t characterAt(unsigned index) const;
-    char16_t operator[](unsigned index) const { return characterAt(index); }
+    char16_t codeUnitAt(unsigned index) const;
+    char16_t operator[](unsigned index) const { return codeUnitAt(index); }
 
     WTF_EXPORT_PRIVATE static String NODELETE number(int);
     WTF_EXPORT_PRIVATE static String NODELETE number(unsigned);
@@ -151,10 +153,10 @@ public:
     size_t find(Latin1Character character, unsigned start = 0) const { return m_impl ? m_impl->find(character, start) : notFound; }
     size_t find(char character, unsigned start = 0) const { return m_impl ? m_impl->find(character, start) : notFound; }
 
-    size_t find(StringView) const;
-    size_t find(StringView, unsigned start) const;
-    size_t findIgnoringASCIICase(StringView) const;
-    size_t findIgnoringASCIICase(StringView, unsigned start) const;
+    size_t NODELETE find(StringView) const;
+    size_t NODELETE find(StringView, unsigned start) const;
+    size_t NODELETE findIgnoringASCIICase(StringView) const;
+    size_t NODELETE findIgnoringASCIICase(StringView, unsigned start) const;
 
     template<typename CodeUnitMatchFunction>
         requires (std::is_invocable_r_v<bool, CodeUnitMatchFunction, char16_t>)
@@ -169,27 +171,27 @@ public:
     WTF_EXPORT_PRIVATE Expected<Vector<char16_t>, UTF8ConversionError> charactersWithNullTermination() const;
     WTF_EXPORT_PRIVATE Expected<Vector<char16_t>, UTF8ConversionError> charactersWithoutNullTermination() const;
 
-    WTF_EXPORT_PRIVATE char32_t NODELETE characterStartingAt(unsigned) const;
+    WTF_EXPORT_PRIVATE char32_t NODELETE codePointAt(unsigned) const;
 
     bool contains(char16_t character) const { return find(character) != notFound; }
     bool contains(ASCIILiteral literal) const { return find(literal) != notFound; }
-    bool contains(StringView) const;
+    bool NODELETE contains(StringView) const;
     template<typename CodeUnitMatchFunction>
         requires (std::is_invocable_r_v<bool, CodeUnitMatchFunction, char16_t>)
     bool contains(CodeUnitMatchFunction matchFunction) const { return find(matchFunction, 0) != notFound; }
-    bool containsIgnoringASCIICase(StringView) const;
-    bool containsIgnoringASCIICase(StringView, unsigned start) const;
+    bool NODELETE containsIgnoringASCIICase(StringView) const;
+    bool NODELETE containsIgnoringASCIICase(StringView, unsigned start) const;
 
-    bool startsWith(StringView) const;
-    bool startsWithIgnoringASCIICase(StringView) const;
+    bool NODELETE startsWith(StringView) const;
+    bool NODELETE startsWithIgnoringASCIICase(StringView) const;
     bool startsWith(char16_t character) const { return m_impl && m_impl->startsWith(character); }
-    bool hasInfixStartingAt(StringView prefix, unsigned start) const;
+    bool NODELETE hasInfixStartingAt(StringView prefix, unsigned start) const;
 
-    bool endsWith(StringView) const;
-    bool endsWithIgnoringASCIICase(StringView) const;
+    bool NODELETE endsWith(StringView) const;
+    bool NODELETE endsWithIgnoringASCIICase(StringView) const;
     bool endsWith(char16_t character) const { return m_impl && m_impl->endsWith(character); }
     bool endsWith(char character) const { return endsWith(static_cast<char16_t>(character)); }
-    bool hasInfixEndingAt(StringView suffix, unsigned end) const;
+    bool NODELETE hasInfixEndingAt(StringView suffix, unsigned end) const;
 
     [[nodiscard]] String substring(unsigned position, unsigned length = MaxLength) const;
     [[nodiscard]] WTF_EXPORT_PRIVATE String substringSharingImpl(unsigned position, unsigned length = MaxLength) const;
@@ -201,6 +203,7 @@ public:
     [[nodiscard]] WTF_EXPORT_PRIVATE String convertToLowercaseWithoutLocale() const;
     [[nodiscard]] WTF_EXPORT_PRIVATE String convertToLowercaseWithoutLocaleStartingAtFailingIndex8Bit(unsigned) const;
     [[nodiscard]] WTF_EXPORT_PRIVATE String convertToUppercaseWithoutLocale() const;
+    [[nodiscard]] WTF_EXPORT_PRIVATE String convertToUppercaseWithoutLocaleStartingAtFailingIndex8Bit(unsigned failingIndex) const;
     [[nodiscard]] WTF_EXPORT_PRIVATE String convertToLowercaseWithLocale(const AtomString& localeIdentifier) const;
     [[nodiscard]] WTF_EXPORT_PRIVATE String convertToUppercaseWithLocale(const AtomString& localeIdentifier) const;
 
@@ -279,7 +282,7 @@ public:
     static String fromUTF8(const char* string) { return byteCast<char8_t>(unsafeSpan(string)); }
 
     // Convert each invalid UTF-8 sequence into a replacement character.
-    static String fromUTF8ReplacingInvalidSequences(std::span<const char8_t>);
+    WTF_EXPORT_PRIVATE static String fromUTF8ReplacingInvalidSequences(std::span<const char8_t>);
     static String fromUTF8ReplacingInvalidSequences(std::span<const Latin1Character> characters) { return fromUTF8ReplacingInvalidSequences(byteCast<char8_t>(characters)); }
 
     // Tries to convert the passed in string to UTF-8, but will fall back to Latin-1 if the string is not valid UTF-8.
@@ -331,8 +334,8 @@ inline bool operator==(const String& a, const String& b) { return equal(a.impl()
 inline bool operator==(const String& a, ASCIILiteral b) { return equal(a.impl(), b); }
 template<size_t inlineCapacity> inline bool operator==(const String& a, const Vector<char, inlineCapacity>& b) { return b == a; }
 
-bool equalIgnoringASCIICase(const String&, const String&);
-bool equalIgnoringASCIICase(const String&, ASCIILiteral);
+bool NODELETE equalIgnoringASCIICase(const String&, const String&);
+bool NODELETE equalIgnoringASCIICase(const String&, ASCIILiteral);
 
 bool equalLettersIgnoringASCIICase(const String&, ASCIILiteral);
 bool startsWithLettersIgnoringASCIICase(const String&, ASCIILiteral);
@@ -353,9 +356,6 @@ RetainPtr<NSString> nsStringNilIfEmpty(const String&);
 RetainPtr<NSString> nsStringNilIfNull(const String&);
 
 #endif
-
-WTF_EXPORT_PRIVATE std::strong_ordering codePointCompare(const String&, const String&);
-bool codePointCompareLessThan(const String&, const String&);
 
 // Shared global empty and null string.
 struct StaticString {
@@ -458,7 +458,7 @@ template<> inline std::span<const char16_t> String::span<char16_t>() const LIFET
     return span16();
 }
 
-inline char16_t String::characterAt(unsigned index) const
+inline char16_t String::codeUnitAt(unsigned index) const
 {
     if (!m_impl || index >= m_impl->length())
         return 0;
@@ -540,11 +540,6 @@ inline RetainPtr<NSString> nsStringNilIfNull(const String& string)
 
 #endif
 
-inline bool codePointCompareLessThan(const String& a, const String& b)
-{
-    return codePointCompare(a.impl(), b.impl()) < 0;
-}
-
 template<typename Predicate>
 String String::removeCharacters(const Predicate& findMatch) const
 {
@@ -556,12 +551,12 @@ inline bool equalLettersIgnoringASCIICase(const String& string, ASCIILiteral lit
     return equalLettersIgnoringASCIICase(string.impl(), literal);
 }
 
-inline bool equalIgnoringASCIICase(const String& a, const String& b)
+inline bool NODELETE equalIgnoringASCIICase(const String& a, const String& b)
 {
     return equalIgnoringASCIICase(a.impl(), b.impl());
 }
 
-inline bool equalIgnoringASCIICase(const String& a, ASCIILiteral b)
+inline bool NODELETE equalIgnoringASCIICase(const String& a, ASCIILiteral b)
 {
     return equalIgnoringASCIICase(a.impl(), b);
 }
@@ -590,6 +585,7 @@ inline String operator""_str(const char16_t* characters, size_t length)
 using WTF::TrailingZerosPolicy;
 using WTF::String;
 using WTF::charactersToDouble;
+using WTF::charactersToFixedDouble;
 using WTF::charactersToFloat;
 using WTF::emptyString;
 using WTF::makeStringByJoining;
@@ -600,6 +596,5 @@ using WTF::equal;
 using WTF::find;
 using WTF::containsOnly;
 using WTF::reverseFind;
-using WTF::codePointCompareLessThan;
 
 #include <wtf/text/AtomString.h>

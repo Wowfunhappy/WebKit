@@ -44,6 +44,8 @@ NS_SWIFT_UI_ACTOR
 
 - (void)selectionDidChange;
 
+- (void)reextendSelectionForAutoscrollIfNeeded;
+
 @end
 
 @interface WKTextSelectionController (NSTextSelectionManagerDelegate)

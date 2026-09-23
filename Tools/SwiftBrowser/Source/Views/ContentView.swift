@@ -29,22 +29,23 @@ import WebKit
 private struct DialogActionsView: View {
     private let dialog: DialogPresenter.Dialog
 
-    @State private var promptText = ""
+    @State
+    private var promptText = ""
 
     init(dialog: DialogPresenter.Dialog) {
         self.dialog = dialog
 
-        if case let .prompt(_, defaultText, _) = dialog.configuration, let defaultText {
+        if case .prompt(_, let defaultText, _) = dialog.configuration, let defaultText {
             _promptText = State(initialValue: defaultText)
         }
     }
 
     var body: some View {
         switch dialog.configuration {
-        case let .alert(_, dismissAlert):
+        case .alert(_, let dismissAlert):
             Button("Close", action: dismissAlert)
 
-        case let .confirm(_, dismissConfirm):
+        case .confirm(_, let dismissConfirm):
             Button("OK") {
                 dismissConfirm(.ok)
             }
@@ -53,7 +54,7 @@ private struct DialogActionsView: View {
                 dismissConfirm(.cancel)
             }
 
-        case let .prompt(_, _, dismissPrompt):
+        case .prompt(_, _, let dismissPrompt):
             TextField("Text", text: $promptText)
 
             Button("OK") {
@@ -73,13 +74,13 @@ private struct DialogMessageView: View {
 
     var body: some View {
         switch dialog.configuration {
-        case let .alert(message, _):
+        case .alert(let message, _):
             Text(message)
 
-        case let .confirm(message, _):
+        case .confirm(let message, _):
             Text(message)
 
-        case let .prompt(message, _, _):
+        case .prompt(let message, _, _):
             Text(message)
         }
     }
@@ -111,7 +112,8 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            @Bindable var viewModel = viewModel
+            @Bindable
+            var viewModel = viewModel
 
             WebView(viewModel.page)
                 .webViewBackForwardNavigationGestures(.enabled)
@@ -121,16 +123,9 @@ struct ContentView: View {
                 .findNavigator(isPresented: $findNavigatorIsPresented)
                 .task {
                     do {
-                        #if compiler(>=6.2)
-                        // Safety: this is actually safe; false positive is rdar://154775389
-                        for try await unsafe event in viewModel.page.navigations {
-                            print(event)
-                        }
-                        #else
                         for try await event in viewModel.page.navigations {
                             print(event)
                         }
-                        #endif
                     } catch {
                         print(error)
                     }
@@ -152,18 +147,35 @@ struct ContentView: View {
                 }
                 .navigationTitle(viewModel.page.title)
                 #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline)
                 #endif
                 .focusedSceneValue(viewModel)
                 .onOpenURL(perform: viewModel.openURL(_:))
-                .fileExporter(isPresented: $viewModel.pdfExporterIsPresented, item: viewModel.exportedPDF, defaultFilename: viewModel.exportedPDF?.title, onCompletion: viewModel.didExportPDF(result:))
-                .fileImporter(isPresented: $viewModel.isPresentingFilePicker, allowedContentTypes: [.png, .pdf], allowsMultipleSelection: viewModel.currentFilePicker?.allowsMultipleSelection ?? false, onCompletion: viewModel.didImportFiles(result:))
-                .alert("\(url?.absoluteString ?? "") says:", isPresented: $viewModel.isPresentingDialog, presenting: viewModel.currentDialog) { dialog in
+                .fileExporter(
+                    isPresented: $viewModel.pdfExporterIsPresented,
+                    item: viewModel.exportedPDF,
+                    defaultFilename: viewModel.exportedPDF?.title,
+                    onCompletion: viewModel.didExportPDF(result:)
+                )
+                .fileImporter(
+                    isPresented: $viewModel.isPresentingFilePicker,
+                    allowedContentTypes: [.png, .pdf],
+                    allowsMultipleSelection: viewModel.currentFilePicker?.allowsMultipleSelection ?? false,
+                    onCompletion: viewModel.didImportFiles(result:)
+                )
+                .alert(
+                    "\(url?.absoluteString ?? "") says:",
+                    isPresented: $viewModel.isPresentingDialog,
+                    presenting: viewModel.currentDialog
+                ) { dialog in
                     DialogActionsView(dialog: dialog)
                 } message: { dialog in
                     DialogMessageView(dialog: dialog)
                 }
                 .scrollBounceBehavior(scrollBounceBehaviorBasedOnSize == true ? .basedOnSize : .automatic)
+                .refreshable {
+                    await viewModel.reload()
+                }
                 .webViewContentBackground(backgroundHidden == true ? .hidden : .automatic)
                 .webViewScrollEdgeEffectStyle(showColorInTabBar ? .soft : .hard, for: .all)
                 .webContextMenu()
@@ -173,9 +185,13 @@ struct ContentView: View {
 }
 
 #Preview {
-    @Previewable @State var viewModel = BrowserViewModel()
+    @Previewable
+    @State
+    var viewModel = BrowserViewModel()
 
-    @Previewable @State var url: URL? = nil
+    @Previewable
+    @State
+    var url: URL? = nil
 
     let request = {
         let url = URL(string: "https://www.apple.com")!

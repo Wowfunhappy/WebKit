@@ -33,6 +33,7 @@
 #import "PluginView.h"
 #import "ShareableBitmapUtilities.h"
 #import "WebPage.h"
+#import <WebCore/AccessibilityObject.h>
 #import <WebCore/ContainerNodeInlines.h>
 #import <WebCore/DataDetection.h>
 #import <WebCore/DataDetectionResultsStorage.h>
@@ -63,6 +64,7 @@
 #import <WebCore/Model.h>
 #import <WebCore/NodeDocument.h>
 #import <WebCore/Page.h>
+#import <WebCore/PlatformScreen.h>
 #import <WebCore/Quirks.h>
 #import <WebCore/RenderBlockFlow.h>
 #import <WebCore/RenderBoxInlines.h>
@@ -201,7 +203,16 @@ static std::optional<std::pair<WebCore::RenderImage&, WebCore::Image&>> imageRen
     return { { *renderImage, *image } };
 }
 
+static WebCore::FloatSize platformBitmapSizeCap(const WebPage& page)
+{
 #if PLATFORM(IOS_FAMILY)
+    return WebCore::screenSize();
+#else
+    RefPtr localMainFrame = page.corePage()->localMainFrame();
+    return WebCore::screenRect(localMainFrame ? protect(localMainFrame->view()) : nullptr).size();
+#endif
+}
+
 static void videoPositionInformation(WebPage& page, WebCore::HTMLVideoElement& element, const InteractionInformationRequest& request, InteractionInformationAtPosition& info)
 {
     info.elementContainsImageOverlay = WebCore::ImageOverlay::hasOverlay(element);
@@ -220,20 +231,18 @@ static void videoPositionInformation(WebPage& page, WebCore::HTMLVideoElement& e
 
     info.hostImageOrVideoElementContext = page.contextForElement(element);
 }
-#endif // PLATFORM(IOS_FAMILY)
 
 static RefPtr<WebCore::HTMLVideoElement> hostVideoElementIgnoringImageOverlay(WebCore::Node& node)
 {
     if (WebCore::ImageOverlay::isInsideOverlay(node))
         return { };
 
-    if (RefPtr video = dynamicDowncast<WebCore::HTMLVideoElement>(node))
+    if (auto* video = dynamicDowncast<WebCore::HTMLVideoElement>(node))
         return video;
 
     return dynamicDowncast<WebCore::HTMLVideoElement>(node.shadowHost());
 }
 
-#if PLATFORM(IOS_FAMILY)
 static void imagePositionInformation(WebPage& page, WebCore::Element& element, const InteractionInformationRequest& request, InteractionInformationAtPosition& info)
 {
     auto rendererAndImage = imageRendererAndImage(element);
@@ -242,7 +251,7 @@ static void imagePositionInformation(WebPage& page, WebCore::Element& element, c
 
     auto& [renderImage, image] = *rendererAndImage;
     info.isImage = true;
-    info.imageURL = page.applyLinkDecorationFiltering(protect(element.document())->completeURL(protect(renderImage.cachedImage())->url().string()), WebCore::LinkDecorationFilteringTrigger::Unspecified);
+    info.imageURL = page.applyLinkDecorationFiltering(protect(element.document())->encodingParseURL(protect(renderImage.cachedImage())->url().string()), WebCore::LinkDecorationFilteringTrigger::Unspecified);
     info.imageMIMEType = image.mimeType();
     info.isAnimatedImage = image.isAnimated();
     info.isAnimating = image.isAnimating();
@@ -253,11 +262,10 @@ static void imagePositionInformation(WebPage& page, WebCore::Element& element, c
 #endif
 
     if (request.includeSnapshot || request.includeImageData)
-        info.image = createShareableBitmap(renderImage, { WebCore::screenSize() * page.corePage()->deviceScaleFactor(), AllowAnimatedImages::Yes, UseSnapshotForTransparentImages::Yes });
+        info.image = createShareableBitmap(renderImage, { platformBitmapSizeCap(page) * page.corePage()->deviceScaleFactor(), AllowAnimatedImages::Yes, UseSnapshotForTransparentImages::Yes });
 
     info.hostImageOrVideoElementContext = page.contextForElement(element);
 }
-#endif // PLATFORM(IOS_FAMILY)
 
 static void boundsPositionInformation(WebCore::RenderObject& renderer, InteractionInformationAtPosition& info)
 {
@@ -295,7 +303,7 @@ static void elementPositionInformation(WebPage& page, WebCore::Element& element,
 
     if (linkElement && !info.isImageOverlayText) {
         info.isLink = true;
-        info.url = page.applyLinkDecorationFiltering(document->completeURL(linkElement->getAttribute(WebCore::HTMLNames::hrefAttr)), WebCore::LinkDecorationFilteringTrigger::Unspecified);
+        info.url = page.applyLinkDecorationFiltering(document->encodingParseURL(linkElement->getAttribute(WebCore::HTMLNames::hrefAttr)), WebCore::LinkDecorationFilteringTrigger::Unspecified);
 
         linkIndicatorPositionInformation(page, *linkElement, request, info);
 #if ENABLE(DATA_DETECTION) && PLATFORM(IOS_FAMILY)
@@ -314,16 +322,15 @@ static void elementPositionInformation(WebPage& page, WebCore::Element& element,
 #endif
 
     if (CheckedPtr renderer = element.renderer()) {
-#if PLATFORM(IOS_FAMILY)
         bool shouldCollectImagePositionInformation = renderer->isRenderImage();
         if (shouldCollectImagePositionInformation && info.isImageOverlayText) {
             shouldCollectImagePositionInformation = false;
             if (request.includeImageData) {
                 if (auto rendererAndImage = imageRendererAndImage(element)) {
                     auto& [renderImage, image] = *rendererAndImage;
-                    info.imageURL = page.applyLinkDecorationFiltering(document->completeURL(protect(renderImage.cachedImage())->url().string()), WebCore::LinkDecorationFilteringTrigger::Unspecified);
+                    info.imageURL = page.applyLinkDecorationFiltering(document->encodingParseURL(protect(renderImage.cachedImage())->url().string()), WebCore::LinkDecorationFilteringTrigger::Unspecified);
                     info.imageMIMEType = image.mimeType();
-                    info.image = createShareableBitmap(renderImage, { WebCore::screenSize() * page.corePage()->deviceScaleFactor(), AllowAnimatedImages::Yes, UseSnapshotForTransparentImages::Yes });
+                    info.image = createShareableBitmap(renderImage, { platformBitmapSizeCap(page) * page.corePage()->deviceScaleFactor(), AllowAnimatedImages::Yes, UseSnapshotForTransparentImages::Yes });
                 }
             }
         }
@@ -333,7 +340,6 @@ static void elementPositionInformation(WebPage& page, WebCore::Element& element,
             else
                 imagePositionInformation(page, element, request, info);
         }
-#endif // PLATFORM(IOS_FAMILY)
         boundsPositionInformation(*renderer, info);
     }
 
@@ -342,16 +348,24 @@ static void elementPositionInformation(WebPage& page, WebCore::Element& element,
 
 static void selectionPositionInformation(WebPage& page, const InteractionInformationRequest& request, InteractionInformationAtPosition& info)
 {
+    // `request.point` is in the root-view coordinate space.
+
     RefPtr localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page.corePage()->mainFrame());
     if (!localMainFrame)
         return;
 
-    constexpr OptionSet<WebCore::HitTestRequest::Type> hitType {
+    RefPtr frameView = localMainFrame->view();
+    if (!frameView)
+        return;
+
+    auto contentsPoint = frameView->rootViewToContents(request.point);
+
+    constexpr OptionSet hitType {
         WebCore::HitTestRequest::Type::ReadOnly,
         WebCore::HitTestRequest::Type::Active,
         WebCore::HitTestRequest::Type::AllowVisibleChildFrameContentOnly
     };
-    WebCore::HitTestResult result = localMainFrame->eventHandler().hitTestResultAtPoint(request.point, hitType);
+    WebCore::HitTestResult result = localMainFrame->eventHandler().hitTestResultAtPoint(contentsPoint, hitType);
     RefPtr hitNode = result.innerNode();
 
     // Hit test could return HTMLHtmlElement that has no renderer, if the body is smaller than the document.
@@ -379,6 +393,8 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
     })();
     info.isSelected = result.isSelected();
 
+    info.isOverSelectableText = info.isSelectable() && renderer->isRenderText() && hitNode->canStartSelection();
+
     if (info.isLink || info.isImage)
         return;
 
@@ -395,20 +411,55 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
             info.url = URL::fileURLWithFileSystemPath(attachment->file()->path());
     }
 
-    for (auto* currentNode = hitNode.get(); currentNode; currentNode = currentNode->parentOrShadowHostNode()) {
-        auto* renderer = currentNode->renderer();
+    for (RefPtr currentNode = hitNode; currentNode; currentNode = currentNode->parentOrShadowHostNode()) {
+        CheckedPtr renderer = currentNode->renderer();
         if (!renderer)
             continue;
 
         CheckedRef style = renderer->style();
-        if (style->usedUserSelect() == WebCore::UserSelect::None && style->userDrag() == WebCore::UserDrag::Element) {
+        if (style->userDrag() == WebCore::UserDrag::Element)
+            info.isDHTMLDraggable = true;
+        if (style->usedUserSelect() == WebCore::UserSelect::None && style->userDrag() == WebCore::UserDrag::Element)
             info.prefersDraggingOverTextSelection = true;
+
+        if (!info.isColorInput) {
+            if (RefPtr input = dynamicDowncast<WebCore::HTMLInputElement>(currentNode); input && input->isColorControl() && !input->isDisabledFormControl())
+                info.isColorInput = true;
+        }
+
+        if (!info.isRangeInput) {
+            if (RefPtr input = dynamicDowncast<WebCore::HTMLInputElement>(currentNode); input && input->isRangeControl() && !input->isDisabledFormControl())
+                info.isRangeInput = true;
+        }
+
+        if (info.prefersDraggingOverTextSelection || info.isDHTMLDraggable || info.isColorInput || info.isRangeInput)
             break;
+    }
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    if (!info.isRangeInput) {
+        constexpr auto sliderHitType = hitType | OptionSet {
+            WebCore::HitTestRequest::Type::CollectMultipleElements,
+            WebCore::HitTestRequest::Type::IncludeAllElementsUnderPoint,
+        };
+        const auto sliderResult = localMainFrame->eventHandler().hitTestResultAtPoint(contentsPoint, sliderHitType);
+        for (Ref node : sliderResult.listBasedTestResult()) {
+            const RefPtr element = dynamicDowncast<WebCore::Element>(node);
+            if (!element)
+                continue;
+
+            const auto ariaRole = element->attributeWithoutSynchronization(WebCore::HTMLNames::roleAttr);
+            if (WebCore::AccessibilityObject::ariaRoleToWebCoreRole(ariaRole) == WebCore::AccessibilityRole::Slider) {
+                info.isARIASlider = true;
+                break;
+            }
         }
     }
+#endif // HAVE(APPKIT_GESTURES_SUPPORT)
+
 #if PLATFORM(MACCATALYST)
     bool isInsideFixedPosition;
-    WebCore::VisiblePosition caretPosition(renderer->visiblePositionForPoint(request.point, WebCore::HitTestSource::User));
+    WebCore::VisiblePosition caretPosition(renderer->visiblePositionForPoint(contentsPoint, WebCore::HitTestSource::User));
     info.caretRect = caretPosition.absoluteCaretBounds(&isInsideFixedPosition);
 #endif
 
@@ -420,6 +471,8 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
 
 static void textInteractionPositionInformation(WebPage& page, const WebCore::HTMLInputElement& input, const InteractionInformationRequest& request, InteractionInformationAtPosition& info)
 {
+    // `request.point` is in the root-view coordinate space.
+
     if (!input.list())
         return;
 
@@ -427,7 +480,12 @@ static void textInteractionPositionInformation(WebPage& page, const WebCore::HTM
     RefPtr localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page.corePage()->mainFrame());
     if (!localMainFrame)
         return;
-    WebCore::HitTestResult result = localMainFrame->eventHandler().hitTestResultAtPoint(request.point, hitType);
+
+    RefPtr frameView = localMainFrame->view();
+    if (!frameView)
+        return;
+
+    WebCore::HitTestResult result = localMainFrame->eventHandler().hitTestResultAtPoint(frameView->rootViewToContents(request.point), hitType);
     if (result.innerNode() == input.dataListButtonElement())
         info.preventTextInteraction = true;
 }
@@ -577,12 +635,18 @@ static RefPtr<WebCore::LocalDOMWindow> windowWithDoubleClickEventListener(RefPtr
 
 InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, const InteractionInformationRequest& request)
 {
+    // `request.point` is in the root-view coordinate space.
+
     InteractionInformationAtPosition info;
     info.request = request;
 
     WebCore::FloatPoint adjustedPoint;
     RefPtr localMainFrame = page.corePage()->localMainFrame();
     if (!localMainFrame)
+        return info;
+
+    RefPtr mainFrameView = localMainFrame->view();
+    if (!mainFrameView)
         return info;
 
     RefPtr nodeRespondingToClickEvents = localMainFrame->nodeRespondingToClickEvents(request.point, adjustedPoint);
@@ -607,7 +671,9 @@ InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, co
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
 
     auto& eventHandler = localMainFrame->eventHandler();
-    auto hitTestResult = eventHandler.hitTestResultAtPoint(request.point, hitTestRequestTypes);
+
+    auto hitTestPoint = mainFrameView->rootViewToContents(request.point);
+    auto hitTestResult = eventHandler.hitTestResultAtPoint(hitTestPoint, hitTestRequestTypes);
 
 #if ENABLE(PDF_PLUGIN)
     RefPtr pluginView = hitTestResult.isOverWidget() ? WebPage::pluginViewForFrame(WTF::protect(hitTestResult.innerNodeFrame())) : nullptr;
@@ -627,6 +693,16 @@ InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, co
         focusedElementPositionInformation(page, *page.focusedElement(), request, info);
 
     RefPtr hitTestNode = hitTestResult.innerNonSharedNode();
+
+#if ENABLE(MODEL_ELEMENT)
+    // If the hit lands on a draggable <model>, let the model take precedence over any ancestor
+    // <a rel="ar">. Without this, nodeRespondingToClickEvents walks up to the anchor (because
+    // <model> has no inherent click listeners), which would mark this as a link and trigger the
+    // link preview/context-menu interaction instead of the model's drag gesture on visionOS.
+    if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode); modelElement && modelElement->supportsDragging() && modelElement->model())
+        nodeRespondingToClickEvents = WTF::move(modelElement);
+#endif
+
     if (RefPtr element = dynamicDowncast<WebCore::Element>(nodeRespondingToClickEvents)) {
         elementPositionInformation(page, *element, request, hitTestNode.get(), info);
 
@@ -650,14 +726,12 @@ InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, co
         dataDetectorImageOverlayPositionInformation(*hitTestedImageOverlayHost, request, info);
 #endif // ENABLE(DATA_DETECTION) && PLATFORM(IOS_FAMILY)
 
-#if PLATFORM(IOS_FAMILY)
     if (!info.isImage && request.includeImageData && hitTestNode) {
         if (auto video = hostVideoElementIgnoringImageOverlay(*hitTestNode))
             videoPositionInformation(page, *video, request, info);
         else if (RefPtr img = dynamicDowncast<WebCore::HTMLImageElement>(hitTestNode))
             imagePositionInformation(page, *img, request, info);
     }
-#endif // PLATFORM(IOS_FAMILY)
 
     animationPositionInformation(page, request, hitTestResult, info);
     selectionPositionInformation(page, request, info);
@@ -669,6 +743,11 @@ InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, co
 #if ENABLE(MODEL_PROCESS)
     if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode))
         info.isInteractiveModel = modelElement->model() && modelElement->supportsStageModeInteraction();
+#endif
+
+#if ENABLE(MODEL_ELEMENT)
+    if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode); modelElement && !modelElement->currentSrc().isEmpty())
+        info.modelURL = modelElement->currentSrc();
 #endif
 
 #if ENABLE(PDF_PLUGIN) && PLATFORM(IOS_FAMILY)

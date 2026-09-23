@@ -42,42 +42,42 @@ static String getExecutablePath()
 }
 #endif
 
-static String findWebKitProcess(const char* processName)
+static String findWebKitProcess(const ASCIILiteral processName)
 {
 #if ENABLE(DEVELOPER_MODE)
     static const char* execDirectory = g_getenv("WEBKIT_EXEC_PATH");
     if (execDirectory) {
-        String processPath = FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(execDirectory), StringView::fromLatin1(processName));
+        String processPath = FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(execDirectory), processName);
         if (FileSystem::fileExists(processPath))
             return processPath;
     }
 
     static String executablePath = getExecutablePath();
     if (!executablePath.isNull()) {
-        String processPath = FileSystem::pathByAppendingComponent(executablePath, StringView::fromLatin1(processName));
+        String processPath = FileSystem::pathByAppendingComponent(executablePath, processName);
         if (FileSystem::fileExists(processPath))
             return processPath;
     }
 #endif
 
-    return FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR), StringView::fromLatin1(processName));
+    return FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR), processName);
 }
 
 String executablePathOfWebProcess()
 {
 #if PLATFORM(WPE)
-    return findWebKitProcess("WPEWebProcess");
+    return findWebKitProcess("WPEWebProcess"_s);
 #else
-    return findWebKitProcess("WebKitWebProcess");
+    return findWebKitProcess("WebKitWebProcess"_s);
 #endif
 }
 
 String executablePathOfNetworkProcess()
 {
 #if PLATFORM(WPE)
-    return findWebKitProcess("WPENetworkProcess");
+    return findWebKitProcess("WPENetworkProcess"_s);
 #else
-    return findWebKitProcess("WebKitNetworkProcess");
+    return findWebKitProcess("WebKitNetworkProcess"_s);
 #endif
 }
 
@@ -85,9 +85,9 @@ String executablePathOfNetworkProcess()
 String executablePathOfGPUProcess()
 {
 #if PLATFORM(WPE)
-    return findWebKitProcess("WPEGPUProcess");
+    return findWebKitProcess("WPEGPUProcess"_s);
 #else
-    return findWebKitProcess("WebKitGPUProcess");
+    return findWebKitProcess("WebKitGPUProcess"_s);
 #endif
 }
 #endif

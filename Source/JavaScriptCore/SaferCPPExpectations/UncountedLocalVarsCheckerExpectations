@@ -64,7 +64,6 @@ inspector/agents/InspectorScriptProfilerAgent.cpp
 interpreter/CallFrame.cpp
 interpreter/Interpreter.cpp
 interpreter/StackVisitor.cpp
-jit/JITOpcodes.cpp
 jit/JITOperations.cpp
 jit/JITWorklist.cpp
 jsc.cpp
@@ -99,16 +98,16 @@ runtime/StringPrototype.cpp
 runtime/Structure.cpp
 runtime/StructureInlines.h
 runtime/SymbolTable.h
+runtime/SymbolTableInlines.h
 runtime/TypeSet.cpp
 runtime/VMTraps.cpp
 runtime/WaiterListManager.h
 tools/JSDollarVM.cpp
+wasm/WasmCalleeGroup.cpp
 wasm/WasmBBQJIT.cpp
 wasm/WasmBBQJIT64.cpp
 wasm/WasmBBQPlan.cpp
-wasm/WasmCallee.cpp
 wasm/WasmFaultSignalHandler.cpp
-[ iOS ] wasm/WasmFormat.h
 wasm/WasmFunctionParser.h
 wasm/WasmIPIntGenerator.cpp
 wasm/WasmIPIntPlan.cpp
@@ -122,11 +121,12 @@ wasm/WasmOperations.cpp
 wasm/WasmOperationsInlines.h
 wasm/WasmSectionParser.cpp
 wasm/WasmStreamingCompiler.cpp
+wasm/WasmTable.cpp
 wasm/WasmTypeDefinition.cpp
-wasm/WasmTypeDefinitionInlines.h
 wasm/WasmWorklist.cpp
 wasm/js/JSWebAssembly.cpp
 wasm/js/JSWebAssemblyHelpers.h
 wasm/js/JSWebAssemblyInstance.cpp
 wasm/js/WasmToJS.cpp
+wasm/js/WebAssemblyFunction.cpp
 wasm/js/WebAssemblyModuleRecord.cpp

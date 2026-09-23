@@ -160,7 +160,7 @@ class BufferFactoryD3D : angle::NonCopyable
                                                  const gl::VertexBinding &binding,
                                                  size_t count,
                                                  GLsizei instances,
-                                                 GLuint baseInstance,
+                                                 uint64_t baseInstance,
                                                  unsigned int *bytesRequiredOut) const = 0;
 };
 
@@ -183,8 +183,7 @@ class RendererD3D : public BufferFactoryD3D
     virtual std::string getVendorString() const                         = 0;
     virtual std::string getVersionString(bool includeFullVersion) const = 0;
 
-    virtual int getMinorShaderModel() const          = 0;
-    virtual std::string getShaderModelSuffix() const = 0;
+    virtual int getMinorShaderModel() const = 0;
 
     // Direct3D Specific methods
     virtual DeviceIdentifier getAdapterIdentifier() const = 0;
@@ -341,13 +340,11 @@ class RendererD3D : public BufferFactoryD3D
                                                    GLsizei width,
                                                    GLsizei height,
                                                    int levels,
-                                                   const std::string &label,
-                                                   bool hintLevelZeroOnly)                   = 0;
+                                                   const std::string &label)                 = 0;
     virtual TextureStorage *createTextureStorageCube(GLenum internalformat,
                                                      BindFlags bindFlags,
                                                      int size,
                                                      int levels,
-                                                     bool hintLevelZeroOnly,
                                                      const std::string &label)               = 0;
     virtual TextureStorage *createTextureStorage3D(GLenum internalformat,
                                                    BindFlags bindFlags,

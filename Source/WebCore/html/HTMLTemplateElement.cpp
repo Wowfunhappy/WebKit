@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012, 2013 Google Inc. All rights reserved.
- * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -37,11 +37,11 @@
 #include "ElementInlines.h"
 #include "ElementRareData.h"
 #include "HTMLNames.h"
-#include "NodeInlines.h"
 #include "NodeTraversal.h"
 #include "SerializedNode.h"
 #include "ShadowRoot.h"
 #include "ShadowRootInit.h"
+#include "ShadowRootMode.h"
 #include "SlotAssignmentMode.h"
 #include "TemplateContentDocumentFragment.h"
 #include "markup.h"
@@ -96,15 +96,17 @@ void HTMLTemplateElement::adoptDeserializedContent(Ref<TemplateContentDocumentFr
 
 const AtomString& HTMLTemplateElement::shadowRootMode() const
 {
-    static MainThreadNeverDestroyed<const AtomString> open("open"_s);
-    static MainThreadNeverDestroyed<const AtomString> closed("closed"_s);
-
     auto modeString = attributeWithoutSynchronization(HTMLNames::shadowrootmodeAttr);
-    if (equalLettersIgnoringASCIICase(modeString, "closed"_s))
-        return closed;
-    if (equalLettersIgnoringASCIICase(modeString, "open"_s))
-        return open;
-    return emptyAtom();
+    auto mode = parseShadowRootMode(modeString);
+    if (!mode)
+        return emptyAtom();
+    return serializeShadowRootMode(*mode);
+}
+
+const AtomString& HTMLTemplateElement::shadowRootSlotAssignment() const
+{
+    auto value = attributeWithoutSynchronization(HTMLNames::shadowrootslotassignmentAttr);
+    return serializeSlotAssignmentMode(parseSlotAssignmentMode(value));
 }
 
 void HTMLTemplateElement::setDeclarativeShadowRoot(ShadowRoot& shadowRoot)

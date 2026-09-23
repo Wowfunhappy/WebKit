@@ -29,11 +29,6 @@
 #include <wtf/Platform.h>
 #include <wtf/RefPtr.h>
 
-#if OS(DARWIN)
-#include <mach/vm_param.h>
-#include <mach/vm_types.h>
-#endif
-
 namespace WTF {
 
 namespace {

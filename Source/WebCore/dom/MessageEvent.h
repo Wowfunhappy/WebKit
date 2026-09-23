@@ -64,11 +64,11 @@ public:
         std::optional<MessageEventSource> source;
         Vector<Ref<MessagePort>> ports;
     };
-    static Ref<MessageEvent> create(const AtomString& type, Init&&, IsTrusted = IsTrusted::No);
+    static Ref<MessageEvent> create(JSC::JSGlobalObject&, const AtomString& type, Init&&, IsTrusted = IsTrusted::No);
 
     virtual ~MessageEvent();
 
-    void initMessageEvent(const AtomString& type, bool canBubble, bool cancelable, JSC::JSValue data, const String& origin, const String& lastEventId, std::optional<MessageEventSource>&&, Vector<Ref<MessagePort>>&&);
+    void initMessageEvent(JSC::JSGlobalObject&, const AtomString& type, bool canBubble, bool cancelable, JSC::JSValue data, const String& origin, const String& lastEventId, std::optional<MessageEventSource>&&, Vector<Ref<MessagePort>>&&);
 
     String origin() const;
     const RefPtr<SecurityOrigin> securityOrigin() const;
@@ -91,7 +91,7 @@ public:
 
 private:
     MessageEvent();
-    MessageEvent(const AtomString& type, Init&&, IsTrusted);
+    MessageEvent(JSC::JSGlobalObject&, const AtomString& type, Init&&, IsTrusted);
     MessageEvent(const AtomString& type, DataType&&, RefPtr<SecurityOrigin>&& origin, const String& lastEventId = { }, std::optional<MessageEventSource>&& = std::nullopt, Vector<Ref<MessagePort>>&& = { });
 
     DataType m_data WTF_GUARDED_BY_LOCK(m_concurrentDataAccessLock);
@@ -108,3 +108,5 @@ private:
 };
 
 } // namespace WebCore
+
+extern template class mpark::variant<WTF::Ref<WebCore::WindowProxy>, WTF::Ref<WebCore::MessagePort>, WTF::Ref<WebCore::ServiceWorker>>;

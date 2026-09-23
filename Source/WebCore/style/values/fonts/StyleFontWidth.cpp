@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleFontWidth.h"
 
+#include "CSSKeywordValue.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
@@ -38,38 +39,37 @@ namespace Style {
 
 auto CSSValueConversion<FontWidth>::operator()(BuilderState& state, const CSSValue& value) -> FontWidth
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::Normal { };
-
-    switch (auto valueID = primitiveValue->valueID(); valueID) {
-    case CSSValueInvalid:
-        return toStyleFromCSSValue<FontWidth::Percentage>(state, *primitiveValue);
-    case CSSValueUltraCondensed:
-        return CSS::Keyword::UltraCondensed { };
-    case CSSValueExtraCondensed:
-        return CSS::Keyword::ExtraCondensed { };
-    case CSSValueCondensed:
-        return CSS::Keyword::Condensed { };
-    case CSSValueSemiCondensed:
-        return CSS::Keyword::SemiCondensed { };
-    case CSSValueNormal:
-        return CSS::Keyword::Normal { };
-    case CSSValueSemiExpanded:
-        return CSS::Keyword::SemiExpanded { };
-    case CSSValueExpanded:
-        return CSS::Keyword::Expanded { };
-    case CSSValueExtraExpanded:
-        return CSS::Keyword::ExtraExpanded { };
-    case CSSValueUltraExpanded:
-        return CSS::Keyword::UltraExpanded { };
-    default:
-        if (CSSPropertyParserHelpers::isSystemFontShorthand(valueID))
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (auto valueID = keywordValue->valueID(); valueID) {
+        case CSSValueInvalid:
+        case CSSValueUltraCondensed:
+            return CSS::Keyword::UltraCondensed { };
+        case CSSValueExtraCondensed:
+            return CSS::Keyword::ExtraCondensed { };
+        case CSSValueCondensed:
+            return CSS::Keyword::Condensed { };
+        case CSSValueSemiCondensed:
+            return CSS::Keyword::SemiCondensed { };
+        case CSSValueNormal:
             return CSS::Keyword::Normal { };
+        case CSSValueSemiExpanded:
+            return CSS::Keyword::SemiExpanded { };
+        case CSSValueExpanded:
+            return CSS::Keyword::Expanded { };
+        case CSSValueExtraExpanded:
+            return CSS::Keyword::ExtraExpanded { };
+        case CSSValueUltraExpanded:
+            return CSS::Keyword::UltraExpanded { };
+        default:
+            if (CSSPropertyParserHelpers::isSystemFontShorthand(valueID))
+                return CSS::Keyword::Normal { };
 
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return CSS::Keyword::Normal { };
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Normal { };
+        }
     }
+
+    return toStyleFromCSSValue<FontWidth::Percentage>(state, value);
 }
 
 // MARK: Blending

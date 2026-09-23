@@ -66,6 +66,7 @@
 #import <WebCore/TiledBacking.h>
 #import <WebCore/WebActionDisablingCALayerDelegate.h>
 #import <WebCore/WindowEventLoop.h>
+#import <wtf/Borrow.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/MainThread.h>
 #import <wtf/MonotonicTime.h>
@@ -107,7 +108,7 @@ TiledCoreAnimationDrawingArea::~TiledCoreAnimationDrawingArea()
 {
     invalidateRenderingUpdateRunLoopObserver();
     invalidatePostRenderingUpdateRunLoopObserver();
-    for (auto& callback : m_nextActivityStateChangeCallbacks)
+    for (auto& callback : borrow(m_nextActivityStateChangeCallbacks).get())
         callback();
 }
 

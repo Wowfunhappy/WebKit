@@ -40,7 +40,6 @@ struct RemoteAudioSessionConfiguration {
     uint64_t preferredBufferSize { 0 };
     uint64_t outputLatency { 0 };
     bool isMuted { false };
-    bool isActive { false };
     String sceneIdentifier;
     WebCore::AudioSessionSoundStageSize soundStageSize { WebCore::AudioSessionSoundStageSize::Automatic };
     WebCore::AudioSessionCategory categoryOverride { WebCore::AudioSession::CategoryType::None };

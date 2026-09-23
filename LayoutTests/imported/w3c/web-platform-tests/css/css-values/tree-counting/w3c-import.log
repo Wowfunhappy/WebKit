@@ -36,3 +36,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-values/tree-counting/sibling-index-keyframe-value-dynamic.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-values/tree-counting/sibling-index-linear-gradient-gcs.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-values/tree-counting/tree-scoped-sibling-function.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-values/tree-counting/trig-functions-with-runtime-angle-arguments.html

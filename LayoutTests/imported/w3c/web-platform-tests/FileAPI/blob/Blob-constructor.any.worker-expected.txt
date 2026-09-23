@@ -10,6 +10,16 @@ PASS A plain object with custom @@iterator should be treated as a sequence for t
 PASS A plain object with @@iterator and a length property should be treated as a sequence for the blobParts argument.
 PASS A String object should be treated as a sequence for the blobParts argument.
 PASS A Uint8Array object should be treated as a sequence for the blobParts argument.
+PASS blobParts not an object: boolean
+PASS blobParts not an object: boolean with Boolean.prototype[Symbol.iterator]
+PASS blobParts not an object: string
+PASS blobParts not an object: string with String.prototype[Symbol.iterator]
+PASS blobParts not an object: number
+PASS blobParts not an object: number with Number.prototype[Symbol.iterator]
+PASS blobParts not an object: BigInt
+PASS blobParts not an object: BigInt with BigInt.prototype[Symbol.iterator]
+PASS blobParts not an object: Symbol
+PASS blobParts not an object: Symbol with Symbol.prototype[Symbol.iterator]
 PASS The length getter should be invoked and any exceptions should be propagated.
 PASS ToUint32 should be applied to the length and any exceptions should be propagated.
 PASS Getters and value conversions should happen in order until an exception is thrown.
@@ -19,6 +29,7 @@ PASS Changes to the blobParts array should be reflected in the returned Blob (un
 PASS ToString should be called on elements of the blobParts array.
 PASS ArrayBuffer elements of the blobParts array should be supported.
 PASS Passing typed arrays as elements of the blobParts array should work.
+PASS Passing a Float16Array as element of the blobParts array should work.
 PASS Passing a Float64Array as element of the blobParts array should work.
 PASS Passing BigInt typed arrays as elements of the blobParts array should work.
 PASS Passing a FrozenArray as the blobParts array should work (FrozenArray<MessagePort>).

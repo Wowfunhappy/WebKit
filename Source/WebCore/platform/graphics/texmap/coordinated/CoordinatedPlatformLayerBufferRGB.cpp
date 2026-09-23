@@ -28,7 +28,21 @@
 
 #if USE(COORDINATED_GRAPHICS)
 #include "BitmapTexture.h"
+#include "ColorMatrix.h"
+#include "PlatformDisplay.h"
 #include "TextureMapper.h"
+
+#if USE(SKIA)
+#include "ColorSpaceSkia.h"
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorFilter.h>
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkImage.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+#include <skia/gpu/ganesh/SkImageGanesh.h>
+#include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
 
 namespace WebCore {
 
@@ -65,6 +79,25 @@ void CoordinatedPlatformLayerBufferRGB::paintToTextureMapper(TextureMapper& text
     else
         textureMapper.drawTexture(m_textureID, m_flags, targetRect, modelViewMatrix, opacity);
 }
+
+#if USE(SKIA)
+sk_sp<SkImage> CoordinatedPlatformLayerBufferRGB::skiaImage()
+{
+    waitForContentsIfNeeded();
+
+    ASSERT(!m_texture || !m_texture->colorConvertFlags().contains(TextureMapperFlags::ShouldConvertTextureBGRAToRGBA));
+
+    auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+    ASSERT(grContext);
+    GrGLTextureInfo externalTexture;
+    externalTexture.fTarget = GL_TEXTURE_2D;
+    externalTexture.fID = m_texture ? m_texture->id() : m_textureID;
+    externalTexture.fFormat = GL_RGBA8;
+    auto backendTexture = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+    auto origin = m_flags.contains(TextureMapperFlags::ShouldFlipTexture) ? kBottomLeft_GrSurfaceOrigin : kTopLeft_GrSurfaceOrigin;
+    return SkImages::BorrowTextureFrom(grContext, backendTexture, origin, kRGBA_8888_SkColorType, kPremul_SkAlphaType, sRGBColorSpaceSingleton());
+}
+#endif
 
 } // namespace WebCore
 

@@ -27,6 +27,7 @@
 
 #include <WebCore/Event.h>
 #include <WebCore/ExtendableEventInit.h>
+#include <wtf/HashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {

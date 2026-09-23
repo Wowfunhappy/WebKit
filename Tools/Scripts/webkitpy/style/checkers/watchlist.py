@@ -41,7 +41,7 @@ class WatchListChecker(object):
         self._handle_style_error = handle_style_error
         self._handle_style_error.turn_off_line_filtering()
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         def log_to_style_error(message):
             # Always report line 0 since we don't have anything better.
             self._handle_style_error(0,

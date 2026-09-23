@@ -1,3 +1,4 @@
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     iteration += 1;

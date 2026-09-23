@@ -485,19 +485,19 @@ inline void reifyStaticProperty(VM& vm, const ClassInfo* classInfo, const Proper
         if (value.attributes() & PropertyAttribute::Accessor)
             reifyStaticAccessor(vm, value, thisObj, propertyName);
         else
-            thisObj.putDirectBuiltinFunction(vm, thisObj.globalObject(), propertyName, value.builtinGenerator()(vm), attributesForStructure(value.attributes()));
+            SUPPRESS_FORWARD_DECL_ARG thisObj.putDirectBuiltinFunction(vm, thisObj.realm(), propertyName, value.builtinGenerator()(vm), attributesForStructure(value.attributes()));
         return;
     }
 
     if (value.attributes() & PropertyAttribute::Function) {
         if (value.attributes() & PropertyAttribute::DOMJITFunction) {
             thisObj.putDirectNativeFunction(
-                vm, thisObj.globalObject(), propertyName, value.functionLength(),
+                vm, thisObj.realm(), propertyName, value.functionLength(),
                 value.domJITFunction(), ImplementationVisibility::Public, value.intrinsic(), value.signature(), attributesForStructure(value.attributes()));
             return;
         }
         thisObj.putDirectNativeFunction(
-            vm, thisObj.globalObject(), propertyName, value.functionLength(),
+            vm, thisObj.realm(), propertyName, value.functionLength(),
             value.function(), ImplementationVisibility::Public, value.intrinsic(), attributesForStructure(value.attributes()));
         return;
     }
@@ -523,7 +523,7 @@ inline void reifyStaticProperty(VM& vm, const ClassInfo* classInfo, const Proper
     if (value.attributes() & PropertyAttribute::ClassStructure) {
         LazyClassStructure* lazyStructure = std::bit_cast<LazyClassStructure*>(
             std::bit_cast<char*>(&thisObj) + value.lazyClassStructureOffset());
-        JSObject* constructor = lazyStructure->constructor(jsCast<JSGlobalObject*>(&thisObj));
+        JSObject* constructor = lazyStructure->constructor(&uncheckedDowncast<JSGlobalObject>(thisObj));
         thisObj.putDirect(vm, propertyName, constructor, attributesForStructure(value.attributes()));
         return;
     }

@@ -33,7 +33,7 @@
 #include "GeometryUtilities.h"
 #include "Gradient.h"
 #include "GradientColorStop.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 
@@ -56,7 +56,7 @@ template<CSSValueID Name, typename T> static constexpr bool NODELETE isRepeating
 
 // MARK: - Conversion: Style -> CSS
 
-template<typename CSSStop, typename StyleStop> static auto toCSSColorStop(const StyleStop& stop, const RenderStyle& style) -> CSSStop
+template<typename CSSStop, typename StyleStop> static auto toCSSColorStop(const StyleStop& stop, const Style::ComputedStyle& style) -> CSSStop
 {
     return CSSStop {
         toCSS(stop.color, style),
@@ -64,17 +64,17 @@ template<typename CSSStop, typename StyleStop> static auto toCSSColorStop(const 
     };
 }
 
-auto ToCSS<GradientAngularColorStop>::operator()(const GradientAngularColorStop& stop, const RenderStyle& style) -> CSS::GradientAngularColorStop
+auto ToCSS<GradientAngularColorStop>::operator()(const GradientAngularColorStop& stop, const Style::ComputedStyle& style) -> CSS::GradientAngularColorStop
 {
     return toCSSColorStop<CSS::GradientAngularColorStop>(stop, style);
 }
 
-auto ToCSS<GradientLinearColorStop>::operator()(const GradientLinearColorStop& stop, const RenderStyle& style) -> CSS::GradientLinearColorStop
+auto ToCSS<GradientLinearColorStop>::operator()(const GradientLinearColorStop& stop, const Style::ComputedStyle& style) -> CSS::GradientLinearColorStop
 {
     return toCSSColorStop<CSS::GradientLinearColorStop>(stop, style);
 }
 
-auto ToCSS<GradientDeprecatedColorStop>::operator()(const GradientDeprecatedColorStop& stop, const RenderStyle& style) -> CSS::GradientDeprecatedColorStop
+auto ToCSS<GradientDeprecatedColorStop>::operator()(const GradientDeprecatedColorStop& stop, const Style::ComputedStyle& style) -> CSS::GradientDeprecatedColorStop
 {
     return toCSSColorStop<CSS::GradientDeprecatedColorStop>(stop, style);
 }
@@ -106,7 +106,7 @@ auto ToStyle<CSS::GradientDeprecatedColorStop>::operator()(const CSS::GradientDe
 
 // MARK: - Platform Gradient Resolution
 
-static WebCore::Color resolveColorStopColor(const Color& styleColor, const RenderStyle& style, bool hasColorFilter)
+static WebCore::Color resolveColorStopColor(const Color& styleColor, const Style::ComputedStyle& style, bool hasColorFilter)
 {
     Style::ColorResolver colorResolver { style };
 
@@ -115,7 +115,7 @@ static WebCore::Color resolveColorStopColor(const Color& styleColor, const Rende
     return colorResolver.colorResolvingCurrentColor(styleColor);
 }
 
-static WebCore::Color resolveColorStopColor(const Markable<Color>& styleColor, const RenderStyle& style, bool hasColorFilter)
+static WebCore::Color resolveColorStopColor(const Markable<Color>& styleColor, const Style::ComputedStyle& style, bool hasColorFilter)
 {
     if (!styleColor)
         return { };
@@ -128,15 +128,15 @@ static std::optional<float> resolveColorStopPosition(const GradientLinearColorSt
         return std::nullopt;
 
     return WTF::switchOn(*position,
-        [&](const LengthPercentage<CSS::AllUnzoomed>::Dimension& length) -> std::optional<float> {
+        [&](const LengthPercentage<CSS::AllLayoutUnitClampedUnzoomed>::Dimension& length) -> std::optional<float> {
             if (gradientLength <= 0)
                 return 0;
             return evaluate<float>(length, zoom) / gradientLength;
         },
-        [&](const LengthPercentage<CSS::AllUnzoomed>::Percentage& percentage) -> std::optional<float> {
+        [&](const LengthPercentage<CSS::AllLayoutUnitClampedUnzoomed>::Percentage& percentage) -> std::optional<float> {
             return percentage.value / 100.0;
         },
-        [&](const LengthPercentage<CSS::AllUnzoomed>::Calc& calc) -> std::optional<float> {
+        [&](const LengthPercentage<CSS::AllLayoutUnitClampedUnzoomed>::Calc& calc) -> std::optional<float> {
             if (gradientLength <= 0)
                 return 0;
             return evaluate<float>(calc, gradientLength, zoom) / gradientLength;
@@ -357,7 +357,7 @@ public:
     }
 };
 
-template<typename GradientAdapter, typename StyleGradient> GradientColorStops computeStopsForDeprecatedVariants(GradientAdapter&, const StyleGradient& styleGradient, const RenderStyle& style)
+template<typename GradientAdapter, typename StyleGradient> GradientColorStops computeStopsForDeprecatedVariants(GradientAdapter&, const StyleGradient& styleGradient, const Style::ComputedStyle& style)
 {
     bool hasColorFilter = !style.appleColorFilter().isNone();
     auto result = styleGradient.parameters.stops.value.template map<GradientColorStops::StopVector>([&](auto& stop) -> WebCore::GradientColorStop {
@@ -372,7 +372,7 @@ template<typename GradientAdapter, typename StyleGradient> GradientColorStops co
     return GradientColorStops::Sorted { WTF::move(result) };
 }
 
-template<typename GradientAdapter, typename StyleGradient> GradientColorStops computeStops(GradientAdapter& gradientAdapter, const StyleGradient& styleGradient, const RenderStyle& style)
+template<typename GradientAdapter, typename StyleGradient> GradientColorStops computeStops(GradientAdapter& gradientAdapter, const StyleGradient& styleGradient, const Style::ComputedStyle& style)
 {
     bool hasColorFilter = !style.appleColorFilter().isNone();
     auto zoom = style.usedZoomForLength();
@@ -647,7 +647,7 @@ template<typename GradientAdapter, typename StyleGradient> GradientColorStops co
     };
 }
 
-static inline float positionFromValue(LengthWrapperBaseDerived auto const& coordinate, float widthOrHeight, ZoomFactor zoom)
+static inline float positionFromValue(SpecificPrimitiveNumericWrapperBaseDerived<CSS::Category::LengthPercentage> auto const& coordinate, float widthOrHeight, ZoomFactor zoom)
 {
     return evaluate<float>(coordinate, widthOrHeight, zoom);
 }
@@ -669,7 +669,7 @@ template<typename Position> static inline FloatPoint computeEndPoint(const Posit
 }
 
 // Compute the endpoints so that a gradient of the given angle covers a box of the given size.
-static std::pair<FloatPoint, FloatPoint> endPointsFromAngle(float angleDeg, const FloatSize& size)
+static std::pair<FloatPoint, FloatPoint> NODELETE endPointsFromAngle(float angleDeg, const FloatSize& size)
 {
     angleDeg = toPositiveAngle(angleDeg);
 
@@ -719,7 +719,7 @@ static std::pair<FloatPoint, FloatPoint> endPointsFromAngle(float angleDeg, cons
     return { FloatPoint(halfWidth - endX, halfHeight + endY), FloatPoint(halfWidth + endX, halfHeight - endY) };
 }
 
-static std::pair<FloatPoint, FloatPoint> endPointsFromAngleForPrefixedVariants(float angleDeg, const FloatSize& size)
+static std::pair<FloatPoint, FloatPoint> NODELETE endPointsFromAngleForPrefixedVariants(float angleDeg, const FloatSize& size)
 {
     // Prefixed gradients use "polar coordinate" angles, rather than "bearing" angles.
     return endPointsFromAngle(90 - angleDeg, size);
@@ -811,7 +811,7 @@ static inline float NODELETE horizontalEllipseRadius(const FloatSize& p, float a
 
 // MARK: - Linear create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, LinearGradient>& linear, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, LinearGradient>& linear, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -861,7 +861,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - Prefixed Linear create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, PrefixedLinearGradient>& linear, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, PrefixedLinearGradient>& linear, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -916,7 +916,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - Deprecated Linear create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, DeprecatedLinearGradient>& linear, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, DeprecatedLinearGradient>& linear, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -934,7 +934,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - Radial create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, RadialGradient>& radial, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, RadialGradient>& radial, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -1031,7 +1031,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - Prefixed Radial create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, PrefixedRadialGradient>& radial, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, PrefixedRadialGradient>& radial, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -1140,7 +1140,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - Deprecated Radial create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, DeprecatedRadialGradient>& radial, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, DeprecatedRadialGradient>& radial, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -1162,7 +1162,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - Conic create.
 
-template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, ConicGradient>& conic, const FloatSize& size, const RenderStyle& style)
+template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, ConicGradient>& conic, const FloatSize& size, const Style::ComputedStyle& style)
 {
     ASSERT(!size.isEmpty());
 
@@ -1184,7 +1184,7 @@ template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(c
 
 // MARK: - createPlatformGradient
 
-Ref<WebCore::Gradient> createPlatformGradient(const Gradient& gradient, const FloatSize& size, const RenderStyle& style)
+Ref<WebCore::Gradient> createPlatformGradient(const Gradient& gradient, const FloatSize& size, const Style::ComputedStyle& style)
 {
     return WTF::switchOn(gradient, [&](auto& gradient) { return createPlatformGradient(gradient, size, style); });
 }
@@ -1215,7 +1215,7 @@ bool stopsAreCacheable(const Gradient& gradient)
 
 // MARK: - isOpaque
 
-template<typename T> static bool isOpaque(const T& gradient, const RenderStyle& style)
+template<typename T> static bool isOpaque(const T& gradient, const Style::ComputedStyle& style)
 {
     bool hasColorFilter = !style.appleColorFilter().isNone();
 
@@ -1224,7 +1224,7 @@ template<typename T> static bool isOpaque(const T& gradient, const RenderStyle& 
     });
 }
 
-bool isOpaque(const Gradient& gradient, const RenderStyle& style)
+bool isOpaque(const Gradient& gradient, const Style::ComputedStyle& style)
 {
     return WTF::switchOn(gradient, [&](auto& gradient) { return isOpaque(gradient, style); } );
 }

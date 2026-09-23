@@ -40,9 +40,7 @@ ServiceWorkerRegistrationBackgroundFetchAPI::ServiceWorkerRegistrationBackground
 {
 }
 
-ServiceWorkerRegistrationBackgroundFetchAPI::~ServiceWorkerRegistrationBackgroundFetchAPI()
-{
-}
+ServiceWorkerRegistrationBackgroundFetchAPI::~ServiceWorkerRegistrationBackgroundFetchAPI() = default;
 
 BackgroundFetchManager& ServiceWorkerRegistrationBackgroundFetchAPI::backgroundFetch(ServiceWorkerRegistration& serviceWorkerRegistration)
 {

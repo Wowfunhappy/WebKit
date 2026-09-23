@@ -76,7 +76,7 @@ public:
     void setFeatureSettings(CSSValue&);
     void setDisplay(CSSValue&);
 
-    String family() const;
+    AtomString family() const;
     String style() const;
     String weight() const;
     String width() const;

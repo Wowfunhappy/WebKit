@@ -1,6 +1,20 @@
 
 PASS round(10,10) should be used-value-equivalent to 10
 PASS mod(1,1) should be used-value-equivalent to 0
+PASS mod(0,-2) should be used-value-equivalent to 0
+PASS mod(2,-2) should be used-value-equivalent to 0
+PASS mod(4,-2) should be used-value-equivalent to 0
+PASS mod(-2,-2) should be used-value-equivalent to 0
+PASS mod(-4,-2) should be used-value-equivalent to 0
+PASS mod(0, 2) should be used-value-equivalent to 0
+PASS mod(2, 2) should be used-value-equivalent to 0
+PASS mod(-2, 2) should be used-value-equivalent to 0
+PASS mod(1, 2) should be used-value-equivalent to 1
+PASS mod(3, 2) should be used-value-equivalent to 1
+PASS mod(-1, 2) should be used-value-equivalent to 1
+PASS mod(1, -2) should be used-value-equivalent to -1
+PASS mod(3, -2) should be used-value-equivalent to -1
+PASS mod(-1, -2) should be used-value-equivalent to -1
 PASS rem(1,1) should be used-value-equivalent to 0
 PASS calc(round(100,10)) should be used-value-equivalent to 100
 PASS calc(round(up, 101,10)) should be used-value-equivalent to 110

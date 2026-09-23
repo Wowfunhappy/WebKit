@@ -36,11 +36,11 @@ typedef (WebGLRenderingContext or WebGL2RenderingContext) WebXRWebGLRenderingCon
     readonly attribute double nativeProjectionScaleFactor;
     readonly attribute boolean usesDepthValues;
 
-    XRProjectionLayer createProjectionLayer(optional XRProjectionLayerInit init = {});
-    XRQuadLayer createQuadLayer(optional XRQuadLayerInit init = {});
-    XRCylinderLayer createCylinderLayer(optional XRCylinderLayerInit init = {});
-    XREquirectLayer createEquirectLayer(optional XREquirectLayerInit init = {});
-    XRCubeLayer createCubeLayer(optional XRCubeLayerInit init = {});
+    [CallWith=CurrentScriptExecutionContext] XRProjectionLayer createProjectionLayer(optional XRProjectionLayerInit init = {});
+    [CallWith=CurrentScriptExecutionContext] XRQuadLayer createQuadLayer(optional XRQuadLayerInit init = {});
+    [CallWith=CurrentScriptExecutionContext] XRCylinderLayer createCylinderLayer(optional XRCylinderLayerInit init = {});
+    [CallWith=CurrentScriptExecutionContext] XREquirectLayer createEquirectLayer(optional XREquirectLayerInit init = {});
+    [CallWith=CurrentScriptExecutionContext] XRCubeLayer createCubeLayer(optional XRCubeLayerInit init = {});
 
     XRWebGLSubImage getSubImage(XRCompositionLayer layer, WebXRFrame frame, optional XREye eye = "none");
     XRWebGLSubImage getViewSubImage(XRProjectionLayer layer, WebXRView view);

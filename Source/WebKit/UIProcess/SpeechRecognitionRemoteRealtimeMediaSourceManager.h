@@ -31,6 +31,7 @@
 #include "MessageSender.h"
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakRef.h>
 
 #if PLATFORM(COCOA)

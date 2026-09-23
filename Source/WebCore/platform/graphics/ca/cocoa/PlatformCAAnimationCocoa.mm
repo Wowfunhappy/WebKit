@@ -134,7 +134,7 @@ RetainPtr<CAMediaTimingFunction> toCAMediaTimingFunction(const TimingFunction& t
         std::reference_wrapper<const CubicBezierTimingFunction> function = *cubic;
 
         if (reverse) {
-            reversed = function.get().createReversed();
+            reversed = protect(function.get())->createReversed();
             function = *reversed;
         }
 
@@ -199,9 +199,7 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(PlatformAnimationRef animatio
     m_animation = caAnimation;
 }
 
-PlatformCAAnimationCocoa::~PlatformCAAnimationCocoa()
-{
-}
+PlatformCAAnimationCocoa::~PlatformCAAnimationCocoa() = default;
 
 Ref<PlatformCAAnimation> PlatformCAAnimationCocoa::copy() const
 {

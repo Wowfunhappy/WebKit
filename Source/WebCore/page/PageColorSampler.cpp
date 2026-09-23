@@ -30,6 +30,7 @@
 #include "ColorSerialization.h"
 #include "ContentfulPaintChecker.h"
 #include "Document.h"
+#include "DocumentView.h"
 #include "Element.h"
 #include "FixedContainerEdges.h"
 #include "FrameSnapshotting.h"
@@ -51,13 +52,12 @@
 #include "RegistrableDomain.h"
 #include "RenderImage.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "Settings.h"
-#include "StylableInlines.h"
+#include "StyleableInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "WebAnimation.h"
 #include <ranges>
 #include <wtf/HashCountedSet.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
@@ -121,10 +121,17 @@ static std::optional<Lab<float>> sampleColor(Document& document, IntPoint&& loca
         return std::nullopt;
 
     // FIXME: <https://webkit.org/b/225942> (Sampled Page Top Color: support sampling non-RGB values like P3)
+
+    static constexpr OptionSet snapshotFlags {
+        SnapshotFlags::ExcludeSelectionHighlighting,
+        SnapshotFlags::PaintEverythingExcludingSelection,
+        SnapshotFlags::FastAndLowQualityFilters
+    };
+
     auto colorSpace = DestinationColorSpace::SRGB();
 
     ASSERT(document.view());
-    auto snapshot = snapshotFrameRect(protect(document.view()->frame()), IntRect(location, IntSize(1, 1)), { { SnapshotFlags::ExcludeSelectionHighlighting, SnapshotFlags::PaintEverythingExcludingSelection }, PixelFormat::BGRA8, colorSpace });
+    auto snapshot = snapshotFrameRect(protect(document.view()->frame()), IntRect(location, IntSize(1, 1)), { snapshotFlags, PixelFormat::BGRA8, colorSpace });
     if (!snapshot)
         return std::nullopt;
 

@@ -73,11 +73,12 @@ class RemoteLayerTreeDrawingAreaProxyMac;
 class RemoteLayerTreeNode;
 class RemoteScrollingTree;
 class RemoteLayerTreeEventDispatcherDisplayLinkClient;
+class WebProcessPool;
 
 // This class exists to act as a threadsafe DisplayLink::Client client, allowing RemoteScrollingCoordinatorProxyMac to
 // be main-thread only. It's the UI-process analogue of WebPage/EventDispatcher.
 class RemoteLayerTreeEventDispatcher
-    : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteLayerTreeEventDispatcher>
+    : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteLayerTreeEventDispatcher, WTF::DestructionThread::MainRunLoop>
     , public MomentumEventDispatcher::Client {
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerTreeEventDispatcher);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteLayerTreeEventDispatcher);
@@ -114,7 +115,6 @@ public:
     void animationsWereRemovedFromNode(RemoteLayerTreeNode&);
     void updateTimelinesRegistration(WebCore::ProcessIdentifier, const WebCore::AcceleratedTimelinesUpdate&, MonotonicTime);
     RefPtr<const RemoteAnimationTimeline> timeline(const TimelineID&);
-    void updateAnimations();
     RefPtr<const RemoteAnimationStack> animationStackForNodeWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
     HashSet<Ref<RemoteProgressBasedTimeline>> timelinesForScrollingNodeIDForTesting(WebCore::ScrollingNodeID);
 #endif
@@ -147,7 +147,9 @@ private:
     void scheduleDelayedRenderingUpdateDetectionTimer(Seconds delay);
     void delayedRenderingUpdateDetectionTimerFired();
 
+    bool scrollingThreadNeedsDisplayDidRefresh();
     bool scrollingTreeWasRecentlyActive();
+    bool haveLayersWithAnimations();
 
     void waitForRenderingUpdateCompletionOrTimeout() WTF_REQUIRES_LOCK(m_scrollingTreeLock);
 
@@ -158,10 +160,17 @@ private:
 
     void didStartRubberbanding();
 
+    void updateLayerPositionsAndAnimations();
+#if ENABLE(THREADED_ANIMATIONS)
+    enum class AnimationStacksToUpdate : bool { All, ProgressBasedOnly };
+    void updateAnimations(AnimationStacksToUpdate = AnimationStacksToUpdate::All);
+#endif
+
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER)
     void handleSyntheticWheelEvent(WebCore::PageIdentifier, const WebWheelEvent&, WebCore::RectEdges<WebCore::RubberBandingBehavior> rubberBandableEdges);
     void startDisplayDidRefreshCallbacks(WebCore::PlatformDisplayID);
     void stopDisplayDidRefreshCallbacks(WebCore::PlatformDisplayID);
+    void didEndSyntheticMomentumScrolling();
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER_TEMPORARY_LOGGING)
     void flushMomentumEventLoggingSoon();
 #endif
@@ -176,6 +185,7 @@ private:
 
     const WeakPtr<RemoteScrollingCoordinatorProxyMac> m_scrollingCoordinator;
     WebCore::PageIdentifier m_pageIdentifier;
+    const WeakPtr<WebProcessPool> m_processPool;
 
     std::unique_ptr<WebCore::WheelEventDeltaFilter> m_wheelEventDeltaFilter;
     std::unique_ptr<RemoteLayerTreeEventDispatcherDisplayLinkClient> m_displayLinkClient;
@@ -208,8 +218,9 @@ private:
 #endif
 
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER)
-    std::unique_ptr<MomentumEventDispatcher> m_momentumEventDispatcher;
     bool m_momentumEventDispatcherNeedsDisplayLink { false };
+    Lock m_momentumEventDispatcherLock;
+    std::unique_ptr<MomentumEventDispatcher> m_momentumEventDispatcher WTF_GUARDED_BY_LOCK(m_momentumEventDispatcherLock);
 #endif
 };
 

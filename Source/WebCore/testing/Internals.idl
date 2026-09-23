@@ -97,7 +97,8 @@ enum ContentSizeCategory {
 enum TreeType {
     "Tree",
     "ShadowIncludingTree",
-    "ComposedTree"
+    "ComposedTree",
+    "ComposedTreeIncludingPseudoElements"
 };
 
 [Conditional=WEBGL] enum SimulatedWebGLContextEvent {
@@ -232,14 +233,13 @@ enum HEVCParameterCodec {
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary HEVCParameterSet {
     HEVCParameterCodec codec = "hvc1";
     unsigned short generalProfileSpace = 0;
     unsigned short generalProfileIDC = 0;
     unsigned long generalProfileCompatibilityFlags = 0;
     octet generalTierFlag = 0;
-    required FrozenArray<octet> generalConstraintIndicatorFlags;
+    required [InlineCapacity=6] FrozenArray<octet> generalConstraintIndicatorFlags;
     unsigned short generalLevelIDC = 0;
 };
 
@@ -361,7 +361,6 @@ enum AV1ConfigurationRange {
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary WebDriverCookieData {
     DOMString name;
     DOMString value;
@@ -376,7 +375,6 @@ enum AV1ConfigurationRange {
 [
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
     JSGenerateToJSObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary TextIndicatorInfo {
     DOMRectReadOnly textBoundingRectInRootViewCoordinates;
     DOMRectList textRectsInBoundingRectCoordinates;
@@ -548,6 +546,7 @@ enum ContentsFormat {
     undefined setOverrideCachePolicy(CachePolicy policy);
     undefined setOverrideResourceLoadPriority(ResourceLoadPriority priority);
     undefined setStrictRawResourceValidationPolicyDisabled(boolean disabled);
+    undefined setImmediateRendererDestructionEnabled(boolean enabled);
     ResourceLoadPriority? getResourcePriority(DOMString url);
 
     boolean isFetchObjectContextStopped(FetchObject object);
@@ -593,6 +592,7 @@ enum ContentsFormat {
     double preferredRenderingUpdateInterval();
 
     DOMString visiblePlaceholder(Element element);
+    DOMString anchorPrefetchEagerness(Element element);
     undefined selectColorInColorChooser(HTMLInputElement element, DOMString colorValue);
     sequence<[AtomString] DOMString> formControlStateOfPreviousHistoryItem();
     undefined setFormControlStateOfPreviousHistoryItem(sequence<[AtomString] DOMString> values);
@@ -669,9 +669,13 @@ enum ContentsFormat {
     Range? rangeOfString(DOMString text, Range? referenceRange, sequence<DOMString> findOptions);
     unsigned long countMatchesForText(DOMString text, sequence<DOMString> findOptions, DOMString markMatches);
     unsigned long countFindMatches(DOMString text, sequence<DOMString> findOptions);
+    undefined setCachedFindMatchBufferLimitForTesting(unsigned long maximumRunCount);
+    [Conditional=VIDEO] sequence<unrestricted double> findCueMatches(DOMString text, sequence<DOMString> findOptions);
 
     DOMString autofillFieldName(Element formControlElement);
     boolean isSpellcheckDisabledExceptTextReplacement(HTMLInputElement inputElement);
+
+    [CallWith=CurrentGlobalObject] undefined allowAutofillForCurrentWorld();
 
     undefined invalidateControlTints();
 
@@ -716,6 +720,8 @@ enum ContentsFormat {
         unsigned long topPadding, unsigned long rightPadding, unsigned long bottomPadding, unsigned long leftPadding,
         boolean ignoreClipping, boolean allowShadowContent, boolean allowChildFrameContent);
 
+    Node? nodeFromPointIncludingChildFrames(Document document, long x, long y);
+
     // Calling parserMetaData() with no arguments gets the metadata for the script of the current scope.
     DOMString parserMetaData(optional any func);
 
@@ -724,6 +730,8 @@ enum ContentsFormat {
     readonly attribute boolean sentenceRetroCorrectionEnabled;
     boolean hasSpellingMarker(long from, long length);
     boolean hasGrammarMarker(long from, long length);
+    unsigned long appliedGrammarTextEffectCount();
+    boolean isAlternativeTextUIActive();
     boolean hasAutocorrectedMarker(long from, long length);
     boolean hasDictationAlternativesMarker(long from, long length);
     boolean hasCorrectionIndicatorMarker(long from, long length);
@@ -762,6 +770,7 @@ enum ContentsFormat {
     [Conditional=ACCESSIBILITY_ANIMATION_CONTROL] undefined setImageAnimationEnabled(boolean enabled);
     [Conditional=ACCESSIBILITY_ANIMATION_CONTROL] undefined resumeImageAnimation(HTMLImageElement element);
     [Conditional=ACCESSIBILITY_ANIMATION_CONTROL] undefined pauseImageAnimation(HTMLImageElement element);
+    [Conditional=ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL] undefined setVideoAutoplayPreviewsEnabled(boolean enabled);
     unsigned long imagePendingDecodePromisesCountForTesting(HTMLImageElement element);
     undefined setClearDecoderAfterAsyncFrameRequestForTesting(HTMLImageElement element, boolean enabled);
     unsigned long imageDecodeCount(HTMLImageElement element);
@@ -774,6 +783,7 @@ enum ContentsFormat {
     undefined setHasHDRContentForTesting(HTMLImageElement element);
 
     [Conditional=WEB_CODECS] boolean hasPendingActivity(WebCodecsVideoDecoder decoder);
+    [Conditional=WEB_CODECS] boolean is10bitsVideoFrame(WebCodecsVideoFrame frame);
 
     undefined setGridMaxTracksLimit(unsigned long maxTracksLimit);
 
@@ -804,6 +814,7 @@ enum ContentsFormat {
     const unsigned short LAYER_TREE_INCLUDES_EVENT_REGION = 512;
     const unsigned short LAYER_TREE_INCLUDES_EXTENDED_COLOR = 1024;
     const unsigned short LAYER_TREE_INCLUDES_DEVICE_SCALE = 2048;
+    const unsigned short LAYER_TREE_INCLUDES_ROOT_LAYERS = 4096;
     DOMString layerTreeAsText(Document document, optional unsigned short flags = 0);
 
     unsigned long long layerIDForElement(Element element);
@@ -825,7 +836,7 @@ enum ContentsFormat {
     boolean scrollbarUsingDarkAppearance(optional Node? node = null);
     DOMString horizontalScrollbarState(optional Node? node = null);
     DOMString verticalScrollbarState(optional Node? node = null);
-    
+
     DOMString scrollbarsControllerTypeForNode(optional Node? node = null);
 
     DOMString scrollingStateTreeAsText();
@@ -835,6 +846,8 @@ enum ContentsFormat {
     DOMRectList nonFastScrollableRects();
 
     DOMString repaintRectsAsText();
+
+    double minimumShrinkToFitWidthWhenPreferringHorizontalScrolling();
 
     // These throw if the element does not have a compositing layer.
     undefined setElementUsesDisplayListDrawing(Element element, boolean usesDisplayListDrawing);
@@ -873,6 +886,7 @@ enum ContentsFormat {
     unsigned long numberOfLiveDocuments();
     unsigned long referencingNodeCount(Document document);
     undefined executeOpportunisticallyScheduledTasks();
+    undefined releaseMemoryNow();
     unsigned long numberOfIntersectionObservers(Document document);
     unsigned long numberOfResizeObservers(Document document);
     WindowProxy? openDummyInspectorFrontend(DOMString url);
@@ -955,6 +969,8 @@ enum ContentsFormat {
     undefined startTrackingStyleRecalcs();
     unsigned long styleRecalcCount();
     readonly attribute unsigned long lastStyleUpdateSize;
+    readonly attribute unsigned long styleInvalidationTraversalCount;
+    undefined resetStyleInvalidationTraversalCount();
 
     undefined startTrackingLayoutUpdates();
     unsigned long layoutUpdateCount();
@@ -995,6 +1011,10 @@ enum ContentsFormat {
     undefined setUsesOverlayScrollbars(boolean enabled);
 
     undefined forceAXObjectCacheUpdate();
+    unsigned long liveRegionSnapshotBuildCount();
+    undefined resetLiveRegionSnapshotBuildCount();
+    undefined setShouldMockParentSearchResultsForTesting(boolean enabled);
+    undefined setShouldMockChildFrameSearchResultsForTesting(boolean enabled);
     undefined forceReload(boolean endToEnd);
     undefined reloadExpiredOnly();
 
@@ -1061,6 +1081,7 @@ enum ContentsFormat {
     [Conditional=VIDEO] MediaControlsHost? controlsHostForMediaElement(HTMLMediaElement element);
 
     boolean isSelectPopupVisible(HTMLSelectElement element);
+    DOMPointReadOnly? lastSelectPopupLocation(HTMLSelectElement element);
 
     DOMRect selectionBounds();
     StaticRange? selectedRange();
@@ -1109,6 +1130,7 @@ enum ContentsFormat {
     [Conditional=WEB_RTC] undefined setEnumeratingAllNetworkInterfacesEnabled(boolean enabled);
     [Conditional=WEB_RTC] undefined stopPeerConnection(RTCPeerConnection connection);
     [Conditional=WEB_RTC] undefined clearPeerConnectionFactory();
+    [Conditional=WEB_RTC] undefined clearWebRTCCodecsConnection();
     [Conditional=WEB_RTC] undefined setEnableWebRTCEncryption(boolean enabled);
     [Conditional=WEB_RTC] boolean hasPeerConnectionEnabledServiceClass(RTCPeerConnection connection);
 
@@ -1118,6 +1140,7 @@ enum ContentsFormat {
     [Conditional=VIDEO] boolean isPlayerVisibleInViewport(HTMLMediaElement element);
     [Conditional=VIDEO] boolean isPlayerMuted(HTMLMediaElement element);
     [Conditional=VIDEO] boolean isPlayerPaused(HTMLMediaElement element);
+    [Conditional=VIDEO] double effectiveRate(HTMLMediaElement element);
     [Conditional=VIDEO] undefined forceStereoDecoding(HTMLMediaElement element);
 
     MockPageOverlay installMockPageOverlay(PageOverlayType type);
@@ -1155,7 +1178,7 @@ enum ContentsFormat {
     float pageMediaVolume();
     undefined setPageMediaVolume(float volume);
 
-    [Conditional=BANNER_VIEW_OVERLAYS] undefined setPageHasBannerViewOverlayForTesting(boolean hasFakeBannerViewOverlay);
+    [Conditional=NSREFRESHCONTROLLER_TESTING] undefined setPageHasRefreshControllerForTesting(boolean hasRefreshController);
 
     undefined setShowAllPlugins(boolean showAll);
 
@@ -1170,6 +1193,7 @@ enum ContentsFormat {
     undefined setCanShowModalDialogOverride(boolean allow);
 
     DOMString composedTreeAsText(Node parent);
+    DOMString composedTreeAsTextFromNode(Node root, Node startNode);
 
     boolean isProcessingUserGesture();
     double lastHandledUserGestureTimestamp();
@@ -1206,7 +1230,9 @@ enum ContentsFormat {
     undefined setSpeculativeTilingDelayDisabledForTesting(boolean disabled);
 
     [Conditional=WEBGL] undefined simulateEventForWebGLContext(SimulatedWebGLContextEvent event, WebGLRenderingContext context);
+    [Conditional=WEBGL] undefined simulateEventForWebGLContext(SimulatedWebGLContextEvent event, WebGL2RenderingContext context);
     [Conditional=WEBGL] RequestedGPU requestedGPU(WebGLRenderingContext context);
+    [Conditional=WEBGL] RequestedGPU requestedGPU(WebGL2RenderingContext context);
 
     undefined setPageVisibility(boolean isVisible);
     undefined setPageIsFocused(boolean isFocused);
@@ -1220,9 +1246,7 @@ enum ContentsFormat {
     [Conditional=WEB_RTC] undefined disableWebRTCHardwareVP9();
     [Conditional=WEB_RTC] boolean isSupportingVP9HardwareDecoder();
     [Conditional=WEB_RTC] Promise<boolean> isVP9HardwareDecoderUsed(RTCPeerConnection connection);
-    [Conditional=WEB_RTC] undefined setSFrameCounter(RTCRtpSFrameTransform transform, DOMString counter);
-    [Conditional=WEB_RTC] unsigned long long sframeCounter(RTCRtpSFrameTransform transform);
-    [Conditional=WEB_RTC] unsigned long long sframeKeyId(RTCRtpSFrameTransform transform);
+    [Conditional=WEB_RTC] boolean isSupportingAV1HardwareDecoder();
 
     [Conditional=MEDIA_STREAM] undefined setMockAudioTrackChannelNumber(MediaStreamTrack track, unsigned short count);
     [Conditional=MEDIA_STREAM] undefined setShouldInterruptAudioOnPageVisibilityChange(boolean shouldInterrupt);
@@ -1244,6 +1268,7 @@ enum ContentsFormat {
     [Conditional=MEDIA_STREAM] DOMString mediaStreamTrackPersistentId(MediaStreamTrack track);
     [Conditional=MEDIA_STREAM] unsigned long audioCaptureSourceCount();
     [Conditional=MEDIA_STREAM] boolean supportsMultiMicrophoneCaptureWithoutEchoCancellation();
+    [Conditional=MEDIA_STREAM] undefined deleteAudioUnit();
 
     [Conditional=WEB_RTC] readonly attribute DOMString rtcNetworkInterfaceName;
 
@@ -1280,6 +1305,7 @@ enum ContentsFormat {
     undefined updateQuotaBasedOnSpaceUsage();
 
     undefined setConsoleMessageListener(StringCallback? callback);
+    undefined configureLoggingChannel(DOMString channelName, boolean enabled);
 
     readonly attribute boolean supportsAudioSession;
     AudioSessionCategory audioSessionCategory();
@@ -1296,6 +1322,9 @@ enum ContentsFormat {
     Promise<undefined> terminateServiceWorker(ServiceWorker worker);
     Promise<undefined> whenServiceWorkerIsTerminated(ServiceWorker worker);
     undefined terminateWebContentProcess();
+    unsigned long getpid();
+
+    Promise<unsigned long> numberOfWebSocketChannelsInNetworkProcess();
 
 #if defined(ENABLE_APPLE_PAY) && ENABLE_APPLE_PAY
     [CallWith=CurrentDocument, Conditional=APPLE_PAY] readonly attribute MockPaymentCoordinator mockPaymentCoordinator;
@@ -1337,6 +1366,7 @@ enum ContentsFormat {
     [Conditional=VIDEO] boolean elementShouldDisplayPosterImage(HTMLVideoElement element);
     [Conditional=VIDEO] readonly attribute unsigned long mediaElementCount;
     [Conditional=VIDEO] undefined setMediaElementVolumeLocked(HTMLMediaElement element, boolean volumeLocked);
+    [Conditional=VIDEO] DOMString mediaElementViewportVisibility(HTMLMediaElement element);
 
     [Conditional=SPEECH_SYNTHESIS] SpeechSynthesisUtterance? speechSynthesisUtteranceForCue(VTTCue cue);
     [Conditional=SPEECH_SYNTHESIS] VTTCue? mediaElementCurrentlySpokenCue(HTMLMediaElement media);
@@ -1407,6 +1437,8 @@ enum ContentsFormat {
     DOMString systemColorForCSSValue(DOMString cssValue, boolean useDarkModeAppearance, boolean useElevatedUserInterfaceLevel);
     DOMString focusRingColor();
 
+    readonly attribute double switchAnimationVisuallyOnDuration;
+
     boolean systemHasBattery();
 
     undefined setSystemHasBatteryForTesting(boolean hasBattery);
@@ -1425,7 +1457,7 @@ enum ContentsFormat {
 
     unsigned long createSleepDisabler(DOMString reason, boolean display);
     boolean destroySleepDisabler(unsigned long identifier);
-    
+
     [Conditional=APP_HIGHLIGHTS] readonly attribute sequence<DOMString> appHighlightContextMenuItemTitles;
     [Conditional=APP_HIGHLIGHTS] unsigned long numberOfAppHighlights();
 
@@ -1469,9 +1501,6 @@ enum ContentsFormat {
 
     PushSubscription? createPushSubscription(USVString endpoint, EpochTimeStamp? expirationTime, ArrayBuffer serverVAPIDPublicKey, ArrayBuffer clientECDHPublicKey, ArrayBuffer auth);
 
-    [Conditional=ARKIT_INLINE_PREVIEW_MAC] Promise<sequence<DOMString>> modelInlinePreviewUUIDs();
-    [Conditional=ARKIT_INLINE_PREVIEW_MAC] DOMString modelInlinePreviewUUIDForModelElement(HTMLModelElement modelElement);
-
     boolean hasSleepDisabler();
 
     undefined acceptTypedArrays(Int32Array target);
@@ -1482,16 +1511,16 @@ enum ContentsFormat {
 
     SelectorFilterHashCounts selectorFilterHashCounts(DOMString selector);
 
+    any dumpJSNodeStatistics();
+
     undefined setHistoryTotalStateObjectPayloadLimitOverride(unsigned long limit);
 
     readonly attribute boolean isVisuallyNonEmpty;
-    
+
     boolean isUsingUISideCompositing();
 
     DOMString getComputedLabel(Element element);
     DOMString getComputedRole(Element element);
-
-    readonly attribute boolean hasScopeBreakingHasSelectors;
 
     sequence<PDFAnnotationRect> pdfAnnotationRectsForTesting(Element element);
     undefined setPDFTextAnnotationValueForTesting(Element element, unsigned long pageIndex, unsigned long annotationIndex, DOMString value);
@@ -1509,11 +1538,6 @@ enum ContentsFormat {
     Promise<ImageBufferResourceLimits> getImageBufferResourceLimits();
 
     undefined setTopDocumentURLForQuirks(DOMString urlString);
-
-#if defined(ENABLE_CONTENT_EXTENSIONS) && ENABLE_CONTENT_EXTENSIONS
-    undefined setResourceMonitorNetworkUsageThreshold(unsigned long threshold, double randomness);
-    attribute boolean shouldSkipResourceMonitorThrottling;
-#endif
 
     [CallWith=CurrentGlobalObject] ReadableStream readableStreamFromMessagePort(MessagePort port);
     [CallWith=CurrentGlobalObject] WritableStream writableStreamFromMessagePort(MessagePort port);

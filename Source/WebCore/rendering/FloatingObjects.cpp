@@ -56,7 +56,7 @@ static_assert(sizeof(CheckedPtr<LegacyRootInlineBox>) == sizeof(void*), "WeakPtr
 FloatingObject::FloatingObject(RenderBox& renderer)
     : m_renderer(renderer)
 {
-    UsedFloat type = RenderStyle::usedFloat(renderer);
+    UsedFloat type = Style::ComputedStyle::usedFloat(renderer);
     ASSERT(type != UsedFloat::None);
     if (type == UsedFloat::Left)
         m_type = FloatLeft;
@@ -130,7 +130,7 @@ TextStream& operator<<(TextStream& stream, const FloatingObject& object)
 
 #endif
 
-inline static bool rangesIntersect(LayoutUnit floatTop, LayoutUnit floatBottom, LayoutUnit objectTop, LayoutUnit objectBottom)
+inline static bool NODELETE rangesIntersect(LayoutUnit floatTop, LayoutUnit floatBottom, LayoutUnit objectTop, LayoutUnit objectBottom)
 {
     if (objectTop >= floatBottom || objectBottom < floatTop)
         return false;

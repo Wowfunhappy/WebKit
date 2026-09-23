@@ -29,7 +29,6 @@
 #include "HTMLDocument.h"
 #include "HTMLNames.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -44,12 +43,12 @@ Ref<HTMLArticleElement> HTMLArticleElement::create(const QualifiedName& tagName,
 HTMLArticleElement::HTMLArticleElement(const QualifiedName& tagName, Document& document)
     : HTMLElement(tagName, document)
 {
-    ASSERT(tagName == HTMLNames::articleTag);
+    ASSERT(hasTagName(HTMLNames::articleTag));
 }
 
-auto HTMLArticleElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto HTMLArticleElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
-    auto result = HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (insertionType.connectedToDocument) {
         if (RefPtr newDocument = dynamicDowncast<HTMLDocument>(parentOfInsertedTree.document()))
@@ -59,12 +58,12 @@ auto HTMLArticleElement::insertedIntoAncestor(InsertionType insertionType, Conta
     return result;
 }
 
-void HTMLArticleElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLArticleElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     if (removalType.disconnectedFromDocument)
         protect(oldParentOfRemovedTree.document())->unregisterArticleElement(*this);
 
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 } // namespace WebCore

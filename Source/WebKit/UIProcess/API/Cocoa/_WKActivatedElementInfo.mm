@@ -39,6 +39,7 @@
 @implementation _WKActivatedElementInfo  {
     RetainPtr<NSURL> _URL;
     RetainPtr<NSURL> _imageURL;
+    RetainPtr<NSURL> _modelURL;
     RetainPtr<NSString> _title;
     WebCore::IntPoint _interactionLocation;
     RetainPtr<NSString> _ID;
@@ -71,6 +72,7 @@
     
     _URL = information.url.createNSURL();
     _imageURL = information.imageURL.createNSURL();
+    _modelURL = information.modelURL.createNSURL();
     _imageMIMEType = information.imageMIMEType.createNSString().get();
     _interactionLocation = information.request.point;
     _title = information.title.createNSString().get();
@@ -171,6 +173,11 @@
 - (NSURL *)imageURL
 {
     return _imageURL.get();
+}
+
+- (NSURL *)modelURL
+{
+    return _modelURL.get();
 }
 
 - (NSString *)title

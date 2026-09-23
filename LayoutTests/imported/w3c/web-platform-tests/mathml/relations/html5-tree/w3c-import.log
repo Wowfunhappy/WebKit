@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/class-1-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/class-1-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/class-1.html
@@ -51,7 +52,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/href-click-002.tentative-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/href-click-002.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/href-click-003.tentative.html
-/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/html-or-foreign-element-interfaces.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/href-click-004.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/html-or-svg-or-mathml-element-interfaces.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/integration-point-1-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/integration-point-1-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/integration-point-1.html
@@ -66,6 +68,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/link-color-001.tentative-expected-mismatch.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/link-color-001.tentative-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/link-color-001.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/link-color-002.tentative-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/link-color-002.tentative-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/link-color-002.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/maction-click-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/maction-click-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/maction-click.html
@@ -76,9 +81,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/shadow-dom-mozilla-1066554-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/shadow-dom-mozilla-1066554-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/shadow-dom-mozilla-1066554.html
-/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-001.tentative.html
-/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-002.tentative.html
-/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-focus-001.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-001.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-002.html
+/LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-focus-001.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/unique-identifier-1-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/unique-identifier-1-iframe-1.html
 /LayoutTests/imported/w3c/web-platform-tests/mathml/relations/html5-tree/unique-identifier-1-iframe-2.html

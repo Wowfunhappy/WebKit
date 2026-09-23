@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2018 Apple Inc. All rights reserved.
+# Copyright (C) 2018-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -25,15 +25,31 @@
 
 import atexit
 import difflib
+import importlib.machinery
+import importlib.util
 import lldb
 import os
+import platform
+import subprocess
 import sys
 import unittest
+from unittest.mock import call, MagicMock, patch
 
 from lldb_dump_class_layout import LLDBDebuggerInstance, ClassLayoutBase
 from webkitpy.common.system.systemhost import SystemHost
 
-# Build for x86_64.
+# Load the extensionless dump-class-layout script as a module.
+_test_dir = os.path.dirname(os.path.abspath(__file__))
+_scripts_dir = os.path.join(os.path.dirname(_test_dir), 'Scripts')
+_script_path = os.path.join(_scripts_dir, 'dump-class-layout')
+_spec = importlib.util.spec_from_file_location(
+    'dump_class_layout_script',
+    _script_path,
+    loader=importlib.machinery.SourceFileLoader('dump_class_layout_script', _script_path),
+)
+dump_class_layout_script = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(dump_class_layout_script)
+
 # Run these tests with xcrun python3 Tools/Scripts/test-lldb-webkit
 # Run a single test with e.g. xcrun python3 Tools/Scripts/test-lldb-webkit --debug  --no-build --verbose dump_class_layout_unittest.TestDumpClassLayout.serial_test_MemberHasBitfieldPadding
 # Compare with clang's output: clang++ -Xclang -fdump-record-layouts DumpClassLayoutTesting.cpp
@@ -46,6 +62,27 @@ def destroy_cached_debug_session():
     debugger_instance = None
 
 
+def _select_architecture(binary_path):
+    """Return the architecture slice to load for layout inspection.
+    Prefer the host architecture so the test exercises the binary's primary
+    slice; fall back to whatever is present in the universal binary."""
+    try:
+        archs = subprocess.check_output(
+            ['/usr/bin/lipo', '-archs', binary_path],
+            stderr=subprocess.DEVNULL,
+        ).decode('utf-8', errors='replace').split()
+    except (OSError, subprocess.CalledProcessError):
+        return 'x86_64'
+    host_machine = platform.machine()
+    if host_machine == 'arm64':
+        for arch in ('arm64e', 'arm64'):
+            if arch in archs:
+                return arch
+    if host_machine in archs:
+        return host_machine
+    return archs[0] if archs else 'x86_64'
+
+
 @unittest.skipUnless(SystemHost.get_default().platform.is_mac(), "macOS only")
 class TestDumpClassLayout(unittest.TestCase):
     @classmethod
@@ -54,7 +91,7 @@ class TestDumpClassLayout(unittest.TestCase):
         if not debugger_instance:
             lldbWebKitTesterExecutable = str(os.environ['LLDB_WEBKIT_TESTER_EXECUTABLE'])
 
-            architecture = 'x86_64'
+            architecture = _select_architecture(lldbWebKitTesterExecutable)
             debugger_instance = LLDBDebuggerInstance(lldbWebKitTesterExecutable, architecture)
             if not debugger_instance:
                 print('Failed to create lldb debugger instance for %s' % (lldbWebKitTesterExecutable))
@@ -356,7 +393,13 @@ Padding percentage: 61.98 %"""
         self.assertEqual(EXPECTED_RESULT, actual_layout.as_string())
 
     def serial_test_InheritsFromClassWithPaddedBitfields(self):
-        EXPECTED_RESULT = """  +0 < 16> InheritsFromClassWithPaddedBitfields
+        # x86_64 reports `dsize=10` for ClassWithPaddedBitfields and the
+        # derived bitfield reuses the base's tail padding at +10, giving a
+        # 16-byte layout.  arm64/arm64e report `dsize=16` (no exposed tail
+        # padding), so `derivedBitfield` lands at +16 and the class is
+        # 24 bytes.
+        if debugger_instance.architecture == 'x86_64':
+            EXPECTED_RESULT = """  +0 < 16> InheritsFromClassWithPaddedBitfields
   +0 < 16>     ClassWithPaddedBitfields ClassWithPaddedBitfields
   +0 <  1>         bool boolMember
   +1 < :1>         unsigned int bitfield1 : 1
@@ -377,5 +420,74 @@ Padding percentage: 61.98 %"""
 Total byte size: 16
 Total pad bytes: 6
 Padding percentage: 42.97 %"""
+        else:
+            EXPECTED_RESULT = """  +0 < 24> InheritsFromClassWithPaddedBitfields
+  +0 < 16>     ClassWithPaddedBitfields ClassWithPaddedBitfields
+  +0 <  1>         bool boolMember
+  +1 < :1>         unsigned int bitfield1 : 1
+  +1 < :1>         bool bitfield2 : 1
+  +1 < :2>         unsigned int bitfield3 : 2
+  +1 < :1>         unsigned int bitfield4 : 1
+  +1 < :2>         unsigned long bitfield5 : 2
+  +1 < :1>         <UNUSED BITS: 1 bit>
+  +2 <  1>         <PADDING: 1 bytes>
+  +4 <  4>         int intMember
+  +8 < :1>         unsigned int bitfield7 : 1
+  +8 < :9>         unsigned int bitfield8 : 9
+  +9 < :1>         bool bitfield9 : 1
+  +9 < :5>         <UNUSED BITS: 5 bits>
+ +10 <  6>     <PADDING: 6 bytes>
+ +16 < :1>     bool derivedBitfield : 1
+ +16 < :7>     <UNUSED BITS: 7 bits>
+ +17 <  7>     <PADDING: 7 bytes>
+Total byte size: 24
+Total pad bytes: 14
+Padding percentage: 61.98 %"""
         actual_layout = debugger_instance.layout_for_classname('InheritsFromClassWithPaddedBitfields')
         self.assertEqual(EXPECTED_RESULT, actual_layout.as_string())
+
+
+@unittest.skipUnless(SystemHost.get_default().platform.is_mac(), "macOS only")
+class TestDumpClassLayoutScript(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        mock_layout = MagicMock()
+        self._mock_instance = MagicMock()
+        self._mock_instance.layout_for_classname.return_value = mock_layout
+        self._lldb_patcher = patch.object(dump_class_layout_script, 'LLDBDebuggerInstance', return_value=self._mock_instance)
+        self._build_dir_patcher = patch.object(dump_class_layout_script, 'webkit_build_dir', return_value='/tmp/build')
+        self._lldb_patcher.start()
+        self._build_dir_patcher.start()
+
+    def tearDown(self):
+        self._lldb_patcher.stop()
+        self._build_dir_patcher.stop()
+        super().tearDown()
+
+    def test_single_classname_calls_layout_once(self):
+        dump_class_layout_script.main(['WebCore', 'ClassA'])
+        self._mock_instance.layout_for_classname.assert_called_once_with('ClassA', False)
+
+    def test_multiple_classnames_each_get_layout_called(self):
+        dump_class_layout_script.main(['WebCore', 'ClassA', 'ClassB', 'ClassC'])
+        self.assertEqual(self._mock_instance.layout_for_classname.call_count, 3)
+        self.assertEqual(
+            self._mock_instance.layout_for_classname.call_args_list,
+            [call('ClassA', False), call('ClassB', False), call('ClassC', False)],
+        )
+
+    def test_blank_line_printed_between_multiple_classes(self):
+        with patch('builtins.print') as mock_print:
+            dump_class_layout_script.main(['WebCore', 'ClassA', 'ClassB'])
+        # Exactly one blank line should be printed — between the two class dumps.
+        self.assertEqual(mock_print.call_args_list.count(call()), 1)
+
+    def test_blank_line_count_matches_class_count_minus_one(self):
+        with patch('builtins.print') as mock_print:
+            dump_class_layout_script.main(['WebCore', 'ClassA', 'ClassB', 'ClassC'])
+        self.assertEqual(mock_print.call_args_list.count(call()), 2)
+
+    def test_no_blank_line_for_single_class(self):
+        with patch('builtins.print') as mock_print:
+            dump_class_layout_script.main(['WebCore', 'ClassA'])
+        self.assertNotIn(call(), mock_print.call_args_list)

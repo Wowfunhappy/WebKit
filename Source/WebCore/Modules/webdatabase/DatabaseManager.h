@@ -51,7 +51,7 @@ public:
     WEBCORE_EXPORT static DatabaseManager& NODELETE singleton();
 
     WEBCORE_EXPORT void initialize(const String& databasePath);
-    WEBCORE_EXPORT void setClient(DatabaseManagerClient*);
+    WEBCORE_EXPORT void NODELETE setClient(DatabaseManagerClient*);
 
     bool NODELETE isAvailable();
     WEBCORE_EXPORT void NODELETE setIsAvailable(bool);

@@ -1,4 +1,5 @@
-//@ skip if $memoryLimited || $architecture == "x86"
+//@ memoryHog!
+//@ skip if $architecture == "x86"
 //@ runNoisyTestDefault
 //@ runNoisyTestNoCJIT
 

@@ -50,12 +50,13 @@
 #include "LocalizedStrings.h"
 #include "MouseEvent.h"
 #include "NodeDocument.h"
+#include "PlatformRenderTheme.h"
 #include "RenderElement.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTheme.h"
 #include "ScopedEventQueue.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "UserAgentParts.h"
 #include "UserGestureIndicator.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -73,7 +74,7 @@ const AtomString& CheckboxInputType::formControlType() const
     return InputTypeNames::checkbox();
 }
 
-bool CheckboxInputType::valueMissing(const String&) const
+bool CheckboxInputType::valueMissing(StringView) const
 {
     ASSERT(element());
     return element()->isRequired() && !element()->checked();
@@ -271,7 +272,7 @@ static int switchPointerTrackingLogicalLeftPosition(Element& element, LayoutPoin
 {
     CheckedRef renderer = *element.renderer();
     auto isVertical = !renderer->writingMode().isHorizontal();
-    auto localLocation = renderer->absoluteToLocal(absoluteLocation, UseTransforms);
+    auto localLocation = renderer->absoluteToLocal(absoluteLocation, MapCoordinatesMode::UseTransforms);
     return isVertical ? localLocation.y() : localLocation.x();
 }
 

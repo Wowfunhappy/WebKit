@@ -28,6 +28,7 @@
 
 #include "AXObjectCacheInlines.h"
 #include "AccessibilityMenuListPopup.h"
+#include "AccessibilityNodeObjectInlines.h"
 #include "AccessibilityObjectInlines.h"
 #include "Document.h"
 #include "HTMLNames.h"
@@ -72,7 +73,7 @@ bool AccessibilityMenuListOption::isVisible() const
         return false;
 
     // In a single-option select with the popup collapsed, only the selected item is considered visible.
-    RefPtr ownerSelectElement = optionElement->document().axObjectCache()->getOrCreate(optionElement->ownerSelectElement());
+    RefPtr ownerSelectElement = optionElement->document().axObjectCache()->getOrCreate(protect(optionElement->ownerSelectElement()));
     return ownerSelectElement && (!ownerSelectElement->isOffScreen() || isSelected());
 }
 
@@ -109,6 +110,12 @@ bool AccessibilityMenuListOption::computeIsIgnored() const
 
 LayoutRect AccessibilityMenuListOption::elementRect() const
 {
+    if (renderer()) {
+        // When the option has a renderer (as for base-appearance selects),
+        // use the renderer's bounding box.
+        return boundingBoxRect();
+    }
+
     RefPtr parent = parentObject();
     // Our parent should've been set to be a menu-list popup before this method is called.
     AX_ASSERT(parent && parent->isMenuListPopup());

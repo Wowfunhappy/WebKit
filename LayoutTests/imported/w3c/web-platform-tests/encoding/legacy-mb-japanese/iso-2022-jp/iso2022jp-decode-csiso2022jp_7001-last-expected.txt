@@ -111,7 +111,7 @@ PASS U+9E75 鹵 鹵 1B 24 42 73 43 1B 28 42
 PASS U+9E78 鹸 鹸 1B 24 42 38 34 1B 28 42
 PASS U+9E79 鹹 鹹 1B 24 42 73 44 1B 28 42
 PASS U+9E7D 鹽 鹽 1B 24 42 73 45 1B 28 42
-FAIL U+9E7F 鹿 鹿 1B 24 42 3C 2F 1B 28 42 assert_equals: expected "鹿" but got "次⑬\n麁\n麈\n麋\n麌\n麑\n麒\n麓\n麕\n麗\n麝\n麟\n麥\n麦\n麩\n麪\n麭\n麸\n麹\n麺\n麻\n麼\n麾\n麿\n黄\n黌\n黍\n黎\n黏\n黐\n黑\n黒\n黔\n默\n黙\n黛\n黜\n黝\n點\n黠\n黥\n黨\n黯\n黴\n黶\n黷\n黹\n黻\n黼\n黽\n鼇\n鼈\n鼎\n鼓\n鼕\n鼠\n鼡\n鼬\n鼻\n鼾\n齊\n齋\n齎\n齏\n齒\n齔\n齟\n齠\n齡\n齢\n齣\n齦\n齧\n齪\n齬\n齲\n齶\n齷\n龍\n龕\n龜\n龝\n龠\n朗\n隆\n﨎\n﨏\n塚\n﨑\n晴\n﨓\n﨔\n凞\n猪\n益\n礼\n神\n祥\n福\n靖\n精\n羽\n﨟\n蘒\n﨡\n諸\n﨣\n﨤\n逸\n都\n﨧\n﨨\n﨩\n飯\n飼\n館\n鶴\n！\n＂\n＃\n＄\n％\n＆\n＇\n（\n）\n＊\n＋\n，\n－\n．\n／\n０\n１\n２\n３\n４\n５\n６\n７\n８\n９\n：\n；\n＜\n＝\n＞\n？\n＠\nＡ\nＢ\nＣ\nＤ\nＥ\nＦ\nＧ\nＨ\nＩ\nＪ\nＫ\nＬ\nＭ\nＮ\nＯ\nＰ\nＱ\nＲ\nＳ\nＴ\nＵ\nＶ\nＷ\nＸ\nＹ\nＺ\n［\n＼\n］\n＾\n＿\n｀\nａ\nｂ\nｃ\nｄ\nｅ\nｆ\nｇ\nｈ\nｉ\nｊ\nｋ\nｌ\nｍ\nｎ\nｏ\nｐ\nｑ\nｒ\nｓ\nｔ\nｕ\nｖ\nｗ\nｘ\nｙ\nｚ\n｛\n｜\n｝\n～\n￠\n￡\n￢\n￣\n￤\n￥"
+PASS U+9E7F 鹿 鹿 1B 24 42 3C 2F 1B 28 42
 PASS U+9E81 麁 麁 1B 24 42 73 46 1B 28 42
 PASS U+9E88 麈 麈 1B 24 42 73 47 1B 28 42
 PASS U+9E8B 麋 麋 1B 24 42 73 48 1B 28 42

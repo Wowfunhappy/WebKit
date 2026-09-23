@@ -1,3 +1,4 @@
+bytecode/InlineCacheHandler.h
 bytecode/InstanceOfAccessCase.h
 bytecode/IntrinsicGetterAccessCase.h
 bytecode/ModuleNamespaceAccessCase.h

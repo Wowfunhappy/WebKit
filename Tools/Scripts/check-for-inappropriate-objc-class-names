@@ -59,17 +59,20 @@ my $pattern = "^(" . join('|', @allowedPrefixes) . ")";
 my $sawError = 0;
 
 if (!defined $executablePathAge || !defined $buildTimestampAge || $executablePathAge < $buildTimestampAge || $scriptAge < $buildTimestampAge) {
-    if (!open NM, "(nm -Ujp '$executablePath' | sed 's/^/STDOUT:/') 2>&1 |") {
-        print "ERROR: Could not open $executablePath\n";
+    if (!open NM, "(nm -Ump '$executablePath' | grep -v __TEXT | sed 's/^/STDOUT:/') 2>&1 |") {
+        print "error: Could not open $executablePath\n";
         $sawError = 1;
         next;
     }
     my @badNames;
     while (<NM>) {
         if (/^STDOUT:/) {
-            next unless /^STDOUT:_OBJC_CLASS_\$_/;
+            next unless /^STDOUT:.+_OBJC_CLASS_\$_.+$/;
             chomp;
-            my $className = substr($_, 21);
+            s/\([^\)]+\)//g;
+            s/^.+_OBJC_CLASS_\$_//;
+            s/\ .*$//;
+            my $className = $_;
             push(@badNames, $className) unless $className =~ /$pattern/;
         } else {
             print STDERR if $_ ne "nm: no name list\n";
@@ -106,15 +109,15 @@ if (!defined $executablePathAge || !defined $buildTimestampAge || $executablePat
         my $shortName = $executablePath;
         $shortName =~ s/.*\///;
 
-        print "ERROR: $shortName defines one or more Objective-C classes with inappropriate names. ($executablePath)\n";
+        print "error: $shortName defines one or more Objective-C classes with inappropriate names. ($executablePath)\n";
         for my $className (@badNames) {
-            print "ERROR: Inappropriate Objective-C class name: $className.\n";
+            print "error: Inappropriate Objective-C class name: $className.\n";
         }
 
         if (@allowedPrefixes > 1) {
-            print "ERROR: Objective-C class names in $target must have one of these prefixes: " . join(", ", map('"' . $_ . '"', @allowedPrefixes)) . ".\n";
+            print "error: Objective-C class names in $target must have one of these prefixes: " . join(", ", map('"' . $_ . '"', @allowedPrefixes)) . ".\n";
         } else {
-            print "ERROR: Objective-C class names in $target must have the prefix \"" . $allowedPrefixes[0] . "\".\n";
+            print "error: Objective-C class names in $target must have the prefix \"" . $allowedPrefixes[0] . "\".\n";
         }
 
         $sawError = 1;

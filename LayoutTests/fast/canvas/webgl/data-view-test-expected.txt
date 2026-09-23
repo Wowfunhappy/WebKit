@@ -27,10 +27,10 @@ PASS view = new DataView(arrayBuffer, 1, 2) threw exception RangeError: Length o
 PASS view = new DataView(arrayBuffer, 2, 1) threw exception RangeError: Length out of range of buffer.
 
 Test for constructor throwing wrong byteoffset exception
-PASS view = new Int32Array(new ArrayBuffer(100), 1, 1) threw exception RangeError: Byte offset is not aligned.
+PASS view = new Int32Array(new ArrayBuffer(100), 1, 1) threw exception RangeError: byteOffset modulo TypedArray.BYTES_PER_ELEMENT must be 0.
 
 Test for constructor wrong length exception takes precedence over wrong byteoffset exception
-PASS view = new Int32Array(new ArrayBuffer(100), 1, 101) threw exception RangeError: Length out of range of buffer.
+PASS view = new Int32Array(new ArrayBuffer(100), 1, 101) threw exception RangeError: byteOffset modulo TypedArray.BYTES_PER_ELEMENT must be 0.
 
 Test for get methods that work
 PASS view.getInt8(0) is 0

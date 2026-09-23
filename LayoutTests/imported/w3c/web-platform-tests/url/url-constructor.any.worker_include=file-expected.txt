@@ -89,6 +89,7 @@ PASS Parsing: </c:/foo/bar> against <file:///c:/baz/qux>
 PASS Parsing: </c|/foo/bar> against <file:///c:/baz/qux>
 PASS Parsing: <file:\c:\foo\bar> against <file:///c:/baz/qux>
 PASS Parsing: </c:/foo/bar> against <file://host/path>
+PASS Parsing: <..> against <file://x/C:/>
 PASS Parsing: <file://example.net/C:/> without base
 PASS Parsing: <file://1.2.3.4/C:/> without base
 PASS Parsing: <file://[1::8]/C:/> without base

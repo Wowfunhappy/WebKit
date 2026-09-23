@@ -33,7 +33,7 @@ namespace WebCore {
 
 EnterKeyHint enterKeyHintForAttributeValue(StringView value)
 {
-    static constexpr SortedArrayMap enterKeyHints { std::to_array<std::pair<PackedLettersLiteral<uint64_t>, EnterKeyHint>>({
+    static constexpr SortedArrayMap enterKeyHints { WTF::toArray<std::pair<PackedLettersLiteral<uint64_t>, EnterKeyHint>>({
         { "done"_s, EnterKeyHint::Done },
         { "enter"_s, EnterKeyHint::Enter },
         { "go"_s, EnterKeyHint::Go },

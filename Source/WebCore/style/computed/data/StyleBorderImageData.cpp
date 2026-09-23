@@ -28,6 +28,7 @@
 
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleComputedStyle+InitialInlines.h"
+#include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
 namespace Style {

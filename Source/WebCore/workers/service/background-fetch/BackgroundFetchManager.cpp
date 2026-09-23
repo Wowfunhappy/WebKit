@@ -35,6 +35,7 @@
 #include "JSDOMConvertNullable.h"
 #include "JSDOMConvertSequences.h"
 #include "JSDOMConvertStrings.h"
+#include "JSDOMPromiseDeferred.h"
 #include "SWClientConnection.h"
 #include "ServiceWorkerProvider.h"
 #include "ServiceWorkerRegistration.h"
@@ -46,9 +47,7 @@ BackgroundFetchManager::BackgroundFetchManager(ServiceWorkerRegistration& regist
 {
 }
 
-BackgroundFetchManager::~BackgroundFetchManager()
-{
-}
+BackgroundFetchManager::~BackgroundFetchManager() = default;
 
 static ExceptionOr<Vector<Ref<FetchRequest>>> buildBackgroundFetchRequests(ScriptExecutionContext& context, BackgroundFetchManager::Requests&& backgroundFetchRequests)
 {

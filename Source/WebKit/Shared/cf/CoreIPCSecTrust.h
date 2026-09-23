@@ -58,7 +58,8 @@ struct CoreIPCSecTrustData {
     using RevocationInfoSubDict = Vector<std::pair<CoreIPCString, RevocationInfoSubDictValue>>;
     using RevocationInfoEntry = Vector<std::pair<CoreIPCString, RevocationInfoSubDict>>;
     using RevocationInfoArray = Vector<RevocationInfoEntry>;
-    using InfoOption = Variant<CoreIPCDate, CoreIPCString, bool, RevocationInfoArray>;
+    using InfoSubDict = Vector<std::pair<CoreIPCString, bool>>;
+    using InfoOption = Variant<CoreIPCDate, CoreIPCString, bool, RevocationInfoArray, InfoSubDict>;
     using InfoType = Vector<std::pair<CoreIPCString, InfoOption>>;
     using PolicyDictionaryValueIsNumber = Vector<std::pair<CoreIPCString, CoreIPCNumber>>;
     using PolicyArrayOfArrayContainingDateOrNumbers = Vector<Vector<Variant<CoreIPCNumber, CoreIPCDate>>>;

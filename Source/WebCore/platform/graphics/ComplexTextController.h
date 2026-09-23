@@ -40,7 +40,6 @@
 typedef unsigned short CGGlyph;
 
 typedef const struct __CTRun * CTRunRef;
-typedef const struct __CTLine * CTLineRef;
 
 typedef struct hb_buffer_t hb_buffer_t;
 
@@ -60,7 +59,7 @@ enum class GlyphIterationStyle : bool { IncludePartialGlyphs, ByWholeGlyphs };
 class ComplexTextController {
     WTF_MAKE_TZONE_ALLOCATED(ComplexTextController);
 public:
-    ComplexTextController(const FontCascade&, const TextRun&, bool mayUseNaturalWritingDirection = false, SingleThreadWeakHashSet<const Font>* fallbackFonts = 0, bool forTextEmphasis = false);
+    ComplexTextController(const FontCascade&, const TextRun&, bool mayUseNaturalWritingDirection = false, SingleThreadWeakHashSet<const Font>* fallbackFonts = nullptr, bool forTextEmphasis = false);
 
     static std::pair<float, float> enclosingGlyphBoundsForTextRun(const FontCascade&, const TextRun&);
     static Vector<float> glyphAdvancesForTextRun(const FontCascade&, const TextRun&);
@@ -195,10 +194,6 @@ private:
     // the average (3.5) plus one standard deviation (7.5) of nonzero sizes used on Arabic Wikipedia.
     Vector<unsigned, 16> m_runIndices;
     Vector<unsigned, 16> m_glyphCountFromStartToIndex;
-
-#if PLATFORM(COCOA)
-    Vector<RetainPtr<CTLineRef>, 4> m_coreTextLines;
-#endif
 
     Vector<String> m_stringsFor8BitRuns;
 

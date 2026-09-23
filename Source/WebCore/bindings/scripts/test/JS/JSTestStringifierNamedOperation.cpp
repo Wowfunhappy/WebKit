@@ -26,6 +26,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMExceptionHandling.h"
@@ -36,7 +37,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -74,10 +74,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestStringifierNamedOperationPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestStringifierNamedOperationPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -118,11 +115,16 @@ static const std::array<HashTableValue, 3> JSTestStringifierNamedOperationProtot
 
 const ClassInfo JSTestStringifierNamedOperationPrototype::s_info = { "TestStringifierNamedOperation"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierNamedOperationPrototype) };
 
+JSC::Structure* JSTestStringifierNamedOperationPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestStringifierNamedOperationPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestStringifierNamedOperation::info(), JSTestStringifierNamedOperationPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestStringifierNamedOperation::s_info = { "TestStringifierNamedOperation"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierNamedOperation) };
@@ -133,6 +135,19 @@ JSTestStringifierNamedOperation::JSTestStringifierNamedOperation(Structure* stru
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestStringifierNamedOperation>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestStringifierNamedOperation* JSTestStringifierNamedOperation::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestStringifierNamedOperation>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestStringifierNamedOperation* ptr = new (NotNull, JSC::allocateCell<JSTestStringifierNamedOperation>(vm)) JSTestStringifierNamedOperation(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestStringifierNamedOperation::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestStringifierNamedOperation::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -148,7 +163,7 @@ JSObject* JSTestStringifierNamedOperation::prototype(VM& vm, JSDOMGlobalObject& 
 
 JSValue JSTestStringifierNamedOperation::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestStringifierNamedOperationDOMConstructor, DOMConstructorID::TestStringifierNamedOperation>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestStringifierNamedOperationDOMConstructor, DOMConstructorID::TestStringifierNamedOperation>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestStringifierNamedOperation::destroy(JSC::JSCell* cell)
@@ -161,10 +176,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestStringifierNamedOperationConstructor, (JSGlobalOb
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestStringifierNamedOperationPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestStringifierNamedOperationPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestStringifierNamedOperation::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestStringifierNamedOperation::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSC::EncodedJSValue jsTestStringifierNamedOperationPrototypeFunction_identifierBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestStringifierNamedOperation>::ClassParameter castedThis)
@@ -209,12 +224,14 @@ JSC::GCClient::IsoSubspace* JSTestStringifierNamedOperation::subspaceForImpl(JSC
 
 void JSTestStringifierNamedOperation::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestStringifierNamedOperation*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestStringifierNamedOperation>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestStringifierNamedOperationOwner::JSTestStringifierNamedOperationOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestStringifierNamedOperationOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -228,7 +245,7 @@ void JSTestStringifierNamedOperationOwner::finalize(JSC::Handle<JSC::Unknown> ha
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestStringifierNamedOperation = static_cast<JSTestStringifierNamedOperation*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestStringifierNamedOperation->wrapped()).ptr(), jsTestStringifierNamedOperation);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestStringifierNamedOperation->wrapped(), jsTestStringifierNamedOperation);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -276,7 +293,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestStringifierNamedOperation* JSTestStringifierNamedOperation::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestStringifierNamedOperation*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestStringifierNamedOperation>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

@@ -42,10 +42,6 @@
 #import "WebProcessMessages.h"
 #import "WebProcessPool.h"
 #import <WebCore/ActivityState.h>
-// MAVERICKS_BACKPORT: registerNotifyObservers() calls PAL::registerNotifyCallback, declared in
-// <pal/Logging.h>; "Logging.h" above is WebKit's own Platform/Logging.h. Upstream compiles because a
-// neighbour in the same unified bundle happens to include it — which changes whenever the Cocoa source
-// list does. Include it directly (an upstream non-unified-build fix, not a 10.9 divergence).
 #import <pal/Logging.h>
 #import <pal/spi/ios/MobileGestaltSPI.h>
 #import <sys/sysctl.h>
@@ -82,6 +78,11 @@
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #endif
 
+#if ENABLE(WK_WEB_EXTENSIONS)
+#import "WebExtensionContext.h"
+#import "WebExtensionController.h"
+#endif
+
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 #import "TCCSoftLink.h"
 #endif
@@ -90,8 +91,6 @@
 #define MESSAGE_CHECK_URL(url) MESSAGE_CHECK_BASE(checkURLReceivedFromWebProcess(url), connection())
 
 namespace WebKit {
-
-static const Seconds unexpectedActivityDuration = 10_s;
 
 void WebProcessProxy::registerNotifyObservers()
 {
@@ -139,9 +138,14 @@ void WebProcessProxy::cacheMediaMIMETypesInternal(const Vector<String>& types)
     send(Messages::WebProcess::SetMediaMIMETypes(types), 0);
 }
 
-Vector<String> WebProcessProxy::mediaMIMETypes() const
+const Vector<String>& WebProcessProxy::mediaMIMETypes()
 {
     return mediaTypeCache();
+}
+
+void WebProcessProxy::cacheMediaSourceTypeSupported(const String& type, bool isSupported)
+{
+    protect(processPool())->cacheMediaSourceTypeSupported(type, isSupported);
 }
 
 #if ENABLE(REMOTE_INSPECTOR)
@@ -199,6 +203,10 @@ void WebProcessProxy::unblockAccessibilityServerIfNeeded()
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 void WebProcessProxy::isAXAuthenticated(CoreIPCAuditToken&& auditToken, CompletionHandler<void(bool)>&& completionHandler)
 {
+    if (processPool().allowAXAuthenticationForTesting()) {
+        completionHandler(true);
+        return;
+    }
     auto authenticated = TCCAccessCheckAuditToken(get_TCC_kTCCServiceAccessibilitySingleton(), auditToken.auditToken(), nullptr);
     completionHandler(authenticated);
 }
@@ -270,12 +278,14 @@ std::optional<audit_token_t> WebProcessProxy::auditToken() const
     return protect(connection())->getAuditToken();
 }
 
+#if !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
 std::optional<Vector<SandboxExtension::Handle>> WebProcessProxy::fontdMachExtensionHandles()
 {
     if (std::exchange(m_sentFontdMachExtensionHandles, true))
         return std::nullopt;
     return SandboxExtension::createHandlesForMachLookup({ "com.apple.fonts"_s }, auditToken(), SandboxExtension::MachBootstrapOptions::EnableMachBootstrap);
 }
+#endif // !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
 
 #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WebProcessProxyCocoaAdditions.mm>)
 #import <WebKitAdditions/WebProcessProxyCocoaAdditions.mm>
@@ -317,6 +327,19 @@ void WebProcessProxy::createServiceWorkerDebuggable(WebCore::ServiceWorkerIdenti
     }
 
     Ref serviceWorkerDebuggableProxy = ServiceWorkerDebuggableProxy::create(url.string(), identifier, *this);
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+    // Set the nameOverride from the extension context's inspection name so the correct name appears for the debuggable before it gets sent to clients.
+    for (auto& page : m_pageMap.values()) {
+        if (RefPtr webExtensionController = page->webExtensionController()) {
+            if (RefPtr extensionContext = webExtensionController->extensionContext(url)) {
+                serviceWorkerDebuggableProxy->setNameOverride(extensionContext->backgroundWebViewInspectionName());
+                break;
+            }
+        }
+    }
+#endif
+
     m_serviceWorkerDebuggableProxies.add(identifier, serviceWorkerDebuggableProxy);
     serviceWorkerDebuggableProxy->init();
     serviceWorkerDebuggableProxy->setInspectable(isInspectable == WebCore::ServiceWorkerIsInspectable::Yes);
@@ -362,15 +385,21 @@ void WebProcessProxy::platformDestroy()
 #endif // PLATFORM(IOS_FAMILY)
 
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
-    if (m_logStream.get()) {
-#if !ENABLE(STREAMING_IPC_IN_LOG_FORWARDING)
-        removeMessageReceiver(Messages::LogStream::messageReceiverName(), m_logStream->identifier());
-#endif
-        m_logStream.reset();
-    }
-
+    stopLogStream();
 #endif
 }
+
+#if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
+void WebProcessProxy::stopLogStream()
+{
+    if (!m_logStream.get())
+        return;
+#if !ENABLE(STREAMING_IPC_IN_LOG_FORWARDING)
+    removeMessageReceiver(Messages::LogStream::messageReceiverName(), m_logStream->identifier());
+#endif
+    m_logStream.reset();
+}
+#endif
 
 void WebProcessProxy::platformResumeProcess()
 {

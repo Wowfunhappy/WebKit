@@ -28,7 +28,7 @@
     DispatchedTo=WebContent
 ]
 messages -> SpeechRecognitionRealtimeMediaSourceManager {
-    CreateSource(WebCore::RealtimeMediaSourceIdentifier identifier, WebCore::CaptureDevice device, WebCore::PageIdentifier pageIdentifier)
+    CreateSource(WebCore::RealtimeMediaSourceIdentifier identifier, WebCore::CaptureDevice device, WebCore::PageIdentifier pageIdentifier, WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier)
     DeleteSource(WebCore::RealtimeMediaSourceIdentifier identifier)
     Start(WebCore::RealtimeMediaSourceIdentifier identifier);
     Stop(WebCore::RealtimeMediaSourceIdentifier identifier);

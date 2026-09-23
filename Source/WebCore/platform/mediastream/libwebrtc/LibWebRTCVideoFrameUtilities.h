@@ -26,172 +26,27 @@
 
 #pragma once
 
-#include "PlatformVideoColorSpace.h"
-#include "VideoFrame.h"
-#include "webrtc/api/video/video_frame.h"
+#include <WebCore/PlatformVideoColorSpace.h>
+#include <WebCore/VideoFrame.h>
+
+#if ENABLE(VIDEO) && USE(LIBWEBRTC)
+
+namespace webrtc {
+class ColorSpace;
+class VideoFrame;
+}
 
 namespace WebCore {
 
-static inline std::optional<PlatformVideoColorSpace> colorSpaceFromLibWebRTCVideoFrame(const webrtc::VideoFrame& frame)
+WEBCORE_EXPORT std::optional<PlatformVideoColorSpace> colorSpaceFromLibWebRTCColorSpace(const webrtc::ColorSpace&);
+WEBCORE_EXPORT std::optional<PlatformVideoColorSpace> colorSpaceFromLibWebRTCVideoFrame(const webrtc::VideoFrame&);
+WEBCORE_EXPORT VideoFrameRotation videoRotationFromLibWebRTCVideoFrame(const webrtc::VideoFrame&);
+
+static inline std::optional<PlatformVideoColorSpace> colorSpaceFromLibWebRTCColorSpace(const webrtc::ColorSpace* webrtcColorSpace)
 {
-    auto webrtcColorSpace = frame.color_space();
-    if (!webrtcColorSpace || webrtcColorSpace->primaries() == webrtc::ColorSpace::PrimaryID::kUnspecified)
-        return { };
-
-    std::optional<PlatformVideoColorPrimaries> primaries;
-    switch (webrtcColorSpace->primaries()) {
-    case webrtc::ColorSpace::PrimaryID::kBT709:
-        primaries = PlatformVideoColorPrimaries::Bt709;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kBT470BG:
-        primaries = PlatformVideoColorPrimaries::Bt470bg;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kSMPTE240M:
-        primaries = PlatformVideoColorPrimaries::Smpte240m;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kFILM:
-        primaries = PlatformVideoColorPrimaries::Film;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kBT2020:
-        primaries = PlatformVideoColorPrimaries::Bt2020;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kSMPTEST428:
-        primaries = PlatformVideoColorPrimaries::SmpteSt4281;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kSMPTEST431:
-        primaries = PlatformVideoColorPrimaries::SmpteRp431;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kSMPTEST432:
-        primaries = PlatformVideoColorPrimaries::SmpteEg432;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kJEDECP22:
-        primaries = PlatformVideoColorPrimaries::JedecP22Phosphors;
-        break;
-    case webrtc::ColorSpace::PrimaryID::kUnspecified:
-    case webrtc::ColorSpace::PrimaryID::kBT470M:
-    case webrtc::ColorSpace::PrimaryID::kSMPTE170M:
-        break;
-    };
-
-    std::optional<PlatformVideoTransferCharacteristics> transfer;
-    switch (webrtcColorSpace->transfer()) {
-    case webrtc::ColorSpace::TransferID::kBT709:
-        transfer = PlatformVideoTransferCharacteristics::Bt709;
-        break;
-    case webrtc::ColorSpace::TransferID::kGAMMA22:
-        transfer = PlatformVideoTransferCharacteristics::Gamma22curve;
-        break;
-    case webrtc::ColorSpace::TransferID::kGAMMA28:
-        transfer = PlatformVideoTransferCharacteristics::Gamma28curve;
-        break;
-    case webrtc::ColorSpace::TransferID::kSMPTE170M:
-        transfer = PlatformVideoTransferCharacteristics::Smpte170m;
-        break;
-    case webrtc::ColorSpace::TransferID::kSMPTE240M:
-        transfer = PlatformVideoTransferCharacteristics::Smpte240m;
-        break;
-    case webrtc::ColorSpace::TransferID::kLINEAR:
-        transfer = PlatformVideoTransferCharacteristics::Linear;
-        break;
-    case webrtc::ColorSpace::TransferID::kLOG:
-        transfer = PlatformVideoTransferCharacteristics::Log;
-        break;
-    case webrtc::ColorSpace::TransferID::kLOG_SQRT:
-        transfer = PlatformVideoTransferCharacteristics::LogSqrt;
-        break;
-    case webrtc::ColorSpace::TransferID::kIEC61966_2_4:
-        transfer = PlatformVideoTransferCharacteristics::Iec6196624;
-        break;
-    case webrtc::ColorSpace::TransferID::kBT1361_ECG:
-        transfer = PlatformVideoTransferCharacteristics::Bt1361ExtendedColourGamut;
-        break;
-    case webrtc::ColorSpace::TransferID::kBT2020_10:
-        transfer = PlatformVideoTransferCharacteristics::Bt2020_10bit;
-        break;
-    case webrtc::ColorSpace::TransferID::kBT2020_12:
-        transfer = PlatformVideoTransferCharacteristics::Bt2020_12bit;
-        break;
-    case webrtc::ColorSpace::TransferID::kSMPTEST2084:
-        transfer = PlatformVideoTransferCharacteristics::SmpteSt2084;
-        break;
-    case webrtc::ColorSpace::TransferID::kSMPTEST428:
-        transfer = PlatformVideoTransferCharacteristics::SmpteSt4281;
-        break;
-    case webrtc::ColorSpace::TransferID::kARIB_STD_B67:
-        transfer = PlatformVideoTransferCharacteristics::AribStdB67Hlg;
-        break;
-    case webrtc::ColorSpace::TransferID::kIEC61966_2_1:
-    case webrtc::ColorSpace::TransferID::kUnspecified:
-        break;
-    };
-
-    std::optional<PlatformVideoMatrixCoefficients> matrix;
-    switch (webrtcColorSpace->matrix()) {
-    case webrtc::ColorSpace::MatrixID::kRGB:
-        matrix = PlatformVideoMatrixCoefficients::Rgb;
-        break;
-    case webrtc::ColorSpace::MatrixID::kBT709:
-        matrix = PlatformVideoMatrixCoefficients::Bt709;
-        break;
-    case webrtc::ColorSpace::MatrixID::kFCC:
-        matrix = PlatformVideoMatrixCoefficients::Fcc;
-        break;
-    case webrtc::ColorSpace::MatrixID::kBT470BG:
-        matrix = PlatformVideoMatrixCoefficients::Bt470bg;
-        break;
-    case webrtc::ColorSpace::MatrixID::kSMPTE170M:
-        matrix = PlatformVideoMatrixCoefficients::Smpte170m;
-        break;
-    case webrtc::ColorSpace::MatrixID::kSMPTE240M:
-        matrix = PlatformVideoMatrixCoefficients::Smpte240m;
-        break;
-    case webrtc::ColorSpace::MatrixID::kYCOCG:
-        matrix = PlatformVideoMatrixCoefficients::YCgCo;
-        break;
-    case webrtc::ColorSpace::MatrixID::kBT2020_NCL:
-        matrix = PlatformVideoMatrixCoefficients::Bt2020NonconstantLuminance;
-        break;
-    case webrtc::ColorSpace::MatrixID::kBT2020_CL:
-        matrix = PlatformVideoMatrixCoefficients::Bt2020ConstantLuminance;
-        break;
-    case webrtc::ColorSpace::MatrixID::kUnspecified:
-    case webrtc::ColorSpace::MatrixID::kSMPTE2085:
-    case webrtc::ColorSpace::MatrixID::kCDNCLS:
-    case webrtc::ColorSpace::MatrixID::kCDCLS:
-    case webrtc::ColorSpace::MatrixID::kBT2100_ICTCP:
-        break;
-    };
-
-    std::optional<bool> fullRange;
-    switch (webrtcColorSpace->range()) {
-    case webrtc::ColorSpace::RangeID::kLimited:
-        fullRange = false;
-        break;
-    case webrtc::ColorSpace::RangeID::kFull:
-        fullRange = true;
-        break;
-    case webrtc::ColorSpace::RangeID::kInvalid:
-    case webrtc::ColorSpace::RangeID::kDerived:
-        break;
-    };
-
-    return PlatformVideoColorSpace { primaries, transfer, matrix, fullRange };
-}
-
-static inline VideoFrameRotation videoRotationFromLibWebRTCVideoFrame(const webrtc::VideoFrame& frame)
-{
-    switch (frame.rotation()) {
-    case webrtc::VideoRotation::kVideoRotation_0:
-        return VideoFrameRotation::None;
-    case webrtc::VideoRotation::kVideoRotation_90:
-        return VideoFrameRotation::Right;
-    case webrtc::VideoRotation::kVideoRotation_180:
-        return VideoFrameRotation::UpsideDown;
-    case webrtc::VideoRotation::kVideoRotation_270:
-        return VideoFrameRotation::Left;
-    };
-    ASSERT_NOT_REACHED();
-    return VideoFrameRotation::None;
+    return webrtcColorSpace ? colorSpaceFromLibWebRTCColorSpace(*webrtcColorSpace) : std::nullopt;
 }
 
 } // namespace WebCore
+
+#endif

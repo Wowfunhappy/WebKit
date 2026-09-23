@@ -82,7 +82,7 @@ JSC_DEFINE_HOST_FUNCTION(intlDurationFormatPrototypeFuncFormat, (JSGlobalObject*
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* durationFormat = jsDynamicCast<IntlDurationFormat*>(callFrame->thisValue());
+    auto* durationFormat = dynamicDowncast<IntlDurationFormat>(callFrame->thisValue());
     if (!durationFormat) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Intl.DurationFormat.prototype.format called on value that's not a DurationFormat"_s);
 
@@ -90,7 +90,7 @@ JSC_DEFINE_HOST_FUNCTION(intlDurationFormatPrototypeFuncFormat, (JSGlobalObject*
     if (!argument.isObject() && !argument.isString()) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Intl.DurationFormat.prototype.format argument needs to be an object or a string"_s);
 
-    auto duration = TemporalDuration::toISO8601Duration(globalObject, argument);
+    auto duration = TemporalDuration::toTemporalDurationRecord(globalObject, argument);
     RETURN_IF_EXCEPTION(scope, { });
 
     RELEASE_AND_RETURN(scope, JSValue::encode(durationFormat->format(globalObject, WTF::move(duration))));
@@ -102,7 +102,7 @@ JSC_DEFINE_HOST_FUNCTION(intlDurationFormatPrototypeFuncFormatToParts, (JSGlobal
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* durationFormat = jsDynamicCast<IntlDurationFormat*>(callFrame->thisValue());
+    auto* durationFormat = dynamicDowncast<IntlDurationFormat>(callFrame->thisValue());
     if (!durationFormat) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Intl.DurationFormat.prototype.formatToParts called on value that's not a DurationFormat"_s);
 
@@ -110,7 +110,7 @@ JSC_DEFINE_HOST_FUNCTION(intlDurationFormatPrototypeFuncFormatToParts, (JSGlobal
     if (!argument.isObject() && !argument.isString()) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Intl.DurationFormat.prototype.formatToParts argument needs to be an object or a string"_s);
 
-    auto duration = TemporalDuration::toISO8601Duration(globalObject, argument);
+    auto duration = TemporalDuration::toTemporalDurationRecord(globalObject, argument);
     RETURN_IF_EXCEPTION(scope, { });
 
     RELEASE_AND_RETURN(scope, JSValue::encode(durationFormat->formatToParts(globalObject, WTF::move(duration))));
@@ -122,7 +122,7 @@ JSC_DEFINE_HOST_FUNCTION(intlDurationFormatPrototypeFuncResolvedOptions, (JSGlob
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* durationFormat = jsDynamicCast<IntlDurationFormat*>(callFrame->thisValue());
+    auto* durationFormat = dynamicDowncast<IntlDurationFormat>(callFrame->thisValue());
     if (!durationFormat) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Intl.DurationFormat.prototype.resolvedOptions called on value that's not a DurationFormat"_s);
 

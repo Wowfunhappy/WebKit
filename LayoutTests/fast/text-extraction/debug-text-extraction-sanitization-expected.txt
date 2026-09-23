@@ -20,9 +20,9 @@ root
 	'WordJoinerTest'
 	'BOMTest'
 	list
-		list-item,'First item'
-		list-item,'Second item'
-		list-item,'Third item'
+		'First item'
+		'Second item'
+		'Third item'
 	'Repeated text'
 	'Different text'
 

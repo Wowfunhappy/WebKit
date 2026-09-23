@@ -39,7 +39,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaSessionGLib);
 
 static std::optional<PlatformMediaSession::RemoteControlCommandType> getCommand(const char* name)
 {
-    static const SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, PlatformMediaSession::RemoteControlCommandType>>({
+    static const SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, PlatformMediaSession::RemoteControlCommandType>>({
         { "Next"_s, PlatformMediaSession::RemoteControlCommandType::NextTrackCommand },
         { "Pause"_s, PlatformMediaSession::RemoteControlCommandType::PauseCommand },
         { "Play"_s, PlatformMediaSession::RemoteControlCommandType::PlayCommand },
@@ -96,7 +96,7 @@ enum class MprisProperty : uint8_t {
 
 static std::optional<MprisProperty> getMprisProperty(const char* propertyName)
 {
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, MprisProperty>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, MprisProperty>>({
         { "CanControl"_s, MprisProperty::CanControl },
         { "CanGoNext"_s, MprisProperty::CanGoNext },
         { "CanGoPrevious"_s, MprisProperty::CanGoPrevious },
@@ -174,18 +174,24 @@ static const GDBusInterfaceVTable gInterfaceVTable = {
     handleMethodCall, handleGetProperty, handleSetProperty, { nullptr }
 };
 
+bool MediaSessionGLib::m_dBusAddressFailed = false;
+
 std::unique_ptr<MediaSessionGLib> MediaSessionGLib::create(MediaSessionManagerGLib& manager, MediaSessionIdentifier identifier)
 {
     if (!manager.areDBusNotificationsEnabled())
         return makeUnique<MediaSessionGLib>(manager, nullptr, identifier);
 
+    if (m_dBusAddressFailed)
+        return nullptr;
+
     GUniqueOutPtr<GError> error;
     GUniquePtr<char> address(g_dbus_address_get_for_bus_sync(G_BUS_TYPE_SESSION, nullptr, &error.outPtr()));
     if (error) {
         g_warning("Unable to get session D-Bus address: %s", error->message);
+        m_dBusAddressFailed = true;
         return nullptr;
     }
-    auto connection = adoptGRef(reinterpret_cast<GDBusConnection*>(g_object_new(G_TYPE_DBUS_CONNECTION,
+    GRefPtr connection = adoptGRef(reinterpret_cast<GDBusConnection*>(g_object_new(G_TYPE_DBUS_CONNECTION,
         "address", address.get(),
         "flags", G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
         "exit-on-close", TRUE, nullptr)));
@@ -214,12 +220,16 @@ bool MediaSessionGLib::ensureMprisSessionRegistered()
     if (!m_connection || mprisRegistrationEligibility() == MediaSessionGLibMprisRegistrationEligiblilty::NotEligible)
         return false;
 
+    const auto& info = nowPlayingInfo();
+    if (!info || info->metadata.title.isEmpty())
+        return false;
+
     if (m_ownerId)
         return true;
 
-    const auto& mprisInterface = m_manager.mprisInterface();
+    const auto mprisInterfaces = unsafeMakeSpan(m_manager.mprisInterface()->interfaces, 2);
     GUniqueOutPtr<GError> error;
-    m_rootRegistrationId = g_dbus_connection_register_object(m_connection.get(), DBUS_MPRIS_OBJECT_PATH, mprisInterface->interfaces[0],
+    m_rootRegistrationId = g_dbus_connection_register_object(m_connection.get(), DBUS_MPRIS_OBJECT_PATH, mprisInterfaces[0],
         &gInterfaceVTable, this, nullptr, &error.outPtr());
 
     if (!m_rootRegistrationId) {
@@ -227,10 +237,8 @@ bool MediaSessionGLib::ensureMprisSessionRegistered()
         return false;
     }
 
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
-    m_playerRegistrationId = g_dbus_connection_register_object(m_connection.get(), DBUS_MPRIS_OBJECT_PATH, mprisInterface->interfaces[1],
+    m_playerRegistrationId = g_dbus_connection_register_object(m_connection.get(), DBUS_MPRIS_OBJECT_PATH, mprisInterfaces[1],
         &gInterfaceVTable, this, nullptr, &error.outPtr());
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     if (!m_playerRegistrationId) {
         g_warning("Failed at MPRIS object registration: %s", error->message);

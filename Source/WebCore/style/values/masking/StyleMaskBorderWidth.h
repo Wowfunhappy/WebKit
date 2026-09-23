@@ -25,18 +25,19 @@
 
 #pragma once
 
-#include <WebCore/StyleLengthWrapper.h>
+#include <WebCore/StylePrimitiveNumeric.h>
 
 namespace WebCore {
-namespace Style {
 
-struct MaskBorderWidthValueLength : LengthWrapperBase<LengthPercentage<CSS::Nonnegative>> {
-    using Base::Base;
-};
+namespace CSS {
+struct MaskBorderWidth;
+}
+
+namespace Style {
 
 // <mask-border-width-value> = <length-percentage [0,∞]> | <number [0,∞]> | auto
 struct MaskBorderWidthValue {
-    using LengthPercentage = MaskBorderWidthValueLength;
+    using LengthPercentage = Style::LengthPercentage<CSS::Nonnegative>;
     using Number = Style::Number<CSS::Nonnegative, float>;
 
     MaskBorderWidthValue(CSS::Keyword::Auto keyword)
@@ -155,8 +156,11 @@ DEFINE_TYPE_WRAPPER_GET(MaskBorderWidth, values);
 
 // MARK: - Conversion
 
+template<> struct ToCSS<MaskBorderWidth> { auto operator()(const MaskBorderWidth&, const Style::ComputedStyle&) -> CSS::MaskBorderWidth; };
+template<> struct ToStyle<CSS::MaskBorderWidth> { auto operator()(const CSS::MaskBorderWidth&, const BuilderState&) -> MaskBorderWidth; };
+
 template<> struct CSSValueConversion<MaskBorderWidth> { auto operator()(BuilderState&, const CSSValue&) -> MaskBorderWidth; };
-template<> struct CSSValueCreation<MaskBorderWidth> { auto operator()(CSSValuePool&, const RenderStyle&, const MaskBorderWidth&) -> Ref<CSSValue>; };
+template<> struct CSSValueCreation<MaskBorderWidth> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const MaskBorderWidth&) -> Ref<CSSValue>; };
 
 // MARK: - Blending
 
@@ -176,5 +180,4 @@ template<> struct Blending<MaskBorderWidth> {
 } // namespace WebCore
 
 DEFINE_TUPLE_LIKE_CONFORMANCE_FOR_TYPE_WRAPPER(WebCore::Style::MaskBorderWidth)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::MaskBorderWidthValueLength)
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::MaskBorderWidthValue)

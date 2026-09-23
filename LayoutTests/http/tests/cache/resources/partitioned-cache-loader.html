@@ -2,8 +2,6 @@
 <head>
 <script src="../../resources/js-test-pre.js"></script>
 <script>
-if (window.internals)
-    internals.settings.setStorageBlockingPolicy('BlockThirdParty');
 
 function setServerState(string)
 {
@@ -27,10 +25,8 @@ window.onload = function() {
     } else {
         console.log('Server state retrieved via a 3rd party resource (possibly a cached result, but it shouldn\'t be): "' + response + '"');
         shouldBeEqualToString('response',  document.domain);
-        if (window.testRunner) {
-            internals.settings.setStorageBlockingPolicy('AllowAll');
+        if (window.testRunner)
             testRunner.notifyDone();
-        }
     }
 }
 </script>

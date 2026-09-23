@@ -60,7 +60,7 @@ public:
         Candidates finalize() const;
 
     private:
-        bool add(Callee*, uint32_t);
+        bool NODELETE add(Callee*, uint32_t);
         void markAsMegamorphic(uint32_t count);
 
         uint32_t m_totalCount { 0 };

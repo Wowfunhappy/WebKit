@@ -27,12 +27,14 @@
 
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "ComposedTreeAncestorIterator.h"
 #include "DocumentPage.h"
+#include "DocumentQuirks.h"
 #include "Element.h"
 #include "EventHandler.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "EventTarget.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameInlines.h"
 #include "HitTestResult.h"
 #include "MouseEventTypes.h"
@@ -40,6 +42,8 @@
 #include "Page.h"
 #include "PointerEvent.h"
 #include "Quirks.h"
+#include "Settings.h"
+#include "TaskSource.h"
 #include <algorithm>
 #include <ranges>
 #include <wtf/CheckedArithmetic.h>
@@ -83,7 +87,7 @@ ExceptionOr<void> PointerCaptureController::setPointerCapture(Element* capturing
 
 #if ENABLE(POINTER_LOCK)
     // 3. If this method is invoked while the document has a locked element, throw an exception with the name InvalidStateError.
-    if (auto* page = capturingTarget->document().page()) {
+    if (RefPtr page = capturingTarget->document().page()) {
         if (page->pointerLockController().isLocked())
             return Exception { ExceptionCode::InvalidStateError };
     }
@@ -170,7 +174,7 @@ void PointerCaptureController::elementWasRemovedSlow(Element& element)
             auto pointerType = capturingData->pointerType;
             releasePointerCapture(&element, pointerId);
             // FIXME: Spec doesn't specify which task source to use.
-            element.document().queueTaskToDispatchEvent(TaskSource::UserInteraction, PointerEvent::create(eventNames().lostpointercaptureEvent, pointerId, pointerType));
+            protect(element.document())->queueTaskToDispatchEvent(TaskSource::UserInteraction, PointerEvent::create(eventNames().lostpointercaptureEvent, pointerId, pointerType));
             return;
         }
     }
@@ -235,9 +239,9 @@ void PointerCaptureController::dispatchEnterOrLeaveEvent(const AtomString& type,
     }
 
     Vector<Ref<Element>, 32> targetChain;
-    for (RefPtr element = targetElement; element; element = element->parentElementInComposedTree()) {
+    for (Ref element : composedTreeLineage(targetElement)) {
         if (hasCapturingListenerInHierarchy || element->hasEventListeners(type))
-            targetChain.append(*element);
+            targetChain.append(element);
     }
 
     if (type == eventNames().pointerenterEvent) {
@@ -494,7 +498,9 @@ void PointerCaptureController::pointerEventWillBeDispatched(const PointerEvent& 
         // to the target (as normal) indicating that capture is active.
         setPointerCapture(&element, event.pointerId());
     }
-    element.document().handlePopoverLightDismiss(event, element);
+    protect(element.document())->handlePopoverLightDismiss(event, element);
+    if (element.document().settings().closeWatcherEnabled())
+        protect(element.document())->handleDialogLightDismiss(event, element);
 }
 
 auto PointerCaptureController::ensureCapturingDataForPointerEvent(const PointerEvent& event) -> Ref<CapturingData>
@@ -618,7 +624,7 @@ void PointerCaptureController::processPendingPointerCapture(PointerID pointerId)
     // then fire a pointer event named lostpointercapture at the pointer capture target override node.
     if (auto targetOverride = capturingData->targetOverride; targetOverride && targetOverride != pendingTargetOverride) {
         if (capturingData->targetOverride->isConnected())
-            capturingData->targetOverride->dispatchEvent(PointerEvent::createForPointerCapture(eventNames().lostpointercaptureEvent, pointerId, capturingData->isPrimary, capturingData->pointerType));
+            protect(capturingData->targetOverride)->dispatchEvent(PointerEvent::createForPointerCapture(eventNames().lostpointercaptureEvent, pointerId, capturingData->isPrimary, capturingData->pointerType));
         if (capturingData->pointerType == mousePointerEventType()) {
             if (RefPtr frame = capturingData->targetOverride->document().frame())
                 frame->eventHandler().pointerCaptureElementDidChange(nullptr);

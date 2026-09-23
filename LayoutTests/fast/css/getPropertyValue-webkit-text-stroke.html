@@ -8,7 +8,7 @@
         height: 10em;
       }
     </style>
-    <script src="../../resources/js-test-pre.js"></script>
+    <script src="../../resources/js-test.js"></script>
     <script>
       if (window.testRunner)
         testRunner.dumpAsText();
@@ -31,8 +31,8 @@
       }
 
       shouldBeEqualToString('webkitTextStrokeValue("text-stroke1")', 'thin red');
-      shouldBeEqualToString('webkitTextStrokeValue("text-stroke2")', 'green');
-      shouldBeEqualToString('webkitTextStrokeValue("text-stroke3")', 'thin');
+      shouldBeEqualToString('webkitTextStrokeValue("text-stroke2")', '0px green');
+      shouldBeEqualToString('webkitTextStrokeValue("text-stroke3")', 'thin currentcolor');
       shouldBeEqualToString('webkitTextStrokeValue("text-stroke4")', '1px red');
       shouldBeEqualToString('webkitTextStrokeValue("text-stroke5")', '1px black');
       debug("NOTE: 'foo' is an illegal CSS value for '-webkit-text-stroke'.");
@@ -40,6 +40,5 @@
       debug("NOTE: If only few longhand properties are specified, getPropertyValue for shorthand property returns the empty string.")
       shouldBeEqualToString('webkitTextStrokeValue("text-stroke7")', "");
     </script>
-    <script src="../../resources/js-test-post.js"></script>
   </body>
 </html>

@@ -28,7 +28,6 @@
 #include <JavaScriptCore/JSExportMacros.h>
 #include <wtf/Compiler.h>
 #include <wtf/MathExtras.h>
-#include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -85,7 +84,7 @@ public:
     FreeList(unsigned cellSize);
     ~FreeList();
     
-    void clear();
+    void NODELETE clear();
     
     JS_EXPORT_PRIVATE void initialize(FreeCell* head, uint64_t secret, unsigned bytes);
     

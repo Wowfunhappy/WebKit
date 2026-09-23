@@ -27,6 +27,7 @@
 #include "ImageBackingStore.h"
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorSpace.h>
 #include <skia/core/SkPixmap.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 

@@ -53,6 +53,7 @@ public:
     virtual RefPtr<StorageNamespace> sessionStorageNamespace(const SecurityOrigin&, Page&, ShouldCreateNamespace = ShouldCreateNamespace::Yes) = 0;
 
     WEBCORE_EXPORT void setSessionIDForTesting(PAL::SessionID);
+    WEBCORE_EXPORT uint64_t localStorageAreaMapCountForTesting() const;
 
     void setSessionStorageQuota(unsigned quota) { m_sessionStorageQuota = quota; }
     virtual void cloneSessionStorageNamespaceForPage(Page&, Page&) { RELEASE_ASSERT_NOT_REACHED(); }

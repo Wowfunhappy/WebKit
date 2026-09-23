@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2023, 2026 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -23,7 +23,6 @@
 
 #include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/MarkedVector.h>
-#include <wtf/HashSet.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -51,7 +50,7 @@ public:
 
     template<size_t inlineCapacity>
     ArgList(const MarkedVector<JSValue, inlineCapacity, RecordOverflow>& args)
-        : m_args(args.m_buffer)
+        : m_args(std::bit_cast<EncodedJSValue*>(args.m_buffer))
         , m_argCount(args.size())
     {
     }
@@ -72,7 +71,7 @@ public:
     bool isEmpty() const { return !m_argCount; }
     size_t size() const { return m_argCount; }
         
-    JS_EXPORT_PRIVATE void getSlice(int startIndex, ArgList& result) const;
+    JS_EXPORT_PRIVATE void NODELETE getSlice(int startIndex, ArgList& result) const;
 
     EncodedJSValue* data() const { return m_args; }
 

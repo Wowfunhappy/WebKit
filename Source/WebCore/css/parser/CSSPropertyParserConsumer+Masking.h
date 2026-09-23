@@ -33,18 +33,55 @@ class CSSParserTokenRange;
 class CSSValue;
 
 namespace CSS {
+struct MaskBorderOutset;
+struct MaskBorderRepeat;
+struct MaskBorderSlice;
+struct MaskBorderSource;
+struct MaskBorderWidth;
+struct MaskBorder;
 struct PropertyParserState;
 }
 
 namespace CSSPropertyParserHelpers {
 
-// rect() = rect( [ <length> | auto ]#{4} | [ <length> | auto ]{4} )
-// https://drafts.fxtf.org/css-masking/#funcdef-clip-rect
-RefPtr<CSSValue> consumeClipRectFunction(CSSParserTokenRange&, CSS::PropertyParserState&);
+enum class MaskBorderSliceOverride : bool { None, AlwaysFill };
+
+// <'clip'> = <rect()> | auto
+// https://drafts.csswg.org/css-masking/#propdef-clip
+RefPtr<CSSValue> consumeClip(CSSParserTokenRange&, CSS::PropertyParserState&);
 
 // <'clip-path'> = none | <clip-source> | [ <basic-shape> || <geometry-box> ]
-// https://drafts.fxtf.org/css-masking/#propdef-clip-path
+// https://drafts.csswg.org/css-masking/#propdef-clip-path
 RefPtr<CSSValue> consumeClipPath(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'mask-border-source'> = none | <image>
+// https://drafts.csswg.org/css-masking-1/#propdef-mask-border-source
+std::optional<CSS::MaskBorderSource> consumeUnresolvedMaskBorderSource(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeMaskBorderSource(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'mask-border-outset'> = [ <length [0,∞]> | <number [0,∞]> ]{1,4}
+// https://drafts.csswg.org/css-masking-1/#propdef-mask-border-outset
+std::optional<CSS::MaskBorderOutset> consumeUnresolvedMaskBorderOutset(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeMaskBorderOutset(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'mask-border-repeat'> = [ stretch | repeat | round | space ]{1,2}
+// https://drafts.csswg.org/css-masking-1/#propdef-mask-border-repeat
+std::optional<CSS::MaskBorderRepeat> consumeUnresolvedMaskBorderRepeat(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeMaskBorderRepeat(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'mask-border-slice'> = [<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?
+// https://drafts.csswg.org/css-masking-1/#propdef-mask-border-slice
+std::optional<CSS::MaskBorderSlice> consumeUnresolvedMaskBorderSlice(CSSParserTokenRange&, CSS::PropertyParserState&, MaskBorderSliceOverride = MaskBorderSliceOverride::None);
+RefPtr<CSSValue> consumeMaskBorderSlice(CSSParserTokenRange&, CSS::PropertyParserState&, MaskBorderSliceOverride = MaskBorderSliceOverride::None);
+
+// <'mask-border-width'> = [ <length-percentage [0,∞]> | <number [0,∞]> | auto ]{1,4}
+// https://drafts.csswg.org/css-masking-1/#propdef-mask-border-width
+std::optional<CSS::MaskBorderWidth> consumeUnresolvedMaskBorderWidth(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeMaskBorderWidth(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'mask-border'> = <'mask-border-source'> || <'mask-border-slice'> [ / <'mask-border-width'>? [ / <'mask-border-outset'> ]? ]? || <'mask-border-repeat'> || <'mask-border-mode'>
+// https://drafts.csswg.org/css-masking-1/#propdef-mask-border
+std::optional<CSS::MaskBorder> consumeUnresolvedMaskBorder(CSSParserTokenRange&, CSS::PropertyParserState&, MaskBorderSliceOverride = MaskBorderSliceOverride::None);
 
 } // namespace CSSPropertyParserHelpers
 } // namespace WebCore

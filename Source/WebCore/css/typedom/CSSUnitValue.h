@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,6 +39,7 @@ class CSSUnitValue final : public CSSNumericValue {
 public:
     static ExceptionOr<Ref<CSSUnitValue>> create(double value, const String& unit);
     static Ref<CSSUnitValue> create(double value, CSSUnitType unit) { return adoptRef(*new CSSUnitValue(value, unit)); }
+    static ExceptionOr<Ref<CSSUnitValue>> reifyValue(Document&, const CSSValue&);
 
     void serialize(StringBuilder&, OptionSet<SerializationArguments>) const final;
 

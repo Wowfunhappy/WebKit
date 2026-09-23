@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024, 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include "Strong.h"
 #include "UnlinkedCodeBlock.h"
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
@@ -38,11 +39,7 @@ class UnlinkedCodeBlockGenerator {
     WTF_MAKE_TZONE_ALLOCATED(UnlinkedCodeBlockGenerator);
     WTF_MAKE_NONCOPYABLE(UnlinkedCodeBlockGenerator)
 public:
-    UnlinkedCodeBlockGenerator(VM& vm, UnlinkedCodeBlock* codeBlock)
-        : m_vm(vm)
-        , m_codeBlock(vm, codeBlock)
-    {
-    }
+    UnlinkedCodeBlockGenerator(VM&, UnlinkedCodeBlock*);
 
     VM& vm() { return m_vm; }
 
@@ -100,8 +97,8 @@ public:
     size_t numberOfExceptionHandlers() const { return m_exceptionHandlers.size(); }
     UnlinkedHandlerInfo& exceptionHandler(int index) { return m_exceptionHandlers[index]; }
     void addExceptionHandler(const UnlinkedHandlerInfo& handler) { m_exceptionHandlers.append(handler); }
-    UnlinkedHandlerInfo* handlerForBytecodeIndex(BytecodeIndex, RequiredHandler = RequiredHandler::AnyHandler);
-    UnlinkedHandlerInfo* handlerForIndex(unsigned, RequiredHandler = RequiredHandler::AnyHandler);
+    UnlinkedHandlerInfo* NODELETE handlerForBytecodeIndex(BytecodeIndex, RequiredHandler = RequiredHandler::AnyHandler);
+    UnlinkedHandlerInfo* NODELETE handlerForIndex(unsigned, RequiredHandler = RequiredHandler::AnyHandler);
 
     BitVector& bitVector(size_t i) { return m_bitVectors[i]; }
     unsigned addBitVector(BitVector&& bitVector)
@@ -193,9 +190,9 @@ public:
 
     void applyModification(BytecodeRewriter&, JSInstructionStreamWriter&);
 
-    void finalize(std::unique_ptr<JSInstructionStream>);
+    [[nodiscard]] bool finalize(std::unique_ptr<JSInstructionStream>);
 
-    void dump(PrintStream&) const;
+    void NODELETE dump(PrintStream&) const;
 
     unsigned addBinaryArithProfile() { return m_numBinaryArithProfiles++; }
     unsigned addUnaryArithProfile() { return m_numUnaryArithProfiles++; }

@@ -20,24 +20,24 @@ PASS p in annotation-xml encoding=text/html stays as child of annotation-xml
 PASS p in annotation-xml encoding=TEXT/HTML stays as child of annotation-xml
 PASS p in annotation-xml encoding=application/xhtml+xml stays as child of annotation-xml
 PASS p in annotation-xml encoding=foo moves to be child of DIV
-a
+𝑎
 x
-x
-x
+𝑥
+𝑥
 x
 
-x
+𝑥
 
 x
 
 y
 x
 x
-x
+𝑥
 x
 
-x
-x
-x
-x
+𝑥
+𝑥
+𝑥
+𝑥
 x

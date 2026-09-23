@@ -28,6 +28,7 @@
 
 #include "CustomEvent.h"
 #include "DOMWrapperWorld.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/Structure.h>

@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ skip if $buildType == "debug"
 //@ runDefault("--destroy-vm", "--forceDebuggerBytecodeGeneration=1", "--returnEarlyFromInfiniteLoopsForFuzzing=1")
 

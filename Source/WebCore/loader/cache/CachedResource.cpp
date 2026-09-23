@@ -65,7 +65,7 @@
 #undef CACHEDRESOURCE_RELEASE_LOG
 #define PAGE_ID(frame) (frame.pageID() ? frame.pageID()->toUInt64() : 0)
 #define FRAME_ID(frame) (frame.frameID().toUInt64())
-#define CACHEDRESOURCE_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, "%p - CachedResource::" fmt, this, ##__VA_ARGS__)
+#define CACHEDRESOURCE_RELEASE_LOG(formatString, ...) RELEASE_LOG_FORWARDABLE(Network, CachedResource##formatString, ##__VA_ARGS__)
 #define CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME(fmt, frame, ...) RELEASE_LOG(Network, "%p - [pageID=%" PRIu64 ", frameID=%" PRIu64 "] CachedResource::" fmt, this, PAGE_ID(frame), FRAME_ID(frame), ##__VA_ARGS__)
 
 namespace WebCore {
@@ -92,6 +92,7 @@ CachedResource::CachedResource(CachedResourceRequest&& request, Type type, PAL::
     , m_preloadResult(PreloadResult::PreloadNotReferenced)
     , m_status(Pending)
     , m_isLinkPreload(request.isLinkPreload())
+    , m_isLinkModulePreload(request.isLinkModulePreload())
     , m_hasUnknownEncoding(request.isLinkPreload())
     , m_ignoreForRequestCount(request.ignoreForRequestCount())
 {
@@ -116,6 +117,7 @@ CachedResource::CachedResource(const URL& url, Type type, PAL::SessionID session
     , m_preloadResult(PreloadResult::PreloadNotReferenced)
     , m_status(Cached)
     , m_isLinkPreload(false)
+    , m_isLinkModulePreload(false)
     , m_hasUnknownEncoding(false)
     , m_ignoreForRequestCount(false)
 {
@@ -154,7 +156,7 @@ void CachedResource::failBeforeStarting()
 void CachedResource::load(CachedResourceLoader& cachedResourceLoader)
 {
     if (!cachedResourceLoader.frame()) {
-        CACHEDRESOURCE_RELEASE_LOG("load: No associated frame");
+        CACHEDRESOURCE_RELEASE_LOG(LoadNoAssociatedFrame);
         failBeforeStarting();
         return;
     }
@@ -252,7 +254,7 @@ void CachedResource::load(CachedResourceLoader& cachedResourceLoader)
         RefPtr protectedThis { *this };
 
         auto identifier = ResourceLoaderIdentifier::generate();
-        InspectorInstrumentation::willSendRequestOfType(frame.ptr(), identifier, protect(frameLoader->activeDocumentLoader()).get(), request, InspectorInstrumentation::LoadType::Beacon);
+        InspectorInstrumentation::willSendRequestOfType(frame.ptr(), identifier, protect(frameLoader->activeDocumentLoader()).get(), request, Inspector::UncachedLoadType::Beacon);
 
         platformStrategies()->loaderStrategy()->startPingLoad(frame, request, m_originalRequest->httpHeaderFields(), m_options, m_options.contentSecurityPolicyImposition, [this, protectedThis = Ref { *this }, frame = Ref { frame }, identifier] (const ResourceError& error, const ResourceResponse& response) {
             if (!response.isNull())
@@ -465,7 +467,7 @@ Seconds CachedResource::freshnessLifetime(const ResourceResponse& response) cons
 void CachedResource::redirectReceived(ResourceRequest&& request, const ResourceResponse& response, CompletionHandler<void(ResourceRequest&&)>&& completionHandler)
 {
     RefPtr protectedThis { *this };
-    CACHEDRESOURCE_RELEASE_LOG("redirectReceived:");
+    CACHEDRESOURCE_RELEASE_LOG(RedirectReceived);
 
     // Remove redirect urls from the memory cache if they contain a fragment.
     // If we cache localhost/#key=foo we will return the same parameters key=foo
@@ -1003,7 +1005,7 @@ ResourceCryptographicDigest CachedResource::cryptographicDigest(ResourceCryptogr
 {
     unsigned digestIndex = WTF::fastLog2(static_cast<unsigned>(algorithm));
     RELEASE_ASSERT(digestIndex < m_cryptographicDigests.size());
-    ASSERT(static_cast<std::underlying_type_t<ResourceCryptographicDigest::Algorithm>>(algorithm) == (1 << digestIndex));
+    ASSERT(std::to_underlying(algorithm) == (1 << digestIndex));
     auto& existingDigest = m_cryptographicDigests[digestIndex];
     if (!existingDigest)
         existingDigest = cryptographicDigestForSharedBuffer(algorithm, protect(m_data).get());

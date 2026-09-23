@@ -116,18 +116,18 @@ public:
     WEBCORE_EXPORT Location& location();
     virtual void setLocation(LocalDOMWindow& activeWindow, const URL& completedURL, NavigationHistoryBehavior, SetLocationLocking = SetLocationLocking::LockHistoryBasedOnGestureState, CanNavigateState = CanNavigateState::Unchecked) = 0;
 
-    bool closed() const;
+    bool NODELETE closed() const;
     WEBCORE_EXPORT void close();
     void close(Document&);
     virtual void closePage() = 0;
 
-    FrameConsoleClient* console() const;
+    FrameConsoleClient* NODELETE console() const;
 
     WindowProxy* opener() const;
     WEBCORE_EXPORT Document* NODELETE documentIfLocal();
 
-    WindowProxy* top() const;
-    WindowProxy* parent() const;
+    WindowProxy* NODELETE top() const;
+    WindowProxy* NODELETE parent() const;
     unsigned length() const;
     void focus(LocalDOMWindow& incumbentWindow);
     void blur();
@@ -169,6 +169,7 @@ public:
     ExceptionOr<String> origin() const;
     ExceptionOr<bool> isSecureContext() const;
     ExceptionOr<bool> crossOriginIsolated() const;
+    ExceptionOr<bool> originAgentCluster() const;
     ExceptionOr<void> print();
     ExceptionOr<void> stop();
     ExceptionOr<Performance&> performance() const;
@@ -229,7 +230,7 @@ public:
     bool isCurrentlyDisplayedInFrame() const;
     void printErrorMessage(const String&) const;
     String crossDomainAccessErrorMessage(const LocalDOMWindow& activeWindow, IncludeTargetOrigin);
-    bool isInsecureScriptAccess(const LocalDOMWindow& activeWindow, const String& urlString);
+    bool isInsecureScriptAccess(const LocalDOMWindow& activeWindow, const URL&);
 
 protected:
     bool passesSetLocationSecurityChecks(const LocalDOMWindow& activeWindow, const URL& completedURL, CanNavigateState& navigationState);

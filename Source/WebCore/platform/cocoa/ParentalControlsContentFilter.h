@@ -27,6 +27,7 @@
 
 #include <WebCore/PlatformContentFilter.h>
 #include <wtf/Compiler.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Condition.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -78,10 +79,11 @@ private:
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
     std::optional<URL> m_evaluatedURL;
+    IsMainFrameLoad m_isMainFrameLoad;
     URL m_mainDocumentURL;
     Lock m_resultLock;
     Condition m_resultCondition;
-    std::optional<bool> m_isAllowdByWebContentRestrictions WTF_GUARDED_BY_LOCK(m_resultLock);
+    std::optional<bool> m_isAllowedByWebContentRestrictions WTF_GUARDED_BY_LOCK(m_resultLock);
     RetainPtr<NSData> m_webContentRestrictionsReplacementData WTF_GUARDED_BY_LOCK(m_resultLock);
 
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)

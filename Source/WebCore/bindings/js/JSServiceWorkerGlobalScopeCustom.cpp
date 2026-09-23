@@ -30,6 +30,8 @@
 #include "ServiceWorkerClients.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/SlotVisitorInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 
 namespace WebCore {
 

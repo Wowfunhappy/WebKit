@@ -64,7 +64,6 @@ struct NavigationActionData {
     WebCore::FloatPoint clickLocationInRootViewCoordinates;
     WebCore::ResourceResponse redirectResponse;
     bool isRequestFromClientOrUserInput { false };
-    bool treatAsSameOriginNavigation { false };
     bool hasOpenedFrames { false };
     bool openedByDOMWithOpener { false };
     bool hasOpener { false };
@@ -90,7 +89,9 @@ struct NavigationActionData {
     std::optional<WebPageProxyIdentifier> originatingPageID;
     FrameInfoData frameInfo;
     std::optional<WebCore::NavigationIdentifier> navigationID;
-    WebCore::ResourceRequest originalRequest;
+    // Sent as nullopt when equal to `request`, to avoid serializing and re-parsing a potentially
+    // very large URL twice. Resolve via originalRequestOrFallback() / fall back to `request`.
+    std::optional<WebCore::ResourceRequest> originalRequest;
     WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
@@ -102,6 +103,9 @@ struct NavigationActionData {
     // (BrowserPagePolicyClient::decidePolicyForAction) requires it to be non-null before it will
     // drive the policy listener.
     UserData bundlePolicyUserData;
+
+    // `originalRequest` is sent as nullopt when it equals `request`; resolve it here.
+    const WebCore::ResourceRequest& originalRequestOrFallback() const { return originalRequest ? *originalRequest : request; }
 };
 
 }

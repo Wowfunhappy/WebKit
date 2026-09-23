@@ -27,12 +27,18 @@
                         if (++cuechangeCount != cueCount)
                             return;
 
+                        let previousID3CueIndex;
                         for (var i = 0; i < cueCount; i++) {
                             consoleWrite(``);
                             testExpected(`track.cues[${i}].startTime`, Number.POSITIVE_INFINITY, '!=');
                             testExpected(`track.cues[${i}].endTime`, Number.POSITIVE_INFINITY, '!=');
-                            if (i > 0)
-                                testExpected(`track.cues[${i}].endTime > track.cues[${i - 1}].endTime`, true);
+                            // The manifest's two date-range cues both end at 5 seconds.
+                            // The increasing-end regression concerns successive ID3 samples.
+                            if (track.cues[i].type === "org.id3") {
+                                if (previousID3CueIndex !== undefined)
+                                    testExpected(`track.cues[${i}].endTime > track.cues[${previousID3CueIndex}].endTime`, true);
+                                previousID3CueIndex = i;
+                            }
                         }
 
                         consoleWrite('');
@@ -42,8 +48,6 @@
 
                 await waitFor(video, 'canplaythrough');
                 await video.play();
-
-                consoleWrite('');
             }
         </script>
     </head>

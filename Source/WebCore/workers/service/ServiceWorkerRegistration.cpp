@@ -34,7 +34,6 @@
 #include "Event.h"
 #include "EventLoop.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "EventTargetInterfaces.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
@@ -51,6 +50,7 @@
 #include "ServiceWorkerTypes.h"
 #include "WebCoreOpaqueRoot.h"
 #include "WorkerGlobalScope.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
@@ -331,8 +331,8 @@ void ServiceWorkerRegistration::showNotification(ScriptExecutionContext& context
 #endif
 
         if (RefPtr pushEvent = serviceWorkerGlobalScope->pushEvent()) {
-            auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(promise->globalObject());
-            auto& jsPromise = *JSC::jsCast<JSC::JSPromise*>(promise->promise());
+            auto& globalObject = *promise->globalObject();
+            auto& jsPromise = *downcast<JSC::JSPromise>(promise->promise());
             pushEvent->waitUntil(DOMPromise::create(globalObject, jsPromise));
         }
 
@@ -377,7 +377,7 @@ void ServiceWorkerRegistration::addCookieChangeSubscriptions(Vector<CookieStoreG
         if (subscription.url.isNull())
             url = scope();
         else {
-            url = protect(scriptExecutionContext())->completeURL(subscription.url).string();
+            url = protect(scriptExecutionContext())->encodingParseURL(subscription.url).string();
             if (!url.startsWith(scope())) {
                 promise->reject(Exception { ExceptionCode::TypeError, "The service worker cannot subcribe to cookie changes for URLs outside of its scope"_s });
                 return;
@@ -405,7 +405,7 @@ void ServiceWorkerRegistration::removeCookieChangeSubscriptions(Vector<CookieSto
         if (subscription.url.isNull())
             url = scope();
         else {
-            url = protect(scriptExecutionContext())->completeURL(subscription.url).string();
+            url = protect(scriptExecutionContext())->encodingParseURL(subscription.url).string();
             if (!url.startsWith(scope())) {
                 promise->reject(Exception { ExceptionCode::TypeError, "The service worker cannot unsubcribe from cookie changes for URLs outside of its scope"_s });
                 return;

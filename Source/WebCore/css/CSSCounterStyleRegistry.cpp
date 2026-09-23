@@ -26,7 +26,6 @@
 #include "config.h"
 #include "CSSCounterStyleRegistry.h"
 
-#include "CSSCounterStyle.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSValuePair.h"
 #include "StyleListStyleType.h"
@@ -62,26 +61,29 @@ void CSSCounterStyleRegistry::resolveReferencesIfNeeded()
     m_hasUnresolvedReferences = false;
 }
 
-void CSSCounterStyleRegistry::resolveExtendsReference(CSSCounterStyle& counterStyle, CounterStyleMap* map)
+void CSSCounterStyleRegistry::resolveExtendsReference(CSSRegisteredCounterStyle& counterStyle, CounterStyleMap* map)
 {
-    HashSet<CSSCounterStyle*> countersInChain;
+    OrderedHashSet<CSSRegisteredCounterStyle*> countersInChain;
     resolveExtendsReference(counterStyle, countersInChain, map);
 }
 
-void CSSCounterStyleRegistry::resolveExtendsReference(CSSCounterStyle& counter, HashSet<CSSCounterStyle*>& countersInChain, CounterStyleMap* map)
+void CSSCounterStyleRegistry::resolveExtendsReference(CSSRegisteredCounterStyle& counter, OrderedHashSet<CSSRegisteredCounterStyle*>& countersInChain, CounterStyleMap* map)
 {
     ASSERT(counter.isExtendsSystem() && counter.isExtendsUnresolved());
     if (!(counter.isExtendsSystem() && counter.isExtendsUnresolved()))
         return;
 
-    if (countersInChain.contains(&counter)) {
-        // Chain of references forms a circle. Treat all as extending decimal (https://www.w3.org/TR/css-counter-styles-3/#extends-system).
+    auto cycleStart = countersInChain.find(&counter);
+    if (cycleStart != countersInChain.end()) {
+        // Chain of references forms a cycle. Only the counter styles that are part of the cycle
+        // (from the first occurrence of `counter` onwards) are treated as extending decimal
+        // (https://www.w3.org/TR/css-counter-styles-3/#extends-system). Counter styles that merely
+        // point into the cycle keep extending their referenced counter.
         auto decimal = decimalCounter();
-        for (const RefPtr counterInChain : countersInChain) {
-            ASSERT(counterInChain);
-            if (!counterInChain)
-                continue;
-            counterInChain->extendAndResolve(decimal);
+        for (auto it = cycleStart; it != countersInChain.end(); ++it) {
+            ASSERT(*it);
+            if (RefPtr counterInChain = *it)
+                counterInChain->extendAndResolve(decimal);
         }
         // Recursion return for circular chain.
         return;
@@ -97,7 +99,7 @@ void CSSCounterStyleRegistry::resolveExtendsReference(CSSCounterStyle& counter, 
         counter.extendAndResolve(extendedCounter);
 }
 
-void CSSCounterStyleRegistry::resolveFallbackReference(CSSCounterStyle& counter, CounterStyleMap* map)
+void CSSCounterStyleRegistry::resolveFallbackReference(CSSRegisteredCounterStyle& counter, CounterStyleMap* map)
 {
     counter.setFallbackReference(counterStyle(counter.fallbackName(), map));
 }
@@ -105,15 +107,15 @@ void CSSCounterStyleRegistry::resolveFallbackReference(CSSCounterStyle& counter,
 void CSSCounterStyleRegistry::addCounterStyle(const CSSCounterStyleDescriptors& descriptors)
 {
     m_hasUnresolvedReferences = true;
-    m_authorCounterStyles.set(descriptors.m_name, CSSCounterStyle::create(descriptors, false));
+    m_authorCounterStyles.set(descriptors.m_name, CSSRegisteredCounterStyle::create(descriptors, false));
 }
 
 void CSSCounterStyleRegistry::addUserAgentCounterStyle(const CSSCounterStyleDescriptors& descriptors)
 {
-    userAgentCounterStyles().set(descriptors.m_name, CSSCounterStyle::create(descriptors, true));
+    userAgentCounterStyles().set(descriptors.m_name, CSSRegisteredCounterStyle::create(descriptors, true));
 }
 
-Ref<CSSCounterStyle> CSSCounterStyleRegistry::decimalCounter()
+Ref<CSSRegisteredCounterStyle> CSSCounterStyleRegistry::decimalCounter()
 {
     auto& userAgentCounters = userAgentCounterStyles();
     auto iterator = userAgentCounters.find("decimal"_s);
@@ -124,7 +126,7 @@ Ref<CSSCounterStyle> CSSCounterStyleRegistry::decimalCounter()
 }
 
 // A valid map means that the search begins at the author counter style map, otherwise we skip the search to the UA counter styles.
-Ref<CSSCounterStyle> CSSCounterStyleRegistry::counterStyle(const AtomString& name, CounterStyleMap* map)
+Ref<CSSRegisteredCounterStyle> CSSCounterStyleRegistry::counterStyle(const AtomString& name, CounterStyleMap* map)
 {
     if (name.isEmpty())
         return decimalCounter();
@@ -142,7 +144,7 @@ Ref<CSSCounterStyle> CSSCounterStyleRegistry::counterStyle(const AtomString& nam
     return decimalCounter();
 }
 
-Ref<CSSCounterStyle> CSSCounterStyleRegistry::resolvedCounterStyle(const Style::CounterStyle& style)
+Ref<CSSRegisteredCounterStyle> CSSCounterStyleRegistry::resolvedCounterStyle(const Style::CounterStyle& style)
 {
     resolveReferencesIfNeeded();
     return counterStyle(style.identifier.value, &m_authorCounterStyles);

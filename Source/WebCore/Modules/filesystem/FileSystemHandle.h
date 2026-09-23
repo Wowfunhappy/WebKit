@@ -26,9 +26,12 @@
 #pragma once
 
 #include <WebCore/ActiveDOMObject.h>
+#include <WebCore/FileSystemHandleGlobalIdentifier.h>
 #include <WebCore/FileSystemHandleIdentifier.h>
+#include <WebCore/FileSystemHandleKind.h>
 #include <WebCore/FileSystemStorageConnection.h>
 #include <WebCore/IDLTypes.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -44,34 +47,41 @@ public:
 
     virtual ~FileSystemHandle();
 
-    enum class Kind : uint8_t {
-        File,
-        Directory
-    };
+    using Kind = FileSystemHandleKind;
     Kind kind() const { return m_kind; }
     const String& name() const LIFETIME_BOUND { return m_name; }
-    FileSystemHandleIdentifier identifier() const { return m_identifier; }
+    FileSystemHandleIdentifier identifier() const { return *m_identifier; }
+    FileSystemHandleGlobalIdentifier globalIdentifier() const { return m_globalIdentifier; }
     bool isClosed() const { return m_isClosed; }
+    bool isUnresolved() const { return m_isUnresolved; }
     void close();
 
-    void isSameEntry(FileSystemHandle&, DOMPromiseDeferred<IDLBoolean>&&) const;
+    void isSameEntry(FileSystemHandle&, DOMPromiseDeferred<IDLBoolean>&&);
     void move(FileSystemHandle&, const String& newName, DOMPromiseDeferred<void>&&);
 
-    size_t connectionHandleCount() const { return m_connection->handleCount(); }
+    void markAsUnresolved(ClientOrigin&&, Ref<FileSystemStorageConnection>&&);
+    void ensureIdentifier(CompletionHandler<void(bool)>&&);
+
+    size_t connectionHandleCount() const { return m_connection ? m_connection->handleCount() : 0; }
 
 protected:
-    FileSystemHandle(ScriptExecutionContext&, Kind, String&& name, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
-    FileSystemStorageConnection& connection() { return m_connection.get(); }
+    FileSystemHandle(ScriptExecutionContext&, Kind, String&& name, FileSystemHandleGlobalIdentifier, Markable<FileSystemHandleIdentifier>, RefPtr<FileSystemStorageConnection>&&);
+    FileSystemStorageConnection& connection() { ASSERT(m_connection); return *m_connection; }
 
 private:
     // ActiveDOMObject.
     void stop() final;
+    void resolveEnsureIdentifierCallbacks(bool);
 
     Kind m_kind { Kind::File };
     String m_name;
-    FileSystemHandleIdentifier m_identifier;
-    const Ref<FileSystemStorageConnection> m_connection;
+    Markable<FileSystemHandleIdentifier> m_identifier;
+    RefPtr<FileSystemStorageConnection> m_connection;
+    FileSystemHandleGlobalIdentifier m_globalIdentifier;
+    ClientOrigin m_origin;
     bool m_isClosed { false };
+    bool m_isUnresolved { false };
+    Vector<CompletionHandler<void(bool)>> m_ensureIdentifierCallbacks;
 };
 
 } // namespace WebCore

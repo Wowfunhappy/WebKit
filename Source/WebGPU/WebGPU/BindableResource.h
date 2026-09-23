@@ -32,6 +32,7 @@
 #import <wtf/GenericHashKey.h>
 #import <wtf/HashFunctions.h>
 #import <wtf/HashMap.h>
+#import <wtf/HashSet.h>
 #import <wtf/Hasher.h>
 #import <wtf/OptionSet.h>
 #import <wtf/RefPtr.h>

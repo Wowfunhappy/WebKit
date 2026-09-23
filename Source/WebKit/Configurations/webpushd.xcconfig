@@ -39,7 +39,7 @@ CLANG_INSTRUMENT_FOR_OPTIMIZATION_PROFILING = NO; // Disable PGO profile generat
 WK_PGO_GEN_FLAGS = ; // Disable IR PGO profile generation
 WK_PGO_USE_CFLAGS = ; // Disable IR PGO profile use
 WK_PGO_USE_LDFLAGS = ; // Disable IR PGO profile use
-OTHER_LDFLAGS = $(WK_COMMON_OTHER_LDFLAGS) $(OTHER_LDFLAGS_STAGED_FRAMEWORK_PATH) $(WK_RELOCATABLE_FRAMEWORKS_LDFLAGS) -framework WebKit $(SOURCE_VERSION_LDFLAGS);
+OTHER_LDFLAGS = $(WK_COMMON_OTHER_LDFLAGS) $(WK_RELOCATABLE_FRAMEWORKS_LDFLAGS) -framework WebKit $(SOURCE_VERSION_LDFLAGS);
 LIBRARY_SEARCH_PATHS = $(BUILT_PRODUCTS_DIR);
 
 // We want this to always be NO for non-simulator builds. If set to YES, Xcode will invoke codesign with an --entitlements parameter that points to the platform's BaseEntitlements.plist. This parameter would override any --entitlements parameter that we establish in WK_LIBRARY_VALIDATION_CODE_SIGN_FLAGS, causing our entitlements to be ignored.
@@ -63,11 +63,7 @@ INSTALL_PATH_NO = $(SYSTEM_SECONDARY_CONTENT_PATH)/usr/libexec;
 INSTALL_PATH_YES = $(WEBKIT_FRAMEWORKS_DIR)/WebKit.framework/$(WK_FRAMEWORK_VERSION_PREFIX)Daemons;
 INSTALL_PATH = $(INSTALL_PATH_$(WK_RELOCATABLE_WEBPUSHD));
 
-WK_SKIP_INSTALL_WEBPUSHD[sdk=macosx*] = $(WK_IS_CATALYST);
-// webpushd should not be installed when building for downlevel on <= 12.
-WK_SKIP_INSTALL_WEBPUSHD[sdk=macosx11*] = YES;
-WK_SKIP_INSTALL_WEBPUSHD[sdk=macosx12*] = YES;
-SKIP_INSTALL = $(WK_SKIP_INSTALL_WEBPUSHD)
+SKIP_INSTALL[sdk=macosx*] = $(WK_IS_CATALYST);
 
 LAUNCHD_PLIST_FILE_NAME = com.apple.webkit.webpushd.plist
 
@@ -88,3 +84,10 @@ LAUNCHD_PLIST_OUTPUT_FILE_INSTALL_YES = $(DSTROOT)$(LAUNCHD_PLIST_INSTALL_PATH)/
 
 LAUNCHD_PLIST_SYMLINK_PATH[sdk=macos*] = $(LAUNCHD_PLIST_SYMLINK_PATH_$(WK_RELOCATABLE_WEBPUSHD))
 LAUNCHD_PLIST_SYMLINK_PATH_NO = /System/Library/LaunchAgents
+
+WK_NEEDS_LAUNCH_CONSTRAINTS = $(WK_NOT_$(WK_OR_$(WK_RELOCATABLE_FRAMEWORKS)_$(WK_ANY_SANITIZER_ENABLED)))
+
+LAUNCH_CONSTRAINT_SELF = $(LAUNCH_CONSTRAINT_SELF_$(WK_NEEDS_LAUNCH_CONSTRAINTS))
+LAUNCH_CONSTRAINT_SELF_YES = Configurations/LaunchConstraints/xpc-self.plist
+LAUNCH_CONSTRAINT_PARENT = $(LAUNCH_CONSTRAINT_PARENT_$(WK_NEEDS_LAUNCH_CONSTRAINTS))
+LAUNCH_CONSTRAINT_PARENT_YES = Configurations/LaunchConstraints/xpc-parent.plist

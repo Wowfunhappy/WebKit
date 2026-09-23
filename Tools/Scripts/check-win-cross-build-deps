@@ -28,6 +28,7 @@ Validates that all required tools for building the Windows port from a Linux hos
 """
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,21 @@ WEBKIT_LIBRARIES_WINDOWS = os.path.join(WEBKIT_ROOT, 'WebKitLibraries', 'windows
 
 VCPKG_DIR = os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'vcpkg')
 XWIN_CACHE_DIR = os.path.join(WEBKIT_LIBRARIES_WINDOWS, '.xwin')
+
+# Determine host architecture and set arch-specific constants
+HOST_MACHINE = platform.machine()
+if HOST_MACHINE == 'aarch64':
+    CLANG_RT_ARCH = 'aarch64'
+    SDK_LIB_ARCH = 'arm64'
+    XWIN_HOST_ARCH = 'aarch64-unknown-linux-musl'
+    XWIN_ARCH_FLAG = ['--arch', 'aarch64']
+    CLANG_RT_PLATFORM = 'aarch64-pc-windows-msvc'
+else:
+    CLANG_RT_ARCH = 'x86_64'
+    SDK_LIB_ARCH = 'x64'
+    XWIN_HOST_ARCH = 'x86_64-unknown-linux-musl'
+    XWIN_ARCH_FLAG = []
+    CLANG_RT_PLATFORM = 'x86_64-pc-windows-msvc'
 
 REQUIRED_EXECUTABLES = [
     ('clang-cl-20', 'LLVM MSVC-compatible C/C++ compiler driver'),
@@ -48,10 +64,9 @@ REQUIRED_EXECUTABLES = [
     ('llvm-ranlib-20', 'LLVM archive indexer'),
     ('git', 'Version control (needed for vcpkg)'),
     ('cmake', 'Build system generator (needed for vcpkg)'),
-    ('wine', 'Wine PE executor (runs Windows .exe during cross-build)'),
 ]
 
-CLANG_RT_LIBRARY = 'clang_rt.builtins-x86_64.lib'
+CLANG_RT_LIBRARY = f'clang_rt.builtins-{CLANG_RT_ARCH}.lib'
 
 INSTALLATION_INSTRUCTIONS = {
     'clang-cl-20': 'sudo apt-get install clang-20 (from https://apt.llvm.org/) - clang-cl-20 is included with clang-20',
@@ -64,9 +79,8 @@ INSTALLATION_INSTRUCTIONS = {
     'git': 'sudo apt-get install git',
     'cmake': 'sudo apt-get install cmake',
     'xwin': f'Download from https://github.com/Jake-Shadle/xwin/releases and extract to {WEBKIT_LIBRARIES_WINDOWS}/',
-    'Windows SDK': f'Run `xwin --cache-dir {WEBKIT_LIBRARIES_WINDOWS}/.xwin splat --preserve-ms-arch-notation --output {WEBKIT_LIBRARIES_WINDOWS}/` (requires xwin)',
-    CLANG_RT_LIBRARY: f"Download clang+llvm-20.1.0-x86_64-pc-windows-msvc.tar.xz from https://github.com/llvm/llvm-project/releases, extract 'lib/clang/20/lib/windows/{CLANG_RT_LIBRARY}', move to {WEBKIT_LIBRARIES_WINDOWS}/",
-    'wine': 'See https://gitlab.winehq.org/wine/wine/-/wikis/Debian-Ubuntu',
+    'Windows SDK': f'Run `xwin {" ".join(XWIN_ARCH_FLAG)} --cache-dir {WEBKIT_LIBRARIES_WINDOWS}/.xwin splat --preserve-ms-arch-notation --output {WEBKIT_LIBRARIES_WINDOWS}/` (requires xwin)',
+    CLANG_RT_LIBRARY: f"Download clang+llvm-20.1.0-{CLANG_RT_PLATFORM}.tar.xz from https://github.com/llvm/llvm-project/releases, extract 'lib/clang/20/lib/windows/{CLANG_RT_LIBRARY}', move to {WEBKIT_LIBRARIES_WINDOWS}/",
     'vcpkg': f'Clone https://github.com/microsoft/vcpkg into {VCPKG_DIR} and run bootstrap-vcpkg.sh',
 }
 
@@ -92,13 +106,11 @@ def check_xwin():
 
 
 def check_clang_rt():
-    """Check for clang_rt.builtins-x86_64.lib in WebKitLibraries/windows/. Returns the path if found, None otherwise."""
+    """Check for clang_rt builtins lib in WebKitLibraries/windows/. Returns the path if found, None otherwise."""
     path = os.path.join(WEBKIT_LIBRARIES_WINDOWS, CLANG_RT_LIBRARY)
     if os.path.isfile(path):
         return path
     return None
-
-
 
 
 
@@ -136,7 +148,7 @@ def check_windows_sdk():
     """Check if Windows SDK is present. Returns True if found, False otherwise."""
     sdk_files = [
         os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'include', 'um', 'windows.h'),
-        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'lib', 'um', 'x64', 'kernel32.lib'),
+        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'lib', 'um', SDK_LIB_ARCH, 'kernel32.lib'),
         os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'crt', 'include', 'vcruntime.h'),
     ]
     return all(os.path.isfile(f) for f in sdk_files)
@@ -149,9 +161,9 @@ def create_lib_symlinks_for_case_sensitivity():
     case than they exist on disk. We create symlinks for common patterns.
     """
     lib_dirs = [
-        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'lib', 'um', 'x64'),
-        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'lib', 'ucrt', 'x64'),
-        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'crt', 'lib', 'x64'),
+        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'lib', 'um', SDK_LIB_ARCH),
+        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'sdk', 'lib', 'ucrt', SDK_LIB_ARCH),
+        os.path.join(WEBKIT_LIBRARIES_WINDOWS, 'crt', 'lib', SDK_LIB_ARCH),
     ]
 
     # Known CamelCase library names that need specific symlinks
@@ -224,9 +236,8 @@ def create_lib_symlinks_for_case_sensitivity():
 def download_windows_sdk(xwin_path):
     """Download Windows SDK/CRT using xwin splat."""
     print('Downloading Windows SDK and CRT (this may take a while)...')
-    result = subprocess.run(
-        [xwin_path, '--cache-dir', XWIN_CACHE_DIR, 'splat', '--preserve-ms-arch-notation', '--include-debug-libs', '--output', WEBKIT_LIBRARIES_WINDOWS]
-    )
+    xwin_cmd = [xwin_path] + XWIN_ARCH_FLAG + ['--accept-license', '--cache-dir', XWIN_CACHE_DIR, 'splat', '--preserve-ms-arch-notation', '--include-debug-libs', '--output', WEBKIT_LIBRARIES_WINDOWS]
+    result = subprocess.run(xwin_cmd)
     if result.returncode != 0:
         print('Error downloading SDK.')
         return False
@@ -258,7 +269,7 @@ def download_xwin():
     """Download and install xwin to WebKitLibraries/windows/."""
     import tarfile
 
-    XWIN_URL = 'https://github.com/Jake-Shadle/xwin/releases/download/0.7.0/xwin-0.7.0-x86_64-unknown-linux-musl.tar.gz'
+    XWIN_URL = f'https://github.com/Jake-Shadle/xwin/releases/download/0.7.0/xwin-0.7.0-{XWIN_HOST_ARCH}.tar.gz'
     tarball_path = '/tmp/xwin.tar.gz'
 
     # Download
@@ -288,12 +299,12 @@ def download_xwin():
 
 
 def download_clang_rt():
-    """Download clang_rt.builtins-x86_64.lib from LLVM Windows release."""
+    """Download clang_rt builtins library from LLVM Windows release."""
     import tarfile
 
     LLVM_VERSION = '20.1.0'
     CLANG_MAJOR_VERSION = '20'
-    ARCHIVE_NAME = f'clang+llvm-{LLVM_VERSION}-x86_64-pc-windows-msvc'
+    ARCHIVE_NAME = f'clang+llvm-{LLVM_VERSION}-{CLANG_RT_PLATFORM}'
     LLVM_URL = f'https://github.com/llvm/llvm-project/releases/download/llvmorg-{LLVM_VERSION}/{ARCHIVE_NAME}.tar.xz'
     archive_path = '/tmp/clang-llvm-win.tar.xz'
     lib_path_in_archive = f'{ARCHIVE_NAME}/lib/clang/{CLANG_MAJOR_VERSION}/lib/windows/{CLANG_RT_LIBRARY}'
@@ -323,8 +334,8 @@ def create_dummy_pwsh():
     """Create a dummy pwsh script to satisfy vcpkg's PowerShell check.
 
     vcpkg's vcpkg_copy_tool_dependencies.cmake requires PowerShell on Windows.
-    When cross-compiling from Linux, we don't need this functionality (Wine
-    handles DLL resolution), so we provide a dummy that exits successfully.
+    When cross-compiling from Linux, we don't need this functionality, so we
+    provide a dummy that exits successfully.
 
     Returns the path to the created pwsh script.
     """

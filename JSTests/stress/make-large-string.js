@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 var s = "s";
 

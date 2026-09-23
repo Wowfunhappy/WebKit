@@ -43,7 +43,7 @@ public:
     virtual ~WebColorPickerGtk();
 
     void endPicker() override;
-    void showColorPicker(const WebCore::Color&) override;
+    void showColorPicker(const WebCore::Color&, const WebCore::IntRect&) override;
 
     void cancel();
 

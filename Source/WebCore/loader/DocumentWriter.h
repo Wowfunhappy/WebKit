@@ -66,7 +66,7 @@ public:
     TextResourceDecoder& decoder();
     void reportDataReceived();
 
-    void setDocumentWasLoadedAsPartOfNavigation();
+    void NODELETE setDocumentWasLoadedAsPartOfNavigation();
 
 private:
     Ref<Document> createDocument(const URL&, std::optional<ScriptExecutionContextIdentifier>);

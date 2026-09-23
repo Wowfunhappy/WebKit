@@ -62,3 +62,71 @@ function test() {
 
 for (let i = 0; i < wasmTestLoopCount; i++)
     test();
+
+function testOverflow() {
+  // memory.fill: dstAddress + count overflows uint64
+  assert.throws(() => testFill(0xffffffffffffffffn, 0, 1n),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+
+  assert.throws(() => testFill(1n, 0, 0xffffffffffffffffn),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+
+  // memory.copy: dstAddress + count overflows uint64
+  assert.throws(() => testCopy(0xffffffffffffffffn, 0n, 1n),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+
+  // memory.copy: srcAddress + count overflows uint64
+  assert.throws(() => testCopy(0n, 0xffffffffffffffffn, 1n),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+
+  assert.throws(() => testCopy(0n, 1n, 0xffffffffffffffffn),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+}
+
+for (let i = 0; i < wasmTestLoopCount; i++)
+    testOverflow();
+
+let i32Wat = `
+(module
+    (memory (export "mem") 1)
+    (data (i32.const 0) "world!")
+    (func $i32Copy (export "i32Copy") (param $dst i32) (param $src i32) (param $sz i32)
+      (memory.copy
+        (local.get $dst)
+        (local.get $src)
+        (local.get $sz))
+    )
+)
+`;
+
+const worldBytes = "world!";
+const i32Instance = await instantiate(i32Wat, {}, {});
+const { i32Copy, mem: i32Mem } = i32Instance.exports;
+const i32MemView = new DataView(i32Mem.buffer);
+
+function testI32Copy() {
+  i32Copy(16, 0, worldBytes.length);
+  for (let i = 0; i < worldBytes.length; i++)
+    assert.eq(i32MemView.getInt8(16 + i), worldBytes.charCodeAt(i));
+}
+
+for (let i = 0; i < wasmTestLoopCount; i++)
+    testI32Copy();
+
+function testI32CopyOOB() {
+  assert.throws(() => i32Copy(0, 0xfffffff0 | 0, 32),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+
+  assert.throws(() => i32Copy(0, -1, 1),
+      WebAssembly.RuntimeError,
+      "Out of bounds memory access");
+}
+
+for (let i = 0; i < wasmTestLoopCount; i++)
+    testI32CopyOOB();

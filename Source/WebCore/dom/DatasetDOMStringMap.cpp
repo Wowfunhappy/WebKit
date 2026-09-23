@@ -85,7 +85,7 @@ static bool NODELETE isValidPropertyName(const String& name)
 template<typename CharacterType>
 static inline AtomString convertPropertyNameToAttributeName(const StringImpl& name)
 {
-    static constexpr auto dataPrefix = std::to_array<CharacterType>({ 'd', 'a', 't', 'a', '-' });
+    static constexpr auto dataPrefix = WTF::toArray<CharacterType>({ 'd', 'a', 't', 'a', '-' });
 
     Vector<CharacterType, 32> buffer;
 

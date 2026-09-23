@@ -29,37 +29,19 @@
 #include "CommonCryptoUtilities.h"
 #include "CryptoAlgorithmHkdfParams.h"
 #include "CryptoKeyRaw.h"
+#include "CryptoTypesBridging.h"
 #include "CryptoUtilitiesCocoa.h"
-#include <pal/PALSwift.h>
-
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
+#include <pal/crypto/CryptoAlgorithmHKDFCocoaBridging.h>
+#include <pal/crypto/CryptoTypes.h>
 
 namespace WebCore {
 
-static ExceptionOr<Vector<uint8_t>> platformDeriveBitsCryptoKit(const CryptoAlgorithmHkdfParams& parameters, const CryptoKeyRaw& key, size_t length)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (!isValidHashParameter(parameters.hashIdentifier))
-        return Exception { ExceptionCode::OperationError };
-    auto rv = pal::HKDF::deriveBits(key.key().span(), parameters.saltVector().span(), parameters.infoVector().span(), length, std::to_underlying(toCKHashFunction(parameters.hashIdentifier)));
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return Exception { ExceptionCode::OperationError };
-    return WTF::move(rv.result);
-#else
-    UNUSED_PARAM(parameters);
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(length);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmHKDF::platformDeriveBits(const CryptoAlgorithmHkdfParams& parameters, const CryptoKeyRaw& key, size_t length)
 {
-    return platformDeriveBitsCryptoKit(parameters, key, length);
+    if (!isValidHashParameter(parameters.hashIdentifier))
+        return Exception { ExceptionCode::OperationError };
+
+    return toException(PAL::Crypto::deriveBitsHKDFCryptoKit(key.key(), parameters.saltVector(), parameters.infoVector(), length, toCKHashFunction(parameters.hashIdentifier)));
 }
+
 } // namespace WebCore

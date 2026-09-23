@@ -1,0 +1,287 @@
+Subject: closedcaption: make native overlay rendering an optional default feature
+
+The caption parsers and text converters do not need a native rendering backend.
+Keep the full upstream plugin as the default; embedders that render converted
+WebVTT themselves can disable only the CEA608/CEA708 overlay elements and their
+Cairo/Pango helpers. Conversion algorithms and registration names are unchanged.
+
+--- a/video/closedcaption/Cargo.toml
++++ b/video/closedcaption/Cargo.toml
+@@ -14,9 +14,9 @@
+ uuid = { version = "1.0", features = ["v4"] }
+ chrono = "0.4.23"
+ atomic_refcell = "0.1"
+-cairo-rs.workspace = true
+-pango.workspace = true
+-pangocairo.workspace = true
++cairo-rs = { workspace = true, optional = true }
++pango = { workspace = true, optional = true }
++pangocairo = { workspace = true, optional = true }
+ byteorder = "1"
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = { version = "1.0", features = ["raw_value"] }
+@@ -48,6 +48,8 @@
+ gst-plugin-version-helper.workspace = true
+ 
+ [features]
++default = ["rendering"]
++rendering = ["dep:cairo-rs", "dep:pango", "dep:pangocairo"]
+ # We already use 1.16 which is new enough for static build
+ static = []
+ capi = []
+--- a/video/closedcaption/src/lib.rs
++++ b/video/closedcaption/src/lib.rs
+@@ -21,12 +21,14 @@
+ mod cctost2038anc;
+ mod ccutils;
+ mod cdpserviceinject;
++#[cfg(feature = "rendering")]
+ mod cea608overlay;
+ mod cea608tocea708;
+ mod cea608tojson;
+ mod cea608tott;
+ mod cea608utils;
+ mod cea708mux;
++#[cfg(feature = "rendering")]
+ mod cea708overlay;
+ mod cea708utils;
+ mod jsontovtt;
+@@ -61,6 +63,7 @@
+     scc_enc::register(plugin)?;
+     cea608tott::register(plugin)?;
+     tttocea608::register(plugin)?;
++    #[cfg(feature = "rendering")]
+     cea608overlay::register(plugin)?;
+     ccdetect::register(plugin)?;
+     tttojson::register(plugin)?;
+@@ -71,6 +74,7 @@
+     cea608tocea708::register(plugin)?;
+     cea708mux::register(plugin)?;
+     tttocea708::register(plugin)?;
++    #[cfg(feature = "rendering")]
+     cea708overlay::register(plugin)?;
+     st2038ancdemux::register(plugin)?;
+     st2038ancmux::register(plugin)?;
+--- a/video/closedcaption/src/ccutils.rs
++++ b/video/closedcaption/src/ccutils.rs
+@@ -151,6 +151,7 @@
+ // https://blogs.gnome.org/mclasen/2019/07/27/more-text-rendering-updates/
+ //
+ // TODO: switch to the API presented in this post once it's been exposed
++#[cfg(feature = "rendering")]
+ pub(crate) fn recalculate_pango_layout(
+     layout: &pango::Layout,
+     video_width: u32,
+--- a/video/closedcaption/src/cea608utils.rs
++++ b/video/closedcaption/src/cea608utils.rs
+@@ -16,8 +16,10 @@
+ use serde::{Deserialize, Serialize};
+ use std::sync::LazyLock;
+ 
++#[cfg(feature = "rendering")]
+ use pango::prelude::*;
+ 
++#[cfg(feature = "rendering")]
+ use crate::ccutils::recalculate_pango_layout;
+ 
+ use gst::prelude::MulDiv;
+@@ -476,6 +478,7 @@
+     MidRow(cea608_types::tables::MidRow),
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn pango_foreground_color_from_608(color: Color) -> pango::AttrColor {
+     let (r, g, b) = match color {
+         Color::White => (u16::MAX, u16::MAX, u16::MAX),
+@@ -492,8 +495,10 @@
+ // SAFETY: Required because `pango::Layout` is not `Send` but the whole `Cea608Renderer` needs to be.
+ // We ensure that no additional references to the layout are ever created, which makes it safe
+ // to send it to other threads as long as only a single thread uses it concurrently.
++#[cfg(feature = "rendering")]
+ unsafe impl Send for Cea608Renderer {}
+ 
++#[cfg(feature = "rendering")]
+ pub struct Cea608Renderer {
+     frame: Cea608Frame,
+     state: Cea608State,
+@@ -511,6 +516,7 @@
+     max_layout_height: i32,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Cea608Renderer {
+     pub fn new() -> Self {
+         let video_width = 0;
+--- a/video/closedcaption/src/cea708utils.rs
++++ b/video/closedcaption/src/cea708utils.rs
+@@ -15,10 +15,14 @@
+ use serde::{Deserialize, Serialize};
+ use std::sync::LazyLock;
+ 
++#[cfg(feature = "rendering")]
+ use pango::prelude::*;
+ 
++#[cfg(feature = "rendering")]
+ use crate::ccutils::recalculate_pango_layout;
+-use crate::cea608utils::{Cea608Renderer, TextStyle};
++use crate::cea608utils::TextStyle;
++#[cfg(feature = "rendering")]
++use crate::cea608utils::Cea608Renderer;
+ 
+ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
+     gst::DebugCategory::new(
+@@ -311,6 +315,7 @@
+     Cea608Channel(cea608_types::Id),
+ }
+ 
++#[cfg(feature = "rendering")]
+ pub struct Cea708Renderer {
+     selected: Option<ServiceOrChannel>,
+     cea608: Cea608Renderer,
+@@ -323,6 +328,7 @@
+     safe_height: f32,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Cea708Renderer {
+     pub fn new() -> Self {
+         let mut cea608 = Cea608Renderer::new();
+@@ -465,8 +471,10 @@
+ // `ServiceState` needs to be.
+ // We ensure that no additional references to the layout are ever created, which makes it safe
+ // to send it to other threads as long as only a single thread uses it concurrently.
++#[cfg(feature = "rendering")]
+ unsafe impl Send for ServiceState {}
+ 
++#[cfg(feature = "rendering")]
+ struct ServiceState {
+     windows: VecDeque<Window>,
+     current_window: usize,
+@@ -477,6 +485,7 @@
+     height_ratio: f32,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl ServiceState {
+     fn new() -> Self {
+         let fontmap = pangocairo::FontMap::new();
+@@ -705,6 +714,7 @@
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn color_value_as_u16(val: ColorValue) -> u16 {
+     match val {
+         ColorValue::None => 0,
+@@ -714,6 +724,7 @@
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn opacity_as_u16(val: Opacity) -> u16 {
+     match val {
+         Opacity::Transparent => 0,
+@@ -724,6 +735,7 @@
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn pango_foreground_color_from_708(args: &SetPenColorArgs) -> pango::AttrColor {
+     pango::AttrColor::new_foreground(
+         color_value_as_u16(args.foreground_color.r),
+@@ -732,10 +744,12 @@
+     )
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn pango_foreground_opacity_from_708(args: &SetPenColorArgs) -> pango::AttrInt {
+     pango::AttrInt::new_foreground_alpha(opacity_as_u16(args.foreground_opacity))
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn pango_background_color_from_708(args: &SetPenColorArgs) -> pango::AttrColor {
+     pango::AttrColor::new_background(
+         color_value_as_u16(args.background_color.r),
+@@ -744,11 +758,13 @@
+     )
+ }
+ 
++#[cfg(feature = "rendering")]
+ fn pango_background_opacity_from_708(args: &SetPenColorArgs) -> pango::AttrInt {
+     pango::AttrInt::new_background_alpha(opacity_as_u16(args.background_opacity))
+ }
+ 
+ #[derive(Debug, Default, PartialEq, Eq)]
++#[cfg(feature = "rendering")]
+ struct Dimensions {
+     w: u32,
+     h: u32,
+@@ -760,6 +776,7 @@
+     Last,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Align {
+     fn horizontal_from_anchor(anchor: Anchor) -> Self {
+         match anchor {
+@@ -780,6 +797,7 @@
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ struct Window {
+     visible: bool,
+     define: DefineWindowArgs,
+@@ -799,6 +817,7 @@
+     layout: pango::Layout,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Window {
+     #[allow(clippy::too_many_arguments)]
+     fn new(
+@@ -1460,37 +1479,44 @@
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ struct WindowLine {
+     no: usize,
+     line: VecDeque<Cell>,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl PartialOrd for WindowLine {
+     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+         Some(self.cmp(other))
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Ord for WindowLine {
+     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+         self.no.cmp(&other.no)
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl PartialEq for WindowLine {
+     fn eq(&self, other: &Self) -> bool {
+         self.no == other.no
+     }
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Eq for WindowLine {}
+ 
++#[cfg(feature = "rendering")]
+ struct Cell {
+     character: Option<char>,
+     pen_attrs: SetPenAttributesArgs,
+     pen_color: SetPenColorArgs,
+ }
+ 
++#[cfg(feature = "rendering")]
+ impl Cell {
+     fn new_empty(attrs: SetPenAttributesArgs, color: SetPenColorArgs) -> Self {
+         Self {

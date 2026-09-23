@@ -962,7 +962,6 @@ padding-box
 scoop
 // bevel
 notch
-straight
 squircle
 superellipse
 // infinity
@@ -986,6 +985,7 @@ exclude
 //
 var
 env
+random-item
 -internal-auto-base
 
 //
@@ -1334,6 +1334,7 @@ scale-down
 // background-image, etc.
 container-scroll
 cross-fade
+image
 image-set
 linear-gradient
 radial-gradient
@@ -1524,6 +1525,7 @@ path
 xywh
 
 calc
+calc-mix
 -webkit-calc
 min
 max
@@ -1548,14 +1550,18 @@ rem
 to-zero
 // nearest
 // progress
+no-clamp
 random
-element-shared
+element-scoped
 // fixed
 sibling-count
 sibling-index
 infinity
 -infinity id=NegativeInfinity
 NaN
+
+// ident()
+ident
 
 from-image
 
@@ -1610,6 +1616,7 @@ tip enable-if=ENABLE_APPLE_PAY&ENABLE_APPLE_PAY_NEW_BUTTON_TYPES
 // font-synthesis
 weight
 style
+oblique-only
 
 // will-change
 scroll-position
@@ -1804,6 +1811,7 @@ layout
 // normal
 // size
 inline-size
+scroll-state
 
 // offset-path
 // https://drafts.fxtf.org/motion-1/#offset-path-property
@@ -1837,6 +1845,7 @@ trim-all
 no-autospace
 ideograph-alpha
 ideograph-numeric
+insert
 
 // scrollbar-gutter
 // auto
@@ -1855,6 +1864,9 @@ allow-discrete
 // block
 // inline
 -internal-textarea-auto
+
+// outline-offset
+-internal-inset
 
 // CSS Anchor Positioning
 anchor
@@ -1919,7 +1931,9 @@ span-self-inline-end
 // position-visibility
 // always
 anchors-valid
+anchor-valid
 anchors-visible
+anchor-visible
 no-overflow
 
 // view-transition-name
@@ -1942,3 +1956,6 @@ strict-origin
 origin-when-cross-origin
 strict-origin-when-cross-origin
 unsafe-url
+
+// <will-change>
+will-change

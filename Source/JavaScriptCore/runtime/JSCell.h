@@ -82,7 +82,7 @@ template<typename T> void* tryAllocateCell(VM&, GCDeferralContext*, size_t = siz
     ALWAYS_INLINE void finishCreation(JSC::VM& vm) \
     { \
         Base::finishCreation(vm); \
-        ASSERT(inherits(info())); \
+        ASSERT(inheritsSlow(info())); \
     } \
     static constexpr int __unusedFooterAfterDefaultFinishCreation = 0
 #else
@@ -124,21 +124,23 @@ protected:
 
 public:
     // Querying the type.
-    bool isString() const;
-    bool isHeapBigInt() const;
-    bool isSymbol() const;
-    bool isObject() const;
-    bool isGetterSetter() const;
-    bool isCustomGetterSetter() const;
-    bool isProxy() const;
+    bool isString() const { return m_type == StringType; }
+    bool isHeapBigInt() const { return m_type == HeapBigIntType; }
+    bool isSymbol() const { return m_type == SymbolType; }
+    JS_EXPORT_PRIVATE bool isObjectSlow() const;
+    bool isObject() const { return TypeInfo::isObject(m_type); }
+    bool isGetterSetter() const { return m_type == GetterSetterType; }
+    bool isCustomGetterSetter() const { return m_type == CustomGetterSetterType; }
+    bool isProxy() const { return m_type == GlobalProxyType || m_type == ProxyObjectType; }
     bool isCallable();
     bool isConstructor();
     template<Concurrency> TriState isCallableWithConcurrency();
     template<Concurrency> TriState isConstructorWithConcurrency();
-    bool inherits(const ClassInfo*) const;
-    template<typename Target> bool inherits() const;
-    JS_EXPORT_PRIVATE bool isValidCallee() const;
-    bool isAPIValueWrapper() const;
+    inline bool inherits(const ClassInfo*) const; // Defined inline in Structure.h
+    JS_EXPORT_PRIVATE bool inheritsSlow(const ClassInfo*) const;
+    template<typename Target> inline bool inherits() const; // Defined inline in Structure.h
+    JS_EXPORT_PRIVATE bool NODELETE isValidCallee() const;
+    bool isAPIValueWrapper() const { return m_type == APIValueWrapperType; }
     
     // Each cell has a built-in lock. Currently it's simply available for use if you need it. It's
     // a full-blown WTF::Lock. Note that this lock is currently used in JSArray and that lock's
@@ -149,24 +151,24 @@ public:
     // Locker locker { cell->cellLock() };
     JSCellLock& cellLock() const { return *reinterpret_cast<JSCellLock*>(const_cast<JSCell*>(this)); }
     
-    JSType type() const;
-    IndexingType indexingTypeAndMisc() const;
-    IndexingType indexingMode() const;
-    IndexingType indexingType() const;
+    JSType type() const { return m_type; }
+    IndexingType indexingTypeAndMisc() const { return m_indexingTypeAndMisc; }
+    IndexingType indexingMode() const { return indexingTypeAndMisc() & AllArrayTypes; }
+    IndexingType indexingType() const { return indexingTypeAndMisc() & AllWritableArrayTypes; }
     StructureID structureID() const { return m_structureID; }
-    Structure* structure() const;
+    Structure* structure() const { return m_structureID.decode(); }
     void setStructure(VM&, Structure*);
     void setStructureIDDirectly(StructureID id) { m_structureID = id; }
     void clearStructure() { m_structureID = StructureID(); }
 
     TypeInfo::InlineTypeFlags inlineTypeFlags() const { return m_flags; }
     
-    ASCIILiteral className() const;
+    ASCIILiteral NODELETE className() const;
 
     // Extracting the value.
     JS_EXPORT_PRIVATE bool getString(JSGlobalObject*, String&) const;
     JS_EXPORT_PRIVATE String getString(JSGlobalObject*) const; // null string if not a string
-    JS_EXPORT_PRIVATE JSObject* getObject(); // NULL if not an object
+    JS_EXPORT_PRIVATE JSObject* NODELETE getObject(); // NULL if not an object
     const JSObject* getObject() const; // NULL if not an object
         
     // Returns information about how to call/construct this cell as a function/constructor. May tell
@@ -175,13 +177,13 @@ public:
     // this is an object, then typeof will return "function" instead of "object". These methods
     // cannot change their minds and must be thread-safe. They are sometimes called from compiler
     // threads.
-    JS_EXPORT_PRIVATE static CallData getCallData(JSCell*);
-    JS_EXPORT_PRIVATE static CallData getConstructData(JSCell*);
+    JS_EXPORT_PRIVATE static CallData NODELETE getCallData(JSCell*);
+    JS_EXPORT_PRIVATE static CallData NODELETE getConstructData(JSCell*);
 
     // Basic conversions.
     JS_EXPORT_PRIVATE JSValue toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const;
     bool toBoolean(JSGlobalObject*) const;
-    TriState pureToBoolean() const;
+    inline TriState pureToBoolean() const;
     JS_EXPORT_PRIVATE double toNumber(JSGlobalObject*) const;
     JSObject* toObject(JSGlobalObject*) const;
 
@@ -192,15 +194,16 @@ public:
     JS_EXPORT_PRIVATE static void dumpToStream(const JSCell*, PrintStream&);
 
     size_t estimatedSizeInBytes(VM&) const;
-    JS_EXPORT_PRIVATE static size_t estimatedSize(JSCell*, VM&);
+    JS_EXPORT_PRIVATE static size_t NODELETE estimatedSize(JSCell*, VM&);
 
     DECLARE_VISIT_CHILDREN_WITH_MODIFIER(inline);
     DECLARE_VISIT_OUTPUT_CONSTRAINTS_WITH_MODIFIER(inline);
 
-    JS_EXPORT_PRIVATE static void analyzeHeap(JSCell*, HeapAnalyzer&);
+    JS_EXPORT_PRIVATE static void NODELETE analyzeHeap(JSCell*, HeapAnalyzer&);
 
     // Object operations, with the toObject operation included.
-    const ClassInfo* classInfo() const;
+    inline const ClassInfo* classInfo() const; // Defined inline in Structure.h
+    JS_EXPORT_PRIVATE bool validateIsNotSweeping() const;
     const MethodTable* methodTable() const;
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
     static bool putByIndex(JSCell*, JSGlobalObject*, unsigned propertyName, JSValue, bool shouldThrow);
@@ -210,8 +213,8 @@ public:
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName);
     static bool deletePropertyByIndex(JSCell*, JSGlobalObject*, unsigned propertyName);
 
-    static bool canUseFastGetOwnProperty(const Structure&);
-    JSValue fastGetOwnProperty(VM&, Structure&, PropertyName);
+    static inline bool canUseFastGetOwnProperty(const Structure&);
+    inline JSValue fastGetOwnProperty(VM&, Structure&, PropertyName);
 
     // The recommended idiom for using cellState() is to switch on it or perform an == comparison on it
     // directly. We deliberately avoid helpers for this, because we want transparency about how the various
@@ -268,18 +271,18 @@ protected:
     void finishCreation(VM&, Structure*, CreatingEarlyCellTag);
 
     // Dummy implementations of override-able static functions for classes to put in their MethodTable
-    static NO_RETURN_DUE_TO_CRASH void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
-    static NO_RETURN_DUE_TO_CRASH void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
+    static NO_RETURN_DUE_TO_CRASH void NODELETE getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
+    static NO_RETURN_DUE_TO_CRASH void NODELETE getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
 
-    static NO_RETURN_DUE_TO_CRASH bool preventExtensions(JSObject*, JSGlobalObject*);
-    static NO_RETURN_DUE_TO_CRASH bool isExtensible(JSObject*, JSGlobalObject*);
-    static NO_RETURN_DUE_TO_CRASH bool setPrototype(JSObject*, JSGlobalObject*, JSValue, bool);
-    static NO_RETURN_DUE_TO_CRASH JSValue getPrototype(JSObject*, JSGlobalObject*);
+    static NO_RETURN_DUE_TO_CRASH bool NODELETE preventExtensions(JSObject*, JSGlobalObject*);
+    static NO_RETURN_DUE_TO_CRASH bool NODELETE isExtensible(JSObject*, JSGlobalObject*);
+    static NO_RETURN_DUE_TO_CRASH bool NODELETE setPrototype(JSObject*, JSGlobalObject*, JSValue, bool);
+    static NO_RETURN_DUE_TO_CRASH JSValue NODELETE getPrototype(JSObject*, JSGlobalObject*);
 
-    JS_EXPORT_PRIVATE static bool customHasInstance(JSObject*, JSGlobalObject*, JSValue);
-    static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
-    static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
-    static bool getOwnPropertySlotByIndex(JSObject*, JSGlobalObject*, unsigned propertyName, PropertySlot&);
+    JS_EXPORT_PRIVATE static bool NODELETE customHasInstance(JSObject*, JSGlobalObject*, JSValue);
+    static bool NODELETE defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
+    static bool NODELETE getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
+    static bool NODELETE getOwnPropertySlotByIndex(JSObject*, JSGlobalObject*, unsigned propertyName, PropertySlot&);
 
 private:
     friend class LLIntOffsetsExtractor;
@@ -301,10 +304,10 @@ private:
 
 class JSCellLock : public JSCell {
 public:
-    void lock();
-    bool tryLock();
-    void unlock();
-    bool isLocked() const;
+    inline void lock();
+    inline bool tryLock();
+    inline void unlock();
+    inline bool isLocked() const;
 private:
     JS_EXPORT_PRIVATE void lockSlow();
     JS_EXPORT_PRIVATE void unlockSlow();
@@ -325,7 +328,7 @@ inline auto subspaceForConcurrently(VM& vm)
 }
 
 #if CPU(X86_64)
-JS_EXPORT_PRIVATE NEVER_INLINE NO_RETURN_DUE_TO_CRASH NOT_TAIL_CALLED void reportZappedCellAndCrash(Heap&, const JSCell*);
+JS_EXPORT_PRIVATE NEVER_INLINE NO_RETURN_DUE_TO_CRASH NOT_TAIL_CALLED void reportZappedCellAndCrash(const JSCell*);
 #endif
 
 } // namespace JSC

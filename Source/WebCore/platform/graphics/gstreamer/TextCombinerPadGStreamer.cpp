@@ -86,7 +86,7 @@ static GstFlowReturn webkitTextCombinerPadChain(GstPad* pad, GstObject* parent, 
                 return TRUE;
 
             auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
-            auto parent = adoptGRef(gst_pad_get_parent(pad));
+            GRefPtr parent = adoptGRef(gst_pad_get_parent(pad));
             GstCaps* caps;
             gst_event_parse_caps(*event, &caps);
             combinerPad->priv->shouldProcessStickyEvents = false;

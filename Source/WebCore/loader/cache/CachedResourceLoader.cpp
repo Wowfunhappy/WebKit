@@ -97,6 +97,7 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
+#include "LocalFrameInlines.h"
 
 #if ENABLE(APPLICATION_MANIFEST)
 #include "CachedApplicationManifest.h"
@@ -252,7 +253,7 @@ CachedResource* CachedResourceLoader::cachedResource(const String& resourceURL) 
     ASSERT(!resourceURL.isNull());
     RefPtr document = m_document;
     ASSERT(document);
-    return document ? cachedResource(MemoryCache::removeFragmentIdentifierIfNeeded(document->completeURL(resourceURL))) : nullptr;
+    return document ? cachedResource(MemoryCache::removeFragmentIdentifierIfNeeded(document->encodingParseURL(resourceURL))) : nullptr;
 }
 
 CachedResource* CachedResourceLoader::cachedResource(const URL& url) const
@@ -315,7 +316,7 @@ CachedResourceHandle<CachedCSSStyleSheet> CachedResourceLoader::requestUserCSSSt
 
     ASSERT(document());
     if (RefPtr document = this->document())
-        request.setDomainForCachePartition(*document);
+        request.resourceRequest().setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
 
     Ref memoryCache = MemoryCache::singleton();
     if (request.allowsCaching()) {
@@ -509,48 +510,52 @@ bool CachedResourceLoader::allowedByContentSecurityPolicy(CachedResource::Type t
         return true;
 
     contentSecurityPolicy->setIsReportingToConsoleEnabled(shouldReportViolationAsConsoleMessage);
+    contentSecurityPolicy->setIsReportingEnabled(shouldReportViolationAsConsoleMessage);
     auto scope = makeScopeExit([&] {
         contentSecurityPolicy->setIsReportingToConsoleEnabled(true);
+        contentSecurityPolicy->setIsReportingEnabled(true);
     });
 
-    // All content loaded through embed or object elements goes through object-src: https://www.w3.org/TR/CSP3/#directive-object-src.
-    if (options.loadedFromPluginElement == LoadedFromPluginElement::Yes
-        && !contentSecurityPolicy->allowObjectFromSource(url, redirectResponseReceived, preRedirectURL))
-        return false;
+    // Only object-src governs object/embed elements, regardless of resource type (CSP3 §6.1.9).
+    if (options.loadedFromPluginElement == LoadedFromPluginElement::Yes)
+        return contentSecurityPolicy->allowObjectFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL);
 
     switch (type) {
+    case CachedResource::Type::JSON:
+        if (!contentSecurityPolicy->allowConnectToSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL))
+            return false;
+        break;
 #if ENABLE(XSLT)
     case CachedResource::Type::XSLStyleSheet:
 #endif
-    case CachedResource::Type::JSON:
     case CachedResource::Type::Script:
-        if (!contentSecurityPolicy->allowScriptFromSource(url, redirectResponseReceived, preRedirectURL, options.integrity, options.nonce))
+        if (!contentSecurityPolicy->allowScriptFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL, options.integrity, options.nonce))
             return false;
         break;
     case CachedResource::Type::CSSStyleSheet:
-        if (!contentSecurityPolicy->allowStyleFromSource(url, redirectResponseReceived, preRedirectURL, options.nonce))
+        if (!contentSecurityPolicy->allowStyleFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL, options.nonce))
             return false;
         break;
     case CachedResource::Type::SVGDocumentResource:
     case CachedResource::Type::Icon:
     case CachedResource::Type::ImageResource:
-        if (!contentSecurityPolicy->allowImageFromSource(url, redirectResponseReceived, preRedirectURL))
+        if (!contentSecurityPolicy->allowImageFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL))
             return false;
         break;
     case CachedResource::Type::LinkPrefetch:
-        if (!contentSecurityPolicy->allowPrefetchFromSource(url, redirectResponseReceived, preRedirectURL))
+        if (!contentSecurityPolicy->allowPrefetchFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL))
             return false;
         break;
     case CachedResource::Type::SVGFontResource:
     case CachedResource::Type::FontResource:
-        if (!contentSecurityPolicy->allowFontFromSource(url, redirectResponseReceived, preRedirectURL))
+        if (!contentSecurityPolicy->allowFontFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL))
             return false;
         break;
     case CachedResource::Type::MediaResource:
 #if ENABLE(VIDEO)
     case CachedResource::Type::TextTrackResource:
 #endif
-        if (!contentSecurityPolicy->allowMediaFromSource(url, redirectResponseReceived, preRedirectURL))
+        if (!contentSecurityPolicy->allowMediaFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL))
             return false;
         break;
     case CachedResource::Type::Beacon:
@@ -564,7 +569,7 @@ bool CachedResourceLoader::allowedByContentSecurityPolicy(CachedResource::Type t
         return true;
 #if ENABLE(APPLICATION_MANIFEST)
     case CachedResource::Type::ApplicationManifest:
-        if (!contentSecurityPolicy->allowManifestFromSource(url, redirectResponseReceived, preRedirectURL))
+        if (!contentSecurityPolicy->allowManifestFromSource(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL))
             return false;
         break;
 #endif
@@ -739,9 +744,23 @@ static FetchMetadataSite computeFetchMetadataSiteInternal(const ResourceRequest&
     return FetchMetadataSite::CrossSite;
 }
 
-FetchMetadataSite CachedResourceLoader::computeFetchMetadataSite(const ResourceRequest& request, CachedResource::Type type, FetchOptions::Mode mode, const LocalFrame& frame, bool isDirectlyUserInitiatedRequest)
+FetchMetadataSite CachedResourceLoader::computeFetchMetadataSite(const ResourceRequest& request, CachedResource::Type type, FetchOptions::Mode mode, const LocalFrame& frame, bool isDirectlyUserInitiatedRequest, const DocumentLoader* documentLoader)
 {
-    return computeFetchMetadataSiteInternal(request, type, mode, nullptr, &frame, FetchMetadataSite::SameOrigin, isDirectlyUserInitiatedRequest);
+    auto site = computeFetchMetadataSiteInternal(request, type, mode, nullptr, &frame, FetchMetadataSite::SameOrigin, isDirectlyUserInitiatedRequest);
+
+    // When a main resource load continues in a new process after a server redirect caused a process
+    // swap, the redirect history is lost. Account for the pre-redirect URL to correctly degrade
+    // the Sec-Fetch-Site value.
+    if (type == CachedResource::Type::MainResource && documentLoader
+        && documentLoader->isContinuingLoadAfterProvisionalLoadStarted()
+        && documentLoader->originalURL() != request.url()) {
+        ResourceRequest originalRequest { URL { documentLoader->originalURL() } };
+        auto originalSite = computeFetchMetadataSiteInternal(originalRequest, type, mode, nullptr, &frame, FetchMetadataSite::SameOrigin, false);
+        Ref originalOrigin = SecurityOrigin::create(documentLoader->originalURL());
+        site = computeFetchMetadataSiteAfterRedirection(request, type, mode, originalOrigin.get(), originalSite, false);
+    }
+
+    return site;
 }
 
 FetchMetadataSite CachedResourceLoader::computeFetchMetadataSiteAfterRedirection(const ResourceRequest& request, CachedResource::Type type, FetchOptions::Mode mode, const SecurityOrigin& originalOrigin, FetchMetadataSite originalSite, bool isDirectlyUserInitiatedRequest)
@@ -965,6 +984,31 @@ void CachedResourceLoader::prepareFetch(CachedResource::Type type, CachedResourc
     // FIXME: Decide whether to support client hints
 }
 
+static bool shouldReuseExistingFetchMetadata(const LocalFrame& frame, const ResourceRequest& request, CachedResource::Type type, FetchOptions::Mode mode)
+{
+    if (mode != FetchOptions::Mode::Navigate || type != CachedResource::Type::MainResource)
+        return false;
+
+    RefPtr loader = frame.loader().activeDocumentLoader();
+    if (loader && loader->triggeringAction().type() != NavigationType::FormResubmitted)
+        return false;
+
+    if (!request.hasHTTPHeaderField(HTTPHeaderName::SecFetchSite))
+        return false;
+
+    ASSERT(request.hasHTTPHeaderField(HTTPHeaderName::SecFetchDest));
+    ASSERT(request.hasHTTPHeaderField(HTTPHeaderName::SecFetchMode));
+
+    return true;
+}
+
+static bool shouldUpdateFetchMetadata(const LocalFrame& frame, const ResourceRequest& request, CachedResource::Type type, FetchOptions::Mode mode)
+{
+    return frame.document()
+        && !protect(frame.document())->quirks().shouldDisableFetchMetadata()
+        && !shouldReuseExistingFetchMetadata(frame, request, type, mode);
+}
+
 void CachedResourceLoader::updateHTTPRequestHeaders(FrameLoader& frameLoader, CachedResource::Type type, CachedResourceRequest& request)
 {
     // Implementing steps 11 to 19 of https://fetch.spec.whatwg.org/#http-network-or-cache-fetch as of 22 Feb 2022.
@@ -976,8 +1020,8 @@ void CachedResourceLoader::updateHTTPRequestHeaders(FrameLoader& frameLoader, Ca
     // ability it is best to not set any FetchMetadata headers as sites generally expect
     // all of them or none.
     Ref frame = frameLoader.frame();
-    if (frame->document() && !protect(frame->document())->quirks().shouldDisableFetchMetadata()) {
-        auto site = computeFetchMetadataSite(request.resourceRequest(), type, request.options().mode, frame, frame->isMainFrame() && m_documentLoader && m_documentLoader->isRequestFromClientOrUserInput());
+    if (shouldUpdateFetchMetadata(frame, request.resourceRequest(), type, request.options().mode)) {
+        auto site = computeFetchMetadataSite(request.resourceRequest(), type, request.options().mode, frame, frame->isMainFrame() && m_documentLoader && m_documentLoader->isRequestFromClientOrUserInput(), m_documentLoader.get());
         updateRequestFetchMetadataHeaders(request.resourceRequest(), request.options(), site);
     }
     request.updateUserAgentHeader(frameLoader);
@@ -1102,7 +1146,7 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
         url = request.resourceRequest().url();
     }
 
-    URL committedDocumentURL { frame->document() ? frame->document()->url() : URL { } };
+    URL committedDocumentURL { frame->document() ? protect(frame->document())->url() : URL { } };
     if (RefPtr documentLoader = m_documentLoader) {
         if (shouldPerformHTTPSUpgrade(committedDocumentURL, request.resourceRequest().url(), frame, type, page->settings().httpsByDefault(), documentLoader->advancedPrivacyProtections(), documentLoader->httpsByDefaultMode())) {
             auto portsForUpgradingInsecureScheme = page->portsForUpgradingInsecureSchemeForTesting();
@@ -1225,7 +1269,7 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
     RefPtr<CachedResource> resource;
     CheckedPtr<ContentSecurityPolicy> contentSecurityPolicy;
     if (document) {
-        request.setDomainForCachePartition(*document);
+        request.resourceRequest().setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
         request.resourceRequest().setFirstPartyForCookies(document->firstPartyForCookies());
         contentSecurityPolicy = document->contentSecurityPolicy();
     }
@@ -1235,6 +1279,8 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
 
     if (resource && request.isLinkPreload() && !resource->isLinkPreload())
         resource->setLinkPreload();
+    if (resource && request.isLinkModulePreload() && !resource->isLinkModulePreload())
+        resource->setLinkModulePreload();
 
     Ref cookieJar = page->cookieJar();
 
@@ -1677,7 +1723,7 @@ void CachedResourceLoader::reloadImagesIfNotDeferred()
 {
     for (auto& resource : m_documentResources.values()) {
         RefPtr image = dynamicDowncast<CachedImage>(*resource);
-        if (image && resource->stillNeedsLoad() && clientDefersImage(resource->url()) == ImageLoading::Immediate)
+        if (image && protect(resource)->stillNeedsLoad() && clientDefersImage(protect(resource)->url()) == ImageLoading::Immediate)
             image->load(*this);
     }
 }
@@ -1852,7 +1898,7 @@ bool CachedResourceLoader::isPreloaded(const String& urlString) const
     if (!document)
         return false;
 
-    const URL& url = document->completeURL(urlString);
+    const URL& url = document->encodingParseURL(urlString);
 
     if (!m_preloads)
         return false;

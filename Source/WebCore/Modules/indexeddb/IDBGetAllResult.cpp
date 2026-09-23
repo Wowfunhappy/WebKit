@@ -48,6 +48,7 @@ void IDBGetAllResult::isolatedCopy(const IDBGetAllResult& source, IDBGetAllResul
 {
     destination.m_type = source.m_type;
     destination.m_keys = crossThreadCopy(source.m_keys);
+    destination.m_primaryKeys = crossThreadCopy(source.m_primaryKeys);
     destination.m_values = crossThreadCopy(source.m_values);
     destination.m_keyPath = crossThreadCopy(source.m_keyPath);
 }
@@ -55,6 +56,11 @@ void IDBGetAllResult::isolatedCopy(const IDBGetAllResult& source, IDBGetAllResul
 void IDBGetAllResult::addKey(IDBKeyData&& key)
 {
     m_keys.append(WTF::move(key));
+}
+
+void IDBGetAllResult::addPrimaryKey(IDBKeyData&& primaryKey)
+{
+    m_primaryKeys.append(WTF::move(primaryKey));
 }
 
 void IDBGetAllResult::addValue(IDBValue&& value)
@@ -67,22 +73,14 @@ const Vector<IDBKeyData>& IDBGetAllResult::keys() const
     return m_keys;
 }
 
+const Vector<IDBKeyData>& IDBGetAllResult::primaryKeys() const
+{
+    return m_primaryKeys;
+}
+
 const Vector<IDBValue>& IDBGetAllResult::values() const
 {
     return m_values;
-}
-
-Vector<String> IDBGetAllResult::allBlobFilePaths() const
-{
-    ASSERT(m_type == IndexedDB::GetAllType::Values);
-
-    HashSet<String> pathSet;
-    for (auto& value : m_values) {
-        for (auto& path : value.blobFilePaths())
-            pathSet.add(path);
-    }
-
-    return copyToVector(pathSet);
 }
 
 } // namespace WebCore

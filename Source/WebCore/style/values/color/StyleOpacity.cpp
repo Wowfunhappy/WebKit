@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,24 +26,19 @@
 #include "config.h"
 #include "StyleOpacity.h"
 
-#include "CSSPrimitiveValue.h"
-#include "StyleBuilderChecking.h"
-#include "StylePrimitiveNumericTypes+CSSValueConversion.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 
 namespace WebCore {
 namespace Style {
 
-// MARK: - Conversion
+#if ENABLE(THREADED_ANIMATIONS)
 
-auto CSSValueConversion<Opacity>::operator()(BuilderState& state, const CSSValue& value) -> Opacity
+auto Evaluation<Opacity, AcceleratedEffectOpacity>::operator()(const Opacity& value) -> AcceleratedEffectOpacity
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return 1.0f;
-
-    auto opacity = primitiveValue->valueDividingBy100IfPercentage<float>(state.cssToLengthConversionData());
-    return CSS::clampToRange<Opacity::Number::range, Opacity::Number::ResolvedValueType>(opacity);
+    return { .value = evaluate<float>(value) };
 }
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

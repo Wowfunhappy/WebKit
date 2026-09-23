@@ -29,6 +29,7 @@
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeCasts.h>
 
 namespace WebCore {
@@ -61,7 +62,7 @@ enum class TransformOperationType : uint8_t {
     None
 };
 
-class TransformOperation : public RefCounted<TransformOperation> {
+class TransformOperation : public ThreadSafeRefCounted<TransformOperation> {
 public:
     using Type = TransformOperationType;
 

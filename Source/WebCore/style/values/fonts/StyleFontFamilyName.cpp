@@ -26,9 +26,9 @@
 #include "config.h"
 #include "StyleFontFamilyName.h"
 
+#include "CSSFontFamilyNameValue.h"
 #include "CSSMarkup.h"
-#include "CSSPrimitiveValue.h"
-#include "CSSValuePool.h"
+#include "StyleBuilderChecking.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -36,23 +36,46 @@ namespace Style {
 
 // MARK: - Conversion
 
-Ref<CSSValue> CSSValueCreation<FontFamilyName>::operator()(CSSValuePool& pool, const RenderStyle&, const FontFamilyName& value)
+auto ToCSS<FontFamilyName>::operator()(const FontFamilyName& value, const Style::ComputedStyle&) -> CSS::FontFamilyName
 {
-    return pool.createFontFamilyValue(value.value);
+    return { .value = value.value };
+}
+
+auto ToStyle<CSS::FontFamilyName>::operator()(const CSS::FontFamilyName& value, const BuilderState&) -> FontFamilyName
+{
+    return { .value = value.value };
+}
+
+Ref<CSSValue> CSSValueCreation<FontFamilyName>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const FontFamilyName& value)
+{
+    return CSS::createCSSValue(pool, toCSS(value, style));
+}
+
+auto CSSValueConversion<FontFamilyName>::operator()(BuilderState& state, const CSSFontFamilyNameValue& value) -> FontFamilyName
+{
+    return toStyle(value.fontFamilyName(), state);
+}
+
+auto CSSValueConversion<FontFamilyName>::operator()(BuilderState& state, const CSSValue& value) -> FontFamilyName
+{
+    RefPtr fontFamilyNameValue = requiredDowncast<CSSFontFamilyNameValue>(state, value);
+    if (!fontFamilyNameValue) [[unlikely]]
+        return { .value = nullAtom() };
+    return toStyle(fontFamilyNameValue->fontFamilyName(), state);
 }
 
 // MARK: - Serialization
 
-void Serialize<FontFamilyName>::operator()(StringBuilder& builder, const CSS::SerializationContext&, const RenderStyle&, const FontFamilyName& value)
+void Serialize<FontFamilyName>::operator()(StringBuilder& builder, const CSS::SerializationContext&, const Style::ComputedStyle&, const FontFamilyName& value)
 {
-    builder.append(WebCore::serializeFontFamily(value.value));
+    WebCore::serializeFontFamily(builder, value.value);
 }
 
 // MARK: - Logging
 
 TextStream& operator<<(TextStream& ts, const FontFamilyName& value)
 {
-    return ts << WebCore::serializeFontFamily(value.value);
+    return ts << value.value;
 }
 
 } // namespace Style

@@ -175,7 +175,7 @@ RefPtr<WebCore::NativeImage> RemoteQueueProxy::getNativeImage(WebCore::VideoFram
 {
     RefPtr<WebCore::NativeImage> nativeImage;
 #if ENABLE(VIDEO) && PLATFORM(COCOA) && ENABLE(WEB_CODECS)
-    callOnMainRunLoopAndWait([&nativeImage, videoFrame = Ref { videoFrame }, videoFrameHeap = protect(m_videoFrameObjectHeapProxy)] {
+    callOnMainRunLoopAndWait([&nativeImage, videoFrame = protect(videoFrame), videoFrameHeap = protect(m_videoFrameObjectHeapProxy)] {
         nativeImage = videoFrameHeap->getNativeImage(videoFrame);
     });
 #endif

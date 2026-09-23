@@ -1,6 +1,0 @@
-
-
-FAIL Cross-Site -> Same-Origin redirect assert_equals: destination expected (string) "image" but got (undefined) undefined
-FAIL Cross-Site -> Same-Site redirect assert_equals: destination expected (string) "image" but got (undefined) undefined
-FAIL Cross-Site -> Cross-Site redirect assert_equals: destination expected (string) "image" but got (undefined) undefined
-

@@ -28,6 +28,7 @@
 
 #if ENABLE(MODEL_PROCESS)
 
+#include "MessageSenderInlines.h"
 #include "ModelProcessModelPlayer.h"
 #include "ModelProcessModelPlayerManagerProxyMessages.h"
 #include "WebPage.h"

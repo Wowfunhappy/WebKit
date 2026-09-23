@@ -47,6 +47,7 @@ ContentExtension::ContentExtension(const String& identifier, Ref<CompiledContent
     : m_identifier(identifier)
     , m_compiledExtension(WTF::move(compiledExtension))
     , m_extensionBaseURL(WTF::move(extensionBaseURL))
+    , m_urlFiltersInterpreter(m_compiledExtension->urlFiltersBytecode(), DFABytecodeInterpreter::EnableResumeCache::Yes)
 {
     DFABytecodeInterpreter interpreter(m_compiledExtension->urlFiltersBytecode());
     m_universalActions = copyToVector(interpreter.actionsMatchingEverything());
@@ -54,6 +55,11 @@ ContentExtension::ContentExtension(const String& identifier, Ref<CompiledContent
     if (shouldCompileCSS == ShouldCompileCSS::Yes)
         compileGlobalDisplayNoneStyleSheet();
     m_universalActions.shrinkToFit();
+}
+
+DFABytecodeInterpreter::Actions ContentExtension::interpretURLFilters(const String& url, ResourceFlags flags) const
+{
+    return m_urlFiltersInterpreter.interpret(url, flags);
 }
 
 uint32_t ContentExtension::findFirstIgnoreRule() const

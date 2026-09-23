@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/BackgroundFetchRecordLoader.h>
+#include <WebCore/CrossOriginEmbedderPolicyValue.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <wtf/AbstractCanMakeCheckedPtr.h>
@@ -53,7 +54,7 @@ public:
     virtual ~SWServerDelegate() = default;
 
     virtual void softUpdate(ServiceWorkerJobData&&, bool shouldRefreshCache, ResourceRequest&&, CompletionHandler<void(WorkerFetchResult&&)>&&) = 0;
-    virtual void createContextConnection(const Site&, std::optional<ProcessIdentifier>, std::optional<ScriptExecutionContextIdentifier>, CompletionHandler<void()>&&) = 0;
+    virtual void createContextConnection(const Site&, std::optional<ProcessIdentifier>, std::optional<ScriptExecutionContextIdentifier>, CrossOriginEmbedderPolicyValue, CompletionHandler<void()>&&) = 0;
     virtual void appBoundDomains(CompletionHandler<void(HashSet<RegistrableDomain>&&)>&&) = 0;
     virtual void addAllowedFirstPartyForCookies(ProcessIdentifier, std::optional<ProcessIdentifier>, RegistrableDomain&&) = 0;
 

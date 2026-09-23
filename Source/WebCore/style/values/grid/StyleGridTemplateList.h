@@ -25,6 +25,7 @@
 #pragma once
 
 #include <WebCore/RenderStyleConstants.h>
+#include <WebCore/StyleGridLineNames.h>
 #include <WebCore/StyleGridNamedLinesMap.h>
 #include <WebCore/StyleGridOrderedNamedLinesMap.h>
 #include <WebCore/StyleGridTrackSize.h>
@@ -32,9 +33,14 @@
 #include <wtf/Vector.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct GridTemplateList;
+}
+
 namespace Style {
 
-using RepeatEntry = Variant<GridTrackSize, Vector<String>>;
+using RepeatEntry = Variant<GridTrackSize, GridLineNames>;
 using RepeatTrackList = Vector<RepeatEntry>;
 
 struct GridTrackEntryRepeat {
@@ -51,21 +57,26 @@ struct GridTrackEntryAutoRepeat {
     bool operator==(const GridTrackEntryAutoRepeat&) const = default;
 };
 
-struct GridTrackEntrySubgrid { bool operator==(const GridTrackEntrySubgrid&) const = default; };
+struct GridTrackEntrySubgrid {
+    bool operator==(const GridTrackEntrySubgrid&) const = default;
+};
 
 using GridTrackEntry = Variant<
+    GridLineNames,
     GridTrackSize,
-    Vector<String>,
     GridTrackEntryRepeat,
     GridTrackEntryAutoRepeat,
     GridTrackEntrySubgrid
 >;
 using GridTrackList = Vector<GridTrackEntry>;
 
-// <'grid-template-columns'/'grid-template-rows'> = none | <track-list> | <auto-track-list>
+// <'grid-template-columns'/'grid-template-rows'> = none | <track-list> | <auto-track-list> | subgrid <line-name-list>?
+// https://drafts.csswg.org/css-grid/#propdef-grid-template-columns
+// https://drafts.csswg.org/css-grid/#propdef-grid-template-rows
 struct GridTemplateList {
     GridTemplateList(CSS::Keyword::None) { }
     GridTemplateList(GridTrackList&&);
+
     bool isNone() const { return list.isEmpty(); }
 
     GridTrackList list { };
@@ -94,6 +105,8 @@ struct GridTemplateList {
 };
 
 // MARK: - Conversion
+
+template<> struct ToStyle<CSS::GridTemplateList> { auto operator()(const CSS::GridTemplateList&, const BuilderState&) -> GridTemplateList; };
 
 template<> struct CSSValueConversion<GridTemplateList> { auto operator()(BuilderState&, const CSSValue&) -> GridTemplateList; };
 

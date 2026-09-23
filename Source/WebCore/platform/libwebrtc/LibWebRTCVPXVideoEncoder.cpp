@@ -28,13 +28,18 @@
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
 
+#include "ImageTransferSessionVT.h"
 #include "LibWebRTCMacros.h"
+#include "LibWebRTCColorSpaceUtilities.h"
+#include "LibWebRTCVideoFrameUtilities.h"
 #include "VideoFrameLibWebRTC.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
 #include <wtf/text/MakeString.h>
+
+#include <CoreVideo/CoreVideo.h>
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
@@ -65,7 +70,7 @@ static WorkQueue& vpxEncoderQueueSingleton()
 
 class LibWebRTCVPXInternalVideoEncoder : public ThreadSafeRefCounted<LibWebRTCVPXInternalVideoEncoder> , public webrtc::EncodedImageCallback {
 public:
-    static Ref<LibWebRTCVPXInternalVideoEncoder> create(LibWebRTCVPXVideoEncoder::Type type, VideoEncoder::OutputCallback&& outputCallback) { return adoptRef(*new LibWebRTCVPXInternalVideoEncoder(type, WTF::move(outputCallback))); }
+    static Ref<LibWebRTCVPXInternalVideoEncoder> create(LibWebRTCVPXVideoEncoder::Type type, VideoEncoder::DescriptionCallback&& descriptionCallback, VideoEncoder::OutputCallback&& outputCallback) { return adoptRef(*new LibWebRTCVPXInternalVideoEncoder(type, WTF::move(descriptionCallback), WTF::move(outputCallback))); }
     ~LibWebRTCVPXInternalVideoEncoder() = default;
 
     int initialize(LibWebRTCVPXVideoEncoder::Type, const VideoEncoder::Config&);
@@ -75,10 +80,11 @@ public:
     void setRates(uint64_t bitRate, double frameRate);
 
 private:
-    LibWebRTCVPXInternalVideoEncoder(LibWebRTCVPXVideoEncoder::Type, VideoEncoder::OutputCallback&&);
+    LibWebRTCVPXInternalVideoEncoder(LibWebRTCVPXVideoEncoder::Type, VideoEncoder::DescriptionCallback&&, VideoEncoder::OutputCallback&&);
     webrtc::EncodedImageCallback::Result OnEncodedImage(const webrtc::EncodedImage&, const webrtc::CodecSpecificInfo*) final;
-    void OnDroppedFrame(DropReason) final;
+    void OnFrameDropped(uint32_t rtpTimestamp, int spatialID, bool isEndOfTemporalUnit) final;
 
+    VideoEncoder::DescriptionCallback m_descriptionCallback;
     VideoEncoder::OutputCallback m_outputCallback;
     const UniqueRef<webrtc::VideoEncoder> m_internalEncoder;
     int64_t m_timestamp { 0 };
@@ -89,11 +95,13 @@ private:
     bool m_isInitialized { false };
     bool m_hasEncoded { false };
     bool m_hasMultipleTemporalLayers { false };
+    bool m_shouldCallDescriptionCallback { true };
+    std::optional<PlatformVideoColorSpace> m_currentColorSpace;
 };
 
 void LibWebRTCVPXVideoEncoder::create(Type type, const VideoEncoder::Config& config, CreateCallback&& callback, DescriptionCallback&& descriptionCallback, OutputCallback&& outputCallback)
 {
-    Ref encoder = adoptRef(*new LibWebRTCVPXVideoEncoder(type, WTF::move(outputCallback)));
+    Ref encoder = adoptRef(*new LibWebRTCVPXVideoEncoder(type, WTF::move(descriptionCallback), WTF::move(outputCallback)));
     auto error = encoder->initialize(type, config);
 
     if (error) {
@@ -101,20 +109,14 @@ void LibWebRTCVPXVideoEncoder::create(Type type, const VideoEncoder::Config& con
         return;
     }
     callback(Ref<VideoEncoder> { WTF::move(encoder) });
-
-    VideoEncoder::ActiveConfiguration configuration;
-    configuration.colorSpace = PlatformVideoColorSpace { PlatformVideoColorPrimaries::Bt709, PlatformVideoTransferCharacteristics::Bt709, PlatformVideoMatrixCoefficients::Bt709, false };
-    descriptionCallback(WTF::move(configuration));
 }
 
-LibWebRTCVPXVideoEncoder::LibWebRTCVPXVideoEncoder(Type type, OutputCallback&& outputCallback)
-    : m_internalEncoder(LibWebRTCVPXInternalVideoEncoder::create(type, WTF::move(outputCallback)))
+LibWebRTCVPXVideoEncoder::LibWebRTCVPXVideoEncoder(Type type, DescriptionCallback&& descriptionCallback, OutputCallback&& outputCallback)
+    : m_internalEncoder(LibWebRTCVPXInternalVideoEncoder::create(type, WTF::move(descriptionCallback), WTF::move(outputCallback)))
 {
 }
 
-LibWebRTCVPXVideoEncoder::~LibWebRTCVPXVideoEncoder()
-{
-}
+LibWebRTCVPXVideoEncoder::~LibWebRTCVPXVideoEncoder() = default;
 
 int LibWebRTCVPXVideoEncoder::initialize(LibWebRTCVPXVideoEncoder::Type type, const VideoEncoder::Config& config)
 {
@@ -169,8 +171,9 @@ static UniqueRef<webrtc::VideoEncoder> createInternalEncoder(LibWebRTCVPXVideoEn
     }
 }
 
-LibWebRTCVPXInternalVideoEncoder::LibWebRTCVPXInternalVideoEncoder(LibWebRTCVPXVideoEncoder::Type type, VideoEncoder::OutputCallback&& outputCallback)
-    : m_outputCallback(WTF::move(outputCallback))
+LibWebRTCVPXInternalVideoEncoder::LibWebRTCVPXInternalVideoEncoder(LibWebRTCVPXVideoEncoder::Type type, VideoEncoder::DescriptionCallback&& descriptionCallback, VideoEncoder::OutputCallback&& outputCallback)
+    : m_descriptionCallback(WTF::move(descriptionCallback))
+    , m_outputCallback(WTF::move(outputCallback))
     , m_internalEncoder(createInternalEncoder(type))
 {
 }
@@ -272,20 +275,39 @@ Ref<VideoEncoder::EncodePromise> LibWebRTCVPXInternalVideoEncoder::encode(VideoE
     auto frameType = (shouldGenerateKeyFrame || !m_hasEncoded) ? webrtc::VideoFrameType::kVideoFrameKey : webrtc::VideoFrameType::kVideoFrameDelta;
     std::vector<webrtc::VideoFrameType> frameTypes { frameType };
 
-    RetainPtr buffer = Ref { rawFrame.frame }->pixelBuffer();
-    auto frameBuffer = webrtc::pixelBufferToFrame(buffer.get());
+    Ref protectedFrame = rawFrame.frame;
+    RetainPtr buffer = protectedFrame->pixelBuffer();
+    auto colorSpace = protectedFrame->colorSpace();
+    if (auto pixelFormat = convertVideoFramePixelFormat(protectedFrame->pixelFormat(), true)) {
+        if (isRGBVideoPixelFormat(*pixelFormat)) {
+            // We do our own conversion to get matching color space handling, instead of letting libwebrtc do it.
+            colorSpace = { PlatformVideoColorPrimaries::Bt709, PlatformVideoTransferCharacteristics::Bt709, PlatformVideoMatrixCoefficients::Bt709, false };
+            buffer = ImageTransferSessionVT::convertPixelBuffer(buffer.get(), kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, ImageTransferSessionVT::DestinationColorSpace::BT709);
+        }
+    }
 
+    auto frameBuffer = webrtc::pixelBufferToFrame(buffer.get());
     if (m_config.width != static_cast<size_t>(frameBuffer->width()) || m_config.height != static_cast<size_t>(frameBuffer->height()))
         frameBuffer = frameBuffer->Scale(m_config.width, m_config.height);
 
     webrtc::VideoFrame frame { frameBuffer, webrtc::kVideoRotation_0, rawFrame.timestamp + m_timestampOffset };
+
+    if (m_currentColorSpace != colorSpace) {
+        m_shouldCallDescriptionCallback = true;
+        m_currentColorSpace = colorSpace.isValid() ? std::make_optional(colorSpace) : std::nullopt;
+        if (m_currentColorSpace) {
+            if (auto webrtColorSpace = toWebRTCColorSpace(*m_currentColorSpace))
+                frame.set_color_space(*webrtColorSpace);
+        }
+    }
+
     auto error = m_internalEncoder->Encode(frame, &frameTypes);
 
     if (!m_hasEncoded)
         m_hasEncoded = !error;
 
     if (error)
-        return VideoEncoder::EncodePromise::createAndReject("Encoder is not initialized"_s);
+        return VideoEncoder::EncodePromise::createAndReject("Encoder task failed"_s);
 
     return VideoEncoder::EncodePromise::createAndResolve();
 }
@@ -318,12 +340,22 @@ webrtc::EncodedImageCallback::Result LibWebRTCVPXInternalVideoEncoder::OnEncoded
         frameTemporalIndex
     };
 
+    if (m_shouldCallDescriptionCallback) {
+        m_shouldCallDescriptionCallback = false;
+        VideoEncoder::ActiveConfiguration configuration;
+        configuration.colorSpace = m_currentColorSpace.value_or(PlatformVideoColorSpace { PlatformVideoColorPrimaries::Bt709, PlatformVideoTransferCharacteristics::Bt709, PlatformVideoMatrixCoefficients::Bt709, false });
+        m_descriptionCallback(WTF::move(configuration));
+    }
     m_outputCallback({ WTF::move(encodedFrame) });
+
     return EncodedImageCallback::Result { EncodedImageCallback::Result::OK };
 }
 
-void LibWebRTCVPXInternalVideoEncoder::OnDroppedFrame(DropReason)
+void LibWebRTCVPXInternalVideoEncoder::OnFrameDropped(uint32_t rtpTimestamp, int spatialID, bool isEndOfTemporalUnit)
 {
+    UNUSED_PARAM(rtpTimestamp);
+    UNUSED_PARAM(spatialID);
+    UNUSED_PARAM(isEndOfTemporalUnit);
 }
 
 }

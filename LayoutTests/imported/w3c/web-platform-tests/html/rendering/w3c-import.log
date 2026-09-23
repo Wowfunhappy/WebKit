@@ -14,6 +14,10 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/cdata-001-expected.xht
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/cdata-001.xhtml
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/cdata-002-expected.xht
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/cdata-002.xhtml
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/dimension-attributes.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/pixel-length-attributes.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/unmapped-attributes.html

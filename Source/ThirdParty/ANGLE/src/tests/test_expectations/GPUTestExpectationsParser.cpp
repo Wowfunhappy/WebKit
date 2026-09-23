@@ -4,11 +4,8 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "GPUTestExpectationsParser.h"
+#include "common/unsafe_buffers.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -56,6 +53,7 @@ enum Token
     kConfigMacMojave,
     kConfigMac,
     kConfigIOS,
+    kConfigIOSSimulator,
     kConfigLinux,
     kConfigChromeOS,
     kConfigAndroid,
@@ -71,6 +69,7 @@ enum Token
     // build type
     kConfigRelease,
     kConfigDebug,
+    kConfigDebugLayers,
     // ANGLE renderer
     kConfigD3D9,
     kConfigD3D11,
@@ -87,6 +86,7 @@ enum Token
     kConfigPixel4,
     kConfigPixel6,
     kConfigPixel7,
+    kConfigPixel10,
     kConfigFlipN2,
     kConfigMaliG710,
     kConfigGalaxyA23,
@@ -186,6 +186,7 @@ constexpr TokenInfo kTokenData[kNumberOfTokens] = {
     {"mojave", GPUTestConfig::kConditionMacMojave},
     {"mac", GPUTestConfig::kConditionMac},
     {"ios", GPUTestConfig::kConditionIOS},
+    {"iossimulator", GPUTestConfig::kConditionIOSSimulator},
     {"linux", GPUTestConfig::kConditionLinux},
     {"chromeos",
      GPUTestConfig::kConditionNone},  // https://anglebug.com/42262032 CrOS not supported
@@ -200,6 +201,7 @@ constexpr TokenInfo kTokenData[kNumberOfTokens] = {
     {"samsung", GPUTestConfig::kConditionSamsung},
     {"release", GPUTestConfig::kConditionRelease},
     {"debug", GPUTestConfig::kConditionDebug},
+    {"debuglayers", GPUTestConfig::kConditionDebugLayers},
     {"d3d9", GPUTestConfig::kConditionD3D9},
     {"d3d11", GPUTestConfig::kConditionD3D11},
     {"opengl", GPUTestConfig::kConditionGLDesktop},
@@ -214,6 +216,7 @@ constexpr TokenInfo kTokenData[kNumberOfTokens] = {
     {"pixel4orxl", GPUTestConfig::kConditionPixel4OrXL},
     {"pixel6", GPUTestConfig::kConditionPixel6},
     {"pixel7", GPUTestConfig::kConditionPixel7},
+    {"pixel10", GPUTestConfig::kConditionPixel10},
     {"flipn2", GPUTestConfig::kConditionFlipN2},
     {"malig710", GPUTestConfig::kConditionMaliG710},
     {"galaxya23", GPUTestConfig::kConditionGalaxyA23},
@@ -272,7 +275,7 @@ inline Char ToLowerASCII(Char c)
 template <typename Iter>
 inline bool DoLowerCaseEqualsASCII(Iter a_begin, Iter a_end, const char *b)
 {
-    for (Iter it = a_begin; it != a_end; ++it, ++b)
+    for (Iter it = a_begin; it != a_end; ++it, ANGLE_UNSAFE_TODO(++b))
     {
         if (!*b || ToLowerASCII(*it) != *b)
             return false;
@@ -292,8 +295,10 @@ inline Token ParseToken(const std::string &word)
 
     for (int32_t i = 0; i < kNumberOfExactMatchTokens; ++i)
     {
-        if (LowerCaseEqualsASCII(word, kTokenData[i].name))
+        if (LowerCaseEqualsASCII(word, ANGLE_UNSAFE_TODO(kTokenData[i]).name))
+        {
             return static_cast<Token>(i);
+        }
     }
     return kTokenWord;
 }
@@ -525,6 +530,7 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig *config,
             case kConfigMacMojave:
             case kConfigMac:
             case kConfigIOS:
+            case kConfigIOSSimulator:
             case kConfigLinux:
             case kConfigChromeOS:
             case kConfigAndroid:
@@ -538,6 +544,7 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig *config,
             case kConfigSamsung:
             case kConfigRelease:
             case kConfigDebug:
+            case kConfigDebugLayers:
             case kConfigD3D9:
             case kConfigD3D11:
             case kConfigGLDesktop:
@@ -552,6 +559,7 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig *config,
             case kConfigPixel4:
             case kConfigPixel6:
             case kConfigPixel7:
+            case kConfigPixel10:
             case kConfigFlipN2:
             case kConfigMaliG710:
             case kConfigGalaxyA23:
@@ -592,7 +600,7 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig *config,
                     else
                     {
                         // Store the conditions for later comparison if we don't have a config.
-                        entry.conditions[kTokenData[token].condition] = true;
+                        entry.conditions[ANGLE_UNSAFE_TODO(kTokenData[token]).condition] = true;
                     }
                     if (err)
                     {
@@ -661,13 +669,14 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig *config,
                                      lineNumber);
                     return false;
                 }
-                if ((mExpectationsAllowMask & kTokenData[token].expectation) == 0)
+                if ((mExpectationsAllowMask & ANGLE_UNSAFE_TODO(kTokenData[token]).expectation) ==
+                    0)
                 {
                     pushErrorMessage(kErrorMessage[kErrorEntryWithDisallowedExpectation],
                                      lineNumber);
                     return false;
                 }
-                entry.testExpectation = kTokenData[token].expectation;
+                entry.testExpectation = ANGLE_UNSAFE_TODO(kTokenData[token]).expectation;
                 if (stage == kLineParserEqual)
                     stage++;
                 break;
@@ -702,8 +711,8 @@ bool GPUTestExpectationsParser::checkTokenCondition(const GPUTestConfig &config,
         return false;
     }
 
-    if (kTokenData[token].condition == GPUTestConfig::kConditionNone ||
-        kTokenData[token].condition >= GPUTestConfig::kNumberOfConditions)
+    if (ANGLE_UNSAFE_TODO(kTokenData[token]).condition == GPUTestConfig::kConditionNone ||
+        ANGLE_UNSAFE_TODO(kTokenData[token]).condition >= GPUTestConfig::kNumberOfConditions)
     {
         pushErrorMessage(kErrorMessage[kErrorInvalidEntry], lineNumber);
         // error on any unsupported conditions
@@ -711,7 +720,7 @@ bool GPUTestExpectationsParser::checkTokenCondition(const GPUTestConfig &config,
         return false;
     }
     err = false;
-    return config.getConditions()[kTokenData[token].condition];
+    return config.getConditions()[ANGLE_UNSAFE_TODO(kTokenData[token]).condition];
 }
 
 bool GPUTestExpectationsParser::detectConflictsBetweenEntries()

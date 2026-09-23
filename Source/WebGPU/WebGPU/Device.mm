@@ -91,7 +91,7 @@ struct GPUFrameCapture {
             captureFrame(captureObject);
     }
 
-    static bool shouldStopCaptureAfterSubmit()
+    static bool NODELETE shouldStopCaptureAfterSubmit()
     {
         ++submitCallsCaptured;
         auto result = submitCallsCaptured >= maxSubmitCallsToCapture;
@@ -259,9 +259,10 @@ static uint32_t computeMaxCountForDevice(id<MTLDevice> device)
     if ([device supportsFamily:MTLGPUFamilyApple9])
         return 3 * GB;
 #endif
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([device supportsFamily:MTLGPUFamilyMac2])
         return 3 * GB;
-
+ALLOW_DEPRECATED_DECLARATIONS_END
     return 2 * GB;
 }
 
@@ -297,6 +298,7 @@ Device::Device(id<MTLDevice> device, id<MTLCommandQueue> defaultQueue, HardwareC
     , m_maxVerticesPerDrawCall(computeMaxCountForDevice(device))
 {
 #if PLATFORM(MAC)
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     auto devices = MTLCopyAllDevicesWithObserver(&m_deviceObserver, [weakThis = ThreadSafeWeakPtr { *this }](id<MTLDevice> device, MTLDeviceNotificationName) {
         RefPtr<Device> protectedThis = weakThis.get();
         if (!protectedThis)
@@ -309,6 +311,7 @@ Device::Device(id<MTLDevice> device, id<MTLCommandQueue> defaultQueue, HardwareC
             });
         }
     });
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if ASSERT_ENABLED
     bool found = false;
@@ -340,7 +343,9 @@ Device::Device(id<MTLDevice> device, id<MTLCommandQueue> defaultQueue, HardwareC
     desc.pixelFormat = MTLPixelFormatBGRA8Unorm;
     desc.textureType = MTLTextureType2D;
 #if PLATFORM(MAC)
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     desc.storageMode = hasUnifiedMemory() ? MTLStorageModeShared : MTLStorageModeManaged;
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #else
     desc.storageMode = MTLStorageModeShared;
 #endif
@@ -367,7 +372,9 @@ Device::Device(Adapter& adapter)
 Device::~Device()
 {
 #if PLATFORM(MAC)
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     MTLRemoveDeviceObserver(m_deviceObserver);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
     if (m_deviceLostCallback) {
         m_deviceLostCallback(WGPUDeviceLostReason_Destroyed, ""_s);
@@ -382,7 +389,7 @@ Device::~Device()
 
 RefPtr<XRSubImage> Device::getXRViewSubImage(XRProjectionLayer& projectionLayer)
 {
-    RefPtr { m_xrSubImage }->update(projectionLayer);
+    protect(m_xrSubImage)->update(projectionLayer);
     return m_xrSubImage;
 }
 
@@ -711,9 +718,8 @@ id<MTLRenderPipelineState> Device::indexBufferClampPipeline(MTLIndexType indexTy
     {
         device MTLDrawIndexedPrimitivesIndirectArguments& indexedOutput = wkindexedOutput.args;
         ushort indexBufferValue = indexBuffer[min(indexId, data[indexCountMinusOne])];
-        ushort vertexIndex = data[primitiveRestart] + indexBufferValue;
-        bool negativeCondition = indexedOutput.baseVertex + data[primitiveRestart] < indexedOutput.baseVertex;
-        if (negativeCondition || (vertexIndex + indexedOutput.baseVertex >= data[vertexCount] + data[primitiveRestart])) {
+        uint vertexIndex = uint((ushort)(data[primitiveRestart]) + indexBufferValue);
+        if (addsat(vertexIndex, indexedOutput.baseVertex) >= data[vertexCount] + data[primitiveRestart]) {
             indexedOutput.indexCount = 0u;
             indexedOutput.instanceCount = 0u;
             indexedOutput.indexStart = 0u;
@@ -727,8 +733,7 @@ id<MTLRenderPipelineState> Device::indexBufferClampPipeline(MTLIndexType indexTy
         device MTLDrawIndexedPrimitivesIndirectArguments& indexedOutput = wkindexedOutput.args;
         uint indexBufferValue = indexBuffer[min(indexId, data[indexCountMinusOne])];
         uint vertexIndex = data[primitiveRestart] + indexBufferValue;
-        bool negativeCondition = indexedOutput.baseVertex + data[primitiveRestart] < indexedOutput.baseVertex;
-        if (negativeCondition || (vertexIndex + indexedOutput.baseVertex >= data[vertexCount] + data[primitiveRestart])) {
+        if (addsat(vertexIndex, indexedOutput.baseVertex) >= data[vertexCount] + data[primitiveRestart]) {
             indexedOutput.indexCount = 0u;
             indexedOutput.instanceCount = 0u;
             indexedOutput.indexStart = 0u;
@@ -796,9 +801,9 @@ id<MTLRenderPipelineState> Device::indexedIndirectBufferClampPipeline(NSUInteger
         device MTLDrawIndexedPrimitivesIndirectArguments& indexedOutput = wkindexedOutput.args;
         bool lostCondition = input.indexCount > %u || input.instanceCount > %u || madsat(input.indexCount, input.instanceCount, 0u) > %u;
         bool condition = lostCondition
-            || input.indexCount + input.indexStart > indexBufferCount[0]
+            || addsat(input.indexCount, input.indexStart) > indexBufferCount[0]
             || input.indexStart >= indexBufferCount[0]
-            || input.instanceCount + input.baseInstance > indexBufferCount[1]
+            || addsat(input.instanceCount, input.baseInstance) > indexBufferCount[1]
             || input.baseInstance >= indexBufferCount[1];
 
         indexedOutput.indexCount = metal::select(input.indexCount, 0u, condition);
@@ -866,9 +871,9 @@ id<MTLRenderPipelineState> Device::indirectBufferClampPipeline(NSUInteger raster
         device MTLDrawPrimitivesIndirectArguments& output = wkoutput.args;
         bool lostCondition = input.vertexCount > %u || input.instanceCount > %u || madsat(input.vertexCount, input.instanceCount, 0u) > %u;
         bool vertexCondition = lostCondition
-            || input.vertexCount + input.vertexStart > minCounts[0]
+            || addsat(input.vertexCount, input.vertexStart) > minCounts[0]
             || input.vertexStart >= minCounts[0];
-        bool instanceCondition = input.baseInstance + input.instanceCount > minCounts[1] || input.baseInstance >= minCounts[1];
+        bool instanceCondition = addsat(input.baseInstance, input.instanceCount) > minCounts[1] || input.baseInstance >= minCounts[1];
         auto minVertexCountMinusVertexStart = minCounts[0] > input.vertexStart ? (minCounts[0] - input.vertexStart) : 0u;
         output.vertexCount = metal::select(input.vertexCount, minVertexCountMinusVertexStart, vertexCondition);
         auto minInstanceCountMinusInstanceStart = minCounts[1] > input.baseInstance ? (minCounts[1] - input.baseInstance) : 0u;
@@ -1003,8 +1008,7 @@ id<MTLFunction> Device::icbCommandClampFunction(MTLIndexType indexType)
         uint32_t k = (data.primitiveType == primitive_type::triangle_strip || data.primitiveType == primitive_type::line_strip) ? 1 : 0;
         uint32_t indexBufferValue = data.indexBuffer[min(data.indexBufferElementCountMinusOne, indexId + data.firstIndex)];
         uint32_t vertexIndex = indexBufferValue + k;
-        bool negativeCondition = data.baseVertex + k < data.baseVertex;
-        if (negativeCondition || (data.baseVertex + vertexIndex >= data.minVertexCount + k)) {
+        if (addsat(vertexIndex, data.baseVertex) >= data.minVertexCount + k) {
             *icb_container->outOfBoundsRead = 1;
             render_command cmd(icb_container->commandBuffer, data.renderCommand);
             cmd.draw_indexed_primitives(data.primitiveType,
@@ -1023,9 +1027,8 @@ id<MTLFunction> Device::icbCommandClampFunction(MTLIndexType indexType)
         device const IndexDataUshort& data = *indexData;
         uint32_t k = (data.primitiveType == primitive_type::triangle_strip || data.primitiveType == primitive_type::line_strip) ? 1 : 0;
         ushort indexBufferValue = data.indexBuffer[min(data.indexBufferElementCountMinusOne, indexId + data.firstIndex)];
-        ushort vertexIndex = indexBufferValue + k;
-        bool negativeCondition = data.baseVertex + k < data.baseVertex;
-        if (negativeCondition || (data.baseVertex + vertexIndex >= data.minVertexCount + k)) {
+        uint32_t vertexIndex = uint(indexBufferValue) + k;
+        if (addsat(vertexIndex, data.baseVertex) >= data.minVertexCount + k) {
             *icb_container->outOfBoundsRead = 1;
             render_command cmd(icb_container->commandBuffer, data.renderCommand);
             cmd.draw_indexed_primitives(data.primitiveType,
@@ -1135,7 +1138,7 @@ WGPUComputePipeline wgpuDeviceCreateComputePipeline(WGPUDevice device, const WGP
 
 void wgpuDevicePauseErrorReporting(WGPUDevice device, WGPUBool pauseErrors)
 {
-    protect(WebGPU::fromAPI(device))->pauseErrorReporting(!!pauseErrors);
+    WebGPU::fromAPI(device).pauseErrorReporting(!!pauseErrors);
 }
 
 void wgpuDeviceCreateComputePipelineAsync(WGPUDevice device, const WGPUComputePipelineDescriptor* descriptor, WGPUCreateComputePipelineAsyncCallback callback, void* userdata)
@@ -1223,12 +1226,12 @@ size_t wgpuDeviceEnumerateFeatures(WGPUDevice device, WGPUFeatureName* features)
 
 WGPUBool wgpuDeviceGetLimits(WGPUDevice device, WGPUSupportedLimits* limits)
 {
-    return protect(WebGPU::fromAPI(device))->getLimits(*limits);
+    return WebGPU::fromAPI(device).getLimits(*limits);
 }
 
 WGPUQueue wgpuDeviceGetQueue(WGPUDevice device)
 {
-    return &protect(WebGPU::fromAPI(device))->getQueueReference();
+    return &WebGPU::fromAPI(device).getQueueReference();
 }
 
 WGPUBool wgpuDeviceHasFeature(WGPUDevice device, WGPUFeatureName feature)
@@ -1298,5 +1301,5 @@ void wgpuDeviceSetUncapturedErrorCallbackWithBlock(WGPUDevice device, WGPUErrorB
 
 void wgpuDeviceSetLabel(WGPUDevice device, const char* label)
 {
-    protect(WebGPU::fromAPI(device))->setLabel(WebGPU::fromAPI(label));
+    WebGPU::fromAPI(device).setLabel(WebGPU::fromAPI(label));
 }

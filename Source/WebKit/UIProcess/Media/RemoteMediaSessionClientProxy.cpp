@@ -88,10 +88,7 @@ void RemoteMediaSessionClientProxy::setShouldPlayToPlaybackTarget(bool shouldPla
 
 RefPtr<WebCore::MediaSessionManagerInterface> RemoteMediaSessionClientProxy::sessionManager() const
 {
-    if (RefPtr manager = m_manager.get())
-        return manager;
-
-    return nullptr;
+    return m_manager.get();
 }
 
 } // namespace WebKit

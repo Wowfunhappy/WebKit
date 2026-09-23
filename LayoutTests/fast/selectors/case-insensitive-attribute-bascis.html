@@ -40,10 +40,15 @@ function testStyling(selector, expectedIds) {
     stylingElement.innerHTML = '' + selector + ' { background-color: rgb(10, 100, 200); }';
 
     var allTestCases = document.querySelectorAll("#test-root *");
+    var expectedMatched = [];
+    window.styledElements = [];
     for (var i = 0; i < allTestCases.length; ++i) {
-        var expectMatch = expectedIds.indexOf(parseInt(allTestCases[i].id.replace('target', ''))) >= 0;
-        shouldBeEqualToString('getComputedStyle(document.querySelectorAll("#test-root *")[' + i + ']).backgroundColor', expectMatch ? 'rgb(10, 100, 200)' : 'rgb(255, 0, 0)');
+        if (expectedIds.indexOf(parseInt(allTestCases[i].id.replace('target', ''))) >= 0)
+            expectedMatched.push(allTestCases[i].id);
+        if (getComputedStyle(allTestCases[i]).backgroundColor === 'rgb(10, 100, 200)')
+            styledElements.push(allTestCases[i].id);
     }
+    shouldBe('styledElements', JSON.stringify(expectedMatched));
 
     stylingElement.innerHTML = '';
 }

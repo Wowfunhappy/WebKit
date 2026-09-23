@@ -95,8 +95,8 @@ using RepaintRequirements = OptionSet<RepaintRequirement>;
 
 class AnnotationTrackingState {
 public:
-    RepaintRequirements startAnnotationTracking(RetainPtr<PDFAnnotation>&&, WebEventType, WebMouseEventButton);
-    RepaintRequirements finishAnnotationTracking(PDFAnnotation* annotationUnderMouse, WebEventType, WebMouseEventButton);
+    RepaintRequirements startAnnotationTracking(RetainPtr<PDFAnnotation>&&, WebCore::PlatformEventType, WebCore::MouseButton);
+    RepaintRequirements finishAnnotationTracking(PDFAnnotation* annotationUnderMouse, WebCore::PlatformEventType, WebCore::MouseButton);
 
     PDFAnnotation *trackedAnnotation() const { return m_trackedAnnotation.get(); }
     bool NODELETE isBeingHovered() const;
@@ -143,7 +143,7 @@ public:
     };
     using PDFElementTypes = OptionSet<PDFElementType>;
 
-    WebCore::LocalFrameView* frameView() const;
+    WebCore::LocalFrameView* NODELETE frameView() const;
     WebCore::FrameView* mainFrameView() const;
 
     CGRect pluginBoundsForAnnotation(PDFAnnotation*) const final;
@@ -322,6 +322,7 @@ private:
     bool isFullMainFramePlugin() const;
 
     void scrollbarStyleChanged(WebCore::ScrollbarStyle, bool forceUpdate) override;
+    void updateScrollbarOverlayStyle();
     void updateScrollbars() override;
     void willAttachScrollingNode() final;
     void didAttachScrollingNode() final;
@@ -339,6 +340,8 @@ private:
     bool handleContextMenuEvent(const WebMouseEvent&) override;
     bool handleKeyboardEvent(const WebKeyboardEvent&) override;
 
+    bool handleMouseEvent(const WebCore::PlatformMouseEvent&);
+
     // Editing commands
     bool handleEditingCommand(const String& commandName, const String& argument) override;
     bool isEditingCommandEnabled(const String& commandName) override;
@@ -348,8 +351,8 @@ private:
     [[maybe_unused]] bool performCopyEditingOperation() const;
     void performCopyLinkOperation(const WebCore::IntPoint& contextMenuEventRootViewPoint) const;
 
-    void setDisplayMode(PDFDisplayMode);
-    void setDisplayModeAndUpdateLayout(PDFDisplayMode) final;
+    void setDisplayMode(PDFPluginDisplayMode);
+    void setDisplayModeAndUpdateLayout(PDFPluginDisplayMode) final;
 
     // Context Menu
 #if ENABLE(CONTEXT_MENUS)
@@ -386,8 +389,8 @@ private:
     static ContextMenuItemTag toContextMenuItemTag(int tagValue);
     void performContextMenuAction(ContextMenuItemTag, const WebCore::IntPoint& contextMenuEventRootViewPoint);
 
-    ContextMenuItemTag NODELETE contextMenuItemTagFromDisplayMode(const PDFDisplayMode&) const;
-    PDFDisplayMode NODELETE displayModeFromContextMenuItemTag(const ContextMenuItemTag&) const;
+    ContextMenuItemTag NODELETE contextMenuItemTagFromDisplayMode(const PDFPluginDisplayMode&) const;
+    PDFPluginDisplayMode NODELETE displayModeFromContextMenuItemTag(const ContextMenuItemTag&) const;
 #endif
 
     // Autoscroll
@@ -413,8 +416,8 @@ private:
     enum class IsDraggingSelection : bool { No, Yes };
     enum class IsMarqueeSelection : bool { No, Yes };
 
-    SelectionGranularity NODELETE selectionGranularityForMouseEvent(const WebMouseEvent&) const;
-    void beginTrackingSelection(PDFDocumentLayout::PageIndex, const WebCore::FloatPoint& pagePoint, const WebMouseEvent&);
+    SelectionGranularity NODELETE selectionGranularityForMouseEvent(const WebCore::PlatformMouseEvent&) const;
+    void beginTrackingSelection(PDFDocumentLayout::PageIndex, const WebCore::FloatPoint& pagePoint, const WebCore::PlatformMouseEvent&);
     void extendCurrentSelectionIfNeeded();
     void updateCurrentSelectionForContextMenuEventIfNeeded();
     void continueTrackingSelection(PDFDocumentLayout::PageIndex, const WebCore::FloatPoint& pagePoint, IsDraggingSelection);
@@ -568,9 +571,9 @@ private:
 
     void followLinkAnnotation(PDFAnnotation *, std::optional<WebCore::PlatformMouseEvent>&& = std::nullopt);
 
-    void startTrackingAnnotation(RetainPtr<PDFAnnotation>&&, WebEventType, WebMouseEventButton);
+    void startTrackingAnnotation(RetainPtr<PDFAnnotation>&&, WebCore::PlatformEventType, WebCore::MouseButton);
     void updateTrackedAnnotation(PDFAnnotation *annotationUnderMouse);
-    void finishTrackingAnnotation(PDFAnnotation *annotationUnderMouse, WebEventType, WebMouseEventButton, RepaintRequirements = { });
+    void finishTrackingAnnotation(PDFAnnotation *annotationUnderMouse, WebCore::PlatformEventType, WebCore::MouseButton, RepaintRequirements = { });
 
     void revealAnnotation(PDFAnnotation *);
 

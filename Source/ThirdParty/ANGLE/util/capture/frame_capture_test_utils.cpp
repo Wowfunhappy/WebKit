@@ -202,11 +202,20 @@ bool LoadTraceInfoFromJSON(const std::string &traceName,
         traceInfoOut->configAlphaBits        = meta["ConfigAlphaBits"].GetInt();
         traceInfoOut->configDepthBits        = meta["ConfigDepthBits"].GetInt();
         traceInfoOut->configStencilBits      = meta["ConfigStencilBits"].GetInt();
+        traceInfoOut->isRobustAccessEnabled  = meta.HasMember("IsRobustAccessEnabled")
+                                                   ? meta["IsRobustAccessEnabled"].GetBool()
+                                                   : false;
         traceInfoOut->areClientArraysEnabled = meta["AreClientArraysEnabled"].GetBool();
         traceInfoOut->isBindGeneratesResourcesEnabled =
             meta["IsBindGeneratesResourcesEnabled"].GetBool();
         traceInfoOut->isWebGLCompatibilityEnabled = meta["IsWebGLCompatibilityEnabled"].GetBool();
+        traceInfoOut->isHardenedContextEnabled    = meta.HasMember("IsHardenedContextEnabled")
+                                                        ? meta["IsHardenedContextEnabled"].GetBool()
+                                                        : false;
         traceInfoOut->isRobustResourceInitEnabled = meta["IsRobustResourceInitEnabled"].GetBool();
+
+        traceInfoOut->areExtensionsEnabled =
+            meta.HasMember("AreExtensionsEnabled") ? meta["AreExtensionsEnabled"].GetBool() : true;
     }
     else
     {

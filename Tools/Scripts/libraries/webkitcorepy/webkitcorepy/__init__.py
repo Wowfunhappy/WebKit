@@ -79,6 +79,8 @@ AutoInstall.register(Package('urllib3', Version(1, 26, 17)))
 AutoInstall.register(Package('wheel', Version(0, 35, 1)))
 AutoInstall.register(Package('cffi', Version(1, 17, 1), aliases=['_cffi_backend']))
 AutoInstall.register(Package('OpenSSL', Version(23, 2, 0), pypi_name='pyOpenSSL'))
+AutoInstall.register(Package('pyyaml', Version(6, 0, 3), pypi_name='PyYAML', wheel=True))
+AutoInstall.register(Package('jsone', Version(4, 8, 1), pypi_name='json-e'))
 
 # There are no prebuilt binaries for arm-32 of 'cryptography' and building it requires cargo/rust
 # Since this dep is not really needed for the current arm-32 bots we skip it instead of

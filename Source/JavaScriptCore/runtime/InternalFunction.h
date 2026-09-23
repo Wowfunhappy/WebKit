@@ -65,6 +65,16 @@ public:
         return m_functionForConstruct;
     }
 
+    void setNativeFunctionForDebugger(CodeSpecializationKind kind, TaggedNativeFunction function)
+    {
+        if (kind == CodeSpecializationKind::CodeForCall)
+            m_functionForCall = function;
+        else {
+            ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
+            m_functionForConstruct = function;
+        }
+    }
+
     static constexpr ptrdiff_t offsetOfNativeFunctionFor(CodeSpecializationKind kind)
     {
         if (kind == CodeSpecializationKind::CodeForCall)
@@ -87,8 +97,8 @@ protected:
     JS_EXPORT_PRIVATE void finishCreation(VM&, unsigned length, const String& name, PropertyAdditionMode = PropertyAdditionMode::WithStructureTransition);
     DECLARE_DEFAULT_FINISH_CREATION;
 
-    JS_EXPORT_PRIVATE static CallData getConstructData(JSCell*);
-    JS_EXPORT_PRIVATE static CallData getCallData(JSCell*);
+    JS_EXPORT_PRIVATE static CallData NODELETE getConstructData(JSCell*);
+    JS_EXPORT_PRIVATE static CallData NODELETE getCallData(JSCell*);
 
     TaggedNativeFunction m_functionForCall;
     TaggedNativeFunction m_functionForConstruct;

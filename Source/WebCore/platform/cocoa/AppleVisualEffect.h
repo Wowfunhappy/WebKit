@@ -62,7 +62,7 @@ enum class AppleVisualEffect : uint8_t {
 WEBCORE_EXPORT bool NODELETE appleVisualEffectNeedsBackdrop(AppleVisualEffect);
 WEBCORE_EXPORT bool NODELETE appleVisualEffectAppliesFilter(AppleVisualEffect);
 #if HAVE(MATERIAL_HOSTING)
-WEBCORE_EXPORT bool appleVisualEffectIsHostedMaterial(AppleVisualEffect);
+WEBCORE_EXPORT bool NODELETE appleVisualEffectIsHostedMaterial(AppleVisualEffect);
 #endif
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, AppleVisualEffect);

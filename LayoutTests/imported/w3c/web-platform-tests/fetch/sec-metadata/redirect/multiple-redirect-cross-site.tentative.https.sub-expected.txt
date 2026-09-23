@@ -1,6 +1,0 @@
-
-
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Same-Origin -> Cross-Site -> Same-Origin redirect Test timed out
-

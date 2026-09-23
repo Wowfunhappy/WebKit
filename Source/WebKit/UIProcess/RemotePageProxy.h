@@ -25,8 +25,10 @@
 
 #pragma once
 
+#include "EditorState.h"
 #include "MessageReceiver.h"
 #include "NavigationActionData.h"
+#include "ProcessActivityGroup.h"
 #include "WebPageProxyMessageReceiverRegistration.h"
 #include "WebProcessProxy.h"
 #include <WebCore/FrameIdentifier.h>
@@ -49,7 +51,7 @@ enum class FrameLoadType : uint8_t;
 enum class HasInsecureContent : bool;
 enum class MediaProducerMediaState : uint32_t;
 enum class MouseEventPolicy : uint8_t;
-enum class ScreenOrientationType : uint8_t; // MAVERICKS_BACKPORT: was reached transitively; forward-declare it directly (-fno-modules).
+enum class ScreenOrientationType : uint8_t;
 
 class CertificateInfo;
 class ResourceResponse;
@@ -64,10 +66,12 @@ class DrawingAreaProxy;
 class NativeWebMouseEvent;
 class RemotePageDrawingAreaProxy;
 class RemotePageFullscreenManagerProxy;
+class RemotePageMediaSessionManagerProxy;
 class RemotePagePlaybackSessionManagerProxy;
 class RemotePageScreenOrientationManagerProxy;
 class RemotePageVideoPresentationManagerProxy;
 class RemotePageVisitedLinkStoreRegistration;
+class RemotePageWebAuthenticatorCoordinatorProxy;
 class UserData;
 class WebFrameProxy;
 class WebPageProxy;
@@ -117,13 +121,20 @@ public:
     void setCurrentOrientation(WebCore::ScreenOrientationType);
 
     bool hasNetworkRequestsInProgress() const { return m_hasNetworkRequestsInProgress; }
+    bool canShortCircuitHorizontalWheelEvents() const { return m_canShortCircuitHorizontalWheelEvents; }
 
     void disconnect();
+
+#if ENABLE(DEVICE_ORIENTATION)
+    void clearDeviceOrientationAndMotionPermissions();
+#endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
     void didCreateContextInWebProcessForVisibilityPropagation(LayerHostingContextID);
     LayerHostingContextID contextIDForVisibilityPropagationInWebProcess() const { return m_contextIDForVisibilityPropagationInWebProcess; }
 #endif
+
+    EditorState& editorState() { return m_editorState; }
 
 private:
     RemotePageProxy(WebPageProxy&, WebProcessProxy&, const WebCore::Site&, WebPageProxyMessageReceiverRegistration*, std::optional<WebCore::PageIdentifier>);
@@ -132,6 +143,7 @@ private:
     void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags);
 
     void setNetworkRequestsInProgress(bool);
+    void setCanShortCircuitHorizontalWheelEvents(bool);
 
     const WebCore::PageIdentifier m_webPageID;
     const Ref<WebProcessProxy> m_process;
@@ -148,6 +160,9 @@ private:
 #if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
     RefPtr<RemotePageWebDeviceOrientationUpdateProviderProxy> m_webDeviceOrientationUpdateProvider;
 #endif
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    RefPtr<RemotePageMediaSessionManagerProxy> m_mediaSessionManager;
+#endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     RefPtr<RemotePagePlaybackSessionManagerProxy> m_playbackSessionManager;
 #endif
@@ -155,7 +170,11 @@ private:
     WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
     WebCore::MediaProducerMediaStateFlags m_mediaState;
     RefPtr<RemotePageScreenOrientationManagerProxy> m_screenOrientationManager;
+#if ENABLE(WEB_AUTHN)
+    RefPtr<RemotePageWebAuthenticatorCoordinatorProxy> m_webAuthenticatorCoordinator;
+#endif
     bool m_hasNetworkRequestsInProgress { false };
+    bool m_canShortCircuitHorizontalWheelEvents { true };
 #if ASSERT_ENABLED
     bool m_disconnected { false };
 #endif
@@ -163,6 +182,7 @@ private:
     LayerHostingContextID m_contextIDForVisibilityPropagationInWebProcess { 0 };
 #endif
 
+    EditorState m_editorState;
 };
 
 }

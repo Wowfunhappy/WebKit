@@ -68,6 +68,9 @@ private:
     void resolve(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemHandleIdentifier, WebCore::FileSystemStorageConnection::ResolveCallback&&) final;
     void getHandleNames(WebCore::FileSystemHandleIdentifier, FileSystemStorageConnection::GetHandleNamesCallback&&) final;
     void getHandle(WebCore::FileSystemHandleIdentifier, const String& name, FileSystemStorageConnection::GetHandleCallback&&) final;
+    void addGlobalIdentifierReference(WebCore::ClientOrigin&&, WebCore::FileSystemHandleGlobalIdentifier) final;
+    void removeGlobalIdentifierReferences(WebCore::ClientOrigin&&, Vector<WebCore::FileSystemHandleGlobalIdentifier>&&) final;
+    void resolveGlobalIdentifier(WebCore::ClientOrigin&&, WebCore::FileSystemHandleGlobalIdentifier, ResolveGlobalIdentifierCallback&&) final;
     void getFile(WebCore::FileSystemHandleIdentifier, StringCallback&&) final;
 
     void createSyncAccessHandle(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemStorageConnection::GetAccessHandleCallback&&) final;

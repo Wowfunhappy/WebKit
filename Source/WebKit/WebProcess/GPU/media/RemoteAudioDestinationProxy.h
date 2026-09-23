@@ -36,6 +36,10 @@
 #include <wtf/CrossThreadQueue.h>
 #include <wtf/MediaTime.h>
 
+namespace WTF {
+class Thread;
+}
+
 #if PLATFORM(COCOA)
 #include "SharedCARingBuffer.h"
 #endif
@@ -104,7 +108,7 @@ private:
     String m_sceneIdentifier;
 #endif
 
-    RefPtr<Thread> m_renderThread;
+    RefPtr<WTF::Thread> m_renderThread;
     RefPtr<WebCore::SharedMemory> m_frameCount;
     uint32_t m_lastFrameCount { 0 };
     std::atomic<bool> m_shouldStopThread { false };

@@ -35,6 +35,7 @@
 #include "NetworkSession.h"
 #include "PreconnectTask.h"
 #include <WebCore/DiagnosticLoggingKeys.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <pal/HysteresisActivity.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/NeverDestroyed.h>
@@ -90,14 +91,13 @@ static inline Key makeSubresourcesKey(const Key& resourceKey, const Salt& salt)
 static inline ResourceRequest constructRevalidationRequest(const Key& key, const SubresourceInfo& subResourceInfo, const Entry* entry)
 {
     ResourceRequest revalidationRequest(URL { key.identifier() });
+    revalidationRequest.setShouldBlockThirdPartyStorage(!key.partition().isEmpty());
     revalidationRequest.setHTTPHeaderFields(subResourceInfo.requestHeaders());
     revalidationRequest.setFirstPartyForCookies(subResourceInfo.firstPartyForCookies());
     revalidationRequest.setIsSameSite(subResourceInfo.isSameSite());
     revalidationRequest.setIsTopSite(subResourceInfo.isTopSite());
     revalidationRequest.setIsAppInitiated(subResourceInfo.isAppInitiated());
 
-    if (!key.partition().isEmpty())
-        revalidationRequest.setCachePartition(key.partition());
     ASSERT_WITH_MESSAGE(key.range().isEmpty(), "range is not supported");
     
     revalidationRequest.makeUnconditional();
@@ -436,6 +436,12 @@ void SpeculativeLoadManager::retrieveEntryFromStorage(const SubresourceInfo& inf
 
         auto entry = Entry::decodeStorageRecord(record);
         if (!entry) {
+            completionHandler(nullptr);
+            return false;
+        }
+
+        // FIXME: This is a workaround for rdar://181130091, which we can drop after a release.
+        if (entry->response().httpStatusCode() == httpStatus304NotModified) {
             completionHandler(nullptr);
             return false;
         }

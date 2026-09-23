@@ -31,11 +31,13 @@
 #include "HTMLObjectElement.h"
 #include "HTMLVideoElement.h"
 #include "LocalDOMWindow.h"
+#include "MIMETypeRegistry.h"
 #include "Settings.h"
 
 #include "JSDOMWindowBase.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
+#include <WebCore/HTTPStatusCodes.h>
 
 namespace WebCore {
 
@@ -62,7 +64,7 @@ void HTMLImageLoader::dispatchLoadEvent()
     // doesn't normally fire load/error events when loading <object> as plugins. Therefore,
     // firing such events for PDF loads on iOS can cause confusion on some sites.
     // See rdar://107795151.
-    if (auto* objectElement = dynamicDowncast<HTMLObjectElement>(element())) {
+    if (RefPtr objectElement = dynamicDowncast<HTMLObjectElement>(element())) {
         if (MIMETypeRegistry::isPDFMIMEType(objectElement->serviceType()))
             return;
     }
@@ -70,7 +72,7 @@ void HTMLImageLoader::dispatchLoadEvent()
 
     RefPtr image = this->image();
     bool errorOccurred = image->errorOccurred();
-    if (!errorOccurred && image->response().httpStatusCode() >= 400)
+    if (!errorOccurred && image->response().httpStatusCode() >= httpStatus400BadRequest)
         errorOccurred = is<HTMLObjectElement>(element()); // An <object> considers a 404 to be an error and should fire onerror.
     protect(element())->dispatchEvent(Event::create(errorOccurred ? eventNames().errorEvent : eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
@@ -83,7 +85,7 @@ void HTMLImageLoader::notifyFinished(CachedResource&, const NetworkLoadMetrics& 
     Ref<Element> protect(element());
     ImageLoader::notifyFinished(cachedImage, metrics, loadWillContinueInAnotherProcess);
 
-    bool loadError = cachedImage->errorOccurred() || cachedImage->response().httpStatusCode() >= 400;
+    bool loadError = cachedImage->errorOccurred() || cachedImage->response().httpStatusCode() >= httpStatus400BadRequest;
     if (!loadError) {
         if (!element().isConnected()) {
             JSC::VM& vm = commonVM();

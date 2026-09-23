@@ -73,7 +73,7 @@ static std::pair<GRefPtr<GstBuffer>, VideoFrameMetadataGStreamer*> ensureVideoFr
         return { WTF::move(buffer), meta };
 
     IGNORE_WARNINGS_BEGIN("cast-align");
-    auto modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    GRefPtr modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
     IGNORE_WARNINGS_END;
     meta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(modifiedBuffer.get(), videoFrameMetadataGetInfo(), nullptr));
     return { WTF::move(modifiedBuffer), meta };
@@ -146,7 +146,7 @@ void webkitGstBufferAddVideoFrameMetadata(GstBuffer* buffer, std::optional<WebCo
 GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameMetadata(GRefPtr<GstBuffer>&& buffer, std::optional<WebCore::VideoFrameTimeMetadata> metadata, VideoFrame::Rotation rotation, bool isMirrored, VideoFrameContentHint hint)
 {
     IGNORE_WARNINGS_BEGIN("cast-align");
-    auto modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    GRefPtr modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
     IGNORE_WARNINGS_END;
     webkitGstBufferAddVideoFrameMetadata(modifiedBuffer.get(), metadata, rotation, isMirrored, hint);
     return modifiedBuffer;
@@ -175,8 +175,8 @@ void webkitGstTraceProcessingTimeForElement(GstElement* element)
         GST_DEBUG_CATEGORY_INIT(webkit_video_frame_meta_debug, "webkitvideoframemeta", 0, "Video frame processing metrics");
     });
 
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(element, "sink"));
-    auto srcPad = adoptGRef(gst_element_get_static_pad(element, "src"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(element, "sink"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(element, "src"));
     if (!sinkPad || !srcPad) {
         GST_WARNING("Can't add the processing time probes for %s", GST_OBJECT_NAME(element));
         ASSERT_NOT_REACHED();
@@ -185,17 +185,28 @@ void webkitGstTraceProcessingTimeForElement(GstElement* element)
 
     GST_DEBUG("Tracing processing time for %" GST_PTR_FORMAT, element);
 
+    // The pad probes life cycles are tied to their pad, they will be removed during the pad
+    // disposal. No need for PadProbeHandle here.
     static auto probeType = static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_BUFFER);
 
-    gst_pad_add_probe(sinkPad.get(), probeType, [](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
+    gst_pad_add_probe(sinkPad.get(), probeType, [](GstPad* pad, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
+        GRefPtr element = adoptGRef(gst_pad_get_parent_element(pad));
+        if (!element) [[unlikely]]
+            return GST_PAD_PROBE_REMOVE;
+
         auto [modifiedBuffer, meta] = ensureVideoFrameMetadata(GRefPtr(GST_PAD_PROBE_INFO_BUFFER(info)));
         gst_pad_probe_info_set_buffer(info, modifiedBuffer.leakRef());
-        Locker locker { meta->priv->lock };
-        meta->priv->processingTimes.set(GST_ELEMENT_CAST(userData), std::make_pair(gst_util_get_timestamp(), GST_CLOCK_TIME_NONE));
-        return GST_PAD_PROBE_OK;
-    }, element, nullptr);
 
-    gst_pad_add_probe(srcPad.get(), probeType, [](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
+        Locker locker { meta->priv->lock };
+        meta->priv->processingTimes.set(element.get(), std::make_pair(gst_util_get_timestamp(), GST_CLOCK_TIME_NONE));
+        return GST_PAD_PROBE_OK;
+    }, nullptr, nullptr);
+
+    gst_pad_add_probe(srcPad.get(), probeType, [](GstPad* pad, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
+        GRefPtr element = adoptGRef(gst_pad_get_parent_element(pad));
+        if (!element) [[unlikely]]
+            return GST_PAD_PROBE_REMOVE;
+
         auto* meta = getInternalVideoFrameMetadata(GST_PAD_PROBE_INFO_BUFFER(info));
         // Some decoders (such as theoradec) do not always copy the input meta to the output frame,
         // so we need to check the meta is valid here before accessing it.
@@ -203,11 +214,10 @@ void webkitGstTraceProcessingTimeForElement(GstElement* element)
             return GST_PAD_PROBE_OK;
 
         Locker locker { meta->priv->lock };
-        auto* key = GST_ELEMENT_CAST(userData);
-        auto [startTime, oldStopTime] = meta->priv->processingTimes.get(key);
-        meta->priv->processingTimes.set(key, std::make_pair(startTime, gst_util_get_timestamp()));
+        auto [startTime, oldStopTime] = meta->priv->processingTimes.get(element.get());
+        meta->priv->processingTimes.set(element.get(), std::make_pair(startTime, gst_util_get_timestamp()));
         return GST_PAD_PROBE_OK;
-    }, element, nullptr);
+    }, nullptr, nullptr);
 }
 
 VideoFrameMetadata webkitGstBufferGetVideoFrameMetadata(GstBuffer* buffer)

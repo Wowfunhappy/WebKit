@@ -66,8 +66,8 @@ public:
     CounterNode* lastChild() const { return const_cast<CounterNode*>(m_lastChild.get()); }
     CounterNode* NODELETE lastDescendant() const;
     CounterNode* NODELETE previousInPreOrder() const;
-    CounterNode* nextInPreOrder(const CounterNode* stayWithin = nullptr) const;
-    CounterNode* nextInPreOrderAfterChildren(const CounterNode* stayWithin = nullptr) const;
+    CounterNode* NODELETE nextInPreOrder(const CounterNode* stayWithin = nullptr) const;
+    CounterNode* NODELETE nextInPreOrderAfterChildren(const CounterNode* stayWithin = nullptr) const;
 
     void insertAfter(CounterNode& newChild, CounterNode* beforeChild, const AtomString& identifier);
     // identifier must match the identifier of this counter.

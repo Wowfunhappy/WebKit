@@ -80,7 +80,7 @@ public:
     WEBCORE_EXPORT bool scrollToPositionWithoutAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
     WEBCORE_EXPORT bool scrollToPositionWithAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
 
-    void retargetRunningAnimation(const FloatPoint& newPosition);
+    bool retargetRunningAnimation(const FloatPoint& newPosition);
 
     virtual bool handleWheelEvent(const PlatformWheelEvent&);
     virtual bool processWheelEventForScrollSnap(const PlatformWheelEvent&) { return false; }
@@ -116,10 +116,10 @@ public:
     float scrollOffsetAdjustedForSnapping(ScrollEventAxis, const FloatPoint& newOffset, ScrollSnapPointSelectionMethod) const;
 
     bool NODELETE activeScrollSnapIndexDidChange() const;
-    std::optional<unsigned> activeScrollSnapIndexForAxis(ScrollEventAxis) const;
+    std::optional<unsigned> NODELETE activeScrollSnapIndexForAxis(ScrollEventAxis) const;
     void setActiveScrollSnapIndexForAxis(ScrollEventAxis, std::optional<unsigned> index);
     void setSnapOffsetsInfo(const LayoutScrollSnapOffsetsInfo&);
-    const LayoutScrollSnapOffsetsInfo* snapOffsetsInfo() const;
+    const LayoutScrollSnapOffsetsInfo* NODELETE snapOffsetsInfo() const;
     void resnapAfterLayout();
 
     ScrollAnimationStatus serviceScrollAnimation(MonotonicTime);

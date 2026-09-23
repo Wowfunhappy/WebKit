@@ -29,9 +29,9 @@
 
 #include "Touch.h"
 
-#include "EventTargetInlines.h"
 #include "DocumentView.h"
 #include "DoublePoint.h"
+#include "EventTargetInlines.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrameInlines.h"
 #include "LocalFrameView.h"

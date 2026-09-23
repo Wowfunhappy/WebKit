@@ -35,6 +35,5 @@ dictionary CookieInit {
     CookieSameSite sameSite = "strict";
     // FIXME: Add support for `partitioned`.
     // boolean partitioned = false;
-    // FIXME: Add support for `maxAge`.
-    // long long? maxAge = null;
+    long long? maxAge = null;
 };

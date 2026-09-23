@@ -990,12 +990,6 @@ enum class MathStyle : bool {
     Compact,
 };
 
-enum class ContainerType : uint8_t {
-    Normal,
-    Size,
-    InlineSize,
-};
-
 enum class ContainIntrinsicSizeType : uint8_t {
     None,
     Length,

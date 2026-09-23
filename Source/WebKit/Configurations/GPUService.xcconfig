@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Apple Inc. All rights reserved.
+// Copyright (C) 2019-2026 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions
@@ -35,7 +35,6 @@ INFOPLIST_FILE[sdk=macosx*] = GPUProcess/EntryPoint/Cocoa/XPCService/GPUService/
 
 CLANG_INSTRUMENT_FOR_OPTIMIZATION_PROFILING = NO; // Disable PGO profile generation
 WK_PGO_GEN_FLAGS = ; // Disable IR PGO profile generation
-OTHER_LDFLAGS = $(inherited) $(OTHER_LDFLAGS_STAGED_FRAMEWORK_PATH) $(WK_RELOCATABLE_FRAMEWORKS_LDFLAGS) $(SOURCE_VERSION_LDFLAGS);
 
 CODE_SIGN_ENTITLEMENTS[sdk=xrsimulator*] = Resources/ios/GPUService-visionOS-simulator.entitlements
 

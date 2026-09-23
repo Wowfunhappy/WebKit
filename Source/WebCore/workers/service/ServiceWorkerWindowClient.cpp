@@ -73,7 +73,7 @@ void ServiceWorkerWindowClient::focus(ScriptExecutionContext& context, Ref<Defer
 
 void ServiceWorkerWindowClient::navigate(ScriptExecutionContext& context, const String& urlString, Ref<DeferredPromise>&& promise)
 {
-    auto url = context.completeURL(urlString);
+    auto url = context.encodingParseURL(urlString);
 
     if (!url.isValid()) {
         promise->reject(Exception { ExceptionCode::TypeError, makeString("URL string "_s, urlString, " cannot successfully be parsed"_s) });

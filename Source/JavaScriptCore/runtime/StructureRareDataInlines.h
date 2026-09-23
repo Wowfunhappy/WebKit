@@ -30,8 +30,10 @@
 #include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/PackedCellPtr.h>
 #include <JavaScriptCore/StructureChain.h>
+#include <JavaScriptCore/StructureInlinesLight.h>
 #include <JavaScriptCore/StructureRareData.h>
 #include <JavaScriptCore/VM.h>
+#include <wtf/Bag.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -203,7 +205,7 @@ inline bool StructureRareData::tryCachePropertyNameEnumeratorViaWatchpoint(VM&, 
         ++size;
         StructureID structureID = *current;
         Structure* structure = structureID.decode();
-        if (!structure->propertyNameEnumeratorShouldWatch())
+        if (!structure->propertyNameEnumeratorMayWatch())
             return false;
     }
     m_cachedPropertyNameEnumeratorWatchpoints = FixedVector<StructureChainInvalidationWatchpoint>(size);

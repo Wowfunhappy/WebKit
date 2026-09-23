@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Igalia S.L. All rights reserved.
+ * Copyright (C) 2020-2026 Igalia S.L. All rights reserved.
  * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,7 @@
 #include "WebXRFrame.h"
 #include "WebXRInputSourceArray.h"
 #include "WebXRRenderState.h"
+#include "WebXRSessionListener.h"
 #include "XREnvironmentBlendMode.h"
 #include "XRInteractionMode.h"
 #include "XRReferenceSpaceType.h"
@@ -54,7 +55,6 @@ namespace WebCore {
 
 class XRFrameRequestCallback;
 class WebCoreOpaqueRoot;
-class WebXRSystem;
 class WebXRView;
 class WebXRReferenceSpace;
 struct XRCanvasConfiguration;
@@ -77,7 +77,7 @@ public:
     using EndPromise = DOMPromiseDeferred<void>;
     using FeatureList = PlatformXR::Device::FeatureList;
 
-    static Ref<WebXRSession> create(Document&, WebXRSystem&, XRSessionMode, PlatformXR::Device&, FeatureList&&);
+    static Ref<WebXRSession> create(Document&, XRSessionMode, PlatformXR::Device&, FeatureList&&);
     virtual ~WebXRSession();
 
     XREnvironmentBlendMode environmentBlendMode() const;
@@ -88,6 +88,7 @@ public:
     RefPtr<PlatformXR::Device> device() const { return m_device; }
 
     const Vector<String> enabledFeatures() const;
+    bool supportsFeature(PlatformXR::SessionFeature) const;
 
     ExceptionOr<void> updateRenderState(const XRRenderStateInit&);
     void requestReferenceSpace(XRReferenceSpaceType, RequestReferenceSpacePromise&&);
@@ -97,7 +98,7 @@ public:
 
     IntSize nativeWebGLFramebufferResolution() const;
     IntSize recommendedWebGLFramebufferResolution() const;
-    bool supportsViewportScaling() const; 
+    bool supportsViewportScaling() const;
     bool isPositionEmulated() const;
 
     // If the immersive session obscures the HTML document (for example, in standalone devices),
@@ -109,6 +110,8 @@ public:
     // EventTarget.
     ScriptExecutionContext* scriptExecutionContext() const final;
 
+    void addSessionListener(const WebXRSessionListener&);
+
     ExceptionOr<void> end(EndPromise&&);
     bool ended() const { return m_ended; }
 
@@ -118,7 +121,7 @@ public:
     const PlatformXR::FrameData& frameData() const LIFETIME_BOUND { return m_frameData; }
     const WebXRReferenceSpace& viewerReferenceSpace() const { return m_viewerReferenceSpace; }
     bool posesCanBeReported(const Document&) const;
-    
+
 #if ENABLE(WEBXR_HANDS)
     bool isHandTrackingEnabled() const;
 #endif
@@ -132,10 +135,21 @@ public:
     ExceptionOr<void> cancelTransientInputHitTestSource(PlatformXR::TransientInputHitTestSource);
 #endif
 
+#if ENABLE(WEBXR_LAYERS)
+    unsigned maxRenderLayers() const;
+#endif
+
     void initializeTrackingAndRendering(std::optional<XRCanvasConfiguration>&&);
 
+    struct InitialRenderingDimensions {
+        uint32_t width { 0 };
+        uint32_t height { 0 };
+        uint32_t arrayLength { 0 };
+    };
+    std::optional<InitialRenderingDimensions> initialRenderingDimensions() const { return m_initialRenderingDimensions; }
+
 private:
-    WebXRSession(Document&, WebXRSystem&, XRSessionMode, PlatformXR::Device&, FeatureList&&);
+    WebXRSession(Document&, XRSessionMode, PlatformXR::Device&, FeatureList&&);
 
     // EventTarget
     enum EventTargetInterfaceType eventTargetInterface() const override { return EventTargetInterfaceType::WebXRSession; }
@@ -149,6 +163,7 @@ private:
     void sessionDidInitializeInputSources(Vector<PlatformXR::FrameData::InputSource>&&) final;
     void sessionDidEnd() final;
     void updateSessionVisibilityState(PlatformXR::VisibilityState) final;
+    void sessionDidInitializeRendering(uint32_t width, uint32_t height, uint32_t arrayLength) final;
 
     // VisibilityChangeClient
     void visibilityStateChanged() final;
@@ -175,8 +190,8 @@ private:
     bool m_ended { false };
     bool m_shouldServiceRequestVideoFrameCallbacks { false };
     std::unique_ptr<EndPromise> m_endPromise;
+    Vector<WeakPtr<WebXRSessionListener>> m_sessionListeners;
 
-    WebXRSystem& m_xrSystem;
     XRSessionMode m_mode;
     ThreadSafeWeakPtr<PlatformXR::Device> m_device;
     FeatureList m_requestedFeatures;
@@ -192,6 +207,7 @@ private:
     Vector<PlatformXR::Device::ViewData> m_views;
     PlatformXR::FrameData m_frameData;
     std::optional<PlatformXR::RequestData> m_requestData;
+    std::optional<InitialRenderingDimensions> m_initialRenderingDimensions;
 
     double m_minimumInlineFOV { 0.0 };
     double m_maximumInlineFOV { std::numbers::pi };

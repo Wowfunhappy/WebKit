@@ -230,7 +230,7 @@ ColorComponents<float, 4> FETurbulenceSoftwareApplier::noise2D(const PaintingDat
         q = paintingData.gradient[channel][b10];
         float v = (noiseX.fraction - 1) * q[0] + noiseY.fraction * q[1];
         // a = lerp(sx, u, v);
-        float a = linearInterpolation(sx, u, v);
+        float a = std::lerp(u, v, sx);
 
         // b01 = uLatticeSelector[i + by1];
         int b01 = paintingData.latticeSelector[latticeIndex + noiseY.nextIndex];
@@ -245,10 +245,10 @@ ColorComponents<float, 4> FETurbulenceSoftwareApplier::noise2D(const PaintingDat
         q = paintingData.gradient[channel][b11];
         v = (noiseX.fraction - 1) * q[0] + (noiseY.fraction - 1) * q[1];
         // b = lerp(sx, u, v);
-        float b = linearInterpolation(sx, u, v);
+        float b = std::lerp(u, v, sx);
 
         // return lerp(sy, a, b);
-        return linearInterpolation(sy, a, b);
+        return std::lerp(a, b, sy);
     };
 
     return {

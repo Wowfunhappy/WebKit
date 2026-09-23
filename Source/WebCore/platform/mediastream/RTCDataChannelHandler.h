@@ -34,11 +34,11 @@
 namespace WebCore {
 
 struct RTCDataChannelInit {
-    std::optional<bool> ordered;
+    bool ordered;
     std::optional<unsigned short> maxPacketLifeTime;
     std::optional<unsigned short> maxRetransmits;
     String protocol;
-    std::optional<bool> negotiated;
+    bool negotiated;
     std::optional<unsigned short> id;
     RTCPriorityType priority { RTCPriorityType::Low };
 

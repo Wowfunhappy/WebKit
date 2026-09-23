@@ -36,12 +36,12 @@
   const unsigned long TIMESTAMP_EXT               = 0x8E28;
   const unsigned long GPU_DISJOINT_EXT            = 0x8FBB;
 
-  WebGLTimerQueryEXT? createQueryEXT();
+  WebGLTimerQueryEXT createQueryEXT();
   undefined deleteQueryEXT(WebGLTimerQueryEXT? query);
   boolean isQueryEXT(WebGLTimerQueryEXT? query);
   undefined beginQueryEXT(unsigned long target, WebGLTimerQueryEXT query);
-  undefined endQueryEXT(unsigned long target);
-  undefined queryCounterEXT(WebGLTimerQueryEXT query, unsigned long target);
+  [CallWith=CurrentScriptExecutionContext] undefined endQueryEXT(unsigned long target);
+  [CallWith=CurrentScriptExecutionContext] undefined queryCounterEXT(WebGLTimerQueryEXT query, unsigned long target);
   [OverrideIDLType=IDLWebGLAny] any getQueryEXT(unsigned long target, unsigned long pname);
   [OverrideIDLType=IDLWebGLAny] any getQueryObjectEXT(WebGLTimerQueryEXT query, unsigned long pname);
 };

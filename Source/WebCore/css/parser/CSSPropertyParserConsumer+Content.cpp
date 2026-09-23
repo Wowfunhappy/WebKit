@@ -26,11 +26,11 @@
 #include "config.h"
 #include "CSSPropertyParserConsumer+Content.h"
 
-#include "CSSCounterValue.h"
+#include "CSSContentValue.h"
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
+#include "CSSParserTokenRangeGuard.h"
 #include "CSSPrimitiveValue.h"
-#include "CSSPropertyParserConsumer+Attr.h"
 #include "CSSPropertyParserConsumer+CounterStyles.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 #include "CSSPropertyParserConsumer+Image.h"
@@ -39,6 +39,7 @@
 #include "CSSPropertyParserConsumer+String.h"
 #include "CSSPropertyParserState.h"
 #include "CSSPropertyParsing.h"
+#include "CSSQuotesValue.h"
 #include "CSSValueKeywords.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
@@ -46,144 +47,284 @@
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
 
-RefPtr<CSSValue> consumeQuotes(CSSParserTokenRange& range, CSS::PropertyParserState&)
+static std::optional<CSS::Quotes> consumeUnresolvedQuotes(CSSParserTokenRange& range, CSS::PropertyParserState&)
 {
     // <'quotes'> = auto | none | match-parent | [ <string> <string> ]+
     // https://drafts.csswg.org/css-content-3/#propdef-quotes
 
     // FIXME: Support `match-parent`.
 
-    auto id = range.peek().id();
-    if (id == CSSValueNone || id == CSSValueAuto)
-        return consumeIdent(range);
+    CSSParserTokenRangeGuard guard { range };
 
-    CSSValueListBuilder values;
-    while (!range.atEnd()) {
-        auto parsedValue = consumeString(range);
-        if (!parsedValue)
-            return nullptr;
-        values.append(parsedValue.releaseNonNull());
+    switch (range.peek().id()) {
+    case CSSValueNone:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::Quotes { CSS::Keyword::None { } };
+    case CSSValueAuto:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::Quotes { CSS::Keyword::Auto { } };
+    default:
+        break;
     }
-    if (values.size() && !(values.size() % 2))
-        return CSSValueList::createSpaceSeparated(WTF::move(values));
+
+    CSS::Quotes::Data openClosePairs;
+    while (!range.atEnd()) {
+        auto openQuote = consumeUnresolvedString(range);
+        if (!openQuote)
+            return std::nullopt;
+        auto closeQuote = consumeUnresolvedString(range);
+        if (!closeQuote)
+            return std::nullopt;
+
+        openClosePairs.value.append(WTF::move(*openQuote));
+        openClosePairs.value.append(WTF::move(*closeQuote));
+    }
+    if (openClosePairs.isEmpty())
+        return std::nullopt;
+
+    guard.commit();
+    return CSS::Quotes { WTF::move(openClosePairs) };
+}
+
+RefPtr<CSSValue> consumeQuotes(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'quotes'> = auto | none | match-parent | [ <string> <string> ]+
+    // https://drafts.csswg.org/css-content-3/#propdef-quotes
+
+    // FIXME: Support `match-parent`.
+
+    if (auto unresolved = consumeUnresolvedQuotes(range, state))
+        return CSSQuotesValue::create(WTF::move(*unresolved));
     return nullptr;
 }
 
-static RefPtr<CSSValue> consumeCounterContent(CSSParserTokenRange args, CSS::PropertyParserState& state)
+static std::optional<CSS::Content::CounterFunction> consumeUnresolvedContentCounterFunction(CSSParserTokenRange args, CSS::PropertyParserState& state)
 {
-    // counter()  =  counter( <counter-name>, <counter-style>? )
+    // counter()  =  counter( <counter-name>, <counter-style>?@(default=decimal) )
     // https://www.w3.org/TR/css-lists-3/#funcdef-counter
 
-    AtomString identifier { consumeCustomIdentRaw(args) };
-    if (identifier.isNull())
-        return nullptr;
+    auto customIdent = consumeUnresolvedCustomIdent(args, state);
+    if (!customIdent)
+        return std::nullopt;
 
-    RefPtr<CSSValue> counterStyle;
+    std::optional<CSS::CounterStyle> counterStyle;
     if (consumeCommaIncludingWhitespace(args)) {
-        counterStyle = consumeCounterStyle(args, state);
+        counterStyle = consumeUnresolvedCounterStyle(args, state);
         if (!counterStyle)
-            return nullptr;
-    }
-    if (!counterStyle)
-        counterStyle = CSSPrimitiveValue::create(CSSValueDecimal);
+            return std::nullopt;
+    } else
+        counterStyle = CSS::CounterStyle { CSS::Keyword { CSSValueDecimal } };
 
     if (!args.atEnd())
-        return nullptr;
+        return std::nullopt;
 
-    return CSSCounterValue::create(WTF::move(identifier), AtomString { nullAtom() }, counterStyle.releaseNonNull());
+    return CSS::Content::CounterFunction {
+        .parameters {
+            WTF::move(*customIdent),
+            WTF::move(*counterStyle)
+        }
+    };
 }
 
-static RefPtr<CSSValue> consumeCountersContent(CSSParserTokenRange args, CSS::PropertyParserState& state)
+static std::optional<CSS::Content::CountersFunction> consumeUnresolvedContentCountersFunction(CSSParserTokenRange args, CSS::PropertyParserState& state)
 {
-    // counters() = counters( <counter-name>, <string>, <counter-style>? )
+    // counters() = counters( <counter-name>, <string>, <counter-style>?@(default=decimal) )
     // https://www.w3.org/TR/css-lists-3/#funcdef-counters
 
-    AtomString identifier { consumeCustomIdentRaw(args) };
-    if (identifier.isNull())
-        return nullptr;
+    auto customIdent = consumeUnresolvedCustomIdent(args, state);
+    if (!customIdent)
+        return std::nullopt;
 
-    if (!consumeCommaIncludingWhitespace(args) || args.peek().type() != StringToken)
-        return nullptr;
-    auto separator = args.consumeIncludingWhitespace().value().toAtomString();
+    if (!consumeCommaIncludingWhitespace(args))
+        return std::nullopt;
 
-    RefPtr<CSSValue> counterStyle;
+    auto separator = consumeUnresolvedString(args);
+    if (!separator)
+        return std::nullopt;
+
+    std::optional<CSS::CounterStyle> counterStyle;
     if (consumeCommaIncludingWhitespace(args)) {
-        counterStyle = consumeCounterStyle(args, state);
+        counterStyle = consumeUnresolvedCounterStyle(args, state);
         if (!counterStyle)
-            return nullptr;
-    }
-    if (!counterStyle)
-        counterStyle = CSSPrimitiveValue::create(CSSValueDecimal);
+            return std::nullopt;
+    } else
+        counterStyle = CSS::CounterStyle { CSS::Keyword { CSSValueDecimal } };
 
     if (!args.atEnd())
-        return nullptr;
+        return std::nullopt;
 
-    return CSSCounterValue::create(WTF::move(identifier), WTF::move(separator), counterStyle.releaseNonNull());
+    return CSS::Content::CountersFunction {
+        .parameters {
+            WTF::move(*customIdent),
+            WTF::move(*separator),
+            WTF::move(*counterStyle)
+        }
+    };
 }
 
-RefPtr<CSSValue> consumeContent(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+static std::optional<CSS::Content::LegacyAttrFunction> consumeUnresolvedContentLegacyAttrFunction(CSSParserTokenRange args, CSS::PropertyParserState& state)
+{
+    // FIXME: Remove this when removing the `cssAttrSubstitutionFunctionEnabled` setting.
+
+    if (args.peek().type() != IdentToken)
+        return std::nullopt;
+
+    auto token = args.consumeIncludingWhitespace();
+
+    auto attrName = [&] {
+        if (state.context.isHTMLDocument)
+            return CSS::CustomIdent { token.value().convertToASCIILowercaseAtom() };
+        return CSS::CustomIdent { token.value().toAtomString() };
+    }();
+
+    if (!args.atEnd() && !consumeCommaIncludingWhitespace(args))
+        return std::nullopt;
+
+    std::optional<CSS::String> fallback;
+    if (args.peek().type() == StringToken) {
+        token = args.consumeIncludingWhitespace();
+        fallback = CSS::String { token.value().toString() };
+    }
+
+    if (!args.atEnd())
+        return std::nullopt;
+
+    return CSS::Content::LegacyAttrFunction {
+        .parameters = {
+            WTF::move(attrName),
+            WTF::move(fallback),
+        }
+    };
+}
+
+static std::optional<CSS::Content> consumeUnresolvedContent(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
     // Standard says this should be:
     //
     // <'content'> = normal | none | [ <content-replacement> | <content-list> ] [/ [ <string> | <counter> | <attr()> ]+ ]?
     // https://drafts.csswg.org/css-content-3/#propdef-content
 
-    if (identMatches<CSSValueNone, CSSValueNormal>(range.peek().id()))
-        return consumeIdent(range);
+    CSSParserTokenRangeGuard guard { range };
 
-    enum class ContentListType : bool { VisibleContent, AltText };
-    auto consumeContentList = [&](CSSValueListBuilder& values, ContentListType type) -> bool {
+    switch (range.peek().id()) {
+    case CSSValueNone:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::Content { CSS::Keyword::None { } };
+    case CSSValueNormal:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::Content { CSS::Keyword::Normal { } };
+    default:
+        break;
+    }
+
+    auto consumeVisibleContentListItem = [&] -> std::optional<CSS::Content::VisibleContentListItem> {
+        if (auto string = consumeUnresolvedString(range))
+            return CSS::Content::Text { WTF::move(*string) };
+
+        if (auto image = consumeImage(range, state))
+            return CSS::Content::Image { CSS::ImageWrapper { image.releaseNonNull() } };
+
+        if (auto quote = consumeSpecificUnresolvedIdent<CSS::Content::Quote::Value>(range))
+            return CSS::Content::Quote { WTF::move(*quote) };
+
+        switch (range.peek().functionId()) {
+        case CSSValueAttr:
+            return consumeUnresolvedContentLegacyAttrFunction(consumeFunction(range), state);
+        case CSSValueCounter:
+            return consumeUnresolvedContentCounterFunction(consumeFunction(range), state);
+        case CSSValueCounters:
+            return consumeUnresolvedContentCountersFunction(consumeFunction(range), state);
+        default:
+            break;
+        }
+
+        return std::nullopt;
+    };
+
+    auto consumeVisibleContentList = [&] -> std::optional<CSS::Content::VisibleContentList> {
+        CSS::Content::VisibleContentList result;
+
         bool shouldEnd = false;
         do {
-            RefPtr<CSSValue> parsedValue = consumeString(range);
-            if (type == ContentListType::VisibleContent) {
-                if (!parsedValue)
-                    parsedValue = consumeImage(range, state);
-                if (!parsedValue)
-                    parsedValue = consumeIdent<CSSValueOpenQuote, CSSValueCloseQuote, CSSValueNoOpenQuote, CSSValueNoCloseQuote>(range);
-            }
-            if (!parsedValue) {
-                if (range.peek().functionId() == CSSValueAttr)
-                    parsedValue = consumeAttr(consumeFunction(range), state);
-                // FIXME: Alt-text should support counters.
-                else if (type == ContentListType::VisibleContent) {
-                    if (range.peek().functionId() == CSSValueCounter)
-                        parsedValue = consumeCounterContent(consumeFunction(range), state);
-                    else if (range.peek().functionId() == CSSValueCounters)
-                        parsedValue = consumeCountersContent(consumeFunction(range), state);
-                }
-                if (!parsedValue)
-                    return false;
-            }
-            values.append(parsedValue.releaseNonNull());
+            auto item = consumeVisibleContentListItem();
+            if (!item)
+                return std::nullopt;
+
+            result.value.append(WTF::move(*item));
 
             // Visible content parsing ends at '/' or end of range.
-            if (type == ContentListType::VisibleContent && !range.atEnd()) {
-                CSSParserToken value = range.peek();
+            if (!range.atEnd()) {
+                auto value = range.peek();
                 if (value.type() == DelimiterToken && value.delimiter() == '/')
                     shouldEnd = true;
             }
             shouldEnd = shouldEnd || range.atEnd();
         } while (!shouldEnd);
-        return true;
+
+        return result;
     };
 
-    CSSValueListBuilder visibleContent;
-    if (!consumeContentList(visibleContent, ContentListType::VisibleContent))
-        return nullptr;
+    auto consumeAltContentListItem = [&] -> std::optional<CSS::Content::AltContentListItem> {
+        if (auto string = consumeUnresolvedString(range))
+            return CSS::Content::Text { WTF::move(*string) };
 
-    // Consume alt-text content if there is any.
+        // FIXME: <alt-content> should support <counter> as well.
+        switch (range.peek().functionId()) {
+        case CSSValueAttr:
+            return consumeUnresolvedContentLegacyAttrFunction(consumeFunction(range), state);
+        default:
+            break;
+        }
+
+        return std::nullopt;
+    };
+
+    auto consumeAltContentList = [&] -> std::optional<CSS::Content::AltContentList> {
+        CSS::Content::AltContentList result;
+
+        do {
+            auto item = consumeAltContentListItem();
+            if (!item)
+                return std::nullopt;
+
+            result.value.append(WTF::move(*item));
+        } while (!range.atEnd());
+
+        return result;
+    };
+
+    auto visibleContent = consumeVisibleContentList();
+    if (!visibleContent)
+        return std::nullopt;
+
     if (consumeSlashIncludingWhitespace(range)) {
-        CSSValueListBuilder altText;
-        if (!consumeContentList(altText, ContentListType::AltText))
-            return nullptr;
-        return CSSValuePair::createSlashSeparated(
-            CSSValueList::createSpaceSeparated(WTF::move(visibleContent)),
-            CSSValueList::createSpaceSeparated(WTF::move(altText))
-        );
+        auto altContent = consumeAltContentList();
+        if (!altContent)
+            return std::nullopt;
+
+        guard.commit();
+        return CSS::Content::Data {
+            WTF::move(*visibleContent),
+            WTF::move(altContent)
+        };
     }
 
-    return CSSValueList::createSpaceSeparated(WTF::move(visibleContent));
+    guard.commit();
+    return CSS::Content::Data {
+        WTF::move(*visibleContent),
+        std::nullopt
+    };
+}
+
+RefPtr<CSSValue> consumeContent(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    if (auto unresolved = consumeUnresolvedContent(range, state))
+        return CSSContentValue::create(WTF::move(*unresolved));
+    return nullptr;
 }
 
 } // namespace CSSPropertyParserHelpers

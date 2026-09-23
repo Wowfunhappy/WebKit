@@ -37,7 +37,7 @@ public:
 
 private:
     JSValue throwStackOverflowError();
-    JSValue emptyString();
+    JSValue NODELETE emptyString();
     JSValue performCheck();
 
     JSGlobalObject* m_globalObject;

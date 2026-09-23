@@ -32,6 +32,7 @@
 #include <WebCore/ScrollAnimationMomentum.h>
 #include <WebCore/ScrollSnapOffsetsInfo.h>
 #include <WebCore/ScrollTypes.h>
+#include <wtf/HashSet.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/TZoneMalloc.h>
 

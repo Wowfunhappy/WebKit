@@ -142,6 +142,14 @@
 
 #import <pal/cocoa/MediaToolboxSoftLink.h>
 
+#if PLATFORM(MAC)
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/AVPlayerAdditions.mm>)
+#import <WebKitAdditions/AVPlayerAdditions.mm>
+#else
+static void setPlayerScreenReserved(AVPlayer *, bool) { }
+#endif
+#endif
+
 // Note: This must be defined before our SOFT_LINK macros:
 @class AVMediaSelectionOption;
 @interface AVMediaSelectionOption (OutOfBandExtensions)
@@ -196,7 +204,6 @@ enum MediaPlayerAVFoundationObservationContext {
 @interface WebCoreAVFMovieObserver : NSObject <AVPlayerItemLegibleOutputPushDelegate, AVPlayerItemMetadataOutputPushDelegate, AVPlayerItemMetadataCollectorPushDelegate>
 {
     ThreadSafeWeakPtr<MediaPlayerPrivateAVFoundationObjC> m_player;
-    int m_delayCallbacks;
     RefPtr<WorkQueue> m_backgroundQueue;
 }
 -(id)initWithPlayer:(ThreadSafeWeakPtr<MediaPlayerPrivateAVFoundationObjC>&&)callback;
@@ -304,6 +311,8 @@ private:
 
 void MediaPlayerPrivateAVFoundationObjC::registerMediaEngine(MediaEngineRegistrar registrar)
 {
+    if (RemoteMediaPlayerSupport::registerRemoteEngineIfAvailable(registrar, MediaPlayerEnums::MediaEngineIdentifier::AVFoundation, PlatformMediaDecodingType::FileOrHLS))
+        return;
     if (!isAvailable())
         return;
 
@@ -469,6 +478,22 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
     tearDownVideoRendering();
 
     [[NSNotificationCenter defaultCenter] removeObserver:m_objcObserver];
+
+    // Remove all KVO observers BEFORE disconnecting the observer object.
+    if (m_avPlayerItem) {
+        for (NSString *keyName in itemKVOProperties())
+            [m_avPlayerItem removeObserver:m_objcObserver.get() forKeyPath:keyName];
+    }
+
+    if (m_avPlayer) {
+        for (NSString *keyName in playerKVOProperties())
+            [m_avPlayer removeObserver:m_objcObserver.get() forKeyPath:keyName];
+        setShouldObserveTimeControlStatus(false);
+    }
+
+    for (AVPlayerItemTrack *track in m_cachedTracks.get())
+        [track removeObserver:m_objcObserver.get() forKeyPath:@"enabled"];
+
     [m_objcObserver disconnect];
 
     // Tell our observer to do nothing when our cancellation of pending loading calls its completion handler.
@@ -499,21 +524,13 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
         m_metadataOutput = nil;
     }
 
-    if (m_avPlayerItem) {
-        for (NSString *keyName in itemKVOProperties())
-            [m_avPlayerItem removeObserver:m_objcObserver.get() forKeyPath:keyName];
-
+    if (m_avPlayerItem)
         m_avPlayerItem = nil;
-    }
+
     if (m_avPlayer) {
         if (m_timeObserver)
             [m_avPlayer removeTimeObserver:m_timeObserver];
         m_timeObserver = nil;
-
-        for (NSString *keyName in playerKVOProperties())
-            [m_avPlayer removeObserver:m_objcObserver forKeyPath:keyName];
-
-        setShouldObserveTimeControlStatus(false);
 
         [m_avPlayer replaceCurrentItemWithPlayerItem:nil];
 #if !PLATFORM(IOS_FAMILY)
@@ -549,8 +566,6 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
     m_cachedDuration = MediaTime::zeroTime();
     m_buffered.clear();
 
-    for (AVPlayerItemTrack *track in m_cachedTracks.get())
-        [track removeObserver:m_objcObserver.get() forKeyPath:@"enabled"];
     m_cachedTracks = nullptr;
     m_chapterTracks.clear();
 
@@ -648,7 +663,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     ALWAYS_LOG(LOGIDENTIFIER);
 
     m_videoLayer = adoptNS([PAL::allocAVPlayerLayerInstance() init]);
-    [m_videoLayer setPlayer:m_avPlayer];
 
     [m_videoLayer setName:@"MediaPlayerPrivate AVPlayerLayer"];
     [m_videoLayer addObserver:m_objcObserver.get() forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:(void *)MediaPlayerAVFoundationObservationContextAVPlayerLayer];
@@ -660,6 +674,8 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
     [m_videoLayer setPIPModeEnabled:(player->fullscreenMode() & MediaPlayer::VideoFullscreenModePictureInPicture)];
 #endif
+
+    updateLayerAttachment();
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
     updateSpatialTrackingLabel();
@@ -1163,6 +1179,10 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     }
 #endif
 
+#if PLATFORM(MAC)
+    setPlayerScreenReserved(m_avPlayer.get(), player->screenReserved());
+#endif
+
     if (m_isGatheringVideoFrameMetadata)
         startVideoFrameMetadataGathering();
 }
@@ -1218,6 +1238,10 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     if (RefPtr provider = m_provider) {
         provider->setPlayerItem(m_avPlayerItem.get());
         provider->setAudioTrack(firstEnabledAudibleTrack());
+        if (auto player = this->player()) {
+            provider->setPreservesPitch(player->preservesPitch());
+            provider->setVolume(player->volume());
+        }
     }
 #endif
 
@@ -1416,21 +1440,17 @@ void MediaPlayerPrivateAVFoundationObjC::didEnd(double now)
     MediaPlayerPrivateAVFoundation::didEnd(now);
 }
 
-void MediaPlayerPrivateAVFoundationObjC::platformSetVisible(bool isVisible)
+void MediaPlayerPrivateAVFoundationObjC::platformPageIsVisibleChanged(bool)
 {
-    assertIsMainThread();
-
 #if HAVE(SPATIAL_TRACKING_LABEL)
     updateSpatialTrackingLabel();
 #endif
+    updateLayerAttachment();
+}
 
-    if (!m_videoLayer)
-        return;
-
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    [m_videoLayer setHidden:!isVisible];
-    [CATransaction commit];
+void MediaPlayerPrivateAVFoundationObjC::platformViewportVisibilityChanged(ViewportVisibility)
+{
+    updateLayerAttachment();
 }
 
 void MediaPlayerPrivateAVFoundationObjC::platformPlay()
@@ -1643,14 +1663,17 @@ void MediaPlayerPrivateAVFoundationObjC::setVolume(float volume)
         return;
     m_volume = volume;
 
-    updateIsAudible();
-
-    if (!m_avPlayer)
-        return;
-
     ALWAYS_LOG(LOGIDENTIFIER, volume);
 
-    [m_avPlayer setVolume:volume];
+    updateIsAudible();
+
+    if (m_avPlayer)
+        [m_avPlayer setVolume:volume];
+
+#if ENABLE(WEB_AUDIO) && USE(MEDIATOOLBOX)
+    if (RefPtr provider = m_provider)
+        provider->setVolume(volume);
+#endif
 }
 
 void MediaPlayerPrivateAVFoundationObjC::setMuted(bool muted)
@@ -1675,6 +1698,10 @@ void MediaPlayerPrivateAVFoundationObjC::setRateDouble(double rate)
     if (m_requestedPlaying)
         setPlayerRate(rate);
     m_wallClockAtCachedCurrentTime = std::nullopt;
+#if ENABLE(WEB_AUDIO) && USE(MEDIATOOLBOX)
+    if (RefPtr provider = m_provider)
+        provider->setPlaybackRate(rate);
+#endif
 }
 
 void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optional<MonotonicTime>&& hostTime)
@@ -1748,6 +1775,10 @@ void MediaPlayerPrivateAVFoundationObjC::setPreservesPitch(bool preservesPitch)
     auto player = this->player();
     if (m_avPlayerItem && player)
         [m_avPlayerItem setAudioTimePitchAlgorithm:MediaSessionManagerCocoa::audioTimePitchAlgorithmForMediaPlayerPitchCorrectionAlgorithm(player->pitchCorrectionAlgorithm(), preservesPitch, m_requestedRate).createNSString().get()];
+#if ENABLE(WEB_AUDIO) && USE(MEDIATOOLBOX)
+    if (RefPtr provider = m_provider)
+        provider->setPreservesPitch(preservesPitch);
+#endif
 }
 
 void MediaPlayerPrivateAVFoundationObjC::setPitchCorrectionAlgorithm(MediaPlayer::PitchCorrectionAlgorithm pitchCorrectionAlgorithm)
@@ -4135,7 +4166,7 @@ void MediaPlayerPrivateAVFoundationObjC::updateSpatialTrackingLabel()
         RetainPtr experience = createSpatialAudioExperienceWithOptions({
             .hasLayer = !!m_videoLayer,
             .hasTarget = !!m_videoTarget,
-            .isVisible = isVisible(),
+            .isVisible = pageIsVisible(),
             .soundStageSize = player->soundStageSize(),
             .sceneIdentifier = player->sceneIdentifier(),
 #if HAVE(SPATIAL_TRACKING_LABEL)
@@ -4158,7 +4189,7 @@ void MediaPlayerPrivateAVFoundationObjC::updateSpatialTrackingLabel()
         return;
     }
 
-    if (m_videoLayer && isVisible()) {
+    if (m_videoLayer && pageIsVisible()) {
         // If the media player has a renderer, and that renderer belongs to a page that is visible,
         // then let AVPlayer manage setting the spatial tracking label in its AVPlayerLayer itself;
         ALWAYS_LOG(LOGIDENTIFIER, "No videoLayer, set STSLabel: nil");
@@ -4193,11 +4224,10 @@ void MediaPlayerPrivateAVFoundationObjC::setVideoTarget(const PlatformVideoTarge
         [m_avPlayer removeVideoTarget:m_videoTarget];
 
     m_videoTarget = videoTarget;
+    updateLayerAttachment();
 
     if (m_videoTarget)
         [m_avPlayer addVideoTarget:m_videoTarget];
-    else
-        [m_videoLayer setPlayer:m_avPlayer];
 #else
     UNUSED_PARAM(videoTarget);
 #endif
@@ -4208,14 +4238,19 @@ void MediaPlayerPrivateAVFoundationObjC::isInFullscreenOrPictureInPictureChanged
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     assertIsMainThread();
 
-    if (!m_videoTarget)
+    if (m_isInFullscreenOrPictureInPicture == isInFullscreenOrPictureInPicture)
         return;
-    if (isInFullscreenOrPictureInPicture)
-        [m_videoLayer setPlayer:nil];
-    else if (RetainPtr videoTarget = std::exchange(m_videoTarget, nullptr)) {
+
+    m_isInFullscreenOrPictureInPicture = isInFullscreenOrPictureInPicture;
+
+    updateLayerAttachment();
+
+    if (!m_videoTarget || isInFullscreenOrPictureInPicture)
+        return;
+
+    if (RetainPtr videoTarget = std::exchange(m_videoTarget, nullptr)) {
         INFO_LOG(LOGIDENTIFIER, "Clearing videoTarget");
         [m_avPlayer removeVideoTarget:videoTarget.get()];
-        [m_videoLayer setPlayer:m_avPlayer];
     }
 #else
     UNUSED_PARAM(isInFullscreenOrPictureInPicture);
@@ -4275,6 +4310,42 @@ void MediaPlayerPrivateAVFoundationObjC::setParticipatesInAudioSession(bool part
         [m_avPlayer setParticipatesInAudioSession:participatesInAudioSession completionHandler:nil];
 }
 #endif
+
+void MediaPlayerPrivateAVFoundationObjC::updateLayerAttachment()
+{
+    assertIsMainThread();
+    if (!m_videoLayer || !m_avPlayer)
+        return;
+
+    if (shouldAttachLayerToPlayer())
+        [m_videoLayer setPlayer:m_avPlayer.get()];
+    else
+        [m_videoLayer setPlayer:nil];
+}
+
+bool MediaPlayerPrivateAVFoundationObjC::shouldAttachLayerToPlayer()
+{
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    if (m_videoTarget && m_isInFullscreenOrPictureInPicture)
+        return false;
+#endif
+
+    if (!pageIsVisible())
+        return false;
+
+    if (viewportVisibility() == ViewportVisibility::NotVisible)
+        return false;
+
+    return true;
+}
+
+#if PLATFORM(MAC)
+void MediaPlayerPrivateAVFoundationObjC::screenReservedChanged(bool reserved)
+{
+    setPlayerScreenReserved(m_avPlayer.get(), reserved);
+}
+#endif
+
 
 NSArray* assetMetadataKeyNames()
 {
@@ -4412,7 +4483,7 @@ NSArray* playerKVOProperties()
         id newValue = [change valueForKey:NSKeyValueChangeNewKey];
         auto seekableTimeRanges = RetainPtr<NSArray> { newValue };
 
-        RefPtr { m_backgroundQueue }->dispatch([seekableTimeRanges = WTF::move(seekableTimeRanges), playerItem = RetainPtr<AVPlayerItem> { object }, queueTaskOnEventLoopWithPlayer] mutable {
+        protect(m_backgroundQueue)->dispatch([seekableTimeRanges = WTF::move(seekableTimeRanges), playerItem = RetainPtr<AVPlayerItem> { object }, queueTaskOnEventLoopWithPlayer] mutable {
             auto seekableTimeRangesLastModifiedTime = [playerItem seekableTimeRangesLastModifiedTime];
             auto liveUpdateInterval = [playerItem liveUpdateInterval];
             queueTaskOnEventLoopWithPlayer([seekableTimeRanges = WTF::move(seekableTimeRanges), seekableTimeRangesLastModifiedTime, liveUpdateInterval](auto& player) mutable {
@@ -4493,7 +4564,7 @@ NSArray* playerKVOProperties()
 #endif
         }
 
-        if (player.logger().willLog(player.logChannel(), WTFLogLevel::Debug) && !([keyPath isEqualToString:@"loadedTimeRanges"] || [keyPath isEqualToString:@"seekableTimeRanges"])) {
+        if (player.logger().willLog(player.logChannel(), WTFLogLevel::Debug, { }) && !([keyPath isEqualToString:@"loadedTimeRanges"] || [keyPath isEqualToString:@"seekableTimeRanges"])) {
             auto identifier = Logger::LogSiteIdentifier("MediaPlayerPrivateAVFoundation"_s, "observeValueForKeyPath"_s, player.logIdentifier());
 
             if (shouldLogValue) {

@@ -34,9 +34,9 @@
 #include "WebProcessCreationParameters.h"
 #include "WebProcessExtensionManager.h"
 #include "WebSystemSoundDelegate.h"
+#include <WebCore/PlatformRenderTheme.h>
 #include <WebCore/PlatformScreen.h>
 #include <WebCore/ProcessCapabilities.h>
-#include <WebCore/RenderTheme.h>
 #include <WebCore/ScreenProperties.h>
 #include <WebCore/SystemSoundManager.h>
 
@@ -90,6 +90,11 @@
 #include <WebCore/AccessibilityAtspi.h>
 #endif
 
+#if USE(VULKAN)
+#include <WebCore/VulkanUtilities.h>
+#include <wtf/text/CStringView.h>
+#endif
+
 #define RELEASE_LOG_SESSION_ID (m_sessionID ? m_sessionID->toUInt64() : 0)
 #define WEBPROCESS_RELEASE_LOG(channel, fmt, ...) RELEASE_LOG(channel, "%p - [sessionID=%" PRIu64 "] WebProcess::" fmt, this, RELEASE_LOG_SESSION_ID, ##__VA_ARGS__)
 #define WEBPROCESS_RELEASE_LOG_ERROR(channel, fmt, ...) RELEASE_LOG_ERROR(channel, "%p - [sessionID=%" PRIu64 "] WebProcess::" fmt, this, RELEASE_LOG_SESSION_ID, ##__VA_ARGS__)
@@ -107,7 +112,7 @@ void WebProcess::stopRunLoop()
     // ensure the threaded compositor is invalidated and GL resources
     // released (see https://bugs.webkit.org/show_bug.cgi?id=217655).
     for (auto& webPage : copyToVector(m_pageMap.values()))
-        webPage->close();
+        webPage->close([] { });
 
     if (auto* display = PlatformDisplay::sharedDisplayIfExists())
         display->clearGLContexts();
@@ -180,8 +185,28 @@ void WebProcess::initializePlatformDisplayIfNeeded() const
     CRASH();
 }
 
+void WebProcess::initializeVulkanIfNeeded()
+{
+#if USE(VULKAN)
+    bool useVulkan = false;
+    if (const auto envValue = CStringView::unsafeFromUTF8(getenv("WEBKIT_VULKAN_ENABLED")))
+        useVulkan = (envValue == "1"_s && envValue != "0"_s);
+
+    if (!useVulkan)
+        return;
+
+    Vulkan::initializeIfNeeded();
+#endif
+}
+
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
+    if (!parameters.applicationID.isEmpty())
+        WebCore::setApplicationID(parameters.applicationID);
+
+    if (!parameters.applicationName.isEmpty())
+        WebCore::setApplicationName(parameters.applicationName);
+
     const char* enableCPURendering = getenv("WEBKIT_SKIA_ENABLE_CPU_RENDERING");
     IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
     if (enableCPURendering && strcmp(enableCPURendering, "0"))
@@ -211,7 +236,8 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #else
     initializePlatformDisplayIfNeeded();
 #endif
-#endif
+    initializeVulkanIfNeeded();
+#endif // PLATFORM(WPE)
 
     m_availableInputDevices = parameters.availableInputDevices;
 
@@ -221,12 +247,6 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     if (parameters.memoryPressureHandlerConfiguration)
         MemoryPressureHandler::singleton().setConfiguration(WTF::move(*parameters.memoryPressureHandlerConfiguration));
-
-    if (!parameters.applicationID.isEmpty())
-        WebCore::setApplicationID(parameters.applicationID);
-
-    if (!parameters.applicationName.isEmpty())
-        WebCore::setApplicationName(parameters.applicationName);
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (!parameters.inspectorServerAddress.isNull())
@@ -241,14 +261,14 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
         FontRenderOptions::singleton().disableHintingForTesting();
 
 #if PLATFORM(GTK)
-    WebCore::setScreenProperties(parameters.screenProperties);
+    WebCore::PlatformScreen::updateSingletonProperties(WTF::move(parameters.screenProperties));
 
     WebCore::SystemSoundManager::singleton().setSystemSoundDelegate(makeUnique<WebSystemSoundDelegate>());
 #endif
 
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
     if (!m_rendererBufferTransportMode.isEmpty())
-        WebCore::setScreenProperties(parameters.screenProperties);
+        WebCore::PlatformScreen::updateSingletonProperties(WTF::move(parameters.screenProperties));
 #endif
 }
 
@@ -295,10 +315,10 @@ void WebProcess::releaseSystemMallocMemory()
 }
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-void WebProcess::setScreenProperties(const WebCore::ScreenProperties& properties)
+void WebProcess::setScreenProperties(WebCore::ScreenProperties&& properties)
 {
 #if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
-    WebCore::setScreenProperties(properties);
+    WebCore::PlatformScreen::updateSingletonProperties(WTF::move(properties));
 #endif
     for (auto& page : m_pageMap.values())
         page->screenPropertiesDidChange();

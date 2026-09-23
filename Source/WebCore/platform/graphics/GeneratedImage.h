@@ -34,6 +34,8 @@ class GeneratedImage : public Image {
 public:
     void setContainerSize(const FloatSize& size) override { m_size = size; }
     bool usesContainerSize() const override { return true; }
+    bool hasIntrinsicWidth() const override { return false; }
+    bool hasIntrinsicHeight() const override { return false; }
     bool hasRelativeWidth() const override { return true; }
     bool hasRelativeHeight() const override { return true; }
     void computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio) override;

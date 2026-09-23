@@ -33,6 +33,7 @@
 #include "IDBObjectStoreIdentifier.h"
 #include "IDBResourceIdentifier.h"
 #include "IDBValue.h"
+#include "IndexedDB.h"
 #include "SQLiteStatement.h"
 #include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
@@ -55,7 +56,7 @@ class SQLiteIDBCursor final : public CanMakeThreadSafeCheckedPtr<SQLiteIDBCursor
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SQLiteIDBCursor);
 public:
     static std::unique_ptr<SQLiteIDBCursor> maybeCreate(SQLiteIDBTransaction&, const IDBCursorInfo&);
-    static std::unique_ptr<SQLiteIDBCursor> maybeCreateBackingStoreCursor(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&);
+    static std::unique_ptr<SQLiteIDBCursor> maybeCreateBackingStoreCursor(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&, IndexedDB::CursorDirection = IndexedDB::CursorDirection::Next);
 
     ~SQLiteIDBCursor();
 
@@ -84,7 +85,7 @@ public:
 
 private:
     SQLiteIDBCursor(SQLiteIDBTransaction&, const IDBCursorInfo&);
-    SQLiteIDBCursor(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&);
+    SQLiteIDBCursor(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&, IndexedDB::CursorDirection = IndexedDB::CursorDirection::Next);
 
     template<typename T, class... Args> friend WTF::UniqueRef<T> WTF::makeUniqueRefWithoutFastMallocCheck(Args&&...);
 

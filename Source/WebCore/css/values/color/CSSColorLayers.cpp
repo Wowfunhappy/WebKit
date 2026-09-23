@@ -29,8 +29,8 @@
 
 #include "CSSColorLayersResolver.h"
 #include "CSSPlatformColorResolutionState.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "ColorSerialization.h"
+#include "StyleKeyword+Mappings.h"
 
 namespace WebCore {
 namespace CSS {

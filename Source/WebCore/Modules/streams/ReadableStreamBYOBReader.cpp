@@ -26,6 +26,8 @@
 #include "config.h"
 #include "ReadableStreamBYOBReader.h"
 
+#include "JSDOMConvertAny.h"
+#include "JSDOMGlobalObject.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSReadableStreamBYOBReader.h"
@@ -33,9 +35,9 @@
 #include "ReadableStream.h"
 #include "ReadableStreamReadRequest.h"
 #include "WebCoreOpaqueRootInlines.h"
-#include <wtf/TZoneMallocInlines.h>
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/ArrayBufferView.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -59,7 +61,11 @@ ReadableStreamBYOBReader::ReadableStreamBYOBReader(Ref<DOMPromise>&& promise, Re
 
 ReadableStreamBYOBReader::~ReadableStreamBYOBReader()
 {
-    RefPtr stream = m_stream;
+    RefPtr<ReadableStream> stream;
+    {
+        Locker locker { m_streamLock };
+        stream = m_stream;
+    }
     if (stream && stream->byobReader() == this)
         stream->setByobReader(nullptr);
 }
@@ -94,18 +100,22 @@ void ReadableStreamBYOBReader::readForBindings(JSDOMGlobalObject& globalObject, 
             return promise->reject(Exception { ExceptionCode::RangeError, "view's buffer is not large enough"_s });
     }
 
-    if (!m_stream)
-        return promise->reject(Exception { ExceptionCode::TypeError, "reader has no stream"_s });
-
+    {
+        Locker locker { m_streamLock };
+        if (!m_stream)
+            return promise->reject(Exception { ExceptionCode::TypeError, "reader has no stream"_s });
+    }
     read(globalObject, view, options.min, ReadableStreamReadIntoRequest::create(WTF::move(promise)));
 }
 
 // https://streams.spec.whatwg.org/#byob-reader-release-lock
 void ReadableStreamBYOBReader::releaseLock(JSDOMGlobalObject& globalObject)
 {
-    if (!m_stream)
-        return;
-
+    {
+        Locker locker { m_streamLock };
+        if (!m_stream)
+            return;
+    }
     genericRelease(globalObject);
 
     errorReadIntoRequests(Exception { ExceptionCode::TypeError, "releasing stream"_s });
@@ -114,7 +124,12 @@ void ReadableStreamBYOBReader::releaseLock(JSDOMGlobalObject& globalObject)
 // https://streams.spec.whatwg.org/#generic-reader-cancel
 Ref<DOMPromise> ReadableStreamBYOBReader::cancel(JSDOMGlobalObject& globalObject, JSC::JSValue value)
 {
-    if (!m_stream) {
+    bool hasStream;
+    {
+        Locker locker { m_streamLock };
+        hasStream = m_stream;
+    }
+    if (!hasStream) {
         auto [promise, deferred] = createPromiseAndWrapper(globalObject);
         deferred->reject(Exception { ExceptionCode::TypeError, "no stream"_s });
         return promise;
@@ -139,7 +154,10 @@ ExceptionOr<void> ReadableStreamBYOBReader::setupBYOBReader(JSDOMGlobalObject& g
 // https://streams.spec.whatwg.org/#set-up-readable-stream-byob-reader
 void ReadableStreamBYOBReader::initialize(JSDOMGlobalObject& globalObject, ReadableStream& stream)
 {
-    m_stream = &stream;
+    {
+        Locker locker { m_streamLock };
+        m_stream = stream;
+    }
 
     stream.setByobReader(this);
 
@@ -158,8 +176,11 @@ void ReadableStreamBYOBReader::initialize(JSDOMGlobalObject& globalObject, Reada
 // https://streams.spec.whatwg.org/#readable-stream-byob-reader-read
 void ReadableStreamBYOBReader::read(JSDOMGlobalObject& globalObject, JSC::ArrayBufferView& view, uint64_t optionMin, Ref<ReadableStreamReadIntoRequest>&& readRequest)
 {
-    ASSERT(m_stream);
-    Ref stream = *m_stream;
+    RefPtr<ReadableStream> stream;
+    {
+        Locker locker { m_streamLock };
+        stream = m_stream;
+    }
 
     stream->markAsDisturbed();
     if (stream->state() == ReadableStream::State::Errored) {
@@ -174,8 +195,11 @@ void ReadableStreamBYOBReader::read(JSDOMGlobalObject& globalObject, JSC::ArrayB
 // https://streams.spec.whatwg.org/#readable-stream-reader-generic-release
 void ReadableStreamBYOBReader::genericRelease(JSDOMGlobalObject& globalObject)
 {
-    ASSERT(m_stream);
-    Ref stream = *m_stream;
+    RefPtr<ReadableStream> stream;
+    {
+        Locker locker { m_streamLock };
+        stream = m_stream;
+    }
 
     ASSERT(stream->byobReader() == this);
 
@@ -188,11 +212,15 @@ void ReadableStreamBYOBReader::genericRelease(JSDOMGlobalObject& globalObject)
         m_closedPromise = WTF::move(promise);
     }
 
-    if (RefPtr controller = stream->controller())
+    if (auto* controller = stream->controller())
         controller->runReleaseSteps();
 
     stream->setByobReader(nullptr);
-    m_stream = nullptr;
+
+    {
+        Locker locker { m_streamLock };
+        m_stream = nullptr;
+    }
 }
 
 // https://streams.spec.whatwg.org/#abstract-opdef-readablestreambyobreadererrorreadintorequests
@@ -223,7 +251,11 @@ void ReadableStreamBYOBReader::rejectClosedPromise(JSC::JSValue reason)
 // https://streams.spec.whatwg.org/#readable-stream-reader-generic-cancel
 Ref<DOMPromise> ReadableStreamBYOBReader::genericCancel(JSDOMGlobalObject& globalObject, JSC::JSValue value)
 {
-    RefPtr stream = m_stream;
+    RefPtr<ReadableStream> stream;
+    {
+        Locker locker { m_streamLock };
+        stream = m_stream;
+    }
 
     ASSERT(stream);
     ASSERT(stream->byobReader() == this);
@@ -267,6 +299,7 @@ void ReadableStreamBYOBReader::onClosedPromiseRejection(ClosedCallback&& callbac
 
 bool ReadableStreamBYOBReader::isReachableFromOpaqueRoots() const
 {
+    Locker locker { m_streamLock };
     return readIntoRequestsSize() && m_stream && m_stream->isReachableFromOpaqueRoots();
 }
 
@@ -277,7 +310,7 @@ WebCoreOpaqueRoot root(ReadableStreamBYOBReader* reader)
 
 bool JSReadableStreamBYOBReaderOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    auto* jsReader = jsCast<JSReadableStreamBYOBReader*>(handle.slot()->asCell());
+    auto* jsReader = downcast<JSReadableStreamBYOBReader>(handle.slot()->asCell());
     SUPPRESS_UNCOUNTED_LOCAL auto& reader = jsReader->wrapped();
     SUPPRESS_UNCOUNTED_LOCAL if (reader.isReachableFromOpaqueRoots()) {
         if (reason) [[unlikely]]
@@ -291,6 +324,7 @@ bool JSReadableStreamBYOBReaderOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC
 template<typename Visitor>
 void ReadableStreamBYOBReader::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
+    Locker locker { m_streamLock };
     if (m_stream)
         SUPPRESS_UNCOUNTED_ARG m_stream->visitAdditionalChildrenInGCThread(visitor);
 }

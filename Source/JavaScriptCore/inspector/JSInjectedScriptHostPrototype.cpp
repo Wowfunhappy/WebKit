@@ -28,6 +28,7 @@
 
 #include "JSCInlines.h"
 #include "JSInjectedScriptHost.h"
+#include "StructureCreateInlines.h"
 
 namespace Inspector {
 
@@ -36,6 +37,7 @@ using namespace JSC;
 static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionSubtype);
 static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionFunctionDetails);
 static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetOwnPrivatePropertySymbols);
+static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetOwnPrivatePropertyMethods);
 static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetInternalProperties);
 static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionInternalConstructorName);
 static JSC_DECLARE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionIsHTMLAllCollection);
@@ -64,6 +66,7 @@ void JSInjectedScriptHostPrototype::finishCreation(VM& vm, JSGlobalObject* globa
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("subtype"_s, jsInjectedScriptHostPrototypeFunctionSubtype, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("functionDetails"_s, jsInjectedScriptHostPrototypeFunctionFunctionDetails, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getOwnPrivatePropertySymbols"_s, jsInjectedScriptHostPrototypeFunctionGetOwnPrivatePropertySymbols, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getOwnPrivatePropertyMethods"_s, jsInjectedScriptHostPrototypeFunctionGetOwnPrivatePropertyMethods, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getInternalProperties"_s, jsInjectedScriptHostPrototypeFunctionGetInternalProperties, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("internalConstructorName"_s, jsInjectedScriptHostPrototypeFunctionInternalConstructorName, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("isHTMLAllCollection"_s, jsInjectedScriptHostPrototypeFunctionIsHTMLAllCollection, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
@@ -90,7 +93,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeAttributeEvaluate, (JSGlob
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -103,7 +106,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeAttributeSavedResultAlias,
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -116,7 +119,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionInternalConstructo
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -129,7 +132,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionIsHTMLAllCollectio
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -142,7 +145,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionIsPromiseRejectedW
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -155,7 +158,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionProxyTargetValue, 
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -168,7 +171,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionWeakRefTargetValue
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -181,7 +184,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionWeakMapSize, (JSGl
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -194,7 +197,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionWeakMapEntries, (J
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -207,7 +210,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionWeakSetSize, (JSGl
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -220,7 +223,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionWeakSetEntries, (J
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -233,7 +236,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionIteratorEntries, (
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -246,7 +249,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionQueryInstances, (J
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -259,7 +262,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionQueryHolders, (JSG
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -272,7 +275,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionEvaluateWithScopeE
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -285,7 +288,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionSubtype, (JSGlobal
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -298,7 +301,7 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionFunctionDetails, (
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
@@ -311,11 +314,24 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetOwnPrivatePrope
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
     return JSValue::encode(castedThis->getOwnPrivatePropertySymbols(globalObject, callFrame));
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetOwnPrivatePropertyMethods, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue thisValue = callFrame->thisValue();
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
+    if (!castedThis)
+        return throwVMTypeError(globalObject, scope);
+
+    return JSValue::encode(castedThis->getOwnPrivatePropertyMethods(globalObject, callFrame));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetInternalProperties, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -324,11 +340,16 @@ JSC_DEFINE_HOST_FUNCTION(jsInjectedScriptHostPrototypeFunctionGetInternalPropert
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    JSInjectedScriptHost* castedThis = jsDynamicCast<JSInjectedScriptHost*>(thisValue);
+    JSInjectedScriptHost* castedThis = dynamicDowncast<JSInjectedScriptHost>(thisValue);
     if (!castedThis)
         return throwVMTypeError(globalObject, scope);
 
     return JSValue::encode(castedThis->getInternalProperties(globalObject, callFrame));
+}
+
+Structure* JSInjectedScriptHostPrototype::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
 }
 
 } // namespace Inspector

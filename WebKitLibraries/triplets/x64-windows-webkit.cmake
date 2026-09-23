@@ -8,12 +8,16 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     # Visual Studio Developer Prompt check that fails on non-Windows hosts.
     set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/../toolchains/windows-cross.cmake)
 
-    # Only build release configuration; Wine provides builtin release CRT DLLs
-    # (msvcp140.dll, vcruntime140.dll, ucrtbase.dll) but not the debug variants.
+    # Only build release configuration for cross-compilation.
     set(VCPKG_BUILD_TYPE release)
 
     set(ENV{CC} clang-cl-20)
     set(ENV{CXX} clang-cl-20)
+
+    # Clear host Linux build flags that would poison the Windows cross-compile.
+    # The wkdev container sets LDFLAGS=-L/jhbuild/install/lib which uses GCC
+    # syntax incompatible with clang-cl/lld-link and points to host libraries.
+    set(ENV{LDFLAGS} "")
 
     # Compute Windows SDK/CRT paths (vcpkg lives one level below WebKitLibraries/windows/)
     set(WEBKIT_LIBRARIES_WINDOWS "${VCPKG_ROOT_DIR}/..")
@@ -41,10 +45,7 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     # Pass cross-compilation tool paths and RC include flags to vcpkg port cmake builds.
     # CMAKE_RC_FLAGS provides include paths for llvm-rc's clang-cl preprocessing step.
     find_program(HOST_NINJA_EXECUTABLE NAMES ninja ninja-build REQUIRED)
-    set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_MAKE_PROGRAM=${HOST_NINJA_EXECUTABLE} -DCMAKE_AR=/usr/bin/llvm-lib-20 -DCMAKE_LINKER=/usr/bin/lld-link-20 -DCMAKE_MT=/usr/bin/llvm-mt-20 -DCMAKE_RC_COMPILER=/usr/bin/llvm-rc-20 "-DCMAKE_RC_FLAGS=-I ${CRT_INC} -I ${SDK_INC}/ucrt -I ${SDK_INC}/um -I ${SDK_INC}/shared" -DCMAKE_CROSSCOMPILING_EMULATOR=wine)
-
-    # Use Wine to run cross-compiled .exe tools (e.g. ICU data generators)
-    set(CMAKE_CROSSCOMPILING_EMULATOR wine)
+    set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_MAKE_PROGRAM=${HOST_NINJA_EXECUTABLE} -DCMAKE_AR=/usr/bin/llvm-lib-20 -DCMAKE_LINKER=/usr/bin/lld-link-20 -DCMAKE_MT=/usr/bin/llvm-mt-20 -DCMAKE_RC_COMPILER=/usr/bin/llvm-rc-20 "-DCMAKE_RC_FLAGS=-I ${CRT_INC} -I ${SDK_INC}/ucrt -I ${SDK_INC}/um -I ${SDK_INC}/shared")
 else ()
     set(ENV{CC} cl.exe)
     set(ENV{CXX} cl.exe)

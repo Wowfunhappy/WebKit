@@ -25,10 +25,11 @@
 #include "config.h"
 #include "StyleCircleFunction.h"
 
+#include "AcceleratedEffectCircleFunction.h"
 #include "FloatRect.h"
 #include "GeometryUtilities.h"
 #include "Path.h"
-#include "StyleLengthWrapper+Blending.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <numbers>
@@ -147,6 +148,47 @@ auto Blending<Circle>::blend(const Circle& a, const Circle& b, const BlendingCon
         .position = WebCore::Style::blend(a.position, b.position, context),
     };
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<Circle::RadialSize, AcceleratedEffectCircleFunction::RadialSize> { AcceleratedEffectCircleFunction::RadialSize operator()(const Circle::RadialSize&, FloatSize, ZoomFactor); };
+
+AcceleratedEffectCircleFunction::RadialSize Evaluation<Circle::RadialSize, AcceleratedEffectCircleFunction::RadialSize>::operator()(const Circle::RadialSize& value, FloatSize size, ZoomFactor zoom)
+{
+    return WTF::switchOn(value,
+        [&](const Circle::Length& length) -> AcceleratedEffectCircleFunction::RadialSize {
+            return evaluate<float>(length, size.diagonalLength() / std::numbers::sqrt2_v<float>, zoom);
+        },
+        [&](const Circle::Extent& extent) -> AcceleratedEffectCircleFunction::RadialSize {
+            return WTF::switchOn(extent,
+                [&](CSS::Keyword::ClosestSide) -> AcceleratedEffectCircleFunction::Extent {
+                    return AcceleratedEffectCircleFunction::Extent::ClosestSide;
+                },
+                [&](CSS::Keyword::FarthestSide) -> AcceleratedEffectCircleFunction::Extent {
+                    return AcceleratedEffectCircleFunction::Extent::FarthestSide;
+                },
+                [&](CSS::Keyword::ClosestCorner) -> AcceleratedEffectCircleFunction::Extent {
+                    return AcceleratedEffectCircleFunction::Extent::ClosestCorner;
+                },
+                [&](CSS::Keyword::FarthestCorner) -> AcceleratedEffectCircleFunction::Extent {
+                    return AcceleratedEffectCircleFunction::Extent::FarthestCorner;
+                }
+            );
+        }
+    );
+}
+
+AcceleratedEffectCircleFunction Evaluation<CircleFunction, AcceleratedEffectCircleFunction>::operator()(const CircleFunction& value, const FloatSize& containingBlockSize, ZoomFactor zoom)
+{
+    return {
+        .radius = evaluate<AcceleratedEffectCircleFunction::RadialSize>(value->radius, containingBlockSize, zoom),
+        .position = value->position ? std::optional { evaluate<FloatPoint>(*value->position, containingBlockSize, zoom) } : std::nullopt,
+    };
+}
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

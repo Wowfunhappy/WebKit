@@ -104,7 +104,7 @@ private:
         unsigned distance { std::numeric_limits<unsigned>::max() };
         bool matchesVisited { false };
     };
-    bool ruleMatches(const RuleData&, unsigned& specificity, ScopeOrdinal, std::optional<ScopingRootWithDistance> scopingRoot = { });
+    bool ruleMatches(const RuleData&, unsigned& specificity, ScopeOrdinal, const ScopingRootWithDistance* = nullptr);
     bool containerQueriesMatch(const RuleData&, const MatchRequest&);
     std::pair<bool, std::optional<Vector<ScopingRootWithDistance>>> scopeRulesMatch(const RuleData&, const MatchRequest&);
 

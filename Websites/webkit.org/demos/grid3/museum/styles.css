@@ -131,19 +131,16 @@ body:has(option[value="two"]:checked) main { /* before applying masonry */
 body:has(option[value="twoandahalf"]:checked) main { /* before applying masonry */
   display: grid-lanes;
   grid-template-columns: repeat(auto-fill, minmax(24ch, 1fr));
-}
-
-/* ---- With item placement ---- */
-
-body:has(option[value="twoandahalf"]:checked) main { /* before applying masonry */
-  display: grid-lanes;
-  grid-template-columns: repeat(auto-fill, minmax(24ch, 1fr));
   header {
     grid-column: -2 / -1; /* one columns wide */
   }
-}
-@media (width > 1200px) {
-  body:has(option[value="twoandahalf"]:checked) main { /* before applying masonry */
+  @media (width <= 500px) {
+    grid-template-columns: repeat(2, 1fr);
+    header {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (width > 1200px) {
     header {
       grid-column: -3 / -1; /* two column wide */
     }

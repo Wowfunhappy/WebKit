@@ -38,6 +38,7 @@
 #include "JSCast.h"
 #include "JSFunction.h"
 #include "JSPropertyNameEnumerator.h"
+#include "JumpTable.h"
 #include "LinkBuffer.h"
 #include "SuperSampler.h"
 #include "ThunkGenerators.h"
@@ -149,7 +150,7 @@ void JIT::emit_op_typeof_is_undefined(const JSInstruction* currentInstruction)
     isMasqueradesAsUndefined.link(this);
     emitLoadStructure(vm(), jsRegT10.payloadGPR(), regT1);
     loadGlobalObject(regT0);
-    loadPtr(Address(regT1, Structure::globalObjectOffset()), regT1);
+    loadPtr(Address(regT1, Structure::realmOffset()), regT1);
     comparePtr(Equal, regT0, regT1, regT0);
 
     notMasqueradesAsUndefined.link(this);
@@ -458,7 +459,7 @@ void JIT::emit_op_jeq_null(const JSInstruction* currentInstruction)
     Jump isNotMasqueradesAsUndefined = branchTest8(Zero, Address(jsRegT10.payloadGPR(), JSCell::typeInfoFlagsOffset()), TrustedImm32(MasqueradesAsUndefined));
     emitLoadStructure(vm(), jsRegT10.payloadGPR(), regT2);
     loadGlobalObject(regT0);
-    addJump(branchPtr(Equal, Address(regT2, Structure::globalObjectOffset()), regT0), target);
+    addJump(branchPtr(Equal, Address(regT2, Structure::realmOffset()), regT0), target);
     Jump masqueradesGlobalObjectIsForeign = jump();
 
     // Now handle the immediate cases - undefined & null
@@ -483,7 +484,7 @@ void JIT::emit_op_jneq_null(const JSInstruction* currentInstruction)
     addJump(branchTest8(Zero, Address(jsRegT10.payloadGPR(), JSCell::typeInfoFlagsOffset()), TrustedImm32(MasqueradesAsUndefined)), target);
     emitLoadStructure(vm(), jsRegT10.payloadGPR(), regT2);
     loadGlobalObject(regT0);
-    addJump(branchPtr(NotEqual, Address(regT2, Structure::globalObjectOffset()), regT0), target);
+    addJump(branchPtr(NotEqual, Address(regT2, Structure::realmOffset()), regT0), target);
     Jump wasNotImmediate = jump();
 
     // Now handle the immediate cases - undefined & null
@@ -857,19 +858,29 @@ void JIT::compileOpStrictEq(const JSInstruction* currentInstruction)
     boxBoolean(regT5, JSValueRegs { regT5 });
     emitPutVirtualRegister(dst, regT5);
 #else // if !USE(BIGINT32)
-    // Jump slow if both are cells (to cover strings).
+    // Cells are slow only when they actually need value-based equality (Strings, HeapBigInts).
+    // For other cell pairs we can answer with a pointer compare directly.
     or64(regT1, regT0, regT2);
-    addSlowCase(branchIfCell(regT2));
+    Jump includesNonCell = branchIfNotCell(regT2);
+
+    // Now both are cells. Cell comparison is complicated only when they are Strings / HeapBigInts.
+    // If either cell is something else, the pointer compare answers correctly. Check the first cell and if it's already a high
+    // type we can skip the second check entirely.
+    JumpList comparePointers;
+    comparePointers.append(branch8(Above, Address(regT0, JSCell::typeInfoTypeOffset()), TrustedImm32(LastValueCompareCellType)));
+    comparePointers.append(branch8(Above, Address(regT1, JSCell::typeInfoTypeOffset()), TrustedImm32(LastValueCompareCellType)));
+    addSlowCase(jump());
 
     // Jump slow if either is a double. First test if it's an integer, which is fine, and then test
     // if it's a double.
+    includesNonCell.link(this);
     Jump leftOK = branchIfInt32(regT0);
     addSlowCase(branchIfNumber(regT0));
     leftOK.link(this);
     Jump rightOK = branchIfInt32(regT1);
     addSlowCase(branchIfNumber(regT1));
     rightOK.link(this);
-
+    comparePointers.link(this);
     if constexpr (std::is_same_v<Op, OpStricteq>)
         compare64(Equal, regT1, regT0, regT0);
     else
@@ -1025,22 +1036,51 @@ void JIT::compileOpStrictEqJump(const JSInstruction* currentInstruction)
         areEqual.link(this);
     }
 #else // if !USE(BIGINT32)
-    // Jump slow if both are cells (to cover strings).
+    JumpList taken;
+    JumpList notTaken;
+
+    // Cells are slow only when they actually need value-based equality (Strings, HeapBigInts).
+    // For other cell pairs we can answer with a pointer compare directly.
     or64(regT1, regT0, regT2);
-    addSlowCase(branchIfCell(regT2));
+    Jump includesNonCell = branchIfNotCell(regT2);
+
+    // Now both are cells. Identical pointers mean the same cell, which is strictly equal
+    // (cells never carry the NaN bit pattern that breaks pointer-based equality for doubles).
+    if constexpr (std::same_as<Op, OpJstricteq>)
+        taken.append(branch64(Equal, regT1, regT0));
+    else
+        notTaken.append(branch64(Equal, regT1, regT0));
+
+    // Pointers differ. Cell comparison is complicated only when they are Strings / HeapBigInts.
+    // If either cell is something else, the pointer compare answers correctly.
+    if constexpr (std::same_as<Op, OpJstricteq>) {
+        notTaken.append(branch8(Above, Address(regT0, JSCell::typeInfoTypeOffset()), TrustedImm32(LastValueCompareCellType)));
+        notTaken.append(branch8(Above, Address(regT1, JSCell::typeInfoTypeOffset()), TrustedImm32(LastValueCompareCellType)));
+    } else {
+        taken.append(branch8(Above, Address(regT0, JSCell::typeInfoTypeOffset()), TrustedImm32(LastValueCompareCellType)));
+        taken.append(branch8(Above, Address(regT1, JSCell::typeInfoTypeOffset()), TrustedImm32(LastValueCompareCellType)));
+    }
+    addSlowCase(jump());
 
     // Jump slow if either is a double. First test if it's an integer, which is fine, and then test
-    // if it's a double.
+    // if it's a double. We must filter doubles before doing the bitwise identity check below,
+    // since NaN === NaN must be false even when both sides have identical encoded bits.
+    includesNonCell.link(this);
     Jump leftOK = branchIfInt32(regT0);
     addSlowCase(branchIfNumber(regT0));
     leftOK.link(this);
     Jump rightOK = branchIfInt32(regT1);
     addSlowCase(branchIfNumber(regT1));
     rightOK.link(this);
+
+    // No doubles. At least one operand is a non-cell, so identical encoded bits imply strict equality.
     if constexpr (std::same_as<Op, OpJstricteq>)
         addJump(branch64(Equal, regT1, regT0), target);
     else
         addJump(branch64(NotEqual, regT1, regT0), target);
+
+    notTaken.link(this);
+    addJump(taken, target);
 #endif
 }
 
@@ -1371,7 +1411,7 @@ void JIT::emit_op_eq_null(const JSInstruction* currentInstruction)
     isMasqueradesAsUndefined.link(this);
     emitLoadStructure(vm(), jsRegT10.payloadGPR(), regT2);
     loadGlobalObject(regT0);
-    loadPtr(Address(regT2, Structure::globalObjectOffset()), regT2);
+    loadPtr(Address(regT2, Structure::realmOffset()), regT2);
     comparePtr(Equal, regT0, regT2, regT0);
     Jump wasNotImmediate = jump();
 
@@ -1403,7 +1443,7 @@ void JIT::emit_op_neq_null(const JSInstruction* currentInstruction)
     isMasqueradesAsUndefined.link(this);
     emitLoadStructure(vm(), jsRegT10.payloadGPR(), regT2);
     loadGlobalObject(regT0);
-    loadPtr(Address(regT2, Structure::globalObjectOffset()), regT2);
+    loadPtr(Address(regT2, Structure::realmOffset()), regT2);
     comparePtr(NotEqual, regT0, regT2, regT0);
     Jump wasNotImmediate = jump();
 
@@ -1821,7 +1861,7 @@ void JIT::emit_op_new_reg_exp(const JSInstruction* currentInstruction)
     VirtualRegister regexp = bytecode.m_regexp;
     GPRReg globalGPR = argumentGPR0;
     loadGlobalObject(globalGPR);
-    callOperation(operationNewRegExp, globalGPR, TrustedImmPtr(jsCast<RegExp*>(m_unlinkedCodeBlock->getConstant(regexp))));
+    callOperation(operationNewRegExp, globalGPR, TrustedImmPtr(uncheckedDowncast<RegExp>(m_unlinkedCodeBlock->getConstant(regexp))));
     boxCell(returnValueGPR, returnValueJSR);
     emitPutVirtualRegister(dst, returnValueJSR);
 }

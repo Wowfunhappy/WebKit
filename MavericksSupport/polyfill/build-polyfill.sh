@@ -4,7 +4,8 @@
 #
 #   polyfills/c/        libpolyfill.a           force-loaded into every WebKit image, hidden
 #   polyfills/shared/   libpolyfill.a           (also compiled by deps/build_deps.sh and toolchain/scripts/build_python3.sh)
-#   polyfills/methods/  libpolyfill_methods.a   force-loaded into WebCore (with the selref-scope mechanism)
+#   polyfills/methods/  libpolyfill_methods.a   force-loaded into WebCore (with the selref-scope mechanism), and
+#                       the absent classes written over a library only WebCore links
 #   polyfills/classes/  libpolyfill_classes.dylib   one shared, exported definition of each absent class
 #   polyfills/webkit/   libpolyfill_webkit.a    force-loaded into WebKit.framework only
 #   polyfills/jsc/      libwtf_compat.a         force-loaded into JavaScriptCore only
@@ -190,6 +191,7 @@ echo "### compiling polyfills/cdm (the Widevine CDM's libSystem gap library)"
 CDMCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN -I$PF/shared/include"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/getentropy.o"    "$PF/shared/getentropy.c"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/aligned_alloc.o" "$PF/shared/aligned_alloc.c"
+cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/pthread_qos.o" "$PF/shared/pthread_qos.c"
 for f in "$PF"/cdm/*.c; do
     cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
 done
@@ -496,9 +498,23 @@ if [ -s "$W/selambiguous" ]; then
 fi
 
 # Classes: a stub registered for a class 10.9 HAS would answer WebKit's soft-link with a handful of methods
-# in place of the real class. There is no REPLACES form for a class.
+# in place of the real class. There is no REPLACES form for a class. The registrations sit in the class
+# dylib and in the WebCore archive members carrying a __wk_clsmap section; those members are linked into
+# a probe dylib of their own so the same program can read them.
 "$CLANG" $HOST -o "$W/clspresent" "$TGATES/shadow-clspresent.m" -lobjc
-"$W/clspresent" "$OUT/libpolyfill_classes.dylib" | sort -u > "$W/clson109"
+CLSMAP_MEMBERS=()
+for o in "$W"/members/*.o; do
+    if "$CCTOOLS/otool" -l "$o" | grep 'sectname __wk_clsmap' > /dev/null; then CLSMAP_MEMBERS+=("$o"); fi
+done
+{
+    "$W/clspresent" "$OUT/libpolyfill_classes.dylib"
+    if [ "${#CLSMAP_MEMBERS[@]}" -gt 0 ]; then
+        "$CLANG" $HOST -dynamiclib -o "$W/clsmembers.dylib" "${CLSMAP_MEMBERS[@]}" -framework Foundation \
+            "$REPO/MavericksSupport/deps/build/lib/libcrypto.dylib" -Wl,-rpath,"$REPO/MavericksSupport/deps/build/lib" \
+            -Wl,-rpath,"$TC/lib" -Wl,-undefined,dynamic_lookup
+        "$W/clspresent" "$W/clsmembers.dylib"
+    fi
+} | sort -u > "$W/clson109"
 if awk -F'\t' '$3 == "PRESENT"' "$W/clson109" | grep -q .; then
     {
         echo

@@ -55,6 +55,7 @@ public:
     void contentAreaDidHide() override;
     void notifyContentAreaScrolled(const FloatSize& delta) override;
     void lockOverlayScrollbarStateToHidden(bool) override;
+    void scrollbarWidthChanged(ScrollbarWidth) override;
 
 private:
     void overlayScrollbarAnimationTimerFired();

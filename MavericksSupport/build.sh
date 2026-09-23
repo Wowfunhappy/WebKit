@@ -9,6 +9,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && /bin/pwd -P)"
 TC="$ROOT/MavericksSupport/toolchain/build"
 NINJA="$TC/ninja/bin/ninja"
+# OptionsMac.cmake runs Tools/Scripts/generate-cmake-xcode-project at every configure, and that
+# script finds ninja on PATH; the toolchain's is the one every configure here uses.
+export PATH="$TC/ninja/bin:$PATH"
 CMAKE="$TC/cmake/bin/cmake"
 CCACHE="${MAVERICKS_CCACHE:-$TC/ccache/bin/ccache}"   # the same resolution as cmake/mac10.9-toolchain.cmake
 BUILD="$ROOT/WebKitBuild/Release"
@@ -171,23 +174,19 @@ if [ -n "$DEPS_STALE" ]; then
     fi
 fi
 
-# One ccache for every build of this checkout, and direct mode: WebKit regenerates DerivedSources
-# headers with fresh timestamps every build, so trusting include content over mtime is what lets
-# direct hits engage. Nothing in a cache key is tied to where the tree sits: CCACHE_BASEDIR names
-# the checkout's parent, so every path under it -- the tree itself and the SDK beside it -- is
-# hashed relative to the build directory, and the compiler's identity is the content of clang plus
-# its two driver configs, hashed once here rather than per translation unit. A cache directory is
-# therefore reusable for the same tree at any path and on any machine.
-# ccache 3.7 hashes LANG, LC_ALL, LC_CTYPE and LC_MESSAGES. Agent command runners inject
-# LC_ALL=C.UTF-8 and LC_CTYPE=C.UTF-8 even when an interactive shell does not, which otherwise
-# puts every agent compilation in a distinct cache namespace. Match the canonical interactive
-# build environment explicitly so human and agent builds share the existing cache entries.
+# Share a cache across checkout builds, comparing generated-header contents despite
+# fresh timestamps. Normalize paths below the checkout's parent and hash the compiler
+# and its driver configs once per build. Pin the locale so interactive and agent
+# compilations use the same cache keys.
 export LANG=en_US.UTF-8
 unset LC_ALL LC_CTYPE LC_MESSAGES
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 export CCACHE_BASEDIR="$(dirname "$ROOT")"
 export CCACHE_NOHASHDIR=1
-export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines"
+export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines,ivfsoverlay"
+# Keys come from the compiler's -MD dependencies and the included files' contents. Preprocessed output
+# carries no #define lines, so a define-only header change keyed that way returns a stale precompiled header.
+export CCACHE_DEPEND=1
 export CCACHE_COMPILERCHECK="string:$(shasum -a 256 \
     "$TC/clang/bin/clang-22" "$TC/clang/bin/clang.cfg" "$TC/clang/bin/clang++.cfg" \
     | awk '{print $1}' | shasum -a 256 | awk '{print $1}')"
@@ -284,6 +283,9 @@ if [ ! -f "$BUILD/build.ninja" ] || ! "$NINJA" -C "$BUILD" -t targets >/dev/null
     fi
 fi
 
+# Hash the VFS map and both replacement headers to make overlay changes invalidate direct hits.
+CCACHE_OVERLAY_HEADERS="$ROOT/WebKitLibraries/AvailabilityOverlay/usr/include"
+export CCACHE_EXTRAFILES="$BUILD/availability-overlay.yaml:$CCACHE_OVERLAY_HEADERS/Availability.h:$CCACHE_OVERLAY_HEADERS/os/availability.h"
 [ -x "$CCACHE" ] && "$CCACHE" -z >/dev/null   # per-build ccache stats
 
 # The counts below read the log back, and the deps relink and the polyfill build have already

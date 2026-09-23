@@ -29,7 +29,7 @@
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
-#include <wtf/RetainReleaseSwift.h>
+#include <wtf/SwiftBridging.h>
 
 namespace WebKit {
 
@@ -44,7 +44,7 @@ public:
     static WebBackForwardListFrameItem* NODELETE itemForID(WebCore::BackForwardItemIdentifier, WebCore::BackForwardFrameItemIdentifier);
 
     FrameState& frameState() const { return m_frameState; }
-    void setFrameState(Ref<FrameState>&&);
+    void updateFrameStatePayload(Ref<FrameState>&&);
 
     Ref<FrameState> copyFrameState();
     Ref<FrameState> copyFrameStateWithChildren();
@@ -61,6 +61,7 @@ public:
     Ref<WebBackForwardListFrameItem> mainFrame();
     WebBackForwardListFrameItem* NODELETE childItemForFrameID(WebCore::FrameIdentifier);
     WebBackForwardListFrameItem* NODELETE childItemAtIndex(uint64_t);
+    const Vector<Ref<WebBackForwardListFrameItem>>& children() const { return m_children; }
 
     WebBackForwardListItem* NODELETE backForwardListItem() const;
 
@@ -92,10 +93,10 @@ private:
 
 inline void refWebBackForwardListFrameItem(WebKit::WebBackForwardListFrameItem* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefWebBackForwardListFrameItem(WebKit::WebBackForwardListFrameItem* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }

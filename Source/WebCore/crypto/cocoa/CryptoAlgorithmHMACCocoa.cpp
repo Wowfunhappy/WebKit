@@ -27,47 +27,27 @@
 #include "CryptoAlgorithmHMAC.h"
 
 #include "CryptoKeyHMAC.h"
+#include "CryptoTypesBridging.h"
 #include "CryptoUtilitiesCocoa.h"
-#include <CommonCrypto/CommonHMAC.h>
-#include <pal/PALSwift.h>
-#include <wtf/CryptographicUtilities.h>
+#include <pal/crypto/CryptoAlgorithmHMACCocoaBridging.h>
+#include <pal/crypto/CryptoTypes.h>
 
 namespace WebCore {
 
-static ExceptionOr<Vector<uint8_t>> platformSignCryptoKit(const CryptoKeyHMAC& key, const Vector<uint8_t>& data)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (!isValidHashParameter(key.hashAlgorithmIdentifier()))
-        return Exception { ExceptionCode::OperationError };
-    return pal::HMAC::sign(key.key().span(), data.span(), std::to_underlying(toCKHashFunction(key.hashAlgorithmIdentifier())));
-#else
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
-static ExceptionOr<bool> platformVerifyCryptoKit(const CryptoKeyHMAC& key, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (!isValidHashParameter(key.hashAlgorithmIdentifier()))
-        return Exception { ExceptionCode::OperationError };
-    return pal::HMAC::verify(signature.span(), key.key().span(), data.span(), std::to_underlying(toCKHashFunction(key.hashAlgorithmIdentifier())));
-#else
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(signature);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmHMAC::platformSign(const CryptoKeyHMAC& key, const Vector<uint8_t>& data)
 {
-    return platformSignCryptoKit(key, data);
+    if (!isValidHashParameter(key.hashAlgorithmIdentifier()))
+        return Exception { ExceptionCode::OperationError };
+
+    return toException(PAL::Crypto::signHMACCryptoKit(key.key(), data, toCKHashFunction(key.hashAlgorithmIdentifier())));
 }
 
 ExceptionOr<bool> CryptoAlgorithmHMAC::platformVerify(const CryptoKeyHMAC& key, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
 {
-    return platformVerifyCryptoKit(key, signature, data);
+    if (!isValidHashParameter(key.hashAlgorithmIdentifier()))
+        return Exception { ExceptionCode::OperationError };
+
+    return toException(PAL::Crypto::verifyHMACCryptoKit(signature, key.key(), data, toCKHashFunction(key.hashAlgorithmIdentifier())));
 }
+
 } // namespace WebCore

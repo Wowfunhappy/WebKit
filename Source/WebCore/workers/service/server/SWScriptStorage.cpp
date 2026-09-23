@@ -54,7 +54,7 @@ SWScriptStorage::SWScriptStorage(const String& directory)
 
 String SWScriptStorage::sha2Hash(const String& input) const
 {
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(m_salt);
     auto inputUTF8 = input.utf8();
     crypto->addBytes(byteCast<uint8_t>(inputUTF8.span()));

@@ -51,6 +51,7 @@
 #include "StyleSheetContents.h"
 #include "UserAgentParts.h"
 #include <ranges>
+#include <wtf/MainThread.h>
 
 namespace WebCore {
 namespace Style {
@@ -59,7 +60,11 @@ using namespace HTMLNames;
 
 RuleSet::RuleSet() = default;
 
-RuleSet::~RuleSet() = default;
+RuleSet::~RuleSet()
+{
+    RELEASE_ASSERT(isMainThread());
+    RELEASE_ASSERT(!m_isBuilding);
+}
 
 void RuleSet::addToRuleSet(const AtomString& key, AtomRuleMap& map, const RuleData& ruleData)
 {
@@ -175,6 +180,11 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
     if (featureCollectionContext)
         m_features.collectFeatures(*featureCollectionContext, ruleData, scopeRules);
 
+    addRuleToBucket(ruleData);
+}
+
+void RuleSet::addRuleToBucket(RuleData& ruleData)
+{
     unsigned classBucketSize = 0;
     const CSSSelector* idSelector = nullptr;
     const CSSSelector* tagSelector = nullptr;
@@ -192,124 +202,140 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
     const CSSSelector* pickerPseudoElementSelector = nullptr;
     const CSSSelector* namedPseudoElementSelector = nullptr;
     const CSSSelector* otherPseudoElementSelector = nullptr;
+    const CSSSelector* headingPseudoClassSelector = nullptr;
 #if ENABLE(VIDEO)
     const CSSSelector* cuePseudoElementSelector = nullptr;
 #endif
-    const CSSSelector* selector = &ruleData.selector();
-    do {
-        switch (selector->match()) {
-        case CSSSelector::Match::Id:
-            idSelector = selector;
-            break;
-        case CSSSelector::Match::Class: {
-            auto& className = selector->value();
-            if (!classSelector) {
-                classSelector = selector;
-                classBucketSize = rulesCountForName(m_classRules, className);
-            } else if (classBucketSize) {
-                unsigned newClassBucketSize = rulesCountForName(m_classRules, className);
-                if (newClassBucketSize < classBucketSize) {
-                    classSelector = selector;
-                    classBucketSize = newClassBucketSize;
+    Vector<const CSSSelector*, 4> nestedSelectors;
+    // We only process the subject (rightmost) compound.
+    for (const CSSSelector* selector = &ruleData.selector(); selector; selector = selector->followingInCompound()) {
+        nestedSelectors.append(selector);
+        while (!nestedSelectors.isEmpty()) {
+            const CSSSelector* current = nestedSelectors.takeLast();
+            switch (current->match()) {
+            case CSSSelector::Match::Id:
+                idSelector = current;
+                break;
+            case CSSSelector::Match::Class: {
+                auto& className = current->value();
+                if (!classSelector) {
+                    classSelector = current;
+                    classBucketSize = rulesCountForName(m_classRules, className);
+                } else if (classBucketSize) {
+                    unsigned newClassBucketSize = rulesCountForName(m_classRules, className);
+                    if (newClassBucketSize < classBucketSize) {
+                        classSelector = current;
+                        classBucketSize = newClassBucketSize;
+                    }
                 }
+                break;
             }
-            break;
-        }
-        case CSSSelector::Match::Exact:
-        case CSSSelector::Match::Set:
-        case CSSSelector::Match::List:
-        case CSSSelector::Match::Hyphen:
-        case CSSSelector::Match::Contain:
-        case CSSSelector::Match::Begin:
-        case CSSSelector::Match::End:
-            if (shouldHaveBucketForAttributeName(*selector))
-                attributeSelector = selector;
-            break;
-        case CSSSelector::Match::Tag:
-            if (selector->tagQName().localName() != starAtom())
-                tagSelector = selector;
-            break;
-        case CSSSelector::Match::PseudoElement:
-            switch (selector->pseudoElement()) {
-            case CSSSelector::PseudoElement::Picker:
-                pickerPseudoElementSelector = selector;
+            case CSSSelector::Match::Exact:
+            case CSSSelector::Match::Set:
+            case CSSSelector::Match::List:
+            case CSSSelector::Match::Hyphen:
+            case CSSSelector::Match::Contain:
+            case CSSSelector::Match::Begin:
+            case CSSSelector::Match::End:
+                if (shouldHaveBucketForAttributeName(*current))
+                    attributeSelector = current;
                 break;
-            case CSSSelector::PseudoElement::UserAgentPart:
-            case CSSSelector::PseudoElement::UserAgentPartLegacyAlias:
-                customPseudoElementSelector = selector;
+            case CSSSelector::Match::Tag:
+                if (current->tagQName().localName() != starAtom())
+                    tagSelector = current;
                 break;
-            case CSSSelector::PseudoElement::Slotted:
-                slottedPseudoElementSelector = selector;
-                break;
-            case CSSSelector::PseudoElement::Part:
-                partPseudoElementSelector = selector;
-                break;
+            case CSSSelector::Match::PseudoElement:
+                switch (current->pseudoElement()) {
+                case CSSSelector::PseudoElement::Picker:
+                    pickerPseudoElementSelector = current;
+                    break;
+                case CSSSelector::PseudoElement::UserAgentPart:
+                case CSSSelector::PseudoElement::UserAgentPartLegacyAlias:
+                    customPseudoElementSelector = current;
+                    break;
+                case CSSSelector::PseudoElement::Slotted:
+                    slottedPseudoElementSelector = current;
+                    break;
+                case CSSSelector::PseudoElement::Part:
+                    partPseudoElementSelector = current;
+                    break;
 #if ENABLE(VIDEO)
-            case CSSSelector::PseudoElement::Cue:
-                cuePseudoElementSelector = selector;
-                break;
+                case CSSSelector::PseudoElement::Cue:
+                    cuePseudoElementSelector = current;
+                    break;
 #endif
-            case CSSSelector::PseudoElement::ViewTransitionGroup:
-            case CSSSelector::PseudoElement::ViewTransitionImagePair:
-            case CSSSelector::PseudoElement::ViewTransitionOld:
-            case CSSSelector::PseudoElement::ViewTransitionNew:
-                if (selector->stringList()->first() != starAtom())
-                    namedPseudoElementSelector = selector;
+                case CSSSelector::PseudoElement::ViewTransitionGroup:
+                case CSSSelector::PseudoElement::ViewTransitionImagePair:
+                case CSSSelector::PseudoElement::ViewTransitionOld:
+                case CSSSelector::PseudoElement::ViewTransitionNew:
+                    if (current->stringList()->first() != starAtom())
+                        namedPseudoElementSelector = current;
+                    break;
+                default:
+                    otherPseudoElementSelector = current;
+                    break;
+                }
                 break;
-            default:
-                otherPseudoElementSelector = selector;
-                break;
-            }
-            break;
-        case CSSSelector::Match::PseudoClass:
-            switch (selector->pseudoClass()) {
-            case CSSSelector::PseudoClass::Link:
-            case CSSSelector::PseudoClass::Visited:
-            case CSSSelector::PseudoClass::AnyLink:
-                linkSelector = selector;
-                break;
-            case CSSSelector::PseudoClass::Focus:
-                focusSelector = selector;
-                break;
-            case CSSSelector::PseudoClass::FocusVisible:
-                focusVisibleSelector = selector;
-                break;
-            case CSSSelector::PseudoClass::Host:
-                hostPseudoClassSelector = selector;
-                break;
-            case CSSSelector::PseudoClass::Root:
-                rootElementSelector = selector;
-                break;
+            case CSSSelector::Match::PseudoClass:
+                switch (current->pseudoClass()) {
+                case CSSSelector::PseudoClass::Link:
+                case CSSSelector::PseudoClass::Visited:
+                case CSSSelector::PseudoClass::AnyLink:
+                    linkSelector = current;
+                    break;
+                case CSSSelector::PseudoClass::Focus:
+                    focusSelector = current;
+                    break;
+                case CSSSelector::PseudoClass::FocusVisible:
+                    focusVisibleSelector = current;
+                    break;
+                case CSSSelector::PseudoClass::Host:
+                    hostPseudoClassSelector = current;
+                    break;
+                case CSSSelector::PseudoClass::Root:
+                    rootElementSelector = current;
+                    break;
 #if ENABLE(FULLSCREEN_API)
-            case CSSSelector::PseudoClass::Fullscreen:
-            case CSSSelector::PseudoClass::InternalInWindowFullscreen:
-            case CSSSelector::PseudoClass::InternalFullscreenDocument:
-            case CSSSelector::PseudoClass::InternalAnimatingFullscreenTransition:
-                fullscreenPseudoClassSelector = selector;
-                break;
+                case CSSSelector::PseudoClass::Fullscreen:
+                case CSSSelector::PseudoClass::InternalInWindowFullscreen:
+                case CSSSelector::PseudoClass::InternalFullscreenDocument:
+                case CSSSelector::PseudoClass::InternalAnimatingFullscreenTransition:
+                    fullscreenPseudoClassSelector = current;
+                    break;
 #endif
-            case CSSSelector::PseudoClass::Scope:
-                m_hasHostOrScopePseudoClassRulesInUniversalBucket = true;
-                break;
-            default:
-                if (hasHostOrScopePseudoClassSubjectInSelectorList(selector->selectorList()))
+                case CSSSelector::PseudoClass::Scope:
                     m_hasHostOrScopePseudoClassRulesInUniversalBucket = true;
+                    break;
+                case CSSSelector::PseudoClass::Heading:
+                    headingPseudoClassSelector = current;
+                    break;
+                case CSSSelector::PseudoClass::Is:
+                case CSSSelector::PseudoClass::Where: {
+                    auto* selectorList = current->selectorList();
+                    if (selectorList && selectorList->size() == 1) {
+                        for (auto* inner = &selectorList->first(); inner; inner = inner->followingInCompound())
+                            nestedSelectors.append(inner);
+                    }
+                    if (hasHostOrScopePseudoClassSubjectInSelectorList(selectorList))
+                        m_hasHostOrScopePseudoClassRulesInUniversalBucket = true;
+                    break;
+                }
+                default:
+                    if (hasHostOrScopePseudoClassSubjectInSelectorList(current->selectorList()))
+                        m_hasHostOrScopePseudoClassRulesInUniversalBucket = true;
+                    break;
+                }
+                break;
+            case CSSSelector::Match::Unknown:
+            case CSSSelector::Match::ForgivingUnknown:
+            case CSSSelector::Match::ForgivingUnknownNestContaining:
+            case CSSSelector::Match::HasScope:
+            case CSSSelector::Match::NestingParent:
+            case CSSSelector::Match::PagePseudoClass:
                 break;
             }
-            break;
-        case CSSSelector::Match::Unknown:
-        case CSSSelector::Match::ForgivingUnknown:
-        case CSSSelector::Match::ForgivingUnknownNestContaining:
-        case CSSSelector::Match::HasScope:
-        case CSSSelector::Match::NestingParent:
-        case CSSSelector::Match::PagePseudoClass:
-            break;
         }
-        // We only process the subject (rightmost compound selector).
-        if (selector->relation() != CSSSelector::Relation::Subselector)
-            break;
-        selector = selector->precedingInComplexSelector();
-    } while (selector);
+    }
 
     if (!m_hasHostPseudoClassRulesMatchingInShadowTree)
         m_hasHostPseudoClassRulesMatchingInShadowTree = isHostSelectorMatchingInShadowTree(ruleData.selector());
@@ -379,7 +405,7 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
             cueBackgroundSelector->setPseudoElement(CSSSelector::PseudoElement::UserAgentPart);
             cueBackgroundSelector->setValue(UserAgentParts::internalCueBackground());
 
-            Ref cueBackgroundStyleRule = StyleRule::create(ruleData.styleRule().properties().immutableCopyIfNeeded(), ruleData.styleRule().hasDocumentSecurityOrigin(), CSSSelectorList { MutableCSSSelectorList::from(WTF::move(cueBackgroundSelector)) });
+            Ref cueBackgroundStyleRule = StyleRule::create(protect(ruleData.styleRule())->properties().immutableCopyIfNeeded(), ruleData.styleRule().hasDocumentSecurityOrigin(), CSSSelectorList { MutableCSSSelectorList::from(WTF::move(cueBackgroundSelector)) });
 
             // Warning: Recursion!
             addRule(WTF::move(cueBackgroundStyleRule), 0, 0);
@@ -445,6 +471,39 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
         return;
     }
 
+    if (headingPseudoClassSelector) {
+        std::array<bool, 7> wantedLevel { };
+        if (auto* integerList = headingPseudoClassSelector->integerList()) {
+            for (int level : *integerList) {
+                if (level >= 1 && level <= 6)
+                    wantedLevel[level] = true;
+            }
+        } else {
+            for (unsigned level = 1; level <= 6; ++level)
+                wantedLevel[level] = true;
+        }
+        bool addedToAnyBucket = false;
+        for (unsigned level = 1; level <= 6; ++level) {
+            if (!wantedLevel[level])
+                continue;
+            auto& tag = [&] -> const HTMLQualifiedName& {
+                switch (level) {
+                case 1: return HTMLNames::h1Tag;
+                case 2: return HTMLNames::h2Tag;
+                case 3: return HTMLNames::h3Tag;
+                case 4: return HTMLNames::h4Tag;
+                case 5: return HTMLNames::h5Tag;
+                default: return HTMLNames::h6Tag;
+                }
+            }();
+            addToRuleSet(tag.localName(), m_tagLocalNameRules, ruleData);
+            addToRuleSet(tag.localName(), m_tagLowercaseLocalNameRules, ruleData);
+            addedToAnyBucket = true;
+        }
+        if (addedToAnyBucket)
+            return;
+    }
+
     auto addUniversalPseudoElement = [&] {
         if (!otherPseudoElementSelector)
             return false;
@@ -454,18 +513,18 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
             return false;
 
         bool isHTMLNamespace = false;
-        auto* last = otherPseudoElementSelector->lastInCompound();
-        if (last->precedingInComplexSelector() == otherPseudoElementSelector) {
+        auto* leftmost = otherPseudoElementSelector->leftmostInCompound();
+        if (leftmost->precedingInComplexSelector() == otherPseudoElementSelector) {
             // Check that implicit * is present with the right namespace and nothing else.
-            if (last->match() != CSSSelector::Match::Tag)
+            if (leftmost->match() != CSSSelector::Match::Tag)
                 return false;
 
-            ASSERT(last->tagQName().localName() == starAtom());
-            auto& namespaceURI = last->tagQName().namespaceURI();
+            ASSERT(leftmost->tagQName().localName() == starAtom());
+            auto& namespaceURI = leftmost->tagQName().namespaceURI();
             isHTMLNamespace = namespaceURI == xhtmlNamespaceURI;
             if (!isHTMLNamespace && namespaceURI != starAtom())
                 return false;
-        } else if (last != otherPseudoElementSelector)
+        } else if (leftmost != otherPseudoElementSelector)
             return false;
 
         auto stylePseudoElement = CSSSelector::stylePseudoElementTypeFor(otherPseudoElementSelector->pseudoElement());
@@ -687,7 +746,7 @@ const RefPtr<const StyleRulePositionTry> RuleSet::positionTryRuleForName(const A
     return m_positionTryRules.get(name);
 }
 
-String RuleSet::selectorsForDebugging() const
+WTF::String RuleSet::selectorsForDebugging() const
 {
     TextStream ts;
     ts << "RuleSet size " << ruleCount();

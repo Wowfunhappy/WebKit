@@ -32,6 +32,7 @@
 #if WPE_CHECK_VERSION(1, 13, 90)
 
 #include "GamepadProviderLibWPE.h"
+#include "SharedGamepadValue.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {

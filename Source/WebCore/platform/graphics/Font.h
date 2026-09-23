@@ -67,8 +67,8 @@ struct GlyphData;
 struct MultiRepresentationHEICMetrics;
 #endif
 
-enum FontVariant : uint8_t { AutoVariant, NormalVariant, SmallCapsVariant, EmphasisMarkVariant, BrokenIdeographVariant };
-enum Pitch : uint8_t { UnknownPitch, FixedPitch, VariablePitch };
+enum class FontVariant : uint8_t { Auto, Normal, SmallCaps, EmphasisMark, BrokenIdeograph };
+enum class PitchType : uint8_t { Unknown, Fixed, Variable };
 enum class IsForPlatformFont : bool { No, Yes };
 
 // Used to create platform fonts.
@@ -132,14 +132,14 @@ public:
     const Font* variantFont(const FontDescription& description, FontVariant variant) const
     {
         switch (variant) {
-        case SmallCapsVariant:
+        case FontVariant::SmallCaps:
             return smallCapsFont(description);
-        case EmphasisMarkVariant:
+        case FontVariant::EmphasisMark:
             return emphasisMarkFont(description);
-        case BrokenIdeographVariant:
+        case FontVariant::BrokenIdeograph:
             return &brokenIdeographFont();
-        case AutoVariant:
-        case NormalVariant:
+        case FontVariant::Auto:
+        case FontVariant::Normal:
             break;
         }
         ASSERT_NOT_REACHED();
@@ -166,7 +166,7 @@ public:
 
     FloatRect boundsForGlyph(Glyph) const;
 #if USE(CORE_TEXT) || USE(SKIA)
-    static constexpr size_t inlineGlyphRunCapacity = 128;
+    static constexpr size_t inlineGlyphRunCapacity = 256;
     Vector<FloatRect, inlineGlyphRunCapacity> boundsForGlyphs(std::span<const Glyph>) const;
 #endif
 
@@ -206,7 +206,7 @@ public:
     const GlyphPage* glyphPage(unsigned pageNumber) const;
 
     void determinePitch();
-    Pitch pitch() const { return m_treatAsFixedPitch ? FixedPitch : VariablePitch; }
+    PitchType pitch() const { return m_treatAsFixedPitch ? PitchType::Fixed : PitchType::Variable; }
     bool canTakeFixedPitchFastContentMeasuring() const { return m_canTakeFixedPitchFastContentMeasuring; }
 
     Origin origin() const { return m_attributes.origin; }
@@ -269,7 +269,7 @@ private:
     void platformInit();
     void platformGlyphInit();
     void platformCharWidthInit();
-    void platformDestroy();
+    void NODELETE platformDestroy();
 
     void initCharWidths();
 

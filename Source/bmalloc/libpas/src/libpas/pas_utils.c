@@ -55,7 +55,7 @@
 #if BASAN_ENABLED
 #define PAS_FATAL_CRASH_INST "brk #0x0"
 #else
-#define PAS_FATAL_CRASH_INST "brk #0xc471"
+#define PAS_FATAL_CRASH_INST "brk #0xbb08"
 #endif
 #endif
 
@@ -67,6 +67,18 @@
 #define CRASH_GPR5 "x22"
 #define CRASH_GPR6 "x23"
 
+#elif PAS_ARM32
+
+#define PAS_FATAL_CRASH_INST "bkpt #0"
+
+#define CRASH_GPR0 "r4"
+#define CRASH_GPR1 "r5"
+#define CRASH_GPR2 "r6"
+#define CRASH_GPR3 "r8"
+#define CRASH_GPR4 "r9"
+#define CRASH_GPR5 "r10"
+#define CRASH_GPR6 "r11"
+
 #endif
 
 #if defined(PAS_BMALLOC) && PAS_BMALLOC
@@ -77,84 +89,100 @@
 #endif // defined(__has_include)
 #endif // defined(PAS_BMALLOC) && PAS_BMALLOC
 
-#if PAS_X86_64 || PAS_ARM64
+#if PAS_X86_64 || PAS_ARM64 || PAS_ARM32
 
-#if PAS_OS(DARWIN) && PAS_VA_OPT_SUPPORTED
+#if (PAS_OS(DARWIN) || PAS_OS(LINUX)) && PAS_VA_OPT_SUPPORTED
 
-PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl1(uint64_t reason, uint64_t misc1)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl0(size_t reason)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR));
+    __builtin_unreachable();
+}
+
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl1(size_t reason, size_t misc1)
+{
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR));
     __builtin_unreachable();
 }
 
-PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl2(uint64_t reason, uint64_t misc1, uint64_t misc2)
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl2(size_t reason, size_t misc1, size_t misc2)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
-    register uint64_t misc2GPR __asm__(CRASH_GPR2) = misc2;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t misc2GPR __asm__(CRASH_GPR2) = misc2;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR), "r"(misc2GPR));
     __builtin_unreachable();
 }
 
-PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl3(uint64_t reason, uint64_t misc1, uint64_t misc2, uint64_t misc3)
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl3(size_t reason, size_t misc1, size_t misc2, size_t misc3)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
-    register uint64_t misc2GPR __asm__(CRASH_GPR2) = misc2;
-    register uint64_t misc3GPR __asm__(CRASH_GPR3) = misc3;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t misc2GPR __asm__(CRASH_GPR2) = misc2;
+    register size_t misc3GPR __asm__(CRASH_GPR3) = misc3;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR), "r"(misc2GPR), "r"(misc3GPR));
     __builtin_unreachable();
 }
 
-PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl4(uint64_t reason, uint64_t misc1, uint64_t misc2, uint64_t misc3, uint64_t misc4)
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl4(size_t reason, size_t misc1, size_t misc2, size_t misc3, size_t misc4)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
-    register uint64_t misc2GPR __asm__(CRASH_GPR2) = misc2;
-    register uint64_t misc3GPR __asm__(CRASH_GPR3) = misc3;
-    register uint64_t misc4GPR __asm__(CRASH_GPR4) = misc4;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t misc2GPR __asm__(CRASH_GPR2) = misc2;
+    register size_t misc3GPR __asm__(CRASH_GPR3) = misc3;
+    register size_t misc4GPR __asm__(CRASH_GPR4) = misc4;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR), "r"(misc2GPR), "r"(misc3GPR), "r"(misc4GPR));
     __builtin_unreachable();
 }
 
-PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl5(uint64_t reason, uint64_t misc1, uint64_t misc2, uint64_t misc3, uint64_t misc4, uint64_t misc5)
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl5(size_t reason, size_t misc1, size_t misc2, size_t misc3, size_t misc4, size_t misc5)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
-    register uint64_t misc2GPR __asm__(CRASH_GPR2) = misc2;
-    register uint64_t misc3GPR __asm__(CRASH_GPR3) = misc3;
-    register uint64_t misc4GPR __asm__(CRASH_GPR4) = misc4;
-    register uint64_t misc5GPR __asm__(CRASH_GPR5) = misc5;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t misc2GPR __asm__(CRASH_GPR2) = misc2;
+    register size_t misc3GPR __asm__(CRASH_GPR3) = misc3;
+    register size_t misc4GPR __asm__(CRASH_GPR4) = misc4;
+    register size_t misc5GPR __asm__(CRASH_GPR5) = misc5;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR), "r"(misc2GPR), "r"(misc3GPR), "r"(misc4GPR), "r"(misc5GPR));
     __builtin_unreachable();
 }
 
-PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl6(uint64_t reason, uint64_t misc1, uint64_t misc2, uint64_t misc3, uint64_t misc4, uint64_t misc5, uint64_t misc6)
+PAS_NEVER_INLINE PAS_NO_RETURN void pas_crash_with_info_impl6(size_t reason, size_t misc1, size_t misc2, size_t misc3, size_t misc4, size_t misc5, size_t misc6)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
-    register uint64_t misc2GPR __asm__(CRASH_GPR2) = misc2;
-    register uint64_t misc3GPR __asm__(CRASH_GPR3) = misc3;
-    register uint64_t misc4GPR __asm__(CRASH_GPR4) = misc4;
-    register uint64_t misc5GPR __asm__(CRASH_GPR5) = misc5;
-    register uint64_t misc6GPR __asm__(CRASH_GPR6) = misc6;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t misc2GPR __asm__(CRASH_GPR2) = misc2;
+    register size_t misc3GPR __asm__(CRASH_GPR3) = misc3;
+    register size_t misc4GPR __asm__(CRASH_GPR4) = misc4;
+    register size_t misc5GPR __asm__(CRASH_GPR5) = misc5;
+    register size_t misc6GPR __asm__(CRASH_GPR6) = misc6;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR), "r"(misc2GPR), "r"(misc3GPR), "r"(misc4GPR), "r"(misc5GPR), "r"(misc6GPR));
     __builtin_unreachable();
 }
 
-#endif /* PAS_OS(DARWIN) && PAS_VA_OPT_SUPPORTED */
+#ifdef __cplusplus
+}
+#endif
 
-PAS_NEVER_INLINE PAS_NO_RETURN static void pas_crash_with_info_impl(uint64_t reason, uint64_t misc1, uint64_t misc2, uint64_t misc3, uint64_t misc4, uint64_t misc5, uint64_t misc6)
+
+#endif /* (PAS_OS(DARWIN) || PAS_OS(LINUX)) && PAS_VA_OPT_SUPPORTED */
+
+PAS_NEVER_INLINE PAS_NO_RETURN static void pas_crash_with_info_impl(size_t reason, size_t misc1, size_t misc2, size_t misc3, size_t misc4, size_t misc5, size_t misc6)
 {
-    register uint64_t reasonGPR __asm__(CRASH_GPR0) = reason;
-    register uint64_t misc1GPR __asm__(CRASH_GPR1) = misc1;
-    register uint64_t misc2GPR __asm__(CRASH_GPR2) = misc2;
-    register uint64_t misc3GPR __asm__(CRASH_GPR3) = misc3;
-    register uint64_t misc4GPR __asm__(CRASH_GPR4) = misc4;
-    register uint64_t misc5GPR __asm__(CRASH_GPR5) = misc5;
-    register uint64_t misc6GPR __asm__(CRASH_GPR6) = misc6;
+    register size_t reasonGPR __asm__(CRASH_GPR0) = reason;
+    register size_t misc1GPR __asm__(CRASH_GPR1) = misc1;
+    register size_t misc2GPR __asm__(CRASH_GPR2) = misc2;
+    register size_t misc3GPR __asm__(CRASH_GPR3) = misc3;
+    register size_t misc4GPR __asm__(CRASH_GPR4) = misc4;
+    register size_t misc5GPR __asm__(CRASH_GPR5) = misc5;
+    register size_t misc6GPR __asm__(CRASH_GPR6) = misc6;
     __asm__ volatile (PAS_FATAL_CRASH_INST : : "r"(reasonGPR), "r"(misc1GPR), "r"(misc2GPR), "r"(misc3GPR), "r"(misc4GPR), "r"(misc5GPR), "r"(misc6GPR));
     __builtin_trap();
 }
@@ -162,7 +190,7 @@ PAS_NEVER_INLINE PAS_NO_RETURN static void pas_crash_with_info_impl(uint64_t rea
 #else
 
 PAS_IGNORE_WARNINGS_BEGIN("unused-parameter")
-PAS_NEVER_INLINE PAS_NO_RETURN static void pas_crash_with_info_impl(uint64_t reason, uint64_t misc1, uint64_t misc2, uint64_t misc3, uint64_t misc4, uint64_t misc5, uint64_t misc6) { __builtin_trap(); }
+PAS_NEVER_INLINE PAS_NO_RETURN static void pas_crash_with_info_impl(size_t reason, size_t misc1, size_t misc2, size_t misc3, size_t misc4, size_t misc5, size_t misc6) { __builtin_trap(); }
 PAS_IGNORE_WARNINGS_END
 
 #endif
@@ -175,7 +203,7 @@ void pas_panic(const char* format, ...)
         pas_log("[%d] pas panic: ", getpid());
         va_start(arg_list, format);
         pas_vlog(format, arg_list);
-        pas_crash_with_info_impl((uint64_t)format, 0, 0, 0, 0, 0, 0);
+        pas_crash_with_info_impl((size_t)format, 0, 0, 0, 0, 0, 0);
     }
     __builtin_trap();
 }
@@ -193,14 +221,14 @@ void pas_assertion_failed_no_inline(const char* filename, int line, const char* 
 {
     pas_log("[%d] pas assertion failed: ", getpid());
     pas_log("%s:%d: %s: assertion %s failed.\n", filename, line, function, expression);
-    pas_crash_with_info_impl((uint64_t)filename, (uint64_t)line, (uint64_t)function, (uint64_t)expression, 0xbeefbff0, 42, 1337);
+    pas_crash_with_info_impl((size_t)filename, (size_t)line, (size_t)function, (size_t)expression, 0xbeefbff0, 42, 1337);
 }
 
-void pas_assertion_failed_no_inline_with_extra_detail(const char* filename, int line, const char* function, const char* expression, uint64_t extra)
+void pas_assertion_failed_no_inline_with_extra_detail(const char* filename, int line, const char* function, const char* expression, size_t extra)
 {
     pas_log("[%d] pas assertion failed (with extra detail): ", getpid());
-    pas_log("%s:%d: %s: assertion %s failed. Extra data: %" PRIu64 ".\n", filename, line, function, expression, extra);
-    pas_crash_with_info_impl((uint64_t)filename, (uint64_t)line, (uint64_t)function, (uint64_t)expression, extra, 1337, 0xbeef0bff);
+    pas_log("%s:%d: %s: assertion %s failed. Extra data: %" PRIuPTR ".\n", filename, line, function, expression, extra);
+    pas_crash_with_info_impl((size_t)filename, (size_t)line, (size_t)function, (size_t)expression, extra, 1337, 0xbeef0bff);
 }
 
 void pas_panic_on_out_of_memory_error(void)

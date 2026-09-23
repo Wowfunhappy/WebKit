@@ -31,28 +31,26 @@
 #include "FetchResponse.h"
 
 #include "ContextDestructionObserverInlines.h"
+#include "DocumentQuirks.h"
 #include "FetchRequest.h"
 #include "FetchResponseBodyLoader.h"
 #include "HTTPParsers.h"
 #include "InspectorInstrumentation.h"
 #include "JSBlob.h"
 #include "MIMETypeRegistry.h"
+#include "Quirks.h"
 #include "ReadableStreamToSharedBufferSink.h"
 #include "ResourceError.h"
 #include "ScriptExecutionContext.h"
+#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSONObject.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FetchResponseBodyLoader);
-
-// https://fetch.spec.whatwg.org/#null-body-status
-static inline bool NODELETE isNullBodyStatus(int status)
-{
-    return status == 101 || status == 204 || status == 205 || status == 304;
-}
 
 FetchResponse::~FetchResponse() = default;
 
@@ -105,7 +103,7 @@ ExceptionOr<Ref<FetchResponse>> FetchResponse::create(ScriptExecutionContext& co
     if (bodyWithType) {
         // 6.1 If response’s status is a null body status, then throw a TypeError.
         //     (NOTE: 101 and 103 are included in null body status due to their use elsewhere. It does not affect this step.)
-        if (isNullBodyStatus(init.status))
+        if (isHttpNullBodyStatus(init.status))
             return Exception { ExceptionCode::TypeError, "Response cannot have a body with the given status."_s };
 
         // 6.2 Set response’s body to body’s body.
@@ -161,12 +159,12 @@ Ref<FetchResponse> FetchResponse::error(ScriptExecutionContext& context)
 
 ExceptionOr<Ref<FetchResponse>> FetchResponse::redirect(ScriptExecutionContext& context, const String& url, int status)
 {
-    URL requestURL = context.completeURL(url, ScriptExecutionContext::ForceUTF8::Yes);
+    URL requestURL = context.parseURL(url);
     if (!requestURL.isValid())
         return Exception { ExceptionCode::TypeError, makeString("Redirection URL '"_s, requestURL.string(), "' is invalid"_s) };
     if (requestURL.hasCredentials())
         return Exception { ExceptionCode::TypeError, "Redirection URL contains credentials"_s };
-    if (!ResourceResponse::isRedirectionStatusCode(status))
+    if (!isHttpRedirectStatus(status))
         return Exception { ExceptionCode::RangeError, makeString(status, " is not a redirection status code"_s) };
     auto redirectResponse = adoptRef(*new FetchResponse(&context, { }, FetchHeaders::create(FetchHeaders::Guard::Immutable), { }));
     redirectResponse->suspendIfNeeded();
@@ -394,6 +392,9 @@ void FetchResponse::Loader::didReceiveResponse(const ResourceResponse& resourceR
     RefPtr response = m_response.get();
     if (!response)
         return;
+
+    if (RefPtr document = dynamicDowncast<Document>(response->scriptExecutionContext()))
+        document->quirks().clearLogoutSurvivingIdentityCookiesIfNeeded(resourceResponse.url(), resourceResponse.httpStatusCode());
 
     response->setReceivedInternalResponse(resourceResponse, m_credentials);
 

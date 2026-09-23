@@ -23,19 +23,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-[
-    LegacyNativeDictionaryRequiredInterfaceNullability,
-] dictionary PointerEventInit : MouseEventInit {
+// https://w3c.github.io/pointerevents/
+
+// FIXME: The specification does not have defaults for tiltX, tiltY, altitudeAngle, and azimuthAngle, but it should.
+dictionary PointerEventInit : MouseEventInit {
     long pointerId = 0;
     double width = 1;
     double height = 1;
     float pressure = 0;
     float tangentialPressure = 0;
-    long tiltX = 0;
-    long tiltY = 0;
+    [ImplementationDefaultValue=0] long tiltX;
+    [ImplementationDefaultValue=0] long tiltY;
     long twist = 0;
-    [EnabledBySetting=AltitudeAngleEnabled] double altitudeAngle;
-    [EnabledBySetting=AzimuthAngleEnabled] double azimuthAngle;
+    [EnabledBySetting=AltitudeAngleEnabled, ImplementationDefaultValue=piOverTwoDouble] double altitudeAngle;
+    [EnabledBySetting=AzimuthAngleEnabled, ImplementationDefaultValue=0] double azimuthAngle;
     DOMString pointerType = "";
     boolean isPrimary = false;
     sequence<PointerEvent> coalescedEvents = [];
@@ -66,4 +67,3 @@
     [SecureContext] sequence<PointerEvent> getCoalescedEvents();
     sequence<PointerEvent> getPredictedEvents();
 };
-

@@ -29,7 +29,7 @@
 
 namespace WebCore {
 
-class CSSVariableReferenceValue;
+class CSSSubstitutionValue;
 
 class StylePropertyMap : public MainThreadStylePropertyMapReadOnly {
 public:
@@ -43,7 +43,7 @@ protected:
     virtual void removeCustomProperty(const AtomString&) = 0;
     virtual bool setShorthandProperty(CSSPropertyID, const String&) = 0;
     virtual bool setProperty(CSSPropertyID, Ref<CSSValue>&&) = 0;
-    virtual bool setCustomProperty(Document&, const AtomString&, Ref<CSSVariableReferenceValue>&&) = 0;
+    virtual bool setCustomProperty(Document&, const AtomString&, Ref<CSSSubstitutionValue>&&) = 0;
 
 private:
     bool isStylePropertyMap() const final { return true; }

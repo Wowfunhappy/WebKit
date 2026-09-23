@@ -548,7 +548,7 @@ Vector<String> Pasteboard::readPlatformValuesAsStrings(const String& domType, in
     return values;
 }
 
-void Pasteboard::addHTMLClipboardTypesForCocoaType(ListHashSet<String>& resultTypes, const String& cocoaType)
+void Pasteboard::addHTMLClipboardTypesForCocoaType(OrderedHashSet<String>& resultTypes, const String& cocoaType)
 {
     RetainPtr nsType = cocoaType.createNSString();
     // UTI may not do these right, so make sure we get the right, predictable result.

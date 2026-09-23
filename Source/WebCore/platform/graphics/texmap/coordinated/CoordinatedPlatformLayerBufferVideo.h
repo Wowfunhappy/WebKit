@@ -45,6 +45,10 @@ public:
 private:
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix& modelViewMatrix = TransformationMatrix(), float opacity = 1.0) override;
 
+#if USE(SKIA)
+    sk_sp<SkImage> skiaImage() override;
+#endif
+
     std::unique_ptr<CoordinatedPlatformLayerBuffer> createBufferIfNeeded(bool gstGLEnabled);
 #if USE(GBM) && GST_CHECK_VERSION(1, 24, 0)
     std::unique_ptr<CoordinatedPlatformLayerBuffer> createBufferFromDMABufMemory();
@@ -52,6 +56,7 @@ private:
 #if USE(GSTREAMER_GL)
     std::unique_ptr<CoordinatedPlatformLayerBuffer> createBufferFromGLMemory();
 #endif
+    void createBufferFromMappedFrameIfNeeded();
 
     Ref<VideoFrameGStreamer> m_videoFrame;
     std::optional<GstMappedFrame> m_mappedVideoFrame;

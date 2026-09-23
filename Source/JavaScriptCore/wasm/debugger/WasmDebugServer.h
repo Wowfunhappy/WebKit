@@ -77,13 +77,6 @@ class DebugServer {
     WTF_MAKE_TZONE_ALLOCATED(DebugServer);
 
 public:
-    enum class State : uint8_t {
-        Stopped, // Initial state, server is not running
-        Starting, // Transitional state during startup
-        Running, // Server is fully operational and accepting connections
-        Stopping, // Transitional state during shutdown
-    };
-
     JS_EXPORT_PRIVATE static DebugServer& singleton();
 
 #if OS(WINDOWS)
@@ -100,14 +93,13 @@ public:
     ~DebugServer() = default;
 
     JS_EXPORT_PRIVATE bool start();
-    JS_EXPORT_PRIVATE void stop();
 
 #if ENABLE(REMOTE_INSPECTOR)
     // DebugServer supports two modes:
     // 1. Direct TCP socket mode (JSC shell debugging)
     // 2. Remote Web Inspector integration mode (WebKit debugging)
     bool isRWIMode() const { return !!m_rwiResponseHandler; }
-    JS_EXPORT_PRIVATE bool startRWI(Function<bool(const String&)>&& rwiResponseHandler);
+    JS_EXPORT_PRIVATE void startRWI(Function<bool(const String&)>&& rwiResponseHandler);
 #endif
 
     void trackInstance(JSWebAssemblyInstance*);
@@ -115,9 +107,24 @@ public:
     void untrackModule(Module&);
 
     void setPort(uint64_t port) { m_port = port; }
-    bool needToHandleBreakpoints() const;
 
-    JS_EXPORT_PRIVATE bool isConnected() const;
+    // Returns true when a GDB remote client is present at the transport layer — either a TCP
+    // socket has been accepted or an RWI handler has been registered. This is a wire-level check
+    // only: the debugger may not have completed its startup sequence yet.
+    JS_EXPORT_PRIVATE bool NODELETE hasDebugger() const;
+
+    // Non-blocking check: returns true once the debugger has sent its first 'c' (continue).
+    // This is used for test only.
+    bool hasContinued() const { return m_hasContinued.load(std::memory_order_acquire); }
+
+    // True once the debugger has completed its startup exchange ('?' + first qXfer:libraries:read),
+    // which is the point at which we consider the debugger fully ready to handle breakpoints, traps, and new module loads.
+    bool isDebuggerReady() const
+    {
+        bool ready = m_isDebuggerReady.load(std::memory_order_acquire);
+        RELEASE_ASSERT(!ready || hasDebugger());
+        return ready;
+    }
 
     JS_EXPORT_PRIVATE void handlePacket(StringView packet);
 
@@ -127,22 +134,18 @@ public:
         return *m_executionHandler;
     }
 
-    JS_EXPORT_PRIVATE ModuleManager& moduleManager() const
-    {
-        RELEASE_ASSERT(m_moduleManager);
-        return *m_moduleManager;
-    }
+    JS_EXPORT_PRIVATE ModuleManager& moduleManager() const;
+
+    JS_EXPORT_PRIVATE void reset();
 
 private:
-    void reset();
 
-    void setState(State);
-    JS_EXPORT_PRIVATE bool isState(State) const;
+    bool isInService() const { return m_isInService.load(std::memory_order_acquire); }
+    void setIsInService() { m_isInService.store(true, std::memory_order_release); }
 
     bool createAndBindServerSocket();
     void startAcceptThread();
     void acceptClientConnections();
-    void resetAll();
     void closeSocket(SocketType&);
 
     void handleClient();
@@ -168,7 +171,10 @@ private:
     friend class RegisterHandler;
     friend class ExecutionHandler;
 
-    std::atomic<State> m_state { State::Stopped };
+    // Set once on start()/startRWI() and never cleared — DebugServer is a process-lifetime singleton.
+    std::atomic<bool> m_isInService { false };
+    std::atomic<bool> m_hasContinued { false };
+    std::atomic<bool> m_isDebuggerReady { false };
     uint16_t m_port { defaultPort };
     SocketType m_serverSocket { invalidSocketValue };
     SocketType m_clientSocket { invalidSocketValue };

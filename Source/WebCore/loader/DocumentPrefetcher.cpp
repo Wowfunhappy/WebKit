@@ -32,9 +32,13 @@
 #include "CachedResourceRequest.h"
 #include "Document.h"
 #include "DocumentLoader.h"
+#include "DocumentResourceLoader.h"
 #include "Frame.h"
 #include "FrameLoader.h"
+#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "MemoryCache.h"
+#include "OriginAccessPatterns.h"
 #include "ReferrerPolicy.h"
 #include "ResourceRequest.h"
 #include "SecurityOrigin.h"
@@ -42,18 +46,27 @@
 
 namespace WebCore {
 
-DocumentPrefetcher::DocumentPrefetcher(FrameLoader& frameLoader)
-    : m_frameLoader(frameLoader)
+DocumentPrefetcher::DocumentPrefetcher(LocalFrame& frame)
+    : m_frame(frame)
 {
 }
 
 DocumentPrefetcher::~DocumentPrefetcher()
 {
+    clear();
+}
+
+void DocumentPrefetcher::clear()
+{
     for (auto& [url, data] : m_prefetchedData) {
         RefPtr resource = data.resource;
-        if (resource && resource->hasClient(*this))
+        if (!resource)
+            continue;
+        if (resource->hasClient(*this))
             resource->removeClient(*this);
+        MemoryCache::singleton().remove(*resource);
     }
+    m_prefetchedData.clear();
 }
 
 static bool isPassingSecurityChecks(const URL& url, Document& document)
@@ -108,10 +121,7 @@ static ResourceRequest makePrefetchRequest(URL&& url, const Vector<String>& tags
 
 void DocumentPrefetcher::prefetch(const URL& url, const Vector<String>& tags, std::optional<ReferrerPolicy> referrerPolicy, bool lowPriority)
 {
-    WeakRef<FrameLoader> frameLoader = m_frameLoader;
-    if (!frameLoader.ptr())
-        return;
-    RefPtr<Document> document = frameLoader->frame().document();
+    RefPtr document = m_frame ? m_frame->document() : nullptr;
     if (!document)
         return;
 
@@ -121,14 +131,14 @@ void DocumentPrefetcher::prefetch(const URL& url, const Vector<String>& tags, st
     if (m_prefetchedData.contains(url))
         return;
 
-    if (!isPassingSecurityChecks(url, *document.get()))
+    if (!isPassingSecurityChecks(url, *document))
         return;
 
     // TODO: This needs to be specified.
     if (url.hasFragmentIdentifier() && equalIgnoringFragmentIdentifier(url, document->url()))
         return;
 
-    ResourceRequest request = makePrefetchRequest(URL { url }, tags, referrerPolicy, frameLoader->outgoingReferrerURL(), *document);
+    ResourceRequest request = makePrefetchRequest(URL { url }, tags, referrerPolicy, m_frame->loader().outgoingReferrerURL(), *document);
 
     ResourceLoaderOptions prefetchOptions(
         SendCallbackPolicy::SendCallbacks,
@@ -158,8 +168,24 @@ void DocumentPrefetcher::prefetch(const URL& url, const Vector<String>& tags, st
     prefetchedResource->addClient(*this);
 }
 
-void DocumentPrefetcher::responseReceived(const CachedResource&, const ResourceResponse&, CompletionHandler<void()>&& completionHandler)
+void DocumentPrefetcher::redirectReceived(CachedResource&, ResourceRequest&& request, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&& completionHandler)
 {
+    RefPtr document = m_frame ? m_frame->document() : nullptr;
+    if (!document || !isPassingSecurityChecks(request.url(), *document))
+        return completionHandler({ });
+    completionHandler(WTF::move(request));
+}
+
+void DocumentPrefetcher::responseReceived(const CachedResource& resource, const ResourceResponse& response, CompletionHandler<void()>&& completionHandler)
+{
+    // Remove unsuccessful prefetches from the memory cache as soon as the
+    // response headers arrive, rather than waiting for notifyFinished.
+    // This prevents navigations from finding and reusing a 503 (or other
+    // error) response that is still in the cache while the body loads.
+    // We only remove from the memory cache here (not the client registration),
+    // since the load is still in progress. Full cleanup happens in notifyFinished.
+    if (!response.isSuccessful())
+        MemoryCache::singleton().remove(const_cast<CachedResource&>(resource));
     if (completionHandler)
         completionHandler();
 }

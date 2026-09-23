@@ -40,6 +40,7 @@
 #import <WebCore/Document.h>
 #import <WebCore/FrameTree.h>
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/RemoteFrame.h>
@@ -65,18 +66,6 @@ namespace ax = WebCore::Accessibility;
     return page->axObjectCache();
 }
 
-- (void)enableAccessibilityForAllProcesses
-{
-    // Immediately enable accessibility in the current web process, otherwise this
-    // will happen asynchronously and could break certain flows (e.g., attribute
-    // requests).
-    if (!WebCore::AXObjectCache::accessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility();
-
-    if (RefPtr page = m_page.get())
-        page->enableAccessibilityForAllProcesses();
-}
-
 - (id)accessibilityPluginObject
 {
     ASSERT(isMainRunLoop());
@@ -99,7 +88,7 @@ namespace ax = WebCore::Accessibility;
 // Called directly by Accessibility framework.
 - (id)accessibilityRootObjectWrapper
 {
-    return [self accessibilityRootObjectWrapper:protect([self focusedLocalFrame]).get()];
+    return [self accessibilityRootObjectWrapper:protect([self localFocusedFrame]).get()];
 }
 
 - (id)accessibilityRootObjectWrapper:(WebCore::LocalFrame*)frame
@@ -109,14 +98,17 @@ namespace ax = WebCore::Accessibility;
         if (RefPtr tree = m_isolatedTree.get()) {
             tree->applyPendingChanges();
             if (auto* root = tree->rootNode())
-                return root->wrapper();
+                return RetainPtr<id> { root->wrapper() }.autorelease();
         }
     }
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
     return ax::retrieveAutoreleasedValueFromMainThread<id>([protectedSelf = retainPtr(self), protectedFrame = RefPtr { frame }] () -> RetainPtr<id> {
-        if (!WebCore::AXObjectCache::accessibilityEnabled())
-            [protectedSelf enableAccessibilityForAllProcesses];
+
+        // Immediately enable accessibility in the current web process, otherwise this
+        // will happen asynchronously and could break certain flows (e.g., attribute
+        // requests).
+        WebCore::AXObjectCache::enableAccessibility();
 
         if (protectedSelf->m_hasMainFramePlugin) {
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
@@ -124,14 +116,13 @@ namespace ax = WebCore::Accessibility;
             // is built, so that when text annotations are created on-the-fly as users focus on text fields,
             // isolated objects are able to be attached to those text annotation object wrappers.
             // If they aren't, we never have a backing object to serve any requests from.
-            if (CheckedPtr cache = protectedSelf.get().axObjectCache.get())
-                cache->buildIsolatedTreeIfNeeded();
+            std::ignore = WebCore::AXObjectCache::transitionToAXThreadModeIfNeeded();
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
             if (![protectedSelf shouldFallbackToWebContentAXObjectForMainFramePlugin])
                 return [protectedSelf accessibilityPluginObject];
         }
 
-        RefPtr frame = protectedFrame ? protectedFrame : RefPtr { [protectedSelf focusedLocalFrame] };
+        RefPtr frame = protectedFrame ? protectedFrame : RefPtr { [protectedSelf localFocusedFrame] };
         if (RefPtr document = frame ? frame->document() : nullptr) {
             if (CheckedPtr cache = document->axObjectCache()) {
                 if (RefPtr root = cache->rootObjectForFrame(*frame))
@@ -143,7 +134,7 @@ namespace ax = WebCore::Accessibility;
             // It's possible we were given a null frame (this is explicitly expected when off the main-thread, since
             // we can't access the webpage off the main-thread to get a frame). Now that we are actually on the main-thread,
             // try again if necessary.
-            RefPtr frame = protectedFrame ? protectedFrame : RefPtr { [protectedSelf focusedLocalFrame] };
+            RefPtr frame = protectedFrame ? protectedFrame : RefPtr { [protectedSelf localFocusedFrame] };
 
             if (RefPtr root = frame ? cache->rootObjectForFrame(*frame) : nullptr)
                 return root->wrapper();
@@ -226,13 +217,6 @@ namespace ax = WebCore::Accessibility;
     m_window = window;
 }
 
-- (void)_buildIsolatedTreeIfNeeded
-{
-    ensureOnMainThread([protectedSelf = RetainPtr { self }] {
-        if (CheckedPtr cache = protectedSelf.get().axObjectCache.get())
-            cache->buildIsolatedTreeIfNeeded();
-    });
-}
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 - (void)setHasMainFramePlugin:(bool)hasPlugin
@@ -275,10 +259,10 @@ namespace ax = WebCore::Accessibility;
 
 - (id)accessibilityFocusedUIElement
 {
-    return [[self accessibilityRootObjectWrapper:protect([self focusedLocalFrame]).get()] accessibilityFocusedUIElement];
+    return [[self accessibilityRootObjectWrapper:protect([self localFocusedFrame]).get()] accessibilityFocusedUIElement];
 }
 
-- (WebCore::LocalFrame *)focusedLocalFrame
+- (WebCore::LocalFrame *)localFocusedFrame
 {
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     if (!isMainRunLoop())

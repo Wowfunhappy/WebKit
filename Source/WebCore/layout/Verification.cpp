@@ -47,6 +47,7 @@
 #include "RenderTableCell.h"
 #include "RenderTableSection.h"
 #include "RenderView.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -218,7 +219,7 @@ static bool outputMismatchingBlockBoxInformationIfNeeded(TextStream& stream, con
     };
 
     // rendering does not offset for relative positioned boxes.
-    auto frameRect = renderer.frameRect();
+    auto frameRect = renderer.borderBoxRectInContainer();
     if (renderer.isInFlowPositioned())
         frameRect.move(renderer.offsetForInFlowPosition());
 
@@ -244,7 +245,7 @@ static bool outputMismatchingBlockBoxInformationIfNeeded(TextStream& stream, con
             return false;
     }
     if (!areEssentiallyEqual(frameRect, BoxGeometry::borderBoxRect(boxGeometry))) {
-        outputRect("frameBox"_s, renderer.frameRect(), BoxGeometry::borderBoxRect(boxGeometry));
+        outputRect("frameBox"_s, renderer.borderBoxRectInContainer(), BoxGeometry::borderBoxRect(boxGeometry));
         return true;
     }
 

@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--useConcurrentJIT=0")
 
 function canThrow(func, errorMessage) {

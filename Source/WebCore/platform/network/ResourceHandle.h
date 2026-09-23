@@ -133,7 +133,7 @@ public:
 
     WEBCORE_EXPORT static void NODELETE forceContentSniffing();
 
-    bool hasAuthenticationChallenge() const;
+    bool NODELETE hasAuthenticationChallenge() const;
     void clearAuthentication();
     WEBCORE_EXPORT virtual void cancel();
 

@@ -24,6 +24,7 @@
 
 #include "LegacyRenderSVGResource.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGBlockInlines.h"
 #include "RenderView.h"
@@ -37,7 +38,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGBlock);
 
-RenderSVGBlock::RenderSVGBlock(Type type, SVGGraphicsElement& element, RenderStyle&& style)
+RenderSVGBlock::RenderSVGBlock(Type type, SVGGraphicsElement& element, Style::ComputedStyle&& style)
     : RenderBlockFlow(type, element, WTF::move(style), BlockFlowFlag::IsSVGBlock)
 {
 }
@@ -76,7 +77,7 @@ bool RenderSVGBlock::needsHasSVGTransformFlags() const
 void RenderSVGBlock::boundingRects(Vector<LayoutRect>& rects, const LayoutPoint& accumulatedOffset) const
 {
     if (document().settings().layerBasedSVGEngineEnabled()) {
-        rects.append({ accumulatedOffset, size() });
+        rects.append({ accumulatedOffset, borderBoxSize() });
         return;
     }
 
@@ -86,7 +87,7 @@ void RenderSVGBlock::boundingRects(Vector<LayoutRect>& rects, const LayoutPoint&
 
 void RenderSVGBlock::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
 {
-    quads.append(localToAbsoluteQuad(FloatRect { { }, size() }, UseTransforms, wasFixed));
+    quads.append(localToAbsoluteQuad(FloatRect { { }, borderBoxSize() }, MapCoordinatesMode::UseTransforms, wasFixed));
 }
 
 void RenderSVGBlock::willBeDestroyed()
@@ -100,7 +101,7 @@ void RenderSVGBlock::willBeDestroyed()
     RenderBlockFlow::willBeDestroyed();
 }
 
-void RenderSVGBlock::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderSVGBlock::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     if (document().settings().layerBasedSVGEngineEnabled()) {
         RenderBlockFlow::styleDidChange(diff, oldStyle);

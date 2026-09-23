@@ -53,8 +53,10 @@ private:
 
     // MediaPlaybackTarget
     String deviceName() const final;
+    String routeName() const final;
     bool hasActiveRoute() const final { return m_hasActiveRoute; }
     bool supportsRemoteVideoPlayback() const final { return hasActiveRoute(); }
+    bool operator==(const MediaPlaybackTarget&) const final;
 
     RefPtr<MediaDeviceRoute> m_route;
     bool m_hasActiveRoute;

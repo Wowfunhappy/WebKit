@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ requireOptions("--watchdog=1000", "--watchdog-exception-ok")
 
 function foo() {

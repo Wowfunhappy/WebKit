@@ -27,23 +27,13 @@ namespace WebCore {
 class JSTestNamespaceObject : public JSDOMObject {
 public:
     using Base = JSDOMObject;
-    static JSTestNamespaceObject* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestNamespaceObject* ptr = new (NotNull, JSC::allocateCell<JSTestNamespaceObject>(vm)) JSTestNamespaceObject(structure, *globalObject);
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestNamespaceObject* create(JSC::Structure*, JSDOMGlobalObject*);
 
     static void destroy(JSC::JSCell*);
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {

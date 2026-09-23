@@ -27,6 +27,7 @@
 
 #include <WebCore/IDBKeyData.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -40,7 +41,6 @@ class IndexValueEntry {
     WTF_MAKE_TZONE_ALLOCATED(IndexValueEntry);
 public:
     explicit IndexValueEntry(bool unique);
-    ~IndexValueEntry();
 
     void addKey(const IDBKeyData&);
 
@@ -48,9 +48,9 @@ public:
     bool removeKey(const IDBKeyData&);
     bool contains(const IDBKeyData&);
 
-    const IDBKeyData* NODELETE getLowest() const LIFETIME_BOUND;
+    const IDBKeyData* getLowest() const LIFETIME_BOUND;
 
-    uint64_t NODELETE getCount() const;
+    uint64_t getCount() const;
 
     class Iterator {
     public:
@@ -65,10 +65,10 @@ public:
         bool NODELETE isValid() const;
         void NODELETE invalidate();
 
-        const IDBKeyData& NODELETE key() const;
+        const IDBKeyData& key() const;
         const ThreadSafeDataBuffer& value() const;
 
-        Iterator& NODELETE operator++();
+        Iterator& operator++();
 
     private:
         IndexValueEntry* m_entry { nullptr };
@@ -77,24 +77,19 @@ public:
         IDBKeyDataSet::reverse_iterator m_reverseIterator;
     };
 
-    Iterator NODELETE begin() LIFETIME_BOUND;
-    Iterator NODELETE reverseBegin(CursorDuplicity) LIFETIME_BOUND;
+    Iterator begin() LIFETIME_BOUND;
+    Iterator reverseBegin(CursorDuplicity) LIFETIME_BOUND;
 
     // Finds the key, or the next higher record after the key.
     Iterator find(const IDBKeyData&) LIFETIME_BOUND;
     // Finds the key, or the next lowest record before the key.
     Iterator reverseFind(const IDBKeyData&, CursorDuplicity) LIFETIME_BOUND;
 
-    bool unique() const { return m_unique; }
+    bool isUnique() const { return std::holds_alternative<std::optional<IDBKeyData>>(m_keys); }
     Vector<IDBKeyData> keys() const;
 
 private:
-    union {
-        IDBKeyDataSet* m_orderedKeys;
-        IDBKeyData* m_key;
-    };
-
-    bool m_unique;
+    Variant<std::optional<IDBKeyData>, IDBKeyDataSet> m_keys;
 };
 
 } // namespace IDBServer

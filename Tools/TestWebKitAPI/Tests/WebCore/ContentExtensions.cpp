@@ -27,7 +27,7 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "Utilities.h"
+#include "Helpers/Utilities.h"
 #include <JavaScriptCore/InitializeThreading.h>
 #include <WebCore/CSSParserContext.h>
 #include <WebCore/CombinedURLFilters.h>
@@ -971,7 +971,7 @@ static int sequenceInstances(const Vector<T> vector, ASCIILiteral sequence)
     size_t instances = 0;
     for (size_t i = 0; i <= vector.size() - sequenceLength; ++i) {
         for (size_t j = 0; j < sequenceLength; j++) {
-            if (vector[i + j] != sequence.characterAt(j))
+            if (vector[i + j] != sequence.codeUnitAt(j))
                 break;
             if (j == sequenceLength - 1)
                 instances++;

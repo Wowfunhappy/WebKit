@@ -23,58 +23,25 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "AttachmentLayout.h"
+#import "config.h"
+#import "AttachmentLayout.h"
 
 #if ENABLE(ATTACHMENT_ELEMENT) && PLATFORM(COCOA)
 
-#include "ColorCocoa.h"
-#include "ElementInlines.h"
-#include "FontCacheCoreText.h"
-#include "FrameSelection.h"
-#include "GeometryUtilities.h"
-#include "RenderObjectInlines.h"
-#include "RenderTheme.h"
-#include <pal/spi/cf/CoreTextSPI.h>
-#include <wtf/cocoa/TypeCastsCocoa.h>
+#import "ColorCocoa.h"
+#import "ElementInlines.h"
+#import "FontCacheCoreText.h"
+#import "FrameSelection.h"
+#import "GeometryUtilities.h"
+#import "PlatformRenderTheme.h"
+#import "RenderObjectInlines.h"
+#import "RenderTheme.h"
+#import <pal/spi/cf/CoreTextSPI.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WebCore {
 
 #if PLATFORM(MAC)
-
-constexpr CGFloat attachmentIconSize = 48;
-constexpr CGFloat attachmentIconBackgroundPadding = 6;
-constexpr CGFloat attachmentIconBackgroundSize = attachmentIconSize + attachmentIconBackgroundPadding;
-constexpr CGFloat attachmentIconSelectionBorderThickness = 1;
-constexpr CGFloat attachmentIconBackgroundRadius = 3;
-constexpr CGFloat attachmentIconToTitleMargin = 2;
-
-constexpr auto attachmentIconBackgroundColor = Color::black.colorWithAlphaByte(30);
-constexpr auto attachmentIconBorderColor = Color::white.colorWithAlphaByte(125);
-
-constexpr CGFloat attachmentTitleFontSize = 12;
-constexpr CGFloat attachmentTitleBackgroundRadius = 3;
-constexpr CGFloat attachmentTitleBackgroundPadding = 3;
-constexpr CGFloat attachmentTitleMaximumWidth = 100 - (attachmentTitleBackgroundPadding * 2);
-constexpr CFIndex attachmentTitleMaximumLineCount = 2;
-
-constexpr CGFloat attachmentSubtitleFontSize = 10;
-constexpr int attachmentSubtitleWidthIncrement = 10;
-constexpr auto attachmentSubtitleTextColor = SRGBA<uint8_t> { 82, 145, 214 };
-
-constexpr CGFloat attachmentProgressBarWidth = 30;
-constexpr CGFloat attachmentProgressBarHeight = 5;
-constexpr CGFloat attachmentProgressBarOffset = -9;
-constexpr CGFloat attachmentProgressBarBorderWidth = 1;
-constexpr auto attachmentProgressBarBackgroundColor = Color::black.colorWithAlphaByte(89);
-constexpr auto attachmentProgressBarFillColor = Color::white;
-constexpr auto attachmentProgressBarBorderColor = Color::black.colorWithAlphaByte(128);
-
-constexpr CGFloat attachmentPlaceholderBorderRadius = 5;
-constexpr auto attachmentPlaceholderBorderColor = Color::black.colorWithAlphaByte(56);
-constexpr CGFloat attachmentPlaceholderBorderWidth = 2;
-constexpr CGFloat attachmentPlaceholderBorderDashLength = 6;
-constexpr CGFloat attachmentMargin = 3;
 
 static Color titleTextColorForAttachment(const RenderAttachment& attachment, AttachmentLayoutStyle style)
 {
@@ -174,7 +141,7 @@ AttachmentLayout::AttachmentLayout(const RenderAttachment& attachment, Attachmen
         attachmentRect.unite(line.backgroundRect);
     if (!subtitleTextRect.isEmpty()) {
         FloatRect roundedSubtitleTextRect = subtitleTextRect;
-        roundedSubtitleTextRect.inflateX(attachmentSubtitleWidthIncrement - clampToInteger(ceilf(subtitleTextRect.width())) % attachmentSubtitleWidthIncrement);
+        roundedSubtitleTextRect.inflateX(attachmentSubtitleWidthIncrement - clampTo<int>(ceilf(subtitleTextRect.width())) % attachmentSubtitleWidthIncrement);
         attachmentRect.unite(roundedSubtitleTextRect);
     }
     attachmentRect.inflate(attachmentMargin);
@@ -185,7 +152,7 @@ AttachmentLayout::AttachmentLayout(const RenderAttachment& attachment, Attachmen
 
 #if PLATFORM(IOS_FAMILY)
 
-constexpr CGSize attachmentSize = { 160, 119 };
+constexpr CGSize attachmentSize [[maybe_unused]] = { 160, 119 };
 
 constexpr CGFloat attachmentBorderRadius = 16;
 constexpr auto attachmentBorderColor = SRGBA<uint8_t> { 204, 204, 204 };
@@ -261,12 +228,12 @@ static CGFloat attachmentDynamicTypeScaleFactor()
 AttachmentLayout::AttachmentLayout(const RenderAttachment& attachment, AttachmentLayoutStyle)
 {
     excludeTypographicLeading = true;
-    attachmentRect = FloatRect(0, 0, attachment.width().toFloat(), attachment.height().toFloat());
+    attachmentRect = FloatRect(0, 0, attachment.borderBoxWidth().toFloat(), attachment.borderBoxHeight().toFloat());
     wrappingWidth = attachmentWrappingTextMaximumWidth * attachmentDynamicTypeScaleFactor();
     widthPadding = attachmentRect.width();
 
     hasProgress = getAttachmentProgress(attachment, progress);
-    String title = attachment.attachmentElement().attachmentTitleForDisplay();
+    String title = protect(attachment.attachmentElement())->attachmentTitleForDisplay();
     String action = attachment.attachmentElement().attachmentActionForDisplay();
     String subtitle = attachment.attachmentElement().attachmentSubtitleForDisplay();
 
@@ -278,7 +245,7 @@ AttachmentLayout::AttachmentLayout(const RenderAttachment& attachment, Attachmen
     }
 
     if (action.isEmpty() && !hasProgress) {
-        attachment.attachmentElement().requestIconIfNeededWithSize(FloatSize());
+        protect(attachment.attachmentElement())->requestIconIfNeededWithSize(FloatSize());
         FloatSize iconSize = attachment.attachmentElement().iconSize();
         icon = attachment.attachmentElement().icon();
         

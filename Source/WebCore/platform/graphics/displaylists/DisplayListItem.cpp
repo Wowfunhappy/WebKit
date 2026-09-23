@@ -34,10 +34,14 @@
 namespace WebCore {
 namespace DisplayList {
 
-void applyItem(GraphicsContext& context, ControlFactory& controlFactory, const Item& item)
+void applyItem(GraphicsContext& context, const AffineTransform& baseTransform, ControlFactory& controlFactory, const Item& item)
 {
     WTF::switchOn(item,
         [&](const DrawControlPart& item) {
+            item.apply(context, controlFactory);
+        }, [&](const SetCTM& item) {
+            item.apply(context, baseTransform);
+        }, [&](const DrawDisplayList& item) {
             item.apply(context, controlFactory);
         }, [&](const auto& item) {
             item.apply(context);

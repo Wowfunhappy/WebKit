@@ -41,7 +41,7 @@ PlatformXRCoordinator* PlatformXRSystem::xrCoordinator()
     return &xrCoordinator.get();
 }
 
-void PlatformXRSystem::createLayerProjection(IPC::Connection&, uint32_t width, uint32_t height, bool alpha, CompletionHandler<void(std::optional<PlatformXR::LayerHandle>)>&& reply)
+void PlatformXRSystem::createLayerProjection(IPC::Connection&, uint32_t width, uint32_t height, bool alpha, CompletionHandler<void(std::optional<PlatformXR::LayerInfo>)>&& reply)
 {
     ASSERT(RunLoop::isMain());
 
@@ -54,6 +54,23 @@ void PlatformXRSystem::createLayerProjection(IPC::Connection&, uint32_t width, u
     if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
         xrCoordinator->createLayerProjection(width, height, alpha, WTF::move(reply));
 }
+
+#if ENABLE(WEBXR_LAYERS)
+void PlatformXRSystem::createCompositionLayer(IPC::Connection&, PlatformXR::CompositionLayerType type, WebCore::IntSize size, PlatformXR::LayerLayout layout, CompletionHandler<void(std::optional<PlatformXR::LayerInfo>)>&& reply)
+{
+    ASSERT(RunLoop::isMain());
+
+    RefPtr page = m_page.get();
+    if (!page) {
+        reply(std::nullopt);
+        return;
+    }
+    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
+        xrCoordinator->createCompositionLayer(type, size, layout, WTF::move(reply));
+    else
+        reply(std::nullopt);
+}
+#endif
 
 } // namespace WebKit
 

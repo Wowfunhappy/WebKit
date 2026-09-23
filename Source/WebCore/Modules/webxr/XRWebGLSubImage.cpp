@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2024 Apple, Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia, S.L. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +26,14 @@
 
 #include "config.h"
 #include "XRWebGLSubImage.h"
+#include "XRLayerBacking.h"
 
 #if ENABLE(WEBXR_LAYERS)
 
+#include "WebGLOpaqueTexture.h"
+#include "WebXRSession.h"
+#include "WebXRViewport.h"
+#include "XRCompositionLayer.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -35,6 +41,63 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(XRWebGLSubImage);
 
 XRWebGLSubImage::~XRWebGLSubImage() = default;
+
+XRWebGLSubImage::XRWebGLSubImage(Ref<WebXRViewport>&& viewport, WebGLTexture& colorTexture, IntSize colorTextureSize, WebGLTexture* depthStencilTexture, std::optional<IntSize> depthStencilTextureSize)
+    : m_viewport(WTF::move(viewport))
+    , m_colorTexture(colorTexture)
+    , m_colorTextureSize(colorTextureSize)
+    , m_depthStencilTexture(depthStencilTexture)
+    , m_depthStencilTextureSize(WTF::move(depthStencilTextureSize))
+{
+}
+
+ExceptionOr<Ref<XRWebGLSubImage>> XRWebGLSubImage::create(Ref<WebXRViewport>&& viewport, XRCompositionLayer& layer, uint32_t colorTextureIndex)
+{
+    auto colorTexture = layer.colorTextures()[colorTextureIndex].get();
+    if (!colorTexture || !colorTexture->isUsable())
+        return Exception { ExceptionCode::InvalidStateError, "Cannot get a usable texture for the subimage."_s };
+
+    IntSize colorTextureSize { static_cast<int>(layer.backing().colorTextureWidth()), static_cast<int>(layer.backing().colorTextureHeight()) };
+
+    std::optional<IntSize> depthTextureSize;
+    WebGLOpaqueTexture* depthTexture = nullptr;
+    if (!layer.depthStencilTextures().isEmpty()) {
+        auto depthIndex = colorTextureIndex < layer.depthStencilTextures().size() ? colorTextureIndex : 0U;
+        depthTexture = layer.depthStencilTextures()[depthIndex].get();
+        if (!depthTexture || !depthTexture->isUsable())
+            depthTexture = nullptr;
+        else
+            depthTextureSize = IntSize { static_cast<int>(layer.backing().depthTextureWidth().value()), static_cast<int>(layer.backing().depthTextureHeight().value()) };
+    }
+
+    return adoptRef(*new XRWebGLSubImage(WTF::move(viewport), *colorTexture, colorTextureSize, depthTexture, depthTextureSize));
+}
+
+const WebGLTexture& XRWebGLSubImage::colorTexture() const
+{
+    return m_colorTexture.get();
+}
+
+RefPtr<WebGLTexture> XRWebGLSubImage::depthStencilTexture() const
+{
+    return m_depthStencilTexture;
+}
+
+RefPtr<WebGLTexture> XRWebGLSubImage::motionVectorTexture() const
+{
+    return nullptr;
+}
+
+std::optional<uint32_t> XRWebGLSubImage::depthStencilTextureWidth() const
+{
+    return !m_depthStencilTexture ? std::nullopt : std::make_optional<uint32_t>(m_viewport->width());
+}
+
+std::optional<uint32_t> XRWebGLSubImage::depthStencilTextureHeight() const
+{
+    return !m_depthStencilTexture ? std::nullopt : std::make_optional<uint32_t>(m_viewport->height());
+}
+
 
 } // namespace WebCore
 

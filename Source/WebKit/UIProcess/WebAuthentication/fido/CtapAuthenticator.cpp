@@ -43,6 +43,7 @@
 #include <WebCore/Pin.h>
 #include <WebCore/U2fCommandConstructor.h>
 #include <WebCore/WebAuthenticationUtils.h>
+#include <array>
 #include <pal/crypto/CryptoDigest.h>
 #include <wtf/EnumTraits.h>
 #include <wtf/RunLoop.h>
@@ -122,9 +123,9 @@ bool NODELETE isTerminalPinError(const CtapDeviceResponseCode& error)
 // Hash PRF input according to spec: SHA-256("WebAuthn PRF" || 0x00 || input)
 static Vector<uint8_t> hashPRFInput(const BufferSource& input)
 {
-    constexpr uint8_t prefix[] = { 'W', 'e', 'b', 'A', 'u', 't', 'h', 'n', ' ', 'P', 'R', 'F' };
+    constexpr auto prefix = WTF::toArray<uint8_t>({ 'W', 'e', 'b', 'A', 'u', 't', 'h', 'n', ' ', 'P', 'R', 'F' });
     constexpr uint8_t nullByte = 0x00;
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(std::span { prefix });
     crypto->addBytes(std::span { &nullByte, 1 });
     crypto->addBytes(input.span());
@@ -172,7 +173,7 @@ void CtapAuthenticator::makeCredential()
         continueMakeCredentialAfterCheckExcludedCredentials();
 }
 
-void CtapAuthenticator::continueSilentlyCheckCredentials(Vector<uint8_t>&& data, CompletionHandler<void(bool)>&& completionHandler)
+void CtapAuthenticator::continueSilentlyCheckCredentials(Vector<uint8_t>&& data, Function<void(bool)>&& completionHandler)
 {
     auto error = getResponseCode(data);
     CTAP_RELEASE_LOG("continueSilentlyCheckCredentials: Got error code: %hhu from authenticator.", std::to_underlying(error));
@@ -240,7 +241,7 @@ void CtapAuthenticator::continueMakeCredentialAfterCheckExcludedCredentials(bool
     Vector<String> authenticatorSupportedExtensions;
     if (m_info.extensions())
         authenticatorSupportedExtensions = *m_info.extensions();
-    if (m_isKeyStoreFull || (m_info.remainingDiscoverableCredentials() && !m_info.remainingDiscoverableCredentials())) {
+    if (m_isKeyStoreFull) {
         if (options.authenticatorSelection && (options.authenticatorSelection->requireResidentKey || options.authenticatorSelection->residentKey == ResidentKeyRequirement::Required)) {
             protect(observer())->authenticatorStatusUpdated(WebAuthenticationStatus::KeyStoreFull);
             return;
@@ -945,5 +946,8 @@ std::optional<HmacSecretParameters> CtapAuthenticator::prepareHmacSecretParamete
 
 
 } // namespace WebKit
+
+#undef CTAP_RELEASE_LOG
+#undef CTAP_RELEASE_LOG_WITH_THIS
 
 #endif // ENABLE(WEB_AUTHN)

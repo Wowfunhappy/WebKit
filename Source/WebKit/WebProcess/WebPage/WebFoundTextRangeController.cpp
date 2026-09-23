@@ -34,6 +34,7 @@
 #include <WebCore/Document.h>
 #include <WebCore/DocumentMarkerController.h>
 #include <WebCore/DocumentMarkers.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/DocumentQuirks.h>
 #include <WebCore/DocumentView.h>
 #include <WebCore/Editor.h>
@@ -52,6 +53,8 @@
 #include <WebCore/PageOverlayController.h>
 #include <WebCore/PathUtilities.h>
 #include <WebCore/PlatformMouseEvent.h>
+#include <WebCore/RenderLayer.h>
+#include <WebCore/RenderObject.h>
 #include <WebCore/SimpleRange.h>
 #include <WebCore/TextIterator.h>
 #include <ranges>
@@ -88,7 +91,7 @@ static inline WebFoundTextRange createWebFoundTextRange(SimpleRange& simpleRange
     };
 }
 
-static inline bool canConvertToWebFoundTextRange(SimpleRange& range)
+static inline bool NODELETE canConvertToWebFoundTextRange(SimpleRange& range)
 {
     auto& document = range.startContainer().document();
 
@@ -187,6 +190,8 @@ void WebFoundTextRangeController::decorateTextRangeWithStyle(const WebFoundTextR
     if (currentStyleForRange == FindDecorationStyle::Highlighted && range == m_highlightedRange) {
         m_textIndicator = nullptr;
         m_highlightedRange = { };
+
+        protect(protect(m_webPage.get())->corePage())->removeAllActiveTextMatches();
     }
 
     if (auto simpleRange = simpleRangeFromFoundTextRange(range)) {
@@ -202,6 +207,8 @@ void WebFoundTextRangeController::decorateTextRangeWithStyle(const WebFoundTextR
         }
         case FindDecorationStyle::Highlighted: {
             m_highlightedRange = range;
+
+            protect(protect(simpleRange->start.document())->markers())->addMarker(*simpleRange, WebCore::DocumentMarkerType::ActiveTextMatch);
 
             auto ancestorsRevealed = revealClosedDetailsAndHiddenUntilFoundAncestors(protect(simpleRange->startContainer()));
 
@@ -249,17 +256,20 @@ void WebFoundTextRangeController::scrollTextRangeToVisible(const WebFoundTextRan
             if (!simpleRange)
                 return;
 
-            RefPtr document = documentForFoundTextRange(range);
-            if (!document)
+            auto rects = WebCore::RenderObject::absoluteTextRects(*simpleRange);
+            if (rects.isEmpty())
                 return;
 
-            WebCore::VisibleSelection visibleSelection(*simpleRange);
-            OptionSet temporarySelectionOptions { WebCore::TemporarySelectionOption::DelegateMainFrameScroll, WebCore::TemporarySelectionOption::RevealSelectionBounds, WebCore::TemporarySelectionOption::DoNotSetFocus, WebCore::TemporarySelectionOption::UserTriggered };
+            CheckedPtr renderer = simpleRange->startContainer().renderer();
+            if (!renderer)
+                return;
 
-            if (document->isTopDocument())
-                temporarySelectionOptions.add(WebCore::TemporarySelectionOption::SmoothScroll);
+            WebCore::ScrollRectToVisibleOptions options;
+            RefPtr document = documentForFoundTextRange(range);
+            if (document && document->isTopDocument())
+                options.behavior = WebCore::ScrollBehavior::Smooth;
 
-            WebCore::TemporarySelectionChange selectionChange(*document, visibleSelection, temporarySelectionOptions);
+            WebCore::LocalFrameView::scrollRectToVisible(WebCore::LayoutRect(unionRect(rects)), *renderer, false, options);
         },
         [&] (const WebKit::WebFoundTextRange::PDFData& pdfData) {
 #if ENABLE(PDF_PLUGIN)
@@ -284,7 +294,9 @@ void WebFoundTextRangeController::clearAllDecoratedFoundText()
     clearCachedRanges();
     m_decoratedRanges.clear();
     m_unhighlightedFoundRanges.clear();
-    protect(protect(m_webPage.get())->corePage())->unmarkAllTextMatches();
+    RefPtr corePage = protect(m_webPage.get())->corePage();
+    corePage->unmarkAllTextMatches();
+    corePage->removeAllActiveTextMatches();
 
     m_highlightedRange = { };
     m_textIndicator = nullptr;
@@ -562,10 +574,10 @@ WebCore::LocalFrame* WebFoundTextRangeController::frameForFoundTextRange(const W
     Ref mainFrame = m_webPage.get()->corePage()->mainFrame();
 
     if (range.pathToFrame.isEmpty())
-        return dynamicDowncast<WebCore::LocalFrame>(mainFrame.ptr());
+        return dynamicDowncast<WebCore::LocalFrame>(mainFrame.unsafePtr());
 
     RefPtr foundFrame = protect(mainFrame->page())->findFrameByPath(range.pathToFrame);
-    return dynamicDowncast<WebCore::LocalFrame>(foundFrame.get());
+    return dynamicDowncast<WebCore::LocalFrame>(foundFrame.unsafeGet());
 }
 
 WebCore::Document* WebFoundTextRangeController::documentForFoundTextRange(const WebFoundTextRange& range) const

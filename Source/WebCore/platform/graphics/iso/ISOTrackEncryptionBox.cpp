@@ -26,6 +26,7 @@
 #include "config.h"
 #include "ISOTrackEncryptionBox.h"
 
+#include "BitReader.h"
 #include <JavaScriptCore/DataView.h>
 #include <wtf/StdLibExtras.h>
 
@@ -35,14 +36,6 @@ namespace WebCore {
 
 ISOTrackEncryptionBox::ISOTrackEncryptionBox() = default;
 ISOTrackEncryptionBox::~ISOTrackEncryptionBox() = default;
-
-bool ISOTrackEncryptionBox::parseWithoutTypeAndSize(DataView& view)
-{
-    // Clients may want to parse the contents of a `tenc` box without the
-    // leading size and name fields.
-    unsigned offset = 0;
-    return parseVersionAndFlags(view, offset) && parsePayload(view, offset);
-}
 
 bool ISOTrackEncryptionBox::parse(DataView& view, unsigned& offset)
 {
@@ -103,6 +96,67 @@ bool ISOTrackEncryptionBox::parsePayload(DataView& view, unsigned& offset)
             defaultConstantIV.append(character);
         }
         m_defaultConstantIV = WTF::move(defaultConstantIV);
+    }
+
+    return true;
+}
+
+bool ISOTrackEncryptionBox::parseWithoutTypeAndSize(std::span<const uint8_t> data)
+{
+    BitReader reader(data);
+
+    // parseVersionAndFlags: 1 byte version + 3 bytes flags
+    auto version = reader.read<uint8_t>();
+    if (!version)
+        return false;
+    m_version = *version;
+
+    auto flags = reader.read(24);
+    if (!flags)
+        return false;
+    m_flags = static_cast<uint32_t>(*flags);
+
+    // unsigned int(8) reserved = 0;
+    if (!reader.skipBytes(1))
+        return false;
+
+    if (!m_version) {
+        // unsigned int(8) reserved = 0;
+        if (!reader.skipBytes(1))
+            return false;
+    } else {
+        auto cryptAndSkip = reader.read<uint8_t>();
+        if (!cryptAndSkip)
+            return false;
+        m_defaultCryptByteBlock = static_cast<int8_t>(*cryptAndSkip) >> 4;
+        m_defaultSkipByteBlock = static_cast<int8_t>(*cryptAndSkip) & 0xF;
+    }
+
+    auto defaultIsProtected = reader.read<uint8_t>();
+    if (!defaultIsProtected)
+        return false;
+    m_defaultIsProtected = static_cast<int8_t>(*defaultIsProtected);
+
+    auto defaultPerSampleIVSize = reader.read<uint8_t>();
+    if (!defaultPerSampleIVSize)
+        return false;
+    m_defaultPerSampleIVSize = static_cast<int8_t>(*defaultPerSampleIVSize);
+
+    auto kIDOffset = reader.byteOffset();
+    if (data.size() < kIDOffset + 16)
+        return false;
+    m_defaultKID = data.subspan(kIDOffset, 16);
+    if (!reader.skipBytes(16))
+        return false;
+
+    if (m_defaultIsProtected == 1 && !m_defaultPerSampleIVSize) {
+        auto ivSize = reader.read<uint8_t>();
+        if (!ivSize)
+            return false;
+        auto ivOffset = reader.byteOffset();
+        if (data.size() < ivOffset + *ivSize)
+            return false;
+        m_defaultConstantIV = data.subspan(ivOffset, *ivSize);
     }
 
     return true;

@@ -262,6 +262,8 @@ PASS <a>: Setting <https://test.invalid/>.host = 'test/@aaa'
 PASS <area>: Setting <https://test.invalid/>.host = 'test/@aaa'
 PASS <a>: Setting <https://test.invalid/>.host = 'test/:aaa'
 PASS <area>: Setting <https://test.invalid/>.host = 'test/:aaa'
+PASS <a>: Setting <foo://path/to>.host = ':80'
+PASS <area>: Setting <foo://path/to>.host = ':80'
 PASS <a>: Setting <sc://x/>.hostname = '\0' Non-special scheme
 PASS <area>: Setting <sc://x/>.hostname = '\0' Non-special scheme
 PASS <a>: Setting <sc://x/>.hostname = '	'
@@ -412,6 +414,20 @@ PASS <a>: Setting <wpt++://domain.com:443>.port = '	8080' Leading u0009 on non-s
 PASS <area>: Setting <wpt++://domain.com:443>.port = '	8080' Leading u0009 on non-special scheme
 PASS <a>: Setting <https://www.google.com:4343>.port = '4wpt' Should use all ascii prefixed characters as port
 PASS <area>: Setting <https://www.google.com:4343>.port = '4wpt' Should use all ascii prefixed characters as port
+PASS <a>: Setting <https://domain.com:3000>.port = '
+	80
+	80
+	'
+PASS <area>: Setting <https://domain.com:3000>.port = '
+	80
+	80
+	'
+PASS <a>: Setting <https://domain.com:3000>.port = '
+
+		'
+PASS <area>: Setting <https://domain.com:3000>.port = '
+
+		'
 PASS <a>: Setting <mailto:me@example.net>.pathname = '/foo' Opaque paths cannot be set
 PASS <area>: Setting <mailto:me@example.net>.pathname = '/foo' Opaque paths cannot be set
 PASS <a>: Setting <data:original>.pathname = 'new value'
@@ -478,6 +494,8 @@ PASS <a>: Setting <http://example.net>.pathname = ' ' Trailing space should be e
 PASS <area>: Setting <http://example.net>.pathname = ' ' Trailing space should be encoded
 PASS <a>: Setting <http://example.net>.pathname = '\0' Trailing C0 control should be encoded
 PASS <area>: Setting <http://example.net>.pathname = '\0' Trailing C0 control should be encoded
+PASS <a>: Setting <foo://path/to>.pathname = '/..'
+PASS <area>: Setting <foo://path/to>.pathname = '/..'
 PASS <a>: Setting <https://example.net#nav>.search = 'lang=fr'
 PASS <area>: Setting <https://example.net#nav>.search = 'lang=fr'
 PASS <a>: Setting <https://example.net?lang=en-US#nav>.search = 'lang=fr'
@@ -558,6 +576,18 @@ PASS <a>: Setting <http://example.net>.hash = ' ' Trailing space should be encod
 PASS <area>: Setting <http://example.net>.hash = ' ' Trailing space should be encoded
 PASS <a>: Setting <http://example.net>.hash = '\0' Trailing C0 control should be encoded
 PASS <area>: Setting <http://example.net>.hash = '\0' Trailing C0 control should be encoded
+PASS <a>: Setting <data:text/plain,test>.hash = '#<foo> <bar>' Fragment with <> on data: URI
+PASS <area>: Setting <data:text/plain,test>.hash = '#<foo> <bar>' Fragment with <> on data: URI
+PASS <a>: Setting <about:blank>.hash = '#<foo> <bar>' Fragment with <> on about:blank
+PASS <area>: Setting <about:blank>.hash = '#<foo> <bar>' Fragment with <> on about:blank
+PASS <a>: Setting <data:text/plain,test>.hash = '#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé' Fragment percent-encode set on data: URI; tabs and newlines are removed
+PASS <area>: Setting <data:text/plain,test>.hash = '#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé' Fragment percent-encode set on data: URI; tabs and newlines are removed
+PASS <a>: Setting <about:blank>.hash = '#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé' Fragment percent-encode set on about:blank; tabs and newlines are removed
+PASS <area>: Setting <about:blank>.hash = '#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé' Fragment percent-encode set on about:blank; tabs and newlines are removed
 PASS <a>: Setting <file:///var/log/system.log>.href = 'http://0300.168.0xF0'
 PASS <area>: Setting <file:///var/log/system.log>.href = 'http://0300.168.0xF0'
 

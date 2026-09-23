@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/ECMAMode.h>
 #include <JavaScriptCore/InternalFunction.h>
 
 namespace JSC {

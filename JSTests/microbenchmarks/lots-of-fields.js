@@ -1,6 +1,6 @@
 //@ skip if $model == "Apple Watch Series 3" # added by mark-jsc-stress-test.py
 // This test uses all available memory on some small memory devices.
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 function foo() {
     var result = 0;

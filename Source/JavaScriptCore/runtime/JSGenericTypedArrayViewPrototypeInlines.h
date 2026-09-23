@@ -45,7 +45,7 @@ void JSGenericTypedArrayViewPrototype<ViewClass>::finishCreation(
 {
     Base::finishCreation(vm);
     
-    ASSERT(inherits(info()));
+    ASSERT(inheritsSlow(info()));
 
     putDirectWithoutTransition(vm, vm.propertyNames->BYTES_PER_ELEMENT, jsNumber(ViewClass::elementSize), PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly | PropertyAttribute::DontDelete);
 

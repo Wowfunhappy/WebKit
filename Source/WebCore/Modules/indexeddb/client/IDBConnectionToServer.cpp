@@ -460,7 +460,7 @@ void IDBConnectionToServer::connectionToServerLost(const IDBError& error)
     LOG(IndexedDB, "IDBConnectionToServer::connectionToServerLost");
     ASSERT(isMainThread());
     ASSERT(m_serverConnectionIsValid);
-    
+
     m_serverConnectionIsValid = false;
     m_proxy->connectionToServerLost(error);
 }

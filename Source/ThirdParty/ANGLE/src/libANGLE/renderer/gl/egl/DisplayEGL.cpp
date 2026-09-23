@@ -90,7 +90,12 @@ namespace rx
 
 DisplayEGL::DisplayEGL(const egl::DisplayState &state) : DisplayGL(state) {}
 
-DisplayEGL::~DisplayEGL() {}
+DisplayEGL::~DisplayEGL()
+{
+    // Make sure mRenderer is released before the rest of DisplayEGL is destroyed.  Its destructor
+    // calls into this object.
+    mRenderer.reset();
+}
 
 ImageImpl *DisplayEGL::createImage(const egl::ImageState &state,
                                    const gl::Context *context,
@@ -194,6 +199,7 @@ egl::Error DisplayEGL::initializeContext(EGLContext shareContext,
 
             attribsWithRobustness.insert(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY,
                                          EGL_LOSE_CONTEXT_ON_RESET);
+            attribsWithRobustness.insert(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT, EGL_TRUE);
             if (mHasNVRobustnessVideoMemoryPurge)
             {
                 attribsWithRobustness.insert(EGL_GENERATE_RESET_ON_VIDEO_MEMORY_PURGE_NV, GL_TRUE);

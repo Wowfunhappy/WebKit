@@ -1,4 +1,4 @@
- //@ runDefault("--collectContinuously=1", "--collectContinuouslyPeriodMS=20", "--useGenerationalGC=0", "--useStochasticMutatorScheduler=0", "--useDFGJIT=0", "--useFTLJIT=0", "--maxPerThreadStackUsage=1000000")
+//@ runDefault("--collectContinuously=1", "--collectContinuouslyPeriodMS=20", "--useGenerationalGC=0", "--useStochasticMutatorScheduler=0", "--useDFGJIT=0", "--useFTLJIT=0", "--maxPerThreadStackUsage=1000000")
 
 function foo(count) {
     const x = createGlobalObject();

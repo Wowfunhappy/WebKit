@@ -31,6 +31,7 @@
 #include "WasmModule.h"
 #include "WasmVirtualAddress.h"
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Vector.h>
@@ -65,9 +66,15 @@ public:
 
     String generateLibrariesXML() const;
 
+    bool needsNewModuleNotification(JSWebAssemblyInstance*);
+    bool needsLibraryRequery() const;
+    void notifyLibraryRequeryComplete();
+    Vector<uint32_t> unnotifiedModuleIds() const;
+
 private:
     using IdToModule = UncheckedKeyHashMap<uint32_t, Module*, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     using IdToInstance = UncheckedKeyHashMap<uint32_t, ThreadSafeWeakPtr<Wasm::InstanceAnchor>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+    using ModuleIdSet = UncheckedKeyHashSet<uint32_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 
     // Amortized cleanup mechanism (matches ThreadSafeWeakHashSet behavior).
     void amortizedCleanupIfNeeded() WTF_REQUIRES_LOCK(m_lock);
@@ -76,6 +83,8 @@ private:
     mutable Lock m_lock;
     IdToModule m_moduleIdToModule WTF_GUARDED_BY_LOCK(m_lock);
     IdToInstance m_instanceIdToInstance WTF_GUARDED_BY_LOCK(m_lock);
+    ModuleIdSet m_unnotifiedModuleIds WTF_GUARDED_BY_LOCK(m_lock); // Module IDs not yet seen by LLDB; cleared by notifyLibraryRequeryComplete() after each qXfer:libraries:read reply
+    bool m_hasPendingModuleRemovals WTF_GUARDED_BY_LOCK(m_lock) { false }; // True when a module was unregistered but LLDB hasn't been notified yet
 
     uint32_t m_nextModuleId WTF_GUARDED_BY_LOCK(m_lock) { 0 };
     uint32_t m_nextInstanceId WTF_GUARDED_BY_LOCK(m_lock) { 0 };

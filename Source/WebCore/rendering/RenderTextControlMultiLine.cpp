@@ -28,8 +28,8 @@
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderLayerScrollableArea.h"
-#include "RenderStyle+SettersInlines.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "TextControlInnerElements.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -37,7 +37,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTextControlMultiLine);
 
-RenderTextControlMultiLine::RenderTextControlMultiLine(HTMLTextAreaElement& element, RenderStyle&& style)
+RenderTextControlMultiLine::RenderTextControlMultiLine(HTMLTextAreaElement& element, Style::ComputedStyle&& style)
     : RenderTextControl(Type::TextControlMultiLine, element, WTF::move(style))
 {
     ASSERT(isRenderTextControlMultiLine());
@@ -72,7 +72,7 @@ float RenderTextControlMultiLine::getAverageCharWidth()
     // Since Lucida Grande is the default font, we want this to match the width
     // of Courier New, the default font for textareas in IE, Firefox and Safari Win.
     // 1229 is the avgCharWidth value in the OS/2 table for Courier New.
-    if (style().fontCascade().firstFamily() == "Lucida Grande"_s)
+    if (style().fontCascade().firstFamily().name == "Lucida Grande"_s)
         return scaleEmToUnits(1229);
 #endif
 
@@ -100,7 +100,7 @@ LayoutUnit RenderTextControlMultiLine::computeControlLogicalHeight(LayoutUnit li
 void RenderTextControlMultiLine::layoutExcludedChildren(RelayoutChildren relayoutChildren)
 {
     RenderTextControl::layoutExcludedChildren(relayoutChildren);
-    RefPtr placeholder = textFormControlElement().placeholderElement();
+    RefPtr placeholder = protect(textFormControlElement())->placeholderElement();
     CheckedPtr placeholderRenderer = placeholder ? placeholder->renderer() : 0;
     if (!placeholderRenderer)
         return;

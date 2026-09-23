@@ -190,6 +190,33 @@ function test()
         },
     });
 
+    suite.addTestCase({
+        name: "Page.getCookies.SecureCookieForLoopback",
+        description: "A Secure cookie set for an HTTP loopback hostname should be retrievable via Page.getCookies.",
+        async test() {
+            InspectorTest.log("Getting cookies before loading resource...");
+            let cookiesBefore = await PageAgent.getCookies();
+
+            InspectorTest.log("Loading resource that sets a Secure cookie on localhost...");
+            await Promise.all([
+                InspectorTest.awaitEvent("ScriptLoad"),
+                InspectorTest.evaluateInPage(`loadScriptWithURL("http://${thirdParty}:8000/inspector/page/resources/set-cookie.py?name=SecureLocalhostCookie&value=PASS&secure=1")`),
+            ]);
+
+            InspectorTest.log("Getting cookies after loading resource...");
+            let cookiesAfter = await PageAgent.getCookies();
+
+            InspectorTest.expectNotShallowEqual(cookiesBefore, cookiesAfter, "Should have set cookies.");
+
+            let cookies = cookiesAfter.cookies.filter((cookie) => cookie.name === "SecureLocalhostCookie");
+            InspectorTest.assert(cookies.length === 1, "Should only have one cookie with name 'SecureLocalhostCookie'.");
+            InspectorTest.expectNotNull(cookies[0], "New cookie should have name 'SecureLocalhostCookie'.");
+            InspectorTest.expectEqual(cookies[0].value, "PASS", "New cookie should have value 'PASS'.");
+            InspectorTest.expectEqual(cookies[0].domain, thirdParty, `New cookie should have domain '${thirdParty}'.`);
+            InspectorTest.expectEqual(cookies[0].secure, true, "New cookie should have secure flag.");
+        },
+    });
+
     suite.runTestCasesAndFinish();
 }
 </script>

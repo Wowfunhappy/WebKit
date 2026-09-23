@@ -109,6 +109,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
     case CaptureDevice::DeviceType::Microphone:
     case CaptureDevice::DeviceType::Speaker:
     case CaptureDevice::DeviceType::Camera:
+    case CaptureDevice::DeviceType::Canvas:
     case CaptureDevice::DeviceType::Unknown:
         ASSERT_NOT_REACHED();
         break;
@@ -136,9 +137,7 @@ DisplayCaptureSourceCocoa::DisplayCaptureSourceCocoa(const std::function<UniqueR
 {
 }
 
-DisplayCaptureSourceCocoa::~DisplayCaptureSourceCocoa()
-{
-}
+DisplayCaptureSourceCocoa::~DisplayCaptureSourceCocoa() = default;
 
 const RealtimeMediaSourceCapabilities& DisplayCaptureSourceCocoa::capabilities()
 {

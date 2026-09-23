@@ -27,6 +27,9 @@
 
 #if ENABLE(CONTENT_FILTERING)
 
+#if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO) && HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER)
+#include <WebCore/CocoaView.h>
+#endif
 #include <functional>
 #include <wtf/RetainPtr.h>
 #include <wtf/URL.h>
@@ -73,10 +76,14 @@ public:
 
     WEBCORE_EXPORT bool NODELETE needsUIProcess() const;
     WEBCORE_EXPORT bool canHandleRequest(const ResourceRequest&) const;
-    WEBCORE_EXPORT void requestUnblockAsync(DecisionHandlerFunction&&, std::optional<URL> requestURL = std::nullopt);
+    WEBCORE_EXPORT void requestUnblockAsync(DecisionHandlerFunction&&, std::optional<URL> requestURL = std::nullopt
+#if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO) && HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER)
+        , CocoaView* presentingView = nullptr
+#endif
+    );
     void wrapWithDecisionHandler(const DecisionHandlerFunction&);
 #if HAVE(WEBCONTENTRESTRICTIONS)
-    WEBCORE_EXPORT bool needsNetworkProcess() const;
+    WEBCORE_EXPORT bool NODELETE needsNetworkProcess() const;
 #endif
 
     const String& unblockURLHost() const LIFETIME_BOUND { return m_unblockURLHost; }

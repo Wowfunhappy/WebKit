@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #include "IDBCursor.h"
 #include "IDBDatabase.h"
 #include "IDBError.h"
+#include "IDBGetAllOptions.h"
 #include "IDBGetRecordData.h"
 #include "IDBIndex.h"
 #include "IDBKey.h"
@@ -215,7 +216,7 @@ ExceptionOr<Ref<IDBRequest>> IDBObjectStore::openKeyCursor(RefPtr<IDBKeyRange>&&
 
 ExceptionOr<Ref<IDBRequest>> IDBObjectStore::openKeyCursor(JSGlobalObject& execState, JSValue key, IDBCursorDirection direction)
 {
-    return doOpenCursor(direction, [state = &execState, key]() {
+    return doOpenKeyCursor(direction, [state = &execState, key]() {
         auto onlyResult = IDBKeyRange::only(*state, key);
         if (onlyResult.hasException())
             return ExceptionOr<RefPtr<IDBKeyRange>> { Exception(ExceptionCode::DataError, "Failed to execute 'openKeyCursor' on 'IDBObjectStore': The parameter is not a valid key."_s) };
@@ -604,79 +605,66 @@ ExceptionOr<Ref<IDBRequest>> IDBObjectStore::doCount(const IDBKeyRangeData& rang
     return transaction->requestCount(*this, range);
 }
 
-ExceptionOr<Ref<IDBRequest>> IDBObjectStore::doGetAll(std::optional<uint32_t> count, NOESCAPE const  Function<ExceptionOr<RefPtr<IDBKeyRange>>()>& function)
+// https://w3c.github.io/IndexedDB/#create-a-request-to-retrieve-multiple-items
+ExceptionOr<Ref<IDBRequest>> IDBObjectStore::doGetAllShared(IndexedDB::GetAllType getAllType, NOESCAPE const Function<ExceptionOr<ParsedGetAllQueryOrOptions>()>& function)
+{
+    String callingFunctionExceptionMessagePrefix;
+    switch (getAllType) {
+    case IndexedDB::GetAllType::Values:
+        callingFunctionExceptionMessagePrefix = "Failed to execute 'getAll' on IDBObjectStore': "_s;
+        break;
+    case IndexedDB::GetAllType::Keys:
+        callingFunctionExceptionMessagePrefix = "Failed to execute 'getAllKeys' on IDBObjectStore': "_s;
+        break;
+    case IndexedDB::GetAllType::Records:
+        callingFunctionExceptionMessagePrefix = "Failed to execute 'getAllRecords' on IDBObjectStore': "_s;
+        break;
+    }
+
+    Ref transaction = m_transaction.get();
+    ASSERT(canCurrentThreadAccessThreadLocalData(transaction->database().originThread()));
+
+    if (m_deleted)
+        return Exception { ExceptionCode::InvalidStateError, makeString(callingFunctionExceptionMessagePrefix, "The object store has been deleted."_s) };
+
+    if (!transaction->isActive())
+        return Exception { ExceptionCode::TransactionInactiveError, makeString(callingFunctionExceptionMessagePrefix, "The transaction is inactive or finished."_s) };
+
+    auto exceptionOrParsedGetAllQueryOrOptions = function();
+    if (exceptionOrParsedGetAllQueryOrOptions.hasException()) {
+        auto exception = exceptionOrParsedGetAllQueryOrOptions.releaseException();
+        return Exception { exception.code(), makeString(callingFunctionExceptionMessagePrefix, exception.releaseMessage()) };
+    }
+
+    auto parsedGetAllQueryOrOptions = exceptionOrParsedGetAllQueryOrOptions.releaseReturnValue();
+
+    return transaction->requestGetAllObjectStoreRecords(*this, parsedGetAllQueryOrOptions.keyRange.get(), getAllType, parsedGetAllQueryOrOptions.count, parsedGetAllQueryOrOptions.cursorDirection);
+}
+
+ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAll(JSGlobalObject& execState, JSValue queryOrOptions, std::optional<uint32_t> count)
 {
     LOG(IndexedDB, "IDBObjectStore::getAll");
-    Ref transaction = m_transaction.get();
-    ASSERT(canCurrentThreadAccessThreadLocalData(transaction->database().originThread()));
 
-    if (m_deleted)
-        return Exception { ExceptionCode::InvalidStateError, "Failed to execute 'getAll' on 'IDBObjectStore': The object store has been deleted."_s };
-
-    if (!transaction->isActive())
-        return Exception { ExceptionCode::TransactionInactiveError, "Failed to execute 'getAll' on 'IDBObjectStore': The transaction is inactive or finished."_s };
-
-    auto keyRange = function();
-    if (keyRange.hasException())
-        return keyRange.releaseException();
-
-    RefPtr keyRangePointer = keyRange.returnValue();
-    return transaction->requestGetAllObjectStoreRecords(*this, keyRangePointer.get(), IndexedDB::GetAllType::Values, count);
-}
-
-ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAll(RefPtr<IDBKeyRange>&& range, std::optional<uint32_t> count)
-{
-    return doGetAll(count, [range = WTF::move(range)]() {
-        return range;
+    return doGetAllShared(IndexedDB::GetAllType::Values, [context = RefPtr { scriptExecutionContext() }, execState = &execState, queryOrOptions, count]() -> ExceptionOr<ParsedGetAllQueryOrOptions> {
+        return parseQueryOrOptions(*execState, context, queryOrOptions, count);
     });
 }
 
-ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAll(JSGlobalObject& execState, JSValue key, std::optional<uint32_t> count)
-{
-    return doGetAll(count, [state = &execState, key]() {
-        auto onlyResult = IDBKeyRange::only(*state, key);
-        if (onlyResult.hasException())
-            return ExceptionOr<RefPtr<IDBKeyRange>> { Exception(ExceptionCode::DataError, "Failed to execute 'getAll' on 'IDBObjectStore': The parameter is not a valid key."_s) };
-
-        return ExceptionOr<RefPtr<IDBKeyRange>> { onlyResult.releaseReturnValue() };
-    });
-}
-
-ExceptionOr<Ref<IDBRequest>> IDBObjectStore::doGetAllKeys(std::optional<uint32_t> count, NOESCAPE const Function<ExceptionOr<RefPtr<IDBKeyRange>>()>& function)
+ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAllKeys(JSGlobalObject& execState, JSValue queryOrOptions, std::optional<uint32_t> count)
 {
     LOG(IndexedDB, "IDBObjectStore::getAllKeys");
-    Ref transaction = m_transaction.get();
-    ASSERT(canCurrentThreadAccessThreadLocalData(transaction->database().originThread()));
 
-    if (m_deleted)
-        return Exception { ExceptionCode::InvalidStateError, "Failed to execute 'getAllKeys' on 'IDBObjectStore': The object store has been deleted."_s };
-
-    if (!transaction->isActive())
-        return Exception { ExceptionCode::TransactionInactiveError, "Failed to execute 'getAllKeys' on 'IDBObjectStore': The transaction is inactive or finished."_s };
-
-    auto keyRange = function();
-    if (keyRange.hasException())
-        return keyRange.releaseException();
-
-    RefPtr keyRangePointer = keyRange.returnValue();
-    return transaction->requestGetAllObjectStoreRecords(*this, keyRangePointer.get(), IndexedDB::GetAllType::Keys, count);
-}
-
-ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAllKeys(RefPtr<IDBKeyRange>&& range, std::optional<uint32_t> count)
-{
-    return doGetAllKeys(count, [range = WTF::move(range)]() {
-        return range;
+    return doGetAllShared(IndexedDB::GetAllType::Keys, [context = RefPtr { scriptExecutionContext() }, execState = &execState, queryOrOptions, count]() -> ExceptionOr<ParsedGetAllQueryOrOptions> {
+        return parseQueryOrOptions(*execState, context, queryOrOptions, count);
     });
 }
 
-ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAllKeys(JSGlobalObject& execState, JSValue key, std::optional<uint32_t> count)
+ExceptionOr<Ref<IDBRequest>> IDBObjectStore::getAllRecords(JSGlobalObject& execState, IDBGetAllOptions&& options)
 {
-    return doGetAllKeys(count, [state = &execState, key]() {
-        auto onlyResult = IDBKeyRange::only(*state, key);
-        if (onlyResult.hasException())
-            return ExceptionOr<RefPtr<IDBKeyRange>> { Exception(ExceptionCode::DataError, "Failed to execute 'getAllKeys' on 'IDBObjectStore': The parameter is not a valid key."_s) };
+    LOG(IndexedDB, "IDBObjectStore::getAllRecords");
 
-        return ExceptionOr<RefPtr<IDBKeyRange>> { onlyResult.releaseReturnValue() };
+    return doGetAllShared(IndexedDB::GetAllType::Records, [execState = &execState, options]() -> ExceptionOr<ParsedGetAllQueryOrOptions> {
+        return parseGetAllOptions(*execState, options);
     });
 }
 

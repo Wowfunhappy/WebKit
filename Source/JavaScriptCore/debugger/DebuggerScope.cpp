@@ -26,8 +26,9 @@
 #include "config.h"
 #include "DebuggerScope.h"
 
-#include "JSLexicalEnvironment.h"
 #include "JSCInlines.h"
+#include "JSLexicalEnvironment.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 
@@ -37,7 +38,7 @@ const ClassInfo DebuggerScope::s_info = { "DebuggerScope"_s, &Base::s_info, null
 
 DebuggerScope* DebuggerScope::create(VM& vm, JSScope* scope)
 {
-    Structure* structure = scope->globalObject()->debuggerScopeStructure();
+    Structure* structure = scope->realm()->debuggerScopeStructure();
     DebuggerScope* debuggerScope = new (NotNull, allocateCell<DebuggerScope>(vm)) DebuggerScope(vm, structure, scope);
     debuggerScope->finishCreation(vm);
     return debuggerScope;
@@ -53,7 +54,7 @@ DebuggerScope::DebuggerScope(VM& vm, Structure* structure, JSScope* scope)
 template<typename Visitor>
 void DebuggerScope::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    DebuggerScope* thisObject = jsCast<DebuggerScope*>(cell);
+    DebuggerScope* thisObject = uncheckedDowncast<DebuggerScope>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(cell, visitor);
 
@@ -65,7 +66,7 @@ DEFINE_VISIT_CHILDREN(DebuggerScope);
 
 bool DebuggerScope::getOwnPropertySlot(JSObject* object, JSGlobalObject* globalObject, PropertyName propertyName, PropertySlot& slot)
 {
-    DebuggerScope* scope = jsCast<DebuggerScope*>(object);
+    DebuggerScope* scope = uncheckedDowncast<DebuggerScope>(object);
     if (!scope->isValid())
         return false;
     JSObject* thisObject = JSScope::objectAtScope(scope->jsScope());
@@ -95,7 +96,7 @@ bool DebuggerScope::getOwnPropertySlot(JSObject* object, JSGlobalObject* globalO
 
 bool DebuggerScope::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
-    DebuggerScope* scope = jsCast<DebuggerScope*>(cell);
+    DebuggerScope* scope = uncheckedDowncast<DebuggerScope>(cell);
     ASSERT(scope->isValid());
     if (!scope->isValid())
         return false;
@@ -106,7 +107,7 @@ bool DebuggerScope::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName
 
 bool DebuggerScope::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, DeletePropertySlot& slot)
 {
-    DebuggerScope* scope = jsCast<DebuggerScope*>(cell);
+    DebuggerScope* scope = uncheckedDowncast<DebuggerScope>(cell);
     ASSERT(scope->isValid());
     if (!scope->isValid())
         return false;
@@ -116,7 +117,7 @@ bool DebuggerScope::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, P
 
 void DebuggerScope::getOwnPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
-    DebuggerScope* scope = jsCast<DebuggerScope*>(object);
+    DebuggerScope* scope = uncheckedDowncast<DebuggerScope>(object);
     ASSERT(scope->isValid());
     if (!scope->isValid())
         return;
@@ -126,7 +127,7 @@ void DebuggerScope::getOwnPropertyNames(JSObject* object, JSGlobalObject* global
 
 bool DebuggerScope::defineOwnProperty(JSObject* object, JSGlobalObject* globalObject, PropertyName propertyName, const PropertyDescriptor& descriptor, bool shouldThrow)
 {
-    DebuggerScope* scope = jsCast<DebuggerScope*>(object);
+    DebuggerScope* scope = uncheckedDowncast<DebuggerScope>(object);
     ASSERT(scope->isValid());
     if (!scope->isValid())
         return false;
@@ -218,7 +219,7 @@ DebuggerLocation DebuggerScope::location() const
 JSValue DebuggerScope::caughtValue(JSGlobalObject* globalObject) const
 {
     ASSERT(isCatchScope());
-    JSLexicalEnvironment* catchEnvironment = jsCast<JSLexicalEnvironment*>(m_scope.get());
+    JSLexicalEnvironment* catchEnvironment = uncheckedDowncast<JSLexicalEnvironment>(m_scope.get());
     SymbolTable* catchSymbolTable = catchEnvironment->symbolTable();
     RELEASE_ASSERT(catchSymbolTable->size() == 1);
     PropertyName errorName(catchSymbolTable->begin(catchSymbolTable->m_lock)->key.get());
@@ -226,6 +227,11 @@ JSValue DebuggerScope::caughtValue(JSGlobalObject* globalObject) const
     bool success = catchEnvironment->getOwnPropertySlot(catchEnvironment, globalObject, errorName, slot);
     RELEASE_ASSERT(success && slot.isValue());
     return slot.getValue(globalObject, errorName);
+}
+
+Structure* DebuggerScope::createStructure(VM& vm, JSGlobalObject* globalObject)
+{
+    return Structure::create(vm, globalObject, jsNull(), TypeInfo(ObjectType, StructureFlags), info());
 }
 
 } // namespace JSC

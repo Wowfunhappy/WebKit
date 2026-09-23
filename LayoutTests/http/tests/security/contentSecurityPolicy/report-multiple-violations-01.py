@@ -10,8 +10,12 @@ sys.stdout.write(
 print('''<!DOCTYPE html>
 <html>
 <body>
+<script>
+if (window.testRunner)
+    testRunner.dumpAsText(false);
+</script>
 <p>This tests that multiple violations on a page trigger multiple reports.
-The test passes if two PingLoader callbacks are visible in the output.</p>
+The test passes if two CSP violation console messages are visible in the output.</p>
 <img src="../resources/abe.png">
 <img src="../resources/eba.png">
 </body>

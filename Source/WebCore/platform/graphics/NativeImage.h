@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2008 Torch Mobile, Inc.
  * Copyright (C) 2012 Company 100 Inc.
  *
@@ -27,13 +27,13 @@
 
 #pragma once
 
+#include <WebCore/DecodingOptions.h>
+#include <WebCore/GainMap.h>
 #include <WebCore/ImageTypes.h>
-#include <WebCore/PlatformExportMacros.h>
 #include <WebCore/PlatformImage.h>
 #include <WebCore/RenderingResource.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/UniqueRef.h>
 
 #if USE(SKIA)
 class GrDirectContext;
@@ -54,10 +54,12 @@ class NativeImage : public ThreadSafeRefCounted<NativeImage>, public CanMakeThre
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NativeImage);
 public:
 #if USE(SKIA)
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, std::optional<GainMap>&&, GrDirectContext* = nullptr);
     static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, GrDirectContext* = nullptr);
     // Creates a NativeImage that is intended to be drawn once or only few times. Signals the platform to avoid generating any caches for the image.
     static WEBCORE_EXPORT RefPtr<NativeImage> createTransient(PlatformImagePtr&&, GrDirectContext* = nullptr);
 #else
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, std::optional<GainMap>&&);
     static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&);
     // Creates a NativeImage that is intended to be drawn once or only few times. Signals the platform to avoid generating any caches for the image.
     static WEBCORE_EXPORT RefPtr<NativeImage> createTransient(PlatformImagePtr&&);
@@ -66,12 +68,16 @@ public:
     WEBCORE_EXPORT virtual ~NativeImage();
 
     WEBCORE_EXPORT virtual const PlatformImagePtr& platformImage() const;
+    WEBCORE_EXPORT const std::optional<GainMap>& gainMap() const;
     WEBCORE_EXPORT virtual IntSize size() const;
     WEBCORE_EXPORT virtual bool hasAlpha() const;
+    WEBCORE_EXPORT size_t sizeInBytes() const;
     std::optional<Color> singlePixelSolidColor() const;
     WEBCORE_EXPORT virtual DestinationColorSpace colorSpace() const;
     WEBCORE_EXPORT bool hasHDRContent() const;
-    WEBCORE_EXPORT Headroom NODELETE headroom() const;
+    bool hasHDRGainMap() const { return m_gainMap.has_value(); }
+    Headroom baseImageHeadroom() const { return m_baseImageHeadroom; }
+    Headroom headroom() const { return m_headroom; }
 
     void clearSubimages();
 
@@ -96,15 +102,18 @@ public:
     }
 
 protected:
+    WEBCORE_EXPORT NativeImage();
 #if USE(SKIA)
-    WEBCORE_EXPORT NativeImage(PlatformImagePtr&&, GrDirectContext* = nullptr);
+    WEBCORE_EXPORT NativeImage(PlatformImagePtr&&, std::optional<GainMap>&&, GrDirectContext*);
 #else
-    WEBCORE_EXPORT NativeImage(PlatformImagePtr&&);
+    WEBCORE_EXPORT NativeImage(PlatformImagePtr&&, std::optional<GainMap>&&);
 #endif
 
     void computeHeadroom() const;
 
     mutable PlatformImagePtr m_platformImage;
+    mutable std::optional<GainMap> m_gainMap;
+    mutable Headroom m_baseImageHeadroom { Headroom::None };
     mutable Headroom m_headroom { Headroom::None };
     mutable WeakHashSet<RenderingResourceObserver> m_observers;
     RenderingResourceIdentifier m_renderingResourceIdentifier { RenderingResourceIdentifier::generate() };

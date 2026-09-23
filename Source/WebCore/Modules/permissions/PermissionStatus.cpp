@@ -31,7 +31,6 @@
 #include "Document.h"
 #include "Event.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "MainThreadPermissionObserver.h"
 #include "PermissionController.h"
 #include "PermissionState.h"
@@ -129,7 +128,7 @@ void PermissionStatus::eventListenersDidChange()
     bool hasChangeEventListener = hasEventListeners(eventNames().changeEvent);
     if (hasChangeEventListener != m_hasChangeEventListener) {
         auto changeListenerAction = hasChangeEventListener ? &MainThreadPermissionObserver::addChangeListener : &MainThreadPermissionObserver::removeChangeListener;
-        callOnMainThread([identifier = m_mainThreadPermissionObserverIdentifier, topFrameDomain = RegistrableDomain { context->topOrigin().data() }.isolatedCopy(), subFrameDomain = RegistrableDomain { context->url() }.isolatedCopy(), changeListenerAction] {
+        ensureOnMainThread([identifier = m_mainThreadPermissionObserverIdentifier, topFrameDomain = RegistrableDomain { context->topOrigin().data() }.isolatedCopy(), subFrameDomain = RegistrableDomain { context->url() }.isolatedCopy(), changeListenerAction] {
             if (CheckedPtr mainThreadPermissionObserver = allMainThreadPermissionObservers().get(identifier))
                 (mainThreadPermissionObserver.get()->*changeListenerAction)(topFrameDomain, subFrameDomain);
         });

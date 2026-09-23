@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WebGPUXRBindingImpl.h"
 
-#if HAVE(WEBGPU_IMPLEMENTATION)
+#if HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)
 
 #include "WebGPUConvertToBackingContext.h"
 #include "WebGPUDevice.h"
@@ -65,7 +65,7 @@ RefPtr<XRSubImage> XRBindingImpl::getSubImage(XRProjectionLayer&, WebCore::WebXR
 RefPtr<XRSubImage> XRBindingImpl::getViewSubImage(XRProjectionLayer& projectionLayer)
 {
     auto& projectionLayerImpl = downcast<XRProjectionLayerImpl>(projectionLayer);
-    return XRSubImageImpl::create(adoptWebGPU(wgpuBindingGetViewSubImage(m_backing.get(), projectionLayerImpl.backing())), Ref { m_convertToBackingContext });
+    return XRSubImageImpl::create(adoptWebGPU(wgpuBindingGetViewSubImage(m_backing.get(), projectionLayerImpl.backing())), protect(m_convertToBackingContext));
 }
 
 TextureFormat XRBindingImpl::getPreferredColorFormat()
@@ -75,4 +75,4 @@ TextureFormat XRBindingImpl::getPreferredColorFormat()
 
 } // namespace WebCore::WebGPU
 
-#endif // HAVE(WEBGPU_IMPLEMENTATION)
+#endif // HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)

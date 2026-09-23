@@ -34,11 +34,11 @@
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/NativeImage.h>
 #include <WebCore/PlatformScreen.h>
-#include <WebCore/RenderElementStyleInlines.h>
 #include <WebCore/RenderImage.h>
-#include <WebCore/RenderObjectInlines.h>
+#include <WebCore/RenderObjectDocument.h>
 #include <WebCore/RenderVideo.h>
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/NativePromise.h>
@@ -50,7 +50,7 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
 {
     Ref frame = renderImage.frame();
     auto colorSpaceForBitmap = screenColorSpace(protect(protect(frame->mainFrame())->virtualView()).get());
-    if (!renderImage.isRenderMedia() && !renderImage.opacity() && options.useSnapshotForTransparentImages == UseSnapshotForTransparentImages::Yes) {
+    if (!renderImage.isRenderMedia() && !opacity(renderImage) && options.useSnapshotForTransparentImages == UseSnapshotForTransparentImages::Yes) {
         auto snapshotRect = renderImage.absoluteBoundingBoxRect();
         if (snapshotRect.isEmpty())
             return { };
@@ -113,8 +113,10 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
 
 Ref<NativePromise<Ref<WebCore::ShareableBitmap>, void>> createShareableBitmapAsync(WebCore::RenderImage& renderImage, CreateShareableBitmapFromImageOptions&& options)
 {
+#if ENABLE(VIDEO)
     if (auto* renderVideo = dynamicDowncast<RenderVideo>(renderImage))
         return protect(renderVideo->videoElement())->bitmapImageForCurrentTime();
+#endif
     if (RefPtr shareableBitmap = createShareableBitmap(renderImage, WTF::move(options)))
         return NativePromise<Ref<WebCore::ShareableBitmap>, void>::createAndResolve(shareableBitmap.releaseNonNull());
     return NativePromise<Ref<WebCore::ShareableBitmap>, void>::createAndReject();

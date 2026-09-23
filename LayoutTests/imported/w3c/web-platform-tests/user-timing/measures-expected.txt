@@ -42,11 +42,11 @@ PASS Checking all doubly measured entries.Entry_list 0. Entry "" should be one t
 PASS Checking all doubly measured entries.Entry_list 0. entryType should be "measure".
 PASS Checking all doubly measured entries.Entry_list 0. startTime should be a number.
 PASS Checking all doubly measured entries.Entry_list 0. duration should be a number.
-PASS Checking all doubly measured entries.Entry_list 1. Entry "" should be one that we have set.
+PASS Checking all doubly measured entries.Entry_list 1. Entry "aaa" should be one that we have set.
 PASS Checking all doubly measured entries.Entry_list 1. entryType should be "measure".
 PASS Checking all doubly measured entries.Entry_list 1. startTime should be a number.
 PASS Checking all doubly measured entries.Entry_list 1. duration should be a number.
-PASS Checking all doubly measured entries.Entry_list 2. Entry "aaa" should be one that we have set.
+PASS Checking all doubly measured entries.Entry_list 2. Entry "" should be one that we have set.
 PASS Checking all doubly measured entries.Entry_list 2. entryType should be "measure".
 PASS Checking all doubly measured entries.Entry_list 2. startTime should be a number.
 PASS Checking all doubly measured entries.Entry_list 2. duration should be a number.
@@ -72,26 +72,26 @@ PASS Second loop step 0: checking entry of name "".Entry_list 1. Entry "" should
 PASS Second loop step 0: checking entry of name "".Entry_list 1. entryType should be "measure".
 PASS Second loop step 0: checking entry of name "".Entry_list 1. startTime should be a number.
 PASS Second loop step 0: checking entry of name "".Entry_list 1. duration should be a number.
-PASS Second loop step 1: checking entry of name "".There should be 2 entries.
-PASS Second loop step 1: checking entry of name "".Entries in entrylist should be in order.
-PASS Second loop step 1: checking entry of name "".Entry_list 0. Entry "" should be one that we have set.
-PASS Second loop step 1: checking entry of name "".Entry_list 0. entryType should be "measure".
-PASS Second loop step 1: checking entry of name "".Entry_list 0. startTime should be a number.
-PASS Second loop step 1: checking entry of name "".Entry_list 0. duration should be a number.
-PASS Second loop step 1: checking entry of name "".Entry_list 1. Entry "" should be one that we have set.
-PASS Second loop step 1: checking entry of name "".Entry_list 1. entryType should be "measure".
-PASS Second loop step 1: checking entry of name "".Entry_list 1. startTime should be a number.
-PASS Second loop step 1: checking entry of name "".Entry_list 1. duration should be a number.
-PASS Second loop step 2: checking entry of name "aaa".There should be 2 entries.
-PASS Second loop step 2: checking entry of name "aaa".Entries in entrylist should be in order.
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 0. Entry "aaa" should be one that we have set.
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 0. entryType should be "measure".
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 0. startTime should be a number.
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 0. duration should be a number.
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 1. Entry "aaa" should be one that we have set.
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 1. entryType should be "measure".
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 1. startTime should be a number.
-PASS Second loop step 2: checking entry of name "aaa".Entry_list 1. duration should be a number.
+PASS Second loop step 1: checking entry of name "aaa".There should be 2 entries.
+PASS Second loop step 1: checking entry of name "aaa".Entries in entrylist should be in order.
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 0. Entry "aaa" should be one that we have set.
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 0. entryType should be "measure".
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 0. startTime should be a number.
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 0. duration should be a number.
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 1. Entry "aaa" should be one that we have set.
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 1. entryType should be "measure".
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 1. startTime should be a number.
+PASS Second loop step 1: checking entry of name "aaa".Entry_list 1. duration should be a number.
+PASS Second loop step 2: checking entry of name "".There should be 2 entries.
+PASS Second loop step 2: checking entry of name "".Entries in entrylist should be in order.
+PASS Second loop step 2: checking entry of name "".Entry_list 0. Entry "" should be one that we have set.
+PASS Second loop step 2: checking entry of name "".Entry_list 0. entryType should be "measure".
+PASS Second loop step 2: checking entry of name "".Entry_list 0. startTime should be a number.
+PASS Second loop step 2: checking entry of name "".Entry_list 0. duration should be a number.
+PASS Second loop step 2: checking entry of name "".Entry_list 1. Entry "" should be one that we have set.
+PASS Second loop step 2: checking entry of name "".Entry_list 1. entryType should be "measure".
+PASS Second loop step 2: checking entry of name "".Entry_list 1. startTime should be a number.
+PASS Second loop step 2: checking entry of name "".Entry_list 1. duration should be a number.
 PASS Second loop step 3: checking entry of name "aaa".There should be 2 entries.
 PASS Second loop step 3: checking entry of name "aaa".Entries in entrylist should be in order.
 PASS Second loop step 3: checking entry of name "aaa".Entry_list 0. Entry "aaa" should be one that we have set.

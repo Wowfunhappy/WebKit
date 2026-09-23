@@ -28,6 +28,7 @@
 #include <wtf/SystemTracing.h>
 
 #if USE(SKIA)
+#include "BitmapTexture.h"
 #include "SkiaPaintingEngine.h"
 #endif
 
@@ -91,12 +92,14 @@ void CoordinatedBackingStoreTile::processPendingUpdates()
             auto& buffer = static_cast<CoordinatedAcceleratedTileBuffer&>(update.buffer.get());
             buffer.serverWait();
 
+            auto texture = buffer.texture();
+            ASSERT(texture);
             // Fast path: whole tile content changed -- take ownership of the incoming texture, replacing the existing tile buffer (avoiding texture copies).
             if (update.sourceRect.size() == update.tileRect.size()) {
                 ASSERT(update.sourceRect.location().isZero());
-                m_texture->swapTexture(buffer.texture());
+                m_texture->swapTexture(*texture);
             } else
-                m_texture->copyFromExternalTexture(buffer.texture().id(), update.sourceRect, toIntSize(update.bufferOffset));
+                m_texture->copyFromExternalTexture(texture->id(), update.sourceRect, toIntSize(update.bufferOffset));
 
             WTFEndSignpost(this, CopyTextureGPUToGPU);
             WTFEndSignpost(this, CoordinatedSwapBuffer);
@@ -107,7 +110,7 @@ void CoordinatedBackingStoreTile::processPendingUpdates()
         WTFBeginSignpost(this, CopyTextureCPUToGPU);
         ASSERT(!update.buffer->isBackedByOpenGL());
         auto& buffer = static_cast<CoordinatedUnacceleratedTileBuffer&>(update.buffer.get());
-        m_texture->updateContents(buffer.data(), update.sourceRect, update.bufferOffset, buffer.stride(), buffer.pixelFormat());
+        m_texture->updateContents(buffer.data(), update.sourceRect, update.bufferOffset, buffer.stride(), update.buffer->pixelFormat());
         WTFEndSignpost(this, CopyTextureCPUToGPU);
 
         WTFEndSignpost(this, CoordinatedSwapBuffer);

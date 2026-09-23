@@ -25,11 +25,12 @@
 #include "config.h"
 #include "StyleEllipseFunction.h"
 
+#include "AcceleratedEffectEllipseFunction.h"
 #include "FloatRect.h"
 #include "GeometryUtilities.h"
 #include "Path.h"
 #include "StyleGradient.h"
-#include "StyleLengthWrapper+Blending.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <WebCore/StylePosition.h>
@@ -159,6 +160,50 @@ auto Blending<Ellipse>::blend(const Ellipse& a, const Ellipse& b, const Blending
         .position = WebCore::Style::blend(a.position, b.position, context),
     };
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<Ellipse::RadialSize, AcceleratedEffectEllipseFunction::RadialSize> { AcceleratedEffectEllipseFunction::RadialSize operator()(const Ellipse::RadialSize&, float, ZoomFactor); };
+
+AcceleratedEffectEllipseFunction::RadialSize Evaluation<Ellipse::RadialSize, AcceleratedEffectEllipseFunction::RadialSize>::operator()(const Ellipse::RadialSize& value, float dimensionSize, ZoomFactor zoom)
+{
+    return WTF::switchOn(value,
+        [&](const Ellipse::Length& length) -> AcceleratedEffectEllipseFunction::RadialSize {
+            return evaluate<float>(length, dimensionSize, zoom);
+        },
+        [&](const Ellipse::Extent& extent) -> AcceleratedEffectEllipseFunction::RadialSize {
+            return WTF::switchOn(extent,
+                [&](CSS::Keyword::ClosestSide) -> AcceleratedEffectEllipseFunction::Extent {
+                    return AcceleratedEffectEllipseFunction::Extent::ClosestSide;
+                },
+                [&](CSS::Keyword::FarthestSide) -> AcceleratedEffectEllipseFunction::Extent {
+                    return AcceleratedEffectEllipseFunction::Extent::FarthestSide;
+                },
+                [&](CSS::Keyword::ClosestCorner) -> AcceleratedEffectEllipseFunction::Extent {
+                    return AcceleratedEffectEllipseFunction::Extent::ClosestCorner;
+                },
+                [&](CSS::Keyword::FarthestCorner) -> AcceleratedEffectEllipseFunction::Extent {
+                    return AcceleratedEffectEllipseFunction::Extent::FarthestCorner;
+                }
+            );
+        }
+    );
+}
+
+AcceleratedEffectEllipseFunction Evaluation<EllipseFunction, AcceleratedEffectEllipseFunction>::operator()(const EllipseFunction& value, const FloatSize& containingBlockSize, ZoomFactor zoom)
+{
+    return {
+        .radii = {
+            evaluate<AcceleratedEffectEllipseFunction::RadialSize>(get<0>(value->radii), containingBlockSize.width(), zoom),
+            evaluate<AcceleratedEffectEllipseFunction::RadialSize>(get<1>(value->radii), containingBlockSize.height(), zoom),
+        },
+        .position = value->position ? std::optional { evaluate<FloatPoint>(*value->position, containingBlockSize, zoom) } : std::nullopt,
+    };
+}
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

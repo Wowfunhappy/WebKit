@@ -38,8 +38,6 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaPlaybackTargetPickerMock);
 
-static const Seconds timerInterval { 100_ms };
-
 MediaPlaybackTargetPickerMock::MediaPlaybackTargetPickerMock(MediaPlaybackTargetPicker::Client& client)
     : MediaPlaybackTargetPicker { client }
     , m_state { MediaPlaybackTargetMock::State::Unknown }

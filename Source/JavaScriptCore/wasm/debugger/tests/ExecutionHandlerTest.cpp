@@ -105,7 +105,7 @@ static void validateStop()
     CHECK(info.targetVM == executionHandler->debuggeeVM(), "VMManager's targetVM should match ExecutionHandler's debuggee VM");
     uint32_t stoppedCount = 0;
     VMManager::forEachVM([&](VM& vm) {
-        CHECK(vm.debugState()->isStopped(), "VM should be stopped");
+        CHECK(vm.debugState()->isStopped, "VM should be stopped");
         stoppedCount++;
         return IterationStatus::Continue;
     });
@@ -125,7 +125,7 @@ static void resume()
     CHECK(info.worldMode == VMManager::Mode::RunAll, "All VMs should be running");
     uint32_t runningCount = 0;
     VMManager::forEachVM([&](VM& vm) {
-        CHECK(vm.debugState()->isRunning(), "VM should be running");
+        CHECK(!vm.debugState()->isStopped, "VM should be running");
         runningCount++;
         return IterationStatus::Continue;
     });
@@ -134,8 +134,7 @@ static void resume()
 
 static void switchTarget(VM* newDebuggee)
 {
-    uint64_t threadId = ExecutionHandler::threadId(*newDebuggee);
-    executionHandler->switchTarget(threadId);
+    executionHandler->switchTarget(newDebuggee->identifier().toRawValue());
     validateStop();
     CHECK(executionHandler->debuggeeVM() == newDebuggee, "Switch to new debuggee failed");
 }
@@ -230,8 +229,8 @@ static void testBreakpointContinueCycles()
             return getReplyCount() == expectedReplyCount;
         });
 
-        DebugState* state = executionHandler->debuggeeStateSafe();
-        CHECK(state->atBreakpoint(), "Should stop at a breakpoint");
+        DebugState* state = executionHandler->debuggeeStateForTest();
+        CHECK(state->isStoppedAtBytecode(), "Should stop at a breakpoint");
         VLOG("  Stopped at breakpoint in vm:", RawPointer(executionHandler->debuggeeVM()));
     }
 
@@ -261,11 +260,11 @@ static void testBreakpointSingleStepping()
         bool stopped = getReplyCount() == expectedReplyCount;
         if (!stopped)
             return false;
-        return executionHandler->debuggeeStateSafe()->atBreakpoint();
+        return executionHandler->debuggeeStateForTest()->isStoppedAtBytecode();
     });
 
-    DebugState* state = executionHandler->debuggeeStateSafe();
-    CHECK(state->atBreakpoint(), "Should be at breakpoint");
+    DebugState* state = executionHandler->debuggeeStateForTest();
+    CHECK(state->isStoppedAtBytecode(), "Should be at breakpoint");
 
     // Record initial virtual address
     CHECK(state->stopData, "Should have stopData");
@@ -298,8 +297,8 @@ static void testBreakpointSingleStepping()
         if (breakpoint)
             executionHandler->breakpointManager()->setBreakpoint(beforeStepAddress, WTF::move(breakpointCopy));
 
-        state = executionHandler->debuggeeStateSafe();
-        CHECK(state->atBreakpoint(), "Should be at breakpoint after step");
+        state = executionHandler->debuggeeStateForTest();
+        CHECK(state->isStoppedAtBytecode(), "Should be at breakpoint after step");
 
         JSC::Wasm::VirtualAddress afterStepAddress = state->stopData->address;
         VLOG("  After step: ", afterStepAddress);
@@ -327,13 +326,7 @@ static void waitForVMCleanupFromPreviousTest()
 }
 
 // setupScriptAndWaitForVMs ensures all VMs are constructed, instances registered, entered with owner threads,
-// and actively running before tests start. However, this doesn't test edge cases where interrupt() races with:
-// FIXME: Add tests for VM lifecycle edge cases:
-// - interrupt() during VM construction (before m_debugState initialized)
-// - interrupt() during instance registration
-// - interrupt() race with VMs entering/activating
-// These edge cases could expose timing issues in stopTheWorld coordination that don't occur when
-// all VMs are already in a stable running state.
+// and actively running before tests start.
 static bool setupScriptAndWaitForVMs(const TestScript& script, RefPtr<Thread>& outWorkerThread)
 {
     ModuleManager& moduleManager = debugServer->moduleManager();
@@ -417,10 +410,7 @@ UNUSED_FUNCTION static int runTests()
         waitForVMCleanupFromPreviousTest();
 
         RefPtr<Thread> workerThread;
-        if (!setupScriptAndWaitForVMs(script, workerThread)) {
-            totalFailures++;
-            continue;
-        }
+        RELEASE_ASSERT(setupScriptAndWaitForVMs(script, workerThread));
 
         testRapidInterruptResumeCycles();
         testVMContextSwitching();

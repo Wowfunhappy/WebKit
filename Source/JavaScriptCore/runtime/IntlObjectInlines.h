@@ -27,7 +27,9 @@
 #pragma once
 
 #include "BuiltinNames.h"
+#include "ExceptionHelpers.h"
 #include "IntlObject.h"
+#include "JSArray.h"
 #include "JSBoundFunction.h"
 #include "JSObject.h"
 #include "ObjectConstructor.h"
@@ -40,7 +42,7 @@ namespace JSC {
 template<typename StringType>
 static constexpr uint32_t computeTwoCharacters16Code(const StringType& string)
 {
-    return static_cast<uint16_t>(string.characterAt(0)) | (static_cast<uint32_t>(static_cast<uint16_t>(string.characterAt(1))) << 16);
+    return static_cast<uint16_t>(string.codeUnitAt(0)) | (static_cast<uint32_t>(static_cast<uint16_t>(string.codeUnitAt(1))) << 16);
 }
 
 template<typename Predicate> String bestAvailableLocale(const String& locale, Predicate predicate)
@@ -87,7 +89,7 @@ JSValue constructIntlInstanceWithWorkaroundForLegacyIntlConstructor(JSGlobalObje
         if (hasInstance) {
             PropertyDescriptor descriptor(instance, PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum | PropertyAttribute::DontDelete);
             scope.release();
-            thisObject->methodTable()->defineOwnProperty(thisObject, globalObject, vm.propertyNames->builtinNames().intlLegacyConstructedSymbol(), descriptor, true);
+            thisObject->methodTable()->defineOwnProperty(thisObject, globalObject, globalObject->intlLegacyConstructedSymbol(), descriptor, true);
             return thisObject;
         }
     }
@@ -100,11 +102,11 @@ InstanceType* unwrapForLegacyIntlConstructor(JSGlobalObject* globalObject, JSVal
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSObject* thisObject = jsDynamicCast<JSObject*>(thisValue);
+    JSObject* thisObject = dynamicDowncast<JSObject>(thisValue);
     if (!thisObject) [[unlikely]]
         return nullptr;
 
-    auto* instance = jsDynamicCast<InstanceType*>(thisObject);
+    auto* instance = dynamicDowncast<InstanceType>(thisObject);
     if (instance) [[likely]]
         return instance;
 
@@ -116,9 +118,9 @@ InstanceType* unwrapForLegacyIntlConstructor(JSGlobalObject* globalObject, JSVal
     if (!hasInstance)
         return nullptr;
 
-    JSValue value = thisObject->get(globalObject, vm.propertyNames->builtinNames().intlLegacyConstructedSymbol());
+    JSValue value = thisObject->get(globalObject, globalObject->intlLegacyConstructedSymbol());
     RETURN_IF_EXCEPTION(scope, nullptr);
-    return jsDynamicCast<InstanceType*>(value);
+    return dynamicDowncast<InstanceType>(value);
 }
 
 template<typename ResultType>

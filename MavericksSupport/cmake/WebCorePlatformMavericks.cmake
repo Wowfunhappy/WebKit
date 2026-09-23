@@ -11,6 +11,9 @@
 # variables here all take effect. WebCore_NON_SVG_IDL_FILES is the exception: :2094 has already
 # folded it into WebCore_IDL_FILES, which is the list an IDL has to be added to from here.
 
+# The Mavericks staging pipeline assembles unsigned bundles and rewrites their Mach-O load commands.
+set(WebCore_POST_BUILD_COMMAND "")
+
 # WebCoreCALayerExtras.mm reaches DynamicContentScalingTypes.h by its bare name, which the Xcode Mac
 # build resolves from its source-wide header search and this CMake build resolves only from the
 # directories listed here.
@@ -40,14 +43,14 @@ list(INSERT WebCore_SYSTEM_INCLUDE_DIRECTORIES 0
 # WebCore.xcconfig and WebKit.xcconfig each pass -weak-lwebrtc.
 list(REMOVE_ITEM WebCore_LIBRARIES webrtc)
 
-# WebCore reaches libxslt through the LibXslt target alone, which OptionsMacMavericks points at the
-# deps/build copy that ships beside it. A -weak-lxslt on this line would additionally search the linker's
-# own paths, resolve to the SDK's libxslt tbd, and add /usr/lib/libxslt.1.dylib as a second libxslt --
-# and that one carries the system libxml2 with it, which is the pairing xsltFreeStylesheet faults on.
+# The imported LibXslt target pairs with vendored libxml2; the SDK weak lookup selects system libxslt.
 macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
+    get_target_property(_mavericks_webcore_link_options ${_target} LINK_OPTIONS)
+    list(REMOVE_ITEM _mavericks_webcore_link_options "LINKER:-weak-lxslt")
+    set_property(TARGET ${_target} PROPERTY LINK_OPTIONS "${_mavericks_webcore_link_options}")
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
-        LINK_FLAGS "-fuse-ld=lld -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitCocoa -allowable_client TestWebKitLegacy")
+        LINK_FLAGS "-fuse-ld=lld -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitAPI -allowable_client TestWebKitLegacy")
     _MAVERICKS_LINK_LIBWEBRTC(${_target})
 
     if (EXISTS "${WEBCORE_DIR}/platform/audio/resources/Composite.wav")
@@ -92,15 +95,6 @@ macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
         set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
     endif ()
-endmacro()
-
-macro(_MAVERICKS_FINALIZE_WEBCORE_TEST_SUPPORT _target)
-    set_target_properties(${_target} PROPERTIES LINKER_LANGUAGE CXX)
-endmacro()
-
-macro(_MAVERICKS_SET_WEBCORE_FRAMEWORK_VERSION _target)
-    set_property(TARGET ${_target} PROPERTY VERSION)
-    set_target_properties(${_target} PROPERTIES SOVERSION "A")
 endmacro()
 
 # --------------------------------------------------------------------------
@@ -163,8 +157,7 @@ set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE
 # #68: also build the classic Safari 7 / Mavericks media-controls script.
 # make-js-file-arrays.py names the array from the basename, emitting mediaControlsAppleJavaScript,
 # which RenderThemeCocoa serves on the 10.9 deployment target instead of ModernMediaControlsJavaScript.
-set(WebCore_USER_AGENT_SCRIPTS
-    ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js
+list(APPEND WebCore_USER_AGENT_SCRIPTS
     ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
 )
 
@@ -179,15 +172,6 @@ if (NOT TARGET LCMS2::LCMS2)
         INTERFACE_INCLUDE_DIRECTORIES "${MAVERICKS_DEPS}/include"
     )
 endif ()
-
-# platform/ios holds several files the Mac build genuinely needs once
-# ENABLE(VIDEO_PRESENTATION_MODE) is on -- WebAVPlayerController and the PlaybackSessionInterface /
-# VideoPresentationInterface family, all of which compile under PLATFORM(COCOA) rather than
-# PLATFORM(IOS_FAMILY). platform/cocoa/WebAVPlayerLayer.mm includes "WebAVPlayerController.h" by bare
-# name, and VideoPresentationInterfaceMac.mm allocates a WebAVPlayerLayer, so the Mac build needs this
-# directory on its header search path. Upstream's Xcode build has every platform subdirectory on the
-# search path, which is why it never has to say so; the CMake port lists them individually. Verified no
-# filename collisions with platform/mac, platform/cocoa, platform, or platform/graphics/cocoa.
 
 # libwebm headers. The `webm` library target comes from ThirdParty/libwebrtc/CMakeLists.txt, which
 # stages its headers flat under ${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders/webm/. WebCore also spells
@@ -250,11 +234,21 @@ list(REMOVE_ITEM WebCore_LIBRARIES
     ${LOOKUP_FRAMEWORK}
 )
 
+# libwebrtc's Objective-C categories belong to its shared library so all clients see one implementation.
+list(REMOVE_ITEM WebCore_PRIVATE_LIBRARIES webrtc webrtc_objc_categories opus vpx yuv libsrtp)
+target_link_libraries(webrtc PRIVATE webrtc_objc_categories)
+target_compile_options(webrtc_objc_categories PRIVATE "$<$<COMPILE_LANGUAGE:OBJC,OBJCXX>:-fobjc-arc>")
+
 list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/WebNSAttributedStringExtras.h
 )
 
 list(REMOVE_ITEM WebCore_SOURCES
+    # Native AVKit player layers belong to the VIDEO_PRESENTATION_MODE source set.
+    platform/cocoa/WebAVPlayerLayer.mm
+    # Service-worker routing uses the Objective-C regex implementation in MavericksBackportWebCoreGlue.mm.
+    workers/service/ServiceWorkerRoute.mm
+
     # PlatformMac.cmake lists this beside the .cpp that exists; only the .cpp is in the tree.
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
 
@@ -336,20 +330,14 @@ set(MAVERICKS_WITHHELD_COCOA_SOURCES
     "crypto/cocoa/CryptoKeyRSACocoa.cpp"
     "crypto/CommonCryptoUtilities.cpp"
     "html/canvas/GPUCanvasContextCocoa.mm @nonARC"
-    "html/canvas/UsdModelLoader.swift"
     "platform/audio/cocoa/AudioDecoderCocoa.cpp"
     "platform/audio/cocoa/AudioEncoderCocoa.cpp"
     "platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp"
     "platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC"
-    "platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify"
+    "platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify-when(bundle<=8) @cost:5"
     "platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify"
     "platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify"
     "platform/ios/WebAVPlayerController.mm @nonARC"
-    # Stale entries: upstream's list names these two paths but ships no file at either
-    # (the AVKit playback-session and video-presentation interfaces are Xcode-project-only), so
-    # nothing has to exist to satisfy them.
-    "platform/ios/PlaybackSessionInterfaceAVKit.mm @nonARC @no-unify"
-    "platform/ios/VideoPresentationInterfaceAVKit.mm @nonARC @no-unify"
 )
 
 # Withheld from SourcesGStreamer.txt: the GStreamer flavor of the libwebrtc glue (its
@@ -361,7 +349,9 @@ set(MAVERICKS_WITHHELD_COCOA_SOURCES
 # factories, so they are never instantiated, while the GStreamer player's audio-output selection and
 # GStreamerCommon's teardown call into GStreamerCaptureDeviceManager, which needs the rest of them.
 set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
-    "Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp"
+    # File-local helpers in these sources share names with other GStreamer translation units.
+    "platform/graphics/gstreamer/mse/GStreamerRegistryScannerMSE.cpp"
+    "platform/gstreamer/GStreamerCodecUtilities.cpp"
     "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp"
     "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp"
     "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp"
@@ -389,11 +379,8 @@ set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
 # this port's own glue TU, and Cocoa TUs upstream builds only from WebCore.xcodeproj. Lines are copied
 # verbatim, so @nonARC / @no-unify are preserved.
 set(MAVERICKS_ADDED_COCOA_SOURCES
-    # upstream builds this only from WebCore.xcodeproj (SourcesCocoa.txt lists just the .cpp); its
-    # HAVE(AVAUDIOAPPLICATION)/HAVE(VOICEACTIVITYDETECTION) branches compile out below macOS 14.
-    "platform/mediastream/mac/CoreAudioCaptureUnit.mm @nonARC"
     # the CGDisplayStream screen capturer serving getDisplayMedia below ScreenCaptureKit (macOS < 12.3).
-    "platform/mediastream/mac/ScreenDisplayCapturerMac.mm"
+    "platform/mediastream/cocoa/ScreenDisplayCapturerMac.mm @nonARC"
     "crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp"
     "crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp"
     "crypto/gcrypt/CryptoAlgorithmAESCTRGCrypt.cpp"
@@ -416,13 +403,7 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
     "crypto/gcrypt/GCryptRFC7748.cpp"
     "crypto/gcrypt/GCryptRFC8032.cpp"
     "crypto/gcrypt/GCryptUtilities.cpp"
-    "platform/audio/cocoa/AudioSessionCocoa.mm @nonARC"
-    "platform/graphics/avfoundation/objc/QueuedVideoOutput.mm"
-    "platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm"
-    "platform/graphics/cocoa/TextTransformCocoa.cpp"
     "platform/image-decoders/webp/WEBPImageDecoder.cpp"
-    "platform/mac/WebCoreView.mm @nonARC"
-    "platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify"
     # the DualShock 4's standard mapping, which upstream gets from GameController.framework.
     "platform/gamepad/mac/Dualshock4HIDGamepad.cpp"
 )
@@ -431,6 +412,8 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
 # GTK/WPE-oriented list does not carry, plus the SourcesGLib.txt entries the GStreamer set calls into
 # (GStreamerDataChannelHandler delivers binary datachannel messages via SharedBuffer::create(GBytes*)).
 set(MAVERICKS_ADDED_GSTREAMER_SOURCES
+    "platform/graphics/gstreamer/mse/GStreamerRegistryScannerMSE.cpp @no-unify"
+    "platform/gstreamer/GStreamerCodecUtilities.cpp @no-unify"
     "platform/glib/ApplicationGLib.cpp"
     "platform/glib/SharedBufferGlib.cpp"
     "platform/graphics/gstreamer/ImageGStreamerCG.cpp"
@@ -442,8 +425,6 @@ set(MAVERICKS_WITHHELD_WEBCORE_SOURCES "")
 # AuthenticationExtensionsClientInputs/Outputs and CSSDashboardRegionValue are built. BeforeLoadEvent
 # (the restored beforeload event uBlock's network blocking uses) and TextListParser compile standalone.
 set(MAVERICKS_ADDED_WEBCORE_SOURCES
-    "Modules/webauthn/AuthenticationExtensionsClientInputs.cpp"
-    "Modules/webauthn/AuthenticationExtensionsClientOutputs.cpp"
     "css/CSSDashboardRegionValue.cpp"
     "dom/BeforeLoadEvent.cpp @no-unify"
     "editing/TextListParser.cpp @no-unify"
@@ -526,6 +507,13 @@ list(APPEND WebCore_LIBRARIES
 )
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
+set(MAVERICKS_WITHHELD_WEBCORE_CMAKE_COCOA_SOURCES
+    "platform/cocoa/WebAVPlayerLayer.mm @nonARC"
+    "workers/service/ServiceWorkerRoute.mm @nonARC"
+)
+set(MAVERICKS_ADDED_WEBCORE_CMAKE_COCOA_SOURCES "")
+MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCMakeCocoa.txt"
+    MAVERICKS_WITHHELD_WEBCORE_CMAKE_COCOA_SOURCES MAVERICKS_ADDED_WEBCORE_CMAKE_COCOA_SOURCES)
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "platform/SourcesGStreamer.txt" MAVERICKS_WITHHELD_GSTREAMER_SOURCES MAVERICKS_ADDED_GSTREAMER_SOURCES)
 
 # --------------------------------------------------------------------------
@@ -541,9 +529,6 @@ list(APPEND WebCoreTestSupport_SOURCES
 list(APPEND WebCore_IDL_FILES
     # the legacy beforeload event, which Safari extensions' network blocking dispatches on.
     dom/BeforeLoadEvent.idl
-
-    # also generate the ApplePayDisbursementRequest IDL binding.
-    Modules/applepay/ApplePayDisbursementRequest.idl
 
     # the Remote Playback partial interface, which adds `remote` and
     # `disableRemotePlayback` to HTMLMediaElement. DerivedSources.make lists it and CMakeLists.txt does
@@ -781,14 +766,14 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     # export BaseAudioMediaStreamTrackRendererUnit.h (shared base for the audio renderer unit).
     platform/mediastream/cocoa/BaseAudioMediaStreamTrackRendererUnit.h
     # export the mac capture-source headers (getUserMedia camera/audio/screen capture).
-    platform/mediastream/mac/AVVideoCaptureSource.h
-    platform/mediastream/mac/BaseAudioCaptureUnit.h
-    platform/mediastream/mac/CoreAudioCaptureDeviceManager.h
-    platform/mediastream/mac/CoreAudioCaptureSource.h
-    platform/mediastream/mac/CoreAudioCaptureUnit.h
+    platform/mediastream/cocoa/AVVideoCaptureSource.h
+    platform/mediastream/cocoa/BaseAudioCaptureUnit.h
+    platform/mediastream/cocoa/CoreAudioCaptureDeviceManager.h
+    platform/mediastream/cocoa/CoreAudioCaptureSource.h
+    platform/mediastream/cocoa/CoreAudioCaptureUnit.h
     # export the ScreenCaptureKit capture headers.
-    platform/mediastream/mac/ScreenCaptureKitCaptureSource.h
-    platform/mediastream/mac/ScreenCaptureKitSharingSessionManager.h
+    platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.h
+    platform/mediastream/cocoa/ScreenCaptureKitSharingSessionManager.h
     # export RangeResponseGenerator.h (byte-range media response handling).
     platform/network/cocoa/RangeResponseGenerator.h
     # export WebRTCVideoDecoder.h (libwebrtc video-codecs path).

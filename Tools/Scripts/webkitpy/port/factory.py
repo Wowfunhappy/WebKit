@@ -31,6 +31,7 @@
 """Factory method to retrieve the appropriate port implementation."""
 
 import fnmatch
+import importlib
 import optparse
 import re
 
@@ -42,81 +43,91 @@ from webkitpy.common.system import filesystem
 def platform_options(use_globs=False):
     return [
         optparse.make_option('--platform', action='store',
-            help=('Glob-style list of platform/ports to use (e.g., "mac*")' if use_globs else 'Platform to use (e.g., "mac-lion")')),
+                             help=('Glob-style list of platform/ports to use (e.g., "mac*")' if use_globs else 'Platform to use (e.g., "mac-lion")')),
         optparse.make_option('--ios-simulator', action='store_const', dest='platform',
-            const=('ios-simulator'),
-            help=('Alias for --platform=ios-simulator')),
+                             const=('ios-simulator'),
+                             help=('Alias for --platform=ios-simulator')),
         optparse.make_option('--iphone-simulator', action='store_const', dest='platform',
-            const=('iphone-simulator'),
-            help=('Alias for --platform=iphone-simulator')),
+                             const=('iphone-simulator'),
+                             help=('Alias for --platform=iphone-simulator')),
         optparse.make_option('--ipad-simulator', action='store_const', dest='platform',
-            const=('ipad-simulator'),
-            help=('Alias for --platform=ipad-simulator')),
+                             const=('ipad-simulator'),
+                             help=('Alias for --platform=ipad-simulator')),
         optparse.make_option('--watchos-simulator', action='store_const', dest='platform',
-            const=('watchos-simulator'),
-            help=('Alias for --platform=watchos-simulator')),
+                             const=('watchos-simulator'),
+                             help=('Alias for --platform=watchos-simulator')),
         optparse.make_option('--visionos-simulator', action='store_const', dest='platform',
-            const=('visionos-simulator'),
-            help=('Alias for --platform=visionos-simulator')),
+                             const=('visionos-simulator'),
+                             help=('Alias for --platform=visionos-simulator')),
         optparse.make_option('--simulator', action='store_const', dest='platform',
-            const=('ios-simulator'),
-            help=('DEPRECATED alias for --platform=ios-simulator')),
+                             const=('ios-simulator'),
+                             help=('DEPRECATED alias for --platform=ios-simulator')),
         optparse.make_option('--gtk', action='store_const', dest='platform',
-            const=('gtk*' if use_globs else 'gtk'),
-            help=('Alias for --platform=gtk*' if use_globs else 'Alias for --platform=gtk')),
+                             const=('gtk*' if use_globs else 'gtk'),
+                             help=('Alias for --platform=gtk*' if use_globs else 'Alias for --platform=gtk')),
         optparse.make_option('--wpe', action='store_const', dest='platform',
-            const=('wpe*' if use_globs else 'wpe'),
-            help=('Alias for --platform=wpe')),
+                             const=('wpe*' if use_globs else 'wpe'),
+                             help=('Alias for --platform=wpe')),
         optparse.make_option('--win', action='store_const', dest='platform',
-            const=('win'),
-            help=('Alias for --platform=win')),
+                             const=('win'),
+                             help=('Alias for --platform=win')),
         optparse.make_option('--maccatalyst', action='store_const', dest='platform',
-            const=('maccatalyst'),
-            help=('Alias for --platform=maccatalyst')),
+                             const=('maccatalyst'),
+                             help=('Alias for --platform=maccatalyst')),
         ] + (config.apple_additions().platform_options() if config.apple_additions() else [])
 
 
 def configuration_options():
     return [
-        optparse.make_option("-t", "--target", default=config.Config(executive.Executive(), filesystem.FileSystem()).default_configuration(), dest="configuration", help="(DEPRECATED) (default: %default)"),
+        optparse.make_option("-t", "--target", default=None, dest="configuration", help="(DEPRECATED)"),
         optparse.make_option('--debug', action='store_const', const='Debug', dest="configuration",
-            help='Set the configuration to Debug'),
+                             help='Set the configuration to Debug'),
         optparse.make_option('--release', action='store_const', const='Release', dest="configuration",
-            help='Set the configuration to Release'),
+                             help='Set the configuration to Release'),
+        optparse.make_option('--cmake', action='store_true', default=False, dest='use_cmake',
+                             help='Use the CMake build tree (e.g. WebKitBuild/cmake-mac/<configuration>) instead of the default Xcode/Make tree'),
         optparse.make_option('--64-bit', action='store_const', const='x86_64', default=None, dest="architecture",
-            help='use 64-bit binaries by default (x86_64 instead of x86)'),
+                             help='use 64-bit binaries by default (x86_64 instead of x86)'),
         optparse.make_option('--32-bit', action='store_const', const='x86', default=None, dest="architecture",
-             help='use 32-bit binaries by default (x86 instead of x86_64)'),
+                             help='use 32-bit binaries by default (x86 instead of x86_64)'),
         optparse.make_option('--arm', action='store_const', const='arm64e', default=None, dest="architecture",
-             help='Use arm64e binaries by default'),
+                             help='Use arm64e binaries by default'),
         optparse.make_option('--architecture', action='store', default=None, dest="architecture",
-             help='Use binaries of the specified architecture by default.'),
+                             help='Use binaries of the specified architecture by default.'),
         # FIXME https://bugs.webkit.org/213677: This should effect the models used by simulator ports
         optparse.make_option('--model', action='store', default=None, dest="model",
-             help='Override the model details on upload.'),
+                             help='Override the model details on upload.'),
     ]
+
+
+def _load_port_class(port_class_path):
+    module_name, class_name = port_class_path.rsplit('.', 1)
+    module = importlib.import_module('webkitpy.port.{}'.format(module_name))
+    return getattr(module, class_name)
 
 
 class PortFactory(object):
     # Order matters.  For port classes that have a port_name with a
     # common prefix, the more specific port class should be listed
-    # first.
+    # first. The prefix is duplicated from the class's own port_name
+    # so we can match without importing the (often heavy) port module;
+    # FactoryTest.test_port_classes_table_consistency enforces the two stay in sync.
     PORT_CLASSES = (
-        'gtk.GtkPort',
-        'ios_simulator.IOSSimulatorPort',
-        'ios_simulator.IPhoneSimulatorPort',
-        'ios_simulator.IPadSimulatorPort',
-        'ios_device.IOSDevicePort',
-        'watch_simulator.WatchSimulatorPort',
-        'watch_device.WatchDevicePort',
-        'visionos_simulator.VisionOSSimulatorPort',
-        'visionos_device.VisionOSDevicePort',
-        'jsc_only.JscOnlyPort',
-        'mac.MacCatalystPort',
-        'mac.MacPort',
-        'test.TestPort',
-        'win.WinPort',
-        'wpe.WPEPort',
+        ('gtk',                 'gtk.GtkPort'),
+        ('ios-simulator',       'ios_simulator.IOSSimulatorPort'),
+        ('iphone-simulator',    'ios_simulator.IPhoneSimulatorPort'),
+        ('ipad-simulator',      'ios_simulator.IPadSimulatorPort'),
+        ('ios-device',          'ios_device.IOSDevicePort'),
+        ('watchos-simulator',   'watch_simulator.WatchSimulatorPort'),
+        ('watchos-device',      'watch_device.WatchDevicePort'),
+        ('visionos-simulator',  'visionos_simulator.VisionOSSimulatorPort'),
+        ('visionos-device',     'visionos_device.VisionOSDevicePort'),
+        ('jsc-only',            'jsc_only.JscOnlyPort'),
+        ('maccatalyst',         'mac.MacCatalystPort'),
+        ('mac',                 'mac.MacPort'),
+        ('test',                'test.TestPort'),
+        ('win',                 'win.WinPort'),
+        ('wpe',                 'wpe.WPEPort'),
     )
 
     def __init__(self, host):
@@ -137,23 +148,26 @@ class PortFactory(object):
         port_name is None, this routine attempts to guess at the most
         appropriate port on this platform."""
         port_name = port_name or self._default_port()
-        classes = []
-        for port_class in self.PORT_CLASSES:
-            module_name, class_name = port_class.rsplit('.', 1)
-            module = __import__('webkitpy.port.{}'.format(module_name), globals(), locals(), [], 0)
-            cls = module.__dict__.get('port').__dict__.get(module_name).__dict__.get(class_name)
-            if cls:
-                classes.append(cls)
-        if config.apple_additions() and hasattr(config.apple_additions(), 'ports'):
-            classes += config.apple_additions().ports()
 
-        for cls in classes:
-            if port_name.startswith(cls.port_name):
-                port_name = cls.determine_full_port_name(self._host, options, port_name)
-                try:
-                    return cls(self._host, port_name, options=options, **kwargs)
-                except ValueError:
-                    continue
+        for prefix, port_class_path in self.PORT_CLASSES:
+            if not port_name.startswith(prefix):
+                continue
+            cls = _load_port_class(port_class_path)
+            full_name = cls.determine_full_port_name(self._host, options, port_name)
+            try:
+                return cls(self._host, full_name, options=options, **kwargs)
+            except ValueError:
+                continue
+
+        if config.apple_additions() and hasattr(config.apple_additions(), 'ports'):
+            for cls in config.apple_additions().ports():
+                if port_name.startswith(cls.port_name):
+                    full_name = cls.determine_full_port_name(self._host, options, port_name)
+                    try:
+                        return cls(self._host, full_name, options=options, **kwargs)
+                    except ValueError:
+                        continue
+
         raise NotImplementedError('unsupported platform: "%s"' % port_name)
 
     def all_port_names(self, platform=None):

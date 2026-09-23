@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(MODEL_PROCESS)
+#if ENABLE(MODEL_PROCESS) || ENABLE(GPU_PROCESS_MODEL)
 
 #include <WebCore/FloatPoint3D.h>
 #include <WebCore/ModelPlayerTransformState.h>
@@ -42,7 +42,9 @@ public:
     ModelProcessModelPlayerTransformState(std::optional<WebCore::TransformationMatrix> entityTransform, std::optional<WebCore::FloatPoint3D> boundingBoxCenter, std::optional<WebCore::FloatPoint3D> boundingBoxExtents, bool hasPortal, WebCore::StageModeOperation);
     virtual ~ModelProcessModelPlayerTransformState() = default;
 
+#if ENABLE(MODEL_PROCESS)
     static bool transformSupported(const WebCore::TransformationMatrix&);
+#endif
 
 private:
     // ModelPlayerTransformState overrides
@@ -52,8 +54,10 @@ private:
     bool isEntityTransformSupported(const WebCore::TransformationMatrix&) const final;
     std::optional<WebCore::FloatPoint3D> boundingBoxCenter() const final { return m_boundingBoxCenter; }
     std::optional<WebCore::FloatPoint3D> boundingBoxExtents() const final { return m_boundingBoxExtents; }
+#if ENABLE(MODEL_ELEMENT_PORTAL)
     bool hasPortal() const final { return m_hasPortal; }
     void setHasPortal(bool) final;
+#endif
     WebCore::StageModeOperation stageMode() const final { return m_stageModeOperation; }
     void setStageMode(WebCore::StageModeOperation) final;
     void invalidateTransform() final;
@@ -61,7 +65,9 @@ private:
     std::optional<WebCore::TransformationMatrix> m_entityTransform;
     std::optional<WebCore::FloatPoint3D> m_boundingBoxCenter;
     std::optional<WebCore::FloatPoint3D> m_boundingBoxExtents;
+#if ENABLE(MODEL_ELEMENT_PORTAL)
     bool m_hasPortal { true };
+#endif
     WebCore::StageModeOperation m_stageModeOperation { WebCore::StageModeOperation::None };
 };
 

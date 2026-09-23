@@ -14,10 +14,7 @@
  * EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// MAVERICKS_BACKPORT: CSS value backing the legacy -apple-dashboard-region property (control
-// regions used by 10.9 Dashboard widgets). The whole subsystem was removed upstream in 2d364c6;
-// this is a modern reimplementation (the 2019 version stored regions inside CSSPrimitiveValue,
-// which no longer supports arbitrary ref types, so a dedicated CSSValue subclass is used).
+// MAVERICKS_BACKPORT: legacy Dashboard control regions hold numeric or auto offsets.
 
 #pragma once
 
@@ -37,10 +34,10 @@ public:
     struct Region {
         String label;
         int geometryType { 0 };
-        RefPtr<CSSPrimitiveValue> top;
-        RefPtr<CSSPrimitiveValue> right;
-        RefPtr<CSSPrimitiveValue> bottom;
-        RefPtr<CSSPrimitiveValue> left;
+        RefPtr<CSSValue> top;
+        RefPtr<CSSValue> right;
+        RefPtr<CSSValue> bottom;
+        RefPtr<CSSValue> left;
     };
 
     static Ref<CSSDashboardRegionValue> create(Vector<Region>&& regions)

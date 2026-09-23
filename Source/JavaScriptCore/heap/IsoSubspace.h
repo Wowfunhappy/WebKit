@@ -26,10 +26,9 @@
 #pragma once
 
 #include <JavaScriptCore/AlignedMemoryAllocator.h>
+#include <JavaScriptCore/AllocatorForMode.h>
 #include <JavaScriptCore/BlockDirectory.h>
 #include <JavaScriptCore/Subspace.h>
-#include <JavaScriptCore/SubspaceAccess.h>
-#include <wtf/SinglyLinkedListWithTail.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace JSC {

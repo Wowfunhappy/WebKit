@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPIAction.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -49,23 +50,8 @@
 #import <UIKit/UIKit.h>
 #endif
 
-static NSString * const tabIdKey = @"tabId";
-static NSString * const windowIdKey = @"windowId";
-
-static NSString * const imageDataKey = @"imageData";
-static NSString * const pathKey = @"path";
-static NSString * const popupKey = @"popup";
-static NSString * const textKey = @"text";
-static NSString * const titleKey = @"title";
-
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
-static NSString * const variantsKey = @"variants";
 // FIXME: <https://webkit.org/b/300927> Deprecate `color_schemes` key.
-static NSString * const deprecatedColorSchemesKey = @"color_schemes";
-static NSString * const colorSchemesKey = @"colorSchemes";
-static NSString * const lightKey = @"light";
-static NSString * const darkKey = @"dark";
-static NSString * const anyKey = @"any";
 #endif
 
 namespace WebKit {
@@ -432,7 +418,7 @@ NSMutableDictionary *WebExtensionAPIAction::parseIconPathsDictionary(NSDictionar
 
         if (!isValidDimensionKey(key)) {
             if (outExceptionString)
-                *outExceptionString = toErrorString(nullString(), inputKey, @"'%@' is not a valid dimension", key).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), inputKey, makeString("'"_s, String(key), "' is not a valid dimension"_s)).createNSString().autorelease();
             return nil;
         }
 
@@ -458,7 +444,7 @@ NSMutableDictionary *WebExtensionAPIAction::parseIconImageDataDictionary(NSDicti
 
         if (!isValidDimensionKey(key)) {
             if (outExceptionString)
-                *outExceptionString = toErrorString(nullString(), inputKey, @"'%@' is not a valid dimension", key).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), inputKey, makeString("'"_s, String(key), "' is not a valid dimension"_s)).createNSString().autorelease();
             return nil;
         }
 

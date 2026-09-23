@@ -45,7 +45,6 @@
 [
     EnabledBySetting=WebXREnabled,
     Conditional=WEBXR,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary FakeXRButtonStateInit {
     required FakeXRButtonType buttonType;
     required boolean pressed;

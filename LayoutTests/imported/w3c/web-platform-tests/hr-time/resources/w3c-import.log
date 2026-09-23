@@ -14,7 +14,10 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/clamped-time-origin.js
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/now_frame.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/post.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/timing-attack.js
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/unload-a.html
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/unload-b.html
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/resources/unload-c.html

@@ -128,9 +128,9 @@ void RemoteAudioSessionProxyManager::updateCategory()
 void RemoteAudioSessionProxyManager::updatePreferredBufferSizeForProcess()
 {
     size_t preferredBufferSize = std::numeric_limits<size_t>::max();
-    for (Ref proxy : m_proxies) {
-        if (proxy->preferredBufferSize() && proxy->preferredBufferSize() < preferredBufferSize)
-            preferredBufferSize = proxy->preferredBufferSize();
+    for (auto& proxy : m_proxies) {
+        if (proxy.preferredBufferSize() && proxy.preferredBufferSize() < preferredBufferSize)
+            preferredBufferSize = proxy.preferredBufferSize();
     }
 
     if (preferredBufferSize != std::numeric_limits<size_t>::max())
@@ -157,8 +157,8 @@ void RemoteAudioSessionProxyManager::updateSpatialExperience()
 
 bool RemoteAudioSessionProxyManager::hasOtherActiveProxyThan(RemoteAudioSessionProxy& proxyToExclude)
 {
-    for (Ref proxy : m_proxies) {
-        if (proxy->isActive() && proxy.ptr() != &proxyToExclude)
+    for (auto& proxy : m_proxies) {
+        if (proxy.isActive() && &proxy != &proxyToExclude)
             return true;
     }
     return false;
@@ -166,8 +166,8 @@ bool RemoteAudioSessionProxyManager::hasOtherActiveProxyThan(RemoteAudioSessionP
 
 bool RemoteAudioSessionProxyManager::hasActiveNotInterruptedProxy()
 {
-    for (Ref proxy : m_proxies) {
-        if (proxy->isActive() && !proxy->isInterrupted())
+    for (auto& proxy : m_proxies) {
+        if (proxy.isActive() && !proxy.isInterrupted())
             return true;
     }
     return false;

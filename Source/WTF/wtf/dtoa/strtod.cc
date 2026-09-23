@@ -27,7 +27,6 @@
 
 #include "config.h"
 
-#include <climits>
 #include <cstdarg>
 
 #include <wtf/dtoa/bignum.h>

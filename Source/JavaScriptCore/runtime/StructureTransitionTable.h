@@ -36,6 +36,7 @@ namespace JSC {
 class JSCell;
 class Structure;
 
+class JSObject;
 // In fact, it should be 7 bits. See PropertySlot and Structure definitions.
 using TransitionPropertyAttributes = uint8_t;
 
@@ -270,13 +271,7 @@ class StructureTransitionTable {
 public:
     StructureTransitionTable() = default;
 
-    ~StructureTransitionTable()
-    {
-        if (!isUsingSingleSlot()) {
-            delete map();
-            return;
-        }
-    }
+    inline ~StructureTransitionTable(); // Defined in StructureInlines.h.
 
     void add(VM&, JSCell* owner, Structure*);
     bool contains(PointerKey, unsigned attributes, TransitionKind) const;

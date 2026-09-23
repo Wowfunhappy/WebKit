@@ -24,7 +24,6 @@
 
 #include "NodeDocument.h"
 #include "NodeName.h"
-#include "NodeInlines.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"

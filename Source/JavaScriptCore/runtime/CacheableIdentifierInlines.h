@@ -87,10 +87,25 @@ inline UniquedStringImpl* CacheableIdentifier::uid() const
     if (isUid())
         return std::bit_cast<UniquedStringImpl*>(m_bits & ~s_uidTag);
     if (isSymbolCell())
-        return &jsCast<Symbol*>(cell())->uid();
+        return &uncheckedDowncast<Symbol>(cell())->uid();
     ASSERT(isStringCell());
-    JSString* string = jsCast<JSString*>(cell());
+    JSString* string = uncheckedDowncast<JSString>(cell());
     return std::bit_cast<UniquedStringImpl*>(string->getValueImpl());
+}
+
+inline bool CacheableIdentifier::isSymbol() const
+{
+    return m_bits && uid()->isSymbol();
+}
+
+inline bool CacheableIdentifier::isPrivateName() const
+{
+    return isSymbol() && static_cast<SymbolImpl&>(*uid()).isPrivate();
+}
+
+inline unsigned CacheableIdentifier::hash() const
+{
+    return uid()->symbolAwareHash();
 }
 
 inline bool CacheableIdentifier::isCacheableIdentifierCell(JSCell* cell)
@@ -99,7 +114,7 @@ inline bool CacheableIdentifier::isCacheableIdentifierCell(JSCell* cell)
         return true;
     if (!cell->isString())
         return false;
-    JSString* string = jsCast<JSString*>(cell);
+    JSString* string = uncheckedDowncast<JSString>(cell);
     if (const StringImpl* impl = string->tryGetValueImpl())
         return impl->isAtom();
     return false;
@@ -118,7 +133,7 @@ inline GCOwnedDataScope<const UniquedStringImpl*> CacheableIdentifier::getCachea
         return { cell, &asSymbol(cell)->uid() };
     if (!cell->isString())
         return { };
-    JSString* string = jsCast<JSString*>(cell);
+    JSString* string = uncheckedDowncast<JSString>(cell);
     if (const StringImpl* impl = string->tryGetValueImpl(); impl && impl->isAtom())
         return { cell, static_cast<const AtomStringImpl*>(impl) };
     return { };

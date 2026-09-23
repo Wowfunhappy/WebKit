@@ -111,19 +111,21 @@ struct RefTrackerMixin final {
     RefTrackerMixin* originalThis = nullptr;
 };
 
-#define REFTRACKER_DECL(T, initializer) \
+#define REFTRACKER_DECL(T) \
     struct T final { \
-        inline static bool enabled() { \
-            initializer \
-            return Options::enable ## T(); \
-        } \
+        WTF_EXPORT_PRIVATE static bool enabled(); \
         WTF_EXPORT_PRIVATE static WTF::RefTracker& refTrackerSingleton(); \
     };
 
 #define REFTRACKER_MEMBERS(T) \
     WTF::RefTrackerMixin<T> m_refTrackerData;
 
-#define REFTRACKER_IMPL(T) \
+#define REFTRACKER_IMPL(T, initializer) \
+    bool T::enabled() \
+    { \
+        initializer \
+        return Options::enable ## T(); \
+    } \
     WTF::RefTracker& T::refTrackerSingleton() \
     { \
         static WTF::LazyNeverDestroyed<WTF::RefTracker> s_singleton; \
@@ -137,9 +139,9 @@ struct RefTrackerMixin final {
 
 #else // ENABLE(REFTRACKER)
 
-#define REFTRACKER_DECL(_, initializer)
+#define REFTRACKER_DECL(_)
 #define REFTRACKER_MEMBERS(_)
-#define REFTRACKER_IMPL(_)
+#define REFTRACKER_IMPL(_, initializer)
 
 #endif
 

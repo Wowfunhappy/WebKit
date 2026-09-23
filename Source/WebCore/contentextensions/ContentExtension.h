@@ -51,6 +51,7 @@ public:
     const DFABytecodeInterpreter::Actions& topURLActions(const URL& topURL) const;
     const DFABytecodeInterpreter::Actions& frameURLActions(const URL& frameURL) const;
     const Vector<uint64_t>& universalActions() const LIFETIME_BOUND { return m_universalActions; }
+    DFABytecodeInterpreter::Actions interpretURLFilters(const String& url, ResourceFlags) const;
 
 private:
     ContentExtension(const String& identifier, Ref<CompiledContentExtension>&&, URL&&, ShouldCompileCSS);
@@ -72,6 +73,7 @@ private:
     mutable DFABytecodeInterpreter::Actions m_cachedFrameURLActions;
 
     Vector<uint64_t> m_universalActions;
+    mutable DFABytecodeInterpreter m_urlFiltersInterpreter;
 };
 
 } // namespace ContentExtensions

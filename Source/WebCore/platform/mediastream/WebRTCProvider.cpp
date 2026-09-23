@@ -141,7 +141,7 @@ std::optional<RTCRtpCapabilities> WebRTCProvider::senderCapabilities(const Strin
     return { };
 }
 
-std::optional<RTCRtpCodecCapability> WebRTCProvider::codecCapability(const ContentType& contentType, const std::optional<RTCRtpCapabilities>& capabilities)
+std::optional<RTCRtpCodec> WebRTCProvider::codecCapability(const ContentType& contentType, const std::optional<RTCRtpCapabilities>& capabilities)
 {
     if (!capabilities)
         return { };

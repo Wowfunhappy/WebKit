@@ -48,6 +48,7 @@ function testBasicVideoExchangeWithAddTrack(waitForSecondTrack)
         testRunner.setUserMediaPermission(true);
 
     return navigator.mediaDevices.getUserMedia({audio: true, video: true}).then((stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(t => t.stop()));
         return new Promise((resolve, reject) => {
             createConnections((firstConnection) => {
                 assert_equals(stream.getTracks().length, 2);

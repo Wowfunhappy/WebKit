@@ -44,7 +44,7 @@ public:
         return adoptRef(*new URLInputType(element));
     }
 
-    bool typeMismatchFor(const String&) const final;
+    bool typeMismatchFor(StringView) const final;
     bool typeMismatch() const final;
 
 private:

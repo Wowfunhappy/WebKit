@@ -63,6 +63,8 @@
 #include "TreeScopeInlines.h"
 #include "TreeScopeOrderedMap.h"
 #include "TypedElementDescendantIteratorInlines.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <algorithm>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/text/AtomStringHash.h>
@@ -153,7 +155,7 @@ void TreeScope::setParentTreeScope(TreeScope& newParentScope)
     ASSERT(!m_rootNode->isDocumentNode());
 
     m_parentTreeScope = &newParentScope;
-    setDocumentScope(newParentScope.documentScope());
+    setDocumentScope(protect(newParentScope.documentScope()));
 }
 
 void TreeScope::setCustomElementRegistry(RefPtr<CustomElementRegistry>&& registry)
@@ -277,24 +279,28 @@ Element* TreeScope::ancestorElementInThisScope(Element* element) const
     return nullptr;
 }
 
-void TreeScope::addImageMap(HTMLMapElement& imageMap)
+void TreeScope::addImageMap(HTMLMapElement& imageMap, const AtomString& name, const AtomString& id)
 {
-    auto name = imageMap.getName();
-    if (name.isNull())
+    if (name.isNull() && id.isNull())
         return;
     if (!m_imageMapsByName)
         m_imageMapsByName = makeUnique<TreeScopeOrderedMap>();
-    m_imageMapsByName->add(name, imageMap, *this);
+
+    if (!name.isNull())
+        m_imageMapsByName->add(name, imageMap, *this);
+    if (!id.isNull() && id != name)
+        m_imageMapsByName->add(id, imageMap, *this);
 }
 
-void TreeScope::removeImageMap(HTMLMapElement& imageMap)
+void TreeScope::removeImageMap(HTMLMapElement& imageMap, const AtomString& name, const AtomString& id)
 {
     if (!m_imageMapsByName)
         return;
-    auto name = imageMap.getName();
-    if (name.isNull())
-        return;
-    m_imageMapsByName->remove(name, imageMap);
+
+    if (!name.isNull())
+        m_imageMapsByName->remove(name, imageMap);
+    if (!id.isNull() && id != name)
+        m_imageMapsByName->remove(id, imageMap);
 }
 
 RefPtr<HTMLMapElement> TreeScope::getImageMap(const AtomString& name) const
@@ -496,9 +502,9 @@ RefPtr<Element> TreeScope::findAnchor(StringView name)
     if (RefPtr element = getElementById(name))
         return element;
     Ref rootNode = m_rootNode.get();
-    for (Ref anchor : descendantsOfType<HTMLAnchorElement>(rootNode)) {
+    for (auto& anchor : descendantsOfType<HTMLAnchorElement>(rootNode)) {
         if (isMatchingAnchor(anchor, name))
-            return anchor;
+            return &anchor;
     }
     return nullptr;
 }
@@ -543,12 +549,12 @@ Element* TreeScope::focusedElementInScope()
 
 Element* TreeScope::pointerLockElement() const
 {
-    CheckedRef document = documentScope();
-    RefPtr page = document->page();
+    auto& document = documentScope();
+    auto* page = document.page();
     if (!page || page->pointerLockController().lockPending())
         return nullptr;
-    RefPtr element = page->pointerLockController().element();
-    if (!element || &element->document() != document.ptr())
+    auto* element = page->pointerLockController().element();
+    if (!element || &element->document() != &document)
         return nullptr;
     return ancestorElementInThisScope(element);
 }
@@ -652,7 +658,7 @@ ExceptionOr<void> TreeScope::setAdoptedStyleSheets(Vector<Ref<CSSStyleSheet>>&& 
 {
     if (!m_adoptedStyleSheets && sheets.isEmpty())
         return { };
-    return ensureAdoptedStyleSheets().setSheets(WTF::move(sheets));
+    return protect(ensureAdoptedStyleSheets())->setSheets(WTF::move(sheets));
 }
 
 SVGResourcesMap& TreeScope::svgResourcesMap() const

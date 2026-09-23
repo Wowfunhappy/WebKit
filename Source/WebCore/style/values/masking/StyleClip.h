@@ -29,6 +29,13 @@
 #include <wtf/Markable.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct Clip;
+struct ClipEdge;
+struct ClipRect;
+}
+
 namespace Style {
 
 // <clip-edge> = <length> | auto
@@ -44,6 +51,11 @@ struct ClipEdge : ValueOrKeyword<Length<>, CSS::Keyword::Auto> {
 // <rect()> = rect( <clip-edge> , <clip-edge> , <clip-edge> , <clip-edge> )
 struct ClipRect {
     FunctionNotation<CSSValueRect, CommaSeparatedRectEdges<ClipEdge>> value;
+
+    ClipRect(FunctionNotation<CSSValueRect, CommaSeparatedRectEdges<ClipEdge>> value)
+        : value { WTF::move(value) }
+    {
+    }
 
     ClipRect(CSS::Keyword::Auto keyword)
         : value { CommaSeparatedRectEdges<ClipEdge> { keyword } }
@@ -63,7 +75,7 @@ struct ClipRect {
 DEFINE_TYPE_WRAPPER_GET(ClipRect, value);
 
 // <'clip'> = <rect()> | auto
-// https://drafts.fxtf.org/css-masking/#propdef-clip
+// https://drafts.csswg.org/css-masking/#propdef-clip
 struct Clip {
     Clip(CSS::Keyword::Auto)
         : value { }
@@ -102,10 +114,14 @@ private:
 
 // MARK: Conversion
 
+DEFINE_TYPE_MAPPING(CSS::ClipEdge, ClipEdge);
+DEFINE_TYPE_MAPPING(CSS::ClipRect, ClipRect);
+DEFINE_TYPE_MAPPING(CSS::Clip, Clip);
+
 template<> struct CSSValueConversion<Clip> { auto operator()(BuilderState&, const CSSValue&) -> Clip; };
 
-// `ClipRect` is special-cased to return a `CSSValueRect`.
-template<> struct CSSValueCreation<ClipRect> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const ClipRect&); };
+// `Clip` is special-cased to return a `CSSClipValue`.
+template<> struct CSSValueCreation<Clip> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const Clip&); };
 
 // MARK: - Blending
 

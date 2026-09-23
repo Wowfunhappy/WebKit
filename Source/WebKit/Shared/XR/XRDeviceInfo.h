@@ -40,6 +40,9 @@ struct XRDeviceInfo {
     PlatformXR::Device::FeatureList arFeatures;
     WebCore::IntSize recommendedResolution { 0, 0 };
     double minimumNearClipPlane { 0.1 };
+#if ENABLE(WEBXR_LAYERS)
+    unsigned maxRenderLayers { 1 };
+#endif
 };
 
 } // namespace WebKit

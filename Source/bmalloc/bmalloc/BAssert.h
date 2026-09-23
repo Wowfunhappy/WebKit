@@ -41,7 +41,7 @@
 #elif BCPU(ARM_THUMB2)
 #define BBreakpointTrap()  __asm__ volatile ("bkpt #0")
 #elif BCPU(ARM64)
-#define BBreakpointTrap()  __asm__ volatile ("brk #0xc471")
+#define BBreakpointTrap()  __asm__ volatile ("brk #0xbb08")
 #else
 #error "Unsupported CPU".
 #endif
@@ -62,12 +62,12 @@
 
 #if defined(__GNUC__) // GCC or Clang
 #define BCRASH() do { \
-    *(int*)0xbbadbeef = 0; \
+    BIGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("core.FixedAddressDereference") *(int*)0xbbadbeef = 0; \
     __builtin_trap(); \
 } while (0)
 #else
 #define BCRASH() do { \
-    *(int*)0xbbadbeef = 0; \
+    BIGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("core.FixedAddressDereference") *(int*)0xbbadbeef = 0; \
     ((void(*)())0)(); \
 } while (0)
 #endif // defined(__GNUC__)
@@ -100,16 +100,6 @@
 
 #define BUNUSED(x) ((void)x)
 
-#if BUSE(LIBPAS)
-
-#include "pas_utils.h"
-
-#define BASSERT(x) PAS_TESTING_ASSERT(x)
-#define RELEASE_BASSERT(x) PAS_ASSERT(x)
-#define RELEASE_BASSERT_NOT_REACHED() PAS_ASSERT_NOT_REACHED()
-
-#else // !BUSE(LIBPAS)
-
 // ===== Release build =====
 
 #define RELEASE_BASSERT(x) BASSERT_IMPL(x)
@@ -133,5 +123,3 @@
 #define IF_DEBUG(x) (x)
 
 #endif // !defined(NDEBUG)
-
-#endif // BUSE(LIBPAS)

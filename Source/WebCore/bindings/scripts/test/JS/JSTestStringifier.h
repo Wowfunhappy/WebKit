@@ -29,13 +29,7 @@ namespace WebCore {
 class JSTestStringifier : public JSDOMWrapper<TestStringifier> {
 public:
     using Base = JSDOMWrapper<TestStringifier>;
-    static JSTestStringifier* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestStringifier>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestStringifier* ptr = new (NotNull, JSC::allocateCell<JSTestStringifier>(vm)) JSTestStringifier(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestStringifier* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestStringifier>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -44,11 +38,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -66,8 +56,12 @@ protected:
 
 class JSTestStringifierOwner final : public JSC::WeakHandleOwner {
 public:
+    JSTestStringifierOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSTestStringifierOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, TestStringifier*)

@@ -59,11 +59,16 @@
 
 - (void)_getPaymentServicesMerchantURL:(void(^)(NSURL *, NSError *))completion
 {
-    // FIXME: This -respondsToSelector: check can be removed once rdar://problem/48771320 is in an iOS SDK.
-    if ([PAL::getPKPaymentAuthorizationControllerClassSingleton() respondsToSelector:@selector(paymentServicesMerchantURLForAPIType:completion:)])
-        [PAL::getPKPaymentAuthorizationControllerClassSingleton() paymentServicesMerchantURLForAPIType:[_request APIType] completion:completion];
-    else
-        [PAL::getPKPaymentAuthorizationViewControllerClassSingleton() paymentServicesMerchantURLForAPIType:[_request APIType] completion:completion];
+#if HAVE(PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED)
+#if HAVE(PASSKIT_DELEGATED_REQUEST)
+    BOOL isDelegated = [_request isDelegatedRequest];
+#else
+    BOOL isDelegated = NO;
+#endif
+    [PAL::getPKPaymentAuthorizationControllerClassSingleton() paymentServicesMerchantURLForAPIType:[_request APIType] isDelegated:isDelegated completion:completion];
+#else
+    [PAL::getPKPaymentAuthorizationControllerClassSingleton() paymentServicesMerchantURLForAPIType:[_request APIType] completion:completion];
+#endif
 }
 
 #pragma mark PKPaymentAuthorizationControllerDelegate

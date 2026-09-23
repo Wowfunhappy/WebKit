@@ -218,6 +218,8 @@ public:
     // The given rects are only used if there is no platform widget.
     WEBCORE_EXPORT void NODELETE setExposedContentRect(const FloatRect&);
 
+    void adjustExposedContentRectForProgrammaticScroll(ScrollPosition);
+
     WEBCORE_EXPORT FloatSize NODELETE unobscuredContentSize() const;
     WEBCORE_EXPORT void setUnobscuredContentSize(const FloatSize&);
 
@@ -420,7 +422,7 @@ public:
     void setAllowsUnclampedScrollPositionForTesting(bool allowsUnclampedScrollPosition) { m_allowsUnclampedScrollPosition = allowsUnclampedScrollPosition; }
     bool allowsUnclampedScrollPosition() const { return m_allowsUnclampedScrollPosition; }
 
-    bool managesScrollbars() const;
+    bool NODELETE managesScrollbars() const;
     virtual void updateScrollbarSteps();
 
     // Called to update the scrollbars to accurately reflect the state of the view.
@@ -475,7 +477,7 @@ public:
     WEBCORE_EXPORT NSView* documentView() const;
 
 private:
-    PlatformScrollView* scrollView() const;
+    PlatformScrollView* NODELETE scrollView() const;
 #endif
 
 private:

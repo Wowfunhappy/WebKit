@@ -21,48 +21,64 @@
 
 #pragma once
 
+#include "AffineTransform.h"
 #include "SVGAnimatedPropertyImpl.h"
 #include "SVGElement.h"
 #include "SVGTests.h"
 #include "SVGTransformList.h"
-#include "SVGTransformable.h"
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class AffineTransform;
 class Path;
 class SVGRect;
 class SVGMatrix;
 
-class SVGGraphicsElement : public SVGElement, public SVGTransformable, public SVGTests {
+enum class CTMScope : bool {
+    NearestViewportScope, // Used for getCTM()
+    ScreenScope // Used for getScreenCTM()
+};
+
+enum class StyleUpdateStrategy : bool { Disallow, Allow };
+
+class SVGGraphicsElement : public SVGElement, public SVGTests {
     WTF_MAKE_TZONE_ALLOCATED(SVGGraphicsElement);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGGraphicsElement);
 public:
     virtual ~SVGGraphicsElement();
 
     Ref<SVGMatrix> getCTMForBindings();
-    AffineTransform getCTM(StyleUpdateStrategy = AllowStyleUpdate) override;
+    AffineTransform getCTM(StyleUpdateStrategy = StyleUpdateStrategy::Allow);
 
     Ref<SVGMatrix> getScreenCTMForBindings();
-    AffineTransform getScreenCTM(StyleUpdateStrategy = AllowStyleUpdate) override;
+    AffineTransform getScreenCTM(StyleUpdateStrategy = StyleUpdateStrategy::Allow);
 
-    AffineTransform localCoordinateSpaceTransform(CTMScope mode) const override { return SVGTransformable::localCoordinateSpaceTransform(mode); }
-    AffineTransform animatedLocalTransform() const override;
+    AffineTransform localCoordinateSpaceTransform(CTMScope) const override { return animatedLocalTransform(); }
+    AffineTransform animatedLocalTransform() const;
     AffineTransform* ensureSupplementalTransform() override;
     AffineTransform* supplementalTransform() const LIFETIME_BOUND override { return m_supplementalTransform.get(); }
 
-    virtual bool hasTransformRelatedAttributes() const { return !transform().concatenate().isIdentity() || m_supplementalTransform; }
+    const AffineTransform& concatenatedTransform() const
+    {
+        if (!m_cachedConcatenatedTransform)
+            m_cachedConcatenatedTransform = transform().concatenate().value_or(AffineTransform { });
+        return *m_cachedConcatenatedTransform;
+    }
+    void invalidateConcatenatedTransformCache() const { m_cachedConcatenatedTransform = std::nullopt; }
+
+    virtual bool hasTransformRelatedAttributes() const { return !concatenatedTransform().isIdentity() || m_supplementalTransform; }
 
     Ref<SVGRect> getBBoxForBindings();
-    FloatRect getBBox(StyleUpdateStrategy = AllowStyleUpdate) override;
+    virtual FloatRect getBBox(StyleUpdateStrategy = StyleUpdateStrategy::Allow);
+
+    static SVGElement* NODELETE nearestViewportElement(const SVGElement*);
 
     bool shouldIsolateBlending() const { return m_shouldIsolateBlending; }
     void setShouldIsolateBlending(bool isolate) { m_shouldIsolateBlending = isolate; }
 
     // "base class" methods for all the elements which render as paths
     virtual Path toClipPath();
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
 
     size_t approximateMemoryCost() const override { return sizeof(*this); }
 
@@ -83,8 +99,13 @@ protected:
 private:
     bool isSVGGraphicsElement() const override { return true; }
 
+    static FloatRect computeBBox(SVGElement*, StyleUpdateStrategy);
+    static AffineTransform computeCTM(SVGElement*, CTMScope, StyleUpdateStrategy);
+
     // Used by <animateMotion>
     std::unique_ptr<AffineTransform> m_supplementalTransform;
+
+    mutable std::optional<AffineTransform> m_cachedConcatenatedTransform;
 
     // Used to isolate blend operations caused by masking.
     bool m_shouldIsolateBlending { false };

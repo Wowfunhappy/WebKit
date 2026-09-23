@@ -17,12 +17,12 @@
 
     <p>
       This test verifies the spacing of some non-BMP operators. It is assumed
-      that U+1EEF0 and U+1EEF1 only have a prefix form with zero lspace/rspace
-      and that U+1D400 is not in the operator dictionary. Hence the operator
-      spacing use zero for prefix U+1EEF0/U+1EEF1 and will use the default
-      thickmathspace value otherwise. Note that for implicit form, WebKit has a
-      workaround for bad markup and will fallback to the form of a dictionary
-      entry if one is found.
+      that U+1EEF0 and U+1EEF1 have prefix and postfix forms with zero
+      lspace/rspace and that U+1D400 is not in the operator dictionary. Hence
+      the operator spacing use zero for prefix/postfix U+1EEF0/U+1EEF1 and will
+      use the default thickmathspace value otherwise. Note that for implicit
+      form, WebKit has a workaround for bad markup and will fallback to the form
+      of a dictionary entry if one is found.
     </p>
 
     <p>Prefix:</p>
@@ -31,8 +31,8 @@
     U+1D400:<math><mo lspace="0.277777778em" rspace="0.277777778em" form="prefix">&#x1D400;</mo></math>_
 
     <p>Postfix:</p>
-    U+1EEF0:<math><mo lspace="0.277777778em" rspace="0.277777778em" form="postfix">&#x1EEF0;</mo></math>_
-    U+1EEF1:<math><mo lspace="0.277777778em" rspace="0.277777778em" form="postfix">&#x1EEF1;</mo></math>_
+    U+1EEF0:<math><mo lspace="0em" rspace="0em" form="postfix">&#x1EEF0;</mo></math>_
+    U+1EEF1:<math><mo lspace="0em" rspace="0em" form="postfix">&#x1EEF1;</mo></math>_
     U+1D400:<math><mo lspace="0.277777778em" rspace="0.277777778em" form="postfix">&#x1D400;</mo></math>_
 
     <p>Infix:</p>

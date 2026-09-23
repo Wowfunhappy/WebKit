@@ -50,9 +50,7 @@ WebPasteboardProxy& WebPasteboardProxy::singleton()
     return proxy;
 }
 
-WebPasteboardProxy::WebPasteboardProxy()
-{
-}
+WebPasteboardProxy::WebPasteboardProxy() = default;
 
 void WebPasteboardProxy::addWebProcessProxy(WebProcessProxy& webProcessProxy)
 {

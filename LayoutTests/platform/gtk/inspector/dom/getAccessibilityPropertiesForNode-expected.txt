@@ -291,6 +291,7 @@ Total elements to be tested: 126.
     label:
     role: button
     childNodeIds.length: 1
+    expanded: false
     focused: false
     required: false
     isPopUpButton: true

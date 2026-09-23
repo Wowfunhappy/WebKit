@@ -88,16 +88,13 @@ double Value::toNumber() const
         [](const String& string) -> double {
             auto simplified = string.simplifyWhiteSpace(deprecatedIsSpaceOrNewline);
 
-            // String::toDouble() supports exponential notation, which is not allowed in XPath.
-            unsigned len = simplified.length();
-            for (unsigned i = 0; i < len; ++i) {
-                char16_t c = simplified[i];
-                if (!isASCIIDigit(c) && c != '.' && c != '-')
-                    return std::numeric_limits<double>::quiet_NaN();
-            }
-
+            // XPath does not allow exponential notation in numbers, so use fixed parsing.
             bool canConvert;
-            auto value = simplified.toDouble(&canConvert);
+            double value;
+            if (simplified.is8Bit())
+                value = charactersToFixedDouble(simplified.span8(), &canConvert);
+            else
+                value = charactersToFixedDouble(simplified.span16(), &canConvert);
             if (canConvert)
                 return value;
             return std::numeric_limits<double>::quiet_NaN();

@@ -37,7 +37,6 @@
 #endif
 
 #import "Logging.h"
-#import "ParentalControlsContentFilter.h"
 #import "ParentalControlsURLFilterParameters.h"
 #import <wtf/CompletionHandler.h>
 #import <wtf/MainThread.h>
@@ -91,7 +90,7 @@ static bool wcrBrowserEngineClientEnabled()
     return [PAL::getWCRBrowserEngineClientClassSingleton() shouldEvaluateURLs];
 }
 
-static RefPtr<ParentalControlsURLFilter>& globalFilter()
+static RefPtr<ParentalControlsURLFilter>& NODELETE globalFilter()
 {
     static MainThreadNeverDestroyed<RefPtr<ParentalControlsURLFilter>> filter;
     return filter.get();
@@ -111,7 +110,21 @@ void ParentalControlsURLFilter::setGlobalFilter(Ref<ParentalControlsURLFilter>&&
     globalFilter() = WTF::move(filter);
 }
 
+bool ParentalControlsURLFilter::hasGlobalFilter()
+{
+    return !!globalFilter();
+}
+
 #endif
+
+void ParentalControlsURLFilter::setFilterForTesting(Ref<ParentalControlsURLFilter>&& filter)
+{
+#if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
+    allFiltersWithConfigurationPath().set(emptyString(), WTF::move(filter));
+#else
+    setGlobalFilter(WTF::move(filter));
+#endif
+}
 
 ParentalControlsURLFilter::ParentalControlsURLFilter() = default;
 
@@ -131,7 +144,7 @@ static void webContentFilterTypeDidChange(CFNotificationCenterRef, void*, CFStri
 #endif
 }
 
-static void registerNotificationForWebContentFilterTypeChange()
+UNUSED_FUNCTION static void registerNotificationForWebContentFilterTypeChange()
 {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -160,9 +173,16 @@ bool ParentalControlsURLFilter::isEnabled() const
 {
 #if PLATFORM(MAC)
     // FIXME: This can be removed after rdar://159207397 is fixed.
-    return isEnabledImpl();
-#endif
+    static std::optional<bool> cachedWcrFilterEnabled;
+    bool wcrFilterEnabled = isEnabledImpl();
 
+    if (cachedWcrFilterEnabled != wcrFilterEnabled) {
+        RELEASE_LOG(ContentFiltering, "%p - ParentalControlsURLFilter::isEnabled %d", this, wcrFilterEnabled);
+        cachedWcrFilterEnabled = wcrFilterEnabled;
+    }
+
+    return wcrFilterEnabled;
+#else
     if (!m_isEnabled) {
         m_isEnabled = isEnabledImpl();
         RELEASE_LOG(ContentFiltering, "%p - ParentalControlsURLFilter::isEnabled %d", this, *m_isEnabled);
@@ -171,20 +191,21 @@ bool ParentalControlsURLFilter::isEnabled() const
     registerNotificationForWebContentFilterTypeChange();
 
     return *m_isEnabled;
+#endif
 }
 
-void ParentalControlsURLFilter::isURLAllowed(const URL& mainDocumentURL, const URL& url, ParentalControlsContentFilter& filter)
+void ParentalControlsURLFilter::isURLAllowed(IsMainFrameLoad isMainFrame, const URL& mainDocumentURL, const URL& url, ParentalControlsContentFilter& filter)
 {
-    isURLAllowedImpl(mainDocumentURL, url, { [protectedThis = Ref { *this }, weakFilter = ThreadSafeWeakPtr { filter }] (bool allowed, NSData *replacementData) mutable {
+    isURLAllowedImpl(isMainFrame, mainDocumentURL, url, { [protectedThis = Ref { *this }, weakFilter = ThreadSafeWeakPtr { filter }] (bool allowed, NSData *replacementData) mutable {
         ASSERT(!isMainThread());
         if (RefPtr filter = weakFilter.get())
             filter->didReceiveAllowDecisionOnQueue(allowed, replacementData);
     }, CompletionHandlerCallThread::AnyThread });
 }
 
-void ParentalControlsURLFilter::isURLAllowed(const URL& mainDocumentURL, const URL& url, CompletionHandler<void(bool, NSData *)>&& completionHandler)
+void ParentalControlsURLFilter::isURLAllowed(IsMainFrameLoad isMainFrame, const URL& mainDocumentURL, const URL& url, CompletionHandler<void(bool, NSData *)>&& completionHandler)
 {
-    isURLAllowedImpl(mainDocumentURL, url, { [protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (bool allowed, NSData *replacementData) mutable {
+    isURLAllowedImpl(isMainFrame, mainDocumentURL, url, { [protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (bool allowed, NSData *replacementData) mutable {
         ASSERT(!isMainThread());
         callOnMainRunLoop([completionHandler = WTF::move(completionHandler), allowed, replacementData = RetainPtr { replacementData }]() mutable {
             completionHandler(allowed, replacementData.get());
@@ -192,8 +213,9 @@ void ParentalControlsURLFilter::isURLAllowed(const URL& mainDocumentURL, const U
     }, CompletionHandlerCallThread::AnyThread });
 }
 
-void ParentalControlsURLFilter::isURLAllowedImpl(const URL& mainDocumentURL, const URL& url, CompletionHandler<void(bool, NSData *)>&& completionHandler)
+void ParentalControlsURLFilter::isURLAllowedImpl(IsMainFrameLoad isMainFrame, const URL& mainDocumentURL, const URL& url, CompletionHandler<void(bool, NSData *)>&& completionHandler)
 {
+    UNUSED_PARAM(isMainFrame);
     ASSERT(isMainThread());
 
     RetainPtr wcrBrowserEngineClient = effectiveWCRBrowserEngineClient();
@@ -245,7 +267,11 @@ void ParentalControlsURLFilter::allowURL(const ParentalControlsURLFilterParamete
 }
 
 #if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO)
-void ParentalControlsURLFilter::requestPermissionForURL(const URL& url, const URL& referrerURL, CompletionHandler<void(bool)>&& completionHandler)
+void ParentalControlsURLFilter::requestPermissionForURL(const URL& url, const URL& referrerURL, CompletionHandler<void(bool)>&& completionHandler
+#if HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER)
+    , CocoaView*
+#endif
+)
 {
     ASSERT(isMainThread());
 

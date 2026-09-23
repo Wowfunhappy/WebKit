@@ -130,14 +130,14 @@ public:
     };
 
 #if PLATFORM(COCOA)
-    JS_EXPORT_PRIVATE static void setNeedMachSandboxExtension(bool needExtension);
+    JS_EXPORT_PRIVATE static void NODELETE setNeedMachSandboxExtension(bool needExtension);
 #endif
 // MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
 #if (USE(GLIB) && !PLATFORM(COCOA))
     JS_EXPORT_PRIVATE static void setInspectorServerAddress(CString&&);
     JS_EXPORT_PRIVATE static const CString& inspectorServerAddress();
 #endif
-    JS_EXPORT_PRIVATE static void startDisabled();
+    JS_EXPORT_PRIVATE static void NODELETE startDisabled();
     JS_EXPORT_PRIVATE static RemoteInspector& singleton();
     friend class LazyNeverDestroyed<RemoteInspector>;
 
@@ -234,7 +234,7 @@ private:
 
     void updateTargetListing(const RemoteControllableTarget&);
 
-    void updateHasActiveDebugSession();
+    void NODELETE updateHasActiveDebugSession();
     void updateClientCapabilities();
 
     void sendAutomaticInspectionCandidateMessage(TargetID) WTF_REQUIRES_LOCK(m_mutex);
@@ -255,7 +255,7 @@ private:
     void receivedAutomaticInspectionConfigurationMessage(NSDictionary *userInfo) WTF_REQUIRES_LOCK(m_mutex);
     void receivedAutomaticInspectionRejectMessage(NSDictionary *userInfo) WTF_REQUIRES_LOCK(m_mutex);
     void receivedAutomationSessionRequestMessage(NSDictionary *userInfo) WTF_REQUIRES_LOCK(m_mutex);
-    void receivedPingSuccessMessage() WTF_REQUIRES_LOCK(m_mutex);
+    void NODELETE receivedPingSuccessMessage() WTF_REQUIRES_LOCK(m_mutex);
 #endif
 #if USE(INSPECTOR_SOCKET_SERVER)
     HashMap<String, CallHandler>& dispatchMap() final;

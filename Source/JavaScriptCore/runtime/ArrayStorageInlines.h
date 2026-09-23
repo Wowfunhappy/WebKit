@@ -26,7 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/ArrayStorage.h>
-#include <JavaScriptCore/StructureInlines.h>
+#include <JavaScriptCore/Structure.h>
 
 namespace JSC {
 

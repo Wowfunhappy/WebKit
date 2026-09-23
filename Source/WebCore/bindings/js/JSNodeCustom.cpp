@@ -69,7 +69,7 @@ using namespace HTMLNames;
 
 bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    SUPPRESS_UNCHECKED_LOCAL auto& node = jsCast<JSNode*>(handle.slot()->asCell())->wrapped();
+    SUPPRESS_UNCHECKED_LOCAL auto& node = downcast<JSNode>(handle.slot()->asCell())->wrapped();
     if (!node.isConnected()) {
         if (GCReachableRefMap::contains(node) || node.isInCustomElementReactionQueue()) {
             if (reason) [[unlikely]]
@@ -99,13 +99,13 @@ static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalOb
     JSDOMObject* wrapper;    
     switch (node->nodeType()) {
     case NodeType::Element:
-        if (auto* htmlElement = dynamicDowncast<HTMLElement>(node.get()))
-            wrapper = createJSHTMLWrapper(globalObject, *htmlElement);
-        else if (auto* svgElement = dynamicDowncast<SVGElement>(node.get()))
-            wrapper = createJSSVGWrapper(globalObject, *svgElement);
+        if (is<HTMLElement>(node))
+            wrapper = createJSHTMLWrapper(globalObject, uncheckedDowncast<HTMLElement>(WTF::move(node)));
+        else if (is<SVGElement>(node))
+            wrapper = createJSSVGWrapper(globalObject, uncheckedDowncast<SVGElement>(WTF::move(node)));
 #if ENABLE(MATHML)
-        else if (auto* mathmlElement = dynamicDowncast<MathMLElement>(node.get()))
-            wrapper = createJSMathMLWrapper(globalObject, *mathmlElement);
+        else if (is<MathMLElement>(node))
+            wrapper = createJSMathMLWrapper(globalObject, uncheckedDowncast<MathMLElement>(WTF::move(node)));
 #endif
         else
             wrapper = createWrapper<Element>(globalObject, WTF::move(node));
@@ -162,7 +162,7 @@ JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject* globalObject, Node& 
 
 void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node& root)
 {
-    auto frame = root.document().frame();
+    RefPtr frame = root.document().frame();
     if (!frame)
         return;
 

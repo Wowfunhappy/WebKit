@@ -73,7 +73,7 @@ String stringFromCascadeLayerName(const CascadeLayerName& name)
 {
     StringBuilder result;
     for (auto& segment : name) {
-        serializeIdentifier(segment, result);
+        serializeIdentifier(result, segment);
         if (&segment != &name.last())
             result.append('.');
     }

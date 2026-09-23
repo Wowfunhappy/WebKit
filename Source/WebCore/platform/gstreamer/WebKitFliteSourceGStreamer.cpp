@@ -87,15 +87,12 @@ WEBKIT_DEFINE_TYPE_WITH_CODE(WebKitFliteSrc, webkit_flite_src, GST_TYPE_BASE_SRC
     GST_DEBUG_CATEGORY_INIT(webkit_flite_src_debug, "webkitflitesrc", 0, "flitesrc element"));
 
 // To add more voices, add voice register functions here.
-using VoiceRegisterFunction = Function<cst_voice*(const char*)>;
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
-static VoiceRegisterFunction voiceRegisterFunctions[] = {
+static auto voiceRegisterFunctions = WTF::toArray({
     register_cmu_us_kal,
     register_cmu_us_slt,
     register_cmu_us_rms,
     register_cmu_us_awb,
-};
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+});
 
 static void webkitFliteSrcReset(WebKitFliteSrc* src)
 {
@@ -166,12 +163,12 @@ static GstFlowReturn webkitFliteSrcCreate(GstBaseSrc* baseSource, guint64 offset
         gsize bufferSize = priv->info.channels * sizeof(gint16) * wave->num_samples;
         GRefPtr<GstBuffer> buf = adoptGRef(gst_buffer_new_allocate(nullptr, bufferSize, nullptr));
         GstMappedBuffer map(buf, GST_MAP_WRITE);
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
         gint16* data = reinterpret_cast<gint16*>(map.data());
-        memset(data, 0, bufferSize);
-        for (int i = 0; i < wave->num_samples; i++)
-            data[i * priv->info.channels] = wave->samples[i];
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        auto dataSpan = unsafeMakeSpan(data, bufferSize / sizeof(gint16));
+        zeroSpan(dataSpan);
+        unsigned i = 0;
+        for (auto& sample : unsafeMakeSpan(wave->samples, wave->num_samples))
+            dataSpan[i++ * priv->info.channels] = sample;
 
         gst_adapter_push(members->adapter.get(), buf.leakRef());
     }
@@ -222,9 +219,8 @@ static Vector<GUniquePtr<cst_voice>>& fliteVoices()
     static Vector<GUniquePtr<cst_voice>> voices;
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
-        const unsigned voiceRegisterFunctionCount = sizeof(voiceRegisterFunctions) / sizeof(VoiceRegisterFunction);
-        for (unsigned i = 0; i < voiceRegisterFunctionCount; ++i) {
-            GUniquePtr<cst_voice> voice(voiceRegisterFunctions[i](nullptr));
+        for (auto& function : voiceRegisterFunctions) {
+            GUniquePtr<cst_voice> voice(function(nullptr));
             voices.append(WTF::move(voice));
         }
     });

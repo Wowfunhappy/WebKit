@@ -42,9 +42,7 @@ WebCompiledContentRuleList::WebCompiledContentRuleList(WebCompiledContentRuleLis
 {
 }
 
-WebCompiledContentRuleList::~WebCompiledContentRuleList()
-{
-}
+WebCompiledContentRuleList::~WebCompiledContentRuleList() = default;
 
 std::span<const uint8_t> WebCompiledContentRuleList::urlFiltersBytecode() const
 {

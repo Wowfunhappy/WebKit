@@ -32,13 +32,14 @@
 namespace WebCore {
 
 namespace IndexedDB {
-enum class GetAllType : bool;
+enum class GetAllType : uint8_t;
 }
 
 struct IDBGetAllRecordsData {
     IDBKeyRangeData keyRangeData;
     IndexedDB::GetAllType getAllType;
     std::optional<uint32_t> count;
+    IndexedDB::CursorDirection cursorDirection;
     IDBObjectStoreIdentifier objectStoreIdentifier;
     std::optional<IDBIndexIdentifier> indexIdentifier { };
 

@@ -16,9 +16,12 @@
 #include <string>
 #include <thread>
 
-#include "HistogramWriter.h"
 #include "tests/test_expectations/GPUTestExpectationsParser.h"
 #include "util/test_utils.h"
+
+#if defined(ANGLE_HAS_RAPIDJSON)
+#    include "HistogramWriter.h"
+#endif
 
 namespace angle
 {
@@ -195,6 +198,7 @@ class TestSuite
     void dumpTestExpectationsErrorMessages();
     int getSlowTestTimeout() const;
     void writeOutputFiles(bool interrupted);
+    void WriteTestListJSON(const std::string &path) const;
 
     static TestSuite *mInstance;
 
@@ -204,6 +208,7 @@ class TestSuite
     std::string mFilterFile;
     std::string mResultsDirectory;
     std::string mResultsFile;
+    std::string mGTestOutput;
     std::string mHistogramJsonFile;
     int mShardCount;
     int mShardIndex;
@@ -215,6 +220,7 @@ class TestSuite
     bool mListTests;
     bool mPrintTestStdout;
     bool mDisableCrashHandler;
+    bool mDisableDebugLayers{false};
     int mBatchSize;
     int mCurrentResultCount;
     int mTotalResultCount;
@@ -230,7 +236,9 @@ class TestSuite
     std::map<TestIdentifier, FileLine> mTestFileLines;
     std::vector<ProcessInfo> mCurrentProcesses;
     std::thread mWatchdogThread;
+#if defined(ANGLE_HAS_RAPIDJSON)
     HistogramWriter mHistogramWriter;
+#endif
     MetricWriter mMetricWriter;
     std::string mTestArtifactDirectory;
     GPUTestExpectationsParser mTestExpectationsParser;

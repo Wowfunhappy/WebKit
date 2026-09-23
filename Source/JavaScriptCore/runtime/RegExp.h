@@ -21,12 +21,15 @@
 
 #pragma once
 
-#include <JavaScriptCore/ConcurrentJSLock.h>
 #include <JavaScriptCore/MatchResult.h>
 #include <JavaScriptCore/RegExpKey.h>
 #include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/Yarr.h>
+#include <JavaScriptCore/YarrErrorCode.h>
+#include <wtf/Atomics.h>
+#include <wtf/BitSet.h>
 #include <wtf/Forward.h>
+#include <wtf/ThreadSafeLazyUniquePtr.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(YARR_JIT)
@@ -35,8 +38,20 @@
 
 namespace JSC {
 
+namespace Yarr {
+struct YarrPattern;
+}
+
 struct RegExpRepresentation;
 class VM;
+
+// Where a first-character fast-fail filter reads the byte it tests.
+enum class FirstCharacterFilterPosition : uint8_t {
+    // Reads input[0]. Sound only when every match must begin at index 0.
+    AtStart,
+    // Reads input[lastIndex]. Sound only for a sticky pattern.
+    AtLastIndex,
+};
 
 class RegExp final : public JSCell {
     friend class CachedRegExp;
@@ -52,6 +67,7 @@ public:
     JS_EXPORT_PRIVATE static RegExp* create(VM&, const String& pattern, OptionSet<Yarr::Flags>);
     static void destroy(JSCell*);
     static size_t estimatedSize(JSCell*, VM&);
+    DECLARE_VISIT_CHILDREN;
     JS_EXPORT_PRIVATE static void dumpToStream(const JSCell*, PrintStream&);
     void dumpSimpleName(PrintStream&) const;
 
@@ -106,13 +122,20 @@ public:
         return m_rareData && !m_rareData->m_captureGroupNames.isEmpty();
     }
 
-    String getCaptureGroupNameForSubpatternId(unsigned i) const
+    bool hasDuplicateNamedCaptureGroups() const
+    {
+        return m_rareData && m_rareData->m_numDuplicateNamedCaptureGroups;
+    }
+
+    const AtomString& getCaptureGroupNameForSubpatternId(unsigned i) const
     {
         if (!i || !m_rareData || m_rareData->m_captureGroupNames.isEmpty())
-            return String();
+            return nullAtom();
         ASSERT(m_rareData);
         return m_rareData->m_captureGroupNames[i];
     }
+
+    Structure* ensureGroupsStructure(VM&, JSGlobalObject*);
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     template <typename Offsets>
@@ -170,10 +193,14 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     const String& atom() const LIFETIME_BOUND { return m_atom; }
     Yarr::SpecificPattern specificPattern() const { return m_specificPattern; }
 
+    const WTF::BitSet<256>* firstCharacterBitmap(FirstCharacterFilterPosition);
+
 private:
     friend class RegExpCache;
     RegExp(VM&, const String&, OptionSet<Yarr::Flags>);
     void finishCreation(VM&);
+
+    void updateMetadataFromPattern(Yarr::YarrPattern&);
 
     static RegExp* createWithoutCaching(VM&, const String&, OptionSet<Yarr::Flags>);
 
@@ -208,12 +235,13 @@ private:
     struct RareData {
         WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(RareData);
         unsigned m_numDuplicateNamedCaptureGroups;
-        Vector<String> m_captureGroupNames;
+        Vector<AtomString> m_captureGroupNames;
 
         // This first element of the RHS vector is the subpatternId in the non-duplicate case.
         // For the duplicate case, the first element is the namedCaptureGroupId.
         // The remaining elements are the subpatternIds for each of the duplicate groups.
         UncheckedKeyHashMap<String, Vector<unsigned>> m_namedGroupToParenIndices;
+        WriteBarrierStructureID m_cachedGroupsStructureID;
     };
 
     String m_patternString;
@@ -229,6 +257,7 @@ private:
 #endif
     std::unique_ptr<RareData> m_rareData;
     Vector<int> m_ovector;
+    mutable ThreadSafeLazyUniquePtr<const WTF::BitSet<256>> m_firstCharacterBitmap;
 #if ENABLE(REGEXP_TRACING)
     double m_rtMatchOnlyTotalSubjectStringLen { 0.0 };
     double m_rtMatchTotalSubjectStringLen { 0.0 };

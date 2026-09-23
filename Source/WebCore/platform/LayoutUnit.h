@@ -38,7 +38,7 @@
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
 #include <wtf/MathExtras.h>
-#include <wtf/SaturatedArithmetic.h>
+#include <wtf/SaturatingArithmetic.h>
 
 namespace WTF {
 class TextStream;
@@ -82,22 +82,22 @@ public:
     }
     explicit LayoutUnit(double value)
     {
-        m_value = clampToInteger(value * kFixedPointDenominator);
+        m_value = clampTo<int>(value * kFixedPointDenominator);
     }
 
     LayoutUnit& operator=(const LayoutUnit&) = default;
-    LayoutUnit& operator=(const float& other) { return *this = LayoutUnit(other); }
+    LayoutUnit& operator=(float other) { return *this = LayoutUnit(other); }
 
     friend auto operator<=>(LayoutUnit, LayoutUnit) = default;
 
     static LayoutUnit fromFloatCeil(float value)
     {
-        return fromRawValue(clampToInteger(ceilf(value * kFixedPointDenominator)));
+        return fromRawValue(clampTo<int>(ceilf(value * kFixedPointDenominator)));
     }
 
     static LayoutUnit fromFloatFloor(float value)
     {
-        return fromRawValue(clampToInteger(floorf(value * kFixedPointDenominator)));
+        return fromRawValue(clampTo<int>(floorf(value * kFixedPointDenominator)));
     }
 
     static LayoutUnit fromFloatRound(float value)
@@ -126,7 +126,7 @@ public:
 
     LayoutUnit& operator++()
     {
-        m_value = saturatedSum<int>(m_value, kFixedPointDenominator);
+        m_value = saturatingSum<int>(m_value, kFixedPointDenominator);
         return *this;
     }
 
@@ -439,7 +439,7 @@ inline LayoutUnit operator/(unsigned long long a, const LayoutUnit& b)
 
 inline LayoutUnit operator+(const LayoutUnit& a, const LayoutUnit& b)
 {
-    return LayoutUnit::fromRawValue(saturatedSum<int>(a.rawValue(), b.rawValue()));
+    return LayoutUnit::fromRawValue(saturatingSum<int>(a.rawValue(), b.rawValue()));
 }
 
 inline LayoutUnit operator+(const LayoutUnit& a, int b)
@@ -474,7 +474,7 @@ inline double operator+(const double a, const LayoutUnit& b)
 
 inline LayoutUnit operator-(const LayoutUnit& a, const LayoutUnit& b)
 {
-    return LayoutUnit::fromRawValue(saturatedDifference<int>(a.rawValue(), b.rawValue()));
+    return LayoutUnit::fromRawValue(saturatingDifference<int>(a.rawValue(), b.rawValue()));
 }
 
 inline LayoutUnit operator-(const LayoutUnit& a, int b)
@@ -537,7 +537,7 @@ inline LayoutUnit operator%(int a, const LayoutUnit& b)
 
 inline LayoutUnit& operator+=(LayoutUnit& a, const LayoutUnit& b)
 {
-    a.setRawValue(saturatedSum<int>(a.rawValue(), b.rawValue()));
+    a.setRawValue(saturatingSum<int>(a.rawValue(), b.rawValue()));
     return a;
 }
 
@@ -567,7 +567,7 @@ inline LayoutUnit& operator-=(LayoutUnit& a, int b)
 
 inline LayoutUnit& operator-=(LayoutUnit& a, const LayoutUnit& b)
 {
-    a.setRawValue(saturatedDifference<int>(a.rawValue(), b.rawValue()));
+    a.setRawValue(saturatingDifference<int>(a.rawValue(), b.rawValue()));
     return a;
 }
 

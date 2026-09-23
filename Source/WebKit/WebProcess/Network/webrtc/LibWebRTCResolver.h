@@ -50,6 +50,7 @@ public:
     ~LibWebRTCResolver();
 
     void start(const webrtc::SocketAddress&, Function<void()>&&) final;
+    Function<void()> takeCallback();
 
 private:
     friend class WebRTCResolver;

@@ -29,6 +29,7 @@
 #include "AudioWorkletGlobalScope.h"
 #include "AudioWorkletProcessor.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/StructureInlines.h>
 
 #if ENABLE(WEB_AUDIO)
 

@@ -26,11 +26,11 @@ promise_test(async t => {
 promise_test(async t => {
     const [model, source] = createModelAndSource(t, "../resources/cube.usdz");
     
-    await promise_rejects_js(t, TypeError, 
+    await promise_rejects_dom(t, "NotAllowedError",
         model.requestImmersive(),
         'Should reject without user activation'
     );
-    
+
     assert_equals(document.immersiveElement, null, 'No immersive element without user gesture');
 }, 'Model immersive request fails without user activation');
 
@@ -151,14 +151,14 @@ promise_test(async t => {
     const errorHandler = () => { errorFired = true; };
     model.addEventListener('immersiveerror', errorHandler);
     
-    await promise_rejects_js(t, TypeError, 
+    await promise_rejects_dom(t, "NotAllowedError",
         model.requestImmersive(),
         'Should reject without user activation'
     );
-    
+
     await new Promise(resolve => setTimeout(resolve, 100));
     model.removeEventListener('immersiveerror', errorHandler);
-    
+
     assert_true(errorFired, 'immersiveerror event should fire on failed request');
 }, 'Immersiveerror event fires when request fails');
 
@@ -192,7 +192,7 @@ promise_test(async t => {
     
     await test_driver.bless("immersive");
     const promise1 = model1.requestImmersive();
-    const promise2 = promise_rejects_js(t, TypeError, 
+    const promise2 = promise_rejects_dom(t, "NotAllowedError",
         model2.requestImmersive(),
         'Should reject without user activation'
     );

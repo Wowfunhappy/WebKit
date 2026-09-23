@@ -27,13 +27,27 @@
 
 #include <WebCore/DestinationColorSpace.h>
 #include <WebCore/FloatRect.h>
-#include <WebCore/PlatformScreen.h>
 #include <wtf/HashMap.h>
 #include <wtf/Platform.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+
+enum class ContentsFormat : uint8_t;
+
+using PlatformGPUID = uint64_t; // On MAC, global IOKit registryID that can identify a GPU across process boundaries.
+
+using PlatformDisplayID = uint32_t;
+
+enum class DynamicRangeMode : uint8_t {
+    None,
+    Standard,
+    HLG,
+    HDR10,
+    DolbyVisionPQ,
+};
 
 struct ScreenData {
     FloatRect screenAvailableRect;
@@ -56,7 +70,7 @@ struct ScreenData {
     uint32_t displayMask { 0 };
     PlatformGPUID gpuID { 0 };
     DynamicRangeMode preferredDynamicRangeMode { DynamicRangeMode::Standard };
-    WEBCORE_EXPORT double screenDPI() const;
+    WEBCORE_EXPORT double NODELETE screenDPI() const;
 #endif
 #if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
     IntSize screenSize; // In millimeters.
@@ -67,12 +81,18 @@ struct ScreenData {
     float scaleFactor { 1 };
 #endif
 
+#if PLATFORM(MAC)
+    bool reserved { false };
+#endif
+
     bool operator==(const ScreenData&) const = default;
 };
 
 using ScreenDataMap = HashMap<PlatformDisplayID, ScreenData>;
 
 struct ScreenProperties {
+    WTF_MAKE_STRUCT_TZONE_ALLOCATED_EXPORT(ScreenProperties, WEBCORE_EXPORT);
+
     PlatformDisplayID primaryDisplayID { 0 };
     ScreenDataMap screenDataMap;
 #if HAVE(SUPPORT_HDR_DISPLAY)

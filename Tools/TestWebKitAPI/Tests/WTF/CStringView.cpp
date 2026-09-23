@@ -49,9 +49,9 @@ TEST(WTF, CStringViewNullAndEmpty)
     EXPECT_FALSE(string);
 
     string = CStringView(""_s);
-    EXPECT_TRUE(string.isNull());
+    EXPECT_FALSE(string.isNull());
     EXPECT_TRUE(string.isEmpty());
-    EXPECT_EQ(string.utf8(), nullptr);
+    EXPECT_TRUE(string.utf8());
     EXPECT_TRUE(!string);
     EXPECT_FALSE(string);
 
@@ -69,6 +69,11 @@ TEST(WTF, CStringViewSize)
     EXPECT_EQ(string.lengthInBytes(), 0UZ);
     EXPECT_EQ(string.span().size(), 0UZ);
     EXPECT_EQ(string.spanIncludingNullTerminator().size(), 0UZ);
+
+    string = CStringView(""_s);
+    EXPECT_EQ(string.lengthInBytes(), 0UZ);
+    EXPECT_EQ(string.span().size(), 0UZ);
+    EXPECT_EQ(string.spanIncludingNullTerminator().size(), 1UZ);
 
     string = CStringView("test"_s);
     EXPECT_EQ(string.lengthInBytes(), 4UZ);
@@ -106,10 +111,12 @@ TEST(WTF, CStringViewFrom)
     stringPtr = "";
     string = CStringView::unsafeFromUTF8(stringPtr);
     EXPECT_EQ(string.lengthInBytes(), 0UZ);
+    EXPECT_FALSE(string.isNull());
     EXPECT_FALSE(string);
     EXPECT_EQ(string.utf8(), stringPtr);
     string = CStringView::fromUTF8(byteCast<char8_t>(unsafeSpanIncludingNullTerminator(stringPtr)));
     EXPECT_EQ(string.lengthInBytes(), 0UZ);
+    EXPECT_FALSE(string.isNull());
     EXPECT_FALSE(string);
     EXPECT_EQ(string.utf8(), stringPtr);
 
@@ -129,21 +136,38 @@ TEST(WTF, CStringViewEquality)
     CStringView string("Test"_s);
     CStringView sameString("Test"_s);
     CStringView anotherString("another test"_s);
-    CStringView emptyString;
-    CStringView nullString(nullptr);
-    EXPECT_TRUE(string != emptyString);
+    CStringView nullString;
+    CStringView nullString2(nullptr);
+    CStringView emptyLiteral(""_s);
+
     EXPECT_EQ(string, string);
     EXPECT_EQ(string, sameString);
     EXPECT_TRUE(string != anotherString);
-    EXPECT_EQ(emptyString, nullString);
+    EXPECT_TRUE(string != nullString);
 
+    // Null vs null.
+    EXPECT_EQ(nullString, nullString2);
+
+    // Null vs empty (both have zero lengthInBytes).
+    EXPECT_EQ(nullString, emptyLiteral);
+
+    // Empty from unsafeFromUTF8 vs null and vs empty literal.
     char* bareEmptyString = strdup("");
     char* bareEmptyString2 = strdup("");
-    emptyString = CStringView::unsafeFromUTF8(bareEmptyString);
-    auto emptyString2 = CStringView::unsafeFromUTF8(bareEmptyString2);
-    EXPECT_EQ(emptyString, emptyString2);
+    auto emptyFromUTF8 = CStringView::unsafeFromUTF8(bareEmptyString);
+    auto emptyFromUTF8_2 = CStringView::unsafeFromUTF8(bareEmptyString2);
+    EXPECT_EQ(emptyFromUTF8, emptyFromUTF8_2);
+    EXPECT_EQ(emptyFromUTF8, nullString);
+    EXPECT_EQ(emptyFromUTF8, emptyLiteral);
     free(bareEmptyString);
     free(bareEmptyString2);
+
+    // CStringView vs ASCIILiteral.
+    EXPECT_EQ(string, "Test"_s);
+    EXPECT_EQ("Test"_s, string);
+    EXPECT_TRUE(string != "Other"_s);
+    EXPECT_EQ(nullString, ""_s);
+    EXPECT_EQ(emptyLiteral, ""_s);
 }
 
 } // namespace TestWebKitAPI

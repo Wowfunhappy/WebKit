@@ -30,6 +30,9 @@
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
+
+struct AcceleratedEffectEllipseFunction;
+
 namespace Style {
 
 struct Ellipse {
@@ -64,6 +67,14 @@ template<> struct Blending<Ellipse> {
     auto canBlend(const Ellipse&, const Ellipse&) -> bool;
     auto blend(const Ellipse&, const Ellipse&, const BlendingContext&) -> Ellipse;
 };
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<EllipseFunction, AcceleratedEffectEllipseFunction> { AcceleratedEffectEllipseFunction operator()(const EllipseFunction&, const FloatSize&, ZoomFactor); };
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

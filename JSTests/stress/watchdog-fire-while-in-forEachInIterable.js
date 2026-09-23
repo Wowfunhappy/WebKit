@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--watchdog=100", "--watchdog-exception-ok")
 
 const a = [];

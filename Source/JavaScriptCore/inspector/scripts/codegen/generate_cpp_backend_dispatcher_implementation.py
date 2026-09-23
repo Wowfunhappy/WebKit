@@ -223,6 +223,7 @@ class CppBackendDispatcherImplementationGenerator(CppGenerator):
         parameter_enum_resolutions = []
         alternate_dispatcher_method_parameters = ['protocol_requestId']
         method_parameters = []
+        enum_error_code = self.model().framework.setting('enum_invalid_value_error_code', 'ServerError')
 
         # Step 1: build up arguments for the call.
         for parameter in command.call_parameters:
@@ -255,11 +256,16 @@ class CppBackendDispatcherImplementationGenerator(CppGenerator):
                 if len(parameter_enum_resolutions):
                     parameter_enum_resolutions.append('')
                 parameter_enum_resolutions.append('    auto %(enumVariableName)s = Protocol::%(helpersNamespace)s::parseEnumValueFromString<%(enumType)s>(%(stringVariableName)s);' % enum_args)
+                enum_args['enumErrorCode'] = enum_error_code
                 if parameter.is_optional:
+                    parameter_enum_resolutions.append('    if (!%(stringVariableName)s.isEmpty() && !%(enumVariableName)s) {' % enum_args)
+                    parameter_enum_resolutions.append('        m_backendDispatcher->reportProtocolError(BackendDispatcher::%(enumErrorCode)s, makeString("Unknown %(parameterKey)s: "_s, %(stringVariableName)s));' % enum_args)
+                    parameter_enum_resolutions.append('        return;')
+                    parameter_enum_resolutions.append('    }')
                     parameter_expression = 'WTF::move(%s)' % variable_name
                 else:
                     parameter_enum_resolutions.append('    if (!%(enumVariableName)s) {' % enum_args)
-                    parameter_enum_resolutions.append('        m_backendDispatcher->reportProtocolError(BackendDispatcher::ServerError, makeString("Unknown %(parameterKey)s: "_s, %(stringVariableName)s));' % enum_args)
+                    parameter_enum_resolutions.append('        m_backendDispatcher->reportProtocolError(BackendDispatcher::%(enumErrorCode)s, makeString("Unknown %(parameterKey)s: "_s, %(stringVariableName)s));' % enum_args)
                     parameter_enum_resolutions.append('        return;')
                     parameter_enum_resolutions.append('    }')
                     parameter_expression = '*' + variable_name

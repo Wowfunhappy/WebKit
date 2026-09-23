@@ -43,6 +43,7 @@
 #import <WebCore/StyleProperties.h>
 #import <WebCore/StyledElement.h>
 #import <WebCore/ThreadCheck.h>
+#import <WebCore/TrustedHTML.h>
 #import <WebCore/WebScriptObjectPrivate.h>
 
 static inline WebCore::Element& unwrap(DOMElement& wrapper)

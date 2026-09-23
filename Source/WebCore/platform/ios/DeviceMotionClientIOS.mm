@@ -42,9 +42,7 @@ DeviceMotionClientIOS::DeviceMotionClientIOS(RefPtr<DeviceOrientationUpdateProvi
 {
 }
 
-DeviceMotionClientIOS::~DeviceMotionClientIOS()
-{
-}
+DeviceMotionClientIOS::~DeviceMotionClientIOS() = default;
 
 void DeviceMotionClientIOS::setController(DeviceMotionController* controller)
 {
@@ -56,7 +54,7 @@ void DeviceMotionClientIOS::startUpdating()
     m_updating = true;
 
     if (m_deviceOrientationUpdateProvider) {
-        m_deviceOrientationUpdateProvider->startUpdatingDeviceMotion(*this);
+        protect(m_deviceOrientationUpdateProvider)->startUpdatingDeviceMotion(*this);
         return;
     }
 
@@ -71,7 +69,7 @@ void DeviceMotionClientIOS::stopUpdating()
     m_updating = false;
 
     if (m_deviceOrientationUpdateProvider) {
-        m_deviceOrientationUpdateProvider->stopUpdatingDeviceMotion(*this);
+        protect(m_deviceOrientationUpdateProvider)->stopUpdatingDeviceMotion(*this);
         return;
     }
 
@@ -87,7 +85,7 @@ DeviceMotionData* DeviceMotionClientIOS::lastMotion() const
 void DeviceMotionClientIOS::deviceMotionControllerDestroyed()
 {
     if (m_deviceOrientationUpdateProvider) {
-        m_deviceOrientationUpdateProvider->stopUpdatingDeviceMotion(*this);
+        protect(m_deviceOrientationUpdateProvider)->stopUpdatingDeviceMotion(*this);
         return;
     }
 

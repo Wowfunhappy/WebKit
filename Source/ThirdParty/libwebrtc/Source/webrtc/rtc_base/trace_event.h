@@ -21,11 +21,9 @@
 // IWYU pragma: begin_exports
 #if defined(RTC_USE_PERFETTO)
 #include "rtc_base/trace_categories.h"
-#endif
-#if !defined(WEBRTC_WEBKIT_BUILD)
-#include "third_party/perfetto/include/perfetto/tracing/event_context.h"
-#include "third_party/perfetto/include/perfetto/tracing/track.h"
-#include "third_party/perfetto/include/perfetto/tracing/track_event_args.h"
+#include "third_party/perfetto/include/perfetto/tracing/event_context.h"  // nogncheck
+#include "third_party/perfetto/include/perfetto/tracing/track.h"  // nogncheck
+#include "third_party/perfetto/include/perfetto/tracing/track_event_args.h"  // nogncheck
 #endif
 // IWYU pragma: end_exports
 

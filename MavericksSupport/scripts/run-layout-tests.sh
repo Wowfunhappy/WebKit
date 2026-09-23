@@ -135,9 +135,76 @@ if ! bash "$ROOT/MavericksSupport/scripts/make-build-binaries-runnable.sh"; then
     exit 1
 fi
 
+# Prepare WPT's dependencies before webkitpy starts its server-readiness deadline.
+WPT_BUILD="$ROOT/MavericksSupport/toolchain/build/wpt"
+WPT_SYSTEM="$WPT_BUILD/libSystemWPT.dylib"
+WPT_SHARED="$ROOT/MavericksSupport/polyfill/polyfills/shared"
+mkdir -p "$WPT_BUILD" || exit 1
+if [ ! -f "$WPT_SYSTEM" ] || [ "$WPT_SHARED/ccrandom.c" -nt "$WPT_SYSTEM" ] || [ "$WPT_SHARED/getentropy.c" -nt "$WPT_SYSTEM" ]; then
+    if ! "$ROOT/MavericksSupport/toolchain/build/clang/bin/clang" --no-default-config \
+        -mmacosx-version-min=10.9 -dynamiclib -I"$WPT_SHARED/include" \
+        -Wl,-reexport_library,/usr/lib/libSystem.B.dylib -Wl,-compatibility_version,1.0.0 \
+        -Wl,-install_name,"$WPT_SYSTEM" "$WPT_SHARED/ccrandom.c" "$WPT_SHARED/getentropy.c" \
+        -o "$WPT_SYSTEM" >> /tmp/wk_build.log 2>&1; then
+        echo "ERROR: WPT runtime support failed; see /tmp/wk_build.log" >&2
+        exit 1
+    fi
+fi
+echo "Preparing Web Platform Test dependencies ..."
+if ! "$ROOT/MavericksSupport/toolchain/build/python3/bin/python3" - "$ROOT" "$WPT_SYSTEM" >> /tmp/wk_build.log 2>&1 <<'PY'
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+system_library = sys.argv[2]
+# WPT checks installed requirements through setuptools before activating its virtualenv.
+if importlib.util.find_spec("pkg_resources") is None:
+    subprocess.check_call([sys.executable, "-m", "ensurepip"])
+sys.path.insert(0, str(root / "LayoutTests/imported/w3c/web-platform-tests"))
+from tools.wpt import wpt
+
+properties = wpt.load_commands()["serve"]
+environment = wpt.setup_virtualenv(None, False, properties)
+# These versions satisfy WPT's QUIC requirements with Rust dependencies supported by the host.
+environment.install("cryptography==43.0.0", "pyOpenSSL==24.2.1",
+                    "service-identity==24.2.0", "cffi==1.17.1")
+_, parser = wpt.import_command("wpt", "serve", properties)
+wpt.install_command_flag_requirements(environment, properties, vars(parser.parse_args([])))
+
+# Rust's runtime imports the two CommonCrypto/entropy APIs supplied by the shared polyfills.
+rust_module = Path(environment.lib_path) / "cryptography/hazmat/bindings/_rust.abi3.so"
+cctools = root / "MavericksSupport/toolchain/build/cctools/bin"
+architectures = subprocess.check_output([str(cctools / "lipo"), "-archs", str(rust_module)]).split()
+if len(architectures) > 1:
+    thin_module = rust_module.with_suffix(".x86_64.so")
+    subprocess.check_call([str(cctools / "lipo"), "-thin", "x86_64", str(rust_module), "-output", str(thin_module)])
+    os.replace(thin_module, rust_module)
+subprocess.check_call([str(cctools / "install_name_tool"), "-change", "/usr/lib/libSystem.B.dylib", system_library, str(rust_module)])
+subprocess.check_call([str(Path(environment.bin_path) / "python3"), "-c", """
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from aioquic.quic.configuration import QuicConfiguration
+from aioquic.quic.connection import QuicConnection
+import OpenSSL, dnslib
+key = Ed25519PrivateKey.generate()
+key.public_key().verify(key.sign(b'wpt'), b'wpt')
+QuicConnection(configuration=QuicConfiguration(is_client=True))
+print('WPT dependencies ready')
+"""])
+PY
+then
+    echo "ERROR: WPT dependency preparation failed; see /tmp/wk_build.log" >&2
+    exit 1
+fi
+
 # --- Run ------------------------------------------------------------------------------------------
 
 export WEBKIT_HTTP_SERVER_CONF_PATH="$ROOT/MavericksSupport/deps/build/httpd.conf"
+
+# Match the upstream GLib runner: tests must decode muted offscreen video through errors and EOS.
+export WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1
 
 # The drivers link Quartz, which transitively loads the SYSTEM (installed-backport) WebKit stack. Left
 # alone dyld makes a second image of every framework the build tree also provides -- two JavaScriptCore,

@@ -12,8 +12,7 @@
         // We should throw a NoModificationAllowedError if the parent is a Document.
         shouldThrowErrorName("document.documentElement.outerHTML = ''", "NoModificationAllowedError");
 
-        // We currently throw an exception when the parent is null, as does Blink. Gecko and the specification
-        // say this should be a no-op though.
+        // Setting outerHTML on an element with no parent is a no-op per the specification.
         a = document.createElement("a");
         shouldBe("a.parentNode", "null");
         shouldNotThrow("a.outerHTML = ''");

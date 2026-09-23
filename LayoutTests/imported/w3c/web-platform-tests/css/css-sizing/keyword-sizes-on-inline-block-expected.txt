@@ -48,64 +48,26 @@ PASS .test 42
 PASS .test 43
 PASS .test 44
 PASS .test 45
-FAIL .test 46 assert_equals:
-<div class="test height stretch" data-expected-height="90">X X</div>
-height expected 90 but got 100
-FAIL .test 47 assert_equals:
-<div class="test height stretch" data-expected-height="90">XXX XXX&lt;</div>
-height expected 90 but got 100
-FAIL .test 48 assert_equals:
-<div class="test height stretch" data-expected-height="90">XXXXX XXXXX</div>
-height expected 90 but got 100
-FAIL .test 49 assert_equals:
-<div class="test min-height stretch" data-expected-height="90">X X</div>
-height expected 90 but got 100
-FAIL .test 50 assert_equals:
-<div class="test min-height stretch" data-expected-height="90">XXX XXX</div>
-height expected 90 but got 100
-FAIL .test 51 assert_equals:
-<div class="test min-height stretch" data-expected-height="90">XXXXX XXXXX</div>
-height expected 90 but got 100
-FAIL .test 52 assert_equals:
-<div class="test max-height stretch" data-expected-height="90">X X</div>
-height expected 90 but got 100
-FAIL .test 53 assert_equals:
-<div class="test max-height stretch" data-expected-height="90">XXX XXX</div>
-height expected 90 but got 100
-FAIL .test 54 assert_equals:
-<div class="test max-height stretch" data-expected-height="90">XXXXX XXXXX</div>
-height expected 90 but got 100
+PASS .test 46
+PASS .test 47
+PASS .test 48
+PASS .test 49
+PASS .test 50
+PASS .test 51
+PASS .test 52
+PASS .test 53
+PASS .test 54
 PASS .test 55
-FAIL .test 56 assert_equals:
-<div class="test height min-height max-height stretch" data-expected-height="10"></div>
-height expected 10 but got 0
-FAIL .test 57 assert_equals:
-<div class="test height stretch" data-expected-height="30">X X</div>
-height expected 30 but got 100
-FAIL .test 58 assert_equals:
-<div class="test height stretch" data-expected-height="50">XXX XXX</div>
-height expected 50 but got 100
-FAIL .test 59 assert_equals:
-<div class="test height stretch" data-expected-height="50">XXXXX XXXXX</div>
-height expected 50 but got 100
-FAIL .test 60 assert_equals:
-<div class="test min-height stretch" data-expected-height="10">X X</div>
-height expected 10 but got 100
-FAIL .test 61 assert_equals:
-<div class="test min-height stretch" data-expected-height="10">XXX XXX</div>
-height expected 10 but got 100
-FAIL .test 62 assert_equals:
-<div class="test min-height stretch" data-expected-height="10">XXXXX XXXXX</div>
-height expected 10 but got 100
-FAIL .test 63 assert_equals:
-<div class="test max-height stretch" data-expected-height="510">X X</div>
-height expected 510 but got 100
-FAIL .test 64 assert_equals:
-<div class="test max-height stretch" data-expected-height="510">XXX XXX</div>
-height expected 510 but got 100
-FAIL .test 65 assert_equals:
-<div class="test max-height stretch" data-expected-height="510">XXXXX XXXXX</div>
-height expected 510 but got 100
+PASS .test 56
+PASS .test 57
+PASS .test 58
+PASS .test 59
+PASS .test 60
+PASS .test 61
+PASS .test 62
+PASS .test 63
+PASS .test 64
+PASS .test 65
 PASS .test 66
 PASS .test 67
 PASS .test 68

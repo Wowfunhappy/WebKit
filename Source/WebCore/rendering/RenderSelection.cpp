@@ -201,8 +201,8 @@ IntRect RenderSelection::collectBounds(ClipToVisibleContent clipToVisibleContent
 
     // Now create a single bounding box rect that encloses the whole selection.
     LayoutRect selectionRect;
-    for (auto slectionEntry : renderers) {
-        auto* selectionGeometry = slectionEntry.value.get();
+    for (auto selectionEntry : renderers) {
+        auto* selectionGeometry = selectionEntry.value.get();
         // RenderSelectionGeometry::rect() is in the coordinates of the repaintContainer, so map to page coordinates.
         LayoutRect currentRect = selectionGeometry->rect();
         if (currentRect.isEmpty())
@@ -255,7 +255,7 @@ void RenderSelection::apply(const RenderRange& newSelection, RepaintMode blockRe
     }
 
     if (blockRepaintMode != RepaintMode::Nothing)
-        protect(m_renderView->layer())->clearBlockSelectionGapsBounds();
+        m_renderView->layer()->clearBlockSelectionGapsBounds();
 
     // Now that the selection state has been updated for the new objects, walk them again and
     // put them in the new objects list.

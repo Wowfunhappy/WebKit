@@ -5,5 +5,5 @@ This is an integration test for childNodes. You should see 1 through 5 below.
 3
 4
 5
-PASS node.innerText is '1\n2\n3\n4\n5\n'
+PASS node.innerText is '1\n2\n3\n4\n5'
 

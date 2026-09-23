@@ -50,6 +50,7 @@
 // MAVERICKS_BACKPORT: needed to vend a deserializable WKSerializedScriptValueRef from the legacy WKPageRunJavaScriptInMainFrame alias.
 #include "APISecurityOrigin.h" // MAVERICKS_BACKPORT: legacy website-data managers at the bottom of this file.
 #include "APISerializedScriptValue.h"
+#include "APIResourceLoadClient.h"
 #include "APISessionState.h"
 #include "APIUIClient.h"
 #include "APIWebAuthenticationPanel.h"
@@ -79,9 +80,8 @@
 #include "PrintInfo.h"
 #include "ProcessTerminationReason.h"
 #include "QueryPermissionResultCallback.h"
+#include "ResourceLoadInfo.h"
 #include "RunJavaScriptParameters.h"
-#include "SpeechRecognitionPermissionRequest.h"
-#include "UserMediaPermissionCheckProxy.h"
 #include "UserMediaPermissionRequestProxy.h"
 #include "WKAPICast.h"
 #include "WKPagePolicyClientInternal.h"
@@ -114,6 +114,7 @@
 #include <WebCore/AuthenticatorAssertionResponse.h>
 #include <WebCore/AutoplayEvent.h>
 #include <WebCore/ContentRuleListResults.h>
+#include <WebCore/Cursor.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/OrganizationStorageAccessPromptQuirk.h>
@@ -130,6 +131,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/StringBuilder.h>
 
 #ifdef __BLOCKS__
 #include <Block.h>
@@ -194,7 +196,11 @@ template<> struct ClientTraits<WKPageFindMatchesClientBase> {
 template<> struct ClientTraits<WKPageStateClientBase> {
     typedef std::tuple<WKPageStateClientV0> Versions;
 };
-    
+
+template<> struct ClientTraits<WKPageResourceLoadClientBase> {
+    typedef std::tuple<WKPageResourceLoadClientV0> Versions;
+};
+
 } // namespace API
 
 using namespace WebKit;
@@ -316,14 +322,14 @@ void WKPageLoadData(WKPageRef pageRef, WKDataRef dataRef, WKStringRef MIMETypeRe
 {
     CRASH_IF_SUSPENDED;
     // FIXME: Use WebCore::DataSegment::Provider to remove this unnecessary copy.
-    protect(toImpl(pageRef))->loadData(WebCore::SharedBuffer::create(protect(toImpl(dataRef))->span()), toWTFString(MIMETypeRef), toWTFString(encodingRef), toWTFString(baseURLRef));
+    protect(toImpl(pageRef))->loadData(WebCore::SharedBuffer::create(toImpl(dataRef)->span()), toWTFString(MIMETypeRef), toWTFString(encodingRef), toWTFString(baseURLRef));
 }
 
 void WKPageLoadDataWithUserData(WKPageRef pageRef, WKDataRef dataRef, WKStringRef MIMETypeRef, WKStringRef encodingRef, WKURLRef baseURLRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
     // FIXME: Use WebCore::DataSegment::Provider to remove this unnecessary copy.
-    protect(toImpl(pageRef))->loadData(WebCore::SharedBuffer::create(protect(toImpl(dataRef))->span()), toWTFString(MIMETypeRef), toWTFString(encodingRef), toWTFString(baseURLRef), protect(toImpl(userDataRef)).get());
+    protect(toImpl(pageRef))->loadData(WebCore::SharedBuffer::create(toImpl(dataRef)->span()), toWTFString(MIMETypeRef), toWTFString(encodingRef), toWTFString(baseURLRef), protect(toImpl(userDataRef)).get());
 }
 
 static String encodingOf(const String& string)
@@ -506,7 +512,7 @@ void WKPageUpdateWebsitePolicies(WKPageRef pageRef, WKWebsitePoliciesRef website
 
 WKStringRef WKPageCopyTitle(WKPageRef pageRef)
 {
-    return toCopiedAPI(protect(protect(toImpl(pageRef))->pageLoadState())->title());
+    return toCopiedAPI(toImpl(pageRef)->pageLoadState().title());
 }
 
 WKFrameRef WKPageGetMainFrame(WKPageRef pageRef)
@@ -971,17 +977,17 @@ unsigned WKPageGetPageCount(WKPageRef pageRef)
 
 bool WKPageCanDelete(WKPageRef pageRef)
 {
-    return toImpl(pageRef)->canDelete();
+    return protect(toImpl(pageRef))->canDelete();
 }
 
 bool WKPageHasSelectedRange(WKPageRef pageRef)
 {
-    return toImpl(pageRef)->hasSelectedRange();
+    return protect(toImpl(pageRef))->hasSelectedRange();
 }
 
 bool WKPageIsContentEditable(WKPageRef pageRef)
 {
-    return toImpl(pageRef)->isContentEditable();
+    return protect(toImpl(pageRef))->isContentEditable();
 }
 
 void WKPageSetMaintainsInactiveSelection(WKPageRef pageRef, bool newValue)
@@ -2295,7 +2301,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             if (!m_client.shouldAllowDeviceOrientationAndMotionAccess)
                 return completionHandler(false);
 
-            auto origin = API::SecurityOrigin::create(SecurityOrigin::createFromString(page.pageLoadState().activeURL()).get());
+            Ref origin = API::SecurityOrigin::create(SecurityOrigin::create(page.pageLoadState().activeURL()).get());
             auto apiFrameInfo = API::FrameInfo::create(WTF::move(frameInfo));
             completionHandler(m_client.shouldAllowDeviceOrientationAndMotionAccess(toAPI(&page), toAPI(origin.ptr()), toAPI(apiFrameInfo.ptr()), m_client.base.clientInfo));
         }
@@ -2951,6 +2957,59 @@ void WKPageSetPageStateClient(WKPageRef pageRef, WKPageStateClientBase* client)
         protect(toImpl(pageRef))->setPageLoadStateObserver(nullptr);
 }
 
+class ResourceLoadClient final : public API::ResourceLoadClient, public API::Client<WKPageResourceLoadClientBase> {
+    WTF_MAKE_TZONE_ALLOCATED(ResourceLoadClient);
+public:
+    ResourceLoadClient(WKPageResourceLoadClientBase* base, WKPageRef page)
+        : m_page(toImpl(page))
+    {
+        initialize(base);
+    }
+private:
+    void didSendRequest(WebKit::ResourceLoadInfo&&, WebCore::ResourceRequest&& request) const final
+    {
+        if (!m_client.didSendRequest)
+            return;
+        m_client.didSendRequest(m_client.base.clientInfo, toAPI(protect(m_page).get()), toAPI(request));
+    }
+
+    void didPerformHTTPRedirection(WebKit::ResourceLoadInfo&&, WebCore::ResourceResponse&& response, WebCore::ResourceRequest&& request) const final
+    {
+        if (!m_client.didPerformRedirect)
+            return;
+        m_client.didPerformRedirect(m_client.base.clientInfo, toAPI(protect(m_page).get()), toAPI(response), toAPI(request));
+    }
+    void didReceiveChallenge(WebKit::ResourceLoadInfo&&, WebCore::AuthenticationChallenge&&) const final { }
+    void didReceiveResponse(WebKit::ResourceLoadInfo&& info, WebCore::ResourceResponse&& response) const final
+    {
+        if (!m_client.didReceiveResponse)
+            return;
+        m_client.didReceiveResponse(m_client.base.clientInfo, toAPI(protect(m_page).get()), toAPI(API::URL::create(info.originalURL.string()).ptr()), toAPI(response));
+    }
+    void didCompleteWithError(WebKit::ResourceLoadInfo&& info, WebCore::ResourceResponse&& response, WebCore::ResourceError&& error) const final
+    {
+        if (!m_client.didCompleteWithError)
+            return;
+        if (error.isNull())
+            m_client.didCompleteWithError(m_client.base.clientInfo, toAPI(protect(m_page).get()), toAPI(API::URL::create(info.originalURL.string()).ptr()), toAPI(response), nullptr);
+        else
+            m_client.didCompleteWithError(m_client.base.clientInfo, toAPI(protect(m_page).get()), toAPI(API::URL::create(info.originalURL.string()).ptr()), toAPI(response), toAPI(error));
+    }
+
+    WeakPtr<WebPageProxy> m_page;
+};
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ResourceLoadClient);
+
+void WKPageSetResourceLoadClient(WKPageRef pageRef, WKPageResourceLoadClientBase* client)
+{
+    CRASH_IF_SUSPENDED;
+    if (client)
+        protect(toImpl(pageRef))->setResourceLoadClient(makeUnique<ResourceLoadClient>(client, pageRef));
+    else
+        protect(toImpl(pageRef))->setResourceLoadClient(nullptr);
+}
+
 void WKPageEvaluateJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
 {
     WKPageEvaluateJavaScriptInFrame(pageRef, nullptr, scriptRef, context, callback);
@@ -3160,7 +3219,7 @@ void WKPageForceRepaint(WKPageRef pageRef, void* context, WKPageForceRepaintFunc
 WK_EXPORT WKURLRef WKPageCopyPendingAPIRequestURL(WKPageRef pageRef)
 {
     RefPtr page = toImpl(pageRef);
-    const String& pendingAPIRequestURL = page->pageLoadState().pendingAPIRequestURL();
+    auto& pendingAPIRequestURL = page->pageLoadState().pendingAPIRequestURL();
 
     if (pendingAPIRequestURL.isNull())
         return nullptr;
@@ -3170,17 +3229,17 @@ WK_EXPORT WKURLRef WKPageCopyPendingAPIRequestURL(WKPageRef pageRef)
 
 WKURLRef WKPageCopyActiveURL(WKPageRef pageRef)
 {
-    return toCopiedURLAPI(protect(protect(toImpl(pageRef))->pageLoadState())->activeURL());
+    return toCopiedURLAPI(toImpl(pageRef)->pageLoadState().activeURL());
 }
 
 WKURLRef WKPageCopyProvisionalURL(WKPageRef pageRef)
 {
-    return toCopiedURLAPI(protect(toImpl(pageRef))->pageLoadState().provisionalURL());
+    return toCopiedURLAPI(toImpl(pageRef)->pageLoadState().provisionalURL());
 }
 
 WKURLRef WKPageCopyCommittedURL(WKPageRef pageRef)
 {
-    return toCopiedURLAPI(protect(toImpl(pageRef))->pageLoadState().url());
+    return toCopiedURLAPI(toImpl(pageRef)->pageLoadState().url());
 }
 
 WKStringRef WKPageCopyStandardUserAgentWithApplicationName(WKStringRef applicationName)
@@ -3215,7 +3274,7 @@ static PrintInfo printInfoFromWKPrintInfo(const WKPrintInfo& printInfo)
 void WKPageComputePagesForPrinting(WKPageRef pageRef, WKFrameRef frame, WKPrintInfo printInfo, WKPageComputePagesForPrintingFunction callback, void* context)
 {
     CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->computePagesForPrinting(protect(toImpl(frame))->frameID(), printInfoFromWKPrintInfo(printInfo), [context, callback](const Vector<WebCore::IntRect>& rects, double scaleFactor, const WebCore::FloatBoxExtent& computedPageMargin) {
+    protect(toImpl(pageRef))->computePagesForPrinting(toImpl(frame)->frameID(), printInfoFromWKPrintInfo(printInfo), [context, callback](const Vector<WebCore::IntRect>& rects, double scaleFactor, const WebCore::FloatBoxExtent& computedPageMargin) {
         auto wkRects = rects.map([](auto& rect) { return toAPI(rect); });
         callback(wkRects.mutableSpan().data(), wkRects.size(), scaleFactor, nullptr, context);
     });
@@ -3521,11 +3580,11 @@ void WKPageGetApplicationManifest(WKPageRef pageRef, void* context, WKPageGetApp
     CRASH_IF_SUSPENDED;
 #if ENABLE(APPLICATION_MANIFEST)
     protect(toImpl(pageRef))->getApplicationManifest([function, context](const std::optional<WebCore::ApplicationManifest>& manifest) {
-        function(context);
+        function(context, !!manifest);
     });
 #else
     UNUSED_PARAM(pageRef);
-    function(context);
+    function(context, false);
 #endif
 }
 
@@ -3786,6 +3845,17 @@ bool WKPageIsEditingCommandEnabledForTesting(WKPageRef pageRef, WKStringRef comm
     return pageForTesting->isEditingCommandEnabled(protect(toImpl(command))->string());
 }
 
+void WKPageGetStorageAreaMapCountForTesting(WKPageRef pageRef, void* context, WKPageGetStorageAreaMapCountForTestingFunction callback)
+{
+    RefPtr pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(0, context);
+
+    pageForTesting->storageAreaMapCount([context, callback](uint64_t count) {
+        callback(count, context);
+    });
+}
+
 void WKPageSetPermissionLevelForTesting(WKPageRef pageRef, WKStringRef origin, bool allowed)
 {
     if (RefPtr pageForTesting = toImpl(pageRef)->pageForTesting())
@@ -4033,4 +4103,28 @@ void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uin
 void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
 bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
 void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
+}
+
+void WKPageSetCursorDidChangeCallbackForTesting(WKPageRef page, WKPageCursorDidChangeCallbackForTesting callback, const void* clientInfo)
+{
+    if (!callback) {
+        protect(toImpl(page))->setCursorDidChangeCallbackForTesting({ });
+        return;
+    }
+
+    protect(toImpl(page))->setCursorDidChangeCallbackForTesting([callback, clientInfo](const WebCore::Cursor& cursor) {
+        StringBuilder info;
+        auto type = cursor.type();
+        info.append("type="_s, type == WebCore::Cursor::Type::Custom ? "Custom"_s : "Predefined"_s);
+        info.append(" hotSpot="_s, cursor.hotSpot().x(), ',', cursor.hotSpot().y());
+        if (cursor.image()) {
+            auto size = cursor.image()->size();
+            info.append(" image="_s, static_cast<int>(size.width()), 'x', static_cast<int>(size.height()));
+        }
+#if ENABLE(MOUSE_CURSOR_SCALE)
+        if (cursor.imageScaleFactor() != 1)
+            info.append(" scale="_s, cursor.imageScaleFactor());
+#endif
+        callback(toAPI(info.toString().impl()), clientInfo);
+    });
 }

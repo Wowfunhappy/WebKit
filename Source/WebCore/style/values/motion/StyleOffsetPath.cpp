@@ -25,8 +25,9 @@
 #include "config.h"
 #include "StyleOffsetPath.h"
 
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "AcceleratedEffectOffsetPath.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Serialization.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
@@ -41,7 +42,7 @@ auto CSSValueConversion<OffsetPath>::operator()(BuilderState& state, const CSSVa
     return OffsetPath { toStyleFromCSSValue<RefPtr<PathOperation>>(state, value, SupportRayPathOperation::Yes) };
 }
 
-Ref<CSSValue> CSSValueCreation<OffsetPath>::operator()(CSSValuePool& pool, const RenderStyle& style, const OffsetPath& value)
+Ref<CSSValue> CSSValueCreation<OffsetPath>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const OffsetPath& value)
 {
     return WTF::switchOn(value,
         [&](const BasicShapePath& path) {
@@ -55,7 +56,7 @@ Ref<CSSValue> CSSValueCreation<OffsetPath>::operator()(CSSValuePool& pool, const
 
 // MARK: - Serialization
 
-void Serialize<OffsetPath>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const OffsetPath& value)
+void Serialize<OffsetPath>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const OffsetPath& value)
 {
     return WTF::switchOn(value,
         [&](const BasicShapePath& path) {
@@ -98,6 +99,33 @@ auto ToPlatform<OffsetPath>::operator()(const OffsetPath& value) -> RefPtr<PathO
 {
     return value.operation;
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+AcceleratedEffectOffsetPath Evaluation<OffsetPath, AcceleratedEffectOffsetPath>::operator()(const OffsetPath& value, const TransformOperationData& data, ZoomFactor zoom)
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Keyword::None&) -> AcceleratedEffectOffsetPath {
+            return { .value = AcceleratedEffectOffsetPath::None { } };
+        },
+        [&](const RayPath& path) -> AcceleratedEffectOffsetPath {
+            return { .value = evaluate<AcceleratedEffectOffsetPath::RayPath>(path, data, zoom) };
+        },
+        [&](const ReferencePath& path) -> AcceleratedEffectOffsetPath {
+            return { .value = evaluate<AcceleratedEffectOffsetPath::ReferencePath>(path, data, zoom) };
+        },
+        [&](const BasicShapePath& path) -> AcceleratedEffectOffsetPath {
+            return { .value = evaluate<AcceleratedEffectOffsetPath::BasicShapePath>(path, data.motionPathData->offsetRect().rect(), zoom) };
+        },
+        [&](const BoxPath& path) -> AcceleratedEffectOffsetPath {
+            return { .value = evaluate<AcceleratedEffectOffsetPath::BoxPath>(path, data, zoom) };
+        }
+    );
+}
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

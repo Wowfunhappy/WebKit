@@ -25,14 +25,13 @@
  */
 
 #include "config.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 
 #if ENABLE(WEBGL)
-#include "GraphicsTestUtilities.h"
-#include "WebCoreTestUtilities.h"
+#include "Helpers/GraphicsTestUtilities.h"
+#include "Helpers/WebCoreTestUtilities.h"
 #include <WebCore/Color.h>
 #include <WebCore/GraphicsContextGLTextureMapperANGLE.h>
-#include <WebCore/PlatformDisplaySurfaceless.h>
 #include <WebCore/ProcessIdentity.h>
 #include <atomic>
 #include <limits>
@@ -47,20 +46,10 @@ using namespace WebCore;
 
 namespace {
 
-static void initializePlatformDisplayIfNeeded()
-{
-    if (PlatformDisplay::sharedDisplayIfExists())
-        return;
-    auto display = PlatformDisplaySurfaceless::create();
-    RELEASE_ASSERT(display);
-    PlatformDisplay::setSharedDisplay(WTF::move(display));
-}
-
 using TestedGraphicsContextGLTextureMapper = GraphicsContextGLTextureMapperANGLE;
 
 static RefPtr<TestedGraphicsContextGLTextureMapper> createTestedGraphicsContextGL(GraphicsContextGLAttributes attribute)
 {
-    initializePlatformDisplayIfNeeded();
     return TestedGraphicsContextGLTextureMapper::create(WTF::move(attribute));
 }
 
@@ -77,7 +66,11 @@ class GraphicsContextGLTextureMapperTest : public ::testing::Test {
 protected:
     void SetUp() override // NOLINT
     {
+#if ENABLE(GPU_PROCESS)
         m_scopedProcessType = ScopedSetAuxiliaryProcessTypeForTesting { WTF::AuxiliaryProcessType::GPU };
+#else
+        m_scopedProcessType = ScopedSetAuxiliaryProcessTypeForTesting { WTF::AuxiliaryProcessType::WebContent };
+#endif
     }
     void TearDown() override // NOLINT
     {
@@ -99,7 +92,11 @@ protected:
 
     void SetUp() override // NOLINT
     {
+#if ENABLE(GPU_PROCESS)
         m_scopedProcessType = ScopedSetAuxiliaryProcessTypeForTesting { WTF::AuxiliaryProcessType::GPU };
+#else
+        m_scopedProcessType = ScopedSetAuxiliaryProcessTypeForTesting { WTF::AuxiliaryProcessType::WebContent };
+#endif
     }
     void TearDown() override // NOLINT
     {

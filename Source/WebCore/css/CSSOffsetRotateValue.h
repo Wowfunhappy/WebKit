@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "CSSKeywordValue.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSValue.h"
 
@@ -34,12 +35,12 @@ class CSSOffsetRotateValue final : public CSSValue {
 public:
     static Ref<CSSOffsetRotateValue> create(RefPtr<CSSValue>&& modifier, RefPtr<CSSValue>&& angle)
     {
-        return adoptRef(*new CSSOffsetRotateValue(downcast<CSSPrimitiveValue>(WTF::move(modifier)), downcast<CSSPrimitiveValue>(WTF::move(angle))));
+        return adoptRef(*new CSSOffsetRotateValue(downcast<CSSKeywordValue>(WTF::move(modifier)), downcast<CSSPrimitiveValue>(WTF::move(angle))));
     }
 
     String customCSSText(const CSS::SerializationContext&) const;
 
-    CSSPrimitiveValue* modifier() const { return m_modifier.get(); }
+    CSSKeywordValue* modifier() const { return m_modifier.get(); }
     CSSPrimitiveValue* angle() const { return m_angle.get(); }
 
     bool NODELETE isInitialValue() const;
@@ -60,21 +61,17 @@ public:
     }
 
 private:
-    CSSOffsetRotateValue(RefPtr<CSSPrimitiveValue>&& modifier, RefPtr<CSSPrimitiveValue>&& angle)
+    CSSOffsetRotateValue(RefPtr<CSSKeywordValue>&& modifier, RefPtr<CSSPrimitiveValue>&& angle)
         : CSSValue(ClassType::OffsetRotate)
         , m_modifier(WTF::move(modifier))
         , m_angle(WTF::move(angle))
     {
         ASSERT(m_modifier || m_angle);
-
-        if (m_modifier)
-            ASSERT(m_modifier->isValueID());
-
         if (m_angle)
             ASSERT(m_angle->isAngle());
     }
 
-    const RefPtr<CSSPrimitiveValue> m_modifier;
+    const RefPtr<CSSKeywordValue> m_modifier;
     const RefPtr<CSSPrimitiveValue> m_angle;
 };
 

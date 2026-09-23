@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,11 +29,17 @@
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct BorderImageRepeat;
+}
+
 namespace Style {
 
 // <'border-image-repeat'> = [ stretch | repeat | round | space ]{1,2}
 // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-repeat
 struct BorderImageRepeat {
+    using Value = NinePieceImageRule;
     MinimallySerializingSpaceSeparatedSize<NinePieceImageRule> values { NinePieceImageRule::Stretch, NinePieceImageRule::Stretch };
 
     constexpr BorderImageRepeat(MinimallySerializingSpaceSeparatedSize<NinePieceImageRule> values)
@@ -74,7 +80,11 @@ DEFINE_TYPE_WRAPPER_GET(BorderImageRepeat, values);
 
 // MARK: - Conversion
 
-template<> struct CSSValueConversion<BorderImageRepeat> { BorderImageRepeat NODELETE operator()(BuilderState&, const CSSValue&); };
+template<> struct ToCSS<BorderImageRepeat> { auto operator()(const BorderImageRepeat&, const Style::ComputedStyle&) -> CSS::BorderImageRepeat; };
+template<> struct ToStyle<CSS::BorderImageRepeat> { auto operator()(const CSS::BorderImageRepeat&, const BuilderState&) -> BorderImageRepeat; };
+
+template<> struct CSSValueConversion<BorderImageRepeat> { BorderImageRepeat operator()(BuilderState&, const CSSValue&); };
+template<> struct CSSValueCreation<BorderImageRepeat> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const BorderImageRepeat&) -> Ref<CSSValue>; };
 
 } // namespace Style
 } // namespace WebCore

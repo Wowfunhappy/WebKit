@@ -27,12 +27,17 @@
 #include "config.h"
 #include "StylePositionTryFallback.h"
 
+#include "CSSKeywordValue.h"
+#include "CSSPropertyParserConsumer+Anchor.h"
+#include "CSSValuePair.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Logging.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "StyleCustomIdent.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Logging.h"
+#include "StyleKeyword+Serialization.h"
 #include "StylePropertiesInlines.h"
+#include "StyleValueTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
@@ -84,31 +89,40 @@ auto CSSValueConversion<PositionTryFallback>::operator()(BuilderState& state, co
         auto tactics = SpaceSeparatedVector<PositionTryFallbackTactic> { };
 
         for (Ref item : *valueList) {
-            switch (item->valueID()) {
-            case CSSValueFlipBlock:
-                tactics.value.append(PositionTryFallbackTactic::FlipBlock);
-                break;
-            case CSSValueFlipInline:
-                tactics.value.append(PositionTryFallbackTactic::FlipInline);
-                break;
-            case CSSValueFlipStart:
-                tactics.value.append(PositionTryFallbackTactic::FlipStart);
-                break;
-            case CSSValueFlipX:
-                tactics.value.append(PositionTryFallbackTactic::FlipX);
-                break;
-            case CSSValueFlipY:
-                tactics.value.append(PositionTryFallbackTactic::FlipY);
-                break;
-            case CSSValueInvalid:
-                if (item->isCustomIdent() && !rule) {
-                    rule = ScopedName { AtomString { item->customIdent() }, state.styleScopeOrdinal() };
+            if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(item)) {
+                switch (keywordValue->valueID()) {
+                case CSSValueFlipBlock:
+                    tactics.value.append(PositionTryFallbackTactic::FlipBlock);
                     break;
+                case CSSValueFlipInline:
+                    tactics.value.append(PositionTryFallbackTactic::FlipInline);
+                    break;
+                case CSSValueFlipStart:
+                    tactics.value.append(PositionTryFallbackTactic::FlipStart);
+                    break;
+                case CSSValueFlipX:
+                    tactics.value.append(PositionTryFallbackTactic::FlipX);
+                    break;
+                case CSSValueFlipY:
+                    tactics.value.append(PositionTryFallbackTactic::FlipY);
+                    break;
+                default:
+                    state.setCurrentPropertyInvalidAtComputedValueTime();
+                    return { };
                 }
-                [[fallthrough]];
-            default:
-                state.setCurrentPropertyInvalidAtComputedValueTime();
-                return { };
+            } else {
+                if (rule) {
+                    state.setCurrentPropertyInvalidAtComputedValueTime();
+                    return { };
+                }
+
+                auto customIdent = toStyleFromCSSValue<CustomIdent>(state, item.get());
+                if (!customIdent.value.isNull())
+                    rule = ScopedName { WTF::move(customIdent.value), state.styleScopeOrdinal() };
+                else {
+                    state.setCurrentPropertyInvalidAtComputedValueTime();
+                    return { };
+                }
             }
         }
 
@@ -129,29 +143,40 @@ auto CSSValueConversion<PositionTryFallback>::operator()(BuilderState& state, co
     }
 
     // Turn the inlined position-area fallback into properties object that can be applied similarly to @position-try declarations.
-    auto property = CSSProperty { CSSPropertyPositionArea, Ref { const_cast<CSSValue&>(value) } };
+    auto property = CSSProperty { CSSPropertyPositionArea, protect(const_cast<CSSValue&>(value)) };
     return {
         .positionArea = { ImmutableStyleProperties::createDeduplicating(std::span { &property, 1 }, HTMLStandardMode) }
     };
 }
 
-auto CSSValueCreation<PositionTryFallback::PositionArea>::operator()(CSSValuePool&, const RenderStyle&, const PositionTryFallback::PositionArea& value) -> Ref<CSSValue>
+static Ref<CSSValue> computedPositionAreaValue(const PositionTryFallback::PositionArea& value)
 {
-    return RefPtr { value.properties }->getPropertyCSSValue(CSSPropertyPositionArea).releaseNonNull();
+    RefPtr cssValue = protect(value.properties)->getPropertyCSSValue(CSSPropertyPositionArea);
+    if (auto* pair = dynamicDowncast<CSSValuePair>(*cssValue)) {
+        auto dim1 = downcast<CSSKeywordValue>(pair->first()).valueID();
+        auto dim2 = downcast<CSSKeywordValue>(pair->second()).valueID();
+        return CSSPropertyParserHelpers::valueForPositionArea(dim1, dim2, CSSPropertyParserHelpers::ValueType::Computed).releaseNonNull();
+    }
+    return cssValue.releaseNonNull();
+}
+
+auto CSSValueCreation<PositionTryFallback::PositionArea>::operator()(CSSValuePool&, const Style::ComputedStyle&, const PositionTryFallback::PositionArea& value) -> Ref<CSSValue>
+{
+    return computedPositionAreaValue(value);
 }
 
 // MARK: - Serialization
 
-void Serialize<PositionTryFallback::PositionArea>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle&, const PositionTryFallback::PositionArea& value)
+void Serialize<PositionTryFallback::PositionArea>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle&, const PositionTryFallback::PositionArea& value)
 {
-    builder.append(RefPtr { value.properties }->getPropertyCSSValue(CSSPropertyPositionArea)->cssText(context));
+    builder.append(computedPositionAreaValue(value)->cssText(context));
 }
 
 // MARK: - Logging
 
 TextStream& operator<<(TextStream& ts, const PositionTryFallback::PositionArea& value)
 {
-    return ts << RefPtr { value.properties }->getPropertyValue(CSSPropertyPositionArea);
+    return ts << protect(value.properties)->getPropertyValue(CSSPropertyPositionArea);
 }
 
 } // namespace Style

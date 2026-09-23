@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2024 Apple Inc. All rights reserved.
- * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,25 +26,25 @@
 #include "config.h"
 #include "CSSPropertyParserConsumer+Grid.h"
 
-#include "CSSFunctionValue.h"
-#include "CSSGridAutoRepeatValue.h"
-#include "CSSGridIntegerRepeatValue.h"
-#include "CSSGridLineNamesValue.h"
+#include "CSSCustomIdentValue.h"
+#include "CSSGridAutoFlowValue.h"
 #include "CSSGridLineValue.h"
 #include "CSSGridTemplateAreasValue.h"
+#include "CSSGridTemplateListValue.h"
+#include "CSSGridTrackSizesValue.h"
 #include "CSSParserIdioms.h"
 #include "CSSParserTokenRange.h"
+#include "CSSParserTokenRangeGuard.h"
 #include "CSSPrimitiveValue.h"
-#include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
+#include "CSSPropertyParserConsumer+FlexDefinitions.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 #include "CSSPropertyParserConsumer+IntegerDefinitions.h"
 #include "CSSPropertyParserConsumer+LengthPercentageDefinitions.h"
+#include "CSSPropertyParserConsumer+MetaConsumer.h"
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserState.h"
-#include "CSSSubgridValue.h"
 #include "CSSValueList.h"
 #include "CSSValuePool.h"
-#include "GridArea.h"
 #include "StyleGridPosition.h"
 #include <wtf/Vector.h>
 #include <wtf/text/StringView.h>
@@ -52,20 +52,15 @@
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
 
-bool isGridBreadthIdent(CSSValueID id)
+static std::optional<CSS::CustomIdent> consumeUnresolvedCustomIdentForGridLine(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    return identMatches<CSSValueMinContent, CSSValueWebkitMinContent, CSSValueMaxContent, CSSValueWebkitMaxContent, CSSValueAuto>(id);
-}
-
-static RefPtr<CSSPrimitiveValue> consumeCustomIdentForGridLine(CSSParserTokenRange& range)
-{
-    if (range.peek().id() == CSSValueAuto || range.peek().id() == CSSValueSpan)
-        return nullptr;
-    return consumeCustomIdent(range);
+    return consumeUnresolvedCustomIdentExcluding(range, state, { CSSValueAuto, CSSValueSpan });
 }
 
 std::optional<CSS::GridNamedAreaMapRow> consumeUnresolvedGridTemplateAreasRow(CSSParserTokenRange& range, CSS::PropertyParserState&)
 {
+    // https://drafts.csswg.org/css-grid/#valdef-grid-template-areas-string
+
     // Utilize the NRVO by having all paths return this one `row` instance to avoid unnecessary copies.
     std::optional<CSS::GridNamedAreaMapRow> row;
 
@@ -109,9 +104,114 @@ std::optional<CSS::GridNamedAreaMapRow> consumeUnresolvedGridTemplateAreasRow(CS
         areaName.append(character);
     }
     if (!areaName.isEmpty())
-        row->append(areaName.toString());
+        row->append(areaName.toAtomString());
 
     return row;
+}
+
+std::optional<CSS::GridLine> consumeUnresolvedGridLine(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <grid-line> = auto
+    //             | <custom-ident>
+    //             | [ [ <integer [-∞,-1]> | <integer [1,∞]> ] && <custom-ident>? ]
+    //             | [ span && [ <integer [1,∞]> || <custom-ident> ] ]
+    //
+    // https://drafts.csswg.org/css-grid/#typedef-grid-row-start-grid-line
+
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
+    case CSSValueAuto:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridLine { CSS::Keyword::Auto { } };
+
+    case CSSValueSpan: {
+        range.consumeIncludingWhitespace();
+
+        auto index = MetaConsumer<CSS::Integer<CSS::Positive>>::consume(range, state);
+        auto name = consumeUnresolvedCustomIdentForGridLine(range, state);
+        if (!index)
+            index = MetaConsumer<CSS::Integer<CSS::Positive>>::consume(range, state);
+
+        if (!index && !name)
+            return std::nullopt;
+
+        guard.commit();
+        return CSS::GridLine { CSS::GridLineSpan {
+            .index = index.value_or(CSS::Integer<CSS::Positive> { 1 }),
+            .name = WTF::move(name),
+        } };
+    }
+
+    default:
+        break;
+    }
+
+    if (auto index = MetaConsumer<CSS::Integer<>>::consume(range, state)) {
+        auto name = consumeUnresolvedCustomIdentForGridLine(range, state);
+
+        if (consumeIdentRaw<CSSValueSpan>(range).has_value()) {
+            auto rangeCastedIndex = CSS::dynamicRangeNarrowingCast<CSS::Positive>(*index);
+            if (!rangeCastedIndex)
+                return std::nullopt;
+
+            guard.commit();
+            return CSS::GridLine { CSS::GridLineSpan {
+                .index = WTF::move(*rangeCastedIndex),
+                .name = WTF::move(name),
+            } };
+        } else {
+            if (index->isKnownZero())
+                return std::nullopt;
+
+            guard.commit();
+            return CSS::GridLine { CSS::GridLineExplicit {
+                .index = WTF::move(*index),
+                .name = WTF::move(name),
+            } };
+        }
+    }
+
+    auto name = consumeUnresolvedCustomIdentForGridLine(range, state);
+    if (!name)
+        return std::nullopt;
+
+    auto index = MetaConsumer<CSS::Integer<>>::consume(range, state);
+
+    if (consumeIdentRaw<CSSValueSpan>(range).has_value()) {
+        if (index) {
+            auto rangeCastedIndex = CSS::dynamicRangeNarrowingCast<CSS::Positive>(*index);
+            if (!rangeCastedIndex)
+                return std::nullopt;
+
+            guard.commit();
+            return CSS::GridLine { CSS::GridLineSpan {
+                .index = WTF::move(*rangeCastedIndex),
+                .name = WTF::move(name),
+            } };
+        }
+
+        guard.commit();
+        return CSS::GridLine { CSS::GridLineSpan {
+            .index = CSS::Integer<CSS::Positive> { 1 },
+            .name = WTF::move(name),
+        } };
+    }
+
+    if (index) {
+        if (index->isKnownZero())
+            return std::nullopt;
+
+        guard.commit();
+        return CSS::GridLine { CSS::GridLineExplicit {
+            .index = WTF::move(*index),
+            .name = WTF::move(name),
+        } };
+    }
+
+    guard.commit();
+    return CSS::GridLine { WTF::move(*name) };
 }
 
 RefPtr<CSSValue> consumeGridLine(CSSParserTokenRange& range, CSS::PropertyParserState& state)
@@ -123,322 +223,846 @@ RefPtr<CSSValue> consumeGridLine(CSSParserTokenRange& range, CSS::PropertyParser
     //
     // https://drafts.csswg.org/css-grid/#typedef-grid-row-start-grid-line
 
-    if (range.peek().id() == CSSValueAuto)
-        return consumeIdent(range);
-
-    RefPtr<CSSPrimitiveValue> spanValue;
-    RefPtr<CSSPrimitiveValue> gridLineName;
-    RefPtr<CSSPrimitiveValue> numericValue = CSSPrimitiveValueResolver<CSS::Integer<>>::consumeAndResolve(range, state);
-    if (numericValue) {
-        gridLineName = consumeCustomIdentForGridLine(range);
-        spanValue = consumeIdent<CSSValueSpan>(range);
-    } else {
-        spanValue = consumeIdent<CSSValueSpan>(range);
-        if (spanValue) {
-            numericValue = CSSPrimitiveValueResolver<CSS::Integer<>>::consumeAndResolve(range, state);
-            gridLineName = consumeCustomIdentForGridLine(range);
-            if (!numericValue)
-                numericValue = CSSPrimitiveValueResolver<CSS::Integer<>>::consumeAndResolve(range, state);
-        } else {
-            gridLineName = consumeCustomIdentForGridLine(range);
-            if (gridLineName) {
-                numericValue = CSSPrimitiveValueResolver<CSS::Integer<>>::consumeAndResolve(range, state);
-                spanValue = consumeIdent<CSSValueSpan>(range);
-                if (!spanValue && !numericValue)
-                    return gridLineName;
-            } else
-                return nullptr;
-        }
-    }
-
-    if (spanValue && !numericValue && !gridLineName)
-        return nullptr; // "span" keyword alone is invalid.
-    if (spanValue && numericValue && numericValue->isNegative().value_or(false))
-        return nullptr; // Negative numbers are not allowed for span.
-    if (numericValue && numericValue->isZero().value_or(false))
-        return nullptr; // An <integer> value of zero makes the declaration invalid.
-
-    return CSSGridLineValue::create(WTF::move(spanValue), WTF::move(numericValue), WTF::move(gridLineName));
+    if (auto unresolved = consumeUnresolvedGridLine(range, state))
+        return CSSGridLineValue::create(WTF::move(*unresolved));
+    return nullptr;
 }
 
-static bool isGridTrackFixedSized(const CSSPrimitiveValue& primitiveValue)
+std::optional<CSS::GridLineNames> consumeUnresolvedGridLineNames(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    switch (primitiveValue.valueID()) {
+    // <line-names> = '[' <custom-ident excluding=span,auto>* ']'
+    // https://drafts.csswg.org/css-grid/#typedef-line-names
+
+    CSSParserTokenRangeGuard guard { range };
+
+    if (range.consumeIncludingWhitespace().type() != LeftBracketToken)
+        return std::nullopt;
+
+    SpaceSeparatedVector<CSS::CustomIdent> lineNames;
+    while (auto lineName = consumeUnresolvedCustomIdentForGridLine(range, state))
+        lineNames.value.append(WTF::move(*lineName));
+
+    if (range.consumeIncludingWhitespace().type() != RightBracketToken)
+        return std::nullopt;
+
+    guard.commit();
+    return CSS::GridLineNames { WTF::move(lineNames) };
+}
+
+std::optional<CSS::GridTrackList> consumeUnresolvedGridExplicitTrackList(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <explicit-track-list> = [ <line-names>? <track-size> ]+ <line-names>?
+    // https://drafts.csswg.org/css-grid-2/#typedef-explicit-track-list
+
+    CSSParserTokenRangeGuard guard { range };
+
+    using Track = CSS::GridTrackList::Track;
+    SpaceSeparatedVector<Track> trackList;
+
+    if (auto lineNames = consumeUnresolvedGridLineNames(range, state); lineNames && !lineNames->isEmpty())
+        trackList.value.append(Track { WTF::move(*lineNames) });
+
+    do {
+        auto track = consumeUnresolvedGridTrackSize(range, state);
+        if (!track)
+            return std::nullopt;
+
+        trackList.value.append(Track { WTF::move(*track) });
+
+        if (auto lineNames = consumeUnresolvedGridLineNames(range, state); lineNames && !lineNames->isEmpty())
+            trackList.value.append(Track { WTF::move(*lineNames) });
+    } while (!range.atEnd() && range.peek().type() != DelimiterToken);
+
+    guard.commit();
+    return CSS::GridTrackList { WTF::move(trackList) };
+}
+
+struct GridNameRepeatFunctionResult {
+    CSS::GridNameRepeatFunction value;
+    bool hasConsumedAutoRepeat { false };
+};
+static std::optional<GridNameRepeatFunctionResult> consumeUnresolvedGridNameRepeatFunction(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <name-repeat>         = repeat( [ <integer [1,∞]> | auto-fill ], <line-names>+)
+    // https://drafts.csswg.org/css-grid/#typedef-name-repeat
+
+    ASSERT(range.peek().functionId() == CSSValueRepeat);
+
+    CSSParserTokenRangeGuard guard { range };
+    auto args = consumeFunction(range);
+
+    bool hasConsumedAutoRepeat = false;
+
+    using Repeated = CSS::GridNameRepeatFunctionParameters::Repeated;
+    using Repetitions = CSS::GridNameRepeatFunctionParameters::Repetitions;
+
+    std::optional<Repetitions> repetitions;
+
+    switch (args.peek().id()) {
+    case CSSValueAutoFill:
+        args.consumeIncludingWhitespace();
+        repetitions = Repetitions { CSS::Keyword::AutoFill { } };
+        hasConsumedAutoRepeat = true;
+        break;
+
+    default: {
+        auto integerRepetitions = MetaConsumer<CSS::Integer<CSS::Positive, unsigned>>::consume(args, state);
+        if (!integerRepetitions)
+            return std::nullopt;
+        repetitions = WTF::switchOn(*integerRepetitions,
+            [&](const CSS::Integer<CSS::Positive, unsigned>::Calc&) {
+                return Repetitions { WTF::move(*integerRepetitions) };
+            },
+            [&](const CSS::Integer<CSS::Positive, unsigned>::Raw& raw) {
+                // FIXME: Given this needs to be checked at style building as well to account for calc() and this is not specified anywhere, this clamping to GridPosition::max() should probably be removed.
+                return Repetitions { CSS::Integer<CSS::Positive, unsigned> { std::min<double>(raw.value, Style::GridPosition::max()) } };
+            }
+        );
+        break;
+    }
+    }
+
+    if (!consumeCommaIncludingWhitespace(args))
+        return std::nullopt;
+
+    SpaceSeparatedVector<Repeated> repeated;
+
+    do {
+        auto gridLineNames = consumeUnresolvedGridLineNames(args, state);
+        if (!gridLineNames)
+            return std::nullopt;
+
+        repeated.value.append(WTF::move(*gridLineNames));
+    } while (!args.atEnd());
+
+    guard.commit();
+    return GridNameRepeatFunctionResult {
+        .value = CSS::GridNameRepeatFunction {
+            .parameters = {
+                .repetitions = WTF::move(*repetitions),
+                .repeated = WTF::move(repeated),
+            }
+        },
+        .hasConsumedAutoRepeat = hasConsumedAutoRepeat,
+    };
+}
+
+static std::optional<CSS::GridSubgrid> consumeUnresolvedGridSubgrid(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <subgrid>             = subgrid <line-name-list>?
+    // <line-name-list>      = [ <line-names> | <name-repeat> ]+
+
+    ASSERT(range.peek().id() == CSSValueSubgrid);
+
+    CSSParserTokenRangeGuard guard { range };
+
+    range.consumeIncludingWhitespace();
+
+    bool hasConsumedAutoRepeat = false;
+
+    using Entry = Variant<CSS::GridLineNames, CSS::GridNameRepeatFunction>;
+    SpaceSeparatedVector<Entry> entries;
+
+    while (!range.atEnd() && range.peek().type() != DelimiterToken) {
+        auto& token = range.peek();
+        if (token.functionId() == CSSValueRepeat) {
+            auto repeat = consumeUnresolvedGridNameRepeatFunction(range, state);
+            if (!repeat)
+                return std::nullopt;
+
+            if (repeat->hasConsumedAutoRepeat) {
+                // Only one <name-repeat> production is allowed.
+                if (hasConsumedAutoRepeat)
+                    return std::nullopt;
+                hasConsumedAutoRepeat = true;
+            }
+
+            entries.value.append(Entry { WTF::move(repeat->value) });
+        } else if (token.type() == LeftBracketToken) {
+            auto gridLineNames = consumeUnresolvedGridLineNames(range, state);
+            if (!gridLineNames)
+                return std::nullopt;
+
+            entries.value.append(Entry { WTF::move(*gridLineNames) });
+        } else
+            return std::nullopt;
+    }
+
+    guard.commit();
+    return CSS::GridSubgrid { WTF::move(entries) };
+}
+
+static std::optional<CSS::GridTrackBreadth> consumeUnresolvedGridInflexibleBreadth(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <inflexible-breadth>  = <length-percentage [0,∞]> | min-content | max-content | auto
+
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
     case CSSValueMinContent:
     case CSSValueWebkitMinContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTrackBreadth { CSS::Keyword::MinContent { } };
+
     case CSSValueMaxContent:
     case CSSValueWebkitMaxContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTrackBreadth { CSS::Keyword::MaxContent { } };
+
     case CSSValueAuto:
-        return false;
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTrackBreadth { CSS::Keyword::Auto { } };
+
     default:
-        return !primitiveValue.isFlex();
+        break;
     }
+
+    if (auto lengthPercentage = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(range, state)) {
+        guard.commit();
+        return CSS::GridTrackBreadth { WTF::move(*lengthPercentage) };
+    }
+
+    return std::nullopt;
 }
 
-static bool isGridTrackFixedSized(const CSSValue& value)
-{
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
-        return isGridTrackFixedSized(*primitiveValue);
-    auto& function = downcast<CSSFunctionValue>(value);
-    if (function.name() == CSSValueFitContent || function.length() < 2)
-        return false;
-
-    return isGridTrackFixedSized(protect(downcast<CSSPrimitiveValue>(*function.item(0))))
-        || isGridTrackFixedSized(protect(downcast<CSSPrimitiveValue>(*function.item(1))));
-}
-
-static RefPtr<CSSPrimitiveValue> consumeGridBreadth(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+static std::optional<CSS::GridTrackBreadth> consumeUnresolvedGridTrackBreadth(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
     // <track-breadth>       = <length-percentage [0,∞]> | <flex [0,∞]> | min-content | max-content | auto
     // https://drafts.csswg.org/css-grid/#typedef-track-breadth
 
-    const CSSParserToken& token = range.peek();
-    if (isGridBreadthIdent(token.id()))
-        return consumeIdent(range);
-    if (token.type() == DimensionToken && token.unitType() == CSSUnitType::CSS_FR) {
-        if (range.peek().numericValue() < 0)
-            return nullptr;
-        return CSSPrimitiveValue::create(range.consumeIncludingWhitespace().numericValue(), CSSUnitType::CSS_FR);
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
+    case CSSValueMinContent:
+    case CSSValueWebkitMinContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTrackBreadth { CSS::Keyword::MinContent { } };
+
+    case CSSValueMaxContent:
+    case CSSValueWebkitMaxContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTrackBreadth { CSS::Keyword::MaxContent { } };
+
+    case CSSValueAuto:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTrackBreadth { CSS::Keyword::Auto { } };
+
+    default:
+        break;
     }
-    return CSSPrimitiveValueResolver<CSS::LengthPercentage<CSS::Nonnegative>>::consumeAndResolve(range, state);
+
+    if (auto flex = MetaConsumer<CSS::Flex<CSS::Nonnegative>>::consume(range, state)) {
+        guard.commit();
+        return CSS::GridTrackBreadth { WTF::move(*flex) };
+    }
+    if (auto lengthPercentage = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(range, state)) {
+        guard.commit();
+        return CSS::GridTrackBreadth { WTF::move(*lengthPercentage) };
+    }
+
+    return std::nullopt;
 }
 
-static RefPtr<CSSValue> consumeFitContent(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+struct GridInflexibleOrFixedBreadth {
+    CSS::GridTrackBreadth value;
+    bool hasConsumedNonFixed { false };
+};
+static std::optional<GridInflexibleOrFixedBreadth> consumeUnresolvedGridInflexibleOrFixedBreadth(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    CSSParserTokenRange rangeCopy = range;
-    CSSParserTokenRange args = consumeFunction(rangeCopy);
-    auto length = CSSPrimitiveValueResolver<CSS::LengthPercentage<CSS::Nonnegative>>::consumeAndResolve(args, state);
-    if (!length || !args.atEnd())
-        return nullptr;
-    range = rangeCopy;
-    return CSSFunctionValue::create(CSSValueFitContent, length.releaseNonNull());
+    // <inflexible-breadth>  = <length-percentage [0,∞]> | min-content | max-content | auto
+    // <fixed-breadth>       = <length-percentage [0,∞]>
+
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
+    case CSSValueMinContent:
+    case CSSValueWebkitMinContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return GridInflexibleOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { CSS::Keyword::MinContent { } },
+            .hasConsumedNonFixed = true,
+        };
+
+    case CSSValueMaxContent:
+    case CSSValueWebkitMaxContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return GridInflexibleOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { CSS::Keyword::MaxContent { } },
+            .hasConsumedNonFixed = true,
+        };
+
+    case CSSValueAuto:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return GridInflexibleOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { CSS::Keyword::Auto { } },
+            .hasConsumedNonFixed = true,
+        };
+
+    default:
+        break;
+    }
+
+    if (auto lengthPercentage = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(range, state)) {
+        guard.commit();
+        return GridInflexibleOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { WTF::move(*lengthPercentage) },
+            .hasConsumedNonFixed = false,
+        };
+    }
+
+    return std::nullopt;
 }
 
-RefPtr<CSSValue> consumeGridTrackSize(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+struct GridTrackOrFixedBreadth {
+    CSS::GridTrackBreadth value;
+    bool hasConsumedNonFixed { false };
+};
+static std::optional<GridTrackOrFixedBreadth> consumeUnresolvedGridTrackOrFixedBreadth(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <track-breadth>       = <length-percentage [0,∞]> | <flex [0,∞]> | min-content | max-content | auto
+    // <fixed-breadth>       = <length-percentage [0,∞]>
+
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
+    case CSSValueMinContent:
+    case CSSValueWebkitMinContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return GridTrackOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { CSS::Keyword::MinContent { } },
+            .hasConsumedNonFixed = true,
+        };
+
+    case CSSValueMaxContent:
+    case CSSValueWebkitMaxContent:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return GridTrackOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { CSS::Keyword::MaxContent { } },
+            .hasConsumedNonFixed = true,
+        };
+
+    case CSSValueAuto:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return GridTrackOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { CSS::Keyword::Auto { } },
+            .hasConsumedNonFixed = true,
+        };
+
+    default:
+        break;
+    }
+
+    if (auto flex = MetaConsumer<CSS::Flex<CSS::Nonnegative>>::consume(range, state)) {
+        guard.commit();
+        return GridTrackOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { WTF::move(*flex) },
+            .hasConsumedNonFixed = true,
+        };
+    }
+    if (auto lengthPercentage = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(range, state)) {
+        guard.commit();
+        return GridTrackOrFixedBreadth {
+            .value = CSS::GridTrackBreadth { WTF::move(*lengthPercentage) },
+            .hasConsumedNonFixed = false,
+        };
+    }
+
+    return std::nullopt;
+}
+
+static std::optional<CSS::GridFitContentFunction> consumeUnresolvedGridFitContentFunction(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // fit-content( <length-percentage [0,∞]> )
+
+    ASSERT(range.peek().functionId() == CSSValueFitContent);
+
+    CSSParserTokenRangeGuard guard { range };
+    auto args = consumeFunction(range);
+
+    auto lengthPercentage = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(args, state);
+    if (!lengthPercentage || !args.atEnd())
+        return std::nullopt;
+
+    guard.commit();
+    return CSS::GridFitContentFunction {
+        .parameters = { WTF::move(*lengthPercentage) }
+    };
+}
+
+std::optional<CSS::GridTrackSize> consumeUnresolvedGridTrackSize(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
     // <track-size>          = <track-breadth> | minmax( <inflexible-breadth> , <track-breadth> ) | fit-content( <length-percentage [0,∞]> )
-    // <track-breadth>       = <length-percentage [0,∞]> | <flex [0,∞]> | min-content | max-content | auto
-    // <inflexible-breadth>  = <length-percentage [0,∞]> | min-content | max-content | auto
-    //
-    // https://drafts.csswg.org/css-grid/#typedef-track-size
 
-    const CSSParserToken& token = range.peek();
-    if (identMatches<CSSValueAuto>(token.id()))
-        return consumeIdent(range);
+    CSSParserTokenRangeGuard guard { range };
 
-    if (token.functionId() == CSSValueMinmax) {
-        CSSParserTokenRange rangeCopy = range;
-        CSSParserTokenRange args = consumeFunction(rangeCopy);
-        auto minTrackBreadth = consumeGridBreadth(args, state);
-        if (!minTrackBreadth || minTrackBreadth->isFlex() || !consumeCommaIncludingWhitespace(args))
-            return nullptr;
-        auto maxTrackBreadth = consumeGridBreadth(args, state);
-        if (!maxTrackBreadth || !args.atEnd())
-            return nullptr;
-        range = rangeCopy;
-        return CSSFunctionValue::create(CSSValueMinmax, minTrackBreadth.releaseNonNull(), maxTrackBreadth.releaseNonNull());
+    if (auto trackBreadth = consumeUnresolvedGridTrackBreadth(range, state)) {
+        guard.commit();
+        return CSS::GridTrackSize { WTF::move(*trackBreadth) };
     }
 
-    if (token.functionId() == CSSValueFitContent)
-        return consumeFitContent(range, state);
-
-    return consumeGridBreadth(range, state);
-}
-
-RefPtr<CSSGridLineNamesValue> consumeGridLineNames(CSSParserTokenRange& range, CSS::PropertyParserState&, AllowEmpty allowEmpty)
-{
-    CSSParserTokenRange rangeCopy = range;
-    if (rangeCopy.consumeIncludingWhitespace().type() != LeftBracketToken)
-        return nullptr;
-
-    Vector<String, 4> lineNames;
-    while (auto lineName = consumeCustomIdentForGridLine(rangeCopy))
-        lineNames.append(lineName->customIdent());
-    if (rangeCopy.consumeIncludingWhitespace().type() != RightBracketToken)
-        return nullptr;
-    range = rangeCopy;
-    if (allowEmpty == AllowEmpty::No && lineNames.isEmpty())
-        return nullptr;
-    return CSSGridLineNamesValue::create(lineNames);
-}
-
-static bool consumeGridTrackRepeatFunction(CSSParserTokenRange& range, CSS::PropertyParserState& state, CSSValueListBuilder& list, bool& isAutoRepeat, bool& allTracksAreFixedSized)
-{
-    CSSParserTokenRange args = consumeFunction(range);
-
-    CSSValueListBuilder repeatedValues;
-
-    RefPtr<CSSPrimitiveValue> repetitions;
-    auto autoRepeatType = consumeIdentRaw<CSSValueAutoFill, CSSValueAutoFit>(args);
-    isAutoRepeat = autoRepeatType.has_value();
-    if (!isAutoRepeat) {
-        repetitions = CSSPrimitiveValueResolver<CSS::Integer<CSS::Range{1, CSS::Range::infinity}, unsigned>>::consumeAndResolve(args, state);
-        if (!repetitions)
-            return false;
-    }
-    if (!consumeCommaIncludingWhitespace(args))
-        return false;
-    if (auto lineNames = consumeGridLineNames(args, state))
-        repeatedValues.append(lineNames.releaseNonNull());
-
-    size_t numberOfTracks = 0;
-    while (!args.atEnd()) {
-        auto trackSize = consumeGridTrackSize(args, state);
-        if (!trackSize)
-            return false;
-        if (allTracksAreFixedSized)
-            allTracksAreFixedSized = isGridTrackFixedSized(*trackSize);
-        repeatedValues.append(trackSize.releaseNonNull());
-        ++numberOfTracks;
-        if (auto lineNames = consumeGridLineNames(args, state))
-            repeatedValues.append(lineNames.releaseNonNull());
-    }
-    // We should have found at least one <track-size> or else it is not a valid <track-list>.
-    if (!numberOfTracks)
-        return false;
-
-    if (isAutoRepeat)
-        list.append(CSSGridAutoRepeatValue::create(*autoRepeatType, WTF::move(repeatedValues)));
-    else {
-        auto maxRepetitions = Style::GridPosition::max() / numberOfTracks;
-        if (auto repetitionsInteger = repetitions->resolveAsIntegerIfNotCalculated(); repetitionsInteger && repetitionsInteger > maxRepetitions)
-            repetitions = CSSPrimitiveValue::createInteger(maxRepetitions);
-        list.append(CSSGridIntegerRepeatValue::create(repetitions.releaseNonNull(), WTF::move(repeatedValues)));
-    }
-    return true;
-}
-
-static bool consumeSubgridNameRepeatFunction(CSSParserTokenRange& range, CSS::PropertyParserState& state, CSSValueListBuilder& list, bool& isAutoRepeat)
-{
-    CSSParserTokenRange args = consumeFunction(range);
-    RefPtr<CSSPrimitiveValue> repetitions;
-    isAutoRepeat = consumeIdentRaw<CSSValueAutoFill>(args).has_value();
-    if (!isAutoRepeat) {
-        repetitions = CSSPrimitiveValueResolver<CSS::Integer<CSS::Range{1, CSS::Range::infinity}, unsigned>>::consumeAndResolve(args, state);
-        if (!repetitions)
-            return false;
-        if (auto repetitionsInteger = repetitions->resolveAsIntegerIfNotCalculated(); repetitionsInteger && repetitionsInteger > Style::GridPosition::max())
-            repetitions = CSSPrimitiveValue::createInteger(Style::GridPosition::max());
-    }
-    if (!consumeCommaIncludingWhitespace(args))
-        return false;
-
-    CSSValueListBuilder repeatedValues;
-    do {
-        auto lineNames = consumeGridLineNames(args, state, AllowEmpty::Yes);
-        if (!lineNames)
-            return false;
-        repeatedValues.append(lineNames.releaseNonNull());
-    } while (!args.atEnd());
-
-    if (isAutoRepeat)
-        list.append(CSSGridAutoRepeatValue::create(CSSValueAutoFill, WTF::move(repeatedValues)));
-    else
-        list.append(CSSGridIntegerRepeatValue::create(repetitions.releaseNonNull(), WTF::move(repeatedValues)));
-    return true;
-}
-
-RefPtr<CSSValue> consumeGridTrackList(CSSParserTokenRange& range, CSS::PropertyParserState& state, TrackListType trackListType)
-{
-    bool seenAutoRepeat = false;
-    if (trackListType == GridTemplate && range.peek().id() == CSSValueSubgrid) {
-        consumeIdent(range);
-        CSSValueListBuilder values;
-        while (!range.atEnd() && range.peek().type() != DelimiterToken) {
-            if (range.peek().functionId() == CSSValueRepeat) {
-                bool isAutoRepeat;
-                if (!consumeSubgridNameRepeatFunction(range, state, values, isAutoRepeat))
-                    return nullptr;
-                if (isAutoRepeat && seenAutoRepeat)
-                    return nullptr;
-                seenAutoRepeat = seenAutoRepeat || isAutoRepeat;
-            } else if (auto value = consumeGridLineNames(range, state, AllowEmpty::Yes))
-                values.append(value.releaseNonNull());
-            else
-                return nullptr;
+    switch (range.peek().functionId()) {
+    case CSSValueFitContent:
+        if (auto fitContentFunction = consumeUnresolvedGridFitContentFunction(range, state)) {
+            guard.commit();
+            return CSS::GridTrackSize { WTF::move(*fitContentFunction) };
         }
-        return CSSSubgridValue::create(WTF::move(values));
+        return std::nullopt;
+
+    case CSSValueMinmax: {
+        // minmax( <inflexible-breadth> , <track-breadth> )
+
+        CSSParserTokenRange args = consumeFunction(range);
+
+        auto min = consumeUnresolvedGridInflexibleBreadth(args, state);
+        if (!min)
+            return std::nullopt;
+
+        if (!consumeCommaIncludingWhitespace(args))
+            return std::nullopt;
+
+        auto max = consumeUnresolvedGridTrackBreadth(args, state);
+        if (!max)
+            return std::nullopt;
+
+        if (!args.atEnd())
+            return std::nullopt;
+
+        guard.commit();
+        return CSS::GridTrackSize {
+            CSS::GridMinMaxFunction {
+                .parameters = {
+                    .min = WTF::move(*min),
+                    .max = WTF::move(*max),
+                }
+            }
+        };
     }
 
-    bool allowGridLineNames = trackListType != GridAuto;
-    if (!allowGridLineNames && range.peek().type() == LeftBracketToken)
-        return nullptr;
+    default:
+        break;
+    }
 
-    CSSValueListBuilder values;
-    bool allowRepeat = trackListType == GridTemplate;
-    bool allTracksAreFixedSized = true;
-    if (auto lineNames = consumeGridLineNames(range, state))
-        values.append(lineNames.releaseNonNull());
+    return std::nullopt;
+}
+
+
+struct GridTrackOrFixedSize {
+    CSS::GridTrackSize value;
+    bool hasConsumedNonFixed { false };
+};
+static std::optional<GridTrackOrFixedSize> consumeUnresolvedGridTrackOrFixedSize(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <track-size>          = <track-breadth> | minmax( <inflexible-breadth> , <track-breadth> ) | fit-content( <length-percentage [0,∞]> )
+    // <fixed-size>          = <fixed-breadth> | minmax( <fixed-breadth> , <track-breadth> ) | minmax( <inflexible-breadth> , <fixed-breadth> )
+
+    CSSParserTokenRangeGuard guard { range };
+
+    if (auto trackBreadth = consumeUnresolvedGridTrackOrFixedBreadth(range, state)) {
+        guard.commit();
+        return GridTrackOrFixedSize {
+            .value = CSS::GridTrackSize { WTF::move(trackBreadth->value) },
+            .hasConsumedNonFixed = trackBreadth->hasConsumedNonFixed,
+        };
+    }
+
+    switch (range.peek().functionId()) {
+    case CSSValueFitContent:
+        if (auto fitContentFunction = consumeUnresolvedGridFitContentFunction(range, state)) {
+            guard.commit();
+            return GridTrackOrFixedSize {
+                .value = CSS::GridTrackSize { WTF::move(*fitContentFunction) },
+                .hasConsumedNonFixed = true,
+            };
+        }
+        return std::nullopt;
+
+    case CSSValueMinmax: {
+        // Potentially one of:
+        //   - minmax( <inflexible-breadth> , <track-breadth> ) (from <track-size>)
+        //   - minmax( <fixed-breadth>      , <track-breadth> ) (from <fixed-size>)
+        //   - minmax( <inflexible-breadth> , <fixed-breadth> ) (from <fixed-size>)
+
+        CSSParserTokenRange args = consumeFunction(range);
+
+        auto min = consumeUnresolvedGridInflexibleOrFixedBreadth(args, state);
+        if (!min)
+            return std::nullopt;
+
+        if (!consumeCommaIncludingWhitespace(args))
+            return std::nullopt;
+
+        auto max = consumeUnresolvedGridTrackOrFixedBreadth(args, state);
+        if (!max)
+            return std::nullopt;
+
+        if (!args.atEnd())
+            return std::nullopt;
+
+        guard.commit();
+        return GridTrackOrFixedSize {
+            .value = CSS::GridTrackSize {
+                CSS::GridMinMaxFunction {
+                    .parameters = {
+                        .min = WTF::move(min->value),
+                        .max = WTF::move(max->value),
+                    }
+                }
+            },
+            .hasConsumedNonFixed = min->hasConsumedNonFixed && max->hasConsumedNonFixed,
+        };
+    }
+    default:
+        break;
+    }
+
+    return std::nullopt;
+}
+
+struct GridTrackOrFixedOrAutoRepeatResult {
+    CSS::GridTrackRepeatFunction value;
+    bool hasConsumedNonFixed { false };
+    bool hasConsumedAutoRepeat { false };
+};
+static std::optional<GridTrackOrFixedOrAutoRepeatResult> consumeGridTrackOrFixedOrAutoRepeat(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <track-repeat>        = repeat( [ <integer [1,∞]> ] , [ <line-names>? <track-size> ]+ <line-names>? )
+    // <auto-repeat>         = repeat( [ auto-fill | auto-fit ] , [ <line-names>? <fixed-size> ]+ <line-names>? )
+    // <fixed-repeat>        = repeat( [ <integer [1,∞]> ] , [ <line-names>? <fixed-size> ]+ <line-names>? )
+
+    ASSERT(range.peek().functionId() == CSSValueRepeat);
+
+    CSSParserTokenRangeGuard guard { range };
+    auto args = consumeFunction(range);
+
+    bool hasConsumedNonFixed = false;
+    bool hasConsumedAutoRepeat = false;
+    size_t numberOfTracks = 0;
+
+    using Repeated = CSS::GridTrackRepeatFunctionParameters::Repeated;
+    using Repetitions = CSS::GridTrackRepeatFunctionParameters::Repetitions;
+
+    std::optional<Repetitions> repetitions;
+
+    switch (args.peek().id()) {
+    case CSSValueAutoFill:
+        args.consumeIncludingWhitespace();
+        repetitions = Repetitions { CSS::Keyword::AutoFill { } };
+        hasConsumedAutoRepeat = true;
+        break;
+
+    case CSSValueAutoFit:
+        args.consumeIncludingWhitespace();
+        repetitions = Repetitions { CSS::Keyword::AutoFit { } };
+        hasConsumedAutoRepeat = true;
+        break;
+
+    default: {
+        auto integerRepetitions = MetaConsumer<CSS::Integer<CSS::Positive, unsigned>>::consume(args, state);
+        if (!integerRepetitions)
+            return std::nullopt;
+        repetitions = Repetitions { *integerRepetitions };
+        break;
+    }
+    }
+
+    if (!consumeCommaIncludingWhitespace(args))
+        return std::nullopt;
+
+    SpaceSeparatedVector<Repeated> repeated;
+
+    if (auto gridLineNames = consumeUnresolvedGridLineNames(args, state); gridLineNames && !gridLineNames->isEmpty())
+        repeated.value.append(Repeated { WTF::move(*gridLineNames) });
+
+    while (!args.atEnd()) {
+        auto trackSize = consumeUnresolvedGridTrackOrFixedSize(args, state);
+        if (!trackSize)
+            return std::nullopt;
+
+        numberOfTracks++;
+        hasConsumedNonFixed |= trackSize->hasConsumedNonFixed;
+
+        repeated.value.append(Repeated { WTF::move(trackSize->value) });
+
+        if (auto gridLineNames = consumeUnresolvedGridLineNames(args, state); gridLineNames && !gridLineNames->isEmpty())
+            repeated.value.append(Repeated { WTF::move(*gridLineNames) });
+    }
+
+    if (!numberOfTracks)
+        return std::nullopt;
+
+    if (auto* integerRepetitions = std::get_if<CSS::Integer<CSS::Positive, unsigned>>(&*repetitions)) {
+        repetitions = WTF::switchOn(*integerRepetitions,
+            [&](const CSS::Integer<CSS::Positive, unsigned>::Calc&) {
+                return Repetitions { WTF::move(*integerRepetitions) };
+            },
+            [&](const CSS::Integer<CSS::Positive, unsigned>::Raw& raw) {
+                // FIXME: Given this needs to be checked at style building as well to account for calc() and this is not specified anywhere, this clamping to (GridPosition::max() / numberOfTracks) should probably be removed.
+                auto maxRepetitions = Style::GridPosition::max() / numberOfTracks;
+                return Repetitions { CSS::Integer<CSS::Positive, unsigned> { std::min<double>(raw.value, maxRepetitions) } };
+            }
+        );
+    }
+
+    guard.commit();
+    return GridTrackOrFixedOrAutoRepeatResult {
+        .value = CSS::GridTrackRepeatFunction {
+            .parameters = {
+                .repetitions = WTF::move(*repetitions),
+                .repeated = WTF::move(repeated),
+            }
+        },
+        .hasConsumedNonFixed = hasConsumedNonFixed,
+        .hasConsumedAutoRepeat = hasConsumedAutoRepeat,
+    };
+}
+
+std::optional<CSS::GridTemplateList> consumeUnresolvedGridTemplateList(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'grid-template-columns'/'grid-template-rows'> = none | <track-list> | <auto-track-list> | subgrid <line-name-list>?
+    // https://drafts.csswg.org/css-grid/#propdef-grid-template-columns
+    // https://drafts.csswg.org/css-grid/#propdef-grid-template-rows
+
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
+    case CSSValueNone:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTemplateList { CSS::Keyword::None { } };
+
+    case CSSValueSubgrid:
+        if (auto subgrid = consumeUnresolvedGridSubgrid(range, state)) {
+            guard.commit();
+            return CSS::GridTemplateList { WTF::move(*subgrid) };
+        }
+        return std::nullopt;
+
+    default:
+        break;
+    }
+
+    bool hasConsumedNonFixed = false;
+    bool hasConsumedAutoRepeat = false;
+
+    using Track = CSS::GridTrackList::Track;
+    SpaceSeparatedVector<Track> trackList;
+
+    if (auto lineNames = consumeUnresolvedGridLineNames(range, state); lineNames && !lineNames->isEmpty())
+        trackList.value.append(Track { WTF::move(*lineNames) });
+
     do {
-        bool isAutoRepeat;
         if (range.peek().functionId() == CSSValueRepeat) {
-            if (!allowRepeat)
-                return nullptr;
-            if (!consumeGridTrackRepeatFunction(range, state, values, isAutoRepeat, allTracksAreFixedSized))
-                return nullptr;
-            if (isAutoRepeat && seenAutoRepeat)
-                return nullptr;
-            seenAutoRepeat = seenAutoRepeat || isAutoRepeat;
-        } else if (RefPtr<CSSValue> value = consumeGridTrackSize(range, state)) {
-            if (allTracksAreFixedSized)
-                allTracksAreFixedSized = isGridTrackFixedSized(*value);
-            values.append(value.releaseNonNull());
+            auto repeat = consumeGridTrackOrFixedOrAutoRepeat(range, state);
+            if (!repeat)
+                return std::nullopt;
+
+            if (repeat->hasConsumedAutoRepeat) {
+                // Only one <auto-repeat> production is allowed.
+                if (hasConsumedAutoRepeat)
+                    return std::nullopt;
+                hasConsumedAutoRepeat = true;
+            }
+
+            hasConsumedNonFixed |= repeat->hasConsumedNonFixed;
+            trackList.value.append(Track { WTF::move(repeat->value) });
+        } else if (auto track = consumeUnresolvedGridTrackOrFixedSize(range, state)) {
+            hasConsumedNonFixed |= track->hasConsumedNonFixed;
+            trackList.value.append(Track { WTF::move(track->value) });
         } else
-            return nullptr;
-        if (seenAutoRepeat && !allTracksAreFixedSized)
-            return nullptr;
-        if (!allowGridLineNames && range.peek().type() == LeftBracketToken)
-            return nullptr;
-        if (auto lineNames = consumeGridLineNames(range, state))
-            values.append(lineNames.releaseNonNull());
+            return std::nullopt;
+
+        if (auto lineNames = consumeUnresolvedGridLineNames(range, state); lineNames && !lineNames->isEmpty())
+            trackList.value.append(Track { WTF::move(*lineNames) });
     } while (!range.atEnd() && range.peek().type() != DelimiterToken);
-    return CSSValueList::createSpaceSeparated(WTF::move(values));
+
+    if (hasConsumedAutoRepeat && hasConsumedNonFixed)
+        return std::nullopt;
+
+    guard.commit();
+    return CSS::GridTemplateList { CSS::GridTrackList { WTF::move(trackList) } };
 }
 
-RefPtr<CSSValue> consumeGridTemplatesRowsOrColumns(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+RefPtr<CSSValue> consumeGridTemplateList(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    // none | <track-list> | <auto-track-list> | subgrid <line-name-list>?
-    // https://drafts.csswg.org/css-grid/#track-sizing
+    // <'grid-template-columns'/'grid-template-rows'> = none | <track-list> | <auto-track-list> | subgrid <line-name-list>?
+    // https://drafts.csswg.org/css-grid/#propdef-grid-template-columns
+    // https://drafts.csswg.org/css-grid/#propdef-grid-template-rows
 
-    if (range.peek().id() == CSSValueNone)
-        return consumeIdent(range);
-    return consumeGridTrackList(range, state, GridTemplate);
+    if (auto unresolved = consumeUnresolvedGridTemplateList(range, state)) {
+        if (unresolved->isNone())
+            return CSSKeywordValue::create(CSSValueNone);
+        return CSSGridTemplateListValue::create(WTF::move(*unresolved));
+    }
+    return nullptr;
 }
 
-RefPtr<CSSValue> consumeGridTemplateAreas(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+std::optional<CSS::GridTemplateAreas> consumeUnresolvedGridTemplateAreas(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    if (range.peek().id() == CSSValueNone)
-        return consumeIdent(range);
+    // <'grid-template-areas'> = none | <string>+
+    // https://drafts.csswg.org/css-grid/#propdef-grid-template-areas
+
+    CSSParserTokenRangeGuard guard { range };
+
+    if (range.peek().id() == CSSValueNone) {
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridTemplateAreas { CSS::Keyword::None { } };
+    }
 
     CSS::GridNamedAreaMap map;
     do {
         auto row = consumeUnresolvedGridTemplateAreasRow(range, state);
         if (!row || !CSS::addRow(map, *row))
-            return nullptr;
+            return std::nullopt;
     } while (range.peek().type() == StringToken);
 
     if (!map.rowCount)
-        return nullptr;
-    return CSSGridTemplateAreasValue::create({ WTF::move(map) });
+        return std::nullopt;
+
+    guard.commit();
+    return CSS::GridTemplateAreas { WTF::move(map) };
 }
 
-RefPtr<CSSValue> consumeGridAutoFlow(CSSParserTokenRange& range, CSS::PropertyParserState&)
+RefPtr<CSSValue> consumeGridTemplateAreas(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
-    auto rowOrColumnValue = consumeIdent<CSSValueRow, CSSValueColumn, CSSValueNormal>(range);
-    auto denseAlgorithm = consumeIdent<CSSValueDense>(range);
-    if (!rowOrColumnValue) {
-        rowOrColumnValue = consumeIdent<CSSValueRow, CSSValueColumn>(range);
-        if (!rowOrColumnValue && !denseAlgorithm)
-            return nullptr;
+    // <'grid-template-areas'> = none | <string>+
+    // https://drafts.csswg.org/css-grid/#propdef-grid-template-areas
+
+    if (auto unresolved = consumeUnresolvedGridTemplateAreas(range, state)) {
+        if (unresolved->isNone())
+            return CSSKeywordValue::create(CSSValueNone);
+        return CSSGridTemplateAreasValue::create(WTF::move(*unresolved));
+    }
+    return nullptr;
+}
+
+std::optional<CSS::GridTrackSizes> consumeUnresolvedGridTrackSizes(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'grid-auto-columns'>/<'grid-auto-rows'> = <track-size>+
+    // https://drafts.csswg.org/css-grid/#propdef-grid-auto-columns
+    // https://drafts.csswg.org/css-grid/#propdef-grid-auto-rows
+
+    CSSParserTokenRangeGuard guard { range };
+
+    SpaceSeparatedVector<CSS::GridTrackSize> trackSizes;
+
+    do {
+        auto trackSize = consumeUnresolvedGridTrackSize(range, state);
+        if (!trackSize)
+            return std::nullopt;
+        trackSizes.value.append(WTF::move(*trackSize));
+    } while (!range.atEnd() && range.peek().type() != DelimiterToken);
+
+    guard.commit();
+    return CSS::GridTrackSizes { WTF::move(trackSizes) };
+}
+
+RefPtr<CSSValue> consumeGridTrackSizes(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'grid-auto-columns'>/<'grid-auto-rows'> = <track-size>+
+    // https://drafts.csswg.org/css-grid/#propdef-grid-auto-columns
+    // https://drafts.csswg.org/css-grid/#propdef-grid-auto-rows
+
+    if (auto unresolved = consumeUnresolvedGridTrackSizes(range, state))
+        return CSSGridTrackSizesValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+std::optional<CSS::GridAutoFlow> consumeUnresolvedGridAutoFlow(CSSParserTokenRange& range, CSS::PropertyParserState&)
+{
+    // <'grid-auto-flow'> = normal | [ [ row | column ] || dense ]
+    // FIXME: `normal` is not specified in the link below. Figure out where `normal` comes from and add link.
+    // https://drafts.csswg.org/css-grid/#propdef-grid-auto-flow
+
+    CSSParserTokenRangeGuard guard { range };
+
+    switch (range.peek().id()) {
+    case CSSValueNormal:
+        range.consumeIncludingWhitespace();
+        guard.commit();
+        return CSS::GridAutoFlow { CSS::Keyword::Normal { } };
+
+    case CSSValueRow:
+        range.consumeIncludingWhitespace();
+
+        switch (range.peek().id()) {
+        case CSSValueDense:
+            range.consumeIncludingWhitespace();
+            guard.commit();
+            return CSS::GridAutoFlow { CSS::Keyword::Row { }, CSS::Keyword::Dense { } };
+
+        default:
+            break;
+        }
+
+        guard.commit();
+        return CSS::GridAutoFlow { CSS::Keyword::Row { } };
+
+    case CSSValueColumn:
+        range.consumeIncludingWhitespace();
+
+        switch (range.peek().id()) {
+        case CSSValueDense:
+            range.consumeIncludingWhitespace();
+            guard.commit();
+            return CSS::GridAutoFlow { CSS::Keyword::Column { }, CSS::Keyword::Dense { } };
+
+        default:
+            break;
+        }
+
+        guard.commit();
+        return CSS::GridAutoFlow { CSS::Keyword::Column { } };
+
+    case CSSValueDense:
+        range.consumeIncludingWhitespace();
+
+        switch (range.peek().id()) {
+        case CSSValueRow:
+            range.consumeIncludingWhitespace();
+            guard.commit();
+            return CSS::GridAutoFlow { CSS::Keyword::Row { }, CSS::Keyword::Dense { } };
+
+        case CSSValueColumn:
+            range.consumeIncludingWhitespace();
+            guard.commit();
+            return CSS::GridAutoFlow { CSS::Keyword::Column { }, CSS::Keyword::Dense { } };
+
+        default:
+            break;
+        }
+
+        guard.commit();
+        return CSS::GridAutoFlow { CSS::Keyword::Dense { } };
+
+    default:
+        break;
     }
 
-    CSSValueListBuilder parsedValues;
-    if (rowOrColumnValue) {
-        parsedValues.append(rowOrColumnValue.releaseNonNull());
-    }
-    if (denseAlgorithm)
-        parsedValues.append(denseAlgorithm.releaseNonNull());
-    return CSSValueList::createSpaceSeparated(WTF::move(parsedValues));
+    return std::nullopt;
+}
+
+RefPtr<CSSValue> consumeGridAutoFlow(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'grid-auto-flow'> = normal | [ [ row | column ] || dense ]
+    // FIXME: `normal` is not specified in the link below. Figure out where `normal` comes from and add link.
+    // https://drafts.csswg.org/css-grid/#propdef-grid-auto-flow
+
+    if (auto unresolved = consumeUnresolvedGridAutoFlow(range, state))
+        return CSSGridAutoFlowValue::create(WTF::move(*unresolved));
+    return nullptr;
 }
 
 } // namespace CSSPropertyParserHelpers

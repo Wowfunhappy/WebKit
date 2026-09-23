@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/CPU.h>
 #include <wtf/StdLibExtras.h>
 
 namespace JSC {

@@ -22,6 +22,7 @@
 #pragma once
 
 #include <WebCore/CSSProperty.h>
+#include <wtf/RefCounted.h>
 
 namespace WebCore {
 
@@ -58,7 +59,7 @@ public:
         bool isImportant() const { return m_metadata.m_important; }
         bool isImplicit() const { return m_metadata.m_implicit; }
 
-        String cssName() const;
+        const AtomString& cssName() const LIFETIME_BOUND;
         String cssText(const CSS::SerializationContext&) const;
 
         const CSSValue* value() const { return m_value; }

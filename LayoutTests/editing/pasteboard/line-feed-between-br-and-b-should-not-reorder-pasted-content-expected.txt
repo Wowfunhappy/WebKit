@@ -21,7 +21,6 @@ Should see the text self-documenting itself correctly:
 bold
 plain
 
-
 Before cut:
 | "\n"
 | <div>

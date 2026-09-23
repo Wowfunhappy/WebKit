@@ -39,9 +39,7 @@ Ref<AcceleratedEffectStack> AcceleratedEffectStack::create()
     return adoptRef(*new AcceleratedEffectStack());
 }
 
-AcceleratedEffectStack::AcceleratedEffectStack()
-{
-}
+AcceleratedEffectStack::AcceleratedEffectStack() = default;
 
 bool AcceleratedEffectStack::hasEffects() const
 {

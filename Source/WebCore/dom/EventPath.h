@@ -51,6 +51,8 @@ public:
     size_t size() const { return m_path.size(); }
     const EventContext& contextAt(size_t i) const { return m_path[i]; }
     EventContext& contextAt(size_t i) { return m_path[i]; }
+    const EventContext& last() const { return m_path.last(); }
+    EventContext& last() { return m_path.last(); }
 
     void adjustForDisabledFormControl();
 

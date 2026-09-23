@@ -28,7 +28,7 @@
 #include "BorderData.h"
 
 #include "StyleComputedStyle+DifferenceLogging.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
@@ -36,6 +36,22 @@ namespace WebCore {
 BorderData::BorderData()
     : borderImage { Style::BorderImageData::create() }
 {
+}
+
+// Keep these out of line to work around a clang crash (rdar://178383013).
+bool BorderData::hasBorder() const
+{
+    return edges.anyOf([](const auto& edge) { return edge.nonZero(); });
+}
+
+bool BorderData::hasVisibleBorder() const
+{
+    return edges.anyOf([](const auto& edge) { return edge.isVisible(); });
+}
+
+bool BorderData::hasBorderRadius() const
+{
+    return radii.anyOf([](auto& corner) { return !Style::isKnownEmpty(corner); });
 }
 
 bool BorderData::containsCurrentColor() const

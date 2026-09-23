@@ -26,6 +26,8 @@
 #include "config.h"
 #include "JSMediaControlsHost.h"
 
+#include "JSValueInWrappedObjectInlines.h"
+
 #if ENABLE(VIDEO)
 
 namespace WebCore {
@@ -40,7 +42,7 @@ JSC::JSValue JSMediaControlsHost::controller(JSC::JSGlobalObject& lexicalGlobalO
 
 void JSMediaControlsHost::setController(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
 {
-    wrapped().controllerWrapper().set(lexicalGlobalObject.vm(), this, value);
+    wrapped().controllerWrapper().set(lexicalGlobalObject, this, value);
 }
 
 template<typename Visitor>

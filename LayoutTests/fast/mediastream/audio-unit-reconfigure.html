@@ -25,6 +25,7 @@ promise_test(async (test) => {
     stream.getAudioTracks()[0].stop();
 
     const stream2 = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 44100 }});
+    test.add_cleanup(() => stream2.getTracks().forEach(track => track.stop()));
     stream2.getAudioTracks()[0].onended = () => assert_not_reached("should not end");
     await new Promise(resolve => setTimeout(resolve, 100));
 }, "Reconfigure audio sample rate");
@@ -64,6 +65,7 @@ promise_test(async (test) => {
     const stream2 = await navigator.mediaDevices.getUserMedia({ audio: musicModeAudioConstraints });
     stream2.getAudioTracks()[0].onended = () => log.innerHTML += 'track ended';
     await new Promise(resolve => setTimeout(resolve, 1000));
+    test.add_cleanup(() => stream2.getTracks().forEach(track => track.stop()));
 }, "Reconfigure audio unit when being in render-only mode");
 </script>
 </body>

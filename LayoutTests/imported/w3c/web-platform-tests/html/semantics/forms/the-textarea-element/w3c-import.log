@@ -27,6 +27,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/placeholder-white-space-notref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/placeholder-white-space.tentative-expected-mismatch.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/placeholder-white-space.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/selection-after-whitespace-change.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/text-area-disconnected-firefox-bug-1933919-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-maxlength.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-minlength.html
@@ -34,6 +35,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-newline-bidi-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-newline-bidi.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-placeholder-lineheight.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-selection-range-intersects-character-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-setcustomvalidity.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-splittext-with-range-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-textarea-element/textarea-splittext-with-range-simple-crash.html

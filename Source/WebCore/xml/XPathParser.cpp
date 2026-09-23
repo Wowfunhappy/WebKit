@@ -90,7 +90,7 @@ static MemoryCompactLookupOnlyRobinHoodHashMap<String, Step::Axis> createAxisNam
         ASCIILiteral name;
         Step::Axis axis;
     };
-    static constexpr auto axisNameList = std::to_array<AxisName>({
+    static constexpr auto axisNameList = WTF::toArray<AxisName>({
         { "ancestor"_s, Step::AncestorAxis },
         { "ancestor-or-self"_s, Step::AncestorOrSelfAxis },
         { "attribute"_s, Step::AttributeAxis },

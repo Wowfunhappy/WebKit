@@ -28,10 +28,8 @@ Events
 PASS objCWrapperClass(document.createEvent('Event')) is 'DOMEvent'
 PASS objCWrapperClass(document.createEvent('KeyboardEvent')) is 'DOMKeyboardEvent'
 PASS objCWrapperClass(document.createEvent('MouseEvent')) is 'DOMMouseEvent'
-PASS objCWrapperClass(document.createEvent('MutationEvent')) is 'DOMMutationEvent'
 PASS objCWrapperClass(document.createEvent('TextEvent')) is 'DOMTextEvent'
 PASS objCWrapperClass(document.createEvent('UIEvent')) is 'DOMUIEvent'
-PASS objCWrapperClass(document.createEvent('WheelEvent')) is 'DOMWheelEvent'
 
 CSS DOM
 
@@ -194,4 +192,7 @@ PASS let arr = objCArrayOfString(); arr.length = 0 threw exception RangeError: R
 PASS let arr = objCArrayOfString(); arr.length = 5 threw exception RangeError: Range error.
 PASS let arr = objCArrayOfString(); arr.length = 0x40000000 threw exception RangeError: Range error.
 PASS let arr = objCArrayOfString(); try { arr.length = 0 } catch(e) { } arr.length is 3
+PASS successfullyParsed is true
+
+TEST COMPLETE
 

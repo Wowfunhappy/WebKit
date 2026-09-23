@@ -26,6 +26,8 @@
 #include "config.h"
 #include "ImageUtilities.h"
 
+#include "BitmapImage.h"
+#include "ColorSpaceCG.h"
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
@@ -48,8 +50,11 @@
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
+#include <wtf/RetainPtr.h>
+#include <wtf/RunLoop.h>
 #include <wtf/ScopedLambda.h>
 #include <wtf/cf/VectorCF.h>
 #include <wtf/text/Base64.h>
@@ -234,6 +239,21 @@ Vector<String> transcodeImages(const Vector<String>& paths, const String& destin
     });
 }
 
+void transcodeImagesInBackgroundQueue(Vector<String>&& paths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&& completion)
+{
+    ASSERT(isMainThread());
+    sharedImageTranscodingQueueSingleton().dispatch([paths = crossThreadCopy(WTF::move(paths)), destinationUTI = WTF::move(destinationUTI).isolatedCopy(), destinationExtension = WTF::move(destinationExtension).isolatedCopy(), completion = WTF::move(completion)]() mutable {
+        ASSERT(!isMainThread());
+
+        auto replacementPaths = transcodeImages(paths, destinationUTI, destinationExtension);
+        ASSERT(paths.size() == replacementPaths.size());
+
+        RunLoop::mainSingleton().dispatch([replacementPaths = crossThreadCopy(WTF::move(replacementPaths)), completion = WTF::move(completion)]() mutable {
+            completion(WTF::move(replacementPaths));
+        });
+    });
+}
+
 String descriptionString(ImageDecodingError error)
 {
     switch (error) {
@@ -282,6 +302,34 @@ Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailable
         sizes.append(imageDecoder->frameSizeAtIndex(index));
 
     return std::make_pair(WTF::move(uti), WTF::move(sizes));
+}
+
+Expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFromImageData(std::span<const uint8_t> data)
+{
+    Ref buffer = SharedBuffer::create(data);
+    Ref bitmapImage = BitmapImage::create();
+    auto encodedDataStatus = bitmapImage->setData(buffer.get(), true);
+    if (encodedDataStatus == EncodedDataStatus::Error)
+        return makeUnexpected(ImageDecodingError::BadData);
+
+    auto uti = bitmapImage->uti();
+    if (!isSupportedImageType(uti))
+        return makeUnexpected(ImageDecodingError::UnsupportedType);
+
+    Vector<std::pair<String, float>> metadata;
+
+    auto size = bitmapImage->size();
+    metadata.append({ kCGImagePropertyPixelWidth, size.width() });
+    metadata.append({ kCGImagePropertyPixelHeight, size.height() });
+
+    auto density = bitmapImage->density();
+    metadata.append({ kCGImagePropertyDPIWidth, density.width() });
+    metadata.append({ kCGImagePropertyDPIHeight, density.height() });
+
+    auto frameCount = bitmapImage->frameCount();
+    metadata.append({ kCGImagePropertyImageCount, frameCount });
+
+    return WTF::move(metadata);
 }
 
 static RefPtr<NativeImage> tryCreateNativeImageFromBitmapImageData(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize)

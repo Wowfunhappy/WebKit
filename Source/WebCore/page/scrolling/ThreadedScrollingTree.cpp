@@ -261,7 +261,7 @@ void ThreadedScrollingTree::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNod
         .data = ScrollUpdateData {
             .updateType = ScrollUpdateType::PositionUpdate,
             .updateLayerPositionAction = scrollingLayerPositionAction,
-            .layoutViewportOrigin = layoutViewportOrigin,
+            .layoutViewportOriginOrOverrideRect = layoutViewportOrigin,
         },
     };
 

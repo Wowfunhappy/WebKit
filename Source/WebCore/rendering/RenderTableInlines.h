@@ -19,8 +19,8 @@
 
 #pragma once
 
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTable.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -149,7 +149,7 @@ inline LayoutUnit RenderTable::outerBorderTop() const
 {
     if (writingMode().isHorizontal())
         return writingMode().isBlockTopToBottom() ? outerBorderBefore() : outerBorderAfter();
-    return writingMode().isInlineTopToBottom() ? outerBorderStart() : borderEnd();
+    return writingMode().isInlineTopToBottom() ? outerBorderStart() : outerBorderEnd();
 }
 
 } // namespace WebCore

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import concurrent.futures
 from dataclasses import dataclass
 import json
 import os
 import pathlib
+import shlex
 import sys
-from typing import TypedDict
+from typing import Optional, TypedDict
 
 from GenerateModuleVerifierInputsTask import GenerateModuleVerifierInputsTask
 from VerifyModuleTask import VerifyModuleTask
@@ -16,6 +18,7 @@ from VerifyModuleTask import VerifyModuleTask
 class CommandArguments:
     tapi_filelist: pathlib.Path
     relative_to: pathlib.Path
+    depfile: Optional[pathlib.Path]
 
 
 class FileListHeader(TypedDict):
@@ -47,21 +50,38 @@ def parse_command_arguments() -> CommandArguments:
         help="The destination location of the library (for example, `WebKitBuild/Debug/usr/local/include`)",
     )
 
+    parser.add_argument(
+        "--depfile",
+        type=pathlib.Path,
+        help="Path to write a Makefile-style discovered dependency file for Xcode.",
+    )
+
     args = parser.parse_args()
-    return CommandArguments(args.tapi_filelist, args.relative_to)
+    return CommandArguments(args.tapi_filelist, args.relative_to, args.depfile)
 
 
 if __name__ == "__main__":
+    arguments = parse_command_arguments()
+
+    with open(arguments.tapi_filelist, "r") as tapi_filelist:
+        filelist_data: FileList = json.load(tapi_filelist)
+
+    header_paths = [header["path"] for header in filelist_data["headers"]]
+
+    # Always write the dependency file so Xcode can track header changes,
+    # regardless of whether the verifier is enabled.
+    if arguments.depfile:
+        with open(arguments.depfile, "w") as depfile:
+            depfile.write("dependencies:")
+            for path in header_paths:
+                depfile.write(f" \\\n  {shlex.quote(str(path))}")
+            depfile.write("\n")
+
     if os.environ.get("ENABLE_WK_LIBRARY_MODULE_VERIFIER") != "YES":
         print(
             "warning: Library module verifier is not enabled. Set `ENABLE_WK_LIBRARY_MODULE_VERIFIER` to `YES` to enable the verifier."
         )
         sys.exit()
-
-    arguments = parse_command_arguments()
-
-    with open(arguments.tapi_filelist, "r") as tapi_filelist:
-        filelist_data: FileList = json.load(tapi_filelist)
 
     headers = [
         os.path.relpath(header["path"], arguments.relative_to)
@@ -80,6 +100,7 @@ if __name__ == "__main__":
 
     print("Generated inputs for module verifier!")
 
+    verify_tasks: list[VerifyModuleTask] = []
     for input_task in input_tasks:
         verify_task = VerifyModuleTask(
             input_task.target_set, input_task.inputs, os.environ
@@ -90,12 +111,19 @@ if __name__ == "__main__":
             f"Verifying clang module ({verify_task.language.value}, {verify_task.standard.value}, {verify_task.target}) ..."
         )
         print(" ".join(command))
+        verify_tasks.append(verify_task)
 
-        result = verify_task.perform_action()
-        print(result.stderr)
+    failed = False
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(task.perform_action): task for task in verify_tasks}
 
-        if result.returncode:
-            sys.exit("error: Failed to verify module.")
+        for future in concurrent.futures.as_completed(futures):
+            task = futures[future]
+            result = future.result()
+            if result.stderr:
+                print(result.stderr)
+            if result.returncode:
+                failed = True
 
-    print("Verified module!")
-    sys.exit()
+    if failed:
+        sys.exit("error: Failed to verify module.")

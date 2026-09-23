@@ -29,8 +29,13 @@
 
 #include "IDLTypes.h"
 #include "JSDOMConvertBase.h"
+#include "WebGLAny.h"
+#include "WebGLExtensionAny.h"
 
 namespace WebCore {
+
+struct IDLWebGLAny : IDLType<WebGLAny> { };
+struct IDLWebGLExtensionAny : IDLType<WebGLExtensionAny> { };
 
 JSC::JSValue convertToJSValue(JSC::JSGlobalObject&, JSDOMGlobalObject&, const WebGLAny&);
 JSC::JSValue convertToJSValue(JSC::JSGlobalObject&, JSDOMGlobalObject&, WebGLExtensionAny);

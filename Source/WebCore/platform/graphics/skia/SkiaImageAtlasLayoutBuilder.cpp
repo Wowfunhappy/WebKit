@@ -28,6 +28,7 @@
 
 #if USE(SKIA)
 
+#include <numeric>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
@@ -159,7 +160,7 @@ int SkiaImageAtlasLayoutBuilder::calculateOptimalAtlasSize(const Vector<IntSize>
 Vector<Ref<SkiaImageAtlasLayout>> SkiaImageAtlasLayoutBuilder::packMultipleAtlases(const Vector<IntSize>& allSizes)
 {
     Vector<Ref<SkiaImageAtlasLayout>> result;
-    Vector<bool> packed(allSizes.size(), false);
+    Vector<bool> packed(FillWith { }, allSizes.size(), false);
     size_t totalPacked = 0;
 
     // Sort indices by area (largest first) for better packing.
@@ -236,7 +237,7 @@ size_t SkiaImageAtlasLayoutBuilder::findMaxPackableBatch(const Vector<IntSize>& 
     size_t maxPackable = 0;
 
     while (lo <= hi) {
-        size_t mid = lo + (hi - lo) / 2;
+        size_t mid = std::midpoint(lo, hi);
 
         Vector<IntSize> testBatch(mid, [&sizes](size_t index) {
             return sizes[index];

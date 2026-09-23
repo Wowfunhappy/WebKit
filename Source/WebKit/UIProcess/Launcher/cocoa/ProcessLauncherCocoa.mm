@@ -284,7 +284,36 @@ void ProcessLauncher::launchProcess()
 #endif
 }
 
-void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
+void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name, int retriesRemaining)
+{
+    tryFinishLaunchingProcess(name, [weakThis = ThreadSafeWeakPtr { *this }, name, retriesRemaining]() mutable {
+        // FIXME(rdar://173715411): optional workaround for intermittent launch failures
+        // if binaries are huge (for example if code coverage has been enabled)
+#if !USE(EXTENSIONKIT) && ENABLE(RETRY_LAUNCHES)
+        if (retriesRemaining > 0) {
+            RefPtr processLauncher = weakThis.get();
+            if (!processLauncher)
+                return;
+            LOG_ERROR("Retrying launch of %s (%d retries remaining)", name.characters(), retriesRemaining - 1);
+            // Each new launch requires a new XPC connection. tryFinishLaunchingProcess destroyed
+            // the previous one.
+            // FIXME: This is a false positive. <rdar://164843889>
+            SUPPRESS_RETAINPTR_CTOR_ADOPT processLauncher->m_xpcConnection = adoptOSObject(xpc_connection_create(name, nullptr));
+            processLauncher->finishLaunchingProcess(name, retriesRemaining - 1);
+            return;
+        }
+#else
+        UNUSED_PARAM(retriesRemaining);
+        UNUSED_PARAM(name);
+#endif
+        RefPtr processLauncher = weakThis.get();
+        if (!processLauncher)
+            return;
+        processLauncher->didFinishLaunchingProcess(0, IPC::Connection::Identifier());
+    });
+}
+
+void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void()>&& onFailure)
 {
     uuid_t uuid;
     uuid_generate(uuid);
@@ -357,11 +386,11 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     }
 
 #if PLATFORM(IOS_FAMILY)
-    bool isWebContentExtension = false;
+    bool isWebContentOrGPUExtension = false;
 #if USE(EXTENSIONKIT)
-    isWebContentExtension = (m_launchOptions.processType == ProcessLauncher::ProcessType::Web);
+    isWebContentOrGPUExtension = (m_launchOptions.processType == ProcessLauncher::ProcessType::Web) || (m_launchOptions.processType == ProcessLauncher::ProcessType::GPU);
 #endif
-    if (!isWebContentExtension) {
+    if (!isWebContentOrGPUExtension) {
         // Clients that set these environment variables explicitly do not have the values automatically forwarded by libxpc.
         auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
         if (const char* environmentHOME = getenv("HOME"))
@@ -484,7 +513,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
 
     xpc_dictionary_set_value(bootstrapMessage.get(), "extra-initialization-data", extraInitializationData.get());
 
-    Function<void(xpc_object_t)> errorHandlerImpl = [weakProcessLauncher = ThreadSafeWeakPtr { *this }, listeningPort, logName = CString(name)] (xpc_object_t event) {
+    Function<void(xpc_object_t)> errorHandlerImpl = [weakProcessLauncher = ThreadSafeWeakPtr { *this }, listeningPort, logName = CString(name), onFailure = WTF::move(onFailure)] (xpc_object_t event) mutable {
         ASSERT(!event || xpc_get_type(event) == XPC_TYPE_ERROR);
 
         auto processLauncher = weakProcessLauncher.get();
@@ -519,7 +548,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
             xpc_connection_cancel(processLauncher->m_xpcConnection.get());
         processLauncher->m_xpcConnection = nullptr;
 
-        processLauncher->didFinishLaunchingProcess(0, IPC::Connection::Identifier());
+        onFailure();
     };
 
     Function<void(xpc_object_t)> eventHandler = [errorHandlerImpl = WTF::move(errorHandlerImpl), xpcEventHandler = client->xpcEventHandler()] (xpc_object_t event) mutable {

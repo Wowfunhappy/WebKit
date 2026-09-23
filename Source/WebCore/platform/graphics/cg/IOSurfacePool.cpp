@@ -244,8 +244,14 @@ void IOSurfacePool::tryEvictOldestCachedSurface()
     if (m_sizesInPruneOrder.isEmpty())
         return;
 
-    CachedSurfaceMap::iterator surfaceQueueIter = m_cachedSurfaces.find(m_sizesInPruneOrder.first());
-    ASSERT(!surfaceQueueIter->value.isEmpty());
+    auto surfaceQueueIter = m_cachedSurfaces.find(m_sizesInPruneOrder.first());
+    if (surfaceQueueIter == m_cachedSurfaces.end() || surfaceQueueIter->value.isEmpty()) {
+        // Crashes indicate that m_sizesInPruneOrder can contain a value not in m_cachedSurfaces. (rdar://177969354).
+        ASSERT_NOT_REACHED();
+        m_sizesInPruneOrder.removeAt(0);
+        return;
+    }
+
     auto surface = surfaceQueueIter->value.takeLast();
     didRemoveSurface(*surface, false);
 
@@ -349,6 +355,22 @@ void IOSurfacePool::scheduleCollectionTimer()
         m_collectionTimer.startRepeating(collectionInterval);
 }
 
+void IOSurfacePool::stopCollectionTimer()
+{
+    if (RunLoop::isMain()) {
+        m_collectionTimer.stop();
+        return;
+    }
+
+    // m_collectionTimer fires on the main run loop, so it must be stopped there to avoid racing an
+    // in-flight callback. The pool can be discarded from other threads (e.g. when an ImageBuffer
+    // backend is destroyed in the GPU process).
+    RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
+        Locker locker { protectedThis->m_lock };
+        protectedThis->m_collectionTimer.stop();
+    });
+}
+
 void IOSurfacePool::discardAllSurfaces()
 {
     Locker locker { m_lock };
@@ -363,7 +385,7 @@ void IOSurfacePool::discardAllSurfacesInternal()
     m_cachedSurfaces.clear();
     m_inUseSurfaces.clear();
     m_sizesInPruneOrder.clear();
-    m_collectionTimer.stop();
+    stopCollectionTimer();
     platformGarbageCollectNow();
 }
 

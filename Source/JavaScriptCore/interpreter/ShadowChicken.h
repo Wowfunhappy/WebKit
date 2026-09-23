@@ -130,8 +130,8 @@ public:
         JSObject* callee { nullptr };
         CallFrame* frame { nullptr };
         CallFrame* callerFrame { nullptr };
-        JSScope* scope { nullptr };
-        CodeBlock* codeBlock { nullptr };
+        SUPPRESS_FORWARD_DECL_MEMBER JSScope* scope { nullptr };
+        SUPPRESS_FORWARD_DECL_MEMBER CodeBlock* codeBlock { nullptr };
         CallSiteIndex callSiteIndex;
     };
     
@@ -161,8 +161,8 @@ public:
         JSObject* callee { nullptr };
         CallFrame* frame { nullptr };
         JSValue thisValue { JSValue() };
-        JSScope* scope { nullptr };
-        CodeBlock* codeBlock { nullptr };
+        SUPPRESS_FORWARD_DECL_MEMBER JSScope* scope { nullptr };
+        SUPPRESS_FORWARD_DECL_MEMBER CodeBlock* codeBlock { nullptr };
         CallSiteIndex callSiteIndex;
         bool isTailDeleted { false };
     };

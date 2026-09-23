@@ -60,10 +60,19 @@ WI.FrameTarget = class FrameTarget extends WI.Target
         this.dispatchEventToListeners(WI.FrameTarget.Event.ExecutionContextAdded, {context});
     }
 
+    ensureTargetExecutionContext()
+    {
+        this._targetExecutionContextPromise ||= this.executionContext 
+            ? Promise.resolve() 
+            : this.awaitEvent(WI.FrameTarget.Event.ExecutionContextAdded);
+        return this._targetExecutionContextPromise;
+    }
+
     clearExecutionContexts()
     {
         this._executionContextList.clear();
         this._executionContext = null;
+        this._targetExecutionContextPromise = null;
     }
 };
 

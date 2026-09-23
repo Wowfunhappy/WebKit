@@ -44,6 +44,7 @@ enum class AdvancedPrivacyProtections : uint16_t;
 enum class StoredCredentialsPolicy : uint8_t;
 class ResourceRequest;
 class ResourceResponse;
+enum class IsInitiatedByDedicatedWorker : bool;
 }
 
 namespace IPC {
@@ -61,7 +62,7 @@ class NetworkSession;
 class NetworkSocketChannel : public IPC::MessageSender, public IPC::MessageReceiver, public RefCounted<NetworkSocketChannel> {
     WTF_MAKE_TZONE_ALLOCATED(NetworkSocketChannel);
 public:
-    static RefPtr<NetworkSocketChannel> create(NetworkConnectionToWebProcess&, PAL::SessionID, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy);
+    static RefPtr<NetworkSocketChannel> create(NetworkConnectionToWebProcess&, PAL::SessionID, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
     ~NetworkSocketChannel();
 
     void ref() const final { RefCounted::ref(); }
@@ -69,12 +70,12 @@ public:
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
     friend class WebSocketTask;
 
 private:
-    NetworkSocketChannel(NetworkConnectionToWebProcess&, NetworkSession*, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy);
+    NetworkSocketChannel(NetworkConnectionToWebProcess&, NetworkSession*, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
 
     void didConnect(const String& subprotocol, const String& extensions);
     void didReceiveText(const String&);

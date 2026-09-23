@@ -67,17 +67,18 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
 
     platforms = ['osx', 'linux']
 
-    def __init__(self, **kwargs):
+    def __init__(self, server_ip, server_port, **kwargs):
         self._server_process = None
         self._server_port = 0
-        self._ip = '127.0.0.1'
+        self._server_port_requested = server_port
+        self._ip = server_ip
         self._http_log_path = None
         self._server_type = kwargs.get('server_type', 'twisted')
         self.set_device_id(kwargs.get('device_id'))
         self._ensure_http_server_dependencies()
 
     def serve(self, web_root):
-        _log.info('Launching an {} http server'.format(self._server_type))
+        _log.info('Launching a {} HTTP server'.format(self._server_type))
         http_server_file = 'http_server/{}_http_server.py'.format(self._server_type)
         http_server_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), http_server_file)
         extra_args = []
@@ -86,12 +87,16 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
         if self._http_log_path:
             extra_args.extend(['--log-path', self._http_log_path])
             _log.info('HTTP requests will be logged to {}'.format(self._http_log_path))
+        if self._server_port_requested:
+            extra_args.extend(['--port', f'{self._server_port_requested}'])
         self._server_port = 0
-        self._server_process = subprocess.Popen([sys.executable, http_server_path, web_root] + extra_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        server_cmd = [sys.executable, http_server_path, web_root] + extra_args
+        _log.info(f'Starting HTTP server: {" ".join(server_cmd)}')
+        self._server_process = subprocess.Popen(server_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         max_attempt = 7
         retry_sequence = map(lambda attempt: attempt != max_attempt - 1, range(max_attempt))
         interval = 0.5
-        _log.info('Start to fetching the port number of the http server')
+        _log.info('Fetching HTTP server port number')
         for retry in retry_sequence:
             self._find_http_server_port()
             if self._server_port:
@@ -100,7 +105,7 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
             assert self._server_process.poll() is None, 'HTTP Server Process is not running'
             if not retry:
                 continue
-            _log.info('Server port is not found this time, retry after {} seconds'.format(interval))
+            _log.info('Port not found yet, retrying in {} seconds'.format(interval))
             time.sleep(interval)
             interval *= 2
         else:
@@ -136,15 +141,16 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
         # Wait for server to be up completely before exiting
         for attempt in range(max_attempt):
             try:
-                subprocess.check_call(["curl", "--silent", "--head", "--fail", "--output", "/dev/null", self.base_url()])
+                subprocess.check_call(["curl", "--silent", "--head", "--fail", "--output", "/dev/null", self.base_url(loopback_only=True)])
                 return
             except Exception as error:
                 _log.info('Server not running yet: %s' % error)
                 time.sleep(1)
-        raise Exception('Server not running, max tries exceeded: %s' % error)
+        raise Exception('Server not running, max tries exceeded')
 
-    def base_url(self):
-        return "http://%s:%d" % (self._ip, self._server_port)
+    def base_url(self, loopback_only=False):
+        ip = "127.0.0.1" if loopback_only else self._ip
+        return "http://%s:%d" % (ip, self._server_port)
 
     def fetch_result(self):
         (stdout, stderr) = self._server_process.communicate()
@@ -174,6 +180,6 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
         self._server_type = server_type
 
     def _ensure_http_server_dependencies(self):
-        _log.info('Ensure dependencies of http server is satisfied')
+        _log.info('Ensure dependencies of http server are satisfied')
         if(self._server_type == 'twisted'):
             from webkitpy.autoinstalled import twisted

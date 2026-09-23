@@ -88,7 +88,7 @@ static Vector<PackedRect> shelfNextFitAlgorithm(std::span<const IntSize> sizes, 
 // This is O(n^2) but keeps the free list small for better performance overall.
 static void pruneFreeRectangles(Vector<IntRect, 16>& freeRectangles)
 {
-    Vector<bool, 16> shouldRemove(freeRectangles.size(), false);
+    Vector<bool, 16> shouldRemove(FillWith { }, freeRectangles.size(), false);
 
     for (size_t i = 0; i < freeRectangles.size(); ++i) {
         if (shouldRemove[i])

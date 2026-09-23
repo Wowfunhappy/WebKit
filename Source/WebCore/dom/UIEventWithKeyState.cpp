@@ -59,6 +59,8 @@ bool UIEventWithKeyState::getModifierState(const String& keyIdentifier) const
         return metaKey();
     if (keyIdentifier == "CapsLock"_s)
         return capsLockKey();
+    if (keyIdentifier == "AltGraph"_s)
+        return altGraphKey();
     // FIXME: The specification also has Fn, FnLock, Hyper, NumLock, Super, ScrollLock, Symbol, SymbolLock.
     return false;
 }

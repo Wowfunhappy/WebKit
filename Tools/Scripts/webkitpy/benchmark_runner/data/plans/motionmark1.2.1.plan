@@ -156,7 +156,7 @@
             {"path": "tests/text/design.js", "mode": "100644", "type": "blob"}
         ]
     },
-    "subtest_url_format": "suite-name=${SUITE}&test-name=${TEST}",
+    "subtest_url_format": "&suite-name=${SUITE}&test-name=${TEST}",
     "subtests": {
         "MotionMark": [
             "Multiply",

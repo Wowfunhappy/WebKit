@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -33,12 +33,27 @@
 #include "CacheableIdentifierInlines.h"
 #include "CodeBlock.h"
 #include "DFGJITCompiler.h"
+#include "ICStats.h"
 #include "InlineAccess.h"
 #include "JITInlines.h"
 #include "LinkBuffer.h"
+#include "MacroAssemblerPrinter.h"
 #include "PropertyInlineCache.h"
 
 namespace JSC {
+
+static void emitICStatsChainFlushProbe(CCallHelpers& jit, GPRReg propertyCacheGPR)
+{
+    if constexpr (ICStatsInternal::traceHandlerChains) {
+        jit.probeDebug([=](Probe::Context& context) {
+            auto* propertyCache = context.gpr<PropertyInlineCache*>(propertyCacheGPR);
+            unsigned chainLength = 0;
+            for (auto* handler = propertyCache->firstHandler(); handler; handler = handler->next())
+                chainLength++;
+            ICStats::singleton().startNewChain(chainLength);
+        });
+    }
+}
 
 JITInlineCacheGenerator::JITInlineCacheGenerator(CodeBlock*, CompileTimePropertyInlineCache propertyCache, JITType, CodeOrigin, AccessType accessType)
     : m_accessType(accessType)
@@ -73,6 +88,7 @@ void JITInlineCacheGenerator::finalize(
 void JITInlineCacheGenerator::generateDataICFastPath(CCallHelpers& jit, GPRReg propertyCacheGPR)
 {
     m_start = jit.label();
+    emitICStatsChainFlushProbe(jit, propertyCacheGPR);
     jit.loadPtr(CCallHelpers::Address(propertyCacheGPR, PropertyInlineCache::offsetOfHandler()), GPRInfo::handlerGPR);
     jit.call(CCallHelpers::Address(GPRInfo::handlerGPR, InlineCacheHandler::offsetOfCallTarget()), JITStubRoutinePtrTag);
     m_done = jit.label();
@@ -160,6 +176,7 @@ static void generateGetByIdInlineAccessBaselineDataIC(CCallHelpers& jit, GPRReg 
     }
 
     slowCases.link(&jit);
+    emitICStatsChainFlushProbe(jit, propertyCacheGPR);
     jit.loadPtr(CCallHelpers::Address(propertyCacheGPR, PropertyInlineCache::offsetOfHandler()), GPRInfo::handlerGPR);
     jit.call(CCallHelpers::Address(GPRInfo::handlerGPR, InlineCacheHandler::offsetOfCallTarget()), JITStubRoutinePtrTag);
     doneCases.link(&jit);
@@ -238,6 +255,7 @@ static void generatePutByIdInlineAccessBaselineDataIC(CCallHelpers& jit, GPRReg 
     jit.storeProperty(valueJSR, baseJSR.payloadGPR(), scratch1GPR, scratch2GPR);
     auto done = jit.jump();
     doNotInlineAccess.link(&jit);
+    emitICStatsChainFlushProbe(jit, propertyCacheGPR);
     jit.loadPtr(CCallHelpers::Address(propertyCacheGPR, PropertyInlineCache::offsetOfHandler()), GPRInfo::handlerGPR);
     jit.call(CCallHelpers::Address(GPRInfo::handlerGPR, InlineCacheHandler::offsetOfCallTarget()), JITStubRoutinePtrTag);
     done.link(&jit);
@@ -373,6 +391,7 @@ static void generateInByIdInlineAccessBaselineDataIC(CCallHelpers& jit, GPRReg p
     jit.boxBoolean(true, resultJSR);
     auto finished = jit.jump();
     skipInlineAccess.link(&jit);
+    emitICStatsChainFlushProbe(jit, propertyCacheGPR);
     jit.loadPtr(CCallHelpers::Address(propertyCacheGPR, PropertyInlineCache::offsetOfHandler()), GPRInfo::handlerGPR);
     jit.call(CCallHelpers::Address(GPRInfo::handlerGPR, InlineCacheHandler::offsetOfCallTarget()), JITStubRoutinePtrTag);
     finished.link(&jit);

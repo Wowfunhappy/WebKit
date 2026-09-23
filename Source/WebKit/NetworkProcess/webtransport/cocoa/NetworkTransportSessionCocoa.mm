@@ -31,6 +31,7 @@
 #import "MessageSenderInlines.h"
 #import "NetworkConnectionToWebProcess.h"
 #import "NetworkProcess.h"
+#import "NetworkRTCUtilitiesCocoa.h"
 #import "NetworkSessionCocoa.h"
 #import "NetworkTransportStream.h"
 #import "WebTransportSessionMessages.h"
@@ -40,6 +41,7 @@
 #import <WebCore/Exception.h>
 #import <WebCore/ExceptionCode.h>
 #import <WebCore/RFC8941.h>
+#import <WebCore/RegistrableDomain.h>
 #import <WebCore/WebTransportConnectionInfo.h>
 #import <WebCore/WebTransportConnectionStats.h>
 #import <WebCore/WebTransportReceiveStreamStats.h>
@@ -251,7 +253,21 @@ static RetainPtr<nw_parameters_t> createParameters(NetworkConnectionToWebProcess
 
     auto configureTCP = options.requireUnreliable ? NW_PARAMETERS_DISABLE_PROTOCOL : NW_PARAMETERS_DEFAULT_CONFIGURATION;
 
-    return adoptNS(softLink_Network_nw_parameters_create_webtransport_http(configureWebTransport, configureTLS, configureQUIC, configureTCP));
+    RetainPtr parameters = adoptNS(softLink_Network_nw_parameters_create_webtransport_http(configureWebTransport, configureTLS, configureQUIC, configureTCP));
+    String bundleIdentifier = connectionToWebProcess.networkProcess().uiProcessBundleIdentifier();
+    if (CheckedPtr sessionCocoa = downcast<NetworkSessionCocoa>(connectionToWebProcess.networkProcess().networkSession(connectionToWebProcess.sessionID())))
+        bundleIdentifier = sessionCocoa->sourceApplicationBundleIdentifier();
+    setNWParametersApplicationIdentifiers(parameters.get(), bundleIdentifier.utf8().data(), connectionToWebProcess.networkProcess().sourceApplicationAuditToken(), emptyString());
+    bool isTracker = isKnownTracker(WebCore::RegistrableDomain { url });
+    bool isFirstParty = WebCore::RegistrableDomain { clientOrigin.clientOrigin } == WebCore::RegistrableDomain { clientOrigin.topOrigin };
+    setNWParametersTrackerOptions(parameters.get(), false, isFirstParty, isTracker, IsRTC::No);
+
+#if HAVE(NW_PROXY_CONFIG)
+    if (CheckedPtr sessionCocoa = downcast<NetworkSessionCocoa>(connectionToWebProcess.networkProcess().networkSession(connectionToWebProcess.sessionID())))
+        sessionCocoa->applyProxyConfigurationToNWParametersForWebTransport(parameters.get());
+#endif
+
+    return parameters;
 }
 
 RefPtr<NetworkTransportSession> NetworkTransportSession::create(NetworkConnectionToWebProcess& connectionToWebProcess, WebTransportSessionIdentifier identifier, URL&& url, WebCore::WebTransportOptions&& options, WebKit::WebPageProxyIdentifier&& pageID, WebCore::ClientOrigin&& clientOrigin)
@@ -261,6 +277,11 @@ RefPtr<NetworkTransportSession> NetworkTransportSession::create(NetworkConnectio
         || !canLoad_Network_nw_webtransport_options_set_is_datagram()
         || !canLoad_Network_nw_webtransport_options_add_connect_request_header())
         return nullptr;
+
+#if HAVE(NW_PROXY_CONFIG)
+    if (CheckedPtr sessionCocoa = downcast<NetworkSessionCocoa>(connectionToWebProcess.networkProcess().networkSession(connectionToWebProcess.sessionID())); sessionCocoa && sessionCocoa->proxyConfigurationRequiresTCPProtocols())
+        return nullptr;
+#endif
 
     RetainPtr endpoint = adoptNS(nw_endpoint_create_url(url.string().utf8().data()));
     if (!endpoint) {
@@ -353,7 +374,7 @@ void NetworkTransportSession::initialize(CompletionHandler<void(std::optional<We
         case nw_connection_group_state_failed:
             if (RefPtr protectedThis = weakThis.get()) {
                 if (RetainPtr metadata = protectedThis->m_sessionMetadata) {
-                    std::optional<unsigned> sessionErrorCode = std::nullopt;
+                    std::optional<unsigned> sessionErrorCode;
                     String sessionErrorMessage;
                     if (canLoad_Network_nw_webtransport_metadata_get_session_closed() && softLink_Network_nw_webtransport_metadata_get_session_closed(metadata.get())) {
                         if (canLoad_Network_nw_webtransport_metadata_get_session_error_code())

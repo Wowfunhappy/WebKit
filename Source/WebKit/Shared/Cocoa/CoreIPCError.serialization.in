@@ -46,9 +46,6 @@ webkit_platform_headers: "CoreIPCError.h"
     RetainPtr<SecTrustRef> m_failingURLPeerTrustError;
     RetainPtr<NSURL> m_urlError;
     RetainPtr<NSURL> m_failingURLError;
-#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
-    String m_failingURLStringError;
-#endif
 
     String m_filePathError;
     

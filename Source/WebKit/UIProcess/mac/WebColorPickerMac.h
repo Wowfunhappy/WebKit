@@ -46,7 +46,7 @@ class WebColorPickerMac;
 }
 
 @protocol WKColorPickerUIMac <NSObject>
-- (void)setAndShowPicker:(WebKit::WebColorPickerMac*)picker withColor:(NSColor *)color supportsAlpha:(WebKit::ColorControlSupportsAlpha)supportsAlpha suggestions:(Vector<WebCore::Color>&&)suggestions;
+- (void)setAndShowPicker:(WebKit::WebColorPickerMac*)picker withColor:(NSColor *)color supportsAlpha:(WebKit::ColorControlSupportsAlpha)supportsAlpha suggestions:(Vector<WebCore::Color>&&)suggestions rect:(const WebCore::IntRect&)rect;
 - (void)invalidate;
 - (void)setColor:(NSColor *)color;
 - (void)didChooseColor:(id)sender;
@@ -55,14 +55,14 @@ class WebColorPickerMac;
 namespace WebKit {
     
 class WebColorPickerMac final : public WebColorPicker {
-public:        
+public:
     static Ref<WebColorPickerMac> create(WebColorPicker::Client*, const WebCore::Color&, const WebCore::IntRect&, WebKit::ColorControlSupportsAlpha, Vector<WebCore::Color>&&, NSView *, std::optional<WebCore::FrameIdentifier> = std::nullopt);
     virtual ~WebColorPickerMac();
 
     void endPicker() final;
     void setSelectedColor(const WebCore::Color&) final;
-    void showColorPicker(const WebCore::Color&) final;
-    
+    void showColorPicker(const WebCore::Color&, const WebCore::IntRect&) final;
+
     void didChooseColor(const WebCore::Color&);
 
 private:

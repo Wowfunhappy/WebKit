@@ -223,9 +223,9 @@ WebViewWindow::WebViewWindow(WKPageConfigurationRef configuration, Client&& wind
         [](WKPageRef page, WKPageConfigurationRef configuration, WKNavigationActionRef, WKWindowFeaturesRef, const void* clientInfo) ->WKPageRef {
             return toWebView(clientInfo)->createNewPage(page, configuration);
         },
-        nullptr, // runJavaScriptAlert
-        nullptr, // runJavaScriptConfirm
-        nullptr, // runJavaScriptPrompt
+        runJavaScriptAlert,
+        runJavaScriptConfirm,
+        runJavaScriptPrompt,
         nullptr // checkUserMediaPermissionForOrigin
     };
     WKPageSetPageUIClient(page(), &uiClient.base);
@@ -450,4 +450,37 @@ WKPageRef WebViewWindow::createNewPage(WKPageRef, WKPageConfigurationRef configu
         return newPage;
     }
     return nullptr;
+}
+
+void WebViewWindow::runJavaScriptAlert(WKPageRef, WKStringRef alertText, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptAlertResultListenerRef listener, const void*)
+{
+    MessageDialog::showModal(toUTF8String(alertText).c_str());
+    WKPageRunJavaScriptAlertResultListenerCall(listener);
+}
+
+void WebViewWindow::runJavaScriptConfirm(WKPageRef, WKStringRef message, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptConfirmResultListenerRef listener, const void*)
+{
+    bool result = MessageDialog::showModal(toUTF8String(message).c_str()) == MessageDialog::Result::kOK;
+    WKPageRunJavaScriptConfirmResultListenerCall(listener, result);
+}
+
+void WebViewWindow::runJavaScriptPrompt(WKPageRef, WKStringRef message, WKStringRef defaultValue, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptPromptResultListenerRef listener, const void*)
+{
+    std::string messageStr = toUTF8String(message);
+    std::string defaultValueStr = toUTF8String(defaultValue);
+
+    // FIXME: See <https://bugs.webkit.org/show_bug.cgi?id=311407>.
+    size_t finalSize = messageStr.size() + defaultValueStr.size();
+    std::string finalMessage;
+    finalMessage.reserve(finalSize);
+
+    finalMessage.append(messageStr.data(), messageStr.size() - 1);
+    finalMessage.push_back('\n');
+    finalMessage.append(defaultValueStr.data(), defaultValueStr.size() - 1);
+
+    bool result = MessageDialog::showModal(finalMessage.c_str()) == MessageDialog::Result::kOK;
+    if (result)
+        WKPageRunJavaScriptPromptResultListenerCall(listener, defaultValue);
+    else
+        WKPageRunJavaScriptPromptResultListenerCall(listener, nullptr);
 }

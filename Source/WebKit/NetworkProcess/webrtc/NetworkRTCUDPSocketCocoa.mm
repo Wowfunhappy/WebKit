@@ -129,9 +129,7 @@ NetworkRTCUDPSocketCocoa::NetworkRTCUDPSocketCocoa(WebCore::LibWebRTCSocketIdent
 {
 }
 
-NetworkRTCUDPSocketCocoa::~NetworkRTCUDPSocketCocoa()
-{
-}
+NetworkRTCUDPSocketCocoa::~NetworkRTCUDPSocketCocoa() = default;
 
 void NetworkRTCUDPSocketCocoa::close()
 {

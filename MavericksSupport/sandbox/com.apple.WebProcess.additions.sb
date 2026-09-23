@@ -5,24 +5,9 @@
 ; are evaluated in order with later ones winning, so these grants sit after the base profile's
 ; (deny default) exactly as if they had been written at its end.
 ;
-; Every rule below exists because a sandboxd denial proved the modern engine needs it, and every one
-; is a capability upstream's CURRENT profile grants the process that does the work — in this OS's
-; terms where it checks an operation modern macOS does not. This is the engine having moved on
-; between 2015 and 615, not this port loosening anything. Nothing here is granted speculatively.
-;
-; NOT granted, because the denials turned out to be correct and nothing is lost by denying them.
-; Each was checked rather than assumed:
-;   - com.apple.CoreServices.coreservicesd -- upstream's current profile denies it too, with
-;     no-report.
-;   - com.apple.metadata.mds, and the /Applications/... walk -- Launch Services scanning the disk.
-;     No business in a web content process; upstream grants neither.
-;   - /tmp/com.apple.csseed.<uid> -- CommonCrypto's seed segment. Falls back to /dev/random, and
-;     stock Safari 7.0.6's own profile denied it as well.
-;   - $HOME/orcexec.XXXXXX, and the process-fork beside it -- ORC (GStreamer's SIMD JIT) probes
-;     TMPDIR, then $HOME, before falling back to an anonymous PROT_EXEC mapping. Verified under this
-;     exact profile that the fallback still yields native code (orc_program_compile returns
-;     ORC_COMPILE_RESULT_OK), so the denied probe costs nothing. Granting a home-directory write for
-;     an executable file would be a far worse trade than the one it buys.
+; Every rule below exists because a sandboxd denial showed the modern engine needs it, and each is a
+; capability upstream's current profile grants the process that does the work, in this OS's terms
+; where it checks an operation modern macOS does not.
 
 ;; CoreAnimation's render server. Upstream's current profile allows this unconditionally on macOS
 ;; (com.apple.WebProcess.sb.in, the #else of the BlockIOKitInWebContentSandbox state-flag check);
@@ -40,8 +25,8 @@
 
 ;; Media capture, camera access. Upstream grants this to whichever process captures — its GPU process,
 ;; gated on the "com.apple.webkit.camera" extension the UI process issues per capture session
-;; (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in). This port has no GPU process, so getUserMedia
-;; captures in WebContent, and there the per-session gate cannot function: CoreMediaIO initializes its
+;; (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in). This port's GPU process only rasterizes, so
+;; getUserMedia captures in WebContent, and there the per-session gate cannot function: CoreMediaIO initializes its
 ;; DAL plug-in system once per process, at first contact, and a page enumerating media devices drives
 ;; that first contact before any permission prompt is answered — a denied probe leaves the process's
 ;; device list empty for its lifetime, and the extension arriving afterwards never revives it (measured:

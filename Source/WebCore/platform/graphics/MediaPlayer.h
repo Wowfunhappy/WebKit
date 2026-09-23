@@ -99,6 +99,7 @@ class MediaSourcePrivateClient;
 class MediaStreamPrivate;
 class NativeImage;
 class PlatformMediaResourceLoader;
+class MediaResourceSniffer;
 class PlatformTimeRanges;
 class SecurityOriginData;
 class ShareableBitmap;
@@ -126,6 +127,12 @@ struct MediaEngineSupportParameters {
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     MediaPlaybackTargetType playbackTargetType { MediaPlaybackTargetType::None };
 #endif
+};
+
+struct MediaPlayerEngineSelection {
+    std::optional<MediaPlayerEnums::MediaEngineIdentifier> identifier { };
+    // When unset, resolves to Playback in the WebContent process and Supports in the GPU process.
+    std::optional<MediaPlayerScope> scope { };
 };
 
 struct SeekTarget {
@@ -179,6 +186,7 @@ struct MediaPlayerLoadOptions {
     ContentType contentType { };
     bool requiresRemotePlayback { false };
     bool supportsLimitedMatroska { false };
+    std::optional<bool> supportsProgressMonitoringOverride { };
     VideoRendererPreferences videoRendererPreferences { };
 };
 
@@ -197,9 +205,6 @@ public:
 
     // the mute state has changed
     virtual void mediaPlayerMuteChanged() { }
-
-    // the last seek operation has completed
-    virtual void mediaPlayerSeeked(const MediaTime&) { }
 
     // time has jumped, eg. not as a result of normal playback
     virtual void mediaPlayerTimeChanged() { }
@@ -375,8 +380,8 @@ public:
 
     // Media engine support.
     using MediaPlayerEnums::SupportsType;
-    static const MediaPlayerFactory* mediaEngine(MediaPlayerEnums::MediaEngineIdentifier);
-    static SupportsType supportsType(const MediaEngineSupportParameters&);
+    static const MediaPlayerFactory* mediaEngine(const MediaPlayerEngineSelection& = { });
+    static SupportsType supportsType(const MediaEngineSupportParameters&, const MediaPlayerEngineSelection& = { });
     static void getSupportedTypes(HashSet<String>&);
     static bool isAvailable();
     static HashSet<SecurityOriginData> originsInMediaCache(const String& path);
@@ -438,12 +443,13 @@ public:
 #endif
     void cancelLoad();
 
+    bool pageIsVisible() const { return m_pageIsVisible; }
     void setPageIsVisible(bool);
     void setVisibleForCanvas(bool);
     bool isVisibleForCanvas() const { return m_visibleForCanvas; }
 
-    void setVisibleInViewport(bool);
-    bool isVisibleInViewport() const { return m_visibleInViewport; }
+    void setViewportVisibility(ViewportVisibility);
+    ViewportVisibility viewportVisibility() const { return m_viewportVisibility; }
 
     void prepareToPlay();
     void play();
@@ -478,11 +484,8 @@ public:
 
     bool paused() const;
     void willSeekToTarget(const MediaTime&);
-    void seekToTime(const MediaTime&);
     void seekWhenPossible(const MediaTime&);
-    void seekToTarget(const SeekTarget&);
-    bool seeking() const;
-    void seeked(const MediaTime&);
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&);
 
     static double invalidTime() { return -1.0; }
     MediaTime duration() const;
@@ -585,6 +588,7 @@ public:
     WirelessPlaybackTargetType wirelessPlaybackTargetType() const;
 
     String wirelessPlaybackTargetName() const;
+    String wirelessPlaybackRouteName() const;
 
     bool wirelessVideoPlaybackDisabled() const;
     void setWirelessVideoPlaybackDisabled(bool);
@@ -817,6 +821,11 @@ public:
 
     void elementIdChanged(const String&) const;
 
+#if PLATFORM(MAC)
+    void setScreenReserved(bool);
+    bool screenReserved() { return m_screenReserved; }
+#endif
+
 private:
     MediaPlayer(MediaPlayerClient&);
     MediaPlayer(MediaPlayerClient&, MediaPlayerEnums::MediaEngineIdentifier);
@@ -829,9 +838,19 @@ private:
     CheckedPtr<const MediaPlayerFactory> nextMediaEngine(const MediaPlayerFactory*);
     void reloadTimerFired();
 
+    // When the engine fallback chain is exhausted on FormatError/DecodeError and we haven't yet
+    // sniffed the body, fetch a short prefix of the resource, determine the actual Content-Type
+    // from magic bytes, and — if it differs from what we originally tried — re-run engine
+    // selection with the sniffed type. Returns true if a sniff was started (in which case the
+    // caller should defer reporting the failure up to the client until the sniff settles).
+    bool attemptSniffAndReload();
+    void cancelSniffer();
+
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     MediaPlaybackTargetType playbackTargetType() const;
 #endif
+
+    void seekToTime(const MediaTime&);
 
     WeakPtr<MediaPlayerClient> m_client;
     Timer m_reloadTimer;
@@ -847,7 +866,6 @@ private:
     double m_volume { 1 };
     bool m_pageIsVisible { false };
     bool m_visibleForCanvas { false };
-    bool m_visibleInViewport { false };
     bool m_muted { false };
     bool m_preservesPitch { true };
     bool m_inPrivateBrowsingMode { false };
@@ -857,7 +875,10 @@ private:
     DynamicRangeMode m_preferredDynamicRangeMode;
     PlatformDynamicRangeLimit m_platformDynamicRangeLimit { PlatformDynamicRangeLimit::initialValueForVideos() };
     PitchCorrectionAlgorithm m_pitchCorrectionAlgorithm { PitchCorrectionAlgorithm::BestAllAround };
+    ViewportVisibility m_viewportVisibility { ViewportVisibility::NotVisible };
     RefPtr<PlatformMediaResourceLoader> m_mediaResourceLoader;
+    RefPtr<MediaResourceSniffer> m_sniffer;
+    bool m_sniffAttempted { false };
 
 #if ENABLE(MEDIA_SOURCE)
     ThreadSafeWeakPtr<MediaSourcePrivateClient> m_mediaSource;
@@ -889,6 +910,10 @@ private:
 #endif
 
     WeakPtr<MessageClientForTesting> m_internalMessageClient;
+
+#if PLATFORM(MAC)
+    bool m_screenReserved { false };
+#endif
 };
 
 class MediaPlayerFactory : public CanMakeWeakPtr<MediaPlayerFactory>, public CanMakeCheckedPtr<MediaPlayerFactory> {
@@ -907,6 +932,10 @@ public:
     virtual void clearMediaCache(const String&, WallTime) const { }
     virtual void clearMediaCacheForOrigins(const String&, const HashSet<SecurityOriginData>&) const { }
     virtual bool supportsKeySystem(const String& /* keySystem */, const String& /* mimeType */) const { return false; }
+
+    // Describes how this factory may be used. Default is Playback; subclasses
+    // override only if they need to answer differently for some contexts.
+    virtual MediaPlayerScope supportedScope() const { return MediaPlayerScope::Playback; }
 };
 
 using MediaEngineRegistrar = void(std::unique_ptr<MediaPlayerFactory>&&);
@@ -919,8 +948,14 @@ public:
 
 class RemoteMediaPlayerSupport {
 public:
-    using RegisterRemotePlayerCallback = Function<void(MediaEngineRegistrar, MediaPlayerEnums::MediaEngineIdentifier)>;
+    using RegisterRemotePlayerCallback = Function<void(MediaEngineRegistrar, MediaPlayerEnums::MediaEngineIdentifier, PlatformMediaDecodingType)>;
     WEBCORE_EXPORT static void setRegisterRemotePlayerCallback(RegisterRemotePlayerCallback&&);
+
+    // If a remote-player callback has been installed (i.e. this is the WebContent
+    // process and a GPU process is available), register a remote proxy factory for
+    // the given engine and return true. Otherwise return false and leave the
+    // caller to register a local factory.
+    WEBCORE_EXPORT static bool registerRemoteEngineIfAvailable(MediaEngineRegistrar, MediaPlayerEnums::MediaEngineIdentifier, PlatformMediaDecodingType);
 };
 
 inline String MediaPlayer::audioOutputDeviceId() const

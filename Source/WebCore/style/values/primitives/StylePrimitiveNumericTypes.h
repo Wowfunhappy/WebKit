@@ -72,6 +72,13 @@ template<CSS::Range nR = CSS::All, CSS::Range pR = nR, typename V = double> stru
     }
 
 private:
+    friend struct Blending<NumberOrPercentage>;
+
+    NumberOrPercentage(Variant<CSS::PrimitiveDataEmptyToken, Number, Percentage>&& value)
+        : value { WTF::move(value) }
+    {
+    }
+
     NumberOrPercentage(CSS::PrimitiveDataEmptyToken token)
         : value { WTF::move(token) }
     {
@@ -117,6 +124,7 @@ template<CSS::Range nR = CSS::All, CSS::Range pR = nR, typename V = double> stru
 
     constexpr bool operator==(const NumberOrPercentageResolvedToNumber&) const = default;
     constexpr bool operator==(typename Number::ResolvedValueType other) const { return value.value == other; };
+    constexpr auto operator<=>(const NumberOrPercentageResolvedToNumber&) const = default;
 };
 
 // Standard Numbers

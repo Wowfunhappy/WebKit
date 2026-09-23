@@ -144,6 +144,7 @@ static double NODELETE determinant4x4(const TransformationMatrix::Matrix4& m)
          - d1 * determinant3x3(a2, a3, a4, b2, b3, b4, c2, c3, c4);
 }
 
+#if !CPU(ARM64) || !CPU(ADDRESS64)
 // adjoint( original_matrix, inverse_matrix )
 //
 //   calculate the adjoint of a 4x4 matrix
@@ -160,7 +161,7 @@ static double NODELETE determinant4x4(const TransformationMatrix::Matrix4& m)
 //  The matrix B = (b  ) is the adjoint of A
 //                   ij
 
-static inline void NODELETE adjoint(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
+[[maybe_unused]] static inline void NODELETE adjoint(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
 {
     // Assign to individual variable names to aid
     // selecting correct values
@@ -205,6 +206,7 @@ static inline void NODELETE adjoint(const TransformationMatrix::Matrix4& matrix,
     result[2][3]  = - determinant3x3(a1, a2, a3, b1, b2, b3, d1, d2, d3);
     result[3][3]  =   determinant3x3(a1, a2, a3, b1, b2, b3, c1, c2, c3);
 }
+#endif
 
 // Returns false if the matrix is not invertible
 static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
@@ -644,7 +646,7 @@ static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationM
         r = std::sqrt(1.0 + column[0][0] - column[1][1] - column[2][2]);
         s = 0.5 / r;
         x = 0.5 * r;
-        y = (column[1][0] - column[0][1]) * s;
+        y = (column[1][0] + column[0][1]) * s;
         z = (column[2][0] + column[0][2]) * s;
         w = (column[1][2] - column[2][1]) * s;
     } else if (column[1][1] > column[2][2]) {
@@ -1919,6 +1921,7 @@ bool TransformationMatrix::decompose4(Decomposed4Type& decomp) const
         decomp.scaleX = 1;
         decomp.scaleY = 1;
         decomp.scaleZ = 1;
+        decomp.quaternion.w = 1;
         return true;
     }
 

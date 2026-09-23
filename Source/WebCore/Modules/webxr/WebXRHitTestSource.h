@@ -56,7 +56,7 @@ private:
 
     WeakPtr<WebXRSession> m_session;
     std::optional<PlatformXR::HitTestSource> m_source;
-    Ref<WebXRSpace> m_space;
+    const Ref<WebXRSpace> m_space;
 };
 
 } // namespace WebCore

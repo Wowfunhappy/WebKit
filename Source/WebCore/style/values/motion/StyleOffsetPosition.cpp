@@ -25,11 +25,12 @@
 #include "config.h"
 #include "StyleOffsetPosition.h"
 
+#include "CSSKeywordValue.h"
 #include "CSSPositionValue.h"
 #include "StyleBuilderChecking.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StyleLengthWrapper+Blending.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include <wtf/text/TextStream.h>
@@ -59,15 +60,22 @@ auto OffsetPosition::convert(const AcceleratedEffectOffsetPosition& value) -> Va
 
 auto CSSValueConversion<OffsetPosition>::operator()(BuilderState& state, const CSSValue& value) -> OffsetPosition
 {
-    if (value.valueID() == CSSValueAuto)
-        return OffsetPosition { CSS::Keyword::Auto { } };
-    if (value.valueID() == CSSValueNormal)
-        return OffsetPosition { CSS::Keyword::Normal { } };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        case CSSValueNormal:
+            return CSS::Keyword::Normal { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Auto { };
+        }
+    }
 
     RefPtr positionValue = requiredDowncast<CSSPositionValue>(state, value);
     if (!positionValue)
-        return Style::ComputedStyle::initialOffsetPosition();
-    return OffsetPosition { toStyle(positionValue->position(), state) };
+        return CSS::Keyword::Auto { };
+    return toStyle(positionValue->position(), state);
 }
 
 // MARK: - Blending

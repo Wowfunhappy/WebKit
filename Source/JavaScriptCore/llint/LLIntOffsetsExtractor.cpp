@@ -44,6 +44,7 @@
 #include "JSArrayBufferView.h"
 #include "JSCPtrTag.h"
 #include "JSCast.h"
+#include "JSCellInlines.h"
 #include "JSFunction.h"
 #include "JSGlobalObject.h"
 #include "JSInternalFieldObjectImpl.h"

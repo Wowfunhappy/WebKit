@@ -1,5 +1,5 @@
 //@ skip if $useCompressedHeap
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ skip if $buildType == "debug"
 //@ runDefault("--collectContinuously=1")
 for (let i=0; i<1000; i++) {

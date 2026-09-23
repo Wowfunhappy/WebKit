@@ -40,11 +40,14 @@
 #if USE(SKIA)
 #include "GLContext.h"
 #include "PlatformDisplay.h"
+#include "SkiaUtilities.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkPixmap.h> // NOLINT
 #include <skia/gpu/ganesh/GrBackendSurface.h>
 #include <skia/gpu/ganesh/SkImageGanesh.h>
+#include <skia/gpu/ganesh/SkSurfaceGanesh.h>
 #include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
-#include <skia/core/SkPixmap.h> // NOLINT
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
@@ -75,17 +78,11 @@ CoordinatedPlatformLayerBufferNativeImage::CoordinatedPlatformLayerBufferNativeI
     RELEASE_ASSERT(grContext);
     grContext->flushAndSubmit(GLFence::isSupported(display.glDisplay()) ? GrSyncCpu::kNo : GrSyncCpu::kYes);
 
-    unsigned textureID = 0;
-    GrBackendTexture backendTexture;
-    if (SkImages::GetBackendTextureFromImage(image, &backendTexture, false)) {
-        GrGLTextureInfo textureInfo;
-        if (GrBackendTextures::GetGLTextureInfo(backendTexture, &textureInfo))
-            textureID = textureInfo.fID;
-    }
+    auto textureID = SkiaUtilities::retrieveGLTextureID(*image);
     if (!textureID)
         return;
 
-    m_buffer = CoordinatedPlatformLayerBufferRGB::create(textureID, m_image->size(), m_flags, GLFence::create(display.glDisplay()));
+    m_buffer = CoordinatedPlatformLayerBufferRGB::create(*textureID, m_image->size(), m_flags, GLFence::create(display.glDisplay()));
 #endif
 }
 
@@ -103,7 +100,7 @@ CoordinatedPlatformLayerBufferNativeImage::~CoordinatedPlatformLayerBufferNative
 #endif
 }
 
-bool CoordinatedPlatformLayerBufferNativeImage::tryEnsureBuffer()
+bool CoordinatedPlatformLayerBufferNativeImage::tryEnsureBuffer(UseSkiaForCompositing useSkiaForCompositing)
 {
     if (m_buffer)
         return true;
@@ -122,10 +119,27 @@ bool CoordinatedPlatformLayerBufferNativeImage::tryEnsureBuffer()
     auto* surface = m_image->platformImage().get();
     auto* imageData = cairo_image_surface_get_data(surface);
     texture->updateContents(imageData, IntRect(IntPoint(), m_size), IntPoint(), cairo_image_surface_get_stride(surface), PixelFormat::BGRA8);
+    UNUSED_PARAM(useSkiaForCompositing);
 #elif USE(SKIA)
     const auto& image = m_image->platformImage();
     SkPixmap pixmap;
-    if (image->peekPixels(&pixmap))
+    if (!image->peekPixels(&pixmap))
+        return false;
+
+    if (useSkiaForCompositing == UseSkiaForCompositing::Yes) {
+        auto& display = PlatformDisplay::sharedDisplay();
+        GLContext::ScopedGLContextCurrent scopedCurrent(*display.skiaGLContext());
+        GrGLTextureInfo externalTexture;
+        externalTexture.fTarget = GL_TEXTURE_2D;
+        externalTexture.fID = texture->id();
+        externalTexture.fFormat = image->imageInfo().colorType() == kRGBA_8888_SkColorType ? GL_RGBA8 : GL_BGRA8_EXT;
+        auto backendTexture = GrBackendTextures::MakeGL(texture->size().width(), texture->size().height(), skgpu::Mipmapped::kNo, externalTexture);
+        auto surface = SkSurfaces::WrapBackendTexture(display.skiaGrContext(), backendTexture, kTopLeft_GrSurfaceOrigin, 0, image->imageInfo().colorType(), SkColorSpace::MakeSRGB(), nullptr);
+        if (!surface)
+            return false;
+
+        surface->writePixels(pixmap, 0, 0);
+    } else
         texture->updateContents(pixmap.addr(), IntRect(IntPoint(), m_size), IntPoint(), image->imageInfo().minRowBytes(), PixelFormat::BGRA8);
 #endif
 
@@ -142,6 +156,18 @@ void CoordinatedPlatformLayerBufferNativeImage::paintToTextureMapper(TextureMapp
 
     m_buffer->paintToTextureMapper(textureMapper, targetRect, modelViewMatrix, opacity);
 }
+
+#if USE(SKIA)
+sk_sp<SkImage> CoordinatedPlatformLayerBufferNativeImage::skiaImage()
+{
+    waitForContentsIfNeeded();
+
+    if (!tryEnsureBuffer(UseSkiaForCompositing::Yes))
+        return nullptr;
+
+    return m_buffer->skiaImage();
+}
+#endif
 
 } // namespace WebCore
 

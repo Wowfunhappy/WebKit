@@ -51,51 +51,32 @@ void updateFrameSizeBasedOnStackSlotsImpl(Code& code, const Collection& collecti
 
 } // anonymous namespace
 
-bool attemptAssignment(
-    StackSlot* slot, intptr_t offsetFromFP, const Vector<StackSlot*>& otherSlots)
+void assign(StackSlot* slot, const Vector<StackSlot*>& otherSlots)
 {
-    if (AirStackAllocationInternal::verbose)
-        dataLog("Attempting to assign ", pointerDump(slot), " to ", offsetFromFP, " with interference ", pointerListDump(otherSlots), "\n");
+    dataLogLnIf(AirStackAllocationInternal::verbose, "Attempting to assign ", pointerDump(slot), " with interference ", pointerListDump(otherSlots));
 
-    // Need to align it to the slot's desired alignment.
+    // Start candidate at the top of the frame and push it down past any overlapping slot.
+    intptr_t offsetFromFP = -static_cast<intptr_t>(slot->byteSize());
     offsetFromFP = -WTF::roundUpToMultipleOf(slot->alignment(), -offsetFromFP);
-    
+
+    intptr_t prevOffset = 0;
     for (StackSlot* otherSlot : otherSlots) {
-        if (!otherSlot->offsetFromFP())
-            continue;
+        ASSERT(otherSlot->offsetFromFP() < 0);
+        ASSERT_UNUSED(prevOffset, otherSlot->offsetFromFP() <= prevOffset);
+        prevOffset = otherSlot->offsetFromFP();
         bool overlap = WTF::rangesOverlap(
             offsetFromFP,
             offsetFromFP + static_cast<intptr_t>(slot->byteSize()),
             otherSlot->offsetFromFP(),
             otherSlot->offsetFromFP() + static_cast<intptr_t>(otherSlot->byteSize()));
-        if (overlap)
-            return false;
+        if (overlap) {
+            offsetFromFP = otherSlot->offsetFromFP() - static_cast<intptr_t>(slot->byteSize());
+            offsetFromFP = -WTF::roundUpToMultipleOf(slot->alignment(), -offsetFromFP);
+        }
     }
 
-    if (AirStackAllocationInternal::verbose)
-        dataLog("Assigned ", pointerDump(slot), " to ", offsetFromFP, "\n");
+    dataLogLnIf(AirStackAllocationInternal::verbose, "Assigned ", pointerDump(slot), " to ", offsetFromFP);
     slot->setOffsetFromFP(offsetFromFP);
-    return true;
-}
-
-void assign(StackSlot* slot, const Vector<StackSlot*>& otherSlots)
-{
-    if (AirStackAllocationInternal::verbose)
-        dataLog("Attempting to assign ", pointerDump(slot), " with interference ", pointerListDump(otherSlots), "\n");
-    
-    if (attemptAssignment(slot, -static_cast<intptr_t>(slot->byteSize()), otherSlots))
-        return;
-
-    for (StackSlot* otherSlot : otherSlots) {
-        if (!otherSlot->offsetFromFP())
-            continue;
-        bool didAssign = attemptAssignment(
-            slot, otherSlot->offsetFromFP() - static_cast<intptr_t>(slot->byteSize()), otherSlots);
-        if (didAssign)
-            return;
-    }
-
-    RELEASE_ASSERT_NOT_REACHED();
 }
 
 Vector<StackSlot*> allocateAndGetEscapedStackSlotsWithoutChangingFrameSize(Code& code)
@@ -116,12 +97,14 @@ Vector<StackSlot*> allocateAndGetEscapedStackSlotsWithoutChangingFrameSize(Code&
             ASSERT(!slot->offsetFromFP());
         }
     }
+    std::ranges::sort(assignedEscapedStackSlots, std::ranges::greater { }, &StackSlot::offsetFromFP);
     // This is a fairly expensive loop, but it's OK because we'll usually only have a handful of
     // escaped stack slots.
     while (!escapedStackSlotsWorklist.isEmpty()) {
         StackSlot* slot = escapedStackSlotsWorklist.takeLast();
         assign(slot, assignedEscapedStackSlots);
-        assignedEscapedStackSlots.append(slot);
+        auto it = std::ranges::upper_bound(assignedEscapedStackSlots, slot->offsetFromFP(), std::ranges::greater { }, &StackSlot::offsetFromFP);
+        assignedEscapedStackSlots.insert(it - assignedEscapedStackSlots.begin(), slot);
     }
     return assignedEscapedStackSlots;
 }

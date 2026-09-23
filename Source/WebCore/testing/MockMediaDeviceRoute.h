@@ -33,6 +33,8 @@
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
 OBJC_CLASS WebMockMediaDeviceRoute;
 
@@ -55,6 +57,8 @@ public:
     String deviceName() const;
     void setDeviceName(const String&);
 
+    bool connected() const;
+
     bool ready() const;
     void setReady(bool);
 
@@ -64,6 +68,14 @@ public:
     bool hasPlaybackError() const;
     void setHasPlaybackError(bool);
 
+    struct AudioOption {
+        String displayName;
+        String identifier;
+        String extendedLanguageTag;
+    };
+    Vector<AudioOption> audioOptions() const;
+    void setAudioOptions(const Vector<AudioOption>&);
+
     float playbackRate() const;
     void setPlaybackRate(float);
 
@@ -72,6 +84,12 @@ public:
 
     TimeRange timeRange() const;
     void setTimeRange(const TimeRange&);
+
+    float volume() const;
+    void setVolume(float);
+
+    bool muted() const;
+    void setMuted(bool);
 
 private:
     MockMediaDeviceRoute();

@@ -100,10 +100,13 @@ private:
     void voicesChanged() override;
 
     // ActiveDOMObject
+    void suspend(ReasonForSuspension) final;
+    void stop() final;
     bool NODELETE virtualHasPendingActivity() const final;
 
     void startSpeakingImmediately(SpeechSynthesisUtterance&);
     void handleSpeakingCompleted(SpeechSynthesisUtterance&, bool errorOccurred);
+    void stopPlatformSpeech();
 
     // EventTarget
     ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
@@ -111,7 +114,7 @@ private:
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
     void eventListenersDidChange() final;
-    
+
     PlatformSpeechSynthesizer& ensurePlatformSpeechSynthesizer();
 
     SpeechSynthesisUtterance* NODELETE currentSpeechUtterance();

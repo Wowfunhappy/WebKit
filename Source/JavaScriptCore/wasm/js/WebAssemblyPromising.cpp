@@ -48,9 +48,9 @@ JSC_DEFINE_HOST_FUNCTION(runWebAssemblyPromisingFunction, (JSGlobalObject* globa
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSObject* callee = callFrame->jsCallee();
-    JSFunctionWithFields* thisFunction = jsCast<JSFunctionWithFields*>(callee);
+    JSFunctionWithFields* thisFunction = uncheckedDowncast<JSFunctionWithFields>(callee);
     ASSERT(thisFunction);
-    JSFunction* wrappedFunction = jsCast<JSFunction*>(thisFunction->getField(JSFunctionWithFields::Field::WebAssemblyPromisingWrappedFunction));
+    JSFunction* wrappedFunction = uncheckedDowncast<JSFunction>(thisFunction->getField(JSFunctionWithFields::Field::WebAssemblyPromisingWrappedFunction));
 
     MarkedArgumentBuffer args;
     for (unsigned i = 0; i < callFrame->argumentCount(); ++i)
@@ -76,7 +76,7 @@ JSC_DEFINE_HOST_FUNCTION(runWebAssemblyPromisingFunction, (JSGlobalObject* globa
         // An exception was thrown in wasm code
         JSValue exceptionValue = scope.exception()->value();
         TRY_CLEAR_EXCEPTION(scope, { });
-        resultPromise->reject(vm, globalObject, exceptionValue);
+        resultPromise->reject(vm, exceptionValue);
     } else if (!context.completion) [[likely]] {
         // The call returned without suspending, result is the returned value
         resultPromise->resolve(globalObject, vm, result);
@@ -91,9 +91,9 @@ JSC_DEFINE_HOST_FUNCTION(runWebAssemblyPromisingFunction, (JSGlobalObject* globa
 JSFunctionWithFields* createWebAssemblyPromisingFunction(VM& vm, JSGlobalObject* globalObject, JSFunction* wrappedFunction)
 {
     const String name = "WebAssembly.promising"_s;
-    NativeExecutable* executable = vm.getHostFunction(runWebAssemblyPromisingFunction, ImplementationVisibility::Public, NoIntrinsic, callHostFunctionAsConstructor, nullptr, name);
     constexpr unsigned length = 1;
-    JSFunctionWithFields* function = JSFunctionWithFields::create(vm, globalObject, executable, length, name);
+    NativeExecutable* executable = vm.getHostFunction(runWebAssemblyPromisingFunction, ImplementationVisibility::Private, NoIntrinsic, callHostFunctionAsConstructor, nullptr, length, name);
+    JSFunctionWithFields* function = JSFunctionWithFields::create(vm, globalObject, executable);
     function->setField(vm, JSFunctionWithFields::Field::WebAssemblyPromisingWrappedFunction, wrappedFunction);
     return function;
 }

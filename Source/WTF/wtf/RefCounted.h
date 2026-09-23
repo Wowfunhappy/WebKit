@@ -88,18 +88,6 @@ protected:
     ~RefCounted() = default;
 } SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
 
-template<typename T>
-inline void ref(T* obj)
-{
-    obj->ref();
-}
-
-template<typename T>
-inline void deref(T* obj)
-{
-    obj->deref();
-}
-
 inline void adopted(RefCountedBase* object)
 {
     if (!object)

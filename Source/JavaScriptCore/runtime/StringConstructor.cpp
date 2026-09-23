@@ -41,7 +41,7 @@ const ClassInfo StringConstructor::s_info = { "Function"_s, &Base::s_info, &stri
 /* Source for StringConstructor.lut.h
 @begin stringConstructorTable
   fromCharCode          stringFromCharCode         DontEnum|Function 1 FromCharCodeIntrinsic
-  fromCodePoint         stringFromCodePoint        DontEnum|Function 1
+  fromCodePoint         stringFromCodePoint        DontEnum|Function 1 FromCodePointIntrinsic
   raw                   JSBuiltin                  DontEnum|Function 1
 @end
 */
@@ -61,14 +61,12 @@ void StringConstructor::finishCreation(VM& vm, StringPrototype* stringPrototype)
 {
     Base::finishCreation(vm);
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, stringPrototype, PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum | PropertyAttribute::DontDelete);
-    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(1), PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
-    putDirectWithoutTransition(vm, vm.propertyNames->name, jsString(vm, vm.propertyNames->String.string()), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
 }
 
 StringConstructor* StringConstructor::create(VM& vm, Structure* structure, StringPrototype* stringPrototype)
 {
-    JSGlobalObject* globalObject = structure->globalObject();
-    NativeExecutable* executable = vm.getHostFunction(callStringConstructor, ImplementationVisibility::Public, StringConstructorIntrinsic, constructWithStringConstructor, nullptr, vm.propertyNames->String.string());
+    JSGlobalObject* globalObject = structure->realm();
+    NativeExecutable* executable = vm.getHostFunction(callStringConstructor, ImplementationVisibility::Public, StringConstructorIntrinsic, constructWithStringConstructor, nullptr, 1, vm.propertyNames->String.string());
     StringConstructor* constructor = new (NotNull, allocateCell<StringConstructor>(vm)) StringConstructor(vm, executable, globalObject, structure);
     constructor->finishCreation(vm, stringPrototype);
     return constructor;
@@ -129,7 +127,7 @@ JSC_DEFINE_HOST_FUNCTION(stringFromCodePoint, (JSGlobalObject* globalObject, Cal
         double codePointAsDouble = callFrame->uncheckedArgument(i).toNumber(globalObject);
         RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
-        uint32_t codePoint = static_cast<uint32_t>(codePointAsDouble);
+        uint32_t codePoint = truncateDoubleToUint32(codePointAsDouble);
 
         if (codePoint != codePointAsDouble || codePoint > UCHAR_MAX_VALUE)
             return throwVMError(globalObject, scope, createRangeError(globalObject, "Arguments contain a value that is out of range of code points"_s));
@@ -143,6 +141,25 @@ JSC_DEFINE_HOST_FUNCTION(stringFromCodePoint, (JSGlobalObject* globalObject, Cal
     }
 
     RELEASE_AND_RETURN(scope, JSValue::encode(jsString(vm, builder.toString())));
+}
+
+JSString* stringFromCodePoint(JSGlobalObject* globalObject, int32_t arg)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    uint32_t codePoint = static_cast<uint32_t>(arg);
+    if (arg < 0 || codePoint > UCHAR_MAX_VALUE) [[unlikely]] {
+        throwRangeError(globalObject, scope, "Arguments contain a value that is out of range of code points"_s);
+        return nullptr;
+    }
+    scope.release();
+
+    if (U_IS_BMP(codePoint))
+        return jsSingleCharacterString(vm, static_cast<char16_t>(codePoint));
+
+    char16_t buffer[2] = { U16_LEAD(codePoint), U16_TRAIL(codePoint) };
+    return jsNontrivialString(vm, String({ buffer, 2 }));
 }
 
 JSC_DEFINE_HOST_FUNCTION(constructWithStringConstructor, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -163,19 +180,9 @@ JSC_DEFINE_HOST_FUNCTION(constructWithStringConstructor, (JSGlobalObject* global
 
 JSString* stringConstructor(JSGlobalObject* globalObject, JSValue argument)
 {
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    if (argument.isSymbol()) {
-        auto description = asSymbol(argument)->tryGetDescriptiveString();
-        if (!description) [[unlikely]] {
-            ASSERT(description.error() == ErrorTypeWithExtension::OutOfMemoryError);
-            throwOutOfMemoryError(globalObject, scope);
-            return nullptr;
-        }
-        return jsNontrivialString(vm, description.value());
-    }
-    RELEASE_AND_RETURN(scope, argument.toString(globalObject));
+    if (argument.isSymbol())
+        return asSymbol(argument)->toString(globalObject);
+    return argument.toString(globalObject);
 }
 
 JSC_DEFINE_HOST_FUNCTION(callStringConstructor, (JSGlobalObject* globalObject, CallFrame* callFrame))

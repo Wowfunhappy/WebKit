@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMExceptionHandling.h"
@@ -37,7 +38,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -75,10 +75,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestStringifierReadOnlyAttributePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestStringifierReadOnlyAttributePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -119,11 +116,16 @@ static const std::array<HashTableValue, 3> JSTestStringifierReadOnlyAttributePro
 
 const ClassInfo JSTestStringifierReadOnlyAttributePrototype::s_info = { "TestStringifierReadOnlyAttribute"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierReadOnlyAttributePrototype) };
 
+JSC::Structure* JSTestStringifierReadOnlyAttributePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestStringifierReadOnlyAttributePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestStringifierReadOnlyAttribute::info(), JSTestStringifierReadOnlyAttributePrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestStringifierReadOnlyAttribute::s_info = { "TestStringifierReadOnlyAttribute"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierReadOnlyAttribute) };
@@ -134,6 +136,19 @@ JSTestStringifierReadOnlyAttribute::JSTestStringifierReadOnlyAttribute(Structure
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestStringifierReadOnlyAttribute>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestStringifierReadOnlyAttribute* JSTestStringifierReadOnlyAttribute::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestStringifierReadOnlyAttribute>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestStringifierReadOnlyAttribute* ptr = new (NotNull, JSC::allocateCell<JSTestStringifierReadOnlyAttribute>(vm)) JSTestStringifierReadOnlyAttribute(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestStringifierReadOnlyAttribute::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestStringifierReadOnlyAttribute::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -149,7 +164,7 @@ JSObject* JSTestStringifierReadOnlyAttribute::prototype(VM& vm, JSDOMGlobalObjec
 
 JSValue JSTestStringifierReadOnlyAttribute::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestStringifierReadOnlyAttributeDOMConstructor, DOMConstructorID::TestStringifierReadOnlyAttribute>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestStringifierReadOnlyAttributeDOMConstructor, DOMConstructorID::TestStringifierReadOnlyAttribute>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestStringifierReadOnlyAttribute::destroy(JSC::JSCell* cell)
@@ -162,10 +177,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestStringifierReadOnlyAttributeConstructor, (JSGloba
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestStringifierReadOnlyAttributePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestStringifierReadOnlyAttributePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestStringifierReadOnlyAttribute::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestStringifierReadOnlyAttribute::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestStringifierReadOnlyAttribute_identifierGetter(JSGlobalObject& lexicalGlobalObject, JSTestStringifierReadOnlyAttribute& thisObject)
@@ -208,12 +223,14 @@ JSC::GCClient::IsoSubspace* JSTestStringifierReadOnlyAttribute::subspaceForImpl(
 
 void JSTestStringifierReadOnlyAttribute::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestStringifierReadOnlyAttribute*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestStringifierReadOnlyAttribute>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestStringifierReadOnlyAttributeOwner::JSTestStringifierReadOnlyAttributeOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestStringifierReadOnlyAttributeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -227,7 +244,7 @@ void JSTestStringifierReadOnlyAttributeOwner::finalize(JSC::Handle<JSC::Unknown>
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestStringifierReadOnlyAttribute = static_cast<JSTestStringifierReadOnlyAttribute*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestStringifierReadOnlyAttribute->wrapped()).ptr(), jsTestStringifierReadOnlyAttribute);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestStringifierReadOnlyAttribute->wrapped(), jsTestStringifierReadOnlyAttribute);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -275,7 +292,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestStringifierReadOnlyAttribute* JSTestStringifierReadOnlyAttribute::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestStringifierReadOnlyAttribute*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestStringifierReadOnlyAttribute>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

@@ -14,6 +14,10 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/caret-visibility-after-creation-in-script-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/caret-visibility-after-creation-in-script-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/caret-visibility-after-creation-in-script.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/textarea-defaults-to-zero-margin.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/textarea-padding-bend-overlaps-content-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/textarea-padding-bend-overlaps-content-001.tentative-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/the-textarea-element/textarea-padding-bend-overlaps-content-001.tentative.html

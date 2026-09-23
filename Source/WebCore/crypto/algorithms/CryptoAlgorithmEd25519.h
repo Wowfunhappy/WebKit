@@ -28,9 +28,6 @@
 
 namespace WebCore {
 
-constexpr auto ed25519KeySize = 32;
-constexpr auto ed25519SignatureSize = ed25519KeySize * 2;
-
 class CryptoKeyOKP;
 
 class CryptoAlgorithmEd25519 final : public CryptoAlgorithm {

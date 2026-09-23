@@ -30,6 +30,7 @@
 
 #import "ApplicationServicesSPI.h"
 #import "CodeSigning.h"
+#import "Logging.h"
 #import "SandboxInitializationParameters.h"
 #import "SandboxUtilities.h"
 #import "WKFoundation.h"
@@ -57,6 +58,7 @@
 #import <wtf/WTFProcess.h>
 #import <wtf/WallTime.h>
 #import <wtf/cocoa/Entitlements.h>
+#import <wtf/spi/darwin/DataVaultSPI.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #import <wtf/text/Base64.h>
 #import <wtf/text/MakeString.h>
@@ -209,7 +211,6 @@ static std::optional<Vector<uint8_t>> fileContents(const String& path)
     return contents;
 }
 
-#if USE(APPLE_INTERNAL_SDK)
 // These strings must match the last segment of the "com.apple.rootless.storage.<this part must match>" entry in each
 // process's restricted entitlements file (ex. Configurations/Networking-OSX-restricted.entitlements).
 constexpr ASCIILiteral processStorageClass(WTF::AuxiliaryProcessType type)
@@ -227,7 +228,6 @@ constexpr ASCIILiteral processStorageClass(WTF::AuxiliaryProcessType type)
 #endif
     }
 }
-#endif // USE(APPLE_INTERNAL_SDK)
 
 static std::optional<CString> setAndSerializeSandboxParameters(const SandboxInitializationParameters& initializationParameters, const SandboxParametersPtr& sandboxParameters, const String& profileOrProfilePath, bool isProfilePath)
 {
@@ -271,6 +271,7 @@ static String sandboxDataVaultParentDirectory()
 static String sandboxDirectory(WTF::AuxiliaryProcessType processType, const String& parentDirectory)
 {
     StringBuilder directory;
+    directory.append("/.nofollow"_s);
     directory.append(parentDirectory);
     switch (processType) {
     case WTF::AuxiliaryProcessType::WebContent:
@@ -445,13 +446,11 @@ static SandboxProfilePtr compileAndCacheSandboxProfile(const SandboxInfo& info)
 
 static bool tryApplyCachedSandbox(const SandboxInfo& info)
 {
-#if USE(APPLE_INTERNAL_SDK)
     CString directoryPath = FileSystem::fileSystemRepresentation(info.directoryPath);
     if (directoryPath.isNull())
         return false;
     if (rootless_check_datavault_flag(directoryPath.data(), processStorageClass(info.processType)))
         return false;
-#endif
 
     auto contents = fileContents(info.filePath);
     if (!contents || contents->isEmpty())
@@ -588,7 +587,7 @@ static bool applySandbox(const AuxiliaryProcessInitializationParameters& paramet
     auto header = setAndSerializeSandboxParameters(sandboxInitializationParameters, sandboxParameters, profileOrProfilePath, isProfilePath);
     if (!header) {
         WTFLogAlways("%s: Sandbox parameters are invalid\n", getprogname());
-        CRASH();
+        return compileAndApplySandboxSlowCase(profileOrProfilePath, isProfilePath, sandboxInitializationParameters);
     }
 
     String directoryPath { sandboxDirectory(parameters.processType, dataVaultParentDirectory) };
@@ -639,7 +638,7 @@ static String getUserDirectorySuffix(const AuxiliaryProcessInitializationParamet
     return makeString([[NSBundle mainBundle] bundleIdentifier], '+', clientIdentifier);
 }
 
-static String getHomeDirectory()
+std::optional<String> AuxiliaryProcess::getHomeDirectory()
 {
     // According to the man page for getpwuid_r, we should use sysconf(_SC_GETPW_R_SIZE_MAX) to determine the size of the buffer.
     // However, a buffer size of 4096 should be sufficient, since PATH_MAX is 1024.
@@ -647,8 +646,8 @@ static String getHomeDirectory()
     passwd pwd;
     passwd* result = nullptr;
     if (getpwuid_r(getuid(), &pwd, buffer, sizeof(buffer), &result) || !result) {
-        WTFLogAlways("%s: Couldn't find home directory", getprogname());
-        RELEASE_ASSERT_NOT_REACHED();
+        RELEASE_LOG_ERROR(Process, "Couldn't find home directory, errno=%d", errno);
+        return std::nullopt;
     }
     return String::fromUTF8(pwd.pw_dir);
 }
@@ -666,13 +665,22 @@ static void populateSandboxInitializationParameters(SandboxInitializationParamet
     RELEASE_ASSERT(!sandboxParameters.userDirectorySuffix().isNull());
 
     // Use private temporary and cache directories.
-    setenv("DIRHELPER_USER_DIR_SUFFIX", FileSystem::fileSystemRepresentation(sandboxParameters.userDirectorySuffix()).data(), 1);
+    CString userDirectorySuffixString = FileSystem::fileSystemRepresentation(sandboxParameters.userDirectorySuffix());
+    if (!_set_user_dir_suffix(userDirectorySuffixString.data()))
+        RELEASE_LOG_ERROR(Process, "Unable to set user dir suffix");
+
     char temporaryDirectory[PATH_MAX];
     if (!confstr(_CS_DARWIN_USER_TEMP_DIR, temporaryDirectory, sizeof(temporaryDirectory))) {
         WTFLogAlways("%s: couldn't retrieve private temporary directory path: %d\n", getprogname(), errno);
         exitProcess(EX_NOPERM);
     }
-    setenv("TMPDIR", temporaryDirectory, 1);
+#if USE(GLIB)
+    // MAVERICKS_BACKPORT: GLib-based libraries keep per-user runtime files in $XDG_RUNTIME_DIR, which the
+    // GLib ports' sandbox launcher sets for each sandboxed child. ORC, GStreamer's code generator, maps its
+    // code from a file there and tries $HOME first when it is unset. This process' private temporary
+    // directory is the counterpart its profile grants.
+    setenv("XDG_RUNTIME_DIR", temporaryDirectory, 0);
+#endif
 
     String bundlePath = webKit2BundleSingleton().bundlePath;
     if (!bundlePath.startsWith("/System/Library/Frameworks"_s))
@@ -682,10 +690,11 @@ static void populateSandboxInitializationParameters(SandboxInitializationParamet
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_TEMP_DIR"_s, _CS_DARWIN_USER_TEMP_DIR);
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_CACHE_DIR"_s, _CS_DARWIN_USER_CACHE_DIR);
 
-    auto homeDirectory = getHomeDirectory();
+    std::optional<String> homeDirectory = AuxiliaryProcess::getHomeDirectory();
+    RELEASE_ASSERT(homeDirectory);
     
-    sandboxParameters.addPathParameter("HOME_DIR"_s, homeDirectory.utf8().data());
-    String path = FileSystem::pathByAppendingComponents(homeDirectory, std::initializer_list<StringView>({ "Library"_s, "Preferences"_s }));
+    sandboxParameters.addPathParameter("HOME_DIR"_s, homeDirectory->utf8().data());
+    String path = FileSystem::pathByAppendingComponents(*homeDirectory, std::initializer_list<StringView>({ "Library"_s, "Preferences"_s }));
     sandboxParameters.addPathParameter("HOME_LIBRARY_PREFERENCES_DIR"_s, FileSystem::fileSystemRepresentation(path).data());
 
 #if CPU(X86_64)

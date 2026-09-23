@@ -45,24 +45,6 @@ struct LinkDecorationFilteringData {
         : LinkDecorationFilteringData(RegistrableDomain { URL { WTF::move(domain) } }, WTF::move(path), WTF::move(linkDecoration))
     {
     }
-
-    LinkDecorationFilteringData(const LinkDecorationFilteringData&) = default;
-    LinkDecorationFilteringData& operator=(const LinkDecorationFilteringData&) = default;
-
-    LinkDecorationFilteringData(LinkDecorationFilteringData&& data)
-        : domain(WTF::move(data.domain))
-        , path(WTF::move(data.path))
-        , linkDecoration(WTF::move(data.linkDecoration))
-    {
-    }
-
-    LinkDecorationFilteringData& operator=(LinkDecorationFilteringData&& data)
-    {
-        domain = WTF::move(data.domain);
-        path = WTF::move(data.path);
-        linkDecoration = WTF::move(data.linkDecoration);
-        return *this;
-    }
 };
 
 }

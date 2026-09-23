@@ -113,7 +113,7 @@ struct RTCNetwork {
     explicit RTCNetwork(String&& name, String&& description, IPAddress prefix, int prefixLength, int type, uint16_t id, int preference, bool active, bool ignored, int scopeID, Vector<InterfaceAddress>&& ips);
     RTCNetwork isolatedCopy() const;
 
-    webrtc::Network value() const;
+    std::unique_ptr<webrtc::Network> value() const;
 
     String name;
     String description;

@@ -47,7 +47,7 @@ private:
     String cssText() const final;
     void NODELETE reattach(StyleRuleBase&) final;
 
-    Ref<StyleRuleNamespace> m_namespaceRule;
+    const Ref<StyleRuleNamespace> m_namespaceRule;
 };
 
 } // namespace WebCore

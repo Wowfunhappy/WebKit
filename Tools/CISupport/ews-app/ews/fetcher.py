@@ -49,14 +49,14 @@ class FetchLoop():
     def run(self):
         if util.load_password('ENABLE_APPLE_INTERNAL_BUILDS') is not None:
             GitHubEWS.update_approved_user_list_for_apple_internal_builds()
-        Buildbot.update_icons_for_queues_mapping()
+        Buildbot.update_queue_mappings()
         Buildbot.update_builder_name_to_id_mapping()
         custom_suffix = util.get_custom_suffix()
         if custom_suffix != '':
             _log.info(f'Skipping automatic Bugzilla patch sending on testing environment. custom_suffix: {custom_suffix}')
             return
         while True:
-            Buildbot.update_icons_for_queues_mapping()
+            Buildbot.update_queue_mappings()
             try:
                 BugzillaPatchFetcher().fetch()
                 BugzillaPatchFetcher().fetch_commit_queue_patches()

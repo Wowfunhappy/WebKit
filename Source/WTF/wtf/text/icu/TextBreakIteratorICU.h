@@ -156,7 +156,7 @@ private:
         auto utf8Locale = locale.string().utf8();
         if (!utf8Locale.length())
             return locale;
-        Vector<char> scratchBuffer(utf8Locale.length() + 11, 0);
+        Vector<char> scratchBuffer(FillWith { }, utf8Locale.length() + 11, 0);
         memcpySpan(scratchBuffer.mutableSpan(), utf8Locale.span());
 
         const char* keywordValue = nullptr;

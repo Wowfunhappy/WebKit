@@ -67,7 +67,7 @@ public:
     bool isLoading() const;
     bool canGoForward() const;
 
-    WebKitWebView* webView() const;
+    Q_INVOKABLE WebKitWebView* webView() const;
 
 public Q_SLOTS:
     void goBack();
@@ -105,10 +105,15 @@ protected:
 
     void touchEvent(QTouchEvent*) override;
 
+    void focusInEvent(QFocusEvent*) override;
+    void focusOutEvent(QFocusEvent*) override;
+
 private Q_SLOTS:
     void configureWindow();
     void createWebView();
     void didUpdateScene();
+    void invalidateSceneGraph();
+    void updateWpeToplevelState();
 
 private:
     QSGNode* updatePaintNode(QSGNode*, UpdatePaintNodeData*) final;

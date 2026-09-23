@@ -29,8 +29,6 @@
 #include "MessageNames.h"
 #include "ReceiverMatcher.h"
 #include "SyncRequestID.h"
-#include <bmalloc/TZoneHeap.h>
-#include <bmalloc/bmalloc.h>
 #include <memory>
 #include <span>
 #include <wtf/ArgumentCoder.h>
@@ -128,6 +126,7 @@ public:
     void markInvalid()
     {
         auto buffer = std::exchange(m_buffer, { });
+        m_bufferPosition = m_buffer.begin();
         if (m_bufferDeallocator && !buffer.empty())
             m_bufferDeallocator(WTF::move(buffer));
     }
@@ -158,7 +157,9 @@ public:
     template<typename T, typename = IsObjCObject<T>>
     std::optional<RetainPtr<T>> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses = { getClass<T>() })
     {
-#if HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors needs the decoder's class allowlist independently of NSURLRequest.
+// #if HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if HAVE(WK_SECURE_CODING_NSURLREQUEST) && (!ENABLE(DATA_DETECTION) || HAVE(WK_SECURE_CODING_DATA_DETECTORS))
         UNUSED_PARAM(allowedClasses);
 #else
         m_allowedClasses = allowedClasses;
@@ -169,7 +170,9 @@ public:
     template<typename T, typename = IsNotObjCObject<T>>
     std::optional<T> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses)
     {
-#if HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors needs the decoder's class allowlist independently of NSURLRequest.
+// #if HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if HAVE(WK_SECURE_CODING_NSURLREQUEST) && (!ENABLE(DATA_DETECTION) || HAVE(WK_SECURE_CODING_DATA_DETECTORS))
         UNUSED_PARAM(allowedClasses);
 #else
         m_allowedClasses = allowedClasses;
@@ -177,7 +180,9 @@ public:
         return decode<T>();
     }
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors needs the decoder's class allowlist independently of NSURLRequest.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
     AllowedClassHashSet& allowedClasses() LIFETIME_BOUND { return m_allowedClasses; }
 #endif // !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 #endif // __OBJC__
@@ -203,7 +208,9 @@ private:
 #if PLATFORM(MAC)
     ImportanceAssertion m_importanceAssertion;
 #endif
-#if PLATFORM(COCOA) && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Store allowed classes whenever the native secure coder is available.
+// #if PLATFORM(COCOA) && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if PLATFORM(COCOA) && (!HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS)))
     AllowedClassHashSet m_allowedClasses;
 #endif
 

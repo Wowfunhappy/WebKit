@@ -34,7 +34,6 @@ DECLARE_SYSTEM_HEADER
 #if OS(DARWIN)
 
 #import <mach/message.h>
-#import <sandbox.h>
 #import <unistd.h>
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -93,7 +92,7 @@ sandbox_profile_t sandbox_compile_file(const char *path, sandbox_params_t, char 
 sandbox_profile_t sandbox_compile_string(const char *data, sandbox_params_t, char **error);
 void sandbox_free_profile(sandbox_profile_t);
 int sandbox_apply(sandbox_profile_t);
-
+int sandbox_apply_bytecode(const void *bytecode, size_t, const char *container);
 char *sandbox_extension_issue_iokit_registry_entry_class_to_process(const char *extension_class, const char *registry_entry_class, uint32_t flags, audit_token_t);
 char *sandbox_extension_issue_iokit_registry_entry_class(const char *extension_class, const char *registry_entry_class, uint32_t flags);
 

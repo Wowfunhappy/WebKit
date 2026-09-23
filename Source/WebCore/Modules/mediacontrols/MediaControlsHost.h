@@ -27,6 +27,7 @@
 
 #if ENABLE(VIDEO)
 
+#include "HTMLMediaElementEnums.h"
 #include "JSValueInWrappedObject.h"
 #include "MediaSession.h"
 #include <wtf/Ref.h>
@@ -52,8 +53,6 @@ class VTTCue;
 class VoidCallback;
 
 struct MediaControlsContextMenuItem;
-
-enum class HTMLMediaElementSourceType : uint8_t;
 
 class MediaControlsHost final
     : public CanMakeWeakPtr<MediaControlsHost>
@@ -101,16 +100,16 @@ public:
     TextTrackRepresentation* NODELETE textTrackRepresentation() const;
     bool allowsInlineMediaPlayback() const;
     bool supportsFullscreen() const;
-    bool isVideoLayerInline() const;
-    bool isInMediaDocument() const;
+    bool NODELETE isVideoLayerInline() const;
+    bool NODELETE isInMediaDocument() const;
     bool userGestureRequired() const;
     bool shouldForceControlsDisplay() const;
     bool supportsSeeking() const;
-    bool inWindowFullscreen() const;
+    bool NODELETE inWindowFullscreen() const;
     bool supportsRewind() const;
     bool needsChromeMediaControlsPseudoElement() const;
     bool isMediaControlsMacInlineSizeSpecsEnabled() const;
-    bool isAVExperienceControllerFullscreenEnabled() const;
+    bool NODELETE isAVExperienceControllerFullscreenEnabled() const;
 
     void captionPreferencesChanged();
     enum class ForceUpdate : bool { No, Yes };
@@ -121,11 +120,12 @@ public:
     void requiresTextTrackRepresentationChanged();
 
     String externalDeviceDisplayName() const;
+    String externalDeviceRouteName() const;
 
     enum class DeviceType { None, Airplay, Tvout };
     DeviceType externalDeviceType() const;
 
-    bool controlsDependOnPageScaleFactor() const;
+    bool NODELETE controlsDependOnPageScaleFactor() const;
     void setControlsDependOnPageScaleFactor(bool v);
 
     static String generateUUID();

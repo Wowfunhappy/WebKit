@@ -51,7 +51,7 @@ WebColorChooser::WebColorChooser(WebPage* page, ColorChooserClient* client, cons
 
 WebColorChooser::~WebColorChooser()
 {
-    if (RefPtr page = m_page.get())
+    if (auto* page = m_page.get())
         page->setActiveColorChooser(nullptr);
 }
 

@@ -63,7 +63,7 @@ String RealtimeMediaSourceSettings::convertFlagsToString(const OptionSet<Realtim
 
     builder.append("[ "_s);
     for (auto flag : flags) {
-        if (!builder.isEmpty())
+        if (builder.length() > 2)
             builder.append(", "_s);
 
         switch (flag) {

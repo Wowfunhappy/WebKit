@@ -559,7 +559,7 @@ void PlatformCALayerRemote::setMaskLayer(RefPtr<WebCore::PlatformCALayer>&& laye
 
     PlatformCALayer::setMaskLayer(WTF::move(layer));
 
-    if (RefPtr layer = maskLayer())
+    if (auto* layer = maskLayer())
         m_properties.maskLayerID = layer->layerID();
     else
         m_properties.maskLayerID = { };

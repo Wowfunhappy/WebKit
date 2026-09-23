@@ -114,9 +114,10 @@ protected:
 
 inline size_t CollectionNamedElementCache::memoryCost() const
 {
-    // memoryCost() may be invoked concurrently from a GC thread, and we need to be careful about what data we access here and how.
-    // It is safe to access m_idMap.size(), m_nameMap.size(), and m_propertyNames.size() because they don't chase pointers.
-    return (m_idMap.size() + m_nameMap.size()) * sizeof(Element*) + m_propertyNames.size() * sizeof(AtomString);
+    // memoryCost() may be invoked concurrently from a GC thread. This is safe because
+    // the named element cache is immutable after creation and its lifetime is protected
+    // by m_namedElementCacheAssignmentLock in HTMLCollection::memoryCost().
+    return m_idMap.byteSize() + m_nameMap.byteSize() + m_propertyNames.capacity() * sizeof(AtomString);
 }
 
 inline CollectionType HTMLCollection::type() const

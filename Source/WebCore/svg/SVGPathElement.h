@@ -93,7 +93,7 @@ public:
     ExceptionOr<Ref<SVGPoint>> getPointAtLength(float distance) const final;
     unsigned getPathSegAtLength(float distance) const;
 
-    FloatRect getBBox(StyleUpdateStrategy = AllowStyleUpdate) final;
+    FloatRect getBBox(StyleUpdateStrategy = StyleUpdateStrategy::Allow) final;
 
     SVGPathSegList& pathSegList() { return m_pathSegList->baseVal(); }
     SVGPathSegList& animatedPathSegList() { return m_pathSegList->animVal(); }
@@ -117,10 +117,10 @@ private:
     bool isValid() const final { return SVGTests::isValid(); }
     bool supportsMarkers() const final { return true; }
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 
-    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    Node::NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     void invalidateMPathDependencies();
 

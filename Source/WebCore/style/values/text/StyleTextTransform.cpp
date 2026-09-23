@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleTextTransform.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -32,8 +33,8 @@ namespace Style {
 
 auto CSSValueConversion<TextTransform>::operator()(BuilderState& state, const CSSValue& value) -> TextTransform
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNone:
             return CSS::Keyword::None { };
         case CSSValueCapitalize:
@@ -54,7 +55,7 @@ auto CSSValueConversion<TextTransform>::operator()(BuilderState& state, const CS
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::None { };
 

@@ -48,6 +48,10 @@ public:
 private:
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix& modelViewMatrix = TransformationMatrix(), float opacity = 1.0) override;
 
+#if USE(SKIA)
+    sk_sp<SkImage> skiaImage() override;
+#endif
+
     unsigned m_textureID { 0 };
 #if USE(GSTREAMER) && USE(GBM)
     uint32_t m_fourcc { 0 };

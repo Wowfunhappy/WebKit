@@ -44,11 +44,13 @@
 #include "InspectorCSSAgent.h"
 #include "InspectorDOMAgent.h"
 #include "InstrumentingAgents.h"
+#include "JSDOMWrapperCache.h"
 #include "JSExecState.h"
 #include "JSWebAnimation.h"
 #include "KeyframeEffect.h"
 #include "LocalFrame.h"
 #include "MutableStyleProperties.h"
+#include "NodeInlines.h"
 #include "Page.h"
 #include "PlaybackDirection.h"
 #include "RenderElement.h"
@@ -147,7 +149,7 @@ static Ref<JSON::ArrayOf<Inspector::Protocol::Animation::Keyframe>> buildObjectF
                 .release();
 
             RefPtr<const TimingFunction> timingFunction;
-            if (!parsedKeyframes.isEmpty())
+            if (i < parsedKeyframes.size())
                 timingFunction = parsedKeyframes[i].timingFunction;
             if (!timingFunction)
                 timingFunction = blendingKeyframe.timingFunction();
@@ -173,7 +175,7 @@ static Ref<JSON::ArrayOf<Inspector::Protocol::Animation::Keyframe>> buildObjectF
                         stylePayloadBuilder.append(
                             customProperty,
                             ": "_s,
-                            computedStyleExtractor.customPropertyValueSerialization(customProperty, CSS::defaultSerializationContext())
+                            computedStyleExtractor.customPropertyValueSerializationInStyle(style, customProperty, CSS::defaultSerializationContext())
                         );
                     }
                 );
@@ -198,7 +200,7 @@ static Ref<JSON::ArrayOf<Inspector::Protocol::Animation::Keyframe>> buildObjectF
                 keyframePayload->setEasing(timingFunction->cssText());
 
             if (!parsedKeyframe.style->isEmpty())
-                keyframePayload->setStyle(parsedKeyframe.style->asText(CSS::defaultSerializationContext()));
+                keyframePayload->setStyle(protect(parsedKeyframe.style)->asText(CSS::defaultSerializationContext()));
 
             keyframesPayload->addItem(WTF::move(keyframePayload));
         }
@@ -233,7 +235,7 @@ static Ref<Inspector::Protocol::Animation::Effect> buildObjectForEffect(Animatio
             effectPayload->setIterationDuration(iterationDuration.value());
     }
 
-    if (auto* timingFunction = effect.timingFunction())
+    if (RefPtr timingFunction = effect.timingFunction())
         effectPayload->setTimingFunction(timingFunction->cssText());
 
     if (auto playbackDirection = protocolValueForPlaybackDirection(effect.direction()))
@@ -420,7 +422,7 @@ Inspector::Protocol::ErrorStringOr<void> InspectorAnimationAgent::stopTracking()
     return { };
 }
 
-static bool isDelayed(const ComputedEffectTiming& computedTiming)
+static bool NODELETE isDelayed(const ComputedEffectTiming& computedTiming)
 {
     if (!computedTiming.localTime)
         return false;

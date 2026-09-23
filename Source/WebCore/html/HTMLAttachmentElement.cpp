@@ -511,7 +511,7 @@ HTMLElement* HTMLAttachmentElement::wideLayoutImageElement() const
     return m_imageElement.get();
 }
 
-RenderPtr<RenderElement> HTMLAttachmentElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> HTMLAttachmentElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderAttachment>(*this, WTF::move(style));
 }
@@ -573,7 +573,7 @@ void HTMLAttachmentElement::setFile(RefPtr<File>&& file, UpdateDisplayAttributes
     if (updateAttributes == UpdateDisplayAttributes::Yes) {
         if (m_file) {
             setAttributeWithoutSynchronization(HTMLNames::titleAttr, AtomString { m_file->name() });
-            setAttributeWithoutSynchronization(subtitleAttr, PAL::fileSizeDescription(m_file->size()));
+            setAttributeWithoutSynchronization(subtitleAttr, PAL::fileSizeDescription(protect(m_file)->size()));
             setAttributeWithoutSynchronization(HTMLNames::typeAttr, AtomString { m_file->type() });
         } else {
             removeAttribute(HTMLNames::titleAttr);
@@ -648,9 +648,9 @@ static bool shouldMonitorDocumentTraffic(Document& document)
 }
 #endif // ATTACHMENT_LOG_DOCUMENT_TRAFFIC
 
-Node::InsertedIntoAncestorResult HTMLAttachmentElement::insertedIntoAncestor(InsertionType type, ContainerNode& ancestor)
+Node::NeedsPostConnectionSteps HTMLAttachmentElement::insertionSteps(InsertionType type, ContainerNode& ancestor)
 {
-    auto result = HTMLElement::insertedIntoAncestor(type, ancestor);
+    auto result = HTMLElement::insertionSteps(type, ancestor);
     if (isWideLayout()) {
         setInlineStyleProperty(CSSPropertyMarginLeft, 1, CSSUnitType::CSS_PX);
         setInlineStyleProperty(CSSPropertyMarginRight, 1, CSSUnitType::CSS_PX);
@@ -684,9 +684,9 @@ Node::InsertedIntoAncestorResult HTMLAttachmentElement::insertedIntoAncestor(Ins
     return result;
 }
 
-void HTMLAttachmentElement::removedFromAncestor(RemovalType type, ContainerNode& ancestor)
+void HTMLAttachmentElement::removingSteps(RemovalType type, ContainerNode& ancestor)
 {
-    HTMLElement::removedFromAncestor(type, ancestor);
+    HTMLElement::removingSteps(type, ancestor);
 
     Ref document = this->document();
 #if ATTACHMENT_LOG_DOCUMENT_TRAFFIC

@@ -169,7 +169,7 @@ void PluginDocumentParser::appendBytes(DocumentWriter&, std::span<const uint8_t>
             // In a plugin document, the main resource is the plugin. If we have a null widget, that means
             // the loading of the plugin was cancelled, which gives us a null mainResourceLoader(), so we
             // need to have this call in a null check of the widget or of mainResourceLoader().
-            if (RefPtr loader = frame->loader().activeDocumentLoader())
+            if (auto* loader = frame->loader().activeDocumentLoader())
                 loader->setMainResourceDataBufferingPolicy(DataBufferingPolicy::DoNotBufferData);
         }
     }

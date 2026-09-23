@@ -32,7 +32,6 @@
 #include "JSCInlines.h"
 #include <unicode/ucal.h>
 #include <unicode/ucol.h>
-#include <unicode/udat.h>
 #include <unicode/udatpg.h>
 #include <unicode/uloc.h>
 #include <unicode/unumsys.h>
@@ -68,7 +67,7 @@ IntlLocale::IntlLocale(VM& vm, Structure* structure)
 template<typename Visitor>
 void IntlLocale::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<IntlLocale*>(cell);
+    auto* thisObject = uncheckedDowncast<IntlLocale>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
@@ -79,6 +78,7 @@ DEFINE_VISIT_CHILDREN(IntlLocale);
 class LocaleIDBuilder final {
 public:
     bool initialize(const String&);
+    bool canonicalize();
     CString toCanonical();
 
     void overrideLanguageScriptRegionVariants(StringView language, StringView script, StringView region, StringView variants = { });
@@ -106,6 +106,20 @@ CString LocaleIDBuilder::toCanonical()
         return { };
 
     return canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(WTF::move(buffer.value())).span();
+}
+
+bool LocaleIDBuilder::canonicalize()
+{
+    ASSERT(m_buffer.size());
+
+    auto buffer = canonicalizeLocaleIDWithoutNullTerminator(m_buffer.span().data());
+    if (!buffer)
+        return false;
+
+    auto canonicalized = canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(WTF::move(buffer.value()));
+    canonicalized.append('\0');
+    m_buffer = WTF::move(canonicalized);
+    return true;
 }
 
 // Because ICU's C API doesn't have set[Language|Script|Region|Variants] functions...
@@ -291,7 +305,7 @@ void IntlLocale::initializeLocale(JSGlobalObject* globalObject, JSValue tagValue
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    String tag = tagValue.inherits<IntlLocale>() ? jsCast<IntlLocale*>(tagValue)->toString() : tagValue.toWTFString(globalObject);
+    String tag = tagValue.inherits<IntlLocale>() ? uncheckedDowncast<IntlLocale>(tagValue)->toString() : tagValue.toWTFString(globalObject);
     RETURN_IF_EXCEPTION(scope, void());
     scope.release();
     initializeLocale(globalObject, tag, optionsValue);
@@ -375,7 +389,7 @@ void IntlLocale::initializeLocale(JSGlobalObject* globalObject, const String& ta
                 return;
             }
         } else {
-            HashSet<String> seenVariants;
+            UncheckedKeyHashSet<String> seenVariants;
             for (auto variant : variantList) {
                 if (!isUnicodeVariantSubtag(variant)) [[unlikely]] {
                     throwRangeError(globalObject, scope, variantsErrorMessage);
@@ -391,8 +405,13 @@ void IntlLocale::initializeLocale(JSGlobalObject* globalObject, const String& ta
         }
     }
 
-    if (!language.isNull() || !script.isNull() || !region.isNull() || !variants.isNull())
+    if (!language.isNull() || !script.isNull() || !region.isNull() || !variants.isNull()) {
+        if (!localeID.canonicalize()) {
+            throwTypeError(globalObject, scope, "failed to initialize Locale"_s);
+            return;
+        }
         localeID.overrideLanguageScriptRegionVariants(language, script, region, variants);
+    }
 
     String calendar = intlStringOption(globalObject, options, vm.propertyNames->calendar, { }, { }, { });
     RETURN_IF_EXCEPTION(scope, void());

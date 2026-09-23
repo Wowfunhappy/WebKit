@@ -98,9 +98,9 @@ SymbolTable* JSWebAssemblyModule::exportSymbolTable() const
     return m_exportSymbolTable.get();
 }
 
-Wasm::TypeIndex JSWebAssemblyModule::typeIndexFromFunctionIndexSpace(Wasm::FunctionSpaceIndex functionIndexSpace) const
+const Wasm::RTT& JSWebAssemblyModule::rttFromFunctionIndexSpace(Wasm::FunctionSpaceIndex functionIndexSpace) const
 {
-    return m_module->typeIndexFromFunctionIndexSpace(functionIndexSpace);
+    return m_module->rttFromFunctionIndexSpace(functionIndexSpace);
 }
 
 Wasm::Module& JSWebAssemblyModule::module()
@@ -111,7 +111,7 @@ Wasm::Module& JSWebAssemblyModule::module()
 template<typename Visitor>
 void JSWebAssemblyModule::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSWebAssemblyModule* thisObject = jsCast<JSWebAssemblyModule*>(cell);
+    JSWebAssemblyModule* thisObject = uncheckedDowncast<JSWebAssemblyModule>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);

@@ -49,7 +49,7 @@ GType webkit_gst_webrtc_ice_transport_get_type();
 WebKitGstIceTransport* webkitGstWebRTCCreateIceTransport(WebKitGstIceAgent*, GThreadSafeWeakPtr<WebKitGstIceStream>&&, GstWebRTCICEComponent, bool);
 void webkitGstWebRTCIceTransportHandleIncomingData(WebKitGstIceTransport*, GRefPtr<GstBuffer>&&);
 
-void webkitGstWebRTCIceTransportNewSelectedPair(WebKitGstIceTransport*, RiceAgentSelectedPair&);
+void webkitGstWebRTCIceTransportNewSelectedPair(WebKitGstIceTransport*, const RiceAgentSelectedPair&);
 bool webkitGstWebRTCIceTransportGetSelectedPair(WebKitGstIceTransport*, GstWebRTCICECandidateStats**, GstWebRTCICECandidateStats**);
 
 #endif // USE(GSTREAMER_WEBRTC) && USE(LIBRICE)

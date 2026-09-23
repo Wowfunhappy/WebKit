@@ -27,7 +27,9 @@
 
 #include <wtf/RetainPtr.h>
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors retains the native secure-coding payload wrapper.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 namespace IPC {
 
 template<typename T>

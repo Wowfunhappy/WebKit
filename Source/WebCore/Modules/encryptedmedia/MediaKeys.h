@@ -76,6 +76,7 @@ public:
     void attemptToResumePlaybackOnClients();
 
     bool hasOpenSessions() const;
+    bool hasOpenSessionWithIdForOrigin(const String& sessionId, const String& origin) const;
     CDMInstance& cdmInstance() { return m_instance; }
     const CDMInstance& cdmInstance() const { return m_instance; }
 

@@ -199,6 +199,35 @@ private struct FeatureFlagsView: View {
     }
 }
 
+private struct DebugOverlaysView: View {
+    @AppStorage(AppStorageKeys.debugOverlayNonFastScrollableRegion)
+    private var nonFastScrollableRegion = false
+
+    @AppStorage(AppStorageKeys.debugOverlayWheelEventHandlerRegion)
+    private var wheelEventHandlerRegion = false
+
+    @AppStorage(AppStorageKeys.debugOverlayTouchActionRegion)
+    private var touchActionRegion = false
+
+    @AppStorage(AppStorageKeys.debugOverlayInteractionRegion)
+    private var interactionRegion = false
+
+    @AppStorage(AppStorageKeys.debugOverlayEnhancedSecurityRegion)
+    private var enhancedSecurityRegion = false
+
+    var body: some View {
+        Form {
+            Section("Region Overlays") {
+                Toggle("Non-fast Scrollable Region", isOn: $nonFastScrollableRegion)
+                Toggle("Wheel Event Handler Region", isOn: $wheelEventHandlerRegion)
+                Toggle("Touch Action Region", isOn: $touchActionRegion)
+                Toggle("Interaction Region", isOn: $interactionRegion)
+                Toggle("Enhanced Security Region", isOn: $enhancedSecurityRegion)
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
     let currentURL: URL?
 
@@ -211,6 +240,10 @@ struct SettingsView: View {
             Tab("Feature Flags", systemImage: "flag.filled.and.flag.crossed") {
                 FeatureFlagsView()
                     .environment(FeatureFlagsModel())
+            }
+
+            Tab("Debug Overlays", systemImage: "squareshape.split.2x2.dotted.inside.and.outside") {
+                DebugOverlaysView()
             }
         }
         .scenePadding()

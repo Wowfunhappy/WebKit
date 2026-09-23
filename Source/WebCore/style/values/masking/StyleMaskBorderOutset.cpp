@@ -27,22 +27,39 @@
 #include "StyleMaskBorderOutset.h"
 
 #include "AnimationUtilities.h"
+#include "CSSMaskBorderOutsetValue.h"
 #include "CSSPrimitiveValue.h"
-#include "CSSQuadValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 
 namespace WebCore {
 namespace Style {
 
-using namespace CSS::Literals;
-
 // MARK: - Conversion
 
-static MaskBorderOutsetValue convertMaskBorderOutsetValue(BuilderState& state, const CSSValue& value)
+DEFINE_TYPE_MAPPING(CSS::MaskBorderOutset::Value, MaskBorderOutset::Value);
+
+auto ToCSS<MaskBorderOutset>::operator()(const MaskBorderOutset& value, const Style::ComputedStyle& style) -> CSS::MaskBorderOutset
 {
+    return { toCSS(value.values, style) };
+}
+
+auto ToStyle<CSS::MaskBorderOutset>::operator()(const CSS::MaskBorderOutset& value, const BuilderState& state) -> MaskBorderOutset
+{
+    return { toStyle(value.values, state) };
+}
+
+auto CSSValueConversion<MaskBorderOutset>::operator()(BuilderState& state, const CSSValue& value) -> MaskBorderOutset
+{
+    using namespace CSS::Literals;
+
+    if (RefPtr outsetValue = dynamicDowncast<CSSMaskBorderOutsetValue>(value))
+        return toStyle(outsetValue->outsets(), state);
+
+    // Values coming from CSS Typed OM may not have been converted to a CSSMaskBorderOutsetValue.
     RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
     if (!primitiveValue)
         return MaskBorderOutsetValue { 0_css_number };
@@ -52,30 +69,9 @@ static MaskBorderOutsetValue convertMaskBorderOutsetValue(BuilderState& state, c
     return toStyleFromCSSValue<MaskBorderOutsetValue::Length>(state, *primitiveValue);
 }
 
-auto CSSValueConversion<MaskBorderOutset>::operator()(BuilderState& state, const CSSValue& value) -> MaskBorderOutset
+auto CSSValueCreation<MaskBorderOutset>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const MaskBorderOutset& value) -> Ref<CSSValue>
 {
-    if (RefPtr quadValue = dynamicDowncast<CSSQuadValue>(value)) {
-        auto& quad = quadValue->quad();
-        return MaskBorderOutset {
-            convertMaskBorderOutsetValue(state, quad.top()),
-            convertMaskBorderOutsetValue(state, quad.right()),
-            convertMaskBorderOutsetValue(state, quad.bottom()),
-            convertMaskBorderOutsetValue(state, quad.left()),
-        };
-    }
-
-    // Values coming from CSS Typed OM may not have been converted to a Quad.
-    return convertMaskBorderOutsetValue(state, value);
-}
-
-auto CSSValueCreation<MaskBorderOutset>::operator()(CSSValuePool& pool, const RenderStyle& style, const MaskBorderOutset& value) -> Ref<CSSValue>
-{
-    return CSSQuadValue::create({
-        createCSSValue(pool, style, value.values.top()),
-        createCSSValue(pool, style, value.values.right()),
-        createCSSValue(pool, style, value.values.bottom()),
-        createCSSValue(pool, style, value.values.left()),
-    });
+    return CSSMaskBorderOutsetValue::create(toCSS(value, style));
 }
 
 // MARK: - Blending
@@ -92,6 +88,8 @@ inline auto Blending<MaskBorderOutsetValue>::requiresInterpolationForAccumulativ
 
 inline auto Blending<MaskBorderOutsetValue>::blend(const MaskBorderOutsetValue& a, const MaskBorderOutsetValue& b, const BlendingContext& context) -> MaskBorderOutsetValue
 {
+    using namespace CSS::Literals;
+
     if (!a.hasSameType(b))
         return MaskBorderOutsetValue { 0_css_px };
 

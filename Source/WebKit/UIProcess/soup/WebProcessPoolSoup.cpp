@@ -42,7 +42,7 @@ void WebProcessPool::platformInitializeNetworkProcess(NetworkProcessCreationPara
     parameters.languages = overrideLanguages().isEmpty() ? userPreferredLanguages() : overrideLanguages();
     parameters.memoryPressureHandlerConfiguration = s_networkProcessMemoryPressureHandlerConfiguration;
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
     if (MemoryPressureMonitor::disabled())
         parameters.shouldSuppressMemoryPressureHandler = true;
 #endif // OS(LINUX)

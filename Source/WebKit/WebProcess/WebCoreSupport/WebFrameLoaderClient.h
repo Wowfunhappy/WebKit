@@ -30,7 +30,9 @@
 #include <WebCore/ReferrerPolicy.h>
 #include <WebCore/SandboxFlags.h>
 #include <optional>
+#include <wtf/Forward.h>
 #include <wtf/Function.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/Ref.h>
 #include <wtf/Scope.h>
 
@@ -81,6 +83,9 @@ protected:
 
     void broadcastAllFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncData&);
     void broadcastFrameTreeSyncDataToOtherProcesses(const WebCore::FrameTreeSyncSerializationData&);
+
+    void didNotifyUserActivation(MonotonicTime);
+    void didConsumeUserActivation();
 
     const Ref<WebFrame> m_frame;
     ScopeExit<Function<void()>> m_frameInvalidator;

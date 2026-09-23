@@ -42,34 +42,32 @@ namespace WebCore {
 namespace Style {
 namespace Calculation {
 
-Ref<Value> Value::create(CSS::Category category, CSS::Range range, Tree&& tree)
+Ref<Value> Value::create(Tree&& tree)
 {
-    return adoptRef(*new Value(category, range, WTF::move(tree)));
+    return adoptRef(*new Value(WTF::move(tree)));
 }
 
-Value::Value(CSS::Category category, CSS::Range range, Tree&& tree)
-    : m_category(category)
-    , m_range(range)
-    , m_tree(WTF::move(tree))
+Value::Value(Tree&& tree)
+    : m_tree(WTF::move(tree))
 {
 }
 
 Value::~Value() = default;
 
-double Value::evaluate(double percentResolutionLength, const ZoomFactor& usedZoom) const
+double Value::evaluate(CSS::Range range, double percentageBasis, ZoomFactor zoom) const
 {
-    auto result = Calculation::evaluate(m_tree, percentResolutionLength, usedZoom);
+    auto result = Calculation::evaluate(m_tree, percentageBasis, zoom);
     if (std::isnan(result))
         return 0;
-    return std::clamp(result, m_range.min, m_range.max);
+    return CSS::clampToRange<double>(result, range);
 }
 
-double Value::evaluate(double percentResolutionLength, const ZoomNeeded& zoomNeeded) const
+double Value::evaluate(CSS::Range range, double percentageBasis, ZoomNeeded token) const
 {
-    auto result = Calculation::evaluate(m_tree, percentResolutionLength, zoomNeeded);
+    auto result = Calculation::evaluate(m_tree, percentageBasis, token);
     if (std::isnan(result))
         return 0;
-    return std::clamp(result, m_range.min, m_range.max);
+    return CSS::clampToRange<double>(result, range);
 }
 
 Tree Value::copyTree() const

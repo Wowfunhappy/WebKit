@@ -33,14 +33,12 @@
 
 #if !UCONFIG_NO_COLLATION
 
-#include <mutex>
 #include <unicode/ucol.h>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringView.h>
 
 #if OS(DARWIN) && USE(CF)
-#include <CoreFoundation/CoreFoundation.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/cf/TypeCastsCF.h>
 #endif

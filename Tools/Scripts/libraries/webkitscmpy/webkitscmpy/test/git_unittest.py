@@ -591,6 +591,65 @@ CommitDate: {time_c}
             result = repo.fetch(branch='main', remote='origin')
             self.assertNotEqual(result, 0)
 
+    def test_fetch_succeeds_in_normal_repo(self):
+        with mocks.local.Git(self.path) as mock_git, OutputCapture():
+            repo = local.Git(self.path)
+            default_branch = mock_git.default_branch
+
+            original_commits = mock_git.commits[default_branch][:]
+            mock_git.commits[default_branch] = original_commits[:-1]
+            mock_git.head = mock_git.commits[default_branch][-1]
+
+            self.assertNotEqual(mock_git.commits[default_branch], mock_git.remotes['origin/{}'.format(default_branch)])
+
+            result = repo.fetch(branch=default_branch, remote='origin')
+            self.assertEqual(result, 0)
+            self.assertEqual(mock_git.commits[default_branch], mock_git.remotes['origin/{}'.format(default_branch)])
+
+    def test_fetch_with_prune(self):
+        with mocks.local.Git(self.path) as mock_git, OutputCapture():
+            repo = local.Git(self.path)
+            default_branch = mock_git.default_branch
+
+            original_commits = mock_git.commits[default_branch][:]
+            mock_git.commits[default_branch] = original_commits[:-1]
+            mock_git.head = mock_git.commits[default_branch][-1]
+
+            result = repo.fetch(branch=default_branch, remote='origin', prune=True)
+            self.assertEqual(result, 0)
+            self.assertEqual(mock_git.commits[default_branch], mock_git.remotes['origin/{}'.format(default_branch)])
+
+    def test_fetch_default_remote(self):
+        with mocks.local.Git(self.path) as mock_git, OutputCapture():
+            repo = local.Git(self.path)
+            default_branch = mock_git.default_branch
+
+            original_commits = mock_git.commits[default_branch][:]
+            mock_git.commits[default_branch] = original_commits[:-1]
+            mock_git.head = mock_git.commits[default_branch][-1]
+
+            result = repo.fetch(branch=default_branch)
+            self.assertEqual(result, 0)
+            self.assertEqual(mock_git.commits[default_branch], mock_git.remotes['origin/{}'.format(default_branch)])
+
+    def test_fetch_nonexistent_remote_branch(self):
+        with mocks.local.Git(self.path) as mock_git, OutputCapture():
+            repo = local.Git(self.path)
+            self.assertIn('main', mock_git.commits)
+            self.assertNotIn('origin/nonexistent', mock_git.remotes)
+            result = repo.fetch(branch='nonexistent', remote='origin')
+            self.assertNotEqual(result, 0)
+
+    def test_fetch_creates_local_branch(self):
+        with mocks.local.Git(self.path) as mock_git, OutputCapture():
+            repo = local.Git(self.path)
+            self.assertIn('origin/branch-a', mock_git.remotes)
+            del mock_git.commits['branch-a']
+            self.assertNotIn('branch-a', mock_git.commits)
+            result = repo.fetch(branch='branch-a', remote='origin')
+            self.assertEqual(result, 0)
+            self.assertEqual(mock_git.commits['branch-a'], mock_git.remotes['origin/branch-a'])
+
     def test_pull_rebase_with_branch(self):
         """Test that pull(rebase=True, branch=X) works in a normal repository.
 

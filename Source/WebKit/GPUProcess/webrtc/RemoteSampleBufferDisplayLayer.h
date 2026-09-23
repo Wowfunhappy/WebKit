@@ -96,6 +96,7 @@ private:
 
     // WebCore::SampleBufferDisplayLayerClient
     void sampleBufferDisplayLayerStatusDidFail() final;
+    void updateVideoFrameCounters(uint64_t, uint64_t) final;
 #if PLATFORM(IOS_FAMILY)
     bool canShowWhileLocked() const final { return false; }
 #endif

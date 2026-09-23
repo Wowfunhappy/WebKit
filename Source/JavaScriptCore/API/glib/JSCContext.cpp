@@ -373,7 +373,7 @@ GUniquePtr<char*> jscContextJSArrayToGStrv(JSCContext* context, JSValueRef jsArr
     if (*exception)
         return nullptr;
 
-    auto sizeInBytes = checkedSum<size_t>(length + 1);
+    auto sizeInBytes = checkedSum<size_t>(length, 1);
     sizeInBytes *= sizeof(char*);
     if (sizeInBytes.hasOverflowed())
         return nullptr;
@@ -448,10 +448,9 @@ JSValueRef jscContextGValueToJSValue(JSCContext* context, const GValue* value, J
                 return jscContextGArrayToJSArray(context, static_cast<GPtrArray*>(ptr), exception);
 
             if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_STRV)) {
-                auto** strv = static_cast<char**>(ptr);
-                auto strvLength = g_strv_length(strv);
-                GRefPtr<GPtrArray> gArray = adoptGRef(g_ptr_array_new_full(strvLength, g_object_unref));
-                for (auto* item : span(strv))
+                auto items = span(static_cast<char**>(ptr));
+                GRefPtr<GPtrArray> gArray = adoptGRef(g_ptr_array_new_full(items.size(), g_object_unref));
+                for (auto* item : items)
                     g_ptr_array_add(gArray.get(), jsc_value_new_string(context, item));
                 return jscContextGArrayToJSArray(context, gArray.get(), exception);
             }

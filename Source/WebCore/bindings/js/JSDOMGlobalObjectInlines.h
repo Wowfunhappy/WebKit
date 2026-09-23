@@ -27,14 +27,16 @@
 #pragma once
 
 #include "DOMConstructors.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMGlobalObject.h"
-#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/JSGlobalProxy.h>
+#include <JavaScriptCore/WriteBarrierInlines.h>
 
 namespace WebCore {
 
 inline JSC::Structure* JSDOMGlobalObject::createStructure(JSC::VM& vm, JSC::JSValue prototype)
 {
-    return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
+    return JSC::Structure::create(vm, nullptr, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
 }
 
 inline JSDOMStructureMap& JSDOMGlobalObject::structures(NoLockingNecessaryTag) LIFETIME_BOUND
@@ -72,10 +74,9 @@ JSClass* toJSDOMGlobalObject(JSC::VM&, JSC::JSValue value)
     static_assert(std::is_base_of_v<JSDOMGlobalObject, JSClass>);
 
     if (auto* object = value.getObject()) {
-        if (object->type() == JSC::GlobalProxyType)
-            return JSC::jsDynamicCast<JSClass*>(JSC::jsCast<JSC::JSGlobalProxy*>(object)->target());
-        if (object->inherits<JSClass>())
-            return JSC::jsCast<JSClass*>(object);
+        if (auto* proxy = dynamicDowncast<JSC::JSGlobalProxy>(*object))
+            return dynamicDowncast<JSClass>(proxy->target());
+        return dynamicDowncast<JSClass>(*object);
     }
 
     return nullptr;

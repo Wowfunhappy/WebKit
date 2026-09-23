@@ -90,22 +90,29 @@
         "IOPMrootDomain"))
 
 
-;; FIXME: Add check `(with-filter (system-attribute virtual-device)` when this is supported. See rdar://118274636.
-(allow iokit-open-service (iokit-registry-entry-class "AppleVideoToolboxParavirtualizationDriver"))
+(define (allow-paravirtualization)
+    (allow iokit-open-service (iokit-registry-entry-class "AppleVideoToolboxParavirtualizationDriver"))
 
-(if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open-user-client
-        (iokit-user-client-class "AppleVideoToolboxParavirtualizationUserClient")
-        (apply-message-filter
-            (allow iokit-external-method
-                (iokit-method-number 0 1 2 3 4))
-            (GPU_PROCESS_IOKIT_DEFAULT_FILTER_OPERATION (with telemetry)
-                iokit-async-external-method
-                iokit-external-method
-                iokit-external-trap)))
-    ;; else
-    (allow iokit-open-user-client
-        (iokit-user-client-class "AppleVideoToolboxParavirtualizationUserClient")))
+    (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
+        (allow iokit-open-user-client
+            (iokit-user-client-class "AppleVideoToolboxParavirtualizationUserClient")
+            (apply-message-filter
+                (GPU_PROCESS_IOKIT_DEFAULT_FILTER_OPERATION (with telemetry)
+                    iokit-async-external-method
+                    iokit-external-method
+                    iokit-external-trap)
+                (allow iokit-external-method
+                    (iokit-method-number 0 1 2 3 4))))
+        ;; else
+        (allow iokit-open-user-client
+            (iokit-user-client-class "AppleVideoToolboxParavirtualizationUserClient"))))
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000
+(with-filter (system-attribute virtual-device)
+    (allow-paravirtualization))
+#else
+(allow-paravirtualization)
+#endif
 
 (deny darwin-notification-post (with no-report))
 (deny nvram-get (with no-report))
@@ -131,6 +138,11 @@
 (allow file-map-executable
     (subpath "/System/Library/Frameworks")
     (subpath "/System/Library/PrivateFrameworks")
+    (subpath "/System/Library/SubFrameworks/RealityCoreRenderer.framework")
+    (subpath "/System/Library/SubFrameworks/RealityCoreDeformation.framework")
+    (subpath "/System/Library/SubFrameworks/RealityFoundationCloth.framework")
+    (subpath "/System/Library/SubFrameworks/ShaderGraph.framework")
+    (subpath "/System/Library/SubFrameworks/RealityCoreTextureProcessing.framework")
     (subpath "/usr/lib"))
 
 (allow file-read-metadata
@@ -967,13 +979,20 @@
         "com.apple.DiskArbitration.diskarbitrationd"
         "com.apple.ViewBridgeAuxiliary"
         "com.apple.audioanalyticsd"
+        "com.apple.translation.text"
         "com.apple.windowserver.active"))
 
 (allow mach-lookup
     (require-all
         (extension "com.apple.webkit.extension.mach")
         (global-name "com.apple.coreservices.launchservicesd")))
-        
+
+(with-filter (system-attribute apple-internal)
+    (allow mach-lookup
+        (require-all
+            (extension "com.apple.webkit.extension.mach")
+            (global-name "com.apple.gputools.service"))))
+
 (deny mach-lookup (with no-report)
     (global-name-prefix "com.apple.distributed_notifications"))
 
@@ -1478,6 +1497,7 @@
         SYS_necp_open
         SYS_open_dprotected_np
         SYS_open_nocancel
+        SYS_openat_dprotected_np
         SYS_pathconf
         SYS_pread
         SYS_proc_rlimit_control
@@ -1494,6 +1514,7 @@
         SYS_read_nocancel
         SYS_readlink
         SYS_rename
+        SYS_renameat
         SYS_sendto
         SYS_setrlimit
         SYS_setsockopt

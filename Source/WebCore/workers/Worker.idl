@@ -26,7 +26,8 @@
 
 [
     ActiveDOMObject,
-    Exposed=(Window,DedicatedWorker)
+    Exposed=(Window,DedicatedWorker,SharedWorker),
+    ExposedEnabledBySetting=SharedWorker|WorkerInSharedWorkerEnabled
 ] interface Worker : EventTarget {
     [CallWith=CurrentScriptExecutionContext&RuntimeFlags] constructor((TrustedScriptURL or USVString) scriptURL, optional WorkerOptions options = {});
 

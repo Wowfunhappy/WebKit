@@ -112,6 +112,7 @@ if (hasH265) {
     }
 
     promise_test(async (test) => {
+        test.add_cleanup(() => track.stop());
         const stats = await getOutboundRTPStats(sendingConnection);
         assert_true(!!stats, "outbound-rtp stats should not be null");
         assert_true(!stats.qpSum || Number.isInteger(stats.qpSum), "outbound qpSum should be an integer");

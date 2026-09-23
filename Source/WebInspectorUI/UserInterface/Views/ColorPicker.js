@@ -350,6 +350,18 @@ WI.ColorPicker = class ColorPicker extends WI.Object
         this._element.classList.toggle("gamut-p3", this._color.gamut === WI.Color.Gamut.DisplayP3);
     }
 
+    _needsAlphaColorInput()
+    {
+        switch (this._color.format) {
+        case WI.Color.Format.RGBA:
+        case WI.Color.Format.HSLA:
+        case WI.Color.Format.HEXAlpha:
+        case WI.Color.Format.ShortHEXAlpha:
+            return true;
+        }
+        return false;
+    }
+
     _createColorInputsIfNeeded()
     {
         let hasAlpha = this._color.alpha !== 1;
@@ -362,19 +374,17 @@ WI.ColorPicker = class ColorPicker extends WI.Object
         this._colorInputs = [];
         this._colorInputsContainerElement.removeChildren();
 
-        let createColorInput = (label, {max, step, units} = {}) => {
-            let containerElement = this._colorInputsContainerElement.createChild("div");
-            containerElement.append(label);
+        let createColorInput = (label, title, {max, step} = {}) => {
+            let labelElement = this._colorInputsContainerElement.createChild("label");
+            labelElement.title = title;
+            labelElement.textContent = label;
 
-            let numberInputElement = containerElement.createChild("input");
+            let numberInputElement = labelElement.createChild("input");
             numberInputElement.type = "number";
             numberInputElement.min = 0;
             numberInputElement.max = max;
             numberInputElement.step = step || 1;
             this._colorInputs.push(numberInputElement);
-
-            if (units && units.length)
-                containerElement.append(units);
         };
 
         switch (this._color.format) {
@@ -385,22 +395,22 @@ WI.ColorPicker = class ColorPicker extends WI.Object
         case WI.Color.Format.HEXAlpha:
         case WI.Color.Format.ShortHEXAlpha:
         case WI.Color.Format.Keyword:
-            createColorInput("R", {max: 255});
-            createColorInput("G", {max: 255});
-            createColorInput("B", {max: 255});
+            createColorInput("R", WI.UIString("Red", "Red @ Color Picker", "Label for red color component of CSS color."), {max: 255});
+            createColorInput("G", WI.UIString("Green", "Green @ Color Picker", "Label for green color component of CSS color."), {max: 255});
+            createColorInput("B", WI.UIString("Blue", "Blue @ Color Picker", "Label for blue color component of CSS color."), {max: 255});
             break;
 
         case WI.Color.Format.HSL:
         case WI.Color.Format.HSLA:
-            createColorInput("H", {max: 360});
-            createColorInput("S", {max: 100, units: "%"});
-            createColorInput("L", {max: 100, units: "%"});
+            createColorInput("H", WI.UIString("Hue", "Hue @ Color Picker", "Label for hue color component of CSS color."), {max: 360});
+            createColorInput("S", WI.UIString("Saturation", "Saturation @ Color Picker", "Label for saturation color component of CSS color."), {max: 100});
+            createColorInput("L", WI.UIString("Lightness", "Lightness @ Color Picker", "Label for lightness color component of CSS color."), {max: 100});
             break;
 
         case WI.Color.Format.ColorFunction:
-            createColorInput("R", {max: 1, step: 0.01});
-            createColorInput("G", {max: 1, step: 0.01});
-            createColorInput("B", {max: 1, step: 0.01});
+            createColorInput("R", WI.UIString("Red", "Red @ Color Picker", "Label for red color component of CSS color."), {max: 1, step: 0.01});
+            createColorInput("G", WI.UIString("Green", "Green @ Color Picker", "Label for green color component of CSS color."), {max: 1, step: 0.01});
+            createColorInput("B", WI.UIString("Blue", "Blue @ Color Picker", "Label for blue color component of CSS color."), {max: 1, step: 0.01});
             break;
 
         default:
@@ -408,13 +418,8 @@ WI.ColorPicker = class ColorPicker extends WI.Object
             return;
         }
 
-        if (this._color.alpha !== 1
-            || this._color.format === WI.Color.Format.RGBA
-            || this._color.format === WI.Color.Format.HSLA
-            || this._color.format === WI.Color.Format.HEXAlpha
-            || this._color.format === WI.Color.Format.ShortHEXAlpha) {
-            createColorInput("A", {max: 1, step: 0.01});
-        }
+        if (this._color.alpha !== 1 || this._needsAlphaColorInput())
+            createColorInput("A", WI.UIString("Alpha", "Alpha @ Color Picker", "Label for alpha color component of CSS color."), {max: 1, step: 0.01});
     }
 
     _showColorComponentInputs()
@@ -446,7 +451,7 @@ WI.ColorPicker = class ColorPicker extends WI.Object
             console.error(`Unknown color format: ${this._color.format}`);
         }
 
-        if (this._color.alpha !== 1)
+        if (this._color.alpha !== 1 || this._needsAlphaColorInput())
             components.push(this._color.alpha);
 
         console.assert(this._colorInputs.length === components.length);

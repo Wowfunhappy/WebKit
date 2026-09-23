@@ -27,86 +27,43 @@
 #include "StyleMaskBorderSlice.h"
 
 #include "AnimationUtilities.h"
-#include "CSSBorderImageSliceValue.h"
-#include "CSSPrimitiveValue.h"
+#include "CSSMaskBorderSliceValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 
 namespace WebCore {
 namespace Style {
 
-using namespace CSS::Literals;
-
 // MARK: - Conversion
 
-static MaskBorderSliceValue convertMaskBorderSliceValue(BuilderState& state, const CSSValue& value)
+auto ToCSS<MaskBorderSlice>::operator()(const MaskBorderSlice& value, const Style::ComputedStyle& style) -> CSS::MaskBorderSlice
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return MaskBorderSliceValue { 0_css_number };
+    return { toCSS(value.values, style), value.fill };
+}
 
-    if (primitiveValue->isNumber())
-        return toStyleFromCSSValue<MaskBorderSliceValue::Number>(state, *primitiveValue);
-    return toStyleFromCSSValue<MaskBorderSliceValue::Percentage>(state, *primitiveValue);
+auto ToStyle<CSS::MaskBorderSlice>::operator()(const CSS::MaskBorderSlice& value, const BuilderState& state) -> MaskBorderSlice
+{
+    return { toStyle(value.values, state), value.fill };
 }
 
 auto CSSValueConversion<MaskBorderSlice>::operator()(BuilderState& state, const CSSValue& value) -> MaskBorderSlice
 {
-    if (RefPtr sliceValue = dynamicDowncast<CSSBorderImageSliceValue>(value)) {
-        auto& slices = sliceValue->slices();
-        return MaskBorderSlice {
-            convertMaskBorderSliceValue(state, slices.top()),
-            convertMaskBorderSliceValue(state, slices.right()),
-            convertMaskBorderSliceValue(state, slices.bottom()),
-            convertMaskBorderSliceValue(state, slices.left()),
-            sliceValue->fill() ? std::make_optional(CSS::Keyword::Fill { }) : std::nullopt,
-        };
-    }
+    if (RefPtr sliceValue = dynamicDowncast<CSSMaskBorderSliceValue>(value))
+        return toStyle(sliceValue->slices(), state);
 
-    // Values coming from CSS Typed OM may not have been converted to a CSSBorderImageSliceValue.
-    return convertMaskBorderSliceValue(state, value);
+    // Values coming from CSS Typed OM may not have been converted to a CSSMaskBorderSliceValue.
+    return toStyleFromCSSValue<MaskBorderSlice::Value>(state, value);
 }
 
-auto CSSValueCreation<MaskBorderSlice>::operator()(CSSValuePool& pool, const RenderStyle& style, const MaskBorderSlice& value) -> Ref<CSSValue>
+auto CSSValueCreation<MaskBorderSlice>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const MaskBorderSlice& value) -> Ref<CSSValue>
 {
-    return CSSBorderImageSliceValue::create({
-        createCSSValue(pool, style, value.values.top()),
-        createCSSValue(pool, style, value.values.right()),
-        createCSSValue(pool, style, value.values.bottom()),
-        createCSSValue(pool, style, value.values.left()),
-    }, value.fill.has_value());
+    return CSSMaskBorderSliceValue::create(toCSS(value, style));
 }
 
 // MARK: - Blending
-
-inline auto Blending<MaskBorderSliceValue>::canBlend(const MaskBorderSliceValue& a, const MaskBorderSliceValue& b) -> bool
-{
-    return a.hasSameType(b);
-}
-
-inline auto Blending<MaskBorderSliceValue>::requiresInterpolationForAccumulativeIteration(const MaskBorderSliceValue& a, const MaskBorderSliceValue& b) -> bool
-{
-    return !a.hasSameType(b);
-}
-
-inline auto Blending<MaskBorderSliceValue>::blend(const MaskBorderSliceValue& a, const MaskBorderSliceValue& b, const BlendingContext& context) -> MaskBorderSliceValue
-{
-    if (context.isDiscrete) {
-        ASSERT(!context.progress || context.progress == 1);
-        return context.progress ? b : a;
-    }
-
-    return WTF::visit(WTF::makeVisitor(
-        [&]<typename T>(const T& a, const T& b) -> MaskBorderSliceValue {
-            return Style::blend(a, b, context);
-        },
-        [&](const auto&, const auto&) -> MaskBorderSliceValue {
-            RELEASE_ASSERT_NOT_REACHED();
-        }
-    ), a.m_value, b.m_value);
-}
 
 auto Blending<MaskBorderSlice>::canBlend(const MaskBorderSlice& a, const MaskBorderSlice& b) -> bool
 {

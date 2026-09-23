@@ -93,6 +93,10 @@ css3/filters/backdrop/native-background-filter-dynamic.html
 css3/filters/backdrop/native-background-blur.html
 css3/filters/backdrop/native-background-animation.html
 imported/w3c/web-platform-tests/html/canvas/element
+webgl/webgl2-rendering-context-obtain.html
+webgl/read-framebuffer-attachment-preserves-draw-state.html
+webgl/gl-clear-preserve-drawing-buffer-bug.html
+webgl/tex-2d-video-no-change-wrap.html
 
 # Text encoding
 fast/encoding
@@ -100,3 +104,7 @@ fast/encoding
 # Text and fonts: CoreText on 10.9, the OTS font parser and the font descriptor polyfills
 fast/text
 imported/w3c/web-platform-tests/css/css-fonts
+
+# Legacy styling used by native clients.
+fast/borders/legacy-border-image-used-widths.html
+fast/css/dashboard-region-values.html

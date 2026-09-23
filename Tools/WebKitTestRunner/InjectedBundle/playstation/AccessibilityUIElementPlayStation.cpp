@@ -1035,6 +1035,12 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementPlayStation::pathDescription() co
     return nullptr;
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementPlayStation::pathAsBounds() const
+{
+    notImplemented();
+    return nullptr;
+}
+
 JSRetainPtr<JSStringRef> AccessibilityUIElementPlayStation::mathPostscriptsDescription() const
 {
     notImplemented();

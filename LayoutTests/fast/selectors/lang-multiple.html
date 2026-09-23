@@ -91,13 +91,13 @@
 
     debug(''); 
 
-    shouldBe('document.querySelectorAll(":lang(fr-x, fr-x)").length', '0');
+    shouldBe('document.querySelectorAll(":lang(fr-x, fr-x)").length', '2');
     shouldBe('document.querySelectorAll(":lang(fr-xenomorph, fr-xenomorph)").length', '1');
 
     debug('');
 
-    shouldBe('document.querySelectorAll(":lang(cocoa-1, cocoa-1)").length', '0');
-    shouldBe('document.querySelectorAll(":lang(cocoa-a, cocoa-a)").length', '0');
+    shouldBe('document.querySelectorAll(":lang(cocoa-1, cocoa-1)").length', '1');
+    shouldBe('document.querySelectorAll(":lang(cocoa-a, cocoa-a)").length', '1');
     shouldBe('document.querySelectorAll(":lang(cocoa-bar, cocoa-bar)").length', '0');
 
     debug('');

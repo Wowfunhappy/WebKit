@@ -56,8 +56,6 @@ enum class IsKnownCrossSiteTracker : bool;
 
 namespace WebKit {
 
-bool isTaintedScriptURLBlockable(const URL&);
-
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
 
 enum class RestrictedOpenerType : uint8_t;
@@ -197,6 +195,7 @@ public:
     void getSource(CompletionHandler<void(String&&)>&&);
 
     void setContentRuleListStore(API::ContentRuleListStore&);
+    API::ContentRuleListStore* contentRuleListStore() const { return m_contentRuleListStore; }
 
 private:
     friend class NeverDestroyed<ResourceMonitorURLsController, MainRunLoopAccessTraits>;

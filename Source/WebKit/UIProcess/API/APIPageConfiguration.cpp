@@ -102,6 +102,15 @@ void PageConfiguration::copyDataFrom(const PageConfiguration& other)
     m_data = other.m_data;
 }
 
+void PageConfiguration::ensureLazyInitializedRefsAreInitialized()
+{
+    m_data.processPool.get();
+    m_data.userContentController.get();
+    m_data.preferences.get();
+    m_data.visitedLinkStore.get();
+    m_data.defaultWebsitePolicies.get();
+}
+
 const std::optional<WebCore::WindowFeatures>& PageConfiguration::windowFeatures() const
 {
     return m_data.windowFeatures;
@@ -358,6 +367,16 @@ void PageConfiguration::setDelaysWebProcessLaunchUntilFirstLoad(bool delaysWebPr
     m_data.delaysWebProcessLaunchUntilFirstLoad = delaysWebProcessLaunchUntilFirstLoad;
 }
 
+bool PageConfiguration::defaultDelaysWebProcessLaunchUntilFirstLoad() const
+{
+#if PLATFORM(IOS_FAMILY)
+    // Delayed process launch is currently disabled without Site Isolation for performance reasons (rdar://problem/49074131).
+    return protect(preferences())->siteIsolationEnabled();
+#else
+    return true;
+#endif
+}
+
 bool PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() const
 {
     if (RefPtr processPool = m_data.processPool.getIfExists(); processPool && isInspectorProcessPool(*processPool)) {
@@ -365,17 +384,15 @@ bool PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() const
         RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> false because of WebInspector pool", this);
         return false;
     }
+
     if (m_data.delaysWebProcessLaunchUntilFirstLoad) {
         RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %" PUBLIC_LOG_STRING " because of explicit client value", this, *m_data.delaysWebProcessLaunchUntilFirstLoad ? "true" : "false");
         // If the client explicitly enabled / disabled the feature, then obey their directives.
         return *m_data.delaysWebProcessLaunchUntilFirstLoad;
     }
-    if (RefPtr processPool = m_data.processPool.getIfExists()) {
-        RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %" PUBLIC_LOG_STRING " because of associated processPool value", this, processPool->delaysWebProcessLaunchDefaultValue() ? "true" : "false");
-        return processPool->delaysWebProcessLaunchDefaultValue();
-    }
-    RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %" PUBLIC_LOG_STRING " because of global default value", this, WebProcessPool::globalDelaysWebProcessLaunchDefaultValue() ? "true" : "false");
-    return WebProcessPool::globalDelaysWebProcessLaunchDefaultValue();
+
+    RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %" PUBLIC_LOG_STRING " because of global default value", this, defaultDelaysWebProcessLaunchUntilFirstLoad() ? "true" : "false");
+    return defaultDelaysWebProcessLaunchUntilFirstLoad();
 }
 
 bool PageConfiguration::isLockdownModeExplicitlySet() const

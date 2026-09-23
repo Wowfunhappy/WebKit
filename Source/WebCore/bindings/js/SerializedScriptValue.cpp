@@ -29,6 +29,8 @@
 
 #include "BlobRegistry.h"
 #include "ByteArrayPixelBuffer.h"
+#include "ClientOrigin.h"
+#include "ContextDestructionObserverInlines.h"
 #include "CryptoKeyAES.h"
 #include "CryptoKeyEC.h"
 #include "CryptoKeyHMAC.h"
@@ -36,6 +38,12 @@
 #include "CryptoKeyRSA.h"
 #include "CryptoKeyRSAComponents.h"
 #include "CryptoKeyRaw.h"
+#include "Document.h"
+#include "DocumentQuirks.h"
+#include "FileSystemDirectoryHandle.h"
+#include "FileSystemFileHandle.h"
+#include "FileSystemHandleGlobalIdentifier.h"
+#include "HTMLCanvasElement.h"
 #include "IDBValue.h"
 #include "ImageBuffer.h"
 #include "JSAudioWorkletGlobalScope.h"
@@ -52,6 +60,8 @@
 #include "JSExecState.h"
 #include "JSFile.h"
 #include "JSFileList.h"
+#include "JSFileSystemDirectoryHandle.h"
+#include "JSFileSystemFileHandle.h"
 #include "JSIDBSerializationGlobalObject.h"
 #include "JSImageBitmap.h"
 #include "JSImageData.h"
@@ -72,23 +82,31 @@
 #include "JSWebCodecsVideoFrame.h"
 #include "JSWritableStream.h"
 #include "ScriptExecutionContext.h"
+#include "SecurityOrigin.h"
+#include "SerializedScriptValueInternals.h"
 #include "SharedBuffer.h"
 #include "WebCodecsEncodedAudioChunk.h"
 #include "WebCodecsEncodedVideoChunk.h"
 #include "WebCoreJSClientData.h"
+#include "WorkerSTWParticipation.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayConventions.h>
 #include <JavaScriptCore/BigIntObject.h>
 #include <JavaScriptCore/BooleanObject.h>
+#include <JavaScriptCore/CloneBase.h>
+#include <JavaScriptCore/CloneDeserializerBase.h>
+#include <JavaScriptCore/CloneSerializerBase.h>
 #include <JavaScriptCore/DateInstance.h>
 #include <JavaScriptCore/Error.h>
 #include <JavaScriptCore/ErrorInstance.h>
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/ExceptionHelpers.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/IterationKind.h>
 #include <JavaScriptCore/JSArrayBuffer.h>
 #include <JavaScriptCore/JSArrayBufferView.h>
 #include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
 #include <JavaScriptCore/JSDataView.h>
 #include <JavaScriptCore/JSMapInlines.h>
 #include <JavaScriptCore/JSMapIterator.h>
@@ -99,11 +117,13 @@
 #include <JavaScriptCore/JSWebAssemblyModule.h>
 #include <JavaScriptCore/NumberObject.h>
 #include <JavaScriptCore/ObjectConstructor.h>
+#include <JavaScriptCore/ObjectPrototype.h>
 #include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/PropertyNameArray.h>
 #include <JavaScriptCore/RegExp.h>
 #include <JavaScriptCore/RegExpObject.h>
 #include <JavaScriptCore/Strong.h>
+#include <JavaScriptCore/StructuredCloneTags.h>
 #include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/TypedArrayInlines.h>
 #include <JavaScriptCore/TypedArrays.h>
@@ -134,39 +154,19 @@
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
 #include "JSOffscreenCanvas.h"
 #include "OffscreenCanvas.h"
-#endif
-
-#if CPU(BIG_ENDIAN) || CPU(MIDDLE_ENDIAN) || CPU(NEEDS_ALIGNED_ACCESS)
-#define ASSUME_LITTLE_ENDIAN 0
-#else
-#define ASSUME_LITTLE_ENDIAN 1
+#include "PlaceholderRenderingContext.h"
 #endif
 
 namespace WebCore {
 
+WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(SerializedScriptValueInternals);
+
 using namespace JSC;
-
-namespace SerializationHelper {
-
-static constexpr bool verboseTrace = false;
-
-} // namespace SerializationHelper
-
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SerializedScriptValue);
 
 static constexpr unsigned maximumFilterRecursion = 40000;
 static constexpr uint64_t autoLengthMarker = UINT64_MAX;
-
-enum class SerializationReturnCode {
-    SuccessfullyCompleted,
-    StackOverflowError,
-    InterruptedExecutionError,
-    ValidationError,
-    ExistingExceptionError,
-    DataCloneError,
-    UnspecifiedError
-};
 
 enum WalkerState { StateUnknown, ArrayStartState, ArrayStartVisitIndexedMember, ArrayEndVisitIndexedMember,
     ArrayStartVisitNamedMember, ArrayEndVisitNamedMember,
@@ -174,271 +174,10 @@ enum WalkerState { StateUnknown, ArrayStartState, ArrayStartVisitIndexedMember, 
     MapDataStartVisitEntry, MapDataEndVisitKey, MapDataEndVisitValue,
     SetDataStartVisitEntry, SetDataEndVisitKey };
 
-// These can't be reordered, and any new types must be added to the end of the list
-// When making changes to these lists please cover your new type(s) in the API test "IndexedDB.StructuredCloneBackwardCompatibility"
-enum SerializationTag {
-    ArrayTag = 1,
-    ObjectTag = 2,
-    UndefinedTag = 3,
-    NullTag = 4,
-    IntTag = 5,
-    ZeroTag = 6,
-    OneTag = 7,
-    FalseTag = 8,
-    TrueTag = 9,
-    DoubleTag = 10,
-    DateTag = 11,
-    FileTag = 12,
-    FileListTag = 13,
-    ImageDataTag = 14,
-    BlobTag = 15,
-    StringTag = 16,
-    EmptyStringTag = 17,
-    RegExpTag = 18,
-    ObjectReferenceTag = 19,
-    MessagePortReferenceTag = 20,
-    ArrayBufferTag = 21,
-    ArrayBufferViewTag = 22,
-    ArrayBufferTransferTag = 23,
-    TrueObjectTag = 24,
-    FalseObjectTag = 25,
-    StringObjectTag = 26,
-    EmptyStringObjectTag = 27,
-    NumberObjectTag = 28,
-    SetObjectTag = 29,
-    MapObjectTag = 30,
-    NonMapPropertiesTag = 31,
-    NonSetPropertiesTag = 32,
-    CryptoKeyTag = 33,
-    SharedArrayBufferTag = 34,
-#if ENABLE(WEBASSEMBLY)
-    WasmModuleTag = 35,
-#endif
-    DOMPointReadOnlyTag = 36,
-    DOMPointTag = 37,
-    DOMRectReadOnlyTag = 38,
-    DOMRectTag = 39,
-    DOMMatrixReadOnlyTag = 40,
-    DOMMatrixTag = 41,
-    DOMQuadTag = 42,
-    ImageBitmapTransferTag = 43,
-#if ENABLE(WEB_RTC)
-    RTCCertificateTag = 44,
-#endif
-    ImageBitmapTag = 45,
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    OffscreenCanvasTransferTag = 46,
-#endif
-    BigIntTag = 47,
-    BigIntObjectTag = 48,
-#if ENABLE(WEBASSEMBLY)
-    WasmMemoryTag = 49,
-#endif
-#if ENABLE(WEB_RTC)
-    RTCDataChannelTransferTag = 50,
-#endif
-    DOMExceptionTag = 51,
-#if ENABLE(WEB_CODECS)
-    WebCodecsEncodedVideoChunkTag = 52,
-    WebCodecsVideoFrameTag = 53,
-#endif
-    ResizableArrayBufferTag = 54,
-    ErrorInstanceTag = 55,
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    InMemoryOffscreenCanvasTag = 56,
-#endif
-    InMemoryMessagePortTag = 57,
-#if ENABLE(WEB_CODECS)
-    WebCodecsEncodedAudioChunkTag = 58,
-    WebCodecsAudioDataTag = 59,
-#endif
-#if ENABLE(MEDIA_STREAM)
-    MediaStreamTrackTag = 60,
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-    MediaSourceHandleTransferTag = 61,
-#endif
-#if ENABLE(WEB_RTC)
-    RTCEncodedAudioFrameTag = 62,
-    RTCEncodedVideoFrameTag = 63,
-#endif
-#if ENABLE(MEDIA_STREAM)
-    MediaStreamTrackHandleTag = 64,
-#endif
-    ReadableStreamTag = 65,
-    WritableStreamTag = 66,
-    TransformStreamTag = 67,
-    ErrorTag = 255
-};
-
-enum ArrayBufferViewSubtag {
-    DataViewTag = 0,
-    Int8ArrayTag = 1,
-    Uint8ArrayTag = 2,
-    Uint8ClampedArrayTag = 3,
-    Int16ArrayTag = 4,
-    Uint16ArrayTag = 5,
-    Int32ArrayTag = 6,
-    Uint32ArrayTag = 7,
-    Float32ArrayTag = 8,
-    Float64ArrayTag = 9,
-    BigInt64ArrayTag = 10,
-    BigUint64ArrayTag = 11,
-    Float16ArrayTag = 12,
-};
-
-static ASCIILiteral name(SerializationTag tag)
-{
-    switch (tag) {
-    case ArrayTag: return "ArrayTag"_s;
-    case ObjectTag: return "ObjectTag"_s;
-    case UndefinedTag: return "UndefinedTag"_s;
-    case NullTag: return "NullTag"_s;
-    case IntTag: return "IntTag"_s;
-    case ZeroTag: return "ZeroTag"_s;
-    case OneTag: return "OneTag"_s;
-    case FalseTag: return "FalseTag"_s;
-    case TrueTag: return "TrueTag"_s;
-    case DoubleTag: return "DoubleTag"_s;
-    case DateTag: return "DateTag"_s;
-    case FileTag: return "FileTag"_s;
-    case FileListTag: return "FileListTag"_s;
-    case ImageDataTag: return "ImageDataTag"_s;
-    case BlobTag: return "BlobTag"_s;
-    case StringTag: return "StringTag"_s;
-    case EmptyStringTag: return "EmptyStringTag"_s;
-    case RegExpTag: return "RegExpTag"_s;
-    case ObjectReferenceTag: return "ObjectReferenceTag"_s;
-    case MessagePortReferenceTag: return "MessagePortReferenceTag"_s;
-    case ArrayBufferTag: return "ArrayBufferTag"_s;
-    case ArrayBufferViewTag: return "ArrayBufferViewTag"_s;
-    case ArrayBufferTransferTag: return "ArrayBufferTransferTag"_s;
-    case TrueObjectTag: return "TrueObjectTag"_s;
-    case FalseObjectTag: return "FalseObjectTag"_s;
-    case StringObjectTag: return "StringObjectTag"_s;
-    case EmptyStringObjectTag: return "EmptyStringObjectTag"_s;
-    case NumberObjectTag: return "NumberObjectTag"_s;
-    case SetObjectTag: return "SetObjectTag"_s;
-    case MapObjectTag: return "MapObjectTag"_s;
-    case NonMapPropertiesTag: return "NonMapPropertiesTag"_s;
-    case NonSetPropertiesTag: return "NonSetPropertiesTag"_s;
-    case CryptoKeyTag: return "CryptoKeyTag"_s;
-    case SharedArrayBufferTag: return "SharedArrayBufferTag"_s;
-#if ENABLE(WEBASSEMBLY)
-    case WasmModuleTag: return "WasmModuleTag"_s;
-#endif
-    case DOMPointReadOnlyTag: return "DOMPointReadOnlyTag"_s;
-    case DOMPointTag: return "DOMPointTag"_s;
-    case DOMRectReadOnlyTag: return "DOMRectReadOnlyTag"_s;
-    case DOMRectTag: return "DOMRectTag"_s;
-    case DOMMatrixReadOnlyTag: return "DOMMatrixReadOnlyTag"_s;
-    case DOMMatrixTag: return "DOMMatrixTag"_s;
-    case DOMQuadTag: return "DOMQuadTag"_s;
-    case ImageBitmapTransferTag: return "ImageBitmapTransferTag"_s;
-#if ENABLE(WEB_RTC)
-    case RTCCertificateTag: return "RTCCertificateTag"_s;
-#endif
-    case ImageBitmapTag: return "ImageBitmapTag"_s;
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    case OffscreenCanvasTransferTag: return "OffscreenCanvasTransferTag"_s;
-#endif
-    case BigIntTag: return "BigIntTag"_s;
-    case BigIntObjectTag: return "BigIntObjectTag"_s;
-#if ENABLE(WEBASSEMBLY)
-    case WasmMemoryTag: return "WasmMemoryTag"_s;
-#endif
-#if ENABLE(WEB_RTC)
-    case RTCDataChannelTransferTag: return "RTCDataChannelTransferTag"_s;
-#endif
-    case DOMExceptionTag: return "DOMExceptionTag"_s;
-#if ENABLE(WEB_CODECS)
-    case WebCodecsEncodedVideoChunkTag: return "WebCodecsEncodedVideoChunkTag"_s;
-    case WebCodecsVideoFrameTag: return "WebCodecsVideoFrameTag"_s;
-#endif
-    case ResizableArrayBufferTag: return "ResizableArrayBufferTag"_s;
-    case ErrorInstanceTag: return "ErrorInstanceTag"_s;
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    case InMemoryOffscreenCanvasTag: return "InMemoryOffscreenCanvasTag"_s;
-#endif
-    case InMemoryMessagePortTag: return "InMemoryMessagePortTag"_s;
-#if ENABLE(WEB_CODECS)
-    case WebCodecsEncodedAudioChunkTag: return "WebCodecsEncodedAudioChunkTag"_s;
-    case WebCodecsAudioDataTag: return "WebCodecsAudioDataTag"_s;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    case MediaStreamTrackTag: return "MediaStreamTrackTag"_s;
-    case MediaStreamTrackHandleTag: return "MediaStreamTrackHandleTag"_s;
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-    case MediaSourceHandleTransferTag: return "MediaSourceHandleTransferTag"_s;
-#endif
-#if ENABLE(WEB_RTC)
-    case RTCEncodedAudioFrameTag: return "RTCEncodedAudioFrameTag"_s;
-    case RTCEncodedVideoFrameTag: return "RTCEncodedVideoFrameTag"_s;
-#endif
-    case ReadableStreamTag: return "ReadableStreamTag"_s;
-    case WritableStreamTag: return "WritableStreamTag"_s;
-    case TransformStreamTag : return "TransformStreamTag"_s;
-    case ErrorTag: return "ErrorTag"_s;
-    }
-    return "<unknown tag>"_s;
-}
-
-} // namespace WebCore
-
-namespace WTF {
-
-void printInternal(PrintStream&, WebCore::SerializationTag);
-
-void printInternal(PrintStream& out, WebCore::SerializationTag tag)
-{
-    auto tagName = WebCore::name(tag);
-    if (tagName[0U] != '<')
-        out.print(tagName);
-    else
-        out.print("<unknown tag "_s, static_cast<unsigned>(tag), ">"_s);
-}
-
-} // namespace WTF
-
-namespace WebCore {
-
-// This function is only used for a sanity check mechanism used in
-// CloneSerializer::addToObjectPoolIfNotDupe() and CloneDeserializer::addToObjectPool().
-static constexpr bool NODELETE canBeAddedToObjectPool(SerializationTag tag)
-{
-    // If you add a type to the allow ist (i.e. returns true) here, it means
-    // that both the serializer and deserializer will push objects of this
-    // type onto their m_objectPool. This is important because the order of
-    // the objects in the m_objectPool must match for both the serializer and
-    // deserializer.
-    switch (tag) {
-    case ArrayTag:
-    case ArrayBufferTag:
-    case ArrayBufferViewTag:
-    case BigIntObjectTag:
-    case EmptyStringObjectTag:
-    case FalseObjectTag:
-    case MapObjectTag:
-    case NumberObjectTag:
-    case ObjectTag:
-    case ResizableArrayBufferTag:
-    case SetObjectTag:
-    case SharedArrayBufferTag:
-    case StringObjectTag:
-    case TrueObjectTag:
-        return true;
-    default:
-        break;
-    }
-    return false;
-}
-
-
 static bool NODELETE isTypeExposedToGlobalObject(JSC::JSGlobalObject& globalObject, SerializationTag tag)
 {
 #if ENABLE(WEB_AUDIO)
-    if (!jsDynamicCast<JSAudioWorkletGlobalScope*>(&globalObject))
+    if (!is<JSAudioWorkletGlobalScope>(globalObject))
         return true;
 
     // Only built-in JS types are exposed to audio worklets.
@@ -532,6 +271,7 @@ static bool NODELETE isTypeExposedToGlobalObject(JSC::JSGlobalObject& globalObje
     case ReadableStreamTag:
     case WritableStreamTag:
     case TransformStreamTag:
+    case FileSystemHandleTag:
         break;
     }
     return false;
@@ -565,55 +305,6 @@ static unsigned NODELETE typedArrayElementSize(ArrayBufferViewSubtag tag)
     default:
         return 0;
     }
-}
-
-enum class SerializableErrorType : uint8_t {
-    Error,
-    EvalError,
-    RangeError,
-    ReferenceError,
-    SyntaxError,
-    TypeError,
-    URIError,
-    Last = URIError
-};
-
-static SerializableErrorType errorNameToSerializableErrorType(const String& name)
-{
-    if (equalLettersIgnoringASCIICase(name, "evalerror"_s))
-        return SerializableErrorType::EvalError;
-    if (equalLettersIgnoringASCIICase(name, "rangeerror"_s))
-        return SerializableErrorType::RangeError;
-    if (equalLettersIgnoringASCIICase(name, "referenceerror"_s))
-        return SerializableErrorType::ReferenceError;
-    if (equalLettersIgnoringASCIICase(name, "syntaxerror"_s))
-        return SerializableErrorType::SyntaxError;
-    if (equalLettersIgnoringASCIICase(name, "typeerror"_s))
-        return SerializableErrorType::TypeError;
-    if (equalLettersIgnoringASCIICase(name, "urierror"_s))
-        return SerializableErrorType::URIError;
-    return SerializableErrorType::Error;
-}
-
-static ErrorType NODELETE toErrorType(SerializableErrorType value)
-{
-    switch (value) {
-    case SerializableErrorType::Error:
-        return ErrorType::Error;
-    case SerializableErrorType::EvalError:
-        return ErrorType::EvalError;
-    case SerializableErrorType::RangeError:
-        return ErrorType::RangeError;
-    case SerializableErrorType::ReferenceError:
-        return ErrorType::ReferenceError;
-    case SerializableErrorType::SyntaxError:
-        return ErrorType::SyntaxError;
-    case SerializableErrorType::TypeError:
-        return ErrorType::TypeError;
-    case SerializableErrorType::URIError:
-        return ErrorType::URIError;
-    }
-    return ErrorType::Error;
 }
 
 enum class PredefinedColorSpaceTag : uint8_t {
@@ -652,19 +343,26 @@ enum class ImageBitmapSerializationFlags : uint8_t {
 
 }
 
-#define SERIALIZE_TRACE(...) do { \
-        if constexpr (SerializationHelper::verboseTrace) \
-            dataLogLn("TRACE ", __VA_ARGS__, " @ ", __LINE__); \
-    } while (false)
-
-#if ENABLE(WEBASSEMBLY)
 static String agentClusterIDFromGlobalObject(JSGlobalObject& globalObject)
 {
-    if (!globalObject.inherits<JSDOMGlobalObject>())
-        return JSDOMGlobalObject::defaultAgentClusterID();
-    return jsCast<JSDOMGlobalObject*>(&globalObject)->agentClusterID();
+    auto& domGlobalObject = downcast<JSDOMGlobalObject>(globalObject);
+    RefPtr context = domGlobalObject.scriptExecutionContext();
+    ASSERT(context);
+    if (!context)
+        return nullString();
+    auto result = context->agentClusterID();
+    ASSERT(!result.isNull());
+    return result;
 }
-#endif
+
+static bool isCrossOriginIsolatedContext(JSGlobalObject* globalObject)
+{
+    auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(globalObject);
+    if (!domGlobalObject)
+        return false;
+    RefPtr context = domGlobalObject->scriptExecutionContext();
+    return context && context->crossOriginIsolated();
+}
 
 const uint32_t currentKeyFormatVersion = 1;
 
@@ -738,288 +436,12 @@ enum class CryptoKeyOKPOpNameTag : bool {
     ED25519 = 1,
 };
 const uint8_t cryptoKeyOKPOpNameTagMaximumValue = 1;
-static constexpr unsigned CurrentMajorVersion = 15;
-static constexpr unsigned CurrentMinorVersion = 0;
-static constexpr unsigned NODELETE majorVersionFor(unsigned version) { return version & 0x00FFFFFF; }
-static constexpr unsigned NODELETE minorVersionFor(unsigned version) { return version >> 24; }
-static constexpr unsigned NODELETE makeVersion(unsigned major, unsigned minor)
-{
-    ASSERT_UNDER_CONSTEXPR_CONTEXT(major < (1u << 24));
-    ASSERT_UNDER_CONSTEXPR_CONTEXT(minor < (1u << 8));
-    return (minor << 24) | major;
-}
-/* currentVersion tracks the serialization version so that persistent stores
- * are able to correctly bail out in the case of encountering newer formats.
- *
- * Initial version was 1.
- * Version 2. added the ObjectReferenceTag and support for serialization of cyclic graphs.
- * Version 3. added the FalseObjectTag, TrueObjectTag, NumberObjectTag, StringObjectTag
- * and EmptyStringObjectTag for serialization of Boolean, Number and String objects.
- * Version 4. added support for serializing non-index properties of arrays.
- * Version 5. added support for Map and Set types.
- * Version 6. added support for 8-bit strings.
- * Version 7. added support for File's lastModified attribute.
- * Version 8. added support for ImageData's colorSpace attribute.
- * Version 9. added support for ImageBitmap color space.
- * Version 10. changed the length (and offsets) of ArrayBuffers (and ArrayBufferViews) from 32 to 64 bits.
- * Version 11. added support for Blob's memory cost.
- * Version 12. added support for agent cluster ID.
- * Version 12.1. changed the terminator of the indexed property section in array.
- * Version 13. added support for ErrorInstance objects.
- * Version 14. encode booleans as uint8_t instead of int32_t.
- * Version 15. changed the terminator of the indexed property section in array.
- */
-static constexpr unsigned NODELETE currentVersion() { return makeVersion(CurrentMajorVersion, CurrentMinorVersion); }
-static constexpr unsigned TerminatorTag = 0xFFFFFFFF;
-static constexpr unsigned StringPoolTag = 0xFFFFFFFE;
-static constexpr unsigned NonIndexPropertiesTag = 0xFFFFFFFD;
-static constexpr uint32_t ImageDataPoolTag = 0xFFFFFFFE;
 
-// The high bit of a StringData's length determines the character size.
-static constexpr unsigned StringDataIs8BitFlag = 0x80000000;
-
-static_assert(TerminatorTag > MAX_ARRAY_INDEX);
-
-/*
- * Object serialization is performed according to the following grammar, all tags
- * are recorded as a single uint8_t.
- *
- * IndexType (used for the object pool and StringData's constant pool) is the
- * minimum sized unsigned integer type required to represent the maximum index
- * in the constant pool.
- *
- * SerializedValue :- <version:uint32_t> Value
- * Value :- Array | Object | Map | Set | Terminal
- *
- * Array :-
- *     ArrayTag <length:uint32_t>(<index:uint32_t><value:Value>)* TerminatorTag (NonIndexPropertiesTag (<name:StringData><value:Value>)*) TerminatorTag
- *
- * Object :-
- *     ObjectTag (<name:StringData><value:Value>)* TerminatorTag
- *
- * Map :- MapObjectTag MapData
- *
- * Set :- SetObjectTag SetData
- *
- * MapData :- (<key:Value><value:Value>)* NonMapPropertiesTag (<name:StringData><value:Value>)* TerminatorTag
- * SetData :- (<key:Value>)* NonSetPropertiesTag (<name:StringData><value:Value>)* TerminatorTag
- *
- * Terminal :-
- *      UndefinedTag
- *    | NullTag
- *    | IntTag <value:int32_t>
- *    | ZeroTag
- *    | OneTag
- *    | FalseTag
- *    | TrueTag
- *    | FalseObjectTag
- *    | TrueObjectTag
- *    | DoubleTag <value:double>
- *    | NumberObjectTag <value:double>
- *    | DateTag <value:double>
- *    | String
- *    | EmptyStringTag
- *    | EmptyStringObjectTag
- *    | BigInt
- *    | File
- *    | FileList
- *    | ImageData
- *    | Blob
- *    | ObjectReference
- *    | MessagePortReferenceTag <value:uint32_t>
- *    | ArrayBuffer
- *    | ArrayBufferViewTag ArrayBufferViewSubtag <byteOffset:uint64_t> <byteLength:uint64_t> (ArrayBuffer | ObjectReference)
- *    | CryptoKeyTag <wrappedKeyLength:uint32_t> <factor:byte{wrappedKeyLength}>
- *    | DOMPoint
- *    | DOMRect
- *    | DOMMatrix
- *    | DOMQuad
- *    | ImageBitmapTransferTag <value:uint32_t>
- *    | RTCCertificateTag
- *    | ImageBitmapTag <imageBitmapSerializationFlags:uint8_t> <logicalWidth:int32_t> <logicalHeight:int32_t> <resolutionScale:double> DestinationColorSpace <byteLength:uint32_t>(<imageByteData:uint8_t>)
- *    | OffscreenCanvasTransferTag <value:uint32_t>
- *    | WasmMemoryTag <value:uint32_t>
- *    | RTCDataChannelTransferTag <identifier:uint32_t>
- *    | DOMExceptionTag <message:String> <name:String>
- *    | WebCodecsEncodedVideoChunkTag <identifier:uint32_t>
- *    | MediaStreamTrackTag <identifier:uint32_t>
- *    | MediaSourceHandleTransferTag <identifier:uint32_t>
- *    | RTCEncodedAudioFrameTag <identifier:uint32_t>
- *    | RTCEncodedVideoFrameTag <identifier:uint32_t>
- *    | ReadableStreamTag <identifier:uint32_t><messagePortIdentifier:uint32_t>
- *    | WritableStreamTag <identifier:uint32_t><messagePortIdentifier:uint32_t>
- *    | TransformStreamTag <identifier:uint32_t><messagePortIdentifiers:uint32_t>
- *
- * Inside certificate, data is serialized in this format as per spec:
- *
- * <expires:double> <certificate:StringData> <origin:StringData> <keyingMaterial:StringData>
- * We also add fingerprints to make sure we expose to JavaScript the same information.
- *
- * Inside wrapped crypto key, data is serialized in this format:
- *
- * <keyFormatVersion:uint32_t> <extractable:int32_t> <usagesCount:uint32_t> <usages:byte{usagesCount}> CryptoKeyClassSubtag (CryptoKeyHMAC | CryptoKeyAES | CryptoKeyRSA)
- *
- * String :-
- *      EmptyStringTag
- *      StringTag StringData
- *
- * StringObject:
- *      EmptyStringObjectTag
- *      StringObjectTag StringData
- *
- * StringData :-
- *      StringPoolTag <cpIndex:IndexType>
- *      (not (TerminatorTag | StringPoolTag))<is8Bit:uint32_t:1><length:uint32_t:31><characters:CharType{length}> // Added to constant pool when seen, string length 0xFFFFFFFF is disallowed
- *
- * BigInt :-
- *      BigIntTag BigIntData
- *      BigIntObjectTag BigIntData
- *
- * BigIntData :-
- *      <sign:uint8_t> <numberOfUint64Elements:uint32_t> <contents:uint64_t{numberOfUint64Elements}>
- *
- * File :-
- *    FileTag FileData
- *
- * FileData :-
- *    <path:StringData> <url:StringData> <type:StringData> <name:StringData> <lastModified:double>
- *
- * FileList :-
- *    FileListTag <length:uint32_t>(<file:FileData>){length}
- *
- * ImageData :-
- *    ImageDataTag <width:int32_t> <height:int32_t> <length:uint32_t> <data:uint8_t{length}> <colorSpace:PredefinedColorSpaceTag>
- *
- * Blob :-
- *    BlobTag <url:StringData><type:StringData><size:long long><memoryCost:long long>
- *
- * RegExp :-
- *    RegExpTag <pattern:StringData><flags:StringData>
- *
- * ObjectReference :-
- *    ObjectReferenceTag <opIndex:IndexType>
- *
- * ArrayBuffer :-
- *    ArrayBufferTag <byteLength:uint64_t> <contents:byte{length}>
- *    ResizableArrayBufferTag <byteLength:uint64_t> <maxLength:uint64_t> <contents:byte{length}>
- *    ArrayBufferTransferTag <value:uint32_t>
- *    SharedArrayBufferTag <value:uint32_t>
- *
- * CryptoKeyHMAC :-
- *    <keySize:uint32_t> <keyData:byte{keySize}> CryptoAlgorithmIdentifierTag // Algorithm tag inner hash function.
- *
- * CryptoKeyAES :-
- *    CryptoAlgorithmIdentifierTag <keySize:uint32_t> <keyData:byte{keySize}>
- *
- * CryptoKeyRSA :-
- *    CryptoAlgorithmIdentifierTag <isRestrictedToHash:int32_t> CryptoAlgorithmIdentifierTag? CryptoKeyAsymmetricTypeSubtag CryptoKeyRSAPublicComponents CryptoKeyRSAPrivateComponents?
- *
- * CryptoKeyRSAPublicComponents :-
- *    <modulusSize:uint32_t> <modulus:byte{modulusSize}> <exponentSize:uint32_t> <exponent:byte{exponentSize}>
- *
- * CryptoKeyRSAPrivateComponents :-
- *    <privateExponentSize:uint32_t> <privateExponent:byte{privateExponentSize}> <primeCount:uint32_t> FirstPrimeInfo? PrimeInfo{primeCount - 1}
- *
- * // CRT data could be computed from prime factors. It is only serialized to reuse a code path that's needed for JWK.
- * FirstPrimeInfo :-
- *    <factorSize:uint32_t> <factor:byte{factorSize}> <crtExponentSize:uint32_t> <crtExponent:byte{crtExponentSize}>
- *
- * PrimeInfo :-
- *    <factorSize:uint32_t> <factor:byte{factorSize}> <crtExponentSize:uint32_t> <crtExponent:byte{crtExponentSize}> <crtCoefficientSize:uint32_t> <crtCoefficient:byte{crtCoefficientSize}>
- *
- * CryptoKeyEC :-
- *    CryptoAlgorithmIdentifierTag <namedCurve:StringData> CryptoKeyAsymmetricTypeSubtag <keySize:uint32_t> <keyData:byte{keySize}>
- *
- * CryptoKeyRaw :-
- *    CryptoAlgorithmIdentifierTag <keySize:uint32_t> <keyData:byte{keySize}>
- *
- * DOMPoint :-
- *        DOMPointReadOnlyTag DOMPointData
- *      | DOMPointTag DOMPointData
- *
- * DOMPointData :-
- *      <x:double> <y:double> <z:double> <w:double>
- *
- * DOMRect :-
- *        DOMRectReadOnlyTag DOMRectData
- *      | DOMRectTag DOMRectData
- *
- * DOMRectData :-
- *      <x:double> <y:double> <width:double> <height:double>
- *
- * DOMMatrix :-
- *        DOMMatrixReadOnlyTag DOMMatrixData
- *      | DOMMatrixTag DOMMatrixData
- *
- * DOMMatrixData :-
- *        <is2D:uint8_t:true> <m11:double> <m12:double> <m21:double> <m22:double> <m41:double> <m42:double>
- *      | <is2D:uint8_t:false> <m11:double> <m12:double> <m13:double> <m14:double> <m21:double> <m22:double> <m23:double> <m24:double> <m31:double> <m32:double> <m33:double> <m34:double> <m41:double> <m42:double> <m43:double> <m44:double>
- *
- * DOMQuad :-
- *      DOMQuadTag DOMQuadData
- *
- * DOMQuadData :-
- *      <p1:DOMPointData> <p2:DOMPointData> <p3:DOMPointData> <p4:DOMPointData>
- *
- * PredefinedColorSpaceTag :
- *        PredefinedColorSpaceTag::SRGB
- *      | PredefinedColorSpaceTag::DisplayP3
- *      | PredefinedColorSpaceTag::SRGBLinear
- *      | PredefinedColorSpaceTag::DisplayP3Linear
- *
- * DestinationColorSpace :-
- *        DestinationColorSpaceSRGBTag
- *      | DestinationColorSpaceLinearSRGBTag
- *      | DestinationColorSpaceDisplayP3Tag
- *      | DestinationColorSpaceCGColorSpaceNameTag <nameDataLength:uint32_t> <nameData:uint8_t>{nameDataLength}
- *      | DestinationColorSpaceCGColorSpacePropertyListTag <propertyListDataLength:uint32_t> <propertyListData:uint8_t>{propertyListDataLength}
- *      | DestinationColorSpaceLinearDisplayP3Tag
- */
+// See JavaScriptCore's StructuredCloneTags.h for a description of the wire format.
 
 struct DeserializationResult {
     JSC::JSValue value;
     SerializationReturnCode code;
-};
-
-class CloneBase {
-    WTF_FORBID_HEAP_ALLOCATION;
-protected:
-    CloneBase(JSGlobalObject* lexicalGlobalObject)
-        : m_lexicalGlobalObject(lexicalGlobalObject)
-        , m_failed(false)
-    {
-    }
-
-    void NODELETE fail()
-    {
-        m_failed = true;
-    }
-
-#if ASSERT_ENABLED
-public:
-    const Vector<SerializationTag>& objectPoolTags() const { return m_objectPoolTags; }
-
-protected:
-    void appendObjectPoolTag(SerializationTag tag)
-    {
-        m_objectPoolTags.append(tag);
-    }
-#else
-    ALWAYS_INLINE void appendObjectPoolTag(SerializationTag) { }
-#endif
-    bool isSafeToRecurse()
-    {
-        return m_stackCheck.isSafeToRecurse();
-    }
-
-    JSGlobalObject* const m_lexicalGlobalObject;
-    bool m_failed;
-    MarkedArgumentBuffer m_keepAliveBuffer;
-    MarkedArgumentBuffer m_objectPool;
-#if ASSERT_ENABLED
-    Vector<SerializationTag> m_objectPoolTags;
-#endif
-    StackCheck m_stackCheck;
 };
 
 static std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(JSGlobalObject* lexicalGlobalObject, WebCore::CryptoKeyData&& key)
@@ -1040,54 +462,11 @@ static std::optional<Vector<uint8_t>> unwrapCryptoKey(JSGlobalObject* lexicalGlo
     return context->unwrapCryptoKey(wrappedKey);
 }
 
-#if ASSUME_LITTLE_ENDIAN
-template <typename T> static void writeLittleEndian(Vector<uint8_t>& buffer, T value)
-{
-    buffer.append(asByteSpan(value));
-}
-#else
-template <typename T> static void writeLittleEndian(Vector<uint8_t>& buffer, T value)
-{
-    for (unsigned i = 0; i < sizeof(T); i++) {
-        buffer.append(value & 0xFF);
-        value >>= 8;
-    }
-}
-#endif
-
-template <> void writeLittleEndian<uint8_t>(Vector<uint8_t>& buffer, uint8_t value)
-{
-    buffer.append(value);
-}
-
-template <typename T> static bool writeLittleEndian(Vector<uint8_t>& buffer, std::span<const T> values)
-{
-    if (values.size() > std::numeric_limits<uint32_t>::max() / sizeof(T))
-        return false;
-
-#if ASSUME_LITTLE_ENDIAN
-    buffer.append(asBytes(values));
-#else
-    for (unsigned i = 0; i < values.size(); i++) {
-        T value = values[i];
-        for (unsigned j = 0; j < sizeof(T); j++) {
-            buffer.append(static_cast<uint8_t>(value & 0xFF));
-            value >>= 8;
-        }
-    }
-#endif
-    return true;
-}
-
-template <> bool writeLittleEndian<uint8_t>(Vector<uint8_t>& buffer, std::span<const uint8_t> values)
-{
-    buffer.append(values);
-    return true;
-}
-
 Ref<SerializedScriptValue> SerializedScriptValue::createFromWireBytes(Vector<uint8_t>&& data)
 {
-    return adoptRef(*new SerializedScriptValue(WTF::move(data), { }));
+    Internals internals;
+    internals.data = WTF::move(data);
+    return adoptRef(*new SerializedScriptValue(WTF::move(internals)));
 }
 
 class CloneSerializer;
@@ -1095,7 +474,9 @@ class CloneSerializer;
 static void validateSerializedResult(CloneSerializer&, SerializationReturnCode, Vector<uint8_t>& result, JSGlobalObject*, Vector<Ref<MessagePort>>&, ArrayBufferContentsArray&, ArrayBufferContentsArray& sharedBuffers, Vector<Ref<MessagePort>>&);
 #endif
 
-class CloneSerializer : public CloneBase {
+class CloneSerializer : public JSC::CloneSerializerBase<CloneSerializer> {
+    using Base = JSC::CloneSerializerBase<CloneSerializer>;
+
     WTF_FORBID_HEAP_ALLOCATION;
 public:
     static Vector<uint8_t> serializeCryptoKey(const CryptoKey& key)
@@ -1185,7 +566,7 @@ public:
             Vector<RefPtr<WebCodecsAudioData>>& serializedAudioData,
 #endif
 #if ENABLE(MEDIA_STREAM)
-            const Vector<Ref<MediaStreamTrack>>& detachedMediaStreamTracks,
+            Vector<Ref<MediaStreamTrack>>& detachedMediaStreamTracks,
             const Vector<Ref<MediaStreamTrackHandle>>& detachedMediaStreamTrackHandles,
 #endif
 #if ENABLE(WEBASSEMBLY)
@@ -1193,7 +574,8 @@ public:
             WasmMemoryHandleArray& wasmMemoryHandles,
 #endif
         Vector<URLKeepingBlobAlive>& blobHandles, Vector<uint8_t>& out, SerializationContext context, ArrayBufferContentsArray& sharedBuffers,
-        SerializationForStorage forStorage)
+        SerializationForStorage forStorage,
+        Vector<FileSystemHandleKeepAlive>& fileSystemHandleKeepAlives)
     {
 #if ASSERT_ENABLED
         auto& vm = lexicalGlobalObject->vm();
@@ -1233,6 +615,11 @@ public:
 #endif
             blobHandles, out, context, sharedBuffers, forStorage);
         auto code = serializer.serialize(value);
+        fileSystemHandleKeepAlives = WTF::move(serializer.m_fileSystemHandleKeepAlives);
+#if ENABLE(MEDIA_STREAM)
+        for (auto& track : std::exchange(serializer.m_serializedMediaStreamTracks , { }))
+            detachedMediaStreamTracks.append(track.releaseNonNull());
+#endif
 #if ASSERT_ENABLED
         RETURN_IF_EXCEPTION(scope, code);
         validateSerializedResult(serializer, code, out, lexicalGlobalObject, messagePorts, sharedBuffers, sharedBuffers, inMemoryMessagePorts);
@@ -1242,18 +629,18 @@ public:
 
     static bool serialize(StringView string, Vector<uint8_t>& out)
     {
-        writeLittleEndian(out, currentVersion());
+        JSC::StructuredCloneInternal::writeLittleEndian(out, currentVersion());
         if (string.isEmpty()) {
-            writeLittleEndian<uint8_t>(out, EmptyStringTag);
+            JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(out, EmptyStringTag);
             return true;
         }
-        writeLittleEndian<uint8_t>(out, StringTag);
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(out, StringTag);
         if (string.is8Bit()) {
-            writeLittleEndian(out, string.length() | StringDataIs8BitFlag);
-            return writeLittleEndian(out, string.span8());
+            JSC::StructuredCloneInternal::writeLittleEndian(out, string.length() | StringDataIs8BitFlag);
+            return JSC::StructuredCloneInternal::writeLittleEndian(out, string.span8());
         }
-        writeLittleEndian(out, string.length());
-        return writeLittleEndian(out, string.span16());
+        JSC::StructuredCloneInternal::writeLittleEndian(out, string.length());
+        return JSC::StructuredCloneInternal::writeLittleEndian(out, string.span16());
     }
 
 #if ASSERT_ENABLED
@@ -1298,8 +685,7 @@ private:
             WasmMemoryHandleArray& wasmMemoryHandles,
 #endif
         Vector<URLKeepingBlobAlive>& blobHandles, Vector<uint8_t>& out, SerializationContext context, ArrayBufferContentsArray& sharedBuffers, SerializationForStorage forStorage)
-        : CloneBase(lexicalGlobalObject)
-        , m_buffer(out)
+        : Base(lexicalGlobalObject, out)
         , m_blobHandles(blobHandles)
 #if ENABLE(WEB_RTC)
         , m_serializedRTCEncodedAudioFrames(serializedRTCEncodedAudioFrames)
@@ -1365,7 +751,7 @@ private:
         if (input.isEmpty())
             return;
 
-        auto* globalObject = jsCast<JSDOMGlobalObject*>(m_lexicalGlobalObject);
+        auto* globalObject = downcast<JSDOMGlobalObject>(m_lexicalGlobalObject);
         for (size_t i = 0; i < input.size(); ++i) {
             if (auto* object = toJSOrNull(globalObject, input[i]).getObject())
                 result.add(object, i);
@@ -1397,56 +783,6 @@ private:
         return object->inherits<JSSet>();
     }
 
-    template<SerializationTag tag1, SerializationTag tag2 = ErrorTag, SerializationTag tag3 = ErrorTag>
-    bool writeObjectReferenceIfDupe(JSObject* object)
-    {
-        static_assert(canBeAddedToObjectPool(tag1)
-            && (canBeAddedToObjectPool(tag2) || tag2 == ErrorTag)
-            && (canBeAddedToObjectPool(tag3) || tag3 == ErrorTag));
-
-        // Record object for graph reconstruction
-        auto found = m_objectPoolMap.find(object);
-
-        // Handle duplicate references
-        if (found != m_objectPoolMap.end()) {
-            write(ObjectReferenceTag);
-            ASSERT(found->value < m_objectPoolMap.size());
-            writeObjectIndex(found->value);
-            return true; // is dupe.
-        }
-        return false; // not dupe.
-    }
-
-    template<SerializationTag tag1, SerializationTag tag2 = ErrorTag, SerializationTag tag3 = ErrorTag>
-    bool addToObjectPool(JSObject* object)
-    {
-        static_assert(canBeAddedToObjectPool(tag1)
-            && (canBeAddedToObjectPool(tag2) || tag2 == ErrorTag)
-            && (canBeAddedToObjectPool(tag3) || tag3 == ErrorTag));
-
-        m_objectPoolMap.add(object, m_objectPoolMap.size());
-        m_objectPool.appendWithCrashOnOverflow(object);
-
-        if constexpr (tag2 == ErrorTag)
-            appendObjectPoolTag(tag1);
-
-        return true; // new object added.
-    }
-
-    template<SerializationTag tag1, SerializationTag tag2 = ErrorTag, SerializationTag tag3 = ErrorTag>
-    bool addToObjectPoolIfNotDupe(JSObject* object)
-    {
-        static_assert(canBeAddedToObjectPool(tag1)
-            && (canBeAddedToObjectPool(tag2) || tag2 == ErrorTag)
-            && (canBeAddedToObjectPool(tag3) || tag3 == ErrorTag));
-
-        if (writeObjectReferenceIfDupe<tag1, tag2, tag3>(object))
-            return false; // new object NOT added. It's a dupe.
-
-        addToObjectPool<tag1, tag2, tag3>(object);
-        return true; // new object added.
-    }
-
     void endObject()
     {
         write(TerminatorTag);
@@ -1460,135 +796,12 @@ private:
         return JSValue();
     }
 
-    void dumpImmediate(JSValue value, SerializationReturnCode& code)
-    {
-        if (value.isNull()) {
-            write(NullTag);
-            return;
-        }
-        if (value.isUndefined()) {
-            write(UndefinedTag);
-            return;
-        }
-        if (value.isNumber()) {
-            if (value.isInt32()) {
-                if (!value.asInt32())
-                    write(ZeroTag);
-                else if (value.asInt32() == 1)
-                    write(OneTag);
-                else {
-                    write(IntTag);
-                    write(static_cast<uint32_t>(value.asInt32()));
-                }
-            } else {
-                write(DoubleTag);
-                write(value.asDouble());
-            }
-            return;
-        }
-        if (value.isBoolean()) {
-            if (value.isTrue())
-                write(TrueTag);
-            else
-                write(FalseTag);
-            return;
-        }
-#if USE(BIGINT32)
-        if (value.isBigInt32()) {
-            write(BigIntTag);
-            dumpBigIntData(value);
-            return;
-        }
-#endif
-
-        // Make any new primitive extension safe by throwing an error.
-        code = SerializationReturnCode::DataCloneError;
-    }
-
-    void dumpString(const String& string)
-    {
-        if (string.isEmpty())
-            write(EmptyStringTag);
-        else {
-            write(StringTag);
-            write(string);
-        }
-    }
-
-    void dumpStringObject(const String& string)
-    {
-        if (string.isEmpty()) {
-            appendObjectPoolTag(EmptyStringObjectTag);
-            write(EmptyStringObjectTag);
-        } else {
-            appendObjectPoolTag(StringObjectTag);
-            write(StringObjectTag);
-            write(string);
-        }
-    }
-
-    void dumpBigIntData(JSValue value)
-    {
-        ASSERT(value.isBigInt());
-#if USE(BIGINT32)
-        if (value.isBigInt32()) {
-            dumpBigInt32Data(value.bigInt32AsInt32());
-            return;
-        }
-#endif
-        dumpHeapBigIntData(jsCast<JSBigInt*>(value));
-    }
-
-#if USE(BIGINT32)
-    void dumpBigInt32Data(int32_t integer)
-    {
-        write(integer < 0);
-        if (!integer) {
-            write(static_cast<uint32_t>(0)); // Length-in-uint64_t
-            return;
-        }
-        write(static_cast<uint32_t>(1)); // Length-in-uint64_t
-        int64_t value = static_cast<int64_t>(integer);
-        if (value < 0)
-            value = -value;
-        write(static_cast<uint64_t>(value));
-    }
-#endif
-
-    void dumpHeapBigIntData(JSBigInt* bigInt)
-    {
-        write(bigInt->sign());
-        if constexpr (sizeof(JSBigInt::Digit) == sizeof(uint64_t)) {
-            write(static_cast<uint32_t>(bigInt->length()));
-            for (unsigned index = 0; index < bigInt->length(); ++index)
-                write(static_cast<uint64_t>(bigInt->digit(index)));
-        } else {
-            ASSERT(sizeof(JSBigInt::Digit) == sizeof(uint32_t));
-            uint32_t numberOfUint64Elements = bigInt->length() / 2;
-            if (bigInt->length() & 0x1)
-                ++numberOfUint64Elements;
-            write(numberOfUint64Elements);
-            uint64_t value = 0;
-            for (unsigned index = 0; index < bigInt->length(); ++index) {
-                if (!(index & 0x1))
-                    value = bigInt->digit(index);
-                else {
-                    value = (static_cast<uint64_t>(bigInt->digit(index)) << 32) | value;
-                    write(static_cast<uint64_t>(value));
-                    value = 0;
-                }
-            }
-            if (bigInt->length() & 0x1)
-                write(static_cast<uint64_t>(value));
-        }
-    }
-
     JSC::JSValue toJSArrayBuffer(ArrayBuffer& arrayBuffer)
     {
         auto& vm = m_lexicalGlobalObject->vm();
         auto* globalObject = m_lexicalGlobalObject;
-        if (globalObject->inherits<JSDOMGlobalObject>())
-            return toJS(globalObject, jsCast<JSDOMGlobalObject*>(globalObject), arrayBuffer);
+        if (auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(*globalObject))
+            return toJS(globalObject, domGlobalObject, arrayBuffer);
 
         if (auto* buffer = arrayBuffer.m_wrapper.get())
             return buffer;
@@ -1633,7 +846,7 @@ private:
             return true;
         }
 
-        if (jsCast<JSArrayBufferView*>(obj)->isOutOfBounds()) [[unlikely]] {
+        if (uncheckedDowncast<JSArrayBufferView>(obj)->isOutOfBounds()) [[unlikely]] {
             code = SerializationReturnCode::DataCloneError;
             return true;
         }
@@ -1676,7 +889,7 @@ private:
         else
             write(DOMPointReadOnlyTag);
 
-        dumpDOMPoint(protect(jsCast<JSDOMPointReadOnly*>(obj)->wrapped()));
+        dumpDOMPoint(protect(downcast<JSDOMPointReadOnly>(obj)->wrapped()));
     }
 
     void dumpDOMRect(JSObject* obj)
@@ -1686,7 +899,7 @@ private:
         else
             write(DOMRectReadOnlyTag);
 
-        Ref rect = jsCast<JSDOMRectReadOnly*>(obj)->wrapped();
+        Ref rect = downcast<JSDOMRectReadOnly>(obj)->wrapped();
         write(rect->x());
         write(rect->y());
         write(rect->width());
@@ -1700,7 +913,7 @@ private:
         else
             write(DOMMatrixReadOnlyTag);
 
-        Ref matrix = jsCast<JSDOMMatrixReadOnly*>(obj)->wrapped();
+        Ref matrix = downcast<JSDOMMatrixReadOnly>(obj)->wrapped();
         bool is2D = matrix->is2D();
         write(is2D);
         if (is2D) {
@@ -1734,7 +947,7 @@ private:
     {
         write(DOMQuadTag);
 
-        Ref quad = jsCast<JSDOMQuad*>(obj)->wrapped();
+        Ref quad = downcast<JSDOMQuad>(obj)->wrapped();
         dumpDOMPoint(quad->p1());
         dumpDOMPoint(quad->p2());
         dumpDOMPoint(quad->p3());
@@ -1743,7 +956,7 @@ private:
 
     void dumpImageBitmap(JSObject* obj, SerializationReturnCode& code)
     {
-        Ref imageBitmap = jsCast<JSImageBitmap*>(obj)->wrapped();
+        Ref imageBitmap = downcast<JSImageBitmap>(obj)->wrapped();
         auto index = m_transferredImageBitmaps.find(obj);
         if (index != m_transferredImageBitmaps.end()) {
             write(ImageBitmapTransferTag);
@@ -1811,7 +1024,7 @@ private:
         } else if (m_context == SerializationContext::CloneAcrossWorlds) {
             write(InMemoryOffscreenCanvasTag);
             write(static_cast<uint32_t>(m_inMemoryOffscreenCanvases.size()));
-            m_inMemoryOffscreenCanvases.append(protect(jsCast<JSOffscreenCanvas*>(obj)->wrapped()));
+            m_inMemoryOffscreenCanvases.append(protect(downcast<JSOffscreenCanvas>(obj)->wrapped()));
             return;
         }
 
@@ -1833,7 +1046,7 @@ private:
     }
     void dumpRTCEncodedAudioFrame(JSObject* obj)
     {
-        Ref frame = jsCast<JSRTCEncodedAudioFrame*>(obj)->wrapped();
+        Ref frame = downcast<JSRTCEncodedAudioFrame>(obj)->wrapped();
 
         auto index = m_serializedRTCEncodedAudioFrames.find(frame.ptr());
         if (index == notFound) {
@@ -1846,7 +1059,7 @@ private:
     }
     void dumpRTCEncodedVideoFrame(JSObject* obj)
     {
-        Ref frame = jsCast<JSRTCEncodedVideoFrame*>(obj)->wrapped();
+        Ref frame = downcast<JSRTCEncodedVideoFrame>(obj)->wrapped();
 
         auto index = m_serializedRTCEncodedVideoFrames.find(frame.ptr());
         if (index == notFound) {
@@ -1897,7 +1110,7 @@ private:
 #if ENABLE(WEB_CODECS)
     void dumpWebCodecsEncodedVideoChunk(JSObject* obj)
     {
-        Ref videoChunk = jsCast<JSWebCodecsEncodedVideoChunk*>(obj)->wrapped();
+        Ref videoChunk = downcast<JSWebCodecsEncodedVideoChunk>(obj)->wrapped();
 
         auto index = m_serializedVideoChunks.find(&videoChunk->storage());
         if (index == notFound) {
@@ -1911,7 +1124,7 @@ private:
 
     bool dumpWebCodecsVideoFrame(JSObject* obj)
     {
-        Ref videoFrame = jsCast<JSWebCodecsVideoFrame*>(obj)->wrapped();
+        Ref videoFrame = downcast<JSWebCodecsVideoFrame>(obj)->wrapped();
         if (videoFrame->isDetached())
             return false;
 
@@ -1927,7 +1140,7 @@ private:
 
     void dumpWebCodecsEncodedAudioChunk(JSObject* obj)
     {
-        Ref audioChunk = jsCast<JSWebCodecsEncodedAudioChunk*>(obj)->wrapped();
+        Ref audioChunk = downcast<JSWebCodecsEncodedAudioChunk>(obj)->wrapped();
 
         auto index = m_serializedAudioChunks.find(&audioChunk->storage());
         if (index == notFound) {
@@ -1941,7 +1154,7 @@ private:
 
     bool dumpWebCodecsAudioData(JSObject* obj)
     {
-        Ref audioData = jsCast<JSWebCodecsAudioData*>(obj)->wrapped();
+        Ref audioData = downcast<JSWebCodecsAudioData>(obj)->wrapped();
         if (audioData->isDetached())
             return false;
 
@@ -1959,13 +1172,23 @@ private:
     void dumpMediaStreamTrack(JSObject* obj, SerializationReturnCode& code)
     {
         auto index = m_transferredMediaStreamTracks.find(obj);
-        if (index != m_transferredMediaStreamTracks.end()) {
-            write(MediaStreamTrackTag);
-            write(index->value);
-            return;
+        if (index == m_transferredMediaStreamTracks.end()) {
+            bool shouldAllowMediaStreamTrackSerialization = [&] {
+                RefPtr context = downcast<JSDOMGlobalObject>(m_lexicalGlobalObject)->scriptExecutionContext();
+                RefPtr document = dynamicDowncast<Document>(context);
+                return document && document->quirks().shouldAllowMediaStreamTrackSerializationQuirk();
+            }();
+            if (!shouldAllowMediaStreamTrackSerialization) {
+                code = SerializationReturnCode::DataCloneError;
+                return;
+            }
+
+            m_serializedMediaStreamTracks.append(protect(downcast<JSMediaStreamTrack>(obj)->wrapped())->clone());
+            index = m_transferredMediaStreamTracks.add(obj, m_transferredMediaStreamTracks.size()).iterator;
         }
 
-        code = SerializationReturnCode::DataCloneError;
+        write(MediaStreamTrackTag);
+        write(index->value);
     }
     void dumpMediaStreamTrackHandle(JSObject* obj, SerializationReturnCode& code)
     {
@@ -2005,24 +1228,10 @@ private:
         code = SerializationReturnCode::DataCloneError;
     }
 
-    bool dumpIfTerminal(JSValue value, SerializationReturnCode& code)
+public:
+    bool dumpDerivedTerminal(JSValue value, SerializationReturnCode& code)
     {
-        if (!value.isCell()) {
-            dumpImmediate(value, code);
-            return true;
-        }
         ASSERT(value.isCell());
-
-        if (value.isString()) {
-            dumpString(asString(value)->value(m_lexicalGlobalObject));
-            return true;
-        }
-
-        if (value.isHeapBigInt()) {
-            write(BigIntTag);
-            dumpBigIntData(value);
-            return true;
-        }
 
         if (value.isSymbol()) {
             code = SerializationReturnCode::DataCloneError;
@@ -2035,42 +1244,6 @@ private:
 
         if (value.isObject()) {
             auto* obj = asObject(value);
-            if (auto* dateObject = jsDynamicCast<DateInstance*>(obj)) {
-                write(DateTag);
-                write(dateObject->internalNumber());
-                return true;
-            }
-            if (auto* booleanObject = jsDynamicCast<BooleanObject*>(obj)) {
-                if (!addToObjectPoolIfNotDupe<TrueObjectTag, FalseObjectTag>(booleanObject))
-                    return true;
-                auto tag = booleanObject->internalValue().toBoolean(m_lexicalGlobalObject) ? TrueObjectTag : FalseObjectTag;
-                write(tag);
-                appendObjectPoolTag(tag);
-                return true;
-            }
-            if (auto* stringObject = jsDynamicCast<StringObject*>(obj)) {
-                if (!addToObjectPoolIfNotDupe<EmptyStringObjectTag, StringObjectTag>(stringObject))
-                    return true;
-                auto str = asString(stringObject->internalValue())->value(m_lexicalGlobalObject);
-                dumpStringObject(str);
-                return true;
-            }
-            if (auto* numberObject = jsDynamicCast<NumberObject*>(obj)) {
-                if (!addToObjectPoolIfNotDupe<NumberObjectTag>(numberObject))
-                    return true;
-                write(NumberObjectTag);
-                write(numberObject->internalValue().asNumber());
-                return true;
-            }
-            if (auto* bigIntObject = jsDynamicCast<BigIntObject*>(obj)) {
-                if (!addToObjectPoolIfNotDupe<BigIntObjectTag>(bigIntObject))
-                    return true;
-                write(BigIntObjectTag);
-                JSValue bigIntValue = bigIntObject->internalValue();
-                ASSERT(bigIntValue.isBigInt());
-                dumpBigIntData(bigIntValue);
-                return true;
-            }
             if (RefPtr file = JSFile::toWrapped(vm, obj)) {
                 write(FileTag);
                 write(*file);
@@ -2115,27 +1288,6 @@ private:
                 write(data->colorSpace());
                 return true;
             }
-            if (auto* regExp = jsDynamicCast<RegExpObject*>(obj)) {
-                write(RegExpTag);
-                write(regExp->regExp()->pattern());
-                write(String::fromLatin1(JSC::Yarr::flagsString(regExp->regExp()->flags()).data()));
-                return true;
-            }
-            if (auto* errorInstance = jsDynamicCast<ErrorInstance*>(obj)) {
-                auto errorInformation = extractErrorInformationFromErrorInstance(m_lexicalGlobalObject, *errorInstance);
-                if (!errorInformation)
-                    return false;
-
-                write(ErrorInstanceTag);
-                write(errorNameToSerializableErrorType(errorInformation->errorTypeString));
-                writeNullableString(errorInformation->message);
-                write(errorInformation->line);
-                write(errorInformation->column);
-                writeNullableString(errorInformation->sourceURL);
-                writeNullableString(errorInformation->stack);
-                writeNullableString(errorInformation->cause);
-                return true;
-            }
             if (obj->inherits<JSMessagePort>()) {
                 auto index = m_transferredMessagePorts.find(obj);
                 if (index != m_transferredMessagePorts.end()) {
@@ -2145,7 +1297,7 @@ private:
                 } else if (m_context == SerializationContext::CloneAcrossWorlds) {
                     write(InMemoryMessagePortTag);
                     write(static_cast<uint32_t>(m_inMemoryMessagePorts.size()));
-                    m_inMemoryMessagePorts.append(protect(jsCast<JSMessagePort*>(obj)->wrapped()));
+                    m_inMemoryMessagePorts.append(protect(downcast<JSMessagePort>(obj)->wrapped()));
                     return true;
                 }
                 // MessagePort object could not be found in transferred message ports
@@ -2154,7 +1306,7 @@ private:
             }
             if (RefPtr arrayBuffer = toPossiblySharedArrayBuffer(vm, obj)) {
                 if (arrayBuffer->isDetached()) {
-                    code = SerializationReturnCode::ValidationError;
+                    code = SerializationReturnCode::DataCloneError;
                     return true;
                 }
                 auto index = m_transferredArrayBuffers.find(obj);
@@ -2166,21 +1318,26 @@ private:
                 if (!addToObjectPoolIfNotDupe<ArrayBufferTag, ResizableArrayBufferTag, SharedArrayBufferTag>(obj))
                     return true;
                 
-                if (arrayBuffer->isShared() && (m_context == SerializationContext::WorkerPostMessage || m_forStorage == SerializationForStorage::Yes)) {
+                if (arrayBuffer->isShared()) {
                     // https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializeinternal
-                    if (!JSC::Options::useSharedArrayBuffer() || m_forStorage == SerializationForStorage::Yes) {
+                    if (m_forStorage == SerializationForStorage::Yes) {
                         code = SerializationReturnCode::DataCloneError;
                         return true;
                     }
-                    uint32_t index = m_sharedBuffers.size();
-                    ArrayBufferContents contents;
-                    if (arrayBuffer->shareWith(contents)) {
-                        appendObjectPoolTag(SharedArrayBufferTag);
-                        write(SharedArrayBufferTag);
-                        m_sharedBuffers.append(WTF::move(contents));
-                        write(index);
-                        return true;
+                    if (isCrossOriginIsolatedContext(m_lexicalGlobalObject) || JSC::Options::useSharedArrayBuffer()) {
+                        uint32_t index = m_sharedBuffers.size();
+                        ArrayBufferContents contents;
+                        if (arrayBuffer->shareWith(contents)) {
+                            appendObjectPoolTag(SharedArrayBufferTag);
+                            write(SharedArrayBufferTag);
+                            write(agentClusterIDFromGlobalObject(*m_lexicalGlobalObject));
+                            m_sharedBuffers.append(WTF::move(contents));
+                            write(index);
+                            return true;
+                        }
                     }
+                    code = SerializationReturnCode::DataCloneError;
+                    return true;
                 }
                 
                 if (arrayBuffer->isResizableOrGrowableShared()) {
@@ -2235,9 +1392,11 @@ private:
             }
 #endif
 #if ENABLE(WEBASSEMBLY)
-            if (JSWebAssemblyModule* module = jsDynamicCast<JSWebAssemblyModule*>(obj)) {
-                if (m_context != SerializationContext::WorkerPostMessage && m_context != SerializationContext::WindowPostMessage)
-                    return false;
+            if (JSWebAssemblyModule* module = dynamicDowncast<JSWebAssemblyModule>(obj)) {
+                if (m_forStorage == SerializationForStorage::Yes) {
+                    code = SerializationReturnCode::DataCloneError;
+                    return true;
+                }
 
                 uint32_t index = m_wasmModules.size();
                 m_wasmModules.append(Ref { module->module() });
@@ -2246,12 +1405,12 @@ private:
                 write(index);
                 return true;
             }
-            if (JSWebAssemblyMemory* memory = jsDynamicCast<JSWebAssemblyMemory*>(obj)) {
-                if (!JSC::Options::useSharedArrayBuffer() || memory->memory().sharingMode() != JSC::MemorySharingMode::Shared) {
+            if (JSWebAssemblyMemory* memory = dynamicDowncast<JSWebAssemblyMemory>(obj)) {
+                if (m_forStorage == SerializationForStorage::Yes || memory->memory().sharingMode() != JSC::MemorySharingMode::Shared) {
                     code = SerializationReturnCode::DataCloneError;
                     return true;
                 }
-                if (m_context != SerializationContext::WorkerPostMessage) {
+                if (!isCrossOriginIsolatedContext(m_lexicalGlobalObject) && !JSC::Options::useSharedArrayBuffer()) {
                     code = SerializationReturnCode::DataCloneError;
                     return true;
                 }
@@ -2364,6 +1523,33 @@ private:
             }
 #endif
 
+            auto serializeFileSystemHandle = [&](FileSystemHandle& handle) {
+                if (handle.isClosed()) {
+                    code = SerializationReturnCode::DataCloneError;
+                    return true;
+                }
+                RefPtr context = handle.scriptExecutionContext();
+                if (!context || !context->settingsValues().fileSystemHandleSerializationEnabled) {
+                    code = SerializationReturnCode::DataCloneError;
+                    return true;
+                }
+                write(FileSystemHandleTag);
+                write(std::to_underlying(handle.kind()));
+                write(handle.name());
+                write(std::span<const uint8_t> { handle.globalIdentifier().toRawValue().span() });
+                ASSERT(!context->securityOrigin()->isOpaque());
+                write(context->securityOrigin()->toString());
+                if (RefPtr connection = fileSystemStorageConnectionForContext(*context)) {
+                    auto origin = clientOriginForContext(*context);
+                    m_fileSystemHandleKeepAlives.append({ WTF::move(origin), handle.globalIdentifier(), connection.releaseNonNull() });
+                }
+                return true;
+            };
+            if (auto* fileHandle = dynamicDowncast<JSFileSystemFileHandle>(obj))
+                return serializeFileSystemHandle(fileHandle->wrapped());
+            if (auto* dirHandle = dynamicDowncast<JSFileSystemDirectoryHandle>(obj))
+                return serializeFileSystemHandle(dirHandle->wrapped());
+
             return false;
         }
         // Any other types are expected to serialize as null.
@@ -2371,173 +1557,49 @@ private:
         return true;
     }
 
-    void write(SerializableErrorType errorType)
-    {
-        write(std::to_underlying(errorType));
-    }
-
-    void write(SerializationTag tag)
-    {
-        SERIALIZE_TRACE("serialize ", tag);
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
-    }
-
-    void write(ArrayBufferViewSubtag tag)
-    {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
-    }
+private:
+    using Base::write;
 
     void write(DestinationColorSpaceTag tag)
     {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
     }
 
     void write(CryptoKeyClassSubtag tag)
     {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
     }
 
     void write(CryptoKeyAsymmetricTypeSubtag tag)
     {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
     }
 
     void write(CryptoKeyUsageTag tag)
     {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
     }
 
     void write(CryptoAlgorithmIdentifierTag tag)
     {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
     }
 
     void write(CryptoKeyOKPOpNameTag tag)
     {
-        writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
-    }
-
-    void write(bool b)
-    {
-        write(static_cast<uint8_t>(b));
-    }
-
-    void write(uint8_t c)
-    {
-        writeLittleEndian(m_buffer, c);
-    }
-
-    void write(uint32_t i)
-    {
-        writeLittleEndian(m_buffer, i);
-    }
-
-    void write(double d)
-    {
-        union {
-            double d;
-            int64_t i;
-        } u;
-        u.d = d;
-        writeLittleEndian(m_buffer, u.i);
-    }
-
-    void write(int32_t i)
-    {
-        writeLittleEndian(m_buffer, i);
-    }
-
-    void write(uint64_t i)
-    {
-        writeLittleEndian(m_buffer, i);
-    }
-    
-    void write(uint16_t ch)
-    {
-        writeLittleEndian(m_buffer, ch);
-    }
-
-    void writeStringIndex(unsigned i)
-    {
-        writeConstantPoolIndex(m_constantPool, i);
+        JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(tag));
     }
 
     void writeImageDataIndex(unsigned i)
     {
         writeConstantPoolIndex(m_imageDataPool, i);
     }
-    
-    void writeObjectIndex(unsigned i)
-    {
-        writeConstantPoolIndex(m_objectPoolMap, i);
-    }
-
-    template <class T> void writeConstantPoolIndex(const T& constantPool, unsigned i)
-    {
-        ASSERT(i < constantPool.size());
-        if (constantPool.size() <= 0xFF)
-            write(static_cast<uint8_t>(i));
-        else if (constantPool.size() <= 0xFFFF)
-            write(static_cast<uint16_t>(i));
-        else
-            write(static_cast<uint32_t>(i));
-    }
-
-    void write(const AtomString& ident)
-    {
-        const String& str = ident.string();
-        StringConstantPool::AddResult addResult = m_constantPool.add(ident.impl(), m_constantPool.size());
-        if (!addResult.isNewEntry) {
-            write(StringPoolTag);
-            writeStringIndex(addResult.iterator->value);
-            return;
-        }
-
-        unsigned length = str.length();
-
-        // Guard against overflow
-        if (length > (std::numeric_limits<uint32_t>::max() - sizeof(uint32_t)) / sizeof(char16_t)) {
-            fail();
-            return;
-        }
-
-        if (str.is8Bit())
-            writeLittleEndian<uint32_t>(m_buffer, length | StringDataIs8BitFlag);
-        else
-            writeLittleEndian<uint32_t>(m_buffer, length);
-
-        if (!length)
-            return;
-        if (str.is8Bit()) {
-            if (!writeLittleEndian(m_buffer, str.span8()))
-                fail();
-            return;
-        }
-        if (!writeLittleEndian(m_buffer, str.span16()))
-            fail();
-    }
-
-    void write(const String& str)
-    {
-        if (str.isNull())
-            write(emptyAtom());
-        else
-            write(AtomString(str));
-    }
-
-    void writeNullableString(const String& str)
-    {
-        bool isNull = str.isNull();
-        write(isNull);
-        if (!isNull)
-            write(AtomString(str));
-    }
 
     void write(const Vector<uint8_t>& vector)
     {
         uint32_t size = vector.size();
         write(size);
-        writeLittleEndian(m_buffer, vector.span());
+        JSC::StructuredCloneInternal::writeLittleEndian(m_buffer, vector.span());
     }
 
     void write(const File& file)
@@ -2561,17 +1623,17 @@ private:
     {
         switch (colorSpace) {
         case PredefinedColorSpace::SRGB:
-            writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::SRGB));
+            JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::SRGB));
             break;
         case PredefinedColorSpace::SRGBLinear:
-            writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::SRGBLinear));
+            JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::SRGBLinear));
             break;
 #if ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3)
         case PredefinedColorSpace::DisplayP3:
-            writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::DisplayP3));
+            JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::DisplayP3));
             break;
         case PredefinedColorSpace::DisplayP3Linear:
-            writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::DisplayP3Linear));
+            JSC::StructuredCloneInternal::writeLittleEndian<uint8_t>(m_buffer, static_cast<uint8_t>(PredefinedColorSpaceTag::DisplayP3Linear));
             break;
 #endif
         }
@@ -2859,9 +1921,8 @@ private:
         write(data);
     }
 
-    Vector<uint8_t>& m_buffer;
+    // m_buffer lives in the JSC::CloneSerializerBase template.
     Vector<URLKeepingBlobAlive>& m_blobHandles;
-    ObjectPoolMap m_objectPoolMap;
     ObjectPoolMap m_transferredMessagePorts;
     ObjectPoolMap m_transferredArrayBuffers;
     ObjectPoolMap m_transferredImageBitmaps;
@@ -2879,8 +1940,6 @@ private:
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     ObjectPoolMap m_transferredMediaSourceHandles;
 #endif
-    using StringConstantPool = HashMap<RefPtr<AtomStringImpl>, uint32_t, IdentifierRepHash>;
-    StringConstantPool m_constantPool;
     using ImageDataPool = HashMap<Ref<ImageData>, uint32_t>;
     ImageDataPool m_imageDataPool;
     SerializationContext m_context;
@@ -2901,14 +1960,17 @@ private:
 #endif
 #if ENABLE(MEDIA_STREAM)
     ObjectPoolMap m_transferredMediaStreamTracks;
+    Vector<RefPtr<MediaStreamTrack>> m_serializedMediaStreamTracks;
     ObjectPoolMap m_transferredMediaStreamTrackHandles;
 #endif
     SerializationForStorage m_forStorage;
+    Vector<FileSystemHandleKeepAlive> m_fileSystemHandleKeepAlives;
 
 #if ASSERT_ENABLED
     bool m_didSeeComplexCases { false };
 #endif
 };
+static_assert(JSC::StructuredCloneSerializerHandler<CloneSerializer>);
 
 SerializationReturnCode CloneSerializer::serialize(JSValue in)
 {
@@ -3006,7 +2068,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 // objects have been handled. If we reach this point and
                 // the input is not an Object object then we should throw
                 // a DataCloneError.
-                if (inObject->classInfo() != JSFinalObject::info())
+                if (inObject->classInfo() != JSFinalObject::info() && inObject->classInfo() != ObjectPrototype::info())
                     return SerializationReturnCode::DataCloneError;
                 inputObjectStack.append(inObject);
                 indexStack.append(0);
@@ -3062,7 +2124,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 ASSERT(inValue.isObject());
                 if (inputObjectStack.size() > maximumFilterRecursion)
                     return SerializationReturnCode::StackOverflowError;
-                JSMap* inMap = jsCast<JSMap*>(inValue);
+                JSMap* inMap = downcast<JSMap>(inValue);
                 if (!addToObjectPoolIfNotDupe<MapObjectTag>(inMap))
                     break;
                 write(MapObjectTag);
@@ -3079,7 +2141,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 if (!iterator->nextKeyValue(m_lexicalGlobalObject, key, value)) {
                     mapIteratorStack.removeLast();
                     JSObject* object = inputObjectStack.last();
-                    ASSERT(jsDynamicCast<JSMap*>(object));
+                    ASSERT(is<JSMap>(*object));
                     propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
                     object->methodTable()->getOwnPropertyNames(object, m_lexicalGlobalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                     if (scope.exception()) [[unlikely]]
@@ -3108,7 +2170,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 ASSERT(inValue.isObject());
                 if (inputObjectStack.size() > maximumFilterRecursion)
                     return SerializationReturnCode::StackOverflowError;
-                JSSet* inSet = jsCast<JSSet*>(inValue);
+                JSSet* inSet = downcast<JSSet>(inValue);
                 if (!addToObjectPoolIfNotDupe<SetObjectTag>(inSet))
                     break;
                 write(SetObjectTag);
@@ -3125,7 +2187,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 if (!iterator->next(m_lexicalGlobalObject, key)) {
                     setIteratorStack.removeLast();
                     JSObject* object = inputObjectStack.last();
-                    ASSERT(jsDynamicCast<JSSet*>(object));
+                    ASSERT(is<JSSet>(*object));
                     propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
                     object->methodTable()->getOwnPropertyNames(object, m_lexicalGlobalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                     if (scope.exception()) [[unlikely]]
@@ -3172,23 +2234,23 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
     return SerializationReturnCode::SuccessfullyCompleted;
 }
 
-class CloneDeserializer : public CloneBase {
+class CloneDeserializer : public JSC::CloneDeserializerBase<CloneDeserializer> {
+    using Base = JSC::CloneDeserializerBase<CloneDeserializer>;
     WTF_FORBID_HEAP_ALLOCATION;
 public:
-    enum class ShouldAtomize : bool { No, Yes };
     static String deserializeString(const Vector<uint8_t>& buffer, ShouldAtomize shouldAtomize = ShouldAtomize::No)
     {
         if (buffer.isEmpty())
             return String();
         auto span = buffer.span();
         uint32_t version;
-        if (!readLittleEndian(span, version) || majorVersionFor(version) > CurrentMajorVersion)
+        if (!JSC::StructuredCloneInternal::readLittleEndian(span, version) || majorVersionFor(version) > CurrentMajorVersion)
             return String();
         uint8_t tag;
-        if (!readLittleEndian(span, tag) || tag != StringTag)
+        if (!JSC::StructuredCloneInternal::readLittleEndian(span, tag) || tag != StringTag)
             return String();
         uint32_t length;
-        if (!readLittleEndian(span, length))
+        if (!JSC::StructuredCloneInternal::readLittleEndian(span, length))
             return String();
         bool is8Bit = length & StringDataIs8BitFlag;
         length &= ~StringDataIs8BitFlag;
@@ -3307,45 +2369,6 @@ public:
     }
 
 private:
-    struct CachedString {
-        CachedString(String&& string)
-            : m_string(WTF::move(string))
-        {
-        }
-
-        JSValue jsString(CloneDeserializer& deserializer)
-        {
-            if (!m_jsString) {
-                auto& vm = deserializer.m_lexicalGlobalObject->vm();
-                m_jsString = JSC::jsString(vm, m_string);
-                deserializer.m_keepAliveBuffer.appendWithCrashOnOverflow(m_jsString);
-            }
-            return m_jsString;
-        }
-        const String& NODELETE string() { return m_string; }
-        String NODELETE takeString() { return WTF::move(m_string); }
-
-    private:
-        String m_string;
-        JSValue m_jsString;
-    };
-
-    struct CachedStringRef {
-        CachedStringRef() = default;
-
-        CachedStringRef(Vector<CachedString>* base, size_t index)
-            : m_base(base)
-            , m_index(index)
-        {
-        }
-        
-        CachedString* NODELETE operator->() { ASSERT(m_base); return &m_base->at(m_index); }
-        
-    private:
-        Vector<CachedString>* m_base { nullptr };
-        size_t m_index { 0 };
-    };
-
     CloneDeserializer(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, const Vector<Ref<MessagePort>>& messagePorts, ArrayBufferContentsArray* arrayBufferContents, Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps, const Vector<uint8_t>& buffer
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& detachedOffscreenCanvases = { }
@@ -3375,13 +2398,9 @@ private:
         , Vector<std::unique_ptr<MediaStreamTrackHandle::DataHolder>>&& detachedMediaStreamTrackHandles = { }
 #endif
         )
-        : CloneBase(lexicalGlobalObject)
-        , m_globalObject(globalObject)
+        : Base(lexicalGlobalObject, globalObject, buffer.span())
         , m_isDOMGlobalObject(globalObject->inherits<JSDOMGlobalObject>())
         , m_canCreateDOMObject(m_isDOMGlobalObject && !globalObject->inherits<JSIDBSerializationGlobalObject>())
-        , m_data(buffer.span())
-        , m_majorVersion(0xFFFFFFFF)
-        , m_minorVersion(0xFFFFFFFF)
         , m_messagePorts(messagePorts)
         , m_arrayBufferContents(arrayBufferContents)
         , m_arrayBuffers(arrayBufferContents ? arrayBufferContents->size() : 0)
@@ -3426,11 +2445,7 @@ private:
         , m_mediaStreamTrackHandles(m_detachedMediaStreamTrackHandles.size())
 #endif
     {
-        unsigned version;
-        if (read(version)) {
-            m_majorVersion = majorVersionFor(version);
-            m_minorVersion = minorVersionFor(version);
-        }
+        readAndStoreVersion();
     }
 
     CloneDeserializer(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, const Vector<Ref<MessagePort>>& messagePorts, ArrayBufferContentsArray* arrayBufferContents, const Vector<uint8_t>& buffer, const Vector<String>& blobURLs, const Vector<String> blobFilePaths, ArrayBufferContentsArray* sharedBuffers, Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps
@@ -3462,13 +2477,9 @@ private:
         , Vector<std::unique_ptr<MediaStreamTrackHandle::DataHolder>>&& detachedMediaStreamTrackHandles = { }
 #endif
         )
-        : CloneBase(lexicalGlobalObject)
-        , m_globalObject(globalObject)
+        : JSC::CloneDeserializerBase<CloneDeserializer>(lexicalGlobalObject, globalObject, buffer.span())
         , m_isDOMGlobalObject(globalObject->inherits<JSDOMGlobalObject>())
         , m_canCreateDOMObject(m_isDOMGlobalObject && !globalObject->inherits<JSIDBSerializationGlobalObject>())
-        , m_data(buffer.span())
-        , m_majorVersion(0xFFFFFFFF)
-        , m_minorVersion(0xFFFFFFFF)
         , m_messagePorts(messagePorts)
         , m_arrayBufferContents(arrayBufferContents)
         , m_arrayBuffers(arrayBufferContents ? arrayBufferContents->size() : 0)
@@ -3516,11 +2527,7 @@ private:
         , m_mediaStreamTrackHandles(m_detachedMediaStreamTrackHandles.size())
 #endif
     {
-        unsigned version;
-        if (read(version)) {
-            m_majorVersion = majorVersionFor(version);
-            m_minorVersion = minorVersionFor(version);
-        }
+        readAndStoreVersion();
     }
 
     enum class VisitNamedMemberResult : uint8_t { Error, Break, Start, Unknown };
@@ -3599,263 +2606,11 @@ private:
     Vector<RefPtr<DetachedMediaSourceHandle>> takeDetachedMediaSourceHandles() { return std::exchange(m_detachedMediaSourceHandles, { }); }
 #endif
 
-    bool NODELETE isValid() const
-    {
-        if (m_majorVersion > CurrentMajorVersion)
-            return false;
-        if (m_majorVersion == 12)
-            return m_minorVersion <= 1;
-        return !m_minorVersion;
-    }
-    bool NODELETE shouldRetryWithVersionUpgrade()
-    {
-        if (m_majorVersion == 14 && !m_minorVersion)
-            return true;
-        if (m_majorVersion == 12 && !m_minorVersion)
-            return true;
-        return false;
-    }
-    void NODELETE upgradeVersion()
-    {
-        ASSERT(shouldRetryWithVersionUpgrade());
-        if (m_majorVersion == 14 && !m_minorVersion) {
-            m_majorVersion = 15;
-            return;
-        }
-        if (m_majorVersion == 12 && !m_minorVersion)
-            m_minorVersion = 1;
-    }
-
-    template<SerializationTag tag>
-    inline void addToObjectPool(JSValue object)
-    {
-        static_assert(canBeAddedToObjectPool(tag));
-        m_objectPool.appendWithCrashOnOverflow(object);
-        appendObjectPoolTag(tag);
-    }
-
-    template <typename T> bool NODELETE readLittleEndian(T& value)
-    {
-        if (m_failed || !readLittleEndian(m_data, value)) {
-            SERIALIZE_TRACE("FAIL deserialize");
-            fail();
-            return false;
-        }
-        return true;
-    }
-#if ASSUME_LITTLE_ENDIAN
-    template <typename T> static bool NODELETE readLittleEndian(std::span<const uint8_t>& span, T& value)
-    {
-        if (span.size() < sizeof(value))
-            return false;
-
-        value = consumeAndReinterpretCastTo<const T>(span);
-        return true;
-    }
-#else
-    template <typename T> static bool NODELETE readLittleEndian(std::span<const uint8_t>& span, T& value)
-    {
-        if (span.size() < sizeof(value))
-            return false;
-
-        if constexpr (sizeof(T) == 1)
-            value = consume(span);
-        else {
-            value = 0;
-            for (size_t i = 0; i < sizeof(T); ++i)
-                value += static_cast<T>(span[i]) << (i * 8);
-            skip(span, sizeof(T));
-        }
-        return true;
-    }
-#endif
-
-    enum class ForceReadingAs8Bit : bool { No, Yes };
-    bool NODELETE read(bool& b, ForceReadingAs8Bit forceReadingAs8Bit = ForceReadingAs8Bit::No)
-    {
-        if (m_majorVersion >= 14 || forceReadingAs8Bit == ForceReadingAs8Bit::Yes) {
-            uint8_t integer;
-            if (!read(integer) || integer > 1)
-                return false;
-            b = !!integer;
-        } else {
-            int32_t integer;
-            if (!read(integer) || integer > 1)
-                return false;
-            b = !!integer;
-        }
-        return true;
-    }
-
-    bool NODELETE read(uint32_t& i)
-    {
-        return readLittleEndian(i);
-    }
-
-    bool NODELETE read(int32_t& i)
-    {
-        return readLittleEndian(*reinterpret_cast<uint32_t*>(&i));
-    }
-
-    bool NODELETE read(uint16_t& i)
-    {
-        return readLittleEndian(i);
-    }
-
-    bool NODELETE read(uint8_t& i)
-    {
-        return readLittleEndian(i);
-    }
-
-    bool NODELETE read(double& d)
-    {
-        union {
-            double d;
-            uint64_t i64;
-        } u;
-        if (!readLittleEndian(u.i64))
-            return false;
-        d = purifyNaN(u.d);
-        return true;
-    }
-
-    bool NODELETE read(uint64_t& i)
-    {
-        return readLittleEndian(i);
-    }
-
-    std::optional<uint32_t> NODELETE readStringIndex()
-    {
-        return readConstantPoolIndex(m_constantPool);
-    }
+    using Base::read;
 
     std::optional<uint32_t> NODELETE readImageDataIndex()
     {
         return readConstantPoolIndex(m_imageDataPool);
-    }
-
-    template<typename T> std::optional<uint32_t> NODELETE readConstantPoolIndex(const T& constantPool)
-    {
-        if (constantPool.size() <= 0xFF) {
-            uint8_t i8;
-            if (!read(i8))
-                return std::nullopt;
-            return i8;
-        }
-        if (constantPool.size() <= 0xFFFF) {
-            uint16_t i16;
-            if (!read(i16))
-                return std::nullopt;
-            return i16;
-        }
-        uint32_t i;
-        if (!read(i))
-            return std::nullopt;
-        return i;
-    }
-
-    static bool readString(std::span<const uint8_t>& span, String& str, unsigned length, bool is8Bit, ShouldAtomize shouldAtomize)
-    {
-        if (length >= std::numeric_limits<int32_t>::max() / sizeof(char16_t))
-            return false;
-
-        if (is8Bit) {
-            if (span.size() < length)
-                return false;
-            if (shouldAtomize == ShouldAtomize::Yes)
-                str = AtomString(byteCast<Latin1Character>(consumeSpan(span, length)));
-            else
-                str = String(byteCast<Latin1Character>(consumeSpan(span, length)));
-            return true;
-        }
-
-        size_t size = length * sizeof(char16_t);
-        if (span.size() < size)
-            return false;
-
-#if ASSUME_LITTLE_ENDIAN
-        auto stringSpan = consumeSpan(span, size);
-        if (shouldAtomize == ShouldAtomize::Yes)
-            str = AtomString(spanReinterpretCast<const char16_t>(stringSpan));
-        else
-            str = String(spanReinterpretCast<const char16_t>(stringSpan));
-#else
-        std::span<char16_t> characters;
-        str = String::createUninitialized(length, characters);
-        for (unsigned i = 0; i < length; ++i) {
-            uint16_t c;
-            readLittleEndian(span, c);
-            characters[i] = c;
-        }
-        if (shouldAtomize == ShouldAtomize::Yes)
-            str = AtomString { str };
-#endif
-        return true;
-    }
-
-    bool readNullableString(String& nullableString, ShouldAtomize shouldAtomize = ShouldAtomize::No)
-    {
-        bool isNull;
-        if (!read(isNull))
-            return false;
-        if (isNull)
-            return true;
-        CachedStringRef stringData;
-        if (!readStringData(stringData, shouldAtomize))
-            return false;
-        nullableString = stringData->string();
-        return true;
-    }
-
-    bool readStringData(CachedStringRef& cachedString, ShouldAtomize shouldAtomize = ShouldAtomize::No)
-    {
-        bool scratch;
-        return readStringData(cachedString, scratch, shouldAtomize);
-    }
-
-    bool readStringData(CachedStringRef& cachedString, bool& wasTerminator, ShouldAtomize shouldAtomize = ShouldAtomize::No)
-    {
-        if (m_failed)
-            return false;
-        uint32_t length = 0;
-        if (!read(length))
-            return false;
-        if (length == TerminatorTag) {
-            wasTerminator = true;
-            return false;
-        }
-        if (length == StringPoolTag) {
-            auto index = readStringIndex();
-            if (!index || *index >= m_constantPool.size()) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return false;
-            }
-            cachedString = CachedStringRef(&m_constantPool, *index);
-            return true;
-        }
-        bool is8Bit = length & StringDataIs8BitFlag;
-        length &= ~StringDataIs8BitFlag;
-        String str;
-        if (!readString(m_data, str, length, is8Bit, shouldAtomize)) {
-            SERIALIZE_TRACE("FAIL deserialize");
-            fail();
-            return false;
-        }
-        m_constantPool.append(WTF::move(str));
-        cachedString = CachedStringRef(&m_constantPool, m_constantPool.size() - 1);
-        return true;
-    }
-
-    SerializationTag readTag()
-    {
-        if (m_data.empty()) {
-            SERIALIZE_TRACE("FAIL deserialize");
-            return ErrorTag;
-        }
-        auto tag = static_cast<SerializationTag>(consume(m_data));
-        SERIALIZE_TRACE("deserialize ", tag);
-        return tag;
     }
 
     bool NODELETE readArrayBufferViewSubtag(ArrayBufferViewSubtag& tag)
@@ -3997,7 +2752,7 @@ private:
         auto makeArrayBufferView = [&](auto&& view) -> bool {
             if (!view)
                 return false;
-            arrayBufferView = toJS(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), view.releaseNonNull());
+            arrayBufferView = toJS(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), view.releaseNonNull());
             return true;
         };
 
@@ -4538,22 +3293,12 @@ private:
         return true;
     }
 
-    bool NODELETE read(SerializableErrorType& errorType)
-    {
-        std::underlying_type_t<SerializableErrorType> errorTypeInt;
-        if (!read(errorTypeInt) || errorTypeInt > std::to_underlying(SerializableErrorType::Last))
-            return false;
-
-        errorType = static_cast<SerializableErrorType>(errorTypeInt);
-        return true;
-    }
-
     template<class T>
     JSValue getJSValue(T&& nativeObj)
     {
         if (!m_isDOMGlobalObject)
             return { };
-        return toJS(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), std::forward<T>(nativeObj));
+        return toJS(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), std::forward<T>(nativeObj));
     }
 
     template<class T>
@@ -4574,15 +3319,18 @@ private:
 
         if (!m_isDOMGlobalObject)
             return { };
-        return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(x, y, z, w));
+        return toJSNewlyCreated(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), T::create(x, y, z, w));
     }
 
     template<class T>
     JSValue readDOMMatrix()
     {
-        bool is2D;
-        if (!read(is2D, ForceReadingAs8Bit::Yes))
+        // Always read is2D as a single byte.
+        // FIXME: Why not read this back as a bool since it's written as one?
+        uint8_t is2DByte;
+        if (!read(is2DByte))
             return { };
+        bool is2D = !!is2DByte;
 
         if (is2D) {
             double m11;
@@ -4607,7 +3355,7 @@ private:
             TransformationMatrix matrix(m11, m12, m21, m22, m41, m42);
             if (!m_isDOMGlobalObject)
                 return { };
-            return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTF::move(matrix), DOMMatrixReadOnly::Is2D::Yes));
+            return toJSNewlyCreated(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), T::create(WTF::move(matrix), DOMMatrixReadOnly::Is2D::Yes));
         } else {
             double m11;
             if (!read(m11))
@@ -4661,7 +3409,7 @@ private:
             TransformationMatrix matrix(m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44);
             if (!m_isDOMGlobalObject)
                 return { };
-            return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTF::move(matrix), DOMMatrixReadOnly::Is2D::No));
+            return toJSNewlyCreated(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), T::create(WTF::move(matrix), DOMMatrixReadOnly::Is2D::No));
         }
     }
 
@@ -4683,7 +3431,7 @@ private:
 
         if (!m_isDOMGlobalObject)
             return { };
-        return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(x, y, width, height));
+        return toJSNewlyCreated(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), T::create(x, y, width, height));
     }
 
     std::optional<DOMPointInit> NODELETE readDOMPointInit()
@@ -4718,7 +3466,7 @@ private:
 
         if (!m_isDOMGlobalObject)
             return { };
-        return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), DOMQuad::create(p1.value(), p2.value(), p3.value(), p4.value()));
+        return toJSNewlyCreated(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), DOMQuad::create(p1.value(), p2.value(), p3.value(), p4.value()));
     }
 
     JSValue readTransferredImageBitmap()
@@ -4753,7 +3501,7 @@ private:
 
         if (!m_offscreenCanvases[index])
             m_offscreenCanvases[index] = OffscreenCanvas::create(*protect(executionContext(m_lexicalGlobalObject)), WTF::move(m_detachedOffscreenCanvases.at(index)));
-        return getJSValue(*m_offscreenCanvases[index]);
+        return getJSValue(protect(*m_offscreenCanvases[index]));
     }
 
     JSValue readInMemoryOffscreenCanvas()
@@ -4817,10 +3565,10 @@ private:
         }
 
         if (!m_canCreateDOMObject)
-            return constructEmptyObject(m_lexicalGlobalObject, m_globalObject->objectPrototype());
+            return JSC::constructEmptyObject(m_lexicalGlobalObject, m_globalObject->objectPrototype());
 
         auto rtcCertificate = RTCCertificate::create(SecurityOrigin::createFromString(origin->string()), expires, WTF::move(fingerprints), certificate->takeString(), keyedMaterial->takeString());
-        return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), WTF::move(rtcCertificate));
+        return toJSNewlyCreated(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), WTF::move(rtcCertificate));
     }
 
     JSValue readRTCDataChannel()
@@ -4837,7 +3585,7 @@ private:
             auto detachedChannel = WTF::move(m_detachedRTCDataChannels.at(index));
             m_rtcDataChannels[index] = RTCDataChannel::create(*protect(executionContext(m_lexicalGlobalObject)), detachedChannel->identifier, WTF::move(detachedChannel->label), WTF::move(detachedChannel->options), detachedChannel->state);
         }
-        return getJSValue(*m_rtcDataChannels[index]);
+        return getJSValue(protect(*m_rtcDataChannels[index]));
     }
 
     JSValue readRTCEncodedAudioFrame()
@@ -4852,7 +3600,7 @@ private:
 
         if (!m_rtcEncodedAudioFrames[index])
             m_rtcEncodedAudioFrames[index] = RTCEncodedAudioFrame::create(WTF::move(m_serializedRTCEncodedAudioFrames.at(index)));
-        return getJSValue(*m_rtcEncodedAudioFrames[index]);
+        return getJSValue(protect(*m_rtcEncodedAudioFrames[index]));
     }
 
     JSValue readRTCEncodedVideoFrame()
@@ -4867,7 +3615,7 @@ private:
 
         if (!m_rtcEncodedVideoFrames[index])
             m_rtcEncodedVideoFrames[index] = RTCEncodedVideoFrame::create(WTF::move(m_serializedRTCEncodedVideoFrames.at(index)));
-        return getJSValue(*m_rtcEncodedVideoFrames[index]);
+        return getJSValue(protect(*m_rtcEncodedVideoFrames[index]));
     }
 #endif
     JSValue readReadableStream()
@@ -4887,7 +3635,7 @@ private:
 
         auto addResult = m_readableStreams.add(readableStreamIndex, nullptr);
         if (addResult.isNewEntry) {
-            auto readableStreamOrError = ReadableStream::runTransferReceivingSteps(*jsCast<JSDOMGlobalObject*>(m_lexicalGlobalObject), { m_messagePorts.at(messagePortIndex).get() });
+            auto readableStreamOrError = ReadableStream::runTransferReceivingSteps(*downcast<JSDOMGlobalObject>(m_lexicalGlobalObject), { m_messagePorts.at(messagePortIndex).get() });
             if (readableStreamOrError.hasException()) {
                 SERIALIZE_TRACE("FAIL creating readable stream");
                 fail();
@@ -4895,7 +3643,7 @@ private:
             }
             addResult.iterator->value = readableStreamOrError.releaseReturnValue();
         }
-        return getJSValue(*addResult.iterator->value);
+        return getJSValue(protect(*addResult.iterator->value));
     }
     JSValue readWritableStream()
     {
@@ -4914,7 +3662,7 @@ private:
 
         auto addResult = m_writableStreams.add(writableStreamIndex, nullptr);
         if (addResult.isNewEntry) {
-            auto writableStreamOrError = WritableStream::runTransferReceivingSteps(*jsCast<JSDOMGlobalObject*>(m_lexicalGlobalObject), { m_messagePorts.at(messagePortIndex).get() });
+            auto writableStreamOrError = WritableStream::runTransferReceivingSteps(*downcast<JSDOMGlobalObject>(m_lexicalGlobalObject), { m_messagePorts.at(messagePortIndex).get() });
             if (writableStreamOrError.hasException()) {
                 SERIALIZE_TRACE("FAIL creating writable stream");
                 fail();
@@ -4922,7 +3670,7 @@ private:
             }
             addResult.iterator->value = writableStreamOrError.releaseReturnValue();
         }
-        return getJSValue(*addResult.iterator->value);
+        return getJSValue(protect(*addResult.iterator->value));
     }
     JSValue readTransformStream()
     {
@@ -4941,7 +3689,7 @@ private:
 
         auto addResult = m_transformStreams.add(transformStreamIndex, nullptr);
         if (addResult.isNewEntry) {
-            auto transformStreamOrError = TransformStream::runTransferReceivingSteps(*jsCast<JSDOMGlobalObject*>(m_lexicalGlobalObject), { m_messagePorts.at(messagePortsIndex).get(), m_messagePorts.at(messagePortsIndex + 1).get() });
+            auto transformStreamOrError = TransformStream::runTransferReceivingSteps(*downcast<JSDOMGlobalObject>(m_lexicalGlobalObject), { m_messagePorts.at(messagePortsIndex).get(), m_messagePorts.at(messagePortsIndex + 1).get() });
             if (transformStreamOrError.hasException()) {
                 SERIALIZE_TRACE("FAIL creating writable stream");
                 fail();
@@ -4949,7 +3697,7 @@ private:
             }
             addResult.iterator->value = transformStreamOrError.releaseReturnValue();
         }
-        return getJSValue(*addResult.iterator->value);
+        return getJSValue(protect(*addResult.iterator->value));
     }
 #if ENABLE(WEB_CODECS)
     JSValue readWebCodecsEncodedVideoChunk()
@@ -4964,7 +3712,7 @@ private:
 
         if (!m_videoChunks[index])
             m_videoChunks[index] = WebCodecsEncodedVideoChunk::create(WTF::move(m_serializedVideoChunks.at(index)));
-        return getJSValue(*m_videoChunks[index]);
+        return getJSValue(protect(*m_videoChunks[index]));
     }
     JSValue readWebCodecsVideoFrame()
     {
@@ -4978,7 +3726,7 @@ private:
 
         if (!m_videoFrames[index])
             m_videoFrames[index] = WebCodecsVideoFrame::create(*protect(executionContext(m_lexicalGlobalObject)), WTF::move(m_serializedVideoFrames.at(index)));
-        return getJSValue(*m_videoFrames[index]);
+        return getJSValue(protect(*m_videoFrames[index]));
     }
     JSValue readWebCodecsEncodedAudioChunk()
     {
@@ -4992,7 +3740,7 @@ private:
 
         if (!m_audioChunks[index])
             m_audioChunks[index] = WebCodecsEncodedAudioChunk::create(WTF::move(m_serializedAudioChunks.at(index)));
-        return getJSValue(*m_audioChunks[index]);
+        return getJSValue(protect(*m_audioChunks[index]));
     }
     JSValue readWebCodecsAudioData()
     {
@@ -5006,7 +3754,7 @@ private:
 
         if (!m_audioData[index])
             m_audioData[index] = WebCodecsAudioData::create(*protect(executionContext(m_lexicalGlobalObject)), WTF::move(m_serializedAudioData.at(index)));
-        return getJSValue(*m_audioData[index]);
+        return getJSValue(protect(*m_audioData[index]));
     }
 #endif
 
@@ -5022,7 +3770,7 @@ private:
 
         if (!m_mediaStreamTracks[index])
             m_mediaStreamTracks[index] = MediaStreamTrack::create(*protect(executionContext(m_lexicalGlobalObject)), makeUniqueRefFromNonNullUniquePtr(std::exchange(m_detachedMediaStreamTracks.at(index), { })));
-        return getJSValue(*m_mediaStreamTracks[index]);
+        return getJSValue(protect(*m_mediaStreamTracks[index]));
     }
     JSValue readMediaStreamTrackHandle()
     {
@@ -5036,7 +3784,7 @@ private:
         if (!m_mediaStreamTrackHandles[index])
             m_mediaStreamTrackHandles[index] = MediaStreamTrackHandle::create(WTF::move(*std::exchange(m_detachedMediaStreamTrackHandles.at(index), { })));
 
-        return getJSValue(*m_mediaStreamTrackHandles[index]);
+        return getJSValue(protect(*m_mediaStreamTrackHandles[index]));
     }
 #endif
 
@@ -5052,7 +3800,7 @@ private:
 
         if (!m_mediaSourceHandles[index])
             m_mediaSourceHandles[index] = MediaSourceHandle::create(std::exchange(m_detachedMediaSourceHandles.at(index), { }).releaseNonNull());
-        return getJSValue(*m_mediaSourceHandles[index]);
+        return getJSValue(protect(*m_mediaSourceHandles[index]));
     }
 #endif
 
@@ -5113,171 +3861,88 @@ private:
         return getJSValue(exception);
     }
 
-    JSValue readBigInt()
+    JSValue readFileSystemHandle()
     {
-        bool sign;
-        if (!read(sign, ForceReadingAs8Bit::Yes))
-            return JSValue();
-        uint32_t numberOfUint64Elements = 0;
-        if (!read(numberOfUint64Elements))
-            return JSValue();
-
-        if (!numberOfUint64Elements) {
-#if USE(BIGINT32)
-            return jsBigInt32(0);
-#else
-            JSBigInt* bigInt = JSBigInt::tryCreateZero(m_lexicalGlobalObject->vm());
-            if (!bigInt) [[unlikely]] {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            return bigInt;
-#endif
-        }
-
-#if USE(BIGINT32)
-        static_assert(sizeof(JSBigInt::Digit) == sizeof(uint64_t));
-        if (numberOfUint64Elements == 1) {
-            uint64_t digit64 = 0;
-            if (!read(digit64))
-                return JSValue();
-            if (sign) {
-                if (digit64 <= static_cast<uint64_t>(-static_cast<int64_t>(INT32_MIN)))
-                    return jsBigInt32(static_cast<int32_t>(-static_cast<int64_t>(digit64)));
-            } else {
-                if (digit64 <= INT32_MAX)
-                    return jsBigInt32(static_cast<int32_t>(digit64));
-            }
-            ASSERT(digit64 != 0);
-            JSBigInt* bigInt = JSBigInt::tryCreateFrom(nullptr, m_lexicalGlobalObject->vm(), sign, std::span { &digit64, 1 });
-            if (!bigInt) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            return tryConvertToBigInt32(bigInt);
-        }
-#endif
-        Vector<JSBigInt::Digit, 16> digits;
-        if constexpr (sizeof(JSBigInt::Digit) == sizeof(uint64_t)) {
-            digits.reserveInitialCapacity(numberOfUint64Elements);
-            for (uint32_t index = 0; index < numberOfUint64Elements; ++index) {
-                uint64_t digit64 = 0;
-                if (!read(digit64))
-                    return JSValue();
-                digits.append(digit64);
-            }
-        } else {
-            ASSERT(sizeof(JSBigInt::Digit) == sizeof(uint32_t));
-            auto actualBigIntLength = WTF::checkedProduct<uint32_t>(numberOfUint64Elements, 2);
-            if (actualBigIntLength.hasOverflowed()) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            digits.reserveInitialCapacity(actualBigIntLength.value());
-            for (uint32_t index = 0; index < numberOfUint64Elements; ++index) {
-                uint64_t digit64 = 0;
-                if (!read(digit64))
-                    return JSValue();
-                digits.append(static_cast<uint32_t>(digit64));
-                digits.append(static_cast<uint32_t>(digit64 >> 32));
-            }
-        }
-
-        auto* bigInt = JSBigInt::tryCreateFrom(nullptr, m_lexicalGlobalObject->vm(), sign, digits.span());
-        if (!bigInt) {
-            SERIALIZE_TRACE("FAIL deserialize");
+        uint8_t kindByte;
+        if (!read(kindByte) || (kindByte != std::to_underlying(FileSystemHandleKind::File) && kindByte != std::to_underlying(FileSystemHandleKind::Directory))) {
+            SERIALIZE_TRACE("FAIL readFileSystemHandle: invalid kind");
             fail();
             return JSValue();
         }
-        return tryConvertToBigInt32(bigInt);
+        auto kind = static_cast<FileSystemHandleKind>(kindByte);
+
+        CachedStringRef name;
+        if (!readStringData(name)) {
+            SERIALIZE_TRACE("FAIL readFileSystemHandle: cannot read name");
+            fail();
+            return JSValue();
+        }
+
+        static constexpr size_t uuidSize = 16;
+        if (m_data.size() < uuidSize) {
+            SERIALIZE_TRACE("FAIL readFileSystemHandle: not enough data for UUID");
+            fail();
+            return JSValue();
+        }
+        auto uuid = WTF::UUID(m_data.first(uuidSize));
+        skip(m_data, uuidSize);
+        if (!uuid) {
+            SERIALIZE_TRACE("FAIL readFileSystemHandle: invalid UUID");
+            fail();
+            return JSValue();
+        }
+        auto globalIdentifier = FileSystemHandleGlobalIdentifier(uuid);
+
+        CachedStringRef origin;
+        if (!readStringData(origin)) {
+            fail();
+            return JSValue();
+        }
+
+        RefPtr context = executionContext(m_lexicalGlobalObject);
+        if (!context) {
+            fail();
+            return JSValue();
+        }
+
+        if (context->securityOrigin()->toString() != origin->string()) {
+            fail();
+            return JSValue();
+        }
+
+        RefPtr<FileSystemStorageConnection> connection = fileSystemStorageConnectionForContext(*context);
+        if (!connection) {
+            fail();
+            return JSValue();
+        }
+
+        auto clientOrigin = clientOriginForContext(*context);
+        if (kind == FileSystemHandleKind::File) {
+            Ref handle = FileSystemFileHandle::create(*context, String { name->string() }, globalIdentifier);
+            handle->markAsUnresolved(WTF::move(clientOrigin), connection.releaseNonNull());
+            return getJSValue(handle);
+        }
+        Ref handle = FileSystemDirectoryHandle::create(*context, String { name->string() }, globalIdentifier);
+        handle->markAsUnresolved(WTF::move(clientOrigin), connection.releaseNonNull());
+        return getJSValue(handle);
     }
 
-    JSValue readTerminal()
+public:
+    bool isTagExposed(SerializationTag tag) const
     {
-        if (!isSafeToRecurse()) {
-            SERIALIZE_TRACE("FAIL deserialize");
-            fail();
-            return JSValue();
-        }
-        auto originalData = m_data;
-        SerializationTag tag = readTag();
-        if (!isTypeExposedToGlobalObject(*m_globalObject, tag)) {
-            SERIALIZE_TRACE("FAIL deserialize");
-            fail();
-            return JSValue();
-        }
+        return isTypeExposedToGlobalObject(*m_globalObject, tag);
+    }
+
+    JSValue readDerivedTerminal(SerializationTag tag)
+    {
         switch (tag) {
-        case UndefinedTag:
-            return jsUndefined();
-        case NullTag:
-            return jsNull();
-        case IntTag: {
-            int32_t i;
-            if (!read(i))
-                return JSValue();
-            return jsNumber(i);
-        }
-        case ZeroTag:
-            return jsNumber(0);
-        case OneTag:
-            return jsNumber(1);
-        case FalseTag:
-            return jsBoolean(false);
-        case TrueTag:
-            return jsBoolean(true);
-        case FalseObjectTag: {
-            BooleanObject* obj = BooleanObject::create(m_lexicalGlobalObject->vm(), m_globalObject->booleanObjectStructure());
-            obj->setInternalValue(m_lexicalGlobalObject->vm(), jsBoolean(false));
-            addToObjectPool<FalseObjectTag>(obj);
-            return obj;
-        }
-        case TrueObjectTag: {
-            BooleanObject* obj = BooleanObject::create(m_lexicalGlobalObject->vm(), m_globalObject->booleanObjectStructure());
-            obj->setInternalValue(m_lexicalGlobalObject->vm(), jsBoolean(true));
-            addToObjectPool<TrueObjectTag>(obj);
-            return obj;
-        }
-        case DoubleTag: {
-            double d;
-            if (!read(d))
-                return JSValue();
-            return jsNumber(d);
-        }
-        case BigIntTag:
-            return readBigInt();
-        case NumberObjectTag: {
-            double d;
-            if (!read(d))
-                return JSValue();
-            NumberObject* obj = constructNumber(m_globalObject, jsNumber(d));
-            addToObjectPool<NumberObjectTag>(obj);
-            return obj;
-        }
-        case BigIntObjectTag: {
-            JSValue bigInt = readBigInt();
-            if (!bigInt)
-                return JSValue();
-            ASSERT(bigInt.isBigInt());
-            BigIntObject* obj = BigIntObject::create(m_lexicalGlobalObject->vm(), m_globalObject, bigInt);
-            addToObjectPool<BigIntObjectTag>(obj);
-            return obj;
-        }
-        case DateTag: {
-            double d;
-            if (!read(d))
-                return JSValue();
-            return DateInstance::create(m_lexicalGlobalObject->vm(), m_globalObject->dateStructure(), d);
-        }
         case FileTag: {
             RefPtr<File> file;
             if (!readFile(file))
                 return JSValue();
             if (!m_canCreateDOMObject)
                 return jsNull();
-            return toJS(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), file.releaseNonNull());
+            return toJS(m_lexicalGlobalObject, downcast<JSDOMGlobalObject>(m_globalObject), file.releaseNonNull());
         }
         case FileListTag: {
             unsigned length = 0;
@@ -5366,87 +4031,6 @@ private:
                 return jsNull();
             return getJSValue(Blob::deserialize(protect(executionContext(m_lexicalGlobalObject)).get(), URL { url->string() }, type->string(), size, memoryCost, blobFilePathForBlobURL(url->string())).get());
         }
-        case StringTag: {
-            CachedStringRef cachedString;
-            if (!readStringData(cachedString))
-                return JSValue();
-            return cachedString->jsString(*this);
-        }
-        case EmptyStringTag:
-            return jsEmptyString(m_lexicalGlobalObject->vm());
-        case StringObjectTag: {
-            CachedStringRef cachedString;
-            if (!readStringData(cachedString))
-                return JSValue();
-            StringObject* obj = constructString(m_lexicalGlobalObject->vm(), m_globalObject, cachedString->jsString(*this));
-            addToObjectPool<StringObjectTag>(obj);
-            return obj;
-        }
-        case EmptyStringObjectTag: {
-            VM& vm = m_lexicalGlobalObject->vm();
-            StringObject* obj = constructString(vm, m_globalObject, jsEmptyString(vm));
-            addToObjectPool<EmptyStringObjectTag>(obj);
-            return obj;
-        }
-        case RegExpTag: {
-            CachedStringRef pattern;
-            if (!readStringData(pattern))
-                return JSValue();
-            CachedStringRef flags;
-            if (!readStringData(flags))
-                return JSValue();
-            auto reFlags = Yarr::parseFlags(flags->string());
-            if (!reFlags.has_value())
-                return JSValue();
-            VM& vm = m_lexicalGlobalObject->vm();
-            RegExp* regExp = RegExp::create(vm, pattern->string(), reFlags.value());
-            return RegExpObject::create(vm, m_globalObject->regExpStructure(), regExp);
-        }
-        case ErrorInstanceTag: {
-            SerializableErrorType serializedErrorType;
-            if (!read(serializedErrorType)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            String message;
-            if (!readNullableString(message)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            uint32_t line;
-            if (!read(line)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            uint32_t column;
-            if (!read(column)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            String sourceURL;
-            if (!readNullableString(sourceURL)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            String stackString;
-            if (!readNullableString(stackString)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            String causeString;
-            if (!readNullableString(causeString)) {
-                SERIALIZE_TRACE("FAIL deserialize");
-                fail();
-                return JSValue();
-            }
-            return ErrorInstance::create(m_lexicalGlobalObject, WTF::move(message), toErrorType(serializedErrorType), { line, column }, WTF::move(sourceURL), WTF::move(stackString), WTF::move(causeString));
-        }
         case ObjectReferenceTag: {
             auto index = readConstantPoolIndex(m_objectPool);
             if (!index) {
@@ -5478,15 +4062,13 @@ private:
         }
 #if ENABLE(WEBASSEMBLY)
         case WasmModuleTag: {
-            if (m_majorVersion >= 12) {
-                // https://webassembly.github.io/spec/web-api/index.html#serialization
-                CachedStringRef agentClusterID;
-                bool agentClusterIDSuccessfullyRead = readStringData(agentClusterID);
-                if (!agentClusterIDSuccessfullyRead || agentClusterID->string() != agentClusterIDFromGlobalObject(*m_globalObject)) {
-                    SERIALIZE_TRACE("FAIL deserialize");
-                    fail();
-                    return JSValue();
-                }
+            // https://webassembly.github.io/spec/web-api/index.html#serialization
+            CachedStringRef agentClusterID;
+            bool agentClusterIDSuccessfullyRead = readStringData(agentClusterID);
+            if (!agentClusterIDSuccessfullyRead || agentClusterID->string() != agentClusterIDFromGlobalObject(*m_globalObject)) {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                return JSValue();
             }
             uint32_t index;
             bool indexSuccessfullyRead = read(index);
@@ -5498,18 +4080,16 @@ private:
             return JSC::JSWebAssemblyModule::create(m_lexicalGlobalObject->vm(), m_globalObject->webAssemblyModuleStructure(), m_wasmModules->at(index).copyRef());
         }
         case WasmMemoryTag: {
-            if (m_majorVersion >= 12) {
-                CachedStringRef agentClusterID;
-                bool agentClusterIDSuccessfullyRead = readStringData(agentClusterID);
-                if (!agentClusterIDSuccessfullyRead || agentClusterID->string() != agentClusterIDFromGlobalObject(*m_globalObject)) {
-                    SERIALIZE_TRACE("FAIL deserialize");
-                    fail();
-                    return JSValue();
-                }
+            CachedStringRef agentClusterID;
+            bool agentClusterIDSuccessfullyRead = readStringData(agentClusterID);
+            if (!agentClusterIDSuccessfullyRead || agentClusterID->string() != agentClusterIDFromGlobalObject(*m_globalObject)) {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                return JSValue();
             }
             uint32_t index;
             bool indexSuccessfullyRead = read(index);
-            if (!indexSuccessfullyRead || !m_wasmMemoryHandles || index >= m_wasmMemoryHandles->size() || !JSC::Options::useSharedArrayBuffer()) {
+            if (!indexSuccessfullyRead || !m_wasmMemoryHandles || index >= m_wasmMemoryHandles->size()) {
                 SERIALIZE_TRACE("FAIL deserialize");
                 fail();
                 return JSValue();
@@ -5584,13 +4164,16 @@ private:
 
             if (!m_arrayBuffers[index])
                 m_arrayBuffers[index] = ArrayBuffer::create(WTF::move(m_arrayBufferContents->at(index)));
-            return getJSValue(*m_arrayBuffers[index]);
+            return getJSValue(protect(*m_arrayBuffers[index]));
         }
         case SharedArrayBufferTag: {
             // https://html.spec.whatwg.org/multipage/structured-data.html#structureddeserialize
+            CachedStringRef agentClusterID;
+            bool agentClusterIDSuccessfullyRead = readStringData(agentClusterID);
             uint32_t index = UINT_MAX;
             bool indexSuccessfullyRead = read(index);
-            if (!indexSuccessfullyRead || !m_sharedBuffers || index >= m_sharedBuffers->size() || !JSC::Options::useSharedArrayBuffer()) {
+            if (!agentClusterIDSuccessfullyRead || agentClusterID->string() != agentClusterIDFromGlobalObject(*m_globalObject)
+                || !indexSuccessfullyRead || !m_sharedBuffers || index >= m_sharedBuffers->size()) {
                 SERIALIZE_TRACE("FAIL deserialize");
                 fail();
                 return JSValue();
@@ -5615,6 +4198,13 @@ private:
             return arrayBufferView;
         }
         case CryptoKeyTag: {
+            if (auto* globalObject = dynamicDowncast<JSDOMGlobalObject>(m_globalObject)) {
+                if (RefPtr context = globalObject->scriptExecutionContext(); context && !context->isSecureContext()) {
+                    SERIALIZE_TRACE("FAIL deserialize");
+                    fail();
+                    return JSValue();
+                }
+            }
             Vector<uint8_t> wrappedKey;
             if (!read(wrappedKey)) {
                 SERIALIZE_TRACE("FAIL deserialize");
@@ -5704,12 +4294,17 @@ private:
         case DOMExceptionTag:
             return readDOMException();
 
+        case FileSystemHandleTag:
+            return readFileSystemHandle();
+
         default:
-            SERIALIZE_TRACE("push back ", tag);
-            m_data = originalData; // Push the tag back
+            // Tag is not a terminal — let JSC::CloneDeserializerBase::readTerminal
+            // rewind m_data so the structural walker can re-read it.
             return JSValue();
         }
     }
+
+private:
 
     template<SerializationTag Tag>
     bool consumeCollectionDataTerminationIfPossible()
@@ -5721,13 +4316,8 @@ private:
         return false;
     }
 
-    JSGlobalObject* const m_globalObject;
     const bool m_isDOMGlobalObject;
     const bool m_canCreateDOMObject;
-    std::span<const uint8_t> m_data;
-    unsigned m_majorVersion;
-    unsigned m_minorVersion;
-    Vector<CachedString> m_constantPool;
     Vector<Ref<ImageData>> m_imageDataPool;
     const Vector<Ref<MessagePort>>& m_messagePorts;
     ArrayBufferContentsArray* m_arrayBufferContents;
@@ -5794,6 +4384,7 @@ private:
     friend void validateSerializedResult(CloneSerializer&, SerializationReturnCode, Vector<uint8_t>&, JSGlobalObject*, Vector<Ref<MessagePort>>&, ArrayBufferContentsArray&, ArrayBufferContentsArray&, Vector<Ref<MessagePort>>&);
 #endif
 };
+static_assert(JSC::StructuredCloneDeserializerHandler<CloneDeserializer>);
 
 DeserializationResult CloneDeserializer::deserialize()
 {
@@ -5933,7 +4524,7 @@ DeserializationResult CloneDeserializer::deserialize()
         case ObjectStartState: {
             if (outputObjectStack.size() > maximumFilterRecursion)
                 return { JSValue(), SerializationReturnCode::StackOverflowError };
-            JSObject* outObject = constructEmptyObject(m_lexicalGlobalObject, m_globalObject->objectPrototype());
+            JSObject* outObject = JSC::constructEmptyObject(m_lexicalGlobalObject, m_globalObject->objectPrototype());
             addToObjectPool<ObjectTag>(outObject);
             outputObjectStack.append(outObject);
         }
@@ -6192,185 +4783,168 @@ void validateSerializedResult(CloneSerializer& serializer, SerializationReturnCo
 
 SerializedScriptValue::~SerializedScriptValue() = default;
 
-SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer
-    , std::unique_ptr<ArrayBufferContentsArray>&& arrayBufferContentsArray
-#if ENABLE(WEB_RTC)
-    , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels
-    , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
-    , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-    , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles
-#endif
-#if ENABLE(WEB_CODECS)
-    , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
-    , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames
-    , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
-    , Vector<WebCodecsAudioInternalData>&& serializedAudioData
-#endif
-#if ENABLE(MEDIA_STREAM)
-    , Vector<std::unique_ptr<MediaStreamTrackDataHolder>>&& detachedMediaStreamTracks
-    , Vector<std::unique_ptr<MediaStreamTrackHandle::DataHolder>>&& detachedMediaStreamTrackHandles
-#endif
-    , uint64_t exposedMessagePortCount
-        )
-    : m_internals {
-        .data = WTF::move(buffer)
-        , .arrayBufferContentsArray = WTF::move(arrayBufferContentsArray)
-#if ENABLE(WEB_RTC)
-        , .detachedRTCDataChannels = WTF::move(detachedRTCDataChannels)
-#endif
-#if ENABLE(WEB_CODECS)
-        , .serializedVideoChunks = WTF::move(serializedVideoChunks)
-        , .serializedAudioChunks = WTF::move(serializedAudioChunks)
-#endif
-        , .exposedMessagePortCount = exposedMessagePortCount
-#if ENABLE(WEB_CODECS)
-        , .serializedVideoFrames = WTF::move(serializedVideoFrames)
-        , .serializedAudioData = WTF::move(serializedAudioData)
-#endif
-#if ENABLE(WEB_RTC)
-        , .serializedRTCEncodedAudioFrames = WTF::move(serializedRTCEncodedAudioFrames)
-        , .serializedRTCEncodedVideoFrames = WTF::move(serializedRTCEncodedVideoFrames)
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , .detachedMediaSourceHandles = WTF::move(detachedMediaSourceHandles)
-#endif
-#if ENABLE(MEDIA_STREAM)
-        , .detachedMediaStreamTracks = WTF::move(detachedMediaStreamTracks)
-        , .detachedMediaStreamTrackHandles = WTF::move(detachedMediaStreamTrackHandles)
-#endif
-    }
+static std::unique_ptr<ArrayBufferContentsArray> copyArrayBufferContentsArray(const std::unique_ptr<ArrayBufferContentsArray>& source)
 {
-    m_internals.memoryCost = computeMemoryCost();
+    if (!source)
+        return nullptr;
+    auto result = makeUnique<ArrayBufferContentsArray>();
+    result->reserveInitialCapacity(source->size());
+    for (auto& content : *source) {
+        result->append(JSC::ArrayBufferContents());
+        content.shareWith(result->last());
+    }
+    return result;
 }
 
-SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer
-        , Vector<URLKeepingBlobAlive>&& blobHandles
-        , std::unique_ptr<ArrayBufferContentsArray> arrayBufferContentsArray
-        , std::unique_ptr<ArrayBufferContentsArray> sharedBufferContentsArray
-        , Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& detachedOffscreenCanvases
-        , Vector<Ref<OffscreenCanvas>>&& inMemoryOffscreenCanvases
-#endif
-        , Vector<Ref<MessagePort>>&& inMemoryMessagePorts
-#if ENABLE(WEB_RTC)
-        , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels
-        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
-        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles
-#endif
-#if ENABLE(WEBASSEMBLY)
-        , WasmModuleArray&& wasmModulesArray
-        , std::unique_ptr<WasmMemoryHandleArray> wasmMemoryHandlesArray
-#endif
-#if ENABLE(WEB_CODECS)
-        , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
-        , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames
-        , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
-        , Vector<WebCodecsAudioInternalData>&& serializedAudioData
-#endif
-#if ENABLE(MEDIA_STREAM)
-        , Vector<std::unique_ptr<MediaStreamTrackDataHolder>>&& detachedMediaStreamTracks
-        , Vector<std::unique_ptr<MediaStreamTrackHandle::DataHolder>>&& detachedMediaStreamTrackHandles
-#endif
-        , uint64_t exposedMessagePortCount
-        )
-    : m_internals {
-        .data = WTF::move(buffer)
-        , .arrayBufferContentsArray = WTF::move(arrayBufferContentsArray)
-#if ENABLE(WEB_RTC)
-        , .detachedRTCDataChannels = WTF::move(detachedRTCDataChannels)
-#endif
-#if ENABLE(WEB_CODECS)
-        , .serializedVideoChunks = WTF::move(serializedVideoChunks)
-        , .serializedAudioChunks = WTF::move(serializedAudioChunks)
-#endif
-        , .exposedMessagePortCount = exposedMessagePortCount
-#if ENABLE(WEB_CODECS)
-        , .serializedVideoFrames = WTF::move(serializedVideoFrames)
-        , .serializedAudioData = WTF::move(serializedAudioData)
-#endif
-#if ENABLE(WEB_RTC)
-        , .serializedRTCEncodedAudioFrames = WTF::move(serializedRTCEncodedAudioFrames)
-        , .serializedRTCEncodedVideoFrames = WTF::move(serializedRTCEncodedVideoFrames)
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , .detachedMediaSourceHandles = WTF::move(detachedMediaSourceHandles)
-#endif
-#if ENABLE(MEDIA_STREAM)
-        , .detachedMediaStreamTracks = WTF::move(detachedMediaStreamTracks)
-        , .detachedMediaStreamTrackHandles = WTF::move(detachedMediaStreamTrackHandles)
-#endif
-        , .sharedBufferContentsArray = WTF::move(sharedBufferContentsArray)
-        , .detachedImageBitmaps = WTF::move(detachedImageBitmaps)
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , .detachedOffscreenCanvases = WTF::move(detachedOffscreenCanvases)
-        , .inMemoryOffscreenCanvases = WTF::move(inMemoryOffscreenCanvases)
-#endif
-        , .inMemoryMessagePorts = WTF::move(inMemoryMessagePorts)
-#if ENABLE(WEBASSEMBLY)
-        , .wasmModulesArray = wasmModulesArray.isEmpty() ? nullptr : makeUnique<WasmModuleArray>(WTF::move(wasmModulesArray))
-        , .wasmMemoryHandlesArray = WTF::move(wasmMemoryHandlesArray)
-#endif
-        , .blobHandles = crossThreadCopy(WTF::move(blobHandles))
-    }
+Ref<SerializedScriptValue> SerializedScriptValue::clone() const
 {
-    m_internals.memoryCost = computeMemoryCost();
+    return create(m_internals->clone());
+}
+
+SerializedScriptValueInternals SerializedScriptValueInternals::clone() const
+{
+    return {
+        .data = data,
+        .arrayBufferContentsArray = copyArrayBufferContentsArray(arrayBufferContentsArray),
+#if ENABLE(WEB_RTC)
+        .detachedRTCDataChannels = detachedRTCDataChannels.map([](const auto& channel) {
+            return makeUnique<DetachedRTCDataChannel>(channel->identifier, channel->label.isolatedCopy(), channel->options.isolatedCopy(), channel->state);
+        }),
+#endif
+#if ENABLE(WEB_CODECS)
+        .serializedVideoChunks = serializedVideoChunks,
+        .serializedAudioChunks = serializedAudioChunks,
+#endif
+        .exposedMessagePortCount = exposedMessagePortCount,
+        .nonSerializedDataToken = nonSerializedDataToken,
+        .fileSystemHandleKeepAlives = fileSystemHandleKeepAlives.map([](const auto& alive) { return alive.copy(); }),
+#if ENABLE(WEB_CODECS)
+        .serializedVideoFrames = serializedVideoFrames,
+        .serializedAudioData = serializedAudioData,
+#endif
+#if ENABLE(WEB_RTC)
+        .serializedRTCEncodedAudioFrames = serializedRTCEncodedAudioFrames.map([](const auto& frame) { return frame->clone(); }),
+        .serializedRTCEncodedVideoFrames = serializedRTCEncodedVideoFrames.map([](const auto& frame) { return frame->clone(); }),
+#endif
+#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
+        .detachedMediaSourceHandles = detachedMediaSourceHandles,
+#endif
+#if ENABLE(MEDIA_STREAM)
+        .detachedMediaStreamTracks = detachedMediaStreamTracks.map([](const auto& track) {
+            return track->copy();
+        }),
+        .detachedMediaStreamTrackHandles = detachedMediaStreamTrackHandles.map([](const auto& handle) {
+            return makeUnique<MediaStreamTrackHandleDataHolder>(MediaStreamTrackHandleDataHolder { handle->contextIdentifier, handle->track, handle->trackKeeper, handle->trackSourceObserver });
+        }),
+#endif
+        .sharedBufferContentsArray = copyArrayBufferContentsArray(sharedBufferContentsArray),
+        .detachedImageBitmaps = detachedImageBitmaps,
+#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
+        .detachedOffscreenCanvases = detachedOffscreenCanvases.map([](const auto& canvas) {
+            return makeUnique<DetachedOffscreenCanvas>(canvas->size(), canvas->originClean(), RefPtr { canvas->placeholderSource() });
+        }),
+        .inMemoryOffscreenCanvases = inMemoryOffscreenCanvases,
+#endif
+        .inMemoryMessagePorts = inMemoryMessagePorts,
+#if ENABLE(WEBASSEMBLY)
+        .wasmModulesArray = wasmModulesArray ? makeUnique<WasmModuleArray>(*wasmModulesArray) : nullptr,
+        .wasmMemoryHandlesArray = wasmMemoryHandlesArray ? makeUnique<WasmMemoryHandleArray>(*wasmMemoryHandlesArray) : nullptr,
+#endif
+        .blobHandles = blobHandles.map([](const auto& handle) { return handle.isolatedCopy(); }),
+        .memoryCost = memoryCost
+    };
 }
 
 SerializedScriptValue::SerializedScriptValue(Internals&& internals)
-    : m_internals(WTF::move(internals))
+    : m_internals(makeUnique<Internals>(WTF::move(internals)))
 {
+    m_internals->memoryCost = computeMemoryCost();
+}
+
+bool SerializedScriptValue::hasBlobURLs() const
+{
+    return !m_internals->blobHandles.isEmpty();
+}
+
+Vector<URLKeepingBlobAlive> SerializedScriptValue::blobHandles() const
+{
+    return crossThreadCopy(m_internals->blobHandles);
+}
+
+const Vector<uint8_t>& SerializedScriptValue::wireBytes() const
+{
+    return m_internals->data;
+}
+
+size_t SerializedScriptValue::memoryCost() const
+{
+    return m_internals->memoryCost;
+}
+
+std::unique_ptr<Vector<JSC::ArrayBufferContents>>& SerializedScriptValue::sharedBufferContentsArray()
+{
+    return m_internals->sharedBufferContentsArray;
+}
+
+std::optional<SerializedScriptValue::NonSerializedDataToken> SerializedScriptValue::nonSerializedDataToken() const
+{
+    return m_internals->nonSerializedDataToken;
+}
+
+void SerializedScriptValue::setNonSerializedDataToken(std::optional<NonSerializedDataToken> token)
+{
+    m_internals->nonSerializedDataToken = token;
+}
+
+RefPtr<SerializedScriptValue> SerializedScriptValue::convert(JSGlobalObject& globalObject, JSValue value)
+{
+    return create(globalObject, value, SerializationForStorage::Yes);
 }
 
 size_t SerializedScriptValue::computeMemoryCost() const
 {
-    size_t cost = m_internals.data.size();
+    size_t cost = m_internals->data.size();
 
-    if (m_internals.arrayBufferContentsArray) {
-        for (auto& content : *m_internals.arrayBufferContentsArray)
+    if (m_internals->arrayBufferContentsArray) {
+        for (auto& content : *m_internals->arrayBufferContentsArray)
             cost += content.sizeInBytes();
     }
 
-    if (m_internals.sharedBufferContentsArray) {
-        for (auto& content : *m_internals.sharedBufferContentsArray)
+    if (m_internals->sharedBufferContentsArray) {
+        for (auto& content : *m_internals->sharedBufferContentsArray)
             cost += content.sizeInBytes();
     }
 
-    for (auto& detachedImageBitmap : m_internals.detachedImageBitmaps) {
+    for (auto& detachedImageBitmap : m_internals->detachedImageBitmaps) {
         if (detachedImageBitmap)
             cost += detachedImageBitmap->memoryCost();
     }
 
 #if ENABLE(WEB_RTC)
-    for (auto& channel : m_internals.detachedRTCDataChannels) {
+    for (auto& channel : m_internals->detachedRTCDataChannels) {
         if (channel)
             cost += channel->memoryCost();
     }
 #endif
 #if ENABLE(WEBASSEMBLY)
     // We are not supporting WebAssembly Module memory estimation yet.
-    if (m_internals.wasmMemoryHandlesArray) {
-        for (auto& content : *m_internals.wasmMemoryHandlesArray)
+    if (m_internals->wasmMemoryHandlesArray) {
+        for (auto& content : *m_internals->wasmMemoryHandlesArray)
             cost += content->sizeInBytes(std::memory_order_relaxed);
     }
 #endif
 #if ENABLE(WEB_CODECS)
-    for (auto& chunk : m_internals.serializedVideoChunks)
+    for (auto& chunk : m_internals->serializedVideoChunks)
         cost += chunk->memoryCost();
-    for (auto& frame : m_internals.serializedVideoFrames)
+    for (auto& frame : m_internals->serializedVideoFrames)
         cost += frame.memoryCost();
-    for (auto& chunk : m_internals.serializedAudioChunks)
+    for (auto& chunk : m_internals->serializedAudioChunks)
         cost += chunk->memoryCost();
-    for (auto& data : m_internals.serializedAudioData)
+    for (auto& data : m_internals->serializedAudioData)
         cost += data.memoryCost();
 #endif
 
-    for (auto& handle : m_internals.blobHandles)
+    for (auto& handle : m_internals->blobHandles)
         cost += handle.url().string().sizeInBytes();
 
     return cost;
@@ -6456,20 +5030,6 @@ static bool containsDuplicates(const Vector<Ref<ImageBitmap>>& imageBitmaps)
     return false;
 }
 
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-static bool canOffscreenCanvasesDetach(const Vector<Ref<OffscreenCanvas>>& offscreenCanvases)
-{
-    HashSet<Ref<OffscreenCanvas>> visited;
-    for (auto& offscreenCanvas : offscreenCanvases) {
-        if (!offscreenCanvas->canDetach())
-            return false;
-        // Check the return value of add, we should not encounter duplicates.
-        if (!visited.add(offscreenCanvas.get()))
-            return false;
-    }
-    return true;
-}
-#endif
 
 #if ENABLE(WEB_RTC)
 static bool canDetachRTCDataChannels(const Vector<Ref<RTCDataChannel>>& channels)
@@ -6588,46 +5148,31 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     Vector<Ref<MediaStreamTrackHandle>> transferredMediaStreamTrackHandles;
 #endif
 
+    // Step 1: Check for duplicates and classify transferables into their types.
+    // Per spec, detached/validity checks happen AFTER serialization of the message value.
     HashSet<JSC::Strong<JSC::JSObject>> visited;
     for (auto& transferable : transferList) {
         if (!visited.add(JSC::Strong<JSC::JSObject> { vm, transferable.get() }).isNewEntry)
             return Exception { ExceptionCode::DataCloneError, "Duplicate transferable for structured clone"_s };
 
         if (RefPtr arrayBuffer = toPossiblySharedArrayBuffer(vm, transferable.get())) {
-            if (arrayBuffer->isDetached() || arrayBuffer->isShared())
-                return Exception { ExceptionCode::DataCloneError };
-            if (!arrayBuffer->isDetachable()) {
-                auto scope = DECLARE_THROW_SCOPE(vm);
-                throwVMTypeError(&lexicalGlobalObject, scope, errorMessageForTransfer(arrayBuffer.get()));
-                return Exception { ExceptionCode::ExistingExceptionError };
-            }
             arrayBuffers.append(arrayBuffer.releaseNonNull());
             continue;
         }
         if (RefPtr port = JSMessagePort::toWrapped(vm, transferable.get())) {
-            if (port->isDetached())
-                return Exception { ExceptionCode::DataCloneError, "MessagePort is detached"_s };
             messagePorts.append(port.releaseNonNull());
             continue;
         }
-
         if (RefPtr imageBitmap = JSImageBitmap::toWrapped(vm, transferable.get())) {
-            if (imageBitmap->isDetached())
-                return Exception { ExceptionCode::DataCloneError };
-            if (!imageBitmap->originClean())
-                return Exception { ExceptionCode::DataCloneError };
-
             imageBitmaps.append(imageBitmap.releaseNonNull());
             continue;
         }
-
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         if (RefPtr offscreenCanvas = JSOffscreenCanvas::toWrapped(vm, transferable.get())) {
             offscreenCanvases.append(offscreenCanvas.releaseNonNull());
             continue;
         }
 #endif
-
 #if ENABLE(WEB_RTC)
         if (RefPtr channel = JSRTCDataChannel::toWrapped(vm, transferable.get())) {
             dataChannels.append(channel.releaseNonNull());
@@ -6648,76 +5193,32 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
         }
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
         if (RefPtr handle = JSMediaSourceHandle::toWrapped(vm, transferable.get())) {
-            if (handle->isDetached())
-                return Exception { ExceptionCode::DataCloneError };
             mediaSourceHandles.append(handle.releaseNonNull());
             continue;
         }
 #endif
-
 #if ENABLE(WEB_CODECS)
         if (RefPtr videoFrame = JSWebCodecsVideoFrame::toWrapped(vm, transferable.get())) {
-            if (videoFrame->isDetached())
-                return Exception { ExceptionCode::DataCloneError };
             transferredVideoFrames.append(videoFrame.releaseNonNull());
             continue;
         }
         if (RefPtr audioData = JSWebCodecsAudioData::toWrapped(vm, transferable.get())) {
-            if (audioData->isDetached())
-                return Exception { ExceptionCode::DataCloneError };
             transferredAudioData.append(audioData.releaseNonNull());
             continue;
         }
 #endif
-
 #if ENABLE(MEDIA_STREAM)
         if (RefPtr track = JSMediaStreamTrack::toWrapped(vm, transferable.get())) {
-            if (track->isDetached())
-                return Exception { ExceptionCode::DataCloneError };
             transferredMediaStreamTracks.append(track.releaseNonNull());
             continue;
         }
         if (RefPtr handle = JSMediaStreamTrackHandle::toWrapped(vm, transferable.get())) {
-            if (handle->isDetached())
-                return Exception { ExceptionCode::DataCloneError };
             transferredMediaStreamTrackHandles.append(handle.releaseNonNull());
             continue;
         }
 #endif
-
         return Exception { ExceptionCode::DataCloneError };
     }
-
-    if (containsDuplicates(imageBitmaps))
-        return Exception { ExceptionCode::DataCloneError };
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    if (!canOffscreenCanvasesDetach(offscreenCanvases))
-        return Exception { ExceptionCode::InvalidStateError };
-#endif
-#if ENABLE(WEB_RTC)
-    if (!canDetachRTCDataChannels(dataChannels))
-        return Exception { ExceptionCode::DataCloneError };
-#endif
-    auto readableStreamSet = canTransfer<ReadableStream>(readableStreams);
-    if (!readableStreamSet)
-        return Exception { ExceptionCode::DataCloneError };
-    auto writableStreamSet = canTransfer<WritableStream>(writableStreams);
-    if (!writableStreamSet)
-        return Exception { ExceptionCode::DataCloneError };
-    if (!canTransfer<TransformStream>(transformStreams))
-        return Exception { ExceptionCode::DataCloneError };
-    if (!validateStreams(*readableStreamSet, *writableStreamSet, transformStreams))
-        return Exception { ExceptionCode::DataCloneError };
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-    if (!canDetachMediaSourceHandles(mediaSourceHandles))
-        return Exception { ExceptionCode::DataCloneError };
-#endif
-#if ENABLE(MEDIA_STREAM)
-    if (!canDetachMediaStreamTracks(transferredMediaStreamTracks))
-        return Exception { ExceptionCode::DataCloneError };
-    if (!canDetachMediaStreamTrackHandles(transferredMediaStreamTrackHandles))
-        return Exception { ExceptionCode::DataCloneError };
-#endif
 
     Vector<uint8_t> buffer;
     Vector<URLKeepingBlobAlive> blobHandles;
@@ -6741,6 +5242,7 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     Vector<RefPtr<WebCodecsAudioData>> serializedAudioData;
 #endif
 
+    Vector<FileSystemHandleKeepAlive> fileSystemHandleKeepAlives;
     auto exposedMessagePortsCount = messagePorts.size();
     auto code = CloneSerializer::serialize(&lexicalGlobalObject, value, messagePorts, arrayBuffers, imageBitmaps,
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
@@ -6773,7 +5275,8 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
         wasmModules,
         wasmMemoryHandles,
 #endif
-        blobHandles, buffer, context, *sharedBuffers, forStorage);
+        blobHandles, buffer, context, *sharedBuffers, forStorage,
+        fileSystemHandleKeepAlives);
 
     // Serialization may throw an exception. If we see one, we should exit early. To satisfy
     // exception checks, we need to check the exception here. When we throw an exception, we
@@ -6788,6 +5291,72 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     // other than success, we should exit right now.
     if (code != SerializationReturnCode::SuccessfullyCompleted)
         return exceptionForSerializationFailure(code);
+
+    // Step 2: Now that serialization is done, validate transferable states.
+    // Per spec, detached/validity checks happen after serialization of the message value,
+    // because serialization may run getters that throw or modify transferables.
+    for (auto& arrayBuffer : arrayBuffers) {
+        if (arrayBuffer->isDetached() || arrayBuffer->isShared())
+            return Exception { ExceptionCode::DataCloneError };
+        if (!arrayBuffer->isDetachable()) {
+            throwVMTypeError(&lexicalGlobalObject, scope, errorMessageForTransfer(arrayBuffer.ptr()));
+            return Exception { ExceptionCode::ExistingExceptionError };
+        }
+    }
+    for (size_t i = 0; i < exposedMessagePortsCount; ++i) {
+        if (messagePorts[i]->isDetached())
+            return Exception { ExceptionCode::DataCloneError, "MessagePort is detached"_s };
+    }
+    for (auto& imageBitmap : imageBitmaps) {
+        if (imageBitmap->isDetached())
+            return Exception { ExceptionCode::DataCloneError };
+        if (!imageBitmap->originClean())
+            return Exception { ExceptionCode::DataCloneError };
+    }
+    if (containsDuplicates(imageBitmaps))
+        return Exception { ExceptionCode::DataCloneError };
+#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
+    for (auto& offscreenCanvas : offscreenCanvases) {
+        if (offscreenCanvas->renderingContext())
+            return Exception { ExceptionCode::InvalidStateError };
+        if (offscreenCanvas->isDetached())
+            return Exception { ExceptionCode::DataCloneError };
+    }
+#endif
+#if ENABLE(WEB_RTC)
+    if (!canDetachRTCDataChannels(dataChannels))
+        return Exception { ExceptionCode::DataCloneError };
+#endif
+    auto readableStreamSet = canTransfer<ReadableStream>(readableStreams);
+    if (!readableStreamSet)
+        return Exception { ExceptionCode::DataCloneError };
+    auto writableStreamSet = canTransfer<WritableStream>(writableStreams);
+    if (!writableStreamSet)
+        return Exception { ExceptionCode::DataCloneError };
+    if (!canTransfer<TransformStream>(transformStreams))
+        return Exception { ExceptionCode::DataCloneError };
+    if (!validateStreams(*readableStreamSet, *writableStreamSet, transformStreams))
+        return Exception { ExceptionCode::DataCloneError };
+#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
+    if (!canDetachMediaSourceHandles(mediaSourceHandles))
+        return Exception { ExceptionCode::DataCloneError };
+#endif
+#if ENABLE(WEB_CODECS)
+    for (auto& videoFrame : transferredVideoFrames) {
+        if (videoFrame->isDetached())
+            return Exception { ExceptionCode::DataCloneError };
+    }
+    for (auto& audioData : transferredAudioData) {
+        if (audioData->isDetached())
+            return Exception { ExceptionCode::DataCloneError };
+    }
+#endif
+#if ENABLE(MEDIA_STREAM)
+    if (!canDetachMediaStreamTracks(transferredMediaStreamTracks))
+        return Exception { ExceptionCode::DataCloneError };
+    if (!canDetachMediaStreamTrackHandles(transferredMediaStreamTrackHandles))
+        return Exception { ExceptionCode::DataCloneError };
+#endif
 
     auto arrayBufferContentsArray = transferArrayBuffers(vm, arrayBuffers);
     if (arrayBufferContentsArray.hasException())
@@ -6814,19 +5383,19 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     });
 #endif
     for (auto& readableStream : readableStreams) {
-        auto detachedOrException = readableStream->runTransferSteps(*JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject));
+        auto detachedOrException = readableStream->runTransferSteps(downcast<JSDOMGlobalObject>(lexicalGlobalObject));
         if (detachedOrException.hasException())
             return detachedOrException.releaseException();
         messagePorts.append(detachedOrException.releaseReturnValue().readableStreamPort);
     }
     for (auto& writableStream : writableStreams) {
-        auto detachedOrException = writableStream->runTransferSteps(*JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject));
+        auto detachedOrException = writableStream->runTransferSteps(downcast<JSDOMGlobalObject>(lexicalGlobalObject));
         if (detachedOrException.hasException())
             return detachedOrException.releaseException();
         messagePorts.append(detachedOrException.releaseReturnValue().writableStreamPort);
     }
     for (auto& transformStream : transformStreams) {
-        auto detachedOrException = transformStream->runTransferSteps(*JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject));
+        auto detachedOrException = transformStream->runTransferSteps(downcast<JSDOMGlobalObject>(lexicalGlobalObject));
         if (detachedOrException.hasException())
             return detachedOrException.releaseException();
         auto detachedTransform = detachedOrException.releaseReturnValue();
@@ -6858,36 +5427,46 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     });
 #endif
 
-    return adoptRef(*new SerializedScriptValue(WTF::move(buffer), WTF::move(blobHandles), arrayBufferContentsArray.releaseReturnValue(), context == SerializationContext::WorkerPostMessage ? WTF::move(sharedBuffers) : nullptr, WTF::move(detachedImageBitmaps)
-#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-                , WTF::move(detachedCanvases)
-                , WTF::move(inMemoryOffscreenCanvases)
-#endif
-                , WTF::move(inMemoryMessagePorts)
+    return adoptRef(*new SerializedScriptValue(Internals {
+        .data = WTF::move(buffer)
+        , .arrayBufferContentsArray = arrayBufferContentsArray.releaseReturnValue()
 #if ENABLE(WEB_RTC)
-                , WTF::move(detachedRTCDataChannels)
-                , WTF::move(serializedRTCEncodedAudioFrameStorages)
-                , WTF::move(serializedRTCEncodedVideoFrameStorages)
-#endif
-#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-                , WTF::move(detachedMediaSourceHandles)
-#endif
-#if ENABLE(WEBASSEMBLY)
-                , WTF::move(wasmModules)
-                , context == SerializationContext::WorkerPostMessage ? makeUnique<WasmMemoryHandleArray>(wasmMemoryHandles) : nullptr
+        , .detachedRTCDataChannels = WTF::move(detachedRTCDataChannels)
 #endif
 #if ENABLE(WEB_CODECS)
-                , WTF::move(serializedVideoChunks)
-                , WTF::move(serializedVideoFrameData)
-                , WTF::move(serializedAudioChunks)
-                , WTF::move(serializedAudioInternalData)
+        , .serializedVideoChunks = WTF::move(serializedVideoChunks)
+        , .serializedAudioChunks = WTF::move(serializedAudioChunks)
+#endif
+        , .exposedMessagePortCount = exposedMessagePortsCount
+        , .fileSystemHandleKeepAlives = WTF::move(fileSystemHandleKeepAlives)
+#if ENABLE(WEB_CODECS)
+        , .serializedVideoFrames = WTF::move(serializedVideoFrameData)
+        , .serializedAudioData = WTF::move(serializedAudioInternalData)
+#endif
+#if ENABLE(WEB_RTC)
+        , .serializedRTCEncodedAudioFrames = WTF::move(serializedRTCEncodedAudioFrameStorages)
+        , .serializedRTCEncodedVideoFrames = WTF::move(serializedRTCEncodedVideoFrameStorages)
+#endif
+#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
+        , .detachedMediaSourceHandles = WTF::move(detachedMediaSourceHandles)
 #endif
 #if ENABLE(MEDIA_STREAM)
-                , WTF::move(detachedMediaStreamTrackStorages)
-                , WTF::move(detachedMediaStreamTrackHandleStorages)
+        , .detachedMediaStreamTracks = WTF::move(detachedMediaStreamTrackStorages)
+        , .detachedMediaStreamTrackHandles = WTF::move(detachedMediaStreamTrackHandleStorages)
 #endif
-                , exposedMessagePortsCount
-                ));
+        , .sharedBufferContentsArray = WTF::move(sharedBuffers)
+        , .detachedImageBitmaps = WTF::move(detachedImageBitmaps)
+#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
+        , .detachedOffscreenCanvases = WTF::move(detachedCanvases)
+        , .inMemoryOffscreenCanvases = WTF::move(inMemoryOffscreenCanvases)
+#endif
+        , .inMemoryMessagePorts = WTF::move(inMemoryMessagePorts)
+#if ENABLE(WEBASSEMBLY)
+        , .wasmModulesArray = wasmModules.isEmpty() ? nullptr : makeUnique<WasmModuleArray>(WTF::move(wasmModules))
+        , .wasmMemoryHandlesArray = makeUnique<WasmMemoryHandleArray>(WTF::move(wasmMemoryHandles))
+#endif
+        , .blobHandles = crossThreadCopy(WTF::move(blobHandles))
+    }));
 }
 
 RefPtr<SerializedScriptValue> SerializedScriptValue::create(StringView string)
@@ -6895,7 +5474,10 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::create(StringView string)
     Vector<uint8_t> buffer;
     if (!CloneSerializer::serialize(string, buffer))
         return nullptr;
-    return adoptRef(*new SerializedScriptValue(WTF::move(buffer), { }));
+
+    Internals internals;
+    internals.data = WTF::move(buffer);
+    return adoptRef(*new SerializedScriptValue(WTF::move(internals)));
 }
 
 RefPtr<SerializedScriptValue> SerializedScriptValue::create(JSContextRef originContext, JSValueRef apiValue, JSValueRef* exception)
@@ -6906,7 +5488,7 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::create(JSContextRef originC
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     JSValue value = toJS(lexicalGlobalObject, apiValue);
-    auto serializedValue = SerializedScriptValue::create(*lexicalGlobalObject, value);
+    auto serializedValue = SerializedScriptValue::create(*lexicalGlobalObject, value, SerializationForStorage::No);
     if (scope.exception()) [[unlikely]] {
         if (exception)
             *exception = toRef(lexicalGlobalObject, scope.exception()->value());
@@ -6924,7 +5506,7 @@ Vector<uint8_t> SerializedScriptValue::serializeCryptoKey(const WebCore::CryptoK
 
 String SerializedScriptValue::toString() const
 {
-    return CloneDeserializer::deserializeString(m_internals.data);
+    return CloneDeserializer::deserializeString(m_internals->data);
 }
 
 JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, JSGlobalObject* globalObject, SerializationErrorMode throwExceptions, bool* didFail)
@@ -6945,36 +5527,36 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
     VM& vm = lexicalGlobalObject.vm();
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
-    DeserializationResult result = CloneDeserializer::deserialize(&lexicalGlobalObject, globalObject, messagePorts, WTF::move(m_internals.detachedImageBitmaps)
+    DeserializationResult result = CloneDeserializer::deserialize(&lexicalGlobalObject, globalObject, messagePorts, WTF::move(m_internals->detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , WTF::move(m_internals.detachedOffscreenCanvases)
-        , m_internals.inMemoryOffscreenCanvases
+        , WTF::move(m_internals->detachedOffscreenCanvases)
+        , m_internals->inMemoryOffscreenCanvases
 #endif
-        , m_internals.inMemoryMessagePorts
+        , m_internals->inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
-        , WTF::move(m_internals.detachedRTCDataChannels)
-        , WTF::move(m_internals.serializedRTCEncodedAudioFrames)
-        , WTF::move(m_internals.serializedRTCEncodedVideoFrames)
+        , WTF::move(m_internals->detachedRTCDataChannels)
+        , WTF::move(m_internals->serializedRTCEncodedAudioFrames)
+        , WTF::move(m_internals->serializedRTCEncodedVideoFrames)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , WTF::move(m_internals.detachedMediaSourceHandles)
+        , WTF::move(m_internals->detachedMediaSourceHandles)
 #endif
-        , m_internals.arrayBufferContentsArray.get(), m_internals.data, blobURLs, blobFilePaths, m_internals.sharedBufferContentsArray.get()
+        , m_internals->arrayBufferContentsArray.get(), m_internals->data, blobURLs, blobFilePaths, m_internals->sharedBufferContentsArray.get()
 #if ENABLE(WEBASSEMBLY)
-        , m_internals.wasmModulesArray.get()
-        , m_internals.wasmMemoryHandlesArray.get()
+        , m_internals->wasmModulesArray.get()
+        , m_internals->wasmMemoryHandlesArray.get()
 #endif
 #if ENABLE(WEB_CODECS)
-        , WTF::move(m_internals.serializedVideoChunks)
-        , WTF::move(m_internals.serializedVideoFrames)
-        , WTF::move(m_internals.serializedAudioChunks)
-        , WTF::move(m_internals.serializedAudioData)
+        , WTF::move(m_internals->serializedVideoChunks)
+        , WTF::move(m_internals->serializedVideoFrames)
+        , WTF::move(m_internals->serializedAudioChunks)
+        , WTF::move(m_internals->serializedAudioData)
 #endif
 #if ENABLE(MEDIA_STREAM)
-        , WTF::move(m_internals.detachedMediaStreamTracks)
-        , WTF::move(m_internals.detachedMediaStreamTrackHandles)
+        , WTF::move(m_internals->detachedMediaStreamTracks)
+        , WTF::move(m_internals->detachedMediaStreamTrackHandles)
 #endif
-        , m_internals.exposedMessagePortCount
+        , m_internals->exposedMessagePortCount
         );
     if (didFail)
         *didFail = result.code != SerializationReturnCode::SuccessfullyCompleted;
@@ -7014,14 +5596,25 @@ JSValueRef SerializedScriptValue::deserialize(JSContextRef destinationContext, J
 
 Ref<SerializedScriptValue> SerializedScriptValue::nullValue()
 {
-    return adoptRef(*new SerializedScriptValue(Vector<uint8_t>(), { }));
+    return adoptRef(*new SerializedScriptValue(Internals { }));
 }
 
 Vector<String> SerializedScriptValue::blobURLs() const
 {
-    return m_internals.blobHandles.map([](auto& handle) {
+    return m_internals->blobHandles.map([](auto& handle) {
         return handle.url().string().isolatedCopy();
     });
+}
+
+Vector<FileSystemHandleGlobalIdentifier> SerializedScriptValue::fileSystemHandleGlobalIdentifiers() const
+{
+    Vector<FileSystemHandleGlobalIdentifier> result;
+    result.reserveInitialCapacity(m_internals->fileSystemHandleKeepAlives.size());
+    for (auto& keepAlive : m_internals->fileSystemHandleKeepAlives) {
+        if (auto identifier = keepAlive.globalIdentifier())
+            result.append(*identifier);
+    }
+    return result;
 }
 
 void SerializedScriptValue::writeBlobsToDiskForIndexedDB(bool isEphemeral, CompletionHandler<void(IDBValue&&)>&& completionHandler)
@@ -7043,13 +5636,13 @@ void SerializedScriptValue::writeBlobsToDiskForIndexedDB(bool isEphemeral, Compl
             return;
         }
 
-        ASSERT(m_internals.blobHandles.size() == blobFilePaths.size());
+        ASSERT(m_internals->blobHandles.size() == blobFilePaths.size());
 
         completionHandler({ *this, blobURLs(), blobFilePaths });
     });
 }
 
-IDBValue SerializedScriptValue::writeBlobsToDiskForIndexedDBSynchronously(bool isEphemeral)
+IDBValue SerializedScriptValue::writeBlobsToDiskForIndexedDBSynchronously(bool isEphemeral, JSC::VM& vm)
 {
     ASSERT(!isMainThread());
 
@@ -7064,70 +5657,9 @@ IDBValue SerializedScriptValue::writeBlobsToDiskForIndexedDBSynchronously(bool i
             semaphore.signal();
         });
     });
-    semaphore.wait();
+    waitWithSTWParticipation(semaphore, vm);
 
     return value;
-}
-
-std::optional<ErrorInformation> extractErrorInformationFromErrorInstance(JSC::JSGlobalObject* lexicalGlobalObject, ErrorInstance& errorInstance)
-{
-    ASSERT(lexicalGlobalObject);
-    auto& vm = lexicalGlobalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    auto errorTypeValue = errorInstance.get(lexicalGlobalObject, vm.propertyNames->name);
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-    String errorTypeString = errorTypeValue.toWTFString(lexicalGlobalObject);
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    PropertyDescriptor messageDescriptor;
-    String message;
-    if (errorInstance.getOwnPropertyDescriptor(lexicalGlobalObject, vm.propertyNames->message, messageDescriptor) && messageDescriptor.isDataDescriptor()) {
-        EXCEPTION_ASSERT(!scope.exception());
-        message = messageDescriptor.value().toWTFString(lexicalGlobalObject);
-    }
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    PropertyDescriptor lineDescriptor;
-    unsigned line = 0;
-    if (errorInstance.getOwnPropertyDescriptor(lexicalGlobalObject, vm.propertyNames->line, lineDescriptor) && lineDescriptor.isDataDescriptor()) {
-        EXCEPTION_ASSERT(!scope.exception());
-        line = lineDescriptor.value().toNumber(lexicalGlobalObject);
-    }
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    PropertyDescriptor columnDescriptor;
-    unsigned column = 0;
-    if (errorInstance.getOwnPropertyDescriptor(lexicalGlobalObject, vm.propertyNames->column, columnDescriptor) && columnDescriptor.isDataDescriptor()) {
-        EXCEPTION_ASSERT(!scope.exception());
-        column = columnDescriptor.value().toNumber(lexicalGlobalObject);
-    }
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    PropertyDescriptor sourceURLDescriptor;
-    String sourceURL;
-    if (errorInstance.getOwnPropertyDescriptor(lexicalGlobalObject, vm.propertyNames->sourceURL, sourceURLDescriptor) && sourceURLDescriptor.isDataDescriptor()) {
-        EXCEPTION_ASSERT(!scope.exception());
-        sourceURL = sourceURLDescriptor.value().toWTFString(lexicalGlobalObject);
-    }
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    PropertyDescriptor stackDescriptor;
-    String stack;
-    if (errorInstance.getOwnPropertyDescriptor(lexicalGlobalObject, vm.propertyNames->stack, stackDescriptor) && stackDescriptor.isDataDescriptor()) {
-        EXCEPTION_ASSERT(!scope.exception());
-        stack = stackDescriptor.value().toWTFString(lexicalGlobalObject);
-    }
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    PropertyDescriptor causeDescriptor;
-    String cause;
-    if (errorInstance.getOwnPropertyDescriptor(lexicalGlobalObject, vm.propertyNames->cause, causeDescriptor) && causeDescriptor.isDataDescriptor()) {
-        EXCEPTION_ASSERT(!scope.exception());
-        cause = causeDescriptor.value().toWTFString(lexicalGlobalObject);
-    }
-    RETURN_IF_EXCEPTION(scope, std::nullopt);
-
-    return { ErrorInformation { errorTypeString, message, line, column, sourceURL, stack, cause } };
 }
 
 auto SerializedScriptValue::deserializationBehavior(JSC::JSObject& object) -> DeserializationBehavior

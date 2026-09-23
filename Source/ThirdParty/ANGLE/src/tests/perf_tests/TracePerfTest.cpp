@@ -65,6 +65,8 @@ class TracePerfTest : public ANGLERenderTest
     void initializeBenchmark() override;
     void destroyBenchmark() override;
     void drawBenchmark() override;
+    void startGpuTimer() override;
+    void stopGpuTimer(bool mayNeedFlush = true) override;
 
     // TODO(http://anglebug.com/42264418): Add support for creating EGLSurface:
     // - eglCreatePbufferSurface()
@@ -95,6 +97,7 @@ class TracePerfTest : public ANGLERenderTest
     EGLint onEglClientWaitSyncKHR(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTimeKHR timeout);
     EGLint onEglGetError();
     EGLDisplay onEglGetCurrentDisplay();
+    EGLSurface onEglGetCurrentSurface(EGLint readdraw);
 
     void onReplayFramebufferChange(GLenum target, GLuint framebuffer);
     void onReplayInvalidateFramebuffer(GLenum target,
@@ -165,6 +168,9 @@ class TracePerfTest : public ANGLERenderTest
     };
     void saveScreenshotIfEnabled(ScreenshotType screenshotType);
     void saveScreenshot(const std::string &screenshotName);
+
+    void MaybeSwitchToMainContext(EGLContext currentEglContext);
+    void MaybeSwitchToTraceContext(EGLContext currentEglContext);
 
     std::unique_ptr<const TracePerfParams> mParams;
 
@@ -874,6 +880,7 @@ void TracePerfTest::initializeConfigParams(GPUTestConfig::API api)
     configParams.alphaBits         = mParams->traceInfo.configAlphaBits;
     configParams.depthBits         = mParams->traceInfo.configDepthBits;
     configParams.stencilBits       = mParams->traceInfo.configStencilBits;
+    configParams.robustAccess      = mParams->traceInfo.isRobustAccessEnabled;
     configParams.colorSpace        = mParams->traceInfo.drawSurfaceColorSpace;
 
     // TODO (b/423680521): App traces shouldn't be relying on these extensions anyway, since they
@@ -883,6 +890,7 @@ void TracePerfTest::initializeConfigParams(GPUTestConfig::API api)
     configParams.robustResourceInit    = mParams->traceInfo.isRobustResourceInitEnabled;
     configParams.bindGeneratesResource = mParams->traceInfo.isBindGeneratesResourcesEnabled;
     configParams.clientArraysEnabled   = mParams->traceInfo.areClientArraysEnabled;
+    configParams.extensionsEnabled     = mParams->traceInfo.areExtensionsEnabled;
 }
 
 TracePerfTest::TracePerfTest(std::unique_ptr<const TracePerfParams> params)
@@ -1251,6 +1259,7 @@ TracePerfTest::TracePerfTest(std::unique_ptr<const TracePerfParams> params)
 
     if (traceNameIs("life_is_strange"))
     {
+        addExtensionPrerequisite("GL_EXT_sRGB_write_control");
         addExtensionPrerequisite("GL_EXT_texture_buffer");
         addExtensionPrerequisite("GL_EXT_texture_cube_map_array");
     }
@@ -1320,12 +1329,20 @@ TracePerfTest::TracePerfTest(std::unique_ptr<const TracePerfParams> params)
 
     if (traceNameIs("minecraft_vibrant_visuals"))
     {
+        addExtensionPrerequisite("GL_EXT_sRGB_write_control");
         addIntegerPrerequisite(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, 1024);
     }
 
     if (traceNameIs("love_and_deepspace"))
     {
         addIntegerPrerequisite(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, 6);
+    }
+
+    if (traceNameIs("dota_underlords") || traceNameIs("minecraft_bedrock") ||
+        traceNameIs("my_talking_angela_2") || traceNameIs("my_talking_tom_friends") ||
+        traceNameIs("my_talking_tom2") || traceNameIs("tower_of_fantasy"))
+    {
+        addExtensionPrerequisite("GL_EXT_sRGB_write_control");
     }
 
     // GL_KHR_debug does not work on Android for GLES1
@@ -1363,8 +1380,17 @@ TracePerfTest::TracePerfTest(std::unique_ptr<const TracePerfParams> params)
 
 void TracePerfTest::startTest()
 {
-    // runTrial() must align to frameCount()
-    ASSERT(mCurrentFrame == mStartFrame);
+    // If the previous run didn't align with the frame count (e.g., due to gRunToKeyFrame
+    // or unaligned warmup iterations), reset the replay state to ensure a clean start.
+    if (mCurrentFrame != mStartFrame)
+    {
+        mTraceReplay->resetReplay();
+        mCurrentFrame = mStartFrame;
+
+        // Flush to avoid potential GPU time tracking issues on some platforms if the previous
+        // unaligned run left pending work.
+        glFlush();
+    }
 
     ANGLERenderTest::startTest();
 }
@@ -1461,6 +1487,10 @@ void TracePerfTest::initializeBenchmark()
         getWindow()->setOrientation(mTestParams.windowWidth, mTestParams.windowHeight);
     }
 
+    // Track the context we're using to run this test so we can switch to it for queries and
+    // offscreen rendering.
+    mEglContext = getGLWindow()->getCurrentContext();
+
     // If we're rendering offscreen we set up a default back buffer.
     if (mParams->surfaceType == SurfaceType::Offscreen)
     {
@@ -1486,8 +1516,6 @@ void TracePerfTest::initializeBenchmark()
         bindRenderbuffer(GL_RENDERBUFFER, mOffscreenDepthStencil);
         renderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, mWindowWidth, mWindowHeight);
         bindRenderbuffer(GL_RENDERBUFFER, 0);
-
-        mEglContext = eglGetCurrentContext();
 
         genFramebuffers(mMaxOffscreenBufferCount, mOffscreenFramebuffers.data());
         glGenTextures(mMaxOffscreenBufferCount, mOffscreenTextures.data());
@@ -1572,6 +1600,24 @@ void TracePerfTest::sampleTime()
     }
 }
 
+void TracePerfTest::MaybeSwitchToMainContext(EGLContext currentEglContext)
+{
+    if (currentEglContext != mEglContext)
+    {
+        onEglMakeCurrent(onEglGetCurrentDisplay(), onEglGetCurrentSurface(EGL_DRAW),
+                         onEglGetCurrentSurface(EGL_READ), mEglContext);
+    }
+}
+
+void TracePerfTest::MaybeSwitchToTraceContext(EGLContext currentEglContext)
+{
+    if (currentEglContext != mEglContext)
+    {
+        onEglMakeCurrent(onEglGetCurrentDisplay(), onEglGetCurrentSurface(EGL_DRAW),
+                         onEglGetCurrentSurface(EGL_READ), currentEglContext);
+    }
+}
+
 void TracePerfTest::drawBenchmark()
 {
     constexpr uint32_t kFramesPerX  = 6;
@@ -1619,14 +1665,18 @@ void TracePerfTest::drawBenchmark()
     snprintf(frameName, sizeof(frameName), "Frame %u", mCurrentFrame);
     beginInternalTraceEvent(frameName);
 
-    startGpuTimer();
+    // Only insert gpu-timer calls for when requested
+    if (mParams->trackGpuTime)
+    {
+        startGpuTimer();
+    }
     atraceCounter("TraceFrameIndex", mCurrentFrame);
 
     const double beginReplayFrameTimeSec = mTrialTimer.getElapsedWallClockTime();
     mTraceReplay->replayFrame(mCurrentFrame);
     mFrameWallTimeSec += mTrialTimer.getElapsedWallClockTime() - beginReplayFrameTimeSec;
 
-    if (!gAddSwapIntoGPUTime)
+    if (!gAddSwapIntoGPUTime && mParams->trackGpuTime)
     {
         stopGpuTimer();
     }
@@ -1639,7 +1689,7 @@ void TracePerfTest::drawBenchmark()
 
     if (mParams->surfaceType == SurfaceType::Offscreen)
     {
-        if (gMinimizeGPUWork)
+        if (gMinimizeGPUWork || gSkipBlitInOffscreen)
         {
             // To keep GPU work minimum, we skip the blit.
             glFlush();
@@ -1649,12 +1699,8 @@ void TracePerfTest::drawBenchmark()
         {
             GLuint offscreenBuffer = mOffscreenFramebuffers[offscreenBufferIndex];
 
-            EGLContext currentEglContext = eglGetCurrentContext();
-            if (currentEglContext != mEglContext)
-            {
-                eglMakeCurrent(eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW),
-                               eglGetCurrentSurface(EGL_READ), mEglContext);
-            }
+            EGLContext currentEglContext = getGLWindow()->getCurrentContext();
+            MaybeSwitchToMainContext(currentEglContext);
 
             GLint currentDrawFBO, currentReadFBO;
             if (gles1)
@@ -1744,17 +1790,17 @@ void TracePerfTest::drawBenchmark()
                 glDeleteSync(sync);
             }
 
-            if (currentEglContext != mEglContext)
-            {
-                eglMakeCurrent(eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW),
-                               eglGetCurrentSurface(EGL_READ), currentEglContext);
-            }
+            MaybeSwitchToTraceContext(currentEglContext);
         }
     }
     else
     {
-        bindFramebuffer(GL_FRAMEBUFFER, 0);
-        saveScreenshotIfEnabled(ScreenshotType::kFrame);
+        // Skip setup and screenshot if upgrading trace
+        if (!gRetraceMode)
+        {
+            bindFramebuffer(GL_FRAMEBUFFER, 0);
+            saveScreenshotIfEnabled(ScreenshotType::kFrame);
+        }
         getGLWindow()->swap();
     }
 
@@ -1764,7 +1810,7 @@ void TracePerfTest::drawBenchmark()
         mFrameWallTimeSec += endSwapTimeSec - beginSwapTimeSec;
     }
 
-    if (gAddSwapIntoGPUTime)
+    if (gAddSwapIntoGPUTime && mParams->trackGpuTime)
     {
         // No need flush here since swap already performs it implicitly and we already call flush
         // in case of the offscreen test.
@@ -1826,6 +1872,26 @@ void TracePerfTest::drawBenchmark()
             queryIndex++;
         }
     }
+}
+
+void TracePerfTest::startGpuTimer()
+{
+    // Some traces will switch contexts mid-frame and not switch back.  Since our
+    // queries are per context, we need to switch back before gathering data.
+    EGLContext currentEglContext = getGLWindow()->getCurrentContext();
+    MaybeSwitchToMainContext(currentEglContext);
+    // Call the base class to start timer on the correct context.
+    ANGLERenderTest::startGpuTimer();
+    MaybeSwitchToTraceContext(currentEglContext);
+}
+
+void TracePerfTest::stopGpuTimer(bool mayNeedFlush)
+{
+    EGLContext currentEglContext = getGLWindow()->getCurrentContext();
+    MaybeSwitchToMainContext(currentEglContext);
+    // Call the base class to stop timer on the correct context.
+    ANGLERenderTest::stopGpuTimer(mayNeedFlush);
+    MaybeSwitchToTraceContext(currentEglContext);
 }
 
 // Converts a GL timestamp into a host-side CPU time aligned with "GetHostTimeSeconds".
@@ -1968,6 +2034,11 @@ EGLint TracePerfTest::onEglGetError()
 EGLDisplay TracePerfTest::onEglGetCurrentDisplay()
 {
     return getGLWindow()->getCurrentDisplay();
+}
+
+EGLSurface TracePerfTest::onEglGetCurrentSurface(EGLint readdraw)
+{
+    return getGLWindow()->getCurrentSurface(readdraw);
 }
 
 // Triggered when the replay calls glBindFramebuffer.

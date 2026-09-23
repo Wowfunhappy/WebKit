@@ -19,17 +19,10 @@
 
 #pragma once
 
-#include <JavaScriptCore/AuxiliaryBarrierInlines.h>
-#include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSArray.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
-#include <JavaScriptCore/JSCellInlines.h>
-#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/Lookup.h>
 #include <JavaScriptCore/ObjectConstructor.h>
-#include <JavaScriptCore/SlotVisitorInlines.h>
 #include <JavaScriptCore/Structure.h>
-#include <JavaScriptCore/StructureInlines.h>
 #include <JavaScriptCore/WriteBarrier.h>
 #include <WebCore/JSDOMGlobalObject.h>
 #include <WebCore/JSDOMWrapperCache.h>
@@ -68,10 +61,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSValue prototype);
 
     static bool supportsRichSourceInfo(const JSC::JSGlobalObject*);
     static bool NODELETE shouldInterruptScript(const JSC::JSGlobalObject*);

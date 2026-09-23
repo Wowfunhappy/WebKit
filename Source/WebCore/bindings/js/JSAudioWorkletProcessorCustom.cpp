@@ -26,6 +26,8 @@
 #include "config.h"
 #include "JSAudioWorkletProcessor.h"
 
+#include "JSValueInWrappedObjectInlines.h"
+
 #if ENABLE(WEB_AUDIO)
 
 namespace WebCore {

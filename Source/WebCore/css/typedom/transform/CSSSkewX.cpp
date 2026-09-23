@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -61,13 +62,10 @@ ExceptionOr<Ref<CSSSkewX>> CSSSkewX::create(Ref<const CSSFunctionValue> cssFunct
         return Exception { ExceptionCode::TypeError, "Unexpected number of values."_s };
     }
 
-    auto valueOrException = CSSStyleValueFactory::reifyValue(document, *cssFunctionValue->item(0), std::nullopt);
+    auto valueOrException = CSSNumericValue::reifyValue(document, protect(*cssFunctionValue->item(0)));
     if (valueOrException.hasException())
         return valueOrException.releaseException();
-    RefPtr numericValue = dynamicDowncast<CSSNumericValue>(valueOrException.releaseReturnValue());
-    if (!numericValue)
-        return Exception { ExceptionCode::TypeError, "Expected a CSSNumericValue."_s };
-    return CSSSkewX::create(numericValue.releaseNonNull());
+    return CSSSkewX::create(valueOrException.releaseReturnValue());
 }
 
 CSSSkewX::CSSSkewX(Ref<CSSNumericValue>&& ax)
@@ -89,7 +87,7 @@ void CSSSkewX::serialize(StringBuilder& builder) const
 {
     // https://drafts.css-houdini.org/css-typed-om/#serialize-a-cssskewx
     builder.append("skewX("_s);
-    m_ax->serialize(builder);
+    protect(m_ax)->serialize(builder);
     builder.append(')');
 }
 
@@ -111,7 +109,7 @@ ExceptionOr<Ref<DOMMatrix>> CSSSkewX::toMatrix()
 
 RefPtr<CSSValue> CSSSkewX::toCSSValue() const
 {
-    auto ax = m_ax->toCSSValue();
+    auto ax = protect(m_ax)->toCSSValue();
     if (!ax)
         return nullptr;
     return CSSFunctionValue::create(CSSValueSkewX, ax.releaseNonNull());

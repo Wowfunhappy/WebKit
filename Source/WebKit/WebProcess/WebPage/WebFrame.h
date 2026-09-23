@@ -57,6 +57,7 @@ class Array;
 
 namespace WebCore {
 class CertificateInfo;
+class FloatRect;
 class Frame;
 class FrameTreeSyncData;
 class HTMLFrameOwnerElement;
@@ -115,7 +116,7 @@ class WebFrame : public API::ObjectImpl<API::Object::Type::BundleFrame>, public 
 public:
     static Ref<WebFrame> create(WebPage& page, WebCore::FrameIdentifier frameID) { return adoptRef(*new WebFrame(page, frameID)); }
     static Ref<WebFrame> createSubframe(WebPage&, WebFrame& parent, const AtomString& frameName, WebCore::HTMLFrameOwnerElement&);
-    static Ref<WebFrame> createRemoteSubframe(WebPage&, WebFrame& parent, WebCore::FrameIdentifier, const String& frameName, std::optional<WebCore::FrameIdentifier> openerFrameID, Ref<WebCore::FrameTreeSyncData>&&);
+    static Ref<WebFrame> createRemoteSubframe(WebPage&, WebFrame& parent, WebCore::FrameIdentifier, const String& frameName, std::optional<WebCore::FrameIdentifier> openerFrameID, WebCore::ProcessIdentifier hostingProcessID, Ref<WebCore::FrameTreeSyncData>&&);
     ~WebFrame();
 
     void ref() const final { API::ObjectImpl<API::Object::Type::BundleFrame>::ref(); }
@@ -138,7 +139,7 @@ public:
     void createProvisionalFrame(ProvisionalFrameCreationParameters&&);
     void commitProvisionalFrame();
     void destroyProvisionalFrame();
-    void loadDidCommitInAnotherProcess(std::optional<WebCore::LayerHostingContextIdentifier>);
+    void loadDidCommitInAnotherProcess(WebCore::ProcessIdentifier hostingProcessID, std::optional<WebCore::LayerHostingContextIdentifier>);
     WebCore::LocalFrame* provisionalFrame() { return m_provisionalFrame.get(); }
 
     Awaitable<std::optional<FrameInfoData>> getFrameInfo();
@@ -167,14 +168,14 @@ public:
     WebCore::IntSize size() const;
 
     // WKBundleFrame API and SPI functions
-    bool isMainFrame() const;
+    bool NODELETE isMainFrame() const;
     bool isRootFrame() const;
     String name() const;
     URL url() const;
     WebCore::CertificateInfo certificateInfo() const;
     String innerText() const;
     bool isFrameSet() const;
-    RefPtr<WebFrame> parentFrame() const;
+    RefPtr<WebFrame> NODELETE parentFrame() const;
     Ref<API::Array> childFrames();
     JSGlobalContextRef jsContext();
     JSGlobalContextRef jsContextForWorld(WebCore::DOMWrapperWorld&);
@@ -202,8 +203,8 @@ public:
     RefPtr<InjectedBundleHitTestResult> hitTest(const WebCore::IntPoint, OptionSet<WebCore::HitTestRequest::Type> = defaultHitTestRequestTypes()) const;
 
     bool getDocumentBackgroundColor(double* red, double* green, double* blue, double* alpha);
-    bool containsAnyFormElements() const;
-    bool containsAnyFormControls() const;
+    bool NODELETE containsAnyFormElements() const;
+    bool NODELETE containsAnyFormControls() const;
     void stopLoading();
     void setAccessibleName(const AtomString&);
 
@@ -223,8 +224,9 @@ public:
     bool allowsFollowingLink(const URL&) const;
 
     String provisionalURL() const;
-    String suggestedFilenameForResourceWithURL(const URL&) const;
-    String mimeTypeForResourceWithURL(const URL&) const;
+    enum class ResourceType : uint8_t { Generic, Image };
+    String suggestedFilenameForResourceWithURL(const URL&, ResourceType = ResourceType::Generic) const;
+    String mimeTypeForResourceWithURL(const URL&, ResourceType = ResourceType::Generic) const;
 
     void setTextDirection(const String&);
     void updateFrameRectFromRemote(WebCore::IntRect);
@@ -241,10 +243,10 @@ public:
     void setFirstLayerTreeTransactionIDAfterDidCommitLoad(TransactionID transactionID) { m_firstLayerTreeTransactionIDAfterDidCommitLoad = transactionID; }
 #endif
 
-    WebLocalFrameLoaderClient* localFrameLoaderClient() const;
+    WebLocalFrameLoaderClient* NODELETE localFrameLoaderClient() const;
 
-    WebRemoteFrameClient* remoteFrameClient() const;
-    WebFrameLoaderClient* frameLoaderClient() const;
+    WebRemoteFrameClient* NODELETE remoteFrameClient() const;
+    WebFrameLoaderClient* NODELETE frameLoaderClient() const;
 
 #if ENABLE(APP_BOUND_DOMAINS)
     bool shouldEnableInAppBrowserPrivacyProtections();
@@ -269,7 +271,7 @@ public:
 
     String frameTextForTesting(bool);
 
-    std::pair<Ref<WebCore::WebKitJSHandle>, JSHandleInfo> createAndPrepareToSendJSHandle(WebCore::Node&) const;
+    std::optional<std::pair<Ref<WebCore::WebKitJSHandle>, JSHandleInfo>> createAndPrepareToSendJSHandle(WebCore::Node&) const;
 
     void markAsRemovedInAnotherProcess() { m_wasRemovedInAnotherProcess = true; }
     bool wasRemovedInAnotherProcess() const { return m_wasRemovedInAnotherProcess; }
@@ -288,11 +290,12 @@ public:
     void sendMessageToInspectorTarget(const String& message);
 
     void requestTextExtraction(WebCore::TextExtraction::Request&&, CompletionHandler<void(WebCore::TextExtraction::Result&&)>&&);
-    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&)>&&);
+    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&, WebCore::FloatRect)>&&);
     void describeTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(WebCore::TextExtraction::InteractionDescription&&)>&&);
     void takeSnapshotOfExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
     void requestJSHandleForExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
     void requestContainerJSHandleForExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
+    void requestContainerJSHandleForSearchTexts(Vector<String>&&, std::optional<WebCore::NodeIdentifier>&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
 
     void getSelectorPathsForNode(JSHandleInfo&&, CompletionHandler<void(Vector<HashSet<String>>&&)>&&);
     void getNodeForSelectorPaths(Vector<HashSet<String>>&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);

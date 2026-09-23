@@ -21,16 +21,14 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-public import Metal
+import Metal
 import WebGPU_Internal.Queue
+import WebGPU_Private.WebGPUExt
 
-private let largeBufferSize = 32 * 1024 * 1024
+private let largeBufferSize = Int(WGPU_LARGE_BUFFER_SIZE)
 
-// FIXME: Eventually all these "thunks" should be removed.
-// swift-format-ignore: AlwaysUseLowerCamelCase
-// swift-format-ignore: AllPublicDeclarationsHaveDocumentation
 @_expose(Cxx)
-public func Queue_writeBuffer_thunk(queue: WebGPU.Queue, buffer: any MTLBuffer, bufferOffset: UInt64, data: WebGPU.SpanUInt8) {
+func queueWriteBuffer(_ queue: WebGPU.Queue, buffer: any MTLBuffer, bufferOffset: UInt64, data: WebGPU.SpanUInt8) {
     // FIXME (rdar://161269480): We should be able to declare 'data' as MutableSpan<UInt8>, which will remove this use of 'unsafe'.
     queue.writeBuffer(buffer: buffer, bufferOffset: bufferOffset, data: unsafe MutableSpan(_unsafeCxxSpan: data))
 }

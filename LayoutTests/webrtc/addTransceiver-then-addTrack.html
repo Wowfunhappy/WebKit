@@ -72,10 +72,8 @@ async function validateAudioIsEncoded(connection)
 
 var pc1, pc2;
 promise_test(async (test) => {
-    if (window.testRunner)
-        testRunner.setUserMediaPermission(true);
-
     const localStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true });
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             pc1 = firstConnection;

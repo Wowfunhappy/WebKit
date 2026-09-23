@@ -70,7 +70,7 @@ protected:
 
     bool hasAccessToInspectedScriptState() const;
 
-    JSC::JSObject* injectedScriptObject() const;
+    JSC::JSObject* NODELETE injectedScriptObject() const;
     Expected<JSC::JSValue, NakedPtr<JSC::Exception>> callFunctionWithEvalEnabled(ScriptFunctionCall&) const;
     Ref<JSON::Value> makeCall(ScriptFunctionCall&);
     void makeEvalCall(Protocol::ErrorString&, ScriptFunctionCall&, RefPtr<Protocol::Runtime::RemoteObject>& resultObject, std::optional<bool>& wasThrown, std::optional<int>& savedResultIndex);
@@ -81,7 +81,7 @@ private:
     void checkAsyncCallResult(RefPtr<JSON::Value> result, const AsyncCallCallback&);
 
     String m_name;
-    JSC::JSGlobalObject* m_globalObject { nullptr };
+    SUPPRESS_FORWARD_DECL_MEMBER JSC::JSGlobalObject* m_globalObject { nullptr };
     JSC::Strong<JSC::JSObject> m_injectedScriptObject;
     WeakPtr<InspectorEnvironment> m_environment;
 };

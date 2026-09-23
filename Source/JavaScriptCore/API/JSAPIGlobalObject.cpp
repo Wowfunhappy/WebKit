@@ -28,7 +28,7 @@
 
 #include "GlobalObjectMethodTable.h"
 #include "JSCellInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 

@@ -31,6 +31,7 @@
 #include "WebPage.h"
 #include <WebCore/FrameInspectorController.h>
 #include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
@@ -63,8 +64,10 @@ void FrameInspectorTarget::connect(Inspector::FrontendChannel::ConnectionType co
     m_channel = makeUnique<UIProcessForwardingFrontendChannel>(*page, identifier(), connectionType);
 
     RefPtr coreFrame = frame->provisionalFrame() ?: frame->coreLocalFrame();
-    if (coreFrame)
+    if (coreFrame) {
+        m_inspectedFrame = *coreFrame;
         protect(coreFrame->inspectorController())->connectFrontend(*m_channel);
+    }
 }
 
 void FrameInspectorTarget::disconnect()
@@ -72,11 +75,10 @@ void FrameInspectorTarget::disconnect()
     if (!m_channel)
         return;
 
-    Ref frame = m_frame.get();
-    RefPtr coreFrame = frame->provisionalFrame() ?: frame->coreLocalFrame();
-    if (coreFrame)
-        protect(coreFrame->inspectorController())->disconnectFrontend(*m_channel);
+    if (RefPtr inspectedFrame = m_inspectedFrame.get())
+        protect(inspectedFrame->inspectorController())->disconnectFrontend(*m_channel);
 
+    m_inspectedFrame = nullptr;
     m_channel.reset();
 }
 

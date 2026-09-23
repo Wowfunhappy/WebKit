@@ -42,9 +42,9 @@ var counterRule = styleSheet.rules[4];
 shouldBeEqualToString('counterRule.style.content', 'counters(section, ".")');
 
 var fontFamilyRule = styleSheet.rules[5];
-shouldBeEqualToString('fontFamilyRule.style.fontFamily', '"Two Infinite Loop", "Cupertino CA"');
+shouldBeEqualToString('fontFamilyRule.style.fontFamily', 'Two Infinite Loop, Cupertino CA');
 shouldBeEqualToString('getComputedStyle(document.querySelector("article")).getPropertyValue("font-family")',
-    '"Two Infinite Loop", "Cupertino CA"');
+    'Two Infinite Loop, Cupertino CA');
 
 var backgroundImageRule = styleSheet.rules[6];
 var url = `url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100px' height='100px'><rect width='100px' height='100px' fill='lightgreen' stroke='green' stroke-width='1px'/></svg>")`;

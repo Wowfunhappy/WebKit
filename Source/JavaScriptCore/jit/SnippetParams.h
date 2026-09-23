@@ -31,6 +31,7 @@
 #if ENABLE(JIT)
 
 #include <JavaScriptCore/CCallHelpers.h>
+#include <JavaScriptCore/JITOperations.h>
 #include <JavaScriptCore/SnippetReg.h>
 #include <JavaScriptCore/SnippetSlowPathCalls.h>
 

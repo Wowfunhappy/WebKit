@@ -46,7 +46,6 @@
 
 #if PAS_OS(DARWIN)
 #include <mach/mach_init.h>
-#include <mach/vm_param.h>
 #endif
 
 static bool count_static_heaps_callback(pas_heap* heap, void* arg)
@@ -117,16 +116,8 @@ void pas_root_construct(pas_root* root)
     for (index = root->num_static_heaps; index--;)
         PAS_ASSERT(root->static_heaps[index]);
 
-    root->large_map_hashtable_instance = &pas_large_map_hashtable_instance;
-    root->large_map_hashtable_instance_in_flux_stash = &pas_large_map_hashtable_instance_in_flux_stash;
-    root->small_large_map_hashtable_instance = &pas_small_large_map_hashtable_instance;
-    root->small_large_map_hashtable_instance_in_flux_stash =
-        &pas_small_large_map_hashtable_instance_in_flux_stash;
-    root->tiny_large_map_hashtable_instance = &pas_tiny_large_map_hashtable_instance;
-    root->tiny_large_map_hashtable_instance_in_flux_stash =
-        &pas_tiny_large_map_hashtable_instance_in_flux_stash;
-    root->tiny_large_map_second_level_hashtable_in_flux_stash_instance =
-        &pas_tiny_large_map_second_level_hashtable_in_flux_stash_instance;
+    root->large_maps = pas_large_maps;
+    root->num_large_map_variants = PAS_NUM_LARGE_MAP_VARIANTS;
 
     root->probabilistic_guard_malloc_has_been_used = &pas_probabilistic_guard_malloc_has_been_used;
 

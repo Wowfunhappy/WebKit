@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,27 +26,24 @@
 
 #pragma once
 
-#include "CSSPrimitiveValue.h"
+#include "CSSGridLine.h"
 #include "CSSValue.h"
 
 namespace WebCore {
 
 class CSSGridLineValue final : public CSSValue {
 public:
-    static Ref<CSSGridLineValue> NODELETE create(RefPtr<CSSPrimitiveValue>&&, RefPtr<CSSPrimitiveValue>&&, RefPtr<CSSPrimitiveValue>&&);
+    static Ref<CSSGridLineValue> create(CSS::GridLine);
+
+    const CSS::GridLine& line() const { return m_line; }
 
     String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSGridLineValue& other) const;
 
-    CSSPrimitiveValue* spanValue() const { return m_spanValue.get(); }
-    CSSPrimitiveValue* numericValue() const { return m_numericValue.get(); }
-    CSSPrimitiveValue* gridLineName() const { return m_gridLineName.get(); }
-
 private:
-    explicit CSSGridLineValue(RefPtr<CSSPrimitiveValue>&&, RefPtr<CSSPrimitiveValue>&&, RefPtr<CSSPrimitiveValue>&&);
-    const RefPtr<CSSPrimitiveValue> m_spanValue;
-    const RefPtr<CSSPrimitiveValue> m_numericValue;
-    const RefPtr<CSSPrimitiveValue> m_gridLineName;
+    explicit CSSGridLineValue(CSS::GridLine&&);
+
+    CSS::GridLine m_line;
 };
 
 } // namespace WebCore

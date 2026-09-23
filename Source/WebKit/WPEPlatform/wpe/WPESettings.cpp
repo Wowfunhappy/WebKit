@@ -104,6 +104,7 @@ struct _WPESettingsPrivate {
             { WPE_SETTING_DOUBLE_CLICK_TIME, G_VARIANT_TYPE_UINT32, g_variant_ref_sink(g_variant_new_uint32(400)) },
             { WPE_SETTING_DRAG_THRESHOLD, G_VARIANT_TYPE_UINT32, g_variant_ref_sink(g_variant_new_uint32(8)) },
             { WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, G_VARIANT_TYPE_BOOLEAN, g_variant_ref_sink(g_variant_new_boolean(true)) },
+            { WPE_SETTING_OVERLAY_SCROLLBARS, G_VARIANT_TYPE_BOOLEAN, g_variant_ref_sink(g_variant_new_boolean(true)) },
         };
 
         for (auto& setting : defaultSettings)

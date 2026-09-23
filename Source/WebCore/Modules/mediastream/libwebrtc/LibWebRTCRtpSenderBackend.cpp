@@ -69,6 +69,8 @@ LibWebRTCRtpSenderBackend::LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBack
 
 LibWebRTCRtpSenderBackend::~LibWebRTCRtpSenderBackend()
 {
+    if (RefPtr transformBackend = m_transformBackend)
+        transformBackend->detachFromOwningBackend();
     stopSource();
 }
 
@@ -109,6 +111,14 @@ bool LibWebRTCRtpSenderBackend::replaceTrack(RTCRtpSender& sender, MediaStreamTr
     }
 
     if (sender.track()) {
+        if (auto rtcTrack = protect(m_rtcSender)->track()) {
+            if (rtcTrack->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+                // This is a cast from a webrtc type, not much we can do to make it safe.
+                SUPPRESS_MEMORY_UNSAFE_CAST webrtc::scoped_refptr<webrtc::VideoTrackInterface> videoTrack { static_cast<webrtc::VideoTrackInterface*>(rtcTrack.get()) };
+                videoTrack->set_content_hint(toWebRTCContentHint(track->privateTrack().contentHint()));
+            }
+        }
+
         switchOn(m_source, [&](Ref<RealtimeOutgoingAudioSource>& source) {
             ASSERT(track->source().type() == RealtimeMediaSource::Type::Audio);
             source->stop();
@@ -134,7 +144,7 @@ RTCRtpSendParameters LibWebRTCRtpSenderBackend::getParameters() const
         return { };
 
     m_currentParameters = m_rtcSender->GetParameters();
-    return toRTCRtpSendParameters(*m_currentParameters);
+    return toRTCRtpSendParameters(*m_currentParameters, m_rtcSender->media_type() == webrtc::MediaType::AUDIO);
 }
 
 static bool NODELETE validateModifiedParameters(const RTCRtpSendParameters& newParameters, const RTCRtpSendParameters& oldParameters)
@@ -198,13 +208,13 @@ void LibWebRTCRtpSenderBackend::setParameters(const RTCRtpSendParameters& parame
         return;
     }
 
-    if (!validateModifiedParameters(parameters, toRTCRtpSendParameters(*m_currentParameters))) {
+    if (!validateModifiedParameters(parameters, toRTCRtpSendParameters(*m_currentParameters, m_rtcSender->media_type() == webrtc::MediaType::AUDIO))) {
         promise.reject(ExceptionCode::InvalidModificationError, "parameters are not valid"_s);
         return;
     }
 
     auto rtcParameters = *std::exchange(m_currentParameters, std::nullopt);
-    updateRTCRtpSendParameters(parameters, rtcParameters);
+    updateRTCRtpSendParameters(parameters, rtcParameters, m_rtcSender->media_type());
 
     auto error = m_rtcSender->SetParameters(rtcParameters);
     if (!error.ok()) {

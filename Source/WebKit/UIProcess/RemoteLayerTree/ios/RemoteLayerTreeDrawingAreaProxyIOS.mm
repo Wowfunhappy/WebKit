@@ -30,6 +30,8 @@
 
 #import "CAFrameRateRangeUtilities.h"
 #import "PageClient.h"
+#import "RemoteLayerTreeCommitBundle.h"
+#import "RemoteLayerTreeScrollingPerformanceData.h"
 #import "RemoteScrollingCoordinatorProxyIOS.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
@@ -152,7 +154,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)invalidate
 {
     RetainPtr displayLink = _displayLink;
-    [displayLink.get().display removeObserver:self forKeyPath:@"refreshRate" context:displayRefreshRateObservationContext];
+    [displayLink removeObserver:self forKeyPath:@"display.refreshRate" context:displayRefreshRateObservationContext];
     [displayLink invalidate];
     _displayLink = nullptr;
 
@@ -286,17 +288,18 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _screenForDisplayLink = [self _screenForDisplayLink];
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // FIXME: UIScreen version deprecated rdar://177874054
     if (_screenForDisplayLink)
         _displayLink = [protect(_screenForDisplayLink) displayLinkWithTarget:self selector:@selector(displayLinkFired:)];
     else {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         // FIXME: CoreAnimation version deprecated rdar://164090713
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkFired:)];
-ALLOW_DEPRECATED_DECLARATIONS_END
     }
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-    [[_displayLink display] addObserver:self forKeyPath:@"refreshRate" options:NSKeyValueObservingOptionNew context:displayRefreshRateObservationContext];
+    [_displayLink addObserver:self forKeyPath:@"display.refreshRate" options:NSKeyValueObservingOptionNew context:displayRefreshRateObservationContext];
     [_displayLink setPaused:YES];
 }
 
@@ -447,6 +450,26 @@ UIView *RemoteLayerTreeDrawingAreaProxyIOS::viewWithLayerIDForTesting(WebCore::P
     if (RefPtr node = m_remoteLayerTreeHost->nodeForID(layerID))
         return node->uiView();
     return nil;
+}
+
+void RemoteLayerTreeDrawingAreaProxyIOS::didCommitLayerTree(IPC::Connection&, const RemoteLayerTreeTransaction& transaction, const RemoteScrollingCoordinatorTransaction&, const std::optional<MainFrameData>& mainFrameData, const TransactionID&)
+{
+    if (!mainFrameData)
+        return;
+
+    RefPtr page = this->page();
+    if (!page)
+        return;
+
+    CheckedRef scrollingCoordinatorProxy = *page->scrollingCoordinatorProxy();
+    page->setScrollPerformanceDataCollectionEnabled(scrollingCoordinatorProxy->scrollingPerformanceTestingEnabled());
+
+    if (transaction.createdLayers().size() > 0) {
+        if (auto* scrollPerfData = page->scrollingPerformanceData()) {
+            auto visibleRect = WebCore::FloatRect(transaction.scrollPosition(), mainFrameData->baseLayoutViewportSize);
+            scrollPerfData->didCommitLayerTree(visibleRect);
+        }
+    }
 }
 
 } // namespace WebKit

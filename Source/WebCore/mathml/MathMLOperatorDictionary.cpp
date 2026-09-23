@@ -29,6 +29,7 @@
 #if ENABLE(MATHML)
 
 #include <array>
+#include <tuple>
 #include <utility>
 
 namespace WebCore {
@@ -62,7 +63,10 @@ static inline Property NODELETE ExtractProperty(const Entry& entry)
 
 // This table has been automatically generated from the Operator Dictionary of the MathML3 specification (appendix C).
 // Some people use the binary operator "U+2225 PARALLEL TO" as an opening and closing delimiter, so we add the corresponding stretchy prefix and postfix forms.
-static constexpr unsigned dictionarySize = 1061;
+// The table must be sorted by code point, and for entries with the same code
+// point, by form in the order Infix, Prefix, Postfix. The search() function
+// relies on binary search, so incorrect ordering will cause lookup failures.
+static constexpr unsigned dictionarySize = 1151;
 static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x21, Postfix, 1, 0, 0 }, // EXCLAMATION MARK
     Entry { 0x22, Postfix, 1, 0, Accent }, // QUOTATION MARK
@@ -73,7 +77,7 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x29, Postfix, 0, 0, Symmetric | Fence | Stretchy }, // RIGHT PARENTHESIS
     Entry { 0x2A, Infix, 3, 3, 0 }, // ASTERISK
     Entry { 0x2B, Infix, 4, 4, 0 }, // PLUS SIGN
-    Entry { 0x2B, Prefix, 0, 1, 0 }, // PLUS SIGN
+    Entry { 0x2B, Prefix, 0, 0, 0 }, // PLUS SIGN
     Entry { 0x2C, Infix, 0, 3, Separator }, // COMMA
     Entry { 0x2D, Infix, 4, 4, 0 }, // HYPHEN-MINUS
     Entry { 0x2D, Prefix, 0, 1, 0 }, // HYPHEN-MINUS
@@ -89,10 +93,10 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x5B, Prefix, 0, 0, Symmetric | Fence | Stretchy }, // LEFT SQUARE BRACKET
     Entry { 0x5C, Infix, 0, 0, 0 }, // REVERSE SOLIDUS
     Entry { 0x5D, Postfix, 0, 0, Symmetric | Fence | Stretchy }, // RIGHT SQUARE BRACKET
-    Entry { 0x5E, Postfix, 0, 0, Accent | Stretchy }, // CIRCUMFLEX ACCENT
     Entry { 0x5E, Infix, 1, 1, 0 }, // CIRCUMFLEX ACCENT
-    Entry { 0x5F, Postfix, 0, 0, Accent | Stretchy }, // LOW LINE
+    Entry { 0x5E, Postfix, 0, 0, Accent | Stretchy }, // CIRCUMFLEX ACCENT
     Entry { 0x5F, Infix, 1, 1, 0 }, // LOW LINE
+    Entry { 0x5F, Postfix, 0, 0, Accent | Stretchy }, // LOW LINE
     Entry { 0x60, Postfix, 0, 0, Accent }, // GRAVE ACCENT
     Entry { 0x7B, Prefix, 0, 0, Symmetric | Fence | Stretchy }, // LEFT CURLY BRACKET
     Entry { 0x7C, Infix, 2, 2, Stretchy | Symmetric | Fence }, // VERTICAL LINE
@@ -106,7 +110,7 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0xAF, Postfix, 0, 0, Accent | Stretchy }, // MACRON
     Entry { 0xB0, Postfix, 0, 0, 0 }, // DEGREE SIGN
     Entry { 0xB1, Infix, 4, 4, 0 }, // PLUS-MINUS SIGN
-    Entry { 0xB1, Prefix, 0, 1, 0 }, // PLUS-MINUS SIGN
+    Entry { 0xB1, Prefix, 0, 0, 0 }, // PLUS-MINUS SIGN
     Entry { 0xB2, Postfix, 0, 0, Accent }, // SUPERSCRIPT TWO
     Entry { 0xB3, Postfix, 0, 0, Accent }, // SUPERSCRIPT THREE
     Entry { 0xB4, Postfix, 0, 0, Accent }, // ACUTE ACCENT
@@ -238,8 +242,8 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x21DB, Infix, 5, 5, Stretchy | Accent }, // RIGHTWARDS TRIPLE ARROW
     Entry { 0x21DC, Infix, 5, 5, Stretchy | Accent }, // LEFTWARDS SQUIGGLE ARROW
     Entry { 0x21DD, Infix, 5, 5, Stretchy | Accent }, // RIGHTWARDS SQUIGGLE ARROW
-    Entry { 0x21DE, Infix, 5, 5, 0 }, // UPWARDS ARROW WITH DOUBLE STROKE
-    Entry { 0x21DF, Infix, 5, 5, 0 }, // DOWNWARDS ARROW WITH DOUBLE STROKE
+    Entry { 0x21DE, Infix, 5, 5, Stretchy }, // UPWARDS ARROW WITH DOUBLE STROKE
+    Entry { 0x21DF, Infix, 5, 5, Stretchy }, // DOWNWARDS ARROW WITH DOUBLE STROKE
     Entry { 0x21E0, Infix, 5, 5, Stretchy | Accent }, // LEFTWARDS DASHED ARROW
     Entry { 0x21E1, Infix, 5, 5, Stretchy }, // UPWARDS DASHED ARROW
     Entry { 0x21E2, Infix, 5, 5, Stretchy | Accent }, // RIGHTWARDS DASHED ARROW
@@ -274,11 +278,11 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x21FF, Infix, 5, 5, Stretchy | Accent }, // LEFT RIGHT OPEN-HEADED ARROW
     Entry { 0x2200, Prefix, 2, 1, 0 }, // FOR ALL
     Entry { 0x2201, Infix, 1, 2, 0 }, // COMPLEMENT
-    Entry { 0x2202, Prefix, 2, 1, 0 }, // PARTIAL DIFFERENTIAL
+    Entry { 0x2202, Prefix, 3, 0, 0 }, // PARTIAL DIFFERENTIAL
     Entry { 0x2203, Prefix, 2, 1, 0 }, // THERE EXISTS
     Entry { 0x2204, Prefix, 2, 1, 0 }, // THERE DOES NOT EXIST
     Entry { 0x2206, Infix, 3, 3, 0 }, // INCREMENT
-    Entry { 0x2207, Prefix, 2, 1, 0 }, // NABLA
+    Entry { 0x2207, Prefix, 0, 0, 0 }, // NABLA
     Entry { 0x2208, Infix, 5, 5, 0 }, // ELEMENT OF
     Entry { 0x2209, Infix, 5, 5, 0 }, // NOT AN ELEMENT OF
     Entry { 0x220A, Infix, 5, 5, 0 }, // SMALL ELEMENT OF
@@ -290,9 +294,9 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2210, Prefix, 1, 2, Symmetric | LargeOp | MovableLimits }, // N-ARY COPRODUCT
     Entry { 0x2211, Prefix, 1, 2, Symmetric | LargeOp | MovableLimits }, // N-ARY SUMMATION
     Entry { 0x2212, Infix, 4, 4, 0 }, // MINUS SIGN
-    Entry { 0x2212, Prefix, 0, 1, 0 }, // MINUS SIGN
+    Entry { 0x2212, Prefix, 0, 0, 0 }, // MINUS SIGN
     Entry { 0x2213, Infix, 4, 4, 0 }, // MINUS-OR-PLUS SIGN
-    Entry { 0x2213, Prefix, 0, 1, 0 }, // MINUS-OR-PLUS SIGN
+    Entry { 0x2213, Prefix, 0, 0, 0 }, // MINUS-OR-PLUS SIGN
     Entry { 0x2214, Infix, 4, 4, 0 }, // DOT PLUS
     Entry { 0x2215, Infix, 4, 4, Stretchy }, // DIVISION SLASH
     Entry { 0x2216, Infix, 4, 4, 0 }, // SET MINUS
@@ -474,7 +478,7 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x22C6, Infix, 4, 4, 0 }, // STAR OPERATOR
     Entry { 0x22C7, Infix, 4, 4, 0 }, // DIVISION TIMES
     Entry { 0x22C8, Infix, 5, 5, 0 }, // BOWTIE
-    Entry { 0x22C9, Infix, 4, 4, 0 }, // LEFT NORMAL FACTOR SEMIDIRECT PRODUCT
+    Entry { 0x22C9, Infix, 3, 3, 0 }, // LEFT NORMAL FACTOR SEMIDIRECT PRODUCT
     Entry { 0x22CA, Infix, 4, 4, 0 }, // RIGHT NORMAL FACTOR SEMIDIRECT PRODUCT
     Entry { 0x22CB, Infix, 4, 4, 0 }, // LEFT SEMIDIRECT PRODUCT
     Entry { 0x22CC, Infix, 4, 4, 0 }, // RIGHT SEMIDIRECT PRODUCT
@@ -618,8 +622,8 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2905, Infix, 5, 5, Accent }, // RIGHTWARDS TWO-HEADED ARROW FROM BAR
     Entry { 0x2906, Infix, 5, 5, Accent }, // LEFTWARDS DOUBLE ARROW FROM BAR
     Entry { 0x2907, Infix, 5, 5, Accent }, // RIGHTWARDS DOUBLE ARROW FROM BAR
-    Entry { 0x2908, Infix, 5, 5, 0 }, // DOWNWARDS ARROW WITH HORIZONTAL STROKE
-    Entry { 0x2909, Infix, 5, 5, 0 }, // UPWARDS ARROW WITH HORIZONTAL STROKE
+    Entry { 0x2908, Infix, 5, 5, Stretchy }, // DOWNWARDS ARROW WITH HORIZONTAL STROKE
+    Entry { 0x2909, Infix, 5, 5, Stretchy }, // UPWARDS ARROW WITH HORIZONTAL STROKE
     Entry { 0x290A, Infix, 5, 5, Stretchy }, // UPWARDS TRIPLE ARROW
     Entry { 0x290B, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIPLE ARROW
     Entry { 0x290C, Infix, 5, 5, Stretchy | Accent }, // LEFTWARDS DOUBLE DASH ARROW
@@ -662,10 +666,10 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2931, Infix, 5, 5, 0 }, // NORTH EAST ARROW CROSSING NORTH WEST ARROW
     Entry { 0x2932, Infix, 5, 5, 0 }, // NORTH WEST ARROW CROSSING NORTH EAST ARROW
     Entry { 0x2933, Infix, 5, 5, Accent }, // WAVE ARROW POINTING DIRECTLY RIGHT
-    Entry { 0x2934, Infix, 5, 5, 0 }, // ARROW POINTING RIGHTWARDS THEN CURVING UPWARDS
-    Entry { 0x2935, Infix, 5, 5, 0 }, // ARROW POINTING RIGHTWARDS THEN CURVING DOWNWARDS
-    Entry { 0x2936, Infix, 5, 5, 0 }, // ARROW POINTING DOWNWARDS THEN CURVING LEFTWARDS
-    Entry { 0x2937, Infix, 5, 5, 0 }, // ARROW POINTING DOWNWARDS THEN CURVING RIGHTWARDS
+    Entry { 0x2934, Infix, 5, 5, Stretchy }, // ARROW POINTING RIGHTWARDS THEN CURVING UPWARDS
+    Entry { 0x2935, Infix, 5, 5, Stretchy }, // ARROW POINTING RIGHTWARDS THEN CURVING DOWNWARDS
+    Entry { 0x2936, Infix, 5, 5, Stretchy }, // ARROW POINTING DOWNWARDS THEN CURVING LEFTWARDS
+    Entry { 0x2937, Infix, 5, 5, Stretchy }, // ARROW POINTING DOWNWARDS THEN CURVING RIGHTWARDS
     Entry { 0x2938, Infix, 5, 5, 0 }, // RIGHT-SIDE ARC CLOCKWISE ARROW
     Entry { 0x2939, Infix, 5, 5, 0 }, // LEFT-SIDE ARC ANTICLOCKWISE ARROW
     Entry { 0x293A, Infix, 5, 5, Accent }, // TOP ARC ANTICLOCKWISE ARROW
@@ -683,11 +687,11 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2946, Infix, 5, 5, Accent }, // LEFTWARDS ARROW WITH PLUS BELOW
     Entry { 0x2947, Infix, 5, 5, Accent }, // RIGHTWARDS ARROW THROUGH X
     Entry { 0x2948, Infix, 5, 5, Accent }, // LEFT RIGHT ARROW THROUGH SMALL CIRCLE
-    Entry { 0x2949, Infix, 5, 5, 0 }, // UPWARDS TWO-HEADED ARROW FROM SMALL CIRCLE
+    Entry { 0x2949, Infix, 5, 5, Stretchy }, // UPWARDS TWO-HEADED ARROW FROM SMALL CIRCLE
     Entry { 0x294A, Infix, 5, 5, Accent }, // LEFT BARB UP RIGHT BARB DOWN HARPOON
     Entry { 0x294B, Infix, 5, 5, Accent }, // LEFT BARB DOWN RIGHT BARB UP HARPOON
-    Entry { 0x294C, Infix, 5, 5, 0 }, // UP BARB RIGHT DOWN BARB LEFT HARPOON
-    Entry { 0x294D, Infix, 5, 5, 0 }, // UP BARB LEFT DOWN BARB RIGHT HARPOON
+    Entry { 0x294C, Infix, 5, 5, Stretchy }, // UP BARB RIGHT DOWN BARB LEFT HARPOON
+    Entry { 0x294D, Infix, 5, 5, Stretchy }, // UP BARB LEFT DOWN BARB RIGHT HARPOON
     Entry { 0x294E, Infix, 5, 5, Stretchy | Accent }, // LEFT BARB UP RIGHT BARB UP HARPOON
     Entry { 0x294F, Infix, 5, 5, Stretchy }, // UP BARB RIGHT DOWN BARB RIGHT HARPOON
     Entry { 0x2950, Infix, 5, 5, Stretchy | Accent }, // LEFT BARB DOWN RIGHT BARB DOWN HARPOON
@@ -709,9 +713,9 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2960, Infix, 5, 5, Stretchy }, // UPWARDS HARPOON WITH BARB LEFT FROM BAR
     Entry { 0x2961, Infix, 5, 5, Stretchy }, // DOWNWARDS HARPOON WITH BARB LEFT FROM BAR
     Entry { 0x2962, Infix, 5, 5, Accent }, // LEFTWARDS HARPOON WITH BARB UP ABOVE LEFTWARDS HARPOON WITH BARB DOWN
-    Entry { 0x2963, Infix, 5, 5, 0 }, // UPWARDS HARPOON WITH BARB LEFT BESIDE UPWARDS HARPOON WITH BARB RIGHT
+    Entry { 0x2963, Infix, 5, 5, Stretchy }, // UPWARDS HARPOON WITH BARB LEFT BESIDE UPWARDS HARPOON WITH BARB RIGHT
     Entry { 0x2964, Infix, 5, 5, Accent }, // RIGHTWARDS HARPOON WITH BARB UP ABOVE RIGHTWARDS HARPOON WITH BARB DOWN
-    Entry { 0x2965, Infix, 5, 5, 0 }, // DOWNWARDS HARPOON WITH BARB LEFT BESIDE DOWNWARDS HARPOON WITH BARB RIGHT
+    Entry { 0x2965, Infix, 5, 5, Stretchy }, // DOWNWARDS HARPOON WITH BARB LEFT BESIDE DOWNWARDS HARPOON WITH BARB RIGHT
     Entry { 0x2966, Infix, 5, 5, Accent }, // LEFTWARDS HARPOON WITH BARB UP ABOVE RIGHTWARDS HARPOON WITH BARB UP
     Entry { 0x2967, Infix, 5, 5, Accent }, // LEFTWARDS HARPOON WITH BARB DOWN ABOVE RIGHTWARDS HARPOON WITH BARB DOWN
     Entry { 0x2968, Infix, 5, 5, Accent }, // RIGHTWARDS HARPOON WITH BARB UP ABOVE LEFTWARDS HARPOON WITH BARB UP
@@ -736,10 +740,10 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x297B, Infix, 5, 5, Accent }, // SUPERSET ABOVE LEFTWARDS ARROW
     Entry { 0x297C, Infix, 5, 5, Accent }, // LEFT FISH TAIL
     Entry { 0x297D, Infix, 5, 5, Accent }, // RIGHT FISH TAIL
-    Entry { 0x297E, Infix, 5, 5, 0 }, // UP FISH TAIL
-    Entry { 0x297F, Infix, 5, 5, 0 }, // DOWN FISH TAIL
-    Entry { 0x2980, Prefix, 0, 0, Fence | Stretchy }, // TRIPLE VERTICAL BAR DELIMITER
-    Entry { 0x2980, Postfix, 0, 0, Fence | Stretchy }, // TRIPLE VERTICAL BAR DELIMITER
+    Entry { 0x297E, Infix, 5, 5, Stretchy }, // UP FISH TAIL
+    Entry { 0x297F, Infix, 5, 5, Stretchy }, // DOWN FISH TAIL
+    Entry { 0x2980, Prefix, 0, 0, Symmetric | Fence | Stretchy }, // TRIPLE VERTICAL BAR DELIMITER
+    Entry { 0x2980, Postfix, 0, 0, Symmetric | Fence | Stretchy }, // TRIPLE VERTICAL BAR DELIMITER
     Entry { 0x2981, Infix, 3, 3, 0 }, // Z NOTATION SPOT
     Entry { 0x2982, Infix, 3, 3, 0 }, // Z NOTATION TYPE COLON
     Entry { 0x2983, Prefix, 0, 0, Symmetric | Fence | Stretchy }, // LEFT WHITE CURLY BRACKET
@@ -765,6 +769,8 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2997, Prefix, 0, 0, Symmetric | Fence | Stretchy }, // LEFT BLACK TORTOISE SHELL BRACKET
     Entry { 0x2998, Postfix, 0, 0, Symmetric | Fence | Stretchy }, // RIGHT BLACK TORTOISE SHELL BRACKET
     Entry { 0x2999, Infix, 3, 3, 0 }, // DOTTED FENCE
+    Entry { 0x2999, Prefix, 0, 0, Stretchy | Symmetric }, // DOTTED FENCE
+    Entry { 0x2999, Postfix, 0, 0, Stretchy | Symmetric }, // DOTTED FENCE
     Entry { 0x299A, Infix, 3, 3, 0 }, // VERTICAL ZIGZAG LINE
     Entry { 0x299B, Infix, 3, 3, 0 }, // MEASURED ANGLE OPENING LEFT
     Entry { 0x299C, Infix, 3, 3, 0 }, // RIGHT ANGLE VARIANT WITH SQUARE
@@ -828,8 +834,12 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x29D6, Infix, 4, 4, 0 }, // WHITE HOURGLASS
     Entry { 0x29D7, Infix, 4, 4, 0 }, // BLACK HOURGLASS
     Entry { 0x29D8, Infix, 3, 3, 0 }, // LEFT WIGGLY FENCE
+    Entry { 0x29D8, Prefix, 0, 0, Stretchy | Symmetric }, // LEFT WIGGLY FENCE
     Entry { 0x29D9, Infix, 3, 3, 0 }, // RIGHT WIGGLY FENCE
+    Entry { 0x29D9, Postfix, 0, 0, Stretchy | Symmetric }, // RIGHT WIGGLY FENCE
+    Entry { 0x29DA, Prefix, 0, 0, Stretchy | Symmetric }, // LEFT DOUBLE WIGGLY FENCE
     Entry { 0x29DB, Infix, 3, 3, 0 }, // RIGHT DOUBLE WIGGLY FENCE
+    Entry { 0x29DB, Postfix, 0, 0, Stretchy | Symmetric }, // RIGHT DOUBLE WIGGLY FENCE
     Entry { 0x29DC, Infix, 3, 3, 0 }, // INCOMPLETE INFINITY
     Entry { 0x29DD, Infix, 3, 3, 0 }, // TIE OVER INFINITY
     Entry { 0x29DE, Infix, 5, 5, 0 }, // INFINITY NEGATED WITH VERTICAL BAR
@@ -896,7 +906,9 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2A1B, Prefix, 1, 2, Symmetric | LargeOp }, // INTEGRAL WITH OVERBAR
     Entry { 0x2A1C, Prefix, 1, 2, Symmetric | LargeOp }, // INTEGRAL WITH UNDERBAR
     Entry { 0x2A1D, Infix, 3, 3, 0 }, // JOIN
+    Entry { 0x2A1D, Prefix, 3, 3, Symmetric | LargeOp | MovableLimits }, // JOIN
     Entry { 0x2A1E, Infix, 3, 3, 0 }, // LARGE LEFT TRIANGLE OPERATOR
+    Entry { 0x2A1E, Prefix, 3, 3, Symmetric | LargeOp | MovableLimits }, // LARGE LEFT TRIANGLE OPERATOR
     Entry { 0x2A1F, Infix, 3, 3, 0 }, // Z NOTATION SCHEMA COMPOSITION
     Entry { 0x2A20, Infix, 3, 3, 0 }, // Z NOTATION SCHEMA PIPING
     Entry { 0x2A21, Infix, 3, 3, 0 }, // Z NOTATION SCHEMA PROJECTION
@@ -1121,15 +1133,97 @@ static constexpr std::array<Entry, dictionarySize> dictionary {
     Entry { 0x2AFD, Infix, 4, 4, 0 }, // DOUBLE SOLIDUS OPERATOR
     Entry { 0x2AFE, Infix, 3, 3, 0 }, // WHITE VERTICAL BAR
     Entry { 0x2AFF, Prefix, 1, 2, Symmetric | LargeOp | MovableLimits }, // N-ARY WHITE VERTICAL BAR
+    Entry { 0x2B04, Infix, 5, 5, Stretchy }, // LEFT RIGHT BLACK ARROW
+    Entry { 0x2B05, Infix, 5, 5, Stretchy }, // LEFTWARDS BLACK ARROW
+    Entry { 0x2B06, Infix, 5, 5, Stretchy }, // UPWARDS BLACK ARROW
+    Entry { 0x2B07, Infix, 5, 5, Stretchy }, // DOWNWARDS BLACK ARROW
+    Entry { 0x2B0C, Infix, 5, 5, Stretchy }, // LEFT RIGHT BLACK ARROW
+    Entry { 0x2B0D, Infix, 5, 5, Stretchy }, // UP DOWN BLACK ARROW
+    Entry { 0x2B0E, Infix, 5, 5, Stretchy }, // RIGHTWARDS ARROW WITH TIP DOWNWARDS
+    Entry { 0x2B0F, Infix, 5, 5, Stretchy }, // RIGHTWARDS ARROW WITH TIP UPWARDS
+    Entry { 0x2B10, Infix, 5, 5, Stretchy }, // DOWNWARDS ARROW WITH TIP LEFTWARDS
+    Entry { 0x2B11, Infix, 5, 5, Stretchy }, // DOWNWARDS ARROW WITH TIP RIGHTWARDS
+    Entry { 0x2B30, Infix, 5, 5, Stretchy }, // LEFT ARROW WITH SMALL CIRCLE
+    Entry { 0x2B31, Infix, 5, 5, Stretchy }, // THREE LEFTWARDS ARROWS
+    Entry { 0x2B32, Infix, 5, 5, Stretchy }, // LEFT ARROW WITH CIRCLED PLUS
+    Entry { 0x2B33, Infix, 5, 5, Stretchy }, // LONG LEFTWARDS SQUIGGLE ARROW
+    Entry { 0x2B34, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED ARROW WITH VERTICAL STROKE
+    Entry { 0x2B35, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED ARROW WITH DOUBLE VERTICAL STROKE
+    Entry { 0x2B36, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED ARROW FROM BAR
+    Entry { 0x2B37, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED TRIPLE DASH ARROW
+    Entry { 0x2B38, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW WITH DOTTED STEM
+    Entry { 0x2B39, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW WITH TAIL WITH VERTICAL STROKE
+    Entry { 0x2B3A, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW WITH TAIL WITH DOUBLE VERTICAL STROKE
+    Entry { 0x2B3B, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED ARROW WITH TAIL
+    Entry { 0x2B3C, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED ARROW WITH TAIL WITH VERTICAL STROKE
+    Entry { 0x2B3D, Infix, 5, 5, Stretchy }, // LEFTWARDS TWO-HEADED ARROW WITH TAIL WITH DOUBLE VERTICAL STROKE
+    Entry { 0x2B3E, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW THROUGH X
+    Entry { 0x2B40, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW WITH PLUS BELOW
+    Entry { 0x2B41, Infix, 5, 5, Stretchy }, // RIGHTWARDS ARROW THROUGH GREATER-THAN
+    Entry { 0x2B42, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW THROUGH GREATER-THAN
+    Entry { 0x2B43, Infix, 5, 5, Stretchy }, // RIGHTWARDS ARROW THROUGH SUPERSET
+    Entry { 0x2B44, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW THROUGH SUPERSET
     Entry { 0x2B45, Infix, 5, 5, Stretchy }, // LEFTWARDS QUADRUPLE ARROW
     Entry { 0x2B46, Infix, 5, 5, Stretchy }, // RIGHTWARDS QUADRUPLE ARROW
+    Entry { 0x2B47, Infix, 5, 5, Stretchy }, // REVERSE TILDE OPERATOR ABOVE RIGHTWARDS ARROW
+    Entry { 0x2B48, Infix, 5, 5, Stretchy }, // RIGHTWARDS ARROW ABOVE REVERSE ALMOST EQUAL TO
+    Entry { 0x2B49, Infix, 5, 5, Stretchy }, // TILDE OPERATOR ABOVE LEFTWARDS ARROW
+    Entry { 0x2B4A, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW ABOVE ALMOST EQUAL TO
+    Entry { 0x2B4B, Infix, 5, 5, Stretchy }, // LEFTWARDS ARROW ABOVE REVERSE TILDE OPERATOR
+    Entry { 0x2B4C, Infix, 5, 5, Stretchy }, // RIGHTWARDS ARROW ABOVE REVERSE TILDE OPERATOR
+    Entry { 0x2B60, Infix, 5, 5, Stretchy }, // LEFTWARDS TRIANGLE-HEADED ARROW
+    Entry { 0x2B61, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW
+    Entry { 0x2B62, Infix, 5, 5, Stretchy }, // RIGHTWARDS TRIANGLE-HEADED ARROW
+    Entry { 0x2B63, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW
+    Entry { 0x2B64, Infix, 5, 5, Stretchy }, // LEFT RIGHT TRIANGLE-HEADED ARROW
+    Entry { 0x2B65, Infix, 5, 5, Stretchy }, // UP DOWN TRIANGLE-HEADED ARROW
+    Entry { 0x2B6A, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW FROM BAR
+    Entry { 0x2B6B, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW FROM BAR
+    Entry { 0x2B6C, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW TO BAR
+    Entry { 0x2B6D, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW TO BAR
+    Entry { 0x2B70, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH DOUBLE HORIZONTAL STROKE
+    Entry { 0x2B71, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH DOUBLE HORIZONTAL STROKE
+    Entry { 0x2B72, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH DOUBLE HORIZONTAL STROKE
+    Entry { 0x2B73, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW TO BAR
+    Entry { 0x2B7A, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH HEAVY SHAFT
+    Entry { 0x2B7B, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH HEAVY SHAFT
+    Entry { 0x2B7C, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH DOUBLE HORIZONTAL STROKE
+    Entry { 0x2B7D, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH DOUBLE HORIZONTAL STROKE
+    Entry { 0x2B80, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH NARROW SHAFT
+    Entry { 0x2B81, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH NARROW SHAFT
+    Entry { 0x2B82, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LARGE TIP
+    Entry { 0x2B83, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LARGE TIP
+    Entry { 0x2B84, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH MEDIUM SHAFT
+    Entry { 0x2B85, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH MEDIUM SHAFT
+    Entry { 0x2B86, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH VERY HEAVY SHAFT
+    Entry { 0x2B87, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH VERY HEAVY SHAFT
+    Entry { 0x2B95, Infix, 5, 5, Stretchy }, // RIGHTWARDS BLACK ARROW
+    Entry { 0x2BA0, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BA1, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BA2, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BA3, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BA4, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BA5, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BA6, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BA7, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BA8, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BA9, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BAA, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BAB, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BAC, Infix, 5, 5, Stretchy }, // UPWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BAD, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BAE, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP LEFTWARDS
+    Entry { 0x2BAF, Infix, 5, 5, Stretchy }, // DOWNWARDS TRIANGLE-HEADED ARROW WITH LONG TIP RIGHTWARDS
+    Entry { 0x2BB8, Infix, 5, 5, Stretchy }, // UPWARDS WHITE ARROW FROM BAR WITH HORIZONTAL BAR
     Entry { 0x1EEF0, Prefix, 0, 0, Stretchy }, // ARABIC MATHEMATICAL OPERATOR MEEM WITH HAH WITH TATWEEL
-    Entry { 0x1EEF1, Prefix, 0, 0, Stretchy } // ARABIC MATHEMATICAL OPERATOR HAH WITH DAL
+    Entry { 0x1EEF0, Postfix, 0, 0, Stretchy }, // ARABIC MATHEMATICAL OPERATOR MEEM WITH HAH WITH TATWEEL
+    Entry { 0x1EEF1, Prefix, 0, 0, Stretchy }, // ARABIC MATHEMATICAL OPERATOR HAH WITH DAL
+    Entry { 0x1EEF1, Postfix, 0, 0, Stretchy } // ARABIC MATHEMATICAL OPERATOR HAH WITH DAL
 };
 
 // A list of operators that stretch in the horizontal direction. This has been generated from Mozilla's MathML operator dictionary.
 static inline char32_t NODELETE ExtractKeyHorizontal(const char32_t* entry) { return *entry; }
-static constexpr auto horizontalOperators = std::to_array<char32_t>({
+static constexpr auto horizontalOperators = WTF::toArray<char32_t>({
     0x003D, 0x005E, 0x005F, 0x007E, 0x00AF, 0x02C6, 0x02C7, 0x02C9, 0x02CD, 0x02DC, 0x02F7, 0x0302, 0x0332, 0x203E, 0x20D0, 0x20D1, 0x20D6, 0x20D7, 0x20E1, 0x2190, 0x2192, 0x2194, 0x2198, 0x2199, 0x219C, 0x219D, 0x219E, 0x21A0, 0x21A2, 0x21A3, 0x21A4, 0x21A6, 0x21A9, 0x21AA, 0x21AB, 0x21AC, 0x21AD, 0x21B4, 0x21B9, 0x21BC, 0x21BD, 0x21C0, 0x21C1, 0x21C4, 0x21C6, 0x21C7, 0x21C9, 0x21CB, 0x21CC, 0x21D0, 0x21D2, 0x21D4, 0x21DA, 0x21DB, 0x21DC, 0x21DD, 0x21E0, 0x21E2, 0x21E4, 0x21E5, 0x21E6, 0x21E8, 0x21F0, 0x21F6, 0x21FD, 0x21FE, 0x21FF, 0x23B4, 0x23B5, 0x23DC, 0x23DD, 0x23DE, 0x23DF, 0x23E0, 0x23E1, 0x2500, 0x27F5, 0x27F6, 0x27F7, 0x27F8, 0x27F9, 0x27FA, 0x27FB, 0x27FC, 0x27FD, 0x27FE, 0x27FF, 0x290C, 0x290D, 0x290E, 0x290F, 0x2910, 0x294E, 0x2950, 0x2952, 0x2953, 0x2956, 0x2957, 0x295A, 0x295B, 0x295E, 0x295F, 0x2B45, 0x2B46, 0xFE35, 0xFE36, 0xFE37, 0xFE38, 0x1EEF0, 0x1EEF1
 });
 
@@ -1163,6 +1257,84 @@ std::optional<Property> MathMLOperatorDictionary::search(char32_t character, For
 bool MathMLOperatorDictionary::isVertical(char32_t textContent)
 {
     return !tryBinarySearch<const char32_t, char32_t>(horizontalOperators, std::size(horizontalOperators), textContent, ExtractKeyHorizontal);
+}
+
+// Multi-character operator dictionary entries from MathML Core. These are all
+// UTF-16 length 2 and ASCII-only, requiring a separate lookup since the main
+// dictionary is keyed by a single char32_t. The table is sorted by
+// (firstCharacter, secondCharacter, form) to allow binary search.
+struct MultiCharEntry {
+    char16_t firstCharacter;
+    char16_t secondCharacter;
+    unsigned form : 2;
+    unsigned lspace : 3;
+    unsigned rspace : 3;
+    unsigned flags : 8;
+};
+
+typedef std::tuple<char16_t, char16_t, uint8_t> MultiCharKey;
+static inline MultiCharKey ExtractMultiCharKey(const MultiCharEntry* entry)
+{
+    return MultiCharKey(entry->firstCharacter, entry->secondCharacter, entry->form);
+}
+
+static constexpr unsigned multiCharDictionarySize = 20;
+static constexpr std::array<MultiCharEntry, multiCharDictionarySize> multiCharDictionary { {
+    { '!', '!', Postfix, 0, 0, 0 }, // DOUBLE EXCLAMATION
+    { '!', '=', Infix,   5, 5, 0 }, // NOT EQUAL TO
+    { '&', '&', Infix,   4, 4, 0 }, // LOGICAL AND
+    { '*', '*', Infix,   3, 3, 0 }, // POWER
+    { '*', '=', Infix,   5, 5, 0 }, // TIMES EQUALS
+    { '+', '+', Postfix, 0, 0, 0 }, // INCREMENT
+    { '+', '=', Infix,   5, 5, 0 }, // PLUS EQUALS
+    { '-', '-', Postfix, 0, 0, 0 }, // DECREMENT
+    { '-', '=', Infix,   5, 5, 0 }, // MINUS EQUALS
+    { '-', '>', Infix,   5, 5, 0 }, // MAPS TO
+    { '/', '/', Infix,   5, 5, 0 }, // DOUBLE SOLIDUS
+    { '/', '=', Infix,   5, 5, 0 }, // DIVIDE EQUALS
+    { ':', '=', Infix,   5, 5, 0 }, // COLON EQUALS
+    { '<', '=', Infix,   5, 5, 0 }, // LESS-THAN OR EQUAL
+    { '<', '>', Infix,   3, 3, 0 }, // NOT EQUAL TO (alt)
+    { '=', '=', Infix,   5, 5, 0 }, // DOUBLE EQUALS
+    { '>', '=', Infix,   5, 5, 0 }, // GREATER-THAN OR EQUAL
+    { '|', '|', Infix,   5, 5, 0 }, // LOGICAL OR
+    { '|', '|', Prefix,  0, 0, 0 }, // LOGICAL OR (prefix)
+    { '|', '|', Postfix, 0, 0, 0 }, // LOGICAL OR (postfix)
+} };
+
+static inline Property NODELETE ExtractMultiCharProperty(const MultiCharEntry& entry)
+{
+    Property property;
+    property.form = static_cast<Form>(entry.form);
+    property.leadingSpaceInMathUnit = entry.lspace;
+    property.trailingSpaceInMathUnit = entry.rspace;
+    property.flags = entry.flags;
+    return property;
+}
+
+std::optional<Property> MathMLOperatorDictionary::search(std::array<char16_t, 2> characters, Form form, bool explicitForm)
+{
+    char16_t firstCharacter = characters[0];
+    char16_t secondCharacter = characters[1];
+
+    MultiCharKey key(firstCharacter, secondCharacter, std::to_underlying(form));
+    if (auto* entry = tryBinarySearch<const MultiCharEntry, MultiCharKey>(multiCharDictionary, multiCharDictionarySize, key, ExtractMultiCharKey))
+        return ExtractMultiCharProperty(*entry);
+
+    if (explicitForm)
+        return std::nullopt;
+
+    // If we did not find the desired operator form and it was not set explicitly,
+    // return the lowest-enum form entry for the same string (Infix < Prefix < Postfix).
+    for (auto fallbackForm : { Form::Infix, Form::Prefix, Form::Postfix }) {
+        if (fallbackForm == form)
+            continue;
+        MultiCharKey fallbackKey(firstCharacter, secondCharacter, std::to_underlying(fallbackForm));
+        if (auto* entry = tryBinarySearch<const MultiCharEntry, MultiCharKey>(multiCharDictionary, multiCharDictionarySize, fallbackKey, ExtractMultiCharKey))
+            return ExtractMultiCharProperty(*entry);
+    }
+
+    return std::nullopt;
 }
 
 }

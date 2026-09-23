@@ -27,11 +27,11 @@
 #include "StyleTextDecorationLine.h"
 
 #include "AnimationUtilities.h"
-#include "CSSPrimitiveValue.h"
-#include "CSSPrimitiveValueMappings.h"
+#include "CSSKeywordValue.h"
 #include "CSSValueList.h"
 #include "CSSValuePool.h"
 #include "StyleBuilderChecking.h"
+#include "StyleKeyword+CSSValueConversion.h"
 #include "StyleValueTypes.h"
 #include <wtf/Assertions.h>
 
@@ -70,81 +70,73 @@ void TextDecorationLine::addOrReplaceIfNotNone(TextDecorationLine value)
 
 auto CSSValueConversion<TextDecorationLine>::operator()(BuilderState& state, const CSSValue& value) -> TextDecorationLine
 {
-    auto invalidValue = [&state]() -> TextDecorationLine {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        case CSSValueSpellingError:
+            return CSS::Keyword::SpellingError { };
+        case CSSValueGrammarError:
+            return CSS::Keyword::GrammarError { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
+
+    auto valueList = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
+    if (!valueList)
+        return CSS::Keyword::None { };
+
+    OptionSet<TextDecorationLine::Flag> flags;
+
+    for (Ref item : *valueList) {
+        switch (item->valueID()) {
+        case CSSValueUnderline:
+            flags.add(TextDecorationLine::Flag::Underline);
+            break;
+        case CSSValueOverline:
+            flags.add(TextDecorationLine::Flag::Overline);
+            break;
+        case CSSValueLineThrough:
+            flags.add(TextDecorationLine::Flag::LineThrough);
+            break;
+        case CSSValueBlink:
+            flags.add(TextDecorationLine::Flag::Blink);
+            break;
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
+
+    if (flags.isEmpty()) {
         state.setCurrentPropertyInvalidAtComputedValueTime();
         return CSS::Keyword::None { };
-    };
-
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        if (primitiveValue->isValueID()) {
-            switch (primitiveValue->valueID()) {
-            case CSSValueNone:
-                return CSS::Keyword::None { };
-            case CSSValueSpellingError:
-                return CSS::Keyword::SpellingError { };
-            case CSSValueGrammarError:
-                return CSS::Keyword::GrammarError { };
-            default:
-                break;
-            }
-        }
-        return invalidValue();
     }
 
-    if (auto* valueList = dynamicDowncast<CSSValueList>(value)) {
-        OptionSet<TextDecorationLine::Flag> flags;
-
-        for (auto& item : *valueList) {
-            auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, item);
-            if (!primitiveValue)
-                return invalidValue();
-
-            switch (primitiveValue->valueID()) {
-            case CSSValueUnderline:
-                flags.add(TextDecorationLine::Flag::Underline);
-                break;
-            case CSSValueOverline:
-                flags.add(TextDecorationLine::Flag::Overline);
-                break;
-            case CSSValueLineThrough:
-                flags.add(TextDecorationLine::Flag::LineThrough);
-                break;
-            case CSSValueBlink:
-                flags.add(TextDecorationLine::Flag::Blink);
-                break;
-            default:
-                return invalidValue();
-            }
-        }
-
-        if (flags.isEmpty())
-            return invalidValue();
-
-        return flags;
-    }
-
-    return invalidValue();
+    return flags;
 }
 
-Ref<CSSValue> CSSValueCreation<OptionSet<TextDecorationLine::Flag>>::operator()(CSSValuePool&, const RenderStyle&, const OptionSet<TextDecorationLine::Flag>& value)
+Ref<CSSValue> CSSValueCreation<OptionSet<TextDecorationLine::Flag>>::operator()(CSSValuePool&, const Style::ComputedStyle&, const OptionSet<TextDecorationLine::Flag>& value)
 {
     ASSERT(!value.isEmpty());
 
     CSSValueListBuilder list;
     if (value.contains(TextDecorationLine::Flag::Underline))
-        list.append(CSSPrimitiveValue::create(CSSValueUnderline));
+        list.append(CSSKeywordValue::create(CSSValueUnderline));
     if (value.contains(TextDecorationLine::Flag::Overline))
-        list.append(CSSPrimitiveValue::create(CSSValueOverline));
+        list.append(CSSKeywordValue::create(CSSValueOverline));
     if (value.contains(TextDecorationLine::Flag::LineThrough))
-        list.append(CSSPrimitiveValue::create(CSSValueLineThrough));
+        list.append(CSSKeywordValue::create(CSSValueLineThrough));
     if (value.contains(TextDecorationLine::Flag::Blink))
-        list.append(CSSPrimitiveValue::create(CSSValueBlink));
+        list.append(CSSKeywordValue::create(CSSValueBlink));
     return CSSValueList::createSpaceSeparated(WTF::move(list));
 }
 
 // MARK: - Serialization
 
-void Serialize<OptionSet<TextDecorationLine::Flag>>::operator()(StringBuilder& builder, const CSS::SerializationContext&, const RenderStyle&, const OptionSet<TextDecorationLine::Flag>& value)
+void Serialize<OptionSet<TextDecorationLine::Flag>>::operator()(StringBuilder& builder, const CSS::SerializationContext&, const Style::ComputedStyle&, const OptionSet<TextDecorationLine::Flag>& value)
 {
     ASSERT(!value.isEmpty());
 

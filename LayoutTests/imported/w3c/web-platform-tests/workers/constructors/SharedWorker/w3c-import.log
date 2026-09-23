@@ -24,6 +24,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/NaN.headers
 /LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/SharedWorker-constructor.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/URLMismatchError.htm
+/LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/connect-event.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/connect-event.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/constructors/SharedWorker/dummy-name.html

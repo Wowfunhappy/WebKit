@@ -34,6 +34,7 @@
 #include "CSSValuePool.h"
 #include "CachedImage.h"
 #include "CachedResourceLoader.h"
+#include "DeprecatedCSSOMValue.h"
 #include "HostWindow.h"
 #include "ImageBuffer.h"
 #include "NullGraphicsContext.h"
@@ -76,13 +77,18 @@ bool FilterImage::equalInputImages(const FilterImage& other) const
     return arePointingToEqualData(m_image, other.m_image);
 }
 
-Ref<CSSValue> FilterImage::computedStyleValue(const RenderStyle& style) const
+Ref<CSSValue> FilterImage::computedStyleValue(const Style::ComputedStyle& style) const
 {
     RefPtr image = m_image;
     return CSSFilterImageValue::create(
-        image ? image->computedStyleValue(style) : upcast<CSSValue>(CSSPrimitiveValue::create(CSSValueNone)),
+        image ? image->computedStyleValue(style) : upcast<CSSValue>(CSSKeywordValue::create(CSSValueNone)),
         toCSS(m_filter, style)
     );
+}
+
+Ref<DeprecatedCSSOMValue> FilterImage::computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle& style, CSSStyleDeclaration& owner) const
+{
+    return computedStyleValue(style)->createDeprecatedCSSOMWrapper(owner);
 }
 
 bool FilterImage::isPending() const
@@ -133,18 +139,19 @@ RefPtr<WebCore::Image> FilterImage::image(const RenderElement* renderElement, co
     if (!styleImage)
         return &WebCore::Image::nullImage();
 
-    auto image = styleImage->image(renderer.get(), size, destinationContext, isForFirstLine);
+    auto image = styleImage->image(renderer, size, destinationContext, isForFirstLine);
     if (!image || image->isNull())
         return &WebCore::Image::nullImage();
 
     auto preferredFilterRenderingModes = protect(renderer->page())->preferredFilterRenderingModes(destinationContext);
     auto sourceImageRect = FloatRect { { }, size };
 
+    auto renderingOptions(protect(renderer->settings())->showDebugBorders() ? std::make_optional(FilterRenderingOption::ShowDebugOverlay) : std::nullopt);
     auto cssFilter = CSSFilterRenderer::create(const_cast<RenderElement&>(*renderer), m_filter, {
             .referenceBox = sourceImageRect,
             .filterRegion = sourceImageRect,
             .scale = { 1, 1 },
-        }, preferredFilterRenderingModes, Ref { renderer->settings() }->showDebugBorders(), NullGraphicsContext());
+        }, preferredFilterRenderingModes, renderingOptions, NullGraphicsContext());
     if (!cssFilter)
         return &WebCore::Image::nullImage();
 

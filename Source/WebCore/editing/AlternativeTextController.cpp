@@ -40,9 +40,10 @@
 #include "EditorClient.h"
 #include "Element.h"
 #include "EventLoop.h"
-#include "EventTargetInlines.h"
 #include "FloatQuad.h"
 #include "FrameDestructionObserverInlines.h"
+#include "HTMLElement.h"
+#include "HTMLTextFormControlElement.h"
 #include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "Page.h"
@@ -393,6 +394,11 @@ bool AlternativeTextController::canEnableAutomaticSpellingCorrection() const
     return true;
 }
 
+bool AlternativeTextController::isAlternativeTextUIActive() const
+{
+    return m_isActive;
+}
+
 bool AlternativeTextController::isAutomaticSpellingCorrectionEnabled()
 {
     CheckedPtr editorClient = this->editorClient();
@@ -421,30 +427,72 @@ void AlternativeTextController::respondToChangedSelection(const VisibleSelection
         return;
 
     VisiblePosition selectionPosition = currentSelection.start();
+    VisiblePosition oldSelectionPosition = oldSelection.start();
     
     // Creating a Visible position triggers a layout and there is no
     // guarantee that the selection is still valid.
     if (selectionPosition.isNull())
         return;
     
+    VisiblePosition startPositionOfWord = startOfWord(selectionPosition, WordSide::RightWordIfOnBoundary);
     VisiblePosition endPositionOfWord = endOfWord(selectionPosition, WordSide::LeftWordIfOnBoundary);
-    if (selectionPosition != endPositionOfWord)
+    if (endPositionOfWord.isNull())
         return;
+
+    if (!oldSelectionPosition.isNull()) {
+        VisiblePosition oldStartPositionOfWord = startOfWord(oldSelectionPosition, WordSide::RightWordIfOnBoundary);
+        VisiblePosition oldEndPositionOfWord = endOfWord(oldSelectionPosition, WordSide::LeftWordIfOnBoundary);
+        if (startPositionOfWord == oldStartPositionOfWord || endPositionOfWord == oldEndPositionOfWord)
+            return;
+    }
 
     Position position = endPositionOfWord.deepEquivalent();
     if (position.anchorType() != Position::PositionIsOffsetInAnchor)
         return;
 
     RefPtr node = position.containerNode();
+    ASSERT(node);
     CheckedPtr markers = node->document().markersIfExists();
     if (!markers)
         return;
 
-    ASSERT(node);
-    for (auto& marker : markers->markersFor(*node)) {
+    bool handled = false;
+    for (auto& marker : markers->markersFor(*node, DocumentMarkerType::Grammar)) {
+        // Grammar markers take precedence.
         ASSERT(marker);
-        if (respondToMarkerAtEndOfWord(*marker, position))
+        if (respondToMarkerAtEndOfWord(*marker, position)) {
+            handled = true;
             break;
+        }
+    }
+
+    // For multi-word grammar markers, the endOfWord position only matches the
+    // last word of the phrase. If the selection is within a grammar marker that
+    // wasn't matched above, use the marker's end position so the UI can trigger
+    // from any word in the phrase.
+    if (!handled) {
+        Position selectionDeepPosition = selectionPosition.deepEquivalent();
+        if (selectionDeepPosition.anchorType() == Position::PositionIsOffsetInAnchor && selectionDeepPosition.containerNode() == node.get()) {
+            for (auto& marker : markers->markersFor(*node, DocumentMarkerType::Grammar)) {
+                if (static_cast<int>(marker->startOffset()) < selectionDeepPosition.offsetInContainerNode()
+                    && selectionDeepPosition.offsetInContainerNode() < static_cast<int>(marker->endOffset())) {
+                    if (respondToMarkerAtEndOfWord(*marker, makeContainerOffsetPosition(node.copyRef(), marker->endOffset())))
+                        handled = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!handled) {
+        for (auto& marker : markers->markersFor(*node, DocumentMarker::allMarkers() - DocumentMarkerType::Grammar)) {
+            // Now handle all other markers.
+            ASSERT(marker);
+            if (respondToMarkerAtEndOfWord(*marker, position)) {
+                handled = true;
+                break;
+            }
+        }
     }
 }
 

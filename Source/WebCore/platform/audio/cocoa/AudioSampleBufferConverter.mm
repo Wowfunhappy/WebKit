@@ -51,16 +51,17 @@ constexpr uint32_t kNoMoreDataErr = 'MOAR';
 
 namespace WebCore {
 
-RefPtr<AudioSampleBufferConverter> AudioSampleBufferConverter::create(CMBufferQueueTriggerCallback callback, void* callbackObject, const Options& options)
+RefPtr<AudioSampleBufferConverter> AudioSampleBufferConverter::create(Function<void()>&& outputCallback, const Options& options)
 {
-    Ref converter = adoptRef(*new AudioSampleBufferConverter(options));
-    if (!converter->initialize(callback, callbackObject))
+    Ref converter = adoptRef(*new AudioSampleBufferConverter(WTF::move(outputCallback), options));
+    if (!converter->initialize())
         return nullptr;
     return converter;
 }
 
-AudioSampleBufferConverter::AudioSampleBufferConverter(const Options& options)
+AudioSampleBufferConverter::AudioSampleBufferConverter(Function<void()>&& outputCallback, const Options& options)
     : m_serialDispatchQueue(WorkQueue::create("com.apple.AudioSampleBufferConverter"_s))
+    , m_outputCallback(WTF::move(outputCallback))
     , m_destinationFormat(options.description ? *options.description : AudioStreamBasicDescription { })
     , m_currentNativePresentationTimeStamp(PAL::kCMTimeInvalid)
     , m_currentOutputPresentationTimeStamp(PAL::kCMTimeInvalid)
@@ -81,7 +82,14 @@ AudioSampleBufferConverter::~AudioSampleBufferConverter()
     }
 }
 
-bool AudioSampleBufferConverter::initialize(CMBufferQueueTriggerCallback callback, void* callbackObject)
+void AudioSampleBufferConverter::converterOutputBufferCallback(void* object, CMBufferQueueTriggerToken)
+{
+    // CMBufferQueueRemoveTrigger is called in the destructor, so `object` is guaranteed to be alive here.
+    // We do not ref `object` since we might be in destructor.
+    SUPPRESS_UNCOUNTED_ARG static_cast<class AudioSampleBufferConverter*>(object)->m_outputCallback();
+}
+
+bool AudioSampleBufferConverter::initialize()
 {
     CMBufferQueueRef inputBufferQueue;
     if (auto error = PAL::CMBufferQueueCreate(kCFAllocatorDefault, 0, PAL::CMBufferQueueGetCallbacksForUnsortedSampleBuffers(), &inputBufferQueue)) {
@@ -96,7 +104,7 @@ bool AudioSampleBufferConverter::initialize(CMBufferQueueTriggerCallback callbac
         return false;
     }
     lazyInitialize(m_outputBufferQueue, adoptCF(outputBufferQueue));
-    PAL::CMBufferQueueInstallTrigger(m_outputBufferQueue.get(), callback, callbackObject, kCMBufferQueueTrigger_WhenDataBecomesReady, PAL::kCMTimeZero, &m_triggerToken);
+    PAL::CMBufferQueueInstallTrigger(m_outputBufferQueue.get(), converterOutputBufferCallback, this, kCMBufferQueueTrigger_WhenDataBecomesReady, PAL::kCMTimeZero, &m_triggerToken);
 
     return true;
 }
@@ -184,6 +192,25 @@ OSStatus AudioSampleBufferConverter::initAudioConverterForSourceFormatDescriptio
     if (!audioFormatListItem)
         return kCMSampleBufferError_InvalidMediaFormat;
     m_sourceFormat = audioFormatListItem->mASBD;
+    m_skipEmptyBlock = [](AudioFormatID format) {
+        switch (format) {
+        case kAudioFormatLinearPCM:
+        case kAudioFormatMPEG4AAC:
+        case kAudioFormatMPEG4AAC_LD:
+        case kAudioFormatMPEG4AAC_HE:
+        case kAudioFormatMPEG4AAC_HE_V2:
+        case kAudioFormatMPEG4AAC_ELD:
+        case kAudioFormatMPEGLayer3:
+        case kAudioFormatOpus:
+        case kAudioFormatALaw:
+        case kAudioFormatULaw:
+        case kAudioFormatFLAC:
+        case 'vorb':
+            return true;
+        default:
+            return false;
+        }
+    }(m_sourceFormat.mFormatID);
 
     if (!m_destinationFormat.mFormatID || !m_destinationFormat.mSampleRate) {
         m_destinationFormat.mFormatID = outputFormatID;
@@ -414,43 +441,55 @@ OSStatus AudioSampleBufferConverter::provideSourceDataNumOutputPackets(UInt32* n
     if (packetDescriptionOut)
         *packetDescriptionOut = NULL;
 
-    if (PAL::CMBufferQueueIsEmpty(m_inputBufferQueue.get())) {
-        *numOutputPacketsPtr = 0;
-        return m_isDraining ? noErr : kNoMoreDataErr;
+    *numOutputPacketsPtr = 0;
+
+    while (!PAL::CMBufferQueueIsEmpty(m_inputBufferQueue.get())) {
+        RetainPtr sampleBuffer = adoptCF((CMSampleBufferRef)(const_cast<void*>(PAL::CMBufferQueueDequeueAndRetain(m_inputBufferQueue.get()))));
+        size_t listSize = 0;
+        if (auto result = PAL::CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer.get(), &listSize, nullptr, 0, kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, nullptr))
+            return result;
+
+        std::unique_ptr<AudioBufferList> list { static_cast<AudioBufferList*>(::operator new (listSize)) };
+        CMBlockBufferRef buffer = nullptr;
+        if (auto result = PAL::CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer.get(), nullptr, list.get(), listSize, kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
+            return result;
+        m_blockBuffer = adoptCF(buffer);
+
+        if (audioBufferList->mNumberBuffers != list->mNumberBuffers)
+            return kAudioConverterErr_BadPropertySizeError;
+
+        if (!m_options.generateTimestamp)
+            setTimeFromSample(sampleBuffer.get());
+
+        auto audioBufferListSpan = span(*audioBufferList);
+        bool skipBlock = false;
+        for (auto [destination, source] : zippedRange(audioBufferListSpan, span(*list))) {
+            if (source.mDataByteSize && !source.mData) {
+                RELEASE_LOG_ERROR(MediaStream, "AudioSampleBufferConverter AudioSampleBufferConverter::provideSourceDataNumOutputPackets invalid content");
+                return kAudioConverterErr_InvalidInputSize;
+            }
+            if (!source.mDataByteSize && m_skipEmptyBlock) {
+                skipBlock = true;
+                break;
+            }
+            destination = source;
+        }
+        if (skipBlock)
+            continue;
+
+        m_packetDescriptions = getPacketDescriptions(sampleBuffer.get());
+        if (packetDescriptionOut) {
+            *numOutputPacketsPtr = m_packetDescriptions.size();
+            *packetDescriptionOut = m_packetDescriptions.mutableSpan().data();
+        } else if (m_sourceFormat.mFormatID == kAudioFormatLinearPCM) {
+            ASSERT(audioBufferList->mNumberBuffers && m_sourceFormat.mBytesPerPacket);
+            *numOutputPacketsPtr = (audioBufferListSpan[0].mDataByteSize / m_sourceFormat.mBytesPerPacket);
+        } else
+            *numOutputPacketsPtr = 1;
+
+        return noErr;
     }
-
-    auto sampleBuffer = adoptCF((CMSampleBufferRef)(const_cast<void*>(PAL::CMBufferQueueDequeueAndRetain(m_inputBufferQueue.get()))));
-    size_t listSize = 0;
-    if (auto result = PAL::CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer.get(), &listSize, nullptr, 0, kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, nullptr))
-        return result;
-
-    std::unique_ptr<AudioBufferList> list { static_cast<AudioBufferList*>(::operator new (listSize)) };
-    CMBlockBufferRef buffer = nullptr;
-    if (auto result = PAL::CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer.get(), nullptr, list.get(), listSize, kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
-        return result;
-    m_blockBuffer = adoptCF(buffer);
-
-    if (audioBufferList->mNumberBuffers != list->mNumberBuffers)
-        return kAudioConverterErr_BadPropertySizeError;
-
-    if (!m_options.generateTimestamp)
-        setTimeFromSample(sampleBuffer.get());
-
-    auto audioBufferListSpan = span(*audioBufferList);
-    for (auto [destination, source] : zippedRange(audioBufferListSpan, span(*list)))
-        destination = source;
-
-    m_packetDescriptions = getPacketDescriptions(sampleBuffer.get());
-    if (packetDescriptionOut) {
-        *numOutputPacketsPtr = m_packetDescriptions.size();
-        *packetDescriptionOut = m_packetDescriptions.mutableSpan().data();
-    } else if (m_sourceFormat.mFormatID == kAudioFormatLinearPCM) {
-        ASSERT(audioBufferList->mNumberBuffers && m_sourceFormat.mBytesPerPacket);
-        *numOutputPacketsPtr = (audioBufferListSpan[0].mDataByteSize / m_sourceFormat.mBytesPerPacket);
-    } else
-        *numOutputPacketsPtr = 1;
-
-    return noErr;
+    return m_isDraining ? noErr : kNoMoreDataErr;
 }
 
 bool AudioSampleBufferConverter::isPCM() const

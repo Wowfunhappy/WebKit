@@ -31,9 +31,10 @@
 #import <wtf/FastMalloc.h>
 #import <wtf/HashMap.h>
 #import <wtf/Ref.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/ThreadSafeRefCounted.h>
+#import <wtf/ThreadSafeWeakPtr.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakPtr.h>
 
@@ -147,12 +148,12 @@ private:
 
 inline void refQueue(WebGPU::Queue* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefQueue(WebGPU::Queue* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 IGNORE_CLANG_WARNINGS_END

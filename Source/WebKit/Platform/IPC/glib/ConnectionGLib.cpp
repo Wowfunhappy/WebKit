@@ -34,6 +34,8 @@
 #include <gio/gunixconnection.h>
 #include <gio/gunixfdmessage.h>
 #include <sys/socket.h>
+#include <wtf/Borrow.h>
+#include <wtf/CheckedArithmetic.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/UniStdExtras.h>
 #include <wtf/glib/GRefPtr.h>
@@ -133,7 +135,8 @@ std::unique_ptr<Decoder> Connection::createMessageDecoder()
         return nullptr;
     }
 
-    auto messageData = m_readBuffer.mutableSpan();
+    Borrow readBuffer = m_readBuffer;
+    auto messageData = readBuffer->mutableSpan();
     auto& messageInfo = consumeAndReinterpretCastTo<MessageInfo>(messageData);
     if (messageInfo.attachmentCount() > s_attachmentMaxAmount || (!messageInfo.isBodyOutOfLine() && messageInfo.bodySize() > s_messageMaxSize)) {
         ASSERT_NOT_REACHED();
@@ -141,6 +144,28 @@ std::unique_ptr<Decoder> Connection::createMessageDecoder()
     }
 
     auto attachmentCount = messageInfo.attachmentCount();
+    if (messageInfo.isBodyOutOfLine() && !attachmentCount) {
+        RELEASE_LOG_FAULT(IPC, "createMessageDecoder: out-of-line message body is missing its attachment");
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    auto attachmentInfoBytes = checkedProduct<size_t>(attachmentCount, sizeof(AttachmentInfo));
+    if (attachmentInfoBytes.hasOverflowed() || attachmentInfoBytes.value() > messageData.size()) {
+        RELEASE_LOG_FAULT(IPC, "createMessageDecoder: attachment metadata exceeds read buffer (attachments: %zu, buffer size: %zu)", attachmentCount, messageData.size());
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    if (!messageInfo.isBodyOutOfLine()) {
+        auto inlineBodySize = checkedSum<size_t>(attachmentInfoBytes.value(), messageInfo.bodySize());
+        if (inlineBodySize.hasOverflowed() || inlineBodySize.value() > messageData.size()) {
+            RELEASE_LOG_FAULT(IPC, "createMessageDecoder: inline body exceeds read buffer (body size: %zu, buffer size: %zu)", messageInfo.bodySize(), messageData.size());
+            ASSERT_NOT_REACHED();
+            return nullptr;
+        }
+    }
+
     if (!attachmentCount)
         return Decoder::create(messageData.first(messageInfo.bodySize()), { });
 
@@ -157,14 +182,24 @@ std::unique_ptr<Decoder> Connection::createMessageDecoder()
         case AttachmentInfo::Type::FileDescriptor:
             if (attachmentInfo.isNull())
                 attachments[attachmentIndex] = UnixFileDescriptor();
-            else
+            else {
+                if (fdIndex >= m_fileDescriptors.size()) {
+                    RELEASE_LOG_FAULT(IPC, "createMessageDecoder: missing file descriptor for attachment %zu", i);
+                    ASSERT_NOT_REACHED();
+                    return nullptr;
+                }
                 attachments[attachmentIndex] = WTF::move(m_fileDescriptors[fdIndex++]);
+            }
             break;
         case AttachmentInfo::Type::HardwareBuffer:
             if (attachmentInfo.isNull())
                 attachments[attachmentIndex] = nullptr;
             else {
-                RELEASE_ASSERT(!m_incomingHardwareBuffers.isEmpty());
+                if (m_incomingHardwareBuffers.isEmpty()) {
+                    RELEASE_LOG_FAULT(IPC, "createMessageDecoder: missing incoming hardware buffer for attachment %zu", i);
+                    ASSERT_NOT_REACHED();
+                    return nullptr;
+                }
                 attachments[attachmentIndex] = WTF::move(m_incomingHardwareBuffers.first());
                 m_incomingHardwareBuffers.removeAt(0);
             }
@@ -173,8 +208,14 @@ std::unique_ptr<Decoder> Connection::createMessageDecoder()
             RELEASE_ASSERT_NOT_REACHED();
         }
 #else
-        if (!attachmentInfo.isNull())
+        if (!attachmentInfo.isNull()) {
+            if (fdIndex >= m_fileDescriptors.size()) {
+                RELEASE_LOG_FAULT(IPC, "createMessageDecoder: missing file descriptor for attachment %zu", i);
+                ASSERT_NOT_REACHED();
+                return nullptr;
+            }
             attachments[attachmentIndex] = WTF::move(m_fileDescriptors[fdIndex++]);
+        }
 #endif
     }
 
@@ -188,6 +229,11 @@ std::unique_ptr<Decoder> Connection::createMessageDecoder()
         return nullptr;
     }
 
+    if (fdIndex >= m_fileDescriptors.size()) {
+        RELEASE_LOG_FAULT(IPC, "createMessageDecoder: missing shared-memory file descriptor for out-of-line body");
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
     auto handle = WebCore::SharedMemory::Handle { WTF::move(m_fileDescriptors[fdIndex]), messageInfo.bodySize() };
     auto messageBody = WebCore::SharedMemory::map(WTF::move(handle), WebCore::SharedMemory::Protection::ReadOnly);
     if (!messageBody) {
@@ -246,6 +292,8 @@ void Connection::readyReadHandler()
 
         if (auto decoder = createMessageDecoder())
             processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(decoder)));
+        else
+            connectionDidClose();
     }
 #endif
 
@@ -290,6 +338,8 @@ void Connection::readyReadHandler()
 
         if (auto decoder = createMessageDecoder())
             processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(decoder)));
+        else
+            connectionDidClose();
     }
 }
 
@@ -432,11 +482,11 @@ bool Connection::sendOutputMessage(UnixMessage&& outputMessage)
 
     if (g_error_matches(error.get(), G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK)) {
         m_hasPendingOutputMessage = true;
-        m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), m_cancellable.get(), [this, protectedThis = Ref { *this }, message = WTF::move(outputMessage)] (GIOCondition condition) mutable -> gboolean {
+        m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), m_cancellable.get(), [this, protectedThis = protect(*this), message = WTF::move(outputMessage)] (GIOCondition condition) mutable -> gboolean {
             if (condition & G_IO_OUT) {
                 ASSERT(m_hasPendingOutputMessage);
                 // We can't stop the monitor from this lambda, because stop destroys the lambda.
-                m_connectionQueue->dispatch([this, protectedThis = Ref { *this }, message = WTF::move(message)]() mutable {
+                m_connectionQueue->dispatch([this, protectedThis = protect(*this), message = WTF::move(message)]() mutable {
                     m_writeSocketMonitor.stop();
                     m_hasPendingOutputMessage = false;
                     if (m_isConnected) {
@@ -512,11 +562,11 @@ bool Connection::sendOutgoingHardwareBuffers()
         }
 
         if (result == -EAGAIN || result == -EWOULDBLOCK) {
-            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), m_cancellable.get(), [this, protectedThis = Ref { *this }] (GIOCondition condition) -> gboolean {
+            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), m_cancellable.get(), [this, protectedThis = protect(*this)] (GIOCondition condition) -> gboolean {
                 if (condition & G_IO_OUT) {
                     RELEASE_ASSERT(!m_outgoingHardwareBuffers.isEmpty());
                     // We can't stop the monitor from this lambda, because stop destroys the lambda.
-                    m_connectionQueue->dispatch([this, protectedThis = Ref { *this }] {
+                    m_connectionQueue->dispatch([this, protectedThis = protect(*this)] {
                         m_writeSocketMonitor.stop();
                         if (m_isConnected) {
                             if (sendOutgoingHardwareBuffers())

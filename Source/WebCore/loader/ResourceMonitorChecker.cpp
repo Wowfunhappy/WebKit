@@ -115,7 +115,7 @@ void ResourceMonitorChecker::setContentRuleList(ContentExtensions::ContentExtens
 
 void ResourceMonitorChecker::finishPendingQueries(Function<Eligibility(const ContentExtensions::ResourceLoadInfo&)> checker)
 {
-    RESOURCEMONITOR_RELEASE_LOG("finishPendingQueries: Finish pending queries: count=%lu", m_pendingQueries.size());
+    RESOURCEMONITOR_RELEASE_LOG("finishPendingQueries: Finish pending queries: count=%zu", m_pendingQueries.size());
 
     for (auto& pair : m_pendingQueries) {
         auto& [info, completionHandler] = pair;

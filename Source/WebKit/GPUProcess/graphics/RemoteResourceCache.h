@@ -65,15 +65,15 @@ public:
     bool releaseGradient(RemoteGradientIdentifier);
     RefPtr<WebCore::Gradient> cachedGradient(RemoteGradientIdentifier) const;
 
-    void cacheFilter(Ref<WebCore::Filter>&&);
+    bool cacheFilter(Ref<WebCore::Filter>&&);
     bool releaseFilter(WebCore::RenderingResourceIdentifier);
     RefPtr<WebCore::Filter> cachedFilter(WebCore::RenderingResourceIdentifier) const;
 
-    void cacheFont(Ref<WebCore::Font>&&);
+    bool cacheFont(Ref<WebCore::Font>&&);
     bool releaseFont(WebCore::RenderingResourceIdentifier);
     RefPtr<WebCore::Font> cachedFont(WebCore::RenderingResourceIdentifier) const;
 
-    void cacheFontCustomPlatformData(Ref<WebCore::FontCustomPlatformData>&&);
+    bool cacheFontCustomPlatformData(Ref<WebCore::FontCustomPlatformData>&&);
     bool releaseFontCustomPlatformData(WebCore::RenderingResourceIdentifier);
     RefPtr<WebCore::FontCustomPlatformData> cachedFontCustomPlatformData(WebCore::RenderingResourceIdentifier) const;
 

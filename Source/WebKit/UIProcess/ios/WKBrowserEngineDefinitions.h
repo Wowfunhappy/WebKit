@@ -29,7 +29,7 @@
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
 #endif
 
-#if USE(BROWSERENGINEKIT)
+#if USE(BROWSERENGINEKIT) && (!PLATFORM(IOS_SIMULATOR) || !__has_feature(modules) || HAVE(WEBGPU_IOS_SIMULATOR_OPENGL_SUPPORT))
 // Scroll view
 #define WKBEScrollView                                          BEScrollView
 #define WKBEScrollViewDelegate                                  BEScrollViewDelegate

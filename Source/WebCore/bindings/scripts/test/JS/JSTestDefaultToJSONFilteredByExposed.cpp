@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertStrings.h"
@@ -40,7 +41,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -81,10 +81,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestDefaultToJSONFilteredByExposedPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestDefaultToJSONFilteredByExposedPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -127,28 +124,33 @@ static const std::array<HashTableValue, 5> JSTestDefaultToJSONFilteredByExposedP
 
 const ClassInfo JSTestDefaultToJSONFilteredByExposedPrototype::s_info = { "TestDefaultToJSONFilteredByExposed"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSONFilteredByExposedPrototype) };
 
+JSC::Structure* JSTestDefaultToJSONFilteredByExposedPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestDefaultToJSONFilteredByExposedPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestDefaultToJSONFilteredByExposed::info(), JSTestDefaultToJSONFilteredByExposedPrototypeTableValues, *this);
     bool hasDisabledRuntimeProperties = false;
-    if (!(globalObject())->inherits<JSDOMWindowBase>()) {
+    if (!(realm())->inherits<JSDOMWindowBase>()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "filteredByExposedWindowAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
-    if (!(globalObject())->inherits<JSWorkerGlobalScopeBase>()) {
+    if (!(realm())->inherits<JSWorkerGlobalScopeBase>()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "filteredByExposedWorkerAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (hasDisabledRuntimeProperties && structure()->isDictionary())
         flattenDictionaryObject(vm);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestDefaultToJSONFilteredByExposed::s_info = { "TestDefaultToJSONFilteredByExposed"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSONFilteredByExposed) };
@@ -159,6 +161,19 @@ JSTestDefaultToJSONFilteredByExposed::JSTestDefaultToJSONFilteredByExposed(Struc
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestDefaultToJSONFilteredByExposed>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestDefaultToJSONFilteredByExposed* JSTestDefaultToJSONFilteredByExposed::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSONFilteredByExposed>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestDefaultToJSONFilteredByExposed* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONFilteredByExposed>(vm)) JSTestDefaultToJSONFilteredByExposed(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestDefaultToJSONFilteredByExposed::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestDefaultToJSONFilteredByExposed::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -174,7 +189,7 @@ JSObject* JSTestDefaultToJSONFilteredByExposed::prototype(VM& vm, JSDOMGlobalObj
 
 JSValue JSTestDefaultToJSONFilteredByExposed::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestDefaultToJSONFilteredByExposedDOMConstructor, DOMConstructorID::TestDefaultToJSONFilteredByExposed>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestDefaultToJSONFilteredByExposedDOMConstructor, DOMConstructorID::TestDefaultToJSONFilteredByExposed>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestDefaultToJSONFilteredByExposed::destroy(JSC::JSCell* cell)
@@ -187,10 +202,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSONFilteredByExposedConstructor, (JSGlo
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestDefaultToJSONFilteredByExposedPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestDefaultToJSONFilteredByExposedPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestDefaultToJSONFilteredByExposed::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestDefaultToJSONFilteredByExposed::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestDefaultToJSONFilteredByExposed_normalAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestDefaultToJSONFilteredByExposed& thisObject)
@@ -238,16 +253,16 @@ static inline EncodedJSValue jsTestDefaultToJSONFilteredByExposedPrototypeFuncti
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    auto* result = constructEmptyObject(lexicalGlobalObject);
+    auto* result = WebCore::constructEmptyObject(lexicalGlobalObject);
     auto normalAttributeValue = toJS<IDLLong>(*lexicalGlobalObject, throwScope, impl.normalAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "normalAttribute"_s), normalAttributeValue);
-    if ((castedThis->globalObject())->inherits<JSDOMWindowBase>()) {
+    if ((castedThis->realm())->inherits<JSDOMWindowBase>()) {
         auto filteredByExposedWindowAttributeValue = toJS<IDLDouble>(*lexicalGlobalObject, throwScope, impl.filteredByExposedWindowAttribute());
         RETURN_IF_EXCEPTION(throwScope, { });
         result->putDirect(vm, Identifier::fromString(vm, "filteredByExposedWindowAttribute"_s), filteredByExposedWindowAttributeValue);
     }
-    if ((castedThis->globalObject())->inherits<JSWorkerGlobalScopeBase>()) {
+    if ((castedThis->realm())->inherits<JSWorkerGlobalScopeBase>()) {
         auto filteredByExposedWorkerAttributeValue = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, impl.filteredByExposedWorkerAttribute());
         RETURN_IF_EXCEPTION(throwScope, { });
         result->putDirect(vm, Identifier::fromString(vm, "filteredByExposedWorkerAttribute"_s), filteredByExposedWorkerAttributeValue);
@@ -272,12 +287,14 @@ JSC::GCClient::IsoSubspace* JSTestDefaultToJSONFilteredByExposed::subspaceForImp
 
 void JSTestDefaultToJSONFilteredByExposed::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestDefaultToJSONFilteredByExposed*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestDefaultToJSONFilteredByExposed>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestDefaultToJSONFilteredByExposedOwner::JSTestDefaultToJSONFilteredByExposedOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestDefaultToJSONFilteredByExposedOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -291,7 +308,7 @@ void JSTestDefaultToJSONFilteredByExposedOwner::finalize(JSC::Handle<JSC::Unknow
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestDefaultToJSONFilteredByExposed = static_cast<JSTestDefaultToJSONFilteredByExposed*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestDefaultToJSONFilteredByExposed->wrapped()).ptr(), jsTestDefaultToJSONFilteredByExposed);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestDefaultToJSONFilteredByExposed->wrapped(), jsTestDefaultToJSONFilteredByExposed);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -339,7 +356,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestDefaultToJSONFilteredByExposed* JSTestDefaultToJSONFilteredByExposed::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestDefaultToJSONFilteredByExposed*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestDefaultToJSONFilteredByExposed>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

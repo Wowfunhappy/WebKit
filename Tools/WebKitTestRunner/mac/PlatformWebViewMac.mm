@@ -36,6 +36,7 @@
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/Scope.h>
 #import <wtf/text/WTFString.h>
 
 @interface WKWebView ()
@@ -54,6 +55,37 @@ enum {
 - (void)_setWindowResolution:(CGFloat)resolution;
 // FIXME: Remove once the variant above exists on all platforms we need (cf. rdar://problem/47614795).
 - (void)_setWindowResolution:(CGFloat)resolution displayIfChanged:(BOOL)displayIfChanged;
+@end
+
+@interface WTRCursorOverlayView : NSImageView
+- (void)updateWithCursor:(NSCursor *)cursor;
+@property (nonatomic, readonly) NSPoint hotSpot;
+@property (nonatomic, weak) NSPanel *overlayPanel;
+@end
+
+@implementation WTRCursorOverlayView {
+    NSPoint _hotSpot;
+}
+
+- (NSView *)hitTest:(NSPoint)point
+{
+    return nil;
+}
+
+- (void)updateWithCursor:(NSCursor *)cursor
+{
+    self.image = [cursor image];
+    _hotSpot = [cursor hotSpot];
+    NSSize imageSize = self.image.size;
+    [self setFrameSize:imageSize];
+    [self.overlayPanel setContentSize:imageSize];
+}
+
+- (NSPoint)hotSpot
+{
+    return _hotSpot;
+}
+
 @end
 
 namespace WTR {
@@ -87,6 +119,23 @@ PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration, const Tes
     [m_window setCollectionBehavior:NSWindowCollectionBehaviorStationary];
     [[m_window contentView] addSubview:m_view];
     [m_window setReleasedWhenClosed:NO];
+
+    if (m_options.shouldShowCursor() && m_options.shouldShowWindow()) {
+        m_cursorOverlay = adoptNS([[WTRCursorOverlayView alloc] initWithFrame:NSZeroRect]);
+        [m_cursorOverlay updateWithCursor:[NSCursor arrowCursor]];
+
+        RetainPtr panel = adoptNS([[NSPanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:YES]);
+        [panel setOpaque:NO];
+        [panel setBackgroundColor:[NSColor clearColor]];
+        [panel setIgnoresMouseEvents:YES];
+        [panel setHasShadow:NO];
+        [panel setLevel:NSFloatingWindowLevel];
+        [panel setReleasedWhenClosed:NO];
+
+        [[panel contentView] addSubview:m_cursorOverlay];
+        [m_cursorOverlay setOverlayPanel:panel];
+        [m_window addChildWindow:panel ordered:NSWindowAbove];
+    }
 }
 
 void PlatformWebView::setWindowIsKey(bool isKey)
@@ -109,6 +158,11 @@ void PlatformWebView::resizeTo(unsigned width, unsigned height, WebViewSizingMod
 PlatformWebView::~PlatformWebView()
 {
     m_window.platformWebView = nullptr;
+    if (RetainPtr panel = [m_cursorOverlay overlayPanel]) {
+        [m_window removeChildWindow:panel];
+        [panel close];
+    }
+
     [m_window close];
     [m_window release];
     [m_view release];
@@ -219,14 +273,51 @@ void PlatformWebView::setEditable(bool editable)
 
 RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
 {
+    RetainPtr panel = [m_cursorOverlay overlayPanel];
+    [panel orderOut:nil];
+    auto showPanelOnExit = WTF::makeScopeExit([panel] {
+        [panel orderFront:nil];
+    });
+
     [platformView() display];
     CGWindowImageOption options = kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque;
 
-    if ([m_window backingScaleFactor] == 1)
+    CGFloat backingScaleFactor = [m_window backingScaleFactor];
+    if (backingScaleFactor == 1)
         options |= kCGWindowImageNominalResolution;
 
-    RetainPtr image = adoptNS([platformView() _windowSnapshotInRect:CGRectNull withOptions:options]);
-    return [image CGImageForProposedRect:nil context:nil hints:nil];
+    NSRect viewFrame = [platformView() frame];
+    size_t expectedWidth = viewFrame.size.width * backingScaleFactor;
+    size_t expectedHeight = viewFrame.size.height * backingScaleFactor;
+
+    // Work around <rdar://problem/17084993>: CGWindowListCreateImage() can return images with
+    // incorrect dimensions immediately after a window resolution change via _setWindowResolution:,
+    // because the window server reallocates the backing store asynchronously. There is no public
+    // synchronization API to wait for this, so validate the captured dimensions and retry if needed.
+    constexpr unsigned maxRetries = 10;
+    for (unsigned attempt = 0; ; ++attempt) {
+        RetainPtr image = adoptNS([platformView() _windowSnapshotInRect:CGRectNull withOptions:options]);
+        if (!image)
+            return nil;
+
+        auto cgImage = [image CGImageForProposedRect:nil context:nil hints:nil];
+        if (!cgImage)
+            return nil;
+
+        size_t actualWidth = CGImageGetWidth(cgImage);
+        size_t actualHeight = CGImageGetHeight(cgImage);
+        if (actualWidth == expectedWidth && actualHeight == expectedHeight)
+            return cgImage;
+
+        if (attempt >= maxRetries)
+            break;
+
+        usleep(10000); // 10ms — allow the window server to finish the backing store update
+        [platformView() display];
+    }
+
+    WTFLogAlways("Failed to take snapshot of window -- expected dimensions don't match captured images."); // NOLINT
+    return nil;
 }
 
 void PlatformWebView::changeWindowScaleIfNeeded(float newScale)
@@ -265,6 +356,26 @@ void PlatformWebView::setNavigationGesturesEnabled(bool enabled)
 bool PlatformWebView::isSecureEventInputEnabled() const
 {
     return platformView()._secureEventInputEnabledForTesting;
+}
+
+void PlatformWebView::setCursorOverlayPosition(double x, double y)
+{
+    if (!m_cursorOverlay)
+        return;
+
+    NSPoint hotSpot = [m_cursorOverlay hotSpot];
+    NSSize imageSize = [m_cursorOverlay frame].size;
+
+    NSRect overlayInView = NSMakeRect(x - hotSpot.x, y - hotSpot.y, imageSize.width, imageSize.height);
+    NSRect overlayInWindow = [m_view convertRect:overlayInView toView:nil];
+
+    NSPoint screenOrigin = [m_window convertPointToScreen:overlayInWindow.origin];
+    [[m_cursorOverlay overlayPanel] setFrameOrigin:screenOrigin];
+}
+
+void PlatformWebView::updateCursorOverlayImage()
+{
+    [m_cursorOverlay updateWithCursor:[NSCursor currentCursor]];
 }
 
 } // namespace WTR

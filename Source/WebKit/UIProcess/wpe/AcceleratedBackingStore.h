@@ -29,6 +29,7 @@
 #include "FenceMonitor.h"
 #include "MessageReceiver.h"
 #include "RendererBufferDescription.h"
+#include <WebCore/DMABufBufferAttributes.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
 #include <wtf/HashMap.h>
@@ -82,7 +83,7 @@ private:
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    void didCreateDMABufBuffer(uint64_t id, const WebCore::IntSize&, uint32_t format, Vector<WTF::UnixFileDescriptor>&&, Vector<uint32_t>&& offsets, Vector<uint32_t>&& strides, uint64_t modifier, RendererBufferFormat::Usage);
+    void didCreateDMABufBuffer(uint64_t id, WebCore::DMABufBufferAttributes&&, RendererBufferFormat::Usage);
     void didCreateSHMBuffer(uint64_t id, WebCore::ShareableBitmapHandle&&);
 #if OS(ANDROID)
     void didCreateAndroidBuffer(uint64_t id, RefPtr<AHardwareBuffer>&&);

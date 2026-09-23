@@ -52,8 +52,8 @@ var items = ["button", "tab", "radio", "checkbox", "menuitem", "menuitemcheckbox
 var length = items.length;
 function accessibilityPress(k) {
    if (k == length)
-      finishJSTest();
-    
+      return finishJSTest();
+
    accessibilityController.accessibleElementById(items[k]).press();
    setTimeout(function() {
        accessibilityPress(k+1);

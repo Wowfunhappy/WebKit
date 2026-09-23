@@ -114,10 +114,12 @@ public:
         double worth; // 0-1 where 1 is the most valuable.
         unsigned bodyShareCount;
         String bodyHash;
+        WallTime lastAccessTime;
     };
     enum class TraverseFlag : uint8_t {
         ComputeWorth = 1 << 0,
         ShareCount = 1 << 1,
+        LastAccessedRecordPerPartition = 1 << 2,
     };
     using TraverseHandler = Function<void (const Record*, const RecordInfo&)>;
     // Null record signals end.
@@ -188,7 +190,7 @@ private:
     void addToRecordFilter(const Key&);
     void deleteFiles(const Key&);
 
-    static bool isHigherPriority(const std::unique_ptr<ReadOperation>&, const std::unique_ptr<ReadOperation>&);
+    static bool NODELETE isHigherPriority(const std::unique_ptr<ReadOperation>&, const std::unique_ptr<ReadOperation>&);
 
     size_t estimateRecordsSize(unsigned recordCount, unsigned blobCount) const;
     uint32_t volumeBlockSize() const;

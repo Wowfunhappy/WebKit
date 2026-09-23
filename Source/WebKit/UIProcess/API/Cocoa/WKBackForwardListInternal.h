@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "WKBackForwardList.h"
+#import "WKBackForwardListPrivate.h"
 
 #import "WKObject.h"
 #import "WebBackForwardList.h"

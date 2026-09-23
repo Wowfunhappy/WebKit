@@ -31,7 +31,6 @@
     Conditional=ENCRYPTED_MEDIA,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary MediaKeySystemConfiguration {
     DOMString label = "";
     sequence<[AtomString] DOMString> initDataTypes = [];
@@ -39,5 +38,5 @@
     sequence<MediaKeySystemMediaCapability> videoCapabilities = [];
     MediaKeysRequirement distinctiveIdentifier = "optional";
     MediaKeysRequirement persistentState = "optional";
-    sequence<MediaKeySessionType> sessionTypes;
+    [ImplementationDefaultValue=[]] sequence<MediaKeySessionType> sessionTypes;
 };

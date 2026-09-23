@@ -27,7 +27,6 @@
 
 [
     JSGenerateToJSObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CSSNumericType {
     long length;
     long angle;

@@ -138,7 +138,7 @@ float ComputedStyleProperties::specifiedFontSize() const
 
 inline FontFamilies ComputedStyleProperties::fontFamily() const
 {
-    return { fontDescription().families(), fontDescription().isSpecifiedFont() };
+    return { fontDescription().families(), fontDescription().hasAuthorSpecifiedNonGenericPrimaryFont() };
 }
 
 inline FontPalette ComputedStyleProperties::fontPalette() const
@@ -204,7 +204,7 @@ inline FontSynthesisLonghandValue ComputedStyleProperties::fontSynthesisSmallCap
     return fontDescription().fontSynthesisSmallCaps();
 }
 
-inline FontSynthesisLonghandValue ComputedStyleProperties::fontSynthesisStyle() const
+inline FontSynthesisStyleLonghandValue ComputedStyleProperties::fontSynthesisStyle() const
 {
     return fontDescription().fontSynthesisStyle();
 }
@@ -334,7 +334,7 @@ inline WebCore::Color ColorPropertyTraits<PropertyNameConstant<CSSPropertyTextDe
                     return strokeColor;
             }
         }
-        return style.textFillColor().resolveColor(style.color());
+        return style.color();
     }
     return result.resolveColor(style.color());
 }
@@ -355,7 +355,7 @@ inline WebCore::Color ColorPropertyTraits<PropertyNameConstant<CSSPropertyTextDe
                     return strokeColor;
             }
         }
-        return style.visitedLinkTextFillColor().resolveColor(style.visitedLinkColor());
+        return style.visitedLinkColor();
     }
     return result.resolveColor(style.visitedLinkColor());
 }

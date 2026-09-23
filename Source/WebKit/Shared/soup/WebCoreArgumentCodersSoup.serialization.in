@@ -31,6 +31,6 @@ enum class WebCore::SoupNetworkProxySettingsMode : uint8_t {
 struct WebCore::SoupNetworkProxySettings {
     WebCore::SoupNetworkProxySettingsMode mode;
     CString defaultProxyURL;
-    GUniquePtr<char*> ignoreHosts;
+    Vector<CString> ignoreHosts;
     HashMap<CString, CString> proxyMap;
 }

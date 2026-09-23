@@ -21,6 +21,7 @@
 #pragma once
 
 #include "TestGlobalObject.h"
+#include <WebCore/JSDOMBindingFacade.h>
 #include <WebCore/JSDOMWrapper.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -31,24 +32,14 @@ class TestGlobalObject;
 class JSTestGlobalObject : public JSDOMWrapper<TestGlobalObject> {
 public:
     using Base = JSDOMWrapper<TestGlobalObject>;
-    static JSTestGlobalObject* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestGlobalObject>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestGlobalObject* ptr = new (NotNull, JSC::allocateCell<JSTestGlobalObject>(vm)) JSTestGlobalObject(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestGlobalObject* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestGlobalObject>&&);
 
     static TestGlobalObject* toWrapped(JSC::VM&, JSC::JSValue);
     static void destroy(JSC::JSCell*);
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -68,8 +59,12 @@ protected:
 
 class JSTestGlobalObjectOwner final : public JSC::WeakHandleOwner {
 public:
+    JSTestGlobalObjectOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSTestGlobalObjectOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, TestGlobalObject*)
@@ -101,10 +96,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestGlobalObjectPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestGlobalObjectPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)

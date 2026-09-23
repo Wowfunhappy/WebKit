@@ -52,9 +52,9 @@ RefPtr<CSSValue> consumePaintOrder(CSSParserTokenRange& range, CSS::PropertyPars
         return consumeIdent(range);
 
     Vector<CSSValueID, 3> paintTypeList;
-    RefPtr<CSSPrimitiveValue> fill;
-    RefPtr<CSSPrimitiveValue> stroke;
-    RefPtr<CSSPrimitiveValue> markers;
+    RefPtr<CSSKeywordValue> fill;
+    RefPtr<CSSKeywordValue> stroke;
+    RefPtr<CSSKeywordValue> markers;
     do {
         CSSValueID id = range.peek().id();
         if (id == CSSValueFill && !fill)

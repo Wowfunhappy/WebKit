@@ -11,7 +11,7 @@
   <meta name="flags" content=" namespace" />
  </head>
  <body>
- <address xmlns="http://tests.example.org/xml-only/"></address>
+ <address xmlns="http://tests.example.org/xml-only/"><![CDATA[]]></address>
  <div class="text">This line should have a green background.</div>
  <p>(Note: This test is based on unpublished errata.)</p>
 </body>

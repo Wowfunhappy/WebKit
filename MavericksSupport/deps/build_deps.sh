@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build vendored dependencies for WebKit and its layout-test server on macOS 10.9:
 #
-#   ICU 74.2 (static)                   -> JSC Intl (ucfpos_*/udtitvfmt_*/... that
+#   ICU 78.3 (static)                   -> JSC Intl (ucfpos_*/udtitvfmt_*/... that
 #                                          10.9's ICU 51 libicucore lacks)
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
@@ -155,6 +155,13 @@ STAGE="$SCRATCH/install"                            # full autotools install pre
 HTTPD_STAGE="$SCRATCH/httpd-install"
 HTTPD_CONFIG="$REPO/LayoutTests/http/conf/apache2.4-darwin-httpd.conf"
 HTTPD_OPENSSL="$REPO/MavericksSupport/toolchain/build/openssl"
+RUST_TOOLCHAIN_KEY=$( (
+    cd "$REPO/MavericksSupport/toolchain" || exit 1
+    /usr/bin/shasum -a 256 scripts/build_rust.sh scripts/build_rust.py scripts/rust-env.sh \
+        scripts/rustc-wrapper.sh scripts/rust-bootstrap-inputs.json \
+        scripts/build_rust_compiler.py patches/rust-macos-deployment-floor.patch
+    find tests/rust-host -type f -print | LC_ALL=C sort | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256
+  ) | /usr/bin/shasum -a 256 | awk '{ print $1 }') || exit 1
 HTTPD_INPUT_KEY=$( ( /usr/bin/shasum -a 256 < "$HTTPD_CONFIG" \
     && cd "$HTTPD_OPENSSL" && find lib/libssl.a lib/libcrypto.a include lib/pkgconfig -type f -print \
         | LC_ALL=C sort | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256 ) \
@@ -179,6 +186,7 @@ recipes_key() {
   { /usr/bin/shasum -a 256 < "$SELF"
     printf '%s\n' "$BORINGSSL_KEY"
     printf '%s\n' "$HTTPD_INPUT_KEY"
+    printf '%s\n' "$RUST_TOOLCHAIN_KEY"
     for p in "$HERE"/patches/*.patch; do printf '%s\n' "$p"; done | LC_ALL=C sort \
       | while read -r p; do printf '%s\n' "${p##*/}"; /usr/bin/shasum -a 256 < "$p"; done
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
@@ -404,6 +412,7 @@ recipe_key() {
     case "$section" in *'$GSTOPTS'*)          printf 'GSTOPTS=%s\n'   "${GSTOPTS:-}";; esac
     case "$section" in *_VANILLA*)            printf 'LENIENT=%s\n'   "${LENIENT:-}";; esac
     case "$section" in *'"$MESON"'*)          printf 'MESON_PIN=%s\n' "${MESON_PIN:-}";; esac
+    case "$section" in *build_rust.sh*)        printf 'RUST_TOOLCHAIN_KEY=%s\n' "$RUST_TOOLCHAIN_KEY";; esac
     case "$section" in *HTTPD_*)              printf 'HTTPD_INPUT_KEY=%s\n' "$HTTPD_INPUT_KEY";; esac
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
 }
@@ -449,14 +458,18 @@ finished() {
   mkdir -p "$SCRATCH/stamps" && printf '%s\n' "$k" > "$SCRATCH/stamps/$1" && rm -rf "${2:?}"
 }
 
-echo "==== ICU 74.2 ===="
-# ICU is C++ and its build tools (makeconv/genrb) link C++ iostreams, so it uses the
-# FULL clang wrapper (clang-22's libc++), not the vanilla one. --disable-renaming
-# emits UNVERSIONED symbols (ucfpos_open, not ucfpos_open_74) to match WebKit's
-# U_DISABLE_RENAMING=1; without it JSC's Intl symbols stay unresolved.
-u=https://github.com/unicode-org/icu/releases/download/release-74-2/icu4c-74_2-src.tgz
+echo "==== ICU 78.3 ===="
+# ICU supplies Unicode 17 IDNA mappings and Intl data. Its C++ build tools use
+# the full clang wrapper's libc++; unversioned exports match U_DISABLE_RENAMING=1.
+u=https://github.com/unicode-org/icu/releases/download/release-78.3/icu4c-78.3-sources.tgz
 if ! built icu install/lib/libicuuc.a; then
-    d=$(get "$u" icu)
+    archive="$SRC/icu4c-78.3-sources.tgz"
+    [ -f "$archive" ] || fetch "$u" "$archive" || exit 1
+    if [ "$(/usr/bin/shasum -a 256 < "$archive" | awk '{ print $1 }')" != 3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0 ]; then
+        echo "ICU 78.3 archive checksum mismatch" >&2
+        exit 1
+    fi
+    d=$(get "$u" icu) || exit 1
     ( cd "$d/source" \
       && CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
            --enable-static --disable-shared --disable-renaming \
@@ -754,6 +767,9 @@ echo "==== 10.9 gap archive ===="
 #   utimensat       utimensat/futimens
 #   fdopendir       fdopendir$INODE64 and friends
 #   statxx          fstatat/fstatat$INODE64/fstatat64
+#   clonefile       clonefile/clonefileat/fclonefileat native unsupported-filesystem contracts
+#   pthread_qos     pthread QoS APIs native unsupported-platform contracts
+#   pthread_stack   deliberate OVERRIDE: report the actual main-thread RLIMIT_STACK size
 #   getentropy      getentropy
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
 #   os_unfair_lock  os_unfair_lock_lock/trylock/unlock/assert_owner/assert_not_owner (10.12+),
@@ -798,7 +814,7 @@ GAPDIR="$SCRATCH/gap"
 # reads. The objects do not, so a source dropped from GAP_SHARED leaves nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
-GAP_SHARED="time atcalls utimensat fdopendir statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
+GAP_SHARED="time atcalls utimensat fdopendir statxx clonefile pthread_qos pthread_stack getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPOBJ/$s.d" -c "$SHARED/$s.c" -o "$GAPOBJ/$s.o" || exit 1
@@ -847,7 +863,7 @@ GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
 # has, and every answer must appear in GAP_REPLACES. There is no allow file: an entry here is a
 # stated intent, not an exemption, and the polyfill build holds the same sources to the same rule
 # through its own registry (polyfill/build-polyfill.sh).
-GAP_REPLACES="mach_timebase_info AudioUnitInitialize AudioUnitUninitialize AudioComponentInstanceDispose VTCompressionSessionCreate VTCompressionSessionEncodeFrame"
+GAP_REPLACES="mach_timebase_info pthread_get_stacksize_np AudioUnitInitialize AudioUnitUninitialize AudioComponentInstanceDispose VTCompressionSessionCreate VTCompressionSessionEncodeFrame"
 GAPGATE="$RUN/gapgate"; mkdir -p "$GAPGATE"
 "$TC/bin/clang" --no-default-config -mmacosx-version-min=10.9 -o "$GAPGATE/present" \
     "$REPO/MavericksSupport/polyfill/tests/gates/shadow-present.c" || exit 1
@@ -1119,7 +1135,9 @@ if prepare "$d"; then
       && tar xzf libffi-meson.tar.gz && rm -rf libffi && mv "libffi-$LIBFFI_REV" libffi \
       && fetch_cached https://github.com/frida/proxy-libintl/archive/refs/tags/0.4.tar.gz proxy-libintl-0.4.tar.gz \
       && tar xzf proxy-libintl-0.4.tar.gz && rm -rf proxy-libintl && mv proxy-libintl-0.4 proxy-libintl ) || exit 1
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Ddefault_library=shared -Dbuildtype=release \
+    # Keep the pinned subprojects in the build graph even when their installed copies are present.
+    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" --force-fallback-for=libpcre2-8,libffi \
+        -Ddefault_library=shared -Dbuildtype=release \
         -Dtests=false -Dglib_debug=disabled -Dman-pages=disabled -Ddocumentation=false \
         -Dintrospection=disabled ) || exit 1
     prepared "$d"
@@ -1359,6 +1377,10 @@ echo "==== gst-plugins-good ===="
 # Native HLS and DASH use gst-plugins-bad's legacy demuxers through webkitwebsrc.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
+    # aacparse: emit every complete synchronized ADTS packet without waiting for EOS. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-aacparse-synchronized-input-minimum.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-aacparse-synchronized-input-minimum.patch" ) \
+      || { echo "gst-plugins-good AAC synchronized-input patch failed to apply"; exit 1; }
     # qtdemux: expose the video track of an ISO/IEC 23008-12 image sequence, whose media handler is
     # 'pict'. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" \
@@ -1491,6 +1513,57 @@ if prepare "$d"; then
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
   && "$MESON" install -C b ) || exit 1
+
+echo "==== gst-plugins-rs closedcaption 0.15.2 ===="
+# WebCore converts in-band CEA-608 to WebVTT through cea608tott. The C closedcaption
+# plugin alone does not provide it. Keep all Rust converters, without the optional
+# native Cairo/Pango overlays: WebCore renders the resulting cues itself.
+u=https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/archive/0.15.2/gst-plugins-rs-0.15.2.tar.gz
+archive="$SRC/gst-plugins-rs-0.15.2.tar.gz"
+[ -f "$archive" ] || fetch "$u" "$archive" || exit 1
+if [ "$(/usr/bin/shasum -a 256 < "$archive" | awk '{ print $1 }')" != 8c889d443281baaf34d7bfb3781d331a5eed0bc091852eba37ef358206a37bab ]; then
+    echo "gst-plugins-rs 0.15.2 archive checksum mismatch" >&2
+    exit 1
+fi
+d=$(get "$u" gstclosedcaption) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-rs-closedcaption-optional-rendering.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-rs-closedcaption-optional-rendering.patch" ) \
+      || { echo "gst-plugins-rs closedcaption rendering feature patch failed to apply"; exit 1; }
+    prepared "$d"
+fi
+(
+    bash "$REPO/MavericksSupport/toolchain/scripts/build_rust.sh" || exit 1
+    . "$REPO/MavericksSupport/toolchain/scripts/rust-env.sh"
+    export CARGO_TARGET_DIR="$d/target"
+    # This release archive has no repository. Do not let plugin-version-helper
+    # mistake the enclosing WebKit checkout for the plugin's source provenance.
+    export GIT_CEILING_DIRECTORIES="$d"
+    # Explicit-target flags apply to the plugin and rebuilt standard library. The
+    # toolchain's Cargo wrapper supplies separate host-only runtime support.
+    # Preserve upstream's panic=unwind release profile and its FFI panic guards.
+    rust_flags=(
+        -C "linker=$CC_BIN"
+        -C link-arg=--no-default-config -C link-arg=-fuse-ld=lld
+        -C link-arg=-isysroot -C "link-arg=$SDK"
+        -C link-arg=-mmacosx-version-min=10.9
+        -C "link-arg=-Wl,-force_load,$GAP_A"
+        -C link-arg=-framework -C link-arg=CoreFoundation
+        -C link-arg=-Wl,-headerpad_max_install_names
+        -C link-arg=-Wl,-install_name,@rpath/libgstrsclosedcaption.dylib
+    )
+    CARGO_ENCODED_RUSTFLAGS=$(IFS=$'\037'; printf '%s' "${rust_flags[*]}")
+    export CARGO_ENCODED_RUSTFLAGS
+    cd "$d" || exit 1
+    # The plugin crate alone takes link-dead-code: rustc then links it without -dead_strip, which
+    # would drop the gap-archive members force_load brings in.
+    "$CARGO" rustc --locked --release --lib -p gst-plugin-closedcaption \
+        --no-default-features --target x86_64-apple-darwin \
+        -Zbuild-std=std,panic_unwind -j 2 -- -C link-dead-code || exit 1
+    cp -p "$CARGO_TARGET_DIR/x86_64-apple-darwin/release/libgstrsclosedcaption.dylib" \
+        "$STAGE/lib/gstreamer-1.0/libgstrsclosedcaption.dylib" || exit 1
+) || exit 1
+
 
 echo "==== FFmpeg 8.1.2 ===="
 # Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
@@ -1651,6 +1724,10 @@ _refuse_under_webkit_build
 rm -f "$DEST/.recipes"
 rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
 mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
+# GIO's module directory, beside libgio. On macOS GLib loads modules from <libgio's directory>/gio/modules
+# when that directory exists (get_gio_module_dir), and from the configured prefix otherwise. No module
+# ships, so it stays empty.
+mkdir -p "$DEST/lib/gio/modules"
 cp -p "$HTTPD_STAGE/bin/httpd" "$DEST/bin/"
 echo "bin/httpd" >> "$GAP_UNLINKED"
 # The Darwin configuration's modules are built into this Apache executable.
@@ -1872,6 +1949,7 @@ require_glob "$DEST/bin/curl"
 require_glob "$DEST/bin/httpd"
 require_glob "$DEST/httpd.conf"
 require_glob "$DEST/lib/libglib-2.0.*.dylib"
+require_glob "$DEST/lib/gio/modules"
 require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
 require_glob "$DEST/lib/libgstadaptivedemux-1.0.0.dylib"
 require_glob "$DEST/lib/libgsturidownloader-1.0.0.dylib"
@@ -1916,7 +1994,7 @@ for p in libgstcoreelements libgstlibav libgstvpx libgstopus libgstapplemedia li
          libgsttypefindfunctions libgstplayback libgstisomp4 libgstmatroska \
          libgstvideoconvertscale libgstaudioconvert libgstaudioresample libgstapp \
          libgstvorbis libgstogg libgstflac libgstwavparse libgstdeinterlace \
-         libgstautodetect libgsthls libgstdash; do
+         libgstautodetect libgsthls libgstdash libgstclosedcaption libgstrsclosedcaption; do
   require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"
 done
 require_glob "$DEST/bin/gst-inspect-1.0"
@@ -2080,7 +2158,7 @@ if [ "$("$PKG_CONFIG" --modversion openssl)" != 1.1.1 ] \
    || [ "$("$PKG_CONFIG" --variable=prefix openssl)" != "$STAGE" ]; then
   echo 'openssl.pc does not resolve the staged BoringSSL API' >> "$FAILS"
 fi
-for element in hlsdemux hlssink hlssink2 dashdemux; do
+for element in hlsdemux hlssink hlssink2 dashdemux ccconverter cea608tott; do
   if ! GST_REGISTRY="$RUN/gate-registry.bin" GST_PLUGIN_PATH="$DEST/lib/gstreamer-1.0" \
        GST_PLUGIN_SYSTEM_PATH= "$DEST/bin/gst-inspect-1.0" "$element" > /dev/null; then
     echo "$element is not registered" >> "$FAILS"

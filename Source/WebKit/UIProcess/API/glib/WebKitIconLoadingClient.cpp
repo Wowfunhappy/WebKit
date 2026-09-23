@@ -21,6 +21,8 @@
 #include "WebKitIconLoadingClient.h"
 
 #include "APIIconLoadingClient.h"
+#include "PageLoadState.h"
+#include "WebKitFaviconDatabasePrivate.h"
 #include "WebKitWebViewPrivate.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/glib/GWeakPtr.h>
@@ -36,28 +38,41 @@ public:
     }
 
 private:
-    void getLoadDecisionForIcon(const WebCore::LinkIcon& icon, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&& completionHandler) override
+    void getLoadDecisionForIcons(const HashMap<WebKit::CallbackID, WebCore::LinkIcon>& icons, CompletionHandler<void(HashSet<WebKit::CallbackID>&&)>&& completionHandler) override
     {
-        // WebCore can send non HTTP icons.
-        if (!icon.url.protocolIsInHTTPFamily()) {
-            completionHandler(nullptr);
-            return;
-        }
+        m_pendingIcons.clear();
+        webkitWebViewGetLoadDecisionForIcons(m_webView, icons, [this, weakWebView = GWeakPtr { m_webView }, completionHandler = WTF::move(completionHandler)](HashSet<CallbackID>&& loadIdentifiers) mutable {
+            if (!weakWebView)
+                return completionHandler({ });
 
-        WebCore::LinkIcon copiedIcon = icon;
-        webkitWebViewGetLoadDecisionForIcon(m_webView, icon, [weakWebView = GWeakPtr<WebKitWebView>(m_webView), icon = WTF::move(copiedIcon), completionHandler = WTF::move(completionHandler)] (bool loadIcon) mutable {
-            if (!weakWebView || !loadIcon) {
-                completionHandler(nullptr);
-                return;
-            }
+            if (loadIdentifiers.isEmpty())
+                finishedLoadingIcons();
+            else
+                m_pendingIcons = loadIdentifiers;
 
-            completionHandler([weakWebView = WTF::move(weakWebView), icon = WTF::move(icon)] (API::Data* iconData) {
-                if (!weakWebView || !iconData)
-                    return;
-                webkitWebViewSetIcon(weakWebView.get(), icon, *iconData);
-            });
+            completionHandler(WTF::move(loadIdentifiers));
         });
     }
+
+    void iconLoaded(const WebKit::CallbackID& loadIdentifier, const WebCore::LinkIcon& icon, API::Data* iconData) override
+    {
+        m_pendingIcons.remove(loadIdentifier);
+
+        if (iconData)
+            webkitWebViewSetIcon(m_webView, icon, *iconData);
+
+        if (m_pendingIcons.isEmpty())
+            finishedLoadingIcons();
+    }
+
+    void finishedLoadingIcons()
+    {
+#if ENABLE(2022_GLIB_API)
+        webkitWebViewUpdatePageIcons(m_webView);
+#endif
+    }
+
+    HashSet<CallbackID> m_pendingIcons;
 
     WebKitWebView* m_webView;
 };

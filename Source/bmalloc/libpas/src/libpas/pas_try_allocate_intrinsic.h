@@ -69,12 +69,14 @@ PAS_BEGIN_EXTERN_C;
             .free_heap = PAS_FAST_LARGE_FREE_HEAP_INITIALIZER, \
             .index = 0, \
             .table_state = pas_heap_table_state_uninitialized, \
+            .variant = (passed_config).large_map_variant, \
             .is_megapage_heap = true, \
         }, \
         .large_heap = { \
             .free_heap = PAS_FAST_LARGE_FREE_HEAP_INITIALIZER, \
             .index = 0, \
             .table_state = pas_heap_table_state_uninitialized, \
+            .variant = (passed_config).large_map_variant, \
             .is_megapage_heap = false, \
         }, \
         .type = (const pas_heap_type*)(primitive_type), \

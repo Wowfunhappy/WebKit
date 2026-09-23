@@ -118,10 +118,10 @@ ExceptionOr<void> RTCRtpReceiver::setTransform(std::unique_ptr<RTCRtpTransform>&
     return { };
 }
 
-std::optional<RTCRtpTransform::Internal> RTCRtpReceiver::transform()
+RefPtr<RTCRtpScriptTransform> RTCRtpReceiver::transform()
 {
     if (!m_transform)
-        return { };
+        return nullptr;
     return m_transform->internalTransform();
 }
 
@@ -150,6 +150,16 @@ std::unique_ptr<RTCDtlsTransportBackend> RTCRtpReceiver::dtlsTransportBackend()
 Ref<RTCRtpTransformBackend> RTCRtpReceiver::rtcRtpTransformBackend()
 {
     return m_backend->rtcRtpTransformBackend();
+}
+
+ExceptionOr<void> RTCRtpReceiver::setJitterBufferTarget(std::optional<double> valueInMillisecond)
+{
+    if (valueInMillisecond && (*valueInMillisecond < 0 || *valueInMillisecond > 4000))
+        return Exception { ExceptionCode::RangeError, "jitterBufferTarget is invalid"_s };
+
+    m_jitterBufferTarget = valueInMillisecond;
+    m_backend->setJitterBufferTarget(valueInMillisecond);
+    return { };
 }
 
 #if !RELEASE_LOG_DISABLED

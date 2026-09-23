@@ -31,6 +31,7 @@
 #include "IntSize.h"
 #include "Logging.h"
 #include "PixelFormat.h"
+#include <array>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/TextStream.h>
@@ -95,7 +96,7 @@ static inline vImage_CGImageFormat makeVImageCGImageFormat(const PixelBufferForm
     return result;
 }
 
-template<typename View> static vImage_Buffer makeVImageBuffer(const View& view, const IntSize& size)
+template<typename View> static vImage_Buffer NODELETE makeVImageBuffer(const View& view, const IntSize& size)
 {
     vImage_Buffer result;
 
@@ -112,6 +113,12 @@ static void convertImagePixelsAccelerated(const ConstPixelBufferConversionView& 
     auto sourceVImageBuffer = makeVImageBuffer(source, destinationSize);
     auto destinationVImageBuffer = makeVImageBuffer(destination, destinationSize);
 
+    auto zeroFillDestination = [&] {
+        size_t rowFillBytes = static_cast<size_t>(destinationSize.width()) * 4;
+        for (int y = 0; y < destinationSize.height(); ++y)
+            zeroSpan(destination.rows.subspan(static_cast<size_t>(y) * destination.bytesPerRow, rowFillBytes));
+    };
+
     if (source.format.colorSpace != destination.format.colorSpace) {
         // FIXME: Consider using vImageConvert_AnyToAny for all conversions, not just ones that need a color space conversion,
         // after judiciously performance testing them against each other.
@@ -121,11 +128,20 @@ static void convertImagePixelsAccelerated(const ConstPixelBufferConversionView& 
 
         vImage_Error converterCreateError = kvImageNoError;
         auto converter = adoptCF(vImageConverter_CreateWithCGImageFormat(&sourceCGImageFormat, &destinationCGImageFormat, nullptr, kvImageNoFlags, &converterCreateError));
-        if (converterCreateError != kvImageNoError)
+        if (converterCreateError != kvImageNoError) {
+            RELEASE_LOG_ERROR(Images, "%s: vImageConverter_CreateWithCGImageFormat() failed with error: %zd", __FUNCTION__, converterCreateError);
+            // The destination may be uninitialized; ensure no stale heap is exposed to callers.
+            zeroFillDestination();
             return;
+        }
 
         vImage_Error converterConvertError = vImageConvert_AnyToAny(converter.get(), &sourceVImageBuffer, &destinationVImageBuffer, nullptr, kvImageNoFlags);
-        ASSERT_WITH_MESSAGE_UNUSED(converterConvertError, converterConvertError == kvImageNoError, "vImageConvert_AnyToAny failed conversion with error: %zd", converterConvertError);
+        if (converterConvertError != kvImageNoError) {
+            RELEASE_LOG_ERROR(Images, "%s: vImageConvert_AnyToAny() failed with error: %zd", __FUNCTION__, converterConvertError);
+            // The destination may be uninitialized; ensure no stale heap is exposed to callers.
+            zeroFillDestination();
+        }
+
         return;
     }
 
@@ -147,8 +163,8 @@ static void convertImagePixelsAccelerated(const ConstPixelBufferConversionView& 
 
     if (source.format.pixelFormat != destination.format.pixelFormat) {
         // Swap pixel channels BGRA <-> RGBA.
-        const uint8_t map[4] = { 2, 1, 0, 3 };
-        vImagePermuteChannels_ARGB8888(&sourceVImageBuffer, &destinationVImageBuffer, map, kvImageNoFlags);
+        constexpr std::array<uint8_t, 4> map { 2, 1, 0, 3 };
+        vImagePermuteChannels_ARGB8888(&sourceVImageBuffer, &destinationVImageBuffer, map.data(), kvImageNoFlags);
     }
 }
 
@@ -209,7 +225,7 @@ static bool convertImagePixelsSkia(const ConstPixelBufferConversionView& source,
 enum class PixelFormatConversion { None, Permute };
 
 template<PixelFormatConversion pixelFormatConversion>
-static void convertSinglePixelPremultipliedToPremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+static void NODELETE convertSinglePixelPremultipliedToPremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
 {
     uint8_t alpha = sourcePixel[3];
     if (!alpha) {
@@ -275,7 +291,7 @@ static void convertSinglePixelUnpremultipliedToPremultiplied(std::span<const uin
 }
 
 template<PixelFormatConversion pixelFormatConversion>
-static void convertSinglePixelUnpremultipliedToUnpremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+static void NODELETE convertSinglePixelUnpremultipliedToUnpremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
 {
     if constexpr (pixelFormatConversion == PixelFormatConversion::None)
         reinterpretCastSpanStartTo<uint32_t>(destinationPixel) = reinterpretCastSpanStartTo<const uint32_t>(sourcePixel);
@@ -289,7 +305,7 @@ static void convertSinglePixelUnpremultipliedToUnpremultiplied(std::span<const u
 }
 
 template<void (*convertFunctor)(std::span<const uint8_t, 4>, std::span<uint8_t, 4>)>
-static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
+static void NODELETE convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
 {
     size_t bytesPerRow = destinationSize.width() * 4;
     for (int y = 0; y < destinationSize.height(); ++y) {
@@ -342,66 +358,64 @@ static void writeFloat16(Float16 f16, const std::span<uint8_t>& spanFloat16, siz
 
 static void convertImagePixelsFromFloat16ToFloat16(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
 {
-    if (source.format.colorSpace != destination.format.colorSpace)
-        return;
+    // FIXME: Float16-to-Float16 color-space conversion is unimplemented; fall through and copy
+    // verbatim. Do not early-return on a color-space mismatch: the destination is allocated
+    // uninitialized, so skipping the write would leak heap bytes through getPixelBuffer().
 
-    auto sourceBytes = source.rows.size_bytes();
-    auto sourcePixelComponents = sourceBytes / 2;
-    auto sourcePixels = sourcePixelComponents / 4;
-    auto sourceHeight = sourceBytes / source.bytesPerRow;
-    auto sourceWidth = sourcePixels / sourceHeight;
+    struct Pixel16 {
+        Float16 r;
+        Float16 g;
+        Float16 b;
+        Float16 a;
+    };
+    static_assert(sizeof(Float16) == 2);
+    static_assert(sizeof(Pixel16) == 4 * sizeof(Float16));
 
-    auto destinationBytes = destination.rows.size_bytes();
-    auto destinationPixelComponents = destinationBytes / 2;
-    auto destinationPixels = destinationPixelComponents / 4;
-    auto destinationHeight = destinationBytes / destination.bytesPerRow;
-    auto destinationWidth = destinationPixels / destinationHeight;
+    // FIXME: This lambda should be moved to separate functions and the caller passes a pointer to one of them.
+    auto convertSinglePixel16 = [](const auto& sourceSpan, auto sourceAlphaFormat, auto& destinationSpan, auto destinationAlphaFormat) {
+        ASSERT(sourceSpan.size_bytes() == sizeof(Pixel16));
+        ASSERT(destinationSpan.size_bytes() == sizeof(Pixel16));
 
-    if (destinationSize.height() >= 0 && size_t(destinationSize.height()) < destinationHeight)
-        destinationHeight = size_t(destinationSize.height());
-    if (destinationSize.width() >= 0 && size_t(destinationSize.width()) < destinationWidth)
-        destinationWidth = size_t(destinationSize.width());
-
-    auto sourceRowStartOffset = 0;
-    auto destinationRowStartOffset = 0;
-    for (size_t y = 0; y < sourceHeight && y < destinationHeight; ++y) {
-        size_t offset = 0;
-        for (size_t x = 0; x < sourceWidth && x < destinationWidth; ++x) {
-            struct Pixel16 {
-                Float16 r = { };
-                Float16 g = { };
-                Float16 b = { };
-                Float16 a = { };
-            };
-            static_assert(sizeof(Float16) == 2);
-            static_assert(sizeof(Pixel16) == 4 * sizeof(Float16));
-            union {
-                Pixel16 pixel16 { };
-                std::array<uint8_t, sizeof(Pixel16)> bytes;
-            } pixel16OrBytesUnion;
-            for (size_t byte = 0; byte < sizeof(Pixel16); ++byte)
-                pixel16OrBytesUnion.bytes[byte] = source.rows[sourceRowStartOffset + offset + byte];
-            if (source.format.alphaFormat != destination.format.alphaFormat) {
-                if (source.format.alphaFormat == AlphaPremultiplication::Unpremultiplied && destination.format.alphaFormat == AlphaPremultiplication::Premultiplied) {
-                    auto fa = float(pixel16OrBytesUnion.pixel16.a);
-                    pixel16OrBytesUnion.pixel16.r = Float16(float(pixel16OrBytesUnion.pixel16.r) * fa);
-                    pixel16OrBytesUnion.pixel16.g = Float16(float(pixel16OrBytesUnion.pixel16.g) * fa);
-                    pixel16OrBytesUnion.pixel16.b = Float16(float(pixel16OrBytesUnion.pixel16.b) * fa);
-                } else if (source.format.alphaFormat == AlphaPremultiplication::Premultiplied && destination.format.alphaFormat == AlphaPremultiplication::Unpremultiplied) {
-                    if (auto fa = float(pixel16OrBytesUnion.pixel16.a)) {
-                        pixel16OrBytesUnion.pixel16.r = Float16(float(pixel16OrBytesUnion.pixel16.r) / fa);
-                        pixel16OrBytesUnion.pixel16.g = Float16(float(pixel16OrBytesUnion.pixel16.g) / fa);
-                        pixel16OrBytesUnion.pixel16.b = Float16(float(pixel16OrBytesUnion.pixel16.b) / fa);
-                    }
-                } else
-                    RELEASE_ASSERT_NOT_REACHED();
-            }
-            for (size_t byte = 0; byte < sizeof(Pixel16); ++byte)
-                destination.rows[destinationRowStartOffset + offset + byte] = pixel16OrBytesUnion.bytes[byte];
-            offset += sizeof(Pixel16);
+        if (sourceAlphaFormat == destinationAlphaFormat) {
+            memcpySpan(destinationSpan, sourceSpan);
+            return;
         }
-        sourceRowStartOffset += source.bytesPerRow;
-        destinationRowStartOffset += destination.bytesPerRow;
+
+        const auto& sourcePixel16 = reinterpretCastSpanStartTo<Pixel16>(sourceSpan);
+        auto& destinationPixel16 = reinterpretCastSpanStartTo<Pixel16>(destinationSpan);
+
+        if (destinationAlphaFormat == AlphaPremultiplication::Premultiplied) {
+            auto fa = float(sourcePixel16.a);
+            destinationPixel16.r = Float16(float(sourcePixel16.r) * fa);
+            destinationPixel16.g = Float16(float(sourcePixel16.g) * fa);
+            destinationPixel16.b = Float16(float(sourcePixel16.b) * fa);
+            destinationPixel16.a = Float16(fa);
+            return;
+        }
+
+        if (auto fa = float(sourcePixel16.a)) {
+            destinationPixel16.r = Float16(float(sourcePixel16.r) / fa);
+            destinationPixel16.g = Float16(float(sourcePixel16.g) / fa);
+            destinationPixel16.b = Float16(float(sourcePixel16.b) / fa);
+            destinationPixel16.a = Float16(fa);
+            return;
+        }
+
+        memcpySpan(destinationSpan, sourceSpan);
+    };
+
+    size_t sourceRowStart = 0;
+    size_t destinationRowStart = 0;
+    size_t bytesPerRow = destinationSize.width() * sizeof(Pixel16);
+
+    for (int y = 0; y < destinationSize.height(); ++y) {
+        for (size_t x = 0; x < bytesPerRow; x += sizeof(Pixel16)) {
+            const auto sourceSpan = source.rows.subspan(sourceRowStart + x, sizeof(Pixel16));
+            auto destinationSpan = destination.rows.subspan(destinationRowStart + x, sizeof(Pixel16));
+            convertSinglePixel16(sourceSpan, source.format.alphaFormat, destinationSpan, destination.format.alphaFormat);
+        }
+        sourceRowStart += source.bytesPerRow;
+        destinationRowStart += destination.bytesPerRow;
     }
 }
 
@@ -467,7 +481,15 @@ void convertImagePixels(const ConstPixelBufferConversionView& source, const Pixe
 {
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
     auto isSourceFloat = source.format.pixelFormat == PixelFormat::RGBA16F;
+    if (isSourceFloat && destinationSize.height() > 0 && destinationSize.width() > 0) {
+        RELEASE_ASSERT((source.rows.size_bytes() - destinationSize.width() * (4 * sizeof(Float16))) / source.bytesPerRow >= size_t(destinationSize.height() - 1), "Expected source size_bytes >= (height-1) * bytesPerRow + width*4*sizeof(Float16)");
+        RELEASE_ASSERT(source.rows.size_bytes() / (4 * sizeof(Float16)) / destinationSize.width() >= size_t(destinationSize.height()), "Expected source size_bytes >= width * height * 4*sizeof(Float16)");
+    }
     auto isDestinationFloat = destination.format.pixelFormat == PixelFormat::RGBA16F;
+    if (isDestinationFloat && destinationSize.height() > 0 && destinationSize.width() > 0) {
+        RELEASE_ASSERT((destination.rows.size_bytes() - destinationSize.width() * (4 * sizeof(Float16))) / destination.bytesPerRow >= size_t(destinationSize.height() - 1), "Expected destination size_bytes >= (height-1) * bytesPerRow + width*4*sizeof(Float16)");
+        RELEASE_ASSERT(destination.rows.size_bytes() / (4 * sizeof(Float16)) / destinationSize.width() >= size_t(destinationSize.height()), "Expected destination size_bytes >= width * height * 4*sizeof(Float16)");
+    }
     if (isSourceFloat && isDestinationFloat)
         return convertImagePixelsFromFloat16ToFloat16(source, destination, destinationSize);
     if (isSourceFloat)

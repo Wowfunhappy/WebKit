@@ -26,9 +26,10 @@
 #include "StyleSVGPaint.h"
 
 #include "AnimationUtilities.h"
+#include "CSSKeywordValue.h"
 #include "CSSURLValue.h"
-#include "RenderStyle+SettersInlines.h"
 #include "StyleBuilderChecking.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleForVisitedLink.h"
 
 namespace WebCore {
@@ -45,9 +46,9 @@ bool containsCurrentColor(const Style::SVGPaint& paint)
 
 auto CSSValueConversion<SVGPaint>::operator()(BuilderState& state, const CSSValue& value, ForVisitedLink forVisitedLink) -> SVGPaint
 {
-    if (RefPtr list = dynamicDowncast<CSSValueList>(value)) {
-        RefPtr firstValue = list->item(0);
-        RefPtr urlValue = requiredDowncast<CSSURLValue>(state, *firstValue);
+    if (auto* list = dynamicDowncast<CSSValueList>(value)) {
+        Ref firstValue = *list->item(0);
+        RefPtr urlValue = requiredDowncast<CSSURLValue>(state, firstValue);
         if (!urlValue)
             return CSS::Keyword::None { };
 
@@ -56,9 +57,9 @@ auto CSSValueConversion<SVGPaint>::operator()(BuilderState& state, const CSSValu
         if (list->size() == 1)
             return url;
 
-        RefPtr secondItem = list->item(1);
-        if (RefPtr primitiveValue = dynamicDowncast<const CSSPrimitiveValue>(secondItem)) {
-            switch (primitiveValue->valueID()) {
+        Ref secondItem = *list->item(1);
+        if (RefPtr keywordValue = dynamicDowncast<const CSSKeywordValue>(secondItem)) {
+            switch (keywordValue->valueID()) {
             case CSSValueNone:
                 return SVGPaint::URLNone { url, CSS::Keyword::None { } };
 
@@ -67,18 +68,18 @@ auto CSSValueConversion<SVGPaint>::operator()(BuilderState& state, const CSSValu
                 return SVGPaint::URLColor { url, Color::currentColor() };
 
             default:
-                break;
+                return SVGPaint::URLColor { url, toStyleFromCSSValue<Color>(state, *keywordValue, forVisitedLink) };
             }
         }
 
-        return SVGPaint::URLColor { url, toStyleFromCSSValue<Color>(state, *protect(list->item(1)), forVisitedLink) };
+        return SVGPaint::URLColor { url, toStyleFromCSSValue<Color>(state, secondItem, forVisitedLink) };
     }
 
-    if (RefPtr urlValue = dynamicDowncast<CSSURLValue>(value))
+    if (auto* urlValue = dynamicDowncast<CSSURLValue>(value))
         return toStyle(urlValue->url(), state);
 
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNone:
             return CSS::Keyword::None { };
 
@@ -87,7 +88,7 @@ auto CSSValueConversion<SVGPaint>::operator()(BuilderState& state, const CSSValu
             return Color { Color::currentColor() };
 
         default:
-            break;
+            return toStyleFromCSSValue<Color>(state, *keywordValue, forVisitedLink);
         }
     }
 
@@ -96,7 +97,7 @@ auto CSSValueConversion<SVGPaint>::operator()(BuilderState& state, const CSSValu
 
 // MARK: - Blending
 
-auto Blending<SVGPaint>::equals(const SVGPaint& a, const SVGPaint& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+auto Blending<SVGPaint>::equals(const SVGPaint& a, const SVGPaint& b, const Style::ComputedStyle& aStyle, const Style::ComputedStyle& bStyle) -> bool
 {
     if (!a.hasSameType(b))
         return false;
@@ -118,7 +119,7 @@ auto Blending<SVGPaint>::canBlend(const SVGPaint& a, const SVGPaint& b) -> bool
     return Style::canBlend(a.colorDisregardingType(), b.colorDisregardingType());
 }
 
-auto Blending<SVGPaint>::blend(const SVGPaint& a, const SVGPaint& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> SVGPaint
+auto Blending<SVGPaint>::blend(const SVGPaint& a, const SVGPaint& b, const Style::ComputedStyle& aStyle, const Style::ComputedStyle& bStyle, const BlendingContext& context) -> SVGPaint
 {
     if (context.isDiscrete) {
         ASSERT(!context.progress || context.progress == 1);

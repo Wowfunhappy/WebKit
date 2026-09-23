@@ -28,6 +28,7 @@
 
 #if ENABLE(WEBXR)
 
+#include <JavaScriptCore/WeakInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {

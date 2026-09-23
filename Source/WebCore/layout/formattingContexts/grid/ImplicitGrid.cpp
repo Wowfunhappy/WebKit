@@ -29,6 +29,7 @@
 #include "GridAreaLines.h"
 #include "GridLayout.h"
 #include "PlacedGridItem.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "UnplacedGridItem.h"
 #include <wtf/Assertions.h>
 #include <wtf/Range.h>
@@ -42,7 +43,7 @@ namespace Layout {
 // tracks and grow the grid.
 
 ImplicitGrid::ImplicitGrid(size_t totalColumnsCount, size_t totalRowsCount)
-    : m_gridMatrix(Vector(totalRowsCount, Vector<GridCell>(totalColumnsCount)))
+    : m_gridMatrix(Vector<Vector<GridCell>>(FillWith { }, totalRowsCount, Vector<GridCell>(totalColumnsCount)))
     , m_initialColumnsCount(totalColumnsCount)
 {
 }

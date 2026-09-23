@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2003-2025 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -24,6 +24,7 @@
 
 #include <JavaScriptCore/CPU.h>
 #include <JavaScriptCore/CalleeBits.h>
+#include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/MacroAssemblerCodeRef.h>
 #include <JavaScriptCore/Register.h>
 #include <JavaScriptCore/StackVisitor.h>
@@ -124,50 +125,53 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
     //  See details below the diagram.
     //
     //
-    //   |          ......            |   |
-    //   +----------------------------+   |
-    //   |           argN             |   v  lower addresses
-    //   +----------------------------+
-    //   |           ...              |
-    //   +----------------------------+
-    //   |           arg1             |
-    //   +----------------------------+
-    //   |           arg0             |
-    //   +----------------------------+
-    //   |          this(+)           |
-    //   +----------------------------+
-    //   | argumentCountIncludingThis |
-    //   +----------------------------+
-    //   |          callee            |
-    //   +----------------------------+
-    //   |       codeBlock(+)         |
-    //   +----------------------------+
-    //   |       returnAddress        |
-    //   +----------------------------+
-    //   |        callerFrame         |  <- callee's cfr is pointing at this address
-    //   +----------------------------+
-    //   |          local0            |
-    //   +----------------------------+
-    //   |          local1            |
-    //   +----------------------------+
-    //   |           ...              |
-    //   +----------------------------+
-    //   |          localN            |
-    //   +----------------------------+
-    //   |          ......            |
+    //   |            ......              |   |
+    //   +--------------------------------+   |
+    //   |             argN               |   v  lower addresses
+    //   +--------------------------------+
+    //   |             ...                |
+    //   +--------------------------------+
+    //   |             arg1               |
+    //   +--------------------------------+
+    //   |             arg0               |
+    //   +--------------------------------+
+    //   |            this(+)             |
+    //   +--------------------------------+
+    //   | argumentCountIncludingThis(+)  |
+    //   +--------------------------------+
+    //   |            callee              |
+    //   +--------------------------------+
+    //   |         codeBlock(+)           |
+    //   +--------------------------------+
+    //   |         returnAddress          |
+    //   +--------------------------------+
+    //   |          callerFrame           |  <- callee's cfr is pointing at this address
+    //   +--------------------------------+
+    //   |            local0              |
+    //   +--------------------------------+
+    //   |            local1              |
+    //   +--------------------------------+
+    //   |             ...                |
+    //   +--------------------------------+
+    //   |            localN              |
+    //   +--------------------------------+
+    //   |            ......              |
     //
     //
     //  Overloaded slots:
     //
     //    - 'this': when executing Wasm code, the slot contains the value of $sp relative to $fp, saved before the call.
     //      Saving the value allows moving the $sp freely in tail calls.
+    //    - 'argumentCountIncludingThis': when executing Wasm code, the tag half (upper 32 bits)
+    //      of this slot stores the call site index, used to look up exception handlers.
+    //      The payload half (lower 32 bits) is unused in Wasm-to-Wasm calls, but stores
+    //      the actual argument count when calling from Wasm into JS.
     //    - 'codeBlock': when executing Wasm code, the slot contains a pointer to the Wasm instance.
     //      A special case is calling a module import whose functionCallLinkInfo.targetInstance is
     //      null, which is the case when the imported function is a JS function.
     //      In that case, 'codeBlock' points at the functionCallLinkInfo object.
-    //
-    // Further, in Wasm execution not all slots shown above are used, and not all exist.
-    // Argument slots beyond 'this' typically do not exist and 'argumentCountIncludingThis' value is not meaningful.
+    //    - 'arg0': for Wasm multi-value returns, this is the first stack result
+    //      (i.e. the first return value that doesn't fit in a register).
 
     enum class CallFrameSlot {
         codeBlock = CallerFrameAndPC::sizeInRegisters,
@@ -233,25 +237,25 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         void clearReturnPC() { callerFrameAndPC().returnPC = nullptr; }
         static constexpr ptrdiff_t returnPCOffset() { return OBJECT_OFFSETOF(CallerFrameAndPC, returnPC); }
 
-        bool callSiteBitsAreBytecodeOffset() const;
-        bool callSiteBitsAreCodeOriginIndex() const;
+        bool NODELETE callSiteBitsAreBytecodeOffset() const;
+        bool NODELETE callSiteBitsAreCodeOriginIndex() const;
 
-        unsigned callSiteAsRawBits() const;
-        unsigned unsafeCallSiteAsRawBits() const;
-        CallSiteIndex callSiteIndex() const;
-        CallSiteIndex unsafeCallSiteIndex() const;
+        unsigned NODELETE callSiteAsRawBits() const;
+        unsigned NODELETE unsafeCallSiteAsRawBits() const;
+        CallSiteIndex NODELETE callSiteIndex() const;
+        CallSiteIndex NODELETE unsafeCallSiteIndex() const;
         void setCallSiteIndex(CallSiteIndex);
 
 #if ENABLE(WEBASSEMBLY)
-        JSWebAssemblyInstance* wasmInstance() const;
+        JSWebAssemblyInstance* NODELETE wasmInstance() const;
 #endif
 
         JSCell* codeOwnerCell() const;
 
     private:
-        unsigned callSiteBitsAsBytecodeOffset() const;
-        JS_EXPORT_PRIVATE JSGlobalObject* lexicalGlobalObjectFromNativeCallee(VM&) const;
-        JS_EXPORT_PRIVATE JSCell* codeOwnerCellSlow() const;
+        unsigned NODELETE callSiteBitsAsBytecodeOffset() const;
+        JS_EXPORT_PRIVATE JSGlobalObject* NODELETE lexicalGlobalObjectFromNativeCallee(VM&) const;
+        JS_EXPORT_PRIVATE JSCell* NODELETE codeOwnerCellSlow() const;
     public:
 
         // This will try to get you the bytecode offset, but you should be aware that
@@ -267,8 +271,8 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
 
         inline Register* topOfFrame();
 
-        const JSInstruction* currentVPC() const; // This only makes sense in the LLInt and baseline.
-        void setCurrentVPC(const JSInstruction*);
+        const JSInstruction* NODELETE currentVPC() const; // This only makes sense in the LLInt and baseline.
+        void NODELETE setCurrentVPC(const JSInstruction*);
 
         void setCallerFrame(CallFrame* frame) { callerFrameAndPC().callerFrame = frame; }
         inline void setScope(int scopeRegisterOffset, JSScope*);
@@ -284,6 +288,8 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         static constexpr int argumentOffset(int argument) { return (CallFrameSlot::firstArgument + argument); }
         static constexpr int argumentOffsetIncludingThis(int argument) { return (CallFrameSlot::thisArgument + argument); }
 
+        inline std::span<JSValue> argumentsSpan(); // Defined in CallFrameInlines.h
+
         // In the following (argument() and setArgument()), the 'argument'
         // parameter is the index of the arguments of the target function of
         // this frame. The index starts at 0 for the first arg, 1 for the
@@ -293,39 +299,19 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         // arguments(0) will not fetch the 'this' value. To get/set 'this',
         // use thisValue() and setThisValue() below.
 
-        JSValue* addressOfArgumentsStart() const { return std::bit_cast<JSValue*>(this + argumentOffset(0)); }
-        JSValue argument(size_t argument) const
-        {
-            if (argument >= argumentCount())
-                 return jsUndefined();
-            return getArgumentUnsafe(argument);
-        }
-        JSValue uncheckedArgument(size_t argument) const
-        {
-            ASSERT(argument < argumentCount());
-            return getArgumentUnsafe(argument);
-        }
-        void setArgument(size_t argument, JSValue value)
-        {
-            this[argumentOffset(argument)] = value;
-        }
+        inline JSValue* addressOfArgumentsStart() const; // Defined in CallFrameInlines.h
+        inline JSValue argument(size_t argument) const; // Defined in CallFrameInlines.h
+        inline JSValue uncheckedArgument(size_t argument) const; // Defined in CallFrameInlines.h
+        inline void setArgument(size_t argument, JSValue); // Defined in CallFrameInlines.h
 
-        JSValue getArgumentUnsafe(size_t argIndex) const
-        {
-            // User beware! This method does not verify that there is a valid
-            // argument at the specified argIndex. This is used for debugging
-            // and verification code only. The caller is expected to know what
-            // he/she is doing when calling this method.
-            return this[argumentOffset(argIndex)].jsValue();
-        }
-
+        inline JSValue getArgumentUnsafe(size_t argIndex) const; // Defined in CallFrameInlines.h
         static int thisArgumentOffset() { return argumentOffsetIncludingThis(0); }
-        JSValue thisValue() const { return this[thisArgumentOffset()].jsValue(); }
-        void setThisValue(JSValue value) { this[thisArgumentOffset()] = value; }
+        inline JSValue thisValue() const; // Defined in CallFrameInlines.h
+        inline void setThisValue(JSValue); // Defined in CallFrameInlines.h
 
         // Under the constructor implemented in C++, thisValue holds the newTarget instead of the automatically constructed value.
         // The result of this function is only effective under the "construct" context.
-        JSValue newTarget() const { return thisValue(); }
+        inline JSValue newTarget() const; // Defined in CallFrameInlines.h
 
         JSValue argumentAfterCapture(size_t argument);
 
@@ -388,7 +374,7 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         SUPPRESS_ASAN const CallerFrameAndPC& unsafeCallerFrameAndPC() const { return *reinterpret_cast<const CallerFrameAndPC*>(this); }
     };
 
-JS_EXPORT_PRIVATE bool isFromJSCode(void* returnAddress);
+JS_EXPORT_PRIVATE bool NODELETE isFromJSCode(void* returnAddress);
 
 #if USE(BUILTIN_FRAME_ADDRESS)
 #if OS(WINDOWS) && CPU(X86_64)

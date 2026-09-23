@@ -24,7 +24,7 @@
 
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
@@ -88,6 +88,7 @@ NonInheritedRareData::NonInheritedRareData()
     , viewTimelines { CSS::Keyword::None { } }
     , timelineScope(ComputedStyle::initialTimelineScope())
     , scrollbarGutter(ComputedStyle::initialScrollbarGutter())
+    , containerType(ComputedStyle::initialContainerType())
     , scrollSnapType(ComputedStyle::initialScrollSnapType())
     , scrollSnapAlign(ComputedStyle::initialScrollSnapAlign())
     , pseudoElementNameArgument(nullAtom())
@@ -121,7 +122,6 @@ NonInheritedRareData::NonInheritedRareData()
     , breakBefore(static_cast<unsigned>(ComputedStyle::initialBreakBefore()))
     , breakAfter(static_cast<unsigned>(ComputedStyle::initialBreakAfter()))
     , breakInside(static_cast<unsigned>(ComputedStyle::initialBreakInside()))
-    , containerType(static_cast<unsigned>(ComputedStyle::initialContainerType()))
     , textBoxTrim(static_cast<unsigned>(ComputedStyle::initialTextBoxTrim()))
     , overflowAnchor(static_cast<unsigned>(ComputedStyle::initialOverflowAnchor()))
     , positionTryOrder(static_cast<unsigned>(ComputedStyle::initialPositionTryOrder()))
@@ -198,6 +198,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , viewTimelines(o.viewTimelines)
     , timelineScope(o.timelineScope)
     , scrollbarGutter(o.scrollbarGutter)
+    , containerType(o.containerType)
     , scrollSnapType(o.scrollSnapType)
     , scrollSnapAlign(o.scrollSnapAlign)
     , pseudoElementNameArgument(o.pseudoElementNameArgument)
@@ -231,7 +232,6 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , breakBefore(o.breakBefore)
     , breakAfter(o.breakAfter)
     , breakInside(o.breakInside)
-    , containerType(o.containerType)
     , textBoxTrim(o.textBoxTrim)
     , overflowAnchor(o.overflowAnchor)
     , positionTryOrder(o.positionTryOrder)
@@ -313,6 +313,7 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && viewTimelines == o.viewTimelines
         && timelineScope == o.timelineScope
         && scrollbarGutter == o.scrollbarGutter
+        && containerType == o.containerType
         && scrollSnapType == o.scrollSnapType
         && scrollSnapAlign == o.scrollSnapAlign
         && pseudoElementNameArgument == o.pseudoElementNameArgument
@@ -346,7 +347,6 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && breakAfter == o.breakAfter
         && breakBefore == o.breakBefore
         && breakInside == o.breakInside
-        && containerType == o.containerType
         && textBoxTrim == o.textBoxTrim
         && overflowAnchor == o.overflowAnchor
         && viewTransitionClasses == o.viewTransitionClasses
@@ -373,16 +373,10 @@ Contain NonInheritedRareData::usedContain() const
 {
     auto result = Contain::fromRaw(contain);
 
-    switch (static_cast<ContainerType>(containerType)) {
-    case ContainerType::Normal:
-        break;
-    case ContainerType::Size:
+    if (containerType.hasSize())
         result.add({ ContainValue::Style, ContainValue::Size });
-        break;
-    case ContainerType::InlineSize:
+    else if (containerType.hasInlineSize())
         result.add({ ContainValue::Style, ContainValue::InlineSize });
-        break;
-    };
 
     return result;
 }
@@ -467,6 +461,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT(timelineScope);
 
     LOG_IF_DIFFERENT(scrollbarGutter);
+    LOG_IF_DIFFERENT(containerType);
 
     LOG_IF_DIFFERENT(scrollSnapType);
     LOG_IF_DIFFERENT(scrollSnapAlign);
@@ -516,7 +511,6 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT_WITH_CAST(BreakBetween, breakAfter);
     LOG_IF_DIFFERENT_WITH_CAST(BreakInside, breakInside);
 
-    LOG_IF_DIFFERENT_WITH_CAST(ContainerType, containerType);
     LOG_IF_DIFFERENT_WITH_CAST(TextBoxTrim, textBoxTrim);
     LOG_IF_DIFFERENT_WITH_CAST(OverflowAnchor, overflowAnchor);
     LOG_IF_DIFFERENT_WITH_CAST(PositionTryOrder, positionTryOrder);

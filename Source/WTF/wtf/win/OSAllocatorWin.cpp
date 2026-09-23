@@ -98,23 +98,20 @@ void OSAllocator::commit(void* address, size_t bytes, bool writable, bool execut
 
 void OSAllocator::decommit(void* address, size_t bytes)
 {
-    // https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
-    // Use MEM_RESET to purge physical pages at timing of OS's preference. This is aligned to
-    // madvise MADV_FREE / MADV_FREE_REUSABLE.
-    // https://devblogs.microsoft.com/oldnewthing/20170113-00/?p=95185
-    // > The fact that MEM_RESET does not remove the page from the working set is not actually mentioned
-    // > in the documentation for the MEM_RESET flag. Instead, it’s mentioned in the documentation for
-    // > the Offer­Virtual­Memory function, and in a sort of backhanded way
-    // So, we need VirtualUnlock call.
+    // Symmetric decommit on Windows. MEM_DECOMMIT releases both physical pages
+    // and Windows commit charge. The matching OSAllocator::commit() call must
+    // happen before any re-access; touching a decommitted page faults.
+    //
+    // Unlike POSIX, Windows has yet another metrics (commit charge), and even though
+    // there is no physical backing pages, commit charge has low hard limit.
+    //
+    // To workaround this limit, Windows is explicitly decommiting and explicitly committing.
     if (!bytes)
         return;
-    void* result = VirtualAlloc(address, bytes, MEM_RESET, PAGE_READWRITE);
+
+    bool result = VirtualFree(address, bytes, MEM_DECOMMIT);
     if (!result)
         CRASH();
-    // Calling VirtualUnlock on a range of memory that is not locked releases the pages from the
-    // process's working set.
-    // https://devblogs.microsoft.com/oldnewthing/20170317-00/?p=95755
-    VirtualUnlock(address, bytes);
 }
 
 void OSAllocator::releaseDecommitted(void* address, size_t bytes, unsigned)
@@ -148,7 +145,24 @@ bool OSAllocator::tryProtect(void* address, size_t bytes, bool readable, bool wr
         ASSERT(!readable && !writable);
         protection = PAGE_NOACCESS;
     }
-    return VirtualAlloc(address, bytes, MEM_COMMIT, protection);
+
+    // VirtualAlloc(MEM_COMMIT) cannot span multiple MEM_RESERVE regions, so walk
+    // the range with VirtualQuery and commit one region at a time. See 306171@main.
+    size_t totalSeen = 0;
+    char* currentPtr = static_cast<char*>(address);
+    while (totalSeen < bytes) {
+        MEMORY_BASIC_INFORMATION memInfo;
+        if (!VirtualQuery(currentPtr, &memInfo, sizeof(memInfo)))
+            return false;
+        ASSERT(memInfo.RegionSize > 0);
+        ASSERT(static_cast<char*>(memInfo.BaseAddress) == currentPtr);
+        size_t chunkSize = std::min(static_cast<size_t>(memInfo.RegionSize), bytes - totalSeen);
+        if (!VirtualAlloc(currentPtr, chunkSize, MEM_COMMIT, protection))
+            return false;
+        currentPtr += chunkSize;
+        totalSeen += chunkSize;
+    }
+    return true;
 }
 
 void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writable)
@@ -157,6 +171,11 @@ void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writa
         dataLogLn("mprotect failed: ", static_cast<int>(GetLastError()));
         RELEASE_ASSERT_NOT_REACHED();
     }
+}
+
+void OSAllocator::zeroFill(void* base, size_t size)
+{
+    memset(base, 0, size);
 }
 
 } // namespace WTF

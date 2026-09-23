@@ -49,6 +49,7 @@
 #include "HTMLElement.h"
 #include "HTMLMediaElement.h"
 #include "HTMLVideoElement.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "LocalDOMWindow.h"
 #include "LocalizedStrings.h"
 #include "Logging.h"
@@ -60,6 +61,7 @@
 #include "NodeDocument.h"
 #include "Page.h"
 #include "PageGroup.h"
+#include "PlatformRenderTheme.h"
 #include "RenderTheme.h"
 #include "ShadowRoot.h"
 #include "Settings.h"
@@ -346,7 +348,7 @@ bool MediaControlsHost::needsChromeMediaControlsPseudoElement() const
 bool MediaControlsHost::isMediaControlsMacInlineSizeSpecsEnabled() const
 {
 #if HAVE(MATERIAL_HOSTING)
-    return protect(m_mediaElement)->document().settings().mediaControlsMacInlineSizeSpecsEnabled();
+    return m_mediaElement->document().settings().mediaControlsMacInlineSizeSpecsEnabled();
 #else
     return false;
 #endif
@@ -372,6 +374,23 @@ String MediaControlsHost::externalDeviceDisplayName() const
 
     String name = player->wirelessPlaybackTargetName();
     LOG(Media, "MediaControlsHost::externalDeviceDisplayName - returning \"%s\"", name.utf8().data());
+    return name;
+#else
+    return emptyString();
+#endif
+}
+
+String MediaControlsHost::externalDeviceRouteName() const
+{
+#if ENABLE(WIRELESS_PLAYBACK_TARGET)
+    RefPtr player = m_mediaElement->player();
+    if (!player) {
+        LOG(Media, "MediaControlsHost::externalDeviceRouteName - returning \"\" because player is NULL");
+        return emptyString();
+    }
+
+    String name = player->wirelessPlaybackRouteName();
+    LOG(Media, "MediaControlsHost::externalDeviceRouteName - returning \"%s\"", name.utf8().data());
     return name;
 #else
     return emptyString();

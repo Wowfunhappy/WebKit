@@ -31,7 +31,9 @@
 #include "pas_heap_lock.h"
 #include "pas_large_free.h"
 #include "pas_large_free_heap_config.h"
+#include "pas_large_free_heap_helpers.h"
 #include "pas_page_malloc.h"
+#include "pas_page_sharing_pool.h"
 #include "pas_simple_large_free_heap.h"
 #include <set>
 #include <vector>
@@ -426,6 +428,38 @@ void testBootstrapHeap(const vector<Action>& actions,
 size_t freeListSize(size_t size)
 {
     return PAS_MAX(size, PAS_BOOTSTRAP_FREE_LIST_MINIMUM_SIZE) * sizeof(pas_large_free);
+}
+
+pas_allocation_result failingMemorySource(size_t, pas_alignment, const char*, pas_allocation_kind)
+{
+    return pas_allocation_result_create_failure();
+}
+
+void testGiveBackGuardOnAllocationFailure(bool talksToLargeSharingPool)
+{
+    pas_fast_large_free_heap heap;
+    pas_fast_large_free_heap_construct(&heap);
+    size_t numAllocatedObjectBytes = 0;
+    size_t numAllocatedObjectBytesPeak = 0;
+
+    pas_large_utility_free_heap_talks_to_large_sharing_pool = talksToLargeSharingPool;
+    pas_physical_page_sharing_pool_balancing_enabled = true;
+    pas_physical_page_sharing_pool_balance = 0;
+
+    pas_heap_lock_lock();
+    void* result = pas_large_free_heap_helpers_try_allocate_with_alignment(
+        &heap, failingMemorySource, &numAllocatedObjectBytes, &numAllocatedObjectBytesPeak,
+        100, alignSimple(1), "test-give-back-guard");
+    pas_heap_lock_unlock();
+
+    CHECK(!result);
+
+    // The allocator's failure path must net out to zero against its setup path.
+    // When talks_to_large_sharing_pool is true, take_later subtracts aligned_size
+    // and give_back adds it back. When it is false, take_later is skipped, so
+    // give_back must be skipped too -- otherwise the balance drifts upward by
+    // aligned_size on every failed allocation.
+    CHECK_EQUAL(pas_physical_page_sharing_pool_balance, static_cast<intptr_t>(0));
 }
 
 } // anonymous namespace
@@ -1109,6 +1143,36 @@ void addLargeFreeHeapTests()
                  },
                  1));
 
+    ADD_TEST(testFastLargeFreeHeap(
+                 {
+                     Action::deallocate(1000, 100),
+                     Action::deallocate(3000, 200),
+                     Action::deallocate(2000, 400),
+                     Action::allocate(350, alignSimple(1), 2000),
+                     Action::allocate(150, alignSimple(1), 3000)
+                 },
+                 {
+                     Free(1000, 1100),
+                     Free(2350, 2400),
+                     Free(3150, 3200)
+                 },
+                 1));
+
+    ADD_TEST(testFastLargeFreeHeap(
+                 {
+                     Action::deallocate(1000, 100),
+                     Action::deallocate(3000, 1000),
+                     Action::deallocate(5000, 200),
+                     Action::deallocate(5200, 3000),
+                     Action::allocate(2000, alignSimple(1), 5000)
+                 },
+                 {
+                     Free(1000, 1100),
+                     Free(3000, 4000),
+                     Free(7000, 8200)
+                 },
+                 1));
+
     ADD_TEST(testBootstrapHeap({ }, { }, 1));
     ADD_TEST(testBootstrapHeap(
                  {
@@ -1195,5 +1259,8 @@ void addLargeFreeHeapTests()
                      Free(15200, 16000)
                  },
                  1));
+
+    ADD_TEST(testGiveBackGuardOnAllocationFailure(true));
+    ADD_TEST(testGiveBackGuardOnAllocationFailure(false));
 }
 

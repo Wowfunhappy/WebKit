@@ -26,11 +26,11 @@
 #pragma once
 
 #include <JavaScriptCore/JSExportMacros.h>
+#include <JavaScriptCore/JSLock.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
-#include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/SharedTask.h>
 #include <wtf/TZoneMalloc.h>
@@ -38,7 +38,6 @@
 
 namespace JSC {
 
-class JSLock;
 class VM;
 
 class JSRunLoopTimer : public ThreadSafeRefCounted<JSRunLoopTimer> {
@@ -57,6 +56,8 @@ public:
         void timerDidFire();
 
     public:
+        JS_EXPORT_PRIVATE ~Manager();
+
         static Manager& singleton();
 
         void registerVM(VM&);

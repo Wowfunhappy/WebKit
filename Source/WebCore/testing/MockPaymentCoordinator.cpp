@@ -119,11 +119,11 @@ void MockPaymentCoordinator::dispatchIfShowing(Function<void()>&& function)
 bool MockPaymentCoordinator::showPaymentUI(const URL&, const Vector<URL>&, const ApplePaySessionPaymentRequest& request)
 {
     if (request.shippingContact().pkContact().get())
-        m_shippingAddress = request.shippingContact().toLocalizedApplePayPaymentContact(request.version());
+        m_shippingAddress = toMockPaymentAddress(request.shippingContact().toLocalizedApplePayPaymentContact(request.version()));
     m_supportedCountries = request.supportedCountries();
     m_shippingMethods = request.shippingMethods();
-    m_requiredBillingContactFields = request.requiredBillingContactFields();
-    m_requiredShippingContactFields = request.requiredShippingContactFields();
+    m_requiredBillingContactFields = toMockPaymentContactFields(request.requiredBillingContactFields());
+    m_requiredShippingContactFields = toMockPaymentContactFields(request.requiredShippingContactFields());
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
     if (auto& configuration = request.installmentConfiguration().applePayInstallmentConfiguration())
         m_installmentConfiguration = *configuration;
@@ -179,7 +179,7 @@ void MockPaymentCoordinator::completeMerchantValidation(const PaymentMerchantSes
         return;
 
     dispatchIfShowing([page = WTF::move(page), shippingAddress = m_shippingAddress]() mutable {
-        protect(page->paymentCoordinator())->didSelectShippingContact(MockPaymentContact { WTF::move(shippingAddress) });
+        protect(page->paymentCoordinator())->didSelectShippingContact(MockPaymentContact { toLocalizedApplePayPaymentContact(shippingAddress) });
     });
 }
 
@@ -346,9 +346,9 @@ void MockPaymentCoordinator::acceptPayment()
 
     dispatchIfShowing([page = WTF::move(page), shippingAddress = m_shippingAddress]() mutable {
         ApplePayPayment payment;
-        payment.shippingContact = shippingAddress;
+        payment.shippingContact = toApplePayPaymentContact(shippingAddress);
         LocalizedApplePayPayment localizedPayment;
-        localizedPayment.shippingContact = shippingAddress;
+        localizedPayment.shippingContact = toLocalizedApplePayPaymentContact(shippingAddress);
         protect(page->paymentCoordinator())->didAuthorizePayment(MockPayment { WTF::move(payment), WTF::move(localizedPayment) });
     });
 }

@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/JSExportMacros.h>
 #include <cstdint>
-#include <wtf/Assertions.h>
 
 namespace JSC {
 
@@ -40,6 +39,7 @@ struct DoesGCCheck {
         Uninitialized,
         DFGOSRExit,
         FTLOSRExit,
+        Termination,
         NumberOfSpecials
     };
 

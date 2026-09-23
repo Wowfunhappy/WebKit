@@ -42,5 +42,9 @@ namespace CSSPropertyParserHelpers {
 // https://drafts.csswg.org/css-syntax-3/#typedef-declaration-value
 RefPtr<CSSValue> consumeDeclarationValue(CSSParserTokenRange&, CSS::PropertyParserState&);
 
+// MARK: @function result descriptor
+// https://www.w3.org/TR/css-mixins-1/#descdef-function-result
+RefPtr<CSSValue> consumeFunctionResult(CSSParserTokenRange&, CSS::PropertyParserState&);
+
 } // namespace CSSPropertyParserHelpers
 } // namespace WebCore

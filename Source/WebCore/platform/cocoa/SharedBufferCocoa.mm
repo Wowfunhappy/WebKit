@@ -103,7 +103,7 @@ void SharedBufferBuilder::append(NSData *data)
     return append(bridge_cast(data));
 }
 
-static void NODELETE FreeDataSegment(void* refcon, void*, size_t)
+static void FreeDataSegment(void* refcon, void*, size_t)
 {
     auto* buffer = reinterpret_cast<const DataSegment*>(refcon);
     buffer->deref();
@@ -123,8 +123,10 @@ RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
         allocator.refCon = const_cast<DataSegment*>(&segment);
         segment.ref();
         CMBlockBufferRef partialBuffer = nullptr;
-        if (PAL::CMBlockBufferCreateWithMemoryBlock(nullptr, const_cast<uint8_t*>(segment.span().data()), segment.size(), nullptr, &allocator, 0, segment.size(), 0, &partialBuffer) != kCMBlockBufferNoErr)
+        if (PAL::CMBlockBufferCreateWithMemoryBlock(nullptr, const_cast<uint8_t*>(segment.span().data()), segment.size(), nullptr, &allocator, 0, segment.size(), 0, &partialBuffer) != kCMBlockBufferNoErr) {
+            segment.deref();
             return nullptr;
+        }
         return adoptCF(partialBuffer);
     };
 

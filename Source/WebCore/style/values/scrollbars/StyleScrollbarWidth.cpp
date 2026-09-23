@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleScrollbarWidth.h"
 
+#include "CSSKeywordValue.h"
 #include "DocumentQuirks.h"
 #include "StyleBuilderChecking.h"
 
@@ -36,11 +37,11 @@ namespace Style {
 
 auto CSSValueConversion<ScrollbarWidth>::operator()(BuilderState& state, const CSSValue& value) -> ScrollbarWidth
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
         return ScrollbarWidth::Auto;
 
-    switch (primitiveValue->valueID()) {
+    switch (keywordValue->valueID()) {
     case CSSValueAuto:
         return ScrollbarWidth::Auto;
     case CSSValueThin:

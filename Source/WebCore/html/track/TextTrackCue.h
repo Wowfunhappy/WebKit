@@ -38,6 +38,7 @@
 #include <WebCore/EventTargetInterfaces.h>
 #include <WebCore/HTMLElement.h>
 #include <wtf/JSONValues.h>
+#include <wtf/Lock.h>
 #include <wtf/MediaTime.h>
 
 namespace WebCore {
@@ -59,7 +60,7 @@ protected:
     void initialize();
 
     TextTrackCueBox(Document&, TextTrackCue&);
-    ~TextTrackCueBox() { }
+    ~TextTrackCueBox();
 
 private:
 
@@ -70,6 +71,7 @@ class TextTrackCue : public RefCounted<TextTrackCue>, public EventTarget, public
     WTF_MAKE_TZONE_ALLOCATED(TextTrackCue);
 public:
     static ExceptionOr<Ref<TextTrackCue>> create(Document&, double start, double end, DocumentFragment&);
+    ~TextTrackCue();
 
     // ContextDestructionObserver.
     void ref() const final { RefCounted::ref(); }
@@ -81,6 +83,8 @@ public:
     TextTrack* NODELETE track() const;
     void setTrack(TextTrack*);
 
+    template<typename Visitor> void visitAdditionalChildrenInGCThread(Visitor&);
+
     const AtomString& id() const LIFETIME_BOUND { return m_id; }
     void setId(const AtomString&);
 
@@ -88,7 +92,7 @@ public:
     void setStartTime(double);
 
     double endTime() const { return endMediaTime().toDouble(); }
-    void setEndTime(double);
+    ExceptionOr<void> setEndTime(double);
 
     bool pauseOnExit() const { return m_pauseOnExit; }
     void NODELETE setPauseOnExit(bool);
@@ -163,7 +167,8 @@ private:
     MediaTime m_endTime;
     int m_processingCueChanges { 0 };
 
-    WeakPtr<TextTrack, WeakPtrImplWithEventTargetData> m_track;
+    Lock m_trackLockForGC;
+    CheckedPtr<TextTrack> m_track;
 
     const RefPtr<DocumentFragment> m_cueNode;
     const RefPtr<TextTrackCueBox> m_displayTree;

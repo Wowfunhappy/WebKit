@@ -75,7 +75,7 @@ public:
     RefPtr<GPUConnectionToWebProcess> gpuConnectionToWebProcess() { return m_gpuConnectionToWebProcess.get(); }
 
     bool NODELETE allowsExitUnderMemoryPressure() const;
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const;

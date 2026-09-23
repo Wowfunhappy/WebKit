@@ -30,6 +30,7 @@
 #include "CacheStorageRegistry.h"
 #include <WebCore/ClientOrigin.h>
 #include <WebCore/StorageUtilities.h>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -40,7 +41,7 @@ namespace WebKit {
 
 static constexpr auto cachesListFileName = "cacheslist"_s;
 static constexpr auto sizeFileName = "estimatedsize"_s;
-static constexpr auto originFileName = "origin"_s;
+static constexpr auto cachesOriginFileName = "origin"_s;
 static constexpr auto originSaltFileName = "salt"_s;
 
 static uint64_t nextUpdateNumber()
@@ -186,7 +187,7 @@ HashSet<WebCore::ClientOrigin> CacheStorageManager::originsOfCacheStorageData(co
 {
     HashSet<WebCore::ClientOrigin> result;
     for (auto& originName : FileSystem::listDirectory(rootDirectory)) {
-        auto originFile = FileSystem::pathByAppendingComponents(rootDirectory, std::initializer_list<StringView>({ originName, originFileName }));
+        auto originFile = FileSystem::pathByAppendingComponents(rootDirectory, std::initializer_list<StringView>({ originName, cachesOriginFileName }));
         if (auto origin = WebCore::StorageUtilities::readOriginFromFile(originFile))
             result.add(*origin);
     }
@@ -234,24 +235,25 @@ void CacheStorageManager::makeDirty()
     m_updateCounter = nextUpdateNumber();
 }
 
-Ref<CacheStorageManager> CacheStorageManager::create(const String& path, CacheStorageRegistry& registry, const std::optional<WebCore::ClientOrigin>& origin, QuotaCheckFunction&& quotaCheckFunction, Ref<WorkQueue>&& queue)
+Ref<CacheStorageManager> CacheStorageManager::create(const String& path, CacheStorageRegistry& registry, const WebCore::ClientOrigin& origin, ShouldWriteOriginFile shouldWriteOriginFile, QuotaCheckFunction&& quotaCheckFunction, Ref<WorkQueue>&& queue)
 {
-    return adoptRef(*new CacheStorageManager(path, registry, origin, WTF::move(quotaCheckFunction), WTF::move(queue)));
+    return adoptRef(*new CacheStorageManager(path, registry, origin, shouldWriteOriginFile, WTF::move(quotaCheckFunction), WTF::move(queue)));
 }
 
-CacheStorageManager::CacheStorageManager(const String& path, CacheStorageRegistry& registry, const std::optional<WebCore::ClientOrigin>& origin, QuotaCheckFunction&& quotaCheckFunction, Ref<WorkQueue>&& queue)
+CacheStorageManager::CacheStorageManager(const String& path, CacheStorageRegistry& registry, const WebCore::ClientOrigin& origin, ShouldWriteOriginFile shouldWriteOriginFile, QuotaCheckFunction&& quotaCheckFunction, Ref<WorkQueue>&& queue)
     : m_updateCounter(nextUpdateNumber())
     , m_path(path)
+    , m_origin(origin)
     , m_salt(readOrMakeSalt(saltFilePath(m_path)))
     , m_registry(registry)
     , m_quotaCheckFunction(WTF::move(quotaCheckFunction))
     , m_queue(WTF::move(queue))
 {
-    if (m_path.isEmpty() || !origin)
+    if (m_path.isEmpty() || shouldWriteOriginFile == ShouldWriteOriginFile::No)
         return;
 
-    auto originFile = FileSystem::pathByAppendingComponent(m_path, originFileName);
-    WebCore::StorageUtilities::writeOriginToFile(originFile, *origin);
+    auto originFile = FileSystem::pathByAppendingComponent(m_path, cachesOriginFileName);
+    WebCore::StorageUtilities::writeOriginToFile(originFile, m_origin);
 }
 
 CacheStorageManager::~CacheStorageManager()
@@ -266,7 +268,7 @@ void CacheStorageManager::reset()
         request.second(false);
     }
 
-    for (Ref cache : m_caches)
+    for (Ref cache : borrow(m_caches).get())
         m_registry->unregisterCache(cache->identifier());
     m_caches.clear();
 
@@ -352,7 +354,7 @@ void CacheStorageManager::allCaches(uint64_t updateCounter, WebCore::DOMCacheEng
     auto callbackAggregator = CallbackAggregator::create([callback = WTF::move(callback), cacheInfos = WTF::move(cacheInfos), updateCounter = m_updateCounter]() mutable {
         callback(WebCore::DOMCacheEngine::CacheInfos { WTF::move(cacheInfos), updateCounter });
     });
-    for (Ref cache : m_caches)
+    for (Ref cache : borrow(m_caches).get())
         cache->open([callbackAggregator](auto) { });
 }
 
@@ -393,13 +395,14 @@ void CacheStorageManager::requestSpaceAfterInitializingSize(uint64_t spaceReques
         return;
 
     m_pendingSize = { 0, { } };
-    for (auto& cache : m_caches)
+    auto caches = borrow(m_caches);
+    for (Ref cache : caches.get())
         m_pendingSize.second.add(cache->identifier());
 
     for (auto& identifier : m_removedCaches.keys())
         m_pendingSize.second.add(identifier);
 
-    for (Ref cache : m_caches)
+    for (Ref cache : caches.get())
         initializeCacheSize(cache);
 
     for (Ref cache : m_removedCaches.values())
@@ -496,7 +499,7 @@ void CacheStorageManager::removeUnusedCache(WebCore::DOMCacheIdentifier cacheIde
         return;
     }
 
-    for (Ref cache : m_caches) {
+    for (Ref cache : borrow(m_caches).get()) {
         if (cache->identifier() == cacheIdentifier) {
             cache->close();
             return;
@@ -524,7 +527,7 @@ String CacheStorageManager::representationString()
     builder.append("{ \"persistent\": ["_s);
 
     bool isFirst = true;
-    for (auto& cache : m_caches) {
+    for (Ref cache : borrow(m_caches).get()) {
         if (!isFirst)
             builder.append(", "_s);
         isFirst = false;

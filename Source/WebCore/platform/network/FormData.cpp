@@ -320,16 +320,14 @@ static void appendBlobResolved(BlobRegistryImpl* blobRegistry, FormData& formDat
     }
 
     for (const auto& blobItem : blobData->items()) {
-        switch (blobItem.type()) {
-        case BlobDataItem::Type::Data:
-            formData.appendData(protect(blobItem.data())->span().subspan(blobItem.offset(), blobItem.length()));
-            break;
-        case BlobDataItem::Type::File: {
-            Ref file = blobItem.file();
-            formData.appendFileRange(file->path(), blobItem.offset(), blobItem.length(), file->expectedModificationTime());
-            break;
-        }
-        }
+        WTF::switchOn(blobItem,
+            [&](const DataSegment& data) {
+                formData.appendData(data.span().subspan(blobItem.offset(), blobItem.length()));
+            },
+            [&](BlobDataFileReference& file) {
+                formData.appendFileRange(file.path(), blobItem.offset(), blobItem.length(), file.expectedModificationTime());
+            }
+        );
     }
 }
 

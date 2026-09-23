@@ -26,6 +26,7 @@
 #include "config.h"
 #include "EvalExecutable.h"
 
+#include "JSArray.h"
 #include "JSCJSValueInlines.h"
 
 namespace JSC {
@@ -53,7 +54,7 @@ auto EvalExecutable::ensureTemplateObjectMap(VM&) -> TemplateObjectMap&
 template<typename Visitor>
 void EvalExecutable::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    EvalExecutable* thisObject = jsCast<EvalExecutable*>(cell);
+    EvalExecutable* thisObject = uncheckedDowncast<EvalExecutable>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     if (TemplateObjectMap* map = thisObject->m_templateObjectMap.get()) {

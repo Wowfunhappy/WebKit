@@ -28,6 +28,7 @@
 #include "CachedResource.h"
 #include "DOMTokenList.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "EventSender.h"
@@ -134,17 +135,17 @@ void HTMLStyleElement::finishParsingChildren()
     HTMLElement::finishParsingChildren();
 }
 
-Node::InsertedIntoAncestorResult HTMLStyleElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLStyleElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
         m_styleSheetOwner.insertedIntoDocument(*this);
     return result;
 }
 
-void HTMLStyleElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLStyleElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         m_styleSheetOwner.removedFromDocument(*this);
 }
@@ -172,7 +173,7 @@ void HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources(bool errorOcc
     styleLoadEventSenderSingleton().dispatchEventSoon(*this, m_loadedSheet ? eventNames().loadEvent : eventNames().errorEvent);
 }
 
-void HTMLStyleElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLStyleElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLElement::addSubresourceAttributeURLs(urls);
 

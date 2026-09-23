@@ -49,7 +49,7 @@ public:
 private:
     WebXRTransientInputHitTestResult(Ref<WebXRInputSource>&&, Vector<Ref<WebXRHitTestResult>>&&);
 
-    Ref<WebXRInputSource> m_inputSource;
+    const Ref<WebXRInputSource> m_inputSource;
     Vector<Ref<WebXRHitTestResult>> m_results;
 };
 

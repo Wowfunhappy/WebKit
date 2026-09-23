@@ -27,8 +27,8 @@
 
 #if HAVE(RUBBER_BANDING)
 
-#include "FloatSize.h"
-#include "RectEdges.h"
+#include <WebCore/FloatSize.h>
+#include <WebCore/RectEdges.h>
 #include <wtf/MonotonicTime.h>
 
 namespace WebCore {
@@ -42,9 +42,6 @@ struct RubberbandingState {
     MonotonicTime captureTime;
 
     RectEdges<bool> rubberbandingEdges;
-
-    FloatSize stretchScrollForce;
-    FloatSize momentumVelocity;
 };
 
 } // namespace WebCore

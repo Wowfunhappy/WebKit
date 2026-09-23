@@ -28,18 +28,12 @@
 #include <JavaScriptCore/HandleTypes.h>
 #include <JavaScriptCore/Strong.h>
 #include <WebCore/BufferSource.h>
+#include <WebCore/JSDOMPromiseDeferredForward.h>
 #include <WebCore/StringAdaptors.h>
 #include <wtf/Brigand.h>
-#include <wtf/Compiler.h>
 #include <wtf/Markable.h>
-#include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
 #include <wtf/WallTime.h>
-
-#if ENABLE(WEBGL)
-#include <WebCore/WebGLAny.h>
-#include <WebCore/WebGLExtensionAny.h>
-#endif
 
 namespace JSC {
 class ArrayBuffer;
@@ -298,18 +292,20 @@ template<typename T> struct IDLNullable : IDLNullableBase<T> { };
 // without default values.
 template<typename T> struct IDLOptional : IDLNullableBase<T> { };
 
-template<typename T> struct IDLSequence : IDLType<Vector<typename T::InnerParameterType>> {
+template<typename T, size_t inlineCapacity> struct IDLSequence : IDLType<Vector<typename T::InnerParameterType, inlineCapacity>> {
     using InnerType = T;
+    static constexpr size_t vectorInlineCapacity = inlineCapacity;
 
-    using ParameterType = const Vector<typename T::InnerParameterType>&;
-    using NullableParameterType = const std::optional<Vector<typename T::InnerParameterType>>&;
+    using ParameterType = const Vector<typename T::InnerParameterType, inlineCapacity>&;
+    using NullableParameterType = const std::optional<Vector<typename T::InnerParameterType, inlineCapacity>>&;
 };
 
-template<typename T> struct IDLFrozenArray : IDLType<Vector<typename T::InnerParameterType>> {
+template<typename T, size_t inlineCapacity> struct IDLFrozenArray : IDLType<Vector<typename T::InnerParameterType, inlineCapacity>> {
     using InnerType = T;
+    static constexpr size_t vectorInlineCapacity = inlineCapacity;
 
-    using ParameterType = const Vector<typename T::InnerParameterType>&;
-    using NullableParameterType = const std::optional<Vector<typename T::InnerParameterType>>&;
+    using ParameterType = const Vector<typename T::InnerParameterType, inlineCapacity>&;
+    using NullableParameterType = const std::optional<Vector<typename T::InnerParameterType, inlineCapacity>>&;
 };
 
 template<typename K, typename V> struct IDLRecord : IDLType<Vector<KeyValuePair<typename K::InnerParameterType, typename V::InnerParameterType>>> {
@@ -405,8 +401,8 @@ struct IDLIDBValue : IDLInterface<IDBValue> { };
 struct IDLScheduledAction : IDLType<std::unique_ptr<ScheduledAction>> { };
 
 #if ENABLE(WEBGL)
-struct IDLWebGLAny : IDLType<WebGLAny> { };
-struct IDLWebGLExtensionAny : IDLType<WebGLExtensionAny> { };
+struct IDLWebGLAny;
+struct IDLWebGLExtensionAny;
 #endif
 
 // Helper predicates
@@ -424,10 +420,14 @@ template<typename T>
 struct IsIDLEnumeration : public std::integral_constant<bool, WTF::IsTemplate<T, IDLEnumeration>::value> { };
 
 template<typename T>
-struct IsIDLSequence : public std::integral_constant<bool, WTF::IsTemplate<T, IDLSequence>::value> { };
+struct IsIDLSequence : public std::false_type { };
+template<typename T, size_t N>
+struct IsIDLSequence<IDLSequence<T, N>> : public std::true_type { };
 
 template<typename T>
-struct IsIDLFrozenArray : public std::integral_constant<bool, WTF::IsTemplate<T, IDLFrozenArray>::value> { };
+struct IsIDLFrozenArray : public std::false_type { };
+template<typename T, size_t N>
+struct IsIDLFrozenArray<IDLFrozenArray<T, N>> : public std::true_type { };
 
 template<typename T>
 struct IsIDLRecord : public std::integral_constant<bool, WTF::IsTemplate<T, IDLRecord>::value> { };

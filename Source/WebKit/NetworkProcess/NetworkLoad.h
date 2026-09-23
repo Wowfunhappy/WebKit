@@ -76,9 +76,9 @@ public:
     String attributedBundleIdentifier(WebPageProxyIdentifier);
 
     void convertTaskToDownload(PendingDownload&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, ResponseCompletionHandler&&);
-    void setPendingDownloadID(DownloadID);
+    void NODELETE setPendingDownloadID(DownloadID);
     void setSuggestedFilename(const String&);
-    void setPendingDownload(PendingDownload&);
+    void NODELETE setPendingDownload(PendingDownload&);
     std::optional<DownloadID> pendingDownloadID() { return m_task->pendingDownloadID(); }
 
     bool shouldCaptureExtraNetworkLoadMetrics() const final;
@@ -91,7 +91,7 @@ public:
     std::optional<WebCore::PageIdentifier> NODELETE webPageID() const;
     Ref<NetworkProcess> NODELETE networkProcess();
 
-    size_t bytesTransferredOverNetwork() const;
+    size_t NODELETE bytesTransferredOverNetwork() const;
 
     void clearClient() { m_client = nullptr; }
 

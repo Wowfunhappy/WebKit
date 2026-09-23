@@ -77,14 +77,10 @@ static inline UserScriptInjectionTime toUserScriptInjectionTime(WebKitUserScript
 
 static inline Vector<String> toStringVector(const char* const* strv)
 {
-    if (!strv)
-        return Vector<String>();
-
     const auto strvSpan = span(strv);
-    Vector<String> result(strvSpan.size(), [&strvSpan](size_t i) {
+    return Vector<String> { strvSpan.size(), [&strvSpan](size_t i) {
         return String::fromUTF8(strvSpan[i]);
-    });
-    return result;
+    }};
 }
 
 /**

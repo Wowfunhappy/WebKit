@@ -52,6 +52,7 @@ public:
 
     bool isSecureContext() const final { return false; }
     bool isJSExecutionForbidden() const final { return false; }
+    String agentClusterID() const final { return nullString(); }
     EventLoopTaskGroup& eventLoop() final
     {
         ASSERT_NOT_REACHED();
@@ -59,7 +60,7 @@ public:
     }
     const URL& url() const LIFETIME_BOUND final { return m_url; }
     const URL& cookieURL() const final { return url(); }
-    URL completeURL(const String&, ForceUTF8 = ForceUTF8::No) const final { return { }; }
+    URL parseURL(const String&) const final { return { }; }
     String userAgent(const URL&) const final { return emptyString(); }
     ReferrerPolicy referrerPolicy() const final { return ReferrerPolicy::EmptyString; }
 
@@ -130,7 +131,7 @@ private:
         void scheduleToRun() final { ASSERT_NOT_REACHED(); }
         bool isContextThread() const final { return true; }
 
-        Ref<MicrotaskQueue> m_queue;
+        const Ref<MicrotaskQueue> m_queue;
     };
 
     const Ref<JSC::VM> m_vm;

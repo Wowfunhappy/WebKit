@@ -52,7 +52,10 @@ class TextFieldInputType : public InputType, protected SpinButtonOwner, protecte
     WTF_MAKE_TZONE_ALLOCATED(TextFieldInputType);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextFieldInputType);
 public:
-    bool valueMissing(const String&) const final;
+    bool valueMissing(StringView) const final;
+
+    void ref() const override { InputType::ref(); }
+    void deref() const override { InputType::deref(); }
 
 protected:
     explicit TextFieldInputType(Type, HTMLInputElement&);
@@ -91,7 +94,7 @@ private:
     void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) override;
     void forwardEvent(Event&) final;
     bool shouldSubmitImplicitly(Event&) final;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) override;
+    RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&) override;
     bool shouldUseInputMethod() const override { return true; }
     bool shouldRespectListAttribute() override;
     HTMLElement* NODELETE placeholderElement() const final;
@@ -151,7 +154,7 @@ private:
     RefPtr<HTMLElement> m_placeholder;
     RefPtr<SpinButtonElement> m_innerSpinButton;
     RefPtr<HTMLElement> m_capsLockIndicator;
-    RefPtr<HTMLElement> m_autoFillButton;
+    RefPtr<AutoFillButtonElement> m_autoFillButton;
 };
 
 } // namespace WebCore

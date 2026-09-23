@@ -9,6 +9,7 @@
 
 INDENT TABS: conformance-checkers/*
 INDENT TABS: encoding/legacy*/*
+INDENT TABS: *w3c-import.log
 
 TRAILING WHITESPACE: html/canvas/tools/current-work-canvas.xhtml
 TRAILING WHITESPACE: conformance-checkers/*
@@ -712,6 +713,16 @@ DUPLICATE-BASENAME-PATH: dom/nodes/ParentNode-querySelector-All-content.xht
 DUPLICATE-BASENAME-PATH: svg/struct/reftests/reference/green-100x100.html
 DUPLICATE-BASENAME-PATH: svg/struct/reftests/reference/green-100x100.svg
 
+# WebKit's import process materializes stub .window.html files for templated
+# (.window.js) tests so WebKit's test runner can find them. WPT lint flags the
+# pair as duplicate basenames; the stubs are required and intentional.
+DUPLICATE-BASENAME-PATH: navigation-timing/buffered-flag.window.html
+DUPLICATE-BASENAME-PATH: navigation-timing/buffered-flag.window.js
+DUPLICATE-BASENAME-PATH: navigation-timing/idlharness.window.html
+DUPLICATE-BASENAME-PATH: navigation-timing/idlharness.window.js
+DUPLICATE-BASENAME-PATH: navigation-timing/supported-navigation-type.window.html
+DUPLICATE-BASENAME-PATH: navigation-timing/supported-navigation-type.window.js
+
 SET TIMEOUT: mediacapture-insertable-streams/MediaStreamTrackProcessor-video.https.html
 
 # This is a subresource which cannot use step_timeout without becoming a test
@@ -746,3 +757,6 @@ HTML INVALID SYNTAX: domparsing/XMLSerializer-serializeToString.html
 HTML INVALID SYNTAX: html/canvas/element/manual/unclosed-canvas-4.htm
 HTML INVALID SYNTAX: quirks/percentage-height-calculation.html
 HTML INVALID SYNTAX: trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html
+
+# Legitimate use of test_driver_internal
+TEST DRIVER INTERNAL: resources/testdriver.js

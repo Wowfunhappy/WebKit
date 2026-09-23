@@ -63,9 +63,9 @@ RefPtr<HTMLFormElement> HTMLLegendElement::formForBindings() const
     return dynamicDowncast<HTMLFormElement>(retargetReferenceTargetForBindings(form()));
 }
 
-auto HTMLLegendElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto HTMLLegendElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
-    auto result = HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (parentNode() != &parentOfInsertedTree)
         return result;
@@ -76,9 +76,9 @@ auto HTMLLegendElement::insertedIntoAncestor(InsertionType insertionType, Contai
     return result;
 }
 
-void HTMLLegendElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLLegendElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (parentNode())
         return;

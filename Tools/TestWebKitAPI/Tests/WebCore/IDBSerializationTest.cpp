@@ -39,7 +39,7 @@ TEST(IDBSerialization, KeyDeserializationStringOverflow)
     // length 0x80000000 (little-endian), then 4 bytes of char data.
     // The uint32_t length * 2 overflows to 0, bypassing the bounds check
     // without the fix.
-    constexpr auto corruptData = std::to_array<uint8_t>({
+    constexpr auto corruptData = WTF::toArray<uint8_t>({
         0x00, // version
         0x60, // SIDBKeyType::String
         0x00, 0x00, 0x00, 0x80, // length = 0x80000000 (little-endian)
@@ -54,7 +54,7 @@ TEST(IDBSerialization, KeyDeserializationStringOverflow)
 TEST(IDBSerialization, KeyDeserializationStringValid)
 {
     // A valid string key: version byte, String type, length 2, then 2 UTF-16 chars.
-    constexpr auto validData = std::to_array<uint8_t>({
+    constexpr auto validData = WTF::toArray<uint8_t>({
         0x00, // version
         0x60, // SIDBKeyType::String
         0x02, 0x00, 0x00, 0x00, // length = 2 (little-endian)
@@ -71,7 +71,7 @@ TEST(IDBSerialization, KeyDeserializationBinaryArraySlicing)
     // An array key with two binary sub-keys: [binary(0xAA, 0xBB), binary(0xCC)].
     // Without the fix, the first binary sub-key's value would include the
     // trailing serialized bytes of the second sub-key.
-    constexpr auto arrayData = std::to_array<uint8_t>({
+    constexpr auto arrayData = WTF::toArray<uint8_t>({
         0x00, // version
         0xA0, // SIDBKeyType::Array
         0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // array length = 2 (uint64_t LE)

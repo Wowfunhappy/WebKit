@@ -309,7 +309,7 @@ bool Internals::emitWebCoreLogs(unsigned logCount, bool useMainThread) const
 {
     auto blockPtr = makeBlockPtr([logCount] {
         for (unsigned i = 0; i < logCount; i++)
-            RELEASE_LOG_FORWARDABLE(Testing, WEBCORE_TEST_LOG, i);
+            RELEASE_LOG_FORWARDABLE(Testing, WebCoreTestLog, i);
     });
     if (useMainThread)
         dispatch_async(mainDispatchQueueSingleton(), blockPtr.get());

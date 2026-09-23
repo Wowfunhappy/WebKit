@@ -73,7 +73,7 @@ void CommandEncoder::generateInvalidEncoderStateError()
     GENERATE_INVALID_ENCODER_STATE_ERROR();
 }
 
-static MTLLoadAction NODELETE loadAction(WGPULoadOp loadOp)
+static MTLLoadAction NODELETE loadAction(WGPULoadOp loadOp, bool readOnly = false)
 {
     switch (loadOp) {
     case WGPULoadOp_Load:
@@ -81,7 +81,7 @@ static MTLLoadAction NODELETE loadAction(WGPULoadOp loadOp)
     case WGPULoadOp_Clear:
         return MTLLoadActionClear;
     case WGPULoadOp_Undefined:
-        return MTLLoadActionDontCare;
+        return readOnly ? MTLLoadActionLoad : MTLLoadActionDontCare;
     case WGPULoadOp_Force32:
         ASSERT_NOT_REACHED();
         return MTLLoadActionDontCare;
@@ -152,8 +152,8 @@ CommandEncoder::CommandEncoder(id<MTLCommandBuffer> commandBuffer, Device& devic
                     auto& key = keyValuePair.first;
                     auto& value = keyValuePair.second;
                     apiBuffer->takeSlowIndexValidationPath(commandBuffer, key.firstIndex, key.indexCount, key.indexType(), key.primitiveOffset(), value);
-                    commandBuffer.addPostCommitHandler([bufferIdentifier, device = Ref { commandBuffer.device() }](id<MTLCommandBuffer>) {
-                        if (auto* apiBuffer = device->lookupBuffer(bufferIdentifier))
+                    commandBuffer.addPostCommitHandler([bufferIdentifier, device = protect(commandBuffer.device())](id<MTLCommandBuffer>) {
+                        if (RefPtr apiBuffer = device->lookupBuffer(bufferIdentifier))
                             apiBuffer->clearMustTakeSlowIndexValidationPath();
                     });
                 }
@@ -201,7 +201,7 @@ id<MTLBlitCommandEncoder> CommandEncoder::ensureBlitCommandEncoder()
         finalizeBlitCommandEncoder();
     }
 
-    if (!protect(m_device)->isValid())
+    if (!m_device->isValid())
         return nil;
 
     MTLBlitPassDescriptor *descriptor = [MTLBlitPassDescriptor new];
@@ -221,7 +221,7 @@ void CommandEncoder::finalizeBlitCommandEncoder()
     setExistingEncoder(nil);
 }
 
-static auto timestampWriteIndex(auto writeIndex)
+static auto NODELETE timestampWriteIndex(auto writeIndex)
 {
     return writeIndex == WGPU_QUERY_SET_INDEX_UNDEFINED ? 0 : writeIndex;
 }
@@ -264,7 +264,7 @@ Ref<ComputePassEncoder> CommandEncoder::beginComputePass(const WGPUComputePassDe
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled())
-        return CommandEncoder_beginComputePass_thunk(this, descriptor);
+        return commandEncoderBeginComputePass(this, descriptor);
 #endif
 
     if (!prepareTheEncoderState()) {
@@ -441,7 +441,7 @@ void CommandEncoder::runClearEncoder(NSMutableDictionary<NSNumber*, TextureAndCl
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        CommandEncoder_runClearEncoder_thunk(this, attachmentsToClear, depthStencilAttachmentToClear, depthAttachmentToClear, stencilAttachmentToClear, depthClearValue, stencilClearValue, existingEncoder);
+        commandEncoderRunClearEncoder(this, attachmentsToClear, depthStencilAttachmentToClear, depthAttachmentToClear, stencilAttachmentToClear, depthClearValue, stencilClearValue, existingEncoder);
         return;
     }
 #endif
@@ -474,6 +474,19 @@ void CommandEncoder::runClearEncoder(NSMutableDictionary<NSNumber*, TextureAndCl
             clearDescriptor.stencilAttachment.storeAction = MTLStoreActionStore;
             clearDescriptor.stencilAttachment.clearStencil = stencilClearValue;
             clearDescriptor.stencilAttachment.texture = depthStencilAttachmentToClear;
+        } else if (depthAttachmentToClear && depthStencilAttachmentToClear) {
+            // Depth is being pre-cleared but stencil has valid data (previously cleared).
+            // Load the stencil to preserve it — without this, the pre-clear pass uses
+            // MTLLoadActionDontCare for stencil, silently discarding what was written.
+            MTLPixelFormat fmt = depthStencilAttachmentToClear.pixelFormat;
+            bool hasStencil = (fmt == MTLPixelFormatDepth32Float_Stencil8
+                || fmt == MTLPixelFormatX32_Stencil8
+                || fmt == MTLPixelFormatStencil8);
+            if (hasStencil) {
+                clearDescriptor.stencilAttachment.loadAction = MTLLoadActionLoad;
+                clearDescriptor.stencilAttachment.storeAction = MTLStoreActionStore;
+                clearDescriptor.stencilAttachment.texture = depthStencilAttachmentToClear;
+            }
         }
 
         if (!attachmentsToClear.count) {
@@ -519,7 +532,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled())
-        return CommandEncoder_beginRenderPass_thunk(this, descriptor);
+        return commandEncoderBeginRenderPass(this, descriptor);
 #endif
 
     auto maxDrawCount = descriptor.maxDrawCount;
@@ -604,9 +617,12 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
             if (!(texture.usage() & WGPUTextureUsage_RenderAttachment) || !Texture::isColorRenderableFormat(textureFormat, m_device))
                 return RenderPassEncoder::createInvalid(*this, m_device, @"color attachment is not renderable");
 
-            if (!isRenderableTextureView(texture))
+            if (!isRenderableTextureView(texture, attachment.loadOp, attachment.storeOp))
                 return RenderPassEncoder::createInvalid(*this, m_device, @"texture view is not renderable");
         }
+        if (!isAllowableTextureView(texture, attachment.loadOp, attachment.storeOp))
+            return RenderPassEncoder::createInvalid(*this, m_device, @"texture view is not renderable");
+
         texture.setCommandEncoder(*this);
 
         id<MTLTexture> mtlTexture = texture.texture();
@@ -645,7 +661,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
         mtlAttachment.depthPlane = texture.is3DTexture() ? depthSliceOrArrayLayer : 0;
         mtlAttachment.slice = 0;
         mtlAttachment.loadAction = loadAction(attachment.loadOp);
-        mtlAttachment.storeAction = storeAction(attachment.storeOp, !!attachment.resolveTarget);
+        mtlAttachment.storeAction = storeAction(attachment.storeOp, !!attachment.resolveTarget || !!attachment.resolveTexture);
 
         zeroColorTargets = false;
         id<MTLTexture> textureToClear = nil;
@@ -661,7 +677,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
                 return RenderPassEncoder::createInvalid(*this, m_device, @"resolve target created from different device");
             resolveTarget.setCommandEncoder(*this);
             id<MTLTexture> resolveTexture = resolveTarget.texture();
-            if (mtlTexture.sampleCount == 1 || resolveTexture.sampleCount != 1 || isMultisampleTexture(resolveTexture) || !isMultisampleTexture(mtlTexture) || !isRenderableTextureView(resolveTarget) || mtlTexture.pixelFormat != resolveTexture.pixelFormat || !Texture::supportsResolve(resolveTarget.format(), m_device))
+            if (mtlTexture.sampleCount == 1 || resolveTexture.sampleCount != 1 || isMultisampleTexture(resolveTexture) || !isMultisampleTexture(mtlTexture) || !isRenderableTextureView(resolveTarget, attachment.loadOp, attachment.storeOp) || mtlTexture.pixelFormat != resolveTexture.pixelFormat || !Texture::supportsResolve(resolveTarget.format(), m_device))
                 return RenderPassEncoder::createInvalid(*this, m_device, @"resolve target is invalid");
 
             mtlAttachment.resolveTexture = resolveTexture;
@@ -692,6 +708,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
     bool hasStencilComponent = false;
     id<MTLTexture> depthStencilAttachmentToClear = nil;
     bool depthAttachmentToClear = false;
+    bool hasDepthComponent = false;
     if (const auto* attachment = descriptor.depthStencilAttachment) {
         auto textureView = attachment->view ? TextureOrTextureView(fromAPI(attachment->view)) : TextureOrTextureView(fromAPI(attachment->texture));
         if (!isValidToUseWith(textureView, *this))
@@ -699,7 +716,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
         id<MTLTexture> metalDepthStencilTexture = textureView.texture();
         auto textureFormat = textureView.format();
         hasStencilComponent = Texture::containsStencilAspect(textureFormat);
-        bool hasDepthComponent = Texture::containsDepthAspect(textureFormat);
+        hasDepthComponent = Texture::containsDepthAspect(textureFormat);
         bool isDestroyed = textureView.isDestroyed();
         if (!isDestroyed) {
             if (textureWidth && (textureView.width() != textureWidth || textureView.height() != textureHeight || sampleCount != textureView.sampleCount()))
@@ -707,9 +724,12 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
             if (textureView.arrayLayerCount() > 1 || textureView.mipLevelCount() > 1)
                 return RenderPassEncoder::createInvalid(*this, m_device, @"depth stencil texture has more than one array layer or mip level");
 
-            if (!Texture::isDepthStencilRenderableFormat(textureView.format(), m_device) || !isRenderableTextureView(textureView))
+            if (!Texture::isDepthStencilRenderableFormat(textureView.format(), m_device) || !isRenderableTextureView(textureView, attachment->depthLoadOp, attachment->depthStoreOp))
                 return RenderPassEncoder::createInvalid(*this, m_device, @"depth stencil texture is not renderable");
         }
+
+        if (!isAllowableTextureView(textureView, attachment->depthLoadOp, attachment->depthStoreOp))
+            return RenderPassEncoder::createInvalid(*this, m_device, @"depth stencil texture is not renderable");
 
         depthReadOnly = attachment->depthReadOnly;
         if (hasDepthComponent) {
@@ -718,7 +738,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
             mtlAttachment.clearDepth = attachment->depthLoadOp == WGPULoadOp_Clear ? clearDepth : 1.0;
             mtlAttachment.texture = metalDepthStencilTexture;
             mtlAttachment.level = 0;
-            mtlAttachment.loadAction = loadAction(attachment->depthLoadOp);
+            mtlAttachment.loadAction = loadAction(attachment->depthLoadOp, attachment->depthReadOnly);
             mtlAttachment.storeAction = storeAction(attachment->depthStoreOp);
 
             if (mtlDescriptor.rasterizationRateMap && metalDepthStencilTexture.sampleCount > 1) {
@@ -765,7 +785,7 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
         if (hasStencilComponent)
             mtlAttachment.texture = textureView.texture();
         mtlAttachment.clearStencil = attachment->stencilClearValue;
-        mtlAttachment.loadAction = loadAction(attachment->stencilLoadOp);
+        mtlAttachment.loadAction = loadAction(attachment->stencilLoadOp, attachment->stencilReadOnly);
         mtlAttachment.storeAction = storeAction(attachment->stencilStoreOp);
 
         bool isDestroyed = textureView.isDestroyed();
@@ -880,6 +900,8 @@ void CommandEncoder::incrementBufferMapCount()
 
 void CommandEncoder::decrementBufferMapCount()
 {
+    if (m_bufferMapCount <= 0)
+        return;
     --m_bufferMapCount;
     if (RefPtr commandBuffer = m_cachedCommandBuffer.get())
         commandBuffer->setBufferMapCount(m_bufferMapCount);
@@ -890,7 +912,7 @@ void CommandEncoder::copyBufferToBuffer(const Buffer& source, uint64_t sourceOff
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
         // FIXME: rdar://138047285
-        CommandEncoder_copyBufferToBuffer_thunk(this, &const_cast<Buffer&>(source), sourceOffset, &destination, destinationOffset, size);
+        commandEncoderCopyBufferToBuffer(this, &const_cast<Buffer&>(source), sourceOffset, &destination, destinationOffset, size);
         return;
     }
 #endif
@@ -930,7 +952,7 @@ NSString* CommandEncoder::errorValidatingImageCopyBuffer(const WGPUImageCopyBuff
     return nil;
 }
 
-static bool refersToAllAspects(WGPUTextureFormat format, WGPUTextureAspect aspect)
+static bool NODELETE refersToAllAspects(WGPUTextureFormat format, WGPUTextureAspect aspect)
 {
     switch (aspect) {
     case WGPUTextureAspect_All:
@@ -995,7 +1017,7 @@ NSString* CommandEncoder::errorValidatingCopyBufferToTexture(const WGPUImageCopy
             return ERROR_STRING(@"source.layout.offset is not a multiple of four for depth stencil format");
     }
 
-    if (NSString* errorString = Texture::errorValidatingLinearTextureData(source.layout, protect(fromAPI(source.buffer))->initialSize(), aspectSpecificFormat, copySize))
+    if (NSString* errorString = Texture::errorValidatingLinearTextureData(source.layout, fromAPI(source.buffer).initialSize(), aspectSpecificFormat, copySize))
         return ERROR_STRING(errorString);
 #undef ERROR_STRING
     return nil;
@@ -1005,7 +1027,7 @@ void CommandEncoder::copyBufferToTexture(const WGPUImageCopyBuffer& source, cons
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        CommandEncoder_copyBufferToTexture_thunk(this, source, destination, copySize);
+        commandEncoderCopyBufferToTexture(this, source, destination, copySize);
         return;
     }
 #endif
@@ -1289,7 +1311,7 @@ NSString* CommandEncoder::errorValidatingCopyTextureToBuffer(const WGPUImageCopy
     if (NSString* error = errorValidatingImageCopyBuffer(destination))
         return ERROR_STRING(error);
 
-    if (!(protect(fromAPI(destination.buffer))->usage() & WGPUBufferUsage_CopyDst))
+    if (!(fromAPI(destination.buffer).usage() & WGPUBufferUsage_CopyDst))
         return ERROR_STRING(@"destination buffer usage does not contain CopyDst");
 
     if (NSString* error = Texture::errorValidatingTextureCopyRange(source, copySize))
@@ -1306,7 +1328,7 @@ NSString* CommandEncoder::errorValidatingCopyTextureToBuffer(const WGPUImageCopy
             return ERROR_STRING(@"destination.layout.offset is not a multiple of 4");
     }
 
-    if (NSString* errorString = Texture::errorValidatingLinearTextureData(destination.layout, protect(fromAPI(destination.buffer))->initialSize(), aspectSpecificFormat, copySize))
+    if (NSString* errorString = Texture::errorValidatingLinearTextureData(destination.layout, fromAPI(destination.buffer).initialSize(), aspectSpecificFormat, copySize))
         return ERROR_STRING(errorString);
 #undef ERROR_STRING
     return nil;
@@ -1316,7 +1338,7 @@ void CommandEncoder::clearTextureIfNeeded(const WGPUImageCopyTexture& destinatio
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        CommandEncoder_clearTextureIfNeeded_thunk(this, destination, slice);
+        commandEncoderClearTextureIfNeeded(this, destination, slice);
         return;
     }
 #endif
@@ -1472,9 +1494,11 @@ void CommandEncoder::addBuffer(id<MTLBuffer> buffer)
         return;
 
 #if CPU(X86_64) && (PLATFORM(MAC) || PLATFORM(MACCATALYST))
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (buffer.storageMode == MTLStorageModeManaged)
         [m_managedBuffers addObject:buffer];
     else
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
         [m_retainedBuffers addObject:buffer];
 }
@@ -1484,9 +1508,11 @@ void CommandEncoder::addTexture(id<MTLTexture> texture)
         return;
 
 #if CPU(X86_64) && (PLATFORM(MAC) || PLATFORM(MACCATALYST))
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (texture.storageMode == MTLStorageModeManaged)
         [m_managedTextures addObject:texture];
     else
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
         [m_retainedTextures addObject:texture];
 }
@@ -1503,7 +1529,7 @@ void CommandEncoder::addTexture(const Texture& baseTexture)
 
 void CommandEncoder::addSampler(const Sampler& sampler)
 {
-    m_retainedSamplers.add(RefPtr { &sampler });
+    m_retainedSamplers.add(protect(sampler));
 }
 
 void CommandEncoder::makeSubmitInvalid(NSString* errorString)
@@ -1531,7 +1557,7 @@ void CommandEncoder::copyTextureToBuffer(const WGPUImageCopyTexture& source, con
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        CommandEncoder_copyTextureToBuffer_thunk(this, source, destination, copySize);
+        commandEncoderCopyTextureToBuffer(this, source, destination, copySize);
         return;
     }
 #endif
@@ -1762,7 +1788,7 @@ void CommandEncoder::copyTextureToBuffer(const WGPUImageCopyTexture& source, con
     }
 }
 
-static bool areCopyCompatible(WGPUTextureFormat format1, WGPUTextureFormat format2)
+static bool NODELETE areCopyCompatible(WGPUTextureFormat format1, WGPUTextureFormat format2)
 {
     // https://gpuweb.github.io/gpuweb/#copy-compatible
 
@@ -1827,7 +1853,7 @@ NSString* CommandEncoder::errorValidatingCopyTextureToTexture(const WGPUImageCop
     if (source.texture == destination.texture) {
         // Mip levels are never ranges.
         if (source.mipLevel == destination.mipLevel) {
-            switch (protect(fromAPI(source.texture))->dimension()) {
+            switch (fromAPI(source.texture).dimension()) {
             case WGPUTextureDimension_1D:
                 return ERROR_STRING(@"can't copy 1D texture to itself");
             case WGPUTextureDimension_2D: {
@@ -1854,7 +1880,7 @@ void CommandEncoder::copyTextureToTexture(const WGPUImageCopyTexture& source, co
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        CommandEncoder_copyTextureToTexture_thunk(this, source, destination, copySize);
+        commandEncoderCopyTextureToTexture(this, source, destination, copySize);
         return;
     }
 #endif
@@ -2035,7 +2061,7 @@ void CommandEncoder::clearBuffer(Buffer& buffer, uint64_t offset, uint64_t size)
     // https://gpuweb.github.io/gpuweb/#dom-gpucommandencoder-clearbuffer
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        WebGPU::clearBuffer(this, &buffer, offset, size);
+        commandEncoderClearBuffer(this, &buffer, offset, size);
         return;
     }
 #endif
@@ -2095,7 +2121,7 @@ Ref<CommandBuffer> CommandEncoder::finish(const WGPUCommandBufferDescriptor& des
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled())
-        return CommandEncoder_finish_thunk(this, descriptor);
+        return commandEncoderFinish(this, descriptor);
 #endif
 
     if (!isValid() || (m_existingCommandEncoder && m_existingCommandEncoder != m_blitCommandEncoder)) {
@@ -2127,6 +2153,7 @@ Ref<CommandBuffer> CommandEncoder::finish(const WGPUCommandBufferDescriptor& des
     commandBuffer.label = descriptor.label.createNSString().get();
 
 #if CPU(X86_64) && (PLATFORM(MAC) || PLATFORM(MACCATALYST))
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (m_managedBuffers.count || m_managedTextures.count) {
         id<MTLBlitCommandEncoder> blitCommandEncoder = [commandBuffer blitCommandEncoder];
         for (id<MTLBuffer> buffer in m_managedBuffers)
@@ -2135,6 +2162,7 @@ Ref<CommandBuffer> CommandEncoder::finish(const WGPUCommandBufferDescriptor& des
             [blitCommandEncoder synchronizeResource:texture];
         [blitCommandEncoder endEncoding];
     }
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
     auto result = CommandBuffer::create(commandBuffer, m_device, m_sharedEvent, m_sharedEventSignalValue, WTF::move(m_onCommitHandlers), *this);
@@ -2206,7 +2234,7 @@ void CommandEncoder::pushDebugGroup(String&& groupLabel)
     [m_commandBuffer pushDebugGroup:groupLabel.createNSString().get()];
 }
 
-static bool validateResolveQuerySet(const QuerySet& querySet, uint32_t firstQuery, uint32_t queryCount, const Buffer& destination, uint64_t destinationOffset)
+static bool NODELETE validateResolveQuerySet(const QuerySet& querySet, uint32_t firstQuery, uint32_t queryCount, const Buffer& destination, uint64_t destinationOffset)
 {
     if (!querySet.isDestroyed() && !querySet.isValid())
         return false;
@@ -2240,7 +2268,7 @@ void CommandEncoder::resolveQuerySet(const QuerySet& querySet, uint32_t firstQue
 #if ENABLE(WEBGPU_SWIFT)
     // FIXME: rdar://138047285 const_cast is needed as a workaround.
     if (isWebGPUSwiftEnabled()) {
-        WebGPU::resolveQuerySet(this, const_cast<QuerySet*>(&querySet), firstQuery, queryCount, &destination, destinationOffset);
+        commandEncoderResolveQuerySet(this, const_cast<QuerySet*>(&querySet), firstQuery, queryCount, &destination, destinationOffset);
         return;
     }
 #endif
@@ -2325,11 +2353,6 @@ size_t CommandEncoder::computeSize(TrackedResourceContainer& container, const De
     return container.size();
 }
 
-void CommandEncoder::trackEncoder(TrackedResourceContainer& encoderContainer)
-{
-    encoderContainer.add(uniqueId());
-}
-
 void CommandEncoder::clearTracking()
 {
     auto identifier = uniqueId();
@@ -2351,30 +2374,32 @@ void CommandEncoder::clearTracking()
     m_trackedQuerySets.clear();
 }
 
-void CommandEncoder::trackEncoderForBuffer(const Buffer& buffer, TrackedResourceContainer& encoderContainer)
+bool CommandEncoder::trackEncoderForBuffer(const Buffer& buffer, TrackedResourceContainer& encoderContainer)
 {
-    trackEncoder(encoderContainer);
-    m_trackedBuffers.append(buffer);
+    auto addResult = encoderContainer.add(uniqueId());
+    if (addResult.isNewEntry)
+        m_trackedBuffers.append(buffer);
+    return addResult.isNewEntry;
 }
 void CommandEncoder::trackEncoderForTexture(const Texture& texture, TrackedResourceContainer& encoderContainer)
 {
-    trackEncoder(encoderContainer);
-    m_trackedTextures.append(texture);
+    if (encoderContainer.add(uniqueId()).isNewEntry)
+        m_trackedTextures.append(texture);
 }
 void CommandEncoder::trackEncoderForTextureView(const TextureView& textureView, TrackedResourceContainer& encoderContainer)
 {
-    trackEncoder(encoderContainer);
-    m_trackedTextureViews.append(textureView);
+    if (encoderContainer.add(uniqueId()).isNewEntry)
+        m_trackedTextureViews.append(textureView);
 }
 void CommandEncoder::trackEncoderForExternalTexture(const ExternalTexture& externalTexture, TrackedResourceContainer& encoderContainer)
 {
-    trackEncoder(encoderContainer);
-    m_trackedExternalTextures.append(externalTexture);
+    if (encoderContainer.add(uniqueId()).isNewEntry)
+        m_trackedExternalTextures.append(externalTexture);
 }
 void CommandEncoder::trackEncoderForQuerySet(const QuerySet& querySet, TrackedResourceContainer& encoderContainer)
 {
-    trackEncoder(encoderContainer);
-    m_trackedQuerySets.append(querySet);
+    if (encoderContainer.add(uniqueId()).isNewEntry)
+        m_trackedQuerySets.append(querySet);
 }
 
 void CommandEncoder::trackEncoder(CommandEncoder& commandEncoder, HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>& encoderContainer)

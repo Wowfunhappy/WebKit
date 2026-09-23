@@ -36,6 +36,7 @@
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "LocalFrame.h"
+#include <wtf/Borrow.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -133,7 +134,7 @@ void DocumentFontLoader::stopLoadingAndClearFonts()
     m_fontLoadingTimer.stop();
     Ref document = m_document.get();
     Ref cachedResourceLoader = document->cachedResourceLoader();
-    for (auto& fontHandle : m_fontsToBeginLoading) {
+    for (CachedResourceHandle fontHandle : borrow(m_fontsToBeginLoading).get()) {
         // Balances incrementRequestCount() in beginLoadingFontSoon().
         cachedResourceLoader->decrementRequestCount(*fontHandle);
     }

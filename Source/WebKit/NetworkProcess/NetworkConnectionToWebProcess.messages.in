@@ -35,8 +35,8 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     PageLoadCompleted(WebCore::PageIdentifier webPageID)
     BrowsingContextRemoved(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID)
     PrefetchDNS(String hostname)
-    SendH2Ping(struct WebKit::NetworkResourceLoadParameters parameters) -> (Expected<Seconds, WebCore::ResourceError> result)
-    PreconnectTo(std::optional<WebCore::ResourceLoaderIdentifier> preconnectionIdentifier, struct WebKit::NetworkResourceLoadParameters loadParameters);
+    SendH2Ping(URL url, WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain) -> (Expected<Seconds, WebCore::ResourceError> result)
+    PreconnectTo(struct WebKit::PreconnectRequest request);
     IsResourceLoadFinished(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier) -> (bool isFinished)
 
     StartDownload(WebKit::DownloadID downloadID, WebCore::ResourceRequest request, std::optional<WebCore::SecurityOriginData> topOrigin, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, String suggestedName, enum:bool WebCore::FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID)
@@ -76,10 +76,13 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     RegisterBlobURLHandle(URL url, std::optional<WebCore::SecurityOriginData> topOrigin);
     UnregisterBlobURLHandle(URL url, std::optional<WebCore::SecurityOriginData> topOrigin);
     RegisterBlobPathForTesting(String path) -> ();
+    [EnabledBy=AllowTestOnlyIPC] GeneralStoragePathForTesting() -> (String path);
 
     SetCaptureExtraNetworkLoadMetricsEnabled(bool enabled)
 
-    [EnabledBy=WebSocketEnabled] CreateSocketChannel(WebCore::ResourceRequest request, String protocol, WebCore::WebSocketIdentifier identifier, WebKit::WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, struct WebCore::ClientOrigin clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> protections, enum:uint8_t WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+    [EnabledBy=WebSocketEnabled] CreateSocketChannel(WebCore::ResourceRequest request, String protocol, WebCore::WebSocketIdentifier identifier, WebKit::WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, struct WebCore::ClientOrigin clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> protections, enum:uint8_t WebCore::StoredCredentialsPolicy storedCredentialsPolicy, enum:bool WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
+
+    CountWebSocketChannelsForTesting() -> (uint32_t count)
 
     ClearPageSpecificData(WebCore::PageIdentifier pageID);
 
@@ -87,24 +90,30 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     LogUserInteraction(WebCore::RegistrableDomain domain)
     ResourceLoadStatisticsUpdated(Vector<WebCore::ResourceLoadStatistics> statistics) -> ()
     [EnabledBy=StorageAccessAPIEnabled] HasStorageAccess(WebCore::RegistrableDomain subFrameDomain, WebCore::RegistrableDomain topFrameDomain, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier pageID) -> (bool hasStorageAccess)
-    [EnabledBy=StorageAccessAPIEnabled] RequestStorageAccess(WebCore::RegistrableDomain subFrameDomain, WebCore::RegistrableDomain topFrameDomain, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier webPageID, WebKit::WebPageProxyIdentifier webPageProxyID, enum:bool WebCore::StorageAccessScope scope, enum:bool WebCore::HasOrShouldIgnoreUserGesture hasOrShouldIgnoreUserGesture) -> (struct WebCore::RequestStorageAccessResult result)
+    [EnabledBy=StorageAccessAPIEnabled] RequestStorageAccess(WebCore::RegistrableDomain subFrameDomain, WebCore::RegistrableDomain topFrameDomain, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier webPageID, WebKit::WebPageProxyIdentifier webPageProxyID, enum:bool WebCore::StorageAccessScope scope, enum:bool WebCore::HasUserGestureOrNoUserGestureRequired hasUserGestureOrNoUserGestureRequired) -> (struct WebCore::RequestStorageAccessResult result)
     [EnabledBy=StorageAccessAPIEnabled] QueryStorageAccessPermission(WebCore::RegistrableDomain subFrameDomain, WebCore::RegistrableDomain topFrameDomain, std::optional<WebKit::WebPageProxyIdentifier> webPageProxyID) -> (enum:uint8_t WebCore::PermissionState permissionState)
     [EnabledBy=StorageAccessAPIEnabled] StorageAccessQuirkForTopFrameDomain(URL topFrameURL) -> (Vector<WebCore::RegistrableDomain> domains)
     [EnabledBy=StorageAccessAPIEnabled] RequestStorageAccessUnderOpener(WebCore::RegistrableDomain domainInNeedOfStorageAccess, WebCore::PageIdentifier openerPageID, WebCore::RegistrableDomain openerDomain)
 
-    AddOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
-    RemoveOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
-    ResetOriginAccessAllowLists();
+    // MAVERICKS_BACKPORT: validate test or UI-authorized native-bundle capability before decoding.
+    # [EnabledBy=AllowTestOnlyOriginAccessAllowListIPC] AddOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
+    [ExceptionForEnabledBy, Validator=allowsOriginAccessAllowListIPC] AddOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
+    // MAVERICKS_BACKPORT: validate test or UI-authorized native-bundle capability before decoding.
+    # [EnabledBy=AllowTestOnlyOriginAccessAllowListIPC] RemoveOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
+    [ExceptionForEnabledBy, Validator=allowsOriginAccessAllowListIPC] RemoveOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
+    // MAVERICKS_BACKPORT: validate test or UI-authorized native-bundle capability before decoding.
+    # [EnabledBy=AllowTestOnlyOriginAccessAllowListIPC] ResetOriginAccessAllowLists();
+    [ExceptionForEnabledBy, Validator=allowsOriginAccessAllowListIPC] ResetOriginAccessAllowLists();
 
     GetNetworkLoadInformationResponse(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier) -> (WebCore::ResourceResponse response) Synchronous
     GetNetworkLoadIntermediateInformation(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier) -> (Vector<WebCore::NetworkTransactionInformation> transactions) Synchronous
     TakeNetworkLoadInformationMetrics(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier) -> (WebCore::NetworkLoadMetrics networkMetrics) Synchronous
 
-    EstablishSWContextConnection(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::Site site, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier) -> ()
+    EstablishSWContextConnection(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::Site site, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, enum:bool WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicy) -> ()
     CloseSWContextConnection()
     PingPongForServiceWorkers() -> (bool isSuccess)
 
-    EstablishSharedWorkerContextConnection(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::Site site) -> ()
+    EstablishSharedWorkerContextConnection(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::Site site, enum:bool WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicy) -> ()
     CloseSharedWorkerContextConnection()
 
     CreateRTCProvider() -> ()
@@ -120,7 +129,6 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     PostMessageToRemote(struct WebCore::MessageWithMessagePorts message, struct WebCore::MessagePortIdentifier remote)
     DidDeliverMessagePortMessages(WebKit::MessageBatchIdentifier messageBatchIdentifier)
     RegisterURLSchemesAsCORSEnabled(Vector<String> schemes);
-    SetCORSDisablingPatterns(WebCore::PageIdentifier pageIdentifier, Vector<String> patterns)
 #if PLATFORM(MAC)
     GetProcessDisplayName(struct WebKit::CoreIPCAuditToken auditToken) -> (String displayName)
     UpdateActivePages(String name, Vector<String> activePagesOrigins, struct WebKit::CoreIPCAuditToken auditToken)
@@ -132,7 +140,7 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     PrioritizeResourceLoads(Vector<WebCore::ResourceLoaderIdentifier> loadIdentifiers)
 
 #if ENABLE(CONTENT_FILTERING)
-    InstallMockContentFilter(WebCore::MockContentFilterSettings settings)
+    [EnabledBy=AllowTestOnlyMockContentFilterIPC] InstallMockContentFilter(WebCore::MockContentFilterSettings settings)
 #endif
 
     UseRedirectionForCurrentNavigation(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier, WebCore::ResourceResponse response)
@@ -159,11 +167,15 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     SetLoginStatus(WebCore::RegistrableDomain domain, enum:uint8_t WebCore::IsLoggedIn loggedInStatus, std::optional<WebCore::LoginStatus> lastAuthentication) -> ()
     IsLoggedIn(WebCore::RegistrableDomain domain) -> (bool result)
 
+    DropNonSerializableInProcessCache(WebCore::ProcessIdentifier originProcess, WebCore::NonSerializedDataIdentifier identifier)
+
 #if ENABLE(CONTENT_EXTENSIONS)
     ShouldOffloadIFrameForHost(String host) -> (bool wasGranted)
 #endif
 
 #if ENABLE(IPC_TESTING_API)
     TakeInvalidMessageStringForTesting() -> (String error) Synchronous
+    AddSyntheticParkedLoaderForTesting(WebKit::NetworkResourceLoadIdentifier identifier, WebCore::ProcessIdentifier destination) -> (bool added) Synchronous
+    RemoveSyntheticParkedLoaderForTesting(WebKit::NetworkResourceLoadIdentifier identifier) -> () Synchronous
 #endif
 }

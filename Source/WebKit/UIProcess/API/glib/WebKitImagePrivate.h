@@ -24,4 +24,9 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/glib/GRefPtr.h>
 
+namespace WTF {
+WTF_DECLARE_GREF_TRAITS(WebKitImageList)
+}
+
 WK_EXPORT WebKitImage* webkitImageNew(int width, int height, guint stride, GRefPtr<GBytes>&&);
+WebKitImageList* webkitImageListCreate(Vector<GRefPtr<WebKitImage>>&&);

@@ -34,6 +34,8 @@
 
 #include "InjectedScript.h"
 #include "InjectedScriptManager.h"
+#include "JSCJSValuePropertyInlines.h"
+#include "JSFunction.h"
 #include "ScriptFunctionCall.h"
 
 namespace Inspector {

@@ -56,11 +56,8 @@ public:
     template<typename T> inline SendSyncResult<T> sendSync(T&& message);
     template<typename T> inline SendSyncResult<T> sendSync(T&& message, Timeout);
     template<typename T> inline SendSyncResult<T> sendSync(T&& message, Timeout, OptionSet<SendSyncOption>);
-    template<typename T> inline SendSyncResult<T> sendSync(T&& message, uint64_t destinationID);
-    template<typename T> inline SendSyncResult<T> sendSync(T&& message, uint64_t destinationID, Timeout);
     template<typename T> inline SendSyncResult<T> sendSync(T&& message, uint64_t destinationID, Timeout, OptionSet<SendSyncOption>);
     template<typename T, typename U, typename V, typename W> inline SendSyncResult<T> sendSync(T&& message, ObjectIdentifierGeneric<U, V, W> destinationID);
-    template<typename T, typename U, typename V, typename W> inline SendSyncResult<T> sendSync(T&& message, ObjectIdentifierGeneric<U, V, W> destinationID, Timeout);
     template<typename T, typename U, typename V, typename W> inline SendSyncResult<T> sendSync(T&& message, ObjectIdentifierGeneric<U, V, W> destinationID, Timeout, OptionSet<SendSyncOption>);
 
     using AsyncReplyID = IPC::AsyncReplyID;
@@ -87,8 +84,13 @@ public:
     virtual bool sendMessageWithAsyncReply(UniqueRef<Encoder>&&, AsyncReplyHandler, OptionSet<SendOption>);
 
 private:
+    explicit MessageSender(ClangVTableWorkaroundTag);
+
     virtual Connection* messageSenderConnection() const = 0;
     virtual uint64_t messageSenderDestinationID() const = 0;
+
+protected:
+    MessageSender() = default;
 };
 
 } // namespace IPC

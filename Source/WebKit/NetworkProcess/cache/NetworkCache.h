@@ -129,11 +129,12 @@ enum class StoreDecision {
     NoDueToProtocol,
     NoDueToHTTPMethod,
     NoDueToNoStoreResponse,
-    NoDueToHTTPStatusCode,
+    NoDueToMissingExpirationHeaders,
     NoDueToNoStoreRequest,
     NoDueToUnlikelyToReuse,
     NoDueToStreamingMedia,
-    NoDueToRequestContainingFragments
+    NoDueToRequestContainingFragments,
+    NoDueToHTTPStatusCode
 };
 
 enum class UseDecision {
@@ -233,6 +234,7 @@ public:
     PAL::SessionID sessionID() const { return m_sessionID; }
     const String& storageDirectory() const LIFETIME_BOUND { return m_storageDirectory; }
     void fetchData(bool shouldComputeSize, CompletionHandler<void(Vector<WebsiteData::Entry>&&)>&&);
+    void fetchOriginAccessTimes(CompletionHandler<void(HashMap<WebCore::RegistrableDomain, WallTime>&&)>&&);
     void deleteData(const Vector<WebCore::SecurityOriginData>&, CompletionHandler<void()>&&);
     void deleteDataForRegistrableDomains(const Vector<WebCore::RegistrableDomain>&, CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
 
@@ -255,7 +257,7 @@ private:
     void updateSpeculativeLoadManagerEnabledState();
 
     std::unique_ptr<WebCore::LowPowerModeNotifier> m_lowPowerModeNotifier;
-    std::unique_ptr<WebCore::ThermalMitigationNotifier> m_thermalMitigationNotifier;
+    RefPtr<WebCore::ThermalMitigationNotifier> m_thermalMitigationNotifier;
     std::unique_ptr<SpeculativeLoadManager> m_speculativeLoadManager;
 
     HashMap<Key, Ref<AsyncRevalidation>> m_pendingAsyncRevalidations;

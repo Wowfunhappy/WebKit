@@ -247,7 +247,10 @@ static LayoutTestSpellChecker *swizzledInitializeTextChecker()
                 NSNumber *detailFrom = detail[@"from"];
                 NSNumber *detailTo = detail[@"to"];
                 auto detailRange = NSMakeRange(detailFrom.intValue, detailTo.intValue - detailFrom.intValue);
-                [details addObject:@{ NSGrammarRange: [NSValue valueWithRange:detailRange], NSGrammarCorrections: detail[@"corrections"] ?: @[ ] }];
+                RetainPtr detailDict = adoptNS([[NSMutableDictionary alloc] initWithDictionary:@{ NSGrammarRange: [NSValue valueWithRange:detailRange], NSGrammarCorrections: detail[@"corrections"] ?: @[ ] }]);
+                if (NSString *uuid = detail[@"uuid"])
+                    [detailDict setObject:uuid forKey:@"NSGrammarUUID"];
+                [details addObject:detailDict.get()];
             }
             [resultsForWord addObject:adoptNS([[LayoutTestTextCheckingResult alloc] initWithType:nsTextCheckingType(type) range:NSMakeRange(from, to - from) replacement:replacement details:details.get()]).get()];
         }
@@ -321,9 +324,11 @@ static const char *stringForCorrectionResponse(NSCorrectionResponse correctionRe
 
 - (void)requestProofreadingReviewOfString:(NSString *)stringToCheck range:(NSRange)range language:(NSString *)language options:(NSDictionary<NSString *, id> *)options completionHandler:(void (^)(NSArray<NSTextCheckingResult *> *results))completionHandler
 {
-    if (RetainPtr overrideResult = [_results objectForKey:stringToCheck])
+    if (RetainPtr overrideResult = [_results objectForKey:stringToCheck]) {
         completionHandler(overrideResult.get());
-    return [super requestProofreadingReviewOfString:stringToCheck range:range language:language options:options completionHandler:completionHandler];
+        return;
+    }
+    [super requestProofreadingReviewOfString:stringToCheck range:range language:language options:options completionHandler:completionHandler];
 }
 
 static NSDictionary *swizzledGrammarDetailsForString(id, SEL, NSString *stringToCheck, NSRange range, NSString *language)

@@ -26,7 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/JSBigInt.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSCJSValueBigInt.h>
 
 namespace JSC {
 
@@ -37,7 +37,7 @@ inline JSValue JSBigInt::toNumber(JSValue bigInt)
     if (bigInt.isBigInt32())
         return jsNumber(bigInt.bigInt32AsInt32());
 #endif
-    return toNumberHeap(jsCast<JSBigInt*>(bigInt));
+    return toNumberHeap(uncheckedDowncast<JSBigInt>(bigInt));
 }
 
 uint64_t JSBigInt::toBigUInt64(JSValue bigInt)
@@ -97,5 +97,18 @@ ALWAYS_INLINE std::optional<double> JSBigInt::tryExtractDouble(JSValue value)
 
     return std::nullopt;
 }
+
+ALWAYS_INLINE JSValue JSBigInt::makeHeapBigIntOrBigInt32(JSGlobalObject* globalObject, double value)
+{
+    ASSERT(isInteger(value));
+    if (std::abs(value) <= maxSafeInteger())
+        return makeHeapBigIntOrBigInt32(globalObject, static_cast<int64_t>(value));
+    return JSBigInt::createFrom(globalObject, value);
+}
+
+inline JSBigInt::ComparisonResult JSBigInt::compareToDouble(double x, int32_t y) { return flip(compareToDouble(y, x)); }
+inline JSBigInt::ComparisonResult JSBigInt::compareToDouble(double x, int64_t y) { return flip(compareToDouble(y, x)); }
+inline JSBigInt::ComparisonResult JSBigInt::compareToDouble(double x, uint64_t y) { return flip(compareToDouble(y, x)); }
+inline JSBigInt::ComparisonResult JSBigInt::compareToDouble(double x, JSValue y) { return flip(compareToDouble(y, x)); }
 
 }

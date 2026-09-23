@@ -58,9 +58,9 @@ std::unique_ptr<SQLiteIDBCursor> SQLiteIDBCursor::maybeCreate(SQLiteIDBTransacti
     return cursor.moveToUniquePtr();
 }
 
-std::unique_ptr<SQLiteIDBCursor> SQLiteIDBCursor::maybeCreateBackingStoreCursor(SQLiteIDBTransaction& transaction, IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range)
+std::unique_ptr<SQLiteIDBCursor> SQLiteIDBCursor::maybeCreateBackingStoreCursor(SQLiteIDBTransaction& transaction, IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range, IndexedDB::CursorDirection cursorDirection)
 {
-    auto cursor = makeUniqueRef<SQLiteIDBCursor>(transaction, objectStoreID, indexID, range);
+    auto cursor = makeUniqueRef<SQLiteIDBCursor>(transaction, objectStoreID, indexID, range, cursorDirection);
 
     if (!cursor->establishStatement())
         return nullptr;
@@ -83,12 +83,12 @@ SQLiteIDBCursor::SQLiteIDBCursor(SQLiteIDBTransaction& transaction, const IDBCur
 {
 }
 
-SQLiteIDBCursor::SQLiteIDBCursor(SQLiteIDBTransaction& transaction, IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range)
+SQLiteIDBCursor::SQLiteIDBCursor(SQLiteIDBTransaction& transaction, IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range, IndexedDB::CursorDirection cursorDirection)
     : m_transaction(&transaction)
     , m_cursorIdentifier(transaction.transactionIdentifier())
     , m_objectStoreID(objectStoreID)
     , m_indexID(indexID)
-    , m_cursorDirection(IndexedDB::CursorDirection::Next)
+    , m_cursorDirection(cursorDirection)
     , m_cursorType(IndexedDB::CursorType::KeyAndValue)
     , m_keyRange(range)
     , m_boundID(m_objectStoreID)
@@ -442,12 +442,11 @@ bool SQLiteIDBCursor::fetch()
 
     while (fetchNextRecord(m_fetchedRecords.last())) {
         m_fetchedRecordsSize += m_fetchedRecords.last().record.size();
+        if (m_fetchedRecords.last().completed)
+            return true;
 
         if (m_currentKeyForUniqueness != m_fetchedRecords.last().record.key)
             return true;
-
-        if (m_fetchedRecords.last().completed)
-            return false;
 
         m_fetchedRecordsSize -= m_fetchedRecords.last().record.size();
     }
@@ -540,8 +539,15 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
             return FetchResult::Failure;
         }
 
-        if (m_cursorType == IndexedDB::CursorType::KeyAndValue)
-            record.record.value = { ThreadSafeDataBuffer::create(WTF::move(keyData)), blobURLs, blobFilePaths };
+        if (m_cursorType == IndexedDB::CursorType::KeyAndValue) {
+            auto valueResult = m_transaction->backingStore().buildIDBValueForRecord(record.rowID, ThreadSafeDataBuffer::create(WTF::move(keyData)), WTF::move(blobURLs), WTF::move(blobFilePaths));
+            if (!valueResult) {
+                LOG_ERROR("Unable to fetch FileSystemHandle records from database while advancing cursor");
+                markAsErrored(record);
+                return FetchResult::Failure;
+            }
+            record.record.value = WTF::move(*valueResult);
+        }
     } else {
         if (!deserializeIDBKeyData(keyData.span(), record.record.primaryKey)) {
             LOG_ERROR("Unable to deserialize value data from database while advancing index cursor");
@@ -575,7 +581,13 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
                 return FetchResult::Failure;
             }
 
-            record.record.value = { ThreadSafeDataBuffer::create(cachedObjectStoreStatement->columnBlob(1)), WTF::move(blobURLs), WTF::move(blobFilePaths) };
+            auto valueResult = m_transaction->backingStore().buildIDBValueForRecord(recordsRowID, ThreadSafeDataBuffer::create(cachedObjectStoreStatement->columnBlob(1)), WTF::move(blobURLs), WTF::move(blobFilePaths));
+            if (!valueResult) {
+                LOG_ERROR("Unable to fetch FileSystemHandle records from database while advancing cursor");
+                markAsErrored(record);
+                return FetchResult::Failure;
+            }
+            record.record.value = WTF::move(*valueResult);
         } else if (result == SQLITE_DONE) {
             // This indicates that the record we're trying to retrieve has been removed from the object store.
             // Skip over it.

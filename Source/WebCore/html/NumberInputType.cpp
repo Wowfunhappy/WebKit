@@ -43,7 +43,6 @@
 #include "KeyboardEvent.h"
 #include "LocalizedStrings.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
 #include "PlatformLocale.h"
 #include "RenderBoxModelObjectInlines.h"
@@ -133,7 +132,7 @@ ExceptionOr<void> NumberInputType::setValueAsDecimal(const Decimal& newValue, Te
     return { };
 }
 
-bool NumberInputType::typeMismatchFor(const String& value) const
+bool NumberInputType::typeMismatchFor(StringView value) const
 {
     return !value.isEmpty() && !std::isfinite(parseToDoubleForNumberType(value));
 }
@@ -253,17 +252,8 @@ StepRange NumberInputType::createStepRange(AnyStepHandling anyStepHandling) cons
     Ref element = *this->element();
 
     RangeLimitations rangeLimitations = RangeLimitations::Invalid;
-    auto extractBound = [&] (const QualifiedName& attributeName, const Decimal& defaultValue) -> Decimal {
-        const AtomString& attributeValue = element->attributeWithoutSynchronization(attributeName);
-        Decimal valueFromAttribute = parseToNumberOrNaN(attributeValue);
-        if (valueFromAttribute.isFinite()) {
-            rangeLimitations = RangeLimitations::Valid;
-            return valueFromAttribute;
-        }
-        return defaultValue;
-    };
-    Decimal minimum = extractBound(minAttr, -doubleMax);
-    Decimal maximum = extractBound(maxAttr, doubleMax);
+    Decimal minimum = extractStepRangeBound(minAttr, -doubleMax, rangeLimitations);
+    Decimal maximum = extractStepRangeBound(maxAttr, doubleMax, rangeLimitations);
 
     const Decimal step = StepRange::parseStep(anyStepHandling, stepDescription, element->attributeWithoutSynchronization(stepAttr));
     return StepRange(stepBase, rangeLimitations, minimum, maximum, step, stepDescription);
@@ -330,7 +320,7 @@ auto NumberInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBase
     return ShouldCallBaseEventHandler::Yes;
 }
 
-Decimal NumberInputType::parseToNumber(const String& src, const Decimal& defaultValue) const
+Decimal NumberInputType::parseToNumber(StringView src, const Decimal& defaultValue) const
 {
     return parseToDecimalForNumberType(src, defaultValue);
 }
@@ -400,25 +390,56 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
     auto normalizedText = normalizeFullWidthNumberChars(event.text()).get();
     LOG(Editing, "normalizeFullWidthNumberChars() -> [%s]", normalizedText.utf8().data());
 
-    auto localizedText = protect(protect(element())->locale())->convertFromLocalizedNumber(normalizedText);
+    ASSERT(element());
+    Ref element = *this->element();
+    CheckedRef locale = element->locale();
+    auto& localizedSeparator = locale->localizedDecimalSeparator();
+
+    String updatedEventText;
+    bool displayedTextUsesNonPeriodDecimalSeparator = false;
+
+    if (localizedSeparator == "."_s) {
+        const auto localizedText = locale->convertFromLocalizedNumber(normalizedText);
+        updatedEventText = stripInvalidNumberCharacters(localizedText).get();
+    } else {
+        // In some locales where the decimal separator is not typically a period,
+        // a period may still be used as the decimal separator in certain contexts.
+        // For this reason, we allow both. If both are present in the inserted text,
+        // use whichever comes last since the first instances may be group separators.
+        const auto lastPeriodPosition = normalizedText.reverseFind('.');
+        const auto lastLocalizedSeparatorPosition = normalizedText.reverseFind(localizedSeparator);
+
+        displayedTextUsesNonPeriodDecimalSeparator = lastLocalizedSeparatorPosition != notFound
+            && (lastPeriodPosition == notFound || lastLocalizedSeparatorPosition > lastPeriodPosition);
+
+        if (displayedTextUsesNonPeriodDecimalSeparator) {
+            const auto withoutPeriods = makeStringByReplacingAll(normalizedText, "."_s, emptyString());
+            updatedEventText = makeStringByReplacingAll(withoutPeriods, localizedSeparator, "."_s);
+        } else
+            updatedEventText = makeStringByReplacingAll(normalizedText, localizedSeparator, emptyString());
+    }
 
     // If the cleaned up text doesn't match input text, don't insert partial input
     // since it could be an incorrect paste.
-    auto updatedEventText = stripInvalidNumberCharacters(localizedText).get();
+    updatedEventText = stripInvalidNumberCharacters(updatedEventText).get();
     LOG(Editing, "stripInvalidNumberCharacters() -> [%s]", updatedEventText.utf8().data());
 
     // Get left and right of cursor
-    ASSERT(element());
-    Ref element = *this->element();
-
     auto originalValue = element->innerTextValue();
     auto selectionStart = element->selectionStart();
     auto selectionEnd = element->selectionEnd();
 
+    // The inner text value may contain either '.' or the localized decimal
+    // separator. Replace the localized separator with '.' so validation
+    // works correctly for all locales.
     auto leftHalf = originalValue.substring(0, selectionStart);
+    auto rightHalf = originalValue.substring(selectionEnd);
+    if (localizedSeparator != "."_s) {
+        leftHalf = makeStringByReplacingAll(leftHalf, localizedSeparator, "."_s);
+        rightHalf = makeStringByReplacingAll(rightHalf, localizedSeparator, "."_s);
+    }
     LOG(Editing, "leftHalf after length=%u", leftHalf.length());
 
-    auto rightHalf = originalValue.substring(selectionEnd);
     LOG(Editing, "rightHalf after length=%u", rightHalf.length());
 
     // Process 1 char at a time
@@ -531,7 +552,8 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
         finalEventText.append(character);
     }
     LOG(Editing, "finalEventText: [%s]", finalEventText.toString().utf8().data());
-    event.setText(finalEventText.toString());
+    const auto displayedText = displayedTextUsesNonPeriodDecimalSeparator ? locale->localizeNumberCharacters(finalEventText.toString()) : finalEventText.toString();
+    event.setText(displayedText);
 }
 
 String NumberInputType::localizeValue(const String& proposedValue) const
@@ -597,14 +619,14 @@ void NumberInputType::attributeChanged(const QualifiedName& name)
         if (RefPtr element = this->element()) {
             element->invalidateStyleForSubtree();
             if (CheckedPtr renderer = element->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     case AttributeNames::classAttr:
     case AttributeNames::stepAttr:
         if (RefPtr element = this->element()) {
             if (CheckedPtr renderer = element->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     default:

@@ -21,9 +21,7 @@
 #pragma once
 
 #include <JavaScriptCore/JSExportMacros.h>
-#include <mutex>
 #include <wtf/Assertions.h>
-#include <wtf/ForbidHeapAllocation.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
@@ -89,7 +87,7 @@ public:
 
     std::optional<RefPtr<Thread>> ownerThread() const
     {
-        if (m_hasOwnerThread)
+        if (m_hasOwnerThread.load(std::memory_order_acquire))
             return m_ownerThread;
         return std::nullopt;
     }
@@ -99,14 +97,14 @@ public:
     // with thread suspension. Returns std::nullopt if there is no owner thread.
     std::optional<uint64_t> ownerThreadUID() const
     {
-        if (!m_hasOwnerThread)
+        if (!m_hasOwnerThread.load(std::memory_order_acquire))
             return std::nullopt;
         return m_ownerThread->uid();
     }
 
-    bool currentThreadIsHoldingLock() { return m_hasOwnerThread && m_ownerThread.get() == &Thread::currentSingleton(); }
+    bool currentThreadIsHoldingLock() { return m_hasOwnerThread.load(std::memory_order_acquire) && m_ownerThread.get() == &Thread::currentSingleton(); }
 
-    void willDestroyVM(VM*);
+    void NODELETE willDestroyVM(VM*);
 
     class DropAllLocks {
         WTF_MAKE_NONCOPYABLE(DropAllLocks);
@@ -153,7 +151,7 @@ private:
     // m_hasOwnerThread) because currentThreadIsHoldingLock() may be called from a
     // different thread, and an optional is vulnerable to races.
     // See https://bugs.webkit.org/show_bug.cgi?id=169042#c6
-    bool m_hasOwnerThread { false };
+    std::atomic<bool> m_hasOwnerThread { false };
     bool m_shouldReleaseHeapAccess;
     RefPtr<Thread> m_ownerThread;
     intptr_t m_lockCount;

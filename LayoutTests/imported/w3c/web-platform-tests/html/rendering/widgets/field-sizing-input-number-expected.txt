@@ -8,4 +8,5 @@ PASS number: Explicit height and auto width
 PASS number: Text caret is taller than the placeholder
 PASS number: Text caret is shorter than the placeholder
 PASS number: Update field-sizing property dynamically
+PASS number: all content is visible
 

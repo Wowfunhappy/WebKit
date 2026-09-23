@@ -31,7 +31,7 @@
 
 #if USE(SANDBOX_VERSION_3)
 (with-filter (mac-policy-name "Sandbox")
-    (allow system-mac-syscall (mac-syscall-number 5)))
+    (allow system-mac-syscall (mac-syscall-number 5 65)))
 
 (with-filter (mac-policy-name "vnguard")
     (allow system-mac-syscall (mac-syscall-number 1)))
@@ -157,12 +157,8 @@
 
 (allow file-link (subpath "/private/var/folders"))
 
-(allow file-clone (with telemetry))
 (allow file-clone
-    (home-subpath "/Library/Caches")
     (home-subpath "/Library/Containers"))
-(allow file-clone (subpath
-    "/private/var/folders") )
 
 (allow darwin-notification-post
     (notification-name
@@ -235,11 +231,10 @@
        (literal "/private/var/run/syslog"))
 
 (allow ipc-posix-shm-read*
-    (ipc-posix-name "apple.shm.notification_center")
 #if !ENABLE(CFPREFS_DIRECT_MODE)
     (ipc-posix-name-prefix "apple.cfprefs.")
 #endif
-)
+    (ipc-posix-name "apple.shm.notification_center"))
 
 #if ENABLE(SET_WEBCONTENT_PROCESS_INFORMATION_IN_NETWORK_PROCESS)
 (allow mach-lookup (global-name "com.apple.coreservices.launchservicesd"))
@@ -248,8 +243,7 @@
 #if !ENABLE(CFPREFS_DIRECT_MODE)
 (allow mach-lookup
     (global-name "com.apple.cfprefsd.agent")
-    (global-name "com.apple.cfprefsd.daemon")
-)
+    (global-name "com.apple.cfprefsd.daemon"))
 #endif
 
 (allow mach-lookup
@@ -333,9 +327,7 @@
         "Removable"
         "acpi-pmcap-offset"
         "driver-child-bundle"
-        "iommu-selection"
-    )
-)
+        "iommu-selection"))
 
 (deny mach-lookup (xpc-service-name-prefix ""))
 
@@ -386,8 +378,7 @@
     (subpath (param "WEBKIT2_FRAMEWORK_DIR")))
 
 (allow file-read-data
-    (literal "/usr/local/lib/log") ; <rdar://problem/36629495>
-)
+    (literal "/usr/local/lib/log")) ; <rdar://problem/36629495>
 
 (read-only-and-issue-extensions (extension "com.apple.app-sandbox.read"))
 (read-write-and-issue-extensions (extension "com.apple.app-sandbox.read-write"))
@@ -467,8 +458,7 @@
 (allow file-read* (subpath "/private/var/db/mds/system")) ;; FIXME: This should be removed when <rdar://problem/9538414> is fixed.
 (with-filter (uid 0)
     (allow file-write* 
-        (subpath "/private/var/db/mds/system")) ;; FIXME: This should be removed when <rdar://problem/9538414> is fixed.
-)
+        (subpath "/private/var/db/mds/system"))) ;; FIXME: This should be removed when <rdar://problem/9538414> is fixed.
 
 (shared-preferences-read
     "com.apple.crypto"
@@ -477,29 +467,32 @@
     "com.apple.security.revocation")
 
 (allow file-read*
-       (subpath "/private/var/db/mds")
+   (subpath "/private/var/db/mds"))
 
-       ; The following are needed until the causes of <rdar://problem/41487786> are resolved.
-       (literal "/Library/Preferences/com.apple.security.plist")
-       (home-literal "/Library/Preferences/com.apple.security.plist")
+; The following are needed until the causes of <rdar://problem/41487786> are resolved.
+(allow file-read*
+    (literal "/Library/Preferences/com.apple.security.plist")
+    (home-literal "/Library/Preferences/com.apple.security.plist"))
 
-       ; Likewise for <rdar://problem/43310000>
-       (literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.plist")
-       (literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.production.plist")
-       (home-literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.plist")
-       (home-literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.production.plist")
-       (home-regex (string-append "/Library/Preferences/ByHost/com\.apple\.ist\.ds\.appleconnect2\." (uuid-regex-string) "\.plist$"))
-       (home-regex (string-append "/Library/Preferences/ByHost/com\.apple\.ist\.ds\.appleconnect2\.production\." (uuid-regex-string) "\.plist$"))
-)
+; Likewise for <rdar://problem/43310000>
+(with-filter (system-attribute apple-internal)
+    (allow file-read*
+        (literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.plist")
+        (literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.production.plist")
+        (home-literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.plist")
+        (home-literal "/Library/Preferences/com.apple.ist.ds.appleconnect2.production.plist")
+        (home-regex (string-append "/Library/Preferences/ByHost/com\.apple\.ist\.ds\.appleconnect2\." (uuid-regex-string) "\.plist$"))
+        (home-regex (string-append "/Library/Preferences/ByHost/com\.apple\.ist\.ds\.appleconnect2\.production\." (uuid-regex-string) "\.plist$"))))
 
 (allow ipc-posix-shm-read* ipc-posix-shm-write-create ipc-posix-shm-write-data
        (ipc-posix-name "com.apple.AppleDatabaseChanged"))
 
 (system-network)
-(allow network-outbound
-    ;; Local mDNSResponder for DNS, arbitrary outbound TCP
-    (literal "/private/var/run/mDNSResponder")
-    (remote tcp))
+(with-filter (require-not (state-flag "BlockNetworkAccess"))
+    (allow network-outbound
+        ;; Local mDNSResponder for DNS, arbitrary outbound TCP
+        (literal "/private/var/run/mDNSResponder")
+        (remote tcp)))
 
 (with-filter (uid 0)
     (allow mach-lookup
@@ -517,7 +510,6 @@
     "com.apple.Kerberos"
     "edu.mit.Kerberos")
 (allow file-read*
-    (literal "/private/etc/services")
     (literal "/private/etc/hosts")
     (subpath "/Library/KerberosPlugins/GSSAPI")
     (subpath "/Library/KerberosPlugins/KerberosFrameworkPlugins"))
@@ -567,11 +559,12 @@
         (set! allow orig-allow))))
 
 ;; FIXME should be removed when <rdar://problem/30498072> is fixed.
-(allow network* 
-    (local udp)
-    (remote udp)
-    (local tcp)
-    (remote tcp))
+(with-filter (require-not (state-flag "BlockNetworkAccess"))
+    (allow network*
+        (local udp)
+        (remote udp)
+        (local tcp)
+        (remote tcp)))
 
 ;; For reporting progress for active downloads <rdar://problem/44405661>
 (allow mach-lookup
@@ -701,6 +694,7 @@
         SYS_open_dprotected_np
         SYS_open_nocancel
         SYS_openat
+        SYS_openat_dprotected_np
         SYS_os_fault_with_payload
         SYS_pathconf
         SYS_pipe
@@ -724,6 +718,7 @@
         SYS_recvfrom_nocancel
         SYS_recvmsg
         SYS_rename
+        SYS_renameat
         SYS_rmdir
         SYS_select
         SYS_select_nocancel
@@ -886,6 +881,9 @@
 
 #if HAVE(WEBCONTENTRESTRICTIONS) && PLATFORM(MAC)
 (allow mach-lookup
+#if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO)
+    (global-name "com.apple.DeviceConfigurationAgent.consumer")
+#endif
     (global-name "com.apple.familycontrols"))
 #endif
 

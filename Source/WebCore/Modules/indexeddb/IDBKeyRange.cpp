@@ -30,9 +30,14 @@
 #include "IDBBindingUtilities.h"
 #include "IDBKey.h"
 #include "IDBKeyData.h"
+#include "JSIDBKeyRange.h"
 #include "ScriptExecutionContext.h"
 #include "ScriptWrappableInlines.h"
-#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/DateInstance.h>
+#include <JavaScriptCore/JSArray.h>
+#include <JavaScriptCore/JSArrayBuffer.h>
+#include <JavaScriptCore/JSArrayBufferView.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -61,6 +66,18 @@ IDBKeyRange::IDBKeyRange(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool is
 }
 
 IDBKeyRange::~IDBKeyRange() = default;
+
+// https://w3c.github.io/IndexedDB/#convert-a-value-to-a-key-range.
+ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::fromValue(JSC::JSGlobalObject& execState, JSC::JSValue value)
+{
+    if (RefPtr keyRange = JSIDBKeyRange::toWrapped(execState.vm(), value))
+        return { *keyRange };
+
+    if (value.isUndefinedOrNull())
+        return IDBKeyRange::unbounded();
+
+    return IDBKeyRange::only(execState, value);
+}
 
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::only(RefPtr<IDBKey>&& key)
 {
@@ -126,9 +143,10 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::bound(JSGlobalObject& state, JSValue 
     return create(WTF::move(lower), WTF::move(upper), lowerOpen, upperOpen);
 }
 
-bool IDBKeyRange::isOnlyKey() const
+// https://w3c.github.io/IndexedDB/#unbounded-key-range.
+Ref<IDBKeyRange> IDBKeyRange::unbounded()
 {
-    return m_lower && m_upper && !m_isLowerOpen && !m_isUpperOpen && m_lower->isEqual(*m_upper);
+    return IDBKeyRange::create(nullptr, nullptr, false, false);
 }
 
 ExceptionOr<bool> IDBKeyRange::includes(JSC::JSGlobalObject& state, JSC::JSValue keyValue)
@@ -160,6 +178,28 @@ ExceptionOr<bool> IDBKeyRange::includes(JSC::JSGlobalObject& state, JSC::JSValue
     }
 
     return true;
+}
+
+// https://w3c.github.io/IndexedDB/#is-a-potentially-valid-key-range
+bool IDBKeyRange::isPotentiallyValidKeyRange(JSC::JSGlobalObject& execState, JSC::JSValue value)
+{
+    if (JSIDBKeyRange::toWrapped(execState.vm(), value))
+        return true;
+    if (value.isNumber())
+        return true;
+    if (value.isString())
+        return true;
+    if (!value.isObject())
+        return false;
+    if (value.inherits<JSC::DateInstance>())
+        return true;
+    if (is<JSC::JSArray>(value))
+        return true;
+    if (is<JSC::JSArrayBuffer>(value))
+        return true;
+    if (is<JSC::JSArrayBufferView>(value))
+        return true;
+    return false;
 }
 
 } // namespace WebCore

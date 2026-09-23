@@ -49,6 +49,7 @@ public:
     void offsetTimestampsBy(const MediaTime&) override;
     void setTimestamps(const MediaTime&, const MediaTime&) override;
     Ref<MediaSample> createNonDisplayingCopy() const override;
+    Ref<MediaSample> createCopyWithAdjustedStartTime(const MediaTime& offset) const override;
     SampleFlags flags() const override { return m_flags; }
     PlatformSample platformSample() const override;
     Type type() const override { return Type::GStreamerSample; }
@@ -62,6 +63,8 @@ protected:
 
 private:
     MediaSampleGStreamer(const FloatSize& presentationSize, TrackID);
+
+    void updateSampleTimestamps(const String&);
 
     MediaTime m_pts;
     MediaTime m_dts;

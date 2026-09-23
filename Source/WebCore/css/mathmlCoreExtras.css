@@ -23,7 +23,7 @@
  */
 
 /* https://w3c.github.io/mathml-core/#user-agent-stylesheet */
-/* This file contains the styles that should be gated by the preference CoreMathMLEnabled */
+/* This file contains the styles that should be gated by the preference CoreMathMLEnabled. */
 
 #if defined(ENABLE_MATHML) && ENABLE_MATHML
 

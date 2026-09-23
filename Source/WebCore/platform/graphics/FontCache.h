@@ -44,7 +44,7 @@
 #include <wtf/Forward.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/Platform.h>
 #include <wtf/PointerComparison.h>
 #include <wtf/RefPtr.h>
@@ -137,7 +137,7 @@ public:
     Vector<String> systemFontFamilies();
     void platformInit();
 
-    static bool isSystemFontForbiddenForEditing(const String&);
+    static bool NODELETE isSystemFontForbiddenForEditing(const String&);
 
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT static void setFontAllowlist(const Vector<String>&);
@@ -240,7 +240,7 @@ private:
 #endif
 
 #if PLATFORM(COCOA)
-    FontDatabase& database(AllowUserInstalledFonts);
+    FontDatabase& NODELETE database(AllowUserInstalledFonts);
 #endif
 
     Timer m_purgeTimer;
@@ -269,8 +269,8 @@ private:
     using FallbackFontSet = HashSet<RetainPtr<CTFontRef>, WTF::RetainPtrObjectHash<CTFontRef>, WTF::RetainPtrObjectHashTraits<CTFontRef>>;
     FallbackFontSet m_fallbackFonts;
 
-    ListHashSet<String> m_seenFamiliesForPrewarming;
-    ListHashSet<String> m_fontNamesRequiringSystemFallbackForPrewarming;
+    OrderedHashSet<String> m_seenFamiliesForPrewarming;
+    OrderedHashSet<String> m_fontNamesRequiringSystemFallbackForPrewarming;
     const RefPtr<WorkQueue> m_prewarmQueue;
 
     FontFamilySpecificationCoreTextCache m_fontFamilySpecificationCoreTextCache;

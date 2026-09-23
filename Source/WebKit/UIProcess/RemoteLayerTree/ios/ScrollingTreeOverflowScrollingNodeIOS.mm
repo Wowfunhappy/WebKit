@@ -51,9 +51,7 @@ ScrollingTreeOverflowScrollingNodeIOS::ScrollingTreeOverflowScrollingNodeIOS(Web
     m_delegate = makeUnique<ScrollingTreeScrollingNodeDelegateIOS>(*this);
 }
 
-ScrollingTreeOverflowScrollingNodeIOS::~ScrollingTreeOverflowScrollingNodeIOS()
-{
-}
+ScrollingTreeOverflowScrollingNodeIOS::~ScrollingTreeOverflowScrollingNodeIOS() = default;
 
 ScrollingTreeScrollingNodeDelegateIOS& ScrollingTreeOverflowScrollingNodeIOS::delegate() const
 {

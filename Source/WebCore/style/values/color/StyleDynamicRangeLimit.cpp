@@ -30,6 +30,7 @@
 #include "CSSDynamicRangeLimit.h"
 #include "CSSDynamicRangeLimitMix.h"
 #include "CSSDynamicRangeLimitValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSPrimitiveNumericTypes+Serialization.h"
 #include "PlatformDynamicRangeLimit.h"
 #include "StyleBuilderChecking.h"
@@ -37,6 +38,19 @@
 
 namespace WebCore {
 namespace Style {
+
+// Keep these out of line to work around a clang crash (rdar://178383013).
+DynamicRangeLimit::Kind DynamicRangeLimit::copyKind(const Kind& other)
+{
+    return WTF::switchOn(other,
+        []<CSSValueID Id>(const Constant<Id>& keyword) {
+            return Kind { keyword };
+        },
+        [](const UniqueRef<DynamicRangeLimitMixFunction>& mix) {
+            return Kind { WTF::makeUniqueRef<DynamicRangeLimitMixFunction>(mix) };
+        }
+    );
+}
 
 using namespace CSS::Literals;
 
@@ -59,7 +73,7 @@ static DynamicRangeLimit resolve(DynamicRangeLimitMixFunction&& mix)
 
 // MARK: - Conversion
 
-auto ToCSS<DynamicRangeLimit>::operator()(const DynamicRangeLimit& limit, const RenderStyle& style) -> CSS::DynamicRangeLimit
+auto ToCSS<DynamicRangeLimit>::operator()(const DynamicRangeLimit& limit, const Style::ComputedStyle& style) -> CSS::DynamicRangeLimit
 {
     return WTF::switchOn(limit,
         [&](const auto& value) -> CSS::DynamicRangeLimit {
@@ -80,15 +94,15 @@ auto ToStyle<CSS::DynamicRangeLimit>::operator()(const CSS::DynamicRangeLimit& l
     );
 }
 
-Ref<CSSValue> CSSValueCreation<DynamicRangeLimit>::operator()(CSSValuePool&, const RenderStyle& style, const DynamicRangeLimit& value)
+Ref<CSSValue> CSSValueCreation<DynamicRangeLimit>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const DynamicRangeLimit& value)
 {
     return CSSDynamicRangeLimitValue::create(toCSS(value, style));
 }
 
 auto CSSValueConversion<DynamicRangeLimit>::operator()(BuilderState& state, const CSSValue& value) -> DynamicRangeLimit
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueStandard:      return CSS::Keyword::Standard { };
         case CSSValueConstrained:   return CSS::Keyword::Constrained { };
         case CSSValueNoLimit:       return CSS::Keyword::NoLimit { };
@@ -108,7 +122,7 @@ auto CSSValueConversion<DynamicRangeLimit>::operator()(BuilderState& state, cons
 
 // MARK: - Serialization
 
-void Serialize<DynamicRangeLimit>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const DynamicRangeLimit& value)
+void Serialize<DynamicRangeLimit>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const DynamicRangeLimit& value)
 {
     CSS::serializationForCSS(builder, context, toCSS(value, style));
 }

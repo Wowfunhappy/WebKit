@@ -91,7 +91,7 @@ MediaControlTextTrackContainerElement::MediaControlTextTrackContainerElement(Doc
 
 MediaControlTextTrackContainerElement::~MediaControlTextTrackContainerElement() = default;
 
-RenderPtr<RenderElement> MediaControlTextTrackContainerElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MediaControlTextTrackContainerElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, *this, WTF::move(style));
 }
@@ -555,7 +555,7 @@ VTTCue& MediaControlTextTrackContainerElement::ensurePreviewCue() const
     }
 
     if (!m_previewCue) {
-        lazyInitialize(m_previewCue, VTTCue::create(protect(document()), 0, 0, { }));
+        lazyInitialize(m_previewCue, VTTCue::create(protect(document()), 0, 0, { }).releaseReturnValue());
         m_previewCue->setSnapToLines(false);
         m_previewCue->setLine(25.);
         m_previewCue->setStartTime(MediaTime::zeroTime());

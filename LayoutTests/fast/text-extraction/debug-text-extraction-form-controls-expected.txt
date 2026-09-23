@@ -1,57 +1,55 @@
 -- texttree
 
 root
-    role='banner'
-        aria-label='Main Page Title','Welcome to Test Page'
-    navigation,role='navigation',aria-label='Main navigation'
+    role=banner
+        label='Main Page Title' 'Welcome to Test Page'
+    navigation label='Main navigation'
         list
-            list-item
-                link,'Section 1'
-            list-item
-                link,'Section 2'
-    role='main'
-        section,aria-label='Interactive Elements'
-            button,aria-describedby='This button does nothing',aria-label='Test button','Click Me'
+            link 'Section 1'
+            link 'Section 2'
+    role=main
+        section label='Interactive Elements'
+            button describedby='This button does nothing' label='Test button' 'Click Me'
             'This button does nothing'
-            input,'text',uid=…,placeholder='Enter text here'
-            role='button',title='Test action','Clickable Div'
-        section,aria-label='Content with Roles'
-            article,role='article'
+            input uid=… placeholder='Enter text here'
+            role=button title='Test action' 'Clickable Div'
+        section label='Content with Roles'
+            article
                 'Article Title'
                 'January 1, 2024'
                 'This is some article content with highlighted text.'
-            role='complementary',aria-label='Related information'
+            label='Related information'
                 'Related Links'
                 list
-                    list-item
-                        link,'Example Link'
-                    list-item
-                        link,'Test Link'
-            role='region'
-                role='status','Ready'
-                button,'Update Status'
-            textarea,uid=…,'This is a text box'
-            contentEditable,uid=…,role='textbox'
+                    link 'Example Link'
+                    link 'Test Link'
+            role=region
+                role=status 'Ready'
+                button 'Update Status'
+            textarea uid=… 'This is a text box'
+            contentEditable uid=… role=textbox
                 subscript
                     'WebKit home page:'
-                    link,'webkit.org'
-            form,autocomplete='on',name='signup'
+                    link 'webkit.org'
+            form autocomplete=on name=signup
                 'Sign up for our newsletter'
-                input,'text',uid=…,placeholder='Username',name='username',minlength=3,maxlength=20,required
-                input,'text',uid=…,placeholder='Email',pattern='[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$',name='email',required
-                input,'text',uid=…,placeholder='Zip Code',pattern='[0-9]{5}',name='zipcode',minlength=5,maxlength=5
-            select,uid=…
-                option,value='one','Number 1'
-                option,value='two','Number 2'
-                option,selected,value='three','Number 3'
-            select,uid=…,multiple
-                option,selected,value='banana'
-                option,selected,value='pear'
-                option,value='apple'
-    role='contentinfo'
-        'Footer content with'
-        role='img',aria-label='copyright symbol','©'
-        '2024'
+                input uid=… placeholder=Username name=username minlength=3 maxlength=20 required
+                input uid=… placeholder=Email pattern=[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$ name=email required
+                input uid=… placeholder='Zip Code' pattern=[0-9]{5} name=zipcode minlength=5 maxlength=5
+                input range uid=… name=volume value=42
+                input button uid=… name=cancel value=Cancel
+                input uid=… name=submit value='Sign Up Now'
+            select uid=…
+                option value=one 'Number 1'
+                option value=two 'Number 2'
+                option selected value=three 'Number 3'
+            select uid=… multiple
+                option selected value=banana
+                option selected value=pear
+                option value=apple
+    'Footer content with'
+    role=img label='copyright symbol' '©'
+    '2024'
 
 -- html
 
@@ -59,7 +57,7 @@ root
     <div role='banner'>
         <h1 aria-label='Main Page Title'>Welcome to Test Page</h1>
     </div>
-    <nav role='navigation' aria-label='Main navigation'>
+    <nav aria-label='Main navigation'>
         <ul>
             <li>
                 <a>Section 1</a>
@@ -77,12 +75,12 @@ root
             <div role='button' title='Test action'>Clickable Div</div>
         </section>
         <section aria-label='Content with Roles'>
-            <article role='article'>
+            <article>
                 Article Title
                 January 1, 2024
                 This is some article content with highlighted text.
             </article>
-            <aside role='complementary' aria-label='Related information'>
+            <aside aria-label='Related information'>
                 Related Links
                 <ul>
                     <li>
@@ -109,6 +107,9 @@ root
                 <input type='text' uid=… placeholder='Username' name='username' minlength=3 maxlength=20 required>
                 <input type='text' uid=… placeholder='Email' pattern='[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$' name='email' required>
                 <input type='text' uid=… placeholder='Zip Code' pattern='[0-9]{5}' name='zipcode' minlength=5 maxlength=5>
+                <input type='range' uid=… name='volume' value='42'>
+                <input type='button' uid=… name='cancel' value='Cancel'>
+                <input type='submit' uid=… name='submit' value='Sign Up Now'>
             </form>
             <select uid=…>
                 <option value='one'>Number 1</option>
@@ -122,11 +123,9 @@ root
             </select>
         </section>
     </main>
-    <footer role='contentinfo'>
-        Footer content with
-        <span role='img' aria-label='copyright symbol'>©</span>
-        2024
-    </footer>
+    Footer content with
+    <span role='img' aria-label='copyright symbol'>©</span>
+    2024
 </body>
 
 -- json
@@ -155,7 +154,6 @@ root
     {
       "type": "navigation",
       "nodeName": "nav",
-      "role": "navigation",
       "aria-label": "Main navigation",
       "children": [
         {
@@ -259,7 +257,6 @@ root
             {
               "type": "article",
               "nodeName": "article",
-              "role": "article",
               "children": [
                 {
                   "type": "text",
@@ -278,7 +275,6 @@ root
             {
               "type": "container",
               "nodeName": "aside",
-              "role": "complementary",
               "aria-label": "Related information",
               "children": [
                 {
@@ -452,6 +448,30 @@ root
                       "content": "Zip Code"
                     }
                   ]
+                },
+                {
+                  "type": "input",
+                  "nodeName": "input",
+                  "uid": "…",
+                  "controlType": "range",
+                  "name": "volume",
+                  "value": "42"
+                },
+                {
+                  "type": "input",
+                  "nodeName": "input",
+                  "uid": "…",
+                  "controlType": "button",
+                  "name": "cancel",
+                  "value": "Cancel"
+                },
+                {
+                  "type": "input",
+                  "nodeName": "input",
+                  "uid": "…",
+                  "controlType": "submit",
+                  "name": "submit",
+                  "value": "Sign Up Now"
                 }
               ]
             },
@@ -505,31 +525,24 @@ root
       ]
     },
     {
+      "type": "text",
+      "content": "Footer content with"
+    },
+    {
       "type": "container",
-      "nodeName": "footer",
-      "role": "contentinfo",
+      "nodeName": "span",
+      "role": "img",
+      "aria-label": "copyright symbol",
       "children": [
         {
           "type": "text",
-          "content": "Footer content with"
-        },
-        {
-          "type": "container",
-          "nodeName": "span",
-          "role": "img",
-          "aria-label": "copyright symbol",
-          "children": [
-            {
-              "type": "text",
-              "content": "©"
-            }
-          ]
-        },
-        {
-          "type": "text",
-          "content": "2024"
+          "content": "©"
         }
       ]
+    },
+    {
+      "type": "text",
+      "content": "2024"
     }
   ],
   "version": 2

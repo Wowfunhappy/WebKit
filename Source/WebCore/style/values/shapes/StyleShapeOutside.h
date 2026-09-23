@@ -43,7 +43,14 @@ struct ShapeOutside {
         Shape shape;
         ShapeBox box;
 
-        bool operator==(const ShapeAndShapeBox&) const = default;
+        ShapeAndShapeBox(Shape&&, ShapeBox);
+        ShapeAndShapeBox(ShapeAndShapeBox&&);
+        ShapeAndShapeBox(const ShapeAndShapeBox&);
+        ShapeAndShapeBox& operator=(ShapeAndShapeBox&&);
+        ShapeAndShapeBox& operator=(const ShapeAndShapeBox&);
+        ~ShapeAndShapeBox();
+
+        bool operator==(const ShapeAndShapeBox&) const;
     };
     struct Image {
         ImageWrapper image;
@@ -54,10 +61,10 @@ struct ShapeOutside {
     };
 
     ShapeOutside(CSS::Keyword::None) { }
-    ShapeOutside(Shape&& value) : m_value { Value::create(WTF::move(value)) } { }
-    ShapeOutside(ShapeBox&& value) : m_value { Value::create(WTF::move(value)) } { }
-    ShapeOutside(ShapeAndShapeBox&& value) : m_value { Value::create(WTF::move(value)) } { }
-    ShapeOutside(Image&& value) : m_value { Value::create(WTF::move(value)) } { }
+    ShapeOutside(Shape&&);
+    ShapeOutside(ShapeBox&&);
+    ShapeOutside(ShapeAndShapeBox&&);
+    ShapeOutside(Image&&);
 
     bool isNone() const { return !m_value; }
 
@@ -100,26 +107,19 @@ private:
     public:
         using Kind = Variant<Shape, ShapeBox, ShapeAndShapeBox, Image>;
 
-        static Ref<Value> create(Kind&& value)
-        {
-            return adoptRef(*new Value(WTF::move(value)));
-        }
-
-        explicit Value(Kind&& value)
-            : value { WTF::move(value) }
-        {
-        }
+        static Ref<Value> create(Kind&&);
+        ~Value();
 
         inline const BasicShape* shape() const;
         inline CSSBoxType effectiveCSSBox() const;
         inline RefPtr<Style::Image> image() const;
 
-        bool operator==(const Value& other) const
-        {
-            return value == other.value;
-        }
+        bool operator==(const Value&) const;
 
         Kind value;
+
+    private:
+        explicit Value(Kind&&);
     };
 
     RefPtr<Value> m_value { };

@@ -31,6 +31,7 @@
 #include "WebImage.h"
 #include "WebLocalFrameLoaderClient.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCellInlines.h>
 #include <WebCore/DocumentPage.h>
 #include <WebCore/DocumentView.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
@@ -152,7 +153,7 @@ IntRect InjectedBundleNodeHandle::absoluteBoundingRect(bool* isReplaced)
     return protect(coreNode())->pixelSnappedAbsoluteBoundingRect(isReplaced);
 }
 
-static RefPtr<WebImage> imageForRect(LocalFrameView* frameView, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
+static RefPtr<WebImage> imageForRect(LocalFrameView* frameView, Node* nodeToDraw, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
 {
     if (paintingRect.isEmpty())
         return nullptr;
@@ -196,7 +197,7 @@ static RefPtr<WebImage> imageForRect(LocalFrameView* frameView, const IntRect& p
 
     auto oldPaintBehavior = frameView->paintBehavior();
     frameView->setPaintBehavior(paintBehavior);
-    frameView->paintContentsForSnapshot(graphicsContext, paintingRect, shouldPaintSelection, LocalFrameView::DocumentCoordinates);
+    frameView->paintContentsForSnapshot(graphicsContext, paintingRect, nodeToDraw, shouldPaintSelection, LocalFrameView::DocumentCoordinates);
     frameView->setPaintBehavior(oldPaintBehavior);
 
     return snapshot;
@@ -226,14 +227,10 @@ RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options
         paintingRect = renderer->absoluteBoundingBoxRectIgnoringTransforms();
     else {
         LayoutRect topLevelRect;
-        paintingRect = snappedIntRect(renderer->paintingRootRect(topLevelRect));
+        paintingRect = snappedIntRect(renderer->subtreePaintRootRect(topLevelRect));
     }
 
-    frameView->setNodeToDraw(m_node.get());
-    RefPtr image = imageForRect(frameView.get(), paintingRect, bitmapWidth, options);
-    frameView->setNodeToDraw(0);
-
-    return image;
+    return imageForRect(frameView.get(), m_node.get(), paintingRect, bitmapWidth, options);
 }
 
 RefPtr<InjectedBundleRangeHandle> InjectedBundleNodeHandle::visibleRange()
@@ -448,11 +445,11 @@ RefPtr<WebFrame> InjectedBundleNodeHandle::documentFrame()
 
 RefPtr<WebFrame> InjectedBundleNodeHandle::htmlIFrameElementContentFrame()
 {
-    RefPtr iframeElement = dynamicDowncast<HTMLIFrameElement>(m_node.get());
+    auto* iframeElement = dynamicDowncast<HTMLIFrameElement>(m_node.get());
     if (!iframeElement)
         return nullptr;
 
-    RefPtr frame = iframeElement->contentFrame();
+    auto* frame = iframeElement->contentFrame();
     if (!frame)
         return nullptr;
 

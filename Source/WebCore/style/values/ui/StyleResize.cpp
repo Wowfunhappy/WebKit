@@ -25,29 +25,25 @@
 #include "config.h"
 #include "StyleResize.h"
 
+#include "CSSKeywordValue.h"
 #include "Document.h"
 #include "Settings.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 auto CSSValueConversion<Resize>::operator()(BuilderState& state, const CSSValue& value) -> Resize
 {
-    auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
         return Resize::None;
 
-    if (!primitiveValue->isValueID()) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return Resize::None;
-    }
-
-    if (primitiveValue->valueID() == CSSValueInternalTextareaAuto)
+    if (keywordValue->valueID() == CSSValueInternalTextareaAuto)
         return state.document().settings().textAreasAreResizable() ? Resize::Both : Resize::None;
 
-    return fromCSSValue<Resize>(value);
+    return fromCSSValue<Resize>(*keywordValue);
 }
 
 } // namespace Style

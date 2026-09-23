@@ -42,10 +42,13 @@ import webkitpy.port.config as config
 
 
 class ConfigTest(unittest.TestCase):
-    def make_config(self, output='', files=None, exit_code=0, exception=None, run_command_fn=None, stderr='', port_implementation=None):
+    def setUp(self):
+        config.Config._clear_cache_for_testing()
+
+    def make_config(self, output='', files=None, exit_code=0, exception=None, run_command_fn=None, stderr='', port_implementation=None, use_cmake=False):
         e = MockExecutive2(output=output, exit_code=exit_code, exception=exception, run_command_fn=run_command_fn, stderr=stderr)
         fs = MockFileSystem(files)
-        return config.Config(e, fs, port_implementation=port_implementation)
+        return config.Config(e, fs, port_implementation=port_implementation, use_cmake=use_cmake)
 
     def assert_configuration(self, contents, expected):
         # This tests that a configuration file containing
@@ -84,6 +87,7 @@ class ConfigTest(unittest.TestCase):
         self.assertRaises(KeyError, c.build_directory, 'Unknown')
 
         # Test that stderr output from webkit-build-directory won't mangle the build dir
+        config.Config._clear_cache_for_testing()
         c = self.make_config(output='/WebKitBuild/', stderr="mock stderr output from webkit-build-directory")
         self.assertEqual(c.build_directory(None), '/WebKitBuild/')
 
@@ -93,6 +97,26 @@ class ConfigTest(unittest.TestCase):
             return '/tmp'
 
         c = self.make_config(run_command_fn=mock_run_command, port_implementation='gtk')
+
+    def test_build_directory_passes_cmake_flag(self):
+        seen = []
+
+        def mock_run_command(arg_list):
+            seen.append(list(arg_list))
+            if '--cmake' in arg_list:
+                return '/WebKitBuild/cmake-mac/Debug'
+            return '/WebKitBuild/Debug'
+
+        c_xcode = self.make_config(run_command_fn=mock_run_command, port_implementation='mac', use_cmake=False)
+        self.assertEqual(c_xcode.build_directory('Debug'), '/WebKitBuild/Debug')
+        self.assertNotIn('--cmake', seen[-1])
+
+        c_cmake = self.make_config(run_command_fn=mock_run_command, port_implementation='mac', use_cmake=True)
+        self.assertEqual(c_cmake.build_directory('Debug'), '/WebKitBuild/cmake-mac/Debug')
+        self.assertIn('--cmake', seen[-1])
+
+        c_cmake.build_directory('Release')
+        self.assertIn('--cmake', seen[-1])
 
     def test_default_configuration__release(self):
         self.assert_configuration('Release', 'Release')

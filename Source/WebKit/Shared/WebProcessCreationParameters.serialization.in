@@ -20,6 +20,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
+#endif
+
 [RValue, DebugDecodingFailure] struct WebKit::WebProcessCreationParameters {
     WebKit::AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
     String injectedBundlePath;
@@ -121,6 +126,7 @@
 
 #if PLATFORM(COCOA)
     Vector<String> mediaMIMETypes;
+    HashMap<String, bool> mediaSourceTypesSupported;
 #endif
 
 #if PLATFORM(COCOA) || PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
@@ -143,9 +149,11 @@
 
     std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;
 
-    std::optional<WebKit::SandboxExtensionHandle> mobileGestaltExtensionHandle;
+#if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && !ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     std::optional<WebKit::SandboxExtensionHandle> launchServicesExtensionHandle;
-#if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && HAVE(VIDEO_RESTRICTED_DECODING)
+#endif
+
+#if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && HAVE(VIDEO_RESTRICTED_DECODING) && !ENABLE(TRUSTD_BLOCKING_IN_WEBCONTENT)
     WebKit::SandboxExtensionHandle trustdExtensionHandle;
 #endif
 #if HAVE(VIDEO_RESTRICTED_DECODING)
@@ -165,10 +173,12 @@
 #if PLATFORM(IOS_FAMILY)
     PAL::UserInterfaceIdiom currentUserInterfaceIdiom;
     bool supportsPictureInPicture;
-    WebCore::RenderThemeIOS::CSSValueToSystemColorMap cssValueToSystemColorMap;
+    WebCore::CSSValueToSystemColorMap cssValueToSystemColorMap;
     WebCore::Color focusRingColor;
     String localizedDeviceModel;
     String contentSizeCategory;
+#endif
+
 #endif
 
 #if USE(GBM)
@@ -222,6 +232,8 @@
 
     Seconds memoryFootprintPollIntervalForTesting;
     Vector<uint64_t> memoryFootprintNotificationThresholds;
+
+    std::optional<Seconds> overridePersistentNotificationMinimumLifetime;
 
 #if ENABLE(NOTIFY_BLOCKING)
     Vector<std::pair<String, uint64_t>> notifyState;

@@ -48,6 +48,7 @@
 #import <pal/spi/mac/NSApplicationSPI.h>
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/Deque.h>
 #import <wtf/WorkQueue.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
@@ -226,15 +227,25 @@ void UIScriptControllerMac::chooseMenuAction(JSStringRef jsAction, JSValueRef ca
     unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
 
     auto action = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, jsAction));
-    __block NSUInteger matchIndex = NSNotFound;
     auto activeMenu = retainPtr(webView()._activeMenu);
-    [[activeMenu itemArray] enumerateObjectsUsingBlock:^(NSMenuItem *item, NSUInteger index, BOOL *stop) {
-        if ([item.title isEqualToString:(__bridge NSString *)action.get()])
-            matchIndex = index;
-    }];
 
-    if (matchIndex != NSNotFound) {
-        [activeMenu performActionForItemAtIndex:matchIndex];
+    RetainPtr<NSMenuItem> matchItem;
+    Deque<RetainPtr<NSMenu>> queue;
+    queue.append(activeMenu.get());
+    while (!queue.isEmpty() && !matchItem) {
+        auto menu = queue.takeFirst();
+        for (NSMenuItem *item in menu.get().itemArray) {
+            if ([item.title isEqualToString:(__bridge NSString *)action.get()]) {
+                matchItem = item;
+                break;
+            }
+            if (item.hasSubmenu)
+                queue.append(item.submenu);
+        }
+    }
+
+    if (matchItem) {
+        [matchItem.get().menu performActionForItemAtIndex:[matchItem.get().menu indexOfItem:matchItem.get()]];
         [activeMenu removeAllItems];
         [activeMenu update];
         [activeMenu cancelTracking];
@@ -419,7 +430,7 @@ void UIScriptControllerMac::sendEventStream(JSStringRef eventsJSON, JSValueRef c
 
         id eventType = event[EventTypeKey];
         if (!event[EventTypeKey]) {
-            WTFLogAlways("Missing event type");
+            WTFLogAlways("Failed to find `%@` key in %@", EventTypeKey, event);
             break;
         }
         

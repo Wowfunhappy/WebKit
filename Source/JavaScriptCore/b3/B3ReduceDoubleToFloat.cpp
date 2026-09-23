@@ -208,7 +208,7 @@ private:
         }
     }
 
-    bool canBeTransformedToFloat(Value* value)
+    bool NODELETE canBeTransformedToFloat(Value* value)
     {
         if (value->opcode() == FloatToDouble)
             return true;

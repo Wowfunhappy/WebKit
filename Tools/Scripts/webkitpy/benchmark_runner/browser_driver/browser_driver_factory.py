@@ -23,5 +23,8 @@ class BrowserDriverFactory(object):
     @classmethod
     def create(cls, platform, browser_name, browser_args):
         if browser_name not in cls.browser_drivers[platform]:
-            raise ValueError("Browser \"%s\" is not available on platform \"%s\"" % (browser_name, platform))
+            if 'all' in cls.browser_drivers and browser_name in cls.browser_drivers['all']:
+                platform = 'all'
+            else:
+                raise ValueError("Browser \"%s\" is not available on platform \"%s\"" % (browser_name, platform))
         return cls.browser_drivers[platform][browser_name](browser_args)

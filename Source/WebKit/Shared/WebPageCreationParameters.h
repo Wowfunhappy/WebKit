@@ -38,6 +38,7 @@
 #include "WebPageGroupData.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebPreferencesStore.h"
+#include <WebCore/BrowsingContextGroupIdentifier.h>
 #include "WebURLSchemeHandlerIdentifier.h"
 #include "WebsitePoliciesData.h"
 #include <WebCore/ActivityState.h>
@@ -98,6 +99,7 @@
 namespace WebCore {
 enum class SandboxFlag : uint16_t;
 using SandboxFlags = OptionSet<SandboxFlag>;
+enum class AccessibilityMode : uint8_t;
 }
 
 namespace WebKit {
@@ -122,6 +124,7 @@ struct WebPageCreationParameters {
     DrawingAreaIdentifier drawingAreaIdentifier;
     WebPageProxyIdentifier webPageProxyIdentifier;
     WebPageGroupData pageGroupData;
+    std::optional<WebCore::BrowsingContextGroupIdentifier> browsingContextGroupIdentifier;
 
     bool isEditable { false };
 
@@ -166,8 +169,8 @@ struct WebPageCreationParameters {
 
     WebCore::FloatBoxExtent obscuredContentInsets { };
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool hasBannerViewOverlay { false };
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController { false };
 #endif
     float mediaVolume { 0 };
     WebCore::MediaProducerMutedStateFlags muted { };
@@ -234,7 +237,7 @@ struct WebPageCreationParameters {
 #if ENABLE(TILED_CA_DRAWING_AREA)
     SandboxExtension::Handle renderServerMachExtensionHandle { };
 #endif
-#if HAVE(STATIC_FONT_REGISTRY)
+#if HAVE(STATIC_FONT_REGISTRY) && !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
     Vector<SandboxExtension::Handle> fontMachExtensionHandles { };
 #endif
 #if HAVE(APP_ACCENT_COLORS)
@@ -331,6 +334,9 @@ struct WebPageCreationParameters {
 
 #if PLATFORM(MAC)
     double overflowHeightForTopScrollEdgeEffect { 0 };
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+    bool fullScreenTitlebarOverlayIsDisplayed { false };
+#endif
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
     WebCore::CornerRadii scrollbarAvoidanceCornerRadii;
 #endif
@@ -343,6 +349,7 @@ struct WebPageCreationParameters {
     WebCore::FrameIdentifier mainFrameIdentifier;
     String openedMainFrameName;
     std::optional<WebCore::FrameIdentifier> mainFrameOpenerIdentifier { };
+    URL mainFrameOpenerURL;
     WebCore::SandboxFlags initialSandboxFlags;
     WebCore::ReferrerPolicy initialReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
     std::optional<WebCore::WindowFeatures> windowFeatures { };
@@ -387,8 +394,10 @@ struct WebPageCreationParameters {
 
     bool isPopup { false };
 
-    bool accessibilityEnabled { false };
+    WebCore::AccessibilityMode accessibilityMode { };
     bool shouldForceSiteIsolationAlwaysOnForTesting { false };
+    bool shouldEnableNetworkInstrumentation { false };
+    bool shouldEnablePageInstrumentation { false };
 };
 
 } // namespace WebKit

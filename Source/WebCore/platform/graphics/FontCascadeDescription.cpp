@@ -62,12 +62,12 @@ struct SameSizeAsFontCascadeDescription {
 static_assert(sizeof(FontCascadeDescription) == sizeof(SameSizeAsFontCascadeDescription), "FontCascadeDescription should stay small");
 
 FontCascadeDescription::FontCascadeDescription()
-    : m_families(RefCountedFixedVector<AtomString>::create(1))
+    : m_families(RefCountedFixedVector<FontFamily>::create(1))
     , m_isAbsoluteSize(false)
     , m_kerning(std::to_underlying(Kerning::Auto))
     , m_keywordSize(0)
     , m_fontSmoothing(std::to_underlying(FontSmoothingMode::Auto))
-    , m_isSpecifiedFont(false)
+    , m_hasAuthorSpecifiedNonGenericPrimaryFont(false)
 {
 }
 
@@ -104,7 +104,7 @@ bool FontCascadeDescription::familiesEqualForTextAutoSizing(const FontCascadeDes
         return false;
 
     for (unsigned i = 0; i < thisFamilyCount; ++i) {
-        if (!familyNamesAreEqual(familyAt(i), other.familyAt(i)))
+        if (!familyNamesAreEqual(familyAt(i).name, other.familyAt(i).name))
             return false;
     }
 
@@ -160,6 +160,14 @@ void FontCascadeDescription::resolveFontSizeAdjustFromFontIfNeeded(const Font& f
     setFontSizeAdjust({ fontSizeAdjust.metric, FontSizeAdjust::ValueType::FromFont, aspectValue });
 }
 
+TextStream& operator<<(TextStream& ts, const FontFamily& family)
+{
+    ts << family.name;
+    if (family.isGeneric())
+        ts << " (generic)"_s;
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, const FontCascadeDescription& fontCascadeDescription)
 {
     bool first = true;
@@ -180,7 +188,7 @@ TextStream& operator<<(TextStream& ts, const FontCascadeDescription& fontCascade
         ts << ", font smoothing "_s << fontCascadeDescription.fontSmoothing();
 
     ts << ", keyword size "_s << fontCascadeDescription.keywordSize();
-    ts << ", is specified font "_s << fontCascadeDescription.isSpecifiedFont();
+    ts << ", has author specified non-generic primary font "_s << fontCascadeDescription.hasAuthorSpecifiedNonGenericPrimaryFont();
 
     return ts;
 }

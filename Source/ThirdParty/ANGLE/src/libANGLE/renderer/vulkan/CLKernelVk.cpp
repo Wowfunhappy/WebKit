@@ -17,12 +17,15 @@
 #include "libANGLE/renderer/vulkan/CLKernelVk.h"
 #include "libANGLE/renderer/vulkan/CLMemoryVk.h"
 #include "libANGLE/renderer/vulkan/CLProgramVk.h"
+#include "libANGLE/renderer/vulkan/cl_types.h"
 #include "libANGLE/renderer/vulkan/vk_wrapper.h"
 
 #include "libANGLE/CLBuffer.h"
 #include "libANGLE/CLContext.h"
+#include "libANGLE/CLDevice.h"
 #include "libANGLE/CLKernel.h"
 #include "libANGLE/CLProgram.h"
+
 #include "spirv/unified1/NonSemanticClspvReflection.h"
 
 #include <algorithm>
@@ -87,7 +90,8 @@ CLKernelVk::CLKernelVk(const cl::Kernel &kernel,
       mName(name),
       mAttributes(attributes),
       mArgs(args),
-      mPodBuffer(nullptr)
+      mPodBuffer(nullptr),
+      mLocalMemoryArgSizes(args.size(), 0)
 {
     mShaderProgramHelper.setShader(gl::ShaderType::Compute,
                                    mKernel.getProgram().getImpl<CLProgramVk>().getShaderModule());
@@ -280,6 +284,11 @@ angle::Result CLKernelVk::setArg(cl_uint argIndex, size_t argSize, const void *a
                 arg.handleSize = argSize;
                 break;
             case NonSemanticClspvReflectionArgumentWorkgroup:
+                ASSERT(arg.workgroupBufferElemSize != 0);
+                mLocalMemoryArgSizes[argIndex] = argSize;
+                arg.handle                     = const_cast<void *>(argValue);
+                arg.handleSize                 = argSize;
+                break;
             default:
                 // Just store ptr and size (if we end up here)
                 arg.handle     = const_cast<void *>(argValue);
@@ -313,7 +322,8 @@ angle::Result CLKernelVk::createInfo(CLKernelImpl::Info *info) const
     for (auto i = 0u; i < ctx.getDevices().size(); ++i)
     {
         auto &workGroup     = info->workGroups[i];
-        const auto deviceVk = &ctx.getDevices()[i]->getImpl<CLDeviceVk>();
+        const auto device   = &ctx.getDevices()[i];
+        const auto deviceVk = &device->get()->getImpl<CLDeviceVk>();
         deviceProgramData   = mProgram->getDeviceProgramData(ctx.getDevices()[i]->getNative());
         if (deviceProgramData == nullptr)
         {
@@ -326,9 +336,9 @@ angle::Result CLKernelVk::createInfo(CLKernelImpl::Info *info) const
 
         // TODO: http://anglebug.com/42267004
         workGroup.privateMemSize = 0;
-        workGroup.localMemSize   = 0;
 
-        workGroup.prefWorkGroupSizeMultiple = 16u;
+        workGroup.localMemSize = deviceProgramData->reflectionData.workgroupVariableSize.size;
+        workGroup.prefWorkGroupSizeMultiple = deviceVk->getWorkGroupSizeMultiple();
         workGroup.globalWorkSize            = {0, 0, 0};
         if (deviceProgramData->reflectionData.kernelCompileWorkgroupSize.contains(mName))
         {
@@ -340,6 +350,16 @@ angle::Result CLKernelVk::createInfo(CLKernelImpl::Info *info) const
         else
         {
             workGroup.compileWorkGroupSize = {0, 0, 0};
+        }
+
+        if (device->get()->getInfo().khrSubgroups)
+        {
+            workGroup.subGroupSizeForNDRange =
+                mContext->getRenderer()->getPhysicalDeviceSubgroupProperties().subgroupSize;
+        }
+        else
+        {
+            workGroup.subGroupSizeForNDRange = 0;
         }
     }
 
@@ -391,6 +411,14 @@ angle::Result CLKernelVk::getOrCreateComputePipeline(vk::PipelineCacheAccess *pi
             case SpecConstantType::GlobalOffsetZ:
                 specConstantData.push_back(ndrange.globalWorkOffset[2]);
                 break;
+            case SpecConstantType::SubgroupMaxSize:
+            {
+                // We should only be here if cl_khr_subgroups is supported
+                ASSERT(device.getInfo().khrSubgroups);
+                specConstantData.push_back(
+                    mContext->getRenderer()->getPhysicalDeviceSubgroupProperties().subgroupSize);
+                break;
+            }
             default:
                 UNIMPLEMENTED();
                 continue;
@@ -484,4 +512,22 @@ angle::Result CLKernelVk::allocateDescriptorSet(
 
     return angle::Result::Continue;
 }
+
+cl_ulong CLKernelVk::getLocalMemSizeUsed(const cl::Device &device) const
+{
+    return getAllArgLocalMemSize() + getCompiledLocalMemSize(device);
+}
+
+cl_ulong CLKernelVk::getAllArgLocalMemSize() const
+{
+    return std::reduce(mLocalMemoryArgSizes.begin(), mLocalMemoryArgSizes.end(), 0,
+                       std::plus<size_t>());
+}
+
+cl_ulong CLKernelVk::getCompiledLocalMemSize(const cl::Device &device) const
+{
+    return mProgram->getDeviceProgramData(const_cast<cl_device_id>(device.getNative()))
+        ->reflectionData.workgroupVariableSize.size;
+}
+
 }  // namespace rx

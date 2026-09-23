@@ -1,3 +1,4 @@
+//@ exclusive!
 //@ requireOptions("-e", "let iterations=40000") if $memoryLimited
 //@ runDefault("--jitPolicyScale=0")
 

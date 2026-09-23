@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/attributes-common-to-form-controls/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/attributes-common-to-form-controls/dirname-ltr.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/attributes-common-to-form-controls/dirname-only-if-applies.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/attributes-common-to-form-controls/dirname-rtl-auto.html

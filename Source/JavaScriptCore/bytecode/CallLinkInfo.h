@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/BaselineJITRegisters.h>
 #include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/CallFrameShuffleData.h>
 #include <JavaScriptCore/CallLinkInfoBase.h>
@@ -36,7 +35,6 @@
 #include <JavaScriptCore/PolymorphicCallStubRoutine.h>
 #include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/ScopedLambda.h>
-#include <wtf/SentinelLinkedList.h>
 
 namespace JSC {
 namespace DFG {
@@ -77,7 +75,7 @@ public:
 
     static constexpr uintptr_t polymorphicCalleeMask = 1;
     
-    static CallType callTypeFor(OpcodeID opcodeID);
+    static CallType NODELETE callTypeFor(OpcodeID opcodeID);
 
     static bool isVarargsCallType(CallType callType)
     {
@@ -137,15 +135,15 @@ public:
     static void emitTailCallFastPath(CCallHelpers&, CompileTimeCallLinkInfo, ScopedLambda<void()>&& prepareForTailCall);
 #endif
 
-    void revertCallToStub();
+    void NODELETE revertCallToStub();
 
     void setMonomorphicCallee(VM&, JSCell*, JSObject* callee, CodeBlock*, CodePtr<JSEntryPtrTag>);
-    void clearCallee();
-    JSObject* callee();
+    void NODELETE clearCallee();
+    JSObject* NODELETE callee();
 
     void setLastSeenCallee(VM&, const JSCell* owner, JSObject* callee);
-    JSObject* lastSeenCallee() const;
-    bool haveLastSeenCallee() const;
+    JSObject* NODELETE lastSeenCallee() const;
+    bool NODELETE haveLastSeenCallee() const;
     
     void setExecutableDuringCompilation(ExecutableBase*);
     ExecutableBase* executable();
@@ -404,7 +402,7 @@ public:
     MacroAssembler::JumpList emitDirectFastPath(CCallHelpers&);
     MacroAssembler::JumpList emitDirectTailCallFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
     void setCallTarget(CodeBlock*, CodeLocationLabel<JSEntryPtrTag>);
-    void setMaxArgumentCountIncludingThis(unsigned);
+    void NODELETE setMaxArgumentCountIncludingThis(unsigned);
     unsigned maxArgumentCountIncludingThis() const { return m_maxArgumentCountIncludingThis; }
 
     void reset();
@@ -418,7 +416,7 @@ private:
     void initialize();
     void repatchSpeculatively();
 
-    CodeBlock* retrieveCodeBlock(FunctionExecutable*);
+    CodeBlock* NODELETE retrieveCodeBlock(FunctionExecutable*);
     CodePtr<JSEntryPtrTag> retrieveCodePtr(const ConcurrentJSLocker&, CodeBlock*);
 
     CallType m_callType : 4;
@@ -454,7 +452,7 @@ public:
         m_callType = callType;
     }
 
-    void initializeFromDFGUnlinkedCallLinkInfo(VM&, const DFG::UnlinkedCallLinkInfo&, CodeBlock*);
+    void NODELETE initializeFromDFGUnlinkedCallLinkInfo(VM&, const DFG::UnlinkedCallLinkInfo&, CodeBlock*);
 
 private:
     void emitFastPath(CCallHelpers&);

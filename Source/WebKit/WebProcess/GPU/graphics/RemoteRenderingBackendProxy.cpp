@@ -42,6 +42,7 @@
 #include "RemoteImageBufferProxy.h"
 #include "RemoteImageBufferProxyMessages.h"
 #include "RemoteImageBufferSetProxy.h"
+#include "RemoteNativeImageProxy.h"
 #include "RemoteRenderingBackendMessages.h"
 #include "RemoteRenderingBackendProxyMessages.h"
 #include "RemoteSharedResourceCacheProxy.h"
@@ -67,7 +68,7 @@ using namespace WebCore;
 Ref<RemoteRenderingBackendProxy> RemoteRenderingBackendProxy::create(WebPage& webPage)
 {
     Ref instance = adoptRef(*new RemoteRenderingBackendProxy(RunLoop::mainSingleton()));
-    RELEASE_LOG_FORWARDABLE(RemoteLayerBuffers, REMOTE_RENDERING_BACKEND_PROXY_CREATED_RENDERING_BACKEND, instance->renderingBackendIdentifier().toUInt64(),  webPage.webPageProxyIdentifier().toUInt64(), webPage.identifier().toUInt64());
+    RELEASE_LOG_FORWARDABLE(RemoteLayerBuffers, RemoteRenderingBackendProxyCreatedRenderingBackend, instance->renderingBackendIdentifier().toUInt64(),  webPage.webPageProxyIdentifier().toUInt64(), webPage.identifier().toUInt64());
     return instance;
 }
 
@@ -681,13 +682,11 @@ void RemoteRenderingBackendProxy::didInitialize(IPC::Semaphore&& wakeUp, IPC::Se
     connection->setSemaphores(WTF::move(wakeUp), WTF::move(clientWait));
 }
 
-bool RemoteRenderingBackendProxy::isCached(const ImageBuffer& imageBuffer) const
+RefPtr<RemoteImageBufferProxy> RemoteRenderingBackendProxy::cachedImageBuffer(const ImageBuffer& imageBuffer) const
 {
-    if (RefPtr cachedImageBuffer = m_imageBuffers.get(imageBuffer.renderingResourceIdentifier()).get()) {
-        ASSERT_UNUSED(cachedImageBuffer, cachedImageBuffer == &imageBuffer);
-        return true;
-    }
-    return false;
+    RefPtr cached = m_imageBuffers.get(imageBuffer.renderingResourceIdentifier()).get();
+    ASSERT(!cached || cached == &imageBuffer);
+    return cached;
 }
 
 #if USE(GRAPHICS_LAYER_WC)

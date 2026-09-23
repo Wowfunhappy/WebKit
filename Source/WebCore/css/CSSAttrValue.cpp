@@ -27,35 +27,34 @@
 #include "CSSAttrValue.h"
 
 #include <wtf/text/MakeString.h>
-#include "CSSPrimitiveValue.h"
 
 namespace WebCore {
 
-Ref<CSSAttrValue> CSSAttrValue::create(String attributeName, RefPtr<CSSValue>&& fallback)
+Ref<CSSAttrValue> CSSAttrValue::create(AtomString&& attributeName, std::optional<CSS::String>&& fallback)
 {
     return adoptRef(*new CSSAttrValue(WTF::move(attributeName), WTF::move(fallback)));
 }
 
+CSSAttrValue::CSSAttrValue(AtomString&& attributeName, std::optional<CSS::String>&& fallback)
+    : CSSValue(ClassType::Attr)
+    , m_attributeName(WTF::move(attributeName))
+    , m_fallback(WTF::move(fallback))
+{
+}
+
 bool CSSAttrValue::equals(const CSSAttrValue& other) const
 {
-    RefPtr fallback = dynamicDowncast<CSSPrimitiveValue>(m_fallback);
-    RefPtr otherFallback = dynamicDowncast<CSSPrimitiveValue>(other.m_fallback);
-
-    if (fallback && otherFallback)
-        return m_attributeName == other.m_attributeName && fallback->stringValue() == otherFallback->stringValue();
-    if (fallback || otherFallback)
-        return false;
-    return m_attributeName == other.m_attributeName;
+    return m_attributeName == other.m_attributeName
+        && m_fallback == other.m_fallback;
 }
 
 String CSSAttrValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    RefPtr fallback = dynamicDowncast<CSSPrimitiveValue>(m_fallback);
     return makeString(
         "attr("_s,
         m_attributeName.impl(),
-        fallback && !fallback->stringValue().isEmpty() ? ", "_s : ""_s,
-        fallback && !fallback->stringValue().isEmpty() ? fallback->cssText(context) : ""_s,
+        m_fallback && !m_fallback->value.isEmpty() ? ", "_s : ""_s,
+        m_fallback && !m_fallback->value.isEmpty() ? CSS::serializationForCSS(context, *m_fallback) : ""_s,
         ')'
     );
 }

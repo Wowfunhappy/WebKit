@@ -59,6 +59,7 @@
 #include "LocalFrame.h"
 #include "LocalFrameInlines.h"
 #include "SecurityOrigin.h"
+#include "Settings.h"
 #include "WindowOrWorkerGlobalScopeIndexedDatabase.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/InjectedScript.h>
@@ -482,7 +483,7 @@ public:
     }
 
     BackendDispatcher::CallbackBase& requestCallback() override { return m_requestCallback.get(); }
-    DataLoader(ScriptExecutionContext* scriptExecutionContext, Ref<IndexedDBBackendDispatcherHandler::RequestDataCallback>&& requestCallback, const InjectedScript& injectedScript, const String& objectStoreName, const String& indexName, RefPtr<IDBKeyRange> idbKeyRange, int skipCount, unsigned pageSize)
+    DataLoader(ScriptExecutionContext* scriptExecutionContext, Ref<IndexedDBBackendDispatcherHandler::RequestDataCallback>&& requestCallback, const InjectedScript& injectedScript, const String& objectStoreName, const String& indexName, RefPtr<IDBKeyRange>&& idbKeyRange, int skipCount, unsigned pageSize)
         : ExecutableWithDatabase(scriptExecutionContext)
         , m_requestCallback(WTF::move(requestCallback))
         , m_injectedScript(injectedScript)
@@ -548,7 +549,7 @@ static Inspector::Protocol::ErrorStringOr<RefPtr<IDBFactory>> IDBFactoryFromDocu
 
     RefPtr idbFactory = WindowOrWorkerGlobalScopeIndexedDatabase::indexedDB(*window);
     if (!idbFactory)
-        makeUnexpected("Missing IndexedDB factory of window for given document"_s);
+        return makeUnexpected("Missing IndexedDB factory of window for given document"_s);
     
     return { WTF::move(idbFactory) };
 }

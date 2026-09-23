@@ -58,7 +58,7 @@ public:
     const char* abbreviatedName() const LIFETIME_BOUND { return m_abbreviatedName.data(); }
     const char* name() const LIFETIME_BOUND { return m_name.data(); }
     
-    void resetStats();
+    void NODELETE resetStats();
     
     size_t lastVisitCount() const { return m_lastVisitCount; }
     

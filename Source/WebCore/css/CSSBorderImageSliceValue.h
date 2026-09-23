@@ -25,31 +25,25 @@
 
 #pragma once
 
+#include "CSSBorderImageSlice.h"
 #include "CSSValue.h"
-#include "Quad.h"
 
 namespace WebCore {
 
-class CSSPrimitiveValue;
-
 class CSSBorderImageSliceValue final : public CSSValue {
 public:
-    static Ref<CSSBorderImageSliceValue> NODELETE create(Quad, bool fill);
+    static Ref<CSSBorderImageSliceValue> create(CSS::BorderImageSlice&&);
     ~CSSBorderImageSliceValue();
 
-    const Quad& slices() const LIFETIME_BOUND { return m_slices; }
-    bool fill() const { return m_fill; }
+    const CSS::BorderImageSlice& slices() const LIFETIME_BOUND { return m_slices; }
 
     String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSBorderImageSliceValue&) const;
 
 private:
-    CSSBorderImageSliceValue(Quad, bool fill);
+    CSSBorderImageSliceValue(CSS::BorderImageSlice&&);
 
-    // These four values are used to make "cuts" in the border image. They can be numbers
-    // or percentages.
-    Quad m_slices;
-    bool m_fill { false };
+    CSS::BorderImageSlice m_slices;
 };
 
 } // namespace WebCore

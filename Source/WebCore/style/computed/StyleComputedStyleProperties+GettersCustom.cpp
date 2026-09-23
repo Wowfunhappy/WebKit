@@ -26,12 +26,13 @@
 #include "StyleComputedStyleProperties+GettersCustomInlines.h"
 
 #include "RenderTheme.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 
 namespace WebCore {
 namespace Style {
 
-const WebCore::Color& ComputedStyleProperties::color() const
+const WebCore::Color& NODELETE ComputedStyleProperties::color() const
 {
     return m_inheritedData->color;
 }

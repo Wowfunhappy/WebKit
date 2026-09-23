@@ -23,7 +23,8 @@
                 }
 
                 try {
-                    await window.navigator.mediaDevices.getUserMedia({audio:true});
+                    const stream = await window.navigator.mediaDevices.getUserMedia({audio:true});
+                    stream.getTracks().forEach(t => t.stop());
                     testPassed("getUserMedia succeeded");
                 } catch(err) {
                     testFailed(`getUserMedia should have succeeded but failed with error "${err}"`);

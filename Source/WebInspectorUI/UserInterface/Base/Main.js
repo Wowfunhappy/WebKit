@@ -131,6 +131,8 @@ WI.loaded = function()
         WI.deviceSettingsManager = new WI.DeviceSettingsManager,
     ];
 
+    WI.domUndoCoordinator = new WI.DOMUndoCoordinator;
+
     // Register for events.
     WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.Paused, WI._debuggerDidPause, WI);
     WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.Resumed, WI._debuggerDidResume, WI);
@@ -441,7 +443,6 @@ WI.contentLoaded = function()
     WI.tabBar.addNavigationItemBefore(WI._consoleDividerNavigationItem);
 
     WI._consoleWarningsTabBarButton = new WI.ButtonNavigationItem("console-warnings", WI.UIString("0 Console warnings"), "Images/IssuesEnabled.svg");
-    WI._consoleWarningsTabBarButton.imageType = WI.ButtonNavigationItem.ImageType.IMG;
     WI._consoleWarningsTabBarButton.hidden = true;
     WI._consoleWarningsTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, function(event) {
         WI.showConsoleTab({
@@ -451,7 +452,6 @@ WI.contentLoaded = function()
     }, WI);
 
     WI._consoleErrorsTabBarButton = new WI.ButtonNavigationItem("console-errors", WI.UIString("0 Console errors"), "Images/ErrorsEnabled.svg");
-    WI._consoleErrorsTabBarButton.imageType = WI.ButtonNavigationItem.ImageType.IMG;
     WI._consoleErrorsTabBarButton.hidden = true;
     WI._consoleErrorsTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, function(event) {
         WI.showConsoleTab({
@@ -2685,6 +2685,7 @@ WI._resourceCachingDisabledSettingChanged = function(event)
 WI._clearResourceDataOnNavigateSettingChanged = function(event)
 {
     for (let target of WI.targets) {
+        // COMPATIBILITY (macOS 26.4, iOS 26.4): Network.setClearResourceDataOnNavigate did not exist yet.
         if (target.hasCommand("Network.setClearResourceDataOnNavigate"))
             target.NetworkAgent.setClearResourceDataOnNavigate(WI.settings.clearNetworkOnNavigate.value);
     }
@@ -2986,16 +2987,12 @@ WI._redoKeyboardShortcut = function(event)
 
 WI.undo = function()
 {
-    let target = WI.assumingMainTarget();
-    if (target.hasCommand("DOM.undo"))
-        target.DOMAgent.undo();
+    WI.domUndoCoordinator.undo();
 };
 
 WI.redo = function()
 {
-    let target = WI.assumingMainTarget();
-    if (target.hasCommand("DOM.redo"))
-        target.DOMAgent.redo();
+    WI.domUndoCoordinator.redo();
 };
 
 WI.highlightRangesWithStyleClass = function(element, resultRanges, styleClass, changes)

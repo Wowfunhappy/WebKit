@@ -31,13 +31,7 @@ namespace WebCore {
 class JSTestLegacyNoInterfaceObject : public JSDOMWrapper<TestLegacyNoInterfaceObject> {
 public:
     using Base = JSDOMWrapper<TestLegacyNoInterfaceObject>;
-    static JSTestLegacyNoInterfaceObject* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestLegacyNoInterfaceObject>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestLegacyNoInterfaceObject* ptr = new (NotNull, JSC::allocateCell<JSTestLegacyNoInterfaceObject>(vm)) JSTestLegacyNoInterfaceObject(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestLegacyNoInterfaceObject* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestLegacyNoInterfaceObject>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -46,11 +40,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         if constexpr (mode == JSC::SubspaceAccess::Concurrently)
@@ -74,8 +64,12 @@ protected:
 
 class JSTestLegacyNoInterfaceObjectOwner final : public JSC::WeakHandleOwner {
 public:
+    JSTestLegacyNoInterfaceObjectOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSTestLegacyNoInterfaceObjectOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, TestLegacyNoInterfaceObject*)

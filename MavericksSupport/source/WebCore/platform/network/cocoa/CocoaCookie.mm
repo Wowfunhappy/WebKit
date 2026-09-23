@@ -140,8 +140,9 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
     // RFC 6265bis section 5.6 limits the name/value pair to 4096 octets.
     if ((cookie.name.isEmpty() && cookie.value.isEmpty()) || cookie.name.utf8().length() + cookie.value.utf8().length() > 4096)
         return std::nullopt;
-    // CFNetwork's file-cookie namespace is shared by local file URLs.
-    auto host = url.protocolIsFile() ? ".^filecookies^"_s : url.host().toString().convertToASCIILowercase();
+    // CFNetwork's file-cookie namespace is shared by local file URLs. Other cookies are keyed by the
+    // CFURL host name, which carries an IPv6 literal without the brackets of URL::host().
+    auto host = url.protocolIsFile() ? ".^filecookies^"_s : String(url.createNSURL().get().host).convertToASCIILowercase();
     bool hasDomain = !cookie.domain.isEmpty();
     if (hasDomain) {
         auto domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;

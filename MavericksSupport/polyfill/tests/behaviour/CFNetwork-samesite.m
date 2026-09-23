@@ -60,11 +60,13 @@ static void check(bool condition, const char *what)
 - (void)registerForPostingNotificationsWithContext:(NSHTTPCookieStorage *)context;
 @end
 
-static void checkSharedCookieAcceptPolicy(void)
+static void checkFileBackedCookieAcceptPolicy(void)
 {
-    NSHTTPCookieStorage *store = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-    CFHTTPCookieStorageRef jar = store._cookieStorage;
-    CFIndex original = CFHTTPCookieStorageGetCookieAcceptPolicy(jar);
+    // The account jar's policy is Safari's Privacy setting, which a running Safari re-applies on every change.
+    NSURL *file = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFURLRef, CFRunLoopRef))
+        cfnetwork("CFHTTPCookieStorageCreateFromFile"))(NULL, (CFURLRef)file, NULL);
+    NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
     NSURL *url = [NSURL URLWithString:@"https://wk-shared-policy-probe.test/"];
     NSURL *other = [NSURL URLWithString:@"https://other-policy-probe.test/"];
     NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"policy", NSHTTPCookieValue: @"value",
@@ -73,7 +75,7 @@ static void checkSharedCookieAcceptPolicy(void)
     CFHTTPCookieStorageSetCookieAcceptPolicy(jar, NSHTTPCookieAcceptPolicyAlways);
     [store _saveCookies:nil];
     [store setCookies:@[cookie] forURL:url mainDocumentURL:other];
-    check([store cookiesForURL:url].count == 1, "shared Always policy accepts a third-party cookie after a native flush");
+    check([store cookiesForURL:url].count == 1, "file-backed Always policy accepts a third-party cookie after a native flush");
     CFHTTPCookieStorageSetCookieAcceptPolicy(jar, NSHTTPCookieAcceptPolicyNever);
     [store _saveCookies:nil];
     check(CFHTTPCookieStorageGetCookieAcceptPolicy(jar) == NSHTTPCookieAcceptPolicyNever,
@@ -83,15 +85,17 @@ static void checkSharedCookieAcceptPolicy(void)
         "a new NS wrapper shares the explicit CF cookie policy");
     __block BOOL completed = NO;
     [wrapper _getCookiesForURL:url mainDocumentURL:url partition:nil policyProperties:nil completionHandler:^(NSArray *cookies) {
-        check(cookies.count == 1, "shared Never acceptance policy preserves reads of an existing cookie");
+        check(cookies.count == 1, "file-backed Never acceptance policy preserves reads of an existing cookie");
         completed = YES;
     }];
-    check(completed, "shared policy read completes synchronously");
+    check(completed, "file-backed policy read completes synchronously");
     [store deleteCookie:cookie];
     [wrapper setCookies:@[cookie] forURL:url mainDocumentURL:url];
-    check(![store cookiesForURL:url].count, "shared Never policy rejects a new cookie");
+    check(![store cookiesForURL:url].count, "file-backed Never policy rejects a new cookie");
     [wrapper release];
-    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, original);
+    [store release];
+    CFRelease(jar);
+    [[NSFileManager defaultManager] removeItemAtURL:file error:nil];
 }
 
 static void checkConcurrentExclusivePolicy(void)
@@ -768,7 +772,7 @@ int main(void)
 
     checkPublicSetterPolicy();
     checkPolicySeedScope();
-    checkSharedCookieAcceptPolicy();
+    checkFileBackedCookieAcceptPolicy();
     checkConcurrentExclusivePolicy();
     checkCookieReadAcceptPolicy();
     checkCookieObservers();

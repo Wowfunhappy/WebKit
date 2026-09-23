@@ -28,7 +28,7 @@
 
 TEST(WTF, SortedArraySet)
 {
-    static constexpr SortedArraySet caseFoldingSet { std::to_array<ComparableCaseFoldingASCIILiteral>({
+    static constexpr SortedArraySet caseFoldingSet { WTF::toArray<ComparableCaseFoldingASCIILiteral>({
         "_"_s,
         "a"_s,
         "c"_s,
@@ -39,7 +39,7 @@ TEST(WTF, SortedArraySet)
         "s-z"_s,
     }) };
 
-    static constexpr SortedArraySet lettersSet { std::to_array<ComparableLettersLiteral>({
+    static constexpr SortedArraySet lettersSet { WTF::toArray<ComparableLettersLiteral>({
         "a"_s,
         "c"_s,
         "delightful"_s,
@@ -48,7 +48,7 @@ TEST(WTF, SortedArraySet)
         "s-z"_s,
     }) };
 
-    static constexpr SortedArraySet scriptTypesSet { std::to_array<ComparableLettersLiteral>({
+    static constexpr SortedArraySet scriptTypesSet { WTF::toArray<ComparableLettersLiteral>({
         "application/ecmascript"_s,
         "application/javascript"_s,
         "application/x-ecmascript"_s,

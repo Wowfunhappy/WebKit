@@ -32,7 +32,7 @@
 #include <JavaScriptCore/VM.h>
 #include <JavaScriptCore/VMManager.h>
 #include <wtf/Atomics.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 
 namespace JSC {
 namespace Integrity {

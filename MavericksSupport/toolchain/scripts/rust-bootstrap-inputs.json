@@ -1,0 +1,53 @@
+{
+  "channel": "2026-08-12",
+  "components": [
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-12/rustc-nightly-x86_64-apple-darwin.tar.xz",
+      "sha256": "f51a540a8f9fb71abe0ec56a614bfa8dcc7ca592ed20b32eba5e12a065ecd289",
+      "name": "rustc-nightly-x86_64-apple-darwin.tar.xz"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-12/cargo-nightly-x86_64-apple-darwin.tar.xz",
+      "sha256": "5951bcf787330f28954cc6101873202414107e84315299ce5a68c3a9b6cb579d",
+      "name": "cargo-nightly-x86_64-apple-darwin.tar.xz"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-12/rust-src-nightly.tar.xz",
+      "sha256": "072ea0e737439c9a75b3add8af73f4645de4dd7edab8ad4dae7cab343eca06d9",
+      "name": "rust-src-nightly.tar.xz"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-12/rust-std-nightly-x86_64-apple-darwin.tar.xz",
+      "sha256": "8e7edee432a30ae39de595566d890a1a28fb90c013893c852d66f06b89319fab",
+      "name": "rust-std-nightly-x86_64-apple-darwin.tar.xz"
+    }
+  ],
+  "compiler_rt": {
+    "tag": "llvmorg-22.1.0",
+    "files": {
+      "extendhfsf2.c": "79779f7d20f3b90a90d791926a1e7cc9cac3a8bfdc10e715d9ea8b65d2b4a470",
+      "truncsfhf2.c": "399a7f72c7a93511396a35a96aace9dec6c347508dd58cc19f07a5757753c634",
+      "fp_extend_impl.inc": "63f9cd801c0c2a04e8becbd22f189eaaa47b5466bc098acc214fe69fd525f92a",
+      "fp_trunc_impl.inc": "17098ba776ada9f2cc568a02cf34317bb0b59b8a603ff8a92ea909b7bc8c214b",
+      "fp_extend.h": "b3da60a65ab5aca4b93ddd36df8af90051912d1c455c4cea2de0e50ce37c526d",
+      "fp_trunc.h": "90626a0811dcf96be507daa5d7fe872d1efae2c388af4c48eaba45101856be23",
+      "int_lib.h": "d79f2a9f4756e89fdd7a786fea5361720f40563a6d7c34d078505a236892d28f",
+      "int_types.h": "bc956eca1626fee5b6242053bafd92bf0b1def230140ee36a9725034aeb02fa8",
+      "int_util.h": "63d06198ab720a75c20bfd84be895c2746581b129168bae6201e7384bbb0473b",
+      "int_endianness.h": "ec5175561075845b7b16a92ad5ecdfd42a284de2736dd07e4ca7011b75c37709"
+    }
+  },
+  "source_compiler": {
+    "revision": "3d6c19bb9ab4798ecfb2ee943df01a811720fc27",
+    "source": {
+      "url": "https://static.rust-lang.org/dist/2026-08-12/rustc-nightly-src.tar.xz",
+      "name": "rustc-nightly-src.tar.xz",
+      "sha256": "067309afc8fb154ed96e5c347578c2d4a3c3ae1b2490e25a7152881179cfa14c"
+    },
+    "llvm": {
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/3d6c19bb9ab4798ecfb2ee943df01a811720fc27/rust-dev-nightly-x86_64-apple-darwin.tar.xz",
+      "name": "rust-dev-nightly-x86_64-apple-darwin.tar.xz",
+      "sha256": "02f843a830bbbf4eeafeb5b796a7589120c78819be97300c4e9e5cbfb5b916cf"
+    }
+  }
+}

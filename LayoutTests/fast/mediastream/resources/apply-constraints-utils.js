@@ -52,6 +52,8 @@ ConstraintsTest = class ConstraintsTest {
 
         debug("");
         if (!this.tests.length) {
+            if (this.video && this.video.srcObject)
+                this.video.srcObject.getTracks().forEach(track => track.stop());
             finishJSTest();
             return;
         }

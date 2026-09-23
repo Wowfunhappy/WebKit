@@ -3,7 +3,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/AirOpcode.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/AirOpcodeGenerated.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/AirOpcodeUtils.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/ArrayConstructor.lut.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/AsyncFromSyncIteratorPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/AsyncGeneratorPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/BigIntConstructor.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/BigIntPrototype.lut.h
@@ -46,7 +45,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSCBuiltins.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSCBuiltins.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSDataViewPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSGlobalObject.lut.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSInternalPromiseConstructor.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSIteratorHelperPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSONObject.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JSPromiseConstructor.lut.h
@@ -69,8 +67,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/StringConstructor.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/StringPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/SymbolConstructor.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/SymbolPrototype.lut.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalCalendarConstructor.lut.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalCalendarPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalDurationConstructor.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalDurationPrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalInstantConstructor.lut.h
@@ -87,8 +83,8 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalPlainTimeConstructor
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalPlainTimePrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalPlainYearMonthConstructor.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalPlainYearMonthPrototype.lut.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalTimeZoneConstructor.lut.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalTimeZonePrototype.lut.h
+$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalZonedDateTimeConstructor.lut.h
+$(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/TemporalZonedDateTimePrototype.lut.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/UnicodePatternTables.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/WasmOMGIRGeneratorInlines.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/WasmOps.h

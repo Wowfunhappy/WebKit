@@ -91,7 +91,7 @@ class TestExpectationsChecker(object):
     def check_tabs(self, lines):
         self._tab_checker.check(lines)
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         expectations = '\n'.join(lines)
         if self._port_obj:
             self.check_test_expectations(expectations_str=expectations, tests=None)

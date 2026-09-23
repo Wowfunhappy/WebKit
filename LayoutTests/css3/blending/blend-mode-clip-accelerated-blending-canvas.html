@@ -5,7 +5,7 @@
 <!-- <p>This test checks that blending works if the isolating layer has overflow hidden and the blending layer is an accelerated canvas.<br /> -->
 <!-- Test passes if you see a green rectangle.</p> -->
 <div class="clipping isolating red box">
-    <canvas class="difference" id="blending-canvas" width="400" height="400"></canvas>
+    <canvas class="difference" id="blending-canvas" width="400" height="400" style="will-change:transform"></canvas>
 </div>
 <pre id="layers">Layer tree goes here in DRT</pre>
 <script>

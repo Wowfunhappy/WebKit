@@ -80,6 +80,7 @@ public:
     void clearRect(const FloatRect&) final;
     void strokeRect(const FloatRect&, float lineWidth) final;
     void strokeArc(const PathArc&) final;
+    void strokeLine(const PathDataLine&) final;
 
     void fillEllipse(const FloatRect& ellipse) final;
     void strokeEllipse(const FloatRect& ellipse) final;
@@ -118,8 +119,8 @@ public:
 
     AffineTransform getCTM(IncludeDeviceScale = PossiblyIncludeDeviceScale) const override;
 
-    void drawFocusRing(const Path&, float outlineWidth, const Color&) final;
-    void drawFocusRing(const Vector<FloatRect>&, float outlineOffset, float outlineWidth, const Color&) final;
+    void drawFocusRing(const Path&, float outlineWidth, const Color&, float zoomFactor) final;
+    void drawFocusRing(const Vector<FloatRect>&, float outlineWidth, const Color&, float zoomFactor) final;
 
     void drawLinesForText(const FloatPoint&, float thickness, std::span<const FloatSegment>, bool isPrinting, bool doubleLines, StrokeStyle) final;
 
@@ -182,6 +183,9 @@ private:
 };
 
 CGAffineTransform getUserToBaseCTM(CGContextRef);
+
+enum class SingularValueSelection : bool { Smallest, Largest };
+CGFloat singularValue(const CGAffineTransform& userToBaseCTM, SingularValueSelection);
 
 } // namespace WebCore
 

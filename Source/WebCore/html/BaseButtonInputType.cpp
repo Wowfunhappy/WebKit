@@ -35,6 +35,7 @@
 #include "AXObjectCache.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
+#include "NodeDocument.h"
 #include "RenderButton.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -55,7 +56,7 @@ bool BaseButtonInputType::appendFormData(DOMFormData&) const
     return false;
 }
 
-RenderPtr<RenderElement> BaseButtonInputType::createInputRenderer(RenderStyle&& style)
+RenderPtr<RenderElement> BaseButtonInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
     // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.

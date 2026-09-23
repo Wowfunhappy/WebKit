@@ -4,15 +4,10 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "GLSLANG/ShaderLang.h"
+#include "common/unsafe_buffers.h"
 #include "gtest/gtest.h"
-#if defined(ANGLE_HAS_RAPIDJSON)
-#    include "test_utils/runner/TestSuite.h"
-#endif
+#include "test_utils/runner/TestSuite.h"
 
 class CompilerTestEnvironment : public testing::Environment
 {
@@ -41,18 +36,13 @@ int main(int argc, char **argv)
 {
     for (int argIndex = 1; argIndex < argc; ++argIndex)
     {
-        if (strcmp(argv[argIndex], "-v") == 0 || strcmp(argv[argIndex], "--verbose") == 0)
+        if (ANGLE_UNSAFE_TODO(strcmp(argv[argIndex], "-v")) == 0 ||
+            ANGLE_UNSAFE_TODO(strcmp(argv[argIndex], "--verbose")) == 0)
         {
             gVerbose = true;
         }
     }
-#if defined(ANGLE_HAS_RAPIDJSON)
     angle::TestSuite testSuite(&argc, argv);
     testing::AddGlobalTestEnvironment(new CompilerTestEnvironment());
     return testSuite.run();
-#else
-    testing::AddGlobalTestEnvironment(new CompilerTestEnvironment());
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-#endif  // defined(ANGLE_HAS_RAPIDJSON)
 }

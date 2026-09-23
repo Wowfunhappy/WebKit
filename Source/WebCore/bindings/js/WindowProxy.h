@@ -47,11 +47,11 @@ public:
     void detachFromFrame();
     void replaceFrame(Frame&);
 
-    void destroyJSWindowProxy(DOMWrapperWorld&);
+    void destroyJSWindowProxy(DOMWrapperWorld&, Frame* frameForNotification = nullptr);
 
     Vector<JSC::Strong<JSWindowProxy>> jsWindowProxiesAsVector() const;
 
-    JSWindowProxy* jsWindowProxy(DOMWrapperWorld&);
+    WEBCORE_EXPORT JSWindowProxy* jsWindowProxy(DOMWrapperWorld&);
     WEBCORE_EXPORT JSWindowProxy* existingJSWindowProxy(DOMWrapperWorld&) const;
 
     WEBCORE_EXPORT JSDOMGlobalObject* globalObject(DOMWrapperWorld&);

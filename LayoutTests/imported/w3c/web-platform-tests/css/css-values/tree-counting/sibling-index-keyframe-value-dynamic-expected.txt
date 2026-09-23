@@ -2,5 +2,5 @@ You should see a green square below.
 
 
 PASS Initially, the sibling-index() is 3 for #target
-FAIL Removing a preceding sibling of #target reduces the sibling-index() assert_equals: expected "2" but got "3"
+PASS Removing a preceding sibling of #target reduces the sibling-index()
 

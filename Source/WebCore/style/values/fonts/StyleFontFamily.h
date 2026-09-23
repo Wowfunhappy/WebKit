@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/FontCascadeDescription.h>
 #include <WebCore/StyleFontFamilyName.h>
 #include <WebCore/StyleValueTypes.h>
 #include <WebCore/WebKitFontFamilyNames.h>
@@ -33,12 +34,10 @@
 namespace WebCore {
 namespace Style {
 
-enum class FontFamilyKind : bool { Specified, Generic };
-
 // <single-font-family> = [ <family-name> | <generic-family> ]
 // https://drafts.csswg.org/css-fonts-4/#propdef-font-family
-struct SingleFontFamily {
-    AtomString value;
+struct FontFamily {
+    WebCore::FontFamily value;
 
     template<typename... F> decltype(auto) switchOn(F&&... f) const
     {
@@ -46,59 +45,61 @@ struct SingleFontFamily {
 
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
-        // <generic-family>
-        if (value == cursiveFamily)
-            return visitor(CSS::Keyword::Cursive { });
-        if (value == fantasyFamily)
-            return visitor(CSS::Keyword::Fantasy { });
-        if (value == monospaceFamily)
-            return visitor(CSS::Keyword::Monospace { });
-        if (value == mathFamily)
-            return visitor(CSS::Keyword::Math { });
-        if (value == pictographFamily)
-            return visitor(CSS::Keyword::WebkitPictograph { });
-        if (value == sansSerifFamily)
-            return visitor(CSS::Keyword::SansSerif { });
-        if (value == serifFamily)
-            return visitor(CSS::Keyword::Serif { });
-        if (value == systemUiFamily)
-            return visitor(CSS::Keyword::SystemUi { });
+        if (value.isGeneric()) {
+            // <generic-family>
+            if (value.name == sansSerifFamily)
+                return visitor(CSS::Keyword::SansSerif { });
+            if (value.name == monospaceFamily)
+                return visitor(CSS::Keyword::Monospace { });
+            if (value.name == serifFamily)
+                return visitor(CSS::Keyword::Serif { });
+            if (value.name == systemUiFamily)
+                return visitor(CSS::Keyword::SystemUi { });
+            if (value.name == cursiveFamily)
+                return visitor(CSS::Keyword::Cursive { });
+            if (value.name == fantasyFamily)
+                return visitor(CSS::Keyword::Fantasy { });
+            if (value.name == mathFamily)
+                return visitor(CSS::Keyword::Math { });
+            if (value.name == pictographFamily)
+                return visitor(CSS::Keyword::WebkitPictograph { });
+        }
         // <family-name>
-        return visitor(FontFamilyName { value });
+        return visitor(FontFamilyName { value.name });
     }
 
-    bool operator==(const SingleFontFamily&) const = default;
+    bool operator==(const FontFamily&) const = default;
 };
 
 // <'font-family'> = [ <family-name> | <generic-family> ]#
 // https://drafts.csswg.org/css-fonts-4/#propdef-font-family
 struct FontFamilies {
-    FontFamilies(Ref<RefCountedFixedVector<AtomString>>&& families, FontFamilyKind firstFontKind)
+    FontFamilies(Ref<RefCountedFixedVector<WebCore::FontFamily>>&& families, FontFamilyKind firstFontKind)
         : m_families { WTF::move(families) }
         , m_firstFontKind { firstFontKind }
     {
     }
 
-    FontFamilies(Ref<RefCountedFixedVector<AtomString>>&& families, bool isSpecifiedFont)
-        : FontFamilies { WTF::move(families), isSpecifiedFont ? FontFamilyKind::Specified : FontFamilyKind::Generic }
+    FontFamilies(Ref<RefCountedFixedVector<WebCore::FontFamily>>&& families, bool hasAuthorSpecifiedNonGenericPrimaryFont)
+        : FontFamilies { WTF::move(families), hasAuthorSpecifiedNonGenericPrimaryFont ? FontFamilyKind::Specified : FontFamilyKind::Generic }
     {
     }
 
     FontFamilies(AtomString family, FontFamilyKind firstFontKind)
-        : FontFamilies { RefCountedFixedVector<AtomString>::create({ WTF::move(family) }), firstFontKind }
+        : FontFamilies { RefCountedFixedVector<WebCore::FontFamily>::create({ WebCore::FontFamily { WTF::move(family), firstFontKind } }), firstFontKind }
     {
     }
 
     class const_iterator {
     public:
-        using inner_iterator = RefCountedFixedVector<AtomString>::const_iterator;
+        using inner_iterator = RefCountedFixedVector<WebCore::FontFamily>::const_iterator;
         using iterator_category = std::forward_iterator_tag;
-        using value_type = SingleFontFamily;
+        using value_type = FontFamily;
         using difference_type = std::ptrdiff_t;
 
         const_iterator(inner_iterator it) : m_it { it } { }
 
-        value_type operator*() const { return SingleFontFamily { *m_it }; }
+        value_type operator*() const { return FontFamily { *m_it }; }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         const_iterator& operator++() { ++m_it; return *this; }
@@ -116,15 +117,15 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     unsigned size() const { return m_families->size(); }
 
-    SingleFontFamily first() const { return SingleFontFamily { m_families.get()[0] }; }
-    SingleFontFamily last() const { return SingleFontFamily { m_families.get()[size() - 1] }; }
+    FontFamily first() const { return FontFamily { m_families.get()[0] }; }
+    FontFamily last() const { return FontFamily { m_families.get()[size() - 1] }; }
 
-    RefCountedFixedVector<AtomString>& toPlatform() LIFETIME_BOUND { return m_families.get(); }
-    const RefCountedFixedVector<AtomString>& toPlatform() const LIFETIME_BOUND { return m_families.get(); }
-    Ref<RefCountedFixedVector<AtomString>> takePlatform() { return WTF::move(m_families); }
+    RefCountedFixedVector<WebCore::FontFamily>& toPlatform() LIFETIME_BOUND { return m_families.get(); }
+    const RefCountedFixedVector<WebCore::FontFamily>& toPlatform() const LIFETIME_BOUND { return m_families.get(); }
+    Ref<RefCountedFixedVector<WebCore::FontFamily>> takePlatform() { return WTF::move(m_families); }
 
     FontFamilyKind firstFontKind() const { return m_firstFontKind; }
-    bool isSpecifiedFont() const { return m_firstFontKind == FontFamilyKind::Specified; }
+    bool hasAuthorSpecifiedNonGenericPrimaryFont() const { return m_firstFontKind == FontFamilyKind::Specified; }
 
     bool operator==(const FontFamilies& other) const
     {
@@ -133,7 +134,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
 
 private:
-    Ref<RefCountedFixedVector<AtomString>> m_families;
+    Ref<RefCountedFixedVector<WebCore::FontFamily>> m_families;
     FontFamilyKind m_firstFontKind { FontFamilyKind::Generic };
 };
 
@@ -141,8 +142,12 @@ private:
 
 template<> struct CSSValueConversion<FontFamilies> { auto operator()(BuilderState&, const CSSValue&) -> FontFamilies; };
 
+// MARK: - Logging
+
+TextStream& operator<<(TextStream&, const FontFamily&);
+
 } // namespace Style
 } // namespace WebCore
 
 DEFINE_COMMA_SEPARATED_RANGE_LIKE_CONFORMANCE(WebCore::Style::FontFamilies)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::SingleFontFamily)
+DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::FontFamily)

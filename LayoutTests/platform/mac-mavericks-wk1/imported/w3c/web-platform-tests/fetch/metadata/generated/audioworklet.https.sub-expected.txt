@@ -16,4 +16,6 @@ PASS sec-fetch-site - Same-Site -> Cross-Site
 PASS sec-fetch-mode
 PASS sec-fetch-dest
 PASS sec-fetch-user
+PASS sec-fetch-storage-access - Cross-site
+PASS sec-fetch-storage-access - Same site
 

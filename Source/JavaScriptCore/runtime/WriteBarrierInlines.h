@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSCJSValueStructure.h>
 #include <JavaScriptCore/VM.h>
 #include <JavaScriptCore/WriteBarrier.h>
 

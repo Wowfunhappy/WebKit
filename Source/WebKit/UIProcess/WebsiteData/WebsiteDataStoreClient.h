@@ -36,7 +36,6 @@
 
 namespace WebCore {
 enum class WasPrivateRelayed : bool;
-enum class WindowProxyProperty : uint8_t;
 struct NotificationData;
 class RegistrableDomain;
 class SecurityOriginData;
@@ -111,10 +110,6 @@ public:
     {
     }
 
-    virtual void didAccessWindowProxyProperty(const WebCore::RegistrableDomain&, const WebCore::RegistrableDomain&, WebCore::WindowProxyProperty, bool)
-    {
-    }
-
     virtual void didAllowPrivateTokenUsageByThirdPartyForTesting(bool, URL&&)
     {
     }
@@ -123,9 +118,14 @@ public:
     virtual void didExceedMemoryFootprintThreshold(size_t, const String&, unsigned, Seconds, bool, WebCore::WasPrivateRelayed, CanSuspend)
     {
     }
+
     virtual void webCryptoMasterKey(CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&& completionHandler)
     {
         return completionHandler(std::nullopt);
+    }
+
+    virtual void didEvictDataForDomains(const Vector<WebCore::RegistrableDomain>& domains)
+    {
     }
 };
 

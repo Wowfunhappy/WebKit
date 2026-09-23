@@ -39,18 +39,17 @@ namespace WebKit {
 class ProcessStateMonitor : public RefCountedAndCanMakeWeakPtr<ProcessStateMonitor> {
     WTF_MAKE_TZONE_ALLOCATED(ProcessStateMonitor);
 public:
-    static Ref<ProcessStateMonitor> create(Function<void(bool)>&& becomeSuspendedHandler)
-    {
-        return adoptRef(*new ProcessStateMonitor(WTF::move(becomeSuspendedHandler)));
-    }
+    // This may return nullptr if process tracking is not available (e.g. the current process is not
+    // managed by RunningBoard).
+    static RefPtr<ProcessStateMonitor> create(Function<void(bool)>&& becomeSuspendedHandler);
 
     ~ProcessStateMonitor();
     void processWillBeSuspendedImmediately();
+    void processDidBecomeRunning();
 
 private:
     ProcessStateMonitor(Function<void(bool)>&& becomeSuspendedHandler);
 
-    void processDidBecomeRunning();
     void processWillBeSuspended(Seconds timeout);
     void suspendTimerFired();
     void checkRemainingRunTime();

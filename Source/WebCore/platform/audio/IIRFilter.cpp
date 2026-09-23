@@ -56,8 +56,8 @@ static std::complex<double> evaluatePolynomial(std::span<const double> coefficie
 }
 
 IIRFilter::IIRFilter(const Vector<double>& feedforward, const Vector<double>& feedback)
-    : m_xBuffer(bufferLength, 0)
-    , m_yBuffer(bufferLength, 0)
+    : m_xBuffer(FillWith { }, bufferLength, 0)
+    , m_yBuffer(FillWith { }, bufferLength, 0)
     , m_feedforward(feedforward)
     , m_feedback(feedback)
 {

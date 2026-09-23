@@ -1,4 +1,5 @@
 //@ skip if not $jitTests
+//@ exclusive!
 //@ $skipModes << :lockdown if $memoryLimited
 
 function doTest(max) {

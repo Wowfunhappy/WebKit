@@ -15,7 +15,7 @@ WebKit's WebAssembly debugging uses a **singleton `WasmDebugServer`** that manag
 ### Key Design Principles
 
 1. **Process-Wide Singleton**: One `WasmDebugServer::singleton()` per WebContent process
-2. **WorkQueue-Based IPC**: Debugging commands processed on background thread (supports debugging infinite loops)
+2. **WorkQueue-Based IPC**: Debugging commands processed on background thread (supports debugging while main thread is blocked)
 3. **RWI Integration**: One `WasmDebuggerDebuggable` target per WebContent process
 4. **GDB Remote Serial Protocol**: LLDB communicates using standard GDB packets
 
@@ -57,7 +57,7 @@ WebKit's WebAssembly debugging uses a **singleton `WasmDebugServer`** that manag
 ### UI Process (Safari)
 
 **WebProcessProxy** - Manages one WebContent process
-- Creates `WasmDebuggerDebuggable` on construction (if `--wasm-debugger` enabled)
+- Creates `WasmDebuggerDebuggable` only after receiving `WasmDebugServerReady` from WebContent
 - Forwards debugging commands via IPC
 - Routes responses back to LLDB
 
@@ -73,12 +73,12 @@ WebKit's WebAssembly debugging uses a **singleton `WasmDebugServer`** that manag
 
 **WasmDebuggerDispatcher** - WorkQueue-based IPC receiver
 - Receives debugging commands on **WorkQueue thread** (not main thread)
-- Enables debugging when main thread blocked in infinite loop
+- Enables debugging when main thread is blocked
 - Matches `WebInspectorInterruptDispatcher` pattern (JavaScript debugging)
 
 **WebProcess** - Process singleton
 - Owns `WasmDebuggerDispatcher` instance
-- Initializes `WasmDebugServer` on startup
+- Calls `DebugServer::singleton().startRWI()` in `initializeWebProcess()` and sends `WasmDebugServerReady` IPC on success
 - Sets up response handler for IPC communication
 
 ### JavaScriptCore (JSC)
@@ -113,18 +113,106 @@ WasmDebugServer (JSC)
 
 **Key Points:**
 - External client relays raw GDB packets between LLDB and WebKit
-- Target registration: WebProcessProxy creates `WasmDebuggerDebuggable` with auto-assigned numeric Target ID and name showing OS PID
+- Target registration: WebProcessProxy creates `WasmDebuggerDebuggable` in `wasmDebugServerReady()` (after `WasmDebugServerReady` IPC) with auto-assigned numeric Target ID and name showing OS PID
 - IPC routing: Messages dispatched to WorkQueue in WebContent Process, NOT main thread
-- WorkQueue enables debugging when main thread blocked in infinite loop
+- WorkQueue enables debugging when main thread is blocked
 - Pattern matches `WebInspectorInterruptDispatcher` (JavaScript debugging)
 
 **Critical Architecture Decision: WorkQueue Threading**
 
-Main thread can be blocked in infinite Wasm loop, but debugging must still work:
+Main thread can be blocked, but debugging must still work:
 - Kernel queues IPC messages independently
 - WorkQueue thread (in WebContent Process) processes debug commands concurrently
 - Mutator thread waits on condition variable when paused
 - WorkQueue thread signals condition variable to resume execution
+
+---
+
+## Component Lifecycle
+
+### Startup (Fresh Process Launch)
+
+```
+UIProcess                         WebContent Process (main thread)
+─────────────────────────────────────────────────────────────────
+                                  platformInitializeWebProcess()
+                                  - shouldEnableWebAssemblyDebugger param
+                                  - JSC::Options::enableWasmDebugger = true
+
+                                  initializeWebProcess()
+                                  - DebugServer::singleton().startRWI()
+wasmDebugServerReady()   ◄──────  - send WasmDebugServerReady IPC
+- createWasmDebuggerTarget()
+- register with RemoteInspector
+```
+
+**Key invariant**: The `WasmDebuggerDebuggable` is created only after `startRWI()` succeeds in the WebContent process. This guarantees that when LLDB attaches and sends packets, the `WasmDebugServer` is fully initialized and ready to handle them.
+
+### Process Cache Entry
+
+When a tab navigates away and the WebContent process enters the process cache:
+
+```
+UIProcess (main thread)           WebContent WorkQueue thread
+──────────────────────────────────────────────────────────────
+setIsInProcessCache(true)
+if m_wasmDebuggerDebuggable:
+    destroyWasmDebuggerTarget()
+    - detach from RemoteInspector
+    send ResetServer IPC   ──────►  resetServer()
+                                    - DebugServer::reset()
+                                    - if VM stopped: resumeImpl()
+                                    - clearAllBreakpoints()
+                                    - reset protocol state
+```
+
+**Why WorkQueue, not main thread**: The WorkQueue thread runs independently of the JS/Wasm mutator. If the main VM is stopped at a breakpoint when the tab closes, the main thread is unresponsive and cannot process IPCs. The WorkQueue handles `ResetServer` regardless, and `reset()` resumes the stopped VM before clearing state.
+
+**STW invariant**: Stop-the-world stops ALL mutators simultaneously. If any VM is stopped (blocked in `stopCode()`), the main thread is also stopped — making it impossible to process `SetIsInProcessCache`. Therefore, when `setIsInProcessCache` runs on the main thread, no VM can be blocked in `stopCode()`, and the WorkQueue is always idle and ready to receive `ResetServer`.
+
+### Process Cache Exit
+
+When a cached process is reused for a new navigation:
+
+```
+WebContent Process (main thread)  UIProcess
+──────────────────────────────────────────────────────────────
+setIsInProcessCache(false)
+- send WasmDebugServerReady ────► wasmDebugServerReady()
+                                  - createWasmDebuggerTarget()
+                                  - re-register with RemoteInspector
+```
+
+The `WasmDebugServer` itself never stops — it is a process-lifetime singleton. Only the `WasmDebuggerDebuggable` (the RWI target visible to LLDB) is destroyed on cache entry and recreated on cache exit.
+
+### Process Exit (No Cache)
+
+When the WebContent process exits normally (tab closed, no process cache):
+
+```
+UIProcess (main thread)
+────────────────────────
+shutDown()
+if m_wasmDebuggerDebuggable:
+    destroyWasmDebuggerTarget()
+    - detach from RemoteInspector
+shutDownProcess()
+```
+
+The debuggable is destroyed before the process is killed so LLDB detaches cleanly
+via RemoteInspector before the connection drops. No ResetServer IPC is needed —
+all WebContent process state is discarded on exit.
+
+### Full Lifecycle Summary
+
+```
+1. Fresh launch:   enable option → startRWI → WasmDebugServerReady → createDebuggable
+2. Cache entry:    destroyDebuggable → send ResetServer → reset()
+3. Cache exit:     WasmDebugServerReady → createDebuggable
+4. Cache entry:    destroyDebuggable → send ResetServer → reset()
+   (steps 3-4 repeat indefinitely)
+5. Process exit:   destroyDebuggable → shutDownProcess()
+```
 
 ---
 
@@ -238,8 +326,8 @@ When the Wasm debugger pauses at a breakpoint (stop-the-world), the main thread 
 3. **From the user's perspective** - Web Inspector appears frozen or disconnected
 
 The interaction is asymmetric:
-- **Pausing in Wasm debugger** → Blocks main thread → **Freezes both JS execution and Web Inspector**
-- **Pausing in JS debugger** → Runs nested event loop → **Wasm debugger continues working** (uses WorkQueue IPC)
+- **Pausing in Wasm debugger** - Blocks main thread - **Freezes both JS execution and Web Inspector**
+- **Pausing in JS debugger** - Runs nested event loop - **Wasm debugger continues working** (uses WorkQueue IPC)
 
 **Why Stop-the-World Is Correct**:
 

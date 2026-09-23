@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -78,25 +78,25 @@ WebMouseEventButton kit(WebCore::MouseButton button)
     }
 }
 
-WebCore::MouseEventInputSource platform(WebMouseEventInputSource source)
+WebCore::MouseEventInputSource platform(WebEventInputSource source)
 {
     switch (source) {
-    case WebMouseEventInputSource::UserDriven:
+    case WebEventInputSource::UserDriven:
         return WebCore::MouseEventInputSource::UserDriven;
-    case WebMouseEventInputSource::Automation:
+    case WebEventInputSource::Automation:
         return WebCore::MouseEventInputSource::Automation;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
 }
 
-WebMouseEventInputSource kit(WebCore::MouseEventInputSource source)
+WebEventInputSource kit(WebCore::MouseEventInputSource source)
 {
     switch (source) {
     case WebCore::MouseEventInputSource::UserDriven:
-        return WebMouseEventInputSource::UserDriven;
+        return WebEventInputSource::UserDriven;
     case WebCore::MouseEventInputSource::Automation:
-        return WebMouseEventInputSource::Automation;
+        return WebEventInputSource::Automation;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -231,6 +231,8 @@ OptionSet<WebCore::PlatformEvent::Modifier> platform(OptionSet<WebEventModifier>
         result.add(WebCore::PlatformEvent::Modifier::MetaKey);
     if (modifiers.contains(WebEventModifier::CapsLockKey))
         result.add(WebCore::PlatformEvent::Modifier::CapsLockKey);
+    if (modifiers.contains(WebEventModifier::AltGraphKey))
+        result.add(WebCore::PlatformEvent::Modifier::AltGraphKey);
     return result;
 }
 
@@ -247,6 +249,8 @@ OptionSet<WebEventModifier> kit(OptionSet<WebCore::PlatformEvent::Modifier> modi
         result.add(WebEventModifier::MetaKey);
     if (modifiers.contains(WebCore::PlatformEvent::Modifier::CapsLockKey))
         result.add(WebEventModifier::CapsLockKey);
+    if (modifiers.contains(WebCore::PlatformEvent::Modifier::AltGraphKey))
+        result.add(WebEventModifier::AltGraphKey);
     return result;
 }
 
@@ -296,6 +300,7 @@ public:
             return platform(event);
         });
         m_inputSource = platform(webEvent.inputSource());
+        m_canInitiateDrag = webEvent.canInitiateDrag();
 
 #if PLATFORM(MAC)
         m_eventNumber = webEvent.eventNumber();
@@ -305,15 +310,6 @@ public:
 #elif PLATFORM(WPE)
         m_syntheticClickType = static_cast<WebCore::SyntheticClickType>(webEvent.syntheticClickType());
 #endif
-        m_modifierFlags = 0;
-        if (webEvent.shiftKey())
-            m_modifierFlags |= static_cast<unsigned>(WebEventModifier::ShiftKey);
-        if (webEvent.controlKey())
-            m_modifierFlags |= static_cast<unsigned>(WebEventModifier::ControlKey);
-        if (webEvent.altKey())
-            m_modifierFlags |= static_cast<unsigned>(WebEventModifier::AltKey);
-        if (webEvent.metaKey())
-            m_modifierFlags |= static_cast<unsigned>(WebEventModifier::MetaKey);
 
         m_pointerId = webEvent.pointerId();
         m_pointerType = webEvent.pointerType();
@@ -382,6 +378,7 @@ public:
         m_scrollCount = webEvent.scrollCount();
         m_unacceleratedScrollingDeltaX = webEvent.unacceleratedScrollingDelta().width();
         m_unacceleratedScrollingDeltaY = webEvent.unacceleratedScrollingDelta().height();
+        m_inputSource = platform(webEvent.inputSource());
 #endif
     }
 };
@@ -467,7 +464,7 @@ public:
 WebKit2PlatformTouchPoint(const WebPlatformTouchPoint& webTouchPoint)
     : PlatformTouchPoint(webTouchPoint.identifier(), DoublePoint(webTouchPoint.locationInRootView()), DoublePoint(webTouchPoint.locationInViewport()), touchEventType(webTouchPoint)
 #if ENABLE(IOS_TOUCH_EVENTS)
-        , webTouchPoint.radiusX(), webTouchPoint.radiusY(), webTouchPoint.rotationAngle(), webTouchPoint.twist(), webTouchPoint.force(), webTouchPoint.altitudeAngle(), webTouchPoint.azimuthAngle(), webPlatformTouchTypeToPlatform(webTouchPoint.touchType())
+        , webTouchPoint.radiusX(), webTouchPoint.radiusY(), webTouchPoint.rotationAngle(), webTouchPoint.twist(), webTouchPoint.force(), webTouchPoint.altitudeAngle(), webTouchPoint.azimuthAngle(), webPlatformTouchTypeToPlatform(webTouchPoint.touchType()), DoublePoint(webTouchPoint.previousLocationInRootView())
 #endif
     )
 {

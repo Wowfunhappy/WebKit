@@ -121,7 +121,7 @@ void GStreamerCaptureDeviceManager::stopMonitor()
     if (!m_deviceMonitor)
         return;
 
-    auto bus = adoptGRef(gst_device_monitor_get_bus(m_deviceMonitor.get()));
+    GRefPtr bus = adoptGRef(gst_device_monitor_get_bus(m_deviceMonitor.get()));
     gst_bus_remove_watch(bus.get());
     gst_device_monitor_stop(m_deviceMonitor.get());
     m_deviceMonitor.clear();
@@ -229,7 +229,7 @@ std::optional<GStreamerCaptureDevice> GStreamerCaptureDeviceManager::captureDevi
     if (nodeName.isEmpty())
         identifier = makeString(deviceName.span(), ", "_s, deviceClass.span(), ", "_s, deviceClass.span());
     else
-        identifier = makeString(nodeName.span(), ", "_s, deviceClass.span(), ", "_s, deviceClass.span());
+        identifier = makeString(nodeName, ", "_s, deviceClass.span(), ", "_s, deviceClass.span());
 
     bool isMock = false;
     if (auto persistentId = gstStructureGetString(properties.get(), "persistent-id"_s)) {
@@ -325,11 +325,11 @@ void GStreamerCaptureDeviceManager::refreshCaptureDevices()
         if (types.contains(CaptureDevice::DeviceType::Camera))
             gst_device_monitor_add_filter(m_deviceMonitor.get(), "Video/Source", nullptr);
         if (types.contains(CaptureDevice::DeviceType::Microphone)) {
-            auto caps = adoptGRef(gst_caps_new_empty_simple("audio/x-raw"));
+            GRefPtr caps = adoptGRef(gst_caps_new_empty_simple("audio/x-raw"));
             gst_device_monitor_add_filter(m_deviceMonitor.get(), "Audio/Source", caps.get());
         }
         if (types.contains(CaptureDevice::DeviceType::Speaker) || types.contains(CaptureDevice::DeviceType::SystemAudio)) {
-            auto caps = adoptGRef(gst_caps_new_empty_simple("audio/x-raw"));
+            GRefPtr caps = adoptGRef(gst_caps_new_empty_simple("audio/x-raw"));
             gst_device_monitor_add_filter(m_deviceMonitor.get(), "Audio/Sink", caps.get());
         }
 
@@ -341,8 +341,8 @@ void GStreamerCaptureDeviceManager::refreshCaptureDevices()
 
 #if GST_CHECK_VERSION(1, 28, 0)
         {
-            auto bus = adoptGRef(gst_device_monitor_get_bus(m_deviceMonitor.get()));
-            [[maybe_unused]] auto message = adoptGRef(gst_bus_poll(bus.get(), GST_MESSAGE_DEVICE_MONITOR_STARTED, GST_CLOCK_TIME_NONE));
+            GRefPtr bus = adoptGRef(gst_device_monitor_get_bus(m_deviceMonitor.get()));
+            [[maybe_unused]] GRefPtr message = adoptGRef(gst_bus_timed_pop_filtered(bus.get(), GST_CLOCK_TIME_NONE, GST_MESSAGE_DEVICE_MONITOR_STARTED));
             GST_DEBUG_OBJECT(m_deviceMonitor.get(), "Device provider(s) successfully started");
         }
 #endif
@@ -359,7 +359,7 @@ void GStreamerCaptureDeviceManager::refreshCaptureDevices()
     if (!monitorBus)
         return;
 
-    auto bus = adoptGRef(gst_device_monitor_get_bus(m_deviceMonitor.get()));
+    GRefPtr bus = adoptGRef(gst_device_monitor_get_bus(m_deviceMonitor.get()));
 
     // Flush out device-added messages queued during initial probe of the device providers.
     gst_bus_set_flushing(bus.get(), TRUE);

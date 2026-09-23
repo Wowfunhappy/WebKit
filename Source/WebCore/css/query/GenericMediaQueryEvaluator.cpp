@@ -29,45 +29,101 @@
 #include "CSSRatioValue.h"
 #include "CSSToLengthConversionData.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StyleRatio.h"
 
 namespace WebCore {
 namespace MQ {
 
-static std::optional<LayoutUnit> computeLength(const CSSValue* value, const CSSToLengthConversionData& conversionData)
+static std::optional<LayoutUnit> resolveLength(const Value& value, const CSSToLengthConversionData& conversionData)
 {
-    auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value);
-    if (!primitiveValue)
-        return { };
-
-    if (primitiveValue->isNumberOrInteger()) {
-        if (primitiveValue->resolveAsNumber(conversionData))
+    return WTF::switchOn(value,
+        [&](const CSS::Integer<>& integer) -> std::optional<LayoutUnit> {
+            auto resolved = Style::toStyle(integer, conversionData);
+            if (resolved.isZero())
+                return 0_lu;
             return { };
-        return 0_lu;
-    }
-
-    if (!primitiveValue->isLength())
-        return { };
-    return primitiveValue->resolveAsLength<LayoutUnit>(conversionData);
+        },
+        [&](const CSS::Number<>& number) -> std::optional<LayoutUnit> {
+            auto resolved = Style::toStyle(number, conversionData);
+            if (resolved.isZero())
+                return 0_lu;
+            return { };
+        },
+        [&](const CSS::Length<>& length) -> std::optional<LayoutUnit> {
+            return Style::evaluate<LayoutUnit>(Style::toStyle(length, conversionData), Style::ZoomNeeded { });
+        },
+        [](const auto&) -> std::optional<LayoutUnit> {
+            return std::nullopt;
+        }
+    );
 }
 
-template<typename T>
-bool compare(ComparisonOperator op, T left, T right)
+static double resolveNumber(const Value& value, const CSSToLengthConversionData& conversionData)
 {
-    switch (op) {
-    case ComparisonOperator::LessThan:
-        return left < right;
-    case ComparisonOperator::GreaterThan:
-        return left > right;
-    case ComparisonOperator::LessThanOrEqual:
-        return left <= right;
-    case ComparisonOperator::GreaterThanOrEqual:
-        return left >= right;
-    case ComparisonOperator::Equal:
-        return left == right;
-    }
-    RELEASE_ASSERT_NOT_REACHED();
-};
+    return WTF::switchOn(value,
+        [&](const CSS::Integer<>& integer) -> double {
+            return Style::evaluate<double>(Style::toStyle(integer, conversionData));
+        },
+        [&](const CSS::Number<>& number) -> double {
+            return Style::evaluate<double>(Style::toStyle(number, conversionData));
+        },
+        [](const auto&) -> double {
+            ASSERT_NOT_REACHED();
+            return 0;
+        }
+    );
+}
+
+static int resolveInteger(const Value& value, const CSSToLengthConversionData& conversionData)
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Integer<>& integer) -> int {
+            return Style::evaluate<int>(Style::toStyle(integer, conversionData));
+        },
+        [](const auto&) -> int {
+            ASSERT_NOT_REACHED();
+            return 0;
+        }
+    );
+}
+
+static float resolveResolution(const Value& value, const CSSToLengthConversionData& conversionData)
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Resolution<>& resolution) -> float {
+            return Style::evaluate<float>(Style::toStyle(resolution, conversionData));
+        },
+        [](const auto&) -> float {
+            ASSERT_NOT_REACHED();
+            return 0;
+        }
+    );
+}
+
+static std::optional<Style::Ratio> resolveRatio(const Value& value, const CSSToLengthConversionData& conversionData)
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Ratio& ratio) -> std::optional<Style::Ratio> {
+            return Style::toStyle(ratio, conversionData);
+        },
+        [](const auto&) -> std::optional<Style::Ratio> {
+            return { };
+        }
+    );
+}
+
+static CSSValueID resolveIdent(const Value& value)
+{
+    return WTF::switchOn(value,
+        [](const CSS::Keyword& ident) {
+            return ident.value;
+        },
+        [](const auto&) {
+            return CSSValueInvalid;
+        }
+    );
+}
 
 enum class Side : uint8_t { Left, Right };
 static EvaluationResult evaluateLengthComparison(LayoutUnit size, const std::optional<Comparison>& comparison, Side side, const CSSToLengthConversionData& conversionData)
@@ -75,7 +131,7 @@ static EvaluationResult evaluateLengthComparison(LayoutUnit size, const std::opt
     if (!comparison)
         return EvaluationResult::True;
 
-    auto expressionSize = computeLength(RefPtr { comparison->value }.get(), conversionData);
+    auto expressionSize = resolveLength(*comparison->value, conversionData);
     if (!expressionSize)
         return EvaluationResult::Unknown;
 
@@ -90,7 +146,7 @@ static EvaluationResult evaluateNumberComparison(double number, const std::optio
     if (!comparison)
         return EvaluationResult::True;
 
-    auto expressionNumber = Ref { downcast<CSSPrimitiveValue>(*comparison->value) }->resolveAsNumber(conversionData);
+    auto expressionNumber = resolveNumber(*comparison->value, conversionData);
 
     auto left = side == Side::Left ? expressionNumber : number;
     auto right = side == Side::Left ? number : expressionNumber;
@@ -103,10 +159,10 @@ static EvaluationResult evaluateIntegerComparison(int number, const std::optiona
     if (!comparison)
         return EvaluationResult::True;
 
-    auto expressionNumber = Ref { downcast<CSSPrimitiveValue>(*comparison->value) }->resolveAsInteger(conversionData);
+    auto expressionInteger = resolveInteger(*comparison->value, conversionData);
 
-    auto left = side == Side::Left ? expressionNumber : number;
-    auto right = side == Side::Left ? number : expressionNumber;
+    auto left = side == Side::Left ? expressionInteger : number;
+    auto right = side == Side::Left ? number : expressionInteger;
 
     return toEvaluationResult(compare(comparison->op, left, right));
 };
@@ -116,7 +172,7 @@ static EvaluationResult evaluateResolutionComparison(float resolution, const std
     if (!comparison)
         return EvaluationResult::True;
 
-    auto expressionResolution = Ref { downcast<CSSPrimitiveValue>(*comparison->value) }->resolveAsResolution<float>(conversionData);
+    auto expressionResolution = resolveResolution(*comparison->value, conversionData);
 
     auto left = side == Side::Left ? expressionResolution : resolution;
     auto right = side == Side::Left ? resolution : expressionResolution;
@@ -140,16 +196,14 @@ static EvaluationResult evaluateRatioComparison(FloatSize size, const std::optio
     if (!comparison)
         return EvaluationResult::True;
 
-    RefPtr ratioValue = dynamicDowncast<CSSRatioValue>(comparison->value);
-    if (!ratioValue)
+    auto resolvedRatio = resolveRatio(*comparison->value, conversionData);
+    if (!resolvedRatio)
         return EvaluationResult::Unknown;
-
-    auto resolvedRatio = Style::toStyle(ratioValue->ratio(), conversionData);
 
     // Ratio with zero denominator is infinite and compares greater to any value.
 
-    auto comparisonA = resolvedRatio.denominator.value ? size.height() * resolvedRatio.numerator.value : 1.0f;
-    auto comparisonB = resolvedRatio.denominator.value ? size.width() * resolvedRatio.denominator.value : 0.0f;
+    auto comparisonA = resolvedRatio->denominator.value ? size.height() * resolvedRatio->numerator.value : 1.0f;
+    auto comparisonB = resolvedRatio->denominator.value ? size.width() * resolvedRatio->denominator.value : 0.0f;
 
     auto left = side == Side::Left ? comparisonA : comparisonB;
     auto right = side == Side::Left ? comparisonB : comparisonA;
@@ -173,8 +227,7 @@ EvaluationResult evaluateBooleanFeature(const Feature& feature, bool currentValu
     if (!feature.rightComparison)
         return toEvaluationResult(currentValue);
 
-    Ref value = downcast<CSSPrimitiveValue>(*feature.rightComparison->value);
-    auto expectedValue = value->resolveAsInteger(conversionData);
+    auto expectedValue = resolveInteger(*feature.rightComparison->value, conversionData);
 
     if (expectedValue && expectedValue != 1)
         return EvaluationResult::Unknown;
@@ -220,8 +273,8 @@ EvaluationResult evaluateIdentifierFeature(const Feature& feature, CSSValueID cu
     if (!feature.rightComparison)
         return toEvaluationResult(currentValue != CSSValueNone && currentValue != CSSValueNoPreference);
 
-    auto& value = downcast<CSSPrimitiveValue>(*feature.rightComparison->value);
-    return toEvaluationResult(value.valueID() == currentValue);
+    auto value = resolveIdent(*feature.rightComparison->value);
+    return toEvaluationResult(value == currentValue);
 }
 
 } // namespace MQ

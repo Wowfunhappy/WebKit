@@ -143,6 +143,7 @@ TEST(WGSLLexerTests, SingleTokens)
     checkSingleFloatLiteral(".456f"_s, TokenType::FloatLiteral, 0.456f);
     checkSingleFloatLiteral("42e-3"_s, TokenType::AbstractFloatLiteral, 42e-3);
     checkSingleFloatLiteral("42e-3f"_s, TokenType::FloatLiteral, 42e-3f);
+    checkSingleFloatLiteral("34028235000000000000000000000000000000f"_s, TokenType::FloatLiteral, 34028234663852885981170418348451692544.0f);
 }
 
 TEST(WGSLLexerTests, KeywordTokens)

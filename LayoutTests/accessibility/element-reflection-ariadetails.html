@@ -80,7 +80,7 @@ if (window.accessibilityController) {
 
         target4.ariaDetailsElements = [detail4];
         detail4.id = "detail4-new";
-        axDetail4 = accessibilityController.accessibleElementById("detail4-new");
+        axDetail4 = await waitForElementById("detail4-new");
         axTarget4 = accessibilityController.accessibleElementById("target4");
         await waitFor(() => axTarget4.ariaDetailsElementAtIndex(0));
         output += expect("axTarget4.ariaDetailsElementAtIndex(0).isEqual(axDetail4)", "true");

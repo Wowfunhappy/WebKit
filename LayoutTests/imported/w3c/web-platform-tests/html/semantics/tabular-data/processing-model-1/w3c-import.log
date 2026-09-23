@@ -15,4 +15,6 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/processing-model-1/col-span-limits.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/processing-model-1/rowspan-0-quirks.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/processing-model-1/rowspan-0.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/processing-model-1/span-limits.html

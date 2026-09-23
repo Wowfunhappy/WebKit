@@ -27,20 +27,26 @@ from buildbot.steps import trigger
 from .steps import *
 from Shared.steps import *
 
+LINUX_PLATFORMS = frozenset({'gtk', 'wpe', 'jsc-only'})
+
+
 class Factory(factory.BuildFactory):
     findModifiedLayoutTests = False
     skipBuildIfNoResult = True
     branches = None
+    excluded_branches = [r'webkitglib/\d+\.\d+']
     requiresUserValidation = False
 
-    def __init__(self, platform, configuration=None, architectures=None, buildOnly=True, triggers=None, triggered_by=None, remotes=None, additionalArguments=None, checkRelevance=False, rebuild_without_change_on_builder=False, **kwargs):
+    def __init__(self, platform, configuration=None, architectures=None, buildOnly=True, triggers=None, triggered_by=None, remotes=None, additionalArguments=None, checkRelevance=False, rebuild_without_change_on_builder=False, deployment_target=None, **kwargs):
         factory.BuildFactory.__init__(self)
-        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=buildOnly, triggers=triggers, triggered_by=triggered_by, remotes=remotes, additionalArguments=additionalArguments, rebuild_without_change_on_builder=rebuild_without_change_on_builder))
+        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=buildOnly, triggers=triggers, triggered_by=triggered_by, remotes=remotes, additionalArguments=additionalArguments, rebuild_without_change_on_builder=rebuild_without_change_on_builder, deployment_target=deployment_target))
         if checkRelevance:
             self.addStep(CheckChangeRelevance())
-        self.addStep(ValidateChange(branches=self.branches))
+        excluded = [] if platform in LINUX_PLATFORMS else self.excluded_branches
+        self.addStep(ValidateChange(branches=self.branches, excluded_branches=excluded))
         self.addStep(PrintConfiguration())
         self.addStep(CleanGitRepo())
+        self.addStep(CleanWebKitBuildIfBaseChanged())
         if platform.startswith('mac'):
             self.addStep(PruneCoreSymbolicationdCacheIfTooLarge())
         self.addStep(SetCredentialHelper())
@@ -55,6 +61,7 @@ class Factory(factory.BuildFactory):
         self.addStep(ShowIdentifier())
         self.addStep(ApplyPatch())
         self.addStep(CheckOutPullRequest())
+        self.addStep(ValidateChangeContent())
         if self.requiresUserValidation:
             self.addStep(ValidateUserForQueue())
         if self.findModifiedLayoutTests:
@@ -76,17 +83,20 @@ class StyleFactory(factory.BuildFactory):
         self.addStep(ShowIdentifier())
         self.addStep(ApplyPatch())
         self.addStep(CheckOutPullRequest())
+        self.addStep(ValidateChangeContent())
         self.addStep(CheckStyle())
 
 
 class SaferCPPStaticAnalyzerFactory(factory.BuildFactory):
     findModifiedLayoutTests = False
+    excluded_branches = [r'webkitglib/\d+\.\d+']
 
     def __init__(self, platform, configuration=None, architectures=None, buildOnly=True, triggers=None, triggered_by=None, remotes=None, additionalArguments=None, checkRelevance=False, **kwargs):
         factory.BuildFactory.__init__(self)
         self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=buildOnly, triggers=triggers, triggered_by=triggered_by, remotes=remotes, additionalArguments=additionalArguments))
         self.addStep(CheckChangeRelevance())
-        self.addStep(ValidateChange())
+        excluded = [] if platform in LINUX_PLATFORMS else self.excluded_branches
+        self.addStep(ValidateChange(excluded_branches=excluded))
         self.addStep(PrintConfiguration())
         self.addStep(CleanGitRepo())
         self.addStep(SetCredentialHelper())
@@ -94,6 +104,7 @@ class SaferCPPStaticAnalyzerFactory(factory.BuildFactory):
         self.addStep(FetchBranches())
         self.addStep(ShowIdentifier())
         self.addStep(CheckOutPullRequest())
+        self.addStep(ValidateChangeContent())
         self.addStep(KillOldProcesses())
         self.addStep(ValidateChange(addURLs=False))
         self.addStep(InstallCMake())
@@ -107,12 +118,13 @@ class SaferCPPStaticAnalyzerFactory(factory.BuildFactory):
         self.addStep(UpdateSwiftCheckouts())
         self.addStep(BuildSwift())
         self.addStep(InstallMetalToolchain())
-        self.addStep(UpdateClang())
         self.addStep(FindModifiedSaferCPPExpectations())
         self.addStep(ScanBuild())
 
 
 class BindingsFactory(Factory):
+    excluded_branches = []
+
     def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, **kwargs):
         Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, additionalArguments=additionalArguments, checkRelevance=True)
         self.addStep(ValidateChange(addURLs=False))
@@ -120,6 +132,8 @@ class BindingsFactory(Factory):
 
 
 class WebKitPerlFactory(Factory):
+    excluded_branches = []
+
     def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, **kwargs):
         Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, additionalArguments=additionalArguments)
         self.addStep(ValidateChange(addURLs=False))
@@ -127,6 +141,8 @@ class WebKitPerlFactory(Factory):
 
 
 class WebKitPyFactory(Factory):
+    excluded_branches = []
+
     def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, **kwargs):
         Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, additionalArgument=additionalArguments, checkRelevance=True)
         self.addStep(ValidateChange(addURLs=False))
@@ -137,8 +153,8 @@ class WebKitPyFactory(Factory):
 class BuildFactory(Factory):
     skipUpload = False
 
-    def __init__(self, platform, configuration=None, architectures=None, triggers=None, additionalArguments=None, checkRelevance=False, rebuild_without_change_on_builder=False, **kwargs):
-        Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=triggers, additionalArguments=additionalArguments, checkRelevance=checkRelevance, rebuild_without_change_on_builder=rebuild_without_change_on_builder)
+    def __init__(self, platform, configuration=None, architectures=None, triggers=None, additionalArguments=None, checkRelevance=False, rebuild_without_change_on_builder=False, deployment_target=None, **kwargs):
+        Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=triggers, additionalArguments=additionalArguments, checkRelevance=checkRelevance, rebuild_without_change_on_builder=rebuild_without_change_on_builder, deployment_target=deployment_target)
         self.addStep(KillOldProcesses())
         if platform == 'gtk':
             self.addStep(InstallGtkDependencies())
@@ -183,6 +199,7 @@ class TestFactory(Factory):
 
 class StressTestFactory(TestFactory):
     findModifiedLayoutTests = True
+    skipBuildIfNoResult = True
 
     def __init__(self, platform, configuration=None, architectures=None, triggered_by=None, additionalArguments=None, checkRelevance=False, **kwargs):
         Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggered_by=triggered_by, additionalArguments=additionalArguments, checkRelevance=checkRelevance)
@@ -298,6 +315,20 @@ class macOSWK2Factory(TestFactory):
     willTriggerCrashLogSubmission = True
 
 
+class macOSSiteIsolationFactory(TestFactory):
+    findModifiedLayoutTests = True
+    willTriggerCrashLogSubmission = True
+
+    def __init__(self, platform, configuration=None, architectures=None, triggered_by=None, additionalArguments=None, checkRelevance=False, **kwargs):
+        Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggered_by=triggered_by, additionalArguments=additionalArguments, checkRelevance=checkRelevance)
+        self.addStep(KillOldProcesses())
+        self.getProduct()
+        self.addStep(WaitForCrashCollection())
+        self.addStep(RunWebKitTestsEWSSiteIsolation())
+        self.addStep(TriggerCrashLogSubmission())
+        self.addStep(SetBuildSummary())
+
+
 class PlayStationBuildFactory(BuildFactory):
     branches = [r'main']
     requiresUserValidation = True
@@ -347,9 +378,9 @@ class ServicesFactory(Factory):
 
 
 class CommitQueueFactory(factory.BuildFactory):
-    def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, **kwargs):
+    def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, deployment_target=None, **kwargs):
         factory.BuildFactory.__init__(self)
-        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=None, remotes=None, additionalArguments=additionalArguments))
+        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=None, remotes=None, additionalArguments=additionalArguments, deployment_target=deployment_target))
         self.addStep(ValidateChange(verifycqplus=True))
         self.addStep(ValidateCommitterAndReviewer())
         self.addStep(PrintConfiguration())
@@ -381,14 +412,15 @@ class CommitQueueFactory(factory.BuildFactory):
 
 
 class MergeQueueFactoryBase(factory.BuildFactory):
-    def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, **kwargs):
+    def __init__(self, platform, configuration=None, architectures=None, additionalArguments=None, deployment_target=None, **kwargs):
         super(MergeQueueFactoryBase, self).__init__()
-        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=None, remotes=None, additionalArguments=additionalArguments))
+        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=None, remotes=None, additionalArguments=additionalArguments, deployment_target=deployment_target))
         self.addStep(ValidateChange(verifyMergeQueue=True, verifyNoDraftForMergeQueue=True, enableSkipEWSLabel=False))
         self.addStep(DetermineLabelOwner())
         self.addStep(ValidateCommitterAndReviewer())
         self.addStep(PrintConfiguration())
         self.addStep(CleanGitRepo())
+        self.addStep(CleanWebKitBuildIfBaseChanged())
         self.addStep(SetCredentialHelper())
         self.addStep(CheckOutSource())
         self.addStep(FetchBranches())
@@ -397,6 +429,7 @@ class MergeQueueFactoryBase(factory.BuildFactory):
         self.addStep(ShowIdentifier())
         self.addStep(InstallHooks())
         self.addStep(CheckOutPullRequest())
+        self.addStep(ValidateChangeContent(block_pr_on_failure=True))
         self.addStep(ValidateRemote())
         self.addStep(ValidateSquashed())
         self.addStep(AddReviewerToCommitMessage())

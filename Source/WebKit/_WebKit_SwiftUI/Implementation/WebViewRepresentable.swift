@@ -28,6 +28,17 @@ import os
 @_spi(CrossImportOverlay) import WebKit
 import WebKit_Private.WKPreferencesPrivate
 
+#if ENABLE_SWIFTUI_REFRESHABLE_MODIFIER
+internal import WebKit_Private.WKWebViewPrivate
+
+#if os(macOS)
+import AppKit.NSRefreshController
+typealias PlatformRefreshControl = NSRefreshController
+#else
+typealias PlatformRefreshControl = UIRefreshControl
+#endif
+#endif
+
 extension Logger {
     fileprivate static let webView = Logger(subsystem: "com.apple.WebKit", category: "SwiftUIWebView")
 }
@@ -58,8 +69,8 @@ struct WebViewRepresentable {
         let webView = page.backingWebView
         let environment = context.environment
 
-        #if ENABLE_WEBVIEW_ADDITIONAL_SETUP
-        performAdditionalPlatformViewUpdates(context: context)
+        #if ENABLE_SWIFTUI_REFRESHABLE_MODIFIER
+        setupRefreshControl(context: context)
         #endif
 
         #if os(iOS)
@@ -99,6 +110,10 @@ struct WebViewRepresentable {
             webView.obscuredContentInsets = .init(top: 0, left: 0, bottom: 0, right: 0)
             webView._automaticallyAdjustsContentInsets = true
         }
+
+        if let obscuredContentInsets = environment.webViewObscuredContentInsetsContext {
+            webView.obscuredContentInsets = NSEdgeInsets(obscuredContentInsets, layoutDirection: environment.layoutDirection)
+        }
         #endif
 
         if EquatableScrollBounceBehavior(environment.verticalScrollBounceBehavior) == .always
@@ -125,6 +140,10 @@ struct WebViewRepresentable {
         webView.configuration.preferences.isElementFullscreenEnabled = environment.webViewElementFullscreenBehavior.value == .enabled
 
         platformView.onScrollGeometryChange = environment.webViewOnScrollGeometryChange
+
+        #if ENABLE_MODEL_ELEMENT_IMMERSIVE
+        context.coordinator.updateImmersiveEnvironmentContext(environment.webViewImmersiveEnvironmentRequestContext, webView: webView)
+        #endif
 
         context.coordinator.update(platformView, configuration: self, context: context)
 
@@ -157,6 +176,11 @@ struct WebViewRepresentable {
     }
 
     static func dismantlePlatformView(_ platformView: CocoaWebViewAdapter, coordinator: WebViewCoordinator) {
+        #if os(macOS)
+        // This is needed to avoid a crash when dismissing a WebView with a find navigator still active,
+        // since NSTextFinder deallocation engages AutoLayout on an invalidated view hierarchy.
+        platformView.findInteraction = nil
+        #endif
         coordinator.configuration.page.isBoundToWebView = false
     }
 }
@@ -168,14 +192,31 @@ final class WebViewCoordinator {
     }
 
     var configuration: WebViewRepresentable
-    #if ENABLE_WEBVIEW_ADDITIONAL_SETUP
-    var additionalInformation: Information?
+    #if ENABLE_SWIFTUI_REFRESHABLE_MODIFIER
+    var refreshAction: RefreshAction?
+    #endif
+
+    #if ENABLE_MODEL_ELEMENT_IMMERSIVE
+    var immersiveEnvironmentDelegateAdapter: ImmersiveEnvironmentDelegateAdapter?
+
+    func updateImmersiveEnvironmentContext(_ context: ImmersiveEnvironmentRequestContext?, webView: WebPageWebView) {
+        if let context {
+            if immersiveEnvironmentDelegateAdapter == nil {
+                immersiveEnvironmentDelegateAdapter = ImmersiveEnvironmentDelegateAdapter()
+            }
+            immersiveEnvironmentDelegateAdapter?.context = context
+            webView.immersiveEnvironmentDelegate = immersiveEnvironmentDelegateAdapter
+        } else {
+            immersiveEnvironmentDelegateAdapter = nil
+            webView.immersiveEnvironmentDelegate = nil
+        }
+    }
     #endif
 
     func update(_ view: CocoaWebViewAdapter, configuration: WebViewRepresentable, context: WebViewRepresentable.Context) {
         self.configuration = configuration
-        #if ENABLE_WEBVIEW_ADDITIONAL_SETUP
-        performAdditionalCoordinatorUpdates(context: context)
+        #if ENABLE_SWIFTUI_REFRESHABLE_MODIFIER
+        self.refreshAction = context.environment.refresh
         #endif
 
         #if canImport(SwiftUI, _version: "7.0.57")
@@ -249,6 +290,47 @@ final class WebViewCoordinator {
     #endif // canImport(SwiftUI, _version: "7.0.57")
 }
 
+#if ENABLE_SWIFTUI_REFRESHABLE_MODIFIER
+extension WebViewRepresentable {
+    func setupRefreshControl(context: Context) {
+        let webView = page.backingWebView
+        let environment = context.environment
+
+        let action = #selector(WebViewCoordinator.handleRefresh(_:))
+        let target = context.coordinator
+
+        if environment.refresh != nil {
+            if webView._platformRefreshControl == nil {
+                let control = PlatformRefreshControl()
+                #if os(macOS)
+                control.target = target
+                control.action = action
+                #else
+                control.addTarget(target, action: action, for: .valueChanged)
+                #endif
+                webView._platformRefreshControl = control
+            }
+        } else {
+            webView._platformRefreshControl = nil
+        }
+    }
+}
+
+extension WebViewCoordinator {
+    @objc
+    func handleRefresh(_ sender: PlatformRefreshControl) {
+        guard let refreshAction else {
+            return
+        }
+        Task { @MainActor in
+            sender.beginRefreshing()
+            await refreshAction()
+            sender.endRefreshing()
+        }
+    }
+}
+#endif
+
 #if canImport(UIKit)
 extension WebViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> CocoaWebViewAdapter {
@@ -283,6 +365,32 @@ extension WebViewRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: CocoaWebViewAdapter, coordinator: WebViewCoordinator) {
         dismantlePlatformView(nsView, coordinator: coordinator)
+    }
+}
+#endif
+
+#if ENABLE_MODEL_ELEMENT_IMMERSIVE
+@MainActor
+final class ImmersiveEnvironmentDelegateAdapter: NSObject, WKImmersiveEnvironmentDelegate {
+    var context: ImmersiveEnvironmentRequestContext?
+
+    func webView(_ webView: WKWebView, shouldAllowImmersiveEnvironmentFrom frame: WKFrameInfo) async -> Bool {
+        guard let context else { return false }
+        return await context.shouldAllow(WebPage.FrameInfo(frame))
+    }
+
+    func webView(_ webView: WKWebView, presentImmersiveEnvironment environment: WKImmersiveEnvironment) async throws {
+        guard let context else { throw ImmersiveEnvironmentPresentationError.noContext }
+        try await context.present(WebPage.ImmersiveEnvironment(environment))
+    }
+
+    func webView(_ webView: WKWebView, dismissImmersiveEnvironment environment: WKImmersiveEnvironment) async {
+        guard let context else { return }
+        await context.dismiss(WebPage.ImmersiveEnvironment(environment))
+    }
+
+    enum ImmersiveEnvironmentPresentationError: Error {
+        case noContext
     }
 }
 #endif

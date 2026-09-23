@@ -15,10 +15,10 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/gamepad/META.yml
-/LayoutTests/imported/w3c/web-platform-tests/gamepad/feature-policy-gamepad.html
-/LayoutTests/imported/w3c/web-platform-tests/gamepad/gamepad-default-feature-policy.https.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/gamepad/gamepad-secure-context.html
-/LayoutTests/imported/w3c/web-platform-tests/gamepad/gamepad-supported-by-feature-policy.html
+/LayoutTests/imported/w3c/web-platform-tests/gamepad/WEB_FEATURES.yml
+/LayoutTests/imported/w3c/web-platform-tests/gamepad/gamepad-default-permissions-policy.https.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/gamepad/gamepad-supported-by-permissions-policy.html
 /LayoutTests/imported/w3c/web-platform-tests/gamepad/idlharness-extensions.https.window.js
-/LayoutTests/imported/w3c/web-platform-tests/gamepad/idlharness.https.window.js
-/LayoutTests/imported/w3c/web-platform-tests/gamepad/not-fully-active.https.html
+/LayoutTests/imported/w3c/web-platform-tests/gamepad/idlharness.window.js
+/LayoutTests/imported/w3c/web-platform-tests/gamepad/not-fully-active.html
+/LayoutTests/imported/w3c/web-platform-tests/gamepad/permissions-policy-gamepad.html

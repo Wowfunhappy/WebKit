@@ -65,7 +65,7 @@ public:
 
 private:
     
-    void clearIsLoadedFrom()
+    void NODELETE clearIsLoadedFrom()
     {
         for (unsigned i = 0; i < m_graph.m_variableAccessData.size(); ++i)
             m_graph.m_variableAccessData[i].setIsLoadedFrom(false);
@@ -122,7 +122,7 @@ private:
     }
     
     template<OperandKind operandKind>
-    void clearVariables()
+    void NODELETE clearVariables()
     {
         ASSERT(
             m_block->variablesAtHead.sizeFor<operandKind>()
@@ -299,7 +299,7 @@ private:
         }
     }
     
-    void canonicalizeSet(Node* node)
+    void NODELETE canonicalizeSet(Node* node)
     {
         m_block->variablesAtTail.setOperand(node->operand(), node);
     }
@@ -503,7 +503,7 @@ private:
     };
     
     template<OperandKind operandKind>
-    Vector<PhiStackEntry, 128>& phiStackFor()
+    Vector<PhiStackEntry, 128>& NODELETE phiStackFor()
     {
         switch (operandKind) {
         case OperandKind::Argument: return m_argumentPhiStack;

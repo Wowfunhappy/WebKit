@@ -53,33 +53,7 @@ function Promise(executor)
     if (!@isCallable(executor))
         @throwTypeError("Promise constructor takes a function argument");
 
-    var promise = @createPromise(this, /* isInternalPromise */ false);
-    var capturedPromise = promise;
-
-    try {
-        executor(
-            (resolution) => {
-                return @resolvePromiseWithFirstResolvingFunctionCallCheck(capturedPromise, resolution);
-            },
-            (reason) => {
-                return @rejectPromiseWithFirstResolvingFunctionCallCheck(capturedPromise, reason);
-            });
-    } catch (error) {
-        @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, error);
-    }
-
-    return promise;
-}
-
-@nakedConstructor
-function InternalPromise(executor)
-{
-    "use strict";
-
-    if (!@isCallable(executor))
-        @throwTypeError("InternalPromise constructor takes a function argument");
-
-    var promise = @createPromise(this, /* isInternalPromise */ true);
+    var promise = @createPromise(this);
     var capturedPromise = promise;
 
     try {

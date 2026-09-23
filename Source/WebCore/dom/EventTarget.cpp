@@ -48,12 +48,18 @@
 #include "ScriptController.h"
 #include "ScriptDisallowedScope.h"
 #include "Settings.h"
+#include "WebCoreOpaqueRoot.h"
+#include <JavaScriptCore/HeapCellInlines.h>
+#include <JavaScriptCore/JSCJSValueStructure.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
+
+template class mpark::variant<WebCore::AddEventListenerOptions, bool>;
+template class mpark::variant<WebCore::EventListenerOptions, bool>;
 
 namespace WebCore {
 
@@ -76,6 +82,11 @@ EventTarget::~EventTarget()
     // Explicitly tearing down since WeakPtrImpl can be alive longer than EventTarget.
     if (auto* eventTargetData = this->eventTargetData())
         eventTargetData->clear();
+}
+
+WebCoreOpaqueRoot EventTarget::opaqueRoot() const
+{
+    return WebCoreOpaqueRoot { const_cast<EventTarget*>(this) };
 }
 
 bool EventTarget::isPaymentRequest() const
@@ -106,7 +117,7 @@ bool EventTarget::addEventListener(const AtomString& eventType, Ref<EventListene
     bool trustedOnly = false;
     if (options.webkitTrustedOnly) {
         auto* function = listener->jsFunction();
-        if (function && worldForDOMObject(*function).allowAutofill())
+        if (function && function->realmMayBeNull() && worldForDOMObject(*function).allowAutofill())
             trustedOnly = true;
     }
 
@@ -215,7 +226,7 @@ bool EventTarget::setAttributeEventListener(const AtomString& eventType, RefPtr<
         listener->checkValidityForEventTarget(*this);
 #endif
 
-        eventTargetData()->eventListenerMap.replace(eventType, *existingListener, *listener, { });
+        eventTargetData()->eventListenerMap.replacePreservingOptions(eventType, *existingListener, *listener);
 
         InspectorInstrumentation::didAddEventListener(*this, eventType, *listener, false);
 
@@ -373,7 +384,7 @@ void EventTarget::innerInvokeEventListeners(Event& event, EventListenerVector li
         JSC::EnsureStillAliveScope jsFunctionProtector(callback->jsFunction());
 
         if (event.isAutofillEvent()) [[unlikely]] {
-            if (!worldForDOMObject(*callback->jsFunction()).allowAutofill())
+            if (!callback->jsFunction()->realmMayBeNull() || !worldForDOMObject(*callback->jsFunction()).allowAutofill())
                 continue; // webkitrequestautofill only fires in a world with autofill capability.
         }
 
@@ -430,7 +441,7 @@ void EventTarget::removeAllEventListeners()
     threadData->setIsInRemoveAllEventListeners(false);
 }
 
-bool EventTarget::hasAnyEventListeners(Vector<AtomString> eventTypes) const
+bool EventTarget::hasAnyEventListeners(std::span<const AtomString> eventTypes) const
 {
     if (auto* data = eventTargetData()) {
         for (const auto& eventType : eventTypes) {

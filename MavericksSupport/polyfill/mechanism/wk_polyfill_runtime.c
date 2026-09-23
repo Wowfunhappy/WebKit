@@ -13,10 +13,10 @@
 //     registry-aware gives soft-linked symbols the same answer as link-time ones and keeps
 //     SoftLinking.h byte-identical to upstream.
 //
-//  3. Answer objc_getClass() for the class stubs in polyfills/classes/, which SoftLinking.h
+//  3. Answer objc_getClass() for the absent classes the layer defines, which SoftLinking.h
 //     resolves by name and would otherwise never see, since each stub is registered under a private
 //     runtime name to keep it out of the host app's way. Driven by the separate __DATA,__wk_clsmap
-//     registry, because those stubs live in a different image -- see lookupPolyfillClass.
+//     registry, because those classes may live in a different image -- see lookupPolyfillClass.
 //
 // Scope: this file ships in libpolyfill.a, which is linked only into WebKit's own binaries, so the
 // overrides apply to WebKit's lookups alone. A host app loading WebKit is unaffected.
@@ -341,13 +341,13 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
     return entry->address;
 }
 
-// The class stubs live in libpolyfill_classes.dylib, not in this image, so their registry cannot be
-// read out of our own __wk_pfmap the way wk_polyfill_init reads the function/constant one. The
-// __wk_clsmap sections are found as images load (below) rather than by walking every loaded image on
-// each miss: this path runs for EVERY objc_getClass the system cannot answer, and a per-miss walk of
-// a few hundred images was the single largest cost of a polyfill block waiting for a class to load —
-// each of its per-image-load retries is such a miss, so the retry itself walked all images (measured
-// ~21 ms of a Safari launch before this cache).
+// The classes live in libpolyfill_classes.dylib and WebCore, not necessarily in this image, so their
+// registry cannot be read out of our own __wk_pfmap the way wk_polyfill_init reads the
+// function/constant one. The __wk_clsmap sections are found as images load (below) rather than by
+// walking every loaded image on each miss: this path runs for EVERY objc_getClass the system cannot
+// answer, and a per-miss walk of a few hundred images is the single largest cost of a polyfill block
+// waiting for a class to load — each of its per-image-load retries is such a miss, so every retry
+// would walk all images, ~21 ms of a Safari launch.
 //
 // An image carrying stubs can arrive at any time (libpolyfill_classes.dylib is loaded with the
 // framework that pulled it in, and the frameworks load in whatever order the host app causes), which
@@ -355,7 +355,7 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 // exists. Registering for image loads has no such window — the registration replays every image
 // already loaded, and each later arrival appends before its initializers run. Entries never go stale:
 // an image with ObjC classes is never unloaded (libobjc pins it), and every clsmap-carrying image is
-// one of this layer's own class-stub dylibs.
+// libpolyfill_classes.dylib or WebCore.
 //
 // Same publication pattern as the selref registry: append-only, fields stored before the count is
 // release-stored, readers acquire-load the count. Writers (dyld add-image callbacks) are serialized
@@ -431,14 +431,14 @@ static int classProviderPathIsRegistered(const char *frameworkPath)
 // objc_getClass for WebKit's own binaries, the class-shaped counterpart of the dlsym override above.
 //
 // SoftLinking.h resolves a soft-linked class by name through objc_getClass, so a class the polyfill
-// layer supplies is invisible to it: polyfills/classes/ registers each stub under a private runtime name on
+// layer supplies is invisible to it: the layer registers each class under a private runtime name on
 // purpose, which is what keeps the system name free for the host app. Without this, a required
 // soft-link of an absent class RELEASE_ASSERTs and an optional one yields nil -- in both cases
 // ignoring a stub that is loaded and able to answer, which is the same failure the dlsym override
 // exists to prevent for constants and functions.
 //
 // The system is asked first, so this can only ever answer where 10.9 has no such class, and only for
-// a name polyfills/classes/ explicitly registered. A host app is unaffected: it calls libobjc's objc_getClass,
+// a name WK_POLYFILL_CLASS explicitly registered. A host app is unaffected: it calls libobjc's objc_getClass,
 // not this one.
 WK_POLYFILL_REPLACES("/usr/lib/libobjc.A.dylib", Class, objc_getClass, (const char *name))
 {

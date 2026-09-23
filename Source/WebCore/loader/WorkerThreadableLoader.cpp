@@ -297,7 +297,6 @@ void WorkerThreadableLoader::MainThreadBridge::didFail(std::optional<ScriptExecu
 
 void WorkerThreadableLoader::MainThreadBridge::didFinishTiming(const ResourceTiming& resourceTiming)
 {
-    m_networkLoadMetrics = resourceTiming.networkLoadMetrics();
     ScriptExecutionContext::postTaskForModeToWorkerOrWorklet(m_contextIdentifier, [protectedWorkerClientWrapper = m_workerClientWrapper, resourceTiming = resourceTiming.isolatedCopy()] (ScriptExecutionContext& context) mutable {
         ASSERT(context.isWorkerGlobalScope() || context.isWorkletGlobalScope());
         ASSERT(!resourceTiming.initiatorType().isEmpty());

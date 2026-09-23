@@ -78,7 +78,7 @@ std::pair<CStringView, String> GStreamerCodecUtilities::parseH264ProfileAndLevel
 
 static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> h264CapsFromCodecString(const String& codecString)
 {
-    auto outputCaps = adoptGRef(gst_caps_new_empty_simple("video/x-h264"));
+    GRefPtr outputCaps = adoptGRef(gst_caps_new_empty_simple("video/x-h264"));
     auto [profile, level] = GStreamerCodecUtilities::parseH264ProfileAndLevel(codecString);
     if (profile)
         gst_caps_set_simple(outputCaps.get(), "profile", G_TYPE_STRING, profile.utf8(), nullptr);
@@ -107,7 +107,7 @@ static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> h264CapsFromCodecString(con
 
     auto pixelFormat = formatBuilder.toString();
     GST_DEBUG("Setting pixel format %s for profile %s", pixelFormat.ascii().data(), profile.utf8());
-    auto inputCaps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, pixelFormat.ascii().data(), nullptr));
+    GRefPtr inputCaps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, pixelFormat.ascii().data(), nullptr));
     return { inputCaps, outputCaps };
 }
 
@@ -146,7 +146,7 @@ CStringView GStreamerCodecUtilities::parseHEVCProfile(const String& codec)
 
 static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> h265CapsFromCodecString(const String& codecString)
 {
-    auto outputCaps = adoptGRef(gst_caps_new_empty_simple("video/x-h265"));
+    GRefPtr outputCaps = adoptGRef(gst_caps_new_empty_simple("video/x-h265"));
     auto profile = GStreamerCodecUtilities::parseHEVCProfile(codecString);
     if (profile)
         gst_caps_set_simple(outputCaps.get(), "profile", G_TYPE_STRING, profile.utf8(), nullptr);
@@ -177,7 +177,7 @@ static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> h265CapsFromCodecString(con
 
     auto pixelFormat = formatBuilder.toString();
     GST_DEBUG("Setting pixel format %s for profile %s", pixelFormat.ascii().data(), profile.utf8());
-    auto inputCaps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, pixelFormat.ascii().data(), nullptr));
+    GRefPtr inputCaps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, pixelFormat.ascii().data(), nullptr));
     return { inputCaps, outputCaps };
 }
 
@@ -187,12 +187,12 @@ static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> vpxCapsFromCodecString(cons
     if (!parameters)
         return { nullptr, nullptr };
 
-    auto inputCaps = adoptGRef(gst_caps_new_any());
+    GRefPtr inputCaps = adoptGRef(gst_caps_new_any());
 
     if (parameters->codecName.startsWith("vp8"_s) || parameters->codecName.startsWith("vp08"_s))
         return { inputCaps, adoptGRef(gst_caps_new_empty_simple("video/x-vp8")) };
 
-    auto outputCaps = adoptGRef(gst_caps_new_empty_simple("video/x-vp9"));
+    GRefPtr outputCaps = adoptGRef(gst_caps_new_empty_simple("video/x-vp9"));
     auto profile = makeString(parameters->profile);
     gst_caps_set_simple(outputCaps.get(), "profile", G_TYPE_STRING, profile.ascii().data(), nullptr);
     auto yuvFormat = "I420"_s;
@@ -324,7 +324,7 @@ static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> av1CapsFromCodecString(cons
         break;
     }
 
-    auto outputCaps = adoptGRef(gst_caps_new_simple("video/x-av1", "profile", G_TYPE_STRING, profile.characters(),
+    GRefPtr outputCaps = adoptGRef(gst_caps_new_simple("video/x-av1", "profile", G_TYPE_STRING, profile.characters(),
         "bit-depth-luma", G_TYPE_UINT, configurationRecord->bitDepth, "bit-depth-chroma", G_TYPE_UINT,
         configurationRecord->bitDepth, nullptr));
 
@@ -503,7 +503,7 @@ static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> av1CapsFromCodecString(cons
     if (!gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(&info), GST_VIDEO_COLORIMETRY_SRGB))
         gst_caps_set_simple(outputCaps.get(), "chroma-format", G_TYPE_STRING, chromaFormat.characters(), nullptr);
 
-    auto inputCaps = adoptGRef(gst_video_info_to_caps(&info));
+    GRefPtr inputCaps = adoptGRef(gst_video_info_to_caps(&info));
     GST_DEBUG("Codec %s maps to input %" GST_PTR_FORMAT " and output %" GST_PTR_FORMAT, codecString.ascii().data(), inputCaps.get(), outputCaps.get());
     return { inputCaps, outputCaps };
 }

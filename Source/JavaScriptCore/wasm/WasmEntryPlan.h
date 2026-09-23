@@ -63,8 +63,11 @@ public:
     {
         RELEASE_ASSERT(!failed() && !hasWork());
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
-        if (Options::enableWasmDebugger()) [[unlikely]]
-            m_moduleInformation->debugInfo->takeSource(WTF::move(m_source));
+        if (Options::enableWasmDebugger()) [[unlikely]] {
+            // Skip if already populated by the streaming path (StreamingCompiler::addBytes).
+            if (m_moduleInformation->debugInfo->source.isEmpty())
+                m_moduleInformation->debugInfo->takeSource(WTF::move(m_source));
+        }
 #endif
         return WTF::move(m_moduleInformation);
     }
@@ -115,10 +118,12 @@ protected:
 
     bool parseAndValidateModule(std::span<const uint8_t>);
 
-    const char* stateString(State);
+    const char* NODELETE stateString(State);
     void moveToState(State);
     bool isComplete() const override { return m_state == State::Completed; }
     void complete() WTF_REQUIRES_LOCK(m_lock) override;
+
+    bool failIfMixedExceptionHandlingProposals() WTF_REQUIRES_LOCK(m_lock);
 
     virtual bool prepareImpl() = 0;
     virtual void compileFunction(FunctionCodeIndex functionIndex) = 0;

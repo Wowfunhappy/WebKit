@@ -116,7 +116,7 @@ public:
     static_assert(hasOneBitSet(passedAlignment), "Alignment needs to be power-of-two");
     static constexpr size_t alignment = passedAlignment;
     static constexpr bool isPackedType = true;
-    static constexpr unsigned alignmentShiftSizeIfProfitable = getLSBSetConstexpr(alignment);
+    static constexpr unsigned alignmentShiftSizeIfProfitable = getLSBSet(alignment);
     static constexpr unsigned storageSizeWithoutAlignmentShift = roundUpToMultipleOf<8>(OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH)) / 8;
     static constexpr unsigned storageSizeWithAlignmentShift = roundUpToMultipleOf<8>(OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) - alignmentShiftSizeIfProfitable) / 8;
     static constexpr bool isAlignmentShiftProfitable = storageSizeWithoutAlignmentShift > storageSizeWithAlignmentShift;
@@ -180,7 +180,7 @@ public:
 #else
         memcpySpan(std::span { m_storage }, asByteSpan(value).last(storageSize));
 #endif
-        ASSERT(std::bit_cast<uintptr_t>(get()) == value);
+        ASSERT(get() == passedValue);
     }
 
     void clear()
@@ -196,9 +196,6 @@ public:
 
     bool operator!() const { return !get(); }
 
-    // This conversion operator allows implicit conversion to bool but not to other integer types.
-    typedef T* (PackedAlignedPtr::*UnspecifiedBoolType);
-    operator UnspecifiedBoolType() const { return get() ? &PackedAlignedPtr::m_storage : nullptr; }
     explicit operator bool() const { return get(); }
 
     PackedAlignedPtr& operator=(T* value)
@@ -232,7 +229,7 @@ public:
         other.set(t1);
     }
 
-    void swap(T* t2)
+    void swap(T*& t2)
     {
         T* t1 = get();
         std::swap(t1, t2);

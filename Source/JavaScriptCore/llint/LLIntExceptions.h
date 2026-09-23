@@ -45,7 +45,7 @@ namespace LLInt {
 // Gives you a PC that you can tell the interpreter to go to, which when advanced
 // between 1 and 9 slots will give you an "instruction" that threads to the
 // interpreter's exception handler.
-JSInstruction* returnToThrow(VM&);
+JSInstruction* NODELETE returnToThrow(VM&);
 
 // Use this when you're throwing to a call thunk.
 MacroAssemblerCodeRef<ExceptionHandlerPtrTag> callToThrow(VM&);

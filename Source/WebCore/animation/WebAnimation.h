@@ -28,8 +28,8 @@
 #include <WebCore/ActiveDOMObject.h>
 #include <WebCore/AnimationFrameRate.h>
 #include <WebCore/AnimationFrameRatePreset.h>
-#include <WebCore/CSSKeywordValue.h>
 #include <WebCore/CSSNumericValue.h>
+#include <WebCore/CSSOMKeywordValue.h>
 #include <WebCore/EventTarget.h>
 #include <WebCore/EventTargetInterfaces.h>
 #include <WebCore/ExceptionOr.h>
@@ -53,11 +53,11 @@ class AnimationEventBase;
 class AnimationTimeline;
 class Document;
 class KeyframeEffect;
-class RenderStyle;
 
 template<typename IDLType> class DOMPromiseProxyWithResolveCallback;
 
 namespace Style {
+class ComputedStyle;
 struct ResolutionContext;
 }
 
@@ -161,7 +161,7 @@ public:
     bool needsTick() const;
     virtual void tick();
     WEBCORE_EXPORT Seconds timeToNextTick() const;
-    OptionSet<AnimationImpact> resolve(RenderStyle& targetStyle, const Style::ResolutionContext&, EndpointInclusiveActiveInterval = EndpointInclusiveActiveInterval::No);
+    OptionSet<AnimationImpact> resolve(Style::ComputedStyle& targetStyle, const Style::ResolutionContext&, EndpointInclusiveActiveInterval = EndpointInclusiveActiveInterval::No);
     void effectTargetDidChange(const std::optional<const Styleable>& previousTarget, const std::optional<const Styleable>& newTarget);
     void acceleratedStateDidChange();
     void willChangeRenderer();
@@ -263,9 +263,9 @@ private:
     int m_suspendCount { 0 };
 
     bool m_isSuspended { false };
-    bool m_finishNotificationStepsMicrotaskPending;
-    bool m_isRelevant;
-    bool m_shouldSkipUpdatingFinishedStateWhenResolving;
+    bool m_finishNotificationStepsMicrotaskPending { false };
+    bool m_isRelevant { false };
+    bool m_shouldSkipUpdatingFinishedStateWhenResolving { false };
     bool m_hasScheduledEventsDuringTick { false };
     bool m_autoAlignStartTime { false };
     TimeToRunPendingTask m_timeToRunPendingPlayTask { TimeToRunPendingTask::NotScheduled };

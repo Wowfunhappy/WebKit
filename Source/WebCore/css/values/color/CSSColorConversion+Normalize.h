@@ -37,14 +37,29 @@ namespace WebCore {
 
 // MARK: - normalizeAndClampNumericComponents
 
+inline bool shouldTreatAngleComponentValueAsInfinite(double value)
+{
+    // FIXME: Though not directly specified, https://drafts.csswg.org/css-color-4/#example-hue-normalization
+    // indicates that calc(infinity) and calc(-infinity) should resolve to 0 for <hue>
+    // components. This is at odds with the specified behavior of calc(), which is to
+    // resolve calc(infinity) to std::numeric_limits<double>::max() and calc(-infinity)
+    // to -std::numeric_limits<double>::max(), so we are checking for those specific
+    // values here. A cleaner way of handling this would be to pipe a flag through for
+    // these types (perhaps as a new bit on CSS::Range) that either preserves the
+    // infinities or directly resolves them to 0.
+    return value == std::numeric_limits<double>::max() || value == -std::numeric_limits<double>::max();
+}
+
 template<typename Descriptor, unsigned Index>
 CSS::Number<> normalizeAndClampNumericComponents(CSS::NumberRaw<> number)
 {
     constexpr auto info = std::get<Index>(Descriptor::components);
 
-    if constexpr (info.type == ColorComponentType::Angle)
+    if constexpr (info.type == ColorComponentType::Angle) {
+        if (shouldTreatAngleComponentValueAsInfinite(number.value))
+            return { 0 };
         return { normalizeHue(number.value) };
-    else if constexpr (info.min == -std::numeric_limits<double>::infinity() && info.max == std::numeric_limits<double>::infinity())
+    } else if constexpr (info.min == -std::numeric_limits<double>::infinity() && info.max == std::numeric_limits<double>::infinity())
         return { number.value };
     else if constexpr (info.min == -std::numeric_limits<double>::infinity())
         return { std::min(number.value, info.max) };
@@ -116,9 +131,11 @@ CSS::Number<> normalizeNumericComponents(CSS::NumberRaw<> number)
 {
     constexpr auto info = std::get<Index>(Descriptor::components);
 
-    if constexpr (info.type == ColorComponentType::Angle)
+    if constexpr (info.type == ColorComponentType::Angle) {
+        if (shouldTreatAngleComponentValueAsInfinite(number.value))
+            return { 0 };
         return { normalizeHue(number.value) };
-    else
+    } else
         return { number.value };
 }
 

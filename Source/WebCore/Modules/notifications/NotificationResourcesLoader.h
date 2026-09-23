@@ -30,6 +30,7 @@
 #include "Notification.h"
 #include "SharedBuffer.h"
 #include "ThreadableLoader.h"
+#include "ThreadableLoaderClient.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashSet.h>
 #include <wtf/TZoneMalloc.h>

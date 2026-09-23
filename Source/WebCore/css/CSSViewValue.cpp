@@ -29,16 +29,18 @@
 #include "config.h"
 #include "CSSViewValue.h"
 
-#include "CSSPrimitiveValueMappings.h"
+#include "StyleKeyword+Mappings.h"
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 String CSSViewValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    auto hasAxis = m_axis && m_axis->valueID() != CSSValueBlock;
+    auto hasAxis = m_axis && !isValueID(*m_axis, CSSValueBlock);
     auto hasEndInset = m_endInset && m_endInset != m_startInset;
-    auto hasStartInset = (m_startInset && m_startInset->valueID() != CSSValueAuto) || (m_startInset && m_startInset->valueID() == CSSValueAuto && hasEndInset);
+    auto hasStartInset =
+           (m_startInset && !isValueID(*m_startInset, CSSValueAuto))
+        || (m_startInset && isValueID(*m_startInset, CSSValueAuto) && hasEndInset);
 
     return makeString(
         "view("_s,

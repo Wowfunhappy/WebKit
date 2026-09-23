@@ -44,7 +44,7 @@ Structure* JSFinalizationRegistry::createStructure(VM& vm, JSGlobalObject* globa
 JSFinalizationRegistry* JSFinalizationRegistry::create(VM& vm, Structure* structure, JSObject* callback)
 {
     JSFinalizationRegistry* instance = new (NotNull, allocateCell<JSFinalizationRegistry>(vm)) JSFinalizationRegistry(vm, structure);
-    instance->finishCreation(vm, structure->globalObject(), callback);
+    instance->finishCreation(vm, structure->realm(), callback);
     return instance;
 }
 
@@ -67,7 +67,7 @@ void JSFinalizationRegistry::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     Base::visitChildren(cell, visitor);
 
-    auto* thisObject = jsCast<JSFinalizationRegistry*>(cell);
+    auto* thisObject = uncheckedDowncast<JSFinalizationRegistry>(cell);
 
     Locker locker { thisObject->cellLock() };
     for (const auto& iter : thisObject->m_liveRegistrations) {
@@ -151,13 +151,13 @@ void JSFinalizationRegistry::finalizeUnconditionally(VM& vm, CollectionScope)
     });
 
     if (!m_hasAlreadyScheduledWork && (readiedCell || deadCount(locker))) {
-        auto ticket = vm.deferredWorkTimer->addPendingWork(DeferredWorkTimer::WorkType::ImminentlyScheduled, vm, this, { });
-        ASSERT(vm.deferredWorkTimer->hasPendingWork(ticket));
-        vm.deferredWorkTimer->scheduleWorkSoon(ticket, [this](DeferredWorkTimer::Ticket) {
-            JSGlobalObject* globalObject = this->globalObject();
+        auto weakTicket = vm.deferredWorkTimer->addPendingWork(DeferredWorkTimer::WorkType::ImminentlyScheduled, vm, this, { });
+        bool queued = vm.deferredWorkTimer->scheduleWorkSoonIfActive(weakTicket, [this](DeferredWorkTimer::Ticket&) {
+            JSGlobalObject* globalObject = this->realm();
             this->m_hasAlreadyScheduledWork = false;
             this->runFinalizationCleanup(globalObject);
         });
+        RELEASE_ASSERT(queued);
         m_hasAlreadyScheduledWork = true;
     }
 }

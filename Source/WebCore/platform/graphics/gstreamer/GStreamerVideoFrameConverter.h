@@ -50,7 +50,8 @@ class GStreamerVideoFrameConverter final : public ThreadSafeRefCountedAndCanMake
     friend NeverDestroyed<GStreamerVideoFrameConverter>;
 
 public:
-    static GStreamerVideoFrameConverter& singleton();
+    // static GStreamerVideoFrameConverter& singleton();
+    WEBCORE_EXPORT static GStreamerVideoFrameConverter& singleton(); // MAVERICKS_BACKPORT: TestWebCore exercises the Cocoa pixel-buffer conversion path.
 
     // Do nothing since this is a singleton object.
     void ref() const { }

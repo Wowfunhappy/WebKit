@@ -19,6 +19,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCCertificate-postMessage.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCCertificate.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCConfiguration-bundlePolicy.html
+/LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCConfiguration-certificates.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCConfiguration-helper.js
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCConfiguration-iceCandidatePoolSize.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCConfiguration-iceServers.html
@@ -33,6 +34,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-binaryType.window.js
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-bufferedAmount.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-close.html
+/LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-helper.js
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-iceRestart.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-id.html
 /LayoutTests/imported/w3c/web-platform-tests/webrtc/RTCDataChannel-send-blob-order.html

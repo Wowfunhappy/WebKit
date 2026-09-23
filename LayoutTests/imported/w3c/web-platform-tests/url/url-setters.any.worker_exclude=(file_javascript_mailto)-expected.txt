@@ -112,6 +112,7 @@ bar'
 PASS URL: Setting <https://test.invalid/>.host = '><'
 PASS URL: Setting <https://test.invalid/>.host = 'test/@aaa'
 PASS URL: Setting <https://test.invalid/>.host = 'test/:aaa'
+PASS URL: Setting <foo://path/to>.host = ':80'
 PASS URL: Setting <sc://x/>.hostname = '\0' Non-special scheme
 PASS URL: Setting <sc://x/>.hostname = '	'
 PASS URL: Setting <sc://x/>.hostname = '
@@ -180,6 +181,13 @@ PASS URL: Setting <sc://x/>.port = '12'
 PASS URL: Setting <https://domain.com:443>.port = '	8080' Leading u0009 on special scheme
 PASS URL: Setting <wpt++://domain.com:443>.port = '	8080' Leading u0009 on non-special scheme
 PASS URL: Setting <https://www.google.com:4343>.port = '4wpt' Should use all ascii prefixed characters as port
+PASS URL: Setting <https://domain.com:3000>.port = '
+	80
+	80
+	'
+PASS URL: Setting <https://domain.com:3000>.port = '
+
+		'
 PASS URL: Setting <data:original>.pathname = 'new value'
 PASS URL: Setting <sc:original>.pathname = 'new value'
 PASS URL: Setting <foo://somehost/some/path>.pathname = '' Non-special URLs can have their paths erased
@@ -208,6 +216,7 @@ PASS URL: Setting <data:/nospace>.pathname = 'space ' Non-special URLs with non-
 PASS URL: Setting <sc:/nospace>.pathname = 'space '
 PASS URL: Setting <http://example.net>.pathname = ' ' Trailing space should be encoded
 PASS URL: Setting <http://example.net>.pathname = '\0' Trailing C0 control should be encoded
+PASS URL: Setting <foo://path/to>.pathname = '/..'
 PASS URL: Setting <https://example.net#nav>.search = 'lang=fr'
 PASS URL: Setting <https://example.net?lang=en-US#nav>.search = 'lang=fr'
 PASS URL: Setting <https://example.net?lang=en-US#nav>.search = '?lang=fr'
@@ -247,4 +256,10 @@ PASS URL: Setting <data:space  ?query#fragment>.hash = '' Trailing spaces and op
 PASS URL: Setting <sc:space  ?query#fragment>.hash = ''
 PASS URL: Setting <http://example.net>.hash = ' ' Trailing space should be encoded
 PASS URL: Setting <http://example.net>.hash = '\0' Trailing C0 control should be encoded
+PASS URL: Setting <data:text/plain,test>.hash = '#<foo> <bar>' Fragment with <> on data: URI
+PASS URL: Setting <about:blank>.hash = '#<foo> <bar>' Fragment with <> on about:blank
+PASS URL: Setting <data:text/plain,test>.hash = '#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé' Fragment percent-encode set on data: URI; tabs and newlines are removed
+PASS URL: Setting <about:blank>.hash = '#\0	
+\r !"#$%&'()*+,-./09:;<=>?@AZ[\]^_`az{|}~Éé' Fragment percent-encode set on about:blank; tabs and newlines are removed
 

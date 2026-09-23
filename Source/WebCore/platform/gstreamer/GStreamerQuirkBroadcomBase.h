@@ -38,6 +38,7 @@ public:
     int correctBufferingPercentage(MediaPlayerPrivateGStreamer*, int originalBufferingPercentage, GstBufferingMode) const;
     void resetBufferingPercentage(MediaPlayerPrivateGStreamer*, int bufferingPercentage) const;
     void setupBufferingPercentageCorrection(MediaPlayerPrivateGStreamer*, GstState currentState, GstState newState, GRefPtr<GstElement>&&) const;
+    std::optional<GstState> eosMediaPlayerState() const final { return GST_STATE_PAUSED; }
 
 protected:
     class MovingAverage {

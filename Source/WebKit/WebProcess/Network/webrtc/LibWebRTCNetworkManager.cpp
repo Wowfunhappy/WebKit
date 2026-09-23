@@ -119,7 +119,7 @@ void LibWebRTCNetworkManager::StartUpdating()
         Ref monitor = WebProcess::singleton().libWebRTCNetwork().monitor();
         if (protectedThis->m_receivedNetworkList) {
             WebCore::LibWebRTCProvider::callOnWebRTCNetworkThread([protectedThis] {
-                protectedThis->SignalNetworksChanged();
+                protectedThis->NotifyNetworksChanged();
             });
         } else if (monitor->didReceiveNetworkList())
             protectedThis->networksChanged(monitor->networkList() , monitor->ipv4(), monitor->ipv6());
@@ -187,13 +187,13 @@ void LibWebRTCNetworkManager::networksChanged(const Vector<RTCNetwork>& networks
     WebCore::LibWebRTCProvider::callOnWebRTCNetworkThread([this, protectedThis = Ref { *this }, networks = WTF::move(filteredNetworks), ipv4, ipv6, forceSignaling] {
         std::vector<std::unique_ptr<webrtc::Network>> networkList(networks.size());
         for (size_t index = 0; index < networks.size(); ++index)
-            networkList[index] = std::make_unique<webrtc::Network>(networks[index].value());
+            networkList[index] = networks[index].value();
 
         bool hasChanged;
         set_default_local_addresses(ipv4.rtcAddress(), ipv6.rtcAddress());
         MergeNetworkList(WTF::move(networkList), &hasChanged);
         if (hasChanged || forceSignaling)
-            SignalNetworksChanged();
+            NotifyNetworksChanged();
     });
 
 }
@@ -223,20 +223,20 @@ void LibWebRTCNetworkManager::networkProcessCrashed()
     if (!WebCore::LibWebRTCProvider::hasWebRTCThreads())
         return;
 
-    // In case we have clients waiting for networksChanged, we call SignalNetworksChanged to make sure they do not wait for nothing.
-    WebCore::LibWebRTCProvider::callOnWebRTCNetworkThread([this, protectedThis = Ref { *this }] {
-        SignalNetworksChanged();
+    // In case we have clients waiting for networksChanged, we call NotifyNetworksChanged to make sure they do not wait for nothing.
+    WebCore::LibWebRTCProvider::callOnWebRTCNetworkThread([protectedThis = Ref { *this }] {
+        protectedThis->NotifyNetworksChanged();
     });
 }
 
 void LibWebRTCNetworkManager::CreateNameForAddress(const webrtc::IPAddress& address, NameCreatedCallback callback)
 {
-    callOnMainRunLoop([weakThis = WeakPtr { *this }, address, callback = std::move(callback)]() mutable {
+    callOnMainRunLoop([weakThis = WeakPtr { *this }, address, callback = WTF::move(callback)]() mutable {
         if (!weakThis)
             return;
 
         protect(protect(WebProcess::singleton().libWebRTCNetwork())->mdnsRegister())->registerMDNSName(weakThis->m_documentIdentifier, fromStdString(address.ToString()), [address, callback = WTF::move(callback)](auto name, auto error) mutable {
-            WebCore::LibWebRTCProvider::callOnWebRTCNetworkThread([address, callback = std::move(callback), name = WTF::move(name).isolatedCopy(), error] {
+            WebCore::LibWebRTCProvider::callOnWebRTCNetworkThread([address, callback = WTF::move(callback), name = WTF::move(name).isolatedCopy(), error] {
                 RELEASE_LOG_ERROR_IF(error, WebRTC, "MDNS registration of a host candidate failed with error %hhu", std::to_underlying(*error));
                 // In case of error, we provide the name to let gathering complete.
                 callback(address, name.utf8().data());

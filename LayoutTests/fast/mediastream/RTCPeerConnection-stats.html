@@ -69,6 +69,7 @@
                 // Named getter: Can access results by their ID values.
                 shouldBeNonNull('status_g.namedItem(res.id)');
                 shouldBeNonNull('status_g[res.id]');
+                stream.getTracks().forEach(t => t.stop());
                 finishJSTest();
             }
 

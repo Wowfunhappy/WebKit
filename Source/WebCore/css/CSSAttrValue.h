@@ -25,32 +25,28 @@
 
 #pragma once
 
-#include <WebCore/CSSValue.h>
-
-#include <wtf/text/WTFString.h>
+#include "CSSString.h"
+#include "CSSValue.h"
+#include <optional>
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
-class Element;
-
 class CSSAttrValue final : public CSSValue {
 public:
-    static Ref<CSSAttrValue> create(String attributeName, RefPtr<CSSValue>&& fallback = nullptr);
-    const String attributeName() const { return m_attributeName; }
-    const CSSValue* fallback() const { return m_fallback.get(); }
+    static Ref<CSSAttrValue> create(AtomString&& attributeName, std::optional<CSS::String>&& fallback);
+
+    const AtomString& attributeName() const LIFETIME_BOUND { return m_attributeName; }
+    const std::optional<CSS::String>& fallback() const LIFETIME_BOUND { return m_fallback; }
+
     bool equals(const CSSAttrValue& other) const;
     String customCSSText(const CSS::SerializationContext&) const;
 
 private:
-    explicit CSSAttrValue(String&& attributeName, RefPtr<CSSValue>&& fallback)
-        : CSSValue(ClassType::Attr)
-        , m_attributeName(WTF::move(attributeName))
-        , m_fallback(WTF::move(fallback))
-    {
-    }
+    explicit CSSAttrValue(AtomString&&, std::optional<CSS::String>&&);
 
-    String m_attributeName;
-    const RefPtr<CSSValue> m_fallback;
+    AtomString m_attributeName;
+    const std::optional<CSS::String> m_fallback;
 };
 
 } // namespace WebCore

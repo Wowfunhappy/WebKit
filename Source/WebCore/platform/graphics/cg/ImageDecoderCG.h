@@ -62,6 +62,7 @@ public:
     std::optional<IntPoint> hotSpot() const final;
 
     IntSize frameSizeAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default) const final;
+    FloatSize frameDensityAtIndex(size_t) const final;
     bool frameIsCompleteAtIndex(size_t) const final;
     ImageOrientation frameOrientationAtIndex(size_t) const final;
     std::optional<IntSize> frameDensityCorrectedSizeAtIndex(size_t) const final;
@@ -71,6 +72,7 @@ public:
 
     bool fetchFrameMetaDataAtIndex(size_t, SubsamplingLevel, const DecodingOptions&, ImageFrame&) const final;
 
+    std::optional<GainMap> frameGainMapAtIndex(size_t, const DecodingOptions&) final;
     PlatformImagePtr createFrameImageAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = DecodingOptions(DecodingMode::Synchronous)) final;
 
     void setData(const FragmentedSharedBuffer&, bool allDataReceived) final;
@@ -84,10 +86,16 @@ private:
     String decodeUTI(const SharedBuffer&) const;
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    bool isSpatial() const;
     bool isMaybePanoramic() const;
     bool isPanorama() const;
-    bool shouldUseQuickLookForFullscreen() const;
+#endif
+
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+    bool isSpatial() const;
+    std::optional<unsigned> spatialEyeFrameIndex(const CFStringRef) const;
+    std::optional<unsigned> spatialLeftEyeFrameIndex() const;
+    std::optional<unsigned> spatialRightEyeFrameIndex() const;
+    std::optional<SpatialImageEyeProperties> spatialEyePropertiesAtIndex(unsigned) const;
 #endif
 
     bool m_isAllDataReceived { false };

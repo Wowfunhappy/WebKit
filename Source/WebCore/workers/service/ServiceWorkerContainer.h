@@ -40,8 +40,8 @@
 #include "ServiceWorkerRegistration.h"
 #include "ServiceWorkerRegistrationOptions.h"
 #include "WorkerType.h"
+#include <wtf/CurrentThread.h>
 #include <wtf/Forward.h>
-#include <wtf/Threading.h>
 
 namespace WebCore {
 
@@ -171,7 +171,7 @@ private:
     HashMap<ServiceWorkerRegistrationIdentifier, WeakRef<ServiceWorkerRegistration, WeakPtrImplWithEventTargetData>> m_registrations;
 
 #if ASSERT_ENABLED
-    const Ref<Thread> m_creationThread { Thread::currentSingleton() };
+    const uint32_t m_creationThreadID { currentThreadID() };
 #endif
 
     uint64_t m_lastOngoingSettledRegistrationIdentifier { 0 };

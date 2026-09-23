@@ -42,8 +42,8 @@ private:
 
     bool NODELETE isTextPlaceholderElement() const final { return true; }
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode& parentOfInsertedTree) final;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode& parentOfInsertedTree) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
 };
 
 } // namespace WebCore

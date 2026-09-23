@@ -72,14 +72,17 @@
 #include <WebCore/ScrollingStateFrameHostingNode.h>
 #include <WebCore/ScrollingStateFrameHostingNodeWithStuffAfterTuple.h>
 #include <WebCore/TimingFunction.h>
+#include <wtf/CreateUsingClass.h>
+#include <wtf/Seconds.h>
+
+#include "GeneratedSerializersExtra.h" // NOLINT
+
 #if USE(AVFOUNDATION)
 #include <pal/cocoa/AVFoundationSoftLink.h>
 #endif
 #if ENABLE(DATA_DETECTION)
 #include <pal/cocoa/DataDetectorsCoreSoftLink.h>
 #endif
-#include <wtf/CreateUsingClass.h>
-#include <wtf/Seconds.h>
 
 template<uint64_t...> struct BitsInIncreasingOrder;
 template<uint64_t onlyBit> struct BitsInIncreasingOrder<onlyBit> {
@@ -103,16 +106,6 @@ IGNORE_WARNINGS_BEGIN("invalid-offsetof")
 
 namespace IPC {
 
-
-template<> struct ArgumentCoder<Namespace::OtherClass> {
-    static void encode(Encoder&, const Namespace::OtherClass&);
-    static std::optional<Namespace::OtherClass> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<Namespace::ClassWithMemberPrecondition> {
-    static void encode(Encoder&, const Namespace::ClassWithMemberPrecondition&);
-    static std::optional<Namespace::ClassWithMemberPrecondition> decode(Decoder&);
-};
 
 #if ENABLE(TEST_FEATURE)
 void ArgumentCoder<Namespace::Subnamespace::StructName>::encode(Encoder& encoder, const Namespace::Subnamespace::StructName& instance)
@@ -1637,9 +1630,8 @@ template<> bool isValidEnum<EnumNamespace::BoolEnumType>(bool value)
     case 0:
     case 1:
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 
@@ -1650,9 +1642,8 @@ template<> bool isValidEnum<EnumWithoutNamespace>(uint8_t value)
     case EnumWithoutNamespace::Value2:
     case EnumWithoutNamespace::Value3:
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 
 #if ENABLE(UINT16_ENUM)
@@ -1664,9 +1655,8 @@ template<> bool isValidEnum<EnumNamespace::EnumType>(uint16_t value)
     case EnumNamespace::EnumType::SecondValue:
 #endif
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 
@@ -1737,9 +1727,8 @@ template<> bool isValidEnum<EnumNamespace::InnerEnumType>(uint8_t value)
     case EnumNamespace::InnerEnumType::OtherInnerInnerValue:
 #endif
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 
@@ -1750,9 +1739,8 @@ template<> bool isValidEnum<EnumNamespace::InnerBoolType>(bool value)
     case 0:
     case 1:
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 

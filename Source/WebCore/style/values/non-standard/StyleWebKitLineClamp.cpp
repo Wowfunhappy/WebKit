@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleWebKitLineClamp.h"
 
+#include "CSSKeywordValueInlines.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
@@ -34,21 +35,16 @@ namespace Style {
 
 auto CSSValueConversion<WebkitLineClamp>::operator()(BuilderState& state, const CSSValue& value) -> WebkitLineClamp
 {
+    if (isValueID(value, CSSValueNone))
+        return CSS::Keyword::None { };
+
     RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
     if (!primitiveValue)
         return CSS::Keyword::None { };
 
     if (primitiveValue->isInteger())
         return toStyleFromCSSValue<WebkitLineClamp::Integer>(state, *primitiveValue);
-
-    if (primitiveValue->isPercentage())
-        return toStyleFromCSSValue<WebkitLineClamp::Percentage>(state, *primitiveValue);
-
-    if (primitiveValue->valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
-
-    state.setCurrentPropertyInvalidAtComputedValueTime();
-    return CSS::Keyword::None { };
+    return toStyleFromCSSValue<WebkitLineClamp::Percentage>(state, *primitiveValue);
 }
 
 } // namespace Style

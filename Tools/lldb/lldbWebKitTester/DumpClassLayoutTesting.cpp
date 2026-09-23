@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -492,7 +492,7 @@ class MemberHasBitfieldPadding {
 };
 
 /*
-*** Dumping AST Record Layout
+*** Dumping AST Record Layout (x86_64)
          0 | class InheritsFromClassWithPaddedBitfields
          0 |   class ClassWithPaddedBitfields (base)
          0 |     _Bool boolMember
@@ -508,6 +508,23 @@ class MemberHasBitfieldPadding {
     10:0-0 |   _Bool derivedBitfield
            | [sizeof=16, dsize=11, align=8,
            |  nvsize=11, nvalign=8]
+
+*** Dumping AST Record Layout (arm64/arm64e)
+         0 | class InheritsFromClassWithPaddedBitfields
+         0 |   class ClassWithPaddedBitfields (base)
+         0 |     _Bool boolMember
+     1:0-0 |     unsigned int bitfield1
+     1:1-1 |     _Bool bitfield2
+     1:2-3 |     unsigned int bitfield3
+     1:4-4 |     unsigned int bitfield4
+     1:5-6 |     unsigned long bitfield5
+         4 |     int intMember
+     8:0-0 |     unsigned int bitfield7
+     8:1-9 |     unsigned int bitfield8
+     9:2-2 |     _Bool bitfield9
+    16:0-0 |   _Bool derivedBitfield
+           | [sizeof=24, dsize=17, align=8,
+           |  nvsize=17, nvalign=8]
 */
 class InheritsFromClassWithPaddedBitfields : public ClassWithPaddedBitfields {
     bool derivedBitfield : 1;

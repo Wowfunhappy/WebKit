@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,58 +26,25 @@
 #pragma once
 
 #include <WebCore/StylePrimitiveNumeric.h>
+#include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct BorderImageSlice;
+}
+
 namespace Style {
-
-// <border-image-slice-value> = <number [0,∞]> | <percentage [0,∞]>
-struct BorderImageSliceValue {
-    using Number = Style::Number<CSS::Nonnegative, float>;
-    using Percentage = Style::Percentage<CSS::Nonnegative, float>;
-
-    constexpr BorderImageSliceValue(Number number)
-        : m_value { number }
-    {
-    }
-    constexpr BorderImageSliceValue(CSS::ValueLiteral<CSS::NumberUnit::Number> literal)
-        : m_value { Number { literal } }
-    {
-    }
-    constexpr BorderImageSliceValue(Percentage percentage)
-        : m_value { percentage }
-    {
-    }
-    constexpr BorderImageSliceValue(CSS::ValueLiteral<CSS::PercentageUnit::Percentage> literal)
-        : m_value { Percentage { literal } }
-    {
-    }
-
-    constexpr bool isNumber() const { return WTF::holdsAlternative<Number>(m_value); }
-    constexpr bool isPercentage() const { return WTF::holdsAlternative<Percentage>(m_value); }
-
-    template<typename... F> constexpr decltype(auto) switchOn(F&&... f) const
-    {
-        return WTF::switchOn(m_value, std::forward<F>(f)...);
-    }
-
-    constexpr bool operator==(const BorderImageSliceValue&) const = default;
-
-    constexpr bool hasSameType(const BorderImageSliceValue& other) const { return m_value.index() == other.m_value.index(); }
-
-private:
-    friend struct Blending<BorderImageSliceValue>;
-
-    Variant<Number, Percentage> m_value { Percentage { 100 } };
-};
 
 // <'border-image-slice'> = [<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?
 // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-slice
 struct BorderImageSlice {
-    using Value = BorderImageSliceValue;
+    using Value = NumberOrPercentage<CSS::Nonnegative, CSS::Nonnegative, float>;
     using Edges = MinimallySerializingSpaceSeparatedRectEdges<Value>;
 
     Edges values { Value::Percentage { 100 } };
     std::optional<CSS::Keyword::Fill> fill { };
+    bool legacyWebkitBorderImage { false }; // MAVERICKS_BACKPORT: retain legacy shorthand provenance in computed style.
 
     BorderImageSlice(Edges values, std::optional<CSS::Keyword::Fill> fill = { })
         : values { WTF::move(values) }
@@ -127,16 +94,13 @@ template<size_t I> const auto& get(const BorderImageSlice& value)
 
 // MARK: - Conversion
 
+template<> struct ToCSS<BorderImageSlice> { auto operator()(const BorderImageSlice&, const Style::ComputedStyle&) -> CSS::BorderImageSlice; };
+template<> struct ToStyle<CSS::BorderImageSlice> { auto operator()(const CSS::BorderImageSlice&, const BuilderState&) -> BorderImageSlice; };
+
 template<> struct CSSValueConversion<BorderImageSlice> { auto operator()(BuilderState&, const CSSValue&) -> BorderImageSlice; };
-template<> struct CSSValueCreation<BorderImageSlice> { auto operator()(CSSValuePool&, const RenderStyle&, const BorderImageSlice&) -> Ref<CSSValue>; };
+template<> struct CSSValueCreation<BorderImageSlice> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const BorderImageSlice&) -> Ref<CSSValue>; };
 
 // MARK: - Blending
-
-template<> struct Blending<BorderImageSliceValue> {
-    bool NODELETE canBlend(const BorderImageSliceValue&, const BorderImageSliceValue&);
-    bool NODELETE requiresInterpolationForAccumulativeIteration(const BorderImageSliceValue&, const BorderImageSliceValue&);
-    auto blend(const BorderImageSliceValue&, const BorderImageSliceValue&, const BlendingContext&) -> BorderImageSliceValue;
-};
 
 template<> struct Blending<BorderImageSlice> {
     auto canBlend(const BorderImageSlice&, const BorderImageSlice&) -> bool;
@@ -148,4 +112,3 @@ template<> struct Blending<BorderImageSlice> {
 } // namespace WebCore
 
 DEFINE_SPACE_SEPARATED_TUPLE_LIKE_CONFORMANCE(WebCore::Style::BorderImageSlice, 2)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::BorderImageSliceValue)

@@ -253,7 +253,10 @@ shouldBe(Intl.DateTimeFormat('en', { timeZone: 'AMERICA/LOS_ANGELES' }).resolved
 // Default time zone is a valid canonical time zone.
 shouldBe(Intl.DateTimeFormat('en', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).resolvedOptions().timeZone, Intl.DateTimeFormat().resolvedOptions().timeZone);
 
-// Time zone should be preserved and not canonicalized.
+// Time zone identifier is preserved (case-normalized) in resolvedOptions.
+// Per spec, resolvedOptions().timeZone returns [[Identifier]] (the accepted
+// form), not [[PrimaryIdentifier]]. The canonicalization to the IANA primary
+// happens internally for ICU formatting.
 shouldBe(Intl.DateTimeFormat('en', { timeZone: 'Australia/ACT' }).resolvedOptions().timeZone, 'Australia/ACT');
 shouldBe(Intl.DateTimeFormat('en', { timeZone: 'Australia/North' }).resolvedOptions().timeZone, 'Australia/North');
 shouldBe(Intl.DateTimeFormat('en', { timeZone: 'Australia/South' }).resolvedOptions().timeZone, 'Australia/South');

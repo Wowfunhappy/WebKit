@@ -71,7 +71,7 @@ void TextRecognitionRequest::requestTextRecognitionFor(HTMLMediaElementIdentifie
         if (!page)
             return;
         RefPtr element = dynamicDowncast<HTMLVideoElement>(manager->mediaElementWithContextId(identifier));
-        if (!element)
+        if (!element || !element->isInFullscreenOrPictureInPicture() || !element->paused() || element->seeking())
             return;
         page->beginTextRecognitionForVideoInElementFullScreen(*element);
     });

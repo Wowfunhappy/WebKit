@@ -50,15 +50,17 @@
 # - MC: (Metadata Counter) IPInt's metadata pointer. This records the corresponding position in generated metadata.
 # - WI: (Wasm Instance) pointer to the current JSWebAssemblyInstance object. This is used for accessing
 #       function-specific data (callee-save).
-# - PL: (Pointer to Locals) pointer to the address of local 0 in the current function. This is used for accessing
-#       locals quickly.
 # - MB: (Memory Base) pointer to the current Wasm memory base address (callee-save).
 # - BC: (Bounds Check) the size of the current Wasm memory region, for bounds checking (callee-save).
+#
+# Locals are accessed at a constant offset from CFR:
+#   local[i] = CFR - IPIntLocalsBaseOffset - i * LocalSize
 #
 # Finally, we provide four "sc" (safe for call) registers which are guaranteed to not overlap with argument
 # registers (sc0, sc1, sc2, sc3)
 
 const alignIPInt = constexpr JSC::IPInt::alignIPInt
+const alignAtomicIPInt = constexpr JSC::IPInt::alignAtomicIPInt
 const alignArgumInt = constexpr JSC::IPInt::alignArgumInt
 const alignUInt = constexpr JSC::IPInt::alignUInt
 const alignMInt = constexpr JSC::IPInt::alignMInt
@@ -66,7 +68,6 @@ const alignMInt = constexpr JSC::IPInt::alignMInt
 if ARM64 or ARM64E
     const PC = csr7
     const MC = csr6
-    const PL = t6
 
     # Wasm Pinned Registers
     const WI = csr0
@@ -80,7 +81,6 @@ if ARM64 or ARM64E
 elsif X86_64
     const PC = csr2
     const MC = csr1
-    const PL = t5
 
     # Wasm Pinned Registers
     const WI = csr0
@@ -94,7 +94,6 @@ elsif X86_64
 elsif RISCV64
     const PC = csr7
     const MC = csr6
-    const PL = csr10
 
     # Wasm Pinned Registers
     const WI = csr0
@@ -108,7 +107,6 @@ elsif RISCV64
 elsif ARMv7
     const PC = csr1
     const MC = t6
-    const PL = t7
 
     # Wasm Pinned Registers
     const WI = csr0
@@ -122,7 +120,6 @@ elsif ARMv7
 else
     const PC = invalidGPR
     const MC = invalidGPR
-    const PL = invalidGPR
 
     # Wasm Pinned Registers
     const WI = invalidGPR
@@ -165,9 +162,13 @@ end
 const UnboxedWasmCalleeStackSlot = CallerFrame - constexpr Wasm::numberOfIPIntCalleeSaveRegisters * SlotSize - MachineRegisterSize
 const WasmToJSScratchSpaceSize = constexpr Wasm::WasmToJSScratchSpaceSize
 const WasmToJSCallableFunctionSlot = constexpr Wasm::WasmToJSCallableFunctionSlot
+const WasmToJSIPIntReturnPCSlot = constexpr Wasm::WasmToJSIPIntReturnPCSlot
 
 const IPIntCalleeSaveSpaceAsVirtualRegisters = constexpr Wasm::numberOfIPIntCalleeSaveRegisters + constexpr Wasm::numberOfIPIntInternalRegisters
 const IPIntCalleeSaveSpaceStackAligned = (IPIntCalleeSaveSpaceAsVirtualRegisters * SlotSize + StackAlignment - 1) & ~StackAlignmentMask
+
+# Offset from CFR to local[0]: local[i] = CFR - IPIntLocalsBaseOffset - i * LocalSize
+const IPIntLocalsBaseOffset = IPIntCalleeSaveSpaceStackAligned + LocalSize
 
 # Must match GPRInfo.h
 if X86_64
@@ -234,32 +235,112 @@ macro advanceMCByReg(amount)
     addp amount, MC
 end
 
-macro decodeLEBVarUInt32(offset, dst, scratch1, scratch2, scratch3, scratch4)
-    # if it's a single byte, fastpath it
-    const tempPC = scratch4
-    leap offset[PC], tempPC
-    loadb [tempPC], dst
-
-    bbb dst, 0x80, .fastpath
-    # otherwise, set up for second iteration
-    # next shift is 7
+macro decodeLEBVarUInt(dst, cursor, scratch1, scratch2)
+    loadb [cursor], dst
+    addp 1, cursor
+    bbb dst, 0x80, .done
+    andq 0x7f, dst
     move 7, scratch1
-    # take off high bit
-    subi 0x80, dst
     validateOpcodeConfig(scratch2)
 .loop:
-    addp 1, tempPC
-    loadb [tempPC], scratch2
-    # scratch3 = high bit 7
-    # leave scratch2 with low bits 6-0
-    move 0x80, scratch3
-    andi scratch2, scratch3
-    xori scratch3, scratch2
-    lshifti scratch1, scratch2
-    addi 7, scratch1
-    ori scratch2, dst
-    bbneq scratch3, 0, .loop
-.fastpath:
+    loadb [cursor], scratch2
+    addp 1, cursor
+    bbb scratch2, 0x80, .lastByte
+    andq 0x7f, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    jmp .loop
+.lastByte:
+    # bit 7 already 0, no AND needed
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+.done:
+end
+
+macro decodeLEBVarSInt32(dst, cursor, scratch1, scratch2)
+    loadb [cursor], dst
+    addp 1, cursor
+    bbb dst, 0x80, .singleByte
+    andq 0x7f, dst
+    move 7, scratch1
+    validateOpcodeConfig(scratch2)
+.loop:
+    loadb [cursor], scratch2
+    addp 1, cursor
+    bbb scratch2, 0x80, .lastByte
+    andq 0x7f, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    jmp .loop
+.lastByte:
+    # bit 7 already 0, no AND needed
+    # Check sign bit (0x40) BEFORE shifting
+    btiz scratch2, 0x40, .noSignExtend
+    lshiftq scratch1, scratch2
+    ori scratch2, dst # Ensure output is always upper zero-cleared.
+    addq 7, scratch1
+    # sign extend if shift < 32
+    bigteq scratch1, 32, .done
+    move -1, scratch2
+    lshiftq scratch1, scratch2
+    ori scratch2, dst # Ensure output is always upper zero-cleared.
+    jmp .done
+.noSignExtend:
+    lshiftq scratch1, scratch2
+    ori scratch2, dst # Ensure output is always upper zero-cleared.
+    jmp .done
+.singleByte:
+    lshifti 25, dst
+    rshifti 25, dst
+.done:
+end
+
+macro decodeLEBVarSInt64(dst, cursor, scratch1, scratch2)
+    loadb [cursor], dst
+    addp 1, cursor
+    bbb dst, 0x80, .singleByte
+    andq 0x7f, dst
+    move 7, scratch1
+    validateOpcodeConfig(scratch2)
+.loop:
+    loadb [cursor], scratch2
+    addp 1, cursor
+    bbb scratch2, 0x80, .lastByte
+    andq 0x7f, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    jmp .loop
+.lastByte:
+    # bit 7 already 0, no AND needed
+    # Check sign bit (0x40) BEFORE shifting
+    btiz scratch2, 0x40, .noSignExtend
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    # sign extend if shift < 64
+    bigteq scratch1, 64, .done
+    move -1, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    jmp .done
+.noSignExtend:
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    jmp .done
+.singleByte:
+    lshiftq 57, dst
+    rshiftq 57, dst
+.done:
+end
+
+macro skipLEB128(cursor, scratch)
+.loop:
+    loadb [cursor], scratch
+    addp 1, cursor
+    bbaeq scratch, 0x80, .loop
 end
 
 macro checkStackOverflow(callee, scratch)
@@ -269,7 +350,7 @@ macro checkStackOverflow(callee, scratch)
 
 if not ADDRESS64
     bpbeq scratch, cfr, .checkTrapAwareSoftStackLimit
-    ipintException(StackOverflow)
+    handleDebuggerTrapIfNeededAndThrowWasmTrap(StackOverflow)
 .checkTrapAwareSoftStackLimit:
 end
     bpbeq JSWebAssemblyInstance::m_stackMirror + StackManager::Mirror::m_trapAwareSoftStackLimit[wasmInstance], scratch, .stackHeightOK
@@ -283,7 +364,8 @@ if X86_64
 else
         move callee, a2
 end
-        cCall3(_ipint_extern_check_stack_and_vm_traps)
+        move cfr, a3
+        cCall4(_ipint_extern_check_stack_and_vm_traps)
     end)
 
 .stackHeightOK:
@@ -304,12 +386,6 @@ macro instructionLabel(instrname)
     _ipint%instrname%:
 end
 
-macro slowPathLabel(instrname)
-    aligned _ipint%instrname%_slow_path_validate alignIPInt
-    _ipint%instrname%_slow_path_validate:
-    _ipint%instrname%_slow_path:
-end
-
 macro unimplementedInstruction(instrname)
     instructionLabel(instrname)
     validateOpcodeConfig(a0)
@@ -320,20 +396,45 @@ macro reservedOpcode(opcode)
     unimplementedInstruction(_reserved_%opcode%)
 end
 
+macro atomicInstructionLabel(instrname)
+    aligned _ipint%instrname%_atomic_validate alignAtomicIPInt
+    _ipint%instrname%_atomic_validate:
+    _ipint%instrname%:
+end
+
+macro ipintAtomicOp(name, impl)
+    atomicInstructionLabel(name)
+
+    if TRACING
+        move cfr, a1
+        move PC, a2
+        move MC, a3
+        operationCall(macro() cCall4(_ipint_extern_trace) end)
+    end
+
+    impl()
+end
+
+macro reservedAtomicOpcode(opcode)
+    atomicInstructionLabel(_reserved_%opcode%)
+    validateOpcodeConfig(a0)
+    break
+end
+
 # ---------------------------------------
 # 2.3: Interacting with the outside world
 # ---------------------------------------
 
 # Memory
-macro ipintReloadMemory()
+macro ipintReloadMemory(scratch)
     if ARM64 or ARM64E
-        loadpairq JSWebAssemblyInstance::m_cachedMemory[wasmInstance], memoryBase, boundsCheckingSize
+        loadpairq constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase, boundsCheckingSize
     elsif X86_64
-        loadp JSWebAssemblyInstance::m_cachedMemory[wasmInstance], memoryBase
-        loadp JSWebAssemblyInstance::m_cachedBoundsCheckingSize[wasmInstance], boundsCheckingSize
+        loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase
+        loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + 8)[wasmInstance], boundsCheckingSize
     end
     if not ARMv7
-        cagedPrimitiveMayBeNull(memoryBase, t2)
+        cagedPrimitiveMayBeNull(memoryBase, scratch)
     end
 end
 
@@ -357,18 +458,14 @@ macro operationCall(fn)
     move wasmInstance, a0
     push PC, MC
     if ARM64 or ARM64E
-        push PL, ws0
-    elsif X86_64
-        push PL
-        # preserve 16 byte alignment.
-        subq MachineRegisterSize, sp
+        # Save ws0 with padding for 16-byte alignment (PC+MC=16, ws0+pad=16, total=32)
+        subp MachineRegisterSize * 2, sp
+        storep ws0, [sp]
     end
     fn()
     if ARM64 or ARM64E
-        pop ws0, PL
-    elsif X86_64
-        addq MachineRegisterSize, sp
-        pop PL
+        loadp [sp], ws0
+        addp MachineRegisterSize * 2, sp
     end
     pop MC, PC
 end
@@ -380,24 +477,26 @@ macro operationCallMayThrowImpl(fn, sizeOfExtraRegistersPreserved)
     move wasmInstance, a0
     push PC, MC
     if ARM64 or ARM64E
-        push PL, ws0
-    elsif X86_64
-        push PL
-        # preserve 16 byte alignment.
-        subq MachineRegisterSize, sp
+        # Save ws0 with padding for 16-byte alignment (PC+MC=16, ws0+ws0=16, total=32)
+        push ws0, ws0
     end
     fn()
     bpneq r1, (constexpr JSC::IPInt::SlowPathExceptionTag), .continuation
 
     storei r0, ArgumentCountIncludingThis + PayloadOffset[cfr]
-    addp sizeOfExtraRegistersPreserved + (4 * MachineRegisterSize), sp
+    if ARM64 or ARM64E
+        move cfr, a1
+        move sp, a2
+        operationCall(macro() cCall3(_ipint_extern_handle_debugger_trap_if_needed) end)
+        addp sizeOfExtraRegistersPreserved + (4 * MachineRegisterSize), sp
+    elsif X86_64
+        addp sizeOfExtraRegistersPreserved + (2 * MachineRegisterSize), sp
+    end
     jmp _wasm_throw_from_slow_path_trampoline
 .continuation:
     if ARM64 or ARM64E
-        pop ws0, PL
-    elsif X86_64
-        addq MachineRegisterSize, sp
-        pop PL
+        loadp [sp], ws0
+        addp MachineRegisterSize * 2, sp
     end
     pop MC, PC
 end
@@ -413,21 +512,28 @@ macro operationCallMayThrowPreservingVolatileRegisters(fn)
 end
 
 # Exception handling
-macro ipintException(exception)
+#
+# debugger-aware trap. 2 instructions; heavy logic in _wasm_ipint_check_debugger_hook_and_throw_trap due to fixed-size IPInt dispatch slots.
+macro handleDebuggerTrapIfNeededAndThrowWasmTrap(exception)
     storei constexpr Wasm::ExceptionType::%exception%, ArgumentCountIncludingThis + PayloadOffset[cfr]
+if ADDRESS64 and (ARM64 or ARM64E)
+   # Currently, only ARM64 and ARM64E with ADDRESS64 platforms support the WasmDebugger.
+    jmp _wasm_ipint_check_debugger_hook_and_throw_trap
+else
     jmp _wasm_throw_from_slow_path_trampoline
+end
 end
 
 # OSR
 macro ipintPrologueOSR(increment)
-if JIT
+if WEBASSEMBLY_BBQJIT
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
     baddis increment, Wasm::IPIntCallee::m_tierUpCounter + Wasm::IPIntTierUpCounter::m_counter[ws0], .continue
 
     preserveWasmArgumentRegisters()
 
 if not ARMv7
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     push memoryBase, boundsCheckingSize
 end
 
@@ -457,11 +563,11 @@ end
     if ARMv7
         break # FIXME: ipint support.
     end # ARMv7
-end # JIT
+end # WEBASSEMBLY_BBQJIT
 end
 
 macro ipintLoopOSR(increment)
-if JIT and not ARMv7
+if WEBASSEMBLY_BBQJIT and not ARMv7
     validateOpcodeConfig(ws0)
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
     baddis increment, Wasm::IPIntCallee::m_tierUpCounter + Wasm::IPIntTierUpCounter::m_counter[ws0], .continue
@@ -470,7 +576,7 @@ if JIT and not ARMv7
     move PC, a2
     # Add 1 to the index due to WTF::UncheckedKeyHashMap not supporting 0 as a key
     addq 1, a2
-    move PL, a3
+    move sp, a3
     operationCall(macro() cCall4(_ipint_extern_loop_osr) end)
     btpz r1, .recover
     restoreIPIntRegisters()
@@ -492,7 +598,7 @@ end
 end
 
 macro ipintEpilogueOSR(increment)
-if JIT and not ARMv7
+if WEBASSEMBLY_BBQJIT and not ARMv7
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
     baddis increment, Wasm::IPIntCallee::m_tierUpCounter + Wasm::IPIntTierUpCounter::m_counter[ws0], .continue
 
@@ -648,8 +754,8 @@ end
 
 macro reloadMemoryRegistersFromInstance(instance, scratch1)
 if not ARMv7
-    loadp JSWebAssemblyInstance::m_cachedMemory[instance], memoryBase
-    loadp JSWebAssemblyInstance::m_cachedBoundsCheckingSize[instance], boundsCheckingSize
+    loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[instance], memoryBase
+    loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + sizeof(void*))[instance], boundsCheckingSize
     cagedPrimitiveMayBeNull(memoryBase, scratch1) # If boundsCheckingSize is 0, pointer can be a nullptr.
 end
 end
@@ -846,10 +952,10 @@ end
 
     # Memory
     if ARM64 or ARM64E
-        loadpairq JSWebAssemblyInstance::m_cachedMemory[wasmInstance], memoryBase, boundsCheckingSize
+        loadpairq constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase, boundsCheckingSize
     elsif X86_64
-        loadp JSWebAssemblyInstance::m_cachedMemory[wasmInstance], memoryBase
-        loadp JSWebAssemblyInstance::m_cachedBoundsCheckingSize[wasmInstance], boundsCheckingSize
+        loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase
+        loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + 8)[wasmInstance], boundsCheckingSize
     end
     if not ARMv7
         cagedPrimitiveMayBeNull(memoryBase, wa0)
@@ -906,14 +1012,10 @@ if ASSERT_ENABLED
     clobberVolatileRegisters()
 end
 
-    # Restore SP
-    loadp Callee[cfr], ws0 # CalleeBits(JSToWasmCallee*)
-    unboxWasmCallee(ws0, ws1)
-
-    loadi Wasm::JSToWasmCallee::m_frameSize[ws0], ws1
-    subp cfr, ws1, ws1
-    move ws1, sp
-    subp constexpr Wasm::JSToWasmCallee::SpillStackSpaceAligned, sp
+    # Don't restore SP to original position, stack results live above calleeSP.
+    # After a tail call the callee's frame may differ, so derive from actual SP.
+    # Just allocate register spill space below the callee's actual SP.
+    subp constexpr Wasm::JSToWasmCallee::RegisterStackSpaceAligned, sp
 
 if ASSERT_ENABLED
     repeat(ws0, macro (i)
@@ -1005,10 +1107,10 @@ end
 
     # Memory
     if ARM64 or ARM64E
-        loadpairq JSWebAssemblyInstance::m_cachedMemory[wasmInstance], memoryBase, boundsCheckingSize
+        loadpairq constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase, boundsCheckingSize
     elsif X86_64
-        loadp JSWebAssemblyInstance::m_cachedMemory[wasmInstance], memoryBase
-        loadp JSWebAssemblyInstance::m_cachedBoundsCheckingSize[wasmInstance], boundsCheckingSize
+        loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase
+        loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + 8)[wasmInstance], boundsCheckingSize
     end
     if not ARMv7
         cagedPrimitiveMayBeNull(memoryBase, ws1)
@@ -1029,6 +1131,8 @@ op(wasm_to_js_wrapper_entry, macro()
 
     const RegisterSpaceScratchSize = 0x80
     subp (WasmToJSScratchSpaceSize + RegisterSpaceScratchSize), sp
+
+    storep PC, WasmToJSIPIntReturnPCSlot[cfr]
 
     loadp CodeBlock[cfr], ws0
     storep ws0, WasmToJSCallableFunctionSlot[cfr]
@@ -1163,6 +1267,27 @@ macro jumpToException()
     end
 end
 
+macro handleDebuggerTrapIfNeeded()
+    push PC, MC
+    push ws0, ws0   # sp[0]=ws0 (unused), sp[1]=ws0 (IPIntCallee*), sp[2]=PC, sp[3]=MC
+    move cfr, a1
+    move sp, a2     # a2 = pointer to saved [ws0, ws0, PC, MC]
+    operationCall(macro() cCall3(_ipint_extern_handle_debugger_trap_if_needed) end)
+    addp 4 * MachineRegisterSize, sp
+end
+
+op(wasm_ipint_check_debugger_hook_and_throw_trap, macro ()
+    handleDebuggerTrapIfNeeded()
+    # r0 == 0 i.e. DebuggerTrapStatus::ResolvedByDebugger i.e. this was purely a debugger trap / breakpoint,
+    #              and has been handled.  We should continue executing because it's not a Wasm trap.
+    # r0 == 1 i.e. DebuggerTrapStatus::NotResolvedByDebugger i.e. this was a fatal Wasm trap.  We should
+    #              throw it to terminate Wasm execution.
+    btpz r0, .continue
+    jmp _wasm_throw_from_slow_path_trampoline
+.continue:
+    nextIPIntInstruction()
+end)
+
 op(wasm_throw_from_slow_path_trampoline, macro ()
     validateOpcodeConfig(t5)
     loadp JSWebAssemblyInstance::m_vm[wasmInstance], t5
@@ -1193,6 +1318,14 @@ op(wasm_unwind_from_slow_path_trampoline, macro()
 end)
 
 op(wasm_throw_from_fault_handler_trampoline_reg_instance, macro ()
+    # enableWasmDebugger disables BBQ/OMG, so this trampoline is only
+    # reached from IPInt when the debugger is active. The signal handler only patches
+    # the machine PC, so IPInt registers (PC, MC, ws0, cfr) are still live.
+    # Exception type comes from instance->m_exception; copy to CFR slot for handle_debugger_trap_if_needed.
+    loadi JSWebAssemblyInstance::m_exception[wasmInstance], t0
+    storei t0, ArgumentCountIncludingThis + PayloadOffset[cfr]
+    handleDebuggerTrapIfNeeded()
+
     move wasmInstance, a2
     loadp JSWebAssemblyInstance::m_vm[a2], a0
     loadp VM::topEntryFrame[a0], a0
@@ -1224,8 +1357,11 @@ end)
 
 if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
 .ipint_entry_end_local:
+    loadp UnboxedWasmCalleeStackSlot[cfr], MC
+    loadp Wasm::IPIntCallee::m_localInitBytecode + VectorBufferOffset[MC], MC
+.ipint_entry_end_local_loop:
     argumINTInitializeDefaultLocals()
-    jmp .ipint_entry_end_local
+    jmp .ipint_entry_end_local_loop
 
 .ipint_entry_finish_zero:
     argumINTFinish()
@@ -1242,12 +1378,11 @@ end
     operationCall(macro() cCall2(_ipint_extern_prepare_function_body) end)
     move r0, ws0
 
-    move sp, PL
     loadp Wasm::IPIntCallee::m_bytecode[ws0], PC
     loadp Wasm::IPIntCallee::m_metadata + VectorBufferOffset[ws0], MC
 
     # Load memory
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
 
     nextIPIntInstruction()
 
@@ -1291,18 +1426,9 @@ end
     loadp Wasm::IPIntCallee::m_metadata + VectorBufferOffset[ws0], t1
     addp t1, MC
 
-    # Recompute PL
-    if ARM64 or ARM64E
-        loadpairi Wasm::IPIntCallee::m_localSizeToAlloc[ws0], t0, t1
-    else
-        loadi Wasm::IPIntCallee::m_numRethrowSlotsToAlloc[ws0], t1
-        loadi Wasm::IPIntCallee::m_localSizeToAlloc[ws0], t0
-    end
-    addp t1, t0
-    mulp LocalSize, t0
-    addp IPIntCalleeSaveSpaceStackAligned, t0
-    subp cfr, t0, PL
-
+    # Recompute SP from catch metadata. [MC] contains localSizeToAlloc + stackValues.
+    # Add rethrowSlots to get the total frame size below callee-save space.
+    loadi Wasm::IPIntCallee::m_numRethrowSlotsToAlloc[ws0], t1
     loadi [MC], t0
     addp t1, t0
     mulp StackValueSize, t0
@@ -1325,10 +1451,9 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
 
     move cfr, a1
     move sp, a2
-    move PL, a3
-    operationCall(macro() cCall4(_ipint_extern_retrieve_and_clear_exception) end)
+    operationCall(macro() cCall3(_ipint_extern_retrieve_and_clear_exception) end)
 
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     advanceMC(4)
     nextIPIntInstruction()
 else
@@ -1342,10 +1467,9 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
 
     move cfr, a1
     move 0, a2
-    move PL, a3
-    operationCall(macro() cCall4(_ipint_extern_retrieve_and_clear_exception) end)
+    operationCall(macro() cCall3(_ipint_extern_retrieve_and_clear_exception) end)
 
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     advanceMC(4)
     nextIPIntInstruction()
 else
@@ -1361,10 +1485,9 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
 
     move cfr, a1
     move sp, a2
-    move PL, a3
-    operationCall(macro() cCall4(_ipint_extern_retrieve_and_clear_exception) end)
+    operationCall(macro() cCall3(_ipint_extern_retrieve_and_clear_exception) end)
 
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     advanceMC(4)
     jmp _ipint_block
 else
@@ -1380,10 +1503,9 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
 
     move cfr, a1
     move sp, a2
-    move PL, a3
-    operationCall(macro() cCall4(_ipint_extern_retrieve_clear_and_push_exception_and_arguments) end)
+    operationCall(macro() cCall3(_ipint_extern_retrieve_clear_and_push_exception_and_arguments) end)
 
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     advanceMC(4)
     jmp _ipint_block
 else
@@ -1399,10 +1521,9 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
 
     move cfr, a1
     move 0, a2
-    move PL, a3
-    operationCall(macro() cCall4(_ipint_extern_retrieve_and_clear_exception) end)
+    operationCall(macro() cCall3(_ipint_extern_retrieve_and_clear_exception) end)
 
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     advanceMC(4)
     jmp _ipint_block
 else
@@ -1418,10 +1539,9 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
 
     move cfr, a1
     move sp, a2
-    move PL, a3
-    operationCall(macro() cCall4(_ipint_extern_retrieve_clear_and_push_exception) end)
+    operationCall(macro() cCall3(_ipint_extern_retrieve_clear_and_push_exception) end)
 
-    ipintReloadMemory()
+    ipintReloadMemory(t2)
     advanceMC(4)
     jmp _ipint_block
 else
@@ -1595,14 +1715,31 @@ macro populateSentinelVMEntryRecord(context, vmTemp, temp)
     storep 0, VM::topCallFrame[vmTemp]
 end
 
-# Allocate space for the slices to implant and prepare the implant call args.
+# Copy into the VM the values saved in VM entry record and set stack overflow flag in the context.
+# a0 must point to PinballHandlerContext; cfr must point to the sentinel frame.
+macro restoreSentinelVMEntryRecordAndReturnWithStackOverflow()
+    vmEntryRecord(cfr, sp)
+    loadp VMEntryRecord::m_vm[sp], ws0
+    loadp VMEntryRecord::m_prevTopCallFrame[sp], ws1
+    storep ws1, VM::topCallFrame[ws0]
+    loadp VMEntryRecord::m_prevTopEntryFrame[sp], ws1
+    storep ws1, VM::topEntryFrame[ws0]
+    storep 1, PinballHandlerContext::stackOverflowDetected[a0]
+    move cfr, sp
+    functionEpilogue()
+    ret
+end
+
+# Allocate space for the slice to implant and prepare the implant call args.
 # a0 should point at the context and is preserved; temp is a scratch register.
+# On stack overflow jump to failLabel with sp same as before the call.
 #
-macro prepareImplantationCall(temp)
+macro prepareImplantationCall(temp, stackOverflowLabel)
     loadp PinballHandlerContext::sliceByteSize[a0], temp
     subp temp, sp # sliceByteSize is always stack-aligned by construction
     bpa sp, JSWebAssemblyInstance::m_stackMirror + StackManager::Mirror::m_softStackLimit[wasmInstance], .stackOK
-    break
+    addp temp, sp
+    jmp stackOverflowLabel
 .stackOK:
     move sp, a1 # a1 = implantation base
     move cfr, a2 # a2 = returnFP (the sentinel frame)
@@ -1685,7 +1822,7 @@ _enterWebAssemblySuspendingFunction:
     cCall3(_runWebAssemblySuspendingFunction)
     # A non-zero return value is the stack frame to teleport to, skipping the evacuated frames.
     # A zero return means we return normally, typically because an exception was thrown.
-    btiz r0, .normalReturn
+    btiz r0, .enterWebAssemblySuspendingFunction_normal_return
 
     # Teleport over the evacuated frames by returning from the frame in r0.
     # This is where we need the pushed pointer to the callee saves buffer in vm.topEntryFrame.
@@ -1702,7 +1839,7 @@ else
     ret
 end
 
-.normalReturn:
+.enterWebAssemblySuspendingFunction_normal_return:
     move cfr, sp
     functionEpilogue()
     ret
@@ -1730,20 +1867,32 @@ _pinballHandlerFulfillFunction:
     loadp PinballHandlerContext::evacuatedCalleeSaves[sp], ws0
     restoreCalleeSavesFromBuffer(ws0)
 
-.execute:
+.pinballHandlerFulfillFunction_execute:
     move sp, a0
-    call .execute_evacuated_slice #(context)
+    call .jspi_execute_evacuated_slice #(context)
     # Execution returns here from the sentinel frame after the slice has completed.
     # The sentinel has already spilled Wasm argument registers into the context.
+    loadp PinballHandlerContext::stackOverflowDetected[sp], ws0
+    btpnz ws0, .pinballHandlerFulfillFunction_stack_overflow
     # Finish this iteration and loop to the next slice or exit with the result.
     move sp, a0
     call _pinballHandlerFulfillFunctionContinue #(context) -> true if we should do another cycle
-    btinz r0, .execute
+    btinz r0, .pinballHandlerFulfillFunction_execute
 
     # Done. The first Wasm argument is the return value.
     leap PinballHandlerContext::handlerCalleeSaves[sp], ws0
     restoreCalleeSavesFromBuffer(ws0)
     loadp PinballHandlerContext::arguments[sp], r0
+    move cfr, sp
+    functionEpilogue()
+    ret
+
+.pinballHandlerFulfillFunction_stack_overflow:
+    move sp, a0
+    call _pinballHandlerRejectWithStackOverflow #(context)
+    leap PinballHandlerContext::handlerCalleeSaves[sp], ws0
+    restoreCalleeSavesFromBuffer(ws0)
+    move 0, r0
     move cfr, sp
     functionEpilogue()
     ret
@@ -1777,14 +1926,14 @@ _pinballHandlerFulfillFunction:
 # as a single slice, so Frame 0 is always a WasmToJS frame and Frame N is always a JSToWasmFrame.
 # This assumption for now simplifies exception handling.
 #
-.execute_evacuated_slice:
+.jspi_execute_evacuated_slice:
     # Construct the sentinel and make it a VM entry frame.
     # The sentinel must be right below the PinballHandlerContext allocated by the caller.
     functionPrologue()
     vmEntryRecord(cfr, sp)
     populateSentinelVMEntryRecord(a0, ws0, ws1)
 
-    prepareImplantationCall(ws0) # moves sp further down to allocate space for implanted frames, loads a1-a2
+    prepareImplantationCall(ws0, .jspi_execute_evacuated_slice_stack_overflow) # moves sp further down to allocate space for implanted frames, loads a1-a2
     # IMPORTANT: Preserve a0-a2 from here on until the _pinballHandlerImplantSlice call!
     checkStackPointerAlignment(ws0, 0xbad0fff1)
     # Preserve on the stack the arguments buffer ptr. Two copies to keep stack aligned
@@ -1815,6 +1964,9 @@ if ARM64E
 else
     ret
 end
+
+.jspi_execute_evacuated_slice_stack_overflow:
+    restoreSentinelVMEntryRecordAndReturnWithStackOverflow()
 
 
 # Returning into a sentinel frame executes this code
@@ -1859,9 +2011,11 @@ _pinballHandlerRejectFunction:
     restoreCalleeSavesFromBuffer(ws0)
 
     move sp, a0
-    call .unwind_current_slice
+    call .jspi_unwind_current_slice
     # Execution returns here from the sentinel frame if the exception was caught in Wasm.
     # Wasm argument registers were already spilled into the context by the sentinel.
+    loadp PinballHandlerContext::stackOverflowDetected[sp], ws0
+    btpnz ws0, .pinballHandlerRejectFunction_stack_overflow
     move sp, a0
     call _pinballHandlerFinishReject #(context)
 
@@ -1872,8 +2026,18 @@ _pinballHandlerRejectFunction:
     functionEpilogue()
     ret
 
+.pinballHandlerRejectFunction_stack_overflow:
+    move sp, a0
+    call _pinballHandlerRejectWithStackOverflow #(context)
+    leap PinballHandlerContext::handlerCalleeSaves[sp], ws1
+    restoreCalleeSavesFromBuffer(ws1)
+    move 0, r0
+    move cfr, sp
+    functionEpilogue()
+    ret
 
-# This is almost the same as .execute_evacuated_slice in how the stack is shaped
+
+# This is almost the same as .jspi_execute_evacuated_slice in how the stack is shaped
 # by the time we get to the end of this function. The differences are:
 #
 # - What used to be a return frame is shaped as a pretend throwing frame,
@@ -1883,12 +2047,12 @@ _pinballHandlerRejectFunction:
 #   into the VM and jump to the unwind logic. All together this works as if
 #   the exception was thrown from somewhere in our pretend throwing frame.
 #
-.unwind_current_slice:
+.jspi_unwind_current_slice:
     functionPrologue()
     vmEntryRecord(cfr, sp)
     populateSentinelVMEntryRecord(a0, ws0, ws1)
 
-    prepareImplantationCall(ws0) # moves sp further down to allocate space for implanted frames, loads a1-a2
+    prepareImplantationCall(ws0, .jspi_unwind_current_slice_stack_overflow) # moves sp further down to allocate space for implanted frames, loads a1-a2
     checkStackPointerAlignment(ws0, 0xbad0fff3)
 
     # Set up a pretend throwing frame with a zombie callee and a null codeblock.
@@ -1912,6 +2076,9 @@ _pinballHandlerRejectFunction:
     storep t2, VM::m_exception[t1]
 
     jmp _wasm_unwind_from_slow_path_trampoline
+
+.jspi_unwind_current_slice_stack_overflow:
+    restoreSentinelVMEntryRecordAndReturnWithStackOverflow()
 
 
 #################################
@@ -2464,6 +2631,32 @@ unimplementedInstruction(_simd_i32x4_trunc_sat_f64x2_s_zero)
 unimplementedInstruction(_simd_i32x4_trunc_sat_f64x2_u_zero)
 unimplementedInstruction(_simd_f64x2_convert_low_i32x4_s)
 unimplementedInstruction(_simd_f64x2_convert_low_i32x4_u)
+
+    ###################################
+    ## Relaxed SIMD instructions     ##
+    ## Opcodes 0x100 - 0x113         ##
+    ###################################
+
+unimplementedInstruction(_simd_i8x16_relaxed_swizzle)
+unimplementedInstruction(_simd_i32x4_relaxed_trunc_f32x4_s)
+unimplementedInstruction(_simd_i32x4_relaxed_trunc_f32x4_u)
+unimplementedInstruction(_simd_i32x4_relaxed_trunc_f64x2_s_zero)
+unimplementedInstruction(_simd_i32x4_relaxed_trunc_f64x2_u_zero)
+unimplementedInstruction(_simd_f32x4_relaxed_madd)
+unimplementedInstruction(_simd_f32x4_relaxed_nmadd)
+unimplementedInstruction(_simd_f64x2_relaxed_madd)
+unimplementedInstruction(_simd_f64x2_relaxed_nmadd)
+unimplementedInstruction(_simd_i8x16_relaxed_laneselect)
+unimplementedInstruction(_simd_i16x8_relaxed_laneselect)
+unimplementedInstruction(_simd_i32x4_relaxed_laneselect)
+unimplementedInstruction(_simd_i64x2_relaxed_laneselect)
+unimplementedInstruction(_simd_f32x4_relaxed_min)
+unimplementedInstruction(_simd_f32x4_relaxed_max)
+unimplementedInstruction(_simd_f64x2_relaxed_min)
+unimplementedInstruction(_simd_f64x2_relaxed_max)
+unimplementedInstruction(_simd_i16x8_relaxed_q15mulr_s)
+unimplementedInstruction(_simd_i16x8_relaxed_dot_i8x16_i7x16_s)
+unimplementedInstruction(_simd_i32x4_relaxed_dot_i8x16_i7x16_add_s)
 
     #########################
     ## Atomic instructions ##

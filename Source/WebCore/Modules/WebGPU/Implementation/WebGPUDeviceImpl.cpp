@@ -172,9 +172,18 @@ static WGPUColorSpace NODELETE convertToWGPUColorSpace(const PredefinedColorSpac
     switch (colorSpace) {
     case PredefinedColorSpace::SRGB:
         return WGPUColorSpace::SRGB;
+    case PredefinedColorSpace::SRGBLinear:
+        return WGPUColorSpace::SRGBLinear;
+#if ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3)
     case PredefinedColorSpace::DisplayP3:
         return WGPUColorSpace::DisplayP3;
+    case PredefinedColorSpace::DisplayP3Linear:
+        return WGPUColorSpace::DisplayP3Linear;
+#endif
     }
+
+    ASSERT_NOT_REACHED();
+    return WGPUColorSpace::SRGB;
 }
 
 void DeviceImpl::updateExternalTexture(const WebCore::WebGPU::ExternalTexture&, const WebCore::MediaPlayerIdentifier&)
@@ -276,7 +285,7 @@ RefPtr<BindGroup> DeviceImpl::createBindGroup(const BindGroupDescriptor& descrip
 
     WGPUBindGroupDescriptor backingDescriptor {
         .label = label.data(),
-        .layout = convertToBackingContext->convertToBacking(protect(descriptor.layout).get()),
+        .layout = convertToBackingContext->convertToBacking(protect(descriptor.layout)),
         .entryCount = backingEntries.size(),
         .entries = backingEntries.size() ? backingEntries.span().data() : nullptr,
     };
@@ -300,7 +309,7 @@ RefPtr<ShaderModule> DeviceImpl::createShaderModule(const ShaderModuleDescriptor
         const auto& hint = descriptor.hints[i].value;
         hintsEntries.append(WGPUShaderModuleCompilationHint {
             .entryPoint = entryPoints[i].data(),
-            .layout = convertToBackingContext->convertToBacking(protect(hint.pipelineLayout).get())
+            .layout = convertToBackingContext->convertToBacking(protect(hint.pipelineLayout))
         });
     }
 
@@ -343,7 +352,7 @@ static auto convertToBacking(const ComputePipelineDescriptor& descriptor, Conver
         .label = label.data(),
         .layout = descriptor.layout ? convertToBackingContext.convertToBacking(*protect(descriptor.layout)) : nullptr,
         .compute = WGPUProgrammableStageDescriptor {
-            .module = convertToBackingContext.convertToBacking(protect(descriptor.compute.module).get()),
+            .module = convertToBackingContext.convertToBacking(protect(descriptor.compute.module)),
             .entryPoint = entryPoint ? entryPoint->data() : nullptr,
             .constantCount = backingConstantEntries.size(),
             .constants = backingConstantEntries.size() ? backingConstantEntries.span().data() : nullptr,
@@ -496,7 +505,7 @@ static auto convertToBacking(const RenderPipelineDescriptor& descriptor, Convert
     }
 
     WGPUFragmentState fragmentState {
-        .module = descriptor.fragment ? convertToBackingContext.convertToBacking(protect(descriptor.fragment->module).get()) : nullptr,
+        .module = descriptor.fragment ? convertToBackingContext.convertToBacking(protect(descriptor.fragment->module)) : nullptr,
         .entryPoint = fragmentEntryPoint ? fragmentEntryPoint->data() : nullptr,
         .constantCount = fragmentConstantEntries.size(),
         .constants = fragmentConstantEntries.size() ? fragmentConstantEntries.span().data() : nullptr,
@@ -508,7 +517,7 @@ static auto convertToBacking(const RenderPipelineDescriptor& descriptor, Convert
         .label = label.data(),
         .layout = descriptor.layout ? convertToBackingContext.convertToBacking(*protect(descriptor.layout)) : nullptr,
         .vertex = {
-            .module = convertToBackingContext.convertToBacking(protect(descriptor.vertex.module).get()),
+            .module = convertToBackingContext.convertToBacking(protect(descriptor.vertex.module)),
             .entryPoint = vertexEntryPoint ? vertexEntryPoint->data() : nullptr,
             .constantCount = vertexConstantEntries.size(),
             .constants = vertexConstantEntries.size() ? vertexConstantEntries.span().data() : nullptr,
@@ -551,7 +560,7 @@ static void createComputePipelineAsyncCallback(WGPUCreatePipelineAsyncStatus sta
 void DeviceImpl::createComputePipelineAsync(const ComputePipelineDescriptor& descriptor, CompletionHandler<void(RefPtr<ComputePipeline>&&, String&&)>&& callback)
 {
     convertToBacking(descriptor, m_convertToBackingContext, [backing = m_backing.copyRef(), &convertToBackingContext = m_convertToBackingContext.get(), callback = WTF::move(callback)](const WGPUComputePipelineDescriptor& backingDescriptor) mutable {
-        auto blockPtr = makeBlockPtr([convertToBackingContext = Ref { convertToBackingContext }, callback = WTF::move(callback)](WGPUCreatePipelineAsyncStatus status, WGPUComputePipeline pipeline, String&& message) mutable {
+        auto blockPtr = makeBlockPtr([convertToBackingContext = protect(convertToBackingContext), callback = WTF::move(callback)](WGPUCreatePipelineAsyncStatus status, WGPUComputePipeline pipeline, String&& message) mutable {
             if (status == WGPUCreatePipelineAsyncStatus_Success)
                 callback(ComputePipelineImpl::create(adoptWebGPU(pipeline), convertToBackingContext), ""_s);
             else
@@ -630,7 +639,7 @@ RefPtr<QuerySet> DeviceImpl::createQuerySet(const QuerySetDescriptor& descriptor
 
 void DeviceImpl::pushErrorScope(ErrorFilter errorFilter)
 {
-    wgpuDevicePushErrorScope(m_backing.get(), Ref { m_convertToBackingContext }->convertToBacking(errorFilter));
+    wgpuDevicePushErrorScope(m_backing.get(), protect(m_convertToBackingContext)->convertToBacking(errorFilter));
 }
 
 static void popErrorScopeCallback(WGPUErrorType type, const char* message, void* userdata)

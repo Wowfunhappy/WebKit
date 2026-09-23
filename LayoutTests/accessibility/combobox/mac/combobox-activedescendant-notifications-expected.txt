@@ -1,10 +1,11 @@
-This test makes sure that an ARIA active descendant change does not change focus, because focus should remain in the textfield portion of the combo box.
+This test ensures that changing aria-activedescendant on a combobox posts AXFocusedUIElementChanged for the active descendant, and that the focused element becomes the active descendant.
 
 The ComboBox should start out as the focused element.
 PASS: axCombo.isEqual(accessibilityController.focusedElement) === true
-Received notification: AXActiveElementChanged
-The ComboBox should still be the focused element even after the aria-activedescendant was changed.
-PASS: axCombo.isEqual(accessibilityController.focusedElement) === true
+After setting aria-activedescendant, the focused element should be the active descendant, not the combobox.
+PASS: axCombo.isEqual(accessibilityController.focusedElement) === false
+PASS: focusedElement.role.toLowerCase().includes('statictext') === true
+PASS: platformStaticTextValue(focusedElement).includes('item1') === true
 
 PASS successfullyParsed is true
 

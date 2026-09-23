@@ -26,8 +26,10 @@
 #include "config.h"
 #include "StyleSingleAnimationName.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
+#include "StyleCustomIdent.h"
+#include "StyleValueTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
@@ -36,14 +38,15 @@ namespace Style {
 
 auto CSSValueConversion<SingleAnimationName>::operator()(BuilderState& state, const CSSValue& value) -> SingleAnimationName
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return SingleAnimationName { CSS::Keyword::None { } };
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        if (keywordValue->valueID() == CSSValueNone)
+            return SingleAnimationName { CSS::Keyword::None { } };
 
-    if (primitiveValue->valueID() == CSSValueNone)
+        state.setCurrentPropertyInvalidAtComputedValueTime();
         return SingleAnimationName { CSS::Keyword::None { } };
+    }
 
-    return SingleAnimationName { ScopedName { AtomString { primitiveValue->stringValue() }, state.styleScopeOrdinal(), primitiveValue->isCustomIdent() } };
+    return toStyleFromCSSValue<ScopedName>(state, value);
 }
 
 } // namespace Style

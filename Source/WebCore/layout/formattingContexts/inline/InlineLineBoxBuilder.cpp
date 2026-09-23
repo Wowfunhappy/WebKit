@@ -31,8 +31,8 @@
 #include "InlineLineBoxVerticalAligner.h"
 #include "InlineLineBuilder.h"
 #include "LayoutBoxGeometry.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RubyFormattingContext.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleWebKitLineBoxContain.h"
 
 namespace WebCore {
@@ -106,7 +106,7 @@ LineBox LineBoxBuilder::buildForRootInlineBoxOnly(size_t lineIndex)
     return lineBox;
 }
 
-TextUtil::FallbackFontList LineBoxBuilder::collectFallbackFonts(const InlineLevelBox& parentInlineBox, const Line::Run& run, const RenderStyle& style)
+TextUtil::FallbackFontList LineBoxBuilder::collectFallbackFonts(const InlineLevelBox& parentInlineBox, const Line::Run& run, const Style::ComputedStyle& style)
 {
     ASSERT(parentInlineBox.isInlineBox());
     auto& inlineTextBox = downcast<InlineTextBox>(run.layoutBox());
@@ -130,7 +130,7 @@ TextUtil::FallbackFontList LineBoxBuilder::collectFallbackFonts(const InlineLeve
     return fallbackFonts;
 }
 
-static InlineLevelBox::AscentAndDescent primaryFontMetricsForInlineBox(const InlineLevelBox& inlineBox, FontBaseline fontBaseline = FontBaseline::Alphabetic)
+static InlineLevelBox::AscentAndDescent NODELETE primaryFontMetricsForInlineBox(const InlineLevelBox& inlineBox, FontBaseline fontBaseline = FontBaseline::Alphabetic)
 {
     ASSERT(inlineBox.isInlineBox());
     auto& fontMetrics = inlineBox.primarymetricsOfPrimaryFont();
@@ -362,8 +362,13 @@ void LineBoxBuilder::setVerticalPropertiesForInlineLevelBox(const LineBox& lineB
         return;
     }
     if (inlineLevelBox.isLineBreakBox()) {
-        auto parentAscentAndDescent = primaryFontMetricsForInlineBox(lineBox.parentInlineBox(inlineLevelBox), lineBox.baselineType());
-        setVerticalProperties(parentAscentAndDescent);
+        auto ascentAndDescent = primaryFontMetricsForInlineBox(lineBox.parentInlineBox(inlineLevelBox), lineBox.baselineType());
+        setVerticalProperties(ascentAndDescent);
+        if (!inlineLevelBox.isPreferredLineHeightFontMetricsBased()) {
+            // When the BR has an explicit line-height, apply the same half-leading model as setLayoutBoundsForInlineBox.
+            auto halfLeading = (InlineFormattingUtils::snapToInt(inlineLevelBox.preferredLineHeight(), inlineLevelBox, InlineFormattingUtils::SnapDirection::Floor) - ascentAndDescent.height()) / 2;
+            inlineLevelBox.setLayoutBounds({ ascentAndDescent.ascent + halfLeading, ascentAndDescent.descent + halfLeading });
+        }
         return;
     }
     if (inlineLevelBox.isListMarker()) {
@@ -429,7 +434,7 @@ void LineBoxBuilder::constructInlineLevelBoxes(LineBox& lineBox)
     auto& rootInlineBox = lineBox.rootInlineBox();
     setVerticalPropertiesForInlineLevelBox(lineBox, rootInlineBox);
 
-    auto styleToUse = [&] (const auto& layoutBox) -> const RenderStyle& {
+    auto styleToUse = [&] (const auto& layoutBox) -> const Style::ComputedStyle& {
         return isFirstFormattedLine() ? layoutBox.firstLineStyle() : layoutBox.style();
     };
 
@@ -678,7 +683,7 @@ void LineBoxBuilder::adjustIdeographicBaselineIfApplicable(LineBox& lineBox)
     auto& rootInlineBox = lineBox.rootInlineBox();
 
     auto lineNeedsIdeographicBaseline = [&] {
-        auto styleToUse = [&] (auto& inlineLevelBox) -> const RenderStyle& {
+        auto styleToUse = [&] (auto& inlineLevelBox) -> const Style::ComputedStyle& {
             return isFirstFormattedLine() ? inlineLevelBox.layoutBox().firstLineStyle() : inlineLevelBox.layoutBox().style();
         };
         auto& rootInlineBoxStyle = styleToUse(rootInlineBox);

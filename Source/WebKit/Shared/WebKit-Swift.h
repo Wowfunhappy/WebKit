@@ -33,6 +33,10 @@
 #warning "You're including WebKit-Swift.h from a C++ header file - don't do that. This may cause circular Swift<->C++ dependencies and build problems."
 #endif
 
+#if defined(BUILDING_WITH_CMAKE) && !defined(WK_COMPILING_SWIFT_INTEROP_SUBTARGET)
+#error "This source includes WebKit-Swift.h; add it to WebKit_SWIFT_INTEROP_SOURCES in Source/WebKit/CMakeLists.txt."
+#endif
+
 // Anything needing to use Swift types or functions should include
 // this rather than directly including WebKit-Swift-Generated.h. Its purposes:
 // - include any pre-requisite headers
@@ -54,6 +58,11 @@
 #ifdef __OBJC__
 #include "WKSeparatedImageView.h"
 #include "WKUIDelegatePrivate.h"
+#if PLATFORM(MAC) && HAVE(NSREFRESHCONTROLLER)
+// Spells out the NSRefreshControlHosting protocol referenced by WKWebView extensions
+// in WebKit-Swift-Generated.h. rdar://179255418
+#include "AppKitSPI.h"
+#endif
 #endif
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -64,11 +73,10 @@
 IGNORE_CLANG_WARNINGS_BEGIN("arc-bridge-casts-disallowed-in-nonarc")
 // rdar://171345626
 IGNORE_CLANG_WARNINGS_BEGIN("objc-property-no-attribute")
-#ifdef GENERATE_SINGLE_SWIFT_INTEROP_FILE
+// rdar://175148090
+IGNORE_CLANG_WARNINGS_BEGIN("#warnings")
 #include "WebKit-Swift-Generated.h"
-#else
-#include "WebKit-Swift-CPP.h"
-#endif
+IGNORE_CLANG_WARNINGS_END
 IGNORE_CLANG_WARNINGS_END
 IGNORE_CLANG_WARNINGS_END
 

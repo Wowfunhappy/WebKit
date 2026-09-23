@@ -37,12 +37,6 @@ PASS document.createEvent('MouseEvents') instanceof window.MouseEvent is true
 PASS document.createEvent('MouseEvents') instanceof window.UIEvent is true
 PASS document.createEvent('MouseEvents') instanceof window.Event is true
 PASS document.createEvent('MouseEvents').constructor === window.MouseEvent is true
-PASS document.createEvent('MutationEvent') instanceof window.MutationEvent is true
-PASS document.createEvent('MutationEvent') instanceof window.Event is true
-PASS document.createEvent('MutationEvent').constructor === window.MutationEvent is true
-PASS document.createEvent('MutationEvents') instanceof window.MutationEvent is true
-PASS document.createEvent('MutationEvents') instanceof window.Event is true
-PASS document.createEvent('MutationEvents').constructor === window.MutationEvent is true
 PASS document.createEvent('TextEvent') instanceof window.TextEvent is true
 PASS document.createEvent('TextEvent') instanceof window.UIEvent is true
 PASS document.createEvent('TextEvent') instanceof window.Event is true
@@ -53,11 +47,6 @@ PASS document.createEvent('UIEvent').constructor === window.UIEvent is true
 PASS document.createEvent('UIEvents') instanceof window.UIEvent is true
 PASS document.createEvent('UIEvents') instanceof window.Event is true
 PASS document.createEvent('UIEvents').constructor === window.UIEvent is true
-PASS document.createEvent('WheelEvent') instanceof window.WheelEvent is true
-PASS document.createEvent('WheelEvent') instanceof window.MouseEvent is true
-PASS document.createEvent('WheelEvent') instanceof window.UIEvent is true
-PASS document.createEvent('WheelEvent') instanceof window.Event is true
-PASS document.createEvent('WheelEvent').constructor === window.WheelEvent is true
 PASS document.createEvent('StorageEvent') instanceof window.StorageEvent is true
 PASS document.createEvent('StorageEvent') instanceof window.Event is true
 PASS document.createEvent('StorageEvent').constructor === window.StorageEvent is true

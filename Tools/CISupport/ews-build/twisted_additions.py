@@ -32,11 +32,22 @@ import re
 import twisted
 
 from twisted.internet import defer, error, interfaces, protocol, reactor, task
+from twisted.python import log
 from twisted.web.client import Agent, ResponseFailed
 from twisted.web.http_headers import Headers
 from twisted.web import iweb, http, _newclient
 
 from zope.interface import implementer
+
+from .utils import load_password
+
+# Proxy configuration environment variables
+# When PROXY_ALLOWED_HOSTS is set, proxy is only used for hosts in that list
+# When empty (default), proxy is determined from standard http_proxy/https_proxy env vars
+HTTPS_PROXY_HOST = load_password('HTTPS_PROXY_HOST', default='')
+HTTPS_PROXY_PORT = int(load_password('HTTPS_PROXY_PORT', default='0') or '0')
+PROXY_ALLOWED_HOSTS = load_password('PROXY_ALLOWED_HOSTS', default=[])
+DEBUG_PROXY = load_password('DEBUG_PROXY', default=False)
 
 
 @implementer(interfaces.IReactorTCP, interfaces.IReactorSSL)
@@ -230,7 +241,6 @@ class TwistedAdditions(object):
         if not url:
             logger('No URL provided\n')
             defer.returnValue(None)
-        logger(f'Accessing {url} with timeout: {timeout}\n')
         hostname = '/'.join(url.split('/', 3)[:3])
         if params:
             url = '{}?{}'.format(url, '&'.join([f'{key}={value}' for key, value in params.items()]))
@@ -242,24 +252,44 @@ class TwistedAdditions(object):
             headers['Content-Type'] = ['application/json']
 
         try:
-            proxy = os.getenv('http_proxy') or os.getenv('https_proxy') or os.getenv('HTTP_PROXY') or os.getenv('HTTPS_PROXY')
-            match = cls.PROXY_RE.match(proxy) if proxy else None
-            if match:
-                proxy = HTTPProxyConnector(match.group('host'), int(match.group('port')))
-                agent = Agent(proxy, connectTimeout=timeout)
+            agent = None
+
+            if PROXY_ALLOWED_HOSTS:
+                # Allowlist-based proxy
+                # Only use proxy for specific allowed hosts
+                should_use_proxy = any(allowed_host in url for allowed_host in PROXY_ALLOWED_HOSTS)
+                if should_use_proxy and HTTPS_PROXY_HOST and HTTPS_PROXY_PORT:
+                    if DEBUG_PROXY:
+                        log.msg(f'Using proxy {HTTPS_PROXY_HOST}:{HTTPS_PROXY_PORT} for {hostname}')
+                    proxy = HTTPProxyConnector(HTTPS_PROXY_HOST, HTTPS_PROXY_PORT)
+                    agent = Agent(proxy, connectTimeout=timeout)
+                else:
+                    if DEBUG_PROXY:
+                        log.msg(f'Direct connection for {hostname} (Allowlist mode)')
+                    agent = Agent(reactor, connectTimeout=timeout)
             else:
-                agent = Agent(reactor, connectTimeout=timeout)
+                # Environment-based proxy
+                # Use standard http_proxy/https_proxy environment variables
+                proxy = os.getenv('http_proxy') or os.getenv('https_proxy') or os.getenv('HTTP_PROXY') or os.getenv('HTTPS_PROXY')
+                match = cls.PROXY_RE.match(proxy) if proxy else None
+                if match:
+                    if DEBUG_PROXY:
+                        log.msg(f'Using env proxy {match.group("host")}:{match.group("port")} for {hostname}')
+                    proxy = HTTPProxyConnector(match.group('host'), int(match.group('port')))
+                    agent = Agent(proxy, connectTimeout=timeout)
+                else:
+                    if DEBUG_PROXY:
+                        log.msg(f'Direct connection for {hostname} (no proxy)')
+                    agent = Agent(reactor, connectTimeout=timeout)
 
             body = cls.JSONProducer(json) if json else None
             response_d = agent.request(typ, url.encode('utf-8'), Headers(headers), body)
-            response_d.addTimeout(timeout, reactor, onTimeoutCancel=lambda _1, _2: None)
+            response_d.addTimeout(timeout, reactor)
             response = yield response_d
             finished = defer.Deferred()
             response.deliverBody(cls.Printer(finished))
 
-            # Add timeout to response body delivery to prevent indefinite hanging
-            # This covers the entire response phase, not just connection establishment
-            finished.addTimeout(timeout, reactor, onTimeoutCancel=lambda _1, _2: None)
+            finished.addTimeout(timeout, reactor)
             data = yield finished
 
             headers = {}

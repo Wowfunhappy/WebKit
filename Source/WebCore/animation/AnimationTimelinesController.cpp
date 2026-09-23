@@ -36,7 +36,6 @@
 #include "DocumentWindow.h"
 #include "ElementInlines.h"
 #include "EventLoop.h"
-#include "EventTargetInlines.h"
 #include "GraphicsLayer.h"
 #include "KeyframeEffect.h"
 #include "LocalDOMWindow.h"
@@ -265,6 +264,20 @@ void AnimationTimelinesController::updateStaleScrollTimelines()
         scrollTimeline->updateCurrentTimeIfStale();
 }
 
+bool AnimationTimelinesController::hasProgressBasedScrollDrivenAnimation() const
+{
+    for (Ref timeline : m_timelines) {
+        if (!timeline->isProgressBased())
+            continue;
+        for (auto& animation : timeline->relevantAnimations()) {
+            RefPtr effect = animation->keyframeEffect();
+            if (effect && !effect->isCompletelyAccelerated())
+                return true;
+        }
+    }
+    return false;
+}
+
 #if ENABLE(THREADED_ANIMATIONS)
 void AnimationTimelinesController::runPostRenderingUpdateTasks()
 {
@@ -295,7 +308,7 @@ void AnimationTimelinesController::suspendAnimations()
 
     m_cachedCurrentTimeClearanceTimer.stop();
 
-    for (Ref timeline : m_timelines)
+    for (auto& timeline : copyToVectorOf<Ref<AnimationTimeline>>(m_timelines))
         timeline->suspendAnimations();
 
     m_isSuspended = true;
@@ -319,7 +332,7 @@ ReducedResolutionSeconds AnimationTimelinesController::liveCurrentTime() const
     return protect(document().window())->nowTimestamp();
 }
 
-std::optional<Seconds> AnimationTimelinesController::currentTime(UseCachedCurrentTime useCachedCurrentTime)
+std::optional<ReducedResolutionSeconds> AnimationTimelinesController::currentTime(UseCachedCurrentTime useCachedCurrentTime)
 {
     if (!m_document->window())
         return std::nullopt;

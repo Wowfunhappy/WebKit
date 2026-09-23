@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -71,12 +71,12 @@ BitmapImage::BitmapImage(Ref<NativeImage>&& image)
 
 EncodedDataStatus BitmapImage::dataChanged(bool allDataReceived)
 {
-    return m_source->dataChanged(data(), allDataReceived);
+    return m_source->dataChanged(protect(data()), allDataReceived);
 }
 
 void BitmapImage::dataReplaced()
 {
-    return m_source->dataReplaced(data());
+    return m_source->dataReplaced(protect(data()));
 }
 
 void BitmapImage::destroyDecodedData(bool destroyAll)
@@ -101,9 +101,10 @@ ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& des
     auto scaleFactorForDrawing = context.scaleFactorForDrawing(destinationRect, adjustedSourceRect);
     auto sizeForDrawing = expandedIntSize(sourceSize * scaleFactorForDrawing);
     auto subsamplingLevel =  m_source->subsamplingLevelForScaleFactor(context, scaleFactorForDrawing, options.allowImageSubsampling());
-    auto shouldDecodeToHDR = m_source->hasHDRGainMap() && options.drawsHDRContent() == DrawsHDRContent::Yes && options.dynamicRangeLimit() != PlatformDynamicRangeLimit::standard() ? ShouldDecodeToHDR::Yes : ShouldDecodeToHDR::No;
+    auto preferredDecodingDestination = m_source->preferredDecodingDestination(context, options);
 
-    auto nativeImageOrError = m_source->currentNativeImageForDrawing(subsamplingLevel, { options.decodingMode(), shouldDecodeToHDR, sizeForDrawing });
+    auto decodingOptions = DecodingOptions { options.decodingMode(), preferredDecodingDestination, sizeForDrawing };
+    auto nativeImageOrError = m_source->currentNativeImageForDrawing(subsamplingLevel, decodingOptions);
 
     if (!nativeImageOrError) {
         // The decoder has not returned a frame. Fill the image rectangle with a debugging color to show what has happened.
@@ -137,7 +138,7 @@ ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& des
             auto headroom = options.headroom();
 
             if (headroom == Headroom::FromImage)
-                headroom = currentFrameHeadroom(shouldDecodeToHDR);
+                headroom = nativeImage->headroom();
 
             context.drawNativeImage(nativeImage, destinationRect, adjustedSourceRect, { options, orientation, headroom });
 #if !HAVE(SUPPORT_HDR_DISPLAY_APIS)

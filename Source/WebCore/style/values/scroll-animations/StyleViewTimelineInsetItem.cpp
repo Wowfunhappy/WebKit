@@ -25,10 +25,9 @@
 #include "config.h"
 #include "StyleViewTimelineInsetItem.h"
 
-#include "CSSPrimitiveValue.h"
 #include "CSSValuePair.h"
 #include "StyleBuilderChecking.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
+#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -36,16 +35,11 @@ namespace Style {
 
 // MARK: - Conversion
 
-auto CSSValueConversion<ViewTimelineInsetItem>::operator()(BuilderState& state, const CSSPrimitiveValue& value) -> ViewTimelineInsetItem
-{
-    return toStyleFromCSSValue<ViewTimelineInsetItem::Length>(state, value);
-}
-
 auto CSSValueConversion<ViewTimelineInsetItem>::operator()(BuilderState& state, const CSSValuePair& value) -> ViewTimelineInsetItem
 {
     return {
-        toStyleFromCSSValue<ViewTimelineInsetItem::Length>(state, value.first()),
-        toStyleFromCSSValue<ViewTimelineInsetItem::Length>(state, value.second()),
+        toStyleFromCSSValue<ViewTimelineInsetItem::Offset>(state, value.first()),
+        toStyleFromCSSValue<ViewTimelineInsetItem::Offset>(state, value.second()),
     };
 }
 
@@ -54,11 +48,7 @@ auto CSSValueConversion<ViewTimelineInsetItem>::operator()(BuilderState& state, 
     if (RefPtr pair = dynamicDowncast<CSSValuePair>(value))
         return this->operator()(state, *pair);
 
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::Auto { };
-
-    return this->operator()(state, *primitiveValue);
+    return toStyleFromCSSValue<ViewTimelineInsetItem::Offset>(state, value);
 }
 
 } // namespace Style

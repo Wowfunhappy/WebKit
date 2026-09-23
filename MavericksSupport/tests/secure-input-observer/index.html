@@ -1,0 +1,6 @@
+<!doctype html><title>loading</title><iframe></iframe><script>
+onmessage=e=>document.title=e.data;
+let url=new URL('password.html',location.href);
+url.hostname='localhost';
+document.querySelector('iframe').src=url.href;
+</script>

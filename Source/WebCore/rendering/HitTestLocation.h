@@ -28,9 +28,11 @@ namespace WebCore {
 
 class HitTestLocation {
 public:
+    enum class RectBased : bool { No, Yes };
+
     WEBCORE_EXPORT HitTestLocation();
     HitTestLocation(const LayoutPoint&);
-    HitTestLocation(const FloatPoint&, const FloatQuad&);
+    HitTestLocation(const FloatPoint&, const FloatQuad&, RectBased = RectBased::Yes);
 
     HitTestLocation(const LayoutRect&);
 
@@ -48,7 +50,7 @@ public:
     bool isRectilinear() const { return m_isRectilinear; }
     LayoutRect boundingBox() const { return m_boundingBox; }
 
-    WEBCORE_EXPORT bool intersects(const LayoutRect&) const;
+    WEBCORE_EXPORT bool NODELETE intersects(const LayoutRect&) const;
     bool intersects(const FloatRect&) const;
     bool intersects(const LayoutRoundedRect&) const;
 
@@ -56,7 +58,7 @@ public:
     const FloatQuad& transformedRect() const LIFETIME_BOUND { return m_transformedRect; }
 
 private:
-    template<typename RectType> bool intersectsRect(const RectType&) const;
+    template<typename RectType> bool NODELETE intersectsRect(const RectType&) const;
 
     void move(const LayoutSize&);
 

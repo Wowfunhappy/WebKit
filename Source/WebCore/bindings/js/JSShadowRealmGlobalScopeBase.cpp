@@ -26,6 +26,7 @@
 #include "config.h"
 #include "JSShadowRealmGlobalScopeBase.h"
 
+#include "DOMWrapperWorld.h"
 #include "EventLoop.h"
 #include "JSShadowRealmGlobalScope.h"
 #include "ScriptModuleLoader.h"
@@ -93,7 +94,7 @@ void JSShadowRealmGlobalScopeBase::finishCreation(VM& vm, JSGlobalProxy* proxy)
 template<typename Visitor>
 void JSShadowRealmGlobalScopeBase::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSShadowRealmGlobalScopeBase* thisObject = jsCast<JSShadowRealmGlobalScopeBase*>(cell);
+    JSShadowRealmGlobalScopeBase* thisObject = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_proxy);
@@ -121,37 +122,37 @@ void JSShadowRealmGlobalScopeBase::destroy(JSCell* cell)
 
 bool JSShadowRealmGlobalScopeBase::supportsRichSourceInfo(const JSGlobalObject* object)
 {
-    auto incubating = jsCast<const JSShadowRealmGlobalScopeBase*>(object)->incubatingRealm();
+    auto incubating = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(object)->incubatingRealm();
     return incubating->globalObjectMethodTable()->supportsRichSourceInfo(incubating);
 }
 
 bool JSShadowRealmGlobalScopeBase::shouldInterruptScript(const JSGlobalObject* object)
 {
-    auto incubating = jsCast<const JSShadowRealmGlobalScopeBase*>(object)->incubatingRealm();
+    auto incubating = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(object)->incubatingRealm();
     return incubating->globalObjectMethodTable()->shouldInterruptScript(incubating);
 }
 
 bool JSShadowRealmGlobalScopeBase::shouldInterruptScriptBeforeTimeout(const JSGlobalObject* object)
 {
-    auto incubating = jsCast<const JSShadowRealmGlobalScopeBase*>(object)->incubatingRealm();
+    auto incubating = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(object)->incubatingRealm();
     return incubating->globalObjectMethodTable()->shouldInterruptScriptBeforeTimeout(incubating);
 }
 
 RuntimeFlags JSShadowRealmGlobalScopeBase::javaScriptRuntimeFlags(const JSGlobalObject* object)
 {
-    auto incubating = jsCast<const JSShadowRealmGlobalScopeBase*>(object)->incubatingRealm();
+    auto incubating = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(object)->incubatingRealm();
     return incubating->globalObjectMethodTable()->javaScriptRuntimeFlags(incubating);
 }
 
 JSC::ScriptExecutionStatus JSShadowRealmGlobalScopeBase::scriptExecutionStatus(JSC::JSGlobalObject* globalObject, JSC::JSObject* owner)
 {
-    auto incubating = jsCast<JSShadowRealmGlobalScopeBase*>(globalObject)->incubatingRealm();
+    auto incubating = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(globalObject)->incubatingRealm();
     return incubating->globalObjectMethodTable()->scriptExecutionStatus(incubating, owner);
 }
 
 void JSShadowRealmGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, const String& msg)
 {
-    auto incubating = jsCast<JSShadowRealmGlobalScopeBase*>(globalObject)->incubatingRealm();
+    auto incubating = uncheckedDowncast<JSShadowRealmGlobalScopeBase>(globalObject)->incubatingRealm();
     incubating->globalObjectMethodTable()->reportViolationForUnsafeEval(incubating, msg);
 }
 

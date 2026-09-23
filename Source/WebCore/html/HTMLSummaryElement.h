@@ -42,7 +42,7 @@ private:
 
     bool NODELETE hasCustomFocusLogic() const final { return true; }
 
-    RefPtr<HTMLDetailsElement> detailsElement() const;
+    RefPtr<HTMLDetailsElement> NODELETE detailsElement() const;
 
     int defaultTabIndex() const final;
     bool supportsFocus() const final;

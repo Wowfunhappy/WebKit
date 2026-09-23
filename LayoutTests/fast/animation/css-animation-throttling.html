@@ -25,9 +25,11 @@
 description("Tests that CSS animations are throttled in low power mode.");
 jsTestIsAsync = true;
 
-const element = document.getElementById("testElement");
-element.onanimationstart = function() {
-    element.onanimationstart = null;
+document.getElementById("testElement").addEventListener("animationstart", () => {
+    debug("Ensure low-power mode and aggressive thermal mitigation are disabled");
+    evalAndLog("internals.setLowPowerModeEnabled(false)");
+    evalAndLog("internals.setAggressiveThermalMitigationEnabled(false)");
+    debug("");
 
     window.unthrottled = internals.animationsInterval;
     window.throttled = unthrottled * 2;
@@ -41,7 +43,7 @@ element.onanimationstart = function() {
     evalAndLog("internals.setAggressiveThermalMitigationEnabled(false)");
     shouldBe("internals.animationsInterval", "unthrottled");
     finishJSTest();
-};
+}, { once: true });
 </script>
 <script src="../../resources/js-test-post.js"></script>
 </body>

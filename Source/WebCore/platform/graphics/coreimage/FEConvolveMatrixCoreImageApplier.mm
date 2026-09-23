@@ -31,6 +31,7 @@
 #import "FEConvolveMatrix.h"
 #import "Filter.h"
 #import "FilterImage.h"
+#import "Logging.h"
 #import <CoreImage/CIFilterBuiltins.h>
 #import <CoreImage/CoreImage.h>
 #import <simd/simd.h>

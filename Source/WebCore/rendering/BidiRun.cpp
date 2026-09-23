@@ -39,8 +39,6 @@ BidiRun::BidiRun(unsigned start, unsigned stop, RenderObject& renderer, BidiCont
     ASSERT(!is<RenderText>(m_renderer) || static_cast<unsigned>(stop) <= downcast<RenderText>(m_renderer).text().length());
 }
 
-BidiRun::~BidiRun()
-{
-}
+BidiRun::~BidiRun() = default;
 
 }

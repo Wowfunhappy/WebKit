@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "JITPlan.h"
+#include "DFGCommon.h"
 
 #if ENABLE(JIT)
 
@@ -39,7 +40,7 @@
 #include <wtf/CompilationThread.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/SystemTracing.h>
-#include <wtf/text/StringConcatenate.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -185,7 +186,7 @@ bool JITPlan::reportCompileTimes() const
         || (Options::reportFTLCompileTimes() && isFTL());
 }
 
-static inline void* signpostId(JITPlan& plan)
+static inline void* NODELETE signpostId(JITPlan& plan)
 {
     uintptr_t id = std::bit_cast<uintptr_t>(&plan);
     unsigned stage = static_cast<unsigned>(plan.stage());

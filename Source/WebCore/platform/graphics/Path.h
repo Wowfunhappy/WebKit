@@ -51,11 +51,6 @@ public:
     explicit Path(const Vector<FloatPoint>& points);
     WEBCORE_EXPORT Path(Ref<PathImpl>&&);
 
-    Path(const Path&) = default;
-    Path(Path&&) = default;
-    Path& operator=(const Path&) = default;
-    Path& operator=(Path&&) = default;
-
     WEBCORE_EXPORT bool definitelyEqual(const Path&) const;
 
     void moveTo(const FloatPoint&);
@@ -247,7 +242,7 @@ inline FloatPoint Path::currentPoint() const
         FloatPoint lastMoveToPoint;
         return segment->calculateEndPoint({ }, lastMoveToPoint);
     }
-    return protect(asImpl())->currentPoint();
+    SUPPRESS_UNCOUNTED_ARG return asImpl()->currentPoint();
 }
 
 inline std::optional<FloatPoint> Path::initialMoveToPoint() const

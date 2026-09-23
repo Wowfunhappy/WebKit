@@ -61,7 +61,7 @@ void printInternal(PrintStream& out, HexNumberBuffer buffer)
     out.print(StringView(buffer.span()));
 }
 
-static void toHexInternal(std::span<const uint8_t> values, std::span<Latin1Character> hexadecimalOutput)
+static void NODELETE toHexInternal(std::span<const uint8_t> values, std::span<Latin1Character> hexadecimalOutput)
 {
     for (auto [i, digestValue] : indexedRange(values)) {
         hexadecimalOutput[i * 2] = upperNibbleToASCIIHexDigit(digestValue);

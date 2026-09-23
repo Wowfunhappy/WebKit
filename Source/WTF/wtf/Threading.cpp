@@ -27,9 +27,10 @@
 #include <wtf/Threading.h>
 
 #include <bmalloc/BPlatform.h>
+#include <bmalloc/pas_process.h>
 #include <cstring>
 #include <wtf/DateMath.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/PrintStream.h>
 #include <wtf/RunLoop.h>
@@ -38,10 +39,6 @@
 #include <wtf/WTFConfig.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/threads/Signals.h>
-
-#if HAVE(QOS_CLASSES)
-#include <bmalloc/bmalloc.h>
-#endif
 
 #if OS(LINUX)
 #include <wtf/linux/RealTimeThreads.h>
@@ -136,9 +133,16 @@ static std::optional<size_t> NODELETE stackSize(ThreadType threadType)
 #endif
 }
 
-// MAVERICKS_BACKPORT(upstreamable): starts at mainThreadID so ++s_uid can never hand the reserved
-// main-thread identity (1) to an arbitrary thread or work queue — see currentSequence().
-std::atomic<uint32_t> ThreadLike::s_uid { ThreadLike::mainThreadID };
+#if PLATFORM(COCOA)
+// uid 1 is reserved for the main thread, assigned in Thread::initializeCurrentTLS
+// when pthread_main_np() returns true. ++s_uid yields >= 2 for every non-main thread.
+std::atomic<uint32_t> ThreadLike::s_uid { 1 };
+#else
+// On platforms without a way to detect the main thread before initializeMainThread()
+// has run, ++s_uid yields uids starting at 1 — the first Thread to be lazily
+// constructed gets uid 1 which currently is the main thread.
+std::atomic<uint32_t> ThreadLike::s_uid { 0 };
+#endif
 
 uint32_t ThreadLike::currentSequence()
 {
@@ -146,19 +150,6 @@ uint32_t ThreadLike::currentSequence()
     if (uint32_t uid = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(dispatch_get_specific(&s_uid))))
         return uid;
 #endif
-    // MAVERICKS_BACKPORT(upstreamable): the main thread must always identify as mainThreadID.
-    // Falling through to Thread::currentSingleton().uid() only matches WorkQueue::mainSingleton()'s
-    // m_threadID (mainThreadID == 1) if the main thread happened to claim the FIRST uid from the
-    // shared s_uid counter — an ordering accident, not an invariant. In this port's XPC bootstrap
-    // another thread wins that race, so WorkQueue::mainSingleton().isCurrent() returned false ON
-    // the main thread and every ensureOnDispatcher() marshal silently degraded to an async
-    // dispatch (observed: SourceBufferPrivate::processMediaSample's discontinuity branch spun
-    // forever waiting for a reset that could never run before the loop restarted). Mirror
-    // ThreadLikeAssertion's own construction rule (isMainThread() ? mainThreadLike : ...): the
-    // main thread's identity is structural, not first-come-first-served. s_uid starts at
-    // mainThreadID so no thread or work queue can collide with the reserved value.
-    if (isMainThread())
-        return mainThreadID;
     return Thread::currentSingleton().uid();
 }
 
@@ -277,7 +268,7 @@ Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, Thr
 {
     WTF::initialize();
 
-    Ref thread = adoptRef(*new Thread(schedulingPolicy));
+    Ref thread = adoptRef(*new Thread(schedulingPolicy, Thread::IsMain::No));
 
     Ref context = adoptRef(*new NewThreadContext { name, WTF::move(entryPoint), thread.get() });
     {
@@ -310,25 +301,14 @@ Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, Thr
     return thread;
 }
 
-static bool NODELETE shouldRemoveThreadFromThreadGroup()
-{
-#if OS(WINDOWS)
-    // On Windows the thread specific destructor is also called when the
-    // main thread is exiting. This may lead to the main thread waiting
-    // forever for the thread group lock when exiting, if the sampling
-    // profiler thread was terminated by the system while holding the
-    // thread group lock.
-    if (WTF::isMainThread())
-        return false;
-#endif
-    return true;
-}
-
 void Thread::didExit()
 {
+    if (pas_process_is_shutting_down())
+        return;
+
     allThreads().remove(*this);
 
-    if (shouldRemoveThreadFromThreadGroup()) {
+    {
         {
             Vector<Ref<ThreadGroup>> threadGroups;
             {
@@ -464,7 +444,7 @@ static qos_class_t globalMaxQOSclass { QOS_CLASS_UNSPECIFIED };
 
 void Thread::setGlobalMaxQOSClass(qos_class_t maxClass)
 {
-    bmalloc::api::setScavengerThreadQOSClass(maxClass);
+    fastSetScavengerThreadQOSClass(maxClass);
     globalMaxQOSclass = maxClass;
 }
 
@@ -485,15 +465,6 @@ void Thread::dump(PrintStream& out) const
 ThreadSpecificKey Thread::s_key = InvalidThreadSpecificKey;
 #endif
 
-#if USE(TZONE_MALLOC)
-#if PLATFORM(COCOA)
-static bool hasDisableTZoneEntitlement()
-{
-    return processHasEntitlement("webkit.tzone.disable"_s);
-}
-#endif
-#endif
-
 void initialize()
 {
     static std::once_flag onceKey;
@@ -504,9 +475,6 @@ void initialize()
         setPermissionsOfConfigPage();
         Config::initialize();
 #if USE(TZONE_MALLOC)
-#if PLATFORM(COCOA)
-        bmalloc::api::TZoneHeapManager::setHasDisableTZoneEntitlementCallback(hasDisableTZoneEntitlement);
-#endif
         bmalloc::api::TZoneHeapManager::ensureSingleton(); // Force initialization.
 #endif
         Gigacage::ensureGigacage();

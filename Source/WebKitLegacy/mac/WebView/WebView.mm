@@ -229,7 +229,6 @@
 #import <WebCore/RemoteFrameClient.h>
 #import <WebCore/RemoteFrameGeometryTransformer.h>
 #import <WebCore/RemoteUserInputEventData.h>
-#import <WebCore/RenderStyle+GettersInlines.h>
 #import <WebCore/RenderTheme.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/RenderWidget.h>
@@ -243,6 +242,11 @@
 #import <WebCore/Settings.h>
 #import <WebCore/ShouldTreatAsContinuingLoad.h>
 #import <WebCore/StringUtilities.h>
+#import <WebCore/StyleComputedStyle.h>
+#import <WebCore/StyleFontStyle.h>
+#import <WebCore/StyleFontWeight.h>
+#import <WebCore/StyleTextAlign.h>
+#import <WebCore/StyleTextDecorationLine.h>
 #import <WebCore/TextResourceDecoder.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/TranslationContextMenuInfo.h>
@@ -407,7 +411,10 @@
 #endif
 
 #if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
+#if !defined(WebKitLegacy_AVKitLibrary_SoftLinked)
+#define WebKitLegacy_AVKitLibrary_SoftLinked
 SOFT_LINK_FRAMEWORK(AVKit)
+#endif
 SOFT_LINK_CLASS(AVKit, AVTouchBarPlaybackControlsProvider)
 SOFT_LINK_CLASS(AVKit, AVTouchBarScrubber)
 #endif
@@ -581,10 +588,6 @@ const auto LDMEnabledKey = CFSTR("LDMGlobalEnabled");
 #if PLATFORM(IOS_FAMILY)
 static Class s_pdfRepresentationClass;
 static Class s_pdfViewClass;
-#endif
-
-#ifndef NDEBUG
-static const char webViewIsOpen[] = "At least one WebView is still open.";
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -1705,6 +1708,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
     auto storageProvider = PageStorageSessionProvider::create();
     WebCore::PageConfiguration pageConfiguration(
         WebCore::PageIdentifier::generate(),
+        std::nullopt,
         [[self preferences] privateBrowsingEnabled] ? PAL::SessionID::legacyPrivateSessionID() : PAL::SessionID::defaultSessionID(),
         makeUniqueRef<WebEditorClient>(self),
         LegacySocketProvider::create(),
@@ -1982,6 +1986,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
     auto storageProvider = PageStorageSessionProvider::create();
     WebCore::PageConfiguration pageConfiguration(
         WebCore::PageIdentifier::generate(),
+        std::nullopt,
         [[self preferences] privateBrowsingEnabled] ? PAL::SessionID::legacyPrivateSessionID() : PAL::SessionID::defaultSessionID(),
         makeUniqueRef<WebEditorClient>(self),
         LegacySocketProvider::create(),
@@ -5344,7 +5349,7 @@ IGNORE_WARNINGS_END
     initialized = YES;
 
     if (WTF::CocoaApplication::shouldOSFaultLogForAppleApplicationUsingWebKit1())
-        RELEASE_LOG_FAULT_WITH_PAYLOAD(Threading, "WebView initialized");
+        RELEASE_LOG_FAULT_WITH_PAYLOAD(View, "WebView initialized");
 
     WebCore::initializeMainThreadIfNeeded();
 
@@ -9833,10 +9838,10 @@ FORWARD(toggleUnderline)
     return self._isRichlyEditable ? _private->_richTextTouchBar.get() : _private->_plainTextTouchBar.get();
 }
 
-static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::RenderStyle* style)
+static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Style::ComputedStyle* style)
 {
     NSTextAlignment textAlignment;
-    switch (style->textAlign()) {
+    switch (WebCore::Style::textAlign(*style)) {
     case WebCore::Style::TextAlign::Right:
     case WebCore::Style::TextAlign::WebKitRight:
         textAlignment = NSTextAlignmentRight;
@@ -9949,15 +9954,15 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
         if (!selection.isNone()) {
             RefPtr<Node> nodeToRemove;
             if (auto* style = coreFrame->editor().styleForSelectionStart(nodeToRemove)) {
-                [_private->_textTouchBarItemController setTextIsBold:style->fontWeight().isConsideredBold()];
-                [_private->_textTouchBarItemController setTextIsItalic:style->fontStyle().isConsideredItalic()];
+                [_private->_textTouchBarItemController setTextIsBold:WebCore::Style::fontWeight(*style).isConsideredBold()];
+                [_private->_textTouchBarItemController setTextIsItalic:WebCore::Style::fontStyle(*style).isConsideredItalic()];
 
                 RefPtr<EditingStyle> typingStyle = coreFrame->selection().typingStyle();
                 if (typingStyle && typingStyle->style()) {
                     String value = typingStyle->style()->getPropertyValue(CSSPropertyWebkitTextDecorationsInEffect);
                     [_private->_textTouchBarItemController setTextIsUnderlined:value.contains("underline"_s)];
                 } else
-                    [_private->_textTouchBarItemController setTextIsUnderlined:style->textDecorationLineInEffect().hasUnderline()];
+                    [_private->_textTouchBarItemController setTextIsUnderlined:WebCore::Style::textDecorationLineInEffect(*style).hasUnderline()];
 
                 auto textColor = style->visitedDependentColor();
                 if (textColor.isValid())

@@ -55,9 +55,7 @@ VideoLayerManagerObjC::VideoLayerManagerObjC(const Logger& logger, uint64_t logI
 }
 #endif
 
-VideoLayerManagerObjC::~VideoLayerManagerObjC()
-{
-}
+VideoLayerManagerObjC::~VideoLayerManagerObjC() = default;
 
 PlatformLayer* VideoLayerManagerObjC::videoInlineLayer() const
 {

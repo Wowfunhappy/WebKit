@@ -29,7 +29,7 @@
 
 #include <gcrypt.h>
 
-namespace PAL {
+namespace PAL::Crypto {
 
 struct CryptoDigestContext {
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(CryptoDigestContext);
@@ -95,4 +95,4 @@ Vector<uint8_t> CryptoDigest::computeHash()
     return result;
 }
 
-} // namespace PAL
+} // namespace PAL::Crypto

@@ -16,6 +16,7 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/i18n/META.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/i18n/README
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/i18n/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/i18n/css3-selectors-lang-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/i18n/css3-selectors-lang-002.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/i18n/css3-selectors-lang-004.html

@@ -99,15 +99,15 @@ private:
     void advance(CodePointIterator<CharacterType>& iterator) { advance<CharacterType, reportSyntaxViolation>(iterator, iterator); }
     template<typename CharacterType, ReportSyntaxViolation = ReportSyntaxViolation::Yes>
     void advance(CodePointIterator<CharacterType>&, const CodePointIterator<CharacterType>& iteratorForSyntaxViolationPosition);
-    template<typename CharacterType> bool takesTwoAdvancesUntilEnd(CodePointIterator<CharacterType>);
+    template<typename CharacterType> bool NODELETE takesTwoAdvancesUntilEnd(CodePointIterator<CharacterType>);
     template<typename CharacterType> void syntaxViolation(const CodePointIterator<CharacterType>&);
     template<typename CharacterType> bool isPercentEncodedDot(CodePointIterator<CharacterType>);
     template<typename CharacterType> bool isWindowsDriveLetter(CodePointIterator<CharacterType>);
     template<typename CharacterType> bool isSingleDotPathSegment(CodePointIterator<CharacterType>);
     template<typename CharacterType> bool isDoubleDotPathSegment(CodePointIterator<CharacterType>);
     template<typename CharacterType> bool shouldCopyFileURL(CodePointIterator<CharacterType>);
-    template<typename CharacterType> bool checkLocalhostCodePoint(CodePointIterator<CharacterType>&, char32_t);
-    template<typename CharacterType> bool isAtLocalhost(CodePointIterator<CharacterType>);
+    template<typename CharacterType> bool NODELETE checkLocalhostCodePoint(CodePointIterator<CharacterType>&, char32_t);
+    template<typename CharacterType> bool NODELETE isAtLocalhost(CodePointIterator<CharacterType>);
     bool NODELETE isLocalhost(StringView);
     template<typename CharacterType> void consumeSingleDotPathSegment(CodePointIterator<CharacterType>&);
     template<typename CharacterType> void consumeDoubleDotPathSegment(CodePointIterator<CharacterType>&);
@@ -117,6 +117,7 @@ private:
     template<bool(*isInCodeSet)(char32_t), typename CharacterType> void utf8PercentEncode(const CodePointIterator<CharacterType>&);
     template<typename CharacterType> void utf8QueryEncode(const CodePointIterator<CharacterType>&);
     template<typename CharacterType> std::optional<Latin1Buffer> domainToASCII(StringImpl&, const CodePointIterator<CharacterType>& iteratorForSyntaxViolationPosition);
+    template<typename SyntaxViolationHandler> static Latin1Buffer percentDecodeImpl(std::span<const Latin1Character>, SyntaxViolationHandler&&);
     template<typename CharacterType> Latin1Buffer percentDecode(std::span<const Latin1Character>, const CodePointIterator<CharacterType>& iteratorForSyntaxViolationPosition);
     static Latin1Buffer percentDecode(std::span<const Latin1Character>);
     bool NODELETE hasForbiddenHostCodePoint(const Latin1Buffer&);
@@ -128,8 +129,6 @@ private:
     bool copyBaseWindowsDriveLetter(const URL&);
     StringView parsedDataView(size_t start, size_t length) LIFETIME_BOUND;
     char16_t parsedDataView(size_t position);
-    template<typename CharacterType> bool NODELETE subdomainStartsWithXNDashDash(CodePointIterator<CharacterType>);
-    bool subdomainStartsWithXNDashDash(StringImpl&);
 
     bool NODELETE needsNonSpecialDotSlash() const;
     void addNonSpecialDotSlash();
@@ -142,8 +141,8 @@ private:
     template<typename CharacterType> Expected<uint32_t, URLParser::IPv4PieceParsingError> parseIPv4Piece(CodePointIterator<CharacterType>&, bool& syntaxViolation);
     using IPv6Address = std::array<uint16_t, 8>;
     template<typename CharacterType> std::optional<IPv6Address> parseIPv6Host(CodePointIterator<CharacterType>);
-    template<typename CharacterType> std::optional<uint32_t> parseIPv4PieceInsideIPv6(CodePointIterator<CharacterType>&);
-    template<typename CharacterType> std::optional<IPv4Address> parseIPv4AddressInsideIPv6(CodePointIterator<CharacterType>);
+    template<typename CharacterType> std::optional<uint32_t> NODELETE parseIPv4PieceInsideIPv6(CodePointIterator<CharacterType>&);
+    template<typename CharacterType> std::optional<IPv4Address> NODELETE parseIPv4AddressInsideIPv6(CodePointIterator<CharacterType>);
     void serializeIPv6Piece(uint16_t piece);
     void serializeIPv6(IPv6Address);
 

@@ -3,7 +3,9 @@
 Success! The navigation was blocked
 <script>
 window.addEventListener("load", e => {
-  top.location = "http://localhost:8000/security/resources/should-not-have-loaded.html";
+  try {
+    top.location = "http://localhost:8000/security/resources/should-not-have-loaded.html";
+  } catch (e) { }
 });
 </script>
 </body>

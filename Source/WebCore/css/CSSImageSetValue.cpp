@@ -29,8 +29,11 @@
 #include "CSSImageSetOptionValue.h"
 #include "CSSImageValue.h"
 #include "CSSPrimitiveValue.h"
+#include "DeprecatedCSSOMValueList.h"
 #include "StyleBuilderState.h"
 #include "StyleImageSet.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
+#include "StyleString.h"
 #include <numeric>
 #include <wtf/text/StringBuilder.h>
 
@@ -60,6 +63,11 @@ String CSSImageSetValue::customCSSText(const CSS::SerializationContext& context)
     return result.toString();
 }
 
+Ref<DeprecatedCSSOMValue> CSSImageSetValue::customCreateDeprecatedCSSOMWrapper(CSSStyleDeclaration& owner) const
+{
+    return DeprecatedCSSOMValueList::create(*this, owner);
+}
+
 RefPtr<Style::Image> CSSImageSetValue::createStyleImage(const Style::BuilderState& state) const
 {
     size_t length = this->length();
@@ -68,8 +76,8 @@ RefPtr<Style::Image> CSSImageSetValue::createStyleImage(const Style::BuilderStat
         RefPtr<const CSSImageSetOptionValue> option = downcast<CSSImageSetOptionValue>(item(i));
         return Style::ImageWithScale {
             .image = state.createStyleImage(option->image()),
-            .scaleFactor = protect(option->resolution())->resolveAsResolution<float>(state.cssToLengthConversionData()),
-            .mimeType = option->type(),
+            .scaleFactor = Style::toStyle(option->resolution(), state),
+            .mimeType = Style::toStyle(option->type(), state),
         };
     });
 
@@ -79,7 +87,7 @@ RefPtr<Style::Image> CSSImageSetValue::createStyleImage(const Style::BuilderStat
     std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
 
     std::stable_sort(sortedIndices.begin(), sortedIndices.end(), [&images](size_t lhs, size_t rhs) {
-        return images[lhs].scaleFactor < images[rhs].scaleFactor;
+        return images[lhs].scaleFactor.value < images[rhs].scaleFactor.value;
     });
 
     return Style::ImageSet::create(WTF::move(images), WTF::move(sortedIndices));

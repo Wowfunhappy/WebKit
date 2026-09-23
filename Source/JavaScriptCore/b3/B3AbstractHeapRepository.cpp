@@ -33,16 +33,21 @@
 #include "B3MemoryValue.h"
 #include "B3PatchpointValue.h"
 #include "B3ValueInlines.h"
+#include "B3WasmArrayGetValue.h"
+#include "B3WasmArrayLengthValue.h"
+#include "B3WasmArraySetValue.h"
 #include "ClonedArguments.h"
 #include "ConcatKeyAtomStringCache.h"
 #include "DateInstance.h"
 #include "DirectArguments.h"
 #include "GetterSetter.h"
 #include "HasOwnPropertyCache.h"
+#include "JSArrayBufferView.h"
 #include "JSBoundFunction.h"
 #include "JSGlobalObject.h"
 #include "JSGlobalProxy.h"
 #include "JSMap.h"
+#include "JSPromise.h"
 #include "JSPropertyNameEnumerator.h"
 #include "JSSet.h"
 #include "JSWeakMap.h"
@@ -64,6 +69,8 @@
 #include "WebAssemblyModuleRecord.h"
 
 namespace JSC::B3 {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AbstractHeapRepository);
 
 AbstractHeapRepository::AbstractHeapRepository()
     : root(nullptr, "jscRoot")
@@ -168,6 +175,21 @@ void AbstractHeapRepository::decorateWasmStructSet(const AbstractHeap* heap, Val
     m_heapForWasmStructSet.append(HeapForValue(heap, value));
 }
 
+void AbstractHeapRepository::decorateWasmArrayGet(const AbstractHeap* heap, Value* value)
+{
+    m_heapForWasmArrayGet.append(HeapForValue(heap, value));
+}
+
+void AbstractHeapRepository::decorateWasmArraySet(const AbstractHeap* heap, Value* value)
+{
+    m_heapForWasmArraySet.append(HeapForValue(heap, value));
+}
+
+void AbstractHeapRepository::decorateWasmArrayLength(const AbstractHeap* heap, Value* value)
+{
+    m_heapForWasmArrayLength.append(HeapForValue(heap, value));
+}
+
 void AbstractHeapRepository::computeRangesAndDecorateInstructions()
 {
     root.compute();
@@ -212,6 +234,18 @@ void AbstractHeapRepository::computeRangesAndDecorateInstructions()
     for (HeapForValue entry : m_heapForWasmStructSet) {
         auto* wasmStructSet = entry.value->as<WasmStructSetValue>();
         wasmStructSet->setRange(rangeFor(entry.heap));
+    }
+    for (HeapForValue entry : m_heapForWasmArrayGet) {
+        auto* wasmArrayGet = entry.value->as<WasmArrayGetValue>();
+        wasmArrayGet->setRange(rangeFor(entry.heap));
+    }
+    for (HeapForValue entry : m_heapForWasmArraySet) {
+        auto* wasmArraySet = entry.value->as<WasmArraySetValue>();
+        wasmArraySet->setRange(rangeFor(entry.heap));
+    }
+    for (HeapForValue entry : m_heapForWasmArrayLength) {
+        auto* wasmArrayLength = entry.value->as<WasmArrayLengthValue>();
+        wasmArrayLength->setRange(rangeFor(entry.heap));
     }
 }
 

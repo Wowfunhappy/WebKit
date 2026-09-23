@@ -71,7 +71,7 @@ private:
     // WARNING: We require all of these default values to be zero. Otherwise, you'll need to add
     // "static constexpr bool emptyValueIsZero = false;" to the HashTraits at the bottom of this file.
     JSObject* m_prototype { nullptr }; 
-    FunctionExecutable* m_executable { nullptr }; 
+    SUPPRESS_FORWARD_DECL_MEMBER FunctionExecutable* m_executable { nullptr };
     unsigned m_inlineCapacity { 0 };
     const ClassInfo* m_classInfo { nullptr };
 };

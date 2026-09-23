@@ -5,13 +5,17 @@
 <script>
 description("Test blocking of suspicious top-level navigations by a third-party iframe (same-site but redirects to a different site)");
 jsTestIsAsync = true;
+
+internals.setConsoleMessageListener(function(message) {
+    if (message.includes("Unsafe JavaScript attempt to initiate navigation")) {
+        testPassed("Navigation by subframe has been blocked");
+        finishJSTest();
+    }
+});
+
 onload = () => {
     setTimeout(() => {
         document.getElementById('testFrame').src = "http://localhost:8000/security/resources/navigate-top-level-frame-to-failure-page-via-redirect.html";
-        setTimeout(() => {
-            testPassed("All navigations by subframes have been blocked");
-            finishJSTest();
-        }, 100);
     }, 10);
 }
 </script>

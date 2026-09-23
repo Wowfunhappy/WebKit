@@ -1508,7 +1508,7 @@ angle::Result Renderer9::drawElementsImpl(const gl::Context *context,
         context, type, count, indices, context->getState().isPrimitiveRestartEnabled(),
         &indexRange));
 
-    size_t vertexCount = indexRange.vertexCount();
+    uint64_t vertexCount = indexRange.vertexCount();
     ANGLE_TRY(applyVertexBuffer(context, mode, static_cast<GLsizei>(indexRange.start()),
                                 static_cast<GLsizei>(vertexCount), instances, &indexInfo));
 
@@ -2478,11 +2478,6 @@ int Renderer9::getMinorShaderModel() const
     return D3DSHADER_VERSION_MINOR(mDeviceCaps.PixelShaderVersion);
 }
 
-std::string Renderer9::getShaderModelSuffix() const
-{
-    return "";
-}
-
 DWORD Renderer9::getCapsDeclTypes() const
 {
     return mDeviceCaps.DeclTypes;
@@ -2971,8 +2966,7 @@ TextureStorage *Renderer9::createTextureStorage2D(GLenum internalformat,
                                                   GLsizei width,
                                                   GLsizei height,
                                                   int levels,
-                                                  const std::string &label,
-                                                  bool hintLevelZeroOnly)
+                                                  const std::string &label)
 {
     return new TextureStorage9_2D(this, internalformat, bindFlags.renderTarget, width, height,
                                   levels, label);
@@ -2982,11 +2976,10 @@ TextureStorage *Renderer9::createTextureStorageCube(GLenum internalformat,
                                                     BindFlags bindFlags,
                                                     int size,
                                                     int levels,
-                                                    bool hintLevelZeroOnly,
                                                     const std::string &label)
 {
     return new TextureStorage9_Cube(this, internalformat, bindFlags.renderTarget, size, levels,
-                                    hintLevelZeroOnly, label);
+                                    label);
 }
 
 TextureStorage *Renderer9::createTextureStorage3D(GLenum internalformat,
@@ -3075,7 +3068,7 @@ angle::Result Renderer9::getVertexSpaceRequired(const gl::Context *context,
                                                 const gl::VertexBinding &binding,
                                                 size_t count,
                                                 GLsizei instances,
-                                                GLuint baseInstance,
+                                                uint64_t baseInstance,
                                                 unsigned int *bytesRequiredOut) const
 {
     if (!attrib.enabled)

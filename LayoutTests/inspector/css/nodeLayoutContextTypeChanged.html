@@ -126,6 +126,52 @@ function test()
         }
     });
 
+    addEnsureLayoutContextTypeTestCase({
+        name: "CSS.nodeLayoutContextTypeChanged.Subgrid",
+        description: "Make sure a subgrid element is detected as a subgrid.",
+        selector: "#subgridElement",
+        expectedLayoutContextType: WI.DOMNode.LayoutFlag.Subgrid,
+    });
+
+    addTestCase({
+        name: "CSS.nodeLayoutContextTypeChanged.SubgridToNonGrid",
+        description: "Change a subgrid to a non-grid.",
+        selector: "#subgridToNonGrid",
+        async domNodeHandler(domNode) {
+            InspectorTest.expectEqual(domNode.layoutContextType, WI.DOMNode.LayoutFlag.Subgrid, "Layout context should be `subgrid`.");
+
+            await Promise.all([
+                domNode.awaitEvent(WI.DOMNode.Event.LayoutFlagsChanged),
+                changeElementDisplayValue("subgridToNonGrid", "block"),
+            ]);
+
+            InspectorTest.expectEqual(domNode.layoutContextType, null, "Layout context should now be `null`.");
+        }
+    });
+
+    addEnsureLayoutContextTypeTestCase({
+        name: "CSS.nodeLayoutContextTypeChanged.GridLanes",
+        description: "Make sure a masonry element is detected as grid-lanes.",
+        selector: "#gridLanesElement",
+        expectedLayoutContextType: WI.DOMNode.LayoutFlag.GridLanes,
+    });
+
+    addTestCase({
+        name: "CSS.nodeLayoutContextTypeChanged.GridLanesToGrid",
+        description: "Change a grid-lanes (masonry) container to a regular grid.",
+        selector: "#gridLanesToGrid",
+        async domNodeHandler(domNode) {
+            InspectorTest.expectEqual(domNode.layoutContextType, WI.DOMNode.LayoutFlag.GridLanes, "Layout context should be `grid-lanes`.");
+
+            await Promise.all([
+                domNode.awaitEvent(WI.DOMNode.Event.LayoutFlagsChanged),
+                changeElementDisplayValue("gridLanesToGrid", "grid"),
+            ]);
+
+            InspectorTest.expectEqual(domNode.layoutContextType, WI.DOMNode.LayoutFlag.Grid, "Layout context should now be `grid`.");
+        }
+    });
+
     function addEnsureLayoutContextTypeTestCase({name, description, selector, expectedLayoutContextType, setup})
     {
         addTestCase({name, description, selector, setup, async domNodeHandler(domNode) {
@@ -179,6 +225,23 @@ function test()
     .flex-container {
         display: flex;
     }
+
+    .subgrid-parent {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+    }
+
+    .subgrid-child {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+    }
+
+    .grid-lanes-container {
+        display: grid-lanes;
+        grid-template-columns: 1fr 1fr;
+    }
 </style>
 </head>
 <body onload="runTest()">
@@ -211,5 +274,29 @@ function test()
     <input type="submit" id="flexSubmitInput" />
     <select id="flexSelect"></select>
     <button id="flexButton"></button>
+
+    <div class="subgrid-parent">
+        <div id="subgridElement" class="subgrid-child">
+            <div></div>
+            <div></div>
+        </div>
+    </div>
+
+    <div class="subgrid-parent">
+        <div id="subgridToNonGrid" class="subgrid-child">
+            <div></div>
+            <div></div>
+        </div>
+    </div>
+
+    <div id="gridLanesElement" class="grid-lanes-container">
+        <div></div>
+        <div></div>
+    </div>
+
+    <div id="gridLanesToGrid" class="grid-lanes-container">
+        <div></div>
+        <div></div>
+    </div>
 </body>
 </html>

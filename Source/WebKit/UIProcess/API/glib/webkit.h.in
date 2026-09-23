@@ -61,7 +61,7 @@
 #include <@API_INCLUDE_PREFIX@/WebKitEditorState.h>
 #include <@API_INCLUDE_PREFIX@/WebKitEnumTypes.h>
 #include <@API_INCLUDE_PREFIX@/WebKitError.h>
-#if PLATFORM(GTK) || (PLATFORM(WPE) && !ENABLE(2022_GLIB_API))
+#if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitFaviconDatabase.h>
 #endif
 #include <@API_INCLUDE_PREFIX@/WebKitFeature.h>
@@ -73,7 +73,7 @@
 #include <@API_INCLUDE_PREFIX@/WebKitGeolocationManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitGeolocationPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitHitTestResult.h>
-#if PLATFORM(WPE) && ENABLE(2022_GLIB_API)
+#if ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitImage.h>
 #endif
 #include <@API_INCLUDE_PREFIX@/WebKitInputMethodContext.h>
@@ -101,8 +101,10 @@
 #if !ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitPlugin.h>
 #endif
-#if PLATFORM(GTK)
+#if ENABLE(POINTER_LOCK)
 #include <@API_INCLUDE_PREFIX@/WebKitPointerLockPermissionRequest.h>
+#endif
+#if PLATFORM(GTK)
 #if !ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitPrintCustomWidget.h>
 #endif

@@ -15,6 +15,7 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/lists/TODO-lists.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/lists/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/lists/dir-type-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/lists/dir-type-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/lists/dir-type.html

@@ -275,6 +275,29 @@ function waitFor(condition)
     });
 }
 
+async function waitForFrameGeometryReady() {
+    await waitFor(() => {
+        return accessibilityController.rootElement.isFrameGeometryInitialized;
+    });
+}
+
+// Waits for an iframe's frame geometry to be initialized and for the target
+// element to be accessible. Returns the target element.
+async function waitForIframeAccessibilityReady(iframeContainerID, targetID) {
+    let target;
+    await waitFor(() => {
+        let container = accessibilityController.accessibleElementById(iframeContainerID);
+        if (!container)
+            return false;
+        let scrollView = container.childAtIndex(0);
+        if (!scrollView || !scrollView.isFrameGeometryInitialized)
+            return false;
+        target = accessibilityController.accessibleElementById(targetID);
+        return target;
+    });
+    return target;
+}
+
 async function waitForElementById(id) {
     let element;
     await waitFor(() => {
@@ -282,6 +305,59 @@ async function waitForElementById(id) {
         return element;
     });
     return element;
+}
+
+async function waitUntilIDHasPathWith(id, minimumCount, pathComponent) {
+    await waitFor(() => {
+        var element = accessibilityController.accessibleElementById(id);
+        if (!element)
+            return false;
+        var matches = element.pathDescription.match(new RegExp(pathComponent, "g"));
+        return matches && matches.length >= minimumCount;
+    });
+}
+
+function pathSegmentCountOfID(id, segmentType) {
+    var element = accessibilityController.accessibleElementById(id);
+    if (!element)
+        return 0;
+    return (element.pathDescription.match(new RegExp(segmentType, "g")) || []).length;
+}
+
+// Parses a pathAsBounds string "{{x, y}, {w, h}}" into an object {x, y, width, height}.
+// Returns null if the element has no path or the string can't be parsed.
+function pathAsBoundsOfID(id) {
+    var element = accessibilityController.accessibleElementById(id);
+    if (!element || !element.pathAsBounds)
+        return null;
+    var match = element.pathAsBounds.match(/\{\{([^,]+),\s*([^}]+)\},\s*\{([^,]+),\s*([^}]+)\}\}/);
+    if (!match)
+        return null;
+    return { x: parseFloat(match[1]), y: parseFloat(match[2]), width: parseFloat(match[3]), height: parseFloat(match[4]) };
+}
+
+// Finds the popover Menu for a base-appearance select. On macOS, the menu is a
+// child of the select. On iOS, it is reparented to be a sibling, as both the menu
+// and menu items need to be isAccessibilityElement=YES at the same time (the menu
+// so it can be expanded and collapsed, and menu items so they can be selected).
+function findBaseSelectMenu(select) {
+    for (var i = 0; i < select.childrenCount; i++) {
+        var child = select.childAtIndex(i);
+        var childRole = child ? child.role : null;
+        if (childRole && childRole.toLowerCase().includes("menu"))
+            return child;
+    }
+
+    var parent = select.parentElement();
+    if (parent) {
+        for (var i = 0; i < parent.childrenCount; i++) {
+            var sibling = parent.childAtIndex(i);
+            var siblingRole = sibling ? sibling.role : null;
+            if (siblingRole && siblingRole.toLowerCase().includes("menu"))
+                return sibling;
+        }
+    }
+    return null;
 }
 
 // Executes the operation and waits until an accessibility notification of the provided
@@ -401,6 +477,52 @@ function expectRectWithVariance(expression, x, y, width, height, allowedVariance
         return `FAIL: ${expression} varied more than allowed variance ${allowedVariance}. Was: ${result}, expected ${expectedRect}\n`;
     else
         return `PASS: ${expression} was ${allowedVariance === 0 ? "equal" : "equal or approximately equal"} to ${expectedRect}.\n`;
+}
+
+// Draws a drawFocusIfNeeded focus ring on a canvas descendant element at the
+// given canvas-local coordinates, waits for accessibility bounds to update,
+// then verifies the reported page position and size match expectations.
+async function verifyCanvasFocusBounds({
+    canvasId, canvasDescendantId,
+    focusX, focusY, focusWidth, focusHeight,
+    expectedPageX, expectedPageY,
+    expectedWidth, expectedHeight,
+    variance = 0,
+}) {
+    var canvas = document.getElementById(canvasId);
+    var canvasContext = canvas.getContext("2d");
+    var descendant = document.getElementById(canvasDescendantId);
+
+    descendant.focus();
+
+    canvasContext.clearRect(0, 0, canvas.width, canvas.height);
+    canvasContext.beginPath();
+    canvasContext.rect(focusX, focusY, focusWidth, focusHeight);
+    canvasContext.drawFocusIfNeeded(descendant);
+
+    var axDescendant = accessibilityController.accessibleElementById(canvasDescendantId);
+
+    await waitFor(() => {
+        return Math.abs(axDescendant.width - expectedWidth) <= variance
+            && Math.abs(axDescendant.height - expectedHeight) <= variance
+            && Math.abs(axDescendant.pageX - expectedPageX) <= variance
+            && Math.abs(axDescendant.pageY - expectedPageY) <= variance;
+    });
+
+    var output = "";
+    var checks = [
+        { name: "pageX", actual: axDescendant.pageX, expected: expectedPageX },
+        { name: "pageY", actual: axDescendant.pageY, expected: expectedPageY },
+        { name: "width", actual: axDescendant.width, expected: expectedWidth },
+        { name: "height", actual: axDescendant.height, expected: expectedHeight },
+    ];
+    for (var check of checks) {
+        if (Math.abs(check.actual - check.expected) <= variance)
+            output += `PASS: ${check.name} was ${variance === 0 ? "equal" : "equal or approximately equal"} to ${check.expected}.\n`;
+        else
+            output += `FAIL: ${check.name} was ${check.actual}, expected ${check.expected} (variance ${variance}).\n`;
+    }
+    return output;
 }
 
 async function expectAsync(expression, expectedValue) {

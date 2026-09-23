@@ -24,9 +24,9 @@
  */
 
 #import "config.h"
-#import "DeprecatedGlobalValues.h"
-#import "PlatformUtilities.h"
-#import "Test.h"
+#import "Helpers/DeprecatedGlobalValues.h"
+#import "Helpers/PlatformUtilities.h"
+#import "Helpers/Test.h"
 #import <Carbon/Carbon.h>
 #import <JavaScriptCore/JSContext.h>
 #import <JavaScriptCore/JSExport.h>
@@ -70,7 +70,7 @@ TEST(WebKitLegacy, ClosingWebViewThenSendingItAKeyDownEvent)
     EXPECT_TRUE([webHTMLView respondsToSelector:@selector(keyDown:)]);
     EXPECT_TRUE([webHTMLView respondsToSelector:@selector(keyUp:)]);
 
-    auto loadDelegate = adoptNS([[ClosingWebViewThenSendingItAKeyDownEventLoadDelegate alloc] init]);
+    RetainPtr loadDelegate = adoptNS([[ClosingWebViewThenSendingItAKeyDownEventLoadDelegate alloc] init]);
     webView.get().frameLoadDelegate = loadDelegate.get();
     
     [[webView mainFrame] loadHTMLString:@"<html><body contenteditable><script>function addKeyPressHandler() { document.body.addEventListener('keypress', function(event) { event.preventDefault(); }, true) }; document.body.focus();</script></body></html>" baseURL:nil];
@@ -78,7 +78,7 @@ TEST(WebKitLegacy, ClosingWebViewThenSendingItAKeyDownEvent)
     Util::run(&didFinishLoad);
 
     // First, add a native event listener that closes the WebView.
-    auto listener = adoptNS([[KeyboardEventListener alloc] init]);
+    RetainPtr listener = adoptNS([[KeyboardEventListener alloc] init]);
     [[[webView mainFrameDocument] body] addEventListener:@"keypress" listener:listener.get() useCapture:NO];
 
     // Second, add a JavaScript event handler that consumes the event.

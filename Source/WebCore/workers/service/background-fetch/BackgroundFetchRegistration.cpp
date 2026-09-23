@@ -71,9 +71,7 @@ BackgroundFetchRegistration::BackgroundFetchRegistration(ScriptExecutionContext&
 {
 }
 
-BackgroundFetchRegistration::~BackgroundFetchRegistration()
-{
-}
+BackgroundFetchRegistration::~BackgroundFetchRegistration() = default;
 
 void BackgroundFetchRegistration::abort(ScriptExecutionContext& context, DOMPromiseDeferred<IDLBoolean>&& promise)
 {
@@ -238,8 +236,9 @@ void BackgroundFetchRegistration::updateInformation(const BackgroundFetchInforma
     m_information.result = information.result;
     m_information.failureReason = information.failureReason;
     m_information.recordsAvailable = information.recordsAvailable;
-    
-    dispatchEvent(Event::create(eventNames().progressEvent, Event::CanBubble::No, Event::IsCancelable::No));
+
+    // FIXME: We should update m_information as part of the task that fires the event.
+    queueTaskToDispatchEvent(*this, TaskSource::Networking, Event::create(eventNames().progressEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 ScriptExecutionContext* BackgroundFetchRegistration::scriptExecutionContext() const

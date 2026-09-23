@@ -35,6 +35,7 @@ AXElementBusy: 0
 AXURL: http://www.wowhead.com/?item=33924
 AXAccessKey: (null)
 AXLinkRelationshipType:
+AXPath: (null)
 
 
 Child 0:
@@ -70,6 +71,7 @@ AXVisibleCharacterRange: NSRange: {0, 0}
 AXElementBusy: 0
 AXImageOverlayElements: (null)
 AXEmbeddedImageDescription:
+AXImageDataSize: NSSize: {280, 209}
 AXURL: LayoutTests/accessibility/resources/cake.png
 
 

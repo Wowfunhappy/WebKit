@@ -33,6 +33,7 @@
 #include "FunctionOverrides.h"
 #include "SourceCodeKey.h"
 #include "IsoCellSetInlines.h"
+#include "JSArray.h"
 #include "JSCJSValueInlines.h"
 
 namespace JSC {
@@ -78,7 +79,7 @@ template<typename Visitor>
 void FunctionExecutable::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     VM& vm = visitor.vm();
-    FunctionExecutable* thisObject = jsCast<FunctionExecutable*>(cell);
+    FunctionExecutable* thisObject = uncheckedDowncast<FunctionExecutable>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_topLevelExecutable);
@@ -111,7 +112,7 @@ template<typename Visitor>
 void FunctionExecutable::visitOutputConstraintsImpl(JSCell* cell, Visitor& visitor)
 {
     VM& vm = visitor.vm();
-    auto* executable = jsCast<FunctionExecutable*>(cell);
+    auto* executable = uncheckedDowncast<FunctionExecutable>(cell);
     auto* codeBlockForCall = executable->m_codeBlockForCall.get();
     if (codeBlockForCall) {
         if (!visitor.isMarked(codeBlockForCall))

@@ -77,7 +77,7 @@ ASCIILiteral hashAlgorithmName(CryptoAlgorithmIdentifier);
 
 std::optional<int> hmacAlgorithm(CryptoAlgorithmIdentifier);
 std::optional<int> digestAlgorithm(CryptoAlgorithmIdentifier);
-std::optional<PAL::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier);
+std::optional<PAL::Crypto::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier);
 
 std::optional<size_t> mpiLength(gcry_mpi_t);
 std::optional<size_t> mpiLength(gcry_sexp_t);

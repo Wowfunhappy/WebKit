@@ -34,11 +34,11 @@ namespace WebCore {
 class Color;
 class LegacyInlineFlowBox;
 class RenderBoxModelObject;
-class RenderStyle;
 struct PaintInfo;
 template<typename> struct FillLayerToPaint;
 
 namespace Style {
+class ComputedStyle;
 struct ZoomFactor;
 enum class ShadowStyle : bool;
 }
@@ -56,11 +56,14 @@ private:
 
     void paintMask();
     void paintDecorations();
+    // Computes the rect into which a nine-piece border/mask image is painted for an inline box that
+    // has been split across multiple lines, treating the fragments as one continuous strip.
+    LayoutRect computeNinePieceImageStrip(const LayoutPoint& adjustedPaintOffset, const LayoutRect& localRect) const;
     template<typename Layers> void paintFillLayers(const Color&, const Layers&, Style::ZoomFactor, const LayoutRect& paintRect, CompositeOperator);
     template<typename Layer> void paintFillLayer(const Color&, const FillLayerToPaint<Layer>&, const LayoutRect& paintRect, CompositeOperator);
     void paintBoxShadow(Style::ShadowStyle, const LayoutRect& paintRect);
 
-    const RenderStyle& style() const;
+    const Style::ComputedStyle& style() const;
     // FIXME: Make RenderBoxModelObject functions const.
     RenderBoxModelObject& renderer() const { return const_cast<RenderBoxModelObject&>(m_renderer); }
     bool isHorizontal() const { return m_isHorizontal; }

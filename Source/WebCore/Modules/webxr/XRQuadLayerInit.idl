@@ -29,9 +29,8 @@
     EnabledBySetting=WebXRLayersAPIEnabled,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary XRQuadLayerInit : XRLayerInit {
-    WebXRRigidTransform? transform;
+    [ImplementationDefaultValue=null] WebXRRigidTransform? transform;
     float width = 1.0;
     float height = 1.0;
 };

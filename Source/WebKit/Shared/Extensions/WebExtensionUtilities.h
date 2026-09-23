@@ -55,13 +55,12 @@ RefPtr<JSON::Object> jsonWithLowercaseKeys(RefPtr<JSON::Object>);
 RefPtr<JSON::Object> mergeJSON(RefPtr<JSON::Object>, RefPtr<JSON::Object>);
 
 /// Returns a concatenated error string that combines the provided information into a single, descriptive message.
-String toErrorString(const String& callingAPIName, const String& sourceKey, String underlyingErrorString, ...);
+String toErrorString(const String& callingAPIName, const String& sourceKey, const String& underlyingErrorString);
 
 /// Returns an error for Expected results in CompletionHandler.
-template<typename... Args>
-Unexpected<WebExtensionError> toWebExtensionError(const String& callingAPIName, const String& sourceKey, const String& underlyingErrorString, Args&&... args)
+inline std::unexpected<WebExtensionError> toWebExtensionError(const String& callingAPIName, const String& sourceKey, const String& underlyingErrorString)
 {
-    return makeUnexpected(toErrorString(callingAPIName, sourceKey, underlyingErrorString, std::forward<Args>(args)...));
+    return makeUnexpected(toErrorString(callingAPIName, sourceKey, underlyingErrorString));
 }
 
 /// Returns an error object that combines the provided information into a single, descriptive message.
@@ -139,7 +138,7 @@ inline NSNumber *toWebAPI(size_t index)
 
 #endif // __OBJC__
 
-Markable<WTF::UUID> toDocumentIdentifier(WebFrame&);
+Markable<WTF::UUID> NODELETE toDocumentIdentifier(WebFrame&);
 
 } // namespace WebKit
 

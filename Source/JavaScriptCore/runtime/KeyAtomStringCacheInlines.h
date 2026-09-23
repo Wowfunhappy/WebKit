@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/Identifier.h>
 #include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/KeyAtomStringCache.h>
 #include <JavaScriptCore/SmallStrings.h>

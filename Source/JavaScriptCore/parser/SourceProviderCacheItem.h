@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <JavaScriptCore/ConstructorKind.h>
+#include <JavaScriptCore/ImplementationVisibility.h>
 #include <JavaScriptCore/ParserModes.h>
 #include <JavaScriptCore/ParserTokens.h>
 #include <wtf/Vector.h>

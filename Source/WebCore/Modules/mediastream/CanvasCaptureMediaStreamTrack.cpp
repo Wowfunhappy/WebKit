@@ -84,7 +84,7 @@ Ref<CanvasCaptureMediaStreamTrack::Source> CanvasCaptureMediaStreamTrack::Source
 
 // FIXME: Give source id and name
 CanvasCaptureMediaStreamTrack::Source::Source(HTMLCanvasElement& canvas, std::optional<double>&& frameRequestRate)
-    : RealtimeMediaSource(CaptureDevice { { }, CaptureDevice::DeviceType::Camera, "CanvasCaptureMediaStreamTrack"_s })
+    : RealtimeMediaSource(CaptureDevice { { }, CaptureDevice::DeviceType::Canvas, "CanvasCaptureMediaStreamTrack"_s })
     , m_frameRequestRate(WTF::move(frameRequestRate))
     , m_requestFrameTimer(*this, &Source::requestFrameTimerFired)
     , m_captureCanvasTimer(*this, &Source::captureCanvas)
@@ -201,6 +201,9 @@ RefPtr<VideoFrame> CanvasCaptureMediaStreamTrack::Source::grabFrame()
     if (!canvas)
         return nullptr;
 
+    if (!canvas->originClean())
+        return nullptr;
+
 #if ENABLE(WEBGL)
     if (RefPtr gl = dynamicDowncast<WebGLRenderingContextBase>(canvas->renderingContext()))
         return gl->surfaceBufferToVideoFrame(CanvasRenderingContext::SurfaceBuffer::DisplayBuffer);
@@ -221,16 +224,7 @@ void CanvasCaptureMediaStreamTrack::Source::captureCanvas()
         m_shouldEmitFrame = false;
     }
 
-    if (!canvas->originClean())
-        return;
-
-    RefPtr videoFrame = [&]() -> RefPtr<VideoFrame> {
-#if ENABLE(WEBGL)
-        if (RefPtr gl = dynamicDowncast<WebGLRenderingContextBase>(canvas->renderingContext()))
-            return gl->surfaceBufferToVideoFrame(CanvasRenderingContext::SurfaceBuffer::DisplayBuffer);
-#endif
-        return canvas->toVideoFrame();
-    }();
+    RefPtr videoFrame = grabFrame();
     if (!videoFrame)
         return;
 

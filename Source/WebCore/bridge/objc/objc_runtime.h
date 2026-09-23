@@ -27,8 +27,11 @@
 
 #include "BridgeJSC.h"
 #include "JSDOMBinding.h"
+#include "JSDOMWrapperCache.h"
 #include "objc_header.h"
+#include <JavaScriptCore/JSDestructibleObject.h>
 #include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <wtf/RetainPtr.h>
 
 namespace JSC::Bindings {

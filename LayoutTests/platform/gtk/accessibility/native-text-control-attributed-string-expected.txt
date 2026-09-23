@@ -5,128 +5,128 @@ On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE
 
 Attributed string for range (0, 9):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for 'some word':
 Attributed string for range (0, 3):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for 'som':
 Attributed string for range (5, 4):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for 'word':
 Attributed string for range (5, 10):
 Attributed string for range (10, 1):
 Attributed string for range (-1, 1):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for 's':
 
 Attributed string for range (0, 3):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for '•••':
 Attributed string for range (0, 2):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for '••':
 Attributed string for range (1, 2):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for '••':
 Attributed string for range (1, 10):
 Attributed string for range (10, 1):
 Attributed string for range (-1, 1):
 	Default text attributes:
-		family-name:Liberation Sans
-		strikethrough:false
-		fg-color:0,0,0
-		editable:true
-		underline:none
-		size:12pt
 		indent:0
-		style:normal
-		bg-color:255,255,255
-		invisible:false
 		direction:ltr
+		fg-color:0,0,0
+		style:normal
+		editable:true
+		size:12pt
+		invisible:false
+		bg-color:255,255,255
+		family-name:Liberation Sans
 		weight:400
+		underline:none
+		strikethrough:false
 	Range attributes for '•':
 
 PASS successfullyParsed is true

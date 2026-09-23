@@ -28,10 +28,12 @@
 
 #include "AnimationUtilities.h"
 #include "CSSFunctionValue.h"
+#include "CSSGridTrackSize.h"
+#include "CSSKeywordValue.h"
 #include "CSSPrimitiveValue.h"
 #include "StyleBuilderChecking.h"
-#include "StyleLengthWrapper+Blending.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
+#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
@@ -44,32 +46,70 @@ using namespace CSS::Literals;
 
 // MARK: - Conversion
 
-auto CSSValueConversion<GridTrackSize>::operator()(BuilderState& state, const CSSValue& value) -> GridTrackSize
+template<> struct ToCSS<GridMinMaxFunctionParameters> { auto operator()(const GridMinMaxFunctionParameters&, const Style::ComputedStyle&) -> CSS::GridMinMaxFunctionParameters; };
+template<> struct ToStyle<CSS::GridMinMaxFunctionParameters> { auto operator()(const CSS::GridMinMaxFunctionParameters&, const BuilderState&) -> GridMinMaxFunctionParameters; };
+
+template<> struct ToCSS<GridFitContentFunctionParameters> { auto operator()(const GridFitContentFunctionParameters&, const Style::ComputedStyle&) -> CSS::GridFitContentFunctionParameters; };
+template<> struct ToStyle<CSS::GridFitContentFunctionParameters> { auto operator()(const CSS::GridFitContentFunctionParameters&, const BuilderState&) -> GridFitContentFunctionParameters; };
+
+auto ToCSS<GridMinMaxFunctionParameters>::operator()(const GridMinMaxFunctionParameters& value, const Style::ComputedStyle& style) -> CSS::GridMinMaxFunctionParameters
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
-        return toStyleFromCSSValue<GridTrackSize::Breadth>(state, *primitiveValue);
-
-    auto function = requiredListDowncast<CSSFunctionValue, CSSPrimitiveValue>(state, value);
-    if (!function)
-        return GridTrackSize::Breadth { 0_css_px };
-
-    if (function->size() == 1) {
-        RefPtr length = function->item(0);
-
-        return GridTrackSize::FitContent {
-            .parameters = toStyleFromCSSValue<GridTrackFitContentLength>(state, *length),
-        };
-    }
-
-    RefPtr min = function->item(0);
-    RefPtr max = function->item(1);
-
-    return GridTrackSize::MinMax {
-        .parameters = {
-            .min = toStyleFromCSSValue<GridTrackBreadth>(state, *min),
-            .max = toStyleFromCSSValue<GridTrackBreadth>(state, *max),
-        }
+    return {
+        .min = toCSS(value.min, style),
+        .max = toCSS(value.max, style),
     };
+}
+
+auto ToStyle<CSS::GridMinMaxFunctionParameters>::operator()(const CSS::GridMinMaxFunctionParameters& value, const BuilderState& state) -> GridMinMaxFunctionParameters
+{
+    return {
+        .min = toStyle(value.min, state),
+        .max = toStyle(value.max, state),
+    };
+}
+
+auto ToCSS<GridFitContentFunctionParameters>::operator()(const GridFitContentFunctionParameters& value, const Style::ComputedStyle& style) -> CSS::GridFitContentFunctionParameters
+{
+    return {
+        .value = toCSS(value.value, style),
+    };
+}
+
+auto ToStyle<CSS::GridFitContentFunctionParameters>::operator()(const CSS::GridFitContentFunctionParameters& value, const BuilderState& state) -> GridFitContentFunctionParameters
+{
+    return {
+        .value = toStyle(value.value, state),
+    };
+}
+
+auto ToCSS<GridTrackSize>::operator()(const GridTrackSize& value, const Style::ComputedStyle& style) -> CSS::GridTrackSize
+{
+    return WTF::switchOn(value,
+        [&](const GridTrackBreadth& breadth) -> CSS::GridTrackSize {
+            return toCSS(breadth, style);
+        },
+        [&](const GridMinMaxFunction& function) -> CSS::GridTrackSize {
+            return toCSS(function, style);
+        },
+        [&](const GridFitContentFunction& function) -> CSS::GridTrackSize {
+            return toCSS(function, style);
+        }
+    );
+}
+
+auto ToStyle<CSS::GridTrackSize>::operator()(const CSS::GridTrackSize& value, const BuilderState& state) -> GridTrackSize
+{
+    return WTF::switchOn(value,
+        [&](const CSS::GridTrackBreadth& breadth) -> GridTrackSize {
+            return toStyle(breadth, state);
+        },
+        [&](const CSS::GridMinMaxFunction& function) -> GridTrackSize {
+            return toStyle(function, state);
+        },
+        [&](const CSS::GridFitContentFunction& function) -> GridTrackSize {
+            return toStyle(function, state);
+        }
+    );
 }
 
 // MARK: - Blending
@@ -85,7 +125,9 @@ auto Blending<GridTrackSize>::blend(const GridTrackSize& from, const GridTrackSi
 
     case GridTrackSize::Type::FitContent:
         return GridTrackSize::FitContent {
-            .parameters = Style::blend(from.fitContentTrackLength(), to.fitContentTrackLength(), context),
+            .parameters = {
+                .value = Style::blend(from.fitContentTrackLength(), to.fitContentTrackLength(), context)
+            }
         };
 
     case GridTrackSize::Type::MinMax:

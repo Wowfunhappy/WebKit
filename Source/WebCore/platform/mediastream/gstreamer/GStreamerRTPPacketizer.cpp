@@ -55,9 +55,9 @@ GStreamerRTPPacketizer::GStreamerRTPPacketizer(GRefPtr<GstElement>&& encoder, GR
     m_valve = gst_element_factory_make("valve", nullptr);
     gst_bin_add_many(GST_BIN_CAST(m_bin.get()), m_inputQueue.get(), m_encoder.get(), m_payloader.get(), m_capsFilter.get(), m_outputQueue.get(), m_valve.get(), nullptr);
 
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(m_inputQueue.get(), "sink"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(m_inputQueue.get(), "sink"));
     gst_element_add_pad(m_bin.get(), gst_ghost_pad_new("sink", sinkPad.get()));
-    auto srcPad = adoptGRef(gst_element_get_static_pad(m_valve.get(), "src"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(m_valve.get(), "src"));
     gst_element_add_pad(m_bin.get(), gst_ghost_pad_new("src", srcPad.get()));
 
     m_stats.reset(gst_structure_new_empty("stats"));
@@ -108,7 +108,7 @@ void GStreamerRTPPacketizer::configureExtensions()
         g_signal_emit_by_name(m_payloader.get(), "add-extension", m_ridExtension.get());
     }
 
-    auto extension = adoptGRef(gst_rtp_header_extension_create_from_uri(GST_RTP_HDREXT_BASE "sdes:repaired-rtp-stream-id"));
+    GRefPtr extension = adoptGRef(gst_rtp_header_extension_create_from_uri(GST_RTP_HDREXT_BASE "sdes:repaired-rtp-stream-id"));
     gst_rtp_header_extension_set_id(extension.get(), m_lastExtensionId);
     m_lastExtensionId++;
     if (!rid.isEmpty())
@@ -267,7 +267,7 @@ void GStreamerRTPPacketizer::startUpdatingStats()
     GST_DEBUG_OBJECT(m_bin.get(), "Starting buffer monitoring for stats gathering");
     auto holder = createRTPPacketizerHolder();
     holder->packetizer = this;
-    auto pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
     m_statsPadProbeId = gst_pad_add_probe(pad.get(), GST_PAD_PROBE_TYPE_BUFFER, [](GstPad*, GstPadProbeInfo*, gpointer userData) -> GstPadProbeReturn {
         auto packetizer = static_cast<RTPPacketizerHolder*>(userData)->packetizer;
         packetizer->updateStats();
@@ -296,7 +296,7 @@ void GStreamerRTPPacketizer::stopUpdatingStats()
         return;
 
     GST_DEBUG_OBJECT(m_bin.get(), "Stopping buffer monitoring for stats gathering");
-    auto pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
     gst_pad_remove_probe(pad.get(), m_statsPadProbeId);
     m_statsPadProbeId = 0;
 }

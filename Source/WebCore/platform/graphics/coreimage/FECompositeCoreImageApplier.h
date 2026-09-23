@@ -28,6 +28,8 @@
 #if USE(CORE_IMAGE)
 
 #import "FilterEffectApplier.h"
+#import "FloatRect.h"
+#import <CoreImage/CIImage.h>
 #import <wtf/TZoneMalloc.h>
 
 namespace WebCore {

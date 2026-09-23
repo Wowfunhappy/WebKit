@@ -15,7 +15,7 @@ class SPIAllowlistChecker(object):
         self.file_path = file_path
         self.handle_style_error = handle_style_error
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         self._check_oops_in_bug_url(lines)
 
     def _check_oops_in_bug_url(self, lines):

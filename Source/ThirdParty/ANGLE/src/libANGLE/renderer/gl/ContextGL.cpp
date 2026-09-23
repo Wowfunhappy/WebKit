@@ -195,7 +195,7 @@ FenceNVImpl *ContextGL::createFenceNV()
 
 SyncImpl *ContextGL::createSync()
 {
-    return new SyncGL(getFunctions());
+    return new SyncGL(mRenderer);
 }
 
 TransformFeedbackImpl *ContextGL::createTransformFeedback(const gl::TransformFeedbackState &state)
@@ -1017,11 +1017,6 @@ void ContextGL::setMaxShaderCompilerThreads(GLuint count)
     mRenderer->setMaxShaderCompilerThreads(count);
 }
 
-void ContextGL::invalidateTexture(gl::TextureType target)
-{
-    mRenderer->getStateManager()->invalidateTexture(target);
-}
-
 void ContextGL::validateState() const
 {
     const StateManagerGL *stateManager = mRenderer->getStateManager();
@@ -1041,11 +1036,6 @@ void ContextGL::flushIfNecessaryBeforeDeleteTextures()
 void ContextGL::markWorkSubmitted()
 {
     mRenderer->markWorkSubmitted();
-}
-
-MultiviewImplementationTypeGL ContextGL::getMultiviewImplementationType() const
-{
-    return mRenderer->getMultiviewImplementationType();
 }
 
 bool ContextGL::hasNativeParallelCompile()

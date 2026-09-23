@@ -43,15 +43,17 @@ WEBCORE_EXPORT Result extractItem(Request&&, LocalFrame&);
 
 WEBCORE_EXPORT Vector<std::pair<String, FloatRect>> extractAllTextAndRects(Page&);
 
-WEBCORE_EXPORT void handleInteraction(Interaction&&, LocalFrame&, CompletionHandler<void(bool, String&&)>&&);
-WEBCORE_EXPORT InteractionDescription interactionDescription(const Interaction&, LocalFrame&);
+WEBCORE_EXPORT void handleInteraction(Interaction&&, LocalFrame&, CompletionHandler<void(bool, String&&, FloatRect)>&&);
+
+enum class Tense : bool { Present, Past };
+WEBCORE_EXPORT InteractionDescription interactionDescription(const Interaction&, LocalFrame&, Tense = Tense::Present);
 
 WEBCORE_EXPORT std::optional<SimpleRange> rangeForExtractedText(const LocalFrame&, ExtractedText&&);
 WEBCORE_EXPORT RefPtr<Element> elementForExtractedText(const LocalFrame&, ExtractedText&&);
 WEBCORE_EXPORT RefPtr<Element> containerElementForExtractedText(const LocalFrame&, ExtractedText&&);
+WEBCORE_EXPORT RefPtr<Element> containerElementForSearchTexts(const LocalFrame&, Vector<String>&&, std::optional<NodeIdentifier>&&);
 
 WEBCORE_EXPORT Vector<FilterRule> extractRules(Vector<FilterRuleData>&&);
-WEBCORE_EXPORT void applyRules(const String&, std::optional<NodeIdentifier>&& containerNodeID, const Vector<FilterRule>&, Page&, CompletionHandler<void(const String&)>&&);
 
 struct RenderedText {
     String textWithReplacedContent;

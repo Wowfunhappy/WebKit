@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "DestinationColorSpace.h"
 #include "ImageSource.h"
 
 namespace WebCore {
@@ -37,13 +38,13 @@ private:
     NativeImageSource(Ref<NativeImage>&&);
 
     IntSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const final { return m_frame.size(); }
-    DestinationColorSpace colorSpace() const final { return m_frame.nativeImage(ShouldDecodeToHDR::No)->colorSpace(); }
-    std::optional<Color> singlePixelSolidColor() const final { return m_frame.nativeImage(ShouldDecodeToHDR::No)->singlePixelSolidColor(); }
-    bool hasHDRContent() const final { return m_frame.nativeImage(ShouldDecodeToHDR::No)->hasHDRContent(); }
+    DestinationColorSpace colorSpace() const final { return m_frame.nativeImage(DecodingDestination::Base)->colorSpace(); }
+    std::optional<Color> singlePixelSolidColor() const final { return m_frame.nativeImage(DecodingDestination::Base)->singlePixelSolidColor(); }
+    bool hasHDRContent() const final { return m_frame.nativeImage(DecodingDestination::Base)->hasHDRContent(); }
 
     const ImageFrame& primaryImageFrame(const std::optional<SubsamplingLevel>& = std::nullopt) LIFETIME_BOUND final { return m_frame; }
 
-    RefPtr<NativeImage> primaryNativeImage() final { return m_frame.nativeImage(ShouldDecodeToHDR::No); }
+    RefPtr<NativeImage> primaryNativeImage() final { return m_frame.nativeImage(DecodingDestination::Base); }
 
     void dump(TextStream&) const final;
 

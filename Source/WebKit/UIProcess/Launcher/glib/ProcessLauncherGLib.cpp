@@ -106,21 +106,17 @@ void ProcessLauncher::launchProcess()
 
 #if USE(LIBWPE) && !ENABLE(BUBBLEWRAP_SANDBOX)
     if (ProcessProviderLibWPE::singleton().isEnabled()) {
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE port
-        unsigned nargs = 3;
-        char** argv = g_newa(char*, nargs);
-        unsigned i = 0;
-        argv[i++] = processIdentifier.get();
-        argv[i++] = webkitSocket.get();
-        argv[i++] = nullptr;
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        std::array<char*, 3> argv = {
+            processIdentifier.get(),
+            webkitSocket.get(),
+        };
 
-        m_processID = ProcessProviderLibWPE::singleton().launchProcess(m_launchOptions, argv, webkitSocketPair.client.value());
+        m_processID = ProcessProviderLibWPE::singleton().launchProcess(m_launchOptions, argv.data(), webkitSocketPair.client.value());
         if (m_processID <= -1)
             g_error("Unable to spawn a new child process");
 
         // We've finished launching the process, message back to the main run loop.
-        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, this, serverSocket = WTF::move(webkitSocketPair.server)] mutable {
+        RunLoop::mainSingleton().dispatch([protectedThis = protect(*this), this, serverSocket = WTF::move(webkitSocketPair.server)] mutable {
             didFinishLaunchingProcess(m_processID, IPC::Connection::Identifier { WTF::move(serverSocket) });
         });
 
@@ -148,7 +144,7 @@ void ProcessLauncher::launchProcess()
     }
 
     realExecutablePath = FileSystem::fileSystemRepresentation(executablePath);
-    unsigned nargs = 5; // size of the argv array for g_spawn_async()
+    unsigned nargs = 4; // size of the argv array for g_spawn_async()
 
 #if ENABLE(DEVELOPER_MODE)
     Vector<CString> prefixArgs;
@@ -165,9 +161,7 @@ void ProcessLauncher::launchProcess()
     }
 #endif
 
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE port
-
-    char** argv = g_newa(char*, nargs);
+    Vector<char*> argv(nargs);
     unsigned i = 0;
 #if ENABLE(DEVELOPER_MODE)
     // If there's a prefix command, put it before the rest of the args.
@@ -182,8 +176,6 @@ void ProcessLauncher::launchProcess()
         argv[i++] = const_cast<char*>("--configure-jsc-for-testing");
 #endif
     argv[i++] = nullptr;
-
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     // Warning: we want GIO to be able to spawn with posix_spawn() rather than fork()/exec(), in
     // order to better accommodate applications that use a huge amount of memory or address space
@@ -228,7 +220,7 @@ void ProcessLauncher::launchProcess()
 #endif // ENABLE(BUBBLEWRAP_SANDBOX)
     else
 #endif // OS(LINUX)
-        process = adoptGRef(g_subprocess_launcher_spawnv(launcher.get(), argv, &error.outPtr()));
+        process = adoptGRef(g_subprocess_launcher_spawnv(launcher.get(), argv.span().data(), &error.outPtr()));
 
     if (!process.get())
         g_error("Unable to spawn a new child process: %s", error->message);
@@ -245,7 +237,7 @@ void ProcessLauncher::launchProcess()
         // We need to get the pid of the actual WebKit auxiliary process, not the bwrap or flatpak-spawn
         // intermediate process. And do it without blocking, because process launching is slow.
         g_socket_set_blocking(socket.get(), FALSE);
-        m_socketMonitor.start(socket.get(), G_IO_IN, RunLoop::mainSingleton(), nullptr, [protectedThis = Ref { *this }, this, socket](GIOCondition condition) mutable -> gboolean {
+        m_socketMonitor.start(socket.get(), G_IO_IN, RunLoop::mainSingleton(), nullptr, [protectedThis = protect(*this), this, socket](GIOCondition condition) mutable -> gboolean {
             if (!(condition & G_IO_IN))
                 g_error("Failed to read pid from child process");
 
@@ -268,7 +260,7 @@ void ProcessLauncher::launchProcess()
     m_processID = g_ascii_strtoll(processIdStr, nullptr, 0);
     RELEASE_ASSERT(m_processID);
 
-    RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, this, serverSocket = WTF::move(webkitSocketPair.server)] mutable {
+    RunLoop::mainSingleton().dispatch([protectedThis = protect(*this), this, serverSocket = WTF::move(webkitSocketPair.server)] mutable {
         didFinishLaunchingProcess(m_processID, IPC::Connection::Identifier { WTF::move(serverSocket) });
     });
 }
@@ -289,7 +281,18 @@ void ProcessLauncher::terminateProcess()
     else
         kill(m_processID, SIGKILL);
 #else
+
+#if ENABLE(LLVM_PROFILE_GENERATION)
+    // Ensure auxiliary processes have some time to flush their PGO data.
+    kill(m_processID, SIGTERM);
+    g_timeout_add(500, [](gpointer data) -> gboolean {
+        kill(GPOINTER_TO_INT(data), SIGKILL);
+        return G_SOURCE_REMOVE;
+    }, GINT_TO_POINTER(m_processID));
+#else
     kill(m_processID, SIGKILL);
+#endif
+
 #endif
 
     m_processID = 0;

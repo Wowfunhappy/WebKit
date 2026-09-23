@@ -421,24 +421,30 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
 #define WTFEmitSignpost(pointer, name, ...) \
     do { \
         IGNORE_WARNINGS_BEGIN("format-zero-length") \
+        IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-format-attr-call") \
         if (auto* annotator = SysprofAnnotator::singletonIfCreated()) \
             annotator->instantMark(std::span(_STRINGIFY(name)), "" __VA_ARGS__); \
+        IGNORE_WARNINGS_END \
         IGNORE_WARNINGS_END \
     } while (0)
 
 #define WTFBeginSignpost(pointer, name, ...) \
     do { \
         IGNORE_WARNINGS_BEGIN("format-zero-length") \
+        IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-format-attr-call") \
         if (auto* annotator = SysprofAnnotator::singletonIfCreated()) \
             annotator->beginMark(reinterpret_cast<const void*>(pointer), std::span(_STRINGIFY(name)), "" __VA_ARGS__); \
+        IGNORE_WARNINGS_END \
         IGNORE_WARNINGS_END \
     } while (0)
 
 #define WTFEndSignpost(pointer, name, ...)  \
     do { \
         IGNORE_WARNINGS_BEGIN("format-zero-length") \
+        IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-format-attr-call") \
         if (auto* annotator = SysprofAnnotator::singletonIfCreated()) \
             annotator->endMark(reinterpret_cast<const void*>(pointer), std::span(_STRINGIFY(name)), "" __VA_ARGS__); \
+        IGNORE_WARNINGS_END \
         IGNORE_WARNINGS_END \
     } while (0)
 
@@ -449,8 +455,10 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
 #define WTFEmitSignpostWithTimeDelta(pointer, name, timeDelta, ...) \
     do { \
         IGNORE_WARNINGS_BEGIN("format-zero-length") \
+        IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-format-attr-call") \
         if (auto* annotator = SysprofAnnotator::singletonIfCreated()) \
             annotator->mark(SysprofAnnotator::currentContinuousTime(timeDelta), std::span(_STRINGIFY(name)), "" __VA_ARGS__); \
+        IGNORE_WARNINGS_END \
         IGNORE_WARNINGS_END \
     } while (0)
 
@@ -464,8 +472,10 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
 #define WTFEmitSignpostWithSpecificTime(pointer, name, specificTime, ...) \
     do { \
         IGNORE_WARNINGS_BEGIN("format-zero-length") \
+        IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-format-attr-call") \
         if (auto* annotator = SysprofAnnotator::singletonIfCreated()) \
             annotator->mark(specificTime, std::span(_STRINGIFY(name)), "" __VA_ARGS__); \
+        IGNORE_WARNINGS_END \
         IGNORE_WARNINGS_END \
     } while (0)
 

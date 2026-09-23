@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 Apple, Inc. All rights reserved.
+ * Copyright (C) 2019-2024, 2026 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -68,6 +68,34 @@ ALWAYS_INLINE std::tuple<int32_t, int32_t> extractSliceOffsets(int32_t length, i
     return { from, to };
 }
 
+enum class TrimKind : uint8_t {
+    TrimStart = 1,
+    TrimEnd = 2,
+    TrimBoth = TrimStart | TrimEnd
+};
+
+template<TrimKind trimKind>
+ALWAYS_INLINE std::tuple<unsigned, unsigned> extractTrimOffsets(StringView view)
+{
+    unsigned left = 0;
+    unsigned right = view.length();
+    auto scan = [&](auto characters) ALWAYS_INLINE_LAMBDA {
+        if constexpr (static_cast<uint8_t>(trimKind) & static_cast<uint8_t>(TrimKind::TrimStart)) {
+            while (left < right && isStrWhiteSpace(characters[left]))
+                left++;
+        }
+        if constexpr (static_cast<uint8_t>(trimKind) & static_cast<uint8_t>(TrimKind::TrimEnd)) {
+            while (right > left && isStrWhiteSpace(characters[right - 1]))
+                right--;
+        }
+    };
+    if (view.is8Bit())
+        scan(view.span8());
+    else
+        scan(view.span16());
+    return { left, right };
+}
+
 template<typename T> concept Arithmetic = std::is_arithmetic_v<T>;
 
 template<Arithmetic NumberType>
@@ -101,6 +129,20 @@ ALWAYS_INLINE std::tuple<int32_t, int32_t> extractSubstringOffsets(int32_t lengt
     if (start > end)
         std::swap(start, end);
     return { start, end };
+}
+
+ALWAYS_INLINE std::tuple<int32_t, int32_t> extractSubstrOffsets(int32_t length, int32_t startValue, std::optional<int32_t> lengthValue)
+{
+    int32_t from;
+    if (startValue < 0)
+        from = std::max<int32_t>(length + startValue, 0);
+    else
+        from = std::min<int32_t>(startValue, length);
+
+    int32_t span = lengthValue.value_or(length - from);
+    if (span <= 0)
+        return { 0, 0 };
+    return { from, std::min<int32_t>(span, length - from) };
 }
 
 ALWAYS_INLINE JSString* stringSubstring(JSGlobalObject* globalObject, JSString* string, int32_t startValue, std::optional<int32_t> endValue)
@@ -297,7 +339,7 @@ ALWAYS_INLINE String tryMakeReplacedString(const String& string, const String& r
             substituteBackreferencesSlow(builder, replacement, string, ovector, nullptr, dollarPos);
             if (builder.hasOverflowed()) [[unlikely]]
                 return { };
-            if (auto result = tryMakeString(StringView(string).substring(0, matchStart), builder.toString(), StringView(string).substring(matchEnd, string.length() - matchEnd)); !result.isNull()) [[likely]]
+            if (auto result = tryMakeString(StringView(string).substring(0, matchStart), StringView { builder }, StringView(string).substring(matchEnd, string.length() - matchEnd)); !result.isNull()) [[likely]]
                 return result;
         }
     }
@@ -461,7 +503,7 @@ inline JSString* replaceUsingStringSearch(VM& vm, JSGlobalObject* globalObject, 
 
     std::optional<CachedCall> cachedCall;
     if (callData.type == CallData::Type::JS) {
-        cachedCall.emplace(globalObject, jsCast<JSFunction*>(replaceValue), 3);
+        cachedCall.emplace(globalObject, uncheckedDowncast<JSFunction>(replaceValue), 3);
         RETURN_IF_EXCEPTION(scope, nullptr);
     }
 
@@ -841,10 +883,12 @@ static ALWAYS_INLINE JSString* replaceAllWithCacheUsingRegExpSearchThreeArgument
             RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(scope, nullptr);
 
             auto string = jsString->value(globalObject);
+            RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(scope, nullptr);
+
             replacementsAre8Bit &= string->is8Bit();
             totalLength += string->length();
             totalLength += (start - lastIndex);
-            slot = JSValue::encode(jsString);
+            slot = jsString;
 
             lastIndex = end;
             ++index;
@@ -874,7 +918,7 @@ static ALWAYS_INLINE JSString* replaceAllWithCacheUsingRegExpSearchThreeArgument
             substring.getCharacters8(buffer.subspan(bufferPos));
             bufferPos += substring.length();
 
-            auto replacement = asString(JSValue::decode(slot))->value(globalObject);
+            auto replacement = asString(slot)->value(globalObject);
             StringView { replacement }.getCharacters8(buffer.subspan(bufferPos));
             bufferPos += replacement->length();
 
@@ -909,7 +953,7 @@ static ALWAYS_INLINE JSString* replaceAllWithCacheUsingRegExpSearchThreeArgument
         substring.getCharacters(buffer.subspan(bufferPos));
         bufferPos += substring.length();
 
-        auto replacement = asString(JSValue::decode(slot))->value(globalObject);
+        auto replacement = asString(slot)->value(globalObject);
         StringView { replacement }.getCharacters(buffer.subspan(bufferPos));
         bufferPos += replacement->length();
 
@@ -1292,271 +1336,6 @@ ALWAYS_INLINE JSString* replaceOneWithStringUsingRegExpSearch(VM& vm, JSGlobalOb
     RELEASE_AND_RETURN(scope, jsString(vm, WTF::move(concatenated)));
 }
 
-ALWAYS_INLINE JSString* replaceUsingRegExpSearch(VM& vm, JSGlobalObject* globalObject, JSString* string, JSValue searchValue, const CallData& callData, const String& replacementString, JSValue replaceValue)
-{
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    auto source = string->value(globalObject);
-    RETURN_IF_EXCEPTION(scope, nullptr);
-
-    unsigned sourceLen = source->length();
-    RegExpObject* regExpObject = jsCast<RegExpObject*>(searchValue);
-    RegExp* regExp = regExpObject->regExp();
-    bool global = regExp->global();
-    bool hasNamedCaptures = regExp->hasNamedCaptures();
-
-    if (global) {
-        // ES5.1 15.5.4.10 step 8.a.
-        regExpObject->setLastIndex(globalObject, 0);
-        RETURN_IF_EXCEPTION(scope, nullptr);
-
-        if (callData.type == CallData::Type::None && !replacementString.length())
-            RELEASE_AND_RETURN(scope, removeAllUsingRegExpSearch(vm, globalObject, string, source, regExp));
-
-        if (callData.type == CallData::Type::JS && !hasNamedCaptures && sourceLen >= Options::thresholdForStringReplaceCache())
-            RELEASE_AND_RETURN(scope, replaceAllWithCacheUsingRegExpSearch(vm, globalObject, string, source, regExp, jsCast<JSFunction*>(replaceValue)));
-    }
-
-    if (callData.type == CallData::Type::None) {
-        switch (regExp->specificPattern()) {
-        case Yarr::SpecificPattern::TrailingSpacesPlus:
-        case Yarr::SpecificPattern::LeadingSpacesPlus:
-        case Yarr::SpecificPattern::TrailingSpacesStar:
-        case Yarr::SpecificPattern::LeadingSpacesStar: {
-            if (!replacementString.isEmpty())
-                break;
-
-            if (auto* result = tryTrimSpaces(vm, globalObject, source, string, regExp))
-                return result;
-
-            break;
-        }
-        case Yarr::SpecificPattern::Atom:
-        case Yarr::SpecificPattern::Newlines:
-        case Yarr::SpecificPattern::None:
-            break;
-        }
-
-        if (global)
-            RELEASE_AND_RETURN(scope, replaceAllWithStringUsingRegExpSearch(vm, globalObject, string, source, regExp, replacementString));
-        RELEASE_AND_RETURN(scope, replaceOneWithStringUsingRegExpSearch(vm, globalObject, string, source, regExp, replacementString));
-    }
-
-    size_t lastIndex = 0;
-    unsigned startPosition = 0;
-
-    Vector<Range<int32_t>, 16> sourceRanges;
-    Vector<String, 16> replacements;
-
-    // This is either a loop (if global is set) or a one-way (if not).
-    if (global && callData.type == CallData::Type::JS) {
-        // regExp->numSubpatterns() + 1 for pattern args, + 2 for match start and string
-        int argCount = regExp->numSubpatterns() + 1 + 2;
-        if (hasNamedCaptures)
-            ++argCount;
-        JSFunction* func = jsCast<JSFunction*>(replaceValue);
-        std::optional<CachedCall> cachedCallHolder;
-        CachedCall* cachedCall = nullptr;
-        while (true) {
-            int* ovector;
-            MatchResult result = globalObject->regExpGlobalData().performMatch(globalObject, regExp, string, source, startPosition, &ovector);
-            RETURN_IF_EXCEPTION(scope, nullptr);
-            if (!result)
-                break;
-
-            if (!sourceRanges.tryConstructAndAppend(lastIndex, result.start)) [[unlikely]]
-                OUT_OF_MEMORY(globalObject, scope);
-
-            if (!cachedCall) {
-                cachedCallHolder.emplace(globalObject, func, argCount);
-                RETURN_IF_EXCEPTION(scope, nullptr);
-                cachedCall = &cachedCallHolder.value();
-            }
-            cachedCall->clearArguments();
-            JSObject* groups = hasNamedCaptures ? constructEmptyObject(vm, globalObject->nullPrototypeObjectStructure()) : nullptr;
-
-            for (unsigned i = 0; i < regExp->numSubpatterns() + 1; ++i) {
-                int matchStart = ovector[i * 2];
-                int matchEnd = ovector[i * 2 + 1];
-
-                JSValue patternValue;
-
-                if (matchStart < 0 || matchEnd < matchStart)
-                    patternValue = jsUndefined();
-                else {
-                    patternValue = jsSubstring(globalObject, vm, string, matchStart, matchEnd - matchStart);
-                    RETURN_IF_EXCEPTION(scope, nullptr);
-                }
-
-                cachedCall->appendArgument(patternValue);
-
-                if (i && hasNamedCaptures) {
-                    String groupName = regExp->getCaptureGroupNameForSubpatternId(i);
-                    if (!groupName.isEmpty()) {
-                        auto captureIndex = regExp->subpatternIdForGroupName(groupName, ovector);
-
-                        if (captureIndex == i)
-                            groups->putDirect(vm, Identifier::fromString(vm, groupName), patternValue);
-                        else if (captureIndex > 0) {
-                            int captureStart = ovector[captureIndex * 2];
-                            int captureEnd = ovector[captureIndex * 2 + 1];
-                            JSValue captureValue;
-                            if (captureStart < 0 || captureEnd < captureStart)
-                                captureValue = jsUndefined();
-                            else {
-                                captureValue = jsSubstring(globalObject, vm, string, captureStart, captureEnd - captureStart);
-                                RETURN_IF_EXCEPTION(scope, nullptr);
-                            }
-                            groups->putDirect(vm, Identifier::fromString(vm, groupName), captureValue);
-                        } else
-                            groups->putDirect(vm, Identifier::fromString(vm, groupName), jsUndefined());
-                    }
-                }
-            }
-
-            cachedCall->appendArgument(jsNumber(result.start));
-            cachedCall->appendArgument(string);
-            if (hasNamedCaptures)
-                cachedCall->appendArgument(groups);
-
-            cachedCall->setThis(jsUndefined());
-            if (cachedCall->hasOverflowedArguments()) [[unlikely]] {
-                throwOutOfMemoryError(globalObject, scope);
-                return nullptr;
-            }
-
-            JSValue jsResult = cachedCall->call();
-            RETURN_IF_EXCEPTION(scope, nullptr);
-            replacements.append(jsResult.toWTFString(globalObject));
-            RETURN_IF_EXCEPTION(scope, nullptr);
-
-            lastIndex = result.end;
-            startPosition = lastIndex;
-
-            // special case of empty match
-            if (result.empty()) {
-                startPosition++;
-                if (startPosition > sourceLen)
-                    break;
-                if (regExp->eitherUnicode() && U16_IS_LEAD(source[startPosition - 1]) && U16_IS_TRAIL(source[startPosition])) {
-                    startPosition++;
-                    if (startPosition > sourceLen)
-                        break;
-                }
-            }
-        }
-    } else {
-        ASSERT(callData.type != CallData::Type::None);
-        do {
-            int* ovector;
-            MatchResult result = globalObject->regExpGlobalData().performMatch(globalObject, regExp, string, source, startPosition, &ovector);
-            RETURN_IF_EXCEPTION(scope, nullptr);
-            if (!result)
-                break;
-
-            if (!sourceRanges.tryConstructAndAppend(lastIndex, result.start)) [[unlikely]]
-                OUT_OF_MEMORY(globalObject, scope);
-
-            MarkedArgumentBuffer args;
-            JSObject* groups = hasNamedCaptures ? constructEmptyObject(vm, globalObject->nullPrototypeObjectStructure()) : nullptr;
-
-            for (unsigned i = 0; i < regExp->numSubpatterns() + 1; ++i) {
-                int matchStart = ovector[i * 2];
-                int matchEnd = ovector[i * 2 + 1];
-
-                JSValue patternValue;
-
-                if (matchStart < 0 || matchEnd < matchStart)
-                    patternValue = jsUndefined();
-                else {
-                    patternValue = jsSubstring(globalObject, vm, string, matchStart, matchEnd - matchStart);
-                    RETURN_IF_EXCEPTION(scope, nullptr);
-                }
-
-                args.append(patternValue);
-
-                if (i && hasNamedCaptures) {
-                    String groupName = regExp->getCaptureGroupNameForSubpatternId(i);
-                    if (!groupName.isEmpty()) {
-                        auto captureIndex = regExp->subpatternIdForGroupName(groupName, ovector);
-
-                        if (captureIndex == i)
-                            groups->putDirect(vm, Identifier::fromString(vm, groupName), patternValue);
-                        else if (captureIndex > 0) {
-                            int captureStart = ovector[captureIndex * 2];
-                            int captureEnd = ovector[captureIndex * 2 + 1];
-                            JSValue captureValue;
-                            if (captureStart < 0 || captureEnd < captureStart)
-                                captureValue = jsUndefined();
-                            else {
-                                captureValue = jsSubstring(globalObject, vm, string, captureStart, captureEnd - captureStart);
-                                RETURN_IF_EXCEPTION(scope, nullptr);
-                            }
-                            groups->putDirect(vm, Identifier::fromString(vm, groupName), captureValue);
-                        } else
-                            groups->putDirect(vm, Identifier::fromString(vm, groupName), jsUndefined());
-                    }
-                }
-            }
-
-            args.append(jsNumber(result.start));
-            args.append(string);
-            if (hasNamedCaptures)
-                args.append(groups);
-            if (args.hasOverflowed()) [[unlikely]] {
-                throwOutOfMemoryError(globalObject, scope);
-                return nullptr;
-            }
-
-            JSValue replacement = call(globalObject, replaceValue, callData, jsUndefined(), args);
-            RETURN_IF_EXCEPTION(scope, nullptr);
-            String replacementString = replacement.toWTFString(globalObject);
-            RETURN_IF_EXCEPTION(scope, nullptr);
-            replacements.append(replacementString);
-            RETURN_IF_EXCEPTION(scope, nullptr);
-
-            lastIndex = result.end;
-            startPosition = lastIndex;
-
-            // special case of empty match
-            if (result.empty()) {
-                startPosition++;
-                if (startPosition > sourceLen)
-                    break;
-                if (regExp->eitherUnicode() && U16_IS_LEAD(source[startPosition - 1]) && U16_IS_TRAIL(source[startPosition])) {
-                    startPosition++;
-                    if (startPosition > sourceLen)
-                        break;
-                }
-            }
-        } while (global);
-    }
-
-    if (!lastIndex && replacements.isEmpty())
-        return string;
-
-    if (static_cast<unsigned>(lastIndex) < sourceLen) {
-        if (!sourceRanges.tryConstructAndAppend(lastIndex, sourceLen)) [[unlikely]]
-            OUT_OF_MEMORY(globalObject, scope);
-    }
-    RELEASE_AND_RETURN(scope, jsSpliceSubstringsWithSeparators(globalObject, string, source, sourceRanges.span().data(), sourceRanges.size(), replacements.span().data(), replacements.size()));
-}
-
-ALWAYS_INLINE JSString* replaceUsingRegExpSearch(VM& vm, JSGlobalObject* globalObject, JSString* string, JSValue searchValue, JSValue replaceValue)
-{
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    String replacementString;
-    auto callData = JSC::getCallDataInline(replaceValue);
-    if (callData.type == CallData::Type::None) {
-        replacementString = replaceValue.toWTFString(globalObject);
-        RETURN_IF_EXCEPTION(scope, nullptr);
-    }
-
-    RELEASE_AND_RETURN(scope, replaceUsingRegExpSearch(
-        vm, globalObject, string, searchValue, callData, replacementString, replaceValue));
-}
-
 inline bool checkObjectCoercible(JSValue thisValue)
 {
     if (thisValue.isString())
@@ -1592,7 +1371,7 @@ ALWAYS_INLINE JSString* replace(VM& vm, JSGlobalObject* globalObject, JSValue th
     if constexpr (replaceMode == StringReplaceMode::Single) {
         if (searchJSString && replaceJSString) {
             if (JSString* result = tryReplaceOneCharUsingString<DollarCheck::Yes>(globalObject, string, searchJSString, replaceJSString))
-                return result;
+                RELEASE_AND_RETURN(scope, result);
             RETURN_IF_EXCEPTION(scope, nullptr);
         }
     }
@@ -1612,6 +1391,11 @@ ALWAYS_INLINE JSString* replace(VM& vm, JSGlobalObject* globalObject, JSValue th
     RETURN_IF_EXCEPTION(scope, nullptr);
 
     RELEASE_AND_RETURN(scope, replaceUsingStringSearch<replaceMode>(vm, globalObject, string, thisString, WTF::move(searchString), replaceValue));
+}
+
+ALWAYS_INLINE bool isASCIIIdentifierStart(char16_t ch)
+{
+    return isASCIIAlpha(ch) || ch == '_' || ch == '$';
 }
 
 ALWAYS_INLINE char32_t codePointAt(const String& string, unsigned position, unsigned length)

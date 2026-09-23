@@ -5,11 +5,7 @@ EXPECTED (video.videoWidth == '0') OK
 EXPECTED (video.videoHeight == '0') OK
 EVENT(resize)
 Receive first resize event before loadedmetadata. OK
-EXPECTED (video.videoWidth == '0') OK
-EXPECTED (video.videoHeight == '0') OK
 EVENT(loadedmetadata)
-Receive loadmetadata event before second resize. OK
-EVENT(resize)
 EXPECTED (video.videoWidth == '640') OK
 EXPECTED (video.videoHeight == '480') OK
 END OF TEST

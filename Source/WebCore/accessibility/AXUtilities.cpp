@@ -27,10 +27,10 @@
 
 #include "AXLoggerBase.h"
 #include "AXObjectCache.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSProperty.h"
 #include "CSSValueList.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "DocumentView.h"
 #include "ElementInlines.h"
 #include "HTMLImageElement.h"
@@ -42,6 +42,7 @@
 #include "RenderStyleConstants.h"
 #include "RenderTreeBuilder.h"
 #include "SpaceSplitString.h"
+#include "StyleKeyword+Mappings.h"
 #include "StylePropertiesInlines.h"
 #include <wtf/CheckedPtr.h>
 #include <wtf/RefPtr.h>
@@ -52,8 +53,8 @@ using namespace HTMLNames;
 
 RefPtr<ContainerNode> composedParentIgnoringDocumentFragments(const Node& node)
 {
-    RefPtr ancestor = node.parentInComposedTree();
-    while (is<DocumentFragment>(ancestor.get()))
+    auto* ancestor = node.parentInComposedTree();
+    while (is<DocumentFragment>(ancestor))
         ancestor = ancestor->parentInComposedTree();
     return ancestor;
 }
@@ -75,7 +76,7 @@ NodeName elementName(Node& node)
     return element ? element->elementName() : ElementName::Unknown;
 }
 
-const RenderStyle* safeStyleFrom(Element& element)
+const Style::ComputedStyle* safeStyleFrom(Element& element)
 {
     // We cannot resolve style (as computedStyle() does) if we are downstream of an existing render tree
     // update. Otherwise, a RELEASE_ASSERT preventing re-entrancy will be hit inside RenderTreeBuilder.
@@ -137,11 +138,8 @@ bool hasAccNameAttribute(Element& element)
 
     // For title, check that it's not whitespace-only.
     const auto& titleValue = element.attributeWithoutSynchronization(titleAttr);
-    if (!titleValue.isEmpty()) {
-        auto titleCopy = titleValue.string();
-        if (!titleCopy.trim(isASCIIWhitespace).isEmpty())
-            return true;
-    }
+    if (!titleValue.string().containsOnly<isASCIIWhitespace>())
+        return true;
 
     return false;
 }
@@ -182,26 +180,31 @@ bool hasRole(Element& element, StringView role)
     if (roleValue.isEmpty())
         return false;
 
-    return SpaceSplitString::spaceSplitStringContainsValue(roleValue, role, SpaceSplitString::ShouldFoldCase::Yes);
+    // Lowercase the role value ourselves (allocation-free when it's already lowercase, the common case for
+    // ARIA roles) and match without folding, so spaceSplitStringContainsValue doesn't allocate a lowercased copy.
+    return SpaceSplitString::spaceSplitStringContainsValue(roleValue.convertToASCIILowercase(), role, SpaceSplitString::ShouldFoldCase::No);
 }
 
-bool hasAnyRole(Element& element, Vector<StringView>&& roles)
+bool hasAnyRole(Element& element, std::initializer_list<StringView> roles)
 {
     auto roleValue = element.attributeWithDefaultARIA(roleAttr);
     if (roleValue.isEmpty())
         return false;
 
+    // Lowercase the role value once (allocation-free when it's already lowercase, the common case for ARIA
+    // roles) and match each candidate without folding, rather than lowercasing it once per candidate role.
+    AtomString lowercasedRoleValue = roleValue.convertToASCIILowercase();
     for (const auto& role : roles) {
         AX_ASSERT(!role.isEmpty());
-        if (SpaceSplitString::spaceSplitStringContainsValue(roleValue, role, SpaceSplitString::ShouldFoldCase::Yes))
+        if (SpaceSplitString::spaceSplitStringContainsValue(lowercasedRoleValue, role, SpaceSplitString::ShouldFoldCase::No))
             return true;
     }
     return false;
 }
 
-bool hasAnyRole(Element* element, Vector<StringView>&& roles)
+bool hasAnyRole(Element* element, std::initializer_list<StringView> roles)
 {
-    return element ? hasAnyRole(*element, WTF::move(roles)) : false;
+    return element ? hasAnyRole(*element, roles) : false;
 }
 
 bool hasTableRole(Element& element)
@@ -530,11 +533,11 @@ std::optional<CursorType> cursorTypeFrom(const StyleProperties& properties)
 {
     for (auto property : properties) {
         if (property.id() == CSSPropertyCursor) {
-            if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(property.value()))
-                return fromCSSValue<CursorType>(*primitiveValue);
-            if (auto* valueList = dynamicDowncast<CSSValueList>(property.value()); valueList && valueList->size() >= 2) {
-                if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>((*valueList)[valueList->size() - 1]))
-                    return fromCSSValue<CursorType>(*primitiveValue);
+            if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(property.value()))
+                return fromCSSValue<CursorType>(*keywordValue);
+            if (RefPtr valueList = dynamicDowncast<CSSValueList>(property.value()); valueList && valueList->size() >= 2) {
+                if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>((*valueList)[valueList->size() - 1]))
+                    return fromCSSValue<CursorType>(*keywordValue);
             }
         }
     }

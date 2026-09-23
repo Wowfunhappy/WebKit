@@ -28,13 +28,17 @@
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
 
+#include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 #include "WebProcessProxyMessages.h"
 #include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <JavaScriptCore/RemoteInspector.h>
+#include <wtf/HashSet.h>
 #include <wtf/MainThread.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/URL.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
 
@@ -65,9 +69,9 @@ std::optional<ProcessID> WasmDebuggerDebuggable::webContentProcessPID() const
     if (!process)
         return std::nullopt;
 
-    // When WasmDebuggerDebuggable is created, the WebContent process is guaranteed to have
-    // finished launching (see didFinishLaunching -> createWasmDebuggerTarget).
-    // Therefore, processID() must return a valid non-zero PID.
+    // WasmDebuggerDebuggable is created in wasmDebugServerReady(), which is an IPC handler
+    // called by the WebContent process after startRWI() succeeds. Since the message came from
+    // the process itself, it is guaranteed to be running and processID() must be non-zero.
     auto pid = process->processID();
     RELEASE_ASSERT(pid);
     return pid;
@@ -87,8 +91,32 @@ String WasmDebuggerDebuggable::name() const
 
 String WasmDebuggerDebuggable::url() const
 {
-    // For WebAssembly debugging, url() and name() should be the same
-    // to avoid confusion about different identifiers
+    RefPtr process = m_process.get();
+    if (!process)
+        return name();
+
+    // Collect unique hostnames across all pages hosted by this process.
+    // A single WebContent process may host multiple tabs (e.g. earth.google.com and github.com),
+    // so joining all unique hostnames gives a more informative entry in `lldb platform process list`.
+    // Hostnames are used instead of full URLs because LLDB passes the name field through
+    // llvm::sys::path::filename() (equivalent to basename()), which would mangle full URLs.
+    HashSet<String> seenHosts;
+    StringBuilder result;
+    for (Ref page : process->pages()) {
+        auto urlString = page->currentURL();
+        if (urlString.isEmpty())
+            continue;
+        auto host = URL { urlString }.host().toString();
+        if (host.isEmpty() || !seenHosts.add(host).isNewEntry)
+            continue;
+        if (!result.isEmpty())
+            result.append(", "_s);
+        result.append(host);
+    }
+
+    if (!result.isEmpty())
+        return result.toString();
+
     return name();
 }
 

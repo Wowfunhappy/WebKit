@@ -74,8 +74,6 @@ public:
     void setRCDATAState();
     void setScriptDataState();
 
-    bool neverSkipNullCharacters() const;
-
 private:
     enum State {
         DataState,
@@ -195,7 +193,7 @@ private:
     char16_t m_additionalAllowedCharacter { 0 };
 
     // https://html.spec.whatwg.org/#preprocessing-the-input-stream
-    InputStreamPreprocessor<HTMLTokenizer> m_preprocessor;
+    InputStreamPreprocessor m_preprocessor;
 
     Vector<char16_t, 32> m_appropriateEndTagName;
 
@@ -339,11 +337,6 @@ inline void HTMLTokenizer::setScriptDataState()
 inline bool HTMLTokenizer::isNullCharacterSkippingState(State state)
 {
     return state == DataState || state == RCDATAState || state == RAWTEXTState;
-}
-
-inline bool HTMLTokenizer::neverSkipNullCharacters() const
-{
-    return m_forceNullCharacterReplacement;
 }
 
 } // namespace WebCore

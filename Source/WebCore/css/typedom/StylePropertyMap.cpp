@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,12 +30,11 @@
 #include "CSSProperty.h"
 #include "CSSPropertyNames.h"
 #include "CSSPropertyParser.h"
-#include "CSSQuadValue.h"
 #include "CSSStyleValueFactory.h"
+#include "CSSSubstitutionValue.h"
 #include "CSSUnparsedValue.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
-#include "CSSVariableReferenceValue.h"
 #include "Document.h"
 #include "ExceptionOr.h"
 #include "Settings.h"
@@ -64,11 +64,43 @@ static RefPtr<CSSValue> cssValueFromStyleValues(CSSPropertyID propertyID, Vector
     return CSSValueList::create(separator, WTF::move(list));
 }
 
+static const AtomString& propertySerializationForCheckAssociatedProperties(CSSPropertyID propertyID)
+{
+    return nameString(propertyID);
+}
+
+static const AtomString& propertySerializationForCheckAssociatedProperties(const AtomString& customPropertyID)
+{
+    return customPropertyID;
+}
+
+static std::optional<Exception> checkAssociatedProperties(const auto& property, const FixedVector<Variant<Ref<CSSStyleValue>, String>>& values)
+{
+    for (const auto& value : values) {
+        auto exception = switchOn(value,
+            [&](const Ref<CSSStyleValue>& styleValue) -> std::optional<Exception> {
+                if (styleValue->associatedProperty() && *styleValue->associatedProperty() != property)
+                    return Exception { ExceptionCode::TypeError, makeString("Attempting to use a CSSStyleValue with [[associatedProperty]] '"_s, styleValue->associatedProperty()->nameString(), "' to set property '"_s, propertySerializationForCheckAssociatedProperties(property), '\'') };
+                return std::nullopt;
+            },
+            [&](const String&) -> std::optional<Exception> {
+                return std::nullopt;
+            }
+        );
+        if (exception)
+            return exception;
+    }
+    return std::nullopt;
+}
+
 // https://drafts.css-houdini.org/css-typed-om/#dom-stylepropertymap-set
 ExceptionOr<void> StylePropertyMap::set(Document& document, const AtomString& property, FixedVector<Variant<Ref<CSSStyleValue>, String>>&& values)
 {
     if (isCustomPropertyName(property)) {
-        auto styleValuesOrException = CSSStyleValueFactory::vectorFromStyleValuesOrStrings(document, property, WTF::move(values));
+        if (auto exception = checkAssociatedProperties(property, values))
+            return { WTF::move(*exception) };
+
+        auto styleValuesOrException = CSSStyleValueFactory::vectorFromStyleValuesOrStringsForCustomProperty(document, property, WTF::move(values));
         if (styleValuesOrException.hasException())
             return styleValuesOrException.releaseException();
         auto styleValues = styleValuesOrException.releaseReturnValue();
@@ -78,15 +110,19 @@ ExceptionOr<void> StylePropertyMap::set(Document& document, const AtomString& pr
         auto value = protect(styleValues[0])->toCSSValue();
         if (!value)
             return Exception { ExceptionCode::TypeError, "Invalid values"_s };
-        setCustomProperty(document, property, downcast<CSSVariableReferenceValue>(value.releaseNonNull()));
+        setCustomProperty(document, property, downcast<CSSSubstitutionValue>(value.releaseNonNull()));
         return { };
     }
+
     auto propertyID = cssPropertyID(property);
     if (propertyID == CSSPropertyInvalid || !isExposed(propertyID, document.settings()))
         return Exception { ExceptionCode::TypeError, makeString("Invalid property "_s, property) };
 
     if (!CSSProperty::isListValuedProperty(propertyID) && values.size() > 1)
         return Exception { ExceptionCode::TypeError, makeString(property, " is not a list-valued property but more than one value was provided"_s) };
+
+    if (auto exception = checkAssociatedProperties(propertyID, values))
+        return { WTF::move(*exception) };
 
     if (isShorthand(propertyID)) {
         if (values.size() != 1)
@@ -104,9 +140,10 @@ ExceptionOr<void> StylePropertyMap::set(Document& document, const AtomString& pr
         return { };
     }
 
-    auto styleValuesOrException = CSSStyleValueFactory::vectorFromStyleValuesOrStrings(document, property, WTF::move(values));
+    auto styleValuesOrException = CSSStyleValueFactory::vectorFromStyleValuesOrStringsForKnownProperty(document, propertyID, WTF::move(values));
     if (styleValuesOrException.hasException())
         return styleValuesOrException.releaseException();
+
     auto styleValues = styleValuesOrException.releaseReturnValue();
     if (styleValues.size() > 1) {
         for (auto& styleValue : styleValues) {
@@ -127,18 +164,6 @@ ExceptionOr<void> StylePropertyMap::set(Document& document, const AtomString& pr
             return Exception { ExceptionCode::TypeError, "Invalid value: This property doesn't allow <number> input"_s };
     }
 
-    // FIXME: CSSValuePair has specific behavior related to coalescing its 2 values when they are equal.
-    // Throw an error when using them with Typed OM to avoid subtle bugs when the serialization isn't representative of the value.
-    if (auto pair = dynamicDowncast<CSSValuePair>(value)) {
-        if (pair->canBeCoalesced())
-            return Exception { ExceptionCode::NotSupportedError, "Invalid values"_s };
-    }
-
-    if (auto quad = dynamicDowncast<CSSQuadValue>(value)) {
-        if (quad->canBeCoalesced())
-            return Exception { ExceptionCode::TypeError, "Invalid values"_s };
-    }
-
     if (!setProperty(propertyID, value.releaseNonNull()))
         return Exception { ExceptionCode::TypeError, "Invalid values"_s };
 
@@ -148,9 +173,11 @@ ExceptionOr<void> StylePropertyMap::set(Document& document, const AtomString& pr
 // https://drafts.css-houdini.org/css-typed-om/#dom-stylepropertymap-append
 ExceptionOr<void> StylePropertyMap::append(Document& document, const AtomString& property, FixedVector<Variant<Ref<CSSStyleValue>, String>>&& values)
 {
+    // FIXME: This early return is wrong per-spec in cases when an exception should be thrown.
     if (values.isEmpty())
         return { };
 
+    // NOTE: This check exists to provide a nicer error message. Strictly following the spec steps, a custom property would fail in step 3, as custom properties do not qualify as list-valued properties.
     if (isCustomPropertyName(property))
         return Exception { ExceptionCode::TypeError, "Cannot append to custom properties"_s };
 
@@ -161,16 +188,19 @@ ExceptionOr<void> StylePropertyMap::append(Document& document, const AtomString&
     if (!CSSProperty::isListValuedProperty(propertyID))
         return Exception { ExceptionCode::TypeError, makeString(property, " does not support multiple values"_s) };
 
+    if (auto exception = checkAssociatedProperties(propertyID, values))
+        return { WTF::move(*exception) };
+
+    auto styleValuesOrException = CSSStyleValueFactory::vectorFromStyleValuesOrStringsForKnownProperty(document, propertyID, WTF::move(values));
+    if (styleValuesOrException.hasException())
+        return styleValuesOrException.releaseException();
+
     auto currentValue = propertyValue(propertyID);
     CSSValueListBuilder list;
     if (RefPtr currentList = dynamicDowncast<CSSValueList>(currentValue))
         list = currentList->copyValues();
     else if (currentValue)
         list.append(currentValue.releaseNonNull());
-
-    auto styleValuesOrException = CSSStyleValueFactory::vectorFromStyleValuesOrStrings(document, property, WTF::move(values));
-    if (styleValuesOrException.hasException())
-        return styleValuesOrException.releaseException();
 
     auto styleValues = styleValuesOrException.releaseReturnValue();
     for (auto& styleValue : styleValues) {
@@ -181,7 +211,7 @@ ExceptionOr<void> StylePropertyMap::append(Document& document, const AtomString&
 
         if (!cssValue)
             continue;
-        if (is<CSSVariableReferenceValue>(*cssValue))
+        if (is<CSSSubstitutionValue>(*cssValue))
             return Exception { ExceptionCode::TypeError, "Values cannot contain a CSSVariableReferenceValue"_s };
 
         list.append(cssValue.releaseNonNull());

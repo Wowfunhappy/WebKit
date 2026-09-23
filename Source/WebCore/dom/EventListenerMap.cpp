@@ -102,18 +102,19 @@ static inline size_t findListener(const EventListenerVector& listeners, EventLis
     return notFound;
 }
 
-void EventListenerMap::replace(const AtomString& eventType, EventListener& oldListener, Ref<EventListener>&& newListener, const RegisteredEventListener::Options& options)
+void EventListenerMap::replacePreservingOptions(const AtomString& eventType, EventListener& oldListener, Ref<EventListener>&& newListener, bool useCapture)
 {
     releaseAssertOrSetThreadUID();
     Locker locker { m_lock };
 
     auto* listeners = find(eventType);
     ASSERT(listeners);
-    size_t index = findListener(*listeners, oldListener, options.capture);
+    size_t index = findListener(*listeners, oldListener, useCapture);
     ASSERT(index != notFound);
     auto& registeredListener = listeners->at(index);
+    auto existingOptions = registeredListener->options();
     registeredListener->markAsRemoved();
-    registeredListener = RegisteredEventListener::create(WTF::move(newListener), options);
+    registeredListener = RegisteredEventListener::create(WTF::move(newListener), existingOptions);
 }
 
 bool EventListenerMap::add(const AtomString& eventType, Ref<EventListener>&& listener, const RegisteredEventListener::Options& options)
@@ -203,7 +204,7 @@ static void copyListenersNotCreatedFromMarkupToTarget(const AtomString& eventTyp
         // Event listeners created from markup have already been transfered to the shadow tree during cloning.
         if (JSEventListener::wasCreatedFromMarkup(registeredListener->callback()))
             continue;
-        target->addEventListener(eventType, registeredListener->callback(), { { registeredListener->useCapture() }, std::nullopt, false, nullptr, false });
+        target->addEventListener(eventType, registeredListener->callback(), { { registeredListener->useCapture() }, registeredListener->isPassive(), registeredListener->isOnce(), nullptr, false });
     }
 }
 

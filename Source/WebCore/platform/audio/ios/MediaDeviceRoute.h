@@ -39,7 +39,7 @@
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
-OBJC_CLASS WebMediaSourceObserver;
+OBJC_CLASS WebPlaybackControlObserver;
 
 namespace WebCore {
 
@@ -81,19 +81,8 @@ struct MediaPlaybackSourceError {
     const String localizedDescription;
 };
 
-struct MediaSelectionOption {
-    enum class Type : uint8_t {
-        Audio,
-        Legible,
-    };
-
-    const String displayName;
-    const String identifier;
-    const Type type;
-    const String extendedLanguageTag;
-};
-
 class MediaDeviceRoute;
+struct MediaSelectionOption;
 
 class MediaDeviceRouteClient : public AbstractRefCountedAndCanMakeWeakPtr<MediaDeviceRouteClient> {
 public:
@@ -102,9 +91,9 @@ public:
     virtual void timeRangeDidChange(MediaDeviceRoute&) { }
     virtual void readyDidChange(MediaDeviceRoute&) { }
     virtual void bufferingDidChange(MediaDeviceRoute&) { }
-    virtual void playbackErrorDidChange(MediaDeviceRoute&) { }
-    virtual void hasAudioDidChange(MediaDeviceRoute&) { }
-    virtual void currentPlaybackPositionDidChange(MediaDeviceRoute&) { }
+    virtual void errorDidChange(MediaDeviceRoute&) { }
+    virtual void audioOptionsDidChange(MediaDeviceRoute&) { }
+    virtual void playbackPositionDidChange(MediaDeviceRoute&) { }
     virtual void playingDidChange(MediaDeviceRoute&) { }
     virtual void playbackSpeedDidChange(MediaDeviceRoute&) { }
     virtual void scanSpeedDidChange(MediaDeviceRoute&) { }
@@ -124,23 +113,25 @@ public:
 
     const WTF::UUID& identifier() const LIFETIME_BOUND { return m_identifier; }
     String deviceName() const;
+    String routeName() const;
     WebMediaDevicePlatformRoute *platformRoute() const;
 
     void loadURL(const URL&, CompletionHandler<void(const MediaDeviceRouteLoadURLResult&)>&&);
+    void disconnectFromSession();
 
     MediaTimeRange timeRange() const;
     bool ready() const;
     bool buffering() const;
-    std::optional<MediaPlaybackSourceError> playbackError() const;
-    bool hasAudio() const;
-    MediaTime currentPlaybackPosition() const;
+    std::optional<MediaPlaybackSourceError> error() const;
+    Vector<MediaSelectionOption> audioOptions() const;
+    MediaTime playbackPosition() const;
     bool playing() const;
     float playbackSpeed() const;
     float scanSpeed() const;
     bool muted() const;
     float volume() const;
 
-    void setCurrentPlaybackPosition(MediaTime);
+    void setPlaybackPosition(MediaTime);
     void setPlaying(bool);
     void setPlaybackSpeed(float);
     void setScanSpeed(float);
@@ -152,7 +143,7 @@ private:
 
     WTF::UUID m_identifier;
     RetainPtr<WebMediaDevicePlatformRoute> m_platformRoute;
-    RetainPtr<WebMediaSourceObserver> m_mediaSourceObserver;
+    RetainPtr<WebPlaybackControlObserver> m_playbackControlObserver;
     WeakPtr<MediaDeviceRouteClient> m_client;
 #if HAVE(AVROUTING_FRAMEWORK)
     RetainPtr<WebMediaDevicePlatformRouteSession> m_routeSession;

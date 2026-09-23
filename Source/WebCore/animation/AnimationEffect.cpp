@@ -152,7 +152,7 @@ ExceptionOr<void> AnimationEffect::bindingsUpdateTiming(Document& document, cons
 {
     auto retVal = updateTiming(document, timing);
     if (!retVal.hasException()) {
-        if (RefPtr cssAnimation = dynamicDowncast<CSSAnimation>(animation()))
+        if (auto* cssAnimation = dynamicDowncast<CSSAnimation>(animation()))
             cssAnimation->effectTimingWasUpdatedUsingBindings(timing);
     }
     return retVal;

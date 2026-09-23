@@ -30,15 +30,13 @@
 #include "CSSTransition.h"
 #include "KeyframeEffect.h"
 #include "KeyframeEffectStack.h"
-#include "RenderStyle.h"
 #include "ScriptExecutionContext.h"
+#include "StyleComputedStyle.h"
 
 namespace WebCore {
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ElementAnimationRareData);
 
-ElementAnimationRareData::ElementAnimationRareData()
-{
-}
+ElementAnimationRareData::ElementAnimationRareData() = default;
 
 ElementAnimationRareData::~ElementAnimationRareData()
 {
@@ -64,7 +62,7 @@ void ElementAnimationRareData::setAnimationsCreatedByMarkup(CSSAnimationCollecti
     m_animationsCreatedByMarkup = WTF::move(animations);
 }
 
-void ElementAnimationRareData::setLastStyleChangeEventStyle(std::unique_ptr<const RenderStyle>&& style)
+void ElementAnimationRareData::setLastStyleChangeEventStyle(std::unique_ptr<const Style::ComputedStyle>&& style)
 {
     if (m_keyframeEffectStack && m_lastStyleChangeEventStyle != style) {
         auto previousStyleChangeEventStyle = std::exchange(m_lastStyleChangeEventStyle, WTF::move(style));

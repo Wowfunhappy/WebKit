@@ -3,6 +3,7 @@
 // mach, voucher, sandbox, os_state and CommonCrypto.
 #include "wk_polyfill.h"
 #include "wk_audit_token.h"
+#include "wk_symbols.h"
 #include "dispatch-activate-once.h"
 
 #import <Foundation/Foundation.h>
@@ -27,6 +28,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -247,6 +249,22 @@ WK_POLYFILL_ABSENT(NULL, void, cache_simulate_size_response, (uint64_t a, uint64
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (const char *s)) { (void)s; return false; }
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s)) { (void)s; return false; }
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s)) { (void)s; return false; }
+
+// Apple Libc libdarwin/variant.c identifies the recovery image by this filesystem marker.
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_is_basesystem, (const char *subsystem))
+{
+    (void)subsystem;
+    Class owner = objc_lookUpClass("NSObject");
+    const void *key = sel_registerName("wk_os_variant_is_basesystem");
+    @synchronized (owner) {
+        id cached = objc_getAssociatedObject(owner, key);
+        if (!cached) {
+            cached = (id)(access("/System/Library/BaseSystem", F_OK) == 0 ? kCFBooleanTrue : kCFBooleanFalse);
+            objc_setAssociatedObject(owner, key, cached, OBJC_ASSOCIATION_RETAIN);
+        }
+        return cached == (id)kCFBooleanTrue;
+    }
+}
 
 // os_log unified logging is 10.12+; _os_log_internal is the macro-emitted backing for every os_log()
 // call site and is absent from 10.9's libSystem (it links as the Mach-O symbol __os_log_internal).
@@ -696,21 +714,9 @@ WK_POLYFILL_REPLACES(NULL, void, syslog, (int priority, const char *message, ...
 #pragma mark - dispatch (APIs newer than 10.9)
 
 // ---------------------------------------------------------------------------------------------------
-// The QoS-class family (10.10+). 10.9's kernel has no QoS bands at all, and none of these entry points
-// exist here — pthread_attr_set_qos_class_np, pthread_set_qos_class_self_np, pthread_get_qos_class_np,
-// dispatch_queue_attr_make_with_qos_class, qos_class_self and qos_class_main are all absent (checked
-// with nm against libSystem, libdispatch and libsystem_pthread).
-//
-// Because there are no bands, a QoS request cannot land anywhere: threads run at the scheduling
-// priority the OS gives them whether or not anyone asks for a class. So each of these reports the
-// truth rather than pretending to have applied something. QOS_CLASS_UNSPECIFIED is Apple's own
-// encoding for "this thread has no QoS class assigned", which is the literal state of every thread on
-// this kernel — so pthread_get_qos_class_np answering UNSPECIFIED is an accurate reading, not a stub
-// value. (WTF's toQOS maps UNSPECIFIED to QOS::Default, the same answer its no-QoS-classes branch
-// returns, so currentThreadQOS() is unchanged by having these.)
-//
-// The pthread half of this family (pthread_{set,get}_qos_class_np, pthread_attr_{set,get}_qos_class_np
-// and the override pair) is under "pthread QoS (10.10+)" below, with these same semantics.
+// The pthread QoS APIs require the BSDTHREADCTL kernel feature absent on 10.9.
+// shared/pthread_qos.c preserves Apple's ENOTSUP capability result; direct class
+// queries report UNSPECIFIED because this kernel never assigned a QoS class.
 
 // Returns a queue attribute carrying the requested class. With no classes to carry, the attribute is
 // returned unmodified, so the queue it configures is exactly the queue the caller would have made.
@@ -727,11 +733,10 @@ WK_POLYFILL_ABSENT(NULL, qos_class_t, qos_class_self, (void))
     return QOS_CLASS_UNSPECIFIED;
 }
 
-// The main thread's class. Unlike an arbitrary thread, the main thread has a defined band on systems
-// that have them, and DEFAULT is what it is given; reporting that keeps main/non-main distinguishable.
+// Without kernel QoS registration, Apple's initial main-thread QoS is UNSPECIFIED.
 WK_POLYFILL_ABSENT(NULL, qos_class_t, qos_class_main, (void))
 {
-    return QOS_CLASS_DEFAULT;
+    return QOS_CLASS_UNSPECIFIED;
 }
 
 // dispatch_block_create_with_qos_class (10.10+). 10.9's libdispatch has no dispatch_block_create
@@ -823,81 +828,7 @@ WK_POLYFILL_ABSENT(NULL, dispatch_workloop_t, dispatch_workloop_create_inactive,
 
 #pragma mark - pthread QoS (10.10+)
 
-// 10.9 has no Quality-of-Service scheduling classes, so there is no class to set, and the honest
-// answer to a query is QOS_CLASS_UNSPECIFIED (0) at relative priority 0 — which is exactly what a
-// thread on this OS is. Overrides likewise have nothing to override; start returns a non-NULL token
-// so the caller's paired _end() call is well-formed.
-WK_POLYFILL_ABSENT(NULL, int, pthread_set_qos_class_self_np, (qos_class_t qos_class, int relative_priority))
-{
-    (void)qos_class; (void)relative_priority;
-    return 0;
-}
-
-WK_POLYFILL_ABSENT(NULL, int, pthread_get_qos_class_np, (pthread_t thread, qos_class_t *qos_class, int *relative_priority))
-{
-    (void)thread;
-    if (qos_class) *qos_class = QOS_CLASS_UNSPECIFIED;
-    if (relative_priority) *relative_priority = 0;
-    return 0;
-}
-
-WK_POLYFILL_ABSENT(NULL, int, pthread_attr_set_qos_class_np, (pthread_attr_t *attr, qos_class_t qos_class, int relative_priority))
-{
-    (void)attr; (void)qos_class; (void)relative_priority;
-    return 0;
-}
-
-WK_POLYFILL_ABSENT(NULL, int, pthread_attr_get_qos_class_np, (pthread_attr_t *attr, qos_class_t *qos_class, int *relative_priority))
-{
-    (void)attr;
-    if (qos_class) *qos_class = QOS_CLASS_UNSPECIFIED;
-    if (relative_priority) *relative_priority = 0;
-    return 0;
-}
-
-// 10.9 has no QoS classes, so no override is installed and there is no pthread_override_t to hand
-// back. NULL is the real API's failure return (the SDK's non-null annotation notwithstanding); a
-// non-NULL sentinel would be a fabricated handle that a caller may dereference or pass to a routine
-// expecting a live override.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wnonnull"
-WK_POLYFILL_ABSENT(NULL, pthread_override_t, pthread_override_qos_class_start_np, (pthread_t thread, qos_class_t qos_class, int relative_priority))
-{
-    (void)thread; (void)qos_class; (void)relative_priority;
-    return NULL;
-}
-#pragma clang diagnostic pop
-
-WK_POLYFILL_ABSENT(NULL, int, pthread_override_qos_class_end_np, (pthread_override_t override))
-{
-    (void)override;
-    return 0;
-}
-
-#pragma mark - pthread stack size
-
-// pthread_get_stacksize_np — a DELIBERATE REPLACEMENT of a present-but-wrong 10.9 function. On the
-// MAIN thread 10.9 reports the default 512 KB rather than the stack the process actually got, which
-// makes any caller sizing a recursion guard from it (JavaScriptCore's stack bounds, LLVM, OpenJDK —
-// all of which carry the same workaround) believe it has far less room than it does. The real main
-// stack is RLIMIT_STACK, clamped to 1 GB because that is the largest stack the kernel will map.
-// Non-main threads are unaffected by the bug, so they get 10.9's own answer.
-#define WK_MAX_THREAD_STACK_SIZE 0x40000000 /* 1 GB */
-pthread_t pthread_main_thread_np(void);
-WK_POLYFILL_REPLACES(NULL, size_t, pthread_get_stacksize_np, (pthread_t thread))
-{
-    if (pthread_equal(thread, pthread_main_thread_np())) {
-        // A libc replacement reports, it does not terminate: if RLIMIT_STACK is unreadable, fall
-        // through to 10.9's own answer rather than killing the process.
-        struct rlimit limit;
-        if (!getrlimit(RLIMIT_STACK, &limit)) {
-            if (limit.rlim_cur < WK_MAX_THREAD_STACK_SIZE)
-                return (size_t)limit.rlim_cur;
-            return WK_MAX_THREAD_STACK_SIZE;
-        }
-    }
-    return WK_ORIGINAL(pthread_get_stacksize_np) ? WK_ORIGINAL(pthread_get_stacksize_np)(thread) : 0;
-}
+// pthread class and attribute APIs share Apple's unsupported-kernel branch in shared/pthread_qos.c.
 
 #pragma mark - sysconf
 
@@ -926,14 +857,90 @@ WK_POLYFILL_REPLACES(NULL, long, sysconf, (int name))
 
 #pragma mark - notify
 
-// notify_is_valid_token (10.10+) asks whether a notify token is still live. 10.9's notify has no
-// token registry to consult, so the call cannot be answered: report "not valid" and set ENOSYS,
-// which is how a caller distinguishes "no" from "unsupported".
+// Libnotify-121's globals, shared through libplatform's allocation-once slot 0. The token query
+// follows Libnotify-133's notify_is_valid_token: inspect the native table under its native mutex.
+struct wk_notify_globals {
+    pthread_mutex_t lock;
+    int32_t ipcVersion;
+    pid_t serverPID;
+    uint32_t clientOptions;
+    uint64_t nameID;
+    dispatch_once_t selfStateOnce;
+    void *selfState;
+    dispatch_once_t serverPortOnce;
+    mach_port_t serverPort;
+    mach_port_t commonPort;
+    int commonToken;
+    dispatch_source_t dispatchSource;
+    dispatch_source_t serverSource;
+    dispatch_once_t tokenTableOnce;
+    void *tokenTable;
+    void *tokenNameTable;
+    uint32_t tokenID;
+    uint32_t fdCount;
+    int *clientFDs;
+    int *serverFDs;
+    int *fdRefcounts;
+    uint32_t portCount;
+    mach_port_t *ports;
+    int *portRefcounts;
+    int *ownedPorts;
+    uint32_t *sharedMemory;
+};
+_Static_assert(offsetof(struct wk_notify_globals, tokenTable) == 0x98, "native notify token-table offset");
+_Static_assert(sizeof(struct wk_notify_globals) == 0xf0, "native notify globals size");
+
+struct wk_os_alloc_once_slot { long once; void *pointer; };
+extern struct wk_os_alloc_once_slot _os_alloc_once_table[];
+extern void *_os_alloc_once(struct wk_os_alloc_once_slot *, size_t, void (*)(void *));
+WK_SYSTEM_FN("/usr/lib/system/libsystem_notify.dylib", void *, _nc_table_find_n, (void *, uint32_t));
+
+static struct wk_notify_globals *wk_notifyGlobals(void)
+{
+    struct wk_os_alloc_once_slot *slot = &_os_alloc_once_table[0];
+    if (slot->once == ~0l)
+        return slot->pointer;
+    wk_image image;
+    if (!wk_find_image("/usr/lib/system/libsystem_notify.dylib", &image))
+        wk_patch_fail("notify token query", "native notify image not loaded");
+    void (*initialize)(void *) = wk_symbol_in_image(&image, "__notify_init_globals");
+    if (!initialize)
+        wk_patch_fail("notify token query", "native globals initializer not found");
+    return _os_alloc_once(slot, sizeof(struct wk_notify_globals), initialize);
+}
+
 WK_POLYFILL_ABSENT(NULL, bool, notify_is_valid_token, (int token))
 {
-    (void)token;
-    errno = ENOSYS;
-    return false;
+    if (token < 0)
+        return false;
+    struct wk_notify_globals *globals = wk_notifyGlobals();
+    pthread_mutex_lock(&globals->lock);
+    bool valid = WK_SYSTEM(_nc_table_find_n)(globals->tokenTable, (uint32_t)token) != NULL;
+    pthread_mutex_unlock(&globals->lock);
+    return valid;
+}
+
+#pragma mark - dirhelper and data vaults
+
+// _set_user_dir_suffix (libsystem_coreservices) names the per-process subdirectory that
+// confstr(_CS_DARWIN_USER_TEMP_DIR) and confstr(_CS_DARWIN_USER_CACHE_DIR) append to the user's
+// directories. 10.9's dirhelper reads that suffix from DIRHELPER_USER_DIR_SUFFIX in the process
+// environment. Native dirhelper validates the path when confstr resolves it; NULL clears the suffix.
+WK_POLYFILL_ABSENT(NULL, bool, _set_user_dir_suffix, (const char *suffix))
+{
+    if (!suffix)
+        return unsetenv("DIRHELPER_USER_DIR_SUFFIX") == 0;
+    return setenv("DIRHELPER_USER_DIR_SUFFIX", suffix, 1) == 0;
+}
+
+// rootless_check_datavault_flag (libsystem_secinit, 10.12+) answers 0 for a directory that carries
+// the data-vault flag. 10.9 has no data vaults, so no directory carries the flag: -1 with ENOTSUP,
+// which is the answer the real call gives for a directory outside a data vault.
+WK_POLYFILL_ABSENT(NULL, int, rootless_check_datavault_flag, (const char *path, const char *storageClass))
+{
+    (void)path; (void)storageClass;
+    errno = ENOTSUP;
+    return -1;
 }
 
 #pragma mark - dyld shared cache

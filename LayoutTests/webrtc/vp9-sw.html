@@ -20,6 +20,7 @@ if (window.internals)
         <script>
 promise_test(async t => {
     const localStream = await navigator.mediaDevices.getUserMedia({video: {width: 320, height: 240, facingMode: "environment"}});
+    t.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const track = localStream.getVideoTracks()[0];
     let receivingConnection;
     const remoteStream =  await new Promise((resolve, reject) => {

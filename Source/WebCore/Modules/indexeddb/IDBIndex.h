@@ -26,8 +26,7 @@
 #pragma once
 
 #include "IDBCursor.h"
-#include <WebCore/IDBIndexInfo.h>
-#include <WebCore/IDBRequest.h>
+#include "IDBIndexInfo.h"
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
@@ -38,9 +37,12 @@ class CallFrame;
 namespace WebCore {
 
 class IDBKeyRange;
+class IDBRequest;
 class WebCoreOpaqueRoot;
 
+struct IDBGetAllOptions;
 struct IDBKeyRangeData;
+struct ParsedGetAllQueryOrOptions;
 
 class IDBIndex final : public ActiveDOMObject {
     WTF_MAKE_TZONE_ALLOCATED(IDBIndex);
@@ -71,10 +73,9 @@ public:
     ExceptionOr<Ref<IDBRequest>> getKey(IDBKeyRange*);
     ExceptionOr<Ref<IDBRequest>> getKey(JSC::JSGlobalObject&, JSC::JSValue key);
 
-    ExceptionOr<Ref<IDBRequest>> getAll(RefPtr<IDBKeyRange>&&, std::optional<uint32_t> count);
-    ExceptionOr<Ref<IDBRequest>> getAll(JSC::JSGlobalObject&, JSC::JSValue key, std::optional<uint32_t> count);
-    ExceptionOr<Ref<IDBRequest>> getAllKeys(RefPtr<IDBKeyRange>&&, std::optional<uint32_t> count);
-    ExceptionOr<Ref<IDBRequest>> getAllKeys(JSC::JSGlobalObject&, JSC::JSValue key, std::optional<uint32_t> count);
+    ExceptionOr<Ref<IDBRequest>> getAll(JSC::JSGlobalObject&, JSC::JSValue queryOrOptions, std::optional<uint32_t> count);
+    ExceptionOr<Ref<IDBRequest>> getAllKeys(JSC::JSGlobalObject&, JSC::JSValue queryOrOptions, std::optional<uint32_t> count);
+    ExceptionOr<Ref<IDBRequest>> getAllRecords(JSC::JSGlobalObject&, IDBGetAllOptions&&);
 
     const IDBIndexInfo& info() const LIFETIME_BOUND { return m_info; }
 
@@ -93,10 +94,9 @@ private:
     ExceptionOr<Ref<IDBRequest>> doCount(const IDBKeyRangeData&);
     ExceptionOr<Ref<IDBRequest>> doGet(ExceptionOr<IDBKeyRangeData>);
     ExceptionOr<Ref<IDBRequest>> doGetKey(ExceptionOr<IDBKeyRangeData>);
-    ExceptionOr<Ref<IDBRequest>> doOpenCursor(IDBCursorDirection, Function<ExceptionOr<RefPtr<IDBKeyRange>>()> &&);
-    ExceptionOr<Ref<IDBRequest>> doOpenKeyCursor(IDBCursorDirection, Function<ExceptionOr<RefPtr<IDBKeyRange>>()> &&);
-    ExceptionOr<Ref<IDBRequest>> doGetAll(std::optional<uint32_t> count, Function<ExceptionOr<RefPtr<IDBKeyRange>>()> &&);
-    ExceptionOr<Ref<IDBRequest>> doGetAllKeys(std::optional<uint32_t> count, Function<ExceptionOr<RefPtr<IDBKeyRange>>()> &&);
+    ExceptionOr<Ref<IDBRequest>> doOpenCursor(IDBCursorDirection, NOESCAPE Function<ExceptionOr<RefPtr<IDBKeyRange>>()> &&);
+    ExceptionOr<Ref<IDBRequest>> doOpenKeyCursor(IDBCursorDirection, NOESCAPE Function<ExceptionOr<RefPtr<IDBKeyRange>>()> &&);
+    ExceptionOr<Ref<IDBRequest>> doGetAllShared(IndexedDB::GetAllType, NOESCAPE Function<ExceptionOr<ParsedGetAllQueryOrOptions>()>&&);
 
     // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;

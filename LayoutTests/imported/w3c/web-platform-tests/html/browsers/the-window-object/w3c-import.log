@@ -16,6 +16,7 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/BarProp.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/Document-defaultView.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/Window-document.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/close-method.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/closed-attribute.window.js
@@ -45,3 +46,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/window-properties.https.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/window-prototype-chain.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/window-reuse-in-nested-browsing-contexts.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/window-reuse.tentative.html

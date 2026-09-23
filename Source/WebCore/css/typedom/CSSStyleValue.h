@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -59,7 +60,7 @@ enum class CSSStyleValueType : uint8_t {
     CSSColorRGB,
     CSSUnitValue,
     CSSUnparsedValue,
-    CSSKeywordValue
+    CSSOMKeywordValue
 };
 
 inline bool isCSSNumericValue(CSSStyleValueType type)
@@ -78,7 +79,7 @@ inline bool isCSSNumericValue(CSSStyleValueType type)
     case CSSStyleValueType::CSSStyleImageValue:
     case CSSStyleValueType::CSSTransformValue:
     case CSSStyleValueType::CSSUnparsedValue:
-    case CSSStyleValueType::CSSKeywordValue:
+    case CSSStyleValueType::CSSOMKeywordValue:
     case CSSStyleValueType::CSSColorCSSOMColor:
     case CSSStyleValueType::CSSColorHSL:
     case CSSStyleValueType::CSSColorHWB:
@@ -108,7 +109,7 @@ inline bool isCSSMathValue(CSSStyleValueType type)
     case CSSStyleValueType::CSSStyleImageValue:
     case CSSStyleValueType::CSSTransformValue:
     case CSSStyleValueType::CSSUnparsedValue:
-    case CSSStyleValueType::CSSKeywordValue:
+    case CSSStyleValueType::CSSOMKeywordValue:
     case CSSStyleValueType::CSSColorCSSOMColor:
     case CSSStyleValueType::CSSColorHSL:
     case CSSStyleValueType::CSSColorHWB:
@@ -146,7 +147,7 @@ inline bool isCSSColorValue(CSSStyleValueType type)
     case CSSStyleValueType::CSSStyleImageValue:
     case CSSStyleValueType::CSSTransformValue:
     case CSSStyleValueType::CSSUnparsedValue:
-    case CSSStyleValueType::CSSKeywordValue:
+    case CSSStyleValueType::CSSOMKeywordValue:
         break;
     }
     return false;
@@ -155,6 +156,45 @@ inline bool isCSSColorValue(CSSStyleValueType type)
 enum class SerializationArguments : uint8_t {
     Nested = 0x1,
     WithoutParentheses = 0x2,
+};
+
+struct AssociatedProperty {
+    Variant<AtomString, CSSPropertyID> property;
+
+    AssociatedProperty(AtomString&& customPropertyName) : property { WTF::move(customPropertyName) } { }
+    AssociatedProperty(const AtomString& customPropertyName) : property { customPropertyName } { }
+    AssociatedProperty(CSSPropertyID propertyID) : property { propertyID } { ASSERT(propertyID != CSSPropertyCustom); }
+
+    const AtomString& nameString() const LIFETIME_BOUND
+    {
+        return WTF::switchOn(property,
+            [](const AtomString& customPropertyName) -> const AtomString& { return customPropertyName; },
+            [](CSSPropertyID propertyID) -> const AtomString& { return WebCore::nameString(propertyID); }
+        );
+    }
+
+    std::optional<CSSPropertyID> propertyID() const
+    {
+        if (auto* propertyID = std::get_if<CSSPropertyID>(&property))
+            return std::optional { *propertyID };
+        return std::nullopt;
+    }
+
+    bool operator==(const AssociatedProperty&) const = default;
+
+    bool operator==(const AtomString& otherCustomPropertyName) const
+    {
+        if (auto* customPropertyName = std::get_if<AtomString>(&property))
+            return *customPropertyName == otherCustomPropertyName;
+        return false;
+    }
+
+    bool operator==(CSSPropertyID otherPropertyID) const
+    {
+        if (auto* propertyID = std::get_if<CSSPropertyID>(&property))
+            return *propertyID == otherPropertyID;
+        return false;
+    }
 };
 
 class CSSStyleValue : public RefCounted<CSSStyleValue>, public ScriptWrappable {
@@ -173,17 +213,18 @@ IGNORE_GCC_WARNINGS_END
     static ExceptionOr<Ref<CSSStyleValue>> parse(Document&, const AtomString&, const String&);
     static ExceptionOr<Vector<Ref<CSSStyleValue>>> parseAll(Document&, const AtomString&, const String&);
 
-    static Ref<CSSStyleValue> create(RefPtr<CSSValue>&&, String&& = String());
-    static Ref<CSSStyleValue> create();
+    static Ref<CSSStyleValue> create(RefPtr<CSSValue>&&, AssociatedProperty&&);
 
     virtual RefPtr<CSSValue> toCSSValue() const { return m_propertyValue; }
-    virtual RefPtr<CSSValue> toCSSValueWithProperty(CSSPropertyID) const { return toCSSValue(); }
+    virtual RefPtr<CSSValue> toCSSValueWithProperty(CSSPropertyID) const;
+
+    const std::optional<AssociatedProperty>& associatedProperty() const { return m_associatedProperty; }
 
 protected:
-    CSSStyleValue(RefPtr<CSSValue>&&, String&& = String());
+    CSSStyleValue(RefPtr<CSSValue>&&, std::optional<AssociatedProperty>&& = std::nullopt);
     CSSStyleValue() = default;
-    
-    String m_customPropertyName;
+
+    std::optional<AssociatedProperty> m_associatedProperty;
     RefPtr<CSSValue> m_propertyValue;
 };
 

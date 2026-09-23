@@ -30,9 +30,6 @@
 #include "IteratorOperations.h"
 #include "JSCInlines.h"
 #include "ObjectConstructor.h"
-#include <unicode/ucurr.h>
-#include <unicode/uloc.h>
-#include <wtf/unicode/icu/ICUHelpers.h>
 
 namespace JSC {
 
@@ -62,7 +59,7 @@ IntlSegmentIterator::IntlSegmentIterator(VM& vm, Structure* structure, std::uniq
 template<typename Visitor>
 void IntlSegmentIterator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<IntlSegmentIterator*>(cell);
+    auto* thisObject = uncheckedDowncast<IntlSegmentIterator>(cell);
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_string);
 }

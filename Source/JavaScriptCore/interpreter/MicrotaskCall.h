@@ -27,8 +27,11 @@
 
 #include <JavaScriptCore/CallLinkInfoBase.h>
 #include <JavaScriptCore/ExceptionHelpers.h>
+#include <JavaScriptCore/FunctionExecutable.h>
 #include <JavaScriptCore/JSFunction.h>
 #include <wtf/ForbidHeapAllocation.h>
+#include <wtf/MathExtras.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -41,7 +44,7 @@ class MicrotaskCall final : public CallLinkInfoBase {
 public:
     static constexpr unsigned maxCallArguments = 6;
 
-    explicit MicrotaskCall(VM&)
+    MicrotaskCall()
         : CallLinkInfoBase(CallSiteType::MicrotaskCall)
     { }
 
@@ -55,7 +58,7 @@ public:
     template<typename... Args> requires (std::is_convertible_v<Args, JSValue> && ...)
     JSValue tryCallWithArguments(VM&, JSFunction*, JSValue thisValue, JSCell* context, Args...);
 
-    bool isInitializedFor(FunctionExecutable* executable) const
+    bool isInitializedFor(ExecutableBase* executable) const
     {
         return m_functionExecutable == executable;
     }
@@ -65,12 +68,56 @@ public:
     void unlinkOrUpgradeImpl(VM&, CodeBlock* oldCodeBlock, CodeBlock* newCodeBlock);
     void relink(VM&, JSFunction*);
 
+    void visitWeak(VM&);
+
 private:
     CodeBlock* m_codeBlock { nullptr };
     FunctionExecutable* m_functionExecutable { nullptr };
     void* m_addressForCall { nullptr };
     unsigned m_numParameters { 0 };
     friend class Interpreter;
+};
+
+class MicrotaskCallCache final {
+    WTF_MAKE_NONCOPYABLE(MicrotaskCallCache);
+    WTF_MAKE_TZONE_ALLOCATED(MicrotaskCallCache);
+public:
+    static constexpr unsigned cacheSize = 8;
+    static_assert(hasOneBitSet(cacheSize));
+
+    MicrotaskCallCache() = default;
+
+    ALWAYS_INLINE MicrotaskCall* find(JSValue functionObject)
+    {
+        if (!functionObject.isCell()) [[unlikely]]
+            return nullptr;
+        auto* cell = functionObject.asCell();
+        if (cell->type() != JSFunctionType) [[unlikely]]
+            return nullptr;
+        auto* executable = uncheckedDowncast<JSFunction>(cell)->executable();
+        for (auto& entry : m_entries) {
+            if (entry.isInitializedFor(executable))
+                return &entry;
+        }
+        return nullptr;
+    }
+
+    ALWAYS_INLINE MicrotaskCall* nextEntryToReplace()
+    {
+        auto* result = &m_entries[m_nextEntryIndex];
+        m_nextEntryIndex = (m_nextEntryIndex + 1) & (cacheSize - 1);
+        return result;
+    }
+
+    void finalizeUnconditionally(VM& vm)
+    {
+        for (auto& entry : m_entries)
+            entry.visitWeak(vm);
+    }
+
+private:
+    std::array<MicrotaskCall, cacheSize> m_entries { };
+    unsigned m_nextEntryIndex { 0 };
 };
 
 } // namespace JSC

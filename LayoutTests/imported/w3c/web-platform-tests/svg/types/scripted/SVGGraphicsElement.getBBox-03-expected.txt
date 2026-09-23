@@ -1,12 +1,14 @@
 
-FAIL rect1 assert_equals: rect1: x expected 1 but got 0
-FAIL rect2 assert_equals: rect2: x expected 1 but got 0
-FAIL circle assert_equals: circle: x expected 1 but got 0
+PASS rect1
+PASS rect2
+PASS circle
 PASS ellipse1
 PASS ellipse2
+PASS ellipse3
+PASS ellipse4
 PASS image3
 PASS image4
-FAIL foreign1 assert_equals: foreign1: x expected 1 but got 0
-FAIL foreign2 assert_equals: foreign2: x expected 1 but got 0
+PASS foreign1
+PASS foreign2
 PASS SVGGraphicsElement.prototype.getBBox for elements with negative sizes
 

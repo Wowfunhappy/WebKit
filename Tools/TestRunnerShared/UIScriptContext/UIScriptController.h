@@ -124,6 +124,7 @@ public:
     virtual double zoomScale() const { notImplemented(); return 1; }
     virtual double minimumZoomScale() const { notImplemented(); return 1; }
     virtual double maximumZoomScale() const { notImplemented(); return 1; }
+    virtual bool enhancedWindowingEnabled() const { notImplemented(); return false; }
 
     // Viewports
 
@@ -217,6 +218,7 @@ public:
     // Touches
 
     virtual void touchDownAtPoint(long, long, long, JSValueRef) { notImplemented(); }
+    virtual void touchDownAtPointWithMajorRadius(long, long, float, float, JSValueRef) { notImplemented(); }
     virtual void liftUpAtPoint(long, long, long, JSValueRef) { notImplemented(); }
     virtual void singleTapAtPoint(long, long, JSValueRef) { notImplemented(); }
     virtual void singleTapAtPointWithModifiers(long, long, JSValueRef, JSValueRef) { notImplemented(); }
@@ -335,6 +337,7 @@ public:
     virtual void setDefaultCalendarType(JSStringRef, JSStringRef) { notImplemented(); }
     virtual JSObjectRef inputViewBounds() const { notImplemented(); return nullptr; }
     virtual void activateDataListSuggestion(unsigned, JSValueRef) { notImplemented(); }
+    virtual void insertAutofillSuggestion(JSStringRef, JSStringRef, JSValueRef) { notImplemented(); }
     virtual void setSelectedColorForColorPicker(double, double, double) { notImplemented(); }
     virtual bool isShowingColorPicker() const { notImplemented(); return false; }
     virtual void setAppAccentColor(unsigned short, unsigned short, unsigned short) { notImplemented(); }
@@ -342,6 +345,7 @@ public:
     // Find in Page
 
     virtual void findString(JSStringRef, unsigned long, unsigned long) { notImplemented(); }
+    virtual void findStringMatchesUsingFindInteraction(JSStringRef, JSValueRef) { notImplemented(); }
 
     virtual void presentFindNavigator() { notImplemented(); }
     virtual void dismissFindNavigator() { notImplemented(); }
@@ -349,6 +353,7 @@ public:
     // Accessibility
 
     virtual void simulateAccessibilitySettingsChangeNotification(JSValueRef) { notImplemented(); }
+    virtual void simulateAvailableSpeechVoicesDidChangeOnBackgroundThread(JSValueRef) { notImplemented(); }
     virtual void retrieveSpeakSelectionContent(JSValueRef) { notImplemented(); }
     virtual JSRetainPtr<JSStringRef> accessibilitySpeakSelectionContent() const { notImplemented(); return nullptr; }
     virtual JSObjectRef contentsOfUserInterfaceItem(JSStringRef) const { notImplemented(); return nullptr; }

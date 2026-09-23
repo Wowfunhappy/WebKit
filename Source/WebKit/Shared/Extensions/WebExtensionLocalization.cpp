@@ -304,16 +304,16 @@ String WebExtensionLocalization::stringByReplacingNamedPlaceholdersInString(Stri
 
         auto originalKey = localizedString.substring(index, matchLength);
 
-        if (originalKey.startsWith(' '))
+        if (!originalKey.startsWith('$'))
             originalKey = localizedString.substring(index + 1, matchLength - 1);
 
-        auto key = originalKey.trim(isASCIIWhitespace).substring(1, originalKey.length() - 2).convertToASCIILowercase();
+        auto key = originalKey.substring(1, originalKey.length() - 2).convertToASCIILowercase();
 
-        auto localizedReplacement = placeholders->getObject(key) ? placeholders->getObject(key)->getString(placeholderDictionaryContentKey) : emptyString();
+        auto localizedReplacement = (placeholders && placeholders->getObject(key)) ? placeholders->getObject(key)->getString(placeholderDictionaryContentKey) : emptyString();
 
         localizedString = makeStringByReplacingAll(localizedString, originalKey, localizedReplacement);
 
-        index += localizedReplacement.length();
+        index += std::max(0, static_cast<int>(localizedReplacement.length()) - 1);
     }
 
     return localizedString;
@@ -332,9 +332,12 @@ String WebExtensionLocalization::stringByReplacingPositionalPlaceholdersInString
         if (index < 0)
             break;
 
-        auto originalKey = localizedString.substring(index, matchLength).trim(isASCIIWhitespace<char16_t>);
-        auto key = originalKey.substring(1, originalKey.length());
-        auto keyInteger = parseInteger<size_t>(key);
+        auto originalKey = localizedString.substring(index, matchLength);
+
+        if (!originalKey.startsWith('$'))
+            originalKey = localizedString.substring(index + 1, matchLength - 1);
+
+        auto keyInteger = parseInteger<size_t>(originalKey.substring(1, originalKey.length() - 1));
 
         String replacement;
         if (keyInteger && placeholders.size() && *keyInteger <= placeholders.size() && keyInteger > 0)
@@ -347,7 +350,7 @@ String WebExtensionLocalization::stringByReplacingPositionalPlaceholdersInString
         if (!matchLength)
             break;
 
-        index += replacement.length() + 2;
+        index += std::max(0, static_cast<int>(replacement.length()) - 1);
     }
 
     return localizedString;

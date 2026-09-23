@@ -23,10 +23,12 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
+#include "DOMWrapperWorld.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructor.h"
 #include "JSDOMConvertBoolean.h"
 #include "JSDOMConvertInterface.h"
@@ -38,7 +40,6 @@
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -79,7 +80,7 @@ template<> ConversionResult<IDLDictionary<TestEventConstructor::Init>> convertDi
     if (isNullOrUndefined)
         bubblesValue = jsUndefined();
     else {
-        bubblesValue = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "bubbles"_s));
+        bubblesValue = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "bubbles"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto bubblesConversionResult = convert<IDLBoolean>(lexicalGlobalObject, bubblesValue);
@@ -89,7 +90,7 @@ template<> ConversionResult<IDLDictionary<TestEventConstructor::Init>> convertDi
     if (isNullOrUndefined)
         cancelableValue = jsUndefined();
     else {
-        cancelableValue = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "cancelable"_s));
+        cancelableValue = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "cancelable"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto cancelableConversionResult = convert<IDLBoolean>(lexicalGlobalObject, cancelableValue);
@@ -99,17 +100,33 @@ template<> ConversionResult<IDLDictionary<TestEventConstructor::Init>> convertDi
     if (isNullOrUndefined)
         composedValue = jsUndefined();
     else {
-        composedValue = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "composed"_s));
+        composedValue = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "composed"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto composedConversionResult = convert<IDLBoolean>(lexicalGlobalObject, composedValue);
     if (composedConversionResult.hasException(throwScope)) [[unlikely]]
         return ConversionResultException { };
+    auto trustedForBindingsOnlyConversionResult = [&] -> ConversionResult<IDLBoolean> {
+        if (worldForDOMObject(*&lexicalGlobalObject).allowAutofill()) {
+            JSValue trustedValue;
+            if (isNullOrUndefined)
+                trustedValue = jsUndefined();
+            else {
+                trustedValue = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "trusted"_s));
+                RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
+            }
+            return convert<IDLBoolean>(lexicalGlobalObject, trustedValue);
+        } else {
+            return ConversionResult<IDLBoolean> { Converter<IDLBoolean>::ReturnType { } };
+        }
+    }();
+    if (trustedForBindingsOnlyConversionResult.hasException(throwScope)) [[unlikely]]
+        return ConversionResultException { };
     JSValue attr2Value;
     if (isNullOrUndefined)
         attr2Value = jsUndefined();
     else {
-        attr2Value = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "attr2"_s));
+        attr2Value = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "attr2"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto attr2ConversionResult = convertOptionalWithDefault<IDLDOMString>(lexicalGlobalObject, attr2Value, [&] -> ConversionResult<IDLDOMString> { return Converter<IDLDOMString>::ReturnType { emptyString() }; });
@@ -120,7 +137,7 @@ template<> ConversionResult<IDLDictionary<TestEventConstructor::Init>> convertDi
     if (isNullOrUndefined)
         attr3Value = jsUndefined();
     else {
-        attr3Value = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "attr3"_s));
+        attr3Value = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "attr3"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto attr3ConversionResult = convertOptionalWithDefault<IDLDOMString>(lexicalGlobalObject, attr3Value, [&] -> ConversionResult<IDLDOMString> { return Converter<IDLDOMString>::ReturnType { emptyString() }; });
@@ -132,6 +149,7 @@ template<> ConversionResult<IDLDictionary<TestEventConstructor::Init>> convertDi
             bubblesConversionResult.releaseReturnValue(),
             cancelableConversionResult.releaseReturnValue(),
             composedConversionResult.releaseReturnValue(),
+            trustedForBindingsOnlyConversionResult.releaseReturnValue(),
         },
         attr2ConversionResult.releaseReturnValue(),
 #if ENABLE(SPECIAL_EVENT)
@@ -166,10 +184,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestEventConstructorPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestEventConstructorPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -187,7 +202,7 @@ template<> EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSTestEventConstructorDOMCons
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = lexicalGlobalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* castedThis = jsCast<JSTestEventConstructorDOMConstructor*>(callFrame->jsCallee());
+    auto* castedThis = uncheckedDowncast<JSTestEventConstructorDOMConstructor>(callFrame->jsCallee());
     ASSERT(castedThis);
     if (callFrame->argumentCount() < 1) [[unlikely]]
         return throwVMError(lexicalGlobalObject, throwScope, createNotEnoughArgumentsError(lexicalGlobalObject));
@@ -203,7 +218,7 @@ template<> EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSTestEventConstructorDOMCons
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     static_assert(TypeOrExceptionOrUnderlyingType<decltype(object)>::isRef);
-    auto jsValue = toJSNewlyCreated<IDLInterface<TestEventConstructor>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, WTF::move(object));
+    auto jsValue = toJSNewlyCreated<IDLInterface<TestEventConstructor>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, WTF::move(object));
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     setSubclassStructureIfNeeded<TestEventConstructor>(lexicalGlobalObject, callFrame, asObject(jsValue));
@@ -243,11 +258,16 @@ static const std::array<HashTableValue, 4> JSTestEventConstructorPrototypeTableV
 
 const ClassInfo JSTestEventConstructorPrototype::s_info = { "TestEventConstructor"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestEventConstructorPrototype) };
 
+JSC::Structure* JSTestEventConstructorPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestEventConstructorPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestEventConstructor::info(), JSTestEventConstructorPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestEventConstructor::s_info = { "TestEventConstructor"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestEventConstructor) };
@@ -258,6 +278,19 @@ JSTestEventConstructor::JSTestEventConstructor(Structure* structure, JSDOMGlobal
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestEventConstructor>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestEventConstructor* JSTestEventConstructor::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestEventConstructor>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestEventConstructor* ptr = new (NotNull, JSC::allocateCell<JSTestEventConstructor>(vm)) JSTestEventConstructor(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestEventConstructor::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::JSType(JSEventType), StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestEventConstructor::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -273,17 +306,17 @@ JSObject* JSTestEventConstructor::prototype(VM& vm, JSDOMGlobalObject& globalObj
 
 JSValue JSTestEventConstructor::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestEventConstructorDOMConstructor, DOMConstructorID::TestEventConstructor>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestEventConstructorDOMConstructor, DOMConstructorID::TestEventConstructor>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestEventConstructorConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestEventConstructorPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestEventConstructorPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestEventConstructor::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestEventConstructor::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestEventConstructor_attr1Getter(JSGlobalObject& lexicalGlobalObject, JSTestEventConstructor& thisObject)
@@ -340,7 +373,7 @@ JSC::GCClient::IsoSubspace* JSTestEventConstructor::subspaceForImpl(JSC::VM& vm)
 
 void JSTestEventConstructor::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestEventConstructor*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestEventConstructor>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));

@@ -186,7 +186,6 @@ inline namespace fundamentals_v3 {
 #include <wtf/Compiler.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
-#include <wtf/Unexpected.h>
 #include <wtf/Variant.h>
 
 namespace std {
@@ -300,10 +299,10 @@ public:
     constexpr expected(value_type&& e) : base(__expected_detail::value_tag, std::forward<value_type>(e)) { }
     template<class... Args> constexpr explicit expected(std::in_place_t, Args&&... args) : base(__expected_detail::value_tag, value_type(std::forward<Args>(args)...)) { }
     // template<class U, class... Args> constexpr explicit expected(in_place_t, std::initializer_list<U>, Args&&...);
-    constexpr expected(const unexpected_type& u) : base(__expected_detail::error_tag, u.value()) { }
-    constexpr expected(unexpected_type&& u) : base(__expected_detail::error_tag, std::forward<unexpected_type>(u).value()) { }
-    template<class Err> constexpr expected(const unexpected<Err>& u) : base(__expected_detail::error_tag, u.value()) { }
-    template<class Err> constexpr expected(unexpected<Err>&& u) : base(__expected_detail::error_tag, std::forward<Err>(u.value())) { }
+    constexpr expected(const unexpected_type& u) : base(__expected_detail::error_tag, u.error()) { }
+    constexpr expected(unexpected_type&& u) : base(__expected_detail::error_tag, std::forward<unexpected_type>(u).error()) { }
+    template<class Err> constexpr expected(const unexpected<Err>& u) : base(__expected_detail::error_tag, u.error()) { }
+    template<class Err> constexpr expected(unexpected<Err>&& u) : base(__expected_detail::error_tag, std::forward<Err>(u.error())) { }
     template<class... Args> constexpr explicit expected(unexpected_t, Args&&... args) : base(__expected_detail::error_tag, error_type(std::forward<Args>(args)...)) { }
     // template<class U, class... Args> constexpr explicit expected(unexpected_t, std::initializer_list<U>, Args&&...);
 
@@ -363,9 +362,9 @@ public:
     constexpr expected(const expected&) = default;
     constexpr expected(expected&&) = default;
     // constexpr explicit expected(in_place_t);
-    constexpr expected(unexpected_type const& u) : base(u.value()) { }
-    constexpr expected(unexpected_type&& u) : base(std::forward<unexpected_type>(u).value()) { }
-    template<class Err> constexpr expected(unexpected<Err> const& u) : base(u.value()) { }
+    constexpr expected(unexpected_type const& u) : base(u.error()) { }
+    constexpr expected(unexpected_type&& u) : base(std::forward<unexpected_type>(u).error()) { }
+    template<class Err> constexpr expected(unexpected<Err> const& u) : base(u.error()) { }
 
     ~expected() = default;
 
@@ -394,7 +393,7 @@ template<class E> constexpr bool operator==(const expected<void, E>& x, const ex
 
 template<class T, class E> constexpr bool operator==(const expected<T, E>& x, const T& y) { return x && *x == y; }
 
-template<class T, class E> constexpr bool operator==(const expected<T, E>& x, const unexpected<E>& y) { return !x && x.error() == y.value(); }
+template<class T, class E> constexpr bool operator==(const expected<T, E>& x, const unexpected<E>& y) { return !x && x.error() == y.error(); }
 
 template<typename T, typename E> void swap(expected<T, E>& x, expected<T, E>& y) { x.swap(y); }
 

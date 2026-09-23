@@ -190,20 +190,24 @@ window.UIHelper = class UIHelper {
         await UIHelper.delayFor(0);
     }
 
-    static async waitForCondition(conditionFunc)
+    static async waitForCondition(conditionFunc, maximumFrames = Infinity)
     {
-        while (!conditionFunc()) {
+        for (let frames = 0; !conditionFunc(); ++frames) {
+            if (frames >= maximumFrames)
+                return false;
             await UIHelper.animationFrame();
         }
+        return true;
     }
 
-    static async waitForConditionAsync(conditionFunc)
+    static async waitForConditionAsync(conditionFunc, maximumFrames = Infinity)
     {
-        var condition = await conditionFunc();
-        while (!condition) {
+        for (let frames = 0; !(await conditionFunc()); ++frames) {
+            if (frames >= maximumFrames)
+                return false;
             await UIHelper.animationFrame();
-            condition = await conditionFunc();
         }
+        return true;
     }
 
     static sendEventStream(eventStream)
@@ -736,8 +740,10 @@ window.UIHelper = class UIHelper {
 
     static resizeWindowTo(width, height)
     {
-        if (!this.isWebKit2())
-            return Promise.resolve();
+        if (!this.isWebKit2()) {
+            window.resizeTo(width, height);
+            return new Promise(resolve => requestAnimationFrame(resolve));
+        }
 
         return new Promise(resolve => testRunner.runUIScript(`uiController.resizeWindowTo(${width}, ${height})`, resolve));
     }
@@ -1416,6 +1422,15 @@ window.UIHelper = class UIHelper {
         return new Promise(resolve => testRunner.runUIScript(script, resolve));
     }
 
+    static insertAutofillSuggestion(username, password) {
+        const escapedUsername = JSON.stringify(String(username));
+        const escapedPassword = JSON.stringify(String(password));
+        const script = `uiController.insertAutofillSuggestion(${escapedUsername}, ${escapedPassword}, () => {
+            uiController.uiScriptComplete("");
+        });`;
+        return new Promise(resolve => testRunner.runUIScript(script, resolve));
+    }
+
     static isShowingDataListSuggestions()
     {
         return new Promise(resolve => {
@@ -1614,6 +1629,18 @@ window.UIHelper = class UIHelper {
         return new Promise(resolve => testRunner.runUIScript(`uiController.dismissFindNavigator()`, resolve));
     }
 
+    static findStringMatchesUsingFindInteraction(searchString) {
+        if (!this.isWebKit2() || !this.isIOSFamily())
+            return Promise.resolve(0);
+
+        return new Promise(resolve => {
+            testRunner.runUIScript(`
+                uiController.findStringMatchesUsingFindInteraction(${JSON.stringify(searchString)}, function(matchCount) {
+                    uiController.uiScriptComplete(matchCount);
+                });`, result => resolve(parseInt(result)));
+        });
+    }
+
     static resignFirstResponder()
     {
         if (!this.isWebKit2()) {
@@ -1667,6 +1694,16 @@ window.UIHelper = class UIHelper {
             testRunner.runUIScript(`(() => {
                 uiController.uiScriptComplete(uiController.minimumZoomScale);
             })()`, scaleAsString => resolve(parseFloat(scaleAsString)))
+        });
+    }
+
+    static enhancedWindowingEnabled()
+    {
+        if (!this.isWebKit2() || !this.isIOSFamily())
+            return Promise.resolve(false);
+
+        return new Promise(resolve => {
+            testRunner.runUIScript("uiController.enhancedWindowingEnabled", result => resolve(result === "true"));
         });
     }
 
@@ -1880,6 +1917,13 @@ window.UIHelper = class UIHelper {
                 })();
             `, resolve);
         });
+    }
+
+    static async chooseLanguageInMediaContextMenu(language)
+    {
+        if (this.isIOSFamily())
+            await this.chooseMenuAction("Languages");
+        await this.chooseMenuAction(language);
     }
 
     static waitForEvent(target, eventName)
@@ -2673,14 +2717,20 @@ window.UIHelper = class UIHelper {
 
     static async performTextExtractionInteraction(action, options)
     {
+        const result = await UIHelper.performTextExtractionInteractionResult(action, options);
+        return result.error;
+    }
+
+    static async performTextExtractionInteractionResult(action, options)
+    {
         if (!this.isWebKit2())
-            return Promise.resolve(false);
+            return Promise.resolve({ error: "", summary: "" });
 
         return new Promise(resolve => {
             const scriptToRun = `uiController.performTextExtractionInteraction("${action}", ${JSON.stringify(options)}, result => {
                 uiController.uiScriptComplete(result)
             })`;
-            testRunner.runUIScript(scriptToRun, resolve);
+            testRunner.runUIScript(scriptToRun, raw => resolve(JSON.parse(raw)));
         });
     }
 }

@@ -101,14 +101,14 @@ bool validateEd25519KeyPair(const Vector<uint8_t>& privateKey, const Vector<uint
                 return false;
             }
 
-            result = Vector<uint8_t>(numBytes, uint8_t(0));
+            result = Vector<uint8_t>(FillWith { }, numBytes, uint8_t(0));
             error = gcry_mpi_print(GCRYMPI_FMT_USG, result.mutableSpan().data(), result.size(), nullptr, yMPI);
             if (error != GPG_ERR_NO_ERROR) {
                 PAL::GCrypt::logError(error);
                 return false;
             }
         } else
-            result = Vector<uint8_t>(32, uint8_t(0));
+            result = Vector<uint8_t>(FillWith { }, 32, uint8_t(0));
 
         // Up to curve-specific amount of bytes of MPI data is copied in reverse order
         // into the initially-zeroed result Vector.

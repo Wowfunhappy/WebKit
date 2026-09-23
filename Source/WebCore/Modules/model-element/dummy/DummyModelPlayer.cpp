@@ -46,9 +46,9 @@ DummyModelPlayer::DummyModelPlayer(ModelPlayerClient& client)
 
 DummyModelPlayer::~DummyModelPlayer() = default;
 
-void DummyModelPlayer::load(Model& model, LayoutSize)
+void DummyModelPlayer::load(Model& model, LayoutSize, bool)
 {
-    if (RefPtr client = m_client.get())
+    if (RefPtr client = m_client)
         client->didFailLoading(*this, ResourceError { errorDomainWebKitInternal, 0, model.url(), "Trying to load model via DummyModelPlayer"_s });
 }
 
@@ -109,18 +109,6 @@ void DummyModelPlayer::animationCurrentTime(CompletionHandler<void(std::optional
 }
 
 void DummyModelPlayer::setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&)
-{
-}
-
-void DummyModelPlayer::hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&)
-{
-}
-
-void DummyModelPlayer::isMuted(CompletionHandler<void(std::optional<bool>&&)>&&)
-{
-}
-
-void DummyModelPlayer::setIsMuted(bool, CompletionHandler<void(bool success)>&&)
 {
 }
 

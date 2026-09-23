@@ -48,6 +48,7 @@
 #include "RenderTextControlMultiLine.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "Text.h"
 #include "TextControlInnerElements.h"
 #include "TextIterator.h"
@@ -73,23 +74,23 @@ static inline unsigned NODELETE computeLengthForAPIValue(StringView text)
     return text.length() - crlfCount;
 }
 
-HTMLTextAreaElement::HTMLTextAreaElement(Document& document, HTMLFormElement* form)
-    : HTMLTextFormControlElement(textareaTag, document, form)
+HTMLTextAreaElement::HTMLTextAreaElement(const QualifiedName& tagName, Document& document)
+    : HTMLTextFormControlElement(tagName, document)
 {
+    ASSERT(hasTagName(textareaTag));
     setFormControlValueMatchesRenderer(true);
 }
 
-Ref<HTMLTextAreaElement> HTMLTextAreaElement::create(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
+Ref<HTMLTextAreaElement> HTMLTextAreaElement::create(const QualifiedName& tagName, Document& document)
 {
-    ASSERT_UNUSED(tagName, tagName == textareaTag);
-    auto textArea = adoptRef(*new HTMLTextAreaElement(document, form));
+    Ref textArea = adoptRef(*new HTMLTextAreaElement(tagName, document));
     textArea->ensureUserAgentShadowRoot();
     return textArea;
 }
 
 Ref<HTMLTextAreaElement> HTMLTextAreaElement::create(Document& document)
 {
-    return create(textareaTag, document, nullptr);
+    return create(textareaTag, document);
 }
 
 void HTMLTextAreaElement::didAddUserAgentShadowRoot(ShadowRoot& root)
@@ -161,7 +162,7 @@ void HTMLTextAreaElement::attributeChanged(const QualifiedName& name, const Atom
         if (m_rows != rows) {
             m_rows = rows;
             if (CheckedPtr renderer = this->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     }
@@ -170,7 +171,7 @@ void HTMLTextAreaElement::attributeChanged(const QualifiedName& name, const Atom
         if (m_cols != cols) {
             m_cols = cols;
             if (CheckedPtr renderer = this->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     }
@@ -187,7 +188,7 @@ void HTMLTextAreaElement::attributeChanged(const QualifiedName& name, const Atom
         if (wrap != m_wrap) {
             m_wrap = wrap;
             if (CheckedPtr renderer = this->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     }
@@ -204,7 +205,7 @@ void HTMLTextAreaElement::attributeChanged(const QualifiedName& name, const Atom
     }
 }
 
-RenderPtr<RenderElement> HTMLTextAreaElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> HTMLTextAreaElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderTextControlMultiLine>(*this, WTF::move(style));
 }
@@ -526,8 +527,7 @@ void HTMLTextAreaElement::setRows(unsigned rows)
 
 void HTMLTextAreaElement::updatePlaceholderText()
 {
-    auto& placeholderText = attributeWithoutSynchronization(placeholderAttr);
-    if (placeholderText.isEmpty()) {
+    if (!hasAttributeWithoutSynchronization(placeholderAttr)) {
         if (RefPtr placeholder = m_placeholder) {
             protect(userAgentShadowRoot())->removeChild(*placeholder);
             m_placeholder = nullptr;
@@ -538,12 +538,12 @@ void HTMLTextAreaElement::updatePlaceholderText()
         m_placeholder = TextControlPlaceholderElement::create(protect(document()));
         protect(userAgentShadowRoot())->insertBefore(*protect(m_placeholder), protect(innerTextElement()->nextSibling()));
     }
-    protect(m_placeholder)->setInnerText(String { placeholderText });
+    protect(m_placeholder)->setInnerText(String { attributeWithoutSynchronization(placeholderAttr) });
 }
 
-RenderStyle HTMLTextAreaElement::createInnerTextStyle(const RenderStyle& style)
+Style::ComputedStyle HTMLTextAreaElement::createInnerTextStyle(const Style::ComputedStyle& style)
 {
-    auto textBlockStyle = RenderStyle::create();
+    auto textBlockStyle = Style::ComputedStyle::create();
     textBlockStyle.inheritFrom(style);
     adjustInnerTextStyle(style, textBlockStyle);
     textBlockStyle.setDisplay(Style::DisplayType::BlockFlow);
@@ -556,6 +556,7 @@ void HTMLTextAreaElement::copyNonAttributePropertiesFromElement(const Element& s
 
     setValueCommon(sourceElement.value(), DispatchNoEvent, TextControlSetValueSelection::DoNotSet);
     m_isDirty = sourceElement.m_isDirty;
+    m_wasModifiedByUser = sourceElement.m_wasModifiedByUser;
     HTMLTextFormControlElement::copyNonAttributePropertiesFromElement(source);
 
     updateValidity();

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
@@ -32,11 +33,11 @@ namespace Style {
 
 // <'-webkit-line-grid'> = none | <custom-ident excluding=none>
 // NOTE: While it has the same name, the standardized `line-grid` property is quite a bit different. See https://drafts.csswg.org/css-line-grid/#propdef-line-grid.
-struct WebkitLineGrid : ValueOrKeyword<CustomIdentifier, CSS::Keyword::None> {
+struct WebkitLineGrid : ValueOrKeyword<CustomIdent, CSS::Keyword::None> {
     using Base::Base;
 
     bool isNone() const { return isKeyword(); }
-    bool isCustomIdentifier() const { return isValue(); }
+    bool isCustomIdent() const { return isValue(); }
 };
 
 } // namespace Style

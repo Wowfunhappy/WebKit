@@ -45,7 +45,7 @@ public:
     void NODELETE setBlockStart(LayoutUnit);
     void resetInlineStart() { m_absoluteTopLeft.setX(initialInlineStart()); }
 
-    bool overflowsContainingBlock() const;
+    bool NODELETE overflowsContainingBlock() const;
 
     LayoutUnit blockStart() const;
     LayoutUnit inlineStart() const;
@@ -94,10 +94,9 @@ inline LayoutUnit FloatAvoider::inlineStart() const
 
 inline LayoutUnit FloatAvoider::inlineEnd() const
 {
-    auto inlineEnd = inlineStart() + borderBoxWidth();
     if (isFloatingBox())
-        inlineEnd += marginEnd();
-    return inlineEnd;
+        return inlineStart() + marginBoxWidth();
+    return inlineStart() + borderBoxWidth();
 }
 
 }

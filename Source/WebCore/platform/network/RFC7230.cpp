@@ -57,7 +57,7 @@ static bool NODELETE isVisibleCharacter(char16_t c)
 }
 
 template<size_t min, size_t max>
-static bool isInRange(char16_t c)
+static bool NODELETE isInRange(char16_t c)
 {
     return c >= min && c <= max;
 }

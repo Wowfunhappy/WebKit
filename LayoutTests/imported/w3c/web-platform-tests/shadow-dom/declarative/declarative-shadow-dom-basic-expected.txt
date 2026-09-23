@@ -19,5 +19,6 @@ PASS Declarative Shadow DOM: template containing (deeply nested) declarative sha
 PASS Declarative Shadow DOM: template containing a template containing declarative shadow root
 PASS Declarative Shadow DOM: template containing declarative shadow root and UA shadow root
 PASS Declarative Shadow DOM: template containing closed declarative shadow root and UA shadow root
-PASS Declarative Shadow DOM: template root element
+PASS Declarative Shadow DOM: declarative shadow roots are not supported by the template element
+PASS Declarative Shadow DOM: explicit test that exceptions are not thrown
 

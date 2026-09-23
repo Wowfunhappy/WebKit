@@ -36,19 +36,22 @@
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct GridTrackSize;
+}
+
 namespace Style {
 
-using namespace CSS::Literals;
-
-struct GridTrackMinMaxParameters {
+struct GridMinMaxFunctionParameters {
     GridTrackBreadth min;
     GridTrackBreadth max;
 
-    bool operator==(const GridTrackMinMaxParameters&) const = default;
+    bool operator==(const GridMinMaxFunctionParameters&) const = default;
 };
-using GridTrackMinMax = FunctionNotation<CSSValueMinmax, GridTrackMinMaxParameters>;
+using GridMinMaxFunction = FunctionNotation<CSSValueMinmax, GridMinMaxFunctionParameters>;
 
-template<size_t I> const auto& get(const GridTrackMinMaxParameters& value)
+template<size_t I> const auto& get(const GridMinMaxFunctionParameters& value)
 {
     if constexpr (!I)
         return value.min;
@@ -56,10 +59,15 @@ template<size_t I> const auto& get(const GridTrackMinMaxParameters& value)
         return value.max;
 }
 
-struct GridTrackFitContentLength : LengthWrapperBase<LengthPercentage<CSS::Nonnegative>> {
-    using Base::Base;
+DEFINE_PRIMITIVE_NUMERIC_TYPE_WRAPPER(GridTrackFitContentLength, LengthPercentage<CSS::Nonnegative>);
+
+struct GridFitContentFunctionParameters {
+    GridTrackFitContentLength value;
+
+    bool operator==(const GridFitContentFunctionParameters&) const = default;
 };
-using GridTrackFitContent = FunctionNotation<CSSValueFitContent, GridTrackFitContentLength>;
+using GridFitContentFunction = FunctionNotation<CSSValueFitContent, GridFitContentFunctionParameters>;
+DEFINE_TYPE_WRAPPER_GET(GridFitContentFunctionParameters, value);
 
 // This class represents a <track-size> from the spec. Although there are 3 different types of
 // <track-size> there is always an equivalent minmax() representation that could represent any of
@@ -77,8 +85,8 @@ using GridTrackFitContent = FunctionNotation<CSSValueFitContent, GridTrackFitCon
 // https://www.w3.org/TR/css-grid-2/#typedef-track-size
 struct GridTrackSize {
     using Breadth = GridTrackBreadth;
-    using MinMax = GridTrackMinMax;
-    using FitContent = GridTrackFitContent;
+    using MinMax = GridMinMaxFunction;
+    using FitContent = GridFitContentFunction;
 
     GridTrackSize(CSS::Keyword::Auto keyword)
         : m_type(Type::Breadth)
@@ -146,14 +154,14 @@ struct GridTrackSize {
 
     GridTrackSize(const FitContent& fitContent)
         : m_type(Type::FitContent)
-        , m_fitContentTrackLength(*fitContent)
+        , m_fitContentTrackLength(fitContent->value)
     {
         cacheMinMaxTrackBreadthTypes();
     }
 
     GridTrackSize(FitContent&& fitContent)
         : m_type(Type::FitContent)
-        , m_fitContentTrackLength(WTF::move(*fitContent))
+        , m_fitContentTrackLength(WTF::move(fitContent->value))
     {
         cacheMinMaxTrackBreadthTypes();
     }
@@ -224,7 +232,7 @@ private:
     Type m_type { Type::Breadth };
     GridTrackBreadth m_minTrackBreadth { CSS::Keyword::Auto { } };
     GridTrackBreadth m_maxTrackBreadth { CSS::Keyword::Auto { } };
-    GridTrackFitContentLength m_fitContentTrackLength { 0_css_px };
+    GridTrackFitContentLength m_fitContentTrackLength { CSS::Literals::px(0) };
 
     bool m_minTrackBreadthIsAuto : 1;
     bool m_maxTrackBreadthIsAuto : 1;
@@ -248,7 +256,9 @@ template<typename... F> decltype(auto) GridTrackSize::switchOn(F&&... f) const
     case Type::FitContent:
         return visitor(
             GridTrackSize::FitContent {
-                .parameters = m_fitContentTrackLength
+                .parameters = {
+                    .value = m_fitContentTrackLength,
+                }
             }
         );
 
@@ -271,7 +281,8 @@ template<typename... F> decltype(auto) GridTrackSize::switchOn(F&&... f) const
 
 // MARK: - Conversion
 
-template<> struct CSSValueConversion<GridTrackSize> { auto operator()(BuilderState&, const CSSValue&) -> GridTrackSize; };
+template<> struct ToCSS<GridTrackSize> { auto operator()(const GridTrackSize&, const Style::ComputedStyle&) -> CSS::GridTrackSize; };
+template<> struct ToStyle<CSS::GridTrackSize> { auto operator()(const CSS::GridTrackSize&, const BuilderState&) -> GridTrackSize; };
 
 // MARK: - Blending
 
@@ -286,6 +297,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, const GridTrackSize&);
 } // namespace Style
 } // namespace WebCore
 
-DEFINE_COMMA_SEPARATED_TUPLE_LIKE_CONFORMANCE(WebCore::Style::GridTrackMinMaxParameters, 2)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::GridTrackFitContentLength)
+DEFINE_COMMA_SEPARATED_TUPLE_LIKE_CONFORMANCE(WebCore::Style::GridMinMaxFunctionParameters, 2)
+DEFINE_TUPLE_LIKE_CONFORMANCE_FOR_TYPE_WRAPPER(WebCore::Style::GridFitContentFunctionParameters)
+DEFINE_TUPLE_LIKE_CONFORMANCE_FOR_TYPE_WRAPPER(WebCore::Style::GridTrackFitContentLength)
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::GridTrackSize)

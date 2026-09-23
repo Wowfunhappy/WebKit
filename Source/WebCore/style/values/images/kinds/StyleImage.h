@@ -39,14 +39,17 @@ namespace WebCore {
 
 class CachedImage;
 class CachedResourceLoader;
+class CSSStyleDeclaration;
 class CSSValue;
+class CSSValuePool;
 class Document;
 class RenderElement;
 class RenderObject;
-class RenderStyle;
 struct ResourceLoaderOptions;
 
 namespace Style {
+
+class ComputedStyle;
 
 class Image : public RefCountedAndCanMakeWeakPtr<Image> {
 public:
@@ -55,7 +58,8 @@ public:
     virtual bool operator==(const Image&) const = 0;
 
     // Computed Style representation.
-    virtual Ref<CSSValue> computedStyleValue(const RenderStyle&) const = 0;
+    virtual Ref<CSSValue> computedStyleValue(const Style::ComputedStyle&) const = 0;
+    virtual Ref<DeprecatedCSSOMValue> computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle&, CSSStyleDeclaration&) const = 0;
 
     // Opaque representation.
     virtual WrappedImagePtr data() const = 0;
@@ -82,6 +86,7 @@ public:
     virtual bool imageHasRelativeHeight() const = 0;
     virtual float imageScaleFactor() const { return 1; }
     virtual bool imageHasNaturalDimensions() const { return true; }
+    virtual bool imageHasNaturalAspectRatio() const { return true; }
 
     // Platform Image.
     virtual RefPtr<WebCore::Image> image(const RenderElement*, const FloatSize&, const GraphicsContext& destinationContext, bool isForFirstLine = false) const = 0;
@@ -101,12 +106,13 @@ public:
     ALWAYS_INLINE bool isCachedImage() const { return m_type == Type::CachedImage; }
     ALWAYS_INLINE bool isCursorImage() const { return m_type == Type::CursorImage; }
     ALWAYS_INLINE bool isImageSet() const { return m_type == Type::ImageSet; }
-    ALWAYS_INLINE bool isGeneratedImage() const { return isFilterImage() || isCanvasImage() || isCrossfadeImage() || isGradientImage() || isNamedImage() || isPaintImage() || isInvalidImage(); }
+    ALWAYS_INLINE bool isGeneratedImage() const { return isFilterImage() || isCanvasImage() || isCrossfadeImage() || isGradientImage() || isNamedImage() || isColorImage() || isPaintImage() || isInvalidImage(); }
     ALWAYS_INLINE bool isFilterImage() const { return m_type == Type::FilterImage; }
     ALWAYS_INLINE bool isCanvasImage() const { return m_type == Type::CanvasImage; }
     ALWAYS_INLINE bool isCrossfadeImage() const { return m_type == Type::CrossfadeImage; }
     ALWAYS_INLINE bool isGradientImage() const { return m_type == Type::GradientImage; }
     ALWAYS_INLINE bool isNamedImage() const { return m_type == Type::NamedImage; }
+    ALWAYS_INLINE bool isColorImage() const { return m_type == Type::ColorImage; }
     ALWAYS_INLINE bool isPaintImage() const { return m_type == Type::PaintImage; }
     ALWAYS_INLINE bool isInvalidImage() const { return m_type == Type::InvalidImage; }
 
@@ -122,6 +128,7 @@ protected:
         CrossfadeImage,
         GradientImage,
         NamedImage,
+        ColorImage,
         InvalidImage,
         PaintImage,
     };

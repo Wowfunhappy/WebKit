@@ -4,6 +4,11 @@ PASS mathcolor on the math element is mapped to CSS color
 PASS mathbackground on the math element is mapped to CSS background-color
 PASS mathsize on the math element is mapped to CSS font-size
 PASS deprecated MathML3 attributes on the math element are not mapped to CSS
+PASS dir on the a element is mapped to CSS direction
+PASS mathcolor on the a element is mapped to CSS color
+PASS mathbackground on the a element is mapped to CSS background-color
+PASS mathsize on the a element is mapped to CSS font-size
+PASS deprecated MathML3 attributes on the a element are not mapped to CSS
 PASS dir on the annotation element is mapped to CSS direction
 PASS mathcolor on the annotation element is mapped to CSS color
 PASS mathbackground on the annotation element is mapped to CSS background-color

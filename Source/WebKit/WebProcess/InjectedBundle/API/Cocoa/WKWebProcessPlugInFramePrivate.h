@@ -35,7 +35,7 @@
 + (instancetype)lookUpFrameFromHandle:(_WKFrameHandle *)handle;
 + (instancetype)lookUpFrameFromJSContext:(JSContext *)context;
 + (instancetype)lookUpContentFrameFromWindowOrFrameElement:(JSValue *)value;
-+ (_WKJSHandle *)jsHandleFromValue:(JSValue *)value withContext:(JSContext *)context;
++ (_WKJSHandle *)jsHandleFromValue:(JSValue *)value withContext:(JSContext *)context WK_API_DEPRECATED("No longer supported", macos(27.0, 27.0), ios(27.0, 27.0), visionos(27.0, 27.0));
 
 @property (nonatomic, readonly) WKWebProcessPlugInBrowserContextController *_browserContextController;
 

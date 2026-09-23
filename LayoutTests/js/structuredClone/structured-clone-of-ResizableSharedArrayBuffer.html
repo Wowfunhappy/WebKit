@@ -61,7 +61,7 @@
     globalThis.testRunner?.dumpAsText();
 
     main().catch(e => {
-        console.log(e);
+        alert(e instanceof DOMException && e.name === 'DataCloneError' ? 'PASS' : 'FAIL: ' + e);
     }).finally(async () => {
         globalThis.testRunner?.notifyDone();
     });

@@ -41,6 +41,11 @@ struct FilterGeometry {
     FloatSize scale;
 };
 
+enum class FilterRenderingOption : uint8_t {
+    ShowDebugOverlay    = 1 << 0,
+    FastAndLowQuality   = 1 << 1,
+};
+
 class Filter : public FilterFunction {
     using FilterFunction::apply;
     using FilterFunction::createFilterStyles;
@@ -51,8 +56,8 @@ public:
     OptionSet<FilterRenderingMode> filterRenderingModes() const { return m_filterRenderingModes; }
     WEBCORE_EXPORT void setFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes);
 
-    void setIsShowingDebugOverlay(bool showOverlay) { m_isShowingDebugOverlay = showOverlay; }
-    bool isShowingDebugOverlay() const { return m_isShowingDebugOverlay; }
+    OptionSet<FilterRenderingOption> renderingOptions() const { return m_renderingOptions; }
+    void setRenderingOptions(OptionSet<FilterRenderingOption> options) { m_renderingOptions = options; }
 
     const FilterGeometry& geometry() const LIFETIME_BOUND { return m_geometry; }
 
@@ -81,8 +86,8 @@ public:
     FloatRect enclosingFilterRegion() const { return m_enclosingFilterRegion; }
     void setEnclosingFilterRegion(const FloatRect& rect) { m_enclosingFilterRegion = rect; }
 
-    FloatRect absoluteEnclosingFilterRegion() const;
-    FloatRect flippedRectRelativeToAbsoluteEnclosingFilterRegion(const FloatRect&) const;
+    FloatRect NODELETE absoluteEnclosingFilterRegion() const;
+    FloatRect NODELETE flippedRectRelativeToAbsoluteEnclosingFilterRegion(const FloatRect&) const;
 #endif
 
     virtual FilterEffectVector effectsOfType(FilterFunction::Type) const = 0;
@@ -96,7 +101,7 @@ public:
 
 protected:
     Filter(Filter::Type, std::optional<RenderingResourceIdentifier> = std::nullopt);
-    Filter(Filter::Type, const FilterGeometry&, std::optional<RenderingResourceIdentifier> = std::nullopt);
+    Filter(Filter::Type, const FilterGeometry&, OptionSet<FilterRenderingOption> = { }, std::optional<RenderingResourceIdentifier> = std::nullopt);
 
     virtual RefPtr<FilterImage> apply(FilterImage* sourceImage, FilterResults&) = 0;
     virtual FilterStyleVector createFilterStyles(GraphicsContext&, const FilterStyle& sourceStyle) const = 0;
@@ -107,7 +112,7 @@ private:
     FloatRect m_enclosingFilterRegion;
 #endif
     OptionSet<FilterRenderingMode> m_filterRenderingModes { FilterRenderingMode::Software };
-    bool m_isShowingDebugOverlay { false };
+    OptionSet<FilterRenderingOption> m_renderingOptions;
 };
 
 } // namespace WebCore

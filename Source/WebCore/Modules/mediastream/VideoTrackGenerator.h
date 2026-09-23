@@ -27,6 +27,7 @@
 #if ENABLE(MEDIA_STREAM) && ENABLE(WEB_CODECS)
 
 #include "RealtimeMediaSource.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "WritableStreamSink.h"
 #include <wtf/RefCounted.h>
 

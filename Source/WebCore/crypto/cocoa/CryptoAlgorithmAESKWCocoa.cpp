@@ -27,54 +27,22 @@
 #include "CryptoAlgorithmAESKW.h"
 
 #include "CryptoKeyAES.h"
+#include "CryptoTypesBridging.h"
+#include "ExceptionOr.h"
 #include <CommonCrypto/CommonCrypto.h>
-#include <pal/PALSwift.h>
-
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
+#include <pal/crypto/CryptoAlgorithmAESKWCocoaBridging.h>
+#include <pal/crypto/CryptoTypes.h>
 
 namespace WebCore {
 
-static ExceptionOr<Vector<uint8_t>> wrapKeyAESKWCryptoKit(const Vector<uint8_t>& key, const Vector<uint8_t>& data)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    auto rv = pal::AesKw::wrap(data.span(), key.span());
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return Exception { ExceptionCode::OperationError };
-    return WTF::move(rv.result);
-#else
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
-static ExceptionOr<Vector<uint8_t>> unwrapKeyAESKWCryptoKit(const Vector<uint8_t>& key, const Vector<uint8_t>& data)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    auto rv = pal::AesKw::unwrap(data.span(), key.span());
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return Exception { ExceptionCode::OperationError };
-    return WTF::move(rv.result);
-#else
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESKW::platformWrapKey(const CryptoKeyAES& key, const Vector<uint8_t>& data)
 {
-    return wrapKeyAESKWCryptoKit(key.key(), data);
+    return toException(PAL::Crypto::wrapKeyAESKWCryptoKit(key.key(), data));
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESKW::platformUnwrapKey(const CryptoKeyAES& key, const Vector<uint8_t>& data)
 {
-    return unwrapKeyAESKWCryptoKit(key.key(), data);
+    return toException(PAL::Crypto::unwrapKeyAESKWCryptoKit(key.key(), data));
 }
 
 } // namespace WebCore

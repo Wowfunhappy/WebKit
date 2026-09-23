@@ -32,6 +32,7 @@
 #import "FELighting.h"
 #import "Filter.h"
 #import "FilterImage.h"
+#import "Logging.h"
 #import "PointLightSource.h"
 #import "SpotLightSource.h"
 #import <CoreImage/CoreImage.h>

@@ -1,9 +1,10 @@
 // This test that the beginning of line (bol) optimization throws when we run out of stack space.
+//@ exclusive!
 //@ requireOptions("-e", "let arrayLength=25000") if $memoryLimited
 
 arrayLength = typeof(arrayLength) === 'undefined' ? 50000 : arrayLength;
 
-let expectedException = "SyntaxError: Invalid regular expression: regular expression too large";
+let expectedException = "SyntaxError: Invalid regular expression: too many captures";
 
 function test()
 {

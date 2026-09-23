@@ -37,6 +37,7 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include <WebCore/RegistrableDomain.h>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 
 namespace WebKit {
@@ -57,7 +58,7 @@ static Vector<Ref<WebPageProxy>> allPageProxiesFor(const WebAutomationSession& s
 {
     Vector<Ref<WebPageProxy>> pages;
     RefPtr processPool = session.processPool();
-    for (Ref process : processPool->processes()) {
+    for (Ref process : borrow(processPool->processes()).get()) {
         for (Ref page : process->pages()) {
             if (!page->isControlledByAutomation())
                 continue;

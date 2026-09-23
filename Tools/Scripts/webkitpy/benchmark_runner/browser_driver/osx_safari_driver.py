@@ -70,7 +70,7 @@ class OSXSafariDriver(OSXBrowserDriver):
         args = [safari_binary_path] + self._safari_preferences
         _log.info('Launching safari: %s with url: %s' % (safari_binary_path, url))
         try:
-            self._safari_process = subprocess.Popen(args, env=env)
+            self._safari_process = subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as error:
             _log.error('Popen failed: {error}'.format(error=error))
 

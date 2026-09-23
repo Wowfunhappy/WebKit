@@ -216,6 +216,29 @@ static void browserWindowHistoryItemActivated(BrowserWindow *window, GVariant *p
     webkit_web_view_go_to_back_forward_list_item(webView, item);
 }
 
+static char *truncateTitle(const char *title)
+{
+#define MAX_TITLE 50
+    if (g_utf8_strlen(title, -1) <= MAX_TITLE) {
+#if GTK_CHECK_VERSION(3, 98, 5)
+        return g_markup_escape_text(title, -1);
+#else
+        return g_strdup(title);
+#endif
+    }
+
+    const char *end = g_utf8_offset_to_pointer(title, MAX_TITLE - 1);
+    g_autofree char *truncatedTitle = g_strndup(title, end - title);
+    g_autofree char *ellipsizedTitle = g_strconcat(truncatedTitle, "\xE2\x80\xA6", NULL);
+
+#if GTK_CHECK_VERSION(3, 98, 5)
+    return g_markup_escape_text(ellipsizedTitle, -1);
+#else
+    return g_steal_pointer(&ellipsizedTitle);
+#endif
+#undef MAX_TITLE
+}
+
 static void browserWindowCreateBackForwardMenu(BrowserWindow *window, GList *list, gboolean isBack)
 {
     if (!list)
@@ -232,27 +255,7 @@ static void browserWindowCreateBackForwardMenu(BrowserWindow *window, GList *lis
         if (!title || !*title)
             title = webkit_back_forward_list_item_get_uri(item);
 
-        char *displayTitle;
-#define MAX_TITLE 100
-#if GTK_CHECK_VERSION(3, 98, 5)
-        char *escapedTitle = g_markup_escape_text(title, -1);
-        if (strlen(escapedTitle) > MAX_TITLE) {
-            displayTitle = g_strndup(escapedTitle, MAX_TITLE);
-            g_free(escapedTitle);
-            displayTitle[MAX_TITLE - 1] = 0xA6;
-            displayTitle[MAX_TITLE - 2] = 0x80;
-            displayTitle[MAX_TITLE - 3] = 0xE2;
-        } else
-            displayTitle = escapedTitle;
-#else
-        displayTitle = g_strndup(title, MIN(MAX_TITLE, strlen(title)));
-        if (strlen(title) > MAX_TITLE) {
-            displayTitle[MAX_TITLE - 1] = 0xA6;
-            displayTitle[MAX_TITLE - 2] = 0x80;
-            displayTitle[MAX_TITLE - 3] = 0xE2;
-        }
-#endif
-#undef MAX_TITLE
+        char *displayTitle = truncateTitle(title);
 
         char *actionName = g_strdup_printf("action-%" G_GUINT64_FORMAT, ++actionId);
         GSimpleAction *action = g_simple_action_new(actionName, NULL);

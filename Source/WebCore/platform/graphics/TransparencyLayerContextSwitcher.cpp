@@ -39,11 +39,20 @@ TransparencyLayerContextSwitcher::TransparencyLayerContextSwitcher(GraphicsConte
     : GraphicsContextSwitcher(WTF::move(filter))
 {
     if (m_filter)
-        m_filterStyles = m_filter->createFilterStyles(destinationContext, sourceImageRect);
+        m_filterStyles = protect(m_filter)->createFilterStyles(destinationContext, sourceImageRect);
 }
 
-void TransparencyLayerContextSwitcher::beginClipAndDrawSourceImage(GraphicsContext& destinationContext, const FloatRect&, const FloatRect& clipRect)
+void TransparencyLayerContextSwitcher::beginClipAndDrawSourceImage(GraphicsContext& destinationContext, const FloatRect&, const FloatRect& clipRect, NOESCAPE const Function<void(GraphicsContext&)>& applyAdditionalDestinationClip)
 {
+    destinationContext.save();
+
+    // Workaround for a CG accelerated-drawing bug rdar://177036180: CGStyle filters fail if there's a
+    // non-rectangular clip, so apply the rounded clip in its own wrapping transparency layer.
+    if (applyAdditionalDestinationClip)
+        applyAdditionalDestinationClip(destinationContext);
+
+    destinationContext.beginTransparencyLayer(1);
+
     for (auto& filterStyle : m_filterStyles) {
         destinationContext.save();
         destinationContext.clip(intersection(filterStyle.imageRect, clipRect));
@@ -54,10 +63,8 @@ void TransparencyLayerContextSwitcher::beginClipAndDrawSourceImage(GraphicsConte
 
 void TransparencyLayerContextSwitcher::beginDrawSourceImage(GraphicsContext& destinationContext, float opacity)
 {
-    if (opacity != 1) {
-        destinationContext.beginTransparencyLayer(opacity);
-        m_beganOpacityLayer = true;
-    }
+    destinationContext.save();
+    destinationContext.beginTransparencyLayer(opacity);
 
     for (auto& filterStyle : m_filterStyles) {
         destinationContext.save();
@@ -74,10 +81,8 @@ void TransparencyLayerContextSwitcher::endDrawSourceImage(GraphicsContext& desti
         destinationContext.restore();
     }
 
-    if (m_beganOpacityLayer) {
-        destinationContext.endTransparencyLayer();
-        m_beganOpacityLayer = false;
-    }
+    destinationContext.endTransparencyLayer();
+    destinationContext.restore();
 }
 
 } // namespace WebCore

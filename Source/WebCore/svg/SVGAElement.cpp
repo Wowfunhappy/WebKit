@@ -34,10 +34,8 @@
 #include "LegacyRenderSVGTransformableContainer.h"
 #include "LocalFrame.h"
 #include "MouseEvent.h"
-#include "PlatformMouseEvent.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGInline.h"
-#include "RenderSVGText.h"
 #include "RenderSVGTransformableContainer.h"
 #include "ResourceRequest.h"
 #include "SVGElementInlines.h"
@@ -93,6 +91,7 @@ void SVGAElement::attributeChanged(const QualifiedName& name, const AtomString& 
         static MainThreadNeverDestroyed<const AtomString> noReferrer("noreferrer"_s);
         static MainThreadNeverDestroyed<const AtomString> noOpener("noopener"_s);
         static MainThreadNeverDestroyed<const AtomString> opener("opener"_s);
+        m_linkRelations = { };
         SpaceSplitString relValue(newValue, SpaceSplitString::ShouldFoldCase::Yes);
         if (relValue.contains(noReferrer))
             m_linkRelations.add(Relation::NoReferrer);
@@ -119,7 +118,7 @@ void SVGAElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGGraphicsElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGAElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGAElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     RefPtr svgParent = dynamicDowncast<SVGElement>(parentNode());
     if (svgParent && svgParent->isTextContent())
@@ -144,7 +143,7 @@ void SVGAElement::defaultEventHandler(Event& event)
             auto url = href().trim(isASCIIWhitespace);
 
             if (url[0] == '#') {
-                if (RefPtr targetElement = dynamicDowncast<SVGSMILElement>(treeScope().getElementById(url.substringSharingImpl(1)))) {
+                if (RefPtr targetElement = dynamicDowncast<SVGSMILElement>(protect(treeScope())->getElementById(url.substringSharingImpl(1)))) {
                     targetElement->beginByLinkActivation();
                     event.setDefaultHandled();
                     return;
@@ -152,7 +151,7 @@ void SVGAElement::defaultEventHandler(Event& event)
             }
 
             Ref document = this->document();
-            URL completedURL = document->completeURL(url);
+            URL completedURL = document->encodingParseURL(url);
 
             auto target = this->target();
             if (target.isEmpty() && attributeWithoutSynchronization(XLinkNames::showAttr) == "new"_s)
@@ -232,7 +231,7 @@ bool SVGAElement::childShouldCreateRenderer(const Node& child) const
         return false;
 
     if (parentElement() && parentElement()->isSVGElement())
-        return parentElement()->childShouldCreateRenderer(child);
+        return protect(parentElement())->childShouldCreateRenderer(child);
 
     return SVGElement::childShouldCreateRenderer(child);
 }
@@ -248,6 +247,11 @@ SharedStringHash SVGAElement::visitedLinkHash() const
     if (!m_storedVisitedLinkHash)
         m_storedVisitedLinkHash = computeVisitedLinkHash(document().baseURL(), getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr));
     return *m_storedVisitedLinkHash;
+}
+
+URL SVGAElement::hrefURL() const
+{
+    return protect(document())->encodingParseURL(href());
 }
 
 DOMTokenList& SVGAElement::relList()

@@ -27,7 +27,6 @@
 #define PAS_REDUNDANT_LOCAL_ALLOCATOR_NODE_H
 
 #include "pas_compact_segregated_size_directory_ptr.h"
-#include "pas_compact_atomic_thread_local_cache_layout_node.h"
 #include "pas_allocator_index.h"
 
 PAS_BEGIN_EXTERN_C;

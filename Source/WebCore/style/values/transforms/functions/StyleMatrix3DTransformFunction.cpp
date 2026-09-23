@@ -29,7 +29,7 @@
 
 #include "AnimationUtilities.h"
 #include "Matrix3DTransformOperation.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include <algorithm>
 

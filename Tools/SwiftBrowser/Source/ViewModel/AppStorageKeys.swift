@@ -30,4 +30,10 @@ enum AppStorageKeys {
     static let scrollBounceBehaviorBasedOnSize = "scrollBounceBehaviorBasedOnSize"
     static let backgroundHidden = "backgroundHidden"
     static let showColorInTabBar = "showColorInTabBar"
+
+    static let debugOverlayNonFastScrollableRegion = "debugOverlayNonFastScrollableRegion"
+    static let debugOverlayWheelEventHandlerRegion = "debugOverlayWheelEventHandlerRegion"
+    static let debugOverlayTouchActionRegion = "debugOverlayTouchActionRegion"
+    static let debugOverlayInteractionRegion = "debugOverlayInteractionRegion"
+    static let debugOverlayEnhancedSecurityRegion = "debugOverlayEnhancedSecurityRegion"
 }

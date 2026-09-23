@@ -28,10 +28,12 @@
 
 #include "config.h"
 #include "RenderMathMLRoot.h"
+#include "RenderBlockInlines.h"
 
 #if ENABLE(MATHML)
 
 #include "FontCache.h"
+#include "FontCascadeInlines.h"
 #include "GraphicsContext.h"
 #include "MathMLNames.h"
 #include "MathMLRootElement.h"
@@ -48,7 +50,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMathMLRoot);
 
-RenderMathMLRoot::RenderMathMLRoot(MathMLRootElement& element, RenderStyle&& style)
+RenderMathMLRoot::RenderMathMLRoot(MathMLRootElement& element, Style::ComputedStyle&& style)
     : RenderMathMLRow(Type::MathMLRoot, element, WTF::move(style))
 {
     m_radicalOperator.setOperator(RenderMathMLRoot::style(), gRadicalCharacter, MathOperator::Type::VerticalOperator);
@@ -97,7 +99,7 @@ RenderBox& RenderMathMLRoot::getIndex() const
     return *firstInFlowChildBox()->nextInFlowSiblingBox();
 }
 
-void RenderMathMLRoot::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderMathMLRoot::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderMathMLRow::styleDidChange(diff, oldStyle);
     resetRadicalOperator();
@@ -126,7 +128,7 @@ RenderMathMLRoot::HorizontalParameters RenderMathMLRoot::horizontalParameters(La
     return parameters;
 }
 
-RenderMathMLRoot::VerticalParameters RenderMathMLRoot::verticalParameters()
+RenderMathMLRoot::VerticalParameters RenderMathMLRoot::verticalParameters() const
 {
     VerticalParameters parameters;
     // We try and read constants to draw the radical from the OpenType MATH and use fallback values otherwise.
@@ -157,12 +159,12 @@ RenderMathMLRoot::VerticalParameters RenderMathMLRoot::verticalParameters()
     return parameters;
 }
 
-void RenderMathMLRoot::computePreferredLogicalWidths()
+void RenderMathMLRoot::computeIntrinsicLogicalWidthContributions()
 {
-    ASSERT(needsPreferredLogicalWidthsUpdate());
+    ASSERT(hasInvalidContentLogicalWidths());
 
     if (!isValid()) {
-        RenderMathMLRow::computePreferredLogicalWidths();
+        RenderMathMLRow::computeIntrinsicLogicalWidthContributions();
         return;
     }
 
@@ -172,22 +174,23 @@ void RenderMathMLRoot::computePreferredLogicalWidths()
         preferredWidth += preferredLogicalWidthOfRowItems();
     } else {
         ASSERT(rootType() == RootType::RootWithIndex);
-        LayoutUnit indexPreferredWidth = getIndex().maxPreferredLogicalWidth() + marginIntrinsicLogicalWidthForChild(getIndex());
+        LayoutUnit indexPreferredWidth = getIndex().maxContentLogicalWidthContribution() + marginIntrinsicLogicalWidthForChild(getIndex());
         auto horizontal = horizontalParameters(indexPreferredWidth);
         preferredWidth += horizontal.kernBeforeDegree;
         preferredWidth += indexPreferredWidth;
         preferredWidth += horizontal.kernAfterDegree;
         preferredWidth += m_radicalOperator.maxPreferredWidth();
-        preferredWidth += getBase().maxPreferredLogicalWidth() + marginIntrinsicLogicalWidthForChild(getBase());
+        preferredWidth += getBase().maxContentLogicalWidthContribution() + marginIntrinsicLogicalWidthForChild(getBase());
     }
-    m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = preferredWidth;
+    m_maxContentLogicalWidthContribution = preferredWidth;
+    m_minContentLogicalWidthContribution = preferredWidth;
 
     auto sizes = sizeAppliedToMathContent(LayoutPhase::CalculatePreferredLogicalWidth);
     applySizeToMathContent(LayoutPhase::CalculatePreferredLogicalWidth, sizes);
 
-    adjustPreferredLogicalWidthsForBorderAndPadding();
+    adjustContentLogicalWidthsForBorderAndPadding();
 
-    clearNeedsPreferredWidthsUpdate();
+    clearContentLogicalWidthsInvalidation();
 }
 
 void RenderMathMLRoot::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit)
@@ -282,7 +285,22 @@ void RenderMathMLRoot::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit
 
     adjustLayoutForBorderAndPadding();
 
+    updateLogicalHeight();
+
     layoutOutOfFlowBoxes(relayoutChildren);
+}
+
+std::optional<LayoutUnit> RenderMathMLRoot::firstLineBaseline() const
+{
+    // Per MathML Core, an empty <msqrt> renders as if it had a single empty <mrow> child.
+    // Synthesize the baseline of that implicit mrow so that the empty square root aligns
+    // with its non-empty counterpart on the line.
+    if (rootType() == RootType::SquareRoot && !firstInFlowChildBox()) {
+        auto vertical = verticalParameters();
+        return vertical.verticalGap + vertical.ruleThickness + vertical.extraAscender + borderAndPaddingBefore();
+    }
+
+    return RenderMathMLRow::firstLineBaseline();
 }
 
 void RenderMathMLRoot::paint(PaintInfo& info, const LayoutPoint& paintOffset)
@@ -300,7 +318,7 @@ void RenderMathMLRoot::paint(PaintInfo& info, const LayoutPoint& paintOffset)
         auto horizontal = horizontalParameters(indexWidth);
         horizontalOffset += horizontal.kernBeforeDegree + indexWidth + horizontal.kernAfterDegree;
     }
-    radicalOperatorTopLeft.move(mirrorIfNeeded(horizontalOffset, m_radicalOperator.width()), m_radicalOperatorTop);
+    radicalOperatorTopLeft.move(mirrorIfNeeded(horizontalOffset, m_radicalOperator.width()), m_radicalOperatorTop + borderAndPaddingBefore());
     m_radicalOperator.paint(style(), info, radicalOperatorTopLeft, protect(document())->deviceScaleFactor());
 
     // We draw the radical line.
@@ -312,7 +330,7 @@ void RenderMathMLRoot::paint(PaintInfo& info, const LayoutPoint& paintOffset)
     info.context().setStrokeThickness(ruleThickness);
     info.context().setStrokeStyle(StrokeStyle::SolidStroke);
     info.context().setStrokeColor(style().visitedDependentColorApplyingColorFilter());
-    LayoutPoint ruleOffsetFrom = paintOffset + location() + LayoutPoint(0_lu, m_radicalOperatorTop + ruleThickness / 2);
+    LayoutPoint ruleOffsetFrom = paintOffset + location() + LayoutPoint(0_lu, m_radicalOperatorTop + borderAndPaddingBefore() + ruleThickness / 2);
     LayoutPoint ruleOffsetTo = ruleOffsetFrom;
     horizontalOffset += m_radicalOperator.width();
     ruleOffsetFrom.move(mirrorIfNeeded(horizontalOffset), 0_lu);

@@ -10,6 +10,7 @@
             function nextStep()
             {
                 if (muteChangedEvent.type == "unmute") {
+                    mediaStream.getTracks().forEach(t => t.stop());
                     finishJSTest();
                     return;
                 }

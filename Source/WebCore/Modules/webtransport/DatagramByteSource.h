@@ -26,6 +26,7 @@
 #pragma once
 
 #include "DatagramSource.h"
+#include <wtf/RefCounted.h>
 
 namespace JSC {
 class ArrayBuffer;

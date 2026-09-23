@@ -50,14 +50,16 @@
 #include "MemoryCache.h"
 #include "Page.h"
 #include "PerformanceLogging.h"
+#include "PlatformRenderTheme.h"
 #include "PluginDocument.h"
 #include "RenderObjectInlines.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "SVGPathElement.h"
 #include "ScrollingThread.h"
+#include "SelectorChecker.h"
 #include "SelectorQuery.h"
-#include "StyleScope.h"
+#include "StyleDocumentScope.h"
 #include "StyleSheetContentsCache.h"
 #include "StyledElement.h"
 #include "TextBreakingPositionCache.h"
@@ -100,6 +102,7 @@ static void releaseNoncriticalMemory(MaintainMemoryCache maintainMemoryCache)
             LayoutIntegration::LineLayout::releaseCaches(*renderView);
             Layout::TextBreakingPositionCache::singleton().clear();
             renderView->layoutContext().deleteDetachedRenderersNow();
+            renderView->layoutContext().deleteDetachedInlineContentNow();
         }
     }
 
@@ -109,6 +112,7 @@ static void releaseNoncriticalMemory(MaintainMemoryCache maintainMemoryCache)
     Style::StyleSheetContentsCache::singleton().clear();
     HTMLNameCache::clear();
     ImmutableStyleProperties::clearDeduplicationMap();
+    SelectorChecker::clearCompiledHasArgumentSelectors();
     SVGPathElement::clearCache();
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
     InteractionRegion::clearCache();
@@ -151,6 +155,9 @@ static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCa
 
         if (RefPtr pluginDocument = dynamicDowncast<PluginDocument>(document))
             pluginDocument->releaseMemory();
+
+        if (RefPtr localFrame = document->frame())
+            protect(localFrame->editor())->releaseMemory();
     }
 
     if (synchronous == Synchronous::Yes)

@@ -19,14 +19,20 @@ promise_test(async (test) => {
 
     let remoteStream1, remoteStream2;
     let counter = 0;
+    let clone;
     const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video : true });
+    test.add_cleanup(() => {
+        localStream.getTracks().forEach(t => t.stop());
+        if (clone)
+            clone.getTracks().forEach(t => t.stop());
+    });
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             pc1 = firstConnection;
             firstConnection.addTrack(localStream.getAudioTracks()[0], localStream);
             firstConnection.addTrack(localStream.getVideoTracks()[0], localStream);
 
-            const clone = localStream.clone();
+            clone = localStream.clone();
             firstConnection.addTrack(clone.getAudioTracks()[0], clone);
             firstConnection.addTrack(clone.getVideoTracks()[0], clone);
         }, (secondConnection) => {

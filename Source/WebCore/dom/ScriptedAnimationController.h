@@ -28,10 +28,10 @@
 
 #include "AnimationFrameRate.h"
 #include "Document.h"
-#include "ReducedResolutionSeconds.h"
 #include "Timer.h"
 #include <wtf/CheckedPtr.h>
 #include <wtf/OptionSet.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
@@ -54,7 +54,7 @@ public:
     ~ScriptedAnimationController();
     void clearDocumentPointer() { m_document = nullptr; }
 
-    WEBCORE_EXPORT Seconds interval() const;
+    WEBCORE_EXPORT Seconds NODELETE interval() const;
     WEBCORE_EXPORT OptionSet<ThrottlingReason> NODELETE throttlingReasons() const;
 
     void NODELETE suspend();
@@ -72,7 +72,7 @@ private:
     ScriptedAnimationController(Document&);
 
     Page* NODELETE page() const;
-    Seconds preferredScriptedAnimationInterval() const;
+    Seconds NODELETE preferredScriptedAnimationInterval() const;
     bool isThrottledRelativeToPage() const;
     bool shouldRescheduleRequestAnimationFrame(ReducedResolutionSeconds) const;
     void scheduleAnimation();

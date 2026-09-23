@@ -27,7 +27,6 @@
 #include "IntPoint.h"
 #include "IntSize.h"
 #include "PixelBuffer.h"
-#include <JavaScriptCore/TypedArrayAdaptersForwardDeclarations.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 

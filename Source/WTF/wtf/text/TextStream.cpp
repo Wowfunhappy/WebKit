@@ -26,12 +26,13 @@
 #include "config.h"
 #include <wtf/text/TextStream.h>
 
+#include <wtf/MathExtras.h>
 #include <wtf/MediaTime.h>
 #include <wtf/ObjectIdentifier.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/Seconds.h>
 #include <wtf/URL.h>
 #include <wtf/UUID.h>
-#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
@@ -41,7 +42,7 @@ static constexpr size_t printBufferSize = 100; // large enough for any integer o
 static inline bool NODELETE hasFractions(double val)
 {
     static constexpr double s_epsilon = 0.0001;
-    int ival = static_cast<int>(val);
+    int ival = truncateDoubleToInt32(val);
     double dval = static_cast<double>(ival);
     return std::abs(val - dval) > s_epsilon;
 }
@@ -230,6 +231,12 @@ void writeIndent(TextStream& ts, int indent)
 TextStream& operator<<(TextStream& ts, Seconds seconds)
 {
     ts << seconds.value() << 's';
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, ReducedResolutionSeconds time)
+{
+    ts << time.seconds() << 's';
     return ts;
 }
 

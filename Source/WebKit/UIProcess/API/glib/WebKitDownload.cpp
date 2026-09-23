@@ -531,8 +531,7 @@ void webkit_download_set_destination(WebKitDownload* download, const gchar* dest
 #if ENABLE(2022_GLIB_API)
     g_return_if_fail(g_path_is_absolute(destination));
 #else
-    auto view = StringView::fromLatin1(destination);
-    auto isFileURI = view.startsWith("file://"_s);
+    auto isFileURI = startsWith(CStringView::unsafeFromUTF8(destination).span(), "file://"_s);
     g_return_if_fail(isFileURI || g_path_is_absolute(destination));
 
     GUniquePtr<char> destinationPath;
@@ -597,7 +596,7 @@ void webkit_download_cancel(WebKitDownload* download)
     maybeFinishDecideDestination(download);
 
     download->priv->isCancelled = true;
-    download->priv->download->cancel([download = Ref { *download->priv->download }] (auto*) {
+    download->priv->download->cancel([download = protect(*download->priv->download)] (auto*) {
         download->client().legacyDidCancel(download.get());
     });
 }

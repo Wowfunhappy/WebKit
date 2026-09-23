@@ -55,6 +55,9 @@ private:
 #endif
 
     RefPtr<ScrollingTreeNode> scrollingNodeForPoint(FloatPoint) final;
+#if ENABLE(WHEEL_EVENT_REGIONS)
+    OptionSet<EventListenerRegionType> eventListenerRegionTypesForPoint(FloatPoint) const final;
+#endif
 };
 
 } // namespace WebCore

@@ -25,6 +25,7 @@
 #include "FloatQuad.h"
 #include "RenderBlock.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderElementStyleInlines.h"
 #include "RenderLayer.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGInlineInlines.h"
@@ -33,19 +34,20 @@
 #include "SVGGeometryElement.h"
 #include "SVGInlineTextBox.h"
 #include "SVGNames.h"
-#include "SVGPathData.h"
 #include "SVGPathElement.h"
+#include "SVGPathFromElement.h"
 #include "SVGRootInlineBox.h"
 #include "SVGTextPathElement.h"
 #include "Settings.h"
 #include "StyleTransformResolver.h"
+#include "TransformationMatrix.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGTextPath);
 
-RenderSVGTextPath::RenderSVGTextPath(SVGTextPathElement& element, RenderStyle&& style)
+RenderSVGTextPath::RenderSVGTextPath(SVGTextPathElement& element, Style::ComputedStyle&& style)
     : RenderSVGInline(Type::SVGTextPath, element, WTF::move(style))
 {
     ASSERT(isRenderSVGTextPath());
@@ -58,10 +60,10 @@ SVGTextPathElement& RenderSVGTextPath::textPathElement() const
     return downcast<SVGTextPathElement>(RenderSVGInline::graphicsElement());
 }
 
-SVGGeometryElement* RenderSVGTextPath::targetElement() const
+RefPtr<SVGGeometryElement> RenderSVGTextPath::targetElement() const
 {
-    auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), textPathElement().treeScopeForSVGReferences());
-    return dynamicDowncast<SVGGeometryElement>(target.element.get());
+    auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), protect(textPathElement())->treeScopeForSVGReferences());
+    return dynamicDowncast<SVGGeometryElement>(WTF::move(target.element));
 }
 
 Path RenderSVGTextPath::layoutPath() const
@@ -77,14 +79,11 @@ Path RenderSVGTextPath::layoutPath() const
     // the current 'text' element, including any adjustments to the current user coordinate
     // system due to a possible transform attribute on the current 'text' element.
     // http://www.w3.org/TR/SVG/text.html#TextPathElement
-    if (element->renderer() && document().settings().layerBasedSVGEngineEnabled()) {
-        CheckedRef renderer = downcast<RenderSVGShape>(*element->renderer());
-        if (CheckedPtr layer = renderer->layer()) {
-            const auto& layerTransform = layer->currentTransform(Style::TransformResolver::individualTransformOperations).toAffineTransform();
-            if (!layerTransform.isIdentity())
-                path.transform(layerTransform);
-            return path;
-        }
+    if (CheckedPtr shapeRenderer = dynamicDowncast<RenderSVGShape>(element->renderer())) {
+        auto transform = shapeRenderer->computeRendererTransform();
+        if (!transform.isIdentity())
+            path.transform(transform);
+        return path;
     }
 
     path.transform(element->animatedLocalTransform());

@@ -40,7 +40,7 @@ struct ScrollFunctionParameters {
     Scroller scroller;
     ScrollAxis axis;
 
-    bool operator==(const ScrollFunctionParameters&) const = default;
+    bool NODELETE operator==(const ScrollFunctionParameters&) const = default;
 };
 using ScrollFunction = FunctionNotation<CSSValueScroll, ScrollFunctionParameters>;
 
@@ -51,11 +51,11 @@ template<> struct CSSValueConversion<ScrollFunction> {
     auto operator()(BuilderState&, const CSSScrollValue&) -> ScrollFunction;
 };
 
-template<> struct CSSValueCreation<ScrollFunction> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const ScrollFunction&); };
+template<> struct CSSValueCreation<ScrollFunction> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const ScrollFunction&); };
 
 // MARK: - Serialization
 
-template<> struct Serialize<ScrollFunctionParameters> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const ScrollFunctionParameters&); };
+template<> struct Serialize<ScrollFunctionParameters> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const ScrollFunctionParameters&); };
 
 // MARK: - Logging
 

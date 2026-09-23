@@ -49,12 +49,12 @@ template<typename CharacterType> static bool isTrustedTypesNone(StringParsingBuf
     return buffer.atEnd();
 }
 
-template<typename CharacterType> static bool isTrustedTypeCharacter(CharacterType c)
+template<typename CharacterType> static bool NODELETE isTrustedTypeCharacter(CharacterType c)
 {
     return !isASCIIWhitespace(c);
 }
 
-template<typename CharacterType> static bool isPolicyNameCharacter(CharacterType c)
+template<typename CharacterType> static bool NODELETE isPolicyNameCharacter(CharacterType c)
 {
     return isASCIIAlphanumeric(c) || c == '-' || c == '#' || c == '=' || c == '_' || c == '/' || c == '@' || c == '.' || c == '%';
 }
@@ -98,32 +98,33 @@ void ContentSecurityPolicyTrustedTypesDirective::parse(const String& value)
             if (buffer.atEnd())
                 return;
 
-            auto beginPolicy = buffer.position();
+            auto beginPolicy = buffer.span();
             skipWhile<isTrustedTypeCharacter>(buffer);
 
-            StringParsingBuffer policyBuffer(std::span(beginPolicy, buffer.position()));
+            StringView policy(beginPolicy.first(buffer.position() - beginPolicy.data()));
 
-            if (skipExactlyIgnoringASCIICase(policyBuffer, "'allow-duplicates'"_s)) {
+            // Each tt-expression must match a keyword, the wildcard, or a
+            // tt-policy-name in its entirety; a token with trailing characters
+            // (e.g. "*X" or "'allow-duplicates'X") is an invalid expression.
+            if (equalIgnoringASCIICase(policy, "'allow-duplicates'"_s)) {
                 m_allowDuplicates = true;
                 continue;
             }
 
-            if (skipExactlyIgnoringASCIICase(policyBuffer, "'none'"_s)) {
+            if (equalIgnoringASCIICase(policy, "'none'"_s)) {
                 directiveList().policy().reportInvalidTrustedTypesNoneKeyword();
                 continue;
             }
 
-            if (skipExactly(policyBuffer, '*')) {
+            if (policy == "*"_s) {
                 m_allowAny = true;
                 continue;
             }
 
-            if (skipExactly<isPolicyNameCharacter>(policyBuffer)) {
-                auto policy = String({ beginPolicy, buffer.position() });
-                m_list.add(policy);
-            } else {
-                auto policy = String({ beginPolicy, buffer.position() });
-                directiveList().policy().reportInvalidTrustedTypesPolicy(policy);
+            if (!policy.isEmpty() && policy.containsOnly<isPolicyNameCharacter<char16_t>>())
+                m_list.add(policy.toString());
+            else {
+                directiveList().policy().reportInvalidTrustedTypesPolicy(policy.toString());
                 return;
             }
 

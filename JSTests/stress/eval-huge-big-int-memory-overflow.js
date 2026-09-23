@@ -1,4 +1,4 @@
-//@ if $memoryLimited then skip else runDefault end
+//@ memoryHog!
 
 try {
     eval('1'.repeat(2**20)+'n');

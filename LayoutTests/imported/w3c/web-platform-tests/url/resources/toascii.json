@@ -1,6 +1,9 @@
 [
   "This contains assorted IDNA tests that IdnaTestV2 might not cover.",
   "Feel free to deduplicate with a clear commit message.",
+  "",
+  "If the test only applies to the URL Standard's 'domain to ASCII', ",
+  "and not to TR46's ToASCII, then tag it with `urlStandardOnly`",
   {
     "comment": "Label with hyphens in 3rd and 4th position",
     "input": "aa--",
@@ -52,11 +55,11 @@
   {
     "comment": "Invalid Punycode",
     "input": "xn--a",
-    "output": null
+    "output": "xn--a"
   },
   {
     "input": "xn--a.xn--zca",
-    "output": null
+    "output": "xn--a.xn--zca"
   },
   {
     "input": "xn--a.ß",
@@ -64,7 +67,7 @@
   },
   {
     "input": "xn--ls8h=",
-    "output": null
+    "output": "xn--ls8h="
   },
   {
     "comment": "Invalid Punycode (contains non-ASCII character)",
@@ -96,7 +99,7 @@
   },
   {
     "input": "xn--1ug.example",
-    "output": null
+    "output": "xn--1ug.example"
   },
   {
     "comment": "CheckBidi is true",
@@ -105,7 +108,7 @@
   },
   {
     "input": "xn--a-yoc",
-    "output": null
+    "output": "xn--a-yoc"
   },
   {
     "comment": "processing_option is Nontransitional_Processing",
@@ -124,7 +127,7 @@
   {
     "comment": "U+FFFD character encoded in Punycode",
     "input": "xn--zn7c.com",
-    "output": null
+    "output": "xn--zn7c.com"
   },
   {
     "comment": "Label longer than 63 code points",
@@ -239,11 +242,13 @@
   },
   {
     "input": "www.lookout.net\u2A7480",
-    "output": null
+    "output": null,
+    "urlStandardOnly": true
   },
   {
     "input": "www\u00A0.lookout.net",
-    "output": null
+    "output": null,
+    "urlStandardOnly": true
   },
   {
     "input": "\u1680lookout.net",
@@ -251,7 +256,8 @@
   },
   {
     "input": "\u001flookout.net",
-    "output": null
+    "output": null,
+    "urlStandardOnly": true
   },
   {
     "input": "look\u06DDout.net",
@@ -363,7 +369,7 @@
   },
   {
     "input": "xn--0.com",
-    "output": null
+    "output": "xn--0.com"
   },
   {
     "input": "foo\u0300.bar.com",

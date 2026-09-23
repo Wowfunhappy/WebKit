@@ -46,6 +46,8 @@
 #include "WebProcessPoolMessages.h"
 #include <WebCore/CommonAtomStrings.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
+#include <WebCore/FloatSize.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/LogInitialization.h>
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/MemoryRelease.h>
@@ -83,6 +85,8 @@
 
 namespace WebKit {
 
+using namespace WebCore;
+
 // We wouldn't want the GPUProcess to repeatedly exit then relaunch when under memory pressure. In particular, we need to make sure the
 // WebProcess has a change to schedule work after the GPUProcess get launched. For this reason, we make sure that the GPUProcess never
 // idle-exits less than 5 seconds after getting launched. This amount of time should be sufficient for the WebProcess to schedule work
@@ -98,9 +102,7 @@ GPUProcess::GPUProcess()
 #endif
 }
 
-GPUProcess::~GPUProcess()
-{
-}
+GPUProcess::~GPUProcess() = default;
 
 GPUProcess& GPUProcess::singleton()
 {
@@ -251,7 +253,11 @@ CoreAudioCaptureUnit::defaultSingleton().setStatusBarWasTappedCallback([weakProc
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     SandboxExtension::consumePermanently(parameters.containerCachesDirectoryExtensionHandle);
-    grantAccessToContainerTempDirectory(parameters.containerTemporaryDirectoryExtensionHandle);
+#if ENABLE(LLVM_PROFILE_GENERATION)
+    WebKit::initializeLLVMProfiling();
+    WebCore::initializeLLVMProfiling();
+    JSC::initializeLLVMProfiling();
+#endif // ENABLE(LLVM_PROFILE_GENERATION)
 #endif
 
     populateMobileGestaltCache(WTF::move(parameters.mobileGestaltExtensionHandle));
@@ -348,7 +354,7 @@ GPUConnectionToWebProcess* GPUProcess::webProcessConnection(WebCore::ProcessIden
 
 void GPUProcess::updateSandboxAccess(const Vector<SandboxExtension::Handle>& extensions)
 {
-    RELEASE_LOG(WebRTC, "GPUProcess::updateSandboxAccess: Adding %ld extensions", extensions.size());
+    RELEASE_LOG(WebRTC, "GPUProcess::updateSandboxAccess: Adding %zu extensions", extensions.size());
     for (auto& extension : extensions)
         SandboxExtension::consumePermanently(extension);
 }

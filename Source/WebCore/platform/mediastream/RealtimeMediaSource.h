@@ -55,6 +55,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Lock.h>
 #include <wtf/LoggerHelper.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NativePromise.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
@@ -311,6 +312,8 @@ public:
 
     virtual void configurationChanged();
 
+    size_t settingsCapabilitiesUpdateCount() const;
+
 protected:
     RealtimeMediaSource(const CaptureDevice&, MediaDeviceHashSalts&& hashSalts = { }, std::optional<PageIdentifier> = std::nullopt);
 
@@ -396,6 +399,13 @@ private:
     mutable Lock m_videoFrameObserversLock;
     HashMap<VideoFrameObserver*, std::unique_ptr<VideoFrameAdaptor>> m_videoFrameObservers WTF_GUARDED_BY_LOCK(m_videoFrameObserversLock);
 
+    struct PendingVideoFrame {
+        Ref<VideoFrame> frame;
+        VideoFrameTimeMetadata metadata;
+    };
+    static constexpr size_t maxPendingVideoFramesBeforeAddTrack = 30;
+    Vector<PendingVideoFrame> m_pendingVideoFrames WTF_GUARDED_BY_LOCK(m_videoFrameObserversLock);
+
     CaptureDevice m_device;
 
 #if PLATFORM(COCOA)
@@ -427,6 +437,7 @@ private:
     bool m_hasStartedProducingData { false };
     std::atomic<bool> m_isApplyingRotation { false };
 
+    size_t m_settingsCapabilitiesUpdateCount { 0 };
     unsigned m_videoFrameObserversWithAdaptors { 0 };
 };
 
@@ -499,6 +510,11 @@ inline void RealtimeMediaSource::setCanUseIOSurface()
 inline const AudioStreamDescription* RealtimeMediaSource::audioStreamDescription() const
 {
     return nullptr;
+}
+
+inline size_t RealtimeMediaSource::settingsCapabilitiesUpdateCount() const
+{
+    return m_settingsCapabilitiesUpdateCount;
 }
 
 } // namespace WebCore

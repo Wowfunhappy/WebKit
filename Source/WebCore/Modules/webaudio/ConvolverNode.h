@@ -43,7 +43,7 @@ public:
     virtual ~ConvolverNode();
     
     ExceptionOr<void> setBufferForBindings(RefPtr<AudioBuffer>&&);
-    AudioBuffer* bufferForBindings(); // Only safe to call on the main thread.
+    AudioBuffer* NODELETE bufferForBindings(); // Only safe to call on the main thread.
 
     bool normalizeForBindings() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_normalize; }
     void NODELETE setNormalizeForBindings(bool);

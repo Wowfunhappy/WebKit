@@ -27,13 +27,10 @@
 #define Supplementable_h
 
 #include <wtf/Assertions.h>
+#include <wtf/CurrentThread.h>
 #include <wtf/HashMap.h>
 #include <wtf/MainThread.h>
 #include <wtf/text/ASCIILiteral.h>
-
-#if ASSERT_ENABLED
-#include <wtf/Threading.h>
-#endif
 
 namespace WebCore {
 
@@ -149,14 +146,14 @@ class Supplementable {
 public:
     void provideSupplement(ASCIILiteral key, std::unique_ptr<Supplement<T>> supplement)
     {
-        ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
+        ASSERT(canCurrentThreadIDAccessThreadLocalData(m_creationThreadID));
         ASSERT(!m_supplements.get(key));
         m_supplements.add(key, WTF::move(supplement));
     }
 
     Supplement<T>* requireSupplement(ASCIILiteral key)
     {
-        ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
+        ASSERT(canCurrentThreadIDAccessThreadLocalData(m_creationThreadID));
         return m_supplements.get(key);
     }
 
@@ -169,7 +166,7 @@ private:
     using SupplementMap = HashMap<ASCIILiteral, std::unique_ptr<Supplement<T>>>;
     SupplementMap m_supplements;
 #if ASSERT_ENABLED
-    const Ref<Thread> m_thread { Thread::currentSingleton() };
+    const uint32_t m_creationThreadID { currentThreadID() };
 #endif
 };
 

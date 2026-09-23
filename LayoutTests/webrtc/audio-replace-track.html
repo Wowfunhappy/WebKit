@@ -11,13 +11,15 @@
     <script>
     var sender;
     var remoteStream;
+    var firstStream;
     var secondStream;
     var receivingConnection;
     promise_test((test) => {
         if (window.testRunner)
             testRunner.setUserMediaPermission(true);
 
-        return navigator.mediaDevices.getUserMedia({ audio: { sampleRate: { exact: 48000 } } }).then((firstStream) => {
+        return navigator.mediaDevices.getUserMedia({ audio: { sampleRate: { exact: 48000 } } }).then((stream) => {
+            firstStream = stream;
             return new Promise((resolve, reject) => {
                 createConnections((firstConnection) => {
                     sender = firstConnection.addTrack(firstStream.getAudioTracks()[0], firstStream);
@@ -60,7 +62,11 @@
         });
     }, "Using replaceTrack for audio");
 
-    promise_test(() => {
+    promise_test((test) => {
+        test.add_cleanup(() => {
+            firstStream.getTracks().forEach(t => t.stop());
+            secondStream.getTracks().forEach(t => t.stop());
+        });
         return doHumAnalysis(remoteStream, true).then((results) => {
             assert_true(results, "heard hum 2");
         });

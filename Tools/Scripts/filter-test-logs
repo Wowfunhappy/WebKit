@@ -51,7 +51,7 @@ def parser():
     parser = argparse.ArgumentParser(description='filter test output')
     parser.add_argument(
         'filter_type',
-        choices=['jsc', 'layout', 'scan-build', 'webdriver', 'test262', 'minibrowser', 'swift'],
+        choices=['jsc', 'layout', 'scan-build', 'webdriver', 'test262', 'minibrowser', 'swift', 'api'],
         help='Choose which test logs to filter'
     )
     parser.add_argument(
@@ -109,6 +109,8 @@ def filter_scan_build(log_file_name):
             # A success or failure is always preceeded by **
             elif line.startswith('**'):
                 print_all_lines = True
+                print(line, end='')
+            elif ': error:' in line:
                 print(line, end='')
             else:
                 keep_alive_stdout.maybe_update_progress()
@@ -180,6 +182,22 @@ def filter_swift(log_file_name):
                 keep_alive_stdout.maybe_update_progress()
 
 
+def filter_api_tests(log_file_name):
+    log_file = os.path.abspath(f'{log_file_name}')
+    keep_alive_stdout = KeepAliveStdoutProgress()
+    with open(log_file, 'w') as f:
+        print_all_lines = False
+        for line in sys.stdin:
+            f.write(line)
+            if print_all_lines:
+                print(line, end='')
+            elif re.match(r'.*Ran \d+ tests of \d+', line):
+                print_all_lines = True
+                print(line, end='')
+            else:
+                keep_alive_stdout.maybe_update_progress()
+
+
 def main():
     args = parser()
     if args.filter_type == 'jsc':
@@ -196,6 +214,8 @@ def main():
         filter_minibrowser_tests(args.output)
     elif args.filter_type == 'swift':
         filter_swift(args.output)
+    elif args.filter_type == 'api':
+        filter_api_tests(args.output)
 
 
 if __name__ == '__main__':

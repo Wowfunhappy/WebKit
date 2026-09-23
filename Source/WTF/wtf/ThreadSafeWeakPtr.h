@@ -99,7 +99,7 @@ public:
                 // We retained ourselves above.
                 Locker locker { m_lock };
                 hasOtherWeakRefs = --m_weakReferenceCount;
-                // release the lock here so we don't do it in Locker's destuctor after we've already called delete.
+                // release the lock here so we don't do it in Locker's destructor after we've already called delete.
             }
 
             if (!hasOtherWeakRefs)
@@ -225,7 +225,7 @@ public:
         if (didRefStrongOnly)
             return;
 
-        std::bit_cast<ThreadSafeWeakPtrControlBlock*>(m_bits.loadRelaxed())->strongRef();
+        std::bit_cast<ThreadSafeWeakPtrControlBlock*>(bits())->strongRef();
     }
 
     void deref() const
@@ -239,9 +239,10 @@ public:
             bits -= refIncrement;
             newStrongOnlyRefCount = bits;
             return true;
-        }, std::memory_order_relaxed);
+        }, std::memory_order_release);
         if (didDerefStrongOnly) {
             if (newStrongOnlyRefCount == strongOnlyFlag) {
+                std::atomic_thread_fence(std::memory_order_acquire);
                 ASSERT(m_bits.exchangeOr(destructionStartedFlag) == newStrongOnlyRefCount);
                 SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE auto deleteObject = [this] {
                     delete static_cast<const T*>(this);
@@ -261,12 +262,12 @@ public:
             return;
         }
 
-        std::bit_cast<ThreadSafeWeakPtrControlBlock*>(m_bits.loadRelaxed())->template strongDeref<T, destructionThread>();
+        std::bit_cast<ThreadSafeWeakPtrControlBlock*>(bits())->template strongDeref<T, destructionThread>();
     }
 
     uint32_t refCount() const
     {
-        uintptr_t bits = m_bits.loadRelaxed();
+        uintptr_t bits = this->bits();
         if (isStrongOnly(bits)) {
             // FIXME: Add support for ref()/deref() during destruction like we support for other RefCounted types.
             ASSERT(!(bits & destructionStartedFlag));
@@ -281,7 +282,7 @@ public:
 
     // Ideally this would have been private but AbstractRefCounted subclasses need to be able to access this function
     // to provide its result to ThreadSafeWeakHashSet.
-    uint32_t weakRefCount() const { return !isStrongOnly(m_bits.loadRelaxed()) ? controlBlock().weakRefCount() : 0; }
+    uint32_t weakRefCount() const { return !isStrongOnly(bits()) ? controlBlock().weakRefCount() : 0; }
 
 protected:
     ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr() = default;
@@ -290,7 +291,7 @@ protected:
         // If we ever decided there was a lot of contention here we could have some lock bits in m_bits but
         // that seems unlikely since this is a one-way street. Once we add a controlBlock we don't go back
         // to strong only.
-        uintptr_t bits = m_bits.loadRelaxed();
+        uintptr_t bits = this->bits();
         if (!isStrongOnly(bits)) [[likely]]
             return *std::bit_cast<ThreadSafeWeakPtrControlBlock*>(bits);
 
@@ -314,11 +315,28 @@ protected:
             return *controlBlock;
 
         delete controlBlock;
-        return *std::bit_cast<ThreadSafeWeakPtrControlBlock*>(m_bits.loadRelaxed());
+        return *std::bit_cast<ThreadSafeWeakPtrControlBlock*>(this->bits());
     }
 
 private:
     static bool isStrongOnly(uintptr_t bits) { return bits & strongOnlyFlag; }
+
+    // Use memory_order_acquire under TSan to pair with the memory_order_release
+    // in controlBlock(). Without this, TSan reports a race between the
+    // non-atomic initialization of the control block's members and subsequent
+    // atomic operations on them (e.g., WordLock::lock()). ARM64 dependency
+    // ordering and x86 total store ordering make this benign in practice, but
+    // the C++ memory model requires acquire to formally synchronize with the
+    // release store.
+    ALWAYS_INLINE uintptr_t bits() const
+    {
+#if TSAN_ENABLED
+        return m_bits.load(std::memory_order_acquire);
+#else
+        return m_bits.loadRelaxed();
+#endif
+    }
+
     template<typename, typename> friend class ThreadSafeWeakPtr;
     template<typename, typename> friend class ThreadSafeWeakRef;
     template<typename> friend class ThreadSafeWeakHashSet;

@@ -59,13 +59,14 @@ public:
 
     void requestImmersive(HTMLModelElement*, CompletionHandler<void(ExceptionOr<void>)>&&);
     void exitImmersive(CompletionHandler<void(ExceptionOr<void>)>&&);
-    WEBCORE_EXPORT void exitImmersive();
-    void exitRemovedImmersiveElement(HTMLModelElement*, CompletionHandler<void()>&&);
+    WEBCORE_EXPORT void exitImmersiveIfNeeded(CompletionHandler<void()>&& = nullptr);
+    void exitRemovedImmersiveElementIfNeeded(HTMLModelElement*, CompletionHandler<void()>&&);
 
     enum class EventType : bool { Change, Error };
     void dispatchPendingEvents();
     void queueImmersiveEventForElement(EventType, Element&);
     void clear();
+    void didResumeFromBackForwardCache();
 
 protected:
     friend class Document;
@@ -81,7 +82,8 @@ private:
 
     WeakPtr<HTMLModelElement, WeakPtrImplWithEventTargetData> m_pendingImmersiveElement;
     bool m_pendingExitImmersive { false };
-    CompletionHandler<void()> m_pendingExitCompletionHandler;
+    CompletionHandler<void()> m_deferredRequestHandler;
+    void releaseDeferredRequest();
 
     struct ActiveRequest {
         enum class Stage : uint8_t { None, Permission, ModelPlayer, Presentation };
@@ -89,7 +91,7 @@ private:
         WeakPtr<HTMLModelElement, WeakPtrImplWithEventTargetData> element;
     };
     ActiveRequest m_activeRequest;
-    std::optional<Exception> checkRequestStillValid(HTMLModelElement*, ActiveRequest::Stage expectedStage);
+    std::optional<Exception> isRequestOutdated(HTMLModelElement*, ActiveRequest::Stage expectedStage);
 
     void cancelActiveRequest(CompletionHandler<void()>&&);
     void beginImmersiveRequest(Ref<HTMLModelElement>&&, CompletionHandler<void(ExceptionOr<void>)>&&);

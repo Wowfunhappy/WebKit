@@ -304,14 +304,9 @@ struct FontSelectionRequest {
 
     Value weight;
     Value width;
-
-    // FIXME: We are using an optional here to be able to distinguish between an explicit
-    // or implicit slope (for "italic" and "oblique") and the "normal" value which has no
-    // slope. The "italic" and "oblique" values can be distinguished by looking at the
-    // "fontStyleAxis" on the FontDescription. We should come up with a tri-state member
-    // so that it's a lot clearer whether we're dealing with a "normal", "italic" or explicit
-    // "oblique" font style. See webkit.org/b/187774.
     std::optional<Value> slope;
+    FontStyleAxis slopeAxis { FontStyleAxis::normal };
+    bool penalizeObliqueFontSelection { false };
 
     friend bool operator==(const FontSelectionRequest&, const FontSelectionRequest&) = default;
 };
@@ -330,7 +325,7 @@ inline TextStream& operator<<(TextStream& ts, const std::optional<FontSelectionV
 
 inline void add(Hasher& hasher, const FontSelectionRequest& request)
 {
-    add(hasher, request.weight, request.width, request.slope);
+    add(hasher, request.weight, request.width, request.slope, std::to_underlying(request.slopeAxis), request.penalizeObliqueFontSelection);
 }
 
 struct FontSelectionCapabilities {
@@ -348,6 +343,7 @@ struct FontSelectionCapabilities {
     Range weight { normalWeightValue() };
     Range width { normalWidthValue() };
     Range slope { normalItalicValue() };
+    FontStyleAxis faceAxis { FontStyleAxis::normal };
 };
 
 struct FontSelectionSpecifiedCapabilities {
@@ -357,7 +353,7 @@ struct FontSelectionSpecifiedCapabilities {
 
     constexpr Capabilities computeFontSelectionCapabilities() const
     {
-        return { computeWeight(), computeWidth(), computeSlope() };
+        return { computeWeight(), computeWidth(), computeSlope(), faceAxis };
     }
 
     friend constexpr bool operator==(const FontSelectionSpecifiedCapabilities&, const FontSelectionSpecifiedCapabilities&) = default;
@@ -367,6 +363,7 @@ struct FontSelectionSpecifiedCapabilities {
         weight = other.weight;
         width = other.width;
         slope = other.slope;
+        faceAxis = other.faceAxis;
         return *this;
     }
 
@@ -388,11 +385,12 @@ struct FontSelectionSpecifiedCapabilities {
     OptionalRange weight;
     OptionalRange width;
     OptionalRange slope;
+    FontStyleAxis faceAxis { FontStyleAxis::normal };
 };
 
 inline void add(Hasher& hasher, const FontSelectionSpecifiedCapabilities& capabilities)
 {
-    add(hasher, capabilities.weight, capabilities.width, capabilities.slope);
+    add(hasher, capabilities.weight, capabilities.width, capabilities.slope, std::to_underlying(capabilities.faceAxis));
 }
 
 class FontSelectionAlgorithm {

@@ -25,13 +25,10 @@ function mac_process_jsc_entitlements()
             plistbuddy Add :com.apple.private.pac.exception bool YES
         fi
 
-        if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 110000 ))
-        then
-            plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
-            plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
-        fi
+        plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
+        plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
 
-        if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 120000 )) && [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
+        if [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
         then
             plistbuddy Add :com.apple.private.verified-jit bool YES
             plistbuddy Add :com.apple.security.cs.single-jit bool YES
@@ -58,13 +55,10 @@ function mac_process_testapi_entitlements()
         plistbuddy Add :com.apple.security.cs.allow-jit bool YES
         plistbuddy Add :com.apple.rootless.storage.JavaScriptCore bool YES
 
-        if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 110000 ))
-        then
-            plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
-            plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
-        fi
+        plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
+        plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
 
-        if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 120000 )) && [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
+        if [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
         then
             plistbuddy Add :com.apple.private.verified-jit bool YES
             plistbuddy Add :com.apple.security.cs.single-jit bool YES
@@ -94,16 +88,13 @@ function maccatalyst_process_jsc_entitlements()
             plistbuddy Add :com.apple.private.pac.exception bool YES
         fi
 
-        if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 110000 ))
-        then
-            plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
-            plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
-        fi
+        plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
+        plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
 
         plistbuddy Add :com.apple.developer.hardened-process bool YES
     fi
 
-    if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 120000 )) && [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
+    if [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
     then
         plistbuddy Add :com.apple.private.verified-jit bool YES
         plistbuddy Add :com.apple.security.cs.single-jit bool YES
@@ -131,13 +122,10 @@ function maccatalyst_process_testapi_entitlements()
         plistbuddy Add :com.apple.developer.hardened-process bool YES
     fi
 
-    if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 110000 ))
-    then
-        plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
-        plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
-    fi
+    plistbuddy Add :com.apple.security.cs.jit-write-allowlist bool YES
+    plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
 
-    if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 120000 )) && [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
+    if [[ -z "${SKIP_ROSETTA_BREAKING_ENTITLEMENTS}" ]]
     then
         plistbuddy Add :com.apple.private.verified-jit bool YES
         plistbuddy Add :com.apple.security.cs.single-jit bool YES

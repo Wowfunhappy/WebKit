@@ -91,21 +91,21 @@ public:
     const Vector<BindableResources>& resources() const LIFETIME_BOUND { return m_resources; }
 
     Device& device() const { return m_device; }
-    static bool allowedUsage(const OptionSet<BindGroupEntryUsage>&);
+    static bool NODELETE allowedUsage(const OptionSet<BindGroupEntryUsage>&);
     static NSString* usageName(const OptionSet<BindGroupEntryUsage>&);
     static uint64_t NODELETE makeEntryMapKey(uint32_t baseMipLevel, uint32_t baseArrayLayer, WGPUTextureAspect);
 
     const BindGroupLayout* bindGroupLayout() const { return m_bindGroupLayout.get(); }
 
     const BufferAndType* NODELETE dynamicBuffer(uint32_t) const;
-    uint32_t dynamicOffset(uint32_t bindingIndex, const Vector<uint32_t>*) const;
+    uint32_t NODELETE dynamicOffset(uint32_t bindingIndex, const Vector<uint32_t>*) const;
     bool rebindSamplersIfNeeded() const;
     bool updateExternalTextures(ExternalTexture&);
     bool makeSubmitInvalid(ShaderStage, const BindGroupLayout*) const;
     const SamplersContainer& samplers() const LIFETIME_BOUND { return m_samplers; }
     uint32_t uniqueId() const { return m_uniqueIdentifier; }
     void validatedSuccessfully(uint32_t groupIndex, uint64_t pipelineIndex, uint32_t maxOffset) const;
-    bool previouslyValidatedBindGroup(uint32_t groupIndex, uint64_t pipelineIndex, uint32_t maxOffset) const;
+    bool NODELETE previouslyValidatedBindGroup(uint32_t groupIndex, uint64_t pipelineIndex, uint32_t maxOffset) const;
     bool hasSamplers() const { return m_samplers.size(); }
 
 private:

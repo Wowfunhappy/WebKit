@@ -118,6 +118,7 @@ public:
     WEBCORE_EXPORT void clear();
     WEBCORE_EXPORT void addSample(Ref<MediaSample>&&);
     WEBCORE_EXPORT void removeSample(const MediaSample&);
+    WEBCORE_EXPORT void replaceSample(const MediaSample& original, Ref<MediaSample>&& replacement);
     size_t sizeInBytes() const { return m_totalSize; }
 
     template<typename I>

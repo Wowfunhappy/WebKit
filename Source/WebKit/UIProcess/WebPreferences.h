@@ -30,7 +30,7 @@
 #include "WebPreferencesDefinitions.h"
 #include "WebPreferencesStore.h"
 #include <wtf/RefPtr.h>
-#include <wtf/RetainReleaseSwift.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
@@ -182,12 +182,12 @@ private:
 
 inline void refPrefs(WebKit::WebPreferences* WTF_NONNULL obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefPrefs(WebKit::WebPreferences* WTF_NONNULL obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPreferences)

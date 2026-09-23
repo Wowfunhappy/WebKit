@@ -28,6 +28,7 @@
 #if ENABLE(WEB_RTC)
 
 #include "RTCPriorityType.h"
+#include "RTCRtpCodec.h"
 #include "RTCRtpCodingParameters.h"
 
 namespace WebCore {
@@ -36,6 +37,7 @@ struct RTCRtpEncodingParameters : RTCRtpCodingParameters {
     unsigned long ssrc { 0 };
 
     bool active { true };
+    std::optional<RTCRtpCodec> codec;
     std::optional<unsigned long> maxBitrate;
     std::optional<double> maxFramerate;
     std::optional<double> scaleResolutionDownBy;

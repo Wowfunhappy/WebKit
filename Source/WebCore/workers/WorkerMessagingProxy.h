@@ -89,14 +89,16 @@ private:
     void postTaskToLoader(ScriptExecutionContext::Task&&) final;
     ScriptExecutionContextIdentifier loaderContextIdentifier() const final;
     RefPtr<CacheStorageConnection> createCacheStorageConnection() final;
+    RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() final;
     RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
+    RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
 
     void workerThreadCreated(DedicatedWorkerThread&);
 
     bool askedToTerminate() const final { return m_askedToTerminate; }
 
     void workerGlobalScopeDestroyedInternal();
-    Worker* workerObject() const { return m_workerObject.get(); }
+    Worker* workerObject() const;
 
     // WorkerBadgeProxy
     void setAppBadge(std::optional<uint64_t>) final;

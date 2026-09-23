@@ -44,8 +44,7 @@
 #import "SearchFieldResultsPart.h"
 #import "SliderThumbMac.h"
 #import "SliderTrackMac.h"
-#import "SwitchThumbMac.h"
-#import "SwitchTrackMac.h"
+#import "SwitchMac.h"
 #import "TextAreaMac.h"
 #import "TextFieldMac.h"
 #import "ToggleButtonMac.h"
@@ -54,6 +53,7 @@
 #import <pal/spi/mac/NSServicesRolloverButtonCellSPI.h>
 #import <pal/spi/mac/NSViewSPI.h>
 #import <wtf/BlockObjCExceptions.h>
+#import <wtf/Lock.h>
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -64,6 +64,8 @@ Ref<ControlFactory> ControlFactory::create()
 {
     return adoptRef(*new ControlFactoryMac());
 }
+
+ControlFactoryMac::~ControlFactoryMac() = default;
 
 ControlFactoryMac& ControlFactoryMac::singleton()
 {
@@ -169,7 +171,18 @@ NSPopUpButtonCell *ControlFactoryMac::popUpButtonCell() const
 NSServicesRolloverButtonCell *ControlFactoryMac::servicesRolloverButtonCell() const
 {
     if (!m_servicesRolloverButtonCell) {
-        m_servicesRolloverButtonCell = [NSServicesRolloverButtonCell serviceRolloverButtonCellForStyle:NSSharingServicePickerStyleRollover];
+        // +serviceRolloverButtonCellForStyle: returns a process-wide shared cell, so give
+        // each ControlFactory a private copy rather than configuring and drawing one cell
+        // across RemoteRenderingBackend work-queue threads. The copy must be serialized by
+        // a process-wide lock because -[NSButtonCell copyWithZone:] transiently mutates its
+        // source; drawing the private copy needs no lock. (-[NSServicesRolloverButtonCell
+        // initWithStyle:] would avoid the shared cell and the lock, but it is not declared
+        // in any AppKit header.)
+        static Lock copyLock;
+        {
+            Locker locker { copyLock };
+            m_servicesRolloverButtonCell = adoptNS([[NSServicesRolloverButtonCell serviceRolloverButtonCellForStyle:NSSharingServicePickerStyleRollover] copy]);
+        }
         [m_servicesRolloverButtonCell setBezelStyle:NSBezelStyleRoundedDisclosure];
         [m_servicesRolloverButtonCell setButtonType:NSButtonTypePushOnPushOff];
         [m_servicesRolloverButtonCell setImagePosition:NSImageOnly];
@@ -294,14 +307,9 @@ std::unique_ptr<PlatformControl> ControlFactoryMac::createPlatformSliderTrack(Sl
     return makeUnique<SliderTrackMac>(part, *this);
 }
 
-std::unique_ptr<PlatformControl> ControlFactoryMac::createPlatformSwitchThumb(SwitchThumbPart& part)
+std::unique_ptr<PlatformControl> ControlFactoryMac::createPlatformSwitch(SwitchPart& part)
 {
-    return makeUnique<SwitchThumbMac>(part, *this);
-}
-
-std::unique_ptr<PlatformControl> ControlFactoryMac::createPlatformSwitchTrack(SwitchTrackPart& part)
-{
-    return makeUnique<SwitchTrackMac>(part, *this);
+    return makeUnique<SwitchMac>(part, *this);
 }
 
 std::unique_ptr<PlatformControl> ControlFactoryMac::createPlatformTextArea(TextAreaPart& part)

@@ -44,9 +44,7 @@ BackgroundProcessResponsivenessTimer::BackgroundProcessResponsivenessTimer(WebPr
 {
 }
 
-BackgroundProcessResponsivenessTimer::~BackgroundProcessResponsivenessTimer()
-{
-}
+BackgroundProcessResponsivenessTimer::~BackgroundProcessResponsivenessTimer() = default;
 
 void BackgroundProcessResponsivenessTimer::updateState()
 {

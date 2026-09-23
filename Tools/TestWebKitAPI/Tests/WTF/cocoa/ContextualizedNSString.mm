@@ -32,7 +32,7 @@ TEST(WTF_ContextualizedNSString, Basic)
 {
     auto context = "abc"_str;
     auto contents = "def"_str;
-    auto contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
+    RetainPtr contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
     EXPECT_TRUE([contextualizedString isEqualToString:@"abcdef"]);
     EXPECT_TRUE([@"abcdef" isEqualToString:contextualizedString.get()]);
     EXPECT_EQ(contextualizedString.get().length, 6UL);
@@ -47,7 +47,7 @@ TEST(WTF_ContextualizedNSString, Basic)
 TEST(WTF_ContextualizedNSString, BasicNoContext)
 {
     auto contents = "abc"_str;
-    auto contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext: { } contents:contents]);
+    RetainPtr contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext: { } contents:contents]);
     EXPECT_TRUE([contextualizedString isEqualToString:@"abc"]);
     EXPECT_TRUE([@"abc" isEqualToString:contextualizedString.get()]);
     EXPECT_EQ(contextualizedString.get().length, 3UL);
@@ -60,7 +60,7 @@ TEST(WTF_ContextualizedNSString, getCharacters)
 {
     auto context = "abc"_str;
     auto contents = "def"_str;
-    auto contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
+    RetainPtr contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
 
     unichar buffer[7];
     std::ranges::fill(buffer, '\0');
@@ -203,7 +203,7 @@ TEST(WTF_ContextualizedNSString, nonPrimitive)
 {
     auto context = "abc"_str;
     auto contents = "def"_str;
-    auto contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
+    RetainPtr contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
 
     EXPECT_TRUE([contextualizedString hasPrefix:@"ab"]);
     EXPECT_TRUE([contextualizedString hasPrefix:@"abcd"]);
@@ -218,10 +218,10 @@ TEST(WTF_ContextualizedNSString, nonPrimitive)
     EXPECT_TRUE([contextualizedString containsString:@"e"]);
     EXPECT_FALSE([contextualizedString containsString:@"cb"]);
 
-    auto copy = adoptNS([contextualizedString copy]);
+    RetainPtr copy = adoptNS([contextualizedString copy]);
     EXPECT_TRUE([copy isEqualToString:@"abcdef"]);
 
-    auto mutableCopy = adoptNS([contextualizedString mutableCopy]);
+    RetainPtr mutableCopy = adoptNS([contextualizedString mutableCopy]);
     EXPECT_TRUE([mutableCopy isEqualToString:@"abcdef"]);
 }
 
@@ -229,7 +229,7 @@ TEST(WTF_ContextualizedNSString, cfString)
 {
     auto context = "abc"_str;
     auto contents = "def"_str;
-    auto contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
+    RetainPtr contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
     auto contextualizedCFString = bridge_cast(static_cast<NSString *>(contextualizedString.get()));
 
     EXPECT_EQ(CFStringGetCharacterAtIndex(contextualizedCFString, 0), 'a');
@@ -252,11 +252,11 @@ TEST(WTF_ContextualizedNSString, tokenizer)
 {
     auto context = "th"_str;
     auto contents = "is is some text"_str;
-    auto contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
+    RetainPtr contextualizedString = adoptNS([[WTFContextualizedNSString alloc] initWithContext:context contents:contents]);
     auto contextualizedCFString = bridge_cast(static_cast<NSString *>(contextualizedString.get()));
 
-    auto locale = adoptCF(CFLocaleCreate(kCFAllocatorDefault, CFSTR("en_US")));
-    auto tokenizer = adoptCF(CFStringTokenizerCreate(kCFAllocatorDefault, contextualizedCFString, CFRangeMake(0, CFStringGetLength(contextualizedCFString)), kCFStringTokenizerUnitWord, locale.get()));
+    RetainPtr locale = adoptCF(CFLocaleCreate(kCFAllocatorDefault, CFSTR("en_US")));
+    RetainPtr tokenizer = adoptCF(CFStringTokenizerCreate(kCFAllocatorDefault, contextualizedCFString, CFRangeMake(0, CFStringGetLength(contextualizedCFString)), kCFStringTokenizerUnitWord, locale.get()));
 
     CFIndex indices[] = { 4, 7, 12, 17 };
     unsigned index = 0;

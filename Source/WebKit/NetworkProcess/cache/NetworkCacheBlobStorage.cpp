@@ -33,6 +33,7 @@
 #include <wtf/Locker.h>
 #include <wtf/RunLoop.h>
 #include <wtf/SHA1.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if !OS(WINDOWS)
 #include <sys/stat.h>
@@ -197,7 +198,7 @@ BlobStorage::Blob BlobStorage::get(const String& path)
 #if ENABLE(NETWORK_CACHE_BLOB_STORAGE_MEMORY_CACHE)
     if (m_memoryCache) {
         if (auto blob = m_memoryCache->get(path))
-            return copyBlob(*blob);
+            return WTF::move(*blob);
     }
 #endif
 

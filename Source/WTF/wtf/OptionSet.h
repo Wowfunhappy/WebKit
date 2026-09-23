@@ -35,7 +35,6 @@
 #include <wtf/EnumTraits.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
-#include <wtf/MathExtras.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WTF {
@@ -53,7 +52,7 @@ template<typename E, ConcurrencyTag concurrency> class OptionSet {
 public:
     using StorageType = std::make_unsigned_t<std::underlying_type_t<E>>;
 
-    template<typename StorageType> class Iterator {
+    class Iterator {
         WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Iterator);
     public:
         // Isolate the rightmost set bit.
@@ -77,7 +76,7 @@ public:
         StorageType m_value;
     };
 
-    using iterator = Iterator<StorageType>;
+    using iterator = Iterator;
 
     static constexpr OptionSet fromRaw(StorageType rawValue)
     {
@@ -89,13 +88,13 @@ public:
     constexpr OptionSet(E e)
         : m_storage(static_cast<StorageType>(e))
     {
-        ASSERT(!m_storage || hasOneBitSet(static_cast<StorageType>(e)));
+        ASSERT(!m_storage || std::has_single_bit(static_cast<StorageType>(e)));
     }
 
     constexpr OptionSet(std::initializer_list<E> initializerList)
     {
         for (auto& option : initializerList) {
-            ASSERT(hasOneBitSet(static_cast<StorageType>(option)));
+            ASSERT(std::has_single_bit(static_cast<StorageType>(option)));
             m_storage |= static_cast<StorageType>(option);
         }
     }
@@ -165,7 +164,7 @@ public:
     constexpr bool hasExactlyOneBitSet() const
     {
         auto storage = m_storage; // Make a local copy for the evaluation so that it is consistent even with concurrency.
-        return storage && !(storage & (storage - 1));
+        return std::has_single_bit(storage);
     }
 
     constexpr std::optional<E> toSingleValue() const
@@ -205,7 +204,7 @@ public:
         return fromRaw(lhs.m_storage ^ rhs.m_storage);
     }
 
-    static OptionSet all() { return fromRaw(-1); }
+    static constexpr OptionSet all() { return fromRaw(-1); }
 
 private:
     enum InitializationTag { FromRawValue };

@@ -30,6 +30,7 @@
 #include "MediaReorderQueue.h"
 #include "ProcessIdentity.h"
 #include "SampleMap.h"
+#include "VideoPlaybackQualityMetrics.h"
 #include "WebAVSampleBufferListener.h"
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
@@ -82,7 +83,7 @@ public:
 
     bool isReadyForMoreMediaData() const;
     void requestMediaDataWhenReady(Function<void()>&&);
-    void enqueueSample(const MediaSample&, const MediaTime&);
+    void enqueueSample(const MediaSample&, std::optional<MediaTime> minimumUpcomingTime);
     void stopRequestingMediaData();
 
     void notifyFirstFrameAvailable(Function<void(const MediaTime&, double)>&&);
@@ -101,7 +102,7 @@ public:
 
     WebSampleBufferVideoRendering *NODELETE renderer() const;
 
-    template <typename T> T* as() const;
+    template <typename T> T* NODELETE as() const;
     template <> AVSampleBufferVideoRenderer* as() const;
     template <> AVSampleBufferDisplayLayer* as() const
     {
@@ -116,10 +117,7 @@ public:
     DisplayedPixelBufferEntry copyDisplayedPixelBuffer();
 
     unsigned NODELETE totalDisplayedFrames() const;
-    unsigned totalVideoFrames() const;
-    unsigned droppedVideoFrames() const;
-    unsigned corruptedVideoFrames() const;
-    MediaTime totalFrameDelay() const;
+    std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() const;
 
     void setResourceOwner(const ProcessIdentity&);
 
@@ -209,7 +207,7 @@ private:
     TimebaseAndTimerSource m_timebaseAndTimerSource WTF_GUARDED_BY_LOCK(m_lock);
     RefPtr<EffectiveRateChangedListener> m_effectiveRateChangedListener;
     std::atomic<FlushId> m_flushId { 0 };
-    Deque<std::tuple<Ref<const MediaSample>, MediaTime, FlushId, bool>> m_compressedSampleQueue WTF_GUARDED_BY_CAPABILITY(dispatcher().get());
+    Deque<std::tuple<Ref<const MediaSample>, std::optional<MediaTime>, FlushId, bool>> m_compressedSampleQueue WTF_GUARDED_BY_CAPABILITY(dispatcher().get());
     std::atomic<uint32_t> m_compressedSamplesCount { 0 };
     std::atomic<uint32_t> m_pendingSamplesCount { 0 };
     MediaSampleReorderQueue m_decodedSampleQueue WTF_GUARDED_BY_CAPABILITY(dispatcher().get());
@@ -234,6 +232,8 @@ private:
     bool m_needsFlushing WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
 
     MediaTime m_lastMinimumUpcomingPresentationTime WTF_GUARDED_BY_CAPABILITY(dispatcher().get()) { MediaTime::invalidTime() };
+    bool m_decoderIdledAtHighWaterMark WTF_GUARDED_BY_CAPABILITY(dispatcher().get()) { false };
+    bool m_hasReachedHighWatermark WTF_GUARDED_BY_CAPABILITY(dispatcher().get()) { false };
 
     // Playback Statistics
     std::atomic<unsigned> m_totalVideoFrames { 0 };

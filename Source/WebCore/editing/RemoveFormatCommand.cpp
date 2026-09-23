@@ -28,6 +28,7 @@
 #include "RemoveFormatCommand.h"
 
 #include "ApplyStyleCommand.h"
+#include "Document.h"
 #include "EditingStyle.h"
 #include "Element.h"
 #include "FrameSelection.h"
@@ -35,6 +36,7 @@
 #include "LocalFrame.h"
 #include "MutableStyleProperties.h"
 #include "NodeName.h"
+#include "SimpleRange.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RobinHoodHashSet.h>
 
@@ -90,11 +92,11 @@ void RemoveFormatCommand::doApply()
 
     // Get the default style for this editable root, it's the style that we'll give the
     // content that we're operating on.
-    auto defaultStyle = EditingStyle::create(endingSelection().rootEditableElement());
+    auto defaultStyle = EditingStyle::create(protect(endingSelection().rootEditableElement()));
 
     // We want to remove everything but transparent background.
     // FIXME: We shouldn't access style().
-    defaultStyle->style()->setProperty(CSSPropertyBackgroundColor, CSSValueTransparent);
+    protect(defaultStyle->style())->setProperty(CSSPropertyBackgroundColor, CSSValueTransparent);
 
     applyCommandToComposite(ApplyStyleCommand::create(document(), defaultStyle.ptr(), isElementForRemoveFormatCommand, editingAction()));
 }

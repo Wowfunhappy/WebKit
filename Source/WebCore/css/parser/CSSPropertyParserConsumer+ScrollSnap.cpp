@@ -45,16 +45,16 @@ RefPtr<CSSValue> consumeScrollSnapType(CSSParserTokenRange& range, CSS::Property
         return nullptr;
 
     if (*firstValue == CSSValueNone)
-        return CSSPrimitiveValue::create(CSSValueNone);
+        return CSSKeywordValue::create(CSSValueNone);
 
     // We only add the second value if it is not the initial value as described in specification
     // so that serialization of this CSSValueList produces the canonical serialization.
 
     auto secondValue = consumeIdentRaw<CSSValueProximity, CSSValueMandatory>(range);
     if (secondValue.value_or(CSSValueProximity) == CSSValueProximity)
-        return CSSPrimitiveValue::create(*firstValue);
+        return CSSKeywordValue::create(*firstValue);
 
-    return CSSValueList::createSpaceSeparated(CSSPrimitiveValue::create(*firstValue), CSSPrimitiveValue::create(CSSValueMandatory));
+    return CSSValueList::createSpaceSeparated(CSSKeywordValue::create(*firstValue), CSSKeywordValue::create(CSSValueMandatory));
 }
 
 } // namespace CSSPropertyParserHelpers

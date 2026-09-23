@@ -39,9 +39,7 @@ static const bool verbose = false;
 
 int pthread_create(pthread_t* tid, const pthread_attr_t* attr, unsigned (*start)(void *), void* arg)
 {
-    PAS_UNUSED_PARAM(tid);
     PAS_UNUSED_PARAM(attr);
-    PAS_UNUSED_PARAM(arg);
 
     /* Create thread handle */
     HANDLE hThread;
@@ -54,7 +52,7 @@ int pthread_create(pthread_t* tid, const pthread_attr_t* attr, unsigned (*start)
         NULL,
         0,
         start,
-        NULL,
+        arg,
         0,
         &threadIdentifier
     );
@@ -65,13 +63,17 @@ int pthread_create(pthread_t* tid, const pthread_attr_t* attr, unsigned (*start)
         return 1;
     }
 
+    *tid = (pthread_t)hThread;
     return 0;
 }
 
 int pthread_detach(pthread_t thread)
 {
-    PAS_UNUSED_PARAM(thread);
-    /* Detach is a no-op on Windows */
+    /* _beginthreadex returns a HANDLE that must be closed; closing it while the
+       thread is still running tells the kernel to release thread resources when
+       the thread exits, which matches POSIX pthread_detach semantics. */
+    if (!CloseHandle((HANDLE)thread))
+        return 1;
     return 0;
 }
 
@@ -113,45 +115,14 @@ BOOL once_init_runner(PINIT_ONCE once_control, PVOID init_routine, PVOID* contex
 
 int pthread_once(pthread_once_t* once_control, void (*init_routine)(void))
 {
-    int result;
-    result = InitOnceExecuteOnce(*once_control, once_init_runner, init_routine, NULL);
-    if (verbose && !result)
-        pas_log("Failed to run pthread_once.\n");
-
-    return result;
-}
-
-/* Thread Local Storage
-   The regular Windows Thread Local Storage APIs like TlsAlloc don't have a way an easy way
-   to register a per-thread destructor to be able to clean up the memory.
-   Blink gets around this with some crazy pragmas to manually insert a function to be called
-   on each thread's exit:
-   https://web.archive.org/web/20070921204540/https://www.codeproject.com/threads/tls.asp
-   https://source.chromium.org/chromium/chromium/src/+/main:base/threading/thread_local_storage_win.cc;l=38-48
-  
-   However the fiber-local storage APIs do let you register a per-thread destructor. Even
-   though we don't care about fibers, the API is strictly better and avoids the magic:
-   https://devblogs.microsoft.com/oldnewthing/20191011-00/?p=102989
-  
-   TODO: FlsGetValue is around 2x slower than TlsGetValue on single threaded access, so we should
-   switch to Thread Local Storage and deal with the extra complexity. */
-int pthread_key_create(pthread_key_t* key, void (*destructor)(void*))
-{
-    PAS_UNUSED_PARAM(key);
-    DWORD result = FlsAlloc(destructor);
-    PAS_ASSERT(result != FLS_OUT_OF_INDEXES);
-
+    BOOL result;
+    result = InitOnceExecuteOnce(once_control, once_init_runner, init_routine, NULL);
+    if (!result) {
+        if (verbose)
+            pas_log("Failed to run pthread_once.\n");
+        return 1;
+    }
     return 0;
-}
-
-void *pthread_getspecific(pthread_key_t key)
-{
-    return FlsGetValue(key);
-}
-
-int pthread_setspecific(pthread_key_t key, void* value)
-{
-    return FlsSetValue(key, value);
 }
 
 /* Mutexes, conditions */
@@ -187,13 +158,26 @@ int pthread_cond_wait(pthread_cond_t* cond, pthread_mutex_t* mutex)
 int pthread_cond_timedwait(pthread_cond_t* cond, pthread_mutex_t* mutex, const struct timespec* abstime)
 {
     LARGE_INTEGER frequency, counter;
-    QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&counter);
+    if (!QueryPerformanceFrequency(&frequency))
+        return 1;
 
-    uint64_t current_ms = (counter.QuadPart * 1000) / frequency.QuadPart;
-    uint64_t wait_until_ms = abstime->tv_sec * 1000 + abstime->tv_nsec / 1000000;
+    if (!QueryPerformanceCounter(&counter))
+        return 1;
 
-    return SleepConditionVariableSRW(cond, mutex, wait_until_ms - current_ms, 0);
+    uint64_t current_ms = ((uint64_t)counter.QuadPart * 1000ULL) / (uint64_t)frequency.QuadPart;
+    uint64_t wait_until_ms = (uint64_t)abstime->tv_sec * 1000ULL + (uint64_t)abstime->tv_nsec / 1000000ULL;
+
+    DWORD wait_ms;
+    if (wait_until_ms <= current_ms)
+        wait_ms = 0;
+    else {
+        uint64_t remaining = wait_until_ms - current_ms;
+        wait_ms = remaining >= (uint64_t)(INFINITE - 1) ? (INFINITE - 1) : (DWORD)remaining;
+    }
+
+    if (!SleepConditionVariableSRW(cond, mutex, wait_ms, 0))
+        return 1;
+    return 0;
 }
 
 int pthread_mutex_lock(pthread_mutex_t* mutex)

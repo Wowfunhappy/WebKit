@@ -24,10 +24,12 @@
  */
 
 #include "config.h"
+#include "ProgramExecutable.h"
 
 #include "BatchedTransitionOptimizer.h"
 #include "CodeCache.h"
 #include "Debugger.h"
+#include "SymbolTableInlines.h"
 #include "VMTrapsInlines.h"
 #include <wtf/text/MakeString.h>
 
@@ -85,7 +87,7 @@ JSObject* ProgramExecutable::initializeGlobalProperties(VM& vm, JSGlobalObject* 
     DeferTermination deferScope(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     RELEASE_ASSERT(scope);
-    ASSERT(globalObject == scope->globalObject());
+    ASSERT(globalObject == scope->realm());
     RELEASE_ASSERT(globalObject);
     ASSERT(&globalObject->vm() == &vm);
 
@@ -123,6 +125,8 @@ JSObject* ProgramExecutable::initializeGlobalProperties(VM& vm, JSGlobalObject* 
                 bool hasProperty = globalLexicalEnvironment->hasProperty(globalObject, entry.key.get());
                 RETURN_IF_EXCEPTION(throwScope, nullptr);
                 if (hasProperty) {
+                    if (vm.allowRedeclaringSymbols()) [[unlikely]]
+                        continue;
                     if (entry.value.isConst() && !vm.globalConstRedeclarationShouldThrow() && !isInStrictContext()) [[unlikely]] {
                         // We only allow "const" duplicate declarations under this setting.
                         // For example, we don't allow "let" variables to be overridden by "const" variables.
@@ -248,6 +252,8 @@ JSObject* ProgramExecutable::initializeGlobalProperties(VM& vm, JSGlobalObject* 
         SymbolTable* symbolTable = globalLexicalEnvironment->symbolTable();
         ConcurrentJSLocker locker(symbolTable->m_lock);
         for (auto& entry : lexicalDeclarations) {
+            if (vm.allowRedeclaringSymbols() && symbolTable->contains(locker, entry.key.get())) [[unlikely]]
+                continue;
             if (entry.value.isConst() && !vm.globalConstRedeclarationShouldThrow() && !isInStrictContext()) [[unlikely]] {
                 if (symbolTable->contains(locker, entry.key.get()))
                     continue;
@@ -284,7 +290,7 @@ auto ProgramExecutable::ensureTemplateObjectMap(VM&) -> TemplateObjectMap&
 template<typename Visitor>
 void ProgramExecutable::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    ProgramExecutable* thisObject = jsCast<ProgramExecutable*>(cell);
+    ProgramExecutable* thisObject = uncheckedDowncast<ProgramExecutable>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     if (TemplateObjectMap* map = thisObject->m_templateObjectMap.get()) {

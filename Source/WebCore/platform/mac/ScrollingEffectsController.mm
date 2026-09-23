@@ -38,18 +38,19 @@
 #import <wtf/SystemTracing.h>
 #import <wtf/text/TextStream.h>
 
-#if PLATFORM(MAC)
-
-namespace WebCore {
-
 #if USE(APPLE_INTERNAL_SDK)
 #import <WebKitAdditions/ScrollingEffectsControllerAdditions.mm>
 #endif
+
+#if PLATFORM(MAC)
+
+namespace WebCore {
 
 static const Seconds scrollVelocityZeroingTimeout = 100_ms;
 static const float rubberbandDirectionLockStretchRatio = 1;
 static const float rubberbandMinimumRequiredDeltaBeforeStretch = 10;
 
+#if !HAVE(APPKIT_GESTURES_SUPPORT)
 static float elasticDeltaForReboundDelta(float delta)
 {
     return _NSElasticDeltaForReboundDelta(delta);
@@ -59,6 +60,7 @@ static float reboundDeltaForElasticDelta(float delta)
 {
     return _NSReboundDeltaForElasticDelta(delta);
 }
+#endif
 
 static float scrollWheelMultiplier()
 {
@@ -78,13 +80,16 @@ ScrollingEffectsController::~ScrollingEffectsController()
 
 void ScrollingEffectsController::stopAllTimers()
 {
+    // Hand the timers to the client for destruction rather than stopping them here: they may fire on
+    // another thread (e.g. the scrolling thread) than the one tearing down the controller, and stopping
+    // or destroying a timer off its run loop's thread races with an in-flight callback.
     if (m_discreteSnapTransitionTimer) {
-        m_discreteSnapTransitionTimer->stop();
+        m_client.destroyTimer(WTF::move(m_discreteSnapTransitionTimer));
         m_client.didStopScrollSnapAnimation();
     }
 
     if (m_discreteScrollendTimer)
-        m_discreteScrollendTimer->stop();
+        m_client.destroyTimer(WTF::move(m_discreteScrollendTimer));
 
 #if ASSERT_ENABLED
     m_timersWereStopped = true;
@@ -115,11 +120,41 @@ static FloatSize NODELETE deltaAlignedToDominantAxis(FloatSize delta)
     return deltaAlignedToAxis(delta, dominantAxis);
 }
 
-static std::optional<BoxSide> affectedSideOnDominantAxis(FloatSize delta)
+FloatSize ScrollingEffectsController::deltaAlignedToPredominantGestureAxis(MonotonicTime eventTime, FloatSize delta)
+{
+    if (delta.isZero())
+        return delta;
+
+    // Bias the axis alignment to recent events by accumulating deltas in m_cumulativeGestureDelta,
+    // decaying over time. This keeps gesture generally locked to an axis, but allows for
+    // direction changes (e.g. an L-shaped scroll).
+    // 120ms chosen empirically.
+    static constexpr Seconds gestureAxisDecayTimeConstant = 120_ms;
+    if (m_lastGestureEventTime) {
+        auto decay = std::exp(-(eventTime - m_lastGestureEventTime).seconds() / gestureAxisDecayTimeConstant.seconds());
+        m_cumulativeGestureDelta.scale(std::min(decay, 1.0));
+    }
+    m_lastGestureEventTime = eventTime;
+
+    m_cumulativeGestureDelta.expand(std::abs(delta.width()), std::abs(delta.height()));
+
+    return deltaAlignedToAxis(delta, dominantAxisFavoringVertical(m_cumulativeGestureDelta));
+}
+
+static std::optional<BoxSide> NODELETE affectedSideOnDominantAxis(FloatSize delta)
 {
     auto dominantAxis = dominantAxisFavoringVertical(delta);
     return ScrollableArea::targetSideForScrollDelta(delta, dominantAxis);
 }
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+static FloatSize hyperbolicReboundDeltaForElasticDelta(IntSize stretchAmount, float rubberbandHyperbolicCoefficient, FloatSize viewportSize)
+{
+    const auto width = _NSHyperbolicReboundDeltaForElasticDelta(stretchAmount.width(), rubberbandHyperbolicCoefficient, viewportSize.width());
+    const auto height = _NSHyperbolicReboundDeltaForElasticDelta(stretchAmount.height(), rubberbandHyperbolicCoefficient, viewportSize.height());
+    return { static_cast<float>(width), static_cast<float>(height) };
+}
+#endif
 
 bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& wheelEvent)
 {
@@ -150,10 +185,19 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
         m_ignoreMomentumScrolls = false;
         m_lastMomentumScrollTimestamp = { };
         m_momentumVelocity = { };
+        m_cumulativeGestureDelta = { };
+        m_lastGestureEventTime = { };
 
         IntSize stretchAmount = m_client.stretchAmount();
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+        const auto viewportSize = m_client.scrollExtents().viewportSize;
+        m_gestureBeganAtTop = m_client.edgePinnedState().top();
+        m_rubberbandHyperbolicCoefficient = rubberBandHyperbolicCoefficient(wheelEvent);
+        m_stretchScrollForce = hyperbolicReboundDeltaForElasticDelta(stretchAmount, m_rubberbandHyperbolicCoefficient, viewportSize);
+#else
         m_stretchScrollForce.setWidth(reboundDeltaForElasticDelta(stretchAmount.width()));
         m_stretchScrollForce.setHeight(reboundDeltaForElasticDelta(stretchAmount.height()));
+#endif
         m_unappliedOverscrollDelta = { };
 
         stopRubberBandAnimation();
@@ -192,8 +236,8 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
     delta += eventDelta;
 
     if (wheelEvent.isGestureEvent()) {
-        // FIXME: This replicates what WheelEventDeltaFilter does. We should apply that to events in all phases, and remove axis locking here (webkit.org/b/231207).
-        delta = deltaAlignedToDominantAxis(delta);
+        // FIXME: This axis locking replicates what WheelEventDeltaFilter does. We should apply that to events in all phases, and remove axis locking here (webkit.org/b/231207).
+        delta = deltaAlignedToPredominantGestureAxis(wheelEvent.timestamp(), delta);
     }
 
     auto momentumPhase = wheelEvent.momentumPhase();
@@ -324,23 +368,146 @@ bool ScrollingEffectsController::modifyScrollDeltaForStretching(const PlatformWh
     return false;
 }
 
-#if !ENABLE(BANNER_VIEW_OVERLAYS)
-
-FloatSize ScrollingEffectsController::deltaWithAdditionalAdjustments(const FloatSize& delta, bool)
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+float ScrollingEffectsController::deltaAdjustedForRefreshController(float generalDampedHeight, float verticalDelta, float verticalStretch, bool verticalDeltaOpposesStretch)
 {
+    // This logic mirrors AppKit. We layer the refresh-control reveal on top of the general vertical curve.
+    if (!m_client.hasRefreshController() || verticalDeltaOpposesStretch || !verticalDelta)
+        return generalDampedHeight;
+
+    if (!m_gestureBeganAtTop || m_momentumScrollInProgress)
+        return generalDampedHeight;
+
+    if (verticalStretch > 0 || verticalDelta >= 0)
+        return generalDampedHeight;
+
+    // Vertical stretch at the top is negative. Take the absolute value and work in positive magnitudes.
+    const auto currentStretchMagnitude = std::abs(verticalStretch);
+    verticalDelta = std::abs(verticalDelta);
+
+    const auto activationHeight = m_client.refreshControllerSnappingThreshold();
+    const auto viewportHeight = m_client.scrollExtents().viewportSize.height();
+
+    // Split delta between the linear zone (below the control's activation height) and the hyperbolic zone (above).
+    auto newStretchMagnitude = 0.f;
+    if (currentStretchMagnitude + verticalDelta > activationHeight) {
+        const auto stretchAlreadyInHyperbolic = std::max(0.0f, currentStretchMagnitude - activationHeight);
+        const auto deltaConsumedInLinear = std::max(0.0f, activationHeight - currentStretchMagnitude);
+        const auto deltaForHyperbolic = verticalDelta - deltaConsumedInLinear;
+        const auto currentHyperbolicReboundDelta = _NSHyperbolicReboundDeltaForElasticDelta(stretchAlreadyInHyperbolic, m_rubberbandHyperbolicCoefficient, viewportHeight);
+        const auto combinedHyperbolicReboundDelta = currentHyperbolicReboundDelta + deltaForHyperbolic;
+
+        // The new magnitude will be layered on top of the general scroll curve. Floor it like the non-refresh-control
+        // path so that the positions remain pixel-aligned.
+        newStretchMagnitude = activationHeight + std::ceilf(_NSHyperbolicElasticDeltaForReboundDelta(combinedHyperbolicReboundDelta, m_rubberbandHyperbolicCoefficient, viewportHeight));
+    } else
+        newStretchMagnitude = currentStretchMagnitude + verticalDelta;
+
+    const auto signedNewStretch = -newStretchMagnitude;
+    // Keep the force as if this stretch had come from the general hyperbolic curve so that any
+    // later general-path event that takes place is handled correctly.
+    m_stretchScrollForce.setHeight(_NSHyperbolicReboundDeltaForElasticDelta(signedNewStretch, m_rubberbandHyperbolicCoefficient, viewportHeight));
+    return signedNewStretch - verticalStretch;
+}
+#else
+FloatSize ScrollingEffectsController::deltaAdjustedForRefreshController(const FloatSize& delta, bool verticalDeltaOpposesStretch)
+{
+#if HAVE(NSREFRESHCONTROLLER)
+    // When pulling down to reveal a refresh control, reduce the rubber band stiffness
+    // to make it easier to pull.
+
+    if (!m_client.hasRefreshController()) {
+        m_skipAdditionalDeltaAdjustments = false;
+        return delta;
+    }
+
+    const auto stretchAmount = m_client.stretchAmount();
+    auto adjustedDelta = delta;
+
+    const auto refreshControlDynamicDampeningThreshold = m_client.refreshControllerSnappingThreshold();
+    static constexpr auto minimumStiffnessFactor = 0.1f;
+    static constexpr auto stiffnessRange = 0.9f;
+
+    auto verticalStretch = std::abs(static_cast<float>(stretchAmount.height()));
+
+    if (verticalStretch < 1.0f)
+        m_skipAdditionalDeltaAdjustments = false;
+
+    if (delta.height() && stretchAmount.height() < 0 && !verticalDeltaOpposesStretch) {
+        if (!m_skipAdditionalDeltaAdjustments && verticalStretch < refreshControlDynamicDampeningThreshold) {
+            auto progress = verticalStretch / refreshControlDynamicDampeningThreshold;
+
+            // Quartic curve: starts at 10% stiffness, ramps up to 100%.
+            auto stiffnessRatio = minimumStiffnessFactor + (stiffnessRange * progress * progress * progress * progress);
+            adjustedDelta.setHeight(delta.height() / stiffnessRatio);
+
+            // Lock in full stiffness once the threshold is crossed to prevent oscillation.
+            if (verticalStretch >= refreshControlDynamicDampeningThreshold)
+                m_skipAdditionalDeltaAdjustments = true;
+        } else
+            m_skipAdditionalDeltaAdjustments = true;
+    }
+
+    return adjustedDelta;
+#else
+    UNUSED_PARAM(verticalDeltaOpposesStretch);
     return delta;
+#endif
 }
-
 #endif
 
-#if !ENABLE(RUBBERBAND_PRESERVATION)
+#if HAVE(APPKIT_GESTURES_SUPPORT)
 
-bool ScrollingEffectsController::shouldAttemptRubberbandingRestoration(const RubberbandingState&)
+FloatSize ScrollingEffectsController::computeDampedStretchDelta(FloatSize delta, bool horizontalDeltaOpposesStretch, bool verticalDeltaOpposesStretch)
 {
-    return false;
+    // This logic mirrors AppKit.
+    const auto stretchAmount = m_client.stretchAmount();
+    auto hyperbolicDampedDeltaForAxis = [&](ScrollEventAxis axis) -> std::pair<float, float> {
+        // Returns (dampedDelta, newForce). When the axis opposes the current stretch we don't
+        // accumulate into force (the caller already zeroed it), and the delta passes straight through.
+
+        auto lengthForAxis = [](FloatSize size, ScrollEventAxis axis) {
+            return (axis == ScrollEventAxis::Horizontal) ? size.width() : size.height();
+        };
+        const auto viewportSize = m_client.scrollExtents().viewportSize;
+        const auto viewportLength = lengthForAxis(viewportSize, axis);
+        const auto deltaForAxis = lengthForAxis(delta, axis);
+        const auto currentForce = lengthForAxis(m_stretchScrollForce, axis);
+        const auto currentStretch = lengthForAxis(stretchAmount, axis);
+        const auto opposesStretch = axis == ScrollEventAxis::Horizontal ? horizontalDeltaOpposesStretch : verticalDeltaOpposesStretch;
+
+        if (opposesStretch)
+            return { deltaForAxis, currentForce };
+        if (!deltaForAxis)
+            return { 0, currentForce };
+
+        const auto newForce = currentForce + deltaForAxis;
+        const auto newStretch = ceilf(_NSHyperbolicElasticDeltaForReboundDelta(newForce, m_rubberbandHyperbolicCoefficient, viewportLength));
+        return { newStretch - currentStretch, newForce };
+    };
+
+    const auto [dampedWidth, newForceWidth] = hyperbolicDampedDeltaForAxis(ScrollEventAxis::Horizontal);
+    auto [dampedHeight, newForceHeight] = hyperbolicDampedDeltaForAxis(ScrollEventAxis::Vertical);
+    m_stretchScrollForce = { newForceWidth, newForceHeight };
+
+    dampedHeight = deltaAdjustedForRefreshController(dampedHeight, delta.height(), stretchAmount.height(), verticalDeltaOpposesStretch);
+
+    return { dampedWidth, dampedHeight };
 }
 
 #endif
+
+bool ScrollingEffectsController::shouldAttemptRubberbandingRestoration(const RubberbandingState& state)
+{
+#if HAVE(NSREFRESHCONTROLLER)
+    bool isTopStretched = state.rubberbandingEdges.top() || state.initialOverscroll.height() < 0;
+    bool isValidState = !state.initialOverscroll.isZero() || !state.initialVelocity.isZero();
+    return m_client.hasRefreshController() && isTopStretched && isValidState;
+#else
+    UNUSED_PARAM(state);
+    return false;
+#endif
+}
 
 bool ScrollingEffectsController::applyScrollDeltaWithStretching(const PlatformWheelEvent& wheelEvent, FloatSize delta, bool isHorizontallyStretched, bool isVerticallyStretched)
 {
@@ -392,9 +559,12 @@ bool ScrollingEffectsController::applyScrollDeltaWithStretching(const PlatformWh
     if (delta.isZero())
         return canStartAnimation;
 
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    auto dampedDelta = computeDampedStretchDelta(delta, horizontalDeltaOpposesStretch, verticalDeltaOpposesStretch);
+#else
     auto stretchAmount = m_client.stretchAmount();
 
-    FloatSize adjustedDelta = deltaWithAdditionalAdjustments(delta, verticalDeltaOpposesStretch);
+    FloatSize adjustedDelta = deltaAdjustedForRefreshController(delta, verticalDeltaOpposesStretch);
     auto stretchScrollForceDelta = adjustedDelta;
 
     if (horizontalDeltaOpposesStretch)
@@ -419,10 +589,11 @@ bool ScrollingEffectsController::applyScrollDeltaWithStretching(const PlatformWh
         const auto dampedHeight = ceilf(elasticDeltaForReboundDelta(m_stretchScrollForce.height()));
         dampedDelta.setHeight(dampedHeight - stretchAmount.height());
     }
+#endif
 
     clampDeltaForAllowedAxes(wheelEvent, dampedDelta);
 
-    LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::applyScrollDeltaWithStretching() - stretchScrollForce " << m_stretchScrollForce << " move delta " << delta << " adjustedDelta " << adjustedDelta << " dampedDelta " << dampedDelta);
+    LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::applyScrollDeltaWithStretching() - stretchScrollForce " << m_stretchScrollForce << " move delta " << delta << " dampedDelta " << dampedDelta);
 
     m_client.immediateScrollBy(dampedDelta, ScrollClamping::Unclamped);
 
@@ -867,14 +1038,12 @@ std::optional<RubberbandingState> ScrollingEffectsController::captureRubberbandi
     auto stretchAmount = m_client.stretchAmount();
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::captureRubberbandingState: m_isRubberBanding=" << m_isRubberBanding << " m_isAnimatingRubberBand=" << m_isAnimatingRubberBand << " stretchAmount=" << stretchAmount);
 
-    if (stretchAmount.isZero() || (!m_isRubberBanding && !m_isAnimatingRubberBand))
+    if (stretchAmount.isZero())
         return std::nullopt;
 
     RubberbandingState state;
     state.captureTime = MonotonicTime::now();
     state.rubberbandingEdges = m_rubberBandingEdges;
-    state.stretchScrollForce = m_stretchScrollForce;
-    state.momentumVelocity = m_momentumVelocity;
 
     if (CheckedPtr rubberBandAnimation = dynamicDowncast<ScrollAnimationRubberBand>(m_currentAnimation.get())) {
         if (rubberBandAnimation->isActive()) {
@@ -887,13 +1056,12 @@ std::optional<RubberbandingState> ScrollingEffectsController::captureRubberbandi
         }
     }
 
-    // User is still dragging past the edge (not yet in bounce-back animation).
-    state.initialVelocity = m_momentumVelocity;
+    state.initialVelocity = { };
     state.initialOverscroll = stretchAmount;
     state.targetOverscroll = m_client.rubberBandTargetOffset();
     state.animationStartTime = MonotonicTime::now();
 
-    LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::captureRubberbandingState - captured from stretch: initialOverscroll=" << state.initialOverscroll << " targetOverscroll=" << state.targetOverscroll << " initialVelocity=" << state.initialVelocity);
+    LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::captureRubberbandingState - captured outside of animation: initialOverscroll=" << state.initialOverscroll << " targetOverscroll=" << state.targetOverscroll << " initialVelocity=" << state.initialVelocity);
     return state;
 }
 
@@ -909,8 +1077,6 @@ bool ScrollingEffectsController::restoreRubberbandingState(const RubberbandingSt
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::restoreRubberbandingState - restoring with initialOverscroll=" << state.initialOverscroll << " targetOverscroll=" << state.targetOverscroll << " totalElapsed=" << totalElapsed.seconds() << "s");
 
     m_rubberBandingEdges = state.rubberbandingEdges;
-    m_stretchScrollForce = state.stretchScrollForce;
-    m_momentumVelocity = state.momentumVelocity;
     m_isRubberBanding = true;
 
     bool started = startRubberBandAnimationWithElapsedTime(state.initialVelocity, state.initialOverscroll, totalElapsed, state.targetOverscroll);

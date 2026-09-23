@@ -47,8 +47,8 @@ public:
 
     static Ref<AsyncStackTrace> create(Ref<ScriptCallStack>&&, bool singleShot, RefPtr<AsyncStackTrace> parent);
 
-    bool isPending() const;
-    bool isLocked() const;
+    bool NODELETE isPending() const;
+    bool NODELETE isLocked() const;
 
     JS_EXPORT_PRIVATE const ScriptCallFrame& at(size_t) const;
     JS_EXPORT_PRIVATE size_t size() const;

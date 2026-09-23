@@ -41,7 +41,6 @@
 #include "GraphicsContext.h"
 #include "HTMLCanvasElement.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "StyleProperties.h"
 
 #if ENABLE(OFFSCREEN_CANVAS)
@@ -67,7 +66,7 @@ Color CanvasStyleColorResolutionDelegate::currentColor() const
     if (!m_canvasElement->isConnected() || !m_canvasElement->inlineStyle())
         return Color::black;
 
-    auto colorString = m_canvasElement->inlineStyle()->getPropertyValue(CSSPropertyColor);
+    auto colorString = protect(m_canvasElement)->inlineStyle()->getPropertyValue(CSSPropertyColor);
     auto color = CSSPropertyParserHelpers::parseColorRaw(colorString, m_canvasElement->cssParserContext(), protect(m_canvasElement->document()).get());
     if (color.isValid())
         return color;

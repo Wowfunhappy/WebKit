@@ -37,7 +37,7 @@ class MessagesInChecker(object):
         self.handle_style_error = handle_style_error
         self._tab_checker = TabChecker(file_path, handle_style_error)
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         self._tab_checker.check(lines)
         self.check_WTF_prefix(lines)
 

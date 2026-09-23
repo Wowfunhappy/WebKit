@@ -87,7 +87,7 @@ angle::Result RenderbufferWgpu::setStorageEGLImageTarget(const gl::Context *cont
 
 angle::Result RenderbufferWgpu::initializeContents(const gl::Context *context,
                                                    GLenum binding,
-                                                   const gl::ImageIndex &imageIndex)
+                                                   const gl::OwnImageIndex &ownImageIndex)
 {
     UNIMPLEMENTED();
     return angle::Result::Continue;
@@ -95,14 +95,15 @@ angle::Result RenderbufferWgpu::initializeContents(const gl::Context *context,
 
 angle::Result RenderbufferWgpu::getAttachmentRenderTarget(const gl::Context *context,
                                                           GLenum binding,
-                                                          const gl::ImageIndex &imageIndex,
+                                                          const gl::OwnImageIndex &ownImageIndex,
                                                           GLsizei samples,
                                                           FramebufferAttachmentRenderTarget **rtOut)
 {
     gl::LevelIndex level(0);
 
     webgpu::TextureViewHandle textureView;
-    ANGLE_TRY(mImage->createTextureViewSingleLevel(level, 0, textureView));
+    ANGLE_TRY(mImage->createTextureViewSingleLevel(level, 0, textureView, WGPUTextureAspect_All,
+                                                   WGPUTextureFormat_Undefined));
 
     mRenderTarget.set(mImage, textureView, mImage->toWgpuLevel(level), 0,
                       mImage->toWgpuTextureFormat());
@@ -121,8 +122,7 @@ void RenderbufferWgpu::onSubjectStateChange(angle::SubjectIndex index,
                                             angle::SubjectMessage message)
 {
     ASSERT(index == kRenderbufferImageSubjectIndex &&
-           (message == angle::SubjectMessage::SubjectChanged ||
-            message == angle::SubjectMessage::InitializationComplete));
+           message == angle::SubjectMessage::SubjectChanged);
 
     // Forward the notification to the parent that the internal storage changed.
     onStateChange(message);

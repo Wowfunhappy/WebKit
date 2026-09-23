@@ -25,11 +25,11 @@
 
 #pragma once
 
+#include <wtf/CurrentThread.h>
 #include <wtf/GetPtr.h>
 #include <wtf/HashTraits.h>
 #include <wtf/SingleThreadIntegralWrapper.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Threading.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/TypeTraits.h>
 #include <wtf/WeakPtrImpl.h>
@@ -98,6 +98,7 @@ public:
             HasRefPtrMemberFunctions<T>::value || HasCheckedPtrMemberFunctions<T>::value || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
             "Classes that offer weak pointers should also offer RefPtr or CheckedPtr. Please do not add new exceptions.");
 
+        ASSERT_WITH_SECURITY_IMPLICATION(canSafelyBeUsed());
         auto* ptr = static_cast<T*>(m_impl->template get<T>());
         RELEASE_ASSERT(ptr);
         return ptr;
@@ -110,6 +111,7 @@ public:
             HasRefPtrMemberFunctions<T>::value || HasCheckedPtrMemberFunctions<T>::value || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
             "Classes that offer weak pointers should also offer RefPtr or CheckedPtr. Please do not add new exceptions.");
 
+        ASSERT_WITH_SECURITY_IMPLICATION(canSafelyBeUsed());
         auto* ptr = static_cast<T*>(m_impl->template get<T>());
         RELEASE_ASSERT(ptr);
         return *ptr;
@@ -117,11 +119,7 @@ public:
 
     operator T&() const { return get(); }
 
-    T* operator->() const
-    {
-        ASSERT_WITH_SECURITY_IMPLICATION(canSafelyBeUsed());
-        return ptr();
-    }
+    T* operator->() const { return ptr(); }
 
     EnableWeakPtrThreadingAssertions enableWeakPtrThreadingAssertions() const
     {
@@ -140,7 +138,7 @@ private:
         return !m_impl
             || !m_shouldEnableAssertions
             || m_impl->threadAssertion().isCurrent()
-            || Thread::mayBeGCThread();
+            || currentThreadMayBeGCThread();
     }
 #endif
 

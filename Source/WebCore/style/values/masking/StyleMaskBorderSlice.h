@@ -26,54 +26,20 @@
 #pragma once
 
 #include <WebCore/StylePrimitiveNumeric.h>
+#include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct MaskBorderSlice;
+}
+
 namespace Style {
-
-// <mask-border-slice-value> = <number [0,∞]> | <percentage [0,∞]>
-struct MaskBorderSliceValue {
-    using Number = Style::Number<CSS::Nonnegative, float>;
-    using Percentage = Style::Percentage<CSS::Nonnegative, float>;
-
-    constexpr MaskBorderSliceValue(Number number)
-        : m_value { number }
-    {
-    }
-    constexpr MaskBorderSliceValue(CSS::ValueLiteral<CSS::NumberUnit::Number> literal)
-        : m_value { Number { literal } }
-    {
-    }
-    constexpr MaskBorderSliceValue(Percentage percentage)
-        : m_value { percentage }
-    {
-    }
-    constexpr MaskBorderSliceValue(CSS::ValueLiteral<CSS::PercentageUnit::Percentage> literal)
-        : m_value { Percentage { literal } }
-    {
-    }
-
-    constexpr bool isNumber() const { return WTF::holdsAlternative<Number>(m_value); }
-    constexpr bool isPercentage() const { return WTF::holdsAlternative<Percentage>(m_value); }
-
-    template<typename... F> constexpr decltype(auto) switchOn(F&&... f) const
-    {
-        return WTF::switchOn(m_value, std::forward<F>(f)...);
-    }
-
-    constexpr bool operator==(const MaskBorderSliceValue&) const = default;
-
-    constexpr bool hasSameType(const MaskBorderSliceValue& other) const { return m_value.index() == other.m_value.index(); }
-
-private:
-    friend struct Blending<MaskBorderSliceValue>;
-
-    Variant<Number, Percentage> m_value { Number { 0 } };
-};
 
 // <'mask-border-slice'> = [<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?
 // https://drafts.fxtf.org/css-masking-1/#propdef-mask-border-slice
 struct MaskBorderSlice {
-    using Value = MaskBorderSliceValue;
+    using Value = NumberOrPercentage<CSS::Nonnegative, CSS::Nonnegative, float>;
     using Edges = MinimallySerializingSpaceSeparatedRectEdges<Value>;
 
     Edges values { Value::Number { 0 } };
@@ -127,16 +93,13 @@ template<size_t I> const auto& get(const MaskBorderSlice& value)
 
 // MARK: - Conversion
 
+template<> struct ToCSS<MaskBorderSlice> { auto operator()(const MaskBorderSlice&, const Style::ComputedStyle&) -> CSS::MaskBorderSlice; };
+template<> struct ToStyle<CSS::MaskBorderSlice> { auto operator()(const CSS::MaskBorderSlice&, const BuilderState&) -> MaskBorderSlice; };
+
 template<> struct CSSValueConversion<MaskBorderSlice> { auto operator()(BuilderState&, const CSSValue&) -> MaskBorderSlice; };
-template<> struct CSSValueCreation<MaskBorderSlice> { auto operator()(CSSValuePool&, const RenderStyle&, const MaskBorderSlice&) -> Ref<CSSValue>; };
+template<> struct CSSValueCreation<MaskBorderSlice> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const MaskBorderSlice&) -> Ref<CSSValue>; };
 
 // MARK: - Blending
-
-template<> struct Blending<MaskBorderSliceValue> {
-    bool NODELETE canBlend(const MaskBorderSliceValue&, const MaskBorderSliceValue&);
-    bool NODELETE requiresInterpolationForAccumulativeIteration(const MaskBorderSliceValue&, const MaskBorderSliceValue&);
-    auto blend(const MaskBorderSliceValue&, const MaskBorderSliceValue&, const BlendingContext&) -> MaskBorderSliceValue;
-};
 
 template<> struct Blending<MaskBorderSlice> {
     auto canBlend(const MaskBorderSlice&, const MaskBorderSlice&) -> bool;
@@ -148,4 +111,3 @@ template<> struct Blending<MaskBorderSlice> {
 } // namespace WebCore
 
 DEFINE_SPACE_SEPARATED_TUPLE_LIKE_CONFORMANCE(WebCore::Style::MaskBorderSlice, 2)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::MaskBorderSliceValue)

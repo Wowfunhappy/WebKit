@@ -51,8 +51,7 @@ private:
     std::unique_ptr<PlatformControl> createPlatformSearchFieldResults(SearchFieldResultsPart&) final;
     std::unique_ptr<PlatformControl> createPlatformSliderThumb(SliderThumbPart&) final;
     std::unique_ptr<PlatformControl> createPlatformSliderTrack(SliderTrackPart&) final;
-    std::unique_ptr<PlatformControl> createPlatformSwitchThumb(SwitchThumbPart&) final;
-    std::unique_ptr<PlatformControl> createPlatformSwitchTrack(SwitchTrackPart&) final;
+    std::unique_ptr<PlatformControl> createPlatformSwitch(SwitchPart&) final;
     std::unique_ptr<PlatformControl> createPlatformTextArea(TextAreaPart&) final;
     std::unique_ptr<PlatformControl> createPlatformTextField(TextFieldPart&) final;
     std::unique_ptr<PlatformControl> createPlatformToggleButton(ToggleButtonPart&) final;

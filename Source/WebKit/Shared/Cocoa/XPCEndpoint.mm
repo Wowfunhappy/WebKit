@@ -27,6 +27,7 @@
 #import "XPCEndpoint.h"
 #import "XPCUtilities.h"
 
+#import <wtf/BlockPtr.h>
 #import <wtf/cocoa/Entitlements.h>
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/ASCIILiteral.h>
@@ -48,9 +49,6 @@ XPCEndpoint::XPCEndpoint()
     xpc_connection_set_target_queue(m_connection.get(), mainDispatchQueueSingleton());
     xpc_connection_set_event_handler(m_connection.get(), ^(xpc_object_t message) {
         xpc_type_t type = xpc_get_type(message);
-#if USE(EXIT_XPC_MESSAGE_WORKAROUND)
-        handleXPCExitMessage(message);
-#endif
         if (type == XPC_TYPE_CONNECTION) {
             OSObjectPtr<xpc_connection_t> connection = message;
 #if USE(APPLE_INTERNAL_SDK)
@@ -71,9 +69,10 @@ XPCEndpoint::XPCEndpoint()
             }
 #endif // USE(APPLE_INTERNAL_SDK)
             xpc_connection_set_target_queue(connection.get(), mainDispatchQueueSingleton());
-            xpc_connection_set_event_handler(connection.get(), ^(xpc_object_t event) {
-                handleEvent(connection.get(), event);
-            });
+            xpc_connection_set_event_handler(connection.get(), makeBlockPtr([weakThis = ThreadSafeWeakPtr { *this }, connection](xpc_object_t event) {
+                if (RefPtr protectedThis = weakThis)
+                    protectedThis->handleEvent(connection.get(), event);
+            }).get());
             xpc_connection_resume(connection.get());
         }
     });

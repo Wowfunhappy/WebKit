@@ -293,7 +293,7 @@ static Ref<SecurityOrigin> declaredOrigin(const HTMLIFrameElement& iframe)
         return document->securityOrigin();
 
     if (iframe.hasAttributeWithoutSynchronization(srcAttr)) {
-        auto url = document->completeURL(iframe.getAttribute(srcAttr));
+        auto url = document->encodingParseURL(iframe.getAttribute(srcAttr));
         if (url.isValid()) {
             if (url.protocolIsInHTTPFamily())
                 return SecurityOrigin::create(url);

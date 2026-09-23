@@ -28,8 +28,8 @@ PASS currentView.transform.getItem(4).angle is 0
 PASS matrixToString(currentView.transform.getItem(4).matrix) is "[0.70 0.00 0.00 0.70 0.00 0.00]"
 
 Check viewTarget value
-PASS currentView.viewTargetString is "blub"
-PASS currentView.viewTarget is null
+PASS currentView.viewTargetString is undefined.
+PASS currentView.viewTarget is undefined.
 
 Check zoomAndPan value
 PASS currentView.zoomAndPan is SVGViewElement.SVG_ZOOMANDPAN_DISABLE

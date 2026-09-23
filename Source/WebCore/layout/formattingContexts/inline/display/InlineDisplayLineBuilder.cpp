@@ -28,7 +28,7 @@
 
 #include "InlineDisplayContentBuilder.h"
 #include "LayoutBoxGeometry.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextUtil.h"
 
 namespace WebCore {
@@ -102,7 +102,7 @@ InlineDisplayLineBuilder::EnclosingLineGeometry InlineDisplayLineBuilder::collec
             borderBox.moveBy(lineBoxRect.topLeft());
             // Collect scrollable overflow from inline boxes. All other inline level boxes (e.g atomic inline level boxes) stretch the line.
             if (lineLayoutResult.hasContentfulInFlowContent()) {
-                // Empty lines (e.g. continuation pre/post blocks) don't expect scrollbar overflow.
+                // Empty lines (e.g. anonymous pre/post blocks) don't expect scrollbar overflow.
                 contentOverflowRect.expandVerticallyToContain(borderBox);
             }
         } else if (inlineLevelBox.isLineBreakBox()) {
@@ -235,7 +235,7 @@ static float truncate(InlineDisplay::Box& displayBox, float contentWidth, float 
     return contentWidth;
 }
 
-static float truncateOverflowingDisplayBoxes(std::span<InlineDisplay::Box> boxes, size_t startIndex, size_t endIndex, float lineBoxVisualLeft, float lineBoxVisualRight, float ellipsisWidth, const RenderStyle& rootStyle, LineEndingTruncationPolicy lineEndingTruncationPolicy)
+static float truncateOverflowingDisplayBoxes(std::span<InlineDisplay::Box> boxes, size_t startIndex, size_t endIndex, float lineBoxVisualLeft, float lineBoxVisualRight, float ellipsisWidth, const Style::ComputedStyle& rootStyle, LineEndingTruncationPolicy lineEndingTruncationPolicy)
 {
     ASSERT(endIndex && startIndex <= endIndex);
     // We gotta truncate some runs.
@@ -398,7 +398,7 @@ static inline void makeRoomForLinkBoxOnClampedLineIfNeeded(auto& content, auto c
     clampedLine.setHasEllipsis();
 }
 
-static inline void moveDisplayBoxToClampedLine(auto& content, auto clampedLineIndex, auto& displayBox, auto horizontalOffset)
+static inline void NODELETE moveDisplayBoxToClampedLine(auto& content, auto clampedLineIndex, auto& displayBox, auto horizontalOffset)
 {
     auto& clampedLine = content.lines[clampedLineIndex];
     displayBox.setLeft(content.lineEllipsis(clampedLineIndex)->visualRect.maxX() + horizontalOffset + legacyMatchingLinkBoxOffset);
@@ -492,7 +492,7 @@ std::optional<InlineDisplay::Line::Ellipsis> InlineDisplayLineBuilder::applyElli
     if (truncationPolicy == LineEndingTruncationPolicy::NoTruncation || !displayBoxes.size())
         return { };
 
-    auto ellipsisText = [&] {
+    auto ellipsisText = [&] -> AtomString {
         if (truncationPolicy == LineEndingTruncationPolicy::WhenContentOverflowsInInlineDirection || isLegacyLineClamp) {
             // Legacy line clamp always uses ...
             return TextUtil::ellipsisTextInInlineDirection(displayLine.isHorizontal());
@@ -504,8 +504,8 @@ std::optional<InlineDisplay::Line::Ellipsis> InlineDisplayLineBuilder::applyElli
             [&](const CSS::Keyword::Auto&) -> AtomString {
                 return TextUtil::ellipsisTextInInlineDirection(displayLine.isHorizontal());
             },
-            [&](const AtomString& string) -> AtomString {
-                return string;
+            [&](const Style::String& string) -> AtomString {
+                return AtomString { string.value };
             }
         );
     }();

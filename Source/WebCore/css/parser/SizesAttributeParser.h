@@ -46,7 +46,8 @@ class SizesAttributeParser {
 public:
     SizesAttributeParser(const String&, const Document&);
 
-    float effectiveSize();
+    std::optional<float> effectiveSize();
+    bool isAuto() const { return m_isAuto; }
 
     const Vector<MQ::MediaQueryResult>& dynamicMediaQueryResults() const LIFETIME_BOUND { return m_dynamicMediaQueryResults; }
 
@@ -60,11 +61,12 @@ private:
 
     const Document& document() const { return m_document.get(); }
     std::optional<CSSToLengthConversionData> conversionData() const;
-    float effectiveSizeDefaultValue();
+    std::optional<float> effectiveSizeDefaultValue();
 
     WeakRef<const Document, WeakPtrImplWithEventTargetData> m_document;
     Vector<MQ::MediaQueryResult> m_dynamicMediaQueryResults;
     std::optional<float> m_result;
+    bool m_isAuto { false };
 };
 
 } // namespace WebCore

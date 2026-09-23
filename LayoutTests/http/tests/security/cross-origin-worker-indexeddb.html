@@ -1,3 +1,4 @@
+<!-- webkit-test-runner [ StorageBlockingPolicy=1 ] -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -8,7 +9,6 @@ if (window.testRunner) {
     testRunner.dumpAsText();
     testRunner.dumpChildFramesAsText();
     testRunner.waitUntilDone();
-    internals.settings.setStorageBlockingPolicy('BlockThirdParty');
 }
 
 document.location = "resources/document-for-cross-origin-worker-indexeddb.html"

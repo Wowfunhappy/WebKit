@@ -37,8 +37,8 @@
     color: -webkit-activelink;
 }
 
-:focus {
-    outline: auto 5px -webkit-focus-ring-color
+:focus-visible {
+    outline-style: auto;
 }
 
 /* Universal rules */

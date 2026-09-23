@@ -82,7 +82,7 @@ static GstFlowReturn iceTransportHandleSample(WebKitGstIceTransport* self, GstAp
         return GST_FLOW_ERROR;
 
     const auto& riceStream = webkitGstWebRTCIceStreamGetRiceStream(stream.get());
-    auto component = adoptGRef(rice_stream_get_component(riceStream.get(), 1));
+    GRefPtr component = adoptGRef(rice_stream_get_component(riceStream.get(), 1));
     if (!component)
         return GST_FLOW_ERROR;
 
@@ -173,7 +173,7 @@ void webkitGstWebRTCIceTransportHandleIncomingData(WebKitGstIceTransport* transp
     gst_app_src_push_buffer(GST_APP_SRC(iceTransport->src), buffer.leakRef());
 }
 
-void webkitGstWebRTCIceTransportNewSelectedPair(WebKitGstIceTransport* transport, RiceAgentSelectedPair& pair)
+void webkitGstWebRTCIceTransportNewSelectedPair(WebKitGstIceTransport* transport, const RiceAgentSelectedPair& pair)
 {
     transport->priv->selectedPair = { GUniquePtr<RiceCandidate>(rice_candidate_copy(&pair.local)), GUniquePtr<RiceCandidate>(rice_candidate_copy(&pair.remote)) };
     gst_webrtc_ice_transport_selected_pair_change(GST_WEBRTC_ICE_TRANSPORT(transport));

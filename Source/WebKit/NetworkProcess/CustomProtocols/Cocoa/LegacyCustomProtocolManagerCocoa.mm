@@ -38,7 +38,7 @@
 #import <wtf/URL.h>
 #import <wtf/cocoa/SpanCocoa.h>
 
-using namespace WebKit;
+namespace WebKit {
 
 static RefPtr<NetworkProcess>& NODELETE firstNetworkProcess()
 {
@@ -60,12 +60,14 @@ void LegacyCustomProtocolManager::networkProcessCreated(NetworkProcess& networkP
     firstNetworkProcess() = networkProcess;
 }
 
+} // namespace WebKit
+
 NS_REQUIRES_PROPERTY_DEFINITIONS
 @interface WKCustomProtocol : NSURLProtocol {
 @private
-    Markable<LegacyCustomProtocolID> _customProtocolID;
+    Markable<WebKit::LegacyCustomProtocolID> _customProtocolID;
 }
-@property (nonatomic, readonly) Markable<LegacyCustomProtocolID> customProtocolID;
+@property (nonatomic, readonly) Markable<WebKit::LegacyCustomProtocolID> customProtocolID;
 @property (nonatomic, readonly) CFRunLoopRef initializationRunLoop;
 @end
 
@@ -78,7 +80,7 @@ NS_REQUIRES_PROPERTY_DEFINITIONS
 + (BOOL)canInitWithRequest:(NSURLRequest *)request
 {
     // FIXME: This code runs in a dispatch queue so we can't ref NetworkProcess here.
-    if (SUPPRESS_UNCOUNTED_LOCAL auto* customProtocolManager = protect(firstNetworkProcess())->supplement<LegacyCustomProtocolManager>())
+    if (SUPPRESS_UNCOUNTED_LOCAL auto* customProtocolManager = protect(WebKit::firstNetworkProcess())->supplement<WebKit::LegacyCustomProtocolManager>())
         SUPPRESS_UNCOUNTED_ARG return customProtocolManager->supportsScheme([[[request URL] scheme] lowercaseString]);
     return NO;
 }
@@ -99,7 +101,7 @@ NS_REQUIRES_PROPERTY_DEFINITIONS
     if (!self)
         return nil;
 
-    if (RefPtr customProtocolManager = protect(firstNetworkProcess())->supplement<LegacyCustomProtocolManager>())
+    if (RefPtr customProtocolManager = protect(WebKit::firstNetworkProcess())->supplement<WebKit::LegacyCustomProtocolManager>())
         _customProtocolID = customProtocolManager->addCustomProtocol(self);
     // MAVERICKS_BACKPORT: 10.9's NSURLSession instantiates and drives a custom NSURLProtocol on
     // short-lived dispatch worker threads, none of which run a CFRunLoop, so a block enqueued on the
@@ -118,7 +120,7 @@ NS_REQUIRES_PROPERTY_DEFINITIONS
 - (void)startLoading
 {
     ensureOnMainRunLoop([customProtocolID = *self.customProtocolID, request = retainPtr([self request])] {
-        if (RefPtr customProtocolManager = protect(firstNetworkProcess())->supplement<LegacyCustomProtocolManager>())
+        if (RefPtr customProtocolManager = protect(WebKit::firstNetworkProcess())->supplement<WebKit::LegacyCustomProtocolManager>())
             customProtocolManager->startLoading(customProtocolID, request.get());
     });
 }
@@ -126,7 +128,7 @@ NS_REQUIRES_PROPERTY_DEFINITIONS
 - (void)stopLoading
 {
     ensureOnMainRunLoop([customProtocolID = *self.customProtocolID] {
-        if (RefPtr customProtocolManager = protect(firstNetworkProcess())->supplement<LegacyCustomProtocolManager>()) {
+        if (RefPtr customProtocolManager = protect(WebKit::firstNetworkProcess())->supplement<WebKit::LegacyCustomProtocolManager>()) {
             customProtocolManager->stopLoading(customProtocolID);
             customProtocolManager->removeCustomProtocol(customProtocolID);
         }

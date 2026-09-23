@@ -68,7 +68,6 @@
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/text/Base64.h>
 
-using namespace WebCore;
 using namespace Inspector;
 
 static const CGFloat minimumWindowWidth = 500;
@@ -176,7 +175,7 @@ static NSString * const WebInspectorFrontendGroupName = @"WebInspectorClassicFro
         return;
     }
 
-    RetainPtr<NSString> mimeType = MIMETypeRegistry::mimeTypeForExtension(String(fileURL.get().pathExtension)).createNSString();
+    RetainPtr<NSString> mimeType = WebCore::MIMETypeRegistry::mimeTypeForExtension(String(fileURL.get().pathExtension)).createNSString();
     if (!mimeType)
         mimeType = @"application/octet-stream";
 
@@ -209,13 +208,13 @@ static void ensureWebInspectorClassicFrontendRegistered()
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler("inspector-resource"_s);
+        WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler("inspector-resource"_s);
         [NSURLProtocol registerClass:[WebInspectorResourceProtocol class]];
         // Native user scripts are exempt from the page CSP, so injecting the bridge here (main world,
         // document start) leaves the frontend's own script-src untouched.
         [WebView _addUserScriptToGroup:WebInspectorFrontendGroupName
                                  world:[WebScriptWorld standardWorld]
-                                source:[NSString stringWithUTF8String:classicInspectorFrontendBridgeScriptUTF8()]
+                                source:[NSString stringWithUTF8String:WebCore::classicInspectorFrontendBridgeScriptUTF8()]
                                    url:nil
             includeMatchPatternStrings:nil
             excludeMatchPatternStrings:nil
@@ -267,7 +266,7 @@ void WebInspectorClient::inspectedPageDestroyed()
 {
 }
 
-FrontendChannel* WebInspectorClient::openLocalFrontend(PageInspectorController* inspectedPageController)
+FrontendChannel* WebInspectorClient::openLocalFrontend(WebCore::PageInspectorController* inspectedPageController)
 {
     RetainPtr<WebInspectorWindowController> windowController = adoptNS([[WebInspectorWindowController alloc] initWithInspectedWebView:m_inspectedWebView.get().get() isUnderTest:inspectedPageController->isUnderTest()]);
     [windowController.get() setInspectorClient:this];
@@ -292,7 +291,7 @@ void WebInspectorClient::bringFrontendToFront()
     m_frontendClient->bringToFront();
 }
 
-void WebInspectorClient::didResizeMainFrame(LocalFrame*)
+void WebInspectorClient::didResizeMainFrame(WebCore::LocalFrame*)
 {
     if (m_frontendClient)
         m_frontendClient->attachAvailabilityChanged(canAttach());
@@ -339,7 +338,7 @@ void WebInspectorClient::releaseFrontend()
     m_frontendPage = nullptr;
 }
 
-WebInspectorFrontendClient::WebInspectorFrontendClient(WebView* inspectedWebView, LegacyWebPageInspectorController& webPageInspectorController, WebInspectorWindowController* frontendWindowController, PageInspectorController* inspectedPageController, Page* frontendPage, std::unique_ptr<Settings> settings)
+WebInspectorFrontendClient::WebInspectorFrontendClient(WebView* inspectedWebView, LegacyWebPageInspectorController& webPageInspectorController, WebInspectorWindowController* frontendWindowController, WebCore::PageInspectorController* inspectedPageController, WebCore::Page* frontendPage, std::unique_ptr<Settings> settings)
     : InspectorFrontendClientLocal(inspectedPageController, frontendPage, WTF::move(settings))
     , m_inspectedWebView(inspectedWebView)
     , m_webPageInspectorController(&webPageInspectorController)
@@ -499,7 +498,7 @@ void WebInspectorFrontendClient::setAttachedWindowWidth(unsigned)
     // Dock to right is not implemented in WebKit 1.
 }
 
-void WebInspectorFrontendClient::setSheetRect(const FloatRect& rect)
+void WebInspectorFrontendClient::setSheetRect(const WebCore::FloatRect& rect)
 {
     m_sheetRect = rect;
 }
@@ -510,7 +509,7 @@ void WebInspectorFrontendClient::inspectedURLChanged(const String& newURL)
     updateWindowTitle();
 }
 
-void WebInspectorFrontendClient::showCertificate(const CertificateInfo& certificateInfo)
+void WebInspectorFrontendClient::showCertificate(const WebCore::CertificateInfo& certificateInfo)
 {
     ASSERT(!certificateInfo.isEmpty());
 
@@ -537,10 +536,10 @@ bool WebInspectorFrontendClient::supportsDiagnosticLogging()
     return page ? page->settings().diagnosticLoggingEnabled() : false;
 }
 
-void WebInspectorFrontendClient::logDiagnosticEvent(const String& eventName, const DiagnosticLoggingClient::ValueDictionary& dictionary)
+void WebInspectorFrontendClient::logDiagnosticEvent(const String& eventName, const WebCore::DiagnosticLoggingClient::ValueDictionary& dictionary)
 {
     if (auto* page = frontendPage())
-        page->diagnosticLoggingClient().logDiagnosticMessageWithValueDictionary(eventName, "Legacy Web Inspector Frontend Diagnostics"_s, dictionary, ShouldSample::No);
+        page->diagnosticLoggingClient().logDiagnosticMessageWithValueDictionary(eventName, "Legacy Web Inspector Frontend Diagnostics"_s, dictionary, WebCore::ShouldSample::No);
 }
 #endif
 
@@ -871,7 +870,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (IBAction)attachWindow:(id)sender
 {
-    _frontendClient->attachWindow(InspectorFrontendClient::DockSide::Bottom);
+    _frontendClient->attachWindow(WebCore::InspectorFrontendClient::DockSide::Bottom);
 }
 
 - (IBAction)showWindow:(id)sender
@@ -931,7 +930,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return;
 
     _inspectorClient->setInspectorStartsAttached(true);
-    _frontendClient->setAttachedWindow(InspectorFrontendClient::DockSide::Bottom);
+    _frontendClient->setAttachedWindow(WebCore::InspectorFrontendClient::DockSide::Bottom);
 
     [self close];
     [self showWindow:nil];
@@ -943,7 +942,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return;
 
     _inspectorClient->setInspectorStartsAttached(false);
-    _frontendClient->setAttachedWindow(InspectorFrontendClient::DockSide::Undocked);
+    _frontendClient->setAttachedWindow(WebCore::InspectorFrontendClient::DockSide::Undocked);
 
     [self close];
     [self showWindow:nil];
@@ -997,7 +996,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 {
     RetainPtr<WebInspectorWindowController> protect(self);
 
-    if (Page* frontendPage = _frontendClient->frontendPage())
+    if (WebCore::Page* frontendPage = _frontendClient->frontendPage())
         frontendPage->inspectorController().setInspectorFrontendClient(nullptr);
     RefPtr { [_inspectedWebView.get() inspectorController] }->disconnectFrontend(*_inspectorClient);
 

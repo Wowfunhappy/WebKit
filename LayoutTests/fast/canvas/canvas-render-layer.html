@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <!--The test makes four canvases. The first never receives a getContext. The
   second is rendered into immediately. The third and fourth are rendered
-  into with from nested setTimeout callbacks. When the canvases are accelerated
-  we expect that the latter three are all placed in render layers while
-  the first is not.-->
+  into with from nested setTimeout callbacks. We don't expect any of them
+  to get render layers.-->
 <html>
 <body style="line-height: 0;">
   <canvas id="A" width=100 height=100></canvas><canvas id="B" width=100 height=100></canvas><canvas id="C" width=100 height=100></canvas><canvas id="D" width=100 height=100></canvas>

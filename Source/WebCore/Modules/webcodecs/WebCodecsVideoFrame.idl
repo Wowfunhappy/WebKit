@@ -68,11 +68,10 @@ typedef (HTMLImageElement
 
 [
     Conditional=WEB_CODECS,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary VideoFrameInit {
     unsigned long long duration;
     long long timestamp;
-    WebCodecsAlphaOption alpha;
+    WebCodecsAlphaOption alpha = "keep";
 
     DOMRectInit visibleRect;
 
@@ -82,7 +81,6 @@ typedef (HTMLImageElement
 
 [
     Conditional=WEB_CODECS,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary VideoFrameBufferInit {
     required VideoPixelFormat format;
     required [EnforceRange] unsigned long codedWidth;
@@ -102,7 +100,6 @@ typedef (HTMLImageElement
 
 [
     Conditional=WEB_CODECS,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary VideoFrameCopyToOptions {
   DOMRectInit rect;
   sequence<PlaneLayout> layout;

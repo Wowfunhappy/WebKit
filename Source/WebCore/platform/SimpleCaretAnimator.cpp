@@ -26,6 +26,7 @@
 #include "config.h"
 #include "SimpleCaretAnimator.h"
 
+#include "PlatformRenderTheme.h"
 #include "RenderTheme.h"
 #include <wtf/TZoneMallocInlines.h>
 

@@ -30,9 +30,7 @@
 
 namespace WebCore {
 
-VisitedLinkStore::VisitedLinkStore()
-{
-}
+VisitedLinkStore::VisitedLinkStore() = default;
 
 VisitedLinkStore::~VisitedLinkStore()
 {

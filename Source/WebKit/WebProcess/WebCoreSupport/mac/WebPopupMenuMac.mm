@@ -32,6 +32,7 @@
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/PopupMenuClient.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WebKit {
 using namespace WebCore;

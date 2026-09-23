@@ -66,10 +66,10 @@ private:
     HTMLMaybeFormAssociatedCustomElement(const QualifiedName& tagName, Document&);
     virtual ~HTMLMaybeFormAssociatedCustomElement();
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
     void didMoveToNewDocument(Document&, Document&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void finishParsingChildren() final;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,9 @@
 #include "config.h"
 #include "StyleSingleTransitionProperty.h"
 
-#include "CSSPropertyParser.h"
+#include "CSSCustomIdentValue.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "WebAnimationUtilities.h"
 
 namespace WebCore {
 namespace Style {
@@ -37,24 +37,19 @@ namespace Style {
 
 auto CSSValueConversion<SingleTransitionProperty>::operator()(BuilderState& state, const CSSValue& value) -> SingleTransitionProperty
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::All { };
-
-    switch (primitiveValue->valueID()) {
-    case CSSValueAll:
-        return CSS::Keyword::All { };
-    case CSSValueNone:
-        return CSS::Keyword::None { };
-    default:
-        break;
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAll:
+            return CSS::Keyword::All { };
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::All { };
+        }
     }
 
-    auto propertyID = primitiveValue->propertyID();
-    if (propertyID == CSSPropertyInvalid)
-        return CustomIdentifier { AtomString { primitiveValue->stringValue() } };
-
-    return propertyID;
+    return toStyleFromCSSValue<CustomIdent>(state, value);
 }
 
 } // namespace Style

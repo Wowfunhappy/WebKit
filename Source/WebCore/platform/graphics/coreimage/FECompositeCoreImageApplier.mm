@@ -29,7 +29,9 @@
 #if USE(CORE_IMAGE)
 
 #import "FEComposite.h"
+#import "Filter.h"
 #import "FilterImage.h"
+#import "Logging.h"
 #import <CoreImage/CoreImage.h>
 #import <wtf/TZoneMallocInlines.h>
 

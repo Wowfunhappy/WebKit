@@ -47,15 +47,17 @@ public:
     virtual double duration() const { return m_duration; }
 
     enum class Type : uint8_t {
-        Navigation              = 1 << 0,
-        Mark                    = 1 << 1,
-        Measure                 = 1 << 2,
-        Resource                = 1 << 3,
-        Paint                   = 1 << 4,
-        Event                   = 1 << 5,
-        FirstInput              = 1 << 6,
-        LargestContentfulPaint  = 1 << 7,
+        Navigation,
+        Mark,
+        Measure,
+        Resource,
+        Paint,
+        Event,
+        FirstInput,
+        LargestContentfulPaint,
     };
+
+    static constexpr unsigned performanceEntryTypeCount = 8;
 
     virtual Type performanceEntryType() const = 0;
     virtual ASCIILiteral entryType() const = 0;

@@ -32,11 +32,16 @@
 
 namespace WebCore {
 
-RefPtr<WebGLTimerQueryEXT> WebGLTimerQueryEXT::create(WebGLRenderingContextBase& context)
+Ref<WebGLTimerQueryEXT> WebGLTimerQueryEXT::createLost()
+{
+    return adoptRef(*new WebGLTimerQueryEXT { });
+}
+
+Ref<WebGLTimerQueryEXT> WebGLTimerQueryEXT::create(WebGLRenderingContextBase& context)
 {
     auto object = protect(context.graphicsContextGL())->createQueryEXT();
     if (!object)
-        return nullptr;
+        return createLost();
     return adoptRef(*new WebGLTimerQueryEXT { context, object });
 }
 
@@ -52,6 +57,8 @@ WebGLTimerQueryEXT::WebGLTimerQueryEXT(WebGLRenderingContextBase& context, Platf
     : WebGLObject(context, object)
 {
 }
+
+WebGLTimerQueryEXT::WebGLTimerQueryEXT() = default;
 
 void WebGLTimerQueryEXT::deleteObjectImpl(const AbstractLocker&, GraphicsContextGL* context3d, PlatformGLObject object)
 {

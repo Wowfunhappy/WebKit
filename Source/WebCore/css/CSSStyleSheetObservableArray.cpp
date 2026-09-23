@@ -31,6 +31,7 @@
 #include "JSDOMConvertInterface.h"
 #include "ShadowRoot.h"
 #include "TreeScope.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 
 namespace WebCore {
 
@@ -56,13 +57,13 @@ bool CSSStyleSheetObservableArray::setValueAt(JSC::JSGlobalObject* lexicalGlobal
     if (sheetConversionResult.hasException(scope)) [[unlikely]]
         return false;
 
-    if (auto exception = shouldThrowWhenAddingSheet(sheetConversionResult.returnValue())) {
+    if (auto exception = shouldThrowWhenAddingSheet(protect(sheetConversionResult.returnValue()))) {
         throwException(lexicalGlobalObject, scope, createDOMException(*lexicalGlobalObject, WTF::move(*exception)));
         return false;
     }
 
     if (index == m_sheets.size())
-        m_sheets.append(sheetConversionResult.returnValue());
+        m_sheets.append(protect(sheetConversionResult.returnValue()));
     else
         m_sheets[index] = sheetConversionResult.returnValue();
 
@@ -87,7 +88,7 @@ JSC::JSValue CSSStyleSheetObservableArray::valueAt(JSC::JSGlobalObject* lexicalG
 {
     if (index >= m_sheets.size())
         return JSC::jsUndefined();
-    return toJS(lexicalGlobalObject, JSC::jsCast<JSDOMGlobalObject*>(lexicalGlobalObject), m_sheets[index]);
+    return toJS(lexicalGlobalObject, downcast<JSDOMGlobalObject>(lexicalGlobalObject), m_sheets[index]);
 }
 
 ExceptionOr<void> CSSStyleSheetObservableArray::setSheets(Vector<Ref<CSSStyleSheet>>&& sheets)
@@ -128,13 +129,13 @@ TreeScope* CSSStyleSheetObservableArray::treeScope() const
 void CSSStyleSheetObservableArray::didAddSheet(CSSStyleSheet& sheet)
 {
     if (m_treeScope)
-        sheet.addAdoptingTreeScope(*m_treeScope);
+        sheet.addAdoptingTreeScope(*protect(m_treeScope));
 }
 
 void CSSStyleSheetObservableArray::willRemoveSheet(CSSStyleSheet& sheet)
 {
     if (m_treeScope)
-        sheet.removeAdoptingTreeScope(*m_treeScope);
+        sheet.removeAdoptingTreeScope(*protect(m_treeScope));
 }
 
 } // namespace WebCore

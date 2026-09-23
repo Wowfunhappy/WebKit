@@ -80,12 +80,6 @@ FontPlatformData::FontPlatformData(RetainPtr<CTFontRef>&& font, float size, bool
     m_font = WTF::move(font);
     m_isColorBitmapFont = CTFontGetSymbolicTraits(m_font.get()) & kCTFontColorGlyphsTrait;
     m_isSystemFont = WebCore::isSystemFont(m_font.get());
-    auto variations = adoptCF(checked_cf_cast<CFDictionaryRef>(CTFontCopyAttribute(m_font.get(), kCTFontVariationAttribute)));
-    m_hasVariations = variations && CFDictionaryGetCount(variations.get());
-
-#if PLATFORM(IOS_FAMILY)
-    m_isEmoji = CTFontIsAppleColorEmoji(m_font.get());
-#endif
 
     if (m_widthVariant != FontWidthVariant::RegularWidth) {
         // FIXME: Do something smarter than creating the CTFontRef twice <webkit.org/b/276635>
@@ -259,11 +253,6 @@ FontPlatformData::FontPlatformData(float size, WebCore::FontOrientation&& orient
 {
     m_isColorBitmapFont = CTFontGetSymbolicTraits(m_font.get()) & kCTFontColorGlyphsTrait;
     m_isSystemFont = WebCore::isSystemFont(m_font.get());
-    auto variations = adoptCF(checked_cf_cast<CFDictionaryRef>(CTFontCopyAttribute(m_font.get(), kCTFontVariationAttribute)));
-    m_hasVariations = variations && CFDictionaryGetCount(variations.get());
-#if PLATFORM(IOS_FAMILY)
-    m_isEmoji = CTFontIsAppleColorEmoji(m_font.get());
-#endif
 }
 
 FontPlatformData::IPCData FontPlatformData::toIPCData() const
@@ -430,8 +419,10 @@ std::optional<FontPlatformSerializedAttributes> FontPlatformSerializedAttributes
 #define PAIR_VECTOR_TO_DICTIONARY(key, vector) \
     if (vector) { \
         RetainPtr<CFMutableDictionaryRef> newResult = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)); \
-        for (auto& item : *vector) \
-            CFDictionaryAddValue(newResult.get(), item.first.get(), item.second.get()); \
+        for (auto& item : *vector) { \
+            if (item.first && item.second) \
+                CFDictionaryAddValue(newResult.get(), item.first.get(), item.second.get()); \
+        } \
         CFDictionaryAddValue(result.get(), key, newResult.get()); \
     }
 

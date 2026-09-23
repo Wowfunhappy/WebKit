@@ -517,6 +517,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
             completionHandler(YES, nil);
     }];
 #else
+    [_avPlayerViewController setShowsPlaybackControls:YES];
     [_avPlayerViewController enterFullScreenAnimated:animated completionHandler:completionHandler];
 #endif
 }

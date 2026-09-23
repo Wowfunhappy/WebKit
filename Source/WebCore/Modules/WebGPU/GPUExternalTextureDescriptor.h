@@ -26,8 +26,8 @@
 #pragma once
 
 #include "GPUObjectDescriptorBase.h"
-#include "GPUPredefinedColorSpace.h"
 #include "HTMLVideoElement.h"
+#include "PredefinedColorSpace.h"
 #include "WebCodecsVideoFrame.h"
 #include "WebGPUExternalTextureDescriptor.h"
 #include <wtf/RefPtr.h>
@@ -95,14 +95,14 @@ struct GPUExternalTextureDescriptor : public GPUObjectDescriptorBase {
 #else
             { },
 #endif
-            WebCore::convertToBacking(colorSpace),
+            colorSpace,
         };
     }
 
 #if ENABLE(VIDEO)
     GPUVideoSource source;
 #endif
-    GPUPredefinedColorSpace colorSpace { GPUPredefinedColorSpace::SRGB };
+    PredefinedColorSpace colorSpace { PredefinedColorSpace::SRGB };
 };
 
 }

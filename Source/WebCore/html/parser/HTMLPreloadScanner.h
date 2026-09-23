@@ -29,9 +29,21 @@
 #include "CSSPreloadScanner.h"
 #include "HTMLTokenizer.h"
 #include "SegmentedString.h"
+#include <memory>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
+
+// Per-<picture> state used by the preload scanner. The matched <source>
+// candidate's preload is buffered here until we see the inner <img>: if the
+// <img> has loading=lazy we discard it, otherwise we flush it to the request
+// stream. This avoids speculatively fetching alternative-format <source>
+// candidates (e.g. JXL/WebP/AVIF) for images that are still far below the
+// viewport.
+struct PreloadScannerPictureState {
+    bool sourceMatched { false };
+    std::unique_ptr<PreloadRequest> bufferedSourceRequest;
+};
 
 class TokenPreloadScanner {
     WTF_MAKE_TZONE_ALLOCATED(TokenPreloadScanner);
@@ -42,7 +54,7 @@ public:
     void scan(const HTMLToken&, PreloadRequestStream&, Document&);
 
     void setPredictedBaseElementURL(const URL& url) { m_predictedBaseElementURL = url; }
-    
+
     bool inPicture() { return !m_pictureSourceState.isEmpty(); }
 
 private:
@@ -61,7 +73,8 @@ private:
         Style,
         Base,
         Template,
-        Picture
+        Picture,
+        Svg
     };
 
     class StartTagScanner;
@@ -79,9 +92,10 @@ private:
     URL m_predictedBaseElementURL;
     bool m_inStyle { false };
     
-    Vector<bool> m_pictureSourceState;
+    Vector<PreloadScannerPictureState> m_pictureSourceState;
 
     unsigned m_templateCount { 0 };
+    unsigned m_foreignContentCount { 0 };
 };
 
 class HTMLPreloadScanner {

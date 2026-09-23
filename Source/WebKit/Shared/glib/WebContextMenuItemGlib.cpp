@@ -94,9 +94,7 @@ WebContextMenuItemGlib::WebContextMenuItemGlib(GtkAction* action)
 ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
-WebContextMenuItemGlib::~WebContextMenuItemGlib()
-{
-}
+WebContextMenuItemGlib::~WebContextMenuItemGlib() = default;
 
 void WebContextMenuItemGlib::createActionIfNeeded()
 {

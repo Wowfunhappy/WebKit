@@ -43,8 +43,6 @@ if (NOT DEVELOPER_MODE AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set_property(TARGET WebKit APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/webkitglib-symbols.map")
 endif ()
 
-set(WebKit_USE_PREFIX_HEADER ON)
-
 list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
     "SourcesGTK.txt"
 )
@@ -68,13 +66,13 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 
 if (USE_GBM)
   list(APPEND WebKit_SERIALIZATION_IN_FILES
-      Shared/gbm/DMABufBuffer.serialization.in
       Shared/gbm/DRMDevice.serialization.in
   )
 endif ()
 
 list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/glib/AvailableInputDevices.serialization.in
+    Shared/glib/DMABufBufferAttributes.serialization.in
     Shared/glib/InputMethodState.serialization.in
     Shared/glib/RenderProcessInfo.serialization.in
     Shared/glib/RendererBufferFormat.serialization.in
@@ -123,7 +121,7 @@ add_custom_command(
     OUTPUT ${WebKitGTK_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.cpp ${WebKitGTK_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.h
     MAIN_DEPENDENCY ${WEBCORE_DIR}/css/make-css-file-arrays.pl
     DEPENDS ${WebKit_DirectoryInputStream_DATA}
-    COMMAND ${PERL_EXECUTABLE} ${WEBCORE_DIR}/css/make-css-file-arrays.pl --defines "${FEATURE_DEFINES_WITH_SPACE_SEPARATOR}" --preprocessor "${CODE_GENERATOR_PREPROCESSOR}" ${WebKitGTK_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.h ${WebKitGTK_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.cpp ${WebKit_DirectoryInputStream_DATA}
+    COMMAND ${PERL_EXECUTABLE} ${WEBCORE_DIR}/css/make-css-file-arrays.pl --defines "${FEATURE_DEFINES_WITH_SPACE_SEPARATOR}" ${WebKitGTK_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.h ${WebKitGTK_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.cpp ${WebKit_DirectoryInputStream_DATA}
     VERBATIM
 )
 
@@ -180,6 +178,7 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitOptionMenuItem.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionStateQuery.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPointerLockPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPolicyDecision.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitResponsePolicyDecision.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitScriptDialog.h.in
@@ -208,7 +207,6 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitXRPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/webkit.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitColorChooserRequest.h.in
-    ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitPointerLockPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitPrintOperation.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitWebInspector.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitWebViewBase.h.in
@@ -415,8 +413,6 @@ GENERATE_GLIB_API_HEADERS(WebKit WebKitWebProcessExtension_HEADER_TEMPLATES
     "-DENABLE_2022_GLIB_API=$<BOOL:${ENABLE_2022_GLIB_API}>"
 )
 
-list(REMOVE_ITEM WebKitGTK_INSTALLED_HEADERS ${WebKitGTK_DERIVED_SOURCES_DIR}/webkit/WebKitImage.h)
-
 if (NOT USE_GTK4)
     list(REMOVE_ITEM WebKitGTK_INSTALLED_HEADERS ${WebKitGTK_DERIVED_SOURCES_DIR}/webkit/webkit.h)
     list(REMOVE_ITEM WebKitWebProcessExtension_INSTALLED_HEADERS ${WebKitGTK_DERIVED_SOURCES_DIR}/webkit/webkit-web-process-extension.h)
@@ -519,7 +515,7 @@ endif ()
 
 # Commands for building the built-in injected bundle.
 add_library(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle MODULE "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitInjectedBundleMain.cpp")
-ADD_WEBKIT_PREFIX_HEADER(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle)
+WEBKIT_ADD_PREFIX_HEADER(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle WebKitPrefix.h PREFIX_LANGUAGES CXX)
 target_link_libraries(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle WebKit)
 
 target_include_directories(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle PRIVATE

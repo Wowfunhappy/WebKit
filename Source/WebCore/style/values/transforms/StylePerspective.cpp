@@ -25,61 +25,41 @@
 #include "config.h"
 #include "StylePerspective.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveNumericTypes+Blending.h"
+#include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
-namespace WebCore {
-namespace Style {
+namespace WebCore::Style {
 
 // MARK: - Conversion
 
 auto CSSValueConversion<Perspective>::operator()(BuilderState& state, const CSSValue& value) -> Perspective
 {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
+
     RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
     if (!primitiveValue)
         return CSS::Keyword::None { };
 
-    if (primitiveValue->valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
-
-    auto& conversionData = state.cssToLengthConversionData();
-
-    // NOTE: The isNumber() case below is only possible due to the `-webkit-perspective` legacy shorthand
+    // NOTE: The <number> cases below are only possible due to the `-webkit-perspective` legacy shorthand
     // which extends the grammar to `<'perspective'> | <number [0,inf]>`.
 
-    float perspective = -1;
     if (primitiveValue->isLength())
-        perspective = primitiveValue->resolveAsLength<float>(conversionData);
-    else if (primitiveValue->isNumber())
-        perspective = primitiveValue->resolveAsNumber<float>(conversionData) * conversionData.zoom();
-    else
-        ASSERT_NOT_REACHED();
+        return toStyleFromCSSValue<Perspective::Length>(state, *primitiveValue);
 
-    // FIXME: This should probably clamp to 0, like other numeric values would, rather than return CSS::Keyword::None.
-    if (perspective < 0)
-        return CSS::Keyword::None { };
+    if (primitiveValue->isNumber())
+        return Perspective::Length { toStyleFromCSSValue<Number<CSS::Nonnegative, float>>(state, *primitiveValue).value * state.cssToLengthConversionData().zoom() };
 
-    return Style::Perspective::Length { perspective };
+    state.setCurrentPropertyInvalidAtComputedValueTime();
+    return CSS::Keyword::None { };
 }
 
-// MARK: - Blending
-
-auto Blending<Perspective>::canBlend(const Perspective& from, const Perspective& to) -> bool
-{
-    return !from.isNone() && !to.isNone();
-}
-
-auto Blending<Perspective>::blend(const Perspective& from, const Perspective& to, const BlendingContext& context) -> Perspective
-{
-    if (context.isDiscrete) {
-        ASSERT(!context.progress || context.progress == 1);
-        return context.progress ? to : from;
-    }
-
-    ASSERT(!from.isNone());
-    ASSERT(!to.isNone());
-    return { WebCore::Style::blend(*from.tryValue(), *to.tryValue(), context) };
-}
-
-} // namespace Style
-} // namespace WebCore
+} // namespace WebCore::Style

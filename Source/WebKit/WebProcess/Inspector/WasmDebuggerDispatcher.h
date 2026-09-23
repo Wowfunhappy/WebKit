@@ -55,6 +55,7 @@ private:
 
     // Message handlers - called on WorkQueue thread, safe to call while mutator is blocked.
     void dispatchMessage(const String& message);
+    void resetServer();
 
     const CheckedRef<WebProcess> m_process;
     const Ref<WTF::WorkQueue> m_queue;

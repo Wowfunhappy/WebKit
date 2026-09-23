@@ -94,7 +94,7 @@ public:
 
     void reportAPIException(JSC::JSGlobalObject*, JSC::Exception*);
 
-    CheckedPtr<JSC::ConsoleClient> consoleClient() const;
+    CheckedPtr<JSC::ConsoleClient> NODELETE consoleClient() const;
 
     bool developerExtrasEnabled() const final;
     bool canAccessInspectedScriptState(JSC::JSGlobalObject*) const final { return true; }

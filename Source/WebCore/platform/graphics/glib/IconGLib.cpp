@@ -40,9 +40,7 @@ Icon::Icon(GRefPtr<GIcon>&& icon)
 {
 }
 
-Icon::~Icon()
-{
-}
+Icon::~Icon() = default;
 
 RefPtr<Icon> Icon::create(GRefPtr<GIcon>&& icon)
 {

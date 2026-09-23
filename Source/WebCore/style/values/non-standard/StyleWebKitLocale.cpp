@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleWebKitLocale.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -35,19 +36,17 @@ namespace Style {
 
 auto CSSValueConversion<WebkitLocale>::operator()(BuilderState& state, const CSSValue& value) -> WebkitLocale
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::Auto { };
-
-    switch (primitiveValue->valueID()) {
-    case CSSValueInvalid:
-        return AtomString { primitiveValue->stringValue() };
-    case CSSValueAuto:
-        return CSS::Keyword::Auto { };
-    default:
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return CSS::Keyword::Auto { };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Auto { };
+        }
     }
+
+    return toStyleFromCSSValue<String>(state, value);
 }
 
 } // namespace Style

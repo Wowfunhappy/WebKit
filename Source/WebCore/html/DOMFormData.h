@@ -91,3 +91,5 @@ private:
 };
 
 } // namespace WebCore
+
+extern template class mpark::variant<WTF::Ref<WebCore::File>, WTF::String>;

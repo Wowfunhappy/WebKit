@@ -39,6 +39,7 @@
 #include <WebKit/WKHTTPCookieStoreRef.h>
 #include <WebKit/WKInspector.h>
 #include <WebKit/WKPagePrivate.h>
+#include <WebKit/WKPreferencesRefPrivate.h>
 #include <WebKit/WKRetainPtr.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 #include <climits>
@@ -145,6 +146,8 @@ WKRetainPtr<WKMutableDictionaryRef> TestInvocation::createTestSettingsDictionary
     setValue(beginTestMessageBody, "AllowedHosts", allowedHostsValue);
 #if ENABLE(VIDEO)
     setValue(beginTestMessageBody, "CaptionDisplayMode", options().captionDisplayMode().c_str());
+
+    setValue(beginTestMessageBody, "JSCOptions", options().jscOptions().c_str());
 #endif
     return beginTestMessageBody;
 }
@@ -174,20 +177,24 @@ void TestInvocation::loadTestInCrossOriginIframe()
 
 void TestInvocation::invoke()
 {
-    TestController::singleton().configureViewForTest(*this);
+    auto& testController = TestController::singleton();
+    testController.configureViewForTest(*this);
 
-    WKPageSetAddsVisitedLinks(TestController::singleton().mainWebView()->page(), false);
+    WKPageSetAddsVisitedLinks(testController.mainWebView()->page(), false);
 
     m_textOutput.clear();
 
-    TestController::singleton().setShouldLogHistoryClientCallbacks(shouldLogHistoryClientCallbacks());
+    testController.setShouldLogHistoryClientCallbacks(shouldLogHistoryClientCallbacks());
+    if (m_options.shouldDumpResourceLoadCallbacks())
+        testController.dumpResourceLoadCallbacks();
+    testController.dumpResourceResponseMIMETypes(String::fromUTF8(m_options.resourceResponseMIMETypesToDump().c_str()));
 
-    WKHTTPCookieStoreSetHTTPCookieAcceptPolicy(WKWebsiteDataStoreGetHTTPCookieStore(TestController::singleton().websiteDataStore()), kWKHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, nullptr, nullptr);
+    WKHTTPCookieStoreSetHTTPCookieAcceptPolicy(WKWebsiteDataStoreGetHTTPCookieStore(testController.websiteDataStore()), kWKHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, nullptr, nullptr);
 
     // FIXME: We should clear out visited links here.
 
-    WKPageSetPageZoomFactor(TestController::singleton().mainWebView()->page(), 1);
-    WKPageSetTextZoomFactor(TestController::singleton().mainWebView()->page(), 1);
+    WKPageSetPageZoomFactor(testController.mainWebView()->page(), 1);
+    WKPageSetTextZoomFactor(testController.mainWebView()->page(), 1);
 
     postPageMessage("BeginTest", createTestSettingsDictionary());
 
@@ -195,16 +202,16 @@ void TestInvocation::invoke()
 
     bool shouldOpenExternalURLs = false;
 
-    TestController::singleton().runUntil(m_gotInitialResponse, TestController::noTimeout);
+    testController.runUntil(m_gotInitialResponse, TestController::noTimeout);
     if (m_error)
         goto end;
 
     if (m_options.runInCrossOriginFrame())
         loadTestInCrossOriginIframe();
     else
-        WKPageLoadURLWithShouldOpenExternalURLsPolicy(TestController::singleton().mainWebView()->page(), m_url.get(), shouldOpenExternalURLs);
+        WKPageLoadURLWithShouldOpenExternalURLsPolicy(testController.mainWebView()->page(), m_url.get(), shouldOpenExternalURLs);
 
-    TestController::singleton().runUntil(m_gotFinalMessage, TestController::noTimeout);
+    testController.runUntil(m_gotFinalMessage, TestController::noTimeout);
     if (m_error)
         goto end;
 
@@ -285,6 +292,18 @@ void TestInvocation::dumpResourceLoadStatisticsIfNecessary()
 
 void TestInvocation::dumpResults()
 {
+    auto& testController = TestController::singleton();
+    bool flushedNetworkProcessMessages { false };
+    WKWebsiteDataStoreFlushNetworkProcessIPC(WKPageGetWebsiteDataStore(testController.mainWebView()->page()), &flushedNetworkProcessMessages, [] (void* context) {
+        *(bool*)context = true;
+    });
+    testController.runUntil(flushedNetworkProcessMessages, TestController::noTimeout);
+
+    if (!m_savedResourceLoadCallbacks.isEmpty()) {
+        m_textOutput.append(m_savedResourceLoadCallbacks.toString());
+        m_savedResourceLoadCallbacks.clear();
+    }
+
     if (m_shouldDumpResourceLoadStatistics)
         m_textOutput.append(m_savedResourceLoadStatistics.isNull() ? TestController::singleton().dumpResourceLoadStatistics() : m_savedResourceLoadStatistics);
 
@@ -473,8 +492,13 @@ void TestInvocation::didReceiveMessageFromInjectedBundle(WKStringRef messageName
     }
 
     if (WKStringIsEqualToUTF8CString(messageName, "ProcessWorkQueue")) {
-        if (TestController::singleton().workQueueManager().processWorkQueue())
-            postPageMessage("WorkQueueProcessedCallback");
+        if (TestController::singleton().workQueueManager().processWorkQueue()) {
+            if (m_notifyDoneDeferredForWorkQueue) {
+                m_notifyDoneDeferredForWorkQueue = false;
+                postPageMessage("NotifyDone");
+            } else
+                postPageMessage("WorkQueueProcessedCallback");
+        }
         return;
     }
 
@@ -582,6 +606,9 @@ WKRetainPtr<WKTypeRef> TestInvocation::didReceiveSynchronousMessageFromInjectedB
         return nullptr;
     }
     if (WKStringIsEqualToUTF8CString(messageName, "GetWaitUntilDone"))
+        return adoptWK(WKBooleanCreate(m_waitUntilDone || m_notifyDoneMessageSent));
+
+    if (WKStringIsEqualToUTF8CString(messageName, "GetIsWaitingUntilDone"))
         return adoptWK(WKBooleanCreate(m_waitUntilDone));
 
     if (WKStringIsEqualToUTF8CString(messageName, "SetDumpFrameLoadCallbacks")) {
@@ -702,6 +729,8 @@ WKRetainPtr<WKTypeRef> TestInvocation::didReceiveSynchronousMessageFromInjectedB
         return TestController::singleton().lastAddedBackgroundFetchIdentifier();
     if (WKStringIsEqualToUTF8CString(messageName, "LastRemovedBackgroundFetchIdentifier"))
         return TestController::singleton().lastRemovedBackgroundFetchIdentifier();
+    if (WKStringIsEqualToUTF8CString(messageName, "LastProvisionalNavigationFailureURL"))
+        return TestController::singleton().lastProvisionalNavigationFailureURL();
     if (WKStringIsEqualToUTF8CString(messageName, "LastUpdatedBackgroundFetchIdentifier"))
         return TestController::singleton().lastUpdatedBackgroundFetchIdentifier();
     if (WKStringIsEqualToUTF8CString(messageName, "BackgroundFetchState"))
@@ -1319,6 +1348,16 @@ WKRetainPtr<WKTypeRef> TestInvocation::didReceiveSynchronousMessageFromInjectedB
         return nullptr;
     }
 
+    if (WKStringIsEqualToUTF8CString(messageName, "GetGlobalPrivacyControl")) {
+        bool value = TestController::singleton().globalPrivacyControl();
+        return adoptWK(WKBooleanCreate(value)).leakRef();
+    }
+
+    if (WKStringIsEqualToUTF8CString(messageName, "SetGlobalPrivacyControl")) {
+        TestController::singleton().setGlobalPrivacyControl(booleanValue(messageBody));
+        return nullptr;
+    }
+
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     if (WKStringIsEqualToUTF8CString(messageName, "ExitImmersive")) {
         TestController::singleton().exitImmersive();
@@ -1349,6 +1388,11 @@ void TestInvocation::uiScriptDidComplete(const String& result, unsigned scriptCa
 void TestInvocation::outputText(const WTF::String& text)
 {
     m_textOutput.append(text);
+}
+
+void TestInvocation::outputResourceLoadCallback(const String& text)
+{
+    m_savedResourceLoadCallbacks.append(text);
 }
 
 void TestInvocation::notifyDownloadDone()
@@ -1428,7 +1472,12 @@ bool TestInvocation::resolveNotifyDone()
         return false;
     m_waitUntilDone = false;
     if (m_options.siteIsolationEnabled()) {
-        postPageMessage("NotifyDone");
+        m_notifyDoneMessageSent = true;
+        // If notifyDone() arrived mid-work-queue, defer it until the queue drains.
+        if (TestController::singleton().useWorkQueue() && !TestController::singleton().workQueueManager().isWorkQueueEmpty())
+            m_notifyDoneDeferredForWorkQueue = true;
+        else
+            postPageMessage("NotifyDone");
         return false;
     }
     return true;
@@ -1440,6 +1489,7 @@ bool TestInvocation::resolveForceImmediateCompletion()
         return false;
     m_waitUntilDone = false;
     if (m_options.siteIsolationEnabled()) {
+        m_notifyDoneMessageSent = true;
         postPageMessage("ForceImmediateCompletion");
         return false;
     }

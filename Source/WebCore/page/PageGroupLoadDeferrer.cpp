@@ -23,6 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "DocumentParser.h"
 #include "LocalFrame.h"
 #include "LocalFrameInlines.h"

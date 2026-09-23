@@ -67,7 +67,7 @@ static std::optional<Vector<uint8_t>> gcryptDeriveBits(const Vector<uint8_t>& ke
     {
         // If the salt vector is empty, a zeroed-out key of macLength size should be used.
         if (salt.isEmpty()) {
-            Vector<uint8_t> zeroedKey(macLength, 0);
+            Vector<uint8_t> zeroedKey(FillWith { }, macLength, 0);
             error = gcry_mac_setkey(handle, zeroedKey.span().data(), zeroedKey.size());
         } else
             error = gcry_mac_setkey(handle, salt.span().data(), salt.size());

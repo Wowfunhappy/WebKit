@@ -29,10 +29,8 @@
 
 #include "XRDeviceIdentifier.h"
 #include "XRDeviceInfo.h"
-#if USE(OPENXR)
-#include "XRDeviceLayer.h"
-#endif
 #include <WebCore/ExceptionOr.h>
+#include <WebCore/IntSize.h>
 #include <WebCore/PlatformXR.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Function.h>
@@ -53,6 +51,7 @@ public:
 
     virtual void sessionDidEnd(XRDeviceIdentifier) = 0;
     virtual void sessionDidUpdateVisibilityState(XRDeviceIdentifier, PlatformXR::VisibilityState) = 0;
+    virtual void sessionDidInitializeRendering(XRDeviceIdentifier, uint32_t width, uint32_t height, uint32_t arrayLength) = 0;
 };
 
 class PlatformXRCoordinator {
@@ -69,7 +68,13 @@ public:
     virtual void requestPermissionOnSessionFeatures(WebPageProxy&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */, FeatureListCallback&& completionHandler) { completionHandler(granted); }
 
 #if USE(OPENXR)
-    virtual void createLayerProjection(uint32_t width, uint32_t height, bool alpha, CompletionHandler<void(std::optional<PlatformXR::LayerHandle>)>&&) = 0;
+    using CreateLayerProjectionCallback = CompletionHandler<void(std::optional<PlatformXR::LayerInfo>)>;
+    virtual void createLayerProjection(uint32_t width, uint32_t height, bool alpha, CreateLayerProjectionCallback&&) = 0;
+#endif
+
+#if ENABLE(WEBXR_LAYERS)
+    using CreateCompositionLayerCallback = CompletionHandler<void(std::optional<PlatformXR::LayerInfo>)>;
+    virtual void createCompositionLayer(PlatformXR::CompositionLayerType, WebCore::IntSize, PlatformXR::LayerLayout, CreateCompositionLayerCallback&&) = 0;
 #endif
 
     // Session creation/termination.
@@ -79,7 +84,7 @@ public:
     // Session display loop.
     virtual void scheduleAnimationFrame(WebPageProxy&, std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&) = 0;
 #if USE(OPENXR)
-    virtual void submitFrame(WebPageProxy&, Vector<XRDeviceLayer>&&) = 0;
+    virtual void submitFrame(WebPageProxy&, Vector<PlatformXR::DeviceLayer>&&) = 0;
 #else
     virtual void submitFrame(WebPageProxy&) { }
 #endif

@@ -139,8 +139,8 @@ void FontPlatformData::platformDataInit()
     m_font.setLinearMetrics(m_font.getHinting() == SkFontHinting::kNone && m_font.isSubpixel());
 
     auto& typeface = *m_font.getTypeface();
-    m_isColorBitmapFont = skiaTypefaceHasAnySupportedColorTable(typeface);
     m_hbFont = SkiaHarfBuzzFont::getOrCreate(typeface);
+    m_isColorBitmapFont = m_hbFont->isColorBitmapFont();
 }
 
 std::optional<FontPlatformData> FontPlatformData::fromIPCData(float size, FontOrientation&& orientation, FontWidthVariant&& widthVariant, TextRenderingMode&& textRenderingMode, bool syntheticBold, bool syntheticOblique, IPCData&& ipcData)

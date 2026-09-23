@@ -87,7 +87,7 @@ public:
     void replaceTrack(RefPtr<MediaStreamTrack>&&, Ref<DeferredPromise>&&);
 
     RTCRtpSendParameters getParameters();
-    void setParameters(const RTCRtpSendParameters&, DOMPromiseDeferred<void>&&);
+    void setParameters(RTCRtpSendParameters&&, DOMPromiseDeferred<void>&&);
 
     RTCRtpSenderBackend& backend() { return m_backend.get(); }
     std::unique_ptr<RTCDtlsTransportBackend> dtlsTransportBackend();
@@ -100,7 +100,7 @@ public:
     RTCDTMFSender* dtmf();
     std::optional<RTCRtpTransceiverDirection> currentTransceiverDirection() const;
 
-    std::optional<RTCRtpTransform::Internal> transform();
+    RefPtr<RTCRtpScriptTransform> transform();
     ExceptionOr<void> setTransform(std::unique_ptr<RTCRtpTransform>&&);
 
     ExceptionOr<RTCEncodedStreams> createEncodedStreams(ScriptExecutionContext&);

@@ -242,29 +242,22 @@ WindowsKeyNames::WindowsKeyNames()
     updateLayout();
 }
 
-String WindowsKeyNames::domKeyFromParams(WPARAM virtualKey, LPARAM lParam)
+auto WindowsKeyNames::currentKeyModifiers() -> KeyModifierSet
 {
-    bool extended = lParam & 0x01000000;
     KeyModifierSet modifiers;
     if (GetKeyState(VK_SHIFT) < 0)
         modifiers.add(KeyModifier::Shift);
     if (GetKeyState(VK_CONTROL) < 0)
         modifiers.add(KeyModifier::Control);
-    if (GetKeyState(VK_MENU ) < 0)
+    if (GetKeyState(VK_MENU) < 0)
         modifiers.add(KeyModifier::Alt);
     if (GetKeyState(VK_CAPITAL) & 1)
         modifiers.add(KeyModifier::CapsLock);
+    return modifiers;
+}
 
-    updateLayout();
-    // Windows expresses right-Alt as VK_MENU with the extended flag set.
-    // This key should generate AltGraph under layouts which use that modifier.
-    if (virtualKey == VK_MENU && extended && m_hasAltGraph)
-        return "AltGraph"_s;
-
-    String key = nonPrintableVirtualKeyToDomKey(virtualKey, m_keyboardLayout);
-    if (!key.isNull())
-        return key;
-
+auto WindowsKeyNames::printableKeyFromVirtualKey(unsigned virtualKey, KeyModifierSet modifiers) -> PrintableKey
+{
     const KeyModifierSet modifiersToTry[] = {
         // Trying to match Firefox's behavior and UIEvents DomKey guidelines.
         // If the combination doesn't produce a printable character, the key value
@@ -276,14 +269,75 @@ String WindowsKeyNames::domKeyFromParams(WPARAM virtualKey, LPARAM lParam)
 
     for (auto tryModifiers : modifiersToTry) {
         const auto& it = m_printableKeyCodeToKey.find(std::make_pair(virtualKey, tryModifiers));
-        if (it != m_printableKeyCodeToKey.end()) {
-            key = it->value;
-            if (!key.isNull())
-                return key;
+        if (it != m_printableKeyCodeToKey.end() && !it->value.isNull()) {
+            // A printable character produced with both Control and Alt held means
+            // the key is AltGraph-shifted on this layout.
+            return { it->value, hasControlAndAlt(tryModifiers) };
         }
     }
 
+    return { };
+}
+
+String WindowsKeyNames::domKeyFromParams(WPARAM virtualKey, LPARAM lParam)
+{
+    bool extended = lParam & 0x01000000;
+    auto modifiers = currentKeyModifiers();
+
+    updateLayout();
+    // Windows expresses right-Alt as VK_MENU with the extended flag set.
+    // This key should generate AltGraph under layouts which use that modifier.
+    if (virtualKey == VK_MENU && extended && m_hasAltGraph)
+        return "AltGraph"_s;
+
+    String key = nonPrintableVirtualKeyToDomKey(virtualKey, m_keyboardLayout);
+    if (!key.isNull())
+        return key;
+
+    key = printableKeyFromVirtualKey(virtualKey, modifiers).key;
+    if (!key.isNull())
+        return key;
+
     return "Unidentified"_s;
+}
+
+bool WindowsKeyNames::shouldExposeLeftControlPlusRightAltAsAltGraph()
+{
+    updateLayout();
+    // m_hasAltGraph is true only for layouts that actually define AltGraph; on
+    // other layouts the right-Alt key behaves as a plain Alt and must not be
+    // folded into AltGraph.
+    return m_hasAltGraph && GetKeyState(VK_RMENU) < 0;
+}
+
+bool WindowsKeyNames::shouldExposeAltGraphForKeyEvent(UINT message, WPARAM virtualKey, LPARAM)
+{
+    // 1. The physical AltGr key is delivered as left-Control + right-Alt, so a
+    //    held right-Alt on a layout that defines AltGraph is AltGr regardless of
+    //    which key it modifies. This call also refreshes the cached layout
+    //    (m_hasAltGraph) relied upon below.
+    if (shouldExposeLeftControlPlusRightAltAsAltGraph())
+        return true;
+
+    // The remaining cases cover AltGr simulated purely via the Control+Alt
+    // combination, which both Blink and Gecko expose as AltGraph.
+    if (GetKeyState(VK_CONTROL) >= 0 || GetKeyState(VK_MENU) >= 0)
+        return false;
+
+    // 2. A character message delivered while Control and Alt are held is, by
+    //    definition, the product of the AltGr combination: a character was
+    //    generated, so report AltGraph. This is independent of the layout, since
+    //    the character itself is the evidence.
+    if (message == WM_CHAR || message == WM_SYSCHAR || message == WM_IME_CHAR)
+        return true;
+
+    // 3. Otherwise this is AltGr only on a layout that defines AltGraph and only
+    //    if the key produces a printable character requiring the Control+Alt
+    //    combination (an AltGraph-shifted key); plain Control+Alt shortcuts keep
+    //    reporting Control and Alt.
+    if (!m_hasAltGraph)
+        return false;
+    return printableKeyFromVirtualKey(virtualKey, currentKeyModifiers()).isAltGraphShifted;
 }
 
 String WindowsKeyNames::domKeyFromChar(char16_t c)

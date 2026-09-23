@@ -31,6 +31,6 @@ typedef USVString CSSOMString;
     EnabledBySetting=CSSAnchorPositioningEnabled,
     Exposed=Window
 ] interface CSSPositionTryRule : CSSRule {
-    readonly attribute [AtomString] CSSOMString name;
+    readonly attribute CSSOMString name;
     [SameObject, PutForwards=cssText] readonly attribute CSSPositionTryDescriptors style;
 };

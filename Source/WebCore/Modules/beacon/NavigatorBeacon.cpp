@@ -50,7 +50,7 @@ NavigatorBeacon::NavigatorBeacon(Navigator& navigator)
 NavigatorBeacon::~NavigatorBeacon()
 {
     for (auto& beacon : m_inflightBeacons)
-        RefPtr { beacon }->removeClient(*this);
+        protect(beacon)->removeClient(*this);
 }
 
 void NavigatorBeacon::ref() const
@@ -111,24 +111,24 @@ void NavigatorBeacon::logError(const ResourceError& error)
 
 ExceptionOr<bool> NavigatorBeacon::sendBeacon(Document& document, const String& url, std::optional<FetchBody::Init>&& body)
 {
-    URL parsedUrl = document.completeURL(url);
+    URL parsedURL = document.parseURL(url);
 
-    // Set parsedUrl to the result of the URL parser steps with url and base. If the algorithm returns an error, or if
-    // parsedUrl's scheme is not "http" or "https", throw a "TypeError" exception and terminate these steps.
-    if (!parsedUrl.isValid())
+    // Set parsedURL to the result of the URL parser steps with url and base. If the algorithm returns an error, or if
+    // parsedURL's scheme is not "http" or "https", throw a "TypeError" exception and terminate these steps.
+    if (!parsedURL.isValid())
         return Exception { ExceptionCode::TypeError, "This URL is invalid"_s };
-    if (!parsedUrl.protocolIsInHTTPFamily())
+    if (!parsedURL.protocolIsInHTTPFamily())
         return Exception { ExceptionCode::TypeError, "Beacons can only be sent over HTTP(S)"_s };
 
     if (!document.frame())
         return false;
 
-    if (!document.shouldBypassMainWorldContentSecurityPolicy() && !protect(document.contentSecurityPolicy())->allowConnectToSource(parsedUrl)) {
+    if (!document.shouldBypassMainWorldContentSecurityPolicy() && !protect(document.contentSecurityPolicy())->allowConnectToSource(parsedURL, document.currentParserSourcePosition())) {
         // We simulate a network error so we return true here. This is consistent with Blink.
         return true;
     }
 
-    ResourceRequest request(WTF::move(parsedUrl));
+    ResourceRequest request(WTF::move(parsedURL));
     request.setHTTPMethod("POST"_s);
     request.setRequester(ResourceRequestRequester::Beacon);
     if (RefPtr documentLoader = document.loader())

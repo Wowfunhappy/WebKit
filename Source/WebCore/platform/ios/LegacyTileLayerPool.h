@@ -35,7 +35,6 @@
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/RetainPtr.h>
-#include <wtf/Threading.h>
 #include <wtf/Vector.h>
 
 @class LegacyTileLayer;

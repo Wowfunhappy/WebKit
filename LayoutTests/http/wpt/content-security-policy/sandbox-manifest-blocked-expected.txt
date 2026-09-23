@@ -1,3 +1,1 @@
-http://localhost:8800/WebKit/content-security-policy/sandbox-manifest-blocked.html - didFinishLoading
-http://localhost:8800/WebKit/content-security-policy/manifest.json - didFailLoadingWithError: <NSError domain , code 0, failing URL "http://localhost:8800/WebKit/content-security-policy/manifest.json">
-
+Fetched manifest: http://localhost:8800/WebKit/content-security-policy/manifest.json, success: false

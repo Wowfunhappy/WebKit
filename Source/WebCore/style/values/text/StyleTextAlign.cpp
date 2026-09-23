@@ -25,52 +25,48 @@
 #include "config.h"
 #include "StyleTextAlign.h"
 
+#include "CSSKeywordValue.h"
 #include "Document.h"
 #include "Element.h"
-#include "RenderStyle.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 auto CSSValueConversion<TextAlign>::operator()(BuilderState& state, const CSSValue& value) -> TextAlign
 {
-    auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
         return TextAlign::Start;
 
-    if (!primitiveValue->isValueID()) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return TextAlign::Start;
-    }
-
-    auto& parentStyle = state.parentStyle();
+    CheckedRef parentStyle = state.parentStyle();
 
     // User agents are expected to have a rule in their user agent stylesheet that matches 'th' elements that have a parent
     // node whose computed value for the 'text-align' property is its initial value, whose declaration block consists of
     // just a single declaration that sets the 'text-align' property to the value 'center'.
     // https://html.spec.whatwg.org/multipage/rendering.html#rendering
-    if (primitiveValue->valueID() == CSSValueInternalThCenter) {
-        if (parentStyle.textAlign() == TextAlign::Start)
+    if (keywordValue->valueID() == CSSValueInternalThCenter) {
+        if (parentStyle->textAlign() == TextAlign::Start)
             return TextAlign::Center;
-        return parentStyle.textAlign();
+        return parentStyle->textAlign();
     }
 
-    if (primitiveValue->valueID() == CSSValueWebkitMatchParent || primitiveValue->valueID() == CSSValueMatchParent) {
-        auto* element = state.element();
+    if (keywordValue->valueID() == CSSValueWebkitMatchParent || keywordValue->valueID() == CSSValueMatchParent) {
+        RefPtr element = state.element();
 
         if (element && element == state.document().documentElement())
             return TextAlign::Start;
-        if (parentStyle.textAlign() == TextAlign::Start)
-            return parentStyle.writingMode().isBidiLTR() ? TextAlign::Left : TextAlign::Right;
-        if (parentStyle.textAlign() == TextAlign::End)
-            return parentStyle.writingMode().isBidiLTR() ? TextAlign::Right : TextAlign::Left;
+        if (parentStyle->textAlign() == TextAlign::Start)
+            return parentStyle->writingMode().isBidiLTR() ? TextAlign::Left : TextAlign::Right;
+        if (parentStyle->textAlign() == TextAlign::End)
+            return parentStyle->writingMode().isBidiLTR() ? TextAlign::Right : TextAlign::Left;
 
-        return parentStyle.textAlign();
+        return parentStyle->textAlign();
     }
 
-    return fromCSSValue<TextAlign>(value);
+    return fromCSSValue<TextAlign>(*keywordValue);
 }
 
 } // namespace Style

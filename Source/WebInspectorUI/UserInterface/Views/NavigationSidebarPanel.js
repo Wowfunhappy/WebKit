@@ -434,7 +434,7 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
 
                 // Only expand if the built-in filters matched, not custom filters.
                 if (flags.expandTreeElement && !currentAncestor.expanded) {
-                    currentAncestor.__wasExpandedDuringFiltering = true;
+                    currentAncestor[WI.NavigationSidebarPanel.WasExpandedDuringFilteringSymbol] = true;
                     currentAncestor.expand();
                 }
 

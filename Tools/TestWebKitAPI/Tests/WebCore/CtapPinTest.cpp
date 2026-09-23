@@ -28,7 +28,7 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "FidoTestData.h"
-#include "PlatformUtilities.h"
+#include "Helpers/PlatformUtilities.h"
 #include <WebCore/CBORReader.h>
 #include <WebCore/CBORValue.h>
 #include <WebCore/CryptoAlgorithmAESCBC.h>
@@ -136,7 +136,7 @@ TEST(CtapPinTest, TestSetPinRequest)
     auto sharedKeyResult = CryptoAlgorithmECDH::platformDeriveBits(downcast<CryptoKeyEC>(*keyPair.privateKey), *cosePublicKey);
     EXPECT_TRUE(sharedKeyResult);
 
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(sharedKeyResult->span());
     auto sharedKeyHash = crypto->computeHash();
 
@@ -324,7 +324,7 @@ TEST(CtapPinTest, TestTokenRequest)
     auto sharedKeyResult = CryptoAlgorithmECDH::platformDeriveBits(downcast<CryptoKeyEC>(*keyPair.privateKey), *cosePublicKey);
     EXPECT_TRUE(sharedKeyResult);
 
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(sharedKeyResult->span());
     auto sharedKeyHash = crypto->computeHash();
 
@@ -531,7 +531,7 @@ TEST(CtapPinTest, TestProtocol2HKDFKeyDerivation)
         0xaa, 0xce, 0x11, 0x8e, 0x3e, 0x72, 0x49, 0xd2
     };
 
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(std::span { testECDHResult });
     auto protocol1Key = crypto->computeHash();
 
@@ -547,8 +547,8 @@ TEST(CtapPinTest, TestHmacSecretRequestCreate)
     auto keyPair = keyPairResult.releaseReturnValue();
 
     // Create 32-byte salts
-    Vector<uint8_t> salt1(32, 0x00); // 32 bytes of zeros
-    Vector<uint8_t> salt2(32, 0xFF); // 32 bytes of 0xFF
+    Vector<uint8_t> salt1(FillWith { }, 32, 0x00); // 32 bytes of zeros
+    Vector<uint8_t> salt2(FillWith { }, 32, 0xFF); // 32 bytes of 0xFF
 
     // Test with 1 salt (Protocol 1)
     auto request1 = HmacSecretRequest::create(PINUVAuthProtocol::kPinProtocol1, salt1, std::nullopt, downcast<CryptoKeyEC>(*keyPair.publicKey));
@@ -578,12 +578,12 @@ TEST(CtapPinTest, TestHmacSecretRequestInvalidSalts)
     auto keyPair = keyPairResult.releaseReturnValue();
 
     // Invalid: salt1 too short
-    Vector<uint8_t> shortSalt(16, 0x00);
+    Vector<uint8_t> shortSalt(FillWith { }, 16, 0x00);
     auto request = HmacSecretRequest::create(PINUVAuthProtocol::kPinProtocol1, shortSalt, std::nullopt, downcast<CryptoKeyEC>(*keyPair.publicKey));
     EXPECT_FALSE(request);
 
     // Invalid: salt2 too short
-    Vector<uint8_t> validSalt(32, 0x00);
+    Vector<uint8_t> validSalt(FillWith { }, 32, 0x00);
     request = HmacSecretRequest::create(PINUVAuthProtocol::kPinProtocol1, validSalt, shortSalt, downcast<CryptoKeyEC>(*keyPair.publicKey));
     EXPECT_FALSE(request);
 }
@@ -595,7 +595,7 @@ TEST(CtapPinTest, TestHmacSecretResponseRoundTrip)
     ASSERT_FALSE(keyPairResult.hasException());
     auto keyPair = keyPairResult.releaseReturnValue();
 
-    Vector<uint8_t> salt1(32, 0xAA);
+    Vector<uint8_t> salt1(FillWith { }, 32, 0xAA);
 
     // Create HmacSecretRequest which encrypts the salts
     auto request = HmacSecretRequest::create(PINUVAuthProtocol::kPinProtocol1, salt1, std::nullopt, downcast<CryptoKeyEC>(*keyPair.publicKey));
@@ -620,12 +620,12 @@ TEST(CtapPinTest, TestHmacSecretResponseInvalidSize)
     ASSERT_FALSE(keyPairResult.hasException());
     auto keyPair = keyPairResult.releaseReturnValue();
 
-    Vector<uint8_t> salt1(32, 0x00);
+    Vector<uint8_t> salt1(FillWith { }, 32, 0x00);
     auto request = HmacSecretRequest::create(PINUVAuthProtocol::kPinProtocol1, salt1, std::nullopt, downcast<CryptoKeyEC>(*keyPair.publicKey));
     ASSERT_TRUE(request);
 
     // Test with invalid encrypted output (wrong size)
-    Vector<uint8_t> invalidOutput(16, 0x00); // Too short, should be 32 or 64
+    Vector<uint8_t> invalidOutput(FillWith { }, 16, 0x00); // Too short, should be 32 or 64
     auto response = HmacSecretResponse::parse(PINUVAuthProtocol::kPinProtocol1, request->sharedKey(), invalidOutput);
     EXPECT_FALSE(response);
 }

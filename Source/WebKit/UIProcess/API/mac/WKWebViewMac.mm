@@ -34,6 +34,8 @@
 #if PLATFORM(MAC)
 
 #import "AppKitSPI.h"
+#import "CompletionHandlerCallChecker.h"
+#import "PDFPluginIdentifier.h"
 #import "WKAPICast.h"
 #import "WKIntelligenceTextEffectCoordinator.h"
 #import "WKTextFinderClient.h"
@@ -49,6 +51,7 @@
 #import "_WKWarningView.h"
 #import <WebCore/CGWindowUtilities.h>
 #import <WebCore/CornerRadii.h>
+#import <WebCore/FrameIdentifier.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <pal/spi/mac/NSTextFinderSPI.h>
@@ -557,17 +560,17 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 
 - (void)mouseDown:(NSEvent *)event
 {
-    _impl->mouseDown(event, WebKit::WebMouseEventInputSource::UserDriven);
+    _impl->mouseDown(event, WebKit::WebEventInputSource::UserDriven);
 }
 
 - (void)mouseUp:(NSEvent *)event
 {
-    _impl->mouseUp(event, WebKit::WebMouseEventInputSource::UserDriven);
+    _impl->mouseUp(event, WebKit::WebEventInputSource::UserDriven);
 }
 
 - (void)mouseDragged:(NSEvent *)event
 {
-    _impl->mouseDragged(event, WebKit::WebMouseEventInputSource::UserDriven);
+    _impl->mouseDragged(event, WebKit::WebEventInputSource::UserDriven);
 }
 
 - (void)otherMouseDown:(NSEvent *)event
@@ -707,6 +710,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
     _impl->hasMarkedTextWithCompletionHandler(completionHandlerPtr);
 }
 
+- (void)isMarkedTextRequiredForCompositionWithCompletionHandler:(void(^)(BOOL isMarkedTextRequiredForComposition))completionHandlerPtr
+{
+    _impl->isMarkedTextRequiredForCompositionWithCompletionHandler(completionHandlerPtr);
+}
+
 - (void)attributedSubstringForProposedRange:(NSRange)nsRange completionHandler:(void(^)(NSAttributedString *attrString, NSRange actualRange))completionHandlerPtr
 {
     _impl->attributedSubstringForProposedRange(nsRange, completionHandlerPtr);
@@ -763,14 +771,19 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 
 - (void)showWritingTools:(id)sender
 {
-    WTRequestedTool tool = (WTRequestedTool)[sender tag];
+    WTRequestedTool tool = (WTRequestedTool)[(id<NSValidatedUserInterfaceItem>)sender tag];
     if (tool == -1)
         tool = WTRequestedToolIndex;
 
     _impl->showWritingTools(tool);
 }
 
-#endif
+- (BOOL)allowsWritingToolsAffordance
+{
+    return _impl->shouldAllowWritingToolsAffordance();
+}
+
+#endif // ENABLE(WRITING_TOOLS)
 
 #if ENABLE(DRAG_SUPPORT)
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
@@ -864,6 +877,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return;
 
     WebCore::CornerRadii newRadii;
+ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
     if (RetainPtr<NSViewCornerRadii> radii = self._effectiveCornerRadii) {
         newRadii = WebCore::CornerRadii {
             static_cast<float>([radii topLeft]),
@@ -872,6 +886,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
             static_cast<float>([radii bottomRight])
         };
     }
+ALLOW_NEW_API_WITHOUT_GUARDS_END
 
     if (_lastViewCornerRadii == newRadii)
         return;
@@ -880,13 +895,15 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     _page->setScrollbarAvoidanceCornerRadii(WTF::move(newRadii));
 }
 
+ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
 - (NSViewCornerConfiguration *)_cornerConfiguration
 {
     if (self.enclosingScrollView)
         return [super _cornerConfiguration];
 
-    return [NSViewCornerConfiguration configurationWithRadius:_NSCornerRadius.containerConcentricRadius];
+    return [NSViewCornerConfiguration configurationWithRadius:(id)_NSCornerRadius.containerConcentricRadius];
 }
+ALLOW_NEW_API_WITHOUT_GUARDS_END
 
 #endif
 
@@ -1094,6 +1111,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return _impl->dragSourceOperationMask(session, context);
 }
 
+- (void)draggingSession:(NSDraggingSession *)session willBeginAtPoint:(NSPoint)screenPoint
+{
+    _impl->draggingSessionWillBegin(session, screenPoint);
+}
+
 - (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation
 {
     _impl->draggingSessionEnded(session, screenPoint, operation);
@@ -1179,6 +1201,41 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return _impl->hasScrolledContentsUnderTitlebar();
 }
 
+- (BOOL)respondsToSelector:(SEL)selector
+{
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+    if (selector == @selector(setFullScreenTitlebarOverlayHeight:))
+        return [self _scrollPocketInFullscreenEnabled];
+#endif
+    return [super respondsToSelector:selector];
+}
+
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+
+- (CGFloat)fullScreenTitlebarOverlayHeight
+{
+    if (![self _scrollPocketInFullscreenEnabled])
+        return 0;
+
+    if (!_impl)
+        return 0;
+
+    return _impl->fullScreenTitlebarOverlayHeight();
+}
+
+- (void)setFullScreenTitlebarOverlayHeight:(CGFloat)fullScreenTitlebarOverlayHeight
+{
+    if (![self _scrollPocketInFullscreenEnabled])
+        return;
+
+    if (!_impl)
+        return;
+
+    _impl->setFullScreenTitlebarOverlayHeight(fullScreenTitlebarOverlayHeight);
+}
+
+#endif
+
 #pragma mark – NSAdaptiveImageGlyph
 
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
@@ -1205,7 +1262,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (!_page)
         return NO;
 
-    if (!_page->preferences().contentInsetBackgroundFillEnabled())
+    if (!protect(_page->preferences())->contentInsetBackgroundFillEnabled())
         return NO;
 
     return _page->obscuredContentInsets().top() > 0 || _page->overflowHeightForTopScrollEdgeEffect() > 0;
@@ -1233,6 +1290,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return;
 
     _impl->effectiveAppearanceDidChange();
+
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    [self _updateAppearanceForSystemBackgroundColorExtensionViews];
+#endif
 }
 
 @end
@@ -1437,6 +1498,45 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([uiDelegate respondsToSelector:@selector(_webView:didPerformDragOperation:)])
         [uiDelegate _webView:self didPerformDragOperation:handled];
 }
+
+#if ENABLE(DRAG_SOURCE_CUSTOMIZATION)
+- (void)_web_draggingItemsForDraggingItem:(NSDraggingItem *)draggingItem atLocation:(NSPoint)viewLocation completionHandler:(void (^)(NSArray<NSDraggingItem *> *draggingItems))completionHandler
+{
+    RetainPtr uiDelegate = static_cast<id<WKUIDelegatePrivate>>([self UIDelegate]);
+    if (![uiDelegate respondsToSelector:@selector(_webView:draggingItemsForDraggingItem:atLocation:completionHandler:)]) {
+        completionHandler(nil);
+        return;
+    }
+    [uiDelegate _webView:self draggingItemsForDraggingItem:draggingItem atLocation:viewLocation completionHandler:makeBlockPtr([completionHandler = makeBlockPtr(completionHandler), checker = WebKit::CompletionHandlerCallChecker::create(uiDelegate, @selector(_webView:draggingItemsForDraggingItem:atLocation:completionHandler:))](NSArray<NSDraggingItem *> *draggingItems) {
+        if (checker->completionHandlerHasBeenCalled())
+            return;
+        checker->didCallCompletionHandler();
+        completionHandler(draggingItems);
+    }).get()];
+}
+
+- (NSDragOperation)_web_dragSourceOperationMaskForDraggingContext:(NSDraggingContext)context defaultMask:(NSDragOperation)defaultMask
+{
+    RetainPtr uiDelegate = static_cast<id<WKUIDelegatePrivate>>([self UIDelegate]);
+    if (![uiDelegate respondsToSelector:@selector(_webView:sourceOperationMaskForDraggingContext:defaultOperationMask:)])
+        return defaultMask;
+    return [uiDelegate _webView:self sourceOperationMaskForDraggingContext:context defaultOperationMask:defaultMask];
+}
+
+- (void)_web_draggingSession:(NSDraggingSession *)session willBeginAtPoint:(NSPoint)point
+{
+    RetainPtr uiDelegate = static_cast<id<WKUIDelegatePrivate>>([self UIDelegate]);
+    if ([uiDelegate respondsToSelector:@selector(_webView:draggingSession:willBeginAtPoint:)])
+        [uiDelegate _webView:self draggingSession:session willBeginAtPoint:point];
+}
+
+- (void)_web_draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)point operation:(NSDragOperation)operation
+{
+    RetainPtr uiDelegate = static_cast<id<WKUIDelegatePrivate>>([self UIDelegate]);
+    if ([uiDelegate respondsToSelector:@selector(_webView:draggingSession:endedAtPoint:operation:)])
+        [uiDelegate _webView:self draggingSession:session endedAtPoint:point operation:operation];
+}
+#endif
 
 #endif // ENABLE(DRAG_SUPPORT)
 
@@ -2188,5 +2288,37 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     SUPPRESS_RETAINPTR_CTOR_ADOPT return [[NSImage alloc] initWithCGImage:snapshot.get() size:NSZeroSize];
 }
 @end
+
+#if ENABLE(PDF_HUD)
+
+@implementation WKWebView (WKPDFHUD)
+
+- (void)_pdfZoomIn:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier
+{
+    if (RefPtr page = _page)
+        page->pdfZoomIn(pluginIdentifier, frameIdentifier);
+}
+
+- (void)_pdfZoomOut:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier
+{
+    if (RefPtr page = _page)
+        page->pdfZoomOut(pluginIdentifier, frameIdentifier);
+}
+
+- (void)_pdfOpenWithPreview:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier
+{
+    if (RefPtr page = _page)
+        page->pdfOpenWithPreview(pluginIdentifier, frameIdentifier);
+}
+
+- (void)_pdfSaveToPDF:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier
+{
+    if (RefPtr page = _page)
+        page->pdfSaveToPDF(pluginIdentifier, frameIdentifier);
+}
+
+@end
+
+#endif // ENABLE(PDF_HUD)
 
 #endif // PLATFORM(MAC)

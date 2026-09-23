@@ -45,9 +45,9 @@ static CString toHex(WTF::Vector<uint8_t>&& hash)
     return buffer.span();
 }
 
-static void expect(PAL::CryptoDigest::Algorithm algorithm, const CString& input, int repeat, const CString& expected)
+static void expect(PAL::Crypto::CryptoDigest::Algorithm algorithm, const CString& input, int repeat, const CString& expected)
 {
-    auto cryptoDigest = PAL::CryptoDigest::create(algorithm);
+    auto cryptoDigest = PAL::Crypto::CryptoDigest::create(algorithm);
 
     for (int i = 0; i < repeat; ++i)
         cryptoDigest->addBytes(byteCast<uint8_t>(input.span()));
@@ -60,22 +60,22 @@ static void expect(PAL::CryptoDigest::Algorithm algorithm, const CString& input,
 
 static void expectSHA1(const CString& input, int repeat, const CString& expected)
 {
-    expect(PAL::CryptoDigest::Algorithm::SHA_1, input, repeat, expected);
+    expect(PAL::Crypto::CryptoDigest::Algorithm::SHA_1, input, repeat, expected);
 }
 
 static void expectSHA256(const CString& input, int repeat, const CString& expected)
 {
-    expect(PAL::CryptoDigest::Algorithm::SHA_256, input, repeat, expected);
+    expect(PAL::Crypto::CryptoDigest::Algorithm::SHA_256, input, repeat, expected);
 }
 
 static void expectSHA384(const CString& input, int repeat, const CString& expected)
 {
-    expect(PAL::CryptoDigest::Algorithm::SHA_384, input, repeat, expected);
+    expect(PAL::Crypto::CryptoDigest::Algorithm::SHA_384, input, repeat, expected);
 }
 
 static void expectSHA512(const CString& input, int repeat, const CString& expected)
 {
-    expect(PAL::CryptoDigest::Algorithm::SHA_512, input, repeat, expected);
+    expect(PAL::Crypto::CryptoDigest::Algorithm::SHA_512, input, repeat, expected);
 }
 
 TEST(CryptoDigest, SHA1Computation)

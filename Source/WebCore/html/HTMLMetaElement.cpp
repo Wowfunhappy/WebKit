@@ -28,7 +28,10 @@
 #include "CSSPropertyParserConsumer+Color.h"
 #include "Color.h"
 #include "Document.h"
+#include "DocumentQuirks.h"
+#include "DocumentView.h"
 #include "ElementInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLHeadElement.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
@@ -39,8 +42,8 @@
 #include "MediaQueryParserContext.h"
 #include "NodeName.h"
 #include "Quirks.h"
-#include "RenderStyle.h"
 #include "Settings.h"
+#include "StyleComputedStyle.h"
 #include "StyleResolveForDocument.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -82,17 +85,13 @@ bool HTMLMetaElement::mediaAttributeMatches()
         m_mediaQueryList = MQ::MediaQueryParser::parse(mediaText, document->cssParserContext());
     }
 
-    std::optional<RenderStyle> documentStyle;
-    if (document->hasLivingRenderTree())
-        documentStyle = Style::resolveForDocument(document);
-
     AtomString mediaType;
     if (RefPtr frame = document->frame()) {
         if (RefPtr frameView = frame->view())
             mediaType = frameView->mediaType();
     }
 
-    auto evaluator = MQ::MediaQueryEvaluator { mediaType, document, documentStyle ? &*documentStyle : nullptr };
+    auto evaluator = MQ::MediaQueryEvaluator { mediaType, document };
     return evaluator.evaluate(*m_mediaQueryList);
 }
 
@@ -131,22 +130,22 @@ void HTMLMetaElement::attributeChanged(const QualifiedName& name, const AtomStri
     }
 }
 
-Node::InsertedIntoAncestorResult HTMLMetaElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLMetaElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
-    return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::Yes;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLMetaElement::didFinishInsertingNode()
+void HTMLMetaElement::postConnectionSteps()
 {
     process();
 }
 
-void HTMLMetaElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLMetaElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (removalType.disconnectedFromDocument && equalLettersIgnoringASCIICase(name(), "theme-color"_s))
         protect(oldParentOfRemovedTree.document())->metaElementThemeColorChanged(*this);

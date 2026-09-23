@@ -64,8 +64,8 @@ function test()
 
     let expectNullTestCase = {
         functionName: "expectNull",
-        passingInputs: [null],
-        failingInputs: [true, false, 1, "", undefined, {}, []]
+        passingInputs: [null, undefined],
+        failingInputs: [true, false, 1, "", {}, []],
     };
     addTestCase(expectNullTestCase);
     addInverseTestCase("expectNotNull", expectNullTestCase);

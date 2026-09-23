@@ -85,9 +85,7 @@ MockRealtimeAudioSource::MockRealtimeAudioSource(String&& deviceID, AtomString&&
     initializeEchoCancellation(std::get<MockMicrophoneProperties>(m_device.properties).echoCancellation.value_or(true));
 }
 
-MockRealtimeAudioSource::~MockRealtimeAudioSource()
-{
-}
+MockRealtimeAudioSource::~MockRealtimeAudioSource() = default;
 
 const RealtimeMediaSourceSettings& MockRealtimeAudioSource::settings()
 {

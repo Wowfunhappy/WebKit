@@ -40,4 +40,5 @@
     // MediaSessionEnterPictureInPictureReason enterPictureInPictureReason;
 
     [Conditional=MEDIA_SESSION_PLAYLIST, EnabledBySetting=MediaSessionPlaylistEnabled] DOMString trackIdentifier;
+    [EnabledByQuirk=needsYouTubeCaptions] unsigned long trackIndex;
 };

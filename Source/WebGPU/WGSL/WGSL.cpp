@@ -34,6 +34,7 @@
 #include "EntryPointRewriter.h"
 #include "GlobalSorting.h"
 #include "GlobalVariableRewriter.h"
+#include "IOValidator.h"
 #include "MangleNames.h"
 #include "Metal/MetalCodeGenerator.h"
 #include "Parser.h"
@@ -43,6 +44,7 @@
 #include "UniformityAnalysis.h"
 #include "VisibilityValidator.h"
 #include "WGSLShaderModule.h"
+#include <wtf/text/MakeString.h>
 
 namespace WGSL {
 
@@ -72,6 +74,20 @@ namespace WGSL {
         return pass(__VA_ARGS__); \
     }();
 
+static ASCIILiteral wgslExtensionToWebGPUFeatureName(Extension extension)
+{
+    // Map WGSL extension names to WebGPU feature names
+    // WGSL uses underscores, WebGPU uses hyphens
+    switch (extension) {
+    case Extension::ClipDistances:
+        return "clip-distances"_s;
+    case Extension::F16:
+        return "shader-f16"_s;
+    case Extension::PrimitiveIndex:
+        return "primitive-index"_s;
+    }
+}
+
 Variant<SuccessfulCheck, FailedCheck> staticCheck(const String& wgsl, const std::optional<SourceMap>&, const Configuration& configuration)
 {
     PhaseTimes phaseTimes;
@@ -89,6 +105,13 @@ Variant<SuccessfulCheck, FailedCheck> staticCheck(const String& wgsl, const std:
     RUN_PASS(rewritePointers, shaderModule);
     CHECK_PASS(aliasAnalysis, shaderModule);
     CHECK_PASS(uniformityAnalysis, shaderModule);
+
+    // Validate that all enabled extensions are supported by the device
+    for (auto extension : shaderModule->enabledExtensions()) {
+        auto featureName = wgslExtensionToWebGPUFeatureName(extension);
+        if (!shaderModule->hasFeature(featureName))
+            return Variant<SuccessfulCheck, FailedCheck>(WTF::InPlaceType<FailedCheck>, Vector<Error> { Error { makeString("Extension '"_s, toString(extension), "' requires feature '"_s, featureName, "' which is not enabled on this device"_s), SourceSpan::empty() } }, Vector<Warning> { });
+    }
 
     return Variant<SuccessfulCheck, FailedCheck>(WTF::InPlaceType<SuccessfulCheck>, WTF::move(warnings), WTF::move(shaderModule));
 }
@@ -203,8 +226,28 @@ std::optional<ConstantValue> evaluate(const ShaderModule& module, const AST::Exp
     switch (expression.kind()) {
     case AST::NodeKind::BinaryExpression: {
         auto& binary = uncheckedDowncast<AST::BinaryExpression>(expression);
-        auto operation = toASCIILiteral(binary.operation());
-        result = call(operation, ReferenceWrapperVector<const AST::Expression, 2> { binary.leftExpression(), binary.rightExpression() });
+        if (binary.operation() == AST::BinaryOperation::ShortCircuitAnd) {
+            auto lhsValue = evaluate(module, binary.leftExpression(), overrideValues);
+            if (lhsValue && !std::get<bool>(*lhsValue))
+                result = false;
+            else {
+                auto rhsValue = evaluate(module, binary.rightExpression(), overrideValues);
+                if (lhsValue && rhsValue)
+                    result = std::get<bool>(*lhsValue) && std::get<bool>(*rhsValue);
+            }
+        } else if (binary.operation() == AST::BinaryOperation::ShortCircuitOr) {
+            auto lhsValue = evaluate(module, binary.leftExpression(), overrideValues);
+            if (lhsValue && std::get<bool>(*lhsValue))
+                result = true;
+            else {
+                auto rhsValue = evaluate(module, binary.rightExpression(), overrideValues);
+                if (lhsValue && rhsValue)
+                    result = std::get<bool>(*lhsValue) || std::get<bool>(*rhsValue);
+            }
+        } else {
+            auto operation = toASCIILiteral(binary.operation());
+            result = call(operation, ReferenceWrapperVector<const AST::Expression, 2> { binary.leftExpression(), binary.rightExpression() });
+        }
         break;
     }
 
@@ -315,3 +358,7 @@ std::optional<ConstantValue> evaluate(const ShaderModule& module, const AST::Exp
 }
 
 }
+
+#undef CHECK_PASS
+#undef RUN_PASS
+#undef RUN_PASS_WITH_RESULT

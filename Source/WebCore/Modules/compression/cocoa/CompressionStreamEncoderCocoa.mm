@@ -24,6 +24,8 @@
 
 #include "config.h"
 #include "CompressionStreamEncoder.h"
+
+#import "SharedBuffer.h"
 #include <compression.h>
 
 namespace WebCore {

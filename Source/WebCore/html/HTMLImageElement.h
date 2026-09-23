@@ -61,7 +61,7 @@ class HTMLImageElement
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLImageElement);
 public:
     static Ref<HTMLImageElement> create(Document&);
-    static Ref<HTMLImageElement> create(const QualifiedName&, Document&, HTMLFormElement* = nullptr);
+    static Ref<HTMLImageElement> create(const QualifiedName&, Document&);
     static Ref<HTMLImageElement> createForLegacyFactoryFunction(Document&, std::optional<unsigned> width, std::optional<unsigned> height);
 
     virtual ~HTMLImageElement();
@@ -117,7 +117,7 @@ public:
 
     bool canContainRangeEndPoint() const override { return false; }
 
-    const AtomString& imageSourceURL() const override;
+    String imageSourceURL() const override;
     
 #if ENABLE(SERVICE_CONTROLS)
     bool isImageMenuEnabled() const { return m_isImageMenuEnabled; }
@@ -145,8 +145,13 @@ public:
 
     bool isLazyLoadable() const;
     static bool hasLazyLoadableAttributeValue(StringView);
+    bool hasAutoSizes() const;
+    static bool hasAutoSizesAttributeValue(StringView);
+    void scheduleAutoSizesResolution();
 
     bool NODELETE isDeferred() const;
+
+    static bool isSupportedImageSourceType(const String& typeAttribute);
 
     bool isDroppedImagePlaceholder() const { return m_isDroppedImagePlaceholder; }
     void setIsDroppedImagePlaceholder() { m_isDroppedImagePlaceholder = true; }
@@ -173,7 +178,7 @@ public:
     Image* image() const;
 
 protected:
-    HTMLImageElement(const QualifiedName&, Document&, HTMLFormElement* = nullptr);
+    HTMLImageElement(const QualifiedName&, Document&);
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
 
@@ -195,24 +200,24 @@ private:
     bool virtualHasPendingActivity() const final;
 
     void didAttachRenderers() override;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isReplaced(const RenderStyle* = nullptr) const final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
     void setBestFitURLAndDPRFromImageCandidate(const ImageCandidate&);
 
     bool canStartSelection() const override;
 
     bool NODELETE isURLAttribute(const Attribute&) const override;
     bool NODELETE attributeContainsURL(const Attribute&) const override;
-    String completeURLsInAttributeValue(const URL& base, const Attribute&, ResolveURLs = ResolveURLs::Yes) const override;
+    String completeURLsInAttributeValue(const URL& base, const Attribute&, ResolveURLs = ResolveURLs::YesExcludingURLsForPrivacy) const override;
     Attribute replaceURLsInAttributeValue(const Attribute&, const CSS::SerializationContext&) const override;
 
     bool isDraggableIgnoringAttributes() const final { return true; }
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
-    void addCandidateSubresourceURLs(ListHashSet<URL>&) const override;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const override;
+    void addCandidateSubresourceURLs(OrderedHashSet<URL>&) const override;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void removingSteps(RemovalType, ContainerNode&) override;
 
     bool NODELETE isFormListedElement() const final { return false; }
     FormAssociatedElement* NODELETE asFormAssociatedElement() final { return this; }
@@ -234,10 +239,10 @@ private:
 
     ImageCandidate bestFitSourceFromPictureElement();
 
+    std::optional<float> autoSizesLayoutWidth() const;
+
     void copyNonAttributePropertiesFromElement(const Element&) final;
 
-    float effectiveImageDevicePixelRatio() const;
-    
 #if ENABLE(SERVICE_CONTROLS)
     bool childShouldCreateRenderer(const Node&) const override;
 #endif

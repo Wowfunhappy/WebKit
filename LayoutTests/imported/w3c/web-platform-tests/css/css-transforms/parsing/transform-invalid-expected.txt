@@ -18,4 +18,5 @@ PASS e.style['transform'] = "skew(0, 0, 0)" should not set the property value
 PASS e.style['transform'] = "skewX(0, 0)" should not set the property value
 PASS e.style['transform'] = "skewY(0, 0)" should not set the property value
 PASS e.style['transform'] = "scaleX(2), scaleY(3)" should not set the property value
+FAIL e.style['transform'] = "perspective(1000)" should not set the property value assert_equals: expected "" but got "perspective(1000)"
 

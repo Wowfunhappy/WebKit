@@ -71,7 +71,7 @@ String CSSContainerRule::containerName() const
 
     auto name = styleRuleContainer().containerQuery().name;
     if (!name.isEmpty())
-        serializeIdentifier(name, builder);
+        serializeIdentifier(builder, name);
 
     return builder.toString();
 }

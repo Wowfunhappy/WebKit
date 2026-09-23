@@ -26,14 +26,6 @@
 
 // @internal
 
-function markPromiseAsHandled(promise)
-{
-    "use strict";
-
-    @assert(@isPromise(promise));
-    @putPromiseInternalField(promise, @promiseFieldFlags, @getPromiseInternalField(promise, @promiseFieldFlags) | @promiseFlagsIsHandled);
-}
-
 function shieldingPromiseResolve(result)
 {
     "use strict";

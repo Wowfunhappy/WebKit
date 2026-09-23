@@ -38,6 +38,7 @@ class DesktopPortal : public RefCounted<DesktopPortal> {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DesktopPortal);
 public:
     DesktopPortal(ASCIILiteral, GRefPtr<GDBusProxy>&&);
+    virtual ~DesktopPortal() = default;
 
     GRefPtr<GVariant> getProperty(ASCIILiteral name);
 

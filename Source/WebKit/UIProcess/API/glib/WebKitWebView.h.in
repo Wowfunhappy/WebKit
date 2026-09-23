@@ -607,6 +607,11 @@ webkit_web_view_get_favicon                          (WebKitWebView             
 #endif
 #endif
 
+#if ENABLE(2022_GLIB_API)
+WEBKIT_API WebKitImageList *
+webkit_web_view_get_page_icons                       (WebKitWebView             *web_view);
+#endif
+
 WEBKIT_API const gchar *
 webkit_web_view_get_custom_charset                   (WebKitWebView             *web_view);
 

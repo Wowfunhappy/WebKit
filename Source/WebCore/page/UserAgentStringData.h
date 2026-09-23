@@ -27,6 +27,7 @@
 #include <optional>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 struct UserAgentStringData : public RefCounted<UserAgentStringData> {

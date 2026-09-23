@@ -29,8 +29,8 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
-#include <ranges>
 #include <wtf/Logging.h>
+#include <wtf/MathExtras.h>
 #include <wtf/MemoryFootprint.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RAMSize.h>
@@ -67,7 +67,7 @@ static MemoryPressureHandler* memoryPressureHandlerIfExists()
 }
 
 MemoryPressureHandler::MemoryPressureHandler()
-#if OS(LINUX) || OS(FREEBSD) || OS(HAIKU) || OS(QNX)
+#if (OS(LINUX) || OS(FREEBSD) || OS(HAIKU) || OS(QNX)) && !OS(ANDROID)
     : m_holdOffTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::HoldOffTimer"_s, this, &MemoryPressureHandler::holdOffTimerFired)
 #elif OS(WINDOWS)
     : m_windowsMeasurementTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::WindowsMeasurementTimer"_s, this, &MemoryPressureHandler::windowsMeasurementTimerFired)
@@ -112,7 +112,7 @@ static size_t thresholdForMemoryKillOfActiveProcess(unsigned tabCount)
     return baseThreshold + tabCount * GB;
 #else
     UNUSED_PARAM(tabCount);
-    return std::min(3 * GB, static_cast<size_t>(ramSize() * 0.9));
+    return std::min(3 * GB, static_cast<size_t>(truncateDoubleToUint64(ramSize() * 0.9)));
 #endif
 }
 
@@ -123,7 +123,7 @@ static size_t thresholdForMemoryKillOfInactiveProcess(unsigned tabCount)
 #else
     size_t baseThreshold = tabCount > 1 ? 3 * GB : 2 * GB;
 #endif
-    return std::min(baseThreshold, static_cast<size_t>(ramSize() * 0.9));
+    return std::min(baseThreshold, static_cast<size_t>(truncateDoubleToUint64(ramSize() * 0.9)));
 }
 
 void MemoryPressureHandler::setPageCount(unsigned pageCount)
@@ -338,6 +338,12 @@ void MemoryPressureHandler::didExceedProcessMemoryLimit(ProcessMemoryLimit limit
         m_didExceedProcessMemoryLimitCallback(limit);
 }
 
+MemoryPressureHandler::ReliefLogger::~ReliefLogger()
+{
+    if (loggingEnabled())
+        logMemoryUsageChange();
+}
+
 void MemoryPressureHandler::ReliefLogger::logMemoryUsageChange()
 {
 #if !RELEASE_LOG_DISABLED
@@ -383,4 +389,4 @@ MemoryPressureHandlerConfiguration::MemoryPressureHandlerConfiguration(uint64_t 
 {
 }
 
-} // namespace WebCore
+} // namespace WTF

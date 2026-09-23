@@ -43,9 +43,7 @@
 
 namespace WebCore {
 
-UserContentProvider::UserContentProvider()
-{
-}
+UserContentProvider::UserContentProvider() = default;
 
 UserContentProvider::~UserContentProvider()
 {

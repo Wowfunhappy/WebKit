@@ -116,17 +116,19 @@ static JSClassRef wrappedObjectClass(JSC::JSObject* jsObject)
 {
     ASSERT(isWrappedObject(jsObject));
     if (jsObject->isGlobalObject())
-        return JSC::jsCast<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>*>(jsObject)->classRef();
-    return JSC::jsCast<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>*>(jsObject)->classRef();
+        return uncheckedDowncast<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>>(jsObject)->classRef();
+    return uncheckedDowncast<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>>(jsObject)->classRef();
 }
 
 static GRefPtr<JSCContext> jscContextForObject(JSC::JSObject* jsObject)
 {
     ASSERT(isWrappedObject(jsObject));
-    JSC::JSGlobalObject* globalObject = jsObject->globalObject();
+    JSC::JSGlobalObject* globalObject = jsObject->realmMayBeNull();
+    if (!globalObject)
+        return nullptr;
     if (jsObject->isGlobalObject()) {
         if (auto* globalScopeExtension = globalObject->globalScopeExtension())
-            globalObject = JSC::JSScope::objectAtScope(globalScopeExtension)->globalObject();
+            globalObject = JSC::JSScope::objectAtScope(globalScopeExtension)->realm();
     }
     return jscContextGetOrCreate(toGlobalRef(globalObject));
 }

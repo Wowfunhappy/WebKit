@@ -28,7 +28,6 @@
 
 #include "ExceptionOr.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "SpaceSplitString.h"
 #include <wtf/HashSet.h>
 #include <wtf/SetForScope.h>

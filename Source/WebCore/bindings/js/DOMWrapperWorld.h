@@ -22,17 +22,41 @@
 #pragma once
 
 #include <WebCore/JSDOMGlobalObject.h>
-#include <wtf/Compiler.h>
-#include <wtf/Forward.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
+class JSEventListener;
 class WindowProxy;
 
-typedef HashMap<void*, JSC::Weak<JSC::JSObject>> DOMObjectWrapperMap;
+#if PLATFORM(COCOA)
+// Diagnostic (rdar://157587352): allocate the m_wrappers hash-table backing in its own page(s)
+// so it can be kept read-only except during the world's own mutating operations. Any stray write
+// that corrupts the map (the bug we are hunting) then faults immediately with the writer's stack.
+// To keep the cost off Speedometer, guarding is sampled per-process: gGuardWrapperMaps is decided
+// once at startup, and when false the allocator falls back to FastMalloc and the scopes are no-ops.
+// The whole facility relies on mmap/mprotect and is only built on Cocoa; elsewhere m_wrappers is a
+// plain HashMap and none of this code exists.
+WEBCORE_EXPORT extern bool gGuardWrapperMaps;
+
+struct WrapperMapTableMalloc {
+    WEBCORE_EXPORT static void* malloc(size_t);
+    WEBCORE_EXPORT static void* zeroedMalloc(size_t);
+    WEBCORE_EXPORT static void free(void*);
+private:
+    static void* allocate(size_t);
+};
+
+using DOMObjectWrapperMap = HashMap<void*, JSC::Weak<JSC::JSObject>, WTF::DefaultHash<void*>, WTF::HashTraits<void*>, WTF::HashTraits<JSC::Weak<JSC::JSObject>>, WTF::HashTableTraits, WTF::ShouldValidateKey::Yes, WrapperMapTableMalloc>;
+#else
+using DOMObjectWrapperMap = HashMap<void*, JSC::Weak<JSC::JSObject>>;
+#endif
 
 class DOMWrapperWorld : public RefCounted<DOMWrapperWorld>, public CanMakeSingleThreadWeakPtr<DOMWrapperWorld> {
+#if PLATFORM(COCOA)
+    friend struct WrapperMapTableMalloc;
+    friend class WrapperMutationScope;
+#endif
 public:
     enum class Type {
         Normal,   // Main (e.g. Page)
@@ -58,8 +82,8 @@ public:
     bool allowsJSHandleCreation() const { return m_allowsJSHandleCreation; }
     void setAllowsJSHandleCreation() { m_allowsJSHandleCreation = true; }
 
-    void setAllowNodeSerialization() { m_allowNodeSerialization = true; }
-    bool allowNodeSerialization() const { return m_allowNodeSerialization; }
+    void setAllowNodeSnapshotCreation() { m_allowNodeSnapshotCreation = true; }
+    bool allowNodeSnapshotCreation() const { return m_allowNodeSnapshotCreation; }
 
     void setAllowElementUserInfo() { m_allowElementUserInfo = true; }
     bool allowElementUserInfo() const { return m_allowElementUserInfo; }
@@ -85,11 +109,15 @@ public:
 
     Type type() const { return m_type; }
     bool isNormal() const { return m_type == Type::Normal; }
+    bool isNonNormal() const { return m_type != Type::Normal; }
     bool isUser() const { return m_type == Type::User; }
 
     const String& name() const LIFETIME_BOUND { return m_name; }
 
     JSC::VM& vm() const { return m_vm; }
+
+    void addEventListener(JSEventListener&);
+    void removeEventListener(JSEventListener&);
 
 protected:
     DOMWrapperWorld(JSC::VM&, Type, const String& name);
@@ -98,6 +126,21 @@ private:
     JSC::VM& m_vm;
     HashSet<WindowProxy*> m_jsWindowProxies;
     DOMObjectWrapperMap m_wrappers;
+
+#if PLATFORM(COCOA)
+    // Diagnostic page-protection state for m_wrappers (rdar://157587352). The backing is kept
+    // read-only except inside a WrapperMutationScope; WrapperMapTableMalloc reports each (re)allocated
+    // backing here so the scope can re-protect the current (possibly grown/shrunk) table. The whole
+    // facility relies on mmap/mprotect and is only built on Cocoa.
+    void noteTableBacking(void* base, size_t size) { m_wrappersTableBase = base; m_wrappersTableSize = size; }
+    void forgetTableBacking(void* base) { if (m_wrappersTableBase == base) { m_wrappersTableBase = nullptr; m_wrappersTableSize = 0; } }
+    SUPPRESS_NODELETE void NODELETE setWrappersTableWritable(bool);
+    void* m_wrappersTableBase { nullptr };
+    size_t m_wrappersTableSize { 0 };
+    unsigned m_wrappersTableWritableDepth { 0 };
+#endif
+
+    WeakHashSet<JSEventListener> m_eventListeners;
 
     String m_name;
     Type m_type { Type::Internal };
@@ -108,9 +151,49 @@ private:
     bool m_closedShadowRootIsExposedForExtensions : 1 { false };
     bool m_shouldDisableLegacyOverrideBuiltInsBehavior : 1 { false };
     bool m_allowsJSHandleCreation : 1 { false };
-    bool m_allowNodeSerialization : 1 { false };
+    bool m_allowNodeSnapshotCreation : 1 { false };
     bool m_allowPostLegacySynchronousMessage : 1 { false };
     bool m_isMediaControls : 1 { false };
+};
+
+// RAII guard bracketing a mutating operation on a world's m_wrappers. On Cocoa it makes the
+// page-protected backing writable for the duration and read-only again afterwards (re-reading the
+// current backing, which may have been reallocated by a rehash during the operation); it is a cheap
+// branch on gGuardWrapperMaps when this process does not guard its wrapper maps. Off Cocoa the
+// diagnostic does not exist and the scope is an empty no-op, so call sites can construct it
+// unconditionally on every platform. rdar://157587352.
+class WrapperMutationScope {
+public:
+#if PLATFORM(COCOA)
+    explicit WrapperMutationScope(DOMWrapperWorld& world)
+        : m_world(world)
+    {
+        if (gGuardWrapperMaps) [[unlikely]]
+            enter();
+    }
+    ~WrapperMutationScope()
+    {
+        if (gGuardWrapperMaps) [[unlikely]]
+            leave();
+    }
+
+    // The world whose m_wrappers backing is currently being mutated on this thread (so the backing
+    // allocator can record each (re)allocated table on it), or nullptr when no scope is active.
+    static DOMWrapperWorld* currentlyMutatedWorld() { return s_active ? s_active->m_world.ptr() : nullptr; }
+#else
+    explicit WrapperMutationScope(DOMWrapperWorld&) { }
+#endif
+    WrapperMutationScope(const WrapperMutationScope&) = delete;
+    WrapperMutationScope& operator=(const WrapperMutationScope&) = delete;
+
+#if PLATFORM(COCOA)
+private:
+    WEBCORE_EXPORT void enter();
+    WEBCORE_EXPORT void leave();
+    static thread_local WrapperMutationScope* s_active;
+    SingleThreadWeakRef<DOMWrapperWorld> m_world;
+    WrapperMutationScope* m_previous { nullptr };
+#endif
 };
 
 DOMWrapperWorld& NODELETE normalWorld(JSC::VM&);
@@ -122,17 +205,14 @@ inline DOMWrapperWorld& pluginWorldSingleton() { return mainThreadNormalWorldSin
 DOMWrapperWorld& currentWorld(JSC::JSGlobalObject&);
 DOMWrapperWorld& worldForDOMObject(JSC::JSObject&);
 
-// Helper function for code paths that must not share objects across isolated DOM worlds.
-WEBCORE_EXPORT bool isWorldCompatible(JSC::JSGlobalObject&, JSC::JSValue);
-
 inline DOMWrapperWorld& currentWorld(JSC::JSGlobalObject& lexicalGlobalObject)
 {
-    return JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject)->world();
+    return uncheckedDowncast<JSDOMGlobalObject>(&lexicalGlobalObject)->world();
 }
 
 inline DOMWrapperWorld& worldForDOMObject(JSC::JSObject& object)
 {
-    return JSC::jsCast<JSDOMGlobalObject*>(object.globalObject())->world();
+    return uncheckedDowncast<JSDOMGlobalObject>(object.realm())->world();
 }
 
 } // namespace WebCore

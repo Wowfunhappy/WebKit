@@ -74,12 +74,9 @@
             "status": "non-standard"
         },
         "active": {},
-        "active-view-transition": {
-            "settings-flag": "viewTransitionsEnabled"
-        },
+        "active-view-transition": { },
         "active-view-transition-type": {
-            "argument": "required",
-            "settings-flag": "viewTransitionsEnabled"
+            "argument": "required"
         },
         "any-link": {
             "aliases": [
@@ -287,6 +284,21 @@
         },
         "-internal-color-swatch-overlay": {
             "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-fallback-popup-menu": {
+            "user-agent-part": true
+        },
+        "-internal-fallback-popup-menu-group-label": {
+            "user-agent-part": true
+        },
+        "-internal-fallback-popup-menu-item": {
+            "user-agent-part": true
+        },
+        "-internal-fallback-popup-menu-item-selected": {
+            "user-agent-part": true
+        },
+        "-internal-fallback-popup-menu-separator": {
             "user-agent-part": true
         },
         "-webkit-color-swatch-wrapper": {
@@ -667,24 +679,18 @@
         "target-text": {
             "settings-flag": "targetTextPseudoElementEnabled"
         },
-        "view-transition": {
-            "settings-flag": "viewTransitionsEnabled"
-        },
+        "view-transition": { },
         "view-transition-group": {
-            "argument": "required",
-            "settings-flag": "viewTransitionsEnabled"
+            "argument": "required"
         },
         "view-transition-image-pair": {
-            "argument": "required",
-            "settings-flag": "viewTransitionsEnabled"
+            "argument": "required"
         },
         "view-transition-new": {
-            "argument": "required",
-            "settings-flag": "viewTransitionsEnabled"
+            "argument": "required"
         },
         "view-transition-old": {
-            "argument": "required",
-            "settings-flag": "viewTransitionsEnabled"
+            "argument": "required"
         }
     }
 }

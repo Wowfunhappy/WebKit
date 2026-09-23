@@ -59,7 +59,9 @@ class OverflowSupport extends MediaControllerSupport
 
     buttonWasPressed(control)
     {
-        this.mediaController.showMediaControlsContextMenu(control);
+        this.mediaController.showMediaControlsContextMenu(control, {
+            includeSubtitles: !this.mediaController.isAudio,
+        });
     }
 
     syncControl()

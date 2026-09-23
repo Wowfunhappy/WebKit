@@ -36,7 +36,7 @@ class Element;
 class ImageBuffer;
 class LocalFrameView;
 class Page;
-class RenderBox;
+class RenderReplaced;
 class SVGSVGElement;
 class SVGImageChromeClient;
 class SVGImageForContainer;
@@ -48,10 +48,10 @@ public:
     WEBCORE_EXPORT static void tryCreateFromData(std::span<const uint8_t>, CompletionHandler<void(RefPtr<SVGImage>&&)>&&);
     WEBCORE_EXPORT static bool isDataDecodable(const Settings&, std::span<const uint8_t>);
 
-    RenderBox* embeddedContentBox() const;
-    LocalFrameView* frameView() const;
+    RenderReplaced* embeddedSVGRoot() const;
+    LocalFrameView* NODELETE frameView() const;
 
-    bool isSVGImage() const final { return true; }
+    bool NODELETE isSVGImage() const final { return true; }
 
     void subresourcesAreFinished(Document*, CompletionHandler<void()>&&) final;
 
@@ -59,6 +59,8 @@ public:
 
     bool renderingTaintsOrigin() const final;
 
+    bool hasIntrinsicWidth() const final;
+    bool hasIntrinsicHeight() const final;
     bool hasRelativeWidth() const final;
     bool hasRelativeHeight() const final;
 
@@ -75,6 +77,8 @@ public:
     Page* internalPage() { return m_page.get(); }
     WEBCORE_EXPORT RefPtr<SVGSVGElement> rootElement() const;
 
+    FloatSize resolvedIntrinsicSize(float density = 1.0f) const;
+
     RefPtr<NativeImage> nativeImage(const FloatSize&, const DestinationColorSpace& = DestinationColorSpace::SRGB());
 
 private:
@@ -89,6 +93,7 @@ private:
     IntSize containerSize() const;
     bool usesContainerSize() const final { return true; }
     void computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio) final;
+    bool hasNaturalAspectRatio() const final;
 
     void reportApproximateMemoryCost() const;
     EncodedDataStatus dataChanged(bool allDataReceived) final;

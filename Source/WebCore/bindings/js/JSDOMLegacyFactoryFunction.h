@@ -20,6 +20,7 @@
 #pragma once
 
 #include "JSDOMConstructorWithDocument.h"
+#include <WebCore/JSDOMBindingFacade.h>
 
 namespace WebCore {
 
@@ -60,7 +61,7 @@ template<typename JSClass> inline JSDOMLegacyFactoryFunction<JSClass>* JSDOMLega
 
 template<typename JSClass> inline JSC::Structure* JSDOMLegacyFactoryFunction<JSClass>::createStructure(JSC::VM& vm, JSC::JSGlobalObject& globalObject, JSC::JSValue prototype)
 {
-    return JSC::Structure::create(vm, &globalObject, prototype, JSC::TypeInfo(JSC::InternalFunctionType, StructureFlags), info());
+    return JSC::Structure::create(vm, &globalObject, prototype, JSC::TypeInfo(JSC::InternalFunctionType, StructureFlags), info(), JSC::NonArray);
 }
 
 template<typename JSClass> inline void JSDOMLegacyFactoryFunction<JSClass>::finishCreation(JSC::VM& vm, JSDOMGlobalObject& globalObject)

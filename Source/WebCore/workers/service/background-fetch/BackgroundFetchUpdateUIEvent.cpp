@@ -44,9 +44,7 @@ BackgroundFetchUpdateUIEvent::BackgroundFetchUpdateUIEvent(const AtomString& typ
 {
 }
 
-BackgroundFetchUpdateUIEvent::~BackgroundFetchUpdateUIEvent()
-{
-}
+BackgroundFetchUpdateUIEvent::~BackgroundFetchUpdateUIEvent() = default;
 
 void BackgroundFetchUpdateUIEvent::updateUI(BackgroundFetchUIOptions&&, DOMPromiseDeferred<void>&&)
 {

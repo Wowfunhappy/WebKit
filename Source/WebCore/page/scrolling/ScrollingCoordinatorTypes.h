@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/FloatPoint.h>
+#include <WebCore/FloatRect.h>
 #include <WebCore/KeyboardScroll.h>
 #include <WebCore/ScrollTypes.h>
 #include <wtf/Markable.h>
@@ -174,10 +175,12 @@ enum class ScrollUpdateType : uint8_t {
 
 enum class ShouldFireScrollEnd : bool { No, Yes };
 
+using LayoutViewportOriginOrOverrideRect = Variant<FloatPoint, FloatRect>;
+
 struct ScrollUpdateData {
     ScrollUpdateType updateType { ScrollUpdateType::PositionUpdate };
     ScrollingLayerPositionAction updateLayerPositionAction { ScrollingLayerPositionAction::Sync };
-    std::optional<FloatPoint> layoutViewportOrigin { };
+    std::optional<LayoutViewportOriginOrOverrideRect> layoutViewportOriginOrOverrideRect { };
 };
 
 struct ScrollRequestResponseData {

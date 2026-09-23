@@ -693,6 +693,22 @@ void PushDatabase::getPushSubscriptionSetRecords(CompletionHandler<void(Vector<P
     });
 }
 
+void PushDatabase::getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+{
+    dispatchOnWorkQueue([this, completionHandler = WTF::move(completionHandler)]() mutable {
+        Vector<String> origins;
+
+        auto sql = cachedStatementOnQueue("SELECT DISTINCT securityOrigin FROM SubscriptionSets WHERE state = 0"_s);
+        if (!sql)
+            return completeOnMainQueue(WTF::move(completionHandler), WTF::move(origins));
+
+        while (sql->step() == SQLITE_ROW)
+            origins.append(sql->columnText(0));
+
+        completeOnMainQueue(WTF::move(completionHandler), WTF::move(origins));
+    });
+}
+
 void PushDatabase::incrementSilentPushCount(const PushSubscriptionSetIdentifier& subscriptionSetIdentifier, const String& securityOrigin, CompletionHandler<void(unsigned)>&& completionHandler)
 {
     dispatchOnWorkQueue([this, subscriptionSetIdentifier = crossThreadCopy(subscriptionSetIdentifier), securityOrigin = crossThreadCopy(securityOrigin), completionHandler = WTF::move(completionHandler)]() mutable {

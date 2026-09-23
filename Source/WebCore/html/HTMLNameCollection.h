@@ -80,7 +80,7 @@ public:
     }
 
     // For CachedHTMLCollection.
-    bool elementMatches(const Element& element) const { return elementMatches(element, m_name.impl()); }
+    bool NODELETE elementMatches(const Element& element) const { return elementMatches(element, m_name.impl()); }
 
     static bool elementMatchesIfIdAttributeMatch(const Element&) { return true; }
     static bool NODELETE elementMatchesIfNameAttributeMatch(const Element&);

@@ -53,7 +53,7 @@ private:
     void timeoutTimerFired();
     void setResponsive(bool);
 
-    bool shouldBeActive() const;
+    bool NODELETE shouldBeActive() const;
     bool isActive() const;
     void scheduleNextResponsivenessCheck();
     ResponsivenessTimer::Client& NODELETE client() const;

@@ -26,7 +26,6 @@
 #include "config.h"
 #include <wtf/Logger.h>
 
-#include <mutex>
 #include <wtf/HexNumber.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/WTFString.h>
@@ -54,6 +53,14 @@ Vector<std::reference_wrapper<Logger::Observer>>& Logger::observers()
     return observers;
 }
 
+void Logger::Observer::assertIsNotRegistered() const
+{
+    Locker locker { observerLock() };
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!observers().containsIf([this](auto& observer) {
+        return &observer.get() == this;
+    }));
+}
+
 Vector<std::reference_wrapper<Logger::MessageHandlerObserver>>& Logger::messageHandlerObservers()
 {
     static NeverDestroyed<Vector<std::reference_wrapper<MessageHandlerObserver>>> observers;
@@ -71,5 +78,14 @@ const Logger& emptyLogger()
     }();
     return emptyLogger->get();
 }
+
+#if USE(OS_LOG)
+void Logger::osLog(WTFLogChannel& channel, const CString& message)
+{
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    SUPPRESS_UNRETAINED_LOCAL os_log(channel.osLogChannel, "%{public}s", message.data());
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+}
+#endif // USE(OS_LOG)
 
 } // namespace WTF

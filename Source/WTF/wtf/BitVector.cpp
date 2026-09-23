@@ -78,7 +78,7 @@ void BitVector::clearAll()
 
 auto BitVector::OutOfLineBits::create(size_t numBits) -> OutOfLineBits*
 {
-    numBits = (numBits + bitsInPointer() - 1) & ~(static_cast<size_t>(bitsInPointer()) - 1);
+    numBits = roundUpToMultipleOf<bitsInPointer()>(numBits);
     size_t size = sizeof(OutOfLineBits) + sizeof(uintptr_t) * (numBits / bitsInPointer());
     return new (NotNull, BitVectorMalloc::malloc(size)) OutOfLineBits(numBits);
 }
@@ -134,7 +134,7 @@ void BitVector::mergeSlow(const BitVector& other)
     
     auto a = outOfLineBits()->wordsSpan();
     auto b = other.outOfLineBits()->wordsSpan();
-    for (size_t i = 0; i < a.size(); ++i)
+    for (size_t i = 0; i < b.size(); ++i)
         a[i] |= b[i];
 }
 
@@ -142,7 +142,9 @@ void BitVector::filterSlow(const BitVector& other)
 {
     if (other.isInline()) {
         ASSERT(!isInline());
-        outOfLineBits()->wordsSpan().front() &= cleanseInlineBits(other.m_bitsOrPointer);
+        auto words = outOfLineBits()->wordsSpan();
+        words.front() &= cleanseInlineBits(other.m_bitsOrPointer);
+        zeroSpan(words.subspan(1));
         return;
     }
     
@@ -193,7 +195,7 @@ size_t BitVector::bitCountSlow() const
     const OutOfLineBits* bits = outOfLineBits();
     size_t result = 0;
     for (auto word : bits->wordsSpan())
-        result += bitCount(word);
+        result += std::popcount(word);
     return result;
 }
 

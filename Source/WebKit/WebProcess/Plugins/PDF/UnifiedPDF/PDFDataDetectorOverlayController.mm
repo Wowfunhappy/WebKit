@@ -130,7 +130,7 @@ RetainPtr<DDHighlightRef> PDFDataDetectorOverlayController::createPlatformDataDe
     return ::WebKit::createPlatformDataDetectorHighlight(Vector<FloatRect>::from(WTF::move(rectForSelectionInMainFrameContentsSpace)), mainFrameView->visibleContentRect());
 }
 
-bool PDFDataDetectorOverlayController::handleMouseEvent(const WebMouseEvent& event, PDFDocumentLayout::PageIndex pageIndex)
+bool PDFDataDetectorOverlayController::handleMouseEvent(const WebCore::PlatformMouseEvent& event, PDFDocumentLayout::PageIndex pageIndex)
 {
     RefPtr plugin = m_plugin.get();
     if (!plugin)
@@ -182,7 +182,7 @@ bool PDFDataDetectorOverlayController::handleMouseEvent(const WebMouseEvent& eve
         didInvalidateHighlightOverlayRects(pageIndex, ShouldUpdatePlatformHighlightData::No, ActiveHighlightChanged::Yes);
     }
 
-    if (event.type() == WebEventType::MouseDown && mouseIsOverActiveHighlightButton)
+    if (event.type() == WebCore::PlatformEventType::MousePressed && mouseIsOverActiveHighlightButton)
         return handleDataDetectorAction(flooredIntPoint(mousePositionInWindowSpace), Ref { *m_activeDataDetectorItemWithHighlight.first });
 
     return false;

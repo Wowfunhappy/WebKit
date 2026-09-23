@@ -30,8 +30,8 @@
 namespace WebCore {
 namespace Style {
 
-// <'text-autospace'> = normal | auto | no-autospace | [ ideograph-alpha || ideograph-numeric ]
-// FIXME: Current spec is `normal | auto | no-autospace | [ ideograph-alpha || ideograph-numeric || punctuation ] || [ insert | replace ]`
+// <'text-autospace'> = normal | auto | no-autospace | [ ideograph-alpha || ideograph-numeric || insert ]
+// FIXME: Current spec is `normal | auto | no-autospace | [ [ ideograph-alpha || ideograph-numeric || punctuation ] || [ insert | replace ] ]`
 // https://drafts.csswg.org/css-text-4/#propdef-text-autospace
 struct TextAutospace {
     constexpr TextAutospace(CSS::Keyword::Normal) : m_value { WebCore::TextAutospace::Type::Normal } { }
@@ -48,6 +48,7 @@ struct TextAutospace {
     constexpr bool isNoAutospace() const { return m_value.isNoAutospace(); }
     constexpr bool hasIdeographAlpha() const { return m_value.hasIdeographAlpha(); }
     constexpr bool hasIdeographNumeric() const { return m_value.hasIdeographNumeric(); }
+    constexpr bool hasInsert() const { return m_value.hasInsert(); }
 
     template<typename... F> constexpr decltype(auto) switchOn(F&&... f) const
     {
@@ -59,15 +60,28 @@ struct TextAutospace {
             return visitor(CSS::Keyword::Auto { });
         if (isNoAutospace())
             return visitor(CSS::Keyword::NoAutospace { });
-        if (hasIdeographAlpha()) {
-            if (hasIdeographNumeric())
-                return visitor(SpaceSeparatedTuple { CSS::Keyword::IdeographAlpha { }, CSS::Keyword::IdeographNumeric { } });
-            return visitor(CSS::Keyword::IdeographAlpha { });
-        }
-        if (hasIdeographNumeric())
-            return visitor(CSS::Keyword::IdeographNumeric { });
 
-        RELEASE_ASSERT_NOT_REACHED();
+        auto ideographAlphaValue = [&]() -> std::optional<CSS::Keyword::IdeographAlpha> {
+            if (hasIdeographAlpha())
+                return CSS::Keyword::IdeographAlpha { };
+            return std::nullopt;
+        };
+        auto ideographNumericValue = [&]() -> std::optional<CSS::Keyword::IdeographNumeric> {
+            if (hasIdeographNumeric())
+                return CSS::Keyword::IdeographNumeric { };
+            return std::nullopt;
+        };
+        auto insertValue = [&]() -> std::optional<CSS::Keyword::Insert> {
+            if (hasInsert())
+                return CSS::Keyword::Insert { };
+            return std::nullopt;
+        };
+
+        return visitor(SpaceSeparatedTuple {
+            ideographAlphaValue(),
+            ideographNumericValue(),
+            insertValue(),
+        });
     }
 
     bool shouldApplySpacing(WebCore::TextSpacing::CharacterClass firstCharacterClass, WebCore::TextSpacing::CharacterClass secondCharacterClass) const { return m_value.shouldApplySpacing(firstCharacterClass, secondCharacterClass); }

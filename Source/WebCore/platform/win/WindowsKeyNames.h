@@ -44,11 +44,40 @@ public:
     WEBCORE_EXPORT String domKeyFromChar(char16_t);
     WEBCORE_EXPORT String domCodeFromLParam(LPARAM);
 
+    // Windows has no dedicated AltGr key; it synthesizes AltGr as a left-Control
+    // + right-Alt combination. Returns whether that combination should currently
+    // be reported as the AltGraph modifier: true only while right-Alt is held on
+    // a keyboard layout that actually defines AltGraph (otherwise right-Alt is a
+    // plain Alt). Used for events that carry no key code (mouse, wheel).
+    WEBCORE_EXPORT bool shouldExposeLeftControlPlusRightAltAsAltGraph();
+
+    // Whether the given keyboard event should be reported with the AltGraph
+    // modifier in place of Control+Alt. Beyond the right-Alt case above, this
+    // also recognises AltGr simulated via Control+Alt: a character message
+    // delivered under Control+Alt, or a key whose printable character requires
+    // the Control+Alt combination on the active layout. Matches Blink and Gecko.
+    WEBCORE_EXPORT bool shouldExposeAltGraphForKeyEvent(UINT message, WPARAM virtualKey, LPARAM);
+
     enum class KeyModifier : uint8_t;
     using KeyModifierSet = OptionSet<KeyModifier>;
 
 private:
     void updateLayout();
+
+    KeyModifierSet currentKeyModifiers();
+
+    struct PrintableKey {
+        // The DOM key string, or a null String if the key produces no printable
+        // character under the requested modifiers.
+        String key;
+        // Whether the matched modifier combination needed both Control and Alt,
+        // i.e. the key is AltGraph-shifted on the active layout.
+        bool isAltGraphShifted { false };
+    };
+    // Looks up the printable DOM key produced by |virtualKey| under the active
+    // layout for |modifiers|, following the UIEvents key guidelines.
+    PrintableKey printableKeyFromVirtualKey(unsigned virtualKey, KeyModifierSet);
+
 
     HKL m_keyboardLayout = 0;
     bool m_hasAltGraph = false;

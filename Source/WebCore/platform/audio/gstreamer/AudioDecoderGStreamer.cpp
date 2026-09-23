@@ -186,17 +186,17 @@ GStreamerInternalAudioDecoder::GStreamerInternalAudioDecoder(const String& codec
         m_inputCaps = adoptGRef(gst_caps_new_empty_simple("application/ogg"));
     } else if (codecName.startsWith("pcm-"_s)) {
         auto components = codecName.split('-');
-        auto pcmFormat = components[1].convertToASCIILowercase();
+        auto& pcmFormat = components[1];
         GstAudioFormat gstPcmFormat = GST_AUDIO_FORMAT_UNKNOWN;
-        if (pcmFormat == "u8"_s)
+        if (equalLettersIgnoringASCIICase(pcmFormat, "u8"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_U8;
-        else if (pcmFormat == "s16"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "s16"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_S16;
-        else if (pcmFormat == "s24"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "s24"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_S24;
-        else if (pcmFormat == "s32"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "s32"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_S32;
-        else if (pcmFormat == "f32"_s)
+        else if (equalLettersIgnoringASCIICase(pcmFormat, "f32"_s))
             gstPcmFormat = GST_AUDIO_FORMAT_F32;
         else {
             GST_WARNING("Invalid LPCM codec format: %s", pcmFormat.ascii().data());
@@ -219,7 +219,7 @@ GStreamerInternalAudioDecoder::GStreamerInternalAudioDecoder(const String& codec
     GRefPtr<GstElement> harnessedElement = gst_bin_new(binName.ascii().data());
     auto audioconvert = gst_element_factory_make("audioconvert", nullptr);
     auto outputCapsFilter = gst_element_factory_make("capsfilter", nullptr);
-    auto outputCaps = adoptGRef(gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "F32LE", nullptr));
+    GRefPtr outputCaps = adoptGRef(gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "F32LE", nullptr));
     g_object_set(outputCapsFilter, "caps", outputCaps.get(), nullptr);
     gst_bin_add_many(GST_BIN_CAST(harnessedElement.get()), audioconvert, outputCapsFilter, element.get(), nullptr);
 
@@ -240,7 +240,7 @@ GStreamerInternalAudioDecoder::GStreamerInternalAudioDecoder(const String& codec
 
     gst_element_link_many(head.get(), audioconvert, outputCapsFilter, nullptr);
 
-    auto pad = adoptGRef(gst_element_get_static_pad(head.get(), "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(head.get(), "sink"));
     gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("sink", pad.get()));
 
     pad = adoptGRef(gst_element_get_static_pad(outputCapsFilter, "src"));
@@ -274,11 +274,11 @@ GStreamerInternalAudioDecoder::GStreamerInternalAudioDecoder(const String& codec
 
 Ref<AudioDecoder::DecodePromise> GStreamerInternalAudioDecoder::decode(std::span<const uint8_t> frameData, [[maybe_unused]] bool isKeyFrame, int64_t timestamp, std::optional<uint64_t> duration)
 {
-    GST_DEBUG_OBJECT(m_harness->element(), "Decoding%s frame", isKeyFrame ? " key" : "");
+    GST_DEBUG_OBJECT(m_harness->element(), "Decoding%s frame with size %zu bytes", isKeyFrame ? " key" : "", frameData.size_bytes());
 
     auto encodedData = wrapSpanData(frameData);
     if (!encodedData)
-        return AudioDecoder::DecodePromise::createAndReject("Empty frame"_s);
+        return AudioDecoder::DecodePromise::createAndResolve();
 
     GstSegment segment;
     gst_segment_init(&segment, GST_FORMAT_TIME);
@@ -310,7 +310,13 @@ void GStreamerInternalAudioDecoder::flush()
         return;
     }
 
-    auto buffer = adoptGRef(gst_buffer_new());
+    if (!m_harness->isStarted()) {
+        GST_DEBUG_OBJECT(m_harness->element(), "Decoder hasn't started yet, nothing to flush");
+        return;
+    }
+
+    GST_DEBUG_OBJECT(m_harness->element(), "Pushing an empty buffer with discont flag");
+    GRefPtr buffer = adoptGRef(gst_buffer_new());
     GST_BUFFER_FLAG_SET(buffer.get(), GST_BUFFER_FLAG_DISCONT);
     m_harness->pushBuffer(WTF::move(buffer));
 

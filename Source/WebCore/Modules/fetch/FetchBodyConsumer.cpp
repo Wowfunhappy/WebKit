@@ -38,6 +38,7 @@
 #include "HTTPParsers.h"
 #include "JSBlob.h"
 #include "JSDOMConvertInterface.h"
+#include "JSDOMConvertStrings.h"
 #include "JSDOMFormData.h"
 #include "JSDOMPromiseDeferred.h"
 #include "TextResourceDecoder.h"
@@ -211,8 +212,11 @@ RefPtr<DOMFormData> FetchBodyConsumer::packageFormData(ScriptExecutionContext* c
             return nullptr;
 
         skip(data, currentBoundaryIndex + boundaryLength);
-        if (spanHasPrefix(data, "--\r\n"_span))
+        if (spanHasPrefix(data, "--\r\n"_span)) {
+            // FIXME: This is not valid as per RFC, but is consistent with how empty form data are serialized.
             return form;
+        }
+        skipWhile<isTabOrSpace>(data);
         if (!spanHasPrefix(data, "\r\n"_span))
             return nullptr;
 
@@ -221,8 +225,9 @@ RefPtr<DOMFormData> FetchBodyConsumer::packageFormData(ScriptExecutionContext* c
             parseMultipartPart(data.first(nextBoundaryIndex - oneNewLine.length()), form.get());
             currentBoundaryIndex = nextBoundaryIndex;
             skip(data, nextBoundaryIndex + boundaryLength);
-            if (spanHasPrefix(data, "--\r\n"_span))
+            if (spanHasPrefix(data, "--"_span))
                 return form;
+            skipWhile<isTabOrSpace>(data);
             if (!spanHasPrefix(data, "\r\n"_span))
                 return nullptr;
         }

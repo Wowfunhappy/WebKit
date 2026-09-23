@@ -37,6 +37,8 @@ class AffineTransform;
 class Document;
 class SVGAnimatedPropertyBase;
 class SVGAnimatedString;
+
+enum class ColorInterpolation : uint8_t;
 class SVGAttributeAnimator;
 class SVGConditionalProcessingAttributes;
 class SVGDocumentExtensions;
@@ -54,6 +56,10 @@ enum class AnimationMode : uint8_t;
 enum class CTMScope : bool;
 enum class CalcMode : uint8_t;
 enum class SVGParsingError : uint8_t;
+
+namespace Style {
+enum class SVGRendererUpdateType : bool;
+}
 
 template<typename PropertyType>
 class SVGAnimatedPrimitiveProperty;
@@ -111,7 +117,7 @@ public:
 
     inline void setAnimatedSVGAttributesAreDirty();
     inline void setPresentationalHintStyleIsDirty();
-    void updateSVGRendererForElementChange();
+    void updateSVGRendererForElementChange(Style::SVGRendererUpdateType = Style::SVGRendererUpdateType { });
 
     // The instances of an element are clones made in shadow trees to implement <use>.
     const WeakHashSet<SVGElement, WeakPtrImplWithEventTargetData>& NODELETE instances() const;
@@ -133,7 +139,7 @@ public:
 
     void setCorrespondingElement(SVGElement*);
 
-    std::optional<Style::UnadjustedStyle> resolveCustomStyle(const Style::ResolutionContext&, const RenderStyle* shadowHostStyle) override;
+    std::optional<Style::UnadjustedStyle> resolveCustomStyle(const Style::ResolutionContext&, const Style::ComputedStyle* shadowHostStyle) override;
 
     static QualifiedName animatableAttributeForName(const AtomString&);
 #ifndef NDEBUG
@@ -176,7 +182,7 @@ public:
     void animatorWillBeDeleted(const QualifiedName&);
 
     using Node::computedStyle;
-    const RenderStyle* computedStyle(const std::optional<Style::PseudoElementIdentifier>&) final;
+    const Style::ComputedStyle* computedStyle(const std::optional<Style::PseudoElementIdentifier>&) final;
 
     ColorInterpolation colorInterpolation() const;
 
@@ -194,7 +200,7 @@ protected:
     SVGElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&, OptionSet<TypeFlag> = { });
     virtual ~SVGElement();
 
-    bool rendererIsNeeded(const RenderStyle&) override;
+    bool rendererIsNeeded(const Style::ComputedStyle&) override;
 
     void finishParsingChildren() override;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = AttributeModificationReason::Directly) override;
@@ -203,13 +209,13 @@ protected:
     SVGElementRareData& ensureSVGRareData();
 
     void reportAttributeParsingError(SVGParsingError, const QualifiedName&, const AtomString&);
-    static CSSPropertyID NODELETE cssPropertyIdForSVGAttributeName(const QualifiedName&, const Settings&);
+    CSSPropertyID cssPropertyIdForSVGAttributeName(const QualifiedName&) const;
 
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const override;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void didFinishInsertingNode() override;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void postConnectionSteps() override;
+    void removingSteps(RemovalType, ContainerNode&) override;
     void childrenChanged(const ChildChange&) override;
     virtual bool selfHasRelativeLengths() const { return false; }
     void updateRelativeLengthsInformation();

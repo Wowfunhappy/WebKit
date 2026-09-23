@@ -27,6 +27,8 @@
 
 #include "StyleImage.h"
 #include "StyleInvalidImage.h"
+#include "StylePrimitiveNumeric.h"
+#include "StyleString.h"
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -37,8 +39,8 @@ namespace Style {
 
 struct ImageWithScale {
     RefPtr<Image> image { InvalidImage::create() };
-    float scaleFactor { 1 };
-    String mimeType { String() };
+    Style::Resolution<> scaleFactor { 1 };
+    std::optional<FunctionNotation<CSSValueType, Style::String>> mimeType;
 
     bool operator==(const ImageWithScale& other) const
     {

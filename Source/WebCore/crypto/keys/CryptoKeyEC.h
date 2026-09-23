@@ -34,19 +34,13 @@
 // gcrypt provides the PlatformECKeyContainer instead. See SourcesCocoa.txt.
 #if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include <WebCore/CommonCryptoUtilities.h>
-#if !defined(CLANG_WEBKIT_BRANCH)
-namespace pal {
-class ECKey;
-}
+
+#include <pal/crypto/CryptoTypes.h>
+#include <pal/crypto/PlatformECKey.h>
 
 namespace WebCore {
-using PlatformECKeyContainer = UniqueRef<pal::ECKey>;
+using PlatformECKeyContainer = PAL::Crypto::PlatformECKey;
 }
-#else
-namespace WebCore {
-using PlatformECKeyContainer = std::unique_ptr<std::monostate>;
-}
-#endif
 #endif
 
 #if USE(GCRYPT)
@@ -70,11 +64,7 @@ template<typename> class ExceptionOr;
 
 class CryptoKeyEC final : public CryptoKey {
 public:
-    enum class NamedCurve : uint8_t {
-        P256,
-        P384,
-        P521,
-    };
+    using NamedCurve = PAL::Crypto::ECNamedCurve;
 
     static Ref<CryptoKeyEC> create(CryptoAlgorithmIdentifier identifier, NamedCurve curve, CryptoKeyType type, PlatformECKeyContainer&& platformKey, bool extractable, CryptoKeyUsageBitmap usages)
     {

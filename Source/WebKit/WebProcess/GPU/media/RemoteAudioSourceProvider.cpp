@@ -31,6 +31,10 @@
 #include "GPUProcessConnection.h"
 #include "Logging.h"
 #include "RemoteAudioSourceProviderManager.h"
+#include "WebProcess.h"
+#include <WebCore/MediaPlayer.h>
+
+// Include after MediaPlayer.h: the generated header uses WebCore::MediaPlayer.
 #include "RemoteMediaPlayerProxyMessages.h"
 
 namespace WebCore {
@@ -81,9 +85,10 @@ void RemoteAudioSourceProvider::hasNewClient(AudioSourceProviderClient* client)
         gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::SetShouldEnableAudioSourceProvider { !!client }, m_identifier);
 }
 
-void RemoteAudioSourceProvider::audioSamplesAvailable(const PlatformAudioData& data, const AudioStreamDescription& description, size_t size, bool needsFlush)
+void RemoteAudioSourceProvider::audioSamplesAvailable(const AudioStreamDescription& description, bool needsFlush)
 {
-    receivedNewAudioSamples(data, description, size, needsFlush ? NeedsFlush::Yes : NeedsFlush::No);
+    if (needsFlush)
+        setNeedsFlush();
 }
 
 #if !RELEASE_LOG_DISABLED

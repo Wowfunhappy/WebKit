@@ -19,9 +19,9 @@ function checkPing()
     {
         window.location = "../resources/check-ping.py";
     }
-    // We assume that if redirects were followed when saving a ping that they will complete within one second.
+    // We assume that if redirects were followed when saving a ping that they will complete within two seconds.
     // FIXME: Is there are better way to test that a redirect occurred?
-    window.setTimeout(actualCheckPing, 1000);
+    window.setTimeout(actualCheckPing, 2000);
 }
 
 window.onload = function ()

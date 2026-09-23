@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 function g10(f) {
     function t() {
         try {

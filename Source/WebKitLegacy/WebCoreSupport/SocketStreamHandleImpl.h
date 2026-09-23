@@ -52,7 +52,7 @@ public:
 
     virtual ~SocketStreamHandleImpl();
 
-    static void setLegacyTLSEnabled(bool);
+    static void NODELETE setLegacyTLSEnabled(bool);
 
     void platformSend(std::span<const uint8_t> data, Function<void(bool)>&&) final;
     void platformSendHandshake(std::span<const uint8_t> data, const std::optional<CookieRequestHeaderFieldProxy>&, Function<void(bool, bool)>&&) final;
@@ -77,7 +77,7 @@ private:
     void removePACRunLoopSource();
     RetainPtr<CFRunLoopSourceRef> m_pacRunLoopSource;
     static void pacExecutionCallback(void* client, CFArrayRef proxyList, CFErrorRef);
-    static CFStringRef copyPACExecutionDescription(void*);
+    static CFStringRef NODELETE copyPACExecutionDescription(void*);
     */ // MAVERICKS_BACKPORT: closes the CFStream declarations commented out above.
 
     void connect();
@@ -92,7 +92,7 @@ private:
     /* // MAVERICKS_BACKPORT: opens the CFStream declarations this port replaces, kept for merges.
     void addCONNECTCredentials(CFHTTPMessageRef response);
 
-    static void* retainSocketStreamHandle(void*);
+    static void* NODELETE retainSocketStreamHandle(void*);
     static void releaseSocketStreamHandle(void*);
     static CFStringRef copyCFStreamDescription(void*);
     static void readStreamCallback(CFReadStreamRef, CFStreamEventType, void*);
@@ -112,7 +112,6 @@ private:
     RetainPtr<CFStringRef> m_proxyHost;
     RetainPtr<CFNumberRef> m_proxyPort;
 
-    RetainPtr<CFHTTPMessageRef> m_proxyResponseMessage;
     bool m_sentStoredCredentials;
     bool m_shouldAcceptInsecureCertificates;
     RetainPtr<CFReadStreamRef> m_readStream;

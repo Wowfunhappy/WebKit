@@ -32,7 +32,7 @@
 namespace WebCore {
 
 struct FakeXRJointStateInit {
-    FakeXRRigidTransformInit pose;
+    std::optional<FakeXRRigidTransformInit> pose;
     float radius;
 };
 

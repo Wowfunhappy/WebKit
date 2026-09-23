@@ -1,6 +1,4 @@
 
-FAIL APIs without [AllowResizable] throw when passed resizable ArrayBuffers assert_throws_js: function "() => {
-    new Response(new Uint8Array(rab));
-  }" did not throw
+PASS APIs without [AllowResizable] throw when passed resizable ArrayBuffers
 PASS APIs with [AllowShared] but without [AllowResizable] throw when passed growable SharedArrayBuffers
 

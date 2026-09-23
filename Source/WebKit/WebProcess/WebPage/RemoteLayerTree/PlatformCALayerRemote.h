@@ -186,7 +186,7 @@ public:
     void setOpacity(float) override;
 
     void setFilters(const WebCore::FilterOperations&) override;
-    static bool filtersCanBeComposited(const WebCore::FilterOperations&);
+    static bool NODELETE filtersCanBeComposited(const WebCore::FilterOperations&);
     void copyFiltersFrom(const WebCore::PlatformCALayer&) override;
 
     void setBlendMode(WebCore::BlendMode) override;

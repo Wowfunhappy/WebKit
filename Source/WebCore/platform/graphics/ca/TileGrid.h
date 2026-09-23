@@ -92,7 +92,7 @@ public:
 
     bool tilesWouldChangeForCoverageRect(const FloatRect&) const;
 
-    IntRect tileCoverageRect() const;
+    IntRect NODELETE tileCoverageRect() const;
     IntRect extent() const;
     
     IntSize tileSize() const { return m_tileSize; }

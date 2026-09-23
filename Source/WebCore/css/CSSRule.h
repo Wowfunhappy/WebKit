@@ -26,6 +26,7 @@
 #include <WebCore/StyleRuleType.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 

@@ -53,7 +53,7 @@ const std::optional<KeyboardScrollingKey> keyboardScrollingKeyForKeyboardEvent(c
     if (!(platformEvent->type() == PlatformEvent::Type::RawKeyDown || platformEvent->type() == PlatformEvent::Type::Char))
         return { };
 
-    static constexpr SortedArrayMap map { std::to_array<std::pair<PackedASCIILiteral<uint64_t>, KeyboardScrollingKey>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<PackedASCIILiteral<uint64_t>, KeyboardScrollingKey>>({
         { "Down"_s, KeyboardScrollingKey::DownArrow },
         { "End"_s, KeyboardScrollingKey::End },
         { "Home"_s, KeyboardScrollingKey::Home },
@@ -68,7 +68,7 @@ const std::optional<KeyboardScrollingKey> keyboardScrollingKeyForKeyboardEvent(c
     if (auto* result = map.tryGet(identifier))
         return *result;
 
-    if (platformEvent->text().characterStartingAt(0) == ' ')
+    if (platformEvent->text().codePointAt(0) == ' ')
         return KeyboardScrollingKey::Space;
 
     return { };
@@ -146,7 +146,7 @@ const std::optional<ScrollGranularity> scrollGranularityForKeyboardEvent(const K
 
 float KeyboardScrollingAnimator::scrollDistance(ScrollDirection direction, ScrollGranularity granularity) const
 {
-    CheckedRef scrollableArea = m_scrollableArea.get();
+    CheckedRef scrollableArea = m_scrollableArea;
     RefPtr scrollbar = scrollableArea->scrollbarForDirection(direction);
     if (!scrollbar)
         return false;
@@ -178,7 +178,7 @@ RectEdges<bool> KeyboardScrollingAnimator::scrollingDirections() const
 {
     RectEdges<bool> edges;
 
-    CheckedRef scrollableArea = m_scrollableArea.get();
+    CheckedRef scrollableArea = m_scrollableArea;
     edges.setTop(scrollableArea->allowsVerticalScrolling());
     edges.setBottom(edges.top());
     edges.setLeft(scrollableArea->allowsHorizontalScrolling());
@@ -211,7 +211,7 @@ bool KeyboardScrollingAnimator::beginKeyboardScrollGesture(ScrollDirection direc
     if (!scroll)
         return false;
 
-    CheckedRef scrollableArea = m_scrollableArea.get();
+    CheckedRef scrollableArea = m_scrollableArea;
     if (scrollableArea->isUserScrollInProgress()) {
         m_scrollTriggeringKeyIsPressed = false;
         scrollableArea->endKeyboardScroll(true);

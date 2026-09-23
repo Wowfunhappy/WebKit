@@ -164,7 +164,7 @@ static String gpuProcessCachesDirectory()
 #endif
 
 GPUProcessProxy::GPUProcessProxy()
-    : AuxiliaryProcessProxy(WebProcessPool::anyProcessPoolNeedsUIBackgroundAssertion() ? ShouldTakeUIBackgroundAssertion::Yes : ShouldTakeUIBackgroundAssertion::No)
+    : AuxiliaryProcessProxy("GPUProcess"_s, WebProcessPool::anyProcessPoolNeedsUIBackgroundAssertion() ? ShouldTakeUIBackgroundAssertion::Yes : ShouldTakeUIBackgroundAssertion::No)
 #if ENABLE(MEDIA_STREAM)
     , m_useMockCaptureDevices(MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled())
 #endif
@@ -852,13 +852,13 @@ void GPUProcessProxy::voiceActivityDetected()
 
 void GPUProcessProxy::startMonitoringCaptureDeviceRotation(PageIdentifier pageID, const String& persistentId)
 {
-    if (RefPtr page = WebProcessProxy::webPage(pageID))
+    if (auto* page = WebProcessProxy::webPage(pageID))
         page->startMonitoringCaptureDeviceRotation(persistentId);
 }
 
 void GPUProcessProxy::stopMonitoringCaptureDeviceRotation(PageIdentifier pageID, const String& persistentId)
 {
-    if (RefPtr page = WebProcessProxy::webPage(pageID))
+    if (auto* page = WebProcessProxy::webPage(pageID))
         page->stopMonitoringCaptureDeviceRotation(persistentId);
 }
 
@@ -896,10 +896,12 @@ void GPUProcessProxy::setPresentingApplicationAuditToken(WebCore::ProcessIdentif
 #endif
 
 #if PLATFORM(VISION) && ENABLE(MODEL_PROCESS)
+#if HAVE(CORE_RE)
 void GPUProcessProxy::requestSharedSimulationConnection(audit_token_t modelProcessAuditToken, CompletionHandler<void(std::optional<IPC::SharedFileHandle>)>&& completionHandler)
 {
     sendWithAsyncReply(Messages::GPUProcess::RequestSharedSimulationConnection { modelProcessAuditToken }, WTF::move(completionHandler));
 }
+#endif
 
 #if HAVE(TASK_IDENTITY_TOKEN)
 void GPUProcessProxy::createMemoryAttributionIDForTask(WebCore::ProcessIdentity processIdentity, CompletionHandler<void(const std::optional<String>&)>&& completionHandler)

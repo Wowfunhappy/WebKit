@@ -12,6 +12,6 @@ function each() {
         setTimeout(async () => await UIHelper.activateAt(10, 10), 25);
         count += 1;
     } else if (count === 1)
-        setTimeout(() => document.documentElement.removeAttribute("class"), 75);
+        setTimeout(() => document.documentElement.removeAttribute("class"), window.internals.switchAnimationVisuallyOnDuration * 1000);
 }
 </script>

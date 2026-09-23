@@ -670,7 +670,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return String();
 }
 
-void Pasteboard::addHTMLClipboardTypesForCocoaType(ListHashSet<String>& resultTypes, const String& cocoaType)
+void Pasteboard::addHTMLClipboardTypesForCocoaType(OrderedHashSet<String>& resultTypes, const String& cocoaType)
 {
     if (cocoaType == "NeXT plain ascii pasteboard type"_s)
         return; // Skip this ancient type that gets auto-supplied by some system conversion.

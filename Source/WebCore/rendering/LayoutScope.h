@@ -30,13 +30,19 @@
 
 namespace WebCore {
 
+class RenderBlock;
+
+enum class InOverflowRelayout : bool { No, Yes };
+
 class LayoutScope {
 public:
     LayoutScope(RenderElement& renderer);
+    LayoutScope(RenderBlock&, InOverflowRelayout);
     ~LayoutScope();
 
 private:
     const CheckedRef<RenderElement> m_renderer;
+    InOverflowRelayout m_inOverflowRelayout { InOverflowRelayout::No };
 };
 
 }

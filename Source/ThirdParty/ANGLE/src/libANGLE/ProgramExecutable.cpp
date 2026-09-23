@@ -806,6 +806,7 @@ void ProgramExecutable::reset()
     mPod.hasYUVOutput              = false;
     mPod.hasDepthInputAttachment   = false;
     mPod.hasStencilInputAttachment = false;
+    mPod.hasFragCoord              = false;
 
     mPod.advancedBlendEquations.reset();
 
@@ -831,7 +832,7 @@ void ProgramExecutable::reset()
     mPod.drawBufferTypeMask.reset();
     mPod.computeShaderLocalSize.fill(1);
 
-    mPod.specConstUsageBits.reset();
+    mPod.padding = 0;
 
     mActiveSamplersMask.reset();
     mActiveSamplerRefCounts = {};
@@ -863,7 +864,7 @@ void ProgramExecutable::reset()
     mSamplerBindings.clear();
     mSamplerBoundTextureUnits.clear();
     mImageBindings.clear();
-    mPixelLocalStorageFormats.clear();
+    mPixelLocalStorageLayouts.clear();
 
     mPostLinkSubTasks.clear();
     mPostLinkSubTaskWaitableEvents.clear();
@@ -966,9 +967,9 @@ void ProgramExecutable::load(gl::BinaryInputStream *stream)
 
     // ANGLE_shader_pixel_local_storage.
     size_t plsCount = stream->readInt<size_t>();
-    ASSERT(mPixelLocalStorageFormats.empty());
-    mPixelLocalStorageFormats.resize(plsCount);
-    stream->readBytes(angle::as_writable_byte_span(mPixelLocalStorageFormats));
+    ASSERT(mPixelLocalStorageLayouts.empty());
+    mPixelLocalStorageLayouts.resize(plsCount);
+    stream->readBytes(angle::as_writable_byte_span(mPixelLocalStorageLayouts));
 
     // These values are currently only used by PPOs, so only load them when the program is marked
     // separable to save memory.
@@ -1072,8 +1073,8 @@ void ProgramExecutable::save(gl::BinaryOutputStream *stream) const
     }
 
     // ANGLE_shader_pixel_local_storage.
-    stream->writeInt<size_t>(mPixelLocalStorageFormats.size());
-    stream->writeBytes(angle::as_byte_span(mPixelLocalStorageFormats));
+    stream->writeInt<size_t>(mPixelLocalStorageLayouts.size());
+    stream->writeBytes(angle::as_byte_span(mPixelLocalStorageLayouts));
 
     // These values are currently only used by PPOs, so only save them when the program is marked
     // separable to save memory.
@@ -2349,11 +2350,6 @@ void ProgramExecutable::getTransformFeedbackVarying(GLuint index,
     ASSERT(index < mLinkedTransformFeedbackVaryings.size());
     const auto &var     = mLinkedTransformFeedbackVaryings[index];
     std::string varName = var.nameWithArrayIndex();
-    GLsizei lastNameIdx = std::min(bufSize - 1, static_cast<GLsizei>(varName.length()));
-    if (length)
-    {
-        *length = lastNameIdx;
-    }
     if (size)
     {
         *size = var.size();
@@ -2362,10 +2358,14 @@ void ProgramExecutable::getTransformFeedbackVarying(GLuint index,
     {
         *type = var.type;
     }
-    if (name)
+
+    if (length)
     {
-        memcpy(name, varName.c_str(), lastNameIdx);
-        name[lastNameIdx] = '\0';
+        *length = 0;
+    }
+    if (name && bufSize > 0)
+    {
+        CopyStringToBuffer(name, varName, bufSize, length);
     }
 }
 

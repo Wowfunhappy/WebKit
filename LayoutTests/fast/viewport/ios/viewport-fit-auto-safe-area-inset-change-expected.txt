@@ -4,13 +4,13 @@ On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE
 
 
 Initial width, using viewport-fit: cover
-PASS document.body.clientWidth is 374
+PASS document.body.clientWidth is viewportWidth
 
 Set safe area, but still using viewport-fit: cover
-PASS document.body.clientWidth is 374
+PASS document.body.clientWidth is viewportWidth
 
 Change to viewport-fit: auto
-PASS document.body.clientWidth is 334
+PASS document.body.clientWidth is viewportWidth - leftAndRightSafeAreaInsets
 
 PASS successfullyParsed is true
 

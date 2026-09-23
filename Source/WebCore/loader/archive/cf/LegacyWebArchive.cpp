@@ -61,7 +61,7 @@
 #include "StyleSheetList.h"
 #include "markup.h"
 #include <algorithm>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/URLHash.h>
 #include <wtf/URLParser.h>
@@ -103,7 +103,7 @@ static String getFileNameFromURIComponent(StringView input)
     StringBuilder result;
     result.reserveCapacity(length);
     for (unsigned index = 0; index < length; ++index) {
-        char16_t character = decodedInput->characterAt(index);
+        char16_t character = decodedInput->codeUnitAt(index);
         if (isUnreservedURICharacter(character)) {
             result.append(character);
             continue;
@@ -199,7 +199,7 @@ RetainPtr<CFDictionaryRef> LegacyWebArchive::createPropertyListRepresentation(Ar
 {
     auto propertyList = adoptCF(CFDictionaryCreateMutable(0, 3, 0, &kCFTypeDictionaryValueCallBacks));
 
-    auto mainResourceDict = createPropertyListRepresentation(archive.mainResource(), MainResource);
+    auto mainResourceDict = createPropertyListRepresentation(protect(archive.mainResource()), MainResource);
     ASSERT(mainResourceDict);
     if (!mainResourceDict)
         return nullptr;
@@ -673,7 +673,7 @@ static HashMap<Ref<CSSStyleSheet>, String> addSubresourcesForCSSStyleSheetsIfNec
     }
 
     for (auto& [cssStyleSheet, path]  : uniqueCSSStyleSheets) {
-        auto contentString = cssStyleSheet->cssText(serializationContext);
+        auto contentString = protect(cssStyleSheet)->cssText(serializationContext);
         if (auto newResource = ArchiveResource::create(utf8Buffer(contentString), URL { cssStyleSheet->href() }, "text/css"_s, "UTF-8"_s, frameName, ResourceResponse(), path))
             subresources.append(newResource.releaseNonNull());
     }
@@ -688,10 +688,10 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(Node& node, const Arch
         return nullptr;
 
     Vector<Ref<Node>> nodeList;
-    String markupString = serializeFragment(node, SerializedNodes::SubtreeIncludingNode, &nodeList, ResolveURLs::No, std::nullopt, SerializeShadowRoots::AllForInterchange, { }, options.markupExclusionRules);
+    String markupString = serializeFragment(node, SerializedNodes::SubtreeIncludingNode, &nodeList, ResolveURLs::NoExcludingURLsForPrivacy, std::nullopt, SerializeShadowRoots::AllForInterchange, { }, options.markupExclusionRules);
     auto nodeType = node.nodeType();
     if (nodeType != NodeType::Document && nodeType != NodeType::DocumentType)
-        markupString = makeString(documentTypeString(node.document()), markupString);
+        markupString = makeString(documentTypeString(protect(node.document())), markupString);
 
     return createInternal(markupString, options, *frame, WTF::move(nodeList), frameFilter);
 }
@@ -733,7 +733,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
             if (!localChildFrame)
                 continue;
 
-            if (auto subframeArchive = createInternal(*localChildFrame->document(), options, frameFilter)) {
+            if (auto subframeArchive = createInternal(*protect(localChildFrame->document()), options, frameFilter)) {
                 RefPtr subframeMainResource = subframeArchive->mainResource();
                 auto subframeMainResourceURL = subframeMainResource ? subframeMainResource->url() : URL { };
                 if (!subframeMainResourceURL.isEmpty()) {
@@ -745,7 +745,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
                 LOG_ERROR("Unabled to archive subframe %s", childFrame->tree().uniqueName().string().utf8().data());
 
         } else {
-            ListHashSet<URL> subresourceURLs;
+            OrderedHashSet<URL> subresourceURLs;
             node->getSubresourceURLs(subresourceURLs);
             node->getCandidateSubresourceURLs(subresourceURLs);
 
@@ -772,7 +772,10 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
                 auto resource = documentLoader->subresource(subresourceURL);
                 if (!resource) {
                     ResourceRequest request(URL { subresourceURL });
-                    request.setDomainForCachePartition(frame.document()->domainForCachePartition());
+                    if (RefPtr document = frame.document()) {
+                        request.setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
+                        request.setFirstPartyForCookies(document->firstPartyForCookies());
+                    }
                     if (RefPtr cachedResource = MemoryCache::singleton().resourceForRequest(request, frame.page()->sessionID()))
                         resource = ArchiveResource::create(cachedResource->resourceBuffer(), subresourceURL, cachedResource->response());
                 }
@@ -807,8 +810,24 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
         RefPtr documentLoader = frame.loader().documentLoader();
         ASSERT(documentLoader);
         for (auto& icon : documentLoader->linkIcons()) {
-            if (auto resource = documentLoader->subresource(icon.url))
-                subresources.append(resource.releaseNonNull());
+            if (uniqueSubresources.contains(icon.url.string()))
+                continue;
+
+            auto resource = documentLoader->subresource(icon.url);
+            if (!resource)
+                continue;
+
+            auto addResult = uniqueSubresources.add(icon.url.string(), emptyString());
+
+            if (!subresourcesDirectoryName.isNull()) {
+                String subresourceFileName = generateValidFileName(icon.url, uniqueFileNames);
+                uniqueFileNames.add(subresourceFileName);
+                String subresourceFilePath = FileSystem::pathByAppendingComponent(subresourcesDirectoryName, subresourceFileName);
+                resource->setRelativeFilePath(subresourceFilePath);
+                addResult.iterator->value = frame.isMainFrame() ? subresourceFilePath : subresourceFileName;
+            }
+
+            subresources.append(resource.releaseNonNull());
         }
     }
 
@@ -826,13 +845,13 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
         auto mainFrameFileNameWithExtension = options.mainResourceFileName.endsWith(extension) ? options.mainResourceFileName : makeString(options.mainResourceFileName, extension);
         auto fileNameWithExtension = frame.isMainFrame() ? mainFrameFileNameWithExtension : makeString(subresourcesDirectoryName, "/frame_"_s, frame.frameID().toUInt64(), extension);
 
-        ResolveURLs resolveURLs = ResolveURLs::No;
+        ResolveURLs resolveURLs = ResolveURLs::NoExcludingURLsForPrivacy;
         // Base element is excluded, so all URLs should be replaced with absolute URL.
         bool baseElementExcluded = std::ranges::any_of(options.markupExclusionRules, [&](auto& rule) {
             return rule.elementLocalName == "base"_s;
         });
         if (!document->baseElementURL().isEmpty() && baseElementExcluded)
-            resolveURLs = ResolveURLs::Yes;
+            resolveURLs = ResolveURLs::YesExcludingURLsForPrivacy;
 
         String updatedMarkupString = serializeFragmentWithURLReplacement(*document, SerializedNodes::SubtreeIncludingNode, nullptr, resolveURLs, std::nullopt, WTF::move(uniqueSubresources), WTF::move(uniqueCSSStyleSheets), SerializeShadowRoots::AllForInterchange, { }, options.markupExclusionRules);
         mainResource = ArchiveResource::create(utf8Buffer(updatedMarkupString), responseURL, response.mimeType(), "UTF-8"_s, frame.tree().uniqueName(), ResourceResponse(), fileNameWithExtension);
@@ -864,7 +883,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createFromSelection(LocalFrame* frame
     builder.append(documentTypeString(*document));
 
     Vector<Ref<Node>> nodeList;
-    builder.append(serializePreservingVisualAppearance(frame->selection().selection(), ResolveURLs::No, SerializeComposedTree::Yes, IgnoreUserSelectNone::Yes, PreserveBaseElement::Yes, PreserveDirectionForInlineText::Yes, &nodeList));
+    builder.append(serializePreservingVisualAppearance(frame->selection().selection(), ResolveURLs::NoExcludingURLsForPrivacy, SerializeComposedTree::Yes, IgnoreUserSelectNone::Yes, PreserveBaseElement::Yes, PreserveDirectionForInlineText::Yes, &nodeList));
 
     RefPtr archive = createInternal(builder.toString(), WTF::move(options), *frame, WTF::move(nodeList), { });
     if (!archive)

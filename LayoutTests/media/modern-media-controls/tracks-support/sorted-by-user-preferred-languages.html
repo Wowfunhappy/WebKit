@@ -1,4 +1,4 @@
-<!DOCTYPE html> <!-- webkit-test-runner [ language=en-US,zh-HK,es-US useFlexibleViewport=true ] -->
+<!DOCTYPE html> <!-- webkit-test-runner [ CaptionDisplaySettingsEnabled=false language=en-US,zh-HK,es-US useFlexibleViewport=true ] -->
 <meta name="viewport" content="width=device-width">
 <script src="../resources/media-controls-utils.js"></script>
 <script src="../../../resources/ui-helper.js"></script>
@@ -31,6 +31,7 @@ const shadowRoot = window.internals.shadowRoot(media);
 
 window.internals.setMediaControlsMaximumRightContainerButtonCountOverride(media, 100); // A finite value larger than anything likely.
 window.internals.setCaptionDisplayMode("manual"); // Show all tracks.
+window.internals.setUserPreferredLanguages(["en-US", "zh-HK", "es-US"]);
 
 media.addEventListener("play", () => {
     media.pause();

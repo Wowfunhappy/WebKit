@@ -59,6 +59,7 @@
 #include "JSCanvasRenderingContext2D.h"
 #include "JSCanvasTextAlign.h"
 #include "JSCanvasTextBaseline.h"
+#include "JSDOMWrapperCache.h"
 #include "JSExecState.h"
 #include "JSImageBitmapRenderingContext.h"
 #include "JSImageSmoothingQuality.h"
@@ -106,7 +107,7 @@ HTMLCanvasElement* InspectorCanvas::canvasElement() const
 
 ScriptExecutionContext* InspectorCanvas::scriptExecutionContext() const
 {
-    return m_context->canvasBase().scriptExecutionContext();
+    return protect(m_context)->canvasBase().scriptExecutionContext();
 }
 
 JSC::JSValue InspectorCanvas::resolveContext(JSC::JSGlobalObject* exec)
@@ -114,25 +115,25 @@ JSC::JSValue InspectorCanvas::resolveContext(JSC::JSGlobalObject* exec)
     JSC::JSLockHolder lock(exec);
     auto* globalObject = deprecatedGlobalObjectForPrototype(exec);
     if (is<CanvasRenderingContext2D>(m_context))
-        return toJS(exec, globalObject, downcast<CanvasRenderingContext2D>(m_context.get()));
+        return toJS(exec, globalObject, protect(downcast<CanvasRenderingContext2D>(m_context.get())));
 #if ENABLE(OFFSCREEN_CANVAS)
     if (is<OffscreenCanvasRenderingContext2D>(m_context))
-        return toJS(exec, globalObject, downcast<OffscreenCanvasRenderingContext2D>(m_context.get()));
+        return toJS(exec, globalObject, protect(downcast<OffscreenCanvasRenderingContext2D>(m_context.get())));
 #endif
     if (is<ImageBitmapRenderingContext>(m_context))
-        return toJS(exec, globalObject, downcast<ImageBitmapRenderingContext>(m_context.get()));
+        return toJS(exec, globalObject, protect(downcast<ImageBitmapRenderingContext>(m_context.get())));
 #if ENABLE(WEBGL)
     if (is<WebGLRenderingContext>(m_context))
-        return toJS(exec, globalObject, downcast<WebGLRenderingContext>(m_context.get()));
+        return toJS(exec, globalObject, protect(downcast<WebGLRenderingContext>(m_context.get())));
     if (is<WebGL2RenderingContext>(m_context))
-        return toJS(exec, globalObject, downcast<WebGL2RenderingContext>(m_context.get()));
+        return toJS(exec, globalObject, protect(downcast<WebGL2RenderingContext>(m_context.get())));
 #endif
     RELEASE_ASSERT_NOT_REACHED();
 }
 
 HashSet<Element*> InspectorCanvas::clientNodes() const
 {
-    return m_context->canvasBase().cssCanvasClients();
+    return protect(m_context)->canvasBase().cssCanvasClients();
 }
 
 void InspectorCanvas::canvasChanged()
@@ -218,7 +219,7 @@ void InspectorCanvas::recordAction(String&& name, InspectorCanvasProcessedArgume
         ASSERT(!m_frames && !m_currentActions);
 
         m_initialState = buildInitialState();
-        m_bufferUsed += m_initialState->memoryCost();
+        m_bufferUsed += protect(m_initialState)->memoryCost();
     }
 
     if (!m_frames)
@@ -231,7 +232,7 @@ void InspectorCanvas::recordAction(String&& name, InspectorCanvasProcessedArgume
             .setActions(*m_currentActions)
             .release();
 
-        m_frames->addItem(WTF::move(frame));
+        protect(m_frames)->addItem(WTF::move(frame));
         ++m_framesCaptured;
 
         m_currentFrameStartTime = MonotonicTime::now();
@@ -251,8 +252,8 @@ void InspectorCanvas::recordAction(String&& name, InspectorCanvasProcessedArgume
 #endif
 
     m_lastRecordedAction = buildAction(WTF::move(name), WTF::move(arguments));
-    m_bufferUsed += m_lastRecordedAction->memoryCost();
-    m_currentActions->addItem(*m_lastRecordedAction);
+    m_bufferUsed += protect(m_lastRecordedAction)->memoryCost();
+    protect(m_currentActions)->addItem(*m_lastRecordedAction);
 }
 
 void InspectorCanvas::finalizeFrame()
@@ -426,7 +427,7 @@ Ref<Inspector::Protocol::Canvas::Canvas> InspectorCanvas::buildObjectForCanvas(b
         // FIXME: <https://webkit.org/b/178282> Web Inspector: send a DOM node with each Canvas payload and eliminate Canvas.requestNode
     }
 
-    if (auto attributes = buildObjectForCanvasContextAttributes(m_context.get()))
+    if (auto attributes = buildObjectForCanvasContextAttributes(protect(m_context.get())))
         canvas->setContextAttributes(attributes.releaseNonNull());
 
     if (size_t memoryCost = m_context->memoryCost())
@@ -503,11 +504,12 @@ void InspectorCanvas::appendActionSnapshotIfNeeded()
         return;
 
     if (m_contentChanged) {
-        m_bufferUsed -= m_lastRecordedAction->memoryCost();
+        Ref lastRecordedAction = *m_lastRecordedAction;
+        m_bufferUsed -= lastRecordedAction->memoryCost();
         if (auto content = getContentAsDataURL())
-            m_lastRecordedAction->addItem(indexForData(*content));
+            lastRecordedAction->addItem(indexForData(*content));
 
-        m_bufferUsed += m_lastRecordedAction->memoryCost();
+        m_bufferUsed += lastRecordedAction->memoryCost();
     }
 
     m_lastRecordedAction = nullptr;
@@ -645,7 +647,7 @@ int InspectorCanvas::indexForData(DuplicateDataVariant data)
 
     if (item) {
         m_bufferUsed += item->memoryCost();
-        m_serializedDuplicateData->addItem(item.releaseNonNull());
+        protect(m_serializedDuplicateData)->addItem(item.releaseNonNull());
 
         m_indexedDuplicateData.append(data);
         index = m_indexedDuplicateData.size() - 1;
@@ -684,8 +686,8 @@ Ref<Inspector::Protocol::Recording::InitialState> InspectorCanvas::buildInitialS
     auto initialStatePayload = Inspector::Protocol::Recording::InitialState::create().release();
 
     auto attributesPayload = JSON::Object::create();
-    attributesPayload->setInteger("width"_s, m_context->canvasBase().width());
-    attributesPayload->setInteger("height"_s, m_context->canvasBase().height());
+    attributesPayload->setInteger("width"_s, protect(m_context)->canvasBase().width());
+    attributesPayload->setInteger("height"_s, protect(m_context)->canvasBase().height());
 
     auto statesPayload = JSON::ArrayOf<JSON::Object>::create();
 
@@ -749,7 +751,7 @@ Ref<Inspector::Protocol::Recording::InitialState> InspectorCanvas::buildInitialS
         }
     }
 
-    if (auto contextAttributes = buildObjectForCanvasContextAttributes(m_context.get()))
+    if (auto contextAttributes = buildObjectForCanvasContextAttributes(protect(m_context.get())))
         parametersPayload->addItem(contextAttributes.releaseNonNull());
 
     initialStatePayload->setAttributes(WTF::move(attributesPayload));

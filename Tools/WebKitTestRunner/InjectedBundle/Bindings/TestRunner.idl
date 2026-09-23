@@ -61,8 +61,6 @@ interface TestRunner {
     undefined dumpTitleChanges();
     undefined dumpFrameLoadCallbacks();
     undefined dumpProgressFinishedCallback();
-    undefined dumpResourceLoadCallbacks();
-    undefined dumpResourceResponseMIMETypes();
     undefined dumpWillCacheResponse();
     undefined dumpApplicationCacheDelegateCallbacks();
     undefined dumpDOMAsWebArchive();
@@ -118,8 +116,6 @@ interface TestRunner {
     // Printing
     boolean isPageBoxVisible(long pageIndex);
 
-    undefined dumpAllHTTPRedirectedResponseHeaders();
-
     undefined setValueForUser(object element, DOMString value);
 
     // UserContent testing.
@@ -131,6 +127,7 @@ interface TestRunner {
     undefined setDatabaseQuota(unsigned long long quota);
     DOMString pathToLocalResource(DOMString url);
     undefined syncLocalStorage();
+    readonly attribute unsigned long storageAreaMapCount;
 
     attribute double databaseDefaultQuota;
     attribute double databaseMaxQuota;
@@ -161,6 +158,8 @@ interface TestRunner {
 
     readonly attribute boolean didReceiveServerRedirectForProvisionalNavigation;
     undefined clearDidReceiveServerRedirectForProvisionalNavigation();
+
+    readonly attribute DOMString lastProvisionalNavigationFailureURL;
 
     // Window/view state
     undefined setWindowIsKey(boolean isKey);
@@ -202,6 +201,10 @@ interface TestRunner {
 
     // Screen Wake Lock
     undefined setScreenWakeLockPermission(boolean value);
+
+    // Global Privacy Control
+    undefined setGlobalPrivacyControl(boolean value);
+    boolean getGlobalPrivacyControl();
 
     // MediaStream
     undefined setCameraPermission(boolean value);

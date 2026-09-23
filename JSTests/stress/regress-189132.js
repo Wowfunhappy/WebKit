@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 try {
     var a0 = '\ud801';

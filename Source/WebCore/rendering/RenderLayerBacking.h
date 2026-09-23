@@ -34,6 +34,7 @@
 #include <WebCore/RenderLayerCompositor.h>
 #include <WebCore/ScrollingCoordinator.h>
 #include <wtf/Platform.h>
+#include <wtf/Range.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakListHashSet.h>
 
@@ -127,6 +128,14 @@ public:
     GraphicsLayer* foregroundLayer() const { return m_foregroundLayer.get(); }
     GraphicsLayer* backgroundLayer() const { return m_backgroundLayer.get(); }
     bool backgroundLayerPaintsFixedRootBackground() const { return m_backgroundLayerPaintsFixedRootBackground; }
+
+    bool hasSVGPaintOrderSegments() const { return !m_svgPaintOrderSegments.isEmpty(); }
+    GraphicsLayer* svgSegmentLayerAfterCompositedChild(const RenderLayer&) const;
+    std::optional<WTF::Range<unsigned>> svgSegmentRangeForGraphicsLayer(const GraphicsLayer&) const;
+
+#if USE(SYSTEM_PREVIEW) && ENABLE(MODEL_PROCESS)
+    GraphicsLayer* systemPreviewBadgeLayer() const { return m_systemPreviewBadgeLayer.get(); }
+#endif
 
     bool needsRepaintOnCompositedScroll() const;
 
@@ -345,11 +354,40 @@ private:
     bool updateAncestorClipping(bool needsAncestorClip, const RenderLayer* compositingAncestor);
     bool updateDescendantClippingLayer(bool needsDescendantClip);
     bool updateOverflowControlsLayers(bool needsHorizontalScrollbarLayer, bool needsVerticalScrollbarLayer, bool needsScrollCornerLayer);
+    void clearAncestorClippingStack();
     void clearOverflowControlsLayers();
     bool updateForegroundLayer(bool needsForegroundLayer);
     bool updateBackgroundLayer(bool needsBackgroundLayer);
+
+    // SVG paint-order segmentation. Out-of-line methods are defined in RenderLayerBackingSVGAdditions.cpp.
+    struct SVGPaintOrderSegment;
+    bool updateSVGSegmentLayers();
+    void clearSVGSegmentLayers();
+    template<typename Function> void forEachSVGSegmentLayer(NOESCAPE const Function& function) const
+    {
+        for (auto& segment : m_svgPaintOrderSegments) {
+            if (segment.graphicsLayer)
+                function(*segment.graphicsLayer);
+        }
+    }
+    FloatRect computeSVGSegmentBounds(const SVGPaintOrderSegment&);
+    void updateSVGSegmentLayerGeometry(FloatSize foregroundLikeSize, FloatSize foregroundLikeOffset, GraphicsLayer::ShouldSetNeedsDisplay);
+    bool svgSegmentHasInlineContent(const SVGPaintOrderSegment&);
+    void updateSVGSegmentLayersDrawsContent(bool hasPaintedContent);
+    void setSVGSegmentLayersNeedDisplayInRect(const FloatRect& pixelSnappedRectForPainting, GraphicsLayer::ShouldClipToLayer);
+
+#if ENABLE(MODEL_PROCESS)
+    bool updateContentsContainmentLayer();
+#endif
     bool updateMaskingLayer(bool hasMask, bool hasClipPath);
+    void updateReflectionLayer();
     bool updateTransformFlatteningLayer(const RenderLayer* compositingAncestor);
+#if USE(SYSTEM_PREVIEW) && ENABLE(MODEL_PROCESS)
+    bool updateSystemPreviewBadgeLayer(bool needsLayer);
+    bool needsSystemPreviewBadgeLayer() const;
+    void updateSystemPreviewBadgeLayerGeometry();
+    void paintSystemPreviewBadgeLayer(GraphicsContext&, const FloatRect& clip);
+#endif
 
     bool requiresLayerForScrollbar(Scrollbar*) const;
     bool requiresHorizontalScrollbarLayer() const;
@@ -376,24 +414,24 @@ private:
 
     void connectClippingStackLayers(LayerAncestorClippingStack&);
 
-    void updateOpacity(const RenderStyle&);
-    void updateTransform(const RenderStyle&);
+    void updateOpacity(const Style::ComputedStyle&);
+    void updateTransform(const Style::ComputedStyle&);
     void updateChildrenTransformAndAnchorPoint(const LayoutRect& primaryGraphicsLayerRect, LayoutSize offsetFromParentGraphicsLayer);
-    void updateFilters(const RenderStyle&);
-    void updateBackdropFilters(const RenderStyle&);
+    void updateFilters(const Style::ComputedStyle&);
+    void updateBackdropFilters(const Style::ComputedStyle&);
     void updateBackdropFiltersGeometry();
     bool updateBackdropRoot();
-    void updateBlendMode(const RenderStyle&);
+    void updateBlendMode(const Style::ComputedStyle&);
 #if ENABLE(VIDEO)
-    void updateVideoGravity(const RenderStyle&);
+    void updateVideoGravity(const Style::ComputedStyle&);
 #endif
-    void updateContentsScalingFilters(const RenderStyle&);
+    void updateContentsScalingFilters(const Style::ComputedStyle&);
 #if HAVE(CORE_MATERIAL)
-    void updateAppleVisualEffect(const RenderStyle&);
+    void updateAppleVisualEffect(const Style::ComputedStyle&);
 #endif
 
     // Return the opacity value that this layer should use for compositing.
-    float compositingOpacity(float rendererOpacity) const;
+    float NODELETE compositingOpacity(float rendererOpacity) const;
     Color rendererBackgroundColor() const;
 
     bool isMainFrameRenderViewLayer() const;
@@ -458,12 +496,32 @@ private:
     RefPtr<GraphicsLayer> m_contentsContainmentLayer; // Only used if we have a background layer; takes the transform.
     RefPtr<GraphicsLayer> m_graphicsLayer;
     RefPtr<GraphicsLayer> m_foregroundLayer; // Only used in cases where we need to draw the foreground separately.
+
+    // A composited SVG child splits its container's DOM-order paint list (childrenInDOMOrderForSVG) at its
+    // index. Non-composited content painting after a composited child goes into a single overlay
+    // "(svg segment N)" GraphicsLayer above the composited child's layer, rather than giving each such
+    // sibling its own RenderLayer. Segments cover the flat list in order: the primary segment =
+    // [0, firstCompositedChild] paints into the primary graphics layer (null graphicsLayer). Each later
+    // segment = (prevCompositedChild, thisCompositedChild] paints into its own overlay.
+    struct SVGPaintOrderSegment {
+        WTF::Range<unsigned> childIndexRange { 0, 0 }; // Half-open [begin, end) into childrenInDOMOrderForSVG().
+        InlineWeakPtr<RenderLayer> precedingCompositedChild; // null for the primary segment.
+        RefPtr<GraphicsLayer> graphicsLayer; // null for the primary segment (paints into the primary graphics layer).
+        // Visual bounds of this segment's inline-painted content in the overlay's own (foreground-local)
+        // coordinate space. Set in updateGeometry, empty if not cropped. Scopes the overlay's invalidation.
+        FloatRect segmentBoundsInLayerSpace;
+    };
+    Vector<SVGPaintOrderSegment> m_svgPaintOrderSegments; // Only used for SVG container layers; empty unless a composited child splits the paint list.
     RefPtr<GraphicsLayer> m_backgroundLayer; // Only used in cases where we need to draw the background separately.
     RefPtr<GraphicsLayer> m_childContainmentLayer; // Only used if we have clipping on a stacking context with compositing children, or if the layer has a tile cache.
     RefPtr<GraphicsLayer> m_viewportClippingLayer; // Only used on fixed/sticky elements. Contains the viewport anchor layer.
     RefPtr<GraphicsLayer> m_viewportAnchorLayer; // Only used on fixed/sticky elements.
     RefPtr<GraphicsLayer> m_maskLayer; // Only used if we have a mask and/or clip-path.
     RefPtr<GraphicsLayer> m_transformFlatteningLayer;
+#if USE(SYSTEM_PREVIEW) && ENABLE(MODEL_PROCESS)
+    RefPtr<GraphicsLayer> m_systemPreviewWrapperLayer; // Outer wrapper above m_contentsContainmentLayer, parents the model subtree and the badge layer as siblings.
+    RefPtr<GraphicsLayer> m_systemPreviewBadgeLayer; // Sibling of m_contentsContainmentLayer; lifts the AR badge in front of the model's separated portal on visionOS.
+#endif
 
     RefPtr<GraphicsLayer> m_layerForHorizontalScrollbar;
     RefPtr<GraphicsLayer> m_layerForVerticalScrollbar;

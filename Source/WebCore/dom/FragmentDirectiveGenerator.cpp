@@ -46,7 +46,7 @@
 namespace WebCore {
 using namespace FragmentDirectiveUtilities;
 
-constexpr int maximumInlineStringLength = 300;
+constexpr int maximumInlineStringLength = 100;
 constexpr int minimumContextlessStringLength = 20;
 constexpr int defaultWordsOfContext = 3;
 constexpr int maximumExtraWordsOfContext = 4;

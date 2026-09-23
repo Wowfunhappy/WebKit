@@ -176,6 +176,10 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
 
 namespace WebKit {
 
+void ViewGestureController::platformInitialize()
+{
+}
+
 void ViewGestureController::platformTeardown()
 {
     [m_swipeTransitionContext _setTransitionIsInFlight:NO];

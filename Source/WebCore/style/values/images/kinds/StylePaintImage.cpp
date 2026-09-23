@@ -31,6 +31,7 @@
 #include "CSSPaintImageValue.h"
 #include "CSSVariableData.h"
 #include "CustomPaintImage.h"
+#include "DeprecatedCSSOMValue.h"
 #include "PaintWorkletGlobalScope.h"
 #include "RenderElement.h"
 #include "RenderObjectInlines.h"
@@ -39,7 +40,7 @@
 namespace WebCore {
 namespace Style {
 
-PaintImage::PaintImage(String&& name, Ref<CSSVariableData>&& arguments)
+PaintImage::PaintImage(CustomIdent&& name, Ref<CSSVariableData>&& arguments)
     : GeneratedImage { Type::PaintImage, PaintImage::isFixedSize }
     , m_name { WTF::move(name) }
     , m_arguments { WTF::move(arguments) }
@@ -55,9 +56,14 @@ bool PaintImage::operator==(const Image& other) const
     return otherPaintImage && otherPaintImage->m_name == m_name;
 }
 
-Ref<CSSValue> PaintImage::computedStyleValue(const RenderStyle&) const
+Ref<CSSValue> PaintImage::computedStyleValue(const Style::ComputedStyle& style) const
 {
-    return CSSPaintImageValue::create(m_name, m_arguments);
+    return CSSPaintImageValue::create(toCSS(m_name, style), m_arguments);
+}
+
+Ref<DeprecatedCSSOMValue> PaintImage::computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle& style, CSSStyleDeclaration& owner) const
+{
+    return computedStyleValue(style)->createDeprecatedCSSOMWrapper(owner);
 }
 
 bool PaintImage::isPending() const
@@ -77,18 +83,18 @@ RefPtr<WebCore::Image> PaintImage::image(const RenderElement* renderer, const Fl
     if (size.isEmpty())
         return nullptr;
 
-    RefPtr selectedGlobalScope = renderer->document().paintWorkletGlobalScopeForName(m_name);
+    RefPtr selectedGlobalScope = protect(renderer->document())->paintWorkletGlobalScopeForName(m_name.value);
     if (!selectedGlobalScope)
         return nullptr;
 
     Locker locker { selectedGlobalScope->paintDefinitionLock() };
-    CheckedPtr registration = selectedGlobalScope->paintDefinitionMap().get(m_name);
+    CheckedPtr registration = selectedGlobalScope->paintDefinitionMap().get(m_name.value);
 
     if (!registration)
         return nullptr;
 
     // FIXME: Check if argument list matches syntax.
-    Vector<String> arguments;
+    Vector<WTF::String> arguments;
     CSSParserTokenRange localRange(m_arguments->tokenRange());
 
     while (!localRange.atEnd()) {

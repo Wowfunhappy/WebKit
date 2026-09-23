@@ -99,9 +99,10 @@ private:
     void didCreateContextInModelProcessForVisibilityPropagation(LayerHostingContextID) override;
     void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) override;
 #endif // ENABLE(MODEL_PROCESS)
-#if USE(EXTENSIONKIT)
-    UIView *createVisibilityPropagationView() override;
+    RetainPtr<UIView> createVisibilityPropagationView() override;
     void removeVisibilityPropagationView(UIView *) override;
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    RefPtr<LayerHostingVisibilityPropagator> createLayerHostingVisibilityPropagator() override;
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
@@ -159,6 +160,7 @@ private:
 
     RefPtr<WebPopupMenuProxy> createPopupMenuProxy(WebPageProxy&) override;
     Ref<WebCore::ValidationBubble> createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&) final;
+    bool shouldSuppressFormValidationBubble() const final;
 
     RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) final { return nullptr; }
 
@@ -211,7 +213,7 @@ private:
     void selectionDidChange() override;
     bool interpretKeyEvent(const NativeWebKeyboardEvent&, KeyEventInterpretationContext&&) override;
     void positionInformationDidChange(const InteractionInformationAtPosition&) override;
-    void saveImageToLibrary(Ref<WebCore::SharedBuffer>&&) override;
+    void saveImageToLibrary(const Ref<WebCore::SharedBuffer>&) override;
     void showPlaybackTargetPicker(bool hasVideo, const WebCore::IntRect& elementRect, WebCore::RouteSharingPolicy, const String&) override;
     void showDataDetectorsUIForPositionInformation(const InteractionInformationAtPosition&) override;
 
@@ -224,8 +226,8 @@ private:
     void showContactPicker(WebCore::ContactsRequestData&&, WTF::CompletionHandler<void(std::optional<Vector<WebCore::ContactInfo>>&&)>&&) override;
 
 #if ENABLE(WEB_AUTHN)
-    void showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
-    void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&&) override;
+    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
+    void dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&&) override;
 #endif
 
     void dismissAnyOpenPicker() override;
@@ -299,7 +301,7 @@ private:
     void requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&) override;
 #endif
 
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect& elementRect, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 
 #if ENABLE(DRAG_SUPPORT)
     void didPerformDragOperation(bool handled) override;

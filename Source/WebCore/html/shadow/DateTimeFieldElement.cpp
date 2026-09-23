@@ -35,9 +35,10 @@
 #include "LocalizedStrings.h"
 #include "NodeDocument.h"
 #include "PlatformLocale.h"
-#include "RenderStyle+SettersInlines.h"
+#include "PlatformRenderTheme.h"
 #include "RenderTheme.h"
 #include "ResolvedStyle.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleResolver.h"
 #include "Text.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -57,7 +58,7 @@ DateTimeFieldElement::DateTimeFieldElement(Document& document, DateTimeFieldElem
 {
 }
 
-std::optional<Style::UnadjustedStyle> DateTimeFieldElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle* shadowHostStyle)
+std::optional<Style::UnadjustedStyle> DateTimeFieldElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const Style::ComputedStyle* shadowHostStyle)
 {
     auto elementStyle = resolveStyle(resolutionContext);
 
@@ -200,6 +201,12 @@ void DateTimeFieldElement::updateVisibleValue(EventBehavior eventBehavior)
     String newVisibleValue = visibleValue();
     if (textNode->wholeText() != newVisibleValue)
         textNode->replaceWholeText(newVisibleValue);
+
+    auto hasValue = this->hasValue();
+    if (m_hadValueAtLastValueUpdate != hasValue) {
+        m_hadValueAtLastValueUpdate = hasValue;
+        invalidateStyle();
+    }
 
     if (eventBehavior == DispatchInputAndChangeEvents && m_fieldOwner)
         m_fieldOwner->fieldValueChanged();

@@ -140,18 +140,6 @@ void ProgramPipelineState::updateExecutableTextures()
     }
 }
 
-void ProgramPipelineState::updateExecutableSpecConstUsageBits()
-{
-    rx::SpecConstUsageBits specConstUsageBits;
-    for (const ShaderType shaderType : mExecutable->getLinkedShaderStages())
-    {
-        const SharedProgramExecutable &programExecutable = getShaderProgramExecutable(shaderType);
-        ASSERT(programExecutable);
-        specConstUsageBits |= programExecutable->getSpecConstUsageBits();
-    }
-    mExecutable->mPod.specConstUsageBits = specConstUsageBits;
-}
-
 ProgramPipeline::ProgramPipeline(rx::GLImplFactory *factory, ProgramPipelineID handle)
     : RefCountObject(factory->generateSerial(), handle),
       mProgramPipelineImpl(factory->createProgramPipeline(mState)),
@@ -181,6 +169,11 @@ void ProgramPipeline::onDestroy(const Context *context)
             ASSERT(program->getRefCount());
             program->release(context);
         }
+    }
+
+    if (context && context->retainIdUntilObjectDestroyed())
+    {
+        context->onProgramPipelineDestroy(this);
     }
 
     getImplementation()->destroy(context);
@@ -441,6 +434,7 @@ void ProgramPipeline::updateFragmentInoutRangeAndEnablesPerSampleShading()
         fragmentExecutable->mPod.hasDepthInputAttachment;
     mState.mExecutable->mPod.hasStencilInputAttachment =
         fragmentExecutable->mPod.hasStencilInputAttachment;
+    mState.mExecutable->mPod.hasFragCoord = fragmentExecutable->mPod.hasFragCoord;
 }
 
 void ProgramPipeline::updateLinkedVaryings()
@@ -488,7 +482,6 @@ void ProgramPipeline::updateExecutable()
 
     // All Shader ProgramExecutable properties
     mState.updateExecutableTextures();
-    mState.updateExecutableSpecConstUsageBits();
     updateLinkedVaryings();
 }
 

@@ -20,7 +20,6 @@
     todo = [
         // verify that requestPointerLock returns a promise
         async () => {
-            window.internals.settings.setPointerLockOptionsEnabled(true);
             debug("     requestPointerLock()")
             const promise = targetDiv1.requestPointerLock();
             shouldBeNonNull(promise);
@@ -53,18 +52,6 @@
             doNextStep();
         },
         // remove pointer lock
-        () => {
-            expectOnlyChangeEvent("Unlock");
-            document.exitPointerLock();
-        },
-        // verify that requestPointerLock doesn't return a promise when PointerLockOptionsEnabled = false
-        () => {
-            window.internals.settings.setPointerLockOptionsEnabled(false);
-            expectOnlyChangeEvent("Lock with PointerLockOptionsEnabled = false");
-            const promise = targetDiv1.requestPointerLock();
-            shouldBeUndefined(promise);
-        },
-        // remove pointer lock again
         () => {
             expectOnlyChangeEvent("Unlock");
             document.exitPointerLock();

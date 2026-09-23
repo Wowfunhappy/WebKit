@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/CharacterRange.h>
+#include <optional>
 #include <wtf/NotFound.h>
 #include <wtf/RefPtr.h>
 
@@ -68,6 +69,11 @@ struct EditingRange {
 
     static std::optional<WebCore::SimpleRange> toRange(WebCore::LocalFrame&, const EditingRange&, EditingRangeIsRelativeTo = EditingRangeIsRelativeTo::EditableRoot);
     static EditingRange fromRange(WebCore::LocalFrame&, const std::optional<WebCore::SimpleRange>&, EditingRangeIsRelativeTo = EditingRangeIsRelativeTo::EditableRoot);
+
+    // Returns `firstLineRange` clamped to lie within `requestedRange`. Uses saturating arithmetic
+    // so the result always satisfies isValid() (i.e. location + length never overflows), regardless
+    // of the inputs. This is sent back to the UIProcess as the "actual range".
+    static EditingRange clampedFirstLineRange(EditingRange firstLineRange, const EditingRange& requestedRange);
 
 #if defined(__OBJC__)
     EditingRange(NSRange range)

@@ -21,7 +21,7 @@
 #include "config.h"
 #include "JSTestDefaultToJSONEnum.h"
 
-#include <JavaScriptCore/JSCInlines.h>
+#include "JSDOMBindingFacade.h"
 #include <JavaScriptCore/JSString.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SortedArrayMap.h>
@@ -50,7 +50,7 @@ template<> JSString* convertEnumerationToJS(VM& vm, TestDefaultToJSONEnum enumer
 
 template<> std::optional<TestDefaultToJSONEnum> parseEnumerationFromString<TestDefaultToJSONEnum>(const String& stringValue)
 {
-    static constexpr SortedArrayMap enumerationMapping { std::to_array<std::pair<ComparableASCIILiteral, TestDefaultToJSONEnum>>({
+    static constexpr SortedArrayMap enumerationMapping { WTF::toArray<std::pair<ComparableASCIILiteral, TestDefaultToJSONEnum>>({
         { "EnumValue1"_s, TestDefaultToJSONEnum::EnumValue1 },
         { "EnumValue2"_s, TestDefaultToJSONEnum::EnumValue2 },
     }) };

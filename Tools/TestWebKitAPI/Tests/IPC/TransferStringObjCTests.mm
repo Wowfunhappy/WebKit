@@ -25,7 +25,8 @@
 
 #import "config.h"
 
-#import "Test.h"
+#import "IPCTestUtilities.h"
+#import "Helpers/Test.h"
 #import "TransferString.h"
 #import <Foundation/Foundation.h>
 
@@ -34,8 +35,8 @@ namespace TestWebKitAPI {
 // Tests that NSString -> TransferString -> String is same as NSString -> String.
 TEST(TransferStringTests, CreateFromNSString)
 {
-    Vector<Latin1Character> longLatin1Data(1024*1024, 'a');
-    Vector<char16_t> longUnicodeData(1024*1200, u'a');
+    Vector<Latin1Character> longLatin1Data(FillWith { }, 1024*1024, 'a');
+    Vector<char16_t> longUnicodeData(FillWith { }, 1024*1200, u'a');
 
     RetainPtr<NSString> subcases[] = {
         nil,
@@ -50,12 +51,25 @@ TEST(TransferStringTests, CreateFromNSString)
     for (bool releaseToCopy : bools) {
         for (auto& subcase : subcases) {
             String wtfString { subcase.get() };
-            SCOPED_TRACE(::testing::Message() << "releaseToCopy: " << releaseToCopy << " subcase: \"" << wtfString << "\"" << " ptr: " << static_cast<void*>(subcase.get()));
-            auto ts = IPC::TransferString::create(subcase.get());
-            EXPECT_TRUE(ts.has_value());
-            auto string = releaseToCopy ? WTF::move(*ts).releaseToCopy() : WTF::move(*ts).release();
-            ASSERT_TRUE(string.has_value());
-            EXPECT_EQ(*string, wtfString);
+            {
+                SCOPED_TRACE(::testing::Message() << "TransferString(NSString *) releaseToCopy: " << releaseToCopy << " subcase: \"" << wtfString << "\"" << " ptr: " << static_cast<void*>(subcase.get()));
+                auto ts = IPC::TransferString::create(subcase.get());
+                EXPECT_TRUE(ts.has_value());
+                auto string = releaseToCopy ? WTF::move(*ts).releaseToCopy() : WTF::move(*ts).release();
+                ASSERT_TRUE(string.has_value());
+                EXPECT_EQ(*string, wtfString);
+            }
+
+            {
+                SCOPED_TRACE(::testing::Message() << "TransferString(NSString *) IPC encode/decode, releaseToCopy: " << releaseToCopy << " subcase: \"" << wtfString << "\"" << " ptr: " << static_cast<void*>(subcase.get()));
+                auto ts = IPC::TransferString::create(subcase.get());
+                EXPECT_TRUE(ts.has_value());
+                auto tsAfterIPC = copyViaEncoder(*ts);
+                ASSERT_TRUE(tsAfterIPC.has_value());
+                auto string = releaseToCopy ? WTF::move(*tsAfterIPC).releaseToCopy() : WTF::move(*tsAfterIPC).release();
+                ASSERT_TRUE(string.has_value());
+                EXPECT_EQ(*string, wtfString);
+            }
         }
     }
 }

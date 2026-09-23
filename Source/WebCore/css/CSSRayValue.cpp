@@ -31,8 +31,8 @@
 
 #include "CSSPrimitiveNumericTypes+CSSValueVisitation.h"
 #include "CSSPrimitiveNumericTypes+Serialization.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSValueKeywords.h"
+#include "StyleKeyword+Mappings.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {

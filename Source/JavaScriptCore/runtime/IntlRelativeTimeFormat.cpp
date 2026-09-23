@@ -63,7 +63,7 @@ IntlRelativeTimeFormat::IntlRelativeTimeFormat(VM& vm, Structure* structure)
 template<typename Visitor>
 void IntlRelativeTimeFormat::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<IntlRelativeTimeFormat*>(cell);
+    auto* thisObject = uncheckedDowncast<IntlRelativeTimeFormat>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
@@ -112,7 +112,8 @@ void IntlRelativeTimeFormat::initializeRelativeTimeFormat(JSGlobalObject* global
     }
 
     m_numberingSystem = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Nu)];
-    CString dataLocaleWithExtensions = makeString(resolved.dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
+    m_dataLocale = resolved.dataLocale;
+    CString dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.utf8() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
 
     m_style = intlOption<Style>(globalObject, options, vm.propertyNames->style, { { "long"_s, Style::Long }, { "short"_s, Style::Short }, { "narrow"_s, Style::Narrow } }, "style must be either \"long\", \"short\", or \"narrow\""_s, Style::Long);
     RETURN_IF_EXCEPTION(scope, void());
@@ -200,11 +201,13 @@ JSObject* IntlRelativeTimeFormat::resolvedOptions(JSGlobalObject* globalObject) 
     options->putDirect(vm, vm.propertyNames->locale, jsNontrivialString(vm, m_locale));
     options->putDirect(vm, vm.propertyNames->style, jsNontrivialString(vm, styleString(m_style)));
     options->putDirect(vm, vm.propertyNames->numeric, jsNontrivialString(vm, m_numeric ? "always"_s : "auto"_s));
+    if (m_numberingSystem.isNull())
+        m_numberingSystem = defaultNumberingSystemForLocale(m_dataLocale);
     options->putDirect(vm, vm.propertyNames->numberingSystem, jsNontrivialString(vm, m_numberingSystem));
     return options;
 }
 
-static StringView singularUnit(StringView unit)
+static StringView NODELETE singularUnit(StringView unit)
 {
     // Plurals are allowed, but thankfully they're all just a simple -s.
     return unit.endsWith('s') ? unit.left(unit.length() - 1) : unit;

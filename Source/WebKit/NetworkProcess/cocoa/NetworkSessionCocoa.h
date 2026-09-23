@@ -167,6 +167,8 @@ public:
 
     void setClientAuditToken(const WebCore::AuthenticationChallenge&);
 
+    bool canPrefetchDNS() const final;
+
     void continueDidReceiveChallenge(SessionWrapper&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, NetworkDataTaskCocoa::TaskIdentifier, RefPtr<NetworkDataTaskCocoa>, CompletionHandler<void(WebKit::AuthenticationChallengeDisposition, const WebCore::Credential&)>&&);
 
     // MAVERICKS_BACKPORT: part of restoring WKContextAllowSpecificHTTPSCertificateForHost, which
@@ -215,6 +217,8 @@ public:
     void setProxyConfigData(const Vector<std::pair<Vector<uint8_t>, std::optional<WTF::UUID>>>&) final;
 
     void applyProxyConfigurationToSessionConfiguration(NSURLSessionConfiguration *);
+    void applyProxyConfigurationToNWParametersForWebTransport(nw_parameters_t);
+    bool proxyConfigurationRequiresTCPProtocols() const;
 #endif
     bool isLegacyTLSAllowed() const { return m_isLegacyTLSAllowed; }
 
@@ -240,7 +244,7 @@ private:
     void deleteAlternativeServicesForHostNames(const Vector<String>&) override;
     void clearAlternativeServices(WallTime) override;
 
-    RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy) final;
+    RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker) final;
     void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) final;
     void removeWebSocketTask(SessionSet&, WebSocketTask&) final;
 

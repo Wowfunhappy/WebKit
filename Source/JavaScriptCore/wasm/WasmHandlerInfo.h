@@ -112,9 +112,9 @@ struct UnlinkedHandlerInfo : public HandlerInfoBase {
 };
 
 struct HandlerInfo : public HandlerInfoBase {
-    static const HandlerInfo* handlerForIndex(JSWebAssemblyInstance&, const FixedVector<HandlerInfo>& exeptionHandlers, unsigned index, const Wasm::Tag* exceptionTag);
+    static const HandlerInfo* NODELETE handlerForIndex(JSWebAssemblyInstance&, const FixedVector<HandlerInfo>& exeptionHandlers, unsigned index, const Wasm::Tag* exceptionTag);
 
-    void initialize(const UnlinkedHandlerInfo&, CodePtr<ExceptionHandlerPtrTag>);
+    void NODELETE initialize(const UnlinkedHandlerInfo&, CodePtr<ExceptionHandlerPtrTag>);
 
     unsigned tag() const
     {

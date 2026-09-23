@@ -136,7 +136,6 @@ typedef const struct OpaqueWKSessionState* WKSessionStateRef;
 typedef const struct OpaqueWKUserContentController* WKUserContentControllerRef;
 typedef const struct OpaqueWKUserContentExtensionStore* WKUserContentExtensionStoreRef;
 typedef const struct OpaqueWKUserContentFilter* WKUserContentFilterRef;
-typedef const struct OpaqueWKUserMediaPermissionCheck* WKUserMediaPermissionCheckRef;
 typedef const struct OpaqueWKUserMediaPermissionRequest* WKUserMediaPermissionRequestRef;
 typedef const struct OpaqueWKUserScript* WKUserScriptRef;
 typedef const struct OpaqueWKViewportAttributes* WKViewportAttributesRef;
@@ -144,7 +143,6 @@ typedef const struct OpaqueWKWebsiteDataConfigurationStore* WKWebsiteDataStoreCo
 typedef const struct OpaqueWKWebsiteDataStore* WKWebsiteDataStoreRef;
 typedef const struct OpaqueWKWebsitePolicies* WKWebsitePoliciesRef;
 typedef const struct OpaqueWKWindowFeatures* WKWindowFeaturesRef;
-typedef const struct OpaqueWKSpeechRecognitionPermissionCallback* WKSpeechRecognitionPermissionCallbackRef;
 typedef const struct OpaqueWKMediaKeySystemPermissionRequest* WKMediaKeySystemPermissionRequestRef;
 typedef const struct OpaqueWKMediaKeySystemPermissionCallback* WKMediaKeySystemPermissionCallbackRef;
 typedef const struct OpaqueWKQueryPermissionResultCallback* WKQueryPermissionResultCallbackRef;

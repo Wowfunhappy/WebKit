@@ -29,12 +29,11 @@
 
 #include "CSSVariableData.h"
 #include "StylePaintImage.h"
-#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-CSSPaintImageValue::CSSPaintImageValue(String&& name, Ref<CSSVariableData>&& arguments)
+CSSPaintImageValue::CSSPaintImageValue(CSS::CustomIdent&& name, Ref<CSSVariableData>&& arguments)
     : CSSValue { ClassType::PaintImage }
     , m_name { WTF::move(name) }
     , m_arguments { WTF::move(arguments) }
@@ -43,15 +42,20 @@ CSSPaintImageValue::CSSPaintImageValue(String&& name, Ref<CSSVariableData>&& arg
 
 CSSPaintImageValue::~CSSPaintImageValue() = default;
 
-String CSSPaintImageValue::customCSSText(const CSS::SerializationContext&) const
+String CSSPaintImageValue::customCSSText(const CSS::SerializationContext& context) const
 {
     // FIXME: This should include the arguments too.
-    return makeString("paint("_s, m_name, ')');
+
+    StringBuilder builder;
+    builder.append("paint("_s);
+    CSS::serializationForCSS(builder, context, m_name);
+    builder.append(')');
+    return builder.toString();
 }
 
-RefPtr<Style::Image> CSSPaintImageValue::createStyleImage(const Style::BuilderState&) const
+RefPtr<Style::Image> CSSPaintImageValue::createStyleImage(const Style::BuilderState& state) const
 {
-    return Style::PaintImage::create(m_name, m_arguments);
+    return Style::PaintImage::create(Style::toStyle(m_name, state), m_arguments);
 }
 
 } // namespace WebCore

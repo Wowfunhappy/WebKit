@@ -23,7 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <WebKit/WKFoundation.h>
 #import <WebKit/WKWebExtensionMatchPattern.h>
+
+static const WKWebExtensionMatchPatternOptions WKWebExtensionMatchPatternOptionsAllowFileScheme WK_API_AVAILABLE(macos(27.0), ios(27.0), visionos(27.0)) = 1 << 3;
 
 @interface WKWebExtensionMatchPattern ()
 

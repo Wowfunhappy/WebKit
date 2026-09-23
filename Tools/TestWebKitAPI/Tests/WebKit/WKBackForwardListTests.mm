@@ -27,18 +27,21 @@
 
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
-#import "SiteIsolationUtilities.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestUIDelegate.h"
 #import "TestWKWebView.h"
+#import <WebCore/Page.h>
 #import <WebKit/WKBackForwardListItemPrivate.h>
 #import <WebKit/WKBackForwardListPrivate.h>
 #import <WebKit/WKNavigationDelegatePrivate.h>
 #import <WebKit/WKNavigationPrivate.h>
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKFrameTreeNode.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKSessionState.h>
@@ -184,23 +187,23 @@ TEST(WKBackForwardList, InteractionStateRestoration)
 {
     auto webView = adoptNS([[WKWebView alloc] init]);
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
-    NSURL *url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [webView _test_waitForDidFinishNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [webView _test_waitForDidFinishNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url3]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url3.get()]];
     [webView _test_waitForDidFinishNavigation];
 
     WKBackForwardList *list = [webView backForwardList];
     EXPECT_EQ((NSUInteger)2, list.backList.count);
     EXPECT_EQ((NSUInteger)0, list.forwardList.count);
-    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, [url3 absoluteString].UTF8String);
 
     id interactionState = [webView interactionState];
     RetainPtr<NSURL> temporaryFile = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString] isDirectory:NO];
@@ -225,7 +228,7 @@ TEST(WKBackForwardList, InteractionStateRestoration)
 
     EXPECT_EQ((NSUInteger)2, newList.backList.count);
     EXPECT_EQ((NSUInteger)0, newList.forwardList.count);
-    EXPECT_STREQ([[newList.currentItem URL] absoluteString].UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([[newList.currentItem URL] absoluteString].UTF8String, [url3 absoluteString].UTF8String);
 
     done = false;
     [webView evaluateJavaScript:@"document.body.innerText" completionHandler:^(id result, NSError *error) {
@@ -265,53 +268,53 @@ TEST(WKBackForwardList, InteractionStateRestorationNil)
 {
     auto webView = adoptNS([[WKWebView alloc] init]);
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
-    NSURL *url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [webView _test_waitForDidFinishNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [webView _test_waitForDidFinishNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url3]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url3.get()]];
     [webView _test_waitForDidFinishNavigation];
 
     WKBackForwardList *list = [webView backForwardList];
     EXPECT_EQ((NSUInteger)2, list.backList.count);
     EXPECT_EQ((NSUInteger)0, list.forwardList.count);
-    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, [url3 absoluteString].UTF8String);
 
     [webView setInteractionState:nil];
 
     list = [webView backForwardList];
     EXPECT_EQ((NSUInteger)2, list.backList.count);
     EXPECT_EQ((NSUInteger)0, list.forwardList.count);
-    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, [url3 absoluteString].UTF8String);
 }
 
 TEST(WKBackForwardList, InteractionStateRestorationInvalid)
 {
     auto webView = adoptNS([[WKWebView alloc] init]);
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
-    NSURL *url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [webView _test_waitForDidFinishNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [webView _test_waitForDidFinishNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url3]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url3.get()]];
     [webView _test_waitForDidFinishNavigation];
 
     WKBackForwardList *list = [webView backForwardList];
     EXPECT_EQ((NSUInteger)2, list.backList.count);
     EXPECT_EQ((NSUInteger)0, list.forwardList.count);
-    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, [url3 absoluteString].UTF8String);
 
     NSString *invalidState = @"foo";
     [webView setInteractionState:invalidState];
@@ -319,7 +322,7 @@ TEST(WKBackForwardList, InteractionStateRestorationInvalid)
     list = [webView backForwardList];
     EXPECT_EQ((NSUInteger)2, list.backList.count);
     EXPECT_EQ((NSUInteger)0, list.forwardList.count);
-    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([[list.currentItem URL] absoluteString].UTF8String, [url3 absoluteString].UTF8String);
 }
 
 @interface WKBackForwardNavigationDelegate : NSObject <WKNavigationDelegatePrivate>
@@ -386,13 +389,13 @@ TEST(WKBackForwardList, BackSwipeNavigationSkipsItemsWithoutUserGesture)
     auto navigationDelegate = adoptNS([WKBackForwardNavigationDelegate new]);
     webView.get().navigationDelegate = navigationDelegate.get();
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // Add back/forward list items without user gestures.
@@ -413,7 +416,7 @@ TEST(WKBackForwardList, BackSwipeNavigationSkipsItemsWithoutUserGesture)
     [webView _completeBackSwipeForTesting];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url1.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url1 absoluteString].UTF8String);
 
     EXPECT_EQ([webView backForwardList].backList.count, 0U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 4U);
@@ -428,13 +431,13 @@ TEST(WKBackForwardList, BackSwipeNavigationDoesNotSkipItemsWithUserGesture)
     auto navigationDelegate = adoptNS([WKBackForwardNavigationDelegate new]);
     webView.get().navigationDelegate = navigationDelegate.get();
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // Add back/forward list item with a user gesture.
@@ -449,7 +452,7 @@ TEST(WKBackForwardList, BackSwipeNavigationDoesNotSkipItemsWithUserGesture)
     [webView _completeBackSwipeForTesting];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url2.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url2 absoluteString].UTF8String);
 
     EXPECT_EQ([webView backForwardList].backList.count, 1U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 1U);
@@ -464,14 +467,14 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     auto navigationDelegate = adoptNS([WKBackForwardNavigationDelegate new]);
     webView.get().navigationDelegate = navigationDelegate.get();
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
-    NSURL *url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url3 = [NSBundle.test_resourcesBundle URLForResource:@"simple3" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // Test case:
@@ -482,24 +485,24 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
     EXPECT_FALSE([lastNavigation _isUserInitiated]);
     EXPECT_TRUE(webView.get().backForwardList.currentItem._wasCreatedByJSWithoutUserInteraction);
-    RetainPtr expectedURLString = makeString(String(url2.absoluteString), "#a"_s).createNSString();
+    RetainPtr expectedURLString = makeString(String([url2 absoluteString]), "#a"_s).createNSString();
     EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, expectedURLString.get().UTF8String);
 
     navigate(webView.get(), "location.pathname + '#b'"_s);
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
     EXPECT_FALSE([lastNavigation _isUserInitiated]);
     EXPECT_TRUE(webView.get().backForwardList.currentItem._wasCreatedByJSWithoutUserInteraction);
-    expectedURLString = makeString(String(url2.absoluteString), "#b"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#b"_s).createNSString();
     EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, expectedURLString.get().UTF8String);
 
     navigate(webView.get(), "location.pathname + '#c'"_s);
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
     EXPECT_FALSE([lastNavigation _isUserInitiated]);
     EXPECT_TRUE(webView.get().backForwardList.currentItem._wasCreatedByJSWithoutUserInteraction);
-    expectedURLString = makeString(String(url2.absoluteString), "#c"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#c"_s).createNSString();
     EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, expectedURLString.get().UTF8String);
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url3]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url3.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
     EXPECT_FALSE(webView.get().backForwardList.currentItem._wasCreatedByJSWithoutUserInteraction);
 
@@ -511,7 +514,7 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // We should go back to url2#c.
-    expectedURLString = makeString(String(url2.absoluteString), "#c"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#c"_s).createNSString();
     EXPECT_STREQ([webView URL].absoluteString.UTF8String, expectedURLString.get().UTF8String);
     EXPECT_EQ([webView backForwardList].backList.count, 4U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 1U);
@@ -521,7 +524,7 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // We should have skipped over url2#b, url2#a and url2, to end up on url1.
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url1.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url1 absoluteString].UTF8String);
     EXPECT_EQ([webView backForwardList].backList.count, 0U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 5U);
 
@@ -530,7 +533,7 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // We should get to the latest url2 URL, that is url2#c.
-    expectedURLString = makeString(String(url2.absoluteString), "#c"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#c"_s).createNSString();
     EXPECT_STREQ([webView URL].absoluteString.UTF8String, expectedURLString.get().UTF8String);
     EXPECT_EQ([webView backForwardList].backList.count, 4U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 1U);
@@ -540,7 +543,7 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // We should now be on url3.
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url3.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url3 absoluteString].UTF8String);
     EXPECT_EQ([webView backForwardList].backList.count, 5U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 0U);
 
@@ -548,14 +551,14 @@ static void runBackForwardNavigationSkipsItemsWithoutUserGestureTest(Function<vo
     [webView _evaluateJavaScriptWithoutUserGesture:@"history.back();" completionHandler:^(id, NSError *) { }];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    expectedURLString = makeString(String(url2.absoluteString), "#c"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#c"_s).createNSString();
     EXPECT_STREQ([webView URL].absoluteString.UTF8String, expectedURLString.get().UTF8String);
     EXPECT_EQ([webView backForwardList].backList.count, 4U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 1U);
 
     [webView _evaluateJavaScriptWithoutUserGesture:@"history.back();" completionHandler:^(id, NSError *) { }];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
-    expectedURLString = makeString(String(url2.absoluteString), "#b"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#b"_s).createNSString();
     EXPECT_STREQ([webView URL].absoluteString.UTF8String, expectedURLString.get().UTF8String);
     EXPECT_EQ([webView backForwardList].backList.count, 3U);
     EXPECT_EQ([webView backForwardList].forwardList.count, 2U);
@@ -681,48 +684,48 @@ static void runBackForwardNavigationDoesNotSkipItemsWithUserGestureTest(Function
     // Test case: url1 -> url2 -> url2#a (with user gesture)
     // No item should be skipped when navigating backwards or forwards.
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     // Add back/forward list items without user gestures.
     navigate(webView.get(), "#a"_s);
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
-    RetainPtr expectedURLString = makeString(String(url2.absoluteString), "#a"_s).createNSString();
+    RetainPtr expectedURLString = makeString(String([url2 absoluteString]), "#a"_s).createNSString();
     EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, expectedURLString.get().UTF8String);
 
-    auto* lastURL = [webView URL];
-    EXPECT_FALSE([lastURL isEqual:url2]);
+    RetainPtr lastURL = [webView URL];
+    EXPECT_FALSE([lastURL isEqual:url2.get()]);
 
     EXPECT_FALSE(webView.get().backForwardList.backItem._wasCreatedByJSWithoutUserInteraction);
     [webView goBack];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
-    EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, url2.absoluteString.UTF8String);
+    EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, [url2 absoluteString].UTF8String);
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url2.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url2 absoluteString].UTF8String);
 
     EXPECT_FALSE(webView.get().backForwardList.backItem._wasCreatedByJSWithoutUserInteraction);
     [webView goBack];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url1.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url1 absoluteString].UTF8String);
 
     [webView goForward];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url2.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url2 absoluteString].UTF8String);
 
     [webView goForward];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
-    expectedURLString = makeString(String(url2.absoluteString), "#a"_s).createNSString();
+    expectedURLString = makeString(String([url2 absoluteString]), "#a"_s).createNSString();
     EXPECT_WK_STREQ([lastNavigation _request].URL.absoluteString.UTF8String, expectedURLString.get().UTF8String);
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, lastURL.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [lastURL absoluteString].UTF8String);
 }
 
 TEST(WKBackForwardList, BackForwardNavigationDoesNotSkipItemsWithUserGesturePushState)
@@ -770,17 +773,17 @@ TEST(WKBackForwardList, BackForwardNavigationDoesNotSkipUpdatedItemWithRecentUse
     auto navigationDelegate = adoptNS([WKBackForwardNavigationDelegate new]);
     webView.get().navigationDelegate = navigationDelegate.get();
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"fragment-navigation-before-load-event" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"fragment-navigation-before-load-event" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [navigationDelegate waitForDidFinishNavigation];
 
     // Page navigated to #fragment before the load event.
-    RetainPtr expectedURLString = makeString(String(url2.absoluteString), "#fragment"_s).createNSString();
+    RetainPtr expectedURLString = makeString(String([url2 absoluteString]), "#fragment"_s).createNSString();
     EXPECT_STREQ([webView URL].absoluteString.UTF8String, expectedURLString.get().UTF8String);
 
     // Navigate with a user gesture.
@@ -801,10 +804,10 @@ TEST(WKBackForwardList, BackNavigationHijacking)
     auto navigationDelegate = adoptNS([WKBackForwardNavigationDelegate new]);
     webView.get().navigationDelegate = navigationDelegate.get();
 
-    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
-    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
+    RetainPtr url1 = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr url2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url1]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url1.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
 
     [webView _evaluateJavaScriptWithoutUserGesture:@"history.pushState(null, null, '');" completionHandler:nil];
@@ -815,20 +818,20 @@ TEST(WKBackForwardList, BackNavigationHijacking)
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
     TestWebKitAPI::Util::run(&ranJS);
 
-    [webView loadRequest:[NSURLRequest requestWithURL:url2]];
+    [webView loadRequest:[NSURLRequest requestWithURL:url2.get()]];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url2.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url2 absoluteString].UTF8String);
 
     EXPECT_TRUE(webView.get().backForwardList.backItem._wasCreatedByJSWithoutUserInteraction);
     [webView goBack];
     [navigationDelegate waitForDidFinishNavigationOrDidSameDocumentNavigation];
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url1.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url1 absoluteString].UTF8String);
 
     TestWebKitAPI::Util::spinRunLoop(10);
     usleep(100000);
     TestWebKitAPI::Util::spinRunLoop(10);
 
-    EXPECT_STREQ([webView URL].absoluteString.UTF8String, url1.absoluteString.UTF8String);
+    EXPECT_STREQ([webView URL].absoluteString.UTF8String, [url1 absoluteString].UTF8String);
 }
 
 TEST(WKBackForwardList, BackForwardListRemoveAndAddSubframes)
@@ -933,205 +936,436 @@ TEST(WKBackForwardList, GoBackToPageAfterNavigatingIframeAndRestoringSession)
     EXPECT_WK_STREQ([webView URL].absoluteString, server.request("/example"_s).URL.absoluteString.UTF8String);
 }
 
-TEST(WKBackForwardList, RestoreSessionForSiteWithCOOP)
+#if ENABLE(IPC_TESTING_API)
+
+static void enableIPCTestingAPI(WKWebViewConfiguration *configuration)
 {
-    TestWebKitAPI::HTTPServer server({
-        { "/main"_s, { { { "Content-Type"_s, "text/html"_s }, { "cross-origin-opener-policy"_s, "same-origin"_s } }, "<p>main</p><iframe src='/frame'></iframe>"_s } },
-        { "/frame"_s, { "<p>iframe</p><script>alert(location.href + ' is loaded');</script>"_s } },
-    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
-
-    RetainPtr configuration = server.httpsProxyConfiguration();
-    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
-    [navigationDelegate allowAnyTLSCertificate];
-    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    webView.get().navigationDelegate = navigationDelegate.get();
-
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/main"]]];
-    EXPECT_WK_STREQ([webView _test_waitForAlert], "https://example.com/frame is loaded");
-
-    RetainPtr webView2 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    webView2.get().navigationDelegate = navigationDelegate.get();
-    [webView2 _restoreSessionState:[webView _sessionState] andNavigate:YES];
-    EXPECT_WK_STREQ([webView2 _test_waitForAlert], "https://example.com/frame is loaded");
-}
-
-enum class ShouldEnablePageCache : bool { No, Yes };
-static void runGoBackAfterNavigatingSameSiteIframe(ShouldEnablePageCache shouldEnablePageCache)
-{
-    TestWebKitAPI::HTTPServer server({
-        { "/main"_s, { "<iframe id='iframe' src='/frame'></iframe>"_s } },
-        { "/frame"_s, { "hi"_s } },
-    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
-
-    RetainPtr configuration = server.httpsProxyConfiguration();
-    RetainPtr processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
-    processPoolConfiguration.get().pageCacheEnabled = shouldEnablePageCache == ShouldEnablePageCache::Yes;
-    RetainPtr processPool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration.get()]);
-    [configuration setProcessPool:processPool.get()];
-    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
-    [navigationDelegate allowAnyTLSCertificate];
-    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    // FIXME: Remove once the back-forward cache is enabled for site isolation: rdar://161762363.
-    const bool backForwardCacheEnabled = isUsingBackForwardCache(webView.get());
-    webView.get().navigationDelegate = navigationDelegate.get();
-    static bool didCommitLoadForAllFrames = false;
-    static unsigned expectedCommittedFrameSize = 2;
-    static Vector<RetainPtr<WKFrameInfo>> committedFrames;
-    navigationDelegate.get().didCommitLoadWithRequestInFrame = makeBlockPtr([&](WKWebView *, NSURLRequest *, WKFrameInfo *frameInfo) {
-        committedFrames.append(frameInfo);
-        if (committedFrames.size() == expectedCommittedFrameSize)
-            didCommitLoadForAllFrames = true;
-    }).get();
-
-    // After initial loading, page has a main frame and a same-site iframe.
-    didCommitLoadForAllFrames = false;
-    expectedCommittedFrameSize = 2;
-    committedFrames.clear();
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/main"]]];
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_TRUE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://example.com/main");
-    EXPECT_FALSE([committedFrames[1] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[1] request].URL.absoluteString, "https://example.com/frame");
-    committedFrames.clear();
-    didCommitLoadForAllFrames = false;
-
-    // Navigate iframe cross-site.
-    expectedCommittedFrameSize = 1;
-    [webView evaluateJavaScript:@"document.getElementById('iframe').src = 'https://frame.com/frame'" completionHandler:nil];
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_FALSE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://frame.com/frame");
-    committedFrames.clear();
-    didCommitLoadForAllFrames = false;
-
-    // Navigate main frame cross-site.
-    expectedCommittedFrameSize = 1;
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example2.com/frame"]]];
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_TRUE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://example2.com/frame");
-    committedFrames.clear();
-    didCommitLoadForAllFrames = false;
-
-    EXPECT_EQ(YES, [webView canGoBack]);
-    EXPECT_EQ([webView backForwardList].backList.count, 2U);
-    EXPECT_EQ([webView backForwardList].forwardList.count, 0U);
-
-    // Navigate main frame back.
-    // For page cache case, iframe is not reloaded, so there is only one commit.
-    expectedCommittedFrameSize = backForwardCacheEnabled ? 1 : 2;
-    [webView goBack];
-
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_WK_STREQ([webView URL].absoluteString, @"https://example.com/main");
-    EXPECT_TRUE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://example.com/main");
-    if (expectedCommittedFrameSize == 1) {
-        EXPECT_FALSE([[webView firstChildFrame] isMainFrame]);
-        EXPECT_WK_STREQ([[webView firstChildFrame] request].URL.absoluteString, "https://frame.com/frame");
-    } else {
-        EXPECT_FALSE([committedFrames[1] isMainFrame]);
-        EXPECT_WK_STREQ([committedFrames[1] request].URL.absoluteString, "https://frame.com/frame");
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"]) {
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+            break;
+        }
     }
 }
 
-TEST(WKBackForwardList, PageCacheGoBackAfterNavigatingSameSiteIframe)
-{
-    runGoBackAfterNavigatingSameSiteIframe(ShouldEnablePageCache::Yes);
-}
-
-TEST(WKBackForwardList, NoPageCacheGoBackAfterNavigatingSameSiteIframe)
-{
-    runGoBackAfterNavigatingSameSiteIframe(ShouldEnablePageCache::No);
-}
-
-static void runGoBackAfterNavigatingSameSiteIframe2(ShouldEnablePageCache shouldEnablePageCache)
+TEST(WKBackForwardList, BackForwardUpdateItemRejectsFileURL)
 {
     TestWebKitAPI::HTTPServer server({
-        { "/main"_s, { "<iframe id='iframe' src='/frame'></iframe>"_s } },
-        { "/frame"_s, { "hi"_s } },
-    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
+        { "/page"_s, { "<!DOCTYPE html><html><body>page</body></html>"_s } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
 
-    RetainPtr configuration = server.httpsProxyConfiguration();
-    RetainPtr processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
-    processPoolConfiguration.get().pageCacheEnabled = shouldEnablePageCache == ShouldEnablePageCache::Yes;
-    RetainPtr processPool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration.get()]);
-    [configuration setProcessPool:processPool.get()];
-    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
-    [navigationDelegate allowAnyTLSCertificate];
-    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    // FIXME: Remove once the back-forward cache is enabled for site isolation: rdar://161762363.
-    const bool backForwardCacheEnabled = isUsingBackForwardCache(webView.get());
-    webView.get().navigationDelegate = navigationDelegate.get();
-    static bool didCommitLoadForAllFrames = false;
-    static unsigned expectedCommittedFrameSize = 2;
-    static Vector<RetainPtr<WKFrameInfo>> committedFrames;
-    navigationDelegate.get().didCommitLoadWithRequestInFrame = makeBlockPtr([&](WKWebView *, NSURLRequest *, WKFrameInfo *frameInfo) {
-        committedFrames.append(frameInfo);
-        if (committedFrames.size() == expectedCommittedFrameSize)
-            didCommitLoadForAllFrames = true;
-    }).get();
+    auto poolConfig = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
+    [poolConfig setProcessSwapsOnNavigation:YES];
+    auto pool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:poolConfig.get()]);
 
-    // After initial loading, page has a main frame and a same-site iframe.
-    didCommitLoadForAllFrames = false;
-    expectedCommittedFrameSize = 2;
-    committedFrames.clear();
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/main"]]];
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_TRUE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://example.com/main");
-    EXPECT_FALSE([committedFrames[1] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[1] request].URL.absoluteString, "https://example.com/frame");
-    committedFrames.clear();
-    didCommitLoadForAllFrames = false;
+    auto configA = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configA setProcessPool:pool.get()];
+    enableIPCTestingAPI(configA.get());
 
-    // Navigate iframe cross-site.
-    expectedCommittedFrameSize = 1;
-    [webView evaluateJavaScript:@"document.getElementById('iframe').src = 'https://frame.com/frame'" completionHandler:nil];
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_FALSE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://frame.com/frame");
-    committedFrames.clear();
-    didCommitLoadForAllFrames = false;
+    auto webViewA = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configA.get()]);
+    [webViewA synchronouslyLoadRequest:server.request("/page"_s)];
 
-    // Navigate main frame same-site.
-    expectedCommittedFrameSize = 1;
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/frame"]]];
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_TRUE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://example.com/frame");
-    committedFrames.clear();
-    didCommitLoadForAllFrames = false;
+    // B shares A's process via _relatedWebView.
+    auto configB = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configB setProcessPool:pool.get()];
+    configB.get()._relatedWebView = webViewA.get();
+    enableIPCTestingAPI(configB.get());
 
-    EXPECT_EQ(YES, [webView canGoBack]);
-    EXPECT_EQ([webView backForwardList].backList.count, 2U);
-    EXPECT_EQ([webView backForwardList].forwardList.count, 0U);
+    auto webViewB = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configB.get()]);
+    [webViewB synchronouslyLoadRequest:server.request("/page"_s)];
 
-    // Navigate main frame back.
-    // For page cache case, iframe is not reloaded, so there is only one commit.
-    expectedCommittedFrameSize = backForwardCacheEnabled ? 1 : 2;
-    [webView goBack];
+    EXPECT_EQ([webViewA _webProcessIdentifier], [webViewB _webProcessIdentifier]);
 
-    TestWebKitAPI::Util::run(&didCommitLoadForAllFrames);
-    EXPECT_WK_STREQ([webView URL].absoluteString, @"https://example.com/main");
-    EXPECT_TRUE([committedFrames[0] isMainFrame]);
-    EXPECT_WK_STREQ([committedFrames[0] request].URL.absoluteString, "https://example.com/main");
-    if (expectedCommittedFrameSize == 1) {
-        EXPECT_FALSE([[webView firstChildFrame] isMainFrame]);
-        EXPECT_WK_STREQ([[webView firstChildFrame] request].URL.absoluteString, "https://frame.com/frame");
-    } else {
-        EXPECT_FALSE([committedFrames[1] isMainFrame]);
-        EXPECT_WK_STREQ([committedFrames[1] request].URL.absoluteString, "https://frame.com/frame");
+    long long bPageID = [[webViewB stringByEvaluatingJavaScript:@"String(IPC.pageID)"] longLongValue];
+    EXPECT_GT(bPageID, 0LL);
+
+    // Using pushState on A, capture an `AddItem` IPC message for later use.
+    [webViewA stringByEvaluatingJavaScript:
+        @"(function() {"
+        "    var addName = null, updateName = null;"
+        "    var keys = Object.keys(IPC.messages);"
+        "    for (var i = 0; i < keys.length; i++) {"
+        "        if (keys[i].indexOf('BackForwardAddItem') !== -1 && keys[i].indexOf('InProcess') === -1)"
+        "            addName = IPC.messages[keys[i]].name;"
+        "        if (keys[i].indexOf('BackForwardUpdateItem') !== -1)"
+        "            updateName = IPC.messages[keys[i]].name;"
+        "    }"
+        "    window._updateItemMsgName = updateName;"
+        "    window._addBuf = null;"
+        "    IPC.addOutgoingMessageListener('UI', function(msg) {"
+        "        if (msg.name === addName && msg.buffer)"
+        "            window._addBuf = new Uint8Array(msg.buffer.slice(0));"
+        "    });"
+        "    history.pushState({}, '', '?pad=' + 'X'.repeat(40));"
+        "})()"
+    ];
+    int attempts = 0;
+    while (![[webViewA stringByEvaluatingJavaScript:@"window._addBuf ? 'ok' : ''"] isEqualToString:@"ok"] && ++attempts < 50)
+        TestWebKitAPI::Util::spinRunLoop(5);
+    EXPECT_LT(attempts, 50);
+
+    // Modify the captured buffer to carry a file:// URL, then send it as
+    // BackForwardUpdateItem to page B's destination ID. B's handler
+    // resolves A's item via the global itemForID map — the ownership
+    // check (item->pageID() vs B's identifier) must reject it.
+    NSString *attackJS = [NSString stringWithFormat:
+        @"(function() {"
+        "var HDR = 0x10;"
+        "var args = new Uint8Array(window._addBuf.buffer.slice(HDR));"
+        "var origURL = location.href;"
+        "var targetBase = 'file:///etc/passwd';"
+        "var padTarget = targetBase + '/'.repeat(Math.max(0, origURL.length - targetBase.length));"
+        "if (padTarget.length !== origURL.length) return 'FAIL:len_mismatch';"
+        "var oldBytes = new TextEncoder().encode(origURL);"
+        "var newBytes = new TextEncoder().encode(padTarget);"
+        "var count = 0;"
+        "for (var i = 0; i <= args.length - oldBytes.length; i++) {"
+        "    var match = true;"
+        "    for (var j = 0; j < oldBytes.length; j++) {"
+        "        if (args[i+j] !== oldBytes[j]) { match = false; break; }"
+        "    }"
+        "    if (match) {"
+        "        args.set(newBytes, i);"
+        "        count++;"
+        "        i += oldBytes.length - 1;"
+        "    }"
+        "}"
+        "if (!count) return 'FAIL:no_url_found';"
+        "IPC.sendMessage('UI', %lld, window._updateItemMsgName, args);"
+        "return 'sent:' + count;"
+        "})()", bPageID
+    ];
+    NSString *attackResult = [webViewA stringByEvaluatingJavaScript:attackJS];
+    EXPECT_TRUE([attackResult hasPrefix:@"sent:"]);
+
+    for (int i = 0; i < 100; i++)
+        TestWebKitAPI::Util::spinRunLoop();
+
+    WKBackForwardList *list = [webViewA backForwardList];
+    EXPECT_FALSE([list.currentItem.URL.absoluteString hasPrefix:@"file://"]);
+    for (WKBackForwardListItem *item in list.backList)
+        EXPECT_FALSE([item.URL.absoluteString hasPrefix:@"file://"]);
+}
+
+static constexpr auto forgedFileURLTestMainBytes = R"TESTRESOURCE(
+<!DOCTYPE html>
+<script src="coreipc.js"></script>
+<script>
+(async () => {
+    if (typeof IPC !== 'object') {
+        alert('FAIL: IPC testing API not available');
+        return;
     }
+
+    // Patch the shared coreipc.js: parseMarkable returns a flat value when present,
+    // but serializeMarkable expects it wrapped in { optionalValue }. Make them agree
+    // for the duration of this test.
+    const origParseMarkable = ArgumentParser.parseMarkable;
+    ArgumentParser.parseMarkable = function (buffer, position, innerType) {
+        const [newPos, result] = origParseMarkable.call(this, buffer, position, innerType);
+        if (result && typeof result === 'object' && Object.keys(result).length > 0 && !Object.hasOwn(result, 'optionalValue'))
+            return [newPos, { optionalValue: result }];
+        return [newPos, result];
+    };
+
+    const CoreIPC = new CoreIPCClass();
+
+    // Fixups for FrameState round-tripping.
+    function fixTypeInfo(ti) {
+        for (const k in ti) {
+            const v = ti[k];
+            if (!Array.isArray(v)) continue;
+            for (const f of v) {
+                if (typeof f.type === 'string') {
+                    if (f.type.startsWith('HashSet<') && f.type.includes(', IntHash')) {
+                        const inner = f.type.slice('HashSet<'.length, -1).split(',')[0].trim();
+                        f.type = 'HashSet<' + inner + '>';
+                    }
+                    f.type = f.type.replace(/std::monostate/g, 'std::nullptr_t');
+                }
+                if (f.variantTypes)
+                    f.variantTypes = f.variantTypes.map(t => t === 'std::monostate' ? 'std::nullptr_t' : t);
+            }
+        }
+    }
+    fixTypeInfo(CoreIPC.typeInfo);
+    try { fixTypeInfo(IPC.serializedTypeInfo); } catch (e) {}
+
+    const origSerializeOptional = ArgumentSerializer.prototype.serializeOptional;
+    ArgumentSerializer.prototype.serializeOptional = function (t, a) { return origSerializeOptional.call(this, t, a ?? {}); };
+    const origSerializeMarkable = ArgumentSerializer.prototype.serializeMarkable;
+    ArgumentSerializer.prototype.serializeMarkable = function (t, a) { return origSerializeMarkable.call(this, t, a ?? {}); };
+
+    function fixNullVariants(o, depth = 0) {
+        if (depth > 100) return o;
+        if (o && typeof o === 'object') {
+            if (o.variantType === 'std::nullptr_t' && o.variant === 'null') o.variant = null;
+            for (const k in o) fixNullVariants(o[k], depth + 1);
+        }
+        return o;
+    }
+
+    // Capture a legitimate BackForwardAddItem IPC template via same-origin pushState.
+    let bfTemplate = null;
+    const BF_NAME = IPC.messages.WebBackForwardList_BackForwardAddItem.name;
+    const tap = new IPCWireTap('UI', 'Outgoing');
+    tap.tapAll((proc, dest, name, typed, parsed) => {
+        if (name === BF_NAME && !bfTemplate)
+            bfTemplate = parsed;
+    });
+    history.pushState({}, '', location.pathname + '?capture=1');
+    for (let i = 0; i < 40 && !bfTemplate; i++)
+        await new Promise(r => setTimeout(r, 25));
+    if (!bfTemplate) {
+        alert('FAIL: could not capture BackForwardAddItem template');
+        return;
+    }
+    fixNullVariants(bfTemplate);
+
+    // Our process identifier, extracted from the captured item's BackForwardItemIdentifier.
+    const myProcId = bfTemplate.navigatedFrameState.itemID.optionalValue.processIdentifier;
+
+    // Forge a BackForwardAddItem for a file:// URL this process has never visited.
+    const forgedItemID = { object: 0x5a5a5a5an, processIdentifier: myProcId };
+    const forgedFrameItemID = { object: 0x5b5b5b5bn, processIdentifier: myProcId };
+    const fs = bfTemplate.navigatedFrameState;
+    fs.urlString = 'file:///etc/forged-never-visited-by-this-process';
+    fs.originalURLString = fs.urlString;
+    fs.referrer = '';
+    fs.target = { string: '' };
+    fs.title = '';
+    fs.frameID = { optionalValue: BigInt(IPC.frameID) };
+    fs.itemID = { optionalValue: forgedItemID };
+    fs.frameItemID = { optionalValue: forgedFrameItemID };
+    fs.children = [];
+    fs.stateObjectData = {};
+    fs.httpBody = {};
+    fs.sessionStateObject = {};
+    fs.documentState = [];
+
+    CoreIPC.UI.WebBackForwardList.BackForwardAddItem(IPC.webPageProxyID, bfTemplate);
+
+    // Yield so the UI process can dispatch the (rejected) message.
+    await new Promise(r => setTimeout(r, 100));
+
+    // Synchronous probe: is the forged item in the back-forward list?
+    let wasAdded = null;
+    CoreIPC.UI.WebBackForwardList.BackForwardListContainsItem(IPC.webPageProxyID,
+        { itemID: forgedItemID },
+        (reply) => { wasAdded = reply.contains; });
+
+    if (wasAdded === false)
+        alert('PASS: forged file:// back-forward item was rejected by MESSAGE_CHECK');
+    else
+        alert('FAIL: forged file:// back-forward item leaked into the list (wasAdded=' + wasAdded + ')');
+})().catch(e => alert('FAIL: ' + e + '\n' + (e && e.stack ? e.stack : '')));
+</script>
+)TESTRESOURCE"_s;
+
+TEST(WKBackForwardList, ForgedFileURLItemIsRejected)
+{
+    RetainPtr coreIPCURL = [NSBundle.test_resourcesBundle URLForResource:@"coreipc" withExtension:@"js"];
+    RetainPtr coreIPCData = [NSData dataWithContentsOfURL:coreIPCURL.get()];
+
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { forgedFileURLTestMainBytes } },
+        { "/coreipc.js"_s, { { { "Content-Type"_s, "text/javascript"_s } }, coreIPCData.get() } },
+    });
+
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"]) {
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+            break;
+        }
+    }
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get()]);
+    [webView loadRequest:server.request("/"_s)];
+
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "PASS: forged file:// back-forward item was rejected by MESSAGE_CHECK");
 }
 
-TEST(WKBackForwardList, PageCacheGoBackAfterNavigatingSameSiteIframe2)
+static constexpr auto messageCheckSpoofHTML = R"TESTRESOURCE(
+<!DOCTYPE html>
+<script src="coreipc.js"></script>
+<script>
+
+const origParseMarkable = ArgumentParser.parseMarkable;
+ArgumentParser.parseMarkable = function (buffer, position, innerType) {
+    const [newPos, result] = origParseMarkable.call(this, buffer, position, innerType);
+    if (result && typeof result === 'object' && Object.keys(result).length > 0 && !Object.hasOwn(result, 'optionalValue'))
+        return [newPos, { optionalValue: result }];
+    return [newPos, result];
+};
+
+const wiretap = new IPCWireTap('UI', 'Outgoing');
+
+let frameItemIDCounter = 100000n;
+
+window.spoofBackForwardSetChildItem = function(topURL, nestedChildURLs) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timed out waiting for outgoing BackForwardAddItem')), 5000);
+
+        wiretap.tapNext(IPC.messages['WebBackForwardList_BackForwardAddItem'].name,
+            (process, connectionID, messageName, typedResult, result) => {
+                clearTimeout(timer);
+                try {
+                    if (!result) {
+                        reject(new Error('BackForwardAddItem result was undefined (parse likely failed; see WireTap console output)'));
+                        return;
+                    }
+
+                    const parentFrameItemID = result.navigatedFrameState && result.navigatedFrameState.frameItemID && result.navigatedFrameState.frameItemID.optionalValue;
+                    if (!parentFrameItemID || parentFrameItemID.object === undefined) {
+                        reject(new Error('navigatedFrameState.frameItemID was empty or missing fields; expected a present Markable from a real pushState'));
+                        return;
+                    }
+
+                    const fresh = () => ({
+                        object: ++frameItemIDCounter,
+                        processIdentifier: parentFrameItemID.processIdentifier
+                    });
+
+                    const makeFrameState = (urlString, children) => ({
+                        urlString: urlString,
+                        originalURLString: urlString,
+                        referrer: "",
+                        target: { string: "" },
+                        frameID: { },
+                        stateObjectData: { },
+                        documentSequenceNumber: 0n,
+                        itemSequenceNumber: 0n,
+                        navigationAPIKey: { },
+                        scrollPosition: { x: 0, y: 0 },
+                        shouldRestoreScrollPosition: false,
+                        pageScaleFactor: 0,
+                        httpBody: { },
+                        itemID: { },
+                        frameItemID: { optionalValue: fresh() },
+                        title: "",
+                        shouldOpenExternalURLsPolicy: 0,
+                        sessionStateObject: { },
+                        wasCreatedByJSWithoutUserInteraction: false,
+                        wasRestoredFromSession: false,
+                        policyContainer: { },
+                        children: children,
+                        documentState: []
+                    });
+
+                    // Build children[0] -> children[0] -> ... -> nestedChildURLs[N-1] chain.
+                    let chain = [];
+                    for (let i = nestedChildURLs.length - 1; i >= 0; --i)
+                        chain = [makeFrameState(nestedChildURLs[i], chain)];
+
+                    CoreIPC.UI.WebBackForwardList.BackForwardSetChildItem(IPC.pageID, {
+                        frameItemID: parentFrameItemID,
+                        frameState: makeFrameState(topURL, chain)
+                    });
+                    resolve();
+                } catch (e) {
+                    reject(new Error(`Tap callback failed: ${e && e.stack ? e.stack : e}`));
+                }
+            });
+
+        // Triggering a same-document pushState gets the WebContent process to send
+        // BackForwardAddItem out, which the wiretap above will intercept.
+        history.pushState(null, '', '#trigger-' + Math.random());
+    });
+};
+</script>
+)TESTRESOURCE"_s;
+
+static RetainPtr<NSString> runMessageCheckSpoof(NSString *topURL, NSArray<NSString *> *nestedChildURLs)
 {
-    runGoBackAfterNavigatingSameSiteIframe2(ShouldEnablePageCache::Yes);
+    RetainPtr coreIPCURL = [NSBundle.test_resourcesBundle URLForResource:@"coreipc" withExtension:@"js"];
+    RetainPtr coreIPCData = [NSData dataWithContentsOfURL:coreIPCURL.get()];
+
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { messageCheckSpoofHTML } },
+        { "/coreipc.js"_s, { { { "Content-Type"_s, "text/javascript"_s } }, coreIPCData.get() } },
+    });
+
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    enableIPCTestingAPI(configuration.get());
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView synchronouslyLoadRequest:server.request("/"_s)];
+
+    __block bool spoofDone = false;
+    __block RetainPtr<NSError> spoofError;
+    NSDictionary *args = @{
+        @"topURL": topURL,
+        @"nested": nestedChildURLs,
+    };
+    [webView callAsyncJavaScript:@"return spoofBackForwardSetChildItem(topURL, nested);"
+        arguments:args
+        inFrame:nil
+        inContentWorld:WKContentWorld.pageWorld
+        completionHandler:^(id result, NSError *error) {
+            spoofError = error;
+            spoofDone = true;
+        }];
+    TestWebKitAPI::Util::run(&spoofDone);
+    if (spoofError)
+        NSLog(@"spoofBackForwardSetChildItem rejected: %@", spoofError.get());
+    EXPECT_NULL(spoofError.get());
+
+    // Let the spoofed BackForwardSetChildItem reach the UIProcess and get dispatched.
+    TestWebKitAPI::Util::spinRunLoop(30);
+    TestWebKitAPI::Util::runFor(0.05_s);
+
+    return [[webView backForwardList] _loggingStringForTesting];
 }
 
-TEST(WKBackForwardList, NoPageCacheGoBackAfterNavigatingSameSiteIframe2)
+TEST(WKBackForwardList, MessageCheckRejectsNestedFileURLChild)
 {
-    runGoBackAfterNavigatingSameSiteIframe2(ShouldEnablePageCache::No);
+    NSString *fileURL = @"file:///Users/victim/Library/Cookies/Cookies.binarycookies";
+    RetainPtr logging = runMessageCheckSpoof(@"https://attacker.example/innocuous", @[ fileURL ]);
+    EXPECT_FALSE([logging containsString:fileURL]);
+    EXPECT_FALSE([logging containsString:@"file://"]);
 }
+
+TEST(WKBackForwardList, MessageCheckRejectsDeeplyNestedFileURLChild)
+{
+    NSString *fileURL = @"file:///etc/passwd";
+    NSArray *nestedChain = @[
+        @"https://attacker.example/level1",
+        @"https://attacker.example/level2",
+        @"https://attacker.example/level3",
+        @"https://attacker.example/level4",
+        fileURL,
+    ];
+    RetainPtr logging = runMessageCheckSpoof(@"https://attacker.example/innocuous", nestedChain);
+    EXPECT_FALSE([logging containsString:fileURL]);
+    EXPECT_FALSE([logging containsString:@"file://"]);
+}
+
+TEST(WKBackForwardList, MessageCheckRejectsExcessiveChildDepth)
+{
+    // Send a chain guaranteed to be deeper than the max frame depth to catch the message check.
+    static constexpr unsigned chainDepth = static_cast<unsigned>(WebCore::Page::maxFrameDepth) + 1;
+
+    RetainPtr nestedChain = adoptNS([[NSMutableArray alloc] initWithCapacity:chainDepth]);
+    for (unsigned i = 0; i < chainDepth; ++i)
+        [nestedChain addObject:[NSString stringWithFormat:@"https://attacker.example/depth-%u", i]];
+
+    NSString *probeURL = [nestedChain lastObject];
+
+    RetainPtr logging = runMessageCheckSpoof(@"https://attacker.example/innocuous", nestedChain.get());
+    EXPECT_FALSE([logging containsString:probeURL]);
+}
+
+TEST(WKBackForwardList, MessageCheckAcceptsBenignNestedChildren)
+{
+    NSString *innerURL = @"https://example.com/inner";
+    NSArray *nestedChain = @[
+        @"https://example.com/middle",
+        innerURL,
+    ];
+    RetainPtr logging = runMessageCheckSpoof(@"https://example.com/outer", nestedChain);
+    EXPECT_TRUE([logging containsString:innerURL]);
+    EXPECT_TRUE([logging containsString:@"https://example.com/outer"]);
+    EXPECT_TRUE([logging containsString:@"https://example.com/middle"]);
+}
+
+#endif // ENABLE(IPC_TESTING_API)

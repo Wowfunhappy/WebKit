@@ -23,12 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/payment-request/#paymentdetailsmodifier-dictionary
+
 [
     Conditional=PAYMENT_REQUEST,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary PaymentDetailsModifier {
     required DOMString supportedMethods;
     PaymentItem total;
-    sequence<PaymentItem> additionalDisplayItems;
+    [ImplementationDefaultValue=[]] sequence<PaymentItem> additionalDisplayItems;
     object data;
 };

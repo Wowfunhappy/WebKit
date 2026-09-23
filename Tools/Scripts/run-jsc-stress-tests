@@ -514,46 +514,38 @@ def determineArchitectureFromMachOBinary
 end
 
 def determineArchitectureFromELFBinary
-    f = File.open($jscPath.to_s)
+    f = File.open($jscPath.to_s, "rb")
     data = f.read(20)
 
-    if !(data[0,4] == "\x7F\x45\x4C\x46")
+    if data[0, 4].bytes != [0x7F, 0x45, 0x4C, 0x46]
         $stderr.puts "Warning: Missing ELF magic in file #{Shellwords.shellescape($jscPath.to_s)}"
         return nil
     end
 
     # MIPS and PowerPC may be either big- or little-endian. S390 (which includes
     # S390x) is big-endian. The rest are little-endian.
-    # For RISC-V, to avoid encoding problems, construct the comparison string
-    # by packing a char array matching the ELF's RISC-V machine value.
-    code = data[18, 20]
+    code = data[18, 2].bytes
     case code
-    when "\x03\0"
+    when [0x03, 0]
         "x86"
-    when "\x08\0"
+    when [0x08, 0], [0, 0x08]
         "mips"
-    when "\0\x08"
-        "mips"
-    when "\x14\0"
+    when [0x14, 0], [0, 0x14]
         "powerpc"
-    when "\0\x14"
-        "powerpc"
-    when "\x15\0"
+    when [0x15, 0], [0, 0x15]
         "powerpc64"
-    when "\0\x15"
-        "powerpc64"
-    when "\0\x16"
+    when [0, 0x16]
         "s390"
-    when "\x28\0"
+    when [0x28, 0]
         "arm"
-    when "\x3E\0"
+    when [0x3E, 0]
         "x86_64"
-    when "\xB7\0"
+    when [0xB7, 0]
         "arm64"
-    when [243, 0].pack("cc")
+    when [0xF3, 0]
         "riscv64"
     else
-        $stderr.puts "Warning: unable to determine architecture from code: #{code}"
+        $stderr.puts "Warning: unable to determine architecture from code: #{code.inspect}"
         nil
     end
 end
@@ -696,8 +688,6 @@ BASE_OPTIONS = ["--validateOptions=true", "--useFTLJIT=false", "--useFunctionDot
 EAGER_OPTIONS = ["--validateOptions=true", "--thresholdForJITAfterWarmUp=10", "--thresholdForJITSoon=10", "--thresholdForOptimizeAfterWarmUp=20", "--thresholdForOptimizeAfterLongWarmUp=20", "--thresholdForOptimizeSoon=20", "--thresholdForFTLOptimizeAfterWarmUp=20", "--thresholdForFTLOptimizeSoon=20", "--thresholdForOMGOptimizeAfterWarmUp=20", "--thresholdForOMGOptimizeSoon=20", "--maximumEvalCacheableSourceLength=150000", "--useEagerCodeBlockJettisonTiming=true", "--repatchBufferingCountdown=0"]
 # NOTE: Tests rely on this using scribbleFreeCells.
 NO_CJIT_OPTIONS = ["--validateOptions=true", "--useConcurrentJIT=false", "--thresholdForJITAfterWarmUp=100", "--scribbleFreeCells=true"]
-B3O1_OPTIONS = ["--defaultB3OptLevel=1", "--useHandlerICInFTL=1", "--forceUnlinkedDFG=1"]
-B3O0_OPTIONS = ["--maxDFGNodesInBasicBlockForPreciseAnalysis=100", "--defaultB3OptLevel=0"]
 FTL_OPTIONS = ["--validateOptions=true", "--useFTLJIT=true"]
 FORCE_LLINT_EXIT_OPTIONS = ["--forceOSRExitToLLInt=true"]
 EXECUTABLE_FUZZER_OPTIONS = ["--useExecutableAllocationFuzz=true", "--fireExecutableAllocationFuzzRandomly=true"]
@@ -753,9 +743,9 @@ class TestRunner
         @testRunnerType = testRunnerType
         @runnerDir = runnerDir
     end
-    def prepare(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepare(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         prepareScripts(runlist)
-        prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+        prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
     end
     def prepareScripts(runlist)
         Dir.mkdir(@runnerDir) unless @runnerDir.directory?
@@ -806,6 +796,7 @@ end
 COLLECT_CONTINUOUSLY_OPTIONS = shouldCollectContinuously? ? ["--collectContinuously=true", "--useGenerationalGC=false", "--verifyGC=true"] : []
 
 $serialPlans = Set.new
+$exclusivePlans = Set.new
 $runlist = []
 
 def frameworkFromJSCPath(jscPath)
@@ -814,10 +805,10 @@ def frameworkFromJSCPath(jscPath)
         parentDirectory.dirname
     elsif $hostOS == "playstation"
         jscPath.dirname
-    elsif parentDirectory.basename.to_s =~ /^Debug/ or parentDirectory.basename.to_s =~ /^Release/ or (parentDirectory / "JavaScriptCore.framework").directory?
+    elsif parentDirectory.basename.to_s =~ /^Debug/ or parentDirectory.basename.to_s =~ /^Release/
         jscPath.dirname + "JavaScriptCore.framework"
     else
-        $stderr.puts "Warning: cannot identify JSC framework, doing generic VM copy.\n"
+        $stderr.puts "Warning: cannot identify JSC framework, doing generic VM copy."
         nil
     end
 end
@@ -878,6 +869,10 @@ def addRunCommandConfig(config, *additionalEnv)
             raise "Missing #{key} in #{config}"
         end
     }
+    kind = config[:kind]
+    if $skipModes.include?(kind.to_sym) or $skipModes.include?(kind.gsub('-', '_').to_sym)
+        return
+    end
     $didAddRunCommand = true
     name = baseOutputName(config[:kind])
     if $filter and name !~ $filter
@@ -895,6 +890,8 @@ def addRunCommandConfig(config, *additionalEnv)
         # it in the $runlist for code that dosn't care about
         # scheduling.
         $serialPlans.add(plan)
+    elsif $runCommandOptions[:exclusive]
+        $exclusivePlans.add(plan)
     end
 
     if $numChildProcesses > 1 and $runCommandOptions[:isSlow]
@@ -961,6 +958,17 @@ end
 
 def serial!
     $runCommandOptions[:serial] = true
+end
+
+def exclusive!
+    $runCommandOptions[:exclusive] = true
+end
+
+def memoryHog!
+    exclusive!
+    if $memoryLimited
+        skip
+    end
 end
 
 
@@ -1177,19 +1185,6 @@ BASE_MODES = [
         NO_CJIT_OPTIONS
     ],
     [
-        "FTLNoCJITB3O0",
-        "ftl-no-cjit-b3o0",
-        [
-            "--useArrayAllocationProfiling=false",
-            "--forcePolyProto=true",
-            "--useRandomizingExecutableIslandAllocation=true",
-        ] +
-        FTL_OPTIONS +
-        NO_CJIT_OPTIONS +
-        B3O0_OPTIONS +
-        FORCE_LLINT_EXIT_OPTIONS
-    ],
-    [
         "FTLNoCJITValidate",
         "ftl-no-cjit-validate-sampling-profiler",
         [
@@ -1286,17 +1281,6 @@ BASE_MODES = [
         EXECUTABLE_FUZZER_OPTIONS
     ],
     [
-        "FTLEagerNoCJITB3O1",
-        "ftl-eager-no-cjit-b3o1",
-        [
-            "--validateGraph=true",
-        ] +
-        FTL_OPTIONS +
-        NO_CJIT_OPTIONS +
-        EAGER_OPTIONS +
-        B3O1_OPTIONS
-    ],
-    [
         "FTLEagerNoCJITOSRValidation",
         "ftl-eager-no-cjit-osr-validation",
         [
@@ -1338,6 +1322,8 @@ BASE_MODES = [
         "ftl-no-cjit-small-pool",
         [
             $buildType == "debug" ? "--jitMemoryReservationSize=4194304" : "--jitMemoryReservationSize=1048576",
+            "--maxDFGNodesInBasicBlockForPreciseAnalysis=100",
+            "--useArrayAllocationProfiling=false",
         ] +
         FTL_OPTIONS +
         NO_CJIT_OPTIONS
@@ -1529,9 +1515,6 @@ BASE_MODES.each { |mode|
     configKinds.each { |configKind|
         methodName = "#{name}#{configKind.extension}".to_sym
         define_method(methodName) { |*args|
-            if not kind.nil? and $skipModes.include?(kind.to_sym)
-                return
-            end
             config = nil
             if configKind.expectConfig
                 # If we're defining a method that expects a config
@@ -1589,7 +1572,7 @@ def defaultRunConfig(config, subsetOptions, *optionalTestSpecificOptions)
         runDefaultConfig(config, *optionalTestSpecificOptions)
         runBytecodeCacheConfig(config, *optionalTestSpecificOptions)
         runMiniModeConfig(config, *optionalTestSpecificOptions) unless $skipMiniMode
-        runLockdownConfig(config, *optionalTestSpecificOptions) unless $skipLockdown or $skipModes.include?(:lockdown)
+        runLockdownConfig(config, *optionalTestSpecificOptions) unless $skipLockdown
         if $jitTests
             if not subsetOptions.has_key?(:skipNoLLInt)
                 runNoLLIntConfig(config, *optionalTestSpecificOptions)
@@ -1616,12 +1599,8 @@ def defaultRunConfig(config, subsetOptions, *optionalTestSpecificOptions)
             return if $mode == :basic
 
             runFTLNoCJITValidateConfig(config, *optionalTestSpecificOptions)
-            runFTLNoCJITB3O0Config(config, *optionalTestSpecificOptions)
             runFTLNoCJITNoPutStackValidateConfig(config, *optionalTestSpecificOptions)
             runFTLNoCJITNoInlineValidateConfig(config, *optionalTestSpecificOptions)
-            if not subsetOptions.has_key?(:skipEager)
-                runFTLEagerNoCJITB3O1Config(config, *optionalTestSpecificOptions)
-            end
         end
     end
 end
@@ -1659,7 +1638,6 @@ def defaultSpotCheckNoMaximalFlush
     return if !$isFTLPlatform
     runFTLNoCJITOSRValidation
     runFTLNoCJITNoAccessInlining
-    runFTLNoCJITB3O0
 end
 
 def defaultSpotCheck
@@ -1686,7 +1664,7 @@ def runProfiler
 
     profilerOutput = uniqueFilename(".json")
     if $canRunDisplayProfilerOutput
-        addRunCommand("profiler", ["ruby", (pathToHelpers + "profiler-test-helper").to_s, (SCRIPTS_PATH + "display-profiler-output").to_s, profilerOutput.to_s, *vmCommand, "--useConcurrentJIT=false", "-p", profilerOutput.to_s, $benchmark.to_s], silentOutputHandler, simpleErrorHandler)
+        addRunCommand("profiler", ["ruby", (pathToHelpers + "profiler-test-helper").to_s, (SCRIPTS_PATH + "display-profiler-output").to_s, profilerOutput.to_s, *vmCommand, "--useConcurrentJIT=false", "-p", profilerOutput.to_s, $benchmark.to_s], noisyOutputHandler, simpleErrorHandler)
     else
         puts "Running simple version of #{$collectionName}/#{$benchmark} because some required Ruby features are unavailable."
         run("profiler-simple", "--useConcurrentJIT=false", "-p", profilerOutput.to_s)
@@ -1848,7 +1826,7 @@ def runWebAssembly
         end
         if $isFTLPlatform
             run("wasm-simd", "-m", "--useWasmSIMD=1", "--forceAllFunctionsToUseSIMD=1", *FTL_OPTIONS) unless !$isSIMDPlatform
-            run("wasm-aggressive-inline", "-m", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS)) unless $skipModes.include?(:wasm_aggressive_inline)
+            run("wasm-aggressive-inline", "-m", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS))
             # FIXME: remove with rdar://144792585
             run("wasm-graph-reg-alloc", "-m", "--airUseGreedyRegAlloc=false", *FTL_OPTIONS)
         end
@@ -1881,7 +1859,7 @@ def runWebAssemblyJetStream2
         end
         if $isFTLPlatform
             run("wasm-simd", "--useWasmSIMD=1", "--forceAllFunctionsToUseSIMD=1", *FTL_OPTIONS) unless !$isSIMDPlatform
-            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS)) unless $skipModes.include?(:wasm_aggressive_inline)
+            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS))
             # FIXME: remove with rdar://144792585
             run("wasm-graph-reg-alloc", "--airUseGreedyRegAlloc=false", *FTL_OPTIONS)
         end
@@ -1913,15 +1891,15 @@ def runWebAssemblySuite(*optionalTestSpecificOptions)
         run("wasm-bbq", "--useWasmIPInt=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         run("wasm-bbq-no-consts", "--useWasmIPInt=false", "--disableBBQConsts=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
         if $runJITlessWasm
-          run("wasm-no-jit", "--useJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions)) unless $skipModes.include?("wasm-no-jit".to_sym)
-          run("wasm-no-wasm-jit", "--useBBQJIT=false", "--useOMGJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions)) unless $skipModes.include?("wasm-no-wasm-jit".to_sym)
+          run("wasm-no-jit", "--useJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
+          run("wasm-no-wasm-jit", "--useBBQJIT=false", "--useOMGJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end
         if $isOMGPlatform
             run("wasm-omg", "--useWasmIPInt=true", "--useBBQJIT=true", "--thresholdForBBQOptimizeAfterWarmUp=0", "--thresholdForBBQOptimizeSoon=0", "--thresholdForOMGOptimizeAfterWarmUp=0", "--thresholdForOMGOptimizeSoon=0", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end
         if $isFTLPlatform
             run("wasm-simd", "--useWasmSIMD=1", "--forceAllFunctionsToUseSIMD=1", *(FTL_OPTIONS + optionalTestSpecificOptions)) unless !$isSIMDPlatform
-            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS + optionalTestSpecificOptions)) unless $skipModes.include?(:wasm_aggressive_inline)
+            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS + optionalTestSpecificOptions))
             # FIXME: remove with rdar://144792585
             run("wasm-graph-reg-alloc", "--airUseGreedyRegAlloc=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end
@@ -1946,15 +1924,15 @@ def runV8WebAssemblySuite(*optionalTestSpecificOptions)
         run("wasm-bbq", "--useWasmIPInt=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         run("wasm-bbq-no-consts", "--useWasmIPInt=false", "--disableBBQConsts=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
         if $runJITlessWasm
-          run("wasm-no-jit", "--useJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions)) unless $skipModes.include?("wasm-no-jit".to_sym)
-          run("wasm-no-wasm-jit", "--useBBQJIT=false", "--useOMGJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions)) unless $skipModes.include?("wasm-no-wasm-jit".to_sym)
+          run("wasm-no-jit", "--useJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
+          run("wasm-no-wasm-jit", "--useBBQJIT=false", "--useOMGJIT=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end
         if $isOMGPlatform
             run("wasm-omg", "--useWasmIPInt=true", "--useBBQJIT=true", "--thresholdForBBQOptimizeAfterWarmUp=0", "--thresholdForBBQOptimizeSoon=0", "--thresholdForOMGOptimizeAfterWarmUp=0", "--thresholdForOMGOptimizeSoon=0", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end        
         if $isFTLPlatform
             run("wasm-simd", "--useWasmSIMD=1", "--forceAllFunctionsToUseSIMD=1", *(FTL_OPTIONS + optionalTestSpecificOptions)) unless !$isSIMDPlatform
-            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS + optionalTestSpecificOptions)) unless $skipModes.include?(:wasm_aggressive_inline)
+            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS + optionalTestSpecificOptions))
             # FIXME: remove with rdar://144792585
             run("wasm-graph-reg-alloc", "--airUseGreedyRegAlloc=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end
@@ -1974,6 +1952,9 @@ end
 
 def runWasmHarnessTest(kind, *options)
     raise unless $isWasmPlatform
+    if $skipModes.include?(kind.to_sym) or $skipModes.include?(kind.gsub('-', '_').to_sym)
+        return
+    end
 
     wasmFiles = allWasmFiles($collection)
     wasmFiles.each {
@@ -2003,7 +1984,7 @@ def runWebAssemblyWithHarness(*optionalTestSpecificOptions)
         end
         if $isFTLPlatform
             runWasmHarnessTest("wasm-simd", "--useWasmSIMD=1", "--forceAllFunctionsToUseSIMD=1", *FTL_OPTIONS) unless !$isSIMDPlatform
-            runWasmHarnessTest("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS)) unless $skipModes.include?(:wasm_aggressive_inline)
+            runWasmHarnessTest("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS))
             # FIXME: remove with rdar://144792585
             runWasmHarnessTest("wasm-graph-reg-alloc", "--airUseGreedyRegAlloc=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         end
@@ -2025,15 +2006,15 @@ def runWebAssemblyEmscripten(mode)
         run("wasm-collect-continuously", "--collectContinuously=true", "--verifyGC=true", *FTL_OPTIONS) if shouldCollectContinuously?
         run("wasm-bbq", "--useWasmIPInt=false", *FTL_OPTIONS) # Doesn't actually depend on FTL, but we enable it on the same platforms for now.
         if $runJITlessWasm
-          run("wasm-no-jit", "--useJIT=false" *FTL_OPTIONS) unless $skipModes.include?("wasm-no-jit".to_sym)
-          run("wasm-no-wasm-jit", "--useBBQJIT=false", "--useOMGJIT=false" *FTL_OPTIONS) unless $skipModes.include?("wasm-no-wasm-jit".to_sym)
+          run("wasm-no-jit", "--useJIT=false" *FTL_OPTIONS)
+          run("wasm-no-wasm-jit", "--useBBQJIT=false", "--useOMGJIT=false" *FTL_OPTIONS)
         end
         if $isOMGPlatform
             run("wasm-omg", "--useWasmIPInt=true", "--useBBQJIT=false", *FTL_OPTIONS)
         end
         if $isFTLPlatform
             run("wasm-simd", "--useWasmSIMD=1", "--forceAllFunctionsToUseSIMD=1", *FTL_OPTIONS) unless !$isSIMDPlatform
-            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS)) unless $skipModes.include?(:wasm_aggressive_inline)
+            run("wasm-aggressive-inline", "--wasmInliningMaximumWasmCalleeSize=2147483647", "--wasmInliningBudget=100000", "--wasmInliningMaximumDepth=10", *(FTL_OPTIONS + EAGER_OPTIONS))
             # FIXME: remove with rdar://144792585
             run("wasm-graph-reg-alloc", "--airUseGreedyRegAlloc=false", *FTL_OPTIONS)
         end
@@ -2088,14 +2069,24 @@ def runWebAssemblyThreadsSpecTest(mode)
     runWebAssemblySpecTestBase(mode, "threads-spec-harness", nil)
 end
 
-def runWebAssemblySIMDSpecTest(mode)
+def runWebAssemblySIMDSpecTest(mode, *optionalTestSpecificOptions)
     return if !$isSIMDPlatform
-    runWebAssemblySpecTestBase(mode, "spec-harness", nil, "--useWasmSIMD=true")
-    runWebAssemblySpecTestBase(mode, "spec-harness", "-eager", "--useWasmSIMD=true", "--useBBQJIT=1", "--useWasmIPInt=1", "--thresholdForBBQOptimizeAfterWarmUp=0", "--thresholdForBBQOptimizeSoon=0", "--thresholdForOMGOptimizeAfterWarmUp=0", "--thresholdForOMGOptimizeSoon=0")
+    runWebAssemblySpecTestBase(mode, "spec-harness", nil, "--useWasmSIMD=true", *optionalTestSpecificOptions)
+    runWebAssemblySpecTestBase(mode, "spec-harness", "-eager", "--useWasmSIMD=true", "--useBBQJIT=1", "--useWasmIPInt=1", "--thresholdForBBQOptimizeAfterWarmUp=0", "--thresholdForBBQOptimizeSoon=0", "--thresholdForOMGOptimizeAfterWarmUp=0", "--thresholdForOMGOptimizeSoon=0", *optionalTestSpecificOptions)
 end
 
 def runWebAssemblyTailCallSpecTest(mode)
     runWebAssemblySpecTestBase(mode, "tail-call-spec-harness", nil, "--useWasmTailCalls=true")
+end
+
+def runWebAssemblyMemory64SpecTest(mode)
+    return
+    # FIXME: turn this on once memory64 is implemented
+    # runWebAssemblySpecTestBase(mode, "spec-harness", nil, "--useWasmMemory64=true")
+end
+
+def runWebAssemblyMultiMemorySpecTest(mode)
+    runWebAssemblySpecTestBase(mode, "multi-memory-spec-harness", nil, "--useWasmMultiMemory=true")
 end
 
 def runWebAssemblyLowExecutableMemory(*optionalTestSpecificOptions)
@@ -2153,9 +2144,6 @@ def runLayoutTest(kind, *options)
     else
         kind = "layout"
     end
-    if $skipModes.include?(kind.to_sym)
-        return
-    end
 
     prepareExtraRelativeFiles(["../#{testName}-expected.txt"], $benchmarkDirectory)
     prepareExtraAbsoluteFiles(LAYOUTTESTS_PATH, ["resources/standalone-pre.js", "resources/standalone-post.js"])
@@ -2193,10 +2181,6 @@ end
 
 def runLayoutTestFTLEagerNoCJIT
     runLayoutTest("ftl-eager-no-cjit", "--testTheFTL=true", *(FTL_OPTIONS + NO_CJIT_OPTIONS + EAGER_OPTIONS))
-end
-
-def runLayoutTestFTLEagerNoCJITB3O1
-    runLayoutTest("ftl-eager-no-cjit-b3o1", "--testTheFTL=true", *(FTL_OPTIONS + NO_CJIT_OPTIONS + EAGER_OPTIONS + B3O1_OPTIONS))
 end
 
 def noFTLRunLayoutTest
@@ -2612,7 +2596,16 @@ def prepareBundle
         
         frameworkPath = frameworkFromJSCPath($jscPath)
         destinationFrameworkPath = Pathname.new(".vm") + "JavaScriptCore.framework"
-        $jscPath = destinationFrameworkPath + "Helpers" + "jsc"
+        # On Apple Cocoa CMake builds the jsc binary lives next to the
+        # framework rather than inside <framework>/Helpers/jsc as on Xcode
+        # builds. Detect that and stage jsc at .vm/jsc so we don't have to
+        # mutate the framework that .vm/JavaScriptCore.framework symlinks to.
+        jscOutsideFramework = frameworkPath && !File.file?(frameworkPath + "Helpers" + "jsc")
+        if jscOutsideFramework
+            $jscPath = Pathname.new(".vm") + "jsc"
+        else
+            $jscPath = destinationFrameworkPath + "Helpers" + "jsc"
+        end
         $testingFrameworkPath = Pathname.new("..") + destinationFrameworkPath
 
         if frameworkPath
@@ -2656,6 +2649,20 @@ def prepareBundle
                 rescue Exception
                     $stderr.puts "Warning: unable to create soft link, trying to copy."
                     FileUtils.cp_r source, destination
+                end
+            end
+
+            if jscOutsideFramework
+                jscDestination = Pathname.new(".vm") + "jsc"
+                if $copyVM
+                    FileUtils.cp originalJSCPath, jscDestination
+                else
+                    begin
+                        FileUtils.ln_s originalJSCPath, jscDestination
+                    rescue Exception
+                        $stderr.puts "Warning: unable to create soft link for jsc, trying to copy."
+                        FileUtils.cp originalJSCPath, jscDestination
+                    end
                 end
             end
 
@@ -3187,7 +3194,7 @@ def runBundle
     raise unless $bundle
 
     testRunner = TestRunner.create($testRunnerType, $runnerDir)
-    evaluator = BundleTestsExecutor.new($runlist, $serialPlans, ITERATION_LIMITS, $treatFailingAsFlaky, testRunner)
+    evaluator = BundleTestsExecutor.new($runlist, $serialPlans, $exclusivePlans, ITERATION_LIMITS, $treatFailingAsFlaky, testRunner)
     evaluator.loop
 end
 
@@ -3196,7 +3203,7 @@ def runTarball
 
     prepareBundle
     testRunner = TestRunner.create($testRunnerType, $runnerDir)
-    testRunner.prepare($runlist, $serialPlans, Set.new, nil)
+    testRunner.prepare($runlist, $serialPlans, $exclusivePlans, Set.new, nil)
     compressBundle
 end
 
@@ -3290,9 +3297,9 @@ class TestRunnerGnuParallel < TestRunner
             }
         }
     end
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
-        prepareGnuParallelRunnerJobs("parallel-tests", runlist, completedPlans | serialPlans)
-        prepareGnuParallelRunnerJobs("serial-tests", serialPlans, completedPlans)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
+        prepareGnuParallelRunnerJobs("parallel-tests", runlist, completedPlans | serialPlans | exclusivePlans)
+        prepareGnuParallelRunnerJobs("serial-tests", serialPlans | exclusivePlans, completedPlans)
     end
 end
 
@@ -3446,8 +3453,8 @@ ExecutorSelfTests.run
 TestResultEvaluatorSelfTests.run
 
 class NonRemoteTestsExecutor < BasicTestsExecutor
-    def initialize(runlist, serialPlans, maxIterationsBounds, treatFailingAsFlaky, testRunner)
-        super(runlist, serialPlans,
+    def initialize(runlist, serialPlans, exclusivePlans, maxIterationsBounds, treatFailingAsFlaky, testRunner)
+        super(runlist, serialPlans, exclusivePlans,
               nil,
               maxIterationsBounds,
               treatFailingAsFlaky
@@ -3457,11 +3464,11 @@ class NonRemoteTestsExecutor < BasicTestsExecutor
     def prepareExecution(remoteHosts)
         remoteHosts
     end
-    def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
+    def refreshExecution(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
         if not @remoteHosts.nil?
             raise "remoteHosts #{@remoteHosts}, expected nil"
         end
-        @testRunner.prepare(runlist, serialPlans, completedTests, remoteHosts)
+        @testRunner.prepare(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
     end
 end
 
@@ -3469,7 +3476,7 @@ class NormalTestsExecutor < NonRemoteTestsExecutor
     def prepareArtifacts(remoteHosts)
         raise "remoteHosts not nil" unless remoteHosts.nil?
         prepareBundle
-        @testRunner.prepare(@runlist, @serialPlans, Set.new, nil)
+        @testRunner.prepare(@runlist, @serialPlans, @exclusivePlans, Set.new, nil)
     end
     def executeTests(remoteHosts)
         runTestRunner(@testRunner, nil, nil)
@@ -3496,21 +3503,21 @@ class BundleTestsExecutor < NonRemoteTestsExecutor
 end
 
 class BaseRemoteTestsExecutor < BasicTestsExecutor
-    def initialize(runlist, serialPlans, remoteHosts, iterationLimits,
+    def initialize(runlist, serialPlans, exclusivePlans, remoteHosts, iterationLimits,
                    treatFailingAsFlaky, testRunner)
-        super(runlist, serialPlans, remoteHosts, iterationLimits, treatFailingAsFlaky)
+        super(runlist, serialPlans, exclusivePlans, remoteHosts, iterationLimits, treatFailingAsFlaky)
         @testRunner = testRunner
     end
     def updateStatusMap(iteration, statusMap)
         return getStatusMap(statusMap)
     end
-    def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
+    def refreshExecution(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
         # Note, when running tests remotely, we always prepare tests
         # for all the hosts when refreshing execution, as even hosts
         # that went away during testing may have come back online in
         # the meantime -- so we don't expect a list of live remote
         # hosts to be passed in.
-        @testRunner.prepare(runlist, serialPlans, completedTests, remoteHosts)
+        @testRunner.prepare(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
     end
 end
 
@@ -3524,17 +3531,17 @@ class RemoteTestsExecutor < BaseRemoteTestsExecutor
         # always end up scheduling tests on dead remotes and hamper
         # our progress.
         remoteHosts = getLiveRemoteHosts(remoteHosts)
-        @testRunner.prepare(@runlist, @serialPlans, Set.new, remoteHosts)
+        @testRunner.prepare(@runlist, @serialPlans, @exclusivePlans, Set.new, remoteHosts)
         compressBundle
         remoteHosts
     end
     def prepareExecution(remoteHosts)
         return prepareRemotes(remoteHosts)
     end
-    def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
+    def refreshExecution(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
         # Don't assign tests to remotes that are down.
         remoteHosts = getLiveRemoteHosts(remoteHosts)
-        super(runlist, serialPlans, completedTests, remoteHosts)
+        super(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
     end
     def executeTests(remoteHosts)
         forEachRemote(remoteHosts, :dropOnFailure => true) {
@@ -3561,7 +3568,7 @@ end
 class GnuParallelTestsExecutor < BaseRemoteTestsExecutor
     def prepareArtifacts(remoteHosts)
         prepareBundle
-        @testRunner.prepare(@runlist, @serialPlans, Set.new, remoteHosts)
+        @testRunner.prepare(@runlist, @serialPlans, @exclusivePlans, Set.new, remoteHosts)
         compressBundle
     end
     def prepareExecution(remoteHosts)
@@ -3578,7 +3585,7 @@ def runNormal
     raise if $bundle or $tarball
 
     testRunner = TestRunner.create($testRunnerType, $runnerDir)
-    evaluator = NormalTestsExecutor.new($runlist, $serialPlans, ITERATION_LIMITS,
+    evaluator = NormalTestsExecutor.new($runlist, $serialPlans, $exclusivePlans, ITERATION_LIMITS,
                                         $treatFailingAsFlaky, testRunner)
     statusMap = evaluator.loop
     detectFailures(statusMap)
@@ -3589,7 +3596,7 @@ def runRemote
     raise unless $remote
 
     testRunner = TestRunner.create($testRunnerType, $runnerDir)
-    executor = RemoteTestsExecutor.new($runlist, $serialPlans, $remoteHosts, ITERATION_LIMITS, $treatFailingAsFlaky, testRunner)
+    executor = RemoteTestsExecutor.new($runlist, $serialPlans, $exclusivePlans, $remoteHosts, ITERATION_LIMITS, $treatFailingAsFlaky, testRunner)
     statusMap = executor.loop
     detectFailures(statusMap)
 end
@@ -3598,7 +3605,7 @@ def runGnuParallel
     raise "Can only use --gnu-parallel-runner with --remote*" unless $remote
     raise "Can only use --gnu-parallel-runner with the default writer" unless $testWriter == "default"
     testRunner = TestRunner.create($testRunnerType, $runnerDir)
-    executor = GnuParallelTestsExecutor.new($runlist, $serialPlans,
+    executor = GnuParallelTestsExecutor.new($runlist, $serialPlans, $exclusivePlans,
                                             $remoteHosts, ITERATION_LIMITS,
                                             $treatFailingAsFlaky, testRunner)
     statusMap = executor.loop

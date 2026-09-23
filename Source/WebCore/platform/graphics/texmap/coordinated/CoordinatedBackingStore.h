@@ -38,11 +38,13 @@ public:
     ~CoordinatedBackingStore() = default;
 
     void resize(const FloatSize&, float scale);
+    float scale() const { return m_scale; }
 
     void createTile(uint32_t tileID);
     void removeTile(uint32_t tileID);
     void updateTile(uint32_t tileID, const IntRect&, const IntRect&, Ref<CoordinatedTileBuffer>&&, const IntPoint&);
 
+    bool hasPendingUpdates() const { return m_hasPendingTileUpdates; }
     void processPendingUpdates();
 
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix&, float) override;
@@ -55,6 +57,7 @@ private:
     HashMap<uint32_t, CoordinatedBackingStoreTile> m_tiles;
     FloatSize m_size;
     float m_scale { 1. };
+    bool m_hasPendingTileUpdates { false };
 };
 
 } // namespace WebKit

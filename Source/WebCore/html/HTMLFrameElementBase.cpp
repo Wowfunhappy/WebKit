@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann (hausmann@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,6 +26,8 @@
 
 #include "ContainerNodeInlines.h"
 #include "Document.h"
+#include "DocumentPage.h"
+#include "FrameDestructionObserverInlines.h"
 #include "DocumentEventLoop.h"
 #include "DocumentQuirks.h"
 #include "DocumentView.h"
@@ -43,6 +45,7 @@
 #include "ScriptController.h"
 #include "Settings.h"
 #include "SubframeLoader.h"
+#include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
@@ -71,7 +74,7 @@ bool HTMLFrameElementBase::canLoad() const
 
 bool HTMLFrameElementBase::canLoadURL(const String& relativeURL) const
 {
-    return canLoadURL(protect(document())->completeURL(relativeURL));
+    return canLoadURL(protect(document())->encodingParseURL(relativeURL));
 }
 
 // Note that unlike HTMLPlugInElement::canLoadURL this uses ScriptController::canAccessFromCurrentOrigin.
@@ -107,7 +110,7 @@ void HTMLFrameElementBase::openURL(LockHistory lockHistory, LockBackForwardList 
             frameName = getIdAttribute();
     }
 
-    auto completeURL = document->completeURL(m_frameURL);
+    auto completeURL = document->encodingParseURL(m_frameURL);
     auto finishOpeningURL = [weakThis = WeakPtr { *this }, frameName, lockHistory, lockBackForwardList, parentFrame = WTF::move(parentFrame), completeURL] {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
@@ -118,7 +121,7 @@ void HTMLFrameElementBase::openURL(LockHistory lockHistory, LockBackForwardList 
         }
 
         protect(protectedThis->document())->willLoadFrameElement(completeURL);
-        parentFrame->loader().subframeLoader().requestFrame(*protectedThis, protectedThis->m_frameURL, frameName, lockHistory, lockBackForwardList);
+        parentFrame->loader().subframeLoader().requestFrame(*protectedThis, completeURL.string(), frameName, lockHistory, lockBackForwardList);
     };
 
     document->quirks().triggerOptionalStorageAccessIframeQuirk(completeURL, WTF::move(finishOpeningURL));
@@ -149,15 +152,15 @@ void HTMLFrameElementBase::attributeChanged(const QualifiedName& name, const Ato
         HTMLFrameOwnerElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
-Node::InsertedIntoAncestorResult HTMLFrameElementBase::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLFrameElementBase::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLFrameOwnerElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLFrameOwnerElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
-    return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::Yes;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLFrameElementBase::didFinishInsertingNode()
+void HTMLFrameElementBase::postConnectionSteps()
 {
     if (!isConnected())
         return;
@@ -177,10 +180,9 @@ void HTMLFrameElementBase::didFinishInsertingNode()
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return;
-        protectedThis->m_openingURLAfterInserting = true;
+        SetForScope openingURLAfterInserting(protectedThis->m_openingURLAfterInserting, true);
         if (protectedThis->isConnected())
             protectedThis->openURL();
-        protectedThis->m_openingURLAfterInserting = false;
     };
     if (!m_openingURLAfterInserting)
         work();
@@ -208,16 +210,6 @@ void HTMLFrameElementBase::setLocation(const String& str)
 
     if (isConnected())
         openURL(LockHistory::No, LockBackForwardList::No);
-}
-
-void HTMLFrameElementBase::setLocation(JSC::JSGlobalObject& state, const String& newLocation)
-{
-    if (WTF::protocolIsJavaScript(newLocation)) {
-        if (!BindingSecurity::shouldAllowAccessToNode(state, protect(contentDocument()).get()))
-            return;
-    }
-
-    setLocation(newLocation);
 }
 
 bool HTMLFrameElementBase::supportsFocus() const

@@ -35,6 +35,7 @@
 #include "pas_heap_lock.h"
 #include "pas_large_utility_free_heap.h"
 #include "pas_log.h"
+#include "pas_process.h"
 #include "pas_scavenger.h"
 #include "pas_segregated_deallocation_mode.h"
 #include "pas_segregated_page_inlines.h"
@@ -43,7 +44,9 @@
 #include "pas_thread_local_cache_node.h"
 #include "pas_thread_suspend_lock.h"
 #include "pas_zero_memory.h"
-#if !PAS_OS(WINDOWS)
+#if PAS_OS(WINDOWS)
+#include <windows.h>
+#else
 #include <unistd.h>
 #endif
 #if PAS_OS(DARWIN)
@@ -119,7 +122,7 @@ static void deallocate(pas_thread_local_cache* thread_local_cache)
         thread_local_cache->allocator_index_capacity);
 
     /* If we're doing symmetric decommit, then we need to commit the memory for the TLC now. */
-    pas_page_malloc_commit_without_mprotect(begin, size, pas_may_mmap);
+    pas_page_malloc_commit_without_mprotect(begin, size, /* is_symmetric */ !!PAS_USE_SYMMETRIC_PAGE_ALLOCATION, pas_page_flags_none);
     
     pas_large_utility_free_heap_deallocate(begin, size);
 }
@@ -150,6 +153,13 @@ static void destructor(void* arg)
     if (verbose)
         pas_log("[%d] Destructor call for TLS %p\n", getpid(), thread_local_cache);
 
+    /* On Windows, ExitProcess asynchronously terminates other threads, which may still hold
+       a lock. However the caller thread of ExitProcess does normal TLS destruction, which may cause
+       a dead-lock when we need to take a lock which is held by other threads which gets forcefully terminated.
+       When we know this is in the middle of shutting down the process, ignore TLS destruction. */
+    if (pas_process_is_shutting_down())
+        return;
+
 // MAVERICKS_BACKPORT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h).
 // #if !PAS_OS(DARWIN)
 #if !PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP
@@ -169,6 +179,51 @@ static void destructor(void* arg)
             pas_log("[%d] Repeated destructor call for TLS %p\n", getpid(), thread_local_cache);
     }
 }
+
+#if PAS_OS(WINDOWS)
+
+/* Windows teardown of the thread-local cache runs from a static TLS callback
+   registered in the .CRT$XLB segment. Unlike FLS destructors, this fires
+   deterministically during DLL_THREAD_DETACH on the exiting thread.
+   Force the linker to emit the PE TLS directory (via _tls_used) and retain our
+   callback pointer through /OPT:REF. The leading-underscore decoration differs
+   between x86 and x64. */
+
+#ifdef _WIN64
+#pragma comment(linker, "/INCLUDE:_tls_used")
+#pragma comment(linker, "/INCLUDE:pas_tls_callback_func")
+#else
+#pragma comment(linker, "/INCLUDE:__tls_used")
+#pragma comment(linker, "/INCLUDE:_pas_tls_callback_func")
+#endif
+
+static void NTAPI pas_tls_on_thread_exit(PVOID handle, DWORD reason, PVOID reserved)
+{
+    PAS_UNUSED_PARAM(handle);
+    PAS_UNUSED_PARAM(reserved);
+
+    if (reason != DLL_THREAD_DETACH && reason != DLL_PROCESS_DETACH)
+        return;
+
+    void* value = pas_thread_local_cache_pointer;
+    if (!value)
+        return;
+
+    destructor(value);
+}
+
+#ifdef _WIN64
+#pragma const_seg(push, ".CRT$XLB")
+extern const PIMAGE_TLS_CALLBACK pas_tls_callback_func;
+const PIMAGE_TLS_CALLBACK pas_tls_callback_func = pas_tls_on_thread_exit;
+#pragma const_seg(pop)
+#else
+#pragma data_seg(push, ".CRT$XLB")
+PIMAGE_TLS_CALLBACK pas_tls_callback_func = pas_tls_on_thread_exit;
+#pragma data_seg(pop)
+#endif
+
+#endif /* PAS_OS(WINDOWS) */
 
 static pas_thread_local_cache* allocate_cache(unsigned allocator_index_capacity)
 {
@@ -489,13 +544,14 @@ void pas_thread_local_cache_ensure_committed(pas_thread_local_cache* thread_loca
             continue;
         
         pas_lock_assert_held(&thread_local_cache->node->scavenger_lock);
-        
+
         /* Don't attempt to do fancy things with spans for commit, since we're no longer really
            optimizing for symmetric commit anyway. */
         pas_page_malloc_commit_without_mprotect(
             (char*)thread_local_cache + (page_index << pas_page_malloc_alignment_shift()),
             pas_page_malloc_alignment(),
-            pas_may_mmap);
+            /* is_symmetric */ !!PAS_USE_SYMMETRIC_PAGE_ALLOCATION,
+            pas_page_flags_none);
 
         pas_bitvector_set(thread_local_cache->pages_committed, page_index, true);
     }
@@ -658,7 +714,6 @@ static PAS_ALWAYS_INLINE void
 process_deallocation_log_with_config(pas_thread_local_cache* cache,
                                      pas_segregated_deallocation_mode deallocation_mode,
                                      pas_segregated_page_config page_config,
-                                     pas_segregated_page_role role,
                                      size_t* index,
                                      uintptr_t encoded_begin,
                                      pas_lock** held_lock)
@@ -667,18 +722,16 @@ process_deallocation_log_with_config(pas_thread_local_cache* cache,
 
     pas_lock* last_held_lock;
 
-    if (!pas_segregated_deallocation_logging_mode_does_logging(
-            pas_segregated_page_config_logging_mode_for_role(page_config, role))) {
-        pas_panic("Deallocation logging is disabled for %s/%s, but here we are.\n",
-                  pas_segregated_page_config_kind_get_string(page_config.kind),
-                  pas_segregated_page_role_get_string(role));
+    if (!pas_segregated_deallocation_logging_mode_does_logging(page_config.exclusive_logging_mode)) {
+        pas_panic("Deallocation logging is disabled for %s, but here we are.\n",
+                  pas_segregated_page_config_kind_get_string(page_config.kind));
     }
 
     last_held_lock = NULL;
 
     for (;;) {
         uintptr_t begin;
-        begin = encoded_begin & ~PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK;
+        begin = encoded_begin & ~PAS_SEGREGATED_PAGE_CONFIG_KIND_MASK;
 
         switch (page_config.kind) {
         case pas_segregated_page_config_kind_null:
@@ -691,7 +744,7 @@ process_deallocation_log_with_config(pas_thread_local_cache* cache,
 
         default:
             last_held_lock = *held_lock;
-            pas_segregated_page_deallocate(begin, held_lock, deallocation_mode, cache, page_config, role);
+            pas_segregated_page_deallocate(begin, held_lock, deallocation_mode, cache, page_config);
             if (verbose && *held_lock != last_held_lock && last_held_lock)
                 pas_log("Switched lock from %p to %p.\n", last_held_lock, *held_lock);
             
@@ -704,8 +757,8 @@ process_deallocation_log_with_config(pas_thread_local_cache* cache,
             return;
 
         encoded_begin = cache->deallocation_log[--*index];
-        if (PAS_UNLIKELY((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK) >> PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_SHIFT
-            != pas_segregated_page_config_kind_and_role_create(page_config.kind, role))) {
+        if (PAS_UNLIKELY((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_MASK) >> PAS_SEGREGATED_PAGE_CONFIG_KIND_SHIFT
+            != (uintptr_t)page_config.kind)) {
             ++*index;
             return;
         }
@@ -729,17 +782,16 @@ static PAS_ALWAYS_INLINE void flush_deallocation_log_without_resetting(
 
         encoded_begin = thread_local_cache->deallocation_log[--index];
 
-        switch ((pas_segregated_page_config_kind_and_role)
-                ((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK) >> PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_SHIFT)) {
+        /* Zeroed entries were either never logged or were already cleared. */
+        if (!encoded_begin)
+            continue;
+
+        switch ((pas_segregated_page_config_kind)
+                ((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_MASK) >> PAS_SEGREGATED_PAGE_CONFIG_KIND_SHIFT)) {
 #define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
-        case pas_segregated_page_config_kind_ ## name ## _and_shared_role: \
+        case pas_segregated_page_config_kind_ ## name: \
             process_deallocation_log_with_config( \
-                thread_local_cache, deallocation_mode, value, pas_segregated_page_shared_role, &index, \
-                encoded_begin, &held_lock); \
-            break; \
-        case pas_segregated_page_config_kind_ ## name ## _and_exclusive_role: \
-            process_deallocation_log_with_config( \
-                thread_local_cache, deallocation_mode, value, pas_segregated_page_exclusive_role, &index, \
+                thread_local_cache, deallocation_mode, value, &index, \
                 encoded_begin, &held_lock); \
             break;
 #include "pas_segregated_page_config_kind.def"
@@ -929,7 +981,8 @@ static void decommit_allocator_range(pas_thread_local_cache* cache,
         pas_log("Decommitting %p...%p\n", (void*)decommit_range.begin, (void*)decommit_range.end);
 
     pas_page_malloc_decommit_without_mprotect(
-        (char*)cache + decommit_range.begin, pas_range_size(decommit_range), pas_may_mmap);
+        (char*)cache + decommit_range.begin, pas_range_size(decommit_range),
+        /* is_symmetric */ !!PAS_USE_SYMMETRIC_PAGE_ALLOCATION, pas_page_flags_none);
 
     if (verbose) {
         pas_log("Num committed pages in the range we just decommitted: %zu\n",
@@ -1215,13 +1268,13 @@ bool pas_thread_local_cache_for_all(pas_allocator_scavenge_action allocator_acti
 PAS_NEVER_INLINE void pas_thread_local_cache_append_deallocation_slow(
     pas_thread_local_cache* thread_local_cache,
     uintptr_t begin,
-    pas_segregated_page_config_kind_and_role kind_and_role)
+    pas_segregated_page_config_kind kind)
 {
     unsigned index;
 
     index = thread_local_cache->deallocation_log_index;
     PAS_ASSERT(index < PAS_DEALLOCATION_LOG_SIZE);
-    thread_local_cache->deallocation_log[index++] = pas_thread_local_cache_encode_object(begin, kind_and_role);
+    thread_local_cache->deallocation_log[index++] = pas_thread_local_cache_encode_object(begin, kind);
     thread_local_cache->deallocation_log_index = index;
 
     pas_thread_local_cache_flush_deallocation_log(thread_local_cache, pas_lock_is_not_held);

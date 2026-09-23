@@ -40,12 +40,12 @@ class WTF_EMPTY_BASE_CLASS ThreadSafeRefCountedBase {
 public:
     void ref() const
     {
-        m_refCountDebugger.willRef(m_refCount);
-        ++m_refCount;
+        m_refCountDebugger.willRef(m_refCount.load(std::memory_order_relaxed));
+        m_refCount.fetch_add(1, std::memory_order_relaxed);
     }
 
-    bool hasOneRef() const { return m_refCount == 1; }
-    uint32_t refCount() const { return m_refCount; }
+    bool hasOneRef() const { return m_refCount.load(std::memory_order_acquire) == 1; }
+    uint32_t refCount() const { return m_refCount.load(std::memory_order_relaxed); }
 
     // Debug APIs
     void adopted() { m_refCountDebugger.adopted(); }
@@ -63,20 +63,20 @@ protected:
 
     ~ThreadSafeRefCountedBase()
     {
-        m_refCountDebugger.willDestroy(m_refCount);
-        // FIXME: Test performance, then change this to RELEASE_ASSERT.
-        ASSERT(m_refCount == 1);
+        m_refCountDebugger.willDestroy(m_refCount.load(std::memory_order_relaxed));
+        // Ideally we'd use a RELEASE_ASSERT() here but it is a 0.7-0.8% regression on Speedometer 3.
+        ASSERT_WITH_SECURITY_IMPLICATION(m_refCount.load(std::memory_order_relaxed) == 1);
     }
 
     // Returns true if the pointer should be freed.
     bool derefBase() const
     {
-        m_refCountDebugger.willDeref(m_refCount);
+        m_refCountDebugger.willDeref(m_refCount.load(std::memory_order_relaxed));
 
-        if (!--m_refCount) [[unlikely]] {
+        if (m_refCount.fetch_sub(1, std::memory_order_acq_rel) == 1) [[unlikely]] {
             m_refCountDebugger.willDelete();
 
-            m_refCount = 1;
+            m_refCount.store(1, std::memory_order_relaxed);
             return true;
         }
 

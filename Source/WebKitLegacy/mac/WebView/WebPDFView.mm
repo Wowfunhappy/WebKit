@@ -59,6 +59,7 @@
 #import <WebCore/KeyboardEvent.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/MouseEvent.h>
 #import <WebCore/PlatformEventFactoryMac.h>
 #import <WebCore/Range.h>

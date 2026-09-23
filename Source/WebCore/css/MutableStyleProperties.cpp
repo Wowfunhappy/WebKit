@@ -233,7 +233,7 @@ bool MutableStyleProperties::setProperty(const CSSProperty& property, CSSPropert
 bool MutableStyleProperties::setProperty(CSSPropertyID propertyID, CSSValueID identifier, IsImportant important)
 {
     ASSERT(isLonghand(propertyID));
-    return setProperty(CSSProperty(propertyID, CSSPrimitiveValue::create(identifier), important));
+    return setProperty(CSSProperty(propertyID, CSSKeywordValue::create(identifier), important));
 }
 
 bool MutableStyleProperties::parseDeclaration(const String& styleDeclaration, CSSParserContext context)

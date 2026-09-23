@@ -1,25 +1,21 @@
 """
-JavaScriptCore Test Case Module
-Test case for running JavaScriptCore testwasmdebugger
+JavaScriptCore test runner — invokes run-javascriptcore-tests --testwasmdebugger.
+Not a DebugSession-based test.
 """
 
 import subprocess
-from lib.core.base import BaseTestCase
+from lib.utils import log_warning
 
 
-class JavaScriptCoreTestCase(BaseTestCase):
-    """Test case for running JavaScriptCore testwasmdebugger"""
+class JavaScriptCoreTestCase:
+    """Runs run-javascriptcore-tests --testwasmdebugger; no DebugSession."""
 
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
-        self.description = (
-            "Run JavaScriptCore testwasmdebugger to verify basic functionality"
-        )
+    test_file = None  # signals runner to skip DebugSession
+
+    def __init__(self, env):
+        self.env = env
 
     def execute(self):
-        """Execute the JavaScriptCore test"""
-        self.logger.verbose("Running JavaScriptCore Test")
-
         cmd = f"{self.env.webkit_root}/Tools/Scripts/run-javascriptcore-tests --debug --no-build --testwasmdebugger"
 
         try:
@@ -33,14 +29,8 @@ class JavaScriptCoreTestCase(BaseTestCase):
                 cwd=str(self.env.webkit_root),
             )
 
-            self.logger.verbose(f"Return code: {result.returncode}")
-
-            if "0 failures found." in result.stdout:
-                self.logger.success("JavaScriptCore test passed")
-            else:
+            if "0 failures found." not in result.stdout:
                 raise Exception("testwasmdebugger failed")
 
         except subprocess.TimeoutExpired:
-            self.logger.warning("JavaScriptCore test timed out but continuing")
-        except Exception as e:
-            raise Exception(f"JavaScriptCore test failed: {e}")
+            log_warning("JavaScriptCore test timed out but continuing")

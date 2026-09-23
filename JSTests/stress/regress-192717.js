@@ -1,4 +1,5 @@
-//@ skip if $memoryLimited or $buildType == "debug" or not $jitTests
+//@ memoryHog!
+//@ skip if $buildType == "debug" or not $jitTests
 //@ runDefault("--useLLInt=false", "--forceCodeBlockToJettisonDueToOldAge=true", "--maxPerThreadStackUsage=200000", "--exceptionStackTraceLimit=1", "--defaultErrorStackTraceLimit=1")
 
 let foo = 'let a';

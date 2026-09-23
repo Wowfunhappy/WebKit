@@ -33,10 +33,11 @@
 #include "InternalObserver.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMPromiseDeferred.h"
-#include "JSValueInWrappedObject.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "Observable.h"
 #include "ReducerCallback.h"
 #include "ScriptExecutionContext.h"
+#include "ScriptWrappableInlines.h"
 #include "SubscribeOptions.h"
 #include "Subscriber.h"
 #include "SubscriberCallback.h"
@@ -56,14 +57,15 @@ public:
 private:
     void next(JSC::JSValue value) final
     {
-        if (!m_accumulator) {
-            m_index++;
-            m_accumulator.setWeakly(value);
-            return;
-        }
-
         auto* globalObject = protect(scriptExecutionContext())->globalObject();
         ASSERT(globalObject);
+
+        if (!m_accumulator) {
+            m_index++;
+            auto* owner = subscriber() ? subscriber()->wrapper() : nullptr;
+            m_accumulator.set(*globalObject, owner, value);
+            return;
+        }
 
         Ref vm = globalObject->vm();
 
@@ -80,8 +82,10 @@ private:
             Ref { m_signal }->signalAbort(value);
         }
 
-        if (result.type() == CallbackResultType::Success)
-            m_accumulator.setWeakly(result.releaseReturnValue());
+        if (result.type() == CallbackResultType::Success) {
+            auto* owner = subscriber() ? subscriber()->wrapper() : nullptr;
+            m_accumulator.set(*globalObject, owner, result.releaseReturnValue());
+        }
     }
 
     void error(JSC::JSValue value) final
@@ -113,8 +117,11 @@ private:
         , m_callback(WTF::move(callback))
         , m_promise(WTF::move(promise))
     {
-        if (!initialValue.isUndefined()) [[unlikely]]
-            m_accumulator.setWeakly(initialValue);
+        if (!initialValue.isUndefined()) [[unlikely]] {
+            auto* owner = subscriber() ? subscriber()->wrapper() : nullptr;
+            if (auto* globalObject = context.globalObject())
+                m_accumulator.set(*globalObject, owner, initialValue);
+        }
     }
 
     uint64_t m_index { 0 };

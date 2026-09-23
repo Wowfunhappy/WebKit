@@ -148,7 +148,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (NSArray *)accessibilityChildren
 {
-    RetainPtr wrapper = [self accessibilityRootObjectWrapper:protect([self focusedLocalFrame]).get()];
+    RetainPtr wrapper = [self accessibilityRootObjectWrapper:protect([self localFocusedFrame]).get()];
     return wrapper ? @[wrapper.get()] : @[];
 }
 
@@ -166,13 +166,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (!didInitialize) [[unlikely]] {
         didInitialize = true;
         callOnMainRunLoopAndWait([protectedSelf = retainPtr(self)] {
-            if (!WebCore::AXObjectCache::accessibilityEnabled())
-                [protectedSelf enableAccessibilityForAllProcesses];
-
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-            if (WebCore::AXObjectCache::isIsolatedTreeEnabled())
-                [protectedSelf _buildIsolatedTreeIfNeeded];
-#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+            WebCore::AXObjectCache::enableAccessibility();
 
             float roundedHeight = std::round(WebCore::screenRectForPrimaryScreen().size().height());
             screenHeight = std::max(0u, static_cast<unsigned>(roundedHeight));
@@ -347,8 +341,8 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
                 convertedPoint = webPage->screenToRootView(WebCore::IntPoint(point));
                 if (CheckedPtr localFrameView = webPage->localMainFrameView())
                     convertedPoint.moveBy(localFrameView->scrollPosition());
-                else if (RefPtr focusedLocalFrame = [protectedSelf focusedLocalFrame]) {
-                    if (CheckedPtr frameView = focusedLocalFrame->view())
+                else if (RefPtr localFocusedFrame = [protectedSelf localFocusedFrame]) {
+                    if (CheckedPtr frameView = localFocusedFrame->view())
                         convertedPoint.moveBy(frameView->scrollPosition());
                 }
                 if (auto* page = webPage->corePage()) {
@@ -357,13 +351,13 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
                 }
             }
 
-            return [retainPtr([protectedSelf accessibilityRootObjectWrapper:protect([protectedSelf focusedLocalFrame]).get()]) accessibilityHitTest:convertedPoint];
+            return [retainPtr([protectedSelf accessibilityRootObjectWrapper:protect([protectedSelf localFocusedFrame]).get()]) accessibilityHitTest:convertedPoint];
         });
     }
 
     // If we're here, we are doing a hit-test off the main-thread. Accessibility thread hit tests
     // can handle the screen-relative point given to us by ATs, so pass it along with any conversion.
-    return [retainPtr([protectedSelf accessibilityRootObjectWrapper:protect([protectedSelf focusedLocalFrame]).get()]) accessibilityHitTest:WebCore::IntPoint(point)];
+    return [retainPtr([protectedSelf accessibilityRootObjectWrapper:protect([protectedSelf localFocusedFrame]).get()]) accessibilityHitTest:WebCore::IntPoint(point)];
 }
 ALLOW_DEPRECATED_DECLARATIONS_END
 

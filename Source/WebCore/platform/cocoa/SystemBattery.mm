@@ -28,6 +28,7 @@
 
 #import <notify.h>
 #import <pal/spi/cocoa/IOPSLibSPI.h>
+#import <wtf/RetainPtr.h>
 
 namespace WebCore {
 
@@ -61,6 +62,8 @@ bool systemHasBattery()
             for (CFIndex i = 0, count = CFArrayGetCount(powerSourcesList.get()); i < count; ++i) {
                 RetainPtr valueAtIndex =  CFArrayGetValueAtIndex(powerSourcesList.get(), i);
                 RetainPtr description = IOPSGetPowerSourceDescription(powerSourcesInfo.get(), valueAtIndex.get());
+                if (!description)
+                    continue;
                 RetainPtr value = CFDictionaryGetValue(description.get(), CFSTR(kIOPSTypeKey));
                 if (!value || CFEqual(value.get(), CFSTR(kIOPSInternalBatteryType)))
                     return true;

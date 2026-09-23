@@ -32,18 +32,20 @@
 
 namespace WebCore {
 
+struct MediaStreamTrackHandleDataHolder {
+    WTF_MAKE_TZONE_ALLOCATED(MediaStreamTrackHandleDataHolder);
+public:
+    ScriptExecutionContextIdentifier contextIdentifier;
+    WeakPtr<MediaStreamTrack, WeakPtrImplWithEventTargetData> track;
+    Ref<MediaStreamTrack::Keeper> trackKeeper;
+    Ref<MediaStreamTrackPrivateSourceObserver> trackSourceObserver;
+};
+
 class MediaStreamTrackHandle : public RefCounted<MediaStreamTrackHandle> {
 public:
     ~MediaStreamTrackHandle();
 
-    struct DataHolder {
-        WTF_MAKE_TZONE_ALLOCATED(DataHolder);
-    public:
-        ScriptExecutionContextIdentifier contextIdentifier;
-        WeakPtr<MediaStreamTrack, WeakPtrImplWithEventTargetData> track;
-        Ref<MediaStreamTrack::Keeper> trackKeeper;
-        Ref<MediaStreamTrackPrivateSourceObserver> trackSourceObserver;
-    };
+    using DataHolder = MediaStreamTrackHandleDataHolder;
 
     static ExceptionOr<Ref<MediaStreamTrackHandle>> create(MediaStreamTrack&);
     static Ref<MediaStreamTrackHandle> create(DataHolder&&);

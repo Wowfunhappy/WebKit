@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/fetch/stale-while-revalidate/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/stale-while-revalidate/fetch-sw.https.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/stale-while-revalidate/fetch.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/stale-while-revalidate/revalidate-not-blocked-by-csp.html

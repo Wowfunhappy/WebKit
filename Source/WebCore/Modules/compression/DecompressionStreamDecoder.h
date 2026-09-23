@@ -56,7 +56,7 @@ private:
     ExceptionOr<Ref<JSC::ArrayBuffer>> decompress(std::span<const uint8_t>);
     ExceptionOr<Ref<JSC::ArrayBuffer>> decompressZlib(std::span<const uint8_t>);
 #if PLATFORM(COCOA)
-    bool didInflateFinishAppleCompressionFramework(int);
+    bool NODELETE didInflateFinishAppleCompressionFramework(int);
     ExceptionOr<Ref<JSC::ArrayBuffer>> decompressAppleCompressionFramework(std::span<const uint8_t>);
 #endif
 

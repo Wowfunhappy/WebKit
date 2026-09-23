@@ -96,7 +96,7 @@ angle::Result VertexBufferInterface::getSpaceRequired(const gl::Context *context
                                                       const gl::VertexBinding &binding,
                                                       size_t count,
                                                       GLsizei instances,
-                                                      GLuint baseInstance,
+                                                      uint64_t baseInstance,
                                                       unsigned int *spaceInBytesOut) const
 {
     unsigned int spaceRequired = 0;
@@ -169,10 +169,10 @@ angle::Result StreamingVertexBufferInterface::storeDynamicAttribute(
     const gl::VertexAttribute &attrib,
     const gl::VertexBinding &binding,
     gl::VertexAttribType currentValueType,
-    GLint start,
+    size_t start,
     size_t count,
     GLsizei instances,
-    GLuint baseInstance,
+    uint64_t baseInstance,
     unsigned int *outStreamOffset,
     const uint8_t *sourceData)
 {
@@ -187,17 +187,14 @@ angle::Result StreamingVertexBufferInterface::storeDynamicAttribute(
 
     mReservedSpace = 0;
 
-    size_t adjustedCount = count;
-    GLuint divisor       = binding.getDivisor();
+    GLuint divisor = binding.getDivisor();
+    angle::CheckedNumeric<size_t> checkedCount =
+        gl::ComputeVertexBindingElementCount(divisor, count, instances, baseInstance);
 
-    if (instances != 0 && divisor != 0)
-    {
-        // The attribute is an instanced attribute and it's an draw instance call
-        // Extra number of elements are copied at the beginning to make sure
-        // the driver is referencing the correct data with non-zero baseInstance
-        adjustedCount += UnsignedCeilDivide(baseInstance, divisor);
-    }
+    ANGLE_CHECK(GetImplAs<ContextD3D>(context), checkedCount.IsValid(),
+                "New vertex buffer size would result in an overflow.", GL_OUT_OF_MEMORY);
 
+    size_t adjustedCount = checkedCount.ValueOrDie();
     ANGLE_TRY(mVertexBuffer->storeVertexAttributes(context, attrib, binding, currentValueType,
                                                    start, adjustedCount, instances, mWritePosition,
                                                    sourceData));
@@ -217,7 +214,7 @@ angle::Result StreamingVertexBufferInterface::reserveVertexSpace(const gl::Conte
                                                                  const gl::VertexBinding &binding,
                                                                  size_t count,
                                                                  GLsizei instances,
-                                                                 GLuint baseInstance)
+                                                                 uint64_t baseInstance)
 {
     unsigned int requiredSpace = 0;
     ANGLE_TRY(mFactory->getVertexSpaceRequired(context, attrib, binding, count, instances,
@@ -252,7 +249,7 @@ bool StaticVertexBufferInterface::AttributeSignature::matchesAttribute(
     }
 
     size_t attribOffset =
-        (static_cast<size_t>(ComputeVertexAttributeOffset(attrib, binding)) % attribStride);
+        static_cast<size_t>(ComputeVertexAttributeOffset(attrib, binding) % attribStride);
     return (offset == attribOffset);
 }
 
@@ -260,9 +257,9 @@ void StaticVertexBufferInterface::AttributeSignature::set(const gl::VertexAttrib
                                                           const gl::VertexBinding &binding)
 {
     formatID = attrib.format->id;
-    offset = stride = static_cast<GLuint>(ComputeVertexAttributeStride(attrib, binding));
-    offset          = static_cast<size_t>(ComputeVertexAttributeOffset(attrib, binding)) %
-             ComputeVertexAttributeStride(attrib, binding);
+    stride   = static_cast<GLuint>(ComputeVertexAttributeStride(attrib, binding));
+    offset   = static_cast<size_t>(ComputeVertexAttributeOffset(attrib, binding) %
+                                   ComputeVertexAttributeStride(attrib, binding));
 }
 
 StaticVertexBufferInterface::StaticVertexBufferInterface(BufferFactoryD3D *factory)
@@ -286,7 +283,7 @@ void StaticVertexBufferInterface::setAttribute(const gl::VertexAttribute &attrib
 angle::Result StaticVertexBufferInterface::storeStaticAttribute(const gl::Context *context,
                                                                 const gl::VertexAttribute &attrib,
                                                                 const gl::VertexBinding &binding,
-                                                                GLint start,
+                                                                size_t start,
                                                                 GLsizei count,
                                                                 GLsizei instances,
                                                                 const uint8_t *sourceData)

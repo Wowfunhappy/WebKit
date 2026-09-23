@@ -237,6 +237,11 @@ bool TestRunner::shouldWaitUntilDone() const
     return postSynchronousMessageReturningBoolean("GetWaitUntilDone");
 }
 
+bool TestRunner::isWaitingUntilDone() const
+{
+    return postSynchronousMessageReturningBoolean("GetIsWaitingUntilDone");
+}
+
 void TestRunner::notifyDone()
 {
     auto& injectedBundle = InjectedBundle::singleton();
@@ -343,6 +348,11 @@ void TestRunner::setDatabaseQuota(uint64_t quota)
 void TestRunner::syncLocalStorage()
 {
     postSynchronousMessage("SyncLocalStorage", true);
+}
+
+unsigned TestRunner::storageAreaMapCount()
+{
+    return postSynchronousPageMessageReturningUInt64("GetStorageAreaMapCount", WKRetainPtr<WKTypeRef> { });
 }
 
 bool TestRunner::isCommandEnabled(JSStringRef name)
@@ -528,6 +538,12 @@ bool TestRunner::didReceiveServerRedirectForProvisionalNavigation() const
 void TestRunner::clearDidReceiveServerRedirectForProvisionalNavigation()
 {
     postSynchronousPageMessage("ClearDidReceiveServerRedirectForProvisionalNavigation");
+}
+
+JSRetainPtr<JSStringRef> TestRunner::lastProvisionalNavigationFailureURL() const
+{
+    auto url = InjectedBundle::singleton().lastProvisionalNavigationFailureURL();
+    return WKStringCopyJSString(url.get());
 }
 
 void TestRunner::setPageVisibility(JSStringRef state)
@@ -1104,6 +1120,16 @@ void TestRunner::setStatisticsCacheMaxAgeCap(double seconds)
 bool TestRunner::hasStatisticsIsolatedSession(JSStringRef hostName)
 {
     return postSynchronousPageMessageReturningBoolean("HasStatisticsIsolatedSession", hostName);
+}
+
+void TestRunner::setGlobalPrivacyControl(bool value)
+{
+    postSynchronousMessageWithReturnValue("SetGlobalPrivacyControl", adoptWK(WKBooleanCreate(value)));
+}
+
+bool TestRunner::getGlobalPrivacyControl()
+{
+    return postSynchronousMessageReturningBoolean("GetGlobalPrivacyControl");
 }
 
 void TestRunner::installTextDidChangeInTextFieldCallback(JSContextRef context, JSValueRef callback)

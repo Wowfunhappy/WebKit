@@ -81,6 +81,8 @@ private:
 
     void completeTaskAsynchronouslyAfterActivityStateUpdate(unsigned callbackID);
 
+    void simulateAvailableSpeechVoicesDidChangeOnBackgroundThread(JSValueRef) override;
+
     unsigned long countOfUpdatesWithLayerChanges() const override;
 
 #if ENABLE(IMAGE_ANALYSIS)

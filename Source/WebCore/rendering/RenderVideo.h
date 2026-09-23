@@ -37,7 +37,7 @@ class RenderVideo final : public RenderMedia {
     WTF_MAKE_TZONE_ALLOCATED(RenderVideo);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderVideo);
 public:
-    RenderVideo(HTMLVideoElement&, RenderStyle&&);
+    RenderVideo(HTMLVideoElement&, Style::ComputedStyle&&);
     virtual ~RenderVideo();
 
     WEBCORE_EXPORT HTMLVideoElement& NODELETE videoElement() const;
@@ -78,11 +78,11 @@ private:
     void paintReplaced(PaintInfo&, const LayoutPoint&) final;
 
     void layout() final;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
 
     void visibleInViewportStateChanged() final;
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred  = ShouldComputePreferred::ComputeActual) const final;
+    LayoutUnit computeReplacedLogicalWidth(IsComputingIntrinsicSize  = IsComputingIntrinsicSize::No) const final;
     LayoutUnit minimumReplacedHeight() const final;
 
     bool updatePlayer();

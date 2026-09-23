@@ -49,6 +49,7 @@ RealtimeOutgoingMediaSourceGStreamer::RealtimeOutgoingMediaSourceGStreamer(Type 
     initialize();
 
     m_track = track.privateTrack();
+    m_muted = m_track->muted();
     m_outgoingSource = webkitMediaStreamSrcNew();
     GST_DEBUG_OBJECT(m_bin.get(), "Created outgoing source %" GST_PTR_FORMAT, m_outgoingSource.get());
     gst_bin_add(GST_BIN_CAST(m_bin.get()), m_outgoingSource.get());
@@ -59,6 +60,7 @@ RealtimeOutgoingMediaSourceGStreamer::RealtimeOutgoingMediaSourceGStreamer(Type 
     : m_type(type)
     , m_mediaStreamId(createVersion4UUIDString())
     , m_trackId(emptyString())
+    , m_muted(true)
     , m_ssrcGenerator(ssrcGenerator)
 {
     initialize();
@@ -94,7 +96,7 @@ void RealtimeOutgoingMediaSourceGStreamer::initialize()
     gst_bin_add_many(GST_BIN_CAST(m_bin.get()), m_inputSelector.get(), m_tee.get(), m_rtpFunnel.get(), m_rtpCapsfilter.get(), nullptr);
     gst_element_link(m_rtpFunnel.get(), m_rtpCapsfilter.get());
 
-    auto srcPad = adoptGRef(gst_element_get_static_pad(m_rtpCapsfilter.get(), "src"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(m_rtpCapsfilter.get(), "src"));
     gst_element_add_pad(m_bin.get(), gst_ghost_pad_new("src", srcPad.get()));
 }
 
@@ -175,7 +177,7 @@ void RealtimeOutgoingMediaSourceGStreamer::stopOutgoingSource(StoppedCallback&& 
     data->source = this;
     data->callback = WTF::move(callback);
 
-    auto pad = adoptGRef(gst_element_get_static_pad(m_inputSelector.get(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_inputSelector.get(), "src"));
     gst_pad_add_probe(pad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, reinterpret_cast<GstPadProbeCallback>(+[](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
         auto event = GST_PAD_PROBE_INFO_EVENT(info);
         if (GST_EVENT_TYPE(event) != GST_EVENT_EOS)
@@ -256,7 +258,7 @@ void RealtimeOutgoingMediaSourceGStreamer::link()
 {
     GST_DEBUG_OBJECT(m_bin.get(), "Linking webrtcbin pad %" GST_PTR_FORMAT, m_webrtcSinkPad.get());
 
-    auto srcPad = adoptGRef(gst_element_get_static_pad(m_bin.get(), "src"));
+    GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(m_bin.get(), "src"));
     gst_pad_link(srcPad.get(), m_webrtcSinkPad.get());
 }
 
@@ -310,7 +312,7 @@ void RealtimeOutgoingMediaSourceGStreamer::checkMid()
     auto extensionIdentifier = makeString("extmap-"_s, lookupResults.lastIdentifier);
     gst_structure_set(structure.get(), extensionIdentifier.ascii().data(), G_TYPE_STRING, GST_RTP_HDREXT_BASE "sdes:mid", nullptr);
 
-    auto newCaps = adoptGRef(gst_caps_new_full(structure.release(), nullptr));
+    GRefPtr newCaps = adoptGRef(gst_caps_new_full(structure.release(), nullptr));
     GST_DEBUG_OBJECT(m_bin.get(), "Setting RTP funnel caps to %" GST_PTR_FORMAT, newCaps.get());
     g_object_set(m_rtpCapsfilter.get(), "caps", newCaps.get(), nullptr);
 }
@@ -345,10 +347,10 @@ void RealtimeOutgoingMediaSourceGStreamer::codecPreferencesChanged()
         payloaderStates.add(*payloadType, sequenceNumber);
 
         auto bin = packetizer->bin();
-        auto binSinkPad = adoptGRef(gst_element_get_static_pad(bin, "sink"));
-        auto teeSrcPad = adoptGRef(gst_pad_get_peer(binSinkPad.get()));
-        auto binSrcPad = adoptGRef(gst_element_get_static_pad(bin, "src"));
-        auto funnelSinkPad = adoptGRef(gst_pad_get_peer(binSrcPad.get()));
+        GRefPtr binSinkPad = adoptGRef(gst_element_get_static_pad(bin, "sink"));
+        GRefPtr teeSrcPad = adoptGRef(gst_pad_get_peer(binSinkPad.get()));
+        GRefPtr binSrcPad = adoptGRef(gst_element_get_static_pad(bin, "src"));
+        GRefPtr funnelSinkPad = adoptGRef(gst_pad_get_peer(binSrcPad.get()));
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN_CAST(m_bin.get()), bin);
         gst_element_release_request_pad(m_tee.get(), teeSrcPad.get());
@@ -384,20 +386,52 @@ void RealtimeOutgoingMediaSourceGStreamer::replaceTrack(const RefPtr<MediaStream
     if (newTrack)
         trackPrivate = newTrack->privateTrack();
 
-    if (m_outgoingSource)
+    if (m_outgoingSource) {
         webkitMediaStreamSrcReplaceTrack(WEBKIT_MEDIA_STREAM_SRC_CAST(m_outgoingSource.get()), RefPtr(trackPrivate));
-    else {
-        if (trackPrivate) {
-            m_outgoingSource = webkitMediaStreamSrcNew();
-            gst_bin_add(GST_BIN_CAST(m_bin.get()), m_outgoingSource.get());
-            webkitMediaStreamSrcAddTrack(WEBKIT_MEDIA_STREAM_SRC_CAST(m_outgoingSource.get()), trackPrivate.get());
+        auto srcPad = outgoingSourcePad();
+        if (!gst_pad_is_linked(srcPad.get())) {
             gst_element_link(m_outgoingSource.get(), m_inputSelector.get());
             gst_element_sync_state_with_parent(m_outgoingSource.get());
         }
-        auto srcPad = outgoingSourcePad();
-        auto activePad = adoptGRef(gst_pad_get_peer(srcPad.get()));
-        g_object_set(m_inputSelector.get(), "active-pad", activePad.get(), nullptr);
+    } else if (trackPrivate) {
+        m_outgoingSource = webkitMediaStreamSrcNew();
+        gst_bin_add(GST_BIN_CAST(m_bin.get()), m_outgoingSource.get());
+        webkitMediaStreamSrcAddTrack(WEBKIT_MEDIA_STREAM_SRC_CAST(m_outgoingSource.get()), trackPrivate.get());
+        gst_element_link(m_outgoingSource.get(), m_inputSelector.get());
+        gst_element_sync_state_with_parent(m_outgoingSource.get());
     }
+
+    auto srcPad = outgoingSourcePad();
+    GRefPtr activePad = adoptGRef(gst_pad_get_peer(srcPad.get()));
+    RELEASE_ASSERT(activePad);
+    g_object_set(m_inputSelector.get(), "active-pad", activePad.get(), nullptr);
+
+    if (m_transceiver) {
+        GRefPtr<GstCaps> caps;
+        g_object_get(m_transceiver.get(), "codec-preferences", &caps.outPtr(), nullptr);
+
+        m_pendingTrackId = trackPrivate ? trackPrivate->id() : emptyString();
+        GRefPtr newCaps = adoptGRef(gst_caps_make_writable(caps.leakRef()));
+        gst_caps_map_in_place(newCaps.get(), [](auto*, auto* structure, gpointer userData) -> gboolean {
+            if (!gst_structure_has_field_typed(structure, "a-msid", G_TYPE_STRING)) [[unlikely]]
+                return TRUE;
+
+            auto self = static_cast<RealtimeOutgoingMediaSourceGStreamer*>(userData);
+            if (self->m_pendingTrackId.isEmpty())
+                gst_structure_remove_field(structure, "a-msid");
+            else {
+                auto newMsid = makeString(self->m_mediaStreamId, ' ', self->m_pendingTrackId);
+                gst_structure_set(structure, "a-msid", G_TYPE_STRING, newMsid.utf8().data(), nullptr);
+            }
+
+            return TRUE;
+        }, this);
+        g_object_freeze_notify(G_OBJECT(m_transceiver.get()));
+        g_object_set(m_transceiver.get(), "codec-preferences", newCaps.get(), nullptr);
+        m_pendingTrackId = emptyString();
+        g_object_thaw_notify(G_OBJECT(m_transceiver.get()));
+    }
+
     if (!newTrack) {
         m_isStopped = true;
         m_track = nullptr;
@@ -405,6 +439,13 @@ void RealtimeOutgoingMediaSourceGStreamer::replaceTrack(const RefPtr<MediaStream
     }
 
     m_track = WTF::move(trackPrivate);
+
+    const auto& webrtcSinkPad = pad();
+    if (!webrtcSinkPad)
+        return;
+    if (!gst_pad_is_linked(webrtcSinkPad.get()))
+        return;
+
     start();
 }
 
@@ -481,7 +522,7 @@ bool RealtimeOutgoingMediaSourceGStreamer::configurePacketizers(GRefPtr<GstCaps>
     if (gst_caps_is_empty(codecPreferences.get()) || gst_caps_is_any(codecPreferences.get())) [[unlikely]]
         return false;
 
-    auto inputSelectorSrcPad = adoptGRef(gst_element_get_static_pad(m_inputSelector.get(), "src"));
+    GRefPtr inputSelectorSrcPad = adoptGRef(gst_element_get_static_pad(m_inputSelector.get(), "src"));
     if (!gst_pad_is_linked(inputSelectorSrcPad.get()) && !gst_element_link(m_inputSelector.get(), m_tee.get()))
         return false;
 
@@ -491,10 +532,10 @@ bool RealtimeOutgoingMediaSourceGStreamer::configurePacketizers(GRefPtr<GstCaps>
             return false;
 
     }
-    auto activePad = adoptGRef(gst_pad_get_peer(srcPad.get()));
+    GRefPtr activePad = adoptGRef(gst_pad_get_peer(srcPad.get()));
     g_object_set(m_inputSelector.get(), "active-pad", activePad.get(), nullptr);
 
-    auto rtpCaps = adoptGRef(gst_caps_new_empty());
+    GRefPtr rtpCaps = adoptGRef(gst_caps_new_empty());
     unsigned totalCodecs = gst_caps_get_size(codecPreferences.get());
     for (unsigned i = 0; i < totalCodecs; i++) {
         const auto codecParameters = gst_caps_get_structure(codecPreferences.get(), i);
@@ -671,7 +712,7 @@ GUniquePtr<GstStructure> RealtimeOutgoingMediaSourceGStreamer::mediaCaptureStats
     gst_structure_set(stats.get(), "webkit-stats-type", G_TYPE_STRING, type.ascii().data(),
         "id", G_TYPE_STRING, id.utf8().data(), "timestamp", G_TYPE_DOUBLE, static_cast<double>(timestamp),
         "kind", G_TYPE_STRING, m_type == Type::Audio ? "audio" : "video", "track-identifier", G_TYPE_STRING, m_trackId.utf8().data(), nullptr);
-    auto query = adoptGRef(gst_query_new_custom(GST_QUERY_CUSTOM, gst_structure_new_empty("webkit-media-source-stats")));
+    GRefPtr query = adoptGRef(gst_query_new_custom(GST_QUERY_CUSTOM, gst_structure_new_empty("webkit-media-source-stats")));
     auto srcPad = outgoingSourcePad();
     if (gst_pad_query(srcPad.get(), query.get())) {
         gstStructureForeach(gst_query_get_structure(query.get()), [&](auto id, const auto* value) -> bool {
@@ -707,17 +748,17 @@ void RealtimeOutgoingMediaSourceGStreamer::teardown()
         stopUpdatingStats();
 
         if (GST_IS_PAD(m_webrtcSinkPad.get())) {
-            auto srcPad = adoptGRef(gst_element_get_static_pad(m_bin.get(), "src"));
+            GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(m_bin.get(), "src"));
             if (gst_pad_unlink(srcPad.get(), m_webrtcSinkPad.get())) {
                 GST_DEBUG_OBJECT(m_bin.get(), "Removing webrtcbin pad %" GST_PTR_FORMAT, m_webrtcSinkPad.get());
-                if (auto parent = adoptGRef(gst_pad_get_parent_element(m_webrtcSinkPad.get())))
+                if (GRefPtr parent = adoptGRef(gst_pad_get_parent_element(m_webrtcSinkPad.get())))
                     gst_element_release_request_pad(parent.get(), m_webrtcSinkPad.get());
             }
         }
 
         gstElementLockAndSetState(m_bin.get(), GST_STATE_NULL);
 
-        if (auto pipeline = adoptGRef(gst_element_get_parent(m_bin.get())))
+        if (GRefPtr pipeline = adoptGRef(gst_element_get_parent(m_bin.get())))
             gst_bin_remove(GST_BIN_CAST(pipeline.get()), m_bin.get());
 
         m_packetizers.clear();

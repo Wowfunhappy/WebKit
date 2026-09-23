@@ -61,6 +61,7 @@
 #include "dom/DOMHighResTimeStamp.h"
 #include <JavaScriptCore/ProfilerSupport.h>
 #include <ranges>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/SystemTracing.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -87,9 +88,10 @@ Performance::Performance(ScriptExecutionContext* context, MonotonicTime timeOrig
     : ContextDestructionObserver(context)
     , m_resourceTimingBufferFullTimer(*this, &Performance::resourceTimingBufferFullTimerFired) // FIXME: Migrate this to the event loop as well. https://bugs.webkit.org/show_bug.cgi?id=229044
     , m_timeOrigin(timeOrigin)
-    , m_continuousTimeOrigin(timeOrigin.approximateContinuousTime())
+    , m_continuousTimeOrigin(timeOrigin.approximate<ContinuousTime>())
 {
     ASSERT(m_timeOrigin);
+    initializeEntryBufferMap();
 }
 
 Performance::~Performance() = default;
@@ -100,6 +102,60 @@ void Performance::contextDestroyed()
     ContextDestructionObserver::contextDestroyed();
 }
 
+// https://w3c.github.io/performance-timeline/#performance-entry-buffer-map
+Performance::PerformanceEntryBuffer& Performance::entryBufferTuple(PerformanceEntry::Type type)
+{
+    return m_entryBufferMap[entryTypeIndex(type)];
+}
+
+const Performance::PerformanceEntryBuffer& Performance::entryBufferTuple(PerformanceEntry::Type type) const
+{
+    return m_entryBufferMap[entryTypeIndex(type)];
+}
+
+// https://w3c.github.io/timing-entrytypes-registry/#registry
+static constexpr unsigned maxResourceTimingBufferSize = 250;
+static constexpr unsigned maxPaintTimingBufferSize = 2;
+static constexpr unsigned maxFirstInputBufferSize = 1;
+static constexpr unsigned maxEventTimingBufferSize = 150;
+static constexpr unsigned maxLargestContentfulPaintBufferSize = 150;
+
+void Performance::initializeEntryBufferMap()
+{
+    // Default tuple has empty buffer, unlimited maxBufferSize, availableFromTimeline=true, droppedEntriesCount=0.
+    entryBufferTuple(PerformanceEntry::Type::Resource).maxBufferSize = maxResourceTimingBufferSize;
+    entryBufferTuple(PerformanceEntry::Type::Paint).maxBufferSize = maxPaintTimingBufferSize;
+    entryBufferTuple(PerformanceEntry::Type::FirstInput).maxBufferSize = maxFirstInputBufferSize;
+
+    auto& eventTuple = entryBufferTuple(PerformanceEntry::Type::Event);
+    eventTuple.maxBufferSize = maxEventTimingBufferSize;
+    eventTuple.availableFromTimeline = false;
+
+    auto& lcpTuple = entryBufferTuple(PerformanceEntry::Type::LargestContentfulPaint);
+    lcpTuple.maxBufferSize = maxLargestContentfulPaintBufferSize;
+    lcpTuple.availableFromTimeline = false;
+}
+
+bool Performance::addToEntryBuffer(PerformanceEntry& entry)
+{
+    auto& tuple = entryBufferTuple(entry.performanceEntryType());
+    if (tuple.buffer.size() >= tuple.maxBufferSize) {
+        tuple.droppedEntriesCount++;
+        return false;
+    }
+    tuple.buffer.append(entry);
+    return true;
+}
+
+void Performance::clearEntryBuffer(PerformanceEntry::Type type, const String& name)
+{
+    auto& buffer = entryBufferTuple(type).buffer;
+    if (name.isNull())
+        buffer.clear();
+    else
+        buffer.removeAllMatching([&](auto& entry) { return entry->name() == name; });
+}
+
 DOMHighResTimeStamp Performance::now() const
 {
     return nowInReducedResolutionSeconds().milliseconds();
@@ -107,18 +163,17 @@ DOMHighResTimeStamp Performance::now() const
 
 DOMHighResTimeStamp Performance::timeOrigin() const
 {
-    return reduceTimeResolution(m_timeOrigin.approximateWallTime().secondsSinceEpoch()).milliseconds();
+    return reduceTimeResolution(m_timeOrigin.approximate<WallTime>().secondsSinceEpoch()).milliseconds();
 }
 
 ReducedResolutionSeconds Performance::nowInReducedResolutionSeconds() const
 {
-    Seconds now = MonotonicTime::now() - m_timeOrigin;
-    return reduceTimeResolution(now);
+    return reduceTimeResolution(MonotonicTime::now() - m_timeOrigin);
 }
 
-Seconds Performance::reduceTimeResolution(Seconds seconds)
+ReducedResolutionSeconds Performance::reduceTimeResolution(Seconds seconds)
 {
-    return seconds.reduceTimeResolution(timePrecision);
+    return ReducedResolutionSeconds::reduce(seconds, timePrecision);
 }
 
 void Performance::allowHighPrecisionTime()
@@ -131,9 +186,14 @@ Seconds Performance::timeResolution()
     return timePrecision;
 }
 
-Seconds Performance::relativeTimeFromTimeOriginInReducedResolutionSeconds(MonotonicTime timestamp) const
+ReducedResolutionSeconds Performance::relativeTimeFromTimeOriginInReducedResolutionSeconds(MonotonicTime timestamp) const
 {
     return reduceTimeResolution(timestamp - m_timeOrigin);
+}
+
+MonotonicTime Performance::monotonicTimeFromOriginRelative(Seconds offset) const
+{
+    return m_timeOrigin + offset;
 }
 
 DOMHighResTimeStamp Performance::relativeTimeFromTimeOriginInReducedResolution(MonotonicTime timestamp) const
@@ -178,7 +238,7 @@ PerformanceNavigation& Performance::navigation()
     ASSERT(isMainThread());
 
     if (!m_navigation)
-        m_navigation = PerformanceNavigation::create(downcast<Document>(*scriptExecutionContext()).window());
+        m_navigation = PerformanceNavigation::create(protect(downcast<Document>(*scriptExecutionContext()).window()));
     return *m_navigation;
 }
 
@@ -188,128 +248,84 @@ PerformanceTiming& Performance::timing()
     ASSERT(isMainThread());
 
     if (!m_timing)
-        m_timing = PerformanceTiming::create(downcast<Document>(*scriptExecutionContext()).window());
+        m_timing = PerformanceTiming::create(protect(downcast<Document>(*scriptExecutionContext()).window()));
     return *m_timing;
 }
 
 Vector<Ref<PerformanceEntry>> Performance::getEntries() const
 {
+    // https://w3c.github.io/performance-timeline/#dfn-filter-buffer-map-by-name-and-type
     Vector<Ref<PerformanceEntry>> entries;
-
-    if (m_navigationTiming)
-        entries.append(*m_navigationTiming);
-
-    entries.appendVector(m_resourceTimingBuffer);
-
-    if (m_userTiming) {
-        entries.appendVector(m_userTiming->getMarks());
-        entries.appendVector(m_userTiming->getMeasures());
+    for (auto& tuple : m_entryBufferMap) {
+        if (!tuple.availableFromTimeline)
+            continue;
+        entries.appendVector(tuple.buffer);
     }
-
-    if (m_firstContentfulPaint)
-        entries.append(*m_firstContentfulPaint);
-
-    // getEntries should not include largest-contentful-paint.
-
-    if (m_firstInput)
-        entries.append(*m_firstInput);
-
-    std::ranges::sort(entries, PerformanceEntry::startTimeCompareLessThan);
+    std::ranges::stable_sort(entries, PerformanceEntry::startTimeCompareLessThan);
     return entries;
 }
 
 Vector<Ref<PerformanceEntry>> Performance::getEntriesByType(const String& entryType) const
 {
+    // https://w3c.github.io/performance-timeline/#dfn-filter-buffer-map-by-name-and-type
+    auto type = PerformanceEntry::parseEntryTypeString(entryType);
+    if (!type)
+        return { };
+
+    auto& tuple = entryBufferTuple(*type);
+    if (!tuple.availableFromTimeline)
+        return { };
+
     Vector<Ref<PerformanceEntry>> entries;
-
-    if (m_navigationTiming && entryType == "navigation"_s)
-        entries.append(*m_navigationTiming);
-    
-    if (entryType == "resource"_s)
-        entries.appendVector(m_resourceTimingBuffer);
-
-    if (m_firstContentfulPaint && entryType == "paint"_s)
-        entries.append(*m_firstContentfulPaint);
-
-    // getEntriesByType should not include largest-contentful-paint.
-
-    if (m_userTiming) {
-        if (entryType == "mark"_s)
-            entries.appendVector(m_userTiming->getMarks());
-        else if (entryType == "measure"_s)
-            entries.appendVector(m_userTiming->getMeasures());
-    }
-
-    if (entryType == "first-input"_s && m_firstInput)
-        entries.append(*m_firstInput);
-
-    std::ranges::sort(entries, PerformanceEntry::startTimeCompareLessThan);
+    entries.appendVector(tuple.buffer);
+    std::ranges::stable_sort(entries, PerformanceEntry::startTimeCompareLessThan);
     return entries;
 }
 
 Vector<Ref<PerformanceEntry>> Performance::getEntriesByName(const String& name, const String& entryType) const
 {
+    // https://w3c.github.io/performance-timeline/#dfn-filter-buffer-map-by-name-and-type
     Vector<Ref<PerformanceEntry>> entries;
 
-    if (m_navigationTiming && (entryType.isNull() || entryType == "navigation"_s) && name == m_navigationTiming->name())
-        entries.append(*m_navigationTiming);
-
-    if (entryType.isNull() || entryType == "resource"_s) {
-        for (auto& resource : m_resourceTimingBuffer) {
-            if (resource->name() == name)
-                entries.append(resource);
+    auto filterAndAppend = [&](const PerformanceEntryBuffer& tuple) {
+        if (!tuple.availableFromTimeline)
+            return;
+        for (auto& entry : tuple.buffer) {
+            if (entry->name() == name)
+                entries.append(entry);
         }
+    };
+
+    if (!entryType.isNull()) {
+        auto type = PerformanceEntry::parseEntryTypeString(entryType);
+        if (!type)
+            return entries;
+        filterAndAppend(entryBufferTuple(*type));
+    } else {
+        for (auto& tuple : m_entryBufferMap)
+            filterAndAppend(tuple);
     }
 
-    if (m_firstContentfulPaint && (entryType.isNull() || entryType == "paint"_s) && name == "first-contentful-paint"_s)
-        entries.append(*m_firstContentfulPaint);
-
-    // getEntriesByName should not include largest-contentful-paint.
-
-    if (m_userTiming) {
-        if (entryType.isNull() || entryType == "mark"_s)
-            entries.appendVector(m_userTiming->getMarks(name));
-        if (entryType.isNull() || entryType == "measure"_s)
-            entries.appendVector(m_userTiming->getMeasures(name));
-    }
-
-    if (entryType.isNull() || entryType == "first-input"_s) {
-        if (m_firstInput && name == m_firstInput->name())
-            entries.append(*m_firstInput);
-    }
-
-    std::ranges::sort(entries, PerformanceEntry::startTimeCompareLessThan);
+    std::ranges::stable_sort(entries, PerformanceEntry::startTimeCompareLessThan);
     return entries;
 }
 
 void Performance::appendBufferedEntriesByType(const String& entryType, Vector<Ref<PerformanceEntry>>& entries, PerformanceObserver& observer) const
 {
-    if (m_navigationTiming && entryType == "navigation"_s && !observer.hasNavigationTiming()) {
-        entries.append(*m_navigationTiming);
+    // https://w3c.github.io/performance-timeline/#observe-method (step 8c)
+    // No availableFromTimeline check — buffered observers see all entry types.
+    auto type = PerformanceEntry::parseEntryTypeString(entryType);
+    if (!type)
+        return;
+
+    if (*type == PerformanceEntry::Type::Navigation && observer.hasNavigationTiming())
+        return;
+
+    auto& tuple = entryBufferTuple(*type);
+    entries.appendVector(tuple.buffer);
+
+    if (*type == PerformanceEntry::Type::Navigation && !tuple.buffer.isEmpty())
         observer.addedNavigationTiming();
-    }
-
-    if (entryType == "resource"_s)
-        entries.appendVector(m_resourceTimingBuffer);
-
-    if (entryType == "paint"_s && m_firstContentfulPaint)
-        entries.append(*m_firstContentfulPaint);
-
-    if (entryType == "largest-contentful-paint"_s && m_largestContentfulPaint)
-        entries.append(*m_largestContentfulPaint);
-
-    if (entryType == "event"_s)
-        entries.appendVector(m_eventTimingBuffer);
-
-    if (entryType == "first-input"_s && m_firstInput)
-        entries.append(*m_firstInput);
-
-    if (m_userTiming) {
-        if (entryType.isNull() || entryType == "mark"_s)
-            entries.appendVector(m_userTiming->getMarks());
-        if (entryType.isNull() || entryType == "measure"_s)
-            entries.appendVector(m_userTiming->getMeasures());
-    }
 }
 
 void Performance::countEvent(EventType type)
@@ -335,7 +351,8 @@ void Performance::processEventEntry(const PerformanceEventTimingCandidate& candi
     // spec discussion at https://github.com/w3c/event-timing/issues/159 :
     if (!m_firstInput && !candidate.interactionID.isUnassigned()) {
         m_firstInput = PerformanceEventTiming::create(candidate, true);
-        queueEntry(*m_firstInput);
+        addToEntryBuffer(*m_firstInput);
+        queueEntry(protect(*m_firstInput));
         if (RefPtr document = dynamicDowncast<Document>(*scriptExecutionContext())) {
             if (auto* window = document->window())
                 window->setDispatchedInputEvent();
@@ -352,21 +369,21 @@ void Performance::processEventEntry(const PerformanceEventTimingCandidate& candi
         return;
 
     auto entry = PerformanceEventTiming::create(candidate);
-    if (m_eventTimingBuffer.size() < m_eventTimingBufferSize && candidate.duration > defaultDurationCutoffBeforeRounding)
-        m_eventTimingBuffer.append(entry);
+    if (candidate.duration > defaultDurationCutoffBeforeRounding)
+        addToEntryBuffer(entry);
 
     queueEntry(entry);
 }
 
 void Performance::clearResourceTimings()
 {
-    m_resourceTimingBuffer.clear();
+    entryBufferTuple(PerformanceEntry::Type::Resource).buffer.clear();
     m_resourceTimingBufferFullFlag = false;
 }
 
 void Performance::setResourceTimingBufferSize(unsigned size)
 {
-    m_resourceTimingBufferSize = size;
+    entryBufferTuple(PerformanceEntry::Type::Resource).maxBufferSize = size;
     m_resourceTimingBufferFullFlag = false;
 }
 
@@ -375,9 +392,9 @@ void Performance::reportFirstContentfulPaint(DOMHighResTimeStamp timestamp)
     if (RefPtr context = scriptExecutionContext())
         InspectorInstrumentation::didEnqueueFirstContentfulPaint(*context);
 
-    ASSERT(!m_firstContentfulPaint);
-    m_firstContentfulPaint = PerformancePaintTiming::createFirstContentfulPaint(timestamp);
-    queueEntry(*m_firstContentfulPaint);
+    auto entry = PerformancePaintTiming::createFirstContentfulPaint(timestamp);
+    addToEntryBuffer(entry);
+    queueEntry(entry);
 }
 
 void Performance::enqueueLargestContentfulPaint(Ref<LargestContentfulPaint>&& paintEntry)
@@ -385,13 +402,14 @@ void Performance::enqueueLargestContentfulPaint(Ref<LargestContentfulPaint>&& pa
     if (RefPtr context = scriptExecutionContext())
         InspectorInstrumentation::didEnqueueLargestContentfulPaint(*context, paintEntry.get());
 
-    m_largestContentfulPaint = RefPtr { WTF::move(paintEntry) };
-    queueEntry(*m_largestContentfulPaint);
+    addToEntryBuffer(paintEntry);
+    queueEntry(paintEntry);
 }
 
 void Performance::addNavigationTiming(DocumentLoader& documentLoader, Document& document, CachedResource& resource, const DocumentLoadTiming& timing, const NetworkLoadMetrics& metrics)
 {
     m_navigationTiming = PerformanceNavigationTiming::create(m_timeOrigin, resource, timing, metrics, document.eventTiming(), document.securityOrigin(), documentLoader.triggeringAction().type());
+    addToEntryBuffer(*m_navigationTiming);
 }
 
 void Performance::documentLoadFinished(const NetworkLoadMetrics& metrics)
@@ -399,7 +417,7 @@ void Performance::documentLoadFinished(const NetworkLoadMetrics& metrics)
     if (!m_navigationTiming)
         return;
 
-    m_navigationTiming->documentLoadFinished(metrics);
+    protect(m_navigationTiming)->documentLoadFinished(metrics);
 }
 
 void Performance::navigationFinished(MonotonicTime loadEventEnd)
@@ -408,7 +426,7 @@ void Performance::navigationFinished(MonotonicTime loadEventEnd)
         return;
 
     m_navigationTiming->documentLoadTiming().setLoadEventEnd(loadEventEnd);
-    queueEntry(*m_navigationTiming);
+    queueEntry(protect(*m_navigationTiming));
 }
 
 void Performance::addResourceTiming(ResourceTiming&& resourceTiming)
@@ -438,17 +456,20 @@ void Performance::addResourceTiming(ResourceTiming&& resourceTiming)
     }
 
     queueEntry(entry.get());
-    m_resourceTimingBuffer.append(WTF::move(entry));
+    entryBufferTuple(PerformanceEntry::Type::Resource).buffer.append(WTF::move(entry));
 }
 
 bool Performance::isResourceTimingBufferFull() const
 {
-    return m_resourceTimingBuffer.size() >= m_resourceTimingBufferSize;
+    auto& tuple = entryBufferTuple(PerformanceEntry::Type::Resource);
+    return tuple.buffer.size() >= tuple.maxBufferSize;
 }
 
 void Performance::resourceTimingBufferFullTimerFired()
 {
     ASSERT(scriptExecutionContext());
+
+    auto& resourceBuffer = entryBufferTuple(PerformanceEntry::Type::Resource).buffer;
 
     while (!m_backupResourceTimingBuffer.isEmpty()) {
         auto beforeCount = m_backupResourceTimingBuffer.size();
@@ -475,7 +496,7 @@ void Performance::resourceTimingBufferFullTimerFired()
 
         for (auto& entry : backupBuffer) {
             if (!isResourceTimingBufferFull()) {
-                m_resourceTimingBuffer.append(entry.copyRef());
+                resourceBuffer.append(entry.copyRef());
                 queueEntry(entry);
             } else
                 m_backupResourceTimingBuffer.append(entry.copyRef());
@@ -500,6 +521,7 @@ ExceptionOr<Ref<PerformanceMark>> Performance::mark(JSC::JSGlobalObject& globalO
     if (mark.hasException())
         return mark.releaseException();
 
+    addToEntryBuffer(mark.returnValue().get());
     queueEntry(mark.returnValue().get());
     return mark.releaseReturnValue();
 }
@@ -509,6 +531,7 @@ void Performance::clearMarks(const String& markName)
     if (!m_userTiming)
         m_userTiming = makeUnique<PerformanceUserTiming>(*this);
     m_userTiming->clearMarks(markName);
+    clearEntryBuffer(PerformanceEntry::Type::Mark, markName);
 }
 
 ExceptionOr<Ref<PerformanceMeasure>> Performance::measure(JSC::JSGlobalObject& globalObject, const String& measureName, StartOrMeasureOptions&& startOrMeasureOptions, const String& endMark)
@@ -540,13 +563,14 @@ ExceptionOr<Ref<PerformanceMeasure>> Performance::measure(JSC::JSGlobalObject& g
         }
 #endif
         {
-            auto timeOrigin = m_continuousTimeOrigin.approximateMonotonicTime();
+            auto timeOrigin = m_continuousTimeOrigin.approximate<MonotonicTime>();
             auto startTime = timeOrigin + Seconds::fromMilliseconds(entry->startTime());
             auto endTime = timeOrigin + Seconds::fromMilliseconds(entry->startTime() + entry->duration());
             JSC::ProfilerSupport::markInterval(entry.ptr(), JSC::ProfilerSupport::Category::WebKitPerformanceSignpost, startTime, endTime, WTF::move(message));
         }
     }
 
+    addToEntryBuffer(measure.returnValue().get());
     queueEntry(measure.returnValue().get());
     return measure.releaseReturnValue();
 }
@@ -556,6 +580,7 @@ void Performance::clearMeasures(const String& measureName)
     if (!m_userTiming)
         m_userTiming = makeUnique<PerformanceUserTiming>(*this);
     m_userTiming->clearMeasures(measureName);
+    clearEntryBuffer(PerformanceEntry::Type::Measure, measureName);
 }
 
 void Performance::removeAllObservers()

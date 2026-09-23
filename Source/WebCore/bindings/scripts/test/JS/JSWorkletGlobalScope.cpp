@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -36,7 +37,6 @@
 #include "WebCoreJSClientData.h"
 #include "WorkletGlobalScope.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -99,11 +99,16 @@ static const std::array<HashTableValue, 1> JSWorkletGlobalScopePrototypeTableVal
 static const HashTable JSWorkletGlobalScopePrototypeTable = { 1, 1, static_cast<uint8_t>(static_cast<unsigned>(PropertyAttribute::DontEnum)), JSWorkletGlobalScope::info(), JSWorkletGlobalScopePrototypeTableValues.data(), JSWorkletGlobalScopePrototypeTableIndex };
 const ClassInfo JSWorkletGlobalScopePrototype::s_info = { "WorkletGlobalScope"_s, &Base::s_info, &JSWorkletGlobalScopePrototypeTable, nullptr, CREATE_METHOD_TABLE(JSWorkletGlobalScopePrototype) };
 
+JSC::Structure* JSWorkletGlobalScopePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSWorkletGlobalScopePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSWorkletGlobalScope::info(), JSWorkletGlobalScopePrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSWorkletGlobalScope::s_info = { "WorkletGlobalScope"_s, &Base::s_info, &JSWorkletGlobalScopeTable, nullptr, CREATE_METHOD_TABLE(JSWorkletGlobalScope) };
@@ -123,6 +128,18 @@ void JSWorkletGlobalScope::finishCreation(VM& vm, JSGlobalProxy* proxy)
 }
 #endif
 
+JSWorkletGlobalScope* JSWorkletGlobalScope::create(JSC::VM& vm, JSC::Structure* structure, Ref<WorkletGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
+{
+    JSWorkletGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSWorkletGlobalScope>(vm)) JSWorkletGlobalScope(vm, structure, WTF::move(impl));
+    ptr->finishCreation(vm, proxy);
+    return ptr;
+}
+
+JSC::Structure* JSWorkletGlobalScope::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 JSObject* JSWorkletGlobalScope::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
     auto* structure = JSWorkletGlobalScopePrototype::createStructure(vm, &globalObject, JSEventTarget::prototype(vm, globalObject));
@@ -137,17 +154,17 @@ JSObject* JSWorkletGlobalScope::prototype(VM& vm, JSDOMGlobalObject& globalObjec
 
 JSValue JSWorkletGlobalScope::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSWorkletGlobalScopeDOMConstructor, DOMConstructorID::WorkletGlobalScope>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSWorkletGlobalScopeDOMConstructor, DOMConstructorID::WorkletGlobalScope>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsWorkletGlobalScopeConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSWorkletGlobalScopePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSWorkletGlobalScopePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSWorkletGlobalScope::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSWorkletGlobalScope::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsWorkletGlobalScope_WorkletGlobalScopeConstructorGetter(JSGlobalObject& lexicalGlobalObject, JSWorkletGlobalScope& thisObject)
@@ -174,7 +191,7 @@ JSC::GCClient::IsoSubspace* JSWorkletGlobalScope::subspaceForImpl(JSC::VM& vm)
 
 void JSWorkletGlobalScope::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSWorkletGlobalScope*>(cell);
+    auto* thisObject = uncheckedDowncast<JSWorkletGlobalScope>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
@@ -183,7 +200,7 @@ void JSWorkletGlobalScope::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 
 WorkletGlobalScope* JSWorkletGlobalScope::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSWorkletGlobalScope*>(value))
+    if (auto* wrapper = dynamicDowncast<JSWorkletGlobalScope>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

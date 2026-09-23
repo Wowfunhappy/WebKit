@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +27,12 @@
 #pragma once
 
 #include <WebCore/CompositeOperation.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatSize.h>
 #include <WebCore/IntPoint.h>
 #include <WebCore/IterationCompositeOperation.h>
 #include <WebCore/LayoutPoint.h>
+#include <wtf/MathExtras.h>
 
 namespace WebCore {
 
@@ -68,27 +72,27 @@ struct BlendingContext {
 inline int blend(int from, int to, const BlendingContext& context)
 {  
     if (context.iterationCompositeOperation == IterationCompositeOperation::Accumulate && context.currentIteration) {
-        auto iterationIncrement = static_cast<int>(context.currentIteration * static_cast<double>(to));
+        auto iterationIncrement = truncateDoubleToInt32(context.currentIteration * static_cast<double>(to));
         from += iterationIncrement;
         to += iterationIncrement;
     }
 
     if (context.compositeOperation == CompositeOperation::Replace)
-        return static_cast<int>(roundTowardsPositiveInfinity(from + (static_cast<double>(to) - from) * context.progress));
-    return static_cast<int>(roundTowardsPositiveInfinity(static_cast<double>(from) + static_cast<double>(from) + static_cast<double>(to - from) * context.progress));
+        return truncateDoubleToInt32(roundTowardsPositiveInfinity(from + (static_cast<double>(to) - from) * context.progress));
+    return truncateDoubleToInt32(roundTowardsPositiveInfinity(static_cast<double>(from) + static_cast<double>(from) + static_cast<double>(to - from) * context.progress));
 }
 
 inline unsigned blend(unsigned from, unsigned to, const BlendingContext& context)
 {
     if (context.iterationCompositeOperation == IterationCompositeOperation::Accumulate && context.currentIteration) {
-        auto iterationIncrement = static_cast<unsigned>(context.currentIteration * static_cast<double>(to));
+        auto iterationIncrement = truncateDoubleToUint32(context.currentIteration * static_cast<double>(to));
         from += iterationIncrement;
         to += iterationIncrement;
     }
 
     if (context.compositeOperation == CompositeOperation::Replace)
-        return static_cast<unsigned>(lround(from + (static_cast<double>(to) - from) * context.progress));
-    return static_cast<unsigned>(lround(from + from + (static_cast<double>(to) - from) * context.progress));
+        return truncateDoubleToUint32(lround(from + (static_cast<double>(to) - from) * context.progress));
+    return truncateDoubleToUint32(lround(from + from + (static_cast<double>(to) - from) * context.progress));
 }
 
 inline double blend(double from, double to, const BlendingContext& context)
@@ -130,6 +134,11 @@ inline IntPoint blend(const IntPoint& from, const IntPoint& to, const BlendingCo
 inline FloatPoint blend(const FloatPoint& from, const FloatPoint& to, const BlendingContext& context)
 {
     return FloatPoint(blend(from.x(), to.x(), context), blend(from.y(), to.y(), context));
+}
+
+inline FloatSize blend(const FloatSize& from, const FloatSize& to, const BlendingContext& context)
+{
+    return FloatSize(blend(from.width(), to.width(), context), blend(from.height(), to.height(), context));
 }
 
 inline LayoutPoint blend(const LayoutPoint& from, const LayoutPoint& to, const BlendingContext& context)

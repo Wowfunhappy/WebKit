@@ -79,6 +79,12 @@ public:
     // Only used for non-animation timers.
     virtual std::unique_ptr<ScrollingEffectsControllerTimer> createTimer(Function<void()>&&) = 0;
 
+    // Destroys a timer returned by createTimer() on the thread that owns its run loop. A timer may
+    // fire on a different thread than the one tearing the controller down (e.g. the scrolling thread),
+    // so it must not be stopped or destroyed from the wrong thread. The default destroys it inline,
+    // which is correct for clients whose timers run on the calling thread.
+    virtual void destroyTimer(std::unique_ptr<ScrollingEffectsControllerTimer>) { }
+
     virtual void startAnimationCallback(ScrollingEffectsController&) = 0;
     virtual void stopAnimationCallback(ScrollingEffectsController&) = 0;
 
@@ -111,8 +117,8 @@ public:
     virtual void rubberBandingStateChanged(bool) { }
 
     virtual FloatSize rubberBandTargetOffset() const { return { }; }
-    virtual bool hasBannerViewOverlay() const { return false; }
-    virtual float bannerViewMaximumHeight() const { return 0; }
+    virtual bool hasRefreshController() const { return false; }
+    virtual float refreshControllerSnappingThreshold() const { return 0; }
 #endif
 
     virtual void deferWheelEventTestCompletionForReason(ScrollingNodeID, WheelEventTestMonitor::DeferReason) const { /* Do nothing */ }
@@ -192,7 +198,7 @@ public:
 
 #if PLATFORM(MAC)
     static FloatSize NODELETE wheelDeltaBiasingTowardsVertical(const FloatSize&);
-    static bool isScrollDeltaOpposingStretch(IntSize stretch, ScrollEventAxis, float delta);
+    static bool NODELETE isScrollDeltaOpposingStretch(IntSize stretch, ScrollEventAxis, float delta);
 
     // Returns true if handled.
     bool processWheelEventForScrollSnap(const PlatformWheelEvent&);
@@ -206,7 +212,14 @@ public:
     std::optional<RubberbandingState> captureRubberbandingState() const;
     bool restoreRubberbandingState(const RubberbandingState&);
     bool NODELETE shouldAttemptRubberbandingRestoration(const RubberbandingState&);
-    FloatSize NODELETE deltaWithAdditionalAdjustments(const FloatSize& adjustedDelta, bool);
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    FloatSize NODELETE computeDampedStretchDelta(FloatSize delta, bool horizontalDeltaOpposesStretch, bool verticalDeltaOpposesStretch);
+    float NODELETE deltaAdjustedForRefreshController(float generalDampedHeight, float verticalDelta, float verticalStretch, bool verticalDeltaOpposesStretch);
+
+    float rubberbandHyperbolicCoefficientForTesting() const { return m_rubberbandHyperbolicCoefficient; }
+#else
+    FloatSize NODELETE deltaAdjustedForRefreshController(const FloatSize& adjustedDelta, bool);
+#endif
 #endif
 
 private:
@@ -220,7 +233,7 @@ private:
     void stopScrollSnapAnimation();
 
 #if PLATFORM(MAC)
-    bool shouldOverrideMomentumScrolling() const;
+    bool NODELETE shouldOverrideMomentumScrolling() const;
     void discreteSnapTransitionTimerFired();
     void scheduleDiscreteScrollSnap(const FloatSize& delta);
     void scrollendTimerFired();
@@ -228,6 +241,8 @@ private:
 
     bool modifyScrollDeltaForStretching(const PlatformWheelEvent&, FloatSize&, bool isHorizontallyStretched, bool isVerticallyStretched);
     bool applyScrollDeltaWithStretching(const PlatformWheelEvent&, FloatSize, bool isHorizontallyStretched, bool isVerticallyStretched);
+
+    FloatSize deltaAlignedToPredominantGestureAxis(MonotonicTime, FloatSize);
 
     void startRubberBandAnimationIfNecessary();
 
@@ -298,7 +313,14 @@ private:
     bool m_momentumScrollInProgress { false };
     bool m_ignoreMomentumScrolls { false };
     bool m_isRubberBanding { false };
-#if ENABLE(BANNER_VIEW_OVERLAYS)
+
+    FloatSize m_cumulativeGestureDelta;
+    MonotonicTime m_lastGestureEventTime;
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    float m_rubberbandHyperbolicCoefficient { 0 };
+    bool m_gestureBeganAtTop { false };
+#elif HAVE(NSREFRESHCONTROLLER)
     bool m_skipAdditionalDeltaAdjustments { false };
 #endif
 

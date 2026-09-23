@@ -196,6 +196,8 @@ private:
 
     void didCompleteRecordEntry(const TimelineRecordEntry&);
 
+    bool shouldNestUnder(TimelineRecordType type, TimelineRecordType previousType) const;
+
     void addRecordToTimeline(Ref<JSON::Object>&&, TimelineRecordType);
 
     const UniqueRef<Inspector::TimelineFrontendDispatcher> m_frontendDispatcher;

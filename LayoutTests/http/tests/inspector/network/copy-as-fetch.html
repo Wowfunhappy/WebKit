@@ -72,11 +72,11 @@ function test()
         {name: "POSTRequestURLUTF8", expression: `createPOSTRequestWithUTF8()`},
         {name: "PUTRequestWithJSON", expression: `createPUTRequestWithJSON()`},
 
-        {name: "ReferrerPolicy.EmptyString", expression: `fetch("resources/url", {referrerPolicy: ""})`},
-        {name: "ReferrerPolicy.NoReferrer", expression: `fetch("resources/url", {referrerPolicy: "no-referrer"})`},
+        {name: "ReferrerPolicy.EmptyString", expression: `fetch("resources/url", {referrerPolicy: "", cache: "no-store"})`},
+        {name: "ReferrerPolicy.NoReferrer", expression: `fetch("resources/url", {referrerPolicy: "no-referrer", cache: "no-store"})`},
 
-        {name: "Integrity.Invalid", expression: `fetch("resources/data.txt?integrity=invalid", {integrity: "INVALID"})`},
-        {name: "Integrity.Valid", expression: `fetch("resources/data.txt?integrity=valid", {integrity: "sha256-qQCuhmp5o0z/of299BZBz6a+CBJGM2TPN53xY1PHXS8="})`},
+        {name: "Integrity.Invalid", expression: `fetch("resources/data.txt?integrity=invalid", {integrity: "INVALID", cache: "no-store"})`},
+        {name: "Integrity.Valid", expression: `fetch("resources/data.txt?integrity=valid", {integrity: "sha256-qQCuhmp5o0z/of299BZBz6a+CBJGM2TPN53xY1PHXS8=", cache: "no-store"})`},
     ].forEach(({name, expression}) => {
         suite.addTestCase({
             name: "WI.Resource.prototype.generateFetchCode." + name,
@@ -90,8 +90,10 @@ function test()
 
                 let fetchCode = resource.generateFetchCode();
 
-                // Strip inconsistent headers.
+                // Strip inconsistent and unrelated headers.
                 fetchCode = fetchCode.replace(/\s+"Accept-Language": ".+?",\n/, "\n");
+                fetchCode = fetchCode.replace(/\s+"Cache-Control": ".+?",\n/, "\n");
+                fetchCode = fetchCode.replace(/\s+"Pragma": ".+?",\n/, "\n");
                 fetchCode = fetchCode.replace(/\s+"Priority": ".+?",\n/, "\n");
                 fetchCode = fetchCode.replace(/("User-Agent": )(".+?")(,?\n)/, "$1<filtered>$3");
 

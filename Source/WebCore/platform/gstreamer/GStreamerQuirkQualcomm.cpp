@@ -36,7 +36,7 @@ GStreamerQuirkQualcomm::GStreamerQuirkQualcomm()
 
 bool GStreamerQuirkQualcomm::isPlatformSupported() const
 {
-    auto factory = adoptGRef(gst_element_factory_find("qtic2vdec"));
+    GRefPtr factory = adoptGRef(gst_element_factory_find("qtic2vdec"));
     if (!factory)
         return false;
 
@@ -53,7 +53,7 @@ bool GStreamerQuirkQualcomm::isPlatformSupported() const
         "vp9alphadecodebin"_s,
     };
     for (const auto& factoryName : s_disabledDecoders) {
-        if (auto factory = adoptGRef(gst_element_factory_find(factoryName.characters())))
+        if (GRefPtr factory = adoptGRef(gst_element_factory_find(factoryName.characters())))
             gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
     }
 

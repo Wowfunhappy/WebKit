@@ -1040,6 +1040,12 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementWin::pathDescription() const
     return nullptr;
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementWin::pathAsBounds() const
+{
+    notImplemented();
+    return nullptr;
+}
+
 JSRetainPtr<JSStringRef> AccessibilityUIElementWin::mathPostscriptsDescription() const
 {
     notImplemented();

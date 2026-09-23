@@ -29,7 +29,10 @@
 
 namespace WebCore {
 
+template<typename T> class ProcessQualified;
+
 struct ResourceLoaderIdentifierType;
 using ResourceLoaderIdentifier = AtomicObjectIdentifier<ResourceLoaderIdentifierType>;
+using ScopedResourceLoaderIdentifier = ProcessQualified<ResourceLoaderIdentifier>;
 
 } // namespace WebCore

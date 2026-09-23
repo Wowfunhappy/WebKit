@@ -28,6 +28,7 @@
 
 #if USE(CG)
 
+#include "ColorConversion.h"
 #include "ColorSpaceCG.h"
 #include "DestinationColorSpace.h"
 #include <mutex>
@@ -36,6 +37,7 @@
 #include <wtf/Lock.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/ThreadSpecific.h>
 #include <wtf/TinyLRUCache.h>
 
 namespace WebCore {
@@ -224,17 +226,41 @@ RetainPtr<CGColorRef> cachedCGColorInDestinationStandardRange(const Color& color
 
 ColorComponents<float, 4> platformConvertColorComponents(ColorSpace inputColorSpace, ColorComponents<float, 4> inputColorComponents, const DestinationColorSpace& outputColorSpace)
 {
-    // FIXME: Investigate optimizing this to use the builtin color conversion code for supported color spaces.
-
     auto [cgInputColorSpace, cgCompatibleComponents] = convertToCGCompatibleComponents(inputColorSpace, inputColorComponents);
     if (cgInputColorSpace == outputColorSpace.platformColorSpace())
         return cgCompatibleComponents;
 
+    // Fast path: use built-in conversion for well-known destination color spaces.
+    auto builtin = callWithColorType(inputColorComponents, inputColorSpace, [&](const auto& inputColor) -> std::optional<ColorComponents<float, 4>> {
+        if (outputColorSpace == DestinationColorSpace::SRGB())
+            return asColorComponents(convertColor<SRGBA<float>>(inputColor).resolved());
+        if (outputColorSpace == DestinationColorSpace::LinearSRGB())
+            return asColorComponents(convertColor<LinearSRGBA<float>>(inputColor).resolved());
+#if ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)
+        if (outputColorSpace == DestinationColorSpace::DisplayP3())
+            return asColorComponents(convertColor<DisplayP3<float>>(inputColor).resolved());
+        if (outputColorSpace == DestinationColorSpace::LinearDisplayP3())
+            return asColorComponents(convertColor<LinearDisplayP3<float>>(inputColor).resolved());
+#endif
+        return std::nullopt;
+    });
+    if (builtin)
+        return *builtin;
+
+    // Slow path: fall back to CoreGraphics caching the transform to avoid
+    // recreating the CGColorTransform on every call.
     auto [c1, c2, c3, c4] = cgCompatibleComponents;
     std::array<CGFloat, 4> sourceComponents { c1, c2, c3, c4 };
     std::array<CGFloat, 4> destinationComponents { };
 
-    auto transform = adoptCF(CGColorTransformCreate(protect(outputColorSpace.platformColorSpace()).get(), nullptr));
+    static NeverDestroyed<ThreadSpecific<std::pair<RetainPtr<CGColorSpaceRef>, RetainPtr<CGColorTransformRef>>>> cachedTransform;
+    auto& [cachedSpace, transform] = *cachedTransform.get();
+    RetainPtr outputColorSpacePlatform = outputColorSpace.platformColorSpace();
+    if (!transform || !CGColorSpaceEqualToColorSpace(cachedSpace.get(), outputColorSpacePlatform.get())) {
+        cachedSpace = WTF::move(outputColorSpacePlatform);
+        transform = adoptCF(CGColorTransformCreate(cachedSpace.get(), nullptr));
+    }
+
     auto result = CGColorTransformConvertColorComponents(transform.get(), cgInputColorSpace, kCGRenderingIntentDefault, sourceComponents.data(), destinationComponents.data());
     ASSERT_UNUSED(result, result);
     // CGColorTransformConvertColorComponents doesn't copy over any alpha component.

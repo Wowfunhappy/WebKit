@@ -45,9 +45,7 @@
 
 namespace WebCore {
 
-RTCController::RTCController()
-{
-}
+RTCController::RTCController() = default;
 
 #if ENABLE(WEB_RTC)
 

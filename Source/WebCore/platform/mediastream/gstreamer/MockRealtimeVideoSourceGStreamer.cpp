@@ -143,7 +143,9 @@ void MockRealtimeVideoSourceGStreamer::updateSampleBuffer()
         GST_WARNING("AppSrc not available, capture source may have changed");
         return;
     }
-    gst_app_src_push_sample(GST_APP_SRC_CAST(appSrc.get()), videoFrame->sample());
+
+    const auto& sample = videoFrame->sample();
+    gst_app_src_push_sample(GST_APP_SRC_CAST(appSrc.get()), sample.get());
 }
 
 void MockRealtimeVideoSourceGStreamer::setSizeFrameRateAndZoom(const VideoPresetConstraints& constraints)

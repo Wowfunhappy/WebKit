@@ -223,7 +223,7 @@ void NetworkDataTask::restrictRequestReferrerToOriginIfNeeded(WebCore::ResourceR
 
 String NetworkDataTask::attributedBundleIdentifier(WebPageProxyIdentifier pageID)
 {
-    if (CheckedPtr session = m_session.get())
+    if (auto* session = m_session.get())
         return session->attributedBundleIdentifierFromPageIdentifier(pageID);
     return { };
 }

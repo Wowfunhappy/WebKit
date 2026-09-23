@@ -60,6 +60,7 @@ list(APPEND DumpRenderTree_SOURCES
 WEBKIT_EXECUTABLE_DECLARE(DumpRenderTree)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_EXECUTABLE(DumpRenderTree)
+WEBKIT_ADD_PREFIX_HEADER(DumpRenderTree DumpRenderTreePrefix.h PREFIX_NO_CODEGEN PREFIX_LANGUAGES CXX OBJC OBJCXX)
 
 # MAVERICKS_BACKPORT: DumpRenderTree links both the WebKit2 (WebKit) and WebKit1 (WebKitLegacy) frameworks,
 # whose <WebKit/...> umbrellas share a few header names (e.g. WebFeature.h, where WebKit2 ships only a

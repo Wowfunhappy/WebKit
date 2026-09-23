@@ -25,9 +25,10 @@
 #include "LocalFrameView.h"
 #include "RenderElement.h"
 #include "RenderObjectDocument.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
 #include "SVGRenderSupport.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -38,18 +39,18 @@ LegacyRenderSVGResourceSolidColor::LegacyRenderSVGResourceSolidColor() = default
 
 LegacyRenderSVGResourceSolidColor::~LegacyRenderSVGResourceSolidColor() = default;
 
-auto LegacyRenderSVGResourceSolidColor::applyResource(RenderElement& renderer, const RenderStyle& style, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode) -> OptionSet<ApplyResult>
+auto LegacyRenderSVGResourceSolidColor::applyResource(RenderElement& renderer, const Style::ComputedStyle& style, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode) -> OptionSet<ApplyResult>
 {
     ASSERT(context);
     ASSERT(!resourceMode.isEmpty());
 
-    bool isRenderingMask = protect(renderer.view().frameView())->paintBehavior().contains(PaintBehavior::RenderingSVGClipOrMask);
+    bool isRenderingMask = renderer.view().frameView().paintBehavior().contains(PaintBehavior::RenderingSVGClipOrMask);
 
     Style::ColorResolver colorResolver { style };
 
     if (resourceMode.contains(RenderSVGResourceMode::ApplyToFill)) {
         if (!isRenderingMask)
-            context->setAlpha(style.fillOpacity().value.value);
+            context->setAlpha(Style::evaluate<float>(style.fillOpacity()));
         else
             context->setAlpha(1);
         context->setFillColor(colorResolver.colorApplyingColorFilter(m_color));
@@ -63,7 +64,7 @@ auto LegacyRenderSVGResourceSolidColor::applyResource(RenderElement& renderer, c
     } else if (resourceMode.contains(RenderSVGResourceMode::ApplyToStroke)) {
         // When rendering the mask for a LegacyRenderSVGResourceClipper, the stroke code path is never hit.
         ASSERT(!isRenderingMask);
-        context->setAlpha(style.strokeOpacity().value.value);
+        context->setAlpha(Style::evaluate<float>(style.strokeOpacity()));
         context->setStrokeColor(colorResolver.colorApplyingColorFilter(m_color));
 
         SVGRenderSupport::applyStrokeStyleToContext(*context, style, renderer);

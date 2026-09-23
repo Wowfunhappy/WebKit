@@ -22,6 +22,7 @@ async function grabNextMetadata(video)
 
 promise_test(async (test) => {
     const localStream = await navigator.mediaDevices.getUserMedia({video: { width: 640, height: 480 } });
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const remoteStream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             pc1 = firstConnection;

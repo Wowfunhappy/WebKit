@@ -1,3 +1,1 @@
-http://localhost:8800/WebKit/content-security-policy/sandbox-manifest-blocked-cross-origin.sub.html - didFinishLoading
-http://not-web-platform.test:8800/WebKit/content-security-policy/manifest.json - didFailLoadingWithError: <NSError domain , code 0, failing URL "http://not-web-platform.test:8800/WebKit/content-security-policy/manifest.json">
-
+Fetched manifest: http://not-web-platform.test:8800/WebKit/content-security-policy/manifest.json, success: false

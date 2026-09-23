@@ -61,6 +61,9 @@ void DoesGCCheck::verifyCanGC(VM& vm)
             case Special::FTLOSRExit:
                 dataLog(" @ FTL osr exit");
                 break;
+            case Special::Termination:
+                dataLog(" @ termination");
+                break;
             case Special::NumberOfSpecials:
                 RELEASE_ASSERT_NOT_REACHED();
             }

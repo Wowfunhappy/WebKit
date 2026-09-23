@@ -182,7 +182,7 @@ step()                             │   │
       │                      │             ├─ Set breakpoint at callee or exception handler   
       │                      │             └─ stopTheWorld()           
       │                      │                 └─ notifyVMStop()
-      │                      │                     ├─ stopCode(StepIntoSiteReached)
+      │                      │                     ├─ stopCode(WasmStepIntoSiteReached)
       │                      │                     ├─ Check state -> StepRequested                 
       │                      └─────────────────────┼─ notifyOne(debuggerCV)
       │                           ┌──────────────> ├─ wait(debuggeeCV)

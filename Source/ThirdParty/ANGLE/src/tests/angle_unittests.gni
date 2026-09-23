@@ -92,16 +92,12 @@ angle_unittests_compiler_tests_sources = [
   "compiler_tests/API_test.cpp",
   "compiler_tests/CollectVariables_test.cpp",
   "compiler_tests/ConstructCompiler_test.cpp",
-  "compiler_tests/ExpressionLimit_test.cpp",
   "compiler_tests/FloatLex_test.cpp",
-  "compiler_tests/GLSLCompatibilityOutput_test.cpp",
   "compiler_tests/GeometryShader_test.cpp",
   "compiler_tests/GlFragDataNotModified_test.cpp",
   "compiler_tests/ImmutableString_test.cpp",
   "compiler_tests/IntermNode_test.cpp",
   "compiler_tests/NV_draw_buffers_test.cpp",
-  "compiler_tests/OVR_multiview2_test.cpp",
-  "compiler_tests/OVR_multiview_test.cpp",
   "compiler_tests/Parse_test.cpp",
   "compiler_tests/PruneEmptyCases_test.cpp",
   "compiler_tests/PruneEmptyDeclarations_test.cpp",
@@ -142,6 +138,7 @@ angle_unittests_gl_sources =
 
 angle_unittests_msl_sources = [
   "../common/apple/ObjCPtr_test.mm",
+  "../libANGLE/renderer/metal/VertexArrayMtl_unittest.mm",
   "../tests/compiler_tests/MSLOutput_test.cpp",
 ]
 

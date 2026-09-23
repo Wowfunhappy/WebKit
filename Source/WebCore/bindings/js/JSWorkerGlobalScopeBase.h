@@ -47,11 +47,7 @@ public:
 
     WorkerGlobalScope& wrapped() const { return m_wrapped; }
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static bool NODELETE supportsRichSourceInfo(const JSC::JSGlobalObject*);
     static bool NODELETE shouldInterruptScript(const JSC::JSGlobalObject*);
     static bool NODELETE shouldInterruptScriptBeforeTimeout(const JSC::JSGlobalObject*);

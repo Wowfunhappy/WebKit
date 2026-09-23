@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/AllocatorForMode.h>
 #include <JavaScriptCore/Subspace.h>
 
 namespace JSC {

@@ -63,11 +63,12 @@
 #include "RenderLayer.h"
 #include "RenderLayerBacking.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTableCell.h"
 #include "RenderTextControlSingleLine.h"
+#include "RenderTextFragment.h"
 #include "RenderedPosition.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "TextControlInnerElements.h"
 #include "TextIterator.h"
@@ -130,7 +131,7 @@ static bool isEditableToAccessibility(const Node& node)
     ASSERT(AXObjectCache::accessibilityEnabled());
     ASSERT(node.document().existingAXObjectCache());
 
-    if (CheckedPtr cache = node.document().existingAXObjectCache())
+    if (CheckedPtr cache = protect(node.document())->existingAXObjectCache())
         return cache->rootAXEditableElement(&node);
 
     return false;
@@ -187,7 +188,7 @@ Element* editableRootForPosition(const Position& position, EditableType editable
 
     switch (editableType) {
     case HasEditableAXRole:
-        if (CheckedPtr cache = node->document().existingAXObjectCache())
+        if (CheckedPtr cache = protect(node->document())->existingAXObjectCache())
             return const_cast<Element*>(cache->rootAXEditableElement(node.get()));
         [[fallthrough]];
     case ContentIsEditable:
@@ -288,7 +289,7 @@ Position firstEditablePositionAfterPositionInRoot(const Position& position, Cont
     }
 
     while (candidate.deprecatedNode() && !isEditablePosition(candidate) && candidate.deprecatedNode()->isDescendantOf(*highestRoot))
-        candidate = isAtomicNode(candidate.deprecatedNode()) ? positionInParentAfterNode(*candidate.deprecatedNode()) : nextVisuallyDistinctCandidate(candidate);
+        candidate = isAtomicNode(protect(candidate.deprecatedNode())) ? positionInParentAfterNode(protect(*candidate.deprecatedNode())) : nextVisuallyDistinctCandidate(candidate);
 
     if (candidate.deprecatedNode() && !candidate.deprecatedNode()->isInclusiveDescendantOf(*highestRoot))
         return { };
@@ -316,7 +317,7 @@ Position lastEditablePositionBeforePositionInRoot(const Position& position, Cont
     }
 
     while (candidate.deprecatedNode() && !isEditablePosition(candidate) && candidate.deprecatedNode()->isDescendantOf(*highestRoot))
-        candidate = isAtomicNode(candidate.deprecatedNode()) ? positionInParentBeforeNode(*candidate.deprecatedNode()) : previousVisuallyDistinctCandidate(candidate);
+        candidate = isAtomicNode(protect(candidate.deprecatedNode())) ? positionInParentBeforeNode(protect(*candidate.deprecatedNode())) : previousVisuallyDistinctCandidate(candidate);
 
     if (candidate.deprecatedNode() && !candidate.deprecatedNode()->isInclusiveDescendantOf(*highestRoot))
         return { };
@@ -489,7 +490,7 @@ VisiblePosition closestEditablePositionInElementForAbsolutePoint(const Element& 
         return { };
     auto absoluteBoundingBox = renderer->absoluteBoundingBoxRect();
     auto constrainedAbsolutePoint = point.constrainedBetween(absoluteBoundingBox.minXMinYCorner(), absoluteBoundingBox.maxXMaxYCorner());
-    auto localPoint = renderer->absoluteToLocal(constrainedAbsolutePoint, UseTransforms);
+    auto localPoint = renderer->absoluteToLocal(constrainedAbsolutePoint, MapCoordinatesMode::UseTransforms);
     auto visiblePosition = renderer->visiblePositionForPoint(flooredLayoutPoint(localPoint), HitTestSource::User);
     return isEditablePosition(visiblePosition.deepEquivalent()) ? visiblePosition : VisiblePosition { };
 }
@@ -554,7 +555,7 @@ RefPtr<Node> highestEnclosingNodeOfType(const Position& position, bool (*nodeIsO
     return highest;
 }
 
-static bool hasARenderedDescendant(Node* node, Node* excludedNode)
+static bool NODELETE hasARenderedDescendant(Node* node, Node* excludedNode)
 {
     for (auto* n = node->firstChild(); n;) {
         if (n == excludedNode) {
@@ -904,9 +905,23 @@ int caretMaxOffset(const Node& node)
     // For rendered text nodes, return the last position that a caret could occupy.
     if (auto* text = dynamicDowncast<Text>(node)) {
         if (CheckedPtr renderer = text->renderer())
-            return renderer->caretMaxOffset();
+            return convertOffsetInTextFragmentToNodeOffset(*renderer, renderer->caretMaxOffset());
     }
     return lastOffsetForEditing(node);
+}
+
+unsigned convertOffsetInTextFragmentToNodeOffset(const RenderObject& renderer, unsigned offset)
+{
+    if (auto* textFragment = dynamicDowncast<RenderTextFragment>(renderer); textFragment && textFragment->firstLetter())
+        return offset + textFragment->start();
+    return offset;
+}
+
+unsigned convertNodeOffsetToOffsetInTextFragment(const RenderObject& renderer, unsigned offset)
+{
+    if (auto* textFragment = dynamicDowncast<RenderTextFragment>(renderer); textFragment && textFragment->firstLetter() && offset >= textFragment->start())
+        return offset - textFragment->start();
+    return offset;
 }
 
 bool lineBreakExistsAtVisiblePosition(const VisiblePosition& position)
@@ -1180,7 +1195,7 @@ LayoutRect localCaretRectInRendererForCaretPainting(const VisiblePosition& caret
         return LayoutRect();
     ASSERT(caretPosition.deepEquivalent().deprecatedNode()->renderer());
     auto [localRect, renderer] = caretPosition.localCaretRect();
-    return localCaretRectInRendererForRect(localRect, caretPosition.deepEquivalent().deprecatedNode(), renderer.get(), caretPainter);
+    return localCaretRectInRendererForRect(localRect, protect(caretPosition.deepEquivalent().deprecatedNode()), renderer.get(), caretPainter);
 }
 
 LayoutRect localCaretRectInRendererForRect(LayoutRect& localRect, Node* node, RenderObject* renderer, RenderBlock*& caretPainter)
@@ -1211,7 +1226,7 @@ IntRect absoluteBoundsForLocalCaretRect(RenderBlock* rendererForCaretPainting, c
 
     LayoutRect localRect(rect);
     rendererForCaretPainting->flipForWritingMode(localRect);
-    return rendererForCaretPainting->localToAbsoluteQuad(FloatRect(localRect), UseTransforms, insideFixed).enclosingBoundingBox();
+    return rendererForCaretPainting->localToAbsoluteQuad(FloatRect(localRect), MapCoordinatesMode::UseTransforms, insideFixed).enclosingBoundingBox();
 }
 
 HashSet<Ref<HTMLImageElement>> visibleImageElementsInRangeWithNonLoadedImages(const SimpleRange& range)
@@ -1518,11 +1533,11 @@ EnclosingLayerInfomation computeEnclosingLayer(const SimpleRange& range)
         return { };
 
     auto findEnclosingLayer = [](const Position& position) -> RenderLayer* {
-        RefPtr container = position.containerNode();
+        auto* container = position.containerNode();
         if (!container)
             return nullptr;
 
-        CheckedPtr renderer = container->renderer();
+        auto* renderer = container->renderer();
         if (!renderer)
             return nullptr;
 

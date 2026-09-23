@@ -26,6 +26,7 @@ PASS The Int16Array interface object should be exposed.
 PASS The Uint16Array interface object should be exposed.
 PASS The Int32Array interface object should be exposed.
 PASS The Uint32Array interface object should be exposed.
+PASS The Float16Array interface object should be exposed.
 PASS The Float32Array interface object should be exposed.
 PASS The Float64Array interface object should be exposed.
 PASS The DataView interface object should be exposed.

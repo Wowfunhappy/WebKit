@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include "CDMProxyThunder.h"
+#include "GStreamerEMEUtilities.h"
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
 
@@ -55,8 +56,15 @@ BoxPtr<OpenCDMSession> CDMProxyThunder::getDecryptionSession(DecryptionContext& 
     auto keyID = mappedKeyID.createVector();
 
     auto keyHandle = getOrWaitForKeyHandle(keyID, WTF::move(in.cdmProxyDecryptionClient));
-    if (!keyHandle.has_value() || !keyHandle.value()->isStatusCurrentlyValid())
+    if (!keyHandle) {
+        GST_ERROR("No key handle");
         return nullptr;
+    }
+
+    if (!keyHandle.value()->isStatusCurrentlyValid()) {
+        GST_ERROR("Key handle has no usable key");
+        return nullptr;
+    }
 
     KeyHandleValueVariant keyData = keyHandle.value()->value();
     ASSERT(std::holds_alternative<BoxPtr<OpenCDMSession>>(keyData));
@@ -80,15 +88,14 @@ BoxPtr<OpenCDMSession> CDMProxyThunder::getDecryptionSession(DecryptionContext& 
     return keyValue;
 }
 
-bool CDMProxyThunder::decrypt(CDMProxyThunder::DecryptionContext& input, const GRefPtr<GstCaps>& inputCaps)
+DecryptionResult CDMProxyThunder::decrypt(CDMProxyThunder::DecryptionContext& input, const GRefPtr<GstCaps>& inputCaps)
 {
     BoxPtr<OpenCDMSession> session = getDecryptionSession(input);
     if (!session) {
         GST_WARNING("there is no valid session to decrypt for the provided key ID (or the operation was aborted)");
-        return false;
+        return DecryptionResult::Failure;
     }
 
-    GST_TRACE("decrypting");
     OpenCDMError errorCode;
 #if THUNDER_HAS_OCDM_DECRYPT_BUFFER
     RELEASE_ASSERT_WITH_MESSAGE(inputCaps, "Decryption attempted without input caps");
@@ -98,12 +105,22 @@ bool CDMProxyThunder::decrypt(CDMProxyThunder::DecryptionContext& input, const G
     errorCode = opencdm_gstreamer_session_decrypt(session->get(), input.dataBuffer, input.subsamplesBuffer, input.numSubsamples,
         input.ivBuffer, input.keyIDBuffer, 0);
 #endif
-    if (errorCode) {
-        GST_ERROR("decryption failed, error code %X", errorCode);
-        return false;
-    }
 
-    return true;
+    DecryptionResult result;
+    switch (errorCode) {
+    case ERROR_NONE:
+        result = DecryptionResult::Success;
+        break;
+    case ERROR_INVALID_ACCESSOR:
+        GST_ERROR("Decryption failed, converting ERROR_INVALID_ACCESSOR to NoKey error");
+        result = DecryptionResult::NoKey;
+        break;
+    default:
+        GST_ERROR("Decryption failed, error code 0x%X", errorCode);
+        result = DecryptionResult::Failure;
+        break;
+    };
+    return result;
 }
 
 #undef GST_CAT_DEFAULT

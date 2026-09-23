@@ -1,0 +1,81 @@
+Layer tree when scrolled to top left
+
+(GraphicsLayer
+  (position 50.00 40.00)
+  (anchor 0.00 0.00)
+  (bounds 2000.00 2000.00)
+  (clips 1)
+  (children 1
+    (GraphicsLayer
+      (bounds 2000.00 2000.00)
+      (contentsOpaque 1)
+      (children 1
+        (GraphicsLayer
+          (bounds 100.00 100.00)
+          (contentsOpaque 1)
+        )
+      )
+    )
+  )
+)
+Layer tree when scrolled to top right
+
+(GraphicsLayer
+  (position 50.00 40.00)
+  (anchor 0.00 0.00)
+  (bounds 2000.00 2000.00)
+  (clips 1)
+  (children 1
+    (GraphicsLayer
+      (bounds 2000.00 2000.00)
+      (contentsOpaque 1)
+      (children 1
+        (GraphicsLayer
+          (bounds 100.00 100.00)
+          (contentsOpaque 1)
+        )
+      )
+    )
+  )
+)
+Layer tree when scrolled to bottom left
+
+(GraphicsLayer
+  (position 50.00 40.00)
+  (anchor 0.00 0.00)
+  (bounds 2000.00 2000.00)
+  (clips 1)
+  (children 1
+    (GraphicsLayer
+      (bounds 2000.00 2000.00)
+      (contentsOpaque 1)
+      (children 1
+        (GraphicsLayer
+          (bounds 100.00 100.00)
+          (contentsOpaque 1)
+        )
+      )
+    )
+  )
+)
+Layer tree when scrolled to bottom right
+
+(GraphicsLayer
+  (position 50.00 40.00)
+  (anchor 0.00 0.00)
+  (bounds 2000.00 2000.00)
+  (clips 1)
+  (children 1
+    (GraphicsLayer
+      (bounds 2000.00 2000.00)
+      (contentsOpaque 1)
+      (children 1
+        (GraphicsLayer
+          (bounds 100.00 100.00)
+          (contentsOpaque 1)
+        )
+      )
+    )
+  )
+)
+

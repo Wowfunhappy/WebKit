@@ -27,6 +27,7 @@
 
 #include <JavaScriptCore/Error.h>
 #include <JavaScriptCore/ErrorHandlingScope.h>
+#include <JavaScriptCore/ErrorInstance.h>
 #include <JavaScriptCore/ExceptionHelpers.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/ParserTokens.h>
@@ -92,25 +93,30 @@ public:
         SourceCode source, // Note: We must copy the source here, since the objects that pass in their SourceCode field may be destroyed in addErrorInfo.
         int overrideLineNumber = -1)
     {
+        JSObject* error = nullptr;
         switch (m_type) {
         case ErrorNone:
             return nullptr;
         case SyntaxError:
-            return addErrorInfo(
-                globalObject->vm(), 
-                createSyntaxError(globalObject, m_message), 
+            error = addErrorInfo(
+                globalObject->vm(),
+                createSyntaxError(globalObject, m_message),
                 overrideLineNumber == -1 ? m_line : overrideLineNumber, source);
+            break;
         case EvalError:
-            return createSyntaxError(globalObject, m_message);
+            error = createSyntaxError(globalObject, m_message);
+            break;
         case StackOverflow: {
             ErrorHandlingScope errorScope(getVM(globalObject));
-            return createStackOverflowError(globalObject);
+            error = createStackOverflowError(globalObject);
+            break;
         }
         case OutOfMemory:
-            return createOutOfMemoryError(globalObject);
+            error = createOutOfMemoryError(globalObject);
+            break;
         }
-        CRASH();
-        return nullptr;
+        downcast<ErrorInstance>(*error).setParseError();
+        return error;
     }
 
 private:

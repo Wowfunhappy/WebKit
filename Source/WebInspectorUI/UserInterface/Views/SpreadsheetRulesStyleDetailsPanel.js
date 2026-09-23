@@ -222,11 +222,23 @@ WI.SpreadsheetRulesStyleDetailsPanel = class SpreadsheetRulesStyleDetailsPanel e
             section.propertyVisibilityMode = propertyVisibilityMode;
     }
 
+    spreadsheetCSSStyleDeclarationSectionStyleLockedChanged(section, locked)
+    {
+        if (locked)
+            return;
+
+        if (this._shouldRefreshSubviews)
+            this.needsLayout();
+    }
+
     // Protected
 
     layout()
     {
         if (!this._shouldRefreshSubviews)
+            return;
+
+        if (this._sections.some((section) => section.style.locked))
             return;
 
         this._shouldRefreshSubviews = false;
@@ -296,23 +308,25 @@ WI.SpreadsheetRulesStyleDetailsPanel = class SpreadsheetRulesStyleDetailsPanel e
 
             // Add all pseudo styles before any inherited rules.
 
-            for (let [pseudoId, pseudoElementInfo] of this.nodeStyles.pseudoElements) {
+            for (let [pseudoId, uniqueOrderedStyles] of this.nodeStyles.pseudoElements) {
                 let pseudoElement = null;
                 if (pseudoId === WI.CSSManager.PseudoSelectorNames.Before)
                     pseudoElement = this.nodeStyles.node.beforePseudoElement();
                 else if (pseudoId === WI.CSSManager.PseudoSelectorNames.After)
                     pseudoElement = this.nodeStyles.node.afterPseudoElement();
 
-                let orderedPseudoStyles = WI.DOMNodeStyles.uniqueOrderedStyles(pseudoElementInfo.orderedStyles).filter((style) => this._shouldIncludeStyle(style));
+                let didAddHeader = false;
+                for (let style of uniqueOrderedStyles) {
+                    if (!this._shouldIncludeStyle(style))
+                        continue;
 
-                // Don't show an empty "Pseudo-Element..." header
-                if (!orderedPseudoStyles.length)
-                    continue;
+                    if (!didAddHeader) {
+                        didAddHeader = true;
+                        addHeader(WI.UIString("Pseudo-Element"), pseudoElement || pseudoId);
+                    }
 
-                addHeader(WI.UIString("Pseudo-Element"), pseudoElement || pseudoId);
-
-                for (let style of orderedPseudoStyles)
                     createSection(style);
+                }
             }
 
             addedPseudoStyles = true;

@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 // Test that throw an OOM exception when compiling / executing a pathologically large RegExp's
 
 function shouldBe(actual, expected)

@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPIPermissions.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -44,8 +45,6 @@
 
 namespace WebKit {
 
-static NSString * const permissionsKey = @"permissions";
-static NSString * const originsKey = @"origins";
 
 void WebExtensionAPIPermissions::getAll(Ref<WebExtensionCallbackHandler>&& callback)
 {
@@ -227,7 +226,7 @@ bool WebExtensionAPIPermissions::validatePermissionsDetails(HashSet<String>& per
 {
     for (auto& permission : permissions) {
         if (!WebExtension::supportedPermissions().contains(permission)) {
-            *outExceptionString = toErrorString(nullString(), permissionsKey, @"'%@' is not a valid permission", permission.createNSString().get()).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), permissionsKey, makeString("'"_s, permission, "' is not a valid permission"_s)).createNSString().autorelease();
             return false;
         }
     }
@@ -235,7 +234,7 @@ bool WebExtensionAPIPermissions::validatePermissionsDetails(HashSet<String>& per
     for (auto& origin : origins) {
         auto pattern = WebExtensionMatchPattern::getOrCreate(origin);
         if (!pattern || !pattern->isSupported()) {
-            *outExceptionString = toErrorString(nullString(), originsKey, @"'%@' is not a valid pattern", origin.createNSString().get()).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), originsKey, makeString("'"_s, origin, "' is not a valid pattern"_s)).createNSString().autorelease();
             return false;
         }
 

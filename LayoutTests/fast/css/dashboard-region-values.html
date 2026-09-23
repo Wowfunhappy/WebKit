@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<title>Dashboard region keywords and offsets</title>
+<script>
+if (window.testRunner)
+    testRunner.dumpAsText();
+</script>
+<body>
+<pre id="results"></pre>
+<script>
+const element = document.createElement("div");
+element.style.fontSize = "10px";
+document.body.appendChild(element);
+
+function check(label, target, expected) {
+    const actual = getComputedStyle(target).getPropertyValue("-webkit-dashboard-region");
+    document.getElementById("results").appendChild(document.createTextNode(
+        (actual === expected ? "PASS " : `FAIL (got ${actual}, expected ${expected}) `) + label + "\n"));
+}
+
+check("initial none keyword", element, "none");
+element.style.setProperty("-webkit-dashboard-region", "dashboard-region(control rectangle auto 2em calc(2px + 3px) -4px)");
+check("auto and numeric offsets", element, "dashboard-region(control rectangle 0px 20px 5px -4px)");
+element.style.setProperty("-webkit-dashboard-region", "dashboard-region(control, rectangle, auto, 2em, 5px, -4px)");
+check("comma-separated offsets", element, "dashboard-region(control rectangle 0px 20px 5px -4px)");
+element.style.setProperty("-webkit-dashboard-region", "none");
+check("none clears existing regions", element, "none");
+element.style.setProperty("-apple-dashboard-region", "dashboard-region(control circle 1px 2px 3px 4px)");
+check("Apple property alias", element, "dashboard-region(control circle 1px 2px 3px 4px)");
+const child = document.createElement("div");
+child.style.setProperty("-webkit-dashboard-region", "inherit");
+element.appendChild(child);
+check("inherited resolved offsets", child, "dashboard-region(control circle 1px 2px 3px 4px)");
+const multiple = "dashboard-region(first rectangle 1px 2px 3px 4px) dashboard-region(second circle 5px 6px 7px 8px)";
+element.style.setProperty("-webkit-dashboard-region", multiple);
+check("multiple regions", element, multiple);
+element.style.setProperty("-webkit-dashboard-region", getComputedStyle(element).getPropertyValue("-webkit-dashboard-region"));
+check("serialized regions round trip", element, multiple);
+element.style.removeProperty("-webkit-dashboard-region");
+element.style.setProperty("-webkit-dashboard-region", "dashboard-region(control rectangle 10% 0px 0px 0px)");
+check("percentage offsets are rejected", element, "none");
+element.style.setProperty("-webkit-dashboard-region", "dashboard-region(control rectangle 1px 2px 3px 4px");
+check("missing closing parenthesis is rejected", element, "none");
+element.remove();
+</script>

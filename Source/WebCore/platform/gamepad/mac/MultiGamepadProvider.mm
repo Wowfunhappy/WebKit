@@ -39,8 +39,6 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MultiGamepadProvider::PlatformGamepadWrapper);
 
-static size_t numberOfGamepadProviders = 2;
-
 MultiGamepadProvider& MultiGamepadProvider::singleton()
 {
     static NeverDestroyed<MultiGamepadProvider> sharedProvider;

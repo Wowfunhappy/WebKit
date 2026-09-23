@@ -107,9 +107,6 @@ static std::string shaderOutputToString(ShShaderOutput output)
 
     RETURN_STRING_IF_EQUAL(output, SH_MSL_METAL_OUTPUT);
     RETURN_STRING_IF_EQUAL(output, SH_ESSL_OUTPUT);
-    RETURN_STRING_IF_EQUAL(output, SH_GLSL_COMPATIBILITY_OUTPUT);
-    RETURN_STRING_IF_EQUAL(output, SH_GLSL_130_OUTPUT);
-    RETURN_STRING_IF_EQUAL(output, SH_GLSL_140_OUTPUT);
     RETURN_STRING_IF_EQUAL(output, SH_GLSL_150_CORE_OUTPUT);
     RETURN_STRING_IF_EQUAL(output, SH_GLSL_330_CORE_OUTPUT);
     RETURN_STRING_IF_EQUAL(output, SH_GLSL_400_CORE_OUTPUT);
@@ -134,11 +131,11 @@ int main(int argc, const char *argv[])
     {
         std::vector<uint8_t> fileData;
         {
-            std::streampos fileSize;
+            size_t fileSize;
             {
                 std::ifstream file{argv[i], std::ios::binary};
                 file.seekg(0, std::ios::end);
-                fileSize = file.tellg();
+                fileSize = static_cast<size_t>(file.tellg());
                 file.seekg(0, std::ios::beg);
                 if (fileData.size() < static_cast<size_t>(fileSize))
                 {

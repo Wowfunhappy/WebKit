@@ -33,4 +33,5 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/request/destination/resources/fetch-destination-worker.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/request/destination/resources/import-declaration-type-css.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/request/destination/resources/import-declaration-type-json.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/request/destination/resources/import-declaration-type-text.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/request/destination/resources/importer.js

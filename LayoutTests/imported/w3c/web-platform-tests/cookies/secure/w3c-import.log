@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/cookies/secure/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/cookies/secure/set-from-dom.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/secure/set-from-dom.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/secure/set-from-http.https.sub.html

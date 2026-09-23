@@ -13,4 +13,5 @@ PASS Setting a list-valued property with CSSStyleValue or String updates its val
 PASS Setting a list-valued property with a list-valued string updates its value
 PASS Setting a custom property with CSSStyleValue or String updates its value
 PASS StylePropertyMap.set is case-insensitive
+PASS Setting a property with a CSSStyleValue whose associated property does not match throws TypeError
 

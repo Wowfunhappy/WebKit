@@ -24,9 +24,9 @@
 */
 
 typedef (double or CSSNumericValue) CSSNumberish;
-typedef (DOMString or CSSKeywordValue) CSSKeywordish;
-typedef (CSSNumberish or CSSKeywordish) CSSColorNumber;
-typedef (CSSNumberish or CSSKeywordish) CSSColorPercent;
+typedef (DOMString or CSSOMKeywordValue) CSSOMKeywordish;
+typedef (CSSNumberish or CSSOMKeywordish) CSSColorNumber;
+typedef (CSSNumberish or CSSOMKeywordish) CSSColorPercent;
 
 // https://drafts.css-houdini.org/css-typed-om/#cssoklab
 [

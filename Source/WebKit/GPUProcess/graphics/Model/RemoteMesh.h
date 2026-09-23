@@ -61,9 +61,9 @@ class ObjectHeap;
 class RemoteMesh final : public IPC::StreamMessageReceiver {
     WTF_MAKE_TZONE_ALLOCATED(RemoteMesh);
 public:
-    static Ref<RemoteMesh> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebKit::Mesh& mesh, ModelObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebModelIdentifier identifier)
+    static Ref<RemoteMesh> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebKit::Mesh& mesh, ModelObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebModelIdentifier identifier, bool standardDynamicRange = false)
     {
-        return adoptRef(*new RemoteMesh(gpuConnectionToWebProcess, gpu, mesh, objectHeap, WTF::move(streamConnection), identifier));
+        return adoptRef(*new RemoteMesh(gpuConnectionToWebProcess, gpu, mesh, objectHeap, WTF::move(streamConnection), identifier, standardDynamicRange));
     }
 
     virtual ~RemoteMesh();
@@ -75,7 +75,7 @@ public:
 private:
     friend class ModelObjectHeap;
 
-    RemoteMesh(GPUConnectionToWebProcess&, RemoteGPU&, WebKit::Mesh&, ModelObjectHeap&, Ref<IPC::StreamServerConnection>&&, WebModelIdentifier);
+    RemoteMesh(GPUConnectionToWebProcess&, RemoteGPU&, WebKit::Mesh&, ModelObjectHeap&, Ref<IPC::StreamServerConnection>&&, WebModelIdentifier, bool standardDynamicRange);
 
     RemoteMesh(const RemoteMesh&) = delete;
     RemoteMesh(RemoteMesh&&) = delete;
@@ -91,16 +91,19 @@ private:
     void destruct();
 
     void setLabel(String&&);
-    void update(const WebModel::UpdateMeshDescriptor&, CompletionHandler<void(bool)>&&);
-    void updateTexture(const WebModel::UpdateTextureDescriptor&, CompletionHandler<void(bool)>&&);
-    void updateMaterial(const WebModel::UpdateMaterialDescriptor&, CompletionHandler<void(bool)>&&);
+    void update(Vector<WebModel::UpdateMeshDescriptor>&&, CompletionHandler<void(bool)>&&);
+    void updateTexture(Vector<WebModel::UpdateTextureDescriptor>&&, CompletionHandler<void(bool)>&&);
+    void updateMaterial(Vector<WebModel::UpdateMaterialDescriptor>&&, CompletionHandler<void(bool)>&&);
     void updateTransform(const WebModel::Float4x4& transform);
-    void setCameraDistance(float);
-    void setBackgroundColor(const WebModel::Float3&);
+    void setFOV(float fovY);
     void play(bool);
-    void setEnvironmentMap(const WebModel::ImageAsset&);
+    void setEnvironmentMap(WebModel::UpdateTextureDescriptor&&);
+    void updateContentsHeadroom(float);
+    void updateRenderBuffers(unsigned, unsigned, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
+    void paintCurrentFrameToImageBuffer(WebCore::RenderingResourceIdentifier imageBufferIdentifier, uint32_t bufferIndex, CompletionHandler<void()>&&);
 
-    void render();
+    void render(uint32_t textureIndex, CompletionHandler<void(bool)>&&);
+    void processRemovals(Vector<WebModel::TypedResourceId>&& meshRemovals, Vector<WebModel::TypedResourceId>&& materialRemovals, Vector<WebModel::TypedResourceId>&& textureRemovals, CompletionHandler<void(bool)>&&);
 
     const Ref<WebKit::Mesh> m_backing;
     WeakRef<ModelObjectHeap> m_objectHeap;
@@ -108,6 +111,7 @@ private:
     const WebModelIdentifier m_identifier;
     ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
     WeakRef<RemoteGPU> m_gpu;
+    const bool m_standardDynamicRange { false };
 };
 
 } // namespace WebKit

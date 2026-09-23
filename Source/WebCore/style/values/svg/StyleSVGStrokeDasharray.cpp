@@ -28,30 +28,29 @@
 #include "AnimationUtilities.h"
 #include "CSSPrimitiveValue.h"
 #include "StyleBuilderChecking.h"
-#include "StyleLengthWrapper+Blending.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
+#include <numeric>
 
 namespace WebCore {
 namespace Style {
-
-using namespace CSS::Literals;
 
 // MARK: - Conversion
 
 auto CSSValueConversion<SVGStrokeDasharrayValue>::operator()(BuilderState& state, const CSSValue& value) -> SVGStrokeDasharrayValue
 {
+    using namespace CSS::Literals;
+
     RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
     if (!primitiveValue)
         return 0_css_px;
 
     if (primitiveValue->isNumberOrInteger()) {
-        return SVGStrokeDasharrayValueLength { SVGStrokeDasharrayValueLength::Fixed {
+        return SVGStrokeDasharrayValue::LengthPercentage { SVGStrokeDasharrayValue::LengthPercentage::Fixed {
             toStyleFromCSSValue<Number<CSS::All, float>>(state, *primitiveValue).value
         } };
     }
-    return toStyleFromCSSValue<SVGStrokeDasharrayValueLength>(state, *primitiveValue);
+    return toStyleFromCSSValue<SVGStrokeDasharrayValue::LengthPercentage>(state, *primitiveValue);
 }
 
 // MARK: - Blending
@@ -64,12 +63,8 @@ auto Blending<SVGStrokeDasharray>::blend(const SVGStrokeDasharray& a, const SVGS
         return context.progress < 0.5 ? a : b;
 
     auto resultLength = aLength;
-    if (aLength != bLength) {
-        if (!remainder(std::max(aLength, bLength), std::min(aLength, bLength)))
-            resultLength = std::max(aLength, bLength);
-        else
-            resultLength = aLength * bLength;
-    }
+    if (aLength != bLength)
+        resultLength = std::lcm(aLength, bLength);
 
     return SVGStrokeDasharrayList::createWithSizeFromGenerator(resultLength, [&](auto i) {
         return Style::blend(a[i % aLength], b[i % bLength], context);

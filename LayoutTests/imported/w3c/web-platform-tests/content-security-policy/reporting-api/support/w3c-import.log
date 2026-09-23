@@ -14,5 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/content-security-policy/reporting-api/support/dedicatedworker-report-url.sub.js
+/LayoutTests/imported/w3c/web-platform-tests/content-security-policy/reporting-api/support/dedicatedworker-report-url.sub.js.sub.headers
 /LayoutTests/imported/w3c/web-platform-tests/content-security-policy/reporting-api/support/non-embeddable-frame.html
 /LayoutTests/imported/w3c/web-platform-tests/content-security-policy/reporting-api/support/non-embeddable-frame.html.sub.headers

@@ -31,10 +31,9 @@
 #include "CSSTransition.h"
 #include "Document.h"
 #include "KeyframeEffect.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RotateTransformOperation.h"
 #include "ScaleTransformOperation.h"
-#include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleInterpolation.h"
 #include "StyleRotate.h"
 #include "StyleScale.h"
@@ -139,11 +138,11 @@ void KeyframeEffectStack::setCSSAnimationList(std::optional<Style::Animations>&&
     m_isSorted = false;
 }
 
-OptionSet<AnimationImpact> KeyframeEffectStack::applyKeyframeEffects(RenderStyle& targetStyle, HashSet<AnimatableCSSProperty>& affectedProperties, const RenderStyle* previousLastStyleChangeEventStyle, const Style::ResolutionContext& resolutionContext)
+OptionSet<AnimationImpact> KeyframeEffectStack::applyKeyframeEffects(Style::ComputedStyle& targetStyle, HashSet<AnimatableCSSProperty>& affectedProperties, const Style::ComputedStyle* previousLastStyleChangeEventStyle, const Style::ResolutionContext& resolutionContext)
 {
     OptionSet<AnimationImpact> impact;
 
-    auto& previousStyle = previousLastStyleChangeEventStyle ? *previousLastStyleChangeEventStyle : RenderStyle::defaultStyleSingleton();
+    auto& previousStyle = previousLastStyleChangeEventStyle ? *previousLastStyleChangeEventStyle : Style::ComputedStyle::defaultStyleSingleton();
 
     auto transformRelatedPropertyChanged = [&]() -> bool {
         return targetStyle.translate() != previousStyle.translate()
@@ -152,7 +151,7 @@ OptionSet<AnimationImpact> KeyframeEffectStack::applyKeyframeEffects(RenderStyle
             || targetStyle.transform() != previousStyle.transform();
     }();
 
-    auto unanimatedStyle = RenderStyle::clone(targetStyle);
+    auto unanimatedStyle = Style::ComputedStyle::clone(targetStyle);
 
     // We iterate over a snapshot of the effect list as it may mutate during application.
     for (const auto& effect : copyToVector(sortedEffects())) {
@@ -254,7 +253,16 @@ bool KeyframeEffectStack::allowsAcceleration() const
         if (effect->preventsAcceleration())
             return false;
         auto& acceleratedProperties = effect->acceleratedProperties();
-        if (!allAcceleratedProperties.isEmpty()) {
+
+        auto effectSupportsImplicitKeyframesComposition = [&] {
+#if ENABLE(THREADED_ANIMATIONS)
+            return effect->canHaveAcceleratedRepresentation();
+#else
+            return false;
+#endif
+        };
+
+        if (!allAcceleratedProperties.isEmpty() && !effectSupportsImplicitKeyframesComposition()) {
             auto previouslySeenAcceleratedPropertiesAffectingCurrentEffect = allAcceleratedProperties.intersectionWith(acceleratedProperties);
             if (!previouslySeenAcceleratedPropertiesAffectingCurrentEffect.isEmpty()
                 && !effect->acceleratedPropertiesWithImplicitKeyframe().intersectionWith(previouslySeenAcceleratedPropertiesAffectingCurrentEffect).isEmpty()) {
@@ -289,7 +297,7 @@ void KeyframeEffectStack::stopAcceleratedAnimations()
         effect->effectStackNoLongerAllowsAcceleration();
 }
 
-void KeyframeEffectStack::lastStyleChangeEventStyleDidChange(const RenderStyle* previousStyle, const RenderStyle* currentStyle)
+void KeyframeEffectStack::lastStyleChangeEventStyleDidChange(const Style::ComputedStyle* previousStyle, const Style::ComputedStyle* currentStyle)
 {
     for (auto& effect : m_effects)
         effect->lastStyleChangeEventStyleDidChange(previousStyle, currentStyle);
@@ -334,14 +342,8 @@ void KeyframeEffectStack::applyPendingAcceleratedActions() const
     }
 }
 
-bool KeyframeEffectStack::hasAcceleratedEffects(const Settings& settings) const
+bool KeyframeEffectStack::hasAcceleratedEffects() const
 {
-#if ENABLE(THREADED_ANIMATIONS)
-    if (settings.threadedScrollDrivenAnimationsEnabled() || settings.threadedTimeBasedAnimationsEnabled())
-        return !m_acceleratedEffects.isEmptyIgnoringNullReferences();
-#else
-    UNUSED_PARAM(settings);
-#endif
     return hasMatchingEffect([](const auto& effect) {
         return effect.isRunningAccelerated();
     });

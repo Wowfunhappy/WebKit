@@ -100,7 +100,7 @@ public:
     bool isNoneOrOrphaned() const { return isNone() || start().isOrphan() || end().isOrphan(); }
     bool NODELETE isOrphan() const;
 
-    RefPtr<Document> document() const;
+    RefPtr<Document> NODELETE document() const;
 
     bool isBaseFirst() const { return m_anchorIsFirst; }
 

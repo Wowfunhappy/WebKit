@@ -81,9 +81,7 @@ Widget::Widget(NSView *view)
     init(view);
 }
 
-Widget::~Widget()
-{
-}
+Widget::~Widget() = default;
 
 // FIXME: Should move this to Chrome; bad layering that this knows about Frame.
 void Widget::setFocus(bool focused)

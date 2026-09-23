@@ -116,6 +116,10 @@ public:
 #endif
     static void setNotifyOptions();
 
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    static std::optional<String> getHomeDirectory();
+#endif
+
 protected:
     explicit AuxiliaryProcess();
     virtual ~AuxiliaryProcess();
@@ -145,7 +149,7 @@ protected:
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
     bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
     void didReceiveMemoryPressureEvent(bool isCritical);
 #endif
 

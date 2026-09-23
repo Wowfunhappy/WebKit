@@ -75,7 +75,7 @@ static WebGPU::DeviceDescriptor convertToBacking(const std::optional<GPUDeviceDe
 
 static GPUFeatureName convertFeatureNameToEnum(const String& stringValue)
 {
-    static constexpr SortedArrayMap enumerationMapping { std::to_array<std::pair<ComparableASCIILiteral, GPUFeatureName>>({
+    static constexpr SortedArrayMap enumerationMapping { WTF::toArray<std::pair<ComparableASCIILiteral, GPUFeatureName>>({
         { "bgra8unorm-storage"_s, GPUFeatureName::Bgra8unormStorage },
         { "clip-distances"_s, GPUFeatureName::ClipDistances },
         { "core-features-and-limits"_s, GPUFeatureName::CoreFeaturesAndLimits },
@@ -87,6 +87,7 @@ static GPUFeatureName convertFeatureNameToEnum(const String& stringValue)
         { "float32-filterable"_s, GPUFeatureName::Float32Filterable },
         { "float32-renderable"_s, GPUFeatureName::Float32Renderable },
         { "indirect-first-instance"_s, GPUFeatureName::IndirectFirstInstance },
+        { "primitive-index"_s, GPUFeatureName::PrimitiveIndex },
         { "rg11b10ufloat-renderable"_s, GPUFeatureName::Rg11b10ufloatRenderable },
         { "shader-f16"_s, GPUFeatureName::ShaderF16 },
         { "texture-compression-astc"_s, GPUFeatureName::TextureCompressionAstc },
@@ -95,6 +96,7 @@ static GPUFeatureName convertFeatureNameToEnum(const String& stringValue)
         { "texture-compression-bc-sliced-3d"_s, GPUFeatureName::TextureCompressionBcSliced3d },
         { "texture-compression-etc2"_s, GPUFeatureName::TextureCompressionEtc2 },
         { "texture-formats-tier1"_s, GPUFeatureName::TextureFormatsTier1 },
+        { "texture-formats-tier2"_s, GPUFeatureName::TextureFormatsTier2 },
         { "timestamp-query"_s, GPUFeatureName::TimestampQuery },
     }) };
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); enumerationValue) [[likely]]
@@ -125,8 +127,8 @@ void GPUAdapter::requestDevice(ScriptExecutionContext& scriptExecutionContext, c
         return;
     }
 
-    m_backing->requestDevice(convertToBacking(deviceDescriptor), [protectedThis = Ref { *this }, deviceDescriptor, promise = WTF::move(promise), scriptExecutionContextRef = Ref { scriptExecutionContext }](RefPtr<WebGPU::Device>&& device) mutable {
-        if (!device.get())
+    m_backing->requestDevice(convertToBacking(deviceDescriptor), [protectedThis = protect(*this), deviceDescriptor, promise = WTF::move(promise), scriptExecutionContextRef = protect(scriptExecutionContext)](RefPtr<WebGPU::Device>&& device) mutable {
+        if (!device)
             promise.reject(Exception(ExceptionCode::OperationError));
         else {
             auto queueLabel = deviceDescriptor->defaultQueue.label;

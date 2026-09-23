@@ -28,7 +28,6 @@
 
 #include <array>
 #include <functional>
-#include <mutex>
 #include <wtf/text/CodePointIterator.h>
 #include <wtf/text/MakeString.h>
 
@@ -351,7 +350,7 @@ ALWAYS_INLINE bool URLParser::isForbiddenDomainCodePoint(CharacterType character
     return character <= 0x7F && characterClassTable[character] & ForbiddenDomain;
 }
 
-ALWAYS_INLINE static bool shouldPercentEncodeQueryByte(uint8_t byte, const bool& urlIsSpecial)
+ALWAYS_INLINE static bool shouldPercentEncodeQueryByte(uint8_t byte, bool urlIsSpecial)
 {
     if (characterClassTable[byte] & QueryEncode)
         return true;
@@ -1301,6 +1300,7 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
                 break;
             }
             if (!base.protocolIsFile()) {
+                m_urlIsSpecial = isSpecialScheme(base.protocol());
                 state = State::Relative;
                 break;
             }
@@ -1311,11 +1311,7 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
             if (*c == '/') {
                 appendToASCIIBuffer('/');
                 advance(c);
-                if (c.atEnd()) {
-                    failure();
-                    return;
-                }
-                if (*c == '/') {
+                if (!c.atEnd() && *c == '/') {
                     appendToASCIIBuffer('/');
                     state = State::SpecialAuthorityIgnoreSlashes;
                     ++c;
@@ -1347,7 +1343,6 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
             LOG_STATE("Relative");
             switch (*c) {
             case '/':
-            case '\\':
                 state = State::RelativeSlash;
                 ++c;
                 break;
@@ -1367,6 +1362,13 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
                 state = State::Fragment;
                 ++c;
                 break;
+            case '\\':
+                if (m_urlIsSpecial) {
+                    state = State::RelativeSlash;
+                    ++c;
+                    break;
+                }
+                [[fallthrough]];
             default:
                 copyURLPartsUntil(base, URLPart::PathAfterLastSlash, c, nonUTF8QueryEncoding);
                 if ((currentPosition(c) && parsedDataView(currentPosition(c) - 1) != '/')
@@ -1380,7 +1382,7 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
             break;
         case State::RelativeSlash:
             LOG_STATE("RelativeSlash");
-            if (*c == '/' || *c == '\\') {
+            if (*c == '/' || (*c == '\\' && m_urlIsSpecial)) {
                 ++c;
                 copyURLPartsUntil(base, URLPart::SchemeEnd, c, nonUTF8QueryEncoding);
                 appendToASCIIBuffer("://"_span8);
@@ -1708,7 +1710,7 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
             break;
         case State::FilePathStart:
             LOG_STATE("FilePathStart");
-            if (*c == '/' || *c != '\\') {
+            if (*c == '/' || *c == '\\') {
                 if (m_urlIsSpecial && *c == '\\') [[unlikely]]
                     syntaxViolation(c);
                 appendToASCIIBuffer('/');
@@ -2507,19 +2509,19 @@ std::optional<URLParser::IPv6Address> URLParser::parseIPv6Host(CodePointIterator
 }
 
 // FIXME: This function should take span<const char8_t>, since it requires UTF-8.
-template<typename CharacterType>
-URLParser::Latin1Buffer URLParser::percentDecode(std::span<const Latin1Character> input, const CodePointIterator<CharacterType>& iteratorForSyntaxViolationPosition)
+template<typename SyntaxViolationHandler>
+URLParser::Latin1Buffer URLParser::percentDecodeImpl(std::span<const Latin1Character> input, SyntaxViolationHandler&& syntaxViolationHandler)
 {
     Latin1Buffer output;
     output.reserveInitialCapacity(input.size());
-    
+
     for (size_t i = 0; i < input.size(); ++i) {
         uint8_t byte = input[i];
         if (byte != '%')
             output.append(byte);
-        else if (input.size() > 2 && i < input.size() - 2) {
+        else if (i + 2 < input.size()) {
             if (isASCIIHexDigit(input[i + 1]) && isASCIIHexDigit(input[i + 2])) {
-                syntaxViolation(iteratorForSyntaxViolationPosition);
+                syntaxViolationHandler();
                 output.append(toASCIIHexValue(input[i + 1], input[i + 2]));
                 i += 2;
             } else
@@ -2529,26 +2531,16 @@ URLParser::Latin1Buffer URLParser::percentDecode(std::span<const Latin1Character
     }
     return output;
 }
-    
+
+template<typename CharacterType>
+URLParser::Latin1Buffer URLParser::percentDecode(std::span<const Latin1Character> input, const CodePointIterator<CharacterType>& iteratorForSyntaxViolationPosition)
+{
+    return percentDecodeImpl(input, [&] { syntaxViolation(iteratorForSyntaxViolationPosition); });
+}
+
 URLParser::Latin1Buffer URLParser::percentDecode(std::span<const Latin1Character> input)
 {
-    Latin1Buffer output;
-    output.reserveInitialCapacity(input.size());
-    
-    for (size_t i = 0; i < input.size(); ++i) {
-        uint8_t byte = input[i];
-        if (byte != '%')
-            output.append(byte);
-        else if (input.size() > 2 && i < input.size() - 2) {
-            if (isASCIIHexDigit(input[i + 1]) && isASCIIHexDigit(input[i + 2])) {
-                output.append(toASCIIHexValue(input[i + 1], input[i + 2]));
-                i += 2;
-            } else
-                output.append(byte);
-        } else
-            output.append(byte);
-    }
-    return output;
+    return percentDecodeImpl(input, [] { });
 }
 
 bool URLParser::needsNonSpecialDotSlash() const
@@ -2574,7 +2566,7 @@ void URLParser::addNonSpecialDotSlash()
 template<typename CharacterType> std::optional<URLParser::Latin1Buffer> URLParser::domainToASCII(StringImpl& domain, const CodePointIterator<CharacterType>& iteratorForSyntaxViolationPosition)
 {
     Latin1Buffer ascii;
-    if (domain.containsOnlyASCII() && !subdomainStartsWithXNDashDash(domain)) {
+    if (domain.containsOnlyASCII()) {
         size_t length = domain.length();
         if (domain.is8Bit()) {
             auto characters = domain.span8();
@@ -2681,66 +2673,6 @@ bool URLParser::parsePort(CodePointIterator<CharacterType>& iterator)
     return true;
 }
 
-template<typename CharacterType>
-bool URLParser::subdomainStartsWithXNDashDash(CodePointIterator<CharacterType> iterator)
-{
-    enum class State : uint8_t {
-        NotAtSubdomainBeginOrInXNDashDash,
-        AtSubdomainBegin,
-        AfterX,
-        AfterN,
-        AfterFirstDash,
-    } state { State::AtSubdomainBegin };
-
-    for (; !iterator.atEnd(); advance<CharacterType, ReportSyntaxViolation::No>(iterator)) {
-        CharacterType c = *iterator;
-
-        // These characters indicate the end of the host.
-        if (c == ':' || c == '/' || c == '?' || c == '#')
-            return false;
-
-        switch (state) {
-        case State::NotAtSubdomainBeginOrInXNDashDash:
-            break;
-        case State::AtSubdomainBegin:
-            if (c == 'x' || c == 'X') {
-                state = State::AfterX;
-                continue;
-            }
-            break;
-        case State::AfterX:
-            if (c == 'n' || c == 'N') {
-                state = State::AfterN;
-                continue;
-            }
-            break;
-        case State::AfterN:
-            if (c == '-') {
-                state = State::AfterFirstDash;
-                continue;
-            }
-            break;
-        case State::AfterFirstDash:
-            if (c == '-')
-                return true;
-            break;
-        }
-
-        if (c == '.')
-            state = State::AtSubdomainBegin;
-        else
-            state = State::NotAtSubdomainBeginOrInXNDashDash;
-    }
-    return false;
-}
-
-bool URLParser::subdomainStartsWithXNDashDash(StringImpl& host)
-{
-    if (host.is8Bit())
-        return subdomainStartsWithXNDashDash<Latin1Character>(host.span8());
-    return subdomainStartsWithXNDashDash<char16_t>(host.span16());
-}
-
 static bool dnsNameEndsInNumber(StringView name)
 {
     // https://url.spec.whatwg.org/#ends-in-a-number-checker
@@ -2820,7 +2752,7 @@ auto URLParser::parseHostAndPort(CodePointIterator<CharacterType> iterator) -> H
         return parsePort(iterator) ? HostParsingResult::NonSpecialHostWithPort : HostParsingResult::InvalidHost;
     }
     
-    if (!m_hostHasPercentOrNonASCII && !subdomainStartsWithXNDashDash(iterator)) [[likely]] {
+    if (!m_hostHasPercentOrNonASCII) [[likely]] {
         auto hostIterator = iterator;
         for (; !iterator.atEnd(); ++iterator) {
             if (isTabOrNewline(*iterator))

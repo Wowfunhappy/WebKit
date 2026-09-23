@@ -28,7 +28,9 @@
 #import <utility>
 #import <wtf/CompletionHandler.h>
 #import <wtf/FastMalloc.h>
+#import <wtf/HashMap.h>
 #import <wtf/Ref.h>
+#import <wtf/ThreadSafeWeakPtr.h>
 #import <wtf/WeakPtr.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 

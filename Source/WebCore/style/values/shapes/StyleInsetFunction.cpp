@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleInsetFunction.h"
 
+#include "AcceleratedEffectInsetFunction.h"
 #include "FloatRect.h"
 #include "GeometryUtilities.h"
 #include "Path.h"
@@ -77,6 +78,20 @@ WebCore::Path PathComputation<Inset>::operator()(const Inset& value, const Float
 
     return cachedRoundedInsetPath(FloatRoundedRect { rect, radii });
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+AcceleratedEffectInsetFunction Evaluation<InsetFunction, AcceleratedEffectInsetFunction>::operator()(const InsetFunction& value, const FloatSize& containingBlockSize, ZoomFactor zoom)
+{
+    return {
+        .insets = evaluate<RectEdges<float>>(value->insets, containingBlockSize, zoom),
+        .radii = evaluate<CornerRadii>(value->radii, containingBlockSize, zoom),
+    };
+}
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

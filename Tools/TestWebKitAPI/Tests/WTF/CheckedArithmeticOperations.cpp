@@ -498,4 +498,97 @@ TEST(CheckedArithmeticTest, Division)
     EXPECT_EQ(100U, size.value());
 }
 
+// Bug 1: Signed division of MIN / -1 should report overflow.
+// INT_MIN / -1 mathematically equals INT_MAX + 1, which doesn't fit in the
+// signed type. The divide() function for signed types only checks for a zero
+// divisor but misses this case entirely. For int16_t, the C++ compiler promotes
+// both operands to int, computes 32768, then the implicit narrowing conversion
+// back to int16_t wraps to -32768 — so we get a silently wrong result instead
+// of an overflow indication. (For int32_t/int64_t this is worse: the hardware
+// idiv instruction traps, causing SIGFPE.)
+TEST(CheckedArithmeticTest, SignedDivisionMinByNegativeOneShouldOverflow)
+{
+    // int8_t: INT8_MIN / -1 = 128, doesn't fit in int8_t (max 127).
+    {
+        Checked<int8_t, RecordOverflow> a = std::numeric_limits<int8_t>::min();
+        Checked<int8_t, RecordOverflow> b = -1;
+        auto result = a / b;
+        EXPECT_TRUE(result.hasOverflowed());
+    }
+
+    // int16_t: INT16_MIN / -1 = 32768, doesn't fit in int16_t (max 32767).
+    {
+        Checked<int16_t, RecordOverflow> a = std::numeric_limits<int16_t>::min();
+        Checked<int16_t, RecordOverflow> b = -1;
+        auto result = a / b;
+        EXPECT_TRUE(result.hasOverflowed());
+    }
+
+    // Also test via operator/=.
+    {
+        Checked<int16_t, RecordOverflow> a = std::numeric_limits<int16_t>::min();
+        a /= static_cast<int16_t>(-1);
+        EXPECT_TRUE(a.hasOverflowed());
+    }
+
+    // Verify that normal signed divisions still work.
+    {
+        Checked<int16_t, RecordOverflow> a = 100;
+        auto result = a / Checked<int16_t, RecordOverflow>(-1);
+        EXPECT_FALSE(result.hasOverflowed());
+        EXPECT_EQ(static_cast<int16_t>(-100), result.value());
+    }
+}
+
+// Bug 2: Mixed-signedness division (int / unsigned) doesn't bounds-check the
+// result against the ResultType. The ResultType for <int, unsigned> is unsigned
+// (chosen by SignednessSelector). When a negative int is divided by a positive
+// unsigned, the int64_t quotient is negative, which cannot be represented in
+// unsigned — but the code does a raw static_cast without checking, producing a
+// silently wrong value (e.g. UINT_MAX) instead of signaling overflow.
+TEST(CheckedArithmeticTest, MixedSignDivisionShouldOverflowWhenResultIsNegative)
+{
+    // -1 / 1u: mathematically -1, which doesn't fit in unsigned.
+    {
+        Checked<int, RecordOverflow> a = -1;
+        Checked<unsigned, RecordOverflow> b = 1;
+        auto result = a / b;
+        EXPECT_TRUE(result.hasOverflowed());
+    }
+
+    // INT_MIN / 1u: mathematically INT_MIN (negative), doesn't fit in unsigned.
+    {
+        Checked<int, RecordOverflow> a = std::numeric_limits<int>::min();
+        Checked<unsigned, RecordOverflow> b = 1;
+        auto result = a / b;
+        EXPECT_TRUE(result.hasOverflowed());
+    }
+
+    // -10 / 3u: mathematically -3 (truncated toward zero), doesn't fit in unsigned.
+    {
+        Checked<int, RecordOverflow> a = -10;
+        Checked<unsigned, RecordOverflow> b = 3;
+        auto result = a / b;
+        EXPECT_TRUE(result.hasOverflowed());
+    }
+
+    // Verify that non-negative results still work.
+    {
+        Checked<int, RecordOverflow> a = 10;
+        Checked<unsigned, RecordOverflow> b = 3;
+        auto result = a / b;
+        EXPECT_FALSE(result.hasOverflowed());
+        EXPECT_EQ(3U, result.value());
+    }
+
+    // 0 / 5u = 0, should succeed.
+    {
+        Checked<int, RecordOverflow> a = 0;
+        Checked<unsigned, RecordOverflow> b = 5;
+        auto result = a / b;
+        EXPECT_FALSE(result.hasOverflowed());
+        EXPECT_EQ(0U, result.value());
+    }
+}
+
 } // namespace TestWebKitAPI

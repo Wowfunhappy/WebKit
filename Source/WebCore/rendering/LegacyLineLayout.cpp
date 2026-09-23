@@ -161,7 +161,7 @@ LegacyRootInlineBox* LegacyLineLayout::createAndAppendRootInlineBox()
 {
     m_legacyRootInlineBox = createRootInlineBox();
     if (AXObjectCache::accessibilityEnabled()) [[unlikely]] {
-        if (AXObjectCache* cache = m_flow.document().existingAXObjectCache())
+        if (AXObjectCache* cache = protect(m_flow)->document().existingAXObjectCache())
             cache->deferRecomputeIsIgnored(m_flow.element());
     }
 
@@ -476,7 +476,7 @@ void LegacyLineLayout::layoutRunsAndFloats(bool hasInlineChild)
     resolver.setPosition(iter, numberOfIsolateAncestors(iter));
 
     if (hasInlineChild && !m_flow.selfNeedsLayout()) {
-        m_flow.setNeedsLayout(MarkOnlyThis); // Mark as needing a full layout to force us to repaint.
+        m_flow.setNeedsLayout(MarkingBehavior::MarkOnlyThis); // Mark as needing a full layout to force us to repaint.
         if (!layoutContext().needsFullRepaint() && m_flow.cachedLayerClippedOverflowRect()) {
             // Because we waited until we were already inside layout to discover
             // that the block really needed a full layout, we missed our chance to repaint the layer
@@ -493,7 +493,7 @@ void LegacyLineLayout::layoutRunsAndFloats(bool hasInlineChild)
 
 void LegacyLineLayout::layoutRunsAndFloatsInRange(InlineBidiResolver& resolver)
 {
-    const RenderStyle& styleToUse = style();
+    const Style::ComputedStyle& styleToUse = style();
     LineWhitespaceCollapsingState& lineWhitespaceCollapsingState = resolver.whitespaceCollapsingState();
     LegacyInlineIterator end = resolver.position();
     RenderTextInfo renderTextInfo;
@@ -592,7 +592,7 @@ size_t LegacyLineLayout::lineCount() const
     return legacyRootBox() ? 1 : 0;
 }
 
-const RenderStyle& LegacyLineLayout::style() const
+const Style::ComputedStyle& LegacyLineLayout::style() const
 {
     return m_flow.style();
 }

@@ -31,7 +31,6 @@
 typedef (USVString or URLPatternInit) URLPatternInput;
 
 [
-    EnabledBySetting=URLPatternAPIEnabled,
     Exposed=(Window,Worker)
 ] interface URLPattern {
     [CallWith=CurrentScriptExecutionContext] constructor(URLPatternInput input, USVString baseURL, optional URLPatternOptions options = {});

@@ -15,6 +15,7 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/h1-parsing/README.md
+/LayoutTests/imported/w3c/web-platform-tests/fetch/h1-parsing/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/h1-parsing/lone-cr.window.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/h1-parsing/resources-with-0x00-in-header.window.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/h1-parsing/status-code.window.js

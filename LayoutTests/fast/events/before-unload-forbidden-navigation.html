@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <body>
-<p>This test ensures navigation is forbidden while beforeunload event is being fired. You should see PASS 1/2 and PASS 2/2 below:</p>
+<p>This test ensures self-navigation is forbidden while beforeunload event is being fired. You should see PASS 1/2 and PASS 2/2 below:</p>
 <pre id="log">FAIL</pre>
 <script>
 
@@ -37,10 +37,8 @@ function fired(contentWindow) {
         return;
     didFireBeforeUnloadEvent = true;
 
-    location.href = 'resources/before-unload-in-subframe-fail.html';
     contentWindow.location.href = 'resources/before-unload-in-subframe-fail.html';
     navigateByClickingHyperlink(contentWindow, 'resources/before-unload-in-subframe-fail.html');
-    navigateByClickingHyperlink(window, 'resources/before-unload-in-subframe-fail.html');
 
     log.innerHTML = 'PASS 1/2';
     contentWindow.frameElement.halfPassed = true;

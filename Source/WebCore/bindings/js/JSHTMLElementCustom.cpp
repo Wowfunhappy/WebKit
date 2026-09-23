@@ -33,12 +33,16 @@
 #include "HTMLFormElement.h"
 #include "JSCustomElementInterface.h"
 #include "JSDOMConstructorBase.h"
+#include "JSDOMWrapperCache.h"
 #include "JSHTMLElementWrapperFactory.h"
 #include "JSNodeCustom.h"
 #include "LocalDOMWindow.h"
 #include "NodeDocument.h"
 #include "ScriptExecutionContext.h"
+#include <JavaScriptCore/CallFrameInlines.h>
 #include <JavaScriptCore/InternalFunction.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/JSWithScope.h>
 
 namespace WebCore {
@@ -50,7 +54,7 @@ EncodedJSValue constructJSHTMLElement(JSGlobalObject* lexicalGlobalObject, CallF
     VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* jsConstructor = jsCast<JSDOMConstructorBase*>(callFrame.jsCallee());
+    auto* jsConstructor = downcast<JSDOMConstructorBase>(callFrame.jsCallee());
     ASSERT(jsConstructor);
 
     CheckedPtr context = jsConstructor->scriptExecutionContext();
@@ -61,7 +65,7 @@ EncodedJSValue constructJSHTMLElement(JSGlobalObject* lexicalGlobalObject, CallF
     auto* newTarget = callFrame.newTarget().getObject();
     auto* functionGlobalObject = getFunctionRealm(lexicalGlobalObject, newTarget);
     RETURN_IF_EXCEPTION(scope, { });
-    auto* newTargetGlobalObject = jsCast<JSDOMGlobalObject*>(functionGlobalObject);
+    auto* newTargetGlobalObject = downcast<JSDOMGlobalObject>(functionGlobalObject);
     JSValue htmlElementConstructorValue = JSHTMLElement::getConstructor(vm, newTargetGlobalObject);
     if (newTarget == htmlElementConstructorValue)
         return throwVMTypeError(lexicalGlobalObject, scope, "new.target is not a valid custom element constructor"_s);
@@ -103,7 +107,7 @@ EncodedJSValue constructJSHTMLElement(JSGlobalObject* lexicalGlobalObject, CallF
         return JSValue::encode(jsUndefined());
     }
 
-    JSValue elementWrapperValue = toJS(lexicalGlobalObject, jsConstructor->globalObject(), *elementToUpgrade);
+    JSValue elementWrapperValue = toJS(lexicalGlobalObject, jsConstructor->realm(), *elementToUpgrade);
     ASSERT(elementWrapperValue.isObject());
 
     JSValue newPrototype = newTarget->get(lexicalGlobalObject, vm.propertyNames->prototype);
@@ -129,16 +133,16 @@ JSScope* JSHTMLElement::pushEventHandlerScope(JSGlobalObject* lexicalGlobalObjec
     // https://bugs.webkit.org/show_bug.cgi?id=134932
     VM& vm = lexicalGlobalObject->vm();
     
-    scope = JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, globalObject(), element->document())));
+    scope = JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, realm(), protect(element->document()))));
 
     // The form is next, searched before the document, but after the element itself.
     if (auto* formAssociated = element->asFormAssociatedElement()) {
         if (RefPtr form = formAssociated->form())
-            scope = JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, globalObject(), *form)));
+            scope = JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, realm(), *form)));
     }
 
     // The element is on top, searched first.
-    return JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, globalObject(), element)));
+    return JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, realm(), element)));
 }
 
 JSValue toJS(JSGlobalObject*, JSDOMGlobalObject* globalObject, HTMLElement& element)

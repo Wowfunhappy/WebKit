@@ -26,6 +26,7 @@
 #include "config.h"
 #include "TextExtractionAssertionScope.h"
 
+#include "WebPageProxy.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {

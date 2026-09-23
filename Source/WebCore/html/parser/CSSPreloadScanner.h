@@ -40,7 +40,7 @@ public:
 
     void reset();
 
-    void scan(const HTMLToken::DataVector&, PreloadRequestStream&);
+    void scan(const HTMLToken::DataVector&, PreloadRequestStream&, const URL& predictedBaseElementURL = URL());
 
 private:
     enum State {
@@ -68,6 +68,7 @@ private:
 
     // Only non-zero during scan()
     PreloadRequestStream* m_requests;
+    URL m_predictedBaseElementURL;
 };
 
 } // namespace WebCore

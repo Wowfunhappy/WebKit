@@ -84,7 +84,7 @@ static void StoreABL(Vector<std::span<Byte>>& channels, size_t destOffset, const
 {
     ASSERT(list->mNumberBuffers == channels.size());
     auto buffers = span(*list);
-    const AudioBuffer* src = list->mBuffers;
+    const ::AudioBuffer* src = list->mBuffers;
     for (auto& channel : channels) {
         if (srcOffset > buffers[0].mDataByteSize)
             continue;
@@ -176,7 +176,7 @@ CARingBuffer::TimeBounds CARingBuffer::getStoreTimeBounds()
     return m_storeBounds;
 }
 
-CARingBuffer::Error CARingBuffer::store(const AudioBufferList* list, size_t framesToWrite, uint64_t startFrame)
+CARingBuffer::Error CARingBuffer::store(const AudioBufferList* list, size_t framesToWrite, uint64_t startFrame, uint64_t writeAhead)
 {
     if (!framesToWrite)
         return Ok;
@@ -228,7 +228,7 @@ CARingBuffer::Error CARingBuffer::store(const AudioBufferList* list, size_t fram
     }
 
     // Now update the end time.
-    setTimeBounds({ m_storeBounds.startFrame, endFrame });
+    setTimeBounds({ m_storeBounds.startFrame, endFrame, writeAhead });
 
     return Ok;
 }

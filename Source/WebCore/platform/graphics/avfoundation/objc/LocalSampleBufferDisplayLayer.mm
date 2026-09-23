@@ -292,6 +292,16 @@ CGRect LocalSampleBufferDisplayLayer::bounds() const
     return m_rootLayer.get().bounds;
 }
 
+CGRect LocalSampleBufferDisplayLayer::sampleLayerBoundsForTesting() const
+{
+    return m_sampleBufferDisplayLayer.get().bounds;
+}
+
+void LocalSampleBufferDisplayLayer::setVideoFrameRotationForTesting(VideoFrameRotation rotation)
+{
+    m_videoFrameRotation = rotation;
+}
+
 void LocalSampleBufferDisplayLayer::updateBoundsAndPosition(CGRect bounds, std::optional<WTF::MachSendRightAnnotated>&&)
 {
     updateSampleLayerBoundsAndPosition(bounds);
@@ -305,18 +315,21 @@ void LocalSampleBufferDisplayLayer::updateSampleLayerBoundsAndPosition(std::opti
             return;
 
         RetainPtr rootLayer = protectedThis->m_rootLayer;
-        auto layerBounds = bounds.value_or(rootLayer.get().bounds);
-        CGPoint layerPosition { layerBounds.size.width / 2, layerBounds.size.height / 2 };
-        if (rotation == VideoFrame::Rotation::Right || rotation == VideoFrame::Rotation::Left)
-            std::swap(layerBounds.size.width, layerBounds.size.height);
+        RetainPtr sampleBufferDisplayLayer = protectedThis->m_sampleBufferDisplayLayer;
         runWithoutAnimations([&] {
-            if (bounds) {
-                rootLayer.get().position = { bounds->size.width / 2, bounds->size.height / 2 };
-                rootLayer.get().bounds = *bounds;
-            }
-
-            RetainPtr sampleBufferDisplayLayer = protectedThis->m_sampleBufferDisplayLayer;
             sampleBufferDisplayLayer.get().affineTransform = affineTransform;
+            // Without explicit bounds, only update the transform. Swapping the stale root
+            // layer bounds here would produce a wrong-sized frame; the caller will provide
+            // correct explicit bounds via updateBoundsAndPosition once the rotation change
+            // has propagated through the media pipeline.
+            if (!bounds)
+                return;
+            auto layerBounds = *bounds;
+            CGPoint layerPosition { layerBounds.size.width / 2, layerBounds.size.height / 2 };
+            if (rotation == VideoFrame::Rotation::Right || rotation == VideoFrame::Rotation::Left)
+                std::swap(layerBounds.size.width, layerBounds.size.height);
+            rootLayer.get().position = { bounds->size.width / 2, bounds->size.height / 2 };
+            rootLayer.get().bounds = *bounds;
             sampleBufferDisplayLayer.get().position = layerPosition;
             sampleBufferDisplayLayer.get().bounds = layerBounds;
         });
@@ -338,7 +351,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 void LocalSampleBufferDisplayLayer::flushAndRemoveImage()
 {
-    m_processingQueue->dispatch([weakThis = ThreadSafeWeakPtr { *this }] {
+    m_processingQueue->dispatch([weakThis = ThreadSafeWeakPtr { *this }]() mutable {
         auto protectedThis = weakThis.get();
         if (!protectedThis)
             return;
@@ -349,7 +362,10 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
         } @catch(id exception) {
             RELEASE_LOG_ERROR(WebRTC, "LocalSampleBufferDisplayLayer::flushAndRemoveImage failed");
-            protectedThis->layerErrorDidChange();
+            callOnMainThread([weakThis = WTF::move(weakThis)] {
+                if (RefPtr protectedThis = weakThis.get())
+                    protectedThis->layerErrorDidChange();
+            });
         }
     });
 }
@@ -432,6 +448,27 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
     m_frameRateMonitor.update();
 #endif
+
+    auto gatherSampleVideoMetricsIfNeeded = [&] -> RetainPtr<AVVideoPerformanceMetrics> {
+        assertIsCurrent(workQueue());
+
+        auto currentTime = MonotonicTime::now().secondsSinceEpoch();
+        const Seconds maximumPlaybackQualityMetricsSampleTimeDelta = 0.25_s;
+        if (currentTime < m_lastMetricsSampleTime + maximumPlaybackQualityMetricsSampleTimeDelta)
+            return nullptr;
+
+        m_lastMetricsSampleTime = currentTime;
+        return [m_sampleBufferDisplayLayer videoPerformanceMetrics];
+    };
+
+    RetainPtr metrics = gatherSampleVideoMetricsIfNeeded();
+    if (!metrics)
+        return;
+
+    callOnMainThread([client = m_client, totalVideoFrames = metrics.get().totalNumberOfVideoFrames, droppedVideoFrames = metrics.get().numberOfDroppedVideoFrames] {
+        if (RefPtr protectedClient = client.get())
+            protectedClient->updateVideoFrameCounters(totalVideoFrames, droppedVideoFrames);
+    });
 }
 
 #if !RELEASE_LOG_DISABLED

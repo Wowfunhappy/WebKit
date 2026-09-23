@@ -66,9 +66,25 @@ std::unique_ptr<WebCore::CARingBuffer> RemoteAudioSourceProviderProxy::configure
     return caRingBuffer;
 }
 
-void RemoteAudioSourceProviderProxy::newAudioSamples(uint64_t startFrame, uint64_t numberOfFrames, bool needsFlush)
+void RemoteAudioSourceProviderProxy::newAudioSamples(uint64_t, uint64_t, bool needsFlush)
 {
-    m_connection->send(Messages::RemoteAudioSourceProviderManager::AudioSamplesAvailable { m_identifier, startFrame, numberOfFrames, needsFlush }, 0);
+    if (needsFlush)
+        m_connection->send(Messages::RemoteAudioSourceProviderManager::SetNeedsFlush { m_identifier }, 0);
+}
+
+void RemoteAudioSourceProviderProxy::setPlaybackRate(double playbackRate)
+{
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::SetPlaybackRate { m_identifier, playbackRate }, 0);
+}
+
+void RemoteAudioSourceProviderProxy::setPreservesPitch(bool preservesPitch)
+{
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::SetPreservesPitch { m_identifier, preservesPitch }, 0);
+}
+
+void RemoteAudioSourceProviderProxy::setVolume(double volume)
+{
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::SetVolume { m_identifier, volume }, 0);
 }
 
 } // namespace WebKit

@@ -100,6 +100,11 @@ enum class WebKit::AllowsCellularAccess : bool;
     bool serviceWorkerProcessTerminationDelayEnabled;
     bool inspectionForServiceWorkersAllowed;
     bool storageSiteValidationEnabled;
+    WebKit::TimeBasedEvictionMode timeBasedEvictionMode;
+    Seconds timeBasedEvictionThreshold;
+    std::optional<Seconds> lastModificationTimeUpdateIntervalOverride;
+    std::optional<Seconds> timeBasedEvictionIntervalOverride;
+    Vector<WebCore::SecurityOriginData> mockPushSubscriptionOriginsForTesting;
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     bool isDeclarativeWebPushEnabled;
 #endif

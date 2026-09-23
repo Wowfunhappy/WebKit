@@ -6,11 +6,12 @@
 </head>
 <script>
     testRunner?.dumpAsText();
-    testRunner?.dumpResourceLoadCallbacks();
     testRunner?.waitUntilDone();
-    testRunner?.getApplicationManifestThen(() => {
+    (async () => {
+        const success = await testRunner.getApplicationManifest();
         const elem = document.querySelector("link");
-        console.log(`Fetched manifest: ${elem.href}`);
+        outputdiv.innerHTML = `Fetched manifest: ${elem.href}, success: ${success}`;
         testRunner.notifyDone();
-    });
+    })();
 </script>
+<div id=outputdiv></div>

@@ -56,10 +56,6 @@ struct SerializedNode {
 
         QualifiedName(const WebCore::QualifiedName&);
         WEBCORE_EXPORT QualifiedName(String&&, String&&, String&&);
-        QualifiedName(const QualifiedName&) = default;
-        QualifiedName(QualifiedName&&) = default;
-        QualifiedName& operator=(const QualifiedName&) = default;
-        QualifiedName& operator=(QualifiedName&&) = default;
         WebCore::QualifiedName qualifiedName() &&;
     };
     struct Attr {

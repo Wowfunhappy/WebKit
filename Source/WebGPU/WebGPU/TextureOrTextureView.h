@@ -52,7 +52,7 @@ public:
     {
     }
 
-#define TEXTURE_OR_VIEW_INVOKE(x) return m_view ? RefPtr { m_view }->x() : RefPtr { m_texture }->x()
+#define TEXTURE_OR_VIEW_INVOKE(x) return m_view ? protect(m_view)->x() : protect(m_texture)->x()
 #define TEXTURE_OR_VIEW_HELPER(x) auto x() const { TEXTURE_OR_VIEW_INVOKE(x); }
 #define TEXTURE_OR_VIEW_HELPER_NONCONST(x) auto x() { TEXTURE_OR_VIEW_INVOKE(x); }
 #define TEXTURE_OR_VIEW_HELPER_REF(x) const auto& x() const { TEXTURE_OR_VIEW_INVOKE(x); }
@@ -83,12 +83,12 @@ public:
 
     void setCommandEncoder(CommandEncoder& encoder)
     {
-        m_view ? RefPtr { m_view }->setCommandEncoder(encoder) : RefPtr { m_texture }->setCommandEncoder(encoder);
+        m_view ? protect(m_view)->setCommandEncoder(encoder) : protect(m_texture)->setCommandEncoder(encoder);
     }
 
     id<MTLRasterizationRateMap> rasterizationMapForSlice(uint32_t slice)
     {
-        return m_view ? RefPtr { m_view }->rasterizationMapForSlice(slice) : RefPtr { m_texture }->rasterizationMapForSlice(slice);
+        return m_view ? protect(m_view)->rasterizationMapForSlice(slice) : protect(m_texture)->rasterizationMapForSlice(slice);
     }
 
 #undef TEXTURE_OR_VIEW_INVOKE
@@ -103,9 +103,24 @@ private:
     RefPtr<TextureView> m_view;
 };
 
-static bool isRenderableTextureView(const auto& texture)
+static bool isRenderableTextureView(const auto& texture, WGPULoadOp loadOp, WGPUStoreOp storeOp)
 {
+    if (texture.usage() & WGPUTextureUsage_Transient) {
+        if (loadOp != WGPULoadOp_Clear || storeOp != WGPUStoreOp_Discard)
+            return false;
+    }
+
     return (texture.usage() & WGPUTextureUsage_RenderAttachment) && (texture.is2DTexture() || texture.is2DArrayTexture() || texture.is3DTexture()) && texture.mipLevelCount() == 1 && texture.arrayLayerCount() <= 1;
+}
+
+static bool isAllowableTextureView(const auto& texture, WGPULoadOp loadOp, WGPUStoreOp storeOp)
+{
+    if (texture.usage() & WGPUTextureUsage_Transient) {
+        if (loadOp != WGPULoadOp_Clear || storeOp != WGPUStoreOp_Discard)
+            return false;
+    }
+
+    return true;
 }
 
 }

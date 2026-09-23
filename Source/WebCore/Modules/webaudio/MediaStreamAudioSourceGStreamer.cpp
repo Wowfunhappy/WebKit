@@ -49,7 +49,7 @@ void MediaStreamAudioSource::consumeAudio(AudioBus& bus, size_t numberOfFrames)
     }
 
     auto channels = bus.numberOfChannels();
-    auto buffer = adoptGRef(gst_buffer_new_and_alloc(sizeof(float) * numberOfFrames * channels));
+    GRefPtr buffer = adoptGRef(gst_buffer_new_and_alloc(sizeof(float) * numberOfFrames * channels));
     GST_BUFFER_PTS(buffer.get()) = toGstClockTime(mediaTime);
     GST_BUFFER_FLAG_SET(buffer.get(), GST_BUFFER_FLAG_LIVE);
 
@@ -66,7 +66,7 @@ void MediaStreamAudioSource::consumeAudio(AudioBus& bus, size_t numberOfFrames)
         gst_buffer_add_audio_level_meta(buffer.get(), 127, FALSE);
 #endif
 
-    auto sample = adoptGRef(gst_sample_new(buffer.get(), m_caps.get(), nullptr, nullptr));
+    GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), m_caps.get(), nullptr, nullptr));
     GStreamerAudioData audioBuffer(WTF::move(sample), m_info);
     GStreamerAudioStreamDescription description(&m_info);
     audioSamplesAvailable(mediaTime, audioBuffer, description, numberOfFrames);

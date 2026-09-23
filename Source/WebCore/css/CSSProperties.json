@@ -187,8 +187,7 @@
         "",
         "* accepts-quirky-angle:",
         "Indicates the property requires support for unitless angles. Only used for",
-        "two properties, glyph-orientation-horizontal and glyph-orientation-vertical,",
-        "though nothing in any standard requires this.",
+        "glyph-orientation-vertical, though nothing in any standard requires this.",
         "",
         "2. Lesser known capabilities of this file format",
         "",
@@ -396,10 +395,10 @@
                 "color-property": true,
                 "color-property-traits-color-custom": true,
                 "color-property-traits-visited-link-color-custom": true,
-                "style-builder-custom": "Value",
+                "style-builder-custom": "Initial|Value",
                 "style-extractor-custom": true,
                 "fast-path-inherited": true,
-                "computed-style-initial-custom": true,
+                "skip-computed-style-initial": true,
                 "computed-style-getter-custom": true,
                 "computed-style-getter-exported": true,
                 "computed-style-getter-inline": false,
@@ -1275,7 +1274,11 @@
             "initial": "auto",
             "values": [
                 "auto",
-                "none"
+                "none",
+                {
+                    "value": "oblique-only",
+                    "settings-flag": "cssFontSynthesisStyleObliqueOnlyEnabled"
+                }
             ],
             "codegen-properties": {
                 "font-property": true,
@@ -1283,7 +1286,7 @@
                 "computed-style-storage-container": "opaque",
                 "computed-style-storage-path": ["m_inheritedData", "fontData", "fontCascade"],
                 "computed-style-storage-kind": "enum",
-                "computed-style-type": "FontSynthesisLonghandValue",
+                "computed-style-type": "FontSynthesisStyleLonghandValue",
                 "parser-grammar": "<<values>>"
             },
             "specification": {
@@ -1555,7 +1558,8 @@
                 "normal",
                 "no-autospace",
                 "ideograph-alpha",
-                "ideograph-numeric"
+                "ideograph-numeric",
+                "insert"
             ],
             "codegen-properties": {
                 "font-property": true,
@@ -1566,7 +1570,7 @@
                 "computed-style-storage-path": ["m_inheritedData", "fontData", "fontCascade"],
                 "computed-style-storage-kind": "value",
                 "computed-style-type": "Style::TextAutospace",
-                "parser-grammar": "normal | auto | no-autospace | [ ideograph-alpha || ideograph-numeric ]@(no-single-item-opt)",
+                "parser-grammar": "normal | auto | no-autospace | [ ideograph-alpha || ideograph-numeric || insert ]@(no-single-item-opt)",
                 "parser-grammar-comment": "Current spec grammar is 'normal | auto | no-autospace | [ [ ideograph-alpha || ideograph-numeric || punctuation ] || [ insert | replace ] ]'"
             },
             "specification": {
@@ -1662,7 +1666,7 @@
             }
         },
         "zoom": {
-            "animation-type": "not animatable",
+            "animation-type": "by computed value",
             "initial": "1",
             "values": [
                 {
@@ -1671,6 +1675,7 @@
                 }
             ],
             "codegen-properties": {
+                "animation-wrapper-requires-setter": "setZoomFromAnimation",
                 "style-builder-custom": "All",
                 "high-priority": true,
                 "computed-style-initial-constexpr": true,
@@ -2473,10 +2478,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -3064,8 +3066,10 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::BorderImageOutset",
-                "parser-grammar": "[ <number [0,inf]> | <length [0,inf]> ]{1,4}@(type=CSSQuadValue no-single-item-opt)",
-                "parser-exported": true
+                "parser-function": "consumeBorderImageOutset",
+                "parser-function-allows-number-or-integer-input": true,
+                "parser-grammar-unused": "[ <number [0,inf]> | <length [0,inf]> ]{1,4}",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
             },
             "specification": {
                 "category": "css-backgrounds",
@@ -3087,8 +3091,9 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::BorderImageRepeat",
-                "parser-grammar": "[ stretch | repeat | round | space ]{1,2}@(type=CSSValuePair default=previous)",
-                "parser-exported": true
+                "parser-function": "consumeBorderImageRepeat",
+                "parser-grammar-unused": "[ stretch | repeat | round | space ]{1,2}@(default=previous)",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
             },
             "specification": {
                 "category": "css-backgrounds",
@@ -3130,7 +3135,9 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::BorderImageSource",
-                "parser-grammar": "none | <image>"
+                "parser-function": "consumeBorderImageSource",
+                "parser-grammar-unused": "none | <image>",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
             },
             "specification": {
                 "category": "css-backgrounds",
@@ -4137,7 +4144,9 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::Clip",
-                "parser-grammar": "<rect()> | auto"
+                "parser-function": "consumeClip",
+                "parser-grammar-unused": "<rect()> | auto",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
             },
             "specification": {
                 "category": "css-masking",
@@ -4272,6 +4281,134 @@
                 "disables-native-appearance": true,
                 "shorthand-pattern": "CoalescingQuad",
                 "parser-grammar-unused": "<'corner-top-left-shape'>{1,4}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-top-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-top-left-shape",
+                    "corner-top-right-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-top-left-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-right-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-top-right-shape",
+                    "corner-bottom-right-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-top-right-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-bottom-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-bottom-left-shape",
+                    "corner-bottom-right-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-bottom-left-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-left-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-top-left-shape",
+                    "corner-bottom-left-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-top-left-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-block-start-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-start-start-shape",
+                    "corner-start-end-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-start-start-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-block-end-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-end-start-shape",
+                    "corner-end-end-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-end-start-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-inline-start-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-start-start-shape",
+                    "corner-end-start-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-start-start-shape'>{1,2}",
+                "parser-grammar-unused-reason": "Needs support for shorthand grammars."
+            },
+            "specification": {
+                "category": "css-borders",
+                "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
+            }
+        },
+        "corner-inline-end-shape": {
+            "codegen-properties": {
+                "settings-flag": "cssCornerShapeEnabled",
+                "longhands": [
+                    "corner-start-end-shape",
+                    "corner-end-end-shape"
+                ],
+                "shorthand-pattern": "CoalescingPair",
+                "parser-grammar-unused": "<'corner-start-end-shape'>{1,2}",
                 "parser-grammar-unused-reason": "Needs support for shorthand grammars."
             },
             "specification": {
@@ -4845,24 +4982,6 @@
                 "url": "https://www.w3.org/TR/filter-effects/#FloodOpacityProperty"
             }
         },
-        "glyph-orientation-horizontal": {
-            "animation-type": "not animatable",
-            "inherited": true,
-            "initial": "0deg",
-            "codegen-properties": {
-                "accepts-quirky-angle": true,
-                "computed-style-initial-custom": true,
-                "computed-style-storage-path": ["m_svgData", "inheritedFlags"],
-                "computed-style-storage-container": "struct",
-                "computed-style-storage-kind": "enum",
-                "computed-style-type": "Style::SVGGlyphOrientationHorizontal",
-                "parser-grammar": "<angle unitless-zero=allowed>"
-            },
-            "specification": {
-                "category": "svg",
-                "url": "https://www.w3.org/TR/SVG11/text.html#GlyphOrientationHorizontalProperty"
-            }
-        },
         "glyph-orientation-vertical": {
             "animation-type": "not animatable",
             "inherited": true,
@@ -4912,10 +5031,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -5034,10 +5150,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -5222,7 +5335,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::FlowTolerance",
-                "parser-grammar": "normal | <length-percentage> | infinite"
+                "parser-grammar": "normal | <length-percentage [0,inf]> | infinite"
             },
             "specification": {
                 "category": "css-grid",
@@ -5909,7 +6022,10 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::MaskBorderOutset",
-                "parser-grammar": "[ <number [0,inf]> | <length [0,inf]> ]{1,4}@(type=CSSQuadValue no-single-item-opt)"
+                "parser-function": "consumeMaskBorderOutset",
+                "parser-function-allows-number-or-integer-input": true,
+                "parser-grammar-unused": "[ <number [0,inf]> | <length [0,inf]> ]{1,4}",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
 
             },
             "specification": {
@@ -5934,7 +6050,9 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::MaskBorderRepeat",
-                "parser-grammar": "[ stretch | repeat | round | space ]{1,2}@(type=CSSValuePair default=previous)"
+                "parser-function": "consumeMaskBorderRepeat",
+                "parser-grammar-unused": "[ stretch | repeat | round | space ]{1,2}@(default=previous)",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
             },
             "specification": {
                 "category": "css-masking",
@@ -5955,7 +6073,8 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::MaskBorderSlice",
-                "parser-function": "consumeBorderImageSlice",
+                "parser-function": "consumeMaskBorderSlice",
+                "parser-function-allows-number-or-integer-input": true,
                 "parser-grammar-unused": "[ <number [0,inf]> | <percentage [0,inf]> ]{1,4} && fill?",
                 "parser-grammar-unused-reason": "Needs support for different parsing based on the current shorthand."
             },
@@ -5979,7 +6098,9 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::MaskBorderSource",
-                "parser-grammar": "none | <image>"
+                "parser-function": "consumeMaskBorderSource",
+                "parser-grammar-unused": "none | <image>",
+                "parser-grammar-unused-reason": "Needs support for the strong value representation."
             },
             "specification": {
                 "category": "css-masking",
@@ -6000,7 +6121,8 @@
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::MaskBorderWidth",
-                "parser-function": "consumeBorderImageWidth",
+                "parser-function": "consumeMaskBorderWidth",
+                "parser-function-allows-number-or-integer-input": true,
                 "parser-grammar-unused": "[ <length-percentage [0,inf]> | <number [0,inf]> | auto ]{1,4}",
                 "parser-grammar-unused-reason": "Needs support for different parsing based on the current shorthand."
             },
@@ -6369,10 +6491,7 @@
                 "none",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6426,10 +6545,7 @@
                 "none",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6484,10 +6600,7 @@
                 "none",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6563,10 +6676,7 @@
                 "none",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6621,10 +6731,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6678,10 +6785,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6736,10 +6840,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6793,10 +6894,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -6877,6 +6975,23 @@
             "specification": {
                 "category": "css-images",
                 "url": "https://www.w3.org/TR/css3-images/#object-position"
+            }
+        },
+        "object-view-box": {
+            "animation-type": "see prose",
+            "initial": "none",
+            "codegen-properties": {
+                "settings-flag": "cssObjectViewBoxEnabled",
+                "computed-style-storage-path": ["m_nonInheritedData", "miscData"],
+                "computed-style-storage-kind": "reference",
+                "computed-style-type": "Style::ObjectViewBox",
+                "parser-function": "consumeObjectViewBox",
+                "parser-grammar-unused": "none | <basic-shape-rect>",
+                "parser-grammar-unused-reason": "Needs support for transforming parsed input to minimal form and the strong value representation."
+            },
+            "specification": {
+                "category": "css-images",
+                "url": "https://drafts.csswg.org/css-images-5/#the-object-view-box"
             }
         },
         "offset-path": {
@@ -7070,14 +7185,20 @@
         "outline-offset": {
             "animation-type": "by computed value",
             "initial": "0px",
+            "values": [
+                {
+                	"value": "-internal-inset",
+                	"status": "internal"
+                }
+            ],
             "codegen-properties": {
-                "computed-style-initial-constexpr": true,
                 "computed-style-storage-path": ["m_nonInheritedData", "backgroundData", "outline"],
                 "computed-style-storage-container": "struct",
                 "computed-style-storage-kind": "reference",
-                "computed-style-type": "Style::Length<>",
+                "computed-style-type": "Style::OutlineOffset",
                 "skip-render-style-getter": true,
-                "parser-grammar": "<length>"
+                "style-extractor-custom": true,
+                "parser-grammar": "<length> | <<values>>"
             },
             "specification": {
                 "category": "css-ui",
@@ -8716,7 +8837,7 @@
                 "coordinated-value-list-property-item-type": "Style::SingleTransitionProperty",
                 "computed-style-storage-container": "opaque",
                 "computed-style-storage-path": ["m_nonInheritedData", "miscData", "transitions"],
-                "parser-grammar": "none  | <single-transition-property>#"
+                "parser-grammar": "none | <single-transition-property>#"
             },
             "specification": {
                 "category": "css-transitions",
@@ -8947,10 +9068,7 @@
                 "auto",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -9010,9 +9128,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::WillChange",
-                "parser-function": "consumeWillChange",
-                "parser-grammar-unused": "auto | [ scroll-position | contents | <custom-ident excluding=will-change,none,all,auto,scroll-position,contents> ]#",
-                "parser-grammar-unused-reason": "Needs support for CSS property names in the value of a property."
+                "parser-grammar": "auto | [ scroll-position | contents | <custom-ident excluding=will-change,none,all,auto,scroll-position,contents> ]#"
             },
             "specification": {
                 "category": "css-will-change",
@@ -9370,13 +9486,14 @@
             "values": [
                 "normal",
                 "size",
-                "inline-size"
+                "inline-size",
+                "scroll-state"
             ],
             "codegen-properties": {
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
-                "computed-style-storage-kind": "enum",
-                "computed-style-type": "ContainerType",
-                "parser-grammar": "<<values>>"
+                "computed-style-storage-kind": "reference",
+                "computed-style-type": "Style::ContainerType",
+                "parser-grammar": "normal | [ [ size | inline-size ] || scroll-state@(settings-flag=cssScrollStateContainerQueriesEnabled) ]@(type=CSSValuePair)"
             },
             "specification": {
                 "category": "css-contain",
@@ -9717,7 +9834,7 @@
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::WebkitBoxReflect",
                 "parser-function": "consumeWebkitBoxReflect",
-                "parser-grammar-unused": "none | [ [ above | below | left | right ] <length-percentage>? <border-image>? ]",
+                "parser-grammar-unused": "none | [ [ above | below | left | right ] <length-percentage>? <mask-border>? ]",
                 "parser-grammar-unused-reason": "Needs support for default values on optionals and property references."
 
             },
@@ -10353,10 +10470,7 @@
                 "content",
                 "min-content",
                 "max-content",
-                {
-                    "value": "stretch",
-                    "status": "unimplemented"
-                },
+                "stretch",
                 "fit-content",
                 {
                     "value": "contain",
@@ -10714,7 +10828,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::GridTrackSizes",
-                "parser-function": "consumeGridTrackList",
+                "parser-function": "consumeGridTrackSizes",
                 "parser-grammar-unused": "<track-size>+",
                 "parser-grammar-unused-reason": "Needs investigation."
             },
@@ -10732,7 +10846,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::GridTrackSizes",
-                "parser-function": "consumeGridTrackList",
+                "parser-function": "consumeGridTrackSizes",
                 "parser-grammar-unused": "<track-size>+",
                 "parser-grammar-unused-reason": "Needs investigation."
             },
@@ -10800,7 +10914,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::GridTemplateList",
-                "parser-function": "consumeGridTemplatesRowsOrColumns",
+                "parser-function": "consumeGridTemplateList",
                 "parser-grammar-unused": "none | <track-list> | <auto-track-list>",
                 "parser-grammar-unused-reason": "Needs investigation."
             },
@@ -10817,7 +10931,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::GridTemplateList",
-                "parser-function": "consumeGridTemplatesRowsOrColumns",
+                "parser-function": "consumeGridTemplateList",
                 "parser-grammar-unused": "none | <track-list> | <auto-track-list>",
                 "parser-grammar-unused-reason": "Needs investigation."
             },
@@ -11978,8 +12092,6 @@
                     "-webkit-text-stroke-width",
                     "-webkit-text-stroke-color"
                 ],
-                "skip-style-extractor": true,
-                "skip-style-extractor-comment": "FIXME: Figure out and document why this has no computed value",
                 "shorthand-pattern": "StandardSpaceSeparated",
                 "parser-grammar-unused": "<'-webkit-text-stroke-width'> || <'-webkit-text-stroke-color'>",
                 "parser-grammar-unused-reason": "Needs support for shorthand grammars."
@@ -13100,7 +13212,6 @@
                 "none"
             ],
             "codegen-properties": {
-                "settings-flag": "viewTransitionsEnabled",
                 "computed-style-name-for-methods": "ViewTransitionClasses",
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
                 "computed-style-storage-kind": "reference",
@@ -13121,7 +13232,6 @@
                 "match-element"
             ],
             "codegen-properties": {
-                "settings-flag": "viewTransitionsEnabled",
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::ViewTransitionName",
@@ -13168,8 +13278,10 @@
        },
         "position-anchor": {
             "animation-type": "discrete",
-            "initial": "auto",
+            "initial": "normal",
             "values": [
+                "normal",
+                "none",
                 "auto"
             ],
             "codegen-properties": {
@@ -13177,7 +13289,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
                 "computed-style-storage-kind": "reference",
                 "computed-style-type": "Style::PositionAnchor",
-                "parser-grammar": "auto | <dashed-ident>"
+                "parser-grammar": "normal | none | auto | <dashed-ident>"
             },
             "specification": {
                 "category": "css-anchor-position",
@@ -13268,7 +13380,9 @@
             "initial": "anchors-visible",
             "values": [
                 "always",
+                "anchor-valid",
                 "anchors-valid",
+                "anchor-visible",
                 "anchors-visible",
                 "no-overflow"
             ],
@@ -13278,7 +13392,7 @@
                 "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
                 "computed-style-storage-kind": "raw",
                 "computed-style-type": "Style::PositionVisibility",
-                "parser-grammar": "always | [ anchors-valid || anchors-visible || no-overflow ]@(no-single-item-opt)"
+                "parser-grammar": "always | [ [ anchors-valid | anchor-valid ] || [ anchors-visible | anchor-visible ] || no-overflow ]@(no-single-item-opt)"
             },
             "specification": {
                 "category": "css-anchor-position",
@@ -13666,7 +13780,7 @@
                     {
                         "enable-if": "ENABLE_VARIATION_FONTS",
                         "aliases": ["font-stretch"],
-                        "parser-grammar": "<font-width-absolute> | <percentage [0,inf]>{1,2}",
+                        "parser-grammar": "<font-width-absolute> | <percentage [0,inf]>{1,2}@(type=CSSValuePair default=previous)",
                         "parser-grammar-comment": "Current spec grammar is 'auto | <'font-width'>{1,2}'",
                         "parser-exported": true
                     },
@@ -13723,7 +13837,7 @@
                 "codegen-properties": [
                     {
                         "enable-if": "ENABLE_VARIATION_FONTS",
-                        "parser-grammar": "normal | bold | <number [1,1000]>{1,2}",
+                        "parser-grammar": "normal | bold | <number [1,1000]>{1,2}@(type=CSSValuePair default=previous)",
                         "parser-grammar-comment": "Current spec grammar is 'auto | <font-weight-absolute>{1,2}'",
                         "parser-exported": true
                     },
@@ -13843,7 +13957,9 @@
             "result": {
                 "codegen-properties": {
                     "settings-flag": "cssFunctionAtRuleEnabled",
-                    "parser-grammar": "<declaration-value>?"
+                    "parser-function": "consumeFunctionResult",
+                    "parser-grammar-unused": "<declaration-value>?",
+                    "parser-grammar-unused-reason": "Needs custom function to set the property name to 'result'."
                 },
                 "specification": {
                     "category": "css-mixins",
@@ -13858,7 +13974,6 @@
                     "auto"
                 ],
                 "codegen-properties": {
-                    "settings-flag": "crossDocumentViewTransitionsEnabled",
                     "parser-grammar": "<<values>>",
                     "parser-exported": true
                 },
@@ -13872,7 +13987,6 @@
                     "none"
                 ],
                 "codegen-properties": {
-                    "settings-flag": "crossDocumentViewTransitionsEnabled",
                     "parser-function": "consumeViewTransitionTypes",
                     "parser-grammar-unused": "none | <custom-ident excluding=none>+",
                     "parser-grammar-unused-reason": "Needs support for excluding from <custom-ident> based on prefixes."
@@ -14305,7 +14419,7 @@
             }
         },
         "<width-or-height-keyword>": {
-            "grammar":  "intrinsic | min-intrinsic | min-content | -webkit-min-content | max-content | -webkit-max-content | -webkit-fill-available | fit-content | -webkit-fit-content"
+            "grammar":  "stretch | intrinsic | min-intrinsic | min-content | -webkit-min-content | max-content | -webkit-max-content | -webkit-fill-available | fit-content | -webkit-fit-content"
         },
         "<width-or-height>": {
             "grammar":  "auto | <width-or-height-keyword> | <length-percentage [0,inf] anchor-size=allowed>",
@@ -14458,9 +14572,7 @@
             }
         },
         "<rect()>": {
-            "grammar-unused": "rect( [ <length> | auto ]#{4} | [ <length> | auto ]{4} )",
-            "grammar-unused-reason": "Needs support for custom types for functional notation.",
-            "grammar-function": "consumeClipRectFunction",
+            "grammar": "rect( [ <length> | auto ]#{4} | [ <length> | auto ]{4} )",
             "specification": {
                 "category": "css-masking",
                 "url": "https://drafts.fxtf.org/css-masking-1/#funcdef-clip-rect"
@@ -14685,7 +14797,7 @@
             }
         },
         "<corner-shape-value>": {
-            "grammar": "round | scoop | bevel | notch | straight | squircle | superellipse(<number [0,inf]> | infinity)",
+            "grammar": "round | scoop | bevel | notch | square | squircle | superellipse(<number> | infinity | -infinity)",
             "specification": {
                 "category": "css-borders",
                 "url": "https://drafts.csswg.org/css-borders-4/#corner-shaping"
@@ -15265,6 +15377,23 @@
                 "category": "css-contain",
                 "url": "https://drafts.csswg.org/css-contain-3/#container-name"
             }
+        },
+        "<single-transition-property>": {
+            "grammar": "all | <custom-ident excluding=all,none>",
+            "exported": true,
+            "specification": {
+                "category": "css-transitions",
+                "url": "https://drafts.csswg.org/css-transitions/#single-transition-property"
+            }
+        },
+        "<single-transition-property-or-none>": {
+            "grammar": "none | <single-transition-property>",
+            "exported": true,
+            "specification": {
+                "category": "css-transitions",
+                "url": "https://drafts.csswg.org/css-transitions/#single-transition-property"
+            },
+            "comment": "Used by the `transition` shorthand parser."
         },
         "<counter-name>": {
             "grammar": "<custom-ident excluding=none>",

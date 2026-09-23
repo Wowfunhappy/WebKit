@@ -38,7 +38,6 @@
                               (offsetFromRenderer width=1 height=1)
                               (anchor 0.00 0.00)
                               (bounds 285.00 280.00)
-                              (contentsOpaque 1)
                               (drawsContent 1)
                               (backgroundColor #FFFFFF)
                             )

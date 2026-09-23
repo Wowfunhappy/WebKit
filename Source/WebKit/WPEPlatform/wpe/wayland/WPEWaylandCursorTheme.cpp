@@ -67,9 +67,7 @@ WaylandCursorTheme::WaylandCursorTheme(std::unique_ptr<CursorTheme>&& theme, std
 
 }
 
-WaylandCursorTheme::~WaylandCursorTheme()
-{
-}
+WaylandCursorTheme::~WaylandCursorTheme() = default;
 
 const Vector<WaylandCursorTheme::Image>& WaylandCursorTheme::cursor(const char* name, double scale, std::optional<uint32_t> maxImages)
 {

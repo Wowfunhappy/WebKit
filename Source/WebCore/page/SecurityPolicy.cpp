@@ -178,6 +178,7 @@ bool SecurityPolicy::shouldInheritSecurityOriginFromOwner(const URL& url)
 bool SecurityPolicy::isBaseURLSchemeAllowed(const URL& url)
 {
     // See <https://github.com/whatwg/html/issues/2249>.
+    ASSERT(url.isValid());
     return !url.protocolIsData() && !url.protocolIsJavaScript();
 }
 

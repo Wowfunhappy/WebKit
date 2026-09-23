@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/processing-model/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/processing-model/focus-fixup-rule-one-no-dialogs.html
 /LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/processing-model/focusVisible.html
 /LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/processing-model/legend-focusable.html

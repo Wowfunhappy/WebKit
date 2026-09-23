@@ -14,7 +14,13 @@
 #    pragma allow_unsafe_buffers
 #endif
 
-#if !defined(NDEBUG)
+// This include MUST precede the ANGLE_WITH_ASAN / ANGLE_WITH_TSAN check below
+// to define those macros.
+#include "common/platform.h"
+
+#if defined(ANGLE_WITH_ASAN) || defined(ANGLE_WITH_TSAN)
+#    define ANGLE_DISABLE_POOL_ALLOC  // Use system allocator under sanitizers for accurate detection
+#elif !defined(NDEBUG)
 #    define ANGLE_POOL_ALLOC_GUARD_BLOCKS  // define to enable guard block checking
 #endif
 
@@ -73,19 +79,14 @@ class PoolAllocator : angle::NonCopyable
     // Marks all allocated memory as unused. The memory will be reused.
     void reset();
 
-    // Catch unwanted allocations.
-    // TODO(jmadill): Remove this when we remove the global allocator.
-    void lock();
-    void unlock();
-
   private:
     static constexpr size_t kAlignment = ANGLE_ALLOC_PROFILE_ALIGNMENT(sizeof(void *));
     Span<uint8_t> allocateSingleObject(size_t size);
     class Segment;
     std::vector<Segment> mSingleObjectSegments;  // Large objects.
 
-#if !defined(ANGLE_DISABLE_POOL_ALLOC)
     static constexpr size_t kSegmentSize = 32768;
+#if !defined(ANGLE_DISABLE_POOL_ALLOC)
     bool allocateNewPoolSegment();
 
     Span<uint8_t> mCurrentPool;  // The unused part of memory in last entry of mPoolSegments.
@@ -98,12 +99,10 @@ class PoolAllocator : angle::NonCopyable
 
     std::vector<Span<uint8_t>> mGuards;  // Guards, memory which is asserted to stay prestine.
 #endif
-    bool mLocked = false;
 };
 
 inline void *PoolAllocator::allocate(size_t size)
 {
-    ASSERT(!mLocked);
     Span<uint8_t> data;
 
     size_t extent = size;

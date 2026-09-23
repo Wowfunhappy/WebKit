@@ -471,6 +471,9 @@ Packing Type::packing() const
     } else if (auto* vectorType = std::get_if<Types::Vector>(this)) {
         if (vectorType->size == 3)
             return Packing::PackedVec3;
+    } else if (auto* matrixType = std::get_if<Types::Matrix>(this)) {
+        if (matrixType->rows == 3)
+            return Packing::PackedVec3;
     } else if (auto* arrayType = std::get_if<Types::Array>(this)) {
         auto elementPacking = arrayType->element->packing();
         if (elementPacking & Packing::Packed)

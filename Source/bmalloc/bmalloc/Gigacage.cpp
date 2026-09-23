@@ -187,7 +187,7 @@ void ensureGigacage()
                     const vm_inherit_t childProcessInheritance = VM_INHERIT_DEFAULT;
                     const bool copy = false;
                     const vm_prot_t protections = VM_PROT_WRITE | VM_PROT_READ;
-                    auto kernResult = mach_vm_map(mach_task_self(), (mach_vm_address_t*)&base, size, vmPageSize() - 1, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE | (int)VMTag::JSGigacage, MEMORY_OBJECT_NULL, 0, copy, protections, protections, childProcessInheritance);
+                    auto kernResult = mach_vm_map(mach_task_self(), (mach_vm_address_t*)&base, size, vmPageSize() - 1, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE | vmTagFd(VMTag::JSGigacage), MEMORY_OBJECT_NULL, 0, copy, protections, protections, childProcessInheritance);
                     RELEASE_BASSERT(kernResult == KERN_SUCCESS);
                 }
             }

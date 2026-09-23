@@ -136,14 +136,20 @@ public:
     void didRemoveDOMNode(Node&, Inspector::Protocol::DOM::NodeId);
     void didModifyDOMAttr(Element&);
 
-    enum class LayoutFlag : uint8_t {
+    enum class LayoutFlag : uint16_t {
         Rendered = 1 << 0,
+
+        // Layout context types (mutually exclusive).
         Flex = 1 << 1,
         Grid = 1 << 2,
-        Event = 1 << 3,
-        Scrollable = 1 << 4,
-        SlotAssigned = 1 << 5,
-        SlotFilled = 1 << 6,
+        Subgrid = 1 << 3,
+        GridLanes = 1 << 4,
+
+        // Independent flags.
+        Event = 1 << 5,
+        Scrollable = 1 << 6,
+        SlotAssigned = 1 << 7,
+        SlotFilled = 1 << 8,
     };
     OptionSet<LayoutFlag> layoutFlagsForNode(Node&);
     RefPtr<JSON::ArrayOf<String /* Inspector::Protocol::CSS::LayoutFlag */>> protocolLayoutFlagsForNode(Node&);
@@ -151,12 +157,6 @@ public:
     void reset();
 
 private:
-    class StyleSheetAction;
-    class SetStyleSheetTextAction;
-    class SetStyleTextAction;
-    class SetRuleHeaderTextAction;
-    class AddRuleAction;
-
     using IdToInspectorStyleSheet = HashMap<Inspector::Protocol::CSS::StyleSheetId, Ref<InspectorStyleSheet>>;
     using CSSStyleSheetToInspectorStyleSheet = HashMap<CSSStyleSheet*, Ref<InspectorStyleSheet>>;
     using DocumentToViaInspectorStyleSheet = HashMap<Ref<Document>, Vector<Ref<InspectorStyleSheet>>>; // "via inspector" stylesheets

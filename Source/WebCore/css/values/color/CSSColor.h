@@ -42,6 +42,7 @@ struct ColorLayers;
 struct ColorMix;
 struct ContrastColor;
 struct LightDarkColor;
+struct RelativeAlphaColor;
 template<typename Descriptor> struct AbsoluteColor;
 template<typename Descriptor> struct RelativeColor;
 
@@ -59,6 +60,7 @@ private:
         UniqueRef<ColorMix>,
         UniqueRef<ContrastColor>,
         UniqueRef<LightDarkColor>,
+        UniqueRef<RelativeAlphaColor>,
         UniqueRef<AbsoluteColor<RGBFunctionLegacy<Number<>>>>,
         UniqueRef<AbsoluteColor<RGBFunctionLegacy<Percentage<>>>>,
         UniqueRef<AbsoluteColor<RGBFunctionModernAbsolute>>,
@@ -107,6 +109,7 @@ public:
     explicit Color(ColorMix&&);
     explicit Color(ContrastColor&&);
     explicit Color(LightDarkColor&&);
+    explicit Color(RelativeAlphaColor&&);
     explicit Color(AbsoluteColor<RGBFunctionLegacy<Number<>>>&&);
     explicit Color(AbsoluteColor<RGBFunctionLegacy<Percentage<>>>&&);
     explicit Color(AbsoluteColor<RGBFunctionModernAbsolute>&&);
@@ -184,6 +187,7 @@ bool containsColorSchemeDependentColor(const Color&);
 template<> struct Serialize<Color> { void operator()(StringBuilder&, const SerializationContext&, const Color&); };
 template<> struct ComputedStyleDependenciesCollector<Color> { void operator()(ComputedStyleDependencies&, const Color&); };
 template<> struct CSSValueChildrenVisitor<Color> { IterationStatus operator()(NOESCAPE const Function<IterationStatus(CSSValue&)>&, const Color&); };
+template<> struct DeprecatedCSSOMValueCreation<Color> { Ref<DeprecatedCSSOMValue> operator()(CSSValuePool&, CSSStyleDeclaration&, const Color&); };
 
 } // namespace CSS
 } // namespace WebCore

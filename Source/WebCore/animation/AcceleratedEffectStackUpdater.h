@@ -47,7 +47,7 @@ public:
     bool hasTargetsPendingUpdate() const { return !m_targetsPendingUpdate.isEmpty(); }
 
 private:
-    WeakStyleableHashSet m_targetsPendingUpdate;
+    HashSet<WeakStyleable> m_targetsPendingUpdate;
 };
 
 } // namespace WebCore

@@ -441,7 +441,7 @@ static bool decodeSessionState(GBytes* data, SessionState& sessionState)
 
     GRefPtr<GVariant> variant;
     for (const auto& typeString : sessionStateTypeStringVersions) {
-        GRefPtr<GVariant> variantToCheck = g_variant_new_from_bytes(G_VARIANT_TYPE(typeString), data, FALSE);
+        GRefPtr<GVariant> variantToCheck = g_variant_new_from_bytes(G_VARIANT_TYPE(typeString.characters()), data, FALSE);
         if (g_variant_is_normal_form(variantToCheck.get())) {
             variant = WTF::move(variantToCheck);
             break;

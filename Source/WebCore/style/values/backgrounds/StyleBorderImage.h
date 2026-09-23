@@ -31,6 +31,11 @@
 #include <WebCore/StyleBorderImageWidth.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct BorderImage;
+}
+
 namespace Style {
 
 // <'border-image'> = <'border-image-source'> || <'border-image-slice'> [ / <'border-image-width'> | / <'border-image-width'>? / <'border-image-outset'> ]? || <'border-image-repeat'>
@@ -57,11 +62,14 @@ struct BorderImage {
 
 // MARK: - Conversion
 
-template<> struct CSSValueCreation<BorderImage> { auto operator()(CSSValuePool&, const RenderStyle&, const BorderImage&) -> Ref<CSSValue>; };
+template<> struct ToCSS<BorderImage> { auto operator()(const BorderImage&, const Style::ComputedStyle&) -> CSS::BorderImage; };
+template<> struct ToStyle<CSS::BorderImage> { auto operator()(const CSS::BorderImage&, const BuilderState&) -> BorderImage; };
+
+template<> struct CSSValueCreation<BorderImage> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const BorderImage&) -> Ref<CSSValue>; };
 
 // MARK: - Serialization
 
-template<> struct Serialize<BorderImage> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const BorderImage&); };
+template<> struct Serialize<BorderImage> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const BorderImage&); };
 
 // MARK: - Logging
 

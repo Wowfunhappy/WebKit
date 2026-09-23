@@ -382,6 +382,7 @@ let tests = [
     ["throw_ref-stack-polymorphism", [], true] // should throw
 ];
 
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     for (let [name, args, shouldThrow, expected] of tests) {

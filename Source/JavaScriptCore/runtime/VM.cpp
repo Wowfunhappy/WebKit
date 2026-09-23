@@ -35,6 +35,7 @@
 #include "ArgList.h"
 #include "BuiltinExecutables.h"
 #include "BytecodeIntrinsicRegistry.h"
+#include "CallMode.h"
 #include "CheckpointOSRExitSideState.h"
 #include "CodeBlock.h"
 #include "CodeCache.h"
@@ -48,7 +49,6 @@
 #include "Disassembler.h"
 #include "DoublePredictionFuzzerAgent.h"
 #include "ErrorInstance.h"
-#include "EvacuatedStack.h"
 #include "EvalCodeBlockInlines.h"
 #include "EvalExecutableInlines.h"
 #include "Exception.h"
@@ -64,6 +64,7 @@
 #include "IncrementalSweeper.h"
 #include "Interpreter.h"
 #include "IntlCache.h"
+#include "IntlObject.h"
 #include "JITCode.h"
 #include "JITOperationList.h"
 #include "JITSizeStatistics.h"
@@ -78,14 +79,14 @@
 #include "JSMap.h"
 #include "JSMicrotask.h"
 #include "JSMicrotaskDispatcher.h"
+#include "JSModuleLoaderInlines.h"
 #include "JSPromise.h"
 #include "JSPromiseCombinatorsContextInlines.h"
 #include "JSPromiseCombinatorsGlobalContext.h"
 #include "JSPromiseConstructor.h"
 #include "JSPromiseReaction.h"
 #include "JSPropertyNameEnumeratorInlines.h"
-#include "JSScriptFetchParametersInlines.h"
-#include "JSScriptFetcherInlines.h"
+#include "JSSentinelInlines.h"
 #include "JSSet.h"
 #include "JSSourceCodeInlines.h"
 #include "JSTemplateObjectDescriptorInlines.h"
@@ -94,10 +95,15 @@
 #include "LLIntExceptions.h"
 #include "MarkedBlockInlines.h"
 #include "MegamorphicCache.h"
+#include "MicrotaskCall.h"
 #include "MicrotaskQueueInlines.h"
 #include "MinimumReservedZoneSize.h"
+#include "ModuleGraphLoadingStateInlines.h"
+#include "ModuleLoadingContextInlines.h"
+#include "ModuleLoaderPayloadInlines.h"
 #include "ModuleProgramCodeBlockInlines.h"
 #include "ModuleProgramExecutableInlines.h"
+#include "ModuleRegistryEntryInlines.h"
 #include "NarrowingNumberPredictionFuzzerAgent.h"
 #include "NativeExecutable.h"
 #include "NumberObject.h"
@@ -119,6 +125,7 @@
 #include "SideDataRepository.h"
 #include "SimpleTypedArrayController.h"
 #include "SourceProviderCache.h"
+#include "StringSplitCache.h"
 #include "StrongInlines.h"
 #include "StructureChainInlines.h"
 #include "StructureInlines.h"
@@ -137,6 +144,7 @@
 #include "VMEntryScopeInlines.h"
 #include "VMInlines.h"
 #include "VMManager.h"
+#include "VMTrapsInlines.h"
 #include "VariableEnvironment.h"
 #include "WaiterListManager.h"
 #include "WasmExecutionHandler.h"
@@ -165,6 +173,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 #include "JSWebAssemblyInstance.h"
+#include "JSWebAssemblyStreamingContextInlines.h"
 #endif
 
 #if PLATFORM(COCOA)
@@ -172,11 +181,20 @@
 #include <wtf/darwin/DispatchExtras.h>
 #endif
 
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+#include "WasmDebugServerUtilities.h"
+#endif
+
 #include <span>
 
 namespace JSC {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(VM);
+
+MicrotaskQueue& VM::defaultMicrotaskQueue() { return m_defaultMicrotaskQueue.get(); }
+
+bool VM::currentThreadIsHoldingAPILock() const { return m_apiLock->currentThreadIsHoldingLock(); }
+JSLock& VM::apiLock() { return m_apiLock.get(); }
 
 // Note: Platform.h will enforce that ENABLE(ASSEMBLER) is true if either
 // ENABLE(JIT) or ENABLE(YARR_JIT) or both are enabled. The code below
@@ -228,25 +246,6 @@ void VM::computeCanUseJIT()
 #endif
 }
 
-// This function is not meant to be called by anyone. It just provides a convenient scope
-// that can is permitted to access private members of VM in order to do some needed
-// static_asserts.
-inline void VM::checkStaticAsserts()
-{
-    // VM registration is done in the instantiation of its VMThreadContext.
-    //
-    // VM registration with the VMManager can only be done after m_apiLock is initialized
-    // because VMManager may trigger traps to stop the VM, and VMTraps the which uses
-    // m_apiLock for the VMTraps::SignalSender uses m_apiLock.
-    //
-    // VM registration needs to be done before the heap is initialized because we may Global GC
-    // may want to block the VM from doing any heap activity. In a Global GC world, we would be
-    // binding this VM to the global heap instead of instantiating the heap field. We want to
-    // be able to block before that point.
-    static_assert(OBJECT_OFFSETOF(VM, m_apiLock) < OBJECT_OFFSETOF(VM, m_threadContext));
-    static_assert(OBJECT_OFFSETOF(VM, m_threadContext) < OBJECT_OFFSETOF(VM, heap));
-}
-
 static bool vmCreationShouldCrash = false;
 
 VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
@@ -268,8 +267,12 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     , machineCodeBytesPerBytecodeWordForBaselineJIT(makeUnique<SimpleStats>())
     , symbolImplToSymbolMap(*this)
     , atomStringToJSStringMap(*this)
+#if ENABLE(WEBASSEMBLY)
+    , wasmGCStructureMap(*this)
+#endif
     , m_regExpCache(makeUnique<RegExpCache>())
     , m_compactVariableMap(adoptRef(*new CompactTDZEnvironmentMap))
+    , m_syncResumeCallCache(makeUniqueRef<MicrotaskCallCache>())
     , m_codeCache(makeUnique<CodeCache>())
     , m_intlCache(makeUnique<IntlCache>())
     , m_builtinExecutables(makeUnique<BuiltinExecutables>(*this))
@@ -287,6 +290,10 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
 
         m_megamorphicCache.initLater([](VM&, auto& ref) {
             ref.set(makeUniqueRef<MegamorphicCache>());
+        });
+
+        m_stringSplitCache.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<StringSplitCache>());
         });
 
         m_shadowChicken.initLater([](VM&, auto& ref) {
@@ -337,10 +344,17 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     functionExecutableStructure.setWithoutWriteBarrier(FunctionExecutable::createStructure(*this, nullptr, jsNull()));
 #if ENABLE(WEBASSEMBLY)
     pinballCompletionStructure.setWithoutWriteBarrier(PinballCompletion::createStructure(*this, nullptr, jsNull()));
+    webAssemblyStreamingContextStructure.setWithoutWriteBarrier(JSWebAssemblyStreamingContext::createStructure(*this, nullptr, jsNull()));
 #endif
     moduleProgramExecutableStructure.setWithoutWriteBarrier(ModuleProgramExecutable::createStructure(*this, nullptr, jsNull()));
-    promiseReactionStructure.setWithoutWriteBarrier(JSPromiseReaction::createStructure(*this, nullptr, jsNull()));
+    slimPromiseReactionStructure.setWithoutWriteBarrier(JSSlimPromiseReaction::createStructure(*this, nullptr, jsNull()));
+    fullPromiseReactionStructure.setWithoutWriteBarrier(JSFullPromiseReaction::createStructure(*this, nullptr, jsNull()));
     jsMicrotaskDispatcherStructure.setWithoutWriteBarrier(JSMicrotaskDispatcher::createStructure(*this, nullptr, jsNull()));
+    moduleLoaderStructure.setWithoutWriteBarrier(JSModuleLoader::createStructure(*this, nullptr, jsNull()));
+    moduleRegistryEntryStructure.setWithoutWriteBarrier(ModuleRegistryEntry::createStructure(*this, nullptr, jsNull()));
+    moduleLoadingContextStructure.setWithoutWriteBarrier(ModuleLoadingContext::createStructure(*this, nullptr, jsNull()));
+    moduleLoaderPayloadStructure.setWithoutWriteBarrier(ModuleLoaderPayload::createStructure(*this, nullptr, jsNull()));
+    moduleGraphLoadingStateStructure.setWithoutWriteBarrier(ModuleGraphLoadingState::createStructure(*this, nullptr, jsNull()));
     promiseCombinatorsContextStructure.setWithoutWriteBarrier(JSPromiseCombinatorsContext::createStructure(*this, nullptr, jsNull()));
     promiseCombinatorsGlobalContextStructure.setWithoutWriteBarrier(JSPromiseCombinatorsGlobalContext::createStructure(*this, nullptr, jsNull()));
     regExpStructure.setWithoutWriteBarrier(RegExp::createStructure(*this, nullptr, jsNull()));
@@ -358,8 +372,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     cellButterflyOnlyAtomStringsStructure.setWithoutWriteBarrier(JSCellButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithContiguous));
 
     sourceCodeStructure.setWithoutWriteBarrier(JSSourceCode::createStructure(*this, nullptr, jsNull()));
-    scriptFetcherStructure.setWithoutWriteBarrier(JSScriptFetcher::createStructure(*this, nullptr, jsNull()));
-    scriptFetchParametersStructure.setWithoutWriteBarrier(JSScriptFetchParameters::createStructure(*this, nullptr, jsNull()));
     structureChainStructure.setWithoutWriteBarrier(StructureChain::createStructure(*this, nullptr, jsNull()));
     sparseArrayValueMapStructure.setWithoutWriteBarrier(SparseArrayValueMap::createStructure(*this, nullptr, jsNull()));
     templateObjectDescriptorStructure.setWithoutWriteBarrier(JSTemplateObjectDescriptor::createStructure(*this, nullptr, jsNull()));
@@ -376,8 +388,24 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     evalCodeBlockStructure.setWithoutWriteBarrier(EvalCodeBlock::createStructure(*this, nullptr, jsNull()));
     functionCodeBlockStructure.setWithoutWriteBarrier(FunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
     bigIntStructure.setWithoutWriteBarrier(JSBigInt::createStructure(*this, nullptr, jsNull()));
-    m_orderedHashTableDeletedValue.setWithoutWriteBarrier(OrderedHashMap::createDeletedValue(*this));
-    m_orderedHashTableSentinel.setWithoutWriteBarrier(OrderedHashMap::createSentinel(*this));
+    m_orderedHashTableDeletedValue.setWithoutWriteBarrier(JSOrderedHashMap::createDeletedValue(*this));
+    m_orderedHashTableSentinel.setWithoutWriteBarrier(JSOrderedHashMap::createSentinel(*this));
+    m_sortScratchSentinel.setWithoutWriteBarrier(JSCellButterfly::create(*this, CopyOnWriteArrayWithContiguous, 0));
+
+    {
+        Structure* sentinelStructure = JSSentinel::createStructure(*this, nullptr, jsNull());
+        m_sentinelStructure.setWithoutWriteBarrier(sentinelStructure);
+        m_fastArrayValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastArrayKeysSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastArrayEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastMapKeysSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastMapValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastMapEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastSetValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastSetEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastStringValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastAsyncGeneratorSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+    }
 
     // Eagerly initialize constant cells since the concurrent compiler can access them.
     if (Options::useJIT()) {
@@ -388,6 +416,17 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         auto* bigInt = JSBigInt::tryCreateFrom(*this, 1);
         if (bigInt)
             heapBigIntConstantOne.setWithoutWriteBarrier(bigInt);
+        else {
+            if (success)
+                *success = false;
+            else
+                RELEASE_ASSERT_RESOURCE_AVAILABLE(bigInt, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+        }
+    }
+    {
+        auto* bigInt = JSBigInt::tryCreateWithLength(*this, 0);
+        if (bigInt)
+            heapBigIntConstantZero.setWithoutWriteBarrier(bigInt);
         else {
             if (success)
                 *success = false;
@@ -419,17 +458,17 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         std::call_once(registerFlag, [this]() {
             int pid = getpid();
             const char* key = "com.apple.WebKit.bytecode.profiler";
-            dataLogF("<BYTECODE.STAT><%d> Registering callback for dumping profiles, dumping to %s.\n", pid, pathOutString->data());
-            dataLogF("<BYTECODE.STAT><%d> Use `notifyutil -v -p %s` to dump statistics.\n", pid, key);
+            dataLogLn("<BYTECODE.STAT><", pid, "> Registering callback for dumping profiles, dumping to ", pathOutString.get(), ".");
+            dataLogLn("<BYTECODE.STAT><", pid, "> Use `notifyutil -v -p ", key, "` to dump statistics.");
 
             int token;
             notify_register_dispatch(key, &token, mainDispatchQueueSingleton(), ^(int) {
-                dataLogF("<BYTECODE.STAT><%d> Dumping\n", pid);
+                dataLogLn("<BYTECODE.STAT><", pid, "> Dumping");
                 if (!m_perBytecodeProfiler->save(pathOutString->data()))
-                    dataLogF("<BYTECODE.STAT><%d> Failed to dump to %s. Do you need to add a sandbox extension? ((allow file-write* (subpath \"/private/tmp/\")) in WebProcess.sb.in\n", pid, pathOutString->data());
+                    dataLogLn("<BYTECODE.STAT><", pid, "> Failed to dump to ", pathOutString.get(), ". Do you need to add a sandbox extension? ((allow file-write* (subpath \"/private/tmp/\")) in WebProcess.sb.in");
                 else
-                    dataLogF("<BYTECODE.STAT><%d> Dumped to %s\n", pid, pathOutString->data());
-                dataLogF("<BYTECODE.STAT><%d> Dumping finished\n", pid);
+                    dataLogLn("<BYTECODE.STAT><", pid, "> Dumped to ", pathOutString.get());
+                dataLogLn("<BYTECODE.STAT><", pid, "> Dumping finished");
             });
         });
 #endif
@@ -512,9 +551,19 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     Config::finalize();
 
+    if (!isInMiniMode()) {
+        initializeAvailableTimeZones();
+        if (heapType == HeapType::Large)
+            dateCache.timeZoneDisplayName(/* isDST */ false);
+    }
+
     // We must set this at the end only after the VM is fully initialized.
     WTF::storeStoreFence();
     m_isInService = true;
+
+    // Register after all VM state is initialized so that a stop-the-world triggered
+    // immediately on registration sees a fully constructed VM.
+    VMManager::singleton().notifyVMConstruction(*this);
 }
 
 static ReadWriteLock s_destructionLock;
@@ -531,6 +580,10 @@ void VM::setCrossTaskToken(RefPtr<CrossTaskToken>&& token)
 
 VM::~VM()
 {
+    // Remove from VMManager before marking as no longer in service or cancelling traps,
+    // so requestStopAllInternal() never iterates a VM with m_isShuttingDown set.
+    VMManager::singleton().notifyVMDestruction(*this);
+
     Locker destructionLocker { s_destructionLock.read() };
 
     if (vmType == VMType::Default)
@@ -600,7 +653,7 @@ VM::~VM()
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
     if (Options::enableWasmDebugger()) [[unlikely]] {
         auto& debugServer = Wasm::DebugServer::singleton();
-        if (debugServer.isConnected())
+        if (debugServer.hasDebugger())
             debugServer.execution().notifyVMDestruction(this);
     }
 #endif
@@ -710,7 +763,7 @@ Exception* VM::ensureTerminationException()
 }
 
 #if ENABLE(JIT)
-static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
+static ThunkGenerator NODELETE thunkGeneratorForIntrinsic(Intrinsic intrinsic)
 {
     switch (intrinsic) {
     case CharCodeAtIntrinsic:
@@ -725,6 +778,8 @@ static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
         return clz32ThunkGenerator;
     case FromCharCodeIntrinsic:
         return fromCharCodeThunkGenerator;
+    case FromCodePointIntrinsic:
+        return fromCodePointThunkGenerator;
     case GlobalIsNaNIntrinsic:
         return globalIsNaNThunkGenerator;
     case NumberIsNaNIntrinsic:
@@ -794,9 +849,9 @@ MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(CommonJITThunkID thunkID)
 
 #endif // ENABLE(JIT)
 
-NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, NativeFunction constructor, const String& name)
+NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, NativeFunction constructor, unsigned length, const String& name)
 {
-    return getHostFunction(function, implementationVisibility, NoIntrinsic, constructor, nullptr, name);
+    return getHostFunction(function, implementationVisibility, NoIntrinsic, constructor, nullptr, length, name);
 }
 
 static Ref<NativeJITCode> jitCodeForCallTrampoline(Intrinsic intrinsic)
@@ -833,19 +888,19 @@ static Ref<NativeJITCode> jitCodeForConstructTrampoline()
     return result.get();
 }
 
-NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, Intrinsic intrinsic, NativeFunction constructor, const DOMJIT::Signature* signature, const String& name)
+NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, Intrinsic intrinsic, NativeFunction constructor, const DOMJIT::Signature* signature, unsigned length, const String& name)
 {
 #if ENABLE(JIT)
     if (Options::useJIT()) {
         return jitStubs->hostFunctionStub(
             *this, toTagged(function), toTagged(constructor),
             intrinsic != NoIntrinsic ? thunkGeneratorForIntrinsic(intrinsic) : nullptr,
-            implementationVisibility, intrinsic, signature, name);
+            implementationVisibility, intrinsic, signature, length, name);
     }
 #endif // ENABLE(JIT)
     UNUSED_PARAM(intrinsic);
     UNUSED_PARAM(signature);
-    return NativeExecutable::create(*this, jitCodeForCallTrampoline(intrinsic), toTagged(function), jitCodeForConstructTrampoline(), toTagged(constructor), implementationVisibility, name);
+    return NativeExecutable::create(*this, jitCodeForCallTrampoline(intrinsic), toTagged(function), jitCodeForConstructTrampoline(), toTagged(constructor), implementationVisibility, length, name);
 }
 
 NativeExecutable* VM::getBoundFunction(bool isJSFunction, SourceTaintedOrigin taintedness)
@@ -861,7 +916,7 @@ NativeExecutable* VM::getBoundFunction(bool isJSFunction, SourceTaintedOrigin ta
             slowCase ? boundFunctionCall : boundThisNoArgsFunctionCall,
             ImplementationVisibility::Private, // Bound function's visibility is private on the stack.
             slowCase ? NoIntrinsic : BoundFunctionCallIntrinsic,
-            boundFunctionConstruct, nullptr, String());
+            boundFunctionConstruct, nullptr, 0, String());
         slot.setWithoutWriteBarrier(result);
         return result;
     };
@@ -885,7 +940,7 @@ NativeExecutable* VM::getRemoteFunction(bool isJSFunction)
         NativeExecutable* result = getHostFunction(
             slowCase ? remoteFunctionCallGeneric : remoteFunctionCallForJSFunction,
             ImplementationVisibility::Public, intrinsic,
-            callHostFunctionAsConstructor, nullptr, String());
+            callHostFunctionAsConstructor, nullptr, 0, String());
         slot = Weak<NativeExecutable>(result);
         return result;
     };
@@ -1024,6 +1079,11 @@ void VM::throwTerminationException()
 {
     ASSERT(hasTerminationRequest());
     ASSERT(!traps().isDeferringTermination());
+    // Termination can occur while executing DFG/FTL code that has set
+    // doesGC expectations. Reset the expectation so that subsequent
+    // heap access (e.g. JSLock re-acquisition) doesn't hit a stale
+    // doesGC assertion.
+    setDoesGCExpectation(true, DoesGCCheck::Special::Termination);
     setException(terminationException());
     if (m_executionForbiddenOnTermination)
         setExecutionForbidden();
@@ -1067,7 +1127,7 @@ Exception* VM::throwException(JSGlobalObject* globalObject, Exception* exception
 
 Exception* VM::throwException(JSGlobalObject* globalObject, JSValue thrownValue)
 {
-    Exception* exception = jsDynamicCast<Exception*>(thrownValue);
+    Exception* exception = dynamicDowncast<Exception>(thrownValue);
     if (!exception)
         exception = Exception::create(*this, thrownValue);
 
@@ -1186,21 +1246,6 @@ void VM::scanSideState(ConservativeRoots& roots) const
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #endif // ENABLE(DFG_JIT)
-
-#if ENABLE(WEBASSEMBLY)
-
-void VM::gatherEvacuatedStackRoots(ConservativeRoots& roots)
-{
-    Locker locker { m_evacuatedStacksLock };
-    for (auto* slice : m_evacuatedStackSlices) {
-        std::span<Register> slots = slice->slots();
-        roots.add(slots.data(), slots.data() + slots.size());
-    }
-    for (const auto& span : m_evacuatedCalleeSaves)
-        roots.add(span.data(), span.data() + span.size());
-}
-
-#endif // ENABLE(WEBASSEMBLY)
 
 void VM::pushCheckpointOSRSideState(std::unique_ptr<CheckpointOSRExitSideState>&& payload)
 {
@@ -1377,7 +1422,7 @@ void VM::dumpTypeProfilerData()
 
 void VM::callPromiseRejectionCallback(Strong<JSPromise>& promise)
 {
-    JSObject* callback = promise->globalObject()->unhandledRejectionCallback();
+    JSObject* callback = promise->realm()->unhandledRejectionCallback();
     if (!callback)
         return;
 
@@ -1390,7 +1435,7 @@ void VM::callPromiseRejectionCallback(Strong<JSPromise>& promise)
     args.append(promise.get());
     args.append(promise->result());
     ASSERT(!args.hasOverflowed());
-    call(promise->globalObject(), callback, callData, jsNull(), args);
+    call(promise->realm(), callback, callData, jsNull(), args);
     scope.clearException();
 }
 
@@ -1508,6 +1553,11 @@ void VM::verifyExceptionCheckNeedIsSatisfied(unsigned recursionDepth, ExceptionE
         RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("exception check validation failed");
     }
 }
+
+void VM::clearNativeStackTraceOfLastThrow()
+{
+    m_nativeStackTraceOfLastThrow = nullptr;
+}
 #endif
 
 ScratchBuffer* VM::scratchBufferForSize(size_t size)
@@ -1551,32 +1601,6 @@ bool VM::isScratchBuffer(void* ptr)
     return false;
 }
 
-void VM::addEvacuatedStackSlice(EvacuatedStackSlice* slice)
-{
-    Locker lock { m_evacuatedStacksLock };
-    m_evacuatedStackSlices.append(slice);
-}
-
-void VM::removeEvacuatedStackSlice(EvacuatedStackSlice* slice)
-{
-    Locker lock { m_evacuatedStacksLock };
-    m_evacuatedStackSlices.removeAll(slice);
-}
-
-void VM::addEvacuatedCalleeSaves(std::span<CPURegister> span)
-{
-    Locker lock { m_evacuatedStacksLock };
-    m_evacuatedCalleeSaves.constructAndAppend(span);
-}
-
-void VM::removeEvacuatedCalleeSaves(std::span<CPURegister> span)
-{
-    Locker lock { m_evacuatedStacksLock };
-    m_evacuatedCalleeSaves.removeAllMatching([&](const std::span<CPURegister>& existing) {
-        return existing.data() == span.data() && existing.size() == span.size();
-    });
-}
-
 Ref<Waiter> VM::syncWaiter()
 {
     return m_syncWaiter;
@@ -1601,7 +1625,7 @@ JSPropertyNameEnumerator* VM::emptyPropertyNameEnumeratorSlow()
 NativeExecutable* VM::promiseResolvingFunctionResolveExecutableSlow()
 {
     ASSERT(!m_promiseResolvingFunctionResolveExecutable);
-    auto* executable = getHostFunction(promiseResolvingFunctionResolve, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseResolvingFunctionResolve, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseResolvingFunctionResolveExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1609,7 +1633,7 @@ NativeExecutable* VM::promiseResolvingFunctionResolveExecutableSlow()
 NativeExecutable* VM::promiseResolvingFunctionRejectExecutableSlow()
 {
     ASSERT(!m_promiseResolvingFunctionRejectExecutable);
-    auto* executable = getHostFunction(promiseResolvingFunctionReject, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseResolvingFunctionReject, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseResolvingFunctionRejectExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1617,7 +1641,7 @@ NativeExecutable* VM::promiseResolvingFunctionRejectExecutableSlow()
 NativeExecutable* VM::promiseFirstResolvingFunctionResolveExecutableSlow()
 {
     ASSERT(!m_promiseFirstResolvingFunctionResolveExecutable);
-    auto* executable = getHostFunction(promiseFirstResolvingFunctionResolve, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseFirstResolvingFunctionResolve, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseFirstResolvingFunctionResolveExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1625,7 +1649,7 @@ NativeExecutable* VM::promiseFirstResolvingFunctionResolveExecutableSlow()
 NativeExecutable* VM::promiseFirstResolvingFunctionRejectExecutableSlow()
 {
     ASSERT(!m_promiseFirstResolvingFunctionRejectExecutable);
-    auto* executable = getHostFunction(promiseFirstResolvingFunctionReject, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseFirstResolvingFunctionReject, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseFirstResolvingFunctionRejectExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1633,7 +1657,7 @@ NativeExecutable* VM::promiseFirstResolvingFunctionRejectExecutableSlow()
 NativeExecutable* VM::promiseResolvingFunctionResolveWithInternalMicrotaskExecutableSlow()
 {
     ASSERT(!m_promiseResolvingFunctionResolveWithInternalMicrotaskExecutable);
-    auto* executable = getHostFunction(promiseResolvingFunctionResolveWithInternalMicrotask, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseResolvingFunctionResolveWithInternalMicrotask, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseResolvingFunctionResolveWithInternalMicrotaskExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1641,7 +1665,7 @@ NativeExecutable* VM::promiseResolvingFunctionResolveWithInternalMicrotaskExecut
 NativeExecutable* VM::promiseResolvingFunctionRejectWithInternalMicrotaskExecutableSlow()
 {
     ASSERT(!m_promiseResolvingFunctionRejectWithInternalMicrotaskExecutable);
-    auto* executable = getHostFunction(promiseResolvingFunctionRejectWithInternalMicrotask, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseResolvingFunctionRejectWithInternalMicrotask, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseResolvingFunctionRejectWithInternalMicrotaskExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1649,7 +1673,7 @@ NativeExecutable* VM::promiseResolvingFunctionRejectWithInternalMicrotaskExecuta
 NativeExecutable* VM::promiseCapabilityExecutorExecutableSlow()
 {
     ASSERT(!m_promiseCapabilityExecutorExecutable);
-    auto* executable = getHostFunction(promiseCapabilityExecutor, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseCapabilityExecutor, ImplementationVisibility::Public, callHostFunctionAsConstructor, 2, emptyString());
     m_promiseCapabilityExecutorExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1657,7 +1681,7 @@ NativeExecutable* VM::promiseCapabilityExecutorExecutableSlow()
 NativeExecutable* VM::promiseAllFulfillFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAllFulfillFunctionExecutable);
-    auto* executable = getHostFunction(promiseAllFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAllFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAllFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1665,7 +1689,7 @@ NativeExecutable* VM::promiseAllFulfillFunctionExecutableSlow()
 NativeExecutable* VM::promiseAllSlowFulfillFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAllSlowFulfillFunctionExecutable);
-    auto* executable = getHostFunction(promiseAllSlowFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAllSlowFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAllSlowFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1673,7 +1697,7 @@ NativeExecutable* VM::promiseAllSlowFulfillFunctionExecutableSlow()
 NativeExecutable* VM::promiseAllSettledFulfillFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAllSettledFulfillFunctionExecutable);
-    auto* executable = getHostFunction(promiseAllSettledFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAllSettledFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAllSettledFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1681,7 +1705,7 @@ NativeExecutable* VM::promiseAllSettledFulfillFunctionExecutableSlow()
 NativeExecutable* VM::promiseAllSettledRejectFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAllSettledRejectFunctionExecutable);
-    auto* executable = getHostFunction(promiseAllSettledRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAllSettledRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAllSettledRejectFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1689,7 +1713,7 @@ NativeExecutable* VM::promiseAllSettledRejectFunctionExecutableSlow()
 NativeExecutable* VM::promiseAllSettledSlowFulfillFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAllSettledSlowFulfillFunctionExecutable);
-    auto* executable = getHostFunction(promiseAllSettledSlowFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAllSettledSlowFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAllSettledSlowFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1697,7 +1721,7 @@ NativeExecutable* VM::promiseAllSettledSlowFulfillFunctionExecutableSlow()
 NativeExecutable* VM::promiseAllSettledSlowRejectFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAllSettledSlowRejectFunctionExecutable);
-    auto* executable = getHostFunction(promiseAllSettledSlowRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAllSettledSlowRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAllSettledSlowRejectFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1705,7 +1729,7 @@ NativeExecutable* VM::promiseAllSettledSlowRejectFunctionExecutableSlow()
 NativeExecutable* VM::promiseAnyRejectFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAnyRejectFunctionExecutable);
-    auto* executable = getHostFunction(promiseAnyRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAnyRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAnyRejectFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1713,7 +1737,7 @@ NativeExecutable* VM::promiseAnyRejectFunctionExecutableSlow()
 NativeExecutable* VM::promiseAnySlowRejectFunctionExecutableSlow()
 {
     ASSERT(!m_promiseAnySlowRejectFunctionExecutable);
-    auto* executable = getHostFunction(promiseAnySlowRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, emptyString());
+    auto* executable = getHostFunction(promiseAnySlowRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
     m_promiseAnySlowRejectFunctionExecutable.setWithoutWriteBarrier(executable);
     return executable;
 }
@@ -1831,6 +1855,11 @@ void VM::beginMarking()
     });
 }
 
+void VM::finalizeUnconditionally()
+{
+    m_syncResumeCallCache->finalizeUnconditionally(*this);
+}
+
 template<typename Visitor>
 void VM::visitAggregateImpl(Visitor& visitor)
 {
@@ -1860,10 +1889,17 @@ void VM::visitAggregateImpl(Visitor& visitor)
 #if ENABLE(WEBASSEMBLY)
     visitor.append(pinballCompletionStructure);
     visitor.append(webAssemblyCalleeGroupStructure);
+    visitor.append(webAssemblyStreamingContextStructure);
 #endif
     visitor.append(moduleProgramExecutableStructure);
-    visitor.append(promiseReactionStructure);
+    visitor.append(slimPromiseReactionStructure);
+    visitor.append(fullPromiseReactionStructure);
     visitor.append(jsMicrotaskDispatcherStructure);
+    visitor.append(moduleLoaderStructure);
+    visitor.append(moduleRegistryEntryStructure);
+    visitor.append(moduleLoadingContextStructure);
+    visitor.append(moduleLoaderPayloadStructure);
+    visitor.append(moduleGraphLoadingStateStructure);
     visitor.append(promiseCombinatorsContextStructure);
     visitor.append(promiseCombinatorsGlobalContextStructure);
     visitor.append(regExpStructure);
@@ -1873,8 +1909,6 @@ void VM::visitAggregateImpl(Visitor& visitor)
         visitor.append(structure);
     visitor.append(cellButterflyOnlyAtomStringsStructure);
     visitor.append(sourceCodeStructure);
-    visitor.append(scriptFetcherStructure);
-    visitor.append(scriptFetchParametersStructure);
     visitor.append(structureChainStructure);
     visitor.append(sparseArrayValueMapStructure);
     visitor.append(templateObjectDescriptorStructure);
@@ -1897,10 +1931,24 @@ void VM::visitAggregateImpl(Visitor& visitor)
     visitor.append(m_emptyPropertyNameEnumerator);
     visitor.append(m_orderedHashTableDeletedValue);
     visitor.append(m_orderedHashTableSentinel);
+    visitor.append(m_sentinelStructure);
+    visitor.append(m_fastArrayValuesSentinel);
+    visitor.append(m_fastArrayKeysSentinel);
+    visitor.append(m_fastArrayEntriesSentinel);
+    visitor.append(m_fastMapKeysSentinel);
+    visitor.append(m_fastMapValuesSentinel);
+    visitor.append(m_fastMapEntriesSentinel);
+    visitor.append(m_fastSetValuesSentinel);
+    visitor.append(m_fastSetEntriesSentinel);
+    visitor.append(m_fastStringValuesSentinel);
+    visitor.append(m_fastAsyncGeneratorSentinel);
+    visitor.append(m_cachedSortScratch);
+    visitor.append(m_sortScratchSentinel);
     visitor.append(m_fastCanConstructBoundExecutable);
     visitor.append(m_slowCanConstructBoundExecutable);
     visitor.append(lastCachedString);
     visitor.append(heapBigIntConstantOne);
+    visitor.append(heapBigIntConstantZero);
     visitor.append(m_cachedBigIntDivisor);
     visitor.append(m_nextCachedBigIntDivisor);
 
@@ -1932,7 +1980,7 @@ void VM::removeDebugger(Debugger& debugger)
     m_debuggers.remove(&debugger);
 }
 
-void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSet<SchedulerOptions> options)
+void VM::performOpportunisticallyScheduledTasks(ApproximateTime deadline, OptionSet<SchedulerOptions> options)
 {
     constexpr bool verbose = false;
 

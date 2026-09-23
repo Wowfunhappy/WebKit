@@ -48,7 +48,7 @@ class IDBConnectionToClient : public RefCounted<IDBConnectionToClient> {
 public:
     WEBCORE_EXPORT static Ref<IDBConnectionToClient> create(IDBConnectionToClientDelegate&);
 
-    IDBConnectionIdentifier identifier() const;
+    WEBCORE_EXPORT IDBConnectionIdentifier identifier() const;
 
     void didDeleteDatabase(const IDBResultData&);
     void didOpenDatabase(const IDBResultData&);
@@ -84,12 +84,16 @@ public:
     bool isClosed() { return m_isClosed; }
     void clearDelegate() { m_delegate = nullptr; }
 
+    WEBCORE_EXPORT void setClientProcessSuspended(bool);
+    bool isClientProcessSuspended() const { return m_isClientProcessSuspended; }
+
 private:
     IDBConnectionToClient(IDBConnectionToClientDelegate&);
     
     CheckedPtr<IDBConnectionToClientDelegate> m_delegate;
     WeakHashSet<UniqueIDBDatabaseConnection> m_databaseConnections;
     bool m_isClosed { false };
+    bool m_isClientProcessSuspended { false };
 };
 
 } // namespace IDBServer

@@ -30,7 +30,10 @@ import WebKit
 final class NavigationDecider: WebPage.NavigationDeciding {
     weak var owner: BrowserViewModel? = nil
 
-    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
+    func decidePolicy(
+        for action: WebPage.NavigationAction,
+        preferences: inout WebPage.NavigationPreferences
+    ) async -> WKNavigationActionPolicy {
         if action.shouldPerformDownload {
             return .download
         }

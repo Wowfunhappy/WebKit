@@ -83,7 +83,7 @@ CSSValueID convertSingleAnimationRangeNameToCSSValueID(SingleAnimationRangeName 
     return CSSValueNormal;
 }
 
-String convertSingleAnimationRangeNameToRangeString(SingleAnimationRangeName rangeName)
+WTF::String convertSingleAnimationRangeNameToRangeString(SingleAnimationRangeName rangeName)
 {
     switch (rangeName) {
     case SingleAnimationRangeName::Normal:
@@ -110,7 +110,7 @@ String convertSingleAnimationRangeNameToRangeString(SingleAnimationRangeName ran
 }
 
 
-SingleAnimationRangeName convertRangeStringToSingleTimelineRangeName(const String& rangeString)
+SingleAnimationRangeName convertRangeStringToSingleTimelineRangeName(const WTF::String& rangeString)
 {
     if (rangeString == "cover"_s)
         return Style::SingleAnimationRangeName::Cover;

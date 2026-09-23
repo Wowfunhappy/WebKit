@@ -87,6 +87,13 @@ bool FEGaussianBlur::setEdgeMode(EdgeModeType edgeMode)
     return true;
 }
 
+FloatSize FEGaussianBlur::effectiveStdDeviation(OptionSet<FilterRenderingOption> renderingOptions) const
+{
+    if (renderingOptions.contains(FilterRenderingOption::FastAndLowQuality))
+        return { std::min(m_stdX, 20.0f), std::min(m_stdY, 20.0f) };
+    return { m_stdX, m_stdY };
+}
+
 static inline float gaussianKernelFactor()
 {
     return 3 / 4.f * sqrtf(2 * std::numbers::pi_v<float>);
@@ -138,7 +145,8 @@ FloatRect FEGaussianBlur::calculateImageRect(const Filter& filter, std::span<con
     if (m_edgeMode != EdgeModeType::None)
         return enclosingIntRect(imageRect);
 
-    auto kernelSize = calculateUnscaledKernelSize(filter.resolvedSize({ m_stdX, m_stdY }));
+    auto stdDeviation = effectiveStdDeviation(filter.renderingOptions());
+    auto kernelSize = calculateUnscaledKernelSize(filter.resolvedSize(stdDeviation));
 
     // We take the half kernel size and multiply it with three, because we run box blur three times.
     imageRect.inflateX(3 * kernelSize.width() * 0.5f);
@@ -196,7 +204,8 @@ std::unique_ptr<FilterEffectApplier> FEGaussianBlur::createSoftwareApplier() con
 
 std::optional<GraphicsStyle> FEGaussianBlur::createGraphicsStyle(GraphicsContext&, const Filter& filter) const
 {
-    auto radius = calculateUnscaledKernelSize(filter.resolvedSize({ m_stdX, m_stdY }));
+    auto stdDeviation = effectiveStdDeviation(filter.renderingOptions());
+    auto radius = calculateUnscaledKernelSize(filter.resolvedSize(stdDeviation));
     return GraphicsGaussianBlur { radius };
 }
 

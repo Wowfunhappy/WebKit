@@ -44,11 +44,12 @@ public:
     ParsedContentType(ParsedContentType&&) = default;
 
     String mimeType() const { return m_mimeType; }
+    String contentType() const { return m_contentType; }
     String charset() const;
     void setCharset(String&&);
 
     // Note that in the case of multiple values for the same name, the last value is returned.
-    String parameterValueForName(const String&) const;
+    WEBCORE_EXPORT String parameterValueForName(const String&) const;
     size_t NODELETE parameterCount() const;
 
     WEBCORE_EXPORT String serialize() const;

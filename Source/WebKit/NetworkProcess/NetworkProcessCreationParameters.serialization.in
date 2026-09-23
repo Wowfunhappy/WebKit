@@ -40,6 +40,10 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
     bool isParentProcessFullWebBrowserOrRunningTest
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+    String containerTemporaryDirectory;
+#endif
+
 #if USE(SOUP)
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy
     Vector<String> languages
@@ -61,7 +65,6 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
 #endif
 
     Vector<WebKit::WebsiteDataStoreParameters> websiteDataStoreParameters
-    Vector<std::pair<WebCore::ProcessIdentifier, WebCore::RegistrableDomain>> allowedFirstPartiesForCookies;
     HashMap<WebCore::ProcessIdentifier, Vector<String>> allowedFilePaths;
     HashSet<String> localhostAliasesForTesting;
     Vector<WebCore::OrganizationStorageAccessPromptQuirk> storageAccessPromptQuirksData;

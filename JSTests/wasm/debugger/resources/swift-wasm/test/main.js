@@ -28,6 +28,7 @@ print("Available exports:", Object.keys(instance.exports));
 
 let processNumber = instance.exports.process_number;
 
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     processNumber(iteration);

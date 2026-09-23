@@ -131,7 +131,7 @@ String SpellingCorrectionCommand::inputEventData() const
 
 Vector<Ref<StaticRange>> SpellingCorrectionCommand::targetRanges() const
 {
-    return { 1, StaticRange::create(m_rangeToBeCorrected) };
+    return { FillWith { }, 1, StaticRange::create(m_rangeToBeCorrected) };
 }
 
 RefPtr<DataTransfer> SpellingCorrectionCommand::inputEventDataTransfer() const

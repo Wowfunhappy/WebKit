@@ -42,7 +42,7 @@ namespace JSC { namespace Wasm {
 
 Module::Module(IPIntPlan& plan)
     : m_moduleInformation(plan.takeModuleInformation())
-    , m_ipintCallees(IPIntCallees::createFromVector(plan.takeCallees()))
+    , m_ipintCallees(plan.takeCallees())
     , m_wasmToJSExitStubs(plan.takeWasmToJSExitStubs())
 {
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
@@ -59,16 +59,16 @@ Module::~Module()
 #endif
 }
 
-Wasm::TypeIndex Module::typeIndexFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const
+Wasm::RTT const& Module::rttFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const
 {
-    return m_moduleInformation->typeIndexFromFunctionIndexSpace(functionIndexSpace);
+    return m_moduleInformation->rtt(functionIndexSpace);
 }
 
 static Module::ValidationResult makeValidationResult(IPIntPlan& plan)
 {
     ASSERT(!plan.hasWork());
     if (plan.failed())
-        return Unexpected<String>(plan.errorMessage());
+        return std::unexpected<String>(plan.errorMessage());
     return Module::ValidationResult(Module::create(plan));
 }
 

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "MockCaptionDisplaySettingsClientCallback.h"
 
+#include "DOMRect.h"
 #include "ExceptionOr.h"
 #include "JSDOMPromise.h"
 
@@ -38,7 +39,13 @@ void MockCaptionDisplaySettingsClientCallback::showCaptionDisplaySettings(HTMLMe
         return;
     }
 
-    if (RefPtr promise = invoke(element, options).releaseReturnValue()) {
+    ResolvedCaptionDisplaySettingsOptionsWrapper wrapper {
+        options.anchorBounds ? RefPtr { DOMRect::create(*options.anchorBounds) } : nullptr,
+        options.xPositionArea,
+        options.yPositionArea,
+    };
+
+    if (RefPtr promise = invoke(element, wrapper).releaseReturnValue()) {
         promise->whenSettled([completionHandler = WTF::move(completionHandler)] () mutable {
             completionHandler({ });
         });

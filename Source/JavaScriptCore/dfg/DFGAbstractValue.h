@@ -93,10 +93,10 @@ struct AbstractValue {
         makeTop(SpecFullTop);
     }
     
-    void clobberStructures()
+    void clobberStructures(Graph& graph)
     {
         if (m_type & SpecCell) {
-            m_structure.clobber();
+            m_structure.clobber(graph);
             clobberArrayModes();
         } else {
             ASSERT(m_structure.isClear());
@@ -105,7 +105,7 @@ struct AbstractValue {
         checkConsistency();
     }
     
-    ALWAYS_INLINE void fastForwardFromTo(AbstractValueClobberEpoch oldEpoch, AbstractValueClobberEpoch newEpoch)
+    ALWAYS_INLINE void fastForwardFromTo(Graph& graph, AbstractValueClobberEpoch oldEpoch, AbstractValueClobberEpoch newEpoch)
     {
         if (newEpoch == oldEpoch)
             return;
@@ -114,14 +114,14 @@ struct AbstractValue {
             return;
 
         if (newEpoch.clobberEpoch() != oldEpoch.clobberEpoch())
-            clobberStructures();
+            clobberStructures(graph);
         if (newEpoch.structureClobberState() == StructuresAreWatched)
             m_structure.observeInvalidationPoint();
 
         checkConsistency();
     }
     
-    ALWAYS_INLINE void fastForwardTo(AbstractValueClobberEpoch newEpoch)
+    ALWAYS_INLINE void fastForwardTo(Graph& graph, AbstractValueClobberEpoch newEpoch)
     {
         if (newEpoch == m_effectEpoch)
             return;
@@ -131,7 +131,7 @@ struct AbstractValue {
             return;
         }
 
-        fastForwardToSlow(newEpoch);
+        fastForwardToSlow(graph, newEpoch);
     }
     
     void observeTransition(RegisteredStructure from, RegisteredStructure to)
@@ -200,7 +200,7 @@ struct AbstractValue {
     
     bool valueIsTop() const
     {
-        return !m_value && m_type;
+        return !m_value && m_type != SpecEmpty;
     }
 
     bool isInt52Any() const
@@ -359,10 +359,10 @@ struct AbstractValue {
     FiltrationResult filter(const AbstractValue&);
     FiltrationResult filterClassInfo(Graph&, const ClassInfo*);
 
-    ALWAYS_INLINE FiltrationResult fastForwardToAndFilterUnproven(AbstractValueClobberEpoch newEpoch, SpeculatedType type)
+    ALWAYS_INLINE FiltrationResult fastForwardToAndFilterUnproven(Graph& graph, AbstractValueClobberEpoch newEpoch, SpeculatedType type)
     {
         if (m_type & SpecCell)
-            return fastForwardToAndFilterSlow(newEpoch, type);
+            return fastForwardToAndFilterSlow(graph, newEpoch, type);
         
         m_effectEpoch = newEpoch;
         m_type &= type;
@@ -396,7 +396,7 @@ struct AbstractValue {
     void assertIsRegistered(Graph&) const { }
 #endif
 
-    ResultType resultType() const;
+    ResultType NODELETE resultType() const;
 
     void dumpInContext(PrintStream&, DumpContext*) const;
     void dump(PrintStream&) const;
@@ -488,18 +488,18 @@ private:
         checkConsistency();
     }
     
-    void fastForwardToSlow(AbstractValueClobberEpoch);
+    void fastForwardToSlow(Graph&, AbstractValueClobberEpoch);
     FiltrationResult filterSlow(SpeculatedType);
-    FiltrationResult fastForwardToAndFilterSlow(AbstractValueClobberEpoch, SpeculatedType);
+    FiltrationResult fastForwardToAndFilterSlow(Graph&, AbstractValueClobberEpoch, SpeculatedType);
     
     void filterValueByType();
-    void filterArrayModesByType();
+    void NODELETE filterArrayModesByType();
 
 #if USE(JSVALUE64) && !defined(NDEBUG)
     JS_EXPORT_PRIVATE void ensureCanInitializeWithZeros();
 #endif
     
-    bool shouldBeClear() const;
+    bool NODELETE shouldBeClear() const;
     FiltrationResult normalizeClarity();
     FiltrationResult normalizeClarity(Graph&);
 };

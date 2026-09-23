@@ -30,6 +30,8 @@
 #include "CryptoAlgorithmAesCtrParams.h"
 #include "CryptoKeyAES.h"
 #include "CryptoUtilitiesCocoa.h"
+#include "ExceptionOr.h"
+#include <CommonCrypto/CommonCrypto.h>
 
 namespace WebCore {
 

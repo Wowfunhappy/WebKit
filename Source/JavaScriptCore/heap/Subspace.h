@@ -25,9 +25,7 @@
 
 #pragma once
 
-#include <JavaScriptCore/AllocationFailureMode.h>
 #include <JavaScriptCore/Allocator.h>
-#include <JavaScriptCore/AllocatorForMode.h>
 #include <JavaScriptCore/MarkedBlock.h>
 #include <JavaScriptCore/MarkedSpace.h>
 #include <wtf/TZoneMalloc.h>

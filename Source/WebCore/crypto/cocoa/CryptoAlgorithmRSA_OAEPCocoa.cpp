@@ -29,6 +29,7 @@
 #include "CommonCryptoUtilities.h"
 #include "CryptoAlgorithmRsaOaepParams.h"
 #include "CryptoKeyRSA.h"
+#include "ExceptionOr.h"
 
 namespace WebCore {
 

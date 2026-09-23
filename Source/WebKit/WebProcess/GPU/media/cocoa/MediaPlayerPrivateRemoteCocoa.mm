@@ -82,7 +82,7 @@ WebCore::DestinationColorSpace MediaPlayerPrivateRemote::colorSpace()
 
 void MediaPlayerPrivateRemote::layerHostingContextChanged(WebCore::HostingContext&& inlineLayerHostingContext, const FloatSize& presentationSize)
 {
-    RELEASE_LOG_FORWARDABLE(Media, MEDIAPLAYERPRIVATEREMOTE_LAYERHOSTINGCONTEXTCHANGED);
+    RELEASE_LOG_FORWARDABLE(Media, MediaPlayerPrivateRemoteLayerHostingContextChanged);
 
     RefPtr player = m_player.get();
     if (!player)

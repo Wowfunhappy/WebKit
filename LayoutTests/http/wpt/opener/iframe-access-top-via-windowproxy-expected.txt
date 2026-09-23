@@ -1,4 +1,0 @@
-
-
-PASS Test that accessing WindowProxy within the same tab doesn't log.
-

@@ -33,8 +33,8 @@
 #include "CSSOMVariableReferenceValue.h"
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
+#include "CSSSubstitutionValue.h"
 #include "CSSTokenizer.h"
-#include "CSSVariableReferenceValue.h"
 #include "ExceptionOr.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -156,7 +156,7 @@ ExceptionOr<CSSUnparsedSegment> CSSUnparsedValue::setItem(size_t index, CSSUnpar
 RefPtr<CSSValue> CSSUnparsedValue::toCSSValue() const
 {
     CSSTokenizer tokenizer(toString());
-    return CSSVariableReferenceValue::create(tokenizer.tokenRange(), strictCSSParserContext());
+    return CSSSubstitutionValue::create(tokenizer.tokenRange(), { }, strictCSSParserContext());
 }
 
 } // namespace WebCore

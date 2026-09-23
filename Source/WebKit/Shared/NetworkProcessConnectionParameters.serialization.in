@@ -22,8 +22,14 @@
 
 struct WebKit::NetworkProcessConnectionParameters {
     WebKit::SharedPreferencesForWebProcess sharedPreferencesForWebProcess;
+    # MAVERICKS_BACKPORT: preserve UI authorization on each network connection.
+    bool allowsInjectedBundleOriginAccessAllowListIPC;
 #if ENABLE(IPC_TESTING_API)
     bool ignoreInvalidMessageForTesting;
 #endif
     Vector<WebKit::WebPageProxyIdentifier> pagesWithRelaxedThirdPartyCookieBlocking;
+    WebKit::LoadedWebArchive loadedWebArchive;
+    HashSet<WebCore::RegistrableDomain> allowedFirstPartiesForCookies;
+    Vector<WebKit::WebPageProxyIdentifier> allowedWebPageProxyIdentifiers;
+    HashMap<WebCore::PageIdentifier, Vector<String>> corsDisablingPatternsPerPage;
 };

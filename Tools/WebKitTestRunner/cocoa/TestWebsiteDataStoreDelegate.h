@@ -34,7 +34,6 @@
     RetainPtr<NSString> _lastAddedBackgroundFetchIdentifier;
     RetainPtr<NSString> _lastRemovedBackgroundFetchIdentifier;
     RetainPtr<NSString> _lastUpdatedBackgroundFetchIdentifier;
-    RetainPtr<NSMutableArray> _windowProxyAccessDomains;
 
     NSUInteger _quota;
 }
@@ -46,6 +45,4 @@
 - (NSString*)lastAddedBackgroundFetchIdentifier;
 - (NSString*)lastRemovedBackgroundFetchIdentifier;
 - (NSString*)lastUpdatedBackgroundFetchIdentifier;
-- (NSArray*)reportedWindowProxyAccessDomains;
-- (void)clearReportedWindowProxyAccessDomains;
 @end

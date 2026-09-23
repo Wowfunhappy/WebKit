@@ -27,10 +27,10 @@
 #include <wtf/OSAllocator.h>
 
 #include <errno.h>
+#include <mutex>
 #include <sys/mman.h>
 #include <wtf/Assertions.h>
 #include <wtf/DataLog.h>
-#include <wtf/MallocSpan.h>
 #include <wtf/MathExtras.h>
 #include <wtf/MmapSpan.h>
 #include <wtf/PageBlock.h>
@@ -53,9 +53,26 @@
 #include <wtf/spi/cocoa/MachVMSPI.h>
 #endif
 
+#if OS(LINUX)
+#include <sys/prctl.h>
+
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_SET_VMA_ANON_NAME
+#define PR_SET_VMA_ANON_NAME 0
+#endif
+#endif
+
 namespace WTF {
 
 void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, void* address, bool writable, bool executable, bool jitCageEnabled, unsigned numGuardPagesToAddOnEachEnd)
+{
+    return tryReserveAndCommitImpl(bytes, usage, address, writable, executable, jitCageEnabled, numGuardPagesToAddOnEachEnd, /* uncommitted */ false);
+}
+
+void* OSAllocator::tryReserveAndCommitImpl(size_t bytes, Usage usage, void* address, bool writable, bool executable, bool jitCageEnabled, unsigned numGuardPagesToAddOnEachEnd, bool uncommitted)
 {
     // All POSIX reservations start out logically committed.
     int protection = PROT_READ;
@@ -66,6 +83,7 @@ void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, void* address,
 
     int flags = MAP_PRIVATE | MAP_ANON;
 #if OS(DARWIN)
+    UNUSED_PARAM(uncommitted);
     if (executable) {
         if (jitCageEnabled)
             flags |= MAP_EXECUTABLE_FOR_JIT_WITH_JIT_CAGE;
@@ -74,18 +92,14 @@ void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, void* address,
     }
 #elif OS(LINUX) || OS(HAIKU)
     UNUSED_PARAM(jitCageEnabled);
-    if (usage == OSAllocator::UncommittedPages)
+    if (uncommitted)
         flags |= MAP_NORESERVE;
 #else
     UNUSED_PARAM(jitCageEnabled);
+    UNUSED_PARAM(uncommitted);
 #endif
 
-#if OS(DARWIN)
-    int fd = usage;
-#else
-    UNUSED_PARAM(usage);
-    int fd = -1;
-#endif
+    int fd = vmTagFd(static_cast<bmalloc::VMTag>(usage));
 
     size_t guardSize = 0;
     if (numGuardPagesToAddOnEachEnd) {
@@ -99,6 +113,11 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     auto result = MmapSpan<uint8_t>::mmap(address, bytes, protection, flags, fd);
     if (!result)
         return result.leakSpan().data();
+
+#if OS(LINUX)
+    if (const char* name = vmTagName(static_cast<bmalloc::VMTag>(usage)))
+        prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result.mutableSpan().data(), bytes, name);
+#endif
 
     if (numGuardPagesToAddOnEachEnd) {
         // We use mmap to remap the guardpages rather than using mprotect as
@@ -117,7 +136,7 @@ void* OSAllocator::tryReserveUncommitted(size_t bytes, Usage usage, void* addres
 {
 #if OS(LINUX) || OS(HAIKU)
     UNUSED_PARAM(usage);
-    void* result = tryReserveAndCommit(bytes, OSAllocator::UncommittedPages, address, writable, executable, jitCageEnabled, numGuardPagesToAddOnEachEnd);
+    void* result = tryReserveAndCommitImpl(bytes, usage, address, writable, executable, jitCageEnabled, numGuardPagesToAddOnEachEnd, /* uncommitted */ true);
     if (result)
         while (madvise(result, bytes, MADV_DONTNEED) == -1 && errno == EAGAIN) { }
 #else // not OS(LINUX) || OS(HAIKU)
@@ -301,6 +320,44 @@ void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writa
         dataLogLn("mprotect failed: ", safeStrerror(errno).data());
         RELEASE_ASSERT_NOT_REACHED();
     }
+}
+
+void OSAllocator::zeroFill(void* base, size_t size)
+{
+    ASSERT(isPageAligned(base));
+    ASSERT(isPageAligned(size));
+
+#if defined(MADV_ZERO) && OS(DARWIN)
+    static std::once_flag onceKey;
+    static bool madvZeroSupported = false;
+    std::call_once(onceKey,
+        [&] {
+            size_t size = pageSize();
+            void* base = mmap(nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            RELEASE_ASSERT(base && base != MAP_FAILED);
+
+            int rc = madvise(base, size, MADV_ZERO);
+            if (rc)
+                madvZeroSupported = (errno != ENOTSUP);
+            else
+                madvZeroSupported = true;
+
+            munmap(base, size);
+        });
+    if (madvZeroSupported) {
+        int rc = madvise(base, size, MADV_ZERO);
+        if (rc != -1)
+            return;
+    }
+#endif
+
+#if OS(LINUX)
+    int result = madvise(base, size, MADV_DONTNEED);
+    RELEASE_ASSERT(!result);
+#else
+    void* result = mmap(base, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
+    RELEASE_ASSERT(result != MAP_FAILED);
+#endif
 }
 
 } // namespace WTF

@@ -63,6 +63,8 @@ struct WebPreferencesStore {
 
     void deleteKey(const String& key);
 
+    void logNonDefaultValues() const;
+
     // For WebKitTestRunner usage.
     static void overrideBoolValueForKey(const String& key, bool value);
     static void removeTestRunnerOverrides();

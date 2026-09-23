@@ -35,8 +35,8 @@
 
 namespace WebCore {
 
-class CSSPrimitiveValue;
 class CSSSegmentedFontFace;
+class CSSValue;
 class FontFaceSet;
 
 template<typename> class ExceptionOr;
@@ -89,7 +89,7 @@ public:
 
     size_t facesPartitionIndex() const { return m_facesPartitionIndex; }
 
-    ExceptionOr<Vector<std::reference_wrapper<CSSFontFace>>> matchingFacesExcludingPreinstalledFonts(ScriptExecutionContext&, const String& font, const String& text);
+    ExceptionOr<Vector<Ref<CSSFontFace>>> matchingFacesExcludingPreinstalledFonts(ScriptExecutionContext&, const String& font, const String& text);
 
     // FIXME: Should this be implemented?
     void updateStyleIfNeeded(CSSFontFace&) final { }
@@ -108,7 +108,7 @@ private:
 
     void ensureLocalFontFacesForFamilyRegistered(const AtomString&);
 
-    static String familyNameFromPrimitive(const CSSPrimitiveValue&);
+    static AtomString familyName(const CSSValue&);
 
     using FontSelectionKey = std::optional<FontSelectionRequest>;
     struct FontSelectionKeyHash : WTF::HasherBasedHash<FontSelectionKey> {

@@ -44,7 +44,7 @@ enum class SingleAnimationRangeType : bool;
 
 namespace CSSPropertyParserHelpers {
 
-bool NODELETE isAnimationRangeKeyword(CSSValueID);
+bool NODELETE isTimelineRangeName(CSSValueID);
 
 // MARK: - Consumer functions
 

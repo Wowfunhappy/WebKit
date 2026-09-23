@@ -30,6 +30,7 @@
 #import "config.h"
 #import "FormDataReference.h"
 #import "ResourceLoadInfo.h"
+#import "WebExtensionAPIKeys.h"
 #import "WebExtensionAPINamespace.h"
 #import "WebExtensionAPIWebRequest.h"
 #import <WebCore/HTTPStatusCodes.h>
@@ -37,37 +38,6 @@
 #import <wtf/URLParser.h>
 
 #if ENABLE(WK_WEB_EXTENSIONS)
-
-static NSString * const formDataKey = @"formData";
-static NSString * const rawKey = @"raw";
-static NSString * const bytesKey = @"bytes";
-static NSString * const errorKey = @"error";
-
-static NSString * const parentFrameIdKey = @"parentFrameId";
-static NSString * const requestIdKey = @"requestId";
-static NSString * const timeStampKey = @"timeStamp";
-static NSString * const typeKey = @"type";
-static NSString * const methodKey = @"method";
-static NSString * const redirectURLKey = @"redirectUrl";
-
-static NSString * const valueKey = @"value";
-
-static NSString * const statusLineKey = @"statusLine";
-static NSString * const statusCodeKey = @"statusCode";
-static NSString * const fromCacheKey = @"fromCache";
-
-static NSString * const schemeKey = @"scheme";
-static NSString * const challengerKey = @"challenger";
-static NSString * const hostKey = @"host";
-static NSString * const portKey = @"port";
-static NSString * const isProxyKey = @"isProxy";
-static NSString * const digestSchemeKey = @"digest";
-static NSString * const basicSchemeKey = @"basic";
-static NSString * const realmKey = @"realm";
-
-static NSString * const requestBodyKey = @"requestBody";
-static NSString * const requestHeadersKey = @"requestHeaders";
-static NSString * const responseHeadersKey = @"responseHeaders";
 
 namespace WebKit {
 
@@ -264,7 +234,7 @@ static NSMutableDictionary *webRequestDetailsForResourceLoad(const ResourceLoadI
         @"frameId": resourceLoad.parentFrameID ? @(toWebAPI(toWebExtensionFrameIdentifier(resourceLoad.frameID))) : @(toWebAPI(WebExtensionFrameConstants::MainFrameIdentifier)),
         parentFrameIdKey: resourceLoad.parentFrameID ? @(toWebAPI(toWebExtensionFrameIdentifier(resourceLoad.parentFrameID))) : @(toWebAPI(WebExtensionFrameConstants::NoneIdentifier)),
         requestIdKey: adoptNS([[NSString alloc] initWithFormat:@"%llu", resourceLoad.resourceLoadID.toUInt64()]).get(),
-        timeStampKey: @(floor(resourceLoad.eventTimestamp.approximateWallTime().secondsSinceEpoch().milliseconds())),
+        timeStampKey: @(floor(resourceLoad.eventTimestamp.approximate<WallTime>().secondsSinceEpoch().milliseconds())),
         @"url": resourceLoad.originalURL.string().createNSString().get(),
         @"tabId": @(toWebAPI(tabIdentifier)),
         typeKey: toWebAPI(resourceLoad.type),

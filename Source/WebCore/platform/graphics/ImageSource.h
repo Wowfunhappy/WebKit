@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,14 @@
 
 #include <WebCore/ImageFrame.h>
 #include <WebCore/ImageOrientation.h>
+#include <WebCore/ImagePaintingOptions.h>
+#include <WebCore/ImageResolution.h>
 #include <WebCore/ImageTypes.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+#include <WebCore/SpatialImageTypes.h>
+#endif
 
 namespace WebCore {
 
@@ -54,6 +60,7 @@ public:
     virtual bool hasEverAnimated() const { return false; }
 
     // Decoding
+    virtual DecodingDestination preferredDecodingDestination(GraphicsContext&, ImagePaintingOptions) const { return DecodingDestination::Base; }
     virtual bool isLargeForDecoding() const { return false; }
     virtual void stopDecodingWorkQueue() { RELEASE_ASSERT_NOT_REACHED(); }
     virtual void decode(Function<void(DecodingStatus)>&&)  { RELEASE_ASSERT_NOT_REACHED(); }
@@ -77,6 +84,7 @@ public:
     // Image Metadata
     virtual IntSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const = 0;
     virtual IntSize sourceSize(ImageOrientation orientation = ImageOrientation::Orientation::FromImage) const { return size(orientation); }
+    virtual FloatSize density() const { return { ImageResolution::DefaultResolution, ImageResolution::DefaultResolution }; }
     virtual bool hasDensityCorrectedSize() const { return false; }
     virtual ImageOrientation orientation() const { return ImageOrientation::Orientation::None; }
     virtual unsigned primaryFrameIndex() const { return 0; }
@@ -96,12 +104,14 @@ public:
     virtual SubsamplingLevel subsamplingLevelForScaleFactor(GraphicsContext&, const FloatSize&, AllowImageSubsampling) { return SubsamplingLevel::Default; }
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    virtual bool shouldUseQuickLookForFullscreen() const { return false; }
     virtual bool isPanorama() const { return false; }
 #endif
 
 #if ENABLE(SPATIAL_IMAGE_DETECTION)
     virtual bool isSpatial() const { return false; }
+    virtual std::optional<unsigned> spatialLeftEyeFrameIndex() const { return std::nullopt; }
+    virtual std::optional<unsigned> spatialRightEyeFrameIndex() const { return std::nullopt; }
+    virtual std::optional<SpatialImageEyeProperties> spatialEyePropertiesAtIndex(unsigned) const { return std::nullopt; }
 #endif
 
 #if ENABLE(SPATIAL_IMAGE_CONTROLS)

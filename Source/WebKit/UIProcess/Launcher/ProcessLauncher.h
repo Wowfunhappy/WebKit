@@ -29,6 +29,7 @@
 #include <WebCore/ProcessIdentifier.h>
 #include <wtf/AbstractCanMakeCheckedPtr.h>
 #include <wtf/CheckedPtr.h>
+#include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RefPtr.h>
@@ -166,7 +167,8 @@ private:
     ProcessLauncher(Client*, LaunchOptions&&);
 
     void launchProcess();
-    void finishLaunchingProcess(ASCIILiteral name);
+    void finishLaunchingProcess(ASCIILiteral name, int retriesRemaining = 2);
+    void tryFinishLaunchingProcess(ASCIILiteral name, Function<void()>&& onFailure);
     void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier&&);
 
     void platformInvalidate();

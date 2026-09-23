@@ -39,26 +39,31 @@ promise_test(async t => {
 
 promise_test(async t => {
     let transition_finished = false;
+    const expectedError = new Error("transition rejection test");
 
     navigation.onnavigate = t.step_func(e => {
         e.intercept({ handler: async () => {
-            throw new Error();
+            throw expectedError;
         }});
     });
 
     navigation.onnavigatesuccess = t.unreached_func('Navigation should not succeed');
 
     navigation.onnavigateerror = t.step_func(e => {
-        navigation.transition.finished.then(t.unreached_func('Transition should not be fullfilled'));
-        navigation.transition.finished.catch(() => {
-            // FIXME: Test error is the same as thrown.
-            transition_finished = true;
-        })
+        navigation.transition.finished.then(
+            t.unreached_func('Transition should not be fullfilled'),
+            (err) => {
+                assert_equals(err, expectedError, 'Rejection reason should be the thrown error');
+                transition_finished = true;
+            }
+        );
     });
 
-    await navigation.navigate("#1");
+    await navigation.navigate("#1").finished.catch((err) => {
+        assert_equals(err, expectedError, 'result.finished rejection reason should be the thrown error');
+    });
 
-    // The navigation resolves before the transition does.
+    // Wait for the transition.finished rejection chain (set up in navigateerror) to settle.
     await new Promise(resolve => t.step_timeout(resolve, 0));
 
     assert_true(transition_finished);

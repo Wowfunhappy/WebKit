@@ -29,6 +29,7 @@
 #include "ContextDestructionObserverInlines.h"
 #include "Microtasks.h"
 #include "WorkerOrWorkletGlobalScope.h"
+#include "WorkerOrWorkletThread.h"
 
 namespace WebCore {
 
@@ -43,9 +44,7 @@ WorkerEventLoop::WorkerEventLoop(WorkerOrWorkletGlobalScope& context)
     addAssociatedContext(context);
 }
 
-WorkerEventLoop::~WorkerEventLoop()
-{
-}
+WorkerEventLoop::~WorkerEventLoop() = default;
 
 void WorkerEventLoop::scheduleToRun()
 {

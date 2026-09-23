@@ -17,6 +17,7 @@ promise_test(async (test) => {
     const unicodeString = '世界你好';
 
     const stream = await navigator.mediaDevices.getUserMedia({video: true});
+    test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
     internals.setMediaStreamTrackIdentifier(stream.getVideoTracks()[0], unicodeString);
 
     const remoteStream = await new Promise((resolve, reject) => {

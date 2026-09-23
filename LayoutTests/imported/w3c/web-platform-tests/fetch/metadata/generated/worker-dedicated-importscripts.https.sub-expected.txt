@@ -16,4 +16,6 @@ PASS sec-fetch-site - Same-Site -> Cross-Site
 PASS sec-fetch-mode
 PASS sec-fetch-dest
 PASS sec-fetch-user
+FAIL sec-fetch-storage-access - Cross-site assert_own_property: expected property "sec-fetch-storage-access" missing
+PASS sec-fetch-storage-access - Same site
 

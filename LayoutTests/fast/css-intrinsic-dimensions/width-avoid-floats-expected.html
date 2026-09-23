@@ -23,9 +23,9 @@
         display: inline-block;
     }
 
-    /* fill-available can't avoid the float so it should be pushed down */
+    /* stretch avoids the float like auto with overflow: auto */
     .fill-available {
-        clear: left;
+        overflow: auto;
     }
 </style>
 

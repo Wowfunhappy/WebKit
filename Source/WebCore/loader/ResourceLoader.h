@@ -86,7 +86,7 @@ public:
     virtual const ResourceRequest& iOSOriginalRequest() const { return request(); }
 #endif
 
-    WEBCORE_EXPORT FrameLoader* frameLoader() const;
+    WEBCORE_EXPORT FrameLoader* NODELETE frameLoader() const;
     DocumentLoader* documentLoader() const { return m_documentLoader.get(); }
     const ResourceRequest& originalRequest() const LIFETIME_BOUND { return m_originalRequest; }
 
@@ -154,8 +154,6 @@ public:
 
     void setDataBufferingPolicy(DataBufferingPolicy);
 
-    void willSwitchToSubstituteResource();
-
     const ResourceLoadTiming& loadTiming() LIFETIME_BOUND { return m_loadTiming; }
 
 #if PLATFORM(COCOA)
@@ -173,7 +171,7 @@ public:
     bool NODELETE isPDFJSResourceLoad() const;
 
 #if ENABLE(CONTENT_EXTENSIONS)
-    WEBCORE_EXPORT ResourceMonitor* resourceMonitorIfExists();
+    WEBCORE_EXPORT ResourceMonitor* NODELETE resourceMonitorIfExists();
 #endif
 
 protected:

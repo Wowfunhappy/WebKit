@@ -53,6 +53,7 @@
 #include "WebProcessPool.h"
 #include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include <WebCore/GamepadProvider.h>
+#include <wtf/Borrow.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
@@ -178,7 +179,7 @@ void WKContextSetHistoryClient(WKContextRef contextRef, const WKContextHistoryCl
 
     bool addsVisitedLinks = processPool->historyClient().addsVisitedLinks();
 
-    for (Ref process : processPool->processes()) {
+    for (Ref process : borrow(processPool->processes()).get()) {
         for (Ref page : process->pages())
             page->setAddsVisitedLinks(addsVisitedLinks);
     }
@@ -331,6 +332,11 @@ void WKContextSetAlwaysUsesComplexTextCodePath(WKContextRef contextRef, bool alw
 void WKContextSetDisableFontSubpixelAntialiasingForTesting(WKContextRef contextRef, bool disable)
 {
     protect(WebKit::toImpl(contextRef))->setDisableFontSubpixelAntialiasingForTesting(disable);
+}
+
+void WKContextSetAllowAXAuthenticationForTesting(WKContextRef contextRef, bool allow)
+{
+    protect(WebKit::toImpl(contextRef))->setAllowAXAuthenticationForTesting(allow);
 }
 
 void WKContextSetAdditionalPluginsDirectory(WKContextRef contextRef, WKStringRef pluginsDirectory)

@@ -69,7 +69,7 @@ template<CSSValueID filterFunction> static decltype(auto) consumeNumberOrPercent
     }
 }
 
-static std::optional<CSS::AppleInvertLightnessFunction> consumeFilterAppleInvertLightness(CSSParserTokenRange& range, CSS::PropertyParserState&)
+static std::optional<CSS::AppleInvertLightnessFunction> NODELETE consumeFilterAppleInvertLightness(CSSParserTokenRange& range, CSS::PropertyParserState&)
 {
     // <-apple-invert-lightness()> = -apple-invert-lightness()
     // Non-standard
@@ -455,7 +455,7 @@ RefPtr<CSSValue> consumeAppleColorFilter(CSSParserTokenRange& range, CSS::Proper
     return nullptr;
 }
 
-std::optional<Style::Filter> parseFilterValueListOrNoneRaw(const String& string, const CSSParserContext& context, const Document& document, RenderStyle& style)
+std::optional<Style::Filter> parseFilterValueListOrNoneRaw(const String& string, const CSSParserContext& context, const Document& document, Style::ComputedStyle& style)
 {
     auto tokenizer = CSSTokenizer(string);
     auto range = tokenizer.tokenRange();

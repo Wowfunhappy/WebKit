@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,17 +36,23 @@ namespace Style {
 // https://drafts.csswg.org/css-fonts-4/#propdef-font-style
 struct FontStyle {
     using Angle = Style::Angle<CSS::Range{-90, 90}>;
+    using ZeroAngle = Style::Angle<CSS::Range{0, 0}>;
 
-    FontStyle(CSS::Keyword::Normal) : m_platformSlope { std::nullopt }, m_platformAxis { FontStyleAxis::slnt } { }
+    FontStyle(CSS::Keyword::Normal) : m_platformSlope { std::nullopt }, m_platformAxis { FontStyleAxis::normal } { }
     FontStyle(CSS::Keyword::Italic) : m_platformSlope { italicValue() }, m_platformAxis { FontStyleAxis::ital } { }
     FontStyle(CSS::Keyword::Oblique) : m_platformSlope { italicValue() }, m_platformAxis { FontStyleAxis::slnt } { }
-    FontStyle(Angle angle) : m_platformSlope { FontSelectionValue::clampFloat(angle.value) }, m_platformAxis { FontStyleAxis::slnt } { }
+    FontStyle(ZeroAngle) : m_platformSlope { std::nullopt }, m_platformAxis { FontStyleAxis::normal } { }
+    FontStyle(Angle angle)
+    {
+        auto slope = FontSelectionValue::clampFloat(angle.value);
+        *this = slope == normalItalicValue() ? FontStyle { ZeroAngle { } } : FontStyle { slope, FontStyleAxis::slnt };
+    }
 
     FontStyle(std::optional<FontSelectionValue> slope, FontStyleAxis axis) : m_platformSlope { slope }, m_platformAxis { axis } { }
 
-    bool isNormal() const { return m_platformSlope == std::nullopt && m_platformAxis == FontStyleAxis::slnt; }
+    bool isNormal() const { return m_platformAxis == FontStyleAxis::normal; }
     bool isItalic() const { return m_platformSlope == italicValue() && m_platformAxis == FontStyleAxis::ital; }
-    bool isOblique() const { return m_platformSlope != std::nullopt && m_platformAxis == FontStyleAxis::slnt; }
+    bool isOblique() const { return m_platformAxis == FontStyleAxis::slnt; }
 
     std::optional<Angle> angle() const { return m_platformSlope ? std::make_optional(Angle { static_cast<float>(*m_platformSlope) }) : std::nullopt; }
 
@@ -53,7 +60,7 @@ struct FontStyle {
     {
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
-        if (!m_platformSlope || !*m_platformSlope)
+        if (m_platformAxis == FontStyleAxis::normal)
             return visitor(CSS::Keyword::Normal { });
         if (*m_platformSlope == italicValue()) {
             if (m_platformAxis == FontStyleAxis::ital)
@@ -80,7 +87,7 @@ private:
 
 template<> struct CSSValueConversion<FontStyle> { FontStyle operator()(BuilderState&, const CSSValue&); };
 // `FontStyle` is special-cased to return a `CSSFontStyleWithAngleValue`.
-template<> struct CSSValueCreation<FontStyle> { Ref<CSSValue> NODELETE operator()(CSSValuePool&, const RenderStyle&, const FontStyle&); };
+template<> struct CSSValueCreation<FontStyle> { Ref<CSSValue> NODELETE operator()(CSSValuePool&, const Style::ComputedStyle&, const FontStyle&); };
 
 // MARK: - Blending
 

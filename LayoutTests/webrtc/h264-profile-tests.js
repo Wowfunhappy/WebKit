@@ -48,8 +48,10 @@ function testResolutions(resolutions)
         }, "Video resolution test: " + resolution[0] + " " + resolution[1]);
     });
 
-    resolutions.forEach(resolution => {
+    resolutions.forEach((resolution, index) => {
         promise_test(async (test) => {
+            if (index === resolutions.length - 1)
+                test.add_cleanup(() => localVideoTrack.stop());
             const parameters = pc1.getSenders()[0].getParameters();
             parameters.encodings[0].maxBitrate = 100000;
             pc1.getSenders()[0].setParameters(parameters);

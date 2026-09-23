@@ -29,16 +29,19 @@
 
 #include "ContextDestructionObserverInlines.h"
 #include "EventLoop.h"
+#include "JSDOMConvertBufferSource.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSReadableStreamReadResult.h"
-#include "JSValueInWrappedObject.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "ReadableByteStreamController.h"
 #include "ReadableStream.h"
 #include "ReadableStreamBYOBReader.h"
 #include "ReadableStreamBYOBRequest.h"
 #include "ReadableStreamDefaultReader.h"
 #include "ScriptExecutionContextInlines.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/MarkedVector.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
@@ -78,13 +81,11 @@ public:
     JSC::JSValue NODELETE reason2() { return m_branch2Reason.getValue(); }
     void setReason1(JSDOMGlobalObject& globalObject, const JSC::JSCell* owner, JSC::JSValue value)
     {
-        Ref vm = globalObject.vm();
-        m_branch1Reason.set(vm, owner, value);
+        m_branch1Reason.set(globalObject, owner, value);
     }
     void setReason2(JSDOMGlobalObject& globalObject, const JSC::JSCell* owner, JSC::JSValue value)
     {
-        Ref vm = globalObject.vm();
-        m_branch2Reason.set(vm, owner, value);
+        m_branch2Reason.set(globalObject, owner, value);
     }
     void visit(JSC::AbstractSlotVisitor& visitor) final
     {
@@ -155,7 +156,7 @@ public:
 
     JSDOMGlobalObject* globalObject()
     {
-        return m_context ? JSC::jsCast<JSDOMGlobalObject*>(protect(m_context)->globalObject()) : nullptr;
+        return m_context ? downcast<JSDOMGlobalObject>(protect(m_context)->globalObject()) : nullptr;
     }
 
     void queueMicrotaskWithValue(JSC::JSValue value, Function<void(JSC::JSValue)>&& task)
@@ -164,7 +165,7 @@ public:
         if (!context)
             return;
 
-        auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(context->globalObject());
+        auto& globalObject = *downcast<JSDOMGlobalObject>(context->globalObject());
         protect(context->eventLoop())->queueMicrotask(globalObject.vm(), [task = WTF::move(task), value = JSC::Strong<JSC::Unknown> { globalObject.vm(), value }] {
             task(value.get());
         });
@@ -444,10 +445,15 @@ private:
         RefPtr branch2 = m_state->branch2();
 
         m_state->setReading(false);
+
+        bool shouldStopSteps = false;
         if (!m_state->canceled1() && branch1)
-            branch1->controller()->close(*globalObject);
+            shouldStopSteps = !branch1->controller()->close(*globalObject, ReadableByteStreamController::ShouldThrowOnError::No);
         if (!m_state->canceled2() && branch2)
-            branch2->controller()->close(*globalObject);
+            shouldStopSteps |= !branch2->controller()->close(*globalObject, ReadableByteStreamController::ShouldThrowOnError::No);
+
+        if (shouldStopSteps)
+            return;
 
         if (branch1 && branch1->controller()->hasPendingPullIntos())
             branch1->controller()->respond(*globalObject, 0);

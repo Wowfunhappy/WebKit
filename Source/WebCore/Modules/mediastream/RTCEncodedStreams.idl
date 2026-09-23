@@ -25,7 +25,6 @@
 [
     Conditional=WEB_RTC,
     JSGenerateToJSObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary RTCEncodedStreams {
     ReadableStream readable;
     WritableStream writable;

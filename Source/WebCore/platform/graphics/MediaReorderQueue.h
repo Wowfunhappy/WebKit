@@ -34,7 +34,10 @@ namespace WebCore {
 template <class T, class Compare = std::less_equal<T>>
 class MediaReorderQueue {
 public:
-    MediaReorderQueue() = default;
+    explicit MediaReorderQueue(size_t reorderSize = 0)
+        : m_reorderSize(reorderSize)
+    {
+    }
 
     using ContainerType = Deque<T>;
     ContainerType::iterator begin() LIFETIME_BOUND { return m_queue.begin(); }

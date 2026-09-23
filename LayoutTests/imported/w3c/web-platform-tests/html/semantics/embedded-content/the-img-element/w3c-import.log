@@ -52,6 +52,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/empty-src-no-current-request.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/historical-progress-event.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/image-1.jpg
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/image-alternate-no-store.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/image-base-url.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/image-compositing-change-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/image-compositing-change-ref.html
@@ -124,8 +125,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/list-of-available-images-matching.https.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/move-element-and-scroll.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/natural-size-orientation.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/naturalWidth-naturalHeight-width-height.tentative.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/naturalWidth-naturalHeight.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/naturalWidth-naturalHeight-width-height.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/non-active-document.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/nonexistent-image.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/not-rendered-below-viewport-image-loading-lazy.html
@@ -141,8 +141,10 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/scrolling-below-viewport-image-lazy-loading-in-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/source-media-outside-doc.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/source-relevant-mutations.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/srcset-natural-size-in-dynamic-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/svg-for-content-type-with-parameters.svg
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/svg-for-content-type-with-parameters.svg.headers
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/svg-img-density-vs-zoom.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/svg-img-with-external-stylesheet-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/svg-img-with-external-stylesheet-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-img-element/svg-img-with-external-stylesheet.html

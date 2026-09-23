@@ -58,8 +58,9 @@ class ConfigDotJSONTest(unittest.TestCase):
     def test_builder_keys(self):
         config = self.get_config()
         valid_builder_keys = ['additionalArguments', 'architectures', 'builddir', 'configuration', 'description',
-                              'defaultProperties', 'env', 'factory', 'icon', 'locks', 'name', 'platform', 'properties',
-                              'rebuild_without_change_on_builder', 'remotes', 'runTests', 'shortname', 'tags', 'triggers', 'triggered_by', 'workernames', 'workerbuilddir']
+                              'defaultProperties', 'deployment_target', 'env', 'factory', 'icon', 'locks', 'name',
+                              'platform', 'properties', 'rebuild_without_change_on_builder', 'remotes', 'runTests',
+                              'shortname', 'tags', 'triggers', 'triggered_by', 'workernames', 'workerbuilddir']
         for builder in config.get('builders', []):
             for key in builder:
                 self.assertTrue(key in valid_builder_keys, 'Unexpected key "{}" for builder {}'.format(key, builder.get('name')))
@@ -125,6 +126,13 @@ class ConfigDotJSONTest(unittest.TestCase):
         for builder in config['builders']:
             if builder.get('rebuild_without_change_on_builder'):
                 self.assertTrue(builder.get('triggers'), f'rebuild_without_change_on_builder should only be set on builders with triggers, but found on: {builder["name"]}')
+
+    def test_deployment_target_on_intended_queues(self):
+        config = self.get_config()
+        for builder in config['builders']:
+            if builder.get('deployment_target'):
+                self.assertTrue(builder.get('factory') == 'macOSBuildFactory',
+                                f'custom deployment target only implemented for macOS builders, but found on "{builder["name"]}" with factory "{builder["factory"]}"')
 
 
 class TagsForBuilderTest(unittest.TestCase):

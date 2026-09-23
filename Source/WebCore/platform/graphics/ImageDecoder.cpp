@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,15 +28,14 @@
 
 #include "ImageFrame.h"
 #include "ScalableImageDecoder.h"
-#include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#if USE(CG)
+#if USE(CG) && !PLATFORM(MAC) // MAVERICKS_BACKPORT: decode web content through ScalableImageDecoder.
 #include "ImageDecoderCG.h"
 #endif
 
 #if HAVE(AVASSETREADER)
-#include "ImageDecoderAVFObjC.h"
+#include "ImageDecoderFactoryAVF.h"
 #endif
 
 #if USE(GSTREAMER) && ENABLE(VIDEO)
@@ -47,62 +46,12 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageDecoder);
 
-#if ENABLE(GPU_PROCESS) && HAVE(AVASSETREADER)
-using FactoryVector = Vector<ImageDecoder::ImageDecoderFactory>;
-
-static RefPtr<ImageDecoder> createInProcessImageDecoderAVFObjC(FragmentedSharedBuffer& buffer, const String& mimeType, AlphaOption alphaOption, GammaAndColorProfileOption gammaOption)
-{
-    return ImageDecoderAVFObjC::create(buffer, mimeType, alphaOption, gammaOption, ProcessIdentity { ProcessIdentity::CurrentProcess });
-}
-
-static void platformRegisterFactories(FactoryVector& factories)
-{
-    factories.append({ ImageDecoderAVFObjC::supportsMediaType, ImageDecoderAVFObjC::canDecodeType, createInProcessImageDecoderAVFObjC });
-}
-
-static FactoryVector& installedFactories()
-{
-    static NeverDestroyed<FactoryVector> factories;
-    static std::once_flag registerDefaults;
-    std::call_once(registerDefaults, [&] {
-        platformRegisterFactories(factories);
-    });
-
-    return factories;
-}
-
-void ImageDecoder::installFactory(ImageDecoder::ImageDecoderFactory&& factory)
-{
-    installedFactories().append(WTF::move(factory));
-}
-
-void ImageDecoder::resetFactories()
-{
-    installedFactories().clear();
-    platformRegisterFactories(installedFactories());
-}
-
-void ImageDecoder::clearFactories()
-{
-    installedFactories().clear();
-}
-#endif
-
 RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const String& mimeType, AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
 {
-    UNUSED_PARAM(mimeType);
-
 #if HAVE(AVASSETREADER)
     if (!ImageDecoderCG::canDecodeType(mimeType)) {
-#if ENABLE(GPU_PROCESS)
-        for (auto& factory : installedFactories()) {
-            if (factory.canDecodeType(mimeType))
-                return factory.createImageDecoder(data, mimeType, alphaOption, gammaAndColorProfileOption);
-        }
-#else
-        if (ImageDecoderAVFObjC::canDecodeType(mimeType))
-            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
-#endif
+        if (RefPtr imageDecoder = ImageDecoderFactoryAVF::singleton().createImageDecoder(data, mimeType, alphaOption, gammaAndColorProfileOption))
+            return imageDecoder;
     }
 #endif
 
@@ -111,17 +60,16 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
         return ImageDecoderGStreamer::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
 #endif
 
-// MAVERICKS_BACKPORT: no ImageDecoderCG on this port. Web content is never handed to 10.9's
-// ImageIO, so every format the engine draws is one WebCore decodes itself and there is nothing to
-// fall back to; the Mac build takes the same branch as the ports that have no CGImageSource.
-#if USE(CG) && !PLATFORM(MAC)
     // ScalableImageDecoder is used on CG ports for some specific image formats which the platform doesn't support directly.
-    if (auto imageDecoder = ScalableImageDecoder::create(data, alphaOption, gammaAndColorProfileOption))
+    if (RefPtr imageDecoder = ScalableImageDecoder::create(data, alphaOption, gammaAndColorProfileOption))
         return imageDecoder;
-    return ImageDecoderCG::create(data, alphaOption, gammaAndColorProfileOption);
-#else
-    return ScalableImageDecoder::create(data, alphaOption, gammaAndColorProfileOption);
-#endif // MAVERICKS_BACKPORT: closes the narrowed guard above.
+
+#if USE(CG) && !PLATFORM(MAC) // MAVERICKS_BACKPORT: decode web content through ScalableImageDecoder.
+    if (RefPtr imageDecoder = ImageDecoderCG::create(data, alphaOption, gammaAndColorProfileOption))
+        return imageDecoder;
+#endif
+
+    return nullptr;
 }
 
 ImageDecoder::ImageDecoder() = default;
@@ -130,30 +78,22 @@ ImageDecoder::~ImageDecoder() = default;
 
 bool ImageDecoder::supportsMediaType(MediaType type)
 {
-// MAVERICKS_BACKPORT: same reason as ImageDecoder::create above -- the decoder this port builds is
-// ScalableImageDecoder, so it is the one that answers for images.
-#if USE(CG) && !PLATFORM(MAC)
-    if (ImageDecoderCG::supportsMediaType(type))
-        return true;
-#else
-    if (ScalableImageDecoder::supportsMediaType(type))
-        return true;
-#endif // MAVERICKS_BACKPORT: closes the narrowed guard above.
-
 #if HAVE(AVASSETREADER)
-#if ENABLE(GPU_PROCESS)
-    for (auto& factory : installedFactories()) {
-        if (factory.supportsMediaType(type))
-            return true;
-    }
-#else
-    if (ImageDecoderAVFObjC::supportsMediaType(type))
+    if (ImageDecoderFactoryAVF::singleton().supportsMediaType(type))
         return true;
-#endif
 #endif
 
 #if USE(GSTREAMER) && ENABLE(VIDEO)
     if (ImageDecoderGStreamer::supportsMediaType(type))
+        return true;
+#endif
+
+    // ScalableImageDecoder is used on CG ports for some specific image formats which the platform doesn't support directly.
+    if (ScalableImageDecoder::supportsMediaType(type))
+        return true;
+
+#if USE(CG) && !PLATFORM(MAC) // MAVERICKS_BACKPORT: decode web content through ScalableImageDecoder.
+    if (ImageDecoderCG::supportsMediaType(type))
         return true;
 #endif
 
@@ -163,8 +103,8 @@ bool ImageDecoder::supportsMediaType(MediaType type)
 bool ImageDecoder::fetchFrameMetaDataAtIndex(size_t index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options, ImageFrame& frame) const
 {
     if (options.hasSizeForDrawing()) {
-        ASSERT(frame.hasNativeImage(options.shouldDecodeToHDR()));
-        frame.m_size = frame.nativeImage(options.shouldDecodeToHDR())->size();
+        ASSERT(frame.hasNativeImage(options.decodingDestination()));
+        frame.m_size = frame.nativeImage(options.decodingDestination())->size();
     } else
         frame.m_size = frameSizeAtIndex(index, subsamplingLevel);
 
@@ -174,6 +114,23 @@ bool ImageDecoder::fetchFrameMetaDataAtIndex(size_t index, SubsamplingLevel subs
     frame.m_orientation = frameOrientationAtIndex(index);
     frame.m_decodingStatus = frameIsCompleteAtIndex(index) ? DecodingStatus::Complete : DecodingStatus::Partial;
     return true;
+}
+
+std::optional<std::tuple<Ref<NativeImage>, DecodingDestination>> ImageDecoder::createNativeImageAtIndex(size_t index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options)
+{
+    DecodingOptions decodingOptions = options;
+
+    auto gainMap = frameGainMapAtIndex(index, decodingOptions);
+    if (!gainMap && decodingOptions.decodingDestination() == DecodingDestination::BaseAndGainMap)
+        decodingOptions = { decodingOptions.decodingMode(), DecodingDestination::ShouldDecodeToHDR, decodingOptions.sizeForDrawing() };
+
+    PlatformImagePtr platformImage = createFrameImageAtIndex(index, subsamplingLevel, decodingOptions);
+    if (!platformImage)
+        return std::nullopt;
+
+    RefPtr nativeImage = NativeImage::create(WTF::move(platformImage), WTF::move(gainMap));
+
+    return { { nativeImage.releaseNonNull(), decodingOptions.decodingDestination() } };
 }
 
 } // namespace WebCore

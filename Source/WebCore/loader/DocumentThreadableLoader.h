@@ -112,7 +112,7 @@ class CachedRawResource;
         const ContentSecurityPolicy& contentSecurityPolicy() const;
         const CrossOriginEmbedderPolicy& NODELETE crossOriginEmbedderPolicy() const;
 
-        Document& document() { return *m_document; }
+        Document* document() { return m_document; }
 
         const ThreadableLoaderOptions& options() const LIFETIME_BOUND { return m_options; }
         const String& referrer() const LIFETIME_BOUND { return m_referrer; }

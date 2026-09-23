@@ -28,7 +28,12 @@
 
 #include "JSDOMPromise.h"
 #include "JSReadableStream.h"
+#include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/MarkedVector.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 
 namespace WebCore {
 
@@ -154,13 +159,16 @@ void InternalReadableStreamDefaultReader::onClosedPromiseRejection(Function<void
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
     domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto result) {
         if (isFulfilled || !globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
             return;
         callback(*globalObject, result);
     });
@@ -184,12 +192,17 @@ void InternalReadableStreamDefaultReader::onClosedPromiseResolution(Function<voi
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
-    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto*, bool isFulfilled, auto) {
+    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto) {
+        if (!globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
+            return;
         if (isFulfilled)
             callback();
     });

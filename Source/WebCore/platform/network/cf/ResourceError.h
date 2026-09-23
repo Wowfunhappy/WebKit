@@ -73,10 +73,6 @@ public:
 
     WEBCORE_EXPORT ErrorRecoveryMethod errorRecoveryMethod() const;
 
-#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
-    WEBCORE_EXPORT bool hasMatchingFailingURLKeys() const;
-#endif
-
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
 
@@ -89,7 +85,7 @@ private:
 
     void platformLazyInit();
 
-    void doPlatformIsolatedCopy(const ResourceError&);
+    void NODELETE doPlatformIsolatedCopy(const ResourceError&);
 
     mutable RetainPtr<NSError> m_platformError;
     bool m_dataIsUpToDate { true };

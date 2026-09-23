@@ -479,3 +479,39 @@ a.ig-link-normal {
   --ig-highlight-color: transparent;
   background-color: var(--ig-highlight-color);
 }
+
+.ig-tier-badge {
+  font-weight: bold;
+  font-size: 0.875em;
+  letter-spacing: 0.04em;
+  padding: 0.15em 0.5em;
+  border-radius: 3px;
+  border: 1px solid var(--ig-border-color);
+  background-color: #888;
+  color: white;
+  line-height: 1.2;
+}
+
+.ig-tier-badge[data-tier="DFG"] {
+  background-color: #1048af;
+}
+
+.ig-tier-badge[data-tier="FTL"] {
+  background-color: #1fa411;
+}
+
+.ig-tier-badge[data-tier="OMG"] {
+  background-color: #b54a00;
+}
+
+.ig-osr-badge {
+  font-weight: bold;
+  font-size: 0.875em;
+  letter-spacing: 0.04em;
+  padding: 0.15em 0.5em;
+  border-radius: 3px;
+  border: 1px solid var(--ig-border-color);
+  background-color: var(--ig-background-primary);
+  color: black;
+  line-height: 1.2;
+}

@@ -60,10 +60,10 @@ public:
 
     USING_CAN_MAKE_WEAKPTR(FontSelector);
 
-    unsigned version() const final { return m_version; }
+    unsigned NODELETE version() const final { return m_version; }
     unsigned uniqueId() const final { return m_uniqueId; }
 
-    FontRanges fontRangesForFamily(const FontDescription&, const AtomString&) final;
+    FontRanges fontRangesForFamily(const FontDescription&, const FontFamily&) final;
     size_t fallbackFontCount() final;
     RefPtr<Font> fallbackFontAt(const FontDescription&, size_t) final;
 

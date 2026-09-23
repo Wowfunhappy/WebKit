@@ -62,7 +62,7 @@ ExceptionOr<void> PerformanceObserver::observe(Init&& init)
         return Exception { ExceptionCode::TypeError };
 
     bool isBuffered = false;
-    OptionSet<PerformanceEntry::Type> filter;
+    EnumSet<PerformanceEntry::Type> filter;
     if (init.entryTypes) {
         if (!init.type.isNull())
             return Exception { ExceptionCode::TypeError, "either entryTypes or type must be provided"_s };

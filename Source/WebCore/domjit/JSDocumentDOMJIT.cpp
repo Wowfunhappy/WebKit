@@ -35,6 +35,8 @@
 #include "JSDOMWrapper.h"
 #include "JSElement.h"
 #include "JSHTMLElement.h"
+#include <JavaScriptCore/DOMJITCallDOMGetterSnippet.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/Snippet.h>
 #include <JavaScriptCore/SnippetParams.h>
 

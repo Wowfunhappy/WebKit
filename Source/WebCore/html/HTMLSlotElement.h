@@ -59,11 +59,11 @@ public:
 private:
     HTMLSlotElement(const QualifiedName&, Document&);
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void childrenChanged(const ChildChange&) final;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
-    void didFinishInsertingNode() final;
+    void postConnectionSteps() final;
 
     bool m_inSignalSlotList { false };
     bool m_isInInsertedIntoAncestor { false };

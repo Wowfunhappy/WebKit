@@ -66,6 +66,7 @@ public:
 
     WEBCORE_EXPORT std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> divide(const MediaTime& presentationTime, UseEndTime) override;
     WEBCORE_EXPORT Ref<MediaSample> createNonDisplayingCopy() const override;
+    Ref<MediaSample> createCopyWithAdjustedStartTime(const MediaTime& offset) const override;
 
     CMSampleBufferRef sampleBuffer() const { return m_sample.get(); }
 

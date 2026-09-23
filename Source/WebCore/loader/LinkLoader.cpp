@@ -42,11 +42,11 @@
 #include "DefaultResourceLoadPriority.h"
 #include "DocumentLoader.h"
 #include "DocumentPage.h"
+#include "DocumentResourceLoader.h"
 #include "FetchRequestDestination.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLSrcsetParser.h"
-#include <JavaScriptCore/ConsoleTypes.h>
 #include "JSFetchRequestDestination.h"
 #include "LinkHeader.h"
 #include "LinkPreloadResourceClients.h"
@@ -146,7 +146,7 @@ void LinkLoader::loadLinksFromHeader(const String& headerValue, const URL& baseU
     }
 }
 
-std::optional<CachedResource::Type> LinkLoader::resourceTypeFromAsAttribute(const String& as, Document& document, ShouldLog shouldLogError)
+std::optional<CachedResource::Type> LinkLoader::resourceTypeFromAsAttribute(const String& as, Document& document, ShouldLog shouldLogError, IsModulePreload isModulePreload)
 {
     if (equalLettersIgnoringASCIICase(as, "fetch"_s))
         return CachedResource::Type::RawResource;
@@ -180,7 +180,11 @@ std::optional<CachedResource::Type> LinkLoader::resourceTypeFromAsAttribute(cons
     case FetchRequestDestination::Iframe:
         return std::nullopt;
     case FetchRequestDestination::Json:
-        return CachedResource::Type::JSON;
+        if (isModulePreload == IsModulePreload::Yes)
+            return CachedResource::Type::JSON;
+        if (shouldLogError == ShouldLog::Yes)
+            document.addConsoleMessage(MessageSource::Other, MessageLevel::Error, "<link rel=preload> does not support `json` as `as` value"_s);
+        return std::nullopt;
     case FetchRequestDestination::Manifest:
         return std::nullopt;
     case FetchRequestDestination::Model:
@@ -340,7 +344,7 @@ RefPtr<LinkPreloadResourceClient> LinkLoader::preloadIfNeeded(const LinkLoadPara
         return nullptr;
 
     if (params.relAttribute.isLinkModulePreload) {
-        type = LinkLoader::resourceTypeFromAsAttribute(params.as, document, ShouldLog::No);
+        type = LinkLoader::resourceTypeFromAsAttribute(params.as, document, ShouldLog::No, IsModulePreload::Yes);
         if (!type)
             type = CachedResource::Type::Script;
         if (type && type != CachedResource::Type::Script && type != CachedResource::Type::JSON) {
@@ -359,10 +363,10 @@ RefPtr<LinkPreloadResourceClient> LinkLoader::preloadIfNeeded(const LinkLoadPara
     URL url;
     if (type == CachedResource::Type::ImageResource && !params.imageSrcSet.isEmpty()) {
         auto sourceSize = SizesAttributeParser(params.imageSizes, document).effectiveSize();
-        auto candidate = bestFitSourceForImageAttributes(document.deviceScaleFactor(), AtomString { params.href.string() }, params.imageSrcSet, sourceSize);
-        url = document.completeURL(URL({ }, candidate.string.toString()).string());
+        auto candidate = bestFitSourceForImageAttributes(document.deviceScaleFactor(), params.href.string(), params.imageSrcSet, sourceSize);
+        url = document.encodingParseURL(URL({ }, candidate.string.toString()).string());
     } else
-        url = document.completeURL(params.href.string());
+        url = document.encodingParseURL(params.href.string());
 
     if (!url.isValid()) {
         if (params.relAttribute.isLinkModulePreload)
@@ -374,7 +378,7 @@ RefPtr<LinkPreloadResourceClient> LinkLoader::preloadIfNeeded(const LinkLoadPara
         return nullptr;
     }
     auto queries = MQ::MediaQueryParser::parse(params.media, document.cssParserContext());
-    if (!MQ::MediaQueryEvaluator { screenAtom(), document, document.renderStyle() }.evaluate(queries))
+    if (!MQ::MediaQueryEvaluator { screenAtom(), document }.evaluate(queries))
         return nullptr;
     if (!isSupportedType(type.value(), params.mimeType, document))
         return nullptr;
@@ -400,6 +404,8 @@ RefPtr<LinkPreloadResourceClient> LinkLoader::preloadIfNeeded(const LinkLoadPara
     linkRequest.setInitiatorType("link"_s);
     linkRequest.setIgnoreForRequestCount(true);
     linkRequest.setIsLinkPreload();
+    if (params.relAttribute.isLinkModulePreload)
+        linkRequest.setIsLinkModulePreload();
 
     RefPtr<CachedResource> cachedLinkResource;
     if (auto result = protect(document.cachedResourceLoader())->preload(type.value(), WTF::move(linkRequest)))
@@ -441,7 +447,7 @@ void LinkLoader::prefetchIfNeeded(const LinkLoadParameters& params, Document& do
     options.cachingPolicy = CachingPolicy::DisallowCaching;
     options.referrerPolicy = params.referrerPolicy;
     options.nonce = params.nonce;
-    if (auto result = protect(document.cachedResourceLoader())->requestLinkResource(type, CachedResourceRequest(ResourceRequest { document.completeURL(params.href.string()) }, options, priority)))
+    if (auto result = protect(document.cachedResourceLoader())->requestLinkResource(type, CachedResourceRequest(ResourceRequest { document.encodingParseURL(params.href.string()) }, options, priority)))
         m_cachedLinkResource = WTF::move(result.value());
     else
         m_cachedLinkResource = nullptr;

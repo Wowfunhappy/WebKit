@@ -34,240 +34,148 @@
 namespace WebCore {
 namespace Style {
 
-using namespace CSS::Literals;
+// Generic implementation of conversion for numeric types.
 
-template<auto R, typename V> struct CSSValueConversion<Integer<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Integer<R, V>
-    {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsNumber<V>(builderState.cssToLengthConversionData())) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Integer<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_integer;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsNumber<V>(builderState.cssToLengthConversionData())) };
-    }
-};
+template<Numeric StyleType, typename... Rest>
+auto convertNumericFromCSSValue(const CSSToLengthConversionData& conversionData, const CSSPrimitiveValue& value, Rest&&... rest) -> StyleType
+{
+    using CSSRaw = typename StyleType::CSS::Raw;
 
-template<auto R, typename V> struct CSSValueConversion<Number<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Number<R, V>
-    {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsNumber<V>(builderState.cssToLengthConversionData())) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Number<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_number;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsNumber<V>(builderState.cssToLengthConversionData())) };
-    }
-};
+    return WTF::switchOn(value,
+        [&](const CSSPrimitiveValue::Calc& calc) -> StyleType {
+            return toStyle(CSS::UnevaluatedCalc<CSSRaw> { calc }, conversionData, std::forward<Rest>(rest)...);
+        },
+        [&](const CSSPrimitiveValue::Raw& raw) -> StyleType {
+            if constexpr (DimensionPercentageNumeric<StyleType>) {
+                using CSSDimensionRaw = typename StyleType::Dimension::CSS::Raw;
+                using CSSPercentageRaw = typename StyleType::Percentage::CSS::Raw;
 
-template<auto R, typename V> struct CSSValueConversion<Percentage<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Percentage<R, V>
-    {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsPercentage<V>(builderState.cssToLengthConversionData())) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Percentage<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_percentage;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsPercentage<V>(builderState.cssToLengthConversionData())) };
-    }
-};
+                if (auto unit = CSSDimensionRaw::UnitTraits::validate(raw.unit))
+                    return toStyle(CSSDimensionRaw(*unit, raw.value), conversionData, std::forward<Rest>(rest)...);
+                if (auto unit = CSSPercentageRaw::UnitTraits::validate(raw.unit))
+                    return toStyle(CSSPercentageRaw(*unit, raw.value), conversionData, std::forward<Rest>(rest)...);
+            } else if constexpr (StyleType::category == CSS::Category::Integer || StyleType::category == CSS::Category::Number) {
+                if (raw.unit == CSSUnitType::CSS_NUMBER || raw.unit == CSSUnitType::CSS_INTEGER)
+                    return toStyle(CSSRaw(raw.value), conversionData, std::forward<Rest>(rest)...);
+            } else {
+                if (auto unit = CSSRaw::UnitTraits::validate(raw.unit))
+                    return toStyle(CSSRaw(*unit, raw.value), conversionData, std::forward<Rest>(rest)...);
+            }
 
-template<auto R, typename V> struct CSSValueConversion<Angle<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Angle<R, V>
-    {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsAngle<V>(builderState.cssToLengthConversionData())) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Angle<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_deg;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsAngle<V>(builderState.cssToLengthConversionData())) };
-    }
-};
+            ASSERT_NOT_REACHED();
 
-template<auto R, typename V> struct CSSValueConversion<Length<R, V>> {
-    static auto selectConversionData(BuilderState& builderState) -> CSSToLengthConversionData
-    {
-        if constexpr (R.zoomOptions == CSS::RangeZoomOptions::Default) {
-            return builderState.useSVGZoomRulesForLength()
-                ? builderState.cssToLengthConversionData().copyWithAdjustedZoom(1.0f)
-                : builderState.cssToLengthConversionData();
-        } else if constexpr (R.zoomOptions == CSS::RangeZoomOptions::Unzoomed) {
-            if (evaluationTimeZoomEnabled(builderState))
-                return builderState.cssToLengthConversionData().copyWithAdjustedZoom(1.0f, R.zoomOptions);
+            if constexpr (DimensionPercentageNumeric<StyleType>) {
+                return StyleType { typename StyleType::Dimension { 0 } };
+            } else {
+                return StyleType { 0 };
+            }
+        }
+    );
+}
 
-            return builderState.useSVGZoomRulesForLength()
-                ? builderState.cssToLengthConversionData().copyWithAdjustedZoom(1.0f, R.zoomOptions)
-                : builderState.cssToLengthConversionData();
+template<Numeric StyleType, typename... Rest>
+auto convertNumericFromCSSValue(BuilderState& state, const CSSPrimitiveValue& value, Rest&&... rest) -> StyleType
+{
+    using CSSRaw = typename StyleType::CSS::Raw;
+
+    return WTF::switchOn(value,
+        [&](const CSSPrimitiveValue::Calc& calc) -> StyleType {
+            return toStyle(CSS::UnevaluatedCalc<CSSRaw> { calc }, state, std::forward<Rest>(rest)...);
+        },
+        [&](const CSSPrimitiveValue::Raw& raw) -> StyleType {
+            if constexpr (DimensionPercentageNumeric<StyleType>) {
+                using CSSDimensionRaw = typename StyleType::Dimension::CSS::Raw;
+                using CSSPercentageRaw = typename StyleType::Percentage::CSS::Raw;
+
+                if (auto unit = CSSDimensionRaw::UnitTraits::validate(raw.unit))
+                    return toStyle(CSSDimensionRaw(*unit, raw.value), state, std::forward<Rest>(rest)...);
+                if (auto unit = CSSPercentageRaw::UnitTraits::validate(raw.unit))
+                    return toStyle(CSSPercentageRaw(*unit, raw.value), state, std::forward<Rest>(rest)...);
+            } else if constexpr (StyleType::category == CSS::Category::Integer || StyleType::category == CSS::Category::Number) {
+                if (raw.unit == CSSUnitType::CSS_NUMBER || raw.unit == CSSUnitType::CSS_INTEGER)
+                    return toStyle(CSSRaw(raw.value), state, std::forward<Rest>(rest)...);
+            } else {
+                if (auto unit = CSSRaw::UnitTraits::validate(raw.unit))
+                    return toStyle(CSSRaw(*unit, raw.value), state, std::forward<Rest>(rest)...);
+            }
+
+            ASSERT_NOT_REACHED();
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+
+            if constexpr (DimensionPercentageNumeric<StyleType>) {
+                return StyleType { typename StyleType::Dimension { 0 } };
+            } else {
+                return StyleType { 0 };
+            }
+        }
+    );
+}
+
+template<Numeric StyleType, typename... Rest>
+auto convertNumericFromCSSValue(BuilderState& state, const CSSValue& value, Rest&&... rest) -> StyleType
+{
+    RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(state, value);
+    if (!protectedValue) {
+        if constexpr (DimensionPercentageNumeric<StyleType>) {
+            return StyleType { typename StyleType::Dimension { 0 } };
+        } else {
+            return StyleType { 0 };
         }
     }
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Length<R, V>
-    {
-        Ref protectedValue = value;
-        auto conversionData = selectConversionData(builderState);
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsLength<V>(conversionData)) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Length<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_px;
+    return toStyleFromCSSValue<StyleType>(state, *protectedValue, std::forward<Rest>(rest)...);
+}
 
-        auto conversionData = selectConversionData(builderState);
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsLength<V>(conversionData)) };
-    }
-    auto operator()(const CSSToLengthConversionData& conversionData, const CSSPrimitiveValue& value) -> Length<R, V>
-    {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsLength<V>(conversionData)) };
-    }
-};
+template<Numeric NumericType> struct CSSValueConversion<NumericType> {
+    using StyleType = NumericType;
 
-template<auto R, typename V> struct CSSValueConversion<Time<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Time<R, V>
+    template<typename... Rest> auto operator()(const CSSToLengthConversionData& conversionData, const CSSPrimitiveValue& value, Rest&&... rest) -> StyleType
     {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsTime<V>(builderState.cssToLengthConversionData())) };
+        return convertNumericFromCSSValue<StyleType>(conversionData, value, std::forward<Rest>(rest)...);
     }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Time<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_s;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsTime<V>(builderState.cssToLengthConversionData())) };
-    }
-};
 
-template<auto R, typename V> struct CSSValueConversion<Resolution<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Resolution<R, V>
+    template<typename... Rest> auto operator()(BuilderState& state, const CSSPrimitiveValue& value, Rest&&... rest) -> StyleType
     {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsResolution<V>(builderState.cssToLengthConversionData())) };
+        return convertNumericFromCSSValue<StyleType>(state, value, std::forward<Rest>(rest)...);
     }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Resolution<R, V>
+    template<typename... Rest> auto operator()(BuilderState& state, const CSSValue& value, Rest&&... rest) -> StyleType
     {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_dppx;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsResolution<V>(builderState.cssToLengthConversionData())) };
-    }
-};
-
-template<auto R, typename V> struct CSSValueConversion<Flex<R, V>> {
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> Flex<R, V>
-    {
-        Ref protectedValue = value;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsFlex<V>(builderState.cssToLengthConversionData())) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> Flex<R, V>
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_fr;
-        return { CSS::clampToRange<R, V>(protectedValue->resolveAsFlex<V>(builderState.cssToLengthConversionData())) };
-    }
-};
-
-template<auto R, typename V> struct CSSValueConversion<LengthPercentage<R, V>> {
-    using StyleType = LengthPercentage<R, V>;
-
-    static auto selectConversionData(BuilderState& builderState) -> CSSToLengthConversionData
-    {
-        if constexpr (StyleType::Dimension::range.zoomOptions == CSS::RangeZoomOptions::Default) {
-            return builderState.useSVGZoomRulesForLength()
-                ? builderState.cssToLengthConversionData().copyWithAdjustedZoom(1.0f)
-                : builderState.cssToLengthConversionData();
-        } else if constexpr (LengthPercentage<R, V>::Dimension::range.zoomOptions == CSS::RangeZoomOptions::Unzoomed) {
-            if (evaluationTimeZoomEnabled(builderState))
-                return builderState.cssToLengthConversionData().copyWithAdjustedZoom(1.0f);
-
-            return builderState.useSVGZoomRulesForLength()
-                ? builderState.cssToLengthConversionData().copyWithAdjustedZoom(1.0f)
-                : builderState.cssToLengthConversionData();
-        }
-    }
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> StyleType
-    {
-        Ref protectedValue = value;
-        auto conversionData = selectConversionData(builderState);
-        if (protectedValue->isPercentage())
-            return typename StyleType::Percentage { CSS::clampToRange<R, V>(protectedValue->resolveAsPercentage<V>(conversionData)) };
-        if (protectedValue->isCalculatedPercentageWithLength())
-            return typename StyleType::Calc { protect(protectedValue->cssCalcValue())->createCalculationValue(conversionData, CSSCalcSymbolTable { }) };
-        return typename StyleType::Dimension { CSS::clampToRange<R, V>(protectedValue->resolveAsLength<V>(conversionData)) };
-    }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> StyleType
-    {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-        if (!protectedValue)
-            return 0_css_px;
-        auto conversionData = selectConversionData(builderState);
-        if (protectedValue->isPercentage())
-            return typename StyleType::Percentage { CSS::clampToRange<R, V>(protectedValue->resolveAsPercentage<V>(conversionData)) };
-        if (protectedValue->isCalculatedPercentageWithLength())
-            return typename StyleType::Calc { protect(protectedValue->cssCalcValue())->createCalculationValue(conversionData, CSSCalcSymbolTable { }) };
-        return typename StyleType::Dimension { CSS::clampToRange<R, V>(protectedValue->resolveAsLength<V>(conversionData)) };
+        return convertNumericFromCSSValue<StyleType>(state, value, std::forward<Rest>(rest)...);
     }
 };
 
 template<auto nR, auto pR, typename V> struct CSSValueConversion<NumberOrPercentage<nR, pR, V>> {
     using StyleType = NumberOrPercentage<nR, pR, V>;
 
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> StyleType
+    template<typename... Rest> auto operator()(BuilderState& state, const CSSPrimitiveValue& value, Rest&&... rest) -> StyleType
     {
-        Ref protectedValue = value;
-
-        auto& conversionData = builderState.cssToLengthConversionData();
-        if (protectedValue->isPercentage())
-            return typename StyleType::Percentage { CSS::clampToRange<pR, V>(protectedValue->resolveAsPercentage<V>(conversionData)) };
-        return typename StyleType::Number { CSS::clampToRange<nR, V>(protectedValue->resolveAsNumber<V>(conversionData)) };
+        if (value.isPercentage())
+            return toStyleFromCSSValue<typename StyleType::Percentage>(state, value, std::forward<Rest>(rest)...);
+        return toStyleFromCSSValue<typename StyleType::Number>(state, value, std::forward<Rest>(rest)...);
     }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> StyleType
+    template<typename... Rest> auto operator()(BuilderState& state, const CSSValue& value, Rest&&... rest) -> StyleType
     {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
+        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(state, value);
         if (!protectedValue)
-            return 0_css_number;
-
-        auto& conversionData = builderState.cssToLengthConversionData();
-        if (protectedValue->isPercentage())
-            return typename StyleType::Percentage { CSS::clampToRange<pR, V>(protectedValue->resolveAsPercentage<V>(conversionData)) };
-        return typename StyleType::Number { CSS::clampToRange<nR, V>(protectedValue->resolveAsNumber<V>(conversionData)) };
+            return StyleType { typename StyleType::Number { 0 } };
+        return toStyleFromCSSValue<StyleType>(state, *protectedValue, std::forward<Rest>(rest)...);
     }
 };
 
 template<auto nR, auto pR, typename V> struct CSSValueConversion<NumberOrPercentageResolvedToNumber<nR, pR, V>> {
     using StyleType = NumberOrPercentageResolvedToNumber<nR, pR, V>;
 
-    auto operator()(BuilderState& builderState, const CSSPrimitiveValue& value) -> StyleType
+    template<typename... Rest> auto operator()(BuilderState& state, const CSSPrimitiveValue& value, Rest&&... rest) -> StyleType
     {
-        Ref protectedValue = value;
-
-        auto& conversionData = builderState.cssToLengthConversionData();
-        if (protectedValue->isPercentage())
-            return typename StyleType::Percentage { CSS::clampToRange<pR, V>(protectedValue->resolveAsPercentage<V>(conversionData)) };
-        return typename StyleType::Number { CSS::clampToRange<nR, V>(protectedValue->resolveAsNumber<V>(conversionData)) };
+        if (value.isPercentage())
+            return toStyleFromCSSValue<typename StyleType::Percentage>(state, value, std::forward<Rest>(rest)...);
+        return toStyleFromCSSValue<typename StyleType::Number>(state, value, std::forward<Rest>(rest)...);
     }
-    auto operator()(BuilderState& builderState, const CSSValue& value) -> StyleType
+    template<typename... Rest> auto operator()(BuilderState& state, const CSSValue& value, Rest&&... rest) -> StyleType
     {
-        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
+        RefPtr protectedValue = requiredDowncast<CSSPrimitiveValue>(state, value);
         if (!protectedValue)
-            return 0_css_number;
-
-        auto& conversionData = builderState.cssToLengthConversionData();
-        if (protectedValue->isPercentage())
-            return typename StyleType::Percentage { CSS::clampToRange<pR, V>(protectedValue->resolveAsPercentage<V>(conversionData)) };
-        return typename StyleType::Number { CSS::clampToRange<nR, V>(protectedValue->resolveAsNumber<V>(conversionData)) };
+            return StyleType { 0 };
+        return toStyleFromCSSValue<StyleType>(state, *protectedValue, std::forward<Rest>(rest)...);
     }
 };
 

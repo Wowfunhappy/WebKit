@@ -178,7 +178,7 @@ bool SystemSettingsManagerProxy::primaryButtonWarpsSlider() const
 
 bool SystemSettingsManagerProxy::overlayScrolling() const
 {
-    return true;
+    return getBool(m_settings, WPE_SETTING_OVERLAY_SCROLLBARS, true);
 }
 
 bool SystemSettingsManagerProxy::enableAnimations() const

@@ -34,12 +34,23 @@ extension WKIdentityDocumentPresentmentMobileDocumentElementInfo {
 
 extension WKIdentityDocumentPresentmentMobileDocumentIndividualDocumentRequest {
     convenience init(_ source: ISO18013MobileDocumentRequest.DocumentRequest) {
+        #if HAVE_DC_ISSUER_IDENTIFIER_SUPPORT
         self.init(
             documentType: source.documentType,
             namespaces: source.namespaces.mapValues {
                 $0.mapValues(WKIdentityDocumentPresentmentMobileDocumentElementInfo.init(_:))
-            }
+            },
+            issuerIdentifiers: source.issuerKeyIdentifiers
         )
+        #else
+        self.init(
+            documentType: source.documentType,
+            namespaces: source.namespaces.mapValues {
+                $0.mapValues(WKIdentityDocumentPresentmentMobileDocumentElementInfo.init(_:))
+            },
+            issuerIdentifiers: nil
+        )
+        #endif
     }
 }
 

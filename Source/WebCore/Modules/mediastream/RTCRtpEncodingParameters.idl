@@ -33,6 +33,7 @@
     [ImplementationDefaultValue=0] unsigned long ssrc;
 
     boolean active = true;
+    RTCRtpCodec codec;
     unsigned long maxBitrate;
     double maxFramerate;
     double scaleResolutionDownBy;

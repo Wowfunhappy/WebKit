@@ -32,8 +32,6 @@
 #include <WebCore/IntPoint.h>
 #include <wtf/JSONValues.h>
 #include <wtf/MathExtras.h>
-#include <wtf/Platform.h>
-#include <wtf/text/WTFString.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include <CoreGraphics/CoreGraphics.h>
@@ -124,6 +122,17 @@ public:
     float diagonalLength() const
     {
         return std::hypot(m_width, m_height);
+    }
+
+    FloatSize normalized() const
+    {
+        float length = diagonalLength();
+        return !length ? *this : scaled(1.0f / length);
+    }
+
+    constexpr FloatSize perpendicular() const
+    {
+        return { -m_height, m_width };
     }
 
     constexpr float diagonalLengthSquared() const
@@ -242,22 +251,22 @@ inline bool areEssentiallyEqual(const FloatSize& a, const FloatSize& b)
 
 inline IntSize roundedIntSize(const FloatSize& p)
 {
-    return IntSize(clampToInteger(roundf(p.width())), clampToInteger(roundf(p.height())));
+    return IntSize(clampTo<int>(roundf(p.width())), clampTo<int>(roundf(p.height())));
 }
 
 inline IntSize flooredIntSize(const FloatSize& p)
 {
-    return IntSize(clampToInteger(floorf(p.width())), clampToInteger(floorf(p.height())));
+    return IntSize(clampTo<int>(floorf(p.width())), clampTo<int>(floorf(p.height())));
 }
 
 inline IntSize expandedIntSize(const FloatSize& p)
 {
-    return IntSize(clampToInteger(ceilf(p.width())), clampToInteger(ceilf(p.height())));
+    return IntSize(clampTo<int>(ceilf(p.width())), clampTo<int>(ceilf(p.height())));
 }
 
 inline IntPoint flooredIntPoint(const FloatSize& p)
 {
-    return IntPoint(clampToInteger(floorf(p.width())), clampToInteger(floorf(p.height())));
+    return IntPoint(clampTo<int>(floorf(p.width())), clampTo<int>(floorf(p.height())));
 }
 
 constexpr FloatSize FloatSize::nanSize()

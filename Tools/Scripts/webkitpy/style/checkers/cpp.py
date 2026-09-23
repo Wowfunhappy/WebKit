@@ -48,6 +48,7 @@ import unicodedata
 from webkitcorepy import unicode, Version
 
 from webkitpy.style.checkers.common import match, search, sub, subn
+from webkitpy.style.checkers.computed_style_inline_includes import ComputedStyleInlineIncludesChecker
 from webkitpy.style.checkers.inclusive_language import InclusiveLanguageChecker
 from webkitpy.common.memoized import memoized
 from webkitpy.common.version_name_map import VersionNameMap
@@ -162,6 +163,8 @@ _NO_CONFIG_H_PATH_PATTERNS = [
     '^Source/bmalloc/',
     '^Source/WebKitLegacy/',
 ]
+
+_LIBPAS_PATH_PATTERN = '(^|/)Source/bmalloc/libpas/'
 
 _EXPORT_MACRO_SPEC = {
     'BEXPORT': '(Source/bmalloc|Source/JavaScriptCore/API/ExtraSymbolsForTAPI.h)',
@@ -1010,21 +1013,32 @@ def check_for_header_guard(file_path, lines, error):
     if filename == 'config.h' or filename.endswith('Prefix.h'):
         return
 
+    in_libpas = is_libpas_path(file_path)
+
     first_blank_line_number = 0
     has_import_statement = False
     has_objc_check = False
     has_objc_keywords = False
+    pragma_once_line_number = None
     for line_number, line in enumerate(lines):
         if line == '' and first_blank_line_number == 0:
             first_blank_line_number = line_number
         if line.startswith('#pragma once'):
-            return
+            if in_libpas:
+                pragma_once_line_number = line_number
+            else:
+                return
         if line.startswith('#import '):
             has_import_statement = True
         if '__OBJC__' in line:
             has_objc_check = True
         if functools.reduce(lambda x, y: x or y, map(lambda x: x in line, ['@class', '@interface', '@protocol'])):
             has_objc_keywords = True
+
+    if in_libpas and pragma_once_line_number is not None:
+        error(pragma_once_line_number, 'build/header_guard', 5,
+              'Do not use #pragma once in libpas; use #ifndef/#define header guards instead.')
+        return
 
     if (has_import_statement or has_objc_keywords) and not has_objc_check:
         return  # Objective-C-only headers don't need guards.
@@ -1039,13 +1053,19 @@ def check_for_header_guard(file_path, lines, error):
             if len(previous_line_split) >= 2 and len(line_split) >= 2:
                 if previous_line_split[0] == '#ifndef' and line_split[0] == '#define' \
                         and previous_line_split[1] == line_split[1]:
+                    if in_libpas:
+                        return  # libpas uses #ifndef/#define guards.
                     error(line_number, 'build/header_guard', 5,
                           'Use #pragma once instead of #ifndef for header guard.')
                     return
         previous_line = line
 
-    error(first_blank_line_number + 1, 'build/header_guard_missing', 5,
-          'Missing #pragma once for header guard.')
+    if in_libpas:
+        error(first_blank_line_number + 1, 'build/header_guard_missing', 5,
+              'Missing #ifndef/#define header guard.')
+    else:
+        error(first_blank_line_number + 1, 'build/header_guard_missing', 5,
+              'Missing #pragma once for header guard.')
 
 
 def check_for_unicode_replacement_characters(lines, error):
@@ -1226,6 +1246,9 @@ def check_os_version_checks(filename, clean_lines, line_number, error):
     """
 
     line = clean_lines.elided[line_number]
+
+    if 'VERSION_M' not in line:
+        return
 
     for version_match in _RE_PATTERN_XCODE_MIN_REQUIRED_MACRO.finditer(line):
         version_number = int(version_match.group(2))
@@ -2437,7 +2460,7 @@ def check_spacing(file_extension, clean_lines, line_number, file_state, error):
     # 'delete []' or 'new char * []'. Objective-C can't follow this rule
     # because of method calls.
     if file_extension != 'mm' and file_extension != 'm':
-        if search(r'\w\s+\[', line) and not search(r'(delete|return|auto)\s+\[', line) and not search(r'\s+\[\[(likely|unlikely)\]\]', line):
+        if search(r'\w\s+\[', line) and not search(r'(delete|return|auto)\s+\[', line) and not search(r'\s+\[\[(likely|unlikely|noreturn)\]\]', line):
             error(line_number, 'whitespace/brackets', 5,
                   'Extra space before [.')
 
@@ -2614,7 +2637,7 @@ def check_namespace_indentation(clean_lines, line_number, file_extension, file_s
 _ALLOW_ALL_UPPERCASE_ENUM = ['JSTokenType']
 
 # Enum value allowlist
-_ALLOW_ABBREVIATION_ENUM_VALUES = ['AM', 'CF', 'GPU', 'LTR', 'PM', 'RTL', 'URL', 'XHR']
+_ALLOW_ABBREVIATION_ENUM_VALUES = ['AM', 'CF', 'COOP', 'GPU', 'LTR', 'PM', 'RTL', 'URL', 'XHR']
 
 
 def check_enum_members(clean_lines, line_number, enum_state, error):
@@ -2768,10 +2791,6 @@ def check_using_namespace(clean_lines, line_number, file_extension, error):
       error: The function to call with any errors found.
     """
 
-    # This check applies only to headers.
-    if file_extension != 'h':
-        return
-
     line = clean_lines.elided[line_number]  # Get rid of comments and strings.
 
     using_namespace_match = match(r'\s*using\s+namespace\s+(?P<method_name>\S+)\s*;\s*$', line)
@@ -2779,8 +2798,25 @@ def check_using_namespace(clean_lines, line_number, file_extension, error):
         return
 
     method_name = using_namespace_match.group('method_name')
-    error(line_number, 'build/using_namespace', 4,
-          "Do not use 'using namespace %s;'." % method_name)
+
+    if file_extension == 'h':
+        error(line_number, 'build/using_namespace', 4,
+              "Do not use 'using namespace %s;'." % method_name)
+        return
+
+    # In implementation files, only flag true file scope: a using-directive that
+    # appears before any 'namespace X {' opener. Inside a namespace body the
+    # directive is contained, which is the recommended fix; inside a function
+    # (indented) it is scoped.
+    if file_extension in ('cpp', 'cc', 'mm', 'm') and not line.startswith((' ', '\t')):
+        if method_name.startswith('std::literals'):
+            return
+        for preceding in clean_lines.elided[:line_number]:
+            if match(r'\s*namespace\s+[\w:]*\s*{', preceding):
+                return
+        error(line_number, 'build/using_namespace', 4,
+              "Do not use 'using namespace %s;' at file or namespace scope; "
+              "global using namespace is likely to cause name collisions in the unified build." % method_name)
 
 
 def check_max_min_macros(clean_lines, line_number, file_state, error):
@@ -2858,6 +2894,29 @@ def check_wtf_move(clean_lines, line_number, file_state, error):
     using_wtfmove = search(r'\bWTFMove\s*\(', line)
     if using_wtfmove:
         error(line_number, 'runtime/wtf_move', 4, "Use 'WTF::move()' instead of 'WTFMove()'.")
+
+
+def check_wtf_to_array(clean_lines, line_number, file_state, error):
+    """Looks for use of 'std::to_array' which should be replaced with 'WTF::toArray()'.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    # This check doesn't apply to C or Objective-C implementation files.
+    if file_state.is_c_or_objective_c():
+        return
+
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+
+    using_std_to_array = search(r'\bstd::to_array\s*[<(]', line)
+    if using_std_to_array:
+        error(line_number, 'runtime/wtf_to_array', 4, "Use 'WTF::toArray()' instead of 'std::to_array()'.")
+
 
 def check_unsafe_get(clean_lines, line_number, file_state, error):
     """Looks for use of 'unsafeGet()' or 'unsafePtr()' which should be avoided.
@@ -3075,6 +3134,34 @@ def check_wtf_xpc_object_ptr(clean_lines, line_number, file_state, error):
     if using_adoptns:
         error(line_number, 'runtime/wtf_xpc_object_ptr', 4, "Use 'adoptOSObject()' instead of 'adoptNS()' for XPC objects.")
         return
+
+
+def check_auto_with_adopt(clean_lines, line_number, file_state, error):
+    """Looks for usage of 'auto' with adopt functions, which should use the explicit smart pointer type.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+
+    matched = search(r'\bauto\b\s+\w+\s*=\s*adopt(NS|CF|GDIObject|OSObject|Ref|GRef)\b', line)
+    if matched:
+        adopt_func = 'adopt' + matched.group(1)
+        type_map = {
+            'adoptNS': 'RetainPtr',
+            'adoptCF': 'RetainPtr',
+            'adoptGDIObject': 'GDIObject',
+            'adoptOSObject': 'OSObjectPtr',
+            'adoptRef': 'Ref/RefPtr',
+            'adoptGRef': 'GRefPtr',
+        }
+        smart_ptr = type_map.get(adopt_func, 'the appropriate smart pointer type')
+        error(line_number, 'runtime/auto_with_adopt', 4, "Use '%s' instead of 'auto' with '%s()'." % (smart_ptr, adopt_func))
 
 
 def check_lock_guard(clean_lines, line_number, file_state, error):
@@ -3827,7 +3914,8 @@ def check_safer_cpp(clean_lines, line_number, error):
         error(line_number, 'safercpp/protected_getter_for_init', 4,
               "Do not use protect() for variable initialization. Use the declared type (not auto) and remove the call to protect().")
 
-def check_style(clean_lines, line_number, file_extension, class_state, file_state, enum_state, error):
+
+def check_style(clean_lines, line_number, file_extension, class_state, file_state, enum_state, error, line_numbers=None):
     """Checks rules from the 'C++ style rules' section of cppguide.html.
 
     Most of these rules are hard to test (naming, comment style), but we
@@ -3848,6 +3936,12 @@ def check_style(clean_lines, line_number, file_extension, class_state, file_stat
 
     raw_lines = clean_lines.raw_lines
     line = raw_lines[line_number]
+
+    check_namespace_indentation(clean_lines, line_number, file_extension, file_state, error)
+    check_enum_members(clean_lines, line_number, enum_state, error)
+
+    if line_numbers is not None and line_number not in line_numbers:
+        return
 
     if line.find('\t') != -1:
         error(line_number, 'whitespace/tab', 1,
@@ -3884,7 +3978,6 @@ def check_style(clean_lines, line_number, file_extension, class_state, file_stat
               'operators on the left side of the line instead of the right side.')
 
     # Some more style checks
-    check_namespace_indentation(clean_lines, line_number, file_extension, file_state, error)
     check_directive_indentation(clean_lines, line_number, file_state, error)
     check_using_std(clean_lines, line_number, file_state, error)
     check_variant_usage(clean_lines, line_number, file_state, error)
@@ -3892,11 +3985,13 @@ def check_style(clean_lines, line_number, file_extension, class_state, file_stat
     check_max_min_macros(clean_lines, line_number, file_state, error)
     check_wtf_checked_size(clean_lines, line_number, file_state, error)
     check_wtf_move(clean_lines, line_number, file_state, error)
+    check_wtf_to_array(clean_lines, line_number, file_state, error)
     check_unsafe_get(clean_lines, line_number, file_state, error)
     check_wtf_make_unique(clean_lines, line_number, file_state, error)
     check_wtf_never_destroyed(clean_lines, line_number, file_state, error)
     check_wtf_os_object_ptr(clean_lines, line_number, file_state, error)
     check_wtf_xpc_object_ptr(clean_lines, line_number, file_state, error)
+    check_auto_with_adopt(clean_lines, line_number, file_state, error)
     check_lock_guard(clean_lines, line_number, file_state, error)
     check_log(clean_lines, line_number, file_state, error)
     check_ctype_functions(clean_lines, line_number, file_state, error)
@@ -3910,7 +4005,6 @@ def check_style(clean_lines, line_number, file_extension, class_state, file_stat
     check_for_null(clean_lines, line_number, file_state, error)
     check_soft_link_class_alloc(clean_lines, line_number, error)
     check_indentation_amount(clean_lines, line_number, error)
-    check_enum_members(clean_lines, line_number, enum_state, error)
     check_once_flag(clean_lines, line_number, error)
     check_arguments_for_wk_api_available(clean_lines, line_number, error)
     check_objc_protocol(clean_lines, line_number, file_extension, error)
@@ -4131,7 +4225,7 @@ def check_include_line(filename, file_extension, clean_lines, line_number, inclu
         return
 
     # Check to make sure *Includes.h headers never appear inside a non-Includes.h header.
-    if header_type == _INLINES_HEADER and file_is_header and not filename.endswith('Inlines.h'):
+    if header_type == _INLINES_HEADER and file_is_header and not filename.endswith('Inlines.h') and not filename.endswith('Prefix.h'):
         error(line_number, 'build-speed/inlines', 4, 'Never put an Inlines.h header in a non-Inlines.h header.')
 
     # Check to make sure we have a blank line after and none before primary header.
@@ -4146,8 +4240,10 @@ def check_include_line(filename, file_extension, clean_lines, line_number, inclu
                 'You should not add a blank line before implementation file\'s own header.')
 
     # Check to make sure all headers besides config.h and the primary header are
-    # alphabetically sorted.
-    if not error_message and header_type == _OTHER_HEADER and not search(r'\A#include.*\.lut\.h', line):
+    # alphabetically sorted. Prefix headers are exempt: their include order is
+    # load-bearing (export macros must precede project headers; chain-parent
+    # prefix must precede everything).
+    if not error_message and header_type == _OTHER_HEADER and not search(r'\A#include.*\.lut\.h', line) and not filename.endswith('Prefix.h'):
         previous_line_number = line_number - 1
         previous_line = clean_lines.lines[previous_line_number]
         previous_match = _RE_PATTERN_INCLUDE.search(previous_line)
@@ -4188,7 +4284,7 @@ def check_include_line(filename, file_extension, clean_lines, line_number, inclu
 
 
 def check_language(filename, clean_lines, line_number, file_extension, include_state,
-                   file_state, error):
+                   file_state, error, line_numbers=None):
     """Checks rules from the 'C++ language rules' section of cppguide.html.
 
     Some of these rules are hard to test (function overloading, using
@@ -4213,6 +4309,9 @@ def check_language(filename, clean_lines, line_number, file_extension, include_s
     matched = _RE_PATTERN_INCLUDE.search(line)
     if matched:
         check_include_line(filename, file_extension, clean_lines, line_number, include_state, error)
+        return
+
+    if line_numbers is not None and line_number not in line_numbers:
         return
 
     # FIXME: figure out if they're using default arguments in fn proto.
@@ -4793,6 +4892,11 @@ def check_has_config_header(file_path):
     return True
 
 
+def is_libpas_path(file_path):
+    """Check if the file is inside libpas, which uses #ifndef/#define header guards rather than #pragma once."""
+    return re.search(_LIBPAS_PATH_PATTERN, _unix_path(file_path)) is not None
+
+
 def files_belong_to_same_module(filename_cpp, filename_h):
     """Check if these two filenames belong to the same module.
 
@@ -4878,7 +4982,7 @@ def update_include_state(filename, include_state, io=codecs):
     return True
 
 
-def check_for_include_what_you_use(filename, clean_lines, include_state, error):
+def check_for_include_what_you_use(filename, clean_lines, include_state, error, line_numbers=None):
     """Reports for missing stl includes.
 
     This function will output warnings to make sure you are including the headers
@@ -4897,6 +5001,8 @@ def check_for_include_what_you_use(filename, clean_lines, include_state, error):
         # Example of required: { '<functional>': (1219, 'less<>') }
 
     for line_number in range(clean_lines.num_lines()):
+        if line_numbers is not None and line_number not in line_numbers:
+            continue
         line = clean_lines.elided[line_number]
         if not line or line[0] == '#':
             continue
@@ -4976,7 +5082,7 @@ def check_platformh_comments(lines, error):
 
 def process_line(filename, file_extension,
                  clean_lines, line, include_state, function_state,
-                 class_state, file_state, enum_state, asm_state, error):
+                 class_state, file_state, enum_state, asm_state, error, line_numbers=None):
     """Processes a single line in the file.
 
     Args:
@@ -5010,12 +5116,16 @@ def process_line(filename, file_extension,
         return
     check_function_definition(filename, file_extension, clean_lines, line, class_state, function_state, error)
     check_function_body(filename, file_extension, clean_lines, line, class_state, function_state, error)
+    check_style(clean_lines, line, file_extension, class_state, file_state, enum_state, error, line_numbers)
+    check_language(filename, clean_lines, line, file_extension, include_state,
+                   file_state, error, line_numbers)
+    check_for_non_standard_constructs(clean_lines, line, class_state, error)
+
+    if line_numbers is not None and line not in line_numbers:
+        return
+
     check_for_leaky_patterns(clean_lines, line, function_state, error)
     check_for_multiline_comments(clean_lines, line, error)
-    check_style(clean_lines, line, file_extension, class_state, file_state, enum_state, error)
-    check_language(filename, clean_lines, line, file_extension, include_state,
-                   file_state, error)
-    check_for_non_standard_constructs(clean_lines, line, class_state, error)
     check_posix_threading(clean_lines, line, error)
     check_invalid_increment(clean_lines, line, error)
     check_os_version_checks(filename, clean_lines, line, error)
@@ -5040,7 +5150,7 @@ class _InlineASMState(object):
         return self._is_in_asm
 
 
-def _process_lines(filename, file_extension, lines, error, min_confidence):
+def _process_lines(filename, file_extension, lines, error, min_confidence, line_numbers=None):
     """Performs lint checks and reports any errors to the given error function.
 
     Args:
@@ -5072,10 +5182,10 @@ def _process_lines(filename, file_extension, lines, error, min_confidence):
     for line in range(clean_lines.num_lines()):
         process_line(filename, file_extension, clean_lines, line,
                      include_state, function_state, class_state, file_state,
-                     enum_state, asm_state, error)
+                     enum_state, asm_state, error, line_numbers)
     class_state.check_finished(error)
 
-    check_for_include_what_you_use(filename, clean_lines, include_state, error)
+    check_for_include_what_you_use(filename, clean_lines, include_state, error, line_numbers)
 
     # We check here rather than inside process_line so that we see raw
     # lines rather than "cleaned" lines.
@@ -5176,9 +5286,13 @@ class CppChecker(object):
         'runtime/unsafe_get_ptr',
         'runtime/unsigned',
         'runtime/virtual',
+        'runtime/auto_with_adopt',
+        'runtime/js_cast',
+        'runtime/js_dynamic_cast',
         'runtime/wtf_checked_size',
         'runtime/wtf_make_unique',
         'runtime/wtf_move',
+        'runtime/wtf_to_array',
         'runtime/wtf_never_destroyed',
         'runtime/wtf_os_object_ptr',
         'runtime/wtf_xpc_object_ptr',
@@ -5248,6 +5362,7 @@ class CppChecker(object):
         self.handle_style_error = handle_style_error
         self.min_confidence = min_confidence
         self._inclusive_language_checker = InclusiveLanguageChecker(handle_style_error)
+        self._computed_style_inline_includes_checker = ComputedStyleInlineIncludesChecker(file_path, handle_style_error)
         _unit_test_config = unit_test_config
 
     # Useful for unit testing.
@@ -5269,9 +5384,18 @@ class CppChecker(object):
         # Python does not automatically deduce __ne__() from __eq__().
         return not self.__eq__(other)
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
+        """Check the given lines for style errors.
+
+        Args:
+          lines: File contents.
+          line_numbers: 1-based set of changed lines from the diff.
+                       None means check all lines (whole-file mode).
+        """
         if is_generated_file(self.file_path):
             return
         _process_lines(self.file_path, self.file_extension, lines,
-                       self.handle_style_error, self.min_confidence)
+                       self.handle_style_error, self.min_confidence,
+                       set(line_numbers) if line_numbers is not None else None)
         self._inclusive_language_checker.check(lines)
+        self._computed_style_inline_includes_checker.check(lines, line_numbers)

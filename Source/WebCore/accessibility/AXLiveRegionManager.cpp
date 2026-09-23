@@ -136,10 +136,9 @@ void AXLiveRegionManager::registerLiveRegion(AccessibilityObject& object, bool s
 
 static LiveRegionStatus stringToLiveRegionStatus(const String& string)
 {
-    String lowercaseString = string.convertToASCIILowercase();
-    if (lowercaseString == "assertive")
+    if (equalLettersIgnoringASCIICase(string, "assertive"_s))
         return LiveRegionStatus::Assertive;
-    if (lowercaseString == "polite")
+    if (equalLettersIgnoringASCIICase(string, "polite"_s))
         return LiveRegionStatus::Polite;
 
     return LiveRegionStatus::Off;
@@ -147,16 +146,15 @@ static LiveRegionStatus stringToLiveRegionStatus(const String& string)
 
 static OptionSet<LiveRegionRelevant> stringToLiveRegionRelevant(const String& string)
 {
-    Vector<String> strings = string.convertToASCIILowercase().split(" "_s);
     OptionSet<LiveRegionRelevant> result;
-    for (const auto& attribute : strings) {
-        if (attribute == "additions")
+    for (auto attribute : StringView(string).split(' ')) {
+        if (equalLettersIgnoringASCIICase(attribute, "additions"_s))
             result.add(LiveRegionRelevant::Additions);
-        else if (attribute == "all")
+        else if (equalLettersIgnoringASCIICase(attribute, "all"_s))
             result.add(LiveRegionRelevant::All);
-        else if (attribute == "removals")
+        else if (equalLettersIgnoringASCIICase(attribute, "removals"_s))
             result.add(LiveRegionRelevant::Removals);
-        else if (attribute == "text")
+        else if (equalLettersIgnoringASCIICase(attribute, "text"_s))
             result.add(LiveRegionRelevant::Text);
     }
     return result;
@@ -179,19 +177,34 @@ void AXLiveRegionManager::handleLiveRegionChange(AccessibilityObject& object, An
     postAnnouncementForChange(object, oldSnapshot, newSnapshot);
 }
 
+// Limit on the number of objects visited during snapshot building to prevent
+// web content from hanging the process with excessively large live regions.
+static constexpr size_t maximumSnapshotObjects = 512;
+
 LiveRegionSnapshot AXLiveRegionManager::buildLiveRegionSnapshot(AccessibilityObject& object) const
 {
+    ++m_snapshotBuildCount;
+
     LiveRegionSnapshot snapshot;
     snapshot.liveRegionStatus = stringToLiveRegionStatus(object.liveRegionStatus());
     snapshot.liveRegionRelevant = stringToLiveRegionRelevant(object.liveRegionRelevant());
 
-    std::function<void(AccessibilityObject&)> buildObjectList = [this, &buildObjectList, &snapshot] (AccessibilityObject& object) {
+    size_t objectsVisited = 0;
+    std::function<void(AccessibilityObject&)> buildObjectList = [this, &buildObjectList, &snapshot, &objectsVisited] (AccessibilityObject& object) {
+        if (objectsVisited >= maximumSnapshotObjects)
+            return;
+        ++objectsVisited;
+
         // Treat atomic objects as one object, so when they change the entire subtree is announced.
         if (object.liveRegionAtomic()) {
             HashSet<AXID> descendants;
 
             // Collect all atomic-region descendants to detect when nodes are added/removed within the atomic region.
-            std::function<void(AccessibilityObject&)> collectDescendants = [&collectDescendants, &descendants] (AccessibilityObject& descendant) {
+            std::function<void(AccessibilityObject&)> collectDescendants = [&collectDescendants, &descendants, &objectsVisited] (AccessibilityObject& descendant) {
+                if (objectsVisited >= maximumSnapshotObjects)
+                    return;
+                ++objectsVisited;
+
                 descendants.add(descendant.objectID());
                 for (auto& child : descendant.unignoredChildren())
                     collectDescendants(downcast<AccessibilityObject>(child.get()));
@@ -205,7 +218,7 @@ LiveRegionSnapshot AXLiveRegionManager::buildLiveRegionSnapshot(AccessibilityObj
         }
 
         if (shouldIncludeInSnapshot(object))
-            snapshot.objects.append({ object.objectID(), object.announcementText(), object.languageIncludingAncestors(), { } });
+            snapshot.objects.append({ object.objectID(), object.announcementText(), object.languageIncludingAncestors(), { }, object.isStaticText() });
         else {
             for (auto& child : object.unignoredChildren())
                 buildObjectList(downcast<AccessibilityObject>(child.get()));
@@ -318,7 +331,6 @@ AttributedString AXLiveRegionManager::computeAnnouncement(const LiveRegionSnapsh
     StringBuilder stringBuilder;
     Vector<std::pair<AttributedString::Range, HashMap<String, AttributedString::AttributeValue>>> attributes;
 
-    bool reachedCharacterLimit = false;
     size_t characterCount = 0;
 
     HashSet<AXID> spokenObjects = { };
@@ -357,38 +369,29 @@ AttributedString AXLiveRegionManager::computeAnnouncement(const LiveRegionSnapsh
         spokenObjects.add(object.objectID);
     };
 
-    if (hasAdditions && !diff.added.isEmpty()) {
-        for (auto& object : diff.added) {
-            appendStringAndLanguage(object);
-
-            if (characterCount > maximumAnnouncementLength) {
-                reachedCharacterLimit = true;
+    auto announceObjects = [&](const Vector<LiveRegionObject>& objects, IsLiveRegionRemoval isRemoval = IsLiveRegionRemoval::No, bool textContentOnly = false) {
+        for (auto& object : objects) {
+            if (characterCount > maximumAnnouncementLength)
                 break;
-            }
+            if (textContentOnly && !object.isTextContent)
+                continue;
+            appendStringAndLanguage(object, isRemoval);
         }
-    }
+    };
 
-    if (!reachedCharacterLimit && hasRemovals && !diff.removed.isEmpty()) {
-        for (auto& object : diff.removed) {
-            appendStringAndLanguage(object, IsLiveRegionRemoval::Yes);
+    // "additions" announces all new nodes. "text" without "additions" announces only added text
+    // nodes (e.g. textContent/innerText replacement creates new text nodes, not element additions).
+    // When both are set, "additions" already covers text nodes so the text-only path is skipped.
+    if (hasAdditions)
+        announceObjects(diff.added);
+    else if (hasText)
+        announceObjects(diff.added, IsLiveRegionRemoval::No, /* textContentOnly */ true);
 
-            if (characterCount > maximumAnnouncementLength) {
-                reachedCharacterLimit = true;
-                break;
-            }
-        }
-    }
+    if (hasRemovals)
+        announceObjects(diff.removed, IsLiveRegionRemoval::Yes);
 
-    if (!reachedCharacterLimit && hasText && !diff.changed.isEmpty()) {
-        for (auto& object : diff.changed) {
-            appendStringAndLanguage(object);
-
-            if (characterCount > maximumAnnouncementLength) {
-                reachedCharacterLimit = true;
-                break;
-            }
-        }
-    }
+    if (hasText)
+        announceObjects(diff.changed);
 
     auto string = stringBuilder.toString();
     return AttributedString { WTF::move(string), WTF::move(attributes), std::nullopt };

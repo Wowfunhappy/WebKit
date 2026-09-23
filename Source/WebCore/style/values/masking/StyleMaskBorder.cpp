@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,15 +26,12 @@
 #include "config.h"
 #include "StyleMaskBorder.h"
 
-#include "CSSBorderImage.h"
-#include "CSSBorderImageSliceValue.h"
-#include "CSSBorderImageWidthValue.h"
-#include "CSSValueList.h"
+#include "CSSMaskBorder.h"
 #include "StyleBuilderChecking.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Logging.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Logging.h"
+#include "StyleKeyword+Serialization.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
 
@@ -61,29 +58,31 @@ MaskBorder::MaskBorder(MaskBorderSource&& source, MaskBorderSlice&& slice, MaskB
 
 // MARK: - Conversion
 
-auto CSSValueConversion<MaskBorder>::operator()(BuilderState& state, const CSSValue& value, MaskBorderSliceOverride maskBorderSliceOverride) -> MaskBorder
+auto ToCSS<MaskBorder>::operator()(const MaskBorder& value, const Style::ComputedStyle& style) -> CSS::MaskBorder
+{
+    return {
+        .maskBorderSource = toCSS(value.maskBorderSource, style),
+        .maskBorderSlice = toCSS(value.maskBorderSlice, style),
+        .maskBorderWidth = toCSS(value.maskBorderWidth, style),
+        .maskBorderOutset = toCSS(value.maskBorderOutset, style),
+        .maskBorderRepeat = toCSS(value.maskBorderRepeat, style),
+    };
+}
+
+auto ToStyle<CSS::MaskBorder>::operator()(const CSS::MaskBorder& value, const BuilderState& state, MaskBorderSliceOverride maskBorderSliceOverride) -> MaskBorder
 {
     MaskBorder result { };
 
-    RefPtr borderImage = requiredDowncast<CSSValueList>(state, value);
-    if (!borderImage)
-        return result;
-
-    for (Ref current : *borderImage) {
-        if (current->isImage())
-            result.maskBorderSource = toStyleFromCSSValue<MaskBorderSource>(state, current);
-        else if (RefPtr slice = dynamicDowncast<CSSBorderImageSliceValue>(current))
-            result.maskBorderSlice = toStyleFromCSSValue<MaskBorderSlice>(state, *slice);
-        else if (RefPtr slashList = dynamicDowncast<CSSValueList>(current)) {
-            if (RefPtr slice = dynamicDowncast<CSSBorderImageSliceValue>(slashList->item(0)))
-                result.maskBorderSlice = toStyleFromCSSValue<MaskBorderSlice>(state, *slice);
-            if (RefPtr width = dynamicDowncast<CSSBorderImageWidthValue>(slashList->item(1)))
-                result.maskBorderWidth = toStyleFromCSSValue<MaskBorderWidth>(state, *width);
-            if (RefPtr outset = slashList->item(2))
-                result.maskBorderOutset = toStyleFromCSSValue<MaskBorderOutset>(state, *outset);
-        } else if (current->isPair())
-            result.maskBorderRepeat = toStyleFromCSSValue<MaskBorderRepeat>(state, current);
-    }
+    if (value.maskBorderSource)
+        result.maskBorderSource = toStyle(*value.maskBorderSource, state);
+    if (value.maskBorderSlice)
+        result.maskBorderSlice = toStyle(*value.maskBorderSlice, state);
+    if (value.maskBorderWidth)
+        result.maskBorderWidth = toStyle(*value.maskBorderWidth, state);
+    if (value.maskBorderOutset)
+        result.maskBorderOutset = toStyle(*value.maskBorderOutset, state);
+    if (value.maskBorderRepeat)
+        result.maskBorderRepeat = toStyle(*value.maskBorderRepeat, state);
 
     if (maskBorderSliceOverride == MaskBorderSliceOverride::AlwaysFill)
         result.maskBorderSlice.fill = CSS::Keyword::Fill { };
@@ -91,20 +90,14 @@ auto CSSValueConversion<MaskBorder>::operator()(BuilderState& state, const CSSVa
     return result;
 }
 
-auto CSSValueCreation<MaskBorder>::operator()(CSSValuePool& pool, const RenderStyle& style, const MaskBorder& value) -> Ref<CSSValue>
+auto CSSValueCreation<MaskBorder>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const MaskBorder& value) -> Ref<CSSValue>
 {
-    return createBorderImageValue({
-        .source = createCSSValue(pool, style, value.maskBorderSource),
-        .slice  = createCSSValue(pool, style, value.maskBorderSlice),
-        .width  = createCSSValue(pool, style, value.maskBorderWidth),
-        .outset = createCSSValue(pool, style, value.maskBorderOutset),
-        .repeat = createCSSValue(pool, style, value.maskBorderRepeat),
-    });
+    return CSS::createCSSValue(pool, toCSS(value, style));
 }
 
 // MARK: - Serialization
 
-void Serialize<MaskBorder>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const MaskBorder& value)
+void Serialize<MaskBorder>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const MaskBorder& value)
 {
     if (value.maskBorderSource.isNone()) {
         serializationForCSS(builder, context, style, value.maskBorderSource);

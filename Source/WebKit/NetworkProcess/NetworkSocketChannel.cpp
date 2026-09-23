@@ -34,14 +34,18 @@
 #include "WebSocketTask.h"
 #include <wtf/TZoneMallocInlines.h>
 
+#if PLATFORM(COCOA)
+#include "NetworkSessionCocoa.h"
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSocketChannel);
 
-RefPtr<NetworkSocketChannel> NetworkSocketChannel::create(NetworkConnectionToWebProcess& connection, PAL::SessionID sessionID, const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+RefPtr<NetworkSocketChannel> NetworkSocketChannel::create(NetworkConnectionToWebProcess& connection, PAL::SessionID sessionID, const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
-    Ref result = adoptRef(*new NetworkSocketChannel(connection, connection.networkProcess().networkSession(sessionID), request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy));
+    Ref result = adoptRef(*new NetworkSocketChannel(connection, connection.networkProcess().networkSession(sessionID), request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker));
     if (!result->m_socket) {
         result->didClose(0, "Cannot create a web socket task"_s);
         return nullptr;
@@ -49,7 +53,7 @@ RefPtr<NetworkSocketChannel> NetworkSocketChannel::create(NetworkConnectionToWeb
     return result;
 }
 
-NetworkSocketChannel::NetworkSocketChannel(NetworkConnectionToWebProcess& connection, NetworkSession* session, const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+NetworkSocketChannel::NetworkSocketChannel(NetworkConnectionToWebProcess& connection, NetworkSession* session, const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
     : m_connectionToWebProcess(connection)
     , m_identifier(identifier)
     , m_session(session)
@@ -60,7 +64,7 @@ NetworkSocketChannel::NetworkSocketChannel(NetworkConnectionToWebProcess& connec
     if (!session)
         return;
 
-    m_socket = session->createWebSocketTask(webPageProxyID, frameID, pageID, *this, request, protocol, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy);
+    m_socket = session->createWebSocketTask(webPageProxyID, frameID, pageID, *this, request, protocol, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker);
     if (RefPtr socket = m_socket.get()) {
 #if PLATFORM(COCOA)
         session->addWebSocketTask(webPageProxyID, *socket);

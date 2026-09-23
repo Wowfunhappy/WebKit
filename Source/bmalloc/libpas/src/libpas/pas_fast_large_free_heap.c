@@ -215,12 +215,6 @@ static void fast_write_cursor(
 
     if (pas_large_free_size(value) != pas_large_free_size(node->free)) {
         if (pas_large_free_size(value) < pas_large_free_size(node->free)) {
-            pas_fast_large_free_heap_node* parent_node;
-            parent_node = (pas_fast_large_free_heap_node*)
-                pas_compact_cartesian_tree_node_ptr_load(&node->tree_node.parent);
-            need_to_readd_to_tree |= parent_node
-                && pas_large_free_size(value) < pas_large_free_size(parent_node->free);
-        } else {
             pas_fast_large_free_heap_node* left_node;
             pas_fast_large_free_heap_node* right_node;
             left_node = (pas_fast_large_free_heap_node*)
@@ -228,8 +222,14 @@ static void fast_write_cursor(
             right_node = (pas_fast_large_free_heap_node*)
                 pas_compact_cartesian_tree_node_ptr_load(&node->tree_node.right);
             need_to_readd_to_tree |=
-                (left_node && pas_large_free_size(value) > pas_large_free_size(left_node->free)) ||
-                (right_node && pas_large_free_size(value) > pas_large_free_size(right_node->free));
+                (left_node && pas_large_free_size(value) < pas_large_free_size(left_node->free)) ||
+                (right_node && pas_large_free_size(value) < pas_large_free_size(right_node->free));
+        } else {
+            pas_fast_large_free_heap_node* parent_node;
+            parent_node = (pas_fast_large_free_heap_node*)
+                pas_compact_cartesian_tree_node_ptr_load(&node->tree_node.parent);
+            need_to_readd_to_tree |= parent_node
+                && pas_large_free_size(value) > pas_large_free_size(parent_node->free);
         }
     }
 
@@ -286,26 +286,21 @@ static void fast_merge(
         merger = pas_large_free_create_merged_for_sure(merger, right_node->free, config);
     
     if (left_node) {
-        pas_fast_large_free_heap_node* left_left_node;
-        pas_fast_large_free_heap_node* left_right_node;
+        pas_fast_large_free_heap_node* left_parent_node;
         bool need_to_readd_to_tree;
-        
+
         if (right_node)
             remove_node(heap, right_node);
-        
+
         /* Thanks to this fact, we don't have to change left_node's position in the tree! */
         PAS_ASSERT(left_node->free.begin == merger.begin);
         PAS_ASSERT(left_node->free.end < merger.end);
-        
-        left_left_node = (pas_fast_large_free_heap_node*)
-            pas_compact_cartesian_tree_node_ptr_load(&left_node->tree_node.left);
-        left_right_node = (pas_fast_large_free_heap_node*)
-            pas_compact_cartesian_tree_node_ptr_load(&left_node->tree_node.right);
+
+        left_parent_node = (pas_fast_large_free_heap_node*)
+            pas_compact_cartesian_tree_node_ptr_load(&left_node->tree_node.parent);
         need_to_readd_to_tree =
-            (left_left_node
-             && pas_large_free_size(merger) > pas_large_free_size(left_left_node->free)) ||
-            (left_right_node
-             && pas_large_free_size(merger) > pas_large_free_size(left_right_node->free));
+            left_parent_node
+            && pas_large_free_size(merger) > pas_large_free_size(left_parent_node->free);
 
         if (need_to_readd_to_tree)
             pas_cartesian_tree_remove(&heap->tree, &left_node->tree_node, &cartesian_config);

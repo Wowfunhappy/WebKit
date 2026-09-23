@@ -78,7 +78,9 @@
 #import <pal/cocoa/WebContentAnalysisSoftLink.h>
 #endif
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors uses the native secure archiver independently of NSURLRequest's property-list coder.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 
 @interface WKSecureCodingArchivingDelegate : NSObject <NSKeyedArchiverDelegate, NSKeyedUnarchiverDelegate>
 @property (nonatomic, assign) BOOL rewriteMutableArray;
@@ -440,7 +442,9 @@ bool isSerializableValue(id value)
 
 #pragma mark - id <NSSecureCoding>
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: The generic secure coder also serves the native Data Detectors classes.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 
 template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder, NSObject<NSSecureCoding> *object)
 {
@@ -652,6 +656,18 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
 
     @try {
         id result = [unarchiver decodeObjectOfClasses:allowedClassSet.get() forKey:NSKeyedArchiveRootObjectKey];
+        // MAVERICKS_BACKPORT: Mavericks implicitly admits scalar classes; enforce the IPC root allowlist.
+        if (result) {
+            bool allowed = false;
+            for (auto& allowedClass : allowedClasses) {
+                if ([result isKindOfClass:allowedClass.get()]) {
+                    allowed = true;
+                    break;
+                }
+            }
+            if (!allowed)
+                return std::nullopt;
+        }
         ASSERT(!result || [result conformsToProtocol:@protocol(NSSecureCoding)]);
         return { result };
     } @catch (NSException *exception) {

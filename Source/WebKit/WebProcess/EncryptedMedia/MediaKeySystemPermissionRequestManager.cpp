@@ -62,15 +62,7 @@ void MediaKeySystemPermissionRequestManager::startMediaKeySystemRequest(MediaKey
         return;
     }
 
-    if (document->page()->canStartMedia()) {
-        sendMediaKeySystemRequest(request);
-        return;
-    }
-
-    auto& pendingRequests = m_pendingMediaKeySystemRequests.add(*document, Vector<Ref<MediaKeySystemRequest>>()).iterator->value;
-    if (pendingRequests.isEmpty())
-        document->addMediaCanStartListener(*this);
-    pendingRequests.append(request);
+    sendMediaKeySystemRequest(request);
 }
 
 void MediaKeySystemPermissionRequestManager::sendMediaKeySystemRequest(MediaKeySystemRequest& userRequest)
@@ -97,36 +89,7 @@ void MediaKeySystemPermissionRequestManager::sendMediaKeySystemRequest(MediaKeyS
 
 void MediaKeySystemPermissionRequestManager::cancelMediaKeySystemRequest(MediaKeySystemRequest& request)
 {
-    if (auto removedRequest = m_ongoingMediaKeySystemRequests.take(request.identifier()))
-        return;
-
-    RefPtr document = request.document();
-    if (!document)
-        return;
-
-    auto iterator = m_pendingMediaKeySystemRequests.find(*document);
-    if (iterator == m_pendingMediaKeySystemRequests.end())
-        return;
-
-    auto& pendingRequests = iterator->value;
-    pendingRequests.removeFirstMatching([&request](auto& item) {
-        return &request == item.ptr();
-    });
-
-    if (!pendingRequests.isEmpty())
-        return;
-
-    document->removeMediaCanStartListener(*this);
-    m_pendingMediaKeySystemRequests.remove(iterator);
-}
-
-void MediaKeySystemPermissionRequestManager::mediaCanStart(Document& document)
-{
-    ASSERT(document.page()->canStartMedia());
-
-    auto pendingRequests = m_pendingMediaKeySystemRequests.take(document);
-    for (auto& pendingRequest : pendingRequests)
-        sendMediaKeySystemRequest(pendingRequest);
+    m_ongoingMediaKeySystemRequests.take(request.identifier());
 }
 
 void MediaKeySystemPermissionRequestManager::mediaKeySystemWasGranted(MediaKeySystemRequestIdentifier requestID, String&& mediaKeysHashSalt)

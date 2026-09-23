@@ -11,7 +11,7 @@
         function loadIFrameWithSrc(srcURL)
         {
             var iframe = document.createElement("iframe");
-            iframe.onload = loadEvent();
+            iframe.onload = loadEvent;
             iframe.src = srcURL;
             document.body.appendChild(iframe);
         }

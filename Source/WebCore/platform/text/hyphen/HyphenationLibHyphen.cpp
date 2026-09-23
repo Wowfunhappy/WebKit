@@ -232,6 +232,9 @@ size_t lastHyphenLocation(StringView string, size_t beforeIndex, const AtomStrin
     for (const auto& dictionaryPath : availableLocales().get(lowercaseLocaleIdentifier)) {
         RefPtr<HyphenationDictionary> dictionary = TinyLRUCachePolicy<AtomString, RefPtr<HyphenationDictionary>>::cache().get(AtomString(dictionaryPath));
 
+        if (!dictionary->libhyphenDictionary())
+            continue;
+
         char** replacements = nullptr;
         int* positions = nullptr;
         int* removedCharacterCounts = nullptr;

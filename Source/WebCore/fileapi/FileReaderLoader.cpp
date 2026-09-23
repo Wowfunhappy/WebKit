@@ -38,6 +38,7 @@
 #include "ExceptionCode.h"
 #include "FileReaderLoaderClient.h"
 #include "HTTPHeaderNames.h"
+#include "HTTPParsers.h"
 #include "HTTPStatusCodes.h"
 #include "ResourceError.h"
 #include "ResourceRequest.h"
@@ -362,12 +363,19 @@ void FileReaderLoader::convertToText()
         return;
 
     // Decode the data.
-    // The File API spec says that we should use the supplied encoding if it is valid. However, we choose to ignore this
-    // requirement in order to be consistent with how WebKit decodes the web content: always has the BOM override the
-    // provided encoding.     
+    // Per the File API "read as text" algorithm, the encoding is determined in order: the explicit
+    // encoding argument if it is a supported encoding; otherwise the charset parameter of the Blob's
+    // type, if any; otherwise UTF-8.
+    // We intentionally deviate from the spec in one respect, for consistency with how WebKit decodes
+    // web content: a BOM in the data always overrides the selected encoding (handled by
+    // TextResourceDecoder), whereas the spec gives precedence to the explicitly supplied encoding.
     // FIXME: consider supporting incremental decoding to improve the perf.
-    if (!m_decoder)
-        m_decoder = TextResourceDecoder::create("text/plain"_s, m_encoding.isValid() ? m_encoding : PAL::UTF8Encoding());
+    if (!m_decoder) {
+        auto encoding = m_encoding;
+        if (!encoding.isValid())
+            encoding = extractCharsetFromMediaType(m_dataType);
+        m_decoder = TextResourceDecoder::create("text/plain"_s, encoding.isValid() ? encoding : PAL::UTF8Encoding());
+    }
     Ref decoder = *m_decoder;
     Ref rawData = *m_rawData;
     if (isCompleted())

@@ -84,9 +84,7 @@ WebInspectorUIProxy::WebInspectorUIProxy(WebPageProxy& inspectedPage)
     protect(inspectedPage.legacyMainFrameProcess())->addMessageReceiver(Messages::WebInspectorBackendProxy::messageReceiverName(), m_inspectedPage->webPageIDInMainFrameProcess(), m_backend.get());
 }
 
-WebInspectorUIProxy::~WebInspectorUIProxy()
-{
-}
+WebInspectorUIProxy::~WebInspectorUIProxy() = default;
 
 void WebInspectorUIProxy::setInspectorClient(std::unique_ptr<API::InspectorClient>&& inspectorClient)
 {
@@ -100,7 +98,7 @@ void WebInspectorUIProxy::setInspectorClient(std::unique_ptr<API::InspectorClien
 
 unsigned WebInspectorUIProxy::inspectionLevel() const
 {
-    return inspectorLevelForPage(protect(inspectedPage()).get());
+    return inspectorLevelForPage(inspectedPage());
 }
 
 WebPreferences& WebInspectorUIProxy::inspectorPagePreferences() const

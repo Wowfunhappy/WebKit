@@ -42,8 +42,8 @@ PASS RTCMediaSourceStats's trackIdentifier
 PASS RTCMediaSourceStats's kind
 PASS RTCAudioSourceStats's totalAudioEnergy
 PASS RTCAudioSourceStats's totalSamplesDuration
-FAIL RTCVideoSourceStats's width assert_true: Is width present expected true got false
-FAIL RTCVideoSourceStats's height assert_true: Is height present expected true got false
+PASS RTCVideoSourceStats's width
+PASS RTCVideoSourceStats's height
 PASS RTCVideoSourceStats's framesPerSecond
 PASS RTCCodecStats's payloadType
 PASS RTCCodecStats's mimeType

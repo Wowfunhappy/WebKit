@@ -1,3 +1,6 @@
+// DEPRECATED: Do not include this file in new tests. Use js-test.js instead,
+// which combines the functionality of js-test-pre.js and js-test-post.js.
+
 // svg/dynamic-updates tests set enablePixelTesting=true, as we want to dump text + pixel results
 if (self.testRunner)
     testRunner.dumpAsText(self.enablePixelTesting);

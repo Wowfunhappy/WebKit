@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2011 Nokia Inc. All rights reserved.
  * Copyright (C) 2012 Google Inc. All rights reserved.
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,39 +23,40 @@
 #include "config.h"
 #include "StyleQuotes.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
+#include "CSSQuotesValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
 namespace Style {
 
-const String& Quotes::openQuote(unsigned index) const
+const WTF::String& Quotes::openQuote(unsigned index) const
 {
     return WTF::switchOn(m_value,
-        [&](const Data& data) -> const String& {
+        [&](const Data& data) -> const WTF::String& {
             auto i = index * 2;
 
             if (i < data.size())
-                return data[i];
-            return data[data.size() - 2];
+                return data[i].value;
+            return data[data.size() - 2].value;
         },
-        [&](const auto&) -> const String& {
+        [&](const auto&) -> const WTF::String& {
             return emptyString();
         }
     );
 }
 
-const String& Quotes::closeQuote(unsigned index) const
+const WTF::String& Quotes::closeQuote(unsigned index) const
 {
     return WTF::switchOn(m_value,
-        [&](const Data& data) -> const String& {
+        [&](const Data& data) -> const WTF::String& {
             auto i = (index * 2) + 1;
 
             if (i < data.size())
-                return data[i];
-            return data[data.size() - 1];
+                return data[i].value;
+            return data[data.size() - 1].value;
         },
-        [&](const auto&) -> const String& {
+        [&](const auto&) -> const WTF::String& {
             return emptyString();
         }
     );
@@ -63,10 +64,44 @@ const String& Quotes::closeQuote(unsigned index) const
 
 // MARK: - Conversion
 
+auto ToCSS<Quotes>::operator()(const Quotes& value, const Style::ComputedStyle& style) -> CSS::Quotes
+{
+    return WTF::switchOn(value,
+        [&](CSS::SpecificKeyword auto const& keyword) -> CSS::Quotes {
+            return toCSS(keyword, style);
+        },
+        [&](const Quotes::Data& data) -> CSS::Quotes {
+            return CSS::Quotes::Data::map(data, [&](const String& item) {
+                return toCSS(item, style);
+            });
+        }
+    );
+}
+
+auto ToStyle<CSS::Quotes>::operator()(const CSS::Quotes& value, const BuilderState& state) -> Quotes
+{
+    return WTF::switchOn(value,
+        [&](CSS::SpecificKeyword auto const& keyword) -> Quotes {
+            return toStyle(keyword, state);
+        },
+        [&](const CSS::Quotes::Data& data) -> Quotes {
+            if (data.size() % 2 != 0) {
+                // FIXME: Update ToStyle to pass BuilderState as non-const.
+                const_cast<BuilderState&>(state).setCurrentPropertyInvalidAtComputedValueTime();
+                return CSS::Keyword::Auto { };
+            }
+
+            return Quotes::Data::map(data, [&](const CSS::String& item) {
+                return toStyle(item, state);
+            });
+        }
+    );
+}
+
 auto CSSValueConversion<Quotes>::operator()(BuilderState& state, const CSSValue& value) -> Quotes
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueAuto:
             return CSS::Keyword::Auto { };
         case CSSValueNone:
@@ -79,18 +114,16 @@ auto CSSValueConversion<Quotes>::operator()(BuilderState& state, const CSSValue&
         return CSS::Keyword::Auto { };
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue, 2>(state, value);
-    if (!list)
+    RefPtr quotesValue = requiredDowncast<CSSQuotesValue>(state, value);
+    if (!quotesValue)
         return CSS::Keyword::Auto { };
 
-    if (list->size() % 2 != 0) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return CSS::Keyword::Auto { };
-    }
+    return toStyle(quotesValue->quotes(), state);
+}
 
-    return Quotes::Data::map(*list, [](const CSSPrimitiveValue& item) {
-        return item.stringValue();
-    });
+Ref<CSSValue> CSSValueCreation<Quotes>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const Quotes& value)
+{
+    return CSSQuotesValue::create(toCSS(value, style));
 }
 
 } // namespace Style

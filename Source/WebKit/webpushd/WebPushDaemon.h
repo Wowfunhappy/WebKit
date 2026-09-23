@@ -107,6 +107,7 @@ public:
     void incrementSilentPushCount(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
     void removeAllPushSubscriptions(PushClientConnection&, CompletionHandler<void(unsigned)>&&);
     void removePushSubscriptionsForOrigin(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
+    void getAllPushSubscriptionOrigins(PushClientConnection&, CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
     void setPublicTokenForTesting(PushClientConnection&, const String& publicToken, CompletionHandler<void()>&&);
 
 #if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)

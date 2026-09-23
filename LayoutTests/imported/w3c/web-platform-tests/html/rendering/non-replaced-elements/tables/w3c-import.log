@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/colgroup_valign-ref.xhtml
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/colgroup_valign_bottom-expected.xhtml
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/colgroup_valign_bottom.xhtml
@@ -46,6 +47,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-bordercolor-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-bordercolor-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-bordercolor-001.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-bordercolor-default.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-cell-nowrap-with-fixed-width-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-cell-nowrap-with-fixed-width-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-cell-nowrap-with-fixed-width.html
@@ -80,6 +82,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-row-pagination-001-print.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-row-pagination-002-print-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-row-pagination-002-print.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-rowspan-height-distribution.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-ua-stylesheet.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-valign-baseline-ascii-case-insensitive.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/non-replaced-elements/tables/table-vspace-hspace-s.html

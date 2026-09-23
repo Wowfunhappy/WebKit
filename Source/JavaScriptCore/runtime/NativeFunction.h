@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/JSCPtrTag.h>
 #include <wtf/FunctionPtr.h>
 #include <wtf/Hasher.h>
@@ -33,6 +32,9 @@
 namespace JSC {
 
 class CallFrame;
+class JSGlobalObject;
+
+typedef int64_t EncodedJSValue;
 
 using NativeFunction = FunctionPtr<CFunctionPtrTag, EncodedJSValue(JSGlobalObject*, CallFrame*), FunctionAttributes::JSCHostCall>;
 using TaggedNativeFunction = FunctionPtr<HostFunctionPtrTag, EncodedJSValue(JSGlobalObject*, CallFrame*), FunctionAttributes::JSCHostCall>;

@@ -1,5 +1,0 @@
-
-FAIL Same-origin fetch assert_not_equals: Empty Sec-Metadata header. got disallowed value ""
-FAIL Same-site fetch promise_test: Unhandled rejection with value: object "TypeError: Type error"
-FAIL Cross-site fetch promise_test: Unhandled rejection with value: object "TypeError: Type error"
-

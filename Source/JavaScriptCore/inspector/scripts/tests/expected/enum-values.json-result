@@ -324,11 +324,15 @@ void CommandDomainBackendDispatcher::command(long protocol_requestId, RefPtr<JSO
 
     auto in_enumRequired = Protocol::TestHelpers::parseEnumValueFromString<Protocol::TypeDomain::Enum>(in_enumRequired_json);
     if (!in_enumRequired) {
-        m_backendDispatcher->reportProtocolError(BackendDispatcher::ServerError, makeString("Unknown enumRequired: "_s, in_enumRequired_json));
+        m_backendDispatcher->reportProtocolError(BackendDispatcher::InvalidParams, makeString("Unknown enumRequired: "_s, in_enumRequired_json));
         return;
     }
 
     auto in_opt_enumOptional = Protocol::TestHelpers::parseEnumValueFromString<Protocol::TypeDomain::Enum>(in_opt_enumOptional_json);
+    if (!in_opt_enumOptional_json.isEmpty() && !in_opt_enumOptional) {
+        m_backendDispatcher->reportProtocolError(BackendDispatcher::InvalidParams, makeString("Unknown enumOptional: "_s, in_opt_enumOptional_json));
+        return;
+    }
 
     auto result = m_agent->command(*in_enumRequired, WTF::move(in_opt_enumOptional), in_parameterRequired, in_opt_parameterOptional);
     if (!result) {
@@ -628,7 +632,7 @@ namespace Protocol {
 
 namespace TestHelpers {
 
-static const auto enum_constant_values = std::to_array<ASCIILiteral>({
+static const auto enum_constant_values = WTF::toArray<ASCIILiteral>({
     "shared"_s,
     "1"_s,
     "2"_s,
@@ -650,7 +654,7 @@ String getEnumConstantValue(int code) {
 
 template<> std::optional<Protocol::TypeDomain::Enum> parseEnumValueFromString<Protocol::TypeDomain::Enum>(const String& protocolString)
 {
-    static const auto constantValues = std::to_array<size_t>({
+    static const auto constantValues = WTF::toArray<size_t>({
         (size_t)Protocol::TypeDomain::Enum::Shared,
         (size_t)Protocol::TypeDomain::Enum::1,
         (size_t)Protocol::TypeDomain::Enum::2,
@@ -1165,7 +1169,7 @@ inline String toProtocolString(TestProtocolTypeDomainEnum value)
 template<>
 inline std::optional<TestProtocolTypeDomainEnum> fromProtocolString(const String& value)
 {
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, TestProtocolTypeDomainEnum>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, TestProtocolTypeDomainEnum>>({
         { "1"_s, TestProtocolTypeDomainEnum1 },
         { "2"_s, TestProtocolTypeDomainEnum2 },
         { "shared"_s, TestProtocolTypeDomainEnumShared },

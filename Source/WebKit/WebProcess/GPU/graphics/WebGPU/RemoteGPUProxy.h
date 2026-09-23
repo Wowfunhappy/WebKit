@@ -77,7 +77,7 @@ public:
 
     void paintToCanvas(WebCore::NativeImage&, const WebCore::IntSize&, WebCore::GraphicsContext&) final;
     WebGPUIdentifier backing() const { return m_backing; }
-    RefPtr<WebKit::Mesh> NODELETE createModelBacking(unsigned width, unsigned height, const WebModel::ImageAsset& diffuseTexture, const WebModel::ImageAsset& specularTexture, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
+    RefPtr<WebKit::Mesh> NODELETE createModelBacking(unsigned width, unsigned height, WebModel::ImageAsset&& diffuseTexture, WebModel::ImageAsset&& specularTexture, bool standardDynamicRange, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
 
 private:
     friend class WebGPU::DowncastConvertToBackingContext;
@@ -115,7 +115,7 @@ private:
     template<typename T, typename C>
     [[nodiscard]] std::optional<IPC::StreamClientConnection::AsyncReplyID> sendWithAsyncReply(T&& message, C&& completionHandler)
     {
-        return protect(root().streamClientConnection())->sendWithAsyncReply(WTF::move(message), completionHandler, backing());
+        return protect(root().streamClientConnection())->sendWithAsyncReply(std::forward<T>(message), std::forward<C>(completionHandler), backing());
     }
 
     void requestAdapter(const WebCore::WebGPU::RequestAdapterOptions&, CompletionHandler<void(RefPtr<WebCore::WebGPU::Adapter>&&)>&&) final;

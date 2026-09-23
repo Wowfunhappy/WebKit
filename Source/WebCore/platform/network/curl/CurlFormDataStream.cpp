@@ -53,10 +53,7 @@ CurlFormDataStream::CurlFormDataStream(const RefPtr<FormData>& formData)
     m_formData = m_formData->resolveBlobReferences(blobRegistry()->blobRegistryImpl());
 }
 
-CurlFormDataStream::~CurlFormDataStream()
-{
-
-}
+CurlFormDataStream::~CurlFormDataStream() = default;
 
 void CurlFormDataStream::clean()
 {

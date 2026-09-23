@@ -25,13 +25,13 @@
 
 #pragma once
 
-#include <pal/crypto/CryptoDigestHashFunction.h>
+#include <pal/crypto/CryptoTypes.h>
 #include <wtf/HexNumber.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-namespace PAL {
+namespace PAL::Crypto {
 
 struct CryptoDigestContext;
 
@@ -58,4 +58,4 @@ inline String CryptoDigest::toHexString()
     return WTF::toHexString(computeHash());
 }
 
-} // namespace PAL
+} // namespace PAL::Crypto

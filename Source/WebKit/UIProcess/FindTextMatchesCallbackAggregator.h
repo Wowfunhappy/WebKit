@@ -28,6 +28,7 @@
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 

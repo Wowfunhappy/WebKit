@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 let ar = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 1073741824));
 

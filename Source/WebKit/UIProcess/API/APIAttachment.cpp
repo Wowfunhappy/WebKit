@@ -46,9 +46,7 @@ Attachment::Attachment(const WTF::String& identifier, WebKit::WebPageProxy& webP
 {
 }
 
-Attachment::~Attachment()
-{
-}
+Attachment::~Attachment() = default;
 
 void Attachment::updateAttributes(CompletionHandler<void()>&& callback)
 {

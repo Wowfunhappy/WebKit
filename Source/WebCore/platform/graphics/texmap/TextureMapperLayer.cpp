@@ -626,7 +626,7 @@ void TextureMapperLayer::paintSelf(TextureMapperPaintOptions& options)
         options.textureMapper.setPatternTransform(patternTransform);
     }
 
-    bool shouldClip = m_state.contentsClippingRect.isRounded() || !m_state.contentsClippingRect.rect().contains(m_state.contentsRect);
+    bool shouldClip = m_state.contentsClippingRect.hasNonZeroRadii() || !m_state.contentsClippingRect.rect().contains(m_state.contentsRect);
     if (shouldClip) {
         options.textureMapper.beginClip(transform, m_state.contentsClippingRect);
     }
@@ -812,7 +812,6 @@ IntRect transformedBoundingBox(const TransformationMatrix& transform, FloatRect 
         vertex[2].w >= 0,
         vertex[3].w >= 0
     };
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     auto findFirstPositiveVertex = [&]() {
         int i = 0;
@@ -926,6 +925,7 @@ IntRect transformedBoundingBox(const TransformationMatrix& transform, FloatRect 
         return clipped(xMinMax, yMinMax);
     }
     }
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     ASSERT_NOT_REACHED();
     return { };
 }

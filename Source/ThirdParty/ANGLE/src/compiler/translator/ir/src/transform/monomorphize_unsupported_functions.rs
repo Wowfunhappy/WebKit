@@ -24,6 +24,8 @@ use crate::*;
 pub struct Options {
     // Which kind of arguments are unsupported:
     pub struct_containing_samplers: bool,
+    // http://anglebug.com/42265954: The ESSL spec has a bug with images as function arguments. The
+    // recommended workaround is to inline functions that accept image arguments.
     pub image: bool,
     pub atomic_counter: bool,
     pub array_of_array_of_sampler_or_image: bool,
@@ -144,41 +146,44 @@ fn is_unsupported_argument(ir_meta: &IRMeta, arg: TypedId, options: &Options) ->
 
     // Find the variable this argument is accessing, if any.
     let mut base_variable = arg;
-    loop {
-        match base_variable.id {
-            Id::Constant(_) => {
-                return false;
-            }
-            Id::Variable(_) => {
-                break;
-            }
-            Id::Register(id) => {
-                let instruction = ir_meta.get_instruction(id);
-                match instruction.op {
-                    OpCode::AccessStructField(base_id, _) => {
-                        if is_sampler {
-                            // A sampler is accessed through a struct if the argument passed to the
-                            // function is a sampler (array), but the access chain leading to it
-                            // selects a struct field.
-                            is_sampler_in_struct = true;
-                        }
-                        base_variable = base_id;
+    let mut is_definitely_supported = false;
+    util::trace_back(
+        ir_meta,
+        &mut is_definitely_supported,
+        base_variable.id,
+        &mut |is_definitely_supported, _| {
+            *is_definitely_supported = true;
+        },
+        &mut |_, _| {},
+        &mut |is_definitely_supported, _, opcode| {
+            match *opcode {
+                OpCode::AccessStructField(base_id, _) => {
+                    if is_sampler {
+                        // A sampler is accessed through a struct if the argument passed to the
+                        // function is a sampler (array), but the access chain leading to it
+                        // selects a struct field.
+                        is_sampler_in_struct = true;
                     }
-                    OpCode::AccessArrayElement(base_id, _) => {
-                        base_variable = base_id;
-                    }
-                    _ => {
-                        return false;
-                    }
-                };
+                    base_variable = base_id;
+                    Some(base_id.id)
+                }
+                OpCode::AccessArrayElement(base_id, _) => {
+                    base_variable = base_id;
+                    Some(base_id.id)
+                }
+                _ => {
+                    *is_definitely_supported = true;
+                    None
+                }
             }
-        }
+        },
+    );
+    if is_definitely_supported {
+        return false;
     }
 
     // Now that the variable is found, see if it's unsupported.
-    let type_info = ir_meta.get_type(base_variable.type_id);
-    debug_assert!(type_info.is_pointer());
-    let type_info = ir_meta.get_type(type_info.get_element_type_id().unwrap());
+    let type_info = ir_meta.get_type(ir_meta.get_pointee_type(base_variable.type_id));
     if options.array_of_array_of_sampler_or_image {
         // Monomorphize if:
         //
@@ -209,34 +214,31 @@ fn is_unsupported_argument(ir_meta: &IRMeta, arg: TypedId, options: &Options) ->
 fn get_access_chain(ir_meta: &IRMeta, id: TypedId) -> Vec<Id> {
     // Find the variable this argument is accessing, if any.
     let mut access_chain = vec![];
-    let mut access_id = id;
-    loop {
-        access_chain.push(access_id.id);
-        match access_id.id {
-            Id::Constant(_) => {
-                panic!(
-                    "Internal error: Constant argument should not cause function to monomorphize"
-                );
+    util::trace_back(
+        ir_meta,
+        &mut access_chain,
+        id.id,
+        &mut |_, _| {
+            panic!("Internal error: Constant argument should not cause function to monomorphize");
+        },
+        &mut |access_chain, variable_id| {
+            access_chain.push(Id::new_variable(variable_id));
+        },
+        &mut |access_chain, register_id, opcode| {
+            access_chain.push(Id::new_register(register_id));
+            match opcode {
+                OpCode::AccessStructField(base_id, _) | OpCode::AccessArrayElement(base_id, _) => {
+                    Some(base_id.id)
+                }
+                _ => {
+                    panic!(
+                        "Internal error: Only opaque uniforms should cause function to \
+                         monomorphize"
+                    );
+                }
             }
-            Id::Variable(_) => {
-                break;
-            }
-            Id::Register(id) => {
-                let instruction = ir_meta.get_instruction(id);
-                match instruction.op {
-                    OpCode::AccessStructField(base_id, _)
-                    | OpCode::AccessArrayElement(base_id, _) => {
-                        access_id = base_id;
-                    }
-                    _ => {
-                        panic!(
-                            "Internal error: Only opaque uniforms should cause function to monomorphize"
-                        );
-                    }
-                };
-            }
-        }
-    }
+        },
+    );
 
     access_chain
 }
@@ -354,17 +356,18 @@ fn replace_arg(state: &mut State, preamble: &mut Block, access_chain: &[Id]) -> 
                         debug_assert!(!index.id.is_variable());
                         let access_index = if index.id.is_register() {
                             // Replacement parameter to pass this index to.
-                            let new_param = state.ir_meta.declare_variable(
-                                Name::new_temp("index"),
-                                index.type_id,
-                                index.precision,
-                                Decorations::new_none(),
-                                None,
-                                None,
-                                VariableScope::FunctionParam,
-                            );
-                            params
-                                .push(FunctionParam::new(new_param, FunctionParamDirection::Input));
+                            let (new_param_variable, new_param) =
+                                state.ir_meta.declare_private_variable(
+                                    Name::new_temp("index"),
+                                    index.type_id,
+                                    index.precision,
+                                    None,
+                                    VariableScope::FunctionParam,
+                                );
+                            params.push(FunctionParam::new(
+                                new_param_variable,
+                                FunctionParamDirection::Input,
+                            ));
 
                             // And the value to pass to this argument in the substituted function
                             // call.
@@ -372,14 +375,8 @@ fn replace_arg(state: &mut State, preamble: &mut Block, access_chain: &[Id]) -> 
 
                             // Load from this parameter to access the pointer inside the
                             // monomorphized function.
-                            preamble.add_typed_instruction(instruction::load(
-                                state.ir_meta,
-                                TypedId::new(
-                                    Id::new_variable(new_param),
-                                    index.type_id,
-                                    index.precision,
-                                ),
-                            ))
+                            preamble
+                                .add_typed_instruction(instruction::load(state.ir_meta, new_param))
                         } else {
                             index
                         };

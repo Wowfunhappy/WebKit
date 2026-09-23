@@ -27,6 +27,7 @@
 #include "TestController.h"
 
 #include "PlatformWebView.h"
+#include <WebKit/WKTextCheckerGLib.h>
 #include <glib.h>
 #include <wtf/RunLoop.h>
 #include <wtf/WTFProcess.h>
@@ -130,6 +131,7 @@ void TestController::platformConfigureViewForTest(const TestInvocation&)
 
 bool TestController::platformResetStateToConsistentValues(const TestOptions&)
 {
+    WKTextCheckerContinuousSpellCheckingEnabledStateChanged(true);
     return true;
 }
 

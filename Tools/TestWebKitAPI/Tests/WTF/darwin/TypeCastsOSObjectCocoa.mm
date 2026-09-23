@@ -28,7 +28,7 @@
 
 #import "config.h"
 
-#import "WTFTestUtilities.h"
+#import "Helpers/WTFTestUtilities.h"
 #import <wtf/darwin/DispatchOSObject.h>
 
 #if __has_feature(objc_arc)
@@ -184,6 +184,96 @@ TEST(TYPE_CASTS_OSOBJECT_PTR_TEST_NAME, dynamicOSObjectCast_from_OSObjectPtr)
         OSObjectPtr<dispatch_queue_global_t> objectCastBad;
         AUTORELEASEPOOL_FOR_ARC_DEBUG {
             objectCastBad = dynamicOSObjectCast<dispatch_queue_global_t>(WTF::move(object));
+            EXPECT_EQ(NULL, objectCastBad.get());
+        }
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+    }
+}
+
+TEST(TYPE_CASTS_OSOBJECT_PTR_TEST_NAME, dynamicOSObjectCast_from_const_OSObjectPtr)
+{
+    // Null cast.
+    @autoreleasepool {
+        OSObjectPtr<dispatch_object_t> object;
+        auto objectCast = dynamicOSObjectCast<dispatch_group_t>(object);
+        EXPECT_EQ(NULL, object.get());
+        EXPECT_EQ(NULL, objectCast.get());
+    }
+
+    // Down cast.
+    @autoreleasepool {
+        OSObjectPtr<dispatch_object_t> object;
+        uintptr_t objectPtr = 0;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+            objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        }
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        OSObjectPtr<dispatch_group_t> objectCast;
+        uintptr_t objectCastPtr = 0;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            objectCast = dynamicOSObjectCast<dispatch_group_t>(object);
+            objectCastPtr = reinterpret_cast<uintptr_t>(objectCast.get());
+            EXPECT_NE(nullptr, object.get()); // Source should be unchanged.
+            EXPECT_EQ(objectPtr, objectCastPtr);
+        }
+        EXPECT_EQ(2L, CFGetRetainCount((CFTypeRef)objectCastPtr)); // Both object and objectCast retain it.
+    }
+
+    // Invalid down cast.
+    @autoreleasepool {
+        OSObjectPtr<dispatch_object_t> object;
+        uintptr_t objectPtr = 0;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            object = adoptOSObject<dispatch_object_t>(dispatch_group_create());
+            objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        }
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        OSObjectPtr<dispatch_source_t> objectCastBad;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            objectCastBad = dynamicOSObjectCast<dispatch_source_t>(object);
+            EXPECT_NE(nullptr, object.get()); // Source should be unchanged.
+            EXPECT_EQ(NULL, objectCastBad.get());
+        }
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+    }
+
+    // Up cast.
+    @autoreleasepool {
+        OSObjectPtr<dispatch_group_t> object;
+        uintptr_t objectPtr = 0;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            object = adoptOSObject(dispatch_group_create());
+            objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        }
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        OSObjectPtr<dispatch_object_t> objectCast;
+        uintptr_t objectCastPtr = 0;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            objectCast = dynamicOSObjectCast<dispatch_object_t>(object);
+            objectCastPtr = reinterpret_cast<uintptr_t>(objectCast.get());
+            EXPECT_NE(nullptr, object.get()); // Source should be unchanged.
+            EXPECT_EQ(objectPtr, objectCastPtr);
+        }
+        EXPECT_EQ(2L, CFGetRetainCount((CFTypeRef)objectCastPtr)); // Both object and objectCast retain it.
+    }
+
+    // Bad up cast (excluding dispatch_object_t).
+    @autoreleasepool {
+        OSObjectPtr<dispatch_queue_t> object;
+        uintptr_t objectPtr = 0;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            object = adoptOSObject(dispatch_queue_create("testQueue", NULL));
+            objectPtr = reinterpret_cast<uintptr_t>(object.get());
+        }
+        EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));
+
+        OSObjectPtr<dispatch_queue_global_t> objectCastBad;
+        AUTORELEASEPOOL_FOR_ARC_DEBUG {
+            objectCastBad = dynamicOSObjectCast<dispatch_queue_global_t>(object);
             EXPECT_EQ(NULL, objectCastBad.get());
         }
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr));

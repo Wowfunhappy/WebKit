@@ -37,9 +37,7 @@
 
 namespace WebCore {
 
-DatabaseTaskSynchronizer::DatabaseTaskSynchronizer()
-{
-}
+DatabaseTaskSynchronizer::DatabaseTaskSynchronizer() = default;
 
 void DatabaseTaskSynchronizer::waitForTaskCompletion()
 {

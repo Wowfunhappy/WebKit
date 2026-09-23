@@ -31,6 +31,7 @@ struct EventInit {
     bool bubbles { false };
     bool cancelable { false };
     bool composed { false };
+    bool trustedForBindingsOnly { false };
 };
 
 }

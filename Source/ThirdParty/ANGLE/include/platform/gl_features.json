@@ -185,6 +185,14 @@
             "issue": ""
         },
         {
+            "name": "dont_invalidate_incomplete_FBOs",
+            "category": "Workarounds",
+            "description": [
+                "Skip invalidation calls if the framebuffer is incomplete."
+            ],
+            "issue": "http://crbug.com/507508103"
+        },
+        {
             "name": "dont_use_loops_to_initialize_variables",
             "category": "Workarounds",
             "description": [
@@ -449,6 +457,14 @@
                 "CopyTexImage2D spuriously returns errors on iOS when copying from renderbuffers."
             ],
             "issue": "https://anglebug.com/42263273"
+        },
+        {
+            "name": "force_luma_workaround_for_same_texture_CopyTexImage2D",
+            "category": "Workarounds",
+            "description": [
+                "Work around incorrect channel results in same-texture LUMA CopyTexImage2D."
+            ],
+            "issue": "https://anglebug.com/486067696"
         },
         {
             "name": "disable_GPU_switching_support",
@@ -852,6 +868,63 @@
                 "IMG drivers are unable to handle glClearTexImage with various format combinations."
             ],
             "issue": "https://crbug.com/465918231"
+        },
+        {
+            "name": "multiview_via_viewport_array",
+            "category": "Features",
+            "description": [
+                "Use ARB_shader_viewport_layer_array or NV_viewport_array2 to implement multiview"
+            ],
+            "issue": "http://anglebug.com/42260809"
+        },
+        {
+            "name": "validate_max_per_stage_uniform_blocks_at_compile_time",
+            "category": "Workarounds",
+            "description": [
+                "Validate GL_MAX_*_UNIFORM_BLOCKS at compile time instead of link time to work around compiler bugs."
+            ],
+            "issue": "http://crbug.com/475877320"
+        },
+        {
+            "name": "expand_fragment_outputs_to_vec4",
+            "category": "Workarounds",
+            "description": [
+                "Expand fragment shader outputs to 4 components to work around compiler bugs."
+            ],
+            "issue": "http://crbug.com/491732188"
+        },
+        {
+            "name": "recreate_mipmap_levels_before_generate",
+            "category": "Workarounds",
+            "description": [
+                "Before calling glGenerateMipmap on a mutable texture, recreate levels that the driver is ",
+                "supposed to recreate to work around driver bugs."
+            ],
+            "issue": "http://crbug.com/491732188"
+        },
+        {
+            "name": "limit_max_buffer_size_to_1gb",
+            "category": "Workarounds",
+            "description": [
+                "Some drivers have internal failures when attempting to allocate and initialize buffers larger than 1gb."
+            ],
+            "issue": "http://crbug.com/475877320"
+        },
+        {
+            "name": "reattach_fbo_depth_stencil_on_reallocation",
+            "category": "Workarounds",
+            "description": [
+                "Reattach FBO depth and stencil attachments when they are reallocated."
+            ],
+            "issue": "http://crbug.com/520656244"
+        },
+        {
+            "name": "disable_clear_texture",
+            "category": "Workarounds",
+            "description": [
+                "Disable the EXT_clear_texture extension due to driver bugs."
+            ],
+            "issue": "http://crbug.com/475877320"
         }
     ]
 }

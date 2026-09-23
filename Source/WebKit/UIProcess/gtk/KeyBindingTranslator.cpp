@@ -82,7 +82,7 @@ static void showHelpCallback(GtkWidget* widget, KeyBindingTranslator*)
 }
 #endif
 
-static constexpr auto gtkDeleteCommands = std::to_array<std::array<ASCIILiteral, 2>>({
+static constexpr auto gtkDeleteCommands = WTF::toArray<std::array<ASCIILiteral, 2>>({
     { "DeleteBackward"_s,               "DeleteForward"_s          }, // Characters
     { "DeleteWordBackward"_s,           "DeleteWordForward"_s      }, // Word ends
     { "DeleteWordBackward"_s,           "DeleteWordForward"_s      }, // Words
@@ -126,7 +126,7 @@ static void deleteFromCursorCallback(GtkWidget* widget, GtkDeleteType deleteType
         translator->addPendingEditorCommand(rawCommand);
 }
 
-static constexpr auto gtkMoveCommands = std::to_array<std::array<ASCIILiteral, 4>>({
+static constexpr auto gtkMoveCommands = WTF::toArray<std::array<ASCIILiteral, 4>>({
     { "MoveBackward"_s,               "MoveForward"_s,          "MoveBackwardAndModifySelection"_s,               "MoveForwardAndModifySelection"_s          }, // Forward/backward grapheme
     { "MoveLeft"_s,                   "MoveRight"_s,            "MoveBackwardAndModifySelection"_s,               "MoveForwardAndModifySelection"_s          }, // Left/right grapheme
     { "MoveWordBackward"_s,           "MoveWordForward"_s,      "MoveWordBackwardAndModifySelection"_s,           "MoveWordForwardAndModifySelection"_s      }, // Forward/backward word
@@ -191,7 +191,7 @@ struct KeyCombinationEntry {
     ASCIILiteral name;
 };
 
-static constexpr auto customKeyBindings = std::to_array<const KeyCombinationEntry>({
+static constexpr auto customKeyBindings = WTF::toArray<KeyCombinationEntry>({
     { GDK_KEY_b,         GDK_CONTROL_MASK,                  "ToggleBold"_s       },
     { GDK_KEY_i,         GDK_CONTROL_MASK,                  "ToggleItalic"_s     },
     { GDK_KEY_Escape,    0,                                 "Cancel"_s           },
@@ -256,7 +256,7 @@ Vector<String> KeyBindingTranslator::commandsForKeyEvent(GdkEventKey* event)
 }
 #endif
 
-static constexpr auto predefinedKeyBindings = std::to_array<const KeyCombinationEntry>({
+static constexpr auto predefinedKeyBindings = WTF::toArray<KeyCombinationEntry>({
     { GDK_KEY_Left,         0,                                 "MoveLeft"_s },
     { GDK_KEY_KP_Left,      0,                                 "MoveLeft"_s },
     { GDK_KEY_Left,         GDK_SHIFT_MASK,                    "MoveBackwardAndModifySelection"_s },

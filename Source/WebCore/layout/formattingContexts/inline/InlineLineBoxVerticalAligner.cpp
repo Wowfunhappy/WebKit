@@ -31,7 +31,7 @@
 #include "InlineLevelBoxInlines.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutChildIterator.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
 
 namespace WebCore {
@@ -113,7 +113,13 @@ InlineLayoutUnit LineBoxVerticalAligner::simplifiedVerticalAlignment(LineBox& li
         rootInlineBox.setLogicalTop(-rootInlineBoxAscent);
         for (auto& inlineLevelBox : lineBox.nonRootInlineLevelBoxes()) {
             ASSERT(inlineLevelBox.layoutBox().isWordBreakOpportunity() || (inlineLevelBox.isInlineBox() && !inlineLevelBox.hasContent()));
-            inlineLevelBox.setLogicalTop(rootInlineBoxAscent);
+            // Direct children of the root inline box are positioned relative to it.
+            // Nested inline boxes are positioned relative to their parent (which is already at 0).
+            auto offsetFromRootInlineBox = [&] {
+                auto isRootInlineBoxChild = &inlineLevelBox.layoutBox().parent() == &rootInlineBox.layoutBox();
+                return isRootInlineBoxChild ? rootInlineBoxAscent : 0.f;
+            };
+            inlineLevelBox.setLogicalTop(offsetFromRootInlineBox());
         }
         return { };
     }

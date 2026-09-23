@@ -289,9 +289,6 @@ void PropertyInlineCache::reset(const ConcurrentJSLockerBase& locker, CodeBlock*
     dataLogLnIf(Options::verboseOSR(), "Clearing structure cache (kind ", static_cast<int>(accessType), ") in ", RawPointer(codeBlock), ".");
 
     switch (accessType) {
-    case AccessType::TryGetById:
-        resetGetBy(codeBlock, *this, GetByKind::TryById);
-        break;
     case AccessType::GetById:
         resetGetBy(codeBlock, *this, GetByKind::ById);
         break;
@@ -497,23 +494,24 @@ CallLinkInfo* PropertyInlineCache::callLinkInfoAt(const ConcurrentJSLocker& lock
     if (auto* handlerIC = dynamicDowncast<HandlerPropertyInlineCache>(*this)) {
         if (handlerIC->m_inlinedHandler) {
             if (handlerIC->m_inlinedHandler->accessCase() == &accessCase)
-                return handlerIC->m_inlinedHandler->callLinkInfoAt(locker, 0);
+                return downcast<InlineCacheHandlerWithJSCall>(*handlerIC->m_inlinedHandler).callLinkInfo(locker);
         }
 
         if (auto* cursor = m_handler.get()) {
             while (cursor) {
                 if (cursor->accessCase() == &accessCase)
-                    return cursor->callLinkInfoAt(locker, 0);
+                    return downcast<InlineCacheHandlerWithJSCall>(*cursor).callLinkInfo(locker);
                 cursor = cursor->next();
             }
         }
         return nullptr;
     }
 
-    // Repatching IC path
     if (!m_handler)
         return nullptr;
-    return m_handler->callLinkInfoAt(locker, index);
+    if (!m_handler->stubRoutine())
+        return nullptr;
+    return m_handler->stubRoutine()->callLinkInfoAt(locker, index);
 }
 
 PropertyInlineCacheSummary PropertyInlineCache::summary(const ConcurrentJSLocker& locker, VM& vm) const
@@ -578,7 +576,7 @@ ALWAYS_INLINE void PropertyInlineCache::setCacheType(const ConcurrentJSLockerBas
     m_cacheType = newCacheType;
 }
 
-static CodePtr<OperationPtrTag> slowOperationFromUnlinkedPropertyInlineCache(const UnlinkedPropertyInlineCache& unlinkedPropertyCache)
+static CodePtr<OperationPtrTag> NODELETE slowOperationFromUnlinkedPropertyInlineCache(const UnlinkedPropertyInlineCache& unlinkedPropertyCache)
 {
     switch (unlinkedPropertyCache.accessType) {
     case AccessType::DeleteByValStrict:
@@ -599,8 +597,6 @@ static CodePtr<OperationPtrTag> slowOperationFromUnlinkedPropertyInlineCache(con
         return operationInByIdOptimize;
     case AccessType::GetById:
         return operationGetByIdOptimize;
-    case AccessType::TryGetById:
-        return operationTryGetByIdOptimize;
     case AccessType::GetByIdDirect:
         return operationGetByIdDirectOptimize;
     case AccessType::GetByIdWithThis:
@@ -726,7 +722,6 @@ void PropertyInlineCache::initializePredefinedRegisters()
         m_valueTagGPR = BaselineJITRegisters::InById::resultJSR.tagGPR();
 #endif
         break;
-    case AccessType::TryGetById:
     case AccessType::GetByIdDirect:
     case AccessType::GetById:
     case AccessType::GetPrivateNameById:
@@ -837,8 +832,6 @@ void HandlerPropertyInlineCache::initializeFromUnlinkedPropertyInlineCache(VM& v
     if (unlinkedPropertyCache.canBeMegamorphic)
         bufferingCountdown = 1;
 
-    usedRegisters = RegisterSet::stubUnavailableRegisters().toScalarRegisterSet();
-
     m_slowOperation = slowOperationFromUnlinkedPropertyInlineCache(unlinkedPropertyCache);
     initializePredefinedRegisters();
 }
@@ -874,8 +867,6 @@ void HandlerPropertyInlineCache::initializeFromDFGUnlinkedPropertyInlineCache(Co
 
     if (unlinkedPropertyCache.canBeMegamorphic)
         bufferingCountdown = 1;
-
-    usedRegisters = RegisterSet::stubUnavailableRegisters().toScalarRegisterSet();
 
     m_slowOperation = slowOperationFromUnlinkedPropertyInlineCache(unlinkedPropertyCache);
     initializePredefinedRegisters();

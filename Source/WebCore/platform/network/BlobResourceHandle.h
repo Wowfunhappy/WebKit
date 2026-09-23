@@ -73,8 +73,8 @@ private:
 
     void doStart();
 
-    int readDataSync(const BlobDataItem&, std::span<uint8_t>);
-    int readFileSync(const BlobDataItem&, std::span<uint8_t>);
+    int readDataSync(const BlobDataItem&, DataSegment&, std::span<uint8_t>);
+    int readFileSync(const BlobDataItem&, BlobDataFileReference&, std::span<uint8_t>);
 
     Error m_errorCode { Error::NoError };
     bool m_aborted { false };

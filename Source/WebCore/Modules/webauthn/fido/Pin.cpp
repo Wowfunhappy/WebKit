@@ -276,7 +276,7 @@ static Vector<uint8_t> deriveProtocolSharedSecret(PINUVAuthProtocol protocol, Ve
     // CTAP spec 6.5.6 (Protocol 1) and 6.5.7 (Protocol 2).
     Vector<uint8_t> sharedSecret;
     if (protocol == PINUVAuthProtocol::kPinProtocol1) {
-        auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+        auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
         crypto->addBytes(ecdhResult.span());
         sharedSecret = crypto->computeHash();
     } else if (protocol == PINUVAuthProtocol::kPinProtocol2) {
@@ -375,7 +375,7 @@ std::optional<TokenRequest> TokenRequest::tryCreate(PINUVAuthProtocol protocol, 
     auto coseKey = encodeCOSEPublicKey(rawPublicKeyResult.returnValue());
 
     // The following calculates a SHA-256 digest of the PIN, and shrink to the left 16 bytes.
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(byteCast<uint8_t>(pin.span()));
     auto pinHash = crypto->computeHash();
     pinHash.shrink(16);

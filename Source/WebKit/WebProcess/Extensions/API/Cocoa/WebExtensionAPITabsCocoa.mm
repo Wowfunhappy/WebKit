@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPITabs.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -52,83 +53,9 @@
 #import "WebFrame.h"
 #import "WebPage.h"
 #import "WebProcess.h"
+#import <WebCore/UserGestureIndicator.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/Base64.h>
-
-static NSString * const idKey = @"id";
-static NSString * const urlKey = @"url";
-static NSString * const titleKey = @"title";
-
-static NSString * const windowIdKey = @"windowId";
-static NSString * const indexKey = @"index";
-static NSString * const openerTabIdKey = @"openerTabId";
-
-static NSString * const widthKey = @"width";
-static NSString * const heightKey = @"height";
-
-static NSString * const activeKey = @"active";
-static NSString * const highlightedKey = @"highlighted";
-static NSString * const selectedKey = @"selected";
-static NSString * const incognitoKey = @"incognito";
-static NSString * const pinnedKey = @"pinned";
-static NSString * const audibleKey = @"audible";
-
-static NSString * const mutedInfoKey = @"mutedInfo";
-static NSString * const mutedKey = @"muted";
-
-static NSString * const statusKey = @"status";
-static NSString * const loadingKey = @"loading";
-static NSString * const completeKey = @"complete";
-
-static NSString * const isArticleKey = @"isArticle";
-static NSString * const isInReaderModeKey = @"isInReaderMode";
-static NSString * const openInReaderModeKey = @"openInReaderMode";
-
-static NSString * const currentWindowKey = @"currentWindow";
-static NSString * const hiddenKey = @"hidden";
-static NSString * const lastFocusedWindowKey = @"lastFocusedWindow";
-static NSString * const windowTypeKey = @"windowType";
-
-static NSString * const bypassCacheKey = @"bypassCache";
-
-static NSString * const oldWindowIdKey = @"oldWindowId";
-static NSString * const oldPositionKey = @"oldPosition";
-
-static NSString * const newWindowIdKey = @"newWindowId";
-static NSString * const newPositionKey = @"newPosition";
-
-static NSString * const previousTabIdKey = @"previousTabId";
-static NSString * const tabIdKey = @"tabId";
-
-static NSString * const fromIndexKey = @"fromIndex";
-static NSString * const toIndexKey = @"toIndex";
-
-static NSString * const isWindowClosingKey = @"isWindowClosing";
-
-static NSString * const tabIdsKey = @"tabIds";
-
-static NSString * const formatKey = @"format";
-static NSString * const pngValue = @"png";
-static NSString * const jpegValue = @"jpeg";
-
-static NSString * const qualityKey = @"quality";
-
-static NSString * const frameIdKey = @"frameId";
-static NSString * const documentIdKey = @"documentId";
-static NSString * const nameKey = @"name";
-
-static NSString * const allFramesKey = @"allFrames";
-static NSString * const codeKey = @"code";
-static NSString * const fileKey = @"file";
-static NSString * const cssOriginKey = @"cssOrigin";
-
-static NSString * const authorValue = @"author";
-static NSString * const userValue = @"user";
-
-static NSString * const emptyURLValue = @"";
-static NSString * const emptyTitleValue = @"";
-static NSString * const emptyDataURLValue = @"data:,";
-static NSString * const unknownLanguageValue = @"und";
 
 namespace WebKit {
 
@@ -199,6 +126,42 @@ static inline size_t clampIndex(double index)
     return static_cast<size_t>(std::max(0.0, std::min(index, static_cast<double>(JSC::maxSafeInteger()))));
 }
 
+// Parses a tab identifier or array of tab identifiers into a validated list of WebExtensionTabIdentifiers.
+static bool parseTabIdentifiers(NSObject *tabIDs, Vector<WebExtensionTabIdentifier>& identifiers, NSString *sourceKey, NSString **outExceptionString)
+{
+    if (!validateObject(tabIDs, sourceKey, [NSOrderedSet orderedSetWithObjects:NSNumber.class, @[ NSNumber.class ], nil], outExceptionString))
+        return false;
+
+    auto appendIdentifier = [&](NSNumber *tabID) -> bool {
+        auto tabIdentifier = toWebExtensionTabIdentifier(tabID.doubleValue);
+        if (!isValid(tabIdentifier)) {
+            *outExceptionString = toErrorString(nullString(), sourceKey, makeString("'"_s, String(tabID.description), "' is not a tab identifier"_s)).createNSString().autorelease();
+            return false;
+        }
+
+        identifiers.append(tabIdentifier.value());
+        return true;
+    };
+
+    if (NSNumber *tabID = dynamic_objc_cast<NSNumber>(tabIDs))
+        return appendIdentifier(tabID);
+
+    if (NSArray *tabIDArray = dynamic_objc_cast<NSArray>(tabIDs)) {
+        identifiers.reserveInitialCapacity(tabIDArray.count);
+
+        for (NSNumber *tabID in tabIDArray) {
+            if (!appendIdentifier(tabID))
+                return false;
+        }
+    } else {
+        // This should be unreachable if validateObject passed above, but handle it anyways
+        *outExceptionString = toErrorString(nullString(), sourceKey, makeString("an internal error occurred"_s)).createNSString().autorelease();
+        return false;
+    }
+
+    return true;
+}
+
 bool WebExtensionAPITabs::parseTabCreateOptions(NSDictionary *options, WebExtensionTabParameters& parameters, NSString *sourceKey, NSString **outExceptionString)
 {
     if (!parseTabUpdateOptions(options, parameters, sourceKey, outExceptionString))
@@ -218,7 +181,7 @@ bool WebExtensionAPITabs::parseTabCreateOptions(NSDictionary *options, WebExtens
         parameters.windowIdentifier = toWebExtensionWindowIdentifier(windowId.doubleValue);
 
         if (!parameters.windowIdentifier || !isValid(parameters.windowIdentifier.value())) {
-            *outExceptionString = toErrorString(nullString(), windowIdKey, @"'%@' is not a window identifier", windowId).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), windowIdKey, makeString("'"_s, String([windowId description]), "' is not a window identifier"_s)).createNSString().autorelease();
             return false;
         }
     }
@@ -254,7 +217,7 @@ bool WebExtensionAPITabs::parseTabUpdateOptions(NSDictionary *options, WebExtens
         parameters.url = URL { extensionContext().baseURL(), url };
 
         if (!parameters.url.value().isValid()) {
-            *outExceptionString = toErrorString(nullString(), urlKey, @"'%@' is not a valid URL", url).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), urlKey, makeString("'"_s, String(url), "' is not a valid URL"_s)).createNSString().autorelease();
             return false;
         }
     }
@@ -263,7 +226,7 @@ bool WebExtensionAPITabs::parseTabUpdateOptions(NSDictionary *options, WebExtens
         parameters.parentTabIdentifier = toWebExtensionTabIdentifier(openerTabId.doubleValue);
 
         if (!parameters.parentTabIdentifier || !isValid(parameters.parentTabIdentifier.value())) {
-            *outExceptionString = toErrorString(nullString(), openerTabIdKey, @"'%@' is not a tab identifier", openerTabId).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), openerTabIdKey, makeString("'"_s, String([openerTabId description]), "' is not a tab identifier"_s)).createNSString().autorelease();
             return false;
         }
     }
@@ -332,7 +295,7 @@ bool WebExtensionAPITabs::parseTabQueryOptions(NSDictionary *options, WebExtensi
         parameters.windowIdentifier = toWebExtensionWindowIdentifier(windowId.doubleValue);
 
         if (!parameters.windowIdentifier || !isValid(parameters.windowIdentifier.value())) {
-            *outExceptionString = toErrorString(nullString(), windowIdKey, @"'%@' is not a window identifier", windowId).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), windowIdKey, makeString("'"_s, String([windowId description]), "' is not a window identifier"_s)).createNSString().autorelease();
             return false;
         }
 
@@ -370,7 +333,7 @@ bool WebExtensionAPITabs::parseTabQueryOptions(NSDictionary *options, WebExtensi
         for (auto& patternString : parameters.urlPatterns.value()) {
             auto pattern = WebExtensionMatchPattern::getOrCreate(patternString);
             if (!pattern || !pattern->isSupported()) {
-                *outExceptionString = toErrorString(nullString(), urlKey, @"'%@' is not a valid pattern", patternString.createNSString().get()).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), urlKey, makeString("'"_s, patternString, "' is not a valid pattern"_s)).createNSString().autorelease();
                 return false;
             }
         }
@@ -471,7 +434,7 @@ bool WebExtensionAPITabs::parseSendMessageOptions(NSDictionary *options, WebExte
     if (NSNumber *frameIdentifier = options[frameIdKey]) {
         auto identifier = toWebExtensionFrameIdentifier(frameIdentifier.doubleValue);
         if (!isValid(identifier)) {
-            *outExceptionString = toErrorString(nullString(), frameIdKey, @"'%@' is not a frame identifier", frameIdentifier).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), frameIdKey, makeString("'"_s, String([frameIdentifier description]), "' is not a frame identifier"_s)).createNSString().autorelease();
             return false;
         }
 
@@ -481,7 +444,7 @@ bool WebExtensionAPITabs::parseSendMessageOptions(NSDictionary *options, WebExte
     if (NSString *documentIdentifier = options[documentIdKey]) {
         auto parsedUUID = WTF::UUID::parse(String(documentIdentifier));
         if (!parsedUUID) {
-            *outExceptionString = toErrorString(nullString(), documentIdKey, @"'%@' is not a document identifier", documentIdentifier).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), documentIdKey, makeString("'"_s, String(documentIdentifier), "' is not a document identifier"_s)).createNSString().autorelease();
             return false;
         }
 
@@ -558,7 +521,7 @@ bool WebExtensionAPITabs::parseScriptOptions(NSDictionary *options, WebExtension
     if (NSString *documentIdentifer = options[documentIdKey]) {
         auto parsedUUID = WTF::UUID::parse(String(documentIdentifer));
         if (!parsedUUID) {
-            *outExceptionString = toErrorString(nullString(), documentIdKey, @"'%@' is not a valid document identifier", documentIdentifer).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), documentIdKey, makeString("'"_s, String(documentIdentifer), "' is not a valid document identifier"_s)).createNSString().autorelease();
             return false;
         }
 
@@ -568,7 +531,7 @@ bool WebExtensionAPITabs::parseScriptOptions(NSDictionary *options, WebExtension
     if (NSNumber *frameID = options[frameIdKey]) {
         auto frameIdentifier = toWebExtensionFrameIdentifier(frameID.doubleValue);
         if (!isValid(frameIdentifier)) {
-            *outExceptionString = toErrorString(nullString(), frameIdKey, @"'%@' is not a frame identifier", frameID).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), frameIdKey, makeString("'"_s, String([frameID description]), "' is not a frame identifier"_s)).createNSString().autorelease();
             return false;
         }
 
@@ -596,7 +559,7 @@ bool isValid(std::optional<WebExtensionTabIdentifier> identifier, NSString **out
         if (isNone(identifier))
             *outExceptionString = toErrorString(nullString(), @"tabId", @"'tabs.TAB_ID_NONE' is not allowed").createNSString().autorelease();
         else if (identifier)
-            *outExceptionString = toErrorString(nullString(), @"tabId", @"'%llu' is not a tab identifier", identifier.value().toUInt64()).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), @"tabId", makeString("'"_s, identifier.value().toUInt64(), "' is not a tab identifier"_s)).createNSString().autorelease();
         else
             *outExceptionString = toErrorString(nullString(), @"tabId", @"it is not a tab identifier").createNSString().autorelease();
         return false;
@@ -761,36 +724,72 @@ void WebExtensionAPITabs::update(WebPageProxyIdentifier webPageProxyIdentifier, 
     }, extensionContext().identifier());
 }
 
+void WebExtensionAPITabs::move(NSObject *tabIDs, NSDictionary *properties, Ref<WebExtensionCallbackHandler>&& callback, NSString **outExceptionString)
+{
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/move
+
+    Vector<WebExtensionTabIdentifier> identifiers;
+    if (!parseTabIdentifiers(tabIDs, identifiers, @"tabIDs", outExceptionString))
+        return;
+
+    if (identifiers.isEmpty()) {
+        *outExceptionString = toErrorString(nullString(), @"tabIDs", "no tabs were specified"_s).createNSString().autorelease();
+        return;
+    }
+
+    static NSDictionary<NSString *, id> *types = @{
+        windowIdKey: NSNumber.class,
+        indexKey: NSNumber.class,
+    };
+
+    if (!validateDictionary(properties, @"properties", @[ indexKey ], types, outExceptionString))
+        return;
+
+    std::optional<WebExtensionWindowIdentifier> windowIdentifier;
+    if (NSNumber *windowId = objectForKey<NSNumber>(properties, windowIdKey)) {
+        windowIdentifier = toWebExtensionWindowIdentifier(windowId.doubleValue);
+
+        if (!windowIdentifier || !isValid(windowIdentifier.value())) {
+            *outExceptionString = toErrorString(nullString(), windowIdKey, makeString("'"_s, String(windowId.description), "' is not a window identifier"_s)).createNSString().autorelease();
+            return;
+        }
+    }
+
+    double index = objectForKey<NSNumber>(properties, indexKey).doubleValue;
+
+    double integral;
+    if (std::modf(index, &integral) != 0.0) {
+        *outExceptionString = toErrorString(nullString(), indexKey, "it must be an integer"_s).createNSString().autorelease();
+        return;
+    }
+
+    if (index < -1) {
+        *outExceptionString = toErrorString(nullString(), indexKey, "it must be -1 or greater"_s).createNSString().autorelease();
+        return;
+    }
+
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsMove(WTF::move(identifiers), windowIdentifier, index), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<Vector<WebExtensionTabParameters>, WebExtensionError>&& result) {
+        if (!result) {
+            callback->reportError(result.error().createNSString().get());
+            return;
+        }
+
+        auto& movedTabs = result.value();
+
+        if (movedTabs.size() == 1)
+            callback->call(toJSValueRef(callback->globalContext(), toWebAPI(movedTabs[0])));
+        else
+            callback->call(toJSValueRef(callback->globalContext(), toWebAPI(movedTabs)));
+    }, extensionContext().identifier());
+}
+
 void WebExtensionAPITabs::remove(NSObject *tabIDs, Ref<WebExtensionCallbackHandler>&& callback, NSString **outExceptionString)
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/tabs/remove
 
-    if (!validateObject(tabIDs, @"tabIDs", [NSOrderedSet orderedSetWithObjects:NSNumber.class, @[ NSNumber.class ], nil], outExceptionString))
-        return;
-
     Vector<WebExtensionTabIdentifier> identifiers;
-
-    if (NSNumber *tabID = dynamic_objc_cast<NSNumber>(tabIDs)) {
-        auto tabIdentifer = toWebExtensionTabIdentifier(tabID.doubleValue);
-        if (!isValid(tabIdentifer)) {
-            *outExceptionString = toErrorString(nullString(), @"tabIDs", @"'%@' is not a tab identifier", tabID).createNSString().autorelease();
-            return;
-        }
-
-        identifiers.append(tabIdentifer.value());
-    } else if (NSArray *tabIDArray = dynamic_objc_cast<NSArray>(tabIDs)) {
-        identifiers.reserveInitialCapacity(tabIDArray.count);
-
-        for (NSNumber *tabID in tabIDArray) {
-            auto tabIdentifer = toWebExtensionTabIdentifier(tabID.doubleValue);
-            if (!isValid(tabIdentifer)) {
-                *outExceptionString = toErrorString(nullString(), @"tabIDs", @"'%@' is not a tab identifier", tabID).createNSString().autorelease();
-                return;
-            }
-
-            identifiers.append(tabIdentifer.value());
-        }
-    }
+    if (!parseTabIdentifiers(tabIDs, identifiers, @"tabIDs", outExceptionString))
+        return;
 
     WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsRemove(WTF::move(identifiers)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
         if (!result) {
@@ -1011,7 +1010,8 @@ void WebExtensionAPITabs::sendMessage(WebFrame& frame, double tabID, const Strin
         documentIdentifier.value(),
     };
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsSendMessage(tabIdentifer.value(), messageJSON, targetParameters, senderParameters), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<String, WebExtensionError>&& result) {
+    bool userGesture = WebCore::UserGestureIndicator::processingUserGesture();
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsSendMessage(tabIdentifer.value(), messageJSON, targetParameters, senderParameters, userGesture), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<String, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -1054,7 +1054,8 @@ RefPtr<WebExtensionAPIPort> WebExtensionAPITabs::connect(WebFrame& frame, JSCont
 
     Ref port = WebExtensionAPIPort::create(*this, frame.page()->webPageProxyIdentifier(), WebExtensionContentWorldType::ContentScript, resolvedName);
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsConnect(tabIdentifer.value(), port->channelIdentifier(), resolvedName, targetParameters, senderParameters), [=, this, protectedThis = Ref { *this }, globalContext = JSRetainPtr { JSContextGetGlobalContext(context) }](Expected<void, WebExtensionError>&& result) {
+    bool userGesture = WebCore::UserGestureIndicator::processingUserGesture();
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsConnect(tabIdentifer.value(), port->channelIdentifier(), resolvedName, targetParameters, senderParameters, userGesture), [=, this, protectedThis = Ref { *this }, globalContext = JSRetainPtr { JSContextGetGlobalContext(context) }](Expected<void, WebExtensionError>&& result) {
         if (result)
             return;
 
@@ -1077,7 +1078,8 @@ void WebExtensionAPITabs::executeScript(WebPageProxyIdentifier webPageProxyIdent
     if (options && !parseScriptOptions(options, parameters, outExceptionString))
         return;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsExecuteScript(webPageProxyIdentifier, tabIdentifier, parameters), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<Vector<WebExtensionScriptInjectionResultParameters>, WebExtensionError>&& result) {
+    bool userGesture = WebCore::UserGestureIndicator::processingUserGesture();
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::TabsExecuteScript(webPageProxyIdentifier, tabIdentifier, parameters, userGesture), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<Vector<WebExtensionScriptInjectionResultParameters>, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;

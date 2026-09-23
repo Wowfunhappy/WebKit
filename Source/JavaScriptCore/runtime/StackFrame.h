@@ -52,6 +52,8 @@ struct WasmFrameData {
     size_t functionIndex { 0 };
 };
 
+enum class AllowURLOverride : bool { No, Yes };
+
 class StackFrame {
 public:
     using FrameData = Variant<JSFrameData, WasmFrameData>;
@@ -96,7 +98,7 @@ public:
     LineColumn computeLineAndColumn() const;
     String functionName(VM&) const;
     SourceID sourceID() const;
-    String sourceURL(VM&) const;
+    JS_EXPORT_PRIVATE String sourceURL(VM&, AllowURLOverride = AllowURLOverride::Yes) const;
     String sourceURLStripped(VM&) const;
     String toString(VM&) const;
 

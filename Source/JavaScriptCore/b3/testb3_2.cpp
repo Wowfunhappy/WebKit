@@ -25,7 +25,6 @@
 
 #include "config.h"
 #include "testb3.h"
-#include <array>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -2955,6 +2954,53 @@ void testUDivByConstantInt32EdgeCases(uint32_t a)
     }
 }
 
+void testUDivByConstantInt32With33BitMagic(uint32_t a)
+{
+    // Test divisors that trigger the 33-bit magic constant path (magic.add == true).
+    // On 64-bit targets, this exercises the UMulHigh64 optimization from
+    // Mitsunari & Hoshino (2026) where a single umulh/mulq replaces the
+    // 5-operation round-down algorithm.
+    auto testDivisor = [&](uint32_t divisor) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<uint32_t>(proc, root);
+
+        Value* argument1 = arguments[0];
+        Value* result = root->appendNew<Value>(
+            proc, UDiv, Origin(), argument1,
+            root->appendNew<Const32Value>(proc, Origin(), divisor));
+        root->appendNew<Value>(proc, Return, Origin(), result);
+
+        CHECK_EQ(compileAndRun<uint32_t>(proc, a), a / divisor);
+    };
+
+    // Odd divisors known to trigger magic.add == true (33-bit magic constant)
+    testDivisor(7);
+    testDivisor(19);
+    testDivisor(23);
+    testDivisor(37);
+    testDivisor(41);
+    testDivisor(43);
+    testDivisor(47);
+    testDivisor(53);
+    testDivisor(59);
+    testDivisor(61);
+    testDivisor(67);
+    testDivisor(71);
+    testDivisor(79);
+    testDivisor(83);
+    testDivisor(89);
+    testDivisor(97);
+    testDivisor(107);
+    testDivisor(109);
+    testDivisor(113);
+
+    // Larger odd divisors that trigger the add path
+    testDivisor(1000000007U);
+    testDivisor(0xFFFFFFFBU);
+    testDivisor(0xFFFFFFFDU);
+}
+
 void testSubArg(int64_t a)
 {
     Procedure proc;
@@ -3649,10 +3695,10 @@ void testTernarySubInstructionSelection(B3::Opcode valueModifier, Type valueType
     unsigned numberOfSubInstructions = 0;
     for (auto instruction : *block) {
         if (instruction.kind.opcode == expectedOpcode) {
-            CHECK_EQ(instruction.args.size(), 3ul);
-            CHECK_EQ(instruction.args[0].kind(), Air::Arg::Tmp);
-            CHECK_EQ(instruction.args[1].kind(), Air::Arg::Tmp);
-            CHECK_EQ(instruction.args[2].kind(), Air::Arg::Tmp);
+            CHECK_EQ(instruction.args().size(), 3ul);
+            CHECK_EQ(instruction.args()[0].kind(), Air::Arg::Tmp);
+            CHECK_EQ(instruction.args()[1].kind(), Air::Arg::Tmp);
+            CHECK_EQ(instruction.args()[2].kind(), Air::Arg::Tmp);
             numberOfSubInstructions++;
         }
     }
@@ -3889,6 +3935,94 @@ void testUbfx64AndShift()
         uint64_t mask = generateMask(widths.at(i));
         CHECK_EQ(test(lsb, mask), (mask & (src >> lsb)));
     }
+}
+
+void testUbfx32ArithmeticShiftAnd()
+{
+    // Test Pattern: (src >> lsb) & mask with arithmetic shift.
+    if (JSC::Options::defaultB3OptLevel() < 2)
+        return;
+    Vector<int32_t> srcs = { 0, 1, -1, 0x76543210, static_cast<int32_t>(0xfedcba98) };
+    Vector<uint32_t> lsbs = { 1, 8, 14, 30 };
+    Vector<uint32_t> widths = { 30, 8, 17, 1 };
+
+    auto test = [&] (uint32_t lsb, uint32_t mask, bool expectUbfx) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+        Value* srcValue = arguments[0];
+        Value* lsbValue = root->appendNew<Const32Value>(proc, Origin(), lsb);
+        Value* maskValue = root->appendNew<Const32Value>(proc, Origin(), mask);
+
+        Value* left = root->appendNew<Value>(proc, SShr, Origin(), srcValue, lsbValue);
+        root->appendNewControlValue(
+            proc, Return, Origin(),
+            root->appendNew<Value>(proc, BitAnd, Origin(), left, maskValue));
+
+        auto code = compileProc(proc);
+        if (isARM64()) {
+            if (expectUbfx)
+                checkUsesInstruction(*code, "ubfx");
+            else
+                checkDoesNotUseInstruction(*code, "ubfx");
+        }
+        for (auto src : srcs)
+            CHECK_EQ(invoke<int32_t>(*code, src), ((src >> lsb) & static_cast<int32_t>(mask)));
+    };
+
+    auto generateMask = [&] (uint32_t width) -> uint32_t {
+        return (1U << width) - 1U;
+    };
+
+    for (size_t i = 0; i < lsbs.size(); ++i)
+        test(lsbs.at(i), generateMask(widths.at(i)), true);
+
+    // lsb + width > 32: mask reaches sign bits, must not use ubfx.
+    test(8, generateMask(25), false);
+}
+
+void testUbfx64ArithmeticShiftAnd()
+{
+    if (JSC::Options::defaultB3OptLevel() < 2)
+        return;
+    Vector<int64_t> srcs = { 0, 1, -1, 0x123456789abcdef0LL, static_cast<int64_t>(0xfedcba9876543210ULL) };
+    Vector<uint64_t> lsbs = { 1, 8, 30, 62 };
+    Vector<uint64_t> widths = { 62, 8, 33, 1 };
+
+    auto test = [&] (uint64_t lsb, uint64_t mask, bool expectUbfx) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<int64_t>(proc, root);
+
+        Value* srcValue = arguments[0];
+        Value* lsbValue = root->appendNew<Const32Value>(proc, Origin(), lsb);
+        Value* maskValue = root->appendNew<Const64Value>(proc, Origin(), mask);
+
+        Value* left = root->appendNew<Value>(proc, SShr, Origin(), srcValue, lsbValue);
+        root->appendNewControlValue(
+            proc, Return, Origin(),
+            root->appendNew<Value>(proc, BitAnd, Origin(), left, maskValue));
+
+        auto code = compileProc(proc);
+        if (isARM64()) {
+            if (expectUbfx)
+                checkUsesInstruction(*code, "ubfx");
+            else
+                checkDoesNotUseInstruction(*code, "ubfx");
+        }
+        for (auto src : srcs)
+            CHECK_EQ(invoke<int64_t>(*code, src), ((src >> lsb) & static_cast<int64_t>(mask)));
+    };
+
+    auto generateMask = [&] (uint64_t width) -> uint64_t {
+        return (1ULL << width) - 1ULL;
+    };
+
+    for (size_t i = 0; i < lsbs.size(); ++i)
+        test(lsbs.at(i), generateMask(widths.at(i)), true);
+
+    test(8, generateMask(57), false);
 }
 
 void testUbfiz32AndShiftValueMask()
@@ -7681,6 +7815,8 @@ void addBitTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& ta
     RUN(testUbfx32AndShift());
     RUN(testUbfx64ShiftAnd());
     RUN(testUbfx64AndShift());
+    RUN(testUbfx32ArithmeticShiftAnd());
+    RUN(testUbfx64ArithmeticShiftAnd());
     RUN(testUbfiz32AndShiftValueMask());
     RUN(testUbfiz32AndShiftMaskValue());
     RUN(testUbfiz32ShiftAnd());

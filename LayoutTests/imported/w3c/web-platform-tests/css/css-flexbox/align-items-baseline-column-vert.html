@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <link rel="help" href="https://drafts.csswg.org/css-align-3/#baseline-export">
-<link rel="stylesheet" type="text/css" href="/fonts/ahem.css" />
+<link rel="stylesheet" href="/fonts/ahem.css" />
 <style>
 #target {
-  font-family: Ahem;
   writing-mode: vertical-rl;
   display: flex;
   flex-direction: column;
@@ -16,18 +15,17 @@
 }
 #target > :nth-child(1) {
   background: lime;
-  font-size: 30px;
-  line-height: 30px;
+  font: 30px/1 Ahem;
   writing-mode: horizontal-tb;
 }
 #target > :nth-child(2) {
   background: hotpink;
-  font-size: 20px;
-  line-height: 30px;
+  font: 20px/1 Ahem;
   writing-mode: horizontal-tb;
 }
 #target > :nth-child(3) {
   background: cyan;
+  font: 16px/1 Ahem;
   width: 40px;
   height: 40px;
 }
@@ -38,7 +36,7 @@
 <body onload="checkLayout('#target > div')">
 <div id="target">
   <div data-offset-y="16">line1<br>line2</div>
-  <div data-offset-y="19">line1<br>line2</div>
+  <div data-offset-y="24">line1<br>line2</div>
   <div data-offset-y="20"></div>
 </div>
 </body>

@@ -31,6 +31,7 @@
 #include "Opcode.h"
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC {
 
@@ -58,7 +59,7 @@ public:
 
 protected:
     static String createLookupKey(const String& sourceFilename, OpcodeID, int startLocation, int endLocation);
-    static OpcodeID opcodeAliasForLookupKey(const OpcodeID&);
+    static OpcodeID NODELETE opcodeAliasForLookupKey(const OpcodeID&);
 };
 
 } // namespace JSC

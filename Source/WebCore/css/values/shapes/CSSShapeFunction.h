@@ -76,6 +76,7 @@ template<> struct Serialize<ByCoordinatePair> { void operator()(StringBuilder&, 
 // Specified https://github.com/w3c/csswg-drafts/issues/10649#issuecomment-2412816773
 struct RelativeControlPoint {
     using Anchor = ControlPointAnchor;
+    static constexpr auto defaultAnchor = Anchor { Keyword::Start { } };
 
     CoordinatePair offset;
     std::optional<Anchor> anchor;
@@ -95,6 +96,7 @@ template<> struct Serialize<RelativeControlPoint> { void operator()(StringBuilde
 // Specified https://github.com/w3c/csswg-drafts/issues/10649#issuecomment-2412816773
 struct AbsoluteControlPoint {
     using Anchor = ControlPointAnchor;
+    static constexpr auto defaultAnchor = Anchor { Keyword::Origin { } };
 
     Position offset;
     std::optional<Anchor> anchor;

@@ -1498,7 +1498,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (void)SEL_NAME:(NSEvent *)event \
 { \
     if (!_wkState || !_wkState->page) { [super SEL_NAME:event]; return; } \
-    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven); \
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven); \
     _wkState->page->handleMouseEvent(webEvent); \
 }
 
@@ -1510,7 +1510,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 #if ENABLE(DRAG_SUPPORT)
     _wkState->lastMouseDownEvent = event;
 #endif
-    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven);
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
     _wkState->page->handleMouseEvent(webEvent);
 }
 WKV_FORWARD_MOUSE(mouseUp)
@@ -1524,7 +1524,7 @@ WKV_FORWARD_MOUSE(mouseUp)
     if (!_wkState || !_wkState->page) { [super mouseMoved:event]; return; }
     if (self == [[self window] firstResponder] && !NSPointInRect([self convertPoint:[event locationInWindow] fromView:nil], [self visibleRect]))
         return;
-    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven);
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
     _wkState->page->handleMouseEvent(webEvent);
 }
 WKV_FORWARD_MOUSE(mouseDragged)

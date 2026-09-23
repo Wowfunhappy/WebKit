@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,16 +26,15 @@
 #pragma once
 
 #include <WebCore/AcceleratedEffectOpacity.h>
-#include <WebCore/StylePrimitiveNumeric.h>
-#include <WebCore/StyleValueTypes.h>
+#include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
 namespace Style {
 
-// <opacity-value> = <number [0,1]@(allow-both-at-parse)> | <percentage [0,100]@(allow-both-at-parse, converted-to-number)>
+// <opacity-value> = <number [0,1]@(ignore-both-at-parse)> | <percentage [0,100]@(ignore-both-at-parse, converted-to-number)>
 // https://drafts.csswg.org/css-color-4/#typedef-opacity-opacity-value
 struct Opacity {
-    using Number = Style::Number<CSS::ClosedUnitRange, float>;
+    using Number = Style::NumberOrPercentageResolvedToNumber<CSS::ClosedUnitRangeIgnoreBoth, CSS::ClosedPercentageRangeIgnoreBoth, float>;
 
     Number value;
 
@@ -71,19 +70,12 @@ struct Opacity {
 };
 DEFINE_TYPE_WRAPPER_GET(Opacity, value);
 
-// MARK: - Conversion
-
-template<> struct CSSValueConversion<Opacity> { auto operator()(BuilderState&, const CSSValue&) -> Opacity; };
-
 // MARK: - Evaluation
 
 #if ENABLE(THREADED_ANIMATIONS)
 
 template<> struct Evaluation<Opacity, AcceleratedEffectOpacity> {
-    auto operator()(const Opacity& value) -> AcceleratedEffectOpacity
-    {
-        return { .value = value.value.value };
-    }
+    auto operator()(const Opacity&) -> AcceleratedEffectOpacity;
 };
 
 #endif

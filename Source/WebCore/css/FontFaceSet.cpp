@@ -36,6 +36,8 @@
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "JSDOMBinding.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertSequences.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSFontFace.h"
 #include "JSFontFaceSet.h"
@@ -97,7 +99,7 @@ RefPtr<FontFace> FontFaceSet::Iterator::next()
 {
     if (m_index >= m_target->size())
         return nullptr;
-    return m_target->backing()[m_index++].wrapper(protect(m_target->scriptExecutionContext()).get());
+    return protect(m_target->backing()).get()[m_index++].wrapper(protect(m_target->scriptExecutionContext()).get());
 }
 
 FontFaceSet::PendingPromise::PendingPromise(LoadPromise&& promise)
@@ -109,7 +111,7 @@ FontFaceSet::PendingPromise::~PendingPromise() = default;
 
 bool FontFaceSet::has(FontFace& face) const
 {
-    if (face.backing().cssConnection())
+    if (protect(face.backing())->cssConnection())
         m_backing->updateStyleIfNeeded();
     return m_backing->hasFace(face.backing());
 }
@@ -124,19 +126,19 @@ ExceptionOr<FontFaceSet&> FontFaceSet::add(FontFace& face)
 {
     if (m_backing->hasFace(face.backing()))
         return *this;
-    if (face.backing().cssConnection())
+    if (protect(face.backing())->cssConnection())
         return Exception(ExceptionCode::InvalidModificationError);
-    m_backing->add(face.backing());
+    m_backing->add(protect(face.backing()));
     return *this;
 }
 
 bool FontFaceSet::remove(FontFace& face)
 {
-    if (face.backing().cssConnection())
+    if (protect(face.backing())->cssConnection())
         return false;
     bool result = m_backing->hasFace(face.backing());
     if (result)
-        m_backing->remove(face.backing());
+        m_backing->remove(protect(face.backing()));
     return result;
 }
 
@@ -144,7 +146,7 @@ void FontFaceSet::clear()
 {
     auto facesPartitionIndex = m_backing->facesPartitionIndex();
     while (m_backing->faceCount() > facesPartitionIndex) {
-        m_backing->remove(m_backing.get()[m_backing->faceCount() - 1]);
+        m_backing->remove(protect(m_backing.get()[m_backing->faceCount() - 1]));
         ASSERT(m_backing->facesPartitionIndex() == facesPartitionIndex);
     }
 }
@@ -164,8 +166,8 @@ void FontFaceSet::load(ScriptExecutionContext& context, const String& font, cons
         return;
     }
 
-    for (auto& face : matchingFaces)
-        face.get().load();
+    for (Ref face : matchingFaces)
+        face->load();
 
     if (CheckedPtr document = dynamicDowncast<Document>(scriptExecutionContext())) {
         if (document->quirks().shouldEnableFontLoadingAPIQuirk()) {
@@ -178,23 +180,23 @@ void FontFaceSet::load(ScriptExecutionContext& context, const String& font, cons
             // See also: https://github.com/w3c/csswg-drafts/issues/7680
 
             bool hasSource = false;
-            for (auto& face : matchingFaces) {
-                if (face.get().sourceCount()) {
+            for (Ref face : matchingFaces) {
+                if (face->sourceCount()) {
                     hasSource = true;
                     break;
                 }
             }
             if (!hasSource) {
                 promise.resolve(matchingFaces.map([scriptExecutionContext = CheckedPtr { scriptExecutionContext() }] (const auto& matchingFace) {
-                    return matchingFace.get().wrapper(scriptExecutionContext.get());
+                    return matchingFace->wrapper(scriptExecutionContext.get());
                 }));
                 return;
             }
         }
     }
 
-    for (auto& face : matchingFaces) {
-        if (face.get().status() == CSSFontFace::Status::Failure) {
+    for (Ref face : matchingFaces) {
+        if (face->status() == CSSFontFace::Status::Failure) {
             promise.reject(ExceptionCode::NetworkError);
             return;
         }
@@ -203,13 +205,13 @@ void FontFaceSet::load(ScriptExecutionContext& context, const String& font, cons
     auto pendingPromise = PendingPromise::create(WTF::move(promise));
     bool waiting = false;
 
-    for (auto& face : matchingFaces) {
-        pendingPromise->faces.append(face.get().wrapper(protect(scriptExecutionContext()).get()));
-        if (face.get().status() == CSSFontFace::Status::Success)
+    for (Ref face : matchingFaces) {
+        pendingPromise->faces.append(face->wrapper(protect(scriptExecutionContext()).get()));
+        if (face->status() == CSSFontFace::Status::Success)
             continue;
         waiting = true;
-        ASSERT(face.get().existingWrapper());
-        m_pendingPromises.add(*face.get().existingWrapper(), Vector<Ref<PendingPromise>>()).iterator->value.append(pendingPromise.copyRef());
+        ASSERT(face->existingWrapper());
+        m_pendingPromises.add(*face->existingWrapper(), Vector<Ref<PendingPromise>>()).iterator->value.append(pendingPromise.copyRef());
     }
 
     if (!waiting)
@@ -241,7 +243,7 @@ void FontFaceSet::faceFinished(CSSFontFace& face, CSSFontFace::Status newStatus)
     if (!face.existingWrapper())
         return;
 
-    for (auto& pendingPromise : m_pendingPromises.take(*face.existingWrapper())) {
+    for (auto& pendingPromise : m_pendingPromises.take(protect(*face.existingWrapper()))) {
         if (pendingPromise->hasReachedTerminalState)
             continue;
         if (newStatus == CSSFontFace::Status::Success) {

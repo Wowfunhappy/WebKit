@@ -22,6 +22,7 @@
 #include "SVGTextLayoutEngineSpacing.h"
 
 #include "FontCascade.h"
+#include "FontCascadeInlines.h"
 #include "SVGFontElement.h"
 #include "SVGFontFaceElement.h"
 #include "SVGLengthContext.h"
@@ -34,7 +35,7 @@ SVGTextLayoutEngineSpacing::SVGTextLayoutEngineSpacing(const FontCascade& font)
 {
 }
 
-float SVGTextLayoutEngineSpacing::calculateCSSSpacing(char16_t currentCharacter)
+float SVGTextLayoutEngineSpacing::calculateCSSSpacing(char32_t currentCharacter)
 {
     float spacing = m_font->letterSpacing();
 

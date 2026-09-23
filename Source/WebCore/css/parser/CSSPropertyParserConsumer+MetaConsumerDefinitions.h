@@ -26,11 +26,11 @@
 #pragma once
 
 #include "CSSCalcSymbolsAllowed.h"
-#include "CSSCalcValue.h"
 #include "CSSParserTokenRange.h"
 #include "CSSPrimitiveNumericTypes.h"
 #include "CSSPropertyParserOptions.h"
 #include "CSSPropertyParserState.h"
+#include "CSSUnevaluatedCalc.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
@@ -80,27 +80,33 @@ template<typename Raw, typename F> bool isValidDimensionValue(Raw raw, F&& funct
     if (std::isinf(raw.value))
         return false;
 
-    if constexpr (raw.range.min == -CSS::Range::infinity && raw.range.max == CSS::Range::infinity)
+    static constexpr auto effectiveMin = (raw.range.minParseTimeBehavior == CSS::RangeParseTimeBehavior::Ignore) ? -CSS::Range::infinity : raw.range.min;
+    static constexpr auto effectiveMax = (raw.range.maxParseTimeBehavior == CSS::RangeParseTimeBehavior::Ignore) ? CSS::Range::infinity : raw.range.max;
+
+    if constexpr (effectiveMin == -CSS::Range::infinity && effectiveMax == CSS::Range::infinity)
         return true;
-    else if constexpr (raw.range.min == 0 && raw.range.max == CSS::Range::infinity)
+    else if constexpr (effectiveMin == 0 && effectiveMax == CSS::Range::infinity)
         return raw.value >= 0;
-    else if constexpr (raw.range.min == -CSS::Range::infinity && raw.range.max == 0)
+    else if constexpr (effectiveMin == -CSS::Range::infinity && effectiveMax == 0)
         return raw.value <= 0;
     else
         return functor();
 }
 
-// Shared validator for types that only support 0 and +/-∞ as valid range constraints.
+// Shared validator for types that only support 0, +/-∞ as valid range constraints.
 template<typename Raw> bool isValidNonCanonicalizableDimensionValue(Raw raw)
 {
     if (std::isinf(raw.value))
         return false;
 
-    if constexpr (raw.range.min == -CSS::Range::infinity && raw.range.max == CSS::Range::infinity)
+    static constexpr auto effectiveMin = (raw.range.minParseTimeBehavior == CSS::RangeParseTimeBehavior::Ignore) ? -CSS::Range::infinity : raw.range.min;
+    static constexpr auto effectiveMax = (raw.range.maxParseTimeBehavior == CSS::RangeParseTimeBehavior::Ignore) ? CSS::Range::infinity : raw.range.max;
+
+    if constexpr (effectiveMin == -CSS::Range::infinity && effectiveMax == CSS::Range::infinity)
         return true;
-    else if constexpr (raw.range.min == 0 && raw.range.max == CSS::Range::infinity)
+    else if constexpr (effectiveMin == 0 && effectiveMax == CSS::Range::infinity)
         return raw.value >= 0;
-    else if constexpr (raw.range.min == -CSS::Range::infinity && raw.range.max == 0)
+    else if constexpr (effectiveMin == -CSS::Range::infinity && effectiveMax == 0)
         return raw.value <= 0;
 }
 
@@ -110,27 +116,30 @@ template<typename Raw> bool isValidCanonicalValue(Raw raw)
     if (std::isinf(raw.value))
         return false;
 
-    if constexpr (raw.range.min == -CSS::Range::infinity && raw.range.max == CSS::Range::infinity)
+    static constexpr auto effectiveMin = (raw.range.minParseTimeBehavior == CSS::RangeParseTimeBehavior::Ignore) ? -CSS::Range::infinity : raw.range.min;
+    static constexpr auto effectiveMax = (raw.range.maxParseTimeBehavior == CSS::RangeParseTimeBehavior::Ignore) ? CSS::Range::infinity : raw.range.max;
+
+    if constexpr (effectiveMin == -CSS::Range::infinity && effectiveMax == CSS::Range::infinity)
         return true;
-    else if constexpr (raw.range.max == CSS::Range::infinity)
-        return raw.value >= raw.range.min;
-    else if constexpr (raw.range.min == -CSS::Range::infinity)
-        return raw.value <= raw.range.max;
+    else if constexpr (effectiveMax == CSS::Range::infinity)
+        return raw.value >= effectiveMin;
+    else if constexpr (effectiveMin == -CSS::Range::infinity)
+        return raw.value <= effectiveMax;
     else
-        return raw.value >= raw.range.min && raw.value <= raw.range.max;
+        return raw.value >= effectiveMin && raw.value <= effectiveMax;
 }
 
 // Shared clamping utility.
-template<typename Raw> Raw performParseTimeClamp(Raw raw)
+template<typename Raw> Raw performOptionalParseTimeClamp(Raw raw)
 {
-    static_assert(raw.range.clampOptions != CSS::RangeClampOptions::Default);
-
-    if constexpr (raw.range.clampOptions == CSS::RangeClampOptions::ClampLower)
-        return { std::max<typename Raw::ResolvedValueType>(raw.value, raw.range.min) };
-    else if constexpr (raw.range.clampOptions == CSS::RangeClampOptions::ClampUpper)
-        return { std::min<typename Raw::ResolvedValueType>(raw.value, raw.range.max) };
-    else if constexpr (raw.range.clampOptions == CSS::RangeClampOptions::ClampBoth)
-        return { std::clamp<typename Raw::ResolvedValueType>(raw.value, raw.range.min, raw.range.max) };
+    if constexpr (raw.range.minParseTimeBehavior == CSS::RangeParseTimeBehavior::Clamp && raw.range.maxParseTimeBehavior == CSS::RangeParseTimeBehavior::Clamp)
+        return { raw.unit, std::clamp<typename Raw::ResolvedValueType>(raw.value, raw.range.min, raw.range.max) };
+    if constexpr (raw.range.minParseTimeBehavior == CSS::RangeParseTimeBehavior::Clamp)
+        return { raw.unit, std::max<typename Raw::ResolvedValueType>(raw.value, raw.range.min) };
+    else if constexpr (raw.range.maxParseTimeBehavior == CSS::RangeParseTimeBehavior::Clamp)
+        return { raw.unit, std::min<typename Raw::ResolvedValueType>(raw.value, raw.range.max) };
+    else
+        return raw;
 }
 
 // Shared consumer for `Dimension` tokens.
@@ -147,11 +156,7 @@ template<typename Primitive, typename Validator> struct DimensionConsumer {
         if (!validatedUnit)
             return std::nullopt;
 
-        auto rawValue = typename Primitive::Raw { *validatedUnit, token.numericValue() };
-
-        if constexpr (rawValue.range.clampOptions != CSS::RangeClampOptions::Default)
-            rawValue = performParseTimeClamp(rawValue);
-
+        auto rawValue = performOptionalParseTimeClamp(typename Primitive::Raw { *validatedUnit, token.numericValue() });
         if (!Validator::isValid(rawValue, options))
             return std::nullopt;
 
@@ -168,11 +173,7 @@ template<typename Primitive, typename Validator> struct PercentageConsumer {
     {
         ASSERT(range.peek().type() == PercentageToken);
 
-        auto rawValue = typename Primitive::Raw { CSS::PercentageUnit::Percentage, range.peek().numericValue() };
-
-        if constexpr (rawValue.range.clampOptions != CSS::RangeClampOptions::Default)
-            rawValue = performParseTimeClamp(rawValue);
-
+        auto rawValue = performOptionalParseTimeClamp(typename Primitive::Raw { CSS::PercentageUnit::Percentage, range.peek().numericValue() });
         if (!Validator::isValid(rawValue, options))
             return std::nullopt;
 
@@ -189,11 +190,7 @@ template<typename Primitive, typename Validator> struct NumberConsumer {
     {
         ASSERT(range.peek().type() == NumberToken);
 
-        auto rawValue = typename Primitive::Raw { CSS::NumberUnit::Number, range.peek().numericValue() };
-
-        if constexpr (rawValue.range.clampOptions != CSS::RangeClampOptions::Default)
-            rawValue = performParseTimeClamp(rawValue);
-
+        auto rawValue = performOptionalParseTimeClamp(typename Primitive::Raw { CSS::NumberUnit::Number, range.peek().numericValue() });
         if (!Validator::isValid(rawValue, options))
             return std::nullopt;
 
@@ -214,11 +211,7 @@ template<typename Primitive, typename Validator, auto unit> struct NumberConsume
         if (!Validator::shouldAcceptUnitlessValue(numericValue, state, options))
             return std::nullopt;
 
-        auto rawValue = typename Primitive::Raw { unit, numericValue };
-
-        if constexpr (rawValue.range.clampOptions != CSS::RangeClampOptions::Default)
-            rawValue = performParseTimeClamp(rawValue);
-
+        auto rawValue = performOptionalParseTimeClamp(typename Primitive::Raw { unit, numericValue });
         if (!Validator::isValid(rawValue, options))
             return std::nullopt;
 
@@ -236,12 +229,12 @@ template<typename Primitive> struct FunctionConsumerForCalcValues {
         ASSERT(range.peek().type() == FunctionToken);
 
         auto rangeCopy = range;
-        if (RefPtr value = CSSCalc::Value::parse(rangeCopy, state, Primitive::category, Primitive::range, WTF::move(symbolsAllowed), options)) {
-            range = rangeCopy;
-            return {{ value.releaseNonNull() }};
-        }
+        auto value = Primitive::Calc::parse(rangeCopy, state, WTF::move(symbolsAllowed), options);
+        if (!value)
+            return std::nullopt;
 
-        return std::nullopt;
+        range = rangeCopy;
+        return value;
     }
 };
 
@@ -252,12 +245,11 @@ template<typename T> struct KeywordConsumer {
     {
         ASSERT(range.peek().type() == IdentToken);
 
-        if (range.peek().id() == T::value) {
-            range.consumeIncludingWhitespace();
-            return T { };
-        }
+        if (range.peek().id() != T::value)
+            return std::nullopt;
 
-        return std::nullopt;
+        range.consumeIncludingWhitespace();
+        return T { };
     }
 };
 

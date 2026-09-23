@@ -44,7 +44,7 @@ public:
         return adoptRef(*new EmailInputType(element));
     }
 
-    bool typeMismatchFor(const String&) const final;
+    bool typeMismatchFor(StringView) const final;
     bool typeMismatch() const final;
 
 private:

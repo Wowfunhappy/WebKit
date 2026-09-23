@@ -295,6 +295,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/remove-block-between-inline-and-float.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/remove-float-in-first-line.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/remove-float-then-abspos-in-inline.html
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/table-sizing-with-adjacent-floats-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/table-sizing-with-adjacent-floats-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/table-sizing-with-adjacent-floats.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/zero-available-space-float-positioning-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/zero-available-space-float-positioning.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/zero-space-between-floats-001.html

@@ -27,7 +27,6 @@
 
 #include "config.h"
 
-#include <cmath>
 
 #include <wtf/dtoa/fixed-dtoa.h>
 #include <wtf/dtoa/ieee.h>

@@ -13,7 +13,7 @@
 
 namespace WebCore {
 
-// this port ships GStreamer's plugins inside WebCore.framework, while libgstreamer
+// This port ships GStreamer's plugins inside WebCore.framework, while libgstreamer
 // carries the plugin directory of the tree it was compiled in -- a path under the building user's home.
 // A sandboxed WebContent process is denied that path, so every plugin fails to load and elements as
 // basic as appsink and autoaudiosink are "not found". Point GStreamer at the plugins that ship beside

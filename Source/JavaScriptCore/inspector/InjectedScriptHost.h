@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/PerGlobalObjectWrapperWorld.h>
 #include <wtf/RefCounted.h>
 

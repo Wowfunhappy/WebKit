@@ -38,6 +38,8 @@ namespace WebCore {
 
 class LegacyInlineBox;
 class RenderElement;
+class RenderObject;
+class RenderText;
 class Text;
 
 struct BoundaryPoint;
@@ -102,6 +104,12 @@ public:
             return m_offset;
         return offsetForPositionAfterAnchor();
     }
+
+    // Returns the renderer and fragment-local offset for this position, correctly
+    // handling first-letter text fragment splits where the DOM text node's renderer
+    // is the remaining fragment rather than the first-letter fragment.
+    std::pair<RenderObject*, unsigned> rendererAndOffset() const;
+    std::pair<RenderText*, unsigned> resolvedTextRendererAndOffset() const;
 
     RefPtr<Node> firstNode() const;
 
@@ -193,7 +201,7 @@ public:
 
     // This is a tentative enhancement of operator== to account for different position types.
     // FIXME: Combine this function with operator==
-    bool NODELETE equals(const Position&) const;
+    WEBCORE_EXPORT bool NODELETE equals(const Position&) const;
 
 private:
     // For creating legacy editing positions: (Anchor type will be determined from editingIgnoresContent(node))

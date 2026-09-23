@@ -27,9 +27,9 @@
 #include "ToggleEventTask.h"
 
 #include "EventNames.h"
-#include "NodeInlines.h"
 #include "TaskSource.h"
 #include "ToggleEvent.h"
+#include "NodeInlines.h"
 
 namespace WebCore {
 

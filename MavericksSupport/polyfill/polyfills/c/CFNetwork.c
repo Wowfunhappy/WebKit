@@ -434,6 +434,37 @@ enum {
 // CFRuntimeBase precedes the native credential payload on this 64-bit runtime.
 static const size_t kCFPayloadOffset = 2 * sizeof(void *);
 
+// CFURLRequest's three flag bytes at +0x58 combine property values with assignment bits. The native
+// setters place cookie, network-service, cellular, idle-sleep, pipelining, cache, timeout, proxy,
+// SSL and synchronous-start assignment bits six positions above Foundation's explicitFlags bits.
+enum { kWKRequestFlagsOffset = 0x58, kWKRequestExplicitFlagsMask = 0x17de };
+WK_SYSTEM_FN("CFNetwork", CFTypeID, CFURLRequestGetTypeID, (void));
+
+static const uint8_t *wk_requestFlags(CFTypeRef request)
+{
+    if (!request || CFGetTypeID(request) != WK_SYSTEM(CFURLRequestGetTypeID)())
+        wk_patch_fail("NSURLRequest dictionary", "invalid native request layout");
+    return (const uint8_t *)request + kWKRequestFlagsOffset;
+}
+
+uint16_t wk_requestExplicitFlags(CFTypeRef request)
+{
+    const uint8_t *bytes = wk_requestFlags(request);
+    uint32_t flags = bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16;
+    return (flags >> 6) & kWKRequestExplicitFlagsMask;
+}
+
+void wk_requestSetExplicitFlags(CFTypeRef request, uint16_t explicitFlags)
+{
+    uint8_t *bytes = (uint8_t *)wk_requestFlags(request);
+    uint32_t flags = bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16;
+    flags = (flags & ~((uint32_t)kWKRequestExplicitFlagsMask << 6))
+        | ((uint32_t)(explicitFlags & kWKRequestExplicitFlagsMask) << 6);
+    bytes[0] = (uint8_t)flags;
+    bytes[1] = (uint8_t)(flags >> 8);
+    bytes[2] = (uint8_t)(flags >> 16);
+}
+
 // CFNetwork's CFHTTPCookieStorage wrappers pass their CFRuntimeBase payload to HTTPCookieStorage.
 // someCookiesAreSetForURL traverses the native domain index and the storage's inherited base jars.
 bool wk_cookieStorageHasRecordsForURL(CFTypeRef storage, CFURLRef url)

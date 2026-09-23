@@ -476,3 +476,32 @@ H.264 SPS VUI colour descriptions populate decoder output colorimetry when input
 
 The encoder output state describes the SPS VUI written by VideoToolbox, using h264parse's ISO colour mappings. On 10.9, VideoToolbox rejects post-10.9 colour-property values; input colour metadata therefore does not necessarily describe the encoded SPS. Parsing the generated AVC configuration record before publishing output caps gives WebCodecs `decoderConfig.colorSpace` the encoded colour description. The input colour state supplies the values when the SPS contains no mapped description.
 
+
+## AAC parser input minimum after synchronization
+
+`gst-plugins-good-aacparse-synchronized-input-minimum.patch` repairs aacparse's
+GstBaseParse input contract. Initial sync leaves a lookahead minimum based on the
+second packet's length. A smaller complete final packet stays buffered until EOS,
+which MSE append boundaries do not send. The ADTS layout fixture has 95 complete
+1024-sample packets at 48 kHz, but only 94 reached its SourceBuffer. Once synchronized,
+the parser now requests the seven-byte header, retains incomplete packet bodies
+using needed_data, and restores the header minimum after each complete packet.
+Lost-sync validation keeps its upstream next-header lookahead. The native
+`MavericksSupport/tests/aac-parser-append` harness checks byte identity, fragmented
+appends, partial completion, truncated EOS, resync, and 7/9-byte minimum headers.
+
+## gst-plugins-rs-closedcaption-optional-rendering.patch
+
+**Target:** gst-plugins-rs 0.15.2, `video/closedcaption`.
+
+Split the native Cairo/Pango overlay rendering into a default-on Cargo feature.
+The full default plugin keeps its existing types, modules, and registrations.
+Building without that feature omits only the CEA608/CEA708 overlay elements and
+renderer-only helpers; all caption parsers and text converters stay unchanged.
+WebCore uses the required `cea608tott` converter and renders WebVTT cues itself,
+so it needs no second native caption renderer.
+
+`MavericksSupport/tests/closed-caption/run.sh` loads the actual deployed plugin
+and checks exact WebVTT text and timing through WebCore's CEA-608 conversion path.
+The existing in-band exposure and CEA608 cue-endtime layout tests cover browser
+integration.

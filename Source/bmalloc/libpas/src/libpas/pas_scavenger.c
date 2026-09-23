@@ -129,10 +129,17 @@ static double get_time_in_milliseconds(void)
 {
 #if PAS_OS(WINDOWS)
     LARGE_INTEGER frequency, counter;
-    QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&counter);
+    if (!QueryPerformanceFrequency(&frequency))
+        return 0.;
 
-    return (counter.QuadPart * 1000.) / frequency.QuadPart;
+    if (!QueryPerformanceCounter(&counter))
+        return 0.;
+
+    uint64_t freq = (uint64_t)frequency.QuadPart;
+    uint64_t ticks = (uint64_t)counter.QuadPart;
+    uint64_t sec_ms = (ticks / freq) * 1000ULL;
+    uint64_t frac_ms = ((ticks % freq) * 1000ULL) / freq;
+    return (double)(sec_ms + frac_ms);
 #else
     struct timeval current_time;
 
@@ -438,8 +445,10 @@ bool pas_scavenger_try_install_foreign_work_callback(
     pthread_mutex_lock(&data->foreign_work.lock);
 
     int slot = data->foreign_work.next_open_descriptor;
-    if (slot >= PAS_SCAVENGER_MAX_FOREIGN_WORK_DESCRIPTORS)
+    if (slot >= PAS_SCAVENGER_MAX_FOREIGN_WORK_DESCRIPTORS) {
+        pthread_mutex_unlock(&data->foreign_work.lock);
         return false;
+    }
 
     double requested_period_ms = pow(2.0, period_log2_ms);
     uint32_t requested_ticks = (uint32_t)(requested_period_ms / pas_scavenger_period_in_milliseconds);

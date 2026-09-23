@@ -27,7 +27,6 @@
 #pragma once
 
 #include <WebCore/HitTestSource.h>
-#include <memory>
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/NoVirtualDestructorBase.h>
@@ -99,7 +98,7 @@ public:
     void addElementByName(const AtomString&, Element&);
     void removeElementByName(const AtomString&, Element&);
 
-    Document& documentScope() const { return m_documentScope.get(); }
+    Document& NODELETE documentScope() const { return m_documentScope.get(); }
     static constexpr ptrdiff_t documentScopeMemoryOffset() { return OBJECT_OFFSETOF(TreeScope, m_documentScope); }
 
     // https://dom.spec.whatwg.org/#retarget
@@ -108,8 +107,8 @@ public:
     WEBCORE_EXPORT Node* NODELETE ancestorNodeInThisScope(Node*) const;
     WEBCORE_EXPORT Element* NODELETE ancestorElementInThisScope(Element*) const;
 
-    void addImageMap(HTMLMapElement&);
-    void removeImageMap(HTMLMapElement&);
+    void addImageMap(HTMLMapElement&, const AtomString& name, const AtomString& id);
+    void removeImageMap(HTMLMapElement&, const AtomString& name, const AtomString& id);
     RefPtr<HTMLMapElement> getImageMap(const AtomString&) const;
 
     void addImageElementByUsemap(const AtomString&, HTMLImageElement&);
@@ -131,7 +130,7 @@ public:
     // Anchor name matching is case sensitive in strict mode and not case sensitive in
     // quirks mode for historical compatibility reasons.
     RefPtr<Element> findAnchor(StringView name);
-    bool isMatchingAnchor(HTMLAnchorElement&, StringView name);
+    bool NODELETE isMatchingAnchor(HTMLAnchorElement&, StringView name);
 
     inline ContainerNode& rootNode() const; // Defined in TreeScopeInlines.h
 

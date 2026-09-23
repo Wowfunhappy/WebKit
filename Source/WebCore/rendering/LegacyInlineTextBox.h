@@ -42,7 +42,7 @@ public:
     virtual ~LegacyInlineTextBox();
 
     RenderSVGInlineText& NODELETE renderer() const;
-    const RenderStyle& lineStyle() const LIFETIME_BOUND;
+    const Style::ComputedStyle& lineStyle() const LIFETIME_BOUND;
 
     LegacyInlineTextBox* prevTextBox() const LIFETIME_BOUND { return m_prevTextBox; }
     LegacyInlineTextBox* nextTextBox() const LIFETIME_BOUND { return m_nextTextBox; }
@@ -60,7 +60,7 @@ public:
 
     void offsetRun(int d) { ASSERT(!isDirty()); ASSERT(d > 0 || m_start >= static_cast<unsigned>(-d)); m_start += d; }
 
-    TextBoxSelectableRange selectableRange() const;
+    TextBoxSelectableRange NODELETE selectableRange() const;
 
     void markDirty(bool dirty = true) final;
 
@@ -103,7 +103,7 @@ public:
     int NODELETE caretMaxOffset() const final;
 
 private:
-    float textPos() const; // returns the x position relative to the left start of the text line.
+    float NODELETE textPos() const; // returns the x position relative to the left start of the text line.
 
 public:
     bool hasMarkers() const;
@@ -131,7 +131,7 @@ inline void LegacyInlineTextBox::removeFromGlyphDisplayListCache()
     }
 }
 
-LayoutRect snappedSelectionRect(const LayoutRect&, float logicalRight, WritingMode);
+LayoutRect NODELETE snappedSelectionRect(const LayoutRect&, float logicalRight, WritingMode);
 
 } // namespace WebCore
 

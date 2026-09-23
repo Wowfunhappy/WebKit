@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <numeric>
 #include <wtf/CommaPrinter.h>
 #include <wtf/DataLog.h>
 #include <wtf/FastMalloc.h>
@@ -780,7 +781,7 @@ private:
             return false;
 
         auto leftNode = leftNodeRef->template as<NodeType>();
-        size_t newSize = (leftNodeSize + nodeSize) / 2;
+        size_t newSize = std::midpoint(leftNodeSize, nodeSize);
         ASSERT(newSize < NodeType::capacity);
         size_t numToMove = nodeSize - newSize;
         leftNode->shiftLeftFrom(leftNodeSize, node, nodeSize, numToMove);
@@ -825,7 +826,7 @@ private:
         }
         // Now, we know that insertionINdex < capacity, so if there's only one empty slot between both nodes,
         // we should put it in the left node and the insertion point will still always be in the left node.
-        size_t newSize = (rightNodeSize + nodeSize) / 2;
+        size_t newSize = std::midpoint(rightNodeSize, nodeSize);
         ASSERT(newSize < NodeType::capacity);
         size_t numToMove = nodeSize - newSize;
         node->shiftRightTo(nodeSize, rightNode, rightNodeSize, numToMove);

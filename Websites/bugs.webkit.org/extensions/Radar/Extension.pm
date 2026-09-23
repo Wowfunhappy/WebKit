@@ -30,6 +30,7 @@ use parent qw(Bugzilla::Extension);
 use Bugzilla::Constants;
 use Bugzilla::Group;
 use Bugzilla::User;
+use Bugzilla::Util qw(html_quote);
 
 our $VERSION = "1.0.0";
 
@@ -43,8 +44,8 @@ sub bug_format_comment {
 
 sub _replace_radar {
     my $args = shift;
-    my $radarURI = $args->{matches}->[0];
-    my $optionalPunctuation = $args->{matches}->[1];
+    my $radarURI = html_quote($args->{matches}->[0]);
+    my $optionalPunctuation = html_quote($args->{matches}->[1]);
     return qq{<a href="$radarURI">$radarURI</a>$optionalPunctuation};
 };
 

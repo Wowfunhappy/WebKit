@@ -31,6 +31,7 @@
 #include "CryptoAlgorithmRegistry.h"
 #include "CryptoKeyPair.h"
 #include "CryptoKeyRSAComponents.h"
+#include "ExceptionOr.h"
 #include "ScriptExecutionContext.h"
 #include <JavaScriptCore/GenericTypedArrayViewInlines.h>
 #include <JavaScriptCore/HeapInlines.h>
@@ -41,7 +42,7 @@
 namespace WebCore {
 
 // OID rsaEncryption: 1.2.840.113549.1.1.1. Per https://tools.ietf.org/html/rfc3279#section-2.3.1
-static constexpr auto RSAOIDHeader = std::to_array<uint8_t>({ 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00 });
+static constexpr auto RSAOIDHeader = WTF::toArray<uint8_t>({ 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00 });
 
 // FIXME: We should get rid of magic number 16384. It assumes that the length of provided key will not exceed 16KB.
 // https://bugs.webkit.org/show_bug.cgi?id=164942

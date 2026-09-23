@@ -27,6 +27,7 @@
 
 #include <WebCore/LayerHostingContextIdentifier.h>
 #include <WebCore/PlatformLayerIdentifier.h>
+#include <WebCore/SharedBuffer.h>
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>

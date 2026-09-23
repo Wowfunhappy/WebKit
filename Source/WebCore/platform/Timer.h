@@ -26,18 +26,14 @@
 #pragma once
 
 #include <WebCore/ThreadTimers.h>
-#include <functional>
 #include <wtf/AbstractCanMakeCheckedPtr.h>
-#include <wtf/CheckedRef.h>
-#include <wtf/CompactRefPtrTuple.h>
+#include <wtf/CurrentThread.h>
 #include <wtf/Function.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/Platform.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/Threading.h>
 #include <wtf/TypeTraits.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
@@ -61,7 +57,6 @@ public:
     WEBCORE_EXPORT TimerBase();
     WEBCORE_EXPORT virtual ~TimerBase();
 
-    // TimerBase's destructor inspects Ref<Thread> m_thread, which won't work if we are moved-from.
     TimerBase(TimerBase&&) = delete;
     TimerBase& NODELETE operator=(TimerBase&&) = delete;
 
@@ -112,7 +107,7 @@ private:
 
     bool inHeap() const { return m_heapItemWithBitfields.pointer() && m_heapItemWithBitfields.pointer()->isInHeap(); }
 
-    bool hasValidHeapPosition() const;
+    bool NODELETE hasValidHeapPosition() const;
     void updateHeapIfNeeded(MonotonicTime oldTime);
 
     void heapDecreaseKey();
@@ -129,7 +124,9 @@ private:
     Seconds m_repeatInterval; // 0 if not repeating
 
     CompactRefPtrTuple<ThreadTimerHeapItem, uint8_t> m_heapItemWithBitfields;
-    const Ref<Thread> m_thread { Thread::currentSingleton() };
+#if ASSERT_ENABLED
+    const uint32_t m_creationThreadID { currentThreadID() };
+#endif
 
     friend class ThreadTimers;
     friend class TimerHeapLessThanFunction;
@@ -200,12 +197,7 @@ inline void TimerBase::stop()
 
 inline bool TimerBase::isActive() const
 {
-    // FIXME: Write this in terms of USE(WEB_THREAD) instead of PLATFORM(IOS_FAMILY).
-#if !PLATFORM(IOS_FAMILY)
-    ASSERT(m_thread.ptr() == &Thread::currentSingleton());
-#else
-    ASSERT(WebThreadIsCurrent() || pthread_main_np() || m_thread.ptr() == &Thread::currentSingleton());
-#endif // PLATFORM(IOS_FAMILY)
+    ASSERT(canCurrentThreadIDAccessThreadLocalData(m_creationThreadID));
     return static_cast<bool>(nextFireTime());
 }
 

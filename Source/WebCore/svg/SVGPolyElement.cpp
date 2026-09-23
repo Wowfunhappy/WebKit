@@ -28,7 +28,6 @@
 #include "NodeDocument.h"
 #include "RenderSVGPath.h"
 #include "SVGDocumentExtensions.h"
-#include "SVGParserUtilities.h"
 #include "SVGPropertyOwnerRegistry.h"
 #include "Settings.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -51,7 +50,7 @@ SVGPolyElement::SVGPolyElement(const QualifiedName& tagName, Document& document)
 void SVGPolyElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     if (name == SVGNames::pointsAttr) {
-        if (!m_points->baseVal()->parse(newValue))
+        if (!protect(m_points)->baseVal()->parse(newValue))
             protect(protect(document())->svgExtensions())->reportError(makeString("Problem parsing points=\""_s, newValue, "\""_s));
     }
 

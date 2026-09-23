@@ -1,4 +1,5 @@
-//@ skip if $addressBits <= 32 or $memoryLimited
+//@ memoryHog!
+//@ skip if $addressBits <= 32
 function shouldBe(actual, expected) {
     if (actual !== expected)
         throw new Error('bad value: ' + actual);

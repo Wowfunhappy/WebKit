@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/anonymous-table-box-width-001-expected.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/anonymous-table-box-width-001.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/background-table-001.xht
@@ -1444,6 +1445,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-cell-001-expected.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-cell-001.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-cell-002.xht
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-cell-dynamic-color-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-cell-dynamic-color.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-column-001.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-column-group-001.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/tables/table-column-rendering-001-expected.xht

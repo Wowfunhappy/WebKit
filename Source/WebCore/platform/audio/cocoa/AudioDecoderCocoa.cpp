@@ -84,7 +84,6 @@ private:
     InternalAudioDecoderCocoa(AudioDecoder::OutputCallback&&);
 
     static WorkQueue& queueSingleton() { return AudioDecoderCocoa::queueSingleton(); }
-    static void decompressedAudioOutputBufferCallback(void*, CMBufferQueueTriggerToken);
     Ref<AudioSampleBufferConverter> converter() const
     {
         assertIsCurrent(queueSingleton());
@@ -173,16 +172,16 @@ Expected<std::pair<FourCharCode, std::optional<AudioStreamDescription::PCMFormat
     auto components = codecName.toString().split('-');
     if (components.size() != 2)
         return makeUnexpected(makeString("Invalid LPCM codec string:"_s, codecName));
-    auto pcmFormat = components[1].convertToASCIILowercase();
-    if (pcmFormat == "u8"_s)
+    auto& pcmFormat = components[1];
+    if (equalLettersIgnoringASCIICase(pcmFormat, "u8"_s))
         format = AudioStreamDescription::Uint8;
-    else if (pcmFormat == "s16"_s)
+    else if (equalLettersIgnoringASCIICase(pcmFormat, "s16"_s))
         format = AudioStreamDescription::Int16;
-    else if (pcmFormat == "s24"_s)
+    else if (equalLettersIgnoringASCIICase(pcmFormat, "s24"_s))
         format = AudioStreamDescription::Int24;
-    else if (pcmFormat == "s32"_s)
+    else if (equalLettersIgnoringASCIICase(pcmFormat, "s32"_s))
         format = AudioStreamDescription::Int32;
-    else if (pcmFormat == "f32"_s)
+    else if (equalLettersIgnoringASCIICase(pcmFormat, "f32"_s))
         format = AudioStreamDescription::Float32;
     else
         return makeUnexpected(makeString("Invalid LPCM codec format:"_s, pcmFormat));
@@ -215,17 +214,6 @@ void AudioDecoderCocoa::close()
 {
     queueSingleton().dispatch([decoder = m_internalDecoder] {
         decoder->close();
-    });
-}
-
-void InternalAudioDecoderCocoa::decompressedAudioOutputBufferCallback(void* object, CMBufferQueueTriggerToken)
-{
-    // We can only be called from the CoreMedia callback if we are still alive.
-    RefPtr decoder = static_cast<class InternalAudioDecoderCocoa*>(object);
-
-    queueSingleton().dispatch([weakDecoder = ThreadSafeWeakPtr { *decoder }] {
-        if (RefPtr protectedDecoder = weakDecoder.get())
-            protectedDecoder->processedDecodedOutputs();
     });
 }
 
@@ -314,7 +302,12 @@ String InternalAudioDecoderCocoa::initialize(const String& codecName, const Audi
         .preSkip = preSkip
     };
 
-    m_converter = AudioSampleBufferConverter::create(decompressedAudioOutputBufferCallback, this, options);
+    m_converter = AudioSampleBufferConverter::create([weakThis = ThreadSafeWeakPtr { *this }] {
+        queueSingleton().dispatch([weakThis] {
+            if (RefPtr protectedThis = weakThis.get())
+                protectedThis->processedDecodedOutputs();
+        });
+    }, options);
     if (!m_converter)
         return "Couldn't create AudioSampleBufferConverter"_s;
 
@@ -397,12 +390,8 @@ void InternalAudioDecoderCocoa::close()
         return;
     m_isClosed = true;
 
-    RefPtr converter = std::exchange(m_converter, { });
-    if (!converter)
-        return;
-    // We keep a reference to ourselves until the converter has been marked as finished. This guarantees that no
-    // callback will occur after we are .
-    converter->finish()->whenSettled(queueSingleton(), [protectedThis = Ref { *this }] { });
+    if (RefPtr converter = std::exchange(m_converter, { }))
+        converter->finish();
 }
 
 } // namespace WebCore

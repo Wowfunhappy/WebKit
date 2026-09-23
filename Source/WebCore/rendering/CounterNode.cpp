@@ -44,8 +44,8 @@ CounterNode::~CounterNode()
     // Ideally this would be an assert and this would never be reached. In reality this happens a lot
     // so we need to handle these cases. The node is still connected to the tree so we need to detach it.
     if (m_parent || m_previousSibling || m_nextSibling || m_firstChild || m_lastChild) {
-        RefPtr<CounterNode> oldParent;
-        RefPtr<CounterNode> oldPreviousSibling;
+        CounterNode* oldParent = nullptr;
+        CounterNode* oldPreviousSibling = nullptr;
         // Instead of calling removeChild() we do this safely as the tree is likely broken if we get here.
         if (m_parent) {
             if (m_parent->m_firstChild == this)

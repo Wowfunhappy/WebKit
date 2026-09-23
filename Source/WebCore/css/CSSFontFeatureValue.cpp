@@ -27,12 +27,12 @@
 #include "config.h"
 #include "CSSFontFeatureValue.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-CSSFontFeatureValue::CSSFontFeatureValue(FontTag&& tag, Ref<CSSValue>&& value)
+CSSFontFeatureValue::CSSFontFeatureValue(FontTag&& tag, CSS::Integer<CSS::Nonnegative>&& value)
     : CSSValue(ClassType::FontFeature)
     , m_tag(WTF::move(tag))
     , m_value(WTF::move(value))
@@ -41,17 +41,19 @@ CSSFontFeatureValue::CSSFontFeatureValue(FontTag&& tag, Ref<CSSValue>&& value)
 
 String CSSFontFeatureValue::customCSSText(const CSS::SerializationContext& context) const
 {
+    using namespace CSS::Literals;
+
     StringBuilder builder;
     builder.append('"', m_tag[0], m_tag[1], m_tag[2], m_tag[3], '"');
     // Omit the value if it's `1` as `1` is implied by default.
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(m_value); !(primitiveValue && primitiveValue->resolveAsIntegerIfNotCalculated() == 1))
-        builder.append(' ', m_value->cssText(context));
+    if (m_value != 1_css_integer)
+        builder.append(' ', CSS::serializationForCSS(context, m_value));
     return builder.toString();
 }
 
 bool CSSFontFeatureValue::equals(const CSSFontFeatureValue& other) const
 {
-    return m_tag == other.m_tag && compareCSSValue(m_value, other.m_value);
+    return m_tag == other.m_tag && m_value == other.m_value;
 }
 
-}
+} // namespace WebCore

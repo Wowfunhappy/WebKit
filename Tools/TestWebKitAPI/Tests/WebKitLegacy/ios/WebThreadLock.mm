@@ -27,7 +27,7 @@
 
 #if USE(WEB_THREAD)
 
-#import "PlatformUtilities.h"
+#import "Helpers/PlatformUtilities.h"
 #import <Foundation/Foundation.h>
 #import <WebCore/WebCoreThread.h>
 #import <wtf/RetainPtr.h>
@@ -41,7 +41,7 @@ TEST(WebKitLegacy, NestedRunLoopUnderRunLoopObserverDoubleUnlock)
     WebThreadLock();
     
     __block BOOL spunInnerRunLoop = NO;
-    auto observer = adoptCF(CFRunLoopObserverCreateWithHandler(NULL, kCFRunLoopBeforeWaiting, NO, 2, ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
+    RetainPtr observer = adoptCF(CFRunLoopObserverCreateWithHandler(NULL, kCFRunLoopBeforeWaiting, NO, 2, ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
         Util::spinRunLoop(1);
         spunInnerRunLoop = YES;
     }));

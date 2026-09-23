@@ -40,6 +40,7 @@
 #include "DocumentQuirks.h"
 #include "DocumentView.h"
 #include "Editing.h"
+#include "EditingInlines.h"
 #include "Editor.h"
 #include "EditorClient.h"
 #include "Element.h"
@@ -65,17 +66,17 @@
 #include "LegacyInlineTextBox.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "Logging.h"
 #include "MutableStyleProperties.h"
-#include "NodeInlines.h"
 #include "OpacityCaretAnimator.h"
+#include "PlatformRenderTheme.h"
 #include "PositionInlines.h"
 #include "PseudoClassChangeInvalidation.h"
 #include "Range.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "RenderTextControl.h"
 #include "RenderTheme.h"
@@ -88,6 +89,7 @@
 #include "ShadowRoot.h"
 #include "SimpleCaretAnimator.h"
 #include "SimpleRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleProperties.h"
 #include "StyleTreeResolver.h"
 #include "TypedElementDescendantIteratorInlines.h"
@@ -103,7 +105,7 @@
 #include "ChromeClient.h"
 #include "Color.h"
 #include "RenderObject.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
 #endif
 
 namespace WebCore {
@@ -181,7 +183,7 @@ static UniqueRef<CaretAnimator> createCaretAnimator(FrameSelection* frameSelecti
 {
 #if PLATFORM(MAC) && HAVE(REDESIGNED_TEXT_CURSOR)
     if (redesignedTextCursorEnabled()) {
-        std::optional<LayoutRect> existingExpansionRect = std::nullopt;
+        std::optional<LayoutRect> existingExpansionRect;
         if (optionalCaretType)
             existingExpansionRect = frameSelection->caretAnimator().caretRepaintRectForLocalRect(LayoutRect());
 
@@ -204,7 +206,7 @@ FrameSelection::FrameSelection(Document* document)
     , m_caretAnimator(createCaretAnimator(this))
     , m_caretInsidePositionFixed(false)
     , m_absCaretBoundsDirty(true)
-    , m_focused(document && document->frame() && document->page() && document->page()->focusController().focusedLocalFrame() == document->frame())
+    , m_focused(document && document->frame() && document->page() && document->page()->focusController().localFocusedFrame() == document->frame())
     , m_isActive(isPageActive(document))
     , m_shouldShowBlockCursor(false)
     , m_pendingSelectionUpdate(false)
@@ -557,7 +559,7 @@ void FrameSelection::updateAndRevealSelection(const AXTextStateChangeIntent& int
     if (m_selectionRevealMode != SelectionRevealMode::DoNotReveal) {
         ScrollAlignment alignment;
 
-        if (m_document->editor().behavior().shouldCenterAlignWhenSelectionIsRevealed())
+        if (protect(document())->editor().behavior().shouldCenterAlignWhenSelectionIsRevealed())
             alignment = m_alwaysAlignCursorOnScrollWhenRevealingSelection ? ScrollAlignment::alignCenterAlways : ScrollAlignment::alignCenterIfNeeded;
         else
             alignment = m_alwaysAlignCursorOnScrollWhenRevealingSelection ? ScrollAlignment::alignTopAlways : ScrollAlignment::alignToEdgeIfNeeded;
@@ -567,7 +569,7 @@ void FrameSelection::updateAndRevealSelection(const AXTextStateChangeIntent& int
 
         revealSelection({ m_selectionRevealMode, alignment, revealExtent, scrollBehavior, onlyAllowForwardScrolling });
     }
-    if (!m_document->editor().ignoreSelectionChanges())
+    if (!protect(document())->editor().ignoreSelectionChanges())
         notifyAccessibilityForSelectionChange(intent);
 }
 
@@ -586,7 +588,7 @@ static bool removingNodeRemovesPosition(Node& node, const Position& position)
     if (position.anchorNode() == &node)
         return true;
 
-    RefPtr element = dynamicDowncast<Element>(node);
+    auto* element = dynamicDowncast<Element>(node);
     return element && element->isShadowIncludingInclusiveAncestorOf(position.anchorNode());
 }
 
@@ -614,7 +616,7 @@ void DragCaretController::clearCaretPositionWithoutUpdatingStyle()
     clearCaretRect();
 }
 
-static void setNodeContainsSelectionEndPoint(const Position& position, bool value)
+static void NODELETE setNodeContainsSelectionEndPoint(const Position& position, bool value)
 {
     // We use anchorNode instead of containerNode() because nodeWillBeRemoved must update position when anchored node is removed.
     for (auto* currentNode = position.anchorNode(); currentNode; currentNode = currentNode->parentOrShadowHostNode()) {
@@ -756,7 +758,7 @@ void FrameSelection::respondToNodeModification(Node& node, bool anchorRemoved, b
             // Trigger a selection update so the selection will be set again.
             m_selectionRevealIntent = AXTextStateChangeIntent();
             m_pendingSelectionUpdate = true;
-            renderView->frameView().scheduleSelectionUpdate();
+            protect(renderView->frameView())->scheduleSelectionUpdate();
         }
     }
 
@@ -896,7 +898,7 @@ VisiblePosition FrameSelection::positionForPlatform(bool isGetStart) const
     // base/extent always point to the same nodes as start/end, but which points
     // to which depends on the value of isBaseFirst. Then this can be changed
     // to just return m_sel.extent().
-    if (m_document && m_document->editor().behavior().shouldAlwaysExtendSelectionFromExtentEndpoint())
+    if (m_document && protect(m_document)->editor().behavior().shouldAlwaysExtendSelectionFromExtentEndpoint())
         return m_selection.isBaseFirst() ? m_selection.visibleEnd() : m_selection.visibleStart();
 
     return isGetStart ? m_selection.visibleStart() : m_selection.visibleEnd();
@@ -916,7 +918,7 @@ VisiblePosition FrameSelection::nextWordPositionForPlatform(const VisiblePositio
 {
     VisiblePosition positionAfterCurrentWord = nextWordPosition(originalPosition);
 
-    if (m_document && m_document->editor().behavior().shouldSkipSpaceWhenMovingRight()) {
+    if (m_document && protect(document())->editor().behavior().shouldSkipSpaceWhenMovingRight()) {
         // In order to skip spaces when moving right, we advance one
         // word further and then move one word back. Given the
         // semantics of previousWordPosition() this will put us at the
@@ -943,7 +945,7 @@ void FrameSelection::adjustSelectionExtentIfNeeded(VisiblePosition& extent, bool
 #endif
     }
 
-    if (RefPtr rootUserSelectAll = Position::rootUserSelectAllForNode(extent.deepEquivalent().anchorNode()))
+    if (RefPtr rootUserSelectAll = Position::rootUserSelectAllForNode(protect(extent.deepEquivalent().anchorNode())))
         extent = isForward ? positionAfterNode(*rootUserSelectAll).downstream(CanCrossEditingBoundary) : positionBeforeNode(*rootUserSelectAll).upstream(CanCrossEditingBoundary);
 }
 
@@ -1051,7 +1053,7 @@ VisiblePosition FrameSelection::modifyMovingRight(TextGranularity granularity, b
             pos = VisiblePosition(m_selection.extent(), m_selection.affinity()).right(true, reachedBoundary);
         break;
     case TextGranularity::WordGranularity: {
-        bool skipsSpaceWhenMovingRight = m_document && m_document->editor().behavior().shouldSkipSpaceWhenMovingRight();
+        bool skipsSpaceWhenMovingRight = m_document && protect(document())->editor().behavior().shouldSkipSpaceWhenMovingRight();
         VisiblePosition currentPosition(m_selection.extent(), m_selection.affinity());
         pos = rightWordPosition(currentPosition, skipsSpaceWhenMovingRight);
         if (reachedBoundary)
@@ -1268,7 +1270,7 @@ VisiblePosition FrameSelection::modifyMovingLeft(TextGranularity granularity, bo
             pos = VisiblePosition(m_selection.extent(), m_selection.affinity()).left(true, reachedBoundary);
         break;
     case TextGranularity::WordGranularity: {
-        bool skipsSpaceWhenMovingRight = m_document && m_document->editor().behavior().shouldSkipSpaceWhenMovingRight();
+        bool skipsSpaceWhenMovingRight = m_document && protect(document())->editor().behavior().shouldSkipSpaceWhenMovingRight();
         VisiblePosition currentPosition(m_selection.extent(), m_selection.affinity());
         pos = leftWordPosition(currentPosition, skipsSpaceWhenMovingRight);
         if (reachedBoundary)
@@ -1576,7 +1578,7 @@ bool FrameSelection::modify(Alteration alter, SelectionDirection direction, Text
     }
 
     if (m_document && AXObjectCache::accessibilityEnabled()) {
-        if (CheckedPtr cache = m_document->existingAXObjectCache())
+        if (CheckedPtr cache = protect(m_document)->existingAXObjectCache())
             cache->setTextSelectionIntent(textSelectionIntent(alter, direction, granularity));
     }
 
@@ -1596,7 +1598,7 @@ bool FrameSelection::modify(Alteration alter, SelectionDirection direction, Text
     case Alteration::Extend:
         if (!m_selection.isCaret()
             && (granularity == TextGranularity::WordGranularity || granularity == TextGranularity::ParagraphGranularity || granularity == TextGranularity::LineGranularity)
-            && m_document && !m_document->editor().behavior().shouldExtendSelectionByWordOrLineAcrossCaret()) {
+            && m_document && !protect(document())->editor().behavior().shouldExtendSelectionByWordOrLineAcrossCaret()) {
             // Don't let the selection go across the base position directly. Needed to match mac
             // behavior when, for instance, word-selecting backwards starting with the caret in
             // the middle of a word and then word-selecting forward, leaving the caret in the
@@ -1609,7 +1611,7 @@ bool FrameSelection::modify(Alteration alter, SelectionDirection direction, Text
 
         // Standard Mac behavior when extending to a boundary is grow the selection rather than leaving the
         // base in place and moving the extent. Matches NSTextView.
-        if (!m_document || !m_document->editor().behavior().shouldAlwaysGrowSelectionWhenExtendingToBoundary() || m_selection.isCaret() || !isBoundary(granularity))
+        if (!m_document || !protect(document())->editor().behavior().shouldAlwaysGrowSelectionWhenExtendingToBoundary() || m_selection.isCaret() || !isBoundary(granularity))
             setExtent(position, userTriggered);
         else {
             TextDirection textDirection = directionOfEnclosingBlock();
@@ -1835,7 +1837,7 @@ bool CaretBase::updateCaretRect(Document& document, const VisiblePosition& caret
 
 RenderBlock* FrameSelection::caretRendererWithoutUpdatingLayout() const
 {
-    return rendererForCaretPainting(m_selection.start().deprecatedNode());
+    return rendererForCaretPainting(protect(m_selection.start().deprecatedNode()));
 }
 
 RenderBlock* DragCaretController::caretRenderer() const
@@ -1843,7 +1845,7 @@ RenderBlock* DragCaretController::caretRenderer() const
     if (m_position.isNull())
         return nullptr;
 
-    return rendererForCaretPainting(m_position.deepEquivalent().deprecatedNode());
+    return rendererForCaretPainting(protect(m_position.deepEquivalent().deprecatedNode()));
 }
 
 static bool NODELETE isNonOrphanedCaret(const VisibleSelection& selection)
@@ -1954,7 +1956,7 @@ void FrameSelection::invalidateCaretRect()
     if (!isCaret())
         return;
 
-    CaretBase::invalidateCaretRect(m_selection.start().deprecatedNode(), recomputeCaretRect(), m_caretAnimator.ptr());
+    CaretBase::invalidateCaretRect(protect(m_selection.start().deprecatedNode()), recomputeCaretRect(), m_caretAnimator.ptr());
 }
 
 void CaretBase::invalidateCaretRect(Node* node, bool caretRectChanged, CaretAnimator* caretAnimator)
@@ -1987,7 +1989,7 @@ void FrameSelection::paintCaret(GraphicsContext& context, const LayoutPoint& pai
         CaretBase::paintCaret(*m_selection.start().deprecatedNode(), context, paintOffset, m_caretAnimator.ptr());
 }
 
-Color CaretBase::computeCaretColor(const RenderStyle& elementStyle, const Node* node)
+Color CaretBase::computeCaretColor(const Style::ComputedStyle& elementStyle, const Node* node)
 {
     // On iOS, we want to fall back to the tintColor, and only override if CSS has explicitly specified a custom color.
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
@@ -2436,12 +2438,10 @@ void FrameSelection::updateAppearance()
     // We can get into a state where the selection endpoints map to the same VisiblePosition when a selection is deleted
     // because we don't yet notify the FrameSelection of text removal.
     if (CheckedPtr view = document->renderView(); startPos.isNotNull() && endPos.isNotNull() && selection.visibleStart() != selection.visibleEnd()) {
-        CheckedPtr startRenderer = startPos.deprecatedNode()->renderer();
-        int startOffset = startPos.deprecatedEditingOffset();
-        CheckedPtr endRenderer = endPos.deprecatedNode()->renderer();
-        int endOffset = endPos.deprecatedEditingOffset();
-        ASSERT(startOffset >= 0 && endOffset >= 0);
-        view->selection().set({ startRenderer, endRenderer, static_cast<unsigned>(startOffset), static_cast<unsigned>(endOffset) });
+        auto [startRenderer, startOffset] = startPos.rendererAndOffset();
+        auto [endRenderer, endOffset] = endPos.rendererAndOffset();
+        if (startRenderer && endRenderer)
+            view->selection().set({ startRenderer, endRenderer, startOffset, endOffset });
     }
 }
 
@@ -2522,7 +2522,7 @@ void FrameSelection::setFocusedElementIfNeeded(OptionSet<SetSelectionOption> opt
                 FocusOptions focusOptions;
                 if (options & SetSelectionOption::ForBindings)
                     focusOptions.trigger = FocusTrigger::Bindings;
-                document->page()->focusController().setFocusedElement(target.get(), document->frame(), focusOptions);
+                document->page()->focusController().setFocusedElement(target.get(), protect(document->frame()), focusOptions);
                 return;
             }
             target = target->parentOrShadowHostElement();
@@ -2531,7 +2531,7 @@ void FrameSelection::setFocusedElementIfNeeded(OptionSet<SetSelectionOption> opt
     }
 
     if (caretBrowsing)
-        document->page()->focusController().setFocusedElement(nullptr, document->frame());
+        document->page()->focusController().setFocusedElement(nullptr, protect(document->frame()));
 }
 
 void DragCaretController::paintDragCaret(LocalFrame* frame, GraphicsContext& p, const LayoutPoint& paintOffset) const
@@ -2550,7 +2550,7 @@ RefPtr<MutableStyleProperties> FrameSelection::copyTypingStyle() const
 {
     if (!m_typingStyle || !m_typingStyle->style())
         return nullptr;
-    return m_typingStyle->style()->mutableCopy();
+    return protect(m_typingStyle)->style()->mutableCopy();
 }
 
 void FrameSelection::setTypingStyle(RefPtr<EditingStyle>&& style)
@@ -2565,11 +2565,15 @@ void FrameSelection::clearTypingStyle()
 
 bool FrameSelection::shouldDeleteSelection(const VisibleSelection& selection) const
 {
+    RefPtr document = m_document.get();
+    if (!document)
+        return false;
 #if PLATFORM(IOS_FAMILY)
-    if (m_document->frame() && m_document->frame()->selectionChangeCallbacksDisabled())
+    if (RefPtr frame = document->frame(); frame && frame->selectionChangeCallbacksDisabled())
         return true;
 #endif
-    return m_document->editor().client()->shouldDeleteRange(selection.toNormalizedRange());
+    CheckedPtr client = document->editor().client();
+    return client->shouldDeleteRange(selection.toNormalizedRange());
 }
 
 FloatRect FrameSelection::selectionBounds(ClipToVisibleContent clipToVisibleContent)
@@ -2638,7 +2642,7 @@ static RefPtr<HTMLFormElement> scanForForm(Element* start)
             return element->asFormListedElement()->form();
         if (RefPtr frameElement = dynamicDowncast<HTMLFrameElementBase>(element)) {
             if (RefPtr contentDocument = frameElement->contentDocument()) {
-                if (RefPtr frameResult = scanForForm(contentDocument->documentElement()))
+                if (RefPtr frameResult = scanForForm(protect(contentDocument->documentElement())))
                     return frameResult;
             }
         }
@@ -2646,7 +2650,7 @@ static RefPtr<HTMLFormElement> scanForForm(Element* start)
     return nullptr;
 }
 
-static ValidatedFormListedElement* findFormControlElementAncestor(Element& element)
+static ValidatedFormListedElement* NODELETE findFormControlElementAncestor(Element& element)
 {
     for (auto& ancestor : lineageOfType<Element>(element)) {
         if (auto* formControlAncestor = ancestor.asValidatedFormListedElement())
@@ -2706,13 +2710,13 @@ void FrameSelection::revealSelection(const RevealSelectionOptions& revealSelecti
     // FIXME: This code only handles scrolling the startContainer's layer, but
     // the selection rect could intersect more than just that.
     // See <rdar://problem/4799899>.
-    m_document->frame()->view()->setLastUserScrollType(LocalFrameView::UserScrollType::Implicit);
+    protect(document())->frame()->view()->setLastUserScrollType(LocalFrameView::UserScrollType::Implicit);
     LocalFrameView::scrollRectToVisible(rect, *start.deprecatedNode()->renderer(), insideFixed, { revealSelectionOptions.selectionRevealMode, revealSelectionOptions.scrollAlignment, revealSelectionOptions.scrollAlignment, ShouldAllowCrossOriginScrolling::Yes, revealSelectionOptions.scrollBehavior, revealSelectionOptions.onlyAllowForwardScrolling });
     updateAppearance();
 
 #if PLATFORM(IOS_FAMILY)
     if (m_document->page())
-        m_document->page()->chrome().client().notifyRevealedSelectionByScrollingFrame(*m_document->frame());
+        m_document->page()->chrome().client().notifyRevealedSelectionByScrollingFrame(protect(*m_document->frame()));
 #endif
 }
 
@@ -2722,7 +2726,7 @@ void FrameSelection::setSelectionFromNone()
     // entire WebView is editable or designMode is on for this document).
     bool caretBrowsing = m_document->settings().caretBrowsingEnabled();
 
-    if (!m_document || !isNone() || !(m_document->hasEditableStyle() || caretBrowsing))
+    if (!m_document || !isNone() || !(protect(m_document)->hasEditableStyle() || caretBrowsing))
         return;
 
     if (RefPtr body = m_document->body())
@@ -2731,11 +2735,14 @@ void FrameSelection::setSelectionFromNone()
 
 bool FrameSelection::shouldChangeSelection(const VisibleSelection& newSelection) const
 {
+    RefPtr document = m_document.get();
+    if (!document)
+        return false;
 #if PLATFORM(IOS_FAMILY)
-    if (m_document->frame() && m_document->frame()->selectionChangeCallbacksDisabled())
+    if (RefPtr frame = document->frame(); frame && frame->selectionChangeCallbacksDisabled())
         return true;
 #endif
-    return m_document->editor().shouldChangeSelection(selection(), newSelection, newSelection.affinity(), false);
+    return protect(document->editor())->shouldChangeSelection(selection(), newSelection, newSelection.affinity(), false);
 }
 
 bool FrameSelection::dispatchSelectStart()
@@ -2760,7 +2767,7 @@ void FrameSelection::setShouldShowBlockCursor(bool shouldShowBlockCursor)
 
 void FrameSelection::updateAppearanceAfterUpdatingRendering()
 {
-    if (CheckedPtr client = m_document->editor().client())
+    if (CheckedPtr client = protect(document())->editor().client())
         client->updateEditorStateAfterLayoutIfEditabilityChanged();
 
     setCaretRectNeedsUpdate();
@@ -3112,12 +3119,13 @@ void FrameSelection::associateLiveRange(Range& liveRange)
 void FrameSelection::updateFromAssociatedLiveRange()
 {
     ASSERT(m_associatedLiveRange);
-    if (!containsEndpoints(m_document, *m_associatedLiveRange))
+    if (!containsEndpoints(m_document, protect(*m_associatedLiveRange)))
         disassociateLiveRange();
     else {
         // Don't use VisibleSelection's constructor that takes a SimpleRange, because it uses makeDeprecatedLegacyPosition instead of makeContainerOffsetPosition.
-        auto start = makeContainerOffsetPosition(protect(m_associatedLiveRange->startContainer()), m_associatedLiveRange->startOffset());
-        auto end = makeContainerOffsetPosition(protect(m_associatedLiveRange->endContainer()), m_associatedLiveRange->endOffset());
+        Ref associatedLiveRange = *m_associatedLiveRange;
+        auto start = makeContainerOffsetPosition(protect(associatedLiveRange->startContainer()), associatedLiveRange->startOffset());
+        auto end = makeContainerOffsetPosition(protect(associatedLiveRange->endContainer()), associatedLiveRange->endOffset());
         setSelection({ start, end }, defaultSetSelectionOptions() | SetSelectionOption::MaintainLiveRange);
     }
 }
@@ -3132,7 +3140,7 @@ void FrameSelection::updateOrDisassociateLiveRange(bool shouldMaintainLiveRange)
                 disassociateLiveRange();
             } else {
                 if (m_associatedLiveRange)
-                    m_associatedLiveRange->updateFromSelection(*range);
+                    protect(m_associatedLiveRange)->updateFromSelection(*range);
             }
             return;
         }

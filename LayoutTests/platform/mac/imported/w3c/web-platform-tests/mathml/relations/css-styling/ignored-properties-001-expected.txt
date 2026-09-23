@@ -1,4 +1,14 @@
 
+PASS a preferred width calculation is not affected by writing-mode: vertical-rl;
+PASS a layout is not affected by writing-mode: vertical-rl;
+PASS a preferred width calculation is not affected by white-space: normal;
+PASS a layout is not affected by white-space: normal;
+PASS a preferred width calculation is not affected by float: right;
+PASS a layout is not affected by float: right;
+PASS a preferred width calculation is not affected by align-content: end; justify-content: end;
+PASS a layout is not affected by align-content: end; justify-content: end;
+PASS a preferred width calculation is not affected by align-self: end; justify-self: end;
+PASS a layout is not affected by align-self: end; justify-self: end;
 PASS maction preferred width calculation is not affected by writing-mode: vertical-rl;
 FAIL maction layout is not affected by writing-mode: vertical-rl; assert_approx_equals: inline position (child 1) expected -84.875 +/- 1 but got -8
 PASS maction preferred width calculation is not affected by white-space: normal;

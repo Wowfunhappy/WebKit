@@ -30,7 +30,7 @@ AXHighestEditableAncestor: (null)
 AXVisibleCharacterRange: NSRange: {0, 162}
 AXElementBusy: 0
 AXIntersectionWithSelectionRange: (null)
-AXPath: (null)
+AXPath: <AXStaticText>
 
 ----------------------
 AXUIElementForTextMarker
@@ -71,6 +71,10 @@ AXLineTextMarkerRangeForTextMarker
 AXSelectTextWithCriteria
 AXSearchTextWithCriteria
 AXTextOperation
+AXTextMarkerForIndex
+AXTextMarkerIsValid
+AXIndexForTextMarker
+AXRelativeIndexForTextMarker
 AXIntersectTextMarkerRanges
 
 ----------------------

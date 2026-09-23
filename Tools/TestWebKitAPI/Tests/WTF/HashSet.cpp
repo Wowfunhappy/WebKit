@@ -25,11 +25,11 @@
 
 #include "config.h"
 
-#include "Counters.h"
+#include "Helpers/Counters.h"
 #include "DeletedAddressOfOperator.h"
 #include "MoveOnly.h"
 #include "RefLogger.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <functional>
 #include <wtf/HashSet.h>
 #include <wtf/InlineWeakPtr.h>
@@ -1145,5 +1145,23 @@ TEST(WTF_HashSet, InlineWeakPtr)
         set.add(&InlineWeakPtrObject::create().get());
     EXPECT_LT(set.size(), 16u);
 }
+
+#if !PLATFORM(PLAYSTATION)
+TEST(WTF_HashSetDeathTest, InlineWeakPtrAddAfterDeath)
+{
+    HashSet<InlineWeakPtr<InlineWeakPtrObject>> set;
+
+    RefPtr object = InlineWeakPtrObject::create();
+    InlineWeakPtr<InlineWeakPtrObject> weak { object.get() };
+
+    object = nullptr;
+    EXPECT_TRUE(!weak);
+
+    auto shouldCrash = [&] {
+        set.add(WTF::move(weak));
+    };
+    ASSERT_DEATH_IF_SUPPORTED(shouldCrash(), "");
+}
+#endif
 
 } // namespace TestWebKitAPI

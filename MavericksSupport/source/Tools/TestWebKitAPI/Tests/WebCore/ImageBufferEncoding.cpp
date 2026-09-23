@@ -1,8 +1,8 @@
 #include "config.h"
 
-#include "GraphicsTestUtilities.h"
-#include "Test.h"
-#include "WebCoreTestUtilities.h"
+#include "Helpers/GraphicsTestUtilities.h"
+#include "Helpers/Test.h"
+#include "Helpers/WebCoreTestUtilities.h"
 #include <WebCore/Color.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/ImageBuffer.h>
@@ -29,10 +29,11 @@ static void checkEncodingPreservesCanvas(bool dataURL)
         EXPECT_TRUE(imageBufferPixelIs(Color::blue, *buffer, { 8, 8 }));
 
         if (dataURL)
-            EXPECT_TRUE(encodeDataURL(WTF::move(buffer), "image/png"_s).startsWith("data:image/png;base64,"_s));
+            EXPECT_TRUE(encodeDataURL(RefPtr { buffer }, "image/png"_s).startsWith("data:image/png;base64,"_s));
         else
-            EXPECT_FALSE(encodeData(WTF::move(buffer), "image/png"_s).isEmpty());
-        EXPECT_EQ(buffer, nullptr);
+            EXPECT_FALSE(encodeData(RefPtr { buffer }, "image/png"_s).isEmpty());
+        buffer->flushDrawingContext();
+        EXPECT_TRUE(imageBufferPixelIs(Color::blue, *buffer, { 8, 8 }));
     }
 }
 

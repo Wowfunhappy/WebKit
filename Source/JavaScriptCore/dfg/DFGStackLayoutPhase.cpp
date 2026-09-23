@@ -233,7 +233,7 @@ public:
     }
 
 private:
-    VirtualRegister assign(const Operands<bool>& usedOperands, const Vector<unsigned>& allocation, Operand operand)
+    VirtualRegister NODELETE assign(const Operands<bool>& usedOperands, const Vector<unsigned>& allocation, Operand operand)
     {
         if (operand.isArgument())
             return operand.virtualRegister();

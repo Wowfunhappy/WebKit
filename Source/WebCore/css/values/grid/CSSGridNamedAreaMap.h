@@ -27,14 +27,16 @@
 #include <WebCore/CSSValueTypes.h>
 #include <WebCore/GridArea.h>
 #include <wtf/HashMap.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 namespace CSS {
 
+struct CustomIdent;
+
 // Parsed representation of the `<string>+` of <'grid-template-areas'>.
 struct GridNamedAreaMap {
-    using Map = HashMap<String, GridArea>;
+    using Map = HashMap<AtomString, GridArea>;
 
     Map map;
     size_t rowCount { 0 };
@@ -44,7 +46,7 @@ struct GridNamedAreaMap {
 };
 
 // A single `<string>` of <'grid-template-areas'>.
-using GridNamedAreaMapRow = Vector<String, 8>;
+using GridNamedAreaMapRow = Vector<AtomString, 8>;
 
 // Adds a row to a `GridNamedAreaMap`. Returns `true` on success, `false` on failure.
 bool addRow(GridNamedAreaMap&, const GridNamedAreaMapRow&);

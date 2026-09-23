@@ -67,7 +67,6 @@ static inline void NODELETE ignoreViewportArgumentsToAvoidEnlargedView(ViewportA
 }
 
 constexpr double defaultDesktopViewportWidth = 980;
-constexpr double minimumShrinkToFitWidthWhenPreferringHorizontalScrolling = 820;
 
 #if ASSERT_ENABLED
 static bool constraintsAreAllRelative(const ViewportConfiguration::Parameters& configuration)

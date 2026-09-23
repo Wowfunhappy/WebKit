@@ -61,7 +61,7 @@ enum class BinaryOperation : uint8_t {
 
 constexpr ASCIILiteral toASCIILiteral(BinaryOperation op)
 {
-    constexpr auto binaryOperationNames = std::to_array<ASCIILiteral>({
+    constexpr auto binaryOperationNames = WTF::toArray<ASCIILiteral>({
 #define WGSL_AST_BINOP(x, y) y##_s,
         WGSL_AST_BINOP_IMPL
 #undef WGSL_AST_BINOP

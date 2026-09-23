@@ -69,10 +69,9 @@ Vector<uint8_t> encodeData(const RefPtr<NativeImage>& image, const String& mimeT
 
 Vector<uint8_t> encodeData(RefPtr<ImageBuffer>&& buffer, const String& mimeType, std::optional<double> quality)
 {
-    // MAVERICKS_BACKPORT: snapshot shared local canvas buffers; only uniquely owned buffers can be consumed.
-    // return encodeData(ImageBuffer::sinkIntoNativeImage(WTF::move(buffer)), mimeType, quality);
-    auto image = buffer && !buffer->hasOneRef() ? buffer->createNativeImageReference() : ImageBuffer::sinkIntoNativeImage(WTF::move(buffer));
-    return encodeData(image, mimeType, quality);
+    if (!buffer)
+        return { };
+    return encodeData(buffer->copyNativeImage(), mimeType, quality);
 }
 
 String encodeDataURL(const NativeImage& image, const String& mimeType, std::optional<double> quality)
@@ -94,10 +93,7 @@ String encodeDataURL(RefPtr<ImageBuffer>&& buffer, const String& mimeType, std::
 {
     if (!buffer)
         return "data:,"_s;
-    // MAVERICKS_BACKPORT: preserve the shared canvas backing store during synchronous encoding.
-    // return encodeDataURL(ImageBuffer::sinkIntoNativeImage(WTF::move(buffer)), mimeType, quality);
-    auto image = !buffer->hasOneRef() ? buffer->createNativeImageReference() : ImageBuffer::sinkIntoNativeImage(WTF::move(buffer));
-    return encodeDataURL(image, mimeType, quality);
+    return encodeDataURL(buffer->copyNativeImage(), mimeType, quality);
 }
 
 }

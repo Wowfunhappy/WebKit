@@ -221,7 +221,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             1,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
 
     def test_skip_existence(self):
@@ -366,7 +366,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             2,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
 
         error_handler = Mock()
@@ -378,7 +378,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             2,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
 
         error_handler = Mock()
@@ -398,7 +398,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             2,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
         # We can't uniquely determine what line "web-platform-tests/exists" is on, so we
         # return line 0.
@@ -406,7 +406,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             0,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
 
         error_handler = Mock()
@@ -425,7 +425,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             2,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
 
         error_handler = Mock()
@@ -444,7 +444,7 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             3,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )
 
         error_handler = Mock()
@@ -462,5 +462,5 @@ class JSONImportExpectationsCheckerTest(fake_filesystem_unittest.TestCase):
             2,
             "json/syntax",
             5,
-            'Each value must be one of "import", "skip", or "skip-new-directories"',
+            'Each value must be one of "import", "import-no-rewrite", "skip", or "skip-new-directories"',
         )

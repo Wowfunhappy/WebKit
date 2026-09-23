@@ -30,11 +30,13 @@
 #include "CSSImageValue.h"
 #include "CSSValuePair.h"
 #include "CachedImage.h"
+#include "DeprecatedCSSOMValue.h"
 #include "FloatSize.h"
 #include "RenderElement.h"
 #include "StyleBuilderState.h"
 #include "StyleCachedImage.h"
 #include "StyleImageSet.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -42,17 +44,17 @@ namespace Style {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CursorImage);
 
-Ref<CursorImage> CursorImage::create(const Ref<Image>& image, std::optional<IntPoint> hotSpot, const URL& originalURL)
+Ref<CursorImage> CursorImage::create(const Ref<Image>& image, std::optional<HotSpot> hotSpot, const URL& originalURL)
 {
     return adoptRef(*new CursorImage(image, hotSpot, originalURL));
 }
 
-Ref<CursorImage> CursorImage::create(Ref<Image>&& image, std::optional<IntPoint> hotSpot, URL&& originalURL)
+Ref<CursorImage> CursorImage::create(Ref<Image>&& image, std::optional<HotSpot> hotSpot, URL&& originalURL)
 {
     return adoptRef(*new CursorImage(WTF::move(image), hotSpot, WTF::move(originalURL)));
 }
 
-CursorImage::CursorImage(const Ref<Image>& image, std::optional<IntPoint> hotSpot, const URL& originalURL)
+CursorImage::CursorImage(const Ref<Image>& image, std::optional<HotSpot> hotSpot, const URL& originalURL)
     : MultiImage { Type::CursorImage }
     , m_image { image }
     , m_hotSpot { hotSpot }
@@ -60,7 +62,7 @@ CursorImage::CursorImage(const Ref<Image>& image, std::optional<IntPoint> hotSpo
 {
 }
 
-CursorImage::CursorImage(Ref<Image>&& image, std::optional<IntPoint> hotSpot, URL&& originalURL)
+CursorImage::CursorImage(Ref<Image>&& image, std::optional<HotSpot> hotSpot, URL&& originalURL)
     : MultiImage { Type::CursorImage }
     , m_image { WTF::move(image) }
     , m_hotSpot { hotSpot }
@@ -86,28 +88,35 @@ bool CursorImage::equalInputImages(const CursorImage& other) const
     return arePointingToEqualData(m_image, other.m_image);
 }
 
-Ref<CSSValue> CursorImage::computedStyleValue(const RenderStyle& style) const
+Ref<CSSValue> CursorImage::computedStyleValue(const Style::ComputedStyle& style) const
 {
-    RefPtr<CSSValuePair> hotSpot;
-    if (m_hotSpot)
-        hotSpot = CSSValuePair::createNoncoalescing(CSSPrimitiveValue::create(m_hotSpot->x()), CSSPrimitiveValue::create(m_hotSpot->y()));
+    return CSSCursorImageValue::create(
+        m_image->computedStyleValue(style),
+        toCSS(m_hotSpot, style),
+        toCSS(m_originalURL, style)
+    );
+}
 
-    return CSSCursorImageValue::create(m_image->computedStyleValue(style), WTF::move(hotSpot), toCSS(m_originalURL, style));
+Ref<DeprecatedCSSOMValue> CursorImage::computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle& style, CSSStyleDeclaration& owner) const
+{
+    return computedStyleValue(style)->createDeprecatedCSSOMWrapper(owner);
 }
 
 ImageWithScale CursorImage::selectBestFitImage(const Document& document)
 {
+    using namespace CSS::Literals;
+
     if (RefPtr imageSet = dynamicDowncast<ImageSet>(m_image.get()))
         return imageSet->selectBestFitImage(document);
 
-    return { m_image.ptr(), 1, String() };
+    return { m_image.ptr(), 1_css_dppx, std::nullopt };
 }
 
 void CursorImage::setContainerContextForRenderer(const RenderElement& renderer, const FloatSize& containerSize, float containerZoom, const WTF::URL& url)
 {
     if (!hasCachedImage())
         return;
-    cachedImage()->setContainerContextForClient(renderer.cachedImageClient(), LayoutSize(containerSize), containerZoom, !url.isNull() ? url : m_originalURL.resolved);
+    protect(cachedImage())->setContainerContextForClient(renderer.cachedImageClient(), LayoutSize(containerSize), containerZoom, !url.isNull() ? url : m_originalURL.resolved);
 }
 
 bool CursorImage::usesDataProtocol() const

@@ -26,6 +26,8 @@
 #include "config.h"
 #include "InspectorNetworkIntercept.h"
 
+#include <wtf/TZoneMallocInlines.h>
+
 namespace Inspector {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Inspector::PendingInterceptRequest);

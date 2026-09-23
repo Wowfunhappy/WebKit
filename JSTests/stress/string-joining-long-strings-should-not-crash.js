@@ -1,5 +1,5 @@
-//@ skip if $memoryLimited
-//@ runDefault if !$memoryLimited
+//@ memoryHog!
+//@ runDefault
 // This test should not crash.
 
 var error;

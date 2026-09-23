@@ -25,7 +25,7 @@
 #include "FontCascadeInlines.h"
 #include "RenderBlock.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -45,14 +45,14 @@ RenderCombineText::RenderCombineText(Text& textNode, const String& string)
 
 RenderCombineText::~RenderCombineText() = default;
 
-void RenderCombineText::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderCombineText::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     // FIXME: This is pretty hackish.
     // Only cache a new font style if our old one actually changed. We do this to avoid
     // clobbering width variants and shrink-to-fit changes, since we won't recombine when
     // the font doesn't change.
     if (!oldStyle || !oldStyle->fontCascadeEqual(style()))
-        m_combineFontStyle = RenderStyle::clonePtr(style());
+        m_combineFontStyle = Style::ComputedStyle::clonePtr(style());
 
     RenderText::styleDidChange(diff, oldStyle);
 
@@ -139,7 +139,7 @@ void RenderCombineText::combineTextIfNeeded()
         m_combineFontStyle->mutableFontCascadeWithoutUpdate().setLetterSpacing(0);
     } else {
         // Need to try compressed glyphs.
-        static constexpr auto widthVariants = std::to_array<FontWidthVariant>({ FontWidthVariant::HalfWidth, FontWidthVariant::ThirdWidth, FontWidthVariant::QuarterWidth });
+        static constexpr auto widthVariants = WTF::toArray<FontWidthVariant>({ FontWidthVariant::HalfWidth, FontWidthVariant::ThirdWidth, FontWidthVariant::QuarterWidth });
         for (auto widthVariant : widthVariants) {
             description.setWidthVariant(widthVariant); // When modifying this, make sure to keep it in sync with FontPlatformData::isForTextCombine()!
 

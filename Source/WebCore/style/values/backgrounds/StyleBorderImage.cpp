@@ -30,9 +30,9 @@
 #include "CSSValueList.h"
 #include "StyleBuilderChecking.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Logging.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Logging.h"
+#include "StyleKeyword+Serialization.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
 
@@ -59,23 +59,46 @@ BorderImage::BorderImage(BorderImageSource&& source, BorderImageSlice&& slice, B
 
 // MARK: - Conversion
 
-auto CSSValueCreation<BorderImage>::operator()(CSSValuePool& pool, const RenderStyle& style, const BorderImage& value) -> Ref<CSSValue>
+auto ToCSS<BorderImage>::operator()(const BorderImage& value, const Style::ComputedStyle& style) -> CSS::BorderImage
 {
-    return createBorderImageValue({
-        .source = createCSSValue(pool, style, value.borderImageSource),
-        .slice  = createCSSValue(pool, style, value.borderImageSlice),
-        .width  = createCSSValue(pool, style, value.borderImageWidth),
-        .outset = createCSSValue(pool, style, value.borderImageOutset),
-        .repeat = createCSSValue(pool, style, value.borderImageRepeat),
-    });
+    return {
+        .borderImageSource = toCSS(value.borderImageSource, style),
+        .borderImageSlice = toCSS(value.borderImageSlice, style),
+        .borderImageWidth = toCSS(value.borderImageWidth, style),
+        .borderImageOutset = toCSS(value.borderImageOutset, style),
+        .borderImageRepeat = toCSS(value.borderImageRepeat, style),
+    };
+}
+
+auto ToStyle<CSS::BorderImage>::operator()(const CSS::BorderImage& value, const BuilderState& state) -> BorderImage
+{
+    BorderImage result { };
+
+    if (value.borderImageSource)
+        result.borderImageSource = toStyle(*value.borderImageSource, state);
+    if (value.borderImageSlice)
+        result.borderImageSlice = toStyle(*value.borderImageSlice, state);
+    if (value.borderImageWidth)
+        result.borderImageWidth = toStyle(*value.borderImageWidth, state);
+    if (value.borderImageOutset)
+        result.borderImageOutset = toStyle(*value.borderImageOutset, state);
+    if (value.borderImageRepeat)
+        result.borderImageRepeat = toStyle(*value.borderImageRepeat, state);
+
+    return result;
+}
+
+auto CSSValueCreation<BorderImage>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const BorderImage& value) -> Ref<CSSValue>
+{
+    return CSS::createCSSValue(pool, toCSS(value, style));
 }
 
 // MARK: - Serialization
 
-void Serialize<BorderImage>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const BorderImage& value)
+void Serialize<BorderImage>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const BorderImage& value)
 {
     if (value.borderImageSource.isNone()) {
-        serializationForCSS(builder, context, style, value.source());
+        serializationForCSS(builder, context, style, value.borderImageSource);
         return;
     }
 

@@ -25,8 +25,11 @@ import sys
 
 sys.path.append(path.abspath(path.join(path.dirname(__file__), '..', 'Scripts')))
 
-from webkitpy.common.host import Host
-from webkitpy.common.webkit_finder import WebKitFinder
+from webkitpy.port.linux_container_sdk_utils import maybe_enter_webkit_container_sdk  # noqa: E402
+maybe_enter_webkit_container_sdk()
+
+from webkitpy.common.host import Host  # noqa: E402
+from webkitpy.common.webkit_finder import WebKitFinder  # noqa: E402
 
 
 def get_default_configuration(output_dir):

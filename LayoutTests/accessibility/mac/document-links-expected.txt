@@ -26,7 +26,7 @@ AXSelected: 0
 AXBlockQuoteLevel: 0
 AXTopLevelUIElement: <AXLink: 'Link1'>
 AXLanguage:
-AXDOMIdentifier:
+AXDOMIdentifier: area1
 AXDOMClassList: <array of size 0>
 AXFocusableAncestor: <AXLink: 'Link1'>
 AXEditableAncestor: (null)
@@ -61,7 +61,7 @@ AXSelected: 0
 AXBlockQuoteLevel: 0
 AXTopLevelUIElement: <AXLink: 'Link2'>
 AXLanguage:
-AXDOMIdentifier:
+AXDOMIdentifier: area2
 AXDOMClassList: <array of size 0>
 AXFocusableAncestor: <AXLink: 'Link2'>
 AXEditableAncestor: (null)
@@ -105,6 +105,7 @@ AXElementBusy: 0
 AXURL: LayoutTests/accessibility/mac/document-links.html#Link3
 AXAccessKey: (null)
 AXLinkRelationshipType:
+AXPath: (null)
 
 ------------
 AXRole: AXLink
@@ -139,6 +140,7 @@ AXElementBusy: 0
 AXURL: LayoutTests/accessibility/mac/document-links.html#Link4
 AXAccessKey: (null)
 AXLinkRelationshipType:
+AXPath: (null)
 
 ------------
 

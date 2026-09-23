@@ -51,7 +51,20 @@ static UIDragItem *dragItemMatchingIdentifier(id <UIDragSession> session, NSInte
     return nil;
 }
 
-static RetainPtr<UITargetedDragPreview> createTargetedDragPreview(UIImage *image, UIView *rootView, UIView *previewContainer, const FloatRect& frameInRootViewCoordinates, const Vector<FloatRect>& clippingRectsInFrameCoordinates, UIColor *backgroundColor, UIBezierPath *visiblePath, AddPreviewViewToContainer addPreviewViewToContainer)
+#if PLATFORM(VISION)
+CGFloat clampedDragPreviewCenterAxis(CGFloat naturalCenter, CGFloat viewportMin, CGFloat viewportMax, CGFloat halfSize)
+{
+    CGFloat low = viewportMin + halfSize;
+    CGFloat high = viewportMax - halfSize;
+    if (low > high) {
+        low = viewportMin;
+        high = viewportMax;
+    }
+    return std::clamp(naturalCenter, low, high);
+}
+#endif
+
+static RetainPtr<UITargetedDragPreview> createTargetedDragPreview(UIImage *image, UIView *rootView, UIView *previewContainer, UIScrollView *scrollView, const FloatRect& frameInRootViewCoordinates, const Vector<FloatRect>& clippingRectsInFrameCoordinates, UIColor *backgroundColor, UIBezierPath *visiblePath, AddPreviewViewToContainer addPreviewViewToContainer)
 {
     if (frameInRootViewCoordinates.isEmpty() || !image || !previewContainer.window)
         return nil;
@@ -85,6 +98,15 @@ static RetainPtr<UITargetedDragPreview> createTargetedDragPreview(UIImage *image
         [previewContainer addSubview:imageView.get()];
 
     CGPoint centerInContainerCoordinates = { CGRectGetMidX(frameInContainerCoordinates), CGRectGetMidY(frameInContainerCoordinates) };
+#if PLATFORM(VISION)
+    if (scrollView) {
+        FloatRect viewportInContainer = [scrollView convertRect:scrollView.bounds toView:previewContainer];
+        centerInContainerCoordinates = {
+            clampedDragPreviewCenterAxis(centerInContainerCoordinates.x, viewportInContainer.x(), viewportInContainer.maxX(), frameInContainerCoordinates.width() / 2),
+            clampedDragPreviewCenterAxis(centerInContainerCoordinates.y, viewportInContainer.y(), viewportInContainer.maxY(), frameInContainerCoordinates.height() / 2)
+        };
+    }
+#endif
     auto target = adoptNS([[UIDragPreviewTarget alloc] initWithContainer:previewContainer center:centerInContainerCoordinates]);
     return adoptNS([[UITargetedDragPreview alloc] initWithView:imageView.get() parameters:parameters.get() target:target.get()]);
 }
@@ -211,7 +233,7 @@ UITargetedDragPreview *DragDropInteractionState::finalDropPreview(UIDragItem *it
 void DragDropInteractionState::deliverDelayedDropPreview(UIView *contentView, UIView *previewContainer, RefPtr<WebCore::TextIndicator>&& textIndicator)
 {
     auto textIndicatorImage = uiImageForImage(protect(protect(textIndicator)->contentImage()));
-    auto preview = createTargetedDragPreview(textIndicatorImage.get(), contentView, previewContainer, textIndicator->textBoundingRectInRootViewCoordinates(), textIndicator->textRectsInBoundingRectCoordinates(), cocoaColor(textIndicator->estimatedBackgroundColor()).get(), nil, AddPreviewViewToContainer::No);
+    auto preview = createTargetedDragPreview(textIndicatorImage.get(), contentView, previewContainer, nil, textIndicator->textBoundingRectInRootViewCoordinates(), textIndicator->textRectsInBoundingRectCoordinates(), cocoaColor(textIndicator->estimatedBackgroundColor()).get(), nil, AddPreviewViewToContainer::No);
     if (!preview)
         return;
 
@@ -268,20 +290,20 @@ void DragDropInteractionState::deliverDelayedDropPreview(UIView *contentView, CG
     }
 }
 
-UITargetedDragPreview *DragDropInteractionState::previewForLifting(UIDragItem *item, UIView *contentView, UIView *previewContainer, RefPtr<WebCore::TextIndicator>&& indicator) const
+UITargetedDragPreview *DragDropInteractionState::previewForLifting(UIDragItem *item, UIView *contentView, UIView *previewContainer, UIScrollView *scrollView, RefPtr<WebCore::TextIndicator>&& indicator) const
 {
-    return createDragPreviewInternal(item, contentView, previewContainer, AddPreviewViewToContainer::No, WTF::move(indicator)).autorelease();
+    return createDragPreviewInternal(item, contentView, previewContainer, scrollView, AddPreviewViewToContainer::No, WTF::move(indicator)).autorelease();
 }
 
-UITargetedDragPreview *DragDropInteractionState::previewForCancelling(UIDragItem *item, UIView *contentView, UIView *previewContainer)
+UITargetedDragPreview *DragDropInteractionState::previewForCancelling(UIDragItem *item, UIView *contentView, UIView *previewContainer, UIScrollView *scrollView)
 {
-    auto preview = createDragPreviewInternal(item, contentView, previewContainer, AddPreviewViewToContainer::Yes, nullptr);
+    auto preview = createDragPreviewInternal(item, contentView, previewContainer, scrollView, AddPreviewViewToContainer::Yes, nullptr);
     if ([preview view].superview == previewContainer)
         m_previewViewsForDragCancel.append([preview view]);
     return preview.autorelease();
 }
 
-RetainPtr<UITargetedDragPreview> DragDropInteractionState::createDragPreviewInternal(UIDragItem *item, UIView *contentView, UIView *previewContainer, AddPreviewViewToContainer addPreviewViewToContainer, const RefPtr<WebCore::TextIndicator>&& indicator) const
+RetainPtr<UITargetedDragPreview> DragDropInteractionState::createDragPreviewInternal(UIDragItem *item, UIView *contentView, UIView *previewContainer, UIScrollView *scrollView, AddPreviewViewToContainer addPreviewViewToContainer, const RefPtr<WebCore::TextIndicator>&& indicator) const
 {
     auto foundSource = activeDragSourceForItem(item);
     if (!foundSource)
@@ -299,7 +321,7 @@ RetainPtr<UITargetedDragPreview> DragDropInteractionState::createDragPreviewInte
         // the drag preview should be created likewise, so that the size and position
         // of both previews match.
         auto textIndicatorImage = uiImageForImage(protect(protect(indicator)->contentImage()));
-        return createTargetedDragPreview(textIndicatorImage.get(), contentView, previewContainer, indicator->textBoundingRectInRootViewCoordinates(), indicator->textRectsInBoundingRectCoordinates(), cocoaColor(indicator->estimatedBackgroundColor()).get(), nil, addPreviewViewToContainer).autorelease();
+        return createTargetedDragPreview(textIndicatorImage.get(), contentView, previewContainer, scrollView, indicator->textBoundingRectInRootViewCoordinates(), indicator->textRectsInBoundingRectCoordinates(), cocoaColor(indicator->estimatedBackgroundColor()).get(), nil, addPreviewViewToContainer).autorelease();
     }
 
     if (shouldUseDragImageToCreatePreviewForDragSource(source)) {
@@ -308,15 +330,15 @@ RetainPtr<UITargetedDragPreview> DragDropInteractionState::createDragPreviewInte
         if (shouldUseVisiblePathToCreatePreviewForDragSource(source)) {
             auto path = source.visiblePath.value();
             RetainPtr visiblePath = [UIBezierPath bezierPathWithCGPath:protect(path.platformPath()).get()];
-            return createTargetedDragPreview(image->get(), contentView, previewContainer, source.dragPreviewFrameInRootViewCoordinates, { }, nil, visiblePath, addPreviewViewToContainer).autorelease();
+            return createTargetedDragPreview(image->get(), contentView, previewContainer, scrollView, source.dragPreviewFrameInRootViewCoordinates, { }, nil, visiblePath, addPreviewViewToContainer).autorelease();
         }
-        return createTargetedDragPreview(image->get(), contentView, previewContainer, source.dragPreviewFrameInRootViewCoordinates, { }, nil, nil, addPreviewViewToContainer).autorelease();
+        return createTargetedDragPreview(image->get(), contentView, previewContainer, scrollView, source.dragPreviewFrameInRootViewCoordinates, { }, nil, nil, addPreviewViewToContainer).autorelease();
     }
 
     if (shouldUseTextIndicatorToCreatePreviewForDragSource(source)) {
         RefPtr textIndicator = source.textIndicator;
         RetainPtr textIndicatorImage = uiImageForImage(protect(protect(textIndicator)->contentImage()));
-        return createTargetedDragPreview(textIndicatorImage.get(), contentView, previewContainer, textIndicator->textBoundingRectInRootViewCoordinates(), textIndicator->textRectsInBoundingRectCoordinates(), cocoaColor(textIndicator->estimatedBackgroundColor()).get(), nil, addPreviewViewToContainer).autorelease();
+        return createTargetedDragPreview(textIndicatorImage.get(), contentView, previewContainer, scrollView, textIndicator->textBoundingRectInRootViewCoordinates(), textIndicator->textRectsInBoundingRectCoordinates(), cocoaColor(textIndicator->estimatedBackgroundColor()).get(), nil, addPreviewViewToContainer).autorelease();
     }
 
     return nil;

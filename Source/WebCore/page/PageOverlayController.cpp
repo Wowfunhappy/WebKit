@@ -40,7 +40,9 @@
 #include "ScrollingCoordinator.h"
 #include "Settings.h"
 #include "TiledBacking.h"
+#include <wtf/Borrow.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <ranges>
 
 // FIXME: Someone needs to call didChangeSettings() if we want dynamic updates of layer border/repaint counter settings.
 
@@ -353,8 +355,8 @@ bool PageOverlayController::handleMouseEvent(const PlatformMouseEvent& mouseEven
     if (m_pageOverlays.isEmpty())
         return false;
 
-    for (auto it = m_pageOverlays.rbegin(), end = m_pageOverlays.rend(); it != end; ++it) {
-        if (Ref { *it }->mouseEvent(mouseEvent))
+    for (Ref overlay : borrow(m_pageOverlays).get() | std::views::reverse) {
+        if (overlay->mouseEvent(mouseEvent))
             return true;
     }
 
@@ -366,8 +368,8 @@ bool PageOverlayController::copyAccessibilityAttributeStringValueForPoint(String
     if (m_pageOverlays.isEmpty())
         return false;
 
-    for (auto it = m_pageOverlays.rbegin(), end = m_pageOverlays.rend(); it != end; ++it) {
-        if (Ref { *it }->copyAccessibilityAttributeStringValueForPoint(attribute, parameter, value))
+    for (Ref overlay : borrow(m_pageOverlays).get() | std::views::reverse) {
+        if (overlay->copyAccessibilityAttributeStringValueForPoint(attribute, parameter, value))
             return true;
     }
 
@@ -379,8 +381,8 @@ bool PageOverlayController::copyAccessibilityAttributeBoolValueForPoint(String a
     if (m_pageOverlays.isEmpty())
         return false;
 
-    for (auto it = m_pageOverlays.rbegin(), end = m_pageOverlays.rend(); it != end; ++it) {
-        if (Ref { *it }->copyAccessibilityAttributeBoolValueForPoint(attribute, parameter, value))
+    for (Ref overlay : borrow(m_pageOverlays).get() | std::views::reverse) {
+        if (overlay->copyAccessibilityAttributeBoolValueForPoint(attribute, parameter, value))
             return true;
     }
 

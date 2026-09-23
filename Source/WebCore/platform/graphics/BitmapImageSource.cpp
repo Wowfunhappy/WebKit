@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -64,13 +64,13 @@ ImageDecoder* BitmapImageSource::decoder(FragmentedSharedBuffer* data) const
     if (!m_decoder)
         return nullptr;
 
-    m_decoder->setEncodedDataStatusChangeCallback([weakThis = ThreadSafeWeakPtr { *this }] (auto status) {
+    protect(m_decoder)->setEncodedDataStatusChangeCallback([weakThis = ThreadSafeWeakPtr { *this }] (auto status) {
         if (RefPtr protectedThis = weakThis.get())
             protectedThis->encodedDataStatusChanged(status);
     });
 
     if (auto expectedContentLength = this->expectedContentLength())
-        m_decoder->setExpectedContentSize(expectedContentLength);
+        protect(m_decoder)->setExpectedContentSize(expectedContentLength);
 
     return m_decoder.get();
 }
@@ -103,10 +103,10 @@ void BitmapImageSource::encodedDataStatusChanged(EncodedDataStatus status)
     ASSERT(m_decoder);
 
     if (status >= EncodedDataStatus::SizeAvailable)
-        m_frames.resizeToFit(m_decoder->frameCount());
+        m_frames.resizeToFit(protect(m_decoder)->frameCount());
 
     if (auto imageObserver = this->imageObserver())
-        imageObserver->encodedDataStatusChanged(*m_bitmapImage, status);
+        imageObserver->encodedDataStatusChanged(protect(*m_bitmapImage), status);
 }
 
 EncodedDataStatus BitmapImageSource::dataChanged(FragmentedSharedBuffer* data, bool allDataReceived)
@@ -162,7 +162,7 @@ void BitmapImageSource::decodedSizeChanged(long long decodedSize)
         return;
 
     if (auto imageObserver = this->imageObserver())
-        imageObserver->decodedSizeChanged(*m_bitmapImage, decodedSize);
+        imageObserver->decodedSizeChanged(protect(*m_bitmapImage), decodedSize);
 }
 
 void BitmapImageSource::decodedSizeIncreased(unsigned decodedSize)
@@ -201,12 +201,12 @@ void BitmapImageSource::decodedSizeReset(unsigned decodedSize)
     decodedSizeChanged(-static_cast<long long>(decodedSize));
 }
 
-void BitmapImageSource::destroyNativeImageAtIndex(unsigned index, std::optional<ShouldDecodeToHDR> shouldDecodeToHDR)
+void BitmapImageSource::destroyNativeImageAtIndex(unsigned index, std::optional<DecodingDestination> decodingDestination)
 {
     if (index >= m_frames.size())
         return;
 
-    decodedSizeDecreased(m_frames[index].clearImage(shouldDecodeToHDR));
+    decodedSizeDecreased(m_frames[index].clearImage(decodingDestination));
 }
 
 bool BitmapImageSource::canDestroyDecodedData() const
@@ -220,7 +220,7 @@ bool BitmapImageSource::canDestroyDecodedData() const
         return true;
 
     if (auto imageObserver = this->imageObserver())
-        return imageObserver->canDestroyDecodedData(*m_bitmapImage);
+        return imageObserver->canDestroyDecodedData(protect(*m_bitmapImage));
 
     return true;
 }
@@ -240,7 +240,7 @@ void BitmapImageSource::clearFrameBufferCache()
     if (!m_decoder)
         return;
 
-    m_decoder->clearFrameBufferCache(currentFrameIndex());
+    protect(m_decoder)->clearFrameBufferCache(currentFrameIndex());
 }
 
 EncodedDataStatus BitmapImageSource::setData(FragmentedSharedBuffer* data, bool allDataReceived)
@@ -262,7 +262,7 @@ void BitmapImageSource::resetData()
     m_decoder = nullptr;
 
     if (m_bitmapImage)
-        setData(m_bitmapImage->data(), m_allDataReceived);
+        setData(protect(m_bitmapImage->data()), m_allDataReceived);
 }
 
 void BitmapImageSource::dataReplaced(FragmentedSharedBuffer* data)
@@ -325,7 +325,7 @@ bool BitmapImageSource::isAnimationAllowed() const
 
     // ImageObserver may disallow animation.
     if (auto imageObserver = this->imageObserver())
-        return imageObserver->allowsAnimation(*m_bitmapImage);
+        return imageObserver->allowsAnimation(protect(*m_bitmapImage));
 
     return true;
 }
@@ -333,6 +333,17 @@ bool BitmapImageSource::isAnimationAllowed() const
 bool BitmapImageSource::hasEverAnimated() const
 {
     return m_frameAnimator && m_frameAnimator->hasEverAnimated();
+}
+
+DecodingDestination BitmapImageSource::preferredDecodingDestination(GraphicsContext& context, ImagePaintingOptions options) const
+{
+    if (options.drawsHDRContent() == DrawsHDRContent::No || options.dynamicRangeLimit() == PlatformDynamicRangeLimit::standard() || !hasHDRGainMap())
+        return DecodingDestination::Base;
+
+    if (options.allowAcceleratedApplyGainMap() == AllowAcceleratedApplyGainMap::Yes && !context.renderingMethod())
+        return DecodingDestination::BaseAndGainMap;
+
+    return DecodingDestination::ShouldDecodeToHDR;
 }
 
 bool BitmapImageSource::isLargeForDecoding() const
@@ -353,7 +364,7 @@ void BitmapImageSource::stopDecodingWorkQueue()
     if (!m_workQueue || !m_workQueue->isIdle())
         return;
 
-    m_workQueue->stop();
+    protect(m_workQueue)->stop();
 }
 
 bool BitmapImageSource::isPendingDecodingAtIndex(unsigned index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options) const
@@ -361,12 +372,12 @@ bool BitmapImageSource::isPendingDecodingAtIndex(unsigned index, SubsamplingLeve
     if (!m_workQueue)
         return false;
 
-    return m_workQueue->isPendingDecodingAtIndex(index, subsamplingLevel, options);
+    return protect(m_workQueue)->isPendingDecodingAtIndex(index, subsamplingLevel, options);
 }
 
-bool BitmapImageSource::isCompatibleWithOptionsAtIndex(unsigned index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options) const
+std::optional<DecodingDestination> BitmapImageSource::compatibleDecodingDestinationWithOptionsAtIndex(unsigned index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options) const
 {
-    return frameAtIndex(index).hasDecodedNativeImageCompatibleWithOptions(options, subsamplingLevel);
+    return frameAtIndex(index).compatibleDecodingDestinationWithOptions(options, subsamplingLevel);
 }
 
 void BitmapImageSource::decode(Function<void(DecodingStatus)>&& decodeCallback)
@@ -380,11 +391,11 @@ void BitmapImageSource::decode(Function<void(DecodingStatus)>&& decodeCallback)
     }
 
     // FIXME: HTMLImageElement.decode() needs a parameter to control whether it should decode SDR or HDR image.
-    auto shouldDecodeToHDR = hasHDRGainMap() ? ShouldDecodeToHDR::Yes : ShouldDecodeToHDR::No;
-    bool isCompatibleNativeImage = isCompatibleWithOptionsAtIndex(index, SubsamplingLevel::Default, { DecodingMode::Asynchronous, shouldDecodeToHDR });
+    auto preferredDecodingDestination = hasHDRContent() ? DecodingDestination::ShouldDecodeToHDR : DecodingDestination::Base;
+    auto compatibleDecodingDestination = compatibleDecodingDestinationWithOptionsAtIndex(index, SubsamplingLevel::Default, { DecodingMode::Asynchronous, preferredDecodingDestination });
 
     RefPtr frameAnimator = this->frameAnimator();
-    if (frameAnimator && (frameAnimator->hasEverAnimated() || isCompatibleNativeImage)) {
+    if (frameAnimator && (frameAnimator->hasEverAnimated() || compatibleDecodingDestination)) {
         // startAnimation() always decodes the nextFrame which is currentFrameIndex + 1.
         // If primaryFrameIndex = 0, then the sequence of decoding is { 1, 2, .., n, 0, 1, ...}.
         if (startAnimation(SubsamplingLevel::Default, DecodingMode::Asynchronous)) {
@@ -393,9 +404,9 @@ void BitmapImageSource::decode(Function<void(DecodingStatus)>&& decodeCallback)
         }
     }
 
-    if (!isCompatibleNativeImage) {
+    if (!compatibleDecodingDestination) {
         LOG(Images, "BitmapImageSource::%s - %p - url: %s. Decoding for frame at index = %d will be requested.", __FUNCTION__, this, sourceUTF8().data(), index);
-        requestNativeImageAtIndex(index, SubsamplingLevel::Default, ImageAnimatingState::No, { DecodingMode::Asynchronous, shouldDecodeToHDR });
+        requestNativeImageAtIndex(index, SubsamplingLevel::Default, ImageAnimatingState::No, { DecodingMode::Asynchronous, preferredDecodingDestination });
         return;
     }
 
@@ -424,7 +435,7 @@ void BitmapImageSource::imageFrameAtIndexAvailable(unsigned index, ImageAnimatin
         return;
 
     if (auto imageObserver = this->imageObserver())
-        imageObserver->imageFrameAvailable(*m_bitmapImage, animatingState, nullptr, decodingStatus);
+        imageObserver->imageFrameAvailable(protect(*m_bitmapImage), animatingState, nullptr, decodingStatus);
 }
 
 void BitmapImageSource::imageFrameDecodeAtIndexHasFinished(unsigned index, ImageAnimatingState animatingState, DecodingStatus decodingStatus)
@@ -443,7 +454,7 @@ void BitmapImageSource::imageFrameDecodeAtIndexHasFinished(unsigned index, Subsa
     if (!nativeImage || !m_decoder) {
         LOG(Images, "BitmapImageSource::%s - %p - url: %s. Frame at index = %d has failed.", __FUNCTION__, this, sourceUTF8().data(), index);
 
-        destroyNativeImageAtIndex(index, options.shouldDecodeToHDR());
+        destroyNativeImageAtIndex(index, options.decodingDestination());
         imageFrameDecodeAtIndexHasFinished(index, animatingState, DecodingStatus::Invalid);
     } else {
         LOG(Images, "BitmapImageSource::%s - %p - url: %s. Frame at index = %d has been decoded.", __FUNCTION__, this, sourceUTF8().data(), index);
@@ -475,10 +486,10 @@ void BitmapImageSource::cacheMetadataAtIndex(unsigned index, SubsamplingLevel su
 
     auto& frame = m_frames[index];
 
-    m_decoder->fetchFrameMetaDataAtIndex(index, subsamplingLevel, options, frame);
+    protect(m_decoder)->fetchFrameMetaDataAtIndex(index, subsamplingLevel, options, frame);
 
     if (repetitionCount())
-        frame.m_duration = m_decoder->frameDurationAtIndex(index);
+        frame.m_duration = protect(m_decoder)->frameDurationAtIndex(index);
 }
 
 void BitmapImageSource::cacheNativeImageAtIndex(unsigned index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options, Ref<NativeImage>&& nativeImage)
@@ -488,21 +499,21 @@ void BitmapImageSource::cacheNativeImageAtIndex(unsigned index, SubsamplingLevel
     if (index >= m_frames.size())
         return;
 
-    destroyNativeImageAtIndex(index, options.shouldDecodeToHDR());
+    destroyNativeImageAtIndex(index, options.decodingDestination());
 
     // Do not cache NativeImage if adding its sizeInBytes to MemoryCache will cause numerical overflow.
-    auto sizeInBytes = nativeImage->size().unclampedArea() * sizeof(uint32_t);
+    auto sizeInBytes = nativeImage->sizeInBytes();
     if (!isInBounds<unsigned>(sizeInBytes + m_decodedSize))
         return;
 
     auto& frame = m_frames[index];
-    auto& source = frame.source(options.shouldDecodeToHDR());
-    source.nativeImage = nativeImage.copyRef();
-    source.decodingOptions = options;
-    source.headroom = nativeImage->headroom();
+    auto& destination = frame.destination(options.decodingDestination());
+    destination.nativeImage = nativeImage.copyRef();
+    destination.decodingOptions = options;
+    destination.headroom = nativeImage->headroom();
 
     cacheMetadataAtIndex(index, subsamplingLevel, options);
-    decodedSizeIncreased(frame.sizeInBytes());
+    decodedSizeIncreased(destination.sizeInBytes());
 }
 
 const ImageFrame& BitmapImageSource::frameAtIndex(unsigned index) const
@@ -541,7 +552,7 @@ DecodingStatus BitmapImageSource::requestNativeImageAtIndex(unsigned index, Subs
 
     LOG(Images, "BitmapImageSource::%s - %p - url: %s. Decoding for frame at index = %d will be requested.", __FUNCTION__, this, sourceUTF8().data(), index);
 
-    workQueue().dispatch({ index, subsamplingLevel, animatingState, options });
+    protect(workQueue())->dispatch({ index, subsamplingLevel, animatingState, options });
 
     if (m_clearDecoderAfterAsyncFrameRequestForTesting)
         resetData();
@@ -549,23 +560,23 @@ DecodingStatus BitmapImageSource::requestNativeImageAtIndex(unsigned index, Subs
     return DecodingStatus::Decoding;
 }
 
-DecodingStatus BitmapImageSource::requestNativeImageAtIndexIfNeeded(unsigned index, SubsamplingLevel subsamplingLevel, ImageAnimatingState animatingState, const DecodingOptions& options)
+Expected<DecodingDestination, DecodingStatus> BitmapImageSource::requestNativeImageAtIndexIfNeeded(unsigned index, SubsamplingLevel subsamplingLevel, ImageAnimatingState animatingState, const DecodingOptions& options)
 {
     if (index >= m_frames.size())
-        return DecodingStatus::Invalid;
+        return makeUnexpected(DecodingStatus::Invalid);
 
     // Never decode the same frame from two different threads.
     if (isPendingDecodingAtIndex(index, subsamplingLevel, options)) {
         LOG(Images, "BitmapImageSource::%s - %p - url: %s. Frame at index = %d is being decoded.", __FUNCTION__, this, sourceUTF8().data(), index);
         ++m_blankDrawCountForTesting;
-        return DecodingStatus::Decoding;
+        return makeUnexpected(DecodingStatus::Decoding);
     }
 
-    // isCompatibleWithOptionsAtIndex() returns true only if the frame is complete.
-    if (isCompatibleWithOptionsAtIndex(index, subsamplingLevel, options))
-        return DecodingStatus::Complete;
+    // compatibleDecodingDestination() returns a DecodingDestination only if the frame is complete.
+    if (auto compatibleDecodingDestination = compatibleDecodingDestinationWithOptionsAtIndex(index, subsamplingLevel, options))
+        return *compatibleDecodingDestination;
 
-    return requestNativeImageAtIndex(index, subsamplingLevel, animatingState, options);
+    return makeUnexpected(requestNativeImageAtIndex(index, subsamplingLevel, animatingState, options));
 }
 
 Expected<Ref<NativeImage>, DecodingStatus> BitmapImageSource::nativeImageAtIndexCacheIfNeeded(unsigned index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options)
@@ -584,18 +595,25 @@ Expected<Ref<NativeImage>, DecodingStatus> BitmapImageSource::nativeImageAtIndex
         return makeUnexpected(DecodingStatus::Decoding);
     }
 
-    if (!isCompatibleWithOptionsAtIndex(index, subsamplingLevel, options)) {
-        DecodingOptions decodingOptions = { DecodingMode::Synchronous, options.shouldDecodeToHDR() };
-        PlatformImagePtr platformImage = m_decoder->createFrameImageAtIndex(index, subsamplingLevel, decodingOptions);
+    auto decodingDestination = options.decodingDestination();
 
-        RefPtr nativeImage = NativeImage::create(WTF::move(platformImage));
-        if (!nativeImage)
+    if (auto compatibleDecodingDestination = compatibleDecodingDestinationWithOptionsAtIndex(index, subsamplingLevel, options))
+        decodingDestination = *compatibleDecodingDestination;
+    else {
+        auto decodingOptions = DecodingOptions { DecodingMode::Synchronous, decodingDestination };
+
+        auto result = protect(m_decoder)->createNativeImageAtIndex(index, subsamplingLevel, decodingOptions);
+        if (!result)
             return makeUnexpected(DecodingStatus::Invalid);
 
-        cacheNativeImageAtIndex(index, subsamplingLevel, decodingOptions, nativeImage.releaseNonNull());
+        Ref nativeImage = WTF::move(std::get<Ref<NativeImage>>(*result));
+        decodingDestination = std::get<DecodingDestination>(*result);
+
+        decodingOptions = { DecodingMode::Synchronous, decodingDestination };
+        cacheNativeImageAtIndex(index, subsamplingLevel, decodingOptions, WTF::move(nativeImage));
     }
 
-    if (RefPtr nativeImage = frameAtIndex(index).nativeImage(options.shouldDecodeToHDR()))
+    if (RefPtr nativeImage = frameAtIndex(index).nativeImage(decodingDestination))
         return nativeImage.releaseNonNull();
 
     return makeUnexpected(DecodingStatus::Invalid);
@@ -608,11 +626,12 @@ Expected<Ref<NativeImage>, DecodingStatus> BitmapImageSource::nativeImageAtIndex
 
     ASSERT(!isAnimated());
 
-    auto status = requestNativeImageAtIndexIfNeeded(index, subsamplingLevel, ImageAnimatingState::No, options);
-    if (status == DecodingStatus::Invalid || status == DecodingStatus::Decoding)
-        return makeUnexpected(status);
+    auto decodingDestinationOrStatus = requestNativeImageAtIndexIfNeeded(index, subsamplingLevel, ImageAnimatingState::No, options);
+    if (!decodingDestinationOrStatus)
+        return makeUnexpected(decodingDestinationOrStatus.error());
 
-    if (RefPtr nativeImage = frameAtIndex(index).nativeImage(options.shouldDecodeToHDR()))
+    auto decodingDestination = decodingDestinationOrStatus.value();
+    if (RefPtr nativeImage = frameAtIndex(index).nativeImage(decodingDestination))
         return nativeImage.releaseNonNull();
 
     return makeUnexpected(DecodingStatus::Invalid);
@@ -636,7 +655,7 @@ Expected<Ref<NativeImage>, DecodingStatus> BitmapImageSource::currentNativeImage
     // If frame0 is displayed for the first time, startAnimation() has to request decoding frame1
     // asynchronously. A flicker will occur if we request decoding frame0 also asynchronously.
     if (options.decodingMode() == DecodingMode::Asynchronous && isAnimated() && !hasEverAnimated())
-        effectiveOptions = { DecodingMode::Synchronous, options.shouldDecodeToHDR(), options.sizeForDrawing() };
+        effectiveOptions = { DecodingMode::Synchronous, options.decodingDestination(), options.sizeForDrawing() };
 
     return nativeImageAtIndexForDrawing(currentFrameIndex(), subsamplingLevel, effectiveOptions);
 }
@@ -698,7 +717,7 @@ void BitmapImageSource::setHasHDRContentForTesting()
     m_hasHDRContentForTesting = true;
 
     if (auto imageObserver = this->imageObserver())
-        imageObserver->imageContentChanged(*m_bitmapImage);
+        imageObserver->imageContentChanged(protect(*m_bitmapImage));
 }
 
 DecodingStatus BitmapImageSource::frameDecodingStatusAtIndex(unsigned index) const
@@ -713,17 +732,17 @@ RefPtr<ImageObserver> BitmapImageSource::imageObserver() const
 
 String BitmapImageSource::mimeType() const
 {
-    return m_bitmapImage ? m_bitmapImage->mimeType() : emptyString();
+    return m_bitmapImage ? protect(m_bitmapImage)->mimeType() : emptyString();
 }
 
 long long BitmapImageSource::expectedContentLength() const
 {
-    return m_bitmapImage ? m_bitmapImage->expectedContentLength() : 0;
+    return m_bitmapImage ? protect(m_bitmapImage)->expectedContentLength() : 0;
 }
 
 CString BitmapImageSource::sourceUTF8() const
 {
-    return m_bitmapImage ? m_bitmapImage->sourceUTF8() : ""_s;
+    return m_bitmapImage ? protect(m_bitmapImage)->sourceUTF8() : ""_s;
 }
 
 void BitmapImageSource::setMinimumDecodingDurationForTesting(Seconds duration)
@@ -736,7 +755,7 @@ void BitmapImageSource::dump(TextStream& ts) const
     ts.dumpProperty("source-utf8"_s, sourceUTF8());
 
     if (m_workQueue)
-        m_workQueue->dump(ts);
+        protect(m_workQueue)->dump(ts);
 
     if (m_frameAnimator)
         m_frameAnimator->dump(ts);
@@ -746,5 +765,28 @@ void BitmapImageSource::dump(TextStream& ts) const
     ts.dumpProperty("decoded-size"_s, m_decodedSize);
     ts.dumpProperty("decode-count-for-testing"_s, m_decodeCountForTesting);
 }
+
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+std::optional<unsigned> BitmapImageSource::spatialLeftEyeFrameIndex() const
+{
+    if (RefPtr decoder = decoderIfExists())
+        return decoder->spatialLeftEyeFrameIndex();
+    return std::nullopt;
+}
+
+std::optional<unsigned> BitmapImageSource::spatialRightEyeFrameIndex() const
+{
+    if (RefPtr decoder = decoderIfExists())
+        return decoder->spatialRightEyeFrameIndex();
+    return std::nullopt;
+}
+
+std::optional<SpatialImageEyeProperties> BitmapImageSource::spatialEyePropertiesAtIndex(unsigned index) const
+{
+    if (RefPtr decoder = decoderIfExists())
+        return decoder->spatialEyePropertiesAtIndex(index);
+    return std::nullopt;
+}
+#endif
 
 } // namespace WebCore

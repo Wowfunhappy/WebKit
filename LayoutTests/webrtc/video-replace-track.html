@@ -73,6 +73,10 @@ promise_test((test) => {
     var sender;
     var frontStream;
     var backStream;
+    test.add_cleanup(() => {
+        if (frontStream) frontStream.getTracks().forEach(t => t.stop());
+        if (backStream) backStream.getTracks().forEach(t => t.stop());
+    });
     return navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: ["user"] } } }).then((stream) => {
         frontStream = stream;
         return new Promise((resolve, reject) => {
@@ -112,6 +116,10 @@ promise_test((test) => {
     var sender;
     var frontStream;
     var backStream;
+    test.add_cleanup(() => {
+        if (frontStream) frontStream.getTracks().forEach(t => t.stop());
+        if (backStream) backStream.getTracks().forEach(t => t.stop());
+    });
 
     return navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: { exact: ["user"] } } }).then((stream) => {
         frontStream = stream;
@@ -155,6 +163,10 @@ promise_test((test) => {
     var sender;
     var frontStream;
     var backStream;
+    test.add_cleanup(() => {
+        if (frontStream) frontStream.getTracks().forEach(t => t.stop());
+        if (backStream) backStream.getTracks().forEach(t => t.stop());
+    });
 
     return navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: { exact: ["user"] } } }).then((stream) => {
         frontStream = stream;
@@ -191,6 +203,7 @@ promise_test((test) => {
 
 promise_test(async (test) => {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    test.add_cleanup(() => stream.getTracks().forEach(t => t.stop()));
     const pc = new RTCPeerConnection();
     pc.addTransceiver("video", {direction: "sendonly"});
     const sender = pc.addTrack(stream.getVideoTracks()[0], stream);

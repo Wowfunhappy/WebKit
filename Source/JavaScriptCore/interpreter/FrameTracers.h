@@ -28,6 +28,7 @@
 #include <JavaScriptCore/StackAlignment.h>
 #include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/VM.h>
+#include <wtf/SetForScope.h>
 
 namespace JSC {
 

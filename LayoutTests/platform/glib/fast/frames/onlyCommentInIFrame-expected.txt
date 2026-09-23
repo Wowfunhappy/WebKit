@@ -27,9 +27,9 @@ layer at (0,0) size 800x600
                   RenderText {#text} at (0,0) size 309x22
                     text run at (0,0) width 309: "This page contains the following errors:"
                 RenderBlock {div} at (18,61) size 685x15
-                  RenderText {#text} at (0,0) size 490x14
-                    text run at (0,0) width 490: "error on line 1 at column 15: Extra content at the end of the document"
-                    text run at (490,0) width 0: " "
+                  RenderText {#text} at (0,0) size 441x14
+                    text run at (0,0) width 441: "error on line 1 at column 15: Start tag expected, '<' not found"
+                    text run at (441,0) width 0: " "
                 RenderBlock {h3} at (18,94) size 685x23
                   RenderText {#text} at (0,0) size 410x22
                     text run at (0,0) width 410: "Below is a rendering of the page up to the first error."

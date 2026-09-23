@@ -27,7 +27,6 @@ webkit.org/b/277166 imported/w3c/web-platform-tests/html/browsers/the-window-obj
 
 webkit.org/b/277401 editing/pasteboard/data-transfer-set-data-sanitize-url-when-copying-in-null-origin.html [ Pass ]
 webkit.org/b/277402 fast/events/context-activated-by-key-event.html [ Pass ]
-webkit.org/b/277414 imported/w3c/web-platform-tests/html/interaction/focus/document-level-focus-apis/document-has-system-focus.html [ Pass ]
 
 webkit.org/b/277426 editing/async-clipboard/clipboard-read-text-same-origin.html [ Pass ]
 
@@ -51,7 +50,6 @@ webkit.org/b/277401 editing/pasteboard/data-transfer-set-data-sanitize-url-when-
 webkit.org/b/277402 fast/events/context-activated-by-key-event.html [ Failure ]
 webkit.org/b/277403 fast/events/drag-parent-node.html [ Failure ]
 webkit.org/b/277405 fast/events/dropzone-005.html [ Failure ]
-webkit.org/b/277414 imported/w3c/web-platform-tests/html/interaction/focus/document-level-focus-apis/document-has-system-focus.html [ Failure ]
 
 webkit.org/b/277426 editing/async-clipboard/clipboard-read-text-same-origin.html [ Skip ] # Timeout
 

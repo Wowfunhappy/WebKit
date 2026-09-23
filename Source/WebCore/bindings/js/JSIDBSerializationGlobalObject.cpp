@@ -35,6 +35,11 @@ using namespace JSC;
 
 const ClassInfo JSIDBSerializationGlobalObject::s_info = { "JSIDBSerializationGlobalObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSIDBSerializationGlobalObject) };
 
+JSC::Structure* JSIDBSerializationGlobalObject::createStructure(JSC::VM& vm, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
+}
+
 inline JSIDBSerializationGlobalObject::JSIDBSerializationGlobalObject(VM& vm, Structure* structure, Ref<DOMWrapperWorld>&& impl)
     : Base(vm, structure, WTF::move(impl))
     , m_scriptExecutionContext(EmptyScriptExecutionContext::create(vm))
@@ -43,7 +48,7 @@ inline JSIDBSerializationGlobalObject::JSIDBSerializationGlobalObject(VM& vm, St
 
 JSIDBSerializationGlobalObject* JSIDBSerializationGlobalObject::create(VM& vm, Structure* structure, Ref<DOMWrapperWorld>&& impl)
 {
-    JSIDBSerializationGlobalObject* ptr =  new (NotNull, allocateCell<JSIDBSerializationGlobalObject>(vm)) JSIDBSerializationGlobalObject(vm, structure, WTF::move(impl));
+    JSIDBSerializationGlobalObject* ptr =  new (NotNull, JSC::allocateCell<JSIDBSerializationGlobalObject>(vm)) JSIDBSerializationGlobalObject(vm, structure, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
 }

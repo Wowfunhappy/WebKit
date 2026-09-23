@@ -34,7 +34,6 @@
 #include "MediaSourcePrivateClient.h"
 #include "MockMediaSourcePrivate.h"
 #include <wtf/MainThread.h>
-#include <wtf/NativePromise.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -98,6 +97,9 @@ MediaPlayer::SupportsType MockMediaPlayerMediaSource::supportsType(const MediaEn
     if (codecs == "mock"_s || codecs == "kcom"_s)
         return MediaPlayer::SupportsType::IsSupported;
 
+    if (codecs == "unknown"_s || codecs == "invalid"_s)
+        return MediaPlayer::SupportsType::IsNotSupported;
+
     return MediaPlayer::SupportsType::MayBeSupported;
 }
 
@@ -147,13 +149,13 @@ FloatSize MockMediaPlayerMediaSource::naturalSize() const
 
 bool MockMediaPlayerMediaSource::hasVideo() const
 {
-    RefPtr mediaSourcePrivate = m_mediaSourcePrivate;
+    auto* mediaSourcePrivate = m_mediaSourcePrivate.get();
     return mediaSourcePrivate ? mediaSourcePrivate->hasVideo() : false;
 }
 
 bool MockMediaPlayerMediaSource::hasAudio() const
 {
-    RefPtr mediaSourcePrivate = m_mediaSourcePrivate;
+    auto* mediaSourcePrivate = m_mediaSourcePrivate.get();
     return mediaSourcePrivate ? mediaSourcePrivate->hasAudio() : false;
 }
 
@@ -168,11 +170,6 @@ void MockMediaPlayerMediaSource::setPageIsVisible(bool)
 {
 }
 
-bool MockMediaPlayerMediaSource::seeking() const
-{
-    return !!m_lastSeekTarget;
-}
-
 bool MockMediaPlayerMediaSource::paused() const
 {
     return !m_playing;
@@ -185,7 +182,7 @@ MediaPlayer::NetworkState MockMediaPlayerMediaSource::networkState() const
 
 MediaPlayer::ReadyState MockMediaPlayerMediaSource::readyState() const
 {
-    RefPtr mediaSourcePrivate = m_mediaSourcePrivate;
+    auto* mediaSourcePrivate = m_mediaSourcePrivate.get();
     return mediaSourcePrivate ? mediaSourcePrivate->mediaPlayerReadyState() : MediaPlayer::ReadyState::HaveNothing;
 }
 
@@ -251,30 +248,41 @@ MediaTime MockMediaPlayerMediaSource::duration() const
 }
 
 
-void MockMediaPlayerMediaSource::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MockMediaPlayerMediaSource::seekToTarget(const SeekTarget& target)
 {
     m_lastSeekTarget = target;
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
+
     protect(m_mediaSourcePrivate)->waitForTarget(target)->whenSettled(RunLoop::currentSingleton(), [weakThis = WeakPtr { this }](auto&& result) {
         RefPtr protectedThis = weakThis.get();
-        if (!protectedThis || !result)
+        if (!protectedThis)
             return;
 
+        if (!result) {
+            if (auto seekPromise = std::exchange(protectedThis->m_seekPromise, std::nullopt))
+                seekPromise->reject(result.error());
+            return;
+        }
+
         const auto seekTime = *result;
-        protect(protectedThis->m_mediaSourcePrivate)->seekToTime(seekTime);
-        protectedThis->m_lastSeekTarget.reset();
-        protectedThis->m_currentTime = seekTime;
+        protect(protectedThis->m_mediaSourcePrivate)->reenqueueMediaForTime(seekTime)->whenSettled(RunLoop::currentSingleton(), [weakThis, seekTime](auto&& result) {
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis || !result)
+                return;
+            protectedThis->m_lastSeekTarget.reset();
+            protectedThis->m_currentTime = seekTime;
 
-        if (RefPtr player = protectedThis->m_player.get()) {
-            player->seeked(seekTime);
-            player->timeChanged();
-        }
+            if (auto seekPromise = std::exchange(protectedThis->m_seekPromise, std::nullopt))
+                seekPromise->resolve(seekTime);
 
-        if (protectedThis->m_playing) {
-            callOnMainThread([protectedThis = WTF::move(protectedThis)] {
-                protectedThis->advanceCurrentTime();
-            });
-        }
+            if (protectedThis->m_playing) {
+                callOnMainThread([protectedThis = WTF::move(protectedThis)] {
+                    protectedThis->advanceCurrentTime();
+                });
+            }
+        });
     });
+    return *m_seekPromise;
 }
 
 void MockMediaPlayerMediaSource::advanceCurrentTime()
@@ -288,8 +296,7 @@ void MockMediaPlayerMediaSource::advanceCurrentTime()
     if (pos == notFound)
         return;
 
-    bool ignoreError;
-    m_currentTime = std::min(m_duration, buffered.end(pos, ignoreError));
+    m_currentTime = std::min(m_duration, buffered.end(pos));
     if (auto player = m_player.get())
         player->timeChanged();
 }

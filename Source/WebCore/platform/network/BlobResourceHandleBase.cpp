@@ -33,6 +33,7 @@
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include <wtf/MainThread.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -43,6 +44,7 @@ static constexpr auto httpPartialContentText = "Partial Content"_s;
 
 BlobResourceHandleBase::BlobResourceHandleBase(bool async, RefPtr<BlobData>&& blobData)
     : m_blobData(WTF::move(blobData))
+    , m_buffer(Box<Vector<uint8_t>>::create())
 {
     if (async)
         m_stream = makeUnique<AsyncFileStream>(*this);
@@ -181,21 +183,19 @@ void BlobResourceHandleBase::getSizeForNext()
         return;
     }
 
-    const BlobDataItem& item = m_blobData->items().at(m_sizeItemCount);
-    switch (item.type()) {
-    case BlobDataItem::Type::Data:
-        didGetSize(item.length());
-        break;
-    case BlobDataItem::Type::File: {
-        // Files know their sizes, but asking the stream to verify that the file wasn't modified.
-        Ref file = item.file();
-        if (async())
-            asyncStream()->getSize(file->path(), file->expectedModificationTime());
-        else
-            didGetSize(syncStream()->getSize(file->path(), file->expectedModificationTime()));
-        break;
-    }
-    }
+    auto& item = m_blobData->items().at(m_sizeItemCount);
+    WTF::switchOn(item,
+        [&](const DataSegment&) {
+            didGetSize(item.length());
+        },
+        [&](BlobDataFileReference& file) {
+            // Files know their sizes, but asking the stream to verify that the file wasn't modified.
+            if (async())
+                asyncStream()->getSize(file.path(), file.expectedModificationTime());
+            else
+                didGetSize(syncStream()->getSize(file.path(), file.expectedModificationTime()));
+        }
+    );
 }
 
 void BlobResourceHandleBase::didGetSize(long long size)
@@ -214,7 +214,7 @@ void BlobResourceHandleBase::didGetSize(long long size)
     }
 
     // The size passed back is the size of the whole file. If the underlying item is a sliced file, we need to use the slice length.
-    const BlobDataItem& item = m_blobData->items().at(m_sizeItemCount);
+    auto& item = m_blobData->items().at(m_sizeItemCount);
     uint64_t updatedSize = static_cast<uint64_t>(item.length());
 
     // Cache the size.
@@ -265,21 +265,23 @@ void BlobResourceHandleBase::readAsync()
         return;
 
     while (m_totalRemainingSize && m_readItemCount < m_blobData->items().size()) {
-        const BlobDataItem& item = m_blobData->items().at(m_readItemCount);
-        switch (item.type()) {
-        case BlobDataItem::Type::Data:
-            if (!readDataAsync(item))
-                return; // error occurred
-            break;
-        case BlobDataItem::Type::File:
-            readFileAsync(item);
+        auto& item = m_blobData->items().at(m_readItemCount);
+        bool done = WTF::switchOn(item,
+            [&](DataSegment& data) {
+                return !readDataAsync(item, data);
+            },
+            [&](BlobDataFileReference& file) {
+                readFileAsync(item, file);
+                return true;
+            }
+        );
+        if (done)
             return;
-        }
     }
     didFinish();
 }
 
-bool BlobResourceHandleBase::readDataAsync(const BlobDataItem& item)
+bool BlobResourceHandleBase::readDataAsync(const BlobDataItem& item, DataSegment& data)
 {
     ASSERT(isMainThread());
 
@@ -288,25 +290,38 @@ bool BlobResourceHandleBase::readDataAsync(const BlobDataItem& item)
     if (bytesToRead > m_totalRemainingSize)
         bytesToRead = m_totalRemainingSize;
 
-    auto data = protect(item.data())->span().subspan(item.offset() + m_currentItemReadSize, bytesToRead);
+    auto span = data.span().subspan(item.offset() + m_currentItemReadSize, bytesToRead);
     m_currentItemReadSize = 0;
 
-    return consumeData(data);
+    return consumeData(span);
 }
 
-void BlobResourceHandleBase::readFileAsync(const BlobDataItem& item)
+void BlobResourceHandleBase::resizeBuffer(size_t newSize)
+{
+    RELEASE_ASSERT(!m_isWritingIntoBuffer);
+    m_buffer->resize(newSize);
+}
+
+void BlobResourceHandleBase::readFileAsync(const BlobDataItem& item, BlobDataFileReference& file)
 {
     ASSERT(isMainThread());
 
     if (m_isFileOpen) {
-        asyncStream()->read(buffer().mutableSpan());
+        m_isWritingIntoBuffer = true;
+        asyncStream()->read(m_buffer, [weakThis = WeakPtr { *this }](int bytesRead) {
+            RefPtr protectedThis = weakThis;
+            if (!protectedThis)
+                return;
+            protectedThis->m_isWritingIntoBuffer = false;
+            protectedThis->didRead(bytesRead);
+        });
         return;
     }
 
     uint64_t bytesToRead = lengthOfItemBeingRead() - m_currentItemReadSize;
     if (bytesToRead > m_totalRemainingSize)
         bytesToRead = static_cast<int>(m_totalRemainingSize);
-    asyncStream()->openForRead(protect(item.file())->path(), item.offset() + m_currentItemReadSize, bytesToRead);
+    asyncStream()->openForRead(file.path(), item.offset() + m_currentItemReadSize, bytesToRead);
     m_isFileOpen = true;
     m_currentItemReadSize = 0;
 }
@@ -341,7 +356,7 @@ void BlobResourceHandleBase::didRead(int bytesRead)
         return;
     }
 
-    if (consumeData(m_buffer.subspan(0, bytesRead)))
+    if (consumeData(m_buffer->subspan(0, bytesRead)))
         readAsync();
 }
 

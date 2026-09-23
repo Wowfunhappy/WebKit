@@ -84,6 +84,25 @@ static WGPUCompositeAlphaMode NODELETE convertToAlphaMode(WebCore::WebGPU::Canva
     return WGPUCompositeAlphaMode_Premultiplied;
 }
 
+static WGPUColorSpace NODELETE convertToColorSpace(PredefinedColorSpace colorSpace)
+{
+    switch (colorSpace) {
+    case PredefinedColorSpace::SRGB:
+        return WGPUColorSpace::SRGB;
+    case PredefinedColorSpace::SRGBLinear:
+        return WGPUColorSpace::SRGBLinear;
+#if ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3)
+    case PredefinedColorSpace::DisplayP3:
+        return WGPUColorSpace::DisplayP3;
+    case PredefinedColorSpace::DisplayP3Linear:
+        return WGPUColorSpace::DisplayP3Linear;
+#endif
+    }
+
+    ASSERT_NOT_REACHED();
+    return WGPUColorSpace::SRGB;
+}
+
 bool PresentationContextImpl::configure(const CanvasConfiguration& canvasConfiguration)
 {
     m_swapChain = nullptr;
@@ -102,13 +121,13 @@ bool PresentationContextImpl::configure(const CanvasConfiguration& canvasConfigu
         .viewFormats = canvasConfiguration.viewFormats.map([&](auto colorFormat) {
             return convertToBackingContext->convertToBacking(colorFormat);
         }),
-        .colorSpace = canvasConfiguration.colorSpace == WebCore::WebGPU::PredefinedColorSpace::SRGB ? WGPUColorSpace::SRGB : WGPUColorSpace::DisplayP3,
+        .colorSpace = convertToColorSpace(canvasConfiguration.colorSpace),
         .toneMappingMode = convertToToneMappingMode(canvasConfiguration.toneMappingMode),
         .compositeAlphaMode = convertToAlphaMode(canvasConfiguration.compositingAlphaMode),
         .reportValidationErrors = canvasConfiguration.reportValidationErrors
     };
 
-    m_swapChain = adoptWebGPU(wgpuDeviceCreateSwapChain(convertToBackingContext->convertToBacking(protect(canvasConfiguration.device).get()), m_backing.get(), &backingDescriptor));
+    m_swapChain = adoptWebGPU(wgpuDeviceCreateSwapChain(convertToBackingContext->convertToBacking(protect(canvasConfiguration.device)), m_backing.get(), &backingDescriptor));
     return true;
 }
 

@@ -34,6 +34,10 @@
 #endif
 #endif
 
+#if ENABLE(2022_GLIB_API)
+#include <@API_INCLUDE_PREFIX@/WebKitImage.h>
+#endif
+
 G_BEGIN_DECLS
 
 #define WEBKIT_FAVICON_DATABASE_ERROR           (webkit_favicon_database_error_quark())
@@ -94,11 +98,27 @@ webkit_favicon_database_get_favicon_finish (WebKitFaviconDatabase *database,
                                             GAsyncResult          *result,
                                             GError               **error);
 #endif
-#endif
 
 WEBKIT_API gchar *
 webkit_favicon_database_get_favicon_uri    (WebKitFaviconDatabase *database,
                                             const gchar           *page_uri);
+#endif // PLATFORM(GTK)
+
+#if ENABLE(2022_GLIB_API)
+WEBKIT_API void
+webkit_favicon_database_get_page_icons     (WebKitFaviconDatabase *database,
+                                            const gchar           *page_uri,
+                                            GCancellable          *cancellable,
+                                            GAsyncReadyCallback    callback,
+                                            gpointer               user_data);
+
+WEBKIT_API WebKitImageList *
+webkit_favicon_database_get_page_icons_finish
+                                           (WebKitFaviconDatabase  *database,
+                                            GAsyncResult           *result,
+                                            GError                **error);
+#endif // ENABLE(2022_GLIB_API)
+
 WEBKIT_API void
 webkit_favicon_database_clear              (WebKitFaviconDatabase *database);
 

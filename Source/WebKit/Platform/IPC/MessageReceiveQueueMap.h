@@ -25,13 +25,14 @@
 
 #pragma once
 
-#include "Decoder.h"
 #include "MessageReceiveQueue.h"
+#include "ReceiverMatcher.h"
 #include <wtf/HashMap.h>
 #include <wtf/Variant.h>
 
 namespace IPC {
 
+class Decoder;
 enum class ReceiverName : uint8_t;
 
 class MessageReceiveQueueMap {

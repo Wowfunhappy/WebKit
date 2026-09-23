@@ -28,6 +28,7 @@ promise_test(async (test) => {
     assert_true(removedVideo1.paused, "out of DOM video should get paused");
 
     video2.srcObject = await navigator.mediaDevices.getUserMedia({ video : true });
+    test.add_cleanup(() => video2.srcObject.getTracks().forEach(track => track.stop()));
 
     while (video2.paused)
         await new Promise(resolve => setTimeout(resolve, 50));

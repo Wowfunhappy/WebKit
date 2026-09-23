@@ -22,7 +22,7 @@ Loaded: resources/viewspec-target.svg#svgView(zoomAndPan(disable))
 Parsed: svgView(zoomAndPan(disable)) from: svgView(zoomAndPan(disable))
 
 Loaded: resources/viewspec-target.svg#svgView(viewTarget(#myElementId))
-Parsed: svgView(viewTarget(#myElementId)) from: svgView(viewTarget(#myElementId))
+Parsed: [initial view] from: svgView(viewTarget(#myElementId))
 
 Loaded: resources/viewspec-target.svg#svgView
 Parsed: [initial view] from: svgView

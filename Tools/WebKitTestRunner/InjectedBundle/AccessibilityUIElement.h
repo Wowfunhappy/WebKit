@@ -213,6 +213,10 @@ public:
     virtual JSRetainPtr<JSStringRef> url();
     virtual JSRetainPtr<JSStringRef> classList() const;
     virtual JSRetainPtr<JSStringRef> embeddedImageDescription() const;
+    virtual JSRetainPtr<JSStringRef> imageDataSize() const;
+    virtual JSRetainPtr<JSStringRef> imageDataForParameters(int resizeWidth, int resizeHeight) const;
+    virtual JSRetainPtr<JSStringRef> imageDataForParametersWithFormat(int resizeWidth, int resizeHeight, JSStringRef format) const;
+    virtual JSRetainPtr<JSStringRef> imageDataForSubrect(int resizeWidth, int resizeHeight, int left, int top, int width, int height) const;
     virtual JSValueRef imageOverlayElements(JSContextRef);
 
     // CSS3-speech properties.
@@ -344,6 +348,7 @@ public:
     virtual int textMarkerRangeLength(AccessibilityTextMarkerRange*);
     virtual bool attributedStringForTextMarkerRangeContainsAttribute(JSStringRef, AccessibilityTextMarkerRange*);
     virtual int indexForTextMarker(AccessibilityTextMarker*);
+    virtual int relativeIndexForTextMarker(AccessibilityTextMarker*);
     virtual bool isTextMarkerValid(AccessibilityTextMarker*);
     virtual bool isTextMarkerRangeValid(AccessibilityTextMarkerRange*);
     virtual bool isTextMarkerNull(AccessibilityTextMarker*);
@@ -374,6 +379,7 @@ public:
     virtual JSValueRef mathRootRadicand(JSContextRef);
 
     virtual JSRetainPtr<JSStringRef> pathDescription() const;
+    virtual JSRetainPtr<JSStringRef> pathAsBounds() const;
 
     // Notifications
     // Function callback should take one argument, the name of the notification.
@@ -416,6 +422,7 @@ public:
     virtual bool isRemoteFrame() const;
     // True if the element backing |this| is a platform remote element (e.g. NSAccessibilityRemoteUIElement on macOS).
     virtual bool isRemotePlatformElement() const { return false; }
+    virtual bool isFrameGeometryInitialized() const { return true; }
 
     virtual bool isMarkAnnotation() const;
 protected:

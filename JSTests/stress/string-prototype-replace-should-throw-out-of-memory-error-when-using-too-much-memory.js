@@ -1,5 +1,6 @@
-//@ skip if $memoryLimited or $buildType == "debug"
-//@ runFTLNoCJIT("--timeoutMultiplier=1.5") if !$memoryLimited
+//@ memoryHog!
+//@ skip if $buildType == "debug"
+//@ runFTLNoCJIT("--timeoutMultiplier=1.5")
 //@ slow!
 // This test should not crash or fail any assertions.
 

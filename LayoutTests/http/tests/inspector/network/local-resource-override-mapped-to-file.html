@@ -65,6 +65,43 @@ function test()
     });
 
     suite.addTestCase({
+        name: "LocalResourceOverride.MappedToFile.UTF8",
+        description: "Test that `WI.LocalResource.prototype.mapToFile` loads a file containing non-Latin1 characters as UTF-8.",
+        async test() {
+            const url = "http://127.0.0.1:8000/inspector/network/resources/override.txt";
+
+            InspectorTest.log("Creating Local Resource Override for: " + url);
+            let localResourceOverride = WI.LocalResourceOverride.create(url, WI.LocalResourceOverride.InterceptType.Response, {
+                responseMIMEType: "text/plain",
+                responseContent: "FAIL: Should load from file.",
+            });
+            WI.networkManager.addLocalResourceOverride(localResourceOverride);
+
+            InspectorTest.log("Linking to file...");
+            localResourceOverride.localResource.mappedFilePath = await InspectorTest.evaluateInPage(`createTemporaryFile("LocalResourceOverride_MappedToFile_UTF8", "PASS: Should load from file with UTF-8 characters: café 日本語 🎉")`);
+
+            InspectorTest.log("Triggering load...");
+            let [resourceWasAddedEvent, responseReceivedEvent, loadCompleteEvent] = await Promise.all([
+                WI.Frame.awaitEvent(WI.Frame.Event.ResourceWasAdded),
+                WI.Resource.awaitEvent(WI.Resource.Event.ResponseReceived),
+                InspectorTest.awaitEvent("LoadComplete"),
+                InspectorTest.evaluateInPage(`triggerOverrideLoad()`),
+            ]);
+
+            InspectorTest.pass("Resource Loaded.");
+            let resource = resourceWasAddedEvent.data.resource;
+            let {rawContent, rawBase64Encoded} = await resource.requestContent();
+            InspectorTest.log(`Resource Content: '${rawBase64Encoded ? "[base64] " : ""}${rawContent}'`);
+
+            let localResourceCurrentRevision = localResourceOverride.localResource.currentRevision;
+            InspectorTest.log(`Local Resource Override Content: '${localResourceCurrentRevision.base64Encoded ? "[base64] " : ""}${localResourceCurrentRevision.content}'`)
+
+            WI.networkManager.removeLocalResourceOverride(localResourceOverride);
+            WI.LocalResource.resetPathsThatFailedToLoadFromFileSystem();
+        }
+    });
+
+    suite.addTestCase({
         name: "LocalResourceOverride.MappedToFile.MappedFileChanged",
         description: "Test that `WI.LocalResource.prototype.mapToFile` correctly re-loads the mapped file.",
         async test() {

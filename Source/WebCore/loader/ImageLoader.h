@@ -135,8 +135,8 @@ private:
     CachedResourceHandle<CachedImage> m_image;
     Timer m_derefElementTimer;
     RefPtr<Element> m_protectedElement;
-    AtomString m_failedLoadURL;
-    AtomString m_pendingURL;
+    String m_failedLoadURL;
+    String m_pendingURL;
     Vector<Ref<DeferredPromise>> m_decodingPromises;
     bool m_hasPendingBeforeLoadEvent : 1;
     bool m_hasPendingLoadEvent : 1;

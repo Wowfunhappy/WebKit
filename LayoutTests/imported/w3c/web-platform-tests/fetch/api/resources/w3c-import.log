@@ -33,6 +33,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/keepalive-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/keepalive-redirect-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/keepalive-redirect-window.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/keepalive-worker.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/method.py
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/preflight.py
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/resources/redirect-empty-location.py

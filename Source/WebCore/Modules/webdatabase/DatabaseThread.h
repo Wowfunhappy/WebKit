@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "DatabaseTask.h"
 #include <memory>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
@@ -38,8 +39,6 @@
 namespace WebCore {
 
 class Database;
-class DatabaseTask;
-class DatabaseTaskSynchronizer;
 class Document;
 class SQLTransactionCoordinator;
 

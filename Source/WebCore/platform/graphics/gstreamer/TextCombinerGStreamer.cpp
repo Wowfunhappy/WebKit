@@ -54,15 +54,15 @@ void webKitTextCombinerHandleCaps(WebKitTextCombiner* combiner, GstPad* pad, con
     ASSERT(caps);
     GST_DEBUG_OBJECT(combiner, "Handling caps %" GST_PTR_FORMAT, caps);
 
-    auto target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)));
+    GRefPtr target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)));
     auto targetParent = target ? adoptGRef(gst_pad_get_parent_element(target.get())) : nullptr;
     auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
 
     GRefPtr<GstPad> internalPad;
     g_object_get(combinerPad, "inner-combiner-pad", &internalPad.outPtr(), nullptr);
 
-    auto cea608Caps = adoptGRef(gst_caps_new_empty_simple("closedcaption/x-cea-608"));
-    auto textCaps = adoptGRef(gst_caps_new_empty_simple("text/x-raw"));
+    GRefPtr cea608Caps = adoptGRef(gst_caps_new_empty_simple("closedcaption/x-cea-608"));
+    GRefPtr textCaps = adoptGRef(gst_caps_new_empty_simple("text/x-raw"));
     if (gst_caps_can_intersect(textCaps.get(), caps)) {
         // Caps are plain text, we want a WebVTT encoder between the ghostpad and the combinerElement.
         if (!target || gstElementFactoryEquals(targetParent.get(), "webvttenc"_s)) {
@@ -74,13 +74,13 @@ void webKitTextCombinerHandleCaps(WebKitTextCombiner* combiner, GstPad* pad, con
             gst_element_sync_state_with_parent(encoder);
 
             // Switch the ghostpad to target the WebVTT encoder.
-            auto sinkPad = adoptGRef(gst_element_get_static_pad(encoder, "sink"));
+            GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(encoder, "sink"));
             ASSERT(sinkPad);
 
             gst_ghost_pad_set_target(GST_GHOST_PAD(pad), sinkPad.get());
 
             // Connect the WebVTT encoder to the combinerElement.
-            auto srcPad = adoptGRef(gst_element_get_static_pad(encoder, "src"));
+            GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(encoder, "src"));
             ASSERT(srcPad);
 
             gst_pad_link(srcPad.get(), internalPad.get());
@@ -99,19 +99,19 @@ void webKitTextCombinerHandleCaps(WebKitTextCombiner* combiner, GstPad* pad, con
         auto* webvttEncoder = makeGStreamerElement("cea608tott"_s);
         auto* vttCapsFilter = gst_element_factory_make("capsfilter", nullptr);
 
-        auto rawCaps = adoptGRef(gst_caps_new_simple("closedcaption/x-cea-608", "format", G_TYPE_STRING, "raw", nullptr));
+        GRefPtr rawCaps = adoptGRef(gst_caps_new_simple("closedcaption/x-cea-608", "format", G_TYPE_STRING, "raw", nullptr));
         g_object_set(rawCapsFilter, "caps", rawCaps.get(), nullptr);
-        auto vttCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
+        GRefPtr vttCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
         g_object_set(vttCapsFilter, "caps", vttCaps.get(), nullptr);
 
         gst_bin_add_many(GST_BIN_CAST(encoder), queue, converter, rawCapsFilter, webvttEncoder, vttCapsFilter, nullptr);
         gst_element_link_many(queue, converter, rawCapsFilter, webvttEncoder, vttCapsFilter, nullptr);
 
-        auto encoderSinkPad = adoptGRef(gst_element_get_static_pad(queue, "sink"));
+        GRefPtr encoderSinkPad = adoptGRef(gst_element_get_static_pad(queue, "sink"));
         auto* ghostSinkPad = gst_ghost_pad_new("sink", encoderSinkPad.get());
         gst_element_add_pad(encoder, ghostSinkPad);
 
-        auto encoderSrcPad = adoptGRef(gst_element_get_static_pad(vttCapsFilter, "src"));
+        GRefPtr encoderSrcPad = adoptGRef(gst_element_get_static_pad(vttCapsFilter, "src"));
         auto* ghostSrcPad = gst_ghost_pad_new("src", encoderSrcPad.get());
         gst_element_add_pad(encoder, ghostSrcPad);
 
@@ -162,8 +162,8 @@ static void webkitTextCombinerReleasePad(GstElement* element, GstPad* pad)
     auto* combiner = WEBKIT_TEXT_COMBINER(element);
     auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
 
-    if (auto target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)))) {
-        auto parent = adoptGRef(gst_pad_get_parent_element(target.get()));
+    if (GRefPtr target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)))) {
+        GRefPtr parent = adoptGRef(gst_pad_get_parent_element(target.get()));
         ASSERT(parent);
         // MAVERICKS_BACKPORT: a WebVTT pad targets the concat element's own sink pad, and concat serves every later pad; only a converter in front of it goes with this pad.
         // if (parent) {
@@ -173,7 +173,7 @@ static void webkitTextCombinerReleasePad(GstElement* element, GstPad* pad)
         }
     }
 
-    auto internalPad = adoptGRef(webKitTextCombinerPadLeakInternalPadRef(combinerPad));
+    GRefPtr internalPad = adoptGRef(webKitTextCombinerPadLeakInternalPadRef(combinerPad));
     gst_element_release_request_pad(combiner->priv->combinerElement.get(), internalPad.get());
 
     gst_element_remove_pad(element, pad);
@@ -192,7 +192,7 @@ static void webKitTextCombinerConstructed(GObject* object)
 
     gst_bin_add(GST_BIN_CAST(combiner), priv->combinerElement.get());
 
-    auto pad = adoptGRef(gst_element_get_static_pad(priv->combinerElement.get(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(priv->combinerElement.get(), "src"));
     ASSERT(pad);
 
     gst_element_add_pad(GST_ELEMENT_CAST(combiner), gst_ghost_pad_new("src", pad.get()));

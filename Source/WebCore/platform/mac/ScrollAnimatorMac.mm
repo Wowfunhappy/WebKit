@@ -108,7 +108,7 @@ static bool gestureShouldBeginSnap(const PlatformWheelEvent& wheelEvent, ScrollE
 
 bool ScrollAnimatorMac::allowsVerticalStretching(const PlatformWheelEvent& wheelEvent) const
 {
-    CheckedRef scrollableArea = m_scrollableArea.get();
+    CheckedRef scrollableArea = m_scrollableArea;
     if (scrollableArea->verticalOverscrollBehavior() == OverscrollBehavior::None)
         return false;
     
@@ -135,7 +135,7 @@ bool ScrollAnimatorMac::allowsVerticalStretching(const PlatformWheelEvent& wheel
 
 bool ScrollAnimatorMac::allowsHorizontalStretching(const PlatformWheelEvent& wheelEvent) const
 {
-    CheckedRef scrollableArea = m_scrollableArea.get();
+    CheckedRef scrollableArea = m_scrollableArea;
     if (scrollableArea->horizontalOverscrollBehavior() == OverscrollBehavior::None)
         return false;
     

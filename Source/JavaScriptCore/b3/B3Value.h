@@ -314,37 +314,39 @@ public:
 
     // Booleans in B3 are Const32(0) or Const32(1). So this is true if the type is Int32 and the only
     // possible return values are 0 or 1. It's OK for this method to conservatively return false.
-    bool returnsBool() const;
+    bool NODELETE returnsBool() const;
 
     bool isNegativeZero() const;
 
     bool isRounded() const;
 
-    TriState asTriState() const;
+    TriState NODELETE asTriState() const;
     bool isLikeZero() const { return asTriState() == TriState::False; }
     bool isLikeNonZero() const { return asTriState() == TriState::True; }
 
     bool isSIMDValue() const;
     SIMDValue* asSIMDValue();
 
-    Effects effects() const;
+    inline Effects effects() const;
+
+    inline bool mustExecute() const;
 
     // This returns a ValueKey that describes that this Value returns when it executes. Returns an
     // empty ValueKey if this Value is impure. Note that an operation that returns Void could still
     // have a non-empty ValueKey. This happens for example with Check operations.
     ValueKey key() const;
     
-    Value* foldIdentity() const;
+    Value* NODELETE foldIdentity() const;
 
     // Makes sure that none of the children are Identity's. If a child points to Identity, this will
     // repoint it at the Identity's child. For simplicity, this will follow arbitrarily long chains
     // of Identity's.
-    bool performSubstitution();
+    bool NODELETE performSubstitution();
     
     // Free values are those whose presence is guaranteed not to hurt code. We consider constants,
     // Identities, and Nops to be free. Constants are free because we hoist them to an optimal place.
     // Identities and Nops are free because we remove them.
-    bool isFree() const;
+    bool NODELETE isFree() const;
 
     // Walk the ancestors of this value (i.e. the graph of things it transitively uses). This
     // either walks phis or not, depending on whether PhiChildren is null. Your callback gets
@@ -360,6 +362,8 @@ public:
     void walk(const Functor& functor, PhiChildren* = nullptr);
 
 protected:
+    Effects effectsSlow() const;
+
     Value* cloneImpl() const;
 
     void replaceWith(Kind, Type, BasicBlock*);
@@ -369,7 +373,7 @@ protected:
     virtual void dumpMeta(CommaPrinter&, PrintStream&) const;
 
     // The specific value of VarArgs does not matter, but the value of the others is assumed to match their meaning.
-    enum NumChildren : uint8_t { Zero = 0, One = 1, Two = 2, Three = 3, VarArgs = 4};
+    enum NumChildren : uint8_t { Zero = 0, One = 1, Two = 2, Three = 3, Four = 4, VarArgs = 5 };
 
     char* childrenAlloc() { return std::bit_cast<char*>(this) + m_adjacencyListOffset; }
     const char* childrenAlloc() const { return std::bit_cast<const char*>(this) + m_adjacencyListOffset; }
@@ -454,8 +458,7 @@ protected:
         case WasmAddress:
         case WasmBoundsCheck:
         case WasmStructGet:
-        case WasmRefCast:
-        case WasmRefTest:
+        case WasmArrayLength:
         case VectorExtractLane:
         case VectorSplat:
         case VectorNot:
@@ -521,8 +524,11 @@ protected:
         case Store8:
         case Store16:
         case Store:
+        case WasmArrayGet:
         case WasmStructSet:
         case WasmStructNew:
+        case WasmRefCast:
+        case WasmRefTest:
         case VectorReplaceLane:
         case VectorEqual:
         case VectorNotEqual:
@@ -566,7 +572,12 @@ protected:
         case VectorTransposeOdd:
         case VectorExtractPair:
         case Stitch:
+        case VectorRelaxedMin:
+        case VectorRelaxedMax:
+        case VectorRelaxedQ15Mulr:
+        case VectorRelaxedDotI8x16I7x16:
             return 2 * sizeof(Value*);
+        case WasmArraySet:
         case Select:
         case AtomicWeakCAS:
         case AtomicStrongCAS:
@@ -576,7 +587,10 @@ protected:
         case VectorRelaxedLaneSelect:
         case MemoryFill:
         case MemoryCopy:
+        case VectorRelaxedDotI8x16I7x16Add:
             return 3 * sizeof(Value*);
+        case WasmArrayNew:
+            return 4 * sizeof(Value*);
         case CCall:
         case Check:
         case CheckAdd:
@@ -656,6 +670,9 @@ private:
         case VarArgs:
             new (std::bit_cast<char*>(this) + offset) Vector<Value*, 3> (valueToClone.childrenVector());
             break;
+        case Four:
+            std::bit_cast<Value**>(std::bit_cast<char*>(this) + offset)[3] = valueToClone.childrenArray()[3];
+            [[fallthrough]];
         case Three:
             std::bit_cast<Value**>(std::bit_cast<char*>(this) + offset)[2] = valueToClone.childrenArray()[2];
             [[fallthrough]];
@@ -737,6 +754,7 @@ private:
         case VectorDupElement:
         case VectorReverse:
         case VectorRelaxedTruncSat:
+        case WasmArrayLength:
             if (numArgs != 1) [[unlikely]]
                 badKind(kind, numArgs);
             return One;
@@ -812,6 +830,10 @@ private:
         case VectorTransposeEven:
         case VectorTransposeOdd:
         case VectorExtractPair:
+        case VectorRelaxedQ15Mulr:
+        case VectorRelaxedMin:
+        case VectorRelaxedMax:
+        case VectorRelaxedDotI8x16I7x16:
         case Stitch:
             if (numArgs != 2) [[unlikely]]
                 badKind(kind, numArgs);
@@ -821,6 +843,7 @@ private:
         case VectorRelaxedMAdd:
         case VectorRelaxedNMAdd:
         case VectorRelaxedLaneSelect:
+        case VectorRelaxedDotI8x16I7x16Add:
         case MemoryCopy:
         case MemoryFill:
             if (numArgs != 3) [[unlikely]]
@@ -908,9 +931,8 @@ protected:
 private:
     friend class CheckValue; // CheckValue::convertToAdd() modifies m_kind.
 
-    static Type typeFor(Kind, Value* firstChild, Value* secondChild = nullptr);
+    static Type NODELETE typeFor(Kind, Value* firstChild, Value* secondChild = nullptr);
 
-    // m_index to m_numChildren are arranged to fit in 64 bits.
 protected:
     unsigned m_index { UINT_MAX };
 private:

@@ -34,17 +34,27 @@
 #include <wtf/MonotonicTime.h>
 #include <wtf/Seconds.h>
 
+namespace API {
+class WebsitePolicies;
+}
+
 namespace WebKit {
+
+class WebPreferences;
 
 class EnhancedSecurityTracking final : public CanMakeWeakPtr<EnhancedSecurityTracking> {
 public:
     void initializeWithWebsiteDataStore(WebsiteDataStore&);
 
-    void trackNavigation(const API::Navigation&, bool hasOpenedPage);
+    void trackNavigation(const API::Navigation&, bool hasOpenedPage, bool httpFallbackInProgress = false);
 
     bool isEnhancedSecurityEnabled() const { return isEnhancedSecurityEnabledForState(enhancedSecurityState()); }
     EnhancedSecurity NODELETE enhancedSecurityState() const;
     EnhancedSecurityReason enhancedSecurityReason() const { return m_activeReason; }
+
+    bool shouldEnableForInsecureResponse(const API::Navigation&, bool hasOpenedPage);
+
+    void enableFor(EnhancedSecurityReason, const API::Navigation&);
 
     void initializeFrom(const EnhancedSecurityTracking&);
 
@@ -57,8 +67,7 @@ private:
 
     void handleBackForwardNavigation(const API::Navigation&);
 
-    void enableFor(EnhancedSecurityReason, const API::Navigation&);
-    bool enableIfRequired(const API::Navigation&);
+    bool enableIfRequired(const API::Navigation&, bool httpFallbackInProgress);
 
     void trackSameSiteNavigation(const API::Navigation&);
     void trackChangingSiteNavigation();

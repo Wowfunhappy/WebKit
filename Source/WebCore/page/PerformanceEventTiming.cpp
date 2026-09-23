@@ -28,7 +28,6 @@
 
 #include "Document.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "NodeDocument.h"
 #include "PerformanceEventTimingCandidate.h"
 #include <cmath>

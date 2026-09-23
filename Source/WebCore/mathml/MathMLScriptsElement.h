@@ -46,8 +46,8 @@ protected:
     MathMLScriptsElement(const QualifiedName& tagName, Document&);
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool acceptsMathVariantAttribute() override { return false; };
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool acceptsLegacyMathVariantAttribute() override { return false; };
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
 
     const ScriptType m_scriptType;

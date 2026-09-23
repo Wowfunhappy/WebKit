@@ -67,7 +67,7 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
-    bool handleMouseEvent(const WebMouseEvent&, PDFDocumentLayout::PageIndex);
+    bool handleMouseEvent(const WebCore::PlatformMouseEvent&, PDFDocumentLayout::PageIndex);
 
     enum class ShouldUpdatePlatformHighlightData : bool { No, Yes };
     enum class ActiveHighlightChanged : bool { No, Yes };

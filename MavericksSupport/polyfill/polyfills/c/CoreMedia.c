@@ -2,15 +2,14 @@
 #include "wk_polyfill.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#define CMTIMEBASE_USE_SOURCE_TERMINOLOGY 1
 #include <CoreMedia/CoreMedia.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-// The SDK spells these CoreMedia names as macros for their CoreVideo twins (which 10.9 exports).
-// WebKit soft-links them by their CoreMedia NAME (SOFT_LINK_CONSTANT stringizes the unexpanded
-// token and dlsym's it), so the definitions below must carry the CoreMedia symbol names.
+// PAL resolves the CoreMedia symbol names independently of the SDK's CoreVideo aliases.
 #undef kCMFormatDescriptionExtension_ColorPrimaries
 #undef kCMFormatDescriptionExtension_TransferFunction
 #undef kCMFormatDescriptionExtension_YCbCrMatrix
@@ -23,27 +22,7 @@
 #undef kCMFormatDescriptionTransferFunction_ITU_R_709_2
 #undef kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995
 
-// ---------------------------------------------------------------------------------------------
-// CoreMedia format-description constants (below).
-//
-// 10.9's CoreMedia exports exactly ONE of the colour-description constants modern WebKit uses
-// (kCMFormatDescriptionColorPrimaries_P22); the other 60 CFStringRefs PAL soft-links are absent —
-// runtime-verified by dlopen'ing CoreMedia and dlsym'ing all 111 names PAL declares, which is
-// precisely what SOFT_LINK_CONSTANT does. That macro is unconditional: it RELEASE_ASSERTs the
-// moment a missing constant is first read, so e.g. Google Meet killed the WebContent process
-// within seconds of enabling the camera (canvas.captureStream -> WebGL surfaceBufferToVideoFrame
-// -> VideoFrameCV::create -> computeVideoFrameColorSpace -> ...ColorPrimaries_DCI_P3). Defining
-// them here makes the soft-link resolve instead of trapping.
-//
-// Two value regimes, same rule as the CoreText/ImageIO keys in their own files — a value the SYSTEM interprets
-// must be the real one; a value only round-tripped through our own code may be a unique token.
-//
-// (1) REAL values. Every constant in this group is a documented synonym of a CoreVideo constant
-// that 10.9 DOES export, and the value was read off this host rather than assumed
-// (kCVImageBufferColorPrimaries_ITU_R_709_2 == "ITU_R_709_2", ...PixelAspectRatioKey ==
-// "CVPixelAspectRatio", and so on). They are load-bearing in both directions: WebCore compares
-// them against attachments 10.9's CoreVideo/VideoToolbox put on pixel buffers, and
-// setVideoFrameColorSpace() writes them back as attachment values that 10.9 then interprets.
+// Format-description color and geometry keys share their values with CoreVideo.
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_ColorPrimaries, CFSTR("CVImageBufferColorPrimaries"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_TransferFunction, CFSTR("CVImageBufferTransferFunction"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_YCbCrMatrix, CFSTR("CVImageBufferYCbCrMatrix"));
@@ -56,13 +35,6 @@ WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionColorPrimaries_S
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction_ITU_R_709_2, CFSTR("ITU_R_709_2"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995, CFSTR("SMPTE_240M_1995"));
 
-// (2) Colour identifiers whose CoreVideo twins are ALSO absent on 10.9 (wide gamut, HDR, and the
-// bit-depth key). Nothing on this OS emits or understands them, so the value cannot round-trip
-// through the system either way — but they follow the identical, fully regular naming the group
-// above was verified against (the identifier is the name's suffix: "ITU_R_709_2", "SMPTE_C",
-// "P22", "SMPTE_240M_1995", "UseGamma" ...), so the real values are used rather than tokens. That
-// keeps the classification in computeVideoFrameColorSpace() correct if a frame ever does arrive
-// tagged by non-system code, and costs nothing if none does.
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionColorPrimaries_DCI_P3, CFSTR("DCI_P3"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionColorPrimaries_P3_D65, CFSTR("P3_D65"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionColorPrimaries_ITU_R_2020, CFSTR("ITU_R_2020"));
@@ -70,28 +42,13 @@ WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ, CFSTR("SMPTE_ST_2084_PQ"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG, CFSTR("ITU_R_2100_HLG"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction_Linear, CFSTR("Linear"));
+WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction_sRGB, CFSTR("IEC_sRGB"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionTransferFunction_SMPTE_ST_428_1, CFSTR("SMPTE_ST_428_1"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionYCbCrMatrix_ITU_R_2020, CFSTR("ITU_R_2020"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_BitsPerComponent, CFSTR("BitsPerComponent"));
 
-// (3) The two sample-attachment keys that are genuinely LIVE on this build. WebCore WRITES both
-// into a CMSampleBuffer's attachments dictionary that it then hands to the system
-// (CMUtilities.mm:561 and :598), so a name-string token would be a fabricated value inside a
-// system-interpreted structure -- these need the real ones. The kCMSampleAttachmentKey_* naming
-// rule was verified on this host across eight siblings that 10.9 DOES export (NotSync ==
-// "NotSync", DoNotDisplay == "DoNotDisplay", IsDependedOnByOthers == "IsDependedOnByOthers",
-// DependsOnOthers, HasRedundantCoding, DisplayImmediately, and the CMSampleBufferAttachmentKey_
-// pair TrimDurationAtStart / EmptyMedia): the value is the name's suffix, verbatim.
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMSampleAttachmentKey_HDR10PlusPerFrameData, CFSTR("HDR10PlusPerFrameData"));
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData, CFSTR("CryptorSubsampleAuxiliaryData"));
-
-// NOT defined here, deliberately: the stereoscopic / immersive-video / per-lens camera-calibration
-// keys. Every reference to them in FormatDescriptionUtilities.cpp sits inside
-// #if HAVE(IMMERSIVE_VIDEO_METADATA_SUPPORT), which requires a 16.0 deployment target and is OFF on
-// this 10.9 build (verified by walking the guard regions), so they can never be dlsym'd -- exactly
-// the reasoning that keeps the four absent kCMTag* constants out too. Defining them with invented
-// values would be worse than omitting them: FormatDescriptionUtilities.cpp bare-references those
-// names, so enabling the flag would silently bind live code to fake keys with no diagnostic.
 
 // ---------------------------------------------------------------------------------------------
 // CoreMedia tagged buffer groups / CMTag (macOS 14+).
@@ -180,17 +137,17 @@ WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_HeroEy
 WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionHeroEye_Left, CFSTR("LeftEye"));
 #pragma clang diagnostic pop
 
-// ---------------------------------------------------------------------------------------------
-// CoreMedia
-//
-// Both of these are 10.10 conveniences over a 10.9 entry point that is still there and still does
-// the work; each is defined in terms of the one it wraps, so the behaviour is the OS's own.
+// CMSync.h defines source-clock and master-clock creation as aliases.
+WK_SYSTEM_FN("CoreMedia", OSStatus, CMTimebaseCreateWithMasterClock,
+    (CFAllocatorRef, CMClockRef, CMTimebaseRef *));
 
-// Both bodies reach 10.9's CoreMedia through WK_SYSTEM_FN rather than by calling it directly: a
-// direct call emits an undefined symbol that EVERY image force-loading this archive has to satisfy,
-// including JavaScriptCore and the NetworkProcess, which have no reason to link CoreMedia. (Observed:
-// a direct call here failed the JavaScriptCore link on CMSampleBufferCreate and
-// CMSampleBufferCallForEachSample.) See the WK_SYSTEM_FN note in mechanism/wk_polyfill.h.
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMTimebaseCreateWithSourceClock,
+    (CFAllocatorRef allocator, CMClockRef sourceClock, CMTimebaseRef *timebaseOut))
+{
+    return WK_SYSTEM(CMTimebaseCreateWithMasterClock)(allocator, sourceClock, timebaseOut);
+}
+
+// Resolve native entry points through the registry in each framework carrying the polyfill.
 WK_SYSTEM_FN("CoreMedia", OSStatus, CMSampleBufferCreate,
     (CFAllocatorRef, CMBlockBufferRef, Boolean, CMSampleBufferMakeDataReadyCallback, void *,
      CMFormatDescriptionRef, CMItemCount, CMItemCount, const CMSampleTimingInfo *, CMItemCount,

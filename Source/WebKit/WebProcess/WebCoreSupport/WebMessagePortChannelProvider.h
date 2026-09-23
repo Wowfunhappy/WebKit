@@ -25,9 +25,13 @@
 
 #pragma once
 
+#include <JavaScriptCore/ArrayBuffer.h>
 #include <WebCore/MessagePortChannelProvider.h>
 #include <WebCore/MessagePortIdentifier.h>
 #include <WebCore/MessageWithMessagePorts.h>
+#include <WebCore/NonSerializedDataToken.h>
+#include <WebCore/SerializedScriptValue.h>
+#include <wtf/HashSet.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
@@ -38,6 +42,8 @@ public:
     static WebMessagePortChannelProvider& NODELETE singleton();
 
     void messagePortSentToRemote(const WebCore::MessagePortIdentifier&);
+    void dropNonSerializableInProcessCache(WebCore::NonSerializedDataIdentifier);
+    void networkProcessConnectionClosed();
 
     // Don't do anything in ref() / deref() since this class is a singleton.
     void ref() const { }
@@ -47,7 +53,7 @@ private:
     WebMessagePortChannelProvider();
     ~WebMessagePortChannelProvider() final;
 
-    void createNewMessagePortChannel(const WebCore::MessagePortIdentifier& local, const WebCore::MessagePortIdentifier& remote, bool siteIsolationEnabled) final;
+    void createNewMessagePortChannel(const WebCore::MessagePortIdentifier& local, const WebCore::MessagePortIdentifier& remote) final;
     void entangleLocalPortInThisProcessToRemote(const WebCore::MessagePortIdentifier& local, const WebCore::MessagePortIdentifier& remote) final;
     void messagePortDisentangled(const WebCore::MessagePortIdentifier& local) final;
     void messagePortClosed(const WebCore::MessagePortIdentifier& local) final;
@@ -55,6 +61,12 @@ private:
     void postMessageToRemote(WebCore::MessageWithMessagePorts&&, const WebCore::MessagePortIdentifier& remoteTarget) final;
 
     HashMap<WebCore::MessagePortIdentifier, Vector<WebCore::MessageWithMessagePorts>> m_inProcessPortMessages;
+
+    using NonSerializedDataToken = WebCore::SerializedScriptValue::NonSerializedDataToken;
+    // FIXME: this data registry currently only holds SharedArrayBuffer contents
+    // but it should be generalized for other non-serializable types.
+    HashMap<WebCore::NonSerializedDataIdentifier, std::unique_ptr<Vector<JSC::ArrayBufferContents>>> m_nonSerializedDataRegistry;
+    HashSet<WebCore::MessagePortIdentifier> m_portsKnownToNetworkProcess;
 };
 
 } // namespace WebKit

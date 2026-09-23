@@ -1,4 +1,4 @@
-<!DOCTYPE html> <!-- webkit-test-runner [ ModelElementEnabled=true ModelProcessEnabled=true ] -->
+<!DOCTYPE html> <!-- webkit-test-runner [ ModelElementEnabled=true ] -->
 <meta charset="utf-8">
 <title>&lt;model> animations playback</title>
 <script src="../resources/testharness.js"></script>
@@ -55,6 +55,18 @@ promise_test(async t => {
     model.autoplay = true;
     assert_true(model.paused);
 }, `Paused <model> should stay paused after changing autoplay=true`);
+
+promise_test(async t => {
+    const [model, source] = createModelAndSource(t, "resources/stopwatch-60s.usdz");
+    await model.ready;
+
+    model.playbackRate = -5;
+    assert_equals(model.playbackRate, -5, "playbackRate should accept negative values");
+    await model.play();
+    assert_false(model.paused, "model.paused should be false after playing with negative rate");
+    await model.pause();
+    assert_true(model.paused, "model.paused should be true after pausing with negative rate");
+}, `<model> should accept negative playbackRate and play/pause normally`);
 
 </script>
 </body>

@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include <WebCore/IntPoint.h>
 #include <WebCore/RenderStyleConstants.h>
 #include <WebCore/StyleImage.h>
+#include <WebCore/StylePrimitiveNumericTypes.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
@@ -37,7 +37,7 @@ namespace Style {
 // https://drafts.csswg.org/css-ui-4/#typedef-cursor-cursor-image
 struct CursorImageAndHotSpot {
     Ref<Image> image;
-    IntPoint hotSpot { -1, -1 };
+    std::optional<SpaceSeparatedPoint<Number<>>> hotSpot;
 
     bool operator==(const CursorImageAndHotSpot&) const = default;
 };
@@ -90,11 +90,11 @@ template<size_t I> const auto& get(const Cursor& value)
 
 template<> struct CSSValueConversion<Cursor> { auto operator()(BuilderState&, const CSSValue&) -> Cursor; };
 
-template<> struct CSSValueCreation<CursorImageAndHotSpot> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const CursorImageAndHotSpot&); };
+template<> struct CSSValueCreation<CursorImageAndHotSpot> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const CursorImageAndHotSpot&); };
 
 // MARK: - Serialization
 
-template<> struct Serialize<CursorImageAndHotSpot> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const CursorImageAndHotSpot&); };
+template<> struct Serialize<CursorImageAndHotSpot> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const CursorImageAndHotSpot&); };
 
 // MARK: - Logging
 

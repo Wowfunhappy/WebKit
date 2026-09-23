@@ -74,15 +74,19 @@ WebCodecsVideoEncoder::WebCodecsVideoEncoder(ScriptExecutionContext& context, In
 
 WebCodecsVideoEncoder::~WebCodecsVideoEncoder() = default;
 
-static bool isSupportedEncoderCodec(const String& codec, const SettingsValues& settings)
+static bool isSupportedEncoderCodec(const WebCodecsVideoEncoderConfig& config, const SettingsValues& settings)
 {
-    return codec.startsWith("vp8"_s) || codec.startsWith("vp09.00"_s) || codec.startsWith("avc1."_s)
+    constexpr size_t maxFrameDimension = 32767;
+    if (config.width > maxFrameDimension || config.height > maxFrameDimension)
+        return false;
+
+    return config.codec.startsWith("vp8"_s) || config.codec.startsWith("vp09.00"_s) || config.codec.startsWith("avc1."_s)
 #if ENABLE(WEB_RTC)
-        || (codec.startsWith("vp09.02"_s) && settings.webRTCVP9Profile2CodecEnabled)
+        || (config.codec.startsWith("vp09.02"_s) && settings.webRTCVP9Profile2CodecEnabled)
 #endif
-        || (codec.startsWith("hev1."_s) && settings.webCodecsHEVCEnabled)
-        || (codec.startsWith("hvc1."_s) && settings.webCodecsHEVCEnabled)
-        || (codec.startsWith("av01.0"_s) && settings.webCodecsAV1Enabled);
+        || (config.codec.startsWith("hev1."_s) && settings.webCodecsHEVCEnabled)
+        || (config.codec.startsWith("hvc1."_s) && settings.webCodecsHEVCEnabled)
+        || (config.codec.startsWith("av01.0"_s) && settings.webCodecsAV1Enabled);
 }
 
 static bool isValidEncoderConfig(const WebCodecsVideoEncoderConfig& config)
@@ -126,7 +130,7 @@ void WebCodecsVideoEncoder::updateRates(const WebCodecsVideoEncoderConfig& confi
     auto framerate = config.framerate.value_or(0);
 
     blockControlMessageQueue();
-    protect(scriptExecutionContext())->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->setRates(bitrate, framerate), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, bitrate, framerate] (auto&&) mutable {
+    protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->setRates(bitrate, framerate), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, bitrate, framerate] (auto&&) mutable {
         auto protectedThis = weakThis.get();
         if (!protectedThis)
             return;
@@ -161,7 +165,7 @@ ExceptionOr<void> WebCodecsVideoEncoder::configure(ScriptExecutionContext& conte
             }
 
             blockControlMessageQueue();
-            protect(scriptExecutionContext())->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, config = WTF::move(config), pendingActivity = makePendingActivity(*this)] (auto&&) mutable {
+            protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, config = WTF::move(config), pendingActivity = makePendingActivity(*this)] (auto&&) mutable {
                 RefPtr protectedThis = weakThis.get();
                 if (!protectedThis)
                     return;
@@ -175,7 +179,7 @@ ExceptionOr<void> WebCodecsVideoEncoder::configure(ScriptExecutionContext& conte
         } });
     }
 
-    bool isSupportedCodec = isSupportedEncoderCodec(config.codec, context.settingsValues());
+    bool isSupportedCodec = isSupportedEncoderCodec(config, context.settingsValues());
     queueControlMessageAndProcess({ *this, [this, config = WTF::move(config), isSupportedCodec]() mutable {
         if (isSupportedCodec && m_internalEncoder && isSameConfigurationExceptBitrateAndFramerate(m_baseConfiguration, config)) {
             updateRates(config);
@@ -266,7 +270,7 @@ WebCodecsEncodedVideoChunkMetadata WebCodecsVideoEncoder::createEncodedChunkMeta
 
         if (m_activeConfiguration.description && m_activeConfiguration.description->size()) {
             auto arrayBuffer = ArrayBuffer::tryCreateUninitialized(m_activeConfiguration.description->size(), 1);
-            RELEASE_LOG_ERROR_IF(!!arrayBuffer, Media, "Cannot create array buffer for WebCodecs encoder description");
+            RELEASE_LOG_ERROR_IF(!arrayBuffer, Media, "Cannot create array buffer for WebCodecs encoder description");
             if (arrayBuffer) {
                 memcpySpan(arrayBuffer->mutableSpan(), m_activeConfiguration.description->span());
                 metadata.decoderConfig->description = arrayBuffer.releaseNonNull();
@@ -295,7 +299,7 @@ ExceptionOr<void> WebCodecsVideoEncoder::encode(Ref<WebCodecsVideoFrame>&& frame
 
     queueCodecControlMessageAndProcess({ *this, [this, internalFrame = internalFrame.releaseNonNull(), timestamp = frame->timestamp(), duration = frame->duration(), options = WTF::move(options)]() mutable {
         incrementCodecOperationCount();
-        protect(scriptExecutionContext())->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->encode({ WTF::move(internalFrame), timestamp, duration }, options.keyFrame), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this)] (auto&& result) {
+        protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->encode({ WTF::move(internalFrame), timestamp, duration }, options.keyFrame), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this)] (auto&& result) {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
                 return;
@@ -322,7 +326,7 @@ void WebCodecsVideoEncoder::flush(Ref<DeferredPromise>&& promise)
 
     m_pendingFlushPromises.append(promise);
     queueControlMessageAndProcess({ *this, [this, promise = WTF::move(promise)]() mutable {
-        protect(scriptExecutionContext())->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this), promise = WTF::move(promise)] (auto&&) {
+        protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this), promise = WTF::move(promise)] (auto&&) {
             promise->resolve();
             if (RefPtr protectedThis = weakThis.get())
                 protectedThis->m_pendingFlushPromises.removeFirstMatching([&](auto& flushPromise) { return promise.ptr() == flushPromise.ptr(); });
@@ -348,7 +352,7 @@ void WebCodecsVideoEncoder::isConfigSupported(ScriptExecutionContext& context, W
         return;
     }
 
-    if (!isSupportedEncoderCodec(config.codec, context.settingsValues())) {
+    if (!isSupportedEncoderCodec(config, context.settingsValues())) {
         promise->template resolve<IDLDictionary<WebCodecsVideoEncoderSupport>>(WebCodecsVideoEncoderSupport { false, WTF::move(config) });
         return;
     }

@@ -23,23 +23,25 @@ import errno
 import json
 import sys
 import re
+import time
 from signal import SIGKILL, SIGSEGV
 from glib_test_runner import GLibTestRunner
 
 top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(top_level_directory, "Tools", "glib"))
-import common
+
+
+import common  # noqa: E402
+import jhbuildutils  # noqa: E402
+import subprocess  # noqa: E402
 from webkitpy.common.host import Host
 from webkitpy.common.test_expectations import TestExpectations
 from webkitpy.port.monadodriver import MonadoDriver  # noqa: E402
 from webkitpy.port.westondriver import WestonDriver
+from webkitpy.results.upload import Upload  # noqa: E402
 from webkitcorepy import Timeout
 
-import subprocess
-
-
 UNKNOWN_CRASH_STR = "CRASH_OR_PROBLEM_IN_TEST_EXECUTABLE"
-
 
 def port_options(options):
     port_options = optparse.Values()
@@ -47,6 +49,9 @@ def port_options(options):
         setattr(port_options, 'configuration', 'Debug')
     elif options.release:
         setattr(port_options, 'configuration', 'Release')
+    # Forward result_report_flavor so uploaded results are tagged with it
+    # (Port.configuration_for_upload reads it via get_option).
+    setattr(port_options, 'result_report_flavor', getattr(options, 'result_report_flavor', None))
     return port_options
 
 class TestRunner(object):
@@ -61,6 +66,16 @@ class TestRunner(object):
 
         self._build_type = self._port.get_option('configuration')
         common.set_build_types((self._build_type,))
+
+        # When no explicit timeout is given, use a default of 5s, doubled for
+        # Debug since those builds are slower (no compiler optimizations are
+        # used). An explicit --timeout is used verbatim. This matches the
+        # layout test harness (see GLibPort.default_timeout_ms() and
+        # run_webkit_tests, which only applies the multiplier to the default).
+        if self._options.timeout is not None:
+            self._timeout = self._options.timeout
+        else:
+            self._timeout = 10 if self._build_type == 'Debug' else 5
 
         self._programs_path = common.binary_build_path(self._port)
         expectations_file = os.path.join(common.top_level_path(), "Tools", "TestWebKitAPI", "glib", "TestExpectations.json")
@@ -191,7 +206,7 @@ class TestRunner(object):
         return hasattr(self._options, 'wpe_legacy_api') and self._options.wpe_legacy_api
 
     def _run_test_glib(self, test_program, subtests, skipped_test_cases):
-        timeout = self._options.timeout
+        timeout = self._timeout
         wpe_legacy_api = self._use_wpe_legacy_api()
         if self.is_webxr_test(test_program):
             env = self._monado_env | self._test_env
@@ -220,7 +235,7 @@ class TestRunner(object):
 
         try:
             output = subprocess.check_output([test_program, ], stderr=subprocess.STDOUT,
-                                             env=env, timeout=self._options.timeout)
+                                             env=env, timeout=self._timeout)
         except subprocess.CalledProcessError as exc:
             print(exc.output)
             if exc.returncode > 0:
@@ -261,7 +276,7 @@ class TestRunner(object):
         if self._use_wpe_legacy_api() and os.path.basename(test_program) == 'TestWebKit':
             command.append('--wpe-legacy-api')
 
-        timeout = self._options.timeout
+        timeout = self._timeout
         if self._expectations.is_slow(os.path.basename(test_program), subtest):
             timeout *= 10
 
@@ -362,7 +377,11 @@ class TestRunner(object):
             self.list_tests()
             return 0
 
+        start_time = time.time()
+
         self._test_env = self._setup_testing_environment_for_driver(self._driver)
+
+        configuration_for_upload = self._port.configuration_for_upload(self._port.target_host(0))
 
         number_of_total_tests = len(self._tests)
         # Remove skipped tests now instead of when we find them, because
@@ -409,12 +428,23 @@ class TestRunner(object):
         failed_tests = {}
         timed_out_tests = {}
         passed_tests = {}
+        tests_to_upload = {}
+        number_of_skipped_tests = 0
+
+        status_to_test_result = {
+            "PASS": None,
+            "FAIL": Upload.Expectations.FAIL,
+            "CRASH": Upload.Expectations.CRASH,
+            "TIMEOUT": Upload.Expectations.TIMEOUT,
+        }
+
         try:
             for test in self._tests:
                 subtests = self._getsubtests_to_run_for_test(test)
                 if UNKNOWN_CRASH_STR in subtests:
                     subtests = []  # The binary runner can't run a subtest named UNKNOWN_CRASH_STR, so run all subtests if this is requested.
                 skipped_subtests = self._test_cases_to_skip(test)
+                number_of_skipped_tests += len(skipped_subtests)
                 number_of_total_tests += len(skipped_subtests if not subtests else set(skipped_subtests).intersection(subtests))
                 results = self._run_test(test, subtests, skipped_subtests)
                 number_of_executed_subtests_for_test = len(results)
@@ -423,6 +453,10 @@ class TestRunner(object):
                     number_of_executed_tests += number_of_executed_subtests_for_test - 1
                     number_of_total_tests += number_of_executed_subtests_for_test - 1
                     for test_case, result in results.items():
+                        # Prepare the results that will be uploaded to the results database.
+                        if result in status_to_test_result:
+                            tests_to_upload.setdefault(test, []).append((test_case, status_to_test_result[result], self._expectations.get_expectation(os.path.basename(test), test_case)))
+
                         if result in self._expectations.get_expectation(os.path.basename(test), test_case):
                             continue
                         if result == "FAIL":
@@ -439,6 +473,8 @@ class TestRunner(object):
                     crashed_tests[test] = [UNKNOWN_CRASH_STR]
         finally:
             self._tear_down_testing_environment()
+
+        end_time = time.time()
 
         def number_of_tests(tests):
             return sum(len(value) for value in tests.values())
@@ -475,6 +511,36 @@ class TestRunner(object):
             result_dictionary['Timedout'] = generate_test_list_for_json_output(timed_out_tests)
             self._port.host.filesystem.write_text_file(self._options.json_output, json.dumps(result_dictionary, indent=4))
 
+        if self._options.report_urls:
+            sys.stderr.write("\n")
+            sys.stderr.write("Preparing upload data ...\n")
+
+            results = {}
+            for test, test_cases in tests_to_upload.items():
+                for test_case in test_cases:
+                    name = "%s:%s" % (self._get_test_short_name(test), test_case[0])
+                    results[name] = Upload.create_test_result(actual=test_case[1], expected=' '.join(test_case[2]) if test_case[2] else None)
+
+            upload = Upload(
+                suite=self._options.suite or 'api-tests',
+                configuration=configuration_for_upload,
+                details=Upload.create_details(options=self._options),
+                commits=self._port.commits_for_upload(),
+                run_stats=Upload.create_run_stats(
+                    start_time=start_time,
+                    end_time=end_time,
+                    tests_skipped=number_of_skipped_tests,
+                ), results=results
+            )
+
+            for url in self._options.report_urls:
+                sys.stderr.write(f'Uploading to {url} ...\n')
+                if not upload.upload(url, log_line_func=lambda val: sys.stderr.write(val + '\n')):
+                    sys.stderr.write(f'Failed upload to {url}.\n')
+
+            sys.stderr.write('Uploads completed!\n')
+
+
         number_of_failed_tests = number_of_tests(failed_tests) + number_of_tests(timed_out_tests) + number_of_tests(crashed_tests)
         number_of_successful_tests = number_of_executed_tests - number_of_failed_tests
 
@@ -482,6 +548,16 @@ class TestRunner(object):
         sys.stdout.flush()
 
         return number_of_failed_tests
+
+
+def check_environment(port):
+    if jhbuildutils.should_use_jhbuild():
+        # This not only checks, but also enters into the jhbuild environment if present
+        if not jhbuildutils.enter_jhbuild_environment_if_available(port):
+            print('***')
+            print('*** Warning: jhbuild environment not present.')
+            print('*** Run update-webkitgtk-libs before build-webkit to ensure proper testing.')
+            print('***')
 
 
 def create_option_parser():
@@ -500,8 +576,8 @@ def create_option_parser():
                              metavar='skip|ignore|only',
                              help='Specifies how to treat the skipped tests')
     option_parser.add_option('-t', '--timeout',
-                             action='store', type='int', dest='timeout', default=5,
-                             help='Time in seconds until a test times out')
+                             action='store', type='int', dest='timeout', default=None,
+                             help='Time in seconds until a test times out (default: 5, doubled for Debug)')
     option_parser.add_option('-l', '--list-tests',
                              action='store_true', dest='list_tests',
                              help='List the tests (main tests) available to run.')

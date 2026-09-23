@@ -29,13 +29,19 @@
 #pragma once
 
 #include <JavaScriptCore/CPU.h>
-#include <JavaScriptCore/JSCJSValue.h>
-#include <JavaScriptCore/TypedArrayType.h>
-#include <wtf/PrintStream.h>
+#include <wtf/Forward.h>
 
 namespace JSC {
 
+class JSCell;
+class JSValue;
 class Structure;
+
+struct ClassInfo;
+
+using IndexingType = uint8_t;
+enum JSType : uint8_t;
+enum TypedArrayType : uint8_t;
 
 typedef uint64_t SpeculatedType;
 static constexpr SpeculatedType SpecNone                              = 0; // We don't know anything yet.
@@ -519,8 +525,14 @@ inline bool isUntypedSpeculationForBitOps(SpeculatedType value)
 void dumpSpeculation(PrintStream&, SpeculatedType);
 void dumpSpeculationAbbreviated(PrintStream&, SpeculatedType);
 
-MAKE_PRINT_ADAPTOR(SpeculationDump, SpeculatedType, dumpSpeculation);
-MAKE_PRINT_ADAPTOR(AbbreviatedSpeculationDump, SpeculatedType, dumpSpeculationAbbreviated);
+struct SpeculationDump {
+    SpeculatedType t;
+    void dump(PrintStream& out) const { dumpSpeculation(out, t); }
+};
+struct AbbreviatedSpeculationDump {
+    SpeculatedType t;
+    void dump(PrintStream& out) const { dumpSpeculationAbbreviated(out, t); }
+};
 
 // Merge two predictions. Note that currently this just does left | right. It may
 // seem tempting to do so directly, but you would be doing so at your own peril,
@@ -549,40 +561,48 @@ inline bool speculationChecked(SpeculatedType actual, SpeculatedType desired)
 // ASSERT(!c->inherits(classInfo) || speculationChecked(speculationFromCell(c), speculationFromClassInfoInheritance(classInfo)));
 SpeculatedType speculationFromClassInfoInheritance(const ClassInfo*);
 
-SpeculatedType speculationFromStructure(Structure*);
-SpeculatedType speculationFromCell(JSCell*);
-SpeculatedType speculationFromValue(JSValue);
+SpeculatedType NODELETE speculationFromStructure(Structure*);
+SpeculatedType NODELETE speculationFromCell(JSCell*);
+SpeculatedType NODELETE speculationFromValue(JSValue);
 // If it's an anyInt(), it'll return speculated types from the Int52 lattice.
 // Otherwise, it'll return types from the JSValue lattice.
-JS_EXPORT_PRIVATE SpeculatedType int52AwareSpeculationFromValue(JSValue);
-std::optional<SpeculatedType> speculationFromJSType(JSType);
+JS_EXPORT_PRIVATE SpeculatedType NODELETE int52AwareSpeculationFromValue(JSValue);
+std::optional<SpeculatedType> NODELETE speculationFromJSType(JSType);
 
-SpeculatedType speculationFromTypedArrayType(TypedArrayType); // only valid for typed views.
-TypedArrayType typedArrayTypeFromSpeculation(SpeculatedType);
+SpeculatedType NODELETE speculationFromTypedArrayType(TypedArrayType); // only valid for typed views.
+TypedArrayType NODELETE typedArrayTypeFromSpeculation(SpeculatedType);
 
-SpeculatedType leastUpperBoundOfStrictlyEquivalentSpeculations(SpeculatedType);
+SpeculatedType NODELETE leastUpperBoundOfStrictlyEquivalentSpeculations(SpeculatedType);
 
-bool valuesCouldBeEqual(SpeculatedType, SpeculatedType);
+bool NODELETE valuesCouldBeEqual(SpeculatedType, SpeculatedType);
 
 // Precise computation of the type of the result of a double computation after we
 // already know that the inputs are doubles and that the result must be a double. Use
 // the closest one of these that applies.
-SpeculatedType typeOfDoubleSum(SpeculatedType, SpeculatedType);
-SpeculatedType typeOfDoubleDifference(SpeculatedType, SpeculatedType);
-SpeculatedType typeOfDoubleIncOrDec(SpeculatedType);
-SpeculatedType typeOfDoubleProduct(SpeculatedType, SpeculatedType);
-SpeculatedType typeOfDoubleQuotient(SpeculatedType, SpeculatedType);
-SpeculatedType typeOfDoubleMinMax(SpeculatedType, SpeculatedType);
-SpeculatedType typeOfDoubleNegation(SpeculatedType);
-SpeculatedType typeOfDoubleAbs(SpeculatedType);
-SpeculatedType typeOfDoubleRounding(SpeculatedType);
-SpeculatedType typeOfDoublePow(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleSum(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleDifference(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleIncOrDec(SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleProduct(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleQuotient(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleMinMax(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleNegation(SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleAbs(SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleRounding(SpeculatedType);
+SpeculatedType NODELETE typeOfDoublePow(SpeculatedType, SpeculatedType);
 
 // This conservatively models the behavior of arbitrary double operations.
-SpeculatedType typeOfDoubleBinaryOp(SpeculatedType, SpeculatedType);
-SpeculatedType typeOfDoubleUnaryOp(SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleBinaryOp(SpeculatedType, SpeculatedType);
+SpeculatedType NODELETE typeOfDoubleUnaryOp(SpeculatedType);
 
 // This is mostly for debugging so we can fill profiles from strings.
 SpeculatedType speculationFromString(const char*);
 
+bool NODELETE isProvenValidTypeForIndexingShapeStorage(IndexingType, SpeculatedType);
+IndexingType NODELETE leastUpperBoundOfIndexingTypeAndTypeForSpeculation(IndexingType, SpeculatedType);
+
 } // namespace JSC
+
+namespace WTF {
+inline void printInternal(PrintStream& out, const JSC::SpeculationDump& s) { s.dump(out); }
+inline void printInternal(PrintStream& out, const JSC::AbbreviatedSpeculationDump& s) { s.dump(out); }
+}

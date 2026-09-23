@@ -44,6 +44,7 @@
 #include "JSLexicalEnvironment.h"
 #include "JSMap.h"
 #include "JSPropertyNameEnumerator.h"
+#include "JSStringIterator.h"
 #include "ObjectPrototype.h"
 #include "SetupVarargsFrame.h"
 #include "SuperSampler.h"
@@ -312,7 +313,7 @@ void SpeculativeJIT::nonSpeculativeNonPeepholeCompareNullOrUndefined(Edge operan
         isMasqueradesAsUndefined.link(this);
         loadLinkableConstant(LinkableConstant::globalObject(*this, m_currentNode), localGlobalObjectGPR);
         loadPtr(Address(argPayloadGPR, JSCell::structureIDOffset()), resultPayloadGPR);
-        loadPtr(Address(resultPayloadGPR, Structure::globalObjectOffset()), remoteGlobalObjectGPR);
+        loadPtr(Address(resultPayloadGPR, Structure::realmOffset()), remoteGlobalObjectGPR);
         compare32(Equal, localGlobalObjectGPR, remoteGlobalObjectGPR, resultPayloadGPR);
     }
  
@@ -377,7 +378,7 @@ void SpeculativeJIT::nonSpeculativePeepholeBranchNullOrUndefined(Edge operand, N
    
         loadLinkableConstant(LinkableConstant::globalObject(*this, m_currentNode), localGlobalObjectGPR);
         loadPtr(Address(argPayloadGPR, JSCell::structureIDOffset()), resultGPR);
-        loadPtr(Address(resultGPR, Structure::globalObjectOffset()), remoteGlobalObjectGPR);
+        loadPtr(Address(resultGPR, Structure::realmOffset()), remoteGlobalObjectGPR);
         branchPtr(Equal, localGlobalObjectGPR, remoteGlobalObjectGPR, invert ? notTaken : taken);
     }
  
@@ -592,7 +593,7 @@ void SpeculativeJIT::emitCall(Node* node)
     FunctionExecutable* functionExecutable = nullptr;
     if (isDirect) {
         executable = node->castOperand<ExecutableBase*>();
-        functionExecutable = jsDynamicCast<FunctionExecutable*>(executable);
+        functionExecutable = dynamicDowncast<FunctionExecutable>(executable);
     }
     
     unsigned numPassedArgs = 0;
@@ -1549,7 +1550,7 @@ void SpeculativeJIT::compileToBooleanObjectOrOther(Edge nodeUse, bool invert)
         speculationCheck(BadType, JSValueRegs(valueTagGPR, valuePayloadGPR), nodeUse, 
             branchLinkableConstant(
                 Equal,
-                Address(structureGPR, Structure::globalObjectOffset()),
+                Address(structureGPR, Structure::realmOffset()),
                 LinkableConstant::globalObject(*this, m_currentNode)));
 
         isNotMasqueradesAsUndefined.link(this);
@@ -1610,11 +1611,14 @@ void SpeculativeJIT::compileToBoolean(Node* node, bool invert)
         SpeculateDoubleOperand value(this, node->child1());
         FPRTemporary scratch(this);
         GPRTemporary resultPayload(this);
-        move(invert ? TrustedImm32(0) : TrustedImm32(1), resultPayload.gpr());
-        Jump nonZero = branchDoubleNonZero(value.fpr(), scratch.fpr());
-        move(invert ? TrustedImm32(1) : TrustedImm32(0), resultPayload.gpr());
-        nonZero.link(this);
-        booleanResult(resultPayload.gpr(), node);
+
+        FPRReg valueFPR = value.fpr();
+        FPRReg scratchFPR = scratch.fpr();
+        GPRReg resultGPR = resultPayload.gpr();
+
+        moveZeroToDouble(scratchFPR);
+        compareDouble(invert ? DoubleEqualOrUnordered : DoubleNotEqualAndOrdered, valueFPR, scratchFPR, resultGPR);
+        booleanResult(resultGPR, node);
         return;
     }
 
@@ -1674,7 +1678,7 @@ void SpeculativeJIT::emitObjectOrOtherBranch(Edge nodeUse, BasicBlock* taken, Ba
         speculationCheck(BadType, JSValueRegs(valueTagGPR, valuePayloadGPR), nodeUse,
             branchLinkableConstant(
                 Equal,
-                Address(scratchGPR, Structure::globalObjectOffset()),
+                Address(scratchGPR, Structure::realmOffset()),
                 LinkableConstant::globalObject(*this, m_currentNode)));
 
         isNotMasqueradesAsUndefined.link(this);
@@ -2111,7 +2115,7 @@ void SpeculativeJIT::compileGetByVal(Node* node, const ScopedLambda<std::tuple<J
         slowCases.append(hole);
         addSlowPathGenerator(
             slowPathCall(
-                slowCases, this, operationGetByValObjectInt,
+                slowCases, this, operationGetByValArrayStorageInt,
                 resultRegs, LinkableConstant::globalObject(*this, node), baseReg, propertyReg));
 
         jsValueResult(resultRegs, node);
@@ -2142,6 +2146,30 @@ void SpeculativeJIT::compileGetByVal(Node* node, const ScopedLambda<std::tuple<J
         else
             compileGetByValOnFloatTypedArray(node, type, prefix);
     } }
+}
+
+void SpeculativeJIT::compileInt32ToStringRadix10(Node* node)
+{
+    SpeculateStrictInt32Operand value(this, node->child1());
+    GPRTemporary result(this);
+
+    GPRReg valueGPR = value.gpr();
+    GPRReg resultGPR = result.gpr();
+
+    JumpList slowCases;
+
+    slowCases.append(branch32(AboveOrEqual, valueGPR, TrustedImm32(NumericStrings::cacheSize)));
+
+    move(valueGPR, resultGPR);
+    static_assert(hasOneBitSet(sizeof(NumericStrings::StringWithJSString)), "size should be a power of two.");
+    lshiftPtr(TrustedImm32(WTF::fastLog2(static_cast<unsigned>(sizeof(NumericStrings::StringWithJSString)))), resultGPR);
+    addPtr(TrustedImmPtr(vm().numericStrings.smallIntCache()), resultGPR);
+    loadPtr(Address(resultGPR, NumericStrings::StringWithJSString::offsetOfJSString()), resultGPR);
+    slowCases.append(branchTestPtr(Zero, resultGPR));
+
+    addSlowPathGenerator(slowPathCall(slowCases, this, operationInt32ToStringWithValidRadix, resultGPR, LinkableConstant::globalObject(*this, node), valueGPR, TrustedImm32(10)));
+
+    cellResult(resultGPR, node);
 }
 
 void SpeculativeJIT::compile(Node* node)
@@ -2606,8 +2634,9 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
-    case StringFromCharCode: {
-        compileFromCharCode(node);
+    case StringFromCharCode:
+    case StringFromCodePoint: {
+        compileStringFromCharCodeOrCodePoint(node);
         break;
     }
 
@@ -2685,8 +2714,23 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case StringSubstr: {
+        compileStringSubstr(node);
+        break;
+    }
+
+    case ToUpperCase: {
+        compileToUpperCase(node);
+        break;
+    }
+
     case ToLowerCase: {
         compileToLowerCase(node);
+        break;
+    }
+
+    case StringTrim: {
+        compileStringTrim(node);
         break;
     }
 
@@ -2766,6 +2810,11 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case RegExpExecSticky: {
+        compileRegExpExecSticky(node);
+        break;
+    }
+
     case RegExpMatchFastGlobal: {
         compileRegExpMatchFastGlobal(node);
         break;
@@ -2779,6 +2828,11 @@ void SpeculativeJIT::compile(Node* node)
 
     case RegExpMatchFast: {
         compileRegExpMatchFast(node);
+        break;
+    }
+
+    case RegExpSplitFast: {
+        compileRegExpSplitFast(node);
         break;
     }
 
@@ -2941,6 +2995,16 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case ArrayConcatArray: {
+        compileArrayConcatArray(node);
+        break;
+    }
+
+    case ArrayConcatAppendOne: {
+        compileArrayConcatAppendOne(node);
+        break;
+    }
+
     case ArraySplice: {
         compileArraySplice(node);
         break;
@@ -2949,6 +3013,11 @@ void SpeculativeJIT::compile(Node* node)
     case ArrayIncludes:
     case ArrayIndexOf: {
         compileArrayIndexOfOrArrayIncludes(node);
+        break;
+    }
+
+    case ArrayJoin: {
+        compileArrayJoin(node);
         break;
     }
 
@@ -3008,10 +3077,11 @@ void SpeculativeJIT::compile(Node* node)
 
     case BooleanToNumber: {
         switch (node->child1().useKind()) {
-        case BooleanUse: {
+        case BooleanUse:
+        case KnownBooleanUse: {
             SpeculateBooleanOperand value(this, node->child1());
             GPRTemporary result(this); // FIXME: We could reuse, but on speculation fail would need recovery to restore tag (akin to add).
-            
+
             move(value.gpr(), result.gpr());
 
             strictInt32Result(result.gpr(), node);
@@ -3152,6 +3222,26 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case StringSplit: {
+        compileStringSplit(node);
+        break;
+    }
+
+    case StringMatch: {
+        compileStringMatch(node);
+        break;
+    }
+
+    case StringSearch: {
+        compileStringSearch(node);
+        break;
+    }
+
+    case StringLastIndexOf: {
+        compileStringLastIndexOf(node);
+        break;
+    }
+
     case StringStartsWith:
     case StringEndsWith: {
         compileStringStartsOrEndsWith(node);
@@ -3202,6 +3292,13 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case GetCellButterflySlot:
+    case PutCellButterflySlot:
+    case ArraySortCompact:
+    case ArraySortCommit:
+        RELEASE_ASSERT_NOT_REACHED();
+        break;
+
     case NewArrayWithButterfly: {
         compileNewArrayWithButterfly(node);
         break;
@@ -3247,9 +3344,24 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case NewWeakMap: {
+        compileNewWeakMap(node);
+        break;
+    }
+
+    case NewWeakSet: {
+        compileNewWeakSet(node);
+        break;
+    }
+
     case ToObject:
     case CallObjectConstructor: {
         compileToObjectOrCallObjectConstructor(node);
+        break;
+    }
+
+    case OpenAsyncFromSyncIterator: {
+        compileOpenAsyncFromSyncIterator(node);
         break;
     }
         
@@ -3281,6 +3393,11 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case SymbolToString: {
+        compileSymbolToString(node);
+        break;
+    }
+
     case CreateThis: {
         compileCreateThis(node);
         break;
@@ -3308,6 +3425,11 @@ void SpeculativeJIT::compile(Node* node)
 
     case NewInternalFieldObject: {
         compileNewInternalFieldObject(node);
+        break;
+    }
+
+    case NewPromise: {
+        compileNewPromise(node);
         break;
     }
 
@@ -3378,11 +3500,6 @@ void SpeculativeJIT::compile(Node* node)
 
     case CallCustomAccessorSetter: {
         compileCallCustomAccessorSetter(node);
-        break;
-    }
-
-    case TryGetById: {
-        compileGetById(node, AccessType::TryGetById);
         break;
     }
 
@@ -3649,6 +3766,11 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case ObjectDefinePropertyFromFields: {
+        compileObjectDefinePropertyFromFields(node);
+        break;
+    }
+
     case DefineAccessorProperty: {
         compileDefineAccessorProperty(node);
         break;
@@ -3749,7 +3871,7 @@ void SpeculativeJIT::compile(Node* node)
             isMasqueradesAsUndefined.link(this);
             loadLinkableConstant(LinkableConstant::globalObject(*this, node), localGlobalObjectGPR);
             loadPtr(Address(value.payloadGPR(), JSCell::structureIDOffset()), result.gpr());
-            loadPtr(Address(result.gpr(), Structure::globalObjectOffset()), remoteGlobalObjectGPR);
+            loadPtr(Address(result.gpr(), Structure::realmOffset()), remoteGlobalObjectGPR);
             compare32(Equal, localGlobalObjectGPR, remoteGlobalObjectGPR, result.gpr());
         }
 
@@ -4090,6 +4212,10 @@ void SpeculativeJIT::compile(Node* node)
         compileSetFunctionName(node);
         break;
 
+    case EnqueueAsyncGeneratorDriver:
+        compileEnqueueAsyncGeneratorDriver(node);
+        break;
+
     case InById:
         compileInById(node);
         break;
@@ -4230,6 +4356,11 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case StringIteratorNext: {
+        compileStringIteratorNext(node);
+        break;
+    }
+
     case EnumeratorNextUpdatePropertyName: {
         compileEnumeratorNextUpdatePropertyName(node);
         break;
@@ -4363,6 +4494,14 @@ void SpeculativeJIT::compile(Node* node)
         compileFulfillPromiseFirstResolving(node);
         break;
 
+    case NewResolvedPromise:
+        compileNewResolvedPromise(node);
+        break;
+
+    case NewRejectedPromise:
+        compileNewRejectedPromise(node);
+        break;
+
     case PromiseResolve:
         compilePromiseResolve(node);
         break;
@@ -4377,6 +4516,10 @@ void SpeculativeJIT::compile(Node* node)
 
     case PerformPromiseThen:
         compilePerformPromiseThen(node);
+        break;
+
+    case PerformPromiseThenOneHandler:
+        compilePerformPromiseThenOneHandler(node);
         break;
 
     case Unreachable:
@@ -4402,6 +4545,10 @@ void SpeculativeJIT::compile(Node* node)
 
     case IsBigInt:
         DFG_CRASH(m_graph, node, "IsBigInt is only used when USE_BIGINT32, which can only be true in 64 bit mode");
+        break;
+
+    case StringIteratorNextWithUndefined:
+        DFG_CRASH(m_graph, node, "StringIteratorNextWithUndefined is only used in 64-bit DFG");
         break;
 
     case FilterCallLinkStatus:
@@ -4443,6 +4590,7 @@ void SpeculativeJIT::compile(Node* node)
     case PhantomNewAsyncGeneratorFunction:
     case PhantomCreateActivation:
     case PhantomNewInternalFieldObject:
+    case PhantomNewPromise:
     case PhantomNewRegExp:
     case PutHint:
     case CheckStructureImmediate:
@@ -4477,6 +4625,7 @@ void SpeculativeJIT::compile(Node* node)
     case DataViewGetInt:
     case DataViewGetFloat:
     case DataViewSet:
+    case DateNow:
     case DateGetInt32OrNaN:
     case DateGetTime:
     case DateSetTime:
@@ -4496,6 +4645,8 @@ void SpeculativeJIT::compile(Node* node)
     case MultiGetByVal:
     case MultiPutByVal:
     case MapStorage:
+    case ArrayShift:
+    case ArrayUnshift:
         DFG_CRASH(m_graph, node, "unexpected node in DFG backend");
         break;
     }
@@ -4582,7 +4733,7 @@ void SpeculativeJIT::compileCreateClonedArguments(Node* node)
 
 void SpeculativeJIT::compileGetById(Node* node, AccessType accessType)
 {
-    ASSERT(accessType == AccessType::GetById || accessType == AccessType::GetByIdDirect || accessType == AccessType::TryGetById);
+    ASSERT(accessType == AccessType::GetById || accessType == AccessType::GetByIdDirect);
 
     switch (node->child1().useKind()) {
     case CellUse: {
@@ -5485,21 +5636,133 @@ void SpeculativeJIT::speculateInt32(Edge edge, JSValueRegs regs)
 
 void SpeculativeJIT::compileMapIteratorNext(Node* node)
 {
-    SpeculateCellOperand mapIterator(this, node->child1());
-    GPRReg mapIteratorGPR = mapIterator.gpr();
+    bool isMapIterator = node->child2().useKind() == MapObjectUse;
 
-    if (node->child1().useKind() == MapIteratorObjectUse)
-        speculateMapIteratorObject(node->child1(), mapIteratorGPR);
-    else if (node->child1().useKind() == SetIteratorObjectUse)
-        speculateSetIteratorObject(node->child1(), mapIteratorGPR);
+    JSValueOperand storage(this, node->child1());
+    SpeculateCellOperand iteratedObject(this, node->child2());
+    SpeculateInt32Operand currentEntry(this, node->child3());
+
+    JSValueRegs storageRegs = storage.jsValueRegs();
+    GPRReg iteratedObjectGPR = iteratedObject.gpr();
+    GPRReg currentEntryGPR = currentEntry.gpr();
+
+    if (isMapIterator)
+        speculateMapObject(node->child2(), iteratedObjectGPR);
     else
-        RELEASE_ASSERT_NOT_REACHED();
+        speculateSetObject(node->child2(), iteratedObjectGPR);
 
     flushRegisters();
-    JSValueRegsFlushedCallResult result(this);
-    JSValueRegs resultRegs = result.regs();
-    callOperationWithoutExceptionCheck(node->child1().useKind() == MapIteratorObjectUse ? operationMapIteratorNext : operationSetIteratorNext, resultRegs, TrustedImmPtr(&vm()), mapIteratorGPR);
-    jsValueResult(resultRegs, node);
+
+    GPRFlushedCallResult resultStorage(this);
+    GPRFlushedCallResult2 resultEntry(this);
+    GPRReg resultStorageGPR = resultStorage.gpr();
+    GPRReg resultEntryGPR = resultEntry.gpr();
+
+    auto operation = isMapIterator ? operationMapIteratorNext : operationSetIteratorNext;
+    setupArguments<decltype(operationMapIteratorNext)>(TrustedImmPtr(&vm()), storageRegs.payloadGPR(), iteratedObjectGPR, currentEntryGPR);
+    appendCallSetResult(operation, resultStorageGPR, resultEntryGPR);
+
+    useChildren(node);
+    cellTupleResultWithoutUsingChildren(resultStorageGPR, node, 0);
+    strictInt32TupleResultWithoutUsingChildren(resultEntryGPR, node, 1);
+}
+
+void SpeculativeJIT::compileStringIteratorNext(Node* node)
+{
+    SpeculateCellOperand string(this, node->child1());
+    SpeculateStrictInt32Operand position(this, node->child2());
+    GPRTemporary resultValue(this);
+    GPRTemporary resultPosition(this);
+
+    GPRReg stringGPR = string.gpr();
+    GPRReg positionGPR = position.gpr();
+    GPRReg resultValueGPR = resultValue.gpr();
+    GPRReg resultPositionGPR = resultPosition.gpr();
+
+    speculateString(node->child1(), stringGPR);
+
+    VM& vm = this->vm();
+    JumpList slowCases;
+    JumpList doneCases;
+
+    // Inline only the resolved 8-bit single-character fast path. 8-bit characters are never
+    // surrogates, so the result is always a cached single-character string with no allocation.
+    // Ropes, 16-bit strings, and surrogate pairs fall back to operationStringIteratorNext.
+    loadPtr(Address(stringGPR, JSString::offsetOfValue()), resultValueGPR);
+    slowCases.append(branchIfRopeStringImpl(resultValueGPR));
+    load32(Address(resultValueGPR, StringImpl::lengthMemoryOffset()), resultPositionGPR);
+
+    // position >= length is an unsigned compare, which also catches position == doneIndex (-1).
+    Jump isDone = branch32(AboveOrEqual, positionGPR, resultPositionGPR);
+
+    slowCases.append(branchTest32(Zero, Address(resultValueGPR, StringImpl::flagsOffset()), TrustedImm32(StringImpl::flagIs8Bit())));
+
+    loadPtr(Address(resultValueGPR, StringImpl::dataOffset()), resultValueGPR);
+    load8(BaseIndex(resultValueGPR, positionGPR, TimesOne, 0), resultValueGPR);
+    lshift32(TrustedImm32(2), resultValueGPR);
+    addPtr(TrustedImmPtr(vm.smallStrings.singleCharacterStrings()), resultValueGPR);
+    loadPtr(Address(resultValueGPR), resultValueGPR);
+    add32(TrustedImm32(1), positionGPR, resultPositionGPR);
+    doneCases.append(jump());
+
+    isDone.link(this);
+    loadLinkableConstant(LinkableConstant(*this, jsEmptyString(vm)), resultValueGPR);
+    move(TrustedImm32(JSStringIterator::doneIndex), resultPositionGPR);
+
+    doneCases.link(this);
+
+    Vector<SilentRegisterSavePlan> savePlans;
+    silentSpillAllRegistersImpl(false, savePlans, resultValueGPR, resultPositionGPR);
+    Label doneOperationCall = label();
+    addSlowPathGeneratorLambda([=, this, savePlans = WTF::move(savePlans), slowCases = WTF::move(slowCases)]() mutable {
+        slowCases.link(this);
+        silentSpill(savePlans);
+        setupArguments<decltype(operationStringIteratorNext)>(LinkableConstant::globalObject(*this, node), stringGPR, positionGPR);
+        appendCall(operationStringIteratorNext);
+        std::optional<GPRReg> exceptionReg = tryHandleOrGetExceptionUnderSilentSpill<decltype(operationStringIteratorNext)>(savePlans, resultValueGPR, resultPositionGPR);
+        setupResults(resultValueGPR, resultPositionGPR);
+        silentFill(savePlans);
+        if (exceptionReg)
+            exceptionCheck(*exceptionReg);
+        jump().linkTo(doneOperationCall, this);
+    });
+
+    useChildren(node);
+    cellTupleResultWithoutUsingChildren(resultValueGPR, node, 0);
+    strictInt32TupleResultWithoutUsingChildren(resultPositionGPR, node, 1);
+}
+
+void SpeculativeJIT::compileCreatePromise(Node* node)
+{
+    SpeculateCellOperand callee(this, node->child1());
+    GPRReg calleeGPR = callee.gpr();
+
+    flushRegisters();
+    GPRFlushedCallResult result(this);
+    GPRReg resultGPR = result.gpr();
+    callOperation(operationCreatePromise, resultGPR, LinkableConstant::globalObject(*this, node), calleeGPR);
+    cellResult(resultGPR, node);
+}
+
+void SpeculativeJIT::compileNewPromise(Node* node)
+{
+    flushRegisters();
+    GPRFlushedCallResult result(this);
+    GPRReg resultGPR = result.gpr();
+    callOperation(operationNewPromise, resultGPR, TrustedImmPtr(&vm()), TrustedImmPtr(m_graph.freezeStrong(node->structure().get())));
+    cellResult(resultGPR, node);
+}
+
+void SpeculativeJIT::compileNewResolvedPromise(Node* node)
+{
+    JSValueOperand argument(this, node->child1());
+    JSValueRegs argumentRegs = argument.jsValueRegs();
+
+    flushRegisters();
+    GPRFlushedCallResult result(this);
+    GPRReg resultGPR = result.gpr();
+    callOperation(operationNewResolvedPromise, resultGPR, LinkableConstant::globalObject(*this, node), argumentRegs);
+    cellResult(resultGPR, node);
 }
 
 #endif

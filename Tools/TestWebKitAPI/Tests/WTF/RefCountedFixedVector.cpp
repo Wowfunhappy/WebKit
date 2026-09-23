@@ -188,7 +188,7 @@ struct DestructorObserver {
 
 TEST(WTF_RefCountedFixedVector, Destructor)
 {
-    Vector<bool> flags(3, false);
+    Vector<bool> flags(FillWith { }, 3, false);
     {
         auto vector = RefCountedFixedVector<DestructorObserver>::create(flags.size());
         for (unsigned i = 0; i < flags.size(); ++i)
@@ -202,7 +202,7 @@ TEST(WTF_RefCountedFixedVector, Destructor)
 
 TEST(WTF_RefCountedFixedVector, DestructorAfterMove)
 {
-    Vector<bool> flags(3, false);
+    Vector<bool> flags(FillWith { }, 3, false);
     {
         RefPtr<RefCountedFixedVector<DestructorObserver>> outerVector;
         {

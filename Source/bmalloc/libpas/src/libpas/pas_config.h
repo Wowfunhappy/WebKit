@@ -37,7 +37,6 @@
 // FIXME: Properly support using WKA in modules.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
-#include <WebKitAdditions/pas_mte_additions.h>
 #pragma clang diagnostic pop
 #endif // __has_include(<WebKitAdditions/pas_mte_additions.h>) && !PAS_ENABLE_TESTING
 #endif // defined(__has_include)
@@ -87,12 +86,35 @@
 #define PAS_ARM __PAS_ARM
 
 #ifndef PAS_ENABLE_MTE
-#if defined(PAS_BMALLOC)
 #define PAS_ENABLE_MTE (PAS_USE_APPLE_INTERNAL_SDK && __PAS_ARM64E && !PAS_ASAN_ENABLED)
-#else /* !defined(PAS_BMALLOC) */
-#define PAS_ENABLE_MTE 0
-#endif /* defined(PAS_BMALLOC) */
 #endif /* PAS_ENABLE_MTE */
+
+/* PAS_USE_SYMMETRIC_PAGE_ALLOCATION controls whether pas_page_malloc_commit /
+ * pas_page_malloc_decommit use a strictly symmetric primitive pair. When set, the
+ * strict "decommit" API is expected to be paired with a matching "commit" before
+ * re-access - violating that invariant will fault. When unset, both sides use the
+ * asymmetric model, thus commit side does not need explicit calls.
+ *
+ * This is used only on Windows as asymmetric manner is better: this is driven by
+ * the actual demand access while symmetric manner is pre-committing region.
+ * However Windows has commit-charge limit while Linux / Darwin etc. do not and it is
+ * accounting memory region even if it is not having backing physical pages.
+ *
+ * The "without_mprotect" variants of the page malloc API take an explicit
+ * is_symmetric argument — they serve both symmetric callers (pas_thread_local_cache,
+ * which pairs commit/decommit via ensure_committed + a pages_committed bitvector)
+ * and asymmetric callers (pas_expendable_memory, which reads decommitted memory
+ * without a matching commit and detects the decommit via a version + zero-check
+ * scheme). The _without_mprotect name refers only to skipping PAS_MPROTECT_DECOMMITTED
+ * test-mode poisoning; symmetry is orthogonal and chosen per call site.
+ */
+#ifndef PAS_USE_SYMMETRIC_PAGE_ALLOCATION
+#if PAS_OS(WINDOWS)
+#define PAS_USE_SYMMETRIC_PAGE_ALLOCATION 1
+#else
+#define PAS_USE_SYMMETRIC_PAGE_ALLOCATION 0
+#endif
+#endif /* PAS_USE_SYMMETRIC_PAGE_ALLOCATION */
 
 #define PAS_RISCV __PAS_RISCV
 
@@ -142,6 +164,13 @@
                                                        << (PAS_COMPACT_PTR_BITS & 63)) - 1))
 
 #define PAS_ALLOCATOR_INDEX_BYTES        4
+
+// FIXME: Workaround for rdar://119319825
+#if !defined(__swift__)
+#define PAS_ENABLE_MALLOC_STACK_LOGGER 1
+#else
+#define PAS_ENABLE_MALLOC_STACK_LOGGER 0
+#endif
 
 #endif /* PAS_CONFIG_H */
 

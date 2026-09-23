@@ -37,8 +37,10 @@
 #include "DeleteSelectionCommand.h"
 #include "DocumentFragment.h"
 #include "DocumentMarkerController.h"
+#include "DocumentMarkers.h"
 #include "DocumentView.h"
 #include "Editing.h"
+#include "EditingInlines.h"
 #include "Editor.h"
 #include "EditorInsertAction.h"
 #include "ElementTraversal.h"
@@ -65,7 +67,8 @@
 #include "RemoveNodeCommand.h"
 #include "RemoveNodePreservingChildrenCommand.h"
 #include "RenderBlockFlow.h"
-#include "RenderStyle+GettersInlines.h"
+#include "RenderObject.h"
+#include "RenderObjectStyle.h"
 #include "RenderText.h"
 #include "RenderedDocumentMarker.h"
 #include "ReplaceNodeWithSpanCommand.h"
@@ -77,6 +80,7 @@
 #include "SplitTextNodeCommand.h"
 #include "SplitTextNodeContainingElementCommand.h"
 #include "StaticRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "TextIterator.h"
 #include "TextListParser.h"
@@ -248,17 +252,18 @@ void EditCommandComposition::unapply(AddToUndoStack addToUndoStack)
     // Low level operations, like RemoveNodeCommand, don't require a layout because the high level operations that use them perform one
     // if one is necessary (like for the creation of VisiblePositions).
     m_document->updateLayoutIgnorePendingStylesheets();
+    Ref document = m_document.get();
 #if PLATFORM(IOS_FAMILY)
     // FIXME: Where should iPhone code deal with the composition?
     // Since editing commands don't save/restore the composition, undoing without fixing
     // up the composition will leave a stale, invalid composition, as in <rdar://problem/6831637>.
     // Desktop handles this in -[WebHTMLView _updateSelectionForInputManager], but the phone
     // goes another route.
-    m_document->editor().cancelComposition();
+    document->editor().cancelComposition();
 #endif
 
-    auto prohibitScrollingForScope = m_document->view() ? m_document->view()->prohibitScrollingWhenChangingContentSizeForScope() : nullptr;
-    if (addToUndoStack == AddToUndoStack::Yes && !m_document->editor().willUnapplyEditing(*this))
+    auto prohibitScrollingForScope = document->view() ? document->view()->prohibitScrollingWhenChangingContentSizeForScope() : nullptr;
+    if (addToUndoStack == AddToUndoStack::Yes && !document->editor().willUnapplyEditing(*this))
         return;
 
     size_t size = m_commands.size();
@@ -268,7 +273,7 @@ void EditCommandComposition::unapply(AddToUndoStack addToUndoStack)
     if (addToUndoStack == AddToUndoStack::No)
         return;
 
-    m_document->editor().unappliedEditing(*this);
+    document->editor().unappliedEditing(*this);
 
     if (AXObjectCache::accessibilityEnabled())
         m_replacedText.postTextStateChangeNotificationForUnapply(m_document->existingAXObjectCache());
@@ -297,14 +302,15 @@ void EditCommandComposition::reapply()
     // if one is necessary (like for the creation of VisiblePositions).
     m_document->updateLayoutIgnorePendingStylesheets();
 
-    auto prohibitScrollingForScope = m_document->view() ? m_document->view()->prohibitScrollingWhenChangingContentSizeForScope() : nullptr;
-    if (!m_document->editor().willReapplyEditing(*this))
+    Ref document = m_document.get();
+    auto prohibitScrollingForScope = document->view() ? document->view()->prohibitScrollingWhenChangingContentSizeForScope() : nullptr;
+    if (!document->editor().willReapplyEditing(*this))
         return;
 
     for (Ref command : m_commands)
         command->doReapply();
 
-    m_document->editor().reappliedEditing(*this);
+    document->editor().reappliedEditing(*this);
 
     if (AXObjectCache::accessibilityEnabled())
         m_replacedText.postTextStateChangeNotificationForReapply(m_document->existingAXObjectCache());
@@ -361,7 +367,7 @@ CompositeEditCommand::~CompositeEditCommand()
 
 bool CompositeEditCommand::willApplyCommand()
 {
-    return document().editor().willApplyEditing(*this, targetRangesForBindings());
+    return protect(document())->editor().willApplyEditing(*this, targetRangesForBindings());
 }
 
 void CompositeEditCommand::apply()
@@ -407,7 +413,7 @@ void CompositeEditCommand::apply()
     Ref document = this->document();
     document->updateLayoutIgnorePendingStylesheets();
 
-    auto prohibitScrollingForScope = document->view() ? document->view()->prohibitScrollingWhenChangingContentSizeForScope() : nullptr;
+    auto prohibitScrollingForScope = document->view() ? protect(document->view())->prohibitScrollingWhenChangingContentSizeForScope() : nullptr;
     if (!willApplyCommand())
         return;
 
@@ -422,7 +428,7 @@ void CompositeEditCommand::apply()
 
 void CompositeEditCommand::didApplyCommand()
 {
-    document().editor().appliedEditing(*this);
+    protect(document())->editor().appliedEditing(*this);
 }
 
 Vector<Ref<StaticRange>> CompositeEditCommand::targetRanges() const
@@ -432,7 +438,7 @@ Vector<Ref<StaticRange>> CompositeEditCommand::targetRanges() const
     if (!firstRange)
         return { };
 
-    return { 1, StaticRange::create(WTF::move(*firstRange)) };
+    return { FillWith { }, 1, StaticRange::create(WTF::move(*firstRange)) };
 }
 
 Vector<Ref<StaticRange>> CompositeEditCommand::targetRangesForBindings() const
@@ -591,7 +597,7 @@ void CompositeEditCommand::insertNodeAfter(Ref<Node>&& insertChild, Node& refChi
         appendNode(WTF::move(insertChild), *parent);
     else {
         ASSERT(refChild.nextSibling());
-        insertNodeBefore(WTF::move(insertChild), *refChild.nextSibling());
+        insertNodeBefore(WTF::move(insertChild), protect(*refChild.nextSibling()));
     }
 }
 
@@ -710,6 +716,13 @@ void CompositeEditCommand::splitTextNode(Text& node, unsigned offset)
 void CompositeEditCommand::splitElement(Element& element, Node& atChild)
 {
     applyCommandToComposite(SplitElementCommand::create(element, atChild));
+}
+
+void CompositeEditCommand::splitListElement(Element& listNode, Node& listChild)
+{
+    splitElement(listNode, *splitTreeToNode(listChild, listNode));
+    if (listNode.hasTagName(olTag) && listNode.hasAttribute(startAttr))
+        setNodeAttribute(listNode, startAttr, AtomString::number(1));
 }
 
 void CompositeEditCommand::mergeIdenticalElements(Element& first, Element& second)
@@ -837,20 +850,20 @@ Position CompositeEditCommand::positionOutsideTabSpan(const Position& position)
     case Position::PositionIsOffsetInAnchor:
         break;
     case Position::PositionIsBeforeAnchor:
-        return positionInParentBeforeNode(*position.anchorNode());
+        return positionInParentBeforeNode(protect(*position.anchorNode()));
     case Position::PositionIsAfterAnchor:
-        return positionInParentAfterNode(*position.anchorNode());
+        return positionInParentAfterNode(protect(*position.anchorNode()));
     }
 
     RefPtr tabSpan { parentTabSpanNode(position.containerNode()) };
 
-    if (position.offsetInContainerNode() <= caretMinOffset(*position.containerNode()))
+    if (position.offsetInContainerNode() <= caretMinOffset(protect(*position.containerNode())))
         return positionInParentBeforeNode(*tabSpan);
 
-    if (position.offsetInContainerNode() >= caretMaxOffset(*position.containerNode()))
+    if (position.offsetInContainerNode() >= caretMaxOffset(protect(*position.containerNode())))
         return positionInParentAfterNode(*tabSpan);
 
-    splitTextNodeContainingElement(downcast<Text>(*position.containerNode()), position.offsetInContainerNode());
+    splitTextNodeContainingElement(protect(downcast<Text>(*position.containerNode())), position.offsetInContainerNode());
     return positionInParentBeforeNode(*tabSpan);
 }
 
@@ -1179,7 +1192,7 @@ RefPtr<Node> CompositeEditCommand::addBlockPlaceholderIfNeeded(Element* containe
             return nullptr;
 
         // Append the placeholder to make sure it follows any unrendered blocks.
-        if (blockFlow->height() && (!blockFlow->isRenderListItem() || blockFlow->firstChild()))
+        if (blockFlow->borderBoxHeight() && (!blockFlow->isRenderListItem() || blockFlow->firstChild()))
             return nullptr;
     }
 
@@ -1239,7 +1252,7 @@ RefPtr<Node> CompositeEditCommand::moveParagraphContentsToNewBlockIfNecessary(co
         return nullptr;
 
     // Perform some checks to see if we need to perform work in this function.
-    if (upstreamStart.deprecatedNode() && isBlock(*protect(upstreamStart.deprecatedNode()))) {
+    if (upstreamStart.deprecatedNode() && isBlock(*upstreamStart.deprecatedNode())) {
         // If the block is the root editable element, always move content to a new block,
         // since it is illegal to modify attributes on the root editable element for editing.
         if (upstreamStart.deprecatedNode() == editableRootForPosition(upstreamStart)) {
@@ -1274,7 +1287,7 @@ RefPtr<Node> CompositeEditCommand::moveParagraphContentsToNewBlockIfNecessary(co
     moveParagraphs(visibleParagraphStart, visibleParagraphEnd, VisiblePosition(firstPositionInNode(newBlock)));
 
     if (newBlock->lastChild() && newBlock->lastChild()->hasTagName(brTag) && !endWasBr)
-        removeNode(*newBlock->lastChild());
+        removeNode(protect(*newBlock->lastChild()));
 
     return newBlock;
 }
@@ -1605,27 +1618,8 @@ VisibleSelection CompositeEditCommand::shouldBreakOutOfEmptyListItem() const
     return VisibleSelection(endingSelection().start().previous(BackwardDeletion), endingSelection().end());
 }
 
-bool CompositeEditCommand::hasSmartListMarkerAttribute() const
-{
-#if PLATFORM(COCOA)
-    if (shouldBreakOutOfEmptyListItem().isNone())
-        return false;
-
-    RefPtr emptyListItem = enclosingEmptyListItem(endingSelection().visibleStart());
-    ASSERT(emptyListItem);
-
-    RefPtr listNode = emptyListItem->parentElement();
-    ASSERT(listNode);
-
-    auto attribute = listNode->getAttribute(HTMLNames::webkitsmartlistmarkerAttr);
-    return !attribute.isEmpty() && parseTextList(attribute);
-#else
-    return false;
-#endif
-}
-
 // FIXME: Send an appropriate shouldDeleteRange call.
-bool CompositeEditCommand::breakOutOfEmptyListItem(ReconstitutePlainTextListIfNeeded reconstitutePlainTextListIfNeeded)
+bool CompositeEditCommand::breakOutOfEmptyListItem()
 {
     if (shouldBreakOutOfEmptyListItem().isNone())
         return false;
@@ -1664,7 +1658,7 @@ bool CompositeEditCommand::breakOutOfEmptyListItem(ReconstitutePlainTextListIfNe
     if ((nextListNode && isListItem(*nextListNode)) || isListHTMLElement(nextListNode.get())) {
         // If emptyListItem follows another list item or nested list, split the list node.
         if (previousListNode && (isListItem(*previousListNode) || isListHTMLElement(previousListNode.get())))
-            splitElement(downcast<Element>(*listNode), *emptyListItem);
+            splitListElement(downcast<Element>(*listNode), *emptyListItem);
 
         // If emptyListItem is followed by other list item or nested list, then insert newBlock before the list node.
         // Because we have splitted the element, emptyListItem is the first element in the list node.
@@ -1680,11 +1674,6 @@ bool CompositeEditCommand::breakOutOfEmptyListItem(ReconstitutePlainTextListIfNe
 
     appendBlockPlaceholder(newBlock.copyRef());
     setEndingSelection(VisibleSelection(firstPositionInNode(newBlock), Affinity::Downstream, endingSelection().directionality()));
-
-    if (reconstitutePlainTextListIfNeeded == ReconstitutePlainTextListIfNeeded::Yes) {
-        if (auto smartListMarker = downcast<Element>(*listNode).getAttribute(HTMLNames::webkitsmartlistmarkerAttr); !smartListMarker.isEmpty())
-            inputText(WTF::makeString(smartListMarker, " "_s));
-    }
 
     style->prepareToApplyAt(endingSelection().start());
     if (!style->isEmpty())

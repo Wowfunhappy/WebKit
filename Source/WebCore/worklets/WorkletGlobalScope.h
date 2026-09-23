@@ -80,6 +80,8 @@ public:
 
     bool isSecureContext() const final { return false; }
 
+    String agentClusterID() const final { return m_agentClusterID; }
+
     JSC::RuntimeFlags jsRuntimeFlags() const { return m_jsRuntimeFlags; }
 
     void prepareForDestruction() override;
@@ -109,7 +111,7 @@ private:
 
     std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(CryptoKeyData&&) final { RELEASE_ASSERT_NOT_REACHED(); return std::nullopt; }
     std::optional<Vector<uint8_t>> unwrapCryptoKey(const Vector<uint8_t>&) final { RELEASE_ASSERT_NOT_REACHED(); return std::nullopt; }
-    URL completeURL(const String&, ForceUTF8 = ForceUTF8::No) const final;
+    URL parseURL(const String&) const final;
     String userAgent(const URL&) const final;
     const SettingsValues& settingsValues() const LIFETIME_BOUND final { return m_settingsValues; }
 
@@ -124,6 +126,7 @@ private:
     const RefPtr<WorkerMessagePortChannelProvider> m_messagePortChannelProvider;
 
     SettingsValues m_settingsValues;
+    String m_agentClusterID;
 };
 
 } // namespace WebCore

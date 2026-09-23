@@ -38,6 +38,8 @@
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
+enum class CrossOriginEmbedderPolicyValue : bool;
+
 struct ClientOrigin;
 struct WorkerFetchResult;
 struct WorkerInitializationData;
@@ -52,7 +54,7 @@ struct RemoteWorkerInitializationData;
 class WebSharedWorkerContextManagerConnection final : public WebCore::SharedWorkerContextManager::Connection, public IPC::MessageReceiver, public RefCounted<WebSharedWorkerContextManagerConnection> {
     WTF_MAKE_TZONE_ALLOCATED(WebSharedWorkerContextManagerConnection);
 public:
-    static Ref<WebSharedWorkerContextManagerConnection> create(Ref<IPC::Connection>&&, WebCore::Site&&, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, RemoteWorkerInitializationData&&);
+    static Ref<WebSharedWorkerContextManagerConnection> create(Ref<IPC::Connection>&&, WebCore::Site&&, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, RemoteWorkerInitializationData&&, WebCore::CrossOriginEmbedderPolicyValue);
     ~WebSharedWorkerContextManagerConnection();
 
     void ref() const final { RefCounted::ref(); }
@@ -65,7 +67,7 @@ public:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
 private:
-    WebSharedWorkerContextManagerConnection(Ref<IPC::Connection>&&, WebCore::Site&&, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, RemoteWorkerInitializationData&&);
+    WebSharedWorkerContextManagerConnection(Ref<IPC::Connection>&&, WebCore::Site&&, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, RemoteWorkerInitializationData&&, WebCore::CrossOriginEmbedderPolicyValue);
 
     // IPC Messages.
     void launchSharedWorker(WebCore::ClientOrigin&&, WebCore::SharedWorkerIdentifier, WebCore::WorkerOptions&&, WebCore::WorkerFetchResult&&, WebCore::WorkerInitializationData&&);
@@ -81,6 +83,7 @@ private:
     String m_userAgent;
     const Ref<WebUserContentController> m_userContentController;
     std::optional<WebPreferencesStore> m_preferencesStore;
+    WebCore::CrossOriginEmbedderPolicyValue m_crossOriginEmbedderPolicyValue;
     bool isWebSharedWorkerContextManagerConnection() const final { return true; }
 };
 

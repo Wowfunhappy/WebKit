@@ -39,8 +39,6 @@
 
 namespace WebCore {
 
-class RenderStyle;
-
 class DocumentFullscreen final : public CanMakeWeakPtr<DocumentFullscreen> {
     WTF_MAKE_TZONE_ALLOCATED(DocumentFullscreen);
 public:
@@ -64,7 +62,7 @@ public:
     const Document& document() const { return m_document; }
     LocalFrame* NODELETE frame() const;
     Element* documentElement() const { return document().documentElement(); }
-    bool isSimpleFullscreenDocument() const;
+    bool NODELETE isSimpleFullscreenDocument() const;
     Document::BackForwardCacheState backForwardCacheState() const { return document().backForwardCacheState(); }
 
     // WHATWG Fullscreen API.

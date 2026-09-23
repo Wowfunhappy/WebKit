@@ -14,14 +14,24 @@ var output = "This test ensures that hit testing a text input yields the text in
 // element (e.g. a div inside the UA shadow tree created by <input type="text">).
 
 if (window.accessibilityController) {
-    const rect = document.getElementById("text-input").getBoundingClientRect();
-    const horizontalMidpoint = rect.left + rect.width / 2;
-    const verticalMidpoint = rect.top + rect.height / 2;
+    window.jsTestIsAsync = true;
 
-    var hitTestResult = accessibilityController.elementAtPoint(horizontalMidpoint, verticalMidpoint);
-    output += expect("hitTestResult.role.toLowerCase().includes('textfield')", "true");
+    var hitTestResult;
 
-    debug(output);
+    setTimeout(async function() {
+        var rootElement = accessibilityController.rootElement;
+        await waitForFrameGeometryReady();
+
+        const rect = document.getElementById("text-input").getBoundingClientRect();
+        const horizontalMidpoint = rect.left + rect.width / 2;
+        const verticalMidpoint = rect.top + rect.height / 2;
+
+        hitTestResult = accessibilityController.elementAtPoint(horizontalMidpoint, verticalMidpoint);
+        output += expect("hitTestResult.role.toLowerCase().includes('textfield')", "true");
+
+        debug(output);
+        finishJSTest();
+    }, 0);
 }
 </script>
 </body>

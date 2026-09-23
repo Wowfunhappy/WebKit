@@ -20,6 +20,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import configparser
 import importlib.abc
 import importlib.machinery
 import json
@@ -47,6 +48,7 @@ from webkitcorepy.file_lock import FileLock
 from html.parser import HTMLParser
 from urllib.request import urlopen
 from urllib.error import URLError
+from urllib.parse import urlparse
 
 
 class SimplyPypiIndexPageParser(HTMLParser):
@@ -446,17 +448,35 @@ class Package(object):
                 AutoInstall.userspace_should_own(manifest)
 
 
+def _pypi_indices_from_file(file):
+    result = []
+    config = configparser.ConfigParser()
+    config.read_file(file)
+    for section in ('global', 'user'):
+        if not config.has_section(section):
+            continue
+        for key in ('index-url', 'extra-index-url'):
+            value = config.get(section, key, fallback=None)
+            if value:
+                for url in value.split('\n'):
+                    url = url.strip()
+                    if url:
+                        parsed = urlparse(url)
+                        if parsed.hostname:
+                            result.append(parsed.hostname)
+    return result
 
-def _default_pypi_index():
-    pypi_url = re.compile(r'\Aindex\S* = https?://(?P<host>\S+)/.*')
-    pip_config = '/Library/Application Support/pip/pip.conf'
-    if os.path.isfile(pip_config):
-        with open(pip_config, 'r') as config:
-            for line in config.readlines():
-                match = pypi_url.match(line.lstrip())
-                if match:
-                    return match.group('host')
-    return 'pypi.org'
+
+def _default_pypi_indices():
+    for path in ['~/Library/Application Support/pip/pip.conf', '/Library/Application Support/pip/pip.conf']:
+        path = os.path.expanduser(path)
+        if not os.path.isfile(path):
+            continue
+        with open(path, 'r') as f:
+            result = _pypi_indices_from_file(f)
+        if result:
+            return result
+    return ['pypi.org']
 
 
 class AutoInstall(importlib.abc.MetaPathFinder):
@@ -470,7 +490,8 @@ class AutoInstall(importlib.abc.MetaPathFinder):
     BASE_LIBRARIES = ['setuptools', 'wheel', 'six', 'pyparsing', 'packaging', 'tomli', 'setuptools_scm']
 
     directory = None
-    index = _default_pypi_index()
+    _indexes = _default_pypi_indices()
+    index = _indexes[-1]
     timeout = 30
     times_to_retry = 1
     version = Version(sys.version_info[0], sys.version_info[1], sys.version_info[2])
@@ -483,7 +504,7 @@ class AutoInstall(importlib.abc.MetaPathFinder):
     if not ca_cert_path or not os.path.isfile(ca_cert_path):
         ca_cert_path = os.path.join(os.path.dirname(__file__), 'cacert.pem')
 
-    _previous_index = None
+    _previous_index = _indexes[0] if len(_indexes) > 1 else None
     _previous_ca_cert_path = None
     _fatal_check = False
     _temporary_disable = 0

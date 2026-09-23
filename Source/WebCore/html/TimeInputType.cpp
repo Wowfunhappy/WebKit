@@ -91,10 +91,13 @@ StepRange TimeInputType::createStepRange(AnyStepHandling anyStepHandling) const
     ASSERT(element());
     Ref element = *this->element();
     const Decimal stepBase = findStepBase(timeDefaultStepBase);
-    const Decimal minimum = parseToNumber(element->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumTime()));
-    const Decimal maximum = parseToNumber(element->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumTime()));
+
+    RangeLimitations rangeLimitations = RangeLimitations::Invalid;
+    const Decimal minimum = extractStepRangeBound(minAttr, Decimal::fromDouble(DateComponents::minimumTime()), rangeLimitations);
+    const Decimal maximum = extractStepRangeBound(maxAttr, Decimal::fromDouble(DateComponents::maximumTime()), rangeLimitations);
+
     const Decimal step = StepRange::parseStep(anyStepHandling, timeStepDescription, element->attributeWithoutSynchronization(stepAttr));
-    return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, timeStepDescription, StepRange::IsReversible::Yes);
+    return StepRange(stepBase, rangeLimitations, minimum, maximum, step, timeStepDescription, StepRange::IsReversible::Yes);
 }
 
 std::optional<DateComponents> TimeInputType::parseToDateComponents(StringView source) const

@@ -397,7 +397,6 @@ static int computeGaussianKernel(float radius, std::array<float, SimplifiedGauss
 
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib/Win port
     float fullKernel[GaussianKernelMaxHalfSize];
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     fullKernel[0] = 1; // gauss(0, radius);
     float sum = fullKernel[0];
@@ -432,6 +431,7 @@ static int computeGaussianKernel(float radius, std::array<float, SimplifiedGauss
         kernel[i] = fullKernel[offset1] + fullKernel[offset2];
         offset[i] = (fullKernel[offset1] * offset1 + fullKernel[offset2] * offset2) / kernel[i];
     }
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     return simplifiedKernelHalfSize;
 }
@@ -1379,7 +1379,7 @@ bool TextureMapper::beginRoundedRectClip(const TransformationMatrix& modelViewMa
     // arrays must have a predefined size. The limit is defined inside ClipStack, and that's why we need to call
     // clipStack().isRoundedRectClipAllowed() before trying to add a new clip.
 
-    if (!targetRect.isRounded() || !targetRect.isRenderable() || targetRect.isEmpty() || !modelViewMatrix.isInvertible() || !clipStack().isRoundedRectClipAllowed())
+    if (!targetRect.hasNonZeroRadii() || !targetRect.isRenderable() || targetRect.isEmpty() || !modelViewMatrix.isInvertible() || !clipStack().isRoundedRectClipAllowed())
         return false;
 
     FloatQuad quad = modelViewMatrix.projectQuad(targetRect.rect());

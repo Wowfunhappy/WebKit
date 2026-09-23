@@ -32,8 +32,8 @@ function runTest(value, expectedError) {
     }
 }
 
-runTest(null, "TypeError: null is not an object (evaluating 'value')");
-runTest(undefined, "TypeError: undefined is not an object (evaluating 'value')");
+runTest(null, "TypeError: null is not an object (evaluating 'x of value')");
+runTest(undefined, "TypeError: undefined is not an object (evaluating 'x of value')");
 runTest(0, "TypeError: number is not iterable");
 runTest(42, "TypeError: number is not iterable");
 runTest(true, "TypeError: true is not iterable");
@@ -64,7 +64,7 @@ function testDestructuring(value, expectedError) {
 
 for (let i = 0; i < testLoopCount; i++) {
     testDestructuring(42, "TypeError: number is not iterable");
-    testDestructuring(null, "TypeError: null is not an object (evaluating 'value')");
+    testDestructuring(null, "TypeError: null is not an object (evaluating '[x]')");
 }
 
 function testSpread(value, expectedError) {

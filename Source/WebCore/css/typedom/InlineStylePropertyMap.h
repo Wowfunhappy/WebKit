@@ -46,7 +46,7 @@ public:
     void removeProperty(CSSPropertyID) final;
     bool setShorthandProperty(CSSPropertyID, const String& value) final;
     bool setProperty(CSSPropertyID, Ref<CSSValue>&&) final;
-    bool setCustomProperty(Document&, const AtomString& property, Ref<CSSVariableReferenceValue>&&) final;
+    bool setCustomProperty(Document&, const AtomString& property, Ref<CSSSubstitutionValue>&&) final;
     void removeCustomProperty(const AtomString& property) final;
     void clear() final;
 

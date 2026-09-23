@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 try {
     bar_693 = '2.3023e-320';

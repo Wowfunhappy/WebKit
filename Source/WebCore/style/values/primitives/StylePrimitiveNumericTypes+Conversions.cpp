@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,8 @@
 #include "config.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 
-#include "RenderStyle+GettersInlines.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleLengthResolution.h"
 #include "StyleZoomPrimitivesInlines.h"
 
@@ -45,29 +45,14 @@ double canonicalizeLength(double value, CSS::LengthUnit unit, const CSSToLengthC
     return computeNonCalcLengthDouble(value, unit, conversionData);
 }
 
-float clampLengthToAllowedLimits(double value)
-{
-    return clampTo<float>(narrowPrecisionToFloat(value), minValueForCssLength, maxValueForCssLength);
-}
-
-float canonicalizeAndClampLength(double value, CSS::LengthUnit unit, NoConversionDataRequiredToken token)
-{
-    return clampLengthToAllowedLimits(canonicalizeLength(value, unit, token));
-}
-
-float canonicalizeAndClampLength(double value, CSS::LengthUnit unit, const CSSToLengthConversionData& conversionData)
-{
-    return clampLengthToAllowedLimits(canonicalizeLength(value, unit, conversionData));
-}
-
 // MARK: ToCSS utilities
 
-float adjustForZoom(float value, const RenderStyle& style)
+float adjustForZoom(float value, const Style::ComputedStyle& style)
 {
     return adjustFloatForAbsoluteZoom(value, style);
 }
 
-bool evaluationTimeZoomEnabled(const RenderStyle& style)
+bool evaluationTimeZoomEnabled(const Style::ComputedStyle& style)
 {
     return style.evaluationTimeZoomEnabled();
 }

@@ -42,8 +42,9 @@ AnimationEventBase::AnimationEventBase(enum EventInterfaceType eventInterface, c
 {
 }
 
-AnimationEventBase::AnimationEventBase(enum EventInterfaceType eventInterface, const AtomString& type, EventInit&& initializer, IsTrusted isTrusted)
+AnimationEventBase::AnimationEventBase(enum EventInterfaceType eventInterface, const AtomString& type, EventInit&& initializer, IsTrusted isTrusted, RefPtr<WebAnimation>&& animation)
     : Event(eventInterface, type, WTF::move(initializer), isTrusted)
+    , m_animation(WTF::move(animation))
 {
 }
 

@@ -29,6 +29,7 @@
 #include "CommonVM.h"
 #include "JSDOMBinding.h"
 #include "LocalDOMWindow.h"
+#include <JavaScriptCore/HeapInlines.h>
 
 namespace WebCore {
 

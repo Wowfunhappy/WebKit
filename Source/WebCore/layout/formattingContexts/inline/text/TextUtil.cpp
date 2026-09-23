@@ -37,7 +37,7 @@
 #include "Latin1TextIterator.h"
 #include "LayoutInlineTextBox.h"
 #include "RenderBox.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "SurrogatePairAwareTextIterator.h"
 #include "TextRun.h"
 #include "TextSpacing.h"
@@ -115,8 +115,7 @@ InlineLayoutUnit TextUtil::width(const InlineTextItem& inlineTextItem, const Fon
 
     if (inlineTextItem.isWhitespace()) {
         CheckedRef inlineTextBox = inlineTextItem.inlineTextBox();
-        auto singleWhiteSpace = from - to == 1 || !TextUtil::shouldPreserveSpacesAndTabs(inlineTextBox);
-        if (singleWhiteSpace)
+        if (!TextUtil::shouldPreserveSpacesAndTabs(inlineTextBox) || (to - from == 1 && inlineTextBox->content()[from] == space))
             return std::max(0.f, singleSpaceWidth(fontCascade, inlineTextBox->canUseSimplifiedContentMeasuring()));
     }
     return width(protect(inlineTextItem.inlineTextBox()), fontCascade, from, to, contentLogicalLeft, useTrailingWhitespaceMeasuringOptimization, spacingState, glyphOverflow);
@@ -164,7 +163,7 @@ static void fallbackFontsForRunWithIterator(SingleThreadWeakHashSet<const Font>&
     }
 }
 
-TextUtil::FallbackFontList TextUtil::fallbackFontsForText(StringView textContent, const RenderStyle& style, IncludeHyphen includeHyphen)
+TextUtil::FallbackFontList TextUtil::fallbackFontsForText(StringView textContent, const Style::ComputedStyle& style, IncludeHyphen includeHyphen)
 {
     TextUtil::FallbackFontList fallbackFonts;
 
@@ -182,7 +181,7 @@ TextUtil::FallbackFontList TextUtil::fallbackFontsForText(StringView textContent
     };
 
     if (includeHyphen == IncludeHyphen::Yes)
-        collectFallbackFonts(TextRun { StringView(style.hyphenString().string()), { }, { }, ExpansionBehavior::defaultBehavior(), style.writingMode().bidiDirection() });
+        collectFallbackFonts(TextRun { StringView(style.hyphenString()), { }, { }, ExpansionBehavior::defaultBehavior(), style.writingMode().bidiDirection() });
     collectFallbackFonts(TextRun { textContent, { }, { }, ExpansionBehavior::defaultBehavior(), style.writingMode().bidiDirection() });
     return fallbackFonts;
 }
@@ -216,7 +215,7 @@ static TextUtil::EnclosingAscentDescent enclosingGlyphBoundsForRunWithIterator(c
     return { enclosingAscent.value_or(0.f), enclosingDescent.value_or(0.f) };
 }
 
-TextUtil::EnclosingAscentDescent TextUtil::enclosingGlyphBoundsForText(StringView textContent, const RenderStyle& style, ShouldUseSimpleGlyphOverflowCodePath shouldUseSimpleGlyphOverflowCodePath)
+TextUtil::EnclosingAscentDescent TextUtil::enclosingGlyphBoundsForText(StringView textContent, const Style::ComputedStyle& style, ShouldUseSimpleGlyphOverflowCodePath shouldUseSimpleGlyphOverflowCodePath)
 {
     if (textContent.isEmpty())
         return { };
@@ -372,7 +371,7 @@ bool TextUtil::mayBreakInBetween(const InlineTextItem& previousInlineItem, const
     return mayBreakInBetween(previousInlineItem.inlineTextBox().content(), protect(previousInlineItem.style()), nextInlineItem.inlineTextBox().content(), protect(nextInlineItem.style()));
 }
 
-bool TextUtil::mayBreakInBetween(String previousContent, const RenderStyle& previousContentStyle, String nextContent, const RenderStyle& nextContentStyle)
+bool TextUtil::mayBreakInBetween(String previousContent, const Style::ComputedStyle& previousContentStyle, String nextContent, const Style::ComputedStyle& nextContentStyle)
 {
     // Now we need to collect at least 3 adjacent characters to be able to make a decision whether the previous text item ends with breaking opportunity.
     // [ex-][ample] <- second to last[x] last[-] current[a]
@@ -396,7 +395,7 @@ bool TextUtil::mayBreakInBetween(String previousContent, const RenderStyle& prev
     return !findNextBreakablePosition(lineBreakIteratorFactory, 0, nextContentStyle);
 }
 
-unsigned TextUtil::findNextBreakablePosition(CachedLineBreakIteratorFactory& lineBreakIteratorFactory, unsigned startPosition, const RenderStyle& style)
+unsigned TextUtil::findNextBreakablePosition(CachedLineBreakIteratorFactory& lineBreakIteratorFactory, unsigned startPosition, const Style::ComputedStyle& style)
 {
     auto wordBreak = style.wordBreak();
     auto breakNBSP = style.textWrapMode() != TextWrapMode::NoWrap && style.nbspMode() == NBSPMode::Space;
@@ -436,13 +435,13 @@ bool TextUtil::shouldPreserveNewline(const Box& layoutBox)
     return whitespaceCollapse == WhiteSpaceCollapse::Preserve || whitespaceCollapse == WhiteSpaceCollapse::PreserveBreaks || whitespaceCollapse == WhiteSpaceCollapse::BreakSpaces;
 }
 
-bool TextUtil::isWrappingAllowed(const RenderStyle& style)
+bool TextUtil::isWrappingAllowed(const Style::ComputedStyle& style)
 {
     // https://www.w3.org/TR/css-text-4/#text-wrap
     return style.textWrapMode() != TextWrapMode::NoWrap;
 }
 
-bool TextUtil::shouldTrailingWhitespaceHang(const RenderStyle& style)
+bool TextUtil::shouldTrailingWhitespaceHang(const Style::ComputedStyle& style)
 {
     // https://www.w3.org/TR/css-text-4/#white-space-phase-2
     return style.whiteSpaceCollapse() == WhiteSpaceCollapse::Preserve && style.textWrapMode() != TextWrapMode::NoWrap;
@@ -619,7 +618,7 @@ AtomString TextUtil::ellipsisTextInInlineDirection(bool isHorizontal)
     return verticalEllipsisStr;
 }
 
-InlineLayoutUnit TextUtil::hyphenWidth(const RenderStyle& style)
+InlineLayoutUnit TextUtil::hyphenWidth(const Style::ComputedStyle& style)
 {
     return std::max(0.f, protect(style.fontCascade())->width(StringView { style.hyphenString() }));
 }
@@ -645,7 +644,7 @@ static bool isHangableClosePunctuation(char32_t character)
     return U_GET_GC_MASK(character) & (U_GC_PE_MASK | U_GC_PI_MASK | U_GC_PF_MASK);
 }
 
-bool TextUtil::hasHangablePunctuationStart(const InlineTextItem& inlineTextItem, const RenderStyle& style)
+bool TextUtil::hasHangablePunctuationStart(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
 {
     if (!inlineTextItem.length() || !style.hangingPunctuation().contains(Style::HangingPunctuationValue::First))
         return false;
@@ -653,7 +652,7 @@ bool TextUtil::hasHangablePunctuationStart(const InlineTextItem& inlineTextItem,
     return isHangableOpenPunctuation(leadingCharacter);
 }
 
-float TextUtil::hangablePunctuationStartWidth(const InlineTextItem& inlineTextItem, const RenderStyle& style)
+float TextUtil::hangablePunctuationStartWidth(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
 {
     if (!hasHangablePunctuationStart(inlineTextItem, style))
         return { };
@@ -662,7 +661,7 @@ float TextUtil::hangablePunctuationStartWidth(const InlineTextItem& inlineTextIt
     return width(inlineTextItem, protect(style.fontCascade()), leadingPosition, leadingPosition + 1, { });
 }
 
-bool TextUtil::hasHangablePunctuationEnd(const InlineTextItem& inlineTextItem, const RenderStyle& style)
+bool TextUtil::hasHangablePunctuationEnd(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
 {
     if (!inlineTextItem.length() || !style.hangingPunctuation().contains(Style::HangingPunctuationValue::Last))
         return false;
@@ -670,7 +669,7 @@ bool TextUtil::hasHangablePunctuationEnd(const InlineTextItem& inlineTextItem, c
     return isHangableClosePunctuation(trailingCharacter);
 }
 
-float TextUtil::hangablePunctuationEndWidth(const InlineTextItem& inlineTextItem, const RenderStyle& style)
+float TextUtil::hangablePunctuationEndWidth(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
 {
     if (!hasHangablePunctuationEnd(inlineTextItem, style))
         return { };
@@ -679,7 +678,7 @@ float TextUtil::hangablePunctuationEndWidth(const InlineTextItem& inlineTextItem
     return width(inlineTextItem, protect(style.fontCascade()), trailingPosition, trailingPosition + 1, { });
 }
 
-bool TextUtil::hasHangableStopOrCommaEnd(const InlineTextItem& inlineTextItem, const RenderStyle& style)
+bool TextUtil::hasHangableStopOrCommaEnd(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
 {
     if (!inlineTextItem.length() || !style.hangingPunctuation().containsAny({ Style::HangingPunctuationValue::AllowEnd, Style::HangingPunctuationValue::ForceEnd }))
         return false;
@@ -695,7 +694,7 @@ bool TextUtil::hasHangableStopOrCommaEnd(const InlineTextItem& inlineTextItem, c
     return isHangableStopOrComma;
 }
 
-float TextUtil::hangableStopOrCommaEndWidth(const InlineTextItem& inlineTextItem, const RenderStyle& style)
+float TextUtil::hangableStopOrCommaEndWidth(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
 {
     if (!hasHangableStopOrCommaEnd(inlineTextItem, style))
         return { };
@@ -708,13 +707,13 @@ template<typename CharacterType>
 static bool canUseSimplifiedTextMeasuringForCharacters(std::span<const CharacterType> characters, const FontCascade& fontCascade, const Font& primaryFont, bool whitespaceIsCollapsed)
 {
     for (auto character : characters) {
-        if (!fontCascade.canUseSimplifiedTextMeasuring(character, AutoVariant, whitespaceIsCollapsed, primaryFont))
+        if (!fontCascade.canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
             return false;
     }
     return true;
 }
 
-bool TextUtil::canUseSimplifiedTextMeasuring(StringView textContent, const FontCascade& fontCascade, bool whitespaceIsCollapsed, const RenderStyle* firstLineStyle)
+bool TextUtil::canUseSimplifiedTextMeasuring(StringView textContent, const FontCascade& fontCascade, bool whitespaceIsCollapsed, const Style::ComputedStyle* firstLineStyle)
 {
     ASSERT(textContent.is8Bit() || FontCascade::characterRangeCodePath(textContent.span16()) == FontCascade::CodePath::Simple);
     // FIXME: All these checks should be more fine-grained at the inline item level.
@@ -752,15 +751,11 @@ bool TextUtil::hasPositionDependentContentWidth(StringView textContent)
     return charactersContain<char16_t, tabCharacter>(textContent.span16());
 }
 
-char32_t TextUtil::lastBaseCharacterFromText(StringView string)
+SUPPRESS_NODELETE char32_t TextUtil::lastBaseCharacterFromText(StringView string)
 {
-    if (!string.length())
-        return 0;
-
-    for (size_t characterIndex = string.length(); characterIndex > 0; --characterIndex) {
-        auto character = string.characterAt(characterIndex - 1);
-        if (!isCombiningMark(character))
-            return character;
+    for (auto codePoint : string.codePoints() | std::views::reverse) {
+        if (!isCombiningMark(codePoint))
+            return codePoint;
     }
     return 0;
 }

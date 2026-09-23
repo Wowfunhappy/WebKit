@@ -135,6 +135,14 @@ struct KeyMappingEntry {
         const unichar ch = 0xFFE8;
         modiferKeys->eventCharacter = [NSString stringWithCharacters:&ch length:1];
         modiferKeys->keyCode = 0x3D;
+    } else if ([character isEqualToString:@"leftMeta"]) {
+        const unichar ch = 0xFFE9;
+        modiferKeys->eventCharacter = [NSString stringWithCharacters:&ch length:1];
+        modiferKeys->keyCode = 0x37;
+    } else if ([character isEqualToString:@"rightMeta"]) {
+        const unichar ch = 0xFFEA;
+        modiferKeys->eventCharacter = [NSString stringWithCharacters:&ch length:1];
+        modiferKeys->keyCode = 0x36;
     } else if ([character isEqualToString:@"escape"]) {
         const unichar ch = 0x1B;
         modiferKeys->eventCharacter = [NSString stringWithCharacters:&ch length:1];

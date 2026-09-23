@@ -27,12 +27,13 @@
 #pragma once
 
 #include "JSModuleLoader.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 
 Structure* JSModuleLoader::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
 {
-    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+    return Structure::create(vm, globalObject, prototype, TypeInfo(JSModuleLoaderType, StructureFlags), info());
 }
 
 } // namespace JSC

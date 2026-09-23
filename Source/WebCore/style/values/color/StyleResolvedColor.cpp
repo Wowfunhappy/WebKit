@@ -48,7 +48,7 @@ void serializationForCSSTokenization(StringBuilder& builder, const CSS::Serializ
     builder.append(WebCore::serializationForCSS(absoluteColor.color));
 }
 
-String serializationForCSSTokenization(const CSS::SerializationContext&, const ResolvedColor& absoluteColor)
+WTF::String serializationForCSSTokenization(const CSS::SerializationContext&, const ResolvedColor& absoluteColor)
 {
     return WebCore::serializationForCSS(absoluteColor.color);
 }

@@ -25,10 +25,16 @@
 
 #pragma once
 
-#include <wtf/Threading.h>
+#include <wtf/Forward.h>
+#include <wtf/Ref.h>
+#include <wtf/Seconds.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
-WEBCORE_EXPORT Ref<Thread> createMaybeRealtimeAudioThread(ASCIILiteral threadName, Function<void()>&&, Seconds renderingQuantumDuration);
+WEBCORE_EXPORT Ref<WTF::Thread> createMaybeRealtimeAudioThread(ASCIILiteral threadName, Function<void()>&&, Seconds renderingQuantumDuration);
 
 }

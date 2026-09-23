@@ -29,11 +29,13 @@
 #include "AlternativeTextController.h"
 #include "Document.h"
 #include "DocumentMarkerController.h"
+#include "DocumentMarkers.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameSelection.h"
 #include "InsertParagraphSeparatorCommand.h"
 #include "InsertTextCommand.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "NodeDocument.h"
 #include "Text.h"
 
@@ -48,9 +50,9 @@ public:
     void operator()(size_t lineOffset, size_t lineLength, bool isLastLine) const
     {
         if (lineLength > 0)
-            Ref { m_dictationCommand.get() }->insertTextRunWithoutNewlines(lineOffset, lineLength);
+            protect(m_dictationCommand.get())->insertTextRunWithoutNewlines(lineOffset, lineLength);
         if (!isLastLine)
-            Ref { m_dictationCommand.get() }->insertParagraphSeparator();
+            protect(m_dictationCommand.get())->insertParagraphSeparator();
     }
 private:
     WeakRef<DictationCommand> m_dictationCommand;

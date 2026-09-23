@@ -32,6 +32,7 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include <wtf/NumberOfCores.h>
 
 namespace WebKit {
 

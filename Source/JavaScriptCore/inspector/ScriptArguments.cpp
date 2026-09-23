@@ -32,6 +32,8 @@
 #include "config.h"
 #include "ScriptArguments.h"
 
+#include "JSCJSValueInlines.h"
+#include "JSGlobalObject.h"
 #include "ProxyObject.h"
 #include "StrongInlines.h"
 #include "TopExceptionScope.h"
@@ -40,7 +42,7 @@ namespace Inspector {
 
 static inline String argumentAsString(JSC::JSGlobalObject* globalObject, JSC::JSValue argument)
 {
-    if (JSC::jsDynamicCast<JSC::ProxyObject*>(argument))
+    if (is<JSC::ProxyObject>(argument))
         return "[object Proxy]"_s;
 
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(globalObject->vm());

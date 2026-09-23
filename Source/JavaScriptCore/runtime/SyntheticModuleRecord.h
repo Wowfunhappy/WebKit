@@ -32,7 +32,6 @@
 namespace JSC {
 
 class JSGlobalObject;
-class JSInternalPromise;
 
 // https://tc39.es/proposal-json-modules/#sec-synthetic-module-records
 class SyntheticModuleRecord final : public AbstractModuleRecord {
@@ -58,8 +57,8 @@ public:
 
     static SyntheticModuleRecord* parseJSONModule(JSGlobalObject*, const Identifier& moduleKey, SourceCode&&);
 
-    Synchronousness link(JSGlobalObject*, JSValue scriptFetcher);
-    JS_EXPORT_PRIVATE JSValue evaluate(JSGlobalObject*);
+    Synchronousness link(JSGlobalObject*, RefPtr<ScriptFetcher> = nullptr);
+    JS_EXPORT_PRIVATE JSValue NODELETE evaluate(JSGlobalObject*);
 
 private:
     SyntheticModuleRecord(VM&, Structure*, const Identifier& moduleKey);

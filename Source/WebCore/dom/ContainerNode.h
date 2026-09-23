@@ -38,7 +38,7 @@ class ContainerNode : public Node {
     WTF_MAKE_TZONE_ALLOCATED(ContainerNode);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ContainerNode);
 public:
-    virtual ~ContainerNode();
+    WEBCORE_EXPORT virtual ~ContainerNode();
 
     Node* firstChild() const { return m_firstChild; }
     static constexpr ptrdiff_t firstChildMemoryOffset() { return OBJECT_OFFSETOF(ContainerNode, m_firstChild); }
@@ -47,8 +47,8 @@ public:
     bool hasChildNodes() const { return m_firstChild; }
     bool hasOneChild() const { return m_firstChild && m_firstChild == m_lastChild; }
 
-    bool directChildNeedsStyleRecalc() const { return hasStyleFlag(NodeStyleFlag::DirectChildNeedsStyleResolution); }
-    void setDirectChildNeedsStyleRecalc() { setStyleFlag(NodeStyleFlag::DirectChildNeedsStyleResolution); }
+    bool directChildNeedsStyleRecalc() const { return hasStateFlag(StateFlag::DirectChildNeedsStyleResolution); }
+    void setDirectChildNeedsStyleRecalc() { setStateFlag(StateFlag::DirectChildNeedsStyleResolution); }
 
     WEBCORE_EXPORT unsigned NODELETE countChildNodes() const;
     WEBCORE_EXPORT Node* NODELETE traverseToChildAt(unsigned) const;
@@ -82,11 +82,12 @@ public:
 
     enum class CanDelayNodeDeletion : uint8_t { No, Yes, Unknown };
     struct ChildChange {
-        enum class Type : uint8_t { ElementInserted, ElementRemoved, TextInserted, TextRemoved, TextChanged, AllChildrenRemoved, NonContentsChildRemoved, NonContentsChildInserted, AllChildrenReplaced };
+        enum class Type : uint8_t { ElementInserted, ElementRemoved, ElementAndTextInserted, TextInserted, TextRemoved, TextChanged, AllChildrenRemoved, NonContentsChildRemoved, NonContentsChildInserted, AllChildrenReplaced };
         enum class Source : uint8_t { Parser, API, Clone };
         enum class AffectsElements : uint8_t { Unknown, No, Yes };
 
         ChildChange::Type type;
+        const NodeVector* const insertedChildren;
         // Making these raw pointers RefPtr leads to a Speedometer 3 regression.
         SUPPRESS_UNCOUNTED_MEMBER Element* siblingChanged;
         SUPPRESS_UNCOUNTED_MEMBER Element* previousSiblingElement;
@@ -99,6 +100,7 @@ public:
         {
             switch (type) {
             case ChildChange::Type::ElementInserted:
+            case ChildChange::Type::ElementAndTextInserted:
             case ChildChange::Type::TextInserted:
             case ChildChange::Type::NonContentsChildInserted:
             case ChildChange::Type::AllChildrenReplaced:
@@ -145,12 +147,14 @@ public:
     ExceptionOr<void> replaceChildren(FixedVector<NodeOrString>&&);
     void replaceChildrenWithoutValidityCheck(NodeVector&&);
 
+    ExceptionOr<void> moveBefore(Node&, RefPtr<Node>&& refChild);
+
     ExceptionOr<void> ensurePreInsertionValidity(Node& newChild, Node* refChild);
     ExceptionOr<void> ensurePreInsertionValidityForPhantomDocumentFragment(NodeVector& newChildren, Node* refChild = nullptr);
     ExceptionOr<void> insertChildrenBeforeWithoutPreInsertionValidityCheck(NodeVector&&, Node* nextChild = nullptr);
 
 protected:
-    explicit ContainerNode(Document&, NodeType, OptionSet<TypeFlag> = { });
+    explicit inline ContainerNode(Document&, NodeType, OptionSet<TypeFlag> = { });
 
     friend void removeDetachedChildrenInContainer(ContainerNode&);
 
@@ -162,6 +166,7 @@ protected:
 
 private:
     friend struct SerializedNode;
+    ContainerNode(ClangVTableWorkaroundTag, Document&);
     void executePreparedChildrenRemoval();
     enum class DeferChildrenChanged : bool { No, Yes };
     enum class DidRemoveElements : bool { No, Yes };
@@ -188,12 +193,6 @@ private:
     CheckedPtr<Node> m_firstChild;
     CheckedPtr<Node> m_lastChild;
 };
-
-inline ContainerNode::ContainerNode(Document& document, NodeType type, OptionSet<TypeFlag> typeFlags)
-    : Node(document, type, typeFlags | TypeFlag::IsContainerNode)
-{
-    ASSERT(!isCharacterDataNode());
-}
 
 } // namespace WebCore
 

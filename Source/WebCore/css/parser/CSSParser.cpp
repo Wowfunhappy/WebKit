@@ -1,6 +1,6 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Copyright (C) 2016-2025 Apple Inc. All rights reserved.
-// Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+// Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -35,7 +35,9 @@
 #include "CSSCounterStyleRule.h"
 #include "CSSCustomPropertySyntax.h"
 #include "CSSCustomPropertyValue.h"
+#include "CSSFontFamilyNameValue.h"
 #include "CSSFontFeatureValuesRule.h"
+#include "CSSKeywordValueInlines.h"
 #include "CSSKeyframeRule.h"
 #include "CSSKeyframesRule.h"
 #include "CSSParserEnum.h"
@@ -47,20 +49,21 @@
 #include "CSSPositionTryRule.h"
 #include "CSSPropertyParser.h"
 #include "CSSPropertyParserConsumer+Animations.h"
-#include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
 #include "CSSPropertyParserConsumer+CounterStyles.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 #include "CSSPropertyParserConsumer+IntegerDefinitions.h"
+#include "CSSPropertyParserConsumer+MetaConsumer.h"
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserConsumer+Timeline.h"
 #include "CSSSelectorParser.h"
+#include "CSSStringValue.h"
 #include "CSSStyleSheet.h"
+#include "CSSSubstitutionParser.h"
 #include "CSSSupportsParser.h"
 #include "CSSTokenizer.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
-#include "CSSVariableParser.h"
 #include "CSSViewTransitionRule.h"
 #include "ComputedStyleDependencies.h"
 #include "ContainerQueryParser.h"
@@ -74,6 +77,8 @@
 #include "NestingLevelIncrementer.h"
 #include "NodeDocument.h"
 #include "StyleColor.h"
+#include "StylePrimitiveNumericTypes+DeprecatedCSSValueConversion.h"
+#include "StylePrimitiveNumericTypes+DeprecatedConversions.h"
 #include "StylePropertiesInlines.h"
 #include "StyleRule.h"
 #include "StyleRuleFunction.h"
@@ -401,7 +406,7 @@ bool CSSParser::consumeRuleList(CSSParserTokenRange range, RuleList ruleListType
         }
         if (rule) {
             allowedRules = computeNewAllowedRules(allowedRules, rule.get());
-            callback(Ref { *rule });
+            callback(protect(*rule));
         }
     }
 
@@ -528,20 +533,22 @@ RefPtr<StyleRuleBase> CSSParser::consumeQualifiedRule(CSSParserTokenRange& range
     // https://github.com/w3c/csswg-drafts/issues/9336#issuecomment-1719806755
     if (range.peek().type() == LeftBraceToken) {
         auto rangeCopyForDashedIdent = initialRange;
-        auto customProperty = CSSPropertyParserHelpers::consumeDashedIdent(rangeCopyForDashedIdent);
-        // This rule is ambigous with a custom property because it looks like "--ident: ...."
-        if (customProperty && rangeCopyForDashedIdent.peek().type() == ColonToken) {
-            if (isStyleNestedContext()) {
-                // Error, consume until semicolon or end of block.
-                while (!range.atEnd() && range.peek().type() != SemicolonToken)
-                    range.consumeComponentValue();
-                if (range.peek().type() == SemicolonToken)
-                    range.consume();
+        // This rule is ambiguous with a custom property because it looks like "--ident: ...."
+        if (rangeCopyForDashedIdent.peek().type() == IdentToken && rangeCopyForDashedIdent.peek().value().startsWith("--"_s)) {
+            rangeCopyForDashedIdent.consumeIncludingWhitespace();
+            if (rangeCopyForDashedIdent.peek().type() == ColonToken) {
+                if (isStyleNestedContext()) {
+                    // Error, consume until semicolon or end of block.
+                    while (!range.atEnd() && range.peek().type() != SemicolonToken)
+                        range.consumeComponentValue();
+                    if (range.peek().type() == SemicolonToken)
+                        range.consume();
+                    return { };
+                }
+                // Error, consume until end of block.
+                range.consumeBlock();
                 return { };
             }
-            // Error, consume until end of block.
-            range.consumeBlock();
-            return { };
         }
     }
 
@@ -837,11 +844,10 @@ RefPtr<StyleRuleFontFeatureValuesBlock> CSSParser::consumeFontFeatureValuesRuleB
         auto state = CSS::PropertyParserState { .context = m_context };
         Vector<unsigned> values;
         while (!range.atEnd()) {
-            auto value = CSSPropertyParserHelpers::CSSPrimitiveValueResolver<CSS::Integer<CSS::Nonnegative>>::consumeAndResolve(range, state);
+            auto value = CSSPropertyParserHelpers::MetaConsumer<CSS::Integer<CSS::Nonnegative>>::consume(range, state);
             if (!value)
                 return { };
-            ASSERT(value->isInteger());
-            auto tagInteger = value->resolveAsIntegerDeprecated();
+            auto tagInteger = Style::deprecatedToStyle(*value).value;
             ASSERT(tagInteger >= 0);
             values.append(unsignedCast(tagInteger));
             if (maxValues && values.size() > *maxValues)
@@ -917,7 +923,7 @@ RefPtr<StyleRuleFontFeatureValues> CSSParser::consumeFontFeatureValuesRule(CSSPa
 
 RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
 {
-    RefPtr name = CSSPropertyParserHelpers::consumeDashedIdent(prelude);
+    auto name = CSSPropertyParserHelpers::consumeEagerlyResolvableDashedIdentRaw(prelude);
     if (!name || !prelude.atEnd())
         return nullptr; // Parse error; expected custom ident in @font-palette-values header
 
@@ -935,31 +941,44 @@ RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSPa
     auto fontFamilies = [&] {
         Vector<AtomString> fontFamilies;
         auto append = [&](auto& value) {
-            if (value.isFontFamily())
-                fontFamilies.append(AtomString { value.stringValue() });
+            if (RefPtr fontFamilyNameValue = dynamicDowncast<CSSFontFamilyNameValue>(value))
+                fontFamilies.append(fontFamilyNameValue->fontFamilyName().value);
         };
         RefPtr cssFontFamily = properties->getPropertyCSSValue(CSSPropertyFontFamily);
         if (!cssFontFamily)
             return fontFamilies;
         if (RefPtr families = dynamicDowncast<CSSValueList>(*cssFontFamily)) {
             for (Ref item : *families)
-                append(downcast<CSSPrimitiveValue>(item.get()));
+                append(item.get());
             return fontFamilies;
         }
-        if (RefPtr family = dynamicDowncast<CSSPrimitiveValue>(cssFontFamily.releaseNonNull()))
-            append(*family);
+        append(*cssFontFamily);
         return fontFamilies;
     }();
 
     std::optional<FontPaletteIndex> basePalette;
     if (auto basePaletteValue = properties->getPropertyCSSValue(CSSPropertyBasePalette)) {
-        const auto& primitiveValue = downcast<CSSPrimitiveValue>(*basePaletteValue);
-        if (primitiveValue.isInteger())
-            basePalette = FontPaletteIndex(primitiveValue.resolveAsIntegerDeprecated<unsigned>());
-        else if (primitiveValue.valueID() == CSSValueLight)
-            basePalette = FontPaletteIndex(FontPaletteIndex::Type::Light);
-        else if (primitiveValue.valueID() == CSSValueDark)
-            basePalette = FontPaletteIndex(FontPaletteIndex::Type::Dark);
+        if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(*basePaletteValue)) {
+            // FIXME: This should not be using `deprecatedToStyleFromCSSValue`. CSS Fonts 4 specifies how @font-palette-value descriptors with numeric types should be resolved, stating:
+            //   "Math functions, such as calc(), and also var(), and env(), are valid within
+            //    descriptor values in a @font-palette-values rule. They are evaluated within
+            //    the context of the root element. Relative units are also evaluated within the
+            //    context of the root element."
+            //   (https://drafts.csswg.org/css-fonts/#font-palette-values)
+            if (auto resolvedInteger = Style::deprecatedToStyleFromCSSValue<Style::Integer<CSS::Nonnegative, unsigned>>(*primitiveValue))
+                basePalette = FontPaletteIndex(resolvedInteger->value);
+        } else if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(*basePaletteValue)) {
+            switch (keywordValue->valueID()) {
+            case CSSValueLight:
+                basePalette = FontPaletteIndex(FontPaletteIndex::Type::Light);
+                break;
+            case CSSValueDark:
+                basePalette = FontPaletteIndex(FontPaletteIndex::Type::Dark);
+                break;
+            default:
+                break;
+            }
+        }
     }
 
     Vector<FontPaletteValues::OverriddenColor> overrideColors;
@@ -969,7 +988,13 @@ RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSPa
             Ref first = pair->first();
             Ref second = pair->second();
 
-            auto key = downcast<CSSPrimitiveValue>(first)->template resolveAsIntegerDeprecated<unsigned>();
+            // FIXME: This should not be using `deprecatedToStyleFromCSSValue`. CSS Fonts 4 specifies how @font-palette-value descriptors with numeric types should be resolved, stating:
+            //   "Math functions, such as calc(), and also var(), and env(), are valid within
+            //    descriptor values in a @font-palette-values rule. They are evaluated within
+            //    the context of the root element. Relative units are also evaluated within the
+            //    context of the root element."
+            //   (https://drafts.csswg.org/css-fonts/#font-palette-values)
+            auto key = Style::deprecatedToStyleFromCSSValue<Style::Integer<CSS::Nonnegative, unsigned>>(downcast<CSSPrimitiveValue>(first))->value;
             auto color = CSSColorValue::absoluteColor(second);
             if (!color.isValid())
                 return { };
@@ -978,7 +1003,7 @@ RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSPa
         });
     }
 
-    return StyleRuleFontPaletteValues::create(AtomString { name->stringValue() }, WTF::move(fontFamilies), WTF::move(basePalette), WTF::move(overrideColors));
+    return StyleRuleFontPaletteValues::create(name.toAtomString(), WTF::move(fontFamilies), WTF::move(basePalette), WTF::move(overrideColors));
 }
 
 RefPtr<StyleRuleKeyframes> CSSParser::consumeKeyframesRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
@@ -1058,9 +1083,6 @@ RefPtr<StyleRuleCounterStyle> CSSParser::consumeCounterStyleRule(CSSParserTokenR
 
 RefPtr<StyleRuleViewTransition> CSSParser::consumeViewTransitionRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
 {
-    if (!m_context.propertySettings.crossDocumentViewTransitionsEnabled)
-        return nullptr;
-
     if (!prelude.atEnd())
         return nullptr; // Parse error; @view-transition prelude should be empty
 
@@ -1082,7 +1104,7 @@ RefPtr<StyleRulePositionTry> CSSParser::consumePositionTryRule(CSSParserTokenRan
         return nullptr;
 
     // Prelude should ONLY be a <dashed-ident>.
-    AtomString ruleName { CSSPropertyParserHelpers::consumeDashedIdentRaw(prelude) };
+    auto ruleName = CSSPropertyParserHelpers::consumeEagerlyResolvableDashedIdentRaw(prelude);
     if (!ruleName)
         return nullptr;
     if (!prelude.atEnd())
@@ -1097,7 +1119,7 @@ RefPtr<StyleRulePositionTry> CSSParser::consumePositionTryRule(CSSParserTokenRan
     }
 
     auto declarations = consumeDeclarationListInNewNestingContext(block, StyleRuleType::PositionTry);
-    return StyleRulePositionTry::create(WTF::move(ruleName), createStyleProperties(declarations, m_context.mode));
+    return StyleRulePositionTry::create(ruleName.toAtomString(), createStyleProperties(declarations, m_context.mode));
 }
 
 RefPtr<StyleRuleFunction> CSSParser::consumeFunctionRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
@@ -1155,9 +1177,17 @@ RefPtr<StyleRuleFunction> CSSParser::consumeFunctionRule(CSSParserTokenRange pre
 
                 auto defaultRange = defaultRangeStart.rangeUntil(parametersRange);
 
-                // "If a default value and a parameter type are both provided, then the default value must parse
-                // successfully according to that parameter type’s syntax. Otherwise, the @function rule is invalid."
-                if (!CSSPropertyParser::isValidCustomPropertyValueForSyntax(parameter.type, defaultRange, m_context))
+                auto isValidDefault = [&] {
+                    // "If a default value and a parameter type are both provided, then the default value
+                    // must parse successfully according to that parameter type's syntax. Otherwise, the
+                    // @function rule is invalid." A default containing arbitrary substitution functions
+                    // (var(), a dashed-function) is assumed valid at parse time and validated after
+                    // substitution.
+                    if (CSSSubstitutionParser::containsSubstitutionFunctions(defaultRange, m_context))
+                        return true;
+                    return CSSPropertyParser::isValidCustomPropertyValueForSyntax(parameter.type, defaultRange, m_context);
+                };
+                if (!isValidDefault())
                     return { };
 
                 parameter.defaultValue = CSSVariableData::create(defaultRange);
@@ -1387,13 +1417,13 @@ RefPtr<StyleRuleProperty> CSSParser::consumePropertyRule(CSSParserTokenRange pre
     for (auto& property : declarations) {
         switch (property.id()) {
         case CSSPropertySyntax:
-            descriptor.syntax = Ref { downcast<CSSPrimitiveValue>(*property.value()) }->stringValue();
+            descriptor.syntax = protect(downcast<CSSStringValue>(*property.value()))->string().value;
             continue;
         case CSSPropertyInherits:
-            descriptor.inherits = property.value()->valueID() == CSSValueTrue;
+            descriptor.inherits = isValueID(property.value(), CSSValueTrue);
             break;
         case CSSPropertyInitialValue:
-            descriptor.initialValue = Ref { downcast<CSSCustomPropertyValue>(*property.value()) }->asVariableData();
+            descriptor.initialValue = protect(downcast<CSSCustomPropertyValue>(*property.value()))->asVariableData();
             break;
         default:
             break;
@@ -1425,7 +1455,7 @@ RefPtr<StyleRuleProperty> CSSParser::consumePropertyRule(CSSParserTokenRange pre
         auto dependencies = CSSPropertyParser::collectParsedCustomPropertyValueDependencies(*syntax, tokenRange, m_context);
         if (!dependencies.isComputationallyIndependent())
             return false;
-        auto containsVariable = CSSVariableParser::containsValidVariableReferences(descriptor.initialValue->tokenRange(), m_context);
+        auto containsVariable = CSSSubstitutionParser::containsSubstitutionFunctions(descriptor.initialValue->tokenRange(), m_context);
         if (containsVariable)
             return false;
         return true;
@@ -1480,7 +1510,7 @@ static void validateUserAgentSheetSelector(const CSSSelectorList& selectorList)
     auto validateRightmostCompound = [](const CSSSelector& complexSelector) {
         bool hasBucketedSelector = false;
         bool hasLogicalCombination = false;
-        for (auto* simpleSelector = &complexSelector; simpleSelector; simpleSelector = simpleSelector->precedingInCompound()) {
+        for (auto* simpleSelector = &complexSelector; simpleSelector; simpleSelector = simpleSelector->followingInCompound()) {
             if (simpleSelector->match() == CSSSelector::Match::Tag && simpleSelector->tagQName().localName() != starAtom())
                 hasBucketedSelector = true;
             if (simpleSelector->match() == CSSSelector::Match::Id)
@@ -1802,7 +1832,7 @@ bool CSSParser::consumeDeclaration(CSSParserTokenRange range, StyleRuleType rule
 
     // @position-try doesn't allow custom properties.
     // FIXME: maybe make this logic more elegant?
-    if (propertyID == CSSPropertyInvalid && CSSVariableParser::isValidVariableName(token) && ruleType != StyleRuleType::PositionTry) {
+    if (propertyID == CSSPropertyInvalid && CSSSubstitutionParser::isValidCustomPropertyName(token) && ruleType != StyleRuleType::PositionTry) {
         AtomString variableName = token.value().toAtomString();
         consumeCustomPropertyValue(range, variableName, important);
     }
@@ -1824,13 +1854,17 @@ void CSSParser::consumeCustomPropertyValue(CSSParserTokenRange range, const Atom
 {
     if (range.atEnd())
         topContext().m_parsedProperties.append(CSSProperty(CSSPropertyCustom, CSSCustomPropertyValue::createEmpty(variableName), important));
-    else if (auto value = CSSVariableParser::parseDeclarationValue(variableName, range, m_context))
-        topContext().m_parsedProperties.append(CSSProperty(CSSPropertyCustom, value.releaseNonNull(), important));
+    else {
+        auto namespaceMap = m_styleSheet ? m_styleSheet->namespacePrefixMap() : CSSNamespacePrefixMap { };
+        if (auto value = CSSSubstitutionParser::parseDeclarationValue(variableName, range, m_context, namespaceMap))
+            topContext().m_parsedProperties.append(CSSProperty(CSSPropertyCustom, value.releaseNonNull(), important));
+    }
 }
 
 void CSSParser::consumeDeclarationValue(CSSParserTokenRange range, CSSPropertyID propertyID, IsImportant important, StyleRuleType ruleType)
 {
-    CSSPropertyParser::parseValue(propertyID, important, range, m_context, topContext().m_parsedProperties, ruleType);
+    auto namespaceMap = m_styleSheet ? m_styleSheet->namespacePrefixMap() : CSSNamespacePrefixMap { };
+    CSSPropertyParser::parseValue(propertyID, important, range, m_context, topContext().m_parsedProperties, ruleType, namespaceMap);
 }
 
 } // namespace WebCore

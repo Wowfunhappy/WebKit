@@ -28,6 +28,8 @@
 #include "CSSStyleSheet.h"
 #include "CommonAtomStrings.h"
 #include "Document.h"
+#include "MutableStyleProperties.h"
+#include "NodeDocument.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"
 #include "StyleSheetContents.h"
@@ -50,7 +52,7 @@ CSSPageRule::~CSSPageRule()
 CSSPageDescriptors& CSSPageRule::style()
 {
     if (!m_propertiesCSSOMWrapper)
-        m_propertiesCSSOMWrapper = CSSPageDescriptors::create(m_pageRule->mutableProperties(), *this);
+        m_propertiesCSSOMWrapper = CSSPageDescriptors::create(protect(m_pageRule->mutableProperties()), protect(*this));
     return *m_propertiesCSSOMWrapper;
 }
 
@@ -71,14 +73,14 @@ void CSSPageRule::setSelectorText(const String& selectorText)
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_pageRule->wrapperAdoptSelectorList(WTF::move(*selectorList));
+    protect(m_pageRule)->wrapperAdoptSelectorList(WTF::move(*selectorList));
 }
 
 String CSSPageRule::cssText() const
 {
     auto selector = selectorText();
     auto optionalSpace = selector.isEmpty() ? ""_s : " "_s;
-    if (auto declarations = m_pageRule->properties().asText(CSS::defaultSerializationContext()); !declarations.isEmpty())
+    if (auto declarations = protect(m_pageRule)->properties().asText(CSS::defaultSerializationContext()); !declarations.isEmpty())
         return makeString("@page"_s, optionalSpace, selector, " { "_s, declarations, " }"_s);
     return makeString("@page"_s, optionalSpace, selector, " { }"_s);
 }

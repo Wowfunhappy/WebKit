@@ -76,7 +76,7 @@ public:
         RefPtr<FontFace> next();
 
     private:
-        Ref<FontFaceSet> m_target;
+        const Ref<FontFaceSet> m_target;
         size_t m_index { 0 }; // FIXME: There needs to be a mechanism to handle when fonts are added or removed from the middle of the FontFaceSet.
     };
     Iterator createIterator(ScriptExecutionContext*) { return Iterator(*this); }

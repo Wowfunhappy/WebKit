@@ -379,12 +379,17 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
     if (!page)
         return;
 
+    if (bundle.editorState) {
+        if (page->updateEditorState(connection, EditorState { *bundle.editorState }, WebPageProxy::ShouldMergeVisualEditorState::Yes)) {
+            page->dispatchDidUpdateEditorState();
+#if ENABLE(WRITING_TOOLS)
+            page->updateWritingToolsAvailability();
+#endif // ENABLE(WRITING_TOOLS)
+        }
+    }
+
     if (bundle.mainFrameData) {
         m_activityStateChangeID = bundle.mainFrameData->activityStateChangeID;
-
-        // FIXME(site-isolation): Editor state should be updated for subframes.
-        if (bundle.mainFrameData->editorState && page->updateEditorState(EditorState { *bundle.mainFrameData->editorState }, WebPageProxy::ShouldMergeVisualEditorState::Yes))
-            page->dispatchDidUpdateEditorState();
 
         // Process any callbacks for unhiding content early, so that we
         // set the root node during the same CA transaction.
@@ -405,10 +410,13 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
     WeakPtr weakThis { *this };
 
     for (auto& transaction : bundle.transactions) {
-        commitLayerTreeTransaction(connection, CheckedRef { transaction.first }.get(), transaction.second, bundle.mainFrameData, bundle.pageData, bundle.transactionID);
+        commitLayerTreeTransaction(connection, CheckedRef { transaction.first }.get(), transaction.second,  transaction.first.remoteContextHostedIdentifier() ? std::nullopt : bundle.mainFrameData, bundle.pageData, bundle.transactionID);
         if (!weakThis)
             return;
     }
+
+    if (CheckedPtr scrollingCoordinatorProxy = page->scrollingCoordinatorProxy())
+        scrollingCoordinatorProxy->establishLayerTreeScrollingRelations(connection);
 
     for (auto& callbackID : bundle.pageData.callbackIDs) {
         removeOutstandingPresentationUpdateCallback(connection, callbackID);
@@ -421,13 +429,15 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
     if (!sendRights.isEmpty())
         [CATransaction addCommitHandler:^{ sendRights.clear(); } forPhase:kCATransactionPhasePostCommit];
 
-    auto duration = MonotonicTime::now() - bundle.startTime;
-    if (duration.value() > (1.0 / displayNominalFramesPerSecond().value_or(FullSpeedFramesPerSecond)))
-        WTFEmitSignpost(this, WebKitPerformance, "slowFrame");
-    m_frameDurations.append(duration);
+    if (RefPtr page = this->page(); page && page->isViewVisible()) {
+        auto duration = MonotonicTime::now() - bundle.startTime;
+        if (duration.value() > (1.0 / displayNominalFramesPerSecond().value_or(FullSpeedFramesPerSecond)))
+            WTFEmitSignpost(this, WebKitPerformance, "slowFrame");
+        m_frameDurations.append(duration);
 
-    if (m_frameDurations.size() > kSlowFrameIndicatorWidth)
-        m_frameDurations.removeFirst();
+        if (m_frameDurations.size() > kSlowFrameIndicatorWidth)
+            m_frameDurations.removeFirst();
+    }
 
     {
         ProcessState& state = processStateForConnection(connection);
@@ -448,10 +458,18 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
 #if ENABLE(TOUCH_EVENT_REGIONS)
 WebCore::TrackingType RemoteLayerTreeDrawingAreaProxy::eventTrackingTypeForPoint(WebCore::EventTrackingRegions::EventType eventType, IntPoint location)
 {
+    RefPtr page = this->page();
+    if (!page)
+        return WebCore::TrackingType::NotTracking;
+    Ref preferences = page->preferences();
+    if (!preferences->alwaysUseTouchEventRegions() && !preferences->siteIsolationEnabled())
+        return WebCore::TrackingType::NotTracking;
+
     FloatPoint localLocation = location;
-    if (auto* eventRegion = eventRegionForPoint(remoteLayerTreeHost().rootLayer(), localLocation))
-        return eventRegion->eventTrackingTypeForPoint(eventType, roundedIntPoint(localLocation));
-    return WebCore::TrackingType::NotTracking;
+    RetainPtr rootLayer = remoteLayerTreeHost().rootLayer();
+    return eventRegionForPoint(rootLayer.get(), localLocation).transform([eventType, &localLocation](const WebCore::EventRegion& eventRegion) {
+        return eventRegion.eventTrackingTypeForPoint(eventType, roundedIntPoint(localLocation));
+    }).value_or(WebCore::TrackingType::NotTracking);
 }
 #endif
 
@@ -466,9 +484,8 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
     if (!page)
         return;
 
-    {
+    if (CheckedPtr scrollingCoordinatorProxy = page->scrollingCoordinatorProxy()) {
         ScrollRequestData requestedScroll;
-        CheckedRef scrollingCoordinatorProxy = *page->scrollingCoordinatorProxy();
 
         auto commitLayerAndScrollingTrees = [&] {
             if (layerTreeTransaction.hasAnyLayerChanges())
@@ -478,7 +495,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
                 if (!m_replyForUnhidingContent) {
                     if (m_hasDetachedRootLayer)
                         RELEASE_LOG(RemoteLayerTree, "RemoteLayerTreeDrawingAreaProxy(%" PRIu64 ") Unhiding layer tree", identifier().toUInt64());
-                    page->setRemoteLayerTreeRootNode(protect(m_remoteLayerTreeHost->rootNode()).get());
+                    page->setRemoteLayerTreeRootNode(m_remoteLayerTreeHost->rootNode().get());
                     m_hasDetachedRootLayer = false;
                 } else
                     m_remoteLayerTreeHost->detachRootLayer();
@@ -494,6 +511,18 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
         didCommitLayerTree(connection, layerTreeTransaction, scrollingTreeTransaction, mainFrameData, transactionID);
 
         scrollingCoordinatorProxy->applyScrollingTreeLayerPositionsAfterCommit();
+
+#if HAVE(NSREFRESHCONTROLLER)
+        if (mainFrameData && !layerTreeTransaction.remoteContextHostedIdentifier()) {
+            if (RefPtr pageClient = page->pageClient()) {
+                auto scrollPosition = scrollingCoordinatorProxy->currentMainFrameScrollPosition();
+                auto scrollOrigin = scrollingCoordinatorProxy->scrollOrigin();
+                auto topScrollStretch = std::max(0.0f, -scrollOrigin.y() - scrollPosition.y());
+                pageClient->topScrollStretchDidChange(topScrollStretch);
+            }
+        }
+#endif
+
 #if PLATFORM(IOS_FAMILY)
         page->adjustLayersForLayoutViewport(page->unobscuredContentRect().location(), page->unconstrainedLayoutViewportRect(), page->displayedContentScale());
 #endif
@@ -517,7 +546,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
             scrollPosition = layerTreeTransaction.scrollPosition();
 #endif
             updateDebugIndicator(layerTreeTransaction.contentsSize(), rootLayerChanged, scale, scrollPosition);
-            protect(m_debugIndicatorLayerTreeHost->rootLayer()).get().name = @"Indicator host root";
+            [m_debugIndicatorLayerTreeHost->rootLayer() setName:@"Indicator host root"];
         }
     }
 
@@ -614,7 +643,7 @@ void RemoteLayerTreeDrawingAreaProxy::updateDebugIndicator(IntSize contentsSize,
 
     if (rootLayerChanged) {
         [m_tileMapHostLayer setSublayers:@[]];
-        [m_tileMapHostLayer addSublayer:protect(m_debugIndicatorLayerTreeHost->rootLayer()).get()];
+        [m_tileMapHostLayer addSublayer:m_debugIndicatorLayerTreeHost->rootLayer()];
         [m_tileMapHostLayer addSublayer:m_exposedRectIndicatorLayer.get()];
     }
     
@@ -890,7 +919,7 @@ bool RemoteLayerTreeDrawingAreaProxy::hasVisibleContent() const
     return m_remoteLayerTreeHost->rootLayer();
 }
 
-CALayer *RemoteLayerTreeDrawingAreaProxy::layerWithIDForTesting(WebCore::PlatformLayerIdentifier layerID) const
+RetainPtr<CALayer> RemoteLayerTreeDrawingAreaProxy::layerWithIDForTesting(WebCore::PlatformLayerIdentifier layerID) const
 {
     return m_remoteLayerTreeHost->layerWithIDForTesting(layerID);
 }

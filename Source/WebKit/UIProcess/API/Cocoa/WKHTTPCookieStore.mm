@@ -33,12 +33,17 @@
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/HashMap.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/RunLoop.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/URL.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/WorkQueue.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
+#if PLATFORM(IOS_FAMILY)
 static NSHTTPCookie *clearCookiePartitionPropertyIfNeeded(NSHTTPCookie *cookie, bool isCookiePartitioningEnabled)
 {
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
@@ -59,12 +64,37 @@ static NSHTTPCookie *clearCookiePartitionPropertyIfNeeded(NSHTTPCookie *cookie, 
     return cookie;
 #endif
 }
+#endif
 
 static NSArray<NSHTTPCookie *> *coreCookiesToNSCookies(const Vector<WebCore::Cookie>& coreCookies, bool isCookiePartitioningEnabled)
 {
     return createNSArray(coreCookies, [isCookiePartitioningEnabled] (auto& cookie) -> NSHTTPCookie * {
-        return clearCookiePartitionPropertyIfNeeded(cookie.createNSHTTPCookie().autorelease(), isCookiePartitioningEnabled);
+#if PLATFORM(IOS_FAMILY)
+        if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ExposePartitionFromWKHTTPCookieStoreAPI) && WTF::IOSApplication::isTableau())
+            return clearCookiePartitionPropertyIfNeeded(cookie.createNSHTTPCookie().autorelease(), isCookiePartitioningEnabled);
+#else
+        UNUSED_PARAM(isCookiePartitioningEnabled);
+#endif
+
+        return cookie.createNSHTTPCookie().autorelease();
     }).autorelease();
+}
+
+static WorkQueue& cookieConversionQueueSingleton()
+{
+    static NeverDestroyed<Ref<WorkQueue>> queue = WorkQueue::create("com.apple.WebKit.WKHTTPCookieStoreCookieConversion"_s);
+    return queue.get();
+}
+
+static CompletionHandler<void(Vector<WebCore::Cookie>&&)> makeCookieConversionHandler(bool isOptInCookiePartitioningEnabled, void (^completionHandler)(NSArray<NSHTTPCookie *> *))
+{
+    return { [isOptInCookiePartitioningEnabled, handler = makeBlockPtr(completionHandler)](Vector<WebCore::Cookie>&& cookies) mutable {
+        assertIsCurrent(cookieConversionQueueSingleton());
+        RetainPtr nsCookies = coreCookiesToNSCookies(cookies, isOptInCookiePartitioningEnabled);
+        RunLoop::mainSingleton().dispatch([handler = WTF::move(handler), nsCookies = WTF::move(nsCookies)] {
+            handler.get()(nsCookies.get());
+        });
+    }, CompletionHandlerCallThread::AnyThread };
 }
 
 class WKHTTPCookieStoreObserver : public API::HTTPCookieStoreObserver {
@@ -112,11 +142,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (void)getAllCookies:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
-    bool isOptInCookiePartitioningEnabled = _cookieStore->isOptInCookiePartitioningEnabled();
-    protect(*_cookieStore)->cookies([isOptInCookiePartitioningEnabled, handler = adoptNS([completionHandler copy])](const Vector<WebCore::Cookie>& cookies) {
-        auto rawHandler = (void (^)(NSArray<NSHTTPCookie *> *))handler.get();
-        rawHandler(coreCookiesToNSCookies(cookies, isOptInCookiePartitioningEnabled));
-    });
+    protect(*_cookieStore)->cookies(makeCookieConversionHandler(protect(*_cookieStore)->isOptInCookiePartitioningEnabled(), completionHandler), &cookieConversionQueueSingleton());
 }
 
 - (void)setCookie:(NSHTTPCookie *)cookie completionHandler:(void (^)(void))completionHandler
@@ -214,10 +240,7 @@ static WKCookiePolicy NODELETE toWKCookiePolicy(WebCore::HTTPCookieAcceptPolicy 
 
 - (void)getCookiesForURL:(NSURL *)url completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
-    bool isOptInCookiePartitioningEnabled = _cookieStore->isOptInCookiePartitioningEnabled();
-    protect(*_cookieStore)->cookiesForURL(url, [isOptInCookiePartitioningEnabled, handler = makeBlockPtr(completionHandler)] (const Vector<WebCore::Cookie>& cookies) {
-        handler.get()(coreCookiesToNSCookies(cookies, isOptInCookiePartitioningEnabled));
-    });
+    protect(*_cookieStore)->cookiesForURL(url, makeCookieConversionHandler(protect(*_cookieStore)->isOptInCookiePartitioningEnabled(), completionHandler), &cookieConversionQueueSingleton());
 }
 #pragma mark WKObject protocol implementation
 

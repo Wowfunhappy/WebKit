@@ -27,6 +27,5 @@
     Conditional=POINTER_LOCK,
     EnabledBySetting=PointerLockEnabled
 ] partial interface Element {
-    // Returns Promise<undefined> if PointerLockOptionsEnabled Runtime Flag is set, otherwise returns undefined.
-    [CallWith=CurrentGlobalObject] any requestPointerLock(optional PointerLockOptions options = {});
+    Promise<undefined> requestPointerLock(optional PointerLockOptions options = {});
 };

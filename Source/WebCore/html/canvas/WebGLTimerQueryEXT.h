@@ -37,7 +37,8 @@ namespace WebCore {
 
 class WebGLTimerQueryEXT final : public WebGLObject {
 public:
-    static RefPtr<WebGLTimerQueryEXT> create(WebGLRenderingContextBase&);
+    static Ref<WebGLTimerQueryEXT> createLost();
+    static Ref<WebGLTimerQueryEXT> create(WebGLRenderingContextBase&);
     virtual ~WebGLTimerQueryEXT();
 
     bool isResultAvailable() const { return m_isResultAvailable; }
@@ -51,6 +52,7 @@ public:
 
 private:
     WebGLTimerQueryEXT(WebGLRenderingContextBase&, PlatformGLObject);
+    WebGLTimerQueryEXT();
     void deleteObjectImpl(const AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
 
     bool m_isResultAvailable { false };

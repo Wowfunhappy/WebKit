@@ -621,7 +621,7 @@ void LocalAuthenticator::continueMakeCredentialAfterUserVerification(SecAccessCo
     // of the key item. Instead we calculate that, and examine its equaity in DEBUG build.
     Vector<uint8_t> credentialId;
     {
-        auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_1);
+        auto digest = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_1);
         digest->addBytes(span(nsPublicKeyData.get()));
         credentialId = digest->computeHash();
         m_provisionalCredentialId = toNSData(credentialId);

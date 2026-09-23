@@ -32,7 +32,6 @@
 #include "JITOperationValidation.h"
 #include "LinkBuffer.h"
 #include <bit>
-#include <wtf/ByteOrder.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/FastBitVector.h>
 #include <wtf/FileSystem.h>
@@ -81,7 +80,7 @@ using namespace WTF;
 #if OS(DARWIN) && CPU(ARM64)
 // We already rely on page size being CeilingOnPageSize elsewhere (e.g. MarkedBlock).
 // Just use the constexpr CeilingOnPageSize for better efficiency.
-static inline constexpr size_t executablePageSize() { return CeilingOnPageSize; }
+static inline constexpr size_t NODELETE executablePageSize() { return CeilingOnPageSize; }
 #else
 static inline size_t executablePageSize() { return WTF::pageSize(); }
 #endif
@@ -143,7 +142,7 @@ static_assert(fixedExecutableMemoryPoolSize < 4 * GB, "ExecutableMemoryHandle as
 static constexpr WTF::UUID jscJITNamespace { static_cast<UInt128>(0x325696c8e7cc11eeULL) << 64 | (0x9f4e325096b39f47ULL) };
 #endif
 
-static bool isJITEnabled()
+static bool NODELETE isJITEnabled()
 {
     bool jitEnabled = !g_jscConfig.jitDisabled;
 #if HAVE(IOS_JIT_RESTRICTIONS)
@@ -436,8 +435,10 @@ static ALWAYS_INLINE JITReservation initializeJITPageReservation()
 
 #if !USE(SYSTEM_MALLOC)
         static_assert(WebConfig::reservedSlotsForExecutableAllocator >= 2);
-        WebConfig::g_config[0] = std::bit_cast<uintptr_t>(reservation.base);
-        WebConfig::g_config[1] = std::bit_cast<uintptr_t>(reservationEnd);
+        constexpr size_t startSlot = WebConfig::startOffsetOfExecutableAllocatorConfig / sizeof(WebConfig::Slot);
+
+        WebConfig::g_config[startSlot] = std::bit_cast<uintptr_t>(reservation.base);
+        WebConfig::g_config[startSlot + 1] = std::bit_cast<uintptr_t>(reservationEnd);
 #endif
 
 #if HAVE(KDEBUG_H)
@@ -543,8 +544,8 @@ public:
         m_reservation.deallocate();
     }
 
-    void* memoryStart() { return g_jscConfig.startExecutableMemory; }
-    void* memoryEnd() { return g_jscConfig.endExecutableMemory; }
+    void* NODELETE memoryStart() { return g_jscConfig.startExecutableMemory; }
+    void* NODELETE memoryEnd() { return g_jscConfig.endExecutableMemory; }
     bool isValid() { return !!m_reservation; }
 
     RefPtr<ExecutableMemoryHandle> allocate(size_t sizeInBytes)
@@ -606,14 +607,14 @@ public:
     Lock& getLock() WTF_RETURNS_LOCK(m_lock) { return m_lock; }
 
 #if ENABLE(LIBPAS_JIT_HEAP)
-    void shrinkBytesAllocated(size_t oldSizeInBytes, size_t newSizeInBytes)
+    void NODELETE shrinkBytesAllocated(size_t oldSizeInBytes, size_t newSizeInBytes)
     {
         m_bytesAllocated.fetch_add(newSizeInBytes - oldSizeInBytes, std::memory_order_relaxed);
     }
 #endif
 
     // Non atomic
-    size_t bytesAllocated()
+    size_t NODELETE bytesAllocated()
     {
 #if ENABLE(LIBPAS_JIT_HEAP)
         return m_bytesAllocated.load(std::memory_order_relaxed);
@@ -626,12 +627,12 @@ public:
 #endif
     }
 
-    size_t bytesReserved() const
+    size_t NODELETE bytesReserved() const
     {
         return m_bytesReserved;
     }
 
-    size_t bytesAvailable()
+    size_t NODELETE bytesAvailable()
     {
         size_t bytesReserved = this->bytesReserved();
 #if ENABLE(LIBPAS_JIT_HEAP)
@@ -916,7 +917,7 @@ private:
             jit_heap_add_fresh_memory(pas_range_create(m_start, m_end));
         }
 
-        bool isInAllocatedMemory(const AbstractLocker&, void* address)
+        bool NODELETE isInAllocatedMemory(const AbstractLocker&, void* address)
         {
             uintptr_t addressAsInt = reinterpret_cast<uintptr_t>(address);
             return addressAsInt >= m_start && addressAsInt < m_end;
@@ -974,18 +975,18 @@ private:
         //  | jit allocations -->   <-- islands |
         //  -------------------------------------
 
-        uintptr_t start() { return reinterpret_cast<uintptr_t>(m_start); }
-        uintptr_t islandBegin() { return reinterpret_cast<uintptr_t>(m_islandBegin); }
-        uintptr_t end() { return reinterpret_cast<uintptr_t>(m_end); }
+        uintptr_t NODELETE start() { return reinterpret_cast<uintptr_t>(m_start); }
+        uintptr_t NODELETE islandBegin() { return reinterpret_cast<uintptr_t>(m_islandBegin); }
+        uintptr_t NODELETE end() { return reinterpret_cast<uintptr_t>(m_end); }
 
-        size_t maxIslandsInThisRegion() { return (end() - islandBegin()) / islandSizeInBytes; }
+        size_t NODELETE maxIslandsInThisRegion() { return (end() - islandBegin()) / islandSizeInBytes; }
 
-        uintptr_t allocatorSize()
+        uintptr_t NODELETE allocatorSize()
         {
             return islandBegin() - start();
         }
 
-        size_t islandsPerPage()
+        size_t NODELETE islandsPerPage()
         {
             size_t islandsPerPage = executablePageSize() / islandSizeInBytes;
             ASSERT(islandsPerPage * islandSizeInBytes == executablePageSize());
@@ -1040,7 +1041,7 @@ private:
             CRASH();
         }
 
-        std::optional<size_t> islandBit(uintptr_t island)
+        std::optional<size_t> NODELETE islandBit(uintptr_t island)
         {
             uintptr_t end = this->end();
             if (islandBegin() <= island && island < end)
@@ -1048,7 +1049,7 @@ private:
             return std::nullopt;
         }
 
-        void freeIsland(uintptr_t island)
+        void NODELETE freeIsland(uintptr_t island)
         {
             RELEASE_ASSERT(islandBegin() <= island && island < end());
             size_t bit = islandBit(island).value();
@@ -1056,7 +1057,7 @@ private:
             islandBits[bit] = false;
         }
 
-        bool isInAllocatedMemory(const AbstractLocker& locker, void* address)
+        bool NODELETE isInAllocatedMemory(const AbstractLocker& locker, void* address)
         {
             if (Base::isInAllocatedMemory(locker, address))
                 return true;
@@ -1080,7 +1081,7 @@ private:
 #endif // ENABLE(JUMP_ISLANDS)
 
     template <typename Function>
-    void forEachAllocator(Function function)
+    void NODELETE forEachAllocator(Function function)
     {
 #if ENABLE(JUMP_ISLANDS)
         for (RegionAllocator& allocator : m_allocators) {
@@ -1103,7 +1104,7 @@ private:
         WTF_MAKE_TZONE_ALLOCATED(Islands);
         WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Islands);
     public:
-        void* key() { return jumpSourceLocation.dataLocation(); }
+        void* NODELETE key() { return jumpSourceLocation.dataLocation(); }
         CodeLocationLabel<ExecutableMemoryPtrTag> jumpSourceLocation;
         Vector<CodeLocationLabel<ExecutableMemoryPtrTag>> jumpIslands;
     };

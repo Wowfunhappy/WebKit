@@ -104,7 +104,7 @@ public:
         struct CompareIntersectsOperation;
 
         template<typename CompareOperation>
-        static bool compareShapes(const Shape& shape1, const Shape& shape2);
+        static bool NODELETE compareShapes(const Shape& shape1, const Shape& shape2);
 
         WEBCORE_EXPORT static bool NODELETE isValidShape(std::span<const int> segments, std::span<const Span> spans);
 

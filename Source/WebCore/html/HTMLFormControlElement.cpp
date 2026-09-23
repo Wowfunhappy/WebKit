@@ -43,10 +43,11 @@
 #include "PopoverData.h"
 #include "PseudoClassChangeInvalidation.h"
 #include "RenderBox.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTheme.h"
+#include "ScriptTrackingPrivacyCategory.h"
 #include "SelectionRestorationMode.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleTreeResolver.h"
 #include "ValidationMessage.h"
 #include <wtf/Ref.h>
@@ -60,9 +61,8 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLFormControlElement);
 
 using namespace HTMLNames;
 
-HTMLFormControlElement::HTMLFormControlElement(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
+HTMLFormControlElement::HTMLFormControlElement(const QualifiedName& tagName, Document& document)
     : HTMLElement(tagName, document, { TypeFlag::IsShadowRootOrFormControlElement, TypeFlag::HasCustomStyleResolveCallbacks, TypeFlag::HasDidMoveToNewDocument } )
-    , ValidatedFormListedElement(form)
     , m_isRequired(false)
     , m_valueMatchesRenderer(false)
     , m_wasChangedSinceLastFormControlChangeEvent(false)
@@ -102,23 +102,23 @@ String HTMLFormControlElement::formAction() const
     Ref document = this->document();
     if (value.isEmpty())
         return document->url().string();
-    return document->completeURL(value).string();
+    return document->encodingParseURL(value).string();
 }
 
-Node::InsertedIntoAncestorResult HTMLFormControlElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLFormControlElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    ValidatedFormListedElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
+    ValidatedFormListedElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (!insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::Done;
-    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        return NeedsPostConnectionSteps::No;
+    return NeedsPostConnectionSteps::Yes;
 }
 
-void HTMLFormControlElement::didFinishInsertingNode()
+void HTMLFormControlElement::postConnectionSteps()
 {
-    HTMLElement::didFinishInsertingNode();
-    ValidatedFormListedElement::didFinishInsertingNode();
+    HTMLElement::postConnectionSteps();
+    ValidatedFormListedElement::postConnectionSteps();
 }
 
 void HTMLFormControlElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
@@ -127,10 +127,10 @@ void HTMLFormControlElement::didMoveToNewDocument(Document& oldDocument, Documen
     ValidatedFormListedElement::didMoveToNewDocument();
 }
 
-void HTMLFormControlElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLFormControlElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
-    ValidatedFormListedElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
+    ValidatedFormListedElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 void HTMLFormControlElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
@@ -160,15 +160,6 @@ void HTMLFormControlElement::disabledStateChanged()
     ValidatedFormListedElement::disabledStateChanged();
     if (CheckedPtr renderer = this->renderer(); renderer && renderer->style().hasUsedAppearance())
         renderer->repaint();
-}
-
-void HTMLFormControlElement::readOnlyStateChanged()
-{
-    ValidatedFormListedElement::readOnlyStateChanged();
-
-    // Some input pseudo classes like :in-range/out-of-range change based on the readonly state.
-    // FIXME: Use PseudoClassChangeInvalidation instead for :has() support and more efficiency.
-    invalidateStyleForSubtree();
 }
 
 void HTMLFormControlElement::requiredStateChanged()

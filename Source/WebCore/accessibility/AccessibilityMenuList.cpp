@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AccessibilityMenuList.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXLoggerBase.h"
 #include "AXNotifications.h"
 #include "AccessibilityObjectInlines.h"
@@ -64,10 +65,12 @@ bool AccessibilityMenuList::press()
     RefPtr selectElement = dynamicDowncast<HTMLSelectElement>(element());
     auto notification = AXNotification::PressDidFail;
     if (selectElement && !selectElement->isDisabledFormControl()) {
+        // Note that hiding or showing the popup could trigger JS.
         if (selectElement->popupIsVisible())
             selectElement->hidePopup();
         else
             selectElement->showPopup();
+
         notification = AXNotification::PressDidSucceed;
     }
     if (CheckedPtr cache = axObjectCache())
@@ -146,7 +149,7 @@ void AccessibilityMenuList::didUpdateActiveOption(int optionIndex)
     }
 
     if (CheckedPtr cache = document->axObjectCache())
-        cache->deferMenuListValueChange(element());
+        cache->deferMenuListValueChange(protect(element()));
 }
 
 } // namespace WebCore

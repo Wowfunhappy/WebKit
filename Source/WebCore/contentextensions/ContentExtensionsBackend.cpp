@@ -111,8 +111,7 @@ auto ContentExtensionsBackend::actionsFromContentRuleList(const ContentExtension
 
     const auto& compiledExtension = contentExtension.compiledExtension();
 
-    DFABytecodeInterpreter interpreter(compiledExtension.urlFiltersBytecode());
-    auto actionLocations = interpreter.interpret(urlString, flags);
+    auto actionLocations = contentExtension.interpretURLFilters(urlString, flags);
     auto& topURLActions = contentExtension.topURLActions(resourceLoadInfo.mainDocumentURL);
     auto& frameURLActions = contentExtension.frameURLActions(resourceLoadInfo.frameURL);
 

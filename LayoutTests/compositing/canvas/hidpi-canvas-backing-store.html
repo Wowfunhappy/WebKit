@@ -37,7 +37,7 @@ window.addEventListener('load', doTest, false);
 <body>
 <p> Tests whether a compositing layer containing only canvas uses a standard DPI backing store.</p>
 <div style="opacity:0.5">
-<canvas id="canvas" width="500" height="500" style="transform-origin:top left"></canvas>
+<canvas id="canvas" width="500" height="500" style="transform-origin:top left; will-change:transform"></canvas>
 </div>
 <pre id="layers">Layer tree goes here in DRT</pre>
 </body>

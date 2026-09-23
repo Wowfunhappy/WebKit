@@ -31,7 +31,6 @@
 #include "Image.h"
 #include "LegacyRenderSVGResource.h"
 #include "NativeImage.h"
-#include "NodeInlines.h"
 #include "RenderObject.h"
 #include "SVGElementInlines.h"
 #include "SVGNames.h"
@@ -71,7 +70,7 @@ bool SVGFEImageElement::renderingTaintsOrigin() const
 {
     if (!m_cachedImage)
         return false;
-    RefPtr image = m_cachedImage->image();
+    RefPtr image = protect(m_cachedImage)->image();
     return image && image->renderingTaintsOrigin();
 }
 
@@ -88,9 +87,9 @@ void SVGFEImageElement::requestImageResource()
     ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
     options.contentSecurityPolicyImposition = isInUserAgentShadowTree() ? ContentSecurityPolicyImposition::SkipPolicyCheck : ContentSecurityPolicyImposition::DoPolicyCheck;
 
-    CachedResourceRequest request(ResourceRequest(document().completeURL(href())), options);
+    CachedResourceRequest request(ResourceRequest(protect(document())->encodingParseURL(href())), options);
     request.setInitiator(*this);
-    m_cachedImage = protect(document().cachedResourceLoader())->requestImage(WTF::move(request)).value_or(nullptr);
+    m_cachedImage = protect(protect(document())->cachedResourceLoader())->requestImage(WTF::move(request)).value_or(nullptr);
 
     if (RefPtr cachedImage = m_cachedImage)
         cachedImage->addClient(*this);
@@ -144,23 +143,23 @@ void SVGFEImageElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGFilterPrimitiveStandardAttributes::svgAttributeChanged(attrName);
 }
 
-Node::InsertedIntoAncestorResult SVGFEImageElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGFEImageElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    SVGFilterPrimitiveStandardAttributes::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    SVGFilterPrimitiveStandardAttributes::insertionSteps(insertionType, parentOfInsertedTree);
     if (!insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::Done;
-    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        return NeedsPostConnectionSteps::No;
+    return NeedsPostConnectionSteps::Yes;
 }
 
-void SVGFEImageElement::didFinishInsertingNode()
+void SVGFEImageElement::postConnectionSteps()
 {
-    SVGFilterPrimitiveStandardAttributes::didFinishInsertingNode();
+    SVGFilterPrimitiveStandardAttributes::postConnectionSteps();
     buildPendingResource();
 }
 
-void SVGFEImageElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void SVGFEImageElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    SVGFilterPrimitiveStandardAttributes::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    SVGFilterPrimitiveStandardAttributes::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         clearResourceReferences();
 }
@@ -239,11 +238,11 @@ RefPtr<FilterEffect> SVGFEImageElement::createFilterEffect(const FilterEffectVec
     return FEImage::create({ imageBuffer.releaseNonNull() }, imageRect, preserveAspectRatio());
 }
 
-void SVGFEImageElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void SVGFEImageElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     SVGFilterPrimitiveStandardAttributes::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, document().completeURL(href()));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(href()));
 }
 
 } // namespace WebCore

@@ -28,8 +28,10 @@
 #if ENABLE(WEBXR_LAYERS)
 
 #include "PlatformXR.h"
-#include "WebXRRigidTransform.h"
 #include "XRCompositionLayer.h"
+#include "XRProjectionLayerInit.h"
+#include <WebCore/IntRect.h>
+#include <wtf/RefPtr.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/MachSendRight.h>
@@ -38,13 +40,14 @@
 namespace WebCore {
 
 class GPUTexture;
+class WebXRRigidTransform;
 
 class XRProjectionLayer : public XRCompositionLayer {
     WTF_MAKE_TZONE_ALLOCATED(XRProjectionLayer);
 public:
-    static Ref<XRProjectionLayer> create(ScriptExecutionContext& scriptExecutionContext, Ref<XRLayerBacking>&& backing)
+    static Ref<XRProjectionLayer> create(ScriptExecutionContext& scriptExecutionContext, WebXRSession& session, Ref<XRLayerBacking>&& backing, const XRProjectionLayerInit& init)
     {
-        return adoptRef(*new XRProjectionLayer(scriptExecutionContext, WTF::move(backing)));
+        return adoptRef(*new XRProjectionLayer(scriptExecutionContext, session, WTF::move(backing), init));
     }
     virtual ~XRProjectionLayer();
 
@@ -53,6 +56,8 @@ public:
     uint32_t textureArrayLength() const;
 
     bool ignoreDepthValues() const;
+    void setIgnoreDepthValues(bool ignoreDepthValues) { m_ignoreDepthValues = ignoreDepthValues; }
+
     std::optional<float> fixedFoveation() const;
     void setFixedFoveation(std::optional<float>);
     WebXRRigidTransform* NODELETE deltaPose() const;
@@ -60,18 +65,23 @@ public:
 
     // WebXRLayer
     void startFrame(PlatformXR::FrameData&) final;
-    PlatformXR::Device::Layer endFrame() final;
+    PlatformXR::DeviceLayer endFrame() final;
 #if ENABLE(WEBGPU)
     std::optional<PlatformXR::FrameData::LayerData> layerData() const;
 #endif
 
 private:
-    XRProjectionLayer(ScriptExecutionContext&, Ref<XRLayerBacking>&&);
+    XRProjectionLayer(ScriptExecutionContext&, WebXRSession&, Ref<XRLayerBacking>&&, const XRProjectionLayerInit&);
 
     bool isXRProjectionLayer() const final { return true; }
+    Vector<IntRect> computeViewports();
 
+    bool m_ignoreDepthValues { false };
+#if ENABLE(WEBGPU)
     std::optional<PlatformXR::FrameData::LayerData> m_layerData;
-    RefPtr<WebXRRigidTransform> m_transform;
+#endif
+    RefPtr<WebXRRigidTransform> m_deltaPose;
+    Vector<IntRect> m_viewports;
 };
 
 } // namespace WebCore

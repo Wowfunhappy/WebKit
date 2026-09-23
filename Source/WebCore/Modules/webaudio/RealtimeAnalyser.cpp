@@ -61,10 +61,7 @@ bool RealtimeAnalyser::setFftSize(size_t size)
     ASSERT(isMainThread());
 
     // Only allow powers of two.
-    unsigned log2size = static_cast<unsigned>(log2(size));
-    bool isPOT(1UL << log2size == size);
-
-    if (!isPOT || size > MaxFFTSize || size < MinFFTSize)
+    if (!isPowerOfTwo(size) || size > MaxFFTSize || size < MinFFTSize)
         return false;
 
     if (m_fftSize != size) {

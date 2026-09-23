@@ -47,6 +47,7 @@ promise_test((test) => {
     if (!window.internals)
         return Promise.reject("Test requires internals API");
     return navigator.mediaDevices.getUserMedia({audio: true}).then((stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
         var context = new AudioContext();
         internals.setAudioContextRestrictions(context, 'RequireUserGestureForAudioStart');
 
@@ -60,6 +61,7 @@ promise_test((test) => {
     if (!window.internals)
         return Promise.reject("Test requires internals API");
     return navigator.mediaDevices.getUserMedia({audio: true}).then((stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
         var context = new AudioContext();
         internals.setAudioContextRestrictions(context, 'RequireUserGestureForAudioStart');
 

@@ -740,7 +740,16 @@
     "imported/w3c/web-animations/timing-model/timelines/update-and-send-events.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/FileAPI/BlobURL/cross-partition.tentative.https.html": [
+    "imported/w3c/web-platform-tests/FileAPI/BlobURL/cross-partition-navigation.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/FileAPI/BlobURL/cross-partition-self-fetch.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/FileAPI/BlobURL/cross-partition-worker-creation.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/FileAPI/BlobURL/cross-partition.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/FileAPI/file/send-file-form-iso-2022-jp.html": [
@@ -752,67 +761,7 @@
     "imported/w3c/web-platform-tests/IndexedDB/database-names-by-origin.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/IndexedDB/idb-binary-key-roundtrip.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/idbcursor-continuePrimaryKey-exception-order.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/idbdatabase_createObjectStore10-1000ends.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/idbdatabase_createObjectStore8-parameters.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/idbindex-multientry-big.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/idbindex-rename.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/idbobjectstore-rename-store.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/interleaved-cursors-large.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/interleaved-cursors-small.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/key-conversion-exceptions.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/key_valid.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/keypath_maxsize.htm": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/large-requests-abort.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/nested-cloning-basic.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/nested-cloning-large-multiple.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/nested-cloning-large.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/nested-cloning-small.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/parallel-cursors-upgrade.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/request-abort-ordering.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/request-event-ordering.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/IndexedDB/writer-starvation.htm": [
+    "imported/w3c/web-platform-tests/IndexedDB/interleaved-cursors-small.any.serviceworker.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/XMLHttpRequest/progress-events-response-data-gzip.htm": [
@@ -897,6 +846,15 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/clipboard-apis/async-idlharness.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/close-watcher/iframes/dialog-same-origin-nn.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/close-watcher/iframes/dialog-same-origin-ynn.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/close-watcher/iframes/dialog-same-origin-ynyn.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/content-security-policy/embedded-enforcement/required_csp-header-crlf.html": [
@@ -1742,12 +1700,6 @@
     "imported/w3c/web-platform-tests/cookies/attributes/path.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/cookies/attributes/resources/domain-child.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/cookies/attributes/resources/secure-non-secure-child.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/cookies/attributes/secure-non-secure.html": [
         "slow"
     ],
@@ -1764,9 +1716,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/cookies/ordering/resources/ordering-child.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies-a-b-a-embed.tentative.https.html": [
@@ -1794,9 +1743,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/cookies/samesite-none-secure/cookies-without-samesite-must-be-secure.https.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/cookies/samesite-none-secure/cookies-without-samesite-must-be-secure.https.tentative.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/cookies/samesite/fetch.https.html": [
@@ -1841,10 +1787,7 @@
     "imported/w3c/web-platform-tests/cookies/size/name-and-value.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/cookies/third-party-cookies/resources/third-party-cookies-cross-site-embed.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/cookies/third-party-cookies/resources/third-party-cookies-cross-site-window.html": [
+    "imported/w3c/web-platform-tests/cookies/third-party-cookies/third-party-cookie-heuristics.tentative.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/cookies/third-party-cookies/third-party-cookies.tentative.https.html": [
@@ -1881,12 +1824,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/css/css-animations/idlharness.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/css/css-color/color-resolving-hsl.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/css/css-color/color-resolving-hwb.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/css/css-contain/content-visibility/content-visibility-048.html": [
@@ -1961,9 +1898,6 @@
     "imported/w3c/web-platform-tests/css/css-values/calc-size/animation/calc-size-width-interpolation.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/css/css-values/random-computed.tentative.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/css/css-values/vh-update-and-transition-in-subframe.html": [
         "slow"
     ],
@@ -1977,6 +1911,15 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/skip-outbound-vt-before-reveal.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/two-phase/preview-finished-before-swap.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/two-phase/preview-navigation-query.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/two-phase/swap-continues-when-skipping-preview.tentative.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/css/css-view-transitions/nested-elements-in-overflow.html": [
@@ -2078,10 +2021,10 @@
     "imported/w3c/web-platform-tests/css/selectors/focus-visible-018-2.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/css/selectors/invalidation/media-loading-pseudo-classes-in-has.html": [
+    "imported/w3c/web-platform-tests/css/selectors/invalidation/media-loading-pseudo-classes-in-has.sub.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/css/selectors/media/media-loading-state.html": [
+    "imported/w3c/web-platform-tests/css/selectors/media/media-loading-state.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/custom-elements/ElementInternals-role.html": [
@@ -2114,6 +2057,9 @@
     "imported/w3c/web-platform-tests/dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/dom/events/scrolling/scrollend-event-fires-for-repeat-key-ending-after-scroll-container-end-is-reached.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/dom/nodes/Document-characterSet-normalization-1.html": [
         "slow"
     ],
@@ -2142,6 +2088,12 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/dom/nodes/ParentNode-querySelector-All.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/dom/nodes/moveBefore/preserve-render-blocking-script.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/dom/nodes/moveBefore/preserve-render-blocking-style.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/dom/nodes/name-validation.html": [
@@ -2241,6 +2193,102 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/editing/crashtests/insertparagraph-in-listitem-in-svg-followed-by-collapsible-spaces.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/cloning-attributes-at-splitting-element.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/copy-paste-in-styled-inline-editing-host.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/delete-in-child-of-head.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/delete-in-child-of-html.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/delete-in-last-definition-list-item-when-parent-list-is-editing-host.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/delete-in-last-list-item-when-parent-list-is-editing-host.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/delete-without-unwrapping-first-line-of-child-block.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/editing-around-select-element.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/formatblock-preserving-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/indent-preserving-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/input-in-text-control-which-is-also-editing-host.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insert-list-preserving-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insert-paragraph-in-void-element.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insert-text-in-void-element.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/inserthtml-do-not-preserve-inline-styles.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertlinebreak-with-white-space-style.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertparagraph-in-child-of-head.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertparagraph-in-child-of-html.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertparagraph-in-inline-editing-host.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertparagraph-in-non-splittable-element.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/insertparagraph-with-white-space-style.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/join-different-white-space-style-left-line-and-right-paragraph.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/join-different-white-space-style-left-paragraph-and-right-line.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/join-different-white-space-style-paragraphs.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/justify-preserving-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/keeping-attributes-at-joining-elements.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/outdent-preserving-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/typing-around-link-element-after-joining-paragraphs.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/typing-around-link-element-at-collapsed-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/typing-around-link-element-at-non-collapsed-selection.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/other/undo-insertparagraph-after-moving-split-nodes.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/editing/run/backcolor.html": [
@@ -2939,58 +2987,43 @@
     "imported/w3c/web-platform-tests/eventsource/shared-worker/eventsource-constructor-non-same-origin.htm": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-frame-policy-allowed-for-all.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-frame-policy-allowed-for-self.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-frame-policy-allowed-for-some-override.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-frame-policy-allowed-for-some.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-frame-policy-disallowed-for-all.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-nested-header-policy-allowed-for-all.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-nested-header-policy-allowed-for-self.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/feature-policy/feature-policy-nested-header-policy-disallowed-for-all.https.sub.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/fetch/api/request/request-keepalive-quota.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-clear-site-data-cache.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-clear-site-data-cookies.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-clear-site-data-storage.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-compressed.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-decompression.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-fetch-no-cors.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-fetch-with-link-element.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-fetch-with-link-header.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-insecure-context.tentative.http.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-match.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-registration.tentative.https.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/fetch/connection-pool/network-partition-key.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/304-update.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/cc-request.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/freshness.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/heuristic.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/invalidate.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/partial.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/post-patch.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/status.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/metadata/generated/css-images.https.sub.tentative.html": [
@@ -3054,39 +3087,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/metadata/preload.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/css-images.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-a.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-area.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-link-icon.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-link-prefetch.optional.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/fetch-via-serviceworker.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/form-submission.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/header-refresh.optional.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/svg-image.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/window-history.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/window-location.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/range/cache-revalidate-construct-range-response.html": [
@@ -3158,6 +3158,12 @@
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/back-forward-cache/timers.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/pagereveal/order-in-bfcache-restore-iframe.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/pagereveal/order-in-bfcache-restore.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/persisted-user-state-restoration/resume-timer-on-history-back.html": [
         "slow"
     ],
@@ -3167,16 +3173,13 @@
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/persisted-user-state-restoration/scroll-restoration-navigation-cross-origin.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/unset_context_name.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/cross-document-traversal-cross-document-nav.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/same-document-traversal-cross-document-nav.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/tentative/cross-document-traversal-cross-document-nav.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/tentative/same-document-traversal-cross-document-nav.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/007.html": [
@@ -3186,6 +3189,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-frag-percent-encoded.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-restore-on-reload-non-ascii-fragment.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-to-anchor-name.html": [
@@ -3782,6 +3788,9 @@
     "imported/w3c/web-platform-tests/html/editing/the-hidden-attribute/beforematch-scroll-to-text-fragment.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/infrastructure/urls/resolving-urls/query-encoding/utf-16be.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/infrastructure/urls/resolving-urls/query-encoding/utf-16le.html": [
         "slow"
     ],
@@ -3798,6 +3807,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/interaction/focus/focus-02.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/interaction/focus/focusgroup/tentative/grid-navigation/empty-spaces.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-negative.html": [
@@ -3896,9 +3908,6 @@
     "imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigation_download_allow_downloads.sub.tentative.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigation_download_allow_downloads_without_user_activation.sub.tentative.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/sandbox_002.htm": [
         "slow"
     ],
@@ -3947,6 +3956,9 @@
     "imported/w3c/web-platform-tests/html/semantics/forms/form-submission-0/submit-entity-body.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/semantics/forms/input-change-event-properties.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/select-event.html": [
         "slow"
     ],
@@ -3965,7 +3977,13 @@
     "imported/w3c/web-platform-tests/html/semantics/forms/the-input-element/show-picker-disabled-readonly.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/semantics/forms/the-input-element/show-picker-does-not-focus.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/semantics/forms/the-input-element/show-picker-user-gesture.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/semantics/forms/the-label-element/control-active-with-multiple-clicks.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select-listbox/select-listbox-home-end-pagedown-pageup.optional.html": [
@@ -4076,6 +4094,21 @@
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-4.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-5.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-across-slot.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-form-control.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-inside-shadow-dom.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-inside-slot.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-tabindex.html": [
         "slow"
     ],
@@ -4094,10 +4127,10 @@
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss-hint.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss-with-anchor.tentative.html": [
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss.html": [
+    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-shadowhost-focus-navigation.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/semantics/scripting-1/the-script-element/async_003.htm": [
@@ -4739,7 +4772,7 @@
     "imported/w3c/web-platform-tests/mathml/relations/html5-tree/math-global-event-handlers.tentative.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-002.tentative.html": [
+    "imported/w3c/web-platform-tests/mathml/relations/html5-tree/tabindex-002.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/media-capabilities/decodingInfoEncryptedMedia.https.html": [
@@ -5294,6 +5327,15 @@
     "imported/w3c/web-platform-tests/mst-content-hint/RTCRtpSendParameters-degradationEffect.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/navigation-api/navigate-event/dangling-navigate-event-after-bfcache-restore.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/navigation-timing/nav2-test-response-end-and-duration-before-during-and-after-load-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/navigation-timing/nested-unload-timing.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/page-lifecycle/idlharness.html": [
         "slow"
     ],
@@ -5301,6 +5343,30 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/payment-request/payment-request-constructor-thcrash.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-frame-policy-allowed-for-all.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-frame-policy-allowed-for-self.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-frame-policy-allowed-for-some-override.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-frame-policy-allowed-for-some.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-frame-policy-disallowed-for-all.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-nested-header-policy-allowed-for-all.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-nested-header-policy-allowed-for-self.https.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/permissions-policy/permissions-policy-nested-header-policy-disallowed-for-all.https.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/picture-in-picture/leave-picture-in-picture.html": [
@@ -5367,6 +5433,63 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/pointerlock/pointerlock_without_gesture.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/link-header-modulepreload.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/link-header-preload-non-html.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/modulepreload.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/onerror-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/onload-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preconnect-onerror-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preconnect.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/prefetch-events.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/prefetch-time-to-fetch.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-connect-to-doc.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-error.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-imagesrcset-no-href.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-referrer-policy-subresource-header.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-referrer-policy.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-time-to-fetch.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-type-match.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-with-type.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-with-unsupported-type.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/supported-as-values.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/quirks/hashless-hex-color/limited-quirks.html": [
@@ -5439,21 +5562,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/resource-timing/workerStart-tao-protected.https.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/exceptional-cases-timeouts.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/exceptional-cases.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/promise_setup-timeout.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/single_test.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/throwing-assertions.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/screen-orientation/hidden_document.html": [
@@ -5553,6 +5661,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/selection/extend-40.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/selection/onselectstart-on-key-in-contenteditable.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/selection/selectAllChildren.html": [
@@ -5714,6 +5825,66 @@
     "imported/w3c/web-platform-tests/shadow-dom/declarative/gethtml.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/focus-navigation-slot-nested-2levels.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/focus-navigation-slots-in-slot.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/focus-navigation-with-delegatesFocus.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/focus-navigation.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/carousel-grid-order.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/flex-flow.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-auto-flow-reading-order.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-columns.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-pseudo-elements.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-with-display-contents.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-with-nested-grids.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-with-popover.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-with-position-absolute.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-with-position-fixed.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order-with-slots.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-order.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/grid-rows.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/normal.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/source-order-invalid.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/shadow-dom/focus-navigation/reading-flow/tentative/source-order-valid.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/speculation-rules/invalid-rules.https.html": [
         "slow"
     ],
@@ -5841,6 +6012,12 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/svg/linking/scripted/a.rel-noopener-policy.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/tools/third_party/html5lib/benchmarks/data/wpt/random/euckr-encode-form.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/tools/third_party/html5lib/benchmarks/data/wpt/weighted/fetch.http.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/trusted-types/ServiceWorkerContainer-register-from-ServiceWorker.https.html": [
@@ -6641,6 +6818,15 @@
     "imported/w3c/web-platform-tests/webmessaging/broadcastchannel/opaque-origin.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/webrtc-encoded-transform/RTCEncodedFrame-copy-construction.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/webrtc-encoded-transform/RTCRtpScriptTransform-encoded-transform.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/webrtc-encoded-transform/RTCRtpScriptTransform-sender-worker-single-frame.https.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/webrtc-encoded-transform/script-metadata-transform.https.html": [
         "slow"
     ],
@@ -6651,6 +6837,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/webrtc-encoded-transform/script-transform-sendKeyFrameRequest.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/webrtc-encoded-transform/script-transform.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/webrtc-extensions/RTCRtpEncodingParameters-scaleResolutionDownTo.https.html": [
@@ -6753,6 +6942,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/webrtc/RTCPeerConnection-ondatachannel.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/webrtc/RTCPeerConnection-onicecandidateerror.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html": [
@@ -7025,7 +7217,7 @@
     "imported/w3c/web-platform-tests/workers/semantics/multiple-workers/004.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/workers/semantics/multiple-workers/007.html": [
+    "imported/w3c/web-platform-tests/workers/shared-worker-partitioned-cookies.tentative.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/worklets/animation-worklet-csp.https.html": [
@@ -7064,7 +7256,7 @@
     "imported/w3c/web-platform-tests/xhr/response-data-progress.htm": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/xhr/send-redirect-bogus.htm": [
+    "imported/w3c/web-platform-tests/xhr/send-redirect-bogus.sub.htm": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/xhr/setrequestheader-content-type.htm": [

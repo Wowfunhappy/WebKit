@@ -168,7 +168,7 @@ inline Vector<WeakRef<Element, WeakPtrImplWithEventTargetData>>* TreeScopeOrdere
         entry.orderedList.reserveCapacity(entry.count);
         auto elementDescendants = descendantsOfType<Element>(scope.rootNode());
         for (auto it = entry.element ? elementDescendants.beginAt(*entry.element) : elementDescendants.begin(); it; ++it) {
-            if (keyMatches(key, *it))
+            if (keyMatches(key, protect(*it)))
                 entry.orderedList.append(*it);
         }
         RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(entry.orderedList.size() == entry.count);
@@ -195,7 +195,7 @@ RefPtr<HTMLMapElement> TreeScopeOrderedMap::getElementByMapName(const AtomString
 {
     return downcast<HTMLMapElement>(get(key, scope, [] (const AtomString& key, const Element& element) {
         auto* mapElement = dynamicDowncast<HTMLMapElement>(element);
-        return mapElement && mapElement->getName() == key;
+        return mapElement && (mapElement->getName() == key || mapElement->getIdAttribute() == key);
     }));
 }
 

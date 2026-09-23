@@ -247,7 +247,7 @@ class Plan < BasePlan
     end
 
     def failCommand
-        "#{statusCommand(STATUS_FILE_FAIL)}; echo FAIL: #{Shellwords.shellescape(@name)}; " + reproCommand
+        "#{statusCommand(STATUS_FILE_FAIL)}; echo FAIL: #{Shellwords.shellescape(@name)} \\(test_script_#{@index}\\); " + reproCommand
     end
     
     def successCommand
@@ -325,7 +325,7 @@ class TestRunnerShell < TestRunner
         super(testRunnerType, runnerDir)
         @testListPath = runnerDir + 'testlist'
     end
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         FileUtils.cp SCRIPTS_PATH + "jsc-stress-test-helpers" + "shell-runner.sh", @runnerDir + "runscript"
         File.open(@testListPath, "w") { |f|
             runlist.each { |plan|
@@ -349,7 +349,7 @@ class TestRunnerMake < TestRunner
         outp.puts "\tsh test_script_#{index}"
         target
     end
-    def prepareRunnerForRemote(runlist, serialPlans, completedPlans, remoteHosts, remoteIndex)
+    def prepareRunnerForRemote(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts, remoteIndex)
         # The goals of our parallel test runner are scalability and simplicity. The
         # simplicity part is particularly important. We don't want to have to have
         # a full-time contributor just philosophising about parallel testing.
@@ -357,11 +357,14 @@ class TestRunnerMake < TestRunner
         # As such, we just pass off all of the hard work to 'make'. This
         # creates a dummy directory ("$outputDir/.runner") in which we
         # create a dummy Makefile. The Makefile has a 'parallel' rule that
-        # depends all tests, other than the ones marked 'serial'. The
-        # serial tests are arranged in a chain; the last target in the
-        # serial chain depends on 'parallel' and 'all' depends on the head
-        # of the chain. Running 'make -j <whatever>' on this Makefile
-        # results in 'make' doing all of the hard work:
+        # depends all tests, other than the ones marked 'serial' or
+        # 'exclusive'. The serial tests are arranged in a chain; the last
+        # target in the serial chain depends on 'parallel' and 'all'
+        # depends on the head of the chain. The exclusive tests are
+        # arranged in their own chain, independent of 'parallel', so they
+        # can run concurrently with parallel tests but only one exclusive
+        # test runs at a time. Running 'make -j <whatever>' on this
+        # Makefile results in 'make' doing all of the hard work:
         #
         # - Load balancing just works. Most systems have a great load balancer in
         #   'make'. If your system doesn't then just install a real 'make'.
@@ -388,6 +391,7 @@ class TestRunnerMake < TestRunner
         # files we won't miss any failures.
         runPlans = []
         serialRunPlans = []
+        exclusiveRunPlans = []
         runlist.each {
             | plan |
             if completedPlans.include?(plan)
@@ -396,6 +400,8 @@ class TestRunnerMake < TestRunner
             if remoteHosts.nil? or plan.index % remoteHosts.length == remoteIndex
                 if serialPlans.include?(plan)
                     serialRunPlans << plan
+                elsif exclusivePlans.include?(plan)
+                    exclusiveRunPlans << plan
                 else
                     runPlans << plan
                 end
@@ -404,17 +410,36 @@ class TestRunnerMake < TestRunner
 
         File.open(@runnerDir + "Makefile.#{remoteIndex}", "w") {
             | outp |
+            all_deps = []
+
             if serialRunPlans.empty?
-                outp.puts("all: parallel")
+                all_deps << "parallel"
             else
-                serialPrereq = "test_done_#{serialRunPlans[-1].index}"
-                outp.puts("all: #{serialPrereq}")
+                all_deps << "test_done_#{serialRunPlans[-1].index}"
+            end
+
+            if !exclusiveRunPlans.empty?
+                all_deps << "test_done_#{exclusiveRunPlans[-1].index}"
+            end
+
+            outp.puts("all: " + all_deps.join(" "))
+
+            if !serialRunPlans.empty?
                 prev_target = "parallel"
                 serialRunPlans.each {
                     | plan |
                     prev_target = output_target(outp, plan, [prev_target])
                 }
             end
+
+            if !exclusiveRunPlans.empty?
+                prev_target = nil
+                exclusiveRunPlans.each {
+                    | plan |
+                    prev_target = output_target(outp, plan, prev_target ? [prev_target] : [])
+                }
+            end
+
             parallelTargets = runPlans.collect {
                 | plan |
                 output_target(outp, plan, [])
@@ -422,13 +447,13 @@ class TestRunnerMake < TestRunner
             outp.puts("parallel: " + parallelTargets.join(" "))
         }
     end
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         if remoteHosts.nil?
-            prepareRunnerForRemote(runlist, serialPlans, completedPlans, remoteHosts, 0)
+            prepareRunnerForRemote(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts, 0)
         else
             remoteHosts.each_index {
                 |remoteIndex|
-                prepareRunnerForRemote(runlist, serialPlans, completedPlans, remoteHosts, remoteIndex)
+                prepareRunnerForRemote(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts, remoteIndex)
             }
         end
     end
@@ -438,7 +463,7 @@ class TestRunnerMake < TestRunner
 end
 
 class TestRunnerRuby < TestRunner
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         File.open(@runnerDir + "runscript", "w") {
             | outp |
             runlist.each {

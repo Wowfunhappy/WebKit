@@ -35,7 +35,7 @@ typedef (WindowProxy or MessagePort or ServiceWorker) MessageEventSource;
     JSCustomMarkFunction,
     ReportExtraMemoryCost,
 ] interface MessageEvent : Event {
-    constructor([AtomString] DOMString type, optional MessageEventInit eventInitDict = {});
+    [CallWith=CurrentGlobalObject] constructor([AtomString] DOMString type, optional MessageEventInit eventInitDict = {});
 
     readonly attribute USVString origin;
     readonly attribute DOMString lastEventId;
@@ -43,7 +43,7 @@ typedef (WindowProxy or MessagePort or ServiceWorker) MessageEventSource;
     [CustomGetter] readonly attribute any data;
     [CustomGetter] readonly attribute FrozenArray<MessagePort> ports;
 
-    undefined initMessageEvent([AtomString] DOMString type, optional boolean bubbles = false, optional boolean cancelable = false,
+    [CallWith=CurrentGlobalObject] undefined initMessageEvent([AtomString] DOMString type, optional boolean bubbles = false, optional boolean cancelable = false,
         optional any data = null, optional USVString originArg = "", optional DOMString lastEventId = "", optional MessageEventSource? source = null,
         optional sequence<MessagePort> messagePorts = []);
 };

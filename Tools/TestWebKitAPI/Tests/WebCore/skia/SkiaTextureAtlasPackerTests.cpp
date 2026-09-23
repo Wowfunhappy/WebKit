@@ -24,7 +24,7 @@
  */
 
 #include "config.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <WebCore/SkiaTextureAtlasPacker.h>
 
 namespace TestWebKitAPI {
@@ -62,7 +62,7 @@ static bool allInputsPresent(const Vector<SkiaTextureAtlasPacker::PackedRect>& p
     if (packed.size() != sizes.size())
         return false;
 
-    Vector<bool> found(sizes.size(), false);
+    Vector<bool> found(FillWith { }, sizes.size(), false);
     for (const auto& packedRect : packed) {
         if (packedRect.imageIndex >= sizes.size())
             return false;
@@ -146,7 +146,7 @@ TEST(SkiaTextureAtlasPackerMaxRects, MultipleVariableSized)
 
 TEST(SkiaTextureAtlasPackerMaxRects, ManySmallRectangles)
 {
-    Vector<IntSize> sizes(20, { 20, 20 });
+    Vector<IntSize> sizes(FillWith { }, 20, { 20, 20 });
     IntSize atlasSize(256, 256);
 
     auto result = SkiaTextureAtlasPacker::pack(sizes, atlasSize, SkiaTextureAtlasPacker::Algorithm::MaxRects);
@@ -158,7 +158,7 @@ TEST(SkiaTextureAtlasPackerMaxRects, ManySmallRectangles)
 
 TEST(SkiaTextureAtlasPackerMaxRects, TotalAreaExceedsAtlas)
 {
-    Vector<IntSize> sizes(10, { 100, 100 });
+    Vector<IntSize> sizes(FillWith { }, 10, { 100, 100 });
     IntSize atlasSize(256, 256);
 
     auto result = SkiaTextureAtlasPacker::pack(sizes, atlasSize, SkiaTextureAtlasPacker::Algorithm::MaxRects);
@@ -199,7 +199,7 @@ TEST(SkiaTextureAtlasPackerMaxRects, MixedWideAndTall)
 
 TEST(SkiaTextureAtlasPackerMaxRects, MinimumSizeRectangles)
 {
-    Vector<IntSize> sizes(10, { 1, 1 });
+    Vector<IntSize> sizes(FillWith { }, 10, { 1, 1 });
     IntSize atlasSize(32, 32);
 
     auto result = SkiaTextureAtlasPacker::pack(sizes, atlasSize, SkiaTextureAtlasPacker::Algorithm::MaxRects);
@@ -279,7 +279,7 @@ TEST(SkiaTextureAtlasPackerShelfNextFit, MultipleVariableSized)
 
 TEST(SkiaTextureAtlasPackerShelfNextFit, ManySmallRectangles)
 {
-    Vector<IntSize> sizes(20, { 20, 20 });
+    Vector<IntSize> sizes(FillWith { }, 20, { 20, 20 });
     IntSize atlasSize(256, 256);
 
     auto result = SkiaTextureAtlasPacker::pack(sizes, atlasSize, SkiaTextureAtlasPacker::Algorithm::ShelfNextFit);
@@ -291,7 +291,7 @@ TEST(SkiaTextureAtlasPackerShelfNextFit, ManySmallRectangles)
 
 TEST(SkiaTextureAtlasPackerShelfNextFit, TotalAreaExceedsAtlas)
 {
-    Vector<IntSize> sizes(10, { 100, 100 });
+    Vector<IntSize> sizes(FillWith { }, 10, { 100, 100 });
     IntSize atlasSize(256, 256);
 
     auto result = SkiaTextureAtlasPacker::pack(sizes, atlasSize, SkiaTextureAtlasPacker::Algorithm::ShelfNextFit);
@@ -332,7 +332,7 @@ TEST(SkiaTextureAtlasPackerShelfNextFit, MixedWideAndTall)
 
 TEST(SkiaTextureAtlasPackerShelfNextFit, MinimumSizeRectangles)
 {
-    Vector<IntSize> sizes(10, { 1, 1 });
+    Vector<IntSize> sizes(FillWith { }, 10, { 1, 1 });
     IntSize atlasSize(32, 32);
 
     auto result = SkiaTextureAtlasPacker::pack(sizes, atlasSize, SkiaTextureAtlasPacker::Algorithm::ShelfNextFit);

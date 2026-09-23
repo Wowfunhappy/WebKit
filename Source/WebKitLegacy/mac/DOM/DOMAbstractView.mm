@@ -34,6 +34,7 @@
 #import <WebCore/Document.h>
 #import <WebCore/LocalDOMWindow.h>
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/WebScriptObjectPrivate.h>
 #import <WebCore/WindowProxy.h>

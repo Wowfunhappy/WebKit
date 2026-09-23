@@ -33,6 +33,7 @@
 #import "WebFrameInternal.h"
 #import "WebFrameView.h"
 #import "WebViewPrivate.h"
+#import <WebCore/DocumentView.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameView.h>
 

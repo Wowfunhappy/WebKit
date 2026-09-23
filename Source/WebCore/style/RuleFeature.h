@@ -27,6 +27,7 @@
 #include <wtf/GenericHashKey.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/Markable.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
@@ -42,38 +43,44 @@ class RuleData;
 // MatchElement characterizes which elements a change in an element matched by a simple selector (as a part of a complex selector) may affect.
 // Style::Invalidator uses these classifications to traverse a minimal number of elements after a DOM mutation.
 // In the examples below the '.changed' simple selector will be classified with the given enum value.
-// FIXME: Has* values should be separated so we could better describe both the :has() argument and its position in the selector.
-enum class MatchElement : uint8_t {
-    Subject, // .changed
-    Parent, // .changed > .subject
-    Ancestor, // .changed .subject
-    DirectSibling, // .changed + .subject
-    IndirectSibling, // .changed ~ .subject
-    AnySibling, // :nth-last-child(even of .changed)
-    ParentSibling, // .changed ~ .a > .subject
-    AncestorSibling, // .changed ~ .a .subject
-    ParentAnySibling, // :nth-last-child(even of .changed) > .subject
-    AncestorAnySibling, // :nth-last-child(even of .changed) .subject
-    HasChild, // :has(> .changed)
-    HasDescendant, // :has(.changed)
-    HasSibling, // :has(~ .changed)
-    HasSiblingDescendant, // :has(~ .a .changed)
-    HasAnySibling, // :has(~ :is(.changed ~ .x))
-    HasChildParent, // :has(> .changed) > .subject
-    HasChildAncestor, // :has(> .changed) .subject
-    HasDescendantParent, // :has(.changed) > .subject
-    // FIXME: This is a catch-all for the rest of cases where :has() is in a non-subject position.
-    HasNonSubject, // :has(.changed) .subject
-    // FIXME: This is a catch-all for cases where :has() contains a scope breaking sub-selector.
-    HasScopeBreaking, // :has(:is(.changed .a))
-    Host, // :host(.changed) .subject
-    HostChild // ::slotted(.changed)
+// For :has() features, the matchElement field describes the position of :has() in the overall selector,
+// while hasRelation describes the changed element's relationship to the :has() scope element.
+struct MatchElement {
+    enum class Relation : uint8_t {
+        Subject, // .changed
+        Parent, // .changed > .subject
+        Ancestor, // .changed .subject
+        DirectSibling, // .changed + .subject
+        IndirectSibling, // .changed ~ .subject
+        AnySibling, // :nth-last-child(even of .changed)
+        ParentSibling, // .changed ~ .a > .subject
+        AncestorSibling, // .changed ~ .a .subject
+        ParentAnySibling, // :nth-last-child(even of .changed) > .subject
+        AncestorAnySibling, // :nth-last-child(even of .changed) .subject
+        Host, // :host(.changed) .subject
+        HostChild // ::slotted(.changed)
+    };
+
+    // Relationship of the :has() argument subject element to the :has() scope element.
+    enum class HasRelation : uint8_t {
+        Child, // :has(> .changed)
+        Descendant, // :has(.changed)
+        DirectSibling, // :has(+ .changed)
+        IndirectSibling, // :has(~ .changed)
+        SiblingChild, // :has(~ .a > .changed)
+        SiblingDescendant, // :has(~ .a .changed)
+        HostDescendant, // :host:has(...) — has-bearer is a shadow host, .changed is anywhere in its shadow tree (covers the Child case too).
+    };
+
+    Relation relation;
+    Markable<HasRelation> hasRelation;
+
+    bool operator==(const MatchElement&) const = default;
+    unsigned hash() const { return pairIntHash(static_cast<unsigned>(relation), hasRelation ? static_cast<unsigned>(*hasRelation) : 255u); }
 };
-constexpr unsigned matchElementCount = static_cast<unsigned>(MatchElement::HostChild) + 1;
+constexpr unsigned matchRelationCount = static_cast<unsigned>(MatchElement::Relation::HostChild) + 1;
 
 enum class IsNegation : bool { No, Yes };
-enum class CanBreakScope : bool { No, Yes }; // Are we inside a logical combination pseudo-class like :is() or :not(), which if we were inside a :has(), could break out of its scope?
-enum class DoesBreakScope : bool { No, Yes }; // Did we find a logical combination pseudo-class like :is() or :not() with selector combinators that do break out of a :has() scope?
 
 // For MSVC.
 #pragma pack(push, 4)
@@ -88,18 +95,18 @@ struct RuleAndSelector {
 };
 
 struct RuleFeature : public RuleAndSelector {
-    RuleFeature(const RuleData&, MatchElement, IsNegation);
+    RuleFeature(const RuleData&, MatchElement, IsNegation, CSSSelectorList&& invalidationSelector = { }, CSSSelectorList&& scopeSelector = { });
 
     MatchElement matchElement;
     IsNegation isNegation; // Whether the selector is in a (non-paired) :not() context.
-};
-static_assert(sizeof(RuleFeature) <= 16, "RuleFeature is a frequently allocated object. Keep it small.");
-
-struct RuleFeatureWithInvalidationSelector : public RuleFeature {
-    RuleFeatureWithInvalidationSelector(const RuleData&, MatchElement, IsNegation, CSSSelectorList&& invalidationSelector);
-
+    // Invalidation selector is used for attribute selector and :has() invalidation.
+    // For attribute selectors it is the simple selector for fast testing whether an attribute mutation may have an effect.
+    // For :has() it is the complex argument selector for testing if adding or removing a node may affect :has() matching.
     CSSSelectorList invalidationSelector;
+    // Selector for the :has() scope element, used to bound invalidation traversal.
+    CSSSelectorList scopeSelector;
 };
+static_assert(sizeof(RuleFeature) <= 32, "RuleFeature is a frequently allocated object. Keep it small.");
 #pragma pack(pop)
 
 using PseudoClassInvalidationKey = std::tuple<unsigned, uint8_t, AtomString>;
@@ -125,53 +132,56 @@ struct RuleFeatureSet {
         HashSet<GenericHashKey<SelectorDeduplicationKey>> selectorDeduplicationSet;
     };
     void collectFeatures(CollectionContext&, const RuleData&, const Vector<Ref<const StyleRuleScope>>& scopeRules = { });
-    void registerContentAttribute(const AtomString&);
 
-    bool usesHasPseudoClass() const;
-    bool usesMatchElement(MatchElement matchElement) const { return usedMatchElements[std::to_underlying(matchElement)]; }
-    void setUsesMatchElement(MatchElement matchElement) { usedMatchElements[std::to_underlying(matchElement)] = true; }
+    enum class AffectsShadowTree : bool { No, Yes };
+    void registerSubstitutionAttribute(const AtomString&, AffectsShadowTree = AffectsShadowTree::No);
+
+    bool usesRelation(MatchElement::Relation relation) const { return usedRelations[std::to_underlying(relation)]; }
+    void setUsesRelation(MatchElement::Relation relation) { usedRelations[std::to_underlying(relation)] = true; }
 
     HashSet<AtomString> idsInRules;
     HashSet<AtomString> idsMatchingAncestorsInRules;
     HashSet<AtomString> attributeLowercaseLocalNamesInRules;
     HashSet<AtomString> attributeLocalNamesInRules;
-    HashSet<AtomString> contentAttributeNamesInRules;
+    // Maps the attribute name to whether at least one rule referencing it via attr() pierces a
+    // shadow boundary (e.g. ::part(), document author rules matching UA-shadow pseudos).
+    HashMap<AtomString, AffectsShadowTree> substitutionAttributeNamesInRules;
 
     HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> idRules;
     HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> classRules;
-    HashMap<AtomString, std::unique_ptr<Vector<RuleFeatureWithInvalidationSelector>>> attributeRules;
+    HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> attributeRules;
     HashMap<PseudoClassInvalidationKey, std::unique_ptr<RuleFeatureVector>> pseudoClassRules;
-    HashMap<PseudoClassInvalidationKey, std::unique_ptr<Vector<RuleFeatureWithInvalidationSelector>>> hasPseudoClassRules;
-    Vector<RuleAndSelector> scopeBreakingHasPseudoClassRules;
+    HashMap<PseudoClassInvalidationKey, std::unique_ptr<RuleFeatureVector>> hasPseudoClassRules;
 
     HashSet<AtomString> classesAffectingHost;
     HashSet<AtomString> attributesAffectingHost;
     HashSet<CSSSelector::PseudoClass, IntHash<CSSSelector::PseudoClass>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClass>> pseudoClassesAffectingHost;
     HashSet<CSSSelector::PseudoClass, IntHash<CSSSelector::PseudoClass>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClass>> pseudoClasses;
 
-    std::array<bool, matchElementCount> usedMatchElements { };
+    std::array<bool, matchRelationCount> usedRelations { };
 
     bool usesFirstLineRules { false };
     bool usesFirstLetterRules { false };
     bool hasStartingStyleRules { false };
+    bool usesHasPseudoClass { false };
 
 private:
     struct SelectorFeatures {
-        using InvalidationFeature = std::tuple<const CSSSelector*, MatchElement, IsNegation>;
-        using HasInvalidationFeature = std::tuple<const CSSSelector*, MatchElement, IsNegation, DoesBreakScope>;
+        using InvalidationFeature = std::tuple<const CSSSelector*, MatchElement, IsNegation, Vector<const CSSSelector*>>;
 
         Vector<InvalidationFeature> ids;
         Vector<InvalidationFeature> classes;
         Vector<InvalidationFeature> attributes;
         Vector<InvalidationFeature> pseudoClasses;
-        Vector<HasInvalidationFeature> hasPseudoClasses;
+        Vector<InvalidationFeature> hasPseudoClasses;
     };
-    DoesBreakScope recursivelyCollectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, MatchElement = MatchElement::Subject, IsNegation = IsNegation::No, CanBreakScope = CanBreakScope::No);
+    struct RecursiveCollectionContext;
+    void collectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, MatchElement = { MatchElement::Relation::Subject, { } });
+    void recursivelyCollectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, const RecursiveCollectionContext&);
     void NODELETE collectPseudoElementFeatures(const RuleData&);
 };
 
-bool NODELETE isHasPseudoClassMatchElement(MatchElement);
-MatchElement computeHasPseudoClassMatchElement(const CSSSelector&);
+MatchElement::HasRelation computeHasArgumentRelation(const CSSSelector&);
 
 enum class InvalidationKeyType : uint8_t { Universal = 1, Class, Id, Attribute, Tag };
 PseudoClassInvalidationKey makePseudoClassInvalidationKey(CSSSelector::PseudoClass, InvalidationKeyType, const AtomString& = starAtom());
@@ -181,17 +191,6 @@ bool NODELETE unlikelyToHaveSelectorForAttribute(const AtomString&);
 inline bool isUniversalInvalidation(const PseudoClassInvalidationKey& key)
 {
     return static_cast<InvalidationKeyType>(std::get<1>(key)) == InvalidationKeyType::Universal;
-}
-
-inline bool RuleFeatureSet::usesHasPseudoClass() const
-{
-    return usesMatchElement(MatchElement::HasChild)
-        || usesMatchElement(MatchElement::HasDescendant)
-        || usesMatchElement(MatchElement::HasSibling)
-        || usesMatchElement(MatchElement::HasSiblingDescendant)
-        || usesMatchElement(MatchElement::HasAnySibling)
-        || usesMatchElement(MatchElement::HasNonSubject)
-        || usesMatchElement(MatchElement::HasScopeBreaking);
 }
 
 } // namespace Style

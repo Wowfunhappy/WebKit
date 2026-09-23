@@ -22,6 +22,7 @@ MINC="$INC -I$PF/c"
 methods_unitinc() {
     case "$(basename "$1")" in
         Foundation.m) echo "$MINC -I$REPO/MavericksSupport/deps/build/include -DU_DISABLE_RENAMING=1" ;;
+        CryptoKitPrivate.m) echo "$MINC -I$REPO/MavericksSupport/deps/build/include" ;;
         *) echo "$MINC" ;;
     esac
 }

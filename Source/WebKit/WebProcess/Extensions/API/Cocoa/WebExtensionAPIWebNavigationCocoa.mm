@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "MessageSenderInlines.h"
+#import "WebExtensionAPIKeys.h"
 #import "WebExtensionAPINamespace.h"
 #import "WebExtensionAPIWebNavigation.h"
 #import "WebExtensionContext.h"
@@ -51,7 +52,6 @@ static NSString *tabIdKey = @"tabId";
 static NSString *timeStampKey = @"timeStamp";
 static NSString *urlKey = @"url";
 
-static NSString * const emptyURLValue = @"";
 
 static NSDictionary *toWebAPI(WebExtensionFrameParameters frameInfo)
 {
@@ -203,7 +203,7 @@ void WebExtensionContextProxy::dispatchWebNavigationEvent(WebExtensionEventListe
         tabIdKey: @(toWebAPI(tabID)),
         frameIdKey: @(toWebAPI(frameID)),
         parentFrameIdKey: @(toWebAPI(parentFrameID)),
-        timeStampKey: @(floor(timestamp.approximateWallTime().secondsSinceEpoch().milliseconds()))
+        timeStampKey: @(floor(timestamp.approximate<WallTime>().secondsSinceEpoch().milliseconds()))
     } mutableCopy];
 
     if (frameParameters.documentIdentifier)

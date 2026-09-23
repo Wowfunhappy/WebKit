@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/WebTransportConnectionInfo.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/NativePromise.h>
 #include <wtf/Ref.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -39,6 +40,8 @@ class WebSocketChannelClient;
 class WebTransportSession;
 class WebTransportSessionClient;
 
+enum class IsInitiatedByDedicatedWorker : bool;
+
 struct WebTransportOptions;
 
 using WebTransportSessionPromise = NativePromise<WebTransportConnectionInfo, void>;
@@ -50,8 +53,10 @@ class RiceBackendClient;
 
 class WEBCORE_EXPORT SocketProvider : public ThreadSafeRefCounted<SocketProvider> {
 public:
-    virtual RefPtr<ThreadableWebSocketChannel> createWebSocketChannel(Document&, WebSocketChannelClient&) = 0;
+    virtual RefPtr<ThreadableWebSocketChannel> createWebSocketChannel(Document&, WebSocketChannelClient&, IsInitiatedByDedicatedWorker) = 0;
     virtual std::pair<RefPtr<WebTransportSession>, Ref<WebTransportSessionPromise>> initializeWebTransportSession(ScriptExecutionContext&, WebTransportSessionClient&, const URL&, const WebTransportOptions&) = 0;
+
+    virtual void countWebSocketChannelsForTesting(CompletionHandler<void(unsigned)>&& completionHandler) { completionHandler(0); }
 
 #if USE(LIBRICE)
     virtual RefPtr<RiceBackend> createRiceBackend(RiceBackendClient&) = 0;

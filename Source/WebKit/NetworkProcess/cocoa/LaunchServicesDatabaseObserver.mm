@@ -26,6 +26,7 @@
 #import "config.h"
 #import "LaunchServicesDatabaseObserver.h"
 
+#import "Connection.h"
 #import "LaunchServicesDatabaseXPCConstants.h"
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #import <wtf/BlockPtr.h>
@@ -38,7 +39,12 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LaunchServicesDatabaseObserver);
 
-LaunchServicesDatabaseObserver::LaunchServicesDatabaseObserver(NetworkProcess&)
+Ref<LaunchServicesDatabaseObserver> LaunchServicesDatabaseObserver::create()
+{
+    return adoptRef(*new LaunchServicesDatabaseObserver);
+}
+
+LaunchServicesDatabaseObserver::LaunchServicesDatabaseObserver()
 {
 #if HAVE(LSDATABASECONTEXT) && !HAVE(SYSTEM_CONTENT_LS_DATABASE)
     m_observer = [LSDatabaseContext.sharedDatabaseContext addDatabaseChangeObserver4WebKit:^(xpc_object_t change) {
@@ -54,11 +60,6 @@ LaunchServicesDatabaseObserver::LaunchServicesDatabaseObserver(NetworkProcess&)
         }
     }];
 #endif
-}
-
-ASCIILiteral LaunchServicesDatabaseObserver::supplementName()
-{
-    return "LaunchServicesDatabaseObserverSupplement"_s;
 }
 
 void LaunchServicesDatabaseObserver::startObserving(OSObjectPtr<xpc_connection_t> connection)

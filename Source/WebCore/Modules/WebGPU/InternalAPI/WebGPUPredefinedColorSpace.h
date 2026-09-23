@@ -25,13 +25,10 @@
 
 #pragma once
 
-#include <cstdint>
+#include <WebCore/PredefinedColorSpace.h>
 
 namespace WebCore::WebGPU {
 
-enum class PredefinedColorSpace : uint8_t {
-    SRGB,
-    DisplayP3,
-};
+using PredefinedColorSpace = WebCore::PredefinedColorSpace;
 
 } // namespace WebCore::WebGPU

@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleSpeakAs.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -32,8 +33,8 @@ namespace Style {
 
 auto CSSValueConversion<SpeakAs>::operator()(BuilderState& state, const CSSValue& value) -> SpeakAs
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNone:
         case CSSValueNormal:
             return CSS::Keyword::Normal { };
@@ -51,7 +52,7 @@ auto CSSValueConversion<SpeakAs>::operator()(BuilderState& state, const CSSValue
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::Normal { };
 

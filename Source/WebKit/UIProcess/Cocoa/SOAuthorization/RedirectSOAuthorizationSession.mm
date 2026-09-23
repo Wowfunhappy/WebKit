@@ -69,8 +69,8 @@ void RedirectSOAuthorizationSession::completeInternal(const ResourceResponse& re
     RefPtr navigationAction = this->navigationAction();
     ASSERT(navigationAction);
     RefPtr page = this->page();
-    // FIXME: Enable the useRedirectionForCurrentNavigation code path for all redirections.
-    if ((response.httpStatusCode() != httpStatus302Found && response.httpStatusCode() != httpStatus200OK && !(response.httpStatusCode() == httpStatus307TemporaryRedirect && navigationAction->request().httpMethod() == "POST"_s)) || !page) {
+
+    if (!page) {
         AUTHORIZATIONSESSION_RELEASE_LOG("completeInternal: httpState=%d page=%d, so falling back to web path.", response.httpStatusCode(), !!page);
         fallBackToWebPathInternal();
         return;
@@ -95,6 +95,7 @@ void RedirectSOAuthorizationSession::completeInternal(const ResourceResponse& re
         page->loadRequest(ResourceRequest(response.httpHeaderFields().get(HTTPHeaderName::Location)));
         return;
     }
+
     if (response.httpStatusCode() == httpStatus200OK) {
         invokeCallback(true);
         page->setShouldSuppressSOAuthorizationInNextNavigationPolicyDecision();
@@ -102,9 +103,28 @@ void RedirectSOAuthorizationSession::completeInternal(const ResourceResponse& re
         return;
     }
 
-    ASSERT(response.httpStatusCode() == httpStatus307TemporaryRedirect && navigationAction->request().httpMethod() == "POST"_s);
-    page->useRedirectionForCurrentNavigation(response);
-    invokeCallback(false);
+    // FIXME: Enable the useRedirectionForCurrentNavigation code path for all redirections.
+    if (response.httpStatusCode() == httpStatus307TemporaryRedirect
+        && navigationAction->request().httpMethod() == "POST"_s) {
+        page->useRedirectionForCurrentNavigation(response);
+        invokeCallback(false);
+        return;
+    }
+
+    // When the SSO extension completes with a 401 response and non-empty body data,
+    // load the response body so the page can continue the authentication flow.
+    // The extension chose didCompleteWithHTTPResponse: over authorizationDidNotHandle:,
+    // indicating it has meaningful content for the browser to render. rdar://145336725
+    if (response.httpStatusCode() == httpStatus401Unauthorized && data.length) {
+        AUTHORIZATIONSESSION_RELEASE_LOG("completeInternal: loading 401 response body (%zu bytes)", static_cast<size_t>(data.length));
+        invokeCallback(true);
+        page->setShouldSuppressSOAuthorizationInNextNavigationPolicyDecision();
+        page->loadData(SharedBuffer::create(data), "text/html"_s, "UTF-8"_s, response.url().string(), nullptr, navigationAction->shouldOpenExternalURLsPolicy());
+        return;
+    }
+
+    AUTHORIZATIONSESSION_RELEASE_LOG("completeInternal: httpState=%d, so falling back to web path.", response.httpStatusCode());
+    fallBackToWebPathInternal();
 }
 
 void RedirectSOAuthorizationSession::beforeStart()

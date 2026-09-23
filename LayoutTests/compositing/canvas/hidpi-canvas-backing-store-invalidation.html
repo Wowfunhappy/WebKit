@@ -40,7 +40,7 @@ window.addEventListener('load', doTest, false);
 <body>
 <p> Tests whether we switch back to a hidpi backing store when rasterized content is added to the canvas layer.</p>
 <div style="opacity:0.5">
-<canvas id="canvas" width="500" height="500" style="transform-origin:top left"></canvas>
+<canvas id="canvas" width="500" height="500" style="transform-origin:top left; will-change:transform"></canvas>
 </div>
 <pre id="layers">Layer tree goes here in DRT</pre>
 </body>

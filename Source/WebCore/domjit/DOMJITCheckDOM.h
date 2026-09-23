@@ -34,6 +34,7 @@
 #include "Element.h"
 #include "Event.h"
 #include "Node.h"
+#include <JavaScriptCore/Snippet.h>
 
 namespace WebCore { namespace DOMJIT {
 

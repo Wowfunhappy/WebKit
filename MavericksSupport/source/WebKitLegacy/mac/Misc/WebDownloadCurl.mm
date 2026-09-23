@@ -316,7 +316,7 @@ void WebDownloadCurlClient::beginTransfer()
     if (cache.answer == CocoaCurlCacheAnswer::UseCached) {
         CocoaCurlTransferResponse response;
         response.response = cocoaCurlCachedResponse(cache.entry.get(), m_request);
-        if (ResourceResponse::isRedirectionStatusCode(response.response.httpStatusCode()) && !response.response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
+        if (isHttpRedirectStatus(response.response.httpStatusCode()) && !response.response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
             m_response = WTF::move(response);
             redirect();
             return;

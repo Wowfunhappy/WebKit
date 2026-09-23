@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSValueList.h"
 #include "StyleBuilderChecking.h"
 #include "StyleValueTypes.h"
@@ -32,84 +32,10 @@
 namespace WebCore {
 namespace Style {
 
-// Specialization for `String`.
-template<> struct CSSValueConversion<String> {
-    String operator()(BuilderState& state, const CSSPrimitiveValue& value)
-    {
-        if (!value.isString()) [[unlikely]] {
-            state.setCurrentPropertyInvalidAtComputedValueTime();
-            return emptyString();
-        }
-        return value.string();
-    }
-    String operator()(BuilderState& state, const CSSValue& value)
-    {
-        RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-        if (!primitiveValue) [[unlikely]]
-            return emptyString();
-        return this->operator()(state, *primitiveValue);
-    }
-};
-
-// Specialization for `AtomString`.
-template<> struct CSSValueConversion<AtomString> {
-    AtomString operator()(BuilderState& state, const CSSPrimitiveValue& value)
-    {
-        if (!value.isString()) [[unlikely]] {
-            state.setCurrentPropertyInvalidAtComputedValueTime();
-            return emptyAtom();
-        }
-        return AtomString { value.string() };
-    }
-    AtomString operator()(BuilderState& state, const CSSValue& value)
-    {
-        RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-        if (!primitiveValue) [[unlikely]]
-            return emptyAtom();
-        return this->operator()(state, *primitiveValue);
-    }
-};
-
-// Specialization for `CustomIdentifier`.
-template<> struct CSSValueConversion<CustomIdentifier> {
-    CustomIdentifier operator()(BuilderState& state, const CSSPrimitiveValue& value)
-    {
-        if (!value.isCustomIdent()) [[unlikely]] {
-            state.setCurrentPropertyInvalidAtComputedValueTime();
-            return { .value = emptyAtom() };
-        }
-        return { .value = AtomString { value.customIdent() } };
-    }
-    CustomIdentifier operator()(BuilderState& state, const CSSValue& value)
-    {
-        RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-        if (!primitiveValue) [[unlikely]]
-            return { .value = emptyAtom() };
-        return this->operator()(state, *primitiveValue);
-    }
-};
-
-// Specialization for `PropertyIdentifier`.
-template<> struct CSSValueConversion<PropertyIdentifier> {
-    PropertyIdentifier operator()(BuilderState& state, const CSSPrimitiveValue& value)
-    {
-        if (!value.isPropertyID()) [[unlikely]] {
-            state.setCurrentPropertyInvalidAtComputedValueTime();
-            return { .value = CSSPropertyInvalid };
-        }
-        return { .value = value.propertyID() };
-    }
-    PropertyIdentifier operator()(BuilderState& state, const CSSValue& value)
-    {
-        auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-        if (!primitiveValue) [[unlikely]]
-            return { .value = CSSPropertyInvalid };
-        return this->operator()(state, *primitiveValue);
-    }
-};
-
 // Specialization for `TupleLike` (wrapper).
-template<TupleLike StyleType> requires (std::tuple_size_v<StyleType> == 1) struct CSSValueConversion<StyleType> {
+template<TupleLike StyleType>
+    requires(std::tuple_size_v<StyleType> == 1)
+struct CSSValueConversion<StyleType> {
     template<typename... Rest> StyleType operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
         return { toStyleFromCSSValue<std::remove_cvref_t<std::tuple_element_t<0, StyleType>>>(state, value, std::forward<Rest>(rest)...) };
@@ -142,12 +68,12 @@ template<typename T> struct CSSValueConversion<CommaSeparatedEnumSet<T>> {
     }
 };
 
-// Specialization for `SpaceSeparatedListHashSet`.
-template<typename T> struct CSSValueConversion<SpaceSeparatedListHashSet<T>> {
-    template<typename... Rest> SpaceSeparatedListHashSet<T> operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
+// Specialization for `SpaceSeparatedOrderedHashSet`.
+template<typename T> struct CSSValueConversion<SpaceSeparatedOrderedHashSet<T>> {
+    template<typename... Rest> SpaceSeparatedOrderedHashSet<T> operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
         if (auto list = dynamicDowncast<CSSValueList>(value)) {
-            return SpaceSeparatedListHashSet<T>::map(*list, [&](const CSSValue& element) {
+            return SpaceSeparatedOrderedHashSet<T>::map(*list, [&](const CSSValue& element) {
                 return toStyleFromCSSValue<T>(state, element, rest...);
             });
         }
@@ -155,12 +81,12 @@ template<typename T> struct CSSValueConversion<SpaceSeparatedListHashSet<T>> {
     }
 };
 
-// Specialization for `CommaSeparatedListHashSet`.
-template<typename T> struct CSSValueConversion<CommaSeparatedListHashSet<T>> {
-    template<typename... Rest> CommaSeparatedListHashSet<T> operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
+// Specialization for `CommaSeparatedOrderedHashSet`.
+template<typename T> struct CSSValueConversion<CommaSeparatedOrderedHashSet<T>> {
+    template<typename... Rest> CommaSeparatedOrderedHashSet<T> operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
         if (auto list = dynamicDowncast<CSSValueList>(value)) {
-            return CommaSeparatedListHashSet<T>::map(*list, [&](const CSSValue& element) {
+            return CommaSeparatedOrderedHashSet<T>::map(*list, [&](const CSSValue& element) {
                 return toStyleFromCSSValue<T>(state, element, rest...);
             });
         }
@@ -198,8 +124,10 @@ template<typename StyleType> struct CSSValueConversion<CommaSeparatedFixedVector
 template<typename StyleType, typename Keyword, typename StyleTypeMarkableTraits> struct CSSValueConversion<ValueOrKeyword<StyleType, Keyword, StyleTypeMarkableTraits>> {
     template<typename... Rest> ValueOrKeyword<StyleType, Keyword, StyleTypeMarkableTraits> operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
-        if (value.valueID() == Keyword { }.value)
-            return Keyword { };
+        if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+            if (keywordValue->valueID() == Keyword { }.value)
+                return Keyword { };
+        }
         return toStyleFromCSSValue<StyleType>(state, value, std::forward<Rest>(rest)...);
     }
 };
@@ -208,8 +136,10 @@ template<typename StyleType, typename Keyword, typename StyleTypeMarkableTraits>
 template<ValueOrKeywordDerived T> struct CSSValueConversion<T> {
     template<typename... Rest> T operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
-        if (value.valueID() == typename T::Keyword { }.value)
-            return typename T::Keyword { };
+        if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+            if (keywordValue->valueID() == typename T::Keyword { }.value)
+                return typename T::Keyword { };
+        }
         return toStyleFromCSSValue<typename T::Value>(state, value, std::forward<Rest>(rest)...);
     }
 };
@@ -218,8 +148,10 @@ template<ValueOrKeywordDerived T> struct CSSValueConversion<T> {
 template<typename ListType> struct CSSValueConversion<ListOrNone<ListType>> {
     template<typename... Rest> ListOrNone<ListType> operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
-        if (value.valueID() == CSSValueNone)
-            return CSS::Keyword::None { };
+        if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+            if (keywordValue->valueID() == CSSValueNone)
+                return CSS::Keyword::None { };
+        }
         return toStyleFromCSSValue<ListType>(state, value, std::forward<Rest>(rest)...);
     }
 };
@@ -228,8 +160,10 @@ template<typename ListType> struct CSSValueConversion<ListOrNone<ListType>> {
 template<ListOrNoneDerived T> struct CSSValueConversion<T> {
     template<typename... Rest> T operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
-        if (value.valueID() == CSSValueNone)
-            return CSS::Keyword::None { };
+        if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+            if (keywordValue->valueID() == CSSValueNone)
+                return CSS::Keyword::None { };
+        }
         return toStyleFromCSSValue<typename T::List>(state, value, std::forward<Rest>(rest)...);
     }
 };
@@ -254,8 +188,10 @@ template<ListOrDefaultDerived T> struct CSSValueConversion<T> {
 template<EnumSetOrKeywordBaseDerived T> struct CSSValueConversion<T> {
     template<typename... Rest> T operator()(BuilderState& state, const CSSValue& value, Rest&&... rest)
     {
-        if (value.valueID() == typename T::Keyword { }.value)
-            return typename T::Keyword { };
+        if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+            if (keywordValue->valueID() == typename T::Keyword { }.value)
+                return typename T::Keyword { };
+        }
         return toStyleFromCSSValue<typename T::EnumSet>(state, value, std::forward<Rest>(rest)...);
     }
 };

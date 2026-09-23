@@ -14,7 +14,6 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
-/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/appcache-manifest.sub.https.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/audioworklet.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/css-font-face.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/css-images.sub.html
@@ -39,8 +38,10 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/form-submission.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/header-link.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/header-refresh.optional.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/script-json-module-import-static.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/script-module-import-dynamic.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/script-module-import-static.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/script-text-module-import-static.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/serviceworker.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/svg-image.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/tools/templates/window-history.sub.html

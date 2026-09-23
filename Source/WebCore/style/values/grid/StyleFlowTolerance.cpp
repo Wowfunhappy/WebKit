@@ -26,7 +26,6 @@
 #include "config.h"
 #include "StyleFlowTolerance.h"
 
-#include "CSSPrimitiveValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
@@ -35,28 +34,6 @@ namespace WebCore {
 namespace Style {
 
 using namespace CSS::Literals;
-
-// MARK: - Conversion
-
-auto CSSValueConversion<FlowTolerance>::operator()(BuilderState& state, const CSSValue& value) -> FlowTolerance
-{
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
-        case CSSValueNormal:
-            return CSS::Keyword::Normal { };
-        case CSSValueInfinite:
-            return CSS::Keyword::Infinite { };
-        default:
-            break;
-        }
-
-        // If not a keyword, it must be a <length-percentage [0,∞]>
-        return toStyleFromCSSValue<LengthPercentage<CSS::NonnegativeUnzoomed>>(state, *primitiveValue);
-    }
-
-    state.setCurrentPropertyInvalidAtComputedValueTime();
-    return CSS::Keyword::Normal { };
-}
 
 // MARK: - Blending
 

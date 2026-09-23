@@ -31,6 +31,10 @@ Table-layout:fixed does apply to width:fit-content tables
 
 fit-content
 This should be a 50x50 cyan square:
+Table-layout:fixed does apply to width:stretch tables
+
+stretch
+This should be a 50x50 cyan square:
 Table-layout:fixed does apply to width:-webkit-fill-available tables
 
 -webkit-fill-available
@@ -50,6 +54,7 @@ PASS auto
 PASS min-content
 PASS max-content
 PASS fit-content
+PASS stretch
 PASS -webkit-fill-available
 FAIL intrinsic assert_equals: Table is in fixed mode expected 50 but got 100
 FAIL min-intrinsic assert_equals: Table is in fixed mode expected 50 but got 100

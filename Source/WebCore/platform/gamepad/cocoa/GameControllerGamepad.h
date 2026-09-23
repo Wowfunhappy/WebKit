@@ -29,6 +29,7 @@
 
 #include "GameControllerHapticEngines.h"
 #include <WebCore/PlatformGamepad.h>
+#include <WebCore/SharedGamepadValue.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 

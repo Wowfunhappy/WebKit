@@ -12,6 +12,7 @@
         <script>
 promise_test(async (test) => {
     const localStream = await navigator.mediaDevices.getUserMedia({video:true });
+    test.add_cleanup(() => localStream.getTracks().forEach(t => t.stop()));
 
     const pc1 = new RTCPeerConnection();
     const pc2 = new RTCPeerConnection();
@@ -45,6 +46,7 @@ promise_test(async (test) => {
 
 promise_test(async (test) => {
     const localStream = await navigator.mediaDevices.getUserMedia({video:true });
+    test.add_cleanup(() => localStream.getTracks().forEach(t => t.stop()));
 
     const pc1 = new RTCPeerConnection();
     const pc2 = new RTCPeerConnection();

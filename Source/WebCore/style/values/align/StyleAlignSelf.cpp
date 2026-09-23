@@ -27,16 +27,16 @@
 #include "StyleAlignSelf.h"
 
 #include "AnchorPositionEvaluator.h"
-#include "RenderStyle.h"
-#include "RenderStyle+GettersInlines.h"
+#include "CSSKeywordValue.h"
 #include "StyleAlignItems.h"
 #include "StyleBuilderChecking.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
-StyleSelfAlignmentData AlignSelf::resolve(const RenderStyle* containerStyle) const
+StyleSelfAlignmentData AlignSelf::resolve(const Style::ComputedStyle* containerStyle) const
 {
     if (PrimaryKind::Auto == primary())
         return containerStyle ? containerStyle->alignItems().resolve() : StyleSelfAlignmentData { ItemPosition::Normal };
@@ -96,8 +96,8 @@ auto CSSValueConversion<AlignSelf>::operator()(BuilderState& state, const CSSVal
         return position;
     };
 
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (applyPositionTryFallbackTactics(state, primitiveValue->valueID())) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (applyPositionTryFallbackTactics(state, keywordValue->valueID())) {
         // auto
         case CSSValueAuto:
             return CSS::Keyword::Auto { };
@@ -133,7 +133,7 @@ auto CSSValueConversion<AlignSelf>::operator()(BuilderState& state, const CSSVal
         }
     }
 
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
     if (!pair)
         return CSS::Keyword::Auto { };
 

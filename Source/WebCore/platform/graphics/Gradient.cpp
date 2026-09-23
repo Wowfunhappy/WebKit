@@ -28,6 +28,7 @@
 #include "Gradient.h"
 
 #include "FloatRect.h"
+#include "NativeImage.h"
 #include <wtf/HashFunctions.h>
 #include <wtf/Hasher.h>
 #include <wtf/StdLibExtras.h>

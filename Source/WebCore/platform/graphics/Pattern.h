@@ -32,6 +32,7 @@
 
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
 
 #if USE(CG)
 typedef struct CGPattern* CGPatternRef;
@@ -42,6 +43,7 @@ typedef cairo_pattern_t* PlatformPatternPtr;
 #elif USE(SKIA)
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkShader.h>
+#include <skia/gpu/ganesh/GrContextThreadSafeProxy.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 typedef sk_sp<SkShader> PlatformPatternPtr;
 #endif
@@ -78,7 +80,7 @@ public:
 
     // Pattern space is an abstract space that maps to the default user space by the transformation 'userSpaceTransform'
 #if USE(SKIA)
-    PlatformPatternPtr createPlatformPattern(const AffineTransform& userSpaceTransform, const SkSamplingOptions&) const;
+    PlatformPatternPtr createPlatformPattern(const SkSamplingOptions&, const sk_sp<GrContextThreadSafeProxy>&) const;
 #else
     PlatformPatternPtr createPlatformPattern(const AffineTransform& userSpaceTransform) const;
 #endif

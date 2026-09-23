@@ -180,13 +180,16 @@ class MockFileSystem(object):
             raise OSError("%s is not a file" % path)
         return len(self.files[path])
 
-    def glob(self, glob_string):
+    def glob(self, glob_string, recursive=False):
         # Normalize the glob string to handle '..' before matching
         glob_string = self.normpath(glob_string)
         # FIXME: This handles '*', but not '?', '[', or ']'.
         glob_string = re.escape(glob_string)
-        glob_string = glob_string.replace('\\*', '[^\\/]*') + '$'
-        glob_string = glob_string.replace('\\/', '/')
+        if recursive:
+            # Replace '**' (escaped as \*\*) with .* before replacing single '*'.
+            glob_string = glob_string.replace(r'\*\*', '.*')
+        glob_string = glob_string.replace(r'\*', r'[^\/]*') + '$'
+        glob_string = glob_string.replace(r'\/', '/')
         path_filter = lambda path: re.match(glob_string, path)
 
         # We could use fnmatch.fnmatch, but that might not do the right thing on windows.

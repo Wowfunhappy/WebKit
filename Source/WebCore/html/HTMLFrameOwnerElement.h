@@ -43,8 +43,8 @@ public:
     WEBCORE_EXPORT WindowProxy* NODELETE contentWindow() const;
     WEBCORE_EXPORT Document* NODELETE contentDocument() const;
 
-    WEBCORE_EXPORT void setContentFrame(Frame&);
-    void clearContentFrame();
+    WEBCORE_EXPORT void NODELETE setContentFrame(Frame&);
+    void NODELETE clearContentFrame();
 
     void disconnectContentFrame();
 

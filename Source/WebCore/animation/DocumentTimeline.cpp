@@ -75,6 +75,8 @@ DocumentTimeline::DocumentTimeline(Document& document, Seconds originTime)
 
 DocumentTimeline::~DocumentTimeline() = default;
 
+Document* DocumentTimeline::document() const { return m_document.get(); }
+
 AnimationTimelinesController* DocumentTimeline::controller() const
 {
     if (RefPtr document = m_document.get())
@@ -97,7 +99,7 @@ Seconds DocumentTimeline::animationInterval() const
     if (!m_document || !m_document->page())
         return Seconds::infinity();
 
-    return m_document->page()->preferredRenderingUpdateInterval();
+    return protect(m_document->page())->preferredRenderingUpdateInterval();
 }
 
 void DocumentTimeline::suspendAnimations()
@@ -163,7 +165,7 @@ void DocumentTimeline::scheduleAnimationResolution()
     if (!havePendingActivity)
         return;
 
-    m_document->page()->scheduleRenderingUpdate(RenderingUpdateStep::Animations);
+    protect(m_document->page())->scheduleRenderingUpdate(RenderingUpdateStep::Animations);
     m_animationResolutionScheduled = true;
 }
 
@@ -246,10 +248,10 @@ bool DocumentTimeline::animationCanBeRemoved(WebAnimation& animation)
         return false;
 
 IGNORE_GCC_WARNINGS_BEGIN("dangling-reference")
-    CheckedRef style = [&]() -> const RenderStyle& {
+    CheckedRef style = [&]() -> const Style::ComputedStyle& {
         if (auto* renderer = target->renderer())
             return renderer->style();
-        return RenderStyle::defaultStyleSingleton();
+        return Style::ComputedStyle::defaultStyleSingleton();
     }();
 IGNORE_GCC_WARNINGS_END
 
@@ -533,6 +535,11 @@ Seconds DocumentTimeline::convertTimelineTimeToOriginRelativeTime(Seconds timeli
 }
 
 #if ENABLE(THREADED_ANIMATIONS)
+bool DocumentTimeline::canBeAccelerated() const
+{
+    return m_document && m_document->window();
+}
+
 Ref<AcceleratedTimeline> DocumentTimeline::createAcceleratedRepresentation() const
 {
     // The origin time of a document timeline is relative to the time origin
@@ -542,8 +549,7 @@ Ref<AcceleratedTimeline> DocumentTimeline::createAcceleratedRepresentation() con
     ASSERT(m_document->window());
     ASSERT(m_document->settings().threadedTimeBasedAnimationsEnabled());
     Ref window = *m_document->window();
-    auto monotonicOriginTime = MonotonicTime::fromRawSeconds(m_originTime.seconds());
-    auto convertedOriginTime = m_originTime - window->performance().relativeTimeFromTimeOriginInReducedResolutionSeconds(monotonicOriginTime);
+    auto convertedOriginTime = protect(window->performance())->monotonicTimeFromOriginRelative(m_originTime).secondsSinceEpoch();
     return AcceleratedTimeline::create(m_acceleratedTimelineIdentifier, convertedOriginTime);
 }
 #endif

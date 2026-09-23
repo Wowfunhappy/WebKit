@@ -41,7 +41,7 @@
 #import "WKSharingServicePickerDelegate.h"
 #import "WebContextMenuItem.h"
 #import "WebContextMenuItemData.h"
-#import "WebMouseEvent.h" // MAVERICKS_BACKPORT: complete WebMouseEventInputSource type (relied on bundle-transitive include before SourcesCocoa reshuffle).
+#import "WebEvent.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "_WKCaptionStyleMenuController.h"
@@ -66,7 +66,7 @@
 #endif
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
-#import <WebKitAdditions/WKAppKitGestureControllerAdditionsBefore.mm>
+#import <WebKitAdditions/AppKitUtilities.h>
 #endif
 
 @interface WKUserDataWrapper : NSObject {
@@ -537,11 +537,9 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     if (hitTestData.imageSharedMemory) {
         if (usePlaceholder)
             [items addObject:adoptNS([[NSImage alloc] init]).get()];
-        // MAVERICKS_BACKPORT: upstream's version of the line below, kept commented rather than
-        // deleted so the divergence stays visible in place. The bytes are the page's image, and
-        // -[NSImage initWithData:] parses them inside ImageIO -- in the UI process at that.
-        // else if (auto image = adoptNS([[NSImage alloc] initWithData:protect(*hitTestData.imageSharedMemory)->toNSData().get()])) {
-        else if (auto image = nsImageFromImageData(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
+        // MAVERICKS_BACKPORT: decode web content through WebCore image decoders.
+        // else if (RetainPtr image = createCocoaImageRestrictedToSupportedTypes(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
+        else if (RetainPtr image = nsImageFromImageData(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
             RetainPtr title = hitTestData.imageText.createNSString();
             if (![title length])
                 title = WEB_UI_NSSTRING(@"Image", "Fallback title for images in the share sheet");
@@ -783,6 +781,27 @@ static RetainPtr<NSString> menuItemIdentifier(const WebCore::ContextMenuAction a
     case ContextMenuItemTagPauseAnimation:
         return _WKMenuItemIdentifierPauseAnimation;
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+
+    case ContextMenuItemTagSubstitutionsMenu:
+        return _WKMenuItemIdentifierSubstitutionsMenu;
+
+    case ContextMenuItemTagShowSubstitutions:
+        return _WKMenuItemIdentifierShowSubstitutions;
+
+    case ContextMenuItemTagSmartCopyPaste:
+        return _WKMenuItemIdentifierSmartCopyPaste;
+
+    case ContextMenuItemTagSmartQuotes:
+        return _WKMenuItemIdentifierSmartQuotes;
+
+    case ContextMenuItemTagSmartDashes:
+        return _WKMenuItemIdentifierSmartDashes;
+
+    case ContextMenuItemTagSmartLinks:
+        return _WKMenuItemIdentifierSmartLinks;
+
+    case ContextMenuItemTagTextReplacement:
+        return _WKMenuItemIdentifierTextReplacement;
 
     default:
         return nil;
@@ -1078,10 +1097,10 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
     auto webView = m_webView.get();
     NSPoint locationInWindowCoordinates = [webView convertPoint:m_context.menuLocation() toView:nil];
 
-    if (m_context.inputSource() == WebMouseEventInputSource::Automation) {
+    if (m_context.inputSource() == WebEventInputSource::Automation) {
 #if HAVE(APPKIT_GESTURES_SUPPORT)
         NSPoint locationInScreenCoordinates = [[webView window] convertPointToScreen:locationInWindowCoordinates];
-        RetainPtr screenRelativeContext = [_NSViewMenuContext menuContextWithLocation:locationInScreenCoordinates source:contextMenuRequestSourceForAutomation()];
+        RetainPtr screenRelativeContext = [_NSViewMenuContext menuContextWithLocation:locationInScreenCoordinates source:ContextMenuRequestSourceForAutomation];
         [NSMenu _popUpContextMenu:m_menu.get() withContext:screenRelativeContext.get() forView:webView.get() completionBlock:nil];
 #else
         RELEASE_ASSERT_NOT_REACHED();

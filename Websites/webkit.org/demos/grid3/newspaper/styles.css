@@ -57,6 +57,14 @@ main {
 .interface {
   padding-inline: calc(4vw + 1rem);
 }
+@media (max-width: 500px) {
+  main {
+    padding-inline: calc(2vw + 0.5rem);
+  }
+  .interface {
+    padding-inline: calc(2vw + 0.5rem);
+  }
+}
 
 /* --------------------------------------------
    Variations on the layout
@@ -134,16 +142,31 @@ body:has(option[value="four"]:checked) main {
     }
   }
   @media (500px < width < 1002px) {
-    article:nth-child(1) { 
-      grid-column: span 2; 
-      h3 { 
-        font-size: 2.1rem; 
+    article:nth-child(1) {
+      grid-column: span 2;
+      h3 {
+        font-size: 2.1rem;
         line-height: 1.2;
-      } 
-      p { 
+      }
+      p {
         display: block;
       }
-    }  
+    }
+  }
+  @media (max-width: 500px) {
+    article {
+      grid-column: span 1;
+    }
+    article:nth-child(1) {
+      grid-column: span 1;
+      h3 {
+        font-size: 1.6rem;
+        line-height: 1.2;
+      }
+      p {
+        display: block;
+      }
+    }
   }
   @media (1001px < width < 1253px) {
     article:nth-child(1) { 

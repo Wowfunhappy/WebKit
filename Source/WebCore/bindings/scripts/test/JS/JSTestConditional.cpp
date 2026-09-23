@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -35,7 +36,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -111,10 +111,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestConditionalPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestConditionalPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -218,11 +215,16 @@ static const std::array<HashTableValue, 14> JSTestConditionalPrototypeTableValue
 
 const ClassInfo JSTestConditionalPrototype::s_info = { "TestConditional"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestConditionalPrototype) };
 
+JSC::Structure* JSTestConditionalPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestConditionalPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestConditional::info(), JSTestConditionalPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestConditional::s_info = { "TestConditional"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestConditional) };
@@ -233,6 +235,19 @@ JSTestConditional::JSTestConditional(Structure* structure, JSDOMGlobalObject& gl
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestConditional>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestConditional* JSTestConditional::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestConditional>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestConditional* ptr = new (NotNull, JSC::allocateCell<JSTestConditional>(vm)) JSTestConditional(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestConditional::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestConditional::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -248,7 +263,7 @@ JSObject* JSTestConditional::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestConditional::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestConditionalDOMConstructor, DOMConstructorID::TestConditional>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestConditionalDOMConstructor, DOMConstructorID::TestConditional>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestConditional::destroy(JSC::JSCell* cell)
@@ -261,10 +276,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestConditionalConstructor, (JSGlobalObject* lexicalG
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestConditionalPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestConditionalPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestConditional::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestConditional::getConstructor(vm, prototype->realm()));
 }
 
 #if ENABLE(FOO)
@@ -487,12 +502,14 @@ JSC::GCClient::IsoSubspace* JSTestConditional::subspaceForImpl(JSC::VM& vm)
 
 void JSTestConditional::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestConditional*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestConditional>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestConditionalOwner::JSTestConditionalOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestConditionalOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -506,7 +523,7 @@ void JSTestConditionalOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* co
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestConditional = static_cast<JSTestConditional*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestConditional->wrapped()).ptr(), jsTestConditional);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestConditional->wrapped(), jsTestConditional);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -554,7 +571,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestConditional* JSTestConditional::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestConditional*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestConditional>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

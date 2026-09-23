@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/cross-site-frame-with-sandboxed-embed.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/echo-cookies.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/iframe-navigate-report.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/iframe-subresource-report.html
@@ -21,3 +22,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/navigate-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/navigate.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/puppet.html
+/LayoutTests/imported/w3c/web-platform-tests/cookies/samesite/resources/same-site-none-embed.html

@@ -55,7 +55,6 @@
 #include <limits>
 #include <memory>
 #include <wtf/CheckedArithmetic.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -174,8 +173,8 @@ public:
 
     WebGLCanvas canvas();
 
-    int drawingBufferWidth() const;
-    int drawingBufferHeight() const;
+    int NODELETE drawingBufferWidth() const;
+    int NODELETE drawingBufferHeight() const;
 
     PredefinedColorSpace drawingBufferColorSpace() const { return m_drawingBufferColorSpace; }
     void setDrawingBufferColorSpace(PredefinedColorSpace);
@@ -253,6 +252,7 @@ public:
     WebGLAny getBufferParameter(GCGLenum target, GCGLenum pname);
     WEBCORE_EXPORT std::optional<WebGLContextAttributes> NODELETE getContextAttributes();
     WebGLContextAttributes creationAttributes() const { return m_creationAttributes; }
+    const WebGLContextAttributes& attributes() const { return m_attributes; }
     GCGLenum getError();
     virtual std::optional<WebGLExtensionAny> getExtension(const String& name) = 0;
     virtual WebGLAny getFramebufferAttachmentParameter(GCGLenum target, GCGLenum attachment, GCGLenum pname) = 0;
@@ -532,20 +532,20 @@ protected:
     friend class ScopedDisableScissorTest;
     friend class ScopedEnableBackbuffer;
     friend class ScopedInspectorShaderProgramHighlight;
+    friend class ScopedScissorTestForRegion;
     friend class ScopedWebGLRestoreFramebuffer;
     friend class ScopedWebGLRestoreRenderbuffer;
     friend class ScopedWebGLRestoreTexture;
 
     void initializeNewContext(Ref<GraphicsContextGL>);
-    virtual void initializeContextState();
-    virtual void initializeDefaultObjects();
+    virtual void initializeContextState() WTF_REQUIRES_LOCK(objectGraphLock());
+    virtual void initializeDefaultObjects() WTF_REQUIRES_LOCK(objectGraphLock());
+    virtual void detachAndRemoveAllObjects() WTF_REQUIRES_LOCK(objectGraphLock());
 
     // ActiveDOMObject
     void stop() override;
     void suspend(ReasonForSuspension) override;
     void resume() override;
-
-    void detachAndRemoveAllObjects();
 
     void destroyGraphicsContextGL();
 
@@ -785,6 +785,7 @@ protected:
     HashSet<GCGLenum> m_supportedTexImageSourceInternalFormats;
     HashSet<GCGLenum> m_supportedTexImageSourceFormats;
     HashSet<GCGLenum> m_supportedTexImageSourceTypes;
+    WeakPtrFactory<WebGLRenderingContextBase> m_contextObjectWeakPtrFactory;
 
     // Helpers for getParameter and other similar functions.
     bool getBooleanParameter(GCGLenum);
@@ -915,6 +916,8 @@ protected:
     // Otherwise, it would return quickly without doing other work.
     bool validateTexFunc(TexImageFunctionID, TexFuncValidationSourceType, GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width,
         GCGLsizei height, GCGLsizei depth, GCGLint border, GCGLenum format, GCGLenum type, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset);
+
+    bool validateCompressedTexFormat(ASCIILiteral functionName, GCGLenum format);
 
     // Helper function to check input parameters for functions {copy}Tex{Sub}Image.
     // Generates GL error and returns false if parameters are invalid.
@@ -1052,12 +1055,11 @@ private:
 #if ENABLE(WEB_CODECS)
     ExceptionOr<void> texImageSource(TexImageFunctionID, GCGLenum target, GCGLint level, GCGLint internalformat, GCGLint border, GCGLenum format, GCGLenum type, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, const IntRect& inputSourceImageRect, GCGLsizei depth, GCGLint unpackImageHeight, WebCodecsVideoFrame& source);
 #endif
+    // The ordinal number of when the context was last active (drew, read pixels).
+    uint64_t m_activeOrdinal { 0 };
 
     bool m_isSuspended { false };
     bool m_packReverseRowOrderSupported { false };
-    // The ordinal number of when the context was last active (drew, read pixels).
-    uint64_t m_activeOrdinal { 0 };
-    WeakPtrFactory<WebGLRenderingContextBase> m_contextObjectWeakPtrFactory;
 };
 
 template<typename T>

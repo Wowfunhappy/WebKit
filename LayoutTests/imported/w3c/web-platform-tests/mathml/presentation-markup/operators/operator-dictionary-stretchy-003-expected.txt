@@ -1,18 +1,6 @@
 
 PASS Operator dictionary chunk 1 - stretchy
-FAIL Operator dictionary chunk 2 - stretchy assert_approx_equals: Stretchy property for ⤉ infix should be 'true' expected 100 +/- 1 but got 50
-FAIL Operator dictionary chunk 3 - stretchy assert_approx_equals: Stretchy property for ⥣ infix should be 'true' expected 100 +/- 1 but got 50
-FAIL Operator dictionary chunk 4 - stretchy assert_approx_equals: Stretchy property for ⬎ infix should be 'true' expected 100 +/- 1 but got 50
-stretchy for "⤉" (infix):
-⤉
- VS
-⤉
-stretchy for "⥣" (infix):
-⥣
- VS
-⥣
-stretchy for "⬎" (infix):
-⬎
- VS
-⬎
+PASS Operator dictionary chunk 2 - stretchy
+PASS Operator dictionary chunk 3 - stretchy
+PASS Operator dictionary chunk 4 - stretchy
 

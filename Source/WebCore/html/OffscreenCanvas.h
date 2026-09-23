@@ -89,6 +89,7 @@ public:
     WEBCORE_EXPORT ~DetachedOffscreenCanvas();
     const IntSize& size() const LIFETIME_BOUND { return m_size; }
     bool originClean() const { return m_originClean; }
+    const RefPtr<PlaceholderRenderingContextSource>& placeholderSource() const LIFETIME_BOUND { return m_placeholderSource; }
     RefPtr<PlaceholderRenderingContextSource> NODELETE takePlaceholderSource();
 
 private:
@@ -156,6 +157,12 @@ public:
 private:
     OffscreenCanvas(ScriptExecutionContext&, IntSize, RefPtr<PlaceholderRenderingContextSource>&&);
 
+    // ActiveDOMObject.
+    bool virtualHasPendingActivity() const final;
+
+    // EventTarget.
+    void eventListenersDidChange() final;
+
     bool isOffscreenCanvas() const final { return true; }
 
     ScriptExecutionContext* scriptExecutionContext() const final;
@@ -174,6 +181,9 @@ private:
     mutable RefPtr<Image> m_copiedImage;
     bool m_detached { false };
     bool m_hasScheduledCommit { false };
+#if ENABLE(WEBGL)
+    bool m_hasRelevantWebGLEventListener { false };
+#endif
 };
 
 }

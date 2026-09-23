@@ -39,7 +39,7 @@ class FloatSize;
 class ScrollingMomentumCalculator {
     WTF_MAKE_TZONE_ALLOCATED(ScrollingMomentumCalculator);
 public:
-    WEBCORE_EXPORT static void setPlatformMomentumScrollingPredictionEnabled(bool);
+    WEBCORE_EXPORT static void NODELETE setPlatformMomentumScrollingPredictionEnabled(bool);
 
     static std::unique_ptr<ScrollingMomentumCalculator> create(const ScrollExtents&, const FloatPoint& initialOffset, const FloatSize& initialDelta, const FloatSize& initialVelocity);
 

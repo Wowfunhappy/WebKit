@@ -35,18 +35,18 @@
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <JavaScriptCore/InspectorProtocolObjects.h>
 #include <WebCore/CachedResource.h>
+#include <WebCore/InspectorBackendClient.h>
 #include <WebCore/InspectorWebAgentBase.h>
 #include <WebCore/LayoutRect.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Platform.h>
-#include <wtf/RobinHoodHashMap.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
-enum class ResourceType;
+enum class ResourceType : uint8_t;
 }
 
 namespace WebCore {
@@ -54,10 +54,10 @@ namespace WebCore {
 class DOMWrapperWorld;
 class DocumentLoader;
 class Frame;
-class InspectorBackendClient;
 class InspectorOverlay;
 class LocalFrame;
 class Page;
+class RemoteFrame;
 class RenderObject;
 class FragmentedSharedBuffer;
 
@@ -83,7 +83,7 @@ public:
     Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::Cookie>>> getCookies();
     Inspector::Protocol::ErrorStringOr<void> setCookie(Ref<JSON::Object>&&, std::optional<bool>&& shouldPartition);
     Inspector::Protocol::ErrorStringOr<void> deleteCookie(const String& cookieName, const String& url);
-    Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::Page::FrameResourceTree>> getResourceTree();
+    void getResourceTree(Ref<GetResourceTreeCallback>&&);
     Inspector::Protocol::ErrorStringOr<std::tuple<String, bool /* base64Encoded */>> getResourceContent(const Inspector::Protocol::Network::FrameId&, const String& url);
     Inspector::Protocol::ErrorStringOr<void> setBootstrapScript(const String& source);
     Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>>> searchInResource(const Inspector::Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId&);
@@ -136,7 +136,7 @@ private:
     void overridePrefersColorScheme(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
 
     Ref<Inspector::Protocol::Page::Frame> buildObjectForFrame(LocalFrame*);
-    Ref<Inspector::Protocol::Page::FrameResourceTree> buildObjectForFrameTree(LocalFrame*);
+    Ref<Inspector::Protocol::Page::FrameResourceTree> buildObjectForFrameTree(Frame*);
 
     const UniqueRef<Inspector::PageFrontendDispatcher> m_frontendDispatcher;
     const Ref<Inspector::PageBackendDispatcher> m_backendDispatcher;
@@ -145,9 +145,6 @@ private:
     InspectorBackendClient* m_client { nullptr };
     WeakRef<InspectorOverlay> m_overlay;
 
-    WeakHashMap<Frame, String> m_frameToIdentifier;
-    MemoryCompactRobinHoodHashMap<String, WeakPtr<Frame>> m_identifierToFrame;
-    HashMap<DocumentLoader*, String> m_loaderToIdentifier;
     String m_userAgentOverride;
     AtomString m_emulatedMedia;
     String m_bootstrapScript;

@@ -103,29 +103,6 @@ Virtual Memory Layout:
 - 0x8000000000000000 - 0xFFFFFFFFFFFFFFFF: Invalid regions
 ```
 
-## Protocol Implementation
-
-### Execution Control
-
-- **[DONE]** `gdb-remote localhost:1234`: Attach to debugger
-- **[DONE]** `process interrupt`, `ctrl+C`: Stop execution at function entry
-- **[DONE]** `continue`: Resume WebAssembly execution
-- **[DONE]** `breakpoint set`: Set breakpoints at virtual addresses
-- **[DONE]** `step over`: Step over function calls
-- **[DONE]** `step in`: Step into function calls and exception handlers
-- **[DONE]** `step out`: Step out of current function
-- **[DONE]** `step instruction`: Single step through bytecode
-
-### Inspection
-
-- **[DONE]** `target modules list`: List loaded WebAssembly modules
-- **[DONE]** `disassemble`: Display WebAssembly bytecode
-- **[DONE]** `bt` (backtrace): Show WebAssembly call stack
-- **[DONE]** `frame variable`: List local variables
-- **[DONE]** `memory region --all`: List memory regions
-- **[DONE]** `memory read`: Read WebAssembly memory and module source
-- **[TODO]** `memory write`: Write to memory? source? or both?
-
 ## Testing
 
 ### Unit Tests
@@ -187,11 +164,17 @@ lldb -o 'log enable gdb-remote packets' -o 'process connect --plugin wasm connec
 
 See [RWI_ARCHITECTURE.md](./RWI_ARCHITECTURE.md) for complete setup instructions including:
 
-- Starting Safari/MiniBrowser with `--wasm-debugger` flag
+- Starting Safari/MiniBrowser with `__XPC_JSC_enableWasmDebugger=1 JSC_enableWasmDebugger=1` flag
 - Using WasmDebuggerRWIClient to relay LLDB commands
 - Debugging WebContent processes via Remote Web Inspector
 
 ## Known Issues and Future Improvements
+
+### Per-Page Debuggable Targets
+
+- **Issue**: Ideally each page (URL) hosted by a WebContent process should appear as a separate debuggable target in `lldb platform process list`, so users can attach to a specific website. Currently there is one `WasmDebuggerDebuggable` per WebContent process, so when Safari places multiple pages into the same process (and therefore the same VM), all their hostnames are aggregated into a single target entry (e.g. `"earth.google.com, github.com"`).
+- **Why aggregation is acceptable for now**: A single WebContent process runs a single `WasmDebugServer` that owns all Wasm execution for every page it hosts. Splitting that into per-page debuggables would create multiple LLDB sessions backed by the same VM state, which is architecturally incorrect. Aggregation correctly reflects that one LLDB attach covers all pages in the process.
+- **Future improvement**: If the architecture evolves so that each page gets its own isolated VM (and thus its own `WasmDebugServer`), replace the aggregated URL with a per-page `WasmDebuggerDebuggable` so each URL appears as a distinct, independently attachable target.
 
 ### WASM Stack Value Type Support
 
@@ -218,26 +201,6 @@ See [RWI_ARCHITECTURE.md](./RWI_ARCHITECTURE.md) for complete setup instructions
 - **Issue**: Client disconnect, kill, and quit commands only stop the client session for debugging purposes
 - **Location**: `WasmDebugServer.cpp:348-349`
 - **Solution**: Introduce various stop states and proper termination handling
-
-### Dynamic Module Notifications
-
-- **Issue**: LLDB is not notified when new modules are loaded or unloaded
-- **Location**: `WasmDebugServer.cpp:472, 484`
-- **Solution**: Implement proper LLDB notifications for dynamic module loading/unloading
-
-### Multi-Thread Display in LLDB
-
-- **Issue**: Thread select and stop reply protocol handlers need improvement to correctly display multi-VM data in LLDB
-- **Current Status**: Multi-VM stop-the-world is implemented, but thread information may not display correctly in LLDB UI
-
-### VM Lifecycle and Synchronization Testing
-
-- **Issue**: ExecutionHandler stress tests need additional coverage for VM lifecycle edge cases and race conditions
-- **Current Test Limitations**: Tests wait for VM construction and instance registration, but this doesn't guarantee VMs are actively running code that checks traps
-- **Missing Test Coverage**:
-  - VM lifecycle edge cases (construction, initialization, instance registration)
-  - `interrupt()` race conditions when VMs are not yet executing code
-  - Synchronization between VM construction and actual code execution
 
 ### X86_64 Support
 

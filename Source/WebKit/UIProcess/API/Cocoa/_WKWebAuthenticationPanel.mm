@@ -106,17 +106,6 @@ static inline void updateCredentialIfNecessary(NSMutableDictionary *credential, 
 #endif // ENABLE(ONGOING_CREDENTIAL_SHARING_WEBKIT_SPI)
 }
 
-static inline String groupForAttributes(NSDictionary *attributes)
-{
-#if ENABLE(ONGOING_CREDENTIAL_SHARING_WEBKIT_SPI)
-    if ([[attributes allKeys] containsObject:kSecAttrSharingGroup]) {
-        if (auto *nsString = dynamic_objc_cast<NSString>(attributes[kSecAttrSharingGroup]))
-            return nsString;
-    }
-#endif // ENABLE(ONGOING_CREDENTIAL_SHARING_WEBKIT_SPI)
-    return nullString();
-}
-
 static inline void updateQueryForGroupIfNecessary(NSMutableDictionary *dictionary, NSString *group)
 {
 #if ENABLE(ONGOING_CREDENTIAL_SHARING_WEBKIT_SPI)
@@ -145,7 +134,7 @@ static RetainPtr<NSData> produceClientDataJson(_WKWebAuthenticationType type, NS
 
 static Vector<uint8_t> produceClientDataJsonHash(NSData *clientDataJson)
 {
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(span(clientDataJson));
     return crypto->computeHash();
 }
@@ -694,7 +683,7 @@ static void createNSErrorFromWKErrorIfNecessary(NSError **error, WKErrorCode err
         return nullptr;
     }
 
-    auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_1);
+    auto digest = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_1);
     digest->addBytes(span(nsPublicKeyData.get()));
     auto credentialId = digest->computeHash();
     RetainPtr nsCredentialId = toNSData(credentialId.span());
@@ -1108,7 +1097,14 @@ static RetainPtr<_WKAuthenticationExtensionsClientOutputs> wkAuthenticationExten
         if (secondBuffer)
             second = WTF::toNSData(secondBuffer->span());
     }
-    return adoptNS([[_WKAuthenticationExtensionsClientOutputs alloc] initWithAppid:(outputs.appid && *outputs.appid) prfEnabled:(outputs.prf && outputs.prf->enabled && *outputs.prf->enabled) prfFirst:first.get() prfSecond:second.get()]);
+    RetainPtr<_WKAuthenticationExtensionsLargeBlobOutputs> largeBlob;
+    if (outputs.largeBlob) {
+        RetainPtr<NSData> blob;
+        if (RefPtr blobBuffer = outputs.largeBlob->blob)
+            blob = WTF::toNSData(blobBuffer->span());
+        largeBlob = adoptNS([[_WKAuthenticationExtensionsLargeBlobOutputs alloc] initWithSupported:outputs.largeBlob->supported.value_or(false) blob:blob.get() written:outputs.largeBlob->written.value_or(false)]);
+    }
+    return adoptNS([[_WKAuthenticationExtensionsClientOutputs alloc] initWithAppid:(outputs.appid && *outputs.appid) prfEnabled:(outputs.prf && outputs.prf->enabled && *outputs.prf->enabled) prfFirst:first.get() prfSecond:second.get() largeBlob:largeBlob.get()]);
 }
 
 static RetainPtr<_WKAuthenticatorAttestationResponse> wkAuthenticatorAttestationResponse(const WebCore::AuthenticatorResponseData& data, NSData *clientDataJSON, WebCore::AuthenticatorAttachment attachment)

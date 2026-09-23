@@ -15,5 +15,8 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/README.md
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/after-same-document-navigation.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/javascript.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/navigate.window.js
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/same-document-refresh.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/subresource.any.js

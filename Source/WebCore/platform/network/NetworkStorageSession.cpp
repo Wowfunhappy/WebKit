@@ -597,7 +597,7 @@ std::optional<OrganizationStorageAccessPromptQuirk> NetworkStorageSession::stora
     return std::nullopt;
 }
 
-void NetworkStorageSession::deleteCookiesForHostnames(const Vector<String>& cookieHostNames, CompletionHandler<void()>&& completionHandler)
+void NetworkStorageSession::deleteCookiesForHostnames(std::span<const String> cookieHostNames, CompletionHandler<void()>&& completionHandler)
 {
     deleteCookiesForHostnames(cookieHostNames, IncludeHttpOnlyCookies::Yes, ScriptWrittenCookiesOnly::No, WTF::move(completionHandler));
 }
@@ -608,7 +608,8 @@ void NetworkStorageSession::deleteCookies(const ClientOrigin& origin, Completion
     // FIXME: Stop ignoring origin.topOrigin.
     notImplemented();
 
-    deleteCookiesForHostnames(Vector { origin.clientOrigin.host() }, WTF::move(completionHandler));
+    auto host = origin.clientOrigin.host();
+    deleteCookiesForHostnames(singleElementSpan(host), WTF::move(completionHandler));
 }
 #endif
 

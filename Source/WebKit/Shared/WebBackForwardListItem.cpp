@@ -89,15 +89,6 @@ static const FrameState* NODELETE childItemWithTarget(const FrameState& frameSta
     return nullptr;
 }
 
-bool WebBackForwardListItem::itemIsInSameDocument(const WebBackForwardListItem& other) const
-{
-    if (m_pageID != other.m_pageID)
-        return false;
-
-    // The following logic must be kept in sync with WebCore::HistoryItem::shouldDoSameDocumentNavigationTo().
-    return mainFrameState().documentSequenceNumber == other.mainFrameState().documentSequenceNumber;
-}
-
 static bool NODELETE hasSameFrames(const FrameState& a, const FrameState& b)
 {
     if (a.target != b.target)
@@ -147,6 +138,13 @@ void WebBackForwardListItem::removeFromBackForwardCache()
 void WebBackForwardListItem::setBackForwardCacheEntry(RefPtr<WebBackForwardCacheEntry>&& backForwardCacheEntry)
 {
     m_backForwardCacheEntry = WTF::move(backForwardCacheEntry);
+}
+
+WebBackForwardCacheEntry* WebBackForwardListItem::backForwardCacheEntryForProcess(WebCore::ProcessIdentifier processIdentifier) const
+{
+    if (m_backForwardCacheEntry && m_backForwardCacheEntry->processIdentifier() == processIdentifier)
+        return m_backForwardCacheEntry.get();
+    return nullptr;
 }
 
 SuspendedPageProxy* WebBackForwardListItem::suspendedPage() const
@@ -215,7 +213,7 @@ String WebBackForwardListItem::loggingString()
 
 void WebBackForwardListItem::updateFrameID(FrameIdentifier oldFrameID, FrameIdentifier newFrameID)
 {
-    if (RefPtr frameItem = m_mainFrameItem->childItemForFrameID(oldFrameID))
+    if (auto* frameItem = m_mainFrameItem->childItemForFrameID(oldFrameID))
         frameItem->updateFrameID(newFrameID);
     if (m_navigatedFrameID && *m_navigatedFrameID == oldFrameID)
         m_navigatedFrameID = newFrameID;

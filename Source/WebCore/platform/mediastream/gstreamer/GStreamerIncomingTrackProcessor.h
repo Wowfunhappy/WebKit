@@ -23,12 +23,12 @@
 #include "GStreamerMediaEndpoint.h"
 #include "GStreamerWebRTCCommon.h"
 #include "GUniquePtrGStreamer.h"
-#include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
 
-class GStreamerIncomingTrackProcessor : public RefCounted<GStreamerIncomingTrackProcessor> {
+class GStreamerIncomingTrackProcessor : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerIncomingTrackProcessor, WTF::DestructionThread::Main> {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerIncomingTrackProcessor);
 
 public:
@@ -61,6 +61,7 @@ private:
     void installRtpBufferPadProbe(const GRefPtr<GstPad>&);
 
     void trackReady();
+    void trackHasReceivedFirstPacket();
 
     ThreadSafeWeakPtr<GStreamerMediaEndpoint> m_endPoint;
     GRefPtr<GstPad> m_pad;
@@ -71,7 +72,7 @@ private:
 
     bool m_isDecoding { false };
     IntSize m_videoSize;
-    double m_frameRate;
+    double m_frameRate { 0 };
     uint64_t m_decodedVideoFrames { 0 };
     uint64_t m_framesReceived { 0 };
     uint64_t m_decodedKeyFrames { 0 };
@@ -83,6 +84,10 @@ private:
     MediaTime m_totalVideoDecodeTime { MediaTime::zeroTime() };
 
     String m_videoDecoderName;
+
+    GRefPtr<GstCaps> m_ntpCaps;
+
+    bool m_hasReceivedFirstPacket { false };
 };
 
 } // namespace WebCore

@@ -10,16 +10,7 @@ PASS document.querySelectorAll('#test-root :not(testcaseA)')[1].id is "testcase4
 PASS document.querySelectorAll('#test-root :not(testcaseA)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(testcaseA)')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(testcaseA)')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(testcaseA))"
 PASS document.querySelectorAll('#test-root :not(:not(testcaseA))').length is 5
@@ -28,16 +19,7 @@ PASS document.querySelectorAll('#test-root :not(:not(testcaseA))')[1].id is "tes
 PASS document.querySelectorAll('#test-root :not(:not(testcaseA))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(testcaseA))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(testcaseA))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(testcaseA)))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(testcaseA)))').length is 5
@@ -46,16 +28,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(testcaseA)))')[1].id i
 PASS document.querySelectorAll('#test-root :not(:not(:not(testcaseA)))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(testcaseA)))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(testcaseA)))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(testcaseA))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(testcaseA))))').length is 5
@@ -64,16 +37,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(testcaseA))))')[1
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(testcaseA))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(testcaseA))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(testcaseA))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(testcaseA)))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(testcaseA)))))').length is 5
@@ -82,16 +46,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(testcaseA)))
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(testcaseA)))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(testcaseA)))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(testcaseA)))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(:not(:not(testcaseA))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(testcaseA))))))').length is 5
@@ -100,16 +55,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(testcas
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(testcaseA))))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(testcaseA))))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(testcaseA))))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(testcaseA)))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(testcaseA)))))))').length is 5
@@ -118,16 +64,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(te
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(testcaseA)))))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(testcaseA)))))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(testcaseA)))))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))').length is 5
@@ -136,16 +73,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))').length is 5
@@ -154,16 +82,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))').length is 5
@@ -172,16 +91,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))').length is 5
@@ -190,16 +100,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))').length is 5
@@ -208,16 +109,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))').length is 5
@@ -226,16 +118,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))').length is 5
@@ -244,16 +127,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))').length is 5
@@ -262,16 +136,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))))').length is 5
@@ -280,16 +145,7 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))))')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))))')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA))))))))))))))))')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))))"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))))').length is 5
@@ -298,45 +154,18 @@ PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:n
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))))')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))))')[3].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(:not(testcaseA)))))))))))))))))')[4].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase8","testcase10"]
 
 Testing ":not(testcaseA, :not(testcaseA))"
 PASS document.querySelectorAll('#test-root :not(testcaseA, :not(testcaseA))').length is 0
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is []
 
 Testing ".baz:not(testcaseA)"
 PASS document.querySelectorAll('#test-root .baz:not(testcaseA)').length is 3
 PASS document.querySelectorAll('#test-root .baz:not(testcaseA)')[0].id is "testcase2"
 PASS document.querySelectorAll('#test-root .baz:not(testcaseA)')[1].id is "testcase6"
 PASS document.querySelectorAll('#test-root .baz:not(testcaseA)')[2].id is "testcase8"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase2","testcase6","testcase8"]
 
 Testing ":not(testcaseA:not(.baz))"
 PASS document.querySelectorAll('#test-root :not(testcaseA:not(.baz))').length is 9
@@ -349,16 +178,7 @@ PASS document.querySelectorAll('#test-root :not(testcaseA:not(.baz))')[5].id is 
 PASS document.querySelectorAll('#test-root :not(testcaseA:not(.baz))')[6].id is "testcase7"
 PASS document.querySelectorAll('#test-root :not(testcaseA:not(.baz))')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :not(testcaseA:not(.baz))')[8].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase10"]
 
 PASS successfullyParsed is true
 

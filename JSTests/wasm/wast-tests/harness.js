@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ skip unless $isSIMDPlatform
 asyncTestStart(1);
 let context = {

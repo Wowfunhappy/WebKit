@@ -42,12 +42,12 @@
 #include "HTMLScriptElement.h"
 #include "HTMLStyleElement.h"
 #include "HTMLVideoElement.h"
-#include "NodeInlines.h"
+#include "ICUSearcher.h"
 #include "NodeRenderStyle.h"
 #include "NodeTraversal.h"
 #include "Position.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SimpleRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextBoundaries.h"
 #include "TextIterator.h"
 
@@ -62,7 +62,10 @@ enum class WordBounded : bool { No, Yes };
 // https://wicg.github.io/scroll-to-text-fragment/#search-invisible
 static bool NODELETE isSearchInvisible(const Node& node)
 {
-    if (!node.renderStyle() || node.renderStyle()->display() == Style::DisplayType::None)
+    // display:contents has no RenderStyle but its subtree is rendered; the element type checks below still apply.
+    RefPtr element = dynamicDowncast<Element>(node);
+    bool isDisplayContents = element && element->hasDisplayContents();
+    if (!isDisplayContents && (!node.renderStyle() || node.renderStyle()->display() == Style::DisplayType::None))
         return true;
     
     // FIXME: If the node serializes as void.
@@ -302,12 +305,6 @@ static std::optional<SimpleRange> advanceRangeStartToNextNonWhitespace(SimpleRan
 
         auto string = node->textContent();
 
-        if (string.substringSharingImpl(offset, 6) == "&nbsp;"_s)
-            offset += 6;
-
-        if (string.substringSharingImpl(offset, 5) == "&nbsp"_s)
-            offset += 5;
-        
         if (!isUnicodeWhitespace(string[offset]))
             return newRange;
         offset++;

@@ -47,7 +47,7 @@ ModelObjectHeap::~ModelObjectHeap() = default;
 void ModelObjectHeap::addObject(WebModelIdentifier identifier, RemoteMesh& mesh)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteMesh> { Ref { mesh } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteMesh> { protect(mesh) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 #else
     UNUSED_PARAM(identifier);

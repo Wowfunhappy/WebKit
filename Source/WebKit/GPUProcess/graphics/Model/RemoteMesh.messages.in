@@ -31,14 +31,17 @@
 messages -> RemoteMesh Stream {
     void SetLabel(String label)
     void Destruct()
-    void Update(struct WebModel::UpdateMeshDescriptor descriptor) -> (bool success)
-    void Render()
-    void UpdateTexture(struct WebModel::UpdateTextureDescriptor descriptor) -> (bool success)
-    void UpdateMaterial(struct WebModel::UpdateMaterialDescriptor descriptor) -> (bool success)
+    void Update(struct Vector<WebModel::UpdateMeshDescriptor> descriptor) -> (bool success)
+    void Render(uint32_t textureIndex) -> (bool success)
+    void ProcessRemovals(struct Vector<WebModel::TypedResourceId> meshRemovals, struct Vector<WebModel::TypedResourceId> materialRemovals, struct Vector<WebModel::TypedResourceId> textureRemovals) -> (bool success)
+    void UpdateTexture(struct Vector<WebModel::UpdateTextureDescriptor> descriptor) -> (bool success) NotStreamEncodable
+    void UpdateMaterial(struct Vector<WebModel::UpdateMaterialDescriptor> descriptor) -> (bool success)
     void UpdateTransform(struct WebModel::Float4x4 transform)
-    void SetCameraDistance(float distance)
-    void SetBackgroundColor(struct WebModel::Float3 color)
+    void SetFOV(float fovY)
     void Play(bool playing)
-    void SetEnvironmentMap(struct WebModel::ImageAsset imageAsset)
+    void SetEnvironmentMap(struct WebModel::UpdateTextureDescriptor imageAsset) NotStreamEncodable
+    void UpdateContentsHeadroom(float headroom)
+    void UpdateRenderBuffers(unsigned width, unsigned height) -> (Vector<MachSendRight> renderBuffers) NotStreamEncodableReply
+    void PaintCurrentFrameToImageBuffer(WebCore::RenderingResourceIdentifier imageBufferIdentifier, uint32_t bufferIndex) -> () Synchronous
 }
 #endif

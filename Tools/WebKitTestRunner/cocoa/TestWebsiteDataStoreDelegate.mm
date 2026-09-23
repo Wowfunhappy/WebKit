@@ -43,7 +43,6 @@
     _shouldAllowBackgroundFetchPermission = NO;
 
     _quota = 40 * KB;
-    _windowProxyAccessDomains = adoptNS([[NSMutableArray alloc] init]);
     return self;
 }
 
@@ -136,21 +135,6 @@
 
 - (NSString*)lastUpdatedBackgroundFetchIdentifier {
     return _lastUpdatedBackgroundFetchIdentifier.get();
-}
-
-- (void)websiteDataStore:(WKWebsiteDataStore *)dataStore domain:(NSString *)registrableDomain didOpenDomainViaWindowOpen:(NSString *)openedRegistrableDomain withProperty:(WKWindowProxyProperty)property directly:(BOOL)directly
-{
-    [_windowProxyAccessDomains addObject:openedRegistrableDomain];
-}
-
-- (NSArray*)reportedWindowProxyAccessDomains
-{
-    return _windowProxyAccessDomains.get();
-}
-
-- (void)clearReportedWindowProxyAccessDomains
-{
-    [_windowProxyAccessDomains removeAllObjects];
 }
 
 - (void)webCryptoMasterKey:(void (^)(NSData *))completionHandler

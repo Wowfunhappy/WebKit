@@ -633,9 +633,10 @@ class Program::MainLinkTask final : public Program::MainLinkLoadTask
   private:
     angle::Result linkImpl();
 
-    // State needed for link
-    const Caps &mCaps;
-    const Limitations &mLimitations;
+    // State needed for link.  Note that Caps and Limitations are copied because the context that
+    // started the link task may get destroyed before the link job is finished.
+    const Caps mCaps;
+    const Limitations mLimitations;
     const Version mClientVersion;
     const bool mIsWebGL;
     Program *mProgram;
@@ -872,7 +873,14 @@ void Program::bindFragmentOutputIndex(const Context *context, GLuint index, cons
 
 void Program::makeNewExecutable(const Context *context)
 {
-    ASSERT(!mLinkingState);
+    // A previous asynchronous link may still be in flight when this is reached
+    // from a no-error / skip-validation context (Context::linkProgram uses
+    // getProgramNoResolveLink). Join it before tearing down mLinkingState and
+    // mState.mExecutable, which the worker thread is concurrently using.
+    if (mLinkingState)
+    {
+        resolveLinkImpl(context);
+    }
     waitForPostLinkTasks(context);
 
     // Unlink the program, but do not clear the validation-related caching yet, since we can still
@@ -1069,7 +1077,7 @@ angle::Result Program::linkJobImpl(const Caps &caps,
         &mState.mExecutable->mUniformBlocks, &mState.mExecutable->mUniforms,
         &mState.mExecutable->mUniformNames, &mState.mExecutable->mUniformMappedNames,
         &mState.mExecutable->mShaderStorageBlocks, &mState.mExecutable->mBufferVariables,
-        &mState.mExecutable->mAtomicCounterBuffers, &mState.mExecutable->mPixelLocalStorageFormats);
+        &mState.mExecutable->mAtomicCounterBuffers, &mState.mExecutable->mPixelLocalStorageLayouts);
 
     updateLinkedShaderStages();
 
@@ -1145,7 +1153,6 @@ angle::Result Program::linkJobImpl(const Caps &caps,
             mState.mExecutable->mPod.numViews = vertexShader->numViews;
             mState.mExecutable->mPod.hasClipDistance =
                 vertexShader->metadataFlags.test(sh::MetadataFlags::HasClipDistance);
-            mState.mExecutable->mPod.specConstUsageBits |= vertexShader->specConstUsageBits;
         }
 
         const SharedCompiledShaderState &fragmentShader =
@@ -1177,7 +1184,8 @@ angle::Result Program::linkJobImpl(const Caps &caps,
                 fragmentShader->metadataFlags.test(sh::MetadataFlags::HasStencilInputAttachment);
             mState.mExecutable->mPod.advancedBlendEquations =
                 fragmentShader->advancedBlendEquations;
-            mState.mExecutable->mPod.specConstUsageBits |= fragmentShader->specConstUsageBits;
+            mState.mExecutable->mPod.hasFragCoord =
+                fragmentShader->metadataFlags.test(sh::MetadataFlags::HasFragCoord);
 
             for (uint32_t index = 0; index < IMPLEMENTATION_MAX_DRAW_BUFFERS; ++index)
             {
@@ -1254,6 +1262,7 @@ void Program::resolveLinkImpl(const Context *context)
         // The above means that it's ok for ANGLE to reset the executable here, but it *may* be
         // helpful to applications if it doesn't.  We do reset it however, the info log should
         // already have enough debug information for the application.
+        waitForPostLinkTasks(context);
         mState.mExecutable->reset();
         return;
     }

@@ -51,9 +51,11 @@ setup(
     packages=[
         'webkitcorepy',
         'webkitcorepy.mocks',
+        'webkitcorepy.skill_testing',
         'webkitcorepy.testing',
         'webkitcorepy.tests',
         'webkitcorepy.tests.mocks',
+        'webkitcorepy.tests.skill_testing',
     ],
     install_requires=[
         'requests',

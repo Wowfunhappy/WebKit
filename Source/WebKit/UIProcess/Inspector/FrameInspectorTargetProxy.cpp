@@ -26,6 +26,7 @@
 #include "config.h"
 #include "FrameInspectorTargetProxy.h"
 
+#include "FrameInspectorTarget.h"
 #include "InspectorTargetProxy.h"
 #include "MessageSenderInlines.h"
 #include "ProvisionalFrameProxy.h"
@@ -42,22 +43,11 @@ using namespace Inspector;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FrameInspectorTargetProxy);
 
-std::unique_ptr<FrameInspectorTargetProxy> FrameInspectorTargetProxy::create(WebFrameProxy& frame, const String& targetId)
-{
-    return makeUnique<FrameInspectorTargetProxy>(frame, targetId);
-}
-
-std::unique_ptr<FrameInspectorTargetProxy> FrameInspectorTargetProxy::create(ProvisionalFrameProxy& provisionalFrame, const String& targetId)
-{
-    Ref frame { provisionalFrame.frame() };
-    std::unique_ptr target = FrameInspectorTargetProxy::create(frame.get(), targetId);
-    target->m_provisionalFrame = provisionalFrame;
-    return target;
-}
-
-FrameInspectorTargetProxy::FrameInspectorTargetProxy(WebFrameProxy& frame, const String& targetId)
-    : InspectorTargetProxy(targetId, Inspector::InspectorTargetType::Frame)
-    , m_frame(frame)
+FrameInspectorTargetProxy::FrameInspectorTargetProxy(WebCore::FrameIdentifier frameID, WebProcessProxy& process, bool isProvisional)
+    : InspectorTargetProxy(FrameInspectorTarget::toTargetID(frameID, process.coreProcessIdentifier()), Inspector::InspectorTargetType::Frame)
+    , m_targetProcess(process)
+    , m_frameID(frameID)
+    , m_isProvisional(isProvisional)
 {
 }
 
@@ -65,13 +55,7 @@ FrameInspectorTargetProxy::~FrameInspectorTargetProxy() = default;
 
 void FrameInspectorTargetProxy::connect(Inspector::FrontendChannel::ConnectionType connectionType)
 {
-    if (RefPtr provisionalFrame = m_provisionalFrame.get()) {
-        protect(provisionalFrame->process())->send(Messages::WebFrame::ConnectInspector(connectionType), protect(provisionalFrame->frame())->frameID());
-        return;
-    }
-
-    Ref frame = m_frame.get();
-    protect(frame->process())->send(Messages::WebFrame::ConnectInspector(connectionType), frame->frameID());
+    protect(m_targetProcess.get())->send(Messages::WebFrame::ConnectInspector(connectionType), m_frameID);
 }
 
 void FrameInspectorTargetProxy::disconnect()
@@ -79,34 +63,22 @@ void FrameInspectorTargetProxy::disconnect()
     if (isPaused())
         resume();
 
-    if (RefPtr provisionalFrame = m_provisionalFrame.get()) {
-        protect(provisionalFrame->process())->send(Messages::WebFrame::DisconnectInspector(), protect(provisionalFrame->frame())->frameID());
-        return;
-    }
-
-    Ref frame = m_frame.get();
-    protect(frame->process())->send(Messages::WebFrame::DisconnectInspector(), frame->frameID());
+    protect(m_targetProcess.get())->send(Messages::WebFrame::DisconnectInspector(), m_frameID);
 }
 
 void FrameInspectorTargetProxy::sendMessageToTargetBackend(const String& message)
 {
-    if (RefPtr provisionalFrame = m_provisionalFrame.get()) {
-        protect(provisionalFrame->process())->send(Messages::WebFrame::SendMessageToInspectorTarget(message), protect(provisionalFrame->frame())->frameID());
-        return;
-    }
-
-    Ref frame = m_frame.get();
-    protect(frame->process())->send(Messages::WebFrame::SendMessageToInspectorTarget(message), frame->frameID());
+    protect(m_targetProcess.get())->send(Messages::WebFrame::SendMessageToInspectorTarget(message), m_frameID);
 }
 
 void FrameInspectorTargetProxy::didCommitProvisionalTarget()
 {
-    m_provisionalFrame = nullptr;
+    m_isProvisional = false;
 }
 
 bool FrameInspectorTargetProxy::isProvisional() const
 {
-    return !!m_provisionalFrame;
+    return m_isProvisional;
 }
 
 } // namespace WebKit

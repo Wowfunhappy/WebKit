@@ -293,6 +293,27 @@ static bool cocoaCurlRequestIsOnlyIfCached(const ResourceRequest& request)
     return false;
 }
 
+void setCocoaCurlContentType(ResourceResponse& response, const String& selectedContentType)
+{
+    NSDictionary *headers = selectedContentType.isNull() ? nil : @{ @"Content-Type": selectedContentType.createNSString().get() };
+    RetainPtr native = adoptNS([[NSHTTPURLResponse alloc] initWithURL:response.url().createNSURL().get() statusCode:response.httpStatusCode() HTTPVersion:nil headerFields:headers]);
+    // The Cocoa ResourceResponse reads both fields as it reads a CFNetwork response, including its
+    // unquoting of the encoding name.
+    ResourceResponse cocoaResponse { native.get() };
+    response.setMimeType(String { cocoaResponse.mimeType() });
+    response.setTextEncodingName(String { cocoaResponse.textEncodingName() });
+}
+
+void clearCocoaCurlHTTPBody(ResourceRequest& request)
+{
+    // CFNetwork supplies a redirected native request with both body slots cleared.
+    request.setHTTPBody(nullptr);
+    RetainPtr native = adoptNS([request.nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody) mutableCopy]);
+    [native setHTTPBody:nil];
+    [native setHTTPBodyStream:nil];
+    request.updateFromDelegatePreservingOldProperties(ResourceRequest(native.get()));
+}
+
 static NSString *const cocoaCurlCacheResponseTimestampKey = @"WebKitResponseTimestamp";
 static NSString *const cocoaCurlCacheStatusTextKey = @"WebKitHTTPStatusText";
 static NSString *const cocoaCurlCacheHTTPVersionKey = @"WebKitHTTPVersion";
@@ -337,7 +358,7 @@ CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession* storag
     if (request.httpHeaderField(HTTPHeaderName::Range) != String(dynamic_objc_cast<NSString>([entry userInfo][cocoaCurlCacheRangeKey])))
         return { absent, nullptr };
     ResourceResponse response([entry response]);
-    if (ResourceResponse::isRedirectionStatusCode(response.httpStatusCode()) && request.url().hasFragmentIdentifier())
+    if (isHttpRedirectStatus(response.httpStatusCode()) && request.url().hasFragmentIdentifier())
         return { absent, nullptr };
     if (!response.httpHeaderField(HTTPHeaderName::Vary).isEmpty()) {
         RetainPtr stored = dynamic_objc_cast<NSArray>([entry userInfo][cocoaCurlCacheVaryingRequestHeadersKey]);
@@ -357,15 +378,21 @@ CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession* storag
         return { CocoaCurlCacheAnswer::Revalidate, WTF::move(entry) };
     if (policy == ResourceRequestCachePolicy::ReturnCacheDataElseLoad || policy == ResourceRequestCachePolicy::ReturnCacheDataDontLoad || cocoaCurlRequestIsOnlyIfCached(request))
         return { CocoaCurlCacheAnswer::UseCached, WTF::move(entry) };
-    // NetworkCache's responseNeedsRevalidation: the request's no-cache or max-age=0 revalidates, and its
-    // max-stale extends the staleness a response may carry and still be used.
+    // Apply NetworkCache::responseNeedsRevalidation's request freshness constraints.
     auto requestDirectives = parseCacheControlDirectives(request.httpHeaderFields());
-    bool requestRevalidates = requestDirectives.noCache || (requestDirectives.maxAge && requestDirectives.maxAge.value() == 0_ms);
+    bool requestRevalidates = requestDirectives.noCache || requestDirectives.noStore || (requestDirectives.maxAge && requestDirectives.maxAge.value() == 0_ms);
     if (policy == ResourceRequestCachePolicy::UseProtocolCachePolicy && !requestRevalidates && !response.cacheControlContainsNoCache()) {
         if (RetainPtr timestamp = dynamic_objc_cast<NSNumber>([entry userInfo][cocoaCurlCacheResponseTimestampKey])) {
             auto responseTime = WallTime::fromRawSeconds([timestamp doubleValue]);
-            auto staleness = computeCurrentAge(response, responseTime) - computeFreshnessLifetimeForHTTPFamily(response, responseTime);
-            if (staleness <= (requestDirectives.maxStale ? requestDirectives.maxStale.value() : 0_ms))
+            auto age = computeCurrentAge(response, responseTime);
+            auto lifetime = computeFreshnessLifetimeForHTTPFamily(response, responseTime);
+            if (age <= lifetime) {
+                if (requestDirectives.maxAge && age > requestDirectives.maxAge.value())
+                    requestRevalidates = true;
+                if (requestDirectives.minFresh && age + requestDirectives.minFresh.value() > lifetime)
+                    requestRevalidates = true;
+            }
+            if (!requestRevalidates && age - lifetime <= (requestDirectives.maxStale ? requestDirectives.maxStale.value() : 0_ms))
                 return { CocoaCurlCacheAnswer::UseCached, WTF::move(entry) };
         }
     }
@@ -426,9 +453,11 @@ bool cocoaCurlCacheMayStore(NetworkStorageSession* storage, const ResourceReques
         return false;
     if (response.isRedirection() && request.url().hasFragmentIdentifier())
         return false;
+    if (response.httpStatusCode() == httpStatus304NotModified)
+        return false;
     if (!isStatusCodeCacheableByDefault(response.httpStatusCode())) {
         bool hasExpirationHeaders = response.expires() || response.cacheControlMaxAge();
-        if (!isStatusCodePotentiallyCacheable(response.httpStatusCode()) || !hasExpirationHeaders)
+        if (!hasExpirationHeaders && !response.cacheControlContainsPublic())
             return false;
     }
     return response.expectedContentLength() < 0 || cocoaCurlCacheAcceptsLength(storage, response.expectedContentLength());
@@ -480,7 +509,8 @@ void invalidateCocoaCurlCacheAfterResponse(NetworkStorageSession* storage, const
         return;
     // RFC 9111 section 4.4 invalidates the stored GET even when the unsafe request uses no-store.
     ResourceRequest cachedRequest { URL { request.url() } };
-    cachedRequest.setCachePartition(request.cachePartition());
+    cachedRequest.setFirstPartyForCookies(request.firstPartyForCookies());
+    cachedRequest.setShouldBlockThirdPartyStorage(request.shouldBlockThirdPartyStorage());
     RetainPtr cache = cocoaCurlURLCache(storage);
     [cache removeCachedResponseForRequest:cocoaCurlCacheRequest(cachedRequest).get()];
 }
@@ -857,7 +887,6 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
         invalidResponse("Missing HTTP status"_s);
         return HeaderSection::Rejected;
     }
-    auto& type = m_contentType;
     curl_off_t length = -1;
     curl_easy_getinfo(m_easy, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
     auto contentEncoding = m_responseHeaders.get(HTTPHeaderName::ContentEncoding);
@@ -865,8 +894,9 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
         length = -1;
     if (m_status == 101)
         length = 0;
-    ResourceResponse response(URL { m_options.request.url() }, extractMIMETypeFromMediaType(type).convertToASCIILowercase(), length, extractCharsetFromMediaType(type).toString());
+    ResourceResponse response(URL { m_options.request.url() }, String(), length, String());
     response.setHTTPStatusCode(m_status);
+    setCocoaCurlContentType(response, m_contentType);
     response.setHTTPStatusText(String(m_statusText));
     response.setHTTPVersion(String(m_version));
     response.setHTTPHeaderFields(WTF::move(m_responseHeaders));

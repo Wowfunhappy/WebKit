@@ -31,7 +31,7 @@
 
 namespace WebCore {
 
-CSSCanvasValue::CSSCanvasValue(String&& name)
+CSSCanvasValue::CSSCanvasValue(CSS::CustomIdent&& name)
     : CSSValue { ClassType::Canvas }
     , m_name { WTF::move(name) }
 {
@@ -39,9 +39,13 @@ CSSCanvasValue::CSSCanvasValue(String&& name)
 
 CSSCanvasValue::~CSSCanvasValue() = default;
 
-String CSSCanvasValue::customCSSText(const CSS::SerializationContext&) const
+String CSSCanvasValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    return makeString("-webkit-canvas("_s, m_name, ')');
+    StringBuilder builder;
+    builder.append("-webkit-canvas("_s);
+    CSS::serializationForCSS(builder, context, m_name);
+    builder.append(')');
+    return builder.toString();
 }
 
 bool CSSCanvasValue::equals(const CSSCanvasValue& other) const
@@ -49,12 +53,12 @@ bool CSSCanvasValue::equals(const CSSCanvasValue& other) const
     return m_name == other.m_name;
 }
 
-RefPtr<Style::Image> CSSCanvasValue::createStyleImage(const Style::BuilderState&) const
+RefPtr<Style::Image> CSSCanvasValue::createStyleImage(const Style::BuilderState& state) const
 {
     if (m_cachedStyleImage)
         return m_cachedStyleImage;
 
-    m_cachedStyleImage = Style::CanvasImage::create(m_name);
+    m_cachedStyleImage = Style::CanvasImage::create(Style::toStyle(m_name, state));
     return m_cachedStyleImage;
 }
 

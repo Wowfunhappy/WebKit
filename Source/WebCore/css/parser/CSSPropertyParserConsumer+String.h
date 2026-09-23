@@ -29,7 +29,11 @@
 namespace WebCore {
 
 class CSSParserTokenRange;
-class CSSPrimitiveValue;
+class CSSValue;
+
+namespace CSS {
+struct String;
+}
 
 namespace CSSPropertyParserHelpers {
 
@@ -37,7 +41,8 @@ namespace CSSPropertyParserHelpers {
 // https://drafts.csswg.org/css-values/#strings
 
 StringView NODELETE consumeStringRaw(CSSParserTokenRange&);
-RefPtr<CSSPrimitiveValue> consumeString(CSSParserTokenRange&);
+std::optional<CSS::String> NODELETE consumeUnresolvedString(CSSParserTokenRange&);
+RefPtr<CSSValue> consumeString(CSSParserTokenRange&);
 
 } // namespace CSSPropertyParserHelpers
 } // namespace WebCore

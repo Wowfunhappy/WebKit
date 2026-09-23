@@ -42,7 +42,7 @@ class PythonChecker(object):
         self._handle_style_error = handle_style_error
         self._inclusive_language_checker = InclusiveLanguageChecker(handle_style_error)
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         self._check_pycodestyle(lines)
         # FIXME: https://bugs.webkit.org/show_bug.cgi?id=204133
         # Pylint disabled for now
@@ -145,7 +145,7 @@ class Python3Checker(object):
         self._file_path = file_path
         self._handle_style_error = handle_style_error
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         from webkitpy.thirdparty.autoinstalled import pycodestyle
 
         def handler(line_number, offset, text, check):

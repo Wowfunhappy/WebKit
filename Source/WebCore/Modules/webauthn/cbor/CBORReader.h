@@ -123,9 +123,9 @@ private:
     std::optional<CBORValue> readCBORMap(uint64_t length, int maxNestingLevel);
     bool canConsume(uint64_t bytes);
     void NODELETE checkExtraneousData();
-    bool checkDuplicateKey(const CBORValue& newKey, const CBORValue::MapValue&);
+    bool NODELETE checkDuplicateKey(const CBORValue& newKey, const CBORValue::MapValue&);
     bool NODELETE hasValidUTF8Format(const String&);
-    bool checkOutOfOrderKey(const CBORValue& newKey, const CBORValue::MapValue&);
+    bool NODELETE checkOutOfOrderKey(const CBORValue& newKey, const CBORValue::MapValue&);
     bool NODELETE checkMinimalEncoding(uint8_t additionalBytes, uint64_t uintData);
 
     DecoderError NODELETE getErrorCode();

@@ -11,6 +11,38 @@ endif ()
 
 if (MAVERICKS_OPTIONS_PHASE STREQUAL "OPTIONS")
 
+# Navigation history uses the upstream C++ implementation.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_BACK_FORWARD_LIST_SWIFT PRIVATE OFF)
+
+# Inline PDF rendering requires PDFKit SPI beyond the deployment target.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PDF_PLUGIN PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_UNIFIED_PDF PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PDF_HUD PRIVATE OFF)
+
+# Writing Tools requires the system framework introduced in macOS 15.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WRITING_TOOLS PRIVATE OFF)
+
+# HAVE_* capabilities are stated in MavericksSupport/polyfill/headers/WebKitAdditions/AdditionalPlatformHave.h;
+# PlatformUse.h and PlatformEnable.h have no such hook, so the port's USE_ and ENABLE_ answers are
+# defined here. Threaded animations run on CAPresentationModifier (macOS 15); 10.9's sandbox
+# compiler accepts profile version 1 only; NSApplication presentation state and the VideoToolbox
+# content-key session path are macOS 14 APIs. Feature-default validation applies to macOS 14 and
+# later, where every capability a preference's default depends on (Speech.framework recognition
+# for SpeechRecognitionEnabled, among others) is present.
+add_compile_definitions(
+    ENABLE_FEATURE_DEFAULT_VALIDATION=0
+    ENABLE_THREADED_ANIMATIONS=0
+    USE_SANDBOX_VERSION_3=0
+    USE_NSPRESENTATIONSTATE=0
+    USE_MODERN_AVCONTENTKEYSESSION_WITH_VTDECOMPRESSIONSESSION=0
+)
+
+# Mavericks uses the application's WebGrammarCheckingEnabled preference.
+add_compile_definitions(USE_NSSPELLCHECKER_GRAMMAR_CHECKING_POLICY=0)
+
+# WebGPU's native backend requires Metal, which this deployment target does not provide.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBGPU PRIVATE OFF)
+
 # the third-party libraries this port links that 10.9 does not supply — ICU,
 # libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, and the whole GStreamer media
 # runtime. MavericksSupport/deps/build_deps.sh builds them all from source with the in-tree
@@ -27,8 +59,8 @@ if (NOT EXISTS "${MAVERICKS_DEPS}/lib/libgcrypt.a")
 endif ()
 
 # ICU. The system libicucore is ICU 51 and lacks the modern Intl symbols JSC needs (ucfpos_*,
-# udtitvfmt_*, ureldatefmt_*, ulistfmt_*, ...), so this port links the ICU 74.2 static libraries
-# deps/build_deps.sh builds -- matching the 74.2 headers WebKitFindPackage.cmake stages. Answering the
+# udtitvfmt_*, ureldatefmt_*, ulistfmt_*, ...), so this port links the ICU static libraries
+# deps/build_deps.sh builds with the matching headers WebKitFindPackage.cmake stages. Answering the
 # three cache entries here is what makes its `find_library(ICU_*_LIBRARY icucore)` calls no-ops:
 # find_library leaves an already-answered result alone.
 set(ICU_I18N_LIBRARY "${MAVERICKS_DEPS}/lib/libicui18n.a" CACHE FILEPATH "" FORCE)
@@ -46,8 +78,7 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 # its answer here rather than editing the shared header.
 #   APPLE_PAY_AMS_UI              needs ENABLE(PAYMENT_REQUEST), which follows Apple Pay OFF.
 #   IMAGE_ANALYSIS_ENHANCEMENTS   builds on VisionKit's VKCImageAnalysis (macOS 13+).
-#   LEGACY_PDFKIT_PLUGIN/         the inline PDF plugins need PDFKit SPI 10.9 lacks; PDFs take the
-#   UNIFIED_PDF/PDF_PLUGIN        download path instead.
+#   LEGACY_PDFKIT_PLUGIN          the inline PDF plugin needs PDFKit SPI 10.9 lacks; PDFs download.
 #   REMOTE_LAYER_TREE_ON_MAC_     compositing goes through TiledCoreAnimation here, and DOM painting
 #   BY_DEFAULT, GPU_PROCESS_DOM_   stays in the web process with it. Upstream couples these two choices
 #   RENDERING_BY_DEFAULT           through one >= 4-core heuristic (WebViewImpl's drawing-area pick and
@@ -61,8 +92,6 @@ add_compile_definitions(
     ENABLE_APPLE_PAY_AMS_UI=0
     ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS=0
     ENABLE_LEGACY_PDFKIT_PLUGIN=0
-    ENABLE_UNIFIED_PDF=0
-    ENABLE_PDF_PLUGIN=0
     ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
     ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
     ENABLE_DNS_SERVER_FOR_TESTING=0
@@ -95,6 +124,16 @@ include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
 # to content would advertise a payment method that can never authorize, which breaks checkout flows
 # that feature-detect it -- a wrong answer, not an inert one.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
+# Apple Pay subfeatures require the parent implementation.
+foreach (_apple_pay_feature IN ITEMS
+    AUTOMATIC_RELOAD_LINE_ITEM AUTOMATIC_RELOAD_PAYMENTS COUPON_CODE
+    DEFERRED_LINE_ITEM DEFERRED_PAYMENTS DELEGATED_REQUEST DISBURSEMENTS INSTALLMENTS
+    LATER LATER_AVAILABILITY MERCHANT_CATEGORY_CODE MULTI_MERCHANT_PAYMENTS
+    PAYMENT_ORDER_DETAILS RECURRING_LINE_ITEM RECURRING_PAYMENTS SELECTED_SHIPPING_METHOD
+    SHIPPING_CONTACT_EDITING_MODE SHIPPING_METHOD_DATE_COMPONENTS_RANGE)
+    WEBKIT_OPTION_DEPEND(ENABLE_APPLE_PAY_${_apple_pay_feature} ENABLE_APPLE_PAY)
+endforeach ()
+unset(_apple_pay_feature)
 # ON. ImageBackingStore tags every frame WebCore's own decoders produce sRGB, so a JPEG or PNG that
 # carries an ICC profile is shown in its own colours only if the decoder transforms the pixels first,
 # and USE(LCMS) is what makes JPEGImageDecoder and PNGImageDecoder do that. lcms2 comes from
@@ -119,6 +158,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ACCESSIBILITY_ISOLATED_TREE PRIVATE ON)
 # DEVELOPER_MODE, which build.sh passes.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_API_TESTS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LAYOUT_TESTS PRIVATE ON)
+
+# Stock Safari hosts the framework port; the standalone MiniBrowser uses Xcode 8 nib resources.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MINIBROWSER PRIVATE OFF)
 
 # ON — 10.9 Dashboard widgets need -apple-dashboard-region control regions
 # (subsystem removed upstream in 2d364c6; restored for the backport). The flag is declared here, inside
@@ -257,13 +299,7 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PDFKIT_PLUGIN PRIVATE OFF)
 # VideoPresentationInterfaceMac, which needs VIDEO_PRESENTATION_MODE (off; see below).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PICTURE_IN_PICTURE_API PRIVATE OFF)
 
-# OFF — native AVKit video fullscreen / PiP (VideoPresentationInterfaceMac,
-# VideoPresentationManager). The upstream implementation assumes ENABLE(GPU_PROCESS), which this port
-# runs without: VideoPresentationManager.mm reads Settings::blockMediaLayerRehostingInWebContentProcess(),
-# a setting defined only under #if ENABLE(GPU_PROCESS), so the mode does not compile with the GPU process
-# off. Element fullscreen for <video> is unaffected. Setting the option OFF here lets cmakeconfig.h
-# preempt PlatformEnableCocoa.h's block, so that header stays byte-upstream (no hard override). The
-# VideoPresentation/PlaybackSession interface files are withheld from the build lists rather than edited.
+# GStreamer video uses element fullscreen. Native AVKit presentation sources follow this option.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE OFF)
 
 # AVKit playback controls require PlaybackSessionInterfaceMac and its video-presentation backend.
@@ -312,6 +348,14 @@ SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH TRUE)
 # both). libavif is built decode-only on the dav1d already in deps by deps/build_deps.sh.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE ON)
 else ()
+
+# Build products share the layout consumed by the installer and test runners.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+# WebRTC and WebCodecs use the upstream AV1 codecs; their CMake targets build without Swift.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_AV1 ON)
+
 
 # WebRTC is libwebrtc (ThirdParty/libwebrtc, gated on USE_LIBWEBRTC in Source/CMakeLists.txt) with
 # Apple's Cocoa glue (LibWebRTCProviderCocoa, the VideoToolbox WK_RTCVideo* codec factories, Cocoa
@@ -363,6 +407,15 @@ set(LIBXML2_LIBRARY "${MAVERICKS_DEPS}/lib/libxml2.2.dylib" CACHE FILEPATH "" FO
 set(LIBXSLT_INCLUDE_DIR "${MAVERICKS_DEPS}/include" CACHE PATH "" FORCE)
 set(LIBXSLT_LIBRARY "${MAVERICKS_DEPS}/lib/libxslt.1.dylib" CACHE FILEPATH "" FORCE)
 set(LIBXSLT_LIBRARIES "${MAVERICKS_DEPS}/lib/libxslt.1.dylib" CACHE FILEPATH "" FORCE)
+set_target_properties(LibXml2::LibXml2 PROPERTIES
+    IMPORTED_LOCATION "${LIBXML2_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBXML2_INCLUDE_DIR}")
+set_target_properties(LibXslt::LibXslt PROPERTIES
+    IMPORTED_LOCATION "${LIBXSLT_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBXSLT_INCLUDE_DIR}")
+set_target_properties(LibXslt::LibExslt PROPERTIES
+    IMPORTED_LOCATION "${MAVERICKS_DEPS}/lib/libexslt.0.dylib"
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBXSLT_INCLUDE_DIR}")
 # PlatformMac.cmake finds the XML2 framework separately, into its own XML2_LIBRARY, and appends that to
 # WebCore_LIBRARIES; left alone it resolves to the SDK tbd and puts /usr/lib/libxml2.2.dylib on WebCore
 # beside the deps copy, which is the second image this whole arrangement exists to avoid. Seeding the
@@ -434,18 +487,6 @@ link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
 # QuartzCore supplies native Core Animation classes throughout the compositor.
 link_libraries("-framework QuartzCore")
 
-# the Apple Mac port builds the layout-test tools (ImageDiff) via Xcode upstream, so
-# the CMake path never defines the Apple::<framework> imported targets that Tools/ImageDiff references.
-# Provide them as INTERFACE targets that link the system frameworks via -framework, so ENABLE_LAYOUT_TESTS
-# can configure on the Mac CMake port. Defining unused imported targets is harmless to the framework build.
-foreach (_appleFramework CoreFoundation CoreGraphics CoreText ImageIO)
-    if (NOT TARGET Apple::${_appleFramework})
-        add_library(Apple::${_appleFramework} INTERFACE IMPORTED GLOBAL)
-        set_target_properties(Apple::${_appleFramework} PROPERTIES
-            INTERFACE_LINK_LIBRARIES "-framework ${_appleFramework}")
-    endif ()
-endforeach ()
-
 # with DEVELOPER_MODE, bmalloc builds its mbmalloc microbenchmark dylib, which links
 # Threads::Threads. The other CMake ports (GTK/WPE/JSCOnly/PlayStation) call find_package(Threads); the Mac
 # port did not because the framework build links pthread implicitly. Provide the imported target so the
@@ -455,13 +496,10 @@ find_package(Threads)
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its
 # target LINK_FLAGS (with -umbrella WebKit), not globally. We follow that pattern.
 add_link_options(-nostdlib++)
-# Ensure dylibs have proper version info for Safari compatibility
-# Apply the dylib version stamps only to non-executables: -compatibility_version
-# and -current_version are "only valid with -dylib", so passing them to build-tool
-# executables (LLIntSettingsExtractor, etc.) fails the link.
+# Dylib version stamps apply to shared libraries; loadable bundles use MH_BUNDLE.
 add_link_options(
-  "$<$<NOT:$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>>:LINKER:-compatibility_version,1.0.0>"
-  "$<$<NOT:$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>>:LINKER:-current_version,615.1.1>")
+  "$<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>:LINKER:-compatibility_version,1.0.0>"
+  "$<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>:LINKER:-current_version,${WEBKIT_MAC_VERSION}>")
 # Set deployment target so dyld shared cache accepts our frameworks
 # exclude ASM_NASM (libvpx/libwebrtc .asm via nasm) — nasm rejects -m*/-W*/-iframework.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=10.9>)
@@ -515,20 +553,8 @@ add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-modules> $<$<NOT:
 # definedness is tested). nasm has no preprocessor C macros, so exclude ASM_NASM.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-DCLANG_WEBKIT_BRANCH=0>)
 
-# libwebrtc's final static archive aggregates ~2000 objects; `ar qc <all .o>`
-# exceeds ARG_MAX ("Argument list too long"). With CMAKE_NINJA_FORCE_RESPONSE_FILE=1 (passed on
-# the cmake command line) ninja writes objects to a response file and invokes the archiver as
-# `<ar> qc <target> @objects.rsp`. Apple's ar/libtool reject @response-files, but llvm-ar accepts
-# them -> use llvm-ar. FORCE also wraps yasm's ASM flags in @file (which yasm can't read), so the
-# ASM_NASM compiler is a thin wrapper that expands @file before exec'ing yasm. These two `set()`s
-# run after project()/enable_language so they override the rule values at generation WITHOUT
-# re-triggering compiler detection (which would reset CMAKE_C_COMPILER etc.).
-# CRITICAL: `ar qc` is *quick-append* (q) — it APPENDS objects to an existing archive rather than
-# recreating it, so each rebuild re-adds every member (observed 4176 members vs 2053 unique). A
-# force_load consumer (WebCore) then hits "duplicate symbol" link errors. Ninja never caught this for
-# WebCore because the force_load is a raw -Wl flag it doesn't track as a dependency edge. Fix: delete
-# <TARGET> before archiving so `qc` always writes a fresh archive. (CREATE_STATIC_LIBRARY runs as a
-# list of command lines; the <OBJECTS>/@response-file substitution only applies to the llvm-ar line.)
+# llvm-ar accepts Ninja's response files for large object lists. Recreate each
+# archive so quick-append cannot retain duplicate members from an earlier build.
 foreach(_lang C CXX OBJC OBJCXX)
     set(CMAKE_${_lang}_CREATE_STATIC_LIBRARY
         "${CMAKE_COMMAND} -E rm -f <TARGET>"

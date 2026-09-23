@@ -26,7 +26,6 @@
 #include "config.h"
 #include <wtf/AvailableMemory.h>
 
-#include <algorithm>
 #include <array>
 #include <mutex>
 #include <wtf/PageBlock.h>
@@ -38,10 +37,8 @@
 #endif
 
 #if OS(DARWIN)
-#import <dispatch/dispatch.h>
 #import <mach/host_info.h>
 #import <mach/mach.h>
-#import <mach/mach_error.h>
 #import <math.h>
 #elif OS(UNIX)
 #if OS(FREEBSD) || OS(LINUX)
@@ -202,14 +199,10 @@ MemoryStatus memoryStatus()
     struct kinfo_proc info;
     size_t infolen = sizeof(info);
 
-    int mib[4];
-    mib[0] = CTL_KERN;
-    mib[1] = KERN_PROC;
-    mib[2] = KERN_PROC_PID;
-    mib[3] = getpid();
+    std::array<int, 4> mib { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
 
     size_t memoryFootprint = 0;
-    if (!sysctl(mib, 4, &info, &infolen, nullptr, 0))
+    if (!sysctl(mib.data(), mib.size(), &info, &infolen, nullptr, 0))
         memoryFootprint = static_cast<size_t>(info.ki_rssize) * pageSize();
 #endif
 

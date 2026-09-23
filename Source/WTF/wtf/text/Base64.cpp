@@ -115,7 +115,7 @@ template<typename CharacterType> static void base64EncodeInternal(std::span<cons
     ASSERT(calculateBase64EncodedSize(inputDataBuffer.size(), options) == destinationDataBuffer.size());
 
     if constexpr (sizeof(CharacterType) == 1) {
-        size_t bytesWritten = simdutf::binary_to_base64(std::bit_cast<const char*>(inputDataBuffer.data()), inputDataBuffer.size(), std::bit_cast<char*>(destinationDataBuffer.data()), toSIMDUTFEncodeOptions(options));
+        size_t bytesWritten = simdutf::binary_to_base64(inputDataBuffer, destinationDataBuffer, toSIMDUTFEncodeOptions(options));
         ASSERT_UNUSED(bytesWritten, bytesWritten == destinationDataBuffer.size());
         return;
     }
@@ -249,7 +249,7 @@ static std::optional<Vector<uint8_t, 0, CrashOnOverflow, 16, Malloc>> base64Deco
         return Vector<uint8_t, 0, CrashOnOverflow, 16, Malloc> { };
     }
 
-    // The should be no padding if length is a multiple of 4.
+    // There should be no padding if length is a multiple of 4.
     // We use (destinationLength + equalsSignCount) instead of length because we don't want to account for ignored characters (i.e. spaces).
     if (validatePadding && equalsSignCount && (destinationLength + equalsSignCount) % 4)
         return std::nullopt;
@@ -340,11 +340,8 @@ static inline simdutf::last_chunk_handling_options NODELETE toSIMDUTFLastChunkHa
 template<typename CharacterType>
 static std::tuple<FromBase64ShouldThrowError, size_t, size_t> fromBase64Impl(std::span<const CharacterType> span, std::span<uint8_t> output, Alphabet alphabet, LastChunkHandling lastChunkHandling)
 {
-    using UTFType = std::conditional_t<sizeof(CharacterType) == 1, char, char16_t>;
-
-    size_t outputLength = output.size();
     constexpr bool decodeUpToBadChar = true;
-    auto result = simdutf::base64_to_binary_safe(std::bit_cast<const UTFType*>(span.data()), span.size(), std::bit_cast<char*>(output.data()), outputLength, toSIMDUTFDecodeOptions(alphabet), toSIMDUTFLastChunkHandling(lastChunkHandling), decodeUpToBadChar);
+    auto [result, outputLength] = simdutf::base64_to_binary_safe(span, output, toSIMDUTFDecodeOptions(alphabet), toSIMDUTFLastChunkHandling(lastChunkHandling), decodeUpToBadChar);
     switch (result.error) {
     case simdutf::error_code::OUTPUT_BUFFER_TOO_SMALL:
     case simdutf::error_code::SUCCESS:
@@ -364,10 +361,9 @@ std::tuple<FromBase64ShouldThrowError, size_t, size_t> fromBase64(StringView str
 
 size_t maxLengthFromBase64(StringView string)
 {
-    size_t length = string.length();
     if (string.is8Bit())
-        return simdutf::maximal_binary_length_from_base64(std::bit_cast<const char*>(string.span8().data()), length);
-    return simdutf::maximal_binary_length_from_base64(std::bit_cast<const char16_t*>(string.span16().data()), length);
+        return simdutf::maximal_binary_length_from_base64(string.span8());
+    return simdutf::maximal_binary_length_from_base64(string.span16());
 }
 
 } // namespace WTF

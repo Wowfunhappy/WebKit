@@ -42,9 +42,7 @@
 #if __APPLE__
 #include <TargetConditionals.h>
 
-#if TARGET_OS_IPHONE
-#include <MobileCoreServices/UTCoreTypes.h>
-#else
+#if !TARGET_OS_IPHONE
 #include <CoreServices/CoreServices.h>
 #endif
 
@@ -65,7 +63,7 @@ typedef float CGFloat;
 #define FORMAT_SIZE_T "zu"
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(__APPLE__) && TARGET_OS_IPHONE)
 static const CFStringRef kUTTypePNG = CFSTR("public.png");
 #endif
 

@@ -99,6 +99,9 @@ enum class AutofillFieldName : uint8_t {
     OneTimeCode,
     DeviceEID,
     DeviceIMEI,
+    DeviceIMEI1,
+    DeviceIMEI2,
+    DeviceNAL,
 };
 
 WEBCORE_EXPORT AutofillFieldName toAutofillFieldName(const AtomString&);

@@ -23,7 +23,6 @@
 
 #if HAVE_AVEXPERIENCECONTROLLER
 
-import AVKit
 import AVKit_Private
 import os
 @_spi(AVExperienceController) import AVKit
@@ -39,28 +38,39 @@ extension WKSExperienceController {
     weak var delegate: (any WKSExperienceControllerDelegate)?
 
     @nonobjc
-    final let experienceController: AVExperienceController
+    private let platformExperienceController: WKSPlatformExperienceController
 
     @objc(initWithContentSource:)
     init(contentSource: AVPlayerViewControllerContentSource) {
-        experienceController = AVExperienceController(contentSource: contentSource)
+        platformExperienceController = WKSPlatformExperienceController(contentSource: contentSource)
         super.init()
-        experienceController.delegate = self
+        platformExperienceController.experienceController = self
         Logger.experienceController.log("\(#function)")
     }
 
     @objc(enterFullscreenWithCompletionHandler:)
     func enterFullscreen(completionHandler: @MainActor @Sendable @escaping (Bool) -> Void) {
         Task { @MainActor in
-            completionHandler(await transitionToFullscreen())
+            completionHandler(await platformExperienceController.transitionToFullscreen())
         }
     }
 
     @objc(exitFullscreenWithCompletionHandler:)
     func exitFullscreen(completionHandler: @MainActor @Sendable @escaping (Bool) -> Void) {
         Task { @MainActor in
-            completionHandler(await transitionFromFullscreen())
+            completionHandler(await platformExperienceController.transitionFromFullscreen())
         }
+    }
+}
+
+@MainActor
+class WKSPlatformExperienceController {
+    weak var experienceController: WKSExperienceController?
+    let avExperienceController: AVExperienceController
+
+    init(contentSource: AVPlayerViewControllerContentSource) {
+        avExperienceController = AVExperienceController(contentSource: contentSource)
+        avExperienceController.delegate = self
     }
 }
 

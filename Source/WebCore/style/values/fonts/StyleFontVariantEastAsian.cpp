@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleFontVariantEastAsian.h"
 
+#include "CSSKeywordValue.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "StyleBuilderChecking.h"
 
@@ -36,8 +37,8 @@ namespace Style {
 
 auto CSSValueConversion<FontVariantEastAsian>::operator()(BuilderState& state, const CSSValue& value) -> FontVariantEastAsian
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNormal:
             return CSS::Keyword::Normal { };
         default:
@@ -46,7 +47,7 @@ auto CSSValueConversion<FontVariantEastAsian>::operator()(BuilderState& state, c
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::Normal { };
 

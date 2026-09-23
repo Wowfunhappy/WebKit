@@ -27,6 +27,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "InternalFunction.h"
 #include "WebAssemblySuspendingPrototype.h"
 
 namespace JSC {

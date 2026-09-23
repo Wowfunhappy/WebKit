@@ -7,4 +7,5 @@ PASS Set cookie for Secure space equals
 PASS Set cookie for Secure equals space
 PASS Set cookie for spaced Secure
 PASS Set cookie for space Secure with ;
+PASS Ignore name- and value-less `Set-Cookie: ; secure`
 

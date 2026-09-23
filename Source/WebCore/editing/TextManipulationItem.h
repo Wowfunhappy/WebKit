@@ -28,6 +28,7 @@
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/TextManipulationItemIdentifier.h>
 #include <WebCore/TextManipulationToken.h>
+#include <wtf/Markable.h>
 
 namespace WebCore {
 

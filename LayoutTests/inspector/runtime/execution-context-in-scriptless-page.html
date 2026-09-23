@@ -1,6 +1,6 @@
 <html>
 <head>
-<script src="../../http/tests/inspector/resources/protocol-test.js"></script>
+<script src="../../http/tests/inspector/resources/inspector-test.js"></script>
 <script>
 
 function createFrame()
@@ -12,34 +12,43 @@ function createFrame()
 
 function test()
 {
-    let suite = ProtocolTest.createAsyncSuite("Runtime.executionContextCreated.ContextWithoutScript");
+    let suite = InspectorTest.createAsyncSuite("Runtime.executionContextCreated.ContextWithoutScript");
 
     suite.addTestCase({
         name: "Runtime.executionContextCreated.ContextWithoutScript.SubFrame",
-        description: "Test that Runtime.executionContextCreated event is fired when a new iframe is added to the page and its document doesn't have any JavaScript.",
+        description: "Test that an execution context is created when a new iframe is added to the page and its document doesn't have any JavaScript.",
         async test() {
-            await InspectorProtocol.awaitCommand({method: "Page.enable"});
-            await InspectorProtocol.awaitCommand({method: "Runtime.enable"});
+            let contextInfoPromise;
 
-            let [executionContextCreatedEvent] = await Promise.all([
-                InspectorProtocol.awaitEvent({event: "Runtime.executionContextCreated"}),
-                InspectorProtocol.awaitCommand({
-                    method: "Runtime.evaluate",
-                    params: {expression: `createFrame()`}
-                })
-            ]);
+            if (WI.isSiteIsolationEnabled()) {
+                // Under site isolation, the subframe gets its own frame target that provides the execution context.
+                contextInfoPromise = (async function () {
+                    let { data: { target } } = await WI.targetManager.awaitEvent(WI.TargetManager.Event.TargetAdded);
+                    InspectorTest.assert(target.type === WI.TargetType.Frame);
+                    await target.ensureTargetExecutionContext();
+                    return { executionContext: target.executionContext, target };
+                })();
+            } else {
+                // Without site isolation, execution contexts are reported on Frame objects, not through a target.
+                contextInfoPromise = (async function () {
+                    let { data: { childFrame } } = await WI.networkManager.mainFrame.awaitEvent(WI.Frame.Event.ChildFrameWasAdded);
+                    await childFrame.ensurePageExecutionContext();
+                    return { executionContext: childFrame.pageExecutionContext, target: WI.mainTarget };
+                })();
+            }
 
-            ProtocolTest.pass("Should receive Runtime.executionContextCreated notification.");
+            InspectorTest.evaluateInPage(`createFrame()`);
 
-            let evaluateResult = await InspectorProtocol.awaitCommand({
-                method: "Runtime.evaluate",
-                params: {
-                    contextId: executionContextCreatedEvent.params.context.id,
-                    expression: `document.body.textContent`
-                }
+            let { executionContext, target } = await contextInfoPromise;
+            InspectorTest.expectThat(!!executionContext, "Should receive execution context for script-less subframe.");
+
+            let evaluateResult = await target.RuntimeAgent.evaluate.invoke({
+                expression: `document.URL`,
+                contextId: executionContext.id,
             });
 
-            ProtocolTest.expectEqual(evaluateResult.result.value, "No JavaScript.", "Should be able to evaluate in subframe.");
+            InspectorTest.pass("Should be able to evaluate in subframe. Result:");
+            InspectorTest.log(evaluateResult.result.value);
         }
     });
 

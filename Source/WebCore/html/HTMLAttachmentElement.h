@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -67,11 +67,11 @@ public:
     WEBCORE_EXPORT void updateIconForNarrowLayout(const RefPtr<Image>& icon, const WebCore::FloatSize&);
     WEBCORE_EXPORT void updateIconForWideLayout(Vector<uint8_t>&&);
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     String ensureUniqueIdentifier();
-    AttachmentAssociatedElement* associatedElement() const;
+    AttachmentAssociatedElement* NODELETE associatedElement() const;
     AttachmentAssociatedElementType associatedElementType() const;
 
     WEBCORE_EXPORT String NODELETE attachmentTitle() const;
@@ -121,8 +121,8 @@ private:
 
     void NODELETE setNeedsIconRequest();
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle* = nullptr) const final { return true; }
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final { return true; }
     bool shouldSelectOnMouseDown() final {
 #if PLATFORM(IOS_FAMILY)
         return false;
@@ -138,7 +138,6 @@ private:
 #endif
 
     enum class Implementation: uint8_t { NarrowLayout, WideLayout };
-    Implementation m_implementation { Implementation::NarrowLayout };
 
     RefPtr<File> m_file;
     String m_uniqueIdentifier;
@@ -159,6 +158,7 @@ private:
     RefPtr<HTMLElement> m_saveButton;
     mutable RefPtr<DOMRectReadOnly> m_saveButtonClientRect;
 
+    Implementation m_implementation { Implementation::NarrowLayout };
     bool m_needsIconRequest { true };
 
 #if ENABLE(SERVICE_CONTROLS)

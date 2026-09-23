@@ -31,7 +31,6 @@
 #include "FunctionCodeBlock.h"
 
 #include "JSCellInlines.h"
-#include "StructureInlines.h"
 
 namespace JSC {
 

@@ -25,14 +25,14 @@
 #include "config.h"
 #include "StylePathFunction.h"
 
+#include "AcceleratedEffectPathFunction.h"
 #include "AffineTransform.h"
 #include "CSSPathValue.h"
 #include "FloatRect.h"
 #include "GeometryUtilities.h"
 #include "Path.h"
-#include "RenderStyle.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGPathUtilities.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
@@ -95,7 +95,7 @@ static SVGPathByteStream copySVGPathByteStream(const SVGPathByteStream& source, 
     return source;
 }
 
-auto ToCSS<Path::Data>::operator()(const Path::Data& value, const RenderStyle&, PathConversion conversion) -> CSS::Path::Data
+auto ToCSS<Path::Data>::operator()(const Path::Data& value, const Style::ComputedStyle&, PathConversion conversion) -> CSS::Path::Data
 {
     return { copySVGPathByteStream(value.byteStream, conversion) };
 }
@@ -105,7 +105,7 @@ auto ToStyle<CSS::Path::Data>::operator()(const CSS::Path::Data& value, const Bu
     return { copySVGPathByteStream(value.byteStream, PathConversion::None) };
 }
 
-auto ToCSS<Path>::operator()(const Path& value, const RenderStyle& style, PathConversion conversion) -> CSS::Path
+auto ToCSS<Path>::operator()(const Path& value, const Style::ComputedStyle& style, PathConversion conversion) -> CSS::Path
 {
     return {
         .fillRule = toCSS(value.fillRule, style),
@@ -122,14 +122,14 @@ auto ToStyle<CSS::Path>::operator()(const CSS::Path& value, const BuilderState& 
     };
 }
 
-Ref<CSSValue> CSSValueCreation<PathFunction>::operator()(CSSValuePool&, const RenderStyle& style, const PathFunction& value, PathConversion conversion)
+Ref<CSSValue> CSSValueCreation<PathFunction>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const PathFunction& value, PathConversion conversion)
 {
     return CSSPathValue::create(toCSS(value, style, conversion));
 }
 
 // MARK: - Serialization
 
-void Serialize<Path>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const Path& value, PathConversion conversion)
+void Serialize<Path>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const Path& value, PathConversion conversion)
 {
     CSS::serializationForCSS(builder, context, toCSS(value, style, conversion));
 }
@@ -172,10 +172,25 @@ auto Blending<Path>::blend(const Path& a, const Path& b, const BlendingContext& 
 
 WTF::TextStream& operator<<(WTF::TextStream& ts, const Path::Data& value)
 {
-    String pathString;
+    WTF::String pathString;
     buildStringFromByteStream(value.byteStream, pathString, UnalteredParsing);
     return ts << pathString;
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+AcceleratedEffectPathFunction Evaluation<PathFunction, AcceleratedEffectPathFunction>::operator()(const PathFunction& value, const FloatSize&, ZoomFactor)
+{
+    return {
+        .fillRule = windRule(value),
+        .data = { .byteStream = value->data.byteStream },
+        .zoom = value->zoom,
+    };
+}
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

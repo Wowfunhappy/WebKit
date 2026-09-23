@@ -121,6 +121,7 @@ public:
     WEBCORE_EXPORT URL absoluteImageURL() const;
     WEBCORE_EXPORT URL absolutePDFURL() const;
     WEBCORE_EXPORT URL absoluteMediaURL() const;
+    WEBCORE_EXPORT URL absoluteModelURL() const;
     WEBCORE_EXPORT URL absoluteLinkURL() const;
     WEBCORE_EXPORT bool hasLocalDataForLinkURL() const;
     WEBCORE_EXPORT String textContent() const;
@@ -130,23 +131,23 @@ public:
     void toggleMediaLoopPlayback() const;
     void toggleShowMediaStats() const;
     WEBCORE_EXPORT bool mediaIsInFullscreen() const;
-    bool mediaIsInVideoViewer() const;
+    bool NODELETE mediaIsInVideoViewer() const;
     void toggleVideoViewer() const;
     void toggleMediaFullscreenState() const;
     void enterFullscreenForVideo() const;
     bool mediaControlsEnabled() const;
-    bool mediaLoopEnabled() const;
-    bool mediaStatsShowing() const;
+    bool NODELETE mediaLoopEnabled() const;
+    bool NODELETE mediaStatsShowing() const;
     bool mediaPlaying() const;
     bool mediaSupportsFullscreen() const;
     void toggleMediaPlayState() const;
     WEBCORE_EXPORT bool NODELETE hasMediaElement() const;
     WEBCORE_EXPORT bool mediaHasAudio() const;
-    WEBCORE_EXPORT bool mediaIsVideo() const;
+    WEBCORE_EXPORT bool NODELETE mediaIsVideo() const;
     bool mediaMuted() const;
     void toggleMediaMuteState() const;
     bool mediaSupportsPictureInPicture() const;
-    bool mediaIsInPictureInPicture() const;
+    bool NODELETE mediaIsInPictureInPicture() const;
     void togglePictureInPictureForVideo() const;
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -170,7 +171,7 @@ public:
     Vector<String> dictationAlternatives() const;
 
     Node* targetNode() const { return innerNode(); }
-    WEBCORE_EXPORT Element* targetElement() const;
+    WEBCORE_EXPORT Element* NODELETE targetElement() const;
 
 private:
     NodeSet& mutableListBasedTestResult() LIFETIME_BOUND; // See above.

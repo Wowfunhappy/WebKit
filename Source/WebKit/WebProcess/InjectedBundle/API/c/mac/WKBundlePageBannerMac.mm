@@ -104,7 +104,7 @@ WKBundlePageBannerRef WKBundlePageBannerCreateBannerWithCALayer(CALayer *layer, 
 
 CALayer *WKBundlePageBannerGetLayer(WKBundlePageBannerRef pageBanner)
 {
-    return protect(WebKit::toImpl(pageBanner))->layer();
+    return WebKit::toImpl(pageBanner)->layer();
 }
 
 #endif // !PLATFORM(IOS_FAMILY)

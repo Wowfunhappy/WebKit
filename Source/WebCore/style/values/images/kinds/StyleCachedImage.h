@@ -58,7 +58,8 @@ public:
 
     WrappedImagePtr data() const final { return m_cachedImage.get(); }
 
-    Ref<CSSValue> computedStyleValue(const RenderStyle&) const final;
+    Ref<CSSValue> computedStyleValue(const Style::ComputedStyle&) const final;
+    Ref<DeprecatedCSSOMValue> computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle&, CSSStyleDeclaration&) const final;
 
     bool canRender(const RenderElement*, float multiplier) const final;
     bool isPending() const final;
@@ -68,6 +69,7 @@ public:
     FloatSize imageSize(const RenderElement*, float multiplier, WebCore::CachedImage::SizeType = WebCore::CachedImage::UsedSize) const final;
     bool imageHasRelativeWidth() const final;
     bool imageHasRelativeHeight() const final;
+    bool imageHasNaturalAspectRatio() const final;
     void computeIntrinsicDimensions(const RenderElement*, float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio) final;
     bool usesImageContainerSize() const final;
     void setContainerContextForRenderer(const RenderElement&, const FloatSize&, float, const WTF::URL& = WTF::URL()) final;

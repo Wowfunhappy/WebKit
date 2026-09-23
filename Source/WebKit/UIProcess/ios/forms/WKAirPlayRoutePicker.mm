@@ -32,8 +32,10 @@
 #import "UIKitUtilities.h"
 #import <WebCore/AudioSession.h>
 #import <pal/spi/ios/MediaPlayerSPI.h>
+#import <wtf/ProcessID.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/SoftLinking.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
@@ -81,11 +83,12 @@ typedef NSInteger WKAirPlayRoutePickerRouteSharingPolicy;
     __block RetainPtr<MPAVRoutingController> routingController = adoptNS([allocMPAVRoutingControllerInstance() initWithName:@"WebKit - HTML media element showing AirPlay route picker"]);
     [routingController setDiscoveryMode:MPRouteDiscoveryModeDetailed];
 
-    RetainPtr<MPMediaControlsConfiguration> configuration;
-    if ([getMPMediaControlsConfigurationClassSingleton() instancesRespondToSelector:@selector(setSortByIsVideoRoute:)]) {
-        configuration = adoptNS([allocMPMediaControlsConfigurationInstance() init]);
-        configuration.get().sortByIsVideoRoute = hasVideo;
-    }
+    RetainPtr configuration = adoptNS([allocMPMediaControlsConfigurationInstance() init]);
+    [configuration setSortByIsVideoRoute:hasVideo];
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+    [configuration setPresentingAppProcessIdentifier:getCurrentProcessID()];
+    [configuration setPresentingAppBundleID:applicationBundleIdentifier().createNSString().get()];
+#endif
     _actionSheet = adoptNS([allocMPMediaControlsViewControllerInstance() initWithConfiguration:configuration.get()]);
 
     if ([_actionSheet respondsToSelector:@selector(setOverrideRouteSharingPolicy:routingContextUID:)])

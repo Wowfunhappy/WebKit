@@ -1,7 +1,7 @@
 
 
 PASS Test execCommand with selection around select element
-FAIL execCommand(delete, false, "") in <div contenteditable><p>ab[c</p><select><option>d]ef</option></select></div>: shouldn't modify in <option> assert_in_array: value "<div contenteditable><p>ac</p><select><option>def</option></select></div>" not in array ["<div contenteditable><p>abc</p><select><option>def</option></select></div>", "<div contenteditable><p>ab</p><select><option>def</option></select></div>"]
+FAIL execCommand(delete, false, "") in <div contenteditable><p>ab[c</p><select><option>d]ef</option></select></div>: shouldn't modify in <option> assert_in_array: value "<div contenteditable><p>ac</p><select><option>def</option></select></div>" not in array ["<div contenteditable><p>abc</p><select><option>def</option></select></div>", "<div contenteditable><p>ab</p><select><option>def</option></select></div>", "<div contenteditable><p>ab<select><option>def</option></select></p></div>"]
 PASS execCommand(delete, false, "") in <div contenteditable><p>abc</p><select><option>d[]ef</option></select></div>: shouldn't modify in <option>
 PASS execCommand(delete, false, "") in <div contenteditable><select><option>ab[c</option></select><p>d]ef</p></div>: shouldn't modify in <option>
 PASS execCommand(delete, false, "") in <div contenteditable><p>abc</p><select><option>{}def</option></select><p>ghi</p></div>: shouldn't modify in <option>
@@ -18,7 +18,7 @@ PASS execCommand(delete, false, "") in <select contenteditable>{<option>abc</opt
 PASS execCommand(delete, false, "") in <select><option contenteditable>{abc}</option><option>def</option></select>: shouldn't modify <option>
 PASS execCommand(delete, false, "") in <select><optgroup contenteditable>{<option>abc</option><option>def</option>}</optgroup></select>: shouldn't delete <option>s
 PASS execCommand(delete, false, "") in <select><optgroup contenteditable><option>{abc}</option><option>def</option></optgroup></select>: shouldn't delete <option>s nor optgroup
-FAIL execCommand(delete, false, "") in <div contenteditable><p>ab[c</p><select multiple><option>d]ef</option></select></div>: shouldn't modify in <option> assert_in_array: value "<div contenteditable><p>ac</p><select multiple><option>def</option></select></div>" not in array ["<div contenteditable><p>abc</p><select multiple><option>def</option></select></div>", "<div contenteditable><p>ab</p><select multiple><option>def</option></select></div>"]
+FAIL execCommand(delete, false, "") in <div contenteditable><p>ab[c</p><select multiple><option>d]ef</option></select></div>: shouldn't modify in <option> assert_in_array: value "<div contenteditable><p>ac</p><select multiple><option>def</option></select></div>" not in array ["<div contenteditable><p>abc</p><select multiple><option>def</option></select></div>", "<div contenteditable><p>ab</p><select multiple><option>def</option></select></div>", "<div contenteditable><p>ab<select multiple><option>def</option></select></p></div>"]
 PASS execCommand(delete, false, "") in <div contenteditable><p>abc</p><select multiple><option>d[]ef</option></select></div>: shouldn't modify in <option>
 PASS execCommand(delete, false, "") in <div contenteditable><select multiple><option>ab[c</option></select><p>d]ef</p></div>: shouldn't modify in <option>
 PASS execCommand(delete, false, "") in <div contenteditable><p>abc</p><select multiple><option>{}def</option></select><p>ghi</p></div>: shouldn't modify in <option>
@@ -35,6 +35,6 @@ PASS execCommand(delete, false, "") in <select multiple contenteditable>{<option
 PASS execCommand(delete, false, "") in <select multiple><option contenteditable>{abc}</option><option>def</option></select>: shouldn't modify <option>
 PASS execCommand(delete, false, "") in <select multiple><optgroup contenteditable>{<option>abc</option><option>def</option>}</optgroup></select>: shouldn't delete <option>s
 PASS execCommand(delete, false, "") in <select multiple><optgroup contenteditable><option>{abc}</option><option>def</option></optgroup></select>: shouldn't delete <option>s nor optgroup
-FAIL execCommand(delete, false, "") in <optgroup contenteditable><option>{abc}</option><option>def</option></optgroup>: shouldn't delete <option>s nor optgroup assert_equals: expected "<optgroup contenteditable><option>abc</option><option>def</option></optgroup>" but got "<optgroup contenteditable><option>def</option></optgroup>"
+FAIL execCommand(delete, false, "") in <optgroup contenteditable><option>{abc}</option><option>def</option></optgroup>: shouldn't delete <option>s nor optgroup assert_equals: expected "<optgroup contenteditable><option>abc</option><option>def</option></optgroup>" but got "<optgroup contenteditable><option></option><option>def</option></optgroup>"
 FAIL execCommand(delete, false, "") in <option contenteditable>{abc}</option>: shouldn't modify <option> assert_equals: expected "<option contenteditable>abc</option>" but got "<option contenteditable></option>"
 

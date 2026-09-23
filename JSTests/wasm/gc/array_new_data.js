@@ -1,3 +1,4 @@
+//@ exclusive!
 //@ $skipModes << :wasm_aggressive_inline if $memoryLimited
 
 // This tests in the :wasm_aggressive_inline test configuration will use more than the

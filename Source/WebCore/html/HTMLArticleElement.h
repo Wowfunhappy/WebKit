@@ -36,8 +36,8 @@ public:
     static Ref<HTMLArticleElement> create(const QualifiedName&, Document&);
 
 private:
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
 
     HTMLArticleElement(const QualifiedName&, Document&);
 };

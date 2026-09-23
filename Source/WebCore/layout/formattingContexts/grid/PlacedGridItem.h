@@ -50,7 +50,7 @@ struct ComputedSizes {
 
 class PlacedGridItem {
 public:
-    PlacedGridItem(const ElementBox& gridItem, const GridAreaLines&, const BoxGeometry& gridItemGeometry,  const RenderStyle& gridContainerWritingMode);
+    PlacedGridItem(const ElementBox& gridItem, const GridAreaLines&, const BoxGeometry& gridItemGeometry,  const Style::ComputedStyle& gridContainerWritingMode);
 
     const ComputedSizes& inlineAxisSizes() const LIFETIME_BOUND { return m_inlineAxisSizes; }
     const ComputedSizes& blockAxisSizes() const LIFETIME_BOUND { return m_blockAxisSizes; }
@@ -69,8 +69,6 @@ public:
 
     const WritingMode& writingMode() const LIFETIME_BOUND { return m_writingMode; }
 
-    // FIXME: Add support for grid item's with preferred aspect ratios.
-    bool hasPreferredAspectRatio() const { return false; }
     bool isReplacedElement() const { return m_layoutBox->isReplacedBox(); }
 
     const GridAreaLines& gridAreaLines() const LIFETIME_BOUND { return m_gridAreaLines; }
@@ -78,7 +76,8 @@ public:
     const Style::ZoomFactor& usedZoom() const LIFETIME_BOUND { return m_usedZoom; }
 
 private:
-    PlacedGridItem(const ElementBox& gridItem, const GridAreaLines&, const BoxGeometry& gridItemGeometry,  const RenderStyle& gridContainerWritingMode, const RenderStyle& gridItemWritingMode);
+    PlacedGridItem(const ElementBox& gridItem, const GridAreaLines&, const BoxGeometry& gridItemGeometry,  const Style::ComputedStyle& gridContainerWritingMode, const Style::ComputedStyle& gridItemWritingMode);
+
     const CheckedRef<const ElementBox> m_layoutBox;
 
     const ComputedSizes m_inlineAxisSizes;

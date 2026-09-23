@@ -45,7 +45,7 @@ public:
         return adoptRef(*new NumberInputType(element));
     }
 
-    bool typeMismatchFor(const String&) const final;
+    bool typeMismatchFor(StringView) const final;
     bool typeMismatch() const final;
     bool hasBadInput() const final;
 
@@ -67,7 +67,7 @@ private:
     StepRange createStepRange(AnyStepHandling) const final;
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
     void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) final;
-    Decimal parseToNumber(const String&, const Decimal&) const final;
+    Decimal parseToNumber(StringView, const Decimal&) const final;
     String serialize(const Decimal&) const final;
     String localizeValue(const String&) const final;
     String visibleValue() const final;

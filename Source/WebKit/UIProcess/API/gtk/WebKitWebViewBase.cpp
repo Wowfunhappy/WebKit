@@ -1116,10 +1116,8 @@ static bool shouldForwardWheelEvent(WebKitWebViewBase* webViewBase, GdkEvent* ev
             // The last entry in the history is the current event time, so ignore that.
             if (length > 0)
                 length--;
-            for (unsigned i = 0; i < length; i++) {
-                WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
-                auto oldTime = history.get()[i].time;
-                WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+            for (const auto& item : unsafeMakeSpan(history.get(), length)) {
+                auto oldTime = item.time;
                 webViewBase->priv->wheelEventsToPropagate.removeAllMatching([&oldTime] (GRefPtr<GdkEvent>& current) {
                     return gdk_event_get_time(current.get()) == oldTime;
                 });
@@ -1474,10 +1472,10 @@ static gboolean webkitWebViewBaseScrollEvent(GtkWidget* widget, GdkEventScroll* 
     auto phase = gdk_event_is_scroll_stop_event(event) ? WebWheelEvent::Phase::Ended : WebWheelEvent::Phase::Changed;
     double x, y;
     gdk_event_get_coords(event, &x, &y);
-    IntPoint position(clampToInteger(x), clampToInteger(y));
+    IntPoint position(clampTo<int>(x), clampTo<int>(y));
     double xRoot, yRoot;
     gdk_event_get_root_coords(event, &xRoot, &yRoot);
-    IntPoint globalPosition(clampToInteger(xRoot), clampToInteger(yRoot));
+    IntPoint globalPosition(clampTo<int>(xRoot), clampTo<int>(yRoot));
 
     bool hasPreciseScrollingDeltas = false;
     FloatSize wheelTicks;
@@ -1817,7 +1815,7 @@ static void appendTouchEvent(GtkWidget* webViewBase, Vector<WebPlatformTouchPoin
     gdk_event_get_root_coords(event, &xRoot, &yRoot);
 
     uint32_t identifier = GPOINTER_TO_UINT(gdk_event_get_event_sequence(event));
-    touchPoints.append(WebPlatformTouchPoint(identifier, state, IntPoint(xRoot, yRoot), IntPoint(x, y)));
+    touchPoints.append(WebPlatformTouchPoint(identifier, state, DoublePoint(xRoot, yRoot), DoublePoint(x, y)));
 }
 
 static inline WebPlatformTouchPoint::State touchPointStateForEvents(GdkEvent* current, GdkEvent* event)
@@ -1886,7 +1884,8 @@ static gboolean webkitWebViewBaseTouchEvent(GtkWidget* widget, GdkEventTouch* ev
     }
     case GDK_TOUCH_UPDATE: {
         auto it = priv->touchEvents.find(sequence);
-        ASSERT(it != priv->touchEvents.end());
+        if (it == priv->touchEvents.end())
+            return GDK_EVENT_PROPAGATE;
 #if USE(GTK4)
         it->value = touchEvent;
 #else
@@ -1897,7 +1896,8 @@ static gboolean webkitWebViewBaseTouchEvent(GtkWidget* widget, GdkEventTouch* ev
     case GDK_TOUCH_CANCEL:
         [[fallthrough]];
     case GDK_TOUCH_END:
-        ASSERT(priv->touchEvents.contains(sequence));
+        if (!priv->touchEvents.contains(sequence))
+            return GDK_EVENT_PROPAGATE;
         priv->touchEvents.remove(sequence);
         break;
     default:

@@ -23,11 +23,14 @@
     DispatchedTo=Networking
 ]
 messages -> RiceBackend {
-    GatherSocketAddresses(WebCore::ScriptExecutionContextIdentifier identifier, unsigned streamId) -> (HashMap<std::pair<String, WebCore::RTCIceProtocol>, String> addresses) Synchronous
+    GatherSocketAddresses(WebCore::ScriptExecutionContextIdentifier identifier, unsigned streamId, unsigned minRtpPort, unsigned maxRtpPort) -> (struct WebCore::RiceGatherResult result) Synchronous
     SendData(unsigned streamId, enum:uint8_t WebCore::RTCIceProtocol protocol, String from, String to, WebCore::SharedMemory::Handle data);
     FinalizeStream(unsigned streamId);
     ResolveAddress(String address) -> (Expected<String, WebCore::ExceptionData> result)
+    ResolveAddressSync(String address) -> (Expected<String, WebCore::ExceptionData> result) Synchronous
     SetSocketTypeOfService(unsigned streamId, unsigned value);
+    AllocateSocket(unsigned streamId, unsigned componentId, enum:uint8_t WebCore::RTCIceProtocol protocol, String from, String to);
+    RemoveSocket(unsigned streamId, unsigned componentId, enum:uint8_t WebCore::RTCIceProtocol protocol, String from, String to);
 }
 
 #endif

@@ -30,6 +30,9 @@
 #include "JSReadableStreamSource.h"
 
 #include "JSDOMPromiseDeferred.h"
+#include <JavaScriptCore/CallFrameInlines.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/WriteBarrierInlines.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -40,7 +43,7 @@ JSValue JSReadableStreamSource::start(JSGlobalObject& lexicalGlobalObject, CallF
     
     // FIXME: Why is it ok to ASSERT the argument count here?
     ASSERT(callFrame.argumentCount());
-    JSReadableStreamDefaultController* controller = jsDynamicCast<JSReadableStreamDefaultController*>(callFrame.uncheckedArgument(0));
+    JSReadableStreamDefaultController* controller = dynamicDowncast<JSReadableStreamDefaultController>(callFrame.uncheckedArgument(0));
     ASSERT(controller);
 
     m_controller.set(vm, this, controller);

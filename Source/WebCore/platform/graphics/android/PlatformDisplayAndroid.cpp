@@ -29,9 +29,59 @@
 #if OS(ANDROID)
 
 #include "GLContext.h"
+#include "Logging.h"
+#include <android/hardware_buffer.h>
 #include <epoxy/egl.h>
+#include <wtf/android/RefPtrAndroid.h>
 
 namespace WebCore {
+
+static bool supportsAndroidNativeBufferImport(const PlatformDisplayAndroid& display)
+{
+    const auto& extensions = display.eglExtensions();
+    auto supportsEGLImage = display.eglCheckVersion(1, 5) || extensions.KHR_image_base;
+    if (!(supportsEGLImage && extensions.ANDROID_get_native_client_buffer && extensions.ANDROID_image_native_buffer)) {
+        RELEASE_LOG_INFO(Compositing, "Android EGL display does not support required capabilities for AHardwareBuffer import (EGLImage=%d, ANDROID_get_native_client_buffer=%d, ANDROID_image_native_buffer=%d).",
+            supportsEGLImage, extensions.ANDROID_get_native_client_buffer, extensions.ANDROID_image_native_buffer);
+        return false;
+    }
+
+    auto getNativeClientBufferANDROID = reinterpret_cast<PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC>(eglGetProcAddress("eglGetNativeClientBufferANDROID"));
+    if (!getNativeClientBufferANDROID) {
+        RELEASE_LOG_INFO(Compositing, "Android EGL display: eglGetNativeClientBufferANDROID not found.");
+        return false;
+    }
+
+    AHardwareBuffer_Desc description { };
+    description.width = 1;
+    description.height = 1;
+    description.layers = 1;
+    description.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+    description.usage = AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+
+    AHardwareBuffer* hardwareBufferPtr { nullptr };
+    if (AHardwareBuffer_allocate(&description, &hardwareBufferPtr)) {
+        RELEASE_LOG_INFO(Compositing, "Android EGL display: AHardwareBuffer_allocate failed.");
+        return false;
+    }
+    auto hardwareBuffer = adoptRef(hardwareBufferPtr);
+
+    auto clientBuffer = getNativeClientBufferANDROID(hardwareBuffer.get());
+    if (!clientBuffer) {
+        RELEASE_LOG_INFO(Compositing, "Android EGL display: eglGetNativeClientBufferANDROID returned null.");
+        return false;
+    }
+
+    static const Vector<EGLAttrib> attributes { EGL_IMAGE_PRESERVED, EGL_TRUE, EGL_NONE };
+    auto image = display.createEGLImage(EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, clientBuffer, attributes);
+    if (image == EGL_NO_IMAGE) {
+        RELEASE_LOG_INFO(Compositing, "Android EGL display: eglCreateImage for AHardwareBuffer failed with error %#04x.", eglGetError());
+        return false;
+    }
+
+    display.destroyEGLImage(image);
+    return true;
+}
 
 std::unique_ptr<PlatformDisplayAndroid> PlatformDisplayAndroid::create()
 {
@@ -52,8 +102,12 @@ std::unique_ptr<PlatformDisplayAndroid> PlatformDisplayAndroid::create()
         }();
 
     if (getPlatformDisplay) {
-        if (auto glDisplay = GLDisplay::create(getPlatformDisplay(EGL_PLATFORM_ANDROID_KHR, EGL_DEFAULT_DISPLAY, nullptr)))
-            return std::unique_ptr<PlatformDisplayAndroid>(new PlatformDisplayAndroid(glDisplay.releaseNonNull()));
+        if (auto glDisplay = GLDisplay::create(getPlatformDisplay(EGL_PLATFORM_ANDROID_KHR, EGL_DEFAULT_DISPLAY, nullptr))) {
+            auto display = std::unique_ptr<PlatformDisplayAndroid>(new PlatformDisplayAndroid(glDisplay.releaseNonNull()));
+            if (supportsAndroidNativeBufferImport(*display))
+                return display;
+            RELEASE_LOG_INFO(Compositing, "Android platform EGL display cannot import AHardwareBuffer objects; continuing with the normal fallback path.");
+        }
     }
 #endif
 

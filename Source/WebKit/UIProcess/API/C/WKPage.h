@@ -44,6 +44,7 @@
 #include <WebKit/WKPageLoaderClient.h>
 #include <WebKit/WKPageNavigationClient.h>
 #include <WebKit/WKPagePolicyClient.h>
+#include <WebKit/WKPageResourceLoadClient.h>
 #include <WebKit/WKPageStateClient.h>
 #include <WebKit/WKPageUIClient.h>
 #include <WebKit/WKPageVisibilityTypes.h>
@@ -236,6 +237,8 @@ WK_EXPORT void WKPageSetPagePolicyClient(WKPageRef page, const WKPagePolicyClien
 WK_EXPORT void WKPageSetPageNavigationClient(WKPageRef page, const WKPageNavigationClientBase* client);
 
 WK_EXPORT void WKPageSetPageStateClient(WKPageRef page, WKPageStateClientBase* client);
+
+WK_EXPORT void WKPageSetResourceLoadClient(WKPageRef page, WKPageResourceLoadClientBase* client);
 
 typedef void (*WKPageEvaluateJavaScriptFunction)(WKTypeRef, WKErrorRef, void*);
 WK_EXPORT void WKPageEvaluateJavaScriptInMainFrame(WKPageRef page, WKStringRef script, void* context, WKPageEvaluateJavaScriptFunction function);

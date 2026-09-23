@@ -99,6 +99,7 @@ promise_test(async (test) => {
 }, "Test replaceTrack with null track");
 
 promise_test(async (test) => {
+    test.add_cleanup(() => sendingTrack.stop());
     await testFrameEncodedStopped(connection);
     assert_equals(sendingTrack.readyState, "live");
 }, "Test that frame counter no longer increases");

@@ -155,7 +155,7 @@ private:
         
         unsigned bitCount() const
         {
-            return WTF::bitCount(m_characters[0]) + WTF::bitCount(m_characters[1]);
+            return std::popcount(m_characters[0]) + std::popcount(m_characters[1]);
         }
         
         friend bool operator==(const CharacterSet&, const CharacterSet&) = default;

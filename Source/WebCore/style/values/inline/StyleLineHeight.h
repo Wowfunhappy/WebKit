@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include <WebCore/StyleLengthWrapper.h>
+#include <WebCore/StylePrimitiveNumericOrKeyword.h>
 #include <wtf/Hasher.h>
 
 namespace WebCore {
@@ -33,7 +33,7 @@ namespace Style {
 // <'line-height'> = normal | <number [0,∞]> | <length-percentage [0,∞]>
 // NOTE: <number [0,∞]> gets converted to <length-percentage [0,∞]>.
 // https://drafts.csswg.org/css-inline/#propdef-line-height
-struct LineHeight : LengthWrapperBase<LengthPercentage<CSS::NonnegativeUnzoomed>, CSS::Keyword::Normal> {
+struct LineHeight : PrimitiveNumericOrKeyword<LengthPercentage<CSS::NonnegativeUnzoomed>, CSS::Keyword::Normal> {
     using Base::Base;
 
     bool isNormal() const { return holdsAlternative<CSS::Keyword::Normal>(); }
@@ -53,7 +53,6 @@ struct LineHeight : LengthWrapperBase<LengthPercentage<CSS::NonnegativeUnzoomed>
 
 template<> struct CSSValueConversion<LineHeight> {
     auto operator()(BuilderState&, const CSSValue&, float multiplier = 1.0f) -> LineHeight;
-    auto operator()(BuilderState&, const CSSPrimitiveValue&, float multiplier = 1.0f) -> LineHeight;
 };
 
 // MARK: - Blending
@@ -62,6 +61,17 @@ template<> struct Blending<LineHeight> {
     bool NODELETE canBlend(const LineHeight&, const LineHeight&);
     bool NODELETE requiresInterpolationForAccumulativeIteration(const LineHeight&, const LineHeight&);
     auto blend(const LineHeight&, const LineHeight&, const BlendingContext&) -> LineHeight;
+};
+
+// MARK: - Evaluation
+
+struct LineHeightEvaluationContext {
+    float computedFontSize;
+    float lineSpacing;
+};
+
+template<> struct Evaluation<LineHeight, float> {
+    auto operator()(const LineHeight&, LineHeightEvaluationContext, ZoomFactor) -> float;
 };
 
 } // namespace Style

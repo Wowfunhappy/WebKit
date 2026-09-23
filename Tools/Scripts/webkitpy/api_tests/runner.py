@@ -33,6 +33,19 @@ from webkitpy.port.server_process import ServerProcess, _log as server_process_l
 _log = logging.getLogger(__name__)
 
 
+class _NoisyOutputFilter(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        if msg.lstrip().startswith('objc['):
+            return False
+        if 'NSEventConcurrentProcessingEnabled' in msg:
+            return False
+        return True
+
+
+_log.addFilter(_NoisyOutputFilter())
+
+
 def setup_shard(port=None, devices=None, log_limit=None):
     if devices and getattr(port, 'DEVICE_MANAGER', None):
         port.DEVICE_MANAGER.AVAILABLE_DEVICES = devices.get('available_devices', [])
@@ -102,7 +115,7 @@ class Runner(object):
 
     instance = None
 
-    def __init__(self, port, printer, log_limit=250):
+    def __init__(self, port, printer, log_limit=250, expectations=None):
         self.port = port
         self.printer = printer
         self.tests_run = 0
@@ -110,16 +123,17 @@ class Runner(object):
         self.log_limit = log_limit
         self._has_logged_for_test = True  # Suppress an empty line between "Running tests" and the first test's output.
         self.results = {}
+        self.expectations = expectations
 
     # FIXME API tests should run as an app, we won't need this function <https://bugs.webkit.org/show_bug.cgi?id=175204>
     @staticmethod
     def command_for_port(port, args):
         if (port.get_option('force')):
-            args.append('--gtest_also_run_disabled_tests=1')
+            args.append('--force')
         if (port.get_option('remote_layer_tree')):
             args.append('--remote-layer-tree')
-        if (port.get_option('site_isolation')):
-            args.append('--site-isolation')
+        if (port.get_option('site_isolation_enabled_by_default')):
+            args.append('--site-isolation-enabled-by-default')
         if (port.get_option('no_remote_layer_tree')):
             args.append('--no-remote-layer-tree')
         if (port.get_option('use_gpu_process')):
@@ -156,8 +170,16 @@ class Runner(object):
         if self.port.get_option('fully_parallel') and self.port.get_option('test_parallel_safety'):
             raise RuntimeError(f'Running api tests fully parallel is not compatible with test_parallel_safety')
 
+        self.printer.write_update('Filtering tests by allowlist ...')
+        # Split tests by allowlist BEFORE sharding
+        allowlisted_tests, non_allowlisted_tests = self.port.filter_api_tests_by_allowlist(tests)
+
+        if non_allowlisted_tests:
+            _log.info(f'{len(non_allowlisted_tests)} tests not in allowlist will run in system shard')
+
         self.printer.write_update('Sharding tests ...')
-        shards = Runner._shard_tests(tests, self.port.get_option('fully_parallel'))
+        # Only shard allowlisted tests for parallel execution
+        shards = Runner._shard_tests(allowlisted_tests, self.port.get_option('fully_parallel'))
 
         original_level = server_process_logger.level
         server_process_logger.setLevel(logging.CRITICAL)
@@ -200,20 +222,10 @@ class Runner(object):
             # For minimum worker calculation, use current batch size (first batch or all if unbatched)
             self._num_workers = min(workers, max(len(shards) + (len(test_parallel_safety_batches[0]) if test_parallel_safety_batches else 0), 1))
 
-            system_shards = {}
-            non_system_shards = {}
-
-            for name, tests in iteritems(shards):
-                group = self.port.group_for_shard(type('Shard', (), {'name': name})(), suite='api-tests')
-                if group == 'system' and not self.port.get_option('fully_parallel'):
-                    system_shards[name] = tests
-                else:
-                    non_system_shards[name] = tests
-
             # Process test-parallel-safety batches sequentially
             for batch_index, test_parallel_safety_batch in enumerate(test_parallel_safety_batches if test_parallel_safety_batches else [[]]):
                 if test_parallel_safety_batch:
-                    _log.info(f'Running batch {batch_index + 1}/{len(test_parallel_safety_batches)}: {len(non_system_shards)} regular shards with {len(test_parallel_safety_batch)} test-parallel-safety repeat tasks')
+                    _log.info(f'Running batch {batch_index + 1}/{len(test_parallel_safety_batches)}: {len(shards)} regular shards with {len(test_parallel_safety_batch)} test-parallel-safety repeat tasks')
 
                 non_system_groups = [group for group in mutually_exclusive_groups if group != 'system']
                 test_parallel_safety_groups = []
@@ -224,7 +236,7 @@ class Runner(object):
                         test_parallel_safety_groups.append(test_parallel_safety_group)
                         non_system_groups.append(test_parallel_safety_group)
                     batch_test_parallel_safety_count = len(test_parallel_safety_batch)
-                    batch_effective_work_count = len(non_system_shards) + batch_test_parallel_safety_count
+                    batch_effective_work_count = len(shards) + batch_test_parallel_safety_count
                     batch_workers = min(workers, max(batch_effective_work_count, 1))
                 else:
                     batch_workers = self._num_workers
@@ -241,31 +253,27 @@ class Runner(object):
                             _log.info(f'Dispatching repeat test-parallel-safety task for {test_name} to group {test_parallel_safety_group} (batch {batch_index + 1}/{len(test_parallel_safety_batches)})')
                             pool.do(run_test_parallel_safety_single_iteration, test_name, repeat=True, group=test_parallel_safety_group)
 
-                    # Run regular shards with each batch - this is the whole point of test-parallel-safety testing
-                    for name, tests in iteritems(non_system_shards):
+                    # Run regular shards
+                    for name, shard_tests in iteritems(shards):
                         if name.startswith('test-parallel-safety.'):
                             continue
 
-                        group = self.port.group_for_shard(type('Shard', (), {'name': name})(), suite='api-tests')
-                        if test_parallel_safety_batches and group == 'system':
-                            continue
-
-                        if group and group != 'system' and not self.port.get_option('fully_parallel'):
-                            pool.do(run_shard, name, *tests, group=group)
-                        else:
-                            pool.do(run_shard, name, *tests)
+                        pool.do(run_shard, name, *shard_tests)
 
                     pool.wait()
 
-            # Run system tests after all non-system tests complete (unless in test-parallel-safety mode)
-            if system_shards and not self.port.get_option('test_parallel_safety'):
+            # Run system shard tests after all parallel tests complete (unless in test-parallel-safety mode)
+            if non_allowlisted_tests and not self.port.get_option('test_parallel_safety'):
+                _log.info(f'Running {len(non_allowlisted_tests)} system shard tests sequentially')
                 with TaskPool(
-                    workers=1,  # System tests run with single worker to avoid conflicts
+                    workers=1,  # System shard tests run with single worker to avoid conflicts
                     mutually_exclusive_groups=[],
                     setup=setup_shard, setupkwargs=dict(port=self.port, devices=devices, log_limit=self.log_limit), teardown=teardown_shard,
                 ) as pool:
-                    for name, tests in iteritems(system_shards):
-                        pool.do(run_shard, name, *tests)
+                    # Group system shard tests by suite for efficiency
+                    non_allowlisted_shards = Runner._shard_tests(non_allowlisted_tests, False)
+                    for name, shard_tests in iteritems(non_allowlisted_shards):
+                        pool.do(run_shard, name, *shard_tests)
 
                     pool.wait()
             elif self.port.get_option('test_parallel_safety'):
@@ -309,17 +317,32 @@ class _Worker(object):
         for line in output.splitlines():
             if line.lstrip().startswith('objc['):
                 continue
+            if 'NSEventConcurrentProcessingEnabled' in line:
+                continue
             result += line + '\n'
         return result.rstrip()
 
     def _run_single_test(self, binary_name, test):
+        full_test_name = f'{binary_name}.{test}'
+
+        timeout = self._timeout
+        if Runner.instance and Runner.instance.expectations:
+            exp = Runner.instance.expectations.get_expectation(full_test_name)
+            if exp and exp.is_slow():
+                custom_timeout = exp.slow_timeout
+                if custom_timeout is not None and custom_timeout > 0:
+                    timeout = custom_timeout
+                else:
+                    timeout = self._timeout * 5
+
         server_process = ServerProcess(
             self._port, binary_name,
-            Runner.command_for_port(self._port, [self._port.path_to_api_test(binary_name), f'--gtest_filter={test}']),
+            Runner.command_for_port(self._port, [self._port.path_to_api_test(binary_name), '--filter', test]),
             env=self._port.environment_for_api_tests())
 
         status = Runner.STATUS_RUNNING
-        if test.split('.')[1].startswith('DISABLED_') and not self._port.get_option('force'):
+        split_test = test.split('.')
+        if len(split_test) > 1 and split_test[1].startswith('DISABLED_') and not self._port.get_option('force'):
             status = Runner.STATUS_DISABLED
 
         stdout_buffer = ''
@@ -332,7 +355,7 @@ class _Worker(object):
                 server_process.start()
 
             while status == Runner.STATUS_RUNNING:
-                stdout_line, stderr_line = server_process.read_either_stdout_or_stderr_line(started + self._timeout)
+                stdout_line, stderr_line = server_process.read_either_stdout_or_stderr_line(started + timeout)
                 if not stderr_line and not stdout_line:
                     break
                 if stdout_line:
@@ -357,6 +380,8 @@ class _Worker(object):
                         status = Runner.STATUS_PASSED
                     elif '**FAIL**' in stdout_line:
                         status = Runner.STATUS_FAILED
+                    elif '**DISABLED**' in stdout_line:
+                        status = Runner.STATUS_DISABLED
                     else:
                         stdout_buffer += stdout_line
                         _log.error(stdout_line[:-1])
@@ -406,7 +431,7 @@ class _Worker(object):
             server_process = ServerProcess(
                 self._port, binary_name,
                 Runner.command_for_port(self._port, [
-                    self._port.path_to_api_test(binary_name), f'--gtest_filter={":".join(remaining_tests)}'
+                    self._port.path_to_api_test(binary_name), '--filter', ':'.join(remaining_tests)
                 ]), env=self._port.environment_for_api_tests())
 
             try:

@@ -1,4 +1,60 @@
 =================
+WPE WebKit 2.53.3
+=================
+
+What's new in WPE WebKit 2.53.3?
+
+  - Switch web process compositor to use Skia instead of TextureMapper.
+  - Fix missing glyph before ZWJ/ZWNJ if no font is found for the cluster.
+  - Improve memory usage by reducing the size of the style matcher cache.
+  - Add support for half width fonts.
+  - Add spell checking support using the Enchant library, which can be toggled
+    at build configuration time using the ENABLE_SPELLCHECKING CMake option.
+  - Support time zone change notifications on Linux.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.53.2
+=================
+
+What's new in WPE WebKit 2.53.2?
+
+  - Only use DMA-BUF mapping for writing to the GPU atlas when possible.
+  - Do not resolve '-apple-system' font to default system font.
+  - Set real time limits when not using the portal.
+  - Report support for supported non-AAC mp4a codecs.
+  - Add cursor shape support in the WPE Qt platform implementation.
+  - Fix toplevel state handling in the WPE Qt platform implementation.
+  - Fix wheel event handling in the WPE Qt platform implementation.
+  - Fix the build when targeting Android.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.53.1
+=================
+
+What's new in WPE WebKit 2.53.1?
+
+  - Remove the option to use Cairo for 2D rendering.
+  - Implement GPU atlas creation and replay substitution for batched raster
+    image uploads.
+  - Improve handling of real-time threads.
+  - Improve non accelerated composited mode by using the same buffer sharing
+    implementation as accelerated mode.
+  - Add new API for page favicons.
+  - Add webkit_feature_list_find() to the public API.
+  - Add new WPEPlatform API to notify of changes in buffers used to render
+    the contents of a WPEView.
+  - Add WPEPlatform setting to toggle overlay scrollbars.
+  - Fix web view focus handling for touch input in the built-in WPEPlatform
+    Wayland implementation.
+  - Fix V4L2 hardware accelerated media codecs now working due to overly
+    restrictive sandbox device access rules.
+  - Fix linking the WPE Qt binding in some cases due to undefined symbols.
+  - Support PGO features in regular CMake builds.
+  - Fix several crashes and rendering issues.
+
+=================
 WPE WebKit 2.51.4
 =================
 

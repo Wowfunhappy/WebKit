@@ -88,6 +88,19 @@ for lib in libc++.1.dylib libc++abi.1.dylib; do
     fi
 done
 
+# Native framework clients resolve WebKit2 through the same binary as CMake's WebKit target.
+link_framework_alias() {
+    if [ -e "$2" ] && [ ! -L "$2" ]; then
+        echo "ERROR: framework alias conflicts with an existing product: $2" >&2
+        exit 1
+    fi
+    ln -sfn "$1" "$2" || exit 1
+}
+if [ -f "$LIBDIR/WebKit.framework/Versions/A/WebKit" ]; then
+    link_framework_alias WebKit.framework "$LIBDIR/WebKit2.framework"
+    link_framework_alias WebKit "$LIBDIR/WebKit.framework/Versions/A/WebKit2"
+fi
+
 # WebKitTestRunner's WebKit2 injected bundle: the cmake build emits it as a plain dylib (lib/libTestRunnerInjected
 # Bundle.dylib), but -[NSBundle initWithPath:] in the WebContent process needs a real .bundle wrapper, at the path
 # TestController::initializeInjectedBundlePath builds next to the executable. The bundle itself lives in lib/,
@@ -214,12 +227,13 @@ fix_rpaths() { # bin
 }
 
 # Every Mach-O under bin/ and lib/ (executables, dylibs, bundle and XPC service binaries, the mirrored
-# GStreamer plugins, the staged runtime copies), plus any extra path given.
+# GStreamer plugins, the staged runtime copies), plus any extra path given. The API tests' resources
+# bundle holds two signed app-extension fixtures used for static-code resource validation.
 build_tree_machos() {
     local f
     while IFS= read -r f; do
         case "$(file -b "$f")" in *Mach-O*) echo "$f";; esac
-    done < <(find "$BINDIR" "$LIBDIR" -type f \( -perm +111 -o -name '*.dylib' \) 2>/dev/null | sort)
+    done < <(find "$BINDIR" "$LIBDIR" -type f \( -perm +111 -o -name '*.dylib' \) -not -path '*/TestWebKitAPIResources.bundle/web-extension-ios.appex/Test Extension Extension' -not -path '*/TestWebKitAPIResources.bundle/web-extension-mac.appex/Contents/MacOS/Test Extension Extension' 2>/dev/null | sort)
     for f in $EXTRA_BINS; do [ -f "$f" ] && echo "$f"; done
 }
 MACHOS=$(build_tree_machos)
@@ -228,7 +242,7 @@ MACHOS=$(build_tree_machos)
 MTIME_REF=$(mktemp "${TMPDIR:-/tmp}/make-build-binaries-runnable.XXXXXX") || exit 1
 trap 'rm -f "$MTIME_REF"' EXIT
 
-for bin in $MACHOS; do
+while IFS= read -r bin; do
     touch -r "$bin" "$MTIME_REF"
     case "$bin" in
         "$GST_PLUGINS"/*) ;;
@@ -252,7 +266,7 @@ for bin in $MACHOS; do
     repoint_all "$bin" "libunwind.1.dylib" "$SYSTEM_UNWINDER"
     fix_rpaths "$bin"
     touch -r "$MTIME_REF" "$bin"
-done
+done <<< "$MACHOS"
 echo "  rewrote $(echo "$MACHOS" | grep -c .) Mach-Os under WebKitBuild/Release/{bin,lib}"
 
 # Single-unwinder gate over the build tree, the counterpart of stage-frameworks.sh's over the product.
@@ -290,9 +304,9 @@ verify_runtime_binding() { # bin
             violation "$bin" "@rpath/$leaf resolves at ${resolved:-no LC_RPATH of its own}, not $LIBDIR"
     done
 }
-for bin in $MACHOS; do
+while IFS= read -r bin; do
     verify_runtime_binding "$bin"
-done
+done <<< "$MACHOS"
 if [ "$VIOLATIONS" -ne 0 ]; then
     echo "ERROR: $VIOLATIONS build-tree binaries would load a C++ runtime or unwinder other than the build's (mixed-unwinder hazard)" >&2
     exit 1

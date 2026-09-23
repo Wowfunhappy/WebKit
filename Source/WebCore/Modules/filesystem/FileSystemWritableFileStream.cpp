@@ -29,6 +29,7 @@
 #include "InternalWritableStream.h"
 #include "JSBlob.h"
 #include "JSDOMConvertBufferSource.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
@@ -78,7 +79,7 @@ static JSC::JSValue convertChunk(JSC::JSGlobalObject& lexicalGlobalObject, JSDOM
 
 void FileSystemWritableFileStream::write(JSC::JSGlobalObject& lexicalGlobalObject, const ChunkType& data, DOMPromiseDeferred<void>&& promise)
 {
-    auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject);
+    auto* globalObject = downcast<JSDOMGlobalObject>(&lexicalGlobalObject);
     RELEASE_ASSERT(globalObject);
 
     auto jsData = convertChunk(lexicalGlobalObject, *globalObject, data);
@@ -90,7 +91,7 @@ void FileSystemWritableFileStream::write(JSC::JSGlobalObject& lexicalGlobalObjec
     if (result.hasException())
         return promise.reject(result.releaseException());
 
-    auto* jsPromise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* jsPromise = downcast<JSC::JSPromise>(result.returnValue());
     if (!jsPromise)
         return promise.reject(Exception { ExceptionCode::UnknownError, "Failed to complete write operation"_s });
 

@@ -10,7 +10,7 @@ div.myTest *|testA { background-color : lime }]]></style>
  </head>
  <body>
 <div class="myTest">
-<testA xmlns="http://www.example.org/b">This paragraph should have a green background</testa>
+<testA xmlns="http://www.example.org/b">This paragraph should have a green background</testA>
 </div>
 </body>
 </html>

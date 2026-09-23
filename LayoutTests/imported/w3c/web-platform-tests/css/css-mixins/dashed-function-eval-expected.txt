@@ -1,89 +1,91 @@
 
 PASS Literal result
 PASS Literal result, typed return
-FAIL Literal result, typed return, calc assert_equals: expected "13px" but got "calc(12px + 1px)"
-FAIL Literal result, typed return, mismatch assert_equals: expected "" but got "12s"
+PASS Literal result, typed return, calc
+PASS Literal result, typed return, mismatch
 PASS Missing result descriptor
 PASS Literal result, empty
 PASS result cascading behavior
-FAIL Another dashed-function in result assert_equals: expected "12px" but got "--g()"
+PASS Another dashed-function in result
 PASS Unused argument
-FAIL Single parameter assert_equals: expected "100px" but got "var(--x)"
-FAIL Multiple parameters assert_equals: expected "100px auto red" but got "var(--x) var(--y) var(--z)"
-FAIL Single parameter, typed assert_equals: expected "100px" but got "var(--x)"
-FAIL Typed parameter with calc() assert_equals: expected "101px" but got "var(--x)"
-FAIL Untyped parameter with calc() assert_equals: expected "calc(100px + 1px)" but got "var(--x)"
-FAIL Various typed parameters assert_equals: expected "101px 360deg 1s" but got "var(--x) var(--y) var(--z)"
-FAIL Parameter with complex type (auto) assert_equals: expected "auto" but got "var(--x)"
-FAIL Parameter with complex type (px) assert_equals: expected "10px" but got "var(--x)"
-FAIL Passing argument to inner function assert_equals: expected "12px" but got "--g(var(--x))"
-FAIL var() in argument resolved before call assert_equals: expected "calc(100px + 1px)" but got "var(--x)"
-FAIL var() in argument resolved before call, typed assert_equals: expected "101px" but got "var(--x)"
-FAIL Argument captures IACVT due to invalid var() assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Argument captures IACVT due to invalid var(), typed assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Argument captures IACVT due to type mismatch assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Single parameter with default value assert_equals: expected "PASS" but got "var(--x)"
-FAIL Multiple parameters with defaults assert_equals: expected "1px 5px 3px" but got "var(--x) var(--y) var(--z)"
-FAIL Multiple parameters with defaults, typed assert_equals: expected "1px 5px 3px" but got "var(--x) var(--y) var(--z)"
-FAIL Default referencing another parameter assert_equals: expected "5px 5px" but got "var(--x) var(--y)"
-FAIL Default referencing another parameter, local interference assert_equals: expected "17px 5px" but got "var(--x) var(--y)"
-FAIL Default referencing another defaulted parameter assert_equals: expected "5px 5px" but got "var(--x) var(--y)"
-FAIL Typed default with reference assert_equals: expected "5px 6px" but got ""
-FAIL IACVT arguments are defaulted assert_equals: expected "1 2 3" but got "var(--x) var(--y) var(--z)"
-FAIL IACVT arguments are defaulted, typed assert_equals: expected "1 2 3" but got "var(--x) var(--y) var(--z)"
-FAIL Arguments are defaulted on type mismatch assert_equals: expected "1 2 3" but got "var(--x) var(--y) var(--z)"
+PASS Single parameter
+PASS Multiple parameters
+PASS Single parameter, typed
+PASS Typed parameter with calc()
+PASS Untyped parameter with calc()
+PASS Various typed parameters
+PASS Parameter with complex type (auto)
+PASS Parameter with complex type (px)
+PASS Passing argument to inner function
+PASS var() in argument resolved before call
+PASS var() in argument resolved before call, typed
+PASS Argument captures IACVT due to invalid var()
+PASS Argument captures IACVT due to invalid var(), typed
+PASS Argument captures IACVT due to type mismatch
+PASS Single parameter with default value
+PASS Multiple parameters with defaults
+PASS Multiple parameters with defaults, typed
+PASS Default referencing another parameter
+PASS Default referencing another parameter, local interference
+PASS Default referencing another defaulted parameter
+PASS Typed default with reference
+PASS IACVT arguments are defaulted
+PASS IACVT arguments are defaulted, typed
+PASS Arguments are defaulted on type mismatch
 PASS Unused local
 PASS Local does not affect outer scope
-FAIL Substituting local in result assert_equals: expected "10px" but got "var(--x)"
-FAIL Substituting multiple locals in result assert_equals: expected "10px 17px" but got "var(--x) var(--y)"
-FAIL Local referring to another local assert_equals: expected "10px" but got "var(--y)"
-FAIL Locals appearing after result assert_equals: expected "10px" but got "var(--y)"
-FAIL Locals cascading behavior assert_equals: expected "20px" but got "var(--y)"
-FAIL Custom properties are visible inside function assert_equals: expected "10px" but got "var(--x)"
-FAIL Substitute local from outer scope assert_equals: expected "PASS" but got "--g()"
-FAIL Substitute argument from outer scope assert_equals: expected "PASS" but got "--g()"
-FAIL Inner argument shadowing outer argument assert_equals: expected "PASS" but got "--g(PASS)"
-FAIL Inner argument shadowing outer local assert_equals: expected "PASS" but got "--g(PASS)"
-FAIL Inner local shadowing outer argument assert_equals: expected "PASS" but got "--g()"
-FAIL Inner local shadowing outer local assert_equals: expected "PASS" but got "--g()"
-FAIL Referencing outer local containing var() assert_equals: expected "1" but got "--g()"
-FAIL Referencing outer typed argument assert_equals: expected "10px" but got "--g()"
-FAIL Same function with different scopes assert_equals: expected "1 2 3 0" but got "--f() --f() --f() var(--x)"
-FAIL Referencing local two frames up assert_equals: expected "1" but got "--b()"
-FAIL IACVT outer local shadows property assert_equals: expected "PASS" but got "--b()"
-FAIL Inner function call should see resolved outer locals assert_equals: expected "10px" but got "var(--x)"
-FAIL Inner function call should see resolved outer locals (reverse) assert_equals: expected "10px" but got "var(--y)"
-FAIL Parameter shadows custom property assert_equals: expected "PASS" but got "var(--x)"
-FAIL Local shadows parameter assert_equals: expected "PASS" but got "var(--x)"
-FAIL IACVT argument shadows outer scope assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL IACVT argument shadows outer scope, typed assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL IACVT argument shadows outer scope, type mismatch assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Missing only argument assert_equals: expected "" but got "10px"
-FAIL Missing one argument of several assert_equals: expected "" but got "10px"
-FAIL Passing list as only argument assert_equals: expected "1px,2px" but got "var(--x)"
-FAIL Passing list as first argument assert_equals: expected "1px, 2px | 3px" but got "var(--x) | var(--y)"
-FAIL Passing list as second argument assert_equals: expected "1px | 2px, 3px" but got "var(--x) | var(--y)"
-FAIL Passing comma as argument assert_equals: expected "," but got "var(--x)"
-FAIL Passing {} as argument assert_equals: expected "{}" but got "var(--x)"
-FAIL Passing non-whole-value {} as argument assert_equals: expected "foo{}" but got "var(--x)"
-FAIL Local variable with initial keyword assert_equals: expected "PASS" but got "var(--x)"
-FAIL Local variable with initial keyword, defaulted assert_equals: expected "PASS" but got "var(--x)"
-FAIL Local variable with initial keyword, no value via IACVT-capture assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Default with initial keyword assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL initial appearing via fallback assert_equals: expected "PASS" but got "var(--x)"
-FAIL Local variable with inherit keyword assert_equals: expected "PASS" but got "var(--x)"
-FAIL Local variable with inherit keyword (nested) assert_equals: expected "PASS" but got "--f(FAIL3)"
-FAIL Inheriting an invalid value assert_equals: expected "PASS" but got "--f(FAIL1)"
-FAIL Default with inherit keyword assert_equals: expected "PASS1 PASS2" but got "var(--x) var(--x)"
-FAIL Default with inherit keyword (nested) assert_equals: expected "PASS1 PASS2" but got "--f() --f(PASS2)"
-FAIL Local with the unset keyword assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Local with the revert keyword assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Local with the revert-layer keyword assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL initial keyword left unresolved on result descriptor assert_equals: expected "PASS" but got ""
-FAIL inherit keyword left unresolved on result descriptor assert_equals: expected "PASS" but got ""
-FAIL unset keyword left unresolved on result descriptor assert_equals: expected "PASS" but got ""
-FAIL revert keyword left unresolved on result descriptor assert_equals: expected "PASS" but got ""
-FAIL revert-layer keyword left unresolved on result descriptor assert_equals: expected "PASS" but got ""
-FAIL Keyword can be returned from function into local variable assert_equals: expected "PASS" but got "var(--x, FAIL2)"
-FAIL Can not return CSS-wide keyword as length assert_equals: expected "PASS" but got ""
+PASS Substituting local in result
+PASS Substituting multiple locals in result
+PASS Local referring to another local
+PASS Locals appearing after result
+PASS Locals cascading behavior
+PASS Custom properties are visible inside function
+PASS Substitute local from outer scope
+PASS Substitute argument from outer scope
+PASS Inner argument shadowing outer argument
+PASS Inner argument shadowing outer local
+PASS Inner local shadowing outer argument
+PASS Inner local shadowing outer local
+PASS Referencing outer local containing var()
+PASS Referencing outer typed argument
+PASS Same function with different scopes
+PASS Referencing local two frames up
+PASS IACVT outer local shadows property
+PASS Inner function call should see resolved outer locals
+PASS Inner function call should see resolved outer locals (reverse)
+PASS Parameter shadows custom property
+PASS Local shadows parameter
+PASS IACVT argument shadows outer scope
+PASS IACVT argument shadows outer scope, typed
+PASS IACVT argument shadows outer scope, type mismatch
+PASS Missing only argument
+PASS Missing one argument of several
+PASS Passing list as only argument
+PASS Passing list as first argument
+PASS Passing list as second argument
+PASS Passing comma as argument
+PASS Passing {} as argument
+PASS Passing non-whole-value {} as argument
+PASS Local variable with initial keyword
+PASS Local variable with initial keyword, defaulted
+PASS Local variable with initial keyword, no value via IACVT-capture
+PASS Default with initial keyword
+PASS initial appearing via fallback
+PASS Local variable with inherit keyword
+PASS Local variable with inherit keyword (nested)
+PASS Inheriting an invalid value
+PASS Default with inherit keyword
+PASS Default with inherit keyword (nested)
+PASS Local with the unset keyword
+PASS Local with the revert keyword
+PASS Local with the revert-layer keyword
+PASS Local with the revert-rule keyword
+PASS initial keyword left unresolved on result descriptor
+PASS inherit keyword left unresolved on result descriptor
+PASS unset keyword left unresolved on result descriptor
+PASS revert keyword left unresolved on result descriptor
+PASS revert-layer keyword left unresolved on result descriptor
+PASS revert-rule keyword left unresolved on result descriptor
+PASS Keyword can be returned from function into local variable
+PASS Can not return CSS-wide keyword as length
 

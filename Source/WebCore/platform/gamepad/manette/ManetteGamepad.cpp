@@ -29,6 +29,7 @@
 #if ENABLE(GAMEPAD) && OS(LINUX)
 
 #include "ManetteGamepadProvider.h"
+#include "SharedGamepadValue.h"
 #include <linux/input-event-codes.h>
 #include <wtf/HexNumber.h>
 #include <wtf/TZoneMallocInlines.h>

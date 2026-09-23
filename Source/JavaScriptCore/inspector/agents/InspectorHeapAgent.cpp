@@ -32,6 +32,8 @@
 #include "InjectedScriptManager.h"
 #include "InspectorEnvironment.h"
 #include "JSBigInt.h"
+#include "JSCJSValueInlines.h"
+#include "JSFunction.h"
 #include "VM.h"
 #include <wtf/Stopwatch.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -200,7 +202,7 @@ Protocol::ErrorStringOr<std::tuple<String, RefPtr<Protocol::Debugger::FunctionDe
     if (!structure)
         return makeUnexpected("Unable to get object details - Structure"_s);
 
-    JSGlobalObject* globalObject = structure->globalObject();
+    JSGlobalObject* globalObject = structure->realm();
     if (!globalObject)
         return makeUnexpected("Unable to get object details - GlobalObject"_s);
 
@@ -240,7 +242,7 @@ Protocol::ErrorStringOr<Ref<Protocol::Runtime::RemoteObject>> InspectorHeapAgent
     if (!structure)
         return makeUnexpected("Unable to get object details - Structure"_s);
 
-    JSGlobalObject* globalObject = structure->globalObject();
+    JSGlobalObject* globalObject = structure->realm();
     if (!globalObject)
         return makeUnexpected("Unable to get object details - GlobalObject"_s);
 
@@ -255,7 +257,7 @@ Protocol::ErrorStringOr<Ref<Protocol::Runtime::RemoteObject>> InspectorHeapAgent
     return object.releaseNonNull();
 }
 
-static Protocol::Heap::GarbageCollection::Type protocolTypeForHeapOperation(CollectionScope scope)
+static Protocol::Heap::GarbageCollection::Type NODELETE protocolTypeForHeapOperation(CollectionScope scope)
 {
     switch (scope) {
     case CollectionScope::Full:
@@ -298,7 +300,7 @@ void InspectorHeapAgent::didGarbageCollect(CollectionScope scope)
 bool InspectorHeapAgent::heapSnapshotBuilderIgnoreNode(const HeapSnapshotBuilder&, JSC::JSCell* cell)
 {
     if (const Structure* structure = cell->structure()) {
-        if (JSGlobalObject* globalObject = structure->globalObject()) {
+        if (JSGlobalObject* globalObject = structure->realm()) {
             if (!protect(m_environment)->canAccessInspectedScriptState(globalObject))
                 return true;
         }

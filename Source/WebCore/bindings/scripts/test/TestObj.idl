@@ -385,6 +385,7 @@ enum TestConfidence { "high", "kinda-low" };
 
     undefined methodWithUnsignedLongSequence(sequence<unsigned long> unsignedLongSequence);
     sequence<DOMString> stringArrayFunction(sequence<DOMString> values);
+    undefined methodWithInlineCapacitySequence([InlineCapacity=8] sequence<long> sequenceArg);
     DOMStringList domStringListFunction(DOMStringList values);
 
     undefined operationWithOptionalUnionParameter(optional (DOMString or sequence<unrestricted double>) optionalUnion);
@@ -583,6 +584,8 @@ typedef any AnyTypedef;
     [ImplementationRequired] ParentDictionary dictionaryWithImplementationRequired;
     [ImplementationRequired] long? nullableIntegerWithImplementationRequired;
     [ImplementationRequired] Node? nullableNodeWithImplementationRequired;
+    [InlineCapacity=8] sequence<long> sequenceWithInlineCapacity;
+    required [InlineCapacity=4] FrozenArray<DOMString> frozenArrayWithInlineCapacity;
 };
 
 dictionary TestDictionaryThatShouldNotTolerateNull {

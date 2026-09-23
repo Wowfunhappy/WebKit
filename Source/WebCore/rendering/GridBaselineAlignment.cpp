@@ -90,7 +90,7 @@ LayoutUnit GridBaselineAlignment::ascentForGridItem(const RenderBox& gridItem, S
         if (!firstOrLastLineBaseline) {
             ASSERT(!gridItem.needsLayout());
             if (isVerticalAlignmentContext(alignmentContextType))
-                return m_writingMode.isBlockFlipped() ? gridItemMargin + gridItem.size().width().toInt() : gridItemMargin;
+                return m_writingMode.isBlockFlipped() ? gridItemMargin + gridItem.borderBoxSize().width().toInt() : gridItemMargin;
             auto gridWritingMode = gridStyle->writingMode();
             return gridItemMargin + BaselineAlignmentState::synthesizedBaseline(gridItem, BaselineAlignmentState::dominantBaseline(gridWritingMode),
                 gridWritingMode, LineDirection::Horizontal, BaselineSynthesisEdge::BorderBox);

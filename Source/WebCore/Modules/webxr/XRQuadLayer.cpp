@@ -24,14 +24,40 @@
  */
 
 #include "config.h"
+#include "XRQuadLayer.h"
 
 #if ENABLE(WEBXR_LAYERS)
-#include "XRQuadLayer.h"
+
+#include "WebXRRigidTransform.h"
+#include "WebXRSession.h"
+#include "XRLayerBacking.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-XRQuadLayer::~XRQuadLayer() = default;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(XRQuadLayer);
 
+XRQuadLayer::XRQuadLayer(ScriptExecutionContext& scriptExecutionContext, WebXRSession& session, Ref<XRLayerBacking>&& backing, const XRQuadLayerInit& init)
+    : XRCompositionLayer(&scriptExecutionContext, session, WTF::move(backing), init, init.space, init.transform)
+    , m_worldSize(FloatSize { init.width, init.height })
+{
+    setIsStatic(init.isStatic);
 }
 
+XRQuadLayer::~XRQuadLayer() = default;
+
+void XRQuadLayer::fillInTypeSpecificDeviceLayerData(PlatformXR::DeviceLayer& layerData) const
+{
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    layerData.quadLayerData = {
+        .worldSize = m_worldSize,
+        .poseInLocalSpace = poseInLocalSpace(),
+    };
+#else
+    UNUSED_PARAM(layerData);
 #endif
+}
+
+} // namespace WebCore
+
+#endif // ENABLE(WEBXR_LAYERS)

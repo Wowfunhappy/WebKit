@@ -27,13 +27,15 @@
 
 namespace WebCore {
 
+class FontSelector;
 class HTMLInputElement;
+class HostWindow;
 
 class RenderSearchField final : public RenderTextControlSingleLine {
     WTF_MAKE_TZONE_ALLOCATED(RenderSearchField);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSearchField);
 public:
-    RenderSearchField(HTMLInputElement&, RenderStyle&&);
+    RenderSearchField(HTMLInputElement&, Style::ComputedStyle&&);
     virtual ~RenderSearchField();
 
     void updateCancelButtonVisibility() const;
@@ -59,7 +61,7 @@ private:
     LayoutUnit computeControlLogicalHeight(LayoutUnit lineHeight, LayoutUnit nonContentHeight) const override;
     void updateFromElement() override;
     Visibility visibilityForCancelButton() const;
-    const AtomString& autosaveName() const;
+    const AtomString& NODELETE autosaveName() const;
 
     SearchPopupMenu* searchPopup() const { return m_searchPopup.get(); }
 

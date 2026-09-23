@@ -84,17 +84,31 @@ static WorkQueue& webMediaStrategyQueueSingleton()
     return workQueue.get();
 }
 
+void WebMediaStrategy::ensureCodecsSupportChecksInitialized()
+{
+    callOnMainRunLoopAndWait([] {
+        protect(WebProcess::singleton().ensureGPUProcessConnection())->waitForDidInitialize();
+    });
+}
+
 bool WebMediaStrategy::canDecodeExtendedType(PlatformMediaDecodingType platformType, const ContentType& contentType)
 {
+    Ref connection = [&] {
+        RefPtr connection = WebProcess::singleton().existingGPUProcessConnection();
+        if (connection)
+            return connection.releaseNonNull();
+        callOnMainRunLoopAndWait([&] {
+            connection = &WebProcess::singleton().ensureGPUProcessConnection();
+        });
+        return connection.releaseNonNull();
+    }();
     std::atomic<bool> isSupported = false;
     BinarySemaphore semaphore;
-    webMediaStrategyQueueSingleton().dispatch([&] {
-        if (RefPtr connection = WebProcess::singleton().existingGPUProcessConnection()) {
-            connection->connection().sendWithAsyncReplyOnDispatcher(Messages::GPUConnectionToWebProcess::CanDecodeExtendedType(platformType, contentType), webMediaStrategyQueueSingleton(), [&semaphore, &isSupported](bool supported) {
-                isSupported = supported;
-                semaphore.signal();
-            });
-        }
+    webMediaStrategyQueueSingleton().dispatch([&, connection = WTF::move(connection)] {
+        connection->connection().sendWithAsyncReplyOnDispatcher(Messages::GPUConnectionToWebProcess::CanDecodeExtendedType(platformType, contentType), webMediaStrategyQueueSingleton(), [&semaphore, &isSupported](bool supported) {
+            isSupported = supported;
+            semaphore.signal();
+        });
     });
     semaphore.wait();
     return isSupported;
@@ -127,8 +141,8 @@ std::unique_ptr<WebCore::NowPlayingManager> WebMediaStrategy::createNowPlayingMa
 
 bool WebMediaStrategy::hasThreadSafeMediaSourceSupport() const
 {
-#if ENABLE(GPU_PROCESS)
-    return m_useGPUProcess;
+#if USE(AVFOUNDATION)
+    return true;
 #else
     return false;
 #endif
@@ -146,20 +160,6 @@ void WebMediaStrategy::enableMockMediaSource()
 #endif
     m_mockMediaSourceEnabled = true;
 
-#if USE(AVFOUNDATION)
-    if (hasRemoteRendererFor(MediaPlayerMediaEngineIdentifier::AVFoundationMSE)) {
-        WebCore::MediaStrategy::addMockMediaSourceEngine();
-        return;
-    }
-#endif
-
-#if ENABLE(GPU_PROCESS)
-    if (m_useGPUProcess) {
-        Ref connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
-        connection->send(Messages::GPUConnectionToWebProcess::EnableMockMediaSource { }, 0);
-        return;
-    }
-#endif
     WebCore::MediaStrategy::addMockMediaSourceEngine();
 }
 #endif

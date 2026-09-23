@@ -28,11 +28,12 @@
 
 #if USE(THEME_ADWAITA)
 
+#include "Damage.h"
 #include "GraphicsContext.h"
 
 namespace WebCore::AdwaitaScrollbarPainter {
 
-void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const State& scrollbar)
+void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const State& scrollbar, Damage* damageOut)
 {
     if (graphicsContext.paintingDisabled())
         return;
@@ -52,14 +53,14 @@ void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const St
     if (!opacity)
         return;
 
-    SRGBA<uint8_t> scrollbarBackgroundColor;
+    Color scrollbarBackgroundColor;
     SRGBA<uint8_t> scrollbarBorderColor;
     SRGBA<uint8_t> overlayThumbBorderColor;
     SRGBA<uint8_t> overlayTroughBorderColor;
-    SRGBA<uint8_t> overlayTroughColor;
-    SRGBA<uint8_t> thumbHoveredColor;
-    SRGBA<uint8_t> thumbPressedColor;
-    SRGBA<uint8_t> thumbColor;
+    Color overlayTroughColor;
+    Color thumbHoveredColor;
+    Color thumbPressedColor;
+    Color thumbColor;
 
     if (scrollbar.useDarkAppearanceForScrollbars) {
         scrollbarBackgroundColor = scrollbarBackgroundColorDark;
@@ -81,6 +82,15 @@ void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const St
         thumbColor = thumbColorLight;
     }
 
+    // Override with CSS scrollbar-color values if specified.
+    if (scrollbar.scrollbarColor) {
+        scrollbarBackgroundColor = scrollbar.scrollbarColor->trackColor;
+        overlayTroughColor = scrollbar.scrollbarColor->trackColor;
+        thumbColor = scrollbar.scrollbarColor->thumbColor;
+        thumbHoveredColor = scrollbar.scrollbarColor->thumbColor.lightened();
+        thumbPressedColor = scrollbar.scrollbarColor->thumbColor.darkened();
+    }
+
     GraphicsContextStateSaver stateSaver(graphicsContext);
     if (opacity != 1) {
         graphicsContext.clip(damageRect);
@@ -100,6 +110,11 @@ void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const St
         } else
             frame.setHeight(scrollbarBorderSize);
         graphicsContext.fillRect(frame, scrollbarBorderColor);
+
+        if (damageOut && opacity) {
+            frame.intersect(damageRect);
+            damageOut->add(frame);
+        }
     } else if (scrollbar.hoveredPart != NoPart) {
         int thumbCornerSize = thumbSize / 2;
         FloatSize corner(thumbCornerSize, thumbCornerSize);
@@ -134,6 +149,11 @@ void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const St
         graphicsContext.setFillRule(WindRule::EvenOdd);
         graphicsContext.setFillColor(overlayTroughBorderColor);
         graphicsContext.fillPath(path);
+
+        if (damageOut && opacity) {
+            troughBorder.intersect(damageRect);
+            damageOut->add(troughBorder);
+        }
     }
 
     int thumbCornerSize;
@@ -197,6 +217,11 @@ void paint(GraphicsContext& graphicsContext, const IntRect& damageRect, const St
         graphicsContext.setFillRule(WindRule::EvenOdd);
         graphicsContext.setFillColor(overlayThumbBorderColor);
         graphicsContext.fillPath(path);
+
+        if (damageOut && opacity) {
+            thumbBorder.intersect(damageRect);
+            damageOut->add(thumbBorder);
+        }
     }
 
     if (opacity != 1)

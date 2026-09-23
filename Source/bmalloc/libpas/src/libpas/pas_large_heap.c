@@ -30,7 +30,6 @@
 #include "pas_large_heap.h"
 
 #include "pas_allocation_mode.h"
-#include "pas_bootstrap_free_heap.h"
 #include "pas_compute_summary_object_callbacks.h"
 #include "pas_heap.h"
 #include "pas_heap_config.h"
@@ -39,14 +38,13 @@
 #include "pas_large_sharing_pool.h"
 #include "pas_large_map.h"
 #include "pas_mte.h"
-#include "pas_page_malloc.h"
 #include "pas_probabilistic_guard_malloc_allocator.h"
 #include "pas_system_heap.h"
 #include "pas_zero_mode.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-void pas_large_heap_construct(pas_large_heap* heap, bool is_megapage_heap)
+void pas_large_heap_construct(pas_large_heap* heap, pas_large_map_variant variant, bool is_megapage_heap)
 {
     /* Warning: anything you do here must be duplicated in
        pas_try_allocate_intrinsic.h. */
@@ -54,6 +52,7 @@ void pas_large_heap_construct(pas_large_heap* heap, bool is_megapage_heap)
     pas_fast_large_free_heap_construct(&heap->free_heap);
     heap->table_state = pas_heap_table_state_uninitialized;
     heap->index = 0;
+    heap->variant = variant;
     heap->is_megapage_heap = is_megapage_heap;
 }
 
@@ -146,7 +145,7 @@ static pas_allocation_result allocate_impl(pas_large_heap* heap,
             pas_range_create(result.begin, result.begin + *size),
             transaction,
             pas_physical_memory_is_locked_by_virtual_range_common_lock,
-            heap_config->mmap_capability)) {
+            heap_config->page_flags)) {
         pas_fast_large_free_heap_deallocate(
             &heap->free_heap, result.begin, result.begin + *size,
             result.zero_mode, &config);
@@ -240,7 +239,7 @@ pas_large_heap_try_allocate_user_allocation(pas_large_heap* heap,
     entry.begin = result.begin;
     entry.end = result.begin + size;
     entry.heap = heap;
-    pas_large_map_add(entry);
+    pas_large_map_add(&pas_large_maps[heap->variant], entry);
 
     return result;
 }
@@ -284,7 +283,7 @@ bool pas_large_heap_try_deallocate(uintptr_t begin,
         pas_large_sharing_pool_free(
             pas_range_create(map_entry.begin, map_entry.end),
             pas_physical_memory_is_locked_by_virtual_range_common_lock,
-            heap_config->mmap_capability);
+            heap_config->page_flags);
     }
 
     initialize_config(&config, NULL, map_entry.heap, heap_config);
@@ -343,7 +342,7 @@ bool pas_large_heap_try_shrink(uintptr_t begin,
         pas_large_sharing_pool_free(
             pas_range_create(map_entry.begin + new_size, map_entry.end),
             pas_physical_memory_is_locked_by_virtual_range_common_lock,
-            heap_config->mmap_capability);
+            heap_config->page_flags);
     }
 
     initialize_config(&config, NULL, heap, heap_config);
@@ -354,7 +353,7 @@ bool pas_large_heap_try_shrink(uintptr_t begin,
                                         &config);
 
     map_entry.end = map_entry.begin + new_size;
-    pas_large_map_add(map_entry);
+    pas_large_map_add(&pas_large_maps[map_entry.heap->variant], map_entry);
 
     return true;
 }

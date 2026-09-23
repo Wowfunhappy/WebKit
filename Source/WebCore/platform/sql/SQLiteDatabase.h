@@ -29,12 +29,12 @@
 #include <functional>
 #include <sqlite3.h>
 #include <wtf/CheckedRef.h>
+#include <wtf/CurrentThread.h>
 #include <wtf/Expected.h>
 #include <wtf/Lock.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Platform.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/Threading.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
@@ -89,7 +89,8 @@ public:
     // Aborts the current database operation. This is thread safe.
     WEBCORE_EXPORT void interrupt();
 
-    int64_t lastInsertRowID();
+    // int64_t lastInsertRowID();
+    WEBCORE_EXPORT int64_t lastInsertRowID(); // MAVERICKS_BACKPORT: Safari 7 icon storage calls this across the framework boundary.
 
     // This function returns the number of rows modified, inserted or deleted by the most recently completed INSERT, UPDATE or DELETE statement.
     WEBCORE_EXPORT int lastChanges();
@@ -131,7 +132,7 @@ public:
     sqlite3* sqlite3Handle() const LIFETIME_BOUND
     {
 #if !PLATFORM(IOS_FAMILY)
-        ASSERT(m_sharable || m_openingThread == &Thread::currentSingleton() || !m_db);
+        ASSERT(m_sharable || m_openingThreadID == currentThreadID() || !m_db);
 #endif
         return m_db;
     }
@@ -195,7 +196,7 @@ private:
     RefPtr<DatabaseAuthorizer> m_authorizer WTF_GUARDED_BY_LOCK(m_authorizerLock);
 
     Lock m_lockingMutex;
-    RefPtr<Thread> m_openingThread { nullptr };
+    uint32_t m_openingThreadID { 0 };
 
     Lock m_databaseClosingMutex;
 

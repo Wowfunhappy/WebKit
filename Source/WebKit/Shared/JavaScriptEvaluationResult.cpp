@@ -36,11 +36,14 @@
 #include "Logging.h"
 #include "WKSharedAPICast.h"
 #include "WebFrame.h"
+#include <JavaScriptCore/JSCJSValuePropertyInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/OpaqueJSString.h>
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/Document.h>
 #include <WebCore/ExceptionDetails.h>
 #include <WebCore/JSWebKitJSHandle.h>
-#include <WebCore/JSWebKitSerializedNode.h>
+#include <WebCore/JSWebKitNodeSnapshot.h>
 #include <WebCore/ScriptWrappableInlines.h>
 #include <WebCore/SerializedScriptValue.h>
 
@@ -89,11 +92,13 @@ class JavaScriptEvaluationResult::APIExtractor {
 public:
     Map NODELETE takeMap() { return WTF::move(m_map); }
     JSObjectID addObjectToMap(API::Object&);
+    bool failed() const { return m_failed; }
 private:
     Value toValue(API::Object&);
 
     HashMap<Ref<API::Object>, JSObjectID> m_objectsInMap;
     Map m_map;
+    bool m_failed { false };
 };
 
 class JavaScriptEvaluationResult::APIInserter {
@@ -139,33 +144,6 @@ RefPtr<API::Object> JavaScriptEvaluationResult::APIInserter::toAPI(Value&& root)
     });
 }
 
-static bool isSerializable(API::Object* object)
-{
-    if (!object)
-        return false;
-
-    switch (object->type()) {
-    case API::Object::Type::String:
-    case API::Object::Type::Boolean:
-    case API::Object::Type::Double:
-    case API::Object::Type::UInt64:
-    case API::Object::Type::Int64:
-    case API::Object::Type::JSHandle:
-    case API::Object::Type::SerializedNode:
-        return true;
-    case API::Object::Type::Array:
-        return std::ranges::all_of(downcast<API::Array>(object)->elements(), [] (const RefPtr<API::Object>& element) {
-            return isSerializable(element.get());
-        });
-    case API::Object::Type::Dictionary:
-        return std::ranges::all_of(downcast<API::Dictionary>(object)->map(), [] (const KeyValuePair<String, RefPtr<API::Object>>& pair) {
-            return isSerializable(pair.value.get());
-        });
-    default:
-        return false;
-    }
-}
-
 auto JavaScriptEvaluationResult::APIExtractor::toValue(API::Object& object) -> Value
 {
     switch (object.type()) {
@@ -200,8 +178,7 @@ auto JavaScriptEvaluationResult::APIExtractor::toValue(API::Object& object) -> V
         return { WTF::move(map) };
     }
     default:
-        // This object has been null checked and went through isSerializable which only supports these types.
-        ASSERT_NOT_REACHED();
+        m_failed = true;
         return EmptyType::Undefined;
     }
 }
@@ -210,10 +187,10 @@ std::optional<JavaScriptEvaluationResult> JavaScriptEvaluationResult::extract(AP
 {
     if (!object)
         return jsUndefined();
-    if (!isSerializable(object))
-        return std::nullopt;
     APIExtractor extractor;
     auto root = extractor.addObjectToMap(*object);
+    if (extractor.failed())
+        return std::nullopt;
     return JavaScriptEvaluationResult { root, extractor.takeMap() };
 }
 
@@ -405,9 +382,9 @@ auto JavaScriptEvaluationResult::JSExtractor::jsValueToExtractedValue(JSGlobalCo
     JSC::JSGlobalObject* globalObject = ::toJS(context);
     JSC::JSObject* jsObject = ::toJS(globalObject, object).toObject(globalObject);
 
-    if (auto* info = jsDynamicCast<JSWebKitJSHandle*>(jsObject)) {
+    if (auto* info = dynamicDowncast<JSWebKitJSHandle>(jsObject)) {
         RELEASE_ASSERT(globalObject->template inherits<WebCore::JSDOMGlobalObject>());
-        auto* domGlobalObject = jsCast<WebCore::JSDOMGlobalObject*>(globalObject);
+        auto* domGlobalObject = uncheckedDowncast<WebCore::JSDOMGlobalObject>(globalObject);
         RefPtr document = dynamicDowncast<Document>(domGlobalObject->scriptExecutionContext());
         RefPtr frame = WebFrame::webFrame(document->frameID());
         RefPtr world = InjectedBundleScriptWorld::get(domGlobalObject->world());
@@ -416,7 +393,7 @@ auto JavaScriptEvaluationResult::JSExtractor::jsValueToExtractedValue(JSGlobalCo
         return makeUniqueRef<JSHandleInfo>(ref->identifier(), world->identifier(), frame->info(), ref->windowFrameIdentifier());
     }
 
-    if (auto* node = jsDynamicCast<JSWebKitSerializedNode*>(jsObject)) {
+    if (auto* node = dynamicDowncast<JSWebKitNodeSnapshot>(jsObject)) {
         Ref serializedNode { node->wrapped() };
         return makeUniqueRef<SerializedNode>(serializedNode->serializedNode());
     }
@@ -451,7 +428,7 @@ JSValueRef JavaScriptEvaluationResult::JSInserter::toJS(JSGlobalContextRef conte
     auto globalObjectTuple = [] (auto context) {
         auto* lexicalGlobalObject = ::toJS(context);
         RELEASE_ASSERT(lexicalGlobalObject->template inherits<WebCore::JSDOMGlobalObject>());
-        auto* domGlobalObject = jsCast<WebCore::JSDOMGlobalObject*>(lexicalGlobalObject);
+        auto* domGlobalObject = uncheckedDowncast<WebCore::JSDOMGlobalObject>(lexicalGlobalObject);
         RefPtr document = dynamicDowncast<WebCore::Document>(domGlobalObject->scriptExecutionContext());
         RELEASE_ASSERT(document);
         return std::make_tuple(lexicalGlobalObject, domGlobalObject, WTF::move(document));
@@ -500,7 +477,8 @@ JSValueRef JavaScriptEvaluationResult::JSInserter::toJS(JSGlobalContextRef conte
         if (!object)
             return JSValueMakeUndefined(context);
         auto [lexicalGlobalObject, domGlobalObject, document] = globalObjectTuple(context);
-        if (lexicalGlobalObject != object->globalObject())
+        auto* objectRealm = object->realmMayBeNull();
+        if (!objectRealm || lexicalGlobalObject != objectRealm)
             return JSValueMakeUndefined(context);
         return ::toRef(object);
     }, [&] (UniqueRef<WebCore::SerializedNode>&& serializedNode) -> JSValueRef {

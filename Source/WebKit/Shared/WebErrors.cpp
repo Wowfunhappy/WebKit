@@ -31,6 +31,7 @@
 #include "APIError.h"
 #include "Logging.h"
 #include <WebCore/LocalizedStrings.h>
+#include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 
@@ -40,6 +41,11 @@ using namespace WebCore;
 ResourceError blockedError(const ResourceRequest& request)
 {
     return ResourceError(API::Error::webKitPolicyErrorDomain(), API::Error::Policy::CannotUseRestrictedPort, request.url(), WEB_UI_STRING("Not allowed to use restricted network port", "WebKitErrorCannotUseRestrictedPort description"));
+}
+
+bool isBlockedError(const ResourceError& error)
+{
+    return error.domain() == API::Error::webKitPolicyErrorDomain() && error.errorCode() == API::Error::Policy::CannotUseRestrictedPort;
 }
 
 ResourceError blockedByContentBlockerError(const ResourceRequest& request)
@@ -120,6 +126,11 @@ ResourceError httpsUpgradeRedirectLoopError(const ResourceRequest& request)
 ResourceError httpNavigationWithHTTPSOnlyError(const ResourceRequest& request)
 {
     return ResourceError(API::Error::webKitNetworkErrorDomain(), API::Error::Network::HTTPNavigationWithHTTPSOnlyError, request.url(), WEB_UI_STRING("Navigation failed because the request was for an HTTP URL with HTTPS-Only enabled", "WebKitErrorHTTPSOnlyHTTPURL description"));
+}
+
+bool isHttpNavigationWithHTTPSOnlyError(const WebCore::ResourceError& error)
+{
+    return error.domain() == API::Error::webKitNetworkErrorDomain() && error.errorCode() == API::Error::Network::HTTPNavigationWithHTTPSOnlyError;
 }
 
 } // namespace WebKit

@@ -257,7 +257,7 @@ static MTCoreMaterialVisualStyleCategory materialVisualStyleCategoryForAppleVisu
 
 #if HAVE(MATERIAL_HOSTING)
 
-static WKHostedMaterialEffectType hostedMaterialEffectTypeForAppleVisualEffect(AppleVisualEffect effect)
+static WKHostedMaterialEffectType NODELETE hostedMaterialEffectTypeForAppleVisualEffect(AppleVisualEffect effect)
 {
     switch (effect) {
     case AppleVisualEffect::GlassMaterial:
@@ -289,7 +289,7 @@ static WKHostedMaterialEffectType hostedMaterialEffectTypeForAppleVisualEffect(A
     }
 }
 
-static WKHostedMaterialColorScheme hostedMaterialColorSchemeForAppleVisualEffectData(const AppleVisualEffectData& data)
+static WKHostedMaterialColorScheme NODELETE hostedMaterialColorSchemeForAppleVisualEffectData(const AppleVisualEffectData& data)
 {
     switch (data.colorScheme) {
     case AppleVisualEffectData::ColorScheme::Light:
@@ -515,7 +515,8 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
 
     if (properties.changedProperties & LayerChange::AnimationsChanged) {
 #if ENABLE(THREADED_ANIMATIONS)
-        if (layerTreeHost->threadedAnimationsEnabled()) {
+        // FIXME: layerTreeHost will be null if this method is called from within the Web process.
+        if (layerTreeHost && layerTreeHost->threadedAnimationsEnabled()) {
             LOG_WITH_STREAM(Animations, stream << "RemoteLayerTreePropertyApplier::applyProperties() for layer " << layerTreeNode->layerID() << " found " << properties.animationChanges.effects.size() << " effects.");
             layerTreeNode->setAcceleratedEffectsAndBaseValues(properties.animationChanges.effects, properties.animationChanges.baseValues, *layerTreeHost);
         }
@@ -711,7 +712,7 @@ void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const
         return;
     }
 
-    RefPtr maskNode = properties.maskLayerID ? relatedLayers.get(*properties.maskLayerID) : nullptr;
+    RefPtr maskNode = relatedLayers.get(*properties.maskLayerID);
     ASSERT(maskNode);
     if (!maskNode)
         return;

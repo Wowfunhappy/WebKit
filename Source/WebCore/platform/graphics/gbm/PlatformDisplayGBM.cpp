@@ -62,9 +62,7 @@ PlatformDisplayGBM::PlatformDisplayGBM(Ref<GLDisplay>&& glDisplay, struct gbm_de
 #endif
 }
 
-PlatformDisplayGBM::~PlatformDisplayGBM()
-{
-}
+PlatformDisplayGBM::~PlatformDisplayGBM() = default;
 
 } // namespace WebCore
 

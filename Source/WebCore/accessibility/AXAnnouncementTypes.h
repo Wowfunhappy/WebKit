@@ -52,6 +52,7 @@ struct LiveRegionObject {
     String text;
     String language;
     HashSet<AXID> descendants; // For atomic regions only, to track additions/removals of descendants.
+    bool isTextContent { false };
 };
 
 struct LiveRegionSnapshot {

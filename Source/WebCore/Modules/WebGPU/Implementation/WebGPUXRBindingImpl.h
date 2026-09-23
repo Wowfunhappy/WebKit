@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if HAVE(WEBGPU_IMPLEMENTATION)
+#if HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)
 
 #include "WebGPUPtr.h"
 #include "WebGPUXRBinding.h"
@@ -85,4 +85,4 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WebGPU::XRBindingImpl)
     static bool isType(const WebCore::WebGPU::XRBinding& xrBinding) { return xrBinding.isXRBindingImpl(); }
 SPECIALIZE_TYPE_TRAITS_END()
 
-#endif // HAVE(WEBGPU_IMPLEMENTATION)
+#endif // HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)

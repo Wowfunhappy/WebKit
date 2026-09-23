@@ -16,9 +16,7 @@ if (window.accessibilityController) {
     window.jsTestIsAsync = true;
 
     setTimeout(async function() {
-        await waitFor(() => {
-            return accessibilityController.rootElement.childAtIndex(0).x != 0;
-        });
+        await waitForFrameGeometryReady();
 
         var text = accessibilityController.accessibleElementById("text");
         startMarker = text.startTextMarkerForBounds(text.x, text.y, text.width, text.height);

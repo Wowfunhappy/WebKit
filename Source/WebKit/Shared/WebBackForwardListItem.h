@@ -30,9 +30,9 @@
 #include "SessionState.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebsiteDataStore.h"
+#include <WebCore/ProcessIdentifier.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Ref.h>
-#include <wtf/RetainReleaseSwift.h>
 #include <wtf/SwiftBridging.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
@@ -61,7 +61,7 @@ public:
 
     BrowsingContextGroup* browsingContextGroup() const { return m_browsingContextGroup.get(); }
 
-    const FrameState& mainFrameState() const;
+    const FrameState& NODELETE mainFrameState() const;
     Ref<FrameState> copyMainFrameState() const;
     Ref<FrameState> copyMainFrameStateWithChildren() const;
 
@@ -75,7 +75,6 @@ public:
     RefPtr<WebsiteDataStore> dataStoreForWebArchive() const { return m_dataStoreForWebArchive; }
     void setDataStoreForWebArchive(WebsiteDataStore* dataStore) { m_dataStoreForWebArchive = dataStore; }
 
-    bool itemIsInSameDocument(const WebBackForwardListItem&) const;
     bool itemIsClone(const WebBackForwardListItem&);
 
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
@@ -86,6 +85,7 @@ public:
     void wasRemovedFromBackForwardList();
 
     WebBackForwardCacheEntry* backForwardCacheEntry() const { return m_backForwardCacheEntry.get(); }
+    WebBackForwardCacheEntry* NODELETE backForwardCacheEntryForProcess(WebCore::ProcessIdentifier) const;
 
     SuspendedPageProxy* NODELETE suspendedPage() const;
 
@@ -97,7 +97,7 @@ public:
     WebBackForwardListFrameItem* WTF_NONNULL mainFrameItemPtrForSwift() const SWIFT_NAME(mainFrameItem()) { return &mainFrameItem(); }
     WebBackForwardListFrameItem& NODELETE mainFrameItem() const SWIFT_NAME(__mainFrameItemUnsafe());
 
-    void setWasRestoredFromSession();
+    void NODELETE setWasRestoredFromSession();
 
     String loggingString();
 
@@ -128,7 +128,7 @@ private:
     RefPtr<ViewSnapshot> m_snapshot;
 #endif
     EnhancedSecurity m_enhancedSecurity { EnhancedSecurity::Disabled };
-} SWIFT_SHARED_REFERENCE(refBackForwardListItem, derefBackForwardListItem);
+} SWIFT_SHARED_REFERENCE(refBackForwardListItem, derefBackForwardListItem) SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
 
 typedef Vector<Ref<WebBackForwardListItem>> BackForwardListItemVector;
 
@@ -144,12 +144,12 @@ inline API::Object* WTF_NONNULL toAPIObject(WebBackForwardListItem* WTF_NONNULL 
 
 inline void refBackForwardListItem(WebKit::WebBackForwardListItem* WTF_NONNULL obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefBackForwardListItem(WebKit::WebBackForwardListItem* WTF_NONNULL obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebBackForwardListItem)

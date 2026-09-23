@@ -155,7 +155,14 @@ void WriteCppReplayForCallCL(const CallCapture &call,
 
         if (param.arrayClientPointerIndex != -1 && param.value.voidConstPointerVal != nullptr)
         {
-            callOut << "gClientArrays[" << param.arrayClientPointerIndex << "]";
+            int clientIndex = (param.arrayClientPointerMergedIndex != -1)
+                                  ? param.arrayClientPointerMergedIndex
+                                  : param.arrayClientPointerIndex;
+            callOut << "gClientArrays[" << clientIndex << "]";
+            if (param.arrayClientPointerOffset != 0)
+            {
+                callOut << " + " << param.arrayClientPointerOffset;
+            }
         }
         else if (param.readBufferSizeBytes > 0)
         {
@@ -3189,6 +3196,7 @@ void FrameCaptureShared::writeCppReplayIndexFilesCL()
         header << "#pragma once\n";
         header << "\n";
         header << "#define CL_NO_EXTENSION_PROTOTYPES\n";
+        header << "#define CL_ENABLE_BETA_EXTENSIONS\n";
         header << "#include <angle_cl.h>\n";
         header << "#include <stdint.h>\n";
         header << "#include \"trace_fixture_cl.h\"\n";

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,6 @@
 
 namespace WebCore {
 namespace Style {
-
-using namespace CSS::Literals;
 
 // MARK: Interpolation of base numeric types
 // https://drafts.csswg.org/css-values/#combining-values
@@ -79,6 +77,18 @@ template<auto R, typename V> struct Blending<Length<R, V>> {
 
 // MARK: Interpolation of mixed numeric types
 // https://drafts.csswg.org/css-values/#combine-mixed
+
+// Interpolation of dimension-percentage value combinations (e.g. <length-percentage>, <frequency-percentage>,
+// <angle-percentage>, <time-percentage> or equivalent notations) is defined as:
+//
+//  - equivalent to interpolation of <length> if both VA and VB are pure <length> values
+//  - equivalent to interpolation of <percentage> if both VA and VB are pure <percentage> values
+//  - equivalent to converting both values into a calc() expression representing the sum of the
+//    dimension type and a percentage (each possibly zero) and interpolating each component
+//    individually (as a <length>/<frequency>/<angle>/<time> and as a <percentage>, respectively)
+
+inline constexpr size_t maximumBlendTreeDepthForLengthPercentage = 128;
+
 template<auto R, typename V> struct Blending<LengthPercentage<R, V>> {
     using StyleType = LengthPercentage<R, V>;
     using Length = typename StyleType::Dimension;
@@ -87,46 +97,13 @@ template<auto R, typename V> struct Blending<LengthPercentage<R, V>> {
 
     auto requiresInterpolationForAccumulativeIteration(const StyleType& from, const StyleType& to) -> bool
     {
-        return WTF::holdsAlternative<Calc>(from) || WTF::holdsAlternative<Calc>(to) || from.index() != to.index();
+        return WTF::holdsAlternative<Calc>(from) || WTF::holdsAlternative<Calc>(to) || !from.hasSameType(to);
     }
 
     auto blend(const StyleType& from, const StyleType& to, const BlendingContext& context) -> StyleType
     {
-        // Interpolation of dimension-percentage value combinations (e.g. <length-percentage>, <frequency-percentage>,
-        // <angle-percentage>, <time-percentage> or equivalent notations) is defined as:
-        //
-        //  - equivalent to interpolation of <length> if both VA and VB are pure <length> values
-        //  - equivalent to interpolation of <percentage> if both VA and VB are pure <percentage> values
-        //  - equivalent to converting both values into a calc() expression representing the sum of the
-        //    dimension type and a percentage (each possibly zero) and interpolating each component
-        //    individually (as a <length>/<frequency>/<angle>/<time> and as a <percentage>, respectively)
-
-        if (WTF::holdsAlternative<Calc>(from) || WTF::holdsAlternative<Calc>(to) || (from.index() != to.index())) {
-            if (context.compositeOperation != CompositeOperation::Replace)
-                return Calc { Calculation::add(copyCalculation(from), copyCalculation(to)) };
-
-            bool fromIsZero = from.isKnownZero();
-            bool toIsZero = to.isKnownZero();
-
-            // 0% to 0px -> calc(0px + 0%) to calc(0px + 0%) -> 0px
-            // 0px to 0% -> calc(0px + 0%) to calc(0px + 0%) -> 0px
-            if (fromIsZero && toIsZero)
-                return 0_css_px;
-
-            if (!WTF::holdsAlternative<Calc>(to) && !WTF::holdsAlternative<Percentage>(from) && (context.progress == 1 || fromIsZero)) {
-                if (WTF::holdsAlternative<Length>(to))
-                    return WebCore::Style::blend(Length(0_css_px), get<Length>(to), context);
-                return WebCore::Style::blend(Percentage(0_css_percentage), get<Percentage>(to), context);
-            }
-
-            if (!WTF::holdsAlternative<Calc>(from) && !WTF::holdsAlternative<Percentage>(to) && (!context.progress || toIsZero)) {
-                if (WTF::holdsAlternative<Length>(from))
-                    return WebCore::Style::blend(get<Length>(from), Length(0_css_px), context);
-                return WebCore::Style::blend(get<Percentage>(from), Percentage(0_css_percentage), context);
-            }
-
-            return Calc { Calculation::blend(copyCalculation(from), copyCalculation(to), context.progress) };
-        }
+        if (WTF::holdsAlternative<Calc>(from) || WTF::holdsAlternative<Calc>(to) || !from.hasSameType(to))
+            return blendMixedTypes(from, to, context);
 
         if (!context.progress && context.isReplace())
             return from;
@@ -137,6 +114,79 @@ template<auto R, typename V> struct Blending<LengthPercentage<R, V>> {
         if (WTF::holdsAlternative<Length>(to))
             return WebCore::Style::blend(get<Length>(from), get<Length>(to), context);
         return WebCore::Style::blend(get<Percentage>(from), get<Percentage>(to), context);
+    }
+
+    bool isTooDeepToBlendWithNode(const StyleType& value)
+    {
+        if (!WTF::holdsAlternative<Calc>(value))
+            return false;
+        auto treeDepth = computeDepth(value.m_value.calculationValue().tree());
+        return treeDepth > maximumBlendTreeDepthForLengthPercentage;
+    }
+
+    bool isLengthZero(const StyleType& value)
+    {
+        ASSERT(WTF::holdsAlternative<Length>(value) || WTF::holdsAlternative<Calc>(value));
+        if (auto length = value.template tryGet<Length>())
+            return length->isZero();
+        return false;
+    };
+
+    StyleType blendMixedTypes(const StyleType& from, const StyleType& to, const BlendingContext& context)
+    {
+        using namespace CSS::Literals;
+
+        ASSERT(WTF::holdsAlternative<Length>(from) || WTF::holdsAlternative<Percentage>(from) || WTF::holdsAlternative<Calc>(from));
+        ASSERT(WTF::holdsAlternative<Length>(to) || WTF::holdsAlternative<Percentage>(to) || WTF::holdsAlternative<Calc>(to));
+
+        if (context.compositeOperation != CompositeOperation::Replace)
+            return Calc { Calculation::add(copyCalculation(from), copyCalculation(to)) };
+
+        if (!WTF::holdsAlternative<Calc>(to) && !WTF::holdsAlternative<Percentage>(from) && (context.progress == 1 || isLengthZero(from))) {
+            if (WTF::holdsAlternative<Length>(to))
+                return Style::blend(Length { 0_css_px }, get<Length>(to), context);
+            return Style::blend(Percentage { 0_css_percentage }, get<Percentage>(to), context);
+        }
+
+        if (!WTF::holdsAlternative<Calc>(from) && !WTF::holdsAlternative<Calc>(to) && !WTF::holdsAlternative<Percentage>(to) && (!context.progress || isLengthZero(to))) {
+            if (WTF::holdsAlternative<Length>(from))
+                return WebCore::Style::blend(get<Length>(from), Length { 0_css_px }, context);
+            return WebCore::Style::blend(get<Percentage>(from), Percentage { 0_css_percentage }, context);
+        }
+
+        // Limit the tree depth generated by blending to avoid blowing up the stack in recursive functions.
+        if (isTooDeepToBlendWithNode(from) || isTooDeepToBlendWithNode(to))
+            return Calc { copyCalculation(to) };
+
+        return Calc { Calculation::blend(copyCalculation(from), copyCalculation(to), context.progress) };
+    }
+};
+
+template<auto nR, auto pR, typename V> struct Blending<NumberOrPercentage<nR, pR, V>> {
+    using StyleType = NumberOrPercentage<nR, pR, V>;
+
+    auto canBlend(const StyleType& a, const StyleType& b) -> bool
+    {
+        return a.value.index() == b.value.index();
+    }
+    auto blend(const StyleType& a, const StyleType& b, const BlendingContext& context) -> StyleType
+    {
+        if (context.isDiscrete) {
+            ASSERT(!context.progress || context.progress == 1);
+            return context.progress ? b : a;
+        }
+
+        return WTF::visit(WTF::makeVisitor(
+            [&]<typename T>(const T& a, const T& b) -> StyleType {
+                return WebCore::Style::blend(a, b, context);
+            },
+            [&](const CSS::PrimitiveDataEmptyToken&, const CSS::PrimitiveDataEmptyToken&) -> StyleType {
+                RELEASE_ASSERT_NOT_REACHED();
+            },
+            [&](const auto&, const auto&) -> StyleType {
+                RELEASE_ASSERT_NOT_REACHED();
+            }
+        ), a.value, b.value);
     }
 };
 

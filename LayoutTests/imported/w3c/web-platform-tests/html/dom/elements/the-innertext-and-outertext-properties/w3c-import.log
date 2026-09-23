@@ -21,5 +21,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/innertext-domnoderemoved-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/innertext-setter-tests.js
 /LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/innertext-setter.html
+/LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/innertext-whitespace-pre-line.html
+/LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html
 /LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/multiple-text-nodes.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/dom/elements/the-innertext-and-outertext-properties/outertext-setter.html

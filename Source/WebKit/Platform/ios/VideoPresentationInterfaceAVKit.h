@@ -75,7 +75,6 @@ private:
     bool isExternalPlaybackActive() const final { return false; }
     bool willRenderToLayer() const final { return false; }
     AVPlayerViewController *avPlayerViewController() const final { return nullptr; }
-    void setupCaptionsLayer(CALayer *, const WebCore::FloatSize&) final;
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     WKSPlayableViewControllerHost *playableViewController() final { return nullptr; }
 #endif

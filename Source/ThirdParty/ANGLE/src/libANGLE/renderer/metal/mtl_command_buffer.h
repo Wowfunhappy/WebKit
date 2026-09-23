@@ -484,9 +484,7 @@ class RenderCommandEncoder final : public CommandEncoder
         return setTexture(gl::ShaderType::Vertex, texture, index);
     }
 
-    RenderCommandEncoder &setFragmentBuffer(const BufferRef &buffer,
-                                            size_t offset,
-                                            uint32_t index)
+    RenderCommandEncoder &setFragmentBuffer(const BufferRef &buffer, size_t offset, uint32_t index)
     {
         return setBuffer(gl::ShaderType::Fragment, buffer, offset, index);
     }
@@ -567,7 +565,7 @@ class RenderCommandEncoder final : public CommandEncoder
                                                                      const BufferRef &indexBuffer,
                                                                      size_t bufferOffset,
                                                                      uint32_t instances,
-                                                                     uint32_t baseVertex,
+                                                                     int32_t baseVertex,
                                                                      uint32_t baseInstance);
 
     RenderCommandEncoder &setVisibilityResultMode(MTLVisibilityResultMode mode, size_t offset);

@@ -1,2 +1,2 @@
-ALERT: Pass
+ALERT: manifest fetch success: true
 

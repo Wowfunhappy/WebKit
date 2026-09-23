@@ -31,6 +31,7 @@ APPKIT_OBJECT_STATE=unbuilt
 FOUNDATION_OBJECT_STATE=unbuilt
 AVFOUNDATION_OBJECT_STATE=unbuilt
 QUARTZCORE_OBJECT_STATE=unbuilt
+CRYPTOKITPRIVATE_OBJECT_STATE=unbuilt
 DEPTH_SORTING_OBJECT_STATE=unbuilt
 SELREF_OBJECT_STATE=unbuilt
 
@@ -57,6 +58,10 @@ build_method_object() {
             state="$QUARTZCORE_OBJECT_STATE"
             source="$PF/methods/QuartzCore.m"
             ;;
+        CryptoKitPrivate)
+            state="$CRYPTOKITPRIVATE_OBJECT_STATE"
+            source="$PF/methods/CryptoKitPrivate.m"
+            ;;
         *)
             return 1
             ;;
@@ -70,6 +75,7 @@ build_method_object() {
             Foundation) FOUNDATION_OBJECT_STATE=built ;;
             AVFoundation) AVFOUNDATION_OBJECT_STATE=built ;;
             QuartzCore) QUARTZCORE_OBJECT_STATE=built ;;
+            CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=built ;;
             QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=built ;;
         esac
         return 0
@@ -79,6 +85,7 @@ build_method_object() {
         Foundation) FOUNDATION_OBJECT_STATE=failed ;;
         AVFoundation) AVFOUNDATION_OBJECT_STATE=failed ;;
         QuartzCore) QUARTZCORE_OBJECT_STATE=failed ;;
+        CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=failed ;;
         QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=failed ;;
     esac
     return 1
@@ -168,6 +175,37 @@ probe_dispatch_activate() {
         "$T/dispatch_activate"
 }
 
+probe_getentropy() {
+    "$CLANG" $HOST -I"$PF/shared/include" -o "$T/getentropy" "$TBEHAV/shared-getentropy.c" &&
+        "$T/getentropy"
+}
+
+probe_clonefile() {
+    "$CLANG" $HOST -I"$PF/shared/include" -o "$T/clonefile" "$TBEHAV/shared-clonefile.c" \
+        "$PF/shared/clonefile.c" "$PF/shared/atcalls.c" "$PF/shared/statxx.c" "$PF/shared/pthread_chdir.c" &&
+        "$T/clonefile"
+}
+
+probe_pthread_qos() {
+    "$CLANG" $HOST -I"$PF/shared/include" -o "$T/pthread_qos" "$TBEHAV/shared-pthread-qos.c" "$PF/shared/pthread_qos.c" &&
+        "$T/pthread_qos"
+}
+
+probe_pthread_stack() {
+    "$CLANG" $HOST -I"$PF/shared/include" -o "$T/pthread_stack" "$TBEHAV/shared-pthread-stack.c" "$PF/shared/pthread_stack.c" &&
+        "$T/pthread_stack"
+}
+
+probe_notify_tokens() {
+    "$CLANG" $HOST $INC -fblocks -o "$T/notify_tokens" "$TBEHAV/libSystem-notify.c" $PROBE_LIBS &&
+        "$T/notify_tokens"
+}
+
+probe_user_dir_suffix() {
+    "$CLANG" $MODERN $INC -o "$T/user_dir_suffix" "$TBEHAV/libSystem-dirhelper.c" $PROBE_LIBS &&
+        "$T/user_dir_suffix"
+}
+
 probe_sectask_identity() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS &&
         "$T/sectask_identity"
@@ -176,6 +214,12 @@ probe_sectask_identity() {
 probe_trust_serialize() {
     "$CLANG" $MODERN $INC -Wno-deprecated-declarations -o "$T/trust_serialize" "$TBEHAV/Security-trust-serialize.c" $PROBE_LIBS &&
         "$T/trust_serialize"
+}
+
+probe_rsa_pss_verify() {
+    "$CLANG" $MODERN $INC -I"$REPO/MavericksSupport/deps/build/include" -o "$T/rsa_pss_verify" \
+        "$TBEHAV/Security-rsa-pss-verify.c" $PROBE_LIBS &&
+        "$T/rsa_pss_verify"
 }
 
 probe_ec_public_point() {
@@ -197,6 +241,13 @@ probe_public_suffix() {
 probe_timebase() {
     "$CLANG" $MODERN $INC -o "$T/timebase" "$TBEHAV/libSystem-timebase.c" $PROBE_LIBS &&
         "$T/timebase"
+}
+
+probe_color_timebase() {
+    "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new \
+        -o "$T/color_timebase" "$TBEHAV/CoreMedia-color-timebase.c" \
+        $PROBE_LIBS -framework CoreMedia -framework CoreVideo &&
+        "$T/color_timebase"
 }
 
 probe_memory_entry_data_addr() {
@@ -260,6 +311,13 @@ probe_cg_iosurface_premultiplied_sanitize() {
         "$T/cg_iosurface_premultiplied_sanitize"
 }
 
+probe_rsabssa() {
+    build_method_object CryptoKitPrivate &&
+        "$CLANG" $MODERN $INC -I"$REPO/MavericksSupport/deps/build/include" -fno-objc-arc -o "$T/rsabssa" \
+            "$TBEHAV/CryptoKitPrivate-rsabssa.m" "$OBJ/methods/CryptoKitPrivate.o" $PROBE_LIBS &&
+        "$T/rsabssa"
+}
+
 probe_accessibility_absent_framework() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/accessibility_absent_framework" "$TBEHAV/Accessibility-absent-framework.m" \
         -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
@@ -290,6 +348,16 @@ probe_suggested_filename() {
             -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
             $PROBE_LIBS &&
         "$T/suggested_filename"
+}
+
+probe_backup_exclusion() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/backup_exclusion" "$TBEHAV/Foundation-backup-exclusion.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/backup_exclusion"
 }
 
 probe_cookie_notifications() {
@@ -340,6 +408,16 @@ probe_session_invalidation() {
         "$T/session_invalidation"
 }
 
+probe_dd_secure_coding() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dd_secure_coding" "$TBEHAV/DataDetectors-secure-coding.m" \
+        $PROBE_LIBS && "$T/dd_secure_coding"
+}
+
+probe_keyed_coding() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/keyed_coding" "$TBEHAV/Foundation-keyed-coding.m" \
+        $PROBE_LIBS && "$T/keyed_coding"
+}
+
 probe_secure_coding() {
     prepare_method_objects Foundation &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/secure_coding" "$TBEHAV/Foundation-secure-coding.m" \
@@ -348,6 +426,16 @@ probe_secure_coding() {
             -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
             $PROBE_LIBS &&
         "$T/secure_coding"
+}
+
+probe_url_request_coding() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_request_coding" "$TBEHAV/Foundation-url-request-coding.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/url_request_coding"
 }
 
 probe_url_data_representation() {
@@ -432,9 +520,20 @@ probe_face_selection() {
 
 probe_display_p3_profile() {
     "$CLANG" $MODERN $INC -I"$REPO/MavericksSupport/deps/build/include" \
-        -o "$T/display_p3_profile" "$TBEHAV/CoreGraphics-display-p3-profile.c" $PROBE_LIBS \
+        -Wno-unguarded-availability -Wno-unguarded-availability-new -o "$T/display_p3_profile" "$TBEHAV/CoreGraphics-display-p3-profile.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -framework ImageIO &&
         "$T/display_p3_profile" "$REPO/LayoutTests/imported/w3c/web-platform-tests/html/canvas/element/manual/wide-gamut-canvas/resources/Display-P3-FF0000FF.png"
+}
+
+probe_pq_profile() {
+    "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -o "$T/pq_profile" "$TBEHAV/CoreGraphics-pq-profile.c" $PROBE_LIBS &&
+        "$T/pq_profile"
+}
+
+probe_hdr_gainmap() {
+    "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -fno-objc-arc -o "$T/hdr_gainmap" "$TBEHAV/ImageIO-hdr-gainmap.m" $PROBE_LIBS \
+        -framework CoreVideo -framework ImageIO &&
+        "$T/hdr_gainmap" "$REPO/LayoutTests/fast/images/resources/gainmap-red-green-1920x1920.jpg"
 }
 
 probe_cmyk_row_mask() {
@@ -504,6 +603,30 @@ probe_typo_metrics() {
         "$T/typo_metrics" "$REPO/LayoutTests/imported/w3c/web-platform-tests/fonts/CanvasTest.ttf"
 }
 
+probe_font_heights() {
+    mkdir -p "$T/font-height-fixtures" &&
+        "$REPO/MavericksSupport/toolchain/build/python3/bin/python3" "$TBEHAV/CoreText-font-heights-fixtures.py" \
+            "$T/font-height-fixtures" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/fonts/noto/noto-sans-v8-latin-regular.woff" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/RobotoExtremo-VF.subset.ttf" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/resources/avar/rvrnTest[opsz,wdth,wght].ttf" &&
+        "$CLANG" $MODERN $INC -I"$PF/c" -o "$T/font_heights" "$TBEHAV/CoreText-font-heights.c" $PROBE_LIBS \
+            -framework CoreText -framework CoreGraphics -lc++ &&
+        "$T/font_heights" "$T/font-height-fixtures" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/resources/avar/rvrnTestAvar1[opsz,wdth,wght].ttf" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/resources/avar/rvrnTestAvar2[opsz,wdth,wght].ttf"
+}
+
+probe_variable_font_tables() {
+    "$CLANGXX" $MODERN -std=c++17 -nostdinc++ -isystem "$SDK/usr/include/c++/v1" \
+        "$TBEHAV/CoreText-variable-font-tables.cpp" -nostdlib++ \
+        "$REPO/MavericksSupport/deps/build/lib/libc++.1.dylib" \
+        "$REPO/MavericksSupport/deps/build/lib/libc++abi.1.dylib" \
+        -Wl,-rpath,"$REPO/MavericksSupport/deps/build/lib" -framework CoreFoundation \
+        -o "$T/variable_font_tables" &&
+        "$T/variable_font_tables"
+}
+
 probe_feature_settings_order() {
     "$CLANG" $MODERN $INC -o "$T/feature_settings_order" "$TBEHAV/CoreText-feature-settings-order.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
@@ -569,6 +692,12 @@ probe_shape_glyphs_context() {
     "$CLANG" $MODERN $INC -o "$T/shape_glyphs_context" "$TBEHAV/CoreText-shape-glyphs-character-context.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics &&
         "$T/shape_glyphs_context" "$REPO/LayoutTests/imported/w3c/web-platform-tests"
+}
+
+probe_run_initial_advance() {
+    "$CLANG" $MODERN $INC -o "$T/run_initial_advance" "$TBEHAV/CoreText-run-initial-advance.c" $PROBE_LIBS \
+        -framework CoreText -framework CoreGraphics &&
+        "$T/run_initial_advance"
 }
 
 probe_vertical_origins() {
@@ -647,8 +776,13 @@ run_probe dispatch_activate "$@"
 run_probe sectask_identity "$@"
 run_probe trust_serialize "$@"
 run_probe ec_public_point "$@"
+run_probe rsa_pss_verify "$@"
 run_probe gcrypt_ec_public_point "$@"
 run_probe timebase "$@"
+run_probe color_timebase "$@"
+run_probe clonefile "$@"
+run_probe pthread_qos "$@"
+run_probe pthread_stack "$@"
 run_probe memory_entry_data_addr "$@"
 run_probe task_vm_info "$@"
 run_probe thread_extended_info "$@"
@@ -660,14 +794,22 @@ run_probe cg_live_image "$@"
 run_probe cg_iosurface_image_reference "$@"
 run_probe cg_iosurface_premultiplied_sanitize "$@"
 run_probe accessibility_absent_framework "$@"
+run_probe rsabssa "$@"
 run_probe item_provider "$@"
 run_probe samesite "$@"
 run_probe suggested_filename "$@"
+run_probe backup_exclusion "$@"
 run_probe shared_cookie_jar "$@"
 run_probe cookie_change_churn "$@"
 run_probe private_storage_session "$@"
 run_probe session_invalidation "$@"
 run_probe secure_coding "$@"
+run_probe url_request_coding "$@"
+run_probe dd_secure_coding "$@"
+run_probe keyed_coding "$@"
+run_probe getentropy "$@"
+run_probe notify_tokens "$@"
+run_probe user_dir_suffix "$@"
 run_probe url_data_representation "$@"
 run_probe relative_file_url "$@"
 run_probe language_minimization "$@"
@@ -685,12 +827,16 @@ run_probe encode_cadence "$@"
 run_probe public_suffix "$@"
 run_probe cookie_notifications "$@"
 run_probe display_p3_profile "$@"
+run_probe pq_profile "$@"
+run_probe hdr_gainmap "$@"
 run_probe cmyk_row_mask "$@"
 run_probe colr_filled_paths "$@"
 run_probe feature_clear "$@"
 run_probe descriptor_options "$@"
 run_probe sbix_bitmap_placement "$@"
 run_probe typo_metrics "$@"
+run_probe font_heights "$@"
+run_probe variable_font_tables "$@"
 run_probe feature_settings_order "$@"
 run_probe variation_axes "$@"
 run_probe variation_axes_from_data "$@"
@@ -705,6 +851,7 @@ run_probe logical_order "$@"
 run_probe depth_sorting "$@"
 run_probe frame_rate_range "$@"
 run_probe shape_glyphs_context "$@"
+run_probe run_initial_advance "$@"
 run_probe vertical_origins "$@"
 run_probe css_family_language "$@"
 run_probe clipped_glyphs "$@"

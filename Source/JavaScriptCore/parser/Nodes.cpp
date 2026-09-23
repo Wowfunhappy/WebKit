@@ -28,6 +28,7 @@
 #include "NodeConstructors.h"
 
 #include "ExecutableInfo.h"
+#include "IdentifierInlines.h"
 #include "JSCJSValueInlines.h"
 #include "ModuleScopeData.h"
 #include <wtf/Assertions.h>
@@ -85,7 +86,7 @@ bool SourceElements::hasCompletionValue() const
 bool SourceElements::hasEarlyBreakOrContinue() const
 {
     for (StatementNode* statement = m_head; statement; statement = statement->next()) {
-        if (statement->isBreak() || statement->isContinue())
+        if (statement->hasEarlyBreakOrContinue())
             return true;
         if (statement->hasCompletionValue())
             return false;

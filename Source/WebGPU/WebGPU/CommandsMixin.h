@@ -42,7 +42,7 @@ public:
 protected:
     bool NODELETE prepareTheEncoderState() const;
     NSString* encoderStateName() const;
-    static bool computedSizeOverflows(const Buffer&, uint64_t offset, uint64_t& size);
+    static bool NODELETE computedSizeOverflows(const Buffer&, uint64_t offset, uint64_t& size);
 
     EncoderState m_state { EncoderState::Open };
 };

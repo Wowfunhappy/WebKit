@@ -26,10 +26,9 @@
 // https://encoding.spec.whatwg.org/#dictdef-textencoderencodeintoresult
 [
     JSGenerateToJSObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary TextEncoderEncodeIntoResult {
-    unsigned long long read;
-    unsigned long long written;
+    [ImplementationRequired] unsigned long long read;
+    [ImplementationRequired] unsigned long long written;
 };
 
 // https://encoding.spec.whatwg.org/#textencoder

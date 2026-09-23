@@ -27,6 +27,7 @@
 #include "config.h"
 #include "StyleScrollbarGutter.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -36,27 +37,23 @@ namespace Style {
 
 auto CSSValueConversion<ScrollbarGutter>::operator()(BuilderState& state, const CSSValue& value) -> ScrollbarGutter
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        if (primitiveValue->isValueID()) {
-            switch (primitiveValue->valueID()) {
-            case CSSValueAuto:
-                return CSS::Keyword::Auto { };
-            case CSSValueStable:
-                return CSS::Keyword::Stable { };
-            default:
-                break;
-            }
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        case CSSValueStable:
+            return CSS::Keyword::Stable { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Auto { };
         }
-
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return CSS::Keyword::Auto { };
     }
 
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
     if (!pair)
         return CSS::Keyword::Auto { };
 
-    if (isValueID(pair->first.get(), CSSValueStable) && isValueID(pair->second.get(), CSSValueBothEdges))
+    if ((pair->first->valueID() == CSSValueStable && pair->second->valueID() == CSSValueBothEdges) || (pair->first->valueID() == CSSValueBothEdges && pair->second->valueID() == CSSValueStable))
         return { CSS::Keyword::Stable { }, CSS::Keyword::BothEdges { } };
 
     state.setCurrentPropertyInvalidAtComputedValueTime();

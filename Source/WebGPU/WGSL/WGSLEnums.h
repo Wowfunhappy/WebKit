@@ -42,9 +42,9 @@ namespace WGSL {
     value(Workgroup, workgroup) \
 
 #define ENUM_AccessMode(value) \
-    value(Read, read) \
-    value(ReadWrite, read_write) \
-    value(Write, write) \
+    value(Read, read, 1 << 0) \
+    value(ReadWrite, read_write, 1 << 1 | 1 << 0) \
+    value(Write, write, 1 << 1) \
 
 #define ENUM_TexelFormat(value) \
     value(BGRA8unorm, bgra8unorm) \
@@ -116,6 +116,7 @@ namespace WGSL {
     value(SubgroupUniformity, subgroup_uniformity) \
 
 #define ENUM_Builtin(value) \
+    value(ClipDistances, clip_distances) \
     value(FragDepth, frag_depth) \
     value(FrontFacing, front_facing) \
     value(GlobalInvocationId, global_invocation_id) \
@@ -124,13 +125,16 @@ namespace WGSL {
     value(LocalInvocationIndex, local_invocation_index) \
     value(NumWorkgroups, num_workgroups) \
     value(Position, position) \
+    value(PrimitiveIndex, primitive_index) \
     value(SampleIndex, sample_index) \
     value(SampleMask, sample_mask) \
     value(VertexIndex, vertex_index) \
     value(WorkgroupId, workgroup_id) \
 
 #define ENUM_Extension(value) \
-    value(F16, f16, 1 << 0) \
+    value(ClipDistances, clip_distances, 1 << 0) \
+    value(F16, f16, 1 << 1) \
+    value(PrimitiveIndex, primitive_index, 1 << 2) \
 
 #define ENUM_LanguageFeature(value) \
     value(Packed4x8IntegerDotProduct, packed_4x8_integer_dot_product, 1 << 0) \

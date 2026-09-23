@@ -60,12 +60,14 @@ PACKAGES=(
     libmanette-0.2-dev
     libnghttp2-dev
     libopenjp2-7-dev
+    libopenxr-dev
     libpng-dev
     libseccomp-dev
     libsqlite3-dev
     libsystemd-dev
     libtasn1-6-dev
     libtool
+    libvulkan-volk-dev
     libwayland-dev
     libwebp-dev
     libwoff-dev
@@ -95,10 +97,12 @@ PACKAGES=(
     gdb
     libcgi-pm-perl
     psmisc
+    $(aptIfExists python3-legacy-cgi)
     pulseaudio-utils
     python3-gi
     ruby-highline
     ruby-json
+    time
 
     # These are dependencies necessary for building the jhbuild.
     bison
@@ -144,4 +148,13 @@ PACKAGES=(
     # These are for generate-bundle script
     patchelf
     p11-kit
+
+    # These are required to run the WebKit Container SDK via wkdev-build /
+    # wkdev-sdk. `podman` is the rootless container engine the host wrappers
+    # invoke; `crun` is the runtime we pin podman to (runc does not support
+    # `podman run --init`); `catatonit` is the helper `--init` spawns as
+    # PID 1.
+    catatonit
+    crun
+    podman
 )

@@ -73,7 +73,7 @@ public:
     template<bool isCellOnly>
     void writeBarrier(HandleSlot, JSValue);
 
-    unsigned protectedGlobalObjectCount();
+    unsigned NODELETE protectedGlobalObjectCount();
 
     template<typename Functor> void forEachStrongHandle(const Functor&, const HashCountedSet<JSCell*>& skipSet);
 

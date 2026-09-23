@@ -179,10 +179,11 @@ namespace JSC {
     {
     }
 
-    inline ImportNode::ImportNode(const JSTokenLocation& location, ExpressionNode* expr, ExpressionNode* option)
+    inline ImportNode::ImportNode(const JSTokenLocation& location, ExpressionNode* expr, ExpressionNode* option, bool deferred)
         : ExpressionNode(location)
         , m_expr(expr)
         , m_option(option)
+        , m_deferred(deferred)
     {
     }
 

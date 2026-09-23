@@ -28,29 +28,17 @@
 
 #include "CommonCryptoUtilities.h"
 #include "CryptoKeyEC.h"
-#include <pal/PALSwift.h>
-
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
+#include <pal/crypto/CryptoTypes.h>
+#include <pal/crypto/PlatformECKey.h>
 
 namespace WebCore {
 
 static std::optional<Vector<uint8_t>> platformDeriveBitsCryptoKit(const CryptoKeyEC& baseKey, const CryptoKeyEC& publicKey)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
-    auto rv = baseKey.platformKey()->deriveBits(publicKey.platformKey());
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
+    auto rv = baseKey.platformKey().deriveBits(publicKey.platformKey());
+    if (rv.errorCode != PAL::Crypto::Error::Success)
         return std::nullopt;
     return std::make_optional(WTF::move(rv.result));
-#else
-    UNUSED_PARAM(baseKey);
-    UNUSED_PARAM(publicKey);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
 }
 
 std::optional<Vector<uint8_t>> CryptoAlgorithmECDH::platformDeriveBits(const CryptoKeyEC& baseKey, const CryptoKeyEC& publicKey)

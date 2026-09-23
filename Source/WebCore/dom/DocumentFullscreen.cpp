@@ -32,6 +32,7 @@
 #include "ChromeClient.h"
 #include "ContainerNodeInlines.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "DocumentQuirks.h"
 #include "DocumentView.h"
 #include "Element.h"
@@ -46,8 +47,8 @@
 #include "JSDOMPromiseDeferred.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "NodeList.h"
 #include "Page.h"
 #include "PseudoClassChangeInvalidation.h"
@@ -139,7 +140,7 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
 
     if (protect(document())->quirks().shouldEnterNativeFullscreenWhenCallingElementRequestFullscreenQuirk()) {
         // Translate the request to enter fullscreen into requesting native fullscreen
-        // for the largest inner video element.
+        // for the last inner video element with a non-zero area.
         auto maybeVideoList = element->querySelectorAll("video"_s);
         if (maybeVideoList.hasException()) {
             completionHandler({ });
@@ -149,10 +150,8 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
 #if ENABLE(VIDEO)
         Ref videoList = maybeVideoList.releaseReturnValue();
 
-        RefPtr<HTMLVideoElement> largestVideo = nullptr;
-        unsigned largestArea = 0;
-        for (unsigned index = 0; index < videoList->length(); ++index) {
-            RefPtr video = downcast<HTMLVideoElement>(videoList->item(index));
+        for (unsigned index = videoList->length(); index; --index) {
+            RefPtr video = downcast<HTMLVideoElement>(videoList->item(index - 1));
             if (!video)
                 continue;
 
@@ -161,14 +160,12 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
                 continue;
 
             auto area = renderer->videoBox().area();
-            if (area.hasOverflowed())
+            if (!area || area.hasOverflowed())
                 continue;
 
-            if (area > largestArea)
-                largestVideo = video;
+            video->webkitRequestFullscreen();
+            break;
         }
-        if (largestVideo)
-            largestVideo->webkitRequestFullscreen();
 #endif
 
         completionHandler({ });
@@ -363,7 +360,7 @@ ExceptionOr<void> DocumentFullscreen::willEnterFullscreen(Element& element, HTML
     for (auto ancestor : ancestors | std::views::reverse)
         elementEnterFullscreen(ancestor);
 
-    if (RefPtr iframe = dynamicDowncast<HTMLIFrameElement>(element); iframe && !elementWasFullscreen)
+    if (auto* iframe = dynamicDowncast<HTMLIFrameElement>(element); iframe && !elementWasFullscreen)
         iframe->setIFrameFullscreenFlag(true);
 
     return { };
@@ -454,10 +451,10 @@ static Vector<Ref<Document>> documentsToUnfullscreen(Frame& firstFrame)
         if (!document)
             continue;
         documents.append(*document);
-        ASSERT(protect(document->fullscreen())->fullscreenElement());
-        if (!protect(document->fullscreen())->isSimpleFullscreenDocument())
+        ASSERT(document->fullscreen().fullscreenElement());
+        if (!document->fullscreen().isSimpleFullscreenDocument())
             break;
-        if (RefPtr iframe = dynamicDowncast<HTMLIFrameElement>(document->ownerElement()); iframe && iframe->hasIFrameFullscreenFlag())
+        if (auto* iframe = dynamicDowncast<HTMLIFrameElement>(document->ownerElement()); iframe && iframe->hasIFrameFullscreenFlag())
             break;
     }
     return documents;
@@ -517,7 +514,7 @@ void DocumentFullscreen::exitFullscreen(CompletionHandler<void(ExceptionOr<void>
     bool exitsTopDocument = exitDocuments.containsIf([&](auto& document) {
         return document.ptr() == mainFrameDocument.get();
     });
-    if (!mainFrameDocument || (exitsTopDocument && protect(mainFrameDocument->fullscreen())->isSimpleFullscreenDocument())) {
+    if (!mainFrameDocument || (exitsTopDocument && mainFrameDocument->fullscreen().isSimpleFullscreenDocument())) {
         mode = ExitMode::Resize;
         if (mainFrameDocument)
             exitingDocument = *mainFrameDocument;
@@ -728,7 +725,7 @@ void DocumentFullscreen::fullyExitFullscreen()
     });
 }
 
-static bool hasJSEventListener(Node& node, const AtomString& eventType)
+static bool NODELETE hasJSEventListener(Node& node, const AtomString& eventType)
 {
     for (const auto& listener : node.eventListeners(eventType)) {
         if (listener->callback().type() == EventListener::JSEventListenerType)

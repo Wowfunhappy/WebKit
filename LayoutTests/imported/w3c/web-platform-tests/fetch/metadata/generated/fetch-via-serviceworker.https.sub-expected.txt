@@ -39,4 +39,8 @@ PASS sec-fetch-dest - no init - respondWith
 PASS sec-fetch-dest - no init - fallback
 PASS sec-fetch-user - no init - respondWith
 PASS sec-fetch-user - no init - fallback
+FAIL sec-fetch-storage-access - Cross-site, init: mode=no-cors, credentials=include - respondWith assert_own_property: expected property "sec-fetch-storage-access" missing
+FAIL sec-fetch-storage-access - Cross-site, init: mode=no-cors, credentials=include - fallback assert_own_property: expected property "sec-fetch-storage-access" missing
+PASS sec-fetch-storage-access - Same site, init: mode=no-cors, credentials=include - respondWith
+PASS sec-fetch-storage-access - Same site, init: mode=no-cors, credentials=include - fallback
 

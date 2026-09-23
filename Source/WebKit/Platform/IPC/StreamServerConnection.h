@@ -33,7 +33,6 @@
 #include "StreamServerConnectionBuffer.h"
 #include <wtf/Deque.h>
 #include <wtf/Lock.h>
-#include <wtf/Threading.h>
 
 namespace IPC {
 

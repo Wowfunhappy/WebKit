@@ -43,6 +43,12 @@ struct StitchingContext {
     RefPtr<const AccessibilityNodeObject> containingBlockFlowObject { nullptr };
 };
 
-bool shouldStopStitchingAt(const RenderObject&, const AccessibilityObject&, StitchingContext&);
+enum class StitchAction : uint8_t {
+    Continue, // Add this text to the current group.
+    BreakAndSkip, // Finalize the current group; skip this text (link entry, re-ownership, generated content).
+    BreakAndAdd, // Finalize the current group; this text starts a new group (boundary crossing).
+};
+
+StitchAction stitchActionFor(const RenderObject&, const AccessibilityObject&, StitchingContext&);
 
 } // namespace WebCore

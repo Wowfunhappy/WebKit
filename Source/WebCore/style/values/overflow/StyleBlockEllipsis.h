@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 #include <wtf/text/AtomString.h>
 
@@ -44,9 +45,9 @@ struct BlockEllipsis {
     {
     }
 
-    BlockEllipsis(AtomString&& string)
+    BlockEllipsis(String&& string)
         : m_type { Type::String }
-        , m_string { WTF::move(string) }
+        , m_string { WTF::move(string.value) }
     {
     }
 
@@ -64,7 +65,7 @@ struct BlockEllipsis {
         case Type::Auto:
             return visitor(CSS::Keyword::Auto { });
         case Type::String:
-            return visitor(m_string);
+            return visitor(String { m_string });
         }
         RELEASE_ASSERT_NOT_REACHED();
     }

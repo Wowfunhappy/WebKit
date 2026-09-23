@@ -74,7 +74,7 @@ Ref<WebDataListSuggestionsDropdownMac> WebDataListSuggestionsDropdownMac::create
     return adoptRef(*new WebDataListSuggestionsDropdownMac(page, view));
 }
 
-WebDataListSuggestionsDropdownMac::~WebDataListSuggestionsDropdownMac() { }
+WebDataListSuggestionsDropdownMac::~WebDataListSuggestionsDropdownMac() = default;
 
 WebDataListSuggestionsDropdownMac::WebDataListSuggestionsDropdownMac(WebPageProxy& page, NSView *view)
     : WebDataListSuggestionsDropdown(page)
@@ -145,8 +145,11 @@ void WebDataListSuggestionsDropdownMac::close()
 
     self.hasShadow = YES;
 #if HAVE(LIQUID_GLASS)
-    if (WebKit::isLiquidGlassEnabled())
-        _backdropView = adoptNS([[NSGlassEffectView alloc] initWithFrame:contentRect]);
+    if (WebKit::isLiquidGlassEnabled()) {
+        RetainPtr glassView = adoptNS([[NSGlassEffectView alloc] initWithFrame:contentRect]);
+        [glassView set_adaptiveAppearance:_NSGlassEffectViewAdaptiveAppearanceOff];
+        _backdropView = WTF::move(glassView);
+    }
 #endif
 
     if (!_backdropView) {

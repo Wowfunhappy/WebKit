@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/cookies/domain/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-and-without-leading-period.sub.https.html
 /LayoutTests/imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-and-without-leading-period.sub.https.html.sub.headers
 /LayoutTests/imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-leading-period.sub.https.html

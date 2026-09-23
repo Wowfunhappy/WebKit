@@ -50,6 +50,7 @@
 #import <WebCore/ScrollingTreeFixedNodeCocoa.h>
 #import <WebCore/ScrollingTreeStickyNodeCocoa.h>
 #import <WebCore/WheelEventTestMonitor.h>
+#import <wtf/Scope.h>
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {

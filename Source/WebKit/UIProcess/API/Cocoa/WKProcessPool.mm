@@ -59,6 +59,7 @@
 #import <WebCore/WebCoreObjCExtras.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -109,6 +110,11 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     API::Object::constructInWrapper<WebKit::WebProcessPool>(self, Ref { *configuration->_processPoolConfiguration });
 
     return self;
+}
+
++ (instancetype)_processPoolWithConfiguration:(_WKProcessPoolConfiguration *)configuration
+{
+    return adoptNS([[self alloc] _initWithConfiguration:configuration]).autorelease();
 }
 
 - (instancetype)init
@@ -430,7 +436,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)_requestWebProcessTermination:(pid_t)pid
 {
-    for (Ref process : _processPool->processes()) {
+    for (Ref process : borrow(_processPool->processes()).get()) {
         if (process->processID() == pid)
             process->requestTermination(WebKit::ProcessTerminationReason::RequestedByClient);
         return YES;
@@ -440,7 +446,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)_isWebProcessSuspended:(pid_t)pid
 {
-    for (Ref process : _processPool->processes()) {
+    for (Ref process : borrow(_processPool->processes()).get()) {
         if (process->processID() == pid)
             return process->throttler().isSuspended();
     }
@@ -454,7 +460,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)_hasPrewarmedWebProcess
 {
-    for (Ref process : _processPool->processes()) {
+    for (Ref process : borrow(_processPool->processes()).get()) {
         if (process->isPrewarmed())
             return YES;
     }
@@ -464,7 +470,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (size_t)_webProcessCountIgnoringPrewarmed
 {
     size_t count = 0;
-    for (auto process : _processPool->processes()) {
+    for (auto process : borrow(_processPool->processes()).get()) {
         if (!process->isPrewarmed())
             ++count;
     }
@@ -474,7 +480,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (size_t)_webProcessCountIgnoringPrewarmedAndCached
 {
     size_t count = 0;
-    for (Ref process : _processPool->processes()) {
+    for (Ref process : borrow(_processPool->processes()).get()) {
         if (!process->isInProcessCache() && !process->isPrewarmed())
             ++count;
     }
@@ -613,7 +619,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)_setCookieStoragePartitioningEnabled:(BOOL)enabled
 {
-    protect(*_processPool)->setCookieStoragePartitioningEnabled(enabled);
+    _processPool->setCookieStoragePartitioningEnabled(enabled);
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -719,7 +725,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     RetainPtr result = adoptNS([NSMutableArray new]);
 
     for (auto& webProcessPool : WebKit::WebProcessPool::allProcessPools()) {
-        for (auto& webProcess : webProcessPool->processes()) {
+        for (Ref webProcess : borrow(webProcessPool->processes()).get()) {
             if (auto taskInfo = webProcess->taskInfo())
                 [result addObject:adoptNS([[_WKWebContentProcessInfo alloc] initWithTaskInfo:*taskInfo process:webProcess.get()]).get()];
         }

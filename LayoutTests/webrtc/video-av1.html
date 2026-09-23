@@ -29,6 +29,16 @@ promise_test(async (test) => {
     const description = await pc.createOffer();
     pc.close();
     assert_true(description.sdp.indexOf("AV1") !== -1, "AV1 codec is in the SDP");
+
+    let videoConfiguration = { contentType: 'video/av1', width: 800, height: 600, bitrate: 3000, framerate: 24 };
+    let results = await navigator.mediaCapabilities.decodingInfo({type: 'webrtc', video: videoConfiguration });
+    assert_true(results.supported, "decoder supported");
+
+    if (!window.internals)
+        return;
+
+    assert_equals(results.powerEfficient, internals.isSupportingAV1HardwareDecoder(), "decoder powerEfficient");
+    assert_equals(results.smooth, internals.isSupportingAV1HardwareDecoder(), "decoder smooth");
 }, "Verify AV1 activation")
 
 var track;
@@ -131,6 +141,7 @@ promise_test((test) => {
 }, "Verify video element size changes");
 
 promise_test((test) => {
+    test.add_cleanup(() => track.stop());
     return testFrameDecodedIncreased(receivingConnection);
 }, "Verfiy video decoding continues");
         </script>

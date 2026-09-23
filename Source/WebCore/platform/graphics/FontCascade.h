@@ -27,6 +27,7 @@
 #include <WebCore/Font.h>
 #include <WebCore/FontCascadeDescription.h>
 #include <WebCore/FontCascadeEnums.h>
+#include <WebCore/GlyphBuffer.h>
 #include <optional>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
@@ -47,20 +48,24 @@ class GraphicsContext;
 class FontCascadeFonts;
 class FontSelector;
 class LayoutRect;
-class RenderStyle;
 class RenderText;
 class TextLayout;
 class TextRun;
-
-namespace DisplayList {
-class DisplayList;
-}
 
 struct GlyphData;
 struct GlyphGeometryCacheEntry;
 struct GlyphOverflow;
 struct FloatSegment;
 struct TabSize;
+
+namespace DisplayList {
+class DisplayList;
+}
+
+namespace Style {
+// FIXME: This is a layering violation. Platform code should not reference types in the Style namespace.
+class ComputedStyle;
+}
 
 #if USE(CORE_TEXT)
 AffineTransform computeBaseOverallTextMatrix(const std::optional<AffineTransform>& syntheticOblique);
@@ -122,7 +127,6 @@ public:
     WEBCORE_EXPORT float width(StringView) const;
     float widthForTextUsingSimplifiedMeasuring(StringView text, TextDirection = TextDirection::LTR) const;
     WEBCORE_EXPORT float widthForSimpleTextWithFixedPitch(StringView text, bool whitespaceIsCollapsed) const;
-    float widthForCharacterInRun(const TextRun&, unsigned) const;
 
     std::unique_ptr<TextLayout, TextLayoutDeleter> createLayout(RenderText&, float xPos, bool collapseWhiteSpace) const;
     inline float widthOfSpaceString() const; // Defined in FontCascadeInlines.h
@@ -146,9 +150,9 @@ public:
     bool enableKerning() const { return m_enableKerning; }
     bool requiresShaping() const { return m_requiresShaping; }
 
-    const AtomString& firstFamily() const LIFETIME_BOUND { return m_fontDescription.firstFamily(); }
+    const FontFamily& firstFamily() const LIFETIME_BOUND { return m_fontDescription.firstFamily(); }
     unsigned familyCount() const { return m_fontDescription.familyCount(); }
-    const AtomString& familyAt(unsigned i) const LIFETIME_BOUND { return m_fontDescription.familyAt(i); }
+    const FontFamily& familyAt(unsigned i) const LIFETIME_BOUND { return m_fontDescription.familyAt(i); }
 
     // A std::nullopt return value indicates "font-style: normal".
     std::optional<FontSelectionValue> fontStyleSlope() const { return m_fontDescription.fontStyleSlope(); }
@@ -165,12 +169,11 @@ public:
 
     int emphasisMarkAscent(const AtomString&) const;
     int emphasisMarkDescent(const AtomString&) const;
-    int emphasisMarkHeight(const AtomString&) const;
     float floatEmphasisMarkHeight(const AtomString&) const;
 
     inline const Font& primaryFont() const; // Defined in FontCascadeInlines.h
     inline const FontRanges& fallbackRangesAt(unsigned) const; // Defined in FontCascadeInlines.h
-    WEBCORE_EXPORT GlyphData glyphDataForCharacter(char32_t, bool mirror, FontVariant = AutoVariant, std::optional<ResolvedEmojiPolicy> = std::nullopt) const;
+    WEBCORE_EXPORT GlyphData glyphDataForCharacter(char32_t, bool mirror, FontVariant = FontVariant::Auto, std::optional<ResolvedEmojiPolicy> = std::nullopt) const;
     bool canUseSimplifiedTextMeasuring(char32_t, FontVariant, bool whitespaceIsCollapsed, const Font&) const;
 
     RefPtr<const Font> fontForCombiningCharacterSequence(StringView) const;
@@ -178,16 +181,12 @@ public:
     static bool NODELETE isCJKIdeograph(char32_t);
     static bool NODELETE isCJKIdeographOrSymbol(char32_t);
 
-    static bool canUseGlyphDisplayList(const RenderStyle&);
+    // FIXME: This is a layering violation. Platform code should not reference types in the Style namespace.
+    static bool canUseGlyphDisplayList(const Style::ComputedStyle&);
 
     // Returns (the number of opportunities, whether the last expansion is a trailing expansion)
     // If there are no opportunities, the bool will be true iff we are forbidding leading expansions.
     static std::pair<unsigned, bool> expansionOpportunityCount(StringView, TextDirection, ExpansionBehavior);
-
-    // Whether or not there is an expansion opportunity just before the first character
-    // Note that this does not take a isAfterExpansion flag; this assumes that isAfterExpansion is false
-    static bool NODELETE leftExpansionOpportunity(StringView, TextDirection);
-    static bool NODELETE rightExpansionOpportunity(StringView, TextDirection);
 
     WEBCORE_EXPORT static void NODELETE setDisableFontSubpixelAntialiasingForTesting(bool);
     WEBCORE_EXPORT static bool NODELETE shouldDisableFontSubpixelAntialiasingForTesting();
@@ -203,6 +202,7 @@ public:
     static constexpr float syntheticObliqueAngle() { return 14; }
 
     RefPtr<const DisplayList::DisplayList> displayListForTextRun(GraphicsContext&, const TextRun&, unsigned from = 0, std::optional<unsigned> to = { }, CustomFontNotReadyAction = CustomFontNotReadyAction::DoNotPaintIfFontNotReady) const;
+    RefPtr<const DisplayList::DisplayList> displayListForGlyphBuffer(GraphicsContext&, const GlyphBuffer&, CustomFontNotReadyAction) const;
 
     unsigned generation() const { return m_generation; }
 
@@ -347,6 +347,7 @@ private:
 
 bool shouldSynthesizeSmallCaps(bool, const Font*, char32_t, std::optional<char32_t>, FontVariantCaps, bool);
 std::optional<char32_t> capitalized(char32_t);
+inline char32_t mirrorCharacterIfNeeded(char32_t); // Defined in FontCascadeInlines.h
 
 WTF::TextStream& operator<<(WTF::TextStream&, const FontCascade&);
 

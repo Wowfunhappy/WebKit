@@ -166,7 +166,7 @@ WebMouseEvent WebIOSEventFactory::createWebMouseEvent(::WebEvent *event)
     int clickCount = 0;
     double timestamp = event.timestamp;
 
-    return WebMouseEvent({ type, OptionSet<WebEventModifier> { }, MonotonicTime::fromRawSeconds(timestamp) }, button, buttons, position, position, deltaX, deltaY, deltaZ, clickCount, 0, WebMouseEventInputSource::UserDriven);
+    return WebMouseEvent({ type, OptionSet<WebEventModifier> { }, MonotonicTime::fromRawSeconds(timestamp) }, button, buttons, position, position, deltaX, deltaY, deltaZ, clickCount, 0, WebEventInputSource::UserDriven);
 }
 
 #if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)

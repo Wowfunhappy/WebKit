@@ -377,7 +377,7 @@ bool Pasteboard::hasData()
 Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
 {
     if (m_selectionData) {
-        ListHashSet<String> types;
+        OrderedHashSet<String> types;
         if (auto& buffer = m_selectionData->customData()) {
             auto customData = PasteboardCustomData::fromSharedBuffer(*buffer);
             if (customData.origin() == origin) {

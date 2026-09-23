@@ -60,6 +60,7 @@ messages -> WebProcessProxy WantsDispatchMessage {
 
 #if PLATFORM(COCOA)
     CacheMediaMIMETypes(Vector<String> types)
+    CacheMediaSourceTypeSupported(String type, bool isSupported)
 #endif
 
 #if HAVE(DISPLAY_LINK)
@@ -112,6 +113,7 @@ messages -> WebProcessProxy WantsDispatchMessage {
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
     SendWasmDebuggerResponse(String response)
+    WasmDebugServerReady()
 #endif
 
     DidPostMessage(WebKit::WebPageProxyIdentifier pageID, WebKit::UserContentControllerIdentifier identifier, struct WebKit::FrameInfoData frameInfoData, WebKit::ScriptMessageHandlerIdentifier messageHandlerID, WebKit::JavaScriptEvaluationResult message) -> (Expected<WebKit::JavaScriptEvaluationResult, String> reply)

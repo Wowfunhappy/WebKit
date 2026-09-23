@@ -30,6 +30,7 @@
 #include "CachedImageClient.h"
 #include "CachedResourceHandle.h"
 #include "StyleGeneratedImage.h"
+#include "StylePrimitiveNumericTypes.h"
 
 namespace WebCore {
 
@@ -40,9 +41,11 @@ namespace Style {
 class CrossfadeImage final : public GeneratedImage, private CachedImageClient {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(CrossfadeImage);
 public:
-    static Ref<CrossfadeImage> create(RefPtr<Image> from, RefPtr<Image> to, double percentage, bool isPrefixed)
+    using Progress = NumberOrPercentageResolvedToNumber<CSS::ClosedUnitRangeClampBoth, CSS::ClosedPercentageRangeClampBoth>;
+
+    static Ref<CrossfadeImage> create(RefPtr<Image> from, RefPtr<Image> to, Progress progress, bool isPrefixed)
     {
-        return adoptRef(*new CrossfadeImage(WTF::move(from), WTF::move(to), percentage, isPrefixed));
+        return adoptRef(*new CrossfadeImage(WTF::move(from), WTF::move(to), progress, isPrefixed));
     }
     virtual ~CrossfadeImage();
 
@@ -59,9 +62,10 @@ public:
     static constexpr bool isFixedSize = true;
 
 private:
-    explicit CrossfadeImage(RefPtr<Image>&&, RefPtr<Image>&&, double, bool);
+    explicit CrossfadeImage(RefPtr<Image>&&, RefPtr<Image>&&, Progress, bool);
 
-    Ref<CSSValue> computedStyleValue(const RenderStyle&) const final;
+    Ref<CSSValue> computedStyleValue(const Style::ComputedStyle&) const final;
+    Ref<DeprecatedCSSOMValue> computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle&, CSSStyleDeclaration&) const final;
     bool isPending() const final;
     void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
     RefPtr<WebCore::Image> image(const RenderElement*, const FloatSize&, const GraphicsContext& destinationContext, bool isForFirstLine) const final;
@@ -76,7 +80,7 @@ private:
 
     RefPtr<Image> m_from;
     RefPtr<Image> m_to;
-    double m_percentage;
+    Progress m_progress;
     bool m_isPrefixed;
 
     // FIXME: Rather than caching and tracking the input image via WebCore::CachedImages, we should

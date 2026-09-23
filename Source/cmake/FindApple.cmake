@@ -51,30 +51,59 @@ function(_FIND_APPLE_FRAMEWORK framework)
     set(OPTIONS "")
     set(oneValueArgs HEADER)
     set(multiValueArgs LIBRARY_NAMES)
-    cmake_parse_arguments(opt "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    cmake_parse_arguments(opt "${OPTIONS}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-    # Find include directory and library
-    find_path(${framework}_INCLUDE_DIR NAMES ${opt_HEADER})
-    find_library(${framework}_LIBRARY NAMES ${opt_LIBRARY_NAMES})
+    if (APPLE)
+        # On macOS, find the framework by its canonical name. LIBRARY_NAMES
+        # and DEBUG_SUFFIX are Windows-specific alternatives; the framework
+        # name itself is what find_library needs. No INTERFACE_INCLUDE_DIRECTORIES
+        # is required -- the compiler resolves <Framework/Header.h> includes
+        # via the sysroot framework search path.
+        find_library(${framework}_LIBRARY NAMES ${framework})
 
-    if (${framework}_INCLUDE_DIR AND ${framework}_LIBRARY)
-        add_library(Apple::${framework} UNKNOWN IMPORTED)
-        set_target_properties(Apple::${framework} PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${${framework}_INCLUDE_DIR}"
-            IMPORTED_LOCATION "${${framework}_LIBRARY}"
-        )
-        set(${framework}_FOUND ON PARENT_SCOPE)
-        if (Apple_FIND_REQUIRED_${framework})
-            set(Apple_LIBS_FOUND ${Apple_LIBS_FOUND} "${framework} (required): ${${framework}_LIBRARY}" PARENT_SCOPE)
+        if (${framework}_LIBRARY)
+            add_library(Apple::${framework} UNKNOWN IMPORTED)
+            set_target_properties(Apple::${framework} PROPERTIES
+                IMPORTED_LOCATION "${${framework}_LIBRARY}"
+            )
+            set(${framework}_FOUND ON PARENT_SCOPE)
+            if (Apple_FIND_REQUIRED_${framework})
+                set(Apple_LIBS_FOUND ${Apple_LIBS_FOUND} "${framework} (required): ${${framework}_LIBRARY}" PARENT_SCOPE)
+            else ()
+                set(Apple_LIBS_FOUND ${Apple_LIBS_FOUND} "${framework} (optional): ${${framework}_LIBRARY}" PARENT_SCOPE)
+            endif ()
         else ()
-            set(Apple_LIBS_FOUND ${Apple_LIBS_FOUND} "${framework} (optional): ${${framework}_LIBRARY}}" PARENT_SCOPE)
+            if (Apple_FIND_REQUIRED_${framework})
+                set(_Apple_REQUIRED_LIBS_FOUND NO PARENT_SCOPE)
+                set(Apple_LIBS_NOT_FOUND ${Apple_LIBS_NOT_FOUND} "${framework} (required)" PARENT_SCOPE)
+            else ()
+                set(Apple_LIBS_NOT_FOUND ${Apple_LIBS_NOT_FOUND} "${framework} (optional)" PARENT_SCOPE)
+            endif ()
         endif ()
     else ()
-        if (Apple_FIND_REQUIRED_${framework})
-            set(_Apple_REQUIRED_LIBS_FOUND NO PARENT_SCOPE)
-            set(Apple_LIBS_NOT_FOUND ${Apple_LIBS_NOT_FOUND} "${framework} (required)" PARENT_SCOPE)
+        # Non-Apple platforms (Windows): use HEADER + LIBRARY_NAMES for discovery.
+        find_path(${framework}_INCLUDE_DIR NAMES ${opt_HEADER})
+        find_library(${framework}_LIBRARY NAMES ${opt_LIBRARY_NAMES})
+
+        if (${framework}_INCLUDE_DIR AND ${framework}_LIBRARY)
+            add_library(Apple::${framework} UNKNOWN IMPORTED)
+            set_target_properties(Apple::${framework} PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${${framework}_INCLUDE_DIR}"
+                IMPORTED_LOCATION "${${framework}_LIBRARY}"
+            )
+            set(${framework}_FOUND ON PARENT_SCOPE)
+            if (Apple_FIND_REQUIRED_${framework})
+                set(Apple_LIBS_FOUND ${Apple_LIBS_FOUND} "${framework} (required): ${${framework}_LIBRARY}" PARENT_SCOPE)
+            else ()
+                set(Apple_LIBS_FOUND ${Apple_LIBS_FOUND} "${framework} (optional): ${${framework}_LIBRARY}" PARENT_SCOPE)
+            endif ()
         else ()
-            set(Apple_LIBS_NOT_FOUND ${Apple_LIBS_NOT_FOUND} "${framework} (optional)" PARENT_SCOPE)
+            if (Apple_FIND_REQUIRED_${framework})
+                set(_Apple_REQUIRED_LIBS_FOUND NO PARENT_SCOPE)
+                set(Apple_LIBS_NOT_FOUND ${Apple_LIBS_NOT_FOUND} "${framework} (required)" PARENT_SCOPE)
+            else ()
+                set(Apple_LIBS_NOT_FOUND ${Apple_LIBS_NOT_FOUND} "${framework} (optional)" PARENT_SCOPE)
+            endif ()
         endif ()
     endif ()
 
@@ -130,6 +159,13 @@ if ("CoreMedia" IN_LIST Apple_FIND_COMPONENTS)
     )
 endif ()
 
+if ("CoreServices" IN_LIST Apple_FIND_COMPONENTS)
+    _FIND_APPLE_FRAMEWORK(CoreServices
+        HEADER CoreServices/CoreServices.h
+        LIBRARY_NAMES CoreServices${DEBUG_SUFFIX}
+    )
+endif ()
+
 if ("CoreText" IN_LIST Apple_FIND_COMPONENTS)
     _FIND_APPLE_FRAMEWORK(CoreText
         HEADER CoreText/CoreText.h
@@ -141,6 +177,13 @@ if ("CoreVideo" IN_LIST Apple_FIND_COMPONENTS)
     _FIND_APPLE_FRAMEWORK(CoreVideo
         HEADER CoreVideo/CVBase.h
         LIBRARY_NAMES CoreVideo${DEBUG_SUFFIX}
+    )
+endif ()
+
+if ("ImageIO" IN_LIST Apple_FIND_COMPONENTS)
+    _FIND_APPLE_FRAMEWORK(ImageIO
+        HEADER ImageIO/ImageIO.h
+        LIBRARY_NAMES ImageIO${DEBUG_SUFFIX}
     )
 endif ()
 

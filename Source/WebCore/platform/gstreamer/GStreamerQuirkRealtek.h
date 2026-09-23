@@ -38,6 +38,7 @@ public:
     Vector<String> disallowedWebAudioDecoders() const final { return m_disallowedWebAudioDecoders; }
     bool shouldParseIncomingLibWebRTCBitStream() const final { return false; }
     bool needsCustomInstantRateChange() const final { return true; }
+    std::optional<GstState> eosMediaPlayerState() const final { return GST_STATE_PAUSED; }
 
 private:
     Vector<String> m_disallowedWebAudioDecoders;

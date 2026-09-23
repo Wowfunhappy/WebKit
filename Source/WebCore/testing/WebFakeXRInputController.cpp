@@ -61,7 +61,8 @@ WebFakeXRInputController::WebFakeXRInputController(PlatformXR::InputSourceHandle
     , m_simulateSelect(init.selectionClicked)
 {
     setPointerOrigin(init.pointerOrigin, false);
-    setGripOrigin(init.gripOrigin, false);
+    if (init.gripOrigin)
+        setGripOrigin(*init.gripOrigin, false);
     setSupportedButtons(init.supportedButtons);
 #if ENABLE(WEBXR_HANDS)
     updateHandJoints(init.handJoints);
@@ -200,7 +201,11 @@ void WebFakeXRInputController::updateHandJoints(const Vector<FakeXRJointStateIni
 
     HandJointsVector updatedJoints;
     for (auto handJoint : handJoints) {
-        auto transform = WebFakeXRDevice::parseRigidTransform(handJoint.pose);
+        if (!handJoint.pose) {
+            updatedJoints.append(std::nullopt);
+            continue;
+        }
+        auto transform = WebFakeXRDevice::parseRigidTransform(*handJoint.pose);
         if (transform.hasException()) {
             updatedJoints.append(std::nullopt);
             continue;

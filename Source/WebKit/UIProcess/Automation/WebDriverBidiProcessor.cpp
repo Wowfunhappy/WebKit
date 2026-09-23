@@ -33,8 +33,10 @@
 
 #include "BidiBrowserAgent.h"
 #include "BidiBrowsingContextAgent.h"
+#include "BidiDigitalCredentialsAgent.h"
 #include "BidiPermissionsAgent.h"
 #include "BidiScriptAgent.h"
+#include "BidiSessionAgent.h"
 #include "BidiStorageAgent.h"
 #include "Logging.h"
 #include "WebAutomationSession.h"
@@ -55,11 +57,14 @@ WebDriverBidiProcessor::WebDriverBidiProcessor(WebAutomationSession& session)
     , m_backendDispatcher(BackendDispatcher::create(m_frontendRouter.copyRef()))
     , m_browserAgent(makeUniqueRef<BidiBrowserAgent>(session, m_backendDispatcher))
     , m_browsingContextAgent(makeUniqueRef<BidiBrowsingContextAgent>(session, m_backendDispatcher))
+    , m_digitalCredentialsAgent(makeUniqueRef<BidiDigitalCredentialsAgent>(session, m_backendDispatcher))
     , m_permissionsAgent(makeUniqueRef<BidiPermissionsAgent>(session, m_backendDispatcher))
     , m_scriptAgent(makeUniqueRef<BidiScriptAgent>(session, m_backendDispatcher))
+    , m_sessionAgent(makeUniqueRef<BidiSessionAgent>(session, m_backendDispatcher))
     , m_storageAgent(makeUniqueRef<BidiStorageAgent>(session, m_backendDispatcher))
     , m_browsingContextDomainNotifier(makeUniqueRef<BidiBrowsingContextFrontendDispatcher>(m_frontendRouter))
     , m_logDomainNotifier(makeUniqueRef<BidiLogFrontendDispatcher>(m_frontendRouter))
+    , m_scriptDomainNotifier(makeUniqueRef<BidiScriptFrontendDispatcher>(m_frontendRouter))
 {
     m_frontendRouter->connectFrontend(*this);
 }
@@ -149,6 +154,10 @@ static String toBidiErrorCode(int errorCode, const String& inspectorInternalMsg)
         return "unable to unload extension"_s;
     case Inspector::Protocol::Automation::ErrorMessage::NoSuchExtension:
         return "no such web extension"_s;
+    case Inspector::Protocol::Automation::ErrorMessage::NoSuchUserContext:
+        return "no such user context"_s;
+    case Inspector::Protocol::Automation::ErrorMessage::NoSuchScript:
+        return "no such script"_s;
     default:
         return "unknown error"_s;
     }
@@ -211,6 +220,16 @@ void WebDriverBidiProcessor::sendBidiMessage(const String& message)
     session->sendBidiMessage(msgObj->toJSONString());
 }
 
+bool WebDriverBidiProcessor::eventIsEnabled(const String& eventName, const HashSet<String>& contexts)
+{
+    return m_sessionAgent->eventIsEnabled(eventName, contexts);
+}
+
+void WebDriverBidiProcessor::emitEventIfEnabled(const String& eventName, const HashSet<String>& browsingContexts, NOESCAPE const Function<void()>& callback)
+{
+    if (m_sessionAgent->eventIsEnabled(eventName, browsingContexts)) [[unlikely]]
+        callback();
+}
 
 // MARK: Inspector::FrontendChannel methods.
 

@@ -30,7 +30,6 @@ typedef double DOMHighResTimeStamp;
     EnabledBySetting=WebTransportEnabled,
     JSGenerateToJSObject,
     JSGenerateToNativeObject,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary WebTransportConnectionStats {
     [ImplementationDefaultValue=0] unsigned long long bytesSent;
     // FIXME: Add support for `bytesSentOverhead`.

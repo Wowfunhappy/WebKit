@@ -29,6 +29,7 @@
 #include "Logging.h"
 #include "SQLiteStatement.h"
 #include <wtf/FileSystem.h>
+#include <wtf/MainThread.h>
 #include <wtf/Seconds.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/MakeString.h>
@@ -67,7 +68,7 @@ static constexpr auto insertRecordSQL = "INSERT INTO records (host, access) VALU
 
 static double continuousApproximateTimeToDouble(ContinuousApproximateTime time)
 {
-    return time.approximateWallTime().secondsSinceEpoch().value();
+    return time.approximate<WallTime>().secondsSinceEpoch().value();
 }
 
 static ContinuousApproximateTime doubleToContinuousApproximateTime(double timestamp)

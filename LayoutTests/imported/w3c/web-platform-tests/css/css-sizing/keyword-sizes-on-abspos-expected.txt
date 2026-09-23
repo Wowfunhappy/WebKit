@@ -33,23 +33,17 @@ PASS .test 31
 PASS .test 32
 PASS .test 33
 PASS .test 34
-FAIL .test 35 assert_equals:
-<div class="test height stretch" data-expected-height="90">XX XX</div>
-height expected 90 but got 100
+PASS .test 35
 PASS .test 36
 PASS .test 37
 PASS .test 38
 PASS .test 39
-FAIL .test 40 assert_equals:
-<div class="test min-height stretch" data-expected-height="90">XX XX</div>
-height expected 90 but got 100
+PASS .test 40
 PASS .test 41
 PASS .test 42
 PASS .test 43
 PASS .test 44
-FAIL .test 45 assert_equals:
-<div class="test max-height stretch" data-expected-height="90">XX XX</div>
-height expected 90 but got 100
+PASS .test 45
 PASS .test 46
 FAIL .test 47 assert_equals:
 <div class="test height" style="height: min-content" data-expected-height="30">
@@ -66,29 +60,17 @@ FAIL .test 49 assert_equals:
     <canvas width="10" height="20" data-expected-width="10" data-expected-height="20"></canvas>
   </div>
 height expected 30 but got 110
-FAIL .test 50 assert_equals:
-<div class="test height stretch" data-expected-height="90">
-    <canvas width="10" height="20" data-expected-width="40" data-expected-height="80"></canvas>
-  </div>
-height expected 90 but got 100
+PASS .test 50
 PASS .test 51
 PASS .test 52
 PASS .test 53
 PASS .test 54
-FAIL .test 55 assert_equals:
-<div class="test min-height stretch" data-expected-height="90">
-    <canvas width="10" height="20" data-expected-width="40" data-expected-height="80"></canvas>
-  </div>
-height expected 90 but got 100
+PASS .test 55
 PASS .test 56
 PASS .test 57
 PASS .test 58
 PASS .test 59
-FAIL .test 60 assert_equals:
-<div class="test max-height stretch" data-expected-height="90">
-    <canvas width="10" height="20" data-expected-width="40" data-expected-height="80"></canvas>
-  </div>
-height expected 90 but got 100
+PASS .test 60
 XX XX
 XX XX
 XX XX

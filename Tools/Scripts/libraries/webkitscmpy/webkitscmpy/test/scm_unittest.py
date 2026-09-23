@@ -69,6 +69,7 @@ class TestScm(testing.PathTestCase):
     def test_prod_branches(self):
         self.assertTrue(local.Scm.PROD_BRANCHES.match('safari-610-branch'))
         self.assertTrue(local.Scm.PROD_BRANCHES.match('safari-610.1-branch'))
+        self.assertTrue(local.Scm.PROD_BRANCHES.match('rapid/safari-7624.1.16.110-branch'))
 
         self.assertFalse(local.Scm.PROD_BRANCHES.match('main'))
         self.assertFalse(local.Scm.PROD_BRANCHES.match('eng/1234'))

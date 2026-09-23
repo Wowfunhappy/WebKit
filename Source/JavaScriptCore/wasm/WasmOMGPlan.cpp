@@ -29,9 +29,9 @@
 
 #if ENABLE(WEBASSEMBLY_OMGJIT)
 
+#include "HeapCellInlines.h"
 #include "JITCompilation.h"
 #include "LinkBuffer.h"
-#include "NativeCalleeRegistry.h"
 #include "WasmCallee.h"
 #include "WasmFaultSignalHandler.h"
 #include "WasmIRGeneratorHelpers.h"
@@ -75,7 +75,7 @@ FunctionAllowlist& OMGPlan::ensureGlobalOMGAllowlist()
     return omgAllowlist;
 }
 
-void OMGPlan::dumpDisassembly(const Callee& callee, CompilationContext& context, LinkBuffer& linkBuffer, const TypeDefinition& signature, FunctionSpaceIndex functionIndexSpace)
+void OMGPlan::dumpDisassembly(const Callee& callee, CompilationContext& context, LinkBuffer& linkBuffer, const RTT& signature, FunctionSpaceIndex functionIndexSpace)
 {
     dataLogLnIf(context.procedure->shouldDumpIR() || shouldDumpDisassemblyFor(CompilationMode::OMGMode), "Generated OMG functionIndexSpace:(", functionIndexSpace, "),sig:(", signature.toString().ascii().data(), "),name:(", callee.nameWithHash(), "),wasmSize:(", m_moduleInformation->functionWasmSizeImportSpace(functionIndexSpace), ")");
     if (shouldDumpDisassemblyFor(CompilationMode::OMGMode)) [[unlikely]] {
@@ -127,11 +127,11 @@ void OMGPlan::work()
     const FunctionData& function = m_moduleInformation->functions[m_functionIndex];
 
     const FunctionSpaceIndex functionIndexSpace = m_moduleInformation->toSpaceIndex(m_functionIndex);
-    TypeIndex typeIndex = m_moduleInformation->internalFunctionTypeIndices[m_functionIndex];
-    const TypeDefinition& signature = TypeInformation::get(typeIndex).expand();
+    TypeSignatureIndex typeSignatureIndex = m_moduleInformation->internalFunctionTypeSignatureIndices[m_functionIndex];
+    const RTT& signature = m_moduleInformation->rtt(typeSignatureIndex);
 
     Ref<IPIntCallee> profiledCallee = m_calleeGroup->ipintCalleeFromFunctionIndexSpace(functionIndexSpace);
-    Ref<OMGCallee> callee = OMGCallee::create(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace), Ref { profiledCallee });
+    Ref<OMGCallee> callee = OMGCallee::create(functionIndexSpace, m_moduleInformation->nameSection().get(functionIndexSpace), Ref { profiledCallee });
 
     beginCompilerSignpost(callee.get());
     Vector<UnlinkedWasmToWasmCall> unlinkedCalls;
@@ -162,7 +162,7 @@ void OMGPlan::work()
         ScopedPrintStream out;
         dumpDisassembly(callee.get(), context, linkBuffer, signature, functionIndexSpace);
         omgEntrypoint.compilation = makeUnique<Compilation>(
-            FINALIZE_CODE_IF(context.procedure->shouldDumpIR(), linkBuffer, JITCompilationPtrTag, nullptr, "OMG functionIndexSpace:(", functionIndexSpace, "),sig:(", signature.toString().ascii().data(), "),name:(", makeString(IndexOrName(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace))).ascii().data(), "),wasmSize:(", m_moduleInformation->functionWasmSizeImportSpace(functionIndexSpace), ")"),
+            FINALIZE_CODE_IF(context.procedure->shouldDumpIR(), linkBuffer, JITCompilationPtrTag, nullptr, "OMG functionIndexSpace:(", functionIndexSpace, "),sig:(", signature.toString().ascii().data(), "),name:(", makeString(IndexOrName(functionIndexSpace, m_moduleInformation->nameSection().get(functionIndexSpace))).ascii().data(), "),wasmSize:(", m_moduleInformation->functionWasmSizeImportSpace(functionIndexSpace), ")"),
             WTF::move(context.wasmEntrypointByproducts));
     }
 
@@ -175,8 +175,10 @@ void OMGPlan::work()
         callee->setEntrypoint(WTF::move(omgEntrypoint), WTF::move(unlinkedCalls), WTF::move(internalFunction->stackmaps), WTF::move(internalFunction->exceptionHandlers), WTF::move(exceptionHandlerLocations));
         entrypoint = callee->entrypoint();
 
-        if (samplingProfilerMap)
-            NativeCalleeRegistry::singleton().addPCToCodeOriginMap(callee.ptr(), WTF::move(samplingProfilerMap));
+        if (samplingProfilerMap) {
+            WTF::storeStoreFence();
+            callee->setPCToCodeOriginMap(WTF::move(samplingProfilerMap));
+        }
 
         Locker locker { m_calleeGroup->m_lock };
         newlyInstalled = m_calleeGroup->installOptimizedCallee(locker, m_moduleInformation, m_functionIndex, callee.copyRef(), internalFunction->outgoingJITDirectCallees);

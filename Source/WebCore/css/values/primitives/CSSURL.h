@@ -56,10 +56,15 @@ template<size_t I> const auto& get(const URL& value)
         return value.modifiers;
 }
 
-template<> struct Serialize<URL> { void operator()(StringBuilder&, const SerializationContext&, const URL&); };
+template<> struct ComputedStyleDependenciesCollector<URL> { constexpr void operator()(ComputedStyleDependencies&, const URL&) { } };
+template<> struct CSSValueChildrenVisitor<URL> { constexpr IterationStatus operator()(NOESCAPE const Function<IterationStatus(CSSValue&)>&, const URL&) { return IterationStatus::Continue; } };
 
-std::optional<URL> completeURL(const String&, const CSSParserContext&);
-std::optional<URL> completeURL(const String&, const Document&);
+template<> struct Serialize<URL> { void operator()(StringBuilder&, const SerializationContext&, const URL&); };
+template<> struct CSSValueCreation<URL> { Ref<CSSValue> operator()(CSSValuePool&, const URL&); };
+template<> struct DeprecatedCSSOMValueCreation<URL> { Ref<DeprecatedCSSOMValue> operator()(CSSValuePool&, CSSStyleDeclaration&, const URL&); };
+
+std::optional<URL> completeURL(const WTF::String&, const CSSParserContext&);
+std::optional<URL> completeURL(const WTF::String&, const Document&);
 
 URL resolve(URL&&);
 

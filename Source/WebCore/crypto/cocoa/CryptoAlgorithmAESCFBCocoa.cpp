@@ -28,6 +28,7 @@
 
 #include "CryptoAlgorithmAesCbcCfbParams.h"
 #include "CryptoKeyAES.h"
+#include "ExceptionOr.h"
 #include <CommonCrypto/CommonCrypto.h>
 
 namespace WebCore {

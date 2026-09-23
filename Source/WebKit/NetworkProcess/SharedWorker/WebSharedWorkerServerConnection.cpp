@@ -143,7 +143,7 @@ void WebSharedWorkerServerConnection::postErrorToWorkerObject(WebCore::SharedWor
 
 std::optional<SharedPreferencesForWebProcess> WebSharedWorkerServerConnection::sharedPreferencesForWebProcess(const IPC::Connection& connection) const
 {
-    RefPtr webProcessConnection = m_networkProcess->webProcessConnection(connection);
+    auto* webProcessConnection = m_networkProcess->webProcessConnection(connection);
     if (!webProcessConnection)
         return std::nullopt;
     return webProcessConnection->sharedPreferencesForWebProcess();

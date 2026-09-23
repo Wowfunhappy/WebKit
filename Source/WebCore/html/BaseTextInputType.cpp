@@ -25,9 +25,11 @@
 #include "config.h"
 #include "BaseTextInputType.h"
 
+#include "Document.h"
 #include "ElementInlines.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
+#include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -38,19 +40,21 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseTextInputType);
 
 using namespace HTMLNames;
 
-bool BaseTextInputType::patternMismatch(const String& value) const
+bool BaseTextInputType::patternMismatch(StringView value) const
 {
     ASSERT(element());
     Ref element = *this->element();
-    // FIXME: We should execute RegExp parser first to check validity instead of creating an actual RegularExpression.
-    // https://bugs.webkit.org/show_bug.cgi?id=183361
     const AtomString& rawPattern = element->attributeWithoutSynchronization(patternAttr);
-    if (rawPattern.isNull() || value.isEmpty() || !JSC::Yarr::RegularExpression(rawPattern, { JSC::Yarr::Flags::UnicodeSets }).isValid())
+    if (rawPattern.isNull() || value.isEmpty())
         return false;
 
-    String pattern = makeString("^(?:"_s, rawPattern, ")$"_s);
-    JSC::Yarr::RegularExpression regex(pattern, { JSC::Yarr::Flags::UnicodeSets });
-    auto valuePatternMismatch = [&regex](auto& value) {
+    JSC::Yarr::RegularExpression regex(rawPattern, { JSC::Yarr::Flags::UnicodeSets }, JSC::Yarr::MatchMode::EntireInput);
+    if (!regex.isValid()) {
+        protect(element->document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, makeString("Pattern attribute value '"_s, rawPattern, "' is not a valid regular expression."_s));
+        return false;
+    }
+
+    auto valuePatternMismatch = [&regex](auto value) {
         int matchLength = 0;
         int valueLength = value.length();
         int matchOffset = regex.match(value, 0, &matchLength);
@@ -58,8 +62,11 @@ bool BaseTextInputType::patternMismatch(const String& value) const
     };
 
     if (isEmailField() && element->multiple()) {
-        auto values = value.split(',');
-        return values.findIf(valuePatternMismatch) != notFound;
+        for (auto splitValue : value.split(',')) {
+            if (valuePatternMismatch(splitValue))
+                return true;
+        }
+        return false;
     }
     return valuePatternMismatch(value);
 }

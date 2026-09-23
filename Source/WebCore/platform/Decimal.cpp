@@ -79,7 +79,7 @@ SpecialValueHandler::SpecialValueHandler(const Decimal& lhs, const Decimal& rhs)
 {
 }
 
-SpecialValueHandler::HandleResult SpecialValueHandler::handle()
+SpecialValueHandler::HandleResult NODELETE SpecialValueHandler::handle()
 {
     if (m_lhs.isFinite() && m_rhs.isFinite())
         return BothFinite;
@@ -120,7 +120,7 @@ Decimal SpecialValueHandler::value() const
     }
 }
 
-static int countDigits(uint64_t x)
+static int NODELETE countDigits(uint64_t x)
 {
     int numberOfDigits = 0;
     for (uint64_t powerOfTen = 1; x >= powerOfTen; powerOfTen *= 10) {

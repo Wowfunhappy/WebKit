@@ -26,7 +26,7 @@
 #include "config.h"
 #include "StyleSingleAnimationTimeline.h"
 
-#include "CSSPrimitiveValueMappings.h"
+#include "CSSKeywordValue.h"
 #include "CSSScrollValue.h"
 #include "CSSViewValue.h"
 #include "StyleBuilderChecking.h"
@@ -39,26 +39,27 @@ namespace Style {
 
 auto CSSValueConversion<SingleAnimationTimeline>::operator()(BuilderState& state, const CSSValue& value) -> SingleAnimationTimeline
 {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            break;
+        }
+
+        state.setCurrentPropertyInvalidAtComputedValueTime();
+        return CSS::Keyword::None { };
+    }
+
     if (RefPtr scrollValue = dynamicDowncast<CSSScrollValue>(value))
         return toStyleFromCSSValue<ScrollFunction>(state, *scrollValue);
 
     if (RefPtr viewValue = dynamicDowncast<CSSViewValue>(value))
         return toStyleFromCSSValue<ViewFunction>(state, *viewValue);
 
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::Auto { };
-
-    switch (value.valueID()) {
-    case CSSValueAuto:
-        return CSS::Keyword::Auto { };
-    case CSSValueNone:
-        return CSS::Keyword::None { };
-    default:
-        break;
-    }
-
-    return toStyleFromCSSValue<CustomIdentifier>(state, value);
+    return toStyleFromCSSValue<CustomIdent>(state, value);
 }
 
 } // namespace Style

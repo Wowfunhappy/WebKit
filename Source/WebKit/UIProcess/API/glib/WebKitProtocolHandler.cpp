@@ -673,7 +673,7 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
     addTableRow(displayObject, "Bits per color component"_s, String::number(screenDepthPerComponent(nullptr)));
     addTableRow(displayObject, "Font Scaling DPI"_s, String::number(WebCore::fontDPI()));
 #if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
-    addTableRow(displayObject, "Screen DPI"_s, String::number(screenDPI(displayID.value_or(primaryScreenDisplayID()))));
+    addTableRow(displayObject, "Screen DPI"_s, String::number(screenDPI(displayID.value_or(PlatformScreen::singleton()->primaryScreenDisplayID()))));
 #endif
 
     if (displayID) {
@@ -721,7 +721,9 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
     addTableRow(hardwareAccelerationObject, "2D canvas"_s, canvasAccelerationEnabled(request) ? "Accelerated"_s : "Unaccelerated"_s);
 
     if (policy != "never"_s) {
-        addTableRow(hardwareAccelerationObject, "API"_s, String::fromUTF8(openGLAPI()));
+        bool hasEGLContext = uiProcessContextIsEGL() && eglGetCurrentContext() != EGL_NO_CONTEXT;
+
+        addTableRow(hardwareAccelerationObject, "API"_s, hasEGLContext ? String::fromUTF8(openGLAPI()) : "Not available"_s);
 #if PLATFORM(GTK)
         bool showBuffersInfo = true;
 #elif PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
@@ -745,7 +747,7 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
 
         addTableRow(hardwareAccelerationObject, "Native interface"_s, uiProcessContextIsEGL() ? "EGL"_s : "None"_s);
 
-        if (uiProcessContextIsEGL() && eglGetCurrentContext() != EGL_NO_CONTEXT)
+        if (hasEGLContext)
             addEGLInfo(hardwareAccelerationObject);
     } else {
 #if PLATFORM(GTK)
@@ -764,6 +766,12 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
 
         if (!info.drmVersion.isEmpty())
             addTableRow(hardwareAccelerationObject, "DRM version"_s, info.drmVersion);
+
+#if USE(GBM)
+        if (!info.dmabufExportStrategy.isEmpty())
+            addTableRow(hardwareAccelerationObject, "DMA-BUF export strategy"_s, info.dmabufExportStrategy);
+        addTableRow(hardwareAccelerationObject, "DMA-BUF memory-mapped GPU buffers"_s, info.memoryMappedGPUBufferSupported ? "Yes"_s : "No"_s);
+#endif
 
         addTableRow(hardwareAccelerationObject, "Threaded rendering"_s, threadedRenderingInfo(info));
         addTableRow(hardwareAccelerationObject, "MSAA"_s, info.msaaSampleCount ? makeString(info.msaaSampleCount, " samples"_s) : String("Disabled"_s));

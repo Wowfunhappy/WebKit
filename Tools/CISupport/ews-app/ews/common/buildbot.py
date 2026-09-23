@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2022 Apple Inc. All rights reserved.
+# Copyright (C) 2018-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -39,28 +39,7 @@ class Buildbot():
     icons_for_queues_mapping = {}
     queue_name_by_shortname_mapping = {}
     builder_name_to_id_mapping = {}
-
-    # FIXME: Auto-generate the queue's trigger relationship
-    QUEUE_TRIGGERS = {
-        'api-ios': 'ios-sim',
-        'ios-wk2': 'ios-sim',
-        'ios-wk2-wpt': 'ios-sim',
-        'api-mac': 'mac',
-        'api-mac-debug': 'mac',
-        'mac-wk1': 'mac',
-        'mac-wk2': 'mac',
-        'mac-intel-wk2': 'mac',
-        'mac-wk2-stress': 'mac',
-        'mac-debug-wk1': 'mac-debug',
-        'mac-AS-debug-wk2': 'mac-AS-debug',
-        'api-gtk': 'gtk',
-        'gtk-wk2': 'gtk',
-        'api-wpe': 'wpe',
-        'wpe-wk2': 'wpe',
-        'win-tests': 'win',
-        'jsc-armv7-tests': 'jsc-armv7',
-        'vision-wk2': 'vision-sim',
-    }
+    QUEUE_TRIGGERS = {}
 
     @classmethod
     def send_patch_to_buildbot(cls, patch_path, send_to_commit_queue=False, properties=None):
@@ -108,9 +87,17 @@ class Buildbot():
 
     @classmethod
     def fetch_config(cls):
-        config_url = 'https://{}/config.json'.format(config.BUILDBOT_SERVER_HOST)
-        config_data = util.fetch_data_from_url(config_url)
+        config_url = f'https://{config.BUILDBOT_SERVER_HOST}/config.json'
+        max_attempts = 3
+        config_data = None
+        for attempt in range(max_attempts):
+            config_data = util.fetch_data_from_url(config_url)
+            if config_data:
+                break
+            if attempt < max_attempts - 1:
+                _log.warning(f'Retrying fetch of {config_url} (attempt {attempt + 2}/{max_attempts})')
         if not config_data:
+            _log.error(f'Failed to fetch {config_url} after {max_attempts} attempts.')
             return {}
         try:
             return config_data.json()
@@ -119,15 +106,47 @@ class Buildbot():
             return {}
 
     @classmethod
-    def update_icons_for_queues_mapping(cls):
+    def update_queue_mappings(cls):
         config = cls.fetch_config()
         if not config:
             _log.error('Unable to fetch buildbot config.json')
             return
+        cls._update_icons_for_queues_mapping(config)
+        cls._update_queue_triggers(config)
+
+    @classmethod
+    def _update_icons_for_queues_mapping(cls, config):
         for builder in config.get('builders', []):
             shortname = builder.get('shortname')
             Buildbot.icons_for_queues_mapping[shortname] = builder.get('icon')
             Buildbot.queue_name_by_shortname_mapping[shortname] = builder.get('name')
+
+    @classmethod
+    def _update_queue_triggers(cls, config):
+        name_to_shortname = {}
+        for builder in config.get('builders', []):
+            name = builder.get('name')
+            shortname = builder.get('shortname')
+            if name and shortname:
+                name_to_shortname[name] = shortname
+
+        scheduler_to_builders = {}
+        for scheduler in config.get('schedulers', []):
+            if scheduler.get('type') != 'Triggerable':
+                continue
+            scheduler_to_builders[scheduler['name']] = scheduler.get('builderNames', [])
+
+        triggers = {}
+        for builder in config.get('builders', []):
+            parent_shortname = builder.get('shortname')
+            if not parent_shortname:
+                continue
+            for scheduler_name in builder.get('triggers', []):
+                for child_name in scheduler_to_builders.get(scheduler_name, []):
+                    child_shortname = name_to_shortname.get(child_name)
+                    if child_shortname:
+                        triggers[child_shortname] = parent_shortname
+        Buildbot.QUEUE_TRIGGERS = triggers
 
     @classmethod
     def update_builder_name_to_id_mapping(cls):

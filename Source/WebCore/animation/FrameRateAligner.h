@@ -27,8 +27,8 @@
 
 #include <WebCore/AnimationFrameRate.h>
 #include <WebCore/AnimationMalloc.h>
-#include <WebCore/ReducedResolutionSeconds.h>
 #include <wtf/HashMap.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/Seconds.h>
 
 namespace WebCore {

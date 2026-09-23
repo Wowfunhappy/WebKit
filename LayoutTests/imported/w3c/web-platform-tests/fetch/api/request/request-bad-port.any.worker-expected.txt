@@ -1,4 +1,5 @@
 
+PASS Request on bad port 0 should throw TypeError.
 PASS Request on bad port 1 should throw TypeError.
 PASS Request on bad port 7 should throw TypeError.
 PASS Request on bad port 9 should throw TypeError.

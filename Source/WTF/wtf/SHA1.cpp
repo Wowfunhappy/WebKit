@@ -33,7 +33,6 @@
 #include <wtf/SHA1.h>
 
 #include <cstddef>
-#include <wtf/Assertions.h>
 #include <wtf/HexNumber.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>

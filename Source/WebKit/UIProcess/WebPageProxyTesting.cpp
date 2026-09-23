@@ -26,15 +26,17 @@
 #include "config.h"
 #include "WebPageProxyTesting.h"
 
+#include "BrowsingContextGroup.h"
 #include "Connection.h"
 #include "MessageSenderInlines.h"
 #include "NetworkProcessMessages.h"
-#include "NetworkProcessProxy.h"
 #include "WebBackForwardList.h"
 #include "WebFrameProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebPageTestingMessages.h"
+#include "WebProcessMessages.h"
+#include "WebProcessPool.h"
 #include "WebProcessProxy.h"
 #include <WebCore/IntPoint.h>
 #include <wtf/CallbackAggregator.h>
@@ -85,6 +87,11 @@ void WebPageProxyTesting::dispatchActivityStateUpdate()
 void WebPageProxyTesting::isLayerTreeFrozen(CompletionHandler<void(bool)>&& completionHandler)
 {
     sendWithAsyncReply(Messages::WebPageTesting::IsLayerTreeFrozen(), WTF::move(completionHandler));
+}
+
+void WebPageProxyTesting::numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&& completionHandler)
+{
+    sendWithAsyncReply(Messages::WebPageTesting::NumberOfLiveDocuments(), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setCrossSiteLoadWithLinkDecorationForTesting(const URL& fromURL, const URL& toURL, bool wasFiltered, CompletionHandler<void()>&& completionHandler)
@@ -186,7 +193,7 @@ void WebPageProxyTesting::clearWheelEventTestMonitor()
 
 void WebPageProxyTesting::startMonitoringWheelEventsForTesting(CompletionHandler<void()>&& completionHandler)
 {
-    if (!protect(page())->hasRunningProcess()) {
+    if (!page().hasRunningProcess()) {
         completionHandler();
         return;
     }
@@ -195,7 +202,7 @@ void WebPageProxyTesting::startMonitoringWheelEventsForTesting(CompletionHandler
 
 void WebPageProxyTesting::waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&& completionHandler)
 {
-    if (!protect(page())->hasRunningProcess()) {
+    if (!page().hasRunningProcess()) {
         completionHandler();
         return;
     }
@@ -221,14 +228,17 @@ void WebPageProxyTesting::setObscuredContentInsets(float top, float right, float
 
 void WebPageProxyTesting::resetStateBetweenTests()
 {
-    page().legacyMainFrameProcess().resetState();
+    Ref page = m_page;
+    page->legacyMainFrameProcess().resetState();
 
-    if (auto* mainFrame = m_page->mainFrame())
+    if (auto* mainFrame = page->mainFrame())
         mainFrame->disownOpener();
 
-    protect(page())->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
+    page->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
         webProcess.send(Messages::WebPageTesting::ResetStateBetweenTests(), pageID);
     });
+
+    protect(page->browsingContextGroup())->clearBrowsingContextGroupForTesting();
 }
 
 void WebPageProxyTesting::clearBackForwardList(CompletionHandler<void()>&& completionHandler)
@@ -256,6 +266,26 @@ void WebPageProxyTesting::displayAndTrackRepaints(CompletionHandler<void()>&& co
     protect(page())->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
         webProcess.sendWithAsyncReply(Messages::WebPageTesting::DisplayAndTrackRepaints(), [callbackAggregator] { }, pageID);
     });
+}
+
+void WebPageProxyTesting::storageAreaMapCount(CompletionHandler<void(uint64_t)>&& completionHandler)
+{
+    Ref processPool = page().legacyMainFrameProcess().processPool();
+
+    struct TotalCount : RefCounted<TotalCount> {
+        uint64_t value { 0 };
+    };
+    Ref totalCount = adoptRef(*new TotalCount);
+    Ref callbackAggregator = CallbackAggregator::create([totalCount, completionHandler = WTF::move(completionHandler)]() mutable {
+        completionHandler(totalCount->value);
+    });
+    for (auto& process : processPool->processes()) {
+        if (!process->pageCount())
+            continue;
+        process->sendWithAsyncReply(Messages::WebProcess::GetStorageAreaMapCountForTesting(), [totalCount, callbackAggregator](uint64_t count) {
+            totalCount->value += count;
+        });
+    }
 }
 
 } // namespace WebKit

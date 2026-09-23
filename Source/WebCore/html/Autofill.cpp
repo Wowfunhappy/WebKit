@@ -44,7 +44,7 @@ struct AutofillFieldNameMapping {
     AutofillCategory category;
 };
 
-static constexpr SortedArrayMap fieldNameMap { std::to_array<std::pair<ComparableLettersLiteral, AutofillFieldNameMapping>>({
+static constexpr SortedArrayMap fieldNameMap { WTF::toArray<std::pair<ComparableLettersLiteral, AutofillFieldNameMapping>>({
     { "additional-name"_s, { AutofillFieldName::AdditionalName, AutofillCategory::Normal } },
     { "address-level1"_s, { AutofillFieldName::AddressLevel1, AutofillCategory::Normal } },
     { "address-level2"_s, { AutofillFieldName::AddressLevel2, AutofillCategory::Normal } },
@@ -72,6 +72,9 @@ static constexpr SortedArrayMap fieldNameMap { std::to_array<std::pair<Comparabl
     { "current-password"_s, { AutofillFieldName::CurrentPassword, AutofillCategory::Normal } },
     { "device-eid"_s, { AutofillFieldName::DeviceEID, AutofillCategory::Normal } },
     { "device-imei"_s, { AutofillFieldName::DeviceIMEI, AutofillCategory::Normal } },
+    { "device-imei1"_s, { AutofillFieldName::DeviceIMEI1, AutofillCategory::Normal } },
+    { "device-imei2"_s, { AutofillFieldName::DeviceIMEI2, AutofillCategory::Normal } },
+    { "device-nal"_s, { AutofillFieldName::DeviceNAL, AutofillCategory::Normal } },
     { "email"_s, { AutofillFieldName::Email, AutofillCategory::Contact } },
     { "family-name"_s, { AutofillFieldName::FamilyName, AutofillCategory::Normal } },
     { "given-name"_s, { AutofillFieldName::GivenName, AutofillCategory::Normal } },

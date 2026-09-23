@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,19 +31,25 @@
 #import "AudioBus.h"
 #import "AudioChannel.h"
 #import "AudioSourceProviderClient.h"
+#import "AudioUtilities.h"
 #import "CAAudioStreamDescription.h"
 #import "CARingBuffer.h"
 #import "Logging.h"
+#import "MultiChannelResampler.h"
+#import "PitchShiftAudioUnit.h"
+#import "WebAudioBufferList.h"
 #import <AVFoundation/AVAssetTrack.h>
 #import <AVFoundation/AVAudioMix.h>
 #import <AVFoundation/AVMediaFormat.h>
 #import <AVFoundation/AVPlayerItem.h>
+#import <cmath>
 #import <objc/runtime.h>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <pal/cf/CoreAudioExtras.h>
 #import <wtf/IndexedRange.h>
 #import <wtf/Lock.h>
 #import <wtf/MainThread.h>
+#import <wtf/StdLibExtras.h>
 
 #if !LOG_DISABLED
 #import <wtf/StringPrintStream.h>
@@ -86,27 +92,50 @@ AudioSourceProviderAVFObjC::~AudioSourceProviderAVFObjC()
     // to the destructor and a member function. This undefined behavior will be addressed in the future
     // commits. https://bugs.webkit.org/show_bug.cgi?id=224480
     setClient(nullptr);
+
+    if (m_converter) {
+        PAL::AudioConverterDispose(m_converter);
+        m_converter = nullptr;
+    }
 }
 
 void AudioSourceProviderAVFObjC::provideInput(AudioBus& bus, size_t framesToProcess)
+{
+    if (!m_playbackRate) {
+        bus.zero();
+        return;
+    }
+
+    if (m_pitchShifter && m_preservesPitch && m_playbackRate != 1.0)
+        m_pitchShifter->render(bus, framesToProcess);
+    else if (m_multiChannelResampler && !m_preservesPitch && m_playbackRate != 1.0)
+        m_multiChannelResampler->process(bus, framesToProcess);
+    else
+        provideInputInternal(bus, framesToProcess);
+
+    if (m_volume < 1.0)
+        bus.copyWithGainFrom(bus, m_volume);
+}
+
+bool AudioSourceProviderAVFObjC::provideInputInternal(AudioBus& bus, size_t framesToProcess)
 {
     // Protect access to m_ringBuffer by using tryLock(). If we failed
     // to aquire, a re-configure is underway, and m_ringBuffer is unsafe to access.
     // Emit silence.
     if (!m_tapStorage) {
         bus.zero();
-        return;
+        return false;
     }
 
     if (!m_tapStorage->lock.tryLock()) {
         bus.zero();
-        return;
+        return false;
     }
     Locker locker { AdoptLock, m_tapStorage->lock };
 
     if (!m_ringBuffer) {
         bus.zero();
-        return;
+        return false;
     }
 
 
@@ -114,14 +143,14 @@ void AudioSourceProviderAVFObjC::provideInput(AudioBus& bus, size_t framesToProc
     if (seekTo != NoSeek)
         m_readCount = seekTo;
 
-    auto [startFrame, endFrame] = m_ringBuffer->getFetchTimeBounds();
+    auto [startFrame, endFrame, writeAhead] = m_ringBuffer->getFetchTimeBounds();
 
     if (!m_readCount || m_readCount == seekTo) {
         // We have not started rendering yet. If there aren't enough frames in the buffer, then output
         // silence until there is.
-        if (endFrame <= m_readCount + m_writeAheadCount + framesToProcess) {
+        if (endFrame <= m_readCount + writeAhead + framesToProcess) {
             bus.zero();
-            return;
+            return false;
         }
     } else {
         // We've started rendering. Don't output silence unless we really have to.
@@ -129,7 +158,7 @@ void AudioSourceProviderAVFObjC::provideInput(AudioBus& bus, size_t framesToProc
         if (framesAvailable < framesToProcess) {
             bus.zero();
             if (!framesAvailable)
-                return;
+                return false;
             framesToProcess = framesAvailable;
         }
     }
@@ -147,7 +176,9 @@ void AudioSourceProviderAVFObjC::provideInput(AudioBus& bus, size_t framesToProc
     m_readCount += framesToProcess;
 
     if (m_converter)
-        PAL::AudioConverterConvertComplexBuffer(m_converter.get(), framesToProcess, m_list.get(), m_list.get());
+        PAL::AudioConverterConvertComplexBuffer(m_converter, framesToProcess, m_list.get(), m_list.get());
+
+    return true;
 }
 
 void AudioSourceProviderAVFObjC::setClient(WeakPtr<AudioSourceProviderClient>&& client)
@@ -175,6 +206,33 @@ void AudioSourceProviderAVFObjC::setAudioTrack(AVAssetTrack *avAssetTrack)
     destroyMixIfNeeded();
     m_avAssetTrack = avAssetTrack;
     createMixIfNeeded();
+}
+
+void AudioSourceProviderAVFObjC::setPlaybackRate(double rate)
+{
+    rate = abs(rate);
+    if (m_playbackRate == rate)
+        return;
+
+    destroyMixIfNeeded();
+    m_playbackRate = rate;
+    createMixIfNeeded();
+}
+
+void AudioSourceProviderAVFObjC::setPreservesPitch(bool preservesPitch)
+{
+    if (m_preservesPitch == preservesPitch)
+        return;
+
+    m_preservesPitch = preservesPitch;
+}
+
+void AudioSourceProviderAVFObjC::setVolume(double volume)
+{
+    if (m_volume == volume)
+        return;
+
+    m_volume = volume;
 }
 
 void AudioSourceProviderAVFObjC::recreateAudioMixIfNeeded()
@@ -320,10 +378,26 @@ void AudioSourceProviderAVFObjC::prepare(CMItemCount maxFrames, const AudioStrea
     m_outputDescription->mFormatFlags |= kAudioFormatFlagIsNonInterleaved;
 
     if (*m_tapDescription != *m_outputDescription) {
-        AudioConverterRef outConverter = nullptr;
-        PAL::AudioConverterNew(m_tapDescription.get(), m_outputDescription.get(), &outConverter);
-        m_converter = outConverter;
+        if (m_converter) {
+            PAL::AudioConverterDispose(m_converter);
+            m_converter = nullptr;
+        }
+        PAL::AudioConverterNew(m_tapDescription.get(), m_outputDescription.get(), &m_converter);
     }
+
+    // Create the pitch shifter for when preservesPitch is enabled
+    m_pitchShifter = makeUnique<PitchShiftAudioUnit>(CAAudioStreamDescription(*m_outputDescription));
+    m_pitchShifter->setRate(m_playbackRate);
+    m_pitchShifter->setInputCallback([weakThis = ThreadSafeWeakPtr { *this }](AudioBus& inputBus, size_t numberOfFrames) {
+        if (RefPtr protectedThis = weakThis.get())
+            return protectedThis->provideInputInternal(inputBus, numberOfFrames);
+        return false;
+    });
+
+    m_multiChannelResampler = makeUnique<MultiChannelResampler>(m_playbackRate, numberOfChannels, AudioUtilities::renderQuantumSize, [weakThis = ThreadSafeWeakPtr { *this }](AudioBus& inputBus, size_t numberOfFrames) {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->provideInputInternal(inputBus, numberOfFrames);
+    });
 
     // Make the ringbuffer large enough to store at least two callbacks worth of audio, or 1s, whichever is larger.
     size_t capacity = std::max(static_cast<size_t>(2 * maxFrames), static_cast<size_t>(kRingBufferDuration * sampleRate));
@@ -342,6 +416,8 @@ void AudioSourceProviderAVFObjC::prepare(CMItemCount maxFrames, const AudioStrea
 
 void AudioSourceProviderAVFObjC::unprepare()
 {
+    m_pitchShifter = nullptr;
+    m_multiChannelResampler = nullptr;
     m_tapDescription = nullptr;
     m_outputDescription = nullptr;
     m_ringBuffer = nullptr;
@@ -377,14 +453,14 @@ void AudioSourceProviderAVFObjC::process(MTAudioProcessingTapRef tap, CMItemCoun
         return;
     }
 
+    auto [startFrame, endFrame, writeAhead] = m_ringBuffer->getStoreTimeBounds();
+
     if (m_paused) {
         // Only check the write-ahead time when playback begins.
         m_paused = false;
         MediaTime earlyBy = rangeStart - currentTime;
-        m_writeAheadCount = m_tapDescription->mSampleRate * earlyBy.toDouble();
+        writeAhead = m_tapDescription->mSampleRate * m_playbackRate * earlyBy.toDouble();
     }
-
-    auto [startFrame, endFrame] = m_ringBuffer->getStoreTimeBounds();
 
     bool needsFlush = false;
 
@@ -404,7 +480,7 @@ void AudioSourceProviderAVFObjC::process(MTAudioProcessingTapRef tap, CMItemCoun
     if (needsFlush)
         m_seekTo = endFrame;
 
-    m_ringBuffer->store(bufferListInOut, itemCount, endFrame);
+    m_ringBuffer->store(bufferListInOut, itemCount, endFrame, writeAhead);
 
     // Mute the default audio playback by zeroing the tap-owned buffers.
     for (auto& buffer : span(*bufferListInOut))
@@ -419,12 +495,16 @@ void AudioSourceProviderAVFObjC::process(MTAudioProcessingTapRef tap, CMItemCoun
 void AudioSourceProviderAVFObjC::setAudioCallback(AudioCallback&& callback)
 {
     ASSERT(!m_avAudioMix);
+    if (m_avAudioMix)
+        return;
     m_audioCallback = WTF::move(callback);
 }
 
 void AudioSourceProviderAVFObjC::setConfigureAudioStorageCallback(ConfigureAudioStorageCallback&& callback)
 {
     ASSERT(!m_avAudioMix);
+    if (m_avAudioMix)
+        return;
     m_configureAudioStorageCallback = WTF::move(callback);
 }
 

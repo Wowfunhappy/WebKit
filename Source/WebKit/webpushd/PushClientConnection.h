@@ -111,6 +111,7 @@ private:
     void incrementSilentPushCount(WebCore::SecurityOriginData&&, CompletionHandler<void(unsigned)>&&);
     void removeAllPushSubscriptions(CompletionHandler<void(unsigned)>&&);
     void removePushSubscriptionsForOrigin(WebCore::SecurityOriginData&&, CompletionHandler<void(unsigned)>&&);
+    void getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
     void setPublicTokenForTesting(const String& publicToken, CompletionHandler<void()>&&);
     void initializeConnection(WebPushDaemonConnectionConfiguration&&);
     void getPushPermissionState(WebCore::SecurityOriginData&&, CompletionHandler<void(WebCore::PushPermissionState)>&&);

@@ -1,4 +1,5 @@
 //@ skip if $useCompressedHeap
+//@ exclusive!
 //@ requireOptions("-e", "let hardness=100") if ! $memoryLimited
 //@ requireOptions("-e", "let hardness=20") if $memoryLimited
 //@ runDefault

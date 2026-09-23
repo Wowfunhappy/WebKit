@@ -235,10 +235,7 @@ public:
         return m_singleton;
     }
 
-    void notifyCreation(VM& vm, JSFunction* function, const char* reason)
-    {
-        m_singleton.notifyWrite(vm, this, function, reason);
-    }
+    void notifyCreation(VM&, JSFunction*, const char* reason);
 
     // Cached poly proto structure for the result of constructing this executable.
     Structure* cachedPolyProtoStructure()

@@ -243,7 +243,7 @@ bool Pasteboard::hasData()
     return !m_dragDataMap.isEmpty();
 }
 
-static void addMimeTypesForFormat(ListHashSet<String>& results, const FORMATETC& format)
+static void addMIMETypesForFormat(OrderedHashSet<String>& results, const FORMATETC& format)
 {
     if (format.cfFormat == urlFormat()->cfFormat || format.cfFormat == urlWFormat()->cfFormat)
         results.add("text/uri-list"_s);
@@ -272,7 +272,7 @@ std::optional<PasteboardCustomData> Pasteboard::readPasteboardCustomData()
 
 Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
 {
-    ListHashSet<String> domPasteboardTypes;
+    OrderedHashSet<String> domPasteboardTypes;
 
     std::optional<PasteboardCustomData> customData = readPasteboardCustomData();
 
@@ -290,7 +290,7 @@ Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
 
 Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 {
-    ListHashSet<String> results;
+    OrderedHashSet<String> results;
 
     if (!m_dataObject && m_dragDataMap.isEmpty())
         return Vector<String>();
@@ -308,12 +308,12 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 
         // IEnumFORMATETC::Next returns S_FALSE if there are no more items.
         while (itr->Next(1, &data, 0) == S_OK)
-            addMimeTypesForFormat(results, data);
+            addMIMETypesForFormat(results, data);
     } else {
         for (DragDataMap::const_iterator it = m_dragDataMap.begin(); it != m_dragDataMap.end(); ++it) {
             FORMATETC data;
             data.cfFormat = (*it).key;
-            addMimeTypesForFormat(results, data);
+            addMIMETypesForFormat(results, data);
         }
     }
 

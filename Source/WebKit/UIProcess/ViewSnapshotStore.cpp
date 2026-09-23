@@ -39,9 +39,7 @@ static const size_t maximumSnapshotCacheSize = 400 * (1024 * 1024);
 namespace WebKit {
 using namespace WebCore;
 
-ViewSnapshotStore::ViewSnapshotStore()
-{
-}
+ViewSnapshotStore::ViewSnapshotStore() = default;
 
 ViewSnapshotStore::~ViewSnapshotStore()
 {

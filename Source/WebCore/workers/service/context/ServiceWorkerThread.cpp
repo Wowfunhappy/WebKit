@@ -44,6 +44,7 @@
 #include "NotificationEvent.h"
 #include "NotificationPayload.h"
 #include "PlatformStrategies.h"
+#include "ProcessIdentifier.h"
 #include "PushEvent.h"
 #include "PushSubscription.h"
 #include "PushSubscriptionChangeEvent.h"
@@ -117,7 +118,8 @@ static WorkerParameters generateWorkerParameters(const ServiceWorkerContextData&
         { },
         { },
         advancedPrivacyProtections,
-        noiseInjectionHashSalt
+        noiseInjectionHashSalt,
+        makeString(Process::identifier().toUInt64(), "-serviceworker-"_s, contextData.serviceWorkerIdentifier.toUInt64())
     };
 }
 

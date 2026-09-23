@@ -1,5 +1,5 @@
 // Often hits JSCTEST_memoryLimit on ARM with --memory-limited.
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--destroy-vm", "--maximumFunctionForCallInlineCandidateBytecodeCostForDFG=500", "--maximumFunctionForCallInlineCandidateBytecodeCostForFTL=500", "--maximumInliningRecursion=5")
 
 function* gen() {

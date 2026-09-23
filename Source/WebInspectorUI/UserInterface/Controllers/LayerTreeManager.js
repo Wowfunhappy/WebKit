@@ -186,7 +186,12 @@ WI.LayerTreeManager = class LayerTreeManager extends WI.Object
 
         let target = WI.assumingMainTarget();
         target.LayerTreeAgent.layersForNode(node.id, (error, layers) => {
-            callback(error ? [] : layers.map(WI.Layer.fromPayload));
+            if (error) {
+                WI.reportInternalError(error);
+                callback([]);
+                return;
+            }
+            callback(layers.map(WI.Layer.fromPayload));
         });
     }
 
@@ -211,7 +216,7 @@ WI.LayerTreeManager = class LayerTreeManager extends WI.Object
                 callback(null);
                 return;
             }
-            callback(content);
+            callback(content || null);
         });
     }
 

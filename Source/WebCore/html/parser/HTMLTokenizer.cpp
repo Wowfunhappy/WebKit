@@ -39,6 +39,43 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
+// https://html.spec.whatwg.org/multipage/parsing.html#data-state
+// In the Data state, '<' switches to TagOpenState, '&' switches to a character
+// reference, and '\0' is a parse error. '\r' and '\n' require special handling
+// for line counting and newline normalization in the input stream preprocessor.
+// Everything else is plain text that can be emitted as-is.
+static bool isDataStateSpecialCharacter(Latin1Character c)
+{
+    return c == '<' || c == '&' || c == '\r' || c == '\n' || c == '\0';
+}
+
+// Returns the leading prefix of `span` that contains only plain-text characters
+// (i.e. characters that don't require special handling in the Data state).
+static std::span<const Latin1Character> findPlainTextInDataState(std::span<const Latin1Character> span)
+{
+    auto it = std::ranges::find_if(span, isDataStateSpecialCharacter);
+    return span.first(it - span.begin());
+}
+
+// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
+// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(single-quoted)-state
+// In quoted attribute value states, the closing quote ends the value, '&' starts
+// a character reference, and '\0' is a parse error. '\r' and '\n' require special
+// handling for line counting and newline normalization. Everything else is plain
+// text that can be appended to the attribute value as-is.
+template<Latin1Character quoteCharacter>
+static bool isQuotedAttributeValueSpecialCharacter(Latin1Character c)
+{
+    return c == quoteCharacter || c == '&' || c == '\r' || c == '\n' || c == '\0';
+}
+
+template<Latin1Character quoteCharacter>
+static std::span<const Latin1Character> findPlainTextInQuotedAttributeValue(std::span<const Latin1Character> span)
+{
+    auto it = std::ranges::find_if(span, isQuotedAttributeValueSpecialCharacter<quoteCharacter>);
+    return span.first(it - span.begin());
+}
+
 static inline Latin1Character NODELETE convertASCIIAlphaToLower(char16_t character)
 {
     ASSERT(isASCIIAlpha(character));
@@ -63,8 +100,7 @@ inline bool HTMLTokenizer::inEndTagBufferingState() const
 }
 
 HTMLTokenizer::HTMLTokenizer(const HTMLParserOptions& options)
-    : m_preprocessor(*this)
-    , m_options(options)
+    : m_options(options)
 {
 }
 
@@ -198,7 +234,7 @@ bool HTMLTokenizer::processToken(SegmentedString& source)
             return true;
     }
 
-    if (!m_preprocessor.peek(source, isNullCharacterSkippingState(m_state)))
+    if (!m_preprocessor.peek(source, isNullCharacterSkippingState(m_state) && !m_forceNullCharacterReplacement))
         return haveBufferedCharacterToken();
     char16_t character = m_preprocessor.nextInputCharacter();
 
@@ -216,6 +252,30 @@ bool HTMLTokenizer::processToken(SegmentedString& source)
         if (character == kEndOfFileMarker)
             return emitEndOfFile(source);
         bufferCharacter(character);
+        // Optimization: scan ahead for a run of plain-text characters in the
+        // current 8-bit substring and buffer them all at once, avoiding the
+        // per-character overhead of the main tokenizer loop.
+        // We skip batching when m_preprocessor.skipNextNewLine() is true (i.e.
+        // the current character was a '\r'). The preprocessor expects the very
+        // next peek to check whether a '\n' follows (for \r\n normalization);
+        // batching would bypass that check and cause a subsequent '\n' to be
+        // incorrectly skipped.
+        {
+            auto span = source.currentSubstringSpan8();
+            if (span.size() > 2 && !m_preprocessor.skipNextNewLine()) {
+                // span[0] is the current character, already buffered above. We also
+                // stop before the last character because advancePastMultiple8()
+                // requires at least one character to remain in the span (it becomes
+                // the new current character for the next iteration).
+                auto plainText = findPlainTextInDataState(span.subspan(1, span.size() - 2));
+                if (!plainText.empty()) {
+                    bufferCharacters(plainText);
+                    // +1 to also advance past span[0] (the current character already buffered above).
+                    source.advancePastMultiple8(plainText.size() + 1);
+                    SWITCH_TO(DataState);
+                }
+            }
+        }
         ADVANCE_TO(DataState);
     END_STATE()
 
@@ -793,6 +853,25 @@ bool HTMLTokenizer::processToken(SegmentedString& source)
             RECONSUME_IN(DataState);
         }
         m_token.appendToAttributeValue(character);
+        // Optimization: scan ahead for a run of plain-text characters in the
+        // current 8-bit substring and append them all at once, avoiding the
+        // per-character overhead of the main tokenizer loop.
+        // We skip batching when m_preprocessor.skipNextNewLine() is true (i.e.
+        // the current character was a '\r'). The preprocessor expects the very
+        // next peek to check whether a '\n' follows (for \r\n normalization);
+        // batching would bypass that check and cause a subsequent '\n' to be
+        // incorrectly skipped.
+        {
+            auto span = source.currentSubstringSpan8();
+            if (span.size() > 2 && !m_preprocessor.skipNextNewLine()) {
+                auto plainText = findPlainTextInQuotedAttributeValue<'"'>(span.subspan(1, span.size() - 2));
+                if (!plainText.empty()) {
+                    m_token.appendToAttributeValue(plainText);
+                    source.advancePastMultiple8(plainText.size() + 1);
+                    SWITCH_TO(AttributeValueDoubleQuotedState);
+                }
+            }
+        }
         ADVANCE_TO(AttributeValueDoubleQuotedState);
     END_STATE()
 
@@ -811,6 +890,25 @@ bool HTMLTokenizer::processToken(SegmentedString& source)
             RECONSUME_IN(DataState);
         }
         m_token.appendToAttributeValue(character);
+        // Optimization: scan ahead for a run of plain-text characters in the
+        // current 8-bit substring and append them all at once, avoiding the
+        // per-character overhead of the main tokenizer loop.
+        // We skip batching when m_preprocessor.skipNextNewLine() is true (i.e.
+        // the current character was a '\r'). The preprocessor expects the very
+        // next peek to check whether a '\n' follows (for \r\n normalization);
+        // batching would bypass that check and cause a subsequent '\n' to be
+        // incorrectly skipped.
+        {
+            auto span = source.currentSubstringSpan8();
+            if (span.size() > 2 && !m_preprocessor.skipNextNewLine()) {
+                auto plainText = findPlainTextInQuotedAttributeValue<'\''>(span.subspan(1, span.size() - 2));
+                if (!plainText.empty()) {
+                    m_token.appendToAttributeValue(plainText);
+                    source.advancePastMultiple8(plainText.size() + 1);
+                    SWITCH_TO(AttributeValueSingleQuotedState);
+                }
+            }
+        }
         ADVANCE_TO(AttributeValueSingleQuotedState);
     END_STATE()
 
@@ -1381,18 +1479,18 @@ String HTMLTokenizer::bufferedCharacters() const
 
 void HTMLTokenizer::updateStateFor(const AtomString& tagName)
 {
-    if (tagName == textareaTag || tagName == titleTag)
+    if (textareaTag->hasLocalName(tagName) || titleTag->hasLocalName(tagName))
         m_state = RCDATAState;
-    else if (tagName == plaintextTag)
+    else if (plaintextTag->hasLocalName(tagName))
         m_state = PLAINTEXTState;
-    else if (tagName == scriptTag)
+    else if (scriptTag->hasLocalName(tagName))
         m_state = ScriptDataState;
-    else if (tagName == styleTag
-        || tagName == iframeTag
-        || tagName == xmpTag
-        || (tagName == noembedTag)
-        || tagName == noframesTag
-        || (tagName == noscriptTag && m_options.scriptingFlag))
+    else if (styleTag->hasLocalName(tagName)
+        || iframeTag->hasLocalName(tagName)
+        || xmpTag->hasLocalName(tagName)
+        || noembedTag->hasLocalName(tagName)
+        || noframesTag->hasLocalName(tagName)
+        || (noscriptTag->hasLocalName(tagName) && m_options.scriptingFlag))
         m_state = RAWTEXTState;
 }
 

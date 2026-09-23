@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
@@ -35,7 +36,7 @@ namespace Style {
 
 // <counter-increment-value> = [ <counter-name> <integer>?@(default=1) ]
 struct CounterIncrementValue {
-    CustomIdentifier name;
+    CustomIdent name;
     Integer<> value;
 
     bool operator==(const CounterIncrementValue&) const = default;

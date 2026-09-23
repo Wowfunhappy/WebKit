@@ -26,5 +26,6 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/selection.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/setSelectionRange.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/textarea-selection-while-parsing.xhtml
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/textarea-setRangeText-utf16-code-unit-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/textfieldselection/textfieldselection-setSelectionRange.html

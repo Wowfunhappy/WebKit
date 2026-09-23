@@ -43,12 +43,15 @@
 #include <WebCore/MediaPromiseTypes.h>
 #include <WebCore/MediaSampleConverter.h>
 #include <WebCore/ShareableBitmapHandle.h>
+#include <WebCore/SharedTimebase.h>
 #include <wtf/Forward.h>
 #include <wtf/Logger.h>
 #include <wtf/MediaTime.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 class AudioVideoRenderer;
@@ -71,6 +74,9 @@ public:
 
     void ref() const final;
     void deref() const final;
+    ThreadSafeWeakPtrControlBlock& controlBlock() const;
+
+    void connectionToWebProcessClosed();
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -84,7 +90,7 @@ public:
 
 private:
     // Messages
-    void create(RemoteAudioVideoRendererIdentifier, WebCore::HTMLMediaElementIdentifier, WebCore::MediaPlayerIdentifier);
+    void create(RemoteAudioVideoRendererIdentifier, WebCore::HTMLMediaElementIdentifier, WebCore::MediaPlayerIdentifier, CompletionHandler<void(std::optional<WebCore::SharedTimebaseHandle>)>&&);
     void shutdown(RemoteAudioVideoRendererIdentifier);
 
     void setPreferences(RemoteAudioVideoRendererIdentifier, WebCore::VideoRendererPreferences);
@@ -100,12 +106,12 @@ private:
     void enqueueSample(RemoteAudioVideoRendererIdentifier, TrackIdentifier, WebCore::MediaSamplesBlock&&, std::optional<MediaTime>, CompletionHandler<void(bool)>&&);
     void requestMediaDataWhenReady(RemoteAudioVideoRendererIdentifier, TrackIdentifier);
 
-    void notifyTimeReachedAndStall(RemoteAudioVideoRendererIdentifier, const MediaTime&);
+    void notifyTimeReachedAndStall(RemoteAudioVideoRendererIdentifier, const MediaTime&, CompletionHandler<void(WebCore::MediaTimePromise::Result&&)>&&);
     void cancelTimeReachedAction(RemoteAudioVideoRendererIdentifier);
     void performTaskAtTime(RemoteAudioVideoRendererIdentifier, const MediaTime&);
 
     void flush(RemoteAudioVideoRendererIdentifier);
-    void flushTrack(RemoteAudioVideoRendererIdentifier, TrackIdentifier);
+    void flushTrack(RemoteAudioVideoRendererIdentifier, TrackIdentifier, CompletionHandler<void(bool)>&&);
 
     void applicationWillResignActive(RemoteAudioVideoRendererIdentifier);
     void setSpatialTrackingInfo(RemoteAudioVideoRendererIdentifier, bool, WebCore::MediaPlayerSoundStageSize, const String&, const String&, const String&);
@@ -117,8 +123,9 @@ private:
     void pause(RemoteAudioVideoRendererIdentifier, std::optional<MonotonicTime>);
     void setRate(RemoteAudioVideoRendererIdentifier, double);
     void stall(RemoteAudioVideoRendererIdentifier);
-    void prepareToSeek(RemoteAudioVideoRendererIdentifier);
-    void seekTo(RemoteAudioVideoRendererIdentifier, const MediaTime&, CompletionHandler<void(WebCore::MediaTimePromise::Result&&)>&&);
+    void prepareToSeek(RemoteAudioVideoRendererIdentifier, const MediaTime&, CompletionHandler<void(WebCore::MediaTimePromise::Result&&)>&&);
+    void finishSeek(RemoteAudioVideoRendererIdentifier, const MediaTime&, CompletionHandler<void(GenericPromise::Result&&)>&&);
+    void setScreenReserved(RemoteAudioVideoRendererIdentifier, bool);
 
     // AudioInterface
     void setVolume(RemoteAudioVideoRendererIdentifier, float);
@@ -139,6 +146,7 @@ private:
     void setShouldDisableHDR(RemoteAudioVideoRendererIdentifier, bool);
     void setPlatformDynamicRangeLimit(RemoteAudioVideoRendererIdentifier, const WebCore::PlatformDynamicRangeLimit&);
     void setResourceOwner(RemoteAudioVideoRendererIdentifier, const WebCore::ProcessIdentity& resourceOwner);
+    void setVideoPlaybackMetricsUpdateInterval(RemoteAudioVideoRendererIdentifier, double);
     void flushAndRemoveImage(RemoteAudioVideoRendererIdentifier);
     void currentVideoFrame(RemoteAudioVideoRendererIdentifier, CompletionHandler<void(std::optional<RemoteVideoFrameProxy::Properties>)>&&) const;
     void currentBitmapImage(RemoteAudioVideoRendererIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&&) const;
@@ -169,15 +177,22 @@ private:
 #endif
         HashMap<TrackIdentifier, WebCore::MediaSampleConverter> converters { };
         WebCore::VideoRendererPreferences preferences { };
+        Seconds videoPlaybackMetricsUpdateInterval { };
+        MonotonicTime nextPlaybackQualityMetricsUpdateTime { };
+        bool isGatheringVideoFrameMetadata { false };
     };
-    RefPtr<WebCore::AudioVideoRenderer> createRenderer();
+    RefPtr<WebCore::AudioVideoRenderer> createRenderer(UniqueRef<WebCore::SharedTimebase>&&);
     RefPtr<WebCore::AudioVideoRenderer> rendererFor(RemoteAudioVideoRendererIdentifier) const;
     RemoteAudioVideoRendererState stateFor(RemoteAudioVideoRendererIdentifier) const;
     RendererContext& NODELETE contextFor(RemoteAudioVideoRendererIdentifier);
     void rendereringModeChanged(RemoteAudioVideoRendererIdentifier);
+    void updateCachedVideoMetrics(RemoteAudioVideoRendererIdentifier);
+    void maybeUpdateCachedVideoMetrics(RemoteAudioVideoRendererIdentifier);
+    void installTimeObserver(RemoteAudioVideoRendererIdentifier, Seconds interval);
     using LayerHostingContextCallback = CompletionHandler<void(WebCore::HostingContext)>;
     void requestHostingContext(RemoteAudioVideoRendererIdentifier, LayerHostingContextCallback&&);
     WebCore::MediaSampleConverter& converterFor(RendererContext&, TrackIdentifier);
+    template<typename Message> void publishAndSend(RemoteAudioVideoRendererIdentifier, Message&&);
 
 #if PLATFORM(COCOA)
     void setVideoLayerSize(RemoteAudioVideoRendererIdentifier, const WebCore::FloatSize&);
@@ -194,7 +209,7 @@ private:
     HashMap<RemoteAudioVideoRendererIdentifier, RendererContext> m_renderers;
     const Ref<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
 
-    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
+    ThreadSafeWeakRef<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
 #if !RELEASE_LOG_DISABLED
     uint64_t m_logIdentifier { 0 };
     const Ref<Logger> m_logger;

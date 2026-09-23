@@ -29,6 +29,7 @@
 
 #include "CanvasObserver.h"
 #include "HTMLCanvasElement.h"
+#include "StyleCustomIdent.h"
 #include "StyleGeneratedImage.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/TZoneMalloc.h>
@@ -45,7 +46,7 @@ class CanvasImage final : public GeneratedImage, public CanvasObserver, public C
     WTF_MAKE_TZONE_ALLOCATED(CanvasImage);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CanvasImage);
 public:
-    static Ref<CanvasImage> create(String name)
+    static Ref<CanvasImage> create(CustomIdent&& name)
     {
         return adoptRef(*new CanvasImage(WTF::move(name)));
     }
@@ -59,9 +60,10 @@ public:
     OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr);
 
 private:
-    explicit CanvasImage(String&&);
+    explicit CanvasImage(CustomIdent&&);
 
-    Ref<CSSValue> computedStyleValue(const RenderStyle&) const final;
+    Ref<CSSValue> computedStyleValue(const Style::ComputedStyle&) const final;
+    Ref<DeprecatedCSSOMValue> computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle&, CSSStyleDeclaration&) const final;
     bool isPending() const final;
     void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
     RefPtr<WebCore::Image> image(const RenderElement*, const FloatSize&, const GraphicsContext& destinationContext, bool isForFirstLine) const final;
@@ -79,7 +81,7 @@ private:
     HTMLCanvasElement* element(Document&) const;
 
     // The name of the canvas.
-    String m_name;
+    CustomIdent m_name;
     // The document supplies the element and owns it.
     mutable WeakPtr<HTMLCanvasElement, WeakPtrImplWithEventTargetData> m_element;
 };

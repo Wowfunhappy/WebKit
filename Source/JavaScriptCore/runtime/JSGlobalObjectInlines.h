@@ -28,6 +28,7 @@
 #include <JavaScriptCore/ArrayAllocationProfile.h>
 #include <JavaScriptCore/ArrayConstructor.h>
 #include <JavaScriptCore/ArrayPrototype.h>
+#include <JavaScriptCore/JSArrayInlines.h>
 #include <JavaScriptCore/JSClassRef.h>
 #include <JavaScriptCore/JSCustomGetterFunction.h>
 #include <JavaScriptCore/JSCustomSetterFunction.h>
@@ -35,12 +36,13 @@
 #include <JavaScriptCore/JSGlobalLexicalEnvironment.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSWeakObjectMapRefInternal.h>
+#include <JavaScriptCore/LazyClassStructureInlines.h>
 #include <JavaScriptCore/LinkTimeConstant.h>
 #include <JavaScriptCore/ObjectInitializationScope.h>
 #include <JavaScriptCore/ObjectPrototype.h>
 #include <JavaScriptCore/ParserModes.h>
 #include <JavaScriptCore/StrongInlines.h>
-#include <JavaScriptCore/StructureInlines.h>
+#include <JavaScriptCore/StructureCreateInlines.h>
 #include <wtf/HashSet.h> // MAVERICKS_BACKPORT: RareData::weakMaps.
 #include <wtf/Hasher.h>
 
@@ -215,14 +217,12 @@ ALWAYS_INLINE Structure* JSGlobalObject::arrayStructureForIndexingTypeDuringAllo
     RELEASE_AND_RETURN(scope, InternalFunction::createSubclassStructure(globalObject, asObject(newTarget), functionGlobalObject->arrayStructureForIndexingTypeDuringAllocation(indexingType)));
 }
 
-inline JSFunction* JSGlobalObject::evalFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::evalFunction)); }
-inline JSFunction* JSGlobalObject::throwTypeErrorFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::throwTypeErrorFunction)); }
-inline JSFunction* JSGlobalObject::iteratorProtocolFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::performIteration)); }
-inline JSFunction* JSGlobalObject::promiseProtoThenFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::defaultPromiseThen)); }
-inline JSFunction* JSGlobalObject::promiseEmptyOnFulfilledFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::promiseEmptyOnFulfilled)); }
-inline JSFunction* JSGlobalObject::promiseEmptyOnRejectedFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::promiseEmptyOnRejected)); }
-inline JSFunction* JSGlobalObject::regExpProtoExecFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::regExpBuiltinExec)); }
-inline JSFunction* JSGlobalObject::stringProtoSubstringFunction() const { return jsCast<JSFunction*>(linkTimeConstant(LinkTimeConstant::stringSubstring)); }
+inline JSFunction* JSGlobalObject::evalFunction() const { return uncheckedDowncast<JSFunction>(linkTimeConstant(LinkTimeConstant::evalFunction)); }
+inline JSFunction* JSGlobalObject::throwTypeErrorFunction() const { return uncheckedDowncast<JSFunction>(linkTimeConstant(LinkTimeConstant::throwTypeErrorFunction)); }
+inline JSFunction* JSGlobalObject::iteratorProtocolFunction() const { return uncheckedDowncast<JSFunction>(linkTimeConstant(LinkTimeConstant::performIteration)); }
+inline JSFunction* JSGlobalObject::promiseProtoThenFunction() const { return uncheckedDowncast<JSFunction>(linkTimeConstant(LinkTimeConstant::defaultPromiseThen)); }
+inline JSFunction* JSGlobalObject::regExpProtoExecFunction() const { return uncheckedDowncast<JSFunction>(linkTimeConstant(LinkTimeConstant::regExpBuiltinExec)); }
+inline JSFunction* JSGlobalObject::stringProtoSubstringFunction() const { return uncheckedDowncast<JSFunction>(linkTimeConstant(LinkTimeConstant::stringSubstring)); }
 inline JSFunction* JSGlobalObject::performProxyObjectHasFunction() const { return m_performProxyObjectHasFunction.get(); }
 inline JSFunction* JSGlobalObject::performProxyObjectHasFunctionConcurrently() const { return performProxyObjectHasFunction(); }
 inline JSFunction* JSGlobalObject::performProxyObjectHasByValFunction() const { return m_performProxyObjectHasByValFunction.get(); }
@@ -248,11 +248,6 @@ inline GetterSetter* JSGlobalObject::regExpProtoMultilineGetter() const { return
 inline GetterSetter* JSGlobalObject::regExpProtoStickyGetter() const { return std::bit_cast<GetterSetter*>(linkTimeConstant(LinkTimeConstant::regExpProtoStickyGetter)); }
 inline GetterSetter* JSGlobalObject::regExpProtoUnicodeGetter() const { return std::bit_cast<GetterSetter*>(linkTimeConstant(LinkTimeConstant::regExpProtoUnicodeGetter)); }
 inline GetterSetter* JSGlobalObject::regExpProtoUnicodeSetsGetter() const { return std::bit_cast<GetterSetter*>(linkTimeConstant(LinkTimeConstant::regExpProtoUnicodeSetsGetter)); }
-
-ALWAYS_INLINE VM& getVM(JSGlobalObject* globalObject)
-{
-    return globalObject->vm();
-}
 
 template<typename T>
 inline unsigned JSGlobalObject::WeakCustomGetterOrSetterHash<T>::hash(const Weak<T>& value)
@@ -699,13 +694,39 @@ inline JSCell* JSGlobalObject::linkTimeConstant(LinkTimeConstant value) const
     return result;
 }
 
+inline JSObject* JSGlobalObject::asyncGeneratorPrototypeNextFunction() const
+{
+    return uncheckedDowncast<JSObject>(linkTimeConstant(LinkTimeConstant::asyncGeneratorPrototypeNext));
+}
+
+inline JSObject* JSGlobalObject::asyncIteratorPrototypeSymbolAsyncIteratorFunction() const
+{
+    return uncheckedDowncast<JSObject>(linkTimeConstant(LinkTimeConstant::asyncIteratorPrototypeSymbolAsyncIterator));
+}
+
 template<typename Type> inline Type JSGlobalObject::linkTimeConstantConcurrently(LinkTimeConstant value) const
 {
     JSCell* result = m_linkTimeConstants[static_cast<unsigned>(value)].getConcurrently();
     if (!result)
         return nullptr;
-    return jsCast<Type>(result);
+    return uncheckedDowncast<std::remove_pointer_t<Type>>(result);
 }
+
+inline void JSGlobalObject::notifyArrayBufferDetaching()
+{
+    if (!m_arrayBufferDetachWatchpointSet->isStillValid())
+        return;
+    notifyArrayBufferDetachingSlow();
+}
+
+inline JSObject* JSGlobalObject::booleanPrototype() const { return m_booleanObjectStructure.prototypeInitializedOnMainThread(this); }
+inline JSObject* JSGlobalObject::numberPrototype() const { return m_numberObjectStructure.prototypeInitializedOnMainThread(this); }
+inline JSObject* JSGlobalObject::datePrototype() const { return m_dateStructure.prototype(this); }
+inline JSObject* JSGlobalObject::errorPrototype() const { return m_errorStructure.prototype(this); }
+inline JSObject* JSGlobalObject::mapPrototype() const { return m_mapStructure.prototype(this); }
+inline JSObject* JSGlobalObject::jsSetPrototype() const { return m_setStructure.prototype(this); }
+inline JSObject* JSGlobalObject::dateTimeFormatPrototype() { return m_dateTimeFormatStructure.prototype(this); }
+inline JSObject* JSGlobalObject::numberFormatPrototype() { return m_numberFormatStructure.prototype(this); }
 
 } // namespace JSC
 

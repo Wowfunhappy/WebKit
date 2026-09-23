@@ -21,6 +21,7 @@ PACKAGES=(
     pkg-config
     sqlite
     unifdef
+    vulkan-volk
     webp
     xz
 )

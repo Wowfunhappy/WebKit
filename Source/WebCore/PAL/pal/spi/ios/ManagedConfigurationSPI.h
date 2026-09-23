@@ -41,17 +41,11 @@ DECLARE_SYSTEM_HEADER
 // block to make them suitable for C++ use.
 WTF_EXTERN_C_BEGIN
 
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 140000
 #import <ManagedConfiguration/ManagedConfiguration.h>
 @interface MCProfileConnection ()
 - (NSArray<NSString *> *)crossSiteTrackingPreventionRelaxedDomains;
 - (NSArray<NSString *> *)crossSiteTrackingPreventionRelaxedApps;
 @end
-
-#else
-#import <ManagedConfiguration/MCFeatures.h>
-#import <ManagedConfiguration/MCProfileConnection.h>
-#endif
 
 WTF_EXTERN_C_END
 

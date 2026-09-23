@@ -28,6 +28,7 @@
 
 #include "BackForwardController.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "DocumentQuirks.h"
 #include "DocumentView.h"
 #include "DocumentWindow.h"
@@ -35,7 +36,9 @@
 #include "HistoryController.h"
 #include "HistoryItem.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameLoaderClient.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "Logging.h"
 #include "Navigation.h"
 #include "NavigationScheduler.h"
@@ -170,7 +173,7 @@ ExceptionOr<void> History::forward(Document& document)
 ExceptionOr<void> History::go(int distance)
 {
     RefPtr frame = this->frame();
-    LOG(History, "History %p go(%d) frame %p (main frame %d)", this, distance, frame.get(), frame ? frame->isMainFrame() : false);
+    LOG(History, "History %p go(%d) frame %p (main frame %d)", this, distance, frame.get(), frame && frame->isMainFrame());
 
     if (!isDocumentFullyActive(frame.get()))
         return documentNotFullyActive();
@@ -182,7 +185,7 @@ ExceptionOr<void> History::go(int distance)
 ExceptionOr<void> History::go(Document& document, int distance)
 {
     RefPtr frame = this->frame();
-    LOG(History, "History %p go(%d) in document %p frame %p (main frame %d)", this, distance, &document, frame.get(), frame ? frame->isMainFrame() : false);
+    LOG(History, "History %p go(%d) in document %p frame %p (main frame %d)", this, distance, &document, frame.get(), frame && frame->isMainFrame());
 
     if (!isDocumentFullyActive(frame.get()))
         return documentNotFullyActive();
@@ -275,7 +278,7 @@ ExceptionOr<void> History::stateObjectAdded(RefPtr<SerializedScriptValue>&& data
     };
 
     if (!urlString.isEmpty()) {
-        fullURL = document->completeURL(urlString);
+        fullURL = document->encodingParseURL(urlString);
         if (!fullURL.isValid())
             return createBlockedURLSecurityErrorWithMessageSuffix("URL is invalid"_s);
 

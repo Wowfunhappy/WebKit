@@ -168,6 +168,44 @@ class MacPort(DarwinPort):
             expectations.append(self._webkit_baseline_path('wk2'))
         return expectations
 
+    def _api_test_platform_cascade(self):
+        cascade = []
+        internal_version = self._api_test_version_name(self._os_version, table=INTERNAL_TABLE) if apple_additions() else None
+        internal_name = 'mac-{}'.format(internal_version) if internal_version else None
+        cascade.append(('mac', internal_name))
+
+        public_version = self._api_test_version_name(self._os_version)
+        if public_version:
+            cascade.append(('mac-{}'.format(public_version), internal_name))
+
+        return cascade
+
+    def api_test_version_order(self):
+        version_order = []
+        version_name_map = VersionNameMap.map(self.host.platform)
+        for version in self._allowed_versions():
+            version_name = version_name_map.to_name(version, platform=self.port_name)
+            if not version_name:
+                version_name = version_name_map.to_name(version, platform=self.port_name, table=INTERNAL_TABLE)
+            if version_name:
+                version_order.append(version_name.lower().replace(' ', ''))
+        return version_order
+
+    def api_test_current_configuration(self):
+        config = super(MacPort, self).api_test_current_configuration()
+        config['platform'] = 'mac'
+
+        public_version = self._api_test_version_name(self._os_version)
+        if public_version:
+            config['version'] = public_version
+
+        if self.get_option('guard_malloc'):
+            config['style'] = 'guardmalloc'
+
+        config['hardware'] = 'device'
+
+        return config
+
     @memoized
     def configuration_specifier_macros(self):
         config_map = {}
@@ -272,7 +310,15 @@ class MacPort(DarwinPort):
         return min(supportable_instances, default_count)
 
     def start_helper(self, pixel_tests=False, prefer_integrated_gpu=False):
+        if not self.start_helper_async(pixel_tests=pixel_tests, prefer_integrated_gpu=prefer_integrated_gpu):
+            return False
+        return self.wait_for_helper_ready()
+
+    def start_helper_async(self, pixel_tests=False, prefer_integrated_gpu=False):
         self.stop_helper()
+        # Mark that we *intend* to have a helper so wait_for_helper_ready can distinguish
+        # "never started" from "spawn failed".
+        Port._helper_started = True
 
         helper_path = self._path_to_helper()
         if not helper_path:
@@ -282,13 +328,22 @@ class MacPort(DarwinPort):
         arguments = [helper_path, '--install-color-profile']
         if prefer_integrated_gpu:
             arguments.append('--prefer-integrated-gpu')
-        Port.helper = self._executive.popen(arguments,
+        Port._helper_process = self._executive.popen(arguments,
             stdin=self._executive.PIPE, stdout=self._executive.PIPE, stderr=None)
-        is_ready = Port.helper.stdout.readline()
-        if not is_ready.startswith(b'ready'):
-            _log.error("LayoutTestHelper could not start")
-            return False
         return True
+
+    def wait_for_helper_ready(self):
+        if Port._helper_ready:
+            return True
+        if Port._helper_process:
+            is_ready = Port._helper_process.stdout.readline()
+            if not is_ready.startswith(b'ready'):
+                _log.error("LayoutTestHelper could not start")
+                return False
+            Port._helper_ready = True
+            return True
+        # No helper process: either nobody asked (test ports / non-Mac) or spawn failed.
+        return not Port._helper_started
 
     def reset_preferences(self):
         _log.debug("Resetting persistent preferences")
@@ -338,6 +393,7 @@ class MacPort(DarwinPort):
         worthless_patterns.append((re.compile('.*<<<< MediaValidator >>>>.*\n'), ''))
         worthless_patterns.append((re.compile('.*<<<< VMC >>>>.*\n'), ''))
         worthless_patterns.append((re.compile('.*<<< FFR_Common >>>.*\n'), ''))
+        worthless_patterns.append((re.compile('.*clock_get_time\\(\\) failed: \\(os/kern\\) denied by security policy.*\n'), ''))
         return worthless_patterns
 
     def configuration_for_upload(self, host=None):
@@ -355,9 +411,11 @@ class MacPort(DarwinPort):
 
     def setup_test_run(self, device_type=None):
         super(MacPort, self).setup_test_run(device_type)
-        # Warm-up can be disabled with `--no-timeout`. This is useful when trying to avoid debugger
-        # attaching to the warmup process when debugging with `lldb --wait-for --attach-name ...`.
-        if not self.get_option("no_timeout"):
+        # Warm up only when multiple workers will spawn concurrently (webkit.org/b/242106):
+        # with one worker the first real test does the same first-run binary verification.
+        # Also skipped under --no-timeout so `lldb --wait-for --attach-name ...` doesn't
+        # latch onto the warmup process.
+        if self.get_option('child_processes', 1) > 1 and not self.get_option('no_timeout'):
             _log.debug('Warming up the runner ...')
             warmup_driver = self.create_driver(0)
             warmup_driver.run_test(DriverInput('file:///warmup-does-not-exist', 60000., None, should_run_pixel_test=False), stop_when_done=True)

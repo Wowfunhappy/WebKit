@@ -36,7 +36,7 @@ class LegacyRenderSVGImage final : public LegacyRenderSVGModelObject {
     WTF_MAKE_TZONE_ALLOCATED(LegacyRenderSVGImage);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LegacyRenderSVGImage);
 public:
-    LegacyRenderSVGImage(SVGImageElement&, RenderStyle&&);
+    LegacyRenderSVGImage(SVGImageElement&, Style::ComputedStyle&&);
     virtual ~LegacyRenderSVGImage();
 
     SVGImageElement& NODELETE imageElement() const;
@@ -52,6 +52,7 @@ public:
     void paintForeground(PaintInfo&);
 
     bool isObjectBoundingBoxValid() const { return !m_objectBoundingBox.isEmpty(); }
+    bool objectBoundingBoxIsEmpty() const final { return !isObjectBoundingBoxValid(); }
 
 private:
     void willBeDestroyed() override;
@@ -71,7 +72,7 @@ private:
     FloatRect repaintRectInLocalCoordinates(RepaintRectCalculation = RepaintRectCalculation::Fast) const override { return m_repaintBoundingBox; }
     FloatRect decoratedBoundingBox() const override { return m_objectBoundingBox; }
 
-    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = 0) const override;
+    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = nullptr) const override;
 
     void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
 
@@ -84,8 +85,8 @@ private:
 
     AffineTransform localTransform() const override { return m_localTransform; }
 
-    bool m_needsBoundariesUpdate : 1;
-    bool m_needsTransformUpdate : 1;
+    bool m_needsBoundariesUpdate : 1 { true };
+    bool m_needsTransformUpdate : 1 { true };
     AffineTransform m_localTransform;
     FloatRect m_objectBoundingBox;
     FloatRect m_repaintBoundingBox;

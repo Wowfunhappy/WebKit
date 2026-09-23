@@ -35,6 +35,7 @@
 #import "SharedBuffer.h"
 #import <objc/runtime.h>
 #import <pal/spi/cocoa/NEFilterSourceSPI.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/CrossThreadCopier.h>
 #import <wtf/RunLoop.h>
@@ -42,6 +43,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/URL.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/threads/BinarySemaphore.h>
 
 static inline NSData *replacementDataFromDecisionInfo(NSDictionary *decisionInfo)

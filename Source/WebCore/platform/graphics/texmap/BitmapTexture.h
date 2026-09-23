@@ -41,6 +41,16 @@
 #include "MemoryMappedGPUBuffer.h"
 #endif
 
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkRefCnt.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+class GrDirectContext;
+class SkSurface;
+enum GrSurfaceOrigin : int;
+#endif
+
 typedef void *EGLImage;
 
 namespace WebCore {
@@ -70,7 +80,7 @@ public:
         return adoptRef(*new BitmapTexture(size, flags));
     }
 
-#if USE(GBM)
+#if USE(GBM) || OS(ANDROID)
     static Ref<BitmapTexture> create(EGLImage image, const IntSize& size, OptionSet<Flags> flags = { })
     {
         return adoptRef(*new BitmapTexture(image, size, flags));
@@ -105,6 +115,11 @@ public:
 
     OptionSet<TextureMapperFlags> colorConvertFlags() const;
 
+#if USE(SKIA)
+    GrBackendTexture createSkiaBackendTexture() const;
+    sk_sp<SkSurface> createSkiaSurface(GrDirectContext*, GrSurfaceOrigin = kTopLeft_GrSurfaceOrigin, unsigned sampleCount = 0) const;
+#endif
+
 #if USE(GBM)
     MemoryMappedGPUBuffer* memoryMappedGPUBuffer() const LIFETIME_BOUND { return m_memoryMappedGPUBuffer.get(); }
     IntSize allocatedSize() const;
@@ -114,7 +129,7 @@ public:
 
 private:
     BitmapTexture(const IntSize&, OptionSet<Flags>);
-#if USE(GBM)
+#if USE(GBM) || OS(ANDROID)
     BitmapTexture(EGLImage, const IntSize&, OptionSet<Flags>);
 #endif
 

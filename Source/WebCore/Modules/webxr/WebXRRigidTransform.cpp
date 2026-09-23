@@ -30,6 +30,7 @@
 
 #include "DOMPointReadOnly.h"
 #include "ExceptionOr.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "ScriptWrappableInlines.h"
 #include "TransformationMatrix.h"
 #include <JavaScriptCore/TypedArrayInlines.h>

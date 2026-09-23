@@ -14,9 +14,9 @@ PASS Property filter value 'inherit' no zoom
 PASS Property filter value 'drop-shadow(rgb(0, 0, 0) 10px 10px 10px)' zoom: 2
 PASS Property filter value 'inherit' zoom: 2
 PASS Property height value '18px' no zoom
-FAIL Property height value 'inherit' no zoom assert_equals: expected "9x" but got "auto"
+PASS Property height value 'inherit' no zoom
 PASS Property height value '18px' zoom: 2
-FAIL Property height value 'inherit' zoom: 2 assert_equals: expected "9x" but got "auto"
+PASS Property height value 'inherit' zoom: 2
 PASS Property inset value '-20px 40px 60px -80px' no zoom
 PASS Property inset value 'inherit' no zoom
 PASS Property inset value '-20px 40px 60px -80px' zoom: 2

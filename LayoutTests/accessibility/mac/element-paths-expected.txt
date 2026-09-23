@@ -1,41 +1,32 @@
+This tests that AXPath is correctly computed for SVG elements, image map areas, elements with border-radius, elements with clip-path, and multi-line links with heuristics.
 
-This tests SVG group elements are accessible and that the svg:title element is returned properly.
-
-On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
-
-
-PASS svg.isAttributeSupported('AXPath') is true
-SVG path description
-Start Path
-	Move to point
-	Line to
-	Line to
-	Close
-	Move to point
-
-PASS map1.isAttributeSupported('AXPath') is true
-Map1 path description
-Start Path
-	Move to point
-	Line to
-	Line to
-	Line to
-	Line to
-	Close
-	Move to point
-
-PASS map2.isAttributeSupported('AXPath') is true
-Map2 path description
-Start Path
-	Move to point
-	Curve to
-	Curve to
-	Curve to
-	Curve to
-	Close
-	Move to point
+PASS: svgSupportsPath === true
+PASS: pathSegmentCountOfID('singleline-link', 'Line to') === 0 === true
+PASS: pathSegmentCountOfID('link-with-image', 'Line to') === 0 === true
+PASS: pathSegmentCountOfID('link-with-div', 'Line to') === 0 === true
+PASS: noRadiusSupportsPath === false
+PASS: map1.isAttributeSupported('AXPath') === true
+PASS: map2.isAttributeSupported('AXPath') === true
+PASS: pathSegmentCountOfID('pill-button', 'Curve to') > 0 === true
+PASS: pathSegmentCountOfID('rounded-div', 'Curve to') > 0 === true
+PASS: pathSegmentCountOfID('clip-path-div', 'Line to') > 0 === true
+PASS: pathSegmentCountOfID('multiline-link', 'Line to') > 4 === true
+PASS: pathSegmentCountOfID('vertical-multiline-link', 'Line to') > 4 === true
+PASS: pathSegmentCountOfID('rtl-multiline-link', 'Line to') > 4 === true
 
 PASS successfullyParsed is true
 
 TEST COMPLETE
+   Pill
+Rounded
+Sharp
+Diamond
+This is a long link that should wrap across multiple lines in a narrow container
 
+Short
+
+Click  here
+
+Block content inside a link
+Vertical wrap
+This is a long RTL link that should wrap across multiple lines in a narrow container

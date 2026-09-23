@@ -1,12 +1,8 @@
 <html>
 <head>
 <title>Test for Buzilla Bug 15359: JPEG image not shown when height is specified as percentage inside a table</title>
-<script src="../../resources/js-test-pre.js"></script>
+<script src="../../resources/js-test.js"></script>
 <script>
-if (window.testRunner) {
-    testRunner.waitUntilDone();
-    testRunner.dumpAsText();
-}
 
 function getComputedStyleForElement(element, cssPropertyName)
 {
@@ -61,6 +57,7 @@ function is75PercentOf(expression75, expression100, hasSubpixelSupport)
 function test()
 {
     description("This test checks that replaced elements with percentage heights within table cells have the correct height.<br>Note, some of the button height tests fail on the Windows ports. See bug #34071.");
+    window.jsTestIsAsync = true;
 
     var hasSubpixelSupport = getWidth('canvas-75') == '225px';
 
@@ -98,9 +95,8 @@ function test()
     shouldBe("getHeight('input-button-75')", "getHeight('input-button-100')");
 
     shouldBe("getWidth('input-checkbox-75')", "getWidth('input-checkbox-100')");
-    shouldBeFalse("getHeight('input-checkbox-75') != '0px'");
-    // Note: This behavior doesn't match to Firefox 3.5 and Opera 10.
-    is75PercentOf("getHeight('input-checkbox-75')", "getHeight('input-checkbox-100')", hasSubpixelSupport);
+    shouldBeTrue("getHeight('input-checkbox-75') != '0px'");
+    shouldBe("getHeight('input-checkbox-75')", "getHeight('input-checkbox-100')", hasSubpixelSupport);
 
     shouldBe("getWidth('input-file-75')", "getWidth('input-file-100')");
     shouldBeTrue("getHeight('input-file-75') != '0px'");
@@ -112,9 +108,8 @@ function test()
     shouldBe("getHeight('input-image-100')", "'100px'");
 
     shouldBe("getWidth('input-radio-75')", "getWidth('input-radio-100')");
-    shouldBeFalse("getHeight('input-radio-75') != '0px'");
-    // Note: This behavior doesn't match to Firefox 3.5 and Opera 10.
-    is75PercentOf("getHeight('input-radio-75')", "getHeight('input-radio-100')", hasSubpixelSupport);
+    shouldBeTrue("getHeight('input-radio-75') != '0px'");
+    shouldBe("getHeight('input-radio-75')", "getHeight('input-radio-100')", hasSubpixelSupport);
 
     shouldBe("getWidth('input-reset-75')", "getWidth('input-reset-100')");
     shouldBeTrue("getHeight('input-reset-75') != '0px'");
@@ -128,10 +123,9 @@ function test()
     shouldBeTrue("getHeight('select-75') != '0px'");
     shouldBe("getHeight('select-75')", "getHeight('select-100')");
 
-    isSuccessfullyParsed();
 
     if (window.testRunner) { 
-        testRunner.notifyDone();
+        finishJSTest();
     }
 }
 </script>

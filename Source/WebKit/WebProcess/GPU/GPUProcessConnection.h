@@ -134,9 +134,10 @@ public:
     void addClient(const Client& client) { m_clients.add(client); }
 
     static constexpr Seconds defaultTimeout = 3_s;
+    bool waitForDidInitialize();
+
 private:
     GPUProcessConnection(Ref<IPC::Connection>&&);
-    bool waitForDidInitialize();
     void invalidate();
 
     // IPC::Connection::Client

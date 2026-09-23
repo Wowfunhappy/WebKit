@@ -46,7 +46,7 @@ class ValidatedFormListedElement : public FormListedElement {
     friend class DelayedUpdateValidityScope;
     friend class HTMLMaybeFormAssociatedCustomElement;
 public:
-    ValidatedFormListedElement(HTMLFormElement*);
+    ValidatedFormListedElement();
     virtual ~ValidatedFormListedElement();
 
     // "willValidate" means "is a candidate for constraint validation".
@@ -101,9 +101,9 @@ protected:
 
     bool NODELETE validationMessageShadowTreeContains(const Node&) const;
 
-    void insertedIntoAncestor(Node::InsertionType, ContainerNode&);
-    void didFinishInsertingNode();
-    void removedFromAncestor(Node::RemovalType, ContainerNode&);
+    void insertionSteps(Node::InsertionType, ContainerNode&);
+    void postConnectionSteps();
+    void removingSteps(Node::RemovalType, ContainerNode&);
     void parseAttribute(const QualifiedName&, const AtomString&);
     void parseDisabledAttribute(const AtomString&);
     void parseReadOnlyAttribute(const AtomString&);
@@ -120,9 +120,10 @@ protected:
     void syncWithFieldsetAncestors(ContainerNode* insertionNode);
     void restoreFormControlStateIfNecessary();
 
+    virtual void setDisabledInternal(bool disabled, bool disabledByAncestorFieldset);
+
 private:
     bool computeIsDisabledByFieldsetAncestor() const;
-    void setDisabledInternal(bool disabled, bool disabledByAncestorFieldset);
     virtual HTMLElement* validationAnchorElement() = 0;
 
     void startDelayingUpdateValidity() { ++m_delayedUpdateValidityCount; }
@@ -146,7 +147,7 @@ private:
     bool m_hasReadOnlyAttribute : 1 { false };
     bool m_wasInteractedWithSinceLastFormSubmitEvent : 1 { false };
     bool m_belongsToFormThatIsBeingDestroyed : 1 { false };
-    bool m_isFocusingWithValidationMessage { false };
+    bool m_isFocusingWithValidationMessage : 1 { false };
 
     mutable TriState m_isInsideDataList : 2 { TriState::Indeterminate };
 

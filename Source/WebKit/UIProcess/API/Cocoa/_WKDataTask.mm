@@ -32,7 +32,7 @@
 #import "CompletionHandlerCallChecker.h"
 #import "WebPageProxy.h"
 #import "_WKDataTaskDelegate.h"
-#import <WebCore/AuthenticationMac.h>
+#import <WebCore/AuthenticationCocoa.h>
 #import <WebCore/Credential.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/WebCoreObjCExtras.h>

@@ -29,6 +29,7 @@
 #include "pas_basic_heap_config_enumerator_data.h"
 #include "pas_enumerator.h"
 #include "pas_heap_lock.h"
+#include "pas_page_base_config.h"
 #include "pas_page_base_config_utils.h"
 
 PAS_BEGIN_EXTERN_C;

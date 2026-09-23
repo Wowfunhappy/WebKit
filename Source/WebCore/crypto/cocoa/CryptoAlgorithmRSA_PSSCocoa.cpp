@@ -30,8 +30,8 @@
 
 #include "CommonCryptoUtilities.h"
 #include "CryptoAlgorithmRsaPssParams.h"
-#include "CryptoDigestAlgorithm.h"
 #include "CryptoKeyRSA.h"
+#include "CryptoTypesBridging.h"
 #include "ExceptionOr.h"
 
 namespace WebCore {
@@ -45,7 +45,7 @@ static ExceptionOr<Vector<uint8_t>> signRSA_PSS(CryptoAlgorithmIdentifier hash, 
     auto cryptoDigestAlgorithm = WebCore::cryptoDigestAlgorithm(hash);
     if (!cryptoDigestAlgorithm)
         return Exception { ExceptionCode::OperationError };
-    auto digest = PAL::CryptoDigest::create(*cryptoDigestAlgorithm);
+    auto digest = PAL::Crypto::CryptoDigest::create(*cryptoDigestAlgorithm);
     if (!digest)
         return Exception { ExceptionCode::OperationError };
     digest->addBytes(data.span());
@@ -70,7 +70,7 @@ static ExceptionOr<bool> verifyRSA_PSS(CryptoAlgorithmIdentifier hash, const Pla
     auto cryptoDigestAlgorithm = WebCore::cryptoDigestAlgorithm(hash);
     if (!cryptoDigestAlgorithm)
         return Exception { ExceptionCode::OperationError };
-    auto digest = PAL::CryptoDigest::create(*cryptoDigestAlgorithm);
+    auto digest = PAL::Crypto::CryptoDigest::create(*cryptoDigestAlgorithm);
     if (!digest)
         return Exception { ExceptionCode::OperationError };
     digest->addBytes(data.span());

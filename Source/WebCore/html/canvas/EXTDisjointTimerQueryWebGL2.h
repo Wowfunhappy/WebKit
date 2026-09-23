@@ -41,7 +41,7 @@ public:
 
     static bool supported(GraphicsContextGL&);
 
-    void queryCounterEXT(WebGLQuery&, GCGLenum target);
+    void queryCounterEXT(ScriptExecutionContext&, WebGLQuery&, GCGLenum target);
 };
 
 } // namespace WebCore

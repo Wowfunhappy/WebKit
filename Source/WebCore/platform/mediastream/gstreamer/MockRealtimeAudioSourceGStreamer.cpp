@@ -201,7 +201,7 @@ void MockRealtimeAudioSourceGStreamer::render(Seconds delta)
 
         gst_buffer_add_audio_meta(buffer.get(), &m_info, bipBopCount, nullptr);
 
-        auto sample = adoptGRef(gst_sample_new(buffer.get(), m_caps.get(), nullptr, nullptr));
+        GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), m_caps.get(), nullptr, nullptr));
         // Mock GstDevice is an appsrc, see webkitMockDeviceCreateElement().
         auto appSrc = m_capturer->source();
         if (!appSrc || !GST_IS_APP_SRC(appSrc.get())) {

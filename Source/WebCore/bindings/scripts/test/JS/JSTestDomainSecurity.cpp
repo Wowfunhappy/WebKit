@@ -29,6 +29,7 @@
 #include "IDLTypes.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMBindingSecurity.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertBase.h"
@@ -44,7 +45,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -84,10 +84,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestDomainSecurityPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestDomainSecurityPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -142,11 +139,16 @@ static const std::array<HashTableValue, 4> JSTestDomainSecurityPrototypeTableVal
 
 const ClassInfo JSTestDomainSecurityPrototype::s_info = { "TestDomainSecurity"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDomainSecurityPrototype) };
 
+JSC::Structure* JSTestDomainSecurityPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestDomainSecurityPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestDomainSecurity::info(), JSTestDomainSecurityPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestDomainSecurity::s_info = { "TestDomainSecurity"_s, &Base::s_info, &JSTestDomainSecurityTable, nullptr, CREATE_METHOD_TABLE(JSTestDomainSecurity) };
@@ -157,6 +159,19 @@ JSTestDomainSecurity::JSTestDomainSecurity(Structure* structure, JSDOMGlobalObje
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestDomainSecurity>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestDomainSecurity* JSTestDomainSecurity::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDomainSecurity>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestDomainSecurity* ptr = new (NotNull, JSC::allocateCell<JSTestDomainSecurity>(vm)) JSTestDomainSecurity(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestDomainSecurity::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestDomainSecurity::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -172,7 +187,7 @@ JSObject* JSTestDomainSecurity::prototype(VM& vm, JSDOMGlobalObject& globalObjec
 
 JSValue JSTestDomainSecurity::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestDomainSecurityDOMConstructor, DOMConstructorID::TestDomainSecurity>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestDomainSecurityDOMConstructor, DOMConstructorID::TestDomainSecurity>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestDomainSecurity::destroy(JSC::JSCell* cell)
@@ -185,10 +200,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDomainSecurityConstructor, (JSGlobalObject* lexic
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestDomainSecurityPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestDomainSecurityPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestDomainSecurity::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestDomainSecurity::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestDomainSecurity_excitingAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDomainSecurity& thisObject)
@@ -225,7 +240,7 @@ static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_exciting
     auto nextChildConversionResult = convert<IDLInterface<Node>>(*lexicalGlobalObject, argument0.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 0, "nextChild"_s, "TestDomainSecurity"_s, "excitingFunction"_s, "Node"_s); });
     if (nextChildConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.excitingFunction(nextChildConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.excitingFunction(nextChildConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDomainSecurityPrototypeFunction_excitingFunction, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -246,7 +261,7 @@ static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_postMess
     auto messageConversionResult = convert<IDLDOMString>(*lexicalGlobalObject, argument0.value());
     if (messageConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.postMessage(messageConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.postMessage(messageConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDomainSecurityPrototypeFunction_postMessage, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -266,7 +281,7 @@ static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_overload
     auto paramConversionResult = convert<IDLDOMString>(*lexicalGlobalObject, argument0.value());
     if (paramConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.overloadedMethod(paramConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.overloadedMethod(paramConversionResult.releaseReturnValue()); })));
 }
 
 static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_overloadedMethod2Body(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDomainSecurity>::ClassParameter castedThis)
@@ -284,7 +299,7 @@ static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_overload
     auto param2ConversionResult = convert<IDLInterface<Node>>(*lexicalGlobalObject, argument1.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 1, "param2"_s, "TestDomainSecurity"_s, "overloadedMethod"_s, "Node"_s); });
     if (param2ConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.overloadedMethod(param1ConversionResult.releaseReturnValue(), param2ConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.overloadedMethod(param1ConversionResult.releaseReturnValue(), param2ConversionResult.releaseReturnValue()); })));
 }
 
 static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_overloadedMethodOverloadDispatcher(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDomainSecurity>::ClassParameter castedThis)
@@ -324,12 +339,14 @@ JSC::GCClient::IsoSubspace* JSTestDomainSecurity::subspaceForImpl(JSC::VM& vm)
 
 void JSTestDomainSecurity::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestDomainSecurity*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestDomainSecurity>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestDomainSecurityOwner::JSTestDomainSecurityOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestDomainSecurityOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -343,7 +360,7 @@ void JSTestDomainSecurityOwner::finalize(JSC::Handle<JSC::Unknown> handle, void*
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestDomainSecurity = static_cast<JSTestDomainSecurity*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestDomainSecurity->wrapped()).ptr(), jsTestDomainSecurity);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestDomainSecurity->wrapped(), jsTestDomainSecurity);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -391,7 +408,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestDomainSecurity* JSTestDomainSecurity::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestDomainSecurity*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestDomainSecurity>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

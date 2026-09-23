@@ -32,7 +32,7 @@
 #pragma once
 
 #include <wtf/Function.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/text/StringView.h>
 
 namespace WebCore {
@@ -109,10 +109,10 @@ struct ImageCandidate {
     OriginAttribute originAttribute;
 };
 
-ImageCandidate bestFitSourceForImageAttributes(float deviceScaleFactor, const AtomString& srcAttribute, StringView srcsetAttribute, float sourceSize, NOESCAPE const Function<bool(const ImageCandidate&)>& shouldIgnoreCandidateCallback = { });
+ImageCandidate bestFitSourceForImageAttributes(float deviceScaleFactor, const String& srcAttribute, StringView srcsetAttribute, std::optional<float> sourceSize, NOESCAPE const Function<bool(const ImageCandidate&)>& shouldIgnoreCandidateCallback = { });
 
 Vector<ImageCandidate> parseImageCandidatesFromSrcsetAttribute(StringView attribute);
-void getURLsFromSrcsetAttribute(const Element&, StringView attribute, ListHashSet<URL>&);
+void getURLsFromSrcsetAttribute(const Element&, StringView attribute, OrderedHashSet<URL>&);
 String replaceURLsInSrcsetAttribute(const Element&, StringView attribute, const CSS::SerializationContext&);
 
 } // namespace WebCore

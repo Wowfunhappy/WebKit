@@ -29,6 +29,7 @@
 
 #include "AuthenticatorTransportService.h"
 #include "CtapDriver.h"
+#include <wtf/HashSet.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/UniqueRef.h>
 

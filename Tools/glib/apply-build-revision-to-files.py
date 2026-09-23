@@ -20,36 +20,37 @@ import os
 import sys
 from pathlib import Path
 import subprocess
-try:
-    from urllib.parse import urlparse  # pylint: disable=E0611
-except ImportError:
-    from urlparse import urlparse
+from urllib.parse import urlparse
 
 WEBKIT_TOP_LEVEL = Path(__file__).parent.parent.parent.resolve()
 
 
 def get_revision_from_most_recent_git_commit():
-    with open(os.devnull, 'w') as devnull:
-        try:
-            commit_message = subprocess.check_output(("git", "log", "-1", "--pretty=%B", "HEAD"), stderr=devnull)
-        except subprocess.CalledProcessError:
-            # This may happen with shallow checkouts whose HEAD has been
-            # modified; there is no origin reference anymore, and git
-            # will fail - let's pretend that this is not a repo at all
-            return None
+    try:
+        commit_message = subprocess.run(
+            ('git', 'log', '-1', '--pretty=%B', 'HEAD'),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True,
+        ).stdout
+    except subprocess.CalledProcessError:
+        # This may happen with shallow checkouts whose HEAD has been
+        # modified; there is no origin reference anymore, and git
+        # will fail - let's pretend that this is not a repo at all
+        return None
 
-        # Commit messages tend to be huge and the metadata we're looking
-        # for is at the very end. Also a spoofed 'Canonical link' mention
-        # could appear early on. So make sure we get the right metadata by
-        # reversing the contents. And this is a micro-optimization as well.
-        for line in reversed(commit_message.splitlines()):
-            parsed = line.split(b':')
-            key = parsed[0]
-            contents = b':'.join(parsed[1:])
-            if key == b'Canonical link':
-                url = contents.decode('utf-8').strip()
-                revision = urlparse(url).path[1:]  # strip leading /
-                return revision
+    trailer_output = subprocess.run(
+        ['git',
+         '-c', 'trailer.Canonical-link.key=Canonical-link',
+         '-c', 'trailer.Identifier.key=Identifier',
+         '-c', 'trailer.git-svn-id.key=git-svn-id',
+         'interpret-trailers', '--parse', '--no-divider'],
+        input=commit_message.replace(b'\nCanonical link:', b'\nCanonical-link:'),
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True,
+    ).stdout
+    for line in trailer_output.splitlines():
+        if line.startswith(b'Canonical-link:'):
+            url = line[len(b'Canonical-link:'):].decode('utf-8').strip()
+            revision = urlparse(url).path[1:]  # strip leading /
+            return revision
     return None
 
 def get_build_revision():

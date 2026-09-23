@@ -384,6 +384,17 @@ bool SpeculationRules::parseSpeculationRules(Node& sourceNode, const StringView&
     return true;
 }
 
+bool SpeculationRules::hasNonConservativePrefetchRules() const
+{
+    for (auto [node, rules] : m_prefetchRulesByNode) {
+        for (const auto& rule : rules) {
+            if (rule.eagerness != Eagerness::Conservative)
+                return true;
+        }
+    }
+    return false;
+}
+
 // https://html.spec.whatwg.org/C#unregister-speculation-rules
 Vector<URL> SpeculationRules::unregisterSpeculationRules(Node& sourceNode)
 {

@@ -27,9 +27,7 @@
 #define PAS_PAGE_BASE_CONFIG_UTILS_H
 
 #include "pas_config.h"
-#include "pas_internal_config.h"
 #include "pas_mte.h"
-#include "pas_page_base_config.h"
 #include "pas_page_header_placement_mode.h"
 #include "pas_page_header_table.h"
 

@@ -29,6 +29,7 @@
 #import <WebCore/NotificationData.h>
 #import <WebCore/SecurityOriginData.h>
 #import <wtf/HashMap.h>
+#import <wtf/HashSet.h>
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/TZoneMalloc.h>

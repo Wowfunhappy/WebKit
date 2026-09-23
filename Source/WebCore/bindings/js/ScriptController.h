@@ -47,7 +47,6 @@ namespace JSC {
 class AbstractModuleRecord;
 class CallFrame;
 class JSGlobalObject;
-class JSInternalPromise;
 
 namespace Bindings {
 class Instance;
@@ -125,8 +124,8 @@ public:
     void loadModuleScriptInWorld(LoadableModuleScript&, const ScriptSourceCode&, DOMWrapperWorld&);
     void loadModuleScript(LoadableModuleScript&, const ScriptSourceCode&);
 
-    JSC::JSValue linkAndEvaluateModuleScriptInWorld(LoadableModuleScript& , DOMWrapperWorld&);
-    JSC::JSValue linkAndEvaluateModuleScript(LoadableModuleScript&);
+    JSC::JSPromise* linkAndEvaluateModuleScriptInWorld(LoadableModuleScript&, DOMWrapperWorld&);
+    JSC::JSPromise* linkAndEvaluateModuleScript(LoadableModuleScript&);
 
     JSC::JSValue evaluateModule(const URL&, JSC::AbstractModuleRecord&, DOMWrapperWorld&, JSC::JSValue awaitedValue, JSC::JSValue resumeMode);
     JSC::JSValue evaluateModule(const URL&, JSC::AbstractModuleRecord&, JSC::JSValue awaitedValue, JSC::JSValue resumeMode);
@@ -184,7 +183,7 @@ private:
     ValueOrException executeScriptInWorld(DOMWrapperWorld&, RunJavaScriptParameters&&);
     ValueOrException callInWorld(RunJavaScriptParameters&&, DOMWrapperWorld&);
     
-    void setupModuleScriptHandlers(LoadableModuleScript&, JSC::JSInternalPromise&, DOMWrapperWorld&);
+    void setupModuleScriptHandlers(LoadableModuleScript&, JSC::JSPromise&, DOMWrapperWorld&);
 
     void disconnectPlatformScriptObjects();
 

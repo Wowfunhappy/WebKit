@@ -28,6 +28,7 @@
 #include "InsertListCommand.h"
 
 #include "BoundaryPointInlines.h"
+#include "ContainerNodeInlines.h"
 #include "Document.h"
 #include "Editing.h"
 #include "ElementTraversal.h"
@@ -37,6 +38,8 @@
 #include "HTMLUListElement.h"
 #include "PositionInlines.h"
 #include "Range.h"
+#include "SimpleRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "VisibleUnits.h"
 
 namespace WebCore {
@@ -47,7 +50,7 @@ static RefPtr<Node> enclosingListChild(Node* node, Node* listNode)
 {
     RefPtr listChild = enclosingListChild(node);
     while (listChild && enclosingList(listChild.get()) != listNode)
-        listChild = enclosingListChild(listChild->parentNode());
+        listChild = enclosingListChild(protect(listChild->parentNode()));
     return listChild;
 }
 
@@ -97,12 +100,12 @@ bool InsertListCommand::selectionHasListOfType(const VisibleSelection& selection
 {
     VisiblePosition start = selection.visibleStart();
 
-    if (!enclosingList(start.deepEquivalent().deprecatedNode()))
+    if (!enclosingList(protect(start.deepEquivalent().deprecatedNode())))
         return false;
 
     VisiblePosition end = startOfParagraph(selection.visibleEnd());
     while (start.isNotNull() && start != end) {
-        RefPtr listNode = enclosingList(start.deepEquivalent().deprecatedNode());
+        RefPtr listNode = enclosingList(protect(start.deepEquivalent().deprecatedNode()));
         if (!listNode || !listNode->hasTagName(listTag))
             return false;
         start = startOfNextParagraph(start);
@@ -272,7 +275,7 @@ void InsertListCommand::doApplyForSingleParagraph(bool forceCreateList, const HT
             if (!newList->hasEditableStyle())
                 return;
 
-            RefPtr firstChildInList = enclosingListChild(VisiblePosition(firstPositionInNode(*listNode)).deepEquivalent().deprecatedNode(), listNode.get());
+            RefPtr firstChildInList = enclosingListChild(protect(VisiblePosition(firstPositionInNode(*listNode)).deepEquivalent().deprecatedNode()), listNode.get());
             RefPtr outerBlock = firstChildInList && isBlockFlowElement(*firstChildInList) ? firstChildInList : listNode.get();
             
             moveParagraphWithClones(firstPositionInNode(*listNode), lastPositionInNode(*listNode), newList.get(), outerBlock.get());
@@ -315,7 +318,7 @@ void InsertListCommand::unlistifyParagraph(const VisiblePosition& originalStart,
     VisiblePosition start;
     VisiblePosition end;
 
-    if (!listNode.parentNode() || !listNode.parentNode()->hasEditableStyle())
+    if (!listNode.parentNode() || !protect(listNode.parentNode())->hasEditableStyle())
         return;
 
     if (listChildNode->hasTagName(liTag)) {
@@ -327,9 +330,9 @@ void InsertListCommand::unlistifyParagraph(const VisiblePosition& originalStart,
         // A paragraph is visually a list item minus a list marker.  The paragraph will be moved.
         start = startOfParagraph(originalStart, CanSkipOverEditingBoundary);
         end = endOfParagraph(start, CanSkipOverEditingBoundary);
-        nextListChild = enclosingListChild(end.next().deepEquivalent().deprecatedNode(), &listNode);
+        nextListChild = enclosingListChild(protect(end.next().deepEquivalent().deprecatedNode()), &listNode);
         ASSERT(nextListChild != listChildNode);
-        previousListChild = enclosingListChild(start.previous().deepEquivalent().deprecatedNode(), &listNode);
+        previousListChild = enclosingListChild(protect(start.previous().deepEquivalent().deprecatedNode()), &listNode);
         ASSERT(previousListChild != listChildNode);
     }
 
@@ -348,14 +351,14 @@ void InsertListCommand::unlistifyParagraph(const VisiblePosition& originalStart,
     }
 
     if (nextListChild && previousListChild) {
-        // We want to pull listChildNode out of listNode, and place it before nextListChild 
+        // We want to pull listChildNode out of listNode, and place it before nextListChild
         // and after previousListChild, so we split listNode and insert it between the two lists.  
         // But to split listNode, we must first split ancestors of listChildNode between it and listNode,
         // if any exist.
         // FIXME: We appear to split at nextListChild as opposed to listChildNode so that when we remove
         // listChildNode below in moveParagraphs, previousListChild will be removed along with it if it is 
         // unrendered. But we ought to remove nextListChild too, if it is unrendered.
-        splitElement(listNode, *splitTreeToNode(*nextListChild, listNode));
+        splitListElement(listNode, *nextListChild);
         insertNodeBefore(WTF::move(nodeToInsert), listNode);
     } else if (nextListChild || listChildNode->parentNode() != &listNode) {
         // Just because listChildNode has no previousListChild doesn't mean there isn't any content
@@ -363,7 +366,7 @@ void InsertListCommand::unlistifyParagraph(const VisiblePosition& originalStart,
         // between it and listNode. So, we split up to listNode before inserting the placeholder
         // where we're about to move listChildNode to.
         if (RefPtr listChildNodeParentNode { listChildNode->parentNode() }; listChildNodeParentNode && listChildNodeParentNode != &listNode)
-            splitElement(listNode, *splitTreeToNode(*listChildNode, listNode).get());
+            splitListElement(listNode, *listChildNode);
         insertNodeBefore(WTF::move(nodeToInsert), listNode);
     } else
         insertNodeAfter(WTF::move(nodeToInsert), listNode);
@@ -399,7 +402,7 @@ RefPtr<HTMLElement> InsertListCommand::listifyParagraph(const VisiblePosition& o
     VisiblePosition start = startOfParagraph(originalStart, CanSkipOverEditingBoundary);
     VisiblePosition end = endOfParagraph(start, CanSkipOverEditingBoundary);
     
-    if (start.isNull() || end.isNull() || !start.deepEquivalent().containerNode()->hasEditableStyle() || !end.deepEquivalent().containerNode()->hasEditableStyle())
+    if (start.isNull() || end.isNull() || !protect(start.deepEquivalent().containerNode())->hasEditableStyle() || !protect(end.deepEquivalent().containerNode())->hasEditableStyle())
         return nullptr;
 
     // Check for adjoining lists.
@@ -439,7 +442,7 @@ RefPtr<HTMLElement> InsertListCommand::listifyParagraph(const VisiblePosition& o
         // clean markup when inline elements are pushed down as far as possible.
         Position insertionPos(start.deepEquivalent().upstream());
         // Also avoid the containing list item.
-        RefPtr listChild = enclosingListChild(insertionPos.deprecatedNode());
+        RefPtr listChild = enclosingListChild(protect(insertionPos.deprecatedNode()));
         if (listChild && listChild->hasTagName(liTag))
             insertionPos = positionInParentBeforeNode(*listChild);
 

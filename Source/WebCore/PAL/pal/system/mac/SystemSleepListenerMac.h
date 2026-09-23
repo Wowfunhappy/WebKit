@@ -29,6 +29,7 @@
 
 #include <pal/system/SystemSleepListener.h>
 #include <wtf/CheckedRef.h>
+#include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 

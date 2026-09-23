@@ -38,6 +38,7 @@
 namespace WebCore {
 
 class AbortAlgorithm;
+class JSDOMGlobalObject;
 class ScriptExecutionContext;
 class WebCoreOpaqueRoot;
 
@@ -84,7 +85,8 @@ public:
 
 private:
     enum class Aborted : bool { No, Yes };
-    AbortSignal(ScriptExecutionContext*, Aborted = Aborted::No, JSC::JSValue reason = JSC::jsUndefined());
+    AbortSignal(ScriptExecutionContext*, Aborted = Aborted::No);
+    AbortSignal(JSC::JSGlobalObject&, ScriptExecutionContext*, Aborted, JSC::JSValue reason);
 
     void setHasActiveTimeoutTimer(bool hasActiveTimeoutTimer) { m_hasActiveTimeoutTimer = hasActiveTimeoutTimer; }
 
@@ -92,7 +94,7 @@ private:
     void addSourceSignal(AbortSignal&);
     void addDependentSignal(AbortSignal&);
 
-    void markAborted(JSC::JSValue);
+    void markAborted(JSC::JSGlobalObject&, JSC::JSValue);
     void runAbortSteps();
 
     // EventTarget.

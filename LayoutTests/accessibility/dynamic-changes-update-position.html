@@ -16,14 +16,12 @@
 <script>
 var output = "This test ensures that an AX element's position is updated after a dynamic page change.\n\n";
 
-var link, expectsZeroOrigin, startY, endY;
+var link, startY, endY;
 if (window.accessibilityController) {
     window.jsTestIsAsync = true;
 
-    expectsZeroOrigin = accessibilityController.platformName == "mac";
-
     setTimeout(async function() {
-        await waitFor(() => accessibilityController.rootElement.x != 0 || !expectsZeroOrigin);
+        await waitForFrameGeometryReady();
 
         link = accessibilityController.accessibleElementById("link");
         startY = link.y;

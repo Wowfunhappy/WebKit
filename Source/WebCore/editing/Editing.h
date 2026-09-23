@@ -64,7 +64,7 @@ Element* deprecatedEnclosingBlockFlowElement(Node*); // Use enclosingBlock inste
 RefPtr<Element> enclosingBlock(RefPtr<Node>, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 RefPtr<Element> enclosingTableCell(const Position&);
 RefPtr<Node> enclosingEmptyListItem(const VisiblePosition&);
-RefPtr<Element> enclosingAnchorElement(const Position&);
+RefPtr<Element> NODELETE enclosingAnchorElement(const Position&);
 Element* enclosingElementWithTag(const Position&, const QualifiedName&);
 RefPtr<Node> enclosingNodeOfType(const Position&, bool (*nodeIsOfType)(const Node&), EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 HTMLSpanElement* NODELETE tabSpanNode(Node*);
@@ -79,6 +79,8 @@ Node* previousLeafNode(const Node*);
 WEBCORE_EXPORT int lastOffsetForEditing(const Node&);
 int caretMinOffset(const Node&);
 int caretMaxOffset(const Node&);
+unsigned convertOffsetInTextFragmentToNodeOffset(const RenderObject&, unsigned offset);
+unsigned convertNodeOffsetToOffsetInTextFragment(const RenderObject&, unsigned offset);
 
 bool hasEditableStyle(const Node&, EditableType);
 bool isEditableNode(const Node&);
@@ -96,7 +98,7 @@ bool NODELETE isBlock(const Node&);
 bool NODELETE isBlockFlowElement(const Node&);
 bool NODELETE isInline(const Node&);
 bool isMailBlockquote(const Node&);
-bool isRenderedTable(const Node*);
+bool NODELETE isRenderedTable(const Node*);
 bool NODELETE isTableCell(const Node&);
 bool isEmptyTableCell(const Node*);
 bool NODELETE isTableStructureNode(const Node&);

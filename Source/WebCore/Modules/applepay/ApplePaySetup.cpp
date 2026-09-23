@@ -31,6 +31,7 @@
 #include "ContextDestructionObserverInlines.h"
 #include "DocumentPage.h"
 #include "JSApplePaySetupFeature.h"
+#include "JSDOMConvertBoolean.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertSequences.h"
 #include "JSDOMPromiseDeferred.h"

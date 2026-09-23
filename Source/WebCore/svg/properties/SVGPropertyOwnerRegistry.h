@@ -69,7 +69,7 @@ public:
     {
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGStringList> SVGConditionalProcessingAttributes::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGStringList> SVGConditionalProcessingAttributes::*property>
     static void registerConditionalProcessingAttributeProperty()
     {
         registerProperty(attributeName, SVGConditionalProcessingAttributeAccessor<OwnerType>::template singleton<property>());

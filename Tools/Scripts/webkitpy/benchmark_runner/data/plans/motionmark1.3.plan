@@ -11,7 +11,7 @@
         "orientation": "landscape"
     },
     "output_file": "motionmark.result",
-    "subtest_url_format": "suite-name=${SUITE}&test-name=${TEST}",
+    "subtest_url_format": "&suite-name=${SUITE}&test-name=${TEST}",
     "subtests": {
         "MotionMark": [
             "Multiply",

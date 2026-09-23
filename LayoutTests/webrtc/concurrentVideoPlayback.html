@@ -54,6 +54,8 @@ promise_test(async (test) => {
     assert_false(video1.paused, "video1 paused");
     assert_false(video2.paused, "video2 paused");
     assert_false(video3.paused, "video3 paused");
+
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
 }, "Play regular video content should not pause MediaStream backed video elements");
         </script>
     </body>

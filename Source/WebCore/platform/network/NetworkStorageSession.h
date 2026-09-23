@@ -33,6 +33,7 @@
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
 #include <optional>
 #include <pal/SessionID.h>
+#include <span>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
@@ -54,7 +55,6 @@
 #endif
 
 #if USE(SOUP)
-#include <wtf/Function.h>
 #include <wtf/glib/GRefPtr.h>
 typedef struct _SoupCookieJar SoupCookieJar;
 typedef struct _SoupCookie SoupCookie;
@@ -153,7 +153,7 @@ public:
     using TopFrameDomain = RegistrableDomain;
     using SubResourceDomain = RegistrableDomain;
 
-    WEBCORE_EXPORT static void permitProcessToUseCookieAPI(bool);
+    WEBCORE_EXPORT static void NODELETE permitProcessToUseCookieAPI(bool);
     WEBCORE_EXPORT static bool NODELETE processMayUseCookieAPI();
 
     PAL::SessionID sessionID() const { return m_sessionID; }
@@ -226,8 +226,8 @@ public:
     WEBCORE_EXPORT void deleteAllCookies(CompletionHandler<void()>&&);
     WEBCORE_EXPORT void deleteAllCookiesModifiedSince(WallTime, CompletionHandler<void()>&&);
     WEBCORE_EXPORT void deleteCookies(const ClientOrigin&, CompletionHandler<void()>&&);
-    WEBCORE_EXPORT void deleteCookiesForHostnames(const Vector<String>& cookieHostNames, CompletionHandler<void()>&&);
-    WEBCORE_EXPORT void deleteCookiesForHostnames(const Vector<String>& cookieHostNames, IncludeHttpOnlyCookies, ScriptWrittenCookiesOnly, CompletionHandler<void()>&&);
+    WEBCORE_EXPORT void deleteCookiesForHostnames(std::span<const String> cookieHostNames, CompletionHandler<void()>&&);
+    WEBCORE_EXPORT void deleteCookiesForHostnames(std::span<const String> cookieHostNames, IncludeHttpOnlyCookies, ScriptWrittenCookiesOnly, CompletionHandler<void()>&&);
     WEBCORE_EXPORT Vector<Cookie> getAllCookies();
     WEBCORE_EXPORT Vector<Cookie> getCookies(const URL&);
     WEBCORE_EXPORT void hasCookies(const RegistrableDomain&, CompletionHandler<void(bool)>&&) const;
@@ -254,7 +254,7 @@ public:
     WEBCORE_EXPORT void NODELETE setTrackingPreventionDebugLoggingEnabled(bool);
     bool trackingPreventionDebugLoggingEnabled() const { return m_isTrackingPreventionDebugLoggingEnabled; }
     WEBCORE_EXPORT ThirdPartyCookieBlockingDecision thirdPartyCookieBlockingDecisionForRequest(const ResourceRequest&, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker, bool isInitiatedByDedicatedWorker = false) const;
-    ThirdPartyCookieBlockingDecision thirdPartyCookieBlockingDecisionForRequest(const URL& firstPartyForCookies, const URL& resource, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker, bool isInitiatedByDedicatedWorker = false) const;
+    WEBCORE_EXPORT ThirdPartyCookieBlockingDecision thirdPartyCookieBlockingDecisionForRequest(const URL& firstPartyForCookies, const URL& resource, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker, bool isInitiatedByDedicatedWorker = false) const;
     WEBCORE_EXPORT bool shouldBlockCookies(const ResourceRequest&, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker) const;
     WEBCORE_EXPORT bool shouldBlockCookies(const URL& firstPartyForCookies, const URL& resource, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker) const;
     WEBCORE_EXPORT bool shouldBlockThirdPartyCookies(const RegistrableDomain&) const;

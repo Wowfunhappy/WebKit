@@ -43,7 +43,7 @@ typedef (BufferSource or Blob or USVString) BlobPart;
     readonly attribute unsigned long long size;
     readonly attribute DOMString type;
 
-    [NewObject] Blob slice(optional long long start = 0, optional long long end = 0x7FFFFFFFFFFFFFFF, optional DOMString contentType = "");
+    [NewObject] Blob slice(optional [Clamp] long long start = 0, optional [Clamp] long long end = 0x7FFFFFFFFFFFFFFF, optional DOMString contentType = "");
 
     [NewObject] ReadableStream stream();
     [NewObject] Promise<USVString> text();

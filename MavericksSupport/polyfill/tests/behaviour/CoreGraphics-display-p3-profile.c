@@ -43,6 +43,24 @@ int main(int argc, char** argv)
         CGImageRelease(image);
         CGDataProviderRelease(provider);
     }
+    assert(CGColorSpaceIsWideGamutRGB(destination));
+    const CGFloat white[] = { .95047, 1, 1.08883 };
+    const CGFloat gamma[] = { 1.7, 1.7, 1.7 };
+    const CGFloat matrix[] = {
+        .4865709486, .2289745641, 0,
+        .2656676932, .6917385218, .0451133819,
+        .1982172852, .0792869141, 1.0439443689
+    };
+    CGColorSpaceRef custom = CGColorSpaceCreateCalibratedRGB(white, NULL, gamma, matrix);
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
+    assert(custom && srgb && gray);
+    assert(CGColorSpaceIsWideGamutRGB(custom));
+    assert(!CGColorSpaceIsWideGamutRGB(srgb));
+    assert(!CGColorSpaceIsWideGamutRGB(gray));
+    CGColorSpaceRelease(gray);
+    CGColorSpaceRelease(srgb);
+    CGColorSpaceRelease(custom);
     CGColorSpaceRelease(destination);
     CGColorSpaceRelease(sourceSpace);
     CFRelease(data);

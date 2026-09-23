@@ -44,17 +44,17 @@ WebAssemblyWrapperFunction::WebAssemblyWrapperFunction(VM& vm, NativeExecutable*
     , m_function(function, WriteBarrierEarlyInit)
 { }
 
-WebAssemblyWrapperFunction* WebAssemblyWrapperFunction::create(VM& vm, JSGlobalObject* globalObject, Structure* structure, JSObject* function, unsigned importIndex, JSWebAssemblyInstance* instance, Wasm::TypeIndex typeIndex, Ref<const Wasm::RTT>&& rtt)
+WebAssemblyWrapperFunction* WebAssemblyWrapperFunction::create(VM& vm, JSGlobalObject* globalObject, Structure* structure, JSObject* function, unsigned importIndex, JSWebAssemblyInstance* instance, Ref<const Wasm::RTT>&& signature)
 {
     ASSERT_WITH_MESSAGE(!function->inherits<WebAssemblyWrapperFunction>(), "We should never double wrap a wrapper function.");
 
     String name = emptyString();
-    SUPPRESS_UNCOUNTED_LOCAL const auto& signature = Wasm::TypeInformation::getFunctionSignature(typeIndex);
     NativeExecutable* executable = nullptr;
-    if (signature.argumentsOrResultsIncludeV128() || signature.argumentsOrResultsIncludeExnref()) [[unlikely]]
-        executable = vm.getHostFunction(callWebAssemblyWrapperFunctionIncludingInvalidValues, ImplementationVisibility::Public, NoIntrinsic, callHostFunctionAsConstructor, nullptr, name);
+    unsigned length = signature->argumentCount();
+    if (signature->argumentsOrResultsIncludeV128() || signature->argumentsOrResultsIncludeExnref()) [[unlikely]]
+        executable = vm.getHostFunction(callWebAssemblyWrapperFunctionIncludingInvalidValues, ImplementationVisibility::Public, NoIntrinsic, callHostFunctionAsConstructor, nullptr, length, name);
     else
-        executable = vm.getHostFunction(callWebAssemblyWrapperFunction, ImplementationVisibility::Public, NoIntrinsic, callHostFunctionAsConstructor, nullptr, name);
+        executable = vm.getHostFunction(callWebAssemblyWrapperFunction, ImplementationVisibility::Public, NoIntrinsic, callHostFunctionAsConstructor, nullptr, length, name);
 
     RELEASE_ASSERT(JSValue(function).isCallable());
     WebAssemblyWrapperFunction* result = new (NotNull, allocateCell<WebAssemblyWrapperFunction>(vm)) WebAssemblyWrapperFunction(vm, executable, globalObject, structure, function,
@@ -65,15 +65,14 @@ WebAssemblyWrapperFunction* WebAssemblyWrapperFunction::create(VM& vm, JSGlobalO
                     { instance, WriteBarrierEarlyInit },
                     &instance->importFunctionInfo(importIndex)->importFunctionStub
                 },
-                rtt.ptr(),
-                typeIndex
+                signature.ptr()
             },
             { },
             { }
         },
         instance->importFunctionInfo(importIndex));
     result->m_importableFunction.importFunction.set(vm, globalObject, function);
-    result->finishCreation(vm, executable, signature.argumentCount(), name);
+    result->finishCreation(vm);
     return result;
 }
 
@@ -86,7 +85,7 @@ Structure* WebAssemblyWrapperFunction::createStructure(VM& vm, JSGlobalObject* g
 template<typename Visitor>
 void WebAssemblyWrapperFunction::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    WebAssemblyWrapperFunction* thisObject = jsCast<WebAssemblyWrapperFunction*>(cell);
+    WebAssemblyWrapperFunction* thisObject = uncheckedDowncast<WebAssemblyWrapperFunction>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 
@@ -99,7 +98,7 @@ JSC_DEFINE_HOST_FUNCTION(callWebAssemblyWrapperFunction, (JSGlobalObject* global
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    WebAssemblyWrapperFunction* wasmFunction = jsCast<WebAssemblyWrapperFunction*>(callFrame->jsCallee());
+    WebAssemblyWrapperFunction* wasmFunction = uncheckedDowncast<WebAssemblyWrapperFunction>(callFrame->jsCallee());
     JSObject* function = wasmFunction->function();
     auto callData = JSC::getCallDataInline(function);
     RELEASE_ASSERT(callData.type != CallData::Type::None);

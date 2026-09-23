@@ -1,3 +1,6 @@
+# FIXME: Remove once source files are fixed. https://bugs.webkit.org/show_bug.cgi?id=312034
+WEBKIT_ADD_TARGET_CXX_FLAGS(DumpRenderTree -Wno-unused-parameter)
+
 find_library(QUARTZ_LIBRARY Quartz)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CORESERVICES_LIBRARY CoreServices)
@@ -103,9 +106,10 @@ set(DumpRenderTree_SOURCES
     ${DumpRenderTree_ObjCpp_SOURCES}
 )
 
-foreach (_file ${DumpRenderTree_ObjC_SOURCES})
-    set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-std=c99")
-endforeach ()
+# MAVERICKS_BACKPORT: Objective-C sources share the target's C standard with its prefix header.
+# foreach (_file ${DumpRenderTree_ObjC_SOURCES})
+#     set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-std=c99")
+# endforeach ()
 
 set(DumpRenderTree_RESOURCES
     AHEM____.TTF

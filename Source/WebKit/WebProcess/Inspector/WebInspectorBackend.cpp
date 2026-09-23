@@ -26,6 +26,8 @@
 #include "config.h"
 #include "WebInspectorBackend.h"
 
+#include "FrameNetworkAgentProxy.h"
+#include "PageAgentProxy.h"
 #include "WebFrame.h"
 #include "WebInspectorBackendMessages.h"
 #include "WebInspectorBackendProxyMessages.h"
@@ -33,11 +35,15 @@
 #include "WebPage.h"
 #include "WebProcess.h"
 #include <WebCore/Chrome.h>
+#include <WebCore/Document.h>
 #include <WebCore/DocumentView.h>
+#include <WebCore/FrameInspectorController.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/InspectorFrontendClient.h>
+#include <WebCore/InspectorIdentifierRegistry.h>
 #include <WebCore/InspectorPageAgent.h>
+#include <WebCore/InspectorResourceUtilities.h>
 #include <WebCore/LocalFrame.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
@@ -46,7 +52,10 @@
 #include <WebCore/Page.h>
 #include <WebCore/PageInspectorController.h>
 #include <WebCore/ScriptController.h>
+#include <WebCore/Settings.h>
+#include <WebCore/WebInjectedScriptManager.h>
 #include <WebCore/WindowFeatures.h>
+#include <wtf/Borrow.h>
 
 static const float minimumAttachedHeight = 250;
 static const float maximumAttachedHeightRatio = 0.75;
@@ -62,11 +71,14 @@ Ref<WebInspectorBackend> WebInspectorBackend::create(WebPage& page)
 
 WebInspectorBackend::WebInspectorBackend(WebPage& page)
     : m_page(page)
+    , m_resourceDataStore(makeUniqueRef<BackendResourceDataStore>(BackendResourceDataStore::Settings { }))
 {
 }
 
 WebInspectorBackend::~WebInspectorBackend()
 {
+    disableNetworkInstrumentation();
+
     if (RefPtr frontendConnection = m_frontendConnection)
         frontendConnection->invalidate();
 }
@@ -95,7 +107,7 @@ void WebInspectorBackend::setFrontendConnection(IPC::Connection::Handle&& connec
     m_frontendConnection = frontendConnection.copyRef();
     frontendConnection->open(*this);
 
-    for (auto& callback : m_frontendConnectionActions)
+    for (auto& callback : borrow(m_frontendConnectionActions).get())
         callback(frontendConnection.get());
     m_frontendConnectionActions.clear();
 }
@@ -300,6 +312,208 @@ void WebInspectorBackend::updateDockingAvailability()
     m_previousCanAttach = canAttachWindow;
 
     protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::AttachAvailabilityChanged(canAttachWindow), m_page->identifier());
+}
+
+void WebInspectorBackend::ensureInstrumentationForFrame(LocalFrame& frame)
+{
+    ensureNetworkInstrumentationForFrame(frame);
+    ensurePageInstrumentationForFrame(frame);
+}
+
+void WebInspectorBackend::ensureNetworkInstrumentationForFrame(LocalFrame& frame)
+{
+    if (!m_networkInstrumentationEnabled)
+        return;
+
+    auto frameID = frame.frameID();
+    if (m_frameNetworkAgentProxies.contains(frameID))
+        return;
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    RefPtr corePage = page->corePage();
+    if (!corePage)
+        return;
+
+    auto& pageInspectorController = corePage->inspectorController();
+    auto& frameController = frame.inspectorController();
+    Inspector::AgentContext baseContext = {
+        frameController,
+        pageInspectorController.injectedScriptManager(),
+        pageInspectorController.frontendRouter(),
+        pageInspectorController.backendDispatcher()
+    };
+    Ref instrumentingAgents = frameController.instrumentingAgents();
+    WebAgentContext webContext = {
+        baseContext,
+        instrumentingAgents.get()
+    };
+
+    CheckedRef resourceDataStore = m_resourceDataStore.get();
+    auto proxy = makeUnique<FrameNetworkAgentProxy>(webContext, *page, resourceDataStore.get());
+    proxy->enable();
+    m_frameNetworkAgentProxies.add(frameID, WTF::move(proxy));
+}
+
+void WebInspectorBackend::enableNetworkInstrumentation()
+{
+    if (!m_page)
+        return;
+
+    RefPtr corePage = m_page->corePage();
+    if (!corePage)
+        return;
+
+    if (!m_networkInstrumentationEnabled) {
+        m_networkInstrumentationEnabled = true;
+        corePage->settings().setDeveloperExtrasEnabled(true);
+        corePage->inspectorController().connectRemoteInstrumentation();
+    }
+
+    corePage->forEachLocalFrame([&](LocalFrame& frame) {
+        ensureNetworkInstrumentationForFrame(frame);
+    });
+}
+
+void WebInspectorBackend::disableNetworkInstrumentation()
+{
+    if (!m_networkInstrumentationEnabled)
+        return;
+
+    m_frameNetworkAgentProxies.clear();
+    m_networkInstrumentationEnabled = false;
+
+    if (!m_page)
+        return;
+
+    if (RefPtr corePage = m_page->corePage())
+        corePage->inspectorController().disconnectRemoteInstrumentation();
+}
+
+void WebInspectorBackend::removeInstrumentationForFrame(FrameIdentifier frameID)
+{
+    m_frameNetworkAgentProxies.remove(frameID);
+    m_framePageAgentProxies.remove(frameID);
+}
+
+void WebInspectorBackend::getResponseBody(ResourceLoaderIdentifier resourceID, CompletionHandler<void(String content, bool base64Encoded, String errorString)>&& completionHandler)
+{
+    CheckedRef resourceDataStore = m_resourceDataStore.get();
+    auto result = resourceDataStore->getResponseBody(resourceID);
+    if (result.has_value()) {
+        auto& [content, base64Encoded] = result.value();
+        completionHandler(content, base64Encoded, String());
+    } else
+        completionHandler(String(), false, result.error());
+}
+
+void WebInspectorBackend::ensurePageInstrumentationForFrame(LocalFrame& frame)
+{
+    if (!m_pageInstrumentationEnabled)
+        return;
+
+    auto frameID = frame.frameID();
+    if (m_framePageAgentProxies.contains(frameID))
+        return;
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    RefPtr corePage = page->corePage();
+    if (!corePage)
+        return;
+
+    // Register the PageAgentProxy on the frame's OWN InstrumentingAgents (mirroring
+    // FrameNetworkAgentProxy in ensureNetworkInstrumentationForFrame), rather than the page's.
+    // The frame's first commit dispatches frameNavigated via instrumentingAgents(frame),
+    // which resolves the frame's own InstrumentingAgents; setting the slot there fires
+    // the proxy directly without depending on the frame->page fallback. Under Site
+    // Isolation a cross-origin child loads in a brand-new process whose page-level slot
+    // is set up too late / via a fallback that doesn't fire, so the page-level + fallback
+    // model never delivered the child's initial frameNavigated. See webkit.org/b/308896.
+    auto& pageInspectorController = corePage->inspectorController();
+    auto& frameController = frame.inspectorController();
+    Inspector::AgentContext baseContext = {
+        frameController,
+        pageInspectorController.injectedScriptManager(),
+        pageInspectorController.frontendRouter(),
+        pageInspectorController.backendDispatcher()
+    };
+    Ref instrumentingAgents = frameController.instrumentingAgents();
+    WebAgentContext webContext = {
+        baseContext,
+        instrumentingAgents.get()
+    };
+
+    auto proxy = makeUnique<PageAgentProxy>(webContext, *page);
+    proxy->enable();
+    m_framePageAgentProxies.add(frameID, WTF::move(proxy));
+}
+
+void WebInspectorBackend::enablePageInstrumentation()
+{
+    if (!m_page || !m_page->corePage())
+        return;
+
+    if (m_pageInstrumentationEnabled)
+        return;
+
+    m_pageInstrumentationEnabled = true;
+
+    RefPtr corePage = m_page->corePage();
+    corePage->settings().setDeveloperExtrasEnabled(true);
+
+    corePage->forEachLocalFrame([&](LocalFrame& frame) {
+        ensurePageInstrumentationForFrame(frame);
+    });
+}
+
+void WebInspectorBackend::disablePageInstrumentation()
+{
+    if (!m_pageInstrumentationEnabled)
+        return;
+
+    // Clearing the map destroys each PageAgentProxy, whose destructor (via disable())
+    // clears the enabledPageProxy slot on its frame's InstrumentingAgents. Without that,
+    // a later frame commit in this process would dereference a freed pointer from
+    // InspectorInstrumentation. The page is still alive here (this is an explicit
+    // DisablePageInstrumentation IPC, not process teardown).
+    m_framePageAgentProxies.clear();
+    m_pageInstrumentationEnabled = false;
+}
+
+
+void WebInspectorBackend::getFrameResourceData(Vector<WebCore::FrameIdentifier>&& frameIDs, CompletionHandler<void(Vector<std::pair<WebCore::FrameIdentifier, Inspector::FrameResourceData>>&&)>&& completionHandler)
+{
+    // Return, for each requested frame that is local to this WebContent process, its committed
+    // document's loaderId (as a ScriptExecutionContextIdentifier) and cached subresources. The
+    // UIProcess ProxyingPageAgent walks the authoritative cross-process frame tree, groups frame
+    // IDs by hosting process, and asks each process only for the frames it hosts; it then builds
+    // the Page.getResourceTree protocol objects from this typed data under Site Isolation. Frames
+    // not local to this process are silently skipped (another process answers for them).
+    // See webkit.org/b/308896.
+    Vector<std::pair<WebCore::FrameIdentifier, Inspector::FrameResourceData>> resourcesByFrame;
+    resourcesByFrame.reserveInitialCapacity(frameIDs.size());
+
+    for (auto frameID : frameIDs) {
+        RefPtr webFrame = WebProcess::singleton().webFrame(frameID);
+        if (!webFrame)
+            continue;
+        RefPtr localFrame = webFrame->coreLocalFrame();
+        if (!localFrame)
+            continue;
+
+        Inspector::FrameResourceData frameData;
+        if (RefPtr document = localFrame->document())
+            frameData.loaderId = document->identifier();
+        frameData.resources = Inspector::ResourceUtilities::buildResourceDataForFrame(*localFrame);
+        resourcesByFrame.append({ frameID, WTF::move(frameData) });
+    }
+
+    completionHandler(WTF::move(resourcesByFrame));
 }
 
 } // namespace WebKit

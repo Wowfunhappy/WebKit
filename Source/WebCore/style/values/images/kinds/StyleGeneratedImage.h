@@ -58,6 +58,7 @@ protected:
     bool usesImageContainerSize() const final { return !m_fixedSize; }
     void setContainerContextForRenderer(const RenderElement&, const FloatSize& containerSize, float, const WTF::URL& = WTF::URL()) final { m_containerSize = containerSize; }
     bool imageHasNaturalDimensions() const final { return !usesImageContainerSize(); }
+    bool imageHasNaturalAspectRatio() const final { return !usesImageContainerSize(); }
 
     void addClient(RenderElement&) final;
     void removeClient(RenderElement&) final;

@@ -25,26 +25,18 @@
 
 #pragma once
 
-#include <WebCore/StyleLengthWrapper.h>
-#include <WebCore/StylePrimitiveNumericTypes.h>
-#include <WebCore/StyleValueTypes.h>
+#include <WebCore/StylePrimitiveNumericOrKeyword.h>
 
 namespace WebCore {
 namespace Style {
 
 // <'flow-tolerance'> = normal | <length-percentage [0,∞]> | infinite
 // https://drafts.csswg.org/css-grid-3/#placement-tolerance
-struct FlowTolerance : LengthWrapperBase<LengthPercentage<CSS::NonnegativeUnzoomed>, CSS::Keyword::Normal, CSS::Keyword::Infinite> {
+struct FlowTolerance : PrimitiveNumericOrKeyword<LengthPercentage<CSS::NonnegativeUnzoomed>, CSS::Keyword::Normal, CSS::Keyword::Infinite> {
     using Base::Base;
 
     ALWAYS_INLINE bool isNormal() const { return holdsAlternative<CSS::Keyword::Normal>(); }
     ALWAYS_INLINE bool isInfinite() const { return holdsAlternative<CSS::Keyword::Infinite>(); }
-};
-
-// MARK: - Conversion
-
-template<> struct CSSValueConversion<FlowTolerance> {
-    auto operator()(BuilderState&, const CSSValue&) -> FlowTolerance;
 };
 
 // MARK: - Blending

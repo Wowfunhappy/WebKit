@@ -41,9 +41,7 @@ WebNavigationState::WebNavigationState(WebPageProxy& page)
 {
 }
 
-WebNavigationState::~WebNavigationState()
-{
-}
+WebNavigationState::~WebNavigationState() = default;
 
 Ref<API::Navigation> WebNavigationState::createLoadRequestNavigation(WebCore::ProcessIdentifier processID, ResourceRequest&& request, RefPtr<WebBackForwardListItem>&& currentItem)
 {

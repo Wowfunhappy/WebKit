@@ -29,7 +29,7 @@
 
 IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 
-#import "PlatformUtilities.h"
+#import "Helpers/PlatformUtilities.h"
 #import "UIKitSPIForTesting.h"
 #import <wtf/RetainPtr.h>
 
@@ -56,11 +56,11 @@ IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 
 TEST(WebKitLegacy, ScrollToRevealSelection)
 {
-    auto window = adoptNS([[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    RetainPtr window = adoptNS([[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [window setHidden:NO];
-    auto webView = adoptNS([[UIWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    RetainPtr webView = adoptNS([[UIWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [window addSubview:webView.get()];
-    auto delegate = adoptNS([[LegacyLoadingDelegate alloc] init]);
+    RetainPtr delegate = adoptNS([[LegacyLoadingDelegate alloc] init]);
     [webView setDelegate:delegate.get()];
     [webView loadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><body style='font-size: 100px;' contenteditable>" baseURL:nil];
     [delegate waitForDidFinishLoad];

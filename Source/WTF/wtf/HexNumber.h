@@ -64,21 +64,6 @@ template<typename NumberType> HexNumberBuffer hex(NumberType number, HexConversi
     return hex(number, 0, mode);
 }
 
-template<> class StringTypeAdapter<HexNumberBuffer> {
-public:
-    explicit StringTypeAdapter(const HexNumberBuffer& buffer)
-        : m_buffer { buffer }
-    {
-    }
-
-    unsigned length() const { return m_buffer.length; }
-    bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const { StringImpl::copyCharacters(destination, m_buffer.span()); }
-
-private:
-    const HexNumberBuffer& m_buffer;
-};
-
 WTF_EXPORT_PRIVATE CString toHexCString(std::span<const uint8_t>);
 WTF_EXPORT_PRIVATE String toHexString(std::span<const uint8_t>);
 

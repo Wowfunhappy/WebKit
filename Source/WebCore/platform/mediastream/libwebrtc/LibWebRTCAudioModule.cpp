@@ -44,9 +44,7 @@ LibWebRTCAudioModule::LibWebRTCAudioModule()
     ASSERT(isMainThread());
 }
 
-LibWebRTCAudioModule::~LibWebRTCAudioModule()
-{
-}
+LibWebRTCAudioModule::~LibWebRTCAudioModule() = default;
 
 int32_t LibWebRTCAudioModule::RegisterAudioCallback(webrtc::AudioTransport* audioTransport)
 {

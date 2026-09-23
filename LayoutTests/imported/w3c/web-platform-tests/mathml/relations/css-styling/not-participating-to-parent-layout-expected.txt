@@ -1,4 +1,12 @@
 
+PASS a preferred width calculation is not affected by children with "display: none" style
+PASS a layout is not affected by children with "display: none" style
+PASS a preferred width calculation is not affected by children with "display: contents" style
+PASS a layout is not affected by children with "display: contents" style
+PASS a preferred width calculation is not affected by children with "position: absolute" style
+PASS a layout is not affected by children with "position: absolute" style
+PASS a preferred width calculation is not affected by children with "position: fixed" style
+PASS a layout is not affected by children with "position: fixed" style
 PASS maction preferred width calculation is not affected by children with "display: none" style
 PASS maction layout is not affected by children with "display: none" style
 PASS maction preferred width calculation is not affected by children with "position: absolute" style

@@ -38,7 +38,7 @@
                 if (window.testRunner)
                     testRunner.notifyDone();
                 if (stream)
-                    stream.srcObject.getTracks().forEach(t => t.stop());
+                    stream.getTracks().forEach(t => t.stop());
             }
 
             debug(`URL: ${window.location.href}`);

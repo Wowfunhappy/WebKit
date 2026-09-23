@@ -56,6 +56,8 @@ public:
     explicit AudioFileReader(std::span<const uint8_t> data);
     ~AudioFileReader();
 
+    static bool isAvailable();
+
     RefPtr<AudioBus> createBus(float sampleRate, bool mixToMono); // Returns nullptr on error
 
 #if !RELEASE_LOG_DISABLED
@@ -66,6 +68,7 @@ public:
 #endif
 
 private:
+
 #if ENABLE(MEDIA_SOURCE)
     bool NODELETE isMaybeWebM(std::span<const uint8_t>) const;
     std::unique_ptr<AudioFileReaderData> demuxWebMData(std::span<const uint8_t>) const;

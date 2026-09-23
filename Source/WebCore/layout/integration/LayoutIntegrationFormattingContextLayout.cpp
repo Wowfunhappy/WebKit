@@ -27,10 +27,12 @@
 #include "LayoutIntegrationFormattingContextLayout.h"
 
 #include "BlockLayoutState.h"
+#include "FloatingObjects.h"
 #include "InlineLayoutState.h"
 #include "LayoutIntegrationBoxGeometryUpdater.h"
 #include "LayoutIntegrationUtils.h"
 #include "RenderBlock.h"
+#include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderFlexibleBox.h"
 #include "RenderLayoutState.h"
@@ -57,12 +59,12 @@ void layoutWithFormattingContextForBox(const Layout::ElementBox& box, std::optio
 
     if (widthConstraint) {
         renderer->setOverridingBorderBoxLogicalWidth(*widthConstraint);
-        renderer->setNeedsLayout(MarkOnlyThis);
+        renderer->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
     }
 
     if (heightConstraint) {
         renderer->setOverridingBorderBoxLogicalHeight(*heightConstraint);
-        renderer->setNeedsLayout(MarkOnlyThis);
+        renderer->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
     }
 
     renderer->layoutIfNeeded();
@@ -89,7 +91,7 @@ static inline void populateRootRendererWithFloatsFromIFC(auto& rootBlockContaine
             continue;
         }
 
-        auto [marginBoxVisualRect, borderBoxVisualRect] = Layout::IntegrationUtils::toMarginAndBorderBoxVisualRect(floatItem.boxGeometry(), rootBlockContainer.size(), blockFormattingContextRootWritingMode);
+        auto [marginBoxVisualRect, borderBoxVisualRect] = Layout::IntegrationUtils::toMarginAndBorderBoxVisualRect(floatItem.boxGeometry(), rootBlockContainer.borderBoxSize(), blockFormattingContextRootWritingMode);
         floatingObject.setFrameRect(marginBoxVisualRect);
         floatingObject.setMarginOffset({ borderBoxVisualRect.x() - marginBoxVisualRect.x(), borderBoxVisualRect.y() - marginBoxVisualRect.y() });
         floatingObject.setIsPlaced(true);
@@ -125,7 +127,7 @@ static inline void populateIFCWithNewlyPlacedFloats(auto& blockRenderer, auto& p
         auto shapeOutsideInfo = floatingObject->renderer()->shapeOutsideInfo();
         RefPtr shape = shapeOutsideInfo ? &shapeOutsideInfo->computedShape() : nullptr;
 
-        auto usedPosition = RenderStyle::usedFloat(*floatingObject->renderer()) == UsedFloat::Left ? Layout::PlacedFloats::Item::Position::Start : Layout::PlacedFloats::Item::Position::End;
+        auto usedPosition = Style::ComputedStyle::usedFloat(*floatingObject->renderer()) == UsedFloat::Left ? Layout::PlacedFloats::Item::Position::Start : Layout::PlacedFloats::Item::Position::End;
         placedFloats.add({ usedPosition, boxGeometry, floatRect.location(), WTF::move(shape) });
     }
 }
@@ -216,15 +218,13 @@ LayoutUnit formattingContextRootLogicalWidthForType(const Layout::ElementBox& bo
 
     CheckedRef renderer = downcast<RenderBox>(*box.rendererForIntegration());
     switch (logicalWidthType) {
-    case LogicalWidthType::PreferredMaximum:
-        return renderer->maxPreferredLogicalWidth();
-    case LogicalWidthType::PreferredMinimum:
-        return renderer->minPreferredLogicalWidth();
+    case LogicalWidthType::MaxContentContribution:
+        return renderer->maxContentLogicalWidthContribution();
+    case LogicalWidthType::MinContentContribution:
+        return renderer->minContentLogicalWidthContribution();
     case LogicalWidthType::MaxContent:
     case LogicalWidthType::MinContent: {
-        auto minimunLogicalWidth = LayoutUnit { };
-        auto maximumLogicalWidth = LayoutUnit { };
-        renderer->computeIntrinsicLogicalWidths(minimunLogicalWidth, maximumLogicalWidth);
+        auto [minimunLogicalWidth, maximumLogicalWidth] = renderer->computeIntrinsicLogicalWidths();
         return logicalWidthType == LogicalWidthType::MaxContent ? maximumLogicalWidth : minimunLogicalWidth;
     }
     default:
@@ -244,7 +244,7 @@ LayoutUnit formattingContextRootLogicalHeightForType(const Layout::ElementBox& b
         // where the legacy flex layout "fixed" this by caching the content height in RenderBox::updateLogicalHeight
         // before additional height constraints applied.
         if (CheckedPtr flexContainer = dynamicDowncast<RenderFlexibleBox>(renderer->parent()))
-            return flexContainer->cachedFlexItemIntrinsicContentLogicalHeight(renderer.get());
+            return flexContainer->flexItemContentLogicalHeight(renderer.get());
         ASSERT_NOT_IMPLEMENTED_YET();
         return { };
     }

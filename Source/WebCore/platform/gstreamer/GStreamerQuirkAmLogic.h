@@ -35,6 +35,7 @@ public:
     GstElement* createWebAudioSink() final;
     void configureElement(GstElement*, const OptionSet<ElementRuntimeCharacteristics>&) final;
     bool needsCustomInstantRateChange() const final { return true; }
+    std::optional<GstState> eosMediaPlayerState() const final { return GST_STATE_PAUSED; }
 };
 
 } // namespace WebCore

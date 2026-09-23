@@ -30,6 +30,7 @@
 
 #include "LogInitialization.h"
 #include <WebCore/LogInitialization.h>
+#include <mutex>
 #include <wtf/LogInitialization.h>
 
 namespace WebKit {

@@ -15,6 +15,7 @@ promise_test((test) => {
         testRunner.setUserMediaPermission(true);
 
     return navigator.mediaDevices.getUserMedia({ video: true}).then((stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
         return new Promise((resolve, reject) => {
             createConnections((connection) => {
                 firstConnection = connection;

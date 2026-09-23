@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,61 +25,37 @@
 #include "config.h"
 #include "StyleWordSpacing.h"
 
-#include "FrameDestructionObserverInlines.h"
-#include "RenderStyle+GettersInlines.h"
-#include "StyleBuilderChecking.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
+#include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 auto CSSValueConversion<WordSpacing>::operator()(BuilderState& state, const CSSValue& value) -> WordSpacing
 {
-    auto cssToLengthConversionDataWithTextZoomFactor = [](BuilderState& state) -> CSSToLengthConversionData {
-        auto zoom = state.zoomWithTextZoomFactor();
-        if (zoom == state.cssToLengthConversionData().zoom())
-            return state.cssToLengthConversionData();
-        return state.cssToLengthConversionData().copyWithAdjustedZoom(zoom, WordSpacing::Fixed::range.zoomOptions);
-    };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNormal:
+            return CSS::Keyword::Normal { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Normal { };
+        }
+    }
 
     RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
     if (!primitiveValue)
         return CSS::Keyword::Normal { };
 
-    if (primitiveValue->valueID() == CSSValueNormal)
-        return CSS::Keyword::Normal { };
+    auto conversionData = [](BuilderState& state) -> CSSToLengthConversionData {
+        if (state.useSVGZoomRulesForLength())
+            return state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f);
+        auto zoom = state.zoomWithTextZoomFactor();
+        if (zoom == state.cssToLengthConversionData().zoom())
+            return state.cssToLengthConversionData();
+        return state.cssToLengthConversionData().copyWithAdjustedZoom(zoom, WordSpacing::range.zoomOptions);
+    };
 
-    auto conversionData = state.useSVGZoomRulesForLength()
-        ? state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f)
-        : cssToLengthConversionDataWithTextZoomFactor(state);
-
-    if (primitiveValue->isLength()) {
-        return WordSpacing {
-            typename WordSpacing::Fixed {
-                CSS::clampToRange<WordSpacing::Fixed::range, float>(primitiveValue->resolveAsLength(conversionData), minValueForCssLength, maxValueForCssLength),
-            },
-            primitiveValue->primitiveType() == CSSUnitType::CSS_QUIRKY_EM
-        };
-    }
-
-    if (primitiveValue->isPercentage()) {
-        return WordSpacing {
-            typename WordSpacing::Percentage {
-                CSS::clampToRange<WordSpacing::Percentage::range, float>(primitiveValue->resolveAsPercentage(conversionData)),
-            }
-        };
-    }
-
-    if (primitiveValue->isCalculatedPercentageWithLength()) {
-        return WordSpacing {
-            typename WordSpacing::Calc {
-                protect(primitiveValue->cssCalcValue())->createCalculationValue(conversionData, CSSCalcSymbolTable { })
-            }
-        };
-    }
-
-    state.setCurrentPropertyInvalidAtComputedValueTime();
-    return CSS::Keyword::Normal { };
+    return toStyleFromCSSValue<WordSpacing::Wrapped>(conversionData(state), *primitiveValue);
 }
 
 } // namespace Style

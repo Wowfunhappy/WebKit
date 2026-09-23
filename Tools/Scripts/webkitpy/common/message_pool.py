@@ -148,6 +148,8 @@ class _MessagePool(object):
             if worker.is_alive():
                 _log.error('{} failed to terminate, killing it'.format(worker.name))
                 os.kill(worker.ident, signal.SIGKILL)
+                # Give another margin, to make sure we can reap after kill.
+                worker.join(timeout=1)
 
         self._workers = []
         if not self._running_inline:

@@ -51,6 +51,8 @@ class GenericFileSystemTests(object):
         fs.write_text_file('foobar', 'foobar')
         fs.maybe_make_directory('foodir')
         fs.write_text_file(fs.join('foodir', 'baz'), 'baz')
+        fs.maybe_make_directory(fs.join('foodir', 'subdir'))
+        fs.write_text_file(fs.join('foodir', 'subdir', 'deep'), 'deep')
         fs.chdir(self.orig_cwd)
 
     def teardown_generic_test_dir(self):
@@ -73,6 +75,16 @@ class GenericFileSystemTests(object):
     def test_glob__period_is_escaped(self):
         self.fs.chdir(self.generic_test_dir)
         self.assertEqual(set(self.fs.glob('foo.*')), set(['foo.txt']))
+
+    def test_glob__double_star_recursive(self):
+        self.fs.chdir(self.generic_test_dir)
+        self.addCleanup(self.fs.chdir, self.orig_cwd)
+        self.assertEqual(set(self.fs.glob('**/deep', recursive=True)), {'foodir/subdir/deep'})
+
+    def test_glob__double_star_default_non_recursive(self):
+        self.fs.chdir(self.generic_test_dir)
+        self.addCleanup(self.fs.chdir, self.orig_cwd)
+        self.assertEqual(self.fs.glob('**/deep'), [])
 
 
 class RealFileSystemTest(unittest.TestCase, GenericFileSystemTests):

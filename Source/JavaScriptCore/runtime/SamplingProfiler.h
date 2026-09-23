@@ -153,8 +153,8 @@ public:
         // These are function-level data.
         String nameFromCallee(VM&);
         String displayName(VM&);
-        int functionStartLine();
-        unsigned functionStartColumn();
+        int NODELETE functionStartLine();
+        unsigned NODELETE functionStartColumn();
         std::tuple<SourceProvider*, SourceID> sourceProviderAndID();
         String url();
     };
@@ -208,7 +208,7 @@ public:
     JS_EXPORT_PRIVATE void reportTopBytecodes();
     JS_EXPORT_PRIVATE void reportTopBytecodes(PrintStream&);
 
-    JS_EXPORT_PRIVATE Thread* thread() const;
+    JS_EXPORT_PRIVATE Thread* NODELETE thread() const;
 
 private:
     void createThreadIfNecessary() WTF_REQUIRES_LOCK(m_lock);

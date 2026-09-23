@@ -59,7 +59,7 @@ SVGFontFaceUriElement::~SVGFontFaceUriElement()
 
 Ref<CSSFontFaceSrcResourceValue> SVGFontFaceUriElement::createSrcValue() const
 {
-    auto location = CSS::completeURL(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), document()).value_or(CSS::URL::none());
+    auto location = CSS::completeURL(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), protect(document())).value_or(CSS::URL::none());
     auto& format = attributeWithoutSynchronization(formatAttr);
     // MAVERICKS_BACKPORT: External SVG fonts and explicit font formats do not require OpenType SVG color glyph support.
     // return CSSFontFaceSrcResourceValue::create(WTF::move(location), format.isEmpty() ? "svg"_s : format.string(), { FontTechnology::ColorSvg });
@@ -85,10 +85,10 @@ void SVGFontFaceUriElement::childrenChanged(const ChildChange& change)
         grandParent->rebuildFontFace();
 }
 
-Node::InsertedIntoAncestorResult SVGFontFaceUriElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGFontFaceUriElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
     loadFont();
-    return SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    return SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
 }
 
 static bool isSVGFontTarget(const SVGFontFaceUriElement& element)
@@ -107,8 +107,9 @@ void SVGFontFaceUriElement::loadFont()
         ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
         options.contentSecurityPolicyImposition = isInUserAgentShadowTree() ? ContentSecurityPolicyImposition::SkipPolicyCheck : ContentSecurityPolicyImposition::DoPolicyCheck;
 
-        Ref cachedResourceLoader = document().cachedResourceLoader();
-        CachedResourceRequest request(ResourceRequest(document().completeURL(href)), options);
+        Ref document = this->document();
+        Ref cachedResourceLoader = document->cachedResourceLoader();
+        CachedResourceRequest request(ResourceRequest(document->encodingParseURL(href)), options);
         request.setInitiator(*this);
         if (auto result = cachedResourceLoader->requestFont(WTF::move(request), isSVGFontTarget(*this)))
             m_cachedFont = WTF::move(result.value());

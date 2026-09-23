@@ -25,11 +25,9 @@
 #include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/VM.h>
 #include <JavaScriptCore/WriteBarrier.h>
-#include <wtf/HashTable.h>
 #include <wtf/MathExtras.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
-#include <wtf/text/AtomStringImpl.h>
 
 
 #define DUMP_PROPERTYMAP_STATS 0

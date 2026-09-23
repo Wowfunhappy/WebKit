@@ -36,6 +36,8 @@
 #import <pal/spi/mac/HIServicesSPI.h>
 #else // PLATFORM(IOS_FAMILY)
 #import "WebAccessibilityObjectWrapperIOS.h"
+#import "AXObjectCacheInlines.h"
+#import "AccessibilityObjectInlines.h"
 #endif
 
 namespace WebCore {
@@ -79,12 +81,10 @@ RetainPtr<NSAttributedString> AXTextMarkerRange::toAttributedString(AXCoreObject
 {
     AX_ASSERT(!isMainThread());
 
-    auto start = m_start.toTextRunMarker();
-    if (!start.isValid())
+    auto markers = toValidTextRunMarkers();
+    if (!markers)
         return nil;
-    auto end = m_end.toTextRunMarker();
-    if (!end.isValid())
-        return nil;
+    auto& [start, end] = *markers;
 
     String listMarkerText = listMarkerTextOnSameLine(start);
 
@@ -136,11 +136,10 @@ RetainPtr<NSAttributedString> AXTextMarkerRange::toAttributedString(AXCoreObject
             // Like TextIterator, don't emit a newline if the most recently emitted character was already a newline.
             if ([[result string] characterAtIndex:length - 1] == '\n')
                 return;
-            // FIXME: This is super inefficient. We are creating a whole new dictionary and attributed string just to append newline(s).
             exitString = behavior == TextEmissionBehavior::Newline ? @"\n" : @"\n\n";
         }
-        RetainPtr<NSDictionary> attributes = [result attributesAtIndex:length - 1 effectiveRange:nil];
-        appendToResult(adoptNS([[NSMutableAttributedString alloc] initWithString:exitString attributes:attributes.get()]));
+        // replaceCharactersInRange with a zero-length range inherits attributes from the preceding character.
+        [result replaceCharactersInRange:NSMakeRange(length, 0) withString:exitString];
     };
 
     // FIXME: If we've been given reversed markers, i.e. the end marker actually comes before the start marker,

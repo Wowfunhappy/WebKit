@@ -292,4 +292,6 @@ typedef enum {
 
 - (void)_generateTestReport:(NSString *) message withGroup:(NSString *)group;
 
+- (NSString *)_plainTextForTesting;
+
 @end

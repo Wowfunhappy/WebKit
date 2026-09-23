@@ -65,7 +65,8 @@ public:
     void applyEffectsFromMainThread(PlatformLayer*, bool backdropRootIsOpaque) const;
 
     bool isDependentOnScrollingNodeWithID(WebCore::ScrollingNodeID) const;
-    bool isTimeDependent() const;
+    bool hasTimeBasedAnimations() const { return m_hasTimeBasedAnimations; }
+    bool hasProgressBasedAnimations() const { return m_hasProgressBasedAnimations; }
 
     void clear(PlatformLayer*);
 
@@ -98,6 +99,9 @@ private:
     RetainPtr<CAPresentationModifier> m_transformPresentationModifier;
     Vector<WebCore::TypedFilterPresentationModifier> m_filterPresentationModifiers;
 #endif
+
+    bool m_hasProgressBasedAnimations { false };
+    bool m_hasTimeBasedAnimations { false };
 };
 
 } // namespace WebKit

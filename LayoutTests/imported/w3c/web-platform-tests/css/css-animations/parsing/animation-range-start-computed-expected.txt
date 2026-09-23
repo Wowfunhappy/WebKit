@@ -1,6 +1,7 @@
 
 PASS Property animation-range-start value 'initial'
 PASS Property animation-range-start value 'normal'
+PASS Property animation-range-start value 'cover 0px'
 PASS Property animation-range-start value 'cover 0%'
 PASS Property animation-range-start value 'cover 100%'
 PASS Property animation-range-start value 'COVER 0%'

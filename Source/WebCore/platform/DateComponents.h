@@ -115,7 +115,7 @@ public:
     static std::optional<DateComponents> fromMonthsSinceEpoch(double months);
 
     // Returns the number of milliseconds from 1970-01-01 00:00:00 UTC.
-    // For a DateComponents initialized with parseDateTimeLocal(),
+    // For a DateComponents initialized with NODELETE parseDateTimeLocal(),
     // millisecondsSinceEpoch() returns a value for UTC timezone.
     double millisecondsSinceEpoch() const;
 
@@ -147,12 +147,12 @@ public:
     static constexpr inline int maximumYear() { return 275760; }
 
 private:
-    template<typename CharacterType> bool parseYear(StringParsingBuffer<CharacterType>&);
+    template<typename CharacterType> bool NODELETE parseYear(StringParsingBuffer<CharacterType>&);
     template<typename CharacterType> bool parseTimeZone(StringParsingBuffer<CharacterType>&);
-    template<typename CharacterType> bool parseMonth(StringParsingBuffer<CharacterType>&);
-    template<typename CharacterType> bool parseDate(StringParsingBuffer<CharacterType>&);
-    template<typename CharacterType> bool parseWeek(StringParsingBuffer<CharacterType>&);
-    template<typename CharacterType> bool parseTime(StringParsingBuffer<CharacterType>&);
+    template<typename CharacterType> bool NODELETE parseMonth(StringParsingBuffer<CharacterType>&);
+    template<typename CharacterType> bool NODELETE parseDate(StringParsingBuffer<CharacterType>&);
+    template<typename CharacterType> bool NODELETE parseWeek(StringParsingBuffer<CharacterType>&);
+    template<typename CharacterType> bool NODELETE parseTime(StringParsingBuffer<CharacterType>&);
     template<typename CharacterType> bool parseDateTimeLocal(StringParsingBuffer<CharacterType>&);
 
     // The following setMillisecondsSinceEpochFor*() functions take

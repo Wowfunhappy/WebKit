@@ -70,11 +70,11 @@ public:
     JS_EXPORT_PRIVATE static JSWebAssemblyModule* create(VM&, Structure*, Ref<Wasm::Module>&&);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
-    const Wasm::ModuleInformation& moduleInformation() const;
-    SymbolTable* exportSymbolTable() const;
-    Wasm::TypeIndex typeIndexFromFunctionIndexSpace(Wasm::FunctionSpaceIndex functionIndexSpace) const;
+    const Wasm::ModuleInformation& NODELETE moduleInformation() const;
+    SymbolTable* NODELETE exportSymbolTable() const;
+    const Wasm::RTT& rttFromFunctionIndexSpace(Wasm::FunctionSpaceIndex functionIndexSpace) const;
 
-    JS_EXPORT_PRIVATE Wasm::Module& module();
+    JS_EXPORT_PRIVATE Wasm::Module& NODELETE module();
 
 private:
     JSWebAssemblyModule(VM&, Structure*, Ref<Wasm::Module>&&);

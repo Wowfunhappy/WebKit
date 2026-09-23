@@ -38,6 +38,7 @@
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
+#import "AuthenticationServicesCoreSoftLink.h"
 #import "LocalAuthenticationSoftLink.h"
 
 namespace WebKit {

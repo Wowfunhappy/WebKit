@@ -32,6 +32,7 @@
 #include "FakeXRInputSourceInit.h"
 #include "FakeXRViewInit.h"
 #include "FakeXRWorldInit.h"
+#include "IntSize.h"
 #include "IntSizeHash.h"
 #include "JSDOMPromiseDeferredForward.h"
 #include "PlatformXR.h"
@@ -104,7 +105,11 @@ private:
     void initializeReferenceSpace(PlatformXR::ReferenceSpaceType) final { }
     Vector<PlatformXR::Device::ViewData> views(PlatformXR::SessionMode) const final;
     void requestFrame(std::optional<PlatformXR::RequestData>&&, RequestFrameCallback&&) final;
-    std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t width, uint32_t height, bool alpha) final;
+    std::optional<PlatformXR::LayerHandle> createLayer(IntSize);
+    std::optional<PlatformXR::LayerInfo> createLayerProjection(uint32_t width, uint32_t height, bool alpha) final;
+#if ENABLE(WEBXR_LAYERS)
+    std::optional<PlatformXR::LayerInfo> createCompositionLayer(PlatformXR::CompositionLayerType, IntSize, PlatformXR::LayerLayout) final;
+#endif
     void deleteLayer(PlatformXR::LayerHandle) final;
 #if ENABLE(WEBXR_HIT_TEST)
     void requestHitTestSource(const PlatformXR::HitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&&) final;

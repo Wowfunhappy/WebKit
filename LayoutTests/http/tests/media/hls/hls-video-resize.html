@@ -7,7 +7,17 @@
             function test()
             {
                 var receiveLoadMetadata = false;
-                var receiveSecondResize = false;
+                var receivedFirstResizeEvent = false;
+
+                function finishWhenDimensionsAreKnown()
+                {
+                    if (!receiveLoadMetadata || !receivedFirstResizeEvent || !video.videoWidth || !video.videoHeight)
+                        return;
+                    video.removeEventListener("resize", finishWhenDimensionsAreKnown);
+                    testExpected("video.videoWidth", 640);
+                    testExpected("video.videoHeight", 480);
+                    endTest();
+                }
 
                 findMediaElement();
 
@@ -20,22 +30,17 @@
 
                 waitForEventOnceOn(video, "loadedmetadata", function () {
                     receiveLoadMetadata = true;
-                    logResult(!receiveSecondResize, "Receive loadmetadata event before second resize.");
+                    finishWhenDimensionsAreKnown();
                 });
 
                 waitForEventOnceOn(video, "resize", function () {
                     logResult(!receiveLoadMetadata, "Receive first resize event before loadedmetadata.");
 
                     receivedFirstResizeEvent = true;
-                    testExpected("video.videoWidth", 0);
-                    testExpected("video.videoHeight", 0);
-
-                    waitForEventOnceOn(video, "resize", function () {
-                        receiveSecondResize = true;
-                        testExpected("video.videoWidth", 640);
-                        testExpected("video.videoHeight", 480);
-                        endTest();                      
-                    });
+                    // The initial resize may already expose the final dimensions. A later
+                    // resize is required only if the intrinsic dimensions actually change.
+                    video.addEventListener("resize", finishWhenDimensionsAreKnown);
+                    finishWhenDimensionsAreKnown();
                 });
 
                 video.src = "../resources/hls/bipbop/prog_index.m3u8";

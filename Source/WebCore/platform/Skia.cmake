@@ -15,6 +15,12 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/skia/GraphicsContextSkia.h
     platform/graphics/skia/ImageBufferSkiaBackend.h
     platform/graphics/skia/PathSkia.h
+    platform/graphics/skia/SkiaBackingStore.h
+    platform/graphics/skia/SkiaCompositingLayer.h
+    platform/graphics/skia/SkiaCompositingLayer3DRenderingContext.h
+    platform/graphics/skia/SkiaCompositingLayerFilters.h
+    platform/graphics/skia/SkiaCompositingLayerImageSetBatch.h
+    platform/graphics/skia/SkiaCompositingLayerOverlapRegions.h
     platform/graphics/skia/SkiaGPUAtlas.h
     platform/graphics/skia/SkiaHarfBuzzFont.h
     platform/graphics/skia/SkiaHarfBuzzFontCache.h
@@ -25,6 +31,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/skia/SkiaSpanExtras.h
     platform/graphics/skia/SkiaSystemFallbackFontCache.h
     platform/graphics/skia/SkiaTextureAtlasPacker.h
+    platform/graphics/skia/SkiaUtilities.h
 )
 
 list(APPEND WebCore_LIBRARIES

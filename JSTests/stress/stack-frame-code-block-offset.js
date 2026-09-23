@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 class __c_0 {
   constructor() { return __v_20 }
 }

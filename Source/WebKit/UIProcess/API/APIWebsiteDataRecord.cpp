@@ -38,8 +38,6 @@ WebsiteDataRecord::WebsiteDataRecord(WebKit::WebsiteDataRecord&& websiteDataReco
 {
 }
 
-WebsiteDataRecord::~WebsiteDataRecord()
-{
-}
+WebsiteDataRecord::~WebsiteDataRecord() = default;
 
 }

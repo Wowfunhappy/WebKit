@@ -1,4 +1,6 @@
 
+PASS Padding properties on a
+PASS Padding properties on a (rtl)
 PASS Padding properties on maction
 PASS Padding properties on maction (rtl)
 PASS Padding properties on menclose

@@ -3627,7 +3627,7 @@ PASS HTMLDialogElement interface: existence and properties of interface prototyp
 PASS HTMLDialogElement interface: existence and properties of interface prototype object's @@unscopables property
 PASS HTMLDialogElement interface: attribute open
 PASS HTMLDialogElement interface: attribute returnValue
-FAIL HTMLDialogElement interface: attribute closedBy assert_true: The prototype object must have a property "closedBy" expected true got false
+PASS HTMLDialogElement interface: attribute closedBy
 PASS HTMLDialogElement interface: operation show()
 PASS HTMLDialogElement interface: operation showModal()
 PASS HTMLDialogElement interface: operation close(optional DOMString)

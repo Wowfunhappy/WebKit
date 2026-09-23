@@ -37,8 +37,6 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MockAudioDestinationCocoa);
 
-const int kRenderBufferSize = 128;
-
 MockAudioDestinationCocoa::MockAudioDestinationCocoa(const CreationOptions& options)
     : AudioDestinationCocoa(options)
     , m_workQueue(WorkQueue::create("MockAudioDestinationCocoa Render Queue"_s))

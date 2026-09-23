@@ -29,10 +29,17 @@
 #include "ScrollerCoordinated.h"
 
 #if USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
+#include "BitmapTexturePool.h"
 #include "CoordinatedPlatformLayer.h"
-#include "ImageBuffer.h"
-#include "NativeImage.h"
+#include "CoordinatedPlatformLayerBufferRGB.h"
+#include "GLContext.h"
+#include "GLFence.h"
+#include "GraphicsContextSkia.h"
+#include "PlatformDisplay.h"
 #include "ScrollerImpAdwaita.h"
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -78,7 +85,8 @@ void ScrollerCoordinated::updateValues()
 
     if (!scrollerImp) {
         // Custom scrollbars are painted by RenderScrollbar
-        hostLayer->setContentsScrollbarImageForScrolling(nullptr);
+        Locker layerLocker { hostLayer->lock() };
+        hostLayer->setContentsBuffer(nullptr);
         return;
     }
 
@@ -100,6 +108,9 @@ void ScrollerCoordinated::updateValues()
     int width = AdwaitaScrollbarPainter::scrollbarSize;
     IntRect rect { 0, 0, width, int(values.visibleSize) };
 
+    if (rect.isEmpty())
+        return;
+
     if (m_orientation == ScrollbarOrientation::Horizontal)
         rect = rect.transposedRect();
 
@@ -111,14 +122,48 @@ void ScrollerCoordinated::updateValues()
     state.thumbPosition = (values.visibleSize - state.thumbLength) * values.value;
     state.frameRect = rect;
 
-    RefPtr imageBuffer = ImageBuffer::create(state.frameRect.size(), RenderingMode::Accelerated, RenderingPurpose::DOM, 1, DestinationColorSpace::SRGB(), PixelFormat::RGBA8);
-    if (!imageBuffer)
+    auto& display = PlatformDisplay::sharedDisplay();
+    auto* glContext = display.skiaGLContext();
+    if (!glContext)
         return;
-    scrollerImp->paint(imageBuffer->context(), state.frameRect, state);
-    RefPtr nativeImage = ImageBuffer::sinkIntoNativeImage(WTF::move(imageBuffer));
-    if (!nativeImage)
+
+    auto* grContext = display.skiaGrContext();
+    RELEASE_ASSERT(grContext);
+    GLContext::ScopedGLContextCurrent scopedCurrent(*glContext);
+
+    float contentsScale;
+    {
+        Locker layerLocker { hostLayer->lock() };
+        contentsScale = hostLayer->contentsScale();
+    }
+
+    auto frameRect = enclosingIntRect(FloatRect(state.frameRect.x() * contentsScale, state.frameRect.y() * contentsScale,
+        state.frameRect.width() * contentsScale, state.frameRect.height() * contentsScale));
+    Ref texture = BitmapTexturePool::singleton().acquireTexture(frameRect.size(), { BitmapTexture::Flags::SupportsAlpha });
+    auto surface = texture->createSkiaSurface(grContext);
+    if (!surface)
         return;
-    hostLayer->setContentsScrollbarImageForScrolling(WTF::move(nativeImage));
+
+    auto* canvas = surface->getCanvas();
+    if (!canvas)
+        return;
+
+    canvas->clear(SK_ColorTRANSPARENT);
+
+    Damage damage(state.frameRect);
+    GraphicsContextSkia context(*canvas, RenderingMode::Accelerated, RenderingPurpose::DOM);
+    context.scale(contentsScale);
+    scrollerImp->paint(context, state.frameRect, state, damage);
+
+    grContext->flushAndSubmit(surface.get(), GLFence::isSupported(display.glDisplay()) ? GrSyncCpu::kNo : GrSyncCpu::kYes);
+    auto buffer = CoordinatedPlatformLayerBufferRGB::create(WTF::move(texture), { TextureMapperFlags::ShouldBlend }, GLFence::create(display.glDisplay()));
+    if (!buffer)
+        return;
+
+    Locker layerLocker { hostLayer->lock() };
+    hostLayer->setContentsRect(state.frameRect);
+    hostLayer->setContentsClippingRect(FloatRoundedRect(state.frameRect));
+    hostLayer->setContentsBuffer(WTF::move(buffer), WTF::move(damage));
 }
 
 void ScrollerCoordinated::setHoveredAndPressedParts(ScrollbarPart hoveredPart, ScrollbarPart pressedPart)
@@ -154,6 +199,13 @@ void ScrollerCoordinated::setOpacity(float opacity)
 {
     Locker locker { m_lock };
     m_state.opacity = opacity;
+    m_needsUpdate = true;
+}
+
+void ScrollerCoordinated::setScrollbarColor(const std::optional<ScrollbarColor>& scrollbarColor)
+{
+    Locker locker { m_lock };
+    m_state.scrollbarColor = scrollbarColor;
     m_needsUpdate = true;
 }
 

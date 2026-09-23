@@ -37,7 +37,7 @@ class LegacyRenderSVGRoot final : public RenderReplaced {
     WTF_MAKE_TZONE_ALLOCATED(LegacyRenderSVGRoot);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LegacyRenderSVGRoot);
 public:
-    LegacyRenderSVGRoot(SVGSVGElement&, RenderStyle&&);
+    LegacyRenderSVGRoot(SVGSVGElement&, Style::ComputedStyle&&);
     virtual ~LegacyRenderSVGRoot();
 
     SVGSVGElement& NODELETE svgSVGElement() const;
@@ -45,8 +45,8 @@ public:
     bool isEmbeddedThroughSVGImage() const;
     bool isEmbeddedThroughFrameContainingSVGDocument() const;
 
-    FloatSize computeIntrinsicSize() const final;
-    FloatSize preferredAspectRatio() const final;
+    FloatSize computeIntrinsicSize() const;
+    FloatSize preferredAspectRatioAsSize() const final;
     bool hasIntrinsicAspectRatio() const final;
 
     bool isLayoutSizeChanged() const { return m_isLayoutSizeChanged; }
@@ -76,10 +76,10 @@ public:
 private:
     void element() const = delete;
 
-    // Intentially left 'RenderSVGRoot' instead of 'LegacyRenderSVGRoot', to avoid breaking layout tests.
+    // Intentionally left 'RenderSVGRoot' instead of 'LegacyRenderSVGRoot', to avoid breaking layout tests.
     ASCIILiteral renderName() const override { return "RenderSVGRoot"_s; }
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred  = ShouldComputePreferred::ComputeActual) const override;
+    LayoutUnit computeReplacedLogicalWidth(IsComputingIntrinsicSize  = IsComputingIntrinsicSize::No) const override;
     LayoutUnit computeReplacedLogicalHeight(std::optional<LayoutUnit> estimatedUsedWidth = std::nullopt) const override;
     void layout() override;
     void paintReplaced(PaintInfo&, const LayoutPoint&) override;
@@ -89,7 +89,7 @@ private:
     void insertedIntoTree() override;
     void willBeRemovedFromTree() override;
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     const AffineTransform& localToParentTransform() const LIFETIME_BOUND override;
 

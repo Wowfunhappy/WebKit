@@ -393,7 +393,7 @@ extension WKSLinearMediaPlayer {
 
         swiftOnlyData.peculiarEntity?.screenMode = spatialImmersive ? .immersive : .portal
         // FIXME (147782145): Define a clang module for XPC to be used in Public SDK builds
-        #if canImport(XPC)
+        #if USE_APPLE_INTERNAL_SDK && canImport(XPC)
         swiftOnlyData.videoReceiverEndpointObserver = swiftOnlyData.peculiarEntity?.videoReceiverEndpointPublisher
             .sink {
                 [weak self] in

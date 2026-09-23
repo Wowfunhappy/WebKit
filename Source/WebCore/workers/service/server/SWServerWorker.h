@@ -128,9 +128,12 @@ public:
     ServiceWorkerContextData contextData() const;
 
     WEBCORE_EXPORT const ClientOrigin& origin() const;
+    const CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy() const { return m_crossOriginEmbedderPolicy; }
     const RegistrableDomain& topRegistrableDomain() const LIFETIME_BOUND { return m_topSite.domain(); }
     const Site& topSite() const LIFETIME_BOUND { return m_topSite; }
     WEBCORE_EXPORT std::optional<ScriptExecutionContextIdentifier> NODELETE serviceWorkerPageIdentifier() const;
+
+    bool shouldPersistToDisk() const;
 
     WEBCORE_EXPORT SWServerToContextConnection* contextConnection();
     String userAgent() const;
@@ -146,7 +149,7 @@ public:
     void didFailHeartBeatCheck();
     void updateAppInitiatedValue(LastNavigationWasAppInitiated);
 
-    WorkerThreadMode workerThreadMode() const;
+    WorkerThreadMode NODELETE workerThreadMode() const;
 
     void incrementFunctionalEventCounter() { ++m_functionalEventCounter; }
     void decrementFunctionalEventCounter();

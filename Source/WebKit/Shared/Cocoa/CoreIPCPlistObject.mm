@@ -36,6 +36,7 @@
 #import "CoreIPCPlistDictionary.h"
 #import "CoreIPCString.h"
 #import "GeneratedWebKitSecureCoding.h"
+#import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WebKit {
@@ -52,7 +53,7 @@ bool CoreIPCPlistObject::isPlistType(id value)
     return false;
 }
 
-static PlistValue valueFromID(id object)
+static PlistValue plistValueFromID(id object)
 {
     switch (IPC::typeFromObject(object)) {
     case IPC::NSType::Array:
@@ -73,8 +74,9 @@ static PlistValue valueFromID(id object)
 }
 
 CoreIPCPlistObject::CoreIPCPlistObject(id object)
-    : m_value(makeUniqueRefWithoutFastMallocCheck<PlistValue>(valueFromID(object)))
+    : m_value(makeUniqueRefWithoutFastMallocCheck<PlistValue>(plistValueFromID(object)))
 {
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!isInWebProcess());
 }
 
 CoreIPCPlistObject::CoreIPCPlistObject(UniqueRef<PlistValue>&& value)

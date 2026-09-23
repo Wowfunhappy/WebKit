@@ -185,8 +185,16 @@ ValidationBubble::~ValidationBubble()
     [m_popoverController dismissViewControllerAnimated:NO completion:nil];
 }
 
+void ValidationBubble::setShouldSuppressPresentation(bool suppress)
+{
+    m_shouldSuppressPresentation = suppress;
+}
+
 void ValidationBubble::show()
 {
+    if (m_shouldSuppressPresentation)
+        return;
+
     if ([m_popoverController parentViewController] || [m_popoverController presentingViewController] || m_startingToPresentViewController)
         return;
 
@@ -217,6 +225,8 @@ static UIViewController *fallbackViewController(UIView *view)
 
 void ValidationBubble::setAnchorRect(const IntRect& anchorRect, UIViewController *presentingViewController)
 {
+    m_anchorRect = anchorRect;
+
     RetainPtr view = m_view.get();
     if (!presentingViewController)
         presentingViewController = fallbackViewController(view.get());

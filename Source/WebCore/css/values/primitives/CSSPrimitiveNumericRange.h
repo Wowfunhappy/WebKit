@@ -31,26 +31,19 @@
 namespace WebCore {
 namespace CSS {
 
-// Options to indicate how the range should be interpreted.
-enum class RangeClampOptions {
+// Used to indicate how one of the bounds (upper or lower) of range should be interpreted
+// at parse time.
+enum class RangeParseTimeBehavior {
     // `Default` indicates that at parse time, out of range values invalidate the parse.
-    // Out of range values at style building always clamp.
     Default,
 
-    // `ClampLower` indicates that parse time, an out of range lower value should clamp
-    // instead of invalidating the parse. An out of range upper value will still invalidate
-    // the parse. Out of range values at style building always clamp.
-    ClampLower,
+    // `Clamp` indicates that parse time, out of range values should clamp instead
+    // of invalidating the parse.
+    Clamp,
 
-    // `ClampUpper` indicates that parse time, an out of range upper value should clamp
-    // instead of invalidating the parse. An out of range lower value will still invalidate
-    // the parse. Out of range values at style building always clamp.
-    ClampUpper,
-
-    // `ClampBoth` indicates that parse time, an out of range lower or upper value should
-    // clamp instead of invalidating the parse. Out of range values at style building
-    // always clamp.
-    ClampBoth
+    // `Ignore` indicates that parse time, out of range values should be ignored,
+    // allowing them as if they were in range.
+    Ignore,
 };
 
 // Options to indicate how the primitive should consider its value with regards to zoom.
@@ -72,13 +65,15 @@ struct Range {
 
     double min { -infinity };
     double max {  infinity };
-    RangeClampOptions clampOptions { RangeClampOptions::Default };
+    RangeParseTimeBehavior minParseTimeBehavior { RangeParseTimeBehavior::Default };
+    RangeParseTimeBehavior maxParseTimeBehavior { RangeParseTimeBehavior::Default };
     RangeZoomOptions zoomOptions { RangeZoomOptions::Default };
 
-    constexpr Range(double min, double max, RangeClampOptions clampOptions = RangeClampOptions::Default, RangeZoomOptions zoomOptions = RangeZoomOptions::Default)
+    constexpr Range(double min, double max, RangeParseTimeBehavior minParseTimeBehavior = RangeParseTimeBehavior::Default, RangeParseTimeBehavior maxParseTimeBehavior = RangeParseTimeBehavior::Default, RangeZoomOptions zoomOptions = RangeZoomOptions::Default)
         : min { min }
         , max { max }
-        , clampOptions { clampOptions }
+        , minParseTimeBehavior { minParseTimeBehavior }
+        , maxParseTimeBehavior { maxParseTimeBehavior }
         , zoomOptions { zoomOptions }
     {
     }
@@ -88,37 +83,82 @@ struct Range {
 
 // Constant value for `[−∞,∞]`.
 inline constexpr auto All = Range { -Range::infinity, Range::infinity };
-inline constexpr auto AllUnzoomed = Range { -Range::infinity, Range::infinity, RangeClampOptions::Default, RangeZoomOptions::Unzoomed };
+inline constexpr auto AllUnzoomed = Range { -Range::infinity, Range::infinity, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Default, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[0,∞]`.
 inline constexpr auto Nonnegative = Range { 0, Range::infinity };
-inline constexpr auto NonnegativeUnzoomed = Range { 0, Range::infinity, RangeClampOptions::Default, RangeZoomOptions::Unzoomed };
+inline constexpr auto NonnegativeUnzoomed = Range { 0, Range::infinity, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Default, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[1,∞]`.
 inline constexpr auto Positive = Range { 1, Range::infinity };
-inline constexpr auto PositiveUnzoomed = Range { 1, Range::infinity, RangeClampOptions::Default, RangeZoomOptions::Unzoomed };
+inline constexpr auto PositiveUnzoomed = Range { 1, Range::infinity, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Default, RangeZoomOptions::Unzoomed };
+
+// Constant value for `[-∞,-1]`.
+inline constexpr auto Negative = Range { -Range::infinity, -1 };
+inline constexpr auto NegativeUnzoomed = Range { -Range::infinity, -1, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Default, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[0,1]`.
 inline constexpr auto ClosedUnitRange = Range { 0, 1 };
-inline constexpr auto ClosedUnitRangeUnzoomed = Range { 0, 1, RangeClampOptions::Default, RangeZoomOptions::Unzoomed };
+inline constexpr auto ClosedUnitRangeUnzoomed = Range { 0, 1, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Default, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[0,1(clamp upper)]`.
-inline constexpr auto ClosedUnitRangeClampUpper = Range { 0, 1, RangeClampOptions::ClampUpper };
-inline constexpr auto ClosedUnitRangeClampUpperUnzoomed = Range { 0, 1, RangeClampOptions::ClampUpper, RangeZoomOptions::Unzoomed };
+inline constexpr auto ClosedUnitRangeClampUpper = Range { 0, 1, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Clamp };
+inline constexpr auto ClosedUnitRangeClampUpperUnzoomed = Range { 0, 1, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Clamp, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[0,1(clamp both)]`.
-inline constexpr auto ClosedUnitRangeClampBoth = Range { 0, 1, RangeClampOptions::ClampBoth };
-inline constexpr auto ClosedUnitRangeClampBothUnzoomed = Range { 0, 1, RangeClampOptions::ClampBoth, RangeZoomOptions::Unzoomed };
+inline constexpr auto ClosedUnitRangeClampBoth = Range { 0, 1, RangeParseTimeBehavior::Clamp, RangeParseTimeBehavior::Clamp };
+inline constexpr auto ClosedUnitRangeClampBothUnzoomed = Range { 0, 1, RangeParseTimeBehavior::Clamp, RangeParseTimeBehavior::Clamp, RangeZoomOptions::Unzoomed };
+
+// Constant value for `[0,1(ignore both)]`.
+inline constexpr auto ClosedUnitRangeIgnoreBoth = Range { 0, 1, RangeParseTimeBehavior::Ignore, RangeParseTimeBehavior::Ignore };
+inline constexpr auto ClosedUnitRangeIgnoreBothUnzoomed = Range { 0, 1, RangeParseTimeBehavior::Ignore, RangeParseTimeBehavior::Ignore, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[0,100]`.
 inline constexpr auto ClosedPercentageRange = Range { 0, 100 };
-inline constexpr auto ClosedPercentageRangeUnzoomed = Range { 0, 100, RangeClampOptions::Default, RangeZoomOptions::Unzoomed };
+inline constexpr auto ClosedPercentageRangeUnzoomed = Range { 0, 100, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Default, RangeZoomOptions::Unzoomed };
 
 // Constant value for `[0,100(clamp upper)]`.
-inline constexpr auto ClosedPercentageRangeClampUpper = Range { 0, 100, RangeClampOptions::ClampUpper };
-inline constexpr auto ClosedPercentageRangeClampUpperUnzoomed = Range { 0, 100, RangeClampOptions::ClampUpper, RangeZoomOptions::Unzoomed };
+inline constexpr auto ClosedPercentageRangeClampUpper = Range { 0, 100, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Clamp };
+inline constexpr auto ClosedPercentageRangeClampUpperUnzoomed = Range { 0, 100, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Clamp, RangeZoomOptions::Unzoomed };
 
-// Clamps a floating point value to within `range`.
+// Constant value for `[0,100(clamp both)]`.
+inline constexpr auto ClosedPercentageRangeClampBoth = Range { 0, 100, RangeParseTimeBehavior::Clamp, RangeParseTimeBehavior::Clamp };
+inline constexpr auto ClosedPercentageRangeClampBothUnzoomed = Range { 0, 100, RangeParseTimeBehavior::Clamp, RangeParseTimeBehavior::Clamp, RangeZoomOptions::Unzoomed };
+
+// Constant value for `[0,100(ignore both)]`.
+inline constexpr auto ClosedPercentageRangeIgnoreBoth = Range { 0, 100, RangeParseTimeBehavior::Ignore, RangeParseTimeBehavior::Ignore };
+inline constexpr auto ClosedPercentageRangeIgnoreBothUnzoomed = Range { 0, 100, RangeParseTimeBehavior::Ignore, RangeParseTimeBehavior::Ignore, RangeZoomOptions::Unzoomed };
+
+// Special Range constants that restrict down to what LayoutUnit supports.
+
+// Max/min values for CSS, needs to be slightly smaller/larger than the true max/min values
+// supported by LayoutUnit to allow for rounding without overflowing.
+constexpr double minValueForCssLength = static_cast<double>((INT_MIN / (1 << 6)) + 2);
+constexpr double maxValueForCssLength = static_cast<double>((INT_MAX / (1 << 6)) - 2);
+
+// Constant value for `[0,∞]` limited to LayoutUnit restrictions.
+inline constexpr auto AllLayoutUnitClamped = Range { minValueForCssLength, maxValueForCssLength, RangeParseTimeBehavior::Ignore, RangeParseTimeBehavior::Ignore };
+inline constexpr auto AllLayoutUnitClampedUnzoomed = Range { minValueForCssLength, maxValueForCssLength, RangeParseTimeBehavior::Ignore, RangeParseTimeBehavior::Ignore, RangeZoomOptions::Unzoomed };
+
+// Constant value for `[0,∞]` limited to LayoutUnit restrictions.
+inline constexpr auto NonnegativeLayoutUnitClamped = Range { 0, maxValueForCssLength, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Ignore };
+inline constexpr auto NonnegativeLayoutUnitClampedUnzoomed = Range { 0, maxValueForCssLength, RangeParseTimeBehavior::Default, RangeParseTimeBehavior::Ignore, RangeZoomOptions::Unzoomed };
+
+// Returns whether range `a` is equal to or is a subrange of range `b`.
+consteval bool isEqualOrSubrange(Range a, Range b)
+{
+    return a.min >= b.min && a.max <= b.max;
+}
+
+// Returns whether range `a` is a strict subrange of range `b`.
+consteval bool isSubrange(Range a, Range b)
+{
+    return isEqualOrSubrange(a, b) && (a.min != b.min || a.max != b.max);
+}
+
+template<Range a, Range b> concept IsSubrange = isSubrange(a, b);
+
+// Clamps a floating point value to within static `range`.
 template<Range range, std::floating_point T, typename U> constexpr T clampToRange(U value)
 {
     return clampTo<T>(
@@ -128,13 +168,13 @@ template<Range range, std::floating_point T, typename U> constexpr T clampToRang
     );
 }
 
-// Clamps a floating point value to within `range` and within additional provided range.
-template<Range range, std::floating_point T, typename U> constexpr T clampToRange(U value, T additionalMinimum, T additionalMaximum)
+// Clamps a floating point value to within dynamic `range`.
+template<std::floating_point T, typename U> constexpr T clampToRange(U value, Range range)
 {
     return clampTo<T>(
         value,
-        std::max<T>(std::max<T>(range.min, -std::numeric_limits<T>::max()), additionalMinimum),
-        std::min<T>(std::min<T>(range.max,  std::numeric_limits<T>::max()), additionalMaximum)
+        std::max<T>(range.min, -std::numeric_limits<T>::max()),
+        std::min<T>(range.max,  std::numeric_limits<T>::max())
     );
 }
 
@@ -186,6 +226,12 @@ template<Range range, std::signed_integral T, typename U> constexpr T clampToRan
             std::min<T>(range.max, std::numeric_limits<T>::max())
         );
     }
+}
+
+// Clamps a value to within `range` of the specified numeric type.
+template<typename Numeric, Range range = Numeric::range, typename T = typename Numeric::ResolvedValueType, typename U> constexpr T clampToRangeOf(U value)
+{
+    return clampToRange<range, T, U>(value);
 }
 
 // Checks if a floating point value is within `range`.

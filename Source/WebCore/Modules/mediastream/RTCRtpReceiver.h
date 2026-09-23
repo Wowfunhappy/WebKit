@@ -82,13 +82,17 @@ public:
     Ref<RTCRtpTransformBackend> rtcRtpTransformBackend();
     void getStats(Ref<DeferredPromise>&&);
 
-    std::optional<RTCRtpTransform::Internal> transform();
+    RefPtr<RTCRtpScriptTransform> transform();
     ExceptionOr<void> setTransform(std::unique_ptr<RTCRtpTransform>&&);
 
     ExceptionOr<RTCEncodedStreams> createEncodedStreams(ScriptExecutionContext&);
 
     const Vector<WeakPtr<MediaStream>>& associatedStreams() const LIFETIME_BOUND { return m_associatedStreams; }
     void setAssociatedStreams(Vector<WeakPtr<MediaStream>>&& streams) { m_associatedStreams = WTF::move(streams); }
+
+    std::optional<double> jitterBufferTarget() const { return m_jitterBufferTarget; }
+    ExceptionOr<void> setJitterBufferTarget(std::optional<double>);
+
 private:
     RTCRtpReceiver(PeerConnectionBackend&, Ref<MediaStreamTrack>&&, UniqueRef<RTCRtpReceiverBackend>&&);
 
@@ -107,6 +111,7 @@ private:
     std::unique_ptr<RTCRtpTransform> m_transform;
     const RefPtr<RTCEncodedStreamProducer> m_encodedStreamProducer;
     Vector<WeakPtr<MediaStream>> m_associatedStreams;
+    std::optional<double> m_jitterBufferTarget;
 #if !RELEASE_LOG_DISABLED
     const Ref<const Logger> m_logger;
     uint64_t m_logIdentifier { 0 };

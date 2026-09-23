@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008-2009 Torch Mobile, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,7 +35,6 @@
 #include <WebCore/GraphicsContextState.h>
 #include <WebCore/Image.h>
 #include <WebCore/ImageBufferFormat.h>
-#include <WebCore/ImageOrientation.h>
 #include <WebCore/ImagePaintingOptions.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/Pattern.h>
@@ -43,7 +42,6 @@
 #include <WebCore/RenderingMode.h>
 #include <wtf/Function.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/OptionSet.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -193,6 +191,8 @@ public:
     virtual bool knownToHaveFloatBasedBacking() const { return false; }
 
     virtual RenderingMode renderingMode() const { return RenderingMode::Unaccelerated; }
+    virtual std::optional<RenderingMethod> renderingMethod() const { return RenderingMethod::Local; }
+
     WEBCORE_EXPORT RenderingMode renderingModeForCompatibleBuffer() const;
 
     // Shapes
@@ -211,6 +211,7 @@ public:
     virtual void strokePath(const Path&) = 0;
     WEBCORE_EXPORT virtual void drawPath(const Path&);
     WEBCORE_EXPORT virtual void strokeArc(const PathArc&);
+    WEBCORE_EXPORT virtual void strokeLine(const PathDataLine&);
 
     virtual void fillEllipse(const FloatRect& ellipse) { fillEllipseAsPath(ellipse); }
     virtual void strokeEllipse(const FloatRect& ellipse) { strokeEllipseAsPath(ellipse); }
@@ -325,8 +326,8 @@ public:
 
     // Focus Rings
 
-    virtual void drawFocusRing(const Path&, float outlineWidth, const Color&) = 0;
-    virtual void drawFocusRing(const Vector<FloatRect>&, float outlineOffset, float outlineWidth, const Color&) = 0;
+    virtual void drawFocusRing(const Path&, float outlineWidth, const Color&, float zoomFactor) = 0;
+    virtual void drawFocusRing(const Vector<FloatRect>&, float outlineWidth, const Color&, float zoomFactor) = 0;
 
     // Transforms
 

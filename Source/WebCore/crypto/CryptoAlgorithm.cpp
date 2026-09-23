@@ -117,10 +117,10 @@ void CryptoAlgorithm::dispatchOperationInWorkQueue(WorkQueue& workQueue, ScriptE
     dispatchAlgorithmOperation(workQueue, context, WTF::move(callback), WTF::move(exceptionCallback), WTF::move(operation));
 }
 
-void CryptoAlgorithm::dispatchDigest(WorkQueue& workQueue, ScriptExecutionContext& context, VectorCallback&& callback, ExceptionCallback&&exceptionCallback, Vector<uint8_t>&& message, PAL::CryptoDigest::Algorithm algo)
+void CryptoAlgorithm::dispatchDigest(WorkQueue& workQueue, ScriptExecutionContext& context, VectorCallback&& callback, ExceptionCallback&&exceptionCallback, Vector<uint8_t>&& message, PAL::Crypto::CryptoDigest::Algorithm algo)
 {
     workQueue.dispatch([message = WTF::move(message), callback = WTF::move(callback), contextIdentifier = context.identifier(), exceptionCallback = WTF::move(exceptionCallback), algo]() mutable {
-        auto digest = PAL::CryptoDigest::create(algo);
+        auto digest = PAL::Crypto::CryptoDigest::create(algo);
         if (!digest) {
             exceptionCallback(ExceptionCode::OperationError);
             return;

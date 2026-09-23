@@ -12,8 +12,9 @@
     <script>
     var pc1, pc2;
     var remoteStream, remoteTrack;
+    var localStream;
     promise_test(async (test) => {
-        const localStream = await navigator.mediaDevices.getUserMedia({audio: true });
+        localStream = await navigator.mediaDevices.getUserMedia({audio: true });
 
         await new Promise(resolve => {
             createConnections((firstConnection) => {
@@ -50,6 +51,7 @@
     }, "Inactivate the audio transceiver");
 
     promise_test(async (test) => {
+        test.add_cleanup(() => localStream.getTracks().forEach(t => t.stop()));
         pc1.getTransceivers()[0].direction = "sendonly";
         let offer = await pc1.createOffer();
         await pc1.setLocalDescription(offer);

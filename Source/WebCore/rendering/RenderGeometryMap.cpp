@@ -25,12 +25,13 @@
 
 #include "config.h"
 #include "RenderGeometryMap.h"
+#include "RenderElementInlines.h"
 
 #include "RenderFragmentedFlow.h"
 #include "RenderLayer.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TransformState.h"
 #include <wtf/SetForScope.h>
 
@@ -47,7 +48,7 @@ void RenderGeometryMap::mapToContainer(TransformState& transformState, const Ren
 {
     // If the mapping includes something like columns, we have to go via renderers.
     if (hasNonUniformStep()) {
-        m_mapping.last().m_renderer->mapLocalToContainer(container, transformState, ApplyContainerFlip | m_mapCoordinatesFlags);
+        m_mapping.last().m_renderer->mapLocalToContainer(container, transformState, MapCoordinatesMode::ApplyContainerFlip | m_mapCoordinatesFlags);
         return;
     }
     
@@ -56,7 +57,7 @@ void RenderGeometryMap::mapToContainer(TransformState& transformState, const Ren
     bool foundContainer = !container || (m_mapping.size() && m_mapping[0].m_renderer == container);
 #endif
 
-    for (int i = m_mapping.size() - 1; i >= 0; --i) {
+    for (auto i = m_mapping.size(); i--;) {
         const RenderGeometryMapStep& currentStep = m_mapping[i];
 
         // If container is the RenderView (step 0) we want to apply its scroll offset.
@@ -147,7 +148,7 @@ void RenderGeometryMap::pushMappingsToAncestor(const RenderElement* rendererArg,
 static bool NODELETE canMapBetweenRenderersViaLayers(const RenderLayerModelObject& renderer, const RenderLayerModelObject& ancestor)
 {
     for (const RenderElement* current = &renderer; ; current = current->parent()) {
-        const RenderStyle& style = current->style();
+        const Style::ComputedStyle& style = current->style();
         if (current->isFixedPositioned() || style.writingMode().isBlockFlipped())
             return false;
 
@@ -185,7 +186,7 @@ void RenderGeometryMap::pushMappingsToAncestor(const RenderLayer* layerArg, cons
 
     OptionSet<MapCoordinatesMode> newFlags = m_mapCoordinatesFlags;
     if (!respectTransforms)
-        newFlags.remove(UseTransforms);
+        newFlags.remove(MapCoordinatesMode::UseTransforms);
 
     SetForScope flagsChange(m_mapCoordinatesFlags, newFlags);
 

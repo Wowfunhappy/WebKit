@@ -54,14 +54,14 @@ public:
     
     void append(const Origin&);
     
-    bool operator!() const { return m_stack.isEmpty(); }
+    bool NODELETE operator!() const { return m_stack.isEmpty(); }
     
     unsigned size() const { return m_stack.size(); }
     const Origin& fromBottom(unsigned i) const { return m_stack[i]; }
     const Origin& fromTop(unsigned i) const { return m_stack[m_stack.size() - i - 1]; }
     
     bool operator==(const OriginStack&) const;
-    unsigned hash() const;
+    unsigned NODELETE hash() const;
     
     bool isHashTableDeletedValue() const;
     static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;

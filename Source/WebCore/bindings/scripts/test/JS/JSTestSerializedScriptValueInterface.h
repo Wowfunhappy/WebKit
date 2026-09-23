@@ -31,13 +31,7 @@ namespace WebCore {
 class JSTestSerializedScriptValueInterface : public JSDOMWrapper<TestSerializedScriptValueInterface> {
 public:
     using Base = JSDOMWrapper<TestSerializedScriptValueInterface>;
-    static JSTestSerializedScriptValueInterface* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestSerializedScriptValueInterface>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestSerializedScriptValueInterface* ptr = new (NotNull, JSC::allocateCell<JSTestSerializedScriptValueInterface>(vm)) JSTestSerializedScriptValueInterface(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestSerializedScriptValueInterface* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestSerializedScriptValueInterface>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -46,11 +40,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     mutable JSC::WriteBarrier<JSC::Unknown> m_cachedValue;
     mutable JSC::WriteBarrier<JSC::Unknown> m_cachedReadonlyValue;
@@ -72,8 +62,12 @@ protected:
 
 class JSTestSerializedScriptValueInterfaceOwner final : public JSC::WeakHandleOwner {
 public:
+    JSTestSerializedScriptValueInterfaceOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSTestSerializedScriptValueInterfaceOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, TestSerializedScriptValueInterface*)

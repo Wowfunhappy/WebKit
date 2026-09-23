@@ -33,21 +33,21 @@ PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [140%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [49.6px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [400] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [100%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [16px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [550] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [50%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [0px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (-2) should be [italic] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (-2) should be [1] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (-2) should be [small-caps] for <font-variant>
@@ -82,21 +82,21 @@ PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [140%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [49.6px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (0.6) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [400] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [100%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [16px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [550] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [50%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [0px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [caption] at (1.5) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (-2) should be [italic] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (-2) should be [1] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (-2) should be [small-caps] for <font-variant>
@@ -131,21 +131,21 @@ PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [140%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [49.6px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [400] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [100%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [16px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [550] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [50%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [0px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (-2) should be [italic] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (-2) should be [1] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (-2) should be [small-caps] for <font-variant>
@@ -180,21 +180,21 @@ PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [140%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [49.6px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (0.6) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [400] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [100%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [16px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [550] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [50%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [0px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [icon] at (1.5) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (-2) should be [italic] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (-2) should be [1] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (-2) should be [small-caps] for <font-variant>
@@ -229,21 +229,21 @@ PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [140%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [49.6px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [400] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [100%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [16px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [550] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [50%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [0px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (-2) should be [italic] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (-2) should be [1] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (-2) should be [small-caps] for <font-variant>
@@ -278,21 +278,21 @@ PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [140%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [49.6px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (0.6) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [400] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [100%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [16px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [550] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [50%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [0px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [menu] at (1.5) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (-2) should be [italic] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (-2) should be [1] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (-2) should be [small-caps] for <font-variant>
@@ -327,21 +327,21 @@ PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [140%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [49.6px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [400] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [100%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [16px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [550] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [50%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [0px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (-2) should be [italic] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (-2) should be [1] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (-2) should be [small-caps] for <font-variant>
@@ -376,21 +376,21 @@ PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [140%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [49.6px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (0.6) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [400] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [100%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [16px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [550] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [50%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [0px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [message-box] at (1.5) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (-2) should be [italic] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (-2) should be [1] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (-2) should be [small-caps] for <font-variant>
@@ -425,21 +425,21 @@ PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [140%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [49.6px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [400] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [100%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [16px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [550] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [50%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [0px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (-2) should be [italic] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (-2) should be [1] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (-2) should be [small-caps] for <font-variant>
@@ -474,21 +474,21 @@ PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [140%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [49.6px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (0.6) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [400] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [100%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [16px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [550] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [50%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [0px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [small-caption] at (1.5) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (-2) should be [italic] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (-2) should be [1] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (-2) should be [small-caps] for <font-variant>
@@ -523,21 +523,21 @@ PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [140%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [49.6px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [400] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [100%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [16px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [Liberation Sans] for <font-family>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [normal] for <font-style>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [550] for <font-weight>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [normal] for <font-variant>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [50%] for <font-stretch>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [0px] for <font-size>
 PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [normal] for <line-height>
-PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS CSS Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (-2) should be [italic] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (-2) should be [1] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (-2) should be [small-caps] for <font-variant>
@@ -572,19 +572,19 @@ PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [140%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [49.6px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (0.6) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [400] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [100%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [16px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1) should be [Liberation Sans] for <font-family>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [normal] for <font-style>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [550] for <font-weight>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [normal] for <font-variant>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [50%] for <font-stretch>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [0px] for <font-size>
 PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [normal] for <line-height>
-PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be ["Liberation Sans"] for <font-family>
+PASS Web Animations: property <font> from [italic 100 small-caps ultra-expanded 100px / 100px Ahem] to [status-bar] at (1.5) should be [Liberation Sans] for <font-family>
 

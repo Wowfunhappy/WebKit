@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/bindings/the-textarea-element-0/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/bindings/the-textarea-element-0/cols-default-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/bindings/the-textarea-element-0/cols-default.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/bindings/the-textarea-element-0/cols-zero-expected.html

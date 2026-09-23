@@ -35,7 +35,7 @@ class ImageBufferRemotePDFDocumentBackend final : public WebCore::NullImageBuffe
     WTF_MAKE_NONCOPYABLE(ImageBufferRemotePDFDocumentBackend);
 public:
     static unsigned NODELETE calculateBytesPerRow(const WebCore::IntSize& backendSize);
-    static size_t calculateMemoryCost(const Parameters&);
+    static size_t NODELETE calculateMemoryCost(const Parameters&);
 
     static std::unique_ptr<ImageBufferRemotePDFDocumentBackend> create(const Parameters&);
 

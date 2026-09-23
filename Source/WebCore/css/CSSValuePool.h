@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/CSSColorValue.h>
+#include <WebCore/CSSKeywordValue.h>
 #include <WebCore/CSSPrimitiveValue.h>
 #include <WebCore/ColorHash.h>
 #include <wtf/HashMap.h>
@@ -38,6 +39,7 @@ class CSSValueList;
 class CSSValuePool;
 
 class StaticCSSValuePool {
+    friend class CSSKeywordValue;
     friend class CSSPrimitiveValue;
     friend class CSSValuePool;
     friend class LazyNeverDestroyed<StaticCSSValuePool>;
@@ -48,7 +50,7 @@ public:
 private:
     StaticCSSValuePool();
 
-    CSSPrimitiveValue m_implicitInitialValue;
+    CSSKeywordValue m_implicitInitialValue;
 
     CSSColorValue m_transparentColor;
     CSSColorValue m_whiteColor;
@@ -59,7 +61,7 @@ private:
     std::array<AlignedStorage<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_pixelValues;
     std::array<AlignedStorage<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_percentageValues;
     std::array<AlignedStorage<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_numberValues;
-    std::array<AlignedStorage<CSSPrimitiveValue>, numCSSValueKeywords> m_identifierValues;
+    std::array<AlignedStorage<CSSKeywordValue>, numCSSValueKeywords> m_identifierValues;
 };
 
 WEBCORE_EXPORT extern LazyNeverDestroyed<StaticCSSValuePool> staticCSSValuePool;
@@ -75,23 +77,28 @@ public:
 
     Ref<CSSColorValue> createColorValue(const WebCore::Color&);
     RefPtr<CSSValueList> createFontFaceValue(const AtomString&);
-    Ref<CSSPrimitiveValue> createFontFamilyValue(const AtomString&);
+    Ref<CSSValue> createFontFamilyNameValue(const AtomString&);
 
 private:
     HashMap<WebCore::Color, Ref<CSSColorValue>> m_colorValueCache;
     HashMap<AtomString, RefPtr<CSSValueList>> m_fontFaceValueCache;
-    HashMap<AtomString, Ref<CSSPrimitiveValue>> m_fontFamilyValueCache;
+    HashMap<AtomString, Ref<CSSValue>> m_fontFamilyNameValueCache;
 };
 
-inline CSSPrimitiveValue& CSSPrimitiveValue::implicitInitialValue()
+inline CSSKeywordValue& CSSKeywordValue::implicitInitialValue()
 {
     return staticCSSValuePool->m_implicitInitialValue;
 }
 
-inline Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(CSSValueID identifier)
+inline Ref<CSSKeywordValue> CSSKeywordValue::create(CSSValueID value)
 {
-    RELEASE_ASSERT(identifier < numCSSValueKeywords);
-    return *staticCSSValuePool->m_identifierValues[identifier];
+    RELEASE_ASSERT(value < numCSSValueKeywords);
+    return *staticCSSValuePool->m_identifierValues[value];
+}
+
+inline Ref<CSSKeywordValue> CSSKeywordValue::create(CSS::Keyword ident)
+{
+    return CSSKeywordValue::create(ident.value);
 }
 
 } // namespace WebCore

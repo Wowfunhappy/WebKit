@@ -44,6 +44,7 @@
 #include "SerializedScriptValue.h"
 #include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -59,6 +60,7 @@ RefPtr<AudioWorkletGlobalScope> AudioWorkletGlobalScope::tryCreate(AudioWorkletT
         return nullptr;
     auto scope = adoptRef(*new AudioWorkletGlobalScope(thread, vm.releaseNonNull(), parameters));
     scope->addToContextsMap();
+    scope->applyContentSecurityPolicyResponseHeaders(parameters.contentSecurityPolicyResponseHeaders);
     return scope;
 }
 
@@ -83,13 +85,13 @@ ExceptionOr<void> AudioWorkletGlobalScope::registerProcessor(String&& name, Ref<
         return Exception { ExceptionCode::NotSupportedError, "A processor was already registered with this name"_s };
 
     JSC::JSObject* jsConstructor = processorConstructor->callbackData()->callback();
-    auto* globalObject = jsConstructor->globalObject();
-    auto& vm = globalObject->vm();
+    auto& vm = jsConstructor->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (!jsConstructor->isConstructor())
         return Exception { ExceptionCode::TypeError, "Class definition passed to registerProcessor() is not a constructor"_s };
 
+    auto* globalObject = jsConstructor->realm();
     auto prototype = jsConstructor->getPrototype(globalObject);
     RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
 
@@ -170,7 +172,7 @@ RefPtr<AudioWorkletProcessor> AudioWorkletGlobalScope::createProcessor(const Str
     ASSERT(!!scope.exception() == !object);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    auto* jsProcessor = JSC::jsDynamicCast<JSAudioWorkletProcessor*>(object);
+    auto* jsProcessor = dynamicDowncast<JSAudioWorkletProcessor>(object);
     if (!jsProcessor)
         return nullptr;
 

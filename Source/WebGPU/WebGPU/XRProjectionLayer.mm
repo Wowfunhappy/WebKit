@@ -212,5 +212,5 @@ void wgpuXRProjectionLayerRelease(WGPUXRProjectionLayer projectionLayer)
 
 void wgpuXRProjectionLayerStartFrame(WGPUXRProjectionLayer layer, size_t frameIndex, WTF::MachSendRight&& colorBuffer, WTF::MachSendRight&& depthBuffer, WTF::MachSendRight&& completionSyncEvent, size_t reusableTextureIndex, unsigned screenWidth, unsigned screenHeight, Vector<float>&& horizontalSamplesLeft, Vector<float>&& horizontalSamplesRight, Vector<float>&& verticalSamples)
 {
-    protect(WebGPU::fromAPI(layer))->startFrame(frameIndex, WTF::move(colorBuffer), WTF::move(depthBuffer), WTF::move(completionSyncEvent), reusableTextureIndex, screenWidth, screenHeight, WTF::move(horizontalSamplesLeft), WTF::move(horizontalSamplesRight), WTF::move(verticalSamples));
+    WebGPU::fromAPI(layer).startFrame(frameIndex, WTF::move(colorBuffer), WTF::move(depthBuffer), WTF::move(completionSyncEvent), reusableTextureIndex, screenWidth, screenHeight, WTF::move(horizontalSamplesLeft), WTF::move(horizontalSamplesRight), WTF::move(verticalSamples));
 }

@@ -34,6 +34,7 @@
 #include "WebProcessProxyMessages.h"
 #include "WebSpeechRecognitionConnectionMessages.h"
 #include <WebCore/Frame.h>
+#include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/SpeechRecognitionConnectionClient.h>
 #include <WebCore/SpeechRecognitionRequestInfo.h>
 #include <WebCore/SpeechRecognitionUpdate.h>
@@ -97,6 +98,14 @@ void WebSpeechRecognitionConnection::abort(WebCore::SpeechRecognitionConnectionC
 {
     send(Messages::SpeechRecognitionServer::Abort(clientIdentifier));
 }
+
+#if ENABLE(MEDIA_STREAM)
+void WebSpeechRecognitionConnection::dispatchCaptureSourceCreated(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier, WebCore::RealtimeMediaSource& source)
+{
+    if (RefPtr client = m_clientMap.get(clientIdentifier))
+        client->captureSourceCreated(source);
+}
+#endif
 
 void WebSpeechRecognitionConnection::invalidate(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier)
 {

@@ -45,17 +45,17 @@ public:
     {
     }
 
-    bool isEmpty() const
+    bool NODELETE isEmpty() const
     {
         return blocks.isEmpty();
     }
 
-    size_t size() const
+    size_t NODELETE size() const
     {
         return blocks.size();
     }
 
-    BasicBlock* pop(IndexSet<BasicBlock*>& done)
+    BasicBlock* NODELETE pop(IndexSet<BasicBlock*>& done)
     {
         if (startNewChain) {
             startNewChain = false;
@@ -65,7 +65,7 @@ public:
         return popChain(done);
     }
 
-    void markStartNewChain()
+    void NODELETE markStartNewChain()
     {
         startNewChain = true;
     }
@@ -75,7 +75,7 @@ public:
         blocks.append(block);
     }
 
-    BasicBlock* popChain(IndexSet<BasicBlock*>& done)
+    BasicBlock* NODELETE popChain(IndexSet<BasicBlock*>& done)
     {
         // Take the last added successor to continue the chain.
         // This transforms a jump into a fallthrough.
@@ -89,7 +89,7 @@ public:
         return nullptr;
     }
 
-    BasicBlock* popNewChain(IndexSet<BasicBlock*>& done)
+    BasicBlock* NODELETE popNewChain(IndexSet<BasicBlock*>& done)
     {
         // Take the oldest added successor to start a new chain.
         // We prefer this,
@@ -437,9 +437,9 @@ void optimizeBlockOrder(Code& code)
         case BranchAtomicStrongCAS16:
         case BranchAtomicStrongCAS32:
         case BranchAtomicStrongCAS64:
-            if (code.findNextBlock(block) == block->successorBlock(0) && branch.args[0].isInvertible()) {
+            if (code.findNextBlock(block) == block->successorBlock(0) && branch.args()[0].isInvertible()) {
                 std::swap(block->successor(0), block->successor(1));
-                branch.args[0] = branch.args[0].inverted();
+                branch.args()[0] = branch.args()[0].inverted();
             }
             break;
 

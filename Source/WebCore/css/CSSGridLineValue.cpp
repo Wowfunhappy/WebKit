@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,57 +27,29 @@
 #include "config.h"
 #include "CSSGridLineValue.h"
 
-#include <wtf/Vector.h>
-#include <wtf/text/StringBuilder.h>
-#include <wtf/text/WTFString.h>
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 
 namespace WebCore {
 
-String CSSGridLineValue::customCSSText(const CSS::SerializationContext& context) const
+Ref<CSSGridLineValue> CSSGridLineValue::create(CSS::GridLine line)
 {
-    Vector<String> parts;
-    if (m_spanValue)
-        parts.append(m_spanValue->cssText(context));
-    // Only return the numeric value if not 1, or if it provided without a span value.
-    // https://drafts.csswg.org/css-grid-2/#grid-placement-span-int
-    if (m_numericValue) {
-        if (m_numericValue->isOne() != true || !m_spanValue || !m_gridLineName)
-            parts.append(m_numericValue->cssText(context));
-    }
-    if (m_gridLineName)
-        parts.append(m_gridLineName->cssText(context));
-    return makeStringByJoining(parts, " "_s);
+    return adoptRef(*new CSSGridLineValue(WTF::move(line)));
 }
 
-CSSGridLineValue::CSSGridLineValue(RefPtr<CSSPrimitiveValue>&& spanValue, RefPtr<CSSPrimitiveValue>&& numericValue, RefPtr<CSSPrimitiveValue>&& gridLineName)
+CSSGridLineValue::CSSGridLineValue(CSS::GridLine&& line)
     : CSSValue(ClassType::GridLineValue)
-    , m_spanValue(WTF::move(spanValue))
-    , m_numericValue(WTF::move(numericValue))
-    , m_gridLineName(WTF::move(gridLineName))
+    , m_line(WTF::move(line))
 {
-}
-
-Ref<CSSGridLineValue> CSSGridLineValue::create(RefPtr<CSSPrimitiveValue>&& spanValue, RefPtr<CSSPrimitiveValue>&& numericValue, RefPtr<CSSPrimitiveValue>&& gridLineName)
-{
-    return adoptRef(*new CSSGridLineValue(WTF::move(spanValue), WTF::move(numericValue), WTF::move(gridLineName)));
 }
 
 bool CSSGridLineValue::equals(const CSSGridLineValue& other) const
 {
-    auto equals = [](CSSPrimitiveValue* value, CSSPrimitiveValue* otherValue) {
-        if ((!value && otherValue) || (value && !otherValue))
-            return false;
-        return (!value && !otherValue) || value->equals(*otherValue);
-    };
+    return m_line == other.m_line;
+}
 
-    if (!equals(protect(spanValue()).get(), protect(other.spanValue()).get()))
-        return false;
-    if (!equals(protect(numericValue()).get(), protect(other.numericValue()).get()))
-        return false;
-    if (!equals(protect(gridLineName()).get(), protect(other.gridLineName()).get()))
-        return false;
-
-    return true;
+String CSSGridLineValue::customCSSText(const CSS::SerializationContext& context) const
+{
+    return CSS::serializationForCSS(context, m_line);
 }
 
 } // namespace WebCore

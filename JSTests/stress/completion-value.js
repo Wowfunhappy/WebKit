@@ -263,6 +263,56 @@ shouldBe(eval(`99; do { -99; try { [].x.x } catch (e) { 42; continue; } finally 
 shouldBe(eval(`99; do { -99; try { 42 } catch (e) { -1 } finally { -2; continue; -3 }; -77 } while (false);`), -2);
 shouldBe(eval(`99; do { -99; try { [].x.x } catch (e) { 42; } finally { -2; continue; -3 }; -77 } while (false);`), -2);
 
+// Bare break/continue (not wrapped in a block) as body of if/else/with.
+shouldBe(eval(`99; do { -99; if (true) break; } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) continue; } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) continue; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (false) -1; else break; } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (false) -1; else break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (false) -1; else continue; } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (false) -1; else continue; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with (true) break; } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with (true) break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with (true) continue; } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with (true) continue; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; do break; while (false); -77 } while (false);`), -77);
+shouldBe(eval(`99; do { -99; do continue; while (false); -77 } while (false);`), -77);
+shouldBe(eval(`99; for (;;) { -99; if (true) break; -77 }`), undefined);
+shouldBe(eval(`99; for (x of [1]) { -99; if (true) break; -77 }`), undefined);
+shouldBe(eval(`99; for (x in {a:1}) { -99; if (true) break; -77 }`), undefined);
+
+// break/continue wrapped in a label as body of if/else/with.
+shouldBe(eval(`99; do { -99; if (true) L: break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) L: continue; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (false) -1; else L: break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (false) -1; else L: continue; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with ({}) L: break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with ({}) L: continue; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) L1: L2: L3: break; -77 } while (false);`), undefined);
+shouldBe(eval(`99; while (true) { -99; if (true) L: break; -77 }`), undefined);
+shouldBe(eval(`99; for (;;) { -99; if (true) L: break; -77 }`), undefined);
+shouldBe(eval(`99; for (x in {a:1}) { -99; if (true) L: break; -77 }`), undefined);
+shouldBe(eval(`99; for (x of [1]) { -99; if (true) L: break; -77 }`), undefined);
+shouldBe(eval(`99; switch (1) { case 1: -99; if (true) L: break; -77 }`), undefined);
+
+// break/continue wrapped in a nested block.
+shouldBe(eval(`99; do { -99; if (true) {{ break; }} -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) {{ continue; }} -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; try { { break; } } catch (e) {}; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; try {} finally { { break; } }; -77 } while (false);`), undefined);
+shouldBe(eval(`99; switch (1) { case 1: -99; if (true) {{ break; }} -77 }`), undefined);
+
+// break/continue wrapped in a label inside a block.
+shouldBe(eval(`99; do { -99; if (true) { L: break; } -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) { L: continue; } -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; with ({}) { L: break; } -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; try { L: break; } catch (e) {}; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; try {} finally { L: break; }; -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) { ; L: break; } -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) { var v; L: break; } -77 } while (false);`), undefined);
+shouldBe(eval(`99; do { -99; if (true) { L: { break; } } -77 } while (false);`), undefined);
+
 // Early break to a label.
 shouldBe(eval(`99; label: do { 1; if (true) { break label; 2; }; } while (false);`), undefined);
 shouldBe(eval(`99; label: do { 1; if (true) { break label; 2; }; 3; } while (false);`), undefined);

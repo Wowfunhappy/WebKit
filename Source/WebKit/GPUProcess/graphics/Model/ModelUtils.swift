@@ -21,16 +21,149 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreRenderer, _version: 11) && compiler(>=6.2)
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
 
-@_weakLinked import DirectResource
+import DirectResource
 import Metal
-@_weakLinked import USDKit
-@_weakLinked @_spi(UsdLoaderAPI) import _USDKit_RealityKit
-@_spi(RealityCoreRendererAPI) import RealityKit
-@_spi(SGInternal) import RealityKit
+import USDKit
+import RealityKit
 
-func mapSemantic(_ semantic: LowLevelMesh.VertexSemantic) -> _Proto_LowLevelMeshResource_v1.VertexSemantic {
+final class MeshInstancePool {
+    private(set) var meshInstances: LowLevelMeshInstanceArray
+    private let renderContext: any LowLevelRenderContext
+
+    init(
+        renderContext: any LowLevelRenderContext,
+        renderTargets: [LowLevelRenderTarget.Descriptor],
+        initialCapacity: Int
+    ) throws {
+        self.renderContext = renderContext
+        self.meshInstances = try renderContext.makeMeshInstanceArray(renderTargets: .init(renderTargets), count: initialCapacity)
+    }
+
+    init(renderContext: any LowLevelRenderContext, meshInstances: LowLevelMeshInstanceArray) {
+        self.renderContext = renderContext
+        self.meshInstances = meshInstances
+    }
+
+    func add(_ instance: LowLevelMeshInstance) throws {
+        if let emptyIndex = meshInstances.firstIndex(where: { $0 == nil }) {
+            try meshInstances.setMeshInstance(instance, index: emptyIndex)
+        } else {
+            let oldCount = meshInstances.count
+            let newArray = try renderContext.makeMeshInstanceArray(renderTargets: meshInstances.renderTargets, count: max(oldCount * 2, 1))
+            for (index, existing) in meshInstances.enumerated() {
+                try newArray.setMeshInstance(existing, index: index)
+            }
+            try newArray.setMeshInstance(instance, index: oldCount)
+            meshInstances = newArray
+        }
+    }
+
+    func remove(_ instance: LowLevelMeshInstance) throws {
+        guard let index = meshInstances.firstIndex(where: { $0 === instance }) else {
+            fatalError("Mesh instance not found in MeshInstancePool")
+        }
+        try meshInstances.setMeshInstance(nil, index: index)
+    }
+}
+
+extension simd_float4x4 {
+    var minor: simd_float3x3 {
+        .init(
+            [columns.0.x, columns.0.y, columns.0.z],
+            [columns.1.x, columns.1.y, columns.1.z],
+            [columns.2.x, columns.2.y, columns.2.z]
+        )
+    }
+
+    func transformPosition(_ position: simd_float3) -> simd_float3 {
+        var result = simd_mul(self, simd_float4(position, 1))
+        result /= result.w
+        return simd_float3(result.x, result.y, result.z)
+    }
+}
+
+@_lifetime(buffer: copy buffer)
+private func copyDataIntoBuffer(_ buffer: inout MutableRawSpan, from data: Data) {
+    precondition(
+        data.count <= buffer.byteCount,
+        "copyDataIntoBuffer: data (\(data.count) B) exceeds buffer capacity (\(buffer.byteCount) B)"
+    )
+
+    // unsafe used here as that is the method for populating a MTLBuffer
+    unsafe buffer.withUnsafeMutableBytes { unsafe $0.copyBytes(from: data) }
+}
+
+extension LowLevelMeshResource {
+    func replaceVertexData(_ vertexData: [Data]) {
+        for (vertexBufferIndex, vertexData) in vertexData.enumerated() {
+            self.replaceVertices(at: vertexBufferIndex) { copyDataIntoBuffer(&$0, from: vertexData) }
+        }
+    }
+
+    func replaceIndexData(_ indexData: Data?) {
+        if let indexData = indexData {
+            self.replaceIndices { copyDataIntoBuffer(&$0, from: indexData) }
+        }
+    }
+
+    func replaceData(indexData: Data?, vertexData: [Data]) {
+        // Copy index data
+        self.replaceIndexData(indexData)
+
+        // Copy vertex data
+        self.replaceVertexData(vertexData)
+    }
+}
+
+extension LowLevelTextureResource.Descriptor {
+    static func from(_ textureDescriptor: MTLTextureDescriptor) -> LowLevelTextureResource.Descriptor {
+        var descriptor = LowLevelTextureResource.Descriptor()
+        descriptor.width = textureDescriptor.width
+        descriptor.height = textureDescriptor.height
+        descriptor.depth = textureDescriptor.depth
+        descriptor.mipmapLevelCount = textureDescriptor.mipmapLevelCount
+        descriptor.arrayLength = textureDescriptor.arrayLength
+        descriptor.pixelFormat = textureDescriptor.pixelFormat
+        descriptor.textureType = textureDescriptor.textureType
+        descriptor.textureUsage = textureDescriptor.usage
+        descriptor.swizzle = textureDescriptor.swizzle
+
+        return descriptor
+    }
+
+    static func from(_ texture: any MTLTexture, swizzle: MTLTextureSwizzleChannels) -> LowLevelTextureResource.Descriptor {
+        var descriptor = LowLevelTextureResource.Descriptor()
+        descriptor.width = texture.width
+        descriptor.height = texture.height
+        descriptor.depth = texture.depth
+        descriptor.mipmapLevelCount = texture.mipmapLevelCount
+        descriptor.arrayLength = texture.arrayLength
+        descriptor.pixelFormat = texture.pixelFormat
+        descriptor.textureType = texture.textureType
+        descriptor.textureUsage = texture.usage
+        descriptor.swizzle = swizzle
+
+        return descriptor
+    }
+
+    init(from descriptor: WKBridgeImageAsset) {
+        self.init(
+            textureType: descriptor.textureType,
+            pixelFormat: descriptor.pixelFormat,
+            width: descriptor.width,
+            height: descriptor.height,
+            depth: descriptor.depth,
+            mipmapLevelCount: descriptor.mipmapLevelCount,
+            arrayLength: descriptor.arrayLength,
+            textureUsage: descriptor.textureUsage,
+            swizzle: descriptor.swizzle
+        )
+    }
+}
+
+private func mapSemantic(_ semantic: LowLevelMesh.VertexSemantic) -> LowLevelMeshResource.VertexSemantic {
     switch semantic {
     case .position: .position
     case .color: .color
@@ -50,10 +183,30 @@ func mapSemantic(_ semantic: LowLevelMesh.VertexSemantic) -> _Proto_LowLevelMesh
     }
 }
 
-extension _Proto_LowLevelMeshResource_v1.Descriptor {
-    static func fromLlmDescriptor(_ llmDescriptor: LowLevelMesh.Descriptor) -> Self {
+private func mapSemantic(_ semantic: WKBridgeVertexSemantic) -> LowLevelMeshResource.VertexSemantic {
+    switch semantic {
+    case .position: .position
+    case .color: .color
+    case .normal: .normal
+    case .tangent: .tangent
+    case .bitangent: .bitangent
+    case .UV0: .uv0
+    case .UV1: .uv1
+    case .UV2: .uv2
+    case .UV3: .uv3
+    case .UV4: .uv4
+    case .UV5: .uv5
+    case .UV6: .uv6
+    case .UV7: .uv7
+    case .unspecified: .unspecified
+    @unknown default: .unspecified
+    }
+}
+
+extension LowLevelMeshResource.Descriptor {
+    static func fromLlmDescriptor(_ llmDescriptor: WKBridgeMeshDescriptor) -> Self {
         var descriptor = Self.init()
-        descriptor.vertexCapacity = llmDescriptor.vertexCapacity
+        descriptor.vertexCapacity = Int(llmDescriptor.vertexCapacity)
         descriptor.vertexAttributes = llmDescriptor.vertexAttributes.map { attribute in
             .init(
                 semantic: mapSemantic(attribute.semantic),
@@ -63,119 +216,14 @@ extension _Proto_LowLevelMeshResource_v1.Descriptor {
             )
         }
         descriptor.vertexLayouts = llmDescriptor.vertexLayouts.map { layout in
-            .init(bufferIndex: layout.bufferIndex, bufferOffset: layout.bufferOffset, bufferStride: layout.bufferStride)
-        }
-        descriptor.indexCapacity = llmDescriptor.indexCapacity
-        descriptor.indexType = llmDescriptor.indexType
-
-        return descriptor
-    }
-}
-
-extension _Proto_LowLevelMeshResource_v1 {
-    func replaceVertexData(_ vertexData: [Data]) {
-        for (vertexBufferIndex, vertexData) in vertexData.enumerated() {
-            let bufferSizeInByte = vertexData.bytes.byteCount
-            self.replaceVertices(at: vertexBufferIndex) { vertexBytes in
-                // FIXME: (rdar://164559261) understand/document/remove unsafety
-                unsafe vertexBytes.withUnsafeMutableBytes { ptr in
-                    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=305857
-                    // swift-format-ignore: NeverForceUnwrap
-                    unsafe vertexData.copyBytes(to: ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), count: bufferSizeInByte)
-                }
-            }
-        }
-    }
-
-    func replaceIndexData(_ indexData: Data?) {
-        if let indexData = indexData {
-            self.replaceIndices { indicesBytes in
-                // FIXME: (rdar://164559261) understand/document/remove unsafety
-                unsafe indicesBytes.withUnsafeMutableBytes { ptr in
-                    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=305857
-                    // swift-format-ignore: NeverForceUnwrap
-                    unsafe indexData.copyBytes(to: ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), count: ptr.count)
-                }
-            }
-        }
-    }
-
-    func replaceData(indexData: Data?, vertexData: [Data]) {
-        // Copy index data
-        self.replaceIndexData(indexData)
-
-        // Copy vertex data
-        self.replaceVertexData(vertexData)
-    }
-}
-
-extension _Proto_LowLevelTextureResource_v1.Descriptor {
-    static func from(_ textureDescriptor: MTLTextureDescriptor) -> _Proto_LowLevelTextureResource_v1.Descriptor {
-        var descriptor = _Proto_LowLevelTextureResource_v1.Descriptor()
-        descriptor.width = textureDescriptor.width
-        descriptor.height = textureDescriptor.height
-        descriptor.depth = textureDescriptor.depth
-        descriptor.mipmapLevelCount = textureDescriptor.mipmapLevelCount
-        descriptor.arrayLength = textureDescriptor.arrayLength
-        descriptor.pixelFormat = textureDescriptor.pixelFormat
-        descriptor.textureType = textureDescriptor.textureType
-        descriptor.textureUsage = textureDescriptor.usage
-        descriptor.swizzle = textureDescriptor.swizzle
-
-        return descriptor
-    }
-
-    static func from(_ texture: any MTLTexture, swizzle: MTLTextureSwizzleChannels) -> _Proto_LowLevelTextureResource_v1.Descriptor {
-        var descriptor = _Proto_LowLevelTextureResource_v1.Descriptor()
-        descriptor.width = texture.width
-        descriptor.height = texture.height
-        descriptor.depth = texture.depth
-        descriptor.mipmapLevelCount = texture.mipmapLevelCount
-        descriptor.arrayLength = texture.arrayLength
-        descriptor.pixelFormat = texture.pixelFormat
-        descriptor.textureType = texture.textureType
-        descriptor.textureUsage = texture.usage
-        descriptor.swizzle = swizzle
-
-        return descriptor
-    }
-}
-
-private func mapSemantic(_ semantic: Int) -> _Proto_LowLevelMeshResource_v1.VertexSemantic {
-    switch semantic {
-    case 0: .position
-    case 1: .color
-    case 2: .normal
-    case 3: .tangent
-    case 4: .bitangent
-    case 5: .uv0
-    case 6: .uv1
-    case 7: .uv2
-    case 8: .uv3
-    case 9: .uv4
-    case 10: .uv5
-    case 11: .uv6
-    case 12: .uv7
-    case 13: .unspecified
-    default: .unspecified
-    }
-}
-
-extension _Proto_LowLevelMeshResource_v1.Descriptor {
-    static func fromLlmDescriptor(_ llmDescriptor: WKBridgeMeshDescriptor) -> Self {
-        var descriptor = Self.init()
-        descriptor.vertexCapacity = Int(llmDescriptor.vertexCapacity)
-        descriptor.vertexAttributes = llmDescriptor.vertexAttributes.map { attribute in
             .init(
-                semantic: mapSemantic(attribute.semantic),
-                format: MTLVertexFormat(rawValue: UInt(attribute.format)) ?? .invalid,
-                layoutIndex: attribute.layoutIndex,
-                offset: attribute.offset
+                bufferIndex: layout.bufferIndex,
+                bufferOffset: layout.bufferOffset,
+                bufferStride: layout.bufferStride,
+                stepFunction: layout.stepFunction,
+                stepRate: layout.stepRate
             )
         }
-        descriptor.vertexLayouts = llmDescriptor.vertexLayouts.map { layout in
-            .init(bufferIndex: layout.bufferIndex, bufferOffset: layout.bufferOffset, bufferStride: layout.bufferStride)
-        }
         descriptor.indexCapacity = llmDescriptor.indexCapacity
         descriptor.indexType = llmDescriptor.indexType
 
@@ -183,8 +231,7 @@ extension _Proto_LowLevelMeshResource_v1.Descriptor {
     }
 }
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreRenderer, _version: 12)
-internal func debugPrintShaderGraph(_ graph: _Proto_ShaderNodeGraph?, prefix: String = "", indent: String = "") {
+internal func debugPrintShaderGraph(_ graph: ShaderGraph?, prefix: String = "", indent: String = "") {
     guard let graph = graph else {
         logInfo("\(indent)\(prefix)ShaderGraph: nil")
         return
@@ -223,11 +270,11 @@ internal func debugPrintShaderGraph(_ graph: _Proto_ShaderNodeGraph?, prefix: St
     // Print edges
     logInfo("\(nextIndent)Edges (\(graph.edges.count)):")
     for (index, edge) in graph.edges.enumerated() {
-        logInfo("\(nextIndent)  [\(index)] \(edge.outputNode):\(edge.outputPort) -> \(edge.inputNode):\(edge.inputPort)")
+        logInfo("\(nextIndent)  [\(index)] \(edge.outputNode):\(edge.outputPort ?? "") -> \(edge.inputNode):\(edge.inputPort)")
     }
 }
 
-private func debugPrintNode(_ node: _Proto_ShaderNodeGraph.Node, indent: String = "") {
+private func debugPrintNode(_ node: ShaderGraph.Node, indent: String = "") {
     logInfo("\(indent)Name: \(node.name)")
 
     switch node.data {
@@ -256,7 +303,7 @@ private func debugPrintNode(_ node: _Proto_ShaderNodeGraph.Node, indent: String 
     }
 }
 
-private func debugPrintValue(_ value: _Proto_ShaderGraphValue, indent: String = "") {
+private func debugPrintValue(_ value: ShaderGraph.Value, indent: String = "") {
     switch value {
     case .bool(let val):
         logInfo("\(indent)Value: bool(\(val))")
@@ -292,62 +339,60 @@ private func debugPrintValue(_ value: _Proto_ShaderGraphValue, indent: String = 
         logInfo("\(indent)Value: int4(\(val.x), \(val.y), \(val.z), \(val.w))")
     case .cgColor3(let color):
         if let components = color.components {
-            logInfo("\(indent)Value: color3(r:\(components[0]), g:\(components[1]), b:\(components[2]))")
+            logInfo("\(indent)Value: cgColor3(\(components[0]), \(components[1]), \(components[2]))")
         } else {
-            logInfo("\(indent)Value: color3(invalid)")
+            fatalError("\(indent)Value: cgColor3(invalid)")
         }
     case .cgColor4(let color):
         if let components = color.components {
-            logInfo("\(indent)Value: color4(r:\(components[0]), g:\(components[1]), b:\(components[2]), a:\(components[3]))")
+            logInfo("\(indent)Value: cgColor4(\(components[0]), \(components[1]), \(components[2]), \(components[3]))")
         } else {
-            logInfo("\(indent)Value: color4(invalid)")
+            fatalError("\(indent)Value: cgColor4(invalid)")
         }
-    case .float2x2(let col0, let col1):
+    case .float2x2(let m):
         logInfo("\(indent)Value: float2x2(")
-        logInfo("\(indent)  [\(col0.x), \(col1.x)]")
-        logInfo("\(indent)  [\(col0.y), \(col1.y)]")
+        logInfo("\(indent)  [\(m.columns.0.x), \(m.columns.1.x)]")
+        logInfo("\(indent)  [\(m.columns.0.y), \(m.columns.1.y)]")
         logInfo("\(indent))")
-    case .float3x3(let col0, let col1, let col2):
+    case .float3x3(let m):
         logInfo("\(indent)Value: float3x3(")
-        logInfo("\(indent)  [\(col0.x), \(col1.x), \(col2.x)]")
-        logInfo("\(indent)  [\(col0.y), \(col1.y), \(col2.y)]")
-        logInfo("\(indent)  [\(col0.z), \(col1.z), \(col2.z)]")
+        logInfo("\(indent)  [\(m.columns.0.x), \(m.columns.1.x), \(m.columns.2.x)]")
+        logInfo("\(indent)  [\(m.columns.0.y), \(m.columns.1.y), \(m.columns.2.y)]")
+        logInfo("\(indent)  [\(m.columns.0.z), \(m.columns.1.z), \(m.columns.2.z)]")
         logInfo("\(indent))")
-    case .float4x4(let col0, let col1, let col2, let col3):
+    case .float4x4(let m):
         logInfo("\(indent)Value: float4x4(")
-        logInfo("\(indent)  [\(col0.x), \(col1.x), \(col2.x), \(col3.x)]")
-        logInfo("\(indent)  [\(col0.y), \(col1.y), \(col2.y), \(col3.y)]")
-        logInfo("\(indent)  [\(col0.z), \(col1.z), \(col2.z), \(col3.z)]")
-        logInfo("\(indent)  [\(col0.w), \(col1.w), \(col2.w), \(col3.w)]")
+        logInfo("\(indent)  [\(m.columns.0.x), \(m.columns.1.x), \(m.columns.2.x), \(m.columns.3.x)]")
+        logInfo("\(indent)  [\(m.columns.0.y), \(m.columns.1.y), \(m.columns.2.y), \(m.columns.3.y)]")
+        logInfo("\(indent)  [\(m.columns.0.z), \(m.columns.1.z), \(m.columns.2.z), \(m.columns.3.z)]")
+        logInfo("\(indent)  [\(m.columns.0.w), \(m.columns.1.w), \(m.columns.2.w), \(m.columns.3.w)]")
         logInfo("\(indent))")
-    case .half2x2(let col0, let col1):
+    case .half2x2(let m):
         logInfo("\(indent)Value: half2x2(")
-        logInfo("\(indent)  [\(col0.x), \(col1.x)]")
-        logInfo("\(indent)  [\(col0.y), \(col1.y)]")
+        logInfo("\(indent)  [\(m.columns.0.x), \(m.columns.1.x)]")
+        logInfo("\(indent)  [\(m.columns.0.y), \(m.columns.1.y)]")
         logInfo("\(indent))")
-    case .half3x3(let col0, let col1, let col2):
+    case .half3x3(let m):
         logInfo("\(indent)Value: half3x3(")
-        logInfo("\(indent)  [\(col0.x), \(col1.x), \(col2.x)]")
-        logInfo("\(indent)  [\(col0.y), \(col1.y), \(col2.y)]")
-        logInfo("\(indent)  [\(col0.z), \(col1.z), \(col2.z)]")
+        logInfo("\(indent)  [\(m.columns.0.x), \(m.columns.1.x), \(m.columns.2.x)]")
+        logInfo("\(indent)  [\(m.columns.0.y), \(m.columns.1.y), \(m.columns.2.y)]")
+        logInfo("\(indent)  [\(m.columns.0.z), \(m.columns.1.z), \(m.columns.2.z)]")
         logInfo("\(indent))")
-    case .half4x4(let col0, let col1, let col2, let col3):
+    case .half4x4(let m):
         logInfo("\(indent)Value: half4x4(")
-        logInfo("\(indent)  [\(col0.x), \(col1.x), \(col2.x), \(col3.x)]")
-        logInfo("\(indent)  [\(col0.y), \(col1.y), \(col2.y), \(col3.y)]")
-        logInfo("\(indent)  [\(col0.z), \(col1.z), \(col2.z), \(col3.z)]")
-        logInfo("\(indent)  [\(col0.w), \(col1.w), \(col2.w), \(col3.w)]")
+        logInfo("\(indent)  [\(m.columns.0.x), \(m.columns.1.x), \(m.columns.2.x), \(m.columns.3.x)]")
+        logInfo("\(indent)  [\(m.columns.0.y), \(m.columns.1.y), \(m.columns.2.y), \(m.columns.3.y)]")
+        logInfo("\(indent)  [\(m.columns.0.z), \(m.columns.1.z), \(m.columns.2.z), \(m.columns.3.z)]")
+        logInfo("\(indent)  [\(m.columns.0.w), \(m.columns.1.w), \(m.columns.2.w), \(m.columns.3.w)]")
         logInfo("\(indent))")
-    case .filename(let val):
-        logInfo("\(indent)Value: filename(\"\(val)\")")
     @unknown default:
         logInfo("\(indent)Value: unknown type")
     }
 }
 
 internal func compareShaderGraphs(
-    _ graph1: _Proto_ShaderNodeGraph?,
-    _ graph2: _Proto_ShaderNodeGraph?,
+    _ graph1: ShaderGraph?,
+    _ graph2: ShaderGraph?,
     label1: String = "Graph 1",
     label2: String = "Graph 2"
 ) {
@@ -429,8 +474,8 @@ internal func compareShaderGraphs(
         differences.append("Edge count differs: \(graph1.edges.count) vs \(graph2.edges.count)")
     } else {
         // Create comparable edge descriptions
-        let edges1Set = Set(graph1.edges.map { "\($0.outputNode):\($0.outputPort) -> \($0.inputNode):\($0.inputPort)" })
-        let edges2Set = Set(graph2.edges.map { "\($0.outputNode):\($0.outputPort) -> \($0.inputNode):\($0.inputPort)" })
+        let edges1Set = Set(graph1.edges.map { "\($0.outputNode):\($0.outputPort ?? "") -> \($0.inputNode):\($0.inputPort)" })
+        let edges2Set = Set(graph2.edges.map { "\($0.outputNode):\($0.outputPort ?? "") -> \($0.inputNode):\($0.inputPort)" })
 
         let onlyIn1 = edges1Set.subtracting(edges2Set)
         let onlyIn2 = edges2Set.subtracting(edges1Set)
@@ -462,10 +507,10 @@ internal func compareShaderGraphs(
     logInfo("\n=== End Comparison ===\n")
 }
 
-private func nodeDataTypeString(_ data: _Proto_ShaderNodeGraph.Node.NodeData) -> String {
+private func nodeDataTypeString(_ data: ShaderGraph.Node.NodeData) -> String {
     switch data {
-    case .constant:
-        return "constant"
+    case .constant(let value):
+        return "constant(\(value))"
     case .definition(let def):
         return "definition(\(def.name))"
     case .graph:
@@ -474,6 +519,91 @@ private func nodeDataTypeString(_ data: _Proto_ShaderNodeGraph.Node.NodeData) ->
         return "unknown"
     }
 }
-#endif
+
+extension MTLPixelFormat {
+    var bytesPerPixel: Int? {
+        switch self {
+        // MARK: - 8-bit (1 byte)
+        case .a8Unorm,
+            .r8Unorm,
+            .r8Unorm_srgb,
+            .r8Snorm,
+            .r8Uint,
+            .r8Sint,
+            .stencil8:
+            return 1
+
+        // MARK: - 16-bit (2 bytes)
+        case .r16Unorm,
+            .r16Snorm,
+            .r16Uint,
+            .r16Sint,
+            .r16Float,
+            .rg8Unorm,
+            .rg8Unorm_srgb,
+            .rg8Snorm,
+            .rg8Uint,
+            .rg8Sint,
+            .b5g6r5Unorm,
+            .a1bgr5Unorm,
+            .abgr4Unorm,
+            .bgr5A1Unorm,
+            .depth16Unorm:
+            return 2
+
+        // MARK: - 32-bit (4 bytes)
+        case .r32Uint,
+            .r32Sint,
+            .r32Float,
+            .rg16Unorm,
+            .rg16Snorm,
+            .rg16Uint,
+            .rg16Sint,
+            .rg16Float,
+            .rgba8Unorm,
+            .rgba8Unorm_srgb,
+            .rgba8Snorm,
+            .rgba8Uint,
+            .rgba8Sint,
+            .bgra8Unorm,
+            .bgra8Unorm_srgb,
+            .rgb10a2Unorm,
+            .rgb10a2Uint,
+            .rg11b10Float,
+            .rgb9e5Float,
+            .bgr10a2Unorm,
+            .bgr10_xr,
+            .bgr10_xr_srgb,
+            .depth32Float,
+            .x24_stencil8:
+            return 4
+
+        // MARK: - 64-bit (8 bytes)
+        case .rgba16Unorm,
+            .rgba16Snorm,
+            .rgba16Uint,
+            .rgba16Sint,
+            .rgba16Float,
+            .rg32Uint,
+            .rg32Sint,
+            .rg32Float,
+            .bgra10_xr,
+            .bgra10_xr_srgb,
+            .depth32Float_stencil8,
+            .x32_stencil8:
+            return 8
+
+        // MARK: - 128-bit (16 bytes)
+        case .rgba32Uint,
+            .rgba32Sint,
+            .rgba32Float:
+            return 16
+
+        // MARK: - Compressed / Unknown
+        default:
+            return nil // Block-compressed (BCn, ASTC, EAC, PVRTC, etc.) or invalid
+        }
+    }
+}
 
 #endif

@@ -187,7 +187,8 @@ public:
     WEBCORE_EXPORT void addHTTPHeaderField(const String& name, const String& value);
     WEBCORE_EXPORT void addHTTPHeaderFieldIfNotPresent(HTTPHeaderName, const String&);
     void removeHTTPHeaderField(const String& name);
-    void removeHTTPHeaderField(HTTPHeaderName);
+    // void removeHTTPHeaderField(HTTPHeaderName);
+    WEBCORE_EXPORT void removeHTTPHeaderField(HTTPHeaderName); // MAVERICKS_BACKPORT: WebKitLegacy curl downloads update request headers across redirects and authentication.
 
     WEBCORE_EXPORT bool hasHTTPHeaderField(HTTPHeaderName) const;
 
@@ -239,10 +240,9 @@ public:
     WEBCORE_EXPORT ResourceLoadPriority priority() const;
     WEBCORE_EXPORT void setPriority(ResourceLoadPriority);
 
-    WEBCORE_EXPORT static String partitionName(const String& domain);
-    const String& cachePartition() const LIFETIME_BOUND { return m_cachePartition; }
-    WEBCORE_EXPORT void setCachePartition(const String&);
-    void setDomainForCachePartition(const String& domain) { setCachePartition(partitionName(domain)); }
+    WEBCORE_EXPORT String cachePartition() const;
+    bool shouldBlockThirdPartyStorage() const { return m_shouldBlockThirdPartyStorage; }
+    void setShouldBlockThirdPartyStorage(bool value) { m_shouldBlockThirdPartyStorage = value; }
 
     WEBCORE_EXPORT bool isConditional() const;
     WEBCORE_EXPORT void makeUnconditional();
@@ -269,12 +269,12 @@ public:
     bool encodingRequiresPlatformData() const { return true; }
 #endif
 
-    static bool upgradeInsecureRequest(URL&);
+    WEBCORE_EXPORT static bool upgradeInsecureRequest(URL&);
     static bool upgradeInsecureRequestIfNeeded(URL&, ShouldUpgradeLocalhostAndIPAddress, const std::optional<uint16_t>&);
     void upgradeInsecureRequest();
     void upgradeInsecureRequestIfNeeded(ShouldUpgradeLocalhostAndIPAddress, const std::optional<uint16_t>&);
 
-    WEBCORE_EXPORT static double defaultTimeoutInterval(); // May return 0 when using platform default.
+    WEBCORE_EXPORT static double NODELETE defaultTimeoutInterval(); // May return 0 when using platform default.
     WEBCORE_EXPORT static void NODELETE setDefaultTimeoutInterval(double);
 
     WEBCORE_EXPORT static bool equal(const ResourceRequest&, const ResourceRequest&);
@@ -328,13 +328,13 @@ protected:
     
     RequestData m_requestData;
     String m_initiatorIdentifier;
-    String m_cachePartition { emptyString() };
     RefPtr<FormData> m_httpBody;
     std::optional<int> m_inspectorInitiatorNodeIdentifier;
     mutable bool m_resourceRequestUpdated : 1;
     mutable bool m_platformRequestUpdated : 1;
     mutable bool m_resourceRequestBodyUpdated : 1;
     mutable bool m_platformRequestBodyUpdated : 1;
+    bool m_shouldBlockThirdPartyStorage : 1 { true };
     bool m_hiddenFromInspector : 1;
 
 private:

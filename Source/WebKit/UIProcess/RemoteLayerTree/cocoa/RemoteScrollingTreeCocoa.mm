@@ -36,36 +36,34 @@
 namespace WebKit {
 using namespace WebCore;
 
-const EventRegion* eventRegionForLayer(CALayer *layer)
+OptionalEventRegionConstRef eventRegionForLayer(CALayer *layer)
 {
-    if (auto* layerTreeNode = RemoteLayerTreeNode::forCALayer(layer))
-        return &layerTreeNode->eventRegion();
-    return nullptr;
+    if (RefPtr layerTreeNode = RemoteLayerTreeNode::forCALayer(layer))
+        return std::cref(layerTreeNode->eventRegion());
+    return std::nullopt;
 }
 
 bool layerEventRegionContainsPoint(CALayer *layer, CGPoint localPoint)
 {
-    auto* eventRegion = eventRegionForLayer(layer);
-    if (!eventRegion)
-        return false;
-
-    // Scrolling changes boundsOrigin on the scroll container layer, but we computed its event region ignoring scroll position, so factor out bounds origin.
-    FloatPoint boundsOrigin = layer.bounds.origin;
-    FloatPoint originRelativePoint = localPoint - toFloatSize(boundsOrigin);
-    return eventRegion->contains(roundedIntPoint(originRelativePoint));
+    return eventRegionForLayer(layer).transform([layerBounds = layer.bounds, localPoint](const WebCore::EventRegion& eventRegion) {
+        // Scrolling changes boundsOrigin on the scroll container layer, but we computed its event region ignoring scroll position, so factor out bounds origin.
+        FloatPoint boundsOrigin = layerBounds.origin;
+        FloatPoint originRelativePoint = localPoint - toFloatSize(boundsOrigin);
+        return eventRegion.contains(roundedIntPoint(originRelativePoint));
+    }).value_or(false);
 }
 
-const EventRegion* eventRegionForPoint(CALayer* rootLayer, FloatPoint& location)
+OptionalEventRegionConstRef eventRegionForPoint(CALayer* rootLayer, FloatPoint& location)
 {
     Vector<LayerAndPoint, 16> layersAtPoint;
     collectDescendantLayersAtPoint(layersAtPoint, rootLayer, location, layerEventRegionContainsPoint);
 
     if (layersAtPoint.isEmpty())
-        return nullptr;
+        return std::nullopt;
 
     auto [hitLayer, localPoint] = layersAtPoint.last();
     if (!hitLayer)
-        return nullptr;
+        return std::nullopt;
 
     location = roundedIntPoint(localPoint);
     return eventRegionForLayer(hitLayer.get());

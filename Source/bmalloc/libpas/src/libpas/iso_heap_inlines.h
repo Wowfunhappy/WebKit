@@ -26,6 +26,9 @@
 #ifndef ISO_HEAP_INLINES_H
 #define ISO_HEAP_INLINES_H
 
+
+#if PAS_ENABLE_ISO
+
 #include "iso_heap.h"
 #include "iso_heap_config.h"
 #include "iso_heap_innards.h"
@@ -38,8 +41,6 @@
 #include "pas_try_allocate_intrinsic.h"
 #include "pas_try_allocate_primitive.h"
 #include "pas_try_reallocate.h"
-
-#if PAS_ENABLE_ISO
 
 PAS_BEGIN_EXTERN_C;
 

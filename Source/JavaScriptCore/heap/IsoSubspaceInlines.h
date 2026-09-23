@@ -28,7 +28,6 @@
 #include <JavaScriptCore/AllocationFailureMode.h>
 #include <JavaScriptCore/IsoSubspace.h>
 #include <JavaScriptCore/VM.h>
-#include <cstdint>
 #include <wtf/Compiler.h>
 
 namespace JSC {

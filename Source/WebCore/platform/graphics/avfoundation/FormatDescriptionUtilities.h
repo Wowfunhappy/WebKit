@@ -39,7 +39,7 @@ struct PlatformVideoColorSpace;
 
 TrackInfoTrackType typeFromFormatDescription(CMFormatDescriptionRef);
 FloatSize presentationSizeFromFormatDescription(CMFormatDescriptionRef);
-std::optional<PlatformVideoColorSpace> colorSpaceFromFormatDescription(CMFormatDescriptionRef);
+WEBCORE_EXPORT std::optional<PlatformVideoColorSpace> colorSpaceFromFormatDescription(CMFormatDescriptionRef);
 String codecFromFormatDescription(CMFormatDescriptionRef);
 bool formatDescriptionIsProtected(CMFormatDescriptionRef);
 WEBCORE_EXPORT std::optional<ImmersiveVideoMetadata> immersiveVideoMetadataFromFormatDescription(CMFormatDescriptionRef);

@@ -24,8 +24,8 @@
 #include "HTMLProgressElement.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderElementInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTheme.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -33,7 +33,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderProgress);
 
-RenderProgress::RenderProgress(HTMLElement& element, RenderStyle&& style)
+RenderProgress::RenderProgress(HTMLElement& element, Style::ComputedStyle&& style)
     : RenderBlockFlow(Type::Progress, element, WTF::move(style))
     , m_position(HTMLProgressElement::InvalidPosition)
     , m_animationTimer(*this, &RenderProgress::animationTimerFired)
@@ -64,7 +64,7 @@ void RenderProgress::updateFromElement()
 RenderBox::LogicalExtentComputedValues RenderProgress::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
     auto computedValues = RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
-    LayoutRect frame = frameRect();
+    LayoutRect frame = borderBoxRectInContainer();
     if (isHorizontalWritingMode())
         frame.setHeight(computedValues.extent);
     else

@@ -140,9 +140,13 @@ public:
     void startDocument(const xmlChar* version, const xmlChar* encoding, int standalone);
     void internalSubset(const xmlChar* name, const xmlChar* externalID, const xmlChar* systemID);
     void endDocument();
+    xmlEntityPtr getEntity(const xmlChar* name);
+    void entityDecl(const xmlChar* name, int type, const xmlChar* publicId, const xmlChar* systemId, xmlChar* content);
 
 private:
     void initializeParserContext(const CString& chunk = CString());
+    void flushDeferredEntityDeclarations();
+    uint64_t computeTransitiveEntityReferenceCount(const AtomString& name, const HashMap<AtomString, String>& entityContents, HashSet<AtomString>& visiting);
 
     void pushCurrentNode(ContainerNode*);
     void popCurrentNode();
@@ -179,6 +183,19 @@ private:
     bool m_parserPaused { false };
     bool m_requestingScript { false };
     bool m_finishCalled { false };
+
+    const uint64_t m_maxEntityExpansionCount;
+
+    struct DeferredEntityDeclaration {
+        String name;
+        int type;
+        String publicId;
+        String systemId;
+        String content;
+    };
+    Vector<DeferredEntityDeclaration> m_deferredEntityDeclarations;
+    bool m_deferredEntityDeclarationsFlushed { false };
+    HashMap<AtomString, uint64_t> m_entityTransitiveReferenceCounts;
 
     std::unique_ptr<XMLErrors> m_xmlErrors;
 

@@ -43,8 +43,8 @@ class Code;
 
 Vector<Arg> computeCCallingConvention(Code&, CCallValue*);
 
-size_t cCallResultCount(Code&, CCallValue*);
-bool cCallArgumentEvenRegisterAlignment(Type);
+size_t NODELETE cCallResultCount(Code&, CCallValue*);
+bool NODELETE cCallArgumentEvenRegisterAlignment(Type);
 
 /*
  * On some platforms (well, on 32-bit platforms,) C functions can take arguments
@@ -54,11 +54,11 @@ bool cCallArgumentEvenRegisterAlignment(Type);
  */
 
 // Return the number of Air::Args needed to marshall this Value to the C function
-size_t cCallArgumentRegisterCount(Type);
+size_t NODELETE cCallArgumentRegisterCount(Type);
 // Return the width of the individual Air::Args needed to marshall this value
-Width cCallArgumentRegisterWidth(Type);
+Width NODELETE cCallArgumentRegisterWidth(Type);
 
-Tmp cCallResult(Code&, CCallValue*, unsigned);
+Tmp NODELETE cCallResult(Code&, CCallValue*, unsigned);
 
 Inst buildCCall(Code&, Value* origin, const Vector<Arg>&);
 

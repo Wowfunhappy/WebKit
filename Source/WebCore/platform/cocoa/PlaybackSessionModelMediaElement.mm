@@ -30,16 +30,24 @@
 
 #import "AudioTrackList.h"
 #import "DocumentPage.h"
+#import "DocumentQuirks.h"
 #import "Event.h"
 #import "EventListener.h"
 #import "EventNames.h"
+#import "EventTarget.h"
 #import "ExceptionOr.h"
 #import "HTMLVideoElement.h"
+#import "LocalDOMWindow.h"
 #import "Logging.h"
 #import "MediaControlsHost.h"
 #import "MediaSelectionOption.h"
+#import "MediaSession.h"
+#import "MediaSessionCaptionTrack.h"
+#import "Navigator.h"
+#import "NavigatorMediaSession.h"
 #import "NodeDocument.h"
 #import "PageGroup.h"
+#import "Quirks.h"
 #import "TextTrackList.h"
 #import "TimeRanges.h"
 #import "UserGestureIndicator.h"
@@ -65,9 +73,7 @@ PlaybackSessionModelMediaElement::PlaybackSessionModelMediaElement()
 {
 }
 
-PlaybackSessionModelMediaElement::~PlaybackSessionModelMediaElement()
-{
-}
+PlaybackSessionModelMediaElement::~PlaybackSessionModelMediaElement() = default;
 
 void PlaybackSessionModelMediaElement::setMediaElement(HTMLMediaElement* mediaElement)
 {
@@ -107,12 +113,15 @@ void PlaybackSessionModelMediaElement::setMediaElement(HTMLMediaElement* mediaEl
     }
     m_isListening = false;
 
-    if (oldMediaElement)
+    if (oldMediaElement) {
         oldMediaElement->resetPlaybackSessionState();
+        oldMediaElement->removeClient(*this);
+    }
 
     m_mediaElement = newMediaElement;
 
     if (newMediaElement) {
+        newMediaElement->addClient(*this);
         for (auto& eventName : observedEventNames())
             newMediaElement->addEventListener(eventName, *this);
 
@@ -360,7 +369,7 @@ void PlaybackSessionModelMediaElement::selectAudioMediaOption(uint64_t selectedA
         return;
 
     for (size_t i = 0, size = m_audioTracksForMenu.size(); i < size; ++i)
-        m_audioTracksForMenu[i]->setEnabled(i == selectedAudioIndex);
+        protect(m_audioTracksForMenu[i])->setEnabled(i == selectedAudioIndex);
 }
 
 void PlaybackSessionModelMediaElement::selectLegibleMediaOption(uint64_t index)
@@ -368,6 +377,18 @@ void PlaybackSessionModelMediaElement::selectLegibleMediaOption(uint64_t index)
     RefPtr mediaElement = m_mediaElement;
     if (!mediaElement)
         return;
+
+#if ENABLE(MEDIA_SESSION)
+    if (RefPtr mediaSession = mediaElement->mediaSessionIfNeededAndExists()) {
+        if (index >= mediaSession->captionTracks().size())
+            return;
+        MediaSessionActionDetails details = {
+            .action = MediaSessionAction::Selectcaptiontrack,
+            .trackIndex = index };
+        mediaSession->callActionHandler(details, { });
+        return;
+    }
+#endif
 
     RefPtr<TextTrack> textTrack;
     if (index < m_legibleTracksForMenu.size())
@@ -496,7 +517,7 @@ void PlaybackSessionModelMediaElement::setSpatialTrackingLabel(const String& spa
 void PlaybackSessionModelMediaElement::sendRemoteCommand(PlatformMediaSession::RemoteControlCommandType command, const PlatformMediaSession::RemoteCommandArgument& argument)
 {
     if (RefPtr mediaElement = m_mediaElement)
-        mediaElement->mediaSession().didReceiveRemoteControlCommand(command, argument);
+        protect(mediaElement->mediaSession())->didReceiveRemoteControlCommand(command, argument);
 }
 
 void PlaybackSessionModelMediaElement::updateMediaSelectionOptions()
@@ -508,7 +529,7 @@ void PlaybackSessionModelMediaElement::updateMediaSelectionOptions()
     if (!mediaElement->document().page())
         return;
 
-    Ref captionPreferences = protect(mediaElement->document().page()->group())->ensureCaptionPreferences();
+    Ref captionPreferences = protect(protect(mediaElement->document())->page()->group())->ensureCaptionPreferences();
     auto* textTracks = mediaElement->textTracks();
     if (textTracks && textTracks->length())
         m_legibleTracksForMenu = captionPreferences->sortedTrackListForMenu(textTracks, { TextTrack::Kind::Subtitles, TextTrack::Kind::Captions, TextTrack::Kind::Descriptions });
@@ -557,7 +578,7 @@ void PlaybackSessionModelMediaElement::maybeUpdateVideoMetadata()
         m_immersiveVideoMetadata = WTF::move(immersiveVideoMetadata);
         ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, "immersiveVideoMetadata: ", m_immersiveVideoMetadata);
         for (auto& client : m_clients)
-            client->immersiveVideoMetadataChanged(immersiveVideoMetadata);
+            client->immersiveVideoMetadataChanged(m_immersiveVideoMetadata);
     }
 }
 
@@ -710,7 +731,7 @@ Vector<MediaSelectionOption> PlaybackSessionModelMediaElement::audioMediaSelecti
     if (!mediaElement || !mediaElement->document().page())
         return { };
 
-    Ref captionPreferences = protect(mediaElement->document().page()->group())->ensureCaptionPreferences();
+    Ref captionPreferences = protect(protect(mediaElement->document())->page()->group())->ensureCaptionPreferences();
     return m_audioTracksForMenu.map([&](auto& audioTrack) {
         return captionPreferences->mediaSelectionOptionForTrack(audioTrack.get());
     });
@@ -719,7 +740,7 @@ Vector<MediaSelectionOption> PlaybackSessionModelMediaElement::audioMediaSelecti
 uint64_t PlaybackSessionModelMediaElement::audioMediaSelectedIndex() const
 {
     for (size_t index = 0; index < m_audioTracksForMenu.size(); ++index) {
-        if (m_audioTracksForMenu[index]->enabled())
+        if (protect(m_audioTracksForMenu[index])->enabled())
             return index;
     }
     return std::numeric_limits<uint64_t>::max();
@@ -733,7 +754,15 @@ Vector<MediaSelectionOption> PlaybackSessionModelMediaElement::legibleMediaSelec
     if (!mediaElement || !mediaElement->document().page())
         return { };
 
-    Ref captionPreferences = protect(mediaElement->document().page()->group())->ensureCaptionPreferences();
+#if ENABLE(MEDIA_SESSION)
+    if (RefPtr mediaSession = mediaElement->mediaSessionIfNeededAndExists()) {
+        return mediaSession->captionTracks().map([](auto& track) -> MediaSelectionOption {
+            return MediaSelectionOption(MediaSelectionOption::MediaType::Captions, track.label, MediaSelectionOption::LegibleType::Regular, track.language);
+        });
+    }
+#endif
+
+    Ref captionPreferences = protect(protect(mediaElement->document())->page()->group())->ensureCaptionPreferences();
     return m_legibleTracksForMenu.map([&](auto& track) {
         return captionPreferences->mediaSelectionOptionForTrack(track.get());
     });
@@ -742,9 +771,20 @@ Vector<MediaSelectionOption> PlaybackSessionModelMediaElement::legibleMediaSelec
 uint64_t PlaybackSessionModelMediaElement::legibleMediaSelectedIndex() const
 {
     RefPtr mediaElement = m_mediaElement;
-    auto host = mediaElement ? mediaElement->mediaControlsHost() : nullptr;
+    if (!mediaElement)
+        return std::numeric_limits<uint64_t>::max();
+
+    auto host = mediaElement->mediaControlsHost();
     if (!host)
         return std::numeric_limits<uint64_t>::max();
+
+#if ENABLE(MEDIA_SESSION)
+    if (RefPtr mediaSession = mediaElement->mediaSessionIfNeededAndExists()) {
+        return mediaSession->captionTracks().findIf([](auto& track) {
+            return track.enabled.value_or(false);
+        });
+    }
+#endif
 
     AtomString displayMode = host->captionDisplayMode();
 
@@ -808,7 +848,7 @@ String PlaybackSessionModelMediaElement::externalPlaybackLocalizedDeviceName() c
 bool PlaybackSessionModelMediaElement::wirelessVideoPlaybackDisabled() const
 {
     if (RefPtr mediaElement = m_mediaElement)
-        return mediaElement->mediaSession().wirelessVideoPlaybackDisabled();
+        return protect(mediaElement->mediaSession())->wirelessVideoPlaybackDisabled();
     return false;
 }
 
@@ -849,6 +889,16 @@ bool PlaybackSessionModelMediaElement::isInWindowFullscreenActive() const
         return false;
 
     return (mediaElement->fullscreenMode() & HTMLMediaElementEnums::VideoFullscreenModeInWindow) == HTMLMediaElementEnums::VideoFullscreenModeInWindow;
+}
+
+void PlaybackSessionModelMediaElement::captionTracksChanged()
+{
+    updateMediaSelectionOptions();
+}
+
+void PlaybackSessionModelMediaElement::captionsEnabledChanged()
+{
+    updateMediaSelectionOptions();
 }
 
 #if !RELEASE_LOG_DISABLED

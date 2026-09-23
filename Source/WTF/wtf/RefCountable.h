@@ -26,7 +26,7 @@
 #pragma once
 
 #include <wtf/Ref.h>
-#include <wtf/RetainReleaseSwift.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeTraits.h>
 

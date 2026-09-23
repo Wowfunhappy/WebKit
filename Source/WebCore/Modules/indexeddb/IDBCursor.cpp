@@ -35,6 +35,7 @@
 #include "IDBObjectStore.h"
 #include "IDBRequest.h"
 #include "IDBTransaction.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "Logging.h"
 #include "ScriptExecutionContext.h"
 #include "ScriptWrappableInlines.h"
@@ -42,6 +43,7 @@
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {

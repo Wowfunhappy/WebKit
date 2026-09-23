@@ -29,12 +29,12 @@
 
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 #include "CSSValue.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
 #include "RenderStyleConstants.h"
+#include "StyleKeyword+Mappings.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
@@ -316,9 +316,9 @@ RefPtr<CSSValue> valueForPositionArea(CSSValueID dim1, CSSValueID dim2, ValueTyp
         return nullptr;
 
     if (dim1 == CSSValueSpanAll && typeIsAxisExplicit(dim2Type))
-        return CSSPrimitiveValue::create(dim2);
+        return CSSKeywordValue::create(dim2);
     if (typeIsAxisExplicit(dim1Type) && dim2 == CSSValueSpanAll)
-        return CSSPrimitiveValue::create(dim1);
+        return CSSKeywordValue::create(dim1);
 
     // Ensure the X/block axis keyword goes first in the pair.
     if (typeIsInlineOrYAxis(dim1Type) || typeIsBlockOrXAxis(dim2Type)) {
@@ -339,7 +339,7 @@ RefPtr<CSSValue> valueForPositionArea(CSSValueID dim1, CSSValueID dim2, ValueTyp
         }
     }
 
-    return CSSValuePair::create(CSSPrimitiveValue::create(dim1), CSSPrimitiveValue::create(dim2));
+    return CSSValuePair::create(CSSKeywordValue::create(dim1), CSSKeywordValue::create(dim2));
 }
 
 RefPtr<CSSValue> consumePositionArea(CSSParserTokenRange& range, CSS::PropertyParserState&)
@@ -352,13 +352,13 @@ RefPtr<CSSValue> consumePositionArea(CSSParserTokenRange& range, CSS::PropertyPa
         return nullptr;
     auto dim1 = *maybeDim1;
     if (dim1 == CSSValueNone)
-        return CSSPrimitiveValue::create(CSSValueNone);
+        return CSSKeywordValue::create(CSSValueNone);
 
     auto maybeDim2 = consumeIdentRaw(range);
     if (!maybeDim2) {
         if (!getKeywordType(dim1))
             return nullptr;
-        return CSSPrimitiveValue::create(dim1);
+        return CSSKeywordValue::create(dim1);
     }
     auto dim2 = *maybeDim2;
 

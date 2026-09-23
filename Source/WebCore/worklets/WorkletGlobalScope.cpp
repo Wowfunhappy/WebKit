@@ -28,6 +28,7 @@
 #include "WorkletGlobalScope.h"
 
 #include "ContentSecurityPolicy.h"
+#include "DocumentPage.h"
 #include "DocumentSettingsValues.h"
 #include "FrameConsoleClient.h"
 #include "InspectorInstrumentation.h"
@@ -41,6 +42,7 @@
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -56,6 +58,7 @@ WorkletGlobalScope::WorkletGlobalScope(WorkerOrWorkletThread& thread, Ref<JSC::V
     , m_url(parameters.windowURL)
     , m_jsRuntimeFlags(parameters.jsRuntimeFlags)
     , m_settingsValues(parameters.settingsValues)
+    , m_agentClusterID(parameters.agentClusterID)
 {
     ++gNumberOfWorkletGlobalScopes;
 
@@ -72,6 +75,7 @@ WorkletGlobalScope::WorkletGlobalScope(Document& document, Ref<JSC::VM>&& vm, Sc
     , m_jsRuntimeFlags(document.settings().javaScriptRuntimeFlags())
     , m_code(WTF::move(code))
     , m_settingsValues(document.settingsValues().isolatedCopy())
+    , m_agentClusterID(document.agentClusterID())
 {
     ++gNumberOfWorkletGlobalScopes;
 
@@ -109,7 +113,7 @@ String WorkletGlobalScope::userAgent(const URL& url) const
 {
     if (!m_document)
         return emptyString();
-    return m_document->userAgent(url);
+    return protect(m_document)->userAgent(url);
 }
 
 void WorkletGlobalScope::evaluate()
@@ -118,7 +122,8 @@ void WorkletGlobalScope::evaluate()
         script()->evaluate(*m_code);
 }
 
-URL WorkletGlobalScope::completeURL(const String& url, ForceUTF8) const
+// https://html.spec.whatwg.org/multipage/webappapis.html#parse-a-url
+URL WorkletGlobalScope::parseURL(const String& url) const
 {
     if (url.isNull())
         return URL();
@@ -139,7 +144,7 @@ void WorkletGlobalScope::logExceptionToConsole(const String& errorMessage, const
 
     if (!m_document || isJSExecutionForbidden())
         return;
-    m_document->logExceptionToConsole(errorMessage, sourceURL, lineNumber, columnNumber, WTF::move(stack));
+    protect(m_document)->logExceptionToConsole(errorMessage, sourceURL, lineNumber, columnNumber, WTF::move(stack));
 }
 
 void WorkletGlobalScope::addConsoleMessage(std::unique_ptr<Inspector::ConsoleMessage>&& message)
@@ -149,21 +154,21 @@ void WorkletGlobalScope::addConsoleMessage(std::unique_ptr<Inspector::ConsoleMes
 
     if (!m_document || isJSExecutionForbidden() || !message)
         return;
-    m_document->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(message->source(), message->type(), message->level(), message->message(), 0));
+    protect(m_document)->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(message->source(), message->type(), message->level(), message->message(), 0));
 }
 
 void WorkletGlobalScope::addConsoleMessage(MessageSource source, MessageLevel level, const String& message, unsigned long requestIdentifier)
 {
     if (!m_document || isJSExecutionForbidden())
         return;
-    m_document->addConsoleMessage(source, level, message, requestIdentifier);
+    protect(m_document)->addConsoleMessage(source, level, message, requestIdentifier);
 }
 
 void WorkletGlobalScope::addMessage(MessageSource source, MessageLevel level, const String& messageText, const String& sourceURL, unsigned lineNumber, unsigned columnNumber, RefPtr<ScriptCallStack>&& callStack, JSC::JSGlobalObject*, unsigned long requestIdentifier)
 {
     if (!m_document || isJSExecutionForbidden())
         return;
-    m_document->addMessage(source, level, messageText, sourceURL, lineNumber, columnNumber, WTF::move(callStack), nullptr, requestIdentifier);
+    protect(m_document)->addMessage(source, level, messageText, sourceURL, lineNumber, columnNumber, WTF::move(callStack), nullptr, requestIdentifier);
 }
 
 void WorkletGlobalScope::fetchAndInvokeScript(const URL& moduleURL, FetchRequestCredentials credentials, CompletionHandler<void(std::optional<Exception>&&)>&& completionHandler)

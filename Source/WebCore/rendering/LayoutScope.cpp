@@ -26,6 +26,7 @@
 #include "config.h"
 #include "LayoutScope.h"
 
+#include "RelayoutScopeForScrollbarChange.h"
 #include "RenderBlock.h"
 
 namespace WebCore {
@@ -35,10 +36,16 @@ LayoutScope::LayoutScope(RenderElement& renderer)
 {
 }
 
+LayoutScope::LayoutScope(RenderBlock& renderBlock, InOverflowRelayout inOverflowRelayout)
+    : m_renderer(renderBlock)
+    , m_inOverflowRelayout(inOverflowRelayout)
+{
+}
+
 LayoutScope::~LayoutScope()
 {
     if (CheckedPtr block = dynamicDowncast<RenderBlock>(m_renderer))
-        block->updateScrollInfoAfterLayout();
+        RelayoutScopeForScrollbarChange relayoutScope { *block, m_inOverflowRelayout };
 
     m_renderer->setScrollAnchoringSuppressionStyleChanged(false);
     m_renderer->clearNeedsLayout();

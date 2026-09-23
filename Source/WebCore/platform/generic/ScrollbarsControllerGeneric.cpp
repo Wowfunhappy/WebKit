@@ -230,6 +230,11 @@ void ScrollbarsControllerGeneric::notifyContentAreaScrolled(const FloatSize&)
     showOverlayScrollbars();
 }
 
+void ScrollbarsControllerGeneric::scrollbarWidthChanged(ScrollbarWidth)
+{
+    updateScrollbarsThickness();
+}
+
 void ScrollbarsControllerGeneric::lockOverlayScrollbarStateToHidden(bool shouldLockState)
 {
     if (m_overlayScrollbarsLocked == shouldLockState)

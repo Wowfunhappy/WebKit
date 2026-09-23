@@ -64,9 +64,7 @@ BackingStore::BackingStore(const IntSize& size, float deviceScaleFactor)
 {
 }
 
-BackingStore::~BackingStore()
-{
-}
+BackingStore::~BackingStore() = default;
 
 void BackingStore::paint(PlatformPaintContextPtr cr, const IntRect& rect)
 {

@@ -45,7 +45,7 @@ static constexpr auto tier2LimitForBuffersAndTextures = 4;
 static constexpr auto tier2LimitForSamplers = 2;
 static constexpr uint64_t defaultMaxBufferSize = 268435456;
 
-static constexpr auto multipleOf4(auto input)
+static constexpr auto NODELETE multipleOf4(auto input)
 {
     return input & (~3);
 }
@@ -65,7 +65,7 @@ static constexpr uint32_t NODELETE largeReasonableLimit()
     return USHRT_MAX;
 }
 
-static constexpr auto workaroundCTSBindGroupLimit(auto valueToClamp)
+static constexpr auto NODELETE workaroundCTSBindGroupLimit(auto valueToClamp)
 {
     return valueToClamp > 1000 ? 1000 : valueToClamp;
 }
@@ -119,6 +119,8 @@ static Vector<WGPUFeatureName> baseFeatures(id<MTLDevice> device, const Hardware
     features.append(WGPUFeatureName_Float32Renderable);
     features.append(WGPUFeatureName_Float32Blendable);
 
+    features.append(WGPUFeatureName_ClipDistances);
+    features.append(WGPUFeatureName_PrimitiveIndex);
     features.append(WGPUFeatureName_DepthClipControl);
     features.append(WGPUFeatureName_Depth32FloatStencil8);
 
@@ -141,6 +143,7 @@ static Vector<WGPUFeatureName> baseFeatures(id<MTLDevice> device, const Hardware
     features.append(WGPUFeatureName_BGRA8UnormStorage);
 #if CPU(ARM64)
     features.append(WGPUFeatureName_TextureFormatsTier1);
+    features.append(WGPUFeatureName_TextureFormatsTier2);
 #endif
 
 #if !PLATFORM(WATCHOS)
@@ -332,8 +335,7 @@ static HardwareCapabilities apple6(id<MTLDevice> device)
             .maxBufferSize = maxBufferSize(device),
             .maxVertexAttributes =    30,
             .maxVertexBufferArrayStride =    multipleOf4(largeReasonableLimit()),
-            .maxInterStageShaderComponents =    124,
-            .maxInterStageShaderVariables = 124,
+            .maxInterStageShaderVariables = 31,
             .maxColorAttachments = 8,
             .maxColorAttachmentBytesPerSample = 64,
             .maxComputeWorkgroupStorageSize =    32 * KB,
@@ -392,8 +394,7 @@ static HardwareCapabilities apple7(id<MTLDevice> device)
             .maxBufferSize = maxBufferSize(device),
             .maxVertexAttributes =    30,
             .maxVertexBufferArrayStride =    multipleOf4(largeReasonableLimit()),
-            .maxInterStageShaderComponents =    124,
-            .maxInterStageShaderVariables =    124,
+            .maxInterStageShaderVariables =    31,
             .maxColorAttachments = 8,
             .maxColorAttachmentBytesPerSample = 64,
             .maxComputeWorkgroupStorageSize =    32 * KB,
@@ -452,8 +453,7 @@ static HardwareCapabilities mac2(id<MTLDevice> device)
             .maxBufferSize =    maxBufferSize(device),
             .maxVertexAttributes =    30,
             .maxVertexBufferArrayStride =    multipleOf4(largeReasonableLimit()),
-            .maxInterStageShaderComponents =    64,
-            .maxInterStageShaderVariables =    32,
+            .maxInterStageShaderVariables =    31,
             .maxColorAttachments =    8,
             .maxColorAttachmentBytesPerSample = 64,
             .maxComputeWorkgroupStorageSize =    32 * KB,
@@ -511,7 +511,6 @@ static WGPULimits mergeLimits(const WGPULimits& previous, const WGPULimits& next
         .maxBufferSize = mergeMaximum(previous.maxBufferSize, next.maxBufferSize),
         .maxVertexAttributes = mergeMaximum(previous.maxVertexAttributes, next.maxVertexAttributes),
         .maxVertexBufferArrayStride = mergeMaximum(previous.maxVertexBufferArrayStride, next.maxVertexBufferArrayStride),
-        .maxInterStageShaderComponents = mergeMaximum(previous.maxInterStageShaderComponents, next.maxInterStageShaderComponents),
         .maxInterStageShaderVariables = mergeMaximum(previous.maxInterStageShaderVariables, next.maxInterStageShaderVariables),
         .maxColorAttachments = mergeMaximum(previous.maxColorAttachments, next.maxColorAttachments),
         .maxColorAttachmentBytesPerSample = mergeMaximum(previous.maxColorAttachmentBytesPerSample, next.maxColorAttachmentBytesPerSample),
@@ -600,9 +599,10 @@ static std::optional<HardwareCapabilities> rawHardwareCapabilities(id<MTLDevice>
         merge(apple7(device));
 #endif
     // MTLGPUFamilyMac1 is not supported (yet?).
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([device supportsFamily:MTLGPUFamilyMac2])
         merge(mac2(device));
-
+ALLOW_DEPRECATED_DECLARATIONS_END
     if (result) {
         auto maxBufferLength = maxBufferSize(device);
         result->limits.maxUniformBufferBindingSize = maxBufferLength;
@@ -655,8 +655,6 @@ bool anyLimitIsBetterThan(const WGPULimits& target, const WGPULimits& reference)
     if (target.maxVertexAttributes > reference.maxVertexAttributes)
         return true;
     if (target.maxVertexBufferArrayStride > reference.maxVertexBufferArrayStride)
-        return true;
-    if (target.maxInterStageShaderComponents > reference.maxInterStageShaderComponents)
         return true;
     if (target.maxInterStageShaderVariables > reference.maxInterStageShaderVariables)
         return true;
@@ -725,7 +723,6 @@ WGPULimits defaultLimits()
         .maxBufferSize = defaultMaxBufferSize,
         .maxVertexAttributes =    16,
         .maxVertexBufferArrayStride =    2048,
-        .maxInterStageShaderComponents =    64,
         .maxInterStageShaderVariables = 16,
         .maxColorAttachments = 8,
         .maxColorAttachmentBytesPerSample = 32,

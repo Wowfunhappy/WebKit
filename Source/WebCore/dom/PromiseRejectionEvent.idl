@@ -27,7 +27,7 @@
     Exposed=*,
     JSCustomMarkFunction,
 ] interface PromiseRejectionEvent : Event {
-    constructor([AtomString] DOMString type, PromiseRejectionEventInit eventInitDict);
+    [CallWith=CurrentGlobalObject] constructor([AtomString] DOMString type, PromiseRejectionEventInit eventInitDict);
 
     readonly attribute Promise<any> promise;
     readonly attribute any reason;

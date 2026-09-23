@@ -39,7 +39,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderReplica);
 
-RenderReplica::RenderReplica(Document& document, RenderStyle&& style)
+RenderReplica::RenderReplica(Document& document, Style::ComputedStyle&& style)
     : RenderBox(Type::Replica, document, WTF::move(style))
 {
     // This is a hack. Replicas are synthetic, and don't pick up the attributes of the
@@ -55,16 +55,16 @@ RenderReplica::~RenderReplica() = default;
 void RenderReplica::layout()
 {
     StackStats::LayoutCheckPoint layoutCheckPoint;
-    setFrameRect(parentBox()->borderBoxRect());
+    setBorderBoxInContainer(parentBox()->borderBoxRect());
     updateLayerTransform();
     clearNeedsLayout();
 }
 
-void RenderReplica::computePreferredLogicalWidths()
+void RenderReplica::computeIntrinsicLogicalWidthContributions()
 {
-    m_minPreferredLogicalWidth = parentBox()->width();
-    m_maxPreferredLogicalWidth = m_minPreferredLogicalWidth;
-    clearNeedsPreferredWidthsUpdate();
+    m_minContentLogicalWidthContribution = parentBox()->borderBoxWidth();
+    m_maxContentLogicalWidthContribution = m_minContentLogicalWidthContribution;
+    clearContentLogicalWidthsInvalidation();
 }
 
 void RenderReplica::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)

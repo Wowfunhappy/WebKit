@@ -26,14 +26,9 @@
 #ifndef PAS_TRY_ALLOCATE_H
 #define PAS_TRY_ALLOCATE_H
 
-#include "pas_allocator_counts.h"
-#include "pas_cares_about_size_mode.h"
 #include "pas_heap.h"
 #include "pas_heap_config.h"
 #include "pas_heap_ref.h"
-#include "pas_local_allocator_inlines.h"
-#include "pas_physical_memory_transaction.h"
-#include "pas_segregated_heap.h"
 #include "pas_thread_local_cache.h"
 #include "pas_try_allocate_common.h"
 

@@ -30,6 +30,7 @@
 
 namespace WebCore {
 
+class RealtimeMediaSource;
 class SpeechRecognitionConnectionClient;
 class SpeechRecognitionUpdate;
 struct ClientOrigin;
@@ -43,6 +44,9 @@ public:
     virtual void stop(SpeechRecognitionConnectionClientIdentifier) = 0;
     virtual void abort(SpeechRecognitionConnectionClientIdentifier) = 0;
     virtual void didReceiveUpdate(SpeechRecognitionUpdate&&) = 0;
+#if ENABLE(MEDIA_STREAM)
+    virtual void dispatchCaptureSourceCreated(SpeechRecognitionConnectionClientIdentifier, RealtimeMediaSource&) { }
+#endif
 };
 
 } // namespace WebCore

@@ -31,6 +31,7 @@
 #include "HTMLNames.h"
 #include "HTMLOptionElement.h"
 #include "HTMLSelectElement.h"
+#include "Settings.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -39,31 +40,31 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLSelectedContentElement);
 
 using namespace HTMLNames;
 
-HTMLSelectedContentElement::HTMLSelectedContentElement(Document& document)
-    : HTMLElement(selectedcontentTag, document, { })
+HTMLSelectedContentElement::HTMLSelectedContentElement(const QualifiedName& tagName, Document& document)
+    : HTMLElement(tagName, document, { })
 {
     ASSERT(hasTagName(selectedcontentTag));
 }
 
-Ref<HTMLSelectedContentElement> HTMLSelectedContentElement::create(const QualifiedName&, Document& document)
+Ref<HTMLSelectedContentElement> HTMLSelectedContentElement::create(const QualifiedName& tagName, Document& document)
 {
-    return adoptRef(*new HTMLSelectedContentElement(document));
+    return adoptRef(*new HTMLSelectedContentElement(tagName, document));
 }
 
-auto HTMLSelectedContentElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto HTMLSelectedContentElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     ASSERT(document().settings().htmlEnhancedSelectParsingEnabled());
     ASSERT(document().settings().htmlEnhancedSelectEnabled());
     ASSERT(!document().settings().mutationEventsEnabled());
 
     if (insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
-    return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::Yes;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLSelectedContentElement::didFinishInsertingNode()
+void HTMLSelectedContentElement::postConnectionSteps()
 {
     RefPtr<HTMLSelectElement> nearestAncestorSelect;
     m_isDisabled = false;
@@ -93,9 +94,9 @@ void HTMLSelectedContentElement::didFinishInsertingNode()
     nearestAncestorSelect->updateSelectedContent();
 }
 
-void HTMLSelectedContentElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLSelectedContentElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (RefPtr select = m_owningSelect; select && !isInclusiveDescendantOf(*select)) {
         select->unregisterSelectedContentElement();

@@ -54,7 +54,7 @@ static std::optional<CreateShareableBitmapResult> createShareableBitmapForNative
 #if USE(CG)
     bitmap = ShareableBitmap::createFromImagePixels(image);
     if (bitmap)
-        platformImage = bitmap->createPlatformImage(DontCopyBackingStore, ShouldInterpolate::Yes);
+        platformImage = bitmap->createBasePlatformImage(DontCopyBackingStore, ShouldInterpolate::Yes);
 #endif
 
     // If we failed to create ShareableBitmap or PlatformImage, fall back to image-draw method.

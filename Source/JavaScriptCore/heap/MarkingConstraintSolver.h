@@ -49,7 +49,7 @@ public:
     MarkingConstraintSolver(MarkingConstraintSet&);
     ~MarkingConstraintSolver();
     
-    bool didVisitSomething() const;
+    bool NODELETE didVisitSomething() const;
     
     enum SchedulerPreference {
         ParallelWorkFirst,

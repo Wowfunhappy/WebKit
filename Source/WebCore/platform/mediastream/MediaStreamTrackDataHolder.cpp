@@ -26,6 +26,7 @@
 #include "MediaStreamTrackDataHolder.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/UUID.h>
 
 #if ENABLE(MEDIA_STREAM)
 
@@ -81,26 +82,37 @@ private:
     std::unique_ptr<PreventSourceFromEndingObserver> m_observer;
 };
 
-MediaStreamTrackDataHolder::MediaStreamTrackDataHolder(String&& trackId, String&& label, RealtimeMediaSource::Type type, CaptureDevice::DeviceType deviceType, bool isEnabled, bool isEnded, MediaStreamTrackHintValue contentHint, bool isProducingData, bool isMuted, bool isInterrupted, RealtimeMediaSourceSettings settings, RealtimeMediaSourceCapabilities capabilities, Ref<RealtimeMediaSource>&& source)
-    : trackId(WTF::move(trackId))
-    , label(WTF::move(label))
-    , type(type)
-    , deviceType(deviceType)
-    , isEnabled(isEnabled)
-    , isEnded(isEnded)
-    , contentHint(contentHint)
-    , isProducingData(isProducingData)
-    , isMuted(isMuted)
-    , isInterrupted(isInterrupted)
-    , settings(WTF::move(settings))
-    , capabilities(WTF::move(capabilities))
-    , source(source.get())
-    , preventSourceFromEndingObserverWrapper(PreventSourceFromEndingObserverWrapper::create(WTF::move(source)))
+MediaStreamTrackDataHolder::MediaStreamTrackDataHolder(MediaStreamTrackData&& data, Ref<RealtimeMediaSource>&& source)
+    : m_data(WTF::move(data))
+    , m_source(WTF::move(source))
+    , m_preventSourceFromEndingObserverWrapper(PreventSourceFromEndingObserverWrapper::create(m_source.get()))
 {
 }
 
-MediaStreamTrackDataHolder::~MediaStreamTrackDataHolder()
+MediaStreamTrackDataHolder::~MediaStreamTrackDataHolder() = default;
+
+MediaStreamTrackData MediaStreamTrackData::isolatedCopy(ShouldUpdateId shouldUpdateId) const
 {
+    return {
+        .trackId = shouldUpdateId == ShouldUpdateId::Yes ? createVersion4UUIDString() : trackId.isolatedCopy(),
+        .label = label.isolatedCopy(),
+        .type = type,
+        .deviceType = deviceType,
+        .isEnabled = isEnabled,
+        .isEnded = isEnded,
+        .contentHint = contentHint,
+        .isProducingData = isProducingData,
+        .isMuted = isMuted,
+        .isInterrupted = isInterrupted,
+        .settings = settings.isolatedCopy(),
+        .capabilities = capabilities.isolatedCopy(),
+        .settingsCapabilitiesUpdateCount = settingsCapabilitiesUpdateCount
+    };
+}
+
+std::unique_ptr<MediaStreamTrackDataHolder> MediaStreamTrackDataHolder::copy() const
+{
+    return makeUnique<MediaStreamTrackDataHolder>(m_data.isolatedCopy(MediaStreamTrackData::ShouldUpdateId::No), m_source.copyRef());
 }
 
 } // namespace WebCore

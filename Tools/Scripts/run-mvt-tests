@@ -28,6 +28,9 @@ if os.path.isdir(os.path.join(scripts_dir, 'webkitpy')):
     sys.path.insert(0, scripts_dir)
     import webkitpy
 
+from webkitpy.port.linux_container_sdk_utils import maybe_enter_webkit_container_sdk, maybe_use_container_sdk_root_dir
+maybe_enter_webkit_container_sdk()
+
 import argparse
 import json
 import logging
@@ -39,6 +42,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib3.exceptions import HTTPError, ReadTimeoutError
 from webkitpy.common.host import Host
+
+maybe_use_container_sdk_root_dir()
 
 top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -585,7 +590,7 @@ def main(argument_list):
         if mvtwebdriver_runner:
             mvtwebdriver_runner.stop_driver()
             mvtwebdriver_runner.stop_display_server()
-        return exit_code
+    return exit_code
 
 
 if __name__ == "__main__":

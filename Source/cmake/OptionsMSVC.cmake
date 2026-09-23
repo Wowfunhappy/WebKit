@@ -25,7 +25,12 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_NAME STREQUAL "Wind
     string(APPEND CMAKE_CXX_FLAGS " -imsvc ${WIN_CRT_INC} -imsvc ${WIN_SDK_INC}/ucrt -imsvc ${WIN_SDK_INC}/um -imsvc ${WIN_SDK_INC}/shared -imsvc ${WIN_SDK_INC}/winrt")
 
     # Set linker library path flags
-    set(WIN_CROSS_LINK_FLAGS "-libpath:${WIN_CRT_LIB}/x64 -libpath:${WIN_SDK_LIB}/ucrt/x64 -libpath:${WIN_SDK_LIB}/um/x64")
+    if (WTF_CPU_ARM64)
+        set(WIN_LIB_ARCH "arm64")
+    else ()
+        set(WIN_LIB_ARCH "x64")
+    endif ()
+    set(WIN_CROSS_LINK_FLAGS "-libpath:${WIN_CRT_LIB}/${WIN_LIB_ARCH} -libpath:${WIN_SDK_LIB}/ucrt/${WIN_LIB_ARCH} -libpath:${WIN_SDK_LIB}/um/${WIN_LIB_ARCH}")
     string(APPEND CMAKE_EXE_LINKER_FLAGS " ${WIN_CROSS_LINK_FLAGS}")
     string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${WIN_CROSS_LINK_FLAGS}")
     string(APPEND CMAKE_MODULE_LINKER_FLAGS " ${WIN_CROSS_LINK_FLAGS}")

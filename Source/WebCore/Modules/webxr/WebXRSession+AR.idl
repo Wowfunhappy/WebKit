@@ -24,7 +24,7 @@
  */
 
 [
-    Conditional=WEBXR,
+    Conditional=WEBXR_AR,
     EnabledBySetting=WebXREnabled&WebXRAugmentedRealityModuleEnabled
 ] partial interface WebXRSession {
     // https://immersive-web.github.io/webxr-ar-module/#xrinteractionmode-enum

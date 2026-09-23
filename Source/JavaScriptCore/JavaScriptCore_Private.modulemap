@@ -92,9 +92,17 @@ framework module JavaScriptCore_Private [system] {
         export *
     }
 
+    explicit module JSExportMacros {
+        header "JSExportMacros.h"
+        export *
+    }
+
     explicit module Cxx {
         // This Cxx module is essentially "PrivateHeaders" minus any headers that do not actually require C++.
 
+        // Workaround for rdar://173516139: PrivateHeaders includes a header
+        // "WorkAround173516139.h" that the build system regenerates whenever
+        // the header list changes.
         umbrella "PrivateHeaders"
 
         // Ideally, no headers in this module should need `requires cplusplus` and instead just have

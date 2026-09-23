@@ -106,11 +106,6 @@ Seconds ScrollAnimationSmooth::durationFromDistance(const FloatSize& delta) cons
     return std::min(Seconds(distance / animationSpeed), maxAnimationDuration);
 }
 
-inline float NODELETE linearInterpolation(float progress, float a, float b)
-{
-    return a + progress * (b - a);
-}
-
 void ScrollAnimationSmooth::serviceAnimation(MonotonicTime currentTime)
 {
     bool animationActive = animateScroll(currentTime);
@@ -125,11 +120,11 @@ bool ScrollAnimationSmooth::animateScroll(MonotonicTime currentTime)
     currentTime = std::min(currentTime, endTime);
 
     double fractionComplete = (currentTime - m_startTime) / m_duration;
-    double progress = m_timingFunction->transformProgress(fractionComplete, m_duration.value());
+    float progress = protect(m_timingFunction)->transformProgress(fractionComplete, m_duration.value());
 
     m_currentOffset = {
-        linearInterpolation(progress, m_startOffset.x(), m_destinationOffset.x()),
-        linearInterpolation(progress, m_startOffset.y(), m_destinationOffset.y()),
+        std::lerp(m_startOffset.x(), m_destinationOffset.x(), progress),
+        std::lerp(m_startOffset.y(), m_destinationOffset.y(), progress),
     };
 
     return currentTime < endTime;

@@ -34,7 +34,7 @@ function testPlaysInline(requiresPlaysInline, hasWebkitPlaysInline, expectedDisp
         if (expectedDisplayingFullscreen)
             await testExpectedEventually('internals.isChangingPresentationMode(video)', false);
 
-        testExpected('video.webkitDisplayingFullscreen', expectedDisplayingFullscreen);
+        await testExpectedEventually('video.webkitDisplayingFullscreen', expectedDisplayingFullscreen);
         document.body.removeChild(video);
         runNextTest();
     });

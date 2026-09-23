@@ -46,7 +46,7 @@ UScriptCode scriptNameToCode(StringView scriptName)
     using ScriptName = PackedLettersLiteral<uint32_t>;
     static_assert(ScriptName("arab"_s).value() == 0x61726162U);
     static_assert(ScriptName("zzzz"_s).value() == 0x7a7a7a7aU);
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ScriptName, UScriptCode>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<ScriptName, UScriptCode>>({
         { "arab"_s, USCRIPT_ARABIC },
         { "armn"_s, USCRIPT_ARMENIAN },
         { "bali"_s, USCRIPT_BALINESE },
@@ -162,7 +162,7 @@ UScriptCode localeToScriptCode(const String& locale)
     using LocaleName = PackedASCIILowerCodes<uint64_t>;
     static_assert(LocaleName("aa"_s).value() == 0x6161000000000000ULL);
     static_assert(LocaleName("zh_tw"_s).value() == 0x7a685f7477000000ULL);
-    static constexpr SortedArrayMap map { std::to_array<std::pair<LocaleName, UScriptCode>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<LocaleName, UScriptCode>>({
         { "aa"_s, USCRIPT_LATIN },
         { "ab"_s, USCRIPT_CYRILLIC },
         { "ady"_s, USCRIPT_CYRILLIC },

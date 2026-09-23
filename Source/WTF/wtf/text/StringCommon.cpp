@@ -158,14 +158,14 @@ const char16_t* find16NonASCIIAlignedImpl(std::span<const char16_t> data)
 SUPPRESS_NODELETE
 bool isWellFormedUTF16(std::span<const char16_t> data)
 {
-    return simdutf::validate_utf16(data.data(), data.size());
+    return simdutf::validate_utf16(data);
 }
 
 SUPPRESS_NODELETE
 void toWellFormedUTF16(std::span<const char16_t> input, std::span<char16_t> output)
 {
     ASSERT(input.size() == output.size());
-    simdutf::to_well_formed_utf16(input.data(), input.size(), output.data());
+    simdutf::to_well_formed_utf16(input, output);
 }
 
 } // namespace WTF

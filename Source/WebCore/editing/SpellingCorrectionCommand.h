@@ -27,6 +27,7 @@
 
 #include "CompositeEditCommand.h"
 #include "DocumentFragment.h"
+#include "SimpleRange.h"
 
 namespace WebCore {
 

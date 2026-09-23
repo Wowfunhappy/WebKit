@@ -25,7 +25,7 @@
 
 #include "AnimationUtilities.h"
 #include "MatrixTransformOperation.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include <algorithm>
 

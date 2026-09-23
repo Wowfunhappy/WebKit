@@ -36,9 +36,13 @@
 #include <memory>
 #include <wtf/Condition.h>
 #include <wtf/Lock.h>
+#include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/Threading.h>
 #include <wtf/Vector.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
@@ -86,7 +90,7 @@ private:
 
     // Background thread and synchronization
     bool m_useBackgroundThreads;
-    const RefPtr<Thread> m_backgroundThread;
+    const RefPtr<WTF::Thread> m_backgroundThread;
     bool m_wantsToExit { false };
     bool m_moreInputBuffered { false };
     mutable Lock m_backgroundThreadLock;

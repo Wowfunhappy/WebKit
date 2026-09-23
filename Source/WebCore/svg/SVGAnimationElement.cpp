@@ -79,7 +79,7 @@ static Vector<float> parseKeyTimes(StringView value, bool verifyOrder)
     }
 
     if (verifyOrder && !result.isEmpty() && !result.last()) {
-        ASSERT(!std::accumulate(result.begin(), result.end(), 0));
+        ASSERT(!std::accumulate(result.begin(), result.end(), 0.0f));
         return { };
     }
 
@@ -150,11 +150,11 @@ bool SVGAnimationElement::isSupportedAttribute(const QualifiedName& attrName)
 bool SVGAnimationElement::attributeContainsJavaScriptURL(const Attribute& attribute) const
 {
     if (attribute.name() == SVGNames::fromAttr || attribute.name() == SVGNames::toAttr)
-        return WTF::protocolIsJavaScript(attribute.value());
+        return WTF::isValidJavaScriptURL(attribute.value());
 
     if (attribute.name() == SVGNames::valuesAttr) {
         for (auto innerValue : StringView(attribute.value()).split(';')) {
-            if (WTF::protocolIsJavaScript(innerValue))
+            if (WTF::isValidJavaScriptURL(innerValue))
                 return true;
         }
         return false;
@@ -172,11 +172,13 @@ void SVGAnimationElement::attributeChanged(const QualifiedName& name, const Atom
         // and white space before and after semicolon separators, is allowed and will be ignored.
         // http://www.w3.org/TR/SVG11/animate.html#ValuesAttribute
         m_values.clear();
-        newValue.string().split(';', [this](StringView innerValue) {
-            auto trimmed = innerValue.trim(isASCIIWhitespace<char16_t>).toString();
-            if (!trimmed.isEmpty())
-                m_values.append(WTF::move(trimmed));
+        newValue.string().splitAllowingEmptyEntries(';', [this](StringView innerValue) {
+            m_values.append(innerValue.trim(isASCIIWhitespace<char16_t>).toString());
         });
+        // Per the SMIL specification, if the last semicolon separator is followed by
+        // just white space or no more characters, ignore the trailing empty value.
+        if (!m_values.isEmpty() && m_values.last().isEmpty())
+            m_values.removeLast();
         updateAnimationMode();
         break;
     case AttributeNames::keyTimesAttr:
@@ -550,7 +552,8 @@ void SVGAnimationElement::startedActiveInterval()
         if (!splinesCount
             || (hasAttributeWithoutSynchronization(SVGNames::keyPointsAttr) && m_keyPoints.size() - 1 != splinesCount)
             || (animationMode == AnimationMode::Values && m_values.size() - 1 != splinesCount)
-            || (hasAttributeWithoutSynchronization(SVGNames::keyTimesAttr) && keyTimes.size() - 1 != splinesCount))
+            || (hasAttributeWithoutSynchronization(SVGNames::keyTimesAttr) && keyTimes.size() - 1 != splinesCount)
+            || (!keyTimes.isEmpty() && keyTimes.last() != 1))
             return;
     }
 

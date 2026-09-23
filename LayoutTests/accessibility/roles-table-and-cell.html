@@ -9,16 +9,16 @@
 <!-- This tests ARIA table role and cell role work as intended                                            -->
 <!-- ==================================================================================================== -->
 
-<div role="grid" data-role="grid" class="ex">
-    <div role="gridcell" data-role="gridcell" class="ex">data</div>
-    <div role="cell" data-role="cell" class="ex">data2</div>
-    <div role="cell" data-role="cell" class="ex">data3</div>
+<div role="grid" data-role="grid" id="ex0" class="ex">
+    <div role="gridcell" data-role="gridcell" id="ex1" class="ex">data</div>
+    <div role="cell" data-role="cell" id="ex2" class="ex">data2</div>
+    <div role="cell" data-role="cell" id="ex3" class="ex">data3</div>
 </div>
 
-<table role="table" data-role="table" class="ex">
-    <td role="gridcell" data-role="gridcell" class="ex">data</td>
-    <td data-role="cell" class="ex">data2</td>
-    <td role="cell" data-role="cell" class="ex">data3</td>
+<table role="table" data-role="table" id="ex4" class="ex">
+    <td role="gridcell" data-role="gridcell" id="ex5" class="ex">data</td>
+    <td data-role="cell" id="ex6" class="ex">data2</td>
+    <td role="cell" data-role="cell" id="ex7" class="ex">data3</td>
 </table>
 
 <script>
@@ -28,7 +28,6 @@
         let examples = document.querySelectorAll(".ex");
         for (let i = 0; i < examples.length; i++) {
             let el = examples[i];
-            el.id = "ex" + i;
 
             axElement = accessibilityController.accessibleElementById(el.id);
             if (!axElement)

@@ -47,6 +47,8 @@ OptionSet<WebEventModifier> NODELETE modifiersFromPlatformEventModifiers(OptionS
         result.add(WebEventModifier::MetaKey);
     if (modifiers.contains(WebCore::PlatformEventModifier::CapsLockKey))
         result.add(WebEventModifier::CapsLockKey);
+    if (modifiers.contains(WebCore::PlatformEventModifier::AltGraphKey))
+        result.add(WebEventModifier::AltGraphKey);
     return result;
 }
 

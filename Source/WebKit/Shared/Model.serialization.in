@@ -20,20 +20,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE(ARKIT_INLINE_PREVIEW)
-
-struct WebKit::ModelIdentifier {
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-    String uuid;
-#endif
-#if ENABLE(ARKIT_INLINE_PREVIEW_IOS)
-    WebCore::PlatformLayerIdentifier layerIdentifier;
-#endif
-};
-
-#endif
-
-
 #if ENABLE(GPU_PROCESS_MODEL)
 header: <WebKit/Float4x4.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::Float4x4 {
@@ -67,16 +53,37 @@ header: <WebKit/Float3.h>
 };
 
 header: <WebKit/ModelTypes.h>
-[AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::UpdateTextureDescriptor {
+[AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::TypedResourceId {
+    String value;
+    String path;
+    int64_t hashValue;
+};
+
+header: <WebKit/ModelTypes.h>
+[AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::TextureLevelInfo {
+    long dataOffset;
+    long byteCountPerRow;
+    long byteCountPerImage;
+};
+
+header: <WebKit/ModelTypes.h>
+[CustomHeader, RValue] struct WebModel::UpdateTextureDescriptor {
     WebModel::ImageAsset imageAsset;
-    String identifier;
+    WebModel::TypedResourceId identifier;
     String hashString;
+    Vector<WebModel::TextureLevelInfo> layout;
 };
 
 header: <WebKit/ModelTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::UpdateMaterialDescriptor {
     WebModel::MaterialGraph materialGraph;
-    String identifier;
+    WebModel::TypedResourceId identifier;
+};
+
+header: <WebKit/ModelTypes.h>
+[CustomHeader] enum class WebModel::IndexType : uint8_t {
+    UInt16,
+    UInt32,
 };
 
 header: <WebKit/ModelTypes.h>
@@ -86,7 +93,7 @@ header: <WebKit/ModelTypes.h>
     Vector<WebModel::VertexAttributeFormat> vertexAttributes;
     Vector<WebModel::VertexLayout> vertexLayouts;
     long indexCapacity;
-    long indexType;
+    WebModel::IndexType indexType;
 };
 
 header: <WebKit/ModelTypes.h>
@@ -97,6 +104,7 @@ header: <WebKit/ModelTypes.h>
     Vector<uint32_t> influenceJointIndices;
     Vector<float> influenceWeights;
     WebModel::Float4x4 geometryBindTransform;
+    Vector<uint32_t> rootJointIndices;
 };
 
 header: <WebKit/ModelTypes.h>
@@ -122,7 +130,7 @@ header: <WebKit/ModelTypes.h>
 
 header: <WebKit/ModelTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::UpdateMeshDescriptor {
-    String identifier;
+    WebModel::TypedResourceId identifier;
     uint8_t updateType;
     WebModel::MeshDescriptor descriptor;
     Vector<WebModel::MeshPart> parts;
@@ -130,16 +138,43 @@ header: <WebKit/ModelTypes.h>
     Vector<Vector<uint8_t>> vertexData;
     WebModel::Float4x4 transform;
     Vector<WebModel::Float4x4> instanceTransforms;
-    Vector<String> materialPrims;
+    Vector<WebModel::TypedResourceId> assignedMaterials;
     std::optional<WebModel::DeformationData> deformationData;
 };
 
 header: <WebKit/ModelTypes.h>
+[CustomHeader] enum class WebModel::VertexSemantic : uint8_t {
+    Position,
+    Color,
+    Normal,
+    Tangent,
+    Bitangent,
+    UV0,
+    UV1,
+    UV2,
+    UV3,
+    UV4,
+    UV5,
+    UV6,
+    UV7,
+    Unspecified,
+};
+
+header: <WebKit/ModelTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::VertexAttributeFormat {
-    long semantic;
-    unsigned long format;
+    WebModel::VertexSemantic semantic;
+    WebCore::WebGPU::VertexFormat format;
     long layoutIndex;
     long offset;
+};
+
+header: <WebKit/ModelTypes.h>
+[CustomHeader] enum class WebModel::VertexStepFunction : uint8_t {
+    Constant,
+    PerVertex,
+    PerInstance,
+    PerPatch,
+    PerPatchControlPoint,
 };
 
 header: <WebKit/ModelTypes.h>
@@ -147,6 +182,8 @@ header: <WebKit/ModelTypes.h>
     long bufferIndex;
     long bufferOffset;
     long bufferStride;
+    WebModel::VertexStepFunction stepFunction;
+    long stepRate;
 };
 
 header: <WebKit/ModelTypes.h>
@@ -158,17 +195,16 @@ header: <WebKit/ModelTypes.h>
 };
 
 header: <WebKit/ModelTypes.h>
-[AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::ImageAsset {
-    Vector<uint8_t> data;
+[CustomHeader, RValue] struct WebModel::ImageAsset {
+    std::optional<WebCore::SharedMemory::Handle> dataHandle;
     long width;
     long height;
     long depth;
-    long bytesPerPixel;
-    uint64_t textureType;
-    uint64_t pixelFormat;
+    WebCore::WebGPU::TextureViewDimension textureType;
+    WebCore::WebGPU::TextureFormat pixelFormat;
     long mipmapLevelCount;
     long arrayLength;
-    uint64_t textureUsage;
+    WebCore::WebGPU::TextureUsageFlags textureUsage;
     WebModel::ImageAssetSwizzle swizzle;
 };
 
@@ -176,7 +212,7 @@ header: <WebKit/ModelTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::MeshPart {
     uint32_t indexOffset;
     uint32_t indexCount;
-    uint32_t topology;
+    WebCore::WebGPU::PrimitiveTopology topology;
     uint32_t materialIndex;
     WebModel::Float3 boundsMin;
     WebModel::Float3 boundsMax;
@@ -248,6 +284,9 @@ header: <WebKit/ModelTypes.h>
     kMatrix2f,
     kMatrix3f,
     kMatrix4f,
+    kMatrix2h,
+    kMatrix3h,
+    kMatrix4h,
     kQuatf,
     kQuath,
     kFloat2,
@@ -288,13 +327,14 @@ header: <WebKit/ModelTypes.h>
     WebModel::Constant constant;
     Vector<Variant<String, double>> constantValues;
     String name;
+    std::optional<String> colorSpaceName;
 };
 
 header: <WebKit/ModelTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::InputOutput {
     WebModel::DataType type;
     String name;
-    std::optional<WebModel::DataType> semanticType;
+    std::optional<String> semanticTypeName;
     std::optional<WebModel::ConstantContainer> defaultValue;
 };
 
@@ -313,12 +353,16 @@ header: <WebKit/ModelTypes.h>
 
 header: <WebKit/ModelTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder, CustomHeader] struct WebModel::MaterialGraph {
+    String graphName;
     Vector<WebModel::Node> nodes;
     Vector<WebModel::Edge> edges;
     WebModel::Node arguments;
     WebModel::Node results;
     Vector<WebModel::InputOutput> inputs;
     Vector<WebModel::InputOutput> outputs;
+    Vector<String> primvarMappingPrimvarNames;
+    Vector<String> primvarMappingTexcoordNames;
+    Vector<String> functionConstantInputNames;
 };
 #endif
 

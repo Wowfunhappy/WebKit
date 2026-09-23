@@ -1,11 +1,19 @@
 <!DOCTYPE html>
 <html>
 <body>
+<script src="/js-test-resources/js-test.js"></script>
 <script>
-if (window.testRunner) {
-    testRunner.dumpAsText();
-    testRunner.dumpFrameLoadCallbacks();
-}
+window.jsTestIsAsync = true;
+
+window.addEventListener("message", function(e) {
+    window.directCSPScriptLoaded = e.data.directCSPScriptLoaded;
+    window.inheritedCSPScriptsLoaded = e.data.inheritedCSPScriptsLoaded;
+
+    shouldBeTrue("directCSPScriptLoaded");
+    shouldBe("inheritedCSPScriptsLoaded", "2");
+
+    finishJSTest();
+});
 </script>
 <p>This test loads a secure iframe with the 'upgrade-insecure-requests' header.
 The secure frame has an insecure script reference, which will get upgraded. The
@@ -20,6 +28,7 @@ by an enclosing context.
 The frame two-layers deep also loads a second script using HTTP. This should also
 be upgraded to HTTPS, since the nested frame inherits the 'upgrade-insecure-request'
 from its parent.</p>
+<div id="console"></div>
 <iframe src="https://127.0.0.1:8443/security/contentSecurityPolicy/upgrade-insecure-requests/resources/nested-frame.html"></iframe>
 </body>
 </html>

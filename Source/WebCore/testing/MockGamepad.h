@@ -28,6 +28,7 @@
 #if ENABLE(GAMEPAD)
 
 #include <WebCore/PlatformGamepad.h>
+#include <WebCore/SharedGamepadValue.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {

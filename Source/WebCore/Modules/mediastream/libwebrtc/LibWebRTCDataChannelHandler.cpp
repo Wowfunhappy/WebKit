@@ -48,15 +48,13 @@ inline std::span<const T> span(const webrtc::DataBuffer& buffer)
 webrtc::DataChannelInit LibWebRTCDataChannelHandler::fromRTCDataChannelInit(const RTCDataChannelInit& options)
 {
     webrtc::DataChannelInit init;
-    if (options.ordered)
-        init.ordered = *options.ordered;
+    init.ordered = options.ordered;
     if (options.maxPacketLifeTime)
         init.maxRetransmitTime = *options.maxPacketLifeTime;
     if (options.maxRetransmits)
         init.maxRetransmits = *options.maxRetransmits;
     init.protocol = options.protocol.utf8().data();
-    if (options.negotiated)
-        init.negotiated = *options.negotiated;
+    init.negotiated = options.negotiated;
     if (options.id)
         init.id = *options.id;
     init.priority = webrtc::PriorityValue(fromRTCPriorityType(options.priority));

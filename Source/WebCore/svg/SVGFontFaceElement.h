@@ -59,12 +59,12 @@ private:
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     void childrenChanged(const ChildChange&) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 
-    Ref<StyleRuleFontFace> m_fontFaceRule;
+    const Ref<StyleRuleFontFace> m_fontFaceRule;
     WeakPtr<SVGFontElement, WeakPtrImplWithEventTargetData> m_fontElement;
 };
 

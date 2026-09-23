@@ -265,6 +265,8 @@ IGNORED_INCLUDES = {
     b'contrib/qat/deflate_qat.h',
     # Behind #if defined(TRACY_ENABLE) in third_party/vulkan-validation-layers/src/layers/vulkan/generated/chassis.cpp
     b'profiling/profiling.h',
+    # Behind #ifdef HAVE_S390X_VX in third_party/zlib/crc32.c
+    b'contrib/crc32vx/crc32_vx_hooks.h',
 }
 
 IGNORED_INCLUDE_PREFIXES = {
@@ -288,6 +290,9 @@ IGNORED_DIRECTORIES = {
     '//third_party/abseil-cpp',
     '//third_party/SwiftShader',
     '//third_party/dawn',
+    '//third_party/wayland',
+    '//third_party/wayland-protocols',
+    '//third_party/partition_alloc',
 }
 
 def has_all_includes(target_name: str, descs: dict) -> bool:

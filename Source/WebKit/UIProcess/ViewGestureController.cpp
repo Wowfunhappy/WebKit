@@ -53,6 +53,10 @@
 #include "ViewGestureGeometryCollectorMessages.h"
 #endif
 
+#if PLATFORM(MAC)
+#include "SwipeProgressTrackerMac.h"
+#endif
+
 // FIXME: https://bugs.webkit.org/show_bug.cgi?id=306415
 #include "WebKit-Swift.h"
 
@@ -98,6 +102,8 @@ ViewGestureController::ViewGestureController(WebPageProxy& webPageProxy)
 {
     if (webPageProxy.hasRunningProcess())
         connectToProcess();
+
+    platformInitialize();
 
     viewGestureControllersForAllPages().add(m_webPageProxyIdentifier, *this);
 }
@@ -146,6 +152,14 @@ ViewGestureController* ViewGestureController::controllerForGesture(WebPageProxyI
     if (gestureControllerIter->value->m_currentGestureID != gestureID)
         return nullptr;
     return gestureControllerIter->value.ptr();
+}
+
+ViewGestureController* ViewGestureController::controllerForPage(WebPageProxyIdentifier pageID)
+{
+    auto it = viewGestureControllersForAllPages().find(pageID);
+    if (it == viewGestureControllersForAllPages().end())
+        return nullptr;
+    return it->value.ptr();
 }
 
 #if PLATFORM(COCOA)
@@ -496,7 +510,10 @@ bool ViewGestureController::PendingSwipeTracker::scrollEventCanBecomeSwipe(Platf
 
     FloatSize size = scrollEventGetScrollingDeltas(event);
 
-    if (deltaShouldCancelSwipe(size))
+    if (auto shouldCancel = protect(m_viewGestureController)->platformEventShouldCancelSwipe(event, size)) {
+        if (*shouldCancel)
+            return false;
+    } else if (deltaShouldCancelSwipe(size))
         return false;
 
     Ref page = m_webPageProxy.get();
@@ -859,5 +876,14 @@ double ViewGestureController::magnification() const
 }
 
 #endif // !PLATFORM(IOS_FAMILY)
+
+#if !PLATFORM(COCOA)
+
+std::optional<bool> ViewGestureController::platformEventShouldCancelSwipe(PlatformScrollEvent, FloatSize)
+{
+    return std::nullopt;
+}
+
+#endif
 
 } // namespace WebKit

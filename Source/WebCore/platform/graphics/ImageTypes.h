@@ -107,6 +107,11 @@ enum class DrawsHDRContent : uint8_t {
     Yes
 };
 
+enum class AllowAcceleratedApplyGainMap : bool {
+    No,
+    Yes
+};
+
 struct Headroom {
     constexpr explicit Headroom(float headroom)
     {

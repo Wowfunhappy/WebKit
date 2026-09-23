@@ -56,6 +56,11 @@ void WebExtensionContextProxy::addFrameWithExtensionContent(WebFrame& frame)
     m_extensionContentFrames.add(frame);
 }
 
+bool WebExtensionContextProxy::isURLForThisExtension(const URL& url) const
+{
+    return url.isValid() && url.string().startsWith(m_baseURL.string());
+}
+
 std::optional<WebExtensionTabIdentifier> WebExtensionContextProxy::tabIdentifier(WebPage& page) const
 {
     if (m_popupPageMap.contains(page))

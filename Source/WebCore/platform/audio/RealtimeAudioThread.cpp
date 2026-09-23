@@ -27,6 +27,7 @@
 #include "RealtimeAudioThread.h"
 
 #include <wtf/MonotonicTime.h>
+#include <wtf/Threading.h>
 
 namespace WebCore {
 

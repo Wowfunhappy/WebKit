@@ -26,6 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/JSGlobalProxy.h>
+#include <JavaScriptCore/StructureCreateInlines.h>
 
 namespace JSC {
 

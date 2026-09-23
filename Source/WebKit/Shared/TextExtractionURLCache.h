@@ -29,6 +29,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/URL.h>
+#include <wtf/URLHash.h>
 
 namespace WebKit {
 

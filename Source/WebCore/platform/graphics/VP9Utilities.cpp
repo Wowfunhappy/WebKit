@@ -42,7 +42,7 @@ static bool NODELETE isValidVPProfile(uint8_t profile)
 
 static bool isValidVPLevel(uint8_t level)
 {
-    constexpr auto validLevels = std::to_array<uint8_t>({
+    constexpr auto validLevels = WTF::toArray<uint8_t>({
         VPConfigurationLevel::Level_1,
         VPConfigurationLevel::Level_1_1,
         VPConfigurationLevel::Level_2,
@@ -84,7 +84,7 @@ static bool NODELETE isValidChromaSubsampling(uint8_t subsampling)
 
 static bool isValidVPColorPrimaries(uint8_t colorPrimaries)
 {
-    constexpr auto validColorPrimaries = std::to_array<uint8_t>({
+    constexpr auto validColorPrimaries = WTF::toArray<uint8_t>({
         VPConfigurationColorPrimaries::BT_709_6,
         VPConfigurationColorPrimaries::Unspecified,
         VPConfigurationColorPrimaries::BT_470_6_M,
@@ -105,7 +105,7 @@ static bool isValidVPColorPrimaries(uint8_t colorPrimaries)
 
 static bool isValidVPTransferCharacteristics(uint8_t transferCharacteristics)
 {
-    constexpr auto validTransferCharacteristics = std::to_array<uint8_t>({
+    constexpr auto validTransferCharacteristics = WTF::toArray<uint8_t>({
         VPConfigurationTransferCharacteristics::BT_709_6,
         VPConfigurationTransferCharacteristics::Unspecified,
         VPConfigurationTransferCharacteristics::BT_470_6_M,
@@ -130,7 +130,7 @@ static bool isValidVPTransferCharacteristics(uint8_t transferCharacteristics)
 
 static bool isValidVPMatrixCoefficients(uint8_t matrixCoefficients)
 {
-    constexpr auto validMatrixCoefficients = std::to_array<uint8_t>({
+    constexpr auto validMatrixCoefficients = WTF::toArray<uint8_t>({
         VPConfigurationMatrixCoefficients::Identity,
         VPConfigurationMatrixCoefficients::BT_709_6,
         VPConfigurationMatrixCoefficients::Unspecified,
@@ -299,7 +299,7 @@ String createVPCodecParametersString(const VPCodecConfigurationRecord& configura
         return resultBuilder.toString();
 
     resultBuilder.append(".0"_s, numberToStringUnsigned<String>(configuration.profile), '.', numberToStringUnsigned<String>(configuration.level), '.');
-    if (configuration.transferCharacteristics < 10)
+    if (configuration.bitDepth < 10)
         resultBuilder.append('0');
     resultBuilder.append(numberToStringUnsigned<String>(configuration.bitDepth));
 
@@ -497,7 +497,7 @@ void setConfigurationColorSpaceFromVP9ColorSpace(VPCodecConfigurationRecord& rec
     }
 }
 
-std::optional<VPCodecConfigurationRecord> vPCodecConfigurationRecordFromVPXByteStream(VPXCodec codec, std::span<const uint8_t> data)
+std::optional<VPCodecConfigurationRecord> vpCodecConfigurationRecordFromVPXByteStream(VPXCodec codec, std::span<const uint8_t> data)
 {
     if (data.size() < 11)
         return { };
@@ -592,6 +592,13 @@ std::optional<VPCodecConfigurationRecord> vPCodecConfigurationRecordFromVPXByteS
     }();
 
     setConfigurationColorSpaceFromVP9ColorSpace(record, colorSpace);
+
+    auto width = br.read(16);
+    auto height = br.read(16);
+    if (width && height) {
+        record.frameWidth = *width + 1;
+        record.frameHeight = *height + 1;
+    }
 
     return record;
 }

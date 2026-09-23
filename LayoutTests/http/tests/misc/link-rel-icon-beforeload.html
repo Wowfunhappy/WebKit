@@ -1,3 +1,4 @@
+<!-- webkit-test-runner [ dumpResourceLoadCallbacks=true ] -->
 <html>
 <head>
 <script>
@@ -5,7 +6,6 @@ function runTest()
 {
     if (window.testRunner) {
         testRunner.dumpAsText();
-        testRunner.dumpResourceLoadCallbacks();
         testRunner.setIconDatabaseEnabled(true);
         testRunner.queueReload();
     }

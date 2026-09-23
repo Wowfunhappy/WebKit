@@ -154,7 +154,7 @@ size_t wgpuAdapterEnumerateFeatures(WGPUAdapter adapter, WGPUFeatureName* featur
 
 WGPUBool wgpuAdapterGetLimits(WGPUAdapter adapter, WGPUSupportedLimits* limits)
 {
-    return protect(WebGPU::fromAPI(adapter))->getLimits(*limits);
+    return WebGPU::fromAPI(adapter).getLimits(*limits);
 }
 
 void wgpuAdapterGetProperties(WGPUAdapter adapter, WGPUAdapterProperties* properties)
@@ -183,5 +183,5 @@ void wgpuAdapterRequestDeviceWithBlock(WGPUAdapter adapter, WGPUDeviceDescriptor
 
 WGPUBool wgpuAdapterXRCompatible(WGPUAdapter adapter)
 {
-    return protect(WebGPU::fromAPI(adapter))->isXRCompatible();
+    return WebGPU::fromAPI(adapter).isXRCompatible();
 }

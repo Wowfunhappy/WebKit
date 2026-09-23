@@ -7,11 +7,8 @@
 //   Performance test for device creation.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include "ANGLEPerfTest.h"
+#include "common/unsafe_buffers.h"
 #include "platform/PlatformMethods.h"
 #include "test_utils/angle_test_configs.h"
 #include "test_utils/angle_test_instantiate.h"
@@ -46,16 +43,16 @@ void CapturePlatform_histogramCustomCounts(angle::PlatformMethods *platformMetho
     Captures *captures = static_cast<Captures *>(platformMethods->context);
 
     // These must match the names of the histograms.
-    if (strcmp(name, "GPU.ANGLE.Renderer11InitializeDLLsMS") == 0)
+    if (ANGLE_UNSAFE_TODO(strcmp(name, "GPU.ANGLE.Renderer11InitializeDLLsMS")) == 0)
     {
         captures->loadDLLsMS += static_cast<size_t>(sample);
     }
     // Note: not captured in debug, due to creating a debug device
-    else if (strcmp(name, "GPU.ANGLE.D3D11CreateDeviceMS") == 0)
+    else if (ANGLE_UNSAFE_TODO(strcmp(name, "GPU.ANGLE.D3D11CreateDeviceMS")) == 0)
     {
         captures->createDeviceMS += static_cast<size_t>(sample);
     }
-    else if (strcmp(name, "GPU.ANGLE.Renderer11InitializeDeviceMS") == 0)
+    else if (ANGLE_UNSAFE_TODO(strcmp(name, "GPU.ANGLE.Renderer11InitializeDeviceMS")) == 0)
     {
         captures->initResourcesMS += static_cast<size_t>(sample);
     }
@@ -83,9 +80,15 @@ EGLInitializePerfTest::EGLInitializePerfTest()
 {
     auto platform = GetParam().eglParameters;
 
+    mOSWindow = OSWindow::New();
+    mOSWindow->initialize("EGLInitialize Test", 64, 64);
+    const EGLenum platformType = mOSWindow->getNativeDisplayPlatformType();
+
     std::vector<EGLAttrib> displayAttributes;
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
     displayAttributes.push_back(platform.renderer);
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE);
+    displayAttributes.push_back(platformType);
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE);
     displayAttributes.push_back(platform.majorVersion);
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE);
@@ -98,9 +101,6 @@ EGLInitializePerfTest::EGLInitializePerfTest()
         displayAttributes.push_back(platform.deviceType);
     }
     displayAttributes.push_back(EGL_NONE);
-
-    mOSWindow = OSWindow::New();
-    mOSWindow->initialize("EGLInitialize Test", 64, 64);
 
     auto eglGetPlatformDisplay =
         reinterpret_cast<PFNEGLGETPLATFORMDISPLAYPROC>(eglGetProcAddress("eglGetPlatformDisplay"));

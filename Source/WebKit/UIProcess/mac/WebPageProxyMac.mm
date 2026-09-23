@@ -35,10 +35,12 @@
 #import "FrameInfoData.h"
 #import "ImageAnalysisUtilities.h"
 #import "InsertTextOptions.h"
+#import "Logging.h"
 #import "MenuUtilities.h"
 #import "MediaKeySystemPermissionRequestProxy.h" // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
 #import "MessageSenderInlines.h"
 #import "NativeWebKeyboardEvent.h"
+#import "NativeWebWheelEvent.h"
 #import "NetworkProcessMessages.h"
 #import "PDFContextMenu.h"
 #import "PageClient.h"
@@ -84,13 +86,20 @@
 #import <wtf/FileHandle.h>
 #import <wtf/FileSystem.h>
 #import <wtf/ProcessPrivilege.h>
+#import <wtf/UUID.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/text/cf/StringConcatenateCF.h>
 
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+#import <WebKitAdditions/AppKitUtilities.h>
+#endif
+
 #define MESSAGE_CHECK(assertion, connection) MESSAGE_CHECK_BASE(assertion, connection)
 #define MESSAGE_CHECK_COMPLETION(assertion, connection, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, connection, completion)
 #define MESSAGE_CHECK_URL(url) MESSAGE_CHECK_BASE(checkURLReceivedFromCurrentOrPreviousWebProcess(process, url), connection)
+
+#define WEBPAGEPROXY_RELEASE_LOG_ERROR(channel, fmt, ...) RELEASE_LOG_ERROR(channel, "%p - [pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", PID=%i] WebPageProxy::" fmt, this, identifier().toUInt64(), m_webPageID.toUInt64(), m_legacyMainFrameProcess->processID(), ##__VA_ARGS__)
 
 @interface NSApplication ()
 - (BOOL)isSpeaking;
@@ -178,7 +187,11 @@ void WebPageProxy::speak(const String& string)
 void WebPageProxy::stopSpeaking()
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
+    // Work around incorrect nullability annotation in the internal SDK, cf. rdar://179681908
     [NSApp stopSpeaking:nil];
+#pragma clang diagnostic pop
 }
 
 void WebPageProxy::searchTheWeb(const String& string)
@@ -343,9 +356,8 @@ void WebPageProxy::didPerformDictionaryLookup(const DictionaryPopupInfo& diction
         DictionaryLookup::showPopup(dictionaryPopupInfo, protect(pageClient->viewForPresentingRevealPopover()).get(), [this](TextIndicator& textIndicator) {
             setTextIndicator(textIndicator, WebCore::TextIndicatorLifetime::Permanent);
         }, nullptr, [weakThis = WeakPtr { *this }] {
-            if (!weakThis)
-                return;
-            weakThis->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
+            if (RefPtr protectedThis = weakThis.get())
+                protectedThis->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
         });
     }
 }
@@ -428,10 +440,12 @@ bool WebPageProxy::acceptsFirstMouse(int eventNumber, const WebKit::WebMouseEven
         return false;
 
     legacyMainFrameProcess->send(Messages::WebPage::RequestAcceptsFirstMouse(eventNumber, event), webPageIDInMainFrameProcess(), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
-    bool receivedReply = protect(legacyMainFrameProcess->connection())->waitForAndDispatchImmediately<Messages::WebPageProxy::HandleAcceptsFirstMouse>(webPageIDInMainFrameProcess(), 3_s, IPC::WaitForOption::InterruptWaitingIfSyncMessageArrives) == IPC::Error::NoError;
+    bool receivedReply = protect(legacyMainFrameProcess->connection())->waitForAndDispatchImmediately<Messages::WebPageProxy::HandleAcceptsFirstMouse>(webPageIDInMainFrameProcess(), 250_ms, IPC::WaitForOption::InterruptWaitingIfSyncMessageArrives) == IPC::Error::NoError;
 
-    if (!receivedReply)
+    if (!receivedReply) {
+        WEBPAGEPROXY_RELEASE_LOG_ERROR(MouseHandling, "acceptsFirstMouse: associated WebContent failed to process RequestAcceptsFirstMouse within 250 ms");
         return false;
+    }
 
     return m_acceptsFirstMouse;
 }
@@ -470,6 +484,37 @@ void WebPageProxy::setOverflowHeightForTopScrollEdgeEffect(double value)
     protect(legacyMainFrameProcess())->send(Messages::WebPage::SetOverflowHeightForTopScrollEdgeEffect(value), webPageIDInMainFrameProcess());
 }
 
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+
+void WebPageProxy::setWindowIsInNativeFullScreen(WindowIsInNativeFullScreen windowIsInNativeFullScreen)
+{
+    auto isInFullScreen = windowIsInNativeFullScreen == WindowIsInNativeFullScreen::Yes;
+    if (m_windowIsInNativeFullScreen == isInFullScreen)
+        return;
+
+    m_windowIsInNativeFullScreen = isInFullScreen;
+
+    if (!hasRunningProcess())
+        return;
+
+    protect(legacyMainFrameProcess())->send(Messages::WebPage::SetFullScreenTitlebarOverlayIsDisplayed(fullScreenTitlebarOverlayIsDisplayed()), webPageIDInMainFrameProcess());
+}
+
+void WebPageProxy::setFullScreenTitlebarOverlayIsRevealed(bool fullScreenTitlebarOverlayIsRevealed)
+{
+    if (m_fullScreenTitlebarOverlayIsRevealed == fullScreenTitlebarOverlayIsRevealed)
+        return;
+
+    m_fullScreenTitlebarOverlayIsRevealed = fullScreenTitlebarOverlayIsRevealed;
+
+    if (!hasRunningProcess())
+        return;
+
+    protect(legacyMainFrameProcess())->send(Messages::WebPage::SetFullScreenTitlebarOverlayIsDisplayed(fullScreenTitlebarOverlayIsDisplayed()), webPageIDInMainFrameProcess());
+}
+
+#endif
+
 void WebPageProxy::setObscuredContentInsetsAsync(const FloatBoxExtent& obscuredContentInsets)
 {
     m_internals->pendingObscuredContentInsets = obscuredContentInsets;
@@ -489,9 +534,8 @@ void WebPageProxy::scheduleSetObscuredContentInsetsDispatch()
     m_didScheduleSetObscuredContentInsetsDispatch = true;
 
     callOnMainRunLoop([weakThis = WeakPtr { *this }] {
-        if (!weakThis)
-            return;
-        weakThis->dispatchSetObscuredContentInsets();
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->dispatchSetObscuredContentInsets();
     });
 }
 
@@ -582,9 +626,7 @@ static RetainPtr<NSString> pathToPDFOnDisk(const String& suggestedFilename)
         return nil;
     }
 
-    // The NSFileManager expects a path string, while NSWorkspace uses file URLs, and will decode any percent encoding
-    // in its passed URLs before loading from disk. Create the files using decoded file paths so they match up.
-    RetainPtr path = [[pdfDirectoryPath stringByAppendingPathComponent:suggestedFilename.createNSString().get()] stringByRemovingPercentEncoding];
+    RetainPtr path = [pdfDirectoryPath stringByAppendingPathComponent:suggestedFilename.createNSString().get()];
 
     RetainPtr fileManager = [NSFileManager defaultManager];
     if ([fileManager fileExistsAtPath:path.get()]) {
@@ -598,6 +640,10 @@ static RetainPtr<NSString> pathToPDFOnDisk(const String& suggestedFilename)
         path = [fileManager stringWithFileSystemRepresentation:pathTemplateRepresentation.data() length:pathTemplateRepresentation.length()];
     }
 
+    // Reject any path that resolves outside the temporary PDF directory.
+    if (![[path stringByStandardizingPath] hasPrefix:[pdfDirectoryPath stringByStandardizingPath]])
+        return nil;
+
     return path;
 }
 
@@ -608,11 +654,23 @@ void WebPageProxy::savePDFToTemporaryFolderAndOpenWithNativeApplication(const St
         return;
     }
 
-    auto sanitizedFilename = ResourceResponseBase::sanitizeSuggestedFilename(suggestedFilename);
+    // Encoded path separator should get stripped rather than decoded into the assembled path after sanitisation.
+    // Otherwise, any encoded slash produces a path traversal on post-join decodes. (rdar://174079512)
+    RetainPtr nsSuggestedFilename = suggestedFilename.createNSString();
+    if (RetainPtr decoded = [nsSuggestedFilename stringByRemovingPercentEncoding])
+        nsSuggestedFilename = WTF::move(decoded);
+
+    auto sanitizedFilename = ResourceResponseBase::sanitizeSuggestedFilename(nsSuggestedFilename.get());
     if (!sanitizedFilename.endsWithIgnoringASCIICase(".pdf"_s)) {
         WTFLogAlways("Cannot save file without .pdf extension to the temporary directory.");
         return;
     }
+
+    if (sanitizedFilename != FileSystem::lastComponentOfPathIgnoringTrailingSlash(sanitizedFilename)) {
+        RELEASE_LOG(PDF, "Cannot save PDF whose sanitized filename is not a single path component.");
+        return;
+    }
+
     RetainPtr nsPath = pathToPDFOnDisk(sanitizedFilename);
 
     if (!nsPath)
@@ -708,10 +766,10 @@ void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu,
         completionHandler(std::nullopt);
     };
 
-    if (contextMenu.inputSource == WebMouseEventInputSource::Automation) {
+    if (contextMenu.inputSource == WebEventInputSource::Automation) {
 #if HAVE(APPKIT_GESTURES_SUPPORT)
         NSPoint locationInScreenCoordinates = [window convertPointToScreen:locationInWindowCoordinates];
-        RetainPtr screenRelativeContext = [_NSViewMenuContext menuContextWithLocation:locationInScreenCoordinates source:contextMenuRequestSourceForAutomation()];
+        RetainPtr screenRelativeContext = [_NSViewMenuContext menuContextWithLocation:locationInScreenCoordinates source:ContextMenuRequestSourceForAutomation];
         [NSMenu _popUpContextMenu:nsMenu.get() withContext:screenRelativeContext.get() forView:view.get() completionBlock:makeBlockPtr(WTF::move(handleSelectedMenuItem)).get()];
 #else
         RELEASE_ASSERT_NOT_REACHED();
@@ -745,6 +803,15 @@ CGRect WebPageProxy::boundsOfLayerInLayerBackedWindowCoordinates(CALayer *layer)
 void WebPageProxy::didUpdateEditorState(const EditorState& oldEditorState, const EditorState& newEditorState)
 {
     bool couldChangeSecureInputState = newEditorState.isInPasswordField != oldEditorState.isInPasswordField || oldEditorState.selectionType == WebCore::SelectionType::None;
+
+    // FIXME: <rdar://175390893> WebPageProxy::didUpdateEditorState only updates
+    // the secure input state if `isInPasswordField` changed across EditorStates.
+    // If a frame autofocuses a password input, `isInPasswordField` may be true
+    // for both the old and new state, and thus fail to update the state even
+    // though we just reset it. We force a reevaluation as a workaround.
+    if (std::exchange(internals().forceNeedsSecureInputReevaluation, false))
+        couldChangeSecureInputState = true;
+
     // Selection being none is a temporary state when editing. Flipping secure input state too quickly was causing trouble (not fully understood).
     if (couldChangeSecureInputState && newEditorState.selectionType != WebCore::SelectionType::None) {
         if (RefPtr pageClient = this->pageClient())
@@ -777,26 +844,16 @@ void WebPageProxy::rootViewToWindow(const WebCore::IntRect& viewRect, WebCore::I
     windowRect = pageClient ? pageClient->rootViewToWindow(viewRect) : WebCore::IntRect { };
 }
 
-void WebPageProxy::showValidationMessage(const IntRect& anchorClientRect, String&& message)
+void WebPageProxy::showValidationMessageWithMainFrameRect(const IntRect& mainFrameAnchorRect)
 {
-    RefPtr pageClient = this->pageClient();
-    if (!pageClient)
-        return;
-
-    m_validationBubble = pageClient->createValidationBubble(WTF::move(message), { protect(preferences())->minimumFontSize() });
-    protect(m_validationBubble)->showRelativeTo(anchorClientRect);
+    if (RefPtr bubble = m_validationBubble)
+        bubble->showRelativeTo(mainFrameAnchorRect);
 }
 
 RetainPtr<NSView> WebPageProxy::inspectorAttachmentView()
 {
     RefPtr pageClient = this->pageClient();
     return pageClient ? pageClient->inspectorAttachmentView() : nullptr;
-}
-
-_WKRemoteObjectRegistry *WebPageProxy::remoteObjectRegistry()
-{
-    RefPtr pageClient = this->pageClient();
-    return pageClient ? pageClient->remoteObjectRegistry() : nullptr;
 }
 
 #if ENABLE(CONTEXT_MENUS)
@@ -861,6 +918,12 @@ void WebPageProxy::updatePDFHUDLocation(PDFPluginIdentifier identifier, const We
 {
     if (RefPtr pageClient = this->pageClient())
         pageClient->updatePDFHUDLocation(identifier, rect);
+}
+
+void WebPageProxy::showPDFHUD(PDFPluginIdentifier identifier)
+{
+    if (RefPtr pageClient = this->pageClient())
+        pageClient->showPDFHUD(identifier);
 }
 
 void WebPageProxy::pdfZoomIn(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID)
@@ -1182,6 +1245,30 @@ void WebPageProxy::allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemP
 }
 #endif
 
+void WebPageProxy::interruptSyntheticMomentumScrolling()
+{
+    auto timestamp = MonotonicTime::now();
+    WebWheelEvent cancelEvent {
+        { WebEventType::Wheel, { }, timestamp, WTF::UUID::createVersion4() },
+        WebCore::IntPoint { },
+        WebCore::IntPoint { },
+        WebCore::FloatSize { },
+        WebCore::FloatSize { },
+        WebWheelEvent::Granularity::ScrollByPixelWheelEvent,
+        false,
+        WebWheelEvent::Phase::Cancelled,
+        WebWheelEvent::Phase::None,
+        true,
+        1,
+        WebCore::FloatSize { },
+        timestamp,
+        std::nullopt,
+        WebWheelEvent::MomentumEndType::Interrupted,
+        WebEventInputSource::Automation
+    };
+    handleNativeWheelEvent(NativeWebWheelEvent { cancelEvent });
+}
+
 } // namespace WebKit
 
 #endif // PLATFORM(MAC)
@@ -1189,3 +1276,4 @@ void WebPageProxy::allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemP
 #undef MESSAGE_CHECK_URL
 #undef MESSAGE_CHECK_COMPLETION
 #undef MESSAGE_CHECK
+#undef WEBPAGEPROXY_RELEASE_LOG_ERROR

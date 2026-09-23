@@ -30,6 +30,7 @@
 #include <WebCore/ExceptionData.h>
 #include <WebCore/PushDatabase.h>
 #include <WebCore/PushSubscriptionData.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Deque.h>
 #include <wtf/Expected.h>
@@ -73,6 +74,8 @@ public:
     void unsubscribe(const WebCore::PushSubscriptionSetIdentifier&, const String& scope, std::optional<WebCore::PushSubscriptionIdentifier>, CompletionHandler<void(const Expected<bool, WebCore::ExceptionData>&)>&&);
 
     void incrementSilentPushCount(const WebCore::PushSubscriptionSetIdentifier&, const String& securityOrigin, CompletionHandler<void(unsigned)>&&);
+
+    void getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
 
     void setPushesEnabledForSubscriptionSetAndOrigin(const WebCore::PushSubscriptionSetIdentifier&, const String& securityOrigin, bool, CompletionHandler<void()>&&);
 

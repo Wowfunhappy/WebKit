@@ -51,7 +51,7 @@ void applyModifiersToLoaderOptions(const URLModifiers& modifiers, ResourceLoader
         //
         // The URL request modifier steps for this modifier given request req are to set
         // request's integrity metadata to the given <string>.
-        loaderOptions.integrity = modifiers.integrity->parameters;
+        loaderOptions.integrity = modifiers.integrity->parameters.value;
     }
 
     if (modifiers.referrerPolicy) {

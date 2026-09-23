@@ -31,6 +31,7 @@
 #include "JSCellInlines.h"
 #include "LocalAllocatorInlines.h"
 #include "MarkedSpaceInlines.h"
+#include "ResourceExhaustion.h"
 #include "SubspaceInlines.h"
 #include <wtf/RAMSize.h>
 

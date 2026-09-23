@@ -195,6 +195,13 @@ bool Format::isViewCompatible(const Format &srcFormat) const
 
 bool Format::isPVRTC() const
 {
+    // Suppress `MTLPixelFormatPVRTC_*` deprecation warnings.
+    // These enumerations are still relied on in the code, and
+    // therefore cannot be removed.
+    // TODO (crbug.com/383994655): Remove deprecation supression
+    // once `MTLPixelFormatPVRTC_*` is no longer needed.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     switch (metalFormat)
     {
         case MTLPixelFormatPVRTC_RGB_2BPP:
@@ -209,6 +216,7 @@ bool Format::isPVRTC() const
         default:
             return false;
     }
+#pragma clang diagnostic pop
 }
 
 // FormatTable implementation
@@ -264,77 +272,12 @@ const VertexFormat &FormatTable::getVertexFormat(angle::FormatID angleFormatId,
     return mVertexFormatTables[tableIdx][static_cast<size_t>(angleFormatId)];
 }
 
-void FormatTable::setFormatCaps(MTLPixelFormat formatId,
-                                bool filterable,
-                                bool writable,
-                                bool blendable,
-                                bool multisample,
-                                bool resolve,
-                                bool colorRenderable)
+void FormatTable::setFormatCaps(MTLPixelFormat formatId, const FormatCaps &caps)
 {
-    setFormatCaps(formatId, filterable, writable, blendable, multisample, resolve, colorRenderable,
-                  false, 0);
-}
-void FormatTable::setFormatCaps(MTLPixelFormat formatId,
-                                bool filterable,
-                                bool writable,
-                                bool blendable,
-                                bool multisample,
-                                bool resolve,
-                                bool colorRenderable,
-                                NSUInteger pixelBytes,
-                                NSUInteger channels)
-{
-    setFormatCaps(formatId, filterable, writable, blendable, multisample, resolve, colorRenderable,
-                  false, pixelBytes, channels);
+    mNativePixelFormatCapsTable[formatId] = caps;
 }
 
-void FormatTable::setFormatCaps(MTLPixelFormat formatId,
-                                bool filterable,
-                                bool writable,
-                                bool blendable,
-                                bool multisample,
-                                bool resolve,
-                                bool colorRenderable,
-                                bool depthRenderable)
-{
-    setFormatCaps(formatId, filterable, writable, blendable, multisample, resolve, colorRenderable,
-                  depthRenderable, 0, 0);
-}
-void FormatTable::setFormatCaps(MTLPixelFormat id,
-                                bool filterable,
-                                bool writable,
-                                bool blendable,
-                                bool multisample,
-                                bool resolve,
-                                bool colorRenderable,
-                                bool depthRenderable,
-                                NSUInteger pixelBytes,
-                                NSUInteger channels)
-{
-    mNativePixelFormatCapsTable[id].filterable      = filterable;
-    mNativePixelFormatCapsTable[id].writable        = writable;
-    mNativePixelFormatCapsTable[id].colorRenderable = colorRenderable;
-    mNativePixelFormatCapsTable[id].depthRenderable = depthRenderable;
-    mNativePixelFormatCapsTable[id].blendable       = blendable;
-    mNativePixelFormatCapsTable[id].multisample     = multisample;
-    mNativePixelFormatCapsTable[id].resolve         = resolve;
-    mNativePixelFormatCapsTable[id].pixelBytes      = pixelBytes;
-    mNativePixelFormatCapsTable[id].pixelBytesMSAA  = pixelBytes;
-    mNativePixelFormatCapsTable[id].channels        = channels;
-    if (channels != 0)
-        mNativePixelFormatCapsTable[id].alignment = MAX(pixelBytes / channels, 1U);
-}
-
-void FormatTable::setCompressedFormatCaps(MTLPixelFormat formatId, bool filterable)
-{
-    setFormatCaps(formatId, filterable, false, false, false, false, false, false);
-}
-
-void FormatTable::adjustFormatCapsForDevice(const mtl::ContextDevice &device,
-                                            MTLPixelFormat id,
-                                            bool supportsiOS2,
-                                            bool supportsiOS4)
+void FormatTable::adjustFormatCapsForDevice(MTLPixelFormat id, bool supportsiOS2, bool supportsiOS4)
 {
 #if !(TARGET_OS_OSX || TARGET_OS_MACCATALYST)
 

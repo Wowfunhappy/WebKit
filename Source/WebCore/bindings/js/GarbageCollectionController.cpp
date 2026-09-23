@@ -30,7 +30,9 @@
 #include "JSHTMLDocument.h"
 #include "Location.h"
 #include "WorkerGlobalScope.h"
+#include <JavaScriptCore/DeferGCInlines.h>
 #include <JavaScriptCore/Heap.h>
+#include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/HeapSnapshotBuilder.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/VM.h>

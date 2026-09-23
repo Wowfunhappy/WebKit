@@ -29,6 +29,7 @@
 #include "ArgumentCoders.h"
 #include "MessageFlags.h"
 #include <algorithm>
+#include <wtf/MathExtras.h>
 #include <wtf/OptionSet.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -96,15 +97,7 @@ void Encoder::wrapForTesting(UniqueRef<Encoder>&& original)
 
     *this << original->span();
 
-    auto attachments = original->releaseAttachments();
-    reserve(attachments.size());
-    for (auto&& attachment : WTF::move(attachments))
-        addAttachment(WTF::move(attachment));
-}
-
-static inline size_t NODELETE roundUpToAlignment(size_t value, size_t alignment)
-{
-    return ((value + alignment - 1) / alignment) * alignment;
+    m_attachments.appendVector(original->releaseAttachments());
 }
 
 void Encoder::reserve(size_t size)
@@ -113,7 +106,7 @@ void Encoder::reserve(size_t size)
     if (size <= oldCapacityBufferSize)
         return;
 
-    size_t newCapacity = roundUpToAlignment(oldCapacityBufferSize * 2, 4096);
+    size_t newCapacity = roundUpToMultipleOf<4096>(oldCapacityBufferSize * 2);
     while (newCapacity < size)
         newCapacity *= 2;
 
@@ -145,7 +138,7 @@ const OptionSet<MessageFlags>& Encoder::messageFlags() const
 
 std::span<uint8_t> Encoder::grow(size_t alignment, size_t size)
 {
-    size_t alignedSize = roundUpToAlignment(m_bufferSize, alignment);
+    size_t alignedSize = roundUpToMultipleOf(alignment, m_bufferSize);
     reserve(alignedSize + size);
 
     auto capacityBuffer = this->capacityBuffer();

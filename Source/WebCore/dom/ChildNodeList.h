@@ -69,7 +69,7 @@ public:
 
     ContainerNode& ownerNode() { return m_parent; }
 
-    void NODELETE invalidateCache();
+    void invalidateCache();
 
     // For CollectionIndexCache
     Node* NODELETE collectionBegin() const;

@@ -107,7 +107,7 @@ public:
     bool wirelessVideoPlaybackDisabled() const final { return m_wirelessVideoPlaybackDisabled; }
     const WebCore::VideoReceiverEndpoint& videoReceiverEndpoint() LIFETIME_BOUND { return m_videoReceiverEndpoint; }
 
-    void invalidate();
+    void NODELETE invalidate();
 
 private:
     friend class PlaybackSessionManagerProxy;

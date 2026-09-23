@@ -31,6 +31,7 @@
 #include <WebCore/ServiceWorkerTypes.h>
 #include <wtf/Ref.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 class FetchEvent;

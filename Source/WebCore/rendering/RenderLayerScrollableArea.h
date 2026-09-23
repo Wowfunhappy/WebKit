@@ -56,6 +56,7 @@ class RenderMarquee;
 class RenderLayerScrollableArea final : public ScrollableArea, public CanMakeCheckedPtr<RenderLayerScrollableArea> {
     WTF_MAKE_TZONE_ALLOCATED(RenderLayerScrollableArea);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderLayerScrollableArea);
+    friend class ScrollbarUpdateScope;
 public:
     explicit RenderLayerScrollableArea(RenderLayer&);
     virtual ~RenderLayerScrollableArea();
@@ -146,8 +147,8 @@ public:
     void paintResizer(GraphicsContext&, const LayoutPoint&, const IntRect& resizerRect, const LayoutRect& damageRect);
     void paintOverlayScrollbars(GraphicsContext&, const LayoutRect& damageRect, OptionSet<PaintBehavior>, RenderObject* subtreePaintRoot = nullptr);
 
-    void updateScrollInfoAfterLayout();
     void updateScrollbarSteps();
+    std::optional<ScrollbarUpdateScope> updateScrollInfoAfterLayout();
 
     bool scroll(ScrollDirection, ScrollGranularity, unsigned stepCount = 1);
 
@@ -234,8 +235,7 @@ public:
     bool containsDirtyOverlayScrollbars() const { return m_containsDirtyOverlayScrollbars; }
     void setContainsDirtyOverlayScrollbars(bool dirtyScrollbars) { m_containsDirtyOverlayScrollbars = dirtyScrollbars; }
 
-    void updateScrollbarsAfterStyleChange(const RenderStyle* oldStyle);
-    void updateScrollbarsAfterLayout();
+    void updateScrollbarsAfterStyleChange(const Style::ComputedStyle* oldStyle);
 
     bool positionOverflowControls(const IntSize&);
 
@@ -259,7 +259,7 @@ public:
     bool isVisibleToHitTesting() const final;
     void animatedScrollDidEnd() final;
     LayoutRect scrollRectToVisible(const LayoutRect& absoluteRect, const ScrollRectToVisibleOptions&);
-    std::optional<LayoutRect> updateScrollPositionForScrollIntoView(const ScrollPositionChangeOptions&, const LayoutRect& revealRect, const LayoutRect& localExposeRect);
+    std::optional<LayoutRect> updateScrollPositionForScrollIntoView(const ScrollPositionChangeOptions&, const LayoutSize& revealOffset, const LayoutRect& localExposeRect);
 
     ScrollAnchoringController* scrollAnchoringController() const final { return m_scrollAnchoringController.get(); }
 
@@ -305,7 +305,6 @@ private:
 
 private:
     bool m_scrollDimensionsDirty { true };
-    bool m_inOverflowRelayout { false };
     bool m_registeredScrollableArea { false };
     bool m_hasCompositedScrollableOverflow { false };
 

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleJustifyItems.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
@@ -94,8 +95,8 @@ StyleSelfAlignmentData JustifyItems::resolve() const
 
 auto CSSValueConversion<JustifyItems>::operator()(BuilderState& state, const CSSValue& value) -> JustifyItems
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         // normal
         case CSSValueNormal:
             return CSS::Keyword::Normal { };
@@ -135,7 +136,7 @@ auto CSSValueConversion<JustifyItems>::operator()(BuilderState& state, const CSS
         }
     }
 
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
     if (!pair)
         return CSS::Keyword::Legacy { };
 

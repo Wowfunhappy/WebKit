@@ -48,9 +48,7 @@ ExtendableEvent::ExtendableEvent(enum EventInterfaceType eventInterface, const A
 {
 }
 
-ExtendableEvent::~ExtendableEvent()
-{
-}
+ExtendableEvent::~ExtendableEvent() = default;
 
 // https://w3c.github.io/ServiceWorker/#dom-extendableevent-waituntil
 ExceptionOr<void> ExtendableEvent::waitUntil(Ref<DOMPromise>&& promise)

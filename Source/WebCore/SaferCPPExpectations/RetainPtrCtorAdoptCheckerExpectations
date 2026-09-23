@@ -1,4 +1,3 @@
-[ iOS ] PAL/pal/spi/ios/DataDetectorsUISoftLink.h
 platform/audio/cocoa/AudioSampleBufferConverter.mm
 [ iOS ] platform/cocoa/WebAVPlayerLayerView.mm
 platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
@@ -12,5 +11,5 @@ platform/graphics/cg/PatternCG.cpp
 [ iOS ] platform/ios/WebCoreMotionManager.mm
 [ iOS ] platform/ios/wak/WKView.mm
 [ iOS ] platform/ios/wak/WebCoreThread.mm
-platform/mediastream/mac/AVVideoCaptureSource.mm
+platform/mediastream/cocoa/AVVideoCaptureSource.mm
 platform/network/cf/DNSResolveQueueCFNet.cpp

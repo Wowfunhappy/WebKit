@@ -50,9 +50,11 @@ bool ISOSchemeInformationBox::parse(DataView& view, unsigned& offset)
         if (localOffset + schemeSpecificBoxType.value().second > offset + m_size)
             return false;
 
-        m_schemeSpecificData = makeUnique<ISOTrackEncryptionBox>();
-        if (!m_schemeSpecificData->read(view, localOffset))
+        auto tencBox = makeUnique<ISOTrackEncryptionBox>();
+        if (!tencBox->read(view, localOffset))
             return false;
+
+        m_schemeSpecificData = WTF::move(tencBox);
     }
 
     return true;

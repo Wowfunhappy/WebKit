@@ -43,7 +43,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/AttributedString.h>
 #import <pal/spi/ios/UIKitSPI.h>
-#import <wtf/ListHashSet.h>
+#import <wtf/OrderedHashSet.h>
 #import <wtf/URL.h>
 #import <wtf/cocoa/NSURLExtras.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -181,7 +181,7 @@ static const char *safeTypeForDOMToReadAndWriteForPlatformType(NSString *platfor
 
 static Vector<String> webSafeTypes(NSArray<NSString *> *platformTypes, PlatformPasteboard::IncludeImageTypes includeImageTypes, Function<bool()>&& shouldAvoidExposingURLType)
 {
-    ListHashSet<String> domPasteboardTypes;
+    OrderedHashSet<String> domPasteboardTypes;
     for (NSString *type in platformTypes) {
         if ([type isEqualToString:@(PasteboardCustomData::cocoaType().characters())])
             continue;
@@ -478,10 +478,10 @@ void PlatformPasteboard::write(const PasteboardWebContent& content)
 #endif
 
     for (size_t i = 0, size = content.clientTypesAndData.size(); i < size; ++i)
-        [representationsToRegister addData:content.clientTypesAndData[i].second->makeContiguous()->createNSData().get() forType:content.clientTypesAndData[i].first.createNSString().get()];
+        [representationsToRegister addData:protect(content.clientTypesAndData[i].second)->makeContiguous()->createNSData().get() forType:content.clientTypesAndData[i].first.createNSString().get()];
 
     if (content.dataInWebArchiveFormat) {
-        auto webArchiveData = content.dataInWebArchiveFormat->createNSData();
+        auto webArchiveData = protect(content.dataInWebArchiveFormat)->createNSData();
 #if !PLATFORM(MACCATALYST)
         [representationsToRegister addData:webArchiveData.get() forType:WebArchivePboardType];
 #endif
@@ -493,10 +493,10 @@ void PlatformPasteboard::write(const PasteboardWebContent& content)
     }
 
     if (content.dataInRTFDFormat)
-        [representationsToRegister addData:content.dataInRTFDFormat->createNSData().get() forType:UTTypeFlatRTFD.identifier];
+        [representationsToRegister addData:protect(content.dataInRTFDFormat)->createNSData().get() forType:UTTypeFlatRTFD.identifier];
 
     if (content.dataInRTFFormat)
-        [representationsToRegister addData:content.dataInRTFFormat->createNSData().get() forType:UTTypeRTF.identifier];
+        [representationsToRegister addData:protect(content.dataInRTFFormat)->createNSData().get() forType:UTTypeRTF.identifier];
 
     if (!content.dataInHTMLFormat.isEmpty()) {
         NSData *htmlAsData = [content.dataInHTMLFormat.createNSString() dataUsingEncoding:NSUTF8StringEncoding];
@@ -518,14 +518,14 @@ void PlatformPasteboard::write(const PasteboardImage& pasteboardImage)
     auto representationsToRegister = adoptNS([[WebItemProviderRegistrationInfoList alloc] init]);
 
     for (size_t i = 0, size = pasteboardImage.clientTypesAndData.size(); i < size; ++i)
-        [representationsToRegister addData:pasteboardImage.clientTypesAndData[i].second->createNSData().get() forType:pasteboardImage.clientTypesAndData[i].first.createNSString().get()];
+        [representationsToRegister addData:protect(pasteboardImage.clientTypesAndData[i].second)->createNSData().get() forType:pasteboardImage.clientTypesAndData[i].first.createNSString().get()];
 
     if (pasteboardImage.resourceData && !pasteboardImage.resourceMIMEType.isEmpty()) {
         auto utiOrMIMEType = pasteboardImage.resourceMIMEType;
         if (!isDeclaredUTI(utiOrMIMEType))
             utiOrMIMEType = UTIFromMIMEType(utiOrMIMEType);
 
-        auto imageData = pasteboardImage.resourceData->makeContiguous()->createNSData();
+        auto imageData = protect(pasteboardImage.resourceData)->makeContiguous()->createNSData();
         [representationsToRegister addData:imageData.get() forType:utiOrMIMEType.createNSString().get()];
         [representationsToRegister setPreferredPresentationSize:pasteboardImage.imageSize];
         [representationsToRegister setSuggestedName:pasteboardImage.suggestedName.createNSString().get()];
@@ -584,7 +584,7 @@ static const char customTypesKeyForTeamData[] = "com.apple.WebKit.drag-and-drop-
 
 Vector<String> PlatformPasteboard::typesSafeForDOMToReadAndWrite(const String& origin) const
 {
-    ListHashSet<String> domPasteboardTypes;
+    OrderedHashSet<String> domPasteboardTypes;
 #if PASTEBOARD_SUPPORTS_PRESENTATION_STYLE_AND_TEAM_DATA
     for (NSItemProvider *provider in [m_pasteboard itemProviders]) {
         if (!provider.teamData.length)
@@ -744,15 +744,17 @@ Vector<String> PlatformPasteboard::allStringsForType(const String& type) const
     return strings;
 }
 
-static bool isDisallowedTypeForReadBuffer(NSString *type)
+static bool isDisallowedReadType(const String& type)
 {
-    return [type isEqualToString:UIImagePboardType];
+    // UIPasteboard resolves type identifiers case-insensitively and coerces its private
+    // object types (com.apple.uikit.image / .color / .attributedstring) through
+    // NSKeyedUnarchiver / ImageIO in the UI process; block them regardless of case.
+    return type.startsWithIgnoringASCIICase("com.apple.uikit."_s);
 }
 
 RefPtr<SharedBuffer> PlatformPasteboard::readBuffer(std::optional<size_t> index, const String& type) const
 {
-    RetainPtr nsType = type.createNSString();
-    if (isDisallowedTypeForReadBuffer(nsType.get()))
+    if (isDisallowedReadType(type))
         return nullptr;
 
     NSInteger integerIndex = index.value_or(0);
@@ -761,7 +763,7 @@ RefPtr<SharedBuffer> PlatformPasteboard::readBuffer(std::optional<size_t> index,
 
     NSIndexSet *indexSet = [NSIndexSet indexSetWithIndex:integerIndex];
 
-    RetainPtr<NSArray> pasteboardItem = [m_pasteboard dataForPasteboardType:nsType.get() inItemSet:indexSet];
+    RetainPtr<NSArray> pasteboardItem = [m_pasteboard dataForPasteboardType:type.createNSString().get() inItemSet:indexSet];
 
     if (![pasteboardItem count])
         return nullptr;
@@ -778,11 +780,15 @@ String PlatformPasteboard::readString(size_t index, const String& type) const
         return [readURL(index, title).createNSURL() absoluteString];
     }
 
+    if (isDisallowedReadType(type))
+        return { };
+
     if ((NSInteger)index < 0 || (NSInteger)index >= [m_pasteboard numberOfItems])
         return { };
 
     NSIndexSet *indexSet = [NSIndexSet indexSetWithIndex:index];
-    RetainPtr value = [m_pasteboard valuesForPasteboardType:type.createNSString().get() inItemSet:indexSet].firstObject ?: [m_pasteboard dataForPasteboardType:type.createNSString().get() inItemSet:indexSet].firstObject;
+    RetainPtr nsType = type.createNSString();
+    RetainPtr value = [m_pasteboard valuesForPasteboardType:nsType.get() inItemSet:indexSet].firstObject ?: [m_pasteboard dataForPasteboardType:nsType.get() inItemSet:indexSet].firstObject;
     if (!value)
         return { };
 

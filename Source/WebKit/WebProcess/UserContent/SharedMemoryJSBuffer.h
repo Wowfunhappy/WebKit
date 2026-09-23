@@ -41,7 +41,6 @@ public:
 private:
     SharedMemoryJSBuffer(Ref<WebCore::SharedMemory>&&);
 
-    WebCore::ExceptionOr<String> asUTF8String() const final;
     WebCore::ExceptionOr<String> asUTF16String() const final;
     String asLatin1String() const final;
 

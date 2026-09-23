@@ -566,7 +566,7 @@ void WidevineCdm::setStorageIdSeed(const String& seed)
     if (seed.isEmpty() || device.isEmpty())
         return;
 
-    auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto digest = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     auto deviceUTF8 = device.utf8();
     digest->addBytes(byteCast<uint8_t>(deviceUTF8.span()));
     auto seedUTF8 = seed.utf8();

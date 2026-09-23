@@ -61,16 +61,6 @@
     shouldBeTrue("document.createEvent('MouseEvents') instanceof window.Event");
     shouldBeTrue("document.createEvent('MouseEvents').constructor === window.MouseEvent");
 
-    // MutationEvent
-    shouldBeTrue("document.createEvent('MutationEvent') instanceof window.MutationEvent");
-    shouldBeTrue("document.createEvent('MutationEvent') instanceof window.Event");
-    shouldBeTrue("document.createEvent('MutationEvent').constructor === window.MutationEvent");
-
-    // MutationEvents (MutationEvent alternative)
-    shouldBeTrue("document.createEvent('MutationEvents') instanceof window.MutationEvent");
-    shouldBeTrue("document.createEvent('MutationEvents') instanceof window.Event");
-    shouldBeTrue("document.createEvent('MutationEvents').constructor === window.MutationEvent");
-
     // TextEvent
     shouldBeTrue("document.createEvent('TextEvent') instanceof window.TextEvent");
     shouldBeTrue("document.createEvent('TextEvent') instanceof window.UIEvent");
@@ -86,13 +76,6 @@
     shouldBeTrue("document.createEvent('UIEvents') instanceof window.UIEvent");
     shouldBeTrue("document.createEvent('UIEvents') instanceof window.Event");
     shouldBeTrue("document.createEvent('UIEvents').constructor === window.UIEvent");
-
-    // WheelEvent
-    shouldBeTrue("document.createEvent('WheelEvent') instanceof window.WheelEvent");
-    shouldBeTrue("document.createEvent('WheelEvent') instanceof window.MouseEvent");
-    shouldBeTrue("document.createEvent('WheelEvent') instanceof window.UIEvent");
-    shouldBeTrue("document.createEvent('WheelEvent') instanceof window.Event");
-    shouldBeTrue("document.createEvent('WheelEvent').constructor === window.WheelEvent");
 
     // StorageEvent
     shouldBeTrue("document.createEvent('StorageEvent') instanceof window.StorageEvent");

@@ -38,6 +38,7 @@
 #include "MediaPlayer.h"
 #include "MediaPromiseTypes.h"
 #include "MediaSourceInit.h"
+#include "MediaSourcePrivate.h"
 #include "MediaSourcePrivateClient.h"
 #include "URLRegistry.h"
 #include <optional>
@@ -64,8 +65,6 @@ class TimeRanges;
 class VideoTrack;
 class VideoTrackPrivate;
 template<typename> class ExceptionOr;
-
-enum class MediaSourceReadyState { Closed, Open, Ended };
 
 class MediaSource
     : public RefCounted<MediaSource>
@@ -110,7 +109,6 @@ public:
     bool NODELETE attachToElement(WeakPtr<HTMLMediaElement>&&);
     void elementIsShuttingDown();
     void detachFromElement();
-    bool isSeeking() const { return !!m_pendingSeekTarget; }
     PlatformTimeRanges seekable();
     ExceptionOr<void> setLiveSeekableRange(double start, double end);
     ExceptionOr<void> clearLiveSeekableRange();
@@ -138,7 +136,6 @@ public:
 
     ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
 
-    static const MediaTime& NODELETE currentTimeFudgeFactor();
     static bool contentTypeShouldGenerateTimestamps(const ContentType&);
 
 #if !RELEASE_LOG_DISABLED
@@ -149,7 +146,7 @@ public:
     void setLogIdentifier(uint64_t);
 
     Ref<Logger> logger(ScriptExecutionContext&);
-    void NODELETE didLogMessage(const WTFLogChannel&, WTFLogLevel, Vector<JSONLogValue>&&) final;
+    void NODELETE didLogMessage(const WTFLogChannel&, WTFLogLevel, std::optional<WTFLogLocation>, Vector<JSONLogValue>&&) final;
 #endif
 
     virtual bool isManaged() const { return false; }
@@ -175,8 +172,6 @@ public:
 
 protected:
     MediaSource(ScriptExecutionContext&, MediaSourceInit&&);
-
-    bool isBuffered(const PlatformTimeRanges&) const;
 
     void scheduleEvent(const AtomString& eventName);
     void notifyElementUpdateMediaState() const;
@@ -205,7 +200,6 @@ private:
 
     void removeSourceBufferWithOptionalDestruction(SourceBuffer&, bool withDestruction);
 
-    Ref<MediaTimePromise> waitForTarget(const SeekTarget&);
     using RendererType = MediaSourcePrivateClient::RendererType;
     void failedToCreateRenderer(RendererType);
 
@@ -227,18 +221,10 @@ private:
     void regenerateActiveSourceBuffers();
     void updateBufferedIfNeeded(bool forced = false);
 
-    bool hasBufferedTime(const MediaTime&);
-    bool hasCurrentTime();
-    bool hasFutureTime();
-
-    void completeSeek();
-
     static URLRegistry* s_registry;
 
     const Ref<SourceBufferList> m_sourceBuffers;
     const Ref<SourceBufferList> m_activeSourceBuffers;
-    std::optional<SeekTarget> m_pendingSeekTarget;
-    std::optional<MediaTimePromise::AutoRejectProducer> m_seekTargetPromise;
     bool m_openDeferred { false };
     bool m_sourceopenPending { false };
     bool m_isAttached { false };

@@ -37,7 +37,7 @@ class ContributorsChecker(JSONChecker):
         super(ContributorsChecker, self).__init__(file_path, handle_style_error)
         self._file_path = file_path
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         super(ContributorsChecker, self).check(lines)
         canonicalized = CommitterList().as_json()
         actual = FileSystem().read_text_file(self._file_path)

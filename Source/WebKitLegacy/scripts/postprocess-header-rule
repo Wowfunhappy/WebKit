@@ -28,24 +28,20 @@ if [[ -z "${SCRIPT_HEADER_VISIBILITY}" ]]; then
     exit 0
 fi
 
-SOURCE_FILE="${SCRIPT_INPUT_FILE}"
-WORK_FILE="${SCRIPT_OUTPUT_FILE_0}.tmp"
-DEST_FILE="${SCRIPT_OUTPUT_FILE_0}"
-
-ditto "${SOURCE_FILE}" "${WORK_FILE}"
-
 if [[ ${USE_INTERNAL_SDK} == "YES" ]]; then
     USE_APPLE_INTERNAL_SDK=1
 else
     USE_APPLE_INTERNAL_SDK=0
 fi
 
+UNIFDEF_OPTIONS=(-B)
+
 if [[ ${WK_PLATFORM_NAME} == macosx ]]; then
-    unifdefOptions="-DTARGET_OS_IPHONE=0 -DTARGET_OS_SIMULATOR=0"
+    UNIFDEF_OPTIONS+=(-DTARGET_OS_IPHONE=0 -DTARGET_OS_SIMULATOR=0)
 elif [[ ${WK_PLATFORM_NAME} == *simulator* ]]; then
-    unifdefOptions="-DTARGET_OS_IPHONE=1 -DTARGET_OS_SIMULATOR=1 -DUSE_APPLE_INTERNAL_SDK=${USE_APPLE_INTERNAL_SDK}"
+    UNIFDEF_OPTIONS+=(-DTARGET_OS_IPHONE=1 -DTARGET_OS_SIMULATOR=1 "-DUSE_APPLE_INTERNAL_SDK=${USE_APPLE_INTERNAL_SDK}")
 else
-    unifdefOptions="-DTARGET_OS_IPHONE=1 -DTARGET_OS_SIMULATOR=0 -DUSE_APPLE_INTERNAL_SDK=${USE_APPLE_INTERNAL_SDK}"
+    UNIFDEF_OPTIONS+=(-DTARGET_OS_IPHONE=1 -DTARGET_OS_SIMULATOR=0 "-DUSE_APPLE_INTERNAL_SDK=${USE_APPLE_INTERNAL_SDK}")
 fi
 
 # FIXME: We should consider making this logic general purpose so as to support keeping or removing
@@ -56,25 +52,27 @@ do
     # We assume a disabled feature is either undefined or has the empty string as its value.
     eval "isFeatureEnabled=\$$featureDefine"
     if [[ -z $isFeatureEnabled ]]; then
-        unifdefOptions="$unifdefOptions -D$featureDefine=0"
+        UNIFDEF_OPTIONS+=("-D$featureDefine=0")
     else
-        unifdefOptions="$unifdefOptions -D$featureDefine=1"
+        UNIFDEF_OPTIONS+=("-D$featureDefine=1")
     fi
 done
 
-unifdef -B ${unifdefOptions} -o "${WORK_FILE}.unifdef" "${WORK_FILE}"
-case $? in
-    0) rm "${WORK_FILE}".unifdef ;;
-    1) mv "${WORK_FILE}"{.unifdef,} ;;
-    *) exit 1 ;;
-esac
+SED_OPTIONS=()
 
-HEADER_NAME=$(basename "${WORK_FILE}" '.tmp')
+HEADER_NAME=$(basename "${SCRIPT_INPUT_FILE}")
 if [[ "${HEADER_NAME}" != "WebKitAvailability.h" ]]; then
     if [[ ${WK_PLATFORM_NAME} != macosx ]]; then
-        sed -i '' -E -e "s/ *WEBKIT_((CLASS_|ENUM_)?(AVAILABLE|DEPRECATED))_MAC\([^)]+\)//g" "${WORK_FILE}"
+        SED_OPTIONS+=(-e "s/ *WEBKIT_((CLASS_|ENUM_)?(AVAILABLE|DEPRECATED))_MAC\([^)]+\)//g")
     fi
 fi
 
-cmp -s "${WORK_FILE}" "${DEST_FILE}" && rm -f "${WORK_FILE}" || mv "${WORK_FILE}" "${DEST_FILE}"
-[[ "${SOURCE_FILE}" -nt "${DEST_FILE}" ]] && touch "${DEST_FILE}" || true
+if [[ ${#SED_OPTIONS[@]} -gt 0 ]]; then
+    sed -E "${SED_OPTIONS[@]}" < "${SCRIPT_INPUT_FILE}" |
+    unifdef ${UNIFDEF_OPTIONS[@]} > "${SCRIPT_OUTPUT_FILE_0}"
+    exits=(${PIPESTATUS[@]})
+    [ ${exits[0]} -eq 0 -a ${exits[1]} -lt 2 ]
+else
+    unifdef ${UNIFDEF_OPTIONS[@]} < "${SCRIPT_INPUT_FILE}" > "${SCRIPT_OUTPUT_FILE_0}"
+    [ $? -lt 2 ]
+fi

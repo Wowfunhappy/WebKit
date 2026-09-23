@@ -57,7 +57,7 @@ def guess_string_length(ptr):
 
 
 def ustring_to_string(ptr, length=None):
-    """Convert a pointer to UTF-16 data into a Python string encoded with utf-8.
+    """Convert a pointer to UTF-16 data into a Python string.
 
     ptr and length are both gdb.Value objects.
     If length is unspecified, will guess at the length."""
@@ -67,12 +67,12 @@ def ustring_to_string(ptr, length=None):
     else:
         length = int(length)
     char_vals = [int((ptr + i).dereference()) for i in range(length)]
-    string = struct.pack('H' * length, *char_vals).decode('utf-16', 'replace').encode('utf-8')
+    string = struct.pack('H' * length, *char_vals).decode('utf-16', 'replace')
     return string + error_message
 
 
 def lstring_to_string(ptr, length=None):
-    """Convert a pointer to Latin1Character* data into a Python (non-Unicode) string.
+    """Convert a pointer to Latin1Character* data into a Python string.
 
     ptr and length are both gdb.Value objects.
     If length is unspecified, will guess at the length."""

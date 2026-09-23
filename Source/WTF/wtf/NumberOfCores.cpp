@@ -26,8 +26,8 @@
 #include "config.h"
 #include <wtf/NumberOfCores.h>
 
+#include <array>
 #include <cstdio>
-#include <mutex>
 #include <wtf/text/StringToIntegerConversion.h>
 
 #if OS(DARWIN)
@@ -61,11 +61,11 @@ int numberOfProcessorCores()
 #if OS(DARWIN)
     unsigned result;
     size_t length = sizeof(result);
-    int name[] = {
+    std::array name {
             CTL_HW,
             HW_AVAILCPU
     };
-    int sysctlResult = sysctl(name, sizeof(name) / sizeof(int), &result, &length, 0, 0);
+    int sysctlResult = sysctl(name.data(), name.size(), &result, &length, 0, 0);
 
     s_numberOfCores = sysctlResult < 0 ? defaultIfUnavailable : result;
 #elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD) || OS(HAIKU)

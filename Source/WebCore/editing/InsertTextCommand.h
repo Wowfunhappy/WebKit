@@ -40,6 +40,12 @@ protected:
     TextInsertionMarkerSupplier() = default;
 };
 
+struct SmartListUndoData {
+    String previousLineText;
+    String currentLineText;
+    RefPtr<HTMLElement> listElement;
+};
+
 class InsertTextCommand : public CompositeEditCommand {
 public:
     enum RebalanceType {
@@ -84,6 +90,8 @@ private:
     bool m_selectInsertedText;
     RebalanceType m_rebalanceType;
     RefPtr<TextInsertionMarkerSupplier> m_markerSupplier;
+    RefPtr<EditingStyle> m_styleToPreserveForSmartList;
+    std::optional<SmartListUndoData> m_smartListUndoData;
 };
 
 } // namespace WebCore

@@ -42,7 +42,7 @@
 #include "NativeExecutable.h"
 #include "ProtoCallFrameInlines.h"
 #include "SlotVisitorInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 #include "WasmCallee.h"
 #include "WasmCallingConvention.h"
 #include "WasmContext.h"
@@ -52,8 +52,6 @@
 #include "WasmModuleInformation.h"
 #include "WasmOperations.h"
 #include "WasmTypeDefinitionInlines.h"
-#include <wtf/StackPointer.h>
-#include <wtf/SystemTracing.h>
 
 namespace JSC {
 
@@ -64,7 +62,7 @@ static JSC_DECLARE_HOST_FUNCTION(callWebAssemblyFunction);
 JSC_DEFINE_HOST_FUNCTION(callWebAssemblyFunction, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
-    WebAssemblyFunction* wasmFunction = jsCast<WebAssemblyFunction*>(callFrame->jsCallee());
+    WebAssemblyFunction* wasmFunction = uncheckedDowncast<WebAssemblyFunction>(callFrame->jsCallee());
 
     if (wasmFunction->instance()->taintedness() >= SourceTaintedOrigin::IndirectlyTainted)
         vm.setMightBeExecutingTaintedCode();
@@ -81,13 +79,18 @@ JSC_DEFINE_HOST_FUNCTION(callWebAssemblyFunction, (JSGlobalObject* globalObject,
     return vmEntryToWasm(wasmFunction->jsToWasm(ArityCheckMode::MustCheckArity).taggedPtr(), &vm, &protoCallFrame);
 }
 
-WebAssemblyFunction* WebAssemblyFunction::create(VM& vm, JSGlobalObject* globalObject, Structure* structure, unsigned length, const String& name, JSWebAssemblyInstance* instance, Wasm::JSToWasmCallee& jsToWasm, Wasm::IPIntCallee& wasmCallee, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex, Ref<const Wasm::RTT>&& rtt)
+WebAssemblyFunction* WebAssemblyFunction::create(VM& vm, JSGlobalObject* globalObject, Structure* structure, unsigned length, const String& name, JSWebAssemblyInstance* instance, Wasm::IPIntCallee& wasmCallee, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Ref<const Wasm::RTT>&& rtt)
 {
-    NativeExecutable* base = vm.getHostFunction(callWebAssemblyFunction, ImplementationVisibility::Public, WasmFunctionIntrinsic, callHostFunctionAsConstructor, nullptr, String());
+    NativeExecutable* base = vm.getHostFunction(callWebAssemblyFunction, ImplementationVisibility::Public, WasmFunctionIntrinsic, callHostFunctionAsConstructor, nullptr, 0, String());
     // Since ClosureCall uses this executable as an identity for Wasm CallIC thunk, we need to make it diversified.
-    NativeExecutable* executable = NativeExecutable::create(vm, base->generatedJITCodeForCall(), callWebAssemblyFunction, base->generatedJITCodeForConstruct(), callHostFunctionAsConstructor, ImplementationVisibility::Public, name);
-    WebAssemblyFunction* function = new (NotNull, allocateCell<WebAssemblyFunction>(vm)) WebAssemblyFunction(vm, executable, globalObject, structure, instance, jsToWasm, wasmCallee, wasmToWasmEntrypointLoadLocation, typeIndex, WTF::move(rtt));
-    function->finishCreation(vm, executable, length, name);
+    NativeExecutable* executable = NativeExecutable::create(vm, base->generatedJITCodeForCall(), callWebAssemblyFunction, base->generatedJITCodeForConstruct(), callHostFunctionAsConstructor, ImplementationVisibility::Public, length, name);
+    WebAssemblyFunction* function = new (NotNull, allocateCell<WebAssemblyFunction>(vm)) WebAssemblyFunction(vm, executable, globalObject, structure, instance, wasmCallee, wasmToWasmEntrypointLoadLocation, WTF::move(rtt));
+    function->finishCreation(vm);
+    // The LLInt and JIT JS->Wasm entry trampolines read m_boxedJSToWasmCallee and
+    // m_frameSize directly from this object, and are entered from many paths that
+    // bypass callWebAssemblyFunction. Ensure they are populated before any such entry.
+    // FIXME: Move this to those places so the JSToWasmCallee is materialized lazily.
+    function->ensureJSToWasmCallee();
     return function;
 }
 
@@ -97,18 +100,29 @@ Structure* WebAssemblyFunction::createStructure(VM& vm, JSGlobalObject* globalOb
     return Structure::create(vm, globalObject, prototype, TypeInfo(JSFunctionType, StructureFlags), info());
 }
 
-WebAssemblyFunction::WebAssemblyFunction(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, JSWebAssemblyInstance* instance, Wasm::JSToWasmCallee& jsToWasm, Wasm::IPIntCallee& wasmCallee, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex, Ref<const Wasm::RTT>&& rtt)
-    : Base { vm, executable, globalObject, structure, Wasm::WasmOrJSImportableFunction { { { CalleeBits(&wasmCallee), { instance, WriteBarrierEarlyInit }, wasmToWasmEntrypointLoadLocation }, rtt.ptr(), typeIndex }, { }, { } }, nullptr }
-    , m_boxedJSToWasmCallee(jsToWasm)
-    , m_frameSize(jsToWasm.frameSize())
+WebAssemblyFunction::WebAssemblyFunction(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, JSWebAssemblyInstance* instance, Wasm::IPIntCallee& wasmCallee, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Ref<const Wasm::RTT>&& rtt)
+    : Base { vm, executable, globalObject, structure, Wasm::WasmOrJSImportableFunction { { { CalleeBits(&wasmCallee), { instance, WriteBarrierEarlyInit }, wasmToWasmEntrypointLoadLocation }, rtt.ptr() }, { }, { } }, nullptr }
     , m_taintedness(instance->taintedness())
 {
+}
+
+Wasm::JSToWasmCallee& WebAssemblyFunction::ensureJSToWasmCallee()
+{
+    // WebAssemblyFunction is tied to a single thread; CalleeGroup's cache has its own lock.
+    if (m_boxedJSToWasmCallee) [[likely]]
+        return *m_boxedJSToWasmCallee;
+
+    auto* wasmCallee = uncheckedDowncast<Wasm::Callee>(importableFunction().boxedCallee.asNativeCallee());
+    auto& callee = instance()->calleeGroup()->ensureJSToWasmCallee(instance()->moduleInformation(), wasmCallee->index());
+    m_frameSize = callee.frameSize();
+    m_boxedJSToWasmCallee = &callee;
+    return callee;
 }
 
 template<typename Visitor>
 void WebAssemblyFunction::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    WebAssemblyFunction* thisObject = jsCast<WebAssemblyFunction*>(cell);
+    WebAssemblyFunction* thisObject = uncheckedDowncast<WebAssemblyFunction>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);

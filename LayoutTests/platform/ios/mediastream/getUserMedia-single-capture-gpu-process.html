@@ -46,6 +46,7 @@ promise_test((test) => {
         const newMicrophoneDeviceId = await getOtherMicrophoneDevice(audioTrack);
         return navigator.mediaDevices.getUserMedia({ audio: { deviceId : newMicrophoneDeviceId} });
     }).then(async (stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
         await waitForTrackEnded(audioTrack);
 
         assert_equals(audioTrack.readyState, "ended", "audio track is ended");
@@ -53,6 +54,7 @@ promise_test((test) => {
 
         return navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: ["environment"] } } });
     }).then(async (stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
         await waitForTrackEnded(videoTrack);
 
         assert_equals(audioTrack.readyState, "ended", "audio track is ended, second check");

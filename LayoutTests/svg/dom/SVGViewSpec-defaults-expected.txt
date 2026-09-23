@@ -6,7 +6,6 @@ On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE
 
 Check initial SVGSVGElement.currentView values on a SVGSVGElement
 PASS currentView.transform.numberOfItems is 0
-PASS currentView.viewTarget is null
 PASS currentView.zoomAndPan is SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY
 PASS currentView.viewBox.baseVal.x is 0
 PASS currentView.viewBox.baseVal.y is 0
@@ -17,7 +16,6 @@ PASS currentView.preserveAspectRatio.baseVal.meetOrSlice is SVGPreserveAspectRat
 PASS currentView.viewBoxString is "0 0 0 0"
 PASS currentView.preserveAspectRatioString is "xMidYMid meet"
 PASS currentView.transformString is ""
-PASS currentView.viewTargetString is ""
 PASS currentView.zoomAndPan is SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY
 
 Try changing zoomAndPan - none of these will work, as SVGViewSpec is fully readonly - even the animated properties it inherits from parent classes like SVGZoomAndPan/SVGFitToViewBox
@@ -52,14 +50,6 @@ PASS currentView.preserveAspectRatioString is "xMidYMid meet"
 Try changing transformString
 PASS currentView.transformString = 'rotate(90)' is "rotate(90)"
 PASS currentView.transformString is ""
-
-Try changing viewTarget
-PASS currentView.viewTarget = svgElement is svgElement
-PASS currentView.viewTarget is null
-
-Try changing viewTargetString
-PASS currentView.viewTargetString = '#test' is "#test"
-PASS currentView.viewTargetString is ""
 
 Try changing transform
 PASS currentView.transform.clear() threw exception NoModificationAllowedError: The object can not be modified..

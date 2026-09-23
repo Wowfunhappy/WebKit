@@ -27,6 +27,7 @@
 #pragma once
 
 #include "LiveNodeList.h"
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 

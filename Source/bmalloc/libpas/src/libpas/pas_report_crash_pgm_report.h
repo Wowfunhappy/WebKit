@@ -38,7 +38,6 @@
 
 #include <stddef.h>
 #ifdef __APPLE__
-#include <mach/kern_return.h>
 #include <mach/mach_types.h>
 #include <mach/vm_types.h>
 #endif
@@ -66,7 +65,7 @@ typedef void *(*crash_reporter_memory_reader_t)(task_t task, vm_address_t addres
 
 /* This must be in sync between ReportCrash and libpas to generate a report. 
  * Make sure to bump version number after changing extraction structs and logic */
-static const unsigned pas_crash_report_version = 5;
+static const unsigned pas_crash_report_version = 6;
 
 /* Report sent back to the ReportCrash process. */
 typedef struct pas_report_crash_pgm_report pas_report_crash_pgm_report;

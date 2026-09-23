@@ -124,7 +124,7 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
     static Atomic<uint32_t> decoderId;
     GRefPtr<GstElement> parsebin = gst_element_factory_make("parsebin", makeString("image-decoder-parser-"_s, decoderId.exchangeAdd(1)).utf8().data());
     m_parserHarness = GStreamerElementHarness::create(WTF::move(parsebin), [](auto&, auto&&) { }, [this](auto& pad) -> RefPtr<GStreamerElementHarness> {
-        auto caps = adoptGRef(gst_pad_query_caps(pad.get(), nullptr));
+        GRefPtr caps = adoptGRef(gst_pad_query_caps(pad.get(), nullptr));
         auto identityHarness = GStreamerElementHarness::create(GRefPtr<GstElement>(gst_element_factory_make("identity", nullptr)), [](auto&, const auto&) { });
         GST_DEBUG_OBJECT(pad.get(), "Caps on parser source pad: %" GST_PTR_FORMAT, caps.get());
         if (!caps || !doCapsHaveType(caps.get(), "video"_s)) {
@@ -338,7 +338,7 @@ void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& shared
 {
     auto data = sharedBuffer.makeContiguous();
     auto bytes = data->createGBytes();
-    auto buffer = adoptGRef(gst_buffer_new_wrapped_bytes(bytes.get()));
+    GRefPtr buffer = adoptGRef(gst_buffer_new_wrapped_bytes(bytes.get()));
     m_eos = false;
     m_error = false;
 
@@ -349,7 +349,7 @@ void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& shared
         });
     });
 
-    auto caps = adoptGRef(gst_type_find_helper_for_buffer(GST_OBJECT_CAST(m_parserHarness->element()), buffer.get(), nullptr));
+    GRefPtr caps = adoptGRef(gst_type_find_helper_for_buffer(GST_OBJECT_CAST(m_parserHarness->element()), buffer.get(), nullptr));
     GST_DEBUG_OBJECT(m_parserHarness->element(), "Caps typefind result: %" GST_PTR_FORMAT, caps.get());
     if (!caps) {
         GST_WARNING_OBJECT(m_parserHarness->element(), "Typefinding failed");

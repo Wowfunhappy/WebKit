@@ -29,6 +29,7 @@
 
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/FileHandle.h>
+#include <wtf/Function.h>
 #include <wtf/HexNumber.h>
 #include <wtf/Logging.h>
 #include <wtf/MappedFileData.h>
@@ -40,6 +41,7 @@
 #include <wtf/text/StringBuilder.h>
 
 #if !OS(WINDOWS)
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -250,6 +252,12 @@ String lastComponentOfPathIgnoringTrailingSlash(const String& path)
     return path.substring(position + 1, endOfSubstring - position);
 }
 
+void removeTrailingSlash(String& path)
+{
+    if (path.length() > 1 && path.endsWith(FileSystem::pathSeparator))
+        path = path.left(path.length() - 1);
+}
+
 bool filesHaveSameVolume(const String& fileA, const String& fileB)
 {
     if (fileA.isNull() || fileB.isNull())
@@ -326,10 +334,27 @@ MappedFileData createMappedFileData(const String& path, size_t bytesSize, FileHa
     if (!handle)
         return { };
 
+    bool succeeded = false;
+    auto removeOrphanOnFailure = makeScopeExit([&] {
+        if (!succeeded)
+            FileSystem::deleteFile(path);
+    });
+
     if (!handle.truncate(bytesSize)) {
         RELEASE_LOG_FAULT(MemoryPressure, "Unable to truncate file");
         return { };
     }
+
+#if HAVE(FALLOCATE)
+    // Reserve real blocks so a later mmap'd memcpy() can't SIGBUS on ENOSPC.
+    // EOPNOTSUPP: filesystem doesn't support pre-allocation -> preserve old behavior.
+    // posix_fallocate is avoided because it falls back to zero-filling when pre-allocation
+    // is not supported by the FS.
+    if (fallocate(handle.platformHandle(), 0, 0, bytesSize) == -1 && errno != EOPNOTSUPP) {
+        RELEASE_LOG_ERROR(MemoryPressure, "Unable to reserve %zu bytes for cache file (errno=%d)", bytesSize, errno);
+        return { };
+    }
+#endif
 
     if (!FileSystem::makeSafeToUseMemoryMapForPath(path))
         return { };
@@ -341,6 +366,7 @@ MappedFileData createMappedFileData(const String& path, size_t bytesSize, FileHa
     if (outputHandle)
         *outputHandle = WTF::move(handle);
 
+    succeeded = true;
     return WTF::move(*mappedFile);
 }
 
@@ -433,14 +459,9 @@ void deleteAllFilesModifiedSince(const String& directory, WallTime time)
         return;
     }
 
-    auto children = listDirectory(directory);
-    for (auto& child : children) {
+    traverseDirectory(directory, [&](const String& child, FileType childType) {
         auto childPath = FileSystem::pathByAppendingComponent(directory, child);
-        auto childType = fileType(childPath);
-        if (!childType)
-            continue;
-
-        switch (*childType) {
+        switch (childType) {
         case FileType::Regular: {
             if (auto modificationTime = FileSystem::fileModificationTime(childPath); modificationTime && *modificationTime >= time)
                 deleteFile(childPath);
@@ -453,7 +474,7 @@ void deleteAllFilesModifiedSince(const String& directory, WallTime time)
         case FileType::SymbolicLink:
             break;
         }
-    }
+    });
 
     FileSystem::deleteEmptyDirectory(directory);
 }
@@ -534,7 +555,6 @@ std::optional<uint64_t> directorySize(const String& path)
     for (auto& entry : std::filesystem::recursive_directory_iterator(stdPath, ec)) {
         if (ec)
             return std::nullopt;
-        auto filePath = fromStdFileSystemPath(entry.path());
         if (entry.is_regular_file(ec) && !ec)
             size += entry.file_size(ec);
         if (ec)
@@ -695,11 +715,11 @@ bool isAncestor(const String& possibleAncestor, const String& possibleChild)
 {
     auto possibleChildLexicallyNormal = lexicallyNormal(possibleChild);
     auto possibleAncestorLexicallyNormal = lexicallyNormal(possibleAncestor);
-    if (possibleChildLexicallyNormal.endsWith(static_cast<char16_t>(std::filesystem::path::preferred_separator)))
-        possibleChildLexicallyNormal = possibleChildLexicallyNormal.left(possibleChildLexicallyNormal.length() - 1);
-    if (possibleAncestorLexicallyNormal.endsWith(static_cast<char16_t>(std::filesystem::path::preferred_separator)))
-        possibleAncestorLexicallyNormal = possibleAncestorLexicallyNormal.left(possibleAncestorLexicallyNormal.length() - 1);
-    return possibleChildLexicallyNormal.startsWith(possibleAncestorLexicallyNormal) && possibleChildLexicallyNormal.length() != possibleAncestorLexicallyNormal.length();
+    removeTrailingSlash(possibleChildLexicallyNormal);
+    removeTrailingSlash(possibleAncestorLexicallyNormal);
+    return possibleChildLexicallyNormal.startsWith(possibleAncestorLexicallyNormal)
+        && possibleChildLexicallyNormal.length() > possibleAncestorLexicallyNormal.length()
+        && possibleChildLexicallyNormal[possibleAncestorLexicallyNormal.length()] == static_cast<char16_t>(std::filesystem::path::preferred_separator);
 }
 
 String createTemporaryFile(StringView prefix, StringView suffix)
@@ -714,7 +734,8 @@ FileHandle createDumpFile(StringView filename, StringView extension, StringView 
         auto [p, handle] = openTemporaryFile(filename, extension);
         return WTF::move(handle);
     }
-    return openFile(makeString(path, pathSeparator, filename, extension), FileOpenMode::Truncate);
+    // Why ReadWrite? On linux, we need to mmap dump files so that perf can see them, which will fail without read permission.
+    return openFile(makeString(path, pathSeparator, filename, extension), FileOpenMode::ReadWrite);
 }
 
 #if !PLATFORM(PLAYSTATION)
@@ -738,6 +759,32 @@ Vector<String> listDirectory(const String& path)
             fileNames.append(WTF::move(fileName));
     }
     return fileNames;
+}
+
+void traverseDirectory(const String& path, NOESCAPE const Function<void(const String&, FileType)>& function)
+{
+    std::error_code ec;
+    auto entries = std::filesystem::directory_iterator(toStdFileSystemPath(path), ec);
+    for (auto it = std::filesystem::begin(entries), end = std::filesystem::end(entries); !ec && it != end; it.increment(ec)) {
+        auto fileName = fromStdFileSystemPath(it->path().filename());
+        if (fileName.isNull())
+            continue;
+        std::error_code statusEC;
+        auto status = it->symlink_status(statusEC);
+        if (statusEC)
+            continue;
+        switch (status.type()) {
+        case std::filesystem::file_type::directory:
+            function(fileName, FileType::Directory);
+            break;
+        case std::filesystem::file_type::symlink:
+            function(fileName, FileType::SymbolicLink);
+            break;
+        default:
+            function(fileName, FileType::Regular);
+            break;
+        }
+    }
 }
 #endif
 

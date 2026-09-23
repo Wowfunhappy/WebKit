@@ -30,6 +30,7 @@
 
 #if USE(COORDINATED_GRAPHICS)
 
+#include "BitmapTexture.h"
 #include "IntSize.h"
 #include "PixelFormat.h"
 #include <wtf/Condition.h>
@@ -42,6 +43,9 @@
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkCanvas.h>
 #include <skia/core/SkSurface.h>
+#include <skia/private/chromium/GrDeferredDisplayList.h>
+#include <skia/private/chromium/GrDeferredDisplayListRecorder.h>
+#include <skia/private/chromium/GrSurfaceCharacterization.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
@@ -60,6 +64,7 @@ public:
     WEBCORE_EXPORT virtual ~CoordinatedTileBuffer();
 
     virtual IntSize size() const = 0;
+    virtual PixelFormat pixelFormat() const = 0;
     virtual bool isBackedByOpenGL() const = 0;
 
     bool supportsAlpha() const { return m_flags & SupportsAlpha; }
@@ -69,7 +74,7 @@ public:
     void waitUntilPaintingComplete();
 
 #if USE(SKIA)
-    SkCanvas* canvas();
+    virtual SkCanvas* canvas() = 0;
 #endif
 
     static void resetMemoryUsage();
@@ -79,7 +84,6 @@ protected:
     explicit CoordinatedTileBuffer(Flags);
 
 #if USE(SKIA)
-    virtual bool tryEnsureSurface() = 0;
     sk_sp<SkSurface> m_surface;
 #endif
 
@@ -112,16 +116,15 @@ public:
     const unsigned char* data() const { return m_data.span().data(); }
     unsigned char* data() { return m_data.mutableSpan().data(); }
 
-    PixelFormat pixelFormat() const { return PixelFormat::BGRA8; }
-
 private:
     CoordinatedUnacceleratedTileBuffer(const IntSize&, Flags);
 
     bool isBackedByOpenGL() const final { return false; }
     IntSize size() const final { return m_size; }
+    PixelFormat pixelFormat() const final { return PixelFormat::BGRA8; }
 
 #if USE(SKIA)
-    bool tryEnsureSurface() final;
+    SkCanvas* canvas() final;
 #endif
 
     MallocSpan<unsigned char> m_data;
@@ -143,22 +146,29 @@ private:
 class CoordinatedAcceleratedTileBuffer final : public CoordinatedTileBuffer {
 public:
     WEBCORE_EXPORT static Ref<CoordinatedTileBuffer> create(Ref<BitmapTexture>&&);
+    WEBCORE_EXPORT static Ref<CoordinatedTileBuffer> create(const sk_sp<GrContextThreadSafeProxy>&, const IntSize&, Flags);
     WEBCORE_EXPORT virtual ~CoordinatedAcceleratedTileBuffer();
 
-    BitmapTexture& texture() const { return m_texture.get(); }
+    RefPtr<BitmapTexture> texture() const { return m_texture; }
+    sk_sp<GrDeferredDisplayList> displayList() const { return m_displayList; }
     void serverWait();
 
 private:
     CoordinatedAcceleratedTileBuffer(Ref<BitmapTexture>&&, Flags);
+    CoordinatedAcceleratedTileBuffer(GrSurfaceCharacterization&&, Flags);
 
     bool isBackedByOpenGL() const final { return true; }
     IntSize size() const final;
+    PixelFormat pixelFormat() const final { return PixelFormat::RGBA8; }
 
-    bool tryEnsureSurface() final;
+    SkCanvas* canvas() final;
     void completePainting() final;
 
-    const Ref<BitmapTexture> m_texture;
+    RefPtr<BitmapTexture> m_texture;
     std::unique_ptr<GLFence> m_fence;
+    GrSurfaceCharacterization m_characterization;
+    std::unique_ptr<GrDeferredDisplayListRecorder> m_recorder;
+    sk_sp<GrDeferredDisplayList> m_displayList;
 };
 #endif
 

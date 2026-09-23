@@ -33,7 +33,7 @@
 #include "Color.h"
 #include "ColorSerialization.h"
 #include "StyleColor.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include "StyleResolvedColor.h"
 #include <wtf/text/TextStream.h>
@@ -135,7 +135,7 @@ template<typename D> void serializationForCSSTokenization(StringBuilder& builder
     builder.append(')');
 }
 
-template<typename D> String serializationForCSSTokenization(const CSS::SerializationContext& context, const RelativeColor<D>& relative)
+template<typename D> WTF::String serializationForCSSTokenization(const CSS::SerializationContext& context, const RelativeColor<D>& relative)
 {
     StringBuilder builder;
     serializationForCSSTokenization(builder, context, relative);

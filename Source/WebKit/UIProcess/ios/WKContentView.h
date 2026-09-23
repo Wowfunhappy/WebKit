@@ -45,6 +45,7 @@ class FloatRect;
 namespace WebKit {
 class DrawingAreaProxy;
 class RemoteLayerTreeTransaction;
+class LayerHostingVisibilityPropagator;
 class VisibleContentRectUpdateInfo;
 class WebFrameProxy;
 class WebPageProxy;
@@ -77,6 +78,9 @@ using LayerHostingContextID = uint32_t;
 - (instancetype)initWithFrame:(CGRect)frame processPool:(std::reference_wrapper<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration webView:(WKWebView *)webView;
 
 - (void)didUpdateVisibleRect:(const WebKit::VisibleContentRectUpdateInfo &)visibleContentRectUpdateInfo sendEvenIfUnchanged:(BOOL)sendEvenIfUnchanged;
+
+- (void)updateFixedClippingView:(WebCore::FloatRect)fixedPositionRectForUI;
+- (CGRect)_fixedClippingViewBoundsForTesting;
 
 - (void)didFinishScrolling;
 - (void)didZoomToScale:(CGFloat)scale;
@@ -115,9 +119,10 @@ using LayerHostingContextID = uint32_t;
 #if ENABLE(MODEL_PROCESS)
 - (void)_modelProcessDidCreateContextForVisibilityPropagation;
 #endif // ENABLE(MODEL_PROCESS)
-#if USE(EXTENSIONKIT)
-- (UIView *)_createVisibilityPropagationView;
+- (RetainPtr<UIView>)_createVisibilityPropagationView;
 - (void)_removeVisibilityPropagationView:(UIView *)view;
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+- (RefPtr<WebKit::LayerHostingVisibilityPropagator>)_createLayerHostingVisibilityPropagator;
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 

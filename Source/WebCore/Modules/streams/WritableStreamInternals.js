@@ -508,7 +508,7 @@ function writableStreamDefaultWriterEnsureClosedPromiseRejected(writer, error)
     let closedPromiseCapability = @getByIdDirectPrivate(writer, "closedPromise");
     let closedPromise = closedPromiseCapability.promise;
 
-    if ((@getPromiseInternalField(closedPromise, @promiseFieldFlags) & @promiseStateMask) !== @promiseStatePending) {
+    if (!@isPromiseStatePending(closedPromise)) {
         closedPromiseCapability = @newPromiseCapability(@Promise);
         closedPromise = closedPromiseCapability.promise;
         @putByIdDirectPrivate(writer, "closedPromise", closedPromiseCapability);
@@ -523,7 +523,7 @@ function writableStreamDefaultWriterEnsureReadyPromiseRejected(writer, error)
     let readyPromiseCapability = @getByIdDirectPrivate(writer, "readyPromise");
     let readyPromise = readyPromiseCapability.promise;
 
-    if ((@getPromiseInternalField(readyPromise, @promiseFieldFlags) & @promiseStateMask) !== @promiseStatePending) {
+    if (!@isPromiseStatePending(readyPromise)) {
         readyPromiseCapability = @newPromiseCapability(@Promise);
         readyPromise = readyPromiseCapability.promise;
         @putByIdDirectPrivate(writer, "readyPromise", readyPromiseCapability);

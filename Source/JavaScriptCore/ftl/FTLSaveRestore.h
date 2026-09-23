@@ -39,11 +39,11 @@ class AssemblyHelpers;
 
 namespace FTL {
 
-size_t requiredScratchMemorySizeInBytes();
+size_t NODELETE requiredScratchMemorySizeInBytes();
 
-size_t offsetOfReg(Reg);
-size_t offsetOfGPR(GPRReg);
-size_t offsetOfFPR(FPRReg);
+size_t NODELETE offsetOfReg(Reg);
+size_t NODELETE offsetOfGPR(GPRReg);
+size_t NODELETE offsetOfFPR(FPRReg);
 
 // Assumes that top-of-stack can be used as a pointer-sized scratchpad. Saves all of
 // the registers into the scratch buffer such that RegisterID * sizeof(int64_t) is the

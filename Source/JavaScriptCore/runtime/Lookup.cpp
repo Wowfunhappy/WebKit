@@ -21,14 +21,14 @@
 #include "Lookup.h"
 
 #include "GetterSetter.h"
-#include "StructureInlines.h"
+#include "JSCInlines.h"
 #include <wtf/text/MakeString.h>
 
 namespace JSC {
 
 void reifyStaticAccessor(VM& vm, const HashTableValue& value, JSObject& thisObject, PropertyName propertyName)
 {
-    JSGlobalObject* globalObject = thisObject.globalObject();
+    JSGlobalObject* globalObject = thisObject.realm();
     JSObject* getter = nullptr;
     if (value.hasGetter()) {
         if (value.attributes() & PropertyAttribute::Builtin)
@@ -46,7 +46,7 @@ void reifyStaticAccessor(VM& vm, const HashTableValue& value, JSObject& thisObje
 
 bool setUpStaticFunctionSlot(VM& vm, const ClassInfo* classInfo, const HashTableValue* entry, JSObject* thisObject, PropertyName propertyName, PropertySlot& slot)
 {
-    ASSERT(thisObject->globalObject());
+    ASSERT(thisObject->realm());
     ASSERT(entry->attributes() & PropertyAttribute::BuiltinOrFunctionOrAccessorOrLazyProperty);
     unsigned attributes;
     bool isAccessor = entry->attributes() & PropertyAttribute::Accessor;
@@ -68,7 +68,7 @@ bool setUpStaticFunctionSlot(VM& vm, const ClassInfo* classInfo, const HashTable
     }
 
     if (isAccessor)
-        slot.setCacheableGetterSlot(thisObject, attributes, jsCast<GetterSetter*>(thisObject->getDirect(offset)), offset);
+        slot.setCacheableGetterSlot(thisObject, attributes, uncheckedDowncast<GetterSetter>(thisObject->getDirect(offset)), offset);
     else
         slot.setValue(thisObject, attributes, thisObject->getDirect(offset), offset);
     return true;

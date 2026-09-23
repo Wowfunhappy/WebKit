@@ -30,10 +30,12 @@
 #include "StyleScopeRuleSets.h"
 
 #include "CSSPropertyParser.h"
+#include "CSSSelectorParser.h"
 #include "CSSStyleSheet.h"
 #include "CSSViewTransitionRule.h"
 #include "DeclarationOrigin.h"
 #include "DocumentInlines.h"
+#include "DocumentPage.h"
 #include "ExtensionStyleSheets.h"
 #include "FrameLoader.h"
 #include "HTMLNames.h"
@@ -42,11 +44,13 @@
 #include "MediaQueryEvaluator.h"
 #include "Page.h"
 #include "RuleSetBuilder.h"
+#include "StyleDocumentScope.h"
 #include "StyleResolver.h"
-#include "StyleScope.h"
 #include "StyleSheetContents.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <ranges>
+#include <wtf/MainThread.h>
+#include <wtf/PointerComparison.h>
 
 namespace WebCore {
 namespace Style {
@@ -84,7 +88,7 @@ void ScopeRuleSets::updateUserAgentMediaQueryStyleIfNeeded() const
     m_userAgentMediaQueryStyle = RuleSet::create();
 
     RuleSetBuilder builder(*m_userAgentMediaQueryStyle, mediaQueryEvaluator, &m_styleResolver);
-    builder.addRulesFromSheet(*UserAgentStyle::mediaQueryStyleSheet);
+    SUPPRESS_UNCOUNTED_ARG builder.addRulesFromSheet(*UserAgentStyle::mediaQueryStyleSheet);
 }
 
 RuleSet* ScopeRuleSets::dynamicViewTransitionsStyle() const
@@ -118,21 +122,21 @@ RuleSet* ScopeRuleSets::styleForDeclarationOrigin(DeclarationOrigin origin)
 
 void ScopeRuleSets::initializeUserStyle()
 {
-    CheckedRef extensionStyleSheets = m_styleResolver.document().extensionStyleSheets();
+    CheckedRef extensionStyleSheets = protect(m_styleResolver.document())->extensionStyleSheets();
     auto& mediaQueryEvaluator = m_styleResolver.mediaQueryEvaluator();
 
     auto userStyle = RuleSet::create();
 
     if (RefPtr pageUserSheet = extensionStyleSheets->pageUserSheet()) {
         RuleSetBuilder builder(userStyle, mediaQueryEvaluator, &m_styleResolver);
-        builder.addRulesFromSheet(pageUserSheet->contents());
+        builder.addRulesFromSheet(protect(pageUserSheet->contents()));
     }
 
 #if ENABLE(APP_BOUND_DOMAINS)
-    auto* page = m_styleResolver.document().page();
-    auto* localMainFrame = page ? dynamicDowncast<LocalFrame>(page->mainFrame()) : nullptr;
+    RefPtr page = m_styleResolver.document().page();
+    RefPtr localMainFrame = page ? dynamicDowncast<LocalFrame>(page->mainFrame()) : nullptr;
     if (!extensionStyleSheets->injectedUserStyleSheets().isEmpty() && page && localMainFrame && localMainFrame->loader().client().shouldEnableInAppBrowserPrivacyProtections())
-        m_styleResolver.document().addConsoleMessage(MessageSource::Security, MessageLevel::Warning, "Ignoring user style sheet for non-app bound domain."_s);
+        protect(m_styleResolver.document())->addConsoleMessage(MessageSource::Security, MessageLevel::Warning, "Ignoring user style sheet for non-app bound domain."_s);
     else {
         collectRulesFromUserStyleSheets(extensionStyleSheets->injectedUserStyleSheets(), userStyle, mediaQueryEvaluator);
         if (page && localMainFrame && !extensionStyleSheets->injectedUserStyleSheets().isEmpty())
@@ -152,21 +156,8 @@ void ScopeRuleSets::collectRulesFromUserStyleSheets(const Vector<Ref<CSSStyleShe
     RuleSetBuilder builder(userStyle, mediaQueryEvaluator, &m_styleResolver);
     for (auto& sheet : userSheets) {
         ASSERT(sheet->contents().isUserStyleSheet());
-        builder.addRulesFromSheet(sheet->contents());
+        builder.addRulesFromSheet(protect(sheet->contents()));
     }
-}
-
-template<typename Rules>
-RefPtr<RuleSet> makeRuleSet(const Rules& rules)
-{
-    size_t size = rules.size();
-    if (!size)
-        return nullptr;
-    auto ruleSet = RuleSet::create();
-    for (size_t i = 0; i < size; ++i)
-        ruleSet->addRule(*rules[i].styleRule, rules[i].selectorIndex, rules[i].selectorListIndex);
-    ruleSet->shrinkToFit();
-    return ruleSet;
 }
 
 void ScopeRuleSets::resetAuthorStyle()
@@ -265,7 +256,7 @@ void ScopeRuleSets::appendAuthorStyleSheets(std::span<const Ref<CSSStyleSheet>> 
             }
         }
 
-        builder.addRulesFromSheet(cssSheet->contents(), cssSheet->mediaQueries());
+        builder.addRulesFromSheet(protect(cssSheet->contents()), cssSheet->mediaQueries());
         inspectorCSSOMWrappers.collectFromStyleSheetIfNeeded(cssSheet);
         previous = cssSheet.ptr();
     }
@@ -275,6 +266,7 @@ void ScopeRuleSets::appendAuthorStyleSheets(std::span<const Ref<CSSStyleSheet>> 
 
 void ScopeRuleSets::collectFeatures() const
 {
+    RELEASE_ASSERT(isMainThread());
     RELEASE_ASSERT(!m_isInvalidatingStyleWithRuleSets);
 
     m_features.clear();
@@ -290,8 +282,6 @@ void ScopeRuleSets::collectFeatures() const
     if (RefPtr userStyle = this->userStyle())
         m_features.add(userStyle->features());
 
-    m_scopeBreakingHasPseudoClassInvalidationRuleSet = makeRuleSet(m_features.scopeBreakingHasPseudoClassRules);
-
     m_idInvalidationRuleSets.clear();
     m_classInvalidationRuleSets.clear();
     m_attributeInvalidationRuleSets.clear();
@@ -305,62 +295,116 @@ void ScopeRuleSets::collectFeatures() const
     m_features.shrinkToFit();
 }
 
-template<typename KeyType, typename RuleFeatureVectorType, typename Hash, typename HashTraits>
-static Vector<InvalidationRuleSet>* ensureInvalidationRuleSets(const KeyType& key, HashMap<KeyType, std::unique_ptr<Vector<InvalidationRuleSet>>, Hash, HashTraits>& ruleSetMap, const HashMap<KeyType, std::unique_ptr<RuleFeatureVectorType>, Hash, HashTraits>& ruleFeatures)
+// Classifies a :has() argument for sibling-combinator invalidation. Recurses into logical
+// :is()/:where()/:not()/:has(); other pseudo-classes are leaf "non-logical" pseudos.
+struct HasArgumentSiblingInfo {
+    bool hasSiblingCombinator { false }; // + or ~
+    bool hasPositionalPseudo { false }; // :nth-child(), :first-child, ... (sibling-relative)
+    bool hasNonLogicalPseudo { false }; // any non-logical pseudo-class (positional, stateful, etc.)
+
+    OptionSet<HasArgumentProperty> properties() const
+    {
+        OptionSet<HasArgumentProperty> result;
+        if (hasSiblingCombinator || hasPositionalPseudo)
+            result.add(HasArgumentProperty::OrderSensitive);
+        if (hasSiblingCombinator && !hasNonLogicalPseudo)
+            result.add(HasArgumentProperty::StructuralSibling);
+        return result;
+    }
+};
+
+static void scanHasArgument(const CSSSelector& complexSelector, HasArgumentSiblingInfo& info)
+{
+    for (const CSSSelector* simpleSelector = &complexSelector; simpleSelector; simpleSelector = simpleSelector->precedingInComplexSelector()) {
+        auto relation = simpleSelector->relation();
+        if (relation == CSSSelector::Relation::DirectAdjacent || relation == CSSSelector::Relation::IndirectAdjacent)
+            info.hasSiblingCombinator = true;
+        if (simpleSelector->match() == CSSSelector::Match::PseudoClass && !isLogicalCombinationPseudoClass(simpleSelector->pseudoClass())) {
+            info.hasNonLogicalPseudo = true;
+            if (pseudoClassIsRelativeToSiblings(simpleSelector->pseudoClass()))
+                info.hasPositionalPseudo = true;
+        }
+        if (const CSSSelectorList* selectorList = simpleSelector->selectorList()) {
+            for (const auto& subSelector : *selectorList)
+                scanHasArgument(subSelector, info);
+        }
+    }
+}
+
+static OptionSet<HasArgumentProperty> hasArgumentProperties(const CSSSelectorList& argument)
+{
+    HasArgumentSiblingInfo info;
+    for (const auto& complexSelector : argument)
+        scanHasArgument(complexSelector, info);
+    return info.properties();
+}
+
+template<typename KeyType, typename Hash, typename HashTraits>
+static Vector<InvalidationRuleSet>* ensureInvalidationRuleSets(const KeyType& key, HashMap<KeyType, std::unique_ptr<Vector<InvalidationRuleSet>>, Hash, HashTraits>& ruleSetMap, const HashMap<KeyType, std::unique_ptr<RuleFeatureVector>, Hash, HashTraits>& ruleFeatures)
 {
     return ruleSetMap.ensure(key, [&] () -> std::unique_ptr<Vector<InvalidationRuleSet>> {
         auto* features = ruleFeatures.get(key);
         if (!features)
             return nullptr;
 
-        struct Builder {
-            RefPtr<RuleSet> ruleSet;
-            Vector<const CSSSelectorList*> invalidationSelectors;
+        struct RuleSetKey {
             MatchElement matchElement;
             IsNegation isNegation;
-        };
-        using BuilderKey = std::tuple<uint8_t, bool, bool>;
+            const CSSSelectorList* invalidationSelector { nullptr };
+            const CSSSelectorList* scopeSelector { nullptr };
 
-        HashMap<BuilderKey, Builder> builderMap;
+            unsigned hash() const
+            {
+                Hasher hasher;
+                add(hasher, matchElement.relation, matchElement.hasRelation, isNegation);
+                if (invalidationSelector)
+                    add(hasher, *invalidationSelector);
+                if (scopeSelector)
+                    add(hasher, *scopeSelector);
+                return hasher.hash();
+            }
+            bool operator==(const RuleSetKey& other) const
+            {
+                return matchElement == other.matchElement
+                    && isNegation == other.isNegation
+                    && arePointingToEqualData(invalidationSelector, other.invalidationSelector)
+                    && arePointingToEqualData(scopeSelector, other.scopeSelector);
+            }
+        };
+
+        HashMap<GenericHashKey<RuleSetKey>, RefPtr<RuleSet>> ruleSetMap;
 
         for (auto& feature : *features) {
-            auto key = BuilderKey { static_cast<uint8_t>(feature.matchElement), static_cast<bool>(feature.isNegation), true };
+            auto key = GenericHashKey<RuleSetKey> { { feature.matchElement, feature.isNegation, &feature.invalidationSelector, &feature.scopeSelector } };
 
-            auto& builder = builderMap.ensure(key, [&] {
-                return Builder {
-                    RuleSet::create(),
-                    { },
-                    feature.matchElement,
-                    feature.isNegation,
-                };
+            auto& ruleSet = ruleSetMap.ensure(key, [] {
+                return RuleSet::create();
             }).iterator->value;
 
-            builder.ruleSet->addRule(*feature.styleRule, feature.selectorIndex, feature.selectorListIndex);
-
-            if constexpr (std::is_same<typename RuleFeatureVectorType::ValueType, RuleFeatureWithInvalidationSelector>::value) {
-                auto alreadyContains = [&](const CSSSelectorList& invalidationSelector) {
-                    constexpr auto maximumSearchCount = 8;
-                    auto count = 0;
-                    for (auto& existing : builder.invalidationSelectors | std::views::reverse) {
-                        if (++count > maximumSearchCount)
-                            break;
-                        if (invalidationSelector == *existing)
-                            return true;
-                    }
-                    return false;
-                };
-                if (!alreadyContains(feature.invalidationSelector))
-                    builder.invalidationSelectors.append(&feature.invalidationSelector);
-            }
+            ruleSet->addRule(protect(*feature.styleRule), feature.selectorIndex, feature.selectorListIndex);
         }
 
-        return makeUnique<Vector<InvalidationRuleSet>>(WTF::map(builderMap.values(), [](auto&& builder) {
-            builder.ruleSet->shrinkToFit();
+        return makeUnique<Vector<InvalidationRuleSet>>(WTF::map(ruleSetMap, [](auto& entry) {
+            auto& key = entry.key.key();
+            entry.value->shrinkToFit();
+            auto invalidationSelector = [&] {
+                if (!key.invalidationSelector->isEmpty() && !key.scopeSelector->isEmpty())
+                    return CSSSelectorParser::makeHasArgumentWithScope(key.invalidationSelector->first(), key.scopeSelector->first());
+                if (!key.invalidationSelector->isEmpty())
+                    return CSSSelectorList { *key.invalidationSelector };
+                return CSSSelectorList { };
+            }();
+            // Null scopeSelector means scope-breaking; otherwise wrap a copy so it outlives this cache.
+            RefPtr<const RefCountedCSSSelectorList> scopeSelector;
+            if (!key.scopeSelector->isEmpty())
+                scopeSelector = RefCountedCSSSelectorList::create(CSSSelectorList { *key.scopeSelector });
             return InvalidationRuleSet {
-                WTF::move(builder.ruleSet),
-                CSSSelectorList::makeJoining(builder.invalidationSelectors),
-                builder.matchElement,
-                builder.isNegation
+                WTF::move(entry.value),
+                WTF::move(invalidationSelector),
+                key.matchElement,
+                key.isNegation,
+                hasArgumentProperties(*key.invalidationSelector),
+                WTF::move(scopeSelector)
             };
         }));
     }).iterator->value.get();
@@ -401,8 +445,7 @@ const HashSet<AtomString>& ScopeRuleSets::customPropertyNamesInStyleContainerQue
                 return;
             for (auto query : ruleSet->containerQueryRules()) {
                 traverseFeatures(query->containerQuery().condition, [&](auto& containerFeature) {
-                    if (isCustomPropertyName(containerFeature.name))
-                        propertyNames.add(containerFeature.name);
+                    CQ::collectCustomPropertyNames(containerFeature, propertyNames);
                 });
             }
         };
@@ -422,7 +465,7 @@ SelectorsForStyleAttribute ScopeRuleSets::selectorsForStyleAttribute() const
         if (!ruleSets)
             return SelectorsForStyleAttribute::None;
         for (auto& ruleSet : *ruleSets) {
-            if (ruleSet.matchElement != MatchElement::Subject)
+            if (ruleSet.matchElement.relation != MatchElement::Relation::Subject)
                 return SelectorsForStyleAttribute::NonSubjectPosition;
         }
         return SelectorsForStyleAttribute::SubjectPositionOnly;
@@ -436,7 +479,7 @@ SelectorsForStyleAttribute ScopeRuleSets::selectorsForStyleAttribute() const
 
 bool ScopeRuleSets::hasMatchingUserOrAuthorStyle(NOESCAPE const WTF::Function<bool(RuleSet&)>& predicate)
 {
-    if (m_authorStyle && predicate(*m_authorStyle))
+    if (m_authorStyle && predicate(protect(*m_authorStyle)))
         return true;
 
     if (RefPtr userStyle = this->userStyle(); userStyle && predicate(*userStyle))

@@ -148,7 +148,7 @@ static void _WebThreadRun(void (^block)(void), bool synchronous)
     ASSERT(runSource());
     ASSERT(runQueue);
 
-    WebThreadBlockState* state = 0;
+    WebThreadBlockState* state = nullptr;
     if (synchronous)
         state = new WebThreadBlockState;
 

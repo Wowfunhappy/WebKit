@@ -29,6 +29,7 @@
 import logging
 
 from webkitpy.layout_tests.models import test_expectations
+from webkitpy.port.base import Port
 
 _log = logging.getLogger(__name__)
 
@@ -260,7 +261,7 @@ class FailureReftestMismatch(TestFailure):
             writer.write_image_diff_files(diff_image, self.formatted_diff_percent(), self.formatted_fuzzy_data())
         else:
             _log.warn('ref test mismatch did not produce an image diff.')
-        writer.write_reftest(self.reference_filename)
+        writer.write_reftest(Port.test_name_and_variant(self.reference_filename)[0])
 
 
 class FailureReftestMismatchDidNotOccur(TestFailure):

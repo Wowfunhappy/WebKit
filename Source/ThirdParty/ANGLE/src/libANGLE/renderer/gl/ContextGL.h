@@ -287,8 +287,6 @@ class ContextGL : public ContextImpl
 
     void setMaxShaderCompilerThreads(GLuint count) override;
 
-    void invalidateTexture(gl::TextureType target) override;
-
     void validateState() const;
 
     void setNeedsFlushBeforeDeleteTextures();
@@ -296,7 +294,6 @@ class ContextGL : public ContextImpl
 
     void markWorkSubmitted();
 
-    MultiviewImplementationTypeGL getMultiviewImplementationType() const;
     bool hasNativeParallelCompile();
 
     const gl::Debug &getDebug() const { return mState.getDebug(); }

@@ -1683,7 +1683,7 @@ public:
 
     ALWAYS_INLINE void pop(uint32_t registerList)
     {
-        ASSERT(WTF::bitCount(registerList) > 1);
+        ASSERT(std::popcount(registerList) > 1);
         ASSERT(!((1 << ARMRegisters::pc) & registerList) || !((1 << ARMRegisters::lr) & registerList));
         ASSERT(!((1 << ARMRegisters::sp) & registerList));
         m_formatter.twoWordOp16Imm16(OP_POP_T2, registerList);
@@ -1703,7 +1703,7 @@ public:
 
     ALWAYS_INLINE void push(uint32_t registerList)
     {
-        ASSERT(WTF::bitCount(registerList) > 1);
+        ASSERT(std::popcount(registerList) > 1);
         ASSERT(!((1 << ARMRegisters::pc) & registerList));
         ASSERT(!((1 << ARMRegisters::sp) & registerList));
         m_formatter.twoWordOp16Imm16(OP_PUSH_T2, registerList);

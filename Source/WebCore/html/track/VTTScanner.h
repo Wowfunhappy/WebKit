@@ -148,8 +148,8 @@ public:
     // Note: Does not handle sign.
     unsigned scanDigits(unsigned& number);
 
-    // Scan a floating point value on one of the forms: \d+\.? \d+\.\d+ \.\d+
-    bool scanFloat(float& number, bool* isNegative = nullptr);
+    // Scan a double of the form: \d+\.\d+ or \d+
+    bool scanDouble(double& number, bool* isNegative = nullptr);
 
 protected:
     Run NODELETE createRun(Position start, Position end) const;

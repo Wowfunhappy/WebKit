@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/PropertyCondition.h>
-#include <wtf/HashMap.h>
 
 namespace JSC {
 

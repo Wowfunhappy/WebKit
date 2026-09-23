@@ -38,6 +38,22 @@ if (!$cgi->param('id') && $single) {
     exit;
 }
 
+#if WEBKIT_CHANGES
+# Reject invalid bug IDs/aliases early to prevent content spoofing.
+# Valid input is either a numeric bug ID or a bug alias
+# (max 40 chars, no spaces/commas). Anything else is rejected
+# without reflecting the input.
+if ($single) {
+    my $raw_id = $cgi->param('id');
+    if (defined $raw_id) {
+        my $trimmed = trim($raw_id);
+        if ($trimmed !~ /^[\w\.\-]{1,40}$/) {
+            ThrowUserError('improper_bug_id_field_value');
+        }
+    }
+}
+#endif // WEBKIT_CHANGES
+
 my (@bugs, @illegal_bugs);
 my %marks;
 
@@ -68,6 +84,13 @@ if ($single) {
 
         foreach my $bug_id (@ids) {
             next unless $bug_id;
+            #if WEBKIT_CHANGES
+            # Reject non-ID/alias values to prevent content spoofing.
+            if (trim($bug_id) !~ /^[\w\.\-]{1,40}$/) {
+                push(@illegal_bugs, { bug_id => '#', error => 'InvalidBugId' });
+                next;
+            }
+            #endif // WEBKIT_CHANGES
             my $bug = new Bugzilla::Bug({ id => $bug_id, cache => 1 });
             if (!$bug->{error}) {
                 push(@check_bugs, $bug);

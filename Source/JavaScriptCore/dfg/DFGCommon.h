@@ -152,8 +152,6 @@ enum PredictionPass {
 
 enum StructureRegistrationState { HaveNotStartedRegistering, AllStructuresAreRegistered };
 
-enum StructureRegistrationResult { StructureRegisteredNormally, StructureRegisteredAndWatched };
-
 enum OptimizationFixpointState { BeforeFixpoint, FixpointNotConverged, FixpointConverged };
 
 // Describes the form you can expect the entire graph to be in.
@@ -263,7 +261,7 @@ enum class PlanStage {
 // when you're forcing a crash with diagnostics.
 void startCrashing();
 
-JS_EXPORT_PRIVATE bool isCrashing();
+JS_EXPORT_PRIVATE bool NODELETE isCrashing();
 
 struct NodeAndIndex {
     NodeAndIndex()
@@ -318,7 +316,7 @@ namespace JSC { namespace DFG {
 
 // Put things here that must be defined even if ENABLE(DFG_JIT) is false.
 
-enum CapabilityLevel {
+enum CapabilityLevel : uint8_t {
     CannotCompile,
     CanCompile,
     CanCompileAndInline,

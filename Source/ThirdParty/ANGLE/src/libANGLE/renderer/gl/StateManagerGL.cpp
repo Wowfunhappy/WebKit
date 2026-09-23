@@ -166,7 +166,8 @@ StateManagerGL::StateManagerGL(const FunctionsGL *functions,
       mClearStencil(0),
       mFramebufferSRGBAvailable(extensions.sRGBWriteControlEXT),
       mFramebufferSRGBEnabled(false),
-      mHasSeparateFramebufferBindings(mFunctions->isAtLeastGL(gl::Version(3, 0)) ||
+      // Note: GL 3.2 is required for desktop GL
+      mHasSeparateFramebufferBindings(functions->standard == STANDARD_GL_DESKTOP ||
                                       mFunctions->isAtLeastGLES(gl::Version(3, 0))),
       mDitherEnabled(true),
       mTextureCubemapSeamlessEnabled(false),
@@ -472,6 +473,7 @@ void StateManagerGL::bindBuffer(gl::BufferBinding target, GLuint buffer)
     {
         mBuffers[target] = buffer;
         mFunctions->bindBuffer(gl::ToGLenum(target), buffer);
+        setBufferBindingDirty(target);
     }
 }
 
@@ -490,6 +492,7 @@ void StateManagerGL::bindBufferBase(gl::BufferBinding target, size_t index, GLui
         binding.size     = static_cast<size_t>(-1);
         mBuffers[target] = buffer;
         mFunctions->bindBufferBase(gl::ToGLenum(target), static_cast<GLuint>(index), buffer);
+        setBufferBindingDirty(target);
     }
 }
 
@@ -532,15 +535,6 @@ void StateManagerGL::bindTexture(gl::TextureType type, GLuint texture)
         mFunctions->bindTexture(nativegl::GetTextureBindingTarget(type), texture);
         mLocalDirtyBits.set(gl::state::DIRTY_BIT_TEXTURE_BINDINGS);
     }
-}
-
-void StateManagerGL::invalidateTexture(gl::TextureType type)
-{
-    // Assume the tracked texture binding is incorrect, query the real bound texture from GL.
-    GLint boundTexture = 0;
-    mFunctions->getIntegerv(nativegl::GetTextureBindingQuery(type), &boundTexture);
-    mTextures[type][mTextureUnitIndex] = static_cast<GLuint>(boundTexture);
-    mLocalDirtyBits.set(gl::state::DIRTY_BIT_TEXTURE_BINDINGS);
 }
 
 void StateManagerGL::bindSampler(size_t unit, GLuint sampler)
@@ -2320,14 +2314,8 @@ angle::Result StateManagerGL::syncState(const gl::Context *context,
                 updateDispatchIndirectBufferBinding(context);
                 break;
             case gl::state::DIRTY_BIT_PROGRAM_BINDING:
-            {
-                gl::Program *program = state.getProgram();
-                if (program != nullptr)
-                {
-                    useProgram(GetImplAs<ProgramGL>(program)->getProgramID());
-                }
+                syncProgramState(context);
                 break;
-            }
             case gl::state::DIRTY_BIT_PROGRAM_EXECUTABLE:
             {
                 const gl::ProgramExecutable *executable = state.getProgramExecutable();
@@ -2794,8 +2782,7 @@ void StateManagerGL::setLogicOp(gl::LogicalOperation opcode)
 
 void StateManagerGL::setTextureCubemapSeamlessEnabled(bool enabled)
 {
-    // TODO(jmadill): Also check for seamless extension.
-    if (!mFunctions->isAtLeastGL(gl::Version(3, 2)))
+    if (mFunctions->standard != STANDARD_GL_DESKTOP)
     {
         return;
     }
@@ -2904,6 +2891,18 @@ void StateManagerGL::syncTransformFeedbackState(const gl::Context *context)
         bindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
         mCurrentTransformFeedback = nullptr;
     }
+
+    syncProgramState(context);
+}
+
+void StateManagerGL::syncProgramState(const gl::Context *context)
+{
+    gl::Program *program = context->getState().getProgram();
+    if (program != nullptr)
+    {
+        ProgramGL *programGL = GetImplAs<ProgramGL>(program);
+        useProgram(programGL->getProgramID());
+    }
 }
 
 GLuint StateManagerGL::getDefaultVAO() const
@@ -2950,6 +2949,56 @@ void StateManagerGL::validateState() const
     // Vertex array object
     ValidateStateHelper(mFunctions, mVAO, GL_VERTEX_ARRAY_BINDING, "mVAO",
                         "GL_VERTEX_ARRAY_BINDING");
+}
+
+void StateManagerGL::setBufferBindingDirty(gl::BufferBinding binding)
+{
+    switch (binding)
+    {
+        case gl::BufferBinding::Array:
+            // Nothing to do. Array buffer bindings are set before vertex attrib calls.
+            break;
+        case gl::BufferBinding::AtomicCounter:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_ATOMIC_COUNTER_BUFFER_BINDING);
+            break;
+        case gl::BufferBinding::CopyRead:
+            // Nothing to do. CopyRead does not affect any operations.
+            break;
+        case gl::BufferBinding::CopyWrite:
+            // Nothing to do. CopyWrite does not affect any operations.
+            break;
+        case gl::BufferBinding::DispatchIndirect:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_DISPATCH_INDIRECT_BUFFER_BINDING);
+            break;
+        case gl::BufferBinding::DrawIndirect:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_DRAW_INDIRECT_BUFFER_BINDING);
+            break;
+        case gl::BufferBinding::ElementArray:
+            // Managed by the VAO
+            break;
+        case gl::BufferBinding::PixelPack:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_PACK_BUFFER_BINDING);
+            break;
+        case gl::BufferBinding::PixelUnpack:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_UNPACK_BUFFER_BINDING);
+            break;
+        case gl::BufferBinding::ShaderStorage:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_SHADER_STORAGE_BUFFER_BINDING);
+            break;
+        case gl::BufferBinding::Texture:
+            // Not implemented in the GL backend
+            UNREACHABLE();
+            break;
+        case gl::BufferBinding::TransformFeedback:
+            // Transform feedback buffer bindings are tracked in TransformFeedbackGL
+            UNREACHABLE();
+            break;
+        case gl::BufferBinding::Uniform:
+            mLocalDirtyBits.set(gl::state::DIRTY_BIT_UNIFORM_BUFFER_BINDINGS);
+            break;
+        default:
+            UNREACHABLE();
+    }
 }
 
 template <>

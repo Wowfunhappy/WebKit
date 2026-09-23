@@ -31,13 +31,17 @@
 #include "Options.h"
 #include "WasmIPIntGenerator.h"
 #include "WasmModuleInformation.h"
+#include "WasmVirtualAddress.h"
 #include <wtf/DataLog.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringBuilder.h>
 
 // Forward declaration to ensure proper linkage
 namespace JSC {
 namespace Wasm {
-void parseForDebugInfo(std::span<const uint8_t>, const TypeDefinition&, ModuleInformation&, FunctionCodeIndex, FunctionDebugInfo&);
+void parseForDebugInfo(std::span<const uint8_t>, const RTT&, ModuleInformation&, FunctionCodeIndex, FunctionDebugInfo&);
 }
 }
 
@@ -75,14 +79,48 @@ FunctionDebugInfo& ModuleDebugInfo::ensureFunctionDebugInfo(FunctionCodeIndex fu
     dataLogLnIf(Options::verboseWasmDebugger(), "[ModuleDebugInfo] Lazy collection for function ", functionIndex);
     const auto& function = moduleInfo->functions[functionIndex];
     FunctionSpaceIndex spaceIndex = moduleInfo->toSpaceIndex(functionIndex);
-    TypeIndex typeIndex = moduleInfo->typeIndexFromFunctionIndexSpace(spaceIndex);
+    Ref rtt = moduleInfo->rtt(spaceIndex);
     auto& info = functionIndexToData.add(functionIndex, FunctionDebugInfo()).iterator->value;
     auto functionData = source.subspan(function.start, function.data.size());
 
-    Ref typeDefinition = TypeInformation::get(typeIndex);
-    parseForDebugInfo(functionData, typeDefinition, moduleInfo, functionIndex, info);
+    parseForDebugInfo(functionData, rtt.get(), moduleInfo, functionIndex, info);
     dataLogLnIf(Options::verboseWasmDebugger(), "[ModuleDebugInfo] Debug info collection completed for function ", functionIndex, " with ", info.offsetToNextInstructions.size(), " instruction mappings and ", info.locals.size(), " locals");
     return info;
+}
+
+String ModuleDebugInfo::debugName() const
+{
+    if (m_cachedDebugName)
+        return *m_cachedDebugName;
+
+    StringBuilder result;
+
+    if (!sourceURL.isEmpty()) {
+        // LLDB normalizes "//" -> "/" in library names (FileSpec treats them as paths),
+        // so we strip the URL scheme and store only "host/path" to avoid mangling.
+        URL url { sourceURL };
+        if (url.isValid() && !url.host().isEmpty())
+            result.append(makeString(url.host(), url.path()));
+        else
+            result.append(sourceURL);
+    }
+
+    const auto& rawName = moduleInfo->nameSection().moduleName;
+    if (!rawName.isEmpty()) {
+        if (!result.isEmpty())
+            result.append(':');
+        result.append(rawName.span());
+    }
+
+    if (!result.isEmpty())
+        m_cachedDebugName = result.toString();
+    else {
+        // Fallback for modules with neither a name section nor a source URL.
+        m_cachedDebugName = makeString("0x"_s, VirtualAddress::createModule(id).hex(), ".wasm"_s);
+    }
+
+    dataLogLnIf(Options::verboseWasmDebugger(), "[ModuleDebugInfo][debugName] ", *m_cachedDebugName);
+    return *m_cachedDebugName;
 }
 
 } // namespace Wasm

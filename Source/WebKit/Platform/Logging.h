@@ -180,6 +180,7 @@ extern "C" {
     M(ViewportSizing) \
     M(VirtualMemory) \
     M(VisibleRects) \
+    M(Vulkan) \
     M(WebAuthn) \
     M(WebGL) \
     M(WebRTC) \

@@ -21,6 +21,15 @@ http/tests/performance/performance-resource-timing-redirection-cross-origin-medi
 webkit.org/b/190991 http/tests/navigation/page-cache-mediakeysession.html [ Skip ]
 http/tests/media/clearkey/clear-key-hls-aes128.html [ Skip ]
 
+# These fixtures select FairPlay for Safari; its AVContentKeySession backend requires a newer OS.
+imported/w3c/web-platform-tests/encrypted-media/drm-not-callable-after-createsession.https.html [ Skip ]
+imported/w3c/web-platform-tests/encrypted-media/drm-mp4-syntax-mediakeysystemaccess.https.html [ Skip ]
+imported/w3c/web-platform-tests/encrypted-media/drm-mp4-setmediakeys.https.html [ Skip ]
+imported/w3c/web-platform-tests/encrypted-media/drm-mp4-setmediakeys-to-multiple-video-elements.https.html [ Skip ]
+imported/w3c/web-platform-tests/encrypted-media/drm-mp4-setmediakeys-multiple-times-with-the-same-mediakeys.https.html [ Skip ]
+imported/w3c/web-platform-tests/encrypted-media/drm-mp4-setmediakeys-multiple-times-with-different-mediakeys.https.html [ Skip ]
+imported/w3c/web-platform-tests/encrypted-media/drm-mp4-setmediakeys-at-same-time.https.html [ Skip ]
+
 # platform/glib:1801 records this failure on the GStreamer ports' byte-upstream ClearKey path: ISOBox::peekBox
 # clamps the fixture's oversized pssh box to the bytes present, so sanitizing succeeds and the CDM rejects the
 # key-less init data with NotSupportedError where the test expects TypeError.
@@ -34,6 +43,16 @@ webkit.org/b/277327 media/media-vp8-webm-with-preload.html [ Skip ]
 webkit.org/b/127743 media/video-restricted-no-preload-auto.html [ Skip ]
 webkit.org/b/282791 media/media-source/media-source-vp8-hiddenframes.html [ Skip ]
 webkit.org/b/297178 media/media-source/media-source-paint-stereo-to-canvas.html [ Skip ]
+
+# Upstream GStreamer records these seek, pitch and fragmented-media failures.
+webkit.org/b/315030 media/media-source/media-source-webm-seek-singlekeyframe.html [ Skip ]
+webkit.org/b/311000 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/preserves-pitch.html [ Skip ]
+webkit.org/b/278914 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/offsets-into-the-media-resource/currentTime-move-within-document.html [ Skip ]
+webkit.org/b/311050 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/playing-the-media-resource/fragmented-mp4-end.html [ Skip ]
+webkit.org/b/256782 imported/w3c/web-platform-tests/mediacapture-streams/MediaStream-MediaElement-preload-none.https.html [ Skip ]
+
+# This mixed action-handler test requires native voice activity detection, which 10.9 lacks.
+imported/w3c/web-platform-tests/mediasession/setactionhandler.html [ Skip ]
 
 # LayoutTests/TestExpectations:5949 skips this for every port but the AVFoundation one; the GStreamer registry has no
 # vp08 codec string.
@@ -52,8 +71,10 @@ media/modern-media-controls/start-support/start-support-aggressiveThermalMitigat
 media/modern-media-controls/start-support/start-support-lowPowerMode.html [ Skip ]
 media/modern-media-controls/airplay-support/airplay-support.html [ Skip ]
 media/modern-media-controls/placard-support/placard-support-airplay.html [ Skip ]
+media/modern-media-controls/placard-support/placard-support-airplay-fullscreen.html [ Skip ]
 media/modern-media-controls/placard-support/placard-support-airplay-fullscreen-no-controls.html [ Skip ]
 media/modern-media-controls/pip-support/pip-support-click.html [ Skip ]
+media/media-visible-in-viewport-in-fullscreen.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: tests that fail only under WebKitTestRunner and pass in Safari.
 http/wpt/mediarecorder/MediaRecorder-webm-AV-audio-video-dataavailable.html [ Skip ]
@@ -64,6 +85,13 @@ media/modern-media-controls/volume-support/volume-support-drag.html [ Skip ]
 # Maintainer scope decision, issue #68 (classic Aqua media controls): RenderThemeCocoa::mediaControlsScripts and
 # mediaControlsStyleSheets serve mediaControlsApple.js under the 10.9 deployment target, so native controls build the
 # classic shadow tree. These tests assert the modern controls' DOM, classes, CSS or sizing on native controls.
+media/modern-media-controls/css/transformed-media-controls-update.html [ Skip ]
+media/modern-media-controls/icon-service/icon-service-bundle-load.html [ Skip ]
+media/modern-media-controls/media-controller/media-controller-auto-hide.html [ Skip ]
+media/modern-media-controls/media-controller/media-controller-auto-hide-mouse-enter-and-mouse-leave.html [ Skip ]
+media/modern-media-controls/media-controller/media-controller-auto-hide-pause.html [ Skip ]
+media/modern-media-controls/media-controller/media-controller-click-on-video-background-should-pause-fullscreen.html [ Skip ]
+media/modern-media-controls/media-controller/media-controller-fullscreen-ltr.html [ Skip ]
 media/modern-media-controls/audio/audio-controls-metrics-content-box.html [ Skip ]
 media/modern-media-controls/audio/audio-controls-metrics.html [ Skip ]
 media/modern-media-controls/css/cursor.html [ Skip ]
@@ -83,6 +111,8 @@ media/modern-media-controls/media-documents/media-document-video-mac-sizing.html
 media/modern-media-controls/media-documents/media-document-video-with-initial-audio-layout.html [ Skip ]
 media/modern-media-controls/overflow-support/button-state.html [ Skip ]
 media/modern-media-controls/overflow-support/dropped-when-narrow.html [ Skip ]
+media/modern-media-controls/overflow-support/playback-speed.html [ Skip ]
+media/modern-media-controls/seek-backward-support/seek-backward-support.html [ Skip ]
 media/modern-media-controls/placard/placard-ltr.html [ Skip ]
 media/modern-media-controls/scrubber/scrubber-has-correct-ax-label.html [ Skip ]
 media/modern-media-controls/seek-forward-support/seek-forward-support.html [ Skip ]
@@ -97,6 +127,7 @@ media/modern-media-controls/tracks-support/no-tracks.html [ Skip ]
 media/modern-media-controls/tracks-support/off-text-track.html [ Skip ]
 media/modern-media-controls/tracks-support/show-contextmenu-then-double-click-on-tracks-button.html [ Skip ]
 media/modern-media-controls/tracks-support/sorted-by-user-preferred-languages.html [ Skip ]
+media/modern-media-controls/tracks-support/sorted-by-user-preferred-languages-caption-display-settings.html [ Skip ]
 media/modern-media-controls/tracks-support/text-track-selected-via-media-api.html [ Skip ]
 media/webkit-media-controls-not-visible-after-exiting-fullscreen.html [ Skip ]
 http/tests/media/modern-media-controls/overflow-support/playback-speed-live-broadcast.html [ Skip ]
@@ -130,7 +161,7 @@ webkit.org/b/147075 http/tests/cache/disk-cache/disk-cache-disable.html [ Skip ]
 # Provenance: platform/mac, platform/mac-wk1, and platform/mac-wk2/TestExpectations.
 webkit.org/b/207723 http/tests/contentextensions/hide-on-ping-with-ping-that-redirects.html [ Skip ]
 webkit.org/b/229058 imported/w3c/web-platform-tests/FileAPI/url/url-in-tags.window.html [ Skip ]
-webkit.org/b/229252 imported/w3c/web-platform-tests/IndexedDB/idbcursor-advance-continue-async.htm [ Skip ]
+webkit.org/b/229252 imported/w3c/web-platform-tests/IndexedDB/idbcursor-advance-continue-async.any.html [ Skip ]
 webkit.org/b/229519 media/media-session/actionHandlerInternalMappings.html [ Skip ]
 webkit.org/b/229247 http/tests/fetch/keepalive-fetch-2.html [ Skip ]
 webkit.org/b/215773 http/tests/websocket/tests/hybi/client-close-2.html [ Skip ]
@@ -272,13 +303,6 @@ webkit.org/b/189345 http/tests/media/clearkey/collect-webkit-media-session.html 
 # ClearKey on the GStreamer CDM is flaky upstream: platform/glib/TestExpectations:3440 records [ Crash Failure Pass ].
 imported/w3c/web-platform-tests/encrypted-media/clearkey-mp4-requestmediakeysystemaccess.https.html [ Skip ]
 
-# document.featurePolicy is the obsolete Feature Policy API. The generic TestExpectations skips that
-# whole surface, this file's sibling encrypted-media-default-feature-policy among it.
-# document.featurePolicy is not implemented in WebKit -- no .idl anywhere in Source/WebCore declares
-# it -- so this test reports "undefined is not an object (evaluating 'document.featurePolicy.features')"
-# on every port, and upstream ships no -expected.txt for it at all.
-imported/w3c/web-platform-tests/encrypted-media/encrypted-media-supported-by-feature-policy.tentative.html [ Skip ]
-
 # These four ask through canPlayType and MediaCapabilities, which reach the engine's own supportsType:
 # MediaPlayer.cpp:612 packs the captive-portal allowlists into MediaEngineSupportParameters and leaves
 # enforcement to each engine, the AVFoundation ones enforce it
@@ -387,6 +411,12 @@ crypto/subtle/rsa-pss-import-key-sign-large-salt.html [ Skip ]
 crypto/subtle/ecdsa-import-compressed-spki-key-p384.html [ Skip ]
 webkit.org/b/307727 webaudio/decode-audio-data-aac.html [ Skip ]
 webkit.org/b/307727 webaudio/decode-audio-data-mp3-8000.html [ Skip ]
+webkit.org/b/316179 webaudio/decode-audio-data-ogg-vorbis.html [ Skip ]
+
+# Upstream GLib records the same GStreamer buffering and media-source provider failures.
+webkit.org/b/309202 webaudio/audiomix-bufferingpolicy.html [ Skip ]
+webkit.org/b/311000 webaudio/MediaElementAudioSource/mediaelementaudiosourcenode-playbackrate.html [ Skip ]
+webkit.org/b/311691 webaudio/MediaElementAudioSource/mediaelementaudiosourcenode-volume.html [ Skip ]
 
 # The cleanup step waits on www2.www.web-platform.test, a second-level subdomain this port's test
 # configuration does not serve, before the tested cookie is ever set. Upstream mac skips it too.
@@ -440,6 +470,9 @@ fast/images/exif-orientation-svg-feimage.html [ Skip ]
 fast/text/otsvg-canvas.html [ Skip ]
 fast/text/otsvg-spacing.html [ Skip ]
 fast/text/otsvg-spacing-canvas.html [ Skip ]
+
+# Maintainer scope decision 2026-09-15: native cap-height metrics of the Ahem test font.
+fast/text/non-integral-initial-letter-simple.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: Medium faces report CSS weight 510.
 fast/text/font-weights.html [ Skip ]
@@ -563,10 +596,6 @@ webkit.org/b/258185 http/tests/media/hls/track-in-band-ext-x-date-range-start-ti
 # Native GL gradient quantization: shader blue 0.5 becomes 128, while the reference
 # uploads 127; interpolated red/green also differ by at most one channel level.
 fast/canvas/webgl/canvas-getImageData.html [ Skip ]
-
-# Upstream GLib records this video/ImageBitmap color-path failure; Cocoa iOS also
-# expects failure. Canvas and image sources pass here; the video channel values differ.
-webkit.org/b/232346 imported/w3c/web-platform-tests/html/canvas/element/manual/imagebitmap/createImageBitmap-flipY.html [ Skip ]
 
 # Upstream GLib Release records this MSE abort/event-ordering test as flaky.
 webkit.org/b/308601 imported/w3c/web-platform-tests/media-source/SourceBuffer-abort-updating.html [ Skip ]
@@ -711,3 +740,52 @@ http/wpt/mediarecorder/MediaRecorder-matroska-AV-audio-video-dataavailable.html 
 # source-over, so composited content with these modes renders as mix-blend-mode: normal.
 compositing/blend-mode/non-separable-blend-modes.html [ Skip ]
 compositing/filters/blend-mode-saturation.html [ Skip ]
+
+# The upstream GLib expectations record these failures in the shared GStreamer MSE backend.
+webkit.org/b/270622 media/media-source/media-managedmse-noresumeafterpause.html [ Skip ]
+webkit.org/b/314179 media/media-source/media-managedmse-waiting-at-gap.html [ Skip ]
+webkit.org/b/314776 media/media-source/media-source-append-bframe-orphan-post-reset.html [ Skip ]
+webkit.org/b/314089 media/media-source/media-source-append-media-before-init.html [ Skip ]
+webkit.org/b/314776 media/media-source/media-source-append-pt-collision-tail.html [ Skip ]
+webkit.org/b/314643 media/media-source/media-source-duration-truncation-ended.html [ Skip ]
+webkit.org/b/313511 media/media-source/media-source-real-fastseek.html [ Skip ]
+webkit.org/b/314373 media/media-source/media-source-real-webm-fastseek.html [ Skip ]
+webkit.org/b/314373 media/media-source/media-source-real-webm-remove.html [ Skip ]
+webkit.org/b/312871 media/media-source/media-source-seek-to-zero-then-play.html [ Skip ]
+
+# The shared curl handshake parser accepts HTTP/1.0 upgrades, as recorded by the Win baseline.
+webkit.org/b/316313 http/tests/websocket/tests/hybi/handshake-ok-with-http-version-beyond-1_1.html [ Skip ]
+
+# ImageBitmap.cpp documents colorSpaceConversion none as unimplemented.
+imported/w3c/web-platform-tests/html/canvas/element/manual/imagebitmap/createImageBitmap-colorSpaceConversion.html [ Skip ]
+
+# The upstream expected file records assert_false receiving the timeout arm's undefined value.
+imported/w3c/web-platform-tests/webrtc/RTCDataChannel-worker-GC.html [ Skip ]
+
+# Upstream Cocoa records absent Available-Dictionary negotiation in this fixture.
+imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-compressed.tentative.https.html [ Skip ]
+
+# The generic expected files record these remaining generic-family parsing failures.
+imported/w3c/web-platform-tests/css/css-fonts/generic-family-keywords-002.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-fonts/generic-family-keywords-003.html [ Skip ]
+
+# Mongolian shaping is excluded from the Mavericks merge validation scope.
+imported/w3c/web-platform-tests/css/css-fonts/mvs-shaping.html [ Skip ]
+
+# Mavericks lacks the complete native AVVideoPerformanceMetrics API.
+fast/mediastream/getUserMedia-and-getVideoPlaybackQuality.html [ Skip ]
+
+# As in Safari 7, a forward-filling animation keeps its composited layer, so 10.9 draws its text with
+# that layer's font smoothing.
+webkit.org/b/145389 compositing/animation/layer-for-filling-animation.html [ Skip ]
+
+# WebRTCAV1CodecEnabled is off here: the Cocoa codec factories decode AV1 only through LibWebRTCCodecs'
+# GPU-process callbacks, and this port runs the WebRTC platform codecs in the web process.
+webrtc/video-av1.html [ Skip ]
+
+# GStreamer playback estimates the duration of a recorded WebM, which has no Duration element, as the
+# GLib ports record for this test.
+webkit.org/b/305514 http/wpt/mediarecorder/MediaRecorder-audio-samplingrate-change.html [ Skip ]
+
+# A 32767x32767 VP9 encoder zero-fills about 51 GB synchronously while configuring.
+http/wpt/webcodecs/configure-encoder-big-frame-size.html [ Skip ]

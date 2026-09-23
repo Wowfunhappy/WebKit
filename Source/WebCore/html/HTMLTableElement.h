@@ -45,10 +45,10 @@ public:
     WEBCORE_EXPORT RefPtr<HTMLTableCaptionElement> NODELETE caption() const;
     WEBCORE_EXPORT ExceptionOr<void> setCaption(RefPtr<HTMLTableCaptionElement>&&);
 
-    WEBCORE_EXPORT RefPtr<HTMLTableSectionElement> tHead() const;
+    WEBCORE_EXPORT RefPtr<HTMLTableSectionElement> NODELETE tHead() const;
     WEBCORE_EXPORT ExceptionOr<void> setTHead(RefPtr<HTMLTableSectionElement>&&);
 
-    WEBCORE_EXPORT RefPtr<HTMLTableSectionElement> tFoot() const;
+    WEBCORE_EXPORT RefPtr<HTMLTableSectionElement> NODELETE tFoot() const;
     WEBCORE_EXPORT ExceptionOr<void> setTFoot(RefPtr<HTMLTableSectionElement>&&);
 
     WEBCORE_EXPORT Ref<HTMLTableSectionElement> createTHead();
@@ -81,7 +81,7 @@ private:
     // Used to obtain either a solid or outset border decl and to deal with the frame and rules attributes.
     const MutableStyleProperties* additionalPresentationalHintStyle() const final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     enum class TableRules : uint8_t { Unset, None, Groups, Rows, Cols, All };
     enum class CellBorders : uint8_t { None, Solid, Inset, SolidColsOnly, SolidRowsOnly };
@@ -90,7 +90,7 @@ private:
 
     Ref<MutableStyleProperties> createSharedCellStyle() const;
 
-    HTMLTableSectionElement* lastBody() const;
+    HTMLTableSectionElement* NODELETE lastBody() const;
 
     bool m_borderAttr { false }; // Sets a precise border width and creates an outset border for the table and for its cells.
     bool m_frameAttr { false }; // Implies a thin border width if no border is set and then a certain set of solid/hidden borders based off the value.

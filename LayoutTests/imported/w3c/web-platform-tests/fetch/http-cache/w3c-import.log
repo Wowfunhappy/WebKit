@@ -16,6 +16,7 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/304-update.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/README.md
+/LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/basic-auth-cache-test-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/basic-auth-cache-test-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/basic-auth-cache-test.html
@@ -26,8 +27,10 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/heuristic.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/http-cache.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/invalidate.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/no-vary-search.tentative.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/partial.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/post-patch.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/pragma-no-cache-with-cache-control.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/split-cache.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/status.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/http-cache/vary.any.js

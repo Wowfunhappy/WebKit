@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleScopeOrdinal.h>
 #include <WebCore/StyleValueTypes.h>
 
@@ -51,8 +52,8 @@ struct ViewTransitionName {
     {
     }
 
-    ViewTransitionName(CustomIdentifier&& customIdentifier, ScopeOrdinal ordinal)
-        : m_value { WTF::move(customIdentifier) }
+    ViewTransitionName(CustomIdent&& customIdent, ScopeOrdinal ordinal)
+        : m_value { WTF::move(customIdent) }
         , m_scopeOrdinal { ordinal }
     {
     }
@@ -60,7 +61,7 @@ struct ViewTransitionName {
     bool isNone() const { return WTF::holdsAlternative<CSS::Keyword::None>(m_value); }
     bool isAuto() const { return WTF::holdsAlternative<CSS::Keyword::Auto>(m_value); }
     bool isMatchElement() const { return WTF::holdsAlternative<CSS::Keyword::MatchElement>(m_value); }
-    bool isCustomIdentifier() const { return WTF::holdsAlternative<CustomIdentifier>(m_value); }
+    bool isCustomIdent() const { return WTF::holdsAlternative<CustomIdent>(m_value); }
 
     ScopeOrdinal scopeOrdinal() const { ASSERT(!isNone()); return m_scopeOrdinal; }
 
@@ -72,7 +73,7 @@ struct ViewTransitionName {
     bool operator==(const ViewTransitionName&) const = default;
 
 private:
-    Variant<CSS::Keyword::None, CSS::Keyword::Auto, CSS::Keyword::MatchElement, CustomIdentifier> m_value;
+    Variant<CSS::Keyword::None, CSS::Keyword::Auto, CSS::Keyword::MatchElement, CustomIdent> m_value;
     ScopeOrdinal m_scopeOrdinal { ScopeOrdinal::Element };
 };
 

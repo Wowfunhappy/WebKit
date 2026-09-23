@@ -35,7 +35,7 @@
 #import <wtf/Function.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/SwiftCXXThunk.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/TaggedPtr.h>
@@ -141,9 +141,9 @@ public:
     id<MTLCommandBuffer> _Nullable NODELETE commandBuffer() const;
     void setExistingEncoder(id<MTLCommandEncoder>);
     void generateInvalidEncoderStateError();
-    bool validateClearBuffer(const Buffer&, uint64_t offset, uint64_t size);
+    bool NODELETE validateClearBuffer(const Buffer&, uint64_t offset, uint64_t size);
     void clearTracking();
-    void trackEncoderForBuffer(const Buffer&, TrackedResourceContainer&);
+    bool trackEncoderForBuffer(const Buffer&, TrackedResourceContainer&);
     void trackEncoderForTexture(const Texture&, TrackedResourceContainer&);
     void trackEncoderForTextureView(const TextureView&, TrackedResourceContainer&);
     void trackEncoderForExternalTexture(const ExternalTexture&, TrackedResourceContainer&);
@@ -173,7 +173,6 @@ private:
     NSString * _Nullable errorValidatingCopyBufferToTexture(const WGPUImageCopyBuffer&, const WGPUImageCopyTexture&, const WGPUExtent3D&) const;
     NSString * _Nullable errorValidatingCopyTextureToBuffer(const WGPUImageCopyTexture&, const WGPUImageCopyBuffer&, const WGPUExtent3D&) const;
     NSString * _Nullable errorValidatingCopyTextureToTexture(const WGPUImageCopyTexture& source, const WGPUImageCopyTexture& destination, const WGPUExtent3D& copySize) const;
-    void trackEncoder(TrackedResourceContainer&);
 
     void discardCommandBuffer();
     void retainTimestampsForOneUpdateLoop();
@@ -218,12 +217,12 @@ private:
 
 inline void refCommandEncoder(WebGPU::CommandEncoder* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefCommandEncoder(WebGPU::CommandEncoder* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 IGNORE_CLANG_WARNINGS_END

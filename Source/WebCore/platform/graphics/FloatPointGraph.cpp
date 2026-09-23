@@ -56,7 +56,7 @@ void FloatPointGraph::reset()
         node->reset();
 }
 
-static bool findLineSegmentIntersection(const FloatPointGraph::Edge& edgeA, const FloatPointGraph::Edge& edgeB, FloatPoint& intersectionPoint)
+static bool NODELETE findLineSegmentIntersection(const FloatPointGraph::Edge& edgeA, const FloatPointGraph::Edge& edgeB, FloatPoint& intersectionPoint)
 {
     if (!findIntersection(*edgeA.first, *edgeA.second, *edgeB.first, *edgeB.second, intersectionPoint))
         return false;

@@ -14,5 +14,6 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/SharedWorkerGlobalScope/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/SharedWorkerGlobalScope/onconnect.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/SharedWorkerGlobalScope/onconnect.js

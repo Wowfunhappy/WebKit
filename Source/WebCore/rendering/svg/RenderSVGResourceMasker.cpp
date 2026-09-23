@@ -43,7 +43,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGResourceMasker);
 
-RenderSVGResourceMasker::RenderSVGResourceMasker(SVGMaskElement& element, RenderStyle&& style)
+RenderSVGResourceMasker::RenderSVGResourceMasker(SVGMaskElement& element, Style::ComputedStyle&& style)
     : RenderSVGResourceContainer(Type::SVGResourceMasker, element, WTF::move(style))
 {
 }
@@ -189,7 +189,7 @@ bool RenderSVGResourceMasker::drawContentIntoContext(GraphicsContext& context, c
     }
 
     // Draw the content into the ImageBuffer.
-    protect(layer())->paintSVGResourceLayer(context, maskContentTransformation);
+    protect(layer())->paintResourceLayerForSVG(context, maskContentTransformation);
     return true;
 }
 

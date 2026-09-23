@@ -42,7 +42,8 @@ promise_test((test) => {
     });
 }, "Setting video exchange with VP8");
 
-promise_test(async () => {
+promise_test(async (test) => {
+    test.add_cleanup(() => track.stop());
     video2.srcObject = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             firstConnection.addTrack(video1.srcObject.getVideoTracks()[0], video1.srcObject);

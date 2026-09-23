@@ -56,7 +56,7 @@ ALWAYS_INLINE void AsyncNodeDeletionQueue::deleteNodesNow()
 
 ALWAYS_INLINE ContainerNode::CanDelayNodeDeletion AsyncNodeDeletionQueue::canNodeBeDeletedAsync(const Node& node)
 {
-    if (!dynamicDowncast<HTMLElement>(node))
+    if (!is<HTMLElement>(node))
         return ContainerNode::CanDelayNodeDeletion::Yes;
     if (isNodeLikelyLarge(node))
         return ContainerNode::CanDelayNodeDeletion::No;

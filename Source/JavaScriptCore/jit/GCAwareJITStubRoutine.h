@@ -29,6 +29,7 @@
 #include <JavaScriptCore/JITStubRoutine.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/WriteBarrier.h>
+#include <wtf/Bag.h>
 #include <wtf/FixedVector.h>
 #include <wtf/Hasher.h>
 #include <wtf/Vector.h>
@@ -58,6 +59,7 @@ class GCAwareJITStubRoutine : public JITStubRoutine {
 public:
     using Base = JITStubRoutine;
     friend class JITStubRoutine;
+    friend class JSDollarVMHelper;
     GCAwareJITStubRoutine(Type, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, JSCell* owner, bool isCodeImmutable);
 
     static Ref<JITStubRoutine> create(VM& vm, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code, JSCell* owner, bool isCodeImmutable)
@@ -112,10 +114,10 @@ public:
         return m_hash;
     }
 
-    static unsigned computeHash(std::span<const Ref<AccessCase>>);
+    static unsigned NODELETE computeHash(std::span<const Ref<AccessCase>>);
 
     void addGCAwareWatchpoint();
-    void addedToSharedJITStubSet();
+    void NODELETE addedToSharedJITStubSet();
 
     Watchpoints& watchpoints() LIFETIME_BOUND { return m_watchpoints; }
     WatchpointSet& watchpointSet() { return *m_watchpointSet.get(); }
@@ -172,7 +174,7 @@ public:
     MarkingGCAwareJITStubRoutine(Type, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, FixedVector<Ref<AccessCase>>&&, FixedVector<StructureID>&&, JSCell* owner, const Vector<JSCell*>&, Vector<std::unique_ptr<OptimizingCallLinkInfo>, 16>&&, bool isCodeImmutable);
 
     bool visitWeakImpl(VM&);
-    CallLinkInfo* callLinkInfoAtImpl(const ConcurrentJSLocker&, unsigned);
+    CallLinkInfo* NODELETE callLinkInfoAtImpl(const ConcurrentJSLocker&, unsigned);
 
 protected:
     template<typename Visitor> void markRequiredObjectsInternalImpl(Visitor&);

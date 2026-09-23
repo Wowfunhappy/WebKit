@@ -38,6 +38,7 @@ namespace IPC {
 class Encoder;
 template<> struct ArgumentCoder<WebCore::RealtimeMediaSourceCenter::ValidDevices> {
     static void encode(Encoder&, const WebCore::RealtimeMediaSourceCenter::ValidDevices&);
+    static std::optional<WebCore::RealtimeMediaSourceCenter::ValidDevices> decode(Decoder&);
 };
 }
 

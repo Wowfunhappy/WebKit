@@ -33,7 +33,7 @@ namespace CSSPropertyParserHelpers {
 
 bool consumeCommaIncludingWhitespace(CSSParserTokenRange& range)
 {
-    CSSParserToken value = range.peek();
+    auto& value = range.peek();
     if (value.type() != CommaToken)
         return false;
     range.consumeIncludingWhitespace();
@@ -42,7 +42,7 @@ bool consumeCommaIncludingWhitespace(CSSParserTokenRange& range)
 
 bool consumeSlashIncludingWhitespace(CSSParserTokenRange& range)
 {
-    CSSParserToken value = range.peek();
+    auto& value = range.peek();
     if (value.type() != DelimiterToken || value.delimiter() != '/')
         return false;
     range.consumeIncludingWhitespace();

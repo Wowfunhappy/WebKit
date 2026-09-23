@@ -73,7 +73,7 @@ ActiveDOMObject::ActiveDOMObject(Document& document)
 
 ActiveDOMObject::~ActiveDOMObject()
 {
-    ASSERT(canCurrentThreadAccessThreadLocalData(m_creationThread));
+    ASSERT(canCurrentThreadIDAccessThreadLocalData(m_creationThreadID));
 
     // ActiveDOMObject may be inherited by a sub-class whose life-cycle
     // exceeds that of the associated ScriptExecutionContext. In those cases,

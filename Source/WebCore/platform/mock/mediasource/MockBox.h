@@ -140,6 +140,7 @@ public:
         m_presentationTimestamp = presentationTimestamp;
         m_decodeTimestamp = decodeTimestamp;
     }
+    void setDuration(const MediaTime& duration) { m_duration = duration; }
 
     void clearFlag(uint8_t flag) { m_flags &= ~flag; }
     void setFlag(uint8_t flag) { m_flags |= flag; }

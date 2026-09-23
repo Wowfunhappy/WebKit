@@ -35,6 +35,7 @@
 #import "WebProcessPool.h"
 #import "WebProcessProxy.h"
 #import "XPCEndpoint.h"
+#import <wtf/Borrow.h>
 #import <wtf/EnumTraits.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/darwin/XPCExtras.h>
@@ -74,7 +75,7 @@ bool NetworkProcessProxy::XPCEventHandler::handleXPCEvent(xpc_object_t event)
     if (messageName == LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseXPCEndpointMessageName) {
         networkProcess->m_endpointMessage = event;
         for (auto& processPool : WebProcessPool::allProcessPools()) {
-            for (Ref process : processPool->processes())
+            for (Ref process : borrow(processPool->processes()).get())
                 networkProcess->sendXPCEndpointToProcess(process);
         }
 #if ENABLE(GPU_PROCESS)

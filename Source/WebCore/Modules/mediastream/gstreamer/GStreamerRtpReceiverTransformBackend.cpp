@@ -38,9 +38,7 @@ GStreamerRtpReceiverTransformBackend::GStreamerRtpReceiverTransformBackend(const
 {
 }
 
-GStreamerRtpReceiverTransformBackend::~GStreamerRtpReceiverTransformBackend()
-{
-}
+GStreamerRtpReceiverTransformBackend::~GStreamerRtpReceiverTransformBackend() = default;
 
 void GStreamerRtpReceiverTransformBackend::setTransformableFrameCallback(Callback&& callback)
 {

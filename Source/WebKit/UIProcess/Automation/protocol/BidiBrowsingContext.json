@@ -65,6 +65,16 @@
             "spec": "https://w3c.github.io/webdriver-bidi/#type-browsingContext-UserPromptType",
             "type": "string",
             "enum": [ "alert", "beforeunload", "confirm", "prompt" ]
+        },
+        {
+            "id": "Viewport",
+            "description": "Represents viewport dimensions.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-browsingContext-setViewport",
+            "type": "object",
+            "properties": [
+                { "name": "width", "type": "integer" },
+                { "name": "height", "type": "integer" }
+            ]
         }
     ],
     "commands": [
@@ -140,7 +150,7 @@
             "parameters": [
                 { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "description": "The identifier of the browsing context to navigate." },
                 { "name": "url", "type": "string", "description": "The URL to navigate to." },
-                { "name": "wait", "$ref": "BidiBrowsingContext.ReadinessState", "optional": true, "description": "The readiness state at which the command will return (default is 'none')." }
+                { "name": "wait", "type": "string", "optional": true, "description": "The readiness state at which the command will return (default is 'none'). Should be a BidiBrowsingContext.ReadinessState value." }
             ],
             "returns": [
                 { "name": "url", "type": "string", "description": "The URL the browsing context navigated to." },
@@ -171,6 +181,19 @@
             "parameters": [
                 { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "description": "The identifier of the browsing context to traverse history." },
                 { "name": "delta", "type": "integer", "description": "The number of steps to traverse in history. Positive values go forward, negative values go backward, and a value of zero will succeed with no action." }
+            ],
+            "async": true
+        },
+        {
+            "name": "setViewport",
+            "description": "Sets the viewport dimensions and/or device pixel ratio for a browsing context.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-browsingContext-setViewport",
+            "wpt": "https://github.com/web-platform-tests/wpt/tree/master/webdriver/tests/bidi/browsing_context/set_viewport",
+            "parameters": [
+                { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "optional": true, "description": "The identifier of the browsing context to set viewport for." },
+                { "name": "viewport", "$ref": "BidiBrowsingContext.Viewport", "optional": true, "nullable": true, "description": "The viewport dimensions to set. If null, resets to default." },
+                { "name": "devicePixelRatio", "type": "number", "optional": true, "nullable": true, "description": "The device pixel ratio to set. If null, resets to default." },
+                { "name": "userContexts", "type": "array", "items": { "$ref": "BidiBrowser.UserContext" }, "optional": true, "description": "User context IDs to apply the viewport to." }
             ],
             "async": true
         }

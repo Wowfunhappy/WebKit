@@ -112,6 +112,9 @@ void AudioMediaStreamTrackRendererCocoa::reset()
 
 void AudioMediaStreamTrackRendererCocoa::setAudioOutputDevice(const String& deviceID)
 {
+    if (m_deviceID == deviceID)
+        return;
+
     auto registeredDataSource = m_registeredDataSource;
 
     setRegisteredDataSource(nullptr);

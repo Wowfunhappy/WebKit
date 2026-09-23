@@ -37,7 +37,7 @@
 
 namespace WTF {
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationProfile>(std::underlying_type_t<WebCore::AV1ConfigurationProfile> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationProfile>(std::underlying_type_t<WebCore::AV1ConfigurationProfile> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationProfile::Main):
@@ -49,7 +49,7 @@ template<> bool isValidEnum<WebCore::AV1ConfigurationProfile>(std::underlying_ty
     }
 }
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationLevel>(std::underlying_type_t<WebCore::AV1ConfigurationLevel> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationLevel>(std::underlying_type_t<WebCore::AV1ConfigurationLevel> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationLevel::Level_2_0):
@@ -83,7 +83,7 @@ template<> bool isValidEnum<WebCore::AV1ConfigurationLevel>(std::underlying_type
     }
 }
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationChromaSubsampling>(std::underlying_type_t<WebCore::AV1ConfigurationChromaSubsampling> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationChromaSubsampling>(std::underlying_type_t<WebCore::AV1ConfigurationChromaSubsampling> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationChromaSubsampling::Subsampling_444):
@@ -97,7 +97,7 @@ template<> bool isValidEnum<WebCore::AV1ConfigurationChromaSubsampling>(std::und
     }
 }
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationRange>(std::underlying_type_t<WebCore::AV1ConfigurationRange> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationRange>(std::underlying_type_t<WebCore::AV1ConfigurationRange> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationRange::VideoRange):
@@ -108,7 +108,7 @@ template<> bool isValidEnum<WebCore::AV1ConfigurationRange>(std::underlying_type
     }
 }
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationColorPrimaries>(std::underlying_type_t<WebCore::AV1ConfigurationColorPrimaries> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationColorPrimaries>(std::underlying_type_t<WebCore::AV1ConfigurationColorPrimaries> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationColorPrimaries::BT_709_6):
@@ -129,7 +129,7 @@ template<> bool isValidEnum<WebCore::AV1ConfigurationColorPrimaries>(std::underl
     }
 }
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationTransferCharacteristics>(std::underlying_type_t<WebCore::AV1ConfigurationTransferCharacteristics> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationTransferCharacteristics>(std::underlying_type_t<WebCore::AV1ConfigurationTransferCharacteristics> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationTransferCharacteristics::BT_709_6):
@@ -155,7 +155,7 @@ template<> bool isValidEnum<WebCore::AV1ConfigurationTransferCharacteristics>(st
     }
 };
 
-template<> bool isValidEnum<WebCore::AV1ConfigurationMatrixCoefficients>(std::underlying_type_t<WebCore::AV1ConfigurationMatrixCoefficients> value)
+template<> bool NODELETE isValidEnum<WebCore::AV1ConfigurationMatrixCoefficients>(std::underlying_type_t<WebCore::AV1ConfigurationMatrixCoefficients> value)
 {
     switch (value) {
     case std::to_underlying(WebCore::AV1ConfigurationMatrixCoefficients::Identity):
@@ -238,7 +238,7 @@ std::optional<AV1CodecConfigurationRecord> parseAV1CodecParameters(StringView co
 
     // The tier parameter value SHALL be equal to M when the first seq_tier
     // value in the Sequence Header OBU is equal to 0, and H when it is equal to 1.
-    auto tierCharacter = tierView.characterAt(0);
+    auto tierCharacter = tierView.codeUnitAt(0);
     if (tierCharacter == 'M')
         configuration.tier = AV1ConfigurationTier::Main;
     else if (tierCharacter == 'H')
@@ -1261,7 +1261,7 @@ PlatformVideoColorSpace createPlatformVideoColorSpaceFromAV1CodecConfigurationRe
     return colorSpace;
 }
 
-static Ref<VideoInfo> createVideoInfoFromAV1CodecConfigurationRecord(const AV1CodecConfigurationRecord& record, std::span<const uint8_t> fullOBUHeader, std::optional<FloatSize> displaySize)
+static Ref<VideoInfo> createVideoInfoFromAV1CodecConfigurationRecord(const AV1CodecConfigurationRecord& record, std::span<const uint8_t> fullOBUHeader, std::optional<FloatSize> displaySize, const std::optional<PlatformVideoColorSpace>& colorSpaceOverride = std::nullopt)
 {
     // Build AV1 codec configuration record (av1C) for extensionAtoms
     // Format: marker(1) | version(7) | seq_profile(3) | seq_level_idx_0(5) |
@@ -1287,6 +1287,9 @@ static Ref<VideoInfo> createVideoInfoFromAV1CodecConfigurationRecord(const AV1Co
     // unsigned int(8) configOBUs[];
     memcpySpan(av1CBytes.mutableSpan().subspan(4), fullOBUHeader);
 
+    auto colorSpace = createPlatformVideoColorSpaceFromAV1CodecConfigurationRecord(record);
+    overrideVideoColorSpaceAsNeeded(colorSpace, colorSpaceOverride);
+
     return VideoInfo::create({
         {
             .codecName = { "av01" },
@@ -1295,8 +1298,8 @@ static Ref<VideoInfo> createVideoInfoFromAV1CodecConfigurationRecord(const AV1Co
             .size = FloatSize(record.width, record.height),
             .displaySize = displaySize.value_or(FloatSize(record.width, record.height)),
             .bitDepth = record.bitDepth,
-            .colorSpace = createPlatformVideoColorSpaceFromAV1CodecConfigurationRecord(record),
-            .extensionAtoms = { 1, TrackInfo::AtomData { { "av1C" }, SharedBuffer::create(WTF::move(av1CBytes)) } }
+            .colorSpace = WTF::move(colorSpace),
+            .extensionAtoms = { FillWith { }, 1, TrackInfo::AtomData { { "av1C" }, SharedBuffer::create(WTF::move(av1CBytes)) } }
         }
     });
 }
@@ -1310,7 +1313,7 @@ static size_t NODELETE readULEBSize(std::span<const uint8_t> data, size_t& index
 
         uint8_t dataByte = data[index++];
         uint8_t decodedByte = dataByte & 0x7f;
-        value |= decodedByte << (7 * cptr);
+        value |= static_cast<size_t>(decodedByte) << (7 * cptr);
         if (value >= std::numeric_limits<uint32_t>::max())
             return 0;
         if (!(dataByte & 0x80))
@@ -1354,7 +1357,7 @@ static std::optional<std::pair<std::span<const uint8_t>, std::span<const uint8_t
     return std::nullopt;
 }
 
-RefPtr<VideoInfo> createVideoInfoFromAV1Stream(std::span<const uint8_t> data, std::optional<FloatSize> displaySize)
+RefPtr<VideoInfo> createVideoInfoFromAV1Stream(std::span<const uint8_t> data, std::optional<FloatSize> displaySize, const std::optional<PlatformVideoColorSpace>& colorSpaceOverride)
 {
     auto sequenceHeaderData = getSequenceHeaderOBU(data);
     if (!sequenceHeaderData)
@@ -1364,7 +1367,7 @@ RefPtr<VideoInfo> createVideoInfoFromAV1Stream(std::span<const uint8_t> data, st
     if (!record)
         return { };
 
-    return createVideoInfoFromAV1CodecConfigurationRecord(*record, sequenceHeaderData->first, displaySize);
+    return createVideoInfoFromAV1CodecConfigurationRecord(*record, sequenceHeaderData->first, displaySize, colorSpaceOverride);
 }
 
 }

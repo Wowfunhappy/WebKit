@@ -51,7 +51,7 @@ using CharactersTreatedAsSpace = Vector<OriginalAdvancesForCharacterTreatedAsSpa
 struct WidthIterator {
     WTF_MAKE_TZONE_ALLOCATED(WidthIterator);
 public:
-    WidthIterator(const FontCascade&, const TextRun&, SingleThreadWeakHashSet<const Font>* fallbackFonts = 0, bool accountForGlyphBounds = false, bool forTextEmphasis = false);
+    WidthIterator(const FontCascade&, const TextRun&, SingleThreadWeakHashSet<const Font>* fallbackFonts = nullptr, bool accountForGlyphBounds = false, bool forTextEmphasis = false);
 
     void advance(unsigned to, GlyphBuffer&);
     bool advanceOneCharacter(float& width, GlyphBuffer&);

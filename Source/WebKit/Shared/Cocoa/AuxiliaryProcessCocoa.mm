@@ -26,6 +26,7 @@
 #import "config.h"
 #import "AuxiliaryProcess.h"
 
+#import "LibAccessibilitySoftLink.h"
 #import "Logging.h"
 #import "OSStateSPI.h"
 #import "SharedBufferReference.h"
@@ -71,10 +72,6 @@
 #endif
 
 #import <pal/cf/AudioToolboxSoftLink.h>
-
-#if HAVE(UPDATE_WEB_ACCESSIBILITY_SETTINGS) && ENABLE(CFPREFS_DIRECT_MODE)
-SOFT_LINK_OPTIONAL(libAccessibility, _AXSUpdateWebAccessibilitySettings, void, (), ());
-#endif
 
 namespace WebKit {
 
@@ -273,15 +270,15 @@ static const WTF::String& invertColorsPreferenceKey()
 
 void AuxiliaryProcess::handleAXPreferenceChange(const String& domain, const String& key, id value)
 {
-#if HAVE(UPDATE_WEB_ACCESSIBILITY_SETTINGS)
-    if (!libAccessibilityLibrary())
+#if HAVE(UPDATE_WEB_ACCESSIBILITY_SETTINGS) && ENABLE(CFPREFS_DIRECT_MODE)
+    if (!WebKit::islibAccessibilityLibraryAvailable())
         return;
 #endif
 
     if (domain == String(kAXSAccessibilityPreferenceDomain)) {
-#if HAVE(UPDATE_WEB_ACCESSIBILITY_SETTINGS)
-        if (_AXSUpdateWebAccessibilitySettingsPtr())
-            _AXSUpdateWebAccessibilitySettingsPtr()();
+#if HAVE(UPDATE_WEB_ACCESSIBILITY_SETTINGS) && ENABLE(CFPREFS_DIRECT_MODE)
+        if (WebKit::canLoad_libAccessibility__AXSUpdateWebAccessibilitySettings())
+            WebKit::softLink_libAccessibility__AXSUpdateWebAccessibilitySettings();
 #elif PLATFORM(IOS_FAMILY)
         // If the update method is not available, to update the cache inside AccessibilitySupport,
         // these methods need to be called directly.

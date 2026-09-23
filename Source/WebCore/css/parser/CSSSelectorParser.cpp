@@ -43,6 +43,7 @@
 #include "SelectorPseudoTypeMap.h"
 #include "UserAgentParts.h"
 #include <memory>
+#include <wtf/MathExtras.h>
 #include <wtf/OptionSet.h>
 #include <wtf/SetForScope.h>
 #include <wtf/text/StringBuilder.h>
@@ -323,11 +324,11 @@ static std::optional<FixedVector<AtomString>> consumeCommaSeparatedCustomIdentLi
     Vector<AtomString> customIdents { };
 
     do {
-        auto ident = CSSPropertyParserHelpers::consumeCustomIdentRaw(range);
-        if (ident.isEmpty())
+        auto ident = CSSPropertyParserHelpers::consumeEagerlyResolvableCustomIdentRaw(range);
+        if (!ident)
             return std::nullopt;
 
-        customIdents.append(WTF::move(ident));
+        customIdents.append(ident.toAtomString());
     } while (CSSPropertyParserHelpers::consumeCommaIncludingWhitespace(range));
 
     if (!range.atEnd())
@@ -606,10 +607,9 @@ std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumeCompoundSelector(C
 
     std::unique_ptr<MutableCSSSelector> compoundSelector;
 
-    AtomString namespacePrefix;
-    AtomString elementName;
-    const bool hasName = consumeName(range, elementName, namespacePrefix);
-    if (!hasName) {
+    auto parsedName = consumeQualifiedName(range);
+
+    if (!parsedName) {
         compoundSelector = consumeSimpleSelector(range);
         if (!compoundSelector)
             return nullptr;
@@ -636,8 +636,9 @@ std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumeCompoundSelector(C
     //
     // [1] https://drafts.csswg.org/selectors/#matches
     // [2] https://drafts.csswg.org/selectors/#selector-subject
-    SetForScope ignoreDefaultNamespace(m_ignoreDefaultNamespace, m_resistDefaultNamespace && !hasName && atEndIgnoringWhitespace(range));
+    SetForScope ignoreDefaultNamespace(m_ignoreDefaultNamespace, m_resistDefaultNamespace && !parsedName && atEndIgnoringWhitespace(range));
     if (!compoundSelector) {
+        auto namespacePrefix = parsedName->namespacePrefix;
         AtomString namespaceURI = determineNamespace(namespacePrefix);
         if (namespaceURI.isNull()) {
             m_failedParsing = true;
@@ -646,8 +647,10 @@ std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumeCompoundSelector(C
         if (namespaceURI == defaultNamespace())
             namespacePrefix = nullAtom();
         
-        return makeUnique<MutableCSSSelector>(QualifiedName(namespacePrefix, elementName, namespaceURI));
+        return makeUnique<MutableCSSSelector>(QualifiedName(namespacePrefix, parsedName->name, namespaceURI));
     }
+    auto namespacePrefix = parsedName ? parsedName->namespacePrefix : nullAtom();
+    auto elementName = parsedName ? parsedName->name : nullAtom();
     prependTypeSelectorIfNeeded(namespacePrefix, elementName, *compoundSelector);
     return splitCompoundAtImplicitShadowCrossingCombinator(WTF::move(compoundSelector), m_context);
 }
@@ -685,12 +688,12 @@ std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumeSimpleSelector(CSS
     return selector;
 }
 
-bool CSSSelectorParser::consumeName(CSSParserTokenRange& range, AtomString& name, AtomString& namespacePrefix)
+std::optional<ParsedQualifiedName> consumeQualifiedName(CSSParserTokenRange& range)
 {
-    name = nullAtom();
-    namespacePrefix = nullAtom();
+    AtomString name;
+    AtomString namespacePrefix;
 
-    const CSSParserToken& firstToken = range.peek();
+    auto& firstToken = range.peek();
     if (firstToken.type() == IdentToken) {
         name = firstToken.value().toAtomString();
         range.consume();
@@ -698,29 +701,29 @@ bool CSSSelectorParser::consumeName(CSSParserTokenRange& range, AtomString& name
         name = starAtom();
         range.consume();
     } else if (firstToken.type() == DelimiterToken && firstToken.delimiter() == '|') {
-        // This is an empty namespace, which'll get assigned this value below
+        // This is an empty namespace, which'll get assigned this value below.
         name = emptyAtom();
     } else
-        return false;
+        return { };
 
     if (range.peek().type() != DelimiterToken || range.peek().delimiter() != '|')
-        return true;
+        return ParsedQualifiedName { name, namespacePrefix };
 
     namespacePrefix = name;
+
     if (range.peek(1).type() == IdentToken) {
         range.consume();
         name = range.consume().value().toAtomString();
-    } else if (range.peek(1).type() == DelimiterToken && range.peek(1).delimiter() == '*') {
-        range.consume();
-        range.consume();
-        name = starAtom();
-    } else {
-        name = nullAtom();
-        namespacePrefix = nullAtom();
-        return false;
+        return ParsedQualifiedName { name, namespacePrefix };
     }
 
-    return true;
+    if (range.peek(1).type() == DelimiterToken && range.peek(1).delimiter() == '*') {
+        range.consume();
+        range.consume();
+        return ParsedQualifiedName { starAtom(), namespacePrefix };
+    }
+
+    return { };
 }
 
 std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumeId(CSSParserTokenRange& range)
@@ -772,24 +775,23 @@ std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumeAttribute(CSSParse
     CSSParserTokenRange block = range.consumeBlock();
     block.consumeWhitespace();
 
-    AtomString namespacePrefix;
-    AtomString attributeName;
-    if (!consumeName(block, attributeName, namespacePrefix))
+    auto parsedName = consumeQualifiedName(block);
+    if (!parsedName)
         return nullptr;
     block.consumeWhitespace();
 
-    AtomString namespaceURI = determineNamespace(namespacePrefix);
+    AtomString namespaceURI = determineNamespace(parsedName->namespacePrefix);
     if (namespaceURI.isNull())
         return nullptr;
 
-    QualifiedName qualifiedName = namespacePrefix.isNull()
-        ? QualifiedName(nullAtom(), attributeName, nullAtom())
-        : QualifiedName(namespacePrefix, attributeName, namespaceURI);
+    QualifiedName qualifiedName = parsedName->namespacePrefix.isNull()
+        ? QualifiedName(nullAtom(), parsedName->name, nullAtom())
+        : QualifiedName(parsedName->namespacePrefix, parsedName->name, namespaceURI);
 
     auto selector = makeUnique<MutableCSSSelector>();
 
     if (block.atEnd()) {
-        selector->setAttribute(qualifiedName, CSSSelector::CaseSensitive);
+        selector->setAttribute(qualifiedName, CSSSelector::AttributeMatchType::Default);
         selector->setMatch(CSSSelector::Match::Set);
         return selector;
     }
@@ -813,9 +815,9 @@ static AtomString consumePickerArgument(CSSParserTokenRange& block)
     auto& ident = block.consumeIncludingWhitespace();
     if (ident.type() != IdentToken || !block.atEnd())
         return nullAtom();
-    if (ident.value() != "select"_s)
+    if (!equalLettersIgnoringASCIICase(ident.value(), "select"_s))
         return nullAtom();
-    return ident.value().toAtomString();
+    return ident.value().convertToASCIILowercaseAtom();
 }
 
 std::unique_ptr<MutableCSSSelector> CSSSelectorParser::consumePseudo(CSSParserTokenRange& range)
@@ -1139,12 +1141,14 @@ CSSSelector::Match CSSSelectorParser::consumeAttributeMatch(CSSParserTokenRange&
 CSSSelector::AttributeMatchType CSSSelectorParser::consumeAttributeFlags(CSSParserTokenRange& range)
 {
     if (range.peek().type() != IdentToken)
-        return CSSSelector::CaseSensitive;
+        return CSSSelector::AttributeMatchType::Default;
     const CSSParserToken& flag = range.consumeIncludingWhitespace();
     if (equalLettersIgnoringASCIICase(flag.value(), "i"_s))
-        return CSSSelector::CaseInsensitive;
+        return CSSSelector::AttributeMatchType::CaseInsensitive;
+    if (equalLettersIgnoringASCIICase(flag.value(), "s"_s))
+        return CSSSelector::AttributeMatchType::CaseSensitive;
     m_failedParsing = true;
-    return CSSSelector::CaseSensitive;
+    return CSSSelector::AttributeMatchType::Default;
 }
 
 // <an+b> token sequences have special serialization rules: https://www.w3.org/TR/css-syntax-3/#serializing-anb
@@ -1174,7 +1178,7 @@ static bool consumeANPlusB(CSSParserTokenRange& range, std::pair<int, int>& resu
 {
     const CSSParserToken& token = range.consume();
     if (token.type() == NumberToken && token.numericValueType() == IntegerValueType) {
-        result = std::make_pair(0, static_cast<int>(token.numericValue()));
+        result = std::make_pair(0, clampTo<int>(token.numericValue()));
         return true;
     }
     if (token.type() == IdentToken) {
@@ -1196,7 +1200,7 @@ static bool consumeANPlusB(CSSParserTokenRange& range, std::pair<int, int>& resu
         result.first = 1;
         nString = range.consume().value();
     } else if (token.type() == DimensionToken && token.numericValueType() == IntegerValueType) {
-        result.first = token.numericValue();
+        result.first = clampTo<int>(token.numericValue());
         nString = token.unitString();
     } else if (token.type() == IdentToken) {
         if (token.value()[0] == '-') {
@@ -1242,7 +1246,7 @@ static bool consumeANPlusB(CSSParserTokenRange& range, std::pair<int, int>& resu
         return false;
     if ((b.numericSign() == NoSign) == (sign == NoSign))
         return false;
-    result.second = b.numericValue();
+    result.second = clampTo<int>(b.numericValue());
     if (sign == MinusSign)
         result.second = -result.second;
     return true;
@@ -1364,8 +1368,8 @@ CSSSelectorList CSSSelectorParser::resolveNestingParent(const CSSSelectorList& n
 
     auto canInline = [](const CSSSelector& nestingSelector, const CSSSelectorList& list) {
         auto hasTagInCompound = [](const CSSSelector& simpleSelector) {
-            // A compound is organized so that any tag selector is always last.
-            return simpleSelector.lastInCompound()->match() == CSSSelector::Match::Tag;
+            // A compound is organized so that any tag selector is always leftmost.
+            return simpleSelector.leftmostInCompound()->match() == CSSSelector::Match::Tag;
         };
 
         if (list.size() != 1) {
@@ -1384,7 +1388,7 @@ CSSSelectorList CSSSelectorParser::resolveNestingParent(const CSSSelectorList& n
             // .foo .bar { & .baz {...} } -> .foo .bar .baz {...}
             return true;
         }
-        bool hasSingleCompound = !list.first().firstInCompound()->precedingInComplexSelector();
+        bool hasSingleCompound = !list.first().rightmostInCompound()->precedingInComplexSelector();
         if (hasSingleCompound) {
             // .foo.bar { .baz & {...} } -> .baz .foo.bar {...}
             return true;
@@ -1535,6 +1539,132 @@ std::optional<Style::PseudoElementIdentifier> CSSSelectorParser::parsePseudoElem
     default:
         return { };
     }
+}
+
+struct HasCompoundContext {
+    Vector<const CSSSelector*> compoundPeers;
+    CSSSelector::Relation compoundRelation;
+    const CSSSelector* leftStart { nullptr };
+};
+
+static std::optional<HasCompoundContext> collectHasCompoundContext(const CSSSelector& hasPseudoClass)
+{
+    HasCompoundContext context;
+    for (auto* selector = hasPseudoClass.leftmostInCompound(); selector; selector = selector->followingInCompound()) {
+        if (selector == &hasPseudoClass)
+            continue;
+        // Skip pseudo-elements (e.g. `.foo:has(...)::before`); the scope is the has-bearer element.
+        if (selector->match() == CSSSelector::Match::PseudoElement)
+            continue;
+        context.compoundPeers.append(selector);
+    }
+    if (context.compoundPeers.isEmpty())
+        return { };
+
+    auto* rightmostInCompound = hasPseudoClass.rightmostInCompound();
+    context.compoundRelation = rightmostInCompound->relation();
+    context.leftStart = rightmostInCompound->precedingInComplexSelector();
+    return context;
+}
+
+static void appendSelector(MutableCSSSelectorList& result, MutableCSSSelector*& leftmost, std::unique_ptr<MutableCSSSelector> selector)
+{
+    if (!leftmost) {
+        result.append(WTF::move(selector));
+        leftmost = result.last().get();
+    } else {
+        leftmost->setPrecedingInComplexSelector(WTF::move(selector));
+        leftmost = leftmost->precedingInComplexSelector();
+    }
+}
+
+static CSSSelectorList buildScopeSelector(const HasCompoundContext& context)
+{
+    MutableCSSSelector* leftmost = nullptr;
+    MutableCSSSelectorList result;
+
+    for (auto* peer : context.compoundPeers) {
+        auto mutableSelector = makeUnique<MutableCSSSelector>(*peer, MutableCSSSelector::SimpleSelector);
+        mutableSelector->setRelation(peer->relation());
+        appendSelector(result, leftmost, WTF::move(mutableSelector));
+    }
+
+    leftmost->setRelation(context.compoundRelation);
+
+    for (auto* selector = context.leftStart; selector; selector = selector->precedingInComplexSelector()) {
+        auto mutableSelector = makeUnique<MutableCSSSelector>(*selector, MutableCSSSelector::SimpleSelector);
+        mutableSelector->setRelation(selector->relation());
+        appendSelector(result, leftmost, WTF::move(mutableSelector));
+    }
+
+    return CSSSelectorList { WTF::move(result) };
+}
+
+// Returns a selector for the :has() scope element. Encodes two cases:
+//   - Specific selectors: strong scope (e.g. `.c1` for `.c1:has(> .trigger)`).
+//   - Universal `*`: weak scope. No compound peer at any level.
+// Scope-breaking is signalled by the caller passing an empty list.
+// `compoundSelectors` lists the compounds contributing to the scope, from outermost
+// (an enclosing :is()/:not()) to innermost (the :has() itself). For `.foo:is(.bar:has(.x))`
+// the outermost contributes `.foo` and the innermost contributes `.bar`, giving scope `.foo.bar`.
+// Only the outermost's left context (combinator + ancestor chain) is relevant; inner compounds
+// live inside :is()/:not() arguments. Inner compounds containing a type selector are skipped
+// to avoid synthesizing an invalid two-type compound.
+CSSSelectorList CSSSelectorParser::makeHasScopeSelector(const Vector<const CSSSelector*>& compoundSelectors)
+{
+    ASSERT(!compoundSelectors.isEmpty());
+
+    auto* outermost = compoundSelectors.first()->rightmostInCompound();
+
+    Vector<const CSSSelector*> mergedPeers;
+    for (size_t i = 0; i < compoundSelectors.size(); ++i) {
+        auto context = collectHasCompoundContext(*compoundSelectors[i]);
+        if (!context)
+            continue;
+
+        if (i > 0) {
+            auto containsTypeSelector = std::ranges::any_of(context->compoundPeers, [](auto* peer) {
+                return peer->match() == CSSSelector::Match::Tag;
+            });
+            if (containsTypeSelector)
+                continue;
+        }
+
+        mergedPeers.appendVector(context->compoundPeers);
+    }
+
+    if (mergedPeers.isEmpty()) {
+        MutableCSSSelectorList result;
+        result.append(makeUnique<MutableCSSSelector>(anyQName()));
+        return CSSSelectorList { WTF::move(result) };
+    }
+
+    HasCompoundContext merged { WTF::move(mergedPeers), outermost->relation(), outermost->precedingInComplexSelector() };
+    return buildScopeSelector(merged);
+}
+
+CSSSelectorList CSSSelectorParser::makeHasArgumentWithScope(const CSSSelector& hasArgument, const CSSSelector& scopeSelector)
+{
+    MutableCSSSelector* leftmost = nullptr;
+    MutableCSSSelectorList result;
+
+    // Copy :has() argument selectors, stopping at HasScope.
+    for (auto* selector = &hasArgument; selector; selector = selector->precedingInComplexSelector()) {
+        if (selector->match() == CSSSelector::Match::HasScope)
+            break;
+        auto mutableSelector = makeUnique<MutableCSSSelector>(*selector, MutableCSSSelector::SimpleSelector);
+        mutableSelector->setRelation(selector->relation());
+        appendSelector(result, leftmost, WTF::move(mutableSelector));
+    }
+
+    // Append scope selector.
+    for (auto* selector = &scopeSelector; selector; selector = selector->precedingInComplexSelector()) {
+        auto mutableSelector = makeUnique<MutableCSSSelector>(*selector, MutableCSSSelector::SimpleSelector);
+        mutableSelector->setRelation(selector->relation());
+        appendSelector(result, leftmost, WTF::move(mutableSelector));
+    }
+
+    return CSSSelectorList { WTF::move(result) };
 }
 
 } // namespace WebCore

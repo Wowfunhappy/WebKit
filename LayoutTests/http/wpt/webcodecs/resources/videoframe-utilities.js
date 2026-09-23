@@ -154,7 +154,7 @@ function createTestImageData(width, height, color) {
 }
 
 // Recreates the video frame through a video codec.
-async function encodeDecodeVideoFrame(videoFrame, codec) {
+async function encodeDecodeVideoFrame(videoFrame, codec, preferSoftware) {
     codec = codec || "vp09.00.10.08";
     let newFrame;
     let decoder = new VideoDecoder({
@@ -165,8 +165,10 @@ async function encodeDecodeVideoFrame(videoFrame, codec) {
             throw e;
         }
     });
+    const hardwareAcceleration = preferSoftware ? "prefer-software" : "no-preference";
     decoder.configure({
         codec: codec,
+        hardwareAcceleration
     });
     encoder = new VideoEncoder({
         output: (chunk) => {
@@ -181,7 +183,8 @@ async function encodeDecodeVideoFrame(videoFrame, codec) {
         width: videoFrame.codedWidth,
         height: videoFrame.codedHeight,
         bitrate: 10e6,
-        framerate: 30
+        framerate: 30,
+        hardwareAcceleration
     });
     encoder.encode(videoFrame, {
         keyFrame: true

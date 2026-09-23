@@ -39,10 +39,6 @@ public:
         : m_rootInlineBox(rootInlineBox)
     {
     }
-    LineBoxIteratorLegacyPath(LineBoxIteratorLegacyPath&&) = default;
-    LineBoxIteratorLegacyPath(const LineBoxIteratorLegacyPath&) = default;
-    LineBoxIteratorLegacyPath& operator=(const LineBoxIteratorLegacyPath&) = default;
-    LineBoxIteratorLegacyPath& operator=(LineBoxIteratorLegacyPath&&) = default;
 
     float contentLogicalTop() const { return m_rootInlineBox->lineTop().toFloat(); }
     float contentLogicalBottom() const { return m_rootInlineBox->lineBottom().toFloat(); }

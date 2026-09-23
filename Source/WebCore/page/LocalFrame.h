@@ -31,9 +31,7 @@
 #include <WebCore/Frame.h>
 #include <WebCore/HitTestRequest.h>
 #include <WebCore/ScrollbarMode.h>
-#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
-#include <wtf/Platform.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakRef.h>
 
@@ -78,6 +76,7 @@ class FrameInspectorController;
 class FrameLoader;
 class FrameSelection;
 class HTMLFrameOwnerElement;
+class HTMLIFrameElement;
 class HTMLTableCellElement;
 class HitTestResult;
 class ImageBuffer;
@@ -108,7 +107,6 @@ struct ViewportArguments;
 enum class ReferrerPolicy : uint8_t;
 enum class SandboxFlag : uint16_t;
 enum class UserScriptInjectionTime : bool;
-enum class WindowProxyProperty : uint8_t;
 
 using SandboxFlags = OptionSet<SandboxFlag>;
 using IntDegrees = int32_t;
@@ -182,7 +180,7 @@ public:
     const LocalFrame& rootFrame() const { return *m_rootFrame; }
     LocalFrame& rootFrame() { return *m_rootFrame; }
 
-    WEBCORE_EXPORT RenderView* contentRenderer() const; // Root of the render tree for the document contained in this frame.
+    WEBCORE_EXPORT RenderView* NODELETE contentRenderer() const; // Root of the render tree for the document contained in this frame.
 
     bool documentIsBeingReplaced() const { return m_documentIsBeingReplaced; }
 
@@ -200,9 +198,9 @@ public:
 
     WEBCORE_EXPORT void injectUserScripts(UserScriptInjectionTime);
     WEBCORE_EXPORT void injectUserScriptImmediately(DOMWrapperWorld&, const UserScript&);
-    UserContentProvider* userContentProvider();
+    UserContentProvider* NODELETE userContentProvider();
     const UserContentProvider* userContentProvider() const;
-    WEBCORE_EXPORT bool hasUserContentProvider(const UserContentProvider&);
+    WEBCORE_EXPORT bool NODELETE hasUserContentProvider(const UserContentProvider&);
 
     WEBCORE_EXPORT String trackedRepaintRectsAsText() const;
 
@@ -331,10 +329,6 @@ public:
     void documentURLOrOriginDidChange();
     void dispatchLoadEventToParent();
 
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    void didAccessWindowProxyPropertyViaOpener(WindowProxyProperty);
-#endif
-
     void storageAccessExceptionReceivedForDomain(const RegistrableDomain&);
     bool requestSkipUserActivationCheckForStorageAccess(const RegistrableDomain&);
 
@@ -342,9 +336,10 @@ public:
     String customUserAgentAsSiteSpecificQuirks() const final;
     String customNavigatorPlatform() const final;
     OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const final;
+    bool allowPrivacyProxy() const final;
     AutoplayPolicy autoplayPolicy() const final;
 
-    WEBCORE_EXPORT SandboxFlags effectiveSandboxFlags() const;
+    WEBCORE_EXPORT SandboxFlags NODELETE effectiveSandboxFlags() const;
     SandboxFlags sandboxFlagsFromSandboxAttributeNotCSP() { return m_sandboxFlags; }
     WEBCORE_EXPORT void updateSandboxFlags(SandboxFlags, NotifyUIProcess) final;
 
@@ -356,10 +351,12 @@ public:
     WEBCORE_EXPORT void reportMixedContentViolation(bool blocked, const URL& target) const final;
     WEBCORE_EXPORT void setScrollingMode(ScrollbarMode);
     WEBCORE_EXPORT void showMemoryMonitorError();
+    WEBCORE_EXPORT static void applyMemoryMonitorErrorToIFrameElement(HTMLIFrameElement&);
 
 #if ENABLE(CONTENT_EXTENSIONS)
     WEBCORE_EXPORT void showResourceMonitoringError();
     WEBCORE_EXPORT void reportResourceMonitoringWarning();
+    WEBCORE_EXPORT static void applyResourceMonitorErrorToIFrameElement(HTMLIFrameElement&);
 #endif
 
     bool frameCanCreatePaymentSession() const final;
@@ -392,7 +389,7 @@ private:
     DOMWindow* NODELETE virtualWindow() const final;
     void reinitializeDocumentSecurityContext() final;
     FrameLoaderClient& NODELETE loaderClient() LIFETIME_BOUND final;
-    void documentURLForConsoleLog(CompletionHandler<void(const URL&)>&&) final;
+    URL urlForConsoleLog() const final;
 
     WeakHashSet<FrameDestructionObserver> m_destructionObservers;
 
@@ -424,10 +421,6 @@ private:
     unsigned m_navigationDisableCount { 0 };
     unsigned m_selfOnlyRefCount { 0 };
     bool m_hasHadUserInteraction { false };
-
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    OptionSet<WindowProxyProperty> m_accessedWindowProxyPropertiesViaOpener;
-#endif
 
     std::unique_ptr<OverrideScreenSize> m_overrideScreenSize;
 

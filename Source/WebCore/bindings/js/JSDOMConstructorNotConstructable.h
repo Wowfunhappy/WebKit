@@ -20,6 +20,7 @@
 #pragma once
 
 #include "JSDOMConstructorBase.h"
+#include <WebCore/JSDOMBindingFacade.h>
 
 namespace WebCore {
 
@@ -56,7 +57,7 @@ template<typename JSClass> inline JSDOMConstructorNotConstructable<JSClass>* JSD
 
 template<typename JSClass> inline JSC::Structure* JSDOMConstructorNotConstructable<JSClass>::createStructure(JSC::VM& vm, JSC::JSGlobalObject& globalObject, JSC::JSValue prototype)
 {
-    auto* structure = JSC::Structure::create(vm, &globalObject, prototype, JSC::TypeInfo(JSC::InternalFunctionType, StructureFlags), info());
+    auto* structure = JSC::Structure::create(vm, &globalObject, prototype, JSC::TypeInfo(JSC::InternalFunctionType, StructureFlags), info(), JSC::NonArray);
     structure->setMayBePrototype(true);
     return structure;
 }

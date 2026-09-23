@@ -85,7 +85,7 @@ void WebColorPickerGtk::colorChooserDialogResponseCallback(GtkColorChooser*, int
     colorPicker->endPicker();
 }
 
-void WebColorPickerGtk::showColorPicker(const Color& color)
+void WebColorPickerGtk::showColorPicker(const Color& color, const IntRect&)
 {
     if (!client())
         return;

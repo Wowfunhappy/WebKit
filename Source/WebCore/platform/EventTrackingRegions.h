@@ -79,11 +79,11 @@ struct EventTrackingRegions {
 
     bool NODELETE isEmpty() const;
 
-    void translate(IntSize);
+    void NODELETE translate(IntSize);
     void uniteSynchronousRegion(EventType, const Region&);
     void unite(const EventTrackingRegions&);
 
-    TrackingType trackingTypeForPoint(EventType, const IntPoint&) const;
+    TrackingType NODELETE trackingTypeForPoint(EventType, const IntPoint&) const;
 
     friend bool operator==(const EventTrackingRegions&, const EventTrackingRegions&) = default;
 };

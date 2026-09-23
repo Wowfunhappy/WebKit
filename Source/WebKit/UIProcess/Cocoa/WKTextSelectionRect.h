@@ -23,6 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <wtf/Platform.h>
+
 #if PLATFORM(IOS_FAMILY) || HAVE(NSTEXTPLACEHOLDER_RECTS)
 
 #if PLATFORM(IOS_FAMILY)
@@ -35,6 +37,8 @@ namespace WebCore {
 class FloatQuad;
 class SelectionGeometry;
 }
+
+NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 
 @class WKTextSelectionRect;
 
@@ -50,8 +54,10 @@ class SelectionGeometry;
 #endif
 
 - (instancetype)initWithCGRect:(CGRect)rect;
-- (instancetype)initWithSelectionGeometry:(const WebCore::SelectionGeometry&)selectionGeometry delegate:(id<WKTextSelectionRectDelegate>)delegate;
+- (instancetype)initWithSelectionGeometry:(const WebCore::SelectionGeometry&)selectionGeometry delegate:(nullable id<WKTextSelectionRectDelegate>)delegate;
 
 @end
 
-#endif // PLATFORM(COCOA)
+NS_HEADER_AUDIT_END(nullability, sendability)
+
+#endif // PLATFORM(IOS_FAMILY) || HAVE(NSTEXTPLACEHOLDER_RECTS)

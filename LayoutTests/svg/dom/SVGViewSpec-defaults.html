@@ -1,7 +1,7 @@
 <!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
 <html>
 <head>
-<script src="../../resources/js-test-pre.js"></script>
+<script src="../../resources/js-test.js"></script>
 </head>
 <body>
 <p id="description"></p>
@@ -19,7 +19,6 @@ svgElement.setAttribute("display", "block");
 debug("");
 debug("Check initial SVGSVGElement.currentView values on a SVGSVGElement");
 shouldBe("currentView.transform.numberOfItems", "0");
-shouldBeNull("currentView.viewTarget");
 shouldBe("currentView.zoomAndPan", "SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY");
 shouldBe("currentView.viewBox.baseVal.x", "0");
 shouldBe("currentView.viewBox.baseVal.y", "0");
@@ -30,7 +29,6 @@ shouldBe("currentView.preserveAspectRatio.baseVal.meetOrSlice", "SVGPreserveAspe
 shouldBeEqualToString("currentView.viewBoxString", "0 0 0 0");
 shouldBeEqualToString("currentView.preserveAspectRatioString", "xMidYMid meet");
 shouldBeEqualToString("currentView.transformString", "");
-shouldBeEqualToString("currentView.viewTargetString", "");
 shouldBe("currentView.zoomAndPan", "SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY");
 
 debug("");
@@ -73,18 +71,6 @@ debug("Try changing transformString");
 shouldBeEqualToString("currentView.transformString = 'rotate(90)'", "rotate(90)");
 shouldBeEqualToString("currentView.transformString", "");
 
-
-debug("");
-debug("Try changing viewTarget");
-shouldBe("currentView.viewTarget = svgElement", "svgElement");
-shouldBeNull("currentView.viewTarget");
-
-
-debug("");
-debug("Try changing viewTargetString");
-shouldBeEqualToString("currentView.viewTargetString = '#test'", "#test");
-shouldBeEqualToString("currentView.viewTargetString", "");
-
 debug("");
 debug("Try changing transform");
 shouldThrow("currentView.transform.clear()");
@@ -92,6 +78,5 @@ shouldBe("currentView.transform.numberOfItems", "0");
 
 successfullyParsed = true;
 </script>
-<script src="../../resources/js-test-post.js"></script>
 </body>
 </html>

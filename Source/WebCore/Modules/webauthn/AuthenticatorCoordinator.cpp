@@ -39,6 +39,8 @@
 #include "DocumentSecurityOrigin.h"
 #include "FrameDestructionObserverInlines.h"
 #include "JSBasicCredential.h"
+#include "LegacySchemeRegistry.h"
+#include "LocalFrameInlines.h"
 #include "JSCredentialCreationOptions.h"
 #include "JSCredentialRequestOptions.h"
 #include "JSDOMConvertBoolean.h"
@@ -47,6 +49,7 @@
 #include "JSDOMConvertRecord.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "LoginStatus.h"
 #include "Page.h"
 #include "PermissionsPolicy.h"
@@ -54,7 +57,7 @@
 #include "PublicKeyCredentialCreationOptions.h"
 #include "PublicKeyCredentialRequestOptions.h"
 #include "RegistrableDomain.h"
-#include "LegacySchemeRegistry.h"
+#include "RemoteFrame.h"
 #include "UnknownCredentialOptions.h"
 #include "WebAuthenticationConstants.h"
 #include "WebAuthenticationUtils.h"
@@ -106,11 +109,12 @@ static ScopeAndCrossOriginParent scopeAndCrossOriginParent(const Document& docum
     Ref origin = document.securityOrigin();
     auto url = document.url();
     std::optional<SecurityOriginData> crossOriginParent;
-    for (RefPtr parentDocument = document.parentDocument(); parentDocument; parentDocument = parentDocument->parentDocument()) {
-        if (!origin->isSameOriginDomain(protect(parentDocument->securityOrigin())) && !areRegistrableDomainsEqual(url, parentDocument->url()))
+    for (RefPtr parentFrame = document.frame() ? document.frame()->tree().parent() : nullptr; parentFrame; parentFrame = parentFrame->tree().parent()) {
+        RefPtr parentOrigin = parentFrame->frameDocumentSecurityOrigin();
+        if (!parentOrigin || is<RemoteFrame>(parentFrame) || RegistrableDomain(parentOrigin->data()) != RegistrableDomain(origin->data()))
             isSameSite = false;
-        if (!crossOriginParent && !origin->isSameOriginAs(protect(parentDocument->securityOrigin())))
-            crossOriginParent = parentDocument->securityOrigin().data();
+        if (parentOrigin && !origin->isSameOriginAs(*parentOrigin))
+            crossOriginParent = parentOrigin->data();
     }
 
     if (!crossOriginParent)
@@ -249,7 +253,7 @@ void AuthenticatorCoordinator::create(const Document& document, CredentialCreati
 
     auto callback = [promise = WTF::move(promise), abortSignal = WTF::move(abortSignal)](AuthenticatorResponseData&& data, AuthenticatorAttachment attachment, ExceptionData&& exception) mutable {
         if (abortSignal && abortSignal->aborted()) {
-            promise.reject(Exception { ExceptionCode::AbortError, "Aborted by AbortSignal."_s });
+            promise.rejectType<IDLAny>(abortSignal->reason().getValue());
             return;
         }
 
@@ -368,7 +372,7 @@ void AuthenticatorCoordinator::discoverFromExternalSource(const Document& docume
 
     auto callback = [weakThis = WeakPtr { *this }, promise = WTF::move(promise), abortSignal = WTF::move(requestOptions.signal), weakPage = WeakPtr { document.page() }] (AuthenticatorResponseData&& data, AuthenticatorAttachment attachment, ExceptionData&& exception) mutable {
         if (abortSignal && abortSignal->aborted()) {
-            promise.reject(Exception { ExceptionCode::AbortError, "Aborted by AbortSignal."_s });
+            promise.rejectType<IDLAny>(abortSignal->reason().getValue());
             return;
         }
 

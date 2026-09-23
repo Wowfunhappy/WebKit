@@ -96,15 +96,6 @@ static RetainPtr<CMSampleBufferRef> createSampleBuffer(const CAAudioStreamDescri
         return nullptr;
     }
     return sampleBuffer;
-
-    auto result = WebAudioBufferList::createWebAudioBufferListWithBlockBuffer(description, numberOfFrames);
-    if (!result)
-        return nullptr;
-
-    auto [newList, blockBuffer] = WTF::move(*result);
-    if (PAL::CMSampleBufferSetDataBuffer(rawSampleBuffer, blockBuffer.get()))
-        return nullptr;
-    return sampleBuffer;
 }
 
 RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_t> sourceData, AudioSampleFormat format, float sampleRate, int64_t timestamp, size_t numberOfFrames, size_t numberOfChannels)
@@ -244,6 +235,9 @@ static Variant<Vector<std::span<uint8_t>>, Vector<std::span<int16_t>>, Vector<st
 
 void PlatformRawAudioData::copyTo(std::span<uint8_t> destination, AudioSampleFormat destinationFormat, size_t planeIndex, std::optional<size_t> frameOffset, std::optional<size_t>, unsigned long copyElementCount)
 {
+    if (!copyElementCount)
+        return;
+
     // WebCodecsAudioDataAlgorithms's computeCopyElementCount ensures that all parameters are correct.
     auto& audioData = downcast<PlatformRawAudioDataCocoa>(*this);
 

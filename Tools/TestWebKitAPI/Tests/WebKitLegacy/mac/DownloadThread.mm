@@ -25,8 +25,8 @@
 
 #import "config.h"
 
-#import "DeprecatedGlobalValues.h"
-#import "PlatformUtilities.h"
+#import "Helpers/DeprecatedGlobalValues.h"
+#import "Helpers/PlatformUtilities.h"
 #import <WebKit/WebView.h>
 #import <wtf/RetainPtr.h>
 
@@ -78,8 +78,8 @@ namespace TestWebKitAPI {
 
 TEST(WebKitLegacy, DownloadThread)
 {
-    auto delegate = adoptNS([DownloadThreadChecker new]);
-    auto webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
+    RetainPtr delegate = adoptNS([DownloadThreadChecker new]);
+    RetainPtr webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
     [webView setPolicyDelegate:delegate.get()];
     [webView setDownloadDelegate:delegate.get()];
 

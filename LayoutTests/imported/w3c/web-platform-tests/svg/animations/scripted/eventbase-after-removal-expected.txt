@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Event base 'begin' after removal from the document Test timed out
+PASS Event base 'begin' after removal from the document
 

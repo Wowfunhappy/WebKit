@@ -34,7 +34,6 @@
 #include "DeprecatedCSSOMValueList.h"
 #include "Document.h"
 #include "MutableStyleProperties.h"
-#include "NodeInlines.h"
 #include "Settings.h"
 #include "StyleAttributeMutationScope.h"
 #include "StyleSheetContents.h"

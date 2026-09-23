@@ -154,7 +154,6 @@ void WriteShInterfaceBlock(gl::BinaryOutputStream *stream, const sh::InterfaceBl
     stream->writeString(block.instanceName);
     stream->writeInt(block.arraySize);
     stream->writeEnum(block.layout);
-    stream->writeBool(block.isRowMajorLayout);
     stream->writeInt(block.binding);
     stream->writeBool(block.staticUse);
     stream->writeBool(block.active);
@@ -175,7 +174,6 @@ void LoadShInterfaceBlock(gl::BinaryInputStream *stream, sh::InterfaceBlock *blo
     block->instanceName     = stream->readString();
     block->arraySize        = stream->readInt<unsigned int>();
     block->layout           = stream->readEnum<sh::BlockLayoutType>();
-    block->isRowMajorLayout = stream->readBool();
     block->binding          = stream->readInt<int>();
     block->staticUse        = stream->readBool();
     block->active           = stream->readBool();
@@ -285,7 +283,6 @@ void CompiledShaderState::buildCompiledShaderState(const ShHandle compilerHandle
     uniformBlocks       = GetShaderVariables(sh::GetUniformBlocks(compilerHandle));
     shaderStorageBlocks = GetShaderVariables(sh::GetShaderStorageBlocks(compilerHandle));
     metadataFlags       = sh::CompilerMetadataFlags(sh::GetMetadataFlags(compilerHandle));
-    specConstUsageBits  = SpecConstUsageBits(sh::GetShaderSpecConstUsageBits(compilerHandle));
 
     switch (shaderType)
     {
@@ -315,7 +312,7 @@ void CompiledShaderState::buildCompiledShaderState(const ShHandle compilerHandle
                 GetActiveShaderVariables(sh::GetOutputVariables(compilerHandle));
             advancedBlendEquations =
                 gl::BlendEquationBitSet(sh::GetAdvancedBlendEquations(compilerHandle));
-            pixelLocalStorageFormats = *sh::GetPixelLocalStorageFormats(compilerHandle);
+            pixelLocalStorageLayouts = *sh::GetPixelLocalStorageLayouts(compilerHandle);
             break;
         }
         case gl::ShaderType::Geometry:
@@ -398,7 +395,6 @@ void CompiledShaderState::serialize(gl::BinaryOutputStream &stream) const
     }
 
     stream.writeInt(metadataFlags.bits());
-    stream.writeInt(specConstUsageBits.bits());
 
     switch (shaderType)
     {
@@ -453,8 +449,8 @@ void CompiledShaderState::serialize(gl::BinaryOutputStream &stream) const
                 WriteShaderVar(&stream, shaderVariable);
             }
             stream.writeInt(advancedBlendEquations.bits());
-            stream.writeInt<size_t>(pixelLocalStorageFormats.size());
-            stream.writeBytes(angle::as_byte_span(pixelLocalStorageFormats));
+            stream.writeInt<size_t>(pixelLocalStorageLayouts.size());
+            stream.writeBytes(angle::as_byte_span(pixelLocalStorageLayouts));
             break;
         }
         case gl::ShaderType::Geometry:
@@ -564,7 +560,6 @@ void CompiledShaderState::deserialize(gl::BinaryInputStream &stream)
     }
 
     metadataFlags      = sh::CompilerMetadataFlags(stream.readInt<uint32_t>());
-    specConstUsageBits = SpecConstUsageBits(stream.readInt<uint32_t>());
 
     switch (shaderType)
     {
@@ -627,8 +622,8 @@ void CompiledShaderState::deserialize(gl::BinaryInputStream &stream)
             int advancedBlendEquationBits;
             stream.readInt(&advancedBlendEquationBits);
             advancedBlendEquations = gl::BlendEquationBitSet(advancedBlendEquationBits);
-            pixelLocalStorageFormats.resize(stream.readInt<size_t>());
-            stream.readBytes(angle::as_writable_byte_span(pixelLocalStorageFormats));
+            pixelLocalStorageLayouts.resize(stream.readInt<size_t>());
+            stream.readBytes(angle::as_writable_byte_span(pixelLocalStorageLayouts));
             break;
         }
         case gl::ShaderType::Geometry:

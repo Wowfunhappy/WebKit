@@ -25,16 +25,25 @@
 
 #pragma once
 
+#include "BackendResourceDataStore.h"
 #include "Connection.h"
 #include "MessageReceiver.h"
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/InspectorBackendClient.h>
+#include <WebCore/ResourceLoaderIdentifier.h>
+#include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
+namespace Inspector {
+struct FrameResourceData;
+}
+
 namespace WebKit {
 
+class FrameNetworkAgentProxy;
+class PageAgentProxy;
 class WebPage;
 
 class WebInspectorBackend : public ThreadSafeRefCounted<WebInspectorBackend>, private IPC::Connection::Client {
@@ -85,6 +94,20 @@ public:
     void setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit);
 #endif
 
+    void enableNetworkInstrumentation();
+    void disableNetworkInstrumentation();
+    void getResponseBody(WebCore::ResourceLoaderIdentifier, CompletionHandler<void(String content, bool base64Encoded, String errorString)>&&);
+
+    void enablePageInstrumentation();
+    void disablePageInstrumentation();
+    void getFrameResourceData(Vector<WebCore::FrameIdentifier>&& frameIDs, CompletionHandler<void(Vector<std::pair<WebCore::FrameIdentifier, Inspector::FrameResourceData>>&&)>&&);
+
+    // Set up / tear down every per-frame instrumentation agent for a frame. Callers
+    // don't need to know which agents are frame-scoped; each helper no-ops unless its
+    // domain is enabled.
+    void ensureInstrumentationForFrame(WebCore::LocalFrame&);
+    void removeInstrumentationForFrame(WebCore::FrameIdentifier);
+
     void setFrontendConnection(IPC::Connection::Handle&&);
 
     void disconnectFromPage() { close(); }
@@ -104,6 +127,9 @@ private:
 
     void whenFrontendConnectionEstablished(Function<void(IPC::Connection&)>&&);
 
+    void ensureNetworkInstrumentationForFrame(WebCore::LocalFrame&);
+    void ensurePageInstrumentationForFrame(WebCore::LocalFrame&);
+
     WeakPtr<WebPage> m_page;
 
     RefPtr<IPC::Connection> m_frontendConnection;
@@ -111,6 +137,13 @@ private:
 
     bool m_attached { false };
     bool m_previousCanAttach { false };
+
+    HashMap<WebCore::FrameIdentifier, std::unique_ptr<FrameNetworkAgentProxy>> m_frameNetworkAgentProxies;
+    UniqueRef<BackendResourceDataStore> m_resourceDataStore;
+    bool m_networkInstrumentationEnabled { false };
+
+    HashMap<WebCore::FrameIdentifier, std::unique_ptr<PageAgentProxy>> m_framePageAgentProxies;
+    bool m_pageInstrumentationEnabled { false };
 };
 
 } // namespace WebKit

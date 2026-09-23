@@ -15,4 +15,5 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/form-submission-target/resources/endpoint.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/form-submission-target/resources/form-target-request-header-helper.py
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/form-submission-target/resources/reltester.js

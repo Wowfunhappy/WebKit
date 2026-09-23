@@ -122,7 +122,13 @@ inline Check check(const String& pattern)
 
 inline Variant<WGSL::SuccessfulCheck, WGSL::FailedCheck> staticCheck(const String& wgsl)
 {
-    return WGSL::staticCheck(wgsl, std::nullopt, { 8 });
+    return WGSL::staticCheck(wgsl, std::nullopt, {
+        .maxBuffersPlusVertexBuffersForVertexStage = 8,
+        .maxBuffersForFragmentStage = 8,
+        .maxBuffersForComputeStage = 8,
+        .maximumCombinedWorkgroupVariablesSize = 16384,
+        .supportedFeatures = { "shader-f16"_s, "clip-distances"_s, "primitive-index"_s }
+    });
 }
 
 inline Variant<WGSL::PrepareResult, WGSL::Error> prepare(const WGSL::SuccessfulCheck& staticCheckResult)

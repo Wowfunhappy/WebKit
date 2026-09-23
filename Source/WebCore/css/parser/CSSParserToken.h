@@ -113,6 +113,7 @@ public:
     bool operator==(const CSSParserToken& other) const;
 
     // Converts NumberToken to DimensionToken.
+    void convertToDimensionWithUnit(CSSUnitType);
     void NODELETE convertToDimensionWithUnit(StringView);
 
     // Converts NumberToken to PercentageToken.
@@ -179,7 +180,7 @@ private:
     union {
         char16_t m_delimiter;
         HashTokenType m_hashTokenType;
-        double m_numericValue;
+        double m_numericValue { 0 };
         mutable int m_id;
         unsigned m_whitespaceCount;
     };

@@ -247,6 +247,11 @@ void GamepadManager::registerDOMWindow(LocalDOMWindow& window)
 
         maybeStartMonitoringGamepads();
     }
+
+#if PLATFORM(VISION)
+    if (RefPtr page = window.page())
+        page->gamepadsRecentlyAccessed();
+#endif
 }
 
 void GamepadManager::unregisterDOMWindow(LocalDOMWindow& window)

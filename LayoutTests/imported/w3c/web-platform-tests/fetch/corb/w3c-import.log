@@ -15,6 +15,7 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/README.md
+/LayoutTests/imported/w3c/web-platform-tests/fetch/corb/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/img-html-correctly-labeled.sub-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/img-html-correctly-labeled.sub-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/img-html-correctly-labeled.sub.html
@@ -38,7 +39,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/img-svg-xml-decl.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/img-svg.sub-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/preload-image-png-mislabeled-as-html-nosniff.tentative.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/fetch/corb/response_block.tentative.sub.https.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/corb/response_block.tentative.https.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/script-html-correctly-labeled.tentative.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/script-html-js-polyglot.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/corb/script-html-via-cross-origin-blob-url.sub.html

@@ -28,6 +28,7 @@
 
 #import "AudioSessionRoutingArbitratorProxy.h"
 #import "EditingRange.h"
+#import "EndowmentStateTracker.h"
 #import "GPUProcessProxy.h"
 #import "LogStream.h"
 #import "MediaSessionCoordinatorProxyPrivate.h"
@@ -285,7 +286,17 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
         RefPtr validationBubble = _page->validationBubble();
         String message = validationBubble ? validationBubble->message() : emptyString();
         double fontSize = validationBubble ? validationBubble->fontSize() : 0;
-        return @{ userInterfaceItem: @{ @"message": message.createNSString().get(), @"fontSize": @(fontSize) } };
+        auto anchorRect = validationBubble ? validationBubble->anchorRect() : WebCore::IntRect();
+        return @{ userInterfaceItem: @{
+            @"message": message.createNSString().get(),
+            @"fontSize": @(fontSize),
+            @"anchorRect": @{
+                @"x": @(anchorRect.x()),
+                @"y": @(anchorRect.y()),
+                @"width": @(anchorRect.width()),
+                @"height": @(anchorRect.height())
+            }
+        } };
     }
 
     if (RetainPtr contents = _page->contentsOfUserInterfaceItem(userInterfaceItem))
@@ -348,11 +359,23 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     return coordinator->scrollingTreeAsText().createNSString().autorelease();
 }
 
+- (double)_rubberbandHyperbolicCoefficientForTesting
+{
+    if (CheckedPtr coordinator = _page->scrollingCoordinatorProxy())
+        return coordinator->rubberbandHyperbolicCoefficientForTesting();
+
+    return 0;
+}
+
 - (pid_t)_networkProcessIdentifier
 {
     RefPtr networkProcess = _page->websiteDataStore().networkProcessIfExists();
-    RELEASE_ASSERT(networkProcess);
-    return networkProcess->processID();
+    return networkProcess ? networkProcess->processID() : 0;
+}
+
+- (uint64_t)_webPageProxyIdentifierForTesting
+{
+    return _page->identifier().toUInt64();
 }
 
 - (void)_setScrollingUpdatesDisabledForTesting:(BOOL)disabled
@@ -740,6 +763,17 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     });
 }
 
+- (void)_numberOfLiveDocumentsForTesting:(void (^)(NSUInteger count))completionHandler
+{
+    RefPtr pageForTesting = _page->pageForTesting();
+    if (!pageForTesting)
+        return completionHandler(0);
+
+    pageForTesting->numberOfLiveDocuments([completionHandler = makeBlockPtr(completionHandler)](uint64_t count) {
+        completionHandler(static_cast<NSUInteger>(count));
+    });
+}
+
 - (void)_computePagesForPrinting:(_WKFrameHandle *)handle completionHandler:(void(^)(void))completionHandler
 {
     WebKit::PrintInfo printInfo;
@@ -1112,11 +1146,32 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     });
 }
 
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+- (void)_enableColorExtensionBehaviorForHorizontalBannerViewOverlaysForTesting
+{
+    _adjustedColorExtensionsForBannerViewOverlaysEnablement = WebKit::AdjustedColorExtensionsForBannerViewOverlaysEnablement::ForcedOnForTesting;
+}
+
+- (void)_disableColorExtensionBehaviorForHorizontalBannerViewOverlaysForTesting
+{
+    _adjustedColorExtensionsForBannerViewOverlaysEnablement = WebKit::AdjustedColorExtensionsForBannerViewOverlaysEnablement::ForcedOffForTesting;
+}
+
+- (void)_clearColorExtensionBehaviorOverridesForHorizontalBannerViewOverlaysForTesting
+{
+    _adjustedColorExtensionsForBannerViewOverlaysEnablement = WebKit::AdjustedColorExtensionsForBannerViewOverlaysEnablement::EnabledIfHorizontalBannerViewPresent;
+}
+#endif
+
 - (void)_cancelFixedColorExtensionFadeAnimationsForTesting
 {
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
     for (auto side : WebCore::allBoxSides)
         [_fixedColorExtensionViews.at(side) cancelFadeAnimation];
+#endif
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    [_systemBackgroundColorExtensionViews.left() cancelFadeAnimation];
+    [_systemBackgroundColorExtensionViews.right() cancelFadeAnimation];
 #endif
 }
 
@@ -1299,6 +1354,14 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     return downcast<WebKit::RemoteLayerTreeDrawingAreaProxy>(protect(_page->drawingArea()))->displayLinkWantsHighFrameRateForTesting();
 }
 
+- (void)_lastPageLoadNetworkActivityCompletionCodeForTesting:(void(^)(NSNumber * _Nullable))completionHandler
+{
+    auto completionHandlerCopy = makeBlockPtr(completionHandler);
+    protect(protect(_page->websiteDataStore())->networkProcess())->lastPageLoadNetworkActivityCompletionCodeForTesting(_page->sessionID(), _page->webPageIDInMainFrameProcess(), [completionHandlerCopy = WTF::move(completionHandlerCopy)](std::optional<WebKit::NetworkActivityTracker::CompletionCode> code) {
+        completionHandlerCopy(code ? @(static_cast<uint8_t>(*code)) : nil);
+    });
+}
+
 - (STWebpageController *)_screenTimeWebpageController
 {
 #if ENABLE(SCREEN_TIME)
@@ -1316,6 +1379,15 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     return nil;
 #endif
 }
+
+#if PLATFORM(IOS_FAMILY)
++ (void)_setVisibilityEndowmentForTesting:(BOOL)isVisible
+{
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    WebKit::EndowmentStateTracker::singleton().setStateForTesting(isVisible, isVisible);
+#endif
+}
+#endif
 
 @end
 

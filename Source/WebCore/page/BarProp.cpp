@@ -34,6 +34,7 @@
 #include "Page.h"
 #include "ScriptWrappableInlines.h"
 #include <wtf/TZoneMallocInlines.h>
+#include "DocumentPage.h"
 
 namespace WebCore {
 

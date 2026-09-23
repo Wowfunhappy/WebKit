@@ -57,6 +57,8 @@ public:
 
     String cookieRequestHeaderFieldValue(Document&, const URL&) const;
 
+    static IncludeSecureCookies shouldIncludeSecureCookies(const URL&);
+
     // These two functions implement document.cookie API, with special rules for HttpOnly cookies.
     virtual String cookies(Document&, const URL&) const;
     virtual void setCookies(Document&, const URL&, const String& cookieString);
@@ -83,7 +85,6 @@ public:
     virtual ~CookieJar();
 protected:
     static SameSiteInfo sameSiteInfo(const Document&, IsForDOMCookieAccess = IsForDOMCookieAccess::No);
-    static IncludeSecureCookies shouldIncludeSecureCookies(const URL&);
     CookieJar(Ref<StorageSessionProvider>&&);
 
 private:

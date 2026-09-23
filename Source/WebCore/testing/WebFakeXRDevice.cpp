@@ -33,6 +33,7 @@
 #include "DOMPointReadOnly.h"
 #include "JSDOMPromiseDeferred.h"
 #include "WebFakeXRInputController.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/MathExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -62,6 +63,11 @@ SimulatedXRDevice::SimulatedXRDevice()
     : m_frameTimer(*this, &SimulatedXRDevice::frameTimerFired)
 {
     m_supportsOrientationTracking = true;
+#if ENABLE(WEBXR_LAYERS)
+    // Same approach as Chromium. From a typical 16 max layer limit we remove the projection layer which is always there
+    // and then we divide by 2 to account for the fact that each layer can be stereo (two views).
+    m_maxRenderLayers = (16 - 1) / 2;
+#endif
 }
 
 SimulatedXRDevice::~SimulatedXRDevice()
@@ -295,14 +301,32 @@ void SimulatedXRDevice::requestFrame(std::optional<PlatformXR::RequestData>&&, R
         m_frameTimer.startOneShot(FakeXRFrameTime);
 }
 
-std::optional<PlatformXR::LayerHandle> SimulatedXRDevice::createLayerProjection(uint32_t width, uint32_t height, bool alpha)
+std::optional<PlatformXR::LayerHandle> SimulatedXRDevice::createLayer(IntSize size)
+{
+    PlatformXR::LayerHandle handle = ++m_layerIndex;
+    m_layers.add(handle, size);
+    return handle;
+}
+
+std::optional<PlatformXR::LayerInfo> SimulatedXRDevice::createLayerProjection(uint32_t width, uint32_t height, bool alpha)
 {
     // TODO: Might need to pass the format type to WebXROpaqueFramebuffer to ensure alpha is handled correctly in tests.
     UNUSED_PARAM(alpha);
-    PlatformXR::LayerHandle handle = ++m_layerIndex;
-    m_layers.add(handle, IntSize { static_cast<int>(width), static_cast<int>(height) });
-    return handle;
+    auto handle = createLayer({ static_cast<int>(width), static_cast<int>(height) });
+    if (!handle)
+        return std::nullopt;
+    return PlatformXR::LayerInfo { *handle, 1 };
 }
+
+#if ENABLE(WEBXR_LAYERS)
+std::optional<PlatformXR::LayerInfo> SimulatedXRDevice::createCompositionLayer(PlatformXR::CompositionLayerType, IntSize size, PlatformXR::LayerLayout)
+{
+    auto handle = createLayer(size);
+    if (!handle)
+        return std::nullopt;
+    return PlatformXR::LayerInfo { *handle, 1 };
+}
+#endif
 
 void SimulatedXRDevice::deleteLayer(PlatformXR::LayerHandle handle)
 {

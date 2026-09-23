@@ -335,6 +335,15 @@ bool GStreamerQuirksManager::isVideoCapsGLCompatible(const GRefPtr<GstCaps>& cap
     return true;
 }
 
+GstState GStreamerQuirksManager::eosMediaPlayerState() const
+{
+    for (auto& quirk : m_quirks) {
+        if (auto state = quirk->eosMediaPlayerState())
+            return *state;
+    }
+    return GST_STATE_READY;
+}
+
 bool GStreamerQuirksManager::needsBufferingPercentageCorrection() const
 {
     for (auto& quirk : m_quirks) {

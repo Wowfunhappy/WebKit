@@ -29,6 +29,7 @@
 #include "LibWebRTCObservers.h"
 #include "LibWebRTCProvider.h"
 #include "LibWebRTCRefWrappers.h"
+#include "LibWebRTCRtpReceiverBackend.h"
 #include "LibWebRTCRtpSenderBackend.h"
 #include "RTCRtpReceiver.h"
 #include "Timer.h"
@@ -55,7 +56,6 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 namespace webrtc {
 class CreateSessionDescriptionObserver;
 class DataChannelInterface;
-class MediaStreamInterface;
 class PeerConnectionObserver;
 class SessionDescriptionInterface;
 class SetSessionDescriptionObserver;
@@ -108,7 +108,7 @@ public:
 
     struct Backends {
         Ref<LibWebRTCRtpSenderBackend> senderBackend;
-        UniqueRef<LibWebRTCRtpReceiverBackend> receiverBackend;
+        LibWebRTCRtpReceiverBackendAndSource receiverBackendAndSource;
         UniqueRef<LibWebRTCRtpTransceiverBackend> transceiverBackend;
     };
     ExceptionOr<Backends> addTransceiver(const String& trackKind, const RTCRtpTransceiverInit&, PeerConnectionBackend::IgnoreNegotiationNeededFlag);
@@ -173,7 +173,7 @@ private:
         return result ? webrtc::RefCountReleaseStatus::kOtherRefsRemained : webrtc::RefCountReleaseStatus::kDroppedLastRef;
     }
 
-    std::pair<LibWebRTCRtpSenderBackend::Source, Ref<webrtc::MediaStreamTrackInterface>> createSourceAndRTCTrack(MediaStreamTrack&);
+    std::pair<LibWebRTCRtpSenderBackend::Source, webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface>> createSourceAndRTCTrack(MediaStreamTrack&);
     RefPtr<RealtimeMediaSource> sourceFromNewReceiver(webrtc::RtpReceiverInterface&);
 
 #if !RELEASE_LOG_DISABLED
@@ -201,8 +201,6 @@ private:
 
     bool m_isInitiator { false };
     Timer m_statsLogTimer;
-
-    MemoryCompactRobinHoodHashMap<String, Ref<webrtc::MediaStreamInterface>> m_localStreams;
 
     const std::unique_ptr<LibWebRTCProvider::SuspendableSocketFactory> m_rtcSocketFactory;
 #if !RELEASE_LOG_DISABLED

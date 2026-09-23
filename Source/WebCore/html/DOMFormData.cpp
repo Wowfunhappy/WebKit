@@ -37,6 +37,8 @@
 #include "HTMLFormControlElement.h"
 #include "HTMLFormElement.h"
 
+template class mpark::variant<WTF::Ref<WebCore::File>, WTF::String>;
+
 namespace WebCore {
 
 DOMFormData::DOMFormData(ScriptExecutionContext* context, const PAL::TextEncoding& encoding)

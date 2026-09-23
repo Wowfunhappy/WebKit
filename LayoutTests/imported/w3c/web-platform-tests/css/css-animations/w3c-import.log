@@ -46,6 +46,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animate-with-background-color-oklch-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animate-with-background-color-oklch-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animate-with-background-color-oklch-002.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animate-with-color-mix-2.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animate-with-color-mix.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animate-with-relative-color.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-base-response-001.html
@@ -74,6 +75,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-important-002-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-important-002-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-important-002.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-important-with-transition.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-iteration-count-009.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-iteration-count-calc.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/animation-multiple-from-to-keyframes-with-only-timing-function.html
@@ -113,6 +115,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/computed-style-animation-parsing.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/dialog-animation.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/dialog-backdrop-animation.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-animations/display-contents-animates.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/display-interpolation.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/display-none-dont-cancel-pseudo.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/display-none-dont-cancel.tentative.html
@@ -141,6 +144,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/keyframes-zero-angle-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/missing-values-first-keyframe.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/missing-values-last-keyframe.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-animations/missing-values-middle-keyframe.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/nested-scale-animations-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/nested-scale-animations-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/nested-scale-animations.html

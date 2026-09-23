@@ -13,6 +13,7 @@
     promise_test((test) => {
         var localTrack;
         return navigator.mediaDevices.getUserMedia({audio: true}).then((localStream) => {
+            test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
             localTrack = localStream.getAudioTracks()[0];
             var remoteStream;
             return new Promise((resolve, reject) => {

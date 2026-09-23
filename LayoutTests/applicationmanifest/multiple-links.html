@@ -1,6 +1,5 @@
 <script>
 if (window.testRunner) {
-    testRunner.dumpResourceLoadCallbacks();
     testRunner.dumpAsText();
     testRunner.waitUntilDone();
 }
@@ -9,8 +8,11 @@ if (window.testRunner) {
 <link rel="manifest" href="urlscheme://2">
 <script>
 if (window.testRunner) {
-    testRunner.getApplicationManifestThen(function() {
+    (async () => {
+        const success = await testRunner.getApplicationManifest();
+        outputdiv.innerHTML = `manifest fetch success: ${success}`;
         testRunner.notifyDone();
-    });
+    })();
 }
 </script>
+<div id=outputdiv></div>

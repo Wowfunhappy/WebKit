@@ -38,13 +38,9 @@ namespace WebCore {
 // Suggested by the HTML5 spec.
 unsigned localStorageDatabaseQuotaInBytes = 5 * 1024 * 1024;
 
-StorageNamespaceProvider::StorageNamespaceProvider()
-{
-}
+StorageNamespaceProvider::StorageNamespaceProvider() = default;
 
-StorageNamespaceProvider::~StorageNamespaceProvider()
-{
-}
+StorageNamespaceProvider::~StorageNamespaceProvider() = default;
 
 Ref<StorageArea> StorageNamespaceProvider::localStorageArea(Document& document)
 {
@@ -98,6 +94,11 @@ void StorageNamespaceProvider::setSessionIDForTesting(PAL::SessionID newSessionI
         if (newSessionID != transientLocalStorageNamespace->sessionID())
             m_localStorageNamespace->setSessionIDForTesting(newSessionID);
     }
+}
+
+uint64_t StorageNamespaceProvider::localStorageAreaMapCountForTesting() const
+{
+    return m_localStorageNamespace ? m_localStorageNamespace->storageAreaMapCountForTesting() : 0;
 }
 
 }

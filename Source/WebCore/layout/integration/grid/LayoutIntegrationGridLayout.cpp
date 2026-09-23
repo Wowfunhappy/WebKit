@@ -34,7 +34,7 @@
 #include "LayoutIntegrationBoxTreeUpdater.h"
 #include "RenderGrid.h"
 #include "RenderView.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "UsedTrackSizes.h"
 #include <wtf/CheckedPtr.h>
 #include <wtf/CheckedRef.h>
@@ -48,6 +48,13 @@ GridLayout::GridLayout(RenderGrid& renderGrid)
     : m_gridBox(BoxTreeUpdater { renderGrid }.build())
     , m_layoutState(renderGrid.view().layoutState())
 {
+}
+
+GridLayout::~GridLayout()
+{
+    CheckedRef renderer = gridBoxRenderer();
+    const_cast<CheckedPtr<Layout::ElementBox>&>(m_gridBox) = nullptr;
+    BoxTreeUpdater { renderer }.tearDown();
 }
 
 void GridLayout::updateFormattingContextGeometries()
@@ -144,15 +151,18 @@ static inline Layout::GridLayoutConstraints constraintsForGridContent(const Layo
 
 void GridLayout::updateGridItemRenderers()
 {
+    CheckedRef layoutState = this->layoutState();
+    auto& gridBoxGeometry = layoutState->geometryForBox(gridBox());
+    auto contentBoxOffset = LayoutPoint(gridBoxGeometry.contentBoxLeft(), gridBoxGeometry.contentBoxTop());
+
     for (CheckedRef layoutBox : formattingContextBoxes(gridBox())) {
         CheckedRef renderer = downcast<RenderBox>(*layoutBox->rendererForIntegration());
-        CheckedRef layoutState = this->layoutState();
         auto& gridItemGeometry = layoutState->geometryForBox(layoutBox);
         auto borderBoxRect = Layout::BoxGeometry::borderBoxRect(gridItemGeometry);
 
-        renderer->setLocation(borderBoxRect.topLeft());
-        renderer->setWidth(borderBoxRect.width());
-        renderer->setHeight(borderBoxRect.height());
+        renderer->setLocation(contentBoxOffset + borderBoxRect.topLeft());
+        renderer->setBorderBoxWidth(borderBoxRect.width());
+        renderer->setBorderBoxHeight(borderBoxRect.height());
 
         renderer->setMarginBefore(gridItemGeometry.marginBefore());
         renderer->setMarginAfter(gridItemGeometry.marginAfter());
@@ -172,11 +182,21 @@ void GridLayout::updateFormattingContextRootRenderer(const Layout::GridLayoutCon
         auto& rowSizes = usedTrackSizes.rowSizes;
         auto usedRowGutter = Layout::GridFormattingContext::usedGapValue(renderGrid->style().rowGap());
         auto blockContentSize = std::reduce(rowSizes.begin(), rowSizes.end()) + Layout::GridLayoutUtils::totalGuttersSize(rowSizes.size(), usedRowGutter);
-        renderGrid->setHeight(blockContentSize);
-    }
+        renderGrid->setBorderBoxHeight(blockContentSize + renderGrid->borderAndPaddingLogicalHeight());
+    } else
+        renderGrid->setBorderBoxHeight(layoutConstraints.blockAxis.availableSpace() + renderGrid->borderAndPaddingLogicalHeight());
 
     for (CheckedRef layoutBox : formattingContextBoxes(gridBox()))
         orderIteratorPopulator.collectChild(CheckedRef { downcast<RenderBox>(*layoutBox->rendererForIntegration()) });
+}
+
+// updateFormattingContextRootRenderer may mutate bits of RenderGrid to properly reflect
+// the state and result of layout since certain clients may query this information
+// (see RenderGrid::paintChildren). Undo this state if we are falling back to legacy
+// so that we run a full layout.
+void GridLayout::invalidateFormattingContextRootRenderer(RenderGrid& renderGrid)
+{
+    renderGrid.currentGrid().setNeedsItemsPlacement(true);
 }
 
 std::pair<LayoutUnit, LayoutUnit> GridLayout::computeIntrinsicWidths()
@@ -192,6 +212,54 @@ void GridLayout::layout()
     auto usedTrackSizes = Layout::GridFormattingContext { gridBox(), layoutState() }.layout(gridLayoutConstraints);
     updateGridItemRenderers();
     updateFormattingContextRootRenderer(gridLayoutConstraints, usedTrackSizes);
+    layoutOutOfFlowBoxes(usedTrackSizes);
+}
+
+void GridLayout::layoutOutOfFlowBoxes(const Layout::UsedTrackSizes& usedTrackSizes)
+{
+    CheckedRef renderGrid = gridBoxRenderer();
+    auto* outOfFlowDescendants = renderGrid->outOfFlowBoxes();
+    if (!outOfFlowDescendants)
+        return;
+
+    // Populate grid positions so that gridAreaRangeForOutOfFlow (called from
+    // PositionedLayoutConstraints::captureGridArea during positioned layout)
+    // can resolve grid lines to their positions in the grid.
+    populateGridPositionsForOutOfFlowLayout(usedTrackSizes);
+
+    // FIXME: Determine whether we should conditionally use RelayoutChildren::No
+    // based on whether the grid container size changed, matching the legacy path's
+    // logic (which uses RelayoutChildren::Yes only when size changed).
+    renderGrid->layoutOutOfFlowBoxes(RelayoutChildren::Yes);
+}
+
+void GridLayout::populateGridPositionsForOutOfFlowLayout(const Layout::UsedTrackSizes& usedTrackSizes)
+{
+    CheckedRef renderGrid = gridBoxRenderer();
+
+    // Ensure numTracks() returns the correct value for each direction.
+    renderGrid->currentGrid().ensureGridSize(usedTrackSizes.rowSizes.size(), usedTrackSizes.columnSizes.size());
+
+    auto populate = [&](Style::GridTrackSizingDirection direction) {
+        bool isColumns = direction == Style::GridTrackSizingDirection::Columns;
+        auto& trackSizes = isColumns ? usedTrackSizes.columnSizes : usedTrackSizes.rowSizes;
+        auto gap = Layout::GridFormattingContext::usedGapValue(isColumns ? renderGrid->style().columnGap() : renderGrid->style().rowGap());
+        auto borderAndPadding = isColumns ? renderGrid->borderAndPaddingStart() : renderGrid->borderAndPaddingBefore();
+        auto numberOfTracks = trackSizes.size();
+        bool hasMultipleTracks = numberOfTracks > 1;
+
+        auto& positions = renderGrid->positions(direction);
+        positions.resize(numberOfTracks + 1);
+        positions[0] = borderAndPadding;
+        for (auto [trackIndex, trackSize] : WTF::indexedRange(trackSizes)) {
+            bool isLastTrack = trackIndex == numberOfTracks - 1;
+            auto gapAfterTrack = (!isLastTrack && hasMultipleTracks) ? gap : 0_lu;
+            positions[trackIndex + 1] = positions[trackIndex] + trackSize + gapAfterTrack;
+        }
+    };
+
+    populate(Style::GridTrackSizingDirection::Columns);
+    populate(Style::GridTrackSizingDirection::Rows);
 }
 
 TextStream& operator<<(TextStream& stream, const GridLayout& layout)

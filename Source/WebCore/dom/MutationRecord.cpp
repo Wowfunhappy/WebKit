@@ -36,6 +36,7 @@
 #include "JSNode.h"
 #include "StaticNodeList.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/AbstractSlotVisitorInlines.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
 
@@ -75,6 +76,8 @@ private:
     void visitNodesInGCThread(JSC::AbstractSlotVisitor& visitor) const final
     {
         addWebCoreOpaqueRoot(visitor, m_target.get());
+        addWebCoreOpaqueRoot(visitor, m_previousSibling.get());
+        addWebCoreOpaqueRoot(visitor, m_nextSibling.get());
         // We cannot ref m_addedNodes here as this function may get called from a GC thread.
         SUPPRESS_UNRETAINED_ARG visitNodeListInGCThread(visitor, m_addedNodes.get());
         // We cannot ref m_removedNodes here as this function may get called from a GC thread.

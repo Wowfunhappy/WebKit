@@ -145,7 +145,7 @@ private:
     void save(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs);
     void load(const String& path, CompletionHandler<void(const String&)>&&);
     void pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&);
-    void setSheetRect(const WebCore::FloatRect&);
+    void NODELETE setSheetRect(const WebCore::FloatRect&);
     void setForcedAppearance(WebCore::InspectorFrontendClient::Appearance);
     void startWindowDrag();
     void openURLExternally(const String& url);

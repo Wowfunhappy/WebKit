@@ -33,6 +33,7 @@
 #import "ResourceResponse.h"
 #import "SharedBuffer.h"
 #import <objc/runtime.h>
+#import <wtf/CompletionHandler.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/WorkQueue.h>
@@ -45,7 +46,6 @@
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
 #import <WebCore/ParentalControlsURLFilter.h>
-#import <wtf/CompletionHandler.h>
 #import <pal/cocoa/WebContentRestrictionsSoftLink.h>
 #elif HAVE(WEBCONTENTANALYSIS_FRAMEWORK)
 #import <pal/spi/cocoa/WebFilterEvaluatorSPI.h>
@@ -88,7 +88,8 @@ Ref<ParentalControlsContentFilter> ParentalControlsContentFilter::create(const P
 
 ParentalControlsContentFilter::ParentalControlsContentFilter(const PlatformContentFilter::FilterParameters& params)
 #if HAVE(WEBCONTENTRESTRICTIONS)
-    : m_mainDocumentURL(params.mainDocumentURL)
+    : m_isMainFrameLoad(params.isMainFrameLoad)
+    , m_mainDocumentURL(params.mainDocumentURL)
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
     , m_webContentRestrictionsConfigurationPath(params.webContentRestrictionsConfigurationPath)
 #endif
@@ -97,14 +98,31 @@ ParentalControlsContentFilter::ParentalControlsContentFilter(const PlatformConte
     UNUSED_PARAM(params);
 }
 
-void ParentalControlsContentFilter::willSendRequest(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(String&&)>&& completionHandler)
-{
-    completionHandler({ });
-}
-
 static inline bool canHandleResponse(const ResourceResponse& response)
 {
     return response.url().protocolIsInHTTPFamily();
+}
+
+void ParentalControlsContentFilter::willSendRequest(ResourceRequest&&, const ResourceResponse& redirectResponse, CompletionHandler<void(String&&)>&& completionHandler)
+{
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    if (redirectResponse.isNull() || !canHandleResponse(redirectResponse) || !enabled()) {
+        completionHandler({ });
+        return;
+    }
+
+    urlFilter()->isURLAllowed(m_isMainFrameLoad, m_mainDocumentURL, redirectResponse.url(), [this, protectedThis = Ref { *this }, evaluatedURL = redirectResponse.url(), completionHandler = WTF::move(completionHandler)](bool isAllowed, NSData *replacementData) mutable {
+        if (!isAllowed) {
+            m_state = State::Blocked;
+            m_evaluatedURL = evaluatedURL;
+            m_replacementData = replacementData;
+        }
+        completionHandler({ });
+    });
+#else
+    UNUSED_PARAM(redirectResponse);
+    completionHandler({ });
+#endif
 }
 
 void ParentalControlsContentFilter::responseReceived(const ResourceResponse& response)
@@ -118,7 +136,7 @@ void ParentalControlsContentFilter::responseReceived(const ResourceResponse& res
     ASSERT(!m_evaluatedURL);
     m_evaluatedURL = response.url();
     m_state = State::Filtering;
-    urlFilter()->isURLAllowed(m_mainDocumentURL, *m_evaluatedURL, *this);
+    urlFilter()->isURLAllowed(m_isMainFrameLoad, m_mainDocumentURL, *m_evaluatedURL, *this);
 #elif HAVE(WEBCONTENTANALYSIS_FRAMEWORK)
     ASSERT(!m_webFilterEvaluator);
     m_webFilterEvaluator = adoptNS([allocWebFilterEvaluatorInstance() initWithResponse:protect(response.nsURLResponse()).get()]);
@@ -152,12 +170,12 @@ void ParentalControlsContentFilter::finishedAddingData()
 
     // Callers expect state is ready after finishing adding data.
     Locker resultLocker { m_resultLock };
-    while (!m_isAllowdByWebContentRestrictions) {
+    while (!m_isAllowedByWebContentRestrictions) {
         if (!m_resultCondition.waitFor(m_resultLock, 250_ms))
             RELEASE_LOG_ERROR(ContentFiltering, "ParentalControlsContentFilter::finishedAddingData timed out waiting for result after 250 ms");
     }
 
-    m_state = *m_isAllowdByWebContentRestrictions ? State::Allowed : State::Blocked;
+    m_state = *m_isAllowedByWebContentRestrictions ? State::Allowed : State::Blocked;
     m_replacementData = std::exchange(m_webContentRestrictionsReplacementData, nullptr);
 
 #elif HAVE(WEBCONTENTANALYSIS_FRAMEWORK)
@@ -193,8 +211,8 @@ void ParentalControlsContentFilter::didReceiveAllowDecisionOnQueue(bool isAllowe
     RELEASE_ASSERT(!isMainThread());
 
     Locker resultLocker { m_resultLock };
-    ASSERT(!m_isAllowdByWebContentRestrictions);
-    m_isAllowdByWebContentRestrictions = isAllowed;
+    ASSERT(!m_isAllowedByWebContentRestrictions);
+    m_isAllowedByWebContentRestrictions = isAllowed;
     m_webContentRestrictionsReplacementData = replacementData;
     m_resultCondition.notifyOne();
     callOnMainRunLoop([weakThis = ThreadSafeWeakPtr { *this }]() {
@@ -211,8 +229,8 @@ void ParentalControlsContentFilter::updateFilterStateOnMain()
         return;
 
     Locker resultLocker { m_resultLock };
-    ASSERT(m_isAllowdByWebContentRestrictions);
-    m_state = *m_isAllowdByWebContentRestrictions ? State::Allowed : State::Blocked;
+    ASSERT(m_isAllowedByWebContentRestrictions);
+    m_state = *m_isAllowedByWebContentRestrictions ? State::Allowed : State::Blocked;
     m_replacementData = std::exchange(m_webContentRestrictionsReplacementData, nullptr);
 }
 

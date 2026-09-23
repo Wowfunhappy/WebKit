@@ -31,7 +31,7 @@
 #include "JSDOMConvertObject.h"
 #include "JSDOMConvertSequences.h"
 #include "JSDOMConvertStrings.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
 
 namespace WebCore {
 
@@ -41,11 +41,11 @@ JSValue JSKeyframeEffect::getKeyframes(JSGlobalObject& lexicalGlobalObject, Call
 {
     auto lock = JSLockHolder { &lexicalGlobalObject };
 
-    if (!jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject)->scriptExecutionContext()) [[unlikely]]
+    if (!downcast<JSDOMGlobalObject>(&lexicalGlobalObject)->scriptExecutionContext()) [[unlikely]]
         return jsUndefined();
 
-    auto& domGlobalObject = *jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject);
-    auto computedKeyframes = wrapped().getKeyframes();
+    auto& domGlobalObject = downcast<JSDOMGlobalObject>(lexicalGlobalObject);
+    auto computedKeyframes = protect(wrapped())->getKeyframes();
     auto keyframeObjects = computedKeyframes.map([&](auto& computedKeyframe) -> Strong<JSObject> {
         auto keyframeObject = convertDictionaryToJS(lexicalGlobalObject, domGlobalObject, { computedKeyframe });
         for (auto& [customProperty, propertyValue] : computedKeyframe.customStyleStrings) {

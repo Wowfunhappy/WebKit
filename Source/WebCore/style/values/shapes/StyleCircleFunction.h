@@ -30,6 +30,9 @@
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
+
+struct AcceleratedEffectCircleFunction;
+
 namespace Style {
 
 struct Circle {
@@ -64,6 +67,14 @@ template<> struct Blending<Circle> {
     auto canBlend(const Circle&, const Circle&) -> bool;
     auto blend(const Circle&, const Circle&, const BlendingContext&) -> Circle;
 };
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<CircleFunction, AcceleratedEffectCircleFunction> { AcceleratedEffectCircleFunction operator()(const CircleFunction&, const FloatSize&, ZoomFactor); };
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

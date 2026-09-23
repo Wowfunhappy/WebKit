@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/FileSystemHandleInfo.h>
 #include <WebCore/FileSystemStorageConnection.h>
 #include <wtf/RunLoop.h>
 
@@ -32,9 +33,9 @@ namespace WebCore {
 
 class FileSystemHandleCloseScope : public ThreadSafeRefCounted<FileSystemHandleCloseScope, WTF::DestructionThread::MainRunLoop> {
 public:
-    static Ref<FileSystemHandleCloseScope> create(FileSystemHandleIdentifier identifier, bool isDirectory, FileSystemStorageConnection& connection)
+    static Ref<FileSystemHandleCloseScope> create(FileSystemHandleGlobalIdentifier globalIdentifier, FileSystemHandleIdentifier identifier, FileSystemHandleKind kind, FileSystemStorageConnection& connection)
     {
-        return adoptRef(*new FileSystemHandleCloseScope(identifier, isDirectory, connection));
+        return adoptRef(*new FileSystemHandleCloseScope(globalIdentifier, identifier, kind, connection));
     }
 
     ~FileSystemHandleCloseScope()
@@ -45,25 +46,27 @@ public:
             m_connection->closeHandle(*m_identifier);
     }
 
-    std::pair<FileSystemHandleIdentifier, bool> release()
+    FileSystemHandleInfo release()
     {
         Locker locker { m_lock };
         ASSERT_WITH_MESSAGE(!!m_identifier, "FileSystemHandleCloseScope should not be released more than once");
-        return { *std::exchange(m_identifier, std::nullopt), m_isDirectory };
+        return { m_globalIdentifier, *std::exchange(m_identifier, std::nullopt), m_kind };
     }
 
 private:
-    FileSystemHandleCloseScope(FileSystemHandleIdentifier identifier, bool isDirectory, FileSystemStorageConnection& connection)
-        : m_identifier(identifier)
-        , m_isDirectory(isDirectory)
+    FileSystemHandleCloseScope(FileSystemHandleGlobalIdentifier globalIdentifier, FileSystemHandleIdentifier identifier, FileSystemHandleKind kind, FileSystemStorageConnection& connection)
+        : m_globalIdentifier(globalIdentifier)
+        , m_identifier(identifier)
+        , m_kind(kind)
         , m_connection(Ref { connection })
     {
         ASSERT(RunLoop::isMain());
     }
 
     Lock m_lock;
+    FileSystemHandleGlobalIdentifier m_globalIdentifier;
     Markable<FileSystemHandleIdentifier> m_identifier WTF_GUARDED_BY_LOCK(m_lock);
-    bool m_isDirectory;
+    FileSystemHandleKind m_kind;
     const Ref<FileSystemStorageConnection> m_connection;
 };
 

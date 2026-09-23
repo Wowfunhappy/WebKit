@@ -28,7 +28,6 @@
 
 #include "JSInjectedScriptHost.h"
 #include "JSObjectInlines.h"
-#include "StructureInlines.h"
 
 namespace Inspector {
 

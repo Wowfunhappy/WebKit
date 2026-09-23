@@ -2,7 +2,7 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Nicholas Shanks <webkit@nickshanks.com>
  * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
@@ -70,11 +70,18 @@ public:
     const FontFeatureSettings& featureSettings() const LIFETIME_BOUND { return m_featureSettings; }
     const FontVariationSettings& variationSettings() const LIFETIME_BOUND { return m_variationSettings; }
     FontSynthesisLonghandValue fontSynthesisWeight() const { return static_cast<FontSynthesisLonghandValue>(m_fontSynthesisWeight); }
-    FontSynthesisLonghandValue fontSynthesisStyle() const { return static_cast<FontSynthesisLonghandValue>(m_fontSynthesisStyle); }
+    FontSynthesisStyleLonghandValue fontSynthesisStyle() const { return static_cast<FontSynthesisStyleLonghandValue>(m_fontSynthesisStyle); }
     FontSynthesisLonghandValue fontSynthesisSmallCaps() const { return static_cast<FontSynthesisLonghandValue>(m_fontSynthesisCaps); }
     bool hasAutoFontSynthesisWeight() const { return fontSynthesisWeight() == FontSynthesisLonghandValue::Auto; }
-    bool hasAutoFontSynthesisStyle() const { return fontSynthesisStyle() == FontSynthesisLonghandValue::Auto; }
+    bool hasAutoFontSynthesisStyle() const { return fontSynthesisStyle() == FontSynthesisStyleLonghandValue::Auto; }
     bool hasAutoFontSynthesisSmallCaps() const { return fontSynthesisSmallCaps() == FontSynthesisLonghandValue::Auto; }
+    bool allowsItalicOrObliqueFontSynthesisStyle() const
+    {
+        auto synthesisStyle = fontSynthesisStyle();
+        if (synthesisStyle == FontSynthesisStyleLonghandValue::None)
+            return false;
+        return !(synthesisStyle == FontSynthesisStyleLonghandValue::ObliqueOnly && m_fontSelectionRequest.slopeAxis == FontStyleAxis::ital);
+    }
     FontVariantLigatures variantCommonLigatures() const { return static_cast<FontVariantLigatures>(m_variantCommonLigatures); }
     FontVariantLigatures variantDiscretionaryLigatures() const { return static_cast<FontVariantLigatures>(m_variantDiscretionaryLigatures); }
     FontVariantLigatures variantHistoricalLigatures() const { return static_cast<FontVariantLigatures>(m_variantHistoricalLigatures); }
@@ -96,7 +103,7 @@ public:
     FontVariantLigaturesValues NODELETE variantLigatures() const;
     FontVariantSettings variantSettings() const;
     FontOpticalSizing opticalSizing() const { return static_cast<FontOpticalSizing>(m_opticalSizing); }
-    FontStyleAxis fontStyleAxis() const { return static_cast<FontStyleAxis>(m_fontStyleAxis); }
+    FontStyleAxis fontStyleAxis() const { return m_fontSelectionRequest.slopeAxis; }
     AllowUserInstalledFonts shouldAllowUserInstalledFonts() const { return static_cast<AllowUserInstalledFonts>(m_shouldAllowUserInstalledFonts); }
     bool shouldDisableLigaturesForSpacing() const { return m_shouldDisableLigaturesForSpacing; }
     const FontPalette& fontPalette() const LIFETIME_BOUND { return m_fontPalette; }
@@ -105,7 +112,7 @@ public:
     void setComputedSize(float s, float zoom = 1.0f) { m_computedSize = clampToFloat(s); m_usedZoomFactor = zoom; }
     void setTextSpacingTrim(TextSpacingTrim v) { m_textSpacingTrim = v; }
     void setTextAutospace(TextAutospace v) { m_textAutospace = v; }
-    void setFontStyleAxis(FontStyleAxis axis) { m_fontStyleAxis = std::to_underlying(axis); }
+    void setFontStyleAxis(FontStyleAxis axis) { m_fontSelectionRequest.slopeAxis = axis; updatePenalizeObliqueFontSelection(); }
     void setFontStyleSlope(std::optional<FontSelectionValue> slope) { m_fontSelectionRequest.slope = slope; }
     void setIsItalic(bool isItalic) { setFontStyleSlope(isItalic ? std::optional<FontSelectionValue> { italicValue() } : std::optional<FontSelectionValue> { }); }
     void setWeight(FontSelectionValue weight) { m_fontSelectionRequest.weight = weight; }
@@ -118,7 +125,7 @@ public:
     void setFeatureSettings(FontFeatureSettings&& settings) { m_featureSettings = WTF::move(settings); }
     void setVariationSettings(FontVariationSettings&& settings) { m_variationSettings = WTF::move(settings); }
     void setFontSynthesisWeight(FontSynthesisLonghandValue value) { m_fontSynthesisWeight =  std::to_underlying(value); }
-    void setFontSynthesisStyle(FontSynthesisLonghandValue value) { m_fontSynthesisStyle = std::to_underlying(value); }
+    void setFontSynthesisStyle(FontSynthesisStyleLonghandValue value) { m_fontSynthesisStyle = std::to_underlying(value); updatePenalizeObliqueFontSelection(); }
     void setFontSynthesisSmallCaps(FontSynthesisLonghandValue value) { m_fontSynthesisCaps = std::to_underlying(value); }
     void setVariantCommonLigatures(FontVariantLigatures variant) { m_variantCommonLigatures = std::to_underlying(variant); }
     void setVariantDiscretionaryLigatures(FontVariantLigatures variant) { m_variantDiscretionaryLigatures = std::to_underlying(variant); }
@@ -151,6 +158,11 @@ public:
     static AtomString platformResolveGenericFamily(UScriptCode, const AtomString& locale, const AtomString& familyName);
 
 private:
+    void updatePenalizeObliqueFontSelection()
+    {
+        m_fontSelectionRequest.penalizeObliqueFontSelection = fontSynthesisStyle() == FontSynthesisStyleLonghandValue::ObliqueOnly && m_fontSelectionRequest.slopeAxis == FontStyleAxis::ital;
+    }
+
     // FIXME: Investigate moving these into their own object on the heap (to save memory).
     FontFeatureSettings m_featureSettings;
     FontVariationSettings m_variationSettings;
@@ -172,7 +184,7 @@ private:
     PREFERRED_TYPE(TextRenderingMode) unsigned m_textRendering : 2;
     unsigned m_script : 7; // UScriptCode - Used to help choose an appropriate font for generic font families.
     PREFERRED_TYPE(FontSynthesisLonghandValue) unsigned m_fontSynthesisWeight : 1;
-    PREFERRED_TYPE(FontSynthesisLonghandValue) unsigned m_fontSynthesisStyle : 1;
+    PREFERRED_TYPE(FontSynthesisStyleLonghandValue) unsigned m_fontSynthesisStyle : 2;
     PREFERRED_TYPE(FontSynthesisLonghandValue) unsigned m_fontSynthesisCaps : 1;
     PREFERRED_TYPE(FontVariantLigatures) unsigned m_variantCommonLigatures : 2;
     PREFERRED_TYPE(FontVariantLigatures) unsigned m_variantDiscretionaryLigatures : 2;
@@ -190,10 +202,11 @@ private:
     PREFERRED_TYPE(FontVariantEastAsianRuby) unsigned m_variantEastAsianRuby : 1;
     PREFERRED_TYPE(FontVariantEmoji) unsigned m_variantEmoji : 2;
     PREFERRED_TYPE(FontOpticalSizing) unsigned m_opticalSizing : 1;
-    PREFERRED_TYPE(FontStyleAxis) unsigned m_fontStyleAxis : 1;
     PREFERRED_TYPE(AllowUserInstalledFonts) unsigned m_shouldAllowUserInstalledFonts : 1; // If this description is allowed to match a user-installed font
     PREFERRED_TYPE(bool) unsigned m_shouldDisableLigaturesForSpacing : 1; // If letter-spacing is nonzero, we need to disable ligatures, which affects font preparation
     PREFERRED_TYPE(bool) unsigned m_evaluationTimeZoomEnabled : 1;
 };
+
+FontStyleAxis variationStyleAxis(const FontDescription&, const FontSelectionSpecifiedCapabilities& faceCapabilities);
 
 } // namespace WebCore

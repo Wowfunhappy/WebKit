@@ -44,7 +44,7 @@ class RenderListBox final : public RenderBlockFlow, public ScrollableArea {
     WTF_MAKE_TZONE_ALLOCATED(RenderListBox);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderListBox);
 public:
-    RenderListBox(HTMLSelectElement&, RenderStyle&&);
+    RenderListBox(HTMLSelectElement&, Style::ComputedStyle&&);
     virtual ~RenderListBox();
 
     // CheckedPtr interface
@@ -98,10 +98,10 @@ private:
 
     bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr) override;
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
-    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
-    void computePreferredLogicalWidths() override;
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override;
+    void computeIntrinsicLogicalWidthContributions() override;
     LogicalExtentComputedValues computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const override;
 
     void layout() override;
@@ -147,7 +147,7 @@ private:
     Scrollbar* NODELETE verticalScrollbar() const final;
     Scrollbar* NODELETE horizontalScrollbar() const final;
     IntSize contentsSize() const final;
-    IntSize visibleSize() const final { return IntSize(width(), height()); }
+    IntSize visibleSize() const final { return IntSize(borderBoxWidth(), borderBoxHeight()); }
     IntPoint lastKnownMousePositionInView() const final;
     bool isHandlingWheelEvent() const final;
     bool shouldSuspendScrollAnimations() const final;

@@ -51,9 +51,9 @@ public:
     // placate some template specialization we do elsewhere.
     static JSDataView* createUninitialized(JSGlobalObject*, Structure*, size_t length);
     static JSDataView* create(JSGlobalObject*, Structure*, size_t length);
-    bool setFromTypedArray(JSGlobalObject*, size_t offset, JSArrayBufferView*, size_t objectOffset, size_t length, CopyType);
-    bool setFromArrayLike(JSGlobalObject*, size_t offset, JSObject*, size_t objectOffset, size_t length);
-    bool setIndex(JSGlobalObject*, size_t, JSValue);
+    bool NODELETE setFromTypedArray(JSGlobalObject*, size_t offset, JSArrayBufferView*, size_t objectOffset, size_t length, CopyType);
+    bool NODELETE setFromArrayLike(JSGlobalObject*, size_t offset, JSObject*, size_t objectOffset, size_t length);
+    bool NODELETE setIndex(JSGlobalObject*, size_t, JSValue);
 
     template<typename Getter>
     std::optional<size_t> viewByteLength(Getter& getter)
@@ -92,6 +92,11 @@ public:
     RefPtr<DataView> unsharedTypedImpl();
     
     static constexpr TypedArrayType TypedArrayStorageType = TypeDataView;
+
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrapped(VM&, JSValue);
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrappedAllowResizable(VM&, JSValue);
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrappedAllowShared(VM&, JSValue);
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrappedAllowSharedAndResizable(VM&, JSValue);
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
     

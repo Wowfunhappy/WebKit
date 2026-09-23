@@ -98,6 +98,7 @@ typedef void* PlatformScrollEvent;
 
 namespace WebKit {
 
+class SwipeProgressTracker;
 class ViewSnapshot;
 class WebBackForwardList;
 #if ENABLE(BACK_FORWARD_LIST_SWIFT)
@@ -117,11 +118,13 @@ public:
     static constexpr double defaultMaxMagnification { 3 };
 
     static Ref<ViewGestureController> create(WebPageProxy&);
+    static ViewGestureController* NODELETE controllerForPage(WebPageProxyIdentifier);
     ~ViewGestureController();
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
+    void platformInitialize();
     void platformTeardown();
 
     void disconnectFromProcess();
@@ -152,7 +155,7 @@ public:
 
     bool isPhysicallySwipingLeft(SwipeDirection) const;
 
-    double magnification() const;
+    double NODELETE magnification() const;
 
     void prepareMagnificationGesture(WebCore::FloatPoint);
     void applyMagnification();
@@ -167,10 +170,14 @@ public:
     void gestureEventWasNotHandledByWebCore(PlatformMagnificationEvent, WebCore::FloatPoint origin);
 
     void setCustomSwipeViews(Vector<RetainPtr<NSView>> views) { m_customSwipeViews = WTF::move(views); }
+    bool hasCustomSwipeViews() const { return !m_customSwipeViews.isEmpty(); }
+    float customSwipeViewsWidth() const { return m_currentSwipeCustomViewBounds.width(); }
     const WebCore::FloatBoxExtent& customSwipeViewsObscuredContentInsets() const LIFETIME_BOUND { return m_customSwipeViewsObscuredContentInsets; }
     void setCustomSwipeViewsObscuredContentInsets(WebCore::FloatBoxExtent&& insets) { m_customSwipeViewsObscuredContentInsets = WTF::move(insets); }
     WebCore::FloatRect windowRelativeBoundsForCustomSwipeViews() const;
     void setDidMoveSwipeSnapshotCallback(BlockPtr<void (CGRect)>&& callback) { m_didMoveSwipeSnapshotCallback = WTF::move(callback); }
+
+    SwipeProgressTracker* swipeProgressTracker() const { return m_swipeProgressTracker.get(); }
 #elif PLATFORM(IOS_FAMILY)
     bool isNavigationSwipeGestureRecognizer(UIGestureRecognizer *) const;
     void installSwipeHandler(UIView *gestureRecognizerView, UIView *swipingView);
@@ -243,7 +250,7 @@ private:
 #if ENABLE(BACK_FORWARD_LIST_SWIFT)
     std::optional<WebBackForwardList> NODELETE backForwardListForNavigation() const;
 #else
-    WebBackForwardList* backForwardListForNavigation() const;
+    WebBackForwardList* NODELETE backForwardListForNavigation() const;
 #endif
 #endif
 
@@ -315,6 +322,8 @@ private:
 
     WebCore::FloatPoint NODELETE scaledMagnificationOrigin(WebCore::FloatPoint origin, double scale);
 
+    std::optional<bool> platformEventShouldCancelSwipe(PlatformScrollEvent, WebCore::FloatSize);
+
     void startSwipeGesture(PlatformScrollEvent, SwipeDirection);
     void trackSwipeGesture(PlatformScrollEvent, SwipeDirection, RefPtr<WebBackForwardListItem>);
 
@@ -323,7 +332,7 @@ private:
 
     void willEndSwipeGesture(WebBackForwardListItem& targetItem, bool cancelled);
     void endSwipeGesture(WebBackForwardListItem* targetItem, bool cancelled);
-    bool shouldUseSnapshotForSize(ViewSnapshot&, WebCore::FloatSize swipeLayerSize, WebCore::FloatBoxExtent obscuredContentInsets);
+    bool NODELETE shouldUseSnapshotForSize(ViewSnapshot&, WebCore::FloatSize swipeLayerSize, WebCore::FloatBoxExtent obscuredContentInsets);
 
 #if PLATFORM(MAC)
     static double resistanceForDelta(double deltaScale, double currentScale, double minMagnification, double maxMagnification);
@@ -442,6 +451,9 @@ private:
     WebCore::FloatRect m_currentSwipeCustomViewBounds;
 
     BlockPtr<void (CGRect)> m_didMoveSwipeSnapshotCallback;
+
+    friend class SwipeProgressTracker;
+    std::unique_ptr<SwipeProgressTracker> m_swipeProgressTracker;
 #elif PLATFORM(IOS_FAMILY)
     WeakObjCPtr<UIView> m_liveSwipeView;
     RetainPtr<UIView> m_liveSwipeViewClippingView;

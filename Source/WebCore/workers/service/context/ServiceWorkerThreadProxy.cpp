@@ -34,6 +34,7 @@
 #include "EventNames.h"
 #include "FetchLoader.h"
 #include "FetchLoaderClient.h"
+#include "FileSystemStorageConnection.h"
 #include "FrameLoader.h"
 #include "IDBConnectionProxy.h"
 #include "LoaderStrategy.h"
@@ -48,6 +49,7 @@
 #include "ServiceWorkerGlobalScope.h"
 #include "Settings.h"
 #include "SocketProvider.h"
+#include "StorageConnection.h"
 #include "WebRTCProvider.h"
 #include "WorkerGlobalScope.h"
 #include <wtf/CrossThreadCopier.h>
@@ -157,6 +159,14 @@ RefPtr<CacheStorageConnection> ServiceWorkerThreadProxy::createCacheStorageConne
     if (!m_cacheStorageConnection)
         m_cacheStorageConnection = Ref { m_cacheStorageProvider.get() }->createCacheStorageConnection();
     return m_cacheStorageConnection;
+}
+
+RefPtr<IDBClient::IDBConnectionProxy> ServiceWorkerThreadProxy::createIDBConnectionProxy()
+{
+    // Service workers are terminated by WebProcess::networkProcessConnectionClosed()
+    // when the network process crashes, so there is no surviving worker to
+    // refresh an IDB proxy for.
+    return nullptr;
 }
 
 RefPtr<RTCDataChannelRemoteHandlerConnection> ServiceWorkerThreadProxy::createRTCDataChannelRemoteHandlerConnection()
@@ -281,7 +291,7 @@ void ServiceWorkerThreadProxy::navigationPreloadFailed(SWServerConnectionIdentif
 
 void ServiceWorkerThreadProxy::removeFetch(SWServerConnectionIdentifier connectionIdentifier, FetchIdentifier fetchIdentifier)
 {
-    RELEASE_LOG_FORWARDABLE(ServiceWorker, SERVICEWORKERTHREADPROXY_REMOVEFETCH, fetchIdentifier.toUInt64());
+    RELEASE_LOG_FORWARDABLE(ServiceWorker, ServiceWorkerThreadProxyRemoveFetch, fetchIdentifier.toUInt64());
 
     postTaskForModeToWorkerOrWorkletGlobalScope([protectedThis = Ref { *this }, connectionIdentifier, fetchIdentifier] (auto& context) {
         downcast<ServiceWorkerGlobalScope>(context).removeFetchTask({ connectionIdentifier, fetchIdentifier });
@@ -472,6 +482,14 @@ void ServiceWorkerThreadProxy::setInspectable(bool inspectable)
 #else
     UNUSED_PARAM(inspectable);
 #endif // ENABLE(REMOTE_INSPECTOR)
+}
+
+RefPtr<FileSystemStorageConnection> ServiceWorkerThreadProxy::createFileSystemStorageConnection()
+{
+    ASSERT(isMainThread());
+    if (RefPtr storageConnection = m_document->storageConnection())
+        return storageConnection->fileSystemStorageConnection();
+    return nullptr;
 }
 
 } // namespace WebCore

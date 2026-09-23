@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "BlockFormattingQuirks.h"
+#include "LayoutBoxInlines.h"
 
 #include "BlockFormattingContext.h"
 #include "BlockFormattingGeometry.h"
@@ -35,7 +36,7 @@
 #include "LayoutElementBox.h"
 #include "LayoutInitialContainingBlock.h"
 #include "LayoutState.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 namespace Layout {

@@ -13,5 +13,5 @@ Inline block child gets block and inline padding.
 Padding applies to linebox, not linebox overflow.
 
 
-FAIL Container padding is applied approriately to block/inline children. assert_true: horizontal scrollbar 1 expected true got false
+PASS Container padding is applied approriately to block/inline children.
 

@@ -37,6 +37,8 @@ public:
     std::optional<bool> isHardwareAccelerated(GstElementFactory*) final;
     unsigned getAdditionalPlaybinFlags() const final { return getGstPlayFlag("text") | getGstPlayFlag("native-video"); }
 
+    std::optional<GstState> eosMediaPlayerState() const final { return GST_STATE_READY; }
+
 private:
     mutable GRefPtr<GstCaps> m_glCaps;
 };

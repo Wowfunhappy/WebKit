@@ -70,16 +70,20 @@ Vector<ContentFilter::Type>& ContentFilter::types()
     return types;
 }
 
-RefPtr<ContentFilter> ContentFilter::create(ContentFilterClient& client)
+RefPtr<ContentFilter> ContentFilter::create(ContentFilterClient& client, IsMainFrameLoad isMainFrameLoad)
 {
-    PlatformContentFilter::FilterParameters params {
+    PlatformContentFilter::FilterParameters params;
 #if HAVE(WEBCONTENTRESTRICTIONS)
+    params = PlatformContentFilter::FilterParameters {
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
         client.webContentRestrictionsConfigurationPath(),
 #endif
-        client.mainDocumentURL(),
-#endif
+        isMainFrameLoad,
+        client.mainDocumentURL()
     };
+#else
+    UNUSED_PARAM(isMainFrameLoad);
+#endif
     auto filters = types().map([params](auto& type) {
         return type.create(params);
     });
@@ -188,7 +192,10 @@ void ContentFilter::continueAfterWillSendRequest(ResourceRequest&& request, cons
             contentFilterCallbackAggregator->didReceivePlatformContentFilterDecision(platformContentFilter, WTF::move(urlString));
         };
 
-        ASSERT(platformContentFilter->needsMoreData());
+        if (!platformContentFilter->needsMoreData()) {
+            completion({ });
+            continue;
+        }
         platformContentFilter->willSendRequest(ResourceRequest { request }, redirectResponse, WTF::move(completion));
     }
 }

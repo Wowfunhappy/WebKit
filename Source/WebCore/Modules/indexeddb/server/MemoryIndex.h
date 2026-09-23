@@ -46,7 +46,7 @@ class ThreadSafeDataBuffer;
 struct IDBKeyRangeData;
 
 namespace IndexedDB {
-enum class GetAllType : bool;
+enum class GetAllType : uint8_t;
 enum class IndexRecordType : bool;
 }
 

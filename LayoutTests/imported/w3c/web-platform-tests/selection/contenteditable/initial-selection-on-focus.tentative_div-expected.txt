@@ -7,8 +7,10 @@ PASS editor should set selection to before the <br> node
 PASS editor should set selection to before the first <br> node
 PASS editor should set selection to start of the text node in the <p> node
 PASS editor should set selection to start of the first visible character in the text node in the <p> node
-PASS editor should set selection to start of the text node in the <p> node because of preformatted white-space
-PASS editor should set selection to start of the text node in the <p> node because of preformatted line break
+PASS editor should set selection to start of the text node in the <p> node because of preformatted white-space (pre)
+PASS editor should set selection to start of the text node in the <p> node because of preformatted line break (pre)
+PASS editor should set selection to start of the text node in the <p> node because of preformatted white-space (pre-wrap)
+PASS editor should set selection to start of the text node in the <p> node because of preformatted line break (pre-wrap)
 PASS editor should set selection to before the <br> node in the <p> node
 PASS editor should set selection to before the first <br> node in the <p> node
 PASS editor should set selection to start of the text node in the <span> node
@@ -74,12 +76,12 @@ PASS editor should collapse selection to start of itself when there is only empt
 PASS editor should collapse selection to start of itself when there is only empty inline elements before the non-editable node before first editable <br> node
 PASS editor should collapse selection to start of itself when there is only empty inline elements before the non-editable node having a text node before first editable <br> node
 PASS editor should collapse selection to start of itself when there is only empty inline elements before the non-editable node having a <br> node before first editable <br> node
-PASS editor should collapse selection to start of the first dive element when there is only empty inline elements before the non-editable node before first editable text node
-PASS editor should collapse selection to start of the first dive element when there is only empty inline elements before the non-editable node having a text node before first editable text node
-PASS editor should collapse selection to start of the first dive element when there is only empty inline elements before the non-editable node having a <br> node before first editable text node
-PASS editor should collapse selection to start of the first dive element when there is only empty inline elements before the non-editable node before first editable <br> node
-PASS editor should collapse selection to start of the first dive element when there is only empty inline elements before the non-editable node having a text node before first editable <br> node
-PASS editor should collapse selection to start of the first dive element when there is only empty inline elements before the non-editable node having a <br> node before first editable <br> node
+PASS editor should collapse selection to start of the first div element when there is only empty inline elements before the non-editable node before first editable text node
+PASS editor should collapse selection to start of the first div element when there is only empty inline elements before the non-editable node having a text node before first editable text node
+PASS editor should collapse selection to start of the first div element when there is only empty inline elements before the non-editable node having a <br> node before first editable text node
+PASS editor should collapse selection to start of the first div element when there is only empty inline elements before the non-editable node before first editable <br> node
+PASS editor should collapse selection to start of the first div element when there is only empty inline elements before the non-editable node having a text node before first editable <br> node
+PASS editor should collapse selection to start of the first div element when there is only empty inline elements before the non-editable node having a <br> node before first editable <br> node
 PASS editor should collapse selection to the first editable text node in the first <span> node even if followed by a non-editable node
 PASS editor should collapse selection to the first editable text node in the first <span> node even if followed by a non-editable node having another text node
 PASS editor should collapse selection to the first editable text node in the first <span> node even if followed by a non-editable node having a <br> node

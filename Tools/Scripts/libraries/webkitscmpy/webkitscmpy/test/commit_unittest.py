@@ -619,3 +619,44 @@ class TestDoCommit(testing.PathTestCase):
             '')
         self.assertEqual(captured.stdout.getvalue(), "")
         self.assertEqual(captured.stderr.getvalue(), "")
+
+    def test_commit_with_radar_primary_bug_url_ordering(self):
+        import copy
+        from webkitbugspy import Issue
+        # Create issues where Radar issue 1 has a comment referencing Bugzilla issue 2,
+        # so resolving rdar://1 produces a cross-tracker reference.
+        issues = copy.deepcopy(bmocks.ISSUES)
+        issues[0]['comments'] = list(issues[0].get('comments', [])) + [
+            Issue.Comment(
+                user=bmocks.USERS['Tim Contributor'],
+                timestamp=1639536300,
+                content='{}/show_bug.cgi?id=2'.format(self.BUGZILLA),
+            ),
+        ]
+        with OutputCapture(level=logging.INFO) as captured, mocks.remote.GitHub(
+                projects=bmocks.PROJECTS) as remote, bmocks.Bugzilla(
+                self.BUGZILLA.split('://')[-1],
+                projects=bmocks.PROJECTS, issues=issues,
+                environment=Environment(
+                    BUGS_EXAMPLE_COM_USERNAME='tcontributor@example.com',
+                    BUGS_EXAMPLE_COM_PASSWORD='password',
+                )), bmocks.Radar(issues=issues), patch(
+            'webkitbugspy.Tracker._trackers', [bugzilla.Tracker(self.BUGZILLA), radar.Tracker()],
+        ), mocks.local.Git(
+            self.path, remote='https://{}'.format(remote.remote),
+            remotes=dict(fork='https://{}/Contributor/WebKit'.format(remote.hosts[0])),
+        ) as repo, mocks.local.Svn():
+            repo.staged['added.txt'] = 'added'
+            self.assertEqual(0, program.main(
+                args=('commit', '-i', 'rdar://1'),
+                path=self.path,
+            ))
+            # Bugzilla URL must come before Radar URL in the commit message
+            self.assertEqual(
+                'Example issue 1\n'
+                '{bugzilla}/show_bug.cgi?id=2\n'
+                'rdar://1\n'
+                'Reviewed by Jonathan Bedard\n\n'
+                ' * added.txt\n'.format(bugzilla=self.BUGZILLA),
+                repo.head.message,
+            )

@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if HAVE_CORE_ANIMATION_SEPARATED_LAYERS && compiler(>=6.2)
+#if HAVE_CORE_ANIMATION_SEPARATED_LAYERS
 
 enum SeparatedImageViewConstants {
     static let cancellationDelay = Duration.seconds(0.4)

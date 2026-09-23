@@ -28,6 +28,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -37,7 +38,6 @@
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -59,11 +59,12 @@ using JSDedicatedWorkerGlobalScopeDOMConstructor = JSDOMConstructorNotConstructa
 
 /* Hash table */
 
-static const struct CompactHashIndex JSDedicatedWorkerGlobalScopeTableIndex[4] = {
+static const struct CompactHashIndex JSDedicatedWorkerGlobalScopeTableIndex[5] = {
     { -1, -1 },
+    { -1, -1 },
+    { -1, -1 },
+    { 0, 4 },
     { 1, -1 },
-    { -1, -1 },
-    { 0, -1 },
 };
 
 
@@ -86,7 +87,7 @@ template<> void JSDedicatedWorkerGlobalScopeDOMConstructor::initializeProperties
     JSString* nameString = jsNontrivialString(vm, "DedicatedWorkerGlobalScope"_s);
     m_originalName.set(vm, this, nameString);
     putDirect(vm, vm.propertyNames->name, nameString, JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
-    putDirect(vm, vm.propertyNames->prototype, globalObject.getPrototypeDirect(), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::DontDelete);
+    putDirect(vm, vm.propertyNames->prototype, WebCore::storedPrototype(globalObject.structure(), &globalObject), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::DontDelete);
 }
 
 /* Hash table for prototype */
@@ -104,11 +105,16 @@ static const std::array<HashTableValue, 1> JSDedicatedWorkerGlobalScopePrototype
 static const HashTable JSDedicatedWorkerGlobalScopePrototypeTable = { 1, 1, static_cast<uint8_t>(static_cast<unsigned>(PropertyAttribute::DontEnum)), JSDedicatedWorkerGlobalScope::info(), JSDedicatedWorkerGlobalScopePrototypeTableValues.data(), JSDedicatedWorkerGlobalScopePrototypeTableIndex };
 const ClassInfo JSDedicatedWorkerGlobalScopePrototype::s_info = { "DedicatedWorkerGlobalScope"_s, &Base::s_info, &JSDedicatedWorkerGlobalScopePrototypeTable, nullptr, CREATE_METHOD_TABLE(JSDedicatedWorkerGlobalScopePrototype) };
 
+JSC::Structure* JSDedicatedWorkerGlobalScopePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSDedicatedWorkerGlobalScopePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSDedicatedWorkerGlobalScope::info(), JSDedicatedWorkerGlobalScopePrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSDedicatedWorkerGlobalScope::s_info = { "DedicatedWorkerGlobalScope"_s, &Base::s_info, &JSDedicatedWorkerGlobalScopeTable, nullptr, CREATE_METHOD_TABLE(JSDedicatedWorkerGlobalScope) };
@@ -128,19 +134,31 @@ void JSDedicatedWorkerGlobalScope::finishCreation(VM& vm, JSGlobalProxy* proxy)
 }
 #endif
 
+JSDedicatedWorkerGlobalScope* JSDedicatedWorkerGlobalScope::create(JSC::VM& vm, JSC::Structure* structure, Ref<DedicatedWorkerGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
+{
+    JSDedicatedWorkerGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSDedicatedWorkerGlobalScope>(vm)) JSDedicatedWorkerGlobalScope(vm, structure, WTF::move(impl));
+    ptr->finishCreation(vm, proxy);
+    return ptr;
+}
+
+JSC::Structure* JSDedicatedWorkerGlobalScope::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 JSValue JSDedicatedWorkerGlobalScope::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSDedicatedWorkerGlobalScopeDOMConstructor, DOMConstructorID::DedicatedWorkerGlobalScope>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSDedicatedWorkerGlobalScopeDOMConstructor, DOMConstructorID::DedicatedWorkerGlobalScope>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsDedicatedWorkerGlobalScopeConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSDedicatedWorkerGlobalScopePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSDedicatedWorkerGlobalScopePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSDedicatedWorkerGlobalScope::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSDedicatedWorkerGlobalScope::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsDedicatedWorkerGlobalScope_DedicatedWorkerGlobalScopeConstructorGetter(JSGlobalObject& lexicalGlobalObject, JSDedicatedWorkerGlobalScope& thisObject)
@@ -178,7 +196,7 @@ JSC::GCClient::IsoSubspace* JSDedicatedWorkerGlobalScope::subspaceForImpl(JSC::V
 
 void JSDedicatedWorkerGlobalScope::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSDedicatedWorkerGlobalScope*>(cell);
+    auto* thisObject = uncheckedDowncast<JSDedicatedWorkerGlobalScope>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));

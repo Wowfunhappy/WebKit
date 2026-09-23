@@ -38,6 +38,7 @@ var module = new WebAssembly.Module(wasm);
 var instance_step = new WebAssembly.Instance(module);
 let test = instance_step.exports.test;
 
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     test();

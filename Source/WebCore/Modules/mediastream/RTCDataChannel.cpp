@@ -40,6 +40,7 @@
 #include "RTCErrorEvent.h"
 #include "ScriptExecutionContext.h"
 #include "ScriptWrappableInlines.h"
+#include "SecurityOrigin.h"
 #include "SharedBuffer.h"
 #include <JavaScriptCore/ArrayBufferView.h>
 #include <JavaScriptCore/ConsoleTypes.h>
@@ -117,13 +118,13 @@ void RTCDataChannel::setBinaryType(BinaryType binaryType)
     m_binaryType = binaryType;
 }
 
-static size_t maxSctpSendQueueSize()
+static size_t NODELETE maxSctpSendQueueSize()
 {
     // This mirrors webrtc::DataChannelInterface::MaxSendQueueSize()
     return 16 * 1024 * 1024;
 }
 
-static std::optional<size_t> computeNewBufferedAmount(size_t bufferedAmount, size_t dataSize)
+static std::optional<size_t> NODELETE computeNewBufferedAmount(size_t bufferedAmount, size_t dataSize)
 {
     if (!WTF::safeAdd(bufferedAmount, dataSize, bufferedAmount))
         return { };

@@ -14,6 +14,7 @@ promise_test(async (test) => {
     if (window.internals)
         internals.setEnableWebRTCEncryption(false);
     const localStream = await navigator.mediaDevices.getUserMedia({video: true});
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
 
     video.srcObject = await new Promise((resolve, reject) => {
         createConnections((localConnection) => {

@@ -28,7 +28,7 @@
     [CEReactions=NotNeeded, Reflect] attribute DOMString frameBorder;
     [CEReactions=NotNeeded, ReflectURL] attribute USVString longDesc;
     [CEReactions=NotNeeded, Reflect] attribute boolean noResize;
-    [CheckSecurityForNode] readonly attribute Document? contentDocument;
+    [CheckSecurityForNodeWithFrameOwner] readonly attribute Document? contentDocument;
     readonly attribute WindowProxy? contentWindow;
 
     [CEReactions=NotNeeded, Reflect] attribute [LegacyNullToEmptyString] DOMString marginHeight;

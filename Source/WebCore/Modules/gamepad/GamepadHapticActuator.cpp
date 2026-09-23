@@ -38,6 +38,7 @@
 #include "JSDOMConvertStrings.h"
 #include "JSDOMPromiseDeferred.h"
 #include "Settings.h"
+#include <JavaScriptCore/JSString.h>
 #include <wtf/CompletionHandler.h>
 
 namespace WebCore {

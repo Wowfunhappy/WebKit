@@ -74,10 +74,10 @@ RefPtr<VideoInfo> createVideoInfoFromAVCC(std::span<const uint8_t> avcc)
         auto nalType = reader.read<uint8_t>();
         if (!nalType || (*nalType & 0x1f) != kSPSNAL)
             return nullptr;
-        paramSets.append({ avcc.subspan(reader.byteOffset() - 1, *size) });
-        paramSets.last()[0] &= ~kNAL_REF_IDC_SEQ_PARAM_SET;
         if (!reader.skipBytes(*size - kNALTypeSize))
             return nullptr;
+        paramSets.append({ avcc.subspan(reader.byteOffset() - *size, *size) });
+        paramSets.last()[0] &= ~kNAL_REF_IDC_SEQ_PARAM_SET;
     }
 
     // unsigned int(8) numOfPictureParameterSets;
@@ -91,10 +91,10 @@ RefPtr<VideoInfo> createVideoInfoFromAVCC(std::span<const uint8_t> avcc)
         auto nalType = reader.read<uint8_t>();
         if (!nalType || (*nalType & 0x1f) != kPPSNAL)
             return nullptr;
-        paramSets.append({ avcc.subspan(reader.byteOffset() - 1, *size) });
-        paramSets.last()[0] |= kNAL_REF_IDC_PIC_PARAM_SET;
         if (!reader.skipBytes(*size - kNALTypeSize))
             return nullptr;
+        paramSets.append({ avcc.subspan(reader.byteOffset() - *size, *size) });
+        paramSets.last()[0] |= kNAL_REF_IDC_PIC_PARAM_SET;
     }
 
     Vector<const uint8_t*> paramSetPtrs { paramSets.size(), [&paramSets](auto index) {
@@ -117,7 +117,7 @@ RefPtr<VideoInfo> createVideoInfoFromAVCC(std::span<const uint8_t> avcc)
         }, {
             .size = { static_cast<float>(dimensions.width), static_cast<float>(dimensions.height) },
             .displaySize = { static_cast<float>(presentationDimensions.width), static_cast<float>(presentationDimensions.height) },
-            .extensionAtoms = { 1 , { computeBoxType(kCMVideoCodecType_H264), SharedBuffer::create(avcc) } },
+            .extensionAtoms = { FillWith { }, 1 , { computeBoxType(kCMVideoCodecType_H264), SharedBuffer::create(avcc) } },
         }
     });
 }

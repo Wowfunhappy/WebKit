@@ -49,7 +49,7 @@ void LaunchServicesDatabaseManager::handleEvent(xpc_object_t message)
 #if HAVE(LSDATABASECONTEXT)
         OSObjectPtr<xpc_object_t> database = xpc_dictionary_get_value(message, LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseKey);
 
-        RELEASE_LOG_FORWARDABLE(Loading, RECEIVED_LAUNCH_SERVICES_DATABASE);
+        RELEASE_LOG_FORWARDABLE(Loading, ReceivedLaunchServicesDatabase);
 
         if (database)
             [LSDatabaseContext.sharedDatabaseContext observeDatabaseChange4WebKit:database.get()];
@@ -90,10 +90,10 @@ void LaunchServicesDatabaseManager::waitForDatabaseUpdate()
     bool databaseUpdated = waitForDatabaseUpdate(waitTime);
     auto elapsedTime = MonotonicTime::now() - startTime;
     if (elapsedTime > 0.5_s)
-        RELEASE_LOG_ERROR_FORWARDABLE(Loading, WAITING_FOR_LAUNCH_SERVICES_DATABASE_UPDATE_TOOK_F_SECONDS, elapsedTime.value());
+        RELEASE_LOG_ERROR_FORWARDABLE(Loading, WaitingForLaunchServicesDatabaseUpdateTookFSeconds, elapsedTime.value());
 
     if (!databaseUpdated)
-        RELEASE_LOG_FAULT_FORWARDABLE(Loading, TIMED_OUT_WAITING_FOR_LAUNCH_SERVICES_DATABASE_UPDATE);
+        RELEASE_LOG_FAULT_FORWARDABLE(Loading, TimedOutWaitingForLaunchServicesDatabaseUpdate);
 }
 
 }

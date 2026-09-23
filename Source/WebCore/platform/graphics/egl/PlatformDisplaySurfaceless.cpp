@@ -60,8 +60,6 @@ PlatformDisplaySurfaceless::PlatformDisplaySurfaceless(Ref<GLDisplay>&& glDispla
 #endif
 }
 
-PlatformDisplaySurfaceless::~PlatformDisplaySurfaceless()
-{
-}
+PlatformDisplaySurfaceless::~PlatformDisplaySurfaceless() = default;
 
 } // namespace WebCore

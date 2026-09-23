@@ -34,9 +34,7 @@
 #include <WebCore/CharacterRange.h>
 #include <WebCore/TextCheckingRequestIdentifier.h>
 #include <wtf/CrossThreadCopier.h>
-#include <wtf/ObjectIdentifier.h>
 #include <wtf/OptionSet.h>
-#include <wtf/Platform.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -68,12 +66,14 @@ struct GrammarDetail {
     CharacterRange range;
     Vector<String> guesses;
     String userDescription;
+    String uuid;
 
     GrammarDetail isolatedCopy() && {
         return {
             range,
             crossThreadCopy(WTF::move(guesses)),
-            WTF::move(userDescription).isolatedCopy()
+            WTF::move(userDescription).isolatedCopy(),
+            WTF::move(uuid).isolatedCopy()
         };
     }
 };

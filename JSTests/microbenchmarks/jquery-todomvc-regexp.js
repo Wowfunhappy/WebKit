@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ skip if $buildType == "debug"
 //@ runDefault
 

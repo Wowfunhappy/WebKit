@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <wtf/Assertions.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/MainThread.h>
@@ -284,7 +284,7 @@ TEST_F(LoggingTest, DISABLED_Logger)
     EXPECT_TRUE(logger->enabled());
 
     WTFSetLogChannelLevel(&TestChannel1, WTFLogLevel::Error);
-    EXPECT_TRUE(logger->willLog(TestChannel1, WTFLogLevel::Error));
+    EXPECT_TRUE(logger->willLog(TestChannel1, WTFLogLevel::Error, { }));
     logger->error(TestChannel1, "You're using coconuts!");
     EXPECT_TRUE(output().containsIgnoringASCIICase("You're using coconuts!"_s));
     logger->warning(TestChannel1, "You're using coconuts!");
@@ -318,10 +318,10 @@ TEST_F(LoggingTest, DISABLED_Logger)
     EXPECT_TRUE(output().containsIgnoringASCIICase("I shall taunt you a second time!"_s));
 
     logger->setEnabled(this, false);
-    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Error));
-    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Warning));
-    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Info));
-    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Debug));
+    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Error, { }));
+    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Warning, { }));
+    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Info, { }));
+    EXPECT_FALSE(logger->willLog(TestChannel1, WTFLogLevel::Debug, { }));
     EXPECT_FALSE(logger->enabled());
     logger->logAlways(TestChannel1, "You've got two empty halves of coconuts");
     EXPECT_EQ(0u, output().length());
@@ -383,7 +383,7 @@ public:
     WTFLogLevel level() const { return m_lastLevel; }
 
 private:
-    void didLogMessage(const WTFLogChannel& channel, WTFLogLevel level, Vector<JSONLogValue>&& logMessage) final
+    void didLogMessage(const WTFLogChannel& channel, WTFLogLevel level, std::optional<WTFLogLocation>, Vector<JSONLogValue>&& logMessage) final
     {
         for (auto& item : logMessage)
             m_logBuffer.append(item.value);

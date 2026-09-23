@@ -43,6 +43,7 @@ public:
     static StyleSheetContents* svgStyleSheet;
     static StyleSheetContents* mathMLStyleSheet;
     static StyleSheetContents* mathMLCoreExtrasStyleSheet;
+    static StyleSheetContents* mathMLCoreMathvariantStyleSheet;
     static StyleSheetContents* mathMLFontSizeMathStyleSheet;
     static StyleSheetContents* mathMLLegacyFontSizeMathStyleSheet;
     static StyleSheetContents* mediaQueryStyleSheet;

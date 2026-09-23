@@ -150,12 +150,6 @@ TextStream& operator<<(TextStream& ts, StyleAppearance appearance)
     case StyleAppearance::Switch:
         ts << "switch"_s;
         break;
-    case StyleAppearance::SwitchThumb:
-        ts << "switch-thumb"_s;
-        break;
-    case StyleAppearance::SwitchTrack:
-        ts << "switch-track"_s;
-        break;
     }
     return ts;
 }

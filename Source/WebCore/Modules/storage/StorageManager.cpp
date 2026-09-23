@@ -139,14 +139,15 @@ void StorageManager::fileSystemGetDirectory(DOMPromiseDeferred<IDLInterface<File
         if (result.hasException())
             return promise.reject(result.releaseException());
 
-        auto [identifier, connection] = result.releaseReturnValue();
+        auto info = result.releaseReturnValue();
         RefPtr context = weakNavigator ? weakNavigator->scriptExecutionContext() : nullptr;
         if (!context) {
-            connection->closeHandle(identifier);
+            info.connection->closeHandle(info.identifier);
             return promise.reject(Exception { ExceptionCode::InvalidStateError, "Context has stopped"_s });
         }
 
-        promise.resolve(FileSystemDirectoryHandle::create(*context, { }, identifier, Ref { *connection }));
+        Ref handle = FileSystemDirectoryHandle::create(*context, String { emptyString() }, info.globalIdentifier, info.identifier, protect(*info.connection));
+        promise.resolve(handle);
     });
 }
 

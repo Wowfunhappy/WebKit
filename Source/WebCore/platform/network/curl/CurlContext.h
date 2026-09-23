@@ -36,7 +36,6 @@
 #include <wtf/Noncopyable.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/Threading.h>
 #include <wtf/URL.h>
 
 #if OS(WINDOWS)

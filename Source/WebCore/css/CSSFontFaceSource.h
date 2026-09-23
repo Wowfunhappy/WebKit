@@ -83,7 +83,7 @@ public:
     bool NODELETE isSVGFontFaceSource() const;
 
 private:
-    bool shouldIgnoreFontLoadCompletions() const;
+    bool NODELETE shouldIgnoreFontLoadCompletions() const;
 
     void fontLoaded(FontLoadRequest&) override;
 

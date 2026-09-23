@@ -86,6 +86,8 @@ ValidationBubble::~ValidationBubble()
 
 void ValidationBubble::showRelativeTo(const IntRect& anchorRect)
 {
+    m_anchorRect = anchorRect;
+
     // Passing an unparented view to [m_popover showRelativeToRect:ofView:preferredEdge:] crashes.
     RetainPtr view = m_view.get();
     if (![view window])

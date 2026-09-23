@@ -41,8 +41,6 @@
 
 namespace WebCore {
 
-constexpr size_t fifoSize = 96 * AudioUtilities::renderQuantumSize;
-
 CreateAudioDestinationCocoaOverride AudioDestinationCocoa::createOverride = nullptr;
 
 Ref<AudioDestination> AudioDestination::create(const CreationOptions& options)

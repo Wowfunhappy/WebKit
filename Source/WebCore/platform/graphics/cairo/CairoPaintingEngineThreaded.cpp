@@ -63,9 +63,7 @@ PaintingEngineThreaded::PaintingEngineThreaded(unsigned numThreads)
 {
 }
 
-PaintingEngineThreaded::~PaintingEngineThreaded()
-{
-}
+PaintingEngineThreaded::~PaintingEngineThreaded() = default;
 
 void PaintingEngineThreaded::paint(GraphicsLayer& layer, CoordinatedTileBuffer& buffer, const IntRect& sourceRect, const IntRect& mappedSourceRect, const IntRect& targetRect, float contentsScale)
 {

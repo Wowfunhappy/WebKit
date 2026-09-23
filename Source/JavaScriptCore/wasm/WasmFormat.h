@@ -39,6 +39,7 @@
 #include <JavaScriptCore/MathCommon.h>
 #include <JavaScriptCore/PageCount.h>
 #include <JavaScriptCore/RegisterAtOffsetList.h>
+#include <JavaScriptCore/WasmAddressType.h>
 #include <JavaScriptCore/WasmMemoryInformation.h>
 #include <JavaScriptCore/WasmName.h>
 #include <JavaScriptCore/WasmNameSection.h>
@@ -78,16 +79,17 @@ public:
     {
     }
 
-    // Constructor from FunctionSignature held by Wasm::Module.
-    explicit BlockSignature(const FunctionSignature& signature)
+    // Constructor from RTT held by Wasm::Module.
+    explicit BlockSignature(const RTT& signature)
         : m_storage(&signature)
     {
+        ASSERT(signature.kind() == RTTKind::Function);
     }
 
     unsigned argumentCount() const
     {
         return WTF::switchOn(m_storage,
-            [](const FunctionSignature* signature) -> unsigned {
+            [](const RTT* signature) -> unsigned {
                 return signature->argumentCount();
             },
             [](Type) -> unsigned {
@@ -99,7 +101,7 @@ public:
     unsigned returnCount() const
     {
         return WTF::switchOn(m_storage,
-            [](const FunctionSignature* signature) -> unsigned {
+            [](const RTT* signature) -> unsigned {
                 return signature->returnCount();
             },
             [](Type type) -> unsigned {
@@ -111,7 +113,7 @@ public:
     Type argumentType(unsigned index) const
     {
         return WTF::switchOn(m_storage,
-            [&](const FunctionSignature* signature) -> Type {
+            [&](const RTT* signature) -> Type {
                 ASSERT(index < signature->argumentCount());
                 return signature->argumentType(index);
             },
@@ -125,7 +127,7 @@ public:
     Type returnType(unsigned index) const
     {
         return WTF::switchOn(m_storage,
-            [&](const FunctionSignature* signature) -> Type {
+            [&](const RTT* signature) -> Type {
                 ASSERT(index < signature->returnCount());
                 return signature->returnType(index);
             },
@@ -136,11 +138,11 @@ public:
         );
     }
 
-    bool hasReturnVector() const
+    bool hasReturnedV128() const
     {
         return WTF::switchOn(m_storage,
-            [](const FunctionSignature* signature) -> bool {
-                return signature->hasReturnVector();
+            [](const RTT* signature) -> bool {
+                return signature->hasReturnedV128();
             },
             [](Type type) -> bool {
                 return type.isV128();
@@ -148,10 +150,18 @@ public:
         );
     }
 
+    bool holdsRTT() const { return std::holds_alternative<const RTT*>(m_storage); }
+
+    const RTT& rtt() const
+    {
+        ASSERT(holdsRTT());
+        return *std::get<const RTT*>(m_storage);
+    }
+
     void dump(PrintStream& out) const;
 
 private:
-    WTF::Variant<const FunctionSignature*, Type> m_storage;
+    WTF::Variant<const RTT*, Type> m_storage;
 };
 
 enum class TableElementType : uint8_t {
@@ -176,7 +186,7 @@ inline bool isValueType(Type type)
         return false;
     case TypeKind::Ref:
     case TypeKind::RefNull:
-        return type.index != TypeDefinition::invalidIndex;
+        return type.index != invalidTypeIndex;
     case TypeKind::V128:
         return Options::useWasmSIMD();
     default:
@@ -271,7 +281,7 @@ inline bool isInternalref(Type type)
             return false;
         }
     }
-    return !TypeInformation::get(type.index).expand().is<FunctionSignature>();
+    return TypeInformation::getCanonicalRTT(type.index)->kind() != RTTKind::Function;
 }
 
 inline bool isI31ref(Type type)
@@ -361,27 +371,6 @@ inline bool isRefWithTypeIndex(Type type)
     return isRefType(type) && !typeIndexIsType(type.index);
 }
 
-// Determine if the ref type has a placeholder type index that is used
-// for an unresolved recursive reference in a recursion group.
-inline bool isRefWithRecursiveReference(Type type)
-{
-    if (isRefWithTypeIndex(type)) {
-        const TypeDefinition& def = TypeInformation::get(type.index);
-        if (def.is<Projection>())
-            return def.as<Projection>()->isPlaceholder();
-    }
-
-    return false;
-}
-
-inline bool isRefWithRecursiveReference(StorageType storageType)
-{
-    if (storageType.is<PackedType>())
-        return false;
-
-    return isRefWithRecursiveReference(storageType.as<Type>());
-}
-
 inline bool isTypeIndexHeapType(int32_t heapType)
 {
     return heapType >= 0;
@@ -394,7 +383,6 @@ inline bool isSubtypeIndex(TypeIndex sub, TypeIndex parent)
 
     auto subRTT = TypeInformation::getCanonicalRTT(sub);
     auto parentRTT = TypeInformation::getCanonicalRTT(parent);
-
     return subRTT->isStrictSubRTT(parentRTT.get());
 }
 
@@ -410,17 +398,19 @@ inline bool isSubtypeSlow(Type sub, Type parent)
         if (isRefWithTypeIndex(parent))
             return isSubtypeIndex(sub.index, parent.index);
 
+        Ref<const RTT> subRTT = TypeInformation::getCanonicalRTT(sub.index);
+
         if ((isAnyref(parent) || isEqref(parent)))
-            return !TypeInformation::get(sub.index).expand().is<FunctionSignature>();
+            return subRTT->kind() != RTTKind::Function;
 
         if (isArrayref(parent))
-            return TypeInformation::get(sub.index).expand().is<ArrayType>();
+            return subRTT->kind() == RTTKind::Array;
 
         if (isStructref(parent))
-            return TypeInformation::get(sub.index).expand().is<StructType>();
+            return subRTT->kind() == RTTKind::Struct;
 
         if (isFuncref(parent))
-            return TypeInformation::get(sub.index).expand().is<FunctionSignature>();
+            return subRTT->kind() == RTTKind::Function;
     }
 
     if ((isI31ref(sub) || isStructref(sub) || isArrayref(sub)) && (isAnyref(parent) || isEqref(parent)))
@@ -555,7 +545,7 @@ inline size_t sizeOfType(TypeKind kind)
 inline JSValue internalizeExternref(JSValue value)
 {
     if (value.isDouble()) {
-        if (auto int32Value = JSC::tryConvertToStrictInt32(value.asDouble())) {
+        if (auto int32Value = tryConvertToStrictInt32(value.asDouble())) {
             if (int32Value.value() <= Wasm::maxI31ref && int32Value.value() >= Wasm::minI31ref)
                 return jsNumber(int32Value.value());
         }
@@ -669,7 +659,7 @@ class I32InitExpr {
         ExtendedExpression
     };
 
-    I32InitExpr(Type type, uint32_t bits)
+    I32InitExpr(Type type, uint64_t bits)
         : m_bits(bits)
         , m_type(type)
     { }
@@ -677,33 +667,35 @@ class I32InitExpr {
 public:
     I32InitExpr() = delete;
 
-    static I32InitExpr globalImport(uint32_t globalImportNumber) { return I32InitExpr(Global, globalImportNumber); }
-    static I32InitExpr constValue(uint32_t constValue) { return I32InitExpr(Const, constValue); }
-    static I32InitExpr extendedExpression(uint32_t constantExpressionNumber) { return I32InitExpr(ExtendedExpression, constantExpressionNumber); }
+    static I32InitExpr globalImport(uint64_t globalImportNumber) { return I32InitExpr(Global, globalImportNumber); }
+    static I32InitExpr constValue(uint64_t constValue) { return I32InitExpr(Const, constValue); }
+    static I32InitExpr extendedExpression(uint64_t constantExpressionNumber) { return I32InitExpr(ExtendedExpression, constantExpressionNumber); }
 
     bool isConst() const { return m_type == Const; }
     bool isGlobalImport() const { return m_type == Global; }
     bool isExtendedExpression() const { return m_type == ExtendedExpression; }
-    uint32_t constValue() const
+    uint64_t constValue() const
     {
         RELEASE_ASSERT(isConst());
         return m_bits;
     }
-    uint32_t globalImportIndex() const
+    uint64_t globalImportIndex() const
     {
         RELEASE_ASSERT(isGlobalImport());
         return m_bits;
     }
-    uint32_t constantExpressionIndex() const
+    uint64_t constantExpressionIndex() const
     {
         RELEASE_ASSERT(isExtendedExpression());
         return m_bits;
     }
 
 private:
-    uint32_t m_bits;
+    uint64_t m_bits;
     Type m_type;
 };
+
+using I64InitExpr = I32InitExpr;
 
 class Segment final : public TrailingArray<Segment, uint8_t> {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Segment);
@@ -723,23 +715,26 @@ public:
     }
     uint32_t sizeInBytes() const { return Base::size(); }
 
-    Segment(size_t sizeInBytes, Kind passedKind, std::optional<I32InitExpr>&& passedOffsetIfActive)
+    Segment(size_t sizeInBytes, Kind passedKind, std::optional<I32InitExpr>&& passedOffsetIfActive, uint32_t memoryIndex = 0)
         : Base(sizeInBytes)
         , m_kind(passedKind)
         , m_offsetIfActive(WTF::move(passedOffsetIfActive))
+        , m_memoryIndex(memoryIndex)
     {
     }
 
-    static std::unique_ptr<Segment> tryCreate(std::optional<I32InitExpr>, uint32_t, Kind);
+    static std::unique_ptr<Segment> tryCreate(std::optional<I32InitExpr>, uint32_t, Kind, uint32_t memoryIndex = 0);
 
     bool isActive() const { return m_kind == Kind::Active; }
     bool isPassive() const { return m_kind == Kind::Passive; }
     Kind kind() const { return m_kind; }
     std::optional<I32InitExpr> offsetIfActive() const { return m_offsetIfActive; }
+    uint32_t memoryIndex() const { return m_memoryIndex; }
 
 private:
     const Kind m_kind;
     const std::optional<I32InitExpr> m_offsetIfActive;
+    const uint32_t m_memoryIndex;
 };
 
 struct Element {
@@ -799,15 +794,16 @@ public:
         ASSERT(!*this);
     }
 
-    TableInformation(uint32_t initial, std::optional<uint32_t> maximum, bool isImport, TableElementType type, Type wasmType, InitializationType initType, uint64_t initialBitsOrImportNumber)
-        : m_initial(initial)
+    TableInformation(uint32_t initial, std::optional<uint32_t> maximum, bool isImport, TableElementType type, Type wasmType, InitializationType initType, uint64_t initialBitsOrImportNumber, bool isTable64)
+        : m_wasmType(wasmType)
         , m_maximum(maximum)
+        , m_initialBitsOrImportNumber(initialBitsOrImportNumber)
+        , m_initial(initial)
+        , m_type(type)
+        , m_addressType(isTable64)
+        , m_initType(initType)
         , m_isImport(isImport)
         , m_isValid(true)
-        , m_type(type)
-        , m_wasmType(wasmType)
-        , m_initType(initType)
-        , m_initialBitsOrImportNumber(initialBitsOrImportNumber)
     {
         ASSERT(*this);
     }
@@ -820,16 +816,18 @@ public:
     Type wasmType() const { return m_wasmType; }
     InitializationType initType() const { return m_initType; }
     uint64_t initialBitsOrImportNumber() const { return m_initialBitsOrImportNumber; }
+    Wasm::AddressType addressType() const { return m_addressType; }
 
 private:
-    uint32_t m_initial;
+    Type m_wasmType;
     std::optional<uint32_t> m_maximum;
+    uint64_t m_initialBitsOrImportNumber;
+    uint32_t m_initial;
+    TableElementType m_type;
+    Wasm::AddressType m_addressType;
+    InitializationType m_initType { Default };
     bool m_isImport { false };
     bool m_isValid { false };
-    TableElementType m_type;
-    Type m_wasmType;
-    InitializationType m_initType { Default };
-    uint64_t m_initialBitsOrImportNumber;
 };
     
 struct CustomSection {
@@ -887,6 +885,22 @@ public:
 
     size_t rawIndex() const { return m_index; }
     operator size_t() const { return m_index; }
+    void dump(PrintStream& out) const { out.print(m_index); }
+
+private:
+    uint32_t m_index { UINT_MAX };
+};
+
+// An index into the type section of a module (typeSignatures / expandedTypeSignatures vectors).
+// NOT interchangeable with TypeIndex, which is a global canonical identity.
+class TRIVIAL_ABI TypeSignatureIndex {
+public:
+    TypeSignatureIndex() = default;
+    explicit constexpr TypeSignatureIndex(uint32_t index)
+        : m_index(index)
+    { }
+
+    uint32_t rawIndex() const { return m_index; }
     void dump(PrintStream& out) const { out.print(m_index); }
 
 private:
@@ -951,10 +965,9 @@ struct alignas(8) WasmCallableFunction {
 struct WasmToWasmImportableFunction : public WasmCallableFunction {
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(WasmToWasmImportableFunction);
     static constexpr ptrdiff_t offsetOfRTT() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, rtt); }
+    bool isEmpty() const { return !rtt; }
 
     const RTT* rtt { nullptr };
-    // FIXME: Pack type index and code pointer into one 64-bit value. See <https://bugs.webkit.org/show_bug.cgi?id=165511>.
-    TypeIndex typeIndex { TypeDefinition::invalidIndex };
 };
 using FunctionIndexSpace = Vector<WasmToWasmImportableFunction>;
 
@@ -968,8 +981,9 @@ struct WasmOrJSImportableFunction : public WasmToWasmImportableFunction {
 
 struct WasmOrJSImportableFunctionCallLinkInfo final : public WasmOrJSImportableFunction {
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(WasmOrJSImportableFunctionCallLinkInfo);
-    std::unique_ptr<DataOnlyCallLinkInfo> callLinkInfo { };
     static constexpr ptrdiff_t offsetOfCallLinkInfo() { return OBJECT_OFFSETOF(WasmOrJSImportableFunctionCallLinkInfo, callLinkInfo); }
+
+    std::unique_ptr<DataOnlyCallLinkInfo> callLinkInfo { };
 };
 
 #if ASSERT_ENABLED

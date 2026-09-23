@@ -91,6 +91,7 @@ enum class DeclarationType {
     LetDeclaration,
     ConstDeclaration,
     UsingDeclaration,
+    AwaitUsingDeclaration,
 };
 
 enum class DeclarationImportType {
@@ -157,13 +158,13 @@ public:
     Scope(const VM& vm, Scope* containingScope, ImplementationVisibility implementationVisibility, LexicallyScopedFeatures lexicallyScopedFeatures, bool isFunction, bool isGeneratorFunction, bool isArrowFunction, bool isAsyncFunction, bool isStaticBlock)
         : m_vm(vm)
         , m_containingScope(containingScope)
-        , m_implementationVisibility(implementationVisibility)
-        , m_lexicallyScopedFeatures(lexicallyScopedFeatures)
         , m_isFunction(isFunction)
         , m_isGeneratorFunction(isGeneratorFunction)
         , m_isArrowFunction(isArrowFunction)
         , m_isAsyncFunction(isAsyncFunction)
         , m_isStaticBlock(isStaticBlock)
+        , m_implementationVisibility(implementationVisibility)
+        , m_lexicallyScopedFeatures(lexicallyScopedFeatures)
     {
         m_usedVariables.append(UniquedStringImplPtrSet());
     }
@@ -456,7 +457,7 @@ public:
     DeclarationStacks::FunctionStack takeFunctionDeclarations() { return WTF::move(m_functionDeclarations); }
     
 
-    DeclarationResultMask declareLexicalVariable(const Identifier* ident, bool isConstant, DeclarationImportType importType = DeclarationImportType::NotImported, bool isUsing = false)
+    DeclarationResultMask declareLexicalVariable(const Identifier* ident, bool isConstant, DeclarationImportType importType = DeclarationImportType::NotImported, bool isUsing = false, bool isAwaitUsing = false)
     {
         ASSERT(m_allowsLexicalDeclarations);
         DeclarationResultMask result = DeclarationResult::Valid;
@@ -469,6 +470,8 @@ public:
             addResult.iterator->value.setIsLet();
         if (isUsing)
             addResult.iterator->value.setIsUsing();
+        if (isAwaitUsing)
+            m_lexicalVariables.setHasAwaitUsingDeclaration();
 
         if (importType == DeclarationImportType::Imported)
             addResult.iterator->value.setIsImported();
@@ -974,10 +977,10 @@ private:
         m_isModuleCode = true;
     }
 
+    // Fields up to m_lexicalVariables are arranged to share a cache line.
     const VM& m_vm;
     Scope* m_containingScope;
-    ImplementationVisibility m_implementationVisibility;
-    LexicallyScopedFeatures m_lexicallyScopedFeatures;
+    DeclarationStacks::FunctionStack m_functionDeclarations;
     bool m_shadowsArguments : 1 { false };
     bool m_usesEval : 1 { false };
     bool m_usesImportMeta : 1 { false };
@@ -1008,25 +1011,37 @@ private:
     bool m_isClassScope : 1 { false };
     bool m_asyncFunctionBodyDoesNotUseAwait : 1 { false };
     bool m_usesAwait : 1 { false };
-    EvalContextType m_evalContextType { EvalContextType::None };
-    ConstructorKind m_constructorKind { ConstructorKind::None };
-    DerivedContextType m_derivedContextType { DerivedContextType::None };
-    SuperBinding m_expectedSuperBinding { SuperBinding::NotNeeded };
-    InnerArrowFunctionCodeFeatures m_innerArrowFunctionFeatures { 0 };
     int m_loopDepth { 0 };
-    int m_switchDepth { 0 };
-
-    typedef Vector<ScopeLabelInfo, 2> LabelStack;
-    std::unique_ptr<LabelStack> m_labels;
-    UniquedStringImplPtrSet m_declaredParameters;
-    VariableEnvironment m_declaredVariables;
-    VariableEnvironment m_lexicalVariables;
-    Vector<UniquedStringImplPtrSet, 6> m_usedVariables;
-    UniquedStringImplPtrSet m_variablesBeingHoisted;
+    SuperBinding m_expectedSuperBinding { SuperBinding::NotNeeded };
+    ImplementationVisibility m_implementationVisibility;
+    LexicallyScopedFeatures m_lexicallyScopedFeatures;
+    ConstructorKind m_constructorKind { ConstructorKind::None };
+    InnerArrowFunctionCodeFeatures m_innerArrowFunctionFeatures { 0 };
     UncheckedKeyHashMap<FunctionMetadataNode*, NeedsDuplicateDeclarationCheck> m_sloppyModeFunctionHoistingCandidates;
     UncheckedKeyHashSet<UniquedStringImpl*> m_closedVariableCandidates;
-    DeclarationStacks::FunctionStack m_functionDeclarations;
+
+    // offset 64 in release mode
+    VariableEnvironment m_lexicalVariables;
+    VariableEnvironment m_declaredVariables;
+    UniquedStringImplPtrSet m_declaredParameters;
+    UniquedStringImplPtrSet m_variablesBeingHoisted;
+    typedef Vector<ScopeLabelInfo, 2> LabelStack;
+    std::unique_ptr<LabelStack> m_labels;
+    int m_switchDepth { 0 };
+    EvalContextType m_evalContextType { EvalContextType::None };
+    DerivedContextType m_derivedContextType { DerivedContextType::None };
+
+    Vector<UniquedStringImplPtrSet, 6> m_usedVariables;
+
+    static void verifyLayout();
 };
+
+inline void Scope::verifyLayout()
+{
+#if !ASSERT_ENABLED && !ASAN_ENABLED && CPU(ARM64) && CPU(ADDRESS64)
+    static_assert(OBJECT_OFFSETOF(Scope, m_lexicalVariables) == JSC_CACHE_LINE_SIZE, "Scope hot field layout drifted.");
+#endif
+}
 
 typedef SegmentedVector<Scope, 20, 10> ScopeStack;
 
@@ -1034,7 +1049,7 @@ enum class ArgumentType { Normal, Spread };
 enum class ParsingContext { Normal, FunctionConstructor };
 
 template <typename LexerType>
-class CACHE_LINE_ALIGNED Parser {
+class JSC_CACHE_LINE_ALIGNED Parser {
     WTF_MAKE_NONCOPYABLE(Parser);
     WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(Parser);
 
@@ -1048,7 +1063,7 @@ public:
     void overrideConstructorKindForTopLevelFunctionExpressions(ConstructorKind constructorKind) { m_constructorKindForTopLevelFunctionExpressions = constructorKind; }
 
     JSTextPosition positionBeforeLastNewline() const { return m_lexer->positionBeforeLastNewline(); }
-    JSTokenLocation locationBeforeLastToken() const { return m_lexer->lastTokenLocation(); }
+    JSTokenLocation locationBeforeLastToken() const { return m_lastTokenLocation; }
 
     struct CallOrApplyDepthScope {
         CallOrApplyDepthScope(Parser* parser)
@@ -1166,6 +1181,7 @@ private:
         case DeclarationType::ConstDeclaration:
             return DestructuringKind::DestructureToConst;
         case DeclarationType::UsingDeclaration:
+        case DeclarationType::AwaitUsingDeclaration:
             RELEASE_ASSERT_NOT_REACHED();
             return DestructuringKind::DestructureToVariables;
         }
@@ -1183,6 +1199,7 @@ private:
         case DeclarationType::ConstDeclaration:
             return "lexical variable name";
         case DeclarationType::UsingDeclaration:
+        case DeclarationType::AwaitUsingDeclaration:
             return "using variable name";
         }
         RELEASE_ASSERT_NOT_REACHED();
@@ -1196,6 +1213,8 @@ private:
             return AssignmentContext::ConstDeclarationStatement;
         case DeclarationType::UsingDeclaration:
             return AssignmentContext::UsingDeclarationStatement;
+        case DeclarationType::AwaitUsingDeclaration:
+            return AssignmentContext::AwaitUsingDeclarationStatement;
         default:
             return AssignmentContext::DeclarationStatement;
         }
@@ -1260,6 +1279,19 @@ private:
             scope = scope->containingScope();
         }
         // When reaching the top level scope (it can be non ordinary function scope), we return it.
+        return scope;
+    }
+
+    // Walk to the closest scope that has its own `arguments` binding (or the top-level
+    // scope). Arrow functions and lexical scopes are transparent for `arguments`.
+    Scope* closestScopeOwningArguments()
+    {
+        Scope* scope = currentScope();
+        while (scope->containingScope()) {
+            if (scope->isFunctionBoundary() && !scope->isArrowFunctionBoundary())
+                break;
+            scope = scope->containingScope();
+        }
         return scope;
     }
 
@@ -1382,7 +1414,7 @@ private:
         if (type == DeclarationType::VarDeclaration)
             return declareHoistedVariable(ident);
 
-        ASSERT(type == DeclarationType::LetDeclaration || type == DeclarationType::ConstDeclaration || type == DeclarationType::UsingDeclaration);
+        ASSERT(type == DeclarationType::LetDeclaration || type == DeclarationType::ConstDeclaration || type == DeclarationType::UsingDeclaration || type == DeclarationType::AwaitUsingDeclaration);
         // Lexical variables declared at a top level scope that shadow arguments or vars are not allowed.
         if (!m_lexer->isReparsingFunction() && m_statementDepth == 1 && (hasDeclaredParameter(*ident) || hasDeclaredVariable(*ident)))
             return DeclarationResult::InvalidDuplicateDeclaration;
@@ -1391,8 +1423,9 @@ private:
         if (scope->isCatchBlockScope() && scope->containingScope()->hasLexicallyDeclaredVariable(*ident))
             return DeclarationResult::InvalidDuplicateDeclaration;
 
-        bool isUsing = type == DeclarationType::UsingDeclaration;
-        return scope->declareLexicalVariable(ident, type == DeclarationType::ConstDeclaration || isUsing, importType, isUsing);
+        bool isAwaitUsing = type == DeclarationType::AwaitUsingDeclaration;
+        bool isUsing = type == DeclarationType::UsingDeclaration || isAwaitUsing;
+        return scope->declareLexicalVariable(ident, type == DeclarationType::ConstDeclaration || isUsing, importType, isUsing, isAwaitUsing);
     }
 
     std::pair<DeclarationResultMask, Scope*> declareFunction(const Identifier* ident)
@@ -1486,9 +1519,10 @@ private:
     struct LexerState {
         int startOffset;
         unsigned oldLineStartOffset;
-        unsigned oldLastLineNumber;
+        JSTokenLocation lastTokenLocation;
         unsigned oldLineNumber;
         bool hasLineTerminatorBeforeToken;
+        JSTokenType lastTokenType;
     };
 
     struct SavePoint {
@@ -1508,31 +1542,22 @@ private:
 
     ALWAYS_INLINE void next(OptionSet<LexerFlags> lexerFlags = { })
     {
-        int lastLine = m_token.m_startPosition.line;
-        int lastTokenEnd = m_token.m_endPosition.offset;
-        int lastTokenLineStart = m_token.m_startPosition.lineStartOffset;
-        m_lastTokenEndPosition = JSTextPosition(lastLine, lastTokenEnd, lastTokenLineStart);
-        m_lexer->setLastLineNumber(lastLine);
+        m_lastTokenLocation = m_token.location();
+        m_lastTokenType = m_token.m_type;
         m_token.m_type = m_lexer->lex(&m_token, lexerFlags, strictMode());
     }
 
     ALWAYS_INLINE void nextWithoutClearingLineTerminator(OptionSet<LexerFlags> lexerFlags = { })
     {
-        int lastLine = m_token.m_startPosition.line;
-        int lastTokenEnd = m_token.m_endPosition.offset;
-        int lastTokenLineStart = m_token.m_startPosition.lineStartOffset;
-        m_lastTokenEndPosition = JSTextPosition(lastLine, lastTokenEnd, lastTokenLineStart);
-        m_lexer->setLastLineNumber(lastLine);
+        m_lastTokenLocation = m_token.location();
+        m_lastTokenType = m_token.m_type;
         m_token.m_type = m_lexer->lexWithoutClearingLineTerminator(&m_token, lexerFlags, strictMode());
     }
 
     ALWAYS_INLINE void nextExpectIdentifier(OptionSet<LexerFlags> lexerFlags = { })
     {
-        int lastLine = m_token.m_startPosition.line;
-        int lastTokenEnd = m_token.m_endPosition.offset;
-        int lastTokenLineStart = m_token.m_startPosition.lineStartOffset;
-        m_lastTokenEndPosition = JSTextPosition(lastLine, lastTokenEnd, lastTokenLineStart);
-        m_lexer->setLastLineNumber(lastLine);
+        m_lastTokenLocation = m_token.location();
+        m_lastTokenType = m_token.m_type;
         m_token.m_type = m_lexer->lexExpectIdentifier(&m_token, lexerFlags, strictMode());
     }
 
@@ -1841,9 +1866,9 @@ private:
         return m_vm.isSafeToRecurse();
     }
     
-    const JSTextPosition& lastTokenEndPosition() const
+    JSTextPosition lastTokenEndPosition() const
     {
-        return m_lastTokenEndPosition;
+        return JSTextPosition(m_lastTokenLocation.line, m_lastTokenLocation.endOffset, m_lastTokenLocation.lineStartOffset);
     }
 
     bool hasError() const
@@ -1980,9 +2005,14 @@ private:
         LexerState result;
         result.startOffset = m_token.m_startPosition.offset;
         result.oldLineStartOffset = m_token.m_startPosition.lineStartOffset;
-        result.oldLastLineNumber = m_lexer->lastLineNumber();
-        result.oldLineNumber = m_lexer->lineNumber();
+        result.lastTokenLocation = m_lastTokenLocation;
+        result.oldLineNumber = m_token.m_startPosition.line;
+        // Why is this reading from Lexer fine while we are re-lexing the same token?
+        // This is because this flag is updated and indicating whether we have a line
+        // terminator before the lexed token, and based on that, we already moved startOffset.
+        // So getting this flag and setting it before lexing this token is right.
         result.hasLineTerminatorBeforeToken = m_lexer->hasLineTerminatorBeforeToken();
+        result.lastTokenType = m_lastTokenType;
         ASSERT(static_cast<unsigned>(result.startOffset) >= result.oldLineStartOffset);
         return result;
     }
@@ -1993,8 +2023,13 @@ private:
         m_lexer->setOffset(lexerState.startOffset, lexerState.oldLineStartOffset);
         m_lexer->setLineNumber(lexerState.oldLineNumber);
         m_lexer->setHasLineTerminatorBeforeToken(lexerState.hasLineTerminatorBeforeToken);
+        m_lastTokenType = lexerState.lastTokenType;
+        m_token.m_type = lexerState.lastTokenType;
+        m_token.m_startPosition.line = lexerState.lastTokenLocation.line;
+        m_token.m_startPosition.offset = lexerState.lastTokenLocation.startOffset;
+        m_token.m_startPosition.lineStartOffset = lexerState.lastTokenLocation.lineStartOffset;
+        m_token.m_endPosition.offset = lexerState.lastTokenLocation.endOffset;
         nextWithoutClearingLineTerminator();
-        m_lexer->setLastLineNumber(lexerState.oldLastLineNumber);
     }
 
     template <class TreeBuilder>
@@ -2050,45 +2085,71 @@ private:
         m_errorMessage = String();
     }
 
-    // Cache line 0 (hot)
+    // Fields up to m_parserState are arranged according to access frequency and affinity;
+    // do not rearrange without careful analysis.
     VM& m_vm;
+    JSToken m_token;
+    // offset 64
+    const SourceCode* m_source;
+    ParserArena m_parserArena;
+    // offset 128
+    std::unique_ptr<LexerType> m_lexer;
+    JSTokenLocation m_lastTokenLocation;
     Scope* m_currentScope { nullptr };
-    JSTextPosition m_lastTokenEndPosition;
+    String m_errorMessage;
+    DebuggerParseData* m_debuggerParseData;
+    JSTokenType m_lastTokenType { ERRORTOK };
+    int m_statementDepth;
+    FunctionMode m_functionMode;
     bool m_allowsIn;
     bool m_immediateParentAllowsFunctionDeclarationInStatement;
-    SourceParseMode m_parseMode;
-    int m_statementDepth;
-    JSParserScriptMode m_scriptMode;
-    const SourceCode* m_source;
-    RefPtr<SourceProviderCache> m_functionCache;
-    FunctionMode m_functionMode;
-    SuperBinding m_superBinding;
-
-    // Cache line 1 (hot)
-    std::unique_ptr<LexerType> m_lexer;
-    JSToken m_token;
-
-    // Cache line 2 (m_parserState is hot)
-    ParserState m_parserState;
-
-    ConstructorKind m_constructorKindForTopLevelFunctionExpressions { ConstructorKind::None };
     ImplementationVisibility m_implementationVisibility;
-    bool m_parsingBuiltin;
-    bool m_isEvalContext;
-    bool m_isInsideOrdinaryFunction;
     bool m_insideSwitchCaseBody { false };
-
-    ParserArena m_parserArena;
-    CallOrApplyDepthScope* m_callOrApplyDepthScope { nullptr };
-    ScopeStack m_scopeStack;
-    bool m_hasStackOverflow;
-    String m_errorMessage;
-    RefPtr<ModuleScopeData> m_moduleScopeData;
-    DebuggerParseData* m_debuggerParseData;
+    // offset 192
+    ParserState m_parserState;
+    SourceParseMode m_parseMode;
+    ConstructorKind m_constructorKindForTopLevelFunctionExpressions { ConstructorKind::None };
+    bool m_isInsideOrdinaryFunction;
     bool m_seenTaggedTemplateInNonReparsingFunctionMode { false };
     bool m_seenPrivateNameUseInNonReparsingFunctionMode { false };
     bool m_seenArgumentsDotLength { false };
+    bool m_parsingBuiltin;
+    bool m_isEvalContext;
+
+    RefPtr<SourceProviderCache> m_functionCache;
+    CallOrApplyDepthScope* m_callOrApplyDepthScope { nullptr };
+    RefPtr<ModuleScopeData> m_moduleScopeData;
+    JSParserScriptMode m_scriptMode;
+    SuperBinding m_superBinding;
+    bool m_hasStackOverflow;
+    ScopeStack m_scopeStack;
+
+    static void verifyLayout();
 };
+
+#define LAYOUT_DRIFTED_ERROR "Parser hot field layout drifted."
+
+template<>
+inline void Parser<Lexer<Latin1Character>>::verifyLayout()
+{
+#if !ASSERT_ENABLED && !ASAN_ENABLED && CPU(ARM64) && CPU(ADDRESS64)
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_source) == JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_lexer) == 2 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_parserState) == 3 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+#endif
+}
+
+template<>
+inline void Parser<Lexer<char16_t>>::verifyLayout()
+{
+#if !ASSERT_ENABLED && !ASAN_ENABLED && CPU(ARM64) && CPU(ADDRESS64)
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_source) == JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_lexer) == 2 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_parserState) == 3 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+#endif
+}
+
+#undef LAYOUT_DRIFTED_ERROR
 
 template <typename LexerType>
 template <class ParsedNode>

@@ -77,6 +77,7 @@ Last-Modified
 Link
 Location
 Origin
+Origin-Agent-Cluster
 Ping-From
 Ping-To
 Pragma
@@ -90,6 +91,7 @@ Reporting-Endpoints
 Sec-Fetch-Dest
 Sec-Fetch-Mode
 Sec-Fetch-Site
+Sec-GPC
 Sec-Purpose
 Sec-Speculation-Tags
 Speculation-Rules

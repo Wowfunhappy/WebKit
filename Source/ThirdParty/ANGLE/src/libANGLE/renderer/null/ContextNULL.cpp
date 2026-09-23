@@ -101,7 +101,6 @@ ContextNULL::ContextNULL(const gl::State &state,
     mExtensions.textureCompressionAstcOES       = true;
     mExtensions.compressedETC1RGB8TextureOES    = true;
     mExtensions.compressedETC1RGB8SubTextureEXT = true;
-    mExtensions.lossyEtcDecodeANGLE             = true;
     mExtensions.geometryShaderEXT               = true;
     mExtensions.geometryShaderOES               = true;
     mExtensions.multiDrawIndirectEXT            = true;
@@ -119,8 +118,9 @@ ContextNULL::ContextNULL(const gl::State &state,
 
     if (mExtensions.shaderPixelLocalStorageANGLE)
     {
-        mPLSOptions.type             = ShPixelLocalStorageType::FramebufferFetch;
-        mPLSOptions.fragmentSyncType = ShFragmentSynchronizationType::Automatic;
+        mPLSOptions.type                = ShPixelLocalStorageType::FramebufferFetch;
+        mPLSOptions.fragmentSyncType    = ShFragmentSynchronizationType::Automatic;
+        mPLSOptions.supportsNoncoherent = true;
     }
 }
 

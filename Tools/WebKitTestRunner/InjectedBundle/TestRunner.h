@@ -138,8 +138,6 @@ public:
     void dumpTitleChanges() { m_dumpTitleChanges = true; }
     void dumpFrameLoadCallbacks() { setShouldDumpFrameLoadCallbacks(true); }
     void dumpProgressFinishedCallback() { setShouldDumpProgressFinishedCallback(true); }
-    void dumpResourceLoadCallbacks() { m_dumpResourceLoadCallbacks = true; }
-    void dumpResourceResponseMIMETypes() { m_dumpResourceResponseMIMETypes = true; }
     void dumpWillCacheResponse() { m_dumpWillCacheResponse = true; }
     void dumpApplicationCacheDelegateCallbacks() { m_dumpApplicationCacheDelegateCallbacks = true; }
     void dumpDOMAsWebArchive() { setWhatToDump(WhatToDump::DOMAsWebArchive); }
@@ -196,6 +194,7 @@ public:
     void setDatabaseQuota(uint64_t);
     JSRetainPtr<JSStringRef> pathToLocalResource(JSStringRef);
     void syncLocalStorage();
+    unsigned storageAreaMapCount();
 
     void clearStorage();
 
@@ -230,8 +229,6 @@ public:
     bool shouldDumpPixels() const;
     bool shouldDumpFrameLoadCallbacks();
     bool shouldDumpProgressFinishedCallback() const { return m_dumpProgressFinishedCallback; }
-    bool shouldDumpResourceLoadCallbacks() const { return m_dumpResourceLoadCallbacks; }
-    bool shouldDumpResourceResponseMIMETypes() const { return m_dumpResourceResponseMIMETypes; }
     bool shouldDumpWillCacheResponse() const { return m_dumpWillCacheResponse; }
     bool shouldDumpApplicationCacheDelegateCallbacks() const { return m_dumpApplicationCacheDelegateCallbacks; }
     bool shouldDumpSelectionRect() const { return m_dumpSelectionRect; }
@@ -239,7 +236,12 @@ public:
     bool didReceiveServerRedirectForProvisionalNavigation() const;
     void clearDidReceiveServerRedirectForProvisionalNavigation();
 
+    JSRetainPtr<JSStringRef> lastProvisionalNavigationFailureURL() const;
+
     bool shouldWaitUntilDone() const;
+    // True until notifyDone() is called. Unlike shouldWaitUntilDone(), not held true by a
+    // deferred dump, so it can gate the work queue.
+    bool isWaitingUntilDone() const;
 
     // Downloads
     bool shouldFinishAfterDownload() const { return m_shouldFinishAfterDownload; }
@@ -400,6 +402,9 @@ public:
     void setStatisticsCacheMaxAgeCap(double seconds);
     bool hasStatisticsIsolatedSession(JSStringRef hostName);
 
+    void setGlobalPrivacyControl(bool);
+    bool getGlobalPrivacyControl();
+
     // Injected bundle form client.
     void installTextDidChangeInTextFieldCallback(JSContextRef, JSValueRef callback);
     void textDidChangeInTextFieldCallback();
@@ -421,9 +426,6 @@ public:
     void setUseSeparateServiceWorkerProcess(bool);
 
     void installFakeHelvetica(JSStringRef configuration);
-
-    void dumpAllHTTPRedirectedResponseHeaders() { m_dumpAllHTTPRedirectedResponseHeaders = true; }
-    bool shouldDumpAllHTTPRedirectedResponseHeaders() const { return m_dumpAllHTTPRedirectedResponseHeaders; }
 
     void addMockCameraDevice(JSContextRef, JSStringRef persistentId, JSStringRef label, JSValueRef properties);
     void addMockMicrophoneDevice(JSContextRef, JSStringRef persistentId, JSStringRef label, JSValueRef propertie);
@@ -522,8 +524,6 @@ private:
     bool m_dumpPixels { false };
     bool m_dumpSelectionRect { false };
     bool m_dumpProgressFinishedCallback { false };
-    bool m_dumpResourceLoadCallbacks { false };
-    bool m_dumpResourceResponseMIMETypes { false };
     bool m_dumpWillCacheResponse { false };
     bool m_dumpApplicationCacheDelegateCallbacks { false };
 
@@ -538,7 +538,6 @@ private:
     bool m_didCancelClientRedirect { false };
 
     bool m_userStyleSheetEnabled { false };
-    bool m_dumpAllHTTPRedirectedResponseHeaders { false };
 };
 
 } // namespace WTR

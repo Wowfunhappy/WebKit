@@ -45,6 +45,21 @@ class CLDeviceVk : public CLDeviceImpl
 
     spv_target_env getSpirvVersion() const { return mSpirvVersion; }
 
+  public:
+    // WGS creation strategies when user leaves this up to the driver
+    static cl::WorkgroupSize CalculateSimplePow2WGS(const cl::NDRange &ndrange,
+                                                    const uint32_t maxSize);
+    static cl::WorkgroupSize CalculateUniformFitWGS(const cl::NDRange &ndrange,
+                                                    const uint32_t maxSize);
+    uint32_t getWorkGroupSizeMultiple() const;
+
+  private:
+    uint32_t getNumComputeUnits() const;
+    cl_ulong getSingleFpConfig() const;
+    cl_ulong getHalfFpConfig() const;
+    cl_ulong getDoubleFpConfig() const;
+    cl_ulong getCacheSize() const;
+
   private:
     vk::Renderer *mRenderer;
     spv_target_env mSpirvVersion;

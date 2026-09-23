@@ -30,6 +30,7 @@
 
 #include "DaemonDecoder.h"
 #include "DaemonEncoder.h"
+#include "Logging.h"
 #include "NetworkSession.h"
 #include <wtf/TZoneMallocInlines.h>
 

@@ -95,7 +95,7 @@ ExceptionOr<void> DedicatedWorkerGlobalScope::postMessage(JSC::JSGlobalObject& s
 {
     Vector<Ref<MessagePort>> ports;
 
-    auto message = SerializedScriptValue::create(state, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
+    auto message = SerializedScriptValue::create(state, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No);
     if (message.hasException())
         return message.releaseException();
 

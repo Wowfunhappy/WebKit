@@ -62,11 +62,6 @@ public:
     URL href() const;
     WEBCORE_EXPORT const AtomString& NODELETE rel() const;
 
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    URL environmentMap() const;
-    bool isSpatialBackdrop() const { return m_relAttribute.isSpatialBackdrop; }
-#endif
-
     AtomString target() const final;
 
     const AtomString& NODELETE type() const;
@@ -120,9 +115,9 @@ private:
     void unblockRendering();
     bool NODELETE isImplicitlyPotentiallyRenderBlocking() const;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     void initializeStyleSheet(Ref<StyleSheetContents>&&, const CachedCSSStyleSheet&, MediaQueryParserContext);
 
@@ -143,7 +138,7 @@ private:
 
     HTMLLinkElement(const QualifiedName&, Document&, bool createdByParser);
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     void finishParsingChildren() final;
 
@@ -168,9 +163,6 @@ private:
     String m_media;
     String m_integrityMetadataForPendingSheetRequest;
     URL m_url;
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    URL m_environmentMapURL;
-#endif
     const std::unique_ptr<DOMTokenList> m_sizes;
     const std::unique_ptr<DOMTokenList> m_relList;
     const std::unique_ptr<DOMTokenList> m_blockingList;

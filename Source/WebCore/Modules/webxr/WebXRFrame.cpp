@@ -78,7 +78,7 @@ bool WebXRFrame::isOutsideNativeBoundsOfBoundedReferenceSpace(const WebXRSpace& 
 
 bool WebXRFrame::isLocalReferenceSpace(const WebXRSpace& space) const
 {
-    auto* referenceSpace = dynamicDowncast<WebXRReferenceSpace>(space);
+    RefPtr referenceSpace = dynamicDowncast<WebXRReferenceSpace>(space);
     if (!referenceSpace)
         return false;
 
@@ -208,7 +208,7 @@ ExceptionOr<RefPtr<WebXRViewerPose>> WebXRFrame::getViewerPose(const Document& d
         // 8.6. Let offset be an new XRRigidTransform object equal to the view offset of view in the relevant realm of session.
         // 8.7. Set xrview’s transform property to the result of multiplying the XRViewerPose's transform by the offset transform in the relevant realm of session
         auto offset = matrixFromPose(frameData.views[index].offset);
-        auto transform = WebXRRigidTransform::create(pose->transform().rawTransform() * offset);
+        Ref transform = WebXRRigidTransform::create(pose->transform().rawTransform() * offset);
 
         // Set projection matrix for each view
         std::array<float, 16> projection = WTF::switchOn(frameData.views[index].projection, [&](const PlatformXR::FrameData::Fov& fov) {
@@ -221,7 +221,7 @@ ExceptionOr<RefPtr<WebXRViewerPose>> WebXRFrame::getViewerPose(const Document& d
             // Use aspect projection for inline sessions
             double fov =  m_session->renderState().inlineVerticalFieldOfView().value_or(piOverTwoDouble);
             float aspect = 1;
-            auto layer = m_session->renderState().baseLayer();
+            RefPtr layer = m_session->renderState().baseLayer();
             if (layer)
                 aspect = static_cast<double>(layer->framebufferWidth()) / static_cast<double>(layer->framebufferHeight());
             double near = m_session->renderState().depthNear();
@@ -229,7 +229,7 @@ ExceptionOr<RefPtr<WebXRViewerPose>> WebXRFrame::getViewerPose(const Document& d
             return TransformationMatrix::fromProjection(fov, aspect, near, far).toColumnMajorFloatArray();
         });
 
-        auto xrView = WebXRView::create(Ref { *this }, view.eye, WTF::move(transform), Float32Array::create(projection.data(), projection.size()));
+        Ref xrView = WebXRView::create(protect(*this), view.eye, WTF::move(transform), Float32Array::create(projection.data(), projection.size()));
         xrView->setViewportModifiable(m_session->supportsViewportScaling());
 
         //  8.8. Append xrview to xrviews
@@ -294,7 +294,7 @@ ExceptionOr<bool> WebXRFrame::fillJointRadii(const Vector<Ref<WebXRJointSpace>>&
 
     // For each joint in the jointSpaces:
     // If joint’s session is different from session, throw an InvalidStateError and abort these steps.
-    for (const auto& jointSpace : jointSpaces) {
+    for (Ref jointSpace : jointSpaces) {
         if (jointSpace->session() != m_session.ptr())
             return Exception { ExceptionCode::InvalidStateError, "Joint space's session does not match frame's session"_s };
     }
@@ -334,7 +334,7 @@ ExceptionOr<bool> WebXRFrame::fillPoses(const Document& document, const Vector<R
 
     // For each space in the spaces sequence:
     // If space’s session is different from session, throw an InvalidStateError and abort these steps.
-    for (const auto& space : spaces) {
+    for (Ref space : spaces) {
         if (space->session() != m_session.ptr())
             return Exception { ExceptionCode::InvalidStateError, "Space's session does not match frame's session"_s };
     }

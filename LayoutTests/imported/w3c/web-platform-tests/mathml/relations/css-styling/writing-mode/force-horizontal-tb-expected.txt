@@ -1,6 +1,8 @@
 
 PASS writing-mode is forced to horizontal-tb on <math> element
 PASS logical properties interpreted in horizontal-tb on <math> element
+PASS writing-mode is forced to horizontal-tb on <a> element
+PASS logical properties interpreted in horizontal-tb on <a> element
 PASS writing-mode is forced to horizontal-tb on <annotation> element
 PASS logical properties interpreted in horizontal-tb on <annotation> element
 PASS writing-mode is forced to horizontal-tb on <annotation-xml> element

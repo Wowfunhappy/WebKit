@@ -43,7 +43,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGResourceMarker);
 
-RenderSVGResourceMarker::RenderSVGResourceMarker(SVGMarkerElement& element, RenderStyle&& style)
+RenderSVGResourceMarker::RenderSVGResourceMarker(SVGMarkerElement& element, Style::ComputedStyle&& style)
     : RenderSVGResourceContainer(Type::SVGResourceMarker, element, WTF::move(style))
 {
 }
@@ -88,8 +88,6 @@ void RenderSVGResourceMarker::updateFromStyle()
 
 void RenderSVGResourceMarker::updateLayerTransform()
 {
-    ASSERT(hasLayer());
-
     // First update the supplemental layer transform.
     Ref useMarkerElement = markerElement();
     auto viewportSize = this->viewportSize();
@@ -98,9 +96,10 @@ void RenderSVGResourceMarker::updateLayerTransform()
 
     if (useMarkerElement->hasAttribute(SVGNames::viewBoxAttr)) {
         // An empty viewBox disables the rendering -- dirty the visible descendant status!
-        if (useMarkerElement->hasEmptyViewBox())
-            layer()->dirtyVisibleContentStatus();
-        else if (auto viewBoxTransform = useMarkerElement->viewBoxToViewTransform(viewportSize.width(), viewportSize.height()); !viewBoxTransform.isIdentity())
+        if (useMarkerElement->hasEmptyViewBox()) {
+            if (hasLayer())
+                layer()->dirtyVisibleContentStatus();
+        } else if (auto viewBoxTransform = useMarkerElement->viewBoxToViewTransform(viewportSize.width(), viewportSize.height()); !viewBoxTransform.isIdentity())
             m_supplementalLayerTransform = viewBoxTransform;
     }
 
@@ -108,7 +107,7 @@ void RenderSVGResourceMarker::updateLayerTransform()
     RenderSVGContainer::updateLayerTransform();
 }
 
-void RenderSVGResourceMarker::applyTransform(TransformationMatrix& transform, const RenderStyle& style, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption> options) const
+void RenderSVGResourceMarker::applyTransform(TransformationMatrix& transform, const Style::ComputedStyle& style, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption> options) const
 {
     // This code resembles RenderLayerModelObject::applySVGTransform(), but supporting non-SVGGraphicsElement derived elements,
     // such as SVGMarkerElement, that do not allow user-specified transformations (no SMIL, no SVG/CSS transformations) - only

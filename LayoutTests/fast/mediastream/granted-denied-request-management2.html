@@ -27,7 +27,9 @@ promise_test(async (test) => {
     });
     await promise;
 
-    return navigator.mediaDevices.getUserMedia({ audio: true });
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+        stream.getTracks().forEach(t => t.stop());
+    });
 }, "Remove audio denied request upon successful audio/video request");
     </script>
 </body>

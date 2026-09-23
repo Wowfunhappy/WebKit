@@ -113,7 +113,7 @@ public:
     }
 
     template <typename TokenCharacterType>
-    bool processToken(std::span<const TokenCharacterType> characters)
+    bool NODELETE processToken(std::span<const TokenCharacterType> characters)
     {
         if (characters.size() == m_referenceLength && equal(m_referenceCharacters, characters)) {
             m_referenceStringWasFound = true;
@@ -131,7 +131,7 @@ private:
 };
 
 template <typename ValueCharacterType>
-static bool spaceSplitStringContainsValueInternal(StringView spaceSplitString, StringView value)
+static bool NODELETE spaceSplitStringContainsValueInternal(StringView spaceSplitString, StringView value)
 {
     TokenIsEqualToCharactersTokenProcessor<ValueCharacterType> tokenProcessor(value.span<ValueCharacterType>().data(), value.length());
     tokenizeSpaceSplitString(tokenProcessor, spaceSplitString);
@@ -196,7 +196,7 @@ inline Ref<SpaceSplitStringData> SpaceSplitStringData::create(const AtomString& 
 
     RELEASE_ASSERT(tokenCount < (std::numeric_limits<unsigned>::max() - sizeof(SpaceSplitStringData)) / sizeof(AtomString));
     size_t sizeToAllocate = sizeof(SpaceSplitStringData) + tokenCount * sizeof(AtomString);
-    auto* rawPointer = static_cast<SpaceSplitStringData*>(fastMalloc(sizeToAllocate));
+    SUPPRESS_UNCOUNTED_LOCAL auto* rawPointer = static_cast<SpaceSplitStringData*>(fastMalloc(sizeToAllocate));
 
     new (NotNull, rawPointer) SpaceSplitStringData(keyString, tokenCount);
     Ref spaceSplitStringData = adoptRef(*rawPointer);

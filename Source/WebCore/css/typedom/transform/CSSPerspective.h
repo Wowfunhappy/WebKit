@@ -25,15 +25,15 @@
 
 #pragma once
 
-#include "CSSKeywordValue.h"
 #include "CSSNumericValue.h"
+#include "CSSOMKeywordValue.h"
 #include "CSSTransformComponent.h"
 
 namespace WebCore {
 
 template<typename> class ExceptionOr;
 class CSSFunctionValue;
-using CSSPerspectiveValue = Variant<Ref<CSSNumericValue>, String, Ref<CSSKeywordValue>>;
+using CSSPerspectiveValue = Variant<Ref<CSSNumericValue>, String, Ref<CSSOMKeywordValue>>;
 class Document;
 
 class CSSPerspective : public CSSTransformComponent {

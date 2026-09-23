@@ -26,8 +26,7 @@
 
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
-namespace WebCore {
-namespace Style {
+namespace WebCore::Style {
 
 // <'column-width'> = auto | <integer [1,∞]>
 // https://www.w3.org/TR/css-multicol-1/#propdef-column-count
@@ -37,14 +36,6 @@ struct ColumnCount : ValueOrKeyword<Integer<CSS::Range{1,CSS::Range::infinity}, 
     bool isAuto() const { return isKeyword(); }
 };
 
-// MARK: - Blending
-
-template<> struct Blending<ColumnCount> {
-    bool NODELETE canBlend(const ColumnCount&, const ColumnCount&);
-    auto blend(const ColumnCount&, const ColumnCount&, const BlendingContext&) -> ColumnCount;
-};
-
-} // namespace Style
-} // namespace WebCore
+} // namespace WebCore::Style
 
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::ColumnCount)

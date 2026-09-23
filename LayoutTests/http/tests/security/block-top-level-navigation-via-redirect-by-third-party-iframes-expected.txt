@@ -4,7 +4,7 @@ Test blocking of suspicious top-level navigations by a third-party iframe (same-
 On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
 
 
-PASS All navigations by subframes have been blocked
+PASS Navigation by subframe has been blocked
 PASS successfullyParsed is true
 
 TEST COMPLETE

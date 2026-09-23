@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,9 +38,8 @@
 #include "CSSPrimitiveNumericCategory.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSUnevaluatedCalc.h"
-#include "RenderStyle.h"
-#include "RenderStyle+GettersInlines.h"
 #include "StyleBuilderState.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleLengthResolution.h"
 #include <wtf/StdLibExtras.h>
 
@@ -48,6 +47,8 @@ namespace WebCore {
 namespace CSSCalc {
 
 static auto copyAndSimplify(const Random::Sharing&, const SimplificationOptions&) -> Random::Sharing;
+static auto copyAndSimplify(const CalcMix::Item&, const SimplificationOptions&) -> CalcMix::Item;
+static auto copyAndSimplify(const Vector<CalcMix::Item>&, const SimplificationOptions&) -> Vector<CalcMix::Item>;
 static auto copyAndSimplify(const CSS::Keyword::None&, const SimplificationOptions&) -> CSS::Keyword::None;
 static auto copyAndSimplify(const Children&, const SimplificationOptions&) -> Children;
 static auto copyAndSimplify(const ChildOrNone&, const SimplificationOptions&) -> ChildOrNone;
@@ -273,19 +274,11 @@ std::optional<CanonicalDimension> canonicalize(NonCanonicalDimension root, const
     case CSSUnitType::CSS_INTEGER:
     case CSSUnitType::CSS_PERCENTAGE:
     // Non-numeric types should never be stored in a NonCanonicalDimension.
-    case CSSUnitType::CSS_ATTR:
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
-    case CSSUnitType::CSS_DIMENSION:
-    case CSSUnitType::CSS_FONT_FAMILY:
-    case CSSUnitType::CSS_IDENT:
-    case CSSUnitType::CSS_PROPERTY_ID:
     case CSSUnitType::CSS_QUIRKY_EM:
-    case CSSUnitType::CSS_STRING:
     case CSSUnitType::CSS_UNKNOWN:
-    case CSSUnitType::CSS_VALUE_ID:
-    case CSSUnitType::CustomIdent:
         break;
     }
 
@@ -339,17 +332,14 @@ template<typename Op> static std::optional<Child> simplifyForRound(Op& root, con
 
 template<typename Op> static std::optional<Child> simplifyForTrig(Op& root, const SimplificationOptions&)
 {
-    // NOTE: `a` has been type checked by this point to be `<number>` or an `<angle>`, though they may not
-    // be able to be fully resolved yet. If its an `<angle>`, it is also already been converted to canonical
-    // units via earlier simplification.
+    // NOTE: `root.a` has been type checked by this point to be `<number>`, or to be a Deg2Rad
+    // wrapper inserted at parse time around an `<angle>` subtree. The Deg2Rad node takes care of
+    // converting degrees to radians, so simplification here only needs to collapse the trig
+    // function when the wrapped value has resolved to a Number (i.e. a value in radians).
 
     return WTF::switchOn(root.a,
         [&](const Number& a) -> std::optional<Child> {
             return makeChild(Number { .value = executeMathOperation<Op>(a.value) });
-        },
-        [&](const CanonicalDimension& a) -> std::optional<Child> {
-            ASSERT(a.dimension == CanonicalDimension::Dimension::Angle);
-            return makeChild(Number { .value = executeMathOperation<Op>(deg2rad(a.value)) });
         },
         [](const auto&) -> std::optional<Child> {
             return { };
@@ -917,8 +907,11 @@ std::optional<Child> simplify(Negate& root, const SimplificationOptions&)
 
     return WTF::switchOn(root.a,
         [&]<Numeric T>(T& a) -> std::optional<Child> {
-            // 6.1. If root’s child is a numeric value, return an equivalent numeric value, but with the value negated (0 - value).
-            return makeChildWithValueBasedOn(0.0 - a.value, a);
+            // 6.1. If root’s child is a numeric value, return an equivalent numeric value, but with the value negated.
+            // NOTE: We use unary negation rather than the spec's literal "0 - value" so that the sign of a zero is
+            // flipped (negating +0 yields -0), matching IEEE 754 and the runtime Negate executor.
+            // https://drafts.csswg.org/css-values-4/#calc-ieee
+            return makeChildWithValueBasedOn(-a.value, a);
         },
         [](IndirectNode<Negate>& a) -> std::optional<Child> {
             // 6.2. If root’s child is a Negate node, return the child’s child.
@@ -974,6 +967,23 @@ std::optional<Child> simplify(Invert& root, const SimplificationOptions&)
             return { WTF::move(a->a) };
         },
         [](auto&) -> std::optional<Child> {
+            return { };
+        }
+    );
+}
+
+std::optional<Child> simplify(Deg2Rad& root, const SimplificationOptions&)
+{
+    // Deg2Rad wraps an <angle> subtree and produces a <number> in radians. It is inserted at
+    // parse time inside trig functions whose argument is an <angle>, so that evaluation does not
+    // need to inspect the argument's type.
+
+    return WTF::switchOn(root.angle,
+        [&](const CanonicalDimension& a) -> std::optional<Child> {
+            ASSERT(a.dimension == CanonicalDimension::Dimension::Angle);
+            return makeChild(Number { .value = deg2rad(a.value) });
+        },
+        [](const auto&) -> std::optional<Child> {
             return { };
         }
     );
@@ -1333,11 +1343,24 @@ std::optional<Child> simplify(Random& root, const SimplificationOptions& options
 
             auto randomBaseValue = WTF::switchOn(root.sharing,
                 [&](const Random::SharingOptions& sharingOptions) -> std::optional<double> {
-                    if (sharingOptions.elementShared.has_value() && !options.conversionData->styleBuilderState()->element())
+                    CheckedPtr builderState = options.conversionData->styleBuilderState();
+
+                    if (sharingOptions.elementScoped.has_value() && !builderState->element())
                         return { };
-                    return protect(options.conversionData->styleBuilderState())->lookupCSSRandomBaseValue(
-                        sharingOptions.identifier,
-                        sharingOptions.elementShared
+
+                    return WTF::switchOn(sharingOptions.identifier,
+                        [&](const Random::SharingOptions::Auto& autoValue) {
+                            return builderState->lookupCSSRandomBaseValue(
+                                autoValue,
+                                sharingOptions.elementScoped
+                            );
+                        },
+                        [&](const CSS::CustomIdent& customIdent) {
+                            return builderState->lookupCSSRandomBaseValue(
+                                Style::toStyle(customIdent, *builderState),
+                                sharingOptions.elementScoped
+                            );
+                        }
                     );
                 },
                 [&](const Random::SharingFixed& sharingFixed) -> std::optional<double> {
@@ -1385,6 +1408,274 @@ std::optional<Child> simplify(Progress& root, const SimplificationOptions& optio
     );
 }
 
+std::optional<Child> simplify(ProgressNoClamp& root, const SimplificationOptions& options)
+{
+    if (root.value.index() != root.start.index() || root.start.index() != root.end.index())
+        return { };
+
+    return WTF::switchOn(root.value,
+        [&]<Numeric T>(const T& numericValue) -> std::optional<Child> {
+            const auto& numericStart = get<T>(root.start);
+            const auto& numericEnd = get<T>(root.end);
+
+            if (!unitsMatch(numericValue, numericStart, options) || !unitsMatch(numericStart, numericEnd, options) || !fullyResolved(numericValue, options))
+                return { };
+
+            return makeChild(Number { .value = executeMathOperation<ProgressNoClamp>(numericValue.value, numericStart.value, numericEnd.value) });
+        },
+        [](const auto&) -> std::optional<Child> {
+            return { };
+        }
+    );
+}
+
+std::optional<Child> simplify(CalcMix& root, const SimplificationOptions& options)
+{
+    // 1. Let `specified sum` be the sum of the percentages specified in items (clamped to 100%), or 0% if the percentages are omitted for all items.
+    // 2. For each omitted percentage in items, set it to (100% - specified sum) / (number of omitted percentages).
+    // 3. Let `total` be the sum of the percentages of all the items
+    // 4. If `total` is greater than 100%, or if total is greater than 0% and the force normalization flag is true, multiply every percentage in items by (100% / total).
+    // 5. If total is less than 100%, let leftover be (100% - total). Otherwise, let leftover be 0%.
+    // NOTE: Per spec, "Any “leftover” mix percentage is applied to a consistently-typed zero value, and thus effectively discarded".
+
+    auto zeroValueMatchingChild = [options](auto& child) -> Child {
+        auto childType = getType(child.value);
+        auto category = childType.calculationCategory();
+        ASSERT(category);
+        switch (*category) {
+        case CSS::Category::Integer:
+        case CSS::Category::Number:
+            return makeChild(Number { .value = 0 });
+        case CSS::Category::Percentage:
+            return makeChild(Percentage { .value = 0, .hint = Type::determinePercentHint(options.category) });
+        case CSS::Category::LengthPercentage:
+            return makeChild(Percentage { .value = 0, .hint = PercentHint::Length });
+        case CSS::Category::Length:
+            return makeChild(CanonicalDimension { .value = 0, .dimension = CanonicalDimension::Dimension::Length });
+        case CSS::Category::Angle:
+            return makeChild(CanonicalDimension { .value = 0, .dimension = CanonicalDimension::Dimension::Angle });
+        case CSS::Category::AnglePercentage:
+            return makeChild(Percentage { .value = 0, .hint = PercentHint::Angle });
+        case CSS::Category::Time:
+            return makeChild(CanonicalDimension { .value = 0, .dimension = CanonicalDimension::Dimension::Time });
+        case CSS::Category::Frequency:
+            return makeChild(CanonicalDimension { .value = 0, .dimension = CanonicalDimension::Dimension::Frequency });
+        case CSS::Category::Resolution:
+            return makeChild(CanonicalDimension { .value = 0, .dimension = CanonicalDimension::Dimension::Resolution });
+        case CSS::Category::Flex:
+            return makeChild(CanonicalDimension { .value = 0, .dimension = CanonicalDimension::Dimension::Flex });
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    };
+
+    bool canNormalize = true;
+    double total = 0;
+    unsigned numberOfOmittedWeights = 0;
+    unsigned numberOfKnownZeroWeights = 0;
+
+    for (auto& item : root.children) {
+        if (item.weight) {
+            WTF::switchOn(*item.weight,
+                [&](const CalcMix::Item::Weight::Raw& raw) {
+                    if (!raw.value)
+                        ++numberOfKnownZeroWeights;
+
+                    // Build a running sum of all the percentage values for use in normalization.
+                    total += raw.value;
+                },
+                [&](const CalcMix::Item::Weight::Calc&) {
+                    canNormalize = false;
+                }
+            );
+        } else
+            ++numberOfOmittedWeights;
+    }
+
+    // If not all the percentage weights are fully resolvable (e.g. `calc-mix(10px calc(50% * sibling-index()), 20px)`
+    // at parse time) we can't normalize.
+    if (!canNormalize) {
+        // Even if we can't normalize, we can still remove any items with a weight that is known to be zero.
+        if (numberOfKnownZeroWeights > 0) {
+            auto newNumberOfChildren = root.children.size() - numberOfKnownZeroWeights;
+
+            // If all the weights are known to be zero, we can simplify all the way down zero value for the calc-mix itself.
+            if (!newNumberOfChildren)
+                return zeroValueMatchingChild(root.children[0]);
+
+            Vector<CalcMix::Item> newChildren;
+            newChildren.reserveInitialCapacity(newNumberOfChildren);
+            for (auto& item : root.children) {
+                // Skip any known zero weights.
+                if (item.weight && item.weight->isKnownZero())
+                    continue;
+                newChildren.append(WTF::move(item));
+            }
+            root.children = WTF::move(newChildren);
+        }
+        return { };
+    }
+
+    if (total >= 100) {
+        // If the total of the specific weights is >= 100, all items with omitted weights will
+        // be given a weight of 0 and can be removed.
+        //
+        // Also take this opportunity to remove items with specified weights of 0.
+        //
+        // Also apply the normalization factor to any remaining weights.
+
+        auto normalizationFactor = 100.0 / total;
+
+        if (numberOfOmittedWeights > 0 || numberOfKnownZeroWeights > 0) {
+            auto newNumberOfChildren = root.children.size() - (numberOfOmittedWeights + numberOfKnownZeroWeights);
+
+            Vector<CalcMix::Item> newChildren;
+            newChildren.reserveInitialCapacity(newNumberOfChildren);
+            for (auto& item : root.children) {
+                // Skip omitted weights and any known zero weights.
+                if (!item.weight || item.weight->isKnownZero())
+                    continue;
+
+                // Update weight using normalization factor.
+                item.weight = CalcMix::Item::Weight { item.weight->raw()->value * normalizationFactor };
+
+                newChildren.append(WTF::move(item));
+            }
+            root.children = WTF::move(newChildren);
+        } else {
+            for (auto& item : root.children) {
+                // Update weight using normalization factor.
+                item.weight = CalcMix::Item::Weight { item.weight->raw()->value * normalizationFactor };
+            }
+        }
+    } else {
+        if (numberOfKnownZeroWeights > 0) {
+            if (numberOfOmittedWeights > 0) {
+                auto newNumberOfChildren = root.children.size() - numberOfKnownZeroWeights;
+
+                Vector<CalcMix::Item> newChildren;
+                newChildren.reserveInitialCapacity(newNumberOfChildren);
+
+                auto weightForOmitted = (100.0 - total) / static_cast<double>(numberOfOmittedWeights);
+
+                for (auto& item : root.children) {
+                    if (item.weight) {
+                        // Skip any known zero weights.
+                        if (item.weight->isKnownZero())
+                            continue;
+                    } else
+                        item.weight = CalcMix::Item::Weight { weightForOmitted };
+
+                    newChildren.append(WTF::move(item));
+                }
+                root.children = WTF::move(newChildren);
+            } else {
+                auto newNumberOfChildren = root.children.size() - numberOfKnownZeroWeights;
+
+                // If all the weights are known to be zero, we can simplify all the way down zero value for the calc-mix itself.
+                if (!newNumberOfChildren)
+                    return zeroValueMatchingChild(root.children[0]);
+
+                Vector<CalcMix::Item> newChildren;
+                newChildren.reserveInitialCapacity(newNumberOfChildren);
+
+                for (auto& item : root.children) {
+                    // Skip any known zero weights.
+                    if (item.weight && item.weight->isKnownZero())
+                        continue;
+
+                    newChildren.append(WTF::move(item));
+                }
+                root.children = WTF::move(newChildren);
+            }
+        } else if (numberOfOmittedWeights > 0) {
+            auto weightForOmitted = (100.0 - total) / static_cast<double>(numberOfOmittedWeights);
+
+            for (auto& item : root.children) {
+                if (!item.weight)
+                    item.weight = CalcMix::Item::Weight { weightForOmitted };
+            }
+        }
+    }
+
+    // Types used to check if all the values are fully simplified down to the same type.
+    // This can fail in cases like:
+    //     width: calc-mix(10% 25%, 10px 75%) - <length-percentage> result allows either <percentage> or <length> values, but <percentage> is not resolvable until later.
+    //     width: calc-mix(10px * sibling-index() 25%, 10px 75%) - `10px * sibling-index()` cannot be fully simplified until later.
+    //     width: calc-mix(10em 25%, 10px 75%) - `10em` cannot be resolved until later.
+
+    std::optional<Variant<Number, Percentage, CanonicalDimension, NonCanonicalDimension>> result;
+
+    for (auto& item : root.children) {
+        auto weight = item.weight->raw()->value / 100.0;
+
+        bool success = WTF::switchOn(item.value,
+            [&](const Number& value) {
+                if (!result) {
+                    result = Number { .value = value.value * weight };
+                    return true;
+                }
+                if (!WTF::holdsAlternative<Number>(*result))
+                    return false;
+
+                auto addition = value.value * weight;
+                auto newResult = get<Number>(*result).value + addition;
+                get<Number>(*result).value = newResult;
+                return true;
+            },
+            [&](const Percentage& value) {
+                if (!result) {
+                    result = Percentage { .value = value.value * weight, .hint = value.hint };
+                    return true;
+                }
+                if (!WTF::holdsAlternative<Percentage>(*result) || get<Percentage>(*result).hint != value.hint)
+                    return false;
+
+                auto addition = value.value * weight;
+                auto newResult = get<Percentage>(*result).value + addition;
+                get<Percentage>(*result).value = newResult;
+                return true;
+            },
+            [&](const CanonicalDimension& value) {
+                if (!result) {
+                    result = CanonicalDimension { .value = value.value * weight, .dimension = value.dimension };
+                    return true;
+                }
+                if (!WTF::holdsAlternative<CanonicalDimension>(*result) || get<CanonicalDimension>(*result).dimension != value.dimension)
+                    return false;
+
+                auto addition = value.value * weight;
+                auto newResult = get<CanonicalDimension>(*result).value + addition;
+                get<CanonicalDimension>(*result).value = newResult;
+                return true;
+            },
+            [&](const NonCanonicalDimension& value) {
+                if (!result) {
+                    result = NonCanonicalDimension { .value = value.value * weight, .unit = value.unit };
+                    return true;
+                }
+                if (!WTF::holdsAlternative<NonCanonicalDimension>(*result) || get<NonCanonicalDimension>(*result).unit != value.unit)
+                    return false;
+
+                auto addition = value.value * weight;
+                auto newResult = get<NonCanonicalDimension>(*result).value + addition;
+                get<NonCanonicalDimension>(*result).value = newResult;
+                return true;
+            },
+            [&](const auto&) {
+                return false;
+            }
+        );
+        if (!success)
+            return { };
+    }
+
+    return WTF::switchOn(*result,
+        [&]<Numeric T>(const T& numeric) -> std::optional<Child> {
+            return makeChild(numeric);
+        }
+    );
+}
+
 std::optional<Child> simplify(Anchor& anchor, const SimplificationOptions& options)
 {
     if (!options.conversionData || !options.conversionData->styleBuilderState())
@@ -1420,9 +1711,9 @@ std::optional<Child> simplify(AnchorSize& anchorSize, const SimplificationOption
     CheckedPtr builderState = options.conversionData->styleBuilderState();
 
     std::optional<Style::ScopedName> anchorSizeScopedName;
-    if (!anchorSize.elementName.isNull()) {
+    if (anchorSize.elementName) {
         anchorSizeScopedName = Style::ScopedName {
-            .name = anchorSize.elementName,
+            .name = Style::toStyle(*anchorSize.elementName, *builderState).value,
             .scopeOrdinal = builderState->styleScopeOrdinal()
         };
     }
@@ -1444,6 +1735,16 @@ std::optional<Child> simplify(AnchorSize& anchorSize, const SimplificationOption
 Random::Sharing copyAndSimplify(const Random::Sharing& root, const SimplificationOptions&)
 {
     return root;
+}
+
+CalcMix::Item copyAndSimplify(const CalcMix::Item& root, const SimplificationOptions& options)
+{
+    return { .value = copyAndSimplify(root.value, options), .weight = root.weight };
+}
+
+Vector<CalcMix::Item> copyAndSimplify(const Vector<CalcMix::Item>& items, const SimplificationOptions& options)
+{
+    return WTF::map(items, [&](auto& item) { return copyAndSimplify(item, options); });
 }
 
 CSS::Keyword::None NODELETE copyAndSimplify(const CSS::Keyword::None& root, const SimplificationOptions&)

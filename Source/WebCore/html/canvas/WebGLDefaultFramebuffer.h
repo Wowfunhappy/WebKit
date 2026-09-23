@@ -54,6 +54,7 @@ private:
 
     WeakRef<WebGLRenderingContextBase> m_context;
 
+    IntSize m_size;
     GCGLbitfield m_unpreservedBuffers { 0 };
     GCGLbitfield m_dirtyBuffers { 0 };
     bool m_hasStencil : 1;

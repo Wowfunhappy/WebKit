@@ -68,11 +68,8 @@ public:
         : CStringView()
     { }
     CStringView(ASCIILiteral literal LIFETIME_BOUND)
-    {
-        if (!literal.length())
-            return;
-        m_spanWithNullTerminator = byteCast<char8_t>(literal.spanIncludingNullTerminator());
-    }
+        : m_spanWithNullTerminator(byteCast<char8_t>(literal.spanIncludingNullTerminator()))
+    { }
 
     bool isNull() const { return m_spanWithNullTerminator.empty(); }
 

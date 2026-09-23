@@ -1,10 +1,10 @@
 This test passes if it does not time out.
 
-a
-b
-c
-d
-e
-f
+𝑎
+𝑏
+𝑐
+𝑑
+𝑒
+𝑓
 g
 

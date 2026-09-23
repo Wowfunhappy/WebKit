@@ -1,3 +1,6 @@
-PASS: radiusX is correct.
-PASS: radiusY is correct.
+PASS radiusX is expected
+PASS radiusY is expected
+PASS successfullyParsed is true
+
+TEST COMPLETE
 

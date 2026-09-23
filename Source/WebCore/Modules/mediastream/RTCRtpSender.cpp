@@ -122,7 +122,7 @@ void RTCRtpSender::replaceTrack(RefPtr<MediaStreamTrack>&& withTrack, Ref<Deferr
         return;
     }
 
-    m_connection->chainOperation(WTF::move(promise), [this, weakThis = WeakPtr { *this }, withTrack = WTF::move(withTrack)](Ref<DeferredPromise>&& promise) mutable {
+    protect(m_connection)->chainOperation(WTF::move(promise), [this, weakThis = WeakPtr { *this }, withTrack = WTF::move(withTrack)](Ref<DeferredPromise>&& promise) mutable {
         if (!weakThis)
             return;
         if (isStopped()) {
@@ -156,12 +156,32 @@ RTCRtpSendParameters RTCRtpSender::getParameters()
     return m_backend->getParameters();
 }
 
-void RTCRtpSender::setParameters(const RTCRtpSendParameters& parameters, DOMPromiseDeferred<void>&& promise)
+void RTCRtpSender::setParameters(RTCRtpSendParameters&& parameters, DOMPromiseDeferred<void>&& promise)
 {
     if (isStopped()) {
         promise.reject(ExceptionCode::InvalidStateError);
         return;
     }
+
+    // https://w3c.github.io/webrtc-pc/#dfn-setparameters-validation-steps
+    if (m_trackKind == "audio"_s) {
+        for (auto& encoding : parameters.encodings) {
+            encoding.scaleResolutionDownBy = { };
+            encoding.maxFramerate = { };
+        }
+    } else {
+        for (auto& encoding : parameters.encodings) {
+            if (encoding.scaleResolutionDownBy && encoding.scaleResolutionDownBy < 1) {
+                promise.reject(Exception { ExceptionCode::RangeError });
+                return;
+            }
+            if (encoding.maxFramerate && encoding.maxFramerate < 0) {
+                promise.reject(Exception { ExceptionCode::RangeError });
+                return;
+            }
+        }
+    }
+
     return m_backend->setParameters(parameters, WTF::move(promise));
 }
 
@@ -186,7 +206,7 @@ void RTCRtpSender::getStats(Ref<DeferredPromise>&& promise)
         promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
-    m_connection->getStats(*this, WTF::move(promise));
+    protect(m_connection)->getStats(*this, WTF::move(promise));
 }
 
 bool RTCRtpSender::isCreatedBy(const RTCPeerConnection& connection) const
@@ -249,10 +269,10 @@ ExceptionOr<void> RTCRtpSender::setTransform(std::unique_ptr<RTCRtpTransform>&& 
     return { };
 }
 
-std::optional<RTCRtpTransform::Internal> RTCRtpSender::transform()
+RefPtr<RTCRtpScriptTransform> RTCRtpSender::transform()
 {
     if (!m_transform)
-        return { };
+        return nullptr;
     return m_transform->internalTransform();
 }
 

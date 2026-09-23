@@ -20,6 +20,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-animation.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-cssom.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-non-matching-media-crash.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-optional-initial-value.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-shadow.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-stylesheets.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/at-property-typedom.html
@@ -55,9 +56,12 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-computation-color-004.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-computation-color-005-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-computation-color-005.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-computation-color-006-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-computation-color-006.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-computation.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-crosstalk.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-cssom.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-ident-function.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-initial.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-parse-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-properties-values-api/registered-property-revert.html

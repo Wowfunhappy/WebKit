@@ -39,7 +39,7 @@ enum AlignSetting { "start", "center", "end", "left", "right" };
     JSGenerateToNativeObject,
     Exposed=Window
 ] interface VTTCue : TextTrackCue {
-    [CallWith=CurrentDocument] constructor(double startTime, double endTime, DOMString text);
+    [CallWith=CurrentDocument] constructor(double startTime, unrestricted double endTime, DOMString text);
 
     attribute VTTRegion? region;
     attribute DirectionSetting vertical;

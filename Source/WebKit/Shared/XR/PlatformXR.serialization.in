@@ -48,6 +48,8 @@ enum class PlatformXR::SessionFeature : uint8_t {
 #endif
 };
 
+using PlatformXR::Device::FeatureList = Vector<PlatformXR::SessionFeature>;
+
 enum class PlatformXR::SessionMode : uint8_t {
     Inline,
     ImmersiveVr,
@@ -88,6 +90,7 @@ header: <WebCore/PlatformXR.h>
 [CustomHeader] struct PlatformXR::RequestData {
     bool isPassthroughFullyObscured;
     PlatformXR::DepthRange depthRange;
+    Vector<PlatformXR::LayerHandle> activeLayerHandles;
 };
 
 [Nested] struct PlatformXR::FrameData::FloatQuaternion {
@@ -108,6 +111,8 @@ header: <WebCore/PlatformXR.h>
     float left;
     float right;
 };
+
+using PlatformXR::FrameData::Projection = PlatformXR::FrameData::Projection;
 
 [Nested] struct PlatformXR::FrameData::View {
     PlatformXR::FrameData::Pose offset;
@@ -188,6 +193,8 @@ header: <WebCore/PlatformXR.h>
     float radius;
 };
 
+using PlatformXR::FrameData::HandJointsVector = Vector<std::optional<PlatformXR::FrameData::InputSourceHandJoint>>;
+
 #endif
 
 #if ENABLE(WEBXR)
@@ -224,6 +231,8 @@ enum class PlatformXR::InputSourceSpaceType : uint8_t {
     Grip,
 };
 
+using PlatformXR::InputSourceHandle = int;
+
 [CustomHeader] struct PlatformXR::InputSourceSpaceInfo {
     PlatformXR::InputSourceHandle handle;
     PlatformXR::InputSourceSpaceType type;
@@ -251,7 +260,12 @@ using PlatformXR::NativeOriginInformation = Variant<PlatformXR::ReferenceSpaceTy
     PlatformXR::InputSourceHandle inputSource;
     Vector<PlatformXR::FrameData::HitTestResult> results;
 };
+
+using PlatformXR::HitTestSource = WebCore::XRHitTestSourceIdentifier;
+using PlatformXR::TransientInputHitTestSource = WebCore::XRHitTestSourceIdentifier;
 #endif
+
+using PlatformXR::LayerHandle = int;
 
 header: <WebCore/PlatformXR.h>
 [CustomHeader, RValue] struct PlatformXR::FrameData {
@@ -281,10 +295,76 @@ enum class PlatformXR::Eye : uint8_t {
 };
 
 header: <WebCore/PlatformXR.h>
-[Nested] struct PlatformXR::Device::LayerView {
+[Nested] struct PlatformXR::DeviceLayer::LayerView {
     PlatformXR::Eye eye;
     WebCore::IntRect viewport;
 };
+
+header: <WebCore/PlatformXR.h>
+[Nested] struct PlatformXR::DeviceLayer::QuadLayerData {
+    WebCore::FloatSize worldSize;
+    PlatformXR::FrameData::Pose poseInLocalSpace;
+};
+
+header: <WebCore/PlatformXR.h>
+[Nested] struct PlatformXR::DeviceLayer::EquirectLayerData {
+    float radius;
+    float centralHorizontalAngle;
+    float upperVerticalAngle;
+    float lowerVerticalAngle;
+    PlatformXR::FrameData::Pose poseInLocalSpace;
+};
+
+header: <WebCore/PlatformXR.h>
+[Nested] struct PlatformXR::DeviceLayer::CylinderLayerData {
+    float radius;
+    float centralAngle;
+    float aspectRatio;
+    PlatformXR::FrameData::Pose poseInLocalSpace;
+};
+
+header: <WebCore/PlatformXR.h>
+[Nested] struct PlatformXR::DeviceLayer::CubeLayerData {
+    PlatformXR::FrameData::FloatQuaternion orientation;
+};
+
+header: <WebCore/PlatformXR.h>
+[CustomHeader] struct PlatformXR::DeviceLayer {
+    PlatformXR::LayerHandle handle;
+    bool visible;
+    Vector<PlatformXR::DeviceLayer::LayerView> views;
+    WTF::UnixFileDescriptor fenceFD;
+#if ENABLE(WEBXR_LAYERS)
+    bool blendTextureSourceAlpha;
+    bool forceMonoPresentation;
+    std::optional<PlatformXR::DeviceLayer::QuadLayerData> quadLayerData;
+    std::optional<PlatformXR::DeviceLayer::EquirectLayerData> equirectLayerData;
+    std::optional<PlatformXR::DeviceLayer::CylinderLayerData> cylinderLayerData;
+    std::optional<PlatformXR::DeviceLayer::CubeLayerData> cubeLayerData;
+#endif
+};
+#endif
+
+#if ENABLE(WEBXR_LAYERS)
+[CustomHeader] struct PlatformXR::LayerInfo {
+    PlatformXR::LayerHandle handle;
+    size_t numImages;
+};
+
+enum class PlatformXR::CompositionLayerType : uint8_t {
+    Quad,
+    Equirect,
+    Cylinder,
+    Cube,
+};
+
+enum class PlatformXR::LayerLayout : uint8_t {
+    Mono,
+    Stereo,
+    StereoLeftRight,
+    StereoTopBottom,
+};
+
 #endif
 
 #endif

@@ -51,9 +51,10 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSWServerToContextConnection);
 
-Ref<WebSWServerToContextConnection> WebSWServerToContextConnection::create(NetworkConnectionToWebProcess& connection, WebPageProxyIdentifier webPageProxyID, Site&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, WebCore::SWServer& server)
+Ref<WebSWServerToContextConnection> WebSWServerToContextConnection::create(NetworkConnectionToWebProcess& connection, WebPageProxyIdentifier webPageProxyID, Site&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, WebCore::SWServer& server, WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicy)
 {
     Ref contextConnection = adoptRef(*new WebSWServerToContextConnection(connection, webPageProxyID, WTF::move(registrableDomain), serviceWorkerPageIdentifier, server));
+    contextConnection->setCrossOriginEmbedderPolicyValue(crossOriginEmbedderPolicy);
     server.addContextConnection(contextConnection.get());
     return contextConnection;
 }
@@ -98,13 +99,13 @@ void WebSWServerToContextConnection::stop()
             download->contextClosed();
     }
 
-    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain()) == this)
+    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain(), crossOriginEmbedderPolicyValue()) == this)
         server->removeContextConnection(*this);
 }
 
 void WebSWServerToContextConnection::terminateIdleServiceWorkers()
 {
-    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain()) == this)
+    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain(), crossOriginEmbedderPolicyValue()) == this)
         server->terminateIdleServiceWorkers(*this);
 }
 
@@ -275,7 +276,7 @@ void WebSWServerToContextConnection::workerTerminated(ServiceWorkerIdentifier se
 {
     SWServerToContextConnection::workerTerminated(serviceWorkerIdentifier);
 
-    if (--m_processingFunctionalEventCount)
+    if (!--m_processingFunctionalEventCount)
         m_connection->networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::EndServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
 }
 

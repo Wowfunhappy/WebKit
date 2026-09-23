@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2022 Igalia S.L.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,7 +33,7 @@
 #include "Document.h"
 #include "Element.h"
 #include "NodeDocument.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleCustomProperty.h"
 #include "StyleExtractor.h"
 #include "StylePropertyShorthand.h"
@@ -108,7 +109,14 @@ Vector<StylePropertyMapReadOnly::StylePropertyMapEntry> ComputedStylePropertyMap
     Style::Extractor computedStyleExtractor { element.get() };
     values.appendContainerWithMapping(exposedComputedCSSPropertyIDs, [&](auto propertyID) {
         auto value = computedStyleExtractor.propertyValue(propertyID, Style::Extractor::UpdateLayout::No, Style::ExtractorState::PropertyValueType::Computed);
-        return makeKeyValuePair(nameString(propertyID), StylePropertyMapReadOnly::reifyValueToVector(document, WTF::move(value), propertyID));
+        return makeKeyValuePair(
+            nameString(propertyID),
+            StylePropertyMapReadOnly::reifyValueToVector(
+                document,
+                WTF::move(value),
+                propertyID
+            )
+        );
     });
 
     for (const RefPtr map : { nonInheritedCustomProperties.ptr(), inheritedCustomProperties.ptr() }) {
@@ -119,7 +127,7 @@ Vector<StylePropertyMapReadOnly::StylePropertyMapEntry> ComputedStylePropertyMap
                     StylePropertyMapReadOnly::reifyValueToVector(
                         document,
                         computedStyleExtractor.customPropertyValue(it.value->name()),
-                        std::nullopt
+                        AtomString { it.value->name() }
                     )
                 )
             );

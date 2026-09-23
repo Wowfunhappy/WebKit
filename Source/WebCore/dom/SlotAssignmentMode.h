@@ -25,12 +25,39 @@
 
 #pragma once
 
+#include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/AtomString.h>
+#include <wtf/text/StringView.h>
+
 namespace WebCore {
 
 enum class SlotAssignmentMode : bool {
     Manual,
     Named,
 };
+
+static constexpr auto slotAssignmentModeNamedLiteral = "named"_s;
+static constexpr auto slotAssignmentModeManualLiteral = "manual"_s;
+
+inline SlotAssignmentMode parseSlotAssignmentMode(StringView value)
+{
+    if (equalLettersIgnoringASCIICase(value, slotAssignmentModeManualLiteral))
+        return SlotAssignmentMode::Manual;
+    return SlotAssignmentMode::Named;
+}
+
+inline const AtomString& serializeSlotAssignmentMode(SlotAssignmentMode mode)
+{
+    static MainThreadNeverDestroyed<const AtomString> named(slotAssignmentModeNamedLiteral);
+    static MainThreadNeverDestroyed<const AtomString> manual(slotAssignmentModeManualLiteral);
+    switch (mode) {
+    case SlotAssignmentMode::Manual:
+        return manual;
+    case SlotAssignmentMode::Named:
+        return named;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
 
 }
 

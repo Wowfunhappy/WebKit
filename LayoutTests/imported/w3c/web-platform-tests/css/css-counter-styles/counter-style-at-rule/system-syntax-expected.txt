@@ -8,6 +8,7 @@ PASS @counter-style 'system: alphabetic' is valid
 PASS @counter-style 'system: numeric' is valid
 PASS @counter-style 'system: additive' is valid
 PASS @counter-style 'system: extends bar' is valid
+PASS @counter-style 'system: extends foo\{\}bar' is valid
 PASS @counter-style 'system: float' is invalid
 PASS @counter-style 'system: cyclic cyclic' is invalid
 PASS @counter-style 'system: extends none' is invalid

@@ -42,10 +42,10 @@ struct FilterValue;
 class CSSFilterRenderer final : public Filter {
     WTF_MAKE_TZONE_ALLOCATED(CSSFilterRenderer);
 public:
-    static RefPtr<CSSFilterRenderer> create(RenderElement&, const Style::Filter&, const FilterGeometry&, OptionSet<FilterRenderingMode>, bool showDebugOverlay, const GraphicsContext& destinationContext);
+    static RefPtr<CSSFilterRenderer> create(RenderElement&, const Style::Filter&, const FilterGeometry&, OptionSet<FilterRenderingMode>, OptionSet<FilterRenderingOption>, const GraphicsContext& destinationContext);
 
     WEBCORE_EXPORT static Ref<CSSFilterRenderer> create(Vector<Ref<FilterFunction>>&&);
-    WEBCORE_EXPORT static Ref<CSSFilterRenderer> create(Vector<Ref<FilterFunction>>&&, const FilterGeometry&, OptionSet<FilterRenderingMode> preferredFilterRenderingModes, bool showDebugOverlay);
+    WEBCORE_EXPORT static Ref<CSSFilterRenderer> create(Vector<Ref<FilterFunction>>&&, const FilterGeometry&, OptionSet<FilterRenderingMode> preferredFilterRenderingModes, OptionSet<FilterRenderingOption>);
 
     const Vector<Ref<FilterFunction>>& functions() const LIFETIME_BOUND { return m_functions; }
     void setFilterRegion(const FloatRect&);
@@ -58,15 +58,15 @@ public:
     RefPtr<FilterImage> apply(FilterImage* sourceImage, FilterResults&) final;
     FilterStyleVector createFilterStyles(GraphicsContext&, const FilterStyle& sourceStyle) const final;
 
-    static bool isIdentity(RenderElement&, const Style::Filter&);
-    static IntOutsets calculateOutsets(RenderElement&, const Style::Filter&, const FloatRect& targetBoundingBox);
+    static bool isIdentity(const RenderElement&, const Style::Filter&);
+    static IntOutsets calculateOutsets(const RenderElement&, const Style::Filter&, const FloatRect& targetBoundingBox);
 
 private:
-    CSSFilterRenderer(const FilterGeometry&, bool hasFilterThatMovesPixels, bool hasFilterThatShouldBeRestrictedBySecurityOrigin);
-    CSSFilterRenderer(Vector<Ref<FilterFunction>>&&, const FilterGeometry&);
+    CSSFilterRenderer(const FilterGeometry&, OptionSet<FilterRenderingOption>, bool hasFilterThatMovesPixels, bool hasFilterThatShouldBeRestrictedBySecurityOrigin);
+    CSSFilterRenderer(Vector<Ref<FilterFunction>>&&, const FilterGeometry&, OptionSet<FilterRenderingOption>);
 
-    RefPtr<FilterFunction> buildFilterFunction(RenderElement&, const Style::FilterValue&, OptionSet<FilterRenderingMode>, const GraphicsContext& destinationContext);
-    bool buildFilterFunctions(RenderElement&, const Style::Filter&, OptionSet<FilterRenderingMode>, const GraphicsContext& destinationContext);
+    RefPtr<FilterFunction> buildFilterFunction(RenderElement&, const Style::FilterValue&, OptionSet<FilterRenderingMode>, OptionSet<FilterRenderingOption>, const GraphicsContext& destinationContext);
+    bool buildFilterFunctions(RenderElement&, const Style::Filter&, OptionSet<FilterRenderingMode>, OptionSet<FilterRenderingOption>, const GraphicsContext& destinationContext);
 
     void computeEnclosingFilterRegion();
 

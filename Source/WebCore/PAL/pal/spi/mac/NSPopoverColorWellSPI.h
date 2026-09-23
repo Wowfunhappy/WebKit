@@ -62,8 +62,10 @@ DECLARE_SYSTEM_HEADER
 
 @interface NSColorPickerMatrixView ()
 - (void)setColorList:(NSColorList *)list;
-- (void)setSwatchSize:(NSSize)size;
 - (void)setNumberOfColumns:(NSUInteger)columns;
+#if HAVE(NSCOLORPICKERMATRIXVIEW_CUSTOM_SWATCH_SIZE)
+- (void)setSwatchSize:(NSSize)size;
+#endif
 @end
 
 @interface NSColorPopoverController ()

@@ -12,9 +12,10 @@
         <script>
 var pc1, pc2;
 var remoteStream;
+var localStream;
 var trackEventCounter = 0;
 promise_test(async () => {
-    const localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+    localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
     remoteStream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             pc1 = firstConnection;
@@ -38,7 +39,8 @@ promise_test(async () => {
     return renegotiate(pc1, pc2);
 }, "Set transceiver as inactive");
 
-promise_test(async () => {
+promise_test(async (t) => {
+    t.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     // Setting direction to sendonly will trigger two new track events.
     pc2.ontrack = (trackEvent) => {
          test(() => {

@@ -444,7 +444,7 @@ For example, the following #if enables the in-between code only on macOS 10.14 (
 
 ## WebKit’s Continuous Integration Infrastructure
 
-WebKit’s CI ([continuous integration](https://en.wikipedia.org/wiki/Continuous_integration)) infrastructure is located at [build.webkit.org](https://build.webkit.org/)).
+WebKit’s CI ([continuous integration](https://en.wikipedia.org/wiki/Continuous_integration)) infrastructure is located at [build.webkit.org](https://build.webkit.org/).
 
 [build.webkit.org](https://build.webkit.org/) will build and test commits from WebKit in the chronological order
 and report test results to [results.webkit.org](https://results.webkit.org/).
@@ -517,7 +517,7 @@ The requirements for an object to be used with `RefPtr` and `Ref` is as follows:
 
 There is a convenience super template class,
 [`RefCounted<T>`](https://github.com/WebKit/WebKit/blob/main/Source/WTF/wtf/RefCounted.h),
-which implements this behavior for any inherited class T automatically.
+which implements this behavior for any inheriting class T automatically.
 
 ### How to use RefPtr and Ref
 
@@ -578,7 +578,7 @@ When someone stores `Child` in `Ref` or `RefPtr`, the referencing counting of `P
 Both `Parent` and `Child` are destructed when the last `Ref` or `RefPtr` to either object goes away.
 
 ```cpp
-class Parent : RefCounted<Parent> {
+class Parent : public RefCounted<Parent> {
 public:
     static Ref<Parent> create() { return adoptRef(*new Parent); }
 
@@ -611,7 +611,7 @@ A reference cycle occurs when an object X which holds `Ref` or `RefPtr` to anoth
 For example, the following code causes a trivial memory leak because A holds a `Ref` of B, and B in turn holds `Ref` of the A:
 
 ```cpp
-class A : RefCounted<A> {
+class A : public RefCounted<A> {
 public:
     static Ref<A> create() { return adoptRef(*new A); }
     B& b() {
@@ -623,7 +623,7 @@ private:
     Ref<B> m_b;
 };
 
-class B : RefCounted<B> {
+class B : public RefCounted<B> {
 public:
     static Ref<B> create(A& a) { return adoptRef(*new B(a)); }
 
@@ -706,11 +706,11 @@ but there is an ongoing effort to always use WeakPtr instead so do that in new c
 To create a `WeakPtr` to an object, we need to make its class inherit from `CanMakeWeakPtr` as follows:
 
 ```cpp
-class A : CanMakeWeakPtr<A> { }
+class A : public CanMakeWeakPtr<A> { };
 
 ...
 
-function foo(A& a) {
+void foo(A& a) {
     WeakPtr<A> weakA = a;
 }
 ```
@@ -982,7 +982,7 @@ that `JSStyleSheet` should be kept alive so long as the garbage collector had en
 ```cpp
 bool JSStyleSheetOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, const char** reason)
 {
-    auto* jsStyleSheet = jsCast<JSStyleSheet*>(handle.slot()->asCell());
+    auto* jsStyleSheet = downcast<JSStyleSheet>(handle.slot()->asCell());
     void* root = WebCore::root(&jsStyleSheet->wrapped());
     if (UNLIKELY(reason))
         *reason = "Reachable from jsStyleSheet";

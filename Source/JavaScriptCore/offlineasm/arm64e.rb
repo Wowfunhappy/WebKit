@@ -100,7 +100,7 @@ class Instruction
                 newList << node.cloneWithNewOperands(newOperands)
                 wasHandled = true
             end
-            newList += postInstructions if wasHandled
+            newList.concat(postInstructions) if wasHandled
         end
         return wasHandled, newList
     end

@@ -1,7 +1,7 @@
 
 PASS getElementsByName and foreign namespaces
-a
+𝑎
 +
-b
+𝑏
 
 

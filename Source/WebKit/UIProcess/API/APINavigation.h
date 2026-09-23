@@ -29,6 +29,7 @@
 #include "APIWebsitePolicies.h"
 #include "FrameInfoData.h"
 #include "NavigationActionData.h"
+#include "ProcessActivityGroup.h"
 #include "ProcessThrottler.h"
 #include "WebBackForwardListItem.h"
 #include "WebContentMode.h"
@@ -42,6 +43,7 @@
 #include <wtf/ListHashSet.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Ref.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 enum class FrameLoadType : uint8_t;
@@ -111,9 +113,9 @@ public:
     WebCore::NavigationIdentifier navigationID() const { return m_navigationID; }
 
     const WebCore::ResourceRequest& originalRequest() const LIFETIME_BOUND { return m_originalRequest; }
-    void setCurrentRequest(WebCore::ResourceRequest&&, std::optional<WebCore::ProcessIdentifier>);
+    void setCurrentRequest(WebCore::ResourceRequest&&);
+    void upgradeCurrentInsecureRequest();
     const WebCore::ResourceRequest& currentRequest() const LIFETIME_BOUND { return m_currentRequest; }
-    std::optional<WebCore::ProcessIdentifier> currentRequestProcessIdentifier() const { return m_currentRequestProcessIdentifier; }
 
     bool currentRequestIsRedirect() const { return m_lastNavigationAction && !m_lastNavigationAction->redirectResponse.isNull(); }
     bool currentRequestIsCrossSiteRedirect() const;
@@ -130,13 +132,13 @@ public:
 
     bool wasUserInitiated() const { return m_lastNavigationAction && !!m_lastNavigationAction->userGestureTokenIdentifier; }
     bool NODELETE isRequestFromClientOrUserInput() const;
+    bool isFromAPIClientRequest() const { return m_requestIsFromClientInput; }
     void NODELETE markRequestAsFromClientInput();
     void markAsFromLoadData() { m_isFromLoadData = true; }
     bool isFromLoadData() const { return m_isFromLoadData; }
 
     bool shouldPerformDownload() const { return m_lastNavigationAction && !m_lastNavigationAction->downloadAttribute.isNull(); }
 
-    bool treatAsSameOriginNavigation() const { return m_lastNavigationAction && m_lastNavigationAction->treatAsSameOriginNavigation; }
     bool hasOpenedFrames() const { return m_lastNavigationAction && m_lastNavigationAction->hasOpenedFrames; }
     bool openedByDOMWithOpener() const { return m_lastNavigationAction && m_lastNavigationAction->openedByDOMWithOpener; }
     bool isInitialFrameSrcLoad() const { return m_lastNavigationAction && m_lastNavigationAction->isInitialFrameSrcLoad; }
@@ -171,9 +173,7 @@ public:
     const std::unique_ptr<SubstituteData>& substituteData() const LIFETIME_BOUND { return m_substituteData; }
 
     const WebCore::PrivateClickMeasurement* privateClickMeasurement() const { return m_lastNavigationAction && m_lastNavigationAction->privateClickMeasurement ? &*m_lastNavigationAction->privateClickMeasurement : nullptr; }
-
-    void setClientNavigationActivity(RefPtr<WebKit::ProcessThrottler::Activity>&& activity) { Ref { m_clientNavigationActivity }->setActivity(WTF::move(activity)); }
-
+    void setClientNavigationActivity(Variant<std::monostate, Ref<WebKit::ProcessThrottler::TimedActivity>, Ref<WebKit::ProcessActivityGroup>>&& activity) { m_clientNavigationActivity = WTF::move(activity); }
     void setIsLoadedWithNavigationShared(bool value) { m_isLoadedWithNavigationShared = value; }
     bool isLoadedWithNavigationShared() const { return m_isLoadedWithNavigationShared; }
 
@@ -187,8 +187,8 @@ public:
     bool NODELETE safeBrowsingCheckOngoing();
     void setSafeBrowsingWarning(RefPtr<WebKit::BrowsingWarning>&&);
     RefPtr<WebKit::BrowsingWarning> NODELETE safeBrowsingWarning();
-    void setSafeBrowsingCheckTimedOut() { m_safeBrowsingCheckTimedOut = true; }
-    bool safeBrowsingCheckTimedOut() { return m_safeBrowsingCheckTimedOut; }
+    void whenSafeBrowsingCheckCompletes(Function<void()>&&);
+    void fireSafeBrowsingCheckCompletionCallbacks();
     bool hadSafeBrowsingWarning() const { return m_hadSafeBrowsingWarning; }
     MonotonicTime requestStart() const { return m_requestStart; }
     void resetRequestStart();
@@ -207,6 +207,10 @@ public:
     WebKit::FrameState* backForwardFrameState() const { return m_backForwardFrameState.get(); }
     void setBackForwardFrameState(RefPtr<WebKit::FrameState>&& frameState) { m_backForwardFrameState = WTF::move(frameState); }
 
+    static constexpr Seconds navigationActivityTimeout { 30_s };
+
+    unsigned processActivityGroupSizeForTesting() const;
+
 private:
     Navigation(WebCore::ProcessIdentifier);
     Navigation(WebCore::ProcessIdentifier, RefPtr<WebKit::WebBackForwardListItem>&&);
@@ -219,7 +223,6 @@ private:
     WebCore::ProcessIdentifier m_processID;
     WebCore::ResourceRequest m_originalRequest;
     WebCore::ResourceRequest m_currentRequest;
-    std::optional<WebCore::ProcessIdentifier> m_currentRequestProcessIdentifier;
     Vector<WTF::URL> m_redirectChain;
 
     const RefPtr<WebKit::WebBackForwardListFrameItem> m_targetFrameItem;
@@ -231,12 +234,11 @@ private:
     std::optional<WebKit::FrameInfoData> m_originatingFrameInfo;
     WebCore::SecurityOriginData m_destinationFrameSecurityOrigin;
     WebKit::WebContentMode m_effectiveContentMode { WebKit::WebContentMode::Recommended };
-    Ref<WebKit::ProcessThrottler::TimedActivity> m_clientNavigationActivity;
+    Variant<std::monostate, Ref<WebKit::ProcessThrottler::TimedActivity>, Ref<WebKit::ProcessActivityGroup>> m_clientNavigationActivity;
     bool m_userContentExtensionsEnabled : 1 { true };
     bool m_isLoadedWithNavigationShared : 1 { false };
     bool m_requestIsFromClientInput : 1 { false };
     bool m_isFromLoadData : 1 { false };
-    bool m_safeBrowsingCheckTimedOut : 1 { false };
     bool m_hadSafeBrowsingWarning : 1 { false };
     bool m_hasStorageForCurrentSite : 1 { false };
     bool m_isEnhancedSecurityLinkForCurrentSite : 1 { false };
@@ -245,6 +247,7 @@ private:
     MonotonicTime m_requestStart { MonotonicTime::now() };
     RefPtr<WebKit::BrowsingWarning> m_safeBrowsingWarning;
     ListHashSet<size_t> m_ongoingSafeBrowsingChecks;
+    Vector<Function<void()>> m_safeBrowsingCheckCompletionCallbacks;
     RefPtr<WebKit::FrameProcess> m_pendingSharedProcess;
     RefPtr<WebKit::FrameState> m_backForwardFrameState;
 };

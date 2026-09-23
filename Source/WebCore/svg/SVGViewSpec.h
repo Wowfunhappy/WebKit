@@ -43,9 +43,6 @@ public:
     void reset();
     void resetContextElement() { m_contextElement = nullptr; }
 
-    RefPtr<SVGElement> viewTarget() const;
-    const String& viewTargetString() const LIFETIME_BOUND { return m_viewTargetString; }
-
     String transformString() const { return m_transform->valueAsString(); }
     Ref<SVGTransformList>& transform() { return m_transform; }
 
@@ -57,7 +54,6 @@ private:
     explicit SVGViewSpec(SVGElement&);
 
     WeakPtr<SVGElement, WeakPtrImplWithEventTargetData> m_contextElement;
-    String m_viewTargetString;
     Ref<SVGTransformList> m_transform;
 };
 

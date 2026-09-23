@@ -71,8 +71,8 @@ public:
 #endif
 
 #if USE(AUDIO_SESSION)
-    WEBCORE_EXPORT static void setShouldManageAudioSessionCategory(bool);
-    WEBCORE_EXPORT static bool shouldManageAudioSessionCategory();
+    WEBCORE_EXPORT static void NODELETE setShouldManageAudioSessionCategory(bool);
+    WEBCORE_EXPORT static bool NODELETE shouldManageAudioSessionCategory();
 #endif
 
     WEBCORE_EXPORT static void NODELETE setAllowsAnySSLCertificate(bool);

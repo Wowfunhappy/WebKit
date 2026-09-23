@@ -119,11 +119,14 @@ public:
 #endif
 
     void connectIncomingTrack(WebRTCTrackData&);
+    void notifyFirstPacketReceived(WebRTCTrackData&);
 
     void startRTCLogs();
     void stopRTCLogs();
 
     void onNegotiationNeeded();
+
+    void trackWasReplaced(const String& previousId, const String& newId);
 
 protected:
 #if !RELEASE_LOG_DISABLED
@@ -218,8 +221,6 @@ private:
 
     using SSRC = unsigned;
     HashMap<SSRC, RefPtr<GStreamerIncomingTrackProcessor>> m_trackProcessors;
-
-    Vector<String> m_pendingIncomingMediaStreamIDs;
 
     bool m_shouldIgnoreNegotiationNeededSignal { false };
 

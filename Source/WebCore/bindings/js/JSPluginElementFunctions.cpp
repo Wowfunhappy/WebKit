@@ -22,9 +22,12 @@
 
 #include "BridgeJSC.h"
 #include "DOMTimer.h"
+#include "DOMWrapperWorld.h"
 #include "HTMLNames.h"
 #include "HTMLPlugInElement.h"
 #include "JSHTMLElement.h"
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/PropertySlot.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -59,7 +62,7 @@ JSObject* pluginScriptObject(JSGlobalObject* lexicalGlobalObject, JSHTMLElement*
     DOMTimer::scriptDidInteractWithPlugin();
 
     // The plugin element holds an owning reference, so we don't have to.
-    auto* instance = element->bindingsInstance();
+    RefPtr instance = element->bindingsInstance();
     if (!instance || !instance->rootObject())
         return nullptr;
 
@@ -71,7 +74,7 @@ JSC_DEFINE_CUSTOM_GETTER(pluginElementPropertyGetter, (JSGlobalObject* lexicalGl
     VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSHTMLElement* thisObject = jsDynamicCast<JSHTMLElement*>(JSValue::decode(thisValue));
+    JSHTMLElement* thisObject = dynamicDowncast<JSHTMLElement>(JSValue::decode(thisValue));
     if (!thisObject)
         return throwVMTypeError(lexicalGlobalObject, scope);
     JSObject* scriptObject = pluginScriptObject(lexicalGlobalObject, thisObject);
@@ -89,9 +92,9 @@ bool pluginElementCustomGetOwnPropertySlot(JSHTMLElement* element, JSGlobalObjec
     if (propertyName.uid() == vm.propertyNames->toPrimitiveSymbol.impl())
         return false;
 
-    if (!element->globalObject()->world().isNormal()) {
+    if (!element->realm()->world().isNormal()) {
         JSValue proto = element->getPrototypeDirect();
-        if (proto.isObject() && JSC::jsCast<JSC::JSObject*>(asObject(proto))->hasProperty(lexicalGlobalObject, propertyName))
+        if (proto.isObject() && asObject(proto)->hasProperty(lexicalGlobalObject, propertyName))
             return false;
     }
 
@@ -124,7 +127,7 @@ bool pluginElementCustomPut(JSHTMLElement* element, JSGlobalObject* lexicalGloba
 
 JSC_DEFINE_HOST_FUNCTION(callPlugin, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    JSHTMLElement* element = jsCast<JSHTMLElement*>(callFrame->jsCallee());
+    JSHTMLElement* element = downcast<JSHTMLElement>(callFrame->jsCallee());
 
     // Get the plug-in script object.
     JSObject* scriptObject = pluginScriptObject(lexicalGlobalObject, element);
@@ -149,7 +152,7 @@ CallData pluginElementCustomGetCallData(JSHTMLElement* element)
 {
     CallData callData;
 
-    Instance* instance = pluginInstance(element->wrapped());
+    RefPtr instance = pluginInstance(protect(element->wrapped()));
     if (instance && instance->supportsInvokeDefaultMethod()) {
         callData.type = CallData::Type::Native;
         callData.native.function = callPlugin;

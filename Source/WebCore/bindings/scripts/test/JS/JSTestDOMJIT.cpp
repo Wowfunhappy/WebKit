@@ -31,6 +31,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMConvertBoolean.h"
@@ -47,9 +48,9 @@
 #include "JSNodeList.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
+#include <JavaScriptCore/DOMJITGetterSetter.h>
 #include <JavaScriptCore/FrameTracers.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -485,10 +486,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestDOMJITPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestDOMJITPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -566,11 +564,16 @@ static const std::array<HashTableValue, 41> JSTestDOMJITPrototypeTableValues {
 
 const ClassInfo JSTestDOMJITPrototype::s_info = { "TestDOMJIT"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDOMJITPrototype) };
 
+JSC::Structure* JSTestDOMJITPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestDOMJITPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestDOMJIT::info(), JSTestDOMJITPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestDOMJIT::s_info = { "TestDOMJIT"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDOMJIT) };
@@ -578,6 +581,19 @@ const ClassInfo JSTestDOMJIT::s_info = { "TestDOMJIT"_s, &Base::s_info, nullptr,
 JSTestDOMJIT::JSTestDOMJIT(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestDOMJIT>&& impl)
     : JSNode(structure, globalObject, WTF::move(impl))
 {
+}
+
+JSTestDOMJIT* JSTestDOMJIT::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDOMJIT>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestDOMJIT* ptr = new (NotNull, JSC::allocateCell<JSTestDOMJIT>(vm)) JSTestDOMJIT(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestDOMJIT::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::JSType(JSNodeType), StructureFlags), info(), JSC::NonArray);
 }
 
 JSObject* JSTestDOMJIT::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
@@ -594,17 +610,17 @@ JSObject* JSTestDOMJIT::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestDOMJIT::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestDOMJITDOMConstructor, DOMConstructorID::TestDOMJIT>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestDOMJITDOMConstructor, DOMConstructorID::TestDOMJIT>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJITConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestDOMJITPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestDOMJITPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestDOMJIT::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestDOMJIT::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestDOMJIT_anyAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
@@ -833,7 +849,7 @@ static inline JSValue jsTestDOMJIT_nodeAttrGetter(JSGlobalObject& lexicalGlobalO
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<Node>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.nodeAttr())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<Node>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.nodeAttr())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_nodeAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -1054,7 +1070,7 @@ static inline JSValue jsTestDOMJIT_nodeNullableAttrGetter(JSGlobalObject& lexica
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLInterface<Node>>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.nodeNullableAttr())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLInterface<Node>>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.nodeNullableAttr())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_nodeNullableAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -1184,7 +1200,7 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementByIdBo
     auto elementIdConversionResult = convert<IDLRequiresExistingAtomStringAdaptor<IDLDOMString>>(*lexicalGlobalObject, argument0.value());
     if (elementIdConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementById(elementIdConversionResult.releaseReturnValue()))));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementById(elementIdConversionResult.releaseReturnValue()))));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_getElementById, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -1205,7 +1221,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementByIdWithoutType
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto elementId = DOMJIT::DirectConverter<IDLRequiresExistingAtomStringAdaptor<IDLDOMString>>::directConvert(*lexicalGlobalObject, encodedElementId);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementById(WTF::move(elementId)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementById(WTF::move(elementId)))));
 }
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementsByNameBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
@@ -1221,7 +1237,7 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementsByNam
     auto elementNameConversionResult = convert<IDLAtomStringAdaptor<IDLDOMString>>(*lexicalGlobalObject, argument0.value());
     if (elementNameConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementsByName(elementNameConversionResult.releaseReturnValue()))));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementsByName(elementNameConversionResult.releaseReturnValue()))));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_getElementsByName, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -1242,7 +1258,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementsByNameWithoutT
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto elementName = DOMJIT::DirectConverter<IDLAtomStringAdaptor<IDLDOMString>>::directConvert(*lexicalGlobalObject, encodedElementName);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementsByName(WTF::move(elementName)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementsByName(WTF::move(elementName)))));
 }
 
 JSC::GCClient::IsoSubspace* JSTestDOMJIT::subspaceForImpl(JSC::VM& vm)
@@ -1257,7 +1273,7 @@ JSC::GCClient::IsoSubspace* JSTestDOMJIT::subspaceForImpl(JSC::VM& vm)
 
 void JSTestDOMJIT::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestDOMJIT*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestDOMJIT>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));

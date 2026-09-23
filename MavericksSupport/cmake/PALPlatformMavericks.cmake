@@ -1,31 +1,20 @@
-# PAL entries this port adds on top of upstream's Mac list. They live here,
-# out of tree, so Source/WebCore/PAL/pal/PlatformMac.cmake stays byte-identical to upstream — the
-# same arrangement the polyfill layer uses for code, and the one PlatformMac.cmake already uses for
-# WebCore and WebKit (see MavericksSupport/cmake/WebCorePlatformMavericks.cmake).
-#
-# Appending rather than interleaving is safe here: PAL is built by WEBKIT_FRAMEWORK from a plain
-# set(PAL_SOURCES ...) and never goes through WEBKIT_COMPUTE_SOURCES, so every source compiles as its
-# own translation unit and list order carries no meaning. Header and include-directory order likewise
-# does not.
+# PAL source selection and public headers for Mavericks.
 
-# WebCrypto runs on libgcrypt here (USE_GCRYPT); the gcrypt digest is appended below. The CommonCrypto
-# digest needs Apple Swift CryptoKit symbols and CCECCryptor SPI that 10.9 does not ship, so it stays
-# out of the source list.
-list(REMOVE_ITEM PAL_SOURCES
-    crypto/commoncrypto/CryptoDigestCommonCrypto.mm
+# WebCrypto uses the GCrypt backend.
+set(MAVERICKS_WITHHELD_PAL_COCOA_SOURCES
+    "crypto/CryptoAlgorithmAESGCMCocoa.cpp"
+    "crypto/CryptoAlgorithmAESKWCocoaBridging.cpp"
+    "crypto/CryptoAlgorithmEd25519CocoaBridging.cpp"
+    "crypto/CryptoAlgorithmHKDFCocoaBridging.cpp"
+    "crypto/CryptoAlgorithmHMACCocoaBridging.cpp"
+    "crypto/CryptoAlgorithmX25519CocoaBridging.cpp"
+    "crypto/CryptoEDKeyBridging.cpp"
+    "crypto/PlatformECKey.cpp"
+    "crypto/commoncrypto/CryptoDigestCommonCrypto.cpp"
 )
-
-# PALSwift.h has to be installed for WebCore to compile: crypto/keys/CryptoKeyEC.cpp (Sources.txt:871,
-# built inside a unified bundle) includes <pal/PALSwift.h> under `#if OS(DARWIN) && !PLATFORM(GTK)`,
-# which holds here. Upstream's Mac build installs it as a side effect of the Swift CryptoKit shim
-# target, which this port does not build, so the port has to name it directly.
-#
-# PALSwift.h itself is upstream's own header, byte for byte; only the install entry belongs to this
-# port. crypto/keys/CryptoKeyEC.cpp is the consumer to check against if this entry ever looks
-# unnecessary — being inside a unified bundle, it owns no object file of its own to grep for.
-list(APPEND PAL_PUBLIC_HEADERS
-    PALSwift.h
-)
+set(MAVERICKS_ADDED_PAL_COCOA_SOURCES "")
+MAVERICKS_FILTER_SOURCE_LIST("${PAL_DIR}/pal" PAL_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt"
+    MAVERICKS_WITHHELD_PAL_COCOA_SOURCES MAVERICKS_ADDED_PAL_COCOA_SOURCES)
 
 list(APPEND PAL_PUBLIC_HEADERS
     crypto/gcrypt/Handle.h
@@ -86,11 +75,6 @@ list(APPEND PAL_PUBLIC_HEADERS
 )
 
 list(APPEND PAL_SOURCES
-    cocoa/ContactsSoftLink.mm
-    cocoa/EnhancedSecurityCocoa.mm
-    cocoa/LockdownModeCocoa.mm
-    cocoa/AccessibilitySoftLink.mm
-    cocoa/VisionSoftLink.mm
     crypto/gcrypt/CryptoDigestGCrypt.cpp
     crypto/tasn1/Utilities.cpp
 )
@@ -98,4 +82,3 @@ list(APPEND PAL_SOURCES
 list(APPEND PAL_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_DEPS}/include"
 )
-

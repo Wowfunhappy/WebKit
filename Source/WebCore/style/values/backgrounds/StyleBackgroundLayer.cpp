@@ -24,7 +24,7 @@
 #include "StyleBackgroundLayer.h"
 
 #include "CachedImage.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include <wtf/text/TextStream.h>
 

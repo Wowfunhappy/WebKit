@@ -33,6 +33,10 @@
 #include <CoreGraphics/CoreGraphics.h>
 #endif
 
+#if PLATFORM(WIN)
+#include <windows.h>
+#endif
+
 namespace TestWebKitAPI {
 
 static void testGetAndSet(WebCore::IntPoint point)

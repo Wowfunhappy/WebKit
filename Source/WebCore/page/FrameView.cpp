@@ -211,13 +211,13 @@ bool FrameView::formControlRefreshEnabled() const
 
 IntPoint FrameView::convertFromRendererToContainingView(const RenderElement* renderer, IntPoint rendererPoint) const
 {
-    auto point = roundedIntPoint(renderer->localToAbsolute(rendererPoint, UseTransforms));
+    auto point = roundedIntPoint(renderer->localToAbsolute(rendererPoint, MapCoordinatesMode::UseTransforms));
     return contentsToView(point);
 }
 
 FloatPoint FrameView::convertFromRendererToContainingView(const RenderElement* renderer, FloatPoint rendererPoint) const
 {
-    auto point = renderer->localToAbsolute(rendererPoint, UseTransforms);
+    auto point = renderer->localToAbsolute(rendererPoint, MapCoordinatesMode::UseTransforms);
     return contentsToView(point);
 }
 
@@ -243,7 +243,7 @@ IntPoint FrameView::convertFromContainingViewToRenderer(const RenderElement* ren
     if (!delegatesScrollingToNativeView())
         point = viewToContents(point);
 
-    return roundedIntPoint(renderer->absoluteToLocal(point, UseTransforms));
+    return roundedIntPoint(renderer->absoluteToLocal(point, MapCoordinatesMode::UseTransforms));
 }
 
 FloatPoint FrameView::convertFromContainingViewToRenderer(const RenderElement* renderer, FloatPoint viewPoint) const
@@ -254,7 +254,7 @@ FloatPoint FrameView::convertFromContainingViewToRenderer(const RenderElement* r
     if (!delegatesScrollingToNativeView())
         point = viewToContents(point);
 
-    return renderer->absoluteToLocal(point, UseTransforms);
+    return renderer->absoluteToLocal(point, MapCoordinatesMode::UseTransforms);
 }
 
 DoublePoint FrameView::convertFromContainingViewToRenderer(const RenderElement* renderer, DoublePoint viewPoint) const
@@ -263,7 +263,7 @@ DoublePoint FrameView::convertFromContainingViewToRenderer(const RenderElement* 
     if (!delegatesScrollingToNativeView())
         viewPoint = viewToContents(viewPoint);
 
-    return renderer->absoluteToLocal(viewPoint, UseTransforms);
+    return renderer->absoluteToLocal(viewPoint, MapCoordinatesMode::UseTransforms);
 }
 
 IntRect FrameView::convertFromContainingViewToRenderer(const RenderElement* renderer, const IntRect& viewRect) const
@@ -272,7 +272,7 @@ IntRect FrameView::convertFromContainingViewToRenderer(const RenderElement* rend
 
     // FIXME: we don't have a way to map an absolute rect down to a local quad, so just
     // move the rect for now.
-    rect.setLocation(roundedIntPoint(renderer->absoluteToLocal(rect.location(), UseTransforms)));
+    rect.setLocation(roundedIntPoint(renderer->absoluteToLocal(rect.location(), MapCoordinatesMode::UseTransforms)));
     return rect;
 }
 

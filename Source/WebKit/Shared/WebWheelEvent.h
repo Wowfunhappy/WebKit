@@ -62,7 +62,7 @@ public:
 
     WebWheelEvent(WebEvent&&, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, Granularity);
 #if PLATFORM(COCOA)
-    WebWheelEvent(WebEvent&&, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, Granularity, bool directionInvertedFromDevice, Phase, Phase momentumPhase, bool hasPreciseScrollingDeltas, uint32_t scrollCount, const WebCore::FloatSize& unacceleratedScrollingDelta, MonotonicTime ioHIDEventTimestamp, std::optional<WebCore::FloatSize> rawPlatformDelta, MomentumEndType);
+    WebWheelEvent(WebEvent&&, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, Granularity, bool directionInvertedFromDevice, Phase, Phase momentumPhase, bool hasPreciseScrollingDeltas, uint32_t scrollCount, const WebCore::FloatSize& unacceleratedScrollingDelta, MonotonicTime ioHIDEventTimestamp, std::optional<WebCore::FloatSize> rawPlatformDelta, MomentumEndType, WebEventInputSource = WebEventInputSource::UserDriven);
 #elif PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     WebWheelEvent(WebEvent&&, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, Granularity, Phase, Phase momentumPhase, bool hasPreciseScrollingDeltas);
 #endif
@@ -86,6 +86,7 @@ public:
     void setRawPlatformDelta(std::optional<WebCore::FloatSize>&& delta) { m_rawPlatformDelta = WTF::move(delta); }
     uint32_t scrollCount() const { return m_scrollCount; }
     const WebCore::FloatSize& unacceleratedScrollingDelta() const LIFETIME_BOUND { return m_unacceleratedScrollingDelta; }
+    WebEventInputSource inputSource() const { return m_inputSource; }
 #endif
 
     bool isMomentumEvent() const { return momentumPhase() != Phase::None && momentumPhase() != Phase::WillBegin; }
@@ -111,6 +112,7 @@ private:
     std::optional<WebCore::FloatSize> m_rawPlatformDelta;
     uint32_t m_scrollCount { 0 };
     WebCore::FloatSize m_unacceleratedScrollingDelta;
+    WebEventInputSource m_inputSource { WebEventInputSource::UserDriven };
 #endif
 };
 

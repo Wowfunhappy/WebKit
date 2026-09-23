@@ -36,12 +36,12 @@ class SVGConditionalProcessingAttributeAccessor final : public SVGMemberAccessor
     using Base = SVGMemberAccessor<OwnerType>;
 
 public:
-    SVGConditionalProcessingAttributeAccessor(Ref<SVGStringList> SVGConditionalProcessingAttributes::*property)
+    SVGConditionalProcessingAttributeAccessor(const Ref<SVGStringList> SVGConditionalProcessingAttributes::*property)
         : m_property(property)
     {
     }
 
-    Ref<SVGStringList>& property(OwnerType& owner) const { return owner.conditionalProcessingAttributes().*m_property; }
+    const Ref<SVGStringList>& property(OwnerType& owner) const { return owner.conditionalProcessingAttributes().*m_property; }
     const Ref<SVGStringList>& property(const OwnerType& owner) const { return const_cast<OwnerType&>(owner).conditionalProcessingAttributes().*m_property; }
 
     void detach(const OwnerType& owner) const override
@@ -59,15 +59,15 @@ public:
         return this->property(owner).ptr() == &property;
     }
 
-    template<Ref<SVGStringList> SVGConditionalProcessingAttributes::*>
+    template<const Ref<SVGStringList> SVGConditionalProcessingAttributes::*>
     static const SVGMemberAccessor<OwnerType>& singleton();
 
 private:
-    Ref<SVGStringList> SVGConditionalProcessingAttributes::*m_property;
+    const Ref<SVGStringList> SVGConditionalProcessingAttributes::*m_property;
 };
 
 template<typename OwnerType>
-template<Ref<SVGStringList> SVGConditionalProcessingAttributes::*member>
+template<const Ref<SVGStringList> SVGConditionalProcessingAttributes::*member>
 const SVGMemberAccessor<OwnerType>& SVGConditionalProcessingAttributeAccessor<OwnerType>::singleton()
 {
     static NeverDestroyed<SVGConditionalProcessingAttributeAccessor<OwnerType>> propertyAccessor { member };

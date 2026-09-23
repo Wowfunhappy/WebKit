@@ -32,7 +32,6 @@
 #include "InspectorLayerTreeAgent.h"
 
 #include "DestinationColorSpace.h"
-#include "EventTargetInlines.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
 #include "ImageBuffer.h"
@@ -122,6 +121,8 @@ void InspectorLayerTreeAgent::pseudoElementDestroyed(PseudoElement& pseudoElemen
 
 Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>>> InspectorLayerTreeAgent::layersForNode(Inspector::Protocol::DOM::NodeId nodeId)
 {
+    m_suppressLayerChangeEvents = false;
+
     Ref agents = m_instrumentingAgents.get();
     RefPtr node = CheckedPtr { agents->persistentDOMAgent() }->nodeForId(nodeId);
     if (!node)
@@ -137,8 +138,6 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::LayerT
     auto layers = JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>::create();
 
     gatherLayersUsingRenderObjectHierarchy(downcast<RenderElement>(*renderer), layers);
-
-    m_suppressLayerChangeEvents = false;
 
     return layers;
 }
@@ -361,16 +360,22 @@ Inspector::CommandResult<String> InspectorLayerTreeAgent::requestContent(const I
 
     FloatSize layerSize = graphicsLayer->size();
     if (layerSize.isEmpty())
-        return makeUnexpected("Layer has zero size"_s);
+        return emptyString();
 
-    constexpr float scaleFactor = 2.0;
-    IntSize integralSize = IntSize(layerSize);
+    // Limit scale factor for large layers to prevent excessive memory usage.
+    constexpr float maxScaleFactor = 2;
+    constexpr float maxSnapshotDimension = 4096;
+    float scaleFactor = std::min({
+        maxSnapshotDimension / layerSize.width(),
+        maxSnapshotDimension / layerSize.height(),
+        maxScaleFactor,
+    });
 
-    auto imageBuffer = ImageBuffer::create(integralSize, RenderingMode::Unaccelerated, RenderingPurpose::Snapshot, scaleFactor, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    auto imageBuffer = ImageBuffer::create(layerSize, RenderingMode::Unaccelerated, RenderingPurpose::Snapshot, scaleFactor, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!imageBuffer)
         return makeUnexpected("Failed to create image buffer"_s);
 
-    graphicsLayer->paintGraphicsLayerContents(imageBuffer->context(), { { }, integralSize });
+    graphicsLayer->paintGraphicsLayerContents(imageBuffer->context(), { { }, layerSize });
 
     return encodeDataURL(WTF::move(imageBuffer), "image/png"_s);
 }

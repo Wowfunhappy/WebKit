@@ -45,9 +45,12 @@
 #endif
 
 #if USE(SKIA)
+#include "FontRenderOptions.h"
+#include "SkiaUtilities.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN // GLib/Win port
 #include <skia/core/SkImage.h>
 #include <skia/core/SkPixmap.h>
+#include <skia/core/SkSurface.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
@@ -101,6 +104,10 @@ BitmapTexture::BitmapTexture(const IntSize& size, OptionSet<Flags> flags)
     , m_pixelFormat(flags.contains(Flags::UseBGRALayout) ? PixelFormat::BGRA8 : PixelFormat::RGBA8)
 {
     determineRenderTargetAndBinding();
+
+    GLint boundTexture = 0;
+    glGetIntegerv(m_binding, &boundTexture);
+
 #if USE(GBM)
     if (m_flags.contains(Flags::BackedByDMABuf)) {
         OptionSet<MemoryMappedGPUBuffer::BufferFlag> bufferFlags;
@@ -122,15 +129,16 @@ BitmapTexture::BitmapTexture(const IntSize& size, OptionSet<Flags> flags)
         // Proceed as usual with GL texture creation if the dma-buf creation failed.
         // as we only want to allocate the dma-buf, but neither map it, nor create a texture now - but when we
         // need it (from the thread that needs it!).
-        if (allocateTextureFromMemoryMappedGPUBuffer())
+        if (allocateTextureFromMemoryMappedGPUBuffer()) {
+            glBindTexture(m_renderTarget, boundTexture);
             return;
+        }
 
         m_flags.remove(Flags::BackedByDMABuf);
+        m_flags.remove(Flags::ForceLinearBuffer);
+        m_flags.remove(Flags::ForceVivanteSuperTiledBuffer);
     }
 #endif
-
-    GLint boundTexture = 0;
-    glGetIntegerv(m_binding, &boundTexture);
 
     allocateTexture();
 
@@ -153,7 +161,9 @@ void BitmapTexture::createTexture()
 void BitmapTexture::allocateTexture()
 {
     createTexture();
-    glTexImage2D(m_renderTarget, 0, GL_RGBA, m_size.width(), m_size.height(), 0, textureFormat(), s_pixelDataType, nullptr);
+    // EXT_texture_format_BGRA8888 mandates internalFormat == format.
+    // https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_format_BGRA8888.txt
+    glTexImage2D(m_renderTarget, 0, textureFormat(), m_size.width(), m_size.height(), 0, textureFormat(), s_pixelDataType, nullptr);
 }
 
 size_t BitmapTexture::sizeInBytes() const
@@ -189,7 +199,9 @@ bool BitmapTexture::allocateTextureFromMemoryMappedGPUBuffer()
     LOG_ERROR("Cannot create EGLImage from dma-buf -- rendering will be broken.");
     return false;
 }
+#endif
 
+#if USE(GBM) || OS(ANDROID)
 BitmapTexture::BitmapTexture(EGLImage image, const IntSize& size, OptionSet<Flags> flags)
     : m_flags(flags)
     , m_size(size)
@@ -218,9 +230,11 @@ void BitmapTexture::swapTexture(BitmapTexture& other)
     std::swap(m_flags, other.m_flags);
     std::swap(m_id, other.m_id);
 
-    // This texture needs to be in the same pixel format as the 'other'
-    // texture, before the reset above. The 'other' texture should be
-    // reset to RGBA default pixel format.
+    determineRenderTargetAndBinding();
+    other.determineRenderTargetAndBinding();
+
+    // Take the pixel format from the source texture. The source texture
+    // (going back to the pool) is reset to the default pixel format.
     m_pixelFormat = other.m_pixelFormat;
     other.m_pixelFormat = PixelFormat::RGBA8;
 }
@@ -285,7 +299,7 @@ void BitmapTexture::reset(const IntSize& size, OptionSet<Flags> flags)
 #endif
 
     glBindTexture(m_renderTarget, m_id);
-    glTexImage2D(m_renderTarget, 0, GL_RGBA, m_size.width(), m_size.height(), 0, textureFormat(), s_pixelDataType, nullptr);
+    glTexImage2D(m_renderTarget, 0, textureFormat(), m_size.width(), m_size.height(), 0, textureFormat(), s_pixelDataType, nullptr);
     glBindTexture(m_renderTarget, boundTexture);
 }
 
@@ -311,8 +325,6 @@ void BitmapTexture::updateContents(const void* srcData, const IntRect& targetRec
         CRASH();
     }
 #endif
-
-    glBindTexture(m_renderTarget, m_id);
 
     const unsigned bytesPerPixel = 4;
     auto data = static_cast<const uint8_t*>(srcData);
@@ -344,6 +356,9 @@ void BitmapTexture::updateContents(const void* srcData, const IntRect& targetRec
         adjustedSourceOffset = IntPoint(0, 0);
     }
 
+    GLint boundTexture = 0;
+    glGetIntegerv(m_binding, &boundTexture);
+
     glBindTexture(m_renderTarget, m_id);
 
     if (supportsUnpackSubimage) {
@@ -360,6 +375,8 @@ void BitmapTexture::updateContents(const void* srcData, const IntRect& targetRec
         glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
     }
+
+    glBindTexture(m_renderTarget, boundTexture);
 }
 
 void BitmapTexture::updateContents(NativeImage* frameImage, const IntRect& targetRect, const IntPoint& offset)
@@ -516,15 +533,15 @@ void BitmapTexture::copyFromExternalTexture(GLuint sourceTextureID, const IntRec
         m_pixelFormat = PixelFormat::RGBA8;
     }
 
-    GLint boundTexture = 0;
     GLint boundFramebuffer = 0;
     GLint boundActiveTexture = 0;
+    GLint boundTextureOnOriginalUnit = 0;
 
     determineRenderTargetAndBinding();
 
-    glGetIntegerv(m_binding, &boundTexture);
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFramebuffer);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &boundActiveTexture);
+    glGetIntegerv(m_binding, &boundTextureOnOriginalUnit);
 
     glBindTexture(m_renderTarget, sourceTextureID);
 
@@ -534,13 +551,21 @@ void BitmapTexture::copyFromExternalTexture(GLuint sourceTextureID, const IntRec
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_renderTarget, sourceTextureID, 0);
 
     glActiveTexture(GL_TEXTURE0);
+
+    // Save GL_TEXTURE0's binding separately when switching away from a different unit.
+    GLint boundTextureOnUnit0 = 0;
+    if (static_cast<GLenum>(boundActiveTexture) != GL_TEXTURE0)
+        glGetIntegerv(m_binding, &boundTextureOnUnit0);
+
     glBindTexture(m_renderTarget, id());
     glCopyTexSubImage2D(m_renderTarget, 0, targetRect.x(), targetRect.y(), sourceOffset.width(), sourceOffset.height(), targetRect.width(), targetRect.height());
 
-    glBindTexture(m_renderTarget, boundTexture);
+    if (static_cast<GLenum>(boundActiveTexture) != GL_TEXTURE0)
+        glBindTexture(m_renderTarget, boundTextureOnUnit0);
+
     glBindFramebuffer(GL_FRAMEBUFFER, boundFramebuffer);
-    glBindTexture(m_renderTarget, boundTexture);
     glActiveTexture(boundActiveTexture);
+    glBindTexture(m_renderTarget, boundTextureOnOriginalUnit);
     glDeleteFramebuffers(1, &copyFbo);
 }
 
@@ -561,6 +586,19 @@ OptionSet<TextureMapperFlags> BitmapTexture::colorConvertFlags() const
     return TextureMapperFlags::ShouldConvertTextureARGBToRGBA;
 #endif
 }
+
+#if USE(SKIA)
+GrBackendTexture BitmapTexture::createSkiaBackendTexture() const
+{
+    return SkiaUtilities::createBackendTexture(*this);
+}
+
+sk_sp<SkSurface> BitmapTexture::createSkiaSurface(GrDirectContext* grContext, GrSurfaceOrigin origin, unsigned sampleCount) const
+{
+    auto properties = FontRenderOptions::singleton().createSurfaceProps();
+    return SkiaUtilities::createSurface(grContext, *this, properties, origin, sampleCount);
+}
+#endif
 
 } // namespace WebCore
 

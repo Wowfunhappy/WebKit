@@ -76,7 +76,7 @@ public:
 #endif
 
 #if ENABLE(DATA_DETECTION)
-    WEBCORE_EXPORT bool hasActiveDataDetectorHighlightForTesting() const;
+    WEBCORE_EXPORT bool NODELETE hasActiveDataDetectorHighlightForTesting() const;
     void textRecognitionResultsChanged(HTMLElement&);
 #endif
 
@@ -88,7 +88,7 @@ private:
     void drawRect(PageOverlay&, GraphicsContext&, const IntRect& dirtyRect) final;
     bool mouseEvent(PageOverlay&, const PlatformMouseEvent& event) final { return platformHandleMouseEvent(event); }
 
-    bool shouldUsePageOverlayToPaintSelection(const RenderElement&);
+    bool NODELETE shouldUsePageOverlayToPaintSelection(const RenderElement&);
 
     PageOverlay& installPageOverlayIfNeeded();
     void uninstallPageOverlayIfNeeded();

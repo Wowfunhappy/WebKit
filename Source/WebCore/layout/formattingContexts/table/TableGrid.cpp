@@ -76,9 +76,7 @@ TableGrid::Slot::Slot(TableGridCell& cell, bool isColumnSpanned, bool isRowSpann
 {
 }
 
-TableGrid::TableGrid()
-{
-}
+TableGrid::TableGrid() = default;
 
 TableGrid::Slot* TableGrid::slot(SlotPosition position)
 {

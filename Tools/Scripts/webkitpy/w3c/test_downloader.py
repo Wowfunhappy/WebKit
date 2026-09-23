@@ -31,6 +31,7 @@ import json
 import logging
 
 from webkitcorepy import run
+from webkitscmpy import local
 from webkitscmpy.local.git import Git
 
 from webkitpy.common.webkit_finder import WebKitFinder
@@ -83,11 +84,16 @@ class TestDownloader(object):
         self.repository_directory = repository_directory
         self.upstream_revision = None
 
+        url = self._get_webkit_remote_url()
+        protocol = self._protocol_from_url(url) if url else None
+        self._webkit_protocol = 'ssh' if protocol == 'ssh' else 'https'
+
         self.test_repositories = self.load_test_repositories(self._filesystem)
 
         self.paths_to_skip_new_directories = []
         self.paths_to_skip = []
         self.paths_to_import = []
+        self.paths_to_not_rewrite = []
         for test_repository in self.test_repositories:
             self.paths_to_skip.extend([self._filesystem.join(test_repository['name'], path) for path in test_repository['paths_to_skip']])
             self.paths_to_import.extend([self._filesystem.join(test_repository['name'], path) for path in test_repository['paths_to_import']])
@@ -99,7 +105,44 @@ class TestDownloader(object):
         if not self._options.import_all:
             self._init_paths_from_expectations()
 
+    def _get_webkit_remote_url(self):
+        try:
+            webkit_finder = WebKitFinder(self._filesystem)
+            webkit_root = webkit_finder.webkit_base()
+            scm = local.Scm.from_path(webkit_root)
+            remote_repo = scm.remote()
+            if remote_repo:
+                return remote_repo.url
+        except Exception as e:
+            _log.debug('Could not get WebKit remote URL: %s' % e)
+        return None
+
+    @staticmethod
+    def _protocol_from_url(url):
+        if '://' in url:
+            return url.split(':', 1)[0]
+        elif ':' in url:
+            return 'ssh'
+        return None
+
+    @staticmethod
+    def _normalize_url_protocol(url, target_protocol):
+        if target_protocol == 'ssh':
+            if '://' in url:
+                repo_path = '/'.join(url.split('/')[3:])
+                return 'git@github.com:%s' % repo_path
+        else:
+            if '://' in url:
+                repo_path = '/'.join(url.split('/')[3:])
+                return '%s://github.com/%s' % (target_protocol, repo_path)
+            elif ':' in url:
+                repo_path = url.split(':')[1]
+                return '%s://github.com/%s' % (target_protocol, repo_path)
+        return url
+
     def checkout_test_repository(self, revision, url, directory):
+        url = self._normalize_url_protocol(url, self._webkit_protocol)
+
         needs_clone = not self._filesystem.exists(directory)
         if needs_clone:
             _log.info('Cloning %s into %s...' % (url, directory))
@@ -123,6 +166,9 @@ class TestDownloader(object):
                 self.paths_to_skip.append(path)
             elif policy == 'import':
                 self.paths_to_import.append(path)
+            elif policy == 'import-no-rewrite':
+                self.paths_to_import.append(path)
+                self.paths_to_not_rewrite.append(path)
             else:
                 _log.warning('Problem reading import lines ' + path)
 
@@ -137,11 +183,11 @@ class TestDownloader(object):
             for i in range(len(path_segs) - 1, 1, -1):
                 parent = path_segs[:i]
                 parent_expectation = import_lines.get("/".join(parent))
-                if parent_expectation == "import":
+                if parent_expectation in ("import", "import-no-rewrite"):
                     already_imported = True
                 if parent_expectation:
                     break
-            if not already_imported:
+            if not already_imported and import_lines.get(stripped_path) not in ("import", "import-no-rewrite"):
                 import_lines[stripped_path] = "import"
 
         for path in to_skip_new_directories:

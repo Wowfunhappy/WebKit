@@ -47,8 +47,10 @@ def main(argv):
                 default = None
                 if option.default != ("NO", "DEFAULT"):
                     default = option.default
-                option_group.add_argument(option.get_opt_string(), action=option.action, dest=option.dest,
-                                          help=option.help, const=option.const, default=default)
+                kwargs = dict(action=option.action, dest=option.dest, help=option.help, default=default)
+                if option.action in ('store_const', 'append_const'):
+                    kwargs['const'] = option.const
+                option_group.add_argument(option.get_opt_string(), **kwargs)
 
     option_parser.add_argument('url', metavar='url', type=lambda s: decode(s, 'utf8'), nargs='?', help='Website URL to load')
     options, _ = option_parser.parse_known_args(argv)

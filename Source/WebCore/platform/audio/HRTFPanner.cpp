@@ -79,7 +79,7 @@ size_t HRTFPanner::fftSizeForSampleRate(float sampleRate)
 
     // This is the size used for analysis frames in the HRTF kernel. The
     // convolvers used by the kernel are twice this size.
-    int analysisFFTSize = 1 << static_cast<unsigned>(log2(resampledLength));
+    int analysisFFTSize = std::bit_floor(static_cast<unsigned>(resampledLength));
 
     // Don't let the analysis size be smaller than the supported size
     analysisFFTSize = std::max(analysisFFTSize, FFTFrame::minFFTSize());
@@ -209,7 +209,7 @@ void HRTFPanner::pan(double desiredAzimuth, double elevation, const AudioBus& in
     }
 
     // This algorithm currently requires that we process in power-of-two size chunks at least AudioUtilities::renderQuantumSize.
-    ASSERT(1UL << static_cast<int>(log2(framesToProcess)) == framesToProcess);
+    ASSERT(isPowerOfTwo(framesToProcess));
     ASSERT(framesToProcess >= AudioUtilities::renderQuantumSize);
 
     const unsigned framesPerSegment = AudioUtilities::renderQuantumSize;

@@ -14,4 +14,5 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/grouping-content/the-p-element/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/grouping-content/the-p-element/grouping-p.html

@@ -32,6 +32,7 @@
 
 namespace WebCore {
 class Color;
+class IntRect;
 }
 
 namespace WebKit {
@@ -62,7 +63,7 @@ public:
 
     virtual void endPicker();
     virtual void setSelectedColor(const WebCore::Color&);
-    virtual void showColorPicker(const WebCore::Color&);
+    virtual void showColorPicker(const WebCore::Color&, const WebCore::IntRect&);
 
     std::optional<WebCore::FrameIdentifier> frameID() const { return m_frameID; }
 

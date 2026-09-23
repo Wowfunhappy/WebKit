@@ -1,7 +1,8 @@
 
     <!-- speculative case in document.write -->
-    <image src="/html/syntax/speculative-parsing/resources/stash.py?action=put&amp;uuid=43ceaad4-6cc8-4561-afbd-fc621abccb40&amp;encodingcheck=&Gbreve;">
+    <image src="/html/syntax/speculative-parsing/resources/stash.py?action=put&amp;uuid=958d24b5-114f-44d7-867f-7b6ed7a64d46&amp;encodingcheck=&Gbreve;">
 
 
-FAIL Speculative parsing, document.write(): image-src Unhandled rejection: assert_not_equals: speculative case did not fetch got disallowed value ""
+
+PASS Speculative parsing, document.write(): image-src
 

@@ -73,10 +73,10 @@ public:
         return &vm.unlinkedFunctionExecutableSpace();
     }
 
-    static UnlinkedFunctionExecutable* create(VM& vm, const SourceCode& source, FunctionMetadataNode* node, UnlinkedFunctionKind unlinkedFunctionKind, ConstructAbility constructAbility, InlineAttribute inlineAttribute, JSParserScriptMode scriptMode, RefPtr<TDZEnvironmentLink> parentScopeTDZVariables, std::optional<Vector<Identifier>>&& generatorOrAsyncWrapperFunctionParameterNames, std::optional<PrivateNameEnvironment> parentPrivateNameEnvironment, DerivedContextType derivedContextType, NeedsClassFieldInitializer needsClassFieldInitializer, PrivateBrandRequirement privateBrandRequirement, bool isBuiltinDefaultClassConstructor = false)
+    static UnlinkedFunctionExecutable* create(VM& vm, const SourceCode& source, FunctionMetadataNode* node, UnlinkedFunctionKind unlinkedFunctionKind, ConstructAbility constructAbility, InlineAttribute inlineAttribute, JSParserScriptMode scriptMode, RefPtr<TDZEnvironmentLink> parentScopeTDZVariables, std::optional<Vector<Identifier>>&& generatorOrAsyncWrapperFunctionParameterNames, std::optional<PrivateNameEnvironment> parentPrivateNameEnvironment, DerivedContextType derivedContextType, EvalContextType evalContextType, NeedsClassFieldInitializer needsClassFieldInitializer, PrivateBrandRequirement privateBrandRequirement, bool isBuiltinDefaultClassConstructor = false)
     {
         UnlinkedFunctionExecutable* instance = new (NotNull, allocateCell<UnlinkedFunctionExecutable>(vm))
-            UnlinkedFunctionExecutable(vm, vm.unlinkedFunctionExecutableStructure.get(), source, node, unlinkedFunctionKind, constructAbility, inlineAttribute, scriptMode, WTF::move(parentScopeTDZVariables), WTF::move(generatorOrAsyncWrapperFunctionParameterNames), WTF::move(parentPrivateNameEnvironment), derivedContextType, needsClassFieldInitializer, privateBrandRequirement, isBuiltinDefaultClassConstructor);
+            UnlinkedFunctionExecutable(vm, vm.unlinkedFunctionExecutableStructure.get(), source, node, unlinkedFunctionKind, constructAbility, inlineAttribute, scriptMode, WTF::move(parentScopeTDZVariables), WTF::move(generatorOrAsyncWrapperFunctionParameterNames), WTF::move(parentPrivateNameEnvironment), derivedContextType, evalContextType, needsClassFieldInitializer, privateBrandRequirement, isBuiltinDefaultClassConstructor);
         instance->finishCreation(vm);
         return instance;
     }
@@ -174,6 +174,7 @@ public:
             return false;
         return !m_rareData->m_classSource.isNull();
     }
+    bool isBuiltinDefaultClassConstructor() const { return m_isBuiltinDefaultClassConstructor; }
 
     RefPtr<TDZEnvironmentLink> parentScopeTDZVariables() const
     {
@@ -198,7 +199,11 @@ public:
     
     bool isArrowFunction() const { return isArrowFunctionParseMode(parseMode()); }
 
+    bool singletonHasBeenInvalidated() const { return m_singletonHasBeenInvalidated; }
+    void setSingletonHasBeenInvalidated() { m_singletonHasBeenInvalidated = true; }
+
     JSC::DerivedContextType derivedContextType() const {return static_cast<JSC::DerivedContextType>(m_derivedContextType); }
+    EvalContextType evalContextType() const { return static_cast<EvalContextType>(m_evalContextType); }
 
     InlineAttribute inlineAttribute() const { return static_cast<InlineAttribute>(m_inlineAttribute); }
 
@@ -270,7 +275,7 @@ public:
     }
 
 private:
-    UnlinkedFunctionExecutable(VM&, Structure*, const SourceCode&, FunctionMetadataNode*, UnlinkedFunctionKind, ConstructAbility, InlineAttribute, JSParserScriptMode, RefPtr<TDZEnvironmentLink>, std::optional<Vector<Identifier>>&&, std::optional<PrivateNameEnvironment>, JSC::DerivedContextType, JSC::NeedsClassFieldInitializer, PrivateBrandRequirement, bool isBuiltinDefaultClassConstructor);
+    UnlinkedFunctionExecutable(VM&, Structure*, const SourceCode&, FunctionMetadataNode*, UnlinkedFunctionKind, ConstructAbility, InlineAttribute, JSParserScriptMode, RefPtr<TDZEnvironmentLink>, std::optional<Vector<Identifier>>&&, std::optional<PrivateNameEnvironment>, JSC::DerivedContextType, EvalContextType, JSC::NeedsClassFieldInitializer, PrivateBrandRequirement, bool isBuiltinDefaultClassConstructor);
     UnlinkedFunctionExecutable(Decoder&, const CachedFunctionExecutable&);
 
     DECLARE_VISIT_CHILDREN;
@@ -302,7 +307,8 @@ private:
     unsigned m_isCached : 1;
     unsigned m_unlinkedFunctionEnd : 31;
     unsigned m_needsClassFieldInitializer : 1;
-    unsigned m_parameterCount : 31;
+    unsigned m_parameterCount : 30;
+    unsigned m_singletonHasBeenInvalidated : 1;
     unsigned m_privateBrandRequirement : 1;
     CodeFeatures m_features : bitWidthOfCodeFeatures;
     uint16_t m_constructorKind : 2;
@@ -312,6 +318,7 @@ private:
     uint8_t m_functionMode : 2; // FunctionMode
     uint8_t m_derivedContextType : 2;
     uint8_t m_inlineAttribute : 1;
+    uint8_t m_evalContextType : 2;
 
     union {
         WriteBarrier<UnlinkedFunctionCodeBlock> m_unlinkedCodeBlockForCall;

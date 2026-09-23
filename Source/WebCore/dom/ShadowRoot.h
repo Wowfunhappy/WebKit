@@ -96,7 +96,11 @@ public:
     void setIsDeclarativeShadowRoot(bool flag) { m_isDeclarativeShadowRoot = flag; }
 
     Element* host() const { return m_host; }
+    inline void setHost(Element*); // Defined and only used in Element.cpp
     void setHost(WeakPtr<Element, WeakPtrImplWithEventTargetData>&& host) { m_host = WTF::move(host); }
+
+    Node* shadowIncludingRoot() const { return m_shadowIncludingRoot; }
+    inline void setShadowIncludingRoot(Node* root) { m_shadowIncludingRoot = root; }
 
     bool hasScopedCustomElementRegistry() const { return m_hasScopedCustomElementRegistry; }
     CustomElementRegistry* registryForBindings() const;
@@ -158,8 +162,8 @@ private:
     ShadowRoot(Document&, ShadowRootMode, SlotAssignmentMode, ShadowRootDelegatesFocus, Clonable, ShadowRootSerializable, ShadowRootAvailableToElementInternals, RefPtr<CustomElementRegistry>&&, ShadowRootScopedCustomElementRegistry, const AtomString& referenceTarget);
     ShadowRoot(Document&, std::unique_ptr<SlotAssignment>&&);
 
-    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void removedFromAncestor(RemovalType, ContainerNode& insertionPoint) override;
+    Node::NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void removingSteps(RemovalType, ContainerNode& insertionPoint) override;
 
     void childrenChanged(const ChildChange&) override;
 
@@ -177,6 +181,7 @@ private:
     SlotAssignmentMode m_slotAssignmentMode { SlotAssignmentMode::Named };
 
     WeakPtr<Element, WeakPtrImplWithEventTargetData> m_host;
+    Node* m_shadowIncludingRoot { nullptr };
     RefPtr<StyleSheetList> m_styleSheetList;
 
     std::unique_ptr<Style::Scope> m_styleScope;

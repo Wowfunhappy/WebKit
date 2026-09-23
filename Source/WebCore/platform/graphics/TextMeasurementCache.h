@@ -33,9 +33,9 @@
 #include <wtf/Hasher.h>
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/ZippedRange.h>
+#include <wtf/text/RapidHash.h>
 #include <wtf/text/StringCommon.h>
 #include <wtf/text/StringImpl.h>
-#include <wtf/text/WYHash.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
@@ -85,7 +85,7 @@ private:
                 copySmallCharacters(std::span { m_characters }, string.span8());
             else
                 copySmallCharacters(std::span { m_characters }, string.span16());
-            m_hashAndLength = WYHash::computeHashAndMaskTop8Bits(std::span<const char16_t> { m_characters }.first(s_capacity)) | (length << 24);
+            m_hashAndLength = RapidHash::computeHashAndMaskTop8Bits(std::span<const char16_t> { m_characters }.first(s_capacity)) | (length << 24);
         }
 
         const char16_t* characters() const LIFETIME_BOUND { return m_characters.data(); }
@@ -134,6 +134,9 @@ public:
 
     CachedType* add(StringView text, CachedType&& entry)
     {
+        if (!isMainThread())
+            return nullptr;
+
         unsigned length = text.length();
 
         // Do not allow length = 0. This allows SmallStringKey empty-value-is-zero.
@@ -153,6 +156,9 @@ public:
 
     CachedType* add(const TextRun& run, CachedType&& entry, TextShapingContext shapingContext)
     {
+        if (!isMainThread())
+            return nullptr;
+
         // The width cache is not really profitable unless we're doing expensive glyph transformations.
         if (!shapingContext.hasKerningOrLigatures)
             return nullptr;
@@ -171,9 +177,12 @@ public:
 
     void clear()
     {
+        ASSERT(isMainThread());
         m_singleCharMap.clear();
         m_map.clear();
     }
+
+    bool isEmpty() const { return m_singleCharMap.isEmpty() && m_map.isEmpty(); }
 
 private:
 
@@ -225,7 +234,7 @@ private:
             return true;
         const auto& text = textRun.textAsString();
         for (unsigned index = 0; index < text.length(); ++index) {
-            if (TextSpacing::isIdeograph(text.characterAt(index))) {
+            if (TextSpacing::isIdeograph(text.codeUnitAt(index))) {
                 m_hasSeenIdeograph = true;
                 clear();
                 return true;

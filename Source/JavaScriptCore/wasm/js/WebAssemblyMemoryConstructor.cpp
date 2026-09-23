@@ -34,7 +34,7 @@
 #include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyMemory.h"
 #include "PageCount.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 #include "WasmAddressType.h"
 #include "WasmMemory.h"
 #include "WebAssemblyMemoryPrototype.h"
@@ -166,7 +166,7 @@ JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyMemory, (JSGlobalObject* globalOb
         JSValue argument = callFrame->argument(0);
         if (!argument.isObject())
             return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Memory expects its first argument to be an object"_s)));
-        memoryDescriptor = jsCast<JSObject*>(argument);
+        memoryDescriptor = uncheckedDowncast<JSObject>(argument);
     }
 
     JSWebAssemblyMemory* memory = WebAssemblyMemoryConstructor::createMemoryFromDescriptor(globalObject, webAssemblyMemoryStructure, memoryDescriptor);

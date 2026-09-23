@@ -174,9 +174,13 @@ static std::span<const uint8_t> copyToCVPixelBufferPlane(CVPixelBufferRef pixelB
     uint32_t bytesPerRowDestination = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, planeIndex);
     for (unsigned i = 0; i < height; ++i) {
         memcpySpan(destination, source.first(std::min(bytesPerRowSource, bytesPerRowDestination)));
+        if (bytesPerRowSource < bytesPerRowDestination)
+            memsetSpan(destination.subspan(bytesPerRowSource, bytesPerRowDestination - bytesPerRowSource), 0);
         skip(source, bytesPerRowSource);
         skip(destination, bytesPerRowDestination);
     }
+    memsetSpan(destination, 0);
+
     return source;
 }
 
@@ -229,6 +233,11 @@ bool SharedVideoFrameInfo::writePixelBuffer(CVPixelBufferRef pixelBuffer, std::s
         CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), kCVPixelBufferLock_ReadOnly);
     });
 
+    if (!CVPixelBufferGetBaseAddress(pixelBuffer)) {
+        RELEASE_LOG_FAULT(WebRTC, "SharedVideoFrameInfo::writePixelBuffer pixel buffer is not readable");
+        return false;
+    }
+
     encode(data);
     skip(data, sizeof(SharedVideoFrameInfo));
 
@@ -272,23 +281,53 @@ RetainPtr<CVPixelBufferPoolRef> SharedVideoFrameInfo::createCompatibleBufferPool
 }
 
 #if USE(LIBWEBRTC)
+template<typename byteType>
+uint32_t computeStrideY(const webrtc::VideoFrameBuffer& frame)
+{
+    auto width = static_cast<uint32_t>(frame.width());
+    return sizeof(byteType) * width;
+}
+
+template<typename byteType>
+uint32_t computeStrideUV(const webrtc::VideoFrameBuffer& frame)
+{
+    auto width = static_cast<uint32_t>(frame.width());
+    return sizeof(byteType) * (width & 1 ? width + 1 : width);
+}
+
+static uint32_t computeWidthUV(const webrtc::VideoFrameBuffer& frame)
+{
+    auto width = static_cast<uint32_t>(frame.width());
+    return (width + 1) / 2;
+}
+
+static uint32_t computeHeightUV(const webrtc::VideoFrameBuffer& frame)
+{
+    auto height = static_cast<uint32_t>(frame.height());
+    return (height + 1) / 2;
+}
+
 SharedVideoFrameInfo SharedVideoFrameInfo::fromVideoFrameBuffer(const webrtc::VideoFrameBuffer& frame)
 {
     if (frame.type() == webrtc::VideoFrameBuffer::Type::kNative)
         return SharedVideoFrameInfo { };
 
     auto type = frame.type();
-    if (type == webrtc::VideoFrameBuffer::Type::kI420)
-        return SharedVideoFrameInfo { kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-            static_cast<uint32_t>(frame.width()), static_cast<uint32_t>(frame.height()), static_cast<uint32_t>(frame.width()),
-            static_cast<uint32_t>(frame.width()) / 2, static_cast<uint32_t>(frame.height()) / 2, static_cast<uint32_t>(frame.width()) };
-
-    if (type == webrtc::VideoFrameBuffer::Type::kI010)
-        return SharedVideoFrameInfo { kCVPixelFormatType_420YpCbCr10BiPlanarFullRange,
-            static_cast<uint32_t>(frame.width()), static_cast<uint32_t>(frame.height()), static_cast<uint32_t>(frame.width() * 2),
-            static_cast<uint32_t>(frame.width()) / 2, static_cast<uint32_t>(frame.height()) / 2, static_cast<uint32_t>(frame.width()) * 2 };
-
-    return SharedVideoFrameInfo { };
+    if (type == webrtc::VideoFrameBuffer::Type::kI420) {
+        return {
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            static_cast<uint32_t>(frame.width()), static_cast<uint32_t>(frame.height()), computeStrideY<uint8_t>(frame),
+            computeWidthUV(frame), computeHeightUV(frame), computeStrideUV<uint8_t>(frame)
+        };
+    }
+    if (type == webrtc::VideoFrameBuffer::Type::kI010) {
+        return {
+            kCVPixelFormatType_420YpCbCr10BiPlanarFullRange,
+            static_cast<uint32_t>(frame.width()), static_cast<uint32_t>(frame.height()), computeStrideY<uint16_t>(frame),
+            computeWidthUV(frame), computeHeightUV(frame), computeStrideUV<uint16_t>(frame)
+        };
+    }
+    return { };
 }
 
 bool SharedVideoFrameInfo::writeVideoFrameBuffer(webrtc::VideoFrameBuffer& frameBuffer, std::span<uint8_t> data)

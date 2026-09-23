@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 let a = "?".repeat(2147483647);
 var exception;

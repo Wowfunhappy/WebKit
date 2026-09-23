@@ -58,6 +58,7 @@
 #include "LocalizedStrings.h"
 #include "NodeRenderStyle.h"
 #include "PlatformKeyboardEvent.h"
+#include "PlatformRenderTheme.h"
 #include "PseudoClassChangeInvalidation.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
@@ -128,7 +129,7 @@ bool TextFieldInputType::isEmptyValue() const
     return true;
 }
 
-bool TextFieldInputType::valueMissing(const String& value) const
+bool TextFieldInputType::valueMissing(StringView value) const
 {
     ASSERT(element());
     Ref element = *this->element();
@@ -269,9 +270,16 @@ void TextFieldInputType::elementDidBlur()
 
     CheckedPtr innerLayerScrollable = innerLayer->ensureLayerScrollableArea();
 
-    bool isLeftToRightDirection = downcast<RenderTextControlSingleLine>(*renderer).style().writingMode().deprecatedIsLeftToRightDirection();
-    ScrollOffset scrollOffset(isLeftToRightDirection ? 0 : innerLayerScrollable->scrollWidth(), 0);
-    innerLayerScrollable->scrollToOffset(scrollOffset);
+    auto writingMode = downcast<RenderTextControlSingleLine>(*renderer).style().writingMode();
+    int xOffset = 0;
+    int yOffset = 0;
+    if (writingMode.isInlineFlipped()) {
+        if (writingMode.isHorizontal())
+            xOffset = innerLayerScrollable->scrollWidth();
+        else
+            yOffset = innerLayerScrollable->scrollHeight();
+    }
+    innerLayerScrollable->scrollToOffset(ScrollOffset(xOffset, yOffset));
 
     closeSuggestions();
 }
@@ -299,7 +307,7 @@ bool TextFieldInputType::shouldSubmitImplicitly(Event& event)
         || InputType::shouldSubmitImplicitly(event);
 }
 
-RenderPtr<RenderElement> TextFieldInputType::createInputRenderer(RenderStyle&& style)
+RenderPtr<RenderElement> TextFieldInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
     // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
@@ -417,7 +425,11 @@ void TextFieldInputType::removeShadowSubtree()
         innerSpinButton->removeSpinButtonOwner();
     m_innerSpinButton = nullptr;
     m_capsLockIndicator = nullptr;
+    if (RefPtr autoFillButton = m_autoFillButton.get())
+        autoFillButton->removeOwner();
     m_autoFillButton = nullptr;
+    if (RefPtr dataListDropdownIndicator = m_dataListDropdownIndicator)
+        dataListDropdownIndicator->removeOwner();
     m_dataListDropdownIndicator = nullptr;
     m_container = nullptr;
 }
@@ -626,12 +638,12 @@ void TextFieldInputType::updatePlaceholderText()
         return;
 
     Ref element = *this->element();
-    auto placeholderText = element->placeholder();
-    if (placeholderText.isEmpty()) {
+    if (!element->hasAttributeWithoutSynchronization(placeholderAttr)) {
         if (RefPtr placeholder = std::exchange(m_placeholder, nullptr))
             placeholder->remove();
         return;
     }
+    auto placeholderText = element->placeholder();
     if (!m_placeholder) {
         Ref placeholder = TextControlPlaceholderElement::create(protect(element->document()));
         m_placeholder = placeholder.copyRef();
@@ -753,7 +765,7 @@ bool TextFieldInputType::shouldDrawCapsLockIndicator() const
     if (!frame)
         return false;
 
-    if (!protect(frame->selection())->isFocusedAndActive())
+    if (!frame->selection().isFocusedAndActive())
         return false;
 
     return PlatformKeyboardEvent::currentCapsLockState();

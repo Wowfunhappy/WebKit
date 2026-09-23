@@ -61,7 +61,9 @@ private:
     template<typename CharacterType, LineBreakRules, WordBreakBehavior, NoBreakSpaceBehavior>
     static inline size_t nextBreakablePosition(CachedLineBreakIteratorFactory&, std::span<const CharacterType> string, size_t startPosition);
 
-    template<typename CharacterType, NoBreakSpaceBehavior>
+    enum class PunctuationBreaks : bool { No, Yes };
+
+    template<typename CharacterType, NoBreakSpaceBehavior, PunctuationBreaks = PunctuationBreaks::No>
     static inline size_t nextBreakableSpace(std::span<const CharacterType> string, size_t startPosition);
 
     static inline unsigned nextCharacter(CachedLineBreakIteratorFactory&, unsigned startPosition);
@@ -88,6 +90,8 @@ private:
         kGL = 1 << 6,
         kQU = 1 << 7,
         kSP = 1 << 8,
+        kPi = 1 << 9, // Initial-Punctuation QU subclass; always paired with kQU.
+        kPf = 1 << 10, // Final-Punctuation QU subclass; always paired with kQU.
         kNU = kAL,
         kWeird = 1 << 15,
         // Currently we map
@@ -124,6 +128,8 @@ inline bool BreakablePositions::isBreakableSpace(char16_t character)
     case ' ':
     case '\n':
     case '\t':
+    case lineSeparator:
+    case paragraphSeparator:
         return true;
     case noBreakSpace:
         return nonBreakingSpaceBehavior == NoBreakSpaceBehavior::Break;
@@ -189,7 +195,8 @@ inline size_t BreakablePositions::nextBreakablePosition(CachedLineBreakIteratorF
             // Short-circuit the commonest cases: letter + letter.
             unsigned pair = before.type | after.type;
             // AL+AL SP+AL SP+QU AL+QU QU+QU QU+AL (after's SP is already filtered out).
-            if (!(pair & ~(kSP | kAL | kQU))) {
+            // Also allow through the kPi/kPf subflags of kQU.
+            if (!(pair & ~(kSP | kAL | kQU | kPi | kPf))) {
                 if constexpr (words == WordBreakBehavior::BreakAll) {
                     if (pair == kAL)
                         return i;
@@ -201,9 +208,16 @@ inline size_t BreakablePositions::nextBreakablePosition(CachedLineBreakIteratorF
                     continue;
                 return i;
             }
-            // Handle special cases.
-            if (pair & (kGL | kQU) && !(pair & kWeird)) // Keep nbsp high in our list.
+            // LB12 forbids breaking next to GL (non-breaking glue, e.g. NBSP); LB19a forbids
+            // breaking next to QU (quotation marks) -- except when the QU neighbors an East-Asian
+            // (ID) char, the only case where LB19 lets a break through.
+            if (pair & (kGL | kQU) && !(pair & kWeird)) {
+                // A QU next to an East-Asian char is the one case LB19 lets a break through:
+                // break before an initial quote (Pi in after) or after a final quote (Pf in before).
+                if ((pair & kID) && (pair & kQU) && ((after.type & kPi) || (before.type & kPf)))
+                    return i;
                 continue;
+            }
             if (after.type == kCM) {
                 after.type = before.type;
                 continue;
@@ -240,10 +254,9 @@ inline size_t BreakablePositions::nextBreakablePosition(CachedLineBreakIteratorF
     return string.size();
 }
 
-template<typename CharacterType, BreakablePositions::NoBreakSpaceBehavior nonBreakingSpaceBehavior>
+template<typename CharacterType, BreakablePositions::NoBreakSpaceBehavior nonBreakingSpaceBehavior, BreakablePositions::PunctuationBreaks punctuationBreaks>
 inline size_t BreakablePositions::nextBreakableSpace(std::span<const CharacterType> string, size_t startPosition)
 {
-    // FIXME: Use ICU instead.
     for (size_t i = startPosition; i < string.size(); ++i) {
         if (isBreakableSpace<nonBreakingSpaceBehavior>(string[i]))
             return i;
@@ -252,6 +265,10 @@ inline size_t BreakablePositions::nextBreakableSpace(std::span<const CharacterTy
             return i;
         if (string[i] == ideographicSpace)
             return i + 1;
+        if constexpr (punctuationBreaks == PunctuationBreaks::Yes) {
+            if ((U_GET_GC_MASK(string[i]) & (U_GC_PS_MASK | U_GC_PE_MASK | U_GC_PI_MASK | U_GC_PF_MASK | U_GC_PO_MASK)) && i + 1 < string.size())
+                return i + 1;
+        }
     }
     return string.size();
 }
@@ -277,9 +294,9 @@ inline unsigned BreakablePositions::next(CachedLineBreakIteratorFactory& lineBre
             ? nextBreakableSpace<Latin1Character, spaces>(stringView.span8(), startPosition)
             : nextBreakablePosition<Latin1Character, rules, words, spaces>(lineBreakIteratorFactory, stringView.span8(), startPosition);
     }
-    return words == WordBreakBehavior::KeepAll
-        ? nextBreakableSpace<char16_t, spaces>(stringView.span16(), startPosition)
-        : nextBreakablePosition<char16_t, rules, words, spaces>(lineBreakIteratorFactory, stringView.span16(), startPosition);
+    if constexpr (words == WordBreakBehavior::KeepAll)
+        return nextBreakableSpace<char16_t, spaces, PunctuationBreaks::Yes>(stringView.span16(), startPosition);
+    return nextBreakablePosition<char16_t, rules, words, spaces>(lineBreakIteratorFactory, stringView.span16(), startPosition);
 }
 
 
@@ -373,8 +390,10 @@ inline BreakablePositions::BreakClass BreakablePositions::classify(char16_t char
             return kAL;
         if (character == 0x00A1 || character == 0x00BF)
             return kOP;
-        if (character == 0x00AB || character == 0x00BB)
-            return kQU;
+        if (character == 0x00AB)
+            return BreakClass(kQU | kPi);
+        if (character == 0x00BB)
+            return BreakClass(kQU | kPf);
         return kWeird;
     case 0x0100 / 0x80:
     case 0x0180 / 0x80:
@@ -453,8 +472,10 @@ inline BreakablePositions::BreakClass BreakablePositions::classify(char16_t char
     case 0x1980 / 0x80:
         return kWeird;
     case 0x2000 / 0x80:
-        if (character == 0x2018 || character == 0x2019)
-            return kQU;
+        if (character == 0x2018 || character == 0x201C)
+            return BreakClass(kQU | kPi);
+        if (character == 0x2019 || character == 0x201D)
+            return BreakClass(kQU | kPf);
         return kWeird;
     // FIXME: Continue bitmask switch up to 2E80.
     }

@@ -33,7 +33,7 @@ namespace JSC {
 
 ALWAYS_INLINE bool setIteratorProtocolIsFastAndNonObservable(VM& vm, JSSetIterator* setIterator)
 {
-    JSGlobalObject* globalObject = setIterator->globalObject();
+    JSGlobalObject* globalObject = setIterator->realm();
 
     if (!globalObject->isSetPrototypeIteratorProtocolFastAndNonObservable())
         return false;
@@ -43,6 +43,8 @@ ALWAYS_INLINE bool setIteratorProtocolIsFastAndNonObservable(VM& vm, JSSetIterat
 
     if (setIterator->hasCustomProperties()) {
         if (setIterator->getDirectOffset(vm, vm.propertyNames->next) != invalidOffset)
+            return false;
+        if (setIterator->getDirectOffset(vm, vm.propertyNames->returnKeyword) != invalidOffset)
             return false;
     }
 

@@ -61,7 +61,7 @@ TEST(WTF_DataMutex, TakingTheMutex)
 }
 
 // FIXME: Tests using ASSERT_DEATH currently panic on playstation
-#if !PLATFORM(PLAYSTATION)
+#if !PLATFORM(PLAYSTATION) && GTEST_HAS_DEATH_TEST
 TEST(WTF_DataMutex, RunUnlockedIllegalAccessDeathTest)
 {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";

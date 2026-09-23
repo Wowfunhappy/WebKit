@@ -672,7 +672,7 @@ std::optional<HTTPRange> parseRange(StringView range, RangeAllowWhitespace allow
 }
 
 template<typename CharacterType>
-static inline bool isValidHeaderNameCharacter(CharacterType character)
+static inline bool NODELETE isValidHeaderNameCharacter(CharacterType character)
 {
     // https://tools.ietf.org/html/rfc7230#section-3.2
     // A header name should only contain one or more of

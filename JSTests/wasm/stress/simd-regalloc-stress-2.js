@@ -1,5 +1,6 @@
 //@ requireOptions("--useWasmSIMD=1", "--useBBQJIT=1", "--thresholdForBBQOptimizeAfterWarmUp=0", "--thresholdForBBQOptimizeSoon=0")
-//@ skip if !$isSIMDPlatform or $memoryLimited
+//@ memoryHog!
+//@ skip if !$isSIMDPlatform
 import * as assert from "../assert.js"
 
 function instantiate(filename, importObject) {

@@ -4,10 +4,6 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "test_utils/CompilerTest.h"
 
 #include "test_utils/angle_test_configs.h"
@@ -1114,6 +1110,26 @@ TEST_P(GLSLConstantFoldingTest, ArrayMixedArgumentsIndex)
 {
     test("float", R"(float c = float[2](v, 1.)[1])", "v == 1.");
     verifyIsNotInTranslation("[1]");
+}
+
+// Constant fold indexing of an nested array constructors.
+TEST_P(GLSLConstantFoldingTest_ES31, NestedArrayMixedArgumentsIndex)
+{
+    test("float",
+         R"(float c = float[2][4](float[4](0., 1., 2., 3.), float[4](4., v, 5., 6.))[1][2])",
+         "v == 5.");
+    verifyIsNotInTranslation("[1]");
+    verifyIsNotInTranslation("[2]");
+}
+
+// Constant fold selecting field of a constructed struct
+TEST_P(GLSLConstantFoldingTest_ES31, ConstructedStructSelectField)
+{
+    test("float", R"(struct S { int a; float b; };
+float c = S(S(0, v).a, S(int(v), 3.).b).b)",
+         "v == 3.");
+    verifyIsNotInTranslation(".a");
+    verifyIsNotInTranslation(".b");
 }
 
 // Constant fold indexing of an array of mixed constant and non-constant values with side

@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# Copyright (C) 2005-2025 Apple Inc.  All rights reserved.
+# Copyright (C) 2005-2026 Apple Inc.  All rights reserved.
 # Copyright (C) 2007 Eric Seidel <eric@webkit.org>
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,14 +46,16 @@ use webkitdirs;
 use Scalar::Util qw(looks_like_number);
 use Text::ParseWords;
 
+maybeEnterWebKitContainerSDK();
+
 # determine configuration
 setConfiguration();
 my $configuration = configuration();
 
-if (shouldUseFlatpak()) {
-    my @command = (File::Spec->catfile(sourceDir(), "Tools", "Scripts", "run-javascriptcore-tests"));
-    runInFlatpak(@command);
+if (isLinux()) {
+    portName();
 }
+
 maybeUseContainerSDKRootDir();
 
 # These variables are intentionally left undefined.
@@ -857,8 +859,7 @@ sub runJSCStressTests
             "PerformanceTests/SunSpider/with-baseline-code-sharing.yaml",
             "PerformanceTests/SunSpider/tests/v8-v6",
             "JSTests/stress",
-            "JSTests/microbenchmarks",
-            "JSTests/slowMicrobenchmarks.yaml",
+            "JSTests/microbenchmarks.yaml",
             "PerformanceTests/SunSpider/profiler-test.yaml",
             "LayoutTests/jsc-layout-tests.yaml",
             "JSTests/typeProfiler.yaml",

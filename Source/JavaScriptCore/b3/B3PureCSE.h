@@ -48,7 +48,9 @@ public:
 
     void clear();
 
-    Value* findMatch(const ValueKey&, BasicBlock*, Dominators&);
+    void remove(const ValueKey&, Value*);
+
+    Value* NODELETE findMatch(const ValueKey&, BasicBlock*, Dominators&);
 
     bool process(Value*, Dominators&);
     

@@ -99,8 +99,8 @@ void GStreamerDTMFSenderPrivate::playTone(const RefPtr<RealtimeOutgoingAudioSour
         { 'D', 15 }
     };
 
-    auto element = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(source->bin().get()), "dtmfSource"));
-    auto pad = adoptGRef(gst_element_get_static_pad(element.get(), "src"));
+    GRefPtr element = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(source->bin().get()), "dtmfSource"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(element.get(), "src"));
 
     if (tone == ',') {
         GST_DEBUG_OBJECT(element.get(), "Playing silence for 2 seconds");
@@ -124,7 +124,7 @@ void GStreamerDTMFSenderPrivate::playTone(const RefPtr<RealtimeOutgoingAudioSour
 
 void GStreamerDTMFSenderPrivate::sendEvent(const GRefPtr<GstPad>& pad, int number, int volume, bool start)
 {
-    auto event = adoptGRef(gst_event_new_custom(GST_EVENT_CUSTOM_UPSTREAM, gst_structure_new("dtmf-event", "type", G_TYPE_INT, 1, "number", G_TYPE_INT, number, "volume", G_TYPE_INT, volume, "start", G_TYPE_BOOLEAN, start, nullptr)));
+    GRefPtr event = adoptGRef(gst_event_new_custom(GST_EVENT_CUSTOM_UPSTREAM, gst_structure_new("dtmf-event", "type", G_TYPE_INT, 1, "number", G_TYPE_INT, number, "volume", G_TYPE_INT, volume, "start", G_TYPE_BOOLEAN, start, nullptr)));
     gst_pad_send_event(pad.get(), event.ref());
     gst_element_send_event(m_dtmfSrc.get(), event.leakRef());
 }

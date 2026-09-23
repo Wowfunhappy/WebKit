@@ -46,9 +46,6 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLTableRowsCollection);
 static inline void NODELETE assertRowIsInTable(HTMLTableElement& table, HTMLTableRowElement* row)
 {
 #if ASSERT_ENABLED
-    UNUSED_PARAM(table);
-    UNUSED_PARAM(row);
-#else // not ASSERT_ENABLED
     if (!row)
         return;
     if (row->parentNode() == &table)
@@ -56,6 +53,9 @@ static inline void NODELETE assertRowIsInTable(HTMLTableElement& table, HTMLTabl
     ASSERT(row->parentNode());
     ASSERT(row->parentNode()->hasTagName(theadTag) || row->parentNode()->hasTagName(tbodyTag) || row->parentNode()->hasTagName(tfootTag));
     ASSERT(row->parentNode()->parentNode() == &table);
+#else
+    UNUSED_PARAM(table);
+    UNUSED_PARAM(row);
 #endif // not ASSERT_ENABLED
 }
 
@@ -166,7 +166,7 @@ Ref<HTMLTableRowsCollection> HTMLTableRowsCollection::create(HTMLTableElement& t
 
 Element* HTMLTableRowsCollection::customElementAfter(Element* previous) const
 {
-    return rowAfter(protect(tableElement()), downcast<HTMLTableRowElement>(previous));
+    return rowAfter(tableElement(), downcast<HTMLTableRowElement>(previous));
 }
 
 }

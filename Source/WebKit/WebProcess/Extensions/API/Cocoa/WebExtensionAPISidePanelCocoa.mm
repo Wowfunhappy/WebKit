@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPISidePanel.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
 
@@ -41,9 +42,6 @@
 
 namespace WebKit {
 
-static NSString * const tabIdKey = @"tabId";
-static NSString * const windowIdKey = @"windowId";
-static NSString * const actionClickBehaviorKey = @"openPanelOnActionClick";
 
 static ParseResult parseTabIdentifier(NSDictionary *options)
 {

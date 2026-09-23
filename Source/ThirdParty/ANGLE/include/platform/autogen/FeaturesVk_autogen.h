@@ -50,6 +50,12 @@ struct FeaturesVk : FeatureSetBase
         &members,
     };
 
+    FeatureInfo forceRenderableFallbackFormat = {
+        "forceRenderableFallbackFormat",
+        FeatureCategory::VulkanWorkarounds,
+        &members,
+    };
+
     FeatureInfo clampPointSize = {
         "clampPointSize",
         FeatureCategory::VulkanWorkarounds,
@@ -83,6 +89,12 @@ struct FeaturesVk : FeatureSetBase
     FeatureInfo supportsMemoryBudget = {
         "supportsMemoryBudget",
         FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo useLargeSizeForDynamicBuffers = {
+        "useLargeSizeForDynamicBuffers",
+        FeatureCategory::VulkanWorkarounds,
         &members,
     };
 
@@ -326,6 +338,12 @@ struct FeaturesVk : FeatureSetBase
         &members,
     };
 
+    FeatureInfo preferGPUForCopyBufferSubData = {
+        "preferGPUForCopyBufferSubData",
+        FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
     FeatureInfo persistentlyMappedBuffers = {
         "persistentlyMappedBuffers",
         FeatureCategory::VulkanFeatures,
@@ -448,6 +466,12 @@ struct FeaturesVk : FeatureSetBase
 
     FeatureInfo destroyOldSwapchainInSharedPresentMode = {
         "destroyOldSwapchainInSharedPresentMode",
+        FeatureCategory::VulkanWorkarounds,
+        &members,
+    };
+
+    FeatureInfo disableSubmitCommandsOnSyncStatusCheckForTesting = {
+        "disableSubmitCommandsOnSyncStatusCheckForTesting",
         FeatureCategory::VulkanWorkarounds,
         &members,
     };
@@ -836,12 +860,6 @@ struct FeaturesVk : FeatureSetBase
         &members,
     };
 
-    FeatureInfo explicitlyCastMediumpFloatTo16Bit = {
-        "explicitlyCastMediumpFloatTo16Bit",
-        FeatureCategory::VulkanWorkarounds,
-        &members,
-    };
-
     FeatureInfo forceContinuousRefreshOnSharedPresent = {
         "forceContinuousRefreshOnSharedPresent",
         FeatureCategory::VulkanFeatures,
@@ -899,6 +917,12 @@ struct FeaturesVk : FeatureSetBase
     FeatureInfo supportsRasterizationOrderAttachmentAccess = {
         "supportsRasterizationOrderAttachmentAccess",
         FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo addFramebufferFetchBarrierOnUseMidRenderPass = {
+        "addFramebufferFetchBarrierOnUseMidRenderPass",
+        FeatureCategory::VulkanWorkarounds,
         &members,
     };
 
@@ -1019,6 +1043,12 @@ struct FeaturesVk : FeatureSetBase
     FeatureInfo supportsSwapchainMaintenance1 = {
         "supportsSwapchainMaintenance1",
         FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo swapchainDeferredMemoryAllocation = {
+        "swapchainDeferredMemoryAllocation",
+        FeatureCategory::VulkanWorkarounds,
         &members,
     };
 
@@ -1643,6 +1673,42 @@ struct FeaturesVk : FeatureSetBase
     FeatureInfo simulateTileMemoryForTesting = {
         "simulateTileMemoryForTesting",
         FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo supportsClKhrSubgroups = {
+        "supportsClKhrSubgroups",
+        FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo clBestUniformFitWGS = {
+        "clBestUniformFitWGS",
+        FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo supportsShaderDemoteToHelperInvocation = {
+        "supportsShaderDemoteToHelperInvocation",
+        FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo avoidImageGhostOutsideRenderPass = {
+        "avoidImageGhostOutsideRenderPass",
+        FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo supportsAmdShaderCoreProperties = {
+        "supportsAmdShaderCoreProperties",
+        FeatureCategory::VulkanFeatures,
+        &members,
+    };
+
+    FeatureInfo initializeColorAttachmentWithWhite = {
+        "initializeColorAttachmentWithWhite",
+        FeatureCategory::VulkanWorkarounds,
         &members,
     };
 

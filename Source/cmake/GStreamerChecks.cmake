@@ -1,5 +1,4 @@
-if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO OR ENABLE_WEB_CODECS)
-    SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER TRUE)
+if (USE_GSTREAMER)
       if (USE_GSTREAMER_FULL)
           find_package(GStreamer 1.18.4 REQUIRED COMPONENTS full)
           if (NOT PC_GSTREAMER_FULL_FOUND)
@@ -15,10 +14,6 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO OR ENABLE_WEB_CODECS)
 
           if (ENABLE_WEB_AUDIO)
               list(APPEND GSTREAMER_COMPONENTS audio fft)
-          endif ()
-
-          if (ENABLE_MEDIA_RECORDER)
-              list(APPEND GSTREAMER_COMPONENTS transcoder)
           endif ()
 
           if (USE_GSTREAMER_WEBRTC)
@@ -67,7 +62,7 @@ if (ENABLE_MEDIA_STREAM AND ENABLE_WEB_RTC)
         endif ()
 
         if (USE_LIBRICE)
-            find_package(Rice 0.1.1 COMPONENTS Io Proto)
+            find_package(Rice 0.4.2 COMPONENTS Io Proto)
             if (NOT Rice_Io_FOUND OR NOT Rice_Proto_FOUND)
                 message(FATAL_ERROR "librice-{io,proto} is needed for USE_LIBRICE.")
             endif ()

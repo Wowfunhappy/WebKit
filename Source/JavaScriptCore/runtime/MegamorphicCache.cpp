@@ -26,6 +26,8 @@
 #include "config.h"
 #include "MegamorphicCache.h"
 
+#include "ProgramExecutable.h"
+
 #include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
@@ -61,6 +63,14 @@ void MegamorphicCache::age(CollectionScope collectionScope)
             entry.m_uid = nullptr;
             entry.m_epoch = invalidEpoch;
         }
+        for (auto& entry : m_getterCachePrimaryEntries) {
+            entry.m_uid = nullptr;
+            entry.m_epoch = invalidEpoch;
+        }
+        for (auto& entry : m_getterCacheSecondaryEntries) {
+            entry.m_uid = nullptr;
+            entry.m_epoch = invalidEpoch;
+        }
         if (m_epoch == invalidEpoch)
             m_epoch = 1;
     }
@@ -79,6 +89,10 @@ void MegamorphicCache::clearEntries()
     for (auto& entry : m_hasCachePrimaryEntries)
         entry.m_epoch = invalidEpoch;
     for (auto& entry : m_hasCacheSecondaryEntries)
+        entry.m_epoch = invalidEpoch;
+    for (auto& entry : m_getterCachePrimaryEntries)
+        entry.m_epoch = invalidEpoch;
+    for (auto& entry : m_getterCacheSecondaryEntries)
         entry.m_epoch = invalidEpoch;
     m_epoch = 1;
 }

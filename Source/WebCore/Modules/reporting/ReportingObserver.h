@@ -28,7 +28,9 @@
 #include "ActiveDOMObject.h"
 #include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 

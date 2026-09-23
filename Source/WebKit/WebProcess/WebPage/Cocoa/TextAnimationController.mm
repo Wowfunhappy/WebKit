@@ -37,6 +37,8 @@
 #include <WebCore/Editing.h>
 #include <WebCore/FocusController.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/Page.h>
 #include <WebCore/Range.h>
 #include <WebCore/RenderedDocumentMarker.h>
 #include <WebCore/SimpleRange.h>

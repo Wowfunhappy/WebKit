@@ -46,20 +46,20 @@ private:
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     bool childShouldCreateRenderer(const Node&) const override;
-    bool rendererIsNeeded(const RenderStyle&) override;
+    bool rendererIsNeeded(const Style::ComputedStyle&) override;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
-    void didFinishInsertingNode() override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void removingSteps(RemovalType, ContainerNode&) override;
+    void postConnectionSteps() override;
 
     void clearTarget() override;
     void updateReferencedText(Element*);
     void detachTarget();
     void buildPendingResource() override;
 
-    Ref<SVGTRefTargetEventListener> m_targetListener;
+    const Ref<SVGTRefTargetEventListener> m_targetListener;
 };
 
 } // namespace WebCore

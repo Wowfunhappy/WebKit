@@ -28,6 +28,7 @@
 
 #include "JSNavigateEvent.h"
 #include "NavigateEvent.h"
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 

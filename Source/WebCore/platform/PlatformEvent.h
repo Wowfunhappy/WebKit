@@ -82,7 +82,8 @@ enum class PlatformEventModifier : uint8_t {
     ShiftKey    = 1 << 3,
     CapsLockKey = 1 << 4,
 
-    // Never used in native platforms but added for initEvent
+    // Populated from native events on platforms with an AltGraph (AltGr) key
+    // (Windows, GTK/X11); also set for JS-constructed events via initEvent.
     AltGraphKey = 1 << 5,
 };
 

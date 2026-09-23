@@ -57,7 +57,7 @@ using SpeechRecognitionCheckIfMockSpeechRecognitionEnabled = Function<bool()>;
 class SpeechRecognitionServer : public IPC::MessageReceiver, private IPC::MessageSender, public RefCounted<SpeechRecognitionServer> {
     WTF_MAKE_TZONE_ALLOCATED(SpeechRecognitionServer);
 public:
-    using RealtimeMediaSourceCreateFunction = Function<WebCore::CaptureSourceOrError()>;
+    using RealtimeMediaSourceCreateFunction = Function<WebCore::CaptureSourceOrError(WebCore::SpeechRecognitionConnectionClientIdentifier)>;
     static Ref<SpeechRecognitionServer> create(WebProcessProxy&, SpeechRecognitionServerIdentifier, SpeechRecognitionPermissionChecker&&, SpeechRecognitionCheckIfMockSpeechRecognitionEnabled&&
 #if ENABLE(MEDIA_STREAM)
         , RealtimeMediaSourceCreateFunction&&
@@ -74,6 +74,8 @@ public:
     void abort(WebCore::SpeechRecognitionConnectionClientIdentifier);
     void invalidate(WebCore::SpeechRecognitionConnectionClientIdentifier);
     void mute();
+
+    ~SpeechRecognitionServer();
 
 private:
     SpeechRecognitionServer(WebProcessProxy&, SpeechRecognitionServerIdentifier, SpeechRecognitionPermissionChecker&&, SpeechRecognitionCheckIfMockSpeechRecognitionEnabled&&
@@ -100,7 +102,6 @@ private:
     SpeechRecognitionPermissionChecker m_permissionChecker;
     std::unique_ptr<WebCore::SpeechRecognizer> m_recognizer;
     SpeechRecognitionCheckIfMockSpeechRecognitionEnabled m_checkIfMockSpeechRecognitionEnabled;
-    bool m_isResetting { false };
 
 #if ENABLE(MEDIA_STREAM)
     RealtimeMediaSourceCreateFunction m_realtimeMediaSourceCreateFunction;

@@ -118,7 +118,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaSessionManagerGLib);
 RefPtr<PlatformMediaSessionManager> PlatformMediaSessionManager::create(PageIdentifier pageIdentifier)
 {
     GUniqueOutPtr<GError> error;
-    auto mprisInterface = adoptGRef(g_dbus_node_info_new_for_xml(s_mprisInterface, &error.outPtr()));
+    GRefPtr mprisInterface = adoptGRef(g_dbus_node_info_new_for_xml(s_mprisInterface, &error.outPtr()));
     if (!mprisInterface) {
         g_warning("Failed at parsing XML Interface definition: %s", error->message);
         return nullptr;

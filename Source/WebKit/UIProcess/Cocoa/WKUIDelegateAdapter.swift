@@ -147,6 +147,12 @@ final class WKUIDelegateAdapter: NSObject, WKUIDelegatePrivate {
     func _webView(_ webView: WKWebView!, geometryDidChange geometry: WKScrollGeometry) {
         owner?.backingWebView.geometryDidChange(WKScrollGeometryAdapter(geometry))
     }
+
+    // swift-format-ignore: NoLeadingUnderscores
+    @objc(_webView:editorStateDidChange:)
+    func _webView(_ webView: WKWebView, editorStateDidChange editorState: [AnyHashable: Any]) {
+        owner?.addEditorStateUpdate(editorState)
+    }
 }
 
 #endif

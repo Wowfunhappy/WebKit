@@ -39,8 +39,6 @@
 #include "WebProcess.h"
 #include <WebCore/AudioSession.h>
 #include <WebCore/PlatformMediaSession.h>
-#include <algorithm>
-#include <ranges>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -49,21 +47,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaSessionManager);
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaSessionState);
 
-RefPtr<RemoteMediaSessionManager> RemoteMediaSessionManager::create(WebPage& topPage, WebPage& localPage)
+RefPtr<RemoteMediaSessionManager> RemoteMediaSessionManager::create(WebPage& webPage)
 {
-    return adoptRef(new RemoteMediaSessionManager(topPage, localPage));
+    return adoptRef(new RemoteMediaSessionManager(webPage));
 }
 
-RemoteMediaSessionManager::RemoteMediaSessionManager(WebPage& topPage, WebPage& localPage)
-    : REMOTE_MEDIA_SESSION_MANAGER_BASE_CLASS(localPage.identifier())
-    , m_topPage(topPage)
-    , m_localPage(localPage)
-    , m_topPageID(topPage.identifier())
-    , m_localPageID(localPage.identifier())
+RemoteMediaSessionManager::RemoteMediaSessionManager(WebPage& webPage)
+    : REMOTE_MEDIA_SESSION_MANAGER_BASE_CLASS(webPage.identifier())
+    , m_webPage(webPage)
+    , m_webPageID(webPage.identifier())
 {
-    WebProcess::singleton().addMessageReceiver(Messages::RemoteMediaSessionManager::messageReceiverName(), m_localPageID, *this);
-
-    localPage.send(Messages::WebPageProxy::AddRemoteMediaSessionManager(m_localPageID));
+    WebProcess::singleton().addMessageReceiver(Messages::RemoteMediaSessionManager::messageReceiverName(), m_webPageID, *this);
 
 #if USE(AUDIO_SESSION)
     Ref sharedSession = WebCore::AudioSession::singleton();
@@ -76,7 +70,6 @@ RemoteMediaSessionManager::RemoteMediaSessionManager(WebPage& topPage, WebPage& 
         sharedSession->preferredBufferSize(),
         sharedSession->outputLatency(),
         sharedSession->isMuted(),
-        sharedSession->isActive(),
         sharedSession->sceneIdentifier(),
         sharedSession->soundStageSize(),
         sharedSession->categoryOverride(),
@@ -87,9 +80,7 @@ RemoteMediaSessionManager::RemoteMediaSessionManager(WebPage& topPage, WebPage& 
 
 RemoteMediaSessionManager::~RemoteMediaSessionManager()
 {
-    if (RefPtr page = m_localPage.get())
-        page->send(Messages::WebPageProxy::RemoveRemoteMediaSessionManager(m_localPageID));
-    WebProcess::singleton().removeMessageReceiver(Messages::RemoteMediaSessionManager::messageReceiverName(), m_localPageID);
+    WebProcess::singleton().removeMessageReceiver(Messages::RemoteMediaSessionManager::messageReceiverName(), m_webPageID);
 }
 
 void RemoteMediaSessionManager::addSession(WebCore::PlatformMediaSessionInterface& session)
@@ -287,7 +278,7 @@ void RemoteMediaSessionManager::updateCachedSessionState(const WebCore::Platform
 RemoteMediaSessionState RemoteMediaSessionManager::fullSessionState(const WebCore::PlatformMediaSessionInterface& session)
 {
     return {
-        .pageIdentifier = m_localPageID,
+        .pageIdentifier = m_webPageID,
         .sessionIdentifier = session.mediaSessionIdentifier(),
 #if !RELEASE_LOG_DISABLED
         .logIdentifier = session.logIdentifier(),
@@ -337,7 +328,7 @@ IPC::Connection* RemoteMediaSessionManager::messageSenderConnection() const
 
 uint64_t RemoteMediaSessionManager::messageSenderDestinationID() const
 {
-    return m_topPageID.toUInt64();
+    return m_webPageID.toUInt64();
 }
 
 std::optional<SharedPreferencesForWebProcess> RemoteMediaSessionManager::sharedPreferencesForWebProcess() const

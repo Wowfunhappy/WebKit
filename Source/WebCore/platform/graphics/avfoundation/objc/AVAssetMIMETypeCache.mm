@@ -74,7 +74,7 @@ static bool isMultichannelOpusAvailable()
             return false;
 
         size_t count = propertySize / sizeof(AudioChannelLayoutTag);
-        Vector<AudioChannelLayoutTag> channelLayoutTags(count, { });
+        Vector<AudioChannelLayoutTag> channelLayoutTags(FillWith { }, count, { });
 
         error = PAL::AudioFormatGetProperty(kAudioFormatProperty_AvailableDecodeChannelLayoutTags, sizeof(asbd), &asbd, &propertySize, channelLayoutTags.mutableSpan().data());
         if (error != noErr)
@@ -131,21 +131,18 @@ bool AVAssetMIMETypeCache::isUnsupportedContainerType(const String& type)
     if (type.isEmpty())
         return false;
 
-    String lowerCaseType = type.convertToASCIILowercase();
-
     // AVFoundation will return non-video MIME types which it claims to support, but which we
     // do not support in the <video> element. Reject all non video/, audio/, and application/ types.
-    if (!lowerCaseType.startsWith("video/"_s) && !lowerCaseType.startsWith("audio/"_s) && !lowerCaseType.startsWith("application/"_s))
+    if (!startsWithLettersIgnoringASCIICase(type, "video/"_s) && !startsWithLettersIgnoringASCIICase(type, "audio/"_s) && !startsWithLettersIgnoringASCIICase(type, "application/"_s))
         return true;
 
     // Reject types we know AVFoundation does not support that sites commonly ask about.
-    static constexpr SortedArraySet unsupportedTypesSet { std::to_array<ComparableASCIILiteral>({ "video/h264"_s, "video/x-flv"_s }) };
-    return unsupportedTypesSet.contains(lowerCaseType);
+    return equalLettersIgnoringASCIICase(type, "video/h264"_s) || equalLettersIgnoringASCIICase(type, "video/x-flv"_s);
 }
 
 bool AVAssetMIMETypeCache::isStaticContainerType(StringView type)
 {
-    static constexpr SortedArraySet staticContainerTypesSet { std::to_array<ComparableLettersLiteral>({
+    static constexpr SortedArraySet staticContainerTypesSet { WTF::toArray<ComparableLettersLiteral>({
         "application/vnd.apple.mpegurl"_s,
         "application/x-mpegurl"_s,
         "audio/3gpp"_s,

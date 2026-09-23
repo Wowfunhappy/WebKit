@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,11 +42,15 @@
 #include "WebProcessProxyMessages.h"
 #include "WebUserContentControllerMessages.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSContextRef.h>
+#include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <WebCore/DOMWrapperWorld.h>
+#include <WebCore/Document.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/JSDOMGlobalObject.h>
 #include <WebCore/LocalFrame.h>
 #include <WebCore/Page.h>
 #include <WebCore/SecurityOriginData.h>
@@ -75,6 +79,20 @@ static WorldMap& worldMap()
     static NeverDestroyed<WorldMap> map(std::initializer_list<WorldMap::KeyValuePairType> { { pageContentWorldIdentifier(), InjectedBundleScriptWorld::normalWorldSingleton() } });
 
     return map;
+}
+
+static WebCore::UserScript userScriptFromData(WebCoreUserScriptData&& data)
+{
+    auto maybeSource = WTF::move(data.source).release();
+    RELEASE_ASSERT(maybeSource);
+    return { WTF::move(*maybeSource), WTF::move(data.url), WTF::move(data.allowlist), WTF::move(data.blocklist), data.injectionTime, data.injectedFrames, data.matchParentFrame };
+}
+
+static WebCore::UserStyleSheet userStyleSheetFromData(WebCoreUserStyleSheetData&& data)
+{
+    auto maybeSource = WTF::move(data.source).release();
+    RELEASE_ASSERT(maybeSource);
+    return { WTF::move(*maybeSource), WTF::move(data.url), WTF::move(data.allowlist), WTF::move(data.blocklist), data.injectedFrames, data.matchParentFrame, data.level, data.pageID };
 }
 
 Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentControllerParameters&& parameters)
@@ -171,8 +189,8 @@ void WebUserContentController::addContentWorldIfNecessary(const ContentWorldData
         scriptWorld->disableOverrideBuiltinsBehavior();
     if (world.options.contains(ContentWorldOption::AllowJSHandleCreation))
         scriptWorld->setAllowJSHandleCreation();
-    if (world.options.contains(ContentWorldOption::AllowNodeSerialization))
-        scriptWorld->setAllowNodeSerialization();
+    if (world.options.contains(ContentWorldOption::AllowNodeSnapshotCreation))
+        scriptWorld->setAllowNodeSnapshotCreation();
 
     Page::forEachPage([&] (auto& page) {
         Ref mainFrame = page.mainFrame();
@@ -207,7 +225,7 @@ void WebUserContentController::removeContentWorld(ContentWorldIdentifier worldId
 
 void WebUserContentController::addUserScripts(Vector<WebUserScriptData>&& userScripts, InjectUserScriptImmediately immediately)
 {
-    for (const auto& userScriptData : userScripts) {
+    for (auto& userScriptData : userScripts) {
         addContentWorldIfNecessary(userScriptData.worldData);
         RefPtr world = worldMap().get(userScriptData.worldData.identifier);
         if (!world) {
@@ -215,7 +233,7 @@ void WebUserContentController::addUserScripts(Vector<WebUserScriptData>&& userSc
             continue;
         }
 
-        UserScript script = userScriptData.userScript;
+        UserScript script = userScriptFromData(WTF::move(userScriptData.userScript));
         addUserScriptInternal(*world, userScriptData.identifier, WTF::move(script), immediately);
     }
 }
@@ -246,7 +264,7 @@ void WebUserContentController::removeAllUserScripts(const Vector<ContentWorldIde
 
 void WebUserContentController::addUserStyleSheets(Vector<WebUserStyleSheetData>&& userStyleSheets)
 {
-    for (const auto& userStyleSheetData : userStyleSheets) {
+    for (auto& userStyleSheetData : userStyleSheets) {
         addContentWorldIfNecessary(userStyleSheetData.worldData);
         RefPtr world = worldMap().get(userStyleSheetData.worldData.identifier);
         if (!world) {
@@ -254,7 +272,7 @@ void WebUserContentController::addUserStyleSheets(Vector<WebUserStyleSheetData>&
             continue;
         }
         
-        UserStyleSheet sheet = userStyleSheetData.userStyleSheet;
+        UserStyleSheet sheet = userStyleSheetFromData(WTF::move(userStyleSheetData.userStyleSheet));
         addUserStyleSheetInternal(*world, userStyleSheetData.identifier, WTF::move(sheet));
     }
 
@@ -310,6 +328,18 @@ private:
     {
     }
 
+    static FrameInfoData frameInfoWithDocumentID(WebFrame& webFrame, JSC::JSGlobalObject& globalObject)
+    {
+        auto frameInfo = webFrame.info();
+        if (!frameInfo.documentID) {
+            if (auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(&globalObject)) {
+                if (auto* document = dynamicDowncast<Document>(domGlobalObject->scriptExecutionContext()))
+                    frameInfo.documentID = document->identifier();
+            }
+        }
+        return frameInfo;
+    }
+
     // WebCore::UserMessageHandlerDescriptor
     void didPostMessage(WebCore::UserMessageHandler& handler, JSC::JSGlobalObject& globalObject, JSC::JSValue jsMessage, WTF::Function<void(JSC::JSValue, const String&)>&& completionHandler) const override
     {
@@ -330,7 +360,10 @@ private:
         if (!message)
             return;
 
-        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage(webPage->webPageProxyIdentifier(), m_controller->identifier(), webFrame->info(), m_identifier, *message), [completionHandler = WTF::move(completionHandler), context](Expected<WebKit::JavaScriptEvaluationResult, String>&& result) {
+        auto frameInfo = frameInfoWithDocumentID(*webFrame, globalObject);
+
+        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage(webPage->webPageProxyIdentifier(), m_controller->identifier(), WTF::move(frameInfo), m_identifier, *message), [completionHandler = WTF::move(completionHandler), context](Expected<WebKit::JavaScriptEvaluationResult, String>&& result) {
+            JSC::JSLockHolder lock(toJS(context.get()));
             if (!result)
                 return completionHandler(JSC::jsUndefined(), result.error());
             completionHandler(toJS(toJS(context.get()), result->toJS(context.get()).get()), { });
@@ -356,10 +389,13 @@ private:
         if (!message)
             return JSC::jsUndefined();
 
-        auto sendResult = protect(WebProcess::singleton().parentProcessConnection())->sendSync(Messages::WebProcessProxy::DidPostLegacySynchronousMessage(webPage->webPageProxyIdentifier(), m_controller->identifier(), webFrame->info(), m_identifier, *message), 0);
+        auto frameInfo = frameInfoWithDocumentID(*webFrame, globalObject);
+
+        auto sendResult = protect(WebProcess::singleton().parentProcessConnection())->sendSync(Messages::WebProcessProxy::DidPostLegacySynchronousMessage(webPage->webPageProxyIdentifier(), m_controller->identifier(), WTF::move(frameInfo), m_identifier, *message), 0);
         auto [result] = sendResult.takeReplyOr(makeUnexpected(String()));
         if (!result)
             return JSC::jsUndefined();
+        JSC::JSLockHolder lock(toJS(context.get()));
         return toJS(toJS(context.get()), result->toJS(context.get()).get());
     }
 

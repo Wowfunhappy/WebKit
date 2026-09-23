@@ -177,7 +177,6 @@ static bool threadCPUUsage(pid_t id, float period, ThreadInfo& info)
         name++;
         info.name = String::fromUTF8({ name, position });
     }
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     // Move after state.
     position += 4;
@@ -189,6 +188,7 @@ static bool threadCPUUsage(pid_t id, float period, ThreadInfo& info)
             position++;
         position++;
     }
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     unsigned long long utime = strtoull(position, &position, 10);
     unsigned long long stime = strtoull(position, &position, 10);

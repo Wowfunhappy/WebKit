@@ -170,7 +170,7 @@ public:
     // FIXME: clear() is trying to do too many things. We should break it down into smaller functions (ideally with fewer raw Boolean parameters).
     void clear(RefPtr<Document>&& newDocument, bool clearWindowProperties = true, bool clearScriptObjects = true, bool clearFrameView = true, Function<void()>&& handleDOMWindowCreation = nullptr);
 
-    bool isLoading() const;
+    bool NODELETE isLoading() const;
     WEBCORE_EXPORT bool NODELETE frameHasLoaded() const;
 
     WEBCORE_EXPORT int numPendingOrLoadingRequests(bool recurse) const;
@@ -190,6 +190,7 @@ public:
     WEBCORE_EXPORT RefPtr<DocumentLoader> loaderForWebsitePolicies(CanIncludeCurrentDocumentLoader = CanIncludeCurrentDocumentLoader::Yes) const;
 
     bool shouldReportResourceTimingToParentFrame() const { return m_shouldReportResourceTimingToParentFrame; };
+    void setShouldReportResourceTimingToParentFrame(bool value) { m_shouldReportResourceTimingToParentFrame = value; }
     
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<CFDictionaryRef> connectionProperties(ResourceLoader*);
@@ -264,14 +265,15 @@ public:
 
     void frameDetached();
 
-    void setOutgoingReferrer(const URL&);
+    WEBCORE_EXPORT void setOutgoingReferrer(const URL&);
 
     void loadDone(LoadCompletionType);
     void subresourceLoadDone(LoadCompletionType);
     void finishedParsing();
-    WEBCORE_EXPORT void checkCompleted();
+    void checkCompleted();
 
     bool isComplete() const { return m_isComplete; }
+    bool loadingFromCachedPage() const { return m_loadingFromCachedPage; }
 
     void commitProvisionalLoad();
     void provisionalLoadFailedInAnotherProcess();
@@ -291,13 +293,15 @@ public:
     bool shouldInterruptLoadForXFrameOptions(const String&, const URL&, ResourceLoaderIdentifier);
 
     void completed();
-    bool allAncestorsAreComplete() const; // including this
+    bool NODELETE allAncestorsAreComplete() const; // including this
     void clientRedirected(const URL&, double delay, WallTime fireDate, LockBackForwardList);
     void clientRedirectCancelledOrFinished(NewLoadInProgress);
 
     WEBCORE_EXPORT void setOriginalURLForDownloadRequest(ResourceRequest&);
 
     bool quickRedirectComing() const { return m_quickRedirectComing; }
+
+    WEBCORE_EXPORT bool shouldReplaceHistoryItemInChildFrame() const;
 
     WEBCORE_EXPORT bool shouldClose();
 
@@ -353,16 +357,17 @@ public:
     bool errorOccurredInLoading() const { return m_errorOccurredInLoading; }
 
     // HistoryController specific.
-    void loadItem(HistoryItem&, HistoryItem* fromItem, FrameLoadType, ShouldTreatAsContinuingLoad);
+    void loadItem(HistoryItem&, HistoryItem* fromItem, FrameLoadType, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified);
     HistoryItem* requestedHistoryItem() const { return m_requestedHistoryItem.get(); }
     WEBCORE_EXPORT void setRequestedHistoryItem(HistoryItem&);
     WEBCORE_EXPORT void loadRequestedHistoryItem(FrameLoadType, PolicyAlreadyDecided = PolicyAlreadyDecided::No);
 
     void updateURLAndHistory(const URL&, RefPtr<SerializedScriptValue>&& stateObject, NavigationHistoryBehavior = NavigationHistoryBehavior::Replace);
 
-    WEBCORE_EXPORT void setPendingAsyncBackForwardNavigation();
+    WEBCORE_EXPORT void NODELETE setPendingAsyncBackForwardNavigation();
     WEBCORE_EXPORT void cancelPendingAsyncBackForwardNavigation();
-    WEBCORE_EXPORT bool shouldProceedWithAsyncBackForwardNavigation();
+    bool asyncBackForwardNavigationWasCancelled() const { return m_asyncBackForwardNavigationState == AsyncBackForwardNavigationState::Cancelled; }
+    WEBCORE_EXPORT void clearAsyncBackForwardNavigationState();
     bool isWaitingForAsyncBackForwardNavigation() const { return m_asyncBackForwardNavigationState != AsyncBackForwardNavigationState::None; }
 
     void setRequiredCookiesVersion(uint64_t version) { m_requiredCookiesVersion = version; }
@@ -377,13 +382,15 @@ public:
     WEBCORE_EXPORT void continueLoadURLIntoChildFrame(const URL&, const String& referer, LocalFrame&);
     WEBCORE_EXPORT FrameLoadRequest createFrameLoadRequest(URL&&);
 
+    bool isDispatchingPageSwapEvent() const  { return m_isDispatchingPageSwapEvent; }
+
 private:
     enum FormSubmissionCacheLoadPolicy {
         MayAttemptCacheOnlyLoadForFormSubmissionItem,
         MayNotAttemptCacheOnlyLoadForFormSubmissionItem
     };
 
-    RefPtr<LocalFrame> nonSrcdocFrame() const;
+    RefPtr<LocalFrame> NODELETE nonSrcdocFrame() const;
 
     std::optional<PageIdentifier> NODELETE pageID() const;
     void executeJavaScriptURL(const URL&, const NavigationAction&);
@@ -393,8 +400,11 @@ private:
     void checkTimerFired();
     void checkCompletenessNow();
 
+    void startCrossOriginParentSyntheticSameDocLoadEventTimer();
+    void crossOriginParentSyntheticSameDocLoadEventTimerFired();
+
     void loadSameDocumentItem(HistoryItem&);
-    void loadDifferentDocumentItem(HistoryItem&, HistoryItem* fromItem, FrameLoadType, FormSubmissionCacheLoadPolicy, ShouldTreatAsContinuingLoad, PolicyAlreadyDecided = PolicyAlreadyDecided::No);
+    void loadDifferentDocumentItem(HistoryItem&, HistoryItem* fromItem, FrameLoadType, FormSubmissionCacheLoadPolicy, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified, PolicyAlreadyDecided = PolicyAlreadyDecided::No);
 
     void loadProvisionalItemFromCachedPage();
 
@@ -412,7 +422,7 @@ private:
     bool dispatchBeforeUnloadEvent(Chrome&, FrameLoader* frameLoaderBeingNavigated);
     void dispatchUnloadEvents(UnloadEventPolicy);
 
-    void continueLoadAfterNavigationPolicy(const ResourceRequest&, const FormSubmission*, NavigationPolicyDecision, AllowNavigationToInvalidURL);
+    void continueLoadAfterNavigationPolicy(const ResourceRequest&, const FormSubmission*, NavigationPolicyDecision, AllowNavigationToInvalidURL, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified);
     void continueLoadAfterNewWindowPolicy(ResourceRequest&&, RefPtr<const FormSubmission>&&, const AtomString& frameName, const NavigationAction&, ShouldContinuePolicyCheck, AllowNavigationToInvalidURL, NewFrameOpenerPolicy);
     void continueFragmentScrollAfterNavigationPolicy(const ResourceRequest&, const SecurityOrigin* requesterOrigin, bool shouldContinue, NavigationHistoryBehavior);
 
@@ -436,15 +446,15 @@ private:
 
     void dispatchDidCommitLoad(std::optional<HasInsecureContent> initialHasInsecureContent, std::optional<UsedLegacyTLS> initialUsedLegacyTLS, std::optional<WasPrivateRelayed> initialWasPrivateRelayed);
 
-    void loadWithDocumentLoader(DocumentLoader*, FrameLoadType, RefPtr<const FormSubmission>&&, AllowNavigationToInvalidURL, CompletionHandler<void()>&& = [] { }); // Calls continueLoadAfterNavigationPolicy
+    void loadWithDocumentLoader(DocumentLoader*, FrameLoadType, RefPtr<const FormSubmission>&&, AllowNavigationToInvalidURL, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified, CompletionHandler<void()>&& = [] { }); // Calls continueLoadAfterNavigationPolicy
     void load(DocumentLoader&, const SecurityOrigin* requesterOrigin); // Calls loadWithDocumentLoader
 
-    void loadWithNavigationAction(ResourceRequest&&, NavigationAction&&, FrameLoadType, RefPtr<const FormSubmission>&&, AllowNavigationToInvalidURL, ShouldTreatAsContinuingLoad, CompletionHandler<void()>&& = [] { }); // Calls loadWithDocumentLoader
+    void loadWithNavigationAction(ResourceRequest&&, NavigationAction&&, FrameLoadType, RefPtr<const FormSubmission>&&, AllowNavigationToInvalidURL, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified, CompletionHandler<void()>&& = [] { }); // Calls loadWithDocumentLoader
 
     void loadPostRequest(FrameLoadRequest&&, const String& referrer, FrameLoadType, Event*, RefPtr<const FormSubmission>&&, CompletionHandler<void()>&&);
     void loadURL(FrameLoadRequest&&, const String& referrer, FrameLoadType, Event*, RefPtr<const FormSubmission>&&, std::optional<PrivateClickMeasurement>&&, CompletionHandler<void()>&&);
 
-    bool shouldReload(const URL& currentURL, const URL& destinationURL);
+    bool NODELETE shouldReload(const URL& currentURL, const URL& destinationURL);
 
     ResourceLoaderIdentifier requestFromDelegate(ResourceRequest&, ResourceError&);
 
@@ -466,7 +476,7 @@ private:
 
     void dispatchGlobalObjectAvailableInAllWorlds();
 
-    bool isNavigationAllowed() const;
+    bool NODELETE isNavigationAllowed() const;
     bool NODELETE isStopLoadingAllowed() const;
 
     enum class LoadContinuingState : uint8_t { NotContinuing, ContinuingWithRequest, ContinuingWithHistoryItem };
@@ -474,11 +484,11 @@ private:
 
     // SubframeLoader specific.
     void loadURLIntoChildFrame(const URL&, const String& referer, LocalFrame&);
-    void started();
+    void NODELETE started();
 
     // PolicyChecker specific.
     void clearProvisionalLoadForPolicyCheck();
-    bool hasOpenedFrames() const;
+    bool NODELETE hasOpenedFrames() const;
 
     void updateRequestAndAddExtraFields(Frame&, ResourceRequest&, IsMainResource, FrameLoadType, ShouldUpdateAppInitiatedValue, IsServiceWorkerNavigationLoad, WillOpenInNewWindow, Document*);
 
@@ -532,6 +542,7 @@ private:
     URL m_submittedFormURL;
 
     Timer m_checkTimer;
+    Timer m_crossOriginParentSyntheticSameDocLoadEventTimer;
     bool m_shouldCallCheckCompleted { false };
     bool m_shouldCallCheckLoadComplete { false };
 
@@ -566,6 +577,7 @@ private:
 
     bool m_errorOccurredInLoading { false };
     bool m_doNotAbortNavigationAPI { false };
+    bool m_isDispatchingPageSwapEvent { false };
     RefPtr<HistoryItem> m_pendingNavigationAPIItem;
     uint64_t m_requiredCookiesVersion { 0 };
 

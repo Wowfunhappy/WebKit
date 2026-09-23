@@ -193,10 +193,6 @@ bool SQLiteStatement::isColumnDeclaredAsBlob(int col)
 String SQLiteStatement::columnName(int col)
 {
     ASSERT(col >= 0);
-    if (!hasStartedStepping() && step() != SQLITE_ROW)
-        return String();
-    if (columnCount() <= col)
-        return String();
     return sqliteColumnName(m_statement, col);
 }
 

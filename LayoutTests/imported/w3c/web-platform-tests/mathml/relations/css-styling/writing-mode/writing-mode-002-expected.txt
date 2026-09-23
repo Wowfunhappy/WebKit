@@ -1,4 +1,5 @@
 
+PASS Layout of a (writing-mode: horizontal-tb; direction: rtl;)
 FAIL Layout of maction (writing-mode: horizontal-tb; direction: rtl;) assert_approx_equals: inline position (child 1) expected -148 +/- 1 but got 148
 FAIL Layout of menclose (writing-mode: horizontal-tb; direction: rtl;) assert_approx_equals: inline position (child 0) expected 7.96875 +/- 1 but got 3.1875
 PASS Layout of merror (writing-mode: horizontal-tb; direction: rtl;)

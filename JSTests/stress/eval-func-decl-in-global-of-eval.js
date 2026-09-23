@@ -67,16 +67,14 @@ assertThrow(() => g, "ReferenceError: Can't find variable: g");
 (function() {
     try {
         let b;
-        let c;
-        eval('var a; var b; var c;');
+        eval('var a; var b;');
     } catch (e) {
         var error = e;
     }
 
-    assert(error.toString(), "SyntaxError: Can't create duplicate variable in eval: 'c'");
+    assert(error.toString(), "SyntaxError: Can't create duplicate variable in eval: 'b'");
     assertThrow(() => a, "ReferenceError: Can't find variable: a");
     assertThrow(() => b, "ReferenceError: Can't find variable: b");
-    assertThrow(() => c, "ReferenceError: Can't find variable: c");
 })();
 
 (function() {

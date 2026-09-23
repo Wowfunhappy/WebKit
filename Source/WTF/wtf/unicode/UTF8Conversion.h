@@ -65,6 +65,7 @@ struct CheckedUTF8 {
     bool isAllASCII { };
 };
 WTF_EXPORT_PRIVATE CheckedUTF8 checkUTF8(std::span<const char8_t>);
+WTF_EXPORT_PRIVATE std::span<const char8_t> checkUTF8WithoutUTF16Length(std::span<const char8_t>);
 
 } // namespace Unicode
 } // namespace WTF

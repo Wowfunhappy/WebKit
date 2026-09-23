@@ -50,7 +50,7 @@ public:
 
     static ExceptionOr<Ref<StaticRange>> create(Init&&);
     WEBCORE_EXPORT static Ref<StaticRange> create(const SimpleRange&);
-    static Ref<StaticRange> create(SimpleRange&&);
+    WEBCORE_EXPORT static Ref<StaticRange> create(SimpleRange&&);
 
     Node& startContainer() const final { return SimpleRange::startContainer(); }
     unsigned startOffset() const final { return SimpleRange::startOffset(); }
@@ -59,7 +59,7 @@ public:
     bool collapsed() const final { return SimpleRange::collapsed(); }
 
     // https://dom.spec.whatwg.org/#staticrange-valid
-    bool computeValidity() const;
+    WEBCORE_EXPORT bool computeValidity() const;
 
     void visitNodesInGCThread(JSC::AbstractSlotVisitor&) const;
 

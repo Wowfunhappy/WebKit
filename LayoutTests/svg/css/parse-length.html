@@ -2,21 +2,33 @@
 <html>
 <style>
 * { font-size: 16px; }
-svg, rect { font-family: 'Ahem'; }
-div { font-size: 8px; } 
+svg, rect, circle { font-family: 'Ahem'; }
+div { font-size: 8px; }
 </style>
 <html>
 <svg id="svg" width="0" height="0"></svg>
-<script src="../../resources/js-test-pre.js"></script>
+<script src="../../resources/js-test.js"></script>
 <script>
 description("Test that 'width' presentation attribute is parsed with CSS presentation rules.");
 
+function elementForProperty(property) {
+    switch (property) {
+    case 'cx':
+    case 'cy':
+    case 'r':
+        return 'circle';
+    default:
+        return 'rect';
+    }
+}
+
 function computedStyle(property, value) {
-    var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    document.getElementById('svg').appendChild(rect);
-    rect.setAttribute(property, value);
-    var computedValue = getComputedStyle(rect).getPropertyValue(property);
-    document.getElementById('svg').removeChild(rect);
+    var tagName = elementForProperty(property);
+    var el = document.createElementNS('http://www.w3.org/2000/svg', tagName);
+    document.getElementById('svg').appendChild(el);
+    el.setAttribute(property, value);
+    var computedValue = getComputedStyle(el).getPropertyValue(property);
+    document.getElementById('svg').removeChild(el);
     return computedValue;
 }
 
@@ -78,13 +90,13 @@ testComputed("ry", "20%", "20%");
 testComputed("ry", "-200px", "auto");
 
 // Test 'width'.
-testComputed("width", "auto", "auto");
+testComputed("width", "auto", "0px");
 testComputed("width", "  100", "100px");
 testComputed("width", "100   ", "100px");
 testComputed("width", "100px", "100px");
 testComputed("width", "1em", "16px");
 testComputed("width", "1ex", "12.8px");
-testComputed("width", "20%", "20%");
+testComputed("width", "20%", "0px");
 // FIXME: Vieport units not implemented for SVG at the moment.
 // testComputed("width", "1vh", "7.869999885559082px");
 // testComputed("width", "1vw", "14.029999732971191px");
@@ -142,12 +154,14 @@ negativeTest("ry", "100px;", "auto");
 negativeTest("ry", "100px !important", "auto");
 negativeTest("ry", "{ 100px }", "auto");
 
-// Negative tests for 'width'.
-negativeTest("width", "100   px");
-negativeTest("width", "100px;");
-negativeTest("width", "100px !important");
-negativeTest("width", "{ 100px }");
-negativeTest("width", "-100px");
+// Negative tests for 'width'. Per SVG2 sizing, 'width: auto' resolves to 0 for
+// <rect>; invalid values fall back to the initial value 'auto' and likewise
+// resolve to 0.
+negativeTestZero("width", "100   px");
+negativeTestZero("width", "100px;");
+negativeTestZero("width", "100px !important");
+negativeTestZero("width", "{ 100px }");
+negativeTestZero("width", "-100px");
 
 // Negative tests for 'x'.
 negativeTestZero("x", "auto", "auto");
@@ -163,6 +177,5 @@ negativeTestZero("y", "100px;");
 negativeTestZero("y", "100px !important");
 negativeTestZero("y", "{ 100px }");
 </script>
-<script src="../../resources/js-test-post.js"></script>
 </body>
 </html>

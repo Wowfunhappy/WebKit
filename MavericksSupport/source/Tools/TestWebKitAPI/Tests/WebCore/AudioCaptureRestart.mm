@@ -1,5 +1,5 @@
 #include "config.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <WebCore/CaptureDeviceManager.h>
 #include <WebCore/CoreAudioCaptureUnit.h>
 #include <WebCore/MediaDeviceHashSalts.h>

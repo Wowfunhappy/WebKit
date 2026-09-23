@@ -38,7 +38,7 @@ from .factories import (APITestsFactory, BindingsFactory, BuildFactory, CommitQu
                         GTKTestsFactory, JSCBuildFactory, JSCBuildAndTestsFactory, JSCBuildO3AndTestsFactory, JSCTestsFactory, MergeQueueFactory, SafeMergeQueueFactory, StressTestFactory,
                         StyleFactory, TestFactory, tvOSBuildFactory, WPEBuildFactory, GTK3LibWebRTCBuildFactory, WPETestsFactory, WebKitPerlFactory, WebKitPyFactory, PlayStationBuildFactory,
                         WinBuildFactory, WinTestsFactory, iOSBuildFactory, iOSEmbeddedBuildFactory, iOSTestsFactory,  visionOSBuildFactory, visionOSEmbeddedBuildFactory, visionOSTestsFactory, macOSBuildFactory, macOSBuildOnlyFactory,
-                        macOSWK1Factory, macOSWK2Factory, ServicesFactory, SaferCPPStaticAnalyzerFactory, UnsafeMergeQueueFactory, watchOSBuildFactory)
+                        macOSWK1Factory, macOSWK2Factory, macOSSiteIsolationFactory, ServicesFactory, SaferCPPStaticAnalyzerFactory, UnsafeMergeQueueFactory, watchOSBuildFactory)
 
 from .utils import get_custom_suffix
 
@@ -75,7 +75,7 @@ def loadBuilderConfig(c, is_test_mode_enabled=False, setup_main_schedulers=True,
         if 'icon' in builder:
             del builder['icon']
         factorykwargs = {}
-        for key in ['platform', 'configuration', 'architectures', 'triggers', 'remotes', 'additionalArguments', 'runTests', 'triggered_by', 'rebuild_without_change_on_builder']:
+        for key in ['platform', 'configuration', 'architectures', 'triggers', 'remotes', 'additionalArguments', 'runTests', 'triggered_by', 'rebuild_without_change_on_builder', 'deployment_target']:
             value = builder.pop(key, None)
             if value:
                 factorykwargs[key] = value

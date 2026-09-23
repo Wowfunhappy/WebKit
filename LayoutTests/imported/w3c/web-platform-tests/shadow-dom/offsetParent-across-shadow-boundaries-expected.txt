@@ -5,6 +5,12 @@ PASS offsetParent must return the offset parent in the same shadow tree of open 
 PASS offsetParent must return the offset parent in the same shadow tree of closed mode even when nested
 PASS offsetParent must skip offset parents of an element when the context object is assigned to a slot in a shadow tree of open mode
 PASS offsetParent must skip offset parents of an element when the context object is assigned to a slot in a shadow tree of closed mode
+PASS offsetParent must return the fixed position containing block of an element when the context object is assigned to a slot within a fixed containing block in shadow tree of open mode
+PASS offsetParent must return the fixed position containing block of an element when the context object is assigned to a slot within a fixed containing block in shadow tree of closed mode
+PASS offsetParent must return the fixed position containing block of a fixed element when the context object is assigned to a slot within a fixed containing block in shadow tree of open mode
+PASS offsetParent must return the fixed position containing block of a fixed element when the context object is assigned to a slot within a fixed containing block in shadow tree of closed mode
+PASS offsetParent must return null when the context object is assigned to a slot without a fixed containing block in shadow tree of open mode
+PASS offsetParent must return null when the context object is assigned to a slot without a fixed containing block in shadow tree of closed mode
 PASS offsetParent must skip multiple offset parents of an element when the context object is assigned to a slot in a shadow tree of open mode
 PASS offsetParent must skip multiple offset parents of an element when the context object is assigned to a slot in a shadow tree of closed mode
 PASS offsetParent must skip offset parents of an element when the context object is assigned to a slot in nested shadow trees of open mode

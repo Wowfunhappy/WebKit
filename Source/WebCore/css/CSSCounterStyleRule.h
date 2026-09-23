@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "CSSCounterStyle.h"
+#include "CSSCounterStyleDescriptors.h"
 #include "CSSRule.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"

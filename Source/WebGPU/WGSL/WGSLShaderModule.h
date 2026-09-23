@@ -158,6 +158,9 @@ public:
     bool usesInsertBits() const { return m_usesInsertBits; }
     void setUsesInsertBits() { m_usesInsertBits = true; }
 
+    bool usesZeroWorkgroupVar() const { return m_usesZeroWorkgroupVar; }
+    void setUsesZeroWorkgroupVar() { m_usesZeroWorkgroupVar = true; }
+
     template<typename T>
     std::enable_if_t<std::is_base_of_v<AST::Node, T>, void> replace(T* current, T&& replacement)
     {
@@ -300,6 +303,7 @@ public:
     const OverloadedDeclaration* lookupOverload(const String&) const;
 
     void addOverride(AST::Variable& variable) { m_overrides.append(&variable); }
+    bool containsOverride(const String& key) const;
 
     Result<ConstantValue> ensureOverrideValue(const AST::Expression&, const HashMap<String, ConstantValue>&) const;
 
@@ -334,6 +338,7 @@ private:
     bool m_usesMin { false };
     bool m_usesFtoi { false };
     bool m_usesInsertBits { false };
+    bool m_usesZeroWorkgroupVar { false };
     OptionSet<Extension> m_enabledExtensions;
     OptionSet<LanguageFeature> m_requiredFeatures;
     Configuration m_configuration;

@@ -35,6 +35,7 @@
 #if ENABLE(WEB_RTC)
 
 #include "ContextDestructionObserverInlines.h"
+#include "ExceptionOr.h"
 #include "Logging.h"
 #include "RTCPeerConnection.h"
 #include "ScriptWrappableInlines.h"
@@ -104,8 +105,12 @@ ExceptionOr<void> RTCRtpTransceiver::stop()
     return { };
 }
 
-ExceptionOr<void> RTCRtpTransceiver::setCodecPreferences(const Vector<RTCRtpCodecCapability>& codecs)
+ExceptionOr<void> RTCRtpTransceiver::setCodecPreferences(const Vector<RTCRtpCodec>& codecs)
 {
+    RefPtr connection = m_connection;
+    if (!connection || connection->isClosed())
+        return { };
+
     RELEASE_LOG_INFO(WebRTC, "RTCRtpTransceiver::setCodecPreferences");
     return m_backend->setCodecPreferences(codecs);
 }

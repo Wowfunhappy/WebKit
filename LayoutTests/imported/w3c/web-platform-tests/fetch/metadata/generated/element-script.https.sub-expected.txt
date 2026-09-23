@@ -34,4 +34,6 @@ PASS sec-fetch-mode - attributes: crossorigin=anonymous
 PASS sec-fetch-mode - attributes: crossorigin=use-credentials
 PASS sec-fetch-dest - no attributes
 PASS sec-fetch-user - no attributes
+FAIL sec-fetch-storage-access - Cross-site, no attributes assert_own_property: expected property "sec-fetch-storage-access" missing
+PASS sec-fetch-storage-access - Same site, no attributes
 

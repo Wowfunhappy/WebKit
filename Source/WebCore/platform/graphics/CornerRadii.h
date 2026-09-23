@@ -91,12 +91,12 @@ public:
 
     bool isZero() const { return m_topLeft.isZero() && m_topRight.isZero() && m_bottomLeft.isZero() && m_bottomRight.isZero(); }
     bool NODELETE hasEvenCorners() const;
-    bool isUniformCornerRadius() const; // Including no radius.
+    bool NODELETE isUniformCornerRadius() const; // Including no radius.
 
     void NODELETE scale(float factor);
     void scale(float horizontalFactor, float verticalFactor);
     void expandEvenIfZero(float size);
-    void expand(float topWidth, float bottomWidth, float leftWidth, float rightWidth);
+    WEBCORE_EXPORT void expand(float topWidth, float bottomWidth, float leftWidth, float rightWidth);
     void expand(float size) { expand(size, size, size, size); }
     void shrink(float topWidth, float bottomWidth, float leftWidth, float rightWidth) { expand(-topWidth, -bottomWidth, -leftWidth, -rightWidth); }
     void shrink(float size) { shrink(size, size, size, size); }

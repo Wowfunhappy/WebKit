@@ -59,12 +59,19 @@ public:
     AccessibilityObject* crossFrameParentObject() const final;
     AccessibilityObject* crossFrameChildObject() const final;
 
+    // The AXLocalFrame that proxies this hosted (iframe) frame's content in the parent frame's
+    // accessibility tree. Only non-null on a FrameHost scroll view (i.e. when !isRoot()).
+    AXLocalFrame* localFrame() const { return m_localFrame.get(); }
+
     // Returns the screen position and transform for this frame.
     // Reads from the AXObjectCache's cached value, populated asynchronously via IPC.
     // On first access when cache is empty, fires an async requestFrameScreenPosition.
-    FrameGeometry frameGeometry() const;
+    AXFrameGeometry frameGeometry() const;
     IntPoint frameScreenPosition() const final { return frameGeometry().screenPosition; }
     AffineTransform frameScreenTransform() const final { return frameGeometry().screenTransform; }
+    IntPoint frameViewOriginScrollPosition() const;
+
+    bool isFrameGeometryInitialized() const final;
 
     void setInheritedFrameState(InheritedFrameState);
     const InheritedFrameState& inheritedFrameState() const LIFETIME_BOUND { return m_inheritedFrameState; }
@@ -122,6 +129,8 @@ private:
     void removeChildScrollbar(AccessibilityObject*);
 
     bool m_childrenDirty;
+    // Memoized result of isRoot(), which is invariant for this object's lifetime (see isRoot()).
+    mutable std::optional<bool> m_isRoot;
     SingleThreadWeakPtr<ScrollView> m_scrollView;
     WeakPtr<HTMLFrameOwnerElement, WeakPtrImplWithEventTargetData> m_frameOwnerElement;
     RefPtr<AccessibilityObject> m_horizontalScrollbar;

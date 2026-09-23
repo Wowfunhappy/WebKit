@@ -141,17 +141,6 @@ FontPlatformData FontPlatformData::cloneWithOrientation(const FontPlatformData& 
     return copy;
 }
 
-FontPlatformData FontPlatformData::cloneWithSyntheticOblique(const FontPlatformData& source, bool syntheticOblique)
-{
-    FontPlatformData copy(source);
-    if (copy.m_syntheticOblique != syntheticOblique) {
-        copy.m_syntheticOblique = syntheticOblique;
-        ASSERT(copy.m_scaledFont.get());
-        copy.buildScaledFont(cairo_scaled_font_get_font_face(copy.m_scaledFont.get()));
-    }
-    return copy;
-}
-
 FontPlatformData FontPlatformData::cloneWithSize(const FontPlatformData& source, float size)
 {
     FontPlatformData copy(source);

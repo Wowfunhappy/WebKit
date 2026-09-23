@@ -63,11 +63,19 @@ CoordinatedPlatformLayerBufferHolePunch::CoordinatedPlatformLayerBufferHolePunch
 
 CoordinatedPlatformLayerBufferHolePunch::~CoordinatedPlatformLayerBufferHolePunch() = default;
 
+#if USE(GSTREAMER)
+void CoordinatedPlatformLayerBufferHolePunch::setHolePunchVideoRectangle(const IntRect& rect)
+{
+    if (m_videoSink && m_quirksManager)
+        m_quirksManager->setHolePunchVideoRectangle(m_videoSink.get(), rect);
+}
+#endif
+
 void CoordinatedPlatformLayerBufferHolePunch::paintToTextureMapper(TextureMapper& textureMapper, const FloatRect& targetRect, const TransformationMatrix& modelViewMatrix, float)
 {
 #if USE(GSTREAMER)
     if (m_videoSink && m_quirksManager)
-        m_quirksManager->setHolePunchVideoRectangle(m_videoSink.get(), enclosingIntRect(modelViewMatrix.mapRect(targetRect)));
+        setHolePunchVideoRectangle(enclosingIntRect(modelViewMatrix.mapRect(targetRect)));
 #endif
     textureMapper.drawSolidColor(targetRect, modelViewMatrix, Color::transparentBlack, false);
 }

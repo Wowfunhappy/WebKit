@@ -52,11 +52,11 @@ class StructureShape : public RefCounted<StructureShape> {
     friend class TypeSet;
 
 public:
-    StructureShape();
+    JS_EXPORT_PRIVATE StructureShape();
 
     static Ref<StructureShape> create() { return adoptRef(*new StructureShape); }
     String propertyHash();
-    void markAsFinal();
+    void NODELETE markAsFinal();
     void addProperty(UniquedStringImpl&);
     String stringRepresentation();
     String toJSONString() const;
@@ -64,12 +64,12 @@ public:
     void setConstructorName(String name) { m_constructorName = (name.isEmpty() ? "Object"_s : name); }
     String constructorName() { return m_constructorName; }
     void setProto(Ref<StructureShape>&& shape) { m_proto = WTF::move(shape); }
-    void enterDictionaryMode();
+    void NODELETE enterDictionaryMode();
 
 private:
     static String leastCommonAncestor(const Vector<Ref<StructureShape>>&);
     static Ref<StructureShape> merge(Ref<StructureShape>&&, Ref<StructureShape>&&);
-    bool hasSamePrototypeChain(const StructureShape&);
+    bool NODELETE hasSamePrototypeChain(const StructureShape&);
 
     bool m_final;
     bool m_isInDictionaryMode;
@@ -84,7 +84,7 @@ class TypeSet : public ThreadSafeRefCounted<TypeSet> {
 
 public:
     static Ref<TypeSet> create() { return adoptRef(*new TypeSet); }
-    TypeSet();
+    JS_EXPORT_PRIVATE TypeSet();
     void addTypeInformation(RuntimeType, RefPtr<StructureShape>&&, Structure*, bool sawPolyProtoStructure);
     void invalidateCache(VM&);
     String dumpTypes() const;
@@ -95,7 +95,7 @@ public:
     String leastCommonAncestor() const;
     Ref<Inspector::Protocol::Runtime::TypeSet> inspectorTypeSet() const;
     bool isEmpty() const { return m_seenTypes == TypeNothing; }
-    bool doesTypeConformTo(RuntimeTypeMask test) const;
+    bool NODELETE doesTypeConformTo(RuntimeTypeMask test) const;
     RuntimeTypeMask seenTypes() const { return m_seenTypes; }
     StructureSet structureSet(const ConcurrentJSLocker&) const { return m_structureSet; }
 

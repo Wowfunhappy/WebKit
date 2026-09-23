@@ -78,17 +78,19 @@ namespace JSC {
     macro(resolvePromise) \
     macro(rejectPromise) \
     macro(fulfillPromise) \
+    macro(markPromiseAsHandled) \
+    macro(isPromiseStatePending) \
     macro(resolvePromiseWithFirstResolvingFunctionCallCheck) \
     macro(rejectPromiseWithFirstResolvingFunctionCallCheck) \
     macro(fulfillPromiseWithFirstResolvingFunctionCallCheck) \
+    macro(newResolvedPromise) \
+    macro(newRejectedPromise) \
     macro(resolveWithInternalMicrotaskForAsyncAwait) \
-    macro(asyncGeneratorQueueEnqueue) \
-    macro(asyncGeneratorQueueDequeueResolve) \
-    macro(asyncGeneratorQueueDequeueReject) \
-    macro(driveAsyncFunction) \
+    macro(asyncGeneratorPrototypeNext) \
+    macro(asyncIteratorPrototypeSymbolAsyncIterator) \
+    macro(asyncFunctionDrive) \
     macro(newHandledRejectedPromise) \
-    macro(promiseEmptyOnFulfilled) \
-    macro(promiseEmptyOnRejected) \
+    macro(promiseReturnUndefinedOnFulfilled) \
     macro(promiseResolve) \
     macro(promiseReject) \
     macro(performPromiseThen) \
@@ -139,11 +141,9 @@ namespace JSC {
     macro(isSharedTypedArrayView) \
     macro(isResizableOrGrowableSharedTypedArrayView) \
     macro(isDetached) \
+    macro(isTypedArrayOutOfBounds) \
     macro(typedArrayFromFast) \
-    macro(isBoundFunction) \
-    macro(hasInstanceBoundFunction) \
     macro(instanceOf) \
-    macro(isArraySlow) \
     macro(isArray) \
     macro(sameValue) \
     macro(regExpCreate) \
@@ -156,19 +156,13 @@ namespace JSC {
     macro(mapIterationEntry) \
     macro(mapIterationEntryKey) \
     macro(mapIterationEntryValue) \
-    macro(mapIteratorNext) \
-    macro(mapIteratorKey) \
-    macro(mapIteratorValue) \
     macro(setStorage) \
     macro(setIterationNext) \
     macro(setIterationEntry) \
     macro(setIterationEntryKey) \
-    macro(setIteratorNext) \
-    macro(setIteratorKey) \
     macro(setPrototypeDirect) \
     macro(setPrototypeDirectOrThrow) \
     macro(regExpBuiltinExec) \
-    macro(regExpMatchFast) \
     macro(regExpProtoFlagsGetter) \
     macro(regExpProtoHasIndicesGetter) \
     macro(regExpProtoGlobalGetter) \
@@ -180,23 +174,24 @@ namespace JSC {
     macro(regExpProtoUnicodeGetter) \
     macro(regExpProtoUnicodeSetsGetter) \
     macro(regExpPrototypeSymbolMatch) \
+    macro(regExpPrototypeSymbolMatchAll) \
     macro(regExpPrototypeSymbolReplace) \
     macro(regExpSearchFast) \
-    macro(regExpSplitFast) \
     macro(stringIncludesInternal) \
     macro(stringIndexOfInternal) \
-    macro(stringSplitFast) \
     macro(stringSubstring) \
     macro(handleNegativeProxyHasTrapResult) \
     macro(handlePositiveProxySetTrapResult) \
     macro(handleProxyGetTrapResult) \
     macro(importModule) \
     macro(moduleFetchFailureKind) \
+    macro(moduleFailureModuleRecord) \
+    macro(moduleFailureModuleKey) \
+    macro(moduleFailureModuleType) \
+    macro(moduleFailureKind) \
     macro(copyDataProperties) \
     macro(cloneObject) \
     macro(meta) \
-    macro(webAssemblyCompileStreamingInternal) \
-    macro(webAssemblyInstantiateStreamingInternal) \
     macro(instanceFieldInitializer) \
     macro(privateBrand) \
     macro(privateClassBrand) \
@@ -223,7 +218,6 @@ namespace JSC {
     macro(asyncFromSyncIteratorCreate) \
     macro(regExpStringIteratorCreate) \
     macro(iteratorHelperCreate) \
-    macro(syncIterator) \
     macro(includes) \
     macro(ReferenceError) \
     macro(SuppressedError) \
@@ -275,7 +269,6 @@ public:
     const JSC::Identifier& dollarVMPublicName() const { return m_dollarVMName; }
     const JSC::Identifier& dollarVMPrivateName() const { return m_dollarVMPrivateName; }
     const JSC::Identifier& polyProtoName() const { return m_polyProtoPrivateName; }
-    const JSC::Identifier& intlLegacyConstructedSymbol() const { return m_intlLegacyConstructedSymbol; }
 
 private:
     void checkPublicToPrivateMapConsistency(UniquedStringImpl* privateName);
@@ -285,7 +278,6 @@ private:
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(DECLARE_BUILTIN_NAMES_IN_JSC)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_WELL_KNOWN_SYMBOL(DECLARE_BUILTIN_SYMBOLS_IN_JSC)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_EXPLICIT_RESOURCE_MANAGEMENT_WELL_KNOWN_SYMBOL(DECLARE_BUILTIN_SYMBOLS_IN_JSC)
-    const JSC::Identifier m_intlLegacyConstructedSymbol;
     const JSC::Identifier m_dollarVMName;
     const JSC::Identifier m_dollarVMPrivateName;
     const JSC::Identifier m_polyProtoPrivateName;

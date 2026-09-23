@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <wtf/CheckedPtr.h>
 #include <wtf/Function.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>

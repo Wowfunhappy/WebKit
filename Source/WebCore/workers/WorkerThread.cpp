@@ -29,6 +29,8 @@
 
 #include "AdvancedPrivacyProtections.h"
 #include "IDBConnectionProxy.h"
+#include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObject.h"
 #include "ScriptSourceCode.h"
 #include "SecurityOrigin.h"
 #include "SocketProvider.h"
@@ -74,7 +76,8 @@ WorkerParameters WorkerParameters::isolatedCopy() const
         crossThreadCopy(serviceWorkerData),
         clientIdentifier,
         advancedPrivacyProtections,
-        noiseInjectionHashSalt
+        noiseInjectionHashSalt,
+        agentClusterID.isolatedCopy()
     };
 }
 
@@ -160,7 +163,19 @@ void WorkerThread::evaluateScriptIfNecessary(String& exceptionMessage)
     if (m_startupData->params.workerType == WorkerType::Classic) {
         ScriptSourceCode sourceCode(m_startupData->sourceCode, URL(m_startupData->params.scriptURL));
         sourceProvider = downcast<ScriptBufferSourceProvider>(sourceCode.provider());
-        globalScope->script()->evaluate(sourceCode, &exceptionMessage);
+
+        NakedPtr<JSC::Exception> uncaughtException;
+        auto parseResult = globalScope->script()->evaluate(sourceCode, uncaughtException, &exceptionMessage);
+        if (uncaughtException && !globalScope->vm().isTerminationException(uncaughtException)) {
+            // Per the spec, if the script has a parse error, fire a simple Event at
+            // the Worker object rather than an ErrorEvent.
+            if (globalScope->settingsValues().workerParseErrorReportingEnabled && parseResult == WorkerOrWorkletScriptController::ParseResult::Failed)
+                globalScope->reportErrorToWorkerObject(exceptionMessage);
+            else {
+                JSC::JSLockHolder lock(globalScope->vm());
+                reportException(globalScope->script()->globalScopeWrapper(), uncaughtException);
+            }
+        }
         finishedEvaluatingScript();
     } else {
         auto parameters = ModuleFetchParameters::create(JSC::ScriptFetchParameters::Type::JavaScript, emptyString(), /* isTopLevelModule */ true);

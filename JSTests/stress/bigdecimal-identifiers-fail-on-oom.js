@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 function foo() {
     let m = new WebAssembly.Memory({initial: 1000});

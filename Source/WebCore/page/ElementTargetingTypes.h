@@ -32,6 +32,7 @@
 #include <WebCore/RectEdges.h>
 #include <WebCore/RenderStyleConstants.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <wtf/HashSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/URLHash.h>
 #include <wtf/Vector.h>

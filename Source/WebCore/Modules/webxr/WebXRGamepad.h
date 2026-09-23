@@ -29,6 +29,7 @@
 
 #include "PlatformGamepad.h"
 #include "PlatformXR.h"
+#include "SharedGamepadValue.h"
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 

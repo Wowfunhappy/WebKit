@@ -78,30 +78,30 @@ public:
     
     WEBCORE_EXPORT ResourceRequest(NSURLRequest *);
 
-    ResourceRequest(ResourceRequestBase&& base, String&& cachePartition, bool hiddenFromInspector)
+    ResourceRequest(ResourceRequestBase&& base, bool shouldBlockThirdPartyStorage, bool hiddenFromInspector)
         : ResourceRequestBase(WTF::move(base))
     {
-        m_cachePartition = WTF::move(cachePartition);
+        m_shouldBlockThirdPartyStorage = shouldBlockThirdPartyStorage;
         m_hiddenFromInspector = hiddenFromInspector;
     }
 
-    ResourceRequest(ResourceRequestPlatformData&&, const String& cachePartition, bool hiddenFromInspector);
+    ResourceRequest(ResourceRequestPlatformData&&, bool shouldBlockThirdPartyStorage, bool hiddenFromInspector);
 
-    WEBCORE_EXPORT static ResourceRequest fromResourceRequestData(ResourceRequestData&&, String&& cachePartition, bool hiddenFromInspector);
+    WEBCORE_EXPORT static ResourceRequest fromResourceRequestData(ResourceRequestData&&, bool shouldBlockThirdPartyStorage, bool hiddenFromInspector);
 
     WEBCORE_EXPORT void updateFromDelegatePreservingOldProperties(const ResourceRequest&);
     
     bool encodingRequiresPlatformData() const { return m_httpBody || m_nsRequest; }
     WEBCORE_EXPORT NSURLRequest *nsURLRequest(HTTPBodyUpdatePolicy) const;
 
-    WEBCORE_EXPORT static CFStringRef isUserInitiatedKey();
+    WEBCORE_EXPORT static CFStringRef NODELETE isUserInitiatedKey();
     WEBCORE_EXPORT ResourceRequestPlatformData getResourceRequestPlatformData() const;
     WEBCORE_EXPORT ResourceRequestData getRequestDataToSerialize() const;
     WEBCORE_EXPORT CFURLRequestRef cfURLRequest(HTTPBodyUpdatePolicy) const;
     void setStorageSession(CFURLStorageSessionRef);
 
-    WEBCORE_EXPORT static bool httpPipeliningEnabled();
-    WEBCORE_EXPORT static void setHTTPPipeliningEnabled(bool);
+    WEBCORE_EXPORT static bool NODELETE httpPipeliningEnabled();
+    WEBCORE_EXPORT static void NODELETE setHTTPPipeliningEnabled(bool);
 
     static bool resourcePrioritiesEnabled() { return true; }
 

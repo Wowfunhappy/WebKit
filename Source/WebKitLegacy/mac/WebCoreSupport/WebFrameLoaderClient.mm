@@ -31,6 +31,7 @@
 #import "BackForwardList.h"
 #import "DOMElementInternal.h"
 #import "DOMHTMLFormElementInternal.h"
+#import <WebCore/ResourceHandle.h>
 #import "WebBackForwardList.h"
 #import "WebBasePluginPackage.h"
 #import "WebCachedFramePlatformData.h"
@@ -75,7 +76,7 @@
 #import "WebViewInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <JavaScriptCore/JSContextInternal.h>
-#import <WebCore/AuthenticationMac.h>
+#import <WebCore/AuthenticationCocoa.h>
 #import <WebCore/BackForwardController.h>
 #import <WebCore/BackForwardItemIdentifier.h>
 #import <WebCore/BitmapImage.h>
@@ -83,6 +84,7 @@
 #import <WebCore/Chrome.h>
 #import <WebCore/ContainerNodeInlines.h>
 #import <WebCore/DNS.h>
+#import <WebCore/DOMWrapperWorld.h>
 #import <WebCore/DocumentLoader.h>
 #import <WebCore/DocumentPage.h>
 #import <WebCore/DocumentView.h>
@@ -1807,7 +1809,7 @@ RefPtr<WebCore::Widget> WebFrameLoaderClient::createPlugin(WebCore::HTMLPlugInEl
     if (errorCode && m_webFrame) {
         WebResourceDelegateImplementationCache* implementations = WebViewGetResourceLoadDelegateImplementations(webView.get());
         if (implementations->plugInFailedWithErrorFunc) {
-            URL pluginPageURL = document->completeURL(parameterValue(paramNames, paramValues, "pluginspage"_s));
+            URL pluginPageURL = document->encodingParseURL(parameterValue(paramNames, paramValues, "pluginspage"_s));
             if (!pluginPageURL.protocolIsInHTTPFamily())
                 pluginPageURL = URL();
             RetainPtr pluginName = pluginPackage ? [pluginPackage pluginInfo].name.createNSString() : nil;

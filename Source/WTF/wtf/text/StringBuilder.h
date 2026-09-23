@@ -27,7 +27,7 @@
 #pragma once
 
 #include <wtf/OverflowPolicy.h>
-#include <wtf/SaturatedArithmetic.h>
+#include <wtf/SaturatingArithmetic.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WTF {
@@ -133,7 +133,7 @@ template<typename CharacterType> bool equal(const StringBuilder&, std::span<cons
 // Inline function implementations.
 
 inline StringBuilder::StringBuilder(OverflowPolicy policy)
-    : m_shouldCrashOnOverflow { policy == OverflowPolicy::CrashOnOverflow }
+    : m_shouldCrashOnOverflow { WTF::shouldCrashOnOverflow(policy) }
 {
 }
 
@@ -325,7 +325,7 @@ template<typename... StringTypeAdapters> void StringBuilder::appendFromAdapters(
     if constexpr (stringBuilderSlowPathRequired<StringTypeAdapters...>) {
         appendFromAdaptersSlow(adapters...);
     } else {
-        auto requiredLength = saturatedSum<uint32_t>(m_length, adapters.length()...);
+        auto requiredLength = saturatingSum<uint32_t>(m_length, adapters.length()...);
         if (is8Bit() && are8Bit(adapters...)) {
             auto destination = extendBufferForAppendingLatin1Character(requiredLength);
             if (!destination.data())

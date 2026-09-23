@@ -30,16 +30,21 @@
 #include <WebCore/AXTreeStoreInlines.h>
 #include <WebCore/Chrome.h>
 #include <WebCore/ChromeClient.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/LocalFrame.h>
 #include <WebCore/Page.h>
+#include <WebCore/Settings.h>
 #include <wtf/MainThread.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/RefCounted.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/Threading.h>
 #include <wtf/threads/BinarySemaphore.h>
 
 #if PLATFORM(COCOA)
 #include <CoreFoundation/CFRunLoop.h>
+#include "FrameDestructionObserverInlines.h"
+#include "FrameInlines.h"
 #endif
 
 #if PLATFORM(MAC)
@@ -49,6 +54,30 @@
 #endif
 
 namespace WebCore {
+
+static bool s_shouldMockParentSearchResults = false;
+
+void setShouldMockParentSearchResultsForTesting(bool enabled)
+{
+    s_shouldMockParentSearchResults = enabled;
+}
+
+bool shouldMockParentSearchResultsForTesting()
+{
+    return s_shouldMockParentSearchResults;
+}
+
+static bool s_shouldMockChildFrameSearchResults = false;
+
+void setShouldMockChildFrameSearchResultsForTesting(bool enabled)
+{
+    s_shouldMockChildFrameSearchResults = enabled;
+}
+
+bool shouldMockChildFrameSearchResultsForTesting()
+{
+    return s_shouldMockChildFrameSearchResults;
+}
 
 static bool NODELETE canDoRemoteSearch(const std::optional<AXTreeID>& treeID)
 {
@@ -274,6 +303,9 @@ AccessibilitySearchResults performSearchWithCrossProcessCoordination(AXCoreObjec
             return;
         }
 
+        if (shouldMockChildFrameSearchResultsForTesting()) [[unlikely]]
+            return;
+
         coordinator->addPendingRequest();
 
         auto slotCriteria = criteriaForIPC;
@@ -293,7 +325,16 @@ AccessibilitySearchResults performSearchWithCrossProcessCoordination(AXCoreObjec
         coordinator->waitWithTimeout(*remainingTimeout);
 
     // Merge results in tree order.
-    return mergeStreamResults(stream.entries(), originalLimit, coordinator.ptr());
+    auto results = mergeStreamResults(stream.entries(), originalLimit, coordinator.ptr());
+
+    if (shouldMockChildFrameSearchResultsForTesting()) [[unlikely]] {
+        // Testing: inject the anchor as a mock child frame result. Tests should
+        // not rely on this being any specific object — just that *something* is
+        // returned from the child frame search.
+        results.append(AccessibilitySearchResult::local(anchorObject));
+    }
+
+    return results;
 #else
     RELEASE_ASSERT_NOT_REACHED();
 #endif // PLATFORM_SUPPORTS_REMOTE_SEARCH
@@ -331,7 +372,7 @@ AccessibilitySearchResults mergeParentSearchResults(AccessibilitySearchResults&&
 // When a child frame's search needs results from its parent frame (e.g. elements
 // before or after the iframe in tree order), this context manages the IPC roundtrip
 // and prevents use-after-free if the calling thread times out before the callback.
-class ParentFrameSearchContext : public RefCounted<ParentFrameSearchContext> {
+class ParentFrameSearchContext : public ThreadSafeRefCounted<ParentFrameSearchContext> {
     WTF_MAKE_NONCOPYABLE(ParentFrameSearchContext);
     WTF_MAKE_TZONE_ALLOCATED_INLINE(ParentFrameSearchContext);
 public:
@@ -361,6 +402,9 @@ public:
         return didTimeout;
     }
 
+    void cancel() { m_cancelled.store(true, std::memory_order_release); }
+    bool isCancelled() const { return m_cancelled.load(std::memory_order_acquire); }
+
     void NODELETE markParentDispatched() { m_dispatchedParent.store(true, std::memory_order_release); }
     bool NODELETE didDispatchParent() const { return m_dispatchedParent.load(std::memory_order_acquire); }
 
@@ -380,6 +424,7 @@ private:
     BinarySemaphore m_semaphore;
     std::atomic<bool> m_shouldSignal { true };
     std::atomic<bool> m_dispatchedParent { false };
+    std::atomic<bool> m_cancelled { false };
     Lock m_lock;
     Vector<AccessibilityRemoteToken> m_parentTokens WTF_GUARDED_BY_LOCK(m_lock);
 };
@@ -394,6 +439,16 @@ AccessibilitySearchResults performSearchWithParentCoordination(AXCoreObject& anc
     }
 
 #if PLATFORM_SUPPORTS_REMOTE_SEARCH
+    if (criteria.immediateDescendantsOnly) {
+        // immediateDescendantsOnly searches are scoped to a specific container, so the parent
+        // frame has nothing to contribute. Skip the main-thread dispatch entirely.
+        return performSearchWithCrossProcessCoordination(anchorObject, WTF::move(criteria));
+    }
+
+    RefPtr tree = AXTreeStore<AXIsolatedTree>::isolatedTreeForID(treeID);
+    if (!tree || tree->isMainFrame() || !tree->siteIsolationEnabled())
+        return performSearchWithCrossProcessCoordination(anchorObject, WTF::move(criteria));
+
     // Save original parameters for parent coordination.
     unsigned originalLimit = criteria.resultsLimit;
     bool isForward = criteria.searchDirection == AccessibilitySearchDirection::Next;
@@ -413,13 +468,26 @@ AccessibilitySearchResults performSearchWithParentCoordination(AXCoreObject& anc
         RefPtr frame = document ? document->frame() : nullptr;
         RefPtr page = frame ? frame->page() : nullptr;
 
-        if (!frame || !page || frame->isMainFrame() || !page->settings().siteIsolationEnabled()) {
-            // Not in a child frame, or site isolation is disabled (so no cross-process coordination needed).
+        if (!frame || !page) {
+            context->signal();
+            return;
+        }
+
+        if (context->isCancelled()) {
+            // The AX thread already found enough local results and no longer
+            // needs parent contributions. Bail to avoid unnecessary IPC.
             context->signal();
             return;
         }
 
         context->markParentDispatched();
+
+        if (shouldMockParentSearchResultsForTesting()) [[unlikely]] {
+            // Testing: provide a mock parent result instead of dispatching
+            // real IPC (which deadlocks in the test runner).
+            context->signal();
+            return;
+        }
 
         // Use the provided frameID if available, otherwise use the frame's own ID.
         FrameIdentifier frameIDToUse = currentFrameID.value_or(frame->frameID());
@@ -435,13 +503,30 @@ AccessibilitySearchResults performSearchWithParentCoordination(AXCoreObject& anc
     // Perform local + nested remote frame search (runs in parallel with parent search).
     auto searchResults = performSearchWithCrossProcessCoordination(anchorObject, WTF::move(criteria));
 
+    // If local results already satisfy the limit, parent results won't contribute
+    // to the merged output regardless of search direction — skip the wait.
+    if (searchResults.size() >= originalLimit) {
+        // Signal to the main-thread lambda that it can skip the parent search
+        // IPC dispatch, since local results already satisfy the requested limit.
+        context->cancel();
+        return searchResults;
+    }
+
     // Wait for parent search to complete using the cascading timeout.
     if (auto remainingTimeout = computeRemainingTimeout(criteriaForParent.deadline))
         context->waitWithTimeout(*remainingTimeout);
 
     // Merge parent results with local results based on search direction.
-    if (context->didDispatchParent())
+    if (context->didDispatchParent()) {
         searchResults = mergeParentSearchResults(WTF::move(searchResults), context->takeParentTokens(), isForward, originalLimit);
+
+        if (shouldMockParentSearchResultsForTesting()) [[unlikely]] {
+            // Inject the anchor as a mock parent result. Tests should not rely on
+            // this being any specific object — just that *something* is returned
+            // from the parent search.
+            searchResults.append(AccessibilitySearchResult::local(anchorObject));
+        }
+    }
 
     return searchResults;
 #else

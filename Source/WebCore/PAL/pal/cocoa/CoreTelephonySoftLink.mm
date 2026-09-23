@@ -24,14 +24,3 @@
  */
 
 #import "config.h"
-
-#if HAVE(CORE_TELEPHONY) && !HAVE(DELAY_INIT_LINKING)
-
-#import <pal/spi/cocoa/CoreTelephonySPI.h>
-#import <wtf/SoftLinking.h>
-
-SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, CoreTelephony, PAL_EXPORT)
-// MAVERICKS_BACKPORT: CoreTelephony CoreTelephonyClient is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, CoreTelephony, CoreTelephonyClient, PAL_EXPORT)
-
-#endif // HAVE(CORE_TELEPHONY) && !HAVE(DELAY_INIT_LINKING)

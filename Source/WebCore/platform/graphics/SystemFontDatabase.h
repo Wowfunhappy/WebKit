@@ -75,13 +75,14 @@ public:
     float systemFontShorthandSize(FontShorthand);
     FontSelectionValue systemFontShorthandWeight(FontShorthand);
 
+    void invalidate();
+
 protected:
     SystemFontDatabase();
 
 private:
     friend class FontCache;
 
-    void invalidate();
     void platformInvalidate();
 
     struct SystemFontShorthandInfo {

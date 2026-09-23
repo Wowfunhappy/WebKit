@@ -240,15 +240,16 @@ public:
     static constexpr ptrdiff_t offsetOfArrayModes() { return OBJECT_OFFSETOF(ArrayProfile, m_observedArrayModes); }
 
     void setOutOfBounds() { m_arrayProfileFlags.add(ArrayProfileFlag::OutOfBounds); }
-    
+    void setMayStoreHole() { m_arrayProfileFlags.add(ArrayProfileFlag::MayStoreHole); }
+
     void observeStructureID(StructureID structureID) { m_lastSeenStructureID = structureID; }
     void observeStructure(Structure* structure) { m_lastSeenStructureID = structure->id(); }
 
-    void computeUpdatedPrediction(CodeBlock*);
+    void NODELETE computeUpdatedPrediction(CodeBlock*);
     void computeUpdatedPrediction(CodeBlock*, Structure* lastSeenStructure);
     
     void observeArrayMode(ArrayModes mode) { m_observedArrayModes |= mode; }
-    void observeIndexedRead(JSCell*, unsigned index);
+    void NODELETE observeIndexedRead(JSCell*, unsigned index);
 
     ArrayModes observedArrayModes(const ConcurrentJSLocker&) const { return m_observedArrayModes; }
     bool mayInterceptIndexedAccesses(const ConcurrentJSLocker&) const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayInterceptIndexedAccesses);; }

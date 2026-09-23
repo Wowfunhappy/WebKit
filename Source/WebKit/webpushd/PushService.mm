@@ -763,6 +763,19 @@ void PushService::removeRecordsForBundleIdentifierAndDataStore(const String& bun
     });
 }
 
+void PushService::getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&& handler)
+{
+    m_database->getAllPushSubscriptionOrigins([handler = WTF::move(handler)](Vector<String>&& originStrings) mutable {
+        auto origins = WTF::compactMap(WTF::move(originStrings), [](String&& originString) -> std::optional<WebCore::SecurityOriginData> {
+            auto origin = WebCore::SecurityOriginData::fromURL(URL { WTF::move(originString) });
+            if (origin.isNull() || origin.isOpaque())
+                return std::nullopt;
+            return origin;
+        });
+        handler(WTF::move(origins));
+    });
+}
+
 #if PLATFORM(IOS)
 
 void PushService::updateSubscriptionSetState(const String& allowedBundleIdentifier, const HashSet<String>& installedWebClipIdentifiers, CompletionHandler<void()>&& completionHandler)

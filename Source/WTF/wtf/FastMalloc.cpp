@@ -28,12 +28,9 @@
 
 #include <bmalloc/bmalloc.h>
 #include <string.h>
+#include <wtf/Atomics.h>
 #include <wtf/CheckedArithmetic.h>
-
-#if OS(DARWIN)
-#include <malloc/malloc.h>
-#include <wtf/darwin/DispatchExtras.h>
-#endif
+#include <wtf/PageBlock.h>
 
 #if OS(WINDOWS)
 #include <windows.h>
@@ -652,9 +649,110 @@ void fastDisableScavenger()
     bmalloc::api::disableScavenger();
 }
 
+#if HAVE(QOS_CLASSES)
+void fastSetScavengerThreadQOSClass(unsigned qosClass)
+{
+    bmalloc::api::setScavengerThreadQOSClass(static_cast<qos_class_t>(qosClass));
+}
+#endif
+
 void forceEnablePGM(uint16_t guardMallocRate)
 {
     bmalloc::api::forceEnablePGM(guardMallocRate);
 }
 
 } // namespace WTF
+
+namespace Gigacage {
+
+void* tryAlignedMalloc(Kind kind, size_t alignment, size_t size)
+{
+    void* result = bmalloc::api::tryMemalign(alignment, size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_TRY_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void* tryMalloc(Kind kind, size_t size)
+{
+    void* result = bmalloc::api::tryMalloc(size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_TRY_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void* malloc(Kind kind, size_t size)
+{
+    void* result = bmalloc::api::malloc(size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void* tryZeroedMalloc(Kind kind, size_t size)
+{
+    void* result = bmalloc::api::tryZeroedMalloc(size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_TRY_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void* zeroedMalloc(Kind kind, size_t size)
+{
+    void* result = bmalloc::api::zeroedMalloc(size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void* tryRealloc(Kind kind, void* pointer, size_t size)
+{
+    void* result = bmalloc::api::tryRealloc(pointer, size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_TRY_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void free(Kind kind, void* p)
+{
+    if (!p)
+        return;
+    RELEASE_ASSERT(isCaged(kind, p));
+    bmalloc::api::free(p, bmalloc::heapKind(kind));
+    WTF::compilerFence();
+}
+
+void* tryAllocateZeroedVirtualPages(Kind kind, size_t size)
+{
+    void* result = bmalloc::api::tryLargeZeroedMemalignVirtual(WTF::pageSize(), size, bmalloc::CompactAllocationMode::Compact, bmalloc::heapKind(kind));
+    BPROFILE_TRY_ALLOCATION(GIGACAGE, kind, result, size);
+    WTF::compilerFence();
+    return result;
+}
+
+void freeVirtualPages(Kind kind, void* basePtr, size_t size)
+{
+    if (!basePtr)
+        return;
+    RELEASE_ASSERT(isCaged(kind, basePtr));
+    bmalloc::api::freeLargeVirtual(basePtr, size, bmalloc::heapKind(kind));
+    WTF::compilerFence();
+}
+
+void* tryMallocArray(Kind kind, size_t numElements, size_t elementSize)
+{
+    WTF::CheckedSize checkedSize = elementSize;
+    checkedSize *= numElements;
+    if (checkedSize.hasOverflowed())
+        return nullptr;
+    return tryMalloc(kind, checkedSize);
+}
+
+void* mallocArray(Kind kind, size_t numElements, size_t elementSize)
+{
+    void* result = tryMallocArray(kind, numElements, elementSize);
+    RELEASE_ASSERT(result);
+    return result;
+}
+
+} // namespace Gigacage

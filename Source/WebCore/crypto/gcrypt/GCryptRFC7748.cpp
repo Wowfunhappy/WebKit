@@ -101,7 +101,7 @@ std::optional<Vector<uint8_t>> xImpl(const std::span<const uint8_t>& kArg, const
             gcry_mpi_clear_bit(uMPI, 255);
     }
 
-    Vector<uint8_t> result(ImplType::argSize, uint8_t(0));
+    Vector<uint8_t> result(FillWith { }, ImplType::argSize, uint8_t(0));
     {
         // Perform the multiplication on the given curve. The result is retrieved back into kMPI.
         PAL::GCrypt::Handle<gcry_mpi_point_t> Q(gcry_mpi_point_new(0));
@@ -121,14 +121,14 @@ std::optional<Vector<uint8_t>> xImpl(const std::span<const uint8_t>& kArg, const
                 return std::nullopt;
             }
 
-            kData = Vector<uint8_t>(numBytes, uint8_t(0));
+            kData = Vector<uint8_t>(FillWith { }, numBytes, uint8_t(0));
             error = gcry_mpi_print(GCRYMPI_FMT_USG, kData.mutableSpan().data(), kData.size(), nullptr, kMPI);
             if (error != GPG_ERR_NO_ERROR) {
                 PAL::GCrypt::logError(error);
                 return std::nullopt;
             }
         } else
-            kData = Vector<uint8_t>(ImplType::argSize, uint8_t(0));
+            kData = Vector<uint8_t>(FillWith { }, ImplType::argSize, uint8_t(0));
 
         // Up to curve-specific amount of bytes of MPI data is copied in reverse order
         // into the initially-zeroed result Vector.

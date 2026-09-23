@@ -39,7 +39,6 @@
 #include <WebCore/AudioMediaStreamTrackRenderer.h>
 #include <WebCore/AudioMediaStreamTrackRendererInternalUnit.h>
 #include <WebCore/AudioSampleBufferList.h>
-#include <WebCore/AudioSession.h>
 #include <WebCore/AudioUtilities.h>
 #include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/CARingBuffer.h>
@@ -53,7 +52,6 @@ namespace WebKit {
 
 class RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit
     : public WebCore::CoreAudioSpeakerSamplesProducer
-    , public WebCore::AudioSessionInterruptionObserver
     , public WebCore::AudioMediaStreamTrackRendererInternalUnit::Client {
     WTF_MAKE_TZONE_ALLOCATED(RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit);
 public:
@@ -69,11 +67,8 @@ public:
 
     void updateShouldRegisterAsSpeakerSamplesProducer();
 
-    // WebCore::AudioSessionInterruptionObserver.
-    void ref() const final { WebCore::AudioMediaStreamTrackRendererInternalUnit::Client::ref(); }
-    void deref() const final { WebCore::AudioMediaStreamTrackRendererInternalUnit::Client::deref(); }
-
-    USING_CAN_MAKE_WEAKPTR(WebCore::AudioSessionInterruptionObserver);
+    void beginAudioSessionInterruption();
+    void endAudioSessionInterruption(WebCore::AudioSession::MayResume);
 
 private:
     RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier, const String&, GPUConnectionToWebProcess&, CompletionHandler<void(std::optional<WebCore::CAAudioStreamDescription>, uint64_t)>&&);
@@ -86,10 +81,6 @@ private:
 
     // Background thread.
     OSStatus produceSpeakerSamples(size_t sampleCount, AudioBufferList&, uint64_t sampleTime, double hostTime, AudioUnitRenderActionFlags&) final;
-
-    // WebCore::AudioSessionInterruptionObserver
-    void beginAudioSessionInterruption() final;
-    void endAudioSessionInterruption(WebCore::AudioSession::MayResume) final;
 
     // WebCore::AudioMediaStreamTrackRendererInternal::Client
     OSStatus render(size_t sampleCount, AudioBufferList&, uint64_t sampleTime, double hostTime, AudioUnitRenderActionFlags&) final;
@@ -118,9 +109,13 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioMediaStreamTrackRendererInternalUnitMan
 RemoteAudioMediaStreamTrackRendererInternalUnitManager::RemoteAudioMediaStreamTrackRendererInternalUnitManager(GPUConnectionToWebProcess& gpuConnectionToWebProcess)
     : m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
 {
+    WebCore::AudioSession::addInterruptionObserver(*this);
 }
 
-RemoteAudioMediaStreamTrackRendererInternalUnitManager::~RemoteAudioMediaStreamTrackRendererInternalUnitManager() = default;
+RemoteAudioMediaStreamTrackRendererInternalUnitManager::~RemoteAudioMediaStreamTrackRendererInternalUnitManager()
+{
+    WebCore::AudioSession::removeInterruptionObserver(*this);
+}
 
 void RemoteAudioMediaStreamTrackRendererInternalUnitManager::ref() const
 {
@@ -141,8 +136,11 @@ void RemoteAudioMediaStreamTrackRendererInternalUnitManager::createUnit(AudioMed
 
 void RemoteAudioMediaStreamTrackRendererInternalUnitManager::deleteUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier identifier)
 {
-    if (!m_units.remove(identifier))
+    RefPtr unit = m_units.take(identifier);
+    if (!unit)
         return;
+
+    unit->stop();
 
     if (m_units.isEmpty()) {
         if (auto connection = m_gpuConnectionToWebProcess.get())
@@ -185,6 +183,18 @@ std::optional<SharedPreferencesForWebProcess> RemoteAudioMediaStreamTrackRendere
     return std::nullopt;
 }
 
+void RemoteAudioMediaStreamTrackRendererInternalUnitManager::beginAudioSessionInterruption()
+{
+    for (Ref unit : m_units.values())
+        unit->beginAudioSessionInterruption();
+}
+
+void RemoteAudioMediaStreamTrackRendererInternalUnitManager::endAudioSessionInterruption(WebCore::AudioSession::MayResume mayResume)
+{
+    for (Ref unit : m_units.values())
+        unit->endAudioSessionInterruption(mayResume);
+}
+
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit);
 
 RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit::RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier identifier, const String& deviceID, GPUConnectionToWebProcess& connection, CompletionHandler<void(std::optional<WebCore::CAAudioStreamDescription>, uint64_t)>&& callback)
@@ -193,9 +203,10 @@ RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit::RemoteAudioMediaStre
     , m_localUnit(WebCore::AudioMediaStreamTrackRendererInternalUnit::create(deviceID, *this))
     , m_canUseCaptureUnit(deviceID == WebCore::AudioMediaStreamTrackRenderer::defaultDeviceID())
 {
-    WebCore::AudioSession::addInterruptionObserver(*this);
-    protect(m_localUnit)->retrieveFormatDescription([weakThis = WeakPtr { *this }, this, callback = WTF::move(callback)](auto&& description) mutable {
-        if (!weakThis || !description) {
+    ASSERT(isMainRunLoop());
+    protect(m_localUnit)->retrieveFormatDescription([weakThis = ThreadSafeWeakPtr { *this }, this, callback = WTF::move(callback)](auto&& description) mutable {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis || !description) {
             RELEASE_LOG_IF(!description, WebRTC, "RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit unable to get format description");
             callback(std::nullopt, 0);
             return;
@@ -209,7 +220,8 @@ RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit::RemoteAudioMediaStre
 
 RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit::~RemoteAudioMediaStreamTrackRendererInternalUnitManagerUnit()
 {
-    WebCore::AudioSession::removeInterruptionObserver(*this);
+    ASSERT(isMainRunLoop());
+    ASSERT(!m_isPlaying);
     stop();
 }
 

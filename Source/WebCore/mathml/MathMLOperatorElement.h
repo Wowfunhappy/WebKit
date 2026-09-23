@@ -29,6 +29,7 @@
 
 #include "MathMLOperatorDictionary.h"
 #include "MathMLTokenElement.h"
+#include <array>
 
 namespace WebCore {
 
@@ -38,12 +39,24 @@ class MathMLOperatorElement final : public MathMLTokenElement {
 public:
     static Ref<MathMLOperatorElement> create(const QualifiedName&, Document&);
     struct OperatorChar {
-        char32_t character { 0 };
+        // Exactly one of character or characters is valid, determined by
+        // hasTwoCharacters. For multi-character operators (e.g. "&&", "!=",
+        // "->") the two code units are stored in characters and used for
+        // multi-character dictionary lookup.
+        union {
+            char32_t character;
+            std::array<char16_t, 2> characters;
+        };
         bool isVertical { true };
+        bool hasTwoCharacters { false };
+        OperatorChar()
+            : character(0)
+            {
+            }
     };
     static OperatorChar parseOperatorChar(const String&);
     const OperatorChar& operatorChar() LIFETIME_BOUND;
-    void setOperatorFormDirty() { m_dictionaryProperty = std::nullopt; }
+    void setOperatorFormDirty();
     MathMLOperatorDictionary::Form form() { return dictionaryProperty().form; }
     bool hasProperty(MathMLOperatorDictionary::Flag);
     Length defaultLeadingSpace();
@@ -55,7 +68,7 @@ public:
 
 private:
     MathMLOperatorElement(const QualifiedName&, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     void childrenChanged(const ChildChange&) final;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 

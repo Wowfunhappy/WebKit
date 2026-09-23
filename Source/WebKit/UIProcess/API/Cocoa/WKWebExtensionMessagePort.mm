@@ -63,7 +63,7 @@ WK_OBJECT_DEALLOC_IMPL_ON_MAIN_THREAD(WKWebExtensionMessagePort, WebExtensionMes
 
 - (BOOL)isDisconnected
 {
-    return protect(*_webExtensionMessagePort)->isDisconnected();
+    return _webExtensionMessagePort->isDisconnected();
 }
 
 - (void)sendMessage:(id)message completionHandler:(void (^)(NSError *))completionHandler

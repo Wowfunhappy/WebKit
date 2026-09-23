@@ -347,8 +347,8 @@ angle::Result VertexArrayGL::syncIndexData(const gl::Context *context,
         if (requiredStreamingBufferSize > mStreamingElementArrayBufferSize)
         {
             // Copy the indices in while resizing the buffer
-            ANGLE_GL_TRY(context,
-                         functions->bufferData(GL_ELEMENT_ARRAY_BUFFER, requiredStreamingBufferSize,
+            ANGLE_GL_TRY_ALWAYS_CHECK(
+                context, functions->bufferData(GL_ELEMENT_ARRAY_BUFFER, requiredStreamingBufferSize,
                                                indices, GL_DYNAMIC_DRAW));
             mStreamingElementArrayBufferSize = requiredStreamingBufferSize;
         }
@@ -367,11 +367,13 @@ angle::Result VertexArrayGL::syncIndexData(const gl::Context *context,
     return angle::Result::Continue;
 }
 
-void VertexArrayGL::computeStreamingAttributeSizes(const gl::AttributesMask &attribsToStream,
-                                                   GLsizei instanceCount,
-                                                   const gl::IndexRange &indexRange,
-                                                   size_t *outStreamingDataSize,
-                                                   size_t *outMaxAttributeDataSize) const
+void VertexArrayGL::computeStreamingAttributeSizes(
+    const gl::AttributesMask &attribsToStream,
+    GLsizei instanceCount,
+    const gl::IndexRange &indexRange,
+    size_t *outStreamingDataSize,
+    size_t *outMaxAttributeDataSize,
+    bool applyExtraOffsetWorkaroundForInstancedAttributes) const
 {
     *outStreamingDataSize    = 0;
     *outMaxAttributeDataSize = 0;
@@ -391,9 +393,14 @@ void VertexArrayGL::computeStreamingAttributeSizes(const gl::AttributesMask &att
         // the attribute with the largest data size.
         size_t typeSize        = ComputeVertexAttributeTypeSize(attrib);
         GLuint adjustedDivisor = GetAdjustedDivisor(mAppliedNumViews, binding.getDivisor());
-        *outStreamingDataSize +=
-            typeSize * ComputeVertexBindingElementCount(adjustedDivisor, indexRange.vertexCount(),
-                                                        instanceCount);
+        size_t streamedVertexCount = ComputeVertexBindingElementCount(
+            adjustedDivisor, indexRange.vertexCount(), std::max(instanceCount, 1), 0);
+        if (applyExtraOffsetWorkaroundForInstancedAttributes && adjustedDivisor > 0)
+        {
+            streamedVertexCount =
+                (instanceCount + indexRange.start() + adjustedDivisor - 1u) / adjustedDivisor;
+        }
+        *outStreamingDataSize += typeSize * streamedVertexCount;
         *outMaxAttributeDataSize = std::max(*outMaxAttributeDataSize, typeSize);
     }
 }
@@ -413,7 +420,8 @@ angle::Result VertexArrayGL::streamAttributes(
     size_t maxAttributeDataSize = 0;
 
     computeStreamingAttributeSizes(attribsToStream, instanceCount, indexRange, &streamingDataSize,
-                                   &maxAttributeDataSize);
+                                   &maxAttributeDataSize,
+                                   applyExtraOffsetWorkaroundForInstancedAttributes);
 
     if (streamingDataSize == 0)
     {
@@ -435,8 +443,9 @@ angle::Result VertexArrayGL::streamAttributes(
     stateManager->bindBuffer(gl::BufferBinding::Array, mStreamingArrayBuffer);
     if (requiredBufferSize > mStreamingArrayBufferSize)
     {
-        ANGLE_GL_TRY(context, functions->bufferData(GL_ARRAY_BUFFER, requiredBufferSize, nullptr,
-                                                    GL_DYNAMIC_DRAW));
+        ANGLE_GL_TRY_ALWAYS_CHECK(
+            context,
+            functions->bufferData(GL_ARRAY_BUFFER, requiredBufferSize, nullptr, GL_DYNAMIC_DRAW));
         mStreamingArrayBufferSize = requiredBufferSize;
     }
 
@@ -467,7 +476,8 @@ angle::Result VertexArrayGL::streamAttributes(
             // streamedVertexCount is only going to be modified by
             // shiftInstancedArrayDataWithOffset workaround, otherwise it's const
             size_t streamedVertexCount = ComputeVertexBindingElementCount(
-                adjustedDivisor, indexRange.vertexCount(), instanceCount);
+                adjustedDivisor, indexRange.vertexCount(), std::max(instanceCount, 1), 0);
+            const size_t originalStreamedVertexCount = streamedVertexCount;
 
             const size_t sourceStride = ComputeVertexAttributeStride(attrib, binding);
             const size_t destStride   = ComputeVertexAttributeTypeSize(attrib);
@@ -491,7 +501,6 @@ angle::Result VertexArrayGL::streamAttributes(
 
             if (applyExtraOffsetWorkaroundForInstancedAttributes && adjustedDivisor > 0)
             {
-                const size_t originalStreamedVertexCount = streamedVertexCount;
                 streamedVertexCount =
                     (instanceCount + indexRange.start() + adjustedDivisor - 1u) / adjustedDivisor;
 
@@ -519,7 +528,7 @@ angle::Result VertexArrayGL::streamAttributes(
                     // Validate if there is OOB access of the input buffer.
                     angle::CheckedNumeric<GLint64> inputRequiredSize;
                     inputRequiredSize = copySize;
-                    inputRequiredSize += static_cast<unsigned int>(binding.getOffset());
+                    inputRequiredSize += binding.getOffset();
                     ANGLE_CHECK(GetImplAs<ContextGL>(context),
                                 inputRequiredSize.IsValid() && inputRequiredSize.ValueOrDie() <=
                                                                    bindingBufferPointer->getSize(),
@@ -545,7 +554,7 @@ angle::Result VertexArrayGL::streamAttributes(
             }
             else
             {
-                for (size_t vertexIdx = 0; vertexIdx < streamedVertexCount; vertexIdx++)
+                for (size_t vertexIdx = 0; vertexIdx < originalStreamedVertexCount; vertexIdx++)
                 {
                     uint8_t *out = bufferPointer + curBufferOffset + (destStride * vertexIdx);
                     const uint8_t *in =
@@ -565,7 +574,7 @@ angle::Result VertexArrayGL::streamAttributes(
 
             ANGLE_TRY(callVertexAttribPointer(context, static_cast<GLuint>(idx), attrib,
                                               static_cast<GLsizei>(destStride),
-                                              static_cast<GLintptr>(vertexStartOffset)));
+                                              static_cast<uintptr_t>(vertexStartOffset)));
 
             // Update the state to track the streamed attribute
             mNativeState->attributes[idx].format = attrib.format;
@@ -574,7 +583,7 @@ angle::Result VertexArrayGL::streamAttributes(
             mNativeState->attributes[idx].bindingIndex   = static_cast<GLuint>(idx);
 
             mNativeState->bindings[idx].stride = static_cast<GLsizei>(destStride);
-            mNativeState->bindings[idx].offset = static_cast<GLintptr>(vertexStartOffset);
+            mNativeState->bindings[idx].offset = static_cast<uintptr_t>(vertexStartOffset);
             mArrayBuffers[idx].set(context, nullptr);
             mNativeState->bindings[idx].buffer = mStreamingArrayBuffer;
 
@@ -626,7 +635,7 @@ angle::Result VertexArrayGL::recoverForcedStreamingAttributesForDrawArraysInstan
 
         ANGLE_TRY(callVertexAttribPointer(context, static_cast<GLuint>(idx), attrib,
                                           static_cast<GLsizei>(binding.getStride()),
-                                          static_cast<GLintptr>(binding.getOffset())));
+                                          binding.getOffset()));
 
         // Restore the state to track their original buffers
         mNativeState->attributes[idx].format = attrib.format;
@@ -739,7 +748,8 @@ angle::Result VertexArrayGL::updateAttribPointer(const gl::Context *context, siz
             BufferFeedback feedback;
             constexpr uint32_t data = 0;
             ANGLE_TRY(bufferGL->setData(context, gl::BufferBinding::Array, &data, sizeof(data),
-                                        gl::BufferUsage::StaticDraw, &feedback));
+                                        gl::BufferUsage::StaticDraw, &feedback,
+                                        gl::ZeroFillRequired::No));
             ASSERT(bufferGL->getBufferSize() > 0);
         }
         ANGLE_TRY(callVertexAttribPointer(context, static_cast<GLuint>(attribIndex), attrib,
@@ -751,7 +761,7 @@ angle::Result VertexArrayGL::updateAttribPointer(const gl::Context *context, siz
         stateManager->bindBuffer(gl::BufferBinding::Array, 0);
         ANGLE_TRY(callVertexAttribPointer(context, static_cast<GLuint>(attribIndex), attrib,
                                           binding.getStride(),
-                                          reinterpret_cast<GLintptr>(attrib.pointer)));
+                                          reinterpret_cast<uintptr_t>(attrib.pointer)));
     }
 
     mNativeState->attributes[attribIndex].format = attrib.format;
@@ -776,7 +786,7 @@ angle::Result VertexArrayGL::callVertexAttribPointer(const gl::Context *context,
                                                      GLuint attribIndex,
                                                      const VertexAttribute &attrib,
                                                      GLsizei stride,
-                                                     GLintptr offset) const
+                                                     uintptr_t offset) const
 {
     const FunctionsGL *functions = GetFunctionsGL(context);
     const GLvoid *pointer        = reinterpret_cast<const GLvoid *>(offset);

@@ -58,7 +58,7 @@ static bool shouldIgnoreAsFirstLastFormattedLineContainer(const RenderBlockFlow&
 {
     if (container.style().display() == Style::DisplayType::RubyText || container.createsNewFormattingContext())
         return true;
-    // Empty continuation pre/post blocks should be ignored as they are implementation detail.
+    // Empty anonymous blocks should be ignored as they are implementation detail.
     if (container.isAnonymousBlock()) {
         if (auto firstLineBox = InlineIterator::firstLineBoxFor(container))
             return !firstLineBox->lineLeftmostLeafBox();
@@ -95,7 +95,6 @@ static CheckedPtr<RenderBlockFlow> lastFormattedLineRoot(const RenderBlockFlow& 
             return { };
         };
         if (auto box = firstBoxOnLastFormattedLineWithContent(); box && box->isBlockLevelBox()) {
-            ASSERT(box->renderer().settings().blocksInInlineLayoutEnabled());
             ASSERT(is<RenderBlockFlow>(box->renderer()));
             if (CheckedPtr blockFlow = dynamicDowncast<RenderBlockFlow>(const_cast<RenderObject&>(box->renderer()))) {
                 if (CheckedPtr candidate = lastFormattedLineRoot(*blockFlow))

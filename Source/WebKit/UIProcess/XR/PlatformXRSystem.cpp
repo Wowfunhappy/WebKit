@@ -83,6 +83,12 @@ void PlatformXRSystem::invalidate(InvalidationReason reason)
     invalidateImmersiveSessionState(reason == InvalidationReason::Client ? ImmersiveSessionState::SessionEndingFromSystem : ImmersiveSessionState::Idle);
 }
 
+bool PlatformXRSystem::hasActiveSession() const
+{
+    return std::holds_alternative<Ref<ProcessActivityGroup>>(m_immersiveSessionActivity)
+        || std::holds_alternative<Ref<ProcessThrottler::ForegroundActivity>>(m_immersiveSessionActivity);
+}
+
 void PlatformXRSystem::ensureImmersiveSessionActivity()
 {
     ASSERT(RunLoop::isMain());
@@ -91,10 +97,20 @@ void PlatformXRSystem::ensureImmersiveSessionActivity()
     if (!page)
         return;
 
-    if (m_immersiveSessionActivity && m_immersiveSessionActivity->isValid())
-        return;
+    const bool siteIsolationEnabled = protect(page->preferences())->siteIsolationEnabled();
+    constexpr ASCIILiteral activityName = "XR immersive session"_s;
 
-    m_immersiveSessionActivity = protect(protect(page->legacyMainFrameProcess())->throttler())->foregroundActivity("XR immersive session"_s);
+    if (siteIsolationEnabled) {
+        if (std::holds_alternative<Ref<ProcessActivityGroup>>(m_immersiveSessionActivity))
+            return;
+        m_immersiveSessionActivity = page->activityGroupContext().foregroundProcessActivityGroup(activityName);
+        return;
+    }
+
+    if (std::holds_alternative<Ref<ProcessThrottler::ForegroundActivity>>(m_immersiveSessionActivity)
+        && std::get<Ref<ProcessThrottler::ForegroundActivity>>(m_immersiveSessionActivity)->isValid())
+        return;
+    m_immersiveSessionActivity = protect(protect(page->legacyMainFrameProcess())->throttler())->foregroundActivity(activityName);
 }
 
 void PlatformXRSystem::enumerateImmersiveXRDevices(CompletionHandler<void(Vector<XRDeviceInfo>&&)>&& completionHandler)
@@ -249,7 +265,7 @@ void PlatformXRSystem::requestFrame(IPC::Connection& connection, std::optional<P
 }
 
 #if USE(OPENXR)
-void PlatformXRSystem::submitFrame(IPC::Connection& connection, Vector<XRDeviceLayer>&& layers)
+void PlatformXRSystem::submitFrame(IPC::Connection& connection, Vector<PlatformXR::DeviceLayer>&& layers)
 #else
 void PlatformXRSystem::submitFrame(IPC::Connection& connection)
 #endif
@@ -355,7 +371,7 @@ void PlatformXRSystem::sessionDidEnd(XRDeviceIdentifier deviceIdentifier)
             return;
 
         protect(page->legacyMainFrameProcess())->send(Messages::PlatformXRSystemProxy::SessionDidEnd(deviceIdentifier), page->webPageIDInMainFrameProcess());
-        protectedThis->m_immersiveSessionActivity = nullptr;
+        protectedThis->m_immersiveSessionActivity = { };
         // If this is called when the session is running, the ending of the session is triggered by the system side
         // and we should set the state to SessionEndingFromSystem. We expect the web process to send a
         // didCompleteShutdownTriggeredBySystem message later when it has ended the XRSession, which will
@@ -376,6 +392,21 @@ void PlatformXRSystem::sessionDidUpdateVisibilityState(XRDeviceIdentifier device
             return;
 
         protect(page->legacyMainFrameProcess())->send(Messages::PlatformXRSystemProxy::SessionDidUpdateVisibilityState(deviceIdentifier, visibilityState), page->webPageIDInMainFrameProcess());
+    });
+}
+
+void PlatformXRSystem::sessionDidInitializeRendering(XRDeviceIdentifier deviceIdentifier, uint32_t width, uint32_t height, uint32_t arrayLength)
+{
+    ensureOnMainRunLoop([weakThis = WeakPtr { *this }, deviceIdentifier, width, height, arrayLength]() mutable {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        RefPtr page = protectedThis->m_page.get();
+        if (!page)
+            return;
+
+        protect(page->legacyMainFrameProcess())->send(Messages::PlatformXRSystemProxy::SessionDidInitializeRendering(deviceIdentifier, width, height, arrayLength), page->webPageIDInMainFrameProcess());
     });
 }
 
@@ -420,14 +451,15 @@ bool PlatformXRSystem::webXREnabled() const
     return page && protect(page->preferences())->webXREnabled();
 }
 
-#if !USE(APPLE_INTERNAL_SDK) && !USE(OPENXR)
-
+#if USE(EMPTYXR)
 PlatformXRCoordinator* PlatformXRSystem::xrCoordinator()
 {
     return nullptr;
 }
+#endif // !USE(APPLE_INTERNAL_SDK) && !USE(OPENXR) && !PLATFORM(IOS) && !PLATFORM(VISION)
 
-#endif // !USE(APPLE_INTERNAL_SDK) && !USE(OPENXR)
+/*
+*/
 
 } // namespace WebKit
 

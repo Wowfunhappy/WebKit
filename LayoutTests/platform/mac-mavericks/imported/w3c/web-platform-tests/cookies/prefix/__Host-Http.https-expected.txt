@@ -1,0 +1,9 @@
+
+PASS __Host-Http: Does not set via DOM 'Secure; Path=/'
+PASS __Host-Http: Does not set via DOM with Domain attribute 'Secure; Path=/; Domain=web-platform.test'
+PASS __Host-Http: Does not set via HTTP with 'Secure; Path=/'
+PASS __Host-Http: Set via HTTP with 'Secure; Path=/; httponly'
+PASS __Host-Http: Does not set via HTTP with 'Secure; Path=/cookies/; httponly'
+PASS __Host-Http: Does not set via HTTP with 'Path=/;' (without Secure)
+PASS __Host-Http: Does not set via HTTP with Domain attribute 'Secure; Path=/; Domain=web-platform.test'
+

@@ -46,11 +46,12 @@ public:
 private:
     HTMLDetailsElement(const QualifiedName&, Document&);
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
 
-    Vector<Ref<HTMLDetailsElement>> otherElementsInNameGroup();
+    Vector<Ref<HTMLDetailsElement>> otherElementsInNameGroup() const;
     void ensureDetailsExclusivityAfterMutation();
+    bool shouldClose() const;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     void didAddUserAgentShadowRoot(ShadowRoot&) final;
@@ -60,6 +61,7 @@ private:
     WeakPtr<HTMLSummaryElement, WeakPtrImplWithEventTargetData> m_defaultSummary;
     RefPtr<HTMLSlotElement> m_defaultSlot;
     bool m_isOpen { false };
+    bool m_shouldCloseElementAfterInsertion { false };
 
     RefPtr<ToggleEventTask> m_toggleEventTask;
 };

@@ -3,13 +3,13 @@
 #include "config.h"
 #include "StyleBuilderGenerated.h"
 
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSProperty.h"
-#include "RenderStyle+GettersInlines.h"
-#include "RenderStyle+SettersInlines.h"
 #include "StyleBuilderCustom.h"
 #include "StyleBuilderState.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
+#include "StyleComputedStyle+SettersInlines.h"
+#include "StyleKeyword+Mappings.h"
 #include "StylePropertyShorthand.h"
 
 namespace WebCore {

@@ -51,8 +51,8 @@ public:
     }
 
     // PopupMenuClient ref-counting (disambiguating from InputType)
-    void ref() const final { BaseTextInputType::ref(); }
-    void deref() const final { BaseTextInputType::deref(); }
+    void ref() const final { InputType::ref(); }
+    void deref() const final { InputType::deref(); }
 
     // PopupMenuClient methods
     void valueChanged(unsigned listIndex, bool fireEvents = true) override;
@@ -87,7 +87,7 @@ private:
 
     void addSearchResult() final;
     void attributeChanged(const QualifiedName&) final;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
+    RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&) final;
     const AtomString& formControlType() const final;
     bool needsContainer() const final;
     void createShadowSubtree() final;

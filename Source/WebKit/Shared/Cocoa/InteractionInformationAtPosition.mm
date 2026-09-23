@@ -40,7 +40,12 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     std::optional<bool> hitNodeOrWindowHasDoubleClickListener,
     Selectability&& selectability,
     bool isSelected,
+    bool isOverSelectableText,
     bool prefersDraggingOverTextSelection,
+    bool isDHTMLDraggable,
+    bool isColorInput,
+    bool isRangeInput,
+    bool isARIASlider,
     bool isNearMarkedText,
 #if PLATFORM(IOS_FAMILY)
     bool touchCalloutEnabled,
@@ -73,6 +78,7 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     WebCore::FloatPoint&& adjustedPointForNodeRespondingToClickEvents,
     URL&& url,
     URL&& imageURL,
+    URL&& modelURL,
     String&& imageMIMEType,
     String&& title,
     String&& idAttribute,
@@ -101,7 +107,12 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     , hitNodeOrWindowHasDoubleClickListener(hitNodeOrWindowHasDoubleClickListener)
     , selectability(selectability)
     , isSelected(isSelected)
+    , isOverSelectableText(isOverSelectableText)
     , prefersDraggingOverTextSelection(prefersDraggingOverTextSelection)
+    , isDHTMLDraggable(isDHTMLDraggable)
+    , isColorInput(isColorInput)
+    , isRangeInput(isRangeInput)
+    , isARIASlider(isARIASlider)
     , isNearMarkedText(isNearMarkedText)
 #if PLATFORM(IOS_FAMILY)
     , touchCalloutEnabled(touchCalloutEnabled)
@@ -134,6 +145,7 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     , adjustedPointForNodeRespondingToClickEvents(WTF::move(adjustedPointForNodeRespondingToClickEvents))
     , url(WTF::move(url))
     , imageURL(WTF::move(imageURL))
+    , modelURL(WTF::move(modelURL))
     , imageMIMEType(WTF::move(imageMIMEType))
     , title(WTF::move(title))
     , idAttribute(WTF::move(idAttribute))

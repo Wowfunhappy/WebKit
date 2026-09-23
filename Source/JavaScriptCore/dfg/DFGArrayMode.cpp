@@ -189,7 +189,7 @@ ArrayMode ArrayMode::fromObserved(const ConcurrentJSLocker& locker, ArrayProfile
     }
 }
 
-static bool canBecomeGetArrayLength(Graph& graph, Node* node)
+static bool NODELETE canBecomeGetArrayLength(Graph& graph, Node* node)
 {
     if (node->op() == GetArrayLength)
         return true;

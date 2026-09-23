@@ -220,8 +220,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     initializeTarget(target)
     {
-        // FIXME: <https://webkit.org/b/298909> Add Debugger support for FrameTarget.
-        if (target instanceof WI.FrameTarget)
+        if (!target.hasDomain("Debugger"))
             return;
 
         let targetData = this.dataForTarget(target);
@@ -383,7 +382,6 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
     {
         console.assert(target.hasDomain("Debugger"), `Target of type "${target.type}" does not have "Debugger" domain.`);
 
-        // FIXME <https://webkit.org/b/298909> Add Debugger support for frame targets.
         if (!target.hasDomain("Debugger"))
             return this.dataForTarget(WI.assumingMainTarget());
 
@@ -703,14 +701,18 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
             return Promise.resolve();
 
         let promises = [this.awaitEvent(WI.DebuggerManager.Event.Resumed, this)];
-        for (let targetData of this._targetDebuggerDataMap.values())
-            promises.push(targetData.resumeIfNeeded());
+        for (let [target, targetData] of this._targetDebuggerDataMap) {
+            // Only resume targets that are actually paused. Frame targets in separate
+            // processes should not receive spurious resume commands.
+            if (targetData.paused || targetData.pausing)
+                promises.push(targetData.resumeIfNeeded());
+        }
         return Promise.all(promises);
     }
 
     stepNext()
     {
-        if (!this.paused)
+        if (!this.paused || !this._activeCallFrame)
             return Promise.reject(new Error("Cannot step next because debugger is not paused."));
 
         return Promise.all([
@@ -721,7 +723,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     stepOver()
     {
-        if (!this.paused)
+        if (!this.paused || !this._activeCallFrame)
             return Promise.reject(new Error("Cannot step over because debugger is not paused."));
 
         return Promise.all([
@@ -732,7 +734,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     stepInto()
     {
-        if (!this.paused)
+        if (!this.paused || !this._activeCallFrame)
             return Promise.reject(new Error("Cannot step into because debugger is not paused."));
 
         return Promise.all([
@@ -743,7 +745,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     stepOut()
     {
-        if (!this.paused)
+        if (!this.paused || !this._activeCallFrame)
             return Promise.reject(new Error("Cannot step out because debugger is not paused."));
 
         return Promise.all([
@@ -979,7 +981,8 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         if (!breakpoint.sourceCodeLocation.sourceCode)
             breakpoint.sourceCodeLocation.sourceCode = sourceCodeLocation.sourceCode;
 
-        breakpoint.addResolvedLocation(sourceCodeLocation);
+        if (!breakpoint.hasResolvedLocation(sourceCodeLocation))
+            breakpoint.addResolvedLocation(sourceCodeLocation);
     }
 
     globalObjectCleared(target)
@@ -1064,8 +1067,16 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         // Pause other targets because at least one target has paused.
         // FIXME: Should this be done on the backend?
-        for (let [otherTarget, otherTargetData] of this._targetDebuggerDataMap)
-            otherTargetData.pauseIfNeeded();
+        // Don't propagate pause to/from frame targets — they run in separate processes
+        // under site isolation with independent execution. A frame target pausing should
+        // not freeze the page, and the page pausing should not force-pause frame targets.
+        if (!(target instanceof WI.FrameTarget)) {
+            for (let [otherTarget, otherTargetData] of this._targetDebuggerDataMap) {
+                if (otherTarget instanceof WI.FrameTarget)
+                    continue;
+                otherTargetData.pauseIfNeeded();
+            }
+        }
 
         let activeCallFrameDidChange = this._activeCallFrame && this._activeCallFrame.target === target;
         if (activeCallFrameDidChange)
@@ -1483,6 +1494,13 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         if (!breakpoint.identifier || breakpoint.disabled)
             return;
 
+        if (!this._restoringBreakpoints) {
+            // The stored key is derived from the breakpoint's original location, so first get rid
+            // of that association before saving the new location (which creates a new association).
+            WI.objectStores.breakpoints.deleteObject(breakpoint);
+            WI.objectStores.breakpoints.putObject(breakpoint);
+        }
+
         // Remove the breakpoint with its old id.
         this._removeBreakpoint(breakpoint, (target) => {
             // Add the breakpoint at its new lineNumber and get a new id.
@@ -1744,10 +1762,9 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         return probeSet;
     }
 
-    // FIXME: <https://webkit.org/b/298909> Add Debugger support for FrameTarget.
     *#allSupportedTargets() {
         for (let target of WI.targets) {
-            if (!(target instanceof WI.FrameTarget))
+            if (target.hasDomain("Debugger"))
                 yield target;
         }
     }

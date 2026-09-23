@@ -28,6 +28,7 @@
 
 #include "CSSValue.h"
 #include "FontTaggedSettings.h"
+#include <wtf/Function.h>
 
 namespace WebCore {
 

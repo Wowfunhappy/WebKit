@@ -12,9 +12,6 @@ var div = select.appendChild(document.createElement('div'));
 div.innerText = 'FAIL';
 div.style.background = 'red';
 
-// innerText uses the render tree, and the "FAIL" text (from either the initial 
-// HTML or the dynamially inserted <div>) should not be in the render tree, thus 
-// not appear.
-shouldBeEqualToString('select.innerText', '');
+shouldBeEqualToString('select.innerText', 'PASS');
 </script>
 <script src="../../resources/js-test-post.js"></script>

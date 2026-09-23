@@ -48,7 +48,7 @@ const ClassInfo DateConstructor::s_info = { "Function"_s, &InternalFunction::s_i
 @begin dateConstructorTable
   parse     dateParse   DontEnum|Function 1
   UTC       dateUTC     DontEnum|Function 7
-  now       dateNow     DontEnum|Function 0
+  now       dateNow     DontEnum|Function 0 DateNowIntrinsic
 @end
 */
 
@@ -110,7 +110,7 @@ JSObject* constructDate(JSGlobalObject* globalObject, JSValue newTarget, const A
         value = jsCurrentTime();
     else if (numArgs == 1) {
         JSValue arg0 = args.at(0);
-        if (auto* dateInstance = jsDynamicCast<DateInstance*>(arg0))
+        if (auto* dateInstance = dynamicDowncast<DateInstance>(arg0))
             value = dateInstance->internalNumber();
         else {
             JSValue primitive = arg0.toPrimitive(globalObject);

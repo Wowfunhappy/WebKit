@@ -46,6 +46,12 @@ public:
         : m_value(fd)
     { }
 
+    enum BorrowTag { Borrow };
+    UnixFileDescriptor(int fd, BorrowTag)
+        : m_value(fd)
+        , m_shouldClose(false)
+    { }
+
     enum DuplicationTag { Duplicate };
     UnixFileDescriptor(int fd, DuplicationTag)
     {
@@ -56,6 +62,7 @@ public:
     UnixFileDescriptor(UnixFileDescriptor&& o)
     {
         m_value = o.release();
+        m_shouldClose = o.m_shouldClose;
     }
 
     UnixFileDescriptor& operator=(UnixFileDescriptor&& o)
@@ -70,7 +77,7 @@ public:
 
     ~UnixFileDescriptor()
     {
-        if (m_value >= 0)
+        if (m_value >= 0 && m_shouldClose)
             closeWithRetry(std::exchange(m_value, -1));
     }
 
@@ -83,10 +90,16 @@ public:
         return UnixFileDescriptor { m_value, Duplicate };
     }
 
+    UnixFileDescriptor borrow() const
+    {
+        return UnixFileDescriptor { m_value, Borrow };
+    }
+
     [[nodiscard]] int release() { return std::exchange(m_value, -1); }
 
 private:
     int m_value { -1 };
+    bool m_shouldClose : 1 { true };
 };
 
 } // namespace WTF

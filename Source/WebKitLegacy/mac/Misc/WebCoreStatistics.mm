@@ -46,8 +46,6 @@
 #import <WebCore/RenderTreeAsText.h>
 #import <WebCore/RenderView.h>
 
-using namespace JSC;
-using namespace WebCore;
 
 @implementation WebCoreStatistics
 
@@ -58,26 +56,26 @@ using namespace WebCore;
 
 + (size_t)javaScriptObjectsCount
 {
-    JSLockHolder lock(commonVM());
-    return commonVM().heap.objectCount();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return WebCore::commonVM().heap.objectCount();
 }
 
 + (size_t)javaScriptGlobalObjectsCount
 {
-    JSLockHolder lock(commonVM());
-    return commonVM().heap.globalObjectCount();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return WebCore::commonVM().heap.globalObjectCount();
 }
 
 + (size_t)javaScriptProtectedObjectsCount
 {
-    JSLockHolder lock(commonVM());
-    return commonVM().heap.protectedObjectCount();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return WebCore::commonVM().heap.protectedObjectCount();
 }
 
 + (size_t)javaScriptProtectedGlobalObjectsCount
 {
-    JSLockHolder lock(commonVM());
-    return commonVM().heap.protectedGlobalObjectCount();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return WebCore::commonVM().heap.protectedGlobalObjectCount();
 }
 
 static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILiteral>& set)
@@ -93,29 +91,29 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 
 + (NSCountedSet *)javaScriptProtectedObjectTypeCounts
 {
-    JSLockHolder lock(commonVM());
-    return createNSCountedSet(commonVM().heap.protectedObjectTypeCounts()).autorelease();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return createNSCountedSet(WebCore::commonVM().heap.protectedObjectTypeCounts()).autorelease();
 }
 
 + (NSCountedSet *)javaScriptObjectTypeCounts
 {
-    JSLockHolder lock(commonVM());
-    return createNSCountedSet(commonVM().heap.objectTypeCounts()).autorelease();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return createNSCountedSet(WebCore::commonVM().heap.objectTypeCounts()).autorelease();
 }
 
 + (void)garbageCollectJavaScriptObjects
 {
-    GarbageCollectionController::singleton().garbageCollectNow();
+    WebCore::GarbageCollectionController::singleton().garbageCollectNow();
 }
 
 + (void)garbageCollectJavaScriptObjectsOnAlternateThreadForDebugging:(BOOL)waitUntilDone
 {
-    GarbageCollectionController::singleton().garbageCollectOnAlternateThreadForDebugging(waitUntilDone);
+    WebCore::GarbageCollectionController::singleton().garbageCollectOnAlternateThreadForDebugging(waitUntilDone);
 }
 
 + (void)setJavaScriptGarbageCollectorTimerEnabled:(BOOL)enable
 {
-    GarbageCollectionController::singleton().setJavaScriptGarbageCollectorTimerEnabled(enable);
+    WebCore::GarbageCollectionController::singleton().setJavaScriptGarbageCollectorTimerEnabled(enable);
 }
 
 + (size_t)iconPageURLMappingCount
@@ -140,34 +138,34 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 
 + (size_t)cachedFontDataCount
 {
-    return protect(FontCache::forCurrentThread())->fontCount();
+    return protect(WebCore::FontCache::forCurrentThread())->fontCount();
 }
 
 + (size_t)cachedFontDataInactiveCount
 {
-    return protect(FontCache::forCurrentThread())->inactiveFontCount();
+    return protect(WebCore::FontCache::forCurrentThread())->inactiveFontCount();
 }
 
 + (void)purgeInactiveFontData
 {
-    protect(FontCache::forCurrentThread())->purgeInactiveFontData();
+    protect(WebCore::FontCache::forCurrentThread())->purgeInactiveFontData();
 }
 
 + (size_t)glyphPageCount
 {
-    return GlyphPage::count();
+    return WebCore::GlyphPage::count();
 }
 
 + (BOOL)shouldPrintExceptions
 {
-    JSLockHolder lock(commonVM());
-    return FrameConsoleClient::shouldPrintExceptions();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return WebCore::FrameConsoleClient::shouldPrintExceptions();
 }
 
 + (void)setShouldPrintExceptions:(BOOL)print
 {
-    JSLockHolder lock(commonVM());
-    FrameConsoleClient::setShouldPrintExceptions(print);
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    WebCore::FrameConsoleClient::setShouldPrintExceptions(print);
 }
 
 + (void)emptyCache
@@ -183,10 +181,10 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 + (NSDictionary *)memoryStatistics
 {
     auto fastMallocStatistics = WTF::fastMallocStatistics();
-    JSLockHolder lock(commonVM());
-    size_t heapSize = commonVM().heap.size();
-    size_t heapFree = commonVM().heap.capacity() - heapSize;
-    auto globalMemoryStats = globalMemoryStatistics();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    size_t heapSize = WebCore::commonVM().heap.size();
+    size_t heapFree = WebCore::commonVM().heap.capacity() - heapSize;
+    auto globalMemoryStats = JSC::globalMemoryStatistics();
     return @{
         @"FastMallocReservedVMBytes": @(fastMallocStatistics.reservedVMBytes),
         @"FastMallocCommittedVMBytes": @(fastMallocStatistics.committedVMBytes),
@@ -205,12 +203,12 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 
 + (int)cachedPageCount
 {
-    return BackForwardCache::singleton().pageCount();
+    return WebCore::BackForwardCache::singleton().pageCount();
 }
 
 + (int)cachedFrameCount
 {
-    return BackForwardCache::singleton().frameCount();
+    return WebCore::BackForwardCache::singleton().frameCount();
 }
 
 // Deprecated
@@ -227,8 +225,8 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 
 + (size_t)javaScriptReferencedObjectsCount
 {
-    JSLockHolder lock(commonVM());
-    return commonVM().heap.protectedObjectCount();
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    return WebCore::commonVM().heap.protectedObjectCount();
 }
 
 + (NSSet *)javaScriptRootObjectClasses
@@ -252,25 +250,25 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 
 - (NSString *)renderTreeAsExternalRepresentationForPrinting
 {
-    return externalRepresentation(_private->coreFrame, { RenderAsTextFlag::PrintingMode }).createNSString().autorelease();
+    return externalRepresentation(_private->coreFrame, { WebCore::RenderAsTextFlag::PrintingMode }).createNSString().autorelease();
 }
 
-static OptionSet<RenderAsTextFlag> NODELETE toRenderAsTextFlags(WebRenderTreeAsTextOptions options)
+static OptionSet<WebCore::RenderAsTextFlag> NODELETE toRenderAsTextFlags(WebRenderTreeAsTextOptions options)
 {
-    OptionSet<RenderAsTextFlag> flags;
+    OptionSet<WebCore::RenderAsTextFlag> flags;
 
     if (options & WebRenderTreeAsTextShowAllLayers)
-        flags.add(RenderAsTextFlag::ShowAllLayers);
+        flags.add(WebCore::RenderAsTextFlag::ShowAllLayers);
     if (options & WebRenderTreeAsTextShowLayerNesting)
-        flags.add(RenderAsTextFlag::ShowLayerNesting);
+        flags.add(WebCore::RenderAsTextFlag::ShowLayerNesting);
     if (options & WebRenderTreeAsTextShowCompositedLayers)
-        flags.add(RenderAsTextFlag::ShowCompositedLayers);
+        flags.add(WebCore::RenderAsTextFlag::ShowCompositedLayers);
     if (options & WebRenderTreeAsTextShowOverflow)
-        flags.add(RenderAsTextFlag::ShowOverflow);
+        flags.add(WebCore::RenderAsTextFlag::ShowOverflow);
     if (options & WebRenderTreeAsTextShowSVGGeometry)
-        flags.add(RenderAsTextFlag::ShowSVGGeometry);
+        flags.add(WebCore::RenderAsTextFlag::ShowSVGGeometry);
     if (options & WebRenderTreeAsTextShowLayerFragments)
-        flags.add(RenderAsTextFlag::ShowLayerFragments);
+        flags.add(WebCore::RenderAsTextFlag::ShowLayerFragments);
 
     return flags;
 }
@@ -286,7 +284,7 @@ static OptionSet<RenderAsTextFlag> NODELETE toRenderAsTextFlags(WebRenderTreeAsT
     if (!coreFrame)
         return -1;
 
-    return PrintContext::numberOfPages(*coreFrame, FloatSize(pageWidthInPixels, pageHeightInPixels));
+    return WebCore::PrintContext::numberOfPages(*coreFrame, WebCore::FloatSize(pageWidthInPixels, pageHeightInPixels));
 }
 
 - (void)printToCGContext:(CGContextRef)cgContext pageWidth:(float)pageWidthInPixels pageHeight:(float)pageHeightInPixels
@@ -295,8 +293,8 @@ static OptionSet<RenderAsTextFlag> NODELETE toRenderAsTextFlags(WebRenderTreeAsT
     if (!coreFrame)
         return;
 
-    GraphicsContextCG graphicsContext(cgContext);
-    PrintContext::spoolAllPagesWithBoundaries(*coreFrame, graphicsContext, FloatSize(pageWidthInPixels, pageHeightInPixels));
+    WebCore::GraphicsContextCG graphicsContext(cgContext);
+    WebCore::PrintContext::spoolAllPagesWithBoundaries(*coreFrame, graphicsContext, WebCore::FloatSize(pageWidthInPixels, pageHeightInPixels));
 }
 
 @end

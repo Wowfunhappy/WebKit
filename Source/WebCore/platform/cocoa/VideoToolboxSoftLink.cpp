@@ -67,13 +67,18 @@ SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTImageRotationPropertyKey
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, VideoToolbox, VTPixelTransferSessionCreate, OSStatus, (CFAllocatorRef allocator, VTPixelTransferSessionRef* pixelTransferSessionOut), (allocator, pixelTransferSessionOut))
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, VideoToolbox, VTPixelTransferSessionTransferImage, OSStatus, (VTPixelTransferSessionRef session, CVPixelBufferRef sourceBuffer, CVPixelBufferRef destinationBuffer), (session, sourceBuffer, destinationBuffer))
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, VideoToolbox, VTSessionSetProperty, OSStatus, (VTSessionRef session, CFStringRef propertyKey, CFTypeRef propertyValue), (session, propertyKey, propertyValue))
-SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_ScalingMode, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTScalingMode_Letterbox, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTScalingMode_Trim, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTScalingMode_CropSourceToCleanAperture, CFStringRef)
+
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_DestinationColorPrimaries, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_DestinationTransferFunction, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_DestinationYCbCrMatrix, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_EnableHardwareAcceleratedTransfer, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_EnableHighSpeedTransfer, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_RealTime, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTPixelTransferPropertyKey_ScalingMode, CFStringRef)
+
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTScalingMode_Letterbox, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTScalingMode_Trim, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, VideoToolbox, kVTScalingMode_CropSourceToCleanAperture, CFStringRef)
 
 SOFT_LINK_CONSTANT_MAY_FAIL_FOR_SOURCE(WebCore, VideoToolbox, kVTHEVCDecoderCapability_SupportedProfiles, CFStringRef)
 SOFT_LINK_CONSTANT_MAY_FAIL_FOR_SOURCE(WebCore, VideoToolbox, kVTHEVCDecoderCapability_PerProfileSupport, CFStringRef)

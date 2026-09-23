@@ -43,21 +43,11 @@ aria-hidden remains in effect on an element after it is relocated using aria-own
 World Wide Web Consortium
 (opens in a new window)
 
-FAIL A button using aria-owns to specify its label assert_equals: <button class="ex-label" data-testname="A button using aria-owns to specify its label" data-expectedlabel="Play" aria-owns="play">
-    <div aria-hidden="true">
-      <span id="play">Play</span>
-      <span id="pause">Pause</span>
-    </div>
-  </button> expected "Play" but got ""
-FAIL A link using aria-owns to concatenate extra text assert_equals: <a class="ex-label" data-testname="A link using aria-owns to concatenate extra text" data-expectedlabel="World Wide Web Consortium (opens in a new window)" href="https://www.w3.org/" target="_blank" aria-owns="new-window-warning-1">
-    World Wide Web Consortium
-  </a> expected "World Wide Web Consortium (opens in a new window)" but got "World Wide Web Consortium"
+PASS A button using aria-owns to specify its label
+PASS A link using aria-owns to concatenate extra text
 PASS Ignore aria-owns when on an element that is hidden from all users
 PASS Computed name of parent heading persists when aria-owns fails to relocate its contents
-FAIL Computed name of parent heading excludes content relocated by aria-owns assert_equals: <h4 class="ex-label" data-testname="Computed name of parent heading excludes content relocated by aria-owns" data-expectedlabel="Speeding">
-    Speeding
-    <mark id="car">car</mark>
-  </h4> expected "Speeding" but got "Speeding car"
+PASS Computed name of parent heading excludes content relocated by aria-owns
 PASS Ignore aria-owns when on an element with aria-hidden
 PASS Ignore aria-owns when it targets an element that is hidden from all users
 PASS Ignore aria-owns when it targets an element with an ancestor that is hidden from all users

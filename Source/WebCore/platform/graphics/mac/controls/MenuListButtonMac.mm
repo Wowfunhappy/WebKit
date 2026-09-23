@@ -91,15 +91,18 @@ void MenuListButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& b
     bool isVerticalWritingMode = style.states.contains(ControlStyle::State::VerticalWritingMode);
     auto logicalBounds = isVerticalWritingMode ? bounds.transposedRect() : bounds;
 
+    auto glyphInlineSize = isVerticalWritingMode ? glyphSize.height() : glyphSize.width();
+    auto glyphBlockSize = isVerticalWritingMode ? glyphSize.width() : glyphSize.height();
+
     bool isInlineFlipped = style.states.contains(ControlStyle::State::InlineFlippedWritingMode);
     float endEdge = [&] {
         static constexpr int arrowPaddingAfter = 6;
         if (isInlineFlipped)
             return logicalBounds.x() + arrowPaddingAfter * style.zoomFactor;
-        return logicalBounds.maxX() - arrowPaddingAfter * style.zoomFactor - glyphSize.width();
+        return logicalBounds.maxX() - arrowPaddingAfter * style.zoomFactor - glyphInlineSize;
     }();
 
-    FloatPoint glyphOrigin { endEdge, logicalBounds.y() + (logicalBounds.height() - glyphSize.height()) / 2 };
+    FloatPoint glyphOrigin { endEdge, logicalBounds.y() + (logicalBounds.height() - glyphBlockSize) / 2 };
 
     if (isVerticalWritingMode)
         glyphOrigin = glyphOrigin.transposedPoint();

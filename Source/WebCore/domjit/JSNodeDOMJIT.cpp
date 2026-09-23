@@ -33,6 +33,7 @@
 #include "DOMJITHelpers.h"
 #include "JSDOMWrapper.h"
 #include "Node.h"
+#include <JavaScriptCore/DOMJITCallDOMGetterSnippet.h>
 #include <JavaScriptCore/FrameTracers.h>
 #include <JavaScriptCore/Snippet.h>
 #include <JavaScriptCore/SnippetParams.h>

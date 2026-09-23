@@ -2,6 +2,7 @@
 <html>
 <body>
 <div id="test-content">in-document <span id="host">unslotted <b id="slotted-element" slot="named-slot">slotted</b> unslotted</span> in-document<span id="user-agent-host"></span></div>
+<div id="deep-test-content"><span id="deep-host"></span></div>
 <div id="display-none-content" style="display: none">inside-display-none</div>
 <script src="../../resources/js-test.js"></script>
 <script>
@@ -21,6 +22,16 @@ else {
     var userAgentShadowRoot = internals.ensureUserAgentShadowRoot(userAgentShadowHost);
     userAgentShadowRoot.innerHTML = 'in-user-agent-shadow';
     userAgentShadowRoot.id = 'user-agent-shadow-root';
+
+    var deepHost = document.getElementById('deep-host');
+    var outerDeepShadow = deepHost.attachShadow({mode: 'closed'});
+    outerDeepShadow.innerHTML = 'deep-level-one <span id="deep-inner-host"></span> deep-level-one';
+    outerDeepShadow.id = 'outer-deep-shadow';
+
+    var deepInnerHost = outerDeepShadow.querySelector('#deep-inner-host');
+    var innerDeepShadow = deepInnerHost.attachShadow({mode: 'closed'});
+    innerDeepShadow.innerHTML = 'deep-level-two';
+    innerDeepShadow.id = 'inner-deep-shadow';
 
     // Hide console so that we don't end up finding text in the log itself.
     document.getElementById('console').style.display = 'none';
@@ -162,6 +173,51 @@ else {
 
     shouldBe("internals.countFindMatches('in-shadow in-document', ['DoNotTraverseFlatTree'])", "0");
     shouldBe("internals.countFindMatches('in-shadow in-document', [])", "1");
+
+    // Deep shadow tree tests (shadow root nested inside another shadow root)
+
+    // No selection - deep shadow text not reachable from document
+    shouldBe("clearSelection(); document.execCommand('FindString', null, 'deep-level-one'); selectedText()", "null");
+    shouldBe("clearSelection(); window.find('deep-level-one'); selectedText()", "null");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', null, ['DoNotTraverseFlatTree']))", "null");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', null, []))", "'(#outer-deep-shadow, 0) 0 to 14'");
+
+    shouldBe("clearSelection(); document.execCommand('FindString', null, 'deep-level-two'); selectedText()", "null");
+    shouldBe("clearSelection(); window.find('deep-level-two'); selectedText()", "null");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-two', null, ['DoNotTraverseFlatTree']))", "null");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-two', null, []))", "'(#inner-deep-shadow, 0) 0 to 14'");
+
+    // Selection in innermost shadow - finding text in same shadow
+    shouldBe("setSelection(innerDeepShadow, 0); document.execCommand('FindString', null, 'deep-level-two'); selectedText()", "'(#inner-deep-shadow, 0) 0 to 14'");
+    shouldBe("setSelection(innerDeepShadow, 0); window.find('deep-level-two'); selectedText()", "'(#inner-deep-shadow, 0) 0 to 14'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-two', range(innerDeepShadow, 0), ['DoNotTraverseFlatTree']))", "'(#inner-deep-shadow, 0) 0 to 14'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-two', range(innerDeepShadow, 0), []))", "'(#inner-deep-shadow, 0) 0 to 14'");
+
+    // Selection in innermost shadow - finding text in parent shadow (deep nesting traversal)
+    shouldBe("setSelection(innerDeepShadow, 0); document.execCommand('FindString', null, 'deep-level-one'); selectedText()", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("setSelection(innerDeepShadow, 0); window.find('deep-level-one'); selectedText()", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("setSelection(innerDeepShadow, 0); window.find('deep-level-one', true, false, true); selectedText()", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', range(innerDeepShadow, 0), ['DoNotTraverseFlatTree']))", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', range(innerDeepShadow, 0), []))", "'(#outer-deep-shadow, 2) 1 to 15'");
+
+    // Selection in outer deep shadow - finding text in same shadow
+    shouldBe("setSelection(outerDeepShadow, 0); document.execCommand('FindString', null, 'deep-level-one'); selectedText()", "'(#outer-deep-shadow, 0) 0 to 14'");
+    shouldBe("setSelection(outerDeepShadow, 0); window.find('deep-level-one'); selectedText()", "'(#outer-deep-shadow, 0) 0 to 14'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', range(outerDeepShadow, 0), ['DoNotTraverseFlatTree']))", "'(#outer-deep-shadow, 0) 0 to 14'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', range(outerDeepShadow, 0), []))", "'(#outer-deep-shadow, 0) 0 to 14'");
+
+    // Selection in outer deep shadow after first text node - finding second occurrence
+    shouldBe("setSelection(outerDeepShadow, 1); document.execCommand('FindString', null, 'deep-level-one'); selectedText()", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("setSelection(outerDeepShadow, 1); window.find('deep-level-one'); selectedText()", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', range(outerDeepShadow, 1), ['DoNotTraverseFlatTree']))", "'(#outer-deep-shadow, 2) 1 to 15'");
+    shouldBe("rangeText(internals.rangeOfString('deep-level-one', range(outerDeepShadow, 1), []))", "'(#outer-deep-shadow, 2) 1 to 15'");
+
+    // Count matches in deep shadows
+    shouldBe("internals.countFindMatches('deep-level-one', ['DoNotTraverseFlatTree'])", "0");
+    shouldBe("internals.countFindMatches('deep-level-one', [])", "2");
+
+    shouldBe("internals.countFindMatches('deep-level-two', ['DoNotTraverseFlatTree'])", "0");
+    shouldBe("internals.countFindMatches('deep-level-two', [])", "1");
 
     shouldBe("rangeText(internals.rangeOfString('inside-display-none', null, []))", "null");
 

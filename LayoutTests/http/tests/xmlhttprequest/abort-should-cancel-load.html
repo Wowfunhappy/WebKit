@@ -1,3 +1,4 @@
+<!-- webkit-test-runner [ dumpResourceLoadCallbacks=true ] -->
 <html>
 <head>
 <script>
@@ -13,13 +14,13 @@ function runTest() {
     document.body.appendChild(console_messages);
 
     if (window.testRunner) {
-        testRunner.dumpResourceLoadCallbacks();
+        internals.clearMemoryCache();
         testRunner.waitUntilDone();
         testRunner.dumpAsText();
     }
     
     f();
-    testRunner.notifyDone();
+    setTimeout(() => testRunner.notifyDone(), 0);
 }
 
 function log(message)

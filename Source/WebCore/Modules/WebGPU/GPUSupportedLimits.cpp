@@ -138,11 +138,6 @@ uint32_t GPUSupportedLimits::maxVertexBufferArrayStride() const
     return m_backing->maxVertexBufferArrayStride();
 }
 
-uint32_t GPUSupportedLimits::maxInterStageShaderComponents() const
-{
-    return m_backing->maxInterStageShaderComponents();
-}
-
 uint32_t GPUSupportedLimits::maxInterStageShaderVariables() const
 {
     return m_backing->maxInterStageShaderVariables();
@@ -186,6 +181,26 @@ uint32_t GPUSupportedLimits::maxComputeWorkgroupSizeZ() const
 uint32_t GPUSupportedLimits::maxComputeWorkgroupsPerDimension() const
 {
     return m_backing->maxComputeWorkgroupsPerDimension();
+}
+
+uint32_t GPUSupportedLimits::maxStorageBuffersInFragmentStage() const
+{
+    return m_backing->maxStorageBuffersInFragmentStage();
+}
+
+uint32_t GPUSupportedLimits::maxStorageTexturesInFragmentStage() const
+{
+    return m_backing->maxStorageTexturesInFragmentStage();
+}
+
+uint32_t GPUSupportedLimits::maxStorageBuffersInVertexStage() const
+{
+    return m_backing->maxStorageBuffersInVertexStage();
+}
+
+uint32_t GPUSupportedLimits::maxStorageTexturesInVertexStage() const
+{
+    return m_backing->maxStorageTexturesInVertexStage();
 }
 
 }

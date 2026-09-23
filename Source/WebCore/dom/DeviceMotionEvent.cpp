@@ -28,6 +28,8 @@
 
 #include "DeviceMotionData.h"
 #include "DeviceOrientationAndMotionAccessController.h"
+#include "DocumentPage.h"
+#include "JSDOMConvertEnumeration.h"
 #include "JSDOMPromiseDeferred.h"
 #include "LocalDOMWindow.h"
 #include <JavaScriptCore/ConsoleTypes.h>
@@ -149,7 +151,7 @@ void DeviceMotionEvent::requestPermission(Document& document, PermissionPromise&
         return promise.resolve(PermissionState::Denied);
     }
 
-    protect(document.deviceOrientationAndMotionAccessController())->shouldAllowAccess(document, [promise = WTF::move(promise)](auto permissionState) mutable {
+    protect(protect(document.page())->deviceOrientationAndMotionAccessController())->shouldAllowAccess(protect(document), [promise = WTF::move(promise)](auto permissionState) mutable {
         if (permissionState == PermissionState::Prompt)
             return promise.reject(Exception { ExceptionCode::NotAllowedError, "Requesting device motion access requires a user gesture to prompt"_s });
         promise.resolve(permissionState);

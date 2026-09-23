@@ -44,11 +44,12 @@ function testImage()
 }
 
 var pc1, pc2;
+var localStream;
 promise_test(async (test) => {
     if (window.testRunner)
         testRunner.setUserMediaPermission(true);
 
-    const localStream = await navigator.mediaDevices.getUserMedia({video: {advanced: [{width:{min:640}}, {height:{min:480} } ]}});
+    localStream = await navigator.mediaDevices.getUserMedia({video: {advanced: [{width:{min:640}}, {height:{min:480} } ]}});
     const localStream2 = new MediaStream([localStream.getVideoTracks()[0]]); 
     if (window.internals)
         assert_true(internals.pageMediaState().includes('HasActiveVideoCaptureDevice'), "Unexpected HasActiveVideoCaptureDevice");
@@ -143,6 +144,7 @@ promise_test(async (test) => {
 }, "Call setParameters to reenable sending a given encoding");
 
 promise_test(async (test) => {
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const sender = pc1.getSenders()[0];
     let p = sender.getParameters();
     p.encodings[0].scaleResolutionDownBy = 2;

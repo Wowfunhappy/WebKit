@@ -35,6 +35,7 @@ if (DEVELOPER_MODE)
         ../API/tests/JSObjectGetProxyTargetTest.cpp
         ../API/tests/MultithreadedMultiVMExecutionTest.cpp
         ../API/tests/PingPongStackOverflowTest.cpp
+        ../API/tests/TemporalCoreTest.cpp
         ../API/tests/TypedArrayCTest.cpp
         ../API/tests/VMManagerStopTheWorldTest.cpp
         ../API/tests/testapi.cpp
@@ -89,6 +90,7 @@ if (DEVELOPER_MODE)
         ../wasm/debugger/tests/ExecutionHandlerIdleStopTest.cpp
         ../wasm/debugger/tests/ExecutionHandlerTest.cpp
         ../wasm/debugger/tests/ExecutionHandlerTestSupport.cpp
+        ../wasm/debugger/tests/ExecutionHandlerVMLifecycleTest.cpp
         ../wasm/debugger/tests/ExtGCTests.cpp
         ../wasm/debugger/tests/GDBPacketParserTest.cpp
         ../wasm/debugger/tests/MemoryTests.cpp
@@ -115,6 +117,7 @@ if (DEVELOPER_MODE)
     if (COMPILER_IS_GCC_OR_CLANG)
         WEBKIT_ADD_TARGET_CXX_FLAGS(testb3 -Wno-array-bounds)
         WEBKIT_ADD_TARGET_CXX_FLAGS(testair -Wno-array-bounds)
+        WEBKIT_ADD_TARGET_CXX_FLAGS(testb3 -Wno-error=stack-exhausted)
     endif ()
 endif ()
 
@@ -134,6 +137,10 @@ if (DEVELOPER_MODE)
     WEBKIT_EXECUTABLE(testair)
     WEBKIT_EXECUTABLE(testdfg)
     WEBKIT_EXECUTABLE(testwasmdebugger)
+
+    WEBKIT_ADD_PREFIX_HEADER(testapi ../JavaScriptCorePrefix.h PREFIX_NO_CODEGEN PREFIX_LANGUAGES CXX)
+    WEBKIT_REUSE_PREFIX_HEADER(testb3 testapi ../JavaScriptCorePrefix.h PREFIX_LANGUAGES CXX)
+    WEBKIT_REUSE_PREFIX_HEADER(testwasmdebugger testapi ../JavaScriptCorePrefix.h PREFIX_LANGUAGES CXX)
 
     file(COPY
         "${JAVASCRIPTCORE_DIR}/API/tests/testapiScripts"

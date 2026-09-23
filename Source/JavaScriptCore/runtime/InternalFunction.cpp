@@ -23,9 +23,11 @@
 #include "config.h"
 #include "InternalFunction.h"
 
+#include "Debugger.h"
 #include "JSBoundFunction.h"
 #include "JSCInlines.h"
 #include "ProxyObject.h"
+#include "VMInlines.h"
 
 namespace JSC {
 
@@ -37,12 +39,12 @@ InternalFunction::InternalFunction(VM& vm, Structure* structure, NativeFunction 
     : Base(vm, structure)
     , m_functionForCall(toTagged(functionForCall))
     , m_functionForConstruct(functionForConstruct ? toTagged(functionForConstruct) : callHostFunctionAsConstructor)
-    , m_globalObject(structure->globalObject(), WriteBarrierEarlyInit)
+    , m_globalObject(structure->realm(), WriteBarrierEarlyInit)
 {
     ASSERT_WITH_MESSAGE(m_functionForCall, "[[Call]] must be implemented");
     ASSERT(m_functionForConstruct);
 
-    ASSERT(jsDynamicCast<InternalFunction*>(this));
+    ASSERT(is<InternalFunction>(this));
     // JSCell::{getCallData,getConstructData} relies on the following conditions.
     ASSERT(methodTable()->getCallData == InternalFunction::info()->methodTable.getCallData);
     ASSERT(methodTable()->getConstructData == InternalFunction::info()->methodTable.getConstructData);
@@ -63,12 +65,16 @@ void InternalFunction::finishCreation(VM& vm, unsigned length, const String& nam
         putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(length), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
         putDirectWithoutTransition(vm, vm.propertyNames->name, nameString, PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
     }
+
+    vm.forEachDebugger([&] (Debugger& debugger) {
+        debugger.didCreateInternalFunction(*this);
+    });
 }
 
 template<typename Visitor>
 void InternalFunction::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    InternalFunction* thisObject = jsCast<InternalFunction*>(cell);
+    InternalFunction* thisObject = uncheckedDowncast<InternalFunction>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     
@@ -102,7 +108,7 @@ String InternalFunction::displayName(VM& vm)
 CallData InternalFunction::getCallData(JSCell* cell)
 {
     // Keep this function OK for invocation from concurrent compilers.
-    auto* function = jsCast<InternalFunction*>(cell);
+    auto* function = uncheckedDowncast<InternalFunction>(cell);
     ASSERT(function->m_functionForCall);
 
     CallData callData;
@@ -117,7 +123,7 @@ CallData InternalFunction::getConstructData(JSCell* cell)
 {
     // Keep this function OK for invocation from concurrent compilers.
     CallData constructData;
-    auto* function = jsCast<InternalFunction*>(cell);
+    auto* function = uncheckedDowncast<InternalFunction>(cell);
     if (function->m_functionForConstruct != callHostFunctionAsConstructor) {
         constructData.type = CallData::Type::Native;
         constructData.native.function = function->m_functionForConstruct;
@@ -141,12 +147,12 @@ Structure* InternalFunction::createSubclassStructure(JSGlobalObject* globalObjec
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    JSGlobalObject* baseGlobalObject = baseClass->globalObject();
+    JSGlobalObject* baseGlobalObject = baseClass->realm();
 
     ASSERT(baseClass->hasMonoProto());
 
     // newTarget may be an InternalFunction if we were called from Reflect.construct.
-    JSFunction* targetFunction = jsDynamicCast<JSFunction*>(newTarget);
+    JSFunction* targetFunction = dynamicDowncast<JSFunction>(newTarget);
 
     if (!targetFunction || !targetFunction->canUseAllocationProfiles()) [[unlikely]] {
         JSValue prototypeValue = newTarget->get(globalObject, vm.propertyNames->prototype);
@@ -156,7 +162,7 @@ Structure* InternalFunction::createSubclassStructure(JSGlobalObject* globalObjec
             if (baseGlobalObject->isOriginalArrayStructure(baseClass))
                 baseClass = baseGlobalObject->arrayStructureForIndexingTypeDuringAllocation(baseClass->indexingType());
         }
-        if (JSObject* prototype = jsDynamicCast<JSObject*>(prototypeValue)) {
+        if (JSObject* prototype = dynamicDowncast<JSObject>(prototypeValue)) {
             // This only happens if someone Reflect.constructs our builtin constructor with another builtin constructor or weird .prototype property on a
             // JSFunction as the new.target. Thus, we don't care about the cost of looking up the structure from our hash table every time.
             return baseGlobalObject->structureCache().emptyStructureForPrototypeFromBaseStructure(baseGlobalObject, prototype, baseClass);
@@ -166,14 +172,14 @@ Structure* InternalFunction::createSubclassStructure(JSGlobalObject* globalObjec
 
     FunctionRareData* rareData = targetFunction->ensureRareData(vm);
     Structure* structure = rareData->internalFunctionAllocationStructure();
-    if (structure && structure->classInfoForCells() == baseClass->classInfoForCells() && structure->globalObject() == baseGlobalObject) [[likely]]
+    if (structure && structure->classInfoForCells() == baseClass->classInfoForCells() && structure->realm() == baseGlobalObject) [[likely]]
         return structure;
 
     // .prototype can't be a getter if we canUseAllocationProfiles().
     JSValue prototypeValue = targetFunction->get(globalObject, vm.propertyNames->prototype);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    if (JSObject* prototype = jsDynamicCast<JSObject*>(prototypeValue))
+    if (JSObject* prototype = dynamicDowncast<JSObject>(prototypeValue))
         return rareData->createInternalFunctionAllocationStructureFromBase(vm, baseGlobalObject, prototype, baseClass);
 
     return baseClass;
@@ -198,16 +204,16 @@ JSGlobalObject* getFunctionRealm(JSGlobalObject* globalObject, JSObject* object)
 
     while (true) {
         if (object->inherits<JSBoundFunction>()) {
-            object = jsCast<JSBoundFunction*>(object)->targetFunction();
+            object = uncheckedDowncast<JSBoundFunction>(object)->targetFunction();
             continue;
         }
         if (object->inherits<JSRemoteFunction>()) {
-            object = jsCast<JSRemoteFunction*>(object)->targetFunction();
+            object = uncheckedDowncast<JSRemoteFunction>(object)->targetFunction();
             continue;
         }
 
         if (object->type() == ProxyObjectType) {
-            auto* proxy = jsCast<ProxyObject*>(object);
+            auto* proxy = uncheckedDowncast<ProxyObject>(object);
             if (proxy->isRevoked()) {
                 throwTypeError(globalObject, scope, "Cannot get function realm from revoked Proxy"_s);
                 return nullptr;
@@ -216,7 +222,7 @@ JSGlobalObject* getFunctionRealm(JSGlobalObject* globalObject, JSObject* object)
             continue;
         }
 
-        return object->globalObject();
+        return object->realm();
     }
 }
 

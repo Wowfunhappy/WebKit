@@ -75,13 +75,13 @@ public:
 
     WebCore::LayerPool& layerPool() { return m_layerPool.get(); }
 
-    float deviceScaleFactor() const;
+    float NODELETE deviceScaleFactor() const;
     
     std::optional<WebCore::DestinationColorSpace> displayColorSpace() const;
 
     std::optional<DrawingAreaIdentifier> NODELETE drawingAreaIdentifier() const;
 
-    WebCore::UseLosslessCompression useIOSurfaceLosslessCompression() const;
+    WebCore::UseLosslessCompression NODELETE useIOSurfaceLosslessCompression() const;
 
     void buildTransaction(RemoteLayerTreeTransaction&, WebCore::PlatformCALayer& rootLayer, WebCore::FrameIdentifier);
 

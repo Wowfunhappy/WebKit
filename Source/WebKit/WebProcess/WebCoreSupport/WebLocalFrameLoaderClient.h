@@ -110,6 +110,7 @@ private:
 #endif
     void dispatchDidChangeMainDocument() final;
     void dispatchWillChangeDocument(const URL& currentUrl, const URL& newUrl) final;
+    void dispatchDidChangeCSPOriginsThatUpgradeInsecureNavigations(const HashSet<WebCore::SecurityOriginData>&) final;
 
     void dispatchDidDispatchOnloadEvents() final;
     void dispatchDidReceiveServerRedirectForProvisionalLoad() final;
@@ -218,6 +219,10 @@ private:
 
     void didRestoreFromBackForwardCache() final;
 
+    void didCacheBackForwardItem(WebCore::BackForwardItemIdentifier, WebCore::BackForwardFrameItemIdentifier) final;
+    void didEvictBackForwardItem(WebCore::BackForwardItemIdentifier) final;
+    void didTakeBackForwardItemForRestoration(WebCore::BackForwardItemIdentifier) final;
+
     bool canCachePage() const final;
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;
 
@@ -282,20 +287,21 @@ private:
 
     void documentLoaderDetached(WebCore::NavigationIdentifier, WebCore::LoadWillContinueInAnotherProcess) final;
 
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    void didAccessWindowProxyPropertyViaOpener(WebCore::SecurityOriginData&&, WebCore::WindowProxyProperty) final;
-#endif
-
-    bool siteIsolationEnabled() const;
+    bool NODELETE siteIsolationEnabled() const;
 
     void broadcastAllFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncData&) final;
     void broadcastFrameTreeSyncDataToOtherProcesses(const WebCore::FrameTreeSyncSerializationData&) final;
+
+    void didNotifyUserActivation(MonotonicTime) final;
+    void didConsumeUserActivation() final;
 
     void dispatchDecidePolicyForBackForwardNavigationAction(WebCore::FrameLoadRequest&&, const String& referer, WebCore::FrameLoadType);
 
 #if ENABLE(CONTENT_EXTENSIONS)
     void didExceedNetworkUsageThreshold();
 #endif
+
+    void applyMonitorUnloadToOwnerFrame(WebCore::IFrameUnloadReason) final;
 
 #if ENABLE(PDF_PLUGIN)
     RefPtr<PluginView> m_pluginView;
@@ -319,9 +325,6 @@ private:
 
     bool isParentProcessAFullWebBrowser() const final;
 
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-    void modelInlinePreviewUUIDs(CompletionHandler<void(Vector<String>)>&&) const final;
-#endif
 
     void dispatchLoadEventToOwnerElementInAnotherProcess() final;
 

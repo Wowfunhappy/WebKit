@@ -34,6 +34,7 @@
 #include "JSCJSValueInlines.h"
 #include "ResourceExhaustion.h"
 #include "ScriptExecutable.h"
+#include "SymbolTableInlines.h"
 #include "TypeProfiler.h"
 
 #include <wtf/CommaPrinter.h>
@@ -95,7 +96,7 @@ SymbolTable::~SymbolTable() = default;
 template<typename Visitor>
 void SymbolTable::visitChildrenImpl(JSCell* thisCell, Visitor& visitor)
 {
-    SymbolTable* thisSymbolTable = jsCast<SymbolTable*>(thisCell);
+    SymbolTable* thisSymbolTable = uncheckedDowncast<SymbolTable>(thisCell);
     ASSERT_GC_OBJECT_INHERITS(thisSymbolTable, info());
     Base::visitChildren(thisSymbolTable, visitor);
 
@@ -119,7 +120,7 @@ const SymbolTable::LocalToEntryVec& SymbolTable::localToEntry(const ConcurrentJS
                 size = std::max(size, offset.scopeOffset().offset() + 1);
         }
     
-        m_localToEntry = makeUnique<LocalToEntryVec>(size, nullptr);
+        m_localToEntry = makeUnique<LocalToEntryVec>(FillWith { }, size, nullptr);
         for (auto& entry : m_map) {
             VarOffset offset = entry.value.varOffset();
             if (offset.isScope())
@@ -138,7 +139,7 @@ SymbolTableEntry* SymbolTable::entryFor(const ConcurrentJSLocker& locker, ScopeO
     return toEntryVector[offset.offset()];
 }
 
-SymbolTable* SymbolTable::cloneScopePart(VM& vm)
+SymbolTable* SymbolTable::cloneScopePart(VM& vm, PropagateCloneInvalidationToOriginal propagateCloneInvalidationToOriginal)
 {
     SymbolTable* result = SymbolTable::create(vm);
     
@@ -213,7 +214,14 @@ SymbolTable* SymbolTable::cloneScopePart(VM& vm)
                 result->m_rareData->m_privateNames.add(name.key, name.value);
         }
     }
+
     result->m_clonedFrom.set(vm, result, this);
+    result->m_propagateCloneInvalidationToOriginal = propagateCloneInvalidationToOriginal;
+    if (result->m_propagateCloneInvalidationToOriginal == PropagateCloneInvalidationToOriginal::Yes) {
+        // If the original SymbolTable's singleton is already invalidated, the new clone starts out invalidated too.
+        if (m_singleton.hasBeenInvalidated())
+            result->m_singleton.invalidate(vm, StringFireDetail("Singleton was previously invalidated"));
+    }
     return result;
 }
 

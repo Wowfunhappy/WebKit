@@ -29,8 +29,8 @@
 
 #pragma once
 
-#include "InstrumentingAgents.h"
 #include <JavaScriptCore/PerGlobalObjectWrapperWorld.h>
+#include <WebCore/InstrumentingAgents.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>

@@ -323,8 +323,8 @@ static const RatioSchema& deviceAspectRatioFeatureSchema()
         "device-aspect-ratio"_s,
         OptionSet<MediaQueryDynamicDependency>(),
         [](auto& context) {
-            if (RefPtr localFrame = context.document->frame()->localMainFrame()) {
-                auto screenSize = localFrame->screenSize();
+            if (RefPtr frame = context.document->frame()) {
+                auto screenSize = frame->screenSize();
                 return FloatSize { screenSize.width(), screenSize.height() };
             }
             return FloatSize { 0.0f, 0.0f };
@@ -339,8 +339,8 @@ static const LengthSchema& deviceHeightFeatureSchema()
         "device-height"_s,
         OptionSet<MediaQueryDynamicDependency>(),
         [](auto& context) {
-            if (RefPtr localFrame = context.document->frame()->localMainFrame())
-                return LayoutUnit { localFrame->screenSize().height() };
+            if (RefPtr frame = context.document->frame())
+                return LayoutUnit { frame->screenSize().height() };
             return LayoutUnit { 0.0f };
         }
     };
@@ -365,8 +365,8 @@ static const LengthSchema& deviceWidthFeatureSchema()
         "device-width"_s,
         OptionSet<MediaQueryDynamicDependency>(),
         [](auto& context) {
-            if (RefPtr localFrame = context.document->frame()->localMainFrame())
-                return LayoutUnit { localFrame->screenSize().width() };
+            if (RefPtr frame = context.document->frame())
+                return LayoutUnit { frame->screenSize().width() };
             return LayoutUnit { 0.0f };
         }
     };
@@ -798,6 +798,35 @@ static const IdentifierSchema& overflowInlineFeatureSchema()
 }
 
 #if ENABLE(DARK_MODE_CSS)
+static bool frameOwnerElementAncestorsUseDarkAppearance(const Frame& frame)
+{
+    {
+        RefPtr<const Frame> child = &frame;
+        RefPtr<const Frame> parent = child->parent();
+
+        // From CSS Media Queries Level 5: if the frame is a subframe, its preferred color scheme
+        // is the color scheme of its owner element:
+        // > the preferred color scheme must reflect the value of the used color scheme on the
+        // > embedding node in the embedding document.
+
+        // Iterate up the chain of owner elements to find the first one with explicitly set color scheme.
+        while (parent) {
+            ASSERT(child);
+
+            auto ownerElementAppearance = protect(parent->virtualView())->appearanceOfOwnerElementOfChildFrame(*child);
+
+            if (ownerElementAppearance.contains(FrameOwnerElementAppearance::ExplicitlySet))
+                return ownerElementAppearance.contains(FrameOwnerElementAppearance::IsDark);
+
+            child = parent;
+            parent = child->parent();
+        }
+    }
+
+    // If none of the ancestor owner elements specify color scheme, fallback to the system appearance.
+    return protect(frame.page())->useDarkAppearance();
+}
+
 static const IdentifierSchema& prefersColorSchemeFeatureSchema()
 {
     static MainThreadNeverDestroyed<IdentifierSchema> schema {
@@ -805,8 +834,7 @@ static const IdentifierSchema& prefersColorSchemeFeatureSchema()
         FixedVector { CSSValueLight, CSSValueDark },
         MediaQueryDynamicDependency::Appearance,
         [](auto& context) {
-            Ref page = *context.document->frame()->page();
-            bool useDarkAppearance = page->useDarkAppearance();
+            bool useDarkAppearance = frameOwnerElementAncestorsUseDarkAppearance(*context.document->frame());
 
             return MatchingIdentifiers { useDarkAppearance ? CSSValueDark : CSSValueLight };
         }

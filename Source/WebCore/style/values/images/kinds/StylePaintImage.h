@@ -27,8 +27,8 @@
 
 #pragma once
 
+#include "StyleCustomIdent.h"
 #include "StyleGeneratedImage.h"
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -38,7 +38,7 @@ namespace Style {
 
 class PaintImage final : public GeneratedImage {
 public:
-    static Ref<PaintImage> create(String name, Ref<CSSVariableData> arguments)
+    static Ref<PaintImage> create(CustomIdent&& name, Ref<CSSVariableData> arguments)
     {
         return adoptRef(*new PaintImage(WTF::move(name), WTF::move(arguments)));
     }
@@ -47,11 +47,12 @@ public:
     static constexpr bool isFixedSize = false;
 
 private:
-    explicit PaintImage(String&&, Ref<CSSVariableData>&&);
+    explicit PaintImage(CustomIdent&&, Ref<CSSVariableData>&&);
 
     bool operator==(const Image&) const final;
 
-    Ref<CSSValue> computedStyleValue(const RenderStyle&) const final;
+    Ref<CSSValue> computedStyleValue(const Style::ComputedStyle&) const final;
+    Ref<DeprecatedCSSOMValue> computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle&, CSSStyleDeclaration&) const final;
     bool isPending() const final;
     void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
     RefPtr<WebCore::Image> image(const RenderElement*, const FloatSize&, const GraphicsContext& destinationContext, bool isForFirstLine) const final;
@@ -60,7 +61,7 @@ private:
     void didAddClient(RenderElement&) final { }
     void didRemoveClient(RenderElement&) final { }
 
-    String m_name;
+    CustomIdent m_name;
     const Ref<CSSVariableData> m_arguments;
 };
 

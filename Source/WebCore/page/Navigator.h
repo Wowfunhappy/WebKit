@@ -64,20 +64,20 @@ public:
     NavigatorUAData& userAgentData() const;
     
 #if ENABLE(NAVIGATOR_STANDALONE)
-    bool standalone() const;
+    bool NODELETE standalone() const;
 #endif
 
     int NODELETE maxTouchPoints() const;
 
     WEBCORE_EXPORT GPU* gpu();
 
-    Page* page();
+    Page* NODELETE page();
 
-    const Document* document() const;
+    const Document* NODELETE document() const;
     Document* document();
 
-    void setAppBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
-    void clearAppBadge(Ref<DeferredPromise>&&);
+    void setAppBadge(ScriptExecutionContext&, std::optional<unsigned long long>, Ref<DeferredPromise>&&);
+    void clearAppBadge(ScriptExecutionContext&, Ref<DeferredPromise>&&);
 
 private:
     void showShareData(ExceptionOr<ShareDataWithParsedURL&>, Ref<DeferredPromise>&&);

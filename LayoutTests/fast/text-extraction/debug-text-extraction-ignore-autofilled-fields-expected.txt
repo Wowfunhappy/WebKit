@@ -1,4 +1,4 @@
 root
-	input,'email',placeholder='Enter your email'
-	input,'password',placeholder='Enter your password',secure
-	input,'number',placeholder='Security code','123456'
+	input placeholder='Enter your email' autofilled
+	input placeholder='Enter your password' secure autofilled
+	input number placeholder='Security code' '123456'

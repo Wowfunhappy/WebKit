@@ -86,6 +86,7 @@ public:
     WEBCORE_EXPORT ResolvedEffectTiming resolvedTimingForTesting(WebAnimationTime timelineTime, std::optional<WebAnimationTime> timelineDuration) const;
 
     void clearProperty(AcceleratedEffectProperty);
+    void makeForwardsFilling();
 
     // Encoding and decoding support
     const AnimationEffectTiming& timing() const LIFETIME_BOUND { return m_timing; }
@@ -103,6 +104,7 @@ public:
 
     const OptionSet<AcceleratedEffectProperty>& disallowedProperties() const LIFETIME_BOUND { return m_disallowedProperties; }
     const OptionSet<AcceleratedEffectProperty>& replacedProperties() const LIFETIME_BOUND { return m_replacedProperties; }
+    const OptionSet<AcceleratedEffectProperty> composedProperties() const;
 
     bool NODELETE animatesTransformRelatedProperty() const;
     WEBCORE_EXPORT bool NODELETE hasHighImpact() const;

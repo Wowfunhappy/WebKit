@@ -176,7 +176,7 @@ public:
     ASCIILiteral logClassName() const override { return "PeerConnectionBackend"_s; }
     WTFLogChannel& NODELETE logChannel() const final;
 #if PLATFORM(WPE) || PLATFORM(GTK)
-    void handleLogMessage(const WTFLogChannel&, WTFLogLevel, Vector<JSONLogValue>&&) final;
+    void handleLogMessage(const WTFLogChannel&, WTFLogLevel, std::optional<WTFLogLocation>, const Vector<JSONLogValue>&) final;
 #endif
 #endif
 
@@ -215,7 +215,7 @@ public:
 
     virtual void collectTransceivers(Vector<Ref<RTCRtpTransceiver>>&&) { };
 
-    ScriptExecutionContext* context() const;
+    ScriptExecutionContext* NODELETE context() const;
 
     virtual void suspend() { }
     virtual void resume() { }

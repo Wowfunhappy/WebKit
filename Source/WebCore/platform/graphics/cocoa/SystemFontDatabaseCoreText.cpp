@@ -182,7 +182,7 @@ Vector<RetainPtr<CTFontDescriptorRef>> SystemFontDatabaseCoreText::computeCascad
     return result;
 }
 
-static CGFloat mapWeight(FontSelectionValue weight)
+static CGFloat NODELETE mapWeight(FontSelectionValue weight)
 {
     if (weight < FontSelectionValue(150))
         return kCTFontWeightUltraLight;

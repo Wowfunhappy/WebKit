@@ -30,6 +30,7 @@
 
 #include "Logging.h"
 #include "NetworkRTCMonitor.h"
+#include "NetworkRTCProvider.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/WorkQueue.h>
 
@@ -63,7 +64,7 @@ void NetworkRTCSharedMonitor::addListener(NetworkRTCMonitor& monitor)
         return;
 
 #if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
-    if (protect(monitor.rtcProvider())->webRTCInterfaceMonitoringViaNWEnabled()) {
+    if (monitor.rtcProvider().webRTCInterfaceMonitoringViaNWEnabled()) {
         setupNWPathMonitor();
         return;
     }

@@ -32,9 +32,6 @@
 #include "IntlWorkaround.h"
 #include "JSCInlines.h"
 #include "ObjectConstructor.h"
-#include <unicode/ucurr.h>
-#include <unicode/uloc.h>
-#include <wtf/unicode/icu/ICUHelpers.h>
 
 namespace JSC {
 
@@ -108,7 +105,7 @@ JSObject* IntlSegments::createSegmentIterator(JSGlobalObject* globalObject)
 template<typename Visitor>
 void IntlSegments::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<IntlSegments*>(cell);
+    auto* thisObject = uncheckedDowncast<IntlSegments>(cell);
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_string);
 }

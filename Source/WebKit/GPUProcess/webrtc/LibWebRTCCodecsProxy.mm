@@ -58,6 +58,9 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <WebCore/CoreVideoSoftLink.h>
 
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_connection)
+#define MESSAGE_CHECK_COMPLETION(assertion, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, m_connection, completion)
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -162,9 +165,9 @@ auto LibWebRTCCodecsProxy::createDecoderCallback(VideoDecoderIdentifier identifi
     };
 }
 
-std::unique_ptr<WebCore::WebRTCVideoDecoder> LibWebRTCCodecsProxy::createLocalDecoder(VideoDecoderIdentifier identifier, WebCore::VideoCodecType codecType, bool useRemoteFrames, bool enableAdditionalLogging)
+std::unique_ptr<WebCore::WebRTCVideoDecoder> LibWebRTCCodecsProxy::createLocalDecoder(VideoDecoderIdentifier identifier, WebCore::VideoCodecType codecType, bool useRemoteFrames, bool enableAdditionalLogging, std::optional<WebCore::PlatformVideoColorSpace>&& colorSpaceOverride)
 {
-    return WebRTCVideoDecoder::create(codecType, makeBlockPtr(createDecoderCallback(identifier, useRemoteFrames, enableAdditionalLogging)).get());
+    return WebRTCVideoDecoder::create(codecType, makeBlockPtr(createDecoderCallback(identifier, useRemoteFrames, enableAdditionalLogging)).get(), WTF::move(colorSpaceOverride));
 }
 
 static bool validateCodecString(WebCore::VideoCodecType codecType, const String& codecString)
@@ -194,16 +197,18 @@ static bool validateCodecString(WebCore::VideoCodecType codecType, const String&
     return true;
 }
 
-void LibWebRTCCodecsProxy::createDecoder(VideoDecoderIdentifier identifier, WebCore::VideoCodecType codecType, const String& codecString, bool useRemoteFrames, bool enableAdditionalLogging, CompletionHandler<void(bool)>&& callback)
+void LibWebRTCCodecsProxy::createDecoder(VideoDecoderIdentifier identifier, WebCore::VideoCodecType codecType, const String& codecString, bool useRemoteFrames, bool enableAdditionalLogging, std::optional<WebCore::PlatformVideoColorSpace>&& colorSpaceOverride, CompletionHandler<void(bool)>&& callback)
 {
     assertIsCurrent(workQueue());
+
+    MESSAGE_CHECK_COMPLETION(!m_decoders.contains(identifier), callback(false));
 
     if (!codecString.isNull() && !validateCodecString(codecType, codecString)) {
         callback(false);
         return;
     }
 
-    auto decoder = createLocalDecoder(identifier, codecType, useRemoteFrames, enableAdditionalLogging);
+    auto decoder = createLocalDecoder(identifier, codecType, useRemoteFrames, enableAdditionalLogging, WTF::move(colorSpaceOverride));
     if (!decoder) {
         callback(false);
         return;
@@ -255,6 +260,13 @@ void LibWebRTCCodecsProxy::setDecoderFormatDescription(VideoDecoderIdentifier id
 {
     doDecoderTask(identifier, [&](auto& decoder) {
         decoder.webrtcDecoder->setFormat(data, width, height);
+    });
+}
+
+void LibWebRTCCodecsProxy::setDecoderColorSpaceOverride(VideoDecoderIdentifier identifier, std::optional<WebCore::PlatformVideoColorSpace>&& colorSpaceOverride)
+{
+    doDecoderTask(identifier, [&](auto& decoder) {
+        decoder.webrtcDecoder->setColorSpaceOverride(WTF::move(colorSpaceOverride));
     });
 }
 
@@ -328,6 +340,9 @@ static bool validateEncoderConfiguration(WebCore::VideoCodecType codecType, cons
 void LibWebRTCCodecsProxy::createEncoder(VideoEncoderIdentifier identifier, WebCore::VideoCodecType codecType, const String& codecString, const Vector<std::pair<String, String>>& parameters, bool useLowLatency, bool useAnnexB, VideoEncoderScalabilityMode scalabilityMode, CompletionHandler<void(bool)>&& callback)
 {
     assertIsCurrent(workQueue());
+
+    MESSAGE_CHECK_COMPLETION(!m_encoders.contains(identifier), callback(false));
+
     std::map<std::string, std::string> rtcParameters;
     for (auto& parameter : parameters)
         rtcParameters.emplace(parameter.first.utf8().data(), parameter.second.utf8().data());
@@ -582,5 +597,8 @@ void LibWebRTCCodecsProxy::updateSharedPreferencesForWebProcess(SharedPreference
 }
 
 }
+
+#undef MESSAGE_CHECK
+#undef MESSAGE_CHECK_COMPLETION
 
 #endif

@@ -26,6 +26,7 @@ import os
 import shutil
 import tempfile
 from unittest import skip as skipTest
+from unittest.mock import create_autospec
 
 from buildbot.process.results import SUCCESS, FAILURE, WARNINGS, SKIPPED, EXCEPTION
 from buildbot.test.fake.fakebuild import FakeBuild
@@ -449,7 +450,7 @@ class TestCompileWebKit(BuildStepMixinAdditions, unittest.TestCase):
                 workdir='wkdir',
                 timeout=3600,
                 log_environ=True,
-                command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'perl Tools/Scripts/build-webkit --no-fatal-warnings --release --architecture "x86_64 arm64" WK_VALIDATE_DEPENDENCIES=YES 2>&1 | perl Tools/Scripts/filter-build-webkit -logfile build-log.txt'],
+                command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'perl Tools/Scripts/build-webkit --no-fatal-warnings --release --architecture "x86_64 arm64" WK_VALIDATE_DEPENDENCIES=YES WK_ENABLE_SLOW_BUILD_VERIFICATION=YES 2>&1 | perl Tools/Scripts/filter-build-webkit -logfile build-log.txt'],
             ).exit(0),
         )
         self.expect_outcome(result=SUCCESS, state_string='compiled')
@@ -988,14 +989,14 @@ class TestRunWebKitTests(BuildStepMixinAdditions, unittest.TestCase):
         self.configureStep()
         self.setProperty('fullPlatform', 'mac-highsierra')
         self.setProperty('configuration', 'debug')
-        self.setProperty('additionalArguments', ['--site-isolation'])
+        self.setProperty('additionalArguments', ['--site-isolation-enabled-by-default'])
         self.expectRemoteCommands(
             ExpectShell(
                 workdir='wkdir',
                 timeout=10800,
                 log_environ=False,
                 command=['/bin/bash', '--posix', '-o', 'pipefail', '-c',
-                         f'python3 Tools/Scripts/run-webkit-tests --no-build --no-show-results --no-new-test-results --clobber-old-results --builder-name iOS-14-Simulator-WK2-Tests-EWS --build-number 101 --buildbot-worker ews100 --buildbot-master {CURRENT_HOSTNAME} --exit-after-n-crashes-or-timeouts 300 --exit-after-n-failures 500 --debug --report {RESULTS_WEBKIT_URL} --results-directory layout-test-results --debug-rwt-logging --site-isolation 2>&1 | python3 Tools/Scripts/filter-test-logs layout'],
+                         f'python3 Tools/Scripts/run-webkit-tests --no-build --no-show-results --no-new-test-results --clobber-old-results --builder-name iOS-14-Simulator-WK2-Tests-EWS --build-number 101 --buildbot-worker ews100 --buildbot-master {CURRENT_HOSTNAME} --exit-after-n-crashes-or-timeouts 300 --exit-after-n-failures 500 --debug --report {RESULTS_WEBKIT_URL} --results-directory layout-test-results --debug-rwt-logging --site-isolation-enabled-by-default 2>&1 | python3 Tools/Scripts/filter-test-logs layout'],
                 env={'RESULTS_SERVER_API_KEY': 'test-api-key'}
             ).exit(0)
         )
@@ -1200,7 +1201,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
                         command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', ' '.join(command) + ' 2>&1 | python3 Tools/Scripts/filter-test-logs jsc'],
                         logfiles={'json': self.jsonFileName},
                         env={'RESULTS_SERVER_API_KEY': 'test-api-key'},
-                        timeout=72000,
+                        timeout=1200,
                         )
             .exit(0),
         )
@@ -1216,7 +1217,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
                         command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', ' '.join(command) + ' 2>&1 | python3 Tools/Scripts/filter-test-logs jsc'],
                         logfiles={'json': self.jsonFileName},
                         env={'RESULTS_SERVER_API_KEY': 'test-api-key'},
-                        timeout=72000,
+                        timeout=1200,
                         )
             .log('stdio', stdout='Results for JSC stress tests:\n 9 failures found.')
             .exit(2),
@@ -1257,10 +1258,10 @@ class TestRunAPITests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         log_environ=False,
-                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', base_command + ' > logs.txt 2>&1 ; ret=$? ; grep "Ran " logs.txt ; exit $ret'],
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', base_command + ' 2>&1 | python3 Tools/Scripts/filter-test-logs api'],
                         logfiles={'json': self.jsonFileName},
                         env={'RESULTS_SERVER_API_KEY': 'test-api-key'},
-                        timeout=10800,
+                        timeout=1200,
                         )
             .exit(0),
         )
@@ -1274,10 +1275,10 @@ class TestRunAPITests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         log_environ=False,
-                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', base_command + ' > logs.txt 2>&1 ; ret=$? ; grep "Ran " logs.txt ; exit $ret'],
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', base_command + ' 2>&1 | python3 Tools/Scripts/filter-test-logs api'],
                         logfiles={'json': self.jsonFileName},
                         env={'RESULTS_SERVER_API_KEY': 'test-api-key'},
-                        timeout=10800,
+                        timeout=1200,
                         )
             .log('stdio', stderr=stderr_output)
             .exit(1),
@@ -1290,21 +1291,21 @@ class TestRunAPITests(BuildStepMixinAdditions, unittest.TestCase):
         return self.successTest('mac', 'mac-highsierra', 'release', expected_command)
 
     def test_success_mac_additional_arguments(self):
-        additional_arguments = ['--no-retry-failures', '--site-isolation']
-        expected_command = f'python3 Tools/Scripts/run-api-tests --timestamps --no-build --json-output={self.jsonFileName} --release --verbose --buildbot-master {CURRENT_HOSTNAME} --builder-name API-Tests --build-number 101 --buildbot-worker bot100 --report https://results.webkit.org --site-isolation'
+        additional_arguments = ['--no-retry-failures', '--site-isolation-enabled-by-default']
+        expected_command = f'python3 Tools/Scripts/run-api-tests --timestamps --no-build --json-output={self.jsonFileName} --release --verbose --buildbot-master {CURRENT_HOSTNAME} --builder-name API-Tests --build-number 101 --buildbot-worker bot100 --report https://results.webkit.org --site-isolation-enabled-by-default'
         return self.successTest('mac', 'mac-highsierra', 'release', expected_command, additional_arguments)
 
     def test_success_gtk(self):
-        expected_command = 'python3 Tools/Scripts/run-gtk-tests --release --json-output=api_test_results.json'
+        expected_command = f'python3 Tools/Scripts/run-gtk-tests --release --json-output=api_test_results.json --buildbot-master={CURRENT_HOSTNAME} --builder-name=API-Tests --build-number=101 --buildbot-worker=bot100 --report=https://results.webkit.org'
         return self.successTest('gtk', 'gtk', 'release', expected_command)
 
     def test_success_wpe(self):
-        expected_command = 'python3 Tools/Scripts/run-wpe-tests --release --json-output=api_test_results.json'
+        expected_command = f'python3 Tools/Scripts/run-wpe-tests --release --json-output=api_test_results.json --buildbot-master={CURRENT_HOSTNAME} --builder-name=API-Tests --build-number=101 --buildbot-worker=bot100 --report=https://results.webkit.org'
         return self.successTest('wpe', 'wpe', 'release', expected_command)
 
     def test_success_wpe_additional_arguments(self):
         additional_arguments = ['--wpe-legacy-api']
-        expected_command = 'python3 Tools/Scripts/run-wpe-tests --release --json-output=api_test_results.json --wpe-legacy-api'
+        expected_command = f'python3 Tools/Scripts/run-wpe-tests --release --json-output=api_test_results.json --buildbot-master={CURRENT_HOSTNAME} --builder-name=API-Tests --build-number=101 --buildbot-worker=bot100 --report=https://results.webkit.org --wpe-legacy-api'
         return self.successTest('wpe', 'wpe', 'release', expected_command, additional_arguments)
 
     def test_failure_mac(self):
@@ -1314,16 +1315,39 @@ class TestRunAPITests(BuildStepMixinAdditions, unittest.TestCase):
         return self.failureTest('mac', 'mac-highsierra', 'release', expected_command, generated_stderr_output, expected_state_string)
 
     def test_failure_gtk(self):
-        expected_command = 'python3 Tools/Scripts/run-gtk-tests --release --json-output=api_test_results.json'
+        expected_command = f'python3 Tools/Scripts/run-gtk-tests --release --json-output=api_test_results.json --buildbot-master={CURRENT_HOSTNAME} --builder-name=API-Tests --build-number=101 --buildbot-worker=bot100 --report=https://results.webkit.org'
         generated_stderr_output = 'Random string should not affect\nRan 100 tests of 200 with 90 successful'
         expected_state_string = '10 api tests failed or timed out'
         return self.failureTest('gtk', 'gtk', 'release', expected_command, generated_stderr_output, expected_state_string)
 
     def test_failure_wpe(self):
-        expected_command = 'python3 Tools/Scripts/run-wpe-tests --release --json-output=api_test_results.json'
+        expected_command = f'python3 Tools/Scripts/run-wpe-tests --release --json-output=api_test_results.json --buildbot-master={CURRENT_HOSTNAME} --builder-name=API-Tests --build-number=101 --buildbot-worker=bot100 --report=https://results.webkit.org'
         generated_stderr_output = f'Command failed: {expected_command}\nRandomString no issue\nRan 95 tests of 95 with 90 successful'
         expected_state_string = '5 api tests failed or timed out'
         return self.failureTest('wpe', 'wpe', 'release', expected_command, generated_stderr_output, expected_state_string)
+
+    def test_expected_failures_only_mac(self):
+        expected_command = f'python3 Tools/Scripts/run-api-tests --timestamps --no-build --json-output={self.jsonFileName} --release --verbose --buildbot-master {CURRENT_HOSTNAME} --builder-name API-Tests --build-number 101 --buildbot-worker bot100 --report https://results.webkit.org'
+        self.configureStep('mac', 'mac-highsierra', 'release')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        log_environ=False,
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', expected_command + ' 2>&1 | python3 Tools/Scripts/filter-test-logs api'],
+                        logfiles={'json': self.jsonFileName},
+                        env={'RESULTS_SERVER_API_KEY': 'test-api-key'},
+                        timeout=1200,
+                        )
+            .log('stdio', stderr='Ran 91 tests of 123 with 89 successful (2 expected failures)')
+            .exit(0),
+        )
+        self.expect_outcome(result=SUCCESS, state_string='run-api-tests')
+        return self.run_step()
+
+    def test_failure_excludes_expected_mac(self):
+        expected_command = f'python3 Tools/Scripts/run-api-tests --timestamps --no-build --json-output={self.jsonFileName} --release --verbose --buildbot-master {CURRENT_HOSTNAME} --builder-name API-Tests --build-number 101 --buildbot-worker bot100 --report https://results.webkit.org'
+        generated_stderr_output = f'Failed: {expected_command}\nRan 91 tests of 123 with 89 successful (1 expected failures)'
+        expected_state_string = '1 api test failed or timed out'
+        return self.failureTest('mac', 'mac-highsierra', 'release', expected_command, generated_stderr_output, expected_state_string)
 
 
 class TestSetPermissions(BuildStepMixinAdditions, unittest.TestCase):
@@ -2118,6 +2142,8 @@ class current_hostname(object):
 
 
 class TestGenerateS3URL(BuildStepMixinAdditions, unittest.TestCase):
+    SAMPLE_URL = 'https://s3-us-west-2.amazonaws.com/archives.webkit.org/mac-highsierra-x86_64-release/1234.zip?signed=1'
+
     def setUp(self):
         self.longMessage = True
         return self.setup_test_build_step()
@@ -2125,69 +2151,83 @@ class TestGenerateS3URL(BuildStepMixinAdditions, unittest.TestCase):
     def tearDown(self):
         return self.tear_down_test_build_step()
 
-    def configureStep(self, identifier='mac-highsierra-x86_64-release', extension='zip', content_type=None, additions=None):
-        self.setup_step(GenerateS3URL(identifier, extension=extension, content_type=content_type, additions=additions))
+    def configureStep(self, identifier='mac-highsierra-x86_64-release', extension='zip', content_type=None, minified=False, additions=None):
+        self.setup_step(GenerateS3URL(identifier, extension=extension, content_type=content_type, minified=minified, additions=additions))
         self.setProperty('archive_revision', '1234')
 
-    def disabled_test_success(self):
-        # TODO: Figure out how to pass logs to unit-test for MasterShellCommand steps
+    def test_success(self):
         self.configureStep()
-        self.expectLocalCommands(
-            ExpectMasterShellCommand(command=['python3',
-                                              '../Shared/generate-s3-url',
-                                              '--revision', '1234',
-                                              '--identifier', 'mac-highsierra-x86_64-release',
-                                              '--extension', 'zip',
-                                              ])
-            .exit(0),
-        )
+        mock_generate = create_autospec(generate_s3_url.generateS3URL, return_value=self.SAMPLE_URL)
+        self.patch(generate_s3_url, 'generateS3URL', mock_generate)
         self.expect_outcome(result=SUCCESS, state_string='Generated S3 URL')
         with current_hostname(BUILD_WEBKIT_HOSTNAMES[0]):
-            return self.run_step()
+            d = self.run_step()
 
-    @expectedFailure
+        def check(_):
+            mock_generate.assert_called_once_with(
+                'archives.webkit.org', 'mac-highsierra-x86_64-release', '1234',
+                additions=None, extension='zip', content_type=None,
+            )
+            self.assertEqual(self.build.s3url, self.SAMPLE_URL)
+            self.assertEqual(
+                self.build.s3_archives,
+                ['https://s3-us-west-2.amazonaws.com/archives.webkit.org/mac-highsierra-x86_64-release/1234.zip'],
+            )
+        d.addCallback(check)
+        return d
+
+    def test_success_minified(self):
+        self.configureStep(minified=True)
+        mock_generate = create_autospec(generate_s3_url.generateS3URL, return_value=self.SAMPLE_URL)
+        self.patch(generate_s3_url, 'generateS3URL', mock_generate)
+        self.expect_outcome(result=SUCCESS, state_string='Generated S3 URL')
+        with current_hostname(BUILD_WEBKIT_HOSTNAMES[0]):
+            d = self.run_step()
+
+        def check(_):
+            mock_generate.assert_called_once_with(
+                'minified-archives.webkit.org', 'mac-highsierra-x86_64-release', '1234',
+                additions=None, extension='zip', content_type=None,
+            )
+            self.assertEqual(
+                self.build.s3_archives,
+                ['https://s3-us-west-2.amazonaws.com/minified-archives.webkit.org/mac-highsierra-x86_64-release/1234.zip'],
+            )
+        d.addCallback(check)
+        return d
+
+    def test_success_with_additions_and_content_type(self):
+        self.configureStep('macos-arm64-release-compile-webkit', extension='txt', content_type='text/plain', additions='123')
+        mock_generate = create_autospec(generate_s3_url.generateS3URL, return_value=self.SAMPLE_URL)
+        self.patch(generate_s3_url, 'generateS3URL', mock_generate)
+        self.expect_outcome(result=SUCCESS, state_string='Generated S3 URL')
+        with current_hostname(BUILD_WEBKIT_HOSTNAMES[0]):
+            d = self.run_step()
+
+        def check(_):
+            mock_generate.assert_called_once_with(
+                'archives.webkit.org', 'macos-arm64-release-compile-webkit', '1234',
+                additions='123', extension='txt', content_type='text/plain',
+            )
+            self.assertEqual(
+                self.build.s3_archives,
+                ['https://s3-us-west-2.amazonaws.com/archives.webkit.org/macos-arm64-release-compile-webkit/1234-123.txt'],
+            )
+        d.addCallback(check)
+        return d
+
     def test_failure(self):
         self.configureStep('ios-simulator-16-x86_64-debug', additions='123')
-        self.expectLocalCommands(
-            ExpectMasterShellCommand(command=['python3',
-                                              '../Shared/generate-s3-url',
-                                              '--revision', '1234',
-                                              '--identifier', 'ios-simulator-16-x86_64-debug',
-                                              '--extension', 'zip',
-                                              '--additions', '123'
-                                              ])
-            .exit(2),
-        )
+        mock_generate = create_autospec(generate_s3_url.generateS3URL, side_effect=RuntimeError('boom'))
+        self.patch(generate_s3_url, 'generateS3URL', mock_generate)
         self.expect_outcome(result=FAILURE, state_string='Failed to generate S3 URL')
+        with current_hostname(BUILD_WEBKIT_HOSTNAMES[0]):
+            d = self.run_step()
 
-        try:
-            with current_hostname(BUILD_WEBKIT_HOSTNAMES[0]), open(os.devnull, 'w') as null:
-                sys.stdout = null
-                return self.run_step()
-        finally:
-            sys.stdout = sys.__stdout__
-
-    @expectedFailure
-    def test_failure_with_extension(self):
-        self.configureStep('macos-arm64-release-compile-webkit', extension='txt', content_type='text/plain')
-        self.expectLocalCommands(
-            ExpectMasterShellCommand(command=['python3',
-                                              '../Shared/generate-s3-url',
-                                              '--revision', '1234',
-                                              '--identifier', 'macos-arm64-release-compile-webkit',
-                                              '--extension', 'txt',
-                                              '--content-type', 'text/plain',
-                                              ])
-            .exit(2),
-        )
-        self.expect_outcome(result=FAILURE, state_string='Failed to generate S3 URL')
-
-        try:
-            with current_hostname(BUILD_WEBKIT_HOSTNAMES[0]), open(os.devnull, 'w') as null:
-                sys.stdout = null
-                return self.run_step()
-        finally:
-            sys.stdout = sys.__stdout__
+        def check(_):
+            self.assertEqual(self.build.s3url, '')
+        d.addCallback(check)
+        return d
 
     def test_skipped(self):
         self.configureStep()
@@ -2269,7 +2309,8 @@ exit 1''')
 
 class TestScanBuild(BuildStepMixinAdditions, unittest.TestCase):
     WORK_DIR = 'wkdir'
-    EXPECTED_BUILD_COMMAND = ['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'Tools/Scripts/build-and-analyze --output-dir wkdir/build/{SCAN_BUILD_OUTPUT_DIR} --configuration release --only-smart-pointers --analyzer-path=wkdir/llvm-project/build/bin/clang --preprocessor-additions=CLANG_WEBKIT_BRANCH=1 --scan-build-path=../llvm-project/clang/tools/scan-build/bin/scan-build --sdkroot=macosx 2>&1 | python3 Tools/Scripts/filter-test-logs scan-build --output build-log.txt']
+    EXPECTED_BUILD_COMMAND = ['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'Tools/Scripts/build-and-analyze --output-dir wkdir/build/{SCAN_BUILD_OUTPUT_DIR} --configuration release --only-smart-pointers --toolchains=org.webkit.swift --swift-conditions=SWIFT_WEBKIT_TOOLCHAIN --scan-build-path=../llvm-project/clang/tools/scan-build/bin/scan-build --sdkroot=macosx 2>&1 | python3 Tools/Scripts/filter-test-logs scan-build --output build-log.txt']
+    EXPECTED_IOS_BUILD_COMMAND = ['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'Tools/Scripts/build-and-analyze --output-dir wkdir/build/{SCAN_BUILD_OUTPUT_DIR} --configuration release --only-smart-pointers --toolchains=org.webkit.swift --swift-conditions=SWIFT_WEBKIT_TOOLCHAIN --scan-build-path=../llvm-project/clang/tools/scan-build/bin/scan-build --sdkroot=iphonesimulator 2>&1 | python3 Tools/Scripts/filter-test-logs scan-build --output build-log.txt']
 
     def setUp(self):
         return self.setup_test_build_step()
@@ -2303,7 +2344,7 @@ class TestScanBuild(BuildStepMixinAdditions, unittest.TestCase):
         self.configureStep()
         self.setProperty('builddir', self.WORK_DIR)
         self.setProperty('configuration', 'release')
-        self.setProperty('fullPlatform', 'mac-sonoma')
+        self.setProperty('fullPlatform', 'mac-tahoe')
         self.setProperty('architecture', 'arm64')
         next_steps = []
         self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
@@ -2323,7 +2364,7 @@ class TestScanBuild(BuildStepMixinAdditions, unittest.TestCase):
         rc = self.run_step()
         self.assertEqual(
             [
-                GenerateS3URL('mac-sonoma-arm64-release-scan-build', extension='txt', content_type='text/plain', additions='13'),
+                GenerateS3URL('mac-tahoe-arm64-release-scan-build', extension='txt', content_type='text/plain', additions='13'),
                 UploadFileToS3('build-log.txt', links={'scan-build': 'Full build log'}, content_type='text/plain'),
                 ParseStaticAnalyzerResults(),
                 FindUnexpectedStaticAnalyzerResults(),
@@ -2365,39 +2406,13 @@ class TestScanBuild(BuildStepMixinAdditions, unittest.TestCase):
         next_steps = []
         self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
 
-        expected_build_command = ['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'Tools/Scripts/build-and-analyze --output-dir wkdir/build/{SCAN_BUILD_OUTPUT_DIR} --configuration release --only-smart-pointers --toolchains={SWIFT_TOOLCHAIN_BUNDLE_IDENTIFIER} --swift-conditions=SWIFT_WEBKIT_TOOLCHAIN --scan-build-path=../llvm-project/clang/tools/scan-build/bin/scan-build --sdkroot=iphonesimulator 2>&1 | python3 Tools/Scripts/filter-test-logs scan-build --output build-log.txt']
         self.expectRemoteCommands(
             ExpectShell(workdir=self.WORK_DIR,
                         command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'/bin/rm -rf wkdir/build/{SCAN_BUILD_OUTPUT_DIR}'],
                         timeout=2 * 60 * 60)
             .exit(0),
             ExpectShell(workdir=self.WORK_DIR,
-                        command=expected_build_command,
-                        timeout=2 * 60 * 60)
-            .log('stdio', stdout='ANALYZE SUCCEEDED No issues found.\n')
-            .exit(0)
-        )
-        self.expect_outcome(result=SUCCESS, state_string='scan-build found 0 issues')
-        rc = self.run_step()
-        return rc
-
-    def test_success_mac_tahoe(self):
-        self.configureStep()
-        self.setProperty('builddir', self.WORK_DIR)
-        self.setProperty('configuration', 'release')
-        self.setProperty('fullPlatform', 'mac-tahoe')
-        self.setProperty('architecture', 'arm64')
-        next_steps = []
-        self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
-
-        expected_build_command = ['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'Tools/Scripts/build-and-analyze --output-dir wkdir/build/{SCAN_BUILD_OUTPUT_DIR} --configuration release --only-smart-pointers --toolchains={SWIFT_TOOLCHAIN_BUNDLE_IDENTIFIER} --swift-conditions=SWIFT_WEBKIT_TOOLCHAIN --scan-build-path=../llvm-project/clang/tools/scan-build/bin/scan-build --sdkroot=macosx 2>&1 | python3 Tools/Scripts/filter-test-logs scan-build --output build-log.txt']
-        self.expectRemoteCommands(
-            ExpectShell(workdir=self.WORK_DIR,
-                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', f'/bin/rm -rf wkdir/build/{SCAN_BUILD_OUTPUT_DIR}'],
-                        timeout=2 * 60 * 60)
-            .exit(0),
-            ExpectShell(workdir=self.WORK_DIR,
-                        command=expected_build_command,
+                        command=self.EXPECTED_IOS_BUILD_COMMAND,
                         timeout=2 * 60 * 60)
             .log('stdio', stdout='ANALYZE SUCCEEDED No issues found.\n')
             .exit(0)

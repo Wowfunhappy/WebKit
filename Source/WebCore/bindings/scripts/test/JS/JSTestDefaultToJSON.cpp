@@ -30,6 +30,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertBoolean.h"
 #include "JSDOMConvertInterface.h"
@@ -54,7 +55,6 @@
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
 #include <JavaScriptCore/JSArray.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -131,10 +131,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestDefaultToJSONPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestDefaultToJSONPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -195,6 +192,11 @@ static const std::array<HashTableValue, 19> JSTestDefaultToJSONPrototypeTableVal
 
 const ClassInfo JSTestDefaultToJSONPrototype::s_info = { "TestDefaultToJSON"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSONPrototype) };
 
+JSC::Structure* JSTestDefaultToJSONPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestDefaultToJSONPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
@@ -205,18 +207,18 @@ void JSTestDefaultToJSONPrototype::finishCreation(VM& vm)
         auto propertyName = Identifier::fromString(vm, "longAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
-    if (!downcast<Document>(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (!downcast<Document>(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "enabledBySettingsAttribute"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (hasDisabledRuntimeProperties && structure()->isDictionary())
         flattenDictionaryObject(vm);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestDefaultToJSON::s_info = { "TestDefaultToJSON"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSON) };
@@ -227,6 +229,19 @@ JSTestDefaultToJSON::JSTestDefaultToJSON(Structure* structure, JSDOMGlobalObject
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestDefaultToJSON>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestDefaultToJSON* JSTestDefaultToJSON::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSON>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestDefaultToJSON* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSON>(vm)) JSTestDefaultToJSON(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestDefaultToJSON::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestDefaultToJSON::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -242,7 +257,7 @@ JSObject* JSTestDefaultToJSON::prototype(VM& vm, JSDOMGlobalObject& globalObject
 
 JSValue JSTestDefaultToJSON::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestDefaultToJSONDOMConstructor, DOMConstructorID::TestDefaultToJSON>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestDefaultToJSONDOMConstructor, DOMConstructorID::TestDefaultToJSON>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestDefaultToJSON::destroy(JSC::JSCell* cell)
@@ -255,10 +270,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSONConstructor, (JSGlobalObject* lexica
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestDefaultToJSONPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestDefaultToJSONPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestDefaultToJSON::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestDefaultToJSON::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestDefaultToJSON_longAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestDefaultToJSON& thisObject)
@@ -401,7 +416,7 @@ static inline JSValue jsTestDefaultToJSON_thirdUnJSONableAttributeGetter(JSGloba
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<TestException>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.thirdUnJSONableAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<TestException>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.thirdUnJSONableAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_thirdUnJSONableAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -533,7 +548,7 @@ static inline JSValue jsTestDefaultToJSON_seventhDirectlyToJSONableAttributeGett
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<TestDefaultToJSONInheritFinal>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.seventhDirectlyToJSONableAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<TestDefaultToJSONInheritFinal>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.seventhDirectlyToJSONableAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_seventhDirectlyToJSONableAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -566,7 +581,7 @@ static inline JSValue jsTestDefaultToJSON_eighthIndirectlyAttributeGetter(JSGlob
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<TestDefaultToJSONIndirectInheritance>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.eighthIndirectlyAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<TestDefaultToJSONIndirectInheritance>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.eighthIndirectlyAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_eighthIndirectlyAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -599,7 +614,7 @@ static inline JSValue jsTestDefaultToJSON_ninthOptionalDirectlyToJSONableAttribu
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLInterface<TestDefaultToJSONInheritFinal>>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.ninthOptionalDirectlyToJSONableAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLInterface<TestDefaultToJSONInheritFinal>>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.ninthOptionalDirectlyToJSONableAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_ninthOptionalDirectlyToJSONableAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -632,7 +647,7 @@ static inline JSValue jsTestDefaultToJSON_tenthFrozenArrayAttributeGetter(JSGlob
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLFrozenArray<IDLBoolean>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.tenthFrozenArrayAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLFrozenArray<IDLBoolean>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.tenthFrozenArrayAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_tenthFrozenArrayAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -665,7 +680,7 @@ static inline JSValue jsTestDefaultToJSON_eleventhSequenceAttributeGetter(JSGlob
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLSequence<IDLDOMString>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.eleventhSequenceAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLSequence<IDLDOMString>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.eleventhSequenceAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_eleventhSequenceAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -698,7 +713,7 @@ static inline JSValue jsTestDefaultToJSON_twelfthInterfaceSequenceAttributeGette
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLSequence<IDLInterface<TestDefaultToJSONInheritFinal>>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.twelfthInterfaceSequenceAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLSequence<IDLInterface<TestDefaultToJSONInheritFinal>>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.twelfthInterfaceSequenceAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_twelfthInterfaceSequenceAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -731,7 +746,7 @@ static inline JSValue jsTestDefaultToJSON_thirteenthRecordAttributeGetter(JSGlob
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLRecord<IDLDOMString, IDLUnsignedShort>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.thirteenthRecordAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLRecord<IDLDOMString, IDLUnsignedShort>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.thirteenthRecordAttribute())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSON_thirteenthRecordAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -765,13 +780,13 @@ static inline EncodedJSValue jsTestDefaultToJSONPrototypeFunction_toJSONBody(JSG
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    auto* result = constructEmptyObject(lexicalGlobalObject);
+    auto* result = WebCore::constructEmptyObject(lexicalGlobalObject);
     if (DeprecatedGlobalSettings::testDeprecatedGlobalSettingEnabled()) {
         auto longAttributeValue = toJS<IDLLong>(*lexicalGlobalObject, throwScope, impl.longAttribute());
         RETURN_IF_EXCEPTION(throwScope, { });
         result->putDirect(vm, Identifier::fromString(vm, "longAttribute"_s), longAttributeValue);
     }
-    if (downcast<Document>(jsCast<JSDOMGlobalObject*>(castedThis->globalObject())->scriptExecutionContext())->settingsValues().testSettingEnabled) {
+    if (downcast<Document>(castedThis->realm()->scriptExecutionContext())->settingsValues().testSettingEnabled) {
         auto enabledBySettingsAttributeValue = toJS<IDLUnsignedShort>(*lexicalGlobalObject, throwScope, impl.enabledBySettingsAttribute());
         RETURN_IF_EXCEPTION(throwScope, { });
         result->putDirect(vm, Identifier::fromString(vm, "enabledBySettingsAttribute"_s), enabledBySettingsAttributeValue);
@@ -797,25 +812,25 @@ static inline EncodedJSValue jsTestDefaultToJSONPrototypeFunction_toJSONBody(JSG
     auto sixthTypedefAttributeValue = toJS<IDLDouble>(*lexicalGlobalObject, throwScope, impl.sixthTypedefAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "sixthTypedefAttribute"_s), sixthTypedefAttributeValue);
-    auto seventhDirectlyToJSONableAttributeValue = toJS<IDLInterface<TestDefaultToJSONInheritFinal>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.seventhDirectlyToJSONableAttribute());
+    auto seventhDirectlyToJSONableAttributeValue = toJS<IDLInterface<TestDefaultToJSONInheritFinal>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.seventhDirectlyToJSONableAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "seventhDirectlyToJSONableAttribute"_s), seventhDirectlyToJSONableAttributeValue);
-    auto eighthIndirectlyAttributeValue = toJS<IDLInterface<TestDefaultToJSONIndirectInheritance>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.eighthIndirectlyAttribute());
+    auto eighthIndirectlyAttributeValue = toJS<IDLInterface<TestDefaultToJSONIndirectInheritance>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.eighthIndirectlyAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "eighthIndirectlyAttribute"_s), eighthIndirectlyAttributeValue);
-    auto ninthOptionalDirectlyToJSONableAttributeValue = toJS<IDLNullable<IDLInterface<TestDefaultToJSONInheritFinal>>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.ninthOptionalDirectlyToJSONableAttribute());
+    auto ninthOptionalDirectlyToJSONableAttributeValue = toJS<IDLNullable<IDLInterface<TestDefaultToJSONInheritFinal>>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.ninthOptionalDirectlyToJSONableAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "ninthOptionalDirectlyToJSONableAttribute"_s), ninthOptionalDirectlyToJSONableAttributeValue);
-    auto tenthFrozenArrayAttributeValue = toJS<IDLFrozenArray<IDLBoolean>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.tenthFrozenArrayAttribute());
+    auto tenthFrozenArrayAttributeValue = toJS<IDLFrozenArray<IDLBoolean>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.tenthFrozenArrayAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "tenthFrozenArrayAttribute"_s), tenthFrozenArrayAttributeValue);
-    auto eleventhSequenceAttributeValue = toJS<IDLSequence<IDLDOMString>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.eleventhSequenceAttribute());
+    auto eleventhSequenceAttributeValue = toJS<IDLSequence<IDLDOMString>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.eleventhSequenceAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "eleventhSequenceAttribute"_s), eleventhSequenceAttributeValue);
-    auto twelfthInterfaceSequenceAttributeValue = toJS<IDLSequence<IDLInterface<TestDefaultToJSONInheritFinal>>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.twelfthInterfaceSequenceAttribute());
+    auto twelfthInterfaceSequenceAttributeValue = toJS<IDLSequence<IDLInterface<TestDefaultToJSONInheritFinal>>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.twelfthInterfaceSequenceAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "twelfthInterfaceSequenceAttribute"_s), twelfthInterfaceSequenceAttributeValue);
-    auto thirteenthRecordAttributeValue = toJS<IDLRecord<IDLDOMString, IDLUnsignedShort>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.thirteenthRecordAttribute());
+    auto thirteenthRecordAttributeValue = toJS<IDLRecord<IDLDOMString, IDLUnsignedShort>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.thirteenthRecordAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "thirteenthRecordAttribute"_s), thirteenthRecordAttributeValue);
     return JSValue::encode(result);
@@ -838,12 +853,14 @@ JSC::GCClient::IsoSubspace* JSTestDefaultToJSON::subspaceForImpl(JSC::VM& vm)
 
 void JSTestDefaultToJSON::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestDefaultToJSON*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestDefaultToJSON>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestDefaultToJSONOwner::JSTestDefaultToJSONOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestDefaultToJSONOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -857,7 +874,7 @@ void JSTestDefaultToJSONOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* 
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestDefaultToJSON = static_cast<JSTestDefaultToJSON*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestDefaultToJSON->wrapped()).ptr(), jsTestDefaultToJSON);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestDefaultToJSON->wrapped(), jsTestDefaultToJSON);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -904,7 +921,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestDefaultToJSON* JSTestDefaultToJSON::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestDefaultToJSON*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestDefaultToJSON>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

@@ -26,7 +26,6 @@
 #ifndef PAS_PAGE_SHARING_POOL_H
 #define PAS_PAGE_SHARING_POOL_H
 
-#include "pas_bootstrap_free_heap.h"
 #include "pas_config.h"
 #include "pas_lock.h"
 #include "pas_min_heap.h"

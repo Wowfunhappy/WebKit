@@ -52,6 +52,7 @@
 #include "GLContext.h"
 #include "ImageBufferSkiaAcceleratedBackend.h"
 #include "PlatformDisplay.h"
+#include "SkiaSerializedImageBuffer.h"
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/gpu/ganesh/GrBackendSurface.h>
@@ -119,7 +120,7 @@ RefPtr<ImageBuffer> ImageBuffer::create(const FloatSize& size, RenderingMode ren
 }
 
 ImageBuffer::ImageBuffer(Parameters parameters, const ImageBufferBackend::Info& backendInfo, const WebCore::ImageBufferCreationContext&, std::unique_ptr<ImageBufferBackend>&& backend, RenderingResourceIdentifier renderingResourceIdentifier)
-    : m_parameters(parameters)
+    : m_parameters(WTF::move(parameters))
     , m_backendInfo(backendInfo)
     , m_backend(WTF::move(backend))
     , m_renderingResourceIdentifier(renderingResourceIdentifier)
@@ -156,6 +157,7 @@ RefPtr<ImageBuffer> SerializedImageBuffer::sinkIntoImageBuffer(std::unique_ptr<S
     return buffer->sinkIntoImageBuffer();
 }
 
+#if !USE(SKIA)
 // The default serialization of an ImageBuffer just assumes that we can
 // pass it as-is, as long as this is the only reference.
 class DefaultSerializedImageBuffer : public SerializedImageBuffer {
@@ -164,10 +166,6 @@ public:
     DefaultSerializedImageBuffer(ImageBuffer* image)
         : m_buffer(image)
     {
-#if USE(SKIA)
-        if (image->renderingMode() == RenderingMode::Accelerated)
-            image->flushDrawingContext();
-#endif
     }
 
     RefPtr<ImageBuffer> sinkIntoImageBuffer() final
@@ -180,15 +178,25 @@ public:
         return m_buffer->memoryCost();
     }
 
+    std::unique_ptr<SerializedImageBuffer> clone() const final
+    {
+        return makeUnique<DefaultSerializedImageBuffer>(m_buffer.get());
+    }
+
 private:
     RefPtr<ImageBuffer> m_buffer;
 };
+#endif
 
 std::unique_ptr<SerializedImageBuffer> ImageBuffer::sinkIntoSerializedImageBuffer()
 {
     ASSERT(hasOneRef());
     ASSERT(!controlBlock().weakRefCount());
+#if USE(SKIA)
+    return makeUnique<SkiaSerializedImageBuffer>(*this);
+#else
     return makeUnique<DefaultSerializedImageBuffer>(this);
+#endif
 }
 
 std::unique_ptr<SerializedImageBuffer> ImageBuffer::sinkIntoSerializedImageBuffer(RefPtr<ImageBuffer>&& image)
@@ -340,6 +348,11 @@ RefPtr<NativeImage> ImageBuffer::createNativeImageReference() const
     if (auto* backend = ensureBackend())
         return backend->createNativeImageReference();
     return nullptr;
+}
+
+bool ImageBuffer::isRemoteImageBufferProxy() const
+{
+    return false;
 }
 
 RefPtr<NativeImage> ImageBuffer::sinkIntoNativeImage()
@@ -592,7 +605,8 @@ std::optional<DynamicContentScalingDisplayList> ImageBuffer::dynamicContentScali
 
 void ImageBuffer::transferToNewContext(const ImageBufferCreationContext& context)
 {
-    backend()->transferToNewContext(context);
+    if (auto* backend = ensureBackend())
+        backend->transferToNewContext(context);
 }
 
 String ImageBuffer::debugDescription() const

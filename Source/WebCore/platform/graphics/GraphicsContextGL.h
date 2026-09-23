@@ -38,6 +38,7 @@
 #include <WebCore/Image.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
+#include <array>
 #include <span>
 #include <wtf/EnumSet.h>
 #include <wtf/FunctionDispatcher.h>
@@ -731,7 +732,7 @@ public:
     // WebGL-specific.
     static constexpr GCGLenum MAX_CLIENT_WAIT_TIMEOUT_WEBGL = 0x9247;
 
-    // Necessary desktop OpenGL constants.
+    // MAVERICKS_BACKPORT: upstream desktop-GL constants for CGL IOSurface attachments.
     static constexpr GCGLenum TEXTURE_RECTANGLE_ARB = 0x84F5;
     static constexpr GCGLenum TEXTURE_BINDING_RECTANGLE_ARB = 0x84F6;
 
@@ -1424,9 +1425,9 @@ public:
     virtual void texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLintptr offset) = 0;
     virtual void texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels) = 0;
     virtual void texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset) = 0;
-    virtual void compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLsizei imageSize, std::span<const uint8_t> data) = 0;
+    virtual void compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, std::span<const uint8_t> data) = 0;
     virtual void compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLsizei imageSize, GCGLintptr offset) = 0;
-    virtual void compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, std::span<const uint8_t> data) = 0;
+    virtual void compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, std::span<const uint8_t> data) = 0;
     virtual void compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset) = 0;
 
     virtual void drawArraysInstanced(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei primcount) = 0;
@@ -1462,9 +1463,9 @@ public:
     virtual void texSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels) = 0;
     virtual void texSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, GCGLintptr offset) = 0;
     virtual void copyTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height) = 0;
-    virtual void compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, GCGLsizei imageSize, std::span<const uint8_t> data) = 0;
+    virtual void compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, std::span<const uint8_t> data) = 0;
     virtual void compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, GCGLsizei imageSize, GCGLintptr offset) = 0;
-    virtual void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, std::span<const uint8_t> data) = 0;
+    virtual void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, std::span<const uint8_t> data) = 0;
     virtual void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset) = 0;
 
     virtual GCGLint getFragDataLocation(PlatformGLObject program, const CString& name) = 0;
@@ -1654,7 +1655,24 @@ public:
     GraphicsContextGLAttributes contextAttributes() const { return m_attrs; }
     void setContextAttributes(const GraphicsContextGLAttributes& attrs) { m_attrs = attrs; }
 
-    virtual std::tuple<GCGLenum, GCGLenum> externalImageTextureBindingPoint();
+    // Static GL implementation limits. These never change for the lifetime of
+    // the context, so the remote-context implementation caches them at context
+    // creation and returns them without an IPC round-trip.
+    virtual GCGLint maxCombinedTextureImageUnits() = 0;
+    virtual GCGLint maxVertexAttribs() = 0;
+    virtual GCGLint maxTextureSize() = 0;
+    virtual GCGLint maxCubeMapTextureSize() = 0;
+    virtual GCGLint maxRenderbufferSize() = 0;
+    virtual std::array<GCGLint, 2> maxViewportDims() = 0;
+    virtual GCGLint maxSamples() = 0;
+    virtual GCGLint maxTransformFeedbackSeparateAttribs() = 0;
+    virtual GCGLint maxUniformBufferBindings() = 0;
+    virtual GCGLint uniformBufferOffsetAlignment() = 0;
+    virtual GCGLint max3DTextureSize() = 0;
+    virtual GCGLint maxArrayTextureLayers() = 0;
+
+    // MAVERICKS_BACKPORT: upstream texture-target dispatch for CGL IOSurfaces.
+    WEBCORE_EXPORT virtual std::tuple<GCGLenum, GCGLenum> externalImageTextureBindingPoint();
 
     virtual void reshape(int width, int height) = 0;
 

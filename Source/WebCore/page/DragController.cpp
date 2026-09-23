@@ -93,7 +93,6 @@
 #include "RenderAttachment.h"
 #include "RenderFileUploadControl.h"
 #include "RenderImage.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
 #include "ReplaceSelectionCommand.h"
 #include "ResourceRequest.h"
@@ -101,6 +100,7 @@
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "SimpleRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "TextEvent.h"
 #include "TypedElementDescendantIteratorInlines.h"
@@ -161,7 +161,7 @@ static RefPtr<DocumentFragment> documentFragmentFromDragData(const DragData& dra
     chosePlainText = false;
 
     if (dragData.containsCompatibleContent()) {
-        if (RefPtr fragment = frame.editor().webContentFromPasteboard(*Pasteboard::create(dragData), context, allowPlainText, chosePlainText))
+        if (RefPtr fragment = protect(frame.editor())->webContentFromPasteboard(*Pasteboard::create(dragData), context, allowPlainText, chosePlainText))
             return fragment;
 
         if (dragData.containsURL(DragData::DoNotConvertFilenames)) {
@@ -334,7 +334,7 @@ Variant<std::optional<DragOperation>, RemoteUserInputEventData> DragController::
         hitTestResult = frame.eventHandler().hitTestResultAtPoint(point, hitType);
     }
 
-    if (RefPtr remoteSubframe = dynamicDowncast<RemoteFrame>(frame.eventHandler().subframeForTargetNode(hitTestResult.targetNode()))) {
+    if (RefPtr remoteSubframe = dynamicDowncast<RemoteFrame>(frame.eventHandler().subframeForTargetNode(protect(hitTestResult.targetNode())))) {
         auto pointInFrame = hitTestResult.roundedPointInInnerNodeFrame();
         if (auto remoteEventData = frame.eventHandler().userInputEventDataForRemoteFrame(remoteSubframe.get(), pointInFrame))
             return *remoteEventData;
@@ -384,13 +384,13 @@ static RefPtr<HTMLInputElement> asFileInput(Node& node)
     return inputElement && inputElement->isFileUpload() ? inputElement : nullptr;
 }
 
-static bool isEnabledColorInput(Node& node)
+static bool NODELETE isEnabledColorInput(Node& node)
 {
     auto* input = dynamicDowncast<HTMLInputElement>(node);
     return input && input->isColorControl() && !input->isDisabledFormControl();
 }
 
-static bool isInShadowTreeOfEnabledColorInput(Node& node)
+static bool NODELETE isInShadowTreeOfEnabledColorInput(Node& node)
 {
     auto* host = node.shadowHost();
     return host && isEnabledColorInput(*host);
@@ -431,7 +431,7 @@ DragHandlingMethod DragController::tryDocumentDrag(LocalFrame& frame, const Drag
     if (!m_documentUnderMouse)
         return DragHandlingMethod::None;
 
-    if (m_dragInitiator && !protect(m_documentUnderMouse->securityOrigin())->canReceiveDragData(protect(m_dragInitiator->securityOrigin())))
+    if (m_dragInitiator && !protect(protect(m_documentUnderMouse)->securityOrigin())->canReceiveDragData(protect(protect(m_dragInitiator)->securityOrigin())))
         return DragHandlingMethod::None;
 
     bool isHandlingDrag = false;
@@ -472,12 +472,12 @@ DragHandlingMethod DragController::tryDocumentDrag(LocalFrame& frame, const Drag
         RefPtr elementAsFileInput = asFileInput(*element);
         if (m_fileInputElementUnderMouse != elementAsFileInput) {
             if (m_fileInputElementUnderMouse)
-                m_fileInputElementUnderMouse->setCanReceiveDroppedFiles(false);
+                protect(m_fileInputElementUnderMouse)->setCanReceiveDroppedFiles(false);
             m_fileInputElementUnderMouse = elementAsFileInput;
         }
         
         if (!m_fileInputElementUnderMouse)
-            m_page->dragCaretController().setCaretPosition(m_documentUnderMouse->frame()->visiblePositionForPoint(point));
+            m_page->dragCaretController().setCaretPosition(protect(m_documentUnderMouse)->frame()->visiblePositionForPoint(point));
         else
             clearDragCaret();
 
@@ -561,7 +561,7 @@ bool DragController::dispatchTextInputEventFor(LocalFrame* innerFrame, const Dra
     String text = m_page->dragCaretController().isContentRichlyEditable() ? emptyString() : dragData.asPlainText();
     auto target = innerFrame->editor().findEventTargetFrom(m_page->dragCaretController().caretPosition());
     // FIXME: What guarantees target is not null?
-    Ref event = TextEvent::createForDrop(protect(innerFrame->windowProxy()).ptr(), WTF::move(text));
+    Ref event = TextEvent::createForDrop(protect(protect(innerFrame)->windowProxy()).ptr(), WTF::move(text));
     target->dispatchEvent(event);
     return !event->defaultPrevented();
 }
@@ -628,7 +628,7 @@ bool DragController::concludeEditDrag(const DragData& dragData)
     if (!range)
         return false;
 
-    ResourceCacheValidationSuppressor validationSuppressor(range->start.document().cachedResourceLoader());
+    ResourceCacheValidationSuppressor validationSuppressor(protect(range->start.document())->cachedResourceLoader());
     Ref editor = innerFrame->editor();
     bool isMove = dragIsMove(innerFrame->selection(), dragData);
     if (isMove || dragCaret.isContentRichlyEditable()) {
@@ -971,7 +971,7 @@ void DragController::prepareForDragStart(LocalFrame& source, OptionSet<DragSourc
     }
 
     auto linkURL = hitTestResult->absoluteLinkURL();
-    if (actionMask.contains(DragSourceAction::Link) && !linkURL.isEmpty() && protect(source.document()->securityOrigin())->canDisplay(linkURL, OriginAccessPatternsForWebProcess::singleton()))
+    if (actionMask.contains(DragSourceAction::Link) && !linkURL.isEmpty() && protect(protect(source.document())->securityOrigin())->canDisplay(linkURL, OriginAccessPatternsForWebProcess::singleton()))
         editor->copyURL(linkURL, hitTestResult->textContent().simplifyWhiteSpace(deprecatedIsSpaceOrNewline), pasteboard);
 #else
     // FIXME: Make this work on Windows by implementing Editor::writeSelectionToPasteboard and Editor::writeImageToPasteboard.
@@ -1013,14 +1013,14 @@ bool DragController::startDrag(LocalFrame& src, const DragState& state, OptionSe
 #endif
 
     Ref protectedSrc { src };
-    auto hitTestResult = hitTestResultForDragStart(src, *state.source, dragOrigin);
+    auto hitTestResult = hitTestResultForDragStart(src, protect(*state.source), dragOrigin);
     if (!hitTestResult)
         return false;
 
     auto linkURL = hitTestResult->absoluteLinkURL();
     auto imageURL = hitTestResult->absoluteImageURL();
 
-    IntPoint mouseDraggedPoint = src.view()->windowToContents(flooredIntPoint(dragEvent.position()));
+    IntPoint mouseDraggedPoint = protect(src.view())->windowToContents(flooredIntPoint(dragEvent.position()));
 
     m_draggingImageURL = URL();
     m_sourceDragOperationMask = sourceOperationMask;
@@ -1077,11 +1077,11 @@ bool DragController::startDrag(LocalFrame& src, const DragState& state, OptionSe
 
             if (shouldDragAsPlainText) {
                 if (mustUseLegacyDragClient)
-                    dataTransfer->pasteboard().writePlainText(src.editor().selectedTextForDataTransfer(), Pasteboard::CannotSmartReplace);
+                    dataTransfer->pasteboard().writePlainText(protect(src.editor())->selectedTextForDataTransfer(), Pasteboard::CannotSmartReplace);
                 else {
                     PasteboardWriterData::PlainText plainText;
                     plainText.canSmartCopyOrDelete = false;
-                    plainText.text = src.editor().selectedTextForDataTransfer();
+                    plainText.text = protect(src.editor())->selectedTextForDataTransfer();
                     pasteboardWriterData.setPlainText(WTF::move(plainText));
                 }
             } else {
@@ -1130,7 +1130,7 @@ bool DragController::startDrag(LocalFrame& src, const DragState& state, OptionSe
         return true;
     }
 
-    if (!protect(src.document()->securityOrigin())->canDisplay(linkURL, OriginAccessPatternsForWebProcess::singleton())) {
+    if (!protect(protect(src.document())->securityOrigin())->canDisplay(linkURL, OriginAccessPatternsForWebProcess::singleton())) {
         protect(src.document())->addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Not allowed to drag local resource: "_s, linkURL.stringCenterEllipsizedToLength()));
         return false;
     }
@@ -1141,7 +1141,7 @@ bool DragController::startDrag(LocalFrame& src, const DragState& state, OptionSe
         ASSERT(!image->filenameExtension().isEmpty());
 
 #if ENABLE(ATTACHMENT_ELEMENT)
-        auto attachmentInfo = src.editor().promisedAttachmentInfo(element);
+        auto attachmentInfo = protect(src.editor())->promisedAttachmentInfo(element);
 #else
         PromisedAttachmentInfo attachmentInfo;
 #endif
@@ -1166,7 +1166,14 @@ bool DragController::startDrag(LocalFrame& src, const DragState& state, OptionSe
         return true;
     }
 
+#if ENABLE(MODEL_ELEMENT)
+    // If the user is dragging a <model> that happens to be wrapped in an <a rel="ar" href=...>,
+    // let the Model drag path below package the USDZ as a rich model pasteboard item instead of
+    // dropping the anchor's href URL (which reduces AR Quick Look to a download-then-preview).
+    if (!linkURL.isEmpty() && m_dragSourceAction.contains(DragSourceAction::Link) && !(state.type.contains(DragSourceAction::Model) && is<HTMLModelElement>(state.source.get()))) {
+#else
     if (!linkURL.isEmpty() && m_dragSourceAction.contains(DragSourceAction::Link)) {
+#endif
         PasteboardWriterData pasteboardWriterData;
 
         String textContentWithSimplifiedWhiteSpace = hitTestResult->textContent().simplifyWhiteSpace(deprecatedIsSpaceOrNewline);
@@ -1175,9 +1182,9 @@ bool DragController::startDrag(LocalFrame& src, const DragState& state, OptionSe
             // Simplify whitespace so the title put on the dataTransfer resembles what the user sees
             // on the web page. This includes replacing newlines with spaces.
             if (mustUseLegacyDragClient)
-                src.editor().copyURL(linkURL, textContentWithSimplifiedWhiteSpace, dataTransfer->pasteboard());
+                protect(src.editor())->copyURL(linkURL, textContentWithSimplifiedWhiteSpace, dataTransfer->pasteboard());
             else
-                pasteboardWriterData.setURLData(src.editor().pasteboardWriterURL(linkURL, textContentWithSimplifiedWhiteSpace));
+                pasteboardWriterData.setURLData(protect(src.editor())->pasteboardWriterURL(linkURL, textContentWithSimplifiedWhiteSpace));
         } else if (dataTransfer->pasteboard().canWriteTrustworthyWebURLsPboardType()) {
             // Make sure the pasteboard also contains trustworthy link data
             // but don't overwrite more general pasteboard types.
@@ -1329,7 +1336,7 @@ void DragController::doImageDrag(Element& element, const IntPoint& dragOrigin, c
 
     RefPtr image = getImage(element);
     if (image && !layoutRect.isEmpty() && shouldUseCachedImageForDragImage(*image)
-        && (dragImage = DragImage { createDragImageFromImage(image.get(), orientation, frame.view() ? frame.view()->hostWindow() : nullptr, element.document().deviceScaleFactor()) })) {
+        && (dragImage = DragImage { createDragImageFromImage(image.get(), orientation, frame.view() ? protect(frame.view())->hostWindow() : nullptr, protect(element.document())->deviceScaleFactor()) })) {
         dragImage = DragImage { fitDragImageToMaxSize(dragImage.get(), layoutRect.size(), maxDragImageSize()) };
         IntSize fittedSize = dragImageSize(dragImage.get());
 
@@ -1381,7 +1388,7 @@ void DragController::beginDrag(DragItem dragItem, LocalFrame& frame, const IntPo
     client().beginDrag(WTF::move(dragItem), frame, mouseDownPointInRootViewCoordinates, mouseDraggedPointInRootViewCoordinates, dataTransfer, dragSourceAction);
 }
 
-static RefPtr<Element> containingLinkElement(Element& element)
+static RefPtr<Element> NODELETE containingLinkElement(Element& element)
 {
     for (auto& currentElement : lineageOfType<Element>(element)) {
         if (currentElement.isLink())
@@ -1410,6 +1417,7 @@ void DragController::doSystemDrag(DragImage image, const IntPoint& dragLoc, cons
     auto eventPositionInRootViewCoordinates = frameView->contentsToRootView(eventPos);
     auto dragLocationInRootViewCoordinates = frameView->contentsToRootView(dragLoc);
     item.eventPositionInContentCoordinates = mainFrameView->rootViewToContents(eventPositionInRootViewCoordinates);
+    item.eventPositionInRootViewCoordinates = eventPositionInRootViewCoordinates;
     item.dragLocationInContentCoordinates = mainFrameView->rootViewToContents(dragLocationInRootViewCoordinates);
     item.dragLocationInWindowCoordinates = mainFrameView->contentsToWindow(item.dragLocationInContentCoordinates);
 
@@ -1435,7 +1443,7 @@ void DragController::doSystemDrag(DragImage image, const IntPoint& dragLoc, cons
         if (RefPtr link = containingLinkElement(*element)) {
             auto titleAttribute = link->attributeWithoutSynchronization(HTMLNames::titleAttr);
             item.title = titleAttribute.isEmpty() ? link->innerText() : titleAttribute.string();
-            item.url = frame.document()->completeURL(link->getAttribute(HTMLNames::hrefAttr));
+            item.url = protect(frame.document())->encodingParseURL(link->getAttribute(HTMLNames::hrefAttr));
         }
 
 #if ENABLE(MODEL_ELEMENT_STAGE_MODE_INTERACTION)
@@ -1444,7 +1452,7 @@ void DragController::doSystemDrag(DragImage image, const IntPoint& dragLoc, cons
 #endif
         nodeID = element->nodeIdentifier();
     }
-    client().startDrag(WTF::move(item), *state.dataTransfer, frame, nodeID);
+    client().startDrag(WTF::move(item), protect(*state.dataTransfer), frame, nodeID);
 
     // DragClient::startDrag can cause our Page to dispear, deallocating |this|.
     if (!mainFrame->page())
@@ -1580,7 +1588,7 @@ void DragController::insertDroppedImagePlaceholdersAtCaret(const Vector<IntSize>
 
 void DragController::finalizeDroppedImagePlaceholder(HTMLImageElement& placeholder, CompletionHandler<void()>&& completion)
 {
-    protect(placeholder.document().eventLoop())->queueTask(TaskSource::InternalAsyncTask, [completion = WTF::move(completion), placeholder = Ref { placeholder }] () mutable {
+    protect(protect(placeholder.document())->eventLoop())->queueTask(TaskSource::InternalAsyncTask, [completion = WTF::move(completion), placeholder = Ref { placeholder }] () mutable {
         if (placeholder->isDroppedImagePlaceholder()) {
             placeholder->removeAttribute(HTMLNames::heightAttr);
             placeholder->removeInlineStyleProperty(CSSPropertyBackgroundColor);

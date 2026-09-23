@@ -56,6 +56,7 @@ enum class Action : uint8_t {
     KeyPress,
     HighlightText,
     Scroll,
+    Hover,
 };
 
 struct Interaction {
@@ -76,6 +77,7 @@ struct ExtractedText {
 struct InteractionDescription {
     String description;
     Vector<String> stringsToValidate;
+    bool didFindTargetNode { true };
 };
 
 enum class EventListenerCategory : uint8_t {
@@ -98,6 +100,7 @@ struct Request {
     std::optional<FloatRect> collectionRectInRootView;
     std::optional<JSHandleIdentifier> targetNodeHandleIdentifier;
     Vector<JSHandleIdentifier> handleIdentifiersOfNodesToSkip;
+    std::optional<NodeIdentifier> contextMenuTargetNodeIdentifier;
     bool mergeParagraphs { false };
     bool skipNearlyTransparentContent { false };
     NodeIdentifierInclusion nodeIdentifierInclusion { NodeIdentifierInclusion::None };
@@ -141,10 +144,14 @@ struct LinkItemData {
     String target;
     URL completedURL;
     String shortenedURLString;
+    bool linksToCurrentURL { false };
+    String shortenedSelfLinkURLString;
 };
 
 struct IFrameData {
     String origin;
+    String shortenedOrigin;
+    bool isSameOriginAsParent { false };
     FrameIdentifier identifier;
 };
 
@@ -164,12 +171,14 @@ struct TextFormControlData {
     String autocomplete;
     String pattern;
     String name;
+    String value;
     std::optional<int> minLength;
     std::optional<int> maxLength;
     bool isRequired { false };
     bool isReadonly { false };
     bool isDisabled { false };
     bool isChecked { false };
+    bool isAutofilled { false };
 };
 
 struct SelectOptionData {
@@ -213,7 +222,10 @@ struct Item {
     String accessibilityRole;
     String title;
     HashMap<String, String> clientAttributes;
+    Vector<String> classNames;
+    String idAttribute;
     unsigned enclosingBlockNumber { 0 };
+    unsigned visualBlockContainerNumber { 0 };
     bool hasLineThrough { false };
 
     template<typename T> bool hasData() const
@@ -234,6 +246,7 @@ struct Result {
 
     Item rootItem;
     unsigned visibleTextLength { 0 };
+    std::optional<String> pdfMarkdownContent;
 };
 
 struct PageResults {

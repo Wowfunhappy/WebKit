@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,9 +29,10 @@
 
 #include "AnimationUtilities.h"
 #include "CSSFontStyleWithAngleValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
+#include "StyleKeyword+CSSValueCreation.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 
@@ -44,11 +46,11 @@ auto CSSValueConversion<FontStyle>::operator()(BuilderState& state, const CSSVal
     if (RefPtr fontStyleValue = dynamicDowncast<CSSFontStyleWithAngleValue>(value))
         return toStyle(fontStyleValue->obliqueAngle(), state);
 
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
         return CSS::Keyword::Normal { };
 
-    switch (auto valueID = primitiveValue->valueID(); valueID) {
+    switch (auto valueID = keywordValue->valueID(); valueID) {
     case CSSValueNormal:
         return CSS::Keyword::Normal { };
     case CSSValueItalic:
@@ -64,9 +66,9 @@ auto CSSValueConversion<FontStyle>::operator()(BuilderState& state, const CSSVal
     }
 }
 
-auto CSSValueCreation<FontStyle>::operator()(CSSValuePool& pool, const RenderStyle& style, const FontStyle& value) -> Ref<CSSValue>
+auto CSSValueCreation<FontStyle>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const FontStyle& value) -> Ref<CSSValue>
 {
-    if (!value.platformSlope() || !*value.platformSlope())
+    if (value.isNormal())
         return createCSSValue(pool, style, CSS::Keyword::Normal { });
 
     if (*value.platformSlope() == italicValue()) {
@@ -82,7 +84,7 @@ auto CSSValueCreation<FontStyle>::operator()(CSSValuePool& pool, const RenderSty
 
 auto Blending<FontStyle>::canBlend(const FontStyle& a, const FontStyle& b) -> bool
 {
-    return a.platformAxis() == FontStyleAxis::slnt && b.platformAxis() == FontStyleAxis::slnt;
+    return a.platformAxis() != FontStyleAxis::ital && b.platformAxis() != FontStyleAxis::ital;
 }
 
 auto Blending<FontStyle>::blend(const FontStyle& a, const FontStyle& b, const BlendingContext& context) -> FontStyle

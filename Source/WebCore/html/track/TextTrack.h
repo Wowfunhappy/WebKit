@@ -32,6 +32,7 @@
 #include <WebCore/PlatformTimeRanges.h>
 #include <WebCore/TextTrackCue.h>
 #include <WebCore/TrackBase.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
@@ -43,8 +44,9 @@ class TextTrackClient;
 class TextTrackCueList;
 class VTTRegionList;
 
-class TextTrack : public TrackBase, public EventTarget, public ActiveDOMObject {
+class TextTrack : public TrackBase, public EventTarget, public ActiveDOMObject, public CanMakeCheckedPtr<TextTrack> {
     WTF_MAKE_TZONE_ALLOCATED(TextTrack);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextTrack);
 public:
     static Ref<TextTrack> create(ScriptExecutionContext*, const AtomString& kind, TrackID, const AtomString& label, const AtomString& language);
     static Ref<TextTrack> create(ScriptExecutionContext*, const AtomString& kind, const AtomString& id, const AtomString& label, const AtomString& language);
@@ -54,6 +56,7 @@ public:
     void ref() const override { TrackBase::ref(); }
     void deref() const override { TrackBase::deref(); }
     USING_CAN_MAKE_WEAKPTR(EventTarget);
+    WebCoreOpaqueRoot opaqueRoot() const final { return TrackBase::opaqueRoot(); }
 
     void didMoveToNewDocument(Document& newDocument) final;
 
@@ -108,6 +111,7 @@ public:
     virtual bool containsOnlyForcedSubtitles() const;
     virtual bool isMainProgramContent() const;
     virtual bool isEasyToRead() const { return false; }
+    virtual bool isMachineGenerated() const { return false; }
 
     int trackIndex();
     void invalidateTrackIndex()
@@ -118,7 +122,7 @@ public:
 
     bool NODELETE isRendered();
     bool NODELETE isSpoken();
-    int trackIndexRelativeToRenderedTracks();
+    int NODELETE trackIndexRelativeToRenderedTracks();
 
     bool hasBeenConfigured() const { return m_hasBeenConfigured; }
     void setHasBeenConfigured(bool flag) { m_hasBeenConfigured = flag; }

@@ -187,7 +187,7 @@ public:
 
     void clearController() { m_controller = nullptr; }
 
-    Document* document();
+    Document* NODELETE document();
 
     void updateDescriptions(PeerConnectionBackend::DescriptionStates&&);
     void updateTransceiversAfterSuccessfulLocalDescription();

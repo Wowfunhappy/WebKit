@@ -1,14 +1,14 @@
 # WebKit Performance Dashboard
 
-The WebKit performane dashboard is a website to track various performance metrics of WebKit: https://perf.webkit.org/
+The WebKit performance dashboard is a website to track various performance metrics of WebKit: https://perf.webkit.org/
 
 ## 1. Checking Out the Code and Installing Required Applications
 
 The instructions assume you're using macOS as the host server and installing this application at `/Volumes/Data/perf.webkit.org`.
 
-You can choose between using Server.app or install the required tools separately.
+You can choose between using Server.app or installing the required tools separately.
 
-1. Install Server.app but do **NOT** launch/open it. (if you don't want to use Server.app, install PostgreSQL: http://www.postgresql.org/download/macosx/)
+1. Install Server.app but do **NOT** launch/open it. (if you don't want to use Server.app, install PostgreSQL: https://www.postgresql.org/download/macosx/)
 2. Install node.
 3. Install Xcode with command line tools (only needed for svn)
 4. `svn co https://svn.webkit.org/repository/webkit/trunk/Websites/perf.webkit.org /Volumes/Data/perf.webkit.org`
@@ -18,13 +18,13 @@ You can choose between using Server.app or install the required tools separately
 
 The front end has the capability to pull data from a production server without replicating the database locally on OS X Yosemite and later.
 To use this feature to test local UI changes, modify `config.json`'s `remoteServer` entry so that "remoteServer.url" points to your production server,
-and "remoteServer.basicAuth" specifies the username and the password that is used by the production sever.
+and "remoteServer.basicAuth" specifies the username and the password that is used by the production server.
 
-Remove "basicAuth" entry for production servers that doesn't require a basic authentication (e.g. perf.webkit.org).
+Remove "basicAuth" entry for production servers that don't require basic authentication (e.g. perf.webkit.org).
 
 ```json
 {
-    "url": "http://perf.webkit.org",
+    "url": "https://perf.webkit.org",
     "basicAuth": {
         "username": "webkitten",
         "password": "webkitten's secret password"
@@ -39,11 +39,11 @@ If you needed the latest content, delete caches stored in this directory by runn
 
 ## 3. Running Tests
 
-There are three kinds of tests in directories of the same name: `unit-tests`, `server tests`, and `browser-tests`.
+There are three kinds of tests in directories of the same name: `unit-tests`, `server-tests`, and `browser-tests`.
 
- - `unit-tests`: These tests various models and common JS code used in v3 UI and tools. They mock JSON APIs and model object.
- - `server-tests`: Server tests use a real Apache server in accordance with `testServer` in `config.json` and a Postgres database by the name of `testDatabaseName` specified in `config.json`. They're functional tests and may test both the backend database schema, PHP, and corresponding front-end code although many of them directly queries and modifies the database.
- - `browser-tests`: These are tests to be ran inside a Web browser, and tests v3 UI's interaction with browser's DOM API.
+ - `unit-tests`: These test various models and common JS code used in v3 UI and tools. They mock JSON APIs and model objects.
+ - `server-tests`: Server tests use a real Apache server in accordance with `testServer` in `config.json` and a Postgres database by the name of `testDatabaseName` specified in `config.json`. They're functional tests and may test the backend database schema, PHP, and corresponding front-end code although many of them directly query and modify the database.
+ - `browser-tests`: These are tests to be run inside a Web browser, and test v3 UI's interaction with browser's DOM API.
 
 To run `unit-tests` and `server-tests`, simply run `./tools/run-tests.py` after installing dependencies (1) and configuring the PostgreSQL (4).
 If you've previously setup a remote cache server (3), then you have to stop the server before running the tests.
@@ -156,7 +156,7 @@ Require valid-user
 
 ## 6. Concepts
 
- - **Test** - A test is a collection of metrics such as frame rate and malloced bytes. It can have a children and a parent and form a tree of tests.
+ - **Test** - A test is a collection of metrics such as frame rate and malloced bytes. It can have children and a parent and form a tree of tests.
  - **Metric** - A specific metric of a test such as frame rate, runs per second, and time. The list of supported metrics are:
    - *FrameRate* - Frame rate per second
    - *Runs* - Runs per second
@@ -164,19 +164,19 @@ Require valid-user
    - *Size* - Bytes
    - *Score* - Unit-less scores for benchmarks. Unit is pt or points.
 
-   Metrics can also be an aggreagte of child tests' metrics of the same name. For example, Speedometer benchmark's Time metric is the sum total of subtests' time. The list of supported aggregation types are:
+   Metrics can also be an aggregate of child tests' metrics of the same name. For example, Speedometer benchmark's Time metric is the sum total of subtests' time. The list of supported aggregation types are:
    - *Arithmetic* - [The arithmetic mean](https://en.wikipedia.org/wiki/Arithmetic_mean)
    - *Geometric* - [The geometric mean](https://en.wikipedia.org/wiki/Geometric_mean)
    - *Harmonic* - [The harmonic mean](https://en.wikipedia.org/wiki/Harmonic_mean)
    - *Total* - [The sum](https://en.wikipedia.org/wiki/Summation)
 
  - **Platform** - A platform is an environmental configuration under which performance tests run. This is typically an operating system such as Lion, Mountain Lion, or Windows 7, or a combination of an operating system, a particular device, and a configuration: e.g. macOS Sierra MacBookAir7,1.
- - **Repository** - A repository refers to the name of a collection of software whose verions or revisions need to be associated with a particular data point submitted to the dashboard. For example, WebKit is a repository because each data point submitted to the dashboard has to identify its WebKit revision. Operating systems such as macOS could also be considered as a repository if its version may change over time if an operating system may get updated across data points.
+ - **Repository** - A repository refers to the name of a collection of software whose versions or revisions need to be associated with a particular data point submitted to the dashboard. For example, WebKit is a repository because each data point submitted to the dashboard has to identify its WebKit revision. Operating systems such as macOS could also be considered a repository since their version may change over time as the operating system gets updated across data points.
  - **Commit** - A commit is a specific revision or a version of a repository. e.g. r211196 of WebKit.
  - **Committer** - A committer is the author of the change in a given repository for a specific commit. e.g. the author of r211196 in WebKit is Ryosuke Niwa.
- - **Builder** - Like a builder in buildbot, a builder submits data points to the dashboard in terms of a sequence of builds. For example, a builder named "El Capitan MacBookAir7,1" may submit data points for benchmarks ran on MacBookAir7,1 with El Capitan.
- - (Build) **Worker** - Like a buildlsave in buildbot, a worker is a physical machine that submit data points to the dashboard. e.g. it could be a bot205 which submits data points as either "El Capitan MacBookAir7,1" or "Sierra MacBookAir7,1".
- - **Build** - A build represents a set of data points reported by a specific builder. e.g. "El Capitan MacBookAir7,1" may report Speedometer score along with its subtests' results. All those data points being to a single build. This is a different concept from a build of software. A single build of WebKit, for example, could be ran on multiple builders (e.g. one MacBookAir and another MacBookPro) to generate two builds in the dashboard.
+ - **Builder** - Like a builder in buildbot, a builder submits data points to the dashboard in terms of a sequence of builds. For example, a builder named "El Capitan MacBookAir7,1" may submit data points for benchmarks run on MacBookAir7,1 with El Capitan.
+ - (Build) **Worker** - Like a buildslave in buildbot, a worker is a physical machine that submits data points to the dashboard. e.g. it could be a bot205 which submits data points as either "El Capitan MacBookAir7,1" or "Sierra MacBookAir7,1".
+ - **Build** - A build represents a set of data points reported by a specific builder. e.g. "El Capitan MacBookAir7,1" may report Speedometer score along with its subtests' results. All those data points belong to a single build. This is a different concept from a build of software. A single build of WebKit, for example, could be run on multiple builders (e.g. one MacBookAir and another MacBookPro) to generate two builds in the dashboard.
  - **Bug Tracker** - A bug or an issue tracking tool such as Bugzilla and Radar.
  - **Bug** - A bug number associated with a particular bug tracker.
  - **Analysis Task** - An analysis task is created to analyze a progression or a regression across a range of data points for a specific test metric on a specific platform. Each analysis task can have multiple test groups.
@@ -187,7 +187,7 @@ See [init-database.sql](init-database.sql) for the complete database schema.
 
 ## 7. Data Models for Test Results
 
-In the performance dashboard, each test can have a parent test or arbitrary many child tests or subtests. Each test can then have multiple metrics to measure a specific unit'ed value. For example, Speedometer benchmark has the top level score, which is computed by the total time of running subtests. As such, the top level test has two metrics: *Score* and *Time* which is the aggregated total sum of *Time* metrics of the subtests:
+In the performance dashboard, each test can have a parent test or arbitrarily many child tests or subtests. Each test can then have multiple metrics to measure a specific unit'ed value. For example, Speedometer benchmark has the top level score, which is computed by the total time of running subtests. As such, the top level test has two metrics: *Score* and *Time* which is the aggregated total sum of *Time* metrics of the subtests:
 
 **Speedometer** (A test)
  + *Score* (A metric of "Speedometer")
@@ -198,11 +198,11 @@ In the performance dashboard, each test can have a parent test or arbitrary many
     - *Time* (A metric of "BackboneJS-TodoMVC")
  + ...
 
-Since each test metric can be measured on arbitrarily platforms (e.g. MacBookAir7,1 on macOS Sierra), the dashboard supports showing the *baseline* results (e.g. benchmark scores on Safari 10) in addition to the results from the *current* sofware (the trunk WebKit build), we use a triple (test metric, platform, type) called a *test configuration* to group a collection of data points reported to the dashboard.
+Since each test metric can be measured on arbitrary platforms (e.g. MacBookAir7,1 on macOS Sierra), the dashboard supports showing the *baseline* results (e.g. benchmark scores on Safari 10) in addition to the results from the *current* software (the trunk WebKit build), we use a triple (test metric, platform, type) called a *test configuration* to group a collection of data points reported to the dashboard.
 
-Then each test configuration has arbitrary *test runs*. A test run represents the score or more broadly the result of a single test metric on a specific platform at a particular time. For example, running Speedometer once and reporting the results to the performance dashboard results in the creation of a test run for each of *Score* and *Time : Total* metrics as well as *Time* metrics of all subtests (e.g. AngularJS-TodoMVC). Each test run can then have arbitrarily many *iteration values* which are indivisual measurement of some test metric within the benchmark. For example, Speedometer runs the same test twenty times and uses the average time and the score of those twenty iterations to compute the final score. Each one of twenty iterations constitutes a single iteration value.
+Then each test configuration has arbitrary *test runs*. A test run represents the score or more broadly the result of a single test metric on a specific platform at a particular time. For example, running Speedometer once and reporting the results to the performance dashboard results in the creation of a test run for each of *Score* and *Time : Total* metrics as well as *Time* metrics of all subtests (e.g. AngularJS-TodoMVC). Each test run can then have arbitrarily many *iteration values* which are individual measurement of some test metric within the benchmark. For example, Speedometer runs the same test twenty times and uses the average time and the score of those twenty iterations to compute the final score. Each one of twenty iterations constitutes a single iteration value.
 
-Each *test run* are related to one another via *builds* which is uniquely identified by its *builder* and a *build number*. For example in the following sample data points for Speedometer, two test runs 789 and 791 are reported by a build 1001, and test runs 876 and 878 are reported by build 1002. Because Speedometer's total score is computed using the time took to run subtests, a builder reported both values in a single build as expected.
+Each *test run* is related to one another via *builds* which is uniquely identified by its *builder* and a *build number*. For example in the following sample data points for Speedometer, two test runs 789 and 791 are reported by a build 1001, and test runs 876 and 878 are reported by build 1002. Because Speedometer's total score is computed using the time taken to run subtests, a builder reported both values in a single build as expected.
 
 (Speedometer's Score, Sierra MacBookAir7,1, "current")
  + Test run 789 - Mean: 154, Build: 1001
@@ -233,7 +233,7 @@ To submit a new *build*, or a set of data points to an instance of the performan
 
 ### Format of Results JSON
 
-The JSON submitted to `/api/report` should be an array of dictionaries, and each dictionary should must contain the following key-value pairs representing a single run of tests and its subtests on a single build:
+The JSON submitted to `/api/report` should be an array of dictionaries, and each dictionary must contain the following key-value pairs representing a single run of tests and its subtests on a single build:
 
 - `builderName` - The name of a builder. A single worker may submit to multiple builders.
 - `workerName` - The name of a worker present on `/admin/workers`.
@@ -241,7 +241,7 @@ The JSON submitted to `/api/report` should be an array of dictionaries, and each
 - `buildNumber` - The string that uniquely identifies a given build on the builder.
 - `buildTime` - The time at which this build started in **UTC** (Use ISO time format such as `2013-01-31T22:22:12.121051`). This is completely independent of timestamp of repository revisions.
 - `platform` - The human-readable name of a platform such as `Mountain Lion` or `Windows 7`.
-- `revisions` - A dictionary that maps a repository name to a dictionary with "revision" and optionally "timestamp" as keys each of which maps to, respectively, the revision in **string** associated with the build and the times at which the revision was committed to the repository respectively. e.g. `{"WebKit": {"revision": "123", "timestamp": "2001-09-10T17:53:19.000000Z"}}`
+- `revisions` - A dictionary that maps a repository name to a dictionary with "revision" and optionally "timestamp" as keys each of which maps to, respectively, the revision in **string** associated with the build and the times at which the revision was committed to the repository. e.g. `{"WebKit": {"revision": "123", "timestamp": "2001-09-10T17:53:19.000000Z"}}`
 - `tests` - A dictionary that maps a test name to a dictionary that represents a test. The value of a test
    itself is a dictionary with the following keys:
     - `metrics` - A dictionary that maps a metric name to a dictionary of configuration types to an array of iteration values. e.g. `{"Time": {"current": [629.1, 654.8, 598.9], "target": [544, 585.1, 556]}}`

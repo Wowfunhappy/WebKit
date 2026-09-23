@@ -67,6 +67,7 @@
 #import "WebAuthenticatorCoordinatorProxy.h"
 #import "WebAutocorrectionContext.h"
 #import "WebAutocorrectionData.h"
+#import "WebFrameProxy.h"
 #import "WebPage.h"
 #import "WebPageMessages.h"
 #import "WebPageProxyInternals.h"
@@ -364,8 +365,6 @@ void WebPageProxy::setDeviceOrientation(IntDegrees deviceOrientation)
 
     // Update device orientation for all web processes
     forEachWebContentProcess([deviceOrientation](auto& process, auto pageID) {
-        if (!process.hasConnection())
-            return;
         process.send(Messages::WebPage::SetDeviceOrientation(deviceOrientation), pageID);
     });
 }
@@ -580,7 +579,7 @@ void WebPageProxy::saveImageToLibrary(IPC::Connection& connection, SharedMemory:
         return;
 
     auto buffer = sharedMemoryBuffer->createSharedBuffer(sharedMemoryBuffer->size());
-    pageClient->saveImageToLibrary(WTF::move(buffer));
+    pageClient->saveImageToLibrary(buffer);
 }
 
 void WebPageProxy::applicationDidEnterBackground()
@@ -690,18 +689,6 @@ void WebPageProxy::storeSelectionForAccessibility(bool shouldStore)
     protect(m_legacyMainFrameProcess)->send(Messages::WebPage::StoreSelectionForAccessibility(shouldStore), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::startAutoscrollAtPosition(const WebCore::FloatPoint& positionInWindow)
-{
-    m_isAutoscrolling = true;
-    protect(m_legacyMainFrameProcess)->send(Messages::WebPage::StartAutoscrollAtPosition(positionInWindow), webPageIDInMainFrameProcess());
-}
-
-void WebPageProxy::cancelAutoscroll()
-{
-    m_isAutoscrolling = false;
-    protect(m_legacyMainFrameProcess)->send(Messages::WebPage::CancelAutoscroll(), webPageIDInMainFrameProcess());
-}
-
 void WebPageProxy::moveSelectionByOffset(int32_t offset, CompletionHandler<void()>&& callbackFunction)
 {
     if (!hasRunningProcess()) {
@@ -714,9 +701,9 @@ void WebPageProxy::moveSelectionByOffset(int32_t offset, CompletionHandler<void(
     }, webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::interpretKeyEvent(EditorState&& state, KeyEventInterpretationContext&& context, CompletionHandler<void(bool)>&& completionHandler)
+void WebPageProxy::interpretKeyEvent(IPC::Connection& connection, EditorState&& state, KeyEventInterpretationContext&& context, CompletionHandler<void(bool)>&& completionHandler)
 {
-    updateEditorState(WTF::move(state));
+    updateEditorState(connection, WTF::move(state));
     if (!hasQueuedKeyEvent()) {
         completionHandler(false);
         return;
@@ -728,7 +715,10 @@ void WebPageProxy::interpretKeyEvent(EditorState&& state, KeyEventInterpretation
         return;
     }
 
-    auto didInterpret = pageClient->interpretKeyEvent(protect(firstQueuedKeyEvent()), WTF::move(context));
+    // firstQueuedKeyEvent() aliases a by-value keyEventQueue element; the nested key interpretation
+    // below can re-enter WebPageProxy and mutate the queue, freeing it, so copy it onto the stack.
+    auto keyEvent = firstQueuedKeyEvent();
+    auto didInterpret = pageClient->interpretKeyEvent(keyEvent, WTF::move(context));
     completionHandler(didInterpret);
 }
 
@@ -818,11 +808,6 @@ void WebPageProxy::didRecognizeLongPress()
     protect(legacyMainFrameProcess())->send(Messages::WebPage::DidRecognizeLongPress(), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::handleDoubleTapForDoubleClickAtPoint(const WebCore::IntPoint& point, OptionSet<WebEventModifier> modifiers, TransactionID layerTreeTransactionIdAtLastTouchStart)
-{
-    protect(legacyMainFrameProcess())->send(Messages::WebPage::HandleDoubleTapForDoubleClickAtPoint(point, modifiers, layerTreeTransactionIdAtLastTouchStart), webPageIDInMainFrameProcess());
-}
-
 void WebPageProxy::inspectorNodeSearchMovedToPosition(const WebCore::FloatPoint& position)
 {
     protect(legacyMainFrameProcess())->send(Messages::WebPage::InspectorNodeSearchMovedToPosition(position), webPageIDInMainFrameProcess());
@@ -833,9 +818,9 @@ void WebPageProxy::inspectorNodeSearchEndedAtPosition(const WebCore::FloatPoint&
     protect(legacyMainFrameProcess())->send(Messages::WebPage::InspectorNodeSearchEndedAtPosition(position), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::blurFocusedElement()
+void WebPageProxy::blurFocusedElement(std::optional<WebCore::FrameIdentifier> frameID)
 {
-    protect(legacyMainFrameProcess())->send(Messages::WebPage::BlurFocusedElement(), webPageIDInMainFrameProcess());
+    sendToProcessContainingFrame(frameID, Messages::WebPage::BlurFocusedElement());
 }
 
 FloatSize WebPageProxy::screenSize()
@@ -903,9 +888,9 @@ void WebPageProxy::restorePageCenterAndScale(IPC::Connection& connection, std::o
         pageClient->restorePageCenterAndScale(center, scale);
 }
 
-void WebPageProxy::setIsShowingInputViewForFocusedElement(bool showingInputView)
+void WebPageProxy::setIsShowingInputViewForFocusedElement(std::optional<WebCore::FrameIdentifier> frameID, bool showingInputView)
 {
-    protect(legacyMainFrameProcess())->send(Messages::WebPage::SetIsShowingInputViewForFocusedElement(showingInputView), webPageIDInMainFrameProcess());
+    sendToProcessContainingFrame(frameID, Messages::WebPage::SetIsShowingInputViewForFocusedElement(showingInputView));
 }
 
 void WebPageProxy::updateInputContextAfterBlurringAndRefocusingElement()
@@ -929,7 +914,20 @@ void WebPageProxy::elementDidFocus(IPC::Connection& connection, const FocusedEle
         return;
 
     RefPtr userDataObject = WebProcessProxy::fromConnection(connection)->transformHandlesToObjects(protect(userData.object())).get();
-    pageClient->elementDidFocus(information, userIsInteracting, blurPreviousNode, activityStateChanges, userDataObject.get());
+
+    convertFocusedElementInformationRectsToMainFrameCoordinates(information,
+        [weakThis = WeakPtr { *this }, userIsInteracting, blurPreviousNode, activityStateChanges, userDataObject = WTF::move(userDataObject)] (FocusedElementInformation convertedInfo) {
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis)
+                return;
+
+            RefPtr pageClient = protectedThis->pageClient();
+            if (!pageClient)
+                return;
+
+            pageClient->elementDidFocus(convertedInfo, userIsInteracting,
+                blurPreviousNode, activityStateChanges, userDataObject.get());
+        });
 }
 
 void WebPageProxy::elementDidBlur()
@@ -941,8 +939,48 @@ void WebPageProxy::elementDidBlur()
 
 void WebPageProxy::updateFocusedElementInformation(const FocusedElementInformation& information)
 {
-    if (RefPtr pageClient = this->pageClient())
-        pageClient->updateFocusedElementInformation(information);
+    convertFocusedElementInformationRectsToMainFrameCoordinates(information,
+        [weakThis = WeakPtr { *this }](FocusedElementInformation convertedInfo) {
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis)
+                return;
+
+            if (RefPtr pageClient = protectedThis->pageClient())
+                pageClient->updateFocusedElementInformation(convertedInfo);
+        });
+}
+
+void WebPageProxy::convertFocusedElementInformationRectsToMainFrameCoordinates(FocusedElementInformation information, CompletionHandler<void(FocusedElementInformation)>&& completionHandler)
+{
+    if (!information.frame || information.frame->isMainFrame) {
+        completionHandler(WTF::move(information));
+        return;
+    }
+
+    RefPtr frame = WebFrameProxy::webFrame(information.frame->frameID);
+    if (!frame) {
+        completionHandler(WTF::move(information));
+        return;
+    }
+
+    Vector<FloatRect> rects;
+    rects.append(information.interactionRect);
+    if (information.hasNextNode)
+        rects.append(information.nextNodeRect);
+    if (information.hasPreviousNode)
+        rects.append(information.previousNodeRect);
+
+    convertRectsToMainFrameCoordinates(WTF::move(rects), frame->rootFrame()->frameID(), [information = WTF::move(information), completionHandler = WTF::move(completionHandler)](std::optional<Vector<FloatRect>> convertedRects) mutable {
+        if (convertedRects) {
+            size_t index = 0;
+            information.interactionRect = IntRect(convertedRects->at(index++));
+            if (information.hasNextNode)
+                information.nextNodeRect = IntRect(convertedRects->at(index++));
+            if (information.hasPreviousNode)
+                information.previousNodeRect = IntRect(convertedRects->at(index++));
+        }
+        completionHandler(WTF::move(information));
+    });
 }
 
 void WebPageProxy::focusedElementDidChangeInputMode(WebCore::InputMode mode)
@@ -970,12 +1008,12 @@ void WebPageProxy::didReleaseAllTouchPoints()
     m_pendingInputModeChange = std::nullopt;
 }
 
-void WebPageProxy::autofillLoginCredentials(const String& username, const String& password)
+void WebPageProxy::autofillLoginCredentials(std::optional<WebCore::FrameIdentifier> frameID, const String& username, const String& password)
 {
 #if HAVE(WEB_AUTHN_AS_MODERN)
     protect(m_webAuthnCredentialsMessenger)->recordAutofill(username, URL { currentURL() });
 #endif
-    protect(m_legacyMainFrameProcess)->send(Messages::WebPage::AutofillLoginCredentials(username, password), webPageIDInMainFrameProcess());
+    sendToProcessContainingFrame(frameID, Messages::WebPage::AutofillLoginCredentials(username, password));
 }
 
 void WebPageProxy::showInspectorHighlight(const WebCore::InspectorOverlay::Highlight& highlight)
@@ -1014,16 +1052,17 @@ void WebPageProxy::disableInspectorNodeSearch()
         pageClient->disableInspectorNodeSearch();
 }
 
-void WebPageProxy::focusNextFocusedElement(bool isForward, CompletionHandler<void()>&& callbackFunction)
+void WebPageProxy::focusNextFocusedElement(std::optional<WebCore::FrameIdentifier> frameID, bool isForward, CompletionHandler<void()>&& callbackFunction)
 {
     if (!hasRunningProcess()) {
         callbackFunction();
         return;
     }
-    
-    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::FocusNextFocusedElement(isForward), [callbackFunction = WTF::move(callbackFunction), backgroundActivity = protect(m_legacyMainFrameProcess->throttler())->backgroundActivity("WebPageProxy::focusNextFocusedElement"_s)] () mutable {
+
+    auto backgroundActivity = protect(m_legacyMainFrameProcess->throttler())->backgroundActivity("WebPageProxy::focusNextFocusedElement"_s);
+    sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::FocusNextFocusedElement(isForward), CompletionHandler<void()> { [callbackFunction = WTF::move(callbackFunction), backgroundActivity = WTF::move(backgroundActivity)] () mutable {
         callbackFunction();
-    }, webPageIDInMainFrameProcess());
+    } });
 }
 
 void WebPageProxy::setFocusedElementValue(std::optional<WebCore::FrameIdentifier> frameID, const WebCore::ElementContext& context, const String& value)
@@ -1178,24 +1217,27 @@ void WebPageProxy::dispatchDidUpdateEditorState()
     m_waitingForPostLayoutEditorStateUpdateAfterFocusingElement = false;
 }
 
-void WebPageProxy::showValidationMessage(const IntRect& anchorClientRect, String&& message)
+void WebPageProxy::showValidationMessageWithMainFrameRect(const IntRect& mainFrameAnchorRect)
 {
+    RefPtr bubble = m_validationBubble;
+    if (!bubble)
+        return;
+
     RefPtr pageClient = this->pageClient();
     if (!pageClient)
         return;
 
-    m_validationBubble = pageClient->createValidationBubble(WTF::move(message), { protect(m_preferences)->minimumFontSize() });
-    Ref validationBubble = *m_validationBubble;
+    bubble->setShouldSuppressPresentation(pageClient->shouldSuppressFormValidationBubble());
 
     // FIXME: When in element fullscreen, UIClient::presentingViewController() may not return the
     // WKFullScreenViewController even though that is the presenting view controller of the WKWebView.
     // We should call PageClientImpl::presentingViewController() instead.
-    validationBubble->setAnchorRect(anchorClientRect, protect(uiClient().presentingViewController()));
+    bubble->setAnchorRect(mainFrameAnchorRect, protect(uiClient().presentingViewController()));
 
     // If we are currently doing a scrolling / zoom animation, then we'll delay showing the validation
     // bubble until the animation is over.
     if (!m_isScrollingOrZooming)
-        validationBubble->show();
+        bubble->show();
 }
 
 void WebPageProxy::setIsScrollingOrZooming(bool isScrollingOrZooming)
@@ -1516,13 +1558,17 @@ WebContentMode WebPageProxy::effectiveContentModeAfterAdjustingPolicies(API::Web
 
     const bool needsSiteSpecificQuirks = preferences->needsSiteSpecificQuirks();
 
+    auto applyIPhoneUserAgent = [&] {
+        policies.setCustomUserAgent(makeStringByReplacingAll(standardUserAgentWithApplicationName(m_applicationNameForUserAgent), "iPad"_s, "iPhone"_s));
+        policies.setCustomNavigatorPlatform("iPhone"_s);
+    };
+
     if (needsSiteSpecificQuirks) {
         if (auto selectors = Quirks::defaultVisibilityAdjustmentSelectors(request.url()))
             policies.setVisibilityAdjustmentSelectors({ WTF::move(*selectors) });
 
         if (Quirks::needsIPhoneUserAgent(request.url())) {
-            policies.setCustomUserAgent(makeStringByReplacingAll(standardUserAgentWithApplicationName(m_applicationNameForUserAgent), "iPad"_s, "iPhone"_s));
-            policies.setCustomNavigatorPlatform("iPhone"_s);
+            applyIPhoneUserAgent();
             return WebContentMode::Mobile;
         }
     }
@@ -1801,17 +1847,17 @@ void WebPageProxy::updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier i
 
 #if ENABLE(UNIFIED_PDF)
 
-PDFDisplayMode WebPageProxy::pdfDisplayMode() const
+PDFPluginDisplayMode WebPageProxy::pdfDisplayMode() const
 {
     return internals().pdfDisplayMode;
 }
 
-void WebPageProxy::setPDFDisplayMode(PDFDisplayMode mode)
+void WebPageProxy::setPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     internals().pdfDisplayMode = mode;
 }
 
-void WebPageProxy::requestPDFDisplayMode(PDFDisplayMode mode)
+void WebPageProxy::requestPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     if (!hasRunningProcess())
         return;

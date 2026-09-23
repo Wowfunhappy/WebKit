@@ -89,6 +89,7 @@ private:
     bool atRightBoundaryOfBidiRun(ShouldMatchBidiLevel, unsigned char bidiLevelOfRun) const;
 
     SingleThreadWeakPtr<const RenderObject> m_renderer;
+    RefPtr<Node> m_node;
     InlineIterator::LeafBoxIterator m_box;
     unsigned m_offset { 0 };
 
@@ -96,6 +97,6 @@ private:
     mutable std::optional<InlineIterator::LeafBoxIterator> m_nextLeafOnLine;
 };
 
-bool renderObjectContainsPosition(const RenderObject*, const Position&);
+bool NODELETE renderObjectContainsPosition(const RenderObject*, const Position&);
 
 } // namespace WebCore

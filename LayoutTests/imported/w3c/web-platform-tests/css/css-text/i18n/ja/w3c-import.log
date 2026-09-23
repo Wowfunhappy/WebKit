@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/i18n/ja/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/i18n/ja/css-text-line-break-ja-cj-loose.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/i18n/ja/css-text-line-break-ja-cj-normal.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/i18n/ja/css-text-line-break-ja-cj-strict.html

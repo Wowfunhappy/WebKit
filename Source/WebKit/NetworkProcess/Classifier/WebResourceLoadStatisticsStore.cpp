@@ -327,6 +327,11 @@ void WebResourceLoadStatisticsStore::resourceLoadStatisticsUpdated(Vector<Resour
             return;
         }
 
+        if (statistics.isEmpty()) {
+            postTaskReply(WTF::move(completionHandler));
+            return;
+        }
+
         statisticsStore->mergeStatistics(WTF::move(statistics));
         postTaskReply(WTF::move(completionHandler));
         // We can cancel any pending request to process statistics since we're doing it synchronously below.
@@ -411,7 +416,7 @@ void WebResourceLoadStatisticsStore::callHasStorageAccessForFrameHandler(const R
     callback(false);
 }
 
-void WebResourceLoadStatisticsStore::requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, FrameIdentifier frameID, PageIdentifier webPageID, WebPageProxyIdentifier webPageProxyID, StorageAccessScope scope, HasOrShouldIgnoreUserGesture hasOrShouldIgnoreUserGesture, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler)
+void WebResourceLoadStatisticsStore::requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, FrameIdentifier frameID, PageIdentifier webPageID, WebPageProxyIdentifier webPageProxyID, StorageAccessScope scope, HasUserGestureOrNoUserGestureRequired hasUserGestureOrNoUserGestureRequired, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
 
@@ -420,7 +425,7 @@ void WebResourceLoadStatisticsStore::requestStorageAccess(RegistrableDomain&& su
         return;
     }
 
-    if (hasOrShouldIgnoreUserGesture == HasOrShouldIgnoreUserGesture::No) {
+    if (hasUserGestureOrNoUserGestureRequired == HasUserGestureOrNoUserGestureRequired::No) {
         auto it = m_domainsGrantedStorageAccessPermissionInPage.find(webPageProxyID);
         if (it == m_domainsGrantedStorageAccessPermissionInPage.end() || !it->value.contains({ topFrameDomain, subFrameDomain }))
             return completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, topFrameDomain, subFrameDomain });

@@ -207,7 +207,7 @@ static inline std::optional<int> channelTypeFromCaps(GstCaps* caps)
 
 GstFlowReturn AudioFileReader::handleSample(GstAppSink* sink)
 {
-    auto sample = adoptGRef(gst_app_sink_try_pull_sample(sink, 0));
+    GRefPtr sample = adoptGRef(gst_app_sink_try_pull_sample(sink, 0));
     if (!sample)
         return gst_app_sink_is_eos(sink) ? GST_FLOW_EOS : GST_FLOW_ERROR;
 
@@ -298,7 +298,7 @@ void AudioFileReader::handleNewDeinterleavePad(GstPad* pad)
     GstElement* sink = makeGStreamerElement("appsink"_s);
 
     if (!m_firstChannelType) {
-        auto caps = adoptGRef(gst_pad_query_caps(pad, nullptr));
+        GRefPtr caps = adoptGRef(gst_pad_query_caps(pad, nullptr));
         auto channelType = channelTypeFromCaps(caps.get());
         if (channelType)
             m_firstChannelType = WTF::move(channelType);
@@ -328,7 +328,7 @@ void AudioFileReader::handleNewDeinterleavePad(GstPad* pad)
 
     gst_bin_add(GST_BIN_CAST(m_pipeline.get()), sink);
 
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
     gst_pad_link_full(pad, sinkPad.get(), GST_PAD_LINK_CHECK_NOTHING);
 
     gst_element_sync_state_with_parent(sink);
@@ -347,7 +347,7 @@ void AudioFileReader::plugDeinterleave(GstPad* pad)
     if (m_deInterleave)
         return;
 
-    auto padCaps = adoptGRef(gst_pad_query_caps(pad, nullptr));
+    GRefPtr padCaps = adoptGRef(gst_pad_query_caps(pad, nullptr));
     if (!doCapsHaveType(padCaps.get(), "audio/x-raw"_s))
         return;
 
@@ -363,13 +363,13 @@ void AudioFileReader::plugDeinterleave(GstPad* pad)
     g_signal_connect_swapped(m_deInterleave.get(), "pad-added", G_CALLBACK(deinterleavePadAddedCallback), this);
     g_signal_connect_swapped(m_deInterleave.get(), "no-more-pads", G_CALLBACK(deinterleaveReadyCallback), this);
 
-    auto caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, static_cast<int>(m_sampleRate),
+    GRefPtr caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, static_cast<int>(m_sampleRate),
         "format", G_TYPE_STRING, GST_AUDIO_NE(F32), "layout", G_TYPE_STRING, "interleaved", nullptr));
     g_object_set(capsFilter, "caps", caps.get(), nullptr);
 
     gst_bin_add_many(GST_BIN(m_pipeline.get()), audioConvert, audioResample, capsFilter, m_deInterleave.get(), nullptr);
 
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(audioConvert, "sink"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(audioConvert, "sink"));
     gst_pad_link_full(pad, sinkPad.get(), GST_PAD_LINK_CHECK_NOTHING);
 
     gst_element_link_pads_full(audioConvert, "src", audioResample, "sink", GST_PAD_LINK_CHECK_NOTHING);
@@ -413,7 +413,7 @@ void AudioFileReader::decodeAudioForBusCreation()
     }, this, nullptr);
 
     auto* source = makeGStreamerElement("giostreamsrc"_s);
-    auto memoryStream = adoptGRef(g_memory_input_stream_new_from_data(m_data.data(), m_data.size(), nullptr));
+    GRefPtr memoryStream = adoptGRef(g_memory_input_stream_new_from_data(m_data.data(), m_data.size(), nullptr));
     g_object_set(source, "stream", memoryStream.get(), nullptr);
 
     m_decodebin = makeGStreamerElement("decodebin"_s, "decodebin"_s);

@@ -161,6 +161,9 @@ private:
 
     WeakRef<IDBConnectionToServerDelegate> m_delegate;
     bool m_serverConnectionIsValid { true };
+public:
+    bool isValid() const { return m_serverConnectionIsValid; }
+private:
 
     const UniqueRef<IDBConnectionProxy> m_proxy;
 };

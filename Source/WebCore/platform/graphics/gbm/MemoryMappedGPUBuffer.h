@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024, 2025 Igalia S.L.
+ * Copyright (C) 2024, 2025, 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #include "GLDisplay.h"
 #include "IntSize.h"
 #include <wtf/OptionSet.h>
+#include <wtf/text/ASCIILiteral.h>
 #include <wtf/unix/UnixFileDescriptor.h>
 
 struct gbm_bo;
@@ -52,6 +53,16 @@ public:
         ForceVivanteSuperTiled = 1 << 1,
         UseBGRALayout = 1 << 2
     };
+
+    // The probe verifies dma-buf allocation, export and CPU mapping once per session
+    // before committing to this path. The CPU-mapping side has two strategies:
+    // mmap() on the dma-buf FD when gbm exports an RDWR-capable FD, otherwise
+    // gbm_bo_map() as a driver-native fallback. The single GPU-sampling export always
+    // goes through gbm_bo_get_fd_for_plane() so Mesa attaches its implicit-sync fence;
+    // see DMABufBufferAttributes::fromGBMBufferObject().
+    static bool isSupported();
+
+    static ASCIILiteral exportStrategyDescription();
 
     // Will only return a MemoryMappedGPUBuffer, if gbm_bo allocation + mapping to userland + EGLImage creation succeeded.
     static std::unique_ptr<MemoryMappedGPUBuffer> create(const IntSize&, OptionSet<BufferFlag>);
@@ -119,19 +130,23 @@ private:
 
     struct gbm_bo* allocate(struct gbm_device*, const GLDisplay::BufferFormat&);
     bool createDMABufFromGBMBufferObject(struct gbm_bo*);
-    UnixFileDescriptor exportGBMBufferObjectAsDMABuf(struct gbm_bo*, unsigned planeIndex);
 
     void updateContentsInLinearFormat(const void* srcData, const IntRect& targetRect, unsigned bytesPerLine);
     void updateContentsInVivanteSuperTiledFormat(const void* srcData, const IntRect& targetRect, unsigned bytesPerLine);
 
-    int primaryPlaneDmaBufFD() const;
     uint32_t primaryPlaneDmaBufStride() const;
+    int primaryPlaneDmaBufFD() const;
 
     IntSize m_size;
     IntSize m_allocatedSize;
     OptionSet<BufferFlag> m_flags;
     uint64_t m_modifier { 0 };
     RefPtr<DMABufBuffer> m_dmaBuf;
+
+    // Owned for the lifetime of the buffer. gbm_bo_map() requires it; even on the
+    // dma-buf-mmap strategy we keep it so ownership doesn't depend on the strategy.
+    struct gbm_bo* m_bo { nullptr };
+    void* m_gbmBoMapData { nullptr };
 
     void* m_mappedData { nullptr };
     size_t m_mappedLength { 0 };

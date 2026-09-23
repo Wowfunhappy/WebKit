@@ -26,12 +26,15 @@
 #import "config.h"
 #import "PageClientImplCocoa.h"
 
+#import "APIFrameInfo.h"
 #import "APIUIClient.h"
 #import "RemoteLayerTreeCommitBundle.h"
 #import "RemoteLayerTreeTransaction.h"
+#import "WKFrameInfoInternal.h"
 #import "WKWebViewInternal.h"
 #import "WebFullScreenManagerProxy.h"
 #import "WebPageProxy.h"
+#import "WebPreferences.h"
 #import <WebCore/AlternativeTextUIController.h>
 #import <WebCore/Color.h>
 #import <WebCore/FixedContainerEdges.h>
@@ -93,6 +96,9 @@ void PageClientImplCocoa::underPageBackgroundColorDidChange()
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
     [webView _updateTopScrollPocketCaptureColor];
 #endif
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+    [webView _updateRefreshControlAppearance];
+#endif
 }
 
 void PageClientImplCocoa::sampledPageTopColorWillChange()
@@ -105,29 +111,15 @@ void PageClientImplCocoa::sampledPageTopColorDidChange()
     [webView() didChangeValueForKey:@"_sampledPageTopColor"];
 }
 
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-void PageClientImplCocoa::spatialBackdropSourceWillChange()
-{
-    [webView() willChangeValueForKey:@"_spatialBackdropSource"];
-}
-
-void PageClientImplCocoa::spatialBackdropSourceDidChange()
-{
-    RetainPtr webView = m_webView.get();
-    [webView _spatialBackdropSourceDidChange];
-    [webView didChangeValueForKey:@"_spatialBackdropSource"];
-}
-#endif
-
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-void PageClientImplCocoa::allowImmersiveElementFromURL(const URL& url, CompletionHandler<void(bool)>&& completion) const
+void PageClientImplCocoa::allowImmersiveElement(Ref<API::FrameInfo>&& frameInfo, CompletionHandler<void(bool)>&& completion) const
 {
-    [webView() _allowImmersiveElementFromURL:url completion:WTF::move(completion)];
+    [webView() _allowImmersiveElement:wrapper(WTF::move(frameInfo)).get() completion:WTF::move(completion)];
 }
 
-void PageClientImplCocoa::presentImmersiveElement(const WebCore::LayerHostingContextIdentifier contextID, CompletionHandler<void(bool)>&& completion) const
+void PageClientImplCocoa::presentImmersiveElement(const WebCore::LayerHostingContextIdentifier contextID, Ref<API::FrameInfo>&& frameInfo, CompletionHandler<void(bool)>&& completion) const
 {
-    [webView() _presentImmersiveElement:contextID completion:WTF::move(completion)];
+    [webView() _presentImmersiveElement:contextID frameInfo:wrapper(WTF::move(frameInfo)).get() completion:WTF::move(completion)];
 }
 
 void PageClientImplCocoa::dismissImmersiveElement(CompletionHandler<void()>&& completion) const
@@ -360,6 +352,18 @@ void PageClientImplCocoa::removeTextAnimationForAnimationID(const WTF::UUID& uui
 {
     [webView() _removeTextAnimationForAnimationID:uuid.createNSUUID().get()];
 }
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+void PageClientImplCocoa::addTextEffectForID(const WTF::UUID& uuid, WebCore::TextEffectData&& data)
+{
+    [webView() _addTextEffectForID:uuid.createNSUUID().get() withData:data];
+}
+
+void PageClientImplCocoa::removeTextEffectForID(const WTF::UUID& uuid)
+{
+    [webView() _removeTextEffectForID:uuid.createNSUUID().get()];
+}
+#endif // ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
 
 #endif
 

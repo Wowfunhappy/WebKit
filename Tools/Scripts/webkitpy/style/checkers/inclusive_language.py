@@ -29,7 +29,7 @@ class InclusiveLanguageChecker(object):
     def __init__(self, handle_style_error):
         self.handle_style_error = handle_style_error
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         for line_number, line in enumerate(lines):
             for non_inclusive_term in self.NON_INCLUSIVE_TERMS:
                 if non_inclusive_term in line.lower():

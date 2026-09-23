@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/Forward.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/IntRect.h>
@@ -54,6 +53,7 @@ class FilterImage : public RefCounted<FilterImage> {
 public:
     static RefPtr<FilterImage> create(const FloatRect& primitiveSubregion, const FloatRect& imageRect, const IntRect& absoluteImageRect, bool isAlphaImage, bool isValidPremultiplied, RenderingMode, const DestinationColorSpace&, ImageBufferAllocator&);
     static RefPtr<FilterImage> create(const FloatRect& primitiveSubregion, const FloatRect& imageRect, const IntRect& absoluteImageRect, Ref<ImageBuffer>&&, ImageBufferAllocator&);
+    static RefPtr<FilterImage> create(const FloatRect& primitiveSubregion, FilterImage& other, ImageBufferAllocator&);
 
     // The return values are in filter coordinates.
     FloatRect primitiveSubregion() const { return m_primitiveSubregion; }
@@ -75,7 +75,7 @@ public:
     PixelBuffer* pixelBuffer(AlphaPremultiplication);
 
     RefPtr<PixelBuffer> getPixelBuffer(AlphaPremultiplication, const IntRect& sourceRect, std::optional<DestinationColorSpace> = std::nullopt);
-    void copyPixelBuffer(PixelBuffer& destinationPixelBuffer, const IntRect& sourceRect);
+    bool copyPixelBuffer(PixelBuffer& destinationPixelBuffer, const IntRect& sourceRect);
 
     void NODELETE correctPremultipliedPixelBuffer();
     void NODELETE transformToColorSpace(const DestinationColorSpace&);

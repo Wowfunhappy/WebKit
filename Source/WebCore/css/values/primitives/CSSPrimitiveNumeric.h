@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 #pragma once
 
 #include <WebCore/CSSPrimitiveData.h>
+#include <WebCore/CSSPrimitiveNumeric+Forward.h>
 #include <WebCore/CSSPrimitiveNumericConcepts.h>
 #include <WebCore/CSSPrimitiveNumericRaw.h>
 #include <WebCore/CSSUnevaluatedCalc.h>
@@ -35,11 +36,6 @@
 
 namespace WebCore {
 namespace CSS {
-
-// MARK: - Forward Declarations
-
-template<NumericRaw> struct PrimitiveNumeric;
-template<Numeric, PrimitiveKeyword...> struct PrimitiveNumericOrKeyword;
 
 // MARK: - Primitive Numeric (Raw + UnevaluatedCalc)
 
@@ -86,30 +82,6 @@ template<NumericRaw RawType> struct PrimitiveNumeric {
     constexpr PrimitiveNumeric(ValueLiteral<unitValue> value) requires (requires { { Raw(value) }; })
         : m_data { Raw { value } }
     {
-    }
-
-    // MARK: Copy/Move Construction/Assignment
-
-    PrimitiveNumeric(const PrimitiveNumeric& other)
-        : m_data { other.m_data }
-    {
-    }
-
-    PrimitiveNumeric(PrimitiveNumeric&& other)
-        : m_data { WTF::move(other.m_data) }
-    {
-    }
-
-    PrimitiveNumeric& operator=(const PrimitiveNumeric& other)
-    {
-        m_data = other.m_data;
-        return *this;
-    }
-
-    PrimitiveNumeric& operator=(PrimitiveNumeric&& other)
-    {
-        m_data = WTF::move(other.m_data);
-        return *this;
     }
 
     // MARK: Equality
@@ -167,8 +139,12 @@ template<NumericRaw RawType> struct PrimitiveNumeric {
         return visitor(asRaw());
     }
 
-    bool isKnownZero() const { return isRaw() && m_data.payload.number == 0; }
-    bool isKnownNotZero() const { return isRaw() && m_data.payload.number != 0; }
+    bool isKnownZero() const requires (range.min <= 0 && range.max >= 0) { return isRaw() && m_data.payload.number == 0; }
+    bool isKnownNotZero() const requires (range.min <= 0 && range.max >= 0) { return isRaw() && m_data.payload.number != 0; }
+    bool isKnownPositive() const requires (range.max > 0) { return isRaw() && m_data.payload.number > 0; }
+    bool isKnownPositiveOrZero() const requires (range.max >= 0) { return isRaw() && m_data.payload.number >= 0; }
+    bool isKnownNegative() const requires (range.min < 0) { return isRaw() && m_data.payload.number < 0; }
+    bool isKnownNegativeOrZero() const requires (range.min <= 0) { return isRaw() && m_data.payload.number <= 0; }
 
     bool isRaw() const { return m_data.isRaw(); }
     bool isCalc() const { return m_data.isCalc(); }
@@ -176,7 +152,7 @@ template<NumericRaw RawType> struct PrimitiveNumeric {
 
 private:
     template<typename> friend struct PrimitiveDataMarkableTraits;
-    template<Numeric, PrimitiveKeyword...> friend struct PrimitiveNumericOrKeyword;
+    template<Numeric, SpecificKeyword...> friend struct PrimitiveNumericOrKeyword;
 
     PrimitiveNumeric(PrimitiveDataEmptyToken token)
         : m_data { token }
@@ -191,64 +167,182 @@ private:
 
 // MARK: Integer Primitive
 
-template<Range R = All, typename V = int> struct Integer : PrimitiveNumeric<IntegerRaw<R, V>> {
+template<Range R, typename V> struct Integer : PrimitiveNumeric<IntegerRaw<R, V>> {
     using Base = PrimitiveNumeric<IntegerRaw<R, V>>;
     using Base::Base;
 };
 
 // MARK: Number Primitive
 
-template<Range R = All, typename V = double> struct Number : PrimitiveNumeric<NumberRaw<R, V>> {
+template<Range R, typename V> struct Number : PrimitiveNumeric<NumberRaw<R, V>> {
     using Base = PrimitiveNumeric<NumberRaw<R, V>>;
     using Base::Base;
 };
 
 // MARK: Percentage Primitive
 
-template<Range R = All, typename V = double> struct Percentage : PrimitiveNumeric<PercentageRaw<R, V>> {
+template<Range R, typename V> struct Percentage : PrimitiveNumeric<PercentageRaw<R, V>> {
     using Base = PrimitiveNumeric<PercentageRaw<R, V>>;
     using Base::Base;
 };
 
 // MARK: Dimension Primitives
 
-template<Range R = All, typename V = double> struct Angle : PrimitiveNumeric<AngleRaw<R, V>> {
+template<Range R, typename V> struct Angle : PrimitiveNumeric<AngleRaw<R, V>> {
     using Base = PrimitiveNumeric<AngleRaw<R, V>>;
     using Base::Base;
 };
-template<Range R = All, typename V = float> struct Length : PrimitiveNumeric<LengthRaw<R, V>> {
+template<Range R, typename V> struct Length : PrimitiveNumeric<LengthRaw<R, V>> {
     using Base = PrimitiveNumeric<LengthRaw<R, V>>;
     using Base::Base;
 };
-template<Range R = All, typename V = double> struct Time : PrimitiveNumeric<TimeRaw<R, V>> {
+template<Range R, typename V> struct Time : PrimitiveNumeric<TimeRaw<R, V>> {
     using Base = PrimitiveNumeric<TimeRaw<R, V>>;
     using Base::Base;
 };
-template<Range R = All, typename V = double> struct Frequency : PrimitiveNumeric<FrequencyRaw<R, V>> {
+template<Range R, typename V> struct Frequency : PrimitiveNumeric<FrequencyRaw<R, V>> {
     using Base = PrimitiveNumeric<FrequencyRaw<R, V>>;
     using Base::Base;
 };
-template<Range R = Nonnegative, typename V = double> struct Resolution : PrimitiveNumeric<ResolutionRaw<R, V>> {
+template<Range R, typename V> struct Resolution : PrimitiveNumeric<ResolutionRaw<R, V>> {
     using Base = PrimitiveNumeric<ResolutionRaw<R, V>>;
     using Base::Base;
 };
-template<Range R = All, typename V = double> struct Flex : PrimitiveNumeric<FlexRaw<R, V>> {
+template<Range R, typename V> struct Flex : PrimitiveNumeric<FlexRaw<R, V>> {
     using Base = PrimitiveNumeric<FlexRaw<R, V>>;
     using Base::Base;
 };
 
 // MARK: Dimension + Percentage Primitives
 
-template<Range R = All, typename V = float> struct AnglePercentage : PrimitiveNumeric<AnglePercentageRaw<R, V>> {
+template<Range R, typename V> struct AnglePercentage : PrimitiveNumeric<AnglePercentageRaw<R, V>> {
     using Base = PrimitiveNumeric<AnglePercentageRaw<R, V>>;
     using Base::Base;
     using MarkableTraits = PrimitiveDataMarkableTraits<AnglePercentage<R, V>>;
+
+    using Dimension = CSS::Angle<R, V>;
+    using Percentage = CSS::Percentage<R, V>;
 };
-template<Range R = All, typename V = float> struct LengthPercentage : PrimitiveNumeric<LengthPercentageRaw<R, V>> {
+template<Range R, typename V> struct LengthPercentage : PrimitiveNumeric<LengthPercentageRaw<R, V>> {
     using Base = PrimitiveNumeric<LengthPercentageRaw<R, V>>;
     using Base::Base;
     using MarkableTraits = PrimitiveDataMarkableTraits<LengthPercentage<R, V>>;
+
+    using Dimension = CSS::Length<R, V>;
+    using Percentage = CSS::Percentage<R, V>;
 };
+
+
+// MARK: Range Conversion
+
+// `CSS::ReplacingRange` provides a type trait for computing the type of `CSS::PrimitiveNumeric`
+// subtype with its `CSS::Range` parameter replaced with a replacement `CSS::Range`.
+
+template<Numeric, Range>
+struct ReplacingRangeHelper;
+
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Integer<oldRange, V>, newRange> { using type = Integer<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Number<oldRange, V>, newRange> { using type = Number<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Percentage<oldRange, V>, newRange> { using type = Percentage<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Angle<oldRange, V>, newRange> { using type = Angle<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Length<oldRange, V>, newRange> { using type = Length<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Time<oldRange, V>, newRange> { using type = Time<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Frequency<oldRange, V>, newRange> { using type = Frequency<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Resolution<oldRange, V>, newRange> { using type = Resolution<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<Flex<oldRange, V>, newRange> { using type = Flex<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<AnglePercentage<oldRange, V>, newRange> { using type = AnglePercentage<newRange, V>; };
+template<Range oldRange, typename V, Range newRange>
+struct ReplacingRangeHelper<LengthPercentage<oldRange, V>, newRange> { using type = LengthPercentage<newRange, V>; };
+
+template<Numeric T, Range newRange>
+using ReplacingRange = typename ReplacingRangeHelper<T, newRange>::type;
+
+// `CSS::dynamicRangeNarrowingCast` converts a `CSS::PrimitiveNumeric` subtype with range `a` to one
+// with range `b`, requiring that range `b` be a subrange of range `a`, returning `std::nullopt` if
+// the value stored is a raw value that is not with range `b`. If the value stored is a `calc()` value,
+// the range cast always succeeds, as the range is only evaluated for `calc()` during conversion to its
+// `Style::PrimitiveNumeric` counterpart.
+
+template<auto newRange, Numeric T>
+    requires IsSubrange<newRange, T::range>
+auto dynamicRangeNarrowingCast(const T& value) -> std::optional<ReplacingRange<T, newRange>>
+{
+    using Replacement = ReplacingRange<T, newRange>;
+
+    return WTF::switchOn(value,
+        [](const typename T::Raw& raw) -> std::optional<Replacement> {
+            if (!isWithinRange<newRange>(raw.value))
+                return std::nullopt;
+            return Replacement { typename Replacement::Raw { raw.value } };
+        },
+        [](const typename T::Calc& calc) -> std::optional<Replacement> {
+            return Replacement { typename Replacement::Calc { calc } };
+        }
+    );
+}
+
+template<auto newRange, Numeric T>
+    requires IsSubrange<newRange, T::range>
+auto dynamicRangeNarrowingCast(T&& value) -> std::optional<ReplacingRange<T, newRange>>
+{
+    using Replacement = ReplacingRange<T, newRange>;
+
+    return WTF::switchOn(WTF::move(value),
+        [](typename T::Raw&& raw) -> std::optional<Replacement> {
+            if (!isWithinRange<newRange>(raw.value))
+                return std::nullopt;
+            return Replacement { typename Replacement::Raw { raw.value } };
+        },
+        [](typename T::Calc&& calc) -> std::optional<Replacement> {
+            return Replacement { typename Replacement::Calc { WTF::move(calc) } };
+        }
+    );
+}
+
+// `CSS::rangeExpandingCast` converts a `CSS::PrimitiveNumeric` subtype with narrow range `a` to
+// an encompassing range `b`.
+
+template<auto newRange, Numeric T>
+    requires IsSubrange<T::range, newRange>
+auto rangeExpandingCast(const T& value) -> ReplacingRange<T, newRange>
+{
+    using Replacement = ReplacingRange<T, newRange>;
+
+    return WTF::switchOn(value,
+        [](const typename T::Raw& raw) {
+            return Replacement { typename Replacement::Raw { raw.value } };
+        },
+        [](const typename T::Calc& calc) {
+            return Replacement { typename Replacement::Calc { calc } };
+        }
+    );
+}
+
+template<auto newRange, Numeric T>
+    requires IsSubrange<T::range, newRange>
+auto rangeExpandingCast(T&& value) -> ReplacingRange<T, newRange>
+{
+    using Replacement = ReplacingRange<T, newRange>;
+
+    return WTF::switchOn(WTF::move(value),
+        [](typename T::Raw&& raw) {
+            return Replacement { typename Replacement::Raw { raw.value } };
+        },
+        [](typename T::Calc&& calc) {
+            return Replacement { typename Replacement::Calc { WTF::move(calc) } };
+        }
+    );
+}
 
 } // namespace CSS
 } // namespace WebCore

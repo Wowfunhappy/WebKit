@@ -29,14 +29,18 @@
 
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "Document.h"
 #include "Element.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "ExceptionCode.h"
+#include "FrameDestructionObserverInlines.h"
 #include "JSDOMPromiseDeferred.h"
+#include "NodeDocument.h"
 #include "Page.h"
 #include "PlatformMouseEvent.h"
 #include "PointerCaptureController.h"
+#include "TaskSource.h"
 #include "UserGestureIndicator.h"
 #include "VoidCallback.h"
 #include <wtf/Ref.h>
@@ -74,39 +78,35 @@ void PointerLockController::deref() const
 }
 
 
-void PointerLockController::requestPointerLock(Element* target, std::optional<PointerLockOptions>&& options, RefPtr<DeferredPromise> promise)
+void PointerLockController::requestPointerLock(Element* target, PointerLockOptions&& options, Ref<DeferredPromise>&& promise)
 {
     if (!target || !target->isConnected() || m_documentOfRemovedElementWhileWaitingForUnlock) {
         enqueueEvent(eventNames().pointerlockerrorEvent, target);
-        if (promise)
-            promise->reject(ExceptionCode::WrongDocumentError, "Pointer lock target must be in an active document."_s);
+        promise->reject(ExceptionCode::WrongDocumentError, "Pointer lock target must be in an active document."_s);
         return;
     }
 
     if (m_documentAllowedToRelockWithoutUserGesture != &target->document() && !UserGestureIndicator::processingUserGesture()) {
         enqueueEvent(eventNames().pointerlockerrorEvent, target);
         // If the request was not started from an engagement gesture and the Document has not previously released a successful Pointer Lock with exitPointerLock():
-        if (promise)
-            promise->reject(ExceptionCode::NotAllowedError, "Pointer lock requires a user gesture."_s);
+        promise->reject(ExceptionCode::NotAllowedError, "Pointer lock requires a user gesture."_s);
         return;
     }
 
     if (target->document().isSandboxed(SandboxFlag::PointerLock)) {
         auto reason = "Blocked pointer lock on an element because the element's frame is sandboxed and the 'allow-pointer-lock' permission is not set."_s;
         // FIXME: This message should be moved off the console once a solution to https://bugs.webkit.org/show_bug.cgi?id=103274 exists.
-        target->document().addConsoleMessage(MessageSource::Security, MessageLevel::Error, reason);
+        protect(target->document())->addConsoleMessage(MessageSource::Security, MessageLevel::Error, reason);
         enqueueEvent(eventNames().pointerlockerrorEvent, target);
         // If this's node document's active sandboxing flag set has the sandboxed pointer lock browsing context flag set:
-        if (promise)
-            promise->reject(ExceptionCode::SecurityError, reason);
+        promise->reject(ExceptionCode::SecurityError, reason);
         return;
     }
 
-    if (options && options->unadjustedMovement && !supportsUnadjustedMovement()) {
+    if (options.unadjustedMovement && !supportsUnadjustedMovement()) {
         // If options["unadjustedMovement"] is true and the platform does not support unadjustedMovement:
         enqueueEvent(eventNames().pointerlockerrorEvent, target);
-        if (promise)
-            promise->reject(ExceptionCode::NotSupportedError, "Unadjusted movement is unavailable."_s);
+        promise->reject(ExceptionCode::NotSupportedError, "Unadjusted movement is unavailable."_s);
         return;
     }
 
@@ -114,21 +114,18 @@ void PointerLockController::requestPointerLock(Element* target, std::optional<Po
         if (&m_element->document() != &target->document()) {
             enqueueEvent(eventNames().pointerlockerrorEvent, target);
             // If the user agent's pointer-lock target is an element whose shadow-including root is not equal to this's shadow-including root, then:
-            if (promise)
-                promise->reject(ExceptionCode::InvalidStateError, "Pointer lock cannot be moved to an element in a different document."_s);
+            promise->reject(ExceptionCode::InvalidStateError, "Pointer lock cannot be moved to an element in a different document."_s);
             return;
         }
         m_element = target;
         m_options = WTF::move(options);
         if (m_lockPending) {
             // m_lockPending means an answer from the ChromeClient for a previous requestPointerLock on the page is pending. It's currently unknown which way that will go, whether the request will be approved or rejected. Therefore queue the promise for later when that's known and don't send out any pointerlockchangeEvent yet.
-            if (promise)
-                m_promises.append(promise.releaseNonNull());
+            m_promises.append(WTF::move(promise));
         } else {
             // !m_lockPending means the pointer lock is currently held on the page, and page is just re-targeting it or changing the options.
             enqueueEvent(eventNames().pointerlockchangeEvent, target);
-            if (promise)
-                promise->resolve();
+            promise->resolve();
             // FIXME: https://bugs.webkit.org/show_bug.cgi?id=261786
             // This probably needs to be called in all code paths.
             m_page->pointerCaptureController().pointerLockWasApplied();
@@ -137,8 +134,7 @@ void PointerLockController::requestPointerLock(Element* target, std::optional<Po
         m_lockPending = true;
         m_element = target;
         m_options = WTF::move(options);
-        if (promise)
-            m_promises.append(promise.releaseNonNull());
+        m_promises.append(WTF::move(promise));
 
         m_page->chrome().client().requestPointerLock([this, protectedThis = Ref { *this }, target = RefPtr { target }](PointerLockRequestResult result) {
             switch (result) {
@@ -281,7 +277,7 @@ void PointerLockController::dispatchLockedMouseEvent(const PlatformMouseEvent& e
         return;
 
     Ref protectedElement { *m_element };
-    protectedElement->dispatchMouseEvent((m_options && m_options->unadjustedMovement) ? UnadjustedMovementPlatformMouseEvent(event) : event, eventType, event.clickCount());
+    protectedElement->dispatchMouseEvent(m_options.unadjustedMovement ? UnadjustedMovementPlatformMouseEvent(event) : event, eventType, event.clickCount());
 
     // Create click events
     if (eventType == eventNames().mouseupEvent)
@@ -294,14 +290,14 @@ void PointerLockController::dispatchLockedWheelEvent(const PlatformWheelEvent& e
         return;
 
     OptionSet<EventHandling> defaultHandling;
-    m_element->dispatchWheelEvent(event, defaultHandling);
+    protect(m_element)->dispatchWheelEvent(event, defaultHandling);
 }
 
 void PointerLockController::clearElement()
 {
     m_lockPending = false;
     m_element = nullptr;
-    m_options = std::nullopt;
+    m_options = { };
     ASSERT(m_promises.isEmpty());
 }
 

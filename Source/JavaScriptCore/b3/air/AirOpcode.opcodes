@@ -1735,6 +1735,8 @@ BranchNeg32 U:G:32, UZD:G:32 /branch
 64 armv7: MoveConditionally32 U:G:32, U:G:32, U:G:32, U:G:Ptr, U:G:Ptr, D:G:Ptr
     RelCond, Tmp, Tmp, Tmp, Tmp, Tmp
     RelCond, Tmp, Imm, Tmp, Tmp, Tmp
+    arm64: RelCond, Tmp, Tmp, Tmp, ZeroReg, Tmp
+    arm64: RelCond, Tmp, Imm, Tmp, ZeroReg, Tmp
 
 64: MoveConditionally64 U:G:32, U:G:64, U:G:64, U:G:Ptr, UD:G:Ptr
     RelCond, Tmp, Tmp, Tmp, Tmp
@@ -1742,6 +1744,8 @@ BranchNeg32 U:G:32, UZD:G:32 /branch
 64: MoveConditionally64 U:G:32, U:G:64, U:G:64, U:G:Ptr, U:G:Ptr, D:G:Ptr
     RelCond, Tmp, Tmp, Tmp, Tmp, Tmp
     RelCond, Tmp, Imm, Tmp, Tmp, Tmp
+    arm64: RelCond, Tmp, Tmp, Tmp, ZeroReg, Tmp
+    arm64: RelCond, Tmp, Imm, Tmp, ZeroReg, Tmp
 
 64 armv7: MoveConditionallyTest32 U:G:32, U:G:32, U:G:32, U:G:Ptr, UD:G:Ptr
     ResCond, Tmp, Tmp, Tmp, Tmp
@@ -1750,6 +1754,8 @@ BranchNeg32 U:G:32, UZD:G:32 /branch
 64 armv7: MoveConditionallyTest32 U:G:32, U:G:32, U:G:32, U:G:Ptr, U:G:Ptr, D:G:Ptr
     ResCond, Tmp, Tmp, Tmp, Tmp, Tmp
     ResCond, Tmp, BitImm, Tmp, Tmp, Tmp
+    arm64: ResCond, Tmp, Tmp, Tmp, ZeroReg, Tmp
+    arm64: ResCond, Tmp, BitImm, Tmp, ZeroReg, Tmp
 
 64: MoveConditionallyTest64 U:G:32, U:G:64, U:G:64, U:G:Ptr, UD:G:Ptr
     ResCond, Tmp, Tmp, Tmp, Tmp
@@ -1758,6 +1764,7 @@ BranchNeg32 U:G:32, UZD:G:32 /branch
 64: MoveConditionallyTest64 U:G:32, U:G:32, U:G:32, U:G:Ptr, U:G:Ptr, D:G:Ptr
     ResCond, Tmp, Tmp, Tmp, Tmp, Tmp
     x86_64: ResCond, Tmp, Imm, Tmp, Tmp, Tmp
+    arm64: ResCond, Tmp, Tmp, Tmp, ZeroReg, Tmp
 
 64: MoveConditionallyDouble U:G:32, U:F:64, U:F:64, U:G:Ptr, U:G:Ptr, D:G:Ptr
     DoubleCond, Tmp, Tmp, Tmp, Tmp, Tmp
@@ -2010,16 +2017,16 @@ arm64: VectorShl8 U:G:Ptr, U:F:128, U:G:8, D:F:128
 arm64: VectorHorizontalAdd U:G:Ptr, U:F:128, D:F:128
     SIMDInfo, Tmp, Tmp
 
-arm64: VectorZipLower U:G:Ptr, U:F:128, U:F:128, D:F:128
+64: VectorZipLower U:G:Ptr, U:F:128, U:F:128, D:F:128
     SIMDInfo, Tmp, Tmp, Tmp
 
-arm64: VectorZipHigher U:G:Ptr, U:F:128, U:F:128, D:F:128
+64: VectorZipHigher U:G:Ptr, U:F:128, U:F:128, D:F:128
     SIMDInfo, Tmp, Tmp, Tmp
 
-arm64: VectorUnzipEven U:G:Ptr, U:F:128, U:F:128, D:F:128
+64: VectorUnzipEven U:G:Ptr, U:F:128, U:F:128, D:F:128
     SIMDInfo, Tmp, Tmp, Tmp
 
-arm64: VectorUnzipOdd U:G:Ptr, U:F:128, U:F:128, D:F:128
+64: VectorUnzipOdd U:G:Ptr, U:F:128, U:F:128, D:F:128
     SIMDInfo, Tmp, Tmp, Tmp
 
 arm64: VectorTransposeEven U:G:Ptr, U:F:128, U:F:128, D:F:128
@@ -2028,10 +2035,10 @@ arm64: VectorTransposeEven U:G:Ptr, U:F:128, U:F:128, D:F:128
 arm64: VectorTransposeOdd U:G:Ptr, U:F:128, U:F:128, D:F:128
     SIMDInfo, Tmp, Tmp, Tmp
 
-arm64: VectorReverse U:G:Ptr, U:G:8, U:F:128, D:F:128
+64: VectorReverse U:G:Ptr, U:G:8, U:F:128, D:F:128
     SIMDInfo, Imm, Tmp, Tmp
 
-arm64: VectorExtractPair U:G:Ptr, U:G:8, U:F:128, U:F:128, D:F:128
+64: VectorExtractPair U:G:Ptr, U:G:8, U:F:128, U:F:128, D:F:128
     SIMDInfo, Imm, Tmp, Tmp, Tmp
 
 arm64_sha3: VectorXorRotateRight64 U:F:128, U:F:128, U:G:8, D:F:128
@@ -2181,6 +2188,12 @@ arm64: VectorMulLow U:G:8, U:F:128, U:F:128, D:F:128
 x86_64: VectorMulLow U:G:8, U:F:128, U:F:128, D:F:128, S:F:128
     SIMDInfo, Tmp, Tmp, Tmp, Tmp
 
+arm64: VectorMulAddLow U:G:8, U:F:128, U:F:128, UD:F:128
+    SIMDInfo, Tmp, Tmp, Tmp
+
+arm64: VectorMulAddHigh U:G:8, U:F:128, U:F:128, UD:F:128
+    SIMDInfo, Tmp, Tmp, Tmp
+
 arm64: VectorMulSat U:F:128, U:F:128, D:F:128
     Tmp, Tmp, Tmp
 
@@ -2205,17 +2218,32 @@ arm64: VectorSwizzle2 U:F:128, U:F:128, U:F:128, D:F:128
 64: VectorFusedNegMulAdd U:G:Ptr, U:F:128, U:F:128, U:F:128, D:F:128, S:F:128
     SIMDInfo, Tmp, Tmp, Tmp, Tmp, Tmp
 
+64: VectorRelaxedMin U:G:Ptr, U:F:128, U:F:128, D:F:128
+    SIMDInfo, Tmp, Tmp, Tmp
+
+64: VectorRelaxedMax U:G:Ptr, U:F:128, U:F:128, D:F:128
+    SIMDInfo, Tmp, Tmp, Tmp
+
+64: VectorRelaxedQ15Mulr U:F:128, U:F:128, D:F:128
+    Tmp, Tmp, Tmp
+
+64: VectorRelaxedDotI8x16I7x16 U:F:128, U:F:128, D:F:128, S:F:128
+    Tmp, Tmp, Tmp, Tmp
+
+64: VectorRelaxedDotI8x16I7x16Add U:F:128, U:F:128, U:F:128, D:F:128, S:F:128, S:F:128
+    Tmp, Tmp, Tmp, Tmp, Tmp, Tmp
+
 arm64: VectorDupElementInt8 U:G:8, U:F:128, D:F:128
     Imm, Tmp, Tmp
 arm64: VectorDupElementInt16 U:G:8, U:F:128, D:F:128
     Imm, Tmp, Tmp
-arm64: VectorDupElementInt32 U:G:8, U:F:128, D:F:128
+64: VectorDupElementInt32 U:G:8, U:F:128, D:F:128
     Imm, Tmp, Tmp
-arm64: VectorDupElementInt64 U:G:8, U:F:128, D:F:128
+64: VectorDupElementInt64 U:G:8, U:F:128, D:F:128
     Imm, Tmp, Tmp
-arm64: VectorDupElementFloat32 U:G:8, U:F:128, D:F:128
+64: VectorDupElementFloat32 U:G:8, U:F:128, D:F:128
     Imm, Tmp, Tmp
-arm64: VectorDupElementFloat64 U:G:8, U:F:128, D:F:128
+64: VectorDupElementFloat64 U:G:8, U:F:128, D:F:128
     Imm, Tmp, Tmp
 
 Oops /terminal
@@ -2234,9 +2262,9 @@ custom Shuffle
 # which must be the first operand.
 custom Patch
 
-# Instructions used for lowering C calls. These don't make it to Air generation. They get lowered to
-# CCallSpecials first. The origin Value must be a CCallValue.
-custom CCall
+# Instruction used for lowering cold C calls. Hot C calls are marshalled inline by B3LowerToAir and
+# never reach Air generation as an opcode; cold calls keep this opcode until they are lowered to a
+# CCallSpecial after register allocation. The origin Value must be a CCallValue.
 custom ColdCCall
 
 # This is a special wasm opcode that branches to a trap handler. This uses the generator located to Air::Code

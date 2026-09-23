@@ -61,9 +61,9 @@
 
 [
     Conditional=WEB_CODECS,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary AudioDataCopyToOptions {
-    [EnforceRange] unsigned long planeIndex;
+    // FIXME: planeIndex should be required.
+    [ImplementationDefaultValue=0, EnforceRange] unsigned long planeIndex;
     [EnforceRange] unsigned long frameOffset;
     [EnforceRange] unsigned long frameCount;
     AudioSampleFormat format;

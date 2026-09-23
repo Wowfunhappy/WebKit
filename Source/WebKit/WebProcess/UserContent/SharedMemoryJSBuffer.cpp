@@ -42,13 +42,6 @@ SharedMemoryJSBuffer::SharedMemoryJSBuffer(Ref<WebCore::SharedMemory>&& sharedMe
 {
 }
 
-WebCore::ExceptionOr<String> SharedMemoryJSBuffer::asUTF8String() const
-{
-    if (charactersAreAllASCII(m_sharedMemory->span()))
-        return asLatin1String();
-    return String::fromUTF8(m_sharedMemory->span());
-}
-
 WebCore::ExceptionOr<String> SharedMemoryJSBuffer::asUTF16String() const
 {
     if (m_sharedMemory->size() % sizeof(char16_t))

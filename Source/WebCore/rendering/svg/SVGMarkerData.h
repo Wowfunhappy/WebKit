@@ -22,6 +22,7 @@
 #include "FloatConversion.h"
 #include "Path.h"
 #include <array>
+#include <numeric>
 
 namespace WebCore {
 
@@ -103,7 +104,7 @@ private:
             // WK193015: Prevent bugs due to angles being non-continuous.
             if (std::abs(inAngle - outAngle) > 180)
                 inAngle += 360;
-            return narrowPrecisionToFloat((inAngle + outAngle) / 2);
+            return narrowPrecisionToFloat(std::midpoint(inAngle, outAngle));
         case SVGMarkerType::End:
             return narrowPrecisionToFloat(inAngle);
         }

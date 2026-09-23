@@ -11,7 +11,6 @@
 <script>
     description("Test removing an element with a pending pointer lock cancels the lock.")
     window.jsTestIsAsync = true;
-    window.internals.settings.setPointerLockOptionsEnabled(true);
     window.testRunner?.setHasMouseDeviceForTesting(true);
 
     targetDiv = document.getElementById("target");

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,27 +26,37 @@
 #import "config.h"
 #import "WKVisibilityPropagationView.h"
 
-#if HAVE(VISIBILITY_PROPAGATION_VIEW) && USE(EXTENSIONKIT)
+#if HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 #import "AuxiliaryProcessProxy.h"
 #import "ExtensionKitSPI.h"
 #import "Logging.h"
+#import "UIKitSPI.h"
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakPtr.h>
 
+#if PLATFORM(IOS_FAMILY)
+#import "UIKitSPI.h"
+#endif
+
 namespace WebKit {
-using ProcessAndInteractionPair = std::pair<WeakPtr<AuxiliaryProcessProxy>, RetainPtr<id<UIInteraction>>>;
+#if USE(EXTENSIONKIT)
+using ProcessAndVisibilityPropagatorPair = std::pair<WeakPtr<AuxiliaryProcessProxy>, RetainPtr<id<UIInteraction>>>;
+#else
+using ProcessAndVisibilityPropagatorPair = std::pair<WeakPtr<AuxiliaryProcessProxy>, RetainPtr<UIView>>;
+#endif
 }
 
 @implementation WKVisibilityPropagationView {
-    Vector<WebKit::ProcessAndInteractionPair> _processesAndInteractions;
+    Vector<WebKit::ProcessAndVisibilityPropagatorPair> _processesAndVisibilityPropagators;
 }
 
-- (void)propagateVisibilityToProcess:(WebKit::AuxiliaryProcessProxy&)process
+- (void)propagateVisibilityToProcess:(WebKit::AuxiliaryProcessProxy&)process contextID:(WebKit::LayerHostingContextID)contextID
 {
-    if ([self _containsInteractionForProcess:process])
+    if ([self _containsVisibilityPropagatorForProcess:process])
         return;
 
+#if USE(EXTENSIONKIT)
     auto extensionProcess = process.extensionProcess();
     if (!extensionProcess)
         return;
@@ -55,40 +65,71 @@ using ProcessAndInteractionPair = std::pair<WeakPtr<AuxiliaryProcessProxy>, Reta
     if (!visibilityPropagationInteraction)
         return;
 
+    RELEASE_LOG(Process, "Created visibility propagation interaction %p for process with PID=%d", visibilityPropagationInteraction.get(), process.processID());
+
     [self addInteraction:visibilityPropagationInteraction.get()];
+    auto processAndVisibilityPropagator = std::make_pair(WeakPtr(process), WTF::move(visibilityPropagationInteraction));
+#else
+    auto processID = process.processID();
+    if (!processID)
+        return;
 
-    RELEASE_LOG(Process, "Created visibility propagation interaction %@ for process with PID=%d", visibilityPropagationInteraction.get(), process.processID());
+#if HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
+    RetainPtr visibilityPropagationView = adoptNS([[_UINonHostingVisibilityPropagationView alloc] initWithFrame:CGRectZero pid:processID environmentIdentifier:process.environmentIdentifier().createNSString().get()]);
+#else
+    if (!contextID)
+        return;
 
-    auto processAndInteraction = std::make_pair(WeakPtr(process), visibilityPropagationInteraction);
-    _processesAndInteractions.append(WTF::move(processAndInteraction));
+    RetainPtr visibilityPropagationView = adoptNS([[_UILayerHostView alloc] initWithFrame:CGRectZero pid:processID contextID:contextID]);
+#endif
+
+    RELEASE_LOG(Process, "Created visibility propagation view %p (contextID=%u) for process with PID=%d", visibilityPropagationView.get(), contextID, processID);
+
+    [self addSubview:visibilityPropagationView.get()];
+    auto processAndVisibilityPropagator = std::make_pair(WeakPtr(process), WTF::move(visibilityPropagationView));
+#endif
+
+    _processesAndVisibilityPropagators.append(WTF::move(processAndVisibilityPropagator));
+}
+
+- (void)_removeVisibilityPropagator:(const WebKit::ProcessAndVisibilityPropagatorPair::second_type&)visibilityPropagator
+{
+#if USE(EXTENSIONKIT)
+    [self removeInteraction:visibilityPropagator.get()];
+#else
+    [visibilityPropagator removeFromSuperview];
+#endif
 }
 
 - (void)stopPropagatingVisibilityToProcess:(WebKit::AuxiliaryProcessProxy&)process
 {
-    _processesAndInteractions.removeAllMatching([&](auto& processAndInteraction) {
-        auto existingProcess = processAndInteraction.first.get();
+    _processesAndVisibilityPropagators.removeAllMatching([&](auto& processAndVisibilityPropagator) {
+        auto existingProcess = processAndVisibilityPropagator.first.get();
         if (existingProcess && existingProcess != &process)
             return false;
 
-        RELEASE_LOG(Process, "Removing visibility propagation interaction %p", processAndInteraction.second.get());
+        RELEASE_LOG(Process, "Removing visibility propagation %p", processAndVisibilityPropagator.second.get());
 
-        [self removeInteraction:processAndInteraction.second.get()];
+        [self _removeVisibilityPropagator:processAndVisibilityPropagator.second];
         return true;
     });
 }
 
-- (BOOL)_containsInteractionForProcess:(WebKit::AuxiliaryProcessProxy&)process
+- (BOOL)_containsVisibilityPropagatorForProcess:(WebKit::AuxiliaryProcessProxy&)process
 {
-    return _processesAndInteractions.containsIf([&](auto& processAndInteraction) {
-        return processAndInteraction.first.get() == &process;
+    return _processesAndVisibilityPropagators.containsIf([&](auto& processesAndVisibilityPropagator) {
+        return processesAndVisibilityPropagator.first.get() == &process;
     });
 }
 
 - (void)clear
 {
-    _processesAndInteractions.clear();
+    _processesAndVisibilityPropagators.removeAllMatching([&](auto& processAndVisibilityPropagator) {
+        [self _removeVisibilityPropagator:processAndVisibilityPropagator.second];
+        return true;
+    });
 }
 
 @end
 
-#endif // HAVE(VISIBILITY_PROPAGATION_VIEW) && USE(EXTENSIONKIT)
+#endif // HAVE(VISIBILITY_PROPAGATION_VIEW)

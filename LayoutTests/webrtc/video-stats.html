@@ -122,9 +122,11 @@ function testTimestampDifference(timeStampDifference, numberOfFrames)
 
 function checkInboundFramesNumberIncreased(secondConnection, statsSecondConnection, count)
 {
+    const remoteTrackIds = new Set(secondConnection.getReceivers().map(receiver => receiver.track.id));
     return getInboundRTPStats(secondConnection).then((stats) => {
         assert_true("framesDropped" in stats, "framesDropped");
         assert_true(!!stats.trackIdentifier, "trackIdentifier");
+        assert_true(remoteTrackIds.has(stats.trackIdentifier), "trackIdentifier matches track.id");
         assert_true(!!stats.kind, "kind");
         if (stats.framesDecoded > statsSecondConnection.framesDecoded) {
             if (testTimestampDifference(stats.timestamp - statsSecondConnection.timestamp, stats.framesDecoded - statsSecondConnection.framesDecoded))
@@ -160,11 +162,12 @@ function checkOutboundFramesNumberIncreased(firstConnection, statsFirstConnectio
 }
 
 var firstConnection, secondConnection;
+var localStream;
 promise_test(async (test) => {
     if (window.testRunner)
         testRunner.setUserMediaPermission(true);
 
-    const localStream = await navigator.mediaDevices.getUserMedia({ audio : true, video: true});
+    localStream = await navigator.mediaDevices.getUserMedia({ audio : true, video: true});
     const remoteStream = await new Promise((resolve, reject) => {
         createConnections((connection) => {
             firstConnection = connection;
@@ -331,6 +334,7 @@ promise_test(async (test) => {
 }, "Inbound rtp stats - rtx");
 
 promise_test(async (test) => {
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const pc = new RTCPeerConnection();
     pc.close();
     return pc.getStats();

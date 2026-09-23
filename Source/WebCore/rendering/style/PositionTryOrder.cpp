@@ -29,20 +29,26 @@
 namespace WebCore {
 namespace Style {
 
-LogicalBoxAxis boxAxisForPositionTryOrder(PositionTryOrder order, WritingMode writingMode)
+LogicalBoxAxis selfAxisForPositionTryOrder(PositionTryOrder order, WritingMode selfWritingMode, WritingMode containingBlockWritingMode)
 {
+    bool shouldFlipLogicalAxis = selfWritingMode.isOrthogonal(containingBlockWritingMode);
+
     switch (order) {
     case PositionTryOrder::MostWidth:
-        return mapAxisPhysicalToLogical(writingMode, BoxAxis::Horizontal);
+        return mapAxisPhysicalToLogical(selfWritingMode, BoxAxis::Horizontal);
     case PositionTryOrder::MostHeight:
-        return mapAxisPhysicalToLogical(writingMode, BoxAxis::Vertical);
+        return mapAxisPhysicalToLogical(selfWritingMode, BoxAxis::Vertical);
+
+    // "Logical directions are resolved against the writing mode of the containing block."
     case PositionTryOrder::MostBlockSize:
-        return LogicalBoxAxis::Block;
+        return !shouldFlipLogicalAxis ? LogicalBoxAxis::Block : LogicalBoxAxis::Inline;
     case PositionTryOrder::MostInlineSize:
-        return LogicalBoxAxis::Inline;
+        return !shouldFlipLogicalAxis ? LogicalBoxAxis::Inline : LogicalBoxAxis::Block;
+
     case PositionTryOrder::Normal:
         break;
     }
+
     ASSERT_NOT_REACHED();
     return LogicalBoxAxis::Inline;
 }

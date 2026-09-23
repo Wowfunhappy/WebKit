@@ -60,15 +60,27 @@ void NavigationSOAuthorizationSession::shouldStartInternal()
     RefPtr page = this->page();
     ASSERT(page);
     beforeStart();
+    start();
+}
+
+void NavigationSOAuthorizationSession::beginAuthorizationIfReady()
+{
+    AUTHORIZATIONSESSION_RELEASE_LOG("beginAuthorizationIfReady: m_page=%p", page());
+
+    RefPtr page = this->page();
+    if (!page)
+        return;
+
     if (!page->isInWindow()) {
-        AUTHORIZATIONSESSION_RELEASE_LOG("shouldStartInternal: Starting Extensible SSO authentication for a web view that is not attached to a window. Loading will pause until a window is attached.");
+        AUTHORIZATIONSESSION_RELEASE_LOG("beginAuthorizationIfReady: Web view is not attached to a window. Pausing authorization until a window is attached.");
         setState(State::Waiting);
         page->addDidMoveToWindowObserver(*this);
         ASSERT(page->mainFrame());
         m_waitingPageActiveURL = page->pageLoadState().activeURL();
         return;
     }
-    start();
+
+    SOAuthorizationSession::beginAuthorizationIfReady();
 }
 
 void NavigationSOAuthorizationSession::webViewDidMoveToWindow()
@@ -82,8 +94,9 @@ void NavigationSOAuthorizationSession::webViewDidMoveToWindow()
         page->removeDidMoveToWindowObserver(*this);
         return;
     }
-    start();
     page->removeDidMoveToWindowObserver(*this);
+    setState(State::Active);
+    SOAuthorizationSession::beginAuthorizationIfReady();
 }
 
 bool NavigationSOAuthorizationSession::pageActiveURLDidChangeDuringWaiting() const

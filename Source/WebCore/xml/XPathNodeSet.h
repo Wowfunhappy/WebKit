@@ -34,7 +34,7 @@ class NodeSet {
 public:
     NodeSet() : m_isSorted(true), m_subtreesAreDisjoint(false) { }
     explicit NodeSet(Ref<Node>&& node)
-        : m_isSorted(true), m_subtreesAreDisjoint(false), m_nodes(1, WTF::move(node))
+        : m_isSorted(true), m_subtreesAreDisjoint(false), m_nodes(FillWith { }, 1, WTF::move(node))
     { }
 
     size_t size() const { return m_nodes.size(); }

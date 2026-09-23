@@ -28,7 +28,6 @@
 
 #include "Font.h"
 #include "FontSelector.h"
-// MAVERICKS_BACKPORT: this TU returns GlyphData by value; Font.h only forward-declares it.
 #include "GlyphPage.h"
 #include <wtf/Assertions.h>
 #include <wtf/text/CharacterProperties.h>
@@ -38,7 +37,7 @@ namespace WebCore {
 
 const Font* FontRanges::Range::font(ExternalResourceDownloadPolicy policy) const
 {
-    return m_fontAccessor->font(policy);
+    return protect(m_fontAccessor)->font(policy);
 }
 
 FontRanges::FontRanges(FontRanges&& other, IsGenericFontFamily isGenericFontFamily)
@@ -134,7 +133,7 @@ const Font& FontRanges::fontForFirstRange() const
 bool FontRanges::isLoading() const
 {
     for (auto& range : m_ranges) {
-        if (range.fontAccessor().isLoading())
+        if (protect(range.fontAccessor())->isLoading())
             return true;
     }
     return false;

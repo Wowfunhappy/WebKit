@@ -76,7 +76,8 @@ TEST_P(TextureRectangleTest, TexImage2D)
         glTexImage2D(GL_TEXTURE_RECTANGLE_ANGLE, 0, GL_RGBA, maxSize, maxSize, 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, nullptr);
         GLenum error = glGetError();
-        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY);
+        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY ||
+                    error == GL_INVALID_OPERATION);
     }
 
     // Defining a texture of the max size is allowed
@@ -153,7 +154,7 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         // Use 5 levels because the EXT_texture_storage extension requires a mip chain all the way
         // to a 1x1 mip.
         TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 5, GL_RGBA8, 16, 16);
-        ASSERT_GL_ERROR(GL_INVALID_VALUE);
+        ASSERT_GL_ERROR(GL_INVALID_OPERATION);
     }
 
     GLint maxSize = 0;
@@ -167,7 +168,8 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
         TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8, maxSize, maxSize);
         GLenum error = glGetError();
-        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY);
+        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY ||
+                    error == GL_INVALID_OPERATION);
     }
 
     // Defining a texture of the max size is disallowed
@@ -186,7 +188,7 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         GLTexture tex;
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
         TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, 16, 16);
-        ASSERT_GL_ERROR(GL_INVALID_ENUM);
+        ASSERT_GL_ERROR(GL_INVALID_OPERATION);
     }
 }
 

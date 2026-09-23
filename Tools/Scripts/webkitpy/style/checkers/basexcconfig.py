@@ -68,7 +68,7 @@ class BaseXcconfigChecker(object):
 
         return inherited_vars, override_vars
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         (inherited_vars, override_vars) = self.read_common_base_xcconfig_variables()
 
         for line_number, line in enumerate(lines, start=1):

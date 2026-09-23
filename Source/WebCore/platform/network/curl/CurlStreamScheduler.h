@@ -28,7 +28,12 @@
 #include "CurlStream.h"
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
+#include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
@@ -55,7 +60,7 @@ private:
     void workerThread();
 
     Lock m_mutex;
-    RefPtr<Thread> m_thread;
+    RefPtr<WTF::Thread> m_thread;
     bool m_runThread { false };
 
     CurlStreamID m_currentStreamID = 1;

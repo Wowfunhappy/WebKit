@@ -37,13 +37,9 @@
 
 namespace WebKit {
 
-WebCacheStorageConnection::WebCacheStorageConnection()
-{
-}
+WebCacheStorageConnection::WebCacheStorageConnection() = default;
 
-WebCacheStorageConnection::~WebCacheStorageConnection()
-{
-}
+WebCacheStorageConnection::~WebCacheStorageConnection() = default;
 
 Ref<IPC::Connection> WebCacheStorageConnection::connection()
 {

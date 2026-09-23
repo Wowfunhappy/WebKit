@@ -1,4 +1,5 @@
-//@ skip if $memoryLimited or $buildType == "debug"
+//@ memoryHog!
+//@ skip if $buildType == "debug"
 //@ runDefault
 
 var a = [];

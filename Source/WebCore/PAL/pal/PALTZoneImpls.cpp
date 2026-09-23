@@ -31,7 +31,12 @@
 
 namespace PAL {
 
+namespace Crypto {
+
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CryptoDigest);
+
+}
+
 WTF_MAKE_TZONE_ALLOCATED_IMPL(HysteresisActivity);
 
 } // namespace PAL

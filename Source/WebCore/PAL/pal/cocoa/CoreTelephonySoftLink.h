@@ -26,12 +26,3 @@
 #pragma once
 
 #import <pal/spi/cocoa/CoreTelephonySPI.h>
-
-#if HAVE(CORE_TELEPHONY) && !HAVE(DELAY_INIT_LINKING)
-
-#import <wtf/SoftLinking.h>
-
-SOFT_LINK_FRAMEWORK_FOR_HEADER(PAL, CoreTelephony)
-SOFT_LINK_CLASS_FOR_HEADER(PAL, CoreTelephonyClient)
-
-#endif // HAVE(CORE_TELEPHONY) && !HAVE(DELAY_INIT_LINKING)

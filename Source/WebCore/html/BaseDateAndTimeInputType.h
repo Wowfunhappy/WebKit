@@ -50,10 +50,13 @@ class BaseDateAndTimeInputType : public InputType, public DateTimeChooserClient,
     WTF_MAKE_TZONE_ALLOCATED(BaseDateAndTimeInputType);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(BaseDateAndTimeInputType);
 public:
-    bool typeMismatchFor(const String&) const final;
-    bool valueMissing(const String&) const final;
+    bool typeMismatchFor(StringView) const final;
+    bool valueMissing(StringView) const final;
     bool typeMismatch() const final;
     bool hasBadInput() const final;
+
+    void ref() const final { InputType::ref(); }
+    void deref() const final { InputType::deref(); }
 
 protected:
     enum class DateTimeFormatValidationResults : uint8_t {
@@ -75,7 +78,7 @@ protected:
 
     ~BaseDateAndTimeInputType();
 
-    Decimal parseToNumber(const String&, const Decimal&) const override;
+    Decimal parseToNumber(StringView, const Decimal&) const override;
     String serialize(const Decimal&) const final;
     String serializeWithComponents(const DateComponents&) const;
 

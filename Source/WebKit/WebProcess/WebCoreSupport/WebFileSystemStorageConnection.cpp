@@ -27,6 +27,7 @@
 #include "WebFileSystemStorageConnection.h"
 
 #include "NetworkStorageManagerMessages.h"
+#include <WebCore/ClientOrigin.h>
 #include <WebCore/ExceptionOr.h>
 #include <WebCore/FileSystemDirectoryHandle.h>
 #include <WebCore/FileSystemFileHandle.h>
@@ -103,7 +104,8 @@ void WebFileSystemStorageConnection::getFileHandle(WebCore::FileSystemHandleIden
         if (!result)
             return completionHandler(convertToException(result.error()));
 
-        completionHandler(WebCore::FileSystemHandleCloseScope::create(result.value(), false, *this));
+        auto& [globalIdentifier, newIdentifier] = result.value();
+        completionHandler(WebCore::FileSystemHandleCloseScope::create(globalIdentifier, newIdentifier, WebCore::FileSystemHandleKind::File, *this));
     });
 }
 
@@ -117,7 +119,8 @@ void WebFileSystemStorageConnection::getDirectoryHandle(WebCore::FileSystemHandl
         if (!result)
             return completionHandler(convertToException(result.error()));
 
-        completionHandler(WebCore::FileSystemHandleCloseScope::create(result.value(), true, *this));
+        auto& [globalIdentifier, newIdentifier] = result.value();
+        completionHandler(WebCore::FileSystemHandleCloseScope::create(globalIdentifier, newIdentifier, WebCore::FileSystemHandleKind::Directory, *this));
     });
 }
 
@@ -206,9 +209,37 @@ void WebFileSystemStorageConnection::getHandle(WebCore::FileSystemHandleIdentifi
     connection->sendWithAsyncReply(Messages::NetworkStorageManager::GetHandle(identifier, name), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](auto result) mutable {
         if (!result)
             return completionHandler(convertToException(result.error()));
-        
-        auto [identifier, isDirectory] = *result.value();
-        completionHandler(WebCore::FileSystemHandleCloseScope::create(identifier, isDirectory, *this));
+
+        auto& info = *result.value();
+        completionHandler(WebCore::FileSystemHandleCloseScope::create(info.globalIdentifier, info.identifier, info.kind, *this));
+    });
+}
+
+void WebFileSystemStorageConnection::addGlobalIdentifierReference(WebCore::ClientOrigin&& origin, WebCore::FileSystemHandleGlobalIdentifier globalIdentifier)
+{
+    if (RefPtr connection = m_connection)
+        connection->send(Messages::NetworkStorageManager::AddGlobalIdentifierReference(origin, globalIdentifier), 0);
+}
+
+void WebFileSystemStorageConnection::removeGlobalIdentifierReferences(WebCore::ClientOrigin&& origin, Vector<WebCore::FileSystemHandleGlobalIdentifier>&& globalIdentifiers)
+{
+    if (globalIdentifiers.isEmpty())
+        return;
+    if (RefPtr connection = m_connection)
+        connection->send(Messages::NetworkStorageManager::RemoveGlobalIdentifierReferences(WTF::move(origin), WTF::move(globalIdentifiers)), 0);
+}
+
+void WebFileSystemStorageConnection::resolveGlobalIdentifier(WebCore::ClientOrigin&& origin, WebCore::FileSystemHandleGlobalIdentifier globalIdentifier, ResolveGlobalIdentifierCallback&& completionHandler)
+{
+    RefPtr connection = m_connection;
+    if (!connection)
+        return completionHandler(WebCore::Exception { WebCore::ExceptionCode::UnknownError, "Connection is lost"_s });
+
+    connection->sendWithAsyncReply(Messages::NetworkStorageManager::ResolveGlobalIdentifier(origin, globalIdentifier), [completionHandler = WTF::move(completionHandler)](auto result) mutable {
+        if (!result)
+            return completionHandler(WebCore::Exception { WebCore::ExceptionCode::UnknownError, "Failed to resolve handle's global identifier"_s });
+
+        completionHandler(WTF::move(result.value()));
     });
 }
 

@@ -121,9 +121,7 @@ RemoteInspectorClient::RemoteInspectorClient(URL url, RemoteInspectorObserver& o
     startInitialCommunication();
 }
 
-RemoteInspectorClient::~RemoteInspectorClient()
-{
-}
+RemoteInspectorClient::~RemoteInspectorClient() = default;
 
 void RemoteInspectorClient::sendWebInspectorEvent(const String& event)
 {

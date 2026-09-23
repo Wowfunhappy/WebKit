@@ -1,4 +1,9 @@
 
+PASS syntax:'--foo', initialValue:'--foo' is valid
+PASS syntax:'--foo | <color>', initialValue:'--foo' is valid
+PASS syntax:'--foo | <color>', initialValue:'red' is valid
+PASS syntax:'--foo+', initialValue:'--foo --foo' is valid
+PASS syntax:'--a | --b | --c', initialValue:'--b' is valid
 PASS syntax:'*', initialValue:'a' is valid
 PASS syntax:' * ', initialValue:'b' is valid
 PASS syntax:'<length>', initialValue:'2px' is valid

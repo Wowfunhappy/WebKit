@@ -38,12 +38,12 @@ namespace WebCore {
 class HistoryItem;
 class HistoryItemClient;
 class LocalFrame;
+class NavigationAPIMethodTracker;
 class SerializedScriptValue;
 
 enum class ShouldGoToHistoryItem : uint8_t;
 enum class ShouldTreatAsContinuingLoad : uint8_t;
 
-struct NavigationAPIMethodTracker;
 struct StringWithDirection;
 
 class HistoryController final : public CanMakeWeakPtr<HistoryController>  {
@@ -51,6 +51,7 @@ class HistoryController final : public CanMakeWeakPtr<HistoryController>  {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(HistoryController, Loader);
 public:
     enum HistoryUpdateType { UpdateAll, UpdateAllExceptBackForwardList };
+    enum WasCreatedByJSWithoutUserInteraction : bool { No, Yes };
 
     explicit HistoryController(LocalFrame&);
     ~HistoryController();
@@ -61,8 +62,8 @@ public:
     WEBCORE_EXPORT void saveScrollPositionAndViewStateToItem(HistoryItem*);
     WEBCORE_EXPORT void restoreScrollPositionAndViewState();
 
-    void updateBackForwardListForFragmentScroll();
-    void updateBackForwardListForReplaceState(RefPtr<SerializedScriptValue>&&, const String&);
+    void updateBackForwardListForFragmentScroll(WasCreatedByJSWithoutUserInteraction = WasCreatedByJSWithoutUserInteraction::No);
+    void updateBackForwardListForReplaceState(RefPtr<SerializedScriptValue>&&, const String&, WasCreatedByJSWithoutUserInteraction = WasCreatedByJSWithoutUserInteraction::No);
 
     void saveDocumentState();
     WEBCORE_EXPORT void saveDocumentAndScrollState();
@@ -104,8 +105,8 @@ public:
 
 private:
     friend class Page;
-    bool shouldStopLoadingForHistoryItem(HistoryItem&) const;
-    void goToItem(HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad);
+    bool NODELETE shouldStopLoadingForHistoryItem(HistoryItem&) const;
+    void goToItem(HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified);
     void goToItemForNavigationAPI(HistoryItem&, FrameLoadType, LocalFrame& triggeringFrame, NavigationAPIMethodTracker*);
     void goToItemShared(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&, ShouldTreatAsContinuingLoad = ShouldTreatAsContinuingLoad::No);
 
@@ -115,13 +116,13 @@ private:
 
     enum class ForNavigationAPI : bool { No, Yes };
     void recursiveSetProvisionalItem(HistoryItem&, HistoryItem*, ForNavigationAPI = ForNavigationAPI::No);
-    void recursiveGoToItem(HistoryItem&, HistoryItem*, FrameLoadType, ShouldTreatAsContinuingLoad);
+    void recursiveGoToItem(HistoryItem&, HistoryItem*, FrameLoadType, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified);
     bool NODELETE isMultipartReplaceLoadTypeWithProvisionalItem(FrameLoadType);
     bool NODELETE isReloadTypeWithProvisionalItem(FrameLoadType);
     void recursiveUpdateForCommit();
     void recursiveUpdateForSameDocumentNavigation();
     static bool NODELETE itemsAreClones(HistoryItem&, HistoryItem*);
-    void updateBackForwardListClippedAtTarget(bool doClip);
+    void updateBackForwardListClippedAtTarget(bool doClip, WasCreatedByJSWithoutUserInteraction = WasCreatedByJSWithoutUserInteraction::No);
     void updateCurrentItem();
     bool isFrameLoadComplete() const { return m_frameLoadComplete; }
 

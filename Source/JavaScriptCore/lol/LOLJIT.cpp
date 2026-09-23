@@ -45,6 +45,7 @@
 #include "JITLeftShiftGenerator.h"
 #include "JITSizeStatistics.h"
 #include "JITThunks.h"
+#include "JumpTable.h"
 #include "LLIntEntrypoint.h"
 #include "LLIntThunks.h"
 #include "LOLJITOperations.h"
@@ -59,10 +60,6 @@
 #include "StackAlignment.h"
 #include "ThunkGenerators.h"
 #include "TypeProfilerLog.h"
-#include <wtf/BubbleSort.h>
-#include <wtf/GraphNodeWorklist.h>
-#include <wtf/SequesteredMalloc.h>
-#include <wtf/SimpleStats.h>
 #include <wtf/text/MakeString.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -351,6 +348,7 @@ void LOLJIT::privateCompileMainPass()
         DEFINE_SLOW_OP(create_generator)
         DEFINE_SLOW_OP(create_async_generator)
         DEFINE_SLOW_OP(new_generator)
+        DEFINE_SLOW_OP(new_async_function_generator)
 
         DEFINE_OP(op_add)
         DEFINE_OP(op_bitnot)
@@ -384,7 +382,6 @@ void LOLJIT::privateCompileMainPass()
         DEFINE_OP(op_eq_null)
         DEFINE_OP(op_below)
         DEFINE_OP(op_beloweq)
-        DEFINE_OP(op_try_get_by_id)
         DEFINE_OP(op_in_by_id)
         DEFINE_OP(op_in_by_val)
         DEFINE_OP(op_has_private_name)
@@ -496,12 +493,14 @@ void LOLJIT::privateCompileMainPass()
 
         DEFINE_OP(op_iterator_open)
         DEFINE_OP(op_iterator_next)
+        DEFINE_OP(op_async_iterator_next)
 
         DEFINE_OP(op_ret)
         DEFINE_OP(op_rshift)
         DEFINE_OP(op_unsigned)
         DEFINE_OP(op_urshift)
         DEFINE_OP(op_set_function_name)
+        DEFINE_OP(op_async_iterator_open)
         DEFINE_OP(op_stricteq)
         DEFINE_OP(op_sub)
         DEFINE_OP(op_switch_char)
@@ -634,7 +633,6 @@ void LOLJIT::privateCompileSlowCases()
         DEFINE_SLOWCASE_OP(op_add)
         DEFINE_SLOWCASE_OP(op_call_direct_eval)
         DEFINE_SLOWCASE_OP(op_eq)
-        DEFINE_SLOWCASE_OP(op_try_get_by_id)
         DEFINE_SLOWCASE_OP(op_in_by_id)
         DEFINE_SLOWCASE_OP(op_in_by_val)
         DEFINE_SLOWCASE_OP(op_has_private_name)
@@ -688,6 +686,7 @@ void LOLJIT::privateCompileSlowCases()
 
         DEFINE_SLOWCASE_OP(op_iterator_open)
         DEFINE_SLOWCASE_OP(op_iterator_next)
+        DEFINE_SLOWCASE_OP(op_async_iterator_open)
 
         DEFINE_SLOWCASE_SLOW_OP(unsigned, OpUnsigned)
         DEFINE_SLOWCASE_SLOW_OP(inc, OpInc)
@@ -1784,7 +1783,7 @@ void LOLJIT::emit_op_new_reg_exp(const JSInstruction* currentInstruction)
     constexpr GPRReg globalObjectGPR = preferredArgumentGPR<Operation, 0>();
 
     loadGlobalObject(globalObjectGPR);
-    callOperation(operationNewRegExp, globalObjectGPR, TrustedImmPtr(jsCast<RegExp*>(m_unlinkedCodeBlock->getConstant(regexp))));
+    callOperation(operationNewRegExp, globalObjectGPR, TrustedImmPtr(uncheckedDowncast<RegExp>(m_unlinkedCodeBlock->getConstant(regexp))));
     boxCell(returnValueGPR, returnValueJSR);
     emitPutVirtualRegister(dst, returnValueJSR);
 
@@ -1879,7 +1878,7 @@ void LOLJIT::emit_op_typeof_is_undefined(const JSInstruction* currentInstruction
     emitLoadStructure(vm(), operandRegs.payloadGPR(), s_scratch);
     // We don't need operandRegs anymore so it's ok to use dstRegs even if it is operandRegs.
     loadGlobalObject(dstRegs.gpr());
-    loadPtr(Address(s_scratch, Structure::globalObjectOffset()), s_scratch);
+    loadPtr(Address(s_scratch, Structure::realmOffset()), s_scratch);
     comparePtr(Equal, dstRegs.gpr(), s_scratch, s_scratch);
 
     notMasqueradesAsUndefined.link(this);
@@ -2218,7 +2217,7 @@ void LOLJIT::emit_op_jeq_null(const JSInstruction* currentInstruction)
     Jump isNotMasqueradesAsUndefined = branchTest8(Zero, Address(valueRegs.payloadGPR(), JSCell::typeInfoFlagsOffset()), TrustedImm32(MasqueradesAsUndefined));
     emitLoadStructure(vm(), valueRegs.payloadGPR(), s_scratch);
     loadGlobalObject(regT0);
-    addJump(branchPtr(Equal, Address(s_scratch, Structure::globalObjectOffset()), regT0), target);
+    addJump(branchPtr(Equal, Address(s_scratch, Structure::realmOffset()), regT0), target);
     Jump masqueradesGlobalObjectIsForeign = jump();
 
     // Now handle the immediate cases - undefined & null
@@ -2245,7 +2244,7 @@ void LOLJIT::emit_op_jneq_null(const JSInstruction* currentInstruction)
     addJump(branchTest8(Zero, Address(valueRegs.payloadGPR(), JSCell::typeInfoFlagsOffset()), TrustedImm32(MasqueradesAsUndefined)), target);
     emitLoadStructure(vm(), valueRegs.payloadGPR(), s_scratch);
     loadGlobalObject(regT0);
-    addJump(branchPtr(NotEqual, Address(s_scratch, Structure::globalObjectOffset()), regT0), target);
+    addJump(branchPtr(NotEqual, Address(s_scratch, Structure::realmOffset()), regT0), target);
     Jump wasNotImmediate = jump();
 
     // Now handle the immediate cases - undefined & null

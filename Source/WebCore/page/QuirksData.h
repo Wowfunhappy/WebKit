@@ -31,21 +31,29 @@
 namespace WebCore {
 
 struct QuirksData {
+    bool isAirIndiaExpress : 1 { false };
     bool isAmazon : 1 { false };
     bool isBankOfAmerica : 1 { false };
+    bool isBestBuy : 1 { false };
     bool isBing : 1 { false };
     bool isCBSSports : 1 { false };
+    bool isCEAC : 1 { false };
+    bool isDictionary : 1 { false };
     bool isEA : 1 { false };
     bool isESPN : 1 { false };
     bool isFacebook : 1 { false };
     bool isGoogleDocs : 1 { false };
     bool isGoogleProperty : 1 { false };
     bool isGoogleMaps : 1 { false };
+    bool isIHeart : 1 { false };
+    bool isInVideo : 1 { false };
+    bool isLinkedIn : 1 { false };
     bool isNBA : 1 { false };
     bool isNetflix : 1 { false };
     bool isOutlook : 1 { false };
     bool isSoundCloud : 1 { false };
     bool isThesaurus : 1 { false };
+    bool isTikTok : 1 { false };
     bool isVimeo : 1 { false };
     bool isWalmart : 1 { false };
     bool isWebEx : 1 { false };
@@ -64,6 +72,7 @@ struct QuirksData {
         HasBrokenEncryptedMediaAPISupportQuirk,
         ImplicitMuteWhenVolumeSetToZero,
         InputMethodUsesCorrectKeyEventOrder,
+        InputMethodMustUseCompositionEvents,
 #if PLATFORM(MAC)
         IsNeverRichlyEditableForTouchBarQuirk,
         IsTouchBarUpdateSuppressedForHiddenContentEditableQuirk,
@@ -72,18 +81,26 @@ struct QuirksData {
 #if ENABLE(TWO_PHASE_CLICKS)
         MayNeedToIgnoreContentObservation,
 #endif
+        NeedsAirIndiaExpressLayeringQuirk,
         NeedsBodyScrollbarWidthNoneDisabledQuirk,
         NeedsCanPlayAfterSeekedQuirk,
         NeedsChromeMediaControlsPseudoElementQuirk,
+#if PLATFORM(COCOA)
+        NeedsCNNCaptionQuirk,
+#endif
+        NeedsLogoutCookieCleanupQuirk,
 #if PLATFORM(IOS_FAMILY)
+        NeedsAmazonDesignMenuViewportUnitQuirk,
         NeedsClaudeSidebarViewportUnitQuirk,
+        NeedsHideSelectionDuringOverflowScrollQuirk,
 #endif
         NeedsCustomUserAgentData,
 #if PLATFORM(IOS_FAMILY)
         NeedsDeferKeyDownAndKeyPressTimersUntilNextEditingCommandQuirk,
 #endif
         NeedsFacebookRemoveNotSupportedQuirk,
-#if PLATFORM(MAC)
+#if PLATFORM(COCOA)
+        NeedsAnchorToBeMouseFocusableQuirk,
         NeedsFormControlToBeMouseFocusableQuirk,
 #endif
 #if PLATFORM(IOS_FAMILY)
@@ -93,13 +110,17 @@ struct QuirksData {
         NeedsGoogleMapsScrollingQuirk,
         NeedsGoogleTranslateScrollingQuirk,
 #endif
+#if PLATFORM(IOS) || PLATFORM(VISION)
+        NeedsNetflixVolumeSliderQuirk,
+#endif
         NeedsGeforcenowWarningDisplayNoneQuirk,
-        NeedsHotelsAnimationQuirk,
+        NeedsExpediaGroupAnimationQuirk,
         NeedsMediaRewriteRangeRequestQuirk,
         NeedsMozillaFileTypeForDataTransferQuirk,
         NeedsNavigatorUserAgentDataQuirk,
         NeedsNowPlayingFullscreenSwapQuirk,
 #if PLATFORM(IOS_FAMILY)
+        NeedsPauseBeforeFullscreenExitQuirk,
         NeedsPreloadAutoQuirk,
 #endif
 #if PLATFORM(MAC)
@@ -107,9 +128,7 @@ struct QuirksData {
 #endif
         NeedsResettingTransitionCancelsRunningTransitionQuirk,
         NeedsReuseLiveRangeForSelectionUpdateQuirk,
-#if PLATFORM(IOS_FAMILY)
         NeedsScriptToEvaluateBeforeRunningScriptFromURLQuirk,
-#endif
         NeedsScrollbarWidthThinDisabledQuirk,
         NeedsSeekingSupportDisabledQuirk,
         NeedsSuppressPostLayoutBoundaryEventsQuirk,
@@ -117,6 +136,12 @@ struct QuirksData {
         NeedsVP9FullRangeFlagQuirk,
         NeedsVideoShouldMaintainAspectRatioQuirk,
         NeedsWebKitMediaTextTrackDisplayQuirk,
+#if PLATFORM(COCOA)
+        NeedsYouTubeCaptionQuirk,
+#endif
+#if PLATFORM(IOS_FAMILY)
+        NeedsYouTubeEmbedAutoplayQuirk,
+#endif
 #if ENABLE(TWO_PHASE_CLICKS)
         NeedsYouTubeMouseOutQuirk,
 #endif
@@ -131,11 +156,15 @@ struct QuirksData {
         RequiresUserGestureToLoadInPictureInPictureQuirk,
         RequiresUserGestureToPauseInPictureInPictureQuirk,
 #endif
+#if ENABLE(FULLSCREEN_API)
+        RequiresUserGestureToPlayInFullscreenQuirk,
+#endif
         ReturnNullPictureInPictureElementDuringFullscreenChangeQuirk,
 #if PLATFORM(IOS_FAMILY)
         ShouldAllowPopupFromMicrosoftOfficeToOneDrive,
 #endif
         ShouldAutoplayWebAudioForArbitraryUserGestureQuirk,
+        ShouldAvoidProgrammaticScrollClampingQuirk,
         ShouldAvoidResizingWhenInputViewBoundsChangeQuirk,
         ShouldAvoidScrollingWhenFocusedContentIsVisibleQuirk,
         ShouldBlockFetchWithNewlineAndLessThan,
@@ -156,12 +185,17 @@ struct QuirksData {
 #endif
 #if ENABLE(MEDIA_STREAM)
         ShouldDisableImageCaptureQuirk,
+        ShouldAllowMediaStreamTrackSerializationQuirk,
 #endif
         ShouldDisableLazyIframeLoadingQuirk,
 #if PLATFORM(IOS_FAMILY)
         ShouldDisablePointerEventsQuirk,
 #endif
         ShouldDisablePushStateFilePathRestrictions,
+        ShouldDisableScrollAnchoringQuirk,
+#if ENABLE(THREADED_ANIMATIONS)
+        ShouldDisableThreadedAnimationsQuirk,
+#endif
         ShouldDisableWritingSuggestionsByDefaultQuirk,
         ShouldDispatchPlayPauseEventsOnResume,
 #if ENABLE(TOUCH_EVENTS)
@@ -171,6 +205,7 @@ struct QuirksData {
         ShouldDispatchSimulatedMouseEventsAssumeDefaultPreventedQuirk,
 #if ENABLE(MEDIA_STREAM)
         ShouldEnableCameraAndMicrophonePermissionStateQuirk,
+        ShouldEnableCameraBackgroundPlayback,
         ShouldEnableEnumerateDeviceQuirk,
         ShouldEnableFacebookFlagQuirk,
 #endif
@@ -203,12 +238,13 @@ struct QuirksData {
 #if ENABLE(META_VIEWPORT)
         ShouldIgnoreViewportArgumentsToAvoidExcessiveZoomQuirk,
         ShouldIgnoreViewportArgumentsToAvoidEnlargedViewQuirk,
+        ShouldUseDynamicViewportUnitsAsDefaultQuirk,
 #endif
         ShouldLayOutAtMinimumWindowWidthWhenIgnoringScalingConstraintsQuirk,
 #if PLATFORM(IOS_FAMILY)
         ShouldNavigatorPluginsBeEmpty,
 #endif
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
         ShouldPreventDispatchOfTouchEventQuirk,
 #endif
         ShouldPreventOrientationMediaQueryFromEvaluatingToLandscapeQuirk,
@@ -240,11 +276,17 @@ struct QuirksData {
         ShouldAvoidStartingSelectionOnMouseDownOverPointerCursor,
         ShouldAllowNotificationPermissionWithoutUserGesture,
         NeedsInstagramResizingReelsQuirk,
+        NeedsYahooVolumeSliderQuirk,
         NeedsZillowFloorplanMarginQuirk,
 #if PLATFORM(IOS_FAMILY)
         NeedsChromeOSNavigatorUserAgentQuirk,
+        ShouldSendFakeTouchForceChangeEvent,
 #endif
         ShouldLimitHLSPlaybackRate,
+        ShouldDeferIntersectionObserversDuringResize,
+        ShouldSuppressHLSSubtitles,
+        ShouldSuppressMediaSessionPauseActionOnInterruption,
+        ShouldBlockAudiblePlaybackWhileAudioIsPlaying,
 
         NumberOfQuirks
     };
@@ -281,10 +323,11 @@ struct QuirksData {
     std::optional<bool> needsDisableDOMPasteAccessQuirk;
     std::optional<bool> shouldDisableElementFullscreen;
 
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     enum class ShouldDispatchSimulatedMouseEvents : uint8_t {
         Unknown,
         No,
+        DependingOnTargetWithSliderRole,
         DependingOnTargetFor_mybinder_org,
         Yes,
     };

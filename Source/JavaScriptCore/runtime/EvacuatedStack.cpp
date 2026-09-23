@@ -34,11 +34,9 @@
 #include "NativeCallee.h"
 #include "WasmCallee.h"
 
-#include <wtf/PtrTag.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/text/MakeString.h>
 
-extern "C" void* SYSV_ABI relocateJITReturnPC(const void* codePtr, const void* oldSignatureSP, const void* newSignatureSP);
 extern "C" void* SYSV_ABI getSentinelFrameReturnPC(const void* signatureSP);
 
 namespace JSC {
@@ -53,31 +51,27 @@ std::unique_ptr<EvacuatedStackSlice> EvacuatedStackSlice::create(std::span<Regis
     return slice;
 }
 
-EvacuatedStackSlice::EvacuatedStackSlice(std::span<Register> stackSpan, Vector<unsigned>&& frameOffsets, const CallFrame* frameToReturnFromForEntry)
-    : Base(stackSpan.size())
-    , m_originalBase(stackSpan.data())
-    , m_frameOffsets(WTF::move(frameOffsets))
-    , m_entryPC(frameToReturnFromForEntry->rawReturnPC())
-    , m_entryPCFrame(frameToReturnFromForEntry)
-{
-    memcpySpan(slots(), stackSpan);
-}
-
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-void* relocateReturnPC(void* returnPC, const CallerFrameAndPC* originalFP, const CallerFrameAndPC* newFP)
+EvacuatedStackSlice::EvacuatedStackSlice(std::span<Register> stackSpan, Vector<unsigned>&& frameOffsets, const CallFrame* frameToReturnFromForEntry)
+    : Base(stackSpan.size())
+    , m_frameOffsets(WTF::move(frameOffsets))
+    , m_entryPC(frameToReturnFromForEntry->rawReturnPC())
 {
-#if CPU(ARM64E)
-    auto* originalSignatureSP = reinterpret_cast<const void*>(originalFP + 1);
-    auto* newSignatureSP = reinterpret_cast<const void*>(newFP + 1);
-    if (Options::useJITCage() && isJITPC(removeCodePtrTag(returnPC)))
-        return relocateJITReturnPC(returnPC, originalSignatureSP, newSignatureSP);
-    return ptrauth_auth_and_resign(returnPC, ptrauth_key_asib, originalSignatureSP, ptrauth_key_asib, newSignatureSP);
-#else
-    UNUSED_PARAM(originalFP);
-    UNUSED_PARAM(newFP);
-    return returnPC;
-#endif
+    memcpySpan(slots(), stackSpan);
+
+    // Re-sign all return PCs
+    for (unsigned offset : m_frameOffsets) {
+        SUPPRESS_MEMORY_UNSAFE_CAST // this and other casts are guaranteed by stack construction
+        auto* frameRecord = reinterpret_cast<CallerFrameAndPC*>(slots().data() + offset);
+        SUPPRESS_MEMORY_UNSAFE_CAST
+        auto* originalDiscriminator = reinterpret_cast<const void*>(reinterpret_cast<const CallerFrameAndPC*>(stackSpan.data() + offset) + 1);
+        frameRecord->returnPC = relocateReturnPC(frameRecord->returnPC, originalDiscriminator, saltedDiscriminator(frameRecord));
+    }
+
+    SUPPRESS_MEMORY_UNSAFE_CAST
+    auto* entryOriginalDiscriminator = reinterpret_cast<const void*>(reinterpret_cast<const CallerFrameAndPC*>(frameToReturnFromForEntry) + 1);
+    m_entryPC = relocateReturnPC(const_cast<void*>(m_entryPC), entryOriginalDiscriminator, saltedDiscriminator(this));
 }
 
 CallFrame* EvacuatedStackSlice::implant(Register* base, CallFrame* lastFrame)
@@ -95,14 +89,16 @@ CallFrame* EvacuatedStackSlice::implant(Register* base, CallFrame* lastFrame)
 
         SUPPRESS_MEMORY_UNSAFE_CAST // cast validity is guaranteed by stack construction
         auto* frameRecord = reinterpret_cast<CallerFrameAndPC*>(base + offset);
-        SUPPRESS_MEMORY_UNSAFE_CAST // ditto
-        auto* originalFrameRecordAddr = reinterpret_cast<const CallerFrameAndPC*>(m_originalBase + offset);
 
         // Link this frame to the one above and re-sign the returnPC for the new location
         frameRecord->callerFrame = lastFrame;
-        frameRecord->returnPC = isReturnToSentinelFrame
-            ? getSentinelFrameReturnPC(frameRecord + 1)
-            : relocateReturnPC(frameRecord->returnPC, originalFrameRecordAddr, frameRecord);
+        if (isReturnToSentinelFrame)
+            frameRecord->returnPC = getSentinelFrameReturnPC(frameRecord + 1);
+        else {
+            auto* originalDiscriminator = saltedDiscriminator(reinterpret_cast<const void*>(slots().data() + offset));
+            auto* newDiscriminator = reinterpret_cast<const void*>(frameRecord + 1);
+            frameRecord->returnPC = relocateReturnPC(frameRecord->returnPC, originalDiscriminator, newDiscriminator);
+        }
 
         lastFrame = static_cast<CallFrame*>(static_cast<void*>(frameRecord));
         ASSERT(isStackAligned(lastFrame));
@@ -123,18 +119,21 @@ void EvacuatedStackSlice::dump(PrintStream& out) const
     out.print(", entryPC=", RawPointer(m_entryPC), " }");
 }
 
-static const Register* alignStackPointer(const Register* ptr)
+static const Register* NODELETE alignStackPointer(const Register* ptr)
 {
     constexpr size_t stackAlignmentMask = stackAlignmentBytes() - 1;
     uintptr_t alignedAddress = (reinterpret_cast<uintptr_t>(ptr) + stackAlignmentMask) & ~stackAlignmentMask;
     return reinterpret_cast<const Register*>(alignedAddress);
 }
 
-static const Register* topOfFrame(const CallFrame* callFrame)
+static const Register* NODELETE topOfFrame(const CallFrame* callFrame)
 {
     // We include a few extra slots above the frame record via the
     // headroomSlotCount parameter of StackSlicer::evacuatePendingSlice, but we still count
     // the frame record as the real top of a Wasm frame and the bottom of the next frame.
+    // FIXME: when we start relying on FragSlicer, this simple guesstimate should be changed
+    // to analyze callees and ensure that frames of those that share stack data are kept together
+    // in one slice.
     CalleeBits calleeBits = callFrame->callee();
     if (calleeBits.isNativeCallee()) {
         auto* nativeCallee = calleeBits.asNativeCallee();
@@ -158,9 +157,14 @@ static const Register* topOfFrame(const CallFrame* callFrame)
     }
 }
 
+static ALWAYS_INLINE const Register* bottomOfCallerFrame(const CallFrame* callFrame)
+{
+    return callFrame->registers() + CallerFrameAndPC::sizeInRegisters;
+}
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-static std::optional<Wasm::CompilationMode> compilationModeOfCallee(CalleeBits calleeBits)
+static std::optional<Wasm::CompilationMode> NODELETE compilationModeOfCallee(CalleeBits calleeBits)
 {
     if (!calleeBits.isNativeCallee())
         return std::nullopt;
@@ -175,6 +179,13 @@ static std::optional<Wasm::CompilationMode> compilationModeOfCallee(CalleeBits c
 // frame because IPInt stores register values there before a call. Some frame types do not
 // actually use this many slots, but it appears tiering up breaks without a consistent headroom.
 constexpr unsigned standardHeadroom = 8;
+
+void StackSlicerBase::setErrorMessageWithCompilationMode(ASCIILiteral messagePrefix, Wasm::CompilationMode mode)
+{
+    StringPrintStream modeDescription;
+    modeDescription.print(mode);
+    m_errorMessage = makeString(messagePrefix, modeDescription.toString());
+}
 
 void StackSlicerBase::commitPendingSliceWithAdditionalFrame(CallFrame* callFrame)
 {
@@ -316,11 +327,27 @@ IterationStatus SlabSlicer::step(VM& vm, StackVisitor& visitor)
     switch (m_state) {
     case State::Initial: {
         if (!compilationMode) {
-            m_futureSliceBottom = topOfFrame(callFrame);
+            m_futureSliceBottom = bottomOfCallerFrame(callFrame);
             m_futureReturnFromFrame = callFrame;
-            m_state = State::Scanning;
+            m_state = State::ExpectingWasmToJS;
         } else {
             m_errorMessage = "expected suspending frame not found"_s;
+            m_state = State::Failure;
+        }
+        break;
+    }
+    case State::ExpectingWasmToJS: {
+        if (compilationMode.has_value()) {
+            if (*compilationMode == Wasm::CompilationMode::WasmToJSMode) {
+                ASSERT(m_futureReturnFromFrame);
+                m_pendingFrameRecords.append(callFrame);
+                m_state = State::Scanning;
+            } else {
+                setErrorMessageWithCompilationMode("expected WasmToJS, got: "_s, *compilationMode);
+                m_state = State::Failure;
+            }
+        } else {
+            m_errorMessage = "expected WasmToJS, got a non-Wasm frame"_s;
             m_state = State::Failure;
         }
         break;
@@ -343,9 +370,7 @@ IterationStatus SlabSlicer::step(VM& vm, StackVisitor& visitor)
                 break;
             }
             default: {
-                StringPrintStream modeDescription;
-                modeDescription.print(*compilationMode);
-                m_errorMessage = makeString("encountered an unrecognized type of Wasm frame: "_s, modeDescription.toString());
+                setErrorMessageWithCompilationMode("unrecognized type of Wasm frame: "_s, *compilationMode);
                 m_state = State::Failure;
             }
             }
@@ -406,22 +431,27 @@ IterationStatus FragSlicer::step(VM& vm, StackVisitor& visitor)
     switch (m_state) {
     case State::Initial: {
         if (!compilationMode) {
-            m_futureSliceBottom = topOfFrame(callFrame);
+            m_futureSliceBottom = bottomOfCallerFrame(callFrame);
             m_futureReturnFromFrame = callFrame;
-            m_state = State::ScannedSuspending;
+            m_state = State::ExpectingWasmToJS;
         } else {
             m_errorMessage = "expected suspending frame not found"_s;
             m_state = State::Failure;
         }
         break;
     }
-    case State::ScannedSuspending: {
-        if (compilationMode == Wasm::CompilationMode::WasmToJSMode) {
-            ASSERT(m_futureReturnFromFrame);
-            m_pendingFrameRecords.append(callFrame);
-            m_state = State::ScannedWasmToJS;
+    case State::ExpectingWasmToJS: {
+        if (compilationMode.has_value()) {
+            if (*compilationMode == Wasm::CompilationMode::WasmToJSMode) {
+                ASSERT(m_futureReturnFromFrame);
+                m_pendingFrameRecords.append(callFrame);
+                m_state = State::ScannedWasmToJS;
+            } else {
+                setErrorMessageWithCompilationMode("expected WasmToJS, got: "_s, *compilationMode);
+                m_state = State::Failure;
+            }
         } else {
-            m_errorMessage = "suspending frame not followed by a WasmToJS frame as expected"_s;
+            m_errorMessage = "expected WasmToJS, got a non-Wasm frame"_s;
             m_state = State::Failure;
         }
         break;
@@ -465,9 +495,7 @@ IterationStatus FragSlicer::step(VM& vm, StackVisitor& visitor)
                 break;
             }
             default: {
-                StringPrintStream modeDescription;
-                modeDescription.print(*compilationMode);
-                m_errorMessage = makeString("encountered an unrecognized type of Wasm frame: "_s, modeDescription.toString());
+                setErrorMessageWithCompilationMode("unrecognized type of Wasm frame: "_s, *compilationMode);
                 m_state = State::Failure;
             }
             }

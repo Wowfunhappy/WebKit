@@ -67,6 +67,7 @@ private:
     void NODELETE copyFrom(std::span<const uint8_t>, size_t offset) final;
 
     void destroy() final;
+    void generateAValidationError() final;
 
     void setLabelInternal(const String&) final;
 

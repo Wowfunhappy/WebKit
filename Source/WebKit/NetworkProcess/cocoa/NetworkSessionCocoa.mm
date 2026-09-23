@@ -50,13 +50,14 @@
 #import <WebCore/AdvancedPrivacyProtections.h>
 #import <WebCore/CertificateInfo.h> // MAVERICKS_BACKPORT: per-host certificate exceptions (WKContextAllowSpecificHTTPSCertificateForHost)
 #import <WebCore/Credential.h>
-#import <WebCore/FormDataStreamMac.h>
+#import <WebCore/FormDataStreamCocoa.h>
 #import <WebCore/FrameLoaderTypes.h>
 #import <WebCore/HTTPStatusCodes.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceRequest.h>
+#import <WebCore/ResourceRequestCFNet.h>
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/ThreadableWebSocketChannel.h>
@@ -108,15 +109,45 @@ void WebKit::NetworkSessionCocoa::removeNetworkWebsiteData(std::optional<WallTim
 #include <Network/NSURLSession+Network.h>
 #endif
 SOFT_LINK_LIBRARY_OPTIONAL(libnetwork)
+#define WebKit_libnetworkLibrary_SoftLinked
 SOFT_LINK_OPTIONAL(libnetwork, nw_context_add_proxy, void, __cdecl, (nw_context_t, nw_proxy_config_t))
 SOFT_LINK_OPTIONAL(libnetwork, nw_context_clear_proxies, void, __cdecl, (nw_context_t))
 SOFT_LINK_OPTIONAL(libnetwork, nw_proxy_config_create_with_agent_data, nw_proxy_config_t, __cdecl, (const uint8_t*, size_t, const uuid_t))
 SOFT_LINK_OPTIONAL(libnetwork, nw_proxy_config_stack_requires_http_protocols, bool, __cdecl, (nw_proxy_config_t))
+SOFT_LINK_OPTIONAL(libnetwork, nw_proxy_config_get_type, nw_proxy_type_t, __cdecl, (nw_proxy_config_t))
+
+static bool isProxyTypeTCPOnly(nw_proxy_config_t proxyConfig)
+{
+    auto* getType = nw_proxy_config_get_typePtr();
+    if (!getType)
+        return false;
+
+    switch (getType(proxyConfig)) {
+    case nw_proxy_type_http:
+    case nw_proxy_type_https:
+    case nw_proxy_type_socksv4:
+    case nw_proxy_type_socksv5:
+    case nw_proxy_type_shoes:
+    case nw_proxy_type_http_connect:
+    case nw_proxy_type_https_transparent:
+    case nw_proxy_type_http_connect_over_tls:
+        return true;
+    default:
+        return false;
+    }
+}
 #endif
 
 #import "DeviceManagementSoftLink.h"
 
-using namespace WebKit;
+using WebKit::IsolatedSession;
+using WebKit::NegotiatedLegacyTLS;
+using WebKit::NetworkDataTaskCocoa;
+using WebKit::NetworkSession;
+using WebKit::NetworkSessionCocoa;
+using WebKit::PrivateRelayed;
+using WebKit::SessionWrapper;
+using WebKit::WebSocketTask;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(IsolatedSession);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSessionCocoa);
@@ -446,7 +477,7 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
     // other status is the load's result, and 305 "Use Proxy" points the load at a server-named proxy.
     // Answering nil hands that response back with its own status, URL and body, which is what this
     // delegate sees on a system whose CFNetwork proposes only redirect statuses.
-    if (!WebCore::ResourceResponse::isRedirectionStatusCode(response.statusCode)) {
+    if (!WebCore::isHttpRedirectStatus(response.statusCode)) {
         completionHandler(nil);
         return;
     }
@@ -472,7 +503,7 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
             CheckedPtr storageSession = sessionCocoa->networkProcess().storageSession(sessionCocoa->sessionID());
             RetainPtr firstPartyForCookies = networkDataTask->isTopLevelNavigation() ? request.URL : request.mainDocumentURL;
             shouldIgnoreHSTS = schemeWasUpgradedDueToDynamicHSTS(request)
-                && storageSession->shouldBlockCookies(firstPartyForCookies.get(), request.URL, networkDataTask->frameID(), networkDataTask->pageID(), networkDataTask->shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request));
+                && storageSession->thirdPartyCookieBlockingDecisionForRequest(firstPartyForCookies.get(), request.URL, networkDataTask->frameID(), networkDataTask->pageID(), networkDataTask->shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request)) != WebCore::ThirdPartyCookieBlockingDecision::None;
             if (shouldIgnoreHSTS) {
                 RetainPtr newRequest = downgradeRequest(request);
                 ASSERT([newRequest.get().URL.scheme isEqualToString:@"http"]);
@@ -487,7 +518,7 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
 
         WebCore::ResourceResponse resourceResponse(response);
 
-        networkDataTask->willPerformHTTPRedirection(WTF::move(resourceResponse), request, [completionHandler = makeBlockPtr(completionHandler), taskIdentifier, shouldIgnoreHSTS](auto&& request) {
+        networkDataTask->willPerformHTTPRedirection(WTF::move(resourceResponse), request, [completionHandler = makeBlockPtr(completionHandler), taskIdentifier, shouldIgnoreHSTS, weakTask = ThreadSafeWeakPtr { *networkDataTask }](auto&& request) {
 #if !LOG_DISABLED
             LOG(NetworkSession, "%zu willPerformHTTPRedirection completionHandler (%s)", taskIdentifier, request.url().string().utf8().data());
 #else
@@ -495,6 +526,17 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
 #endif
             RetainPtr nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody);
             updateIgnoreStrictTransportSecuritySetting(nsRequest, shouldIgnoreHSTS);
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
+            if (RefPtr task = weakTask.get(); task && task->hasBeenSetToAllowOnlyPartitionedCookies()) {
+                RetainPtr<NSMutableURLRequest> mutableRequest = adoptNS([nsRequest.get() mutableCopy]);
+                if ([mutableRequest respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
+                    [mutableRequest _setAllowOnlyPartitionedCookies:YES];
+                    nsRequest = mutableRequest.get();
+                }
+            }
+#else
+            UNUSED_PARAM(weakTask);
+#endif
             completionHandler(nsRequest.get());
         });
     } else if (RefPtr webSocketTask = [self existingWebSocketTask:task]) {
@@ -524,7 +566,7 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
         if (CheckedPtr sessionCocoa = networkDataTask->networkSession()) {
             CheckedPtr storageSession = sessionCocoa->networkProcess().storageSession(sessionCocoa->sessionID());
             shouldIgnoreHSTS = schemeWasUpgradedDueToDynamicHSTS(request)
-                && storageSession->shouldBlockCookies(request, networkDataTask->frameID(), networkDataTask->pageID(), networkDataTask->shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request));
+                && storageSession->thirdPartyCookieBlockingDecisionForRequest(request, networkDataTask->frameID(), networkDataTask->pageID(), networkDataTask->shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request)) != WebCore::ThirdPartyCookieBlockingDecision::None;
             if (shouldIgnoreHSTS) {
                 RetainPtr newRequest = downgradeRequest(request);
                 ASSERT([newRequest.get().URL.scheme isEqualToString:@"http"]);
@@ -847,7 +889,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
         auto dateToMonotonicTime = [] (NSDate *date) {
             if (auto interval = date.timeIntervalSince1970)
-                return WallTime::fromRawSeconds(interval).approximateMonotonicTime();
+                return WallTime::fromRawSeconds(interval).approximate<MonotonicTime>();
             return MonotonicTime { };
         };
 
@@ -955,9 +997,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         RetainPtr<NSURLSessionTaskMetrics> taskMetrics = dataTask._incompleteTaskMetrics;
 
         RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics.get().transactionMetrics.lastObject;
-        auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_direct
-            || metrics.get()._privacyStance == nw_connection_privacy_stance_not_eligible
-            ? PrivateRelayed::No : PrivateRelayed::Yes;
+        auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_proxied ? PrivateRelayed::Yes : PrivateRelayed::No;
         String proxyName;
         if (metrics.get()._establishmentReport) {
             if (RetainPtr endpoint = adoptNS(nw_establishment_report_copy_proxy_endpoint(retainPtr(metrics.get()._establishmentReport).get()))) {
@@ -1825,11 +1865,11 @@ DMFWebsitePolicyMonitor *NetworkSessionCocoa::deviceManagementPolicyMonitor()
 #endif
 }
 
-RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
     ASSERT(!request.hasHTTPHeaderField(WebCore::HTTPHeaderName::SecWebSocketProtocol));
     RetainPtr nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
-    if (!nsRequest)
+    if (!nsRequest || ![nsRequest URL])
         return nullptr;
     RetainPtr<NSMutableURLRequest> mutableRequest;
 
@@ -1862,7 +1902,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
         ensureMutableRequest().get()._privacyProxyFailClosedForUnreachableNonMainHosts = YES;
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
-    if ([mutableRequest respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
+    if ([ensureMutableRequest() respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
         if (CheckedPtr storageSession = networkStorageSession(); storageSession && storageSession->isOptInCookiePartitioningEnabled()) {
             bool shouldAllowOnlyPartitioned = storageSession->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), isRequestToKnownCrossSiteTracker(request)) == WebCore::ThirdPartyCookieBlockingDecision::AllExceptPartitioned;
             [mutableRequest _setAllowOnlyPartitionedCookies:shouldAllowOnlyPartitioned];
@@ -1879,7 +1919,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
     task.get().maximumMessageSize = NSIntegerMax;
 
-    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
+    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy, isInitiatedByDedicatedWorker);
 }
 
 void NetworkSessionCocoa::addWebSocketTask(WebPageProxyIdentifier webPageProxyID, WebSocketTask& task)
@@ -1941,6 +1981,7 @@ private:
     BlobDataTaskClient(WebCore::ResourceRequest&& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, NetworkSessionCocoa& session, IPC::Connection* connection, DataTaskIdentifier identifier)
         : m_task(NetworkDataTaskBlob::create(session, *this, request, session.blobRegistry().filesInBlob(request.url(), topOrigin), topOrigin ? topOrigin->securityOrigin().ptr() : nullptr))
         , m_connection(connection)
+        , m_session(session)
         , m_identifier(identifier)
     {
         m_task->resume();
@@ -2445,7 +2486,36 @@ void NetworkSessionCocoa::applyProxyConfigurationToSessionConfiguration(NSURLSes
     } else
         configuration.proxyConfigurations = @[ ];
 }
+
+bool NetworkSessionCocoa::proxyConfigurationRequiresTCPProtocols() const
+{
+    if (m_nwProxyConfigs.isEmpty())
+        return false;
+    return std::ranges::all_of(m_nwProxyConfigs, [](auto& proxyConfig) {
+        return isProxyTypeTCPOnly(proxyConfig.get());
+    });
+}
+
+void NetworkSessionCocoa::applyProxyConfigurationToNWParametersForWebTransport(nw_parameters_t parameters)
+{
+    if (!m_nwProxyConfigs.isEmpty()) {
+        for (auto& proxyConfig : m_nwProxyConfigs) {
+            if (!isProxyTypeTCPOnly(proxyConfig.get()))
+                nw_parameters_add_custom_proxy_config(parameters, proxyConfig.get());
+        }
+    } else
+        nw_parameters_clear_custom_proxy_configs(parameters);
+}
 #endif // HAVE(NW_PROXY_CONFIG)
+
+bool NetworkSessionCocoa::canPrefetchDNS() const
+{
+#if HAVE(NW_PROXY_CONFIG)
+    if (!m_nwProxyConfigs.isEmpty())
+        return false;
+#endif
+    return true;
+}
 
 #if USE(APPLE_INTERNAL_SDK)
 

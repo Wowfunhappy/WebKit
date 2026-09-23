@@ -41,9 +41,7 @@ ContentRuleList::ContentRuleList(Ref<WebKit::WebCompiledContentRuleList>&& conte
 {
 }
 
-ContentRuleList::~ContentRuleList()
-{
-}
+ContentRuleList::~ContentRuleList() = default;
 
 const WTF::String& ContentRuleList::name() const
 {

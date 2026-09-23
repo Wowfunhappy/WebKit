@@ -28,10 +28,10 @@
 
 #if ENABLE(WEBASSEMBLY_BBQJIT)
 
+#include "HeapCellInlines.h"
 #include "JITCompilation.h"
 #include "JSToWasm.h"
 #include "LinkBuffer.h"
-#include "NativeCalleeRegistry.h"
 #include "WasmBBQJIT.h"
 #include "WasmCallee.h"
 #include "WasmCalleeGroup.h"
@@ -75,7 +75,7 @@ FunctionAllowlist& BBQPlan::ensureGlobalBBQAllowlist()
     return bbqAllowlist;
 }
 
-bool BBQPlan::dumpDisassembly(CompilationContext& context, LinkBuffer& linkBuffer, const TypeDefinition& signature, FunctionSpaceIndex functionIndexSpace)
+bool BBQPlan::dumpDisassembly(CompilationContext& context, LinkBuffer& linkBuffer, const RTT& signature, FunctionSpaceIndex functionIndexSpace)
 {
     if (shouldDumpDisassemblyFor(CompilationMode::BBQMode)) [[unlikely]] {
         dataLogLn("Generated BBQ functionIndexSpace:(", functionIndexSpace, "),sig:(", signature.toString().ascii().data(), "),name:(", m_profiledCallee->nameWithHash(), "),wasmSize:(", m_moduleInformation->functionWasmSizeImportSpace(functionIndexSpace), ")");
@@ -93,10 +93,10 @@ void BBQPlan::work()
     CompilationContext context;
     Vector<UnlinkedWasmToWasmCall> unlinkedWasmToWasmCalls;
     FunctionSpaceIndex functionIndexSpace = m_moduleInformation->toSpaceIndex(m_functionIndex);
-    TypeIndex typeIndex = m_moduleInformation->internalFunctionTypeIndices[m_functionIndex];
-    const TypeDefinition& signature = TypeInformation::get(typeIndex).expand();
+    TypeSignatureIndex typeSignatureIndex = m_moduleInformation->internalFunctionTypeSignatureIndices[m_functionIndex];
+    const RTT& signature = m_moduleInformation->rtt(typeSignatureIndex);
 
-    Ref<BBQCallee> callee = BBQCallee::create(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace), Ref { m_profiledCallee });
+    Ref<BBQCallee> callee = BBQCallee::create(functionIndexSpace, m_moduleInformation->nameSection().get(functionIndexSpace), Ref { m_profiledCallee });
     std::unique_ptr<InternalFunction> function = compileFunction(m_functionIndex, callee.get(), context, unlinkedWasmToWasmCalls);
 
     LinkBuffer linkBuffer(*context.wasmEntrypointJIT, callee.ptr(), LinkBuffer::Profile::WasmBBQ, JITCompilationCanFail);
@@ -126,8 +126,10 @@ void BBQPlan::work()
         callee->setEntrypoint(WTF::move(function->entrypoint), WTF::move(unlinkedWasmToWasmCalls), WTF::move(function->stackmaps), WTF::move(function->exceptionHandlers), WTF::move(exceptionHandlerLocations), WTF::move(loopEntrypointLocations), sharedLoopEntrypoint, function->osrEntryScratchBufferSize);
         entrypoint = callee->entrypoint();
 
-        if (context.pcToCodeOriginMap)
-            NativeCalleeRegistry::singleton().addPCToCodeOriginMap(callee.ptr(), WTF::move(context.pcToCodeOriginMap));
+        if (context.pcToCodeOriginMap) {
+            WTF::storeStoreFence();
+            callee->setPCToCodeOriginMap(WTF::move(context.pcToCodeOriginMap));
+        }
 
         {
             Locker locker { m_calleeGroup->m_lock };
@@ -148,10 +150,10 @@ void BBQPlan::work()
 std::unique_ptr<InternalFunction> BBQPlan::compileFunction(FunctionCodeIndex functionIndex, BBQCallee& callee, CompilationContext& context, Vector<UnlinkedWasmToWasmCall>& unlinkedWasmToWasmCalls)
 {
     const auto& function = m_moduleInformation->functions[functionIndex];
-    TypeIndex typeIndex = m_moduleInformation->internalFunctionTypeIndices[functionIndex];
-    const TypeDefinition& signature = TypeInformation::get(typeIndex).expand();
+    TypeSignatureIndex typeSignatureIndex = m_moduleInformation->internalFunctionTypeSignatureIndices[functionIndex];
+    const RTT& signature = m_moduleInformation->rtt(typeSignatureIndex);
     FunctionSpaceIndex functionIndexSpace = m_moduleInformation->toSpaceIndex(functionIndex);
-    ASSERT_UNUSED(functionIndexSpace, m_moduleInformation->typeIndexFromFunctionIndexSpace(functionIndexSpace) == typeIndex);
+    ASSERT_UNUSED(functionIndexSpace, &m_moduleInformation->rtt(functionIndexSpace) == &m_moduleInformation->rtt(typeSignatureIndex));
     Expected<std::unique_ptr<InternalFunction>, String> parseAndCompileResult;
 
     beginCompilerSignpost(callee);

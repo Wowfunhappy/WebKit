@@ -38,6 +38,7 @@
 #include "pas_large_expendable_memory.h"
 #include "pas_large_utility_free_heap.h"
 #include "pas_min_heap.h"
+#include "pas_race_test_hooks.h"
 #include "pas_segregated_heap_inlines.h"
 #include "pas_segregated_size_directory.h"
 #include "pas_segregated_page.h"
@@ -324,7 +325,8 @@ pas_segregated_size_directory* pas_segregated_heap_size_directory_for_index_slow
     pas_segregated_heap* heap,
     size_t index,
     unsigned* cached_index,
-    const pas_heap_config* config)
+    const pas_heap_config* config,
+    pas_lock_hold_mode heap_lock_hold_mode)
 {
     if (pas_segregated_heap_index_is_cached_index_and_cached_index_is_set(heap, cached_index, index, config)) {
         pas_segregated_size_directory* result;
@@ -340,7 +342,7 @@ pas_segregated_size_directory* pas_segregated_heap_size_directory_for_index_slow
     return pas_segregated_heap_medium_size_directory_for_index(
         heap, index,
         pas_segregated_heap_medium_size_directory_search_within_size_class_progression,
-        pas_lock_is_held);
+        heap_lock_hold_mode);
 }
 
 typedef struct {
@@ -959,8 +961,7 @@ static size_t compute_ideal_object_size(pas_segregated_heap* heap,
     alignment = PAS_MAX(alignment, pas_segregated_page_config_min_align(page_config));
 
     num_objects = pas_segregated_page_number_of_objects((unsigned)object_size,
-                                                        page_config,
-                                                        pas_segregated_page_exclusive_role);
+                                                        page_config);
 
     parent_heap = pas_heap_for_segregated_heap(heap);
 
@@ -982,8 +983,7 @@ static size_t compute_ideal_object_size(pas_segregated_heap* heap,
             break;
         }
         if (pas_segregated_page_number_of_objects((unsigned)next_object_size,
-                                                  page_config,
-                                                  pas_segregated_page_exclusive_role) != num_objects)
+                                                  page_config) != num_objects)
             break;
 
         object_size = next_object_size;
@@ -1508,7 +1508,7 @@ pas_segregated_heap_ensure_size_directory_for_size(
 
     ensure_size_lookup_if_necessary(heap, size_lookup_mode, config, cached_index, index);
 
-    result = pas_segregated_heap_size_directory_for_index(heap, index, cached_index, config);
+    result = pas_segregated_heap_size_directory_for_index(heap, index, cached_index, config, pas_lock_is_held);
 
     if (verbose && result) {
         pas_log("Found result = %p, object_size = %u, min_index = %u\n",
@@ -1765,7 +1765,7 @@ pas_segregated_heap_ensure_size_directory_for_size(
 
                 bytes_dirtied_per_object =
                     pas_segregated_page_bytes_dirtied_per_object(
-                        object_size_for_config, page_config, pas_segregated_page_exclusive_role);
+                        object_size_for_config, page_config);
 
                 if (verbose) {
                     pas_log("Bytes dirtied per object for %s, %zu: %lf.\n",
@@ -1811,8 +1811,7 @@ pas_segregated_heap_ensure_size_directory_for_size(
                 bytes_dirtied_per_object_by_candidate =
                     pas_segregated_page_bytes_dirtied_per_object(
                         candidate->object_size,
-                        *pas_segregated_page_config_kind_get_config(candidate->base.page_config_kind),
-                        pas_segregated_page_exclusive_role);
+                        *pas_segregated_page_config_kind_get_config(candidate->base.page_config_kind));
             } else
                 bytes_dirtied_per_object_by_candidate = candidate->object_size;
 
@@ -1868,7 +1867,13 @@ pas_segregated_heap_ensure_size_directory_for_size(
                         : "null");
             }
 
-            /* If we have partial views, then we want the directory to have the most conservative possible
+            /* While strictly this comment no longer refers to anything 'presently existing' in reality,
+               I'm choosing to leave it in place because it explains a lot of the logic for when we choose
+               to use what alignment for a given allocation. Partial views were a mechanism for reducing
+               memory wasteage by allowing one small-segregated page to house objects of multiple different
+               sizes, separated into exclusive and non-overlapping chunks each owned by a 'partial view'.
+
+               If we have partial views, then we want the directory to have the most conservative possible
                alignment, which is what we would have so far: it's the alignment the user asked for, possibly
                bumped up to minalign. That's because we bump-allocate partial view memory out of shared views,
                and it's possible (for example) to have a 256-size directory that wants to bump-allocate at an
@@ -1885,18 +1890,16 @@ pas_segregated_heap_ensure_size_directory_for_size(
                freed then those pages will get decommitted. But this creates a new unique source of external
                fragmentation. I suspect that this problem is super unlikely since memalign is rare to begin with.
 
-               So, currently we just execute the code below if we will never have partial views. No partial views
-               means no possibility of the internal fragmentation problem, so then we just want to avoid the
-               external fragmentation problem. */
-            if (!heap->runtime_config->directory_size_bound_for_partial_views) {
-                alignment = (size_t)1 << __builtin_ctzl(object_size);
+               So, in practice: we always execute the code below, because we never ever have partial views.
+               No partial views means no possibility of the internal fragmentation problem, so then we just
+               want to avoid the external fragmentation problem. */
+            alignment = (size_t)1 << __builtin_ctzl(object_size);
 
-                if (verbose)
-                    pas_log("Bumped alignment for object_size = %zu up to %zu.\n", object_size, alignment);
+            if (verbose)
+                pas_log("Bumped alignment for object_size = %zu up to %zu.\n", object_size, alignment);
 
-                PAS_ASSERT(pas_is_aligned(object_size, alignment));
-                PAS_ASSERT(!pas_is_aligned(object_size, alignment << (size_t)1));
-            }
+            PAS_ASSERT(pas_is_aligned(object_size, alignment));
+            PAS_ASSERT(!pas_is_aligned(object_size, alignment << (size_t)1));
 
             result = pas_segregated_size_directory_create(
                 heap,
@@ -2182,6 +2185,8 @@ pas_segregated_heap_ensure_size_directory_for_size(
                     &medium_directory->directory, result);
                 medium_directory->allocator_index = 0;
 
+                pas_race_test_hook(pas_race_test_hook_medium_directory_after_directory_store);
+
                 if (verbose) {
                     pas_log("In rare_data = %p, Installing medium tuple %zu...%zu\n",
                             rare_data, index, medium_install_index);
@@ -2221,7 +2226,7 @@ pas_segregated_heap_ensure_size_directory_for_size(
             }
         }
 
-        PAS_ASSERT(pas_segregated_heap_size_directory_for_index(heap, index, cached_index, config)
+        PAS_ASSERT(pas_segregated_heap_size_directory_for_index(heap, index, cached_index, config, pas_lock_is_held)
                    == result);
     }
 

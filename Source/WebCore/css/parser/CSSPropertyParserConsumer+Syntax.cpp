@@ -29,7 +29,7 @@
 #include "CSSCustomPropertyValue.h"
 #include "CSSParserTokenRange.h"
 #include "CSSPropertyParserState.h"
-#include "CSSVariableParser.h"
+#include "CSSSubstitutionParser.h"
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
@@ -39,7 +39,15 @@ RefPtr<CSSValue> consumeDeclarationValue(CSSParserTokenRange& range, CSS::Proper
 {
     // https://drafts.csswg.org/css-syntax-3/#typedef-declaration-value
 
-    return CSSVariableParser::parseDeclarationValue(nullAtom(), range.consumeAll(), state.context);
+    return CSSSubstitutionParser::parseDeclarationValue(nullAtom(), range.consumeAll(), state.context);
+}
+
+RefPtr<CSSValue> consumeFunctionResult(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // https://www.w3.org/TR/css-mixins-1/#descdef-function-result
+    // Per spec, the result descriptor is treated as a custom property named "result".
+    static MainThreadNeverDestroyed<const AtomString> resultName { "result"_s };
+    return CSSSubstitutionParser::parseDeclarationValue(resultName, range.consumeAll(), state.context);
 }
 
 } // namespace CSSPropertyParserHelpers

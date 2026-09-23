@@ -256,6 +256,9 @@ static double parseHTMLFloatingPointNumberValueInternal(std::span<const Characte
     size_t parsedLength;
     double number = parseDouble(position.first(length - leadingSpacesLength), parsedLength);
 
+    if (!parsedLength)
+        return fallbackValue;
+
     // The following expression converts -0 to +0.
     return number ? number : 0;
 }
@@ -454,7 +457,10 @@ AtomString parseHTMLHashNameReference(StringView usemap)
     size_t numberSignIndex = usemap.find('#');
     if (numberSignIndex == notFound)
         return nullAtom();
-    return usemap.substring(numberSignIndex + 1).toAtomString();
+    auto result = usemap.substring(numberSignIndex + 1);
+    if (result.isEmpty())
+        return nullAtom();
+    return result.toAtomString();
 }
 
 struct HTMLDimensionParsingResult {

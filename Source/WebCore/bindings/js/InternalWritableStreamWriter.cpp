@@ -28,8 +28,12 @@
 
 #include "InternalWritableStream.h"
 #include "JSDOMPromise.h"
+#include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include "WritableStream.h"
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/MarkedVector.h>
 
 namespace WebCore {
 
@@ -85,7 +89,7 @@ RefPtr<DOMPromise> writableStreamDefaultWriterCloseWithErrorPropagation(Internal
     if (result.hasException())
         return nullptr;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return nullptr;
 
@@ -124,7 +128,7 @@ RefPtr<DOMPromise> writableStreamDefaultWriterWrite(InternalWritableStreamWriter
     if (result.hasException())
         return nullptr;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return nullptr;
 
@@ -147,13 +151,16 @@ void InternalWritableStreamWriter::onClosedPromiseRejection(Function<void(JSDOMG
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
     domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto result) mutable {
         if (isFulfilled || !globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
             return;
         callback(*globalObject, result);
     });
@@ -175,19 +182,22 @@ void InternalWritableStreamWriter::onClosedPromiseResolution(Function<void()>&& 
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
-    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto*, bool isFulfilled, auto) mutable {
-        if (!isFulfilled)
+    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto) mutable {
+        if (!isFulfilled || !globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
             return;
         callback();
     });
 }
 
-static int writableStreamDefaultWriterGetDesiredSize(InternalWritableStreamWriter& writer)
+static std::optional<int> writableStreamDefaultWriterGetDesiredSize(InternalWritableStreamWriter& writer)
 {
     auto* globalObject = writer.globalObject();
     if (!globalObject)
@@ -200,12 +210,18 @@ static int writableStreamDefaultWriterGetDesiredSize(InternalWritableStreamWrite
     arguments.append(writer.guardedObject());
 
     auto result = invokeWritableStreamWriterFunction(*globalObject, privateName, arguments);
+    if (result.hasException())
+        return { };
     return result.returnValue().toNumber(globalObject);
 }
 
 void InternalWritableStreamWriter::whenReady(Function<void (bool)>&& callback)
 {
-    if (writableStreamDefaultWriterGetDesiredSize(*this) > 0) {
+    auto size = writableStreamDefaultWriterGetDesiredSize(*this);
+    if (!size)
+        return;
+
+    if (*size > 0) {
         callback(true);
         return;
     }
@@ -224,12 +240,17 @@ void InternalWritableStreamWriter::whenReady(Function<void (bool)>&& callback)
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
-    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto*, bool isFulfilled, auto) mutable {
+    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto) mutable {
+        if (!globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
+            return;
         callback(isFulfilled);
     });
 }

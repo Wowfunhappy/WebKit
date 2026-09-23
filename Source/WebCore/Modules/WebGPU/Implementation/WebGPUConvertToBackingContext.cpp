@@ -236,6 +236,10 @@ WGPUFeatureName ConvertToBackingContext::convertToBacking(FeatureName featureNam
         return WGPUFeatureName_CoreFeaturesAndLimits;
     case FeatureName::TextureFormatsTier1:
         return WGPUFeatureName_TextureFormatsTier1;
+    case FeatureName::TextureFormatsTier2:
+        return WGPUFeatureName_TextureFormatsTier2;
+    case FeatureName::PrimitiveIndex:
+        return WGPUFeatureName_PrimitiveIndex;
     }
 }
 
@@ -766,7 +770,7 @@ WGPUBufferUsageFlags ConvertToBackingContext::convertBufferUsageFlagsToBacking(B
     return static_cast<WGPUBufferUsageFlags>(bufferUsageFlags);
 }
 
-static constexpr bool compare(auto a, auto b)
+static constexpr bool NODELETE compare(auto a, auto b)
 {
     return static_cast<unsigned>(a) == static_cast<unsigned>(b);
 }
@@ -814,6 +818,8 @@ WGPUTextureUsageFlags ConvertToBackingContext::convertTextureUsageFlagsToBacking
         result |= WGPUTextureUsage_StorageBinding;
     if (textureUsageFlags.contains(TextureUsage::RenderAttachment))
         result |= WGPUTextureUsage_RenderAttachment;
+    if (textureUsageFlags.contains(TextureUsage::Transient))
+        result |= WGPUTextureUsage_Transient;
     return result;
 }
 

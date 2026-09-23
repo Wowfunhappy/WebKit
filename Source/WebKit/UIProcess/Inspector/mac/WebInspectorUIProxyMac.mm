@@ -819,7 +819,7 @@ void WebInspectorUIProxy::platformSave(Vector<InspectorFrontendClient::SaveData>
 void WebInspectorUIProxy::platformLoad(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
     if (auto contents = FileSystem::readEntireFile(path))
-        completionHandler(String { byteCast<Latin1Character>(contents->span()) });
+        completionHandler(String::fromUTF8ReplacingInvalidSequences(byteCast<Latin1Character>(contents->span())));
     else
         completionHandler(nullString());
 }
@@ -890,7 +890,7 @@ void WebInspectorUIProxy::inspectedViewFrameDidChange(CGFloat currentDimension)
 
     auto frameAdjustedForContentLayoutRect = [&](NSRect frameIgnoringContentLayoutRect) {
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
-        bool drawsScrollPocket = inspectedPage->preferences().contentInsetBackgroundFillEnabled() && inspectedPage->pendingOrActualObscuredContentInsets().top();
+        bool drawsScrollPocket = protect(inspectedPage->preferences())->contentInsetBackgroundFillEnabled() && inspectedPage->pendingOrActualObscuredContentInsets().top();
         if (drawsScrollPocket)
             return frameIgnoringContentLayoutRect;
 #endif

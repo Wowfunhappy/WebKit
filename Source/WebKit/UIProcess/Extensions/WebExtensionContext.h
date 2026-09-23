@@ -32,6 +32,7 @@
 #include "APIUserScript.h"
 #include "APIUserStyleSheet.h"
 #include "MessageReceiver.h"
+#include "ProcessActivityGroup.h"
 #include "WebExtension.h"
 #include "WebExtensionAction.h"
 #include "WebExtensionAlarm.h"
@@ -77,6 +78,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/URLHash.h>
 #include <wtf/UUID.h>
+#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashCountedSet.h>
 #include <wtf/WeakHashMap.h>
@@ -163,6 +165,8 @@ public:
         return adoptRef(*new WebExtensionContext(std::forward<Args>(args)...));
     }
 
+    virtual ~WebExtensionContext();
+
     void ref() const final { API::ObjectImpl<API::Object::Type::WebExtensionContext>::ref(); }
     void deref() const final { API::ObjectImpl<API::Object::Type::WebExtensionContext>::deref(); }
 
@@ -216,13 +220,18 @@ public:
 
     using WebProcessProxySet = HashSet<Ref<WebProcessProxy>>;
 
+    struct PortQueuedMessage {
+        String messageJSON;
+        std::optional<WebPageProxyIdentifier> sendingPageProxyIdentifier;
+        bool userGesture { false };
+    };
+
     using PortWorldTuple = std::tuple<WebExtensionContentWorldType, WebExtensionContentWorldType, WebExtensionPortChannelIdentifier>;
     using PortWorldPair = std::pair<WebExtensionContentWorldType, WebExtensionPortChannelIdentifier>;
-    using MessagePageProxyIdentifierPair = std::pair<String, std::optional<WebPageProxyIdentifier>>;
     using PortCountedSet = HashCountedSet<PortWorldPair>;
     using PortTupleCountedSet = HashCountedSet<PortWorldTuple>;
     using PageProxyIdentifierPortMap = HashMap<WebPageProxyIdentifier, PortTupleCountedSet>;
-    using PortQueuedMessageMap = HashMap<PortWorldPair, Vector<MessagePageProxyIdentifierPair>>;
+    using PortQueuedMessageMap = HashMap<PortWorldPair, Vector<PortQueuedMessage>>;
     using NativePortMap = HashMap<WebExtensionPortChannelIdentifier, Ref<WebExtensionMessagePort>>;
 
     using PageIdentifierTuple = std::tuple<WebCore::PageIdentifier, std::optional<WebExtensionTabIdentifier>, std::optional<WebExtensionWindowIdentifier>>;
@@ -260,6 +269,7 @@ public:
         BaseURLAlreadyInUse,
         NoBackgroundContent,
         BackgroundContentFailedToLoad,
+        ScriptExecutionError,
     };
 
     // Keep in sync with WKWebExtensionContextError values
@@ -269,7 +279,8 @@ public:
         NotLoaded,
         BaseURLAlreadyInUse,
         NoBackgroundContent,
-        BackgroundContentFailedToLoad
+        BackgroundContentFailedToLoad,
+        ScriptExecutionError,
     };
 
     enum class PermissionNotification : uint8_t {
@@ -316,11 +327,11 @@ public:
         std::optional<WebExtensionTabIdentifier> tabIdentifier;
         RefPtr<API::InspectorExtension> extension;
         RetainPtr<WKWebView> backgroundWebView;
-        RefPtr<ProcessThrottlerActivity> activity;
+        Variant<std::monostate, Ref<ProcessThrottlerActivity>, Ref<ProcessActivityGroup>> activity;
     };
 #endif
 
-    WebExtensionContextIdentifier privilegedIdentifier() const;
+    WebExtensionContextIdentifier NODELETE privilegedIdentifier() const;
 
     WebExtensionContextParameters parameters(IncludePrivilegedIdentifier) const;
 
@@ -402,6 +413,9 @@ public:
 
     bool hasAccessToPrivateData() const { return m_hasAccessToPrivateData; }
     void setHasAccessToPrivateData(bool);
+
+    bool hasAccessToFileURLs() const { return m_hasAccessToFileURLs; }
+    void setHasAccessToFileURLs(bool);
 
     void grantPermissions(PermissionsSet&&, WallTime expirationDate = WallTime::infinity());
     void denyPermissions(PermissionsSet&&, WallTime expirationDate = WallTime::infinity());
@@ -677,6 +691,8 @@ private:
 
     void determineInstallReasonDuringLoad();
     void moveLocalStorageIfNeeded(const URL& previousBaseURL, CompletionHandler<void()>&&);
+    void removeWebsiteDataForOrigin(const URL&, CompletionHandler<void()>&&);
+    void removeStaleExtensionWebsiteData();
 
     void permissionsDidChange(PermissionNotification, const PermissionsSet&);
     void permissionsDidChange(PermissionNotification, const MatchPatternSet&);
@@ -874,6 +890,9 @@ private:
     // Extension APIs
     void extensionIsAllowedIncognitoAccess(CompletionHandler<void(bool)>&&);
 
+    // Runtime Error Reporting
+    void didEncounterScriptError(const String& message, const String& sourceURL, uint32_t lineNumber, uint32_t columnNumber, WebExtensionContentWorldType);
+
     // Menus APIs
     bool isMenusMessageAllowed(IPC::Decoder&);
     void menusCreate(const WebExtensionMenuItemParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
@@ -890,7 +909,7 @@ private:
     void firePermissionsEventListenerIfNecessary(WebExtensionEventListenerType, const PermissionsSet&, const MatchPatternSet&);
 
     // Port APIs
-    void portPostMessage(WebExtensionContentWorldType sourceContentWorldType, WebExtensionContentWorldType targetContentWorldType, std::optional<WebKit::WebPageProxyIdentifier>, WebExtensionPortChannelIdentifier, const String& messageJSON);
+    void portPostMessage(WebExtensionContentWorldType sourceContentWorldType, WebExtensionContentWorldType targetContentWorldType, std::optional<WebKit::WebPageProxyIdentifier>, WebExtensionPortChannelIdentifier, const String& messageJSON, bool userGesture);
     void portRemoved(WebExtensionContentWorldType sourceContentWorldType, WebExtensionContentWorldType targetContentWorldType, WebPageProxyIdentifier, WebExtensionPortChannelIdentifier);
     bool pageHasOpenPorts(WebPageProxy&);
     void disconnectPortsForPage(WebPageProxy&);
@@ -901,8 +920,8 @@ private:
     unsigned openPortCount(WebExtensionContentWorldType, WebExtensionPortChannelIdentifier);
     bool isPortConnected(WebExtensionContentWorldType sourceContentWorldType, WebExtensionContentWorldType targetContentWorldType, WebExtensionPortChannelIdentifier);
     void clearQueuedPortMessages(WebExtensionContentWorldType, WebExtensionPortChannelIdentifier);
-    Vector<MessagePageProxyIdentifierPair> portQueuedMessages(WebExtensionContentWorldType, WebExtensionPortChannelIdentifier);
-    void firePortMessageEventsIfNeeded(WebExtensionContentWorldType, std::optional<WebPageProxyIdentifier>, WebExtensionPortChannelIdentifier, const String& messageJSON);
+    Vector<PortQueuedMessage> portQueuedMessages(WebExtensionContentWorldType, WebExtensionPortChannelIdentifier);
+    void firePortMessageEventsIfNeeded(WebExtensionContentWorldType, std::optional<WebPageProxyIdentifier>, WebExtensionPortChannelIdentifier, const String& messageJSON, bool userGesture);
     void fireQueuedPortMessageEventsIfNeeded(WebExtensionContentWorldType, WebExtensionPortChannelIdentifier);
     void sendQueuedNativePortMessagesIfNeeded(WebExtensionPortChannelIdentifier);
     void firePortDisconnectEventIfNeeded(WebExtensionContentWorldType sourceContentWorldType, WebExtensionContentWorldType targetContentWorldType, WebExtensionPortChannelIdentifier);
@@ -911,8 +930,8 @@ private:
     void runtimeGetBackgroundPage(CompletionHandler<void(Expected<std::optional<WebCore::PageIdentifier>, WebExtensionError>&&)>&&);
     void runtimeOpenOptionsPage(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void runtimeReload();
-    void runtimeSendMessage(const String& extensionID, const String& messageJSON, const WebExtensionMessageSenderParameters&, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
-    void runtimeConnect(const String& extensionID, WebExtensionPortChannelIdentifier, const String& name, const WebExtensionMessageSenderParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void runtimeSendMessage(const String& extensionID, const String& messageJSON, const WebExtensionMessageSenderParameters&, bool userGesture, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
+    void runtimeConnect(const String& extensionID, WebExtensionPortChannelIdentifier, const String& name, const WebExtensionMessageSenderParameters&, bool userGesture, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void runtimeSendNativeMessage(const String& applicationID, const String& messageJSON, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
     void runtimeConnectNative(const String& applicationID, WebExtensionPortChannelIdentifier, WebPageProxyIdentifier, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void runtimeWebPageSendMessage(const String& extensionID, const String& messageJSON, const WebExtensionMessageSenderParameters&, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
@@ -922,7 +941,7 @@ private:
 
     // Scripting APIs
     bool isScriptingMessageAllowed(IPC::Decoder&);
-    void scriptingExecuteScript(const WebExtensionScriptInjectionParameters&, CompletionHandler<void(Expected<Vector<WebExtensionScriptInjectionResultParameters>, WebExtensionError>&&)>&&);
+    void scriptingExecuteScript(const WebExtensionScriptInjectionParameters&, bool userGesture, CompletionHandler<void(Expected<Vector<WebExtensionScriptInjectionResultParameters>, WebExtensionError>&&)>&&);
     void scriptingInsertCSS(const WebExtensionScriptInjectionParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void scriptingRemoveCSS(const WebExtensionScriptInjectionParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void scriptingRegisterContentScripts(const Vector<WebExtensionRegisteredScriptParameters>& scripts, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
@@ -971,12 +990,13 @@ private:
     void tabsDetectLanguage(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
     void tabsCaptureVisibleTab(WebPageProxyIdentifier, std::optional<WebExtensionWindowIdentifier>, WebExtensionTab::ImageFormat, uint8_t imageQuality, CompletionHandler<void(Expected<URL, WebExtensionError>&&)>&&);
     void tabsToggleReaderMode(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
-    void tabsSendMessage(WebExtensionTabIdentifier, const String& messageJSON, const WebExtensionMessageTargetParameters&, const WebExtensionMessageSenderParameters&, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
-    void tabsConnect(WebExtensionTabIdentifier, WebExtensionPortChannelIdentifier, String name, const WebExtensionMessageTargetParameters&, const WebExtensionMessageSenderParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void tabsSendMessage(WebExtensionTabIdentifier, const String& messageJSON, const WebExtensionMessageTargetParameters&, const WebExtensionMessageSenderParameters&, bool userGesture, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&&);
+    void tabsConnect(WebExtensionTabIdentifier, WebExtensionPortChannelIdentifier, String name, const WebExtensionMessageTargetParameters&, const WebExtensionMessageSenderParameters&, bool userGesture, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void tabsGetZoom(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, CompletionHandler<void(Expected<double, WebExtensionError>&&)>&&);
     void tabsSetZoom(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, double, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void tabsMove(Vector<WebExtensionTabIdentifier>, std::optional<WebExtensionWindowIdentifier>, double, CompletionHandler<void(Expected<Vector<WebExtensionTabParameters>, WebExtensionError>&&)>&&);
     void tabsRemove(Vector<WebExtensionTabIdentifier>, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
-    void tabsExecuteScript(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, const WebExtensionScriptInjectionParameters&, CompletionHandler<void(Expected<Vector<WebExtensionScriptInjectionResultParameters>, WebExtensionError>&&)>&&);
+    void tabsExecuteScript(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, const WebExtensionScriptInjectionParameters&, bool userGesture, CompletionHandler<void(Expected<Vector<WebExtensionScriptInjectionResultParameters>, WebExtensionError>&&)>&&);
     void tabsInsertCSS(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, const WebExtensionScriptInjectionParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void tabsRemoveCSS(WebPageProxyIdentifier, std::optional<WebExtensionTabIdentifier>, const WebExtensionScriptInjectionParameters&, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
     void fireTabsCreatedEventIfNeeded(const WebExtensionTabParameters&);
@@ -1058,6 +1078,7 @@ private:
 
     bool m_requestedOptionalAccessToAllHosts { false };
     bool m_hasAccessToPrivateData { false };
+    bool m_hasAccessToFileURLs { false };
 
     VoidFunctionVector m_actionsToPerformAfterBackgroundContentLoads;
     EventListenerTypeCountedSet m_backgroundContentEventListeners;
@@ -1069,7 +1090,7 @@ private:
 
 #if PLATFORM(COCOA)
     RetainPtr<WKWebView> m_backgroundWebView;
-    RefPtr<ProcessThrottlerActivity> m_backgroundWebViewActivity;
+    Variant<std::monostate, Ref<ProcessThrottlerActivity>, Ref<ProcessActivityGroup>> m_backgroundWebViewActivity;
     RetainPtr<_WKWebExtensionContextDelegate> m_delegate;
 #endif
     RefPtr<API::Error> m_backgroundContentLoadError;
@@ -1079,6 +1100,7 @@ private:
     std::unique_ptr<RunLoop::Timer> m_unloadBackgroundWebViewTimer;
     MonotonicTime m_lastBackgroundPortActivityTime;
     bool m_backgroundContentIsLoaded { false };
+    bool m_backgroundContentHasLoadedOnce { false };
     bool m_safeToLoadBackgroundContent { false };
 
 #if ENABLE(INSPECTOR_EXTENSIONS)

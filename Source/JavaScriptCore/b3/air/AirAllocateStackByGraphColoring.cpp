@@ -60,7 +60,7 @@ protected:
 
     // We will perform some spill coalescing. To make that effective, we need to be able to identify
     // coalescable moves and handle them specially in interference analysis.
-    bool isCoalescableMove(Inst& inst) const
+    bool NODELETE isCoalescableMove(Inst& inst) const
     {
         if (!Options::coalesceSpillSlots())
             return false;
@@ -84,11 +84,11 @@ protected:
             return false;
         }
 
-        if (inst.args.size() != 3)
+        if (inst.args().size() != 3)
             return false;
 
         for (unsigned i = 0; i < 2; ++i) {
-            Arg arg = inst.args[i];
+            Arg arg = inst.args()[i];
             if (!arg.isStack())
                 return false;
             StackSlot* slot = arg.stackSlot();
@@ -101,12 +101,12 @@ protected:
         return true;
     }
 
-    bool isUselessMove(Inst& inst) const
+    bool NODELETE isUselessMove(Inst& inst) const
     {
-        return isCoalescableMove(inst) && inst.args[0] == inst.args[1];
+        return isCoalescableMove(inst) && inst.args()[0] == inst.args()[1];
     }
 
-    unsigned remap(unsigned slotIndex) const
+    unsigned NODELETE remap(unsigned slotIndex) const
     {
         for (;;) {
             unsigned remappedSlotIndex = m_remappedStackSlotIndices[slotIndex];
@@ -116,12 +116,12 @@ protected:
         }
     }
 
-    StackSlot* remapStackSlot(StackSlot* slot) const
+    StackSlot* NODELETE remapStackSlot(StackSlot* slot) const
     {
         return m_code.stackSlots()[remap(slot->index())];
     }
 
-    bool isRemappedSlotIndex(unsigned slotIndex) const
+    bool NODELETE isRemappedSlotIndex(unsigned slotIndex) const
     {
         return m_remappedStackSlotIndices[slotIndex] != slotIndex;
     };
@@ -169,7 +169,7 @@ private:
                 Inst* prevInst = block->get(instIndex);
                 Inst* nextInst = block->get(instIndex + 1);
                 if (prevInst && isCoalescableMove(*prevInst)) {
-                    CoalescableMove move(prevInst->args[0].stackSlot()->index(), prevInst->args[1].stackSlot()->index(), block->frequency());
+                    CoalescableMove move(prevInst->args()[0].stackSlot()->index(), prevInst->args()[1].stackSlot()->index(), block->frequency());
 
                     m_coalescableMoves.append(move);
 
@@ -291,7 +291,7 @@ private:
 
         for (BasicBlock* block : m_code) {
             for (Inst& inst : *block) {
-                for (Arg& arg : inst.args) {
+                for (Arg& arg : inst.args()) {
                     if (arg.isStack())
                         arg = Arg::stack(remapStackSlot(arg.stackSlot()), arg.offset());
                 }
@@ -306,7 +306,7 @@ private:
         CompilerTimingScope timingScope("Air"_s, "StackAllocator::assign"_s);
 
         // Now we assign stack locations. At its heart this algorithm is just first-fit. For each
-        // StackSlot we just want to find the offsetFromFP that is closest to zero while ensuring no
+        // StackSlot we just want to find the offsetFromFP that is least negative while ensuring no
         // overlap with other StackSlots that this overlaps with.
         Vector<StackSlot*> otherSlots = assignedEscapedStackSlots;
         for (StackSlot* slot : m_code.stackSlots()) {
@@ -318,14 +318,17 @@ private:
                 continue;
             }
 
-            otherSlots.resize(assignedEscapedStackSlots.size());
+            otherSlots.shrink(0);
+            otherSlots.appendVector(assignedEscapedStackSlots);
             for (unsigned otherSlotIndex : m_interference[slot->index()]) {
                 if (isRemappedSlotIndex(otherSlotIndex))
                     continue;
                 StackSlot* otherSlot = m_code.stackSlots()[otherSlotIndex];
-                otherSlots.append(otherSlot);
+                if (otherSlot->offsetFromFP())
+                    otherSlots.append(otherSlot);
             }
 
+            std::ranges::sort(otherSlots, std::ranges::greater { }, &StackSlot::offsetFromFP);
             assign(slot, otherSlots);
         }
     }

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/IntRect.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -33,6 +34,8 @@
 namespace PlatformXR {
 struct FrameData;
 struct RateMapDescription;
+using LayerHandle = int;
+struct DeviceLayer;
 }
 
 namespace WebCore {
@@ -40,18 +43,34 @@ namespace WebCore {
 class XRLayerBacking : public RefCountedAndCanMakeWeakPtr<XRLayerBacking> {
     WTF_MAKE_TZONE_ALLOCATED(XRLayerBacking);
 public:
-    virtual uint32_t textureWidth() const = 0;
-    virtual uint32_t textureHeight() const = 0;
-    virtual uint32_t textureArrayLength() const = 0;
+    virtual uint32_t colorTextureWidth() const = 0;
+    virtual uint32_t colorTextureHeight() const = 0;
+    virtual uint32_t colorTextureArrayLength() const = 0;
+
+    virtual std::optional<uint32_t> depthTextureWidth() const { return std::nullopt; }
+    virtual std::optional<uint32_t> depthTextureHeight() const { return std::nullopt; }
 
 #if PLATFORM(COCOA)
     virtual void startFrame(size_t frameIndex, MachSendRight&& colorBuffer, MachSendRight&& depthBuffer, MachSendRight&& completionSyncEvent, size_t reusableTextureIndex, PlatformXR::RateMapDescription&&) = 0;
-#else
-    virtual void startFrame(PlatformXR::FrameData&) { RELEASE_ASSERT_NOT_REACHED(); };
-#endif
     virtual void endFrame() = 0;
+#else
+    virtual void startFrame(PlatformXR::FrameData&) = 0;
+    virtual void endFrame(PlatformXR::DeviceLayer&) = 0;
+#endif
 
     virtual ~XRLayerBacking() = default;
+
+    PlatformXR::LayerHandle handle() { return m_handle; }
+    void setHandle(PlatformXR::LayerHandle handle) { m_handle = handle; }
+
+    virtual bool allColorTexturesAreBound() const = 0;
+
+    virtual void clearTexturesIfNeeded(const IntRect& viewport, std::optional<uint32_t> slice) { UNUSED_PARAM(viewport); UNUSED_PARAM(slice); }
+
+    virtual bool isWebGLBacking() const { return false; }
+
+private:
+    PlatformXR::LayerHandle m_handle;
 };
 
 } // namespace WebCore

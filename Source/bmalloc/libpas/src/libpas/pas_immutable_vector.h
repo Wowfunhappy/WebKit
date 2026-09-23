@@ -27,10 +27,7 @@
 #define PAS_IMMUTABLE_VECTOR_H
 
 #include "pas_compact_atomic_ptr.h"
-#include "pas_immortal_heap.h"
-#include "pas_log.h"
 #include "pas_utils.h"
-#include "pas_zero_memory.h"
 
 PAS_BEGIN_EXTERN_C;
 

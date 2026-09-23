@@ -26,6 +26,7 @@
 #include "config.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 
+#include "CSSCustomIdentValue.h"
 #include "CSSParserIdioms.h"
 #include "CSSValuePool.h"
 
@@ -39,67 +40,145 @@ std::optional<CSSValueID> consumeIdentRaw(CSSParserTokenRange& range)
     return range.consumeIncludingWhitespace().id();
 }
 
-RefPtr<CSSPrimitiveValue> consumeIdent(CSSParserTokenRange& range)
+std::optional<CSS::Keyword> consumeUnresolvedIdent(CSSParserTokenRange& range)
 {
-    if (auto result = consumeIdentRaw(range))
-        return CSSPrimitiveValue::create(*result);
-    return nullptr;
+    if (range.peek().type() != IdentToken)
+        return std::nullopt;
+    return CSS::Keyword { range.consumeIncludingWhitespace().id() };
 }
 
-static std::optional<CSSValueID> consumeIdentRangeRaw(CSSParserTokenRange& range, CSSValueID lower, CSSValueID upper)
+RefPtr<CSSKeywordValue> consumeIdent(CSSParserTokenRange& range)
+{
+    if (range.peek().type() != IdentToken)
+        return nullptr;
+    return CSSKeywordValue::create(CSS::Keyword { range.consumeIncludingWhitespace().id() });
+}
+
+std::optional<CSSValueID> consumeIdentRangeRaw(CSSParserTokenRange& range, CSSValueID lower, CSSValueID upper)
 {
     if (range.peek().id() < lower || range.peek().id() > upper)
         return std::nullopt;
     return consumeIdentRaw(range);
 }
 
-RefPtr<CSSPrimitiveValue> consumeIdentRange(CSSParserTokenRange& range, CSSValueID lower, CSSValueID upper)
+std::optional<CSS::Keyword> consumeUnresolvedIdentRange(CSSParserTokenRange& range, CSSValueID lower, CSSValueID upper)
 {
-    auto value = consumeIdentRangeRaw(range, lower, upper);
-    if (!value)
+    if (range.peek().id() < lower || range.peek().id() > upper)
+        return std::nullopt;
+    return consumeUnresolvedIdent(range);
+}
+
+RefPtr<CSSKeywordValue> consumeIdentRange(CSSParserTokenRange& range, CSSValueID lower, CSSValueID upper)
+{
+    if (range.peek().id() < lower || range.peek().id() > upper)
         return nullptr;
-    return CSSPrimitiveValue::create(*value);
+    return consumeIdent(range);
 }
 
 // MARK: <custom-ident>
 // https://drafts.csswg.org/css-values/#custom-idents
 
-String consumeCustomIdentRaw(CSSParserTokenRange& range, bool shouldLowercase)
+StringView consumeEagerlyResolvableCustomIdentRaw(CSSParserTokenRange& range)
 {
+    // FIXME: When support for the ident() function is added, this will only succeed if the ident() function can be eagerly resolved without additional context.
+
     if (range.peek().type() != IdentToken || !isValidCustomIdentifier(range.peek().id()))
-        return String();
-    auto identifier = range.consumeIncludingWhitespace().value();
-    return shouldLowercase ? identifier.convertToASCIILowercase() : identifier.toString();
+        return { };
+    return range.consumeIncludingWhitespace().value();
 }
 
-RefPtr<CSSPrimitiveValue> consumeCustomIdent(CSSParserTokenRange& range, bool shouldLowercase)
+StringView consumeEagerlyResolvableCustomIdentRawExcluding(CSSParserTokenRange& range, std::initializer_list<CSSValueID> excluding)
 {
-    auto identifier = consumeCustomIdentRaw(range, shouldLowercase);
-    if (identifier.isNull())
-        return nullptr;
-    return CSSPrimitiveValue::createCustomIdent(WTF::move(identifier));
+    // FIXME: When support for the ident() function is added, this will only succeed if the ident() function can be eagerly resolved without additional context.
+
+    if (range.peek().type() != IdentToken || !isValidCustomIdentifier(range.peek().id()) || std::ranges::find(excluding, range.peek().id()) != excluding.end())
+        return { };
+    return range.consumeIncludingWhitespace().value();
+}
+
+std::optional<CSS::CustomIdent> consumeUnresolvedCustomIdent(CSSParserTokenRange& range, CSS::PropertyParserState&)
+{
+    // FIXME: When support for the ident() function is added, it must only be consumed within an
+    // element context (https://github.com/w3c/csswg-drafts/issues/12219), so descriptors and
+    // at-rule preludes continue to reject it.
+    if (range.peek().type() != IdentToken || !isValidCustomIdentifier(range.peek().id()))
+        return { };
+    return CSS::CustomIdent { range.consumeIncludingWhitespace().value().toAtomString() };
+}
+
+std::optional<CSS::CustomIdent> consumeUnresolvedCustomIdentExcluding(CSSParserTokenRange& range, CSS::PropertyParserState&, std::initializer_list<CSSValueID> excluding)
+{
+    // FIXME: When support for the ident() function is added, here must be tested
+    // against the mock-evaluation from https://github.com/w3c/csswg-drafts/issues/12206, not against this
+    // single token's id.
+    // e.g. for excluding={none}, ident("no" "ne") -> "none" must be rejected
+    // while ident("none" 1) -> "none0" must be accepted.
+    if (range.peek().type() != IdentToken || !isValidCustomIdentifier(range.peek().id()) || std::ranges::find(excluding, range.peek().id()) != excluding.end())
+        return { };
+    return CSS::CustomIdent { range.consumeIncludingWhitespace().value().toAtomString() };
+}
+
+RefPtr<CSSValue> consumeCustomIdent(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    if (auto unresolved = consumeUnresolvedCustomIdent(range, state))
+        return CSSCustomIdentValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+RefPtr<CSSValue> consumeCustomIdentExcluding(CSSParserTokenRange& range, CSS::PropertyParserState& state, std::initializer_list<CSSValueID> excluding)
+{
+    if (auto unresolved = consumeUnresolvedCustomIdentExcluding(range, state, excluding))
+        return CSSCustomIdentValue::create(WTF::move(*unresolved));
+    return nullptr;
 }
 
 // MARK: <dashed-ident>
 // https://drafts.csswg.org/css-values/#dashed-idents
 
-String consumeDashedIdentRaw(CSSParserTokenRange& range, bool shouldLowercase)
+StringView consumeEagerlyResolvableDashedIdentRaw(CSSParserTokenRange& range)
 {
-    auto rangeCopy = range;
-    auto identifier = consumeCustomIdentRaw(range, shouldLowercase);
-    if (!identifier.startsWith("--"_s)) {
-        range = rangeCopy;
+    // FIXME: When support for the ident() function is added, this will only succeed if the ident() function can be eagerly resolved without additional context.
+
+    if (range.peek().type() != IdentToken || !range.peek().value().startsWith("--"_s))
         return { };
-    }
-    return identifier;
+    return range.consumeIncludingWhitespace().value();
 }
 
-RefPtr<CSSPrimitiveValue> consumeDashedIdent(CSSParserTokenRange& range, bool shouldLowercase)
+std::optional<CSS::CustomIdent> consumeUnresolvedDashedIdent(CSSParserTokenRange& range, CSS::PropertyParserState&)
 {
-    auto identifier = consumeDashedIdentRaw(range, shouldLowercase);
-    if (identifier.isNull())
-        return nullptr;
-    return CSSPrimitiveValue::createCustomIdent(WTF::move(identifier));
+    // FIXME: When support for the ident() function is added, here must be tested with
+    // the mock-evaluation from https://github.com/w3c/csswg-drafts/issues/12206,
+    // not against this single token's value.
+    // e.g. ident("--" "foo") -> "--foo" must be accepted while
+    // ident("-" 1) -> "-0" must be rejected.
+    if (range.peek().type() != IdentToken || !range.peek().value().startsWith("--"_s))
+        return { };
+    return CSS::CustomIdent { range.consumeIncludingWhitespace().value().toAtomString() };
+}
+
+RefPtr<CSSValue> consumeDashedIdent(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    if (auto unresolved = consumeUnresolvedDashedIdent(range, state))
+        return CSSCustomIdentValue::create(WTF::move(*unresolved));
+    return nullptr;
+}
+
+// MARK: <CSS-wide keyword>
+// https://drafts.csswg.org/css-values/#common-keywords
+
+std::optional<CSSWideKeyword> consumeCSSWideKeyword(CSSParserTokenRange& range)
+{
+    auto rangeCopy = range;
+    auto valueID = rangeCopy.consumeIncludingWhitespace().id();
+    if (!rangeCopy.atEnd())
+        return { };
+
+    auto keyword = parseCSSWideKeyword(valueID);
+    if (!keyword)
+        return { };
+
+    range = rangeCopy;
+    return keyword;
 }
 
 } // namespace CSSPropertyParserHelpers

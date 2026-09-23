@@ -33,6 +33,8 @@
 #include "ContainerNodeInlines.h"
 #include "MathMLNames.h"
 #include "RenderMathMLMath.h"
+#include "Settings.h"
+#include "StyleComputedStyle.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -51,14 +53,14 @@ Ref<MathMLMathElement> MathMLMathElement::create(const QualifiedName& tagName, D
     return adoptRef(*new MathMLMathElement(tagName, document));
 }
 
-RenderPtr<RenderElement> MathMLMathElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLMathElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderMathMLMath>(*this, WTF::move(style));
 }
 
 void MathMLMathElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == mathvariantAttr) {
+    if (name == mathvariantAttr && acceptsLegacyMathVariantAttribute()) {
         m_mathVariant = std::nullopt;
         if (renderer())
             MathMLStyle::resolveMathMLStyleTree(renderer());
@@ -72,6 +74,11 @@ void MathMLMathElement::didAttachRenderers()
     MathMLRowElement::didAttachRenderers();
 
     MathMLStyle::resolveMathMLStyleTree(renderer());
+}
+
+bool MathMLMathElement::acceptsLegacyMathVariantAttribute()
+{
+    return !document().settings().coreMathMLDeprecateLegacyMathvariant();
 }
 
 }

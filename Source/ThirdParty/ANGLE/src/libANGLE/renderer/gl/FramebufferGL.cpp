@@ -90,6 +90,14 @@ void BindFramebufferAttachment(const FunctionsGL *functions,
             const Texture *texture     = attachment->getTexture();
             const TextureGL *textureGL = GetImplAs<TextureGL>(texture);
 
+            if (features.reattachFboDepthStencilOnReallocation.enabled &&
+                (attachmentPoint == GL_DEPTH_ATTACHMENT ||
+                 attachmentPoint == GL_STENCIL_ATTACHMENT))
+            {
+                functions->framebufferTexture2D(GL_FRAMEBUFFER, attachmentPoint, GL_TEXTURE_2D, 0,
+                                                0);
+            }
+
             if (texture->getType() == TextureType::_2D ||
                 texture->getType() == TextureType::_2DMultisample ||
                 texture->getType() == TextureType::Rectangle ||
@@ -170,6 +178,14 @@ void BindFramebufferAttachment(const FunctionsGL *functions,
         {
             const Renderbuffer *renderbuffer     = attachment->getRenderbuffer();
             const RenderbufferGL *renderbufferGL = GetImplAs<RenderbufferGL>(renderbuffer);
+
+            if (features.reattachFboDepthStencilOnReallocation.enabled &&
+                (attachmentPoint == GL_DEPTH_ATTACHMENT ||
+                 attachmentPoint == GL_STENCIL_ATTACHMENT))
+            {
+                functions->framebufferRenderbuffer(GL_FRAMEBUFFER, attachmentPoint, GL_RENDERBUFFER,
+                                                   0);
+            }
 
             if (features.alwaysUnbindFramebufferTexture2D.enabled)
             {
@@ -311,9 +327,11 @@ class [[nodiscard]] ScopedEXTTextureNorm16ReadbackWorkaround
         ContextGL *contextGL              = GetImplAs<ContextGL>(context);
         const angle::FeaturesGL &features = GetFeaturesGL(context);
 
+        // This workaround does not work if the destination is a Pixel Buffer Object.
         enabled = features.readPixelsUsingImplementationColorReadFormatForNorm16.enabled &&
                   type == GL_UNSIGNED_SHORT && originalReadFormat == GL_RGBA &&
-                  (format == GL_RED || format == GL_RG);
+                  (format == GL_RED || format == GL_RG) &&
+                  context->getState().getTargetBuffer(gl::BufferBinding::PixelPack) == nullptr;
 
         clientPixels = pixels;
 
@@ -496,18 +514,25 @@ angle::Result FramebufferGL::invalidate(const gl::Context *context,
     const FunctionsGL *functions = GetFunctionsGL(context);
     StateManagerGL *stateManager = GetStateManagerGL(context);
 
+    const angle::FeaturesGL &features = GetFeaturesGL(context);
+    const bool skipInvalidate =
+        features.dontInvalidateIncompleteFBOs.enabled && !checkStatus(context).isComplete();
+
     // Since this function is just a hint, only call a native function if it exists.
-    if (functions->invalidateFramebuffer)
+    if (!skipInvalidate)
     {
-        stateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
-        functions->invalidateFramebuffer(GL_FRAMEBUFFER, static_cast<GLsizei>(count),
-                                         finalAttachmentsPtr);
-    }
-    else if (functions->discardFramebufferEXT)
-    {
-        stateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
-        functions->discardFramebufferEXT(GL_FRAMEBUFFER, static_cast<GLsizei>(count),
-                                         finalAttachmentsPtr);
+        if (functions->invalidateFramebuffer)
+        {
+            stateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
+            functions->invalidateFramebuffer(GL_FRAMEBUFFER, static_cast<GLsizei>(count),
+                                             finalAttachmentsPtr);
+        }
+        else if (functions->discardFramebufferEXT)
+        {
+            stateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
+            functions->discardFramebufferEXT(GL_FRAMEBUFFER, static_cast<GLsizei>(count),
+                                             finalAttachmentsPtr);
+        }
     }
 
     return angle::Result::Continue;
@@ -530,9 +555,13 @@ angle::Result FramebufferGL::invalidateSub(const gl::Context *context,
     const FunctionsGL *functions = GetFunctionsGL(context);
     StateManagerGL *stateManager = GetStateManagerGL(context);
 
+    const angle::FeaturesGL &features = GetFeaturesGL(context);
+    const bool skipInvalidate =
+        features.dontInvalidateIncompleteFBOs.enabled && !checkStatus(context).isComplete();
+
     // Since this function is just a hint and not available until OpenGL 4.3, only call it if it is
     // available.
-    if (functions->invalidateSubFramebuffer)
+    if (!skipInvalidate && functions->invalidateSubFramebuffer)
     {
         stateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
         functions->invalidateSubFramebuffer(GL_FRAMEBUFFER, static_cast<GLsizei>(count),

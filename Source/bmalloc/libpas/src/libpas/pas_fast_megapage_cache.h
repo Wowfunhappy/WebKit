@@ -29,7 +29,6 @@
 #include "pas_config.h"
 #include "pas_fast_megapage_kind.h"
 #include "pas_heap_ref.h"
-#include "pas_page_header_placement_mode.h"
 #include "pas_utils.h"
 
 PAS_BEGIN_EXTERN_C;

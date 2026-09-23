@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ slow!
 
 function canThrow(func, errorMessage) {

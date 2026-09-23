@@ -45,10 +45,11 @@ typedef int64_t PacketTime;
 
 namespace WebKit {
 
-class LibWebRTCSocketClient final : public NetworkRTCProvider::Socket, public sigslot::has_slots<> {
+class LibWebRTCSocketClient final : public NetworkRTCProvider::Socket {
     WTF_MAKE_TZONE_ALLOCATED(LibWebRTCSocketClient);
 public:
     LibWebRTCSocketClient(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, std::unique_ptr<webrtc::AsyncPacketSocket>&&, Type, Ref<IPC::Connection>&&);
+    ~LibWebRTCSocketClient();
 
 private:
     WebCore::LibWebRTCSocketIdentifier identifier() const final { return m_identifier; }
@@ -66,10 +67,10 @@ private:
 
     void signalAddressReady();
 
-    WebCore::LibWebRTCSocketIdentifier m_identifier;
-    Type m_type;
+    const WebCore::LibWebRTCSocketIdentifier m_identifier;
+    const Type m_type;
     CheckedRef<NetworkRTCProvider> m_rtcProvider;
-    std::unique_ptr<webrtc::AsyncPacketSocket> m_socket;
+    const std::unique_ptr<webrtc::AsyncPacketSocket> m_socket;
     const Ref<IPC::Connection> m_connection;
     int m_sendError { 0 };
 };

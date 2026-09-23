@@ -30,13 +30,12 @@ use Getopt::Long;
 use Cwd;
 use Config;
 use Class::Struct;
-use JSON::PP;
+BEGIN { eval { require JSON::XS; JSON::XS->import(); 1 } or do { require JSON::PP; JSON::PP->import() } }
 use Data::Dumper;
 
 use IDLParser;
 
 my $defines;
-my $preprocessor;
 my $idlFileNamesList;
 my $testGlobalContextName;
 my $supplementalDependencyFile;
@@ -78,7 +77,6 @@ my @supportedGlobalContexts = (
 my $validateAgainstParser = 0;
 
 GetOptions('defines=s' => \$defines,
-           'preprocessor=s' => \$preprocessor,
            'idlFileNamesList=s' => \$idlFileNamesList,
            'testGlobalContextName=s' => \$testGlobalContextName,
            'supplementalDependencyFile=s' => \$supplementalDependencyFile,
@@ -144,7 +142,7 @@ if ($validateAgainstParser) {
         close(JSON);
     }
 
-    my $jsonDecoder = JSON::PP->new->utf8;
+    my $jsonDecoder = (eval { JSON::XS->new->utf8 } or JSON::PP->new->utf8);
     my $jsonHashRef = $jsonDecoder->decode($input);
     $idlAttributes = $jsonHashRef->{attributes};
 }
@@ -208,7 +206,7 @@ my @constructors = ();
 my $constructorsHeaderCode = <<END;
 #include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
-#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/WriteBarrier.h>
 
 #pragma once
 
@@ -293,9 +291,21 @@ foreach my $idlFileName (sort keys %idlFileNameHash) {
         }
         $exposedAttribute = substr($exposedAttribute, 1, -1) if substr($exposedAttribute, 0, 1) eq "(";
 
+        my %exposedEnabledBySetting;
+        if (my $exposedSetting = $extendedAttributes->{"ExposedEnabledBySetting"}) {
+            if ($exposedSetting =~ /^(\w+)\|(\w+)$/) {
+                $exposedEnabledBySetting{$1} = $2;
+            }
+        }
+
         my @globalContexts = split(",", $exposedAttribute);
         foreach my $globalContext (@globalContexts) {
-            my ($attributeCode, $windowAliases) = GenerateConstructorAttributes($interfaceName, $extendedAttributes, $globalContext);
+            my %contextExtendedAttributes = %{$extendedAttributes};
+            if (my $setting = $exposedEnabledBySetting{$globalContext}) {
+                my $existing = $contextExtendedAttributes{"EnabledBySetting"};
+                $contextExtendedAttributes{"EnabledBySetting"} = $existing ? "$setting&$existing" : $setting;
+            }
+            my ($attributeCode, $windowAliases) = GenerateConstructorAttributes($interfaceName, \%contextExtendedAttributes, $globalContext);
             if ($globalContext eq "Window") {
                 $windowConstructorsCode .= $attributeCode;
                 $windowConstructorsCode .= $windowAliases if $windowAliases;
@@ -605,7 +615,7 @@ sub processIDL
 
     if ($validateAgainstParser) {
         my $parser = IDLParser->new(1);
-        $idlFile->parsedDocument($parser->Parse($filePath, $defines, $preprocessor, $idlAttributes));
+        $idlFile->parsedDocument($parser->Parse($filePath, $defines, $idlAttributes));
     }
 
     return $idlFile;

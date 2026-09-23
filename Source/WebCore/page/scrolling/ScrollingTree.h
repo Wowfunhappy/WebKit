@@ -47,6 +47,7 @@
 #include <wtf/MonotonicTime.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/TypeCasts.h>
 
 namespace WebCore {
@@ -125,7 +126,7 @@ public:
     bool commitTreeStateInternal(std::unique_ptr<ScrollingStateTree>&&, std::optional<LayerHostingContextIdentifier>) WTF_REQUIRES_LOCK(m_treeLock);
 
     WEBCORE_EXPORT virtual void applyLayerPositions();
-    WEBCORE_EXPORT void applyLayerPositionsAfterCommit();
+    void setNeedsApplyLayerPositions() { m_needsApplyLayerPositions = true; }
 
     virtual Ref<ScrollingTreeNode> createScrollingTreeNode(ScrollingNodeType, ScrollingNodeID) = 0;
     
@@ -150,8 +151,6 @@ public:
 
     // Delegated scrolling/zooming has caused the viewport to change, so update viewport-constrained layers
     WEBCORE_EXPORT void mainFrameViewportChangedViaDelegatedScrolling(const FloatPoint& scrollPosition, const WebCore::FloatRect& layoutViewport, double scale);
-
-    void setNeedsApplyLayerPositionsAfterCommit() { m_needsApplyLayerPositionsAfterCommit = true; }
 
     void notifyRelatedNodesAfterScrollPositionChange(ScrollingTreeScrollingNode& changedNode);
 
@@ -224,6 +223,8 @@ public:
 
     WEBCORE_EXPORT String scrollingTreeAsText(OptionSet<ScrollingStateTreeAsTextBehavior> = { });
 
+    WEBCORE_EXPORT float rubberbandHyperbolicCoefficientForTesting();
+
     bool isMonitoringWheelEvents() const { return m_isMonitoringWheelEvents; }
     void setIsMonitoringWheelEvents(bool b) { m_isMonitoringWheelEvents = b; }
     bool inCommitTreeState() const { return m_inCommitTreeState; }
@@ -234,6 +235,21 @@ public:
 
     virtual void lockLayersForHitTesting() { }
     virtual void unlockLayersForHitTesting() { }
+
+    class HitTestLocker {
+    public:
+        HitTestLocker(ScrollingTree& tree)
+            : m_tree(tree)
+        {
+            m_tree->lockLayersForHitTesting();
+        }
+        ~HitTestLocker()
+        {
+            m_tree->unlockLayersForHitTesting();
+        }
+    private:
+        const Ref<ScrollingTree> m_tree;
+    };
 
     virtual bool isScrollingSynchronizedWithMainThread() WTF_REQUIRES_LOCK(m_treeLock) { return true; }
 
@@ -252,10 +268,10 @@ public:
 
     WEBCORE_EXPORT FloatBoxExtent mainFrameObscuredContentInsets() const;
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    virtual float bannerViewHeight() const { return 0; }
-    virtual float bannerViewMaximumHeight() const { return 0; }
-    virtual bool hasBannerViewOverlay() const { return false; }
+#if HAVE(NSREFRESHCONTROLLER)
+    virtual float topScrollStretchForRefreshController() const { return 0; }
+    virtual float refreshControllerSnappingThreshold() const { return 0; }
+    virtual bool hasRefreshController() const { return false; }
 #endif
 
     virtual void triggerMainFrameRubberBandSnapBack() { }
@@ -396,12 +412,12 @@ protected:
 private:
     ThreadSafeWeakHashSet<ScrollingTreeNode> m_fixedOrStickyNodes;
     std::atomic<bool> m_isHandlingProgrammaticScroll { false };
+    std::atomic<bool> m_needsApplyLayerPositions { false };
     bool m_isMonitoringWheelEvents { false };
     bool m_scrollingPerformanceTestingEnabled { false };
     bool m_overlayScrollbarsEnabled { false };
     bool m_asyncFrameOrOverflowScrollingEnabled { false };
     bool m_wheelEventGesturesBecomeNonBlocking { false };
-    bool m_needsApplyLayerPositionsAfterCommit { false };
     bool m_inCommitTreeState { false };
 };
 

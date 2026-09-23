@@ -33,6 +33,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/Seconds.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/WallTime.h>
 #include <wtf/text/MakeString.h>
 
 #define ENHANCEDSECURITY_RELEASE_LOG(fmt, ...) RELEASE_LOG(EnhancedSecurity, "EnhancedSecuritySitesPersistence::" fmt, ##__VA_ARGS__)
@@ -40,11 +41,13 @@
 namespace WebKit {
 
 static constexpr auto sitesTableName = "sites"_s;
-static constexpr auto siteIndexName = "idx_sites_site"_s;
 static constexpr auto enhancedSecurityStateIndexName = "idx_sites_enhanced_security_state"_s;
 
-static constexpr auto createSitesTableSQL = "CREATE TABLE sites (site TEXT PRIMARY KEY NOT NULL, enhanced_security_state INT NOT NULL)"_s;
+static constexpr auto createSitesTableSQL = "CREATE TABLE sites (site TEXT PRIMARY KEY NOT NULL, enhanced_security_state INT NOT NULL, last_modified REAL NOT NULL)"_s;
 static constexpr auto createEnhancedSecurityStateIndexSQL = "CREATE INDEX idx_sites_enhanced_security_state ON sites(enhanced_security_state)"_s;
+
+static constexpr Seconds enhancedSecuritySiteExpiryAge { 90 * 24 * 3600.0 };
+static constexpr auto deleteExpiredDisabledSitesSQL = "DELETE FROM sites WHERE enhanced_security_state = 0 AND last_modified < ?"_s;
 
 static constexpr auto selectAllSitesSQL = "SELECT site FROM sites"_s;
 
@@ -54,7 +57,7 @@ static constexpr auto selectEnhancedSecurityOnlySitesSQL = "SELECT site FROM sit
 static constexpr auto selectSpecificSiteSQL = "SELECT enhanced_security_state FROM sites WHERE site = ?"_s;
 static constexpr auto deleteAllSitesSQL = "DELETE FROM sites"_s;
 static constexpr auto deleteSiteSQL = "DELETE FROM sites WHERE site = ?"_s;
-static constexpr auto insertSiteSQL = "INSERT OR REPLACE INTO sites (site, enhanced_security_state) VALUES (?, ?)"_s;
+static constexpr auto insertSiteSQL = "INSERT OR REPLACE INTO sites (site, enhanced_security_state, last_modified) VALUES (?, ?, ?)"_s;
 
 EnhancedSecuritySitesPersistence::EnhancedSecuritySitesPersistence(const String& databaseDirectoryPath)
 {
@@ -135,6 +138,27 @@ bool EnhancedSecuritySitesPersistence::openDatabase(const String& directoryPath)
             return reportErrorAndCloseDatabase("create `enhanced_security_state` index on `sites` table"_s);
 
         ENHANCEDSECURITY_RELEASE_LOG("%s: Index %" PUBLIC_LOG_STRING " created", __FUNCTION__, enhancedSecurityStateIndexName.characters());
+    }
+
+    {
+        auto columnCheckStatement = checkedDB->prepareStatement("SELECT COUNT(*) FROM pragma_table_info('sites') WHERE name = 'last_modified'"_s);
+        bool hasLastModifiedColumn = columnCheckStatement && columnCheckStatement->step() == SQLITE_ROW && columnCheckStatement->columnInt(0) > 0;
+        columnCheckStatement = nullptr;
+
+        if (!hasLastModifiedColumn) {
+            if (!checkedDB->executeCommand("ALTER TABLE sites ADD COLUMN last_modified REAL NOT NULL DEFAULT 0"_s))
+                return reportErrorAndCloseDatabase("add last_modified column"_s);
+            ENHANCEDSECURITY_RELEASE_LOG("%s: Added last_modified column to sites table", __FUNCTION__);
+        }
+    }
+
+    {
+        auto cutoff = (WallTime::now() - enhancedSecuritySiteExpiryAge).secondsSinceEpoch().value();
+        auto expiryStatement = checkedDB->prepareStatement(deleteExpiredDisabledSitesSQL);
+        if (!expiryStatement || expiryStatement->bindDouble(1, cutoff) != SQLITE_OK || !expiryStatement->executeCommand())
+            ENHANCEDSECURITY_RELEASE_LOG("%s: Failed to delete stale disabled sites", __FUNCTION__);
+        else
+            ENHANCEDSECURITY_RELEASE_LOG("%s: Deleted stale disabled sites older than %g days", __FUNCTION__, enhancedSecuritySiteExpiryAge.value() / (24 * 3600));
     }
 
     m_insertSiteSQLStatement = checkedDB->prepareStatement(insertSiteSQL);
@@ -257,7 +281,7 @@ void EnhancedSecuritySitesPersistence::trackEnhancedSecurityForDomain(WebCore::R
 
     if (!selectSiteStatement
         || selectSiteStatement->bindText(1, site.string()) != SQLITE_OK)
-        reportSQLError(__FUNCTION__, "Failed to query specific site"_s);
+        return reportSQLError(__FUNCTION__, "Failed to query specific site"_s);
 
     if (selectSiteStatement->step() == SQLITE_ROW) {
         if (static_cast<EnhancedSecurity>(selectSiteStatement->columnInt(0)) == EnhancedSecurity::Disabled)
@@ -266,10 +290,14 @@ void EnhancedSecuritySitesPersistence::trackEnhancedSecurityForDomain(WebCore::R
 
     CheckedPtr insertSiteStatement = cachedStatement(StatementType::InsertSite).get();
 
+    auto nowSeconds = WallTime::now().secondsSinceEpoch().value();
+    constexpr double secondsPerDay = 86400;
+    auto now = std::floor(nowSeconds / secondsPerDay) * secondsPerDay;
     auto enhancedSecurityReason = std::to_underlying(reason);
     if (!insertSiteStatement
         || insertSiteStatement->bindText(1, site.string()) != SQLITE_OK
         || insertSiteStatement->bindInt(2, enhancedSecurityReason) != SQLITE_OK
+        || insertSiteStatement->bindDouble(3, now) != SQLITE_OK
         || !insertSiteStatement->executeCommand())
         reportSQLError(__FUNCTION__, "Failed to insert or replace site"_s);
 }

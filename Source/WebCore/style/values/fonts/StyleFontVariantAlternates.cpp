@@ -27,9 +27,11 @@
 #include "StyleFontVariantAlternates.h"
 
 #include "CSSFunctionValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "CSSValueList.h"
 #include "StyleBuilderChecking.h"
+#include "StyleValueTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
@@ -38,38 +40,34 @@ namespace Style {
 
 auto CSSValueConversion<FontVariantAlternates>::operator()(BuilderState& state, const CSSValue& value) -> FontVariantAlternates
 {
-    auto processSingleItemFunction = [&](const CSSFunctionValue& function, String& parameterToSet) -> bool {
+    auto processSingleItemFunction = [&](const CSSFunctionValue& function, WTF::String& parameterToSet) -> bool {
         if (function.size() != 1) {
             state.setCurrentPropertyInvalidAtComputedValueTime();
             return false;
         }
-        RefPtr primitiveArgument = dynamicDowncast<CSSPrimitiveValue>(function[0]);
-        if (!primitiveArgument || !primitiveArgument->isCustomIdent()) {
-            state.setCurrentPropertyInvalidAtComputedValueTime();
+        auto customIdent = toStyleFromCSSValue<CustomIdent>(state, protect(function[0]));
+        if (customIdent.value.isNull())
             return false;
-        }
-        parameterToSet = primitiveArgument->customIdent();
+        parameterToSet = customIdent.value;
         return true;
     };
 
-    auto processListFunction = [&](const CSSFunctionValue& function, Vector<String>& parameterToSet) -> bool {
+    auto processListFunction = [&](const CSSFunctionValue& function, Vector<WTF::String>& parameterToSet) -> bool {
         if (!function.size()) {
             state.setCurrentPropertyInvalidAtComputedValueTime();
             return false;
         }
         for (Ref argument : function) {
-            RefPtr primitiveArgument = dynamicDowncast<CSSPrimitiveValue>(argument);
-            if (!primitiveArgument || !primitiveArgument->isCustomIdent()) {
-                state.setCurrentPropertyInvalidAtComputedValueTime();
+            auto customIdent = toStyleFromCSSValue<CustomIdent>(state, argument);
+            if (customIdent.value.isNull())
                 return false;
-            }
-            parameterToSet.append(primitiveArgument->customIdent());
+            parameterToSet.append(customIdent.value);
         }
         return true;
     };
 
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNormal:
             return CSS::Keyword::Normal { };
         case CSSValueHistoricalForms:
@@ -87,8 +85,8 @@ auto CSSValueConversion<FontVariantAlternates>::operator()(BuilderState& state, 
     auto result = FontVariantAlternates::Platform::Normal();
 
     for (Ref item : *list) {
-        if (RefPtr primitive = dynamicDowncast<CSSPrimitiveValue>(item)) {
-            switch (primitive->valueID()) {
+        if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(item)) {
+            switch (keywordValue->valueID()) {
             case CSSValueHistoricalForms:
                 result.valuesRef().historicalForms = true;
                 break;
@@ -96,7 +94,7 @@ auto CSSValueConversion<FontVariantAlternates>::operator()(BuilderState& state, 
                 state.setCurrentPropertyInvalidAtComputedValueTime();
                 return CSS::Keyword::Normal { };
             }
-        } else if (RefPtr function = dynamicDowncast<CSSFunctionValue>(item.get())) {
+        } else if (RefPtr function = dynamicDowncast<CSSFunctionValue>(item)) {
             switch (function->name()) {
             case CSSValueSwash:
                 if (!processSingleItemFunction(*function, result.valuesRef().swash))
@@ -135,7 +133,7 @@ auto CSSValueConversion<FontVariantAlternates>::operator()(BuilderState& state, 
     return result;
 }
 
-Ref<CSSValue> CSSValueCreation<FontVariantAlternates>::operator()(CSSValuePool& pool, const RenderStyle& style, const FontVariantAlternates& alternates)
+Ref<CSSValue> CSSValueCreation<FontVariantAlternates>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const FontVariantAlternates& alternates)
 {
     if (alternates.isNormal())
         return createCSSValue(pool, style, CSS::Keyword::Normal { });
@@ -148,13 +146,13 @@ Ref<CSSValue> CSSValueCreation<FontVariantAlternates>::operator()(CSSValuePool& 
     };
     auto appendSingleItemFunction = [&](auto name, const auto& value) {
         if (!value.isNull())
-            valueList.append(CSSFunctionValue::create(name.value, createCSSValue(pool, style, CustomIdentifier { AtomString { value } })));
+            valueList.append(CSSFunctionValue::create(name.value, createCSSValue(pool, style, CustomIdent { AtomString { value } })));
     };
     auto appendListFunction = [&](auto name, const auto& value) {
         if (!value.isEmpty()) {
             CSSValueListBuilder functionArguments;
             for (auto& argument : value)
-                functionArguments.append(createCSSValue(pool, style, CustomIdentifier { AtomString { argument } }));
+                functionArguments.append(createCSSValue(pool, style, CustomIdent { AtomString { argument } }));
             valueList.append(CSSFunctionValue::create(name.value, WTF::move(functionArguments)));
         }
     };
@@ -172,7 +170,7 @@ Ref<CSSValue> CSSValueCreation<FontVariantAlternates>::operator()(CSSValuePool& 
     return CSSValueList::createSpaceSeparated(WTF::move(valueList));
 }
 
-void Serialize<FontVariantAlternates>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const FontVariantAlternates& alternates)
+void Serialize<FontVariantAlternates>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const FontVariantAlternates& alternates)
 {
     if (alternates.isNormal()) {
         serializationForCSS(builder, context, style, CSS::Keyword::Normal { });
@@ -196,7 +194,7 @@ void Serialize<FontVariantAlternates>::operator()(StringBuilder& builder, const 
 
             serializationForCSS(builder, context, style, name);
             builder.append('(');
-            serializationForCSS(builder, context, style, CustomIdentifier { AtomString { value } });
+            serializationForCSS(builder, context, style, CustomIdent { AtomString { value } });
             builder.append(')');
 
             needsSpace = true;
@@ -210,7 +208,7 @@ void Serialize<FontVariantAlternates>::operator()(StringBuilder& builder, const 
             serializationForCSS(builder, context, style, name);
             builder.append('(');
             builder.append(interleave(value, [&](auto& builder, const auto& argument) {
-                serializationForCSS(builder, context, style, CustomIdentifier { AtomString { argument } });
+                serializationForCSS(builder, context, style, CustomIdent { AtomString { argument } });
             }, ", "_s));
             builder.append(')');
 

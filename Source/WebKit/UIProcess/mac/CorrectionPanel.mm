@@ -28,8 +28,8 @@
 
 #if USE(AUTOCORRECTION_PANEL)
 
-#import "WebPageProxy.h"
-#import "WebPageProxy.h" // MAVERICKS_BACKPORT: this panel is driven by the page (see CorrectionPanel.h).
+#import "WebPageProxy.h" // MAVERICKS_BACKPORT: the correction panel is owned by the page.
+// #import "WebViewImpl.h"
 #import <WebCore/CorrectionIndicator.h>
 #import <pal/SessionID.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -55,7 +55,7 @@ void CorrectionPanel::show(NSView *view, WebPageProxy& page, AlternativeTextType
     if (!view)
         return;
 
-    NSInteger spellCheckerDocumentTag = page.spellDocumentTag(); // MAVERICKS_BACKPORT: was webViewImpl.spellCheckerDocumentTag(), which forwards here.
+    NSInteger spellCheckerDocumentTag = page.spellDocumentTag(); // MAVERICKS_BACKPORT: the page owns the spell-checker document tag.
 
     RetainPtr replacedStringAsNSString = replacedString.createNSString();
     RetainPtr replacementStringAsNSString = replacementString.createNSString();
@@ -68,9 +68,13 @@ void CorrectionPanel::show(NSView *view, WebPageProxy& page, AlternativeTextType
     if (!alternativeReplacementStrings.isEmpty())
         alternativeStrings = createNSArray(alternativeReplacementStrings);
 
+    WeakPtr weakPage { page }; // MAVERICKS_BACKPORT: preserve the owner through a weak page reference.
     RetainPtr spellChecker = [NSSpellChecker sharedSpellChecker];
-    [spellChecker showCorrectionIndicatorOfType:indicatorType primaryString:replacementStringAsNSString.get() alternativeStrings:alternativeStrings.get() forStringInRect:boundingBoxOfReplacedString view:m_view.get() completionHandler:^(NSString* acceptedString) {
-        handleAcceptedReplacement(page, acceptedString, replacedStringAsNSString.get(), replacementStringAsNSString.get(), indicatorType);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
+    [spellChecker showCorrectionIndicatorOfType:indicatorType primaryString:replacementStringAsNSString.get() alternativeStrings:alternativeStrings.get() forStringInRect:boundingBoxOfReplacedString view:m_view.get() completionHandler:^(NSString *acceptedString) {
+        RefPtr page = weakPage.get(); // MAVERICKS_BACKPORT: the panel is owned by the page.
+        if (!page)
+            return;
+        handleAcceptedReplacement(*page, acceptedString, replacedStringAsNSString.get(), replacementStringAsNSString.get(), indicatorType);
     }];
 }
 
@@ -93,7 +97,7 @@ String CorrectionPanel::dismissInternal(ReasonForDismissingAlternativeText reaso
 
 void CorrectionPanel::recordAutocorrectionResponse(WebPageProxy& page, NSInteger spellCheckerDocumentTag, NSCorrectionResponse response, const String& replacedString, const String& replacementString)  // MAVERICKS_BACKPORT: takes the page (see the class comment).
 {
-    if (page.sessionID().isEphemeral()) // MAVERICKS_BACKPORT: was webViewImpl.page().sessionID().
+    if (page.sessionID().isEphemeral()) // MAVERICKS_BACKPORT: the session comes from the page.
         return;
 
     [[NSSpellChecker sharedSpellChecker] recordResponse:response toCorrection:replacementString.createNSString().get() forWord:replacedString.createNSString().get() language:nil inSpellDocumentWithTag:spellCheckerDocumentTag];
@@ -125,7 +129,7 @@ void CorrectionPanel::handleAcceptedReplacement(WebPageProxy& page, NSString* ac
         break;
     }
 
-    page.handleAlternativeTextUIResult(acceptedReplacement); // MAVERICKS_BACKPORT: was webViewImpl.handleAcceptedAlternativeText(), which forwards here.
+    page.handleAlternativeTextUIResult(acceptedReplacement); // MAVERICKS_BACKPORT: the page receives the accepted alternative text.
     m_spellCheckerDocumentTag = 0;
     m_view = nullptr;
     if (acceptedReplacement)

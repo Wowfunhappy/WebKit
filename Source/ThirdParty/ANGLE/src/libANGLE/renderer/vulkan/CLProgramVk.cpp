@@ -13,6 +13,7 @@
 #include "libANGLE/renderer/vulkan/CLProgramVk.h"
 #include "libANGLE/CLBuffer.h"
 #include "libANGLE/renderer/vulkan/CLContextVk.h"
+#include "libANGLE/renderer/vulkan/cl_types.h"
 #include "libANGLE/renderer/vulkan/clspv_utils.h"
 #include "libANGLE/renderer/vulkan/vk_cache_utils.h"
 #include "libANGLE/renderer/vulkan/vk_helpers.h"
@@ -242,6 +243,13 @@ spv_result_t ParseReflection(CLProgramVk::SpvReflectionData &reflectionData,
                     reflectionData.specConstantsUsed[SpecConstantType::WorkDimension] = true;
                     break;
                 }
+                case NonSemanticClspvReflectionSpecConstantSubgroupMaxSize:
+                {
+                    reflectionData.specConstantIDs[SpecConstantType::SubgroupMaxSize] =
+                        reflectionData.spvIntLookup[spvInstr.words[5]];
+                    reflectionData.specConstantsUsed[SpecConstantType::SubgroupMaxSize] = true;
+                    break;
+                }
                 case NonSemanticClspvReflectionSpecConstantGlobalOffset:
                     reflectionData.specConstantIDs[SpecConstantType::GlobalOffsetX] =
                         reflectionData.spvIntLookup[spvInstr.words[5]];
@@ -341,6 +349,12 @@ spv_result_t ParseReflection(CLProgramVk::SpvReflectionData &reflectionData,
                                                               .normalizedCoords = normalizedCoords,
                                                               .addressingMode   = addressingMode,
                                                               .filterMode       = filterMode});
+                    break;
+                }
+                case NonSemanticClspvReflectionWorkgroupVariableSize:
+                {
+                    uint32_t size = reflectionData.spvIntLookup[spvInstr.words[6]];
+                    reflectionData.workgroupVariableSize.size += size;
                     break;
                 }
                 default:
@@ -930,10 +944,10 @@ bool CLProgramVk::buildInternal(const cl::DevicePtrs &devices,
             // add clspv compiler options based on device features
             processedOptions += ClspvGetCompilerOptions(&device->getImpl<CLDeviceVk>());
 
-        cl_uint addressBits;
-        ANGLE_CL_IMPL_TRY(
-            device->getInfo(cl::DeviceInfo::AddressBits, sizeof(cl_uint), &addressBits, nullptr));
-        processedOptions += addressBits == 64 ? " -arch=spir64" : " -arch=spir";
+            cl_uint addressBits;
+            ANGLE_CL_IMPL_TRY(device->getInfo(cl::DeviceInfo::AddressBits, sizeof(cl_uint),
+                                              &addressBits, nullptr));
+            processedOptions += addressBits == 64 ? " -arch=spir64" : " -arch=spir";
 
             switch (buildType)
             {
@@ -951,6 +965,8 @@ bool CLProgramVk::buildInternal(const cl::DevicePtrs &devices,
                     if (clspvRet != CLSPV_SUCCESS)
                     {
                         ERR() << "OpenCL build failed with: ClspvError(" << clspvRet << ")!";
+                        ERR() << "Clspv option: " << processedOptions;
+                        ERR() << "Build log: " << std::endl << deviceProgramData.buildLog;
                         deviceProgramData.buildStatus = CL_BUILD_ERROR;
                         return false;
                     }
@@ -992,6 +1008,8 @@ bool CLProgramVk::buildInternal(const cl::DevicePtrs &devices,
                     if (clspvRet != CLSPV_SUCCESS)
                     {
                         ERR() << "OpenCL build failed with: ClspvError(" << clspvRet << ")!";
+                        ERR() << "Clspv option: " << processedOptions;
+                        ERR() << "Build log: " << std::endl << deviceProgramData.buildLog;
                         deviceProgramData.buildStatus = CL_BUILD_ERROR;
                         return false;
                     }

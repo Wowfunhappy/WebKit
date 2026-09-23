@@ -33,7 +33,7 @@
 #import <wtf/HashMap.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCounted.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakPtr.h>
@@ -115,10 +115,10 @@ private:
 
 inline void refComputePassEncoder(WebGPU::ComputePassEncoder* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefComputePassEncoder(WebGPU::ComputePassEncoder* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }

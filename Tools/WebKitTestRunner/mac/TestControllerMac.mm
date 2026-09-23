@@ -517,6 +517,18 @@ void TestController::initializeWebProcessAccessibility()
     if (!platformView)
         return;
 
+    // Allow all accessibility authentication requests for testing, so that
+    // site-isolated iframe web content processes can be accessed by AX clients
+    // without requiring TCC accessibility permission.
+    WKContextSetAllowAXAuthenticationForTesting(m_context.get(), true);
+
+    // Reduce the messaging timeout. Occasionally an accessibility client request goes to
+    // a web content process before it's ready to serve that request on the AX thread, causing
+    // it to time out. Reduce the timeout from the default of 1.5 seconds to 0.05 seconds so
+    // that it retries quickly and doesn't slow down the test.
+    auto systemWide = adoptCF(AXUIElementCreateSystemWide());
+    AXUIElementSetMessagingTimeout(systemWide.get(), 0.05);
+
     // Trigger accessibility initialization by accessing an accessibility attribute.
     // This will call WebViewImpl::enableAccessibilityIfNecessary() which then calls
     // WebProcessPool::initializeAccessibilityIfNecessary() to send the InitializeAccessibility

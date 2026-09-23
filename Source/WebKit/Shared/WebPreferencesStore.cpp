@@ -26,8 +26,10 @@
 #include "config.h"
 #include "WebPreferencesStore.h"
 
+#include "Logging.h"
 #include "WebPreferencesKeys.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
 
@@ -150,6 +152,51 @@ void WebPreferencesStore::deleteKey(const String& key)
 {
     m_values.remove(key);
     m_overriddenDefaults.remove(key);
+}
+
+#if !RELEASE_LOG_DISABLED
+static void appendValueToStringBuilder(StringBuilder& builder, const WebPreferencesStore::Value& value)
+{
+    WTF::switchOn(value,
+        [&](bool b) { builder.append(b ? "true"_s : "false"_s); },
+        [&](uint32_t u) { builder.append(u); },
+        [&](double d) { builder.append(d); },
+        [&](const String& s) { builder.append('"', s, '"'); }
+    );
+}
+#endif
+
+void WebPreferencesStore::logNonDefaultValues() const
+{
+#if !RELEASE_LOG_DISABLED
+    if (m_values.isEmpty() && m_overriddenDefaults.isEmpty())
+        return;
+
+    auto& defaultsMap = defaults();
+
+    StringBuilder nonDefaultPrefs;
+
+    auto checkEntry = [&](const String& key, const Value& value) {
+        auto it = defaultsMap.find(key);
+        if (it != defaultsMap.end() && it->value == value)
+            return;
+        if (!nonDefaultPrefs.isEmpty())
+            nonDefaultPrefs.append(", "_s);
+        nonDefaultPrefs.append(key, '=');
+        appendValueToStringBuilder(nonDefaultPrefs, value);
+    };
+
+    for (auto& [key, value] : m_overriddenDefaults) {
+        if (!m_values.contains(key))
+            checkEntry(key, value);
+    }
+
+    for (auto& [key, value] : m_values)
+        checkEntry(key, value);
+
+    if (!nonDefaultPrefs.isEmpty())
+        RELEASE_LOG(Loading, "WebPreferencesStore: non-default preferences: %" PUBLIC_LOG_STRING, nonDefaultPrefs.toString().utf8().data());
+#endif
 }
 
 } // namespace WebKit

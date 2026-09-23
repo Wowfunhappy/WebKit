@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
- * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +32,12 @@ namespace WebCore {
 
 namespace CSS {
 struct BorderImageComponents;
+struct BorderImageOutset;
+struct BorderImageRepeat;
+struct BorderImageSlice;
+struct BorderImageSource;
+struct BorderImageWidth;
+struct BorderImage;
 struct BorderRadius;
 struct PropertyParserState;
 }
@@ -42,8 +48,8 @@ enum CSSPropertyID : uint16_t;
 
 namespace CSSPropertyParserHelpers {
 
-// Default value of the `fill` parameter for `border-image-slice`.
-enum class BorderImageSliceFillDefault : bool { No, Yes };
+// Legacy behavior needed by -webkit-border-image that makes the slice component aways set `fill`..
+enum class BorderImageSliceOverride : bool { None, AlwaysFill };
 
 // Legacy behavior needed by -webkit-border-image that makes fixed border slices also set the border widths.
 enum class BorderImageWidthOverridesWidthForLength : bool { No, Yes };
@@ -59,16 +65,33 @@ std::optional<CSS::BorderRadius> consumeUnresolvedWebKitBorderRadius(CSSParserTo
 
 // MARK: - Border Image
 
+// <'border-image-source'> = none | <image>
+// https://drafts.csswg.org/css-backgrounds/#propdef-border-image-source
+std::optional<CSS::BorderImageSource> consumeUnresolvedBorderImageSource(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeBorderImageSource(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'border-image-outset'> = [ <length [0,∞]> | <number [0,∞]> ]{1,4}
+// https://drafts.csswg.org/css-backgrounds/#propdef-border-image-outset
+std::optional<CSS::BorderImageOutset> consumeUnresolvedBorderImageOutset(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeBorderImageOutset(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// <'border-image-repeat'> = [ stretch | repeat | round | space ]{1,2}
+// https://drafts.csswg.org/css-backgrounds/#propdef-border-image-repeat
+std::optional<CSS::BorderImageRepeat> consumeUnresolvedBorderImageRepeat(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeBorderImageRepeat(CSSParserTokenRange&, CSS::PropertyParserState&);
+
 // <'border-image-slice'> = [<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?
 // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-slice
-RefPtr<CSSValue> consumeBorderImageSlice(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageSliceFillDefault = BorderImageSliceFillDefault::No);
+std::optional<CSS::BorderImageSlice> consumeUnresolvedBorderImageSlice(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageSliceOverride = BorderImageSliceOverride::None);
+RefPtr<CSSValue> consumeBorderImageSlice(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageSliceOverride = BorderImageSliceOverride::None);
 
 // <'border-image-width'> = [ <length-percentage [0,∞]> | <number [0,∞]> | auto ]{1,4}
 // https://drafts.csswg.org/css-backgrounds/#propdef-border-image-width
+std::optional<CSS::BorderImageWidth> consumeUnresolvedBorderImageWidth(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageWidthOverridesWidthForLength = BorderImageWidthOverridesWidthForLength::No);
 RefPtr<CSSValue> consumeBorderImageWidth(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageWidthOverridesWidthForLength = BorderImageWidthOverridesWidthForLength::No);
 
 // https://drafts.csswg.org/css-backgrounds/#border-image
-std::optional<CSS::BorderImageComponents> consumeBorderImageComponents(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageSliceFillDefault = BorderImageSliceFillDefault::No, BorderImageWidthOverridesWidthForLength = BorderImageWidthOverridesWidthForLength::No);
+std::optional<CSS::BorderImage> consumeUnresolvedBorderImage(CSSParserTokenRange&, CSS::PropertyParserState&, BorderImageSliceOverride = BorderImageSliceOverride::None, BorderImageWidthOverridesWidthForLength = BorderImageWidthOverridesWidthForLength::No);
 
 // MARK: - Background Size
 

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "ScriptElementCachedScriptFetcher.h"
 
+#include "CachedScript.h"
 #include "Element.h"
 #include "ScriptElement.h"
 

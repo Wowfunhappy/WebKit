@@ -34,13 +34,14 @@
 #import "DocumentMarkerController.h"
 #import "DocumentMarkers.h"
 #import "DocumentSecurityOrigin.h"
+#import "DocumentView.h"
 #import "Editor.h"
 #import "EditorClient.h"
 #import "ElementRareData.h"
 #import "EventHandler.h"
 #import "EventNames.h"
-#import "EventTargetInlines.h"
 #import "FormController.h"
+#import "FrameLoader.h"
 #import "FrameSelection.h"
 #import "HTMLAreaElement.h"
 #import "HTMLBodyElement.h"
@@ -52,8 +53,8 @@
 #import "HitTestResult.h"
 #import "LocalDOMWindow.h"
 #import "LocalFrameView.h"
+#import "LocalFrameViewInlines.h"
 #import "Logging.h"
-#import "NodeInlines.h"
 #import "NodeRenderStyle.h"
 #import "NodeTraversal.h"
 #import "Page.h"
@@ -120,10 +121,11 @@ NSArray *LocalFrame::wordsInCurrentParagraph() const
 {
     protect(document())->updateLayout();
 
-    if (!page() || !page()->selection().isCaret())
+    RefPtr page = this->page();
+    if (!page || !page->selection().isCaret())
         return nil;
 
-    VisiblePosition position(page()->selection().start(), page()->selection().affinity());
+    VisiblePosition position(page->selection().start(), page->selection().affinity());
     VisiblePosition end(position);
 
     if (!isStartOfParagraph(end)) {
@@ -194,7 +196,7 @@ CGRect LocalFrame::renderRectForPoint(CGPoint point, bool* isReplaced, float* fo
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
     auto result = eventHandler().hitTestResultAtPoint(IntPoint(roundf(point.x), roundf(point.y)), hitType);
 
-    Node* node = result.innerNode();
+    RefPtr node = result.innerNode();
     if (!node)
         return CGRectZero;
 
@@ -253,11 +255,11 @@ RefPtr<Node> LocalFrame::approximateNodeAtViewportLocationLegacy(const FloatPoin
         if (nodeBounds)
             *nodeBounds = IntRect();
 
-        auto node = hitTestResult.innerNode();
+        RefPtr node = hitTestResult.innerNode();
         if (!node)
             return nullptr;
 
-        Node* pointerCursorNode = nullptr;
+        RefPtr<Node> pointerCursorNode;
         for (; node && node != terminationNode; node = node->parentInComposedTree()) {
             // We only accept pointer nodes before reaching the body tag.
             if (node->hasTagName(HTMLNames::bodyTag)) {
@@ -311,7 +313,7 @@ RefPtr<Node> LocalFrame::nodeRespondingToScrollWheelEvents(const FloatPoint& vie
             *nodeBounds = IntRect();
 
         Node* scrollingAncestor = nullptr;
-        for (Node* node = hitTestResult.innerNode(); node && node != terminationNode && !node->hasTagName(HTMLNames::bodyTag); node = node->parentNode()) {
+        for (RefPtr node = hitTestResult.innerNode(); node && node != terminationNode && !node->hasTagName(HTMLNames::bodyTag); node = node->parentNode()) {
             RenderObject* renderer = node->renderer();
             if (!renderer)
                 continue;
@@ -345,7 +347,7 @@ int LocalFrame::preferredHeight() const
 
     document->updateLayout();
 
-    auto* body = document->bodyOrFrameset();
+    RefPtr body = document->bodyOrFrameset();
     if (!body)
         return 0;
 
@@ -353,7 +355,7 @@ int LocalFrame::preferredHeight() const
     if (!block)
         return 0;
 
-    return block->height() + block->marginTop() + block->marginBottom();
+    return block->borderBoxHeight() + block->marginTop() + block->marginBottom();
 }
 
 void LocalFrame::updateLayout() const
@@ -364,7 +366,7 @@ void LocalFrame::updateLayout() const
 
     document->updateLayout();
 
-    if (auto* view = this->view())
+    if (RefPtr view = this->view())
         view->adjustViewSize();
 }
 
@@ -391,7 +393,7 @@ IntRect LocalFrame::rectForScrollToVisible()
 
 void LocalFrame::setTimersPaused(bool paused)
 {
-    auto* page = this->page();
+    RefPtr page = this->page();
     if (!page)
         return;
     JSLockHolder lock(commonVM());
@@ -484,10 +486,10 @@ NSArray *LocalFrame::interpretationsForCurrentRoot() const
     if (!document())
         return nil;
 
-    auto* root = selection().isNone() ? document()->bodyOrFrameset() : selection().selection().rootEditableElement();
+    RefPtr root = selection().isNone() ? document()->bodyOrFrameset() : selection().selection().rootEditableElement();
     auto rangeOfRootContents = makeRangeSelectingNodeContents(*root);
 
-    auto markersInRoot = document()->markers().markersInRange(rangeOfRootContents, DocumentMarkerType::DictationPhraseWithAlternatives);
+    auto markersInRoot = protect(document())->markers().markersInRange(rangeOfRootContents, DocumentMarkerType::DictationPhraseWithAlternatives);
 
     // There are no phrases with alternatives, so there is just one interpretation.
     if (markersInRoot.isEmpty())
@@ -507,7 +509,7 @@ NSArray *LocalFrame::interpretationsForCurrentRoot() const
     unsigned combinationsSoFar = 1;
 
     for (auto& node : intersectingNodes(rangeOfRootContents)) {
-        for (auto& marker : document()->markers().markersFor(node, DocumentMarkerType::DictationPhraseWithAlternatives)) {
+        for (auto& marker : protect(document())->markers().markersFor(node, DocumentMarkerType::DictationPhraseWithAlternatives)) {
             auto& alternatives = std::get<Vector<String>>(marker->data());
 
             auto rangeForMarker = makeSimpleRange(node, *marker);
@@ -597,7 +599,7 @@ void LocalFrame::overflowScrollPositionChangedForNode(const IntPoint& position, 
 void LocalFrame::resetAllGeolocationPermission()
 {
     if (document()->window())
-        document()->window()->resetAllGeolocationPermission();
+        protect(document())->window()->resetAllGeolocationPermission();
 
     for (RefPtr child = tree().firstChild(); child; child = child->tree().nextSibling()) {
         auto* localChild = dynamicDowncast<LocalFrame>(child.get());

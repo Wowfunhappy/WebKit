@@ -38,6 +38,7 @@
 #import <WebCore/CSSPropertyNames.h>
 #import <WebCore/DocumentEventLoop.h>
 #import <WebCore/DocumentView.h>
+#import <WebCore/ElementInlines.h>
 #import <WebCore/Event.h>
 #import <WebCore/EventLoop.h>
 #import <WebCore/EventNames.h>
@@ -82,7 +83,7 @@ void PDFPluginAnnotation::attach(Element* parent)
 
     updateGeometry();
 
-    RefPtr { m_parent.get() }->appendChild(element);
+    protect(m_parent.get())->appendChild(element);
 
     // FIXME: The text cursor doesn't blink after this. Why?
     element->focus();

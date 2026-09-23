@@ -55,15 +55,15 @@ ImageBufferContextSwitcher::ImageBufferContextSwitcher(GraphicsContext& destinat
     }
 
     auto state = destinationContext.state();
-    m_sourceImage->context().mergeAllChanges(state);
+    protect(m_sourceImage)->context().mergeAllChanges(state);
 }
 
 GraphicsContext* ImageBufferContextSwitcher::drawingContext(GraphicsContext& context) const
 {
-    return m_sourceImage ? &m_sourceImage->context() : &context;
+    return m_sourceImage ? &protect(m_sourceImage)->context() : &context;
 }
 
-void ImageBufferContextSwitcher::beginClipAndDrawSourceImage(GraphicsContext& destinationContext, const FloatRect& repaintRect, const FloatRect&)
+void ImageBufferContextSwitcher::beginClipAndDrawSourceImage(GraphicsContext& destinationContext, const FloatRect& repaintRect, const FloatRect&, NOESCAPE const Function<void(GraphicsContext&)>&)
 {
     if (auto* context = drawingContext(destinationContext)) {
         context->save();
@@ -84,7 +84,7 @@ void ImageBufferContextSwitcher::endDrawSourceImage(GraphicsContext& destination
 {
     if (!m_filter) {
         if (m_sourceImage)
-            destinationContext.drawImageBuffer(*m_sourceImage, m_sourceImageRect, { destinationContext.compositeOperation(), destinationContext.blendMode() });
+            destinationContext.drawImageBuffer(*protect(m_sourceImage), m_sourceImageRect, { destinationContext.compositeOperation(), destinationContext.blendMode() });
         return;
     }
 

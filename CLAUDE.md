@@ -2,7 +2,7 @@
 
 ## The project
 
-Backport modern WebKit (currently 625.1.11) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, forked from upstream `83b24ce` (Ryosuke Niwa, 2026-03-16). The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
+Backport modern WebKit (currently 625.1.29.11.27) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, based on upstream `safari-7625.1.29.11-branch` at `2756e8be58521b10c8e8bff8da1f13d97f2eae27`. The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
 
 - Checkout: `/Users/jonathan/Desktop/webkit`.
 - `MavericksSupport/` holds all the 10.9 glue: `polyfill/` (the layer), `deps/` (vendored third-party, built by `build_deps.sh` into the gitignored `deps/build/`), `toolchain/`, `bootstrap.sh`, `build.sh`, `install.sh` (name-shifts the 4 built frameworks into place), `scripts/check-backport-markers.sh`. `MavericksSupport/README.md` has the layout.
@@ -45,6 +45,10 @@ We are responsible for our port; upstream is responsible for upstream. A failure
 Do not fix upstream defects. Record each as a `webkit.org/b/NNNNN path [ Skip ]` line in our platform TestExpectations and move on; upstream will fix it or won't, and either way we take it on the next merge. This classification must be approved by the adversarial reviewer like any other change.
 
 This exception does NOT apply when something specific to our port makes the defect materially worse for us than for upstream. Remember that if the issue significantly affects real-world browsing, upstream would have already fixed it, so an issue this severe almost always means the real problem is somewhere else.
+
+### Exception: Test Harness
+
+Sometimes, when running upstream's automated tests, a test will fail due to a problem with our test harness. If the harness is easy to fix, you may choose to do so at your discretion. However, it is also permissable—and often advisable—to simply skip the test, provided you don't have reason to suspect a real product defect.
 
 ## No hacks
 

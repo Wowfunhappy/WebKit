@@ -32,7 +32,7 @@
 #include "RenderChildIterator.h"
 #include "RenderGrid.h"
 #include "RenderStyleConstants.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleGridTrackSizingDirection.h"
 
 namespace WebCore {
@@ -55,9 +55,10 @@ static bool gridItemHasMargin(const RenderBox& gridItem, Style::GridTrackSizingD
         return !edge.isKnownZero() && !edge.isAuto();
     };
 
+    auto& itemStyle = gridItem.style();
     if (direction == Style::GridTrackSizingDirection::Columns)
-        return hasMarginEdge(gridItem.style().marginStart()) || hasMarginEdge(gridItem.style().marginEnd());
-    return hasMarginEdge(gridItem.style().marginBefore()) || hasMarginEdge(gridItem.style().marginAfter());
+        return hasMarginEdge(itemStyle.marginStart()) || hasMarginEdge(itemStyle.marginEnd());
+    return hasMarginEdge(itemStyle.marginBefore()) || hasMarginEdge(itemStyle.marginAfter());
 }
 
 LayoutUnit computeMarginLogicalSizeForGridItem(const RenderGrid& grid, Style::GridTrackSizingDirection direction, const RenderBox& gridItem)
@@ -251,8 +252,11 @@ bool hasAutoMarginsInRowAxis(const RenderBox& gridItem, WritingMode parentWritin
 
 bool hasStretchableSizeInColumnAxis(const RenderBox& gridItem, const RenderGrid& gridContainer)
 {
-    // Only auto sizes are stretchable.
-    if (!(gridContainer.isHorizontalWritingMode() ? gridItem.style().height().isAuto() : gridItem.style().width().isAuto()))
+    // Auto and stretch sizes are stretchable — alignment stretch handles the
+    // final layout for both. During intrinsic track sizing, the CSS stretch
+    // keyword falls back to auto, and alignment stretch applies afterward.
+    auto& columnAxisSize = gridContainer.isHorizontalWritingMode() ? gridItem.style().height() : gridItem.style().width();
+    if (!(columnAxisSize.isAuto() || columnAxisSize.isStretch()))
         return false;
 
     if (gridItem.style().aspectRatio().hasRatio() && !gridContainer.selfAlignmentForGridItem(gridItem, LogicalBoxAxis::Block, StretchingMode::Explicit).isStretch()) {
@@ -274,8 +278,10 @@ bool hasStretchableSizeInColumnAxis(const RenderBox& gridItem, const RenderGrid&
 
 bool hasStretchableSizeInRowAxis(const RenderBox& gridItem, const RenderGrid& gridContainer)
 {
-    // Only auto sizes are stretchable.
-    if (!(gridContainer.isHorizontalWritingMode() ? gridItem.style().width().isAuto() : gridItem.style().height().isAuto()))
+    // Auto and stretch sizes are stretchable — alignment stretch handles the
+    // final layout for both.
+    auto& rowAxisSize = gridContainer.isHorizontalWritingMode() ? gridItem.style().width() : gridItem.style().height();
+    if (!(rowAxisSize.isAuto() || rowAxisSize.isStretch()))
         return false;
 
     if (gridItem.style().aspectRatio().hasRatio() && !gridContainer.selfAlignmentForGridItem(gridItem, LogicalBoxAxis::Inline, StretchingMode::Explicit).isStretch()) {
@@ -375,7 +381,7 @@ bool isRelativeGridTrackBreadthAsAuto(const Style::GridTrackBreadth& length, std
     return length.isPercentOrCalculated() && !availableSpace;
 }
 
-const Style::GridTrackSize& rawGridTrackSize(const RenderStyle& renderStyle, Style::GridTrackSizingDirection direction, unsigned translatedIndex, unsigned autoRepeatTracksCount, unsigned explicitGridStart)
+const Style::GridTrackSize& rawGridTrackSize(const Style::ComputedStyle& renderStyle, Style::GridTrackSizingDirection direction, unsigned translatedIndex, unsigned autoRepeatTracksCount, unsigned explicitGridStart)
 {
     auto& autoTrackStyles = renderStyle.gridAutoList(direction);
     auto& tracks = renderStyle.gridTemplateList(direction);

@@ -46,7 +46,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderVTTCue);
 
-RenderVTTCue::RenderVTTCue(VTTCueBox& element, RenderStyle&& style)
+RenderVTTCue::RenderVTTCue(VTTCueBox& element, Style::ComputedStyle&& style)
     : RenderBlockFlow(Type::VTTCue, element, WTF::move(style))
     , m_cue(downcast<VTTCue>(element.getCue()))
 {
@@ -138,7 +138,7 @@ bool RenderVTTCue::initializeLayoutParameters(LayoutUnit& step, LayoutUnit& posi
     // 6. Vertical Growing Left: Decrease position by the width of the
     // bounding box of the boxes in boxes, then increase position by step.
     if (cue->vertical() == VTTCue::DirectionSetting::VerticalGrowingLeft) {
-        position -= width();
+        position -= borderBoxWidth();
         position += step;
     }
 
@@ -146,7 +146,7 @@ bool RenderVTTCue::initializeLayoutParameters(LayoutUnit& step, LayoutUnit& posi
     if (linePosition < 0) {
         // Horizontal / Vertical: ... then increase position by the
         // height / width of the video's rendering area ...
-        position += cue->vertical() == VTTCue::DirectionSetting::Horizontal ? containingBlock()->height() : containingBlock()->width();
+        position += cue->vertical() == VTTCue::DirectionSetting::Horizontal ? containingBlock()->borderBoxHeight() : containingBlock()->borderBoxWidth();
 
         // ... and negate step.
         step = -step;
@@ -235,7 +235,7 @@ bool RenderVTTCue::shouldSwitchDirection(const InlineIterator::InlineBox& firstI
     // or if step is positive and the bottom of the first line box in
     // boxes is now below the bottom of the video's rendering area, jump
     // to the step labeled switch direction.
-    LayoutUnit parentHeight = containingBlock()->height();
+    LayoutUnit parentHeight = containingBlock()->borderBoxHeight();
     if (m_cue->vertical() == VTTCue::DirectionSetting::Horizontal && ((step < 0 && top < 0) || (step > 0 && bottom > parentHeight)))
         return true;
 
@@ -244,7 +244,7 @@ bool RenderVTTCue::shouldSwitchDirection(const InlineIterator::InlineBox& firstI
     // rendering area, or if step is positive and the right edge of the
     // first line box in boxes is now to the right of the right edge of
     // the video's rendering area, jump to the step labeled switch direction.
-    LayoutUnit parentWidth = containingBlock()->width();
+    LayoutUnit parentWidth = containingBlock()->borderBoxWidth();
     if (m_cue->vertical() != VTTCue::DirectionSetting::Horizontal && ((step < 0 && left < 0) || (step > 0 && right > parentWidth)))
         return true;
 
@@ -273,10 +273,12 @@ bool RenderVTTCue::switchDirection(bool& switched, LayoutUnit& step)
     setX(m_fallbackPosition.x());
     setY(m_fallbackPosition.y());
 
-    // 16. If switched is true, jump to the step labeled done
-    // positioning below.
-    if (switched)
+    // 16. If switched is true, then remove all the boxes in boxes, and
+    // jump to the step labeled done positioning below.
+    if (switched) {
+        setBorderBoxSize({ });
         return false;
+    }
 
     // 17. Negate step.
     step = -step;

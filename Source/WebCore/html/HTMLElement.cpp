@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2021-2024 Google Inc. All rights reserved.
  * Copyright (C) 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  * Copyright (C) 2011 Motorola Mobility. All rights reserved.
@@ -27,6 +27,7 @@
 #include "HTMLElement.h"
 
 #include "AXObjectCache.h"
+#include "AddEventListenerOptions.h"
 #include "CSSMarkup.h"
 #include "CSSParserFastPaths.h"
 #include "CSSPropertyNames.h"
@@ -36,6 +37,7 @@
 #include "CSSValuePool.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "CloseWatcher.h"
 #include "CommonAtomStrings.h"
 #include "CustomElementReactionQueue.h"
 #include "DOMTokenList.h"
@@ -104,6 +106,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
@@ -111,9 +114,36 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLElement);
 
 using namespace HTMLNames;
 
+PopoverData::PopoverCloseWatcherEventListener::PopoverCloseWatcherEventListener(HTMLElement& popover)
+    : EventListener(EventListener::CPPEventListenerType)
+    , m_popover(popover)
+{
+}
+
+void PopoverData::PopoverCloseWatcherEventListener::handleEvent(ScriptExecutionContext&, Event& event)
+{
+    if (RefPtr popover = m_popover) {
+        if (event.type() == eventNames().cancelEvent)
+            return;
+        if (event.type() == eventNames().closeEvent)
+            popover->hidePopover();
+    }
+}
+
 Ref<HTMLElement> HTMLElement::create(const QualifiedName& tagName, Document& document)
 {
     return adoptRef(*new HTMLElement(tagName, document));
+}
+
+HTMLElement::HTMLElement(const QualifiedName& tagName, Document& document, OptionSet<TypeFlag> type)
+    : StyledElement(tagName, document, type | TypeFlag::IsHTMLElement)
+{
+    ASSERT(tagName.localName().impl());
+}
+
+HTMLElement::HTMLElement(ClangVTableWorkaroundTag, const QualifiedName& name, Document& document)
+    : HTMLElement(name, document)
+{
 }
 
 String HTMLElement::nodeName() const
@@ -147,17 +177,6 @@ void HTMLElement::applyBorderAttributeToStyle(const AtomString& value, MutableSt
 {
     addPropertyToPresentationalHintStyle(style, CSSPropertyBorderWidth, parseBorderWidthAttribute(value), CSSUnitType::CSS_PX);
     addPropertyToPresentationalHintStyle(style, CSSPropertyBorderStyle, CSSValueSolid);
-}
-
-void HTMLElement::mapLanguageAttributeToLocale(const AtomString& value, MutableStyleProperties& style)
-{
-    if (!value.isEmpty()) {
-        // Have to quote so the locale id is treated as a string instead of as a CSS keyword.
-        addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitLocale, serializeString(value));
-    } else {
-        // The empty string means the language is explicitly unknown.
-        addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitLocale, CSSValueAuto);
-    }
 }
 
 bool HTMLElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
@@ -375,7 +394,7 @@ void HTMLElement::attributeChanged(const QualifiedName& name, const AtomString& 
             setTabIndexExplicitly(std::nullopt);
         return;
     case AttributeNames::inertAttr:
-        invalidateStyleInternal();
+        invalidateStyle();
         return;
     case AttributeNames::inputmodeAttr:
         if (Ref document = this->document(); this == document->focusedElement()) {
@@ -409,19 +428,19 @@ void HTMLElement::attributeChanged(const QualifiedName& name, const AtomString& 
         setAttributeEventListener(eventName, name, newValue);
 }
 
-Node::InsertedIntoAncestorResult HTMLElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = StyledElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = StyledElement::insertionSteps(insertionType, parentOfInsertedTree);
     hideNonce();
     return result;
 }
 
-void HTMLElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     if (popoverData())
         hidePopoverInternal(FocusPreviousElement::No, FireEvents::No);
 
-    StyledElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    StyledElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 static Ref<DocumentFragment> textToFragment(Document& document, const String& text)
@@ -578,7 +597,7 @@ void HTMLElement::addParsedWidthAndHeightToAspectRatioList(double width, double 
 {
     style.setProperty(CSSPropertyAspectRatio,
         CSSValueList::createSpaceSeparated(
-            CSSPrimitiveValue::create(CSSValueAuto),
+            CSSKeywordValue::create(CSSValueAuto),
             CSSRatioValue::create(CSS::Ratio { width, height })
         )
     );
@@ -603,10 +622,8 @@ void HTMLElement::applyAlignmentAttributeToStyle(const AtomString& alignment, Mu
         verticalAlignValue = CSSValueTop;
     } else if (equalLettersIgnoringASCIICase(alignment, "top"_s))
         verticalAlignValue = CSSValueTop;
-    else if (equalLettersIgnoringASCIICase(alignment, "middle"_s))
+    else if (equalLettersIgnoringASCIICase(alignment, "middle"_s) || equalLettersIgnoringASCIICase(alignment, "center"_s))
         verticalAlignValue = CSSValueWebkitBaselineMiddle;
-    else if (equalLettersIgnoringASCIICase(alignment, "center"_s))
-        verticalAlignValue = CSSValueMiddle;
     else if (equalLettersIgnoringASCIICase(alignment, "bottom"_s))
         verticalAlignValue = CSSValueBaseline;
     else if (equalLettersIgnoringASCIICase(alignment, "texttop"_s))
@@ -686,14 +703,9 @@ void HTMLElement::setSpellcheck(bool enable)
     setAttributeWithoutSynchronization(spellcheckAttr, enable ? trueAtom() : falseAtom());
 }
 
-bool HTMLElement::writingsuggestions() const
+const AtomString& HTMLElement::writingSuggestions() const
 {
-    return isWritingSuggestionsEnabled();
-}
-
-void HTMLElement::setWritingsuggestions(bool enable)
-{
-    setAttributeWithoutSynchronization(writingsuggestionsAttr, enable ? trueAtom() : falseAtom());
+    return computedWritingSuggestionsValue() ? trueAtom() : falseAtom();
 }
 
 void HTMLElement::effectiveSpellcheckAttributeChanged(bool newValue)
@@ -1154,7 +1166,8 @@ static void runPopoverFocusingSteps(HTMLElement& popover)
 
 void HTMLElement::queuePopoverToggleEventTask(ToggleState oldState, ToggleState newState, Element* source)
 {
-    popoverData()->ensureToggleEventTask(*this)->queue(oldState, newState, source);
+    if (auto* popoverData = this->popoverData())
+        popoverData->ensureToggleEventTask(*this)->queue(oldState, newState, source);
 }
 
 ExceptionOr<void> HTMLElement::showPopover(const ShowPopoverOptions& options)
@@ -1213,22 +1226,35 @@ ExceptionOr<void> HTMLElement::showPopoverInternal(HTMLElement* source)
             return { };
 
         shouldRestoreFocus = !document->topmostAutoPopover();
+
+        if (document->settings().closeWatcherEnabled()) {
+            if (RefPtr closeWatcher = CloseWatcher::create(document)) {
+                Ref listener = PopoverData::PopoverCloseWatcherEventListener::create(*this);
+                closeWatcher->addEventListener(eventNames().cancelEvent, listener, { });
+                closeWatcher->addEventListener(eventNames().closeEvent, listener, { });
+                popoverData()->setCloseWatcher(WTF::move(closeWatcher));
+            }
+        }
     }
 
     RefPtr previouslyFocusedElement = document->focusedElement();
 
     addToTopLayer();
 
-    popoverData()->setPreviouslyFocusedElement(nullptr);
+    if (auto* popoverData = this->popoverData())
+        popoverData->setPreviouslyFocusedElement(nullptr);
 
     Style::PseudoClassChangeInvalidation styleInvalidation(*this, CSSSelector::PseudoClass::PopoverOpen, true);
-    popoverData()->setVisibilityState(PopoverVisibilityState::Showing);
+    if (auto* popoverData = this->popoverData())
+        popoverData->setVisibilityState(PopoverVisibilityState::Showing);
 
     runPopoverFocusingSteps(*this);
 
     if (shouldRestoreFocus) {
-        ASSERT(popoverState() == PopoverState::Auto);
-        popoverData()->setPreviouslyFocusedElement(previouslyFocusedElement.get());
+        if (auto* popoverData = this->popoverData()) {
+            ASSERT(popoverState() == PopoverState::Auto);
+            popoverData->setPreviouslyFocusedElement(previouslyFocusedElement.get());
+        }
     }
 
     queuePopoverToggleEventTask(ToggleState::Closed, ToggleState::Open, source);
@@ -1315,6 +1341,11 @@ ExceptionOr<void> HTMLElement::hidePopoverInternal(FocusPreviousElement focusPre
 
     if (CheckedPtr cache = document->existingAXObjectCache())
         cache->onPopoverToggle(*this);
+
+    if (RefPtr closeWatcher = popoverData()->closeWatcher()) {
+        closeWatcher->destroy();
+        popoverData()->setCloseWatcher(nullptr);
+    }
 
     return { };
 }

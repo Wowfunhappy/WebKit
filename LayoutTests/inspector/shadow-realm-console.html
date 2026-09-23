@@ -20,6 +20,8 @@
     {
         const suite = InspectorTest.createAsyncSuite("ShadowRealm.Console.basic");
 
+        let mainTarget = WI.isSiteIsolationEnabled() ? WI.targets.find((t) => t.type === WI.TargetType.Frame) : WI.assumingMainTarget();
+
         suite.addTestCase({
             name: "ShadowRealm.Console.basic.log",
             description: "console.log in shadow realms should send to the incubating realm's console",
@@ -30,7 +32,7 @@
                 ]);
                 let {message} = messageAddedEvent.data;
                 InspectorTest.expectEqual(message.messageText, "hello", "message text should be 'hello'");
-                InspectorTest.expectEqual(message.target, WI.mainTarget, "message target should be the main page");
+                InspectorTest.expectEqual(message.target, mainTarget, "message target should be the main target");
             }
         });
 
@@ -44,7 +46,7 @@
                 ]);
                 let {message} = messageAddedEvent.data;
                 InspectorTest.expectEqual(message.messageText, "hello", "message text should be 'hello'");
-                InspectorTest.expectEqual(message.target, WI.mainTarget, "message target should be the main page");
+                InspectorTest.expectEqual(message.target, mainTarget, "message target should be the main target");
             }
         });
 

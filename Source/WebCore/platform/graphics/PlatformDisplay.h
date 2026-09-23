@@ -45,6 +45,10 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/ThreadSafeWeakHashSet.h>
 #endif
 
+namespace WTF {
+enum class Critical : bool;
+}
+
 namespace WebCore {
 
 class GLContext;
@@ -114,14 +118,17 @@ public:
 
 #if USE(SKIA)
     GLContext* skiaGLContext();
+    void setSkiaGLContextForCurrentThread(std::unique_ptr<GLContext>&&);
     GrDirectContext* skiaGrContext() const;
     unsigned msaaSampleCount() const;
+    size_t maxSkiaResourceCacheBytes() const;
+    void skiaReleaseUnusedResources(WTF::Critical);
 #endif
 
 protected:
     explicit PlatformDisplay(Ref<GLDisplay>&&);
 
-    Ref<GLDisplay> m_eglDisplay;
+    const Ref<GLDisplay> m_eglDisplay;
     std::unique_ptr<GLContext> m_sharingGLContext;
 
 #if ENABLE(WEBGL) && !PLATFORM(WIN)

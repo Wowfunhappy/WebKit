@@ -94,6 +94,8 @@ public:
 
     unsigned internalInstanceSessionObjectRefCount() const { return m_instanceSession->refCount(); }
 
+    bool hasSecurityOrigin(const String&) const;
+
 private:
     MediaKeySession(Document&, WeakPtr<MediaKeys>&&, MediaKeySessionType, bool useDistinctiveIdentifier, Ref<CDM>&&, Ref<CDMInstanceSession>&&);
     void enqueueMessage(MediaKeyMessageType, const SharedBuffer&);

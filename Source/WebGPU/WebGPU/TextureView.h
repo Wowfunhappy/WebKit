@@ -30,7 +30,7 @@
 #import <wtf/FastMalloc.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/WeakHashSet.h>
 #import <wtf/WeakPtr.h>
@@ -111,10 +111,10 @@ private:
 
 inline void refTextureView(WebGPU::TextureView* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefTextureView(WebGPU::TextureView* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }

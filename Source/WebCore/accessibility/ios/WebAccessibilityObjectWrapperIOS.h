@@ -26,6 +26,7 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "AXObjectCache.h"
+#import "AXTextMarker.h"
 #import "AccessibilityObject.h"
 #import "WAKView.h"
 #import "WebAccessibilityObjectWrapperBase.h"

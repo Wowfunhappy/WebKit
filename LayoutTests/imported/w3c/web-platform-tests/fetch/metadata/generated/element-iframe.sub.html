@@ -34,19 +34,6 @@ Sources:
       });
   }
 
-  function induceNoReferrerRequest(url, test) {
-    const iframe = document.createElement('iframe');
-    iframe.referrerPolicy = 'no-referrer';
-    iframe.setAttribute('src', url);
-
-    document.body.appendChild(iframe);
-    test.add_cleanup(() => iframe.remove());
-
-    return new Promise((resolve) => {
-      iframe.onload = iframe.onerror = resolve;
-    });
-  }
-
   promise_test((t) => {
     const key = '{{uuid()}}';
 
@@ -219,6 +206,48 @@ Sources:
     const key = '{{uuid()}}';
 
     return induceRequest(
+        makeRequestURL(key, ['httpOrigin'], {mime: 'text/html'}),
+        t,
+        false
+      )
+      .then(() => retrieve(key))
+      .then((headers) => {
+          assert_not_own_property(headers, 'sec-fetch-storage-access');
+        });
+  }, 'sec-fetch-storage-access - Not sent to non-trustworthy same-origin destination');
+
+  promise_test((t) => {
+    const key = '{{uuid()}}';
+
+    return induceRequest(
+        makeRequestURL(key, ['httpSameSite'], {mime: 'text/html'}),
+        t,
+        false
+      )
+      .then(() => retrieve(key))
+      .then((headers) => {
+          assert_not_own_property(headers, 'sec-fetch-storage-access');
+        });
+  }, 'sec-fetch-storage-access - Not sent to non-trustworthy same-site destination');
+
+  promise_test((t) => {
+    const key = '{{uuid()}}';
+
+    return induceRequest(
+        makeRequestURL(key, ['httpCrossSite'], {mime: 'text/html'}),
+        t,
+        false
+      )
+      .then(() => retrieve(key))
+      .then((headers) => {
+          assert_not_own_property(headers, 'sec-fetch-storage-access');
+        });
+  }, 'sec-fetch-storage-access - Not sent to non-trustworthy cross-site destination');
+
+  promise_test((t) => {
+    const key = '{{uuid()}}';
+
+    return induceRequest(
         makeRequestURL(key, ['httpsOrigin', 'httpOrigin'], {mime: 'text/html'}),
         t,
         false
@@ -258,34 +287,6 @@ Sources:
           assert_array_equals(headers['sec-fetch-site'], ['cross-site']);
         });
   }, 'sec-fetch-site - HTTPS downgrade-upgrade');
-
-  promise_test((t) => {
-    const key = '{{uuid()}}';
-
-    return induceNoReferrerRequest(
-        makeRequestURL(key, ['httpsOrigin'], {mime: 'text/html'}),
-        t
-      )
-      .then(() => retrieve(key))
-      .then((headers) => {
-          assert_own_property(headers, 'sec-fetch-site');
-          assert_array_equals(headers['sec-fetch-site'], ['cross-site']);
-        });
-  }, 'sec-fetch-site - no referrer');
-
-  promise_test((t) => {
-    const key = '{{uuid()}}';
-
-    return induceNoReferrerRequest(
-        makeRequestURL(key, ['httpsOrigin', 'httpOrigin'], {mime: 'text/html'}),
-        t
-      )
-      .then(() => retrieve(key))
-      .then((headers) => {
-          assert_own_property(headers, 'sec-fetch-site');
-          assert_array_equals(headers['sec-fetch-site'], ['cross-site']);
-        });
-  }, 'sec-fetch-site - no referrer - redirection');
   </script>
   </body>
 </html>

@@ -112,59 +112,49 @@ void ClassChangeInvalidation::computeInvalidation(const SpaceSplitString& oldCla
     if (shouldInvalidateCurrent)
         m_element->invalidateStyle();
 
-    auto invalidateBeforeAndAfterChange = [](MatchElement matchElement) {
-        switch (matchElement) {
-        case MatchElement::AnySibling:
-        case MatchElement::ParentAnySibling:
-        case MatchElement::AncestorAnySibling:
-        case MatchElement::HasAnySibling:
-        case MatchElement::HasNonSubject:
-        case MatchElement::HasScopeBreaking:
+    auto invalidateBeforeAndAfterChange = [](const InvalidationRuleSet& ruleSet) {
+        switch (ruleSet.matchElement.relation) {
+        case MatchElement::Relation::AnySibling:
+        case MatchElement::Relation::ParentAnySibling:
+        case MatchElement::Relation::AncestorAnySibling:
             return true;
-        case MatchElement::Subject:
-        case MatchElement::Parent:
-        case MatchElement::Ancestor:
-        case MatchElement::DirectSibling:
-        case MatchElement::IndirectSibling:
-        case MatchElement::ParentSibling:
-        case MatchElement::AncestorSibling:
-        case MatchElement::HasChild:
-        case MatchElement::HasChildParent:
-        case MatchElement::HasChildAncestor:
-        case MatchElement::HasDescendantParent:
-        case MatchElement::HasDescendant:
-        case MatchElement::HasSibling:
-        case MatchElement::HasSiblingDescendant:
-        case MatchElement::Host:
-        case MatchElement::HostChild:
+        case MatchElement::Relation::Subject:
+        case MatchElement::Relation::Parent:
+        case MatchElement::Relation::Ancestor:
+        case MatchElement::Relation::DirectSibling:
+        case MatchElement::Relation::IndirectSibling:
+        case MatchElement::Relation::ParentSibling:
+        case MatchElement::Relation::AncestorSibling:
+        case MatchElement::Relation::Host:
+        case MatchElement::Relation::HostChild:
             return false;
         }
         ASSERT_NOT_REACHED();
         return false;
     };
 
-    auto invalidateBeforeChange = [&](ClassChangeType type, IsNegation isNegation, MatchElement matchElement) {
-        if (invalidateBeforeAndAfterChange(matchElement))
+    auto invalidateBeforeChange = [&](ClassChangeType type, IsNegation isNegation, const InvalidationRuleSet& ruleSet) {
+        if (invalidateBeforeAndAfterChange(ruleSet))
             return true;
         return type == ClassChangeType::Remove ? isNegation == IsNegation::No : isNegation == IsNegation::Yes;
     };
 
-    auto invalidateAfterChange = [&](ClassChangeType type, IsNegation isNegation, MatchElement matchElement) {
-        if (invalidateBeforeAndAfterChange(matchElement))
+    auto invalidateAfterChange = [&](ClassChangeType type, IsNegation isNegation, const InvalidationRuleSet& ruleSet) {
+        if (invalidateBeforeAndAfterChange(ruleSet))
             return true;
         return type == ClassChangeType::Add ? isNegation == IsNegation::No : isNegation == IsNegation::Yes;
     };
 
-    auto collect = [&](auto& ruleSets, std::optional<MatchElement> onlyMatchElement = { }) {
+    auto collect = [&](auto& ruleSets, std::optional<MatchElement::Relation> onlyRelation = { }) {
         for (auto& classChange : classChanges) {
             if (auto* invalidationRuleSets = ruleSets.classInvalidationRuleSets(classChange.className)) {
                 for (auto& invalidationRuleSet : *invalidationRuleSets) {
-                    if (onlyMatchElement && invalidationRuleSet.matchElement != onlyMatchElement)
+                    if (onlyRelation && invalidationRuleSet.matchElement.relation != onlyRelation)
                         continue;
 
-                    if (invalidateBeforeChange(classChange.type, invalidationRuleSet.isNegation, invalidationRuleSet.matchElement))
+                    if (invalidateBeforeChange(classChange.type, invalidationRuleSet.isNegation, invalidationRuleSet))
                         Invalidator::addToMatchElementRuleSets(m_beforeChangeRuleSets, invalidationRuleSet);
-                    if (invalidateAfterChange(classChange.type, invalidationRuleSet.isNegation, invalidationRuleSet.matchElement))
+                    if (invalidateAfterChange(classChange.type, invalidationRuleSet.isNegation, invalidationRuleSet))
                         Invalidator::addToMatchElementRuleSets(m_afterChangeRuleSets, invalidationRuleSet);
                 }
             }
@@ -174,7 +164,7 @@ void ClassChangeInvalidation::computeInvalidation(const SpaceSplitString& oldCla
     collect(m_element->styleResolver().ruleSets());
 
     if (RefPtr shadowRoot = m_element->shadowRoot())
-        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Host);
+        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Relation::Host);
 }
 
 void ClassChangeInvalidation::invalidateBeforeChange()

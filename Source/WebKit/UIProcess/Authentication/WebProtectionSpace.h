@@ -42,7 +42,7 @@ public:
     const String& NODELETE host() const LIFETIME_BOUND;
     int NODELETE port() const;
     const String& NODELETE realm() const LIFETIME_BOUND;
-    bool isProxy() const;
+    bool NODELETE isProxy() const;
     WebCore::ProtectionSpace::ServerType NODELETE serverType() const;
     bool receivesCredentialSecurely() const;
     WebCore::ProtectionSpace::AuthenticationScheme NODELETE authenticationScheme() const;

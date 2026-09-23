@@ -45,6 +45,10 @@ public:
 private:
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix& modelViewMatrix = TransformationMatrix(), float opacity = 1.0) override;
 
+#if USE(SKIA)
+    sk_sp<SkImage> skiaImage() override;
+#endif
+
     RefPtr<BitmapTexture> m_texture;
     unsigned m_textureID { 0 };
 };

@@ -169,9 +169,7 @@ HRESULT WCDataObject::createInstance(WCDataObject** result, const DragDataMap& d
     return S_OK;
 }
 
-WCDataObject::WCDataObject()
-{
-}
+WCDataObject::WCDataObject() = default;
 
 STDMETHODIMP WCDataObject::QueryInterface(_In_ REFIID riid, _COM_Outptr_ void** ppvObject)
 {

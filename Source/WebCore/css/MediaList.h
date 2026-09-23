@@ -63,7 +63,7 @@ public:
     CSSStyleSheet* NODELETE parentStyleSheet() const;
     void detachFromParent();
 
-    const MQ::MediaQueryList& mediaQueries() const;
+    const MQ::MediaQueryList& NODELETE mediaQueries() const;
 
 private:
     MediaList(CSSStyleSheet* parentSheet);

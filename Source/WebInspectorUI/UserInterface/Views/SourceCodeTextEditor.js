@@ -757,7 +757,8 @@ WI.SourceCodeTextEditor = class SourceCodeTextEditor extends WI.TextEditor
 
             // Don't show an inline widget when there is only one breakpoint location on the line
             // and it's at the start of the line.
-            if (locations.length === 1 && position.lineNumber === lineNumber && !this.line(lineNumber).slice(0, position.columnNumber).trim().length)
+            let lineContent = this.line(lineNumber);
+            if (locations.length === 1 && position.lineNumber === lineNumber && lineContent && !lineContent.slice(0, position.columnNumber).trim().length)
                 continue;
 
             console.assert(!Array.from(this._inlineBreakpointDataForLine.values()).some(({widget}) => widget.sourceCodeLocation.isEqual(location)), location, this._inlineBreakpointDataForLine);

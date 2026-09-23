@@ -46,7 +46,7 @@ static CSSParserContext parserContextForElement(const Element& element)
     // User agent shadow trees can't contain document-relative URLs. Use blank URL as base allowing cross-document sharing.
     auto& baseURL = shadowRoot && shadowRoot->mode() == ShadowRootMode::UserAgent ? aboutBlankURL() : element.document().baseURL();
 
-    CSSParserContext result = CSSParserContext { element.document(), baseURL, element.document().characterSetWithUTF8Fallback() };
+    CSSParserContext result = CSSParserContext { element.document(), baseURL, protect(element.document())->characterSetWithUTF8Fallback() };
     if (shadowRoot && shadowRoot->mode() == ShadowRootMode::UserAgent)
         result.setUASheetMode();
     return result;
@@ -57,7 +57,7 @@ InlineStyleSheetOwner::InlineStyleSheetOwner(Document& document, bool createdByP
     , m_loading(false)
     , m_startTextPosition()
 {
-    if (createdByParser && document.scriptableDocumentParser() && !document.isInDocumentWrite())
+    if (createdByParser && protect(document)->scriptableDocumentParser() && !document.isInDocumentWrite())
         m_startTextPosition = document.scriptableDocumentParser()->textPosition();
 }
 
@@ -166,6 +166,9 @@ void InlineStyleSheetOwner::createSheet(Element& element, const String& text)
         if (!element.isInShadowTree())
             sheet->setTitle(element.title());
 
+        if (CheckedPtr scope = m_styleScope.get())
+            scope->establishPreferredStylesheetSetName(element, sheet.get());
+
         sheetLoaded(element);
         element.notifyLoadedSheetAndAllCriticalSubresources(false);
         return;
@@ -181,6 +184,9 @@ void InlineStyleSheetOwner::createSheet(Element& element, const String& text)
     if (!element.isInShadowTree())
         sheet->setTitle(element.title());
 
+    if (CheckedPtr scope = m_styleScope.get())
+        scope->establishPreferredStylesheetSetName(element, sheet.get());
+
     contents->parseString(text);
 
     m_loading = false;
@@ -195,7 +201,7 @@ bool InlineStyleSheetOwner::isLoading() const
 {
     if (m_loading)
         return true;
-    return m_sheet && m_sheet->isLoading();
+    return m_sheet && protect(m_sheet)->isLoading();
 }
 
 bool InlineStyleSheetOwner::sheetLoaded(Element& element)

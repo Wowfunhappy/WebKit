@@ -44,7 +44,7 @@ struct WebKitMediaClearKeyDecryptPrivate {
 
 static ASCIILiteral protectionSystemId(WebKitMediaCommonEncryptionDecrypt*);
 static bool cdmProxyAttached(WebKitMediaCommonEncryptionDecrypt*, const RefPtr<CDMProxy>&);
-static bool decrypt(WebKitMediaCommonEncryptionDecrypt*, GstBuffer* iv, GstBuffer* keyid, GstBuffer* sample, unsigned subSamplesCount, GstBuffer* subSamples);
+static DecryptionResult decrypt(WebKitMediaCommonEncryptionDecrypt*, GstBuffer* iv, GstBuffer* keyid, GstBuffer* sample, unsigned subSamplesCount, GstBuffer* subSamples);
 
 GST_DEBUG_CATEGORY_STATIC(webkit_media_clear_key_decrypt_debug_category);
 #define GST_CAT_DEFAULT webkit_media_clear_key_decrypt_debug_category
@@ -132,7 +132,7 @@ static bool cdmProxyAttached(WebKitMediaCommonEncryptionDecrypt* self, const Ref
     return priv->cdmProxy;
 }
 
-static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsampleCount, GstBuffer* subsamplesBuffer)
+static DecryptionResult decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsampleCount, GstBuffer* subsamplesBuffer)
 {
     WebKitMediaClearKeyDecryptPrivate* priv = WEBKIT_MEDIA_CK_DECRYPT(self)->priv;
 
@@ -146,30 +146,30 @@ static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffe
     }));
     if (!cdmProxy) {
         GST_ERROR_OBJECT(self, "no ClearKey CDM proxy attached");
-        return false;
+        return DecryptionResult::Failure;
     }
 
     if (!ivBuffer || !keyIDBuffer || !buffer) {
         GST_ERROR_OBJECT(self, "invalid decrypt() parameter");
-        return false;
+        return DecryptionResult::Failure;
     }
 
     WebCore::GstMappedBuffer mappedIVBuffer(ivBuffer, GST_MAP_READ);
     if (!mappedIVBuffer) {
         GST_ERROR_OBJECT(self, "failed to map IV buffer");
-        return false;
+        return DecryptionResult::Failure;
     }
 
     WebCore::GstMappedBuffer mappedKeyIdBuffer(keyIDBuffer, GST_MAP_READ);
     if (!mappedKeyIdBuffer) {
         GST_ERROR_OBJECT(self, "Failed to map key id buffer");
-        return false;
+        return DecryptionResult::Failure;
     }
 
     WebCore::GstMappedBuffer mappedBuffer(buffer, GST_MAP_READWRITE);
     if (!mappedBuffer) {
         GST_ERROR_OBJECT(self, "Failed to map buffer");
-        return false;
+        return DecryptionResult::Failure;
     }
 
     // The subsample mapping outlives the context it feeds: cencDecrypt() below reads through
@@ -179,7 +179,7 @@ static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffe
     if (!priv->cipher) {
         if (gcry_error_t error = gcry_cipher_open(&priv->cipher, GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_CTR, GCRY_CIPHER_SECURE)) {
             GST_ERROR_OBJECT(self, "Failed to open ClearKey cipher: %s", gpg_strerror(error));
-            return false;
+            return DecryptionResult::Failure;
         }
     }
 
@@ -199,14 +199,14 @@ static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffe
         mappedSubsamplesBuffer.emplace(subsamplesBuffer, GST_MAP_READ);
         if (!*mappedSubsamplesBuffer) {
             GST_ERROR_OBJECT(self, "Failed to map subsample buffer");
-            return false;
+            return DecryptionResult::Failure;
         }
         context.subsamplesBuffer = mappedSubsamplesBuffer->data();
         context.subsamplesBufferSizeInBytes = mappedSubsamplesBuffer->size();
     }
     context.cdmProxyDecryptionClient = webKitMediaCommonEncryptionDecryptGetCDMProxyDecryptionClient(self);
 
-    return cdmProxy->cencDecrypt(context);
+    return cdmProxy->cencDecrypt(context) ? DecryptionResult::Success : DecryptionResult::Failure;
 }
 
 #undef GST_CAT_DEFAULT

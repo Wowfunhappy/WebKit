@@ -42,6 +42,7 @@
 #import "WKStringCF.h"
 #import "WKURLCF.h"
 #import "WKWebViewInternal.h"
+#import "WKWebViewPrivateForTesting.h"
 #import "WebIconUtilities.h"
 #import "WebOpenPanelResultListenerProxy.h"
 #import "WebPageProxy.h"

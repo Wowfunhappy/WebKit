@@ -32,6 +32,7 @@
 #include <WebCore/EventTargetInterfaces.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace JSC {
 class JSGlobalObject;

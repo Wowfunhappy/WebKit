@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #include "EnhancedSecurity.h"
 #include "FrameInfoData.h"
+#include "NetworkActivityTracker.h"
 #include "NetworkSessionCreationParameters.h"
 #include "WebDeviceOrientationAndMotionAccessController.h"
 #include "WebFramePolicyListenerProxy.h"
@@ -56,7 +57,7 @@
 #include <wtf/RefCounted.h>
 #include <wtf/RefCounter.h>
 #include <wtf/RefPtr.h>
-#include <wtf/RetainReleaseSwift.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
@@ -119,6 +120,7 @@ enum class RestrictedOpenerType : uint8_t;
 enum class ShouldGrandfatherStatistics : bool;
 enum class StorageAccessStatus : uint8_t;
 enum class StorageAccessPromptStatus;
+enum class TimeBasedEvictionMode : uint8_t;
 enum class UnifiedOriginStorageLevel : uint8_t;
 enum class WebsiteDataFetchOption : uint8_t;
 enum class WebsiteDataType : uint32_t;
@@ -192,6 +194,8 @@ public:
     bool storageSiteValidationEnabled() const { return m_storageSiteValidationEnabled; }
     void setStorageSiteValidationEnabled(bool);
 
+    TimeBasedEvictionMode timeBasedEvictionMode() const;
+
     uint64_t perOriginStorageQuota() const { return m_configuration->perOriginStorageQuota(); }
     std::optional<double> originQuotaRatio() { return m_configuration->originQuotaRatio(); }
 
@@ -201,7 +205,7 @@ public:
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     bool computeIsOptInCookiePartitioningEnabled() const;
 #endif
-    void NODELETE propagateSettingUpdates();
+    void propagateSettingUpdates();
 
 #if PLATFORM(IOS_FAMILY)
     String resolvedCookieStorageDirectory();
@@ -223,6 +227,7 @@ public:
     void setCacheModelSynchronouslyForTesting(CacheModel);
     void setServiceWorkerTimeoutForTesting(Seconds);
     void resetServiceWorkerTimeoutForTesting();
+    void clearCrossOriginPreflightResultCacheForTesting();
     bool hasServiceWorkerBackgroundActivityForTesting() const;
     void runningOrTerminatingServiceWorkerCountForTesting(CompletionHandler<void(unsigned)>&&);
 
@@ -364,6 +369,7 @@ public:
 
     void renameOriginInWebsiteData(WebCore::SecurityOriginData&&, WebCore::SecurityOriginData&&, OptionSet<WebsiteDataType>, CompletionHandler<void()>&&);
     void originDirectoryForTesting(WebCore::ClientOrigin&&, OptionSet<WebsiteDataType>, CompletionHandler<void(const String&)>&&);
+    void lastPageLoadNetworkActivityCompletionCodeForTesting(WebCore::PageIdentifier, CompletionHandler<void(std::optional<NetworkActivityTracker::CompletionCode>)>&&);
 
     bool networkProcessHasEntitlementForTesting(const String&);
 
@@ -391,9 +397,6 @@ public:
     static String defaultAlternativeServicesDirectory(const String& baseCacheDirectory = nullString());
     static String defaultWebSQLDatabaseDirectory(const String& baseDataDirectory = nullString());
     static String defaultHSTSStorageDirectory(const String& baseCacheDirectory = nullString());
-#if ENABLE(ARKIT_INLINE_PREVIEW)
-    static String defaultModelElementCacheDirectory(const String& baseCacheDirectory = nullString());
-#endif
     static String defaultIndexedDBDatabaseDirectory(const String& baseDataDirectory = nullString());
     static String defaultCacheStorageDirectory(const String& baseCacheDirectory = nullString());
     static String defaultGeneralStorageDirectory(const String& baseDataDirectory = nullString());
@@ -540,6 +543,12 @@ public:
     void setStorageAccessPermissionForTesting(bool, WebPageProxyIdentifier, const String& topFrameDomain, const String& subFrameDomain, CompletionHandler<void()>&&);
     void clearStorageAccessForTesting(CompletionHandler<void()>&&);
     void isStorageSuspendedForTesting(CompletionHandler<void(bool)>&&) const;
+    void canPrefetchDNSForTesting(CompletionHandler<void(bool)>&&) const;
+    void prefetchedDNSHostnameCountForTesting(CompletionHandler<void(uint64_t)>&&) const;
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    void installMockParentalControlsURLFilterForTesting(Vector<URL>&& blockedURLs, CompletionHandler<void()>&&);
+#endif
 
     void trackEnhancedSecurityForDomain(WebCore::RegistrableDomain&&, EnhancedSecurity);
     void fetchEnhancedSecurityOnlyDomains(CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
@@ -622,13 +631,11 @@ private:
     std::optional<WebsiteDataStoreConfiguration::Directories> m_resolvedDirectories WTF_GUARDED_BY_LOCK(m_resolveDirectoriesLock);
     FileSystem::Salt m_mediaKeysStorageSalt WTF_GUARDED_BY_LOCK(m_resolveDirectoriesLock);
     const Ref<const WebsiteDataStoreConfiguration> m_configuration;
-    bool m_hasResolvedDirectories { false };
     const RefPtr<DeviceIdHashSaltStorage> m_deviceIdHashSaltStorage;
 #if ENABLE(ENCRYPTED_MEDIA)
     const RefPtr<DeviceIdHashSaltStorage> m_mediaKeysHashSaltStorage;
 #endif
 #if PLATFORM(IOS_FAMILY)
-    String m_resolvedContainerCachesWebContentDirectory;
     String m_resolvedContainerCachesNetworkingDirectory;
     String m_resolvedContainerTemporaryDirectory;
     String m_resolvedCookieStorageDirectory;
@@ -692,7 +699,6 @@ private:
     CompletionHandler<void(String&&)> m_completionHandlerForRemovalFromNetworkProcess;
 
     bool m_inspectionForServiceWorkersAllowed { true };
-    bool m_isBlobRegistryPartitioningEnabled { false };
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     std::optional<bool> m_cachedIsOptInCookiePartitioningEnabled;
 #endif
@@ -716,23 +722,23 @@ private:
 #if HAVE(NW_PROXY_CONFIG)
     std::optional<Vector<std::pair<Vector<uint8_t>, std::optional<WTF::UUID>>>> m_proxyConfigData;
 #endif
-    bool m_storageSiteValidationEnabled { false };
+    bool m_storageSiteValidationEnabled { true };
     HashSet<URL> m_persistedSiteURLs;
 
     RemoveDataTaskCounter m_removeDataTaskCounter;
     uint64_t m_cookiesVersion { 0 };
-} SWIFT_SHARED_REFERENCE(refDataStore, derefDataStore);
+} SWIFT_SHARED_REFERENCE(refDataStore, derefDataStore) SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
 
 }
 
 inline void refDataStore(WebKit::WebsiteDataStore* WTF_NONNULL obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefDataStore(WebKit::WebsiteDataStore* WTF_NONNULL obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebsiteDataStore)

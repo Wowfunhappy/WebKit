@@ -35,7 +35,7 @@ GStreamerQuirkWesteros::GStreamerQuirkWesteros()
 {
     GST_DEBUG_CATEGORY_INIT(webkit_westeros_quirks_debug, "webkitquirkswesteros", 0, "WebKit Westeros Quirks");
 
-    auto westerosFactory = adoptGRef(gst_element_factory_find("westerossink"));
+    GRefPtr westerosFactory = adoptGRef(gst_element_factory_find("westerossink"));
     if (!westerosFactory) [[unlikely]]
         return;
 
@@ -53,7 +53,7 @@ GStreamerQuirkWesteros::GStreamerQuirkWesteros()
 
 bool GStreamerQuirkWesteros::isPlatformSupported() const
 {
-    auto westerosFactory = adoptGRef(gst_element_factory_find("westerossink"));
+    GRefPtr westerosFactory = adoptGRef(gst_element_factory_find("westerossink"));
     return westerosFactory;
 }
 

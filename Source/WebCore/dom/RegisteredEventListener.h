@@ -61,6 +61,8 @@ public:
     bool wasRemoved() const { return m_wasRemoved; }
     bool trustedOnly() const { return m_trustedOnly; }
 
+    Options options() const { return { m_useCapture, m_isPassive, m_isOnce, m_trustedOnly }; }
+
     void markAsRemoved() { m_wasRemoved = true; }
 
 private:

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/GCAwareJITStubRoutine.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Options.h>
 
@@ -50,11 +51,7 @@ public:
 
     DECLARE_VISIT_CHILDREN;
     
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        DollarVMAssertScope assertScope;
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     static JSDollarVM* create(VM& vm, Structure* structure)
     {
@@ -65,7 +62,12 @@ public:
     }
 
     Structure* objectDoingSideEffectPutWithoutCorrectSlotStatusStructure() { return m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructureID.get(); }
-    
+    Structure* testCustomGetterSetterStructure() { return m_testCustomGetterSetterStructureID.get(); }
+
+#if ENABLE(JIT)
+    RefPtr<PolymorphicAccessJITStubRoutine> m_testStubRoutine;
+#endif
+
 private:
     JSDollarVM(VM& vm, Structure* structure)
         : Base(vm, structure)
@@ -80,6 +82,7 @@ private:
     static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
 
     WriteBarrierStructureID m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructureID;
+    WriteBarrierStructureID m_testCustomGetterSetterStructureID;
 };
 
 } // namespace JSC

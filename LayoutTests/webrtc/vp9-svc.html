@@ -71,6 +71,8 @@ async function testVP9Decoder(useVP9SVC)
 
     assert_equals(video.videoWidth, 1280);
     assert_equals(video.videoHeight, 720);
+
+    localStream.getTracks().forEach(t => t.stop());
 }
 
 promise_test(async () => {

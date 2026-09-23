@@ -34,6 +34,12 @@ PASS internals.isPreloaded('/resources/square20.jpg?12'); is false
 PASS internals.isPreloaded('/resources/square20.jpg?13&preload'); is true
 PASS internals.isPreloaded('/resources/square20.jpg?13&bad'); is false
 PASS internals.isPreloaded('/resources/square20.jpg?13&invalid'); is false
+PASS internals.isPreloaded('/resources/square20.jpg?14&preload'); is true
+PASS internals.isPreloaded('/resources/square20.jpg?14'); is false
+PASS internals.isPreloaded('/resources/square20.jpg?15&preload'); is true
+PASS internals.isPreloaded('/resources/square20.jpg?15'); is false
+PASS internals.isPreloaded('/resources/square20.jpg?16&preload'); is true
+PASS internals.isPreloaded('/resources/square20.jpg?16'); is false
 PASS successfullyParsed is true
 
 TEST COMPLETE

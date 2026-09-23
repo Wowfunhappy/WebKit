@@ -23,6 +23,7 @@
 
 #include <JavaScriptCore/Exception.h>
 #include <wtf/Forward.h>
+#include <wtf/RefPtr.h>
 
 #if ENABLE(WEBASSEMBLY)
 #include <JavaScriptCore/WebAssemblyCompileOptions.h>
@@ -32,7 +33,6 @@ namespace JSC {
 
 class Identifier;
 class JSGlobalObject;
-class JSInternalPromise;
 class JSModuleLoader;
 class JSModuleRecord;
 class JSObject;
@@ -41,6 +41,8 @@ class JSString;
 class JSValue;
 class Microtask;
 class RuntimeFlags;
+class ScriptFetcher;
+class ScriptFetchParameters;
 class SourceOrigin;
 class Structure;
 class QueuedTask;
@@ -59,11 +61,11 @@ struct GlobalObjectMethodTable {
     RuntimeFlags (*javaScriptRuntimeFlags)(const JSGlobalObject*);
     bool (*shouldInterruptScriptBeforeTimeout)(const JSGlobalObject*);
 
-    JSInternalPromise* (*moduleLoaderImportModule)(JSGlobalObject*, JSModuleLoader*, JSString*, JSValue, const SourceOrigin&);
-    Identifier (*moduleLoaderResolve)(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, JSValue);
-    JSInternalPromise* (*moduleLoaderFetch)(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, JSValue);
-    JSObject* (*moduleLoaderCreateImportMetaProperties)(JSGlobalObject*, JSModuleLoader*, JSValue, JSModuleRecord*, JSValue);
-    JSValue (*moduleLoaderEvaluate)(JSGlobalObject*, JSModuleLoader*, JSValue key, JSValue moduleRecordValue, JSValue scriptFetcher, JSValue awaitedValue, JSValue resumeMode);
+    JSPromise* (*moduleLoaderImportModule)(JSGlobalObject*, JSModuleLoader*, JSString*, RefPtr<ScriptFetchParameters>, const SourceOrigin&, bool deferred);
+    Identifier (*moduleLoaderResolve)(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, RefPtr<ScriptFetcher>, bool useImportMap);
+    JSPromise* (*moduleLoaderFetch)(JSGlobalObject*, JSModuleLoader*, JSValue, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);
+    JSObject* (*moduleLoaderCreateImportMetaProperties)(JSGlobalObject*, JSModuleLoader*, JSValue, JSModuleRecord*, RefPtr<ScriptFetcher>);
+    JSValue (*moduleLoaderEvaluate)(JSGlobalObject*, JSModuleLoader*, JSValue key, JSValue moduleRecordValue, RefPtr<ScriptFetcher>, JSValue awaitedValue, JSValue resumeMode);
 
     void (*promiseRejectionTracker)(JSGlobalObject*, JSPromise*, JSPromiseRejectionOperation);
     void (*reportUncaughtExceptionAtEventLoop)(JSGlobalObject*, Exception*);
@@ -75,8 +77,8 @@ struct GlobalObjectMethodTable {
     void (*reportViolationForUnsafeEval)(JSGlobalObject*, const String&);
     String (*defaultLanguage)();
 #if ENABLE(WEBASSEMBLY)
-    JSPromise* (*compileStreaming)(JSGlobalObject*, JSValue, std::optional<WebAssemblyCompileOptions>&&);
-    JSPromise* (*instantiateStreaming)(JSGlobalObject*, JSValue, JSObject* importObject, std::optional<WebAssemblyCompileOptions>&&);
+    void (*compileStreaming)(JSGlobalObject*, JSPromise*, JSValue, std::optional<WebAssemblyCompileOptions>&&);
+    void (*instantiateStreaming)(JSGlobalObject*, JSPromise*, JSValue, JSObject* importObject, std::optional<WebAssemblyCompileOptions>&&);
 #else
     void* compileStreamingPlaceholder; // placeholders to make positional initializers consistent
     void* instantiateStreamingPlaceholder;

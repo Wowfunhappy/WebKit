@@ -58,7 +58,7 @@
     
     function accessibilityPress(i) {
         if (i == targetCount)
-            finishJSTest();
+            return finishJSTest();
         
         accessibilityController.accessibleElementById("t" + i).press();
         setTimeout(function() {

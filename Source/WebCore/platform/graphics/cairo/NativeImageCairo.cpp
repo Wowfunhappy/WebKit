@@ -51,11 +51,6 @@ DestinationColorSpace NativeImage::colorSpace() const
     return DestinationColorSpace::SRGB();
 }
 
-Headroom NativeImage::headroom() const
-{
-    return Headroom::None;
-}
-
 std::optional<Color> NativeImage::singlePixelSolidColor() const
 {
     if (size() != IntSize(1, 1))

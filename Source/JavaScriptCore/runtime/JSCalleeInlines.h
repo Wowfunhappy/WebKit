@@ -26,7 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/JSCallee.h>
-#include <JavaScriptCore/StructureInlines.h>
+#include <JavaScriptCore/StructureCreateInlines.h>
 
 namespace JSC {
 

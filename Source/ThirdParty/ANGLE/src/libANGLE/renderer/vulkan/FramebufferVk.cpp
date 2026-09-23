@@ -472,6 +472,8 @@ void FramebufferVk::destroy(const gl::Context *context)
 
     if (mFragmentShadingRateImage.valid())
     {
+        contextVk->finalizeImageLayout(&mFragmentShadingRateImage);
+
         vk::Renderer *renderer = contextVk->getRenderer();
         mFragmentShadingRateImageView.release(renderer, mFragmentShadingRateImage.getResourceUse());
         mFragmentShadingRateImage.releaseImage(renderer);
@@ -482,11 +484,10 @@ void FramebufferVk::destroy(const gl::Context *context)
 
 void FramebufferVk::insertCache(ContextVk *contextVk,
                                 const vk::FramebufferDesc &desc,
-                                vk::FramebufferHelper &&newFramebuffer)
+                                vk::Framebuffer &&newFramebuffer)
 {
-    // Add it into per share group cache
-    contextVk->getShareGroup()->getFramebufferCache().insert(contextVk, desc,
-                                                             std::move(newFramebuffer));
+    // Add it into per context cache
+    contextVk->getFramebufferCache().insert(contextVk, desc, std::move(newFramebuffer));
 
     // Create a refcounted cache key object and have each attachment keep a refcount to it so that
     // it can be destroyed promptly if those attachments change.
@@ -554,7 +555,10 @@ angle::Result FramebufferVk::invalidateSub(const gl::Context *context,
     // glCopyTex[Sub]Image, shader storage image, etc).
     restageDeferredClears(contextVk);
 
-    if (contextVk->hasActiveRenderPass() &&
+    // If robust resource initialization is enabled, do not invalidate sub-regions of the
+    // framebuffer.  This is because otherwise the contents of that region becomes undefined and
+    // ANGLE doesn't clear it back to black.
+    if (!contextVk->isRobustResourceInitEnabled() && contextVk->hasActiveRenderPass() &&
         rotatedInvalidateArea.encloses(contextVk->getStartedRenderPassCommands().getRenderArea()))
     {
         // Because the render pass's render area is within the invalidated area, it is fine for
@@ -566,7 +570,10 @@ angle::Result FramebufferVk::invalidateSub(const gl::Context *context,
     {
         ANGLE_VK_PERF_WARNING(
             contextVk, GL_DEBUG_SEVERITY_LOW,
-            "InvalidateSubFramebuffer ignored due to area not covering the render area");
+            contextVk->isRobustResourceInitEnabled()
+                ? "InvalidateSubFramebuffer ignored due to area not covering the entire "
+                  "framebuffer while robust resource initialization is enabled"
+                : "InvalidateSubFramebuffer ignored due to area not covering the render area");
     }
 
     return angle::Result::Continue;
@@ -659,46 +666,36 @@ angle::Result FramebufferVk::clearImpl(const gl::Context *context,
     gl::DrawBuffersArray<VkClearColorValue> adjustedClearColorValues;
     const gl::DrawBufferMask colorAttachmentMask = mState.getColorAttachmentsMask();
     const auto &colorRenderTargets               = mRenderTargetCache.getColors();
-    bool anyAttachmentWithColorspaceOverride     = false;
-    for (size_t colorIndexGL = 0; colorIndexGL < colorAttachmentMask.size(); ++colorIndexGL)
+    for (size_t colorIndexGL : colorAttachmentMask)
     {
-        if (colorAttachmentMask[colorIndexGL])
+        adjustedClearColorValues[colorIndexGL] = clearColorValue;
+
+        RenderTargetVk *colorRenderTarget = colorRenderTargets[colorIndexGL];
+        ASSERT(colorRenderTarget);
+
+        if (colorRenderTarget->isYuvResolve())
         {
-            adjustedClearColorValues[colorIndexGL] = clearColorValue;
-
-            RenderTargetVk *colorRenderTarget = colorRenderTargets[colorIndexGL];
-            ASSERT(colorRenderTarget);
-
-            // If a rendertarget has colorspace overrides, we need to clear with a draw
-            // to make sure the colorspace override is honored.
-            anyAttachmentWithColorspaceOverride =
-                anyAttachmentWithColorspaceOverride ||
-                colorRenderTarget->hasColorspaceOverrideForWrite();
-
-            if (colorRenderTarget->isYuvResolve())
+            // OpenGLES spec says "clear color should be defined in yuv color space and so
+            // floating point r, g, and b value will be mapped to corresponding y, u and v
+            // value" https://registry.khronos.org/OpenGL/extensions/EXT/EXT_YUV_target.txt.
+            // But vulkan spec says "Values in the G, B, and R channels of the color
+            // attachment will be written to the Y, CB, and CR channels of the external
+            // format image, respectively." So we have to adjust the component mapping from
+            // GL order to vulkan order.
+            adjustedClearColorValues[colorIndexGL].float32[0] = clearColorValue.float32[2];
+            adjustedClearColorValues[colorIndexGL].float32[1] = clearColorValue.float32[0];
+            adjustedClearColorValues[colorIndexGL].float32[2] = clearColorValue.float32[1];
+        }
+        else if (contextVk->getFeatures().adjustClearColorPrecision.enabled)
+        {
+            const angle::FormatID colorRenderTargetFormat =
+                colorRenderTarget->getImageForRenderPass().getActualFormatID();
+            if (colorRenderTargetFormat == angle::FormatID::R5G5B5A1_UNORM)
             {
-                // OpenGLES spec says "clear color should be defined in yuv color space and so
-                // floating point r, g, and b value will be mapped to corresponding y, u and v
-                // value" https://registry.khronos.org/OpenGL/extensions/EXT/EXT_YUV_target.txt.
-                // But vulkan spec says "Values in the G, B, and R channels of the color
-                // attachment will be written to the Y, CB, and CR channels of the external
-                // format image, respectively." So we have to adjust the component mapping from
-                // GL order to vulkan order.
-                adjustedClearColorValues[colorIndexGL].float32[0] = clearColorValue.float32[2];
-                adjustedClearColorValues[colorIndexGL].float32[1] = clearColorValue.float32[0];
-                adjustedClearColorValues[colorIndexGL].float32[2] = clearColorValue.float32[1];
-            }
-            else if (contextVk->getFeatures().adjustClearColorPrecision.enabled)
-            {
-                const angle::FormatID colorRenderTargetFormat =
-                    colorRenderTarget->getImageForRenderPass().getActualFormatID();
-                if (colorRenderTargetFormat == angle::FormatID::R5G5B5A1_UNORM)
-                {
-                    // Temporary workaround for https://issuetracker.google.com/292282210 to avoid
-                    // dithering being automatically applied
-                    adjustedClearColorValues[colorIndexGL] = adjustFloatClearColorPrecision(
-                        clearColorValue, angle::Format::Get(colorRenderTargetFormat));
-                }
+                // Temporary workaround for https://issuetracker.google.com/292282210 to avoid
+                // dithering being automatically applied
+                adjustedClearColorValues[colorIndexGL] = adjustFloatClearColorPrecision(
+                    clearColorValue, angle::Format::Get(colorRenderTargetFormat));
             }
         }
     }
@@ -731,14 +728,17 @@ angle::Result FramebufferVk::clearImpl(const gl::Context *context,
                                                     mActiveColorComponentMasksForClear;
     const bool maskedClearStencil = clearStencil && stencilMask != 0xFF;
 
-    bool clearColorWithDraw =
-        clearColor && (maskedClearColor || scissoredClear || anyAttachmentWithColorspaceOverride);
+    // If a rendertarget has colorspace overrides, we need to clear with a draw
+    // to make sure the colorspace override is honored.
+    bool clearColorWithDraw   = clearColor && (maskedClearColor || scissoredClear ||
+                                             mAttachmentWithColorSpaceOverrideMask.any());
     bool clearDepthWithDraw   = clearDepth && scissoredClear;
     bool clearStencilWithDraw = clearStencil && (maskedClearStencil || scissoredClear);
 
     const bool isMidRenderPassClear =
         contextVk->hasStartedRenderPassWithQueueSerial(mLastRenderPassQueueSerial) &&
         !contextVk->getStartedRenderPassCommands().getCommandBuffer().empty();
+
     if (isMidRenderPassClear)
     {
         // Emit debug-util markers for this mid-render-pass clear
@@ -754,8 +754,17 @@ angle::Result FramebufferVk::clearImpl(const gl::Context *context,
             contextVk->handleGraphicsEventLog(rx::GraphicsEventCmdBuf::InOutsideCmdBufQueryCmd));
     }
 
-    const bool preferDrawOverClearAttachments =
+    bool preferDrawOverClearAttachments =
         contextVk->getFeatures().preferDrawClearOverVkCmdClearAttachments.enabled;
+
+    // https://issuetracker.google.com/490503954. Temporary workaround the driver bug.
+    if ((contextVk->getFeatures().supportsTileMemoryHeap.enabled ||
+         contextVk->getFeatures().simulateTileMemoryForTesting.enabled) &&
+        (clearDepth || clearStencil) &&
+        getDepthStencilRenderTarget()->getImageForRenderPass().useTileMemory())
+    {
+        preferDrawOverClearAttachments = true;
+    }
 
     // Merge current clears with the deferred clears, then proceed with only processing deferred
     // clears.  This simplifies the clear paths such that they don't need to consider both the
@@ -812,8 +821,8 @@ angle::Result FramebufferVk::clearImpl(const gl::Context *context,
             ASSERT(!preferDrawOverClearAttachments);
 
             // clearWithCommand will operate on deferred clears.
-            clearWithCommand(contextVk, scissoredRenderArea, ClearWithCommand::OptimizeWithLoadOp,
-                             &mDeferredClears);
+            clearWithCommand(contextVk, scissoredClear, scissoredRenderArea,
+                             ClearWithCommand::OptimizeWithLoadOp, &mDeferredClears);
 
             // clearWithCommand will clear only those attachments that have been used in the render
             // pass, and removes them from mDeferredClears.  Any deferred clears that are left can
@@ -883,7 +892,7 @@ angle::Result FramebufferVk::clearImpl(const gl::Context *context,
     // revert to vkCmdClearAttachments.  This is not currently deemed necessary.
     if (((clearColorBuffers.any() && !mEmulatedAlphaAttachmentMask.any() && !maskedClearColor) ||
          clearDepthWithDraw || (clearStencilWithDraw && !maskedClearStencil)) &&
-        !preferDrawOverClearAttachments && !anyAttachmentWithColorspaceOverride)
+        !preferDrawOverClearAttachments && mAttachmentWithColorSpaceOverrideMask.none())
     {
         if (!contextVk->hasActiveRenderPass())
         {
@@ -924,7 +933,8 @@ angle::Result FramebufferVk::clearImpl(const gl::Context *context,
             clears.store(vk::kUnpackedDepthIndex, dsAspectFlags, dsClearValue);
         }
 
-        clearWithCommand(contextVk, scissoredRenderArea, ClearWithCommand::Always, &clears);
+        clearWithCommand(contextVk, scissoredClear, scissoredRenderArea, ClearWithCommand::Always,
+                         &clears);
 
         if (!clearColorBuffers.any() && !clearStencilWithDraw)
         {
@@ -1282,14 +1292,12 @@ angle::Result FramebufferVk::blit(const gl::Context *context,
         if (!readImage.canTransferFrom())
         {
             ASSERT(readImage.useTileMemory());
-            readImage.finalizeImageLayoutInShareContexts(renderer, contextVk, {});
             ANGLE_TRY(readImage.fallbackFromTileMemory(contextVk));
         }
 
         if (!drawImage.canTransferTo())
         {
             ASSERT(drawImage.useTileMemory());
-            drawImage.finalizeImageLayoutInShareContexts(renderer, contextVk, {});
             ANGLE_TRY(drawImage.fallbackFromTileMemory(contextVk));
         }
     }
@@ -1481,9 +1489,11 @@ angle::Result FramebufferVk::blit(const gl::Context *context,
                                   HasSrcBlitFeature(renderer, readRenderTarget) &&
                                   rotation == SurfaceRotation::Identity;
 
-        // If we need to reinterpret the colorspace of the read RenderTarget then the blit must be
-        // done through a shader
-        bool reinterpretsColorspace      = readRenderTarget->hasColorspaceOverrideForRead();
+        // If we need to reinterpret the colorspace of the read RenderTarget or the draw
+        // RenderTarget then the blit must be done through a shader
+        bool reinterpretsColorspace =
+            readRenderTarget->hasColorspaceOverrideForRead() ||
+            (mAttachmentWithColorSpaceOverrideMask & mState.getEnabledDrawBuffers()).any();
         bool areChannelsBlitCompatible   = true;
         bool areFormatsIdentical         = true;
         bool colorAttachmentAlreadyInUse = false;
@@ -1503,11 +1513,6 @@ angle::Result FramebufferVk::blit(const gl::Context *context,
             colorAttachmentAlreadyInUse =
                 colorAttachmentAlreadyInUse || contextVk->isRenderPassStartedAndUsesImage(
                                                    drawRenderTarget->getImageForRenderPass());
-
-            // If we need to reinterpret the colorspace of the draw RenderTarget then the blit must
-            // be done through a shader
-            reinterpretsColorspace =
-                reinterpretsColorspace || drawRenderTarget->hasColorspaceOverrideForWrite();
         }
 
         // Now that all flipping is done, adjust the offsets for resolve and prerotation
@@ -1573,6 +1578,20 @@ angle::Result FramebufferVk::blit(const gl::Context *context,
                     blitArea == renderPassCommands.getRenderArea() &&
                     !renderPassDesc.hasColorResolveAttachment(readColorIndexGL) &&
                     AllowAddingResolveAttachmentsToSubpass(renderPassDesc);
+            }
+
+            // Additionally, if not using dynamic rendering, the framebuffer attachments must
+            // all be at least as large as the framebuffer extent.  So the resolve attachment
+            // cannot be smaller even if it matches the (scissored) render area.
+            if (canResolveWithSubpass && !contextVk->getFeatures().preferDynamicRendering.enabled)
+            {
+                uint32_t drawColorIndexGL =
+                    static_cast<uint32_t>(*mState.getEnabledDrawBuffers().begin());
+                RenderTargetVk *drawRenderTarget = mRenderTargetCache.getColors()[drawColorIndexGL];
+                const gl::Extents drawExtents    = drawRenderTarget->getExtents();
+                const gl::Extents readExtents    = readRenderTarget->getExtents();
+                canResolveWithSubpass            = drawExtents.width >= readExtents.width &&
+                                        drawExtents.height >= readExtents.height;
             }
 
             if (canResolveWithSubpass)
@@ -2275,7 +2294,6 @@ angle::Result FramebufferVk::invalidateImpl(ContextVk *contextVk,
             mDeferredClears.reset(vk::kUnpackedStencilIndex);
         }
     }
-
     // Limit invalidateColorBuffers to enabled draw buffers
     invalidateColorBuffers &= mState.getEnabledDrawBuffers();
     for (size_t colorIndexGL : invalidateColorBuffers)
@@ -2291,6 +2309,12 @@ angle::Result FramebufferVk::invalidateImpl(ContextVk *contextVk,
 
     // If not a partial invalidate, mark the contents of the invalidated attachments as undefined,
     // so their loadOp can be set to DONT_CARE in the following render pass.
+
+    // If robust resource initialization is enabled, restage clears on the invalidated resources.
+    // This way, STORE_OP_DONT_CARE can be used, but the application can still not observe garbage
+    // data in the image.
+    const bool isRobustResourceInitEnabled = contextVk->isRobustResourceInitEnabled();
+    ASSERT(!(isRobustResourceInitEnabled && isSubInvalidate));
     if (!isSubInvalidate)
     {
         for (size_t colorIndexGL : invalidateColorBuffers)
@@ -2303,6 +2327,13 @@ angle::Result FramebufferVk::invalidateImpl(ContextVk *contextVk,
             if (preferToKeepContentsDefined)
             {
                 invalidateColorBuffers.reset(colorIndexGL);
+            }
+            else if (isRobustResourceInitEnabled)
+            {
+                gl::ImageIndex imageIndex = colorRenderTarget->getImageIndexForClear(
+                    mCurrentFramebufferDesc.getLayerCount());
+                colorRenderTarget->getImageForWrite().stageRobustResourceClear(
+                    imageIndex, VK_IMAGE_ASPECT_COLOR_BIT);
             }
         }
 
@@ -2329,6 +2360,26 @@ angle::Result FramebufferVk::invalidateImpl(ContextVk *contextVk,
                     invalidateStencilBuffer = false;
                 }
             }
+
+            if (isRobustResourceInitEnabled)
+            {
+                VkImageAspectFlags dsAspectFlags = 0;
+                if (invalidateDepthBuffer)
+                {
+                    dsAspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+                }
+                if (invalidateStencilBuffer)
+                {
+                    dsAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                }
+                if (dsAspectFlags)
+                {
+                    gl::ImageIndex imageIndex = depthStencilRenderTarget->getImageIndexForClear(
+                        mCurrentFramebufferDesc.getLayerCount());
+                    depthStencilRenderTarget->getImageForWrite().stageRobustResourceClear(
+                        imageIndex, dsAspectFlags);
+                }
+            }
         }
     }
 
@@ -2340,7 +2391,10 @@ angle::Result FramebufferVk::invalidateImpl(ContextVk *contextVk,
     // to invalidate the D/S of FBO 2 since it would be the currently active renderpass.
     if (contextVk->hasStartedRenderPassWithQueueSerial(mLastRenderPassQueueSerial))
     {
-        bool closeRenderPass = false;
+        // When robust-resource init is enabled, a clear is stashed in the image after invalidating
+        // it.  The render pass is closed for the same reason as with images with emulated alpha
+        // channel as described below.
+        bool closeRenderPass = isRobustResourceInitEnabled;
 
         // Mark the invalidated attachments in the render pass for loadOp and storeOp determination
         // at its end.
@@ -2469,6 +2523,8 @@ void FramebufferVk::updateColorAttachmentColorspace(gl::SrgbWriteControlMode srg
         RenderTargetVk *colorRenderTarget = colorRenderTargets[colorIndexGL];
         ASSERT(colorRenderTarget);
         colorRenderTarget->updateWriteColorspace(srgbWriteControlMode);
+        mAttachmentWithColorSpaceOverrideMask.set(
+            colorIndexGL, colorRenderTarget->hasColorspaceOverrideForWrite());
     }
 }
 
@@ -2690,14 +2746,21 @@ angle::Result FramebufferVk::syncState(const gl::Context *context,
 
     // A shared attachment's colorspace could have been modified in another context, update
     // colorspace of all attachments to reflect current context's colorspace.
-    gl::SrgbWriteControlMode srgbWriteControlMode = mState.getWriteControlMode();
-    updateColorAttachmentColorspace(srgbWriteControlMode);
-    // Update current framebuffer descriptor to reflect the new state.
-    mCurrentFramebufferDesc.setWriteControlMode(srgbWriteControlMode);
+    //
+    // Toggling colorspace between linear and sRGB for default framebuffers is supported iff
+    // VK_KHR_swapchain_mutable_format extension is supported
+    if (!mState.isDefault() || contextVk->getFeatures().supportsSwapchainMutableFormat.enabled)
+    {
+        gl::SrgbWriteControlMode srgbWriteControlMode = mState.getWriteControlMode();
+        updateColorAttachmentColorspace(srgbWriteControlMode);
+        // Update current framebuffer description to reflect the new state.
+        mCurrentFramebufferDesc.setWriteControlMode(srgbWriteControlMode);
+    }
 
     if (shouldUpdateColorMaskAndBlend)
     {
         contextVk->updateColorMasks();
+        contextVk->updateBlendEnabled();
         contextVk->updateBlendFuncsAndEquations();
     }
 
@@ -2817,43 +2880,35 @@ void FramebufferVk::updateRenderPassDesc(ContextVk *contextVk)
     // Color attachments.
     const auto &colorRenderTargets               = mRenderTargetCache.getColors();
     const gl::DrawBufferMask colorAttachmentMask = mState.getColorAttachmentsMask();
-    for (size_t colorIndexGL = 0; colorIndexGL < colorAttachmentMask.size(); ++colorIndexGL)
+    for (size_t colorIndexGL : colorAttachmentMask)
     {
-        if (colorAttachmentMask[colorIndexGL])
+        RenderTargetVk *colorRenderTarget = colorRenderTargets[colorIndexGL];
+        ASSERT(colorRenderTarget);
+
+        if (colorRenderTarget->isYuvResolve())
         {
-            RenderTargetVk *colorRenderTarget = colorRenderTargets[colorIndexGL];
-            ASSERT(colorRenderTarget);
-
-            if (colorRenderTarget->isYuvResolve())
-            {
-                // If this is YUV resolve target, we use resolveImage's format since image maybe
-                // nullptr
-                auto const &resolveImage = colorRenderTarget->getResolveImageForRenderPass();
-                mRenderPassDesc.packColorAttachment(colorIndexGL, resolveImage.getActualFormatID());
-                mRenderPassDesc.packYUVResolveAttachment(colorIndexGL);
-            }
-            else
-            {
-                // Account for attachments with colorspace override
-                angle::FormatID actualFormat =
-                    colorRenderTarget->getImageForRenderPass().getActualFormatID();
-                if (colorRenderTarget->hasColorspaceOverrideForWrite())
-                {
-                    actualFormat =
-                        colorRenderTarget->getColorspaceOverrideFormatForWrite(actualFormat);
-                }
-
-                mRenderPassDesc.packColorAttachment(colorIndexGL, actualFormat);
-                // Add the resolve attachment, if any.
-                if (colorRenderTarget->hasResolveAttachment())
-                {
-                    mRenderPassDesc.packColorResolveAttachment(colorIndexGL);
-                }
-            }
+            // If this is YUV resolve target, we use resolveImage's format since image maybe
+            // nullptr
+            auto const &resolveImage = colorRenderTarget->getResolveImageForRenderPass();
+            mRenderPassDesc.packColorAttachment(colorIndexGL, resolveImage.getActualFormatID());
+            mRenderPassDesc.packYUVResolveAttachment(colorIndexGL);
         }
         else
         {
-            mRenderPassDesc.packColorAttachmentGap(colorIndexGL);
+            // Account for attachments with colorspace override
+            angle::FormatID actualFormat =
+                colorRenderTarget->getImageForRenderPass().getActualFormatID();
+            if (mAttachmentWithColorSpaceOverrideMask[colorIndexGL])
+            {
+                actualFormat = colorRenderTarget->getColorspaceOverrideFormatForWrite(actualFormat);
+            }
+
+            mRenderPassDesc.packColorAttachment(colorIndexGL, actualFormat);
+            // Add the resolve attachment, if any.
+            if (colorRenderTarget->hasResolveAttachment())
+            {
+                mRenderPassDesc.packColorResolveAttachment(colorIndexGL);
+            }
         }
     }
 
@@ -2882,7 +2937,7 @@ void FramebufferVk::updateRenderPassDesc(ContextVk *contextVk)
     {
         // Update descriptions regarding multisampled-render-to-texture use.
         bool isRenderToTexture = false;
-        for (size_t colorIndexGL : mState.getEnabledDrawBuffers())
+        for (size_t colorIndexGL : mState.getColorAttachmentsMask())
         {
             const gl::FramebufferAttachment *color = mState.getColorAttachment(colorIndexGL);
             ASSERT(color);
@@ -3062,7 +3117,7 @@ angle::Result FramebufferVk::createNewFramebuffer(ContextVk *contextVk,
         contextVk->getFeatures().supportsImagelessFramebuffer.enabled;
 
     // Try to retrieve a framebuffer from the cache.
-    if (!useImagelessFramebuffer && contextVk->getShareGroup()->getFramebufferCache().get(
+    if (!useImagelessFramebuffer && contextVk->getFramebufferCache().get(
                                         contextVk, mCurrentFramebufferDesc, mCurrentFramebuffer))
     {
         ASSERT(mCurrentFramebuffer.valid());
@@ -3076,7 +3131,7 @@ angle::Result FramebufferVk::createNewFramebuffer(ContextVk *contextVk,
     // Create a new framebuffer.
     uint32_t currentAttachmentCount =
         static_cast<uint32_t>(mCachedAttachmentsInfo.packedRenderTargetsInfo.size());
-    vk::FramebufferHelper newFramebuffer;
+    vk::Framebuffer newFramebuffer;
 
     VkFramebufferCreateInfo framebufferInfo = {};
     framebufferInfo.sType                   = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -3104,17 +3159,17 @@ angle::Result FramebufferVk::createNewFramebuffer(ContextVk *contextVk,
         // The cache key (|FramebufferDesc|) can't distinguish between two framebuffers with 0
         // attachments but with different sizes.  For simplicity, 0-attachment framebuffers are not
         // cached.
-        ANGLE_TRY(newFramebuffer.init(contextVk, framebufferInfo));
+        ANGLE_VK_TRY(contextVk, newFramebuffer.init(contextVk->getDevice(), framebufferInfo));
         if (packedAttachments.empty())
         {
-            mCurrentFramebuffer         = std::move(newFramebuffer.getFramebuffer());
+            mCurrentFramebuffer         = std::move(newFramebuffer);
             mIsCurrentFramebufferCached = false;
         }
         else
         {
             insertCache(contextVk, mCurrentFramebufferDesc, std::move(newFramebuffer));
 
-            const bool result = contextVk->getShareGroup()->getFramebufferCache().get(
+            const bool result = contextVk->getFramebufferCache().get(
                 contextVk, mCurrentFramebufferDesc, mCurrentFramebuffer);
             ASSERT(result);
             mIsCurrentFramebufferCached = true;
@@ -3187,8 +3242,8 @@ angle::Result FramebufferVk::createNewFramebuffer(ContextVk *contextVk,
     framebufferInfo.flags |= VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT;
     vk::AddToPNextChain(&framebufferInfo, &attachmentsCreateInfo);
 
-    ANGLE_TRY(newFramebuffer.init(contextVk, framebufferInfo));
-    mCurrentFramebuffer = std::move(newFramebuffer.getFramebuffer());
+    ANGLE_VK_TRY(contextVk, newFramebuffer.init(contextVk->getDevice(), framebufferInfo));
+    mCurrentFramebuffer = std::move(newFramebuffer);
 
     return angle::Result::Continue;
 }
@@ -3250,7 +3305,8 @@ angle::Result FramebufferVk::getFramebuffer(ContextVk *contextVk,
                 contextVk,
                 mRenderPassDesc.hasColorFramebufferFetch() ? vk::FramebufferFetchMode::Color
                                                            : vk::FramebufferFetchMode::None,
-                *compatibleRenderPass, &framebufferHandle));
+                mCurrentFramebufferDesc.getWriteControlMode(), *compatibleRenderPass,
+                &framebufferHandle));
         }
     }
 
@@ -3478,6 +3534,7 @@ void FramebufferVk::restageDeferredClearsImpl(ContextVk *contextVk)
 }
 
 void FramebufferVk::clearWithCommand(ContextVk *contextVk,
+                                     const bool scissoredClear,
                                      const gl::Rectangle &scissoredRenderArea,
                                      ClearWithCommand behavior,
                                      vk::ClearValuesArray *clears)
@@ -3492,32 +3549,53 @@ void FramebufferVk::clearWithCommand(ContextVk *contextVk,
     gl::AttachmentVector<VkClearAttachment> attachments;
 
     const bool optimizeWithLoadOp = behavior == ClearWithCommand::OptimizeWithLoadOp;
+    uint32_t cmdCountAfterClear    = renderPassCommands->getRenderPassWriteCommandCount() + 1;
+    uint32_t redundantClearSkipped = 0;
 
     // Go through deferred clears and add them to the list of attachments to clear.  If any
     // attachment is unused, skip the clear.  clearWithLoadOp will follow and move the remaining
     // clears up to loadOp.
+    //
+    // If attachment is already finalized, we can't use loadOp to do clear.
     vk::PackedAttachmentIndex colorIndexVk(0);
     for (size_t colorIndexGL : mState.getColorAttachmentsMask())
     {
         if (clears->getColorMask().test(colorIndexGL))
         {
             if (renderPassCommands->hasAnyColorAccess(colorIndexVk) ||
+                renderPassCommands->hasColorAttachmentFinalized(colorIndexVk) ||
                 renderPassCommands->getRenderPassDesc().hasColorUnresolveAttachment(colorIndexGL) ||
                 !optimizeWithLoadOp)
             {
-                // With render pass objects, the clears are indexed by the subpass-mapped locations.
-                // With dynamic rendering, they are indexed by the actual attachment index.
-                const uint32_t clearAttachmentIndex =
-                    contextVk->getFeatures().preferDynamicRendering.enabled
-                        ? colorIndexVk.get()
-                        : static_cast<uint32_t>(colorIndexGL);
+                if (!scissoredClear && renderPassCommands->isColorClearRedundant(
+                                           colorIndexVk, (*clears)[colorIndexGL]))
+                {
+                    clears->reset(colorIndexGL);
+                    ++redundantClearSkipped;
+                }
+                else
+                {
+                    // With render pass objects, the clears are indexed by the subpass-mapped
+                    // locations. With dynamic rendering, they are indexed by the actual attachment
+                    // index.
+                    const uint32_t clearAttachmentIndex =
+                        contextVk->getFeatures().preferDynamicRendering.enabled
+                            ? colorIndexVk.get()
+                            : static_cast<uint32_t>(colorIndexGL);
 
-                attachments.emplace_back(VkClearAttachment{
-                    VK_IMAGE_ASPECT_COLOR_BIT, clearAttachmentIndex, (*clears)[colorIndexGL]});
-                clears->reset(colorIndexGL);
-                ++contextVk->getPerfCounters().colorClearAttachments;
+                    attachments.emplace_back(VkClearAttachment{
+                        VK_IMAGE_ASPECT_COLOR_BIT, clearAttachmentIndex, (*clears)[colorIndexGL]});
 
-                renderPassCommands->onColorAccess(colorIndexVk, vk::ResourceAccess::ReadWrite);
+                    renderPassCommands->onColorAccess(colorIndexVk, vk::ResourceAccess::ReadWrite);
+                    if (!scissoredClear)
+                    {
+                        renderPassCommands->setColorAttachmentCleared(
+                            colorIndexVk, cmdCountAfterClear, (*clears)[colorIndexGL]);
+                    }
+
+                    clears->reset(colorIndexGL);
+                    ++contextVk->getPerfCounters().colorClearAttachments;
+                }
             }
             else
             {
@@ -3537,26 +3615,52 @@ void FramebufferVk::clearWithCommand(ContextVk *contextVk,
     dsClearValue.depthStencil.stencil = clears->getStencilValue();
     if (clears->testDepth() &&
         (renderPassCommands->hasAnyDepthAccess() ||
+         renderPassCommands->hasDepthAttachmentFinalized() ||
          renderPassCommands->getRenderPassDesc().hasDepthUnresolveAttachment() ||
          !optimizeWithLoadOp))
     {
-        dsAspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-        // Explicitly mark a depth write because we are clearing the depth buffer.
-        renderPassCommands->onDepthAccess(vk::ResourceAccess::ReadWrite);
-        clears->reset(vk::kUnpackedDepthIndex);
-        ++contextVk->getPerfCounters().depthClearAttachments;
+        if (!scissoredClear && renderPassCommands->isDepthClearRedundant(dsClearValue))
+        {
+            clears->reset(vk::kUnpackedDepthIndex);
+            ++redundantClearSkipped;
+        }
+        else
+        {
+            dsAspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+            // Explicitly mark a depth write because we are clearing the depth buffer.
+            renderPassCommands->onDepthAccess(vk::ResourceAccess::ReadWrite);
+            if (!scissoredClear)
+            {
+                renderPassCommands->setDepthAttachmentCleared(cmdCountAfterClear, dsClearValue);
+            }
+            clears->reset(vk::kUnpackedDepthIndex);
+            ++contextVk->getPerfCounters().depthClearAttachments;
+        }
     }
 
     if (clears->testStencil() &&
         (renderPassCommands->hasAnyStencilAccess() ||
+         renderPassCommands->hasStencilAttachmentFinalized() ||
          renderPassCommands->getRenderPassDesc().hasStencilUnresolveAttachment() ||
          !optimizeWithLoadOp))
     {
-        dsAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        // Explicitly mark a stencil write because we are clearing the stencil buffer.
-        renderPassCommands->onStencilAccess(vk::ResourceAccess::ReadWrite);
-        clears->reset(vk::kUnpackedStencilIndex);
-        ++contextVk->getPerfCounters().stencilClearAttachments;
+        if (renderPassCommands->isStencilClearRedundant(dsClearValue))
+        {
+            clears->reset(vk::kUnpackedStencilIndex);
+            ++redundantClearSkipped;
+        }
+        else
+        {
+            dsAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            // Explicitly mark a stencil write because we are clearing the stencil buffer.
+            renderPassCommands->onStencilAccess(vk::ResourceAccess::ReadWrite);
+            if (!scissoredClear)
+            {
+                renderPassCommands->setStencilAttachmentCleared(cmdCountAfterClear, dsClearValue);
+            }
+            clears->reset(vk::kUnpackedStencilIndex);
+            ++contextVk->getPerfCounters().stencilClearAttachments;
+        }
     }
 
     if (dsAspectFlags != 0)
@@ -3573,7 +3677,7 @@ void FramebufferVk::clearWithCommand(ContextVk *contextVk,
     {
         // If called with the intent to definitely clear something with vkCmdClearAttachments, there
         // must have been something to clear!
-        ASSERT(optimizeWithLoadOp);
+        ASSERT(optimizeWithLoadOp || redundantClearSkipped > 0);
         return;
     }
 
@@ -4041,7 +4145,7 @@ GLint FramebufferVk::getSamplesImpl() const
 {
     const gl::FramebufferAttachment *lastAttachment = nullptr;
 
-    for (size_t colorIndexGL : mState.getEnabledDrawBuffers() & mState.getColorAttachmentsMask())
+    for (size_t colorIndexGL : mState.getColorAttachmentsMask())
     {
         const gl::FramebufferAttachment *color = mState.getColorAttachment(colorIndexGL);
         ASSERT(color);
@@ -4088,7 +4192,7 @@ angle::Result FramebufferVk::flushDepthStencilDeferredClear(ContextVk *contextVk
 
     vk::CommandResources resources;
     resources.onImageTransferWrite(renderTarget->getLevelIndex(), 1, renderTarget->getLayerIndex(),
-                                   1, image.getAspectFlags(), &image);
+                                   renderTarget->getLayerCount(), image.getAspectFlags(), &image);
     vk::OutsideRenderPassCommandBuffer *commandBuffer;
     ANGLE_TRY(contextVk->getOutsideRenderPassCommandBuffer(resources, &commandBuffer));
 
@@ -4097,7 +4201,7 @@ angle::Result FramebufferVk::flushDepthStencilDeferredClear(ContextVk *contextVk
     range.baseMipLevel            = image.toVkLevel(renderTarget->getLevelIndex()).get();
     range.levelCount              = 1;
     range.baseArrayLayer          = renderTarget->getLayerIndex();
-    range.layerCount              = 1;
+    range.layerCount              = renderTarget->getLayerCount();
 
     VkClearDepthStencilValue clearValue = {};
 
@@ -4168,5 +4272,31 @@ bool FramebufferVk::updateLegacyDither(ContextVk *contextVk)
     }
 
     return false;
+}
+
+const vk::ImageHelper *FramebufferVk::getImageWithTileMemory() const
+{
+    RenderTargetVk *depthStencilRenderTarget = getDepthStencilRenderTarget();
+    if (!depthStencilRenderTarget)
+    {
+        return nullptr;
+    }
+
+    const vk::ImageHelper *image = nullptr;
+    if (depthStencilRenderTarget->hasResolveAttachment())
+    {
+        image = &depthStencilRenderTarget->getResolveImageForRenderPass();
+    }
+    else
+    {
+        image = &depthStencilRenderTarget->getImageForRenderPass();
+    }
+
+    if (image->useTileMemory())
+    {
+        return image;
+    }
+
+    return nullptr;
 }
 }  // namespace rx

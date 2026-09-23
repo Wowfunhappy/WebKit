@@ -61,9 +61,9 @@ public:
         m_last->append(WTF::move(string));
     }
 
-    void insertAtCurrentInsertionPoint(SegmentedString&& string)
+    void insertAtCurrentInsertionPoint(const SegmentedString& string)
     {
-        m_first.append(WTF::move(string));
+        m_first.append(string);
     }
 
     bool hasInsertionPoint() const

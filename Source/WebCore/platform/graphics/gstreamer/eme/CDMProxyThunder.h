@@ -55,7 +55,7 @@ public:
         WeakPtr<CDMProxyDecryptionClient> cdmProxyDecryptionClient;
     };
 
-    bool decrypt(DecryptionContext&, const GRefPtr<GstCaps>& inputCaps);
+    DecryptionResult decrypt(DecryptionContext&, const GRefPtr<GstCaps>& inputCaps);
     const String& keySystem() LIFETIME_BOUND { return m_keySystem; }
 
 private:

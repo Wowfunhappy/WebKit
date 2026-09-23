@@ -48,4 +48,9 @@ using EditorStateIdentifier = MonotonicObjectIdentifier<EditorStateIdentifierTyp
 struct FocusedElementInformationIdentifierType;
 using FocusedElementInformationIdentifier = MonotonicObjectIdentifier<FocusedElementInformationIdentifierType>;
 
+#if ENABLE(WEBDRIVER_BIDI)
+struct RealmIdentifierType;
+using RealmIdentifier = ObjectIdentifier<RealmIdentifierType>;
+#endif
+
 } // namespace WebKit

@@ -13,6 +13,7 @@
 #include "common/debug.h"
 #include "common/platform_helpers.h"
 #include "common/string_utils.h"
+#include "common/system_utils.h"
 #include "gpu_info_util/SystemInfo.h"
 
 #if defined(ANGLE_PLATFORM_APPLE)
@@ -365,6 +366,11 @@ inline bool IsPixel7()
     return IsAndroidDevice("Pixel 7");
 }
 
+inline bool IsPixel10()
+{
+    return IsAndroidDevice("Pixel 10");
+}
+
 inline bool IsOppoFlipN2()
 {
     return IsAndroidDevice("CPH2437");
@@ -522,6 +528,7 @@ GPUTestConfig::GPUTestConfig(bool isSwiftShader)
     mConditions[kConditionMacMojave]       = IsMacMojave();
     mConditions[kConditionMac]             = IsMac();
     mConditions[kConditionIOS]             = IsIOS();
+    mConditions[kConditionIOSSimulator]    = IsIOSSimulator();
     mConditions[kConditionLinux]           = IsLinux();
     mConditions[kConditionAndroid]         = IsAndroid();
     // HW vendors are irrelevant if we are running on SW
@@ -537,6 +544,11 @@ GPUTestConfig::GPUTestConfig(bool isSwiftShader)
 
     mConditions[kConditionRelease] = IsRelease();
     mConditions[kConditionDebug]   = IsDebug();
+#if defined(ANGLE_PLATFORM_APPLE)
+    mConditions[kConditionDebugLayers] = GetEnvironmentVar("MTL_DEBUG_LAYER") == "1";
+#else
+    mConditions[kConditionDebugLayers] = false;
+#endif
     // If no API provided, pass these conditions by default
     mConditions[kConditionD3D9]      = true;
     mConditions[kConditionD3D11]     = true;
@@ -553,6 +565,7 @@ GPUTestConfig::GPUTestConfig(bool isSwiftShader)
     mConditions[kConditionPixel4OrXL]       = !isSwiftShader && (IsPixel4() || IsPixel4XL());
     mConditions[kConditionPixel6]           = !isSwiftShader && (IsPixel6());
     mConditions[kConditionPixel7]           = !isSwiftShader && (IsPixel7());
+    mConditions[kConditionPixel10]           = !isSwiftShader && (IsPixel10());
     mConditions[kConditionFlipN2]           = !isSwiftShader && (IsOppoFlipN2());
     mConditions[kConditionMaliG710]         = !isSwiftShader && (IsMaliG710());
     mConditions[kConditionGalaxyA23]        = !isSwiftShader && (IsGalaxyA23());

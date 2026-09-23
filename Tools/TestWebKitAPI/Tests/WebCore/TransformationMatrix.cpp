@@ -1327,4 +1327,18 @@ TEST(TransformationMatrix, MakeMapBetweenRects)
     EXPECT_DOUBLE_EQ(1.0, mapBetween.m44());
 }
 
+TEST(TransformationMatrix, IdentityDecomposition)
+{
+    WebCore::TransformationMatrix identity;
+    ASSERT_TRUE(identity.isIdentity());
+
+    WebCore::TransformationMatrix::Decomposed4Type decomp;
+    ASSERT_TRUE(identity.decompose4(decomp));
+
+    EXPECT_DOUBLE_EQ(0.0, decomp.quaternion.x);
+    EXPECT_DOUBLE_EQ(0.0, decomp.quaternion.y);
+    EXPECT_DOUBLE_EQ(0.0, decomp.quaternion.z);
+    EXPECT_DOUBLE_EQ(1.0, decomp.quaternion.w);
+}
+
 }

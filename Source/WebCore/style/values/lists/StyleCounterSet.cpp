@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleCounterSet.h"
 
+#include "CSSCustomIdentValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StyleValueTypes+CSSValueConversion.h"
@@ -39,12 +40,12 @@ using namespace CSS::Literals;
 
 auto CSSValueConversion<CounterSetValue>::operator()(BuilderState& state, const CSSValue& value) -> CounterSetValue
 {
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSCustomIdentValue, CSSPrimitiveValue>(state, value);
     if (!pair)
-        return { CustomIdentifier { emptyAtom() }, 1_css_integer };
+        return { CustomIdent { emptyAtom() }, 1_css_integer };
 
     return {
-        toStyleFromCSSValue<CustomIdentifier>(state, pair->first),
+        toStyleFromCSSValue<CustomIdent>(state, pair->first),
         toStyleFromCSSValue<Integer<>>(state, pair->second),
     };
 }

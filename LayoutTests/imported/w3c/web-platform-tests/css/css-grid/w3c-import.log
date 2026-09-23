@@ -89,6 +89,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-relayout-with-nested-grid-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-relayout-with-nested-grid-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-relayout-with-nested-grid.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-stale-layoutbox-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-table-cell-001-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-tracks-fractional-fr.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-tracks-stretched-with-different-flex-factors-sum.html
@@ -117,6 +118,10 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/nested-grid-item-block-size-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/relative-grandchild-expected.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/relative-grandchild.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-001-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-002-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-002.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/stretch-grid-item-button-overflow-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/stretch-grid-item-button-overflow-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/stretch-grid-item-button-overflow.html

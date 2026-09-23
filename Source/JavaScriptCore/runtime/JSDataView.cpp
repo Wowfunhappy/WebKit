@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "JSDataView.h"
+#include "JSGenericTypedArrayViewConstructor.h"
 
 #include "JSCInlines.h"
 #include "TypeError.h"
@@ -56,7 +57,7 @@ JSDataView* JSDataView::create(
     ASSERT(byteLength || buffer->isResizableOrGrowableShared());
 
     if (!ArrayBufferView::verifySubRangeLength(buffer->byteLength(), byteOffset, byteLength.value_or(0), sizeof(uint8_t))) {
-        throwRangeError(globalObject, scope, "Length out of range of buffer"_s);
+        throwRangeError(globalObject, scope, arrayBufferViewErrorMessageOutOfRangeOfBuffer);
         return nullptr;
     }
 
@@ -102,6 +103,44 @@ bool JSDataView::setIndex(JSGlobalObject*, size_t, JSValue)
 {
     UNREACHABLE_FOR_PLATFORM();
     return false;
+}
+
+RefPtr<DataView> JSDataView::toWrapped(VM&, JSValue value)
+{
+    auto* view = dynamicDowncast<JSDataView>(value);
+    if (!view)
+        return nullptr;
+    if (view->isShared() || view->isResizableOrGrowableShared())
+        return nullptr;
+    return view->unsharedTypedImpl();
+}
+
+RefPtr<DataView> JSDataView::toWrappedAllowResizable(VM&, JSValue value)
+{
+    auto* view = dynamicDowncast<JSDataView>(value);
+    if (!view)
+        return nullptr;
+    if (view->isShared())
+        return nullptr;
+    return view->unsharedTypedImpl();
+}
+
+RefPtr<DataView> JSDataView::toWrappedAllowShared(VM&, JSValue value)
+{
+    auto* view = dynamicDowncast<JSDataView>(value);
+    if (!view)
+        return nullptr;
+    if (view->isResizableOrGrowableShared())
+        return nullptr;
+    return view->possiblySharedTypedImpl();
+}
+
+RefPtr<DataView> JSDataView::toWrappedAllowSharedAndResizable(VM&, JSValue value)
+{
+    auto* view = dynamicDowncast<JSDataView>(value);
+    if (!view)
+        return nullptr;
+    return view->possiblySharedTypedImpl();
 }
 
 RefPtr<DataView> JSDataView::possiblySharedTypedImpl()

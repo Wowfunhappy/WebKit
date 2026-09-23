@@ -34,9 +34,102 @@
 
 namespace JSC {
 
+ALWAYS_INLINE bool RegExpObject::isSymbolMatchFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolMatchWatchpointSet().isStillValid())
+        return false;
+
+    if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
+ALWAYS_INLINE bool RegExpObject::isSymbolSearchFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolSearchWatchpointSet().isStillValid())
+        return false;
+
+    // RegExp.prototype[@@search] sets lastIndex to 0 and restores it afterwards. The fast
+    // path skips both writes, which is only unobservable when lastIndex is a plain writable
+    // number; a non-writable lastIndex must throw in the generic path.
+    if (!lastIndexIsWritable())
+        return false;
+
+    if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
+ALWAYS_INLINE bool RegExpObject::isSymbolMatchAllFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolMatchAllWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->regExpSpeciesWatchpointSet().isStillValid())
+        return false;
+
+    if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
 ALWAYS_INLINE bool RegExpObject::isSymbolReplaceFastAndNonObservable()
 {
-    JSGlobalObject* globalObject = this->globalObject();
+    JSGlobalObject* globalObject = this->realm();
     if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
         return false;
 
@@ -44,6 +137,36 @@ ALWAYS_INLINE bool RegExpObject::isSymbolReplaceFastAndNonObservable()
         return false;
 
     if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
+ALWAYS_INLINE bool RegExpObject::isSymbolSplitFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolSplitWatchpointSet().isStillValid())
+        return false;
+
+    // The C++ split fast path skips the JS regExpPrototypeSplit body, so the
+    // RegExp[Symbol.species] override must not be observable.
+    if (!globalObject->regExpSpeciesWatchpointSet().isStillValid())
         return false;
 
     Structure* structure = this->structure();
@@ -89,16 +212,23 @@ ALWAYS_INLINE unsigned getRegExpObjectLastIndexAsUnsigned(JSGlobalObject* global
 
 ALWAYS_INLINE JSValue RegExpObject::execInline(JSGlobalObject* globalObject, JSString* string)
 {
+    MatchResult ignoredResult;
+    return execInline(globalObject, string, ignoredResult);
+}
+
+ALWAYS_INLINE JSValue RegExpObject::execInline(JSGlobalObject* globalObject, JSString* string, MatchResult& result)
+{
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    RegExp* regExp = this->regExp();
     auto input = string->view(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
 
-    bool globalOrSticky = regExp->globalOrSticky();
     unsigned lastIndex = getRegExpObjectLastIndexAsUnsigned(globalObject, this, input);
     RETURN_IF_EXCEPTION(scope, { });
+
+    RegExp* regExp = this->regExp();
+    bool globalOrSticky = regExp->globalOrSticky();
     if (lastIndex == UINT_MAX && globalOrSticky) {
         scope.release();
         setLastIndex(globalObject, 0);
@@ -107,8 +237,7 @@ ALWAYS_INLINE JSValue RegExpObject::execInline(JSGlobalObject* globalObject, JSS
 
     if (!globalOrSticky)
         lastIndex = 0;
-    
-    MatchResult result;
+
     JSArray* array = createRegExpMatchesArray(vm, globalObject, string, input, regExp, lastIndex, result);
     if (!array) {
         RETURN_IF_EXCEPTION(scope, { });
@@ -131,12 +260,13 @@ ALWAYS_INLINE MatchResult RegExpObject::matchInline(JSGlobalObject* globalObject
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    RegExp* regExp = this->regExp();
     auto input = string->view(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
 
     unsigned lastIndex = getRegExpObjectLastIndexAsUnsigned(globalObject, this, input);
     RETURN_IF_EXCEPTION(scope, { });
+
+    RegExp* regExp = this->regExp();
     if (!regExp->global() && !regExp->sticky()) {
         scope.release();
         return globalObject->regExpGlobalData().performMatch(globalObject, regExp, string, input, 0);
@@ -169,6 +299,13 @@ inline uint64_t advanceStringUnicode(StringView s, unsigned length, uint64_t cur
         return currentIndex + 1;
 
     return currentIndex + 2;
+}
+
+inline uint64_t NODELETE advanceStringIndex(StringView str, unsigned strSize, uint64_t index, bool isUnicode)
+{
+    if (!isUnicode)
+        return ++index;
+    return advanceStringUnicode(str, strSize, index);
 }
 
 template<typename FixEndFunc>
@@ -295,7 +432,7 @@ ALWAYS_INLINE JSValue collectGlobalAtomMatches(JSGlobalObject* globalObject, JSS
         } else {
             if (pattern.length() == 1) {
                 oneCharacterMatch = true;
-                numberOfMatches = WTF::countMatchedCharacters(input->span16(), pattern.characterAt(0));
+                numberOfMatches = WTF::countMatchedCharacters(input->span16(), pattern.codeUnitAt(0));
             } else {
                 size_t startIndex = 0;
                 lastResult = genericMatches(vm, input->span16(), pattern.span8(), numberOfMatches, startIndex);
@@ -308,7 +445,7 @@ ALWAYS_INLINE JSValue collectGlobalAtomMatches(JSGlobalObject* globalObject, JSS
         } else {
             if (pattern.length() == 1) {
                 oneCharacterMatch = true;
-                numberOfMatches = WTF::countMatchedCharacters(input->span16(), pattern.characterAt(0));
+                numberOfMatches = WTF::countMatchedCharacters(input->span16(), pattern.codeUnitAt(0));
             } else {
                 size_t startIndex = 0;
                 lastResult = genericMatches(vm, input->span16(), pattern.span16(), numberOfMatches, startIndex);

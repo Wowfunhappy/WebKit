@@ -25,7 +25,8 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "IPCTestUtilities.h"
+#include "Helpers/Test.h"
 #include "TransferString.h"
 
 namespace TestWebKitAPI {
@@ -34,8 +35,8 @@ namespace TestWebKitAPI {
 // Tests that StringView -> IPC::TransferString -> String is the same as String.
 TEST(TransferStringTests, CreateFromString)
 {
-    Vector<Latin1Character> longLatin1Data(1024*1024, 'a');
-    Vector<char16_t> longUnicodeData(1024*1200, u'a');
+    Vector<Latin1Character> longLatin1Data(FillWith { }, 1024*1024, 'a');
+    Vector<char16_t> longUnicodeData(FillWith { }, 1024*1200, u'a');
 
     String subcases[] = {
         { },
@@ -48,17 +49,38 @@ TEST(TransferStringTests, CreateFromString)
     bool bools[] = { false, true };
     for (bool releaseToCopy : bools) {
         for (auto& subcase : subcases) {
-            SCOPED_TRACE(::testing::Message() << "releaseToCopy: " << releaseToCopy << " subcase: \"" << subcase << "\"");
             {
+                SCOPED_TRACE(::testing::Message() << "TransferString(String) releaseToCopy: " << releaseToCopy << " subcase: \"" << subcase << "\"");
                 auto ts = IPC::TransferString::create(subcase);
                 EXPECT_TRUE(ts.has_value());
                 auto string = releaseToCopy ? WTF::move(*ts).releaseToCopy() : WTF::move(*ts).release();
                 EXPECT_EQ(string, subcase);
             }
             {
+                SCOPED_TRACE(::testing::Message() << "TransferString(StringView) releaseToCopy: " << releaseToCopy << " subcase: \"" << subcase << "\"");
                 auto ts = IPC::TransferString::create(StringView { subcase });
                 EXPECT_TRUE(ts.has_value());
                 auto string = releaseToCopy ? WTF::move(*ts).releaseToCopy() : WTF::move(*ts).release();
+                EXPECT_EQ(string, subcase);
+            }
+
+            {
+                SCOPED_TRACE(::testing::Message() << "TransferString(String) IPC encode/decode, releaseToCopy: " << releaseToCopy << " subcase: \"" << subcase << "\"");
+                auto ts = IPC::TransferString::create(subcase);
+                EXPECT_TRUE(ts.has_value());
+                auto tsAfterIPC = copyViaEncoder(*ts);
+                ASSERT_TRUE(tsAfterIPC.has_value());
+                auto string = releaseToCopy ? WTF::move(*tsAfterIPC).releaseToCopy() : WTF::move(*tsAfterIPC).release();
+                EXPECT_EQ(string, subcase);
+            }
+
+            {
+                SCOPED_TRACE(::testing::Message() << "TransferString(StringView) IPC encode/decode, releaseToCopy: " << releaseToCopy << " subcase: \"" << subcase << "\"");
+                auto ts = IPC::TransferString::create(StringView { subcase });
+                EXPECT_TRUE(ts.has_value());
+                auto tsAfterIPC = copyViaEncoder(*ts);
+                ASSERT_TRUE(tsAfterIPC.has_value());
+                auto string = releaseToCopy ? WTF::move(*tsAfterIPC).releaseToCopy() : WTF::move(*tsAfterIPC).release();
                 EXPECT_EQ(string, subcase);
             }
         }

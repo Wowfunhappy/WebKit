@@ -44,7 +44,7 @@
 #import <wtf/HashTable.h>
 #import <wtf/KeyValuePair.h>
 #import <wtf/Ref.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/ThreadSafeWeakPtr.h>
 #import <wtf/Vector.h>
@@ -179,12 +179,12 @@ public:
     id<MTLBuffer> newBufferWithBytesNoCopy(void*, size_t, MTLResourceOptions, bool skipMemoryAttribution = false) const;
     id<MTLTexture> newTextureWithDescriptor(MTLTextureDescriptor *, IOSurfaceRef = nullptr, NSUInteger plane = 0) const;
 
-    static bool isStencilOnlyFormat(MTLPixelFormat);
+    static bool NODELETE isStencilOnlyFormat(MTLPixelFormat);
     bool NODELETE shouldStopCaptureAfterSubmit();
     id<MTLBuffer> placeholderBuffer() const { return m_placeholderBuffer; }
     uint64_t placeholderBufferUniqueId() const { return m_placeholderBuffer.gpuAddress; }
 
-    id<MTLTexture> placeholderTexture(WGPUTextureFormat) const;
+    id<MTLTexture> NODELETE placeholderTexture(WGPUTextureFormat) const;
     bool NODELETE isDestroyed() const;
     NSString *errorValidatingTextureCreation(const WGPUTextureDescriptor&, const Vector<WGPUTextureFormat>& viewFormats);
     id<MTLBuffer> _Nullable dispatchCallBuffer();
@@ -243,7 +243,7 @@ public:
         m_commandEncoderMap.remove(identifier);
     }
     bool supportsResidencySets() { return m_capabilities.baseCapabilities.supportsResidencySets; }
-    bool isCachedCompatibile(const BindGroupLayout&, const BindGroupLayout&) const;
+    bool NODELETE isCachedCompatibile(const BindGroupLayout&, const BindGroupLayout&) const;
     void setCachedCompatibile(const BindGroupLayout&, const BindGroupLayout&) const;
     void removeCachedBindGroupLayout(const BindGroupLayout&) const;
     static constexpr uint64_t maxPipelines = (1ull << (64 - 5));
@@ -265,11 +265,11 @@ private:
     Device(Adapter&);
 
     struct ErrorScope;
-    ErrorScope* currentErrorScope(WGPUErrorFilter);
+    ErrorScope* NODELETE currentErrorScope(WGPUErrorFilter);
     std::optional<WGPUErrorType> NODELETE validatePopErrorScope() const;
     bool validateCreateIOSurfaceBackedTexture(const WGPUTextureDescriptor&, const Vector<WGPUTextureFormat>& viewFormats, IOSurfaceRef backing);
 
-    bool validateRenderPipeline(const WGPURenderPipelineDescriptor&);
+    bool NODELETE validateRenderPipeline(const WGPURenderPipelineDescriptor&);
 
     void makeInvalid();
     NSString * _Nullable addPipelineLayouts(Vector<Vector<WGPUBindGroupLayoutEntry>>&, const std::optional<WGSL::PipelineLayout>&);
@@ -335,8 +335,7 @@ private:
     mutable HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_bindGroupCompatibilityCache;
     uint64_t m_commandEncoderId { 0 };
     uint64_t m_pipelineLayoutId { 0 };
-    uint64_t m_renderPipelineId { 0 };
-    uint64_t m_computePipelineId { 0 };
+    uint64_t m_pipelineId { 0 };
     uint32_t m_bindGroupLayoutId { 0 };
     uint32_t m_bindGroupId { 0 };
     uint32_t m_appleGPUFamily { 0 };
@@ -349,12 +348,12 @@ private:
 
 inline void refDevice(WebGPU::Device* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefDevice(WebGPU::Device* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 IGNORE_CLANG_WARNINGS_END

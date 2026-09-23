@@ -618,16 +618,6 @@ bool WKBundlePageCanShowMIMEType(WKBundlePageRef pageRef, WKStringRef mimeTypeRe
     return protect(WebKit::toImpl(pageRef))->canShowMIMEType(WebKit::toWTFString(mimeTypeRef));
 }
 
-WKRenderingSuppressionToken WKBundlePageExtendIncrementalRenderingSuppression(WKBundlePageRef pageRef)
-{
-    return protect(WebKit::toImpl(pageRef))->extendIncrementalRenderingSuppression();
-}
-
-void WKBundlePageStopExtendingIncrementalRenderingSuppression(WKBundlePageRef pageRef, WKRenderingSuppressionToken token)
-{
-    protect(WebKit::toImpl(pageRef))->stopExtendingIncrementalRenderingSuppression(token);
-}
-
 bool WKBundlePageIsUsingEphemeralSession(WKBundlePageRef pageRef)
 {
     return protect(WebKit::toImpl(pageRef))->usesEphemeralSession();
@@ -763,7 +753,7 @@ void WKBundlePageSetCaptionDisplayMode(WKBundlePageRef pageRef, WKStringRef mode
     if (displayMode.has_value())
         captionPreferences->setCaptionDisplayMode(displayMode.value());
 #else
-    UNUSED_PARAM(page);
+    UNUSED_PARAM(pageRef);
     UNUSED_PARAM(mode);
 #endif
 }
@@ -777,7 +767,7 @@ WKCaptionUserPreferencesTestingModeTokenRef WKBundlePageCreateCaptionUserPrefere
     Ref captionPreferences = protect(page->group())->ensureCaptionPreferences();
     return WebKit::toAPILeakingRef(API::CaptionUserPreferencesTestingModeToken::create(captionPreferences.get()));
 #else
-    UNUSED_PARAM(page);
+    UNUSED_PARAM(pageRef);
     return { };
 #endif
 }

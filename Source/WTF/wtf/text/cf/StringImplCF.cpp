@@ -23,12 +23,10 @@
 
 #if USE(CF)
 
-#include <CoreFoundation/CoreFoundation.h>
 #include <wtf/DebugHeap.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
-#include <wtf/Threading.h>
 
 namespace WTF {
 

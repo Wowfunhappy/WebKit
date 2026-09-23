@@ -116,21 +116,6 @@ private:
     unsigned m_length;
 };
 
-template<> class StringTypeAdapter<FormattedNumber> {
-public:
-    StringTypeAdapter(const FormattedNumber& number)
-        : m_number { number }
-    {
-    }
-
-    unsigned length() const { return m_number.length(); }
-    bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const { StringImpl::copyCharacters(destination, m_number.span()); }
-
-private:
-    const FormattedNumber& m_number;
-};
-
 class FormattedCSSNumber {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FormattedCSSNumber);
 public:
@@ -148,21 +133,6 @@ public:
 private:
     NumberToCSSStringBuffer m_buffer;
     unsigned m_length;
-};
-
-template<> class StringTypeAdapter<FormattedCSSNumber> {
-public:
-    StringTypeAdapter(const FormattedCSSNumber& number)
-        : m_number { number }
-    {
-    }
-
-    unsigned length() const { return m_number.length(); }
-    bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const { StringImpl::copyCharacters(destination, m_number.span()); }
-
-private:
-    const FormattedCSSNumber& m_number;
 };
 
 }

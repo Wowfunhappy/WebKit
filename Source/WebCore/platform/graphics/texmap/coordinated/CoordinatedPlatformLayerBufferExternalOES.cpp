@@ -40,6 +40,17 @@
 #include <gst/video/gstvideometa.h>
 #endif
 
+#if USE(SKIA)
+#include "ColorSpaceSkia.h"
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkImage.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+#include <skia/gpu/ganesh/SkImageGanesh.h>
+#include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
+
 namespace WebCore {
 
 std::unique_ptr<CoordinatedPlatformLayerBufferExternalOES> CoordinatedPlatformLayerBufferExternalOES::create(unsigned textureID, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
@@ -155,6 +166,27 @@ void CoordinatedPlatformLayerBufferExternalOES::paintToTextureMapper(TextureMapp
     display.destroyEGLImage(image);
 #endif // USE(GSTREAMER) && USE(GBM)
 }
+
+#if USE(SKIA)
+sk_sp<SkImage> CoordinatedPlatformLayerBufferExternalOES::skiaImage()
+{
+    waitForContentsIfNeeded();
+
+    if (!m_textureID) {
+        // FIXME: support Qualcomm decoder.
+        return nullptr;
+    }
+
+    auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+    ASSERT(grContext);
+    GrGLTextureInfo externalTexture;
+    externalTexture.fTarget = GL_TEXTURE_EXTERNAL_OES;
+    externalTexture.fID = m_textureID;
+    externalTexture.fFormat = GL_RGBA8;
+    auto backendTexture = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+    return SkImages::BorrowTextureFrom(grContext, backendTexture, kTopLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, kPremul_SkAlphaType, sRGBColorSpaceSingleton());
+}
+#endif
 
 } // namespace WebCore
 

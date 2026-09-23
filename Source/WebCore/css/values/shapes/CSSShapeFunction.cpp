@@ -54,7 +54,7 @@ void Serialize<RelativeControlPoint>::operator()(StringBuilder& builder, const S
 
     serializationForCSS(builder, context, value.offset);
 
-    if (value.anchor) {
+    if (value.anchor && *value.anchor != RelativeControlPoint::defaultAnchor) {
         builder.append(' ', nameLiteralForSerialization(CSSValueFrom), ' ');
         serializationForCSS(builder, context, *value.anchor);
     }
@@ -69,7 +69,7 @@ void Serialize<AbsoluteControlPoint>::operator()(StringBuilder& builder, const S
 
     serializationForCSS(builder, context, value.offset);
 
-    if (value.anchor) {
+    if (value.anchor && *value.anchor != AbsoluteControlPoint::defaultAnchor) {
         builder.append(' ', nameLiteralForSerialization(CSSValueFrom), ' ');
         serializationForCSS(builder, context, *value.anchor);
     }

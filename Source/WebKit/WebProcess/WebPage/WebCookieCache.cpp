@@ -152,7 +152,7 @@ void WebCookieCache::clearForHost(const String& host)
     if (removedHost.isNull())
         return;
 
-    protect(inMemoryStorageSession())->deleteCookiesForHostnames(Vector<String> { removedHost }, [] { });
+    protect(inMemoryStorageSession())->deleteCookiesForHostnames(singleElementSpan(removedHost), [] { });
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     protect(WebProcess::singleton().cookieJar())->removeChangeListener(removedHost, *this);
 #endif

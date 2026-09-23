@@ -51,6 +51,8 @@ class RealtimeMediaSource;
 class RealtimeOutgoingAudioSource;
 class RealtimeOutgoingVideoSource;
 
+struct LibWebRTCRtpReceiverBackendAndSource;
+
 class LibWebRTCPeerConnectionBackend final : public PeerConnectionBackend {
     WTF_MAKE_TZONE_ALLOCATED(LibWebRTCPeerConnectionBackend);
 public:
@@ -95,6 +97,8 @@ private:
 
     void collectTransceivers(Vector<Ref<RTCRtpTransceiver>>&&) final;
 
+    const HashMap<String, String>& trackIds() const { return m_trackIds; }
+
 private:
     bool isLocalDescriptionSet() const final { return m_isLocalDescriptionSet; }
 
@@ -108,7 +112,7 @@ private:
     template<typename T>
     ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiverFromTrackOrKind(T&& trackOrKind, const RTCRtpTransceiverInit&, IgnoreNegotiationNeededFlag = IgnoreNegotiationNeededFlag::No);
 
-    Ref<RTCRtpReceiver> createReceiver(UniqueRef<LibWebRTCRtpReceiverBackend>&&);
+    Ref<RTCRtpReceiver> createReceiver(LibWebRTCRtpReceiverBackendAndSource&&);
 
     void suspend() final;
     void resume() final;
@@ -119,9 +123,9 @@ private:
     bool m_isLocalDescriptionSet { false };
     bool m_isRemoteDescriptionSet { false };
 
-    Vector<std::unique_ptr<webrtc::IceCandidate>> m_pendingCandidates;
     Vector<Ref<RTCRtpReceiver>> m_pendingReceivers;
 
+    HashMap<String, String> m_trackIds;
     Function<void(String&&)> m_rtcStatsLogCallback;
 };
 

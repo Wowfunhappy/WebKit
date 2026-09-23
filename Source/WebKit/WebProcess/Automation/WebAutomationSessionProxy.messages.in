@@ -48,4 +48,8 @@ messages -> WebAutomationSessionProxy {
 
     GetCookiesForFrame(WebCore::PageIdentifier pageID, std::optional<WebCore::FrameIdentifier> frameID) -> (std::optional<String> errorType, Vector<WebCore::Cookie> cookies)
     DeleteCookie(WebCore::PageIdentifier pageID, std::optional<WebCore::FrameIdentifier> frameID, String cookieName) -> (std::optional<String> errorType)
+
+#if ENABLE(WEBDRIVER_BIDI)
+    EnsureRealmForInitialEmptyDocument(WebCore::PageIdentifier pageID)
+#endif
 }

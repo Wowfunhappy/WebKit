@@ -1,4 +1,6 @@
 
+PASS Border properties on a
+PASS Border properties on a (rtl)
 PASS Border properties on maction
 PASS Border properties on maction (rtl)
 PASS Border properties on menclose

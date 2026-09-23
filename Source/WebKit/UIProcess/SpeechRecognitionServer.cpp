@@ -68,6 +68,8 @@ SpeechRecognitionServer::SpeechRecognitionServer(WebProcessProxy& process, Speec
 {
 }
 
+SpeechRecognitionServer::~SpeechRecognitionServer() = default;
+
 std::optional<SharedPreferencesForWebProcess> SpeechRecognitionServer::sharedPreferencesForWebProcess() const
 {
     return m_process ? m_process->sharedPreferencesForWebProcess() : std::nullopt;
@@ -75,7 +77,7 @@ std::optional<SharedPreferencesForWebProcess> SpeechRecognitionServer::sharedPre
 
 void SpeechRecognitionServer::start(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier, String&& lang, bool continuous, bool interimResults, uint64_t maxAlternatives, WebCore::ClientOrigin&& origin, WebCore::FrameIdentifier mainFrameIdentifier, FrameInfoData&& frameInfo)
 {
-    ASSERT(!m_requests.contains(clientIdentifier));
+    MESSAGE_CHECK(!m_requests.contains(clientIdentifier));
     auto requestInfo = WebCore::SpeechRecognitionRequestInfo { clientIdentifier, WTF::move(lang), continuous, interimResults, maxAlternatives, WTF::move(origin), mainFrameIdentifier };
     auto& newRequest = m_requests.add(clientIdentifier, WebCore::SpeechRecognitionRequest::create(WTF::move(requestInfo))).iterator->value;
 
@@ -130,7 +132,7 @@ void SpeechRecognitionServer::handleRequest(Ref<WebCore::SpeechRecognitionReques
     }, WTF::move(request));
 
 #if ENABLE(MEDIA_STREAM)
-    auto sourceOrError = m_realtimeMediaSourceCreateFunction();
+    auto sourceOrError = m_realtimeMediaSourceCreateFunction(clientIdentifier);
     if (!sourceOrError) {
         sendUpdate(WebCore::SpeechRecognitionUpdate::createError(clientIdentifier, WebCore::SpeechRecognitionError { WebCore::SpeechRecognitionErrorType::AudioCapture, sourceOrError.error.errorMessage }));
         return;

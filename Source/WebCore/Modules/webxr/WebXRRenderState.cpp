@@ -59,7 +59,12 @@ WebXRRenderState::WebXRRenderState(const WebXRRenderState& other)
     : m_depth(other.m_depth)
     , m_passthroughFullyObscured(other.m_passthroughFullyObscured)
     , m_inlineVerticalFieldOfView(other.m_inlineVerticalFieldOfView)
-    , m_baseLayer(other.baseLayer())
+    , m_baseLayer(other.m_baseLayer)
+#if ENABLE(WEBXR_LAYERS)
+    , m_layers(other.m_layers)
+#endif
+    , m_outputCanvas(other.m_outputCanvas)
+    , m_compositionEnabled(other.m_compositionEnabled)
 {
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -68,7 +68,7 @@
     // Non-standard: We are the only browser to support this now that Blink dropped it (http://crbug.com/688943).
     [CEReactions=Needed, Reflect] attribute DOMString webkitdropzone;
 
-    [Conditional=WRITING_SUGGESTIONS, CEReactions=Needed] attribute boolean writingsuggestions;
+    [Conditional=WRITING_SUGGESTIONS, CEReactions=Needed, ReflectSetter] attribute [AtomString] DOMString writingSuggestions;
 };
 
 // https://html.spec.whatwg.org/multipage/dom.html#showpopoveroptions
@@ -84,5 +84,5 @@ dictionary TogglePopoverOptions : ShowPopoverOptions {
 HTMLElement includes GlobalEventHandlers;
 HTMLElement includes DocumentAndElementEventHandlers;
 HTMLElement includes ElementContentEditable;
-HTMLElement includes HTMLOrForeignElement;
+HTMLElement includes HTMLOrSVGOrMathMLElement;
 HTMLElement includes ElementCSSInlineStyle;

@@ -37,9 +37,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PlatformTimeRanges);
 
-PlatformTimeRanges::PlatformTimeRanges()
-{
-}
+PlatformTimeRanges::PlatformTimeRanges() = default;
 
 PlatformTimeRanges::PlatformTimeRanges(const MediaTime& start, const MediaTime& end)
 {
@@ -133,7 +131,8 @@ PlatformTimeRanges& PlatformTimeRanges::operator-=(const Range& range)
 
     auto firstEnd = std::max(m_ranges[0].start, range.start);
     auto secondStart = std::min(m_ranges.last().end, range.end);
-    Vector<Range> ranges { 2 };
+    Vector<Range> ranges;
+    ranges.reserveInitialCapacity(2);
     if (m_ranges[0].start != firstEnd)
         ranges.append({ m_ranges[0].start, firstEnd });
     if (secondStart != m_ranges.last().end)
@@ -271,7 +270,19 @@ bool PlatformTimeRanges::containWithEpsilon(const MediaTime& time, const MediaTi
     return findWithEpsilon(time, epsilon) != notFound;
 }
 
+bool PlatformTimeRanges::containWithEpsilon(const MediaTime& time, NOESCAPE const Function<MediaTime(const MediaTime&)>& epsilonAtTime) const
+{
+    return findWithEpsilon(time, epsilonAtTime(time)) != notFound;
+}
+
 bool PlatformTimeRanges::containWithEpsilon(const PlatformTimeRanges& ranges, const MediaTime& epsilon) const
+{
+    return containWithEpsilon(ranges, [&](const MediaTime&) {
+        return epsilon;
+    });
+}
+
+bool PlatformTimeRanges::containWithEpsilon(const PlatformTimeRanges& ranges, NOESCAPE const Function<MediaTime(const MediaTime&)>& epsilonAtTime) const
 {
     if (ranges.length() < 1)
         return true;
@@ -286,7 +297,7 @@ bool PlatformTimeRanges::containWithEpsilon(const PlatformTimeRanges& ranges, co
         return false;
 
     auto hasBufferedTime = [&] (const MediaTime& time) {
-        return abs(bufferedRanges.nearest(time) - time) <= epsilon;
+        return abs(bufferedRanges.nearest(time) - time) <= epsilonAtTime(time);
     };
 
     if (!hasBufferedTime(ranges.minimumBufferedTime()) || !hasBufferedTime(ranges.maximumBufferedTime()))
@@ -295,9 +306,10 @@ bool PlatformTimeRanges::containWithEpsilon(const PlatformTimeRanges& ranges, co
     if (bufferedRanges.length() == 1)
         return true;
 
-    // Ensure that if we have a gap in the buffered range, it is smaller than the fudge factor;
-    for (unsigned i = 1; i < bufferedRanges.length(); i++) {
-        if (bufferedRanges.end(i) - bufferedRanges.start(i-1) > epsilon)
+    // Ensure that if we have a gap in the buffered range, it is smaller than the epsilon tolerance at the gap's start;
+    auto rangesSpan = bufferedRanges.span();
+    for (size_t i = 1; i < rangesSpan.size(); i++) {
+        if (rangesSpan[i].start - rangesSpan[i - 1].end > epsilonAtTime(rangesSpan[i - 1].end))
             return false;
     }
 

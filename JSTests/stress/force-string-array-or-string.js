@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--jitPolicyScale=0")
 function foo(a0, a1) {
     try {

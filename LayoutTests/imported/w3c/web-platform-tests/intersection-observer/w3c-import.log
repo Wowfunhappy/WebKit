@@ -42,6 +42,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/idlharness.window.js
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/iframe-no-root-with-wrapping-scroller.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/iframe-no-root.html
+/LayoutTests/imported/w3c/web-platform-tests/intersection-observer/iframe-root-with-overflow-propagation.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/initial-observation-with-threshold.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/inline-client-rect.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/inline-with-block-child-client-rect.html
@@ -51,6 +52,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/intersection-ratio-with-fractional-bounds.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/isIntersecting-change-events.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/isIntersecting-threshold.html
+/LayoutTests/imported/w3c/web-platform-tests/intersection-observer/multicol-2.html
+/LayoutTests/imported/w3c/web-platform-tests/intersection-observer/multicol.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/multiple-targets.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/multiple-thresholds.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/nested-cross-origin-iframe.sub.html
@@ -63,6 +66,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/padding-clip.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/reinsert-element.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/remove-element.html
+/LayoutTests/imported/w3c/web-platform-tests/intersection-observer/root-is-table-with-overflow-scroll.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/root-margin-root-element.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/root-margin-rounding.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/root-margin.html

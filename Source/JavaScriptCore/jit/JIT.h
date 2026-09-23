@@ -184,13 +184,13 @@ namespace JSC {
         
         static CompilationResult compileSync(VM&, CodeBlock*, JITCompilationEffort);
 
-        static unsigned frameRegisterCountFor(UnlinkedCodeBlock*);
+        static unsigned NODELETE frameRegisterCountFor(UnlinkedCodeBlock*);
         static unsigned frameRegisterCountFor(CodeBlock*);
-        static int stackPointerOffsetFor(UnlinkedCodeBlock*);
+        static int NODELETE stackPointerOffsetFor(UnlinkedCodeBlock*);
         static int stackPointerOffsetFor(CodeBlock*);
 
         JS_EXPORT_PRIVATE static UncheckedKeyHashMap<CString, Seconds> compileTimeStats();
-        JS_EXPORT_PRIVATE static Seconds totalCompileTime();
+        JS_EXPORT_PRIVATE static Seconds NODELETE totalCompileTime();
 
     private:
         void privateCompileMainPass();
@@ -221,10 +221,16 @@ namespace JSC {
         void load32FromMetadata(const Bytecode&, size_t offset, GPRReg);
 
         template <typename Bytecode>
+        void load16FromMetadata(const Bytecode&, size_t offset, GPRReg);
+
+        template <typename Bytecode>
         void load8FromMetadata(const Bytecode&, size_t offset, GPRReg);
 
         template <typename ValueType, typename Bytecode>
         void store8ToMetadata(ValueType, const Bytecode&, size_t offset);
+
+        template <typename ValueType, typename Bytecode>
+        void store16ToMetadata(ValueType, const Bytecode&, size_t offset);
 
         template <typename Bytecode>
         void store32ToMetadata(GPRReg, const Bytecode&, size_t offset);
@@ -303,6 +309,7 @@ namespace JSC {
 #endif
         // value register in write barrier is used before any scratch registers
         // so may safely be the same as either of the scratch registers.
+        void emitWriteBarrier(JSValueRegs owner, WriteBarrierMode);
         void emitWriteBarrier(VirtualRegister owner, WriteBarrierMode);
         void emitWriteBarrier(VirtualRegister owner, VirtualRegister value, WriteBarrierMode);
         void emitWriteBarrier(JSCell* owner);
@@ -395,7 +402,7 @@ namespace JSC {
         void emit_op_get_argument(const JSInstruction*);
         void emit_op_argument_count(const JSInstruction*);
         void emit_op_check_tdz(const JSInstruction*);
-        void emit_op_identity_with_profile(const JSInstruction*);
+        void NODELETE emit_op_identity_with_profile(const JSInstruction*);
         void emit_op_debug(const JSInstruction*);
         void emit_op_del_by_id(const JSInstruction*);
         void emitSlow_op_del_by_id(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
@@ -408,7 +415,6 @@ namespace JSC {
         void emit_op_eq_null(const JSInstruction*);
         void emit_op_below(const JSInstruction*);
         void emit_op_beloweq(const JSInstruction*);
-        void emit_op_try_get_by_id(const JSInstruction*);
         void emit_op_get_by_id(const JSInstruction*);
         void emit_op_get_length(const JSInstruction*);
         void emit_op_get_by_id_with_this(const JSInstruction*);
@@ -435,7 +441,7 @@ namespace JSC {
 #if USE(BIGINT32)
         void emit_op_is_big_int(const JSInstruction*);
 #else
-        [[noreturn]] void emit_op_is_big_int(const JSInstruction*);
+        [[noreturn]] void NODELETE emit_op_is_big_int(const JSInstruction*);
 #endif
         void emit_op_is_object(const JSInstruction*);
         void emit_op_is_cell_with_type(const JSInstruction*);
@@ -469,7 +475,7 @@ namespace JSC {
         void emit_op_jtrue(const JSInstruction*);
         void emit_op_loop_hint(const JSInstruction*);
         void emit_op_check_traps(const JSInstruction*);
-        void emit_op_nop(const JSInstruction*);
+        void NODELETE emit_op_nop(const JSInstruction*);
         void emit_op_super_sampler_begin(const JSInstruction*);
         void emit_op_super_sampler_end(const JSInstruction*);
         void emit_op_lshift(const JSInstruction*);
@@ -516,6 +522,8 @@ namespace JSC {
         void emit_op_ret(const JSInstruction*);
         void emit_op_rshift(const JSInstruction*);
         void emit_op_set_function_name(const JSInstruction*);
+        void emit_op_async_iterator_open(const JSInstruction*);
+        void emitSlow_op_async_iterator_open(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emit_op_stricteq(const JSInstruction*);
         void emit_op_sub(const JSInstruction*);
         void emit_op_switch_char(const JSInstruction*);
@@ -560,7 +568,6 @@ namespace JSC {
         void emitSlow_op_call_direct_eval(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_eq(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_callee(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
-        void emitSlow_op_try_get_by_id(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_by_id(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_length(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_by_id_with_this(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
@@ -620,8 +627,11 @@ namespace JSC {
 
         void emit_op_iterator_open(const JSInstruction*);
         void emitSlow_op_iterator_open(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
+        template<typename Op> void emitIteratorOpenGeneric(const JSInstruction*);
+        template<typename Op> void emitSlowIteratorOpenGeneric(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emit_op_iterator_next(const JSInstruction*);
         void emitSlow_op_iterator_next(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
+        void emit_op_async_iterator_next(const JSInstruction*);
 
         void emitHasPrivate(VirtualRegister dst, VirtualRegister base, VirtualRegister propertyOrBrand, AccessType);
         void emitHasPrivateSlow(AccessType, Vector<SlowCaseEntry>::iterator&);

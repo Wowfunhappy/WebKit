@@ -56,7 +56,7 @@ void SVGMPathElement::buildPendingResource()
     if (!isConnected())
         return;
 
-    auto target = SVGURIReference::targetElementFromIRIString(href(), treeScopeForSVGReferences());
+    auto target = SVGURIReference::targetElementFromIRIString(href(), protect(treeScopeForSVGReferences()));
     if (!target.element) {
         // Do not register as pending if we are already pending this resource.
         Ref treeScope = treeScopeForSVGReferences();
@@ -78,23 +78,23 @@ void SVGMPathElement::clearResourceReferences()
     removeElementReference();
 }
 
-Node::InsertedIntoAncestorResult SVGMPathElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGMPathElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        return NeedsPostConnectionSteps::Yes;
     return result;
 }
 
-void SVGMPathElement::didFinishInsertingNode()
+void SVGMPathElement::postConnectionSteps()
 {
-    SVGElement::didFinishInsertingNode();
+    SVGElement::postConnectionSteps();
     buildPendingResource();
 }
 
-void SVGMPathElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void SVGMPathElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    SVGElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    SVGElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         clearResourceReferences();
 }
@@ -118,7 +118,7 @@ void SVGMPathElement::svgAttributeChanged(const QualifiedName& attrName)
 
 RefPtr<SVGPathElement> SVGMPathElement::pathElement()
 {
-    auto target = targetElementFromIRIString(href(), treeScopeForSVGReferences());
+    auto target = targetElementFromIRIString(href(), protect(treeScopeForSVGReferences()));
     return dynamicDowncast<SVGPathElement>(target.element);
 }
 

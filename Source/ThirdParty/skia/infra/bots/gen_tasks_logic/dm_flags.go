@@ -523,6 +523,10 @@ func (b *TaskBuilder) dmFlags(internalHardwareLabel string) {
 					skip(ALL, "test", ALL, "ThreadedPipelinePrecompileCompileTest")
 					skip(ALL, "test", ALL, "ThreadedPipelinePrecompileCompilePurgingTest")
 
+					// b/486965497 - The Dawn/GLES backend is also failing these two tests
+					skip(ALL, "test", ALL, "ThreadedPipelinePrecompileTest")
+					skip(ALL, "test", ALL, "ThreadedPipelinePrecompilePurgingTest")
+
 					// b/425434638 - PaintParamsKeyTest failing on Release Dawn_GLES
 					skip(ALL, "test", ALL, "PaintParamsKeyTest")
 				}
@@ -967,6 +971,9 @@ func (b *TaskBuilder) dmFlags(internalHardwareLabel string) {
 	if b.ExtraConfig("NativeFonts") { // images won't exercise native font integration :)
 		removeFromArgs("image")
 		removeFromArgs("colorImage")
+	} else {
+		// Not reliable on non-NativeFonts
+		skip(ALL, "test", ALL, "Skottie_Shaper_CTStrict")
 	}
 
 	if b.MatchExtraConfig("Graphite") {
@@ -1701,6 +1708,17 @@ func (b *TaskBuilder) dmFlags(internalHardwareLabel string) {
 		match = []string{
 			"RustPngCodec",
 			"RustEncodePng",
+		}
+	}
+
+	if b.MatchExtraConfig("RustALL") {
+		skipped = []string{}
+		match = []string{
+			"RustBmpCodec",
+			"RustEncodePng",
+			"RustExif",
+			"RustIcc",
+			"RustPngCodec",
 		}
 	}
 

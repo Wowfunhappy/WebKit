@@ -25,50 +25,27 @@
 
 #pragma once
 
-#include "CSSPrimitiveValue.h"
+#include "CSSFontStyleRange.h"
 #include "CSSValue.h"
-#include "CSSValueList.h"
 
 namespace WebCore {
 
 class CSSFontStyleRangeValue final : public CSSValue {
 public:
-    static Ref<CSSFontStyleRangeValue> create(Ref<CSSPrimitiveValue>&& fontStyleValue)
-    {
-        return adoptRef(*new CSSFontStyleRangeValue(WTF::move(fontStyleValue), nullptr));
-    }
-    static Ref<CSSFontStyleRangeValue> create(Ref<CSSPrimitiveValue>&& fontStyleValue, RefPtr<CSSValueList>&& obliqueValues)
-    {
-        return adoptRef(*new CSSFontStyleRangeValue(WTF::move(fontStyleValue), WTF::move(obliqueValues)));
-    }
+    static Ref<CSSFontStyleRangeValue> create(CSS::FontStyleRange&&);
+
+    const CSS::FontStyleRange& fontStyleRange() const LIFETIME_BOUND { return m_fontStyleRange; };
 
     String customCSSText(const CSS::SerializationContext&) const;
-
     bool equals(const CSSFontStyleRangeValue&) const;
-
-    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
-    {
-        if (func(fontStyleValue.get()) == IterationStatus::Done)
-            return IterationStatus::Done;
-        if (RefPtr obliqueValues = this->obliqueValues) {
-            if (func(*obliqueValues) == IterationStatus::Done)
-                return IterationStatus::Done;
-        }
-        return IterationStatus::Continue;
-    }
-
-    Ref<CSSPrimitiveValue> fontStyleValue;
-    RefPtr<CSSValueList> obliqueValues;
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
 
 private:
-    CSSFontStyleRangeValue(Ref<CSSPrimitiveValue>&& fontStyleValue, RefPtr<CSSValueList>&& obliqueValues)
-        : CSSValue(ClassType::FontStyleRange)
-        , fontStyleValue(WTF::move(fontStyleValue))
-        , obliqueValues(WTF::move(obliqueValues))
-    {
-    }
+    CSSFontStyleRangeValue(CSS::FontStyleRange&&);
+
+    CSS::FontStyleRange m_fontStyleRange;
 };
 
-}
+} // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSFontStyleRangeValue, isFontStyleRangeValue())

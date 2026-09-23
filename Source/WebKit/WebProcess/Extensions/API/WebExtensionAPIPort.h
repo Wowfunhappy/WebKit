@@ -135,7 +135,7 @@ private:
     void add();
     void remove();
 
-    void fireMessageEventIfNeeded(id message);
+    void fireMessageEventIfNeeded(id message, bool userGesture);
     void fireDisconnectEventIfNeeded();
 
     WebExtensionContentWorldType m_targetContentWorldType;

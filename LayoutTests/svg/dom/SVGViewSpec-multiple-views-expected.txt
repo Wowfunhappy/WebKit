@@ -11,10 +11,6 @@ Check transform value
 PASS currentView.transformString is ""
 PASS currentView.transform.numberOfItems is 0
 
-Check viewTarget value
-PASS currentView.viewTargetString is ""
-PASS currentView.viewTarget is null
-
 Check zoomAndPan value
 PASS currentView.zoomAndPan is SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY
 
@@ -38,10 +34,6 @@ PASS iframeElement.contentDocument.documentElement is firstDocumentElement
 Check transform value
 PASS currentView.transformString is ""
 PASS currentView.transform.numberOfItems is 0
-
-Check viewTarget value
-PASS currentView.viewTargetString is ""
-PASS currentView.viewTarget is null
 
 Check zoomAndPan value
 PASS currentView.zoomAndPan is SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY
@@ -78,10 +70,6 @@ PASS currentView.transform.numberOfItems is 1
 PASS currentView.transform.getItem(0).type is SVGTransform.SVG_TRANSFORM_SCALE
 PASS currentView.transform.getItem(0).angle is 0
 PASS matrixToString(currentView.transform.getItem(0).matrix) is "[2.00 0.00 0.00 2.00 0.00 0.00]"
-
-Check viewTarget value
-PASS currentView.viewTargetString is ""
-PASS currentView.viewTarget is null
 
 Check zoomAndPan value
 PASS currentView.zoomAndPan is SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY

@@ -176,7 +176,7 @@ private:
     void getNotifications(const URL& registrationURL, const String& tag, CompletionHandler<void(Expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&&);
 #endif
 
-    void checkTopOrigin(const WebCore::SecurityOriginData&);
+    bool checkTopOrigin(const WebCore::SecurityOriginData&);
 
     URL clientURLFromIdentifier(WebCore::ServiceWorkerOrClientIdentifier);
 
@@ -184,7 +184,7 @@ private:
     uint64_t messageSenderDestinationID() const final { return 0; }
     
     template<typename U> static void sendToContextProcess(WebCore::SWServerToContextConnection&, U&& message);
-    NetworkProcess& NODELETE networkProcess();
+    NetworkProcess* NODELETE networkProcess();
 
     bool isWebSWServerConnection() const final { return true; }
 

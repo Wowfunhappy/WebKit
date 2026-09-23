@@ -40,9 +40,13 @@
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ConsoleMessage.h>
 #include <JavaScriptCore/Exception.h>
+#include <JavaScriptCore/JSCJSValuePropertyInlines.h>
 #include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/JSObjectRef.h>
 #include <JavaScriptCore/JSStringRefPrivate.h>
 #include <JavaScriptCore/OpaqueJSString.h>
+#include <JavaScriptCore/SourceTaintedOrigin.h>
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/AccessibilityObject.h>
 #include <WebCore/ContainerNodeInlines.h>
@@ -70,12 +74,14 @@
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/RenderElement.h>
+#include <WebCore/ScriptController.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
 
 #if ENABLE(WEBDRIVER_BIDI)
 #include <WebCore/AutomationInstrumentation.h>
+#include <WebCore/DOMWrapperWorld.h>
 #endif
 
 namespace WebKit {
@@ -330,7 +336,7 @@ WebCore::Element* WebAutomationSessionProxy::elementForNodeHandle(WebFrame& fram
     if (!element)
         return nullptr;
 
-    auto elementWrapper = JSC::jsDynamicCast<WebCore::JSElement*>(toJS(element));
+    auto elementWrapper = dynamicDowncast<WebCore::JSElement>(toJS(element));
     if (!elementWrapper)
         return nullptr;
 
@@ -362,8 +368,7 @@ WebCore::AccessibilityObject* WebAutomationSessionProxy::getAccessibilityObjectF
         return nullptr;
     }
 
-    if (!WebCore::AXObjectCache::accessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility();
+    WebCore::AXObjectCache::enableAccessibility();
 
     if (CheckedPtr axObjectCache = protect(coreElement->document())->axObjectCache()) {
         // Force a layout and cache update. If we don't, and this request has come in before the render tree was built,
@@ -1006,7 +1011,7 @@ static WebCore::IntRect snapshotElementRectForScreenshot(WebPage& page, WebCore:
             return { };
 
         WebCore::LayoutRect topLevelRect;
-        WebCore::IntRect elementRect = WebCore::snappedIntRect(protect(element->renderer())->paintingRootRect(topLevelRect));
+        WebCore::IntRect elementRect = WebCore::snappedIntRect(protect(element->renderer())->subtreePaintRootRect(topLevelRect));
         if (clipToViewport)
             elementRect.intersect(frameView->visibleContentRect());
 
@@ -1146,6 +1151,58 @@ void WebAutomationSessionProxy::deleteCookie(WebCore::PageIdentifier pageID, std
 void WebAutomationSessionProxy::addMessageToConsole(const JSC::MessageSource& source, const JSC::MessageLevel& level, const String& messageText, const JSC::MessageType& type, const WallTime& timestamp)
 {
     protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebAutomationSession::LogEntryAdded(source, level, messageText, type, timestamp), 0);
+}
+
+void WebAutomationSessionProxy::scriptRealmCreated(WebCore::FrameIdentifier frameID, const WebCore::SecurityOriginData& origin)
+{
+    WeakPtr frame = WebProcess::singleton().webFrame(frameID);
+    if (!frame)
+        return;
+
+    auto realmIdentifier = RealmIdentifier::generate();
+    m_frameToRealmIdentifier.set(frameID, realmIdentifier);
+
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebAutomationSession::ScriptRealmCreated(frameID, realmIdentifier, origin), 0);
+}
+
+void WebAutomationSessionProxy::scriptRealmDestroyed(WebCore::FrameIdentifier frameID)
+{
+    WeakPtr frame = WebProcess::singleton().webFrame(frameID);
+    if (!frame)
+        return;
+
+    auto it = m_frameToRealmIdentifier.find(frameID);
+    if (it == m_frameToRealmIdentifier.end())
+        return;
+
+    auto realmIdentifier = it->value;
+    m_frameToRealmIdentifier.remove(it);
+
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebAutomationSession::ScriptRealmDestroyed(frameID, realmIdentifier), 0);
+}
+
+void WebAutomationSessionProxy::ensureRealmForInitialEmptyDocument(WebCore::PageIdentifier pageID)
+{
+    RefPtr page = WebProcess::singleton().webPage(pageID);
+    if (!page)
+        return;
+
+    RefPtr frame = &page->mainWebFrame();
+    RefPtr coreFrame = frame->coreLocalFrame();
+    if (!coreFrame)
+        return;
+
+    // FIXME: Eager JSWindowProxy creation for BiDi compliance makes automation tooling invasive by
+    // forcing JSGlobalObject materialization earlier than WebKit's lazy architecture would naturally.
+    // The better long-term solution is a logical realm registry that binds to JSGlobalObject when it
+    // naturally materializes, preserving both spec compliance and WebKit's lazy semantics. This hybrid
+    // approach should be prioritized for worker/worklet realm implementation where eager materialization
+    // poses greater risks. See https://bugs.webkit.org/show_bug.cgi?id=310506
+
+    // Force creation of JSWindowProxy for the normal world without executing script.
+    // Accessing jsWindowProxy() will create the proxy if it doesn't exist, which triggers
+    // the scriptRealmCreated instrumentation in WindowProxy::createJSWindowProxy().
+    protect(coreFrame->windowProxy())->jsWindowProxy(mainThreadNormalWorldSingleton());
 }
 #endif
 

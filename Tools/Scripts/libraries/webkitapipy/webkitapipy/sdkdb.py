@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import sys
 from enum import Enum
 from fnmatch import fnmatch
 from typing import Any, Callable, Iterable, Mapping, NamedTuple, Optional, Union
@@ -35,10 +34,11 @@ from pathlib import Path
 from .macho import APIReport, objc_fully_qualified_method
 from .tbd import TBD
 from .allow import AllowList
+from .swift_mangle import mangle_partial
 
 # Increment this number to force clients to rebuild from scratch, to
 # accomodate schema changes or fix caching bugs.
-VERSION = 9
+VERSION = 10
 
 
 class DeclarationKind(Enum):
@@ -182,15 +182,16 @@ class SDKDB:
             return
         cur.execute('CREATE TABLE input_file(path PRIMARY KEY, hash)')
         cur.execute('CREATE TABLE exports('
-                    '   name, class_name, kind DeclarationKind, '
+                    '   name TEXT, class_name, kind DeclarationKind, '
                     '   input_file REFERENCES input_file(path) '
                     '              ON DELETE CASCADE)')
         cur.execute('CREATE INDEX export_names ON exports (name, kind)')
         cur.execute('CREATE TABLE allow('
-                    '   name, class_name, allow_unused, kind DeclarationKind, '
+                    '   name TEXT, is_prefix, class_name, allow_unused, '
+                    '   kind DeclarationKind, '
                     '   cond_id, input_file REFERENCES input_file(path) '
                     '                       ON DELETE CASCADE)')
-        cur.execute('CREATE INDEX allow_names ON allow (name, kind)')
+        cur.execute('CREATE INDEX allow_names ON allow (name, kind, is_prefix)')
         cur.execute('CREATE TABLE condition_chain(name, '
                     "   op CHECK (op IN ('==', '!=', '<', '<=', '>', '>=')), "
                     '   operand, nextid, '
@@ -203,10 +204,11 @@ class SDKDB:
         cur = self.con.cursor()
         cur.execute('CREATE TEMPORARY TABLE window(input_file)')
         cur.execute('CREATE INDEX selected_files ON window(input_file)')
-        cur.execute('CREATE TEMPORARY TABLE imports(name, '
+        cur.execute('CREATE TEMPORARY TABLE imports(name TEXT, '
                     '   kind DeclarationKind, input_file, arch)')
         cur.execute('CREATE INDEX import_names ON imports(name, kind)')
         cur.execute('CREATE TEMPORARY TABLE condition(name UNIQUE, value)')
+        cur.execute('CREATE TEMPORARY TABLE active_cond(nextid, name TEXT)')
         self.con.commit()
 
     def __del__(self):
@@ -315,16 +317,23 @@ class SDKDB:
     class InsertionKind(Enum):
         EXPORTS = 1
         ALLOW = 2
+        ALLOW_PREFIX = 3
 
         @property
         def statement(self) -> str:
             if self == self.EXPORTS:
-                return (f'INSERT INTO exports VALUES (:name, :class_name, '
-                        '                             :kind, :file)')
-            else:  # self.ALLOW
-                return (f'INSERT INTO allow VALUES (:name, :class_name, '
+                return ('INSERT INTO exports VALUES (:name, :class_name, '
+                        '                            :kind, :file)')
+            elif self == self.ALLOW:
+                return ('INSERT INTO allow VALUES (:name, 0, :class_name, '
                         '                           :allow_unused, :kind, '
                         '                           :cond, :file)')
+            elif self == self.ALLOW_PREFIX:
+                return ('INSERT INTO allow VALUES (:name, 1, :class_name, '
+                        '                          :allow_unused, :kind, '
+                        '                          :cond, :file)')
+            else:
+                raise RuntimeError('unreachable')
 
     def _add_api_report(self, report: APIReport, binary: Path,
                         dest=InsertionKind.EXPORTS):
@@ -416,6 +425,16 @@ class SDKDB:
                                         dest=self.InsertionKind.ALLOW,
                                         cond_id=cond_id,
                                         allow_unused=entry.allow_unused)
+            for decl in entry.swift_decls:
+                mangled = mangle_partial(decl.name, type_kinds=decl.type_kinds,
+                                         extension_module=decl.extension,
+                                         extension_base_depth=decl.extension_base_depth)
+                assert all(c != '*' and c != '?' for c in mangled), \
+                    'Mangled Swift symbol "{mangled}" contains glob characters'
+                self._add_symbol(mangled, allowlist,
+                                 dest=self.InsertionKind.ALLOW_PREFIX,
+                                 cond_id=cond_id,
+                                 allow_unused=entry.allow_unused)
 
     def add_conditions(self, conditions: Mapping[str, ConditionVariable]):
         cur = self.con.cursor()
@@ -450,92 +469,141 @@ class SDKDB:
                         ((sel, OBJC_SEL, path, report.arch)
                          for sel in report.selrefs))
 
-    def audit(self) -> Iterable[Diagnostic]:
-        cur = self.con.cursor()
-        # First compute the "-D" defines that are active by traversing the
-        # `condition_chain` graph structure. Start with rows that have no
-        # `nextid` edge, and keep only the ones whose names are active (or
-        # inactive, if the condition is inverted). Repeat the process with rows
-        # whose nextid is in the table, until no rows are added.
-        cur.execute('WITH RECURSIVE active_cond AS ('
+    def backup_temp_data(self, file: Path) -> None:
+        backup = sqlite3.connect(file)
+        self.con.commit()
+        self.con.backup(backup, pages=1, name='temp')
+        backup.close()
+
+    def _materialize_active_conditions(self, cur) -> None:
+        """Populate a temp table by traversing the condition_chain graph to
+        find allowlist entries whose conditions are all satisfied."""
+        cur.execute('DELETE FROM active_cond')
+        cur.execute('INSERT INTO active_cond '
+                    'WITH RECURSIVE ac AS ('
                     '   SELECT cc.rowid AS nextid, name '
                     '   FROM condition_chain AS cc NATURAL LEFT JOIN condition '
-                    '   WHERE nextid IS NULL AND '
+                    '   WHERE cc.nextid IS NULL AND '
                     f'        {apply_operator_sql("cc.op", "condition.value", "cc.operand")}'
                     '   UNION ALL '
                     '   SELECT cc.rowid AS nextid, cc.name '
-                    '   FROM condition_chain AS cc JOIN active_cond USING (nextid) '
+                    '   FROM condition_chain AS cc JOIN ac USING (nextid) '
                     '   NATURAL LEFT JOIN condition '
                     f'  WHERE {apply_operator_sql("cc.op", "condition.value", "cc.operand")}'
-                    ') '
-                    # Then cross-check imports and allowed declarations against
-                    # exports.
-                    'SELECT i.arch, i.kind, i.input_file, i.name, '
-                    '       a.kind, group_concat(aw.input_file), a.name, '
-                    '           min(a.allow_unused), '
-                    '       group_concat(ew.input_file), '
+                    ') SELECT * FROM ac')
+
+    def _query_missing_imports(self, cur) -> list:
+        """Find imported names that have no matching export in any loaded file."""
+        cur.execute('SELECT i.arch, i.kind, i.input_file, i.name, '
                     '       sum(e.name IS NOT NULL AND '
-                    '           ew.input_file IS NOT NULL) as export_found, '
-                    '       sum(a.name IS NOT NULL AND '
-                    '           a.cond_id IS c.nextid AND '
-                    '           (ew.input_file IS NULL OR '
-                    '            a.class_name = e.class_name IS NOT FALSE) AND '
-                    '           aw.input_file IS NOT NULL) as allow_found '
+                    '           ew.input_file IS NOT NULL) as export_found '
                     'FROM imports AS i '
                     'LEFT JOIN exports AS e USING (name, kind) '
-                    'FULL JOIN allow AS a USING (name, kind) '
-                    # The `input_file` columns added by these joins will be
-                    # NULL if the respective export or allowed declaration is
-                    # not loaded (i.e. it's in the cache from some other
-                    # invocation).
                     'FULL JOIN window AS ew ON ew.input_file = e.input_file '
+                    'GROUP BY i.kind, i.name, i.input_file '
+                    'HAVING i.name IS NOT NULL AND export_found = 0 '
+                    'ORDER BY i.input_file, i.kind, i.name')
+        return cur.fetchall()
+
+    # Note on prefix matching: The below queries use range lookups instead of
+    # LIKE or GLOB to match names in allowlist entries. Plain LIKE and GLOB
+    # cannot be optimized because the query planner doesn't know whether the
+    # pattern string is a prefix match or not, so the LIKE optimization
+    # <https://sqlite.org/optoverview.html#the_like_optimization> does not
+    # apply.
+    #
+    # The range lookup (q >= p AND q < p||X'FF') is equivalent to what the LIKE
+    # optimization would expand to. The upper bound of the range works because
+    # 0xFF is larger than any starting UTF-8 byte, so it sorts after `name` but
+    # before the next possible UTF-8 string.
+
+    def _query_allowed_imports(self, cur) -> list:
+        """Find imported names that match a loaded allowlist entry."""
+        cur.execute('SELECT i.kind, i.name, '
+                    '       a.kind, group_concat(aw.input_file), a.name, a.class_name, '
+                    '           max(a.is_prefix), min(a.allow_unused), '
+                    '       sum(a.name IS NOT NULL AND '
+                    '           a.cond_id IS c.nextid AND '
+                    '           aw.input_file IS NOT NULL) as allow_found '
+                    'FROM allow AS a '
+                    'LEFT JOIN imports AS i '
+                    '     ON (i.name = a.name '
+                    '         OR (a.is_prefix AND i.name >= a.name '
+                    '             AND i.name < a.name||X\'FF\')) '
+                    '        AND i.kind = a.kind '
                     'FULL JOIN window AS aw ON aw.input_file = a.input_file '
                     'LEFT JOIN active_cond AS c ON a.cond_id = c.nextid '
-                    # There may be multiple entries for the same name in the
-                    # cache (multiple binaries that implement the same
-                    # selector, or different allowlists that allow the same
-                    # name. Coalesce the results and only return entries where
-                    # an import name has *no* exports found, or an allowed name
-                    # comes from at least one loaded file. Ignore ObjC methods
-                    # in allowlists which partially match an exported method
-                    # (i.e. selector matches but class does not).
-                    #
-                    # This is sufficient to remove all rows in the common
-                    # case--imported API that matches an exported delcaration.
-                    # The remaining logic to identify problem is done in Python
-                    # below.
                     'GROUP BY i.kind, a.kind, i.name, a.name, i.input_file '
-                    'HAVING export_found = 0 OR '
-                    '   (allow_found > 0 AND '
-                    '    e.class_name = a.class_name IS NOT FALSE) '
+                    'HAVING allow_found > 0 '
                     'ORDER BY i.input_file, i.kind, a.kind, i.name, a.name')
-        for (arch, import_kind, input_path, import_name,
-             allowed_kind, allowlist_paths, allowed_name, allow_unused,
-             export_paths, export_found, allow_found) in cur.fetchall():
-            if import_name and not export_found and not allow_found:
-                # Imported but neither exported nor allowed => possible SPI.
-                yield MissingName(name=import_name, file=Path(input_path),
-                                  arch=arch, kind=import_kind)
-            elif not import_name and allow_found and not allow_unused:
-                # Not imported but allowed => unused allowlist entry to remove.
-                # FIXME: split(',') falls apart if an allowlist path contains a
-                # comma. We could improve this by using quote() in the query
-                # and unquoting here.
-                for path in sorted(set(allowlist_paths.split(','))):
-                    yield UnusedAllowedName(name=allowed_name, file=Path(path),
-                                            kind=allowed_kind)
-            elif allow_found and export_found:
-                # Allowed but also exported => unnecessary allowlist entry to
-                # remove.
-                for path in sorted(set(allowlist_paths.split(','))):
-                    # Normally, a declaration would only be exported from one
-                    # library in the SDK. If the cache sees multiple sources,
-                    # just pick one.
-                    export_path = min(export_paths.split(','))
-                    yield UnnecessaryAllowedName(name=allowed_name,
-                                                 file=Path(path),
-                                                 kind=allowed_kind,
-                                                 exported_in=Path(export_path))
+        return cur.fetchall()
+
+    def _find_export_sources(self, cur, allowed_name: str, allowed_kind: DeclarationKind,
+                             allowed_class: Optional[str], is_prefix: bool) -> list:
+        """Look up which loaded files export a given name."""
+        params = {'name': allowed_name, 'kind': allowed_kind, 'class': allowed_class}
+        where_clause = ('e.name >= :name AND e.name < :name||X\'FF\''
+                        if is_prefix else 'e.name = :name')
+        cur.execute('SELECT DISTINCT e.input_file FROM exports AS e '
+                    'JOIN window AS ew ON ew.input_file = e.input_file '
+                    f'WHERE {where_clause} AND e.kind = :kind '
+                    # For ObjC selectors, ignore mismatching classes if the
+                    # allowlist entry has a class.
+                    'AND (e.class_name = :class OR :class IS NULL) '
+                    'ORDER BY e.input_file ', params)
+        return cur.fetchall()
+
+    def audit(self, debug_query_plan=False) -> Iterable[Diagnostic]:
+        cur = self.con.cursor()
+
+        self._materialize_active_conditions(cur)
+        # Maps from a name-kind pair representing an imported declaration to
+        # the file-arch slice that it appears in.
+        missing = {}
+        for arch, kind, path, name, _ in self._query_missing_imports(cur):
+            missing[(name, kind)] = (arch, path)
+
+        # Tracks when a prefix symbol for a swift declaration has been
+        # encountered, to avoid reporting issues for the same entry multiple
+        # times.
+        seen_prefixes: set[str] = set()
+
+        for (import_kind, import_name,
+             allowed_kind, allowlist_paths, allowed_name, allowed_class,
+             is_prefix, allow_unused, _) in self._query_allowed_imports(cur):
+            display_name = allowed_name + ('*' if is_prefix else '')
+            allowlist_files = sorted(set(allowlist_paths.split(',')))
+
+            if import_name is None:
+                # Not imported: allowlist entry can be cleaned up.
+                if allow_unused:
+                    continue
+                for path in allowlist_files:
+                    yield UnusedAllowedName(name=display_name,
+                                            file=Path(path), kind=allowed_kind)
+            else:
+                if missing.pop((import_name, import_kind), None):
+                    # Matches a missing declaration: SPI allowed.
+                    continue
+                # Imported, allowed, and present in the exports table:
+                # allowlist entry can be cleaned up.
+                if is_prefix:
+                    if allowed_name in seen_prefixes:
+                        continue
+                    seen_prefixes.add(allowed_name)
+                for export_file, in self._find_export_sources(
+                        cur, allowed_name, allowed_kind,
+                        allowed_class, is_prefix):
+                    for path in allowlist_files:
+                        yield UnnecessaryAllowedName(
+                            name=display_name, file=Path(path),
+                            kind=allowed_kind, exported_in=Path(export_file))
+
+        # Any remaining missing entries are not covered by active allowlist
+        # entries.
+        for (name, kind), (arch, input_file) in missing.items():
+            yield MissingName(name=name, file=Path(input_file),
+                              arch=arch, kind=kind)
 
     def stats(self):
         cur = self.con.cursor()

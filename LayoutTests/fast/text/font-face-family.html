@@ -5,17 +5,17 @@
 </head>
 <body>
 <script>
-// The family name passed in to create a FontFace should not be parsed or serialized, but just treated as a family name string.
+// The family attribute should return the serialization of the parsed value.
 shouldBeEqualToString("(new FontFace('a', 'url(garbage.otf)')).family", "a");
-shouldBeEqualToString("(new FontFace('4a', 'url(garbage.otf)')).family", "4a");
-shouldBeEqualToString("(new FontFace('4\"a', 'url(garbage.otf)')).family", "4\"a");
-shouldBeEqualToString("(new FontFace('4\\'a', 'url(garbage.otf)')).family", "4'a");
-shouldBeEqualToString("(new FontFace('4\\'a\"b', 'url(garbage.otf)')).family", "4'a\"b");
+shouldBeEqualToString("(new FontFace('4a', 'url(garbage.otf)')).family", "\"4a\"");
+shouldBeEqualToString("(new FontFace('4\"a', 'url(garbage.otf)')).family", "\"4\\\"a\"");
+shouldBeEqualToString("(new FontFace('4\\'a', 'url(garbage.otf)')).family", "\"4'a\"");
+shouldBeEqualToString("(new FontFace('4\\'a\"b', 'url(garbage.otf)')).family", "\"4'a\\\"b\"");
 shouldBeEqualToString("(new FontFace('ab', 'url(garbage.otf)')).family", "ab");
-shouldBeEqualToString("(new FontFace('\"ab\"', 'url(garbage.otf)')).family", "\"ab\"");
+shouldBeEqualToString("(new FontFace('\"ab\"', 'url(garbage.otf)')).family", "\"\\\"ab\\\"\"");
 shouldBeEqualToString("(new FontFace('a b', 'url(garbage.otf)')).family", "a b");
-shouldBeEqualToString("(new FontFace('a b, c', 'url(garbage.otf)')).family", "a b, c");
-shouldBeEqualToString("(new FontFace('ab,c', 'url(garbage.otf)')).family", "ab,c");
+shouldBeEqualToString("(new FontFace('a b, c', 'url(garbage.otf)')).family", "\"a b, c\"");
+shouldBeEqualToString("(new FontFace('ab,c', 'url(garbage.otf)')).family", "\"ab,c\"");
 </script>
 </body>
 </html>

@@ -204,7 +204,7 @@ TEST(FidoHidMessageTest, TestMaxSize)
 TEST(FidoHidMessageTest, TestDeconstruct)
 {
     uint32_t channelId = 0x0A0B0C0D;
-    Vector<uint8_t> data(kHidMaxMessageSize, 0x7F);
+    Vector<uint8_t> data(FillWith { }, kHidMaxMessageSize, 0x7F);
     auto filledMessage = FidoHidMessage::create(channelId, FidoHidDeviceCommand::kPing, data);
     ASSERT_TRUE(filledMessage);
     EXPECT_EQ(data, filledMessage->getMessagePayload());

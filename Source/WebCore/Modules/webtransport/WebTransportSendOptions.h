@@ -25,11 +25,10 @@
 
 #pragma once
 
+#include "WebTransportSendGroup.h"
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
-
-class WebTransportSendGroup;
 
 struct WebTransportSendOptions {
     RefPtr<WebTransportSendGroup> sendGroup;

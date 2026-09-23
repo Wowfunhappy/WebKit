@@ -47,7 +47,7 @@ public:
     WEBCORE_EXPORT String text() const;
     void setText(String&&);
 
-    WEBCORE_EXPORT HTMLFormElement* form() const;
+    WEBCORE_EXPORT HTMLFormElement* NODELETE form() const;
     RefPtr<HTMLFormElement> formForBindings() const;
 
     WEBCORE_EXPORT int index() const;
@@ -57,7 +57,11 @@ public:
     WEBCORE_EXPORT bool selected(AllowStyleInvalidation = AllowStyleInvalidation::Yes) const;
     WEBCORE_EXPORT void setSelected(bool);
 
+    bool selectedForBindings() const;
+    void setSelectedForBindings(bool);
+
     WEBCORE_EXPORT HTMLSelectElement* NODELETE ownerSelectElement() const;
+    bool belongsToBaseAppearancePicker() const;
 
     WEBCORE_EXPORT String label() const;
     WEBCORE_EXPORT String displayLabel() const;
@@ -65,11 +69,14 @@ public:
     bool ownElementDisabled() const { return m_disabled; }
 
     WEBCORE_EXPORT bool isDisabledFormControl() const final;
+    bool isActuallyDisabled() const final;
 
     String textIndentedToRespectGroupLabel() const;
 
     void setSelectedState(bool, AllowStyleInvalidation = AllowStyleInvalidation::Yes);
     bool selectedWithoutUpdate() const { return m_isSelected; }
+
+    void setDirty(bool dirty) { m_isDirty = dirty; }
 
     void cloneIntoSelectedContent(HTMLSelectedContentElement&);
 
@@ -78,8 +85,8 @@ public:
 private:
     HTMLOptionElement(const QualifiedName&, Document&);
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
 
     bool supportsFocus() const final;
     bool isFocusable() const final;
@@ -105,6 +112,7 @@ private:
     bool m_disabled { false };
     bool m_isSelected { false };
     bool m_isDefault { false };
+    bool m_isDirty { false };
     bool m_shadowTreeNeedsUpdate { false };
     WeakPtr<HTMLSelectElement, WeakPtrImplWithEventTargetData> m_ownerSelect;
     WeakPtr<HTMLSpanElement, WeakPtrImplWithEventTargetData> m_labelContainer;

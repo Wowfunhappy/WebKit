@@ -17,9 +17,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include "config.h"
+
 #if ENABLE(2022_GLIB_API)
 
-#include "config.h"
 #include "WebKitWebExtension.h"
 
 #include "WebExtension.h"

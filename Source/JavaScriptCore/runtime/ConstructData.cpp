@@ -33,12 +33,12 @@
 
 namespace JSC {
 
-JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, const ArgList& args, ASCIILiteral errorMessage)
+JSObject* construct(JSGlobalObject* globalObject, const JSValue& constructorObject, const ArgList& args, ASCIILiteral errorMessage)
 {
     return construct(globalObject, constructorObject, constructorObject, args, errorMessage);
 }
 
-JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, JSValue newTarget, const ArgList& args, ASCIILiteral errorMessage)
+JSObject* construct(JSGlobalObject* globalObject, const JSValue& constructorObject, const JSValue& newTarget, const ArgList& args, ASCIILiteral errorMessage)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -52,14 +52,14 @@ JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, JSV
     RELEASE_AND_RETURN(scope, construct(globalObject, constructorObject, constructData, args, newTarget));
 }
 
-JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, const CallData& constructData, const ArgList& args, JSValue newTarget)
+JSObject* construct(JSGlobalObject* globalObject, const JSValue& constructorObject, const CallData& constructData, const ArgList& args, const JSValue& newTarget)
 {
     VM& vm = globalObject->vm();
     ASSERT(constructData.type == CallData::Type::JS || constructData.type == CallData::Type::Native);
     return vm.interpreter.executeConstruct(asObject(constructorObject), constructData, args, newTarget);
 }
 
-JSObject* profiledConstruct(JSGlobalObject* globalObject, ProfilingReason reason, JSValue constructorObject, const CallData& constructData, const ArgList& args, JSValue newTarget)
+JSObject* profiledConstruct(JSGlobalObject* globalObject, ProfilingReason reason, const JSValue& constructorObject, const CallData& constructData, const ArgList& args, const JSValue& newTarget)
 {
     VM& vm = globalObject->vm();
     ScriptProfilingScope profilingScope(vm.deprecatedVMEntryGlobalObject(globalObject), reason);

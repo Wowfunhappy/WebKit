@@ -29,13 +29,6 @@
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
-#ifndef RICE_CHECK_VERSION
-#define RICE_CHECK_VERSION(major, minor, patch) \
-    (RICE_PROTO_MAJOR > (major) || \
-    (RICE_PROTO_MAJOR == (major) && RICE_PROTO_MINOR > (minor)) || \
-    (RICE_PROTO_MAJOR == (major) && RICE_PROTO_MINOR == (minor) && RICE_PROTO_PATCH >= (patch)))
-#endif
-
 namespace WebCore {
 
 static inline String riceAddressToString(const RiceAddress* address, bool includePort = true)
@@ -88,7 +81,6 @@ static inline std::optional<SharedMemory::Handle> riceTransmitToSharedMemoryHand
     return SharedMemoryHandle::createCopy(unsafeMakeSpan(transmit->data.ptr, transmit->data.size), SharedMemoryProtection::ReadOnly);
 }
 
-
 static inline RiceTransportType fromRTCIceProtocol(RTCIceProtocol protocol)
 {
     switch (protocol) {
@@ -98,6 +90,17 @@ static inline RiceTransportType fromRTCIceProtocol(RTCIceProtocol protocol)
         return RICE_TRANSPORT_TYPE_UDP;
     };
     return RICE_TRANSPORT_TYPE_UDP;
+}
+
+static inline RTCIceProtocol toRTCIceProtocol(RiceTransportType transportType)
+{
+    switch (transportType) {
+    case RICE_TRANSPORT_TYPE_UDP:
+        return RTCIceProtocol::Udp;
+    case RICE_TRANSPORT_TYPE_TCP:
+        return RTCIceProtocol::Tcp;
+    };
+    return RTCIceProtocol::Udp;
 }
 
 static inline RTCIceProtocol riceTransmitTransportToIceProtocol(const RiceTransmit& transmit)
@@ -111,7 +114,6 @@ static inline RTCIceProtocol riceTransmitTransportToIceProtocol(const RiceTransm
 
     return RTCIceProtocol::Udp;
 }
-
 
 } // namespace WebCore
 

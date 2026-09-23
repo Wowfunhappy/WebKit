@@ -1,4 +1,7 @@
 
+PASS Margin properties on a
+PASS Margin properties on a (rtl)
+PASS Margin properties on a (no margin-collapsing)
 PASS Margin properties on maction
 PASS Margin properties on maction (rtl)
 PASS Margin properties on maction (no margin-collapsing)

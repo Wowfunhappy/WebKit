@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,7 +54,6 @@ static void NODELETE applyUASheetBehaviorsToContext(CSSParserContext& context)
     context.popoverAttributeEnabled = true;
     context.propertySettings.cssInputSecurityEnabled = true;
     context.propertySettings.supportHDRDisplayEnabled = true;
-    context.propertySettings.viewTransitionsEnabled = true;
     context.propertySettings.cssFieldSizingEnabled = true;
     context.cssMathDepthEnabled = true;
     context.propertySettings.cssMathDepthEnabled = true;
@@ -114,6 +114,7 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , targetTextPseudoElementEnabled { settings.targetTextPseudoElementEnabled() }
     , htmlEnhancedSelectEnabled { settings.htmlEnhancedSelectEnabled() }
     , cssRandomFunctionEnabled { settings.cssRandomFunctionEnabled() }
+    , cssRandomItemFunctionEnabled { settings.cssRandomItemFunctionEnabled() }
     , cssRubyDisplayTypesEnabled { settings.cssRubyDisplayTypesInAuthorStylesEnabled() }
     , cssTreeCountingFunctionsEnabled { settings.cssTreeCountingFunctionsEnabled() }
     , cssURLModifiersEnabled { settings.cssURLModifiersEnabled() }
@@ -122,9 +123,14 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , cssDynamicRangeLimitMixEnabled { settings.cssDynamicRangeLimitMixEnabled() }
     , cssConstrainedDynamicRangeLimitEnabled { settings.cssConstrainedDynamicRangeLimitEnabled() }
     , cssTextTransformMathAutoEnabled { settings.cssTextTransformMathAutoEnabled() }
+    , cssFontSynthesisStyleObliqueOnlyEnabled { settings.cssFontSynthesisStyleObliqueOnlyEnabled() }
     , cssInternalAutoBaseParsingEnabled { settings.cssInternalAutoBaseParsingEnabled() }
     , cssMathDepthEnabled { settings.cssMathDepthEnabled() }
     , openPseudoClassEnabled { settings.openPseudoClassEnabled() }
+    , cssAttrSubstitutionFunctionEnabled { settings.cssAttrSubstitutionFunctionEnabled() }
+    , cssScrollStateContainerQueriesEnabled { settings.cssScrollStateContainerQueriesEnabled() }
+    , cssCalcMixEnabled { settings.cssCalcMixEnabled() }
+    , cssIdentFunctionEnabled { settings.cssIdentFunctionEnabled() }
     , propertySettings { CSSPropertySettings { settings } }
 {
 }
@@ -136,6 +142,8 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.hasDocumentSecurityOrigin,
         static_cast<bool>(context.loadedFromOpaqueSource),
         context.useSystemAppearance,
+        context.shouldIgnoreImportRules,
+        context.counterStyleAtRuleImageSymbolsEnabled,
         context.springTimingFunctionEnabled,
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
         context.cssTransformStyleSeparatedEnabled,
@@ -154,6 +162,7 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.targetTextPseudoElementEnabled,
         context.htmlEnhancedSelectEnabled,
         context.cssRandomFunctionEnabled,
+        context.cssRandomItemFunctionEnabled,
         context.cssRubyDisplayTypesEnabled,
         context.cssTreeCountingFunctionsEnabled,
         context.cssURLModifiersEnabled,
@@ -163,11 +172,17 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.cssConstrainedDynamicRangeLimitEnabled,
         context.cssTextDecorationLineErrorValues,
         context.cssTextTransformMathAutoEnabled,
+        context.cssFontSynthesisStyleObliqueOnlyEnabled,
         context.cssInternalAutoBaseParsingEnabled,
+        context.webkitMediaTextTrackDisplayQuirkEnabled,
         context.cssMathDepthEnabled,
-        context.openPseudoClassEnabled
+        context.openPseudoClassEnabled,
+        context.cssAttrSubstitutionFunctionEnabled,
+        context.cssScrollStateContainerQueriesEnabled,
+        context.cssCalcMixEnabled,
+        context.cssIdentFunctionEnabled
     );
-    add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, bits);
+    add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, context.enclosingRuleType, bits);
 }
 
 void CSSParserContext::setUASheetMode()

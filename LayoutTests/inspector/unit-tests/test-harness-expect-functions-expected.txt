@@ -125,6 +125,7 @@ FAIL: expectNotEmpty should not be called with a non-object:
 -- Running test case: InspectorTest.expectNull
 Expected to PASS
 PASS: expectNull(null)
+PASS: expectNull(undefined)
 Expected to FAIL
 FAIL: expectNull(true)
     Expected: null
@@ -138,9 +139,6 @@ FAIL: expectNull(1)
 FAIL: expectNull("")
     Expected: null
     Actual: ""
-FAIL: expectNull(undefined)
-    Expected: null
-    Actual: undefined
 FAIL: expectNull({})
     Expected: null
     Actual: {}
@@ -154,13 +152,15 @@ PASS: expectNotNull(true)
 PASS: expectNotNull(false)
 PASS: expectNotNull(1)
 PASS: expectNotNull("")
-PASS: expectNotNull(undefined)
 PASS: expectNotNull({})
 PASS: expectNotNull([])
 Expected to FAIL
 FAIL: expectNotNull(null)
     Expected: not null
     Actual: null
+FAIL: expectNotNull(undefined)
+    Expected: not null
+    Actual: undefined
 
 -- Running test case: InspectorTest.expectEqual
 Expected to PASS

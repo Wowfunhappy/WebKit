@@ -11,6 +11,7 @@
 autoinstall.cache.d
 project.xcworkspace
 xcuserdata
+*.xcresult
 DerivedData
 .mailmap
 results
@@ -93,6 +94,8 @@ CLAUDE.md
 
 # Ignore tracing files
 *.atrc
+*.profraw
+*.pas_stats.jsonl
 
 # In-source CMake/Ninja build artifacts (Mavericks 10.9 backport builds in-tree)
 /CMakeCache.txt

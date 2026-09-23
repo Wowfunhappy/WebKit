@@ -44,7 +44,6 @@ inspector/JSJavaScriptCallFrame.cpp
 inspector/agents/InspectorDebuggerAgent.cpp
 interpreter/CallFrame.cpp
 interpreter/CallFrame.h
-interpreter/CallFrameInlines.h
 interpreter/Interpreter.cpp
 jit/JITOperations.cpp
 jit/JITThunks.cpp
@@ -96,8 +95,6 @@ runtime/JSModuleNamespaceObject.cpp
 runtime/JSModuleRecord.cpp
 runtime/JSNativeStdFunction.h
 runtime/JSRemoteFunction.cpp
-runtime/JSScriptFetchParameters.cpp
-runtime/JSScriptFetcher.cpp
 runtime/JSSourceCode.cpp
 runtime/JSString.cpp
 runtime/JSString.h
@@ -133,7 +130,6 @@ tools/CellProfile.h
 tools/HeapVerifier.cpp
 tools/JSDollarVM.cpp
 tools/VMInspector.cpp
-wasm/WasmCalleeGroup.cpp
 wasm/WasmModule.cpp
 wasm/WasmOperations.cpp
 wasm/WasmStreamingCompiler.cpp

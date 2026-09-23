@@ -14,7 +14,6 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
-/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/appcache-manifest.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/audioworklet.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/css-font-face.https.sub.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/css-font-face.sub.tentative.html
@@ -62,10 +61,14 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/header-link.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/header-refresh.https.optional.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/header-refresh.optional.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-json-module-import-static.https.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-json-module-import-static.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-module-import-dynamic.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-module-import-dynamic.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-module-import-static.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-module-import-static.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-text-module-import-static.https.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/script-text-module-import-static.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/serviceworker.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/svg-image.https.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/generated/svg-image.sub.html

@@ -20,11 +20,10 @@
 
 #pragma once
 
+#include "CSSPrimitiveNumericTypes.h"
 #include "CSSURL.h"
 #include "CSSValue.h"
 #include "CSSValuePair.h"
-#include "IntPoint.h"
-#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
@@ -36,8 +35,10 @@ class Image;
 
 class CSSCursorImageValue final : public CSSValue {
 public:
-    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot);
-    static Ref<CSSCursorImageValue> NODELETE create(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, CSS::URL&&);
+    using HotSpot = SpaceSeparatedPoint<CSS::Number<>>;
+
+    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&&);
+    static Ref<CSSCursorImageValue> NODELETE create(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&&, CSS::URL&&);
     ~CSSCursorImageValue();
 
     const CSS::URL& originalURL() const LIFETIME_BOUND { return m_originalURL; }
@@ -53,11 +54,11 @@ public:
     RefPtr<Style::CursorImage> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    CSSCursorImageValue(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, CSS::URL&&);
+    CSSCursorImageValue(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&&, CSS::URL&&);
 
-    CSS::URL m_originalURL;
     const Ref<CSSValue> m_imageValue;
-    const RefPtr<CSSValue> m_hotSpot;
+    const std::optional<HotSpot> m_hotSpot;
+    CSS::URL m_originalURL;
 };
 
 } // namespace WebCore

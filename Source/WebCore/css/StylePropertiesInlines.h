@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <WebCore/CSSPrimitiveValue.h>
+#include <WebCore/CSSKeywordValueInlines.h>
 #include <WebCore/CSSPropertyInitialValues.h>
 #include <WebCore/ImmutableStyleProperties.h>
 #include <WebCore/MutableStyleProperties.h>

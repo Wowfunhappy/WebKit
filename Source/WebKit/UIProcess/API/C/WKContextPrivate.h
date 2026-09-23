@@ -100,6 +100,8 @@ WK_EXPORT void WKContextClearSupportedPlugins(WKContextRef context);
 
 WK_EXPORT void WKContextClearCurrentModifierStateForTesting(WKContextRef context);
 
+WK_EXPORT void WKContextSetAllowAXAuthenticationForTesting(WKContextRef context, bool allow);
+
 WK_EXPORT void WKContextSetUseSeparateServiceWorkerProcess(WKContextRef context, bool forceServiceWorkerProcess);
 
 WK_EXPORT void WKContextSetPrimaryWebsiteDataStore(WKContextRef context, WKWebsiteDataStoreRef websiteDataStore);

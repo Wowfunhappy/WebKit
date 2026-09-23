@@ -221,14 +221,9 @@ public:
         if (!page || !iconDatabase)
             return;
 
-        // The icon belongs to the document that just finished parsing, which is the COMMITTED one — not
-        // pageLoadState's activeURL, which is already the URL of a navigation under way when there is
-        // one, and would file this icon under the page being navigated to.
-        //
-        // A private-browsing page runs on an ephemeral session; its icons must not reach the on-disk
-        // database, whose page URLs alone are a browsing record.
+        // The icon belongs to the committed document. Private-session icons stay in memory.
         auto persistence = page->sessionID().isEphemeral() ? WebIconDatabase::Persistence::SessionOnly : WebIconDatabase::Persistence::Persistent;
-        fetchIconForPage(*iconDatabase, *page, page->pageLoadState().url(), icon.url.string(), persistence);
+        fetchIconForPage(*iconDatabase, *page, page->pageLoadState().url().string(), icon.url.string(), persistence);
     }
 
 private:

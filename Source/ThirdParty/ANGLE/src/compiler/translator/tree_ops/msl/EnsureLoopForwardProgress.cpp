@@ -9,6 +9,8 @@
 
 #include "compiler/translator/tree_ops/msl/EnsureLoopForwardProgress.h"
 
+#include <limits>
+
 #include "compiler/translator/Compiler.h"
 #include "compiler/translator/StaticType.h"
 #include "compiler/translator/tree_util/IntermNodePatternMatcher.h"
@@ -81,7 +83,8 @@ const TVariable *computeFiniteLoopVariable(TIntermLoop *loop)
     {
         return nullptr;
     }
-    if (!IsInteger(variable->getType().getBasicType()))
+    if (!IsInteger(variable->getType().getBasicType()) ||
+        variable->getType().getQualifier() != EvqTemporary)
     {
         return nullptr;
     }
@@ -91,9 +94,41 @@ const TVariable *computeFiniteLoopVariable(TIntermLoop *loop)
         case EOpNotEqual:
         case EOpLessThan:
         case EOpGreaterThan:
+            break;
         case EOpLessThanEqual:
         case EOpGreaterThanEqual:
+        {
+            // `variable <= numeric_limits<..>::max()` and `variable >= numeric_limits<...>::min()`
+            // are never satisfied. These loops are infinite.
+            const TConstantUnion *bound = binCond->getRight()->getConstantValue();
+            if (bound == nullptr)
+            {
+                // We cannot prove a non-const variable is min/max. However, the MSL compiler
+                // might be able to prove it, and thus analyze the loop as infinite.
+                return nullptr;
+            }
+            const bool checkMax = binCond->getOp() == EOpLessThanEqual;
+            switch (bound->getType())
+            {
+                case EbtInt:
+                    if (bound->getIConst() == (checkMax ? std::numeric_limits<int>::max()
+                                                        : std::numeric_limits<int>::min()))
+                    {
+                        return nullptr;
+                    }
+                    break;
+                case EbtUInt:
+                    if (bound->getUConst() ==
+                        (checkMax ? std::numeric_limits<unsigned int>::max() : 0u))
+                    {
+                        return nullptr;
+                    }
+                    break;
+                default:
+                    return nullptr;
+            }
             break;
+        }
         default:
             return nullptr;
     }
@@ -157,6 +192,10 @@ const TVariable *computeFiniteLoopVariable(TIntermLoop *loop)
                 return nullptr;
         }
     }
+    else
+    {
+        return nullptr;
+    }
     return variable;
 }
 
@@ -209,10 +248,23 @@ EnsureLoopForwardProgressTraverser::EnsureLoopForwardProgressTraverser(TSymbolTa
 
 void EnsureLoopForwardProgressTraverser::traverseLoop(TIntermLoop *node)
 {
+    ScopedNodeInTraversalPath addToPath(this, node);
+    if (node->getInit())
+    {
+        node->getInit()->traverse(this);
+    }
+    if (node->getCondition())
+    {
+        node->getCondition()->traverse(this);
+    }
+    if (node->getExpression())
+    {
+        node->getExpression()->traverse(this);
+    }
+
     LoopInfoStack loopInfo{node, mLoopInfoStack};
     mLoopInfoStack = &loopInfo;
 
-    ScopedNodeInTraversalPath addToPath(this, node);
     node->getBody()->traverse(this);
 
     if (!loopInfo.isFinite())

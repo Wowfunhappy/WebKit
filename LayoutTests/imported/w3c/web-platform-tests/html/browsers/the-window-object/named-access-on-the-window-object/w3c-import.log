@@ -14,10 +14,12 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/basics.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/changing.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/cross-global-npo.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/cross-global-support.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/cross-origin-named-access.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/doc-no-window.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/existing-prop.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/the-window-object/named-access-on-the-window-object/multi-match.html

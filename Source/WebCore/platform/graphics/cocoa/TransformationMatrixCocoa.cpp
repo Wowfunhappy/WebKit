@@ -52,6 +52,21 @@ TransformationMatrix::operator simd_float4x4() const
     };
 }
 
+TransformationMatrix TransformationMatrix::makeLookAt(simd_float3 origin, simd_float3 direction)
+{
+    auto y = simd_make_float3(0.0f, 1.0f, 0.0f);
+    auto z = -direction;
+    // NOTE: This could produce 0 if y and z are almost collinear. This behaviour copies ARKit
+    auto x = simd_normalize(simd_cross(y, z));
+    y = simd_normalize(simd_cross(z, x));
+
+    return TransformationMatrix(
+        x[0], x[1], x[2], 0.0f,
+        y[0], y[1], y[2], 0.0f,
+        z[0], z[1], z[2], 0.0f,
+        origin[0], origin[1], origin[2], 1.0f);
+}
+
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

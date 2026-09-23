@@ -38,8 +38,11 @@ messages -> PlatformXRSystem {
     ShutDownTrackingAndRendering()
     RequestFrame(struct std::optional<PlatformXR::RequestData> requestData) -> (struct PlatformXR::FrameData frameData)
 #if USE(OPENXR)
-    CreateLayerProjection(uint32_t width, uint32_t height, bool alpha) -> (std::optional<PlatformXR::LayerHandle> layerHandle) Synchronous
-    SubmitFrame(Vector<WebKit::XRDeviceLayer> layers)
+    CreateLayerProjection(uint32_t width, uint32_t height, bool alpha) -> (struct std::optional<PlatformXR::LayerInfo> info) Synchronous
+    SubmitFrame(Vector<PlatformXR::DeviceLayer> layers)
+#endif
+#if ENABLE(WEBXR_LAYERS)
+    CreateCompositionLayer(PlatformXR::CompositionLayerType type, WebCore::IntSize size, PlatformXR::LayerLayout layout) -> (struct std::optional<PlatformXR::LayerInfo> info) Synchronous
 #endif
 #if !USE(OPENXR)
     SubmitFrame()

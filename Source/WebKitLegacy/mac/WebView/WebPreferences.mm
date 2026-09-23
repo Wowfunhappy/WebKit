@@ -30,7 +30,6 @@
 #import "WebPreferencesInternal.h"
 
 #import "NetworkStorageSessionMap.h"
-#import "TestingFunctions.h"
 #import "WebFeature.h"
 #import "WebFrameNetworkingContext.h"
 #import "WebKitLogging.h"
@@ -59,7 +58,6 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/darwin/DispatchOSObject.h>
 
-using namespace WebCore;
 
 #if PLATFORM(IOS_FAMILY)
 #import <WebCore/GraphicsContext.h>
@@ -89,7 +87,7 @@ static RetainPtr<NSMutableDictionary>& NODELETE webPreferencesInstances()
 
 static unsigned webPreferencesInstanceCountWithPrivateBrowsingEnabled;
 
-template<unsigned size> static bool contains(const char* const (&array)[size], const char* item)
+template<unsigned size> static bool NODELETE contains(const char* const (&array)[size], const char* item)
 {
     if (!item)
         return false;
@@ -100,93 +98,13 @@ template<unsigned size> static bool contains(const char* const (&array)[size], c
     return false;
 }
 
-static WebCacheModel cacheModelForMainBundle(NSString *bundleIdentifier)
-{
-    @autoreleasepool {
-        // Apps that probably need the small setting
-        static const char* const documentViewerIDs[] = {
-            "Microsoft/com.microsoft.Messenger",
-            "com.adiumX.adiumX",
-            "com.alientechnology.Proteus",
-            "com.apple.Dashcode",
-            "com.apple.iChat",
-            "com.barebones.bbedit",
-            "com.barebones.textwrangler",
-            "com.barebones.yojimbo",
-            "com.equinux.iSale4",
-            "com.growl.growlframework",
-            "com.intrarts.PandoraMan",
-            "com.karelia.Sandvox",
-            "com.macromates.textmate",
-            "com.realmacsoftware.rapidweaverpro",
-            "com.red-sweater.marsedit",
-            "com.yahoo.messenger3",
-            "de.codingmonkeys.SubEthaEdit",
-            "fi.karppinen.Pyro",
-            "info.colloquy",
-            "kungfoo.tv.ecto",
-        };
-
-        // Apps that probably need the medium setting
-        static const char* const documentBrowserIDs[] = {
-            "com.apple.Dictionary",
-            "com.apple.Xcode",
-            "com.apple.helpviewer",
-            "com.culturedcode.xyle",
-            "com.macrabbit.CSSEdit",
-            "com.panic.Coda",
-            "com.ranchero.NetNewsWire",
-            "com.thinkmac.NewsLife",
-            "org.xlife.NewsFire",
-            "uk.co.opencommunity.vienna2",
-        };
-
-        // Apps that probably need the large setting
-        static const char* const primaryWebBrowserIDs[] = {
-            "com.app4mac.KidsBrowser",
-            "com.app4mac.wKiosk",
-            "com.freeverse.bumpercar",
-            "com.omnigroup.OmniWeb5",
-            "com.sunrisebrowser.Sunrise",
-            "net.hmdt-web.Shiira",
-        };
-
-        const char* bundleID = [bundleIdentifier UTF8String];
-        if (contains(documentViewerIDs, bundleID))
-            return WebCacheModelDocumentViewer;
-        if (contains(documentBrowserIDs, bundleID))
-            return WebCacheModelDocumentBrowser;
-        if (contains(primaryWebBrowserIDs, bundleID))
-            return WebCacheModelPrimaryWebBrowser;
-
-        bool isLinkedAgainstWebKit = WebKitLinkedOnOrAfter(0);
-        if (!isLinkedAgainstWebKit)
-            return WebCacheModelDocumentViewer; // Apps that don't link against WebKit probably aren't meant to be browsers.
-
-#if !PLATFORM(IOS_FAMILY)
-        bool isLegacyApp = !WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITH_CACHE_MODEL_API);
-#else
-        bool isLegacyApp = false;
-#endif
-        if (isLegacyApp)
-            return WebCacheModelDocumentBrowser; // To avoid regressions in apps that depended on old WebKit's large cache.
-
-        return WebCacheModelDocumentViewer; // To save memory.
-    }
-}
-
-#if ENABLE(BUILD_FOR_TESTING)
-WebCacheModel TestWebPreferencesCacheModelForMainBundle(NSString *bundleIdentifier)
-{
-    return cacheModelForMainBundle(bundleIdentifier);
-}
-#endif // ENABLE(BUILD_FOR_TESTING)
 
 @interface WebPreferences ()
 - (void)_postCacheModelChangedNotification;
 @end
 
 @interface WebPreferences (WebInternal)
++ (WebCacheModel)_cacheModelForBundleIdentifier:(NSString *)bundleIdentifier;
 + (NSString *)_concatenateKeyWithIBCreatorID:(NSString *)key;
 + (NSString *)_IBCreatorID;
 @end
@@ -387,6 +305,14 @@ public:
 {
     WebCore::initializeMainThreadIfNeeded();
 
+    // Default-value expressions in UnifiedWebPreferences.yaml use these types
+    // unqualified inside INITIALIZE_DEFAULT_PREFERENCES_DICTIONARY_FROM_GENERATED_PREFERENCES.
+#if ENABLE(DATA_DETECTION)
+    using WebCore::DataDetectorType;
+#endif
+    using WebCore::TextDirection;
+    using WebCore::UserInterfaceDirectionPolicy;
+
     RetainPtr dict = [NSDictionary dictionaryWithObjectsAndKeys:
         INITIALIZE_DEFAULT_PREFERENCES_DICTIONARY_FROM_GENERATED_PREFERENCES
 
@@ -396,7 +322,7 @@ public:
         @YES, WebKitAllowAnimatedImageLoopingPreferenceKey,
         @"1800", WebKitBackForwardCacheExpirationIntervalKey,
         @NO, WebKitPrivateBrowsingEnabledPreferenceKey,
-        @(cacheModelForMainBundle([[NSBundle mainBundle] bundleIdentifier])), WebKitCacheModelPreferenceKey,
+        @([WebPreferences _cacheModelForBundleIdentifier:[[NSBundle mainBundle] bundleIdentifier]]), WebKitCacheModelPreferenceKey,
         @YES, WebKitZoomsTextOnlyPreferenceKey,
         @0, WebKitApplicationCacheTotalQuota,
 
@@ -419,9 +345,9 @@ public:
 
 #if PLATFORM(IOS_FAMILY)
         @NO, WebKitStorageTrackerEnabledPreferenceKey,
-        @(static_cast<unsigned>(AudioSession::CategoryType::None)), WebKitAudioSessionCategoryOverride,
+        @(static_cast<unsigned>(WebCore::AudioSession::CategoryType::None)), WebKitAudioSessionCategoryOverride,
         @NO, WebKitAlwaysRequestGeolocationPermissionPreferenceKey,
-        @(static_cast<int>(InterpolationQuality::Low)), WebKitInterpolationQualityPreferenceKey,
+        @(static_cast<int>(WebCore::InterpolationQuality::Low)), WebKitInterpolationQualityPreferenceKey,
         @"", WebKitNetworkInterfaceNamePreferenceKey,
 #endif
         nil];
@@ -1651,26 +1577,6 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
     [self _setStringValue:[path stringByStandardizingPath] forKey:WebKitLocalStorageDatabasePathPreferenceKey];
 }
 
-- (NSString *)_ftpDirectoryTemplatePath
-{
-    return [[self _stringValueForKey:WebKitFTPDirectoryTemplatePath] stringByStandardizingPath];
-}
-
-- (void)_setFTPDirectoryTemplatePath:(NSString *)path
-{
-    [self _setStringValue:[path stringByStandardizingPath] forKey:WebKitFTPDirectoryTemplatePath];
-}
-
-- (BOOL)_forceFTPDirectoryListings
-{
-    return [self _boolValueForKey:WebKitForceFTPDirectoryListings];
-}
-
-- (void)_setForceFTPDirectoryListings:(BOOL)force
-{
-    [self _setBoolValue:force forKey:WebKitForceFTPDirectoryListings];
-}
-
 - (BOOL)acceleratedDrawingEnabled
 {
     return [self _boolValueForKey:WebKitAcceleratedDrawingEnabledPreferenceKey];
@@ -1908,30 +1814,30 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
 
 - (void)setAudioSessionCategoryOverride:(unsigned)override
 {
-    if (override > static_cast<unsigned>(AudioSession::CategoryType::AudioProcessing)) {
+    if (override > static_cast<unsigned>(WebCore::AudioSession::CategoryType::AudioProcessing)) {
         // Clients are passing us OSTypes values from AudioToolbox/AudioSession.h,
         // which need to be translated into AudioSession::CategoryType:
         switch (override) {
         case WebKitAudioSessionCategoryAmbientSound:
-            override = static_cast<unsigned>(AudioSession::CategoryType::AmbientSound);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::AmbientSound);
             break;
         case WebKitAudioSessionCategorySoloAmbientSound:
-            override = static_cast<unsigned>(AudioSession::CategoryType::SoloAmbientSound);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::SoloAmbientSound);
             break;
         case WebKitAudioSessionCategoryMediaPlayback:
-            override = static_cast<unsigned>(AudioSession::CategoryType::MediaPlayback);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::MediaPlayback);
             break;
         case WebKitAudioSessionCategoryRecordAudio:
-            override = static_cast<unsigned>(AudioSession::CategoryType::RecordAudio);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::RecordAudio);
             break;
         case WebKitAudioSessionCategoryPlayAndRecord:
-            override = static_cast<unsigned>(AudioSession::CategoryType::PlayAndRecord);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::PlayAndRecord);
             break;
         case WebKitAudioSessionCategoryAudioProcessing:
-            override = static_cast<unsigned>(AudioSession::CategoryType::AudioProcessing);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::AudioProcessing);
             break;
         default:
-            override = static_cast<unsigned>(AudioSession::CategoryType::None);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::None);
             break;
         }
     }
@@ -2686,6 +2592,81 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
 @end
 
 @implementation WebPreferences (WebInternal)
+
++ (WebCacheModel)_cacheModelForBundleIdentifier:(NSString *)bundleIdentifier
+{
+    @autoreleasepool {
+        // Apps that probably need the small setting
+        static const char* const documentViewerIDs[] = {
+            "Microsoft/com.microsoft.Messenger",
+            "com.adiumX.adiumX",
+            "com.alientechnology.Proteus",
+            "com.apple.Dashcode",
+            "com.apple.iChat",
+            "com.barebones.bbedit",
+            "com.barebones.textwrangler",
+            "com.barebones.yojimbo",
+            "com.equinux.iSale4",
+            "com.growl.growlframework",
+            "com.intrarts.PandoraMan",
+            "com.karelia.Sandvox",
+            "com.macromates.textmate",
+            "com.realmacsoftware.rapidweaverpro",
+            "com.red-sweater.marsedit",
+            "com.yahoo.messenger3",
+            "de.codingmonkeys.SubEthaEdit",
+            "fi.karppinen.Pyro",
+            "info.colloquy",
+            "kungfoo.tv.ecto",
+        };
+
+        // Apps that probably need the medium setting
+        static const char* const documentBrowserIDs[] = {
+            "com.apple.Dictionary",
+            "com.apple.Xcode",
+            "com.apple.helpviewer",
+            "com.culturedcode.xyle",
+            "com.macrabbit.CSSEdit",
+            "com.panic.Coda",
+            "com.ranchero.NetNewsWire",
+            "com.thinkmac.NewsLife",
+            "org.xlife.NewsFire",
+            "uk.co.opencommunity.vienna2",
+        };
+
+        // Apps that probably need the large setting
+        static const char* const primaryWebBrowserIDs[] = {
+            "com.app4mac.KidsBrowser",
+            "com.app4mac.wKiosk",
+            "com.freeverse.bumpercar",
+            "com.omnigroup.OmniWeb5",
+            "com.sunrisebrowser.Sunrise",
+            "net.hmdt-web.Shiira",
+        };
+
+        const char* bundleID = [bundleIdentifier UTF8String];
+        if (contains(documentViewerIDs, bundleID))
+            return WebCacheModelDocumentViewer;
+        if (contains(documentBrowserIDs, bundleID))
+            return WebCacheModelDocumentBrowser;
+        if (contains(primaryWebBrowserIDs, bundleID))
+            return WebCacheModelPrimaryWebBrowser;
+
+        bool isLinkedAgainstWebKit = WebKitLinkedOnOrAfter(0);
+        if (!isLinkedAgainstWebKit)
+            return WebCacheModelDocumentViewer; // Apps that don't link against WebKit probably aren't meant to be browsers.
+
+#if !PLATFORM(IOS_FAMILY)
+        bool isLegacyApp = !WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITH_CACHE_MODEL_API);
+#else
+        bool isLegacyApp = false;
+#endif
+        if (isLegacyApp)
+            return WebCacheModelDocumentBrowser; // To avoid regressions in apps that depended on old WebKit's large cache.
+
+        return WebCacheModelDocumentViewer; // To save memory.
+    }
+}
 
 + (NSString *)_IBCreatorID
 {

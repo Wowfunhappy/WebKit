@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 (async function () {
   let bytes0 = readFile('./resources/only-referenced.wasm', 'binary');
   let global1 = new WebAssembly.Global({value: 'externref', mutable: true}, {});

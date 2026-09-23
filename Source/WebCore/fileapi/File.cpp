@@ -28,6 +28,7 @@
 
 #include "BlobURL.h"
 #include "MIMETypeRegistry.h"
+#include <JavaScriptCore/ArrayBufferView.h>
 #include "ThreadableBlobRegistry.h"
 #include <wtf/DateMath.h>
 #include <wtf/FileSystem.h>

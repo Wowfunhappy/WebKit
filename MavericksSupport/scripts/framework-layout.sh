@@ -204,6 +204,7 @@ wk_verify_tree() {
     # behind), and shipping a stale security policy is exactly as wrong as shipping none.
     local profiles_dir="$WEBKIT2_BUNDLE/Versions/A/Resources"
     local expected_profiles="com.apple.WebProcess.sb
+com.apple.WebProcess.x86.sb
 com.apple.WebKit.NetworkProcess.sb
 com.apple.WebKit.GPUProcess.sb
 com.apple.WebKit.webpushd.relocatable.mac.sb"

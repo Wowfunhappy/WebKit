@@ -109,7 +109,7 @@ JSValue ObjcField::valueFromInstance(JSGlobalObject* lexicalGlobalObject, const 
 
     @try {
         if (id objcValue = [targetObject valueForKey:(__bridge NSString *)_name.get()])
-            result = convertObjcValueToValue(lexicalGlobalObject, &objcValue, ObjcObjectType, instance->rootObject());
+            result = convertObjcValueToValue(lexicalGlobalObject, &objcValue, ObjcObjectType, protect(instance->rootObject()).get());
         {
             JSLockHolder lock(lexicalGlobalObject);
             ObjcInstance::moveGlobalExceptionToExecState(lexicalGlobalObject);
@@ -199,7 +199,7 @@ JSValue ObjcArray::valueAt(JSGlobalObject* lexicalGlobalObject, unsigned int ind
     if (index > [_array count])
         return throwException(lexicalGlobalObject, scope, createRangeError(lexicalGlobalObject, "Index exceeds array size."_s));
     @try {
-        id obj = [_array objectAtIndex:index];
+        id obj = [(NSArray *)_array objectAtIndex:index];
         if (obj)
             return convertObjcValueToValue (lexicalGlobalObject, &obj, ObjcObjectType, m_rootObject.get());
     } @catch(NSException* localException) {
@@ -260,7 +260,7 @@ JSC_DEFINE_HOST_FUNCTION(callObjCFallbackObject, (JSGlobalObject* lexicalGlobalO
     JSC::VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* runtimeObject = jsDynamicCast<ObjCRuntimeObject*>(callFrame->thisValue());
+    auto* runtimeObject = dynamicDowncast<ObjCRuntimeObject>(callFrame->thisValue());
     if (!runtimeObject)
         return throwVMTypeError(lexicalGlobalObject, scope);
 
@@ -278,7 +278,7 @@ JSC_DEFINE_HOST_FUNCTION(callObjCFallbackObject, (JSGlobalObject* lexicalGlobalO
     if ([targetObject respondsToSelector:@selector(invokeUndefinedMethodFromWebScript:withArguments:)]){
         auto* objcClass = downcast<ObjcClass>(objcInstance->getClass());
         std::unique_ptr<ObjcMethod> fallbackMethod(makeUnique<ObjcMethod>(objcClass->isa(), @selector(invokeUndefinedMethodFromWebScript:withArguments:)));
-        auto& nameIdentifier = jsCast<ObjcFallbackObjectImp*>(callFrame->jsCallee())->propertyName();
+        auto& nameIdentifier = uncheckedDowncast<ObjcFallbackObjectImp>(callFrame->jsCallee())->propertyName();
         fallbackMethod->setJavaScriptName(nameIdentifier.createCFString().get());
         result = objcInstance->invokeObjcMethod(lexicalGlobalObject, callFrame, fallbackMethod.get());
     }
@@ -292,7 +292,7 @@ CallData ObjcFallbackObjectImp::getCallData(JSCell* cell)
 {
     CallData callData;
 
-    ObjcFallbackObjectImp* thisObject = jsCast<ObjcFallbackObjectImp*>(cell);
+    ObjcFallbackObjectImp* thisObject = uncheckedDowncast<ObjcFallbackObjectImp>(cell);
     id targetObject = thisObject->_instance->getObject();
     if ([targetObject respondsToSelector:@selector(invokeUndefinedMethodFromWebScript:withArguments:)]) {
         callData.type = CallData::Type::Native;
@@ -314,12 +314,12 @@ JSC_DEFINE_HOST_FUNCTION(convertObjCFallbackObjectToPrimitive, (JSGlobalObject* 
     VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* thisObject = jsDynamicCast<ObjcFallbackObjectImp*>(callFrame->thisValue());
+    auto* thisObject = dynamicDowncast<ObjcFallbackObjectImp>(callFrame->thisValue());
     if (!thisObject)
         return throwVMTypeError(lexicalGlobalObject, scope, "ObjcFallbackObject[Symbol.toPrimitive] method called on incompatible |this| value."_s);
 
     scope.release();
-    return JSValue::encode(thisObject->getInternalObjCInstance()->getValueOfUndefinedField(lexicalGlobalObject, Identifier::fromString(vm, thisObject->propertyName())));
+    return JSValue::encode(protect(thisObject->getInternalObjCInstance())->getValueOfUndefinedField(lexicalGlobalObject, Identifier::fromString(vm, thisObject->propertyName())));
 }
 
 bool ObjcFallbackObjectImp::toBoolean(JSGlobalObject*) const

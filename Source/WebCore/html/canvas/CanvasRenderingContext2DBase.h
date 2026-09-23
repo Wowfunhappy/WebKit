@@ -396,7 +396,7 @@ protected:
 
     bool usesCSSCompatibilityParseMode() const { return m_usesCSSCompatibilityParseMode; }
 
-    void updateStateTransform(const AffineTransform&);
+    void NODELETE updateStateTransform(const AffineTransform&);
 
     RefPtr<ImageBuffer> allocateImageBuffer() const;
     bool hasCreatedImageBuffer() const { return m_hasCreatedImageBuffer; }

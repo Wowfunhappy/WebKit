@@ -40,7 +40,6 @@
 #include <stdlib.h>
 #if !PAS_OS(WINDOWS)
 #include <sys/mman.h>
-#include <unistd.h>
 #endif
 
 /* PlayStation does not currently support the backtrace API. Android API versions < 33 don't, either. Windows does not either. Linux only with GLibc and not uCLibc/Musl. */

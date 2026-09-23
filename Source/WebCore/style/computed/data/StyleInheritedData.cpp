@@ -25,7 +25,7 @@
 
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
@@ -41,8 +41,8 @@ InheritedData::InheritedData()
     , specifiedLineHeight(ComputedStyle::initialLineHeight())
 #endif
     , fontData(FontData::create())
-    , color(ComputedStyle::initialColor())
-    , visitedLinkColor(ComputedStyle::initialColor())
+    , color(WebCore::Color::black)
+    , visitedLinkColor(WebCore::Color::black)
 {
 }
 
@@ -76,7 +76,7 @@ bool InheritedData::operator==(const InheritedData& other) const
 bool InheritedData::fastPathInheritedEqual(const InheritedData& other) const
 {
     // These properties also need to have "fast-path-inherited" codegen property set.
-    // Cases where other properties depend on these values need to disallow the fast path (via RenderStyle::setDisallowsFastPathInheritance).
+    // Cases where other properties depend on these values need to disallow the fast path (via Style::ComputedStyle::setDisallowsFastPathInheritance).
     return color == other.color
         && visitedLinkColor == other.visitedLinkColor;
 }

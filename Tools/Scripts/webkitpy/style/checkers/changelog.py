@@ -79,7 +79,7 @@ class ChangeLogChecker(object):
 
         self.check_for_unwanted_security_phrases(first_line_checked, entry_lines)
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         self._tab_checker.check(lines)
         self._inclusive_language_checker.check(lines)
         first_line_checked = 0

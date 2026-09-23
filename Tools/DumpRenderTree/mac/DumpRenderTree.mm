@@ -81,6 +81,7 @@
 #import <WebKit/WebDocumentPrivate.h>
 #import <WebKit/WebEditingDelegate.h>
 #import <WebKit/WebFeature.h>
+#import <WebKit/WebFramePrivate.h>
 #import <WebKit/WebFrameView.h>
 #import <WebKit/WebHistory.h>
 #import <WebKit/WebHistoryItemPrivate.h>
@@ -1440,7 +1441,7 @@ static RetainPtr<NSString> dumpFramesAsText(WebFrame *frame)
     else
         result = adoptNS([[NSMutableString alloc] init]);
 
-    NSString *innerText = [documentElement innerText];
+    NSString *innerText = [frame _plainTextForTesting];
 
     // We use WTF::String::tryGetUTF8 to convert innerText to a UTF8 buffer since
     // it can handle dangling surrogates and the NSString
@@ -1698,6 +1699,9 @@ void dump()
                 dumpBackForwardListForAllWindows();
         } else
             printf("ERROR: nil result from %s", methodNameStringForFailedTest());
+
+        if (gTestRunner->shouldDumpResourceLoadCallbacks())
+            gTestRunner->dumpResourceLoadCallbacks();
 
         // Stop the watchdog thread before we leave this test to make sure it doesn't
         // fire in between tests causing the next test to fail.
@@ -1968,6 +1972,9 @@ static void runTest(const std::string& inputLine)
     gTestRunner->setLocalhostAliases(localhostAliases);
     gTestRunner->setCustomTimeout(command.timeout.milliseconds());
     gTestRunner->setDumpJSConsoleLogInStdErr(command.dumpJSConsoleLogInStdErr || options.dumpJSConsoleLogInStdErr());
+    if (options.shouldDumpResourceLoadCallbacks())
+        gTestRunner->setDumpResourceLoadCallbacks(true);
+    gTestRunner->dumpResourceResponseMIMETypes(options.resourceResponseMIMETypesToDump());
 
 #if ENABLE(DNS_SERVER_FOR_TESTING)
     gTestRunner->initializeDNS();

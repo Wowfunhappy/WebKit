@@ -33,13 +33,12 @@
 #import "WKContentWorldConfigurationInternal.h"
 #import "WKContentWorldInternal.h"
 #import "WKContextMenuElementInfoInternal.h"
+#import "WKDOMNodeSnapshotInternal.h"
 #import "WKDownloadInternal.h"
 #import "WKFormInfoInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHTTPCookieStoreInternal.h"
 #import "WKJSHandleInternal.h"
-#import "WKJSScriptingBufferInternal.h"
-#import "WKJSSerializedNodeInternal.h"
 #import "WKNSArray.h"
 #import "WKNSData.h"
 #import "WKNSDictionary.h"
@@ -89,13 +88,11 @@
 #import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorDebuggableInfoInternal.h"
 #import "_WKInspectorInternal.h"
-#import "_WKJSBuffer.h"
 #import "_WKJSHandle.h"
 #import "_WKProcessPoolConfigurationInternal.h"
 #import "_WKResourceLoadInfoInternal.h"
 #import "_WKResourceLoadStatisticsFirstPartyInternal.h"
 #import "_WKResourceLoadStatisticsThirdPartyInternal.h"
-#import "_WKSerializedNode.h"
 #import "_WKTargetedElementInfoInternal.h"
 #import "_WKTargetedElementRequestInternal.h"
 #import "_WKTextRunInternal.h"
@@ -537,15 +534,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         break;
 
     case Type::SerializedNode:
-        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKSerializedNode alloc];
+        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [WKDOMNodeSnapshot alloc];
         break;
 
     case Type::JSHandle:
         SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKJSHandle alloc];
-        break;
-
-    case Type::JSBuffer:
-        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKJSBuffer alloc];
         break;
 
     case Type::FormInfo:

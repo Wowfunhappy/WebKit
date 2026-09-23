@@ -75,60 +75,18 @@ PASS :max_shader_variable_location:isAsync=false;locationDelta=-2
 PASS :max_shader_variable_location:isAsync=true;locationDelta=0
 PASS :max_shader_variable_location:isAsync=true;locationDelta=-1
 PASS :max_shader_variable_location:isAsync=true;locationDelta=-2
-FAIL :max_variables_count,output:isAsync=false;numVariablesDelta=0;topology="triangle-list" assert_unreached:
-  - EXCEPTION: Error: Unexpected validation error occurred: vertexScalarComponents > maxVertexShaderOutputComponents
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :max_variables_count,output:isAsync=false;numVariablesDelta=0;topology="triangle-list"
 PASS :max_variables_count,output:isAsync=false;numVariablesDelta=0;topology="point-list"
 PASS :max_variables_count,output:isAsync=false;numVariablesDelta=1;topology="triangle-list"
-FAIL :max_variables_count,output:isAsync=false;numVariablesDelta=-1;topology="point-list" assert_unreached:
-  - EXCEPTION: Error: Unexpected validation error occurred: vertexScalarComponents > maxVertexShaderOutputComponents
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :max_variables_count,output:isAsync=true;numVariablesDelta=0;topology="triangle-list" assert_unreached:
-  - EXPECTATION FAILED: REJECTED
-    vertexScalarComponents > maxVertexShaderOutputComponents
-    eventualAsyncExpectation@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:258:33
-    shouldResolve@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:280:34
-    doCreateRenderPipelineTest@http://127.0.0.1:8000/webgpu/webgpu/api/validation/validation_test_utils.js:411:22
-    @http://127.0.0.1:8000/webgpu/webgpu/api/validation/render_pipeline/inter_stage.spec.js:306:33
- Reached unreachable code
+PASS :max_variables_count,output:isAsync=false;numVariablesDelta=-1;topology="point-list"
+PASS :max_variables_count,output:isAsync=true;numVariablesDelta=0;topology="triangle-list"
 PASS :max_variables_count,output:isAsync=true;numVariablesDelta=0;topology="point-list"
 PASS :max_variables_count,output:isAsync=true;numVariablesDelta=1;topology="triangle-list"
-FAIL :max_variables_count,output:isAsync=true;numVariablesDelta=-1;topology="point-list" assert_unreached:
-  - EXPECTATION FAILED: REJECTED
-    vertexScalarComponents > maxVertexShaderOutputComponents
-    eventualAsyncExpectation@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:258:33
-    shouldResolve@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:280:34
-    doCreateRenderPipelineTest@http://127.0.0.1:8000/webgpu/webgpu/api/validation/validation_test_utils.js:411:22
-    @http://127.0.0.1:8000/webgpu/webgpu/api/validation/render_pipeline/inter_stage.spec.js:306:33
- Reached unreachable code
-FAIL :max_variables_count,input:isAsync=false;numVariablesDelta=0;useExtraBuiltinInputs=false assert_unreached:
-  - EXCEPTION: Error: Unexpected validation error occurred: vertexScalarComponents > maxVertexShaderOutputComponents
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-PASS :max_variables_count,input:isAsync=false;numVariablesDelta=0;useExtraBuiltinInputs=true
-PASS :max_variables_count,input:isAsync=false;numVariablesDelta=1;useExtraBuiltinInputs=false
-FAIL :max_variables_count,input:isAsync=false;numVariablesDelta=-1;useExtraBuiltinInputs=true assert_unreached:
-  - EXCEPTION: Error: Unexpected validation error occurred: vertexScalarComponents > maxVertexShaderOutputComponents
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :max_variables_count,input:isAsync=true;numVariablesDelta=0;useExtraBuiltinInputs=false assert_unreached:
-  - EXPECTATION FAILED: REJECTED
-    vertexScalarComponents > maxVertexShaderOutputComponents
-    eventualAsyncExpectation@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:258:33
-    shouldResolve@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:280:34
-    doCreateRenderPipelineTest@http://127.0.0.1:8000/webgpu/webgpu/api/validation/validation_test_utils.js:411:22
-    @http://127.0.0.1:8000/webgpu/webgpu/api/validation/render_pipeline/inter_stage.spec.js:350:33
- Reached unreachable code
-PASS :max_variables_count,input:isAsync=true;numVariablesDelta=0;useExtraBuiltinInputs=true
-PASS :max_variables_count,input:isAsync=true;numVariablesDelta=1;useExtraBuiltinInputs=false
-FAIL :max_variables_count,input:isAsync=true;numVariablesDelta=-1;useExtraBuiltinInputs=true assert_unreached:
-  - EXPECTATION FAILED: REJECTED
-    vertexScalarComponents > maxVertexShaderOutputComponents
-    eventualAsyncExpectation@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:258:33
-    shouldResolve@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:280:34
-    doCreateRenderPipelineTest@http://127.0.0.1:8000/webgpu/webgpu/api/validation/validation_test_utils.js:411:22
-    @http://127.0.0.1:8000/webgpu/webgpu/api/validation/render_pipeline/inter_stage.spec.js:350:33
- Reached unreachable code
+PASS :max_variables_count,output:isAsync=true;numVariablesDelta=-1;topology="point-list"
+PASS :max_variables_count,input:isAsync=false;builtins="none"
+PASS :max_variables_count,input:isAsync=false;builtins="compat"
+PASS :max_variables_count,input:isAsync=false;builtins="all"
+PASS :max_variables_count,input:isAsync=true;builtins="none"
+PASS :max_variables_count,input:isAsync=true;builtins="compat"
+PASS :max_variables_count,input:isAsync=true;builtins="all"
 

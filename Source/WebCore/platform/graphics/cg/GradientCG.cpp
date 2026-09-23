@@ -31,10 +31,27 @@
 
 #include "GradientRendererCG.h"
 #include "GraphicsContextCG.h"
+#include "PredefinedColorSpace.h"
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 #include <wtf/MathExtras.h>
 
 namespace WebCore {
+
+static std::optional<DestinationColorSpace> nonLinearDestinationColorSpace(const DestinationColorSpace& colorSpace)
+{
+    auto predefined = toPredefinedColorSpace(colorSpace);
+    if (!predefined)
+        return colorSpace;
+    switch (*predefined) {
+    case PredefinedColorSpace::SRGBLinear:
+#if ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3)
+    case PredefinedColorSpace::DisplayP3Linear:
+#endif
+        return std::nullopt;
+    default:
+        return colorSpace;
+    }
+}
 
 void Gradient::stopsChanged()
 {
@@ -49,13 +66,13 @@ void Gradient::fill(GraphicsContext& context, const FloatRect& rect)
 
 void Gradient::paint(GraphicsContext& context)
 {
-    paint(context.platformContext());
+    paint(context.platformContext(), nonLinearDestinationColorSpace(context.colorSpace()));
 }
 
-void Gradient::paint(CGContextRef platformContext)
+void Gradient::paint(CGContextRef platformContext, std::optional<DestinationColorSpace> colorSpace)
 {
-    if (!m_platformRenderer)
-        m_platformRenderer = GradientRendererCG { m_colorInterpolationMethod, m_stops.sorted() };
+    if (!m_platformRenderer || m_platformRenderer->colorSpace() != colorSpace)
+        m_platformRenderer = GradientRendererCG { m_colorInterpolationMethod, m_stops.sorted(), colorSpace };
 
     WTF::switchOn(m_data,
         [&] (const LinearData& data) {

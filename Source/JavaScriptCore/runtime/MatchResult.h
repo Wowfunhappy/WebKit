@@ -26,8 +26,8 @@
 #pragma once
 
 #include <JavaScriptCore/UGPRPair.h>
+#include <wtf/Forward.h>
 #include <wtf/NotFound.h>
-#include <wtf/PrintStream.h>
 
 namespace JSC {
 

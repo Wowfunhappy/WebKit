@@ -62,11 +62,11 @@ constexpr unsigned fileIdentifierLength = 6;
 constexpr unsigned regionIdentifierLength = 6;
 constexpr unsigned styleIdentifierLength = 5;
 
-bool WebVTTParser::parseFloatPercentageValue(VTTScanner& valueScanner, float& percentage)
+bool WebVTTParser::parseFloatPercentageValue(VTTScanner& valueScanner, double& percentage)
 {
-    float number;
+    double number;
     bool isNegative = false;
-    if (!valueScanner.scanFloat(number, &isNegative))
+    if (!valueScanner.scanDouble(number, &isNegative))
         return false;
     // '%' must be present and at the end of the setting value.
     if (!valueScanner.scan('%'))
@@ -81,14 +81,14 @@ bool WebVTTParser::parseFloatPercentageValue(VTTScanner& valueScanner, float& pe
 
 bool WebVTTParser::parseFloatPercentageValuePair(VTTScanner& valueScanner, char delimiter, FloatPoint& valuePair)
 {
-    float firstCoord;
+    double firstCoord;
     if (!parseFloatPercentageValue(valueScanner, firstCoord))
         return false;
 
     if (!valueScanner.scan(delimiter))
         return false;
 
-    float secondCoord;
+    double secondCoord;
     if (!parseFloatPercentageValue(valueScanner, secondCoord))
         return false;
 

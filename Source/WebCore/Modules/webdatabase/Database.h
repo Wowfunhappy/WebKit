@@ -31,6 +31,7 @@
 #include "SQLiteDatabase.h"
 #include <wtf/Deque.h>
 #include <wtf/Lock.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebCore {

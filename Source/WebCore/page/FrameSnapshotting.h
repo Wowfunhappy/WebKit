@@ -59,6 +59,8 @@ enum class SnapshotFlags : uint16_t {
     ExcludeText                             = 1 << 11,
     FixedAndStickyLayersOnly                = 1 << 12,
     DraggableElement                        = 1 << 13,
+    IncludeDocumentMarkers                  = 1 << 14,
+    FastAndLowQualityFilters                = 1 << 15,
 };
 
 struct SnapshotOptions {
@@ -67,9 +69,9 @@ struct SnapshotOptions {
     DestinationColorSpace colorSpace;
 };
 
-WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotFrameRect(LocalFrame&, const IntRect&, SnapshotOptions&&);
-RefPtr<ImageBuffer> snapshotFrameRectWithClip(LocalFrame&, const IntRect&, const Vector<FloatRect>& clipRects, SnapshotOptions&&);
-WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotNode(LocalFrame&, Node&, SnapshotOptions&&);
+WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotFrameRect(LocalFrame&, const IntRect&, SnapshotOptions&&, Node* nodeToDraw = nullptr);
+RefPtr<ImageBuffer> snapshotFrameRectWithClip(LocalFrame&, const IntRect&, const Vector<FloatRect>& clipRects, SnapshotOptions&&, Node* nodeToDraw = nullptr);
+WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotNode(LocalFrame&, Node&, SnapshotOptions&&, IntRect* outPaintingRect = nullptr, IntRect* outElementRect = nullptr);
 WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotSelection(LocalFrame&, SnapshotOptions&&);
 
 Color estimatedBackgroundColorForRange(const SimpleRange&, const LocalFrame&);

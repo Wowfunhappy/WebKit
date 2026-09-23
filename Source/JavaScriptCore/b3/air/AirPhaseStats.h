@@ -33,6 +33,7 @@
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
 #include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC { namespace B3 { namespace Air {
 
@@ -45,6 +46,8 @@ namespace JSC { namespace B3 { namespace Air {
 public:                                                                 \
     forEachMacro(PHASE_STATS_MEMBER)                                    \
                                                                         \
+    void setLabel(const String& label) { m_label = label; }             \
+                                                                        \
     void dump(PrintStream& out) const {                                 \
         forEachMacro(PHASE_STATS_PRINT)                                 \
     }                                                                   \
@@ -53,8 +56,11 @@ public:                                                                 \
                                                                         \
     ~className() {                                                      \
         if (collectingStats())                                          \
-            dataLogLn(name(), " stats:", pointerDump(this));            \
+            dataLogLn(name(), " stats [", m_label, "]:", pointerDump(this)); \
     }                                                                   \
+                                                                        \
+private:                                                                \
+    String m_label;
 
 } } } // namespace JSC::B3::Air
 

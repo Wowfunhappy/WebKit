@@ -27,6 +27,7 @@
 
 #include <WebCore/IntDegrees.h>
 #include <wtf/AbstractThreadSafeRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 

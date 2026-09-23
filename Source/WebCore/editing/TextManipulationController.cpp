@@ -29,11 +29,11 @@
 #include "AccessibilityObject.h"
 #include "CharacterData.h"
 #include "ContainerNodeInlines.h"
+#include "DocumentView.h"
 #include "EditingInlines.h"
 #include "ElementAncestorIteratorInlines.h"
 #include "ElementRareData.h"
 #include "EventLoop.h"
-#include "EventTargetInlines.h"
 #include "FontCascadeInlines.h"
 #include "FrameDestructionObserverInlines.h"
 #include "HTMLBRElement.h"
@@ -45,14 +45,13 @@
 #include "InputTypeNames.h"
 #include "LocalFrameView.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "NodeRenderStyle.h"
 #include "NodeTraversal.h"
 #include "PseudoElement.h"
 #include "RenderBox.h"
-#include "RenderStyle+GettersInlines.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "TextIterator.h"
 #include "TextManipulationItem.h"
@@ -269,7 +268,7 @@ private:
     std::optional<Vector<String>> m_text;
 };
 
-static bool shouldExtractValueForTextManipulation(const HTMLInputElement& input)
+static bool NODELETE shouldExtractValueForTextManipulation(const HTMLInputElement& input)
 {
     // FIXME: Consider using `type()` instead of checking the attribute, so that plain text fields
     // with and without an explicit `type="text"` behave consistently.
@@ -309,7 +308,7 @@ static std::optional<TextManipulationTokenInfo> tokenInfo(Node* node)
         return std::nullopt;
 
     TextManipulationTokenInfo result;
-    result.documentURL = node->document().url();
+    result.documentURL = protect(node)->document().url();
     RefPtr element = dynamicDowncast<Element>(*node);
     if (!element)
         element = node->parentElement();
@@ -374,7 +373,7 @@ static bool isEnclosingItemBoundaryElement(const Element& element)
 
 static bool shouldIgnoreNodeInTextField(const Node& node)
 {
-    RefPtr input = dynamicDowncast<HTMLInputElement>(node.shadowHost());
+    auto* input = dynamicDowncast<HTMLInputElement>(node.shadowHost());
     if (!input)
         return false;
 
@@ -600,7 +599,7 @@ void TextManipulationController::scheduleObservationUpdate()
 
     m_didScheduleObservationUpdate = true;
 
-    m_document->eventLoop().queueTask(TaskSource::InternalAsyncTask, [weakThis = WeakPtr { *this }] {
+    protect(m_document)->eventLoop().queueTask(TaskSource::InternalAsyncTask, [weakThis = WeakPtr { *this }] {
         CheckedPtr controller = weakThis.get();
         if (!controller)
             return;
@@ -633,7 +632,7 @@ void TextManipulationController::scheduleObservationUpdate()
             if (!node->isConnected())
                 continue;
 
-            if (RefPtr host = dynamicDowncast<HTMLInputElement>(node->shadowHost()); host && host->lastChangeWasUserEdit())
+            if (auto* host = dynamicDowncast<HTMLInputElement>(node->shadowHost()); host && host->lastChangeWasUserEdit())
                 continue;
 
             if (!commonAncestor)
@@ -673,7 +672,7 @@ void TextManipulationController::addItem(ManipulationItemData&& itemData)
     m_pendingItemsForCallback.append(TextManipulationItem {
         m_document->frame()->frameID(),
         !m_document->frame()->isMainFrame(),
-        !m_document->topOrigin().isSameSiteAs(m_document->securityOrigin()),
+        !protect(m_document)->topOrigin().isSameSiteAs(protect(protect(m_document)->securityOrigin())),
         newID,
         itemData.tokens.map([](auto& token) { return token; })
     });
@@ -839,7 +838,7 @@ auto TextManipulationController::replace(const ManipulationItemData& item, const
         return std::nullopt;
     }
 
-    if (RefPtr container = item.start.containerNode(); container && shouldIgnoreNodeInTextField(*container))
+    if (auto* container = item.start.containerNode(); container && shouldIgnoreNodeInTextField(*container))
         return ManipulationFailure::Type::ContentChanged;
 
     size_t currentTokenIndex = 0;
@@ -870,7 +869,7 @@ auto TextManipulationController::replace(const ManipulationItemData& item, const
 
             tokensInCurrentNode.append(item.tokens[currentTokenIndex]);
         } else
-            tokensInCurrentNode = createUnit(content.text, *content.node).tokens;
+            tokensInCurrentNode = createUnit(content.text, protect(*content.node)).tokens;
 
         bool isNodeIncluded = std::ranges::any_of(tokensInCurrentNode, [](auto& token) {
             return !token.isExcluded;
@@ -959,7 +958,7 @@ auto TextManipulationController::replace(const ManipulationItemData& item, const
 
     RefPtr<Node> node = item.end.firstNode();
     if (node && lastChildOfCommonAncestorInRange->contains(node.get())) {
-        auto topDownPath = getPath(commonAncestor.get(), node->parentNode());
+        auto topDownPath = getPath(commonAncestor.get(), protect(node->parentNode()));
         updateInsertions(lastTopDownPath, topDownPath, nullptr, reusedOriginalNodes, insertions);
     }
     while (lastChildOfCommonAncestorInRange->contains(node.get())) {

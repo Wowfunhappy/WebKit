@@ -106,7 +106,6 @@ public:
     WEBCORE_EXPORT DoublePoint(const POINT&);
 #endif
 
-    WEBCORE_EXPORT String toJSONString() const;
     WEBCORE_EXPORT Ref<JSON::Object> toJSONObject() const;
 
     friend bool operator==(const DoublePoint&, const DoublePoint&) = default;
@@ -138,12 +137,12 @@ constexpr DoublePoint operator-(const DoublePoint& a, const DoubleSize& b)
 
 inline IntPoint flooredIntPoint(const DoublePoint& p)
 {
-    return IntPoint(clampToInteger(floor(p.x())), clampToInteger(floor(p.y())));
+    return IntPoint(clampTo<int>(floor(p.x())), clampTo<int>(floor(p.y())));
 }
 
 inline IntPoint roundedIntPoint(const DoublePoint& p)
 {
-    return IntPoint(clampToInteger(round(p.x())), clampToInteger(round(p.y())));
+    return IntPoint(clampTo<int>(round(p.x())), clampTo<int>(round(p.y())));
 }
 
 inline DoubleSize toDoubleSize(const DoublePoint& a)
@@ -155,16 +154,4 @@ WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const DoublePoint&)
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<typename Type> struct LogArgument;
-template <>
-struct LogArgument<WebCore::DoublePoint> {
-    static String toString(const WebCore::DoublePoint& point)
-    {
-        return point.toJSONString();
-    }
-};
-
-} // namespace WTF
 

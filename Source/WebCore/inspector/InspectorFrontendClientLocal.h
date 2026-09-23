@@ -134,7 +134,7 @@ public:
 
     WEBCORE_EXPORT void setAttachedWindow(DockSide);
 
-    WEBCORE_EXPORT Page* inspectedPage() const;
+    WEBCORE_EXPORT Page* NODELETE inspectedPage() const;
 
 protected:
     virtual void setAttachedWindowHeight(unsigned) = 0;

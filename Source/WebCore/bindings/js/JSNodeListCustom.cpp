@@ -27,11 +27,12 @@
 #include "JSNodeList.h"
 
 #include "ChildNodeList.h"
-#include "JSNode.h"
 #include "LiveNodeList.h"
-#include "Node.h"
 #include "NodeList.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/HeapCellInlines.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <wtf/text/AtomString.h>
 
 
@@ -40,7 +41,7 @@ using namespace JSC;
 
 bool JSNodeListOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    JSNodeList* jsNodeList = jsCast<JSNodeList*>(handle.slot()->asCell());
+    JSNodeList* jsNodeList = downcast<JSNodeList>(handle.slot()->asCell());
     if (!jsNodeList->hasCustomProperties())
         return false;
 

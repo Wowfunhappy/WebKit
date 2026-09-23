@@ -33,7 +33,7 @@ namespace JSC {
 
 ALWAYS_INLINE bool mapIteratorProtocolIsFastAndNonObservable(VM& vm, JSMapIterator* mapIterator)
 {
-    JSGlobalObject* globalObject = mapIterator->globalObject();
+    JSGlobalObject* globalObject = mapIterator->realm();
 
     if (!globalObject->isMapPrototypeIteratorProtocolFastAndNonObservable())
         return false;
@@ -43,6 +43,10 @@ ALWAYS_INLINE bool mapIteratorProtocolIsFastAndNonObservable(VM& vm, JSMapIterat
 
     if (mapIterator->hasCustomProperties()) {
         if (mapIterator->getDirectOffset(vm, vm.propertyNames->next) != invalidOffset)
+            return false;
+        if (mapIterator->getDirectOffset(vm, vm.propertyNames->returnKeyword) != invalidOffset)
+            return false;
+        if (mapIterator->getDirectOffset(vm, vm.propertyNames->iteratorSymbol) != invalidOffset)
             return false;
     }
 

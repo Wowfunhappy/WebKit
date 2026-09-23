@@ -25,8 +25,8 @@
 
 #import "config.h"
 
-#import "PlatformUtilities.h"
-#import "SoftLinkShim.h"
+#import "Helpers/PlatformUtilities.h"
+#import "Helpers/SoftLinkShim.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <WebCore/CaptionUserPreferencesMediaAF.h>
 #import <WebCore/Color.h>
@@ -369,12 +369,7 @@ TEST_F(CaptionPreferenceTests, FontSize)
     EXPECT_STREQ(preferences->captionsFontSizeCSS().utf8().data(), "font-size: 10cqmin;");
 }
 
-// FIXME: https://bugs.webkit.org/show_bug.cgi?id=302171
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 150000 && defined(__x86_64__)
-TEST_F(CaptionPreferenceTests, DISABLED_Colors)
-#else
 TEST_F(CaptionPreferenceTests, Colors)
-#endif
 {
     MediaAccessibilityShim shim;
 

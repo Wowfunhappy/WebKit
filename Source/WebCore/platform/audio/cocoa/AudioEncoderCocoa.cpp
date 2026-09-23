@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -86,7 +86,6 @@ public:
 
 private:
     InternalAudioEncoderCocoa(const AudioEncoder::Config&, InternalConfig&&, AudioEncoder::DescriptionCallback&&, AudioEncoder::OutputCallback&&);
-    static void compressedAudioOutputBufferCallback(void*, CMBufferQueueTriggerToken);
     Ref<AudioSampleBufferConverter> NODELETE converter() const { return *m_converter; }
     void processEncodedOutputs();
     AudioEncoder::ActiveConfiguration activeConfiguration(CMSampleBufferRef) const;
@@ -212,17 +211,6 @@ InternalAudioEncoderCocoa::InternalAudioEncoderCocoa(const Config& config, Inter
 {
 }
 
-void InternalAudioEncoderCocoa::compressedAudioOutputBufferCallback(void* object, CMBufferQueueTriggerToken)
-{
-    // We can only be called from the CoreMedia callback if we are still alive.
-    RefPtr encoder = static_cast<class InternalAudioEncoderCocoa*>(object);
-
-    InternalAudioEncoderCocoa::queueSingleton().dispatch([weakEncoder = ThreadSafeWeakPtr { *encoder }] {
-        if (auto strongEncoder = weakEncoder.get())
-            strongEncoder->processEncodedOutputs();
-    });
-}
-
 Vector<uint8_t> InternalAudioEncoderCocoa::generateDecoderDescriptionFromSample(CMSampleBufferRef sample) const
 {
     RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(sample);
@@ -312,7 +300,7 @@ Ref<AudioEncoder::EncodePromise> InternalAudioEncoderCocoa::encode(AudioEncoder:
 {
     assertIsCurrent(queueSingleton());
 
-    RetainPtr cmSample = downcast<PlatformRawAudioDataCocoa>(rawFrame.frame)->sampleBuffer();
+    RetainPtr cmSample = downcast<PlatformRawAudioDataCocoa>(rawFrame.frame.get())->sampleBuffer();
     ASSERT(cmSample);
     if (auto error = PAL::CMSampleBufferSetOutputPresentationTimeStamp(cmSample.get(), PAL::CMTimeMake(rawFrame.timestamp, 1000000)))
         RELEASE_LOG_ERROR(MediaStream, "AudioSampleBufferConverter CMSampleBufferSetOutputPresentationTimeStamp failed with %d", error);
@@ -326,7 +314,7 @@ Ref<AudioEncoder::EncodePromise> InternalAudioEncoderCocoa::encode(AudioEncoder:
 
     if (*asbd != m_inputDescription) {
         if (RefPtr converter = std::exchange(m_converter, { }))
-            converter->finish();
+            converter->finish()->whenSettled(queueSingleton(), [protectedThis = Ref { *this }] { });
         m_inputDescription = *asbd;
 
         AudioSampleBufferConverter::Options options = {
@@ -339,7 +327,12 @@ Ref<AudioEncoder::EncodePromise> InternalAudioEncoderCocoa::encode(AudioEncoder:
             .packetlossperc = m_internalConfig.packetlossperc,
             .useinbandfec = m_internalConfig.useinbandfec
         };
-        m_converter = AudioSampleBufferConverter::create(compressedAudioOutputBufferCallback, this, options);
+        m_converter = AudioSampleBufferConverter::create([weakThis = ThreadSafeWeakPtr { *this }] {
+            queueSingleton().dispatch([weakThis] {
+                if (auto protectedThis = weakThis.get())
+                    protectedThis->processEncodedOutputs();
+            });
+        }, options);
         if (!m_converter) {
             RELEASE_LOG_ERROR(MediaStream, "InternalAudioEncoderCocoa::encode: creation of converter failed");
             return EncodePromise::createAndReject("InternalAudioEncoderCocoa::encode: creation of converter failed"_s);
@@ -383,12 +376,9 @@ void InternalAudioEncoderCocoa::close()
     assertIsCurrent(queueSingleton());
 
     m_isClosed = true;
-    RefPtr converter = std::exchange(m_converter, { });
-    if (!converter)
-        return;
-    // We keep a reference to ourselves until the converter has been marked as finished. This guarantees that no
-    // callback will occur after we are destructed.
-    converter->finish()->whenSettled(queueSingleton(), [protectedThis = Ref { *this }] { });
+
+    if (RefPtr converter = std::exchange(m_converter, { }))
+        converter->finish();
 }
 
 } // namespace WebCore

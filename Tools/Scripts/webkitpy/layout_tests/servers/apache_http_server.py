@@ -35,6 +35,7 @@ import os
 import re
 import socket
 
+from getpass import getuser
 from webkitpy.common.iteration_compatibility import iteritems
 from webkitpy.layout_tests.servers import http_server_base
 
@@ -108,7 +109,7 @@ class LayoutTestApacheHttpd(http_server_base.HttpServerBase):
             start_cmd.extend(['-c', 'Alias %s "%s"' % (alias, path)])
 
         if not port_obj.host.platform.is_win():
-            start_cmd.extend(['-C', 'User "%s"' % os.environ.get("USERNAME", os.environ.get("USER", ""))])
+            start_cmd.extend(['-C', 'User "%s"' % os.environ.get("USERNAME", os.environ.get("USER", getuser()))])
 
         enable_ipv6 = self._port_obj.http_server_supports_ipv6()
         # Perform part of the checks Apache's APR does when trying to listen to

@@ -27,6 +27,7 @@
 #include "config.h"
 #include "TextCheckingHelper.h"
 
+#include "AXObjectCache.h"
 #include "BoundaryPointInlines.h"
 #include "Document.h"
 #include "DocumentMarkerController.h"
@@ -337,7 +338,7 @@ auto TextCheckingHelper::findFirstMisspelledWordOrUngrammaticalPhrase(bool check
                 if (checkGrammar)
                     checkingTypes.add(TextCheckingType::Grammar);
                 VisibleSelection currentSelection;
-                if (auto* frame = paragraphRange.start.document().frame())
+                if (RefPtr frame = paragraphRange.start.document().frame())
                     currentSelection = frame->selection().selection();
                 checkTextOfParagraph(*protect(m_client)->textChecker(), paragraphString, checkingTypes, results, currentSelection);
 
@@ -433,7 +434,7 @@ int TextCheckingHelper::findUngrammaticalPhrases(Operation operation, const Vect
         
         if (operation == Operation::MarkAll) {
             auto badGrammarRange = resolveCharacterRange(m_range, { badGrammarPhraseLocation - startOffset + detail->range.location, detail->range.length });
-            addMarker(badGrammarRange, DocumentMarkerType::Grammar, detail->userDescription);
+            addMarker(badGrammarRange, DocumentMarkerType::Grammar, DocumentMarker::GrammarData { detail->userDescription, detail->uuid });
         }
         
         // Remember this detail only if it's earlier than our current candidate (the details aren't in a guaranteed order)
@@ -516,9 +517,9 @@ TextCheckingGuesses TextCheckingHelper::guessesForMisspelledWordOrUngrammaticalP
     if (checkGrammar)
         checkingTypes.add(TextCheckingType::Grammar);
     VisibleSelection currentSelection;
-    if (auto frame = m_range.start.document().frame())
+    if (RefPtr frame = m_range.start.document().frame())
         currentSelection = frame->selection().selection();
-    CheckedRef client = m_client.get();
+    CheckedRef client = m_client;
     checkTextOfParagraph(*client->textChecker(), paragraph.text(), checkingTypes, results, currentSelection);
 
     for (auto& result : results) {

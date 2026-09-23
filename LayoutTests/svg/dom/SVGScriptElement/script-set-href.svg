@@ -47,7 +47,7 @@ function test() {
 <script type="text/javascript" id="s4"/>
 <script type="text/javascript" id="s6"></script>
 </defs>
-<foreignObject>
+<foreignObject style="overflow:visible">
 <xhtml:p>Parser-created script elements:</xhtml:p>
 <xhtml:p>Already containing text: <xhtml:span id="p1">PASS</xhtml:span></xhtml:p>
 <xhtml:p>Already specifying missing source: <xhtml:span id="p2">PASS</xhtml:span></xhtml:p>

@@ -32,30 +32,30 @@ PASS U+3A6 Φ Φ 1B 24 42 26 35 1B 28 42
 PASS U+3A7 Χ Χ 1B 24 42 26 36 1B 28 42
 PASS U+3A8 Ψ Ψ 1B 24 42 26 37 1B 28 42
 PASS U+3A9 Ω Ω 1B 24 42 26 38 1B 28 42
-FAIL U+3B1 α α 1B 24 42 26 41 1B 28 42 assert_equals: expected "α" but got "α\ufffd"
-FAIL U+3B2 β β 1B 24 42 26 42 1B 28 42 assert_equals: expected "β" but got "β\ufffd"
-FAIL U+3B3 γ γ 1B 24 42 26 43 1B 28 42 assert_equals: expected "γ" but got "γ\ufffd"
-FAIL U+3B4 δ δ 1B 24 42 26 44 1B 28 42 assert_equals: expected "δ" but got "δ\ufffd"
-FAIL U+3B5 ε ε 1B 24 42 26 45 1B 28 42 assert_equals: expected "ε" but got "ε\ufffd"
-FAIL U+3B6 ζ ζ 1B 24 42 26 46 1B 28 42 assert_equals: expected "ζ" but got "ζ\ufffd"
-FAIL U+3B7 η η 1B 24 42 26 47 1B 28 42 assert_equals: expected "η" but got "η\ufffd"
-FAIL U+3B8 θ θ 1B 24 42 26 48 1B 28 42 assert_equals: expected "θ" but got "θ\ufffd"
-FAIL U+3B9 ι ι 1B 24 42 26 49 1B 28 42 assert_equals: expected "ι" but got "ι\ufffd"
-FAIL U+3BA κ κ 1B 24 42 26 4A 1B 28 42 assert_equals: expected "κ" but got "κ\ufffd"
-FAIL U+3BB λ λ 1B 24 42 26 4B 1B 28 42 assert_equals: expected "λ" but got "λ\ufffd"
-FAIL U+3BC μ μ 1B 24 42 26 4C 1B 28 42 assert_equals: expected "μ" but got "μ\ufffd"
-FAIL U+3BD ν ν 1B 24 42 26 4D 1B 28 42 assert_equals: expected "ν" but got "ν\ufffd"
-FAIL U+3BE ξ ξ 1B 24 42 26 4E 1B 28 42 assert_equals: expected "ξ" but got "ξ\ufffd"
-FAIL U+3BF ο ο 1B 24 42 26 4F 1B 28 42 assert_equals: expected "ο" but got "ο\ufffd"
-FAIL U+3C0 π π 1B 24 42 26 50 1B 28 42 assert_equals: expected "π" but got "π\ufffd"
-FAIL U+3C1 ρ ρ 1B 24 42 26 51 1B 28 42 assert_equals: expected "ρ" but got "ρ\ufffd"
-FAIL U+3C3 σ σ 1B 24 42 26 52 1B 28 42 assert_equals: expected "σ" but got "σ\ufffd"
-FAIL U+3C4 τ τ 1B 24 42 26 53 1B 28 42 assert_equals: expected "τ" but got "τ\ufffd"
-FAIL U+3C5 υ υ 1B 24 42 26 54 1B 28 42 assert_equals: expected "υ" but got "υ\ufffd"
-FAIL U+3C6 φ φ 1B 24 42 26 55 1B 28 42 assert_equals: expected "φ" but got "φ\ufffd"
-FAIL U+3C7 χ χ 1B 24 42 26 56 1B 28 42 assert_equals: expected "χ" but got "χ\ufffd"
-FAIL U+3C8 ψ ψ 1B 24 42 26 57 1B 28 42 assert_equals: expected "ψ" but got "ψ\ufffd"
-FAIL U+3C9 ω ω 1B 24 42 26 58 1B 28 42 assert_equals: expected "ω" but got "ω\ufffd"
+PASS U+3B1 α α 1B 24 42 26 41 1B 28 42
+PASS U+3B2 β β 1B 24 42 26 42 1B 28 42
+PASS U+3B3 γ γ 1B 24 42 26 43 1B 28 42
+PASS U+3B4 δ δ 1B 24 42 26 44 1B 28 42
+PASS U+3B5 ε ε 1B 24 42 26 45 1B 28 42
+PASS U+3B6 ζ ζ 1B 24 42 26 46 1B 28 42
+PASS U+3B7 η η 1B 24 42 26 47 1B 28 42
+PASS U+3B8 θ θ 1B 24 42 26 48 1B 28 42
+PASS U+3B9 ι ι 1B 24 42 26 49 1B 28 42
+PASS U+3BA κ κ 1B 24 42 26 4A 1B 28 42
+PASS U+3BB λ λ 1B 24 42 26 4B 1B 28 42
+PASS U+3BC μ μ 1B 24 42 26 4C 1B 28 42
+PASS U+3BD ν ν 1B 24 42 26 4D 1B 28 42
+PASS U+3BE ξ ξ 1B 24 42 26 4E 1B 28 42
+PASS U+3BF ο ο 1B 24 42 26 4F 1B 28 42
+PASS U+3C0 π π 1B 24 42 26 50 1B 28 42
+PASS U+3C1 ρ ρ 1B 24 42 26 51 1B 28 42
+PASS U+3C3 σ σ 1B 24 42 26 52 1B 28 42
+PASS U+3C4 τ τ 1B 24 42 26 53 1B 28 42
+PASS U+3C5 υ υ 1B 24 42 26 54 1B 28 42
+PASS U+3C6 φ φ 1B 24 42 26 55 1B 28 42
+PASS U+3C7 χ χ 1B 24 42 26 56 1B 28 42
+PASS U+3C8 ψ ψ 1B 24 42 26 57 1B 28 42
+PASS U+3C9 ω ω 1B 24 42 26 58 1B 28 42
 PASS U+401 Ё Ё 1B 24 42 27 27 1B 28 42
 PASS U+410 А А 1B 24 42 27 21 1B 28 42
 PASS U+411 Б Б 1B 24 42 27 22 1B 28 42

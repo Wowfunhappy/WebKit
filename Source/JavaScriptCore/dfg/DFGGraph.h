@@ -36,11 +36,12 @@
 #include "DFGFrozenValue.h"
 #include "DFGNode.h"
 #include "DFGPlan.h"
-#include "DFGPropertyTypeKey.h"
 #include "FullBytecodeLiveness.h"
 #include "FunctionAllowlist.h"
 #include "JITScannable.h"
+#include "JumpTable.h"
 #include "MethodOfGettingAValueProfile.h"
+#include <wtf/BitSet.h>
 #include <wtf/BitVector.h>
 #include <wtf/GenericHashKey.h>
 #include <wtf/HashMap.h>
@@ -58,6 +59,9 @@ namespace JSC {
 class CodeBlock;
 class CallFrame;
 class IRDumpDebugInfo;
+class RegExp;
+
+enum class FirstCharacterFilterPosition : uint8_t;
 
 namespace DFG {
 
@@ -185,7 +189,7 @@ private:
 //
 // The order may be significant for nodes with side-effects (property accesses, value conversions).
 // Nodes that are 'dead' remain in the vector with refCount 0.
-class Graph final : public virtual Scannable {
+class Graph final : public Scannable {
 public:
     Graph(VM&, Plan&);
     ~Graph() final;
@@ -270,7 +274,7 @@ public:
     void packNodeIndices();
     void clearAbstractValues();
 
-    void dethread();
+    void NODELETE dethread();
     
     FrozenValue* freeze(JSValue); // We use weak freezing by default.
     FrozenValue* freezeStrong(JSValue); // Shorthand for freeze(value)->strengthenTo(StrongValue).
@@ -290,13 +294,11 @@ public:
     // https://bugs.webkit.org/show_bug.cgi?id=210627
     FrozenValue* bottomValueMatchingSpeculation(SpeculatedType);
     
-    RegisteredStructure registerStructure(Structure* structure)
-    {
-        StructureRegistrationResult ignored;
-        return registerStructure(structure, ignored);
-    }
-    RegisteredStructure registerStructure(Structure*, StructureRegistrationResult&);
-    void registerAndWatchStructureTransition(Structure*);
+    RegisteredStructure registerStructure(Structure*);
+    bool tryWatch(Structure*);
+    void watch(Structure*);
+    bool isWatched(Structure*);
+
     void assertIsRegistered(Structure* structure);
     
     // CodeBlock is optional, but may allow additional information to be dumped (e.g. Identifier names).
@@ -312,7 +314,7 @@ public:
 
     void dump(PrintStream&, DumpContext*);
 
-    bool terminalsAreValid();
+    bool NODELETE terminalsAreValid();
     
     enum PhiNodeDumpMode { DumpLivePhisOnly, DumpAllPhis };
     void dumpBlockHeader(PrintStream&, const char* prefix, BasicBlock*, PhiNodeDumpMode, DumpContext*);
@@ -563,7 +565,7 @@ public:
         return arithRound->canSpeculateInt32(pass) && !hasExitSite(arithRound->origin.semantic, Overflow) && !hasExitSite(arithRound->origin.semantic, NegativeZero);
     }
     
-    static ASCIILiteral opName(NodeType);
+    static ASCIILiteral NODELETE opName(NodeType);
     
     RegisteredStructureSet* addStructureSet(const StructureSet& structureSet)
     {
@@ -631,7 +633,7 @@ public:
 
     void appendBlock(std::unique_ptr<BasicBlock>&& basicBlock)
     {
-        basicBlock->index = m_blocks.size();
+        basicBlock->setIndex(m_blocks.size());
         m_blocks.append(WTF::move(basicBlock));
     }
     
@@ -642,7 +644,7 @@ public:
     
     void killBlock(BasicBlock* basicBlock)
     {
-        killBlock(basicBlock->index);
+        killBlock(basicBlock->index());
     }
     
     void killBlockAndItsContents(BasicBlock*);
@@ -768,16 +770,16 @@ public:
     // any GetLocals in the basic block.
     // FIXME: it may be appropriate, in the future, to generalize this to handle GetLocals
     // introduced anywhere in the basic block.
-    void substituteGetLocal(BasicBlock& block, unsigned startIndexInBlock, VariableAccessData* variableAccessData, Node* newGetLocal);
+    void NODELETE substituteGetLocal(BasicBlock& block, unsigned startIndexInBlock, VariableAccessData* variableAccessData, Node* newGetLocal);
     
     void invalidateCFG();
     void invalidateNodeLiveness();
     
-    void clearFlagsOnAllNodes(NodeFlags);
+    void NODELETE clearFlagsOnAllNodes(NodeFlags);
     
-    void clearReplacements();
-    void clearEpochs();
-    void initializeNodeOwners();
+    void NODELETE clearReplacements();
+    void NODELETE clearEpochs();
+    void NODELETE initializeNodeOwners();
     
     BlockList blocksInPreOrder();
     BlockList blocksInPostOrder(bool isSafeToValidate = true);
@@ -998,11 +1000,32 @@ public:
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringValueOfWatchpointSet);
     }
 
+    bool isWatchingStringSymbolMatchWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
+        InlineWatchpointSet& set = globalObject->stringSymbolMatchWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolMatchWatchpointSet);
+    }
+
+    bool isWatchingStringSymbolSearchWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
+        InlineWatchpointSet& set = globalObject->stringSymbolSearchWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolSearchWatchpointSet);
+    }
+
     bool isWatchingStringSymbolReplaceWatchpoint(const CodeOrigin& semanticOrigin)
     {
         JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
         InlineWatchpointSet& set = globalObject->stringSymbolReplaceWatchpointSet();
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolReplaceWatchpointSet);
+    }
+
+    bool isWatchingStringSymbolSplitWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
+        InlineWatchpointSet& set = globalObject->stringSymbolSplitWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolSplitWatchpointSet);
     }
 
     bool isWatchingStringSymbolToPrimitiveWatchpoint(const CodeOrigin& semanticOrigin)
@@ -1019,9 +1042,16 @@ public:
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet);
     }
 
-    bool isWatchingPromiseThenWatchpoint(Node* node)
+    bool isWatchingRegExpSpeciesWatchpoint(Node* node)
     {
         JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->regExpSpeciesWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::RegExpSpeciesWatchpointSet);
+    }
+
+    bool isWatchingPromiseThenWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
         InlineWatchpointSet& set = globalObject->promiseThenWatchpointSet();
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::PromiseThenWatchpointSet);
     }
@@ -1065,6 +1095,9 @@ public:
 
     DesiredIdentifiers& identifiers() LIFETIME_BOUND { return m_plan.identifiers(); }
     DesiredWatchpoints& watchpoints() LIFETIME_BOUND { return m_plan.watchpoints(); }
+
+    const WTF::BitSet<256>* tryGetConstantRegExpFirstCharacterBitmap(Node*, FirstCharacterFilterPosition);
+    const WTF::BitSet<256>* regExpFirstCharacterBitmap(RegExp*, FirstCharacterFilterPosition);
 
     // Returns false if the key is already invalid or unwatchable. If this is a Presence condition,
     // this also makes it cheap to query if the condition holds. Also makes sure that the GC knows
@@ -1210,7 +1243,7 @@ public:
             functor(virtualRegisterForArgumentIncludingThis(argument));
     }
 
-    static unsigned parameterSlotsForArgCount(unsigned);
+    static unsigned NODELETE parameterSlotsForArgCount(unsigned);
     
     unsigned frameRegisterCount();
     unsigned stackPointerOffset();
@@ -1235,6 +1268,12 @@ public:
     ObjectPropertyConditionSet tryEnsureAbsence(JSGlobalObject*, const StructureSet&, CacheableIdentifier);
 
     bool canDoFastSpread(Node*, const AbstractValue&);
+    bool canDoFastSpreadWithStructureCheck(Node*);
+    static constexpr IndexingType originalArrayShapesForSpread[] = {
+        CopyOnWriteArrayWithContiguous, ArrayWithContiguous,
+        ArrayWithInt32, CopyOnWriteArrayWithInt32,
+        ArrayWithDouble, CopyOnWriteArrayWithDouble,
+    };
     
     void registerFrozenValues();
 

@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/ScrollTypes.h>
+#include <WebCore/ScrollbarTheme.h>
 #include <WebCore/Timer.h>
 #include <WebCore/Widget.h>
 #include <wtf/Platform.h>
@@ -36,7 +37,6 @@ class GraphicsContext;
 class IntRect;
 class PlatformMouseEvent;
 class ScrollableArea;
-class ScrollbarTheme;
 
 class Scrollbar : public Widget {
 public:

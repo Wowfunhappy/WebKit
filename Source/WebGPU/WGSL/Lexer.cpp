@@ -336,7 +336,7 @@ Token Lexer<T>::nextToken()
 
             String view(StringImpl::createWithoutCopying(startOfToken.subspan(0, currentTokenLength())));
 
-            static constexpr SortedArrayMap keywords { std::to_array<std::pair<ComparableASCIILiteral, TokenType>>({
+            static constexpr SortedArrayMap keywords { WTF::toArray<std::pair<ComparableASCIILiteral, TokenType>>({
                 { "_"_s, TokenType::Underbar },
 
 #define MAPPING_ENTRY(lexeme, name)\
@@ -347,7 +347,7 @@ FOREACH_KEYWORD(MAPPING_ENTRY)
             }) };
 
             // https://www.w3.org/TR/WGSL/#reserved-words
-            static constexpr SortedArraySet reservedWordSet { std::to_array<ComparableASCIILiteral>({
+            static constexpr SortedArraySet reservedWordSet { WTF::toArray<ComparableASCIILiteral>({
                 "NULL"_s,
                 "Self"_s,
                 "abstract"_s,
@@ -362,7 +362,6 @@ FOREACH_KEYWORD(MAPPING_ENTRY)
                 "auto"_s,
                 "await"_s,
                 "become"_s,
-                "binding_array"_s,
                 "cast"_s,
                 "catch"_s,
                 "class"_s,
@@ -428,6 +427,8 @@ FOREACH_KEYWORD(MAPPING_ENTRY)
                 "noexcept"_s,
                 "noinline"_s,
                 "nointerpolation"_s,
+                "non_coherent"_s,
+                "noncoherent"_s,
                 "noperspective"_s,
                 "null"_s,
                 "nullptr"_s,
@@ -1057,7 +1058,7 @@ Token Lexer<T>::lexNumber()
         return makeToken(TokenType::Invalid);
     };
 
-    if (!fract && !exponent) {
+    if (!fract && !exponent && suffix != 'f' && suffix != 'h') {
         auto base = isHex ? 16 : 10;
         auto result = WTF::parseInteger<int64_t>(integral, base, WTF::TrailingJunkPolicy::Allow);
         if (!result)

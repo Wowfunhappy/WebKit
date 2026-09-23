@@ -70,7 +70,7 @@ struct CheckData {
     {
     }
 
-    void disableCheckArrayHoisting()
+    void NODELETE disableCheckArrayHoisting()
     {
         m_arrayModeIsValid = false;
         m_arrayModeHoistingOkay = false;
@@ -231,7 +231,7 @@ public:
     }
 
 private:
-    void clearVariableVotes()
+    void NODELETE clearVariableVotes()
     { 
         for (unsigned i = m_graph.m_variableAccessData.size(); i--;) {
             VariableAccessData* variable = &m_graph.m_variableAccessData[i];
@@ -500,7 +500,7 @@ private:
     }
 
     template <typename TypeCheck>
-    bool shouldConsiderForHoisting(VariableAccessData* variable)
+    bool NODELETE shouldConsiderForHoisting(VariableAccessData* variable)
     {
         if (!variable->shouldUnboxIfPossible())
             return false;
@@ -574,12 +574,12 @@ bool performTypeCheckHoisting(Graph& graph)
 }
 
 struct ArrayTypeCheck {
-    static bool isValidToHoist(CheckData& checkData)
+    static bool NODELETE isValidToHoist(CheckData& checkData)
     {
         return checkData.m_arrayModeIsValid;
     }
 
-    static void disableHoisting(CheckData& checkData)
+    static void NODELETE disableHoisting(CheckData& checkData)
     {
         checkData.disableCheckArrayHoisting();
     }
@@ -590,40 +590,40 @@ struct ArrayTypeCheck {
         return !checkData.m_arrayMode.structureWouldPassArrayModeFiltering(value.asCell()->structure());
     }
 
-    static bool hasEnoughVotesToHoist(VariableAccessData* variable)
+    static bool NODELETE hasEnoughVotesToHoist(VariableAccessData* variable)
     {
         return variable->voteRatio() >= Options::checkArrayVoteRatioForHoisting();
     }
 
-    static bool hoistingPreviouslyFailed(VariableAccessData* variable)
+    static bool NODELETE hoistingPreviouslyFailed(VariableAccessData* variable)
     {
         return variable->checkArrayHoistingFailed();
     }
 };
 
 struct StructureTypeCheck {
-    static bool isValidToHoist(CheckData& checkData)
+    static bool NODELETE isValidToHoist(CheckData& checkData)
     {
         return checkData.m_structure;
     }
 
-    static void disableHoisting(CheckData& checkData)
+    static void NODELETE disableHoisting(CheckData& checkData)
     {
         checkData.m_structure = nullptr;
     }
 
-    static bool isContravenedByValue(CheckData& checkData, JSValue value)
+    static bool NODELETE isContravenedByValue(CheckData& checkData, JSValue value)
     {
         ASSERT(value.isCell());
         return checkData.m_structure != value.asCell()->structure();
     }
 
-    static bool hasEnoughVotesToHoist(VariableAccessData* variable)
+    static bool NODELETE hasEnoughVotesToHoist(VariableAccessData* variable)
     {
         return variable->voteRatio() >= Options::structureCheckVoteRatioForHoisting();
     }
 
-    static bool hoistingPreviouslyFailed(VariableAccessData* variable)
+    static bool NODELETE hoistingPreviouslyFailed(VariableAccessData* variable)
     {
         return variable->structureCheckHoistingFailed();
     }

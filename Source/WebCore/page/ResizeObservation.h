@@ -66,7 +66,7 @@ public:
 
     Element* target() const { return m_target.get(); }
     ResizeObserverBoxOptions observedBox() const { return m_observedBox; }
-    size_t targetElementDepth() const;
+    size_t NODELETE targetElementDepth() const;
 
 private:
     ResizeObservation(Element&, ResizeObserverBoxOptions);

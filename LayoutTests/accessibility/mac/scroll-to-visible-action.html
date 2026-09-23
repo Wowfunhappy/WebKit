@@ -36,9 +36,7 @@ if (window.accessibilityController) {
     window.jsTestIsAsync = true;
 
     setTimeout(async function() {
-        await waitFor(() => {
-            return accessibilityController.rootElement.x != 0;
-        });
+        await waitForFrameGeometryReady();
 
         var button = accessibilityController.accessibleElementById("button");
         initialButtonX = button.x;

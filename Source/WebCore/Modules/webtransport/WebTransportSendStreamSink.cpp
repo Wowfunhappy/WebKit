@@ -40,6 +40,7 @@
 #include "WritableStream.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/RunLoop.h>
+#include <wtf/Scope.h>
 
 namespace WebCore {
 
@@ -49,9 +50,7 @@ WebTransportSendStreamSink::WebTransportSendStreamSink(WebTransport& transport, 
 {
 }
 
-WebTransportSendStreamSink::~WebTransportSendStreamSink()
-{
-}
+WebTransportSendStreamSink::~WebTransportSendStreamSink() = default;
 
 RefPtr<WritableStream> WebTransportSendStreamSink::stream() const
 {
@@ -89,7 +88,7 @@ void WebTransportSendStreamSink::write(ScriptExecutionContext& context, JSC::JSV
     if (m_isClosed)
         return promise.reject(Exception { ExceptionCode::InvalidStateError });
 
-    auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(context.globalObject());
+    auto& globalObject = *downcast<JSDOMGlobalObject>(context.globalObject());
     auto scope = DECLARE_THROW_SCOPE(globalObject.vm());
 
     auto bufferSource = convert<IDLUnion<IDLArrayBuffer, IDLArrayBufferView>>(globalObject, value);
@@ -142,7 +141,7 @@ void WebTransportSendStreamSink::abort(JSDOMGlobalObject&, JSC::JSValue value, D
         return;
 
     std::optional<uint64_t> errorCode;
-    if (auto* jsWebTransportError = JSC::jsDynamicCast<JSWebTransportError*>(value)) {
+    if (auto* jsWebTransportError = dynamicDowncast<JSWebTransportError>(value)) {
         auto& webTransportError = jsWebTransportError->wrapped();
         if (auto webTransportErrorCode = webTransportError.streamErrorCode())
             errorCode = static_cast<uint64_t>(*webTransportErrorCode);

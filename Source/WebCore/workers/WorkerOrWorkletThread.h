@@ -35,6 +35,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/Threading.h>
 #include <wtf/threads/BinarySemaphore.h>
 
 namespace WTF {

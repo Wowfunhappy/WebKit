@@ -129,6 +129,37 @@ void SampleMap::removeSample(const MediaSample& sample)
     decodeOrder().m_samples.erase(decodeKey);
 }
 
+void SampleMap::replaceSample(const MediaSample& original, Ref<MediaSample>&& replacement)
+{
+    // Swap an already-buffered sample for a replacement carrying nearly-identical
+    // keys (typically a small timing shift). The erase() return iterator is a
+    // valid insertion-point hint for the new entry as long as the replacement's
+    // key still sorts just ahead of the erased position; this holds for the
+    // small shifts that `createCopyWithAdjustedStartTime` produces. A wrong
+    // hint is merely a performance regression, not a correctness issue.
+    // The replacement carries the same payload as the original, so the total
+    // size is unchanged.
+    ASSERT(original.sizeInBytes() == replacement->sizeInBytes());
+    ASSERT(original.trackID() == replacement->trackID());
+
+    MediaTime originalPts = original.presentationTime();
+    auto originalDecodeKey = DecodeOrderSampleMap::KeyType(original.decodeTime(), originalPts);
+    MediaTime replacementPts = replacement->presentationTime();
+    auto replacementDecodeKey = DecodeOrderSampleMap::KeyType(replacement->decodeTime(), replacementPts);
+
+    auto& presentationSamples = presentationOrder().m_samples;
+    if (auto pIt = presentationSamples.find(originalPts); pIt != presentationSamples.end()) {
+        auto hint = presentationSamples.erase(pIt);
+        presentationSamples.insert(hint, { replacementPts, replacement.copyRef() });
+    }
+
+    auto& decodeSamples = decodeOrder().m_samples;
+    if (auto dIt = decodeSamples.find(originalDecodeKey); dIt != decodeSamples.end()) {
+        auto hint = decodeSamples.erase(dIt);
+        decodeSamples.insert(hint, { replacementDecodeKey, WTF::move(replacement) });
+    }
+}
+
 PresentationOrderSampleMap::iterator PresentationOrderSampleMap::findSampleWithPresentationTime(const MediaTime& time) LIFETIME_BOUND
 {
     auto range = m_samples.equal_range(time);
@@ -291,6 +322,8 @@ DecodeOrderSampleMap::iterator DecodeOrderSampleMap::findSyncSampleAfterDecodeIt
 
 PresentationOrderSampleMap::iterator_range PresentationOrderSampleMap::findSamplesBetweenPresentationTimes(const MediaTime& beginTime, const MediaTime& endTime) LIFETIME_BOUND
 {
+    if (endTime <= beginTime)
+        return { end(), end() };
     // startTime is inclusive, so use lower_bound to include samples wich start exactly at startTime.
     // endTime is not inclusive, so use lower_bound to exclude samples which start exactly at endTime.
     auto lower_bound = m_samples.lower_bound(beginTime);
@@ -302,6 +335,8 @@ PresentationOrderSampleMap::iterator_range PresentationOrderSampleMap::findSampl
 
 PresentationOrderSampleMap::iterator_range PresentationOrderSampleMap::findSamplesBetweenPresentationTimesFromEnd(const MediaTime& beginTime, const MediaTime& endTime) LIFETIME_BOUND
 {
+    if (endTime <= beginTime)
+        return { end(), end() };
     reverse_iterator rangeEnd = std::find_if(rbegin(), rend(), [&endTime](const auto& value) {
         return value.first < endTime;
     });

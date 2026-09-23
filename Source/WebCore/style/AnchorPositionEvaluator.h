@@ -33,6 +33,7 @@
 #include <WebCore/PseudoElementIdentifier.h>
 #include <WebCore/ResolvedScopedName.h>
 #include <WebCore/ScopedName.h>
+#include <WebCore/Styleable.h>
 #include <WebCore/WritingMode.h>
 #include <wtf/HashMap.h>
 #include <wtf/TZoneMalloc.h>
@@ -51,11 +52,15 @@ class LayoutSize;
 class RenderBlock;
 class RenderBox;
 class RenderBoxModelObject;
+class RenderLayerModelObject;
 class RenderElement;
-class RenderStyle;
 class RenderView;
 
 enum CSSPropertyID : uint16_t;
+
+namespace Style {
+class ComputedStyle;
+}
 
 struct AnchorScrollSnapshot {
     SingleThreadWeakPtr<const RenderBox> m_scroller;
@@ -64,6 +69,15 @@ struct AnchorScrollSnapshot {
     AnchorScrollSnapshot(const RenderBox& scroller, LayoutPoint snapshot);
     AnchorScrollSnapshot(LayoutPoint snapshot);
     bool operator==(const AnchorScrollSnapshot&) const = default;
+};
+
+class AnchorStickySnapshot {
+    SingleThreadWeakPtr<const RenderBoxModelObject> m_sticky;
+    LayoutSize m_stickySnapshot { };
+public:
+    inline LayoutSize adjustmentForCurrentScrollPosition() const;
+    AnchorStickySnapshot(const RenderBoxModelObject& sticky, LayoutSize snapshot);
+    bool operator==(const AnchorStickySnapshot&) const = default;
 };
 
 class AnchorScrollAdjuster {
@@ -79,12 +93,16 @@ public:
     bool isHidden() const { return m_isHidden; }
     void setHidden(bool hide) { m_isHidden = hide; }
 
-    inline void addSnapshot(const RenderBox& scroller);
-    inline void addViewportSnapshot(const RenderView&);
-    bool hasViewportSnapshot() const { return m_adjustForViewport; }
+    inline void addScrollSnapshot(const RenderBox& scroller);
+    enum Direction : int8_t { Normal = 1, Reverse = -1 };
+    inline void addViewportSnapshot(const RenderView&, Direction = Reverse);
+    bool hasViewportSnapshot() const { return m_adjustmentForViewport; }
+
+    inline void addStickySnapshot(const RenderBoxModelObject& sticky);
 
     enum Diff : uint8_t { New, SnapshotsDiffer, SnapshotsMatch };
     bool NODELETE recaptureDiffers(const AnchorScrollAdjuster&) const; // Snapshot differences can require invalidation.
+    void removeMatchingSnapshots(const AnchorScrollAdjuster&);
 
     void setFallbackLimits(const RenderBox& anchored);
     bool hasFallbackLimits() const { return m_hasFallback; }
@@ -98,14 +116,13 @@ private:
 
     CheckedRef<RenderBox> m_anchored;
     Vector<AnchorScrollSnapshot, 1> m_scrollSnapshots;
+    Vector<AnchorStickySnapshot> m_stickySnapshots;
+    int8_t m_adjustmentForViewport { 0 }; /* Boolean and directional multiplier. */
     bool m_needsXAdjustment : 1 { false };
     bool m_needsYAdjustment : 1 { false };
-    bool m_adjustForViewport : 1 { false };
     bool m_hasChainedAnchor : 1 { false };
-    bool m_hasStickyAnchor : 1 { false };
     bool m_isHidden : 1 { false };
     bool m_hasFallback : 1 { false };
-    LayoutSize m_stickySnapshot;
     LayoutSizeLimits m_fallbackLimits;
 };
 
@@ -115,9 +132,22 @@ class BuilderState;
 struct BuilderPositionTryFallback;
 
 enum class AnchorPositionResolutionStage : uint8_t {
+    // Initial state, we've found which anchors the element uses, but we haven't
+    // resolved anchor names to the concrete elements.
     FindAnchors,
-    ResolveAnchorFunctions,
+
+    // State when an anchor-positioned element has resolved its anchors,
+    // but its anchor(s) is/are also anchor-positioned. The element waits
+    // here until the its anchor(s) is/are Positioned, in which case it'll
+    // transition to Resolved.
+    WaitingForAnchorToBePositioned,
+
+    // The anchor-positioned element has resolved the anchors it refers to, and
+    // the anchors are also at Positioned stage, if they themselves are anchor-positioned.
     Resolved,
+
+    // The anchor-positioned element has been laid out and its position determined.
+    // This occurs after a Resolved element went through the layout process.
     Positioned,
 };
 
@@ -131,8 +161,7 @@ struct AnchorPositionedState {
     WTF_MAKE_STRUCT_TZONE_ALLOCATED(AnchorPositionedState);
 };
 
-using AnchorPositionedKey = std::pair<RefPtr<const Element>, std::optional<PseudoElementIdentifier>>;
-using AnchorPositionedStates = HashMap<AnchorPositionedKey, std::unique_ptr<AnchorPositionedState>>;
+using AnchorPositionedStates = HashMap<WeakStyleable, UniqueRef<AnchorPositionedState>>;
 
 using AnchorsForAnchorName = HashMap<ResolvedScopedName, Vector<SingleThreadWeakRef<const RenderBoxModelObject>>>;
 
@@ -152,17 +181,16 @@ struct ResolvedAnchor {
 };
 
 struct AnchorPositionedToAnchorEntry {
-    // The pseudo-element identifier can be used to access the AnchorPositionedState struct
-    // of the current element in an AnchorPositionedStates map, in combination with the relevant
-    // Element object.
-    std::optional<PseudoElementIdentifier> pseudoElementIdentifier;
-
     Vector<ResolvedAnchor> anchors;
+
+    // True if all anchors above have been laid out and positioned.
+    // Only then can this anchor-positioned element be positioned.
+    bool allAnchorsPositioned { false };
 
     WTF_MAKE_STRUCT_TZONE_ALLOCATED(AnchorPositionedToAnchorEntry);
 };
 
-using AnchorPositionedToAnchorMap = WeakHashMap<Element, AnchorPositionedToAnchorEntry, WeakPtrImplWithEventTargetData>;
+using AnchorPositionedToAnchorMap = HashMap<WeakStyleable, AnchorPositionedToAnchorEntry>;
 using AnchorToAnchorPositionedMap = SingleThreadWeakHashMap<const RenderBoxModelObject, Vector<Ref<Element>>>;
 
 class AnchorPositionEvaluator {
@@ -176,16 +204,16 @@ public:
 
     static void updateAnchorPositioningStatesAfterInterleavedLayout(Document&, AnchorPositionedStates&);
     static void updateScrollAdjustments(RenderView&);
-    static void updateAnchorPositionedStateForDefaultAnchorAndPositionVisibility(Element&, const RenderStyle&, AnchorPositionedStates&);
+    static void updateAnchorPositionedStateForDefaultAnchorAndPositionVisibility(Element&, const Style::ComputedStyle&, AnchorPositionedStates&);
 
-    static LayoutRect computeAnchorRectRelativeToContainingBlock(CheckedRef<const RenderBoxModelObject> anchorBox, const RenderElement& containingBlock, const RenderBox& anchoredBox);
+    static LayoutRect computeAnchorRectRelativeToContainingBlock(CheckedRef<const RenderBoxModelObject> anchorBox, const RenderLayerModelObject& containingBlock, const RenderBox& anchoredBox);
     static void captureScrollSnapshots(RenderBox& anchored, bool invalidateStyleForScrollPositionChanges = true);
 
     static AnchorToAnchorPositionedMap makeAnchorPositionedForAnchorMap(AnchorPositionedToAnchorMap&);
 
-    static bool NODELETE isAnchorPositioned(const RenderStyle&);
-    static bool NODELETE isStyleTimeAnchorPositioned(const RenderStyle&);
-    static bool NODELETE isLayoutTimeAnchorPositioned(const RenderStyle&);
+    static bool NODELETE isAnchorPositioned(const Style::ComputedStyle&);
+    static bool NODELETE isStyleTimeAnchorPositioned(const Style::ComputedStyle&);
+    static bool NODELETE isLayoutTimeAnchorPositioned(const Style::ComputedStyle&);
 
     static CSSPropertyID resolvePositionTryFallbackProperty(CSSPropertyID, WritingMode, const BuilderPositionTryFallback&);
     static CSSValueID resolvePositionTryFallbackValueForSelfPosition(CSSPropertyID, CSSValueID, WritingMode, const BuilderPositionTryFallback&);
@@ -193,20 +221,18 @@ public:
     static bool overflowsInsetModifiedContainingBlock(const RenderBox& anchoredBox);
     static bool isDefaultAnchorInvisibleOrClippedByInterveningBoxes(const RenderBox& anchoredBox);
 
-    static ScopedName defaultAnchorName(const RenderStyle&);
-    static bool isAnchor(const RenderStyle&);
-    static bool isImplicitAnchor(const RenderStyle&);
+    static ScopedName defaultAnchorName(const Style::ComputedStyle&);
+    static bool isAnchor(const Style::ComputedStyle&);
+    static bool isImplicitAnchor(const Style::ComputedStyle&);
 
     static CheckedPtr<RenderBoxModelObject> defaultAnchorForBox(const RenderBox&);
 
-    static HashMap<AnchorPositionedKey, size_t> recordLastSuccessfulPositionOptions(const SingleThreadWeakHashSet<const RenderBox>& positionTryBoxes);
+    static HashMap<WeakStyleable, size_t> recordLastSuccessfulPositionOptions(const SingleThreadWeakHashSet<const RenderBox>& positionTryBoxes);
 
 private:
     static CheckedPtr<RenderBoxModelObject> findAnchorForAnchorFunctionAndAttemptResolution(BuilderState&, std::optional<ScopedName> elementName);
-    static AnchorElements findAnchorsForAnchorPositionedElement(const Element&, const HashSet<ResolvedScopedName>& anchorNames, const AnchorsForAnchorName&);
     static RefPtr<const Element> anchorPositionedElementOrPseudoElement(BuilderState&);
-    static AnchorPositionedKey NODELETE keyForElementOrPseudoElement(const Element&);
-    static void addAnchorFunctionScrollCompensatedAxis(RenderStyle&, const RenderBox& anchored, const RenderBoxModelObject& anchor, BoxAxis);
+    static void addAnchorFunctionScrollCompensatedAxis(Style::ComputedStyle&, const RenderBox& anchored, const RenderBoxModelObject& anchor, BoxAxis);
     static LayoutSize scrollOffsetFromAnchor(const RenderBoxModelObject& anchor, const RenderBox& anchored);
 };
 

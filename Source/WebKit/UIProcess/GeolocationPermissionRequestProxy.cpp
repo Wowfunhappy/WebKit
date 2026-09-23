@@ -31,10 +31,11 @@
 
 namespace WebKit {
 
-GeolocationPermissionRequestProxy::GeolocationPermissionRequestProxy(GeolocationPermissionRequestManagerProxy& manager, GeolocationIdentifier geolocationID, WebProcessProxy& process)
+GeolocationPermissionRequestProxy::GeolocationPermissionRequestProxy(GeolocationPermissionRequestManagerProxy& manager, GeolocationIdentifier geolocationID, WebProcessProxy& process, WebCore::RegistrableDomain&& registrableDomain)
     : m_manager(manager)
     , m_geolocationID(geolocationID)
     , m_process(process)
+    , m_registrableDomain(WTF::move(registrableDomain))
 {
 }
 

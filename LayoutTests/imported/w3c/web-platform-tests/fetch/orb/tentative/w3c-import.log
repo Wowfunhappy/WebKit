@@ -14,6 +14,8 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/compressed-image-sniffing.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/content-range.sub.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/img-mime-types-coverage.tentative.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/img-png-mislabeled-as-html.sub-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/img-png-mislabeled-as-html.sub-ref.html
@@ -21,4 +23,11 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/img-png-unlabeled.sub-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/img-png-unlabeled.sub-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/img-png-unlabeled.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/known-mime-type.sub.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/nosniff.sub.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/script-js-unlabeled-gzipped.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/script-unlabeled.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/script-utf16-without-bom-hint-charset.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/status.sub.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/status.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/fetch/orb/tentative/unknown-mime-type.sub.any.js

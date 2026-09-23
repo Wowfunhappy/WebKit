@@ -80,7 +80,7 @@ bool writeOriginToFile(const String& filePath, const ClientOrigin& origin)
 
 String encodeSecurityOriginForFileName(FileSystem::Salt salt, const SecurityOriginData& origin)
 {
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     auto originString = origin.toString().utf8();
     crypto->addBytes(byteCast<uint8_t>(originString.span()));
     crypto->addBytes(salt);

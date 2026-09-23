@@ -21,7 +21,7 @@
 #pragma once
 
 #include "NativeErrorPrototype.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 

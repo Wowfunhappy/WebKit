@@ -22,7 +22,6 @@
 #include "CommonAtomStrings.h"
 #include "ExceptionOr.h"
 #include "HTMLDocument.h"
-#include "NodeInlines.h"
 #include "SVGDocument.h"
 #include "SecurityOriginPolicy.h"
 #include "Settings.h"
@@ -68,7 +67,7 @@ ExceptionOr<Ref<Document>> DOMParser::parseFromString(Variant<Ref<TrustedHTML>, 
         document->setContextDocument(*m_contextDocument.get());
     document->setMarkupUnsafe(stringValueHolder.releaseReturnValue(), { });
     if (m_contextDocument) {
-        document->setURL(URL { m_contextDocument->url() });
+        document->setURL(URL { protect(m_contextDocument)->url() });
         document->setSecurityOriginPolicy(m_contextDocument->securityOriginPolicy());
     }
     return document.releaseNonNull();

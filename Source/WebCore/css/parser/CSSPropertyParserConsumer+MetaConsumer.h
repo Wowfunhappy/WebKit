@@ -160,7 +160,7 @@ struct MetaConsumerUnroller<T, Ts...> {
 };
 
 // The `MetaConsumer` is the main driver of token consumption, dispatching
-// to a `MetaConsumerUnroller` based on token type. Caller use this directly.
+// to a `MetaConsumerUnroller` based on token type. Callers use this directly.
 // An example use that attempts to consumer either a <number> or <percentage>
 // looks like (argument list elided for brevity):
 //

@@ -58,7 +58,8 @@ struct MockWebAuthenticationConfiguration {
         NoTags,
         WrongTagType,
         NoConnections,
-        MaliciousPayload
+        MaliciousPayload,
+        HardwareBusy
     };
 
     enum class UserVerification : uint8_t {
@@ -106,6 +107,8 @@ struct MockWebAuthenticationConfiguration {
 
     struct CcidConfiguration {
         Vector<String> payloadBase64;
+        String appletSelectionResponseBase64;
+        String u2fVersionResponseBase64;
     };
 
     bool silentFailure { false };

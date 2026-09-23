@@ -32,6 +32,7 @@
 #include "RenderTreeBuilder.h"
 #include "RenderTreeBuilderBlock.h"
 #include "RenderTreeBuilderInline.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "UnicodeBidi.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -44,11 +45,11 @@ RenderTreeBuilder::Ruby::Ruby(RenderTreeBuilder& builder)
 {
 }
 
-RenderStyle createAnonymousStyleForRuby(const RenderStyle& parentStyle, Style::Display display)
+Style::ComputedStyle createAnonymousStyleForRuby(const Style::ComputedStyle& parentStyle, Style::Display display)
 {
     ASSERT(display == Style::DisplayType::InlineRuby || display == Style::DisplayType::RubyBase);
 
-    auto style = RenderStyle::createAnonymousStyleWithDisplay(parentStyle, display);
+    auto style = Style::ComputedStyle::createAnonymousStyleWithDisplay(parentStyle, display);
     style.setUnicodeBidi(UnicodeBidi::Isolate);
     if (display == Style::DisplayType::RubyBase)
         style.setTextWrapMode(TextWrapMode::NoWrap);
@@ -58,7 +59,7 @@ RenderStyle createAnonymousStyleForRuby(const RenderStyle& parentStyle, Style::D
 static RenderPtr<RenderElement> createAnonymousRendererForRuby(RenderElement& parent, Style::Display display)
 {
     auto style = createAnonymousStyleForRuby(parent.style(), display);
-    auto ruby = createRenderer<RenderInline>(RenderObject::Type::Inline, parent.document(), WTF::move(style));
+    auto ruby = createRenderer<RenderInline>(RenderObject::Type::Inline, protect(parent.document()), WTF::move(style));
     ruby->initializeStyle();
     return ruby;
 }
@@ -66,10 +67,6 @@ static RenderPtr<RenderElement> createAnonymousRendererForRuby(RenderElement& pa
 CheckedRef<RenderElement> RenderTreeBuilder::Ruby::findOrCreateParentForStyleBasedRubyChild(RenderElement& parent, const RenderObject& child, RenderObject*& beforeChild)
 {
     CheckedRef<RenderElement> beforeChildAncestor = parent;
-    if (auto* rubyInline = dynamicDowncast<RenderInline>(parent); rubyInline && rubyInline->continuation())
-        beforeChildAncestor = RenderTreeBuilder::Inline::parentCandidateInContinuation(*rubyInline, beforeChild);
-    else if (auto* rubyBlock = dynamicDowncast<RenderBlock>(parent); rubyBlock && rubyBlock->continuation())
-        beforeChildAncestor = *RenderTreeBuilder::Block::continuationBefore(*rubyBlock, beforeChild);
 
     if (!child.isRenderText() && child.style().display() == Style::DisplayType::InlineRuby && beforeChildAncestor->style().display() == Style::DisplayType::BlockRuby)
         return beforeChildAncestor;
@@ -86,7 +83,9 @@ CheckedRef<RenderElement> RenderTreeBuilder::Ruby::findOrCreateParentForStyleBas
             if (first->style().display() == Style::DisplayType::InlineRuby) {
                 if (beforeChild && !beforeChild->isDescendantOf(first.get()))
                     beforeChild = nullptr;
-                return downcast<RenderElement>(*first);
+                if (first.get() != beforeChild)
+                    return downcast<RenderElement>(*first);
+                break;
             }
         }
     }

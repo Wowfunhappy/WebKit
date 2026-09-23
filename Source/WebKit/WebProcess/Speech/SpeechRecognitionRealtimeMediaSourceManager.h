@@ -32,6 +32,7 @@
 #include "SandboxExtension.h"
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
+#include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -53,7 +54,7 @@ public:
 
 private:
     // Messages::SpeechRecognitionRealtimeMediaSourceManager
-    void createSource(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice&, WebCore::PageIdentifier);
+    void createSource(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice&, WebCore::PageIdentifier, WebCore::SpeechRecognitionConnectionClientIdentifier);
     void deleteSource(WebCore::RealtimeMediaSourceIdentifier);
     void start(WebCore::RealtimeMediaSourceIdentifier);
     void stop(WebCore::RealtimeMediaSourceIdentifier);
@@ -71,7 +72,7 @@ private:
 
     class Source;
     friend class Source;
-    HashMap<WebCore::RealtimeMediaSourceIdentifier, std::unique_ptr<Source>> m_sources;
+    HashMap<WebCore::RealtimeMediaSourceIdentifier, Ref<Source>> m_sources;
 
 #if ENABLE(SANDBOX_EXTENSIONS)
     RefPtr<SandboxExtension> m_machBootstrapExtension;

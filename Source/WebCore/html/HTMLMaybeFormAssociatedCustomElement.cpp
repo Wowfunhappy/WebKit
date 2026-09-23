@@ -29,6 +29,7 @@
 #include "Document.h"
 #include "ElementRareData.h"
 #include "FormAssociatedCustomElement.h"
+#include "ShadowRoot.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -120,21 +121,21 @@ bool HTMLMaybeFormAssociatedCustomElement::isDisabledFormControl() const
     return isFormAssociatedCustomElement() && formAssociatedCustomElementUnsafe().isDisabled();
 }
 
-Node::InsertedIntoAncestorResult HTMLMaybeFormAssociatedCustomElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLMaybeFormAssociatedCustomElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (isFormAssociatedCustomElement())
-        formAssociatedCustomElementUnsafe().insertedIntoAncestor(insertionType, parentOfInsertedTree);
+        formAssociatedCustomElementUnsafe().insertionSteps(insertionType, parentOfInsertedTree);
     if (!insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::Done;
-    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        return NeedsPostConnectionSteps::No;
+    return NeedsPostConnectionSteps::Yes;
 }
 
-void HTMLMaybeFormAssociatedCustomElement::didFinishInsertingNode()
+void HTMLMaybeFormAssociatedCustomElement::postConnectionSteps()
 {
-    HTMLElement::didFinishInsertingNode();
+    HTMLElement::postConnectionSteps();
     if (isFormAssociatedCustomElement())
-        formAssociatedCustomElementUnsafe().didFinishInsertingNode();
+        formAssociatedCustomElementUnsafe().postConnectionSteps();
 }
 
 void HTMLMaybeFormAssociatedCustomElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
@@ -144,11 +145,11 @@ void HTMLMaybeFormAssociatedCustomElement::didMoveToNewDocument(Document& oldDoc
         formAssociatedCustomElementUnsafe().didMoveToNewDocument();
 }
 
-void HTMLMaybeFormAssociatedCustomElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLMaybeFormAssociatedCustomElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (isFormAssociatedCustomElement())
-        formAssociatedCustomElementUnsafe().removedFromAncestor(removalType, oldParentOfRemovedTree);
+        formAssociatedCustomElementUnsafe().removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 void HTMLMaybeFormAssociatedCustomElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)

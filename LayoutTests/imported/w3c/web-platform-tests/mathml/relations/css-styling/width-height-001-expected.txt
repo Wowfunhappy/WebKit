@@ -1,4 +1,8 @@
 
+PASS width and height properties on a
+PASS inline-size and block-size properties on a
+PASS width and height properties on a (content overflowing)
+PASS width property on a (preferred width)
 PASS width and height properties on maction
 PASS inline-size and block-size properties on maction
 PASS width and height properties on maction (content overflowing)
@@ -148,7 +152,17 @@ a
 a
 a
 a
-aaaaaaaaaa
+a
+a
+a
+a
+a
+a
+a
+a
+a
+a
+𝑎𝑎𝑎𝑎𝑎𝑎𝑎𝑎𝑎𝑎
 a
 a
 a

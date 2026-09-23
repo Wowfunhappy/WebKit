@@ -188,6 +188,7 @@ protected:
 private:
     bool isAccessibilityRenderObject() const final { return true; }
     bool isAllowedChildOfTree() const;
+    bool isInsideIgnoredImageOverlay() const;
     AccessibilityObject* containingTree() const;
     CharacterRange documentBasedSelectedTextRange() const;
     RefPtr<Element> rootEditableElementForPosition(const Position&) const;
@@ -208,7 +209,6 @@ private:
     AccessibilitySVGObject* remoteSVGRootElement(CreateIfNecessary) const;
     RefPtr<AccessibilityObject> remoteSVGElementHitTest(const IntPoint&) const;
     void offsetBoundingBoxForRemoteSVGElement(LayoutRect&) const;
-    bool supportsPath() const final;
 
 #if USE(ATSPI)
     void addNodeOnlyChildren();
@@ -225,7 +225,7 @@ private:
 
     bool inheritsPresentationalRole() const override;
 
-    bool shouldGetTextFromNode(const TextUnderElementMode&) const;
+    bool NODELETE shouldGetTextFromNode(const TextUnderElementMode&) const;
 
 #if ENABLE(APPLE_PAY)
     bool NODELETE isApplePayButton() const;

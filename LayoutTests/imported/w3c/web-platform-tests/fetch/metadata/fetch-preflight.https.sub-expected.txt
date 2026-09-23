@@ -1,4 +1,0 @@
-
-FAIL Same-site fetch with preflight promise_test: Unhandled rejection with value: object "TypeError: Type error"
-FAIL Cross-site fetch with preflight promise_test: Unhandled rejection with value: object "TypeError: Type error"
-

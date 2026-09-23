@@ -30,6 +30,7 @@
 
 #import <pal/spi/cocoa/SpeechSPI.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/Markable.h>
 #import <wtf/WeakObjCPtr.h>
 
 #import <pal/cocoa/SpeechSoftLink.h>
@@ -41,7 +42,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface WebSpeechRecognizerTaskImpl : NSObject<SFSpeechRecognitionTaskDelegate, SFSpeechRecognizerDelegate> {
 @private
-    Markable<WebCore::SpeechRecognitionConnectionClientIdentifier> _identifier;
+    WTF::Markable<WebCore::SpeechRecognitionConnectionClientIdentifier> _identifier;
     BlockPtr<void(const WebCore::SpeechRecognitionUpdate&)> _delegateCallback;
     bool _doMultipleRecognitions;
     uint64_t _maxAlternatives;

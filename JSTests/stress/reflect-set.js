@@ -687,11 +687,11 @@ var symbol = Symbol();
 
         var object = new TypedArray(64);
         var receiver = {};
-        // The receiver is ignored when the property name is an indexed one.
-        // shouldBe(Reflect.set(object, 0, 42, receiver), true);
+        // https://github.com/tc39/ecma262/pull/1556
         shouldBe(Reflect.set(object, 0, 42, receiver), true);
-        shouldBe(Reflect.get(object, 0), 42);
-        shouldBe(receiver.hasOwnProperty(0), false);
+        shouldBe(Reflect.get(object, 0), 0);
+        shouldBe(receiver.hasOwnProperty(0), true);
+        shouldBe(receiver[0], 42);
 
         var object = new TypedArray(1);
         transferArrayBuffer(object.buffer);

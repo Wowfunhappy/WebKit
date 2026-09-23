@@ -12,8 +12,8 @@
  </head>
  <body>
   <tests xmlns="http://css.example.net/" xmlns:test="http://css.example.net/">
-   <testA attribute="pass" test:attribute="fail">This should be green.</testa>
-   <testB attribute="fail" test:attribute="pass">This should be green.</testb>
+   <testA attribute="pass" test:attribute="fail">This should be green.</testA>
+   <testB attribute="fail" test:attribute="pass">This should be green.</testB>
   </tests>
 </body>
 </html>

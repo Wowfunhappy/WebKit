@@ -39,7 +39,7 @@ void serializationForCSSTokenization(StringBuilder& builder, const CSS::Serializ
     builder.append("currentcolor"_s);
 }
 
-String serializationForCSSTokenization(const CSS::SerializationContext&, const CurrentColor&)
+WTF::String serializationForCSSTokenization(const CSS::SerializationContext&, const CurrentColor&)
 {
     return "currentcolor"_s;
 }

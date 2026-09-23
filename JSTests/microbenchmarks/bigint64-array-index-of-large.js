@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 let size = 20 << 20;
 let array = new BigInt64Array(size);
 for (let i = 0; i < size; ++i)

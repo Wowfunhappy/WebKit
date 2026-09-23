@@ -206,7 +206,8 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 #define WK_POLYFILL_CONST_REPLACES(PROVIDER, TYPE, NAME, VALUE) \
     WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, WK_POLYFILL_REPLACES)
 
-// An absent ObjC CLASS, stubbed in polyfills/classes/, that WebKit reaches by NAME.
+// An absent ObjC CLASS, stubbed in polyfills/classes/ -- or in polyfills/methods/, for one written over a
+// library only WebCore links -- that WebKit reaches by NAME.
 //
 // A stub is registered in the runtime under a private name and the system name is exported as an
 // alias to it (WK_PRIV_CLASS / WK_PRIV_ALIAS in polyfills/classes/), so a compiled `[UTType ...]` classref
@@ -228,13 +229,13 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 struct wk_polyfill_class_entry {
     const char *name;       // the system class name WebKit asks objc_getClass for
     const char *provider;   // framework that owns it on a modern OS; the build gate asks 10.9 there
-    void *cls;              // the privately-named stub in polyfills/classes/
+    void *cls;              // the privately-named class (WK_PRIV_CLASS)
     void *(*resolve)(void); // ... or, when cls is NULL, builds it on first ask
 };
 
-// Emitted into its own section rather than __wk_pfmap: the class stubs live in
-// libpolyfill_classes.dylib, a DIFFERENT image from the libpolyfill.a copy that runs the override,
-// so unlike a function entry this one has to be found by scanning loaded images (see
+// Emitted into its own section rather than __wk_pfmap: the classes live in libpolyfill_classes.dylib
+// and WebCore, not necessarily the image whose libpolyfill.a copy runs the override, so unlike a
+// function entry this one has to be found by scanning loaded images (see
 // lookupPolyfillClass). Keeping them in separate sections keeps that scan off the hot registry.
 #define WK_POLYFILL_CLASS(PROVIDER, NAME)                                     \
     extern char OBJC_CLASS_$_WKMavPolyfillPriv_##NAME;                        \

@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Google Inc.
+ * Copyright 2022 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -326,6 +326,9 @@ private:
                                            const Expression& right,
                                            Operator op,
                                            Precedence parentPrecedence);
+
+    // Helper for accessing textures from polyfilled texture and samplers
+    std::string assembleTextureFromImageOrSampler(const Expression& arg);
 
     // Writes a scratch variable into the program and returns its name (e.g. `_skTemp123`).
     std::string writeScratchVar(const Type& type, const std::string& value = "");
@@ -2182,120 +2185,149 @@ void WGSLCodeGenerator::writeDoStatement(const DoStatement& s) {
 }
 
 void WGSLCodeGenerator::writeForStatement(const ForStatement& s) {
-    // Generate a loop structure wrapped in an extra scope:
+    // When the next expression is a single expression and the condition needs no scratch
+    // variables, emit a native for-loop:
+    //
     //   {
-    //     initializer-statement;
-    //     loop;
+    //       init;
+    //       for (; cond; next) {
+    //           body
+    //       }
     //   }
-    // The outer scope is necessary to prevent the initializer-variable from leaking out into the
-    // rest of the code. In practice, the generated code actually tends to be scoped even more
-    // deeply, as the body-statement almost always contributes an extra block.
+    //
+    // Otherwise (comma next expression, or condition assembly emits preparatory 'let'
+    // statements), fall back to:
+    //
+    //   {
+    //       init;
+    //       loop {
+    //           cond-prep-stmts;   // scratch lets for the condition, if any
+    //           if (cond) {
+    //               body
+    //           } else {
+    //               break;
+    //           }
+    //           continuing {
+    //               next;
+    //           }
+    //       }
+    //   }
+    //
+    // The outer block scopes any init variable declarations.
 
     ++fConditionalScopeDepth;
 
+    // If there is an initializer, wrap in an outer block to scope any variable declarations.
+    // This must be emitted regardless of unroll count.
     if (s.initializer()) {
         this->writeLine("{");
         fIndentation++;
         this->writeStatement(*s.initializer());
-        this->writeLine();
+        this->finishLine();
     }
 
-    this->writeLine("loop {");
-    fIndentation++;
+    if (s.unrollInfo() && s.unrollInfo()->fCount <= 0) {
+        // Loops which are known to never execute don't need to be emitted at all.
+        // (However, the front end should have already replaced this loop with a Nop.)
+    } else {
+        bool hasCommaNext = s.next() &&
+                            s.next()->is<BinaryExpression>() &&
+                            s.next()->as<BinaryExpression>().getOperator().kind() ==
+                                    OperatorKind::COMMA;
 
-    if (s.unrollInfo()) {
-        if (s.unrollInfo()->fCount <= 0) {
-            // Loops which are known to never execute don't need to be emitted at all.
-            // (However, the front end should have already replaced this loop with a Nop.)
-        } else {
-            // Loops which are known to execute at least once can use this form:
-            //
-            //     loop {
-            //         body-statement;
-            //         continuing {
-            //             next-expression;
-            //             break if inverted-test-expression;
-            //         }
-            //     }
+        // Assemble cond and next into temporary buffers. If either assembly allocates
+        // scratch variables (_skTemp), those must run on every loop iteration and the
+        // native for-loop form cannot be used; fall back to loop{} in that case.
+        int scratchBefore = fScratchCount;
 
+        StringStream condBuf;
+        std::string condStr;
+        if (s.test()) {
+            AutoOutputStream captureOutput(this, &condBuf, &fIndentation);
+            condStr = this->assembleExpression(*s.test(), Precedence::kExpression);
+        }
+
+        StringStream nextBuf;
+        if (s.next()) {
+            AutoOutputStream captureOutput(this, &nextBuf, &fIndentation);
+            this->writeExpressionStatement(*s.next());
+        }
+
+        bool needsLoopForm = hasCommaNext || (fScratchCount != scratchBefore);
+
+        if (!needsLoopForm) {
+            // Single next expression, no scratch variables: emit a native for-loop.
+            // Strip the trailing ';' and newline from nextBuf to get the for-update expression.
+            std::string updateStr = nextBuf.str();
+            while (!updateStr.empty() && (updateStr.back() == '\n' || updateStr.back() == '\r')) {
+                updateStr.pop_back();
+            }
+            if (!updateStr.empty() && updateStr.back() == ';') {
+                updateStr.pop_back();
+            }
+
+            this->write("for (;");
+            if (!condStr.empty()) {
+                this->write(" ");
+                this->write(condStr);
+            }
+            this->write("; ");
+            this->write(updateStr);
+            this->writeLine(") {");
+
+            fIndentation++;
             this->writeStatement(*s.statement());
             this->finishLine();
-            this->writeLine("continuing {");
-            ++fIndentation;
+            fIndentation--;
+            this->writeLine("}");
+        } else {
+            // Comma next, or scratch variables needed: use
+            // loop { cond-scratch; if (cond) { body } else { break; } continuing { next; } }.
+            this->writeLine("loop {");
+            fIndentation++;
 
-            if (s.next()) {
-                this->writeExpressionStatement(*s.next());
+            // Inline cond prep statements on the same line as the if-check by replacing
+            // newlines with spaces (avoids indentation issues with a pre-captured string).
+            std::string condPrep = condBuf.str();
+            std::replace(condPrep.begin(), condPrep.end(), '\n', ' ');
+
+            this->write(condPrep);
+
+            if (!condStr.empty()) {
+                this->write("if ");
+                this->write(condStr);
+                this->writeLine(" {");
+                fIndentation++;
+                this->writeStatement(*s.statement());
+                this->finishLine();
+                fIndentation--;
+                this->writeLine("} else {");
+                fIndentation++;
+                this->writeLine("break;");
+                fIndentation--;
+                this->writeLine("}");
+            } else {
+                this->writeStatement(*s.statement());
                 this->finishLine();
             }
 
-            if (s.test()) {
-                std::unique_ptr<Expression> invertedTestExpr = PrefixExpression::Make(
-                        fContext, s.test()->fPosition, OperatorKind::LOGICALNOT, s.test()->clone());
-
-                std::string breakIfExpr =
-                        this->assembleExpression(*invertedTestExpr, Precedence::kExpression);
-                this->write("break if ");
-                this->write(breakIfExpr);
-                this->writeLine(";");
+            if (s.next()) {
+                this->writeLine("continuing {");
+                fIndentation++;
+                std::string nextStr = nextBuf.str();
+                std::replace(nextStr.begin(), nextStr.end(), '\n', ' ');
+                this->write(nextStr);
+                this->finishLine();
+                fIndentation--;
+                this->writeLine("}");
             }
 
-            --fIndentation;
-            this->writeLine("}");
-        }
-    } else {
-        // Loops without a known execution count are emitted in this form:
-        //
-        //     loop {
-        //         if test-expression {
-        //             body-statement;
-        //         } else {
-        //             break;
-        //         }
-        //         continuing {
-        //             next-expression;
-        //         }
-        //     }
-
-        if (s.test()) {
-            std::string testExpr = this->assembleExpression(*s.test(), Precedence::kExpression);
-            this->write("if ");
-            this->write(testExpr);
-            this->writeLine(" {");
-
-            fIndentation++;
-            this->writeStatement(*s.statement());
-            this->finishLine();
-            fIndentation--;
-
-            this->writeLine("} else {");
-
-            fIndentation++;
-            this->writeLine("break;");
-            fIndentation--;
-
-            this->writeLine("}");
-        }
-        else {
-            this->writeStatement(*s.statement());
-            this->finishLine();
-        }
-
-        if (s.next()) {
-            this->writeLine("continuing {");
-            fIndentation++;
-            this->writeExpressionStatement(*s.next());
-            this->finishLine();
             fIndentation--;
             this->writeLine("}");
         }
     }
 
-    // This matches an open-brace at the top of the loop.
-    fIndentation--;
-    this->writeLine("}");
-
     if (s.initializer()) {
-        // This matches an open-brace before the initializer-statement.
         fIndentation--;
         this->writeLine("}");
     }
@@ -3462,22 +3494,46 @@ std::string WGSLCodeGenerator::assembleIntrinsicCall(const FunctionCall& call,
             expr += ", " + this->assembleExpression(*arguments[3], Precedence::kSequence);
             return expr + close;
         }
-        case k_textureHeight_IntrinsicKind:
-            return this->assembleSimpleIntrinsic("textureDimensions", call) + ".y";
 
         case k_textureRead_IntrinsicKind: {
+            // textureLoad takes a texture and coordinates. It does NOT take a sampler.
+            // If we are passed a combined sampler, we must extract just the texture.
+            std::string expr = "textureLoad(";
+
+            expr += this->assembleTextureFromImageOrSampler(*arguments[0]);
+
+            expr += ", ";
+            expr += this->assembleExpression(*arguments[1], Precedence::kSequence);
+
             // We need to inject an extra argument for the mip-level. We don't plan on using mipmaps
             // in our storage textures, so we can just pass zero.
-            auto [expr, close] = this->assemblePartialSampleCall("textureLoad",
-                                                                 call.type(),
-                                                                 *arguments[0],
-                                                                 *arguments[1]);
-            expr += ", 0";
-            return expr + close;
-        }
-        case k_textureWidth_IntrinsicKind:
-            return this->assembleSimpleIntrinsic("textureDimensions", call) + ".x";
+            expr += ", 0)";
 
+            // WGSL does not support f16 textures while all of SkSL's sample functions return
+            // "half4", so add a cast back to f16 if necessary.
+            if (type_is_low_precision(call.type(), fContext)) {
+                std::string lowPType = to_wgsl_type(fContext, call.type());
+                return lowPType + "(" + expr + ")";
+            }
+
+            return expr;
+        }
+        case k_textureSize_IntrinsicKind:
+        case k_textureWidth_IntrinsicKind:
+        case k_textureHeight_IntrinsicKind: {
+            std::string expr = "textureDimensions(";
+
+            // Use our helper to safely extract the texture
+            expr += this->assembleTextureFromImageOrSampler(*arguments[0]);
+
+            expr += ")";
+            if (kind == k_textureWidth_IntrinsicKind) {
+                expr += ".x";
+            } else if (kind == k_textureHeight_IntrinsicKind) {
+                expr += ".y";
+            }
+            return expr;
+        }
         case k_textureWrite_IntrinsicKind:
             return this->assembleSimpleIntrinsic("textureStore", call,
                                                  /*wgslOnlySupportsHighPrecision=*/true);
@@ -4375,6 +4431,16 @@ std::string WGSLCodeGenerator::assembleEqualityExpression(const Expression& left
     std::string rightName = this->assembleExpression(right, Precedence::kParentheses, mode);
     return this->assembleEqualityExpression(left.type(), leftName, right.type(), rightName,
                                             op, parentPrecedence);
+}
+
+std::string WGSLCodeGenerator::assembleTextureFromImageOrSampler(const Expression& arg) {
+    SkASSERT(arg.type().typeKind() == Type::TypeKind::kTexture ||
+             arg.type().typeKind() == Type::TypeKind::kSampler);
+    std::string expr = this->assembleExpression(arg, Precedence::kSequence);
+    if (arg.type().typeKind() == Type::TypeKind::kSampler) {
+        expr += kTextureSuffix;
+    }
+    return expr;
 }
 
 void WGSLCodeGenerator::writeProgramElement(const ProgramElement& e) {

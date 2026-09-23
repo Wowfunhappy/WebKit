@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -96,9 +96,9 @@ inline std::optional<FontSelectionValue> fontWidthValue(CSSValueID value)
 
 inline std::optional<CSSValueID> fontStyleKeyword(std::optional<FontSelectionValue> style, FontStyleAxis axis)
 {
-    if (!style)
+    if (axis == FontStyleAxis::normal)
         return CSSValueNormal;
-    if (style.value() == italicValue())
+    if (style && style.value() == italicValue())
         return axis == FontStyleAxis::ital ? CSSValueItalic : CSSValueOblique;
     return std::nullopt;
 }

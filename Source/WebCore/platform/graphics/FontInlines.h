@@ -73,7 +73,7 @@ ALWAYS_INLINE Vector<FloatRect, Font::inlineGlyphRunCapacity> Font::boundsForGly
     Vector<Glyph, inlineGlyphRunCapacity> glyphsNeedingMeasurement;
     Vector<size_t, inlineGlyphRunCapacity> positionsNeedingMeasurement;
 
-    Vector<FloatRect, inlineGlyphRunCapacity> glyphBounds(glyphCount, FloatRect());
+    Vector<FloatRect, inlineGlyphRunCapacity> glyphBounds(FillWith { }, glyphCount, FloatRect());
     for (size_t glyphIndex = 0; glyphIndex < glyphCount; ++glyphIndex) {
         const auto& glyph = glyphs[glyphIndex];
         if (isZeroWidthSpaceGlyph(glyph))

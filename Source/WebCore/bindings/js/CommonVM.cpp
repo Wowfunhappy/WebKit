@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022, 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,9 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/EdenGCActivityCallback.h>
 #include <JavaScriptCore/FullGCActivityCallback.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
 #include <JavaScriptCore/MachineStackMarker.h>
 #include <JavaScriptCore/VM.h>
 #include <wtf/MainThread.h>
@@ -60,17 +62,15 @@ JSC::VM& commonVMSlow()
     ScriptController::initializeMainThread();
 
 #if PLATFORM(IOS_FAMILY)
-    RunLoop* runLoop = RunLoop::webIfExists();
+    RefPtr runLoop = RunLoop::webIfExists();
 #else
     RunLoop* runLoop = nullptr;
 #endif
 
     auto& vm = JSC::VM::create(JSC::HeapType::Large, runLoop).leakRef();
-#if !PLATFORM(IOS_FAMILY)
     vm.heap.setFullActivityCallback(OpportunisticTaskScheduler::FullGCActivityCallback::create(vm.heap));
     vm.heap.setEdenActivityCallback(OpportunisticTaskScheduler::EdenGCActivityCallback::create(vm.heap));
     vm.heap.disableStopIfNecessaryTimer(); // Because opportunistic task scheduler and GC timer exists, we do not need StopIfNecessaryTimer.
-#endif
 
     g_commonVMOrNull = &vm;
 
@@ -91,8 +91,8 @@ LocalFrame* lexicalFrameFromCommonVM()
 {
     JSC::VM& vm = commonVM();
     if (auto* topCallFrame = vm.topCallFrame) {
-        if (auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(topCallFrame->lexicalGlobalObject(vm))) {
-            if (auto* window = JSC::jsDynamicCast<JSDOMWindow*>(globalObject)) {
+        if (auto* globalObject = downcast<JSDOMGlobalObject>(topCallFrame->lexicalGlobalObject(vm))) {
+            if (auto* window = dynamicDowncast<JSDOMWindow>(globalObject)) {
                 if (auto* frame = window->wrapped().frame())
                     return dynamicDowncast<LocalFrame>(frame);
             }

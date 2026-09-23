@@ -53,7 +53,7 @@
 #include "LayoutState.h"
 #include "Logging.h"
 #include "RangeBasedLineBuilder.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextOnlySimpleLineBuilder.h"
 #include "TextUtil.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -65,17 +65,6 @@ namespace Layout {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(InlineContentCache);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(InlineFormattingContext);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(InlineLayoutResult);
-
-static size_t estimatedDisplayBoxSize(size_t inlineItemSize)
-{
-    if (inlineItemSize == 1) {
-        // Common case of blocks with only one word where we produce 2 boxes (root inline and text box)
-        return 2;
-    }
-    static constexpr size_t maximumEstimatedDisplayBoxSize = 1000; // Let's try not to overwhelm vector's reserveInitialCapacity.
-    // This value represents a simple average derived from typical web page content.
-    return std::min<size_t>(maximumEstimatedDisplayBoxSize, inlineItemSize * 0.6);
-}
 
 static std::optional<InlineItemRange> NODELETE partialRangeForDamage(const InlineItemList& inlineItemList, const InlineDamage& lineDamage)
 {
@@ -162,7 +151,7 @@ std::unique_ptr<InlineLayoutResult> InlineFormattingContext::layout(const Constr
             return { };
         auto lastLineIndex = lineDamage->layoutStartPosition()->lineIndex - 1;
         // FIXME: We should be able to extract the last line information and provide it to layout as "previous line" (ends in line break and inline direction).
-        return PreviousLine { lastLineIndex, { }, { }, { }, { } };
+        return PreviousLine { lastLineIndex, { }, { }, true, { }, { } };
     }();
 
     auto& inlineLayoutState = layoutState();
@@ -228,7 +217,7 @@ std::pair<LayoutUnit, LayoutUnit> InlineFormattingContext::minimumMaximumContent
     // This also undermines the idea of computing min/max values independently.
     if (*minimumContentSize > *maximumContentSize) {
         auto hasNegativeImplicitMargin = [](auto& style) {
-            auto textIndentFixedLength = style.textIndent().length.tryFixed();
+            auto textIndentFixedLength = style.textIndent().amount.tryFixed();
             return (textIndentFixedLength && textIndentFixedLength->isNegative()) || style.usedWordSpacing() < 0 || style.usedLetterSpacing() < 0;
         };
         auto contentHasNegativeImplicitMargin = hasNegativeImplicitMargin(root().style());
@@ -317,9 +306,6 @@ UniqueRef<InlineLayoutResult> InlineFormattingContext::lineLayout(AbstractLineBu
         return layoutResult;
     }
 
-    if (!needsLayoutRange.start)
-        layoutResult->displayContent.boxes.reserveInitialCapacity(estimatedDisplayBoxSize(inlineItemList.size()));
-
     auto floatingContext = this->floatingContext();
     auto lineLogicalTop = InlineLayoutUnit { constraints.logicalTop() };
     auto previousLineEnd = std::optional<InlineItemPosition> { };
@@ -368,7 +354,7 @@ UniqueRef<InlineLayoutResult> InlineFormattingContext::lineLayout(AbstractLineBu
             break;
         }
 
-        previousLine = PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
+        previousLine = PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.hasContentfulInFlowContent(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
         previousLineEnd = lineContentEnd;
         lineLogicalTop = formattingUtils().logicalTopForNextLine(lineLayoutResult, lineLogicalRect, floatingContext);
     }

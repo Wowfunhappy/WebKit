@@ -40,9 +40,6 @@ public:
         FastMallocPages = VM_TAG_FOR_TCMALLOC_MEMORY,
         JSJITCodePages = VM_TAG_FOR_EXECUTABLEALLOCATOR_MEMORY,
         StructureAllocatorPages = VM_TAG_FOR_STRUCTUREALLOCATOR_MEMORY,
-#if OS(LINUX) || OS(HAIKU)
-        UncommittedPages = -2,
-#endif
     };
 
     // The requested alignment must be a power of two and greater than the system page size.
@@ -88,6 +85,11 @@ public:
 
     WTF_EXPORT_PRIVATE static void protect(void*, size_t, bool readable, bool writable);
     WTF_EXPORT_PRIVATE static bool tryProtect(void*, size_t, bool readable, bool writable);
+
+    WTF_EXPORT_PRIVATE static void zeroFill(void* base, size_t);
+
+private:
+    static void* tryReserveAndCommitImpl(size_t, Usage, void* address, bool writable, bool executable, bool jitCageEnabled, unsigned numGuardPagesToAddOnEachEnd, bool uncommitted);
 };
 
 inline void* OSAllocator::reserveAndCommit(size_t reserveSize, size_t commitSize, Usage usage, void* address, bool writable, bool executable, bool jitCageEnabled)

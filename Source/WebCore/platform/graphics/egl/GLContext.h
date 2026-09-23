@@ -102,6 +102,9 @@ public:
         bool APPLE_sync { false };
         bool OES_packed_depth_stencil { false };
         bool EXT_YUV_target { false };
+#if USE(VULKAN)
+        bool EXT_memory_object { false };
+#endif
     };
     const GLExtensions& glExtensions() const;
 

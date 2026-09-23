@@ -80,6 +80,7 @@ int B[int[][](A)];)";
 
 TEST_F(ParseTest, UniformBlockNameReferenceConstructorNoCrash)
 {
+    mShaderSpec          = SH_WEBGL2_SPEC;
     const char kShader[] = R"(#version 300 es
 precision mediump float;
 out float o;
@@ -220,6 +221,7 @@ void main() {
 
 TEST_F(ParseTest, Radians320NoCrash)
 {
+    mShaderSpec          = SH_GLES3_2_SPEC;
     const char kShader[] = R"(#version 320 es
 precision mediump float;
 vec4 s() { writeonly vec4 color; radians(color); return vec4(1); })";
@@ -232,6 +234,7 @@ vec4 s() { writeonly vec4 color; radians(color); return vec4(1); })";
 
 TEST_F(ParseTest, CoherentCoherentNoCrash)
 {
+    mShaderSpec          = SH_GLES3_1_SPEC;
     const char kShader[] = R"(#version 310 es
 uniform highp coherent coherent readonly image2D image1;\n"
 void main() {
@@ -341,6 +344,7 @@ testFunction();
 // Tests that imod of const void variable does not crash during parsing.
 TEST_F(ParseTest, ConstStructVoidAndImodAndNoCrash)
 {
+    mShaderSpec          = SH_GLES3_1_SPEC;
     const char kShader[] = R"(#version 310 es
 const struct s { void i; } ss = s();
 void main() {
@@ -356,158 +360,6 @@ void main() {
         "'const void' and a right operand of type 'const void'"));
     EXPECT_TRUE(foundInIntermediateTree(
         "cannot convert from 'const void' to 'highp 3-component vector of float'"));
-}
-
-TEST_F(ParseTest, HugeUnsizedMultidimensionalArrayConstructorNoCrash)
-{
-    mCompileOptions.limitExpressionComplexity = true;
-    std::ostringstream shader;
-    shader << R"(#version 310 es
-int E=int)";
-    for (int i = 0; i < 10000; ++i)
-    {
-        shader << "[]";
-    }
-    shader << "()";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("array has too many dimensions"));
-}
-
-TEST_F(ParseTest, HugeMultidimensionalArrayConstructorNoCrash)
-{
-    mCompileOptions.limitExpressionComplexity = true;
-    std::ostringstream shader;
-    shader << R"(#version 310 es
-int E=int)";
-    for (int i = 0; i < 10000; ++i)
-    {
-        shader << "[1]";
-    }
-
-    for (int i = 0; i < 10000; ++i)
-    {
-        shader << "(2)";
-    }
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("array has too many dimensions"));
-}
-
-TEST_F(ParseTest, DeeplyNestedWhileStatementsNoCrash)
-{
-    mShaderSpec = SH_WEBGL2_SPEC;
-    std::ostringstream shader;
-    shader << R"(#version 300 es
-void main() {
-)";
-    for (int i = 0; i < 1700; ++i)
-    {
-        shader << " while(true)";
-    }
-    shader << "; }";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("statement is too deeply nested"));
-}
-
-TEST_F(ParseTest, DeeplyNestedForStatementsNoCrash)
-{
-    mShaderSpec = SH_WEBGL2_SPEC;
-    std::ostringstream shader;
-    shader << R"(#version 300 es
-void main() {
-)";
-    for (int i = 0; i < 1700; ++i)
-    {
-        shader << " for(int i = 0; i < 10; i++)";
-    }
-    shader << "; }";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("statement is too deeply nested"));
-}
-
-TEST_F(ParseTest, DeeplyNestedDoWhileStatementsNoCrash)
-{
-    mShaderSpec = SH_WEBGL2_SPEC;
-    std::ostringstream shader;
-    shader << R"(#version 300 es
-void main() {
-)";
-    for (int i = 0; i < 1700; ++i)
-    {
-        shader << " do {";
-    }
-    for (int i = 0; i < 1700; ++i)
-    {
-        shader << "} while(true);";
-    }
-    shader << "}";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("statement is too deeply nested"));
-}
-
-TEST_F(ParseTest, DeeplyNestedSwitchStatementsNoCrash)
-{
-    mShaderSpec = SH_WEBGL2_SPEC;
-    std::ostringstream shader;
-    shader << R"(#version 300 es
-void main() {
-)";
-    for (int i = 0; i < 1700; ++i)
-    {
-        shader << " switch(1) { default: int i=0;";
-    }
-    for (int i = 0; i < 1700; ++i)
-    {
-        shader << "}";
-    }
-    shader << "}";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("statement is too deeply nested"));
-}
-
-TEST_F(ParseTest, ManyChainedUnaryExpressionsNoCrash)
-{
-    mCompileOptions.limitExpressionComplexity = true;
-    mShaderSpec                               = SH_WEBGL2_SPEC;
-    std::ostringstream shader;
-    shader << R"(#version 300 es
-precision mediump float;
-void main() {
-  int iterations=0;)";
-    for (int i = 0; i < 6000; ++i)
-    {
-        shader << "~";
-    }
-    shader << R"(++iterations;
-}
-)";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("Expression too complex"));
-}
-
-TEST_F(ParseTest, ManyChainedAssignmentsNoCrash)
-{
-    mCompileOptions.limitExpressionComplexity = true;
-    mShaderSpec                               = SH_WEBGL2_SPEC;
-    std::ostringstream shader;
-    shader << R"(#version 300 es
-void main() {
-    int c = 0;
-)";
-    for (int i = 0; i < 3750; ++i)
-    {
-        shader << "c=\n";
-    }
-    shader << "c+1; }";
-    EXPECT_FALSE(compile(shader.str()));
-    EXPECT_TRUE(foundErrorInIntermediateTree());
-    EXPECT_TRUE(foundInIntermediateTree("Expression too complex"));
 }
 
 // Test that comma expression referring to an uniform block member through instance-name is not an
@@ -636,6 +488,7 @@ TEST_F(ParseTest, UniformBlockInstanceNameOpIsError)
 
 TEST_F(ParseTest, UniformBlockReferenceIsError)
 {
+    mShaderSpec          = SH_WEBGL2_SPEC;
     const char kShader[] = R"(#version 300 es
         uniform B { uint e; } b;
         void main() { B; })";
@@ -931,6 +784,7 @@ TEST_F(ParseTest, InConstSamplerParamIsError)
 
 TEST_F(ParseTest, UniformBlockInstanceUnsizedArrayIsError)
 {
+    mShaderSpec          = SH_GLES3_SPEC;
     const char kShader[] = R"(#version 300 es
 precision mediump float;out vec4 o;uniform a{float r;}u[];void main(){o=vec4(u[0].r+u[1].r+u[1].r);})";
     EXPECT_FALSE(compile(kShader));
@@ -942,6 +796,7 @@ precision mediump float;out vec4 o;uniform a{float r;}u[];void main(){o=vec4(u[0
 
 TEST_F(ParseTest, InputBlockInstanceUnsizedArrayIsError)
 {
+    mShaderSpec          = SH_GLES3_SPEC;
     const char kShader[] = R"(#version 300 es
 precision mediump float;out vec4 o;in a{float r;}i[];void main(){o=vec4(i[0].r+i[1].r+i[1].r);})";
     EXPECT_FALSE(compile(kShader));
@@ -953,6 +808,7 @@ precision mediump float;out vec4 o;in a{float r;}i[];void main(){o=vec4(i[0].r+i
 
 TEST_F(ParseTest, OutputBlockInstanceUnsizedArrayIsError)
 {
+    mShaderSpec          = SH_GLES3_SPEC;
     const char kShader[] = R"(#version 300 es
 precision mediump float;out a{float r;}o[];void main(){o[0].r=1.0; o[1].r=2.0;})";
     EXPECT_FALSE(compile(kShader));

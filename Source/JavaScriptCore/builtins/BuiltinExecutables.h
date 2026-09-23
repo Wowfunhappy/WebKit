@@ -65,7 +65,7 @@ SourceCode name##Source();
 
     DECLARE_VISIT_AGGREGATE;
 
-    void clear();
+    void NODELETE clear();
 
 private:
     VM& m_vm;

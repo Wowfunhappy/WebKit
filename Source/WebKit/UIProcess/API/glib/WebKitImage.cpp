@@ -418,4 +418,119 @@ static void webkit_image_gloadable_icon_interface_init(GLoadableIconIface* iface
     iface->load_finish = webkitImageLoadFinish;
 }
 
+/**
+ * WebKitImageList: (ref-func webkit_image_list_ref) (unref-func webkit_image_list_unref)
+ *
+ * Represents a set of related images.
+ *
+ * The list supports iterating over each [class@Image]:
+ *
+ * ```c
+ * g_autoptr(WebKitImageList) list = webkit_favicon_database_get_page_icons_finish(database, result, NULL);
+ * for (gsize i = 0; i < webkit_image_list_get_length(list); i++) {
+ *     WebKitImage *image = webkit_image_list_get(list, i);
+ *     // Do something with "image".
+ * }
+ * ```
+ *
+ * Image lists can be obtained as the result of [id@webkit_favicon_database_get_page_icons].
+ *
+ * Since: 2.54
+ */
+
+struct _WebKitImageList {
+    Vector<GRefPtr<WebKitImage>> images;
+    int referenceCount { 1 };
+};
+
+G_DEFINE_BOXED_TYPE(WebKitImageList, webkit_image_list, webkit_image_list_ref, webkit_image_list_unref)
+
+WebKitImageList* webkitImageListCreate(Vector<GRefPtr<WebKitImage>>&& images)
+{
+    WebKitImageList* imageList = static_cast<WebKitImageList*>(fastMalloc(sizeof(WebKitImageList)));
+    new (imageList) WebKitImageList { WTF::move(images) };
+    return imageList;
+}
+
+/**
+ * webkit_image_list_ref:
+ * @image_list: a #WebKitImageList
+ *
+ * Atomically acquires a reference on the given @image_list.
+ *
+ * This function is MT-safe and may be called from any thread.
+ *
+ * Returns: The same @image_list with an additional reference.
+ *
+ * Since: 2.54
+ */
+WebKitImageList* webkit_image_list_ref(WebKitImageList *imageList)
+{
+    g_return_val_if_fail(imageList, nullptr);
+    g_atomic_int_inc(&imageList->referenceCount);
+    return imageList;
+}
+
+/**
+ * webkit_image_list_unref:
+ * @image_list: a #WebKitImageList
+ *
+ * Atomically releases a reference on the given @image_list.
+ *
+ * If the reference was the last, the resources associated with
+ * the @image_list are freed.
+ *
+ * This function is MT-safe and may be called from any thread.
+ *
+ * Since: 2.54
+ */
+void webkit_image_list_unref(WebKitImageList *imageList)
+{
+    g_return_if_fail(imageList);
+    if (g_atomic_int_dec_and_test(&imageList->referenceCount)) {
+        imageList->~WebKitImageList();
+        fastFree(imageList);
+    }
+}
+
+/**
+ * webkit_image_list_get_length:
+ * @image_list: A #WebKitImageList
+ *
+ * Gets the number of elements in the image list.
+ *
+ * Returns: number of elements.
+ *
+ * Since: 2.54
+ */
+gsize webkit_image_list_get_length(WebKitImageList *imageList)
+{
+    g_return_val_if_fail(imageList, 0);
+
+    return imageList->images.size();
+}
+
+/**
+ * webkit_image_list_get:
+ * @image_list: A #WebKitImageList
+ * @index: index of the image
+ *
+ * Gets an image given its index.
+ *
+ * Returns: (transfer none): The image at @index.
+ *
+ * Since: 2.54
+ */
+WebKitImage* webkit_image_list_get(WebKitImageList *imageList, gsize index)
+{
+    g_return_val_if_fail(imageList, nullptr);
+    g_return_val_if_fail(index < imageList->images.size(), nullptr);
+
+    return imageList->images[index].get();
+}
+
+namespace WTF {
+WTF_DEFINE_GREF_TRAITS(WebKitImageList, webkit_image_list_ref, webkit_image_list_unref)
+}
+
 #endif // ENABLE(2022_GLIB_API)

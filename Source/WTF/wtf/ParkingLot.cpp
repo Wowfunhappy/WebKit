@@ -26,8 +26,6 @@
 #include "config.h"
 #include <wtf/ParkingLot.h>
 
-#include <mutex>
-#include <ranges>
 #include <wtf/DataLog.h>
 #include <wtf/FixedVector.h>
 #include <wtf/HashFunctions.h>

@@ -41,6 +41,7 @@
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/BackForwardCache.h>
 #import <WebCore/HistoryItem.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/Settings.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/WebCoreJITOperations.h>

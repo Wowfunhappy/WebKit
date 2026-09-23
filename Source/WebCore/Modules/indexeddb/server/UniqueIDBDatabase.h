@@ -42,19 +42,14 @@
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
-namespace IDBServer {
-class UniqueIDBDatabase;
-}
-}
 
-namespace WebCore {
-
-struct ClientOrigin;
 class IDBError;
 class IDBGetAllResult;
-struct IDBGetRecordData;
 class IDBRequestData;
 class IDBTransactionInfo;
+
+struct ClientOrigin;
+struct IDBGetRecordData;
 
 enum class IDBGetRecordDataType : bool;
 
@@ -65,6 +60,7 @@ enum class IndexRecordType : bool;
 namespace IDBServer {
 
 class IDBConnectionToClient;
+class UniqueIDBDatabase;
 class UniqueIDBDatabaseConnection;
 class UniqueIDBDatabaseManager;
 
@@ -114,6 +110,7 @@ public:
 
     void didFinishHandlingVersionChange(UniqueIDBDatabaseConnection&, const IDBResourceIdentifier& transactionIdentifier);
     void connectionClosedFromClient(UniqueIDBDatabaseConnection&);
+    WEBCORE_EXPORT bool isVersionChangeTransactionActive(const UniqueIDBDatabaseConnection&) const;
     void didFireVersionChangeEvent(UniqueIDBDatabaseConnection&, const IDBResourceIdentifier& requestIdentifier, IndexedDB::ConnectionClosedOnBehalfOfServer);
     WEBCORE_EXPORT void openDBRequestCancelled(const IDBResourceIdentifier& requestIdentifier);
 
@@ -124,12 +121,15 @@ public:
 
     bool NODELETE hasActiveTransactions() const;
     WEBCORE_EXPORT void abortActiveTransactions();
+    void abortInProgressTransactionsBlockedOnSuspendedClients();
     WEBCORE_EXPORT bool tryClose();
 
     WEBCORE_EXPORT String filePath() const;
-    WEBCORE_EXPORT std::optional<IDBDatabaseNameAndVersion> nameAndVersion() const;
+    WEBCORE_EXPORT std::optional<IDBDatabaseNameAndVersion> NODELETE nameAndVersion() const;
     WEBCORE_EXPORT bool hasDataInMemory() const;
     WEBCORE_EXPORT void handleLowMemoryWarning();
+
+    WEBCORE_EXPORT bool isVersionChangeTransactionFinishingOrFinished(const IDBResourceIdentifier& transactionIdentifier) const;
 
 private:
     void handleDatabaseOperations();
@@ -148,9 +148,12 @@ private:
 
     void handleTransactions();
     RefPtr<UniqueIDBDatabaseTransaction> takeNextRunnableTransaction(bool& hadDeferredTransactions);
+    bool transactionBlocksPendingTransactions(UniqueIDBDatabaseTransaction&);
 
     void activateTransactionInBackingStore(UniqueIDBDatabaseTransaction&);
-    void transactionCompleted(RefPtr<UniqueIDBDatabaseTransaction>&&);
+
+    enum class ShouldStartRunnableWork : bool { No, Yes };
+    void transactionCompleted(RefPtr<UniqueIDBDatabaseTransaction>&&, ShouldStartRunnableWork = ShouldStartRunnableWork::Yes);
 
     void connectionClosedFromServer(UniqueIDBDatabaseConnection&);
     void deleteBackingStore();
@@ -186,6 +189,7 @@ private:
     // These sets help to decide which transactions can be started and which must be deferred.
     HashCountedSet<IDBObjectStoreIdentifier> m_objectStoreTransactionCounts;
     HashSet<IDBObjectStoreIdentifier> m_objectStoreWriteTransactions;
+    unsigned m_abortInProgressTransactionsBlockedOnSuspendedClientsRecursionDepth { 0 };
 };
 
 } // namespace IDBServer

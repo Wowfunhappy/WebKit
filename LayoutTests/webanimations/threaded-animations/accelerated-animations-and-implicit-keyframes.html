@@ -59,8 +59,8 @@ promise_test(async test => {
     animations.push(target.animate({ transform: "translateX(100px)" }, duration));
     animations.push(target.animate({ transform: "translateY(100px)" }, duration));
     await allAnimationsAreReadyToAnimateAccelerated(animations);
-    assert_equals(internals.acceleratedAnimationsForElement(target).length, 0);
-}, "Two animations with implicit keyframes for the same accelerated property prevents acceleration throughout the stack.");
+    assert_equals(internals.acceleratedAnimationsForElement(target).length, 2);
+}, "Two animations with implicit keyframes for the same accelerated property can run accelerated.");
 
 promise_test(async test => {
     const target = createDiv(test);
@@ -75,13 +75,13 @@ promise_test(async test => {
     // throughout the effect stack.
     animations.push(target.animate({ transform: "translateY(100px)" }, duration));
     await allAnimationsAreReadyToAnimateAccelerated(animations);
-    assert_equals(internals.acceleratedAnimationsForElement(target).length, 0);
+    assert_equals(internals.acceleratedAnimationsForElement(target).length, 2);
 
     // Reset to the original state.
     animations[1].cancel();
     await allAnimationsAreReadyToAnimateAccelerated(animations);
     assert_equals(internals.acceleratedAnimationsForElement(target).length, 1);
-}, "Dynamically adding an animation with an implicit keyframe for an accelerated property with an accelerated animation targeting that same property lower down the stack prevents the stack from being accelerated.");
+}, "Dynamically adding an animation with an implicit keyframe for an accelerated property with an accelerated animation targeting that same property lower down the stack can run accelerated.");
 
 </script>
 </body>

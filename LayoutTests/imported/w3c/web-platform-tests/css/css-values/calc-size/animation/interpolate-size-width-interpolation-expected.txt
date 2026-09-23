@@ -113,48 +113,48 @@ PASS Web Animations: property <width> from [auto] to [fit-content] at (0.5) shou
 PASS Web Animations: property <width> from [auto] to [fit-content] at (0.6) should be [fit-content]
 PASS Web Animations: property <width> from [auto] to [fit-content] at (1) should be [fit-content]
 PASS Web Animations: property <width> from [auto] to [fit-content] at (1.5) should be [fit-content]
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0.6) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (1) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (1.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0.6) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (1) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (1.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (-0.3) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (0) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (0.3) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (0.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (0.6) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (1) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <width> from [stretch] to [auto] at (1.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (-0.3) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0.3) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0.6) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (1) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (1.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (0.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (0.6) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (1) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <width> from [stretch] to [auto] at (1.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (0.5) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (0.6) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (1) should be [auto] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <width> from [stretch] to [auto] at (1.5) should be [auto] assert_true: 'from' value should be supported expected true got false
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (-0.3) should be [stretch]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0) should be [stretch]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0.3) should be [stretch]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0.5) should be [auto]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (0.6) should be [auto]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (1) should be [auto]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <width> from [stretch] to [auto] at (1.5) should be [auto]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (-0.3) should be [stretch]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0) should be [stretch]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0.3) should be [stretch]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0.5) should be [auto]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (0.6) should be [auto]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (1) should be [auto]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <width> from [stretch] to [auto] at (1.5) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (-0.3) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (0) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (0.3) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (0.5) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (0.6) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (1) should be [auto]
+PASS CSS Transitions: property <width> from [stretch] to [auto] at (1.5) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (-0.3) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0.3) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0.5) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (0.6) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (1) should be [auto]
+PASS CSS Transitions with transition: all: property <width> from [stretch] to [auto] at (1.5) should be [auto]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (-0.3) should be [stretch]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (0) should be [stretch]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (0.3) should be [stretch]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (0.5) should be [auto]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (0.6) should be [auto]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (1) should be [auto]
+PASS CSS Animations: property <width> from [stretch] to [auto] at (1.5) should be [auto]
+PASS Web Animations: property <width> from [stretch] to [auto] at (-0.3) should be [stretch]
+PASS Web Animations: property <width> from [stretch] to [auto] at (0) should be [stretch]
+PASS Web Animations: property <width> from [stretch] to [auto] at (0.3) should be [stretch]
+PASS Web Animations: property <width> from [stretch] to [auto] at (0.5) should be [auto]
+PASS Web Animations: property <width> from [stretch] to [auto] at (0.6) should be [auto]
+PASS Web Animations: property <width> from [stretch] to [auto] at (1) should be [auto]
+PASS Web Animations: property <width> from [stretch] to [auto] at (1.5) should be [auto]
 FAIL CSS Transitions: property <width> from [200px] to [fit-content] at (-0.3) should be [230px] assert_equals: expected "230px " but got "100px "
 FAIL CSS Transitions: property <width> from [200px] to [fit-content] at (0) should be [200px] assert_equals: expected "200px " but got "100px "
 FAIL CSS Transitions: property <width> from [200px] to [fit-content] at (0.3) should be [170px] assert_equals: expected "170px " but got "100px "

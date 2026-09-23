@@ -109,6 +109,36 @@ TEST(WTF_Packed, PackedAlignedPtr)
     }
 }
 
+TEST(WTF_Packed, PackedAlignedPtrSetNonNull)
+{
+    {
+        PackedAlignedPtr<PackableUint8, 256> ptr;
+        auto* testValue = std::bit_cast<PackableUint8*>(static_cast<uintptr_t>(256));
+        ptr.set(testValue);
+        EXPECT_EQ(ptr.get(), testValue);
+    }
+    {
+        PackedAlignedPtr<PackableUint8, 256> ptr;
+        auto* testValue = std::bit_cast<PackableUint8*>(static_cast<uintptr_t>(256 * 1024));
+        ptr.set(testValue);
+        EXPECT_EQ(ptr.get(), testValue);
+    }
+}
+
+TEST(WTF_Packed, PackedPtrSwapWithRawPointer)
+{
+    PackableUint8 a { 1 };
+    PackableUint8 b { 2 };
+
+    PackedPtr<PackableUint8> packed { &a };
+    PackableUint8* raw = &b;
+
+    packed.swap(raw);
+
+    EXPECT_EQ(packed.get(), &b);
+    EXPECT_EQ(raw, &a);
+}
+
 struct PackingTarget {
     WTF_ALLOW_STRUCT_COMPACT_POINTERS;
     unsigned m_value { 0 };

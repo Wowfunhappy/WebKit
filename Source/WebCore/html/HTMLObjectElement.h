@@ -35,9 +35,9 @@ class HTMLObjectElement final : public HTMLPlugInElement, public FormListedEleme
 public:
     USING_CAN_MAKE_WEAKPTR(HTMLPlugInElement);
 
-    static Ref<HTMLObjectElement> create(const QualifiedName&, Document&, HTMLFormElement*);
+    static Ref<HTMLObjectElement> create(const QualifiedName&, Document&);
 
-    bool isExposed() const { return m_isExposed; }
+    bool isExposed() const;
 
     bool hasFallbackContent() const;
     bool useFallbackContent() const final { return m_useFallbackContent; }
@@ -54,7 +54,7 @@ public:
     using HTMLPlugInElement::deref;
 
 private:
-    HTMLObjectElement(const QualifiedName&, Document&, HTMLFormElement*);
+    HTMLObjectElement(const QualifiedName&, Document&);
     ~HTMLObjectElement();
 
     int defaultTabIndex() const final;
@@ -63,21 +63,20 @@ private:
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     void childrenChanged(const ChildChange&) final;
 
     bool NODELETE isURLAttribute(const Attribute&) const final;
-    const AtomString& imageSourceURL() const final;
+    String imageSourceURL() const final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     void updateWidget(CreatePlugins) final;
-    void updateExposedState();
 
     // FIXME: Better share code between <object> and <embed>.
     void parametersForPlugin(Vector<AtomString>& paramNames, Vector<AtomString>& paramValues);
@@ -100,7 +99,6 @@ private:
 
     bool canContainRangeEndPoint() const final;
 
-    bool m_isExposed { true };
     bool m_useFallbackContent { false };
 };
 

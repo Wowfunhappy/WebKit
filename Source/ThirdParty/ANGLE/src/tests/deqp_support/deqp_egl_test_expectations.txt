@@ -133,6 +133,21 @@
 42267029 PIXEL6 VULKAN : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.shader_storage_block.compute = FAIL
 42267029 PIXEL6 VULKAN : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.uniform_block.compute = FAIL
 
+// Pixel 10
+448972978 PIXEL10 GLES : dEQP-EGL.functional.get_frame_timestamps.* = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.robustness.reset_context.fixed_function_pipeline.reset_status.* = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.thread_cleanup.* = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.pbuffer_1010102_colorspace_default = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.pbuffer_1010102_colorspace_p3_passthrough = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.pbuffer_8888_colorspace_p3 = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.pbuffer_8888_colorspace_srgb = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.pbuffer_888_colorspace_p3 = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.pbuffer_888_colorspace_srgb = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.window_1010102_colorspace_default = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.window_1010102_colorspace_p3_passthrough = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.window_888_colorspace_p3 = FAIL
+448972978 PIXEL10 GLES : dEQP-EGL.functional.wide_color.window_888_colorspace_srgb = FAIL
+
 // ES 1 tests
 42261015 WIN : dEQP-EGL.functional.color_clears.single_context.gles1* = FAIL
 42261015 WIN : dEQP-EGL.functional.color_clears.multi_context.gles1* = FAIL
@@ -159,21 +174,21 @@
 42266001 VULKAN NVIDIA : dEQP-EGL.functional.create_context_ext.gl_30.* = SKIP
 42266001 VULKAN NVIDIA : dEQP-EGL.functional.create_context_ext.robust_gl_30.* = SKIP
 
-b/286921997 SWIFTSHADER : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.local_array.compute = SKIP
-b/286921997 SWIFTSHADER : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.shader_storage_block.compute = SKIP
-b/286921997 SWIFTSHADER : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.uniform_block.compute = SKIP
+286921997 SWIFTSHADER : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.local_array.compute = SKIP
+286921997 SWIFTSHADER : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.shader_storage_block.compute = SKIP
+286921997 SWIFTSHADER : dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.uniform_block.compute = SKIP
 
 // Samsung Galaxy S22 (Xclipse)
-b/267953710 GALAXYS22 VULKAN : dEQP-EGL.functional.wide_color.window_*_colorspace_srgb = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-EGL.functional.wide_color.window_*_colorspace_srgb = SKIP
 
 // Samsung Galaxy S24 (Xclipse)
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-EGL.functional.wide_color.window_8888_colorspace_srgb = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-EGL.functional.wide_color.window_888_colorspace_srgb = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-EGL.functional.wide_color.window_8888_colorspace_srgb = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-EGL.functional.wide_color.window_888_colorspace_srgb = SKIP
 
 // Snapdragon 8 Gen3 Mobile Reference Device
-b/328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.*.other = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.image.modify.renderbuffer_stencil_renderbuffer_clear_stencil = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.image.render_multiple_contexts.gles2_renderbuffer_stencil_stencil_buffer = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.*.other = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.image.modify.renderbuffer_stencil_renderbuffer_clear_stencil = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.image.render_multiple_contexts.gles2_renderbuffer_stencil_stencil_buffer = SKIP
 
 //// Metal
 
@@ -277,6 +292,10 @@ b/328156792 PINEAPPLE VULKAN : dEQP-EGL.functional.image.render_multiple_context
 
 // New crash since VK-GL-CTS roller on 2023-05-03
 42266606 MAC METAL : dEQP-EGL.functional.fence_sync.valid.egl_fence_persistent_buffer = SKIP
+
+// On Metal, these OOB draws will simply throw GL_INVALID_OPERATION instead of causing context loss or being ignored silently
+519942256 METAL : dEQP-EGL.functional.robustness.reset_context.fixed_function_pipeline.reset_status.index_buffer_out_of_bounds = SKIP
+519942256 METAL : dEQP-EGL.functional.robustness.reset_context.fixed_function_pipeline.reset_status.vertex_buffer_out_of_bounds = SKIP
 
 42265027 PIXEL4ORXL GLES : dEQP-EGL.functional.get_frame_timestamps.* = FAIL
 42265027 PIXEL4ORXL GLES : dEQP-EGL.functional.wide_color.* = FAIL

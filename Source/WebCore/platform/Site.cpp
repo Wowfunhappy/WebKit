@@ -87,9 +87,14 @@ String Site::toString() const
     return isEmpty() ? emptyString() : makeString(m_protocol, "://"_s, m_domain.string());
 }
 
+String Site::loggingString() const
+{
+    return makeString(m_protocol, "://"_s, m_domain.string());
+}
+
 TextStream& operator<<(TextStream& ts, const Site& site)
 {
-    ts << site.toString();
+    ts << site.loggingString();
     return ts;
 }
 

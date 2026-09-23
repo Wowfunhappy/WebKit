@@ -31,8 +31,6 @@
 #include "FontCache.h"
 
 #include "FontCascade.h"
-// MAVERICKS_BACKPORT: explicit include for the inline FontCascade::fontSelector() used below —
-// this TU relied on another unified-source bundle member providing it (unify-shuffle exposure).
 #include "FontCascadeInlines.h"
 #include "FontCreationContext.h"
 #include "FontPlatformData.h"
@@ -295,6 +293,7 @@ void FontCache::purgeInactiveFontData(unsigned purgeCount)
 
     m_fontCascadeCache.pruneUnreferencedEntries();
     m_fontCascadeCache.pruneSystemFallbackFonts();
+    m_fontCascadeCache.clearShapedTextCaches();
 
 #if PLATFORM(IOS_FAMILY)
     Locker locker { m_fontLock };
@@ -348,7 +347,7 @@ RefPtr<OpenTypeVerticalData> FontCache::verticalData(const FontPlatformData& pla
 
 void FontCache::updateFontCascade(const FontCascade& fontCascade)
 {
-    fontCascade.updateFonts(m_fontCascadeCache.retrieveOrAddCachedFonts(fontCascade.fontDescription(), fontCascade.fontSelector()));
+    fontCascade.updateFonts(m_fontCascadeCache.retrieveOrAddCachedFonts(fontCascade.fontDescription(), protect(fontCascade.fontSelector())));
 }
 
 size_t FontCache::fontCount()

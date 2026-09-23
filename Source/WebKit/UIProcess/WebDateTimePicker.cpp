@@ -36,9 +36,7 @@ WebDateTimePicker::WebDateTimePicker(WebPageProxy& page)
 {
 }
 
-WebDateTimePicker::~WebDateTimePicker()
-{
-}
+WebDateTimePicker::~WebDateTimePicker() = default;
 
 void WebDateTimePicker::showDateTimePicker(WebCore::DateTimeChooserParameters&& params)
 {

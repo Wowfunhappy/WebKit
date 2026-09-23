@@ -39,7 +39,7 @@ GStreamerQuirkBroadcom::GStreamerQuirkBroadcom()
 
 bool GStreamerQuirkBroadcom::isPlatformSupported() const
 {
-    auto broadcomFactory = adoptGRef(gst_element_factory_find("brcmaudiosink"));
+    GRefPtr broadcomFactory = adoptGRef(gst_element_factory_find("brcmaudiosink"));
     return broadcomFactory;
 }
 

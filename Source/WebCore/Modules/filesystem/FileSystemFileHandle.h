@@ -41,7 +41,8 @@ template<typename> class ExceptionOr;
 class FileSystemFileHandle final : public FileSystemHandle {
     WTF_MAKE_TZONE_ALLOCATED(FileSystemFileHandle);
 public:
-    WEBCORE_EXPORT static Ref<FileSystemFileHandle> create(ScriptExecutionContext&, String&&, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
+    WEBCORE_EXPORT static Ref<FileSystemFileHandle> create(ScriptExecutionContext&, String&&, FileSystemHandleGlobalIdentifier, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
+    WEBCORE_EXPORT static Ref<FileSystemFileHandle> create(ScriptExecutionContext&, String&&, FileSystemHandleGlobalIdentifier);
     void getFile(DOMPromiseDeferred<IDLInterface<File>>&&);
 
     void createSyncAccessHandle(DOMPromiseDeferred<IDLInterface<FileSystemSyncAccessHandle>>&&);
@@ -59,7 +60,7 @@ public:
     void executeCommandForWritable(FileSystemWritableFileStreamIdentifier, FileSystemWriteCommandType, std::optional<uint64_t> position, std::optional<uint64_t> size, std::span<const uint8_t> dataBytes, bool hasDataError, DOMPromiseDeferred<void>&&);
 
 private:
-    FileSystemFileHandle(ScriptExecutionContext&, String&&, FileSystemHandleIdentifier, Ref<FileSystemStorageConnection>&&);
+    FileSystemFileHandle(ScriptExecutionContext&, String&&, FileSystemHandleGlobalIdentifier, Markable<FileSystemHandleIdentifier>, RefPtr<FileSystemStorageConnection>&&);
 };
 
 } // namespace WebCore

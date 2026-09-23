@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -61,6 +61,8 @@ enum class MediaProducerMediaState : uint32_t {
     HasMutedSystemAudioCaptureDevice = 1 << 25,
     HasInterruptedSystemAudioCaptureDevice = 1 << 26,
     HasStreamingActivity = 1 << 27,
+    IsPromptingForWindowCapture = 1 << 28,
+    IsPromptingForScreenCapture = 1 << 29,
 };
 using MediaProducerMediaStateFlags = OptionSet<MediaProducerMediaState>;
 
@@ -97,6 +99,7 @@ public:
     static constexpr MediaStateFlags WindowCaptureMask = { MediaState::HasActiveWindowCaptureDevice, MediaState::HasMutedWindowCaptureDevice, MediaState::HasInterruptedWindowCaptureDevice };
     static constexpr MediaStateFlags ActiveDisplayCaptureMask = { MediaState::HasActiveScreenCaptureDevice, MediaState::HasActiveWindowCaptureDevice };
     static constexpr MediaStateFlags MutedDisplayCaptureMask = { MediaState::HasMutedScreenCaptureDevice, MediaState::HasMutedWindowCaptureDevice };
+    static constexpr MediaStateFlags IsPromptingForDisplayCaptureMask = { MediaState::IsPromptingForWindowCapture, MediaState::IsPromptingForScreenCapture };
     static constexpr MediaStateFlags DisplayCaptureMask = { ActiveDisplayCaptureMask | MutedDisplayCaptureMask };
 
     static constexpr MediaStateFlags SystemAudioCaptureMask = { MediaState::HasActiveSystemAudioCaptureDevice, MediaState::HasMutedSystemAudioCaptureDevice, MediaState::HasInterruptedSystemAudioCaptureDevice };
@@ -119,7 +122,9 @@ public:
         MediaState::HasInterruptedWindowCaptureDevice,
         MediaState::HasActiveSystemAudioCaptureDevice,
         MediaState::HasMutedSystemAudioCaptureDevice,
-        MediaState::HasInterruptedSystemAudioCaptureDevice
+        MediaState::HasInterruptedSystemAudioCaptureDevice,
+        MediaState::IsPromptingForWindowCapture,
+        MediaState::IsPromptingForScreenCapture,
     };
     static constexpr MediaStateFlags IsCapturingAudioMask = { MicrophoneCaptureMask | SystemAudioCaptureMask };
     static constexpr MediaStateFlags IsCapturingVideoMask = { VideoCaptureMask | DisplayCaptureMask };

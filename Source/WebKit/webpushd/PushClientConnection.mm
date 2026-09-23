@@ -330,6 +330,11 @@ void PushClientConnection::removePushSubscriptionsForOrigin(WebCore::SecurityOri
     WebPushDaemon::singleton().removePushSubscriptionsForOrigin(*this, WTF::move(origin), WTF::move(replySender));
 }
 
+void PushClientConnection::getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&& replySender)
+{
+    WebPushDaemon::singleton().getAllPushSubscriptionOrigins(*this, WTF::move(replySender));
+}
+
 void PushClientConnection::setPublicTokenForTesting(const String& publicToken, CompletionHandler<void()>&& replySender)
 {
     WebPushDaemon::singleton().setPublicTokenForTesting(*this, publicToken, WTF::move(replySender));

@@ -126,7 +126,7 @@ final class WKNavigationDelegateAdapter: NSObject, WKNavigationDelegate {
         await navigationDecider.decideAuthenticationChallengeDisposition(for: challenge)
     }
 
-    @available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+    @available(anyAppleOSAndDownlevels 27.0, *)
     func webView(
         _ webView: WKWebView,
         willSubmitForm formInfo: WKFormInfo

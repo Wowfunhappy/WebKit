@@ -25,16 +25,15 @@
 
 #pragma once
 
-#include <JavaScriptCore/AllocationFailureMode.h>
 #include <JavaScriptCore/BlockDirectoryBits.h>
 #include <JavaScriptCore/CellAttributes.h>
 #include <JavaScriptCore/FreeList.h>
+#include <JavaScriptCore/JSExportMacros.h>
 #include <JavaScriptCore/LocalAllocator.h>
 #include <JavaScriptCore/MarkedBlock.h>
 #include <wtf/DataLog.h>
 #include <wtf/DebugHeap.h>
-#include <wtf/FastBitVector.h>
-#include <wtf/MonotonicTime.h>
+#include <wtf/Lock.h>
 #include <wtf/SharedTask.h>
 #include <wtf/Vector.h>
 
@@ -61,16 +60,16 @@ class BlockDirectory {
 public:
     BlockDirectory(size_t cellSize);
     ~BlockDirectory();
-    void setSubspace(Subspace*);
+    void NODELETE setSubspace(Subspace*);
     void lastChanceToFinalize();
     void prepareForAllocation();
     void stopAllocating();
     void stopAllocatingForGood();
     void resumeAllocating();
-    void beginMarkingForFullCollection();
+    void NODELETE beginMarkingForFullCollection();
     void endMarking();
-    void snapshotUnsweptForEdenCollection();
-    void snapshotUnsweptForFullCollection();
+    void NODELETE snapshotUnsweptForEdenCollection();
+    void NODELETE snapshotUnsweptForFullCollection();
     void sweep();
     void shrink();
     void assertNoUnswept();
@@ -92,7 +91,7 @@ public:
     void updatePercentageOfPagedOutPages(WTF::SimpleStats&);
     
 #if ASSERT_ENABLED
-    void assertIsMutatorOrMutatorIsStopped() const WTF_ASSERTS_ACQUIRED_SHARED_LOCK(m_bitvectorLock);
+    JS_EXPORT_PRIVATE void assertIsMutatorOrMutatorIsStopped() const WTF_ASSERTS_ACQUIRED_SHARED_LOCK(m_bitvectorLock);
     void assertSweeperIsSuspended() const WTF_ASSERTS_ACQUIRED_LOCK(m_bitvectorLock);
 #else
     ALWAYS_INLINE void assertIsMutatorOrMutatorIsStopped() const WTF_ASSERTS_ACQUIRED_SHARED_LOCK(m_bitvectorLock) { }
@@ -144,17 +143,17 @@ public:
     
     MarkedBlock::Handle* findEmptyBlockToSteal();
     
-    MarkedBlock::Handle* findBlockToSweep() { return findBlockToSweep(m_unsweptCursor); }
+    inline MarkedBlock::Handle* findBlockToSweep();
     MarkedBlock::Handle* findBlockToSweep(unsigned& unsweptCursor);
 
     // FIXME: rdar://139998916
-    MarkedBlock::Handle* findMarkedBlockHandleDebug(MarkedBlock*);
+    MarkedBlock::Handle* NODELETE findMarkedBlockHandleDebug(MarkedBlock*);
 
     void didFinishUsingBlock(MarkedBlock::Handle*);
     void didFinishUsingBlock(AbstractLocker&, MarkedBlock::Handle*) WTF_REQUIRES_LOCK(m_bitvectorLock);
 
     Subspace* subspace() const { return m_subspace; }
-    MarkedSpace& markedSpace() const;
+    MarkedSpace& NODELETE markedSpace() const;
     
     void dump(PrintStream&) const;
     void dumpBits(PrintStream& = WTF::dataFile()) WTF_REQUIRES_SHARED_LOCK(m_bitvectorLock);

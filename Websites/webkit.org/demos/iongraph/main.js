@@ -1,5 +1,5 @@
 // src/iongraph.ts
-var currentVersion = 1;
+var currentVersion = 2;
 function migrate(ionJSON) {
   if (ionJSON.version === void 0) {
     ionJSON.version = 0;
@@ -11,6 +11,14 @@ function migrate(ionJSON) {
   return ionJSON;
 }
 function migrateFunc(f, version) {
+  if (version < 2) {
+    if (f.tier === void 0) {
+      f.tier = null;
+    }
+    if (f.osr === void 0) {
+      f.osr = false;
+    }
+  }
   for (const p of f.passes) {
     for (const b of p.mir.blocks) {
       migrateMIRBlock(b, version);
@@ -1895,6 +1903,9 @@ var MenuBar = class {
     ]);
     this.funcSelectorNone = E("div", [], () => {
     }, ["No functions to display."]);
+    this.funcTier = E("div", ["ig-tier-badge"]);
+    this.funcOSR = E("div", ["ig-osr-badge"], () => {
+    }, ["OSR"]);
     this.funcName = E("div");
     this.root = E("div", ["ig-bb", "ig-flex", "ig-bg-white"], () => {
     }, [
@@ -1918,6 +1929,8 @@ var MenuBar = class {
       ]),
       E("div", ["ig-flex-grow-1", "ig-pv2", "ig-ph3", "ig-flex", "ig-g2", "ig-items-center"], () => {
       }, [
+        this.funcTier,
+        this.funcOSR,
         this.funcName,
         E("div", ["ig-flex-grow-1"]),
         props.export && E("div", [], () => {
@@ -1962,20 +1975,28 @@ var MenuBar = class {
     this.funcSelector.querySelector(".num-functions").innerHTML = `${this.numFunctions()}`;
     this.funcName.hidden = !funcIndexValid;
     this.funcName.innerText = `${this.ionjson?.functions[this.funcIndex].name ?? ""}`;
+    const func = funcIndexValid ? this.ionjson?.functions[this.funcIndex] : null;
+    const tier = func?.tier ?? null;
+    this.funcTier.hidden = !tier;
+    this.funcTier.innerText = tier ?? "";
+    this.funcTier.dataset.tier = tier ?? "";
+    this.funcOSR.hidden = !func?.osr;
     if (this.exportButton) {
       this.exportButton.disabled = !this.ionjson || !funcIndexValid;
     }
   }
   async exportStandalone() {
     const ion = must(this.ionjson);
-    const name = ion.functions[this.funcIndex].name;
-    const result = { version: 1, functions: [ion.functions[this.funcIndex]] };
+    const func = ion.functions[this.funcIndex];
+    const name = func.name;
+    const tierSuffix = func.tier ? func.osr ? `-${func.tier}-OSR` : `-${func.tier}` : "";
+    const result = { version: currentVersion, functions: [func] };
     const template = window.__standaloneTemplate ?? await (await fetch("./standalone.html")).text();
     const output = template.replace(/\{\{\s*IONJSON\s*\}\}/, JSON.stringify(result));
     const url = URL.createObjectURL(new Blob([output], { type: "text/html;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `iongraph-${name}.html`;
+    a.download = `iongraph-${name}${tierSuffix}.html`;
     document.body.appendChild(a);
     a.click();
     a.remove();

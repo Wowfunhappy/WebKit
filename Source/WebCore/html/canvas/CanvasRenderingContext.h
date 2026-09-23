@@ -30,6 +30,7 @@
 #include "ImageBuffer.h"
 #include "ScriptWrappable.h"
 #include <wtf/CheckedRef.h>
+#include <wtf/CurrentThread.h>
 #include <wtf/Forward.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
@@ -137,6 +138,7 @@ public:
 #if ENABLE(RESOURCE_USAGE)
     size_t NODELETE externalMemoryCost() const;
 #endif
+    bool isContextThread() const { return m_owningThreadUID == currentThreadID(); }
 
 protected:
     enum class Type : uint8_t {
@@ -178,7 +180,7 @@ private:
 
     WeakRef<CanvasBase> m_canvas;
     const Type m_type;
-
+    const uint32_t m_owningThreadUID;
 };
 
 } // namespace WebCore

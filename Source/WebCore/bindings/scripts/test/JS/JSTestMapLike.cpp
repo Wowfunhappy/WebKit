@@ -27,6 +27,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMConvertStrings.h"
@@ -40,7 +41,6 @@
 #include <JavaScriptCore/BuiltinNames.h>
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -86,10 +86,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestMapLikePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestMapLikePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -138,12 +135,17 @@ static const std::array<HashTableValue, 11> JSTestMapLikePrototypeTableValues {
 
 const ClassInfo JSTestMapLikePrototype::s_info = { "TestMapLike"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestMapLikePrototype) };
 
+JSC::Structure* JSTestMapLikePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestMapLikePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestMapLike::info(), JSTestMapLikePrototypeTableValues, *this);
-    putDirect(vm, vm.propertyNames->iteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    putDirect(vm, vm.propertyNames->iteratorSymbol, WebCore::getDirect(this, vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestMapLike::s_info = { "TestMapLike"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestMapLike) };
@@ -154,6 +156,19 @@ JSTestMapLike::JSTestMapLike(Structure* structure, JSDOMGlobalObject& globalObje
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestMapLike>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestMapLike* JSTestMapLike::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestMapLike>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestMapLike* ptr = new (NotNull, JSC::allocateCell<JSTestMapLike>(vm)) JSTestMapLike(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestMapLike::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestMapLike::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -169,7 +184,7 @@ JSObject* JSTestMapLike::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestMapLike::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestMapLikeDOMConstructor, DOMConstructorID::TestMapLike>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestMapLikeDOMConstructor, DOMConstructorID::TestMapLike>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestMapLike::destroy(JSC::JSCell* cell)
@@ -182,10 +197,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestMapLikeConstructor, (JSGlobalObject* lexicalGloba
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestMapLikePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestMapLikePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestMapLike::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestMapLike::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestMapLike_sizeGetter(JSGlobalObject& lexicalGlobalObject, JSTestMapLike& thisObject)
@@ -372,12 +387,14 @@ JSC::GCClient::IsoSubspace* JSTestMapLike::subspaceForImpl(JSC::VM& vm)
 
 void JSTestMapLike::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestMapLike*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestMapLike>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestMapLikeOwner::JSTestMapLikeOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestMapLikeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -391,7 +408,7 @@ void JSTestMapLikeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* contex
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestMapLike = static_cast<JSTestMapLike*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestMapLike->wrapped()).ptr(), jsTestMapLike);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestMapLike->wrapped(), jsTestMapLike);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -439,7 +456,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestMapLike* JSTestMapLike::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestMapLike*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestMapLike>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

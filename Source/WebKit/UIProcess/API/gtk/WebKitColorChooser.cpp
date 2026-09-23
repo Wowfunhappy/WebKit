@@ -67,7 +67,7 @@ void WebKitColorChooser::colorChooserRequestRGBAChanged(WebKitColorChooserReques
     colorChooser->didChooseColor(gdkRGBAToColor(rgba));
 }
 
-void WebKitColorChooser::showColorPicker(const Color& color)
+void WebKitColorChooser::showColorPicker(const Color& color, const IntRect& rect)
 {
     m_initialColor = colorToGdkRGBA(color);
     GRefPtr<WebKitColorChooserRequest> request = adoptGRef(webkitColorChooserRequestCreate(this));
@@ -77,7 +77,7 @@ void WebKitColorChooser::showColorPicker(const Color& color)
     if (webkitWebViewEmitRunColorChooser(WEBKIT_WEB_VIEW(m_webView), request.get()))
         m_request = request;
     else
-        WebColorPickerGtk::showColorPicker(color);
+        WebColorPickerGtk::showColorPicker(color, rect);
 }
 
 } // namespace WebKit

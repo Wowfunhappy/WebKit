@@ -27,8 +27,8 @@
 
 #include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/WasmTypeDefinition.h>
+#include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/Platform.h>
-#include <wtf/ReferenceWrapperVector.h>
 
 #if ENABLE(WEBASSEMBLY)
 
@@ -39,26 +39,6 @@ class UniquedStringImpl;
 } // namespace WTF
 
 namespace JSC {
-
-// A set of all TypeDefinitions a WebAssemblyGCStructure needs to keep alive.
-// The TypeDefinition retained by a structure as `m_type` may reference other
-// TypeDefinitions. Such references are stored as raw pointers in Wasm::FieldTypes. To
-// prevent these unmanaged pointers from dangling if a GC object and its structure outlive
-// the originating Wasm instance, we collect a transitive closure of all TypeDefinitions
-// reachable from the declared type of the GC object. The structure holds onto this set
-// to ensure all relevant type definitions live for at least as long as itself.
-class WebAssemblyGCStructureTypeDependencies {
-    public:
-        WebAssemblyGCStructureTypeDependencies(Ref<const Wasm::TypeDefinition>&& unexpandedType);
-
-    private:
-        using WorkList = ReferenceWrapperVector<const Wasm::TypeDefinition>;
-
-        void process(const Wasm::TypeDefinition&, WorkList&);
-        void process(Wasm::FieldType, WorkList&);
-
-        UncheckedKeyHashSet<Wasm::TypeHash> m_typeDefinitions;
-};
 
 // FIXME: It seems like almost all the fields of a Structure are useless to a wasm GC "object" since they can't have dynamic fields
 // e.g. PropertyTables, Transitions, SeenProperties, Prototype, etc.
@@ -74,19 +54,24 @@ public:
     }
 
     const Wasm::RTT& rtt() const LIFETIME_BOUND { return m_rtt; }
-    const Wasm::TypeDefinition& typeDefinition() const LIFETIME_BOUND { return m_type; }
 
-    static WebAssemblyGCStructure* create(VM&, JSGlobalObject*, const TypeInfo&, const ClassInfo*, Ref<const Wasm::TypeDefinition>&& unexpandedType, Ref<const Wasm::TypeDefinition>&& expandedType, Ref<const Wasm::RTT>&&);
+    static WebAssemblyGCStructure* create(VM&, const TypeInfo&, const ClassInfo*, Ref<const Wasm::RTT>&&);
 
     static constexpr ptrdiff_t offsetOfRTT() { return OBJECT_OFFSETOF(WebAssemblyGCStructure, m_rtt); }
 
+    static constexpr unsigned inlinedDisplaySize = Wasm::RTT::inlinedDisplaySize;
+    static constexpr ptrdiff_t offsetOfInlinedDisplay() { return OBJECT_OFFSETOF(WebAssemblyGCStructure, m_inlinedDisplay); }
+
+    template<typename Visitor>
+    static void visitAdditionalChildren(JSCell*, Visitor&);
+
 private:
-    WebAssemblyGCStructure(VM&, JSGlobalObject*, const TypeInfo&, const ClassInfo*, Ref<const Wasm::TypeDefinition>&& unexpandedType, Ref<const Wasm::TypeDefinition>&& expandedType, Ref<const Wasm::RTT>&&);
-    WebAssemblyGCStructure(VM&, WebAssemblyGCStructure* previous);
+    WebAssemblyGCStructure(VM&, const TypeInfo&, const ClassInfo*, Ref<const Wasm::RTT>&&);
+
+    void finishCreation(VM&);
 
     const Ref<const Wasm::RTT> m_rtt;
-    const Ref<const Wasm::TypeDefinition> m_type;
-    WebAssemblyGCStructureTypeDependencies m_typeDependencies;
+    std::array<WriteBarrierStructureID, inlinedDisplaySize> m_inlinedDisplay { };
 };
 
 } // namespace JSC

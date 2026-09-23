@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,10 +49,11 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CSSStyleValue);
 ExceptionOr<Ref<CSSStyleValue>> CSSStyleValue::parse(Document& document, const AtomString& property, const String& cssText)
 {
     constexpr bool parseMultiple = false;
+
     auto parseResult = CSSStyleValueFactory::parseStyleValue(document, property, cssText, parseMultiple);
     if (parseResult.hasException())
         return parseResult.releaseException();
-    
+
     auto returnValue = parseResult.releaseReturnValue();
     
     // Returned vector should not be empty. If parsing failed, an exception should be returned.
@@ -67,18 +69,13 @@ ExceptionOr<Vector<Ref<CSSStyleValue>>> CSSStyleValue::parseAll(Document& docume
     return CSSStyleValueFactory::parseStyleValue(document, property, cssText, parseMultiple);
 }
 
-Ref<CSSStyleValue> CSSStyleValue::create(RefPtr<CSSValue>&& cssValue, String&& property)
+Ref<CSSStyleValue> CSSStyleValue::create(RefPtr<CSSValue>&& cssValue, AssociatedProperty&& associatedProperty)
 {
-    return adoptRef(*new CSSStyleValue(WTF::move(cssValue), WTF::move(property)));
+    return adoptRef(*new CSSStyleValue(WTF::move(cssValue), WTF::move(associatedProperty)));
 }
 
-Ref<CSSStyleValue> CSSStyleValue::create()
-{
-    return adoptRef(*new CSSStyleValue());
-}
-
-CSSStyleValue::CSSStyleValue(RefPtr<CSSValue>&& cssValue, String&& property)
-    : m_customPropertyName(WTF::move(property))
+CSSStyleValue::CSSStyleValue(RefPtr<CSSValue>&& cssValue, std::optional<AssociatedProperty>&& associatedProperty)
+    : m_associatedProperty(WTF::move(associatedProperty))
     , m_propertyValue(WTF::move(cssValue))
 {
 }
@@ -94,6 +91,13 @@ void CSSStyleValue::serialize(StringBuilder& builder, OptionSet<SerializationArg
 {
     if (m_propertyValue)
         builder.append(protect(m_propertyValue)->cssText(CSS::defaultSerializationContext()));
+}
+
+RefPtr<CSSValue> CSSStyleValue::toCSSValueWithProperty(CSSPropertyID propertyID) const
+{
+    if (m_associatedProperty && *m_associatedProperty != propertyID)
+        return nullptr;
+    return toCSSValue();
 }
 
 CSSStyleValue::~CSSStyleValue() = default;

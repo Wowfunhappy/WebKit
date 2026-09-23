@@ -21,7 +21,7 @@ function getObject(key) {
   storeObject('Document', Document.parseHTMLUnsafe( trustedTypes.emptyHTML));
   storeObject('HTMLCanvasElement', getObject('Document').createElementNS('http://www.w3.org/1999/xhtml', 'canvas'));
   let offscreen = getObject('HTMLCanvasElement').transferControlToOffscreen();
-  await (()=>{ return frames.cookieStore.delete("bar") })();
+  await (()=>{ return frames.cookieStore.delete("bar") })().catch(() => {});
   offscreen.getContext('bitmaprenderer');
   testRunner?.notifyDone();
 })();

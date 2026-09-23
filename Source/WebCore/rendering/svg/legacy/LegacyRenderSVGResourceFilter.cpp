@@ -24,6 +24,7 @@
 
 #include "config.h"
 #include "LegacyRenderSVGResourceFilter.h"
+#include "LegacyRenderSVGModelObjectInlines.h"
 
 #include "FilterEffect.h"
 #include "FloatPoint.h"
@@ -44,7 +45,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FilterData);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyRenderSVGResourceFilter);
 
-LegacyRenderSVGResourceFilter::LegacyRenderSVGResourceFilter(SVGFilterElement& element, RenderStyle&& style)
+LegacyRenderSVGResourceFilter::LegacyRenderSVGResourceFilter(SVGFilterElement& element, Style::ComputedStyle&& style)
     : LegacyRenderSVGResourceContainer(Type::LegacySVGResourceFilter, element, WTF::move(style))
 {
 }
@@ -73,7 +74,7 @@ void LegacyRenderSVGResourceFilter::removeClientFromCache(RenderElement& client)
     }
 }
 
-auto LegacyRenderSVGResourceFilter::applyResource(RenderElement& renderer, const RenderStyle&, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode) -> OptionSet<ApplyResult>
+auto LegacyRenderSVGResourceFilter::applyResource(RenderElement& renderer, const Style::ComputedStyle&, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode) -> OptionSet<ApplyResult>
 {
     ASSERT(context);
     ASSERT_UNUSED(resourceMode, !resourceMode);
@@ -125,21 +126,21 @@ auto LegacyRenderSVGResourceFilter::applyResource(RenderElement& renderer, const
     // Determine scale factor for filter. The size of intermediate ImageBuffers shouldn't be bigger than kMaxFilterSize.
     ImageBuffer::sizeNeedsClamping(filterData->sourceImageRect.size(), filterScale);
 
-    auto preferredFilterModes = renderer.page().preferredFilterRenderingModes(*context);
+    auto preferredFilterModes = protect(renderer.page())->preferredFilterRenderingModes(*context);
+    auto renderingOptions(protect(renderer.settings())->showDebugBorders() ? std::make_optional(FilterRenderingOption::ShowDebugOverlay) : std::nullopt);
 
     // Create the SVGFilterRenderer object.
     filterData->filter = SVGFilterRenderer::create(contextElement.get(), filterElement, {
         .referenceBox = targetBoundingBox,
         .filterRegion = filterRegion,
         .scale = filterScale,
-    }, preferredFilterModes, *context, RenderingResourceIdentifier::generate());
+    }, preferredFilterModes, renderingOptions, *context, RenderingResourceIdentifier::generate());
 
     if (!filterData->filter) {
         m_rendererFilterDataMap.remove(renderer);
         return { };
     }
 
-    filterData->filter->setIsShowingDebugOverlay(renderer.settings().showDebugBorders());
     filterData->filter->clampFilterRegionIfNeeded();
 
 #if USE(CAIRO)
@@ -148,7 +149,7 @@ auto LegacyRenderSVGResourceFilter::applyResource(RenderElement& renderer, const
     auto colorSpace = DestinationColorSpace::LinearSRGB();
 #endif
 
-    auto& results = filterData->filter->ensureResults([&]() {
+    auto& results = protect(filterData->filter)->ensureResults([&]() {
         return makeUnique<FilterResults>();
     });
 
@@ -249,7 +250,7 @@ void LegacyRenderSVGResourceFilter::markFilterForRepaint(FilterEffect& effect)
         // Repaint the image on the screen.
         markClientForInvalidation(objectFilterDataPair.key, RepaintInvalidation);
 
-        filterData->filter->clearEffectResult(effect);
+        protect(filterData->filter)->clearEffectResult(effect);
     }
 }
 

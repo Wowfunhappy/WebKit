@@ -85,7 +85,7 @@ if (window.accessibilityController) {
         target4.ariaInvalid = true;
         target4.ariaErrorMessageElements = [error4];
         error4.id = "error4-new";
-        axErrorMessage4 = accessibilityController.accessibleElementById("error4-new");
+        axErrorMessage4 = await waitForElementById("error4-new");
         axTarget4 = accessibilityController.accessibleElementById("target4");
         await waitFor(() => axTarget4.ariaErrorMessageElementAtIndex(0));
         output += expect("axTarget4.ariaErrorMessageElementAtIndex(0).isEqual(axErrorMessage4)", "true");

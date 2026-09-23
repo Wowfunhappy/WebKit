@@ -74,9 +74,7 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(VideoPresentationInterfaceLMK);
 
-VideoPresentationInterfaceLMK::~VideoPresentationInterfaceLMK()
-{
-}
+VideoPresentationInterfaceLMK::~VideoPresentationInterfaceLMK() = default;
 
 Ref<VideoPresentationInterfaceLMK> VideoPresentationInterfaceLMK::create(WebCore::PlaybackSessionInterfaceIOS& playbackSessionInterface)
 {

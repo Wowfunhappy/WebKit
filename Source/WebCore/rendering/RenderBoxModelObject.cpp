@@ -59,7 +59,6 @@
 #include "RenderMultiColumnFlow.h"
 #include "RenderObjectInlines.h"
 #include "RenderTable.h"
-#include "RenderTableRow.h"
 #include "RenderText.h"
 #include "RenderTextFragment.h"
 #include "RenderTreeBuilder.h"
@@ -67,6 +66,8 @@
 #include "ScrollingConstraints.h"
 #include "Settings.h"
 #include "StyleImage.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
+#include "StylePrimitiveNumericTypes+EvaluationMinimum.h"
 #include "Styleable.h"
 #include "TextBoxPainter.h"
 #include "TransformState.h"
@@ -86,49 +87,24 @@ using namespace HTMLNames;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderBoxModelObject);
 
-// The HashMap for storing continuation pointers.
-// An inline can be split with blocks occuring in between the inline content.
-// When this occurs we need a pointer to the next object. We can basically be
-// split into a sequence of inlines and blocks. The continuation will either be
-// an anonymous block (that houses other blocks) or it will be an inline flow.
-// <b><i><p>Hello</p></i></b>. In this example the <i> will have a block as
-// its continuation but the <b> will just have an inline as its continuation.
-RenderBoxModelObject::ContinuationChainNode::ContinuationChainNode(RenderBoxModelObject& renderer)
-    : renderer(renderer)
+LayoutUnit borderLeft(const RenderBoxModelObject& renderer)
 {
+    return renderer.borderLeft();
 }
 
-RenderBoxModelObject::ContinuationChainNode::~ContinuationChainNode()
+LayoutUnit borderTop(const RenderBoxModelObject& renderer)
 {
-    if (next) {
-        ASSERT(previous);
-        ASSERT(next->previous == this);
-        next->previous = previous;
-    }
-    if (previous) {
-        ASSERT(previous->next == this);
-        previous->next = next;
-    }
+    return renderer.borderTop();
 }
 
-void RenderBoxModelObject::ContinuationChainNode::insertAfter(ContinuationChainNode& after)
+LayoutUnit paddingLeft(const RenderBoxModelObject& renderer)
 {
-    ASSERT(!previous);
-    ASSERT(!next);
-    if ((next = after.next)) {
-        ASSERT(next->previous == &after);
-        next->previous = this;
-    }
-    previous = &after;
-    after.next = this;
+    return renderer.paddingLeft();
 }
 
-using ContinuationChainNodeMap = SingleThreadWeakHashMap<const RenderBoxModelObject, std::unique_ptr<RenderBoxModelObject::ContinuationChainNode>>;
-
-static ContinuationChainNodeMap& NODELETE continuationChainNodeMap()
+LayoutUnit paddingTop(const RenderBoxModelObject& renderer)
 {
-    static NeverDestroyed<ContinuationChainNodeMap> map;
-    return map;
+    return renderer.paddingTop();
 }
 
 using FirstLetterRemainingTextMap = SingleThreadWeakHashMap<const RenderBoxModelObject, SingleThreadWeakPtr<RenderTextFragment>>;
@@ -139,9 +115,9 @@ static FirstLetterRemainingTextMap& NODELETE firstLetterRemainingTextMap()
     return map;
 }
 
-void RenderBoxModelObject::styleWillChange(Style::Difference diff, const RenderStyle& newStyle)
+void RenderBoxModelObject::styleWillChange(Style::Difference diff, const Style::ComputedStyle& newStyle)
 {
-    const RenderStyle* oldStyle = hasInitializedStyle() ? &style() : nullptr;
+    const Style::ComputedStyle* oldStyle = hasInitializedStyle() ? &style() : nullptr;
 
     if (Style::AnchorPositionEvaluator::isAnchor(newStyle))
         view().registerAnchor(*this);
@@ -170,26 +146,13 @@ void RenderBoxModelObject::setSelectionState(HighlightState state)
         containingBlock->setSelectionState(state);
 }
 
-void RenderBoxModelObject::contentChanged(ContentChangeType changeType, const std::optional<FloatRect>& dirtyRect)
-{
-    if (!hasLayer())
-        return;
-
-    layer()->contentChanged(changeType, dirtyRect);
-}
-
-bool RenderBoxModelObject::hasAcceleratedCompositing() const
-{
-    return view().compositor().hasAcceleratedCompositing();
-}
-
-RenderBoxModelObject::RenderBoxModelObject(Type type, Element& element, RenderStyle&& style, OptionSet<TypeFlag> baseTypeFlags, TypeSpecificFlags typeSpecificFlags)
+RenderBoxModelObject::RenderBoxModelObject(Type type, Element& element, Style::ComputedStyle&& style, OptionSet<TypeFlag> baseTypeFlags, TypeSpecificFlags typeSpecificFlags)
     : RenderLayerModelObject(type, element, WTF::move(style), baseTypeFlags | TypeFlag::IsBoxModelObject, typeSpecificFlags)
 {
     ASSERT(isRenderBoxModelObject());
 }
 
-RenderBoxModelObject::RenderBoxModelObject(Type type, Document& document, RenderStyle&& style, OptionSet<TypeFlag> baseTypeFlags, TypeSpecificFlags typeSpecificFlags)
+RenderBoxModelObject::RenderBoxModelObject(Type type, Document& document, Style::ComputedStyle&& style, OptionSet<TypeFlag> baseTypeFlags, TypeSpecificFlags typeSpecificFlags)
     : RenderLayerModelObject(type, document, WTF::move(style), baseTypeFlags | TypeFlag::IsBoxModelObject, typeSpecificFlags)
 {
     ASSERT(isRenderBoxModelObject());
@@ -198,7 +161,6 @@ RenderBoxModelObject::RenderBoxModelObject(Type type, Document& document, Render
 RenderBoxModelObject::~RenderBoxModelObject()
 {
     // Do not add any code here. Add it to willBeDestroyed() instead.
-    ASSERT(!continuation());
 }
 
 void RenderBoxModelObject::willBeDestroyed()
@@ -233,21 +195,6 @@ void RenderBoxModelObject::updateFromStyle()
         view().frameView().setHasFlippedBlockRenderers(true);
 }
 
-static LayoutSize accumulateInFlowPositionOffsets(const RenderBoxModelObject& child)
-{
-    if (!child.isAnonymousBlock() || !child.isInFlowPositioned())
-        return LayoutSize();
-    LayoutSize offset;
-    for (RenderElement* parent = downcast<RenderBlock>(child).inlineContinuation(); parent; parent = parent->parent()) {
-        auto* parentRenderInline = dynamicDowncast<RenderInline>(*parent);
-        if (!parentRenderInline)
-            break;
-        if (parent->isInFlowPositioned())
-            offset += parentRenderInline->offsetForInFlowPosition();
-    }
-    return offset;
-}
-    
 static inline bool NODELETE isOutOfFlowPositionedWithImplicitHeight(const RenderBoxModelObject& child)
 {
     return child.isOutOfFlowPositioned() && !child.style().logicalTop().isAuto() && !child.style().logicalBottom().isAuto();
@@ -266,10 +213,12 @@ RenderBlock* RenderBoxModelObject::containingBlockForAutoHeightDetectionGeneric(
     // Anonymous block boxes are ignored when resolving percentage values that
     // would refer to it: the closest non-anonymous ancestor box is used instead.
     auto* ancestor = containingBlock();
-    while (ancestor && ancestor->isAnonymousForPercentageResolution() && !is<RenderView>(ancestor))
+    while (ancestor && ancestor->shouldSkipForPercentageResolution())
         ancestor = ancestor->containingBlock();
-    if (!ancestor)
+    if (!ancestor) {
+        ASSERT_NOT_REACHED();
         return nullptr;
+    }
 
     // Matching RenderBox::percentageLogicalHeightIsResolvable() by
     // ignoring table cell's attribute value, where it says that table cells
@@ -371,9 +320,36 @@ DecodingMode RenderBoxModelObject::decodingModeForImageDraw(const Image& image, 
     return defaultDecodingMode();
 }
 
+#if ASSERT_ENABLED
+static void verifyDefiniteHeightConsistencyBetweenStyleAndContainingBlockChain(const RenderBlock& containingBlock, bool hasDefiniteHeightByStyleOnly)
+{
+    // The fast path is more correct than the slow path for these cases.
+    auto& logicalHeight = containingBlock.style().logicalHeight();
+    if (containingBlock.shouldComputeLogicalHeightFromAspectRatio() || containingBlock.stretchesToViewport() || logicalHeight.isStretch() || logicalHeight.isPercentOrCalculated() || logicalHeight.isIntrinsic())
+        return;
+
+    for (auto* ancestor = containingBlock.parent(); ancestor; ancestor = ancestor->parent()) {
+        // Only compare post-layout - the slow path's results are unreliable mid-layout.
+        if (ancestor->needsLayout())
+            return;
+    }
+    auto containingBlockHasDefiniteHeight = !containingBlock.hasAutoHeightOrContainingBlockWithAutoHeight(RenderBox::UpdatePercentageHeightDescendants::No);
+    ASSERT(hasDefiniteHeightByStyleOnly == containingBlockHasDefiniteHeight);
+}
+#endif
+
 LayoutSize RenderBoxModelObject::relativePositionOffset() const
 {
-    auto* containingBlock = this->containingBlock();
+    auto containingBlockSkippingAnonymous = [&] {
+        // This is a workaround for anonymous blocks interfering with percentage
+        // offset resolution. The proper fix is to not construct anonymous blocks in the
+        // first place (see webkit.org/b/307004).
+        auto* containingBlock = this->containingBlock();
+        while (containingBlock && containingBlock->isAnonymousBlock())
+            containingBlock = containingBlock->containingBlock();
+        return containingBlock;
+    };
+    auto* containingBlock = containingBlockSkippingAnonymous();
 
     auto& style = this->style();
     auto& left = style.left();
@@ -381,7 +357,7 @@ LayoutSize RenderBoxModelObject::relativePositionOffset() const
     auto& top = style.top();
     auto& bottom = style.bottom();
 
-    auto offset = accumulateInFlowPositionOffsets(*this);
+    LayoutSize offset;
     auto topFixed = top.tryFixed();
     auto leftFixed = left.tryFixed();
     if (topFixed && leftFixed && bottom.isAuto() && right.isAuto() && containingBlock->writingMode().isAnyLeftToRight()) {
@@ -426,7 +402,10 @@ LayoutSize RenderBoxModelObject::relativePositionOffset() const
     if (top.isAuto() && bottom.isAuto())
         return offset;
 
-    auto containingBlockHasDefiniteHeight = !containingBlock->hasAutoHeightOrContainingBlockWithAutoHeight() || containingBlock->stretchesToViewport();
+    auto containingBlockHasDefiniteHeight = containingBlock->hasDefiniteLogicalHeightForPercentageResolutionFromStyle();
+#if ASSERT_ENABLED
+    verifyDefiniteHeightConsistencyBetweenStyleAndContainingBlockChain(*containingBlock, containingBlockHasDefiniteHeight);
+#endif
     auto availableHeight = [&] {
         auto* renderBox = dynamicDowncast<RenderBox>(*this);
         if (!renderBox || !renderBox->isGridItem())
@@ -499,7 +478,7 @@ LayoutPoint RenderBoxModelObject::adjustedPositionRelativeToOffsetParent(const L
                     if (auto* fragment = renderMultiColumnFlow->physicalTranslationFromFlowToFragment(referencePoint))
                         referencePoint.moveBy(fragment->topLeftLocation());
                 } else if (!isOutOfFlowPositioned()) {
-                    if (auto* renderBox = dynamicDowncast<RenderBox>(*ancestor); renderBox && !is<RenderTableRow>(*ancestor))
+                    if (auto* renderBox = dynamicDowncast<RenderBox>(*ancestor))
                         referencePoint.moveBy(renderBox->topLeftLocation());
                 }
                 
@@ -529,8 +508,10 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
     // Do not use anonymous containing blocks to determine sticky constraints. We want the size
     // of the first true containing block, because that is what imposes the limitation on the
     // movement of stickily positioned items.
+    // Table rows are also skipped because a sticky cell should be constrained by its section
+    // (thead/tbody/tfoot), not by the individual row whose content box is the same height as the cell.
     RenderBlock* containingBlock = this->containingBlock();
-    while (containingBlock && (!is<RenderBlock>(*containingBlock) || containingBlock->isAnonymousBlock()))
+    while (containingBlock && (!is<RenderBlock>(*containingBlock) || containingBlock->isAnonymousBlock() || containingBlock->isRenderTableRow()))
         containingBlock = containingBlock->containingBlock();
     ASSERT(containingBlock);
 
@@ -677,7 +658,7 @@ FloatRect RenderBoxModelObject::constrainingRectForStickyPosition() const
         return constrainingRect;
     }
     
-    return view().frameView().rectForFixedPositionLayout();
+    return protect(view().frameView())->rectForFixedPositionLayout();
 }
 
 LayoutSize RenderBoxModelObject::stickyPositionOffset() const
@@ -764,7 +745,7 @@ static inline LayoutSize NODELETE resolveAgainstIntrinsicWidthOrHeightAndRatio(c
     return LayoutSize(resolveWidthForRatio(useHeight, intrinsicRatio), useHeight);
 }
 
-static inline LayoutSize resolveAgainstIntrinsicRatio(const LayoutSize& size, const LayoutSize& intrinsicRatio)
+static inline LayoutSize NODELETE resolveAgainstIntrinsicRatio(const LayoutSize& size, const LayoutSize& intrinsicRatio)
 {
     // Two possible solutions: (size.width(), solutionHeight) or (solutionWidth, size.height())
     // "... must be assumed to be the largest dimensions..." = easiest answer: the rect with the largest surface area.
@@ -846,7 +827,7 @@ bool RenderBoxModelObject::fixedBackgroundPaintsInLocalCoordinates() const
 
 bool RenderBoxModelObject::borderObscuresBackgroundEdge(const FloatSize& contextScale) const
 {
-    auto edges = borderEdges(style(), document().deviceScaleFactor());
+    auto edges = borderEdges(style(), protect(document())->deviceScaleFactor());
 
     for (auto side : allBoxSides) {
         auto& currEdge = edges.at(side);
@@ -868,7 +849,7 @@ bool RenderBoxModelObject::borderObscuresBackground() const
     if (!style().borderImageSource().isNone())
         return false;
 
-    auto edges = borderEdges(style(), document().deviceScaleFactor());
+    auto edges = borderEdges(style(), protect(document())->deviceScaleFactor());
 
     for (auto side : allBoxSides) {
         if (!edges.at(side).obscuresBackground())
@@ -898,72 +879,6 @@ LayoutUnit RenderBoxModelObject::containingBlockLogicalWidthForContent() const
     if (auto* containingBlock = this->containingBlock())
         return containingBlock->contentBoxLogicalWidth();
     return { };
-}
-
-RenderBoxModelObject* RenderBoxModelObject::continuation() const
-{
-    if (!hasContinuationChainNode())
-        return nullptr;
-
-    auto& continuationChainNode = *continuationChainNodeMap().get(*this);
-    if (!continuationChainNode.next)
-        return nullptr;
-    return continuationChainNode.next->renderer.get();
-}
-
-RenderInline* RenderBoxModelObject::inlineContinuation() const
-{
-    if (!hasContinuationChainNode())
-        return nullptr;
-
-    for (auto* next = continuationChainNodeMap().get(*this)->next; next; next = next->next) {
-        if (auto* renderInline = dynamicDowncast<RenderInline>(*next->renderer))
-            return renderInline;
-    }
-    return nullptr;
-}
-
-void RenderBoxModelObject::forRendererAndContinuations(RenderBoxModelObject& renderer, const std::function<void(RenderBoxModelObject&)>& function)
-{
-    function(renderer);
-    if (!renderer.hasContinuationChainNode())
-        return;
-
-    for (auto* next = continuationChainNodeMap().get(renderer)->next; next; next = next->next) {
-        if (!next->renderer)
-            continue;
-        function(*next->renderer);
-    }
-}
-
-RenderBoxModelObject::ContinuationChainNode* RenderBoxModelObject::continuationChainNode() const
-{
-    return continuationChainNodeMap().get(*this);
-}
-
-void RenderBoxModelObject::insertIntoContinuationChainAfter(RenderBoxModelObject& afterRenderer)
-{
-    ASSERT(isContinuation());
-    ASSERT(!continuationChainNodeMap().contains(*this));
-
-    auto& after = afterRenderer.ensureContinuationChainNode();
-    ensureContinuationChainNode().insertAfter(after);
-}
-
-void RenderBoxModelObject::removeFromContinuationChain()
-{
-    ASSERT(hasContinuationChainNode());
-    ASSERT(continuationChainNodeMap().contains(*this));
-    setHasContinuationChainNode(false);
-    continuationChainNodeMap().remove(*this);
-}
-
-auto RenderBoxModelObject::ensureContinuationChainNode() -> ContinuationChainNode&
-{
-    setHasContinuationChainNode(true);
-    return *continuationChainNodeMap().ensure(*this, [&] {
-        return makeUnique<ContinuationChainNode>(*this);
-    }).iterator->value;
 }
 
 RenderTextFragment* RenderBoxModelObject::firstLetterRemainingText() const
@@ -1005,23 +920,7 @@ bool RenderBoxModelObject::hasRunningAcceleratedAnimations() const
     return false;
 }
 
-void RenderBoxModelObject::collectAbsoluteQuadsForContinuation(Vector<FloatQuad>& quads, bool* wasFixed) const
-{
-    ASSERT(continuation());
-    for (auto* nextInContinuation = this->continuation(); nextInContinuation; nextInContinuation = nextInContinuation->continuation()) {
-        if (auto blockBox = dynamicDowncast<RenderBlock>(*nextInContinuation); blockBox && blockBox->height() && blockBox->width()) {
-            // For blocks inside inlines, we include margins so that we run right up to the inline boxes
-            // above and below us (thus getting merged with them to form a single irregular shape).
-            auto logicalRect = FloatRect { 0, -blockBox->collapsedMarginBefore(), blockBox->width(),
-                blockBox->height() + blockBox->collapsedMarginBefore() + blockBox->collapsedMarginAfter() };
-            nextInContinuation->absoluteQuadsIgnoringContinuation(logicalRect, quads, wasFixed);
-            continue;
-        }
-        nextInContinuation->absoluteQuadsIgnoringContinuation({ }, quads, wasFixed);
-    }
-}
-
-void RenderBoxModelObject::applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect&, OptionSet<Style::TransformResolverOption>) const
+void RenderBoxModelObject::applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect&, OptionSet<Style::TransformResolverOption>) const
 {
     // applyTransform() is only used through RenderLayer*, which only invokes this for RenderBox derived renderers, thus not for
     // RenderInline/RenderLineBreak - the other two renderers that inherit from RenderBoxModelObject.
@@ -1033,7 +932,7 @@ bool RenderBoxModelObject::requiresLayer() const
     return isDocumentElementRenderer() || isPositioned() || createsGroup() || hasTransformRelatedProperty() || hasHiddenBackface() || hasReflection() || requiresRenderingConsolidationForViewTransition() || isRenderViewTransitionCapture();
 }
 
-void RenderBoxModelObject::removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock& delegateBlock, const RenderStyle& oldStyle, const RenderStyle& newStyle)
+void RenderBoxModelObject::removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock& delegateBlock, const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle)
 {
     auto wasContainingBlockForFixedContent = canContainFixedPositionObjects(&oldStyle);
     auto wasContainingBlockForAbsoluteContent = canContainAbsolutelyPositionedObjects(&oldStyle);

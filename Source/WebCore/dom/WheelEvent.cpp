@@ -26,7 +26,6 @@
 
 #include "DataTransfer.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "MouseEventTypes.h"
 #include "Node.h"
 #include <wtf/MathExtras.h>

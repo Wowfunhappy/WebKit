@@ -1,6 +1,6 @@
 <html>
 <head>
-<meta name="fuzzy" content="maxDifference=3-207; totalPixels=27386-57600" />
+<meta name="fuzzy" content="maxDifference=2-207; totalPixels=17349-57600" />
 <title>webm file with alternate reference frame</title>
 <script src="../resources/testharness.js"></script>
 <script>window.requirePixelDump = true</script>
@@ -21,7 +21,7 @@
         v.src = "content/test-vp8-hiddenframes.webm";
         await waitFor(v, 'loadedmetadata', true);
         v.currentTime = v.duration;
-        await waitFor(v, 'seeked', true);
+        await Promise.all([ waitFor(v, 'seeked', true), waitForVideoFrame(v)]);
 
         if (window.testRunner)
             testRunner.notifyDone();

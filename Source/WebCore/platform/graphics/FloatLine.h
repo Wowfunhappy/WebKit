@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@ public:
     FloatLine(const FloatPoint& start, const FloatPoint& end)
         : m_start(start)
         , m_end(end)
-        , m_length(sqrtf(powf(start.x() - end.x(), 2) + powf(start.y() - end.y(), 2)))
+        , m_length(std::hypot(start.x() - end.x(), start.y() - end.y()))
     {
     }
     

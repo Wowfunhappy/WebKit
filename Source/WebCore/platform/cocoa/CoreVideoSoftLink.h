@@ -34,7 +34,6 @@
 
 typedef struct __IOSurface* IOSurfaceRef;
 
-WTF_DECLARE_CF_TYPE_TRAIT(CVPixelBuffer);
 WTF_DECLARE_CF_TYPE_TRAIT(CVPixelBufferPool);
 
 SOFT_LINK_FRAMEWORK_FOR_HEADER(WebCore, CoreVideo)
@@ -54,6 +53,11 @@ SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVBufferSetAttachment, void, (
 #define CVBufferGetAttachments softLink_CoreVideo_CVBufferGetAttachments
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVPixelBufferGetTypeID, CFTypeID, (), ())
 #define CVPixelBufferGetTypeID softLink_CoreVideo_CVPixelBufferGetTypeID
+// Manual equivalent of WTF_DECLARE_CF_TYPE_TRAIT(CVPixelBuffer) because the
+// soft-linked function CVPixelBufferGetTypeID lives in the WebCore namespace.
+template <> struct WTF::CFTypeTrait<CVPixelBufferRef> {
+    static inline CFTypeID typeID() { return WebCore::CVPixelBufferGetTypeID(); }
+};
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVPixelBufferGetDataSize, size_t, (CVPixelBufferRef pixelBuffer), (pixelBuffer))
 #define CVPixelBufferGetDataSize softLink_CoreVideo_CVPixelBufferGetDataSize
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVPixelBufferGetWidth, size_t, (CVPixelBufferRef pixelBuffer), (pixelBuffer))
@@ -107,6 +111,8 @@ SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVPixelFormatOpenGLESCompatib
 #define kCVPixelFormatOpenGLESCompatibility get_CoreVideo_kCVPixelFormatOpenGLESCompatibilitySingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVPixelBufferIOSurfaceCoreAnimationCompatibilityKey, CFStringRef)
 #define kCVPixelBufferIOSurfaceCoreAnimationCompatibilityKey get_CoreVideo_kCVPixelBufferIOSurfaceCoreAnimationCompatibilityKeySingleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVPixelBufferMetalCompatibilityKey, CFStringRef)
+#define kCVPixelBufferMetalCompatibilityKey get_CoreVideo_kCVPixelBufferMetalCompatibilityKeySingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVPixelBufferIOSurfacePropertiesKey, CFStringRef)
 #define kCVPixelBufferIOSurfacePropertiesKey get_CoreVideo_kCVPixelBufferIOSurfacePropertiesKeySingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVPixelBufferPoolMinimumBufferCountKey, CFStringRef)
@@ -121,11 +127,11 @@ SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_ITU_
 #define kCVImageBufferYCbCrMatrix_ITU_R_601_4 get_CoreVideo_kCVImageBufferYCbCrMatrix_ITU_R_601_4Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995, CFStringRef)
 #define kCVImageBufferYCbCrMatrix_SMPTE_240M_1995 get_CoreVideo_kCVImageBufferYCbCrMatrix_SMPTE_240M_1995Singleton()
-SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_DCI_P3, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_DCI_P3, CFStringRef)
 #define kCVImageBufferYCbCrMatrix_DCI_P3 get_CoreVideo_kCVImageBufferYCbCrMatrix_DCI_P3Singleton()
-SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_P3_D65, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_P3_D65, CFStringRef)
 #define kCVImageBufferYCbCrMatrix_P3_D65 get_CoreVideo_kCVImageBufferYCbCrMatrix_P3_D65Singleton()
-SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_ITU_R_2020, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferYCbCrMatrix_ITU_R_2020, CFStringRef)
 #define kCVImageBufferYCbCrMatrix_ITU_R_2020 get_CoreVideo_kCVImageBufferYCbCrMatrix_ITU_R_2020Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVPixelBufferCGBitmapContextCompatibilityKey, CFStringRef)
 #define kCVPixelBufferCGBitmapContextCompatibilityKey get_CoreVideo_kCVPixelBufferCGBitmapContextCompatibilityKeySingleton()
@@ -135,8 +141,16 @@ SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_E
 #define kCVImageBufferColorPrimaries_EBU_3213 get_CoreVideo_kCVImageBufferColorPrimaries_EBU_3213Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_ITU_R_709_2, CFStringRef)
 #define kCVImageBufferColorPrimaries_ITU_R_709_2 get_CoreVideo_kCVImageBufferColorPrimaries_ITU_R_709_2Singleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_P22, CFStringRef)
+#define kCVImageBufferColorPrimaries_P22 get_CoreVideo_kCVImageBufferColorPrimaries_P22Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_SMPTE_C, CFStringRef)
 #define kCVImageBufferColorPrimaries_SMPTE_C get_CoreVideo_kCVImageBufferColorPrimaries_SMPTE_CSingleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_DCI_P3, CFStringRef)
+#define kCVImageBufferColorPrimaries_DCI_P3 get_CoreVideo_kCVImageBufferColorPrimaries_DCI_P3Singleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_P3_D65, CFStringRef)
+#define kCVImageBufferColorPrimaries_P3_D65 get_CoreVideo_kCVImageBufferColorPrimaries_P3_D65Singleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimaries_ITU_R_2020, CFStringRef)
+#define kCVImageBufferColorPrimaries_ITU_R_2020 get_CoreVideo_kCVImageBufferColorPrimaries_ITU_R_2020Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferColorPrimariesKey, CFStringRef)
 #define kCVImageBufferColorPrimariesKey get_CoreVideo_kCVImageBufferColorPrimariesKeySingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferTransferFunctionKey, CFStringRef)
@@ -145,6 +159,16 @@ SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferTransferFunction
 #define kCVImageBufferTransferFunction_ITU_R_709_2 get_CoreVideo_kCVImageBufferTransferFunction_ITU_R_709_2Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferTransferFunction_SMPTE_240M_1995, CFStringRef)
 #define kCVImageBufferTransferFunction_SMPTE_240M_1995 get_CoreVideo_kCVImageBufferTransferFunction_SMPTE_240M_1995Singleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferTransferFunction_UseGamma, CFStringRef)
+#define kCVImageBufferTransferFunction_UseGamma get_CoreVideo_kCVImageBufferTransferFunction_UseGammaSingleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferGammaLevelKey, CFStringRef)
+#define kCVImageBufferGammaLevelKey get_CoreVideo_kCVImageBufferGammaLevelKeySingleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferPixelAspectRatioKey, CFStringRef)
+#define kCVImageBufferPixelAspectRatioKey get_CoreVideo_kCVImageBufferPixelAspectRatioKeySingleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferPixelAspectRatioHorizontalSpacingKey, CFStringRef)
+#define kCVImageBufferPixelAspectRatioHorizontalSpacingKey get_CoreVideo_kCVImageBufferPixelAspectRatioHorizontalSpacingKeySingleton()
+SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferPixelAspectRatioVerticalSpacingKey, CFStringRef)
+#define kCVImageBufferPixelAspectRatioVerticalSpacingKey get_CoreVideo_kCVImageBufferPixelAspectRatioVerticalSpacingKeySingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferCGColorSpaceKey, CFStringRef)
 #define kCVImageBufferCGColorSpaceKey get_CoreVideo_kCVImageBufferCGColorSpaceKeySingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, CoreVideo, kCVImageBufferCleanApertureKey, CFStringRef)
@@ -184,6 +208,9 @@ SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVPixelBufferCreateWithBytes, 
 // FIXME: The system header does not have CV_RETURNS_RETAINED_PARAMETER specified for pixelBufferOut. See rdar://148084567.
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVPixelBufferCreateWithIOSurface, CVReturn, (CFAllocatorRef allocator, IOSurfaceRef surface, CFDictionaryRef pixelBufferAttributes, CF_RETURNS_RETAINED CVPixelBufferRef * pixelBufferOut), (allocator, surface, pixelBufferAttributes, pixelBufferOut))
 #define CVPixelBufferCreateWithIOSurface softLink_CoreVideo_CVPixelBufferCreateWithIOSurface
+
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CoreVideo, CVPixelBufferIsPlanar, Boolean, (CVPixelBufferRef pixelBuffer), (pixelBuffer))
+#define CVPixelBufferIsPlanar softLink_CoreVideo_CVPixelBufferIsPlanar
 
 namespace WebCore {
 inline std::span<uint8_t> CVPixelBufferGetSpanOfPlane(CVPixelBufferRef pixelBuffer, size_t planeIndex)

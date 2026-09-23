@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "CSSAnimation.h"
 #include "StyleOriginatedAnimationEvent.h"
 
 namespace WebCore {
@@ -38,6 +39,7 @@ public:
     }
 
     struct Init : EventInit {
+        RefPtr<CSSAnimation> animation;
         String animationName { emptyString() };
         double elapsedTime { 0 };
         String pseudoElement { emptyString() };
@@ -50,6 +52,7 @@ public:
 
     virtual ~CSSAnimationEvent();
 
+    RefPtr<CSSAnimation> cssAnimation() const { return dynamicDowncast<CSSAnimation>(animation()); }
     const String& animationName() const LIFETIME_BOUND { return m_animationName; }
 
 private:

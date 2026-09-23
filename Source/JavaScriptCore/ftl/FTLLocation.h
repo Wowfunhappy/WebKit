@@ -90,7 +90,7 @@ public:
         return result;
     }
 
-    static Location forValueRep(const B3::ValueRep&);
+    static Location NODELETE forValueRep(const B3::ValueRep&);
 
     Kind kind() const { return m_kind; }
 
@@ -163,13 +163,13 @@ public:
     
     void dump(PrintStream&) const;
     
-    bool isGPR() const;
-    bool involvesGPR() const;
-    GPRReg gpr() const;
-    GPRReg directGPR() const; // Get the GPR and assert that there is no addend.
+    bool NODELETE isGPR() const;
+    bool NODELETE involvesGPR() const;
+    GPRReg NODELETE gpr() const;
+    GPRReg NODELETE directGPR() const; // Get the GPR and assert that there is no addend.
     
-    bool isFPR() const;
-    FPRReg fpr() const;
+    bool NODELETE isFPR() const;
+    FPRReg NODELETE fpr() const;
     
     // Assuming that all registers are saved to the savedRegisters buffer according
     // to FTLSaveRestore convention, this loads the value into the given register.

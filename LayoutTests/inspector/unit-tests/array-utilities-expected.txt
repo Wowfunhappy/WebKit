@@ -186,5 +186,5 @@ Node:
 
 Object (doesn't have [Symbol.iterator]):
 PASS: Should produce an exception.
-TypeError: {} is not iterable
+PASS: Exception should be a TypeError.
 

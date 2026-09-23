@@ -67,9 +67,7 @@ BackgroundFetchStoreManager::BackgroundFetchStoreManager(const String& path, Ref
     });
 }
 
-BackgroundFetchStoreManager::~BackgroundFetchStoreManager()
-{
-}
+BackgroundFetchStoreManager::~BackgroundFetchStoreManager() = default;
 
 void BackgroundFetchStoreManager::initializeFetches(InitializeCallback&& callback)
 {

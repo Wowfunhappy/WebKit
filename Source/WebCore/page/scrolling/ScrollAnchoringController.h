@@ -27,7 +27,9 @@
 
 #include "FloatRect.h"
 #include "ScrollTypes.h"
+#include <wtf/ApproximateTime.h>
 #include <wtf/CheckedRef.h>
+#include <wtf/Markable.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
@@ -71,7 +73,7 @@ public:
     void NODELETE willDispatchScrollEvent();
     void NODELETE didDispatchScrollEvent();
 
-    void notifyChildHadSuppressingStyleChange(RenderElement&);
+    void NODELETE notifyChildHadSuppressingStyleChange(RenderElement&);
 
     bool hasAnchorElement() const { return !!m_anchorObject; }
 
@@ -80,6 +82,20 @@ public:
     void NODELETE stopSuppressingScrollAnchoring();
 
 private:
+
+    class DisablementHeuristic {
+    public:
+        bool disabledByHeuristic(IntSize adjustment);
+        void reset();
+
+    private:
+        Markable<ApproximateTime> m_nextEnablementTime;
+
+        Markable<ApproximateTime> m_samplingStartTime;
+        float m_accumulatedAdjustment { 0 };
+        unsigned m_samplingAdjustmentCount { 0 };
+    };
+
     static bool isViableStatus(AnchorSearchStatus status)
     {
         return status == AnchorSearchStatus::Constrain || status == AnchorSearchStatus::Choose;
@@ -95,25 +111,28 @@ private:
     AnchorSearchStatus findAnchorInOutOfFlowObjects(RenderObject&);
     AnchorSearchStatus findAnchorRecursive(RenderObject*);
 
-    RenderBox* scrollableAreaBox() const;
+    RenderBox* NODELETE scrollableAreaBox() const;
 
     struct Rects {
         FloatRect boundsRelativeToScrolledContent;
-        FloatRect scrollerContentsVisibleRect; // Takes scroll-padding into account.
+        FloatRect scrollerContentsVisibleRect;
     };
 
-    Rects computeScrollerRelativeRects(RenderObject&) const;
+    enum class RespectScrollPadding : bool { No, Yes };
+    Rects computeScrollerRelativeRects(RenderObject&, RespectScrollPadding) const;
 
     FloatPoint computeOffsetFromOwningScroller(RenderObject&, RenderBox& scrollerBox) const;
 
     void invalidate();
     void chooseAnchorElement(Document&, RenderBox& scrollerBox);
-    bool anchoringSuppressedByStyleChange() const;
+    bool NODELETE anchoringSuppressedByStyleChange() const;
     void updateScrollableAreaRegistration();
 
     CheckedRef<ScrollableArea> m_owningScrollableArea;
     SingleThreadWeakPtr<RenderObject> m_anchorObject;
     FloatPoint m_lastAnchorOffset;
+
+    DisablementHeuristic m_disablementHeuristic;
 
     bool m_isUpdatingScrollPositionForAnchoring { false };
     bool m_isQueuedForScrollPositionUpdate { false };

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2026 Suraj Thanugundla <contact@surajt.com>
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,14 +31,56 @@
 namespace WebCore {
 namespace Style {
 
-// <'position-anchor'> = auto | <anchor-name>
+// <'position-anchor'> = normal | none | auto | <anchor-name>
 // https://drafts.csswg.org/css-anchor-position-1/#propdef-position-anchor
-struct PositionAnchor : ValueOrKeyword<AnchorName, CSS::Keyword::Auto> {
-    using Base::Base;
+struct PositionAnchor {
+    PositionAnchor(CSS::Keyword::Normal keyword)
+        : m_value { keyword }
+    {
+    }
 
-    bool isAuto() const { return isKeyword(); }
-    bool isName() const { return isValue(); }
-    std::optional<AnchorName> tryName() const { return tryValue(); }
+    PositionAnchor(CSS::Keyword::None keyword)
+        : m_value { keyword }
+    {
+    }
+
+    PositionAnchor(CSS::Keyword::Auto keyword)
+        : m_value { keyword }
+    {
+    }
+
+    PositionAnchor(AnchorName&& value)
+        : m_value { WTF::move(value) }
+    {
+    }
+
+    bool isNormal() const { return WTF::holdsAlternative<CSS::Keyword::Normal>(m_value); }
+    bool isNone() const { return WTF::holdsAlternative<CSS::Keyword::None>(m_value); }
+    bool isAuto() const { return WTF::holdsAlternative<CSS::Keyword::Auto>(m_value); }
+    bool isName() const { return WTF::holdsAlternative<AnchorName>(m_value); }
+
+    std::optional<AnchorName> tryName() const
+    {
+        if (auto* name = std::get_if<AnchorName>(&m_value))
+            return *name;
+        return { };
+    }
+
+    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    {
+        return WTF::switchOn(m_value, std::forward<F>(f)...);
+    }
+
+    bool operator==(const PositionAnchor&) const = default;
+
+private:
+    Variant<CSS::Keyword::Normal, CSS::Keyword::None, CSS::Keyword::Auto, AnchorName> m_value;
+};
+
+// MARK: - Conversion
+
+template<> struct CSSValueConversion<PositionAnchor> {
+    auto operator()(BuilderState&, const CSSValue&) -> PositionAnchor;
 };
 
 } // namespace Style

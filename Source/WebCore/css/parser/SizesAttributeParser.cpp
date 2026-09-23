@@ -34,6 +34,7 @@
 #include "CSSCalcTree+Evaluation.h"
 #include "CSSCalcTree+Parser.h"
 #include "CSSCalcTree+Simplification.h"
+#include "CSSCalcTree.h"
 #include "CSSParserTokenRange.h"
 #include "CSSPrimitiveNumericCategory.h"
 #include "CSSPrimitiveNumericRange.h"
@@ -42,13 +43,11 @@
 #include "CSSPropertyParserState.h"
 #include "CSSToLengthConversionData.h"
 #include "CSSTokenizer.h"
-#include "FontCascadeInlines.h"
-#include "FontSelector.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
 #include "MediaQueryParserContext.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleLengthResolution.h"
 #include "StyleScope.h"
 #include <wtf/Scope.h>
@@ -62,23 +61,42 @@ SizesAttributeParser::SizesAttributeParser(const String& attribute, const Docume
         m_result = parse(CSSTokenizer(attribute).tokenRange(), CSSParserContext(document));
 }
 
-float SizesAttributeParser::effectiveSize()
+std::optional<float> SizesAttributeParser::effectiveSize()
 {
     if (m_result)
         return *m_result;
     return effectiveSizeDefaultValue();
 }
 
-float SizesAttributeParser::effectiveSizeDefaultValue()
+std::optional<float> SizesAttributeParser::effectiveSizeDefaultValue()
 {
     auto conversionData = this->conversionData();
     if (!conversionData)
-        return 0;
-    return CSS::clampToRange<CSS::Nonnegative, float>(Style::computeNonCalcLengthDouble(100.0, CSS::LengthUnit::Vw, *conversionData));
+        return std::nullopt;
+    auto result = CSS::clampToRange<CSS::Nonnegative, float>(Style::computeNonCalcLengthDouble(100.0, CSS::LengthUnit::Vw, *conversionData));
+    if (!result)
+        return std::nullopt;
+    return result;
 }
 
 std::optional<float> SizesAttributeParser::parse(CSSParserTokenRange tokens, const CSSParserContext& context)
 {
+    // https://html.spec.whatwg.org/multipage/images.html#parsing-a-sizes-attribute
+    auto savedTokens = tokens;
+    tokens.consumeWhitespace();
+    if (tokens.peek().type() == IdentToken && equalLettersIgnoringASCIICase(tokens.peek().value(), "auto"_s)) {
+        tokens.consume();
+        tokens.consumeWhitespace();
+        if (tokens.atEnd() || tokens.peek().type() == CommaToken) {
+            m_isAuto = true;
+            if (!tokens.atEnd())
+                tokens.consume();
+            return parse(tokens, context);
+        }
+        tokens = savedTokens;
+    } else
+        tokens = savedTokens;
+
     // Split on a comma token and parse the result tokens as (media-condition, length) pairs
     while (!tokens.atEnd()) {
         auto mediaConditionStart = tokens;
@@ -133,19 +151,6 @@ std::optional<float> SizesAttributeParser::parseDimension(CSSParserTokenRange to
         return result;
     };
 
-    // Because we evaluate "sizes" at parse time (before style has been resolved), the font metrics used for these specific units
-    // are not available. The font selector's internal consistency isn't guaranteed just yet, so we can just temporarily clear
-    // the pointer to it for the duration of the unit evaluation. This is acceptable because the style always comes from the
-    // RenderView, which has its font information hardcoded in resolveForDocument() to be -webkit-standard, whose operations
-    // don't require a font selector.
-    if (unit == CSS::LengthUnit::Ex || unit == CSS::LengthUnit::Cap || unit == CSS::LengthUnit::Ch || unit == CSS::LengthUnit::Ic) {
-        RefPtr fontSelector = conversionData->style()->fontCascade().fontSelector();
-        conversionData->style()->fontCascade().update(nullptr);
-        auto resetFontSelectorScope = makeScopeExit([&] { conversionData->style()->fontCascade().update(fontSelector.get()); });
-
-        return resolve();
-    }
-
     return resolve();
 }
 
@@ -181,14 +186,6 @@ std::optional<float> SizesAttributeParser::parseFunction(CSSParserTokenRange tok
         .allowZeroValueLengthRemovalFromSum = true,
     };
 
-    // See `parseDimension` for why this unset/set of the font selector is needed.
-    // FIXME: This could be made more efficient if we only did this when actually
-    // needed. That could be accomplished via new simplification/evaluation options
-    // or by adding delegation for dimension resolution.
-    RefPtr fontSelector = conversionData->style()->fontCascade().fontSelector();
-    conversionData->style()->fontCascade().update(nullptr);
-    auto resetFontSelectorScope = makeScopeExit([&] { conversionData->style()->fontCascade().update(fontSelector.get()); });
-
     auto tree = CSSCalc::parseAndSimplify(tokens, parserState, parserOptions, simplificationOptions);
     if (!tree)
         return std::nullopt;
@@ -202,7 +199,16 @@ std::optional<float> SizesAttributeParser::parseFunction(CSSParserTokenRange tok
     auto result = CSSCalc::evaluateDouble(*tree, evaluationOptions);
     if (!result)
         return std::nullopt;
-    return CSS::clampToRange<range, float>(*result);
+
+    // https://drafts.csswg.org/css-values-4/#calc-ieee
+    // Infinities and NaN do not escape a top-level calculation. For the
+    // sizes attribute, treat these as invalid so the entry is skipped and
+    // the fallback/default size is used, matching other browsers.
+    auto value = *result;
+    if (std::isnan(value) || std::isinf(value))
+        return std::nullopt;
+
+    return CSS::clampToRange<range, float>(value);
 }
 
 std::optional<float> SizesAttributeParser::parseLength(CSSParserTokenRange tokens, const CSSParserContext& context)
@@ -228,21 +234,25 @@ std::optional<float> SizesAttributeParser::parseLength(CSSParserTokenRange token
 bool SizesAttributeParser::mediaConditionMatches(const MQ::MediaQuery& mediaCondition)
 {
     // A Media Condition cannot have a media type other than screen.
-    Ref document = m_document.get();
-    CheckedPtr renderer = document->renderView();
-    if (!renderer)
-        return false;
-    CheckedRef style = renderer->style();
-    return MQ::MediaQueryEvaluator { screenAtom(), document, style.ptr() }.evaluate(mediaCondition);
+    return MQ::MediaQueryEvaluator { screenAtom(), m_document.get() }.evaluate(mediaCondition);
 }
 
 std::optional<CSSToLengthConversionData> SizesAttributeParser::conversionData() const
 {
-    CheckedPtr renderer = document().renderView();
-    if (!renderer)
+    Ref document = this->document();
+    CheckedPtr renderView = document->renderView();
+    if (!renderView)
         return std::nullopt;
-    CheckedRef style = renderer->style();
-    return CSSToLengthConversionData { style, style.ptr(), renderer->parentStyle(), renderer.get() };
+
+    // Per https://html.spec.whatwg.org/multipage/images.html#source-size-2:
+    //  "When a source size has a unit relative to the viewport, it must be
+    //   interpreted relative to the img element's node document's viewport.
+    //   Other units must be interpreted the same as in Media Queries."
+    //
+    // MediaQueries are defined to use the initial style, so that is passed
+    // in as the "style", "parent style" and "root style". The `RenderView`
+    // is passed in to resolve viewport relative units.
+    return CSSToLengthConversionData { document->initialStyle(), &document->initialStyle(), &document->initialStyle(), renderView.get() };
 }
 
 } // namespace WebCore

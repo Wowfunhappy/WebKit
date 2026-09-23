@@ -21,6 +21,7 @@
 #pragma once
 
 #include <WebCore/EventTarget.h>
+#include <WebCore/JSDOMBindingFacade.h>
 #include <WebCore/JSDOMWrapper.h>
 #include <WebCore/JSEventTarget.h>
 #include <WebCore/JSWindowProxy.h>
@@ -33,22 +34,13 @@ class JSDOMWindow : public JSEventTarget {
 public:
     using Base = JSEventTarget;
     using DOMWrapped = DOMWindow;
-    static JSDOMWindow* create(JSC::VM& vm, JSC::Structure* structure, Ref<DOMWindow>&& impl, JSWindowProxy* proxy)
-    {
-        JSDOMWindow* ptr = new (NotNull, JSC::allocateCell<JSDOMWindow>(vm)) JSDOMWindow(vm, structure, WTF::move(impl), proxy);
-        ptr->finishCreation(vm, proxy);
-        return ptr;
-    }
+    static JSDOMWindow* create(JSC::VM&, JSC::Structure*, Ref<DOMWindow>&&, JSWindowProxy*);
 
     static DOMWindow* toWrapped(JSC::VM&, JSC::JSValue);
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -88,10 +80,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSDOMWindowPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSDOMWindowPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)

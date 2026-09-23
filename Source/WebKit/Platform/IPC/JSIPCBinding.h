@@ -77,6 +77,7 @@ template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, Web
 template<typename T, std::enable_if_t<std::is_arithmetic<T>::value>* = nullptr>
 JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, T)
 {
+    return JSC::JSValue();
 }
 
 template<typename E, std::enable_if_t<std::is_enum<E>::value>* = nullptr>

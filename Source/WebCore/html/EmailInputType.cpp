@@ -63,15 +63,15 @@ const AtomString& EmailInputType::formControlType() const
     return InputTypeNames::email();
 }
 
-bool EmailInputType::typeMismatchFor(const String& value) const
+bool EmailInputType::typeMismatchFor(StringView value) const
 {
     ASSERT(element());
     if (value.isEmpty())
         return false;
-    if (!protect(element())->multiple())
+    if (!element()->multiple())
         return !isValidEmailAddress(value);
-    for (auto& address : value.splitAllowingEmptyEntries(',')) {
-        if (!isValidEmailAddress(StringView(address).trim(isASCIIWhitespace<char16_t>)))
+    for (auto address : value.splitAllowingEmptyEntries(',')) {
+        if (!isValidEmailAddress(address.trim(isASCIIWhitespace<char16_t>)))
             return true;
     }
     return false;
@@ -86,7 +86,7 @@ bool EmailInputType::typeMismatch() const
 String EmailInputType::typeMismatchText() const
 {
     ASSERT(element());
-    return protect(element())->multiple() ? validationMessageTypeMismatchForMultipleEmailText() : validationMessageTypeMismatchForEmailText();
+    return element()->multiple() ? validationMessageTypeMismatchForMultipleEmailText() : validationMessageTypeMismatchForEmailText();
 }
 
 bool EmailInputType::supportsSelectionAPI() const
@@ -115,14 +115,15 @@ ValueOrReference<String> EmailInputType::sanitizeValue(const String& proposedVal
     }
 
     ASSERT(element());
-    if (!protect(element())->multiple())
+    if (!element()->multiple())
         return noLineBreakValue.trim(isASCIIWhitespace);
-    Vector<String> addresses = noLineBreakValue.splitAllowingEmptyEntries(',');
     StringBuilder strippedValue;
-    for (unsigned i = 0; i < addresses.size(); ++i) {
-        if (i > 0)
+    bool first = true;
+    for (auto address : StringView(noLineBreakValue).splitAllowingEmptyEntries(',')) {
+        if (!first)
             strippedValue.append(',');
-        strippedValue.append(addresses[i].trim(isASCIIWhitespace));
+        first = false;
+        strippedValue.append(address.trim(isASCIIWhitespace));
     }
     return String { strippedValue.toString() };
 }

@@ -27,7 +27,6 @@
 #import <wtf/UUID.h>
 
 #import <wtf/RetainPtr.h>
-#import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WTF {
 

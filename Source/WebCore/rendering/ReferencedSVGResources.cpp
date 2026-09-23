@@ -27,6 +27,8 @@
 #include "config.h"
 #include "ReferencedSVGResources.h"
 
+#include "ContainerNodeInlines.h"
+#include "DocumentView.h"
 #include "LegacyRenderSVGResourceClipper.h"
 #include "LegacyRenderSVGResourceContainerInlines.h"
 #include "PathOperation.h"
@@ -34,7 +36,9 @@
 #include "RenderLayerModelObject.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGPath.h"
-#include "RenderStyle.h"
+#include "RenderSVGResourceGradient.h"
+#include "RenderSVGResourcePaintServer.h"
+#include "RenderSVGResourcePattern.h"
 #include "SVGClipPathElement.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGFilterElement.h"
@@ -42,6 +46,7 @@
 #include "SVGMaskElement.h"
 #include "SVGResourceElementClient.h"
 #include "Settings.h"
+#include "StyleComputedStyle.h"
 #include "StyleFilterReference.h"
 #include "StyleImage.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -72,17 +77,39 @@ void CSSSVGResourceElementClient::resourceChanged(SVGElement& element)
     if (m_clientRenderer->renderTreeBeingDestroyed())
         return;
 
+    if (is<SVGFilterElement>(element)) {
+        if (auto* layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get())) {
+            if (CheckedPtr layer = layerModelObject->layer())
+                layer->clearFilters();
+        }
+    }
+
     if (!m_clientRenderer->document().settings().layerBasedSVGEngineEnabled()) {
         m_clientRenderer->repaint();
         return;
+    }
+
+    // A gradient or pattern change can leave the cached fill or stroke paint server stale, so drop
+    // it before the needsLayout() return below, because layout never touches the cache. Other
+    // resource types are not paint servers, so they leave it alone.
+    if (is<RenderSVGResourceGradient>(element.renderer()) || is<RenderSVGResourcePattern>(element.renderer())) {
+        if (CheckedPtr layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get()))
+            layerModelObject->invalidateSVGPaintServerCache();
     }
 
     if (m_clientRenderer->needsLayout())
         return;
 
     // Invalidate cached visual overflow rect since resource bounds may have changed.
-    if (auto* layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get()))
+    if (CheckedPtr layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get())) {
         layerModelObject->invalidateCachedVisualOverflowRect();
+        // Ensure the post-layout recursiveUpdateLayerPositions() processes this client layer
+        // and generates repaint rects, even if the client's own geometry didn't change.
+        if (layerModelObject->hasLayer()) {
+            CheckedPtr layer = layerModelObject->layer();
+            layer->setSelfAndDescendantsNeedPositionUpdate();
+        }
+    }
 
     // Special case for markers. Markers can be attached to RenderSVGPath object. Marker positions are computed
     // once during layout, or if the shape itself changes. Here we manually update the marker positions without
@@ -91,10 +118,12 @@ void CSSSVGResourceElementClient::resourceChanged(SVGElement& element)
     if (auto* pathClientRenderer = dynamicDowncast<RenderSVGPath>(m_clientRenderer.get()); pathClientRenderer && is<SVGMarkerElement>(element))
         pathClientRenderer->updateMarkerPositions();
 
-    // During layout, skip the repaint - the post-layout phase handles it via updateLayerPositions().
-    // We only need to ensure the cached visual overflow rect is invalidated (done above).
-    if (m_clientRenderer->document().view()->layoutContext().isInLayout())
-        return;
+    // During layout, clients with layers are handled by the post-layout
+    // recursiveUpdateLayerPositions() phase. Clients without layers need a direct repaint.
+    if (m_clientRenderer->document().view()->layoutContext().isInLayout()) {
+        if (auto* layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get()); layerModelObject && layerModelObject->hasLayer())
+            return;
+    }
 
     m_clientRenderer->repaintOldAndNewPositionsForSVGRenderer();
 }
@@ -128,7 +157,26 @@ void ReferencedSVGResources::removeClientForTarget(const AtomString& targetID)
         targetElement->removeReferencingCSSClient(protect(*entry.client));
 }
 
-ReferencedSVGResources::SVGElementIdentifierAndTagPairs ReferencedSVGResources::referencedSVGResourceIDs(const RenderStyle& style, const Document& document)
+RenderSVGResourcePaintServer* ReferencedSVGResources::cachedFillPaintServer() const
+{
+    return m_cachedFillPaintServer.get();
+}
+
+RenderSVGResourcePaintServer* ReferencedSVGResources::cachedStrokePaintServer() const
+{
+    return m_cachedStrokePaintServer.get();
+}
+
+void ReferencedSVGResources::setCachedPaintServer(SVGPaintType paintType, RenderSVGResourcePaintServer& paintServer)
+{
+    ASSERT(paintType == SVGPaintType::Fill || paintType == SVGPaintType::Stroke);
+    if (paintType == SVGPaintType::Fill)
+        m_cachedFillPaintServer = paintServer;
+    else
+        m_cachedStrokePaintServer = paintServer;
+}
+
+ReferencedSVGResources::SVGElementIdentifierAndTagPairs ReferencedSVGResources::referencedSVGResourceIDs(const Style::ComputedStyle& style, const Document& document)
 {
     SVGElementIdentifierAndTagPairs referencedResources;
     WTF::switchOn(style.clipPath(),

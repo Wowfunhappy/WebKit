@@ -34,7 +34,6 @@
 #include "ContainerNodeInlines.h"
 #include "LegacyRenderSVGModelObjectInlines.h"
 #include "LegacyRenderSVGResource.h"
-#include "NodeInlines.h"
 #include "NotImplemented.h"
 #include "RenderElementInlines.h"
 #include "RenderLayer.h"
@@ -42,9 +41,10 @@
 #include "RenderObjectInlines.h"
 #include "RenderView.h"
 #include "SVGElementInlines.h"
-#include "SVGLocatable.h"
-#include "SVGNames.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGGraphicsElement.h"
 #include "SVGResourcesCache.h"
+#include "SVGUseElement.h"
 #include "ShadowRoot.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -52,7 +52,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyRenderSVGModelObject);
 
-LegacyRenderSVGModelObject::LegacyRenderSVGModelObject(Type type, SVGElement& element, RenderStyle&& style, OptionSet<SVGModelObjectFlag> typeFlags)
+LegacyRenderSVGModelObject::LegacyRenderSVGModelObject(Type type, SVGElement& element, Style::ComputedStyle&& style, OptionSet<SVGModelObjectFlag> typeFlags)
     : RenderElement(type, element, WTF::move(style), { }, typeFlags | SVGModelObjectFlag::IsLegacy | SVGModelObjectFlag::UsesBoundaryCaching)
 {
     ASSERT(isLegacyRenderSVGModelObject());
@@ -80,6 +80,14 @@ std::optional<FloatRect> LegacyRenderSVGModelObject::computeFloatVisibleRectInCo
     return SVGRenderSupport::computeFloatVisibleRectInContainer(*this, rect, container, context);
 }
 
+auto LegacyRenderSVGModelObject::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const -> std::optional<RepaintRects>
+{
+    auto floatRect = computeFloatVisibleRectInContainer(rects.clippedOverflowRect, container, context);
+    if (!floatRect)
+        return std::nullopt;
+    return RepaintRects { enclosingLayoutRect(*floatRect) };
+}
+
 void LegacyRenderSVGModelObject::mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState& transformState, OptionSet<MapCoordinatesMode>, bool* wasFixed) const
 {
     SVGRenderSupport::mapLocalToContainer(*this, ancestorContainer, transformState, wasFixed);
@@ -90,14 +98,14 @@ const RenderElement* LegacyRenderSVGModelObject::pushMappingToContainer(const Re
     return SVGRenderSupport::pushMappingToContainer(*this, ancestorToStopAt, geometryMap);
 }
 
-static void adjustRectForOutlineAndShadow(const LegacyRenderSVGModelObject& renderer, LayoutRect& rect, const Style::ZoomFactor& zoomFactor)
+static void adjustRectForOutlineAndShadow(const LegacyRenderSVGModelObject& renderer, LayoutRect& rect)
 {
     auto shadowRect = rect;
     if (auto& boxShadow = renderer.style().boxShadow(); !boxShadow.isNone())
-        Style::adjustRectForShadow(shadowRect, boxShadow, zoomFactor);
+        Style::adjustRectForShadow(shadowRect, boxShadow, renderer.style().usedZoomForLength());
 
     auto outlineRect = rect;
-    auto outlineSize = LayoutUnit { renderer.outlineStyleForRepaint().usedOutlineSize() };
+    auto outlineSize = LayoutUnit { renderer.outlineStyleForRepaint().usedOutlineSize(renderer.outlineStyleForRepaint().usedZoomForLength(), renderer.outlineStyleForRepaint().deviceScaleFactor()) };
     if (outlineSize)
         outlineRect.inflate(outlineSize);
 
@@ -106,11 +114,11 @@ static void adjustRectForOutlineAndShadow(const LegacyRenderSVGModelObject& rend
 
 // Copied from RenderBox, this method likely requires further refactoring to work easily for both SVG and CSS Box Model content.
 // FIXME: This may also need to move into SVGRenderSupport as the RenderBox version depends
-// on borderBoundingBox() which SVG RenderBox subclases (like SVGRenderBlock) do not implement.
+// on borderBoundingBox() which SVG RenderBox subclasses (like SVGRenderBlock) do not implement.
 LayoutRect LegacyRenderSVGModelObject::outlineBoundsForRepaint(const RenderLayerModelObject* repaintContainer, const RenderGeometryMap*) const
 {
     LayoutRect box = enclosingLayoutRect(repaintRectInLocalCoordinates());
-    adjustRectForOutlineAndShadow(*this, box, style().usedZoomForLength());
+    adjustRectForOutlineAndShadow(*this, box);
 
     FloatQuad containerRelativeQuad = localToContainerQuad(FloatRect(box), repaintContainer);
     return LayoutRect(snapRectToDevicePixels(LayoutRect(containerRelativeQuad.boundingBox()), protect(document())->deviceScaleFactor()));
@@ -125,7 +133,7 @@ void LegacyRenderSVGModelObject::boundingRects(Vector<LayoutRect>& rects, const 
 
 void LegacyRenderSVGModelObject::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
 {
-    quads.append(localToAbsoluteQuad(strokeBoundingBox(), UseTransforms, wasFixed));
+    quads.append(localToAbsoluteQuad(strokeBoundingBox(), MapCoordinatesMode::UseTransforms, wasFixed));
 }
 
 void LegacyRenderSVGModelObject::willBeDestroyed()
@@ -141,7 +149,7 @@ void LegacyRenderSVGModelObject::insertedIntoTree()
     SVGRenderSupport::elementInsertedIntoTree(*this);
 }
 
-void LegacyRenderSVGModelObject::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void LegacyRenderSVGModelObject::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     if (diff == Style::DifferenceResult::Layout) {
         invalidateCachedBoundaries();
@@ -162,15 +170,18 @@ static void getElementCTM(SVGElement* element, AffineTransform& transform)
 {
     ASSERT(element);
 
-    RefPtr stopAtElement = SVGLocatable::nearestViewportElement(element);
+    RefPtr stopAtElement = SVGGraphicsElement::nearestViewportElement(element);
     ASSERT(stopAtElement);
 
     AffineTransform localTransform;
     RefPtr<Node> current = element;
 
     while (RefPtr currentElement = dynamicDowncast<SVGElement>(current.get())) {
-        localTransform = currentElement->renderer()->localToParentTransform();
-        transform = localTransform.multiply(transform);
+        // Elements with display:contents have no renderer (children are hoisted); skip them in the CTM walk.
+        if (CheckedPtr renderer = currentElement->renderer()) {
+            localTransform = renderer->localToParentTransform();
+            transform = localTransform.multiply(transform);
+        }
         // For getCTM() computation, stop at the nearest viewport element
         if (currentElement == stopAtElement.get())
             break;
@@ -181,22 +192,22 @@ static void getElementCTM(SVGElement* element, AffineTransform& transform)
 
 // FloatRect::intersects does not consider horizontal or vertical lines (because of isEmpty()).
 // So special-case handling of such lines.
-static bool intersectsAllowingEmpty(const FloatRect& r, const FloatRect& other)
+static bool NODELETE legacyIntersectsAllowingEmpty(const FloatRect& r, const FloatRect& other)
 {
     if (r.isEmpty() && other.isEmpty())
         return false;
     if (r.isEmpty() && !other.isEmpty())
         return (other.contains(r.x(), r.y()) && !other.contains(r.maxX(), r.maxY())) || (!other.contains(r.x(), r.y()) && other.contains(r.maxX(), r.maxY()));
     if (other.isEmpty() && !r.isEmpty())
-        return intersectsAllowingEmpty(other, r);
+        return legacyIntersectsAllowingEmpty(other, r);
     return r.intersects(other);
 }
 
 // One of the element types that can cause graphics to be drawn onto the target canvas. Specifically: circle, ellipse,
 // image, line, path, polygon, polyline, rect, text and use.
-static bool NODELETE isGraphicsElement(const RenderElement& renderer)
+static bool NODELETE legacyIsGraphicsElement(const RenderElement& renderer)
 {
-    return renderer.isLegacyRenderSVGShape() || renderer.isRenderSVGText() || renderer.isLegacyRenderSVGImage() || renderer.element()->hasTagName(SVGNames::useTag);
+    return renderer.isLegacyRenderSVGShape() || renderer.isRenderSVGText() || renderer.isLegacyRenderSVGImage() || is<SVGUseElement>(renderer.element());
 }
 
 // The SVG addFocusRingRects() method adds rects in local coordinates so the default absoluteFocusRingQuads
@@ -210,7 +221,7 @@ bool LegacyRenderSVGModelObject::checkIntersection(RenderElement* renderer, cons
 {
     if (!renderer || renderer->usedPointerEvents() == PointerEvents::None)
         return false;
-    if (!isGraphicsElement(*renderer))
+    if (!legacyIsGraphicsElement(*renderer))
         return false;
     AffineTransform ctm;
     RefPtr svgElement = downcast<SVGElement>(renderer->element());
@@ -218,14 +229,14 @@ bool LegacyRenderSVGModelObject::checkIntersection(RenderElement* renderer, cons
     ASSERT(svgElement->renderer());
     // FIXME: [SVG] checkEnclosure implementation is inconsistent
     // https://bugs.webkit.org/show_bug.cgi?id=262709
-    return intersectsAllowingEmpty(rect, ctm.mapRect(protect(svgElement->renderer())->repaintRectInLocalCoordinates(RepaintRectCalculation::Accurate)));
+    return legacyIntersectsAllowingEmpty(rect, ctm.mapRect(protect(svgElement->renderer())->repaintRectInLocalCoordinates(RepaintRectCalculation::Accurate)));
 }
 
 bool LegacyRenderSVGModelObject::checkEnclosure(RenderElement* renderer, const FloatRect& rect)
 {
     if (!renderer || renderer->usedPointerEvents() == PointerEvents::None)
         return false;
-    if (!isGraphicsElement(*renderer))
+    if (!legacyIsGraphicsElement(*renderer))
         return false;
     AffineTransform ctm;
     RefPtr svgElement = downcast<SVGElement>(renderer->element());

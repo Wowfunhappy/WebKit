@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if HAVE(WEBGPU_IMPLEMENTATION)
+#if HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)
 
 #include "WebGPUPtr.h"
 #include "WebGPUXRView.h"
@@ -80,4 +80,4 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WebGPU::XRViewImpl)
     static bool isType(const WebCore::WebGPU::XRView& xrView) { return xrView.isXRViewImpl(); }
 SPECIALIZE_TYPE_TRAITS_END()
 
-#endif // HAVE(WEBGPU_IMPLEMENTATION)
+#endif // HAVE(WEBGPU_IMPLEMENTATION) && ENABLE(WEBGPU)

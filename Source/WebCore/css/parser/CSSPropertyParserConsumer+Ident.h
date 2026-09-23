@@ -25,31 +25,44 @@
 
 #pragma once
 
+#include "CSSKeywordValue.h"
 #include "CSSParserToken.h"
 #include "CSSParserTokenRange.h"
-#include "CSSPrimitiveValue.h"
 #include "CSSValuePool.h"
+#include "CSSWideKeyword.h"
 #include <optional>
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct CustomIdent;
+struct PropertyParserState;
+}
+
 namespace CSSPropertyParserHelpers {
 
 // MARK: - Ident
 
 std::optional<CSSValueID> consumeIdentRaw(CSSParserTokenRange&);
-RefPtr<CSSPrimitiveValue> consumeIdent(CSSParserTokenRange&);
+std::optional<CSS::Keyword> consumeUnresolvedIdent(CSSParserTokenRange&);
+RefPtr<CSSKeywordValue> consumeIdent(CSSParserTokenRange&);
 
-RefPtr<CSSPrimitiveValue> consumeIdentRange(CSSParserTokenRange&, CSSValueID lower, CSSValueID upper);
+std::optional<CSSValueID> consumeIdentRangeRaw(CSSParserTokenRange&, CSSValueID lower, CSSValueID upper);
+std::optional<CSS::Keyword> consumeUnresolvedIdentRange(CSSParserTokenRange&, CSSValueID lower, CSSValueID upper);
+RefPtr<CSSKeywordValue> consumeIdentRange(CSSParserTokenRange&, CSSValueID lower, CSSValueID upper);
 
 template<typename... emptyBaseCase> bool identMatches(CSSValueID);
 template<CSSValueID head, CSSValueID... tail> bool identMatches(CSSValueID);
 
 template<CSSValueID... names> std::optional<CSSValueID> consumeIdentRaw(CSSParserTokenRange&);
-template<CSSValueID... names> RefPtr<CSSPrimitiveValue> consumeIdent(CSSParserTokenRange&);
+template<CSSValueID... names> std::optional<CSS::Keyword> consumeUnresolvedIdent(CSSParserTokenRange&);
+template<CSSValueID... names> RefPtr<CSSKeywordValue> consumeIdent(CSSParserTokenRange&);
+template<typename KeywordOrKeywords> std::optional<KeywordOrKeywords> consumeSpecificUnresolvedIdent(CSSParserTokenRange&);
 
 template<typename Predicate, typename... Args> std::optional<CSSValueID> consumeIdentRaw(CSSParserTokenRange&, Predicate&&, Args&&...);
-template<typename Predicate, typename... Args> RefPtr<CSSPrimitiveValue> consumeIdent(CSSParserTokenRange&, Predicate&&, Args&&...);
+template<typename Predicate, typename... Args> std::optional<CSS::Keyword> consumeUnresolvedRaw(CSSParserTokenRange&, Predicate&&, Args&&...);
+template<typename Predicate, typename... Args> RefPtr<CSSKeywordValue> consumeIdent(CSSParserTokenRange&, Predicate&&, Args&&...);
 
 template<typename Map> std::optional<typename Map::ValueType> consumeIdentUsingMapping(CSSParserTokenRange&, Map&);
 template<typename Map> std::optional<typename Map::ValueType> peekIdentUsingMapping(CSSParserTokenRange&, Map&);
@@ -57,15 +70,28 @@ template<typename Map> std::optional<typename Map::ValueType> peekIdentUsingMapp
 // MARK: <custom-ident>
 // https://drafts.csswg.org/css-values/#custom-idents
 
-String consumeCustomIdentRaw(CSSParserTokenRange&, bool shouldLowercase = false);
-RefPtr<CSSPrimitiveValue> consumeCustomIdent(CSSParserTokenRange&, bool shouldLowercase = false);
-RefPtr<CSSPrimitiveValue> consumeCustomIdentExcluding(CSSParserTokenRange&, std::initializer_list<CSSValueID> excluding, bool shouldLowercase = false);
+StringView consumeEagerlyResolvableCustomIdentRaw(CSSParserTokenRange&);
+StringView consumeEagerlyResolvableCustomIdentRawExcluding(CSSParserTokenRange&, std::initializer_list<CSSValueID>);
+
+std::optional<CSS::CustomIdent> consumeUnresolvedCustomIdent(CSSParserTokenRange&, CSS::PropertyParserState&);
+std::optional<CSS::CustomIdent> consumeUnresolvedCustomIdentExcluding(CSSParserTokenRange&, CSS::PropertyParserState&, std::initializer_list<CSSValueID>);
+
+RefPtr<CSSValue> consumeCustomIdent(CSSParserTokenRange&, CSS::PropertyParserState&);
+RefPtr<CSSValue> consumeCustomIdentExcluding(CSSParserTokenRange&, CSS::PropertyParserState&, std::initializer_list<CSSValueID>);
 
 // MARK: <dashed-ident>
 // https://drafts.csswg.org/css-values/#dashed-idents
 
-String consumeDashedIdentRaw(CSSParserTokenRange&, bool shouldLowercase = false);
-RefPtr<CSSPrimitiveValue> consumeDashedIdent(CSSParserTokenRange&, bool shouldLowercase = false);
+StringView consumeEagerlyResolvableDashedIdentRaw(CSSParserTokenRange&);
+
+std::optional<CSS::CustomIdent> consumeUnresolvedDashedIdent(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+RefPtr<CSSValue> consumeDashedIdent(CSSParserTokenRange&, CSS::PropertyParserState&);
+
+// MARK: <CSS-wide keyword>
+// https://drafts.csswg.org/css-values/#common-keywords
+
+std::optional<CSSWideKeyword> consumeCSSWideKeyword(CSSParserTokenRange&);
 
 // MARK: -
 
@@ -86,11 +112,62 @@ template<CSSValueID... names> std::optional<CSSValueID> consumeIdentRaw(CSSParse
     return range.consumeIncludingWhitespace().id();
 }
 
-template<CSSValueID... names> RefPtr<CSSPrimitiveValue> consumeIdent(CSSParserTokenRange& range)
+template<CSSValueID... names> std::optional<CSS::Keyword> consumeUnresolvedIdent(CSSParserTokenRange& range)
+{
+    if (range.peek().type() != IdentToken || !identMatches<names...>(range.peek().id()))
+        return std::nullopt;
+    return CSS::Keyword { range.consumeIncludingWhitespace().id() };
+}
+
+template<CSSValueID... names> RefPtr<CSSKeywordValue> consumeIdent(CSSParserTokenRange& range)
 {
     if (range.peek().type() != IdentToken || !identMatches<names...>(range.peek().id()))
         return nullptr;
-    return CSSPrimitiveValue::create(range.consumeIncludingWhitespace().id());
+    return CSSKeywordValue::create(CSS::Keyword { range.consumeIncludingWhitespace().id() });
+}
+
+template<typename> struct KeywordChecker;
+
+template<CSS::SpecificKeyword Keyword> struct KeywordChecker<Keyword> {
+    static std::optional<Keyword> check(CSSParserTokenRange& range)
+    {
+        if (range.peek().type() != IdentToken || !identMatches<Keyword::value>(range.peek().id()))
+            return std::nullopt;
+        range.consumeIncludingWhitespace();
+        return Keyword { };
+    }
+};
+
+template<typename... Ts> struct KeywordChecker<Variant<Ts...>> {
+    template<typename... emptyBaseCase>
+    static std::optional<Variant<Ts...>> checkValues(CSSValueID)
+    {
+        return std::nullopt;
+    }
+
+    template<CSSValueID head, CSSValueID... tail>
+    static std::optional<Variant<Ts...>> checkValues(CSSValueID id)
+    {
+        if (id == head)
+            return Variant<Ts...> { Constant<head> { } };
+        return checkValues<tail...>(id);
+    }
+
+    static std::optional<Variant<Ts...>> check(CSSParserTokenRange& range)
+    {
+        if (range.peek().type() != IdentToken)
+            return std::nullopt;
+        auto result = checkValues<Ts::value...>(range.peek().id());
+        if (!result)
+            return std::nullopt;
+        range.consumeIncludingWhitespace();
+        return result;
+    }
+};
+
+template<typename KeywordOrKeywords> std::optional<KeywordOrKeywords> consumeSpecificUnresolvedIdent(CSSParserTokenRange& range)
+{
+    return KeywordChecker<KeywordOrKeywords>::check(range);
 }
 
 template<typename Predicate, typename... Args> std::optional<CSSValueID> consumeIdentRaw(CSSParserTokenRange& range, Predicate&& predicate, Args&&... args)
@@ -102,11 +179,20 @@ template<typename Predicate, typename... Args> std::optional<CSSValueID> consume
     return std::nullopt;
 }
 
-template<typename Predicate, typename... Args> RefPtr<CSSPrimitiveValue> consumeIdent(CSSParserTokenRange& range, Predicate&& predicate, Args&&... args)
+template<typename Predicate, typename... Args> std::optional<CSS::Keyword> consumeUnresolvedIdent(CSSParserTokenRange& range, Predicate&& predicate, Args&&... args)
 {
     if (auto keyword = range.peek().id(); predicate(keyword, std::forward<Args>(args)...)) {
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(keyword);
+        return CSS::Keyword { keyword };
+    }
+    return std::nullopt;
+}
+
+template<typename Predicate, typename... Args> RefPtr<CSSKeywordValue> consumeIdent(CSSParserTokenRange& range, Predicate&& predicate, Args&&... args)
+{
+    if (auto keyword = range.peek().id(); predicate(keyword, std::forward<Args>(args)...)) {
+        range.consumeIncludingWhitespace();
+        return CSSKeywordValue::create(CSS::Keyword { keyword });
     }
     return nullptr;
 }
@@ -126,13 +212,6 @@ template<typename Map> std::optional<typename Map::ValueType> peekIdentUsingMapp
     if (auto value = map.tryGet(range.peek().id()))
         return std::make_optional(*value);
     return std::nullopt;
-}
-
-inline RefPtr<CSSPrimitiveValue> consumeCustomIdentExcluding(CSSParserTokenRange& range, std::initializer_list<CSSValueID> excluding, bool shouldLowercase)
-{
-    if (std::ranges::find(excluding, range.peek().id()) != excluding.end())
-        return nullptr;
-    return consumeCustomIdent(range, shouldLowercase);
 }
 
 } // namespace CSSPropertyParserHelpers

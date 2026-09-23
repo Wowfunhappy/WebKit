@@ -205,7 +205,7 @@ protected:
     const_iterator begin() const LIFETIME_BOUND { return m_map.begin(); }
     const_iterator end() const LIFETIME_BOUND { return m_map.end(); }
 
-    OrderStorage keys() const { return m_order; }
+    const OrderStorage& keys() const { return m_order; }
 
     unsigned size() const { return m_map.size(); }
 

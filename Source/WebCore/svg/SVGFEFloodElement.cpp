@@ -25,9 +25,10 @@
 #include "ContainerNodeInlines.h"
 #include "FEFlood.h"
 #include "RenderElement.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGNames.h"
 #include "SVGPropertyOwnerRegistry.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -55,7 +56,7 @@ bool SVGFEFloodElement::setFilterEffectAttribute(FilterEffect& effect, const Qua
     if (attrName == SVGNames::flood_colorAttr)
         return feFlood.setFloodColor(style->floodColorResolvingCurrentColor());
     if (attrName == SVGNames::flood_opacityAttr)
-        return feFlood.setFloodOpacity(style->floodOpacity().value.value);
+        return feFlood.setFloodOpacity(Style::evaluate<float>(style->floodOpacity()));
 
     ASSERT_NOT_REACHED();
     return false;
@@ -68,7 +69,16 @@ RefPtr<FilterEffect> SVGFEFloodElement::createFilterEffect(const FilterEffectVec
         return nullptr;
 
     CheckedRef style = renderer->style();
-    return FEFlood::create(style->floodColorResolvingCurrentColorApplyingColorFilter(), style->floodOpacity().value.value);
+    return FEFlood::create(style->floodColorResolvingCurrentColorApplyingColorFilter(), Style::evaluate<float>(style->floodOpacity()));
+}
+
+bool SVGFEFloodElement::taintsOrigin() const
+{
+    // §16.3: tainted when flood-color depends on currentColor.
+    CheckedPtr renderer = this->renderer();
+    if (!renderer)
+        return false;
+    return renderer->style().floodColor().containsCurrentColor();
 }
 
 } // namespace WebCore

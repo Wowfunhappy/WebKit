@@ -78,7 +78,7 @@ private:
         ReferrerPolicy referrerPolicy { ReferrerPolicy::Default };
     };
 
-    NavigationHistoryEntry(Navigation&, const DocumentState&, Ref<HistoryItem>&&, String urlString, WTF::UUID key, RefPtr<SerializedScriptValue>&& state = { }, WTF::UUID = WTF::UUID::createVersion4());
+    NavigationHistoryEntry(Navigation&, const DocumentState&, Ref<HistoryItem>&&, String urlString, RefPtr<SerializedScriptValue>&& state = { }, WTF::UUID = WTF::UUID::createVersion4());
 
     // ActiveDOMObject.
     bool NODELETE virtualHasPendingActivity() const final;
@@ -92,7 +92,6 @@ private:
 
     WeakPtr<Navigation, WeakPtrImplWithEventTargetData> m_navigation;
     const String m_urlString;
-    const WTF::UUID m_key;
     const WTF::UUID m_id;
     RefPtr<SerializedScriptValue> m_state;
     const Ref<HistoryItem> m_associatedHistoryItem;

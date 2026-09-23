@@ -48,6 +48,7 @@ public:
     WTF::String absolutePDFURL() const { return m_data.absolutePDFURL; }
     WTF::String absoluteLinkURL() const { return m_data.absoluteLinkURL; }
     WTF::String absoluteMediaURL() const { return m_data.absoluteMediaURL; }
+    WTF::String absoluteModelURL() const { return m_data.absoluteModelURL; }
 
     WTF::String linkLabel() const { return m_data.linkLabel; }
     WTF::String linkTitle() const { return m_data.linkTitle; }

@@ -69,6 +69,17 @@
         function() {
             failingTestWithCapabilities([{
                     initDataTypes: ['mock'],
+                    videoCapabilities: [{ contentType: 'video/mock; codecs="unknown"' }]
+                }],
+                exceptionCode => {
+                    window.exceptionCode = exceptionCode;
+                    testExpected('exceptionCode.name', 'NotSupportedError');
+                });
+        },
+
+        function() {
+            failingTestWithCapabilities([{
+                    initDataTypes: ['mock'],
                     videoCapabilities: [{ contentType: 'unknown/mime; codecs="unknown"' }] 
                 }],
                 exceptionCode => {

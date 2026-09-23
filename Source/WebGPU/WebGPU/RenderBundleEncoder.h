@@ -30,6 +30,7 @@
 #import <wtf/FastMalloc.h>
 #import <wtf/Function.h>
 #import <wtf/HashMap.h>
+#import <wtf/HashSet.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCounted.h>
 #import <wtf/TZoneMallocInlines.h>

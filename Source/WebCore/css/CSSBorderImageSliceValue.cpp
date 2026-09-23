@@ -26,35 +26,31 @@
 #include "config.h"
 #include "CSSBorderImageSliceValue.h"
 
-#include <wtf/text/MakeString.h>
-#include <wtf/text/WTFString.h>
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 
 namespace WebCore {
 
-CSSBorderImageSliceValue::CSSBorderImageSliceValue(Quad slices, bool fill)
+CSSBorderImageSliceValue::CSSBorderImageSliceValue(CSS::BorderImageSlice&& slices)
     : CSSValue(ClassType::BorderImageSlice)
     , m_slices(WTF::move(slices))
-    , m_fill(fill)
 {
 }
 
 CSSBorderImageSliceValue::~CSSBorderImageSliceValue() = default;
 
-Ref<CSSBorderImageSliceValue> CSSBorderImageSliceValue::create(Quad slices, bool fill)
+Ref<CSSBorderImageSliceValue> CSSBorderImageSliceValue::create(CSS::BorderImageSlice&& slices)
 {
-    return adoptRef(*new CSSBorderImageSliceValue(WTF::move(slices), fill));
+    return adoptRef(*new CSSBorderImageSliceValue(WTF::move(slices)));
 }
 
 String CSSBorderImageSliceValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    if (m_fill)
-        return makeString(m_slices.cssText(context), " fill"_s);
-    return m_slices.cssText(context);
+    return CSS::serializationForCSS(context, m_slices);
 }
 
 bool CSSBorderImageSliceValue::equals(const CSSBorderImageSliceValue& other) const
 {
-    return m_fill == other.m_fill && m_slices.equals(other.m_slices);
+    return m_slices == other.m_slices;
 }
 
 } // namespace WebCore

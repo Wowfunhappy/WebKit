@@ -1,6 +1,4 @@
 a
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT font-face-reject Test timed out
+PASS font-face-reject
 

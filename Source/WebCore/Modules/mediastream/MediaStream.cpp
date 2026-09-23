@@ -97,7 +97,7 @@ MediaStream::MediaStream(Document& document, Vector<Ref<MediaStreamTrack>>&& tra
     // This constructor preserves MediaStreamTrack instances and must be used by calls originating
     // from the JavaScript MediaStream constructor.
 
-    for (Ref track : m_tracks)
+    for (auto& track : m_tracks)
         track->setMediaStreamId(id());
 
     setIsActive(m_private->active());
@@ -381,7 +381,7 @@ void MediaStream::characteristicsChanged()
 void MediaStream::updateActiveState()
 {
     bool active = false;
-    for (Ref track : m_tracks) {
+    for (auto& track : m_tracks) {
         if (!track->ended()) {
             active = true;
             break;

@@ -292,7 +292,7 @@ void EventSenderProxy::mouseDown(unsigned button, WKEventModifiers wkModifiers, 
     updateClickCountForButton(button);
     m_mouseButtonsCurrentlyDown |= modifier;
 
-    webkitWebViewBaseSynthesizeMouseEvent(toWebKitGLibAPI(m_testController->mainWebView()->platformView()),
+    webkitWebViewBaseSynthesizeMouseEvent(toWebKitGLibAPI(m_testController->targetView()->platformView()),
         MouseEventType::Press, gdkButton, m_mouseButtonsCurrentlyDown, m_position.x, m_position.y, webkitModifiersToGDKModifiers(wkModifiers), m_clickCount, toWTFString(pointerType));
     if (completionHandler)
         m_testController->doAfterProcessingAllPendingMouseEvents(WTF::move(completionHandler));
@@ -303,7 +303,7 @@ void EventSenderProxy::mouseUp(unsigned button, WKEventModifiers wkModifiers, WK
     unsigned gdkButton = eventSenderButtonToGDKButton(button);
     auto modifier = stateModifierForGdkButton(gdkButton);
     m_mouseButtonsCurrentlyDown &= ~modifier;
-    webkitWebViewBaseSynthesizeMouseEvent(toWebKitGLibAPI(m_testController->mainWebView()->platformView()),
+    webkitWebViewBaseSynthesizeMouseEvent(toWebKitGLibAPI(m_testController->targetView()->platformView()),
         MouseEventType::Release, gdkButton, m_mouseButtonsCurrentlyDown, m_position.x, m_position.y, webkitModifiersToGDKModifiers(wkModifiers), 0, toWTFString(pointerType));
 
     m_clickPosition = m_position;
@@ -317,7 +317,7 @@ void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType, 
     m_position.x = x;
     m_position.y = y;
 
-    webkitWebViewBaseSynthesizeMouseEvent(toWebKitGLibAPI(m_testController->mainWebView()->platformView()),
+    webkitWebViewBaseSynthesizeMouseEvent(toWebKitGLibAPI(m_testController->targetView()->platformView()),
         MouseEventType::Motion, 0, m_mouseButtonsCurrentlyDown, m_position.x, m_position.y, 0, 0, toWTFString(pointerType));
     if (completionHandler)
         m_testController->doAfterProcessingAllPendingMouseEvents(WTF::move(completionHandler));

@@ -1,11 +1,10 @@
-<!-- webkit-test-runner [ UsesBackForwardCache=true ] -->
+<!-- webkit-test-runner [ UsesBackForwardCache=true dumpResourceLoadCallbacks=true ] -->
 <html>
 <head>
     <title>Test resource load callbacks going back to a cached main resource</title>
     <script>
     if (window.testRunner) {
         testRunner.dumpAsText();
-        testRunner.dumpResourceLoadCallbacks();
         testRunner.waitUntilDone();
     }
 

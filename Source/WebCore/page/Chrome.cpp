@@ -72,6 +72,7 @@
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
+#include "LocalFrameInlines.h"
 
 namespace WebCore {
 
@@ -171,6 +172,11 @@ void Chrome::scrollContainingScrollViewsToRevealRect(const IntRect& rect) const
 void Chrome::scrollMainFrameToRevealRect(const IntRect& rect) const
 {
     m_client->scrollMainFrameToRevealRect(rect);
+}
+
+void Chrome::scrollOriginDidChange(const LocalFrame& frame) const
+{
+    m_client->scrollOriginDidChange(frame);
 }
 
 void Chrome::setWindowRect(const FloatRect& rect)
@@ -446,6 +452,11 @@ void Chrome::runOpenPanel(LocalFrame& frame, FileChooser& fileChooser)
     m_client->runOpenPanel(frame, fileChooser);
 }
 
+void Chrome::transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&& completion)
+{
+    m_client->transcodeChosenFiles(WTF::move(transcodingPaths), WTF::move(destinationUTI), WTF::move(destinationExtension), WTF::move(completion));
+}
+
 void Chrome::showShareSheet(ShareDataWithParsedURL&& shareData, CompletionHandler<void(bool)>&& callback)
 {
     m_client->showShareSheet(WTF::move(shareData), WTF::move(callback));
@@ -457,14 +468,14 @@ void Chrome::showContactPicker(ContactsRequestData&& requestData, CompletionHand
 }
 
 #if ENABLE(WEB_AUTHN)
-void Chrome::showDigitalCredentialsPicker(const DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
+void Chrome::showDigitalCredentialsChooser(const DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
 {
-    m_client->showDigitalCredentialsPicker(requestData, WTF::move(callback));
+    m_client->showDigitalCredentialsChooser(requestData, WTF::move(callback));
 }
 
-void Chrome::dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& callback)
+void Chrome::dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& callback)
 {
-    m_client->dismissDigitalCredentialsPicker(WTF::move(callback));
+    m_client->dismissDigitalCredentialsChooser(WTF::move(callback));
 }
 #endif
 

@@ -33,13 +33,9 @@ namespace WebKit {
 
 using namespace WebCore;
 
-SharedStringHashTable::SharedStringHashTable()
-{
-}
+SharedStringHashTable::SharedStringHashTable() = default;
 
-SharedStringHashTable::~SharedStringHashTable()
-{
-}
+SharedStringHashTable::~SharedStringHashTable() = default;
 
 bool SharedStringHashTable::add(SharedStringHash sharedStringHash)
 {

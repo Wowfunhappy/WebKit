@@ -169,7 +169,7 @@ layer at (0,0) size 785x4042
           text run at (0,18) width 237: "standards (e.g., font names or URLs.)"
       RenderBlock {OL} at (0,1451) size 769x19
         RenderListItem {LI} at (40,0) size 729x18
-          RenderListMarker at (-20,0) size 16x18: "1"
+          RenderListMarker at (-16,0) size 16x18: "1"
           RenderText {#text} at (0,0) size 621x18
             text run at (0,0) width 621: "This ordered list item should be black, because the declaration has an invalid pseudo-class selector."
       RenderBlock {P} at (0,1485) size 769x37
@@ -389,7 +389,7 @@ layer at (0,0) size 785x4042
                   text run at (0,18) width 273: "other standards (e.g., font names or URLs.)"
               RenderBlock {OL} at (4,580) size 747x19
                 RenderListItem {LI} at (40,0) size 707x18
-                  RenderListMarker at (-20,0) size 16x18: "1"
+                  RenderListMarker at (-16,0) size 16x18: "1"
                   RenderText {#text} at (0,0) size 621x18
                     text run at (0,0) width 621: "This ordered list item should be black, because the declaration has an invalid pseudo-class selector."
               RenderBlock {P} at (4,614) size 747x37

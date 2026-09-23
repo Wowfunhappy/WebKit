@@ -34,6 +34,7 @@
 #import <WebCore/FloatPoint.h>
 #import <WebCore/FloatQuad.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 #if HAVE(UI_SCROLL_VIEW_TRANSFERS_SCROLLING_TO_PARENT)

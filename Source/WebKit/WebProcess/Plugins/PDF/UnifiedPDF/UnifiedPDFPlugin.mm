@@ -99,12 +99,12 @@
 #include <WebCore/Page.h>
 #include <WebCore/PageOverlay.h>
 #include <WebCore/PageOverlayController.h>
+#include <WebCore/PlatformRenderTheme.h>
 #include <WebCore/PlatformScreen.h>
 #include <WebCore/RenderEmbeddedObject.h>
 #include <WebCore/RenderLayer.h>
 #include <WebCore/RenderLayerBacking.h>
 #include <WebCore/RenderLayerCompositor.h>
-#include <WebCore/RenderTheme.h>
 #include <WebCore/ScreenProperties.h>
 #include <WebCore/ScrollAnimator.h>
 #include <WebCore/ScrollTypes.h>
@@ -118,6 +118,7 @@
 #include <algorithm>
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 #include <wtf/Scope.h>
+#include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/cocoa/TypeCastsCocoa.h>
 #include <wtf/spi/darwin/OSVariantSPI.h>
@@ -196,7 +197,7 @@ UnifiedPDFPlugin::UnifiedPDFPlugin(HTMLPlugInElement& element)
     annotationContainer->appendChild(annotationStyleElement);
     installAnnotationContainer();
 
-    setDisplayMode(PDFDisplayMode::SinglePageContinuous);
+    setDisplayMode(PDFPluginDisplayMode::SinglePageContinuous);
 
     lazyInitialize(m_accessibilityDocumentObject, adoptNS([[WKAccessibilityPDFDocumentObject alloc] initWithPDFDocument:m_pdfDocument andElement:&element]));
     [m_accessibilityDocumentObject setPDFPlugin:this];
@@ -950,7 +951,7 @@ void UnifiedPDFPlugin::paintPDFSelection(const GraphicsLayer* layer, GraphicsCon
         auto& renderTheme = renderer ? renderer->theme() : RenderTheme::singleton();
         OptionSet<StyleColorOptions> styleColorOptions;
         if (renderer)
-            styleColorOptions = renderer->styleColorOptions();
+            styleColorOptions = renderer->styleColorOptions() - WebCore::StyleColorOptions::UseDarkAppearance;
         auto selectionColor = isVisibleAndActive ? renderTheme.activeSelectionBackgroundColor(styleColorOptions) : renderTheme.inactiveSelectionBackgroundColor(styleColorOptions);
         return blendSourceOver(Color::white, selectionColor);
     }();
@@ -1072,7 +1073,8 @@ double UnifiedPDFPlugin::scaleForActualSize() const
     if (!webPage)
         return 1;
 
-    auto* screenData = WebCore::screenData(webPage->corePage()->displayID());
+    Ref screen = PlatformScreen::singleton();
+    auto* screenData = screen->screenData(webPage->corePage()->displayID());
     if (!screenData)
         return 1;
 
@@ -1350,6 +1352,9 @@ void UnifiedPDFPlugin::updateLayout(AdjustScaleAfterLayout shouldAdjustScale, st
 {
     auto layoutSize = availableContentsRect().size();
     auto autoSizeMode = shouldUpdateAutoSizeScaleOverride.value_or(m_didLayoutWithValidDocument ? m_shouldUpdateAutoSizeScale : ShouldUpdateAutoSizeScale::Yes);
+
+    if (RefPtr corePage = page())
+        m_documentLayout.setShouldLeftAlignTrailingTwoUpPage(corePage->settings().twoUpPDFTrailingPageLeftAlignmentEnabled());
 
     Ref presentationController = *m_presentationController;
     auto computeAnchoringInfo = [&] {
@@ -1650,6 +1655,7 @@ void UnifiedPDFPlugin::createScrollbarsController()
         return;
 
     page->chrome().client().ensureScrollbarsController(*page, *this);
+    updateScrollbarOverlayStyle();
 }
 
 DelegatedScrollingMode UnifiedPDFPlugin::scrollingMode() const
@@ -1709,6 +1715,24 @@ void UnifiedPDFPlugin::scrollbarStyleChanged(WebCore::ScrollbarStyle, bool force
         return;
 
     updateLayout();
+}
+
+void UnifiedPDFPlugin::updateScrollbarOverlayStyle()
+{
+    if (!isFullMainFramePlugin())
+        return;
+
+    RefPtr page = this->page();
+    if (!page)
+        return;
+
+    using enum WebCore::ScrollbarOverlayStyle;
+    setScrollbarOverlayStyle(page->useDarkAppearance() ? Light : Default);
+
+    if (m_scrollingNodeID) {
+        if (RefPtr scrollingCoordinator = page->scrollingCoordinator())
+            scrollingCoordinator->setScrollingNodeScrollableAreaGeometry(*m_scrollingNodeID, *this);
+    }
 }
 
 void UnifiedPDFPlugin::updateScrollbars()
@@ -1794,12 +1818,12 @@ WebCore::OverscrollBehavior UnifiedPDFPlugin::overscrollBehavior() const
 
 bool UnifiedPDFPlugin::isInDiscreteDisplayMode() const
 {
-    return m_documentLayout.displayMode() == PDFDisplayMode::SinglePageDiscrete || m_documentLayout.displayMode() == PDFDisplayMode::TwoUpDiscrete;
+    return m_documentLayout.displayMode() == PDFPluginDisplayMode::SinglePageDiscrete || m_documentLayout.displayMode() == PDFPluginDisplayMode::TwoUpDiscrete;
 }
 
 bool UnifiedPDFPlugin::isShowingTwoPages() const
 {
-    return m_documentLayout.displayMode() == PDFDisplayMode::TwoUpContinuous || m_documentLayout.displayMode() == PDFDisplayMode::TwoUpDiscrete;
+    return m_documentLayout.displayMode() == PDFPluginDisplayMode::TwoUpContinuous || m_documentLayout.displayMode() == PDFPluginDisplayMode::TwoUpDiscrete;
 }
 
 FloatRect UnifiedPDFPlugin::pageBoundsInContentsSpace(PDFDocumentLayout::PageIndex index) const
@@ -1979,7 +2003,7 @@ auto UnifiedPDFPlugin::pdfElementTypesForPagePoint(const IntPoint& pointInPDFPag
 
 #pragma mark Events
 
-static bool NODELETE isContextMenuEvent(const WebMouseEvent& event)
+static bool NODELETE isContextMenuEvent(const auto& event)
 {
 #if PLATFORM(MAC)
     return event.menuTypeForEvent();
@@ -1989,7 +2013,7 @@ static bool NODELETE isContextMenuEvent(const WebMouseEvent& event)
 #endif
 }
 
-bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
+bool UnifiedPDFPlugin::handleMouseEvent(const WebCore::PlatformMouseEvent& event)
 {
     m_lastMouseEvent = event;
 
@@ -1998,7 +2022,7 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
 
     // Even if the mouse event isn't handled (e.g. because the event is over a page we shouldn't
     // display in Single Page mode), we should stop tracking selections (and soon autoscrolling) on MouseUp.
-    auto stopStateTrackingIfNeeded = makeScopeExit([this, protectedThis = Ref { *this }, isMouseUp = event.type() == WebEventType::MouseUp] {
+    auto stopStateTrackingIfNeeded = makeScopeExit([this, protectedThis = Ref { *this }, isMouseUp = event.type() == WebCore::PlatformEventType::MouseReleased] {
         if (isMouseUp) {
             stopTrackingSelection();
             stopAutoscroll();
@@ -2013,7 +2037,7 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
     auto mouseEventButton = event.button();
     auto mouseEventType = event.type();
     // Context menu events always call handleContextMenuEvent as well.
-    if (mouseEventType == WebEventType::MouseDown && isContextMenuEvent(event)) {
+    if (mouseEventType == WebCore::PlatformEventType::MousePressed && isContextMenuEvent(event)) {
         bool contextMenuEventIsInsideDocumentBounds = presentationController->pageIndexForDocumentPoint(pointInDocumentSpace).has_value();
         if (contextMenuEventIsInsideDocumentBounds)
             beginTrackingSelection(pageIndex, pointInPageSpace, event);
@@ -2026,10 +2050,10 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
 #endif
 
     switch (mouseEventType) {
-    case WebEventType::MouseMove:
+    case WebCore::PlatformEventType::MouseMoved:
         mouseMovedInContentArea();
         switch (mouseEventButton) {
-        case WebMouseEventButton::None: {
+        case WebCore::MouseButton::None: {
             auto altKeyIsActive = event.altKey() ? AltKeyIsActive::Yes : AltKeyIsActive::No;
             auto pdfElementTypes = pdfElementTypesForPluginPoint(lastKnownMousePositionInView());
             notifyCursorChanged(toWebCoreCursorType(pdfElementTypes, altKeyIsActive));
@@ -2043,7 +2067,7 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
 
             return true;
         }
-        case WebMouseEventButton::Left: {
+        case WebCore::MouseButton::Left: {
             if (RetainPtr trackedAnnotation = m_annotationTrackingState.trackedAnnotation()) {
                 RetainPtr annotationUnderMouse = annotationForRootViewPoint(flooredIntPoint(event.position()));
                 updateTrackedAnnotation(annotationUnderMouse.get());
@@ -2058,9 +2082,9 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
         default:
             return false;
         }
-    case WebEventType::MouseDown:
+    case WebCore::PlatformEventType::MousePressed:
         switch (mouseEventButton) {
-        case WebMouseEventButton::Left: {
+        case WebCore::MouseButton::Left: {
             if (RetainPtr<PDFAnnotation> annotation = annotationForRootViewPoint(flooredIntPoint(event.position()))) {
                 if ([annotation isReadOnly]
                     && annotationIsWidgetOfType(annotation.get(), { WidgetType::Button, WidgetType::Text, WidgetType::Choice }))
@@ -2088,9 +2112,9 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
         default:
             return false;
         }
-    case WebEventType::MouseUp:
+    case WebCore::PlatformEventType::MouseReleased:
         switch (mouseEventButton) {
-        case WebMouseEventButton::Left:
+        case WebCore::MouseButton::Left:
             if (RetainPtr trackedAnnotation = m_annotationTrackingState.trackedAnnotation(); trackedAnnotation && !annotationIsWidgetOfType(trackedAnnotation.get(), WidgetType::Text)) {
                 RetainPtr annotationUnderMouse = annotationForRootViewPoint(flooredIntPoint(event.position()));
                 finishTrackingAnnotation(annotationUnderMouse.get(), mouseEventType, mouseEventButton);
@@ -2122,6 +2146,11 @@ bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
     default:
         return false;
     }
+}
+
+bool UnifiedPDFPlugin::handleMouseEvent(const WebMouseEvent& event)
+{
+    return handleMouseEvent(platform(event));
 }
 
 bool UnifiedPDFPlugin::handleMouseEnterEvent(const WebMouseEvent&)
@@ -2244,7 +2273,7 @@ void UnifiedPDFPlugin::repaintAnnotationsForFormField(NSString *fieldName)
 #endif
 }
 
-void UnifiedPDFPlugin::startTrackingAnnotation(RetainPtr<PDFAnnotation>&& annotation, WebEventType mouseEventType, WebMouseEventButton mouseEventButton)
+void UnifiedPDFPlugin::startTrackingAnnotation(RetainPtr<PDFAnnotation>&& annotation, WebCore::PlatformEventType mouseEventType, WebCore::MouseButton mouseEventButton)
 {
     auto repaintRequirements = m_annotationTrackingState.startAnnotationTracking(WTF::move(annotation), mouseEventType, mouseEventButton);
     setNeedsRepaintForAnnotation(protect(m_annotationTrackingState.trackedAnnotation()).get(), repaintRequirements);
@@ -2267,7 +2296,7 @@ void UnifiedPDFPlugin::updateTrackedAnnotation(PDFAnnotation *annotationUnderMou
     setNeedsRepaintForAnnotation(currentTrackedAnnotation.get(), repaintRequirements);
 }
 
-void UnifiedPDFPlugin::finishTrackingAnnotation(PDFAnnotation *annotationUnderMouse, WebEventType mouseEventType, WebMouseEventButton mouseEventButton, RepaintRequirements repaintRequirements)
+void UnifiedPDFPlugin::finishTrackingAnnotation(PDFAnnotation *annotationUnderMouse, WebCore::PlatformEventType mouseEventType, WebCore::MouseButton mouseEventButton, RepaintRequirements repaintRequirements)
 {
     // AnnotationTrackingState::finishAnnotationTracking() will clear this, so hold on to it.
     RetainPtr previouslyTrackedAnnotation = m_annotationTrackingState.trackedAnnotation();
@@ -2394,26 +2423,26 @@ void UnifiedPDFPlugin::revealFragmentIfNeeded()
 #pragma mark Context Menu
 
 #if ENABLE(CONTEXT_MENUS)
-UnifiedPDFPlugin::ContextMenuItemTag UnifiedPDFPlugin::contextMenuItemTagFromDisplayMode(const PDFDisplayMode& displayMode) const
+UnifiedPDFPlugin::ContextMenuItemTag UnifiedPDFPlugin::contextMenuItemTagFromDisplayMode(const PDFPluginDisplayMode& displayMode) const
 {
     switch (displayMode) {
-    case PDFDisplayMode::SinglePageDiscrete: return ContextMenuItemTag::SinglePage;
-    case PDFDisplayMode::SinglePageContinuous: return ContextMenuItemTag::SinglePageContinuous;
-    case PDFDisplayMode::TwoUpDiscrete: return ContextMenuItemTag::TwoPages;
-    case PDFDisplayMode::TwoUpContinuous: return ContextMenuItemTag::TwoPagesContinuous;
+    case PDFPluginDisplayMode::SinglePageDiscrete: return ContextMenuItemTag::SinglePage;
+    case PDFPluginDisplayMode::SinglePageContinuous: return ContextMenuItemTag::SinglePageContinuous;
+    case PDFPluginDisplayMode::TwoUpDiscrete: return ContextMenuItemTag::TwoPages;
+    case PDFPluginDisplayMode::TwoUpContinuous: return ContextMenuItemTag::TwoPagesContinuous;
     }
 }
 
-PDFDisplayMode UnifiedPDFPlugin::displayModeFromContextMenuItemTag(const ContextMenuItemTag& tag) const
+PDFPluginDisplayMode UnifiedPDFPlugin::displayModeFromContextMenuItemTag(const ContextMenuItemTag& tag) const
 {
     switch (tag) {
-    case ContextMenuItemTag::SinglePage: return PDFDisplayMode::SinglePageDiscrete;
-    case ContextMenuItemTag::SinglePageContinuous: return PDFDisplayMode::SinglePageContinuous;
-    case ContextMenuItemTag::TwoPages: return PDFDisplayMode::TwoUpDiscrete;
-    case ContextMenuItemTag::TwoPagesContinuous: return PDFDisplayMode::TwoUpContinuous;
+    case ContextMenuItemTag::SinglePage: return PDFPluginDisplayMode::SinglePageDiscrete;
+    case ContextMenuItemTag::SinglePageContinuous: return PDFPluginDisplayMode::SinglePageContinuous;
+    case ContextMenuItemTag::TwoPages: return PDFPluginDisplayMode::TwoUpDiscrete;
+    case ContextMenuItemTag::TwoPagesContinuous: return PDFPluginDisplayMode::TwoUpContinuous;
     default:
         ASSERT_NOT_REACHED();
-        return PDFDisplayMode::SinglePageContinuous;
+        return PDFPluginDisplayMode::SinglePageContinuous;
     }
 }
 
@@ -2944,7 +2973,7 @@ void UnifiedPDFPlugin::selectAll()
 
 #pragma mark Selections
 
-auto UnifiedPDFPlugin::selectionGranularityForMouseEvent(const WebMouseEvent& event) const -> SelectionGranularity
+auto UnifiedPDFPlugin::selectionGranularityForMouseEvent(const WebCore::PlatformMouseEvent& event) const -> SelectionGranularity
 {
     if (event.clickCount() == 2)
         return SelectionGranularity::Word;
@@ -2969,8 +2998,16 @@ void UnifiedPDFPlugin::extendCurrentSelectionIfNeeded()
     setCurrentSelection(WTF::move(selection));
 }
 
-void UnifiedPDFPlugin::beginTrackingSelection(PDFDocumentLayout::PageIndex pageIndex, const WebCore::FloatPoint& pagePoint, const WebMouseEvent& event)
+static bool shouldNotTrackSelectionForEvent(const WebCore::PlatformMouseEvent& event)
 {
+    return event.inputSource() == WebCore::MouseEventInputSource::Automation && event.syntheticClickType() != WebCore::SyntheticClickType::NoTap;
+}
+
+void UnifiedPDFPlugin::beginTrackingSelection(PDFDocumentLayout::PageIndex pageIndex, const WebCore::FloatPoint& pagePoint, const WebCore::PlatformMouseEvent& event)
+{
+    if (shouldNotTrackSelectionForEvent(event))
+        return;
+
     auto modifiers = event.modifiers();
 
     m_selectionTrackingData.isActivelyTrackingSelection = true;
@@ -2978,8 +3015,8 @@ void UnifiedPDFPlugin::beginTrackingSelection(PDFDocumentLayout::PageIndex pageI
     m_selectionTrackingData.startPageIndex = pageIndex;
     m_selectionTrackingData.startPagePoint = pagePoint;
     m_selectionTrackingData.marqueeSelectionRect = { };
-    m_selectionTrackingData.shouldMakeMarqueeSelection = modifiers.contains(WebEventModifier::AltKey);
-    m_selectionTrackingData.shouldExtendCurrentSelection = modifiers.contains(WebEventModifier::ShiftKey);
+    m_selectionTrackingData.shouldMakeMarqueeSelection = modifiers.contains(WebCore::PlatformEventModifier::AltKey);
+    m_selectionTrackingData.shouldExtendCurrentSelection = modifiers.contains(WebCore::PlatformEventModifier::ShiftKey);
     m_selectionTrackingData.selectionToExtendWith = nullptr;
 
     // Context menu events can only generate a word selection under the event, so we bail out of the rest of our selection tracking logic.
@@ -3195,6 +3232,9 @@ std::pair<String, String> UnifiedPDFPlugin::stringsBeforeAndAfterSelection(int c
 
 bool UnifiedPDFPlugin::existingSelectionContainsPoint(const FloatPoint& rootViewPoint) const
 {
+    if (!hasSelection())
+        return false;
+
     auto pluginPoint = convertFromRootViewToPlugin(roundedIntPoint(rootViewPoint));
     auto documentPoint = convertDown(CoordinateSpace::Plugin, CoordinateSpace::PDFDocumentLayout, FloatPoint { pluginPoint });
     auto pageIndex = protect(m_presentationController)->pageIndexForDocumentPoint(documentPoint);
@@ -3244,7 +3284,7 @@ FloatRect UnifiedPDFPlugin::rectForSelectionInRootView(PDFSelection *selection) 
 void UnifiedPDFPlugin::beginAutoscroll()
 {
     if (!std::exchange(m_inActiveAutoscroll, true))
-        m_autoscrollTimer.startRepeating(WebCore::autoscrollInterval);
+        m_autoscrollTimer.startRepeating(WebCore::AutoscrollController::autoscrollInterval);
 }
 
 void UnifiedPDFPlugin::autoscrollTimerFired()
@@ -4175,7 +4215,7 @@ void UnifiedPDFPlugin::handlePDFActionForAnnotation(PDFAnnotation *annotation, P
 }
 #endif
 
-RepaintRequirements AnnotationTrackingState::startAnnotationTracking(RetainPtr<PDFAnnotation>&& annotation, WebEventType mouseEventType, WebMouseEventButton mouseEventButton)
+RepaintRequirements AnnotationTrackingState::startAnnotationTracking(RetainPtr<PDFAnnotation>&& annotation, WebCore::PlatformEventType mouseEventType, WebCore::MouseButton mouseEventButton)
 {
     ASSERT(!m_trackedAnnotation);
     m_trackedAnnotation = WTF::move(annotation);
@@ -4187,7 +4227,7 @@ RepaintRequirements AnnotationTrackingState::startAnnotationTracking(RetainPtr<P
         repaintRequirements.add(UnifiedPDFPlugin::repaintRequirementsForAnnotation(m_trackedAnnotation.get()));
     }
 
-    if (mouseEventType == WebEventType::MouseMove && mouseEventButton == WebMouseEventButton::None) {
+    if (mouseEventType == WebCore::PlatformEventType::MouseMoved && mouseEventButton == WebCore::MouseButton::None) {
         if (!m_isBeingHovered)
             repaintRequirements.add(RepaintRequirement::HoverOverlay);
 
@@ -4197,12 +4237,12 @@ RepaintRequirements AnnotationTrackingState::startAnnotationTracking(RetainPtr<P
     return repaintRequirements;
 }
 
-RepaintRequirements AnnotationTrackingState::finishAnnotationTracking(PDFAnnotation *annotationUnderMouse, WebEventType mouseEventType, WebMouseEventButton mouseEventButton)
+RepaintRequirements AnnotationTrackingState::finishAnnotationTracking(PDFAnnotation *annotationUnderMouse, WebCore::PlatformEventType mouseEventType, WebCore::MouseButton mouseEventButton)
 {
     ASSERT(m_trackedAnnotation);
     auto repaintRequirements = RepaintRequirements { };
 
-    if (annotationUnderMouse == m_trackedAnnotation && mouseEventType == WebEventType::MouseUp && mouseEventButton == WebMouseEventButton::Left) {
+    if (annotationUnderMouse == m_trackedAnnotation && mouseEventType == WebCore::PlatformEventType::MouseReleased && mouseEventButton == WebCore::MouseButton::Left) {
         if ([m_trackedAnnotation isHighlighted]) {
             [m_trackedAnnotation setHighlighted:NO];
             repaintRequirements.add(UnifiedPDFPlugin::repaintRequirementsForAnnotation(m_trackedAnnotation.get()));
@@ -4317,23 +4357,23 @@ void UnifiedPDFPlugin::setPDFDisplayModeForTesting(const String& mode)
 {
     setDisplayModeAndUpdateLayout([mode] {
         if (mode == "SinglePageDiscrete"_s)
-            return PDFDisplayMode::SinglePageDiscrete;
+            return PDFPluginDisplayMode::SinglePageDiscrete;
 
         if (mode == "SinglePageContinuous"_s)
-            return PDFDisplayMode::SinglePageContinuous;
+            return PDFPluginDisplayMode::SinglePageContinuous;
 
         if (mode == "TwoUpDiscrete"_s)
-            return PDFDisplayMode::TwoUpDiscrete;
+            return PDFPluginDisplayMode::TwoUpDiscrete;
 
         if (mode == "TwoUpContinuous"_s)
-            return PDFDisplayMode::TwoUpContinuous;
+            return PDFPluginDisplayMode::TwoUpContinuous;
 
         ASSERT_NOT_REACHED();
-        return PDFDisplayMode::SinglePageContinuous;
+        return PDFPluginDisplayMode::SinglePageContinuous;
     }());
 }
 
-void UnifiedPDFPlugin::setDisplayMode(PDFDisplayMode mode)
+void UnifiedPDFPlugin::setDisplayMode(PDFPluginDisplayMode mode)
 {
 #if PLATFORM(IOS_FAMILY)
     if (RefPtr frame = m_frame.get()) {
@@ -4352,7 +4392,7 @@ void UnifiedPDFPlugin::setDisplayMode(PDFDisplayMode mode)
     setPresentationController(PDFPresentationController::createForMode(mode, *this));
 }
 
-void UnifiedPDFPlugin::setDisplayModeAndUpdateLayout(PDFDisplayMode mode)
+void UnifiedPDFPlugin::setDisplayModeAndUpdateLayout(PDFPluginDisplayMode mode)
 {
     auto shouldAdjustPageScale = m_shouldUpdateAutoSizeScale == ShouldUpdateAutoSizeScale::Yes ? AdjustScaleAfterLayout::No : AdjustScaleAfterLayout::Yes;
     Ref presentationController = *m_presentationController;
@@ -4550,8 +4590,8 @@ CursorContext UnifiedPDFPlugin::cursorContext(FloatPoint pointInRootView) const
         return context;
 
     auto elementTypes = pdfElementTypesForPagePoint(roundedIntPoint(pointInPage), page.get());
-    if (toWebCoreCursorType(elementTypes) == Cursor::Type::IBeam)
-        context.cursor = Cursor::fromType(Cursor::Type::IBeam);
+    if (toWebCoreCursorType(elementTypes) == WebCore::Cursor::Type::IBeam)
+        context.cursor = WebCore::Cursor::fromType(WebCore::Cursor::Type::IBeam);
 
     RetainPtr lineUnderCursor = selectionAtPoint(pointInPage, page.get(), TextGranularity::LineGranularity);
     auto pageRectForLine = FloatRect { [lineUnderCursor boundsForPage:page.get()] };
@@ -4701,6 +4741,7 @@ PDFSelection *UnifiedPDFPlugin::selectionAtPoint(FloatPoint pointInPage, PDFPage
         case TextGranularity::WordGranularity:
             return PDFSelectionGranularityWord;
         case TextGranularity::LineGranularity:
+        case TextGranularity::ParagraphGranularity:
             return PDFSelectionGranularityLine;
         default:
             ASSERT_NOT_REACHED();
@@ -4780,6 +4821,30 @@ void UnifiedPDFPlugin::clearSelection()
 void UnifiedPDFPlugin::handleSyntheticClick(PlatformMouseEvent&& event)
 {
 #if HAVE(PDFDOCUMENT_SELECTION_WITH_GRANULARITY)
+    auto handledMouseEvent = false;
+    if (event.inputSource() == WebCore::MouseEventInputSource::Automation)
+        handledMouseEvent = handleMouseEvent(event);
+
+    if (event.type() == WebCore::PlatformEventType::MousePressed)
+        return;
+#endif // HAVE(PDFDOCUMENT_SELECTION_WITH_GRANULARITY)
+
+#if ENABLE(PDF_HUD)
+    if (shouldShowHUD()) {
+        RefPtr frame = m_frame.get();
+        if (RefPtr page = frame ? frame->page() : nullptr)
+            page->showPDFHUD(*this);
+    }
+#endif // ENABLE(PDF_HUD)
+
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    updatePageNumberIndicator();
+#endif
+
+#if HAVE(PDFDOCUMENT_SELECTION_WITH_GRANULARITY)
+    if (handledMouseEvent)
+        return;
+
     auto pointInRootView = event.position();
     if (RetainPtr annotation = annotationForRootViewPoint(IntPoint(pointInRootView))) {
         if (annotationIsLinkWithDestination(annotation.get()))
@@ -4811,7 +4876,15 @@ void UnifiedPDFPlugin::handleSyntheticClick(PlatformMouseEvent&& event)
     UNUSED_PARAM(event);
 #endif
 
-    clearSelection();
+#if PLATFORM(IOS_FAMILY)
+    // On iOS, we only end up here with synthetic clicks outside of an existing selection range.
+    static constexpr bool shouldClearSelection = true;
+#else
+    bool shouldClearSelection = !existingSelectionContainsPoint(WebCore::FloatPoint { pointInRootView });
+#endif
+
+    if (shouldClearSelection)
+        clearSelection();
 }
 
 #endif
@@ -4873,6 +4946,9 @@ void UnifiedPDFPlugin::effectiveAppearanceDidChange()
 
     if (RefPtr rootLayer = m_rootLayer)
         rootLayer->setBackgroundColor(pluginBackgroundColor());
+
+    updateFullFramePluginBackgroundColor();
+    updateScrollbarOverlayStyle();
 }
 
 ViewportConfiguration::Parameters UnifiedPDFPlugin::viewportParameters()

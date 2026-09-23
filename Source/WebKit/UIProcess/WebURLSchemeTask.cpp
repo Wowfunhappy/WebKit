@@ -33,6 +33,7 @@
 #include "WebErrors.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
+#include "WebProcessProxy.h"
 #include "WebURLSchemeHandler.h"
 #include "WebURLSchemeHandlerIdentifier.h"
 #include <WebCore/ResourceLoaderIdentifier.h>

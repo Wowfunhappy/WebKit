@@ -26,6 +26,7 @@ promise_test(async (test) => {
     assert_equals(permission.state, "granted");
 
     const localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             const audioSender = firstConnection.addTrack(localStream.getAudioTracks()[0], localStream);

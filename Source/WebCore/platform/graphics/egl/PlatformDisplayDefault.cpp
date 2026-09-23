@@ -53,9 +53,7 @@ PlatformDisplayDefault::PlatformDisplayDefault(Ref<GLDisplay>&& glDisplay)
 #endif
 }
 
-PlatformDisplayDefault::~PlatformDisplayDefault()
-{
-}
+PlatformDisplayDefault::~PlatformDisplayDefault() = default;
 
 } // namespace WebCore
 

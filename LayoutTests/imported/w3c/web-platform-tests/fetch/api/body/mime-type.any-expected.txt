@@ -14,7 +14,7 @@ PASS Response: MIME type for Blob
 PASS Request: MIME type for Blob with non-empty type
 PASS Response: MIME type for Blob with non-empty type
 PASS Request: Extract a MIME type with clone
-FAIL Response: Extract a MIME type with clone assert_equals: expected "text/html" but got "text/plain"
+PASS Response: Extract a MIME type with clone
 PASS Request: Content-Type in headers wins Blob"s type
 PASS Response: Content-Type in headers wins Blob"s type
 PASS Request: setting missing Content-Type in headers and it wins Blob"s type

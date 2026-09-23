@@ -37,13 +37,17 @@
 #import "DOMPrivate.h"
 #import "DOMRangeInternal.h"
 #import <JavaScriptCore/APICast.h>
+#import <JavaScriptCore/JSCellInlines.h>
 #import <WebCore/BoundaryPointInlines.h>
 #import <WebCore/CachedImage.h>
 #import <WebCore/ContainerNodeInlines.h>
+#import <WebCore/DocumentPage.h>
 #import <WebCore/DocumentView.h>
 #import <WebCore/DragImage.h>
+#import <WebCore/FloatQuad.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FontCascadeInlines.h>
+#import <WebCore/FrameDestructionObserverInlines.h>
 #import <WebCore/GeometryUtilities.h>
 #import <WebCore/HTMLDocument.h>
 #import <WebCore/HTMLLinkElement.h>
@@ -54,17 +58,19 @@
 #import <WebCore/JSNode.h>
 #import <WebCore/KeyboardEvent.h>
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/NativeImage.h>
 #import <WebCore/NodeFilter.h>
 #import <WebCore/NodeRenderStyle.h>
 #import <WebCore/Page.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderImage.h>
-#import <WebCore/RenderObjectInlines.h>
-#import <WebCore/RenderStyle+GettersInlines.h>
+#import <WebCore/RenderObjectStyle.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/SimpleRange.h>
+#import <WebCore/StyleComputedStyle+GettersInlines.h>
+#import <WebCore/StyleLineWidth.h>
 #import <WebCore/StylePrimitiveNumericTypes+Evaluation.h>
 #import <WebCore/TextIndicator.h>
 #import <WebCore/Touch.h>
@@ -78,16 +84,14 @@
 #import <WebCore/WebCoreThreadMessage.h>
 #endif
 
-using namespace JSC;
-using namespace WebCore;
 
 //------------------------------------------------------------------------------------------
 // DOMNode
 
-typedef HashMap<const QualifiedName::QualifiedNameImpl*, Class> ObjCClassMap;
+typedef HashMap<const WebCore::QualifiedName::QualifiedNameImpl*, Class> ObjCClassMap;
 static ObjCClassMap* elementClassMap;
 
-static void addElementClass(const QualifiedName& tag, Class objCClass)
+static void addElementClass(const WebCore::QualifiedName& tag, Class objCClass)
 {
     elementClassMap->set(tag.impl(), objCClass);
 }
@@ -97,85 +101,85 @@ static void createElementClassMap()
     // Create the table.
     elementClassMap = new ObjCClassMap;
 
-    addElementClass(HTMLNames::aTag, [DOMHTMLAnchorElement class]);
-    addElementClass(HTMLNames::appletTag, [DOMHTMLAppletElement class]);
-    addElementClass(HTMLNames::areaTag, [DOMHTMLAreaElement class]);
-    addElementClass(HTMLNames::baseTag, [DOMHTMLBaseElement class]);
-    addElementClass(HTMLNames::basefontTag, [DOMHTMLBaseFontElement class]);
-    addElementClass(HTMLNames::bodyTag, [DOMHTMLBodyElement class]);
-    addElementClass(HTMLNames::brTag, [DOMHTMLBRElement class]);
-    addElementClass(HTMLNames::buttonTag, [DOMHTMLButtonElement class]);
-    addElementClass(HTMLNames::canvasTag, [DOMHTMLCanvasElement class]);
-    addElementClass(HTMLNames::captionTag, [DOMHTMLTableCaptionElement class]);
-    addElementClass(HTMLNames::colTag, [DOMHTMLTableColElement class]);
-    addElementClass(HTMLNames::colgroupTag, [DOMHTMLTableColElement class]);
-    addElementClass(HTMLNames::delTag, [DOMHTMLModElement class]);
-    addElementClass(HTMLNames::dirTag, [DOMHTMLDirectoryElement class]);
-    addElementClass(HTMLNames::divTag, [DOMHTMLDivElement class]);
-    addElementClass(HTMLNames::dlTag, [DOMHTMLDListElement class]);
-    addElementClass(HTMLNames::embedTag, [DOMHTMLEmbedElement class]);
-    addElementClass(HTMLNames::fieldsetTag, [DOMHTMLFieldSetElement class]);
-    addElementClass(HTMLNames::fontTag, [DOMHTMLFontElement class]);
-    addElementClass(HTMLNames::formTag, [DOMHTMLFormElement class]);
-    addElementClass(HTMLNames::frameTag, [DOMHTMLFrameElement class]);
-    addElementClass(HTMLNames::framesetTag, [DOMHTMLFrameSetElement class]);
-    addElementClass(HTMLNames::h1Tag, [DOMHTMLHeadingElement class]);
-    addElementClass(HTMLNames::h2Tag, [DOMHTMLHeadingElement class]);
-    addElementClass(HTMLNames::h3Tag, [DOMHTMLHeadingElement class]);
-    addElementClass(HTMLNames::h4Tag, [DOMHTMLHeadingElement class]);
-    addElementClass(HTMLNames::h5Tag, [DOMHTMLHeadingElement class]);
-    addElementClass(HTMLNames::h6Tag, [DOMHTMLHeadingElement class]);
-    addElementClass(HTMLNames::headTag, [DOMHTMLHeadElement class]);
-    addElementClass(HTMLNames::hrTag, [DOMHTMLHRElement class]);
-    addElementClass(HTMLNames::htmlTag, [DOMHTMLHtmlElement class]);
-    addElementClass(HTMLNames::iframeTag, [DOMHTMLIFrameElement class]);
-    addElementClass(HTMLNames::imgTag, [DOMHTMLImageElement class]);
-    addElementClass(HTMLNames::inputTag, [DOMHTMLInputElement class]);
-    addElementClass(HTMLNames::insTag, [DOMHTMLModElement class]);
-    addElementClass(HTMLNames::labelTag, [DOMHTMLLabelElement class]);
-    addElementClass(HTMLNames::legendTag, [DOMHTMLLegendElement class]);
-    addElementClass(HTMLNames::liTag, [DOMHTMLLIElement class]);
-    addElementClass(HTMLNames::linkTag, [DOMHTMLLinkElement class]);
-    addElementClass(HTMLNames::listingTag, [DOMHTMLPreElement class]);
-    addElementClass(HTMLNames::mapTag, [DOMHTMLMapElement class]);
-    addElementClass(HTMLNames::marqueeTag, [DOMHTMLMarqueeElement class]);
-    addElementClass(HTMLNames::menuTag, [DOMHTMLMenuElement class]);
-    addElementClass(HTMLNames::metaTag, [DOMHTMLMetaElement class]);
-    addElementClass(HTMLNames::objectTag, [DOMHTMLObjectElement class]);
-    addElementClass(HTMLNames::olTag, [DOMHTMLOListElement class]);
-    addElementClass(HTMLNames::optgroupTag, [DOMHTMLOptGroupElement class]);
-    addElementClass(HTMLNames::optionTag, [DOMHTMLOptionElement class]);
-    addElementClass(HTMLNames::pTag, [DOMHTMLParagraphElement class]);
-    addElementClass(HTMLNames::paramTag, [DOMHTMLParamElement class]);
-    addElementClass(HTMLNames::preTag, [DOMHTMLPreElement class]);
-    addElementClass(HTMLNames::qTag, [DOMHTMLQuoteElement class]);
-    addElementClass(HTMLNames::scriptTag, [DOMHTMLScriptElement class]);
-    addElementClass(HTMLNames::selectTag, [DOMHTMLSelectElement class]);
-    addElementClass(HTMLNames::styleTag, [DOMHTMLStyleElement class]);
-    addElementClass(HTMLNames::tableTag, [DOMHTMLTableElement class]);
-    addElementClass(HTMLNames::tbodyTag, [DOMHTMLTableSectionElement class]);
-    addElementClass(HTMLNames::tdTag, [DOMHTMLTableCellElement class]);
-    addElementClass(HTMLNames::textareaTag, [DOMHTMLTextAreaElement class]);
-    addElementClass(HTMLNames::tfootTag, [DOMHTMLTableSectionElement class]);
-    addElementClass(HTMLNames::thTag, [DOMHTMLTableCellElement class]);
-    addElementClass(HTMLNames::theadTag, [DOMHTMLTableSectionElement class]);
-    addElementClass(HTMLNames::titleTag, [DOMHTMLTitleElement class]);
-    addElementClass(HTMLNames::trTag, [DOMHTMLTableRowElement class]);
-    addElementClass(HTMLNames::ulTag, [DOMHTMLUListElement class]);
-    addElementClass(HTMLNames::videoTag, [DOMHTMLVideoElement class]);
-    addElementClass(HTMLNames::xmpTag, [DOMHTMLPreElement class]);
+    addElementClass(WebCore::HTMLNames::aTag, [DOMHTMLAnchorElement class]);
+    addElementClass(WebCore::HTMLNames::appletTag, [DOMHTMLAppletElement class]);
+    addElementClass(WebCore::HTMLNames::areaTag, [DOMHTMLAreaElement class]);
+    addElementClass(WebCore::HTMLNames::baseTag, [DOMHTMLBaseElement class]);
+    addElementClass(WebCore::HTMLNames::basefontTag, [DOMHTMLBaseFontElement class]);
+    addElementClass(WebCore::HTMLNames::bodyTag, [DOMHTMLBodyElement class]);
+    addElementClass(WebCore::HTMLNames::brTag, [DOMHTMLBRElement class]);
+    addElementClass(WebCore::HTMLNames::buttonTag, [DOMHTMLButtonElement class]);
+    addElementClass(WebCore::HTMLNames::canvasTag, [DOMHTMLCanvasElement class]);
+    addElementClass(WebCore::HTMLNames::captionTag, [DOMHTMLTableCaptionElement class]);
+    addElementClass(WebCore::HTMLNames::colTag, [DOMHTMLTableColElement class]);
+    addElementClass(WebCore::HTMLNames::colgroupTag, [DOMHTMLTableColElement class]);
+    addElementClass(WebCore::HTMLNames::delTag, [DOMHTMLModElement class]);
+    addElementClass(WebCore::HTMLNames::dirTag, [DOMHTMLDirectoryElement class]);
+    addElementClass(WebCore::HTMLNames::divTag, [DOMHTMLDivElement class]);
+    addElementClass(WebCore::HTMLNames::dlTag, [DOMHTMLDListElement class]);
+    addElementClass(WebCore::HTMLNames::embedTag, [DOMHTMLEmbedElement class]);
+    addElementClass(WebCore::HTMLNames::fieldsetTag, [DOMHTMLFieldSetElement class]);
+    addElementClass(WebCore::HTMLNames::fontTag, [DOMHTMLFontElement class]);
+    addElementClass(WebCore::HTMLNames::formTag, [DOMHTMLFormElement class]);
+    addElementClass(WebCore::HTMLNames::frameTag, [DOMHTMLFrameElement class]);
+    addElementClass(WebCore::HTMLNames::framesetTag, [DOMHTMLFrameSetElement class]);
+    addElementClass(WebCore::HTMLNames::h1Tag, [DOMHTMLHeadingElement class]);
+    addElementClass(WebCore::HTMLNames::h2Tag, [DOMHTMLHeadingElement class]);
+    addElementClass(WebCore::HTMLNames::h3Tag, [DOMHTMLHeadingElement class]);
+    addElementClass(WebCore::HTMLNames::h4Tag, [DOMHTMLHeadingElement class]);
+    addElementClass(WebCore::HTMLNames::h5Tag, [DOMHTMLHeadingElement class]);
+    addElementClass(WebCore::HTMLNames::h6Tag, [DOMHTMLHeadingElement class]);
+    addElementClass(WebCore::HTMLNames::headTag, [DOMHTMLHeadElement class]);
+    addElementClass(WebCore::HTMLNames::hrTag, [DOMHTMLHRElement class]);
+    addElementClass(WebCore::HTMLNames::htmlTag, [DOMHTMLHtmlElement class]);
+    addElementClass(WebCore::HTMLNames::iframeTag, [DOMHTMLIFrameElement class]);
+    addElementClass(WebCore::HTMLNames::imgTag, [DOMHTMLImageElement class]);
+    addElementClass(WebCore::HTMLNames::inputTag, [DOMHTMLInputElement class]);
+    addElementClass(WebCore::HTMLNames::insTag, [DOMHTMLModElement class]);
+    addElementClass(WebCore::HTMLNames::labelTag, [DOMHTMLLabelElement class]);
+    addElementClass(WebCore::HTMLNames::legendTag, [DOMHTMLLegendElement class]);
+    addElementClass(WebCore::HTMLNames::liTag, [DOMHTMLLIElement class]);
+    addElementClass(WebCore::HTMLNames::linkTag, [DOMHTMLLinkElement class]);
+    addElementClass(WebCore::HTMLNames::listingTag, [DOMHTMLPreElement class]);
+    addElementClass(WebCore::HTMLNames::mapTag, [DOMHTMLMapElement class]);
+    addElementClass(WebCore::HTMLNames::marqueeTag, [DOMHTMLMarqueeElement class]);
+    addElementClass(WebCore::HTMLNames::menuTag, [DOMHTMLMenuElement class]);
+    addElementClass(WebCore::HTMLNames::metaTag, [DOMHTMLMetaElement class]);
+    addElementClass(WebCore::HTMLNames::objectTag, [DOMHTMLObjectElement class]);
+    addElementClass(WebCore::HTMLNames::olTag, [DOMHTMLOListElement class]);
+    addElementClass(WebCore::HTMLNames::optgroupTag, [DOMHTMLOptGroupElement class]);
+    addElementClass(WebCore::HTMLNames::optionTag, [DOMHTMLOptionElement class]);
+    addElementClass(WebCore::HTMLNames::pTag, [DOMHTMLParagraphElement class]);
+    addElementClass(WebCore::HTMLNames::paramTag, [DOMHTMLParamElement class]);
+    addElementClass(WebCore::HTMLNames::preTag, [DOMHTMLPreElement class]);
+    addElementClass(WebCore::HTMLNames::qTag, [DOMHTMLQuoteElement class]);
+    addElementClass(WebCore::HTMLNames::scriptTag, [DOMHTMLScriptElement class]);
+    addElementClass(WebCore::HTMLNames::selectTag, [DOMHTMLSelectElement class]);
+    addElementClass(WebCore::HTMLNames::styleTag, [DOMHTMLStyleElement class]);
+    addElementClass(WebCore::HTMLNames::tableTag, [DOMHTMLTableElement class]);
+    addElementClass(WebCore::HTMLNames::tbodyTag, [DOMHTMLTableSectionElement class]);
+    addElementClass(WebCore::HTMLNames::tdTag, [DOMHTMLTableCellElement class]);
+    addElementClass(WebCore::HTMLNames::textareaTag, [DOMHTMLTextAreaElement class]);
+    addElementClass(WebCore::HTMLNames::tfootTag, [DOMHTMLTableSectionElement class]);
+    addElementClass(WebCore::HTMLNames::thTag, [DOMHTMLTableCellElement class]);
+    addElementClass(WebCore::HTMLNames::theadTag, [DOMHTMLTableSectionElement class]);
+    addElementClass(WebCore::HTMLNames::titleTag, [DOMHTMLTitleElement class]);
+    addElementClass(WebCore::HTMLNames::trTag, [DOMHTMLTableRowElement class]);
+    addElementClass(WebCore::HTMLNames::ulTag, [DOMHTMLUListElement class]);
+    addElementClass(WebCore::HTMLNames::videoTag, [DOMHTMLVideoElement class]);
+    addElementClass(WebCore::HTMLNames::xmpTag, [DOMHTMLPreElement class]);
 }
 
-static Class lookupElementClass(const QualifiedName& tag)
+static Class lookupElementClass(const WebCore::QualifiedName& tag)
 {
     // Do a special lookup to ignore element prefixes
     if (tag.hasPrefix())
-        return elementClassMap->get(QualifiedName(nullAtom(), tag.localName(), tag.namespaceURI()).impl());
+        return elementClassMap->get(WebCore::QualifiedName(nullAtom(), tag.localName(), tag.namespaceURI()).impl());
     
     return elementClassMap->get(tag.impl());
 }
 
-static Class elementClass(const QualifiedName& tag, Class defaultClass)
+static Class elementClass(const WebCore::QualifiedName& tag, Class defaultClass)
 {
     if (!elementClassMap)
         createElementClassMap();
@@ -187,12 +191,12 @@ static Class elementClass(const QualifiedName& tag, Class defaultClass)
 
 #if PLATFORM(IOS_FAMILY)
 
-static WKQuad wkQuadFromFloatQuad(const FloatQuad& inQuad)
+static WKQuad wkQuadFromFloatQuad(const WebCore::FloatQuad& inQuad)
 {
     return { inQuad.p1(), inQuad.p2(), inQuad.p3(), inQuad.p4() };
 }
 
-static NSArray *kit(const Vector<FloatQuad>& quads)
+static NSArray *kit(const Vector<WebCore::FloatQuad>& quads)
 {
     return createNSArray(quads, [] (auto& quad) {
         return adoptNS([[WKQuadObject alloc] initWithQuad:wkQuadFromFloatQuad(quad)]);
@@ -253,7 +257,7 @@ IGNORE_WARNINGS_BEGIN("objc-protocol-method-implementation")
 
 IGNORE_WARNINGS_END
 
-- (Bindings::RootObject*)_rootObject
+- (JSC::Bindings::RootObject*)_rootObject
 {
     auto* frame = core(self)->document().frame();
     if (!frame)
@@ -263,40 +267,40 @@ IGNORE_WARNINGS_END
 
 @end
 
-Class kitClass(Node* impl)
+Class kitClass(WebCore::Node* impl)
 {
     switch (impl->nodeType()) {
-    case NodeType::Element:
-        if (RefPtr htmlElement = dynamicDowncast<HTMLElement>(*impl))
+    case WebCore::NodeType::Element:
+        if (RefPtr htmlElement = dynamicDowncast<WebCore::HTMLElement>(*impl))
             return elementClass(htmlElement->tagQName(), [DOMHTMLElement class]);
         return [DOMElement class];
-    case NodeType::Attribute:
+    case WebCore::NodeType::Attribute:
         return [DOMAttr class];
-    case NodeType::Text:
+    case WebCore::NodeType::Text:
         return [DOMText class];
-    case NodeType::CDATASection:
+    case WebCore::NodeType::CDATASection:
         return [DOMCDATASection class];
-    case NodeType::ProcessingInstruction:
+    case WebCore::NodeType::ProcessingInstruction:
         return [DOMProcessingInstruction class];
-    case NodeType::Comment:
+    case WebCore::NodeType::Comment:
         return [DOMComment class];
-    case NodeType::Document:
-        if (is<HTMLDocument>(impl))
+    case WebCore::NodeType::Document:
+        if (is<WebCore::HTMLDocument>(impl))
             return [DOMHTMLDocument class];
         return [DOMDocument class];
-    case NodeType::DocumentType:
+    case WebCore::NodeType::DocumentType:
         return [DOMDocumentType class];
-    case NodeType::DocumentFragment:
+    case WebCore::NodeType::DocumentFragment:
         return [DOMDocumentFragment class];
     }
     ASSERT_NOT_REACHED();
     return nil;
 }
 
-id <DOMEventTarget> kit(EventTarget* target)
+id<DOMEventTarget> kit(WebCore::EventTarget* target)
 {
-    // We don't have Objective-C bindings for XMLHttpRequest, LocalDOMWindow, and other non-Node targets.
-    return is<Node>(target) ? kit(downcast<Node>(target)) : nil;
+    // We don't have Objective-C bindings for XMLHttpRequest, LocalDOMWindow, and other non-WebCore::Node targets.
+    return is<WebCore::Node>(target) ? kit(downcast<WebCore::Node>(target)) : nil;
 }
 
 @implementation DOMNode (DOMNodeExtensions)
@@ -308,7 +312,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 #endif
 {
     auto& node = *core(self);
-    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    node.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer)
 #if PLATFORM(IOS_FAMILY)
@@ -335,7 +339,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (WKQuad)absoluteQuadAndInsideFixedPosition:(BOOL *)insideFixed
 {
     auto& node = *core(self);
-    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    node.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer) {
         if (insideFixed)
@@ -343,7 +347,7 @@ id <DOMEventTarget> kit(EventTarget* target)
         return zeroQuad();
     }
 
-    Vector<FloatQuad> quads;
+    Vector<WebCore::FloatQuad> quads;
     bool wasFixed = false;
     renderer->absoluteQuads(quads, &wasFixed);
     if (insideFixed)
@@ -360,7 +364,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (CGRect)boundingBoxUsingTransforms
 {
     auto& node = *core(self);
-    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    node.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer)
         return CGRectZero;
@@ -371,7 +375,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)lineBoxQuads
 {
     auto& node = *core(self);
-    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    node.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
     WebCore::RenderObject *renderer = node.renderer();
     if (!renderer)
         return nil;
@@ -380,10 +384,10 @@ id <DOMEventTarget> kit(EventTarget* target)
     return kit(quads);
 }
 
-- (Element*)_linkElement
+- (WebCore::Element*)_linkElement
 {
     for (auto* node = core(self); node; node = node->parentNode()) {
-        if (auto* element = dynamicDowncast<Element>(*node); element && element->isLink())
+        if (auto* element = dynamicDowncast<WebCore::Element>(*node); element && element->isLink())
             return element;
     }
     return nullptr;
@@ -394,7 +398,7 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto* link = [self _linkElement];
     if (!link)
         return nil;
-    return link->document().completeURL(link->getAttribute(HTMLNames::hrefAttr)).createNSURL().autorelease();
+    return link->document().encodingParseURL(link->getAttribute(WebCore::HTMLNames::hrefAttr)).createNSURL().autorelease();
 }
 
 - (NSString *)hrefTarget
@@ -402,7 +406,7 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto* link = [self _linkElement];
     if (!link)
         return nil;
-    return link->getAttribute(HTMLNames::targetAttr).createNSString().autorelease();
+    return link->getAttribute(WebCore::HTMLNames::targetAttr).createNSString().autorelease();
 }
 
 - (CGRect)hrefFrame
@@ -427,9 +431,9 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSString *)hrefTitle
 {
     auto* link = [self _linkElement];
-    if (!is<HTMLElement>(link))
+    if (!is<WebCore::HTMLElement>(link))
         return nil;
-    return link->document().displayStringModifiedByEncoding(downcast<HTMLElement>(*link).title()).createNSString().autorelease();
+    return link->document().displayStringModifiedByEncoding(downcast<WebCore::HTMLElement>(*link).title()).createNSString().autorelease();
 }
 
 - (CGRect)boundingFrame
@@ -440,20 +444,28 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (WKQuad)innerFrameQuad // takes transforms into account
 {
     auto& node = *core(self);
-    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    node.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer)
         return zeroQuad();
 
-    auto& style = renderer->style();
-    IntRect boundingBox = renderer->absoluteBoundingBoxRect(true /* use transforms*/);
+    CheckedRef style = renderer->style();
 
-    boundingBox.move(WebCore::Style::evaluate<float>(style.usedBorderLeftWidth(), WebCore::Style::ZoomNeeded { }), WebCore::Style::evaluate<float>(style.usedBorderTopWidth(), WebCore::Style::ZoomNeeded { }));
-    boundingBox.setWidth(boundingBox.width() - WebCore::Style::evaluate<float>(style.usedBorderLeftWidth(), WebCore::Style::ZoomNeeded { }) - WebCore::Style::evaluate<float>(style.usedBorderRightWidth(), WebCore::Style::ZoomNeeded { }));
-    boundingBox.setHeight(boundingBox.height() - WebCore::Style::evaluate<float>(style.usedBorderBottomWidth(), WebCore::Style::ZoomNeeded { }) - WebCore::Style::evaluate<float>(style.usedBorderTopWidth(), WebCore::Style::ZoomNeeded { }));
+    auto zoom = style->usedZoomForLength();
+    auto deviceScaleFactor = style->deviceScaleFactor();
+
+    auto borderTop = WebCore::Style::evaluate<float>(style->usedBorderTopWidth(), zoom, deviceScaleFactor);
+    auto borderRight = WebCore::Style::evaluate<float>(style->usedBorderRightWidth(), zoom, deviceScaleFactor);
+    auto borderBottom = WebCore::Style::evaluate<float>(style->usedBorderBottomWidth(), zoom, deviceScaleFactor);
+    auto borderLeft = WebCore::Style::evaluate<float>(style->usedBorderLeftWidth(), zoom, deviceScaleFactor);
+
+    WebCore::IntRect boundingBox = renderer->absoluteBoundingBoxRect(true /* use transforms*/);
+    boundingBox.move(borderLeft, borderTop);
+    boundingBox.setWidth(boundingBox.width() - borderLeft - borderRight);
+    boundingBox.setHeight(boundingBox.height() - borderBottom - borderTop);
 
     // FIXME: This function advertises returning a quad, but it actually returns a bounding box (so there is no rotation, for instance).
-    return wkQuadFromFloatQuad(FloatQuad(boundingBox));
+    return wkQuadFromFloatQuad(WebCore::FloatQuad(boundingBox));
 }
 
 - (float)computedFontSize
@@ -466,7 +478,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 - (DOMNode *)nextFocusNode
 {
-    Page* page = core(self)->document().page();
+    WebCore::Page* page = core(self)->document().page();
     if (!page)
         return nil;
     return kit(page->focusController().nextFocusableElement(*core(self)).element.get());
@@ -474,7 +486,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 - (DOMNode *)previousFocusNode
 {
-    Page* page = core(self)->document().page();
+    WebCore::Page* page = core(self)->document().page();
     if (!page)
         return nil;
     return kit(page->focusController().previousFocusableElement(*core(self)).element.get());
@@ -502,10 +514,10 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)textRects
 {
     auto& node = *core(self);
-    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    node.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
     if (!node.renderer())
         return nil;
-    return createNSArray(RenderObject::absoluteTextRects(makeRangeSelectingNodeContents(node))).autorelease();
+    return createNSArray(WebCore::RenderObject::absoluteTextRects(makeRangeSelectingNodeContents(node))).autorelease();
 }
 
 @end
@@ -514,10 +526,10 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 + (id)_nodeFromJSWrapper:(JSObjectRef)jsWrapper
 {
-    JSObject* object = toJS(jsWrapper);
-    if (!object->inherits<JSNode>())
+    JSC::JSObject* object = toJS(jsWrapper);
+    if (!object->inherits<WebCore::JSNode>())
         return nil;
-    return kit(&jsCast<JSNode*>(object)->wrapped());
+    return kit(&uncheckedDowncast<WebCore::JSNode>(object)->wrapped());
 }
 
 - (void)getPreviewSnapshotImage:(CGImageRef*)cgImage andRects:(NSArray **)rects
@@ -530,18 +542,18 @@ id <DOMEventTarget> kit(EventTarget* target)
 
     auto& node = *core(self);
 
-    constexpr OptionSet<TextIndicatorOption> options {
-        TextIndicatorOption::TightlyFitContent,
-        TextIndicatorOption::RespectTextColor,
-        TextIndicatorOption::PaintBackgrounds,
-        TextIndicatorOption::UseBoundingRectAndPaintAllContentForComplexRanges,
-        TextIndicatorOption::IncludeMarginIfRangeMatchesSelection
+    constexpr OptionSet<WebCore::TextIndicatorOption> options {
+        WebCore::TextIndicatorOption::TightlyFitContent,
+        WebCore::TextIndicatorOption::RespectTextColor,
+        WebCore::TextIndicatorOption::PaintBackgrounds,
+        WebCore::TextIndicatorOption::UseBoundingRectAndPaintAllContentForComplexRanges,
+        WebCore::TextIndicatorOption::IncludeMarginIfRangeMatchesSelection
     };
     const float margin = 4 / node.document().page()->pageScaleFactor();
-    auto textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(node), options, TextIndicatorPresentationTransition::None, FloatSize(margin, margin));
+    auto textIndicator = WebCore::TextIndicator::createWithRange(makeRangeSelectingNodeContents(node), options, WebCore::TextIndicatorPresentationTransition::None, WebCore::FloatSize(margin, margin));
 
     if (textIndicator) {
-        if (Image* image = textIndicator->contentImage()) {
+        if (WebCore::Image* image = textIndicator->contentImage()) {
             auto contentImage = image->nativeImage()->platformImage();
             *cgImage = contentImage.autorelease();
         }
@@ -549,22 +561,22 @@ id <DOMEventTarget> kit(EventTarget* target)
 
     if (!*cgImage) {
         if (auto* renderer = node.renderer()) {
-            FloatRect boundingBox;
+            WebCore::FloatRect boundingBox;
             if (renderer->isRenderImage())
-                boundingBox = downcast<RenderImage>(*renderer).absoluteContentQuad().enclosingBoundingBox();
+                boundingBox = downcast<WebCore::RenderImage>(*renderer).absoluteContentQuad().enclosingBoundingBox();
             else
                 boundingBox = renderer->absoluteBoundingBoxRect();
             boundingBox.inflate(margin);
-            *rects = @[makeNSArrayElement(node.document().frame()->view()->contentsToWindow(enclosingIntRect(boundingBox)))];
+            *rects = @[makeNSArrayElement(node.document().frame()->view()->contentsToWindow(WebCore::enclosingIntRect(boundingBox)))];
         }
         return;
     }
 
-    FloatPoint origin = textIndicator->textBoundingRectInRootViewCoordinates().location();
+    WebCore::FloatPoint origin = textIndicator->textBoundingRectInRootViewCoordinates().location();
     *rects = createNSArray(textIndicator->textRectsInBoundingRectCoordinates(), [&] (CGRect rect) {
         rect.origin.x += origin.x();
         rect.origin.y += origin.y();
-        return makeNSArrayElement(node.document().frame()->view()->contentsToWindow(enclosingIntRect(rect)));
+        return makeNSArrayElement(node.document().frame()->view()->contentsToWindow(WebCore::enclosingIntRect(rect)));
     }).autorelease();
 }
 
@@ -579,8 +591,8 @@ id <DOMEventTarget> kit(EventTarget* target)
 #endif
 {
     auto range = makeSimpleRange(*core(self));
-    range.start.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
-    return unionRect(RenderObject::absoluteTextRects(range));
+    range.start.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
+    return unionRect(WebCore::RenderObject::absoluteTextRects(range));
 }
 
 #if PLATFORM(MAC)
@@ -598,7 +610,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 #if PLATFORM(MAC)
     // iOS uses CGImageRef for drag images, which doesn't support separate logical/physical sizes.
-    IntSize size([renderedImage size]);
+    WebCore::IntSize size([renderedImage size]);
     size.scale(1 / frame->page()->deviceScaleFactor());
     [renderedImage setSize:size];
 #endif
@@ -609,8 +621,8 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)textRects
 {
     auto range = makeSimpleRange(*core(self));
-    range.start.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
-    return createNSArray(RenderObject::absoluteTextRects(range)).autorelease();
+    range.start.document().updateLayout(WebCore::LayoutOptions::IgnorePendingStylesheets);
+    return createNSArray(WebCore::RenderObject::absoluteTextRects(range)).autorelease();
 }
 
 - (NSArray *)lineBoxRects
@@ -631,9 +643,9 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSImage *)image
 {
     auto* renderer = core(self)->renderer();
-    if (!is<RenderImage>(renderer))
+    if (!is<WebCore::RenderImage>(renderer))
         return nil;
-    auto* cachedImage = downcast<RenderImage>(*renderer).cachedImage();
+    auto* cachedImage = downcast<WebCore::RenderImage>(*renderer).cachedImage();
     if (!cachedImage || cachedImage->errorOccurred())
         return nil;
     return cachedImage->imageForRenderer(renderer)->adapter().nsImage();
@@ -650,7 +662,7 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto* renderer = core(self)->renderer();
     if (!renderer)
         return nil;
-    return renderer->style().fontCascade().primaryFont().ctFont();
+    return WebCore::Style::fontCascade(renderer->style()).primaryFont().ctFont();
 }
 
 #if PLATFORM(MAC)
@@ -659,9 +671,9 @@ id <DOMEventTarget> kit(EventTarget* target)
 {
     // FIXME: Could we move this function to WebCore::Element and autogenerate?
     auto* renderer = core(self)->renderer();
-    if (!is<RenderImage>(renderer))
+    if (!is<WebCore::RenderImage>(renderer))
         return nil;
-    auto* cachedImage = downcast<RenderImage>(*renderer).cachedImage();
+    auto* cachedImage = downcast<WebCore::RenderImage>(*renderer).cachedImage();
     if (!cachedImage || cachedImage->errorOccurred())
         return nil;
     return (__bridge NSData *)cachedImage->imageForRenderer(renderer)->adapter().tiffRepresentation();
@@ -672,7 +684,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSURL *)_getURLAttribute:(NSString *)name
 {
     auto& element = *core(self);
-    return element.document().completeURL(element.getAttribute(name)).createNSURL().autorelease();
+    return element.document().encodingParseURL(element.getAttribute(name)).createNSURL().autorelease();
 }
 
 - (BOOL)isFocused
@@ -689,18 +701,18 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 - (BOOL)_mediaQueryMatchesForOrientation:(int)orientation
 {
-    auto& document = static_cast<HTMLLinkElement*>(core(self))->document();
+    auto& document = static_cast<WebCore::HTMLLinkElement*>(core(self))->document();
     auto* frameView = document.frame() ? document.frame()->view() : 0;
     if (!frameView)
         return false;
     int layoutWidth = frameView->layoutWidth();
     int layoutHeight = frameView->layoutHeight();
-    IntSize savedFixedLayoutSize = frameView->fixedLayoutSize();
+    WebCore::IntSize savedFixedLayoutSize = frameView->fixedLayoutSize();
     bool savedUseFixedLayout = frameView->useFixedLayout();
     if ((orientation == WebMediaQueryOrientationPortrait && layoutWidth > layoutHeight) ||
         (orientation == WebMediaQueryOrientationLandscape && layoutWidth < layoutHeight)) {
         // temporarily swap the orientation for the evaluation
-        frameView->setFixedLayoutSize(IntSize(layoutHeight, layoutWidth));
+        frameView->setFixedLayoutSize(WebCore::IntSize(layoutHeight, layoutWidth));
         frameView->setUseFixedLayout(true);
     }
         
@@ -714,7 +726,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 - (BOOL)_mediaQueryMatches
 {
-    return downcast<HTMLLinkElement>(core(self))->mediaAttributeMatches();
+    return downcast<WebCore::HTMLLinkElement>(core(self))->mediaAttributeMatches();
 }
 
 @end
@@ -811,7 +823,7 @@ WebCore::NodeFilter* core(DOMNodeFilter *wrapper)
         raiseTypeErrorException();
     
     auto result = core(self)->acceptNodeRethrowingException(*core(node));
-    return result.type() == CallbackResultType::Success ? result.releaseReturnValue() : NodeFilter::FILTER_REJECT;
+    return result.type() == WebCore::CallbackResultType::Success ? result.releaseReturnValue() : WebCore::NodeFilter::FILTER_REJECT;
 }
 
 @end

@@ -51,6 +51,8 @@ if (window.accessibilityController) {
         var div2 = webArea.childAtIndex(1);
         output += `div2 role: ${div2.role}\n`;
 
+        await waitForFrameGeometryReady();
+
         // Check exact sizes
         output += `div1 width: ${div1.width}\n`;
         output += `div1 height: ${div1.height}\n`;

@@ -26,9 +26,9 @@
 
 #pragma once
 
+#include <WebCore/CSSCustomIdent.h>
 #include <WebCore/CSSValueTypes.h>
 #include <wtf/Vector.h>
-#include <wtf/text/AtomString.h>
 
 #if ENABLE(DARK_MODE_CSS)
 
@@ -38,7 +38,7 @@ namespace CSS {
 // <'color-scheme'> = normal | [ light | dark | <custom-ident> ]+ && only?
 // https://drafts.csswg.org/css-color-adjust/#propdef-color-scheme
 struct ColorScheme {
-    SpaceSeparatedVector<CustomIdentifier> schemes;
+    SpaceSeparatedVector<CustomIdent> schemes;
     std::optional<Keyword::Only> only;
 
     // As an optimization, if `schemes` is empty, that indicates the

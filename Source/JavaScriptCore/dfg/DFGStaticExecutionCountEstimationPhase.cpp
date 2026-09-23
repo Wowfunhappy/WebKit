@@ -94,7 +94,7 @@ public:
     }
 
 private:
-    void applyCounts(BranchTarget& target)
+    void NODELETE applyCounts(BranchTarget& target)
     {
         target.count = target.block->executionCount;
     }

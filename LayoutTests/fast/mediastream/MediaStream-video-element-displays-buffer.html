@@ -50,6 +50,10 @@
         checkPixels(x, y, currentTest ? isPixelGray : isPixelBlack, true)
 
         if (currentTest >= 1) {
+            if (videos[0].srcObject)
+                videos[0].srcObject.getTracks().forEach(t => t.stop());
+            if (videos[1].srcObject)
+                videos[1].srcObject.getTracks().forEach(t => t.stop());
             finishJSTest();
             return;
         }

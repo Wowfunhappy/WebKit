@@ -56,3 +56,6 @@ set(TestRunnerShared_INTERFACE_INCLUDE_DIRECTORIES
 WEBKIT_LIBRARY_DECLARE(TestRunnerShared)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_LIBRARY(TestRunnerShared)
+if (APPLE)
+    set_target_properties(TestRunnerShared PROPERTIES LINKER_LANGUAGE CXX)
+endif ()

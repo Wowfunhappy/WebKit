@@ -24,7 +24,6 @@
 #pragma once
 
 #include <JavaScriptCore/JSCJSValue.h>
-#include <unicode/uchar.h>
 
 namespace JSC {
 

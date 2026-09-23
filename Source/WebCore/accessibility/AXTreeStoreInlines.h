@@ -94,6 +94,17 @@ inline WeakPtr<AXObjectCache> AXTreeStore<T>::axObjectCacheForID(std::optional<A
     return treeID ? liveTreeMap().get(*treeID) : nullptr;
 }
 
+template<typename T>
+inline void AXTreeStore<T>::forEachAXObjectCache(const Function<void(AXObjectCache&)>& function)
+{
+    AX_ASSERT(isMainThread());
+
+    for (auto& weakCache : liveTreeMap().values()) {
+        if (CheckedPtr cache = weakCache.get())
+            function(*cache);
+    }
+}
+
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 template<typename T>
 inline RefPtr<AXIsolatedTree> AXTreeStore<T>::isolatedTreeForID(std::optional<AXTreeID> treeID)

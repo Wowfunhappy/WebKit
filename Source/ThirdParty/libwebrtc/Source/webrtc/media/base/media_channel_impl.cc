@@ -12,11 +12,11 @@
 
 #include <cstdint>
 #include <map>
+#include <span>
 #include <string>
 #include <utility>
 
 #include "absl/functional/any_invocable.h"
-#include "api/array_view.h"
 #include "api/audio_options.h"
 #include "api/call/transport.h"
 #include "api/media_stream_interface.h"
@@ -35,8 +35,8 @@
 
 namespace webrtc {
 
-webrtc::RTCError InvokeSetParametersCallback(SetParametersCallback& callback,
-                                             RTCError error) {
+RTCError InvokeSetParametersCallback(SetParametersCallback& callback,
+                                     RTCError error) {
   if (callback) {
     std::move(callback)(error);
     callback = nullptr;
@@ -190,7 +190,7 @@ MediaChannelUtil::TransportForMediaChannels::TranslatePacketOptions(
 }
 
 bool MediaChannelUtil::TransportForMediaChannels::SendRtcp(
-    ArrayView<const uint8_t> packet,
+    std::span<const uint8_t> packet,
     const PacketOptions& options) {
   auto send = [this, packet = CopyOnWriteBuffer(packet, kMaxRtpPacketLen),
                options]() mutable {
@@ -206,7 +206,7 @@ bool MediaChannelUtil::TransportForMediaChannels::SendRtcp(
 }
 
 bool MediaChannelUtil::TransportForMediaChannels::SendRtp(
-    ArrayView<const uint8_t> packet,
+    std::span<const uint8_t> packet,
     const PacketOptions& options) {
   auto send = [this, packet = CopyOnWriteBuffer(packet, kMaxRtpPacketLen),
                options]() mutable {

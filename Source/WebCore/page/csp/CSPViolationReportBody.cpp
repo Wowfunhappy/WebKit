@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,12 +49,12 @@ CSPViolationReportBody::CSPViolationReportBody(Init&& init)
     , m_sample(WTF::move(init.sample))
     , m_disposition(init.disposition)
     , m_statusCode(init.statusCode)
-    , m_lineNumber(init.lineNumber)
-    , m_columnNumber(init.columnNumber)
+    , m_lineNumber(m_sourceFile.isNull() ? std::nullopt : std::optional<uint64_t>(init.lineNumber))
+    , m_columnNumber(m_sourceFile.isNull() ? std::nullopt : std::optional<uint64_t>(init.columnNumber))
 {
 }
 
-CSPViolationReportBody::CSPViolationReportBody(String&& documentURL, String&& referrer, String&& blockedURL, String&& effectiveDirective, String&& originalPolicy, String&& sourceFile, String&& sample, SecurityPolicyViolationEventDisposition disposition, unsigned short statusCode, uint64_t lineNumber, uint64_t columnNumber)
+CSPViolationReportBody::CSPViolationReportBody(String&& documentURL, String&& referrer, String&& blockedURL, String&& effectiveDirective, String&& originalPolicy, String&& sourceFile, String&& sample, SecurityPolicyViolationEventDisposition disposition, unsigned short statusCode, std::optional<uint64_t> lineNumber, std::optional<uint64_t> columnNumber)
     : m_documentURL(WTF::move(documentURL))
     , m_referrer(WTF::move(referrer))
     , m_blockedURL(WTF::move(blockedURL))
@@ -64,8 +64,8 @@ CSPViolationReportBody::CSPViolationReportBody(String&& documentURL, String&& re
     , m_sample(WTF::move(sample))
     , m_disposition(disposition)
     , m_statusCode(statusCode)
-    , m_lineNumber(lineNumber)
-    , m_columnNumber(columnNumber)
+    , m_lineNumber(m_sourceFile.isNull() ? std::nullopt : std::optional<uint64_t>(lineNumber))
+    , m_columnNumber(m_sourceFile.isNull() ? std::nullopt : std::optional<uint64_t>(columnNumber))
 {
 }
 
@@ -74,7 +74,7 @@ Ref<CSPViolationReportBody> CSPViolationReportBody::create(Init&& init)
     return adoptRef(*new CSPViolationReportBody(WTF::move(init)));
 }
 
-Ref<CSPViolationReportBody> CSPViolationReportBody::create(String&& documentURL, String&& referrer, String&& blockedURL, String&& effectiveDirective, String&& originalPolicy, String&& sourceFile, String&& sample, SecurityPolicyViolationEventDisposition disposition, unsigned short statusCode, uint64_t lineNumber, uint64_t columnNumber)
+Ref<CSPViolationReportBody> CSPViolationReportBody::create(String&& documentURL, String&& referrer, String&& blockedURL, String&& effectiveDirective, String&& originalPolicy, String&& sourceFile, String&& sample, SecurityPolicyViolationEventDisposition disposition, unsigned short statusCode, std::optional<uint64_t> lineNumber, std::optional<uint64_t> columnNumber)
 {
     return adoptRef(*new CSPViolationReportBody(WTF::move(documentURL), WTF::move(referrer), WTF::move(blockedURL), WTF::move(effectiveDirective), WTF::move(originalPolicy), WTF::move(sourceFile), WTF::move(sample), disposition, statusCode, lineNumber, columnNumber));
 }
@@ -113,8 +113,8 @@ Ref<FormData> CSPViolationReportBody::createReportFormDataForViolation(bool uses
         cspReport->setString("sample"_s, sample());
         if (!sourceFile().isNull()) {
             cspReport->setString("sourceFile"_s, sourceFile());
-            cspReport->setInteger("lineNumber"_s, lineNumber());
-            cspReport->setInteger("columnNumber"_s, columnNumber());
+            cspReport->setInteger("lineNumber"_s, lineNumber().value_or(0));
+            cspReport->setInteger("columnNumber"_s, columnNumber().value_or(0));
         }
     } else {
         cspReport->setString("document-uri"_s, documentURL());
@@ -126,8 +126,8 @@ Ref<FormData> CSPViolationReportBody::createReportFormDataForViolation(bool uses
         cspReport->setInteger("status-code"_s, statusCode());
         if (!sourceFile().isNull()) {
             cspReport->setString("source-file"_s, sourceFile());
-            cspReport->setInteger("line-number"_s, lineNumber());
-            cspReport->setInteger("column-number"_s, columnNumber());
+            cspReport->setInteger("line-number"_s, lineNumber().value_or(0));
+            cspReport->setInteger("column-number"_s, columnNumber().value_or(0));
         }
     }
 

@@ -52,7 +52,7 @@ RemoteBufferProxy::~RemoteBufferProxy()
 
 void RemoteBufferProxy::mapAsync(WebCore::WebGPU::MapModeFlags mapModeFlags, WebCore::WebGPU::Size64 offset, std::optional<WebCore::WebGPU::Size64> size, CompletionHandler<void(bool)>&& callback)
 {
-    auto sendResult = sendWithAsyncReply(Messages::RemoteBuffer::MapAsync(mapModeFlags, offset, size), [callback = WTF::move(callback), mapModeFlags, protectedThis = Ref { *this }](auto success) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteBuffer::MapAsync(mapModeFlags, offset, size), [callback = WTF::move(callback), mapModeFlags, protectedThis = protect(*this)](auto success) mutable {
         if (!success)
             return callback(false);
         protectedThis->m_mapModeFlags = mapModeFlags;
@@ -113,6 +113,12 @@ void RemoteBufferProxy::unmap()
 void RemoteBufferProxy::destroy()
 {
     auto sendResult = send(Messages::RemoteBuffer::Destroy());
+    UNUSED_VARIABLE(sendResult);
+}
+
+void RemoteBufferProxy::generateAValidationError()
+{
+    auto sendResult = send(Messages::RemoteBuffer::GenerateAValidationError());
     UNUSED_VARIABLE(sendResult);
 }
 

@@ -33,7 +33,6 @@
 #include "EventNames.h"
 #include "MouseEvent.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "PointerEvent.h"
 #include "PointerID.h"
 #include <wtf/NeverDestroyed.h>

@@ -13,6 +13,9 @@ http/tests/accessibility [ Skip ]
 # ACCELERATED_OVERFLOW_SCROLLING is disabled
 fast/repaint/overflow-scroll-touch-repaint.html [ Skip ]
 
+# Application Manifest is not supported
+webkit.org/b/158205 applicationmanifest/ [ Skip ]
+
 # CONTENT_FILTERING is disabled
 contentfiltering [ Skip ]
 
@@ -162,6 +165,7 @@ http/tests/security/contentSecurityPolicy/video-with-http-url-allowed-by-csp-med
 http/tests/security/mixedContent/insecure-audio-video-in-main-frame-UpgradeMixedContent.html [ Skip ]
 http/wpt/service-workers/media-range-request.html [ Skip ]
 imported/w3c/web-platform-tests/css/selectors/invalidation/media-pseudo-classes-in-has.html [ Skip ]
+imported/w3c/web-platform-tests/css/selectors/invalidation/is-pseudo-containing-sibling-relationship-in-has.html [ Skip ] # Flaky
 imported/w3c/web-platform-tests/css/selectors/media [ Skip ]
 media/audio-data-url.html [ Skip ]
 media/audio-mpeg-supported.html [ Skip ]
@@ -386,11 +390,16 @@ fast/canvas/offscreen-no-script-context-crash.html [ Skip ]
 fast/canvas/offscreen-scaling.html [ Skip ]
 fast/canvas/offscreen-toggle-display.html [ Skip ]
 fast/canvas/offscreen-visibility-change.html [ Skip ]
+fast/canvas/offscreencanvas-in-dedicated-worker-readback.html [ Skip ]
+fast/canvas/offscreencanvas-in-shared-worker-readback.html [ Skip ]
 fast/images/protected-image-queue.html [ Skip ]
+http/wpt/service-workers/offscreencanvas-in-separate-service-worker-process-cpu-fallback.https.html [ Skip ]
+http/wpt/service-workers/offscreencanvas-in-separate-service-worker-process.https.html [ Skip ]
 webgl/2.0.y/conformance/offscreencanvas/context-lost-restored.html [ Skip ]
 webgl/2.0.y/conformance/offscreencanvas/context-lost.html [ Skip ]
 webgl/offscreen-webgl-errors-to-console.html [ Skip ]
 webgl/webgl-worker.html [ Skip ]
+webgl/webgl2-init-missing-fragment-output-components.html [ Skip ]
 
 # Accelerated canvas isn't supported yet
 fast/canvas/canvas-will-read-frequently.html [ Skip ]
@@ -433,6 +442,14 @@ fast/text/user-installed-fonts/shadow-family.html [ Skip ]
 fast/text/user-installed-fonts/shadow-postscript-family.html [ Skip ]
 fast/text/user-installed-fonts/shadow-postscript.html [ Skip ]
 fast/text/user-installed-fonts/shadow.html [ Skip ]
+
+# Relies on local(Helvetica) / local(Helvetica Bold) / local(Helvetica Italic) resolving synchronously
+# to drive a re-entrant CSSFontFace status transition. Helvetica is not installed on Windows by default,
+# so the synchronous local() resolution path that exercises the UAF regression doesn't execute as
+# intended; the test is unreliable on the Windows port (see also fast/css/font-face-multiple-faces.html
+# which is flaky on Windows for the same Helvetica-availability reason). Skip rather than mark as
+# Failure so a potential crash on the Windows font path cannot take down the whole test run.
+fast/text/fontface-setstatus-crash.html [ Skip ]
 
 # testRunner.dumpPolicyDelegateCallbacks is not a function
 loader/navigation-policy/should-open-external-urls [ Skip ]
@@ -699,6 +716,9 @@ http/tests/cache/willsendrequest-returns-null-for-memory-cache-load.html [ Failu
 http/tests/cache/memory-cache-pruning.html [ Pass Timeout ]
 http/tests/cache/disk-cache/disk-cache-media-small.html [ Pass Timeout ]
 
+# Crash
+http/tests/cache/cached-main-resource.html [ Skip ]
+
 # Second link click interrupts current download
 http/tests/download/anchor-load-after-download.html [ Skip ]
 
@@ -752,6 +772,12 @@ http/tests/inspector/network/xhr-response-body.html [ Failure ]
 
 http/tests/inspector/network/intercept-request-main-resource.html [ Skip ] # Timeout
 
+# Cross-origin iframe response-body retrieval relies on Site Isolation (separate
+# WebProcess per origin) and the BackendResourceDataStore IPC path added in
+# 313753@main. The Windows port does not yet support Site Isolation
+# (see http/tests/site-isolation skip below), so these tests cannot pass.
+http/tests/inspector/network/cross-origin-iframe-get-response-body-subresources.html [ Skip ]
+
 http/tests/loading/hidpi-preload-picture-sizes.html [ Failure ]
 http/tests/loading/oauth.html [ Failure ]
 http/tests/loading/post-in-iframe-with-back-navigation.html [ Failure ]
@@ -783,6 +809,7 @@ http/tests/navigation/page-cache-mediakeysession.html [ Skip ] # Failure
 http/tests/navigation/ping-attribute/anchor-ping-and-follow-redirect-when-sending-ping.html [ Skip ] # Failure
 http/tests/navigation/post-frames-goback1-uncached.html [ Skip ] # Failure
 http/tests/navigation/redirect-to-fragment2.html [ Skip ] # Failure
+http/tests/navigation/redirect-to-random-url-versus-memory-cache.html [ Skip ] # Flaky
 http/tests/navigation/error404-basic.html [ Skip ] # Missing
 http/tests/navigation/error404-goback.html [ Skip ] # Missing
 http/tests/navigation/javascriptlink-frames.html [ Skip ] # Missing
@@ -914,6 +941,7 @@ http/tests/security/local-video-poster-from-remote.html [ Skip ] # Failure
 http/tests/security/local-video-source-from-remote.html [ Skip ] # Failure
 http/tests/security/local-video-src-from-remote.html [ Skip ] # Failure
 http/tests/security/module-no-mime-type.html [ Skip ] # Failure
+http/tests/security/no-indexeddb-from-sandbox.html [ Skip ] # Crash
 http/tests/security/sync-xhr-partition.html [ Skip ] # Failure
 http/tests/security/video-cross-origin-accessfailure.html [ Skip ] # Failure
 http/tests/security/video-cross-origin-accesssameorigin.html [ Skip ] # Timeout on Buildbot
@@ -978,6 +1006,10 @@ webkit.org/b/185254 http/tests/xmlhttprequest/onloadend-event-after-sync-request
 webkit.org/b/185254 http/tests/xmlhttprequest/response-access-on-error.html [ DumpJSConsoleLogInStdErr ]
 webkit.org/b/185254 http/tests/xmlhttprequest/state-after-network-error.html [ DumpJSConsoleLogInStdErr ]
 
+# Authorization header is not preserved on same-origin redirects on the Windows curl/Apache port.
+# Same underlying issue as the xmlhttprequest auth tests below (basic-auth-*, cross-origin-authorization, re-login, logout, ...).
+http/tests/fetch/fetch-redirect-same-origin-authorization.html [ Skip ]
+
 http/tests/xmlhttprequest/abort-should-cancel-load.html [ Failure ]
 http/tests/xmlhttprequest/access-control-basic-allow-list-request-headers.html [ Failure ]
 http/tests/xmlhttprequest/basic-auth-default.html [ Failure ]
@@ -1019,7 +1051,6 @@ http/wpt/fetch/response-status-text.html [ Failure Slow ]
 
 http/tests/lists/list-new-parent-no-sibling-append.html [ Failure ]
 
-http/tests/misc/ftp-eplf-directory.py [ Skip ]
 
 http/wpt/fetch/fetch-metadata-websocket.html [ Failure ]
 
@@ -1060,6 +1091,11 @@ http/tests/ssl/curl/certificate-and-authentication.html [ Failure ]
 
 # Needs site isolation drawing implementation
 http/tests/site-isolation [ Skip ]
+
+# Requires Site Isolation (SiteIsolationEnabled, a WebKit2-only feature), which
+# the Windows port does not yet support (see the http/tests/site-isolation skip
+# above). Without it the test crashes the GPU process, so skip it.
+fast/events/site-isolation [ Skip ]
 
 webkit.org/b/68278  http/tests/history/back-with-fragment-change.py [ Failure Pass ]
 
@@ -1215,7 +1251,6 @@ webkit.org/b/185076 css3/color-filters [ Skip ]
 webkit.org/b/188613 intersection-observer [ Skip ]
 webkit.org/b/188613 http/tests/intersection-observer [ Skip ]
 
-css-custom-properties-api/ [ Skip ]
 fast/css-custom-paint/ [ Skip ]
 css-typedom [ Skip ]
 
@@ -1245,6 +1280,9 @@ fast/css/accent-color/text.html [ Pass ]
 
 fast/css/caret-color-with-inherited-color-property.html [ Skip ] # ImageOnlyFailure
 fast/css/caret-color-with-initial-color-property.html [ Skip ] # ImageOnlyFailure
+fast/css/caret-color-inherit.html [ ImageOnlyFailure ]
+fast/css/caret-color-span-inside-editable-parent.html [ ImageOnlyFailure ]
+fast/css/caret-color.html [ ImageOnlyFailure ]
 
 # GPU process hangs. Makes the subsequent test Timeout
 fast/css/repeating-conic-gradient-small-range.html [ Skip ]
@@ -1327,6 +1365,11 @@ webkit.org/b/227753 fast/dom/Window/post-message-large-array-buffer-should-not-c
 fast/editing/recursive-reapply-edit-command-crash.html [ Pass Failure ]
 
 fast/dom/HTMLLinkElement/link-stylesheet-load-once.html [ Failure ]
+# Same root cause as link-stylesheet-load-once above: introduced by 313704@main, which
+# replaced testRunner.dumpResourceLoadCallbacks with a UI-process WKPageResourceLoadClient.
+# The Windows curl-based network stack produces different resource-load callback output
+# (URL formatting / event ordering) than the expected mac-style NSURLRequest output.
+fast/dom/HTMLLinkElement/link-preload-load-once.html [ Failure ]
 fast/dom/Window/window-focus-self.html [ Failure ]
 fast/dom/Window/window-resize-and-move-arguments.html [ Failure ]
 fast/dom/Window/window-resize.html [ Failure ]
@@ -1742,20 +1785,24 @@ fast/canvas/webgl/tex-image-and-sub-image-2d-with-video-rgba5551.html [ Skip ]
 fast/canvas/webgl/tex-image-and-sub-image-2d-with-video.html [ Skip ]
 fast/canvas/webgl/texImage2D-video-flipY-false.html [ Skip ]
 fast/canvas/webgl/texImage2D-video-flipY-true.html [ Skip ]
+webgl/1.0.x/conformance/extensions/oes-texture-float-with-video.html [ Skip ]
+webgl/1.0.x/conformance/extensions/oes-texture-half-float-with-video.html [ Skip ]
+webgl/1.0.x/conformance/textures/image_bitmap_from_video [ Skip ]
+webgl/1.0.x/conformance/textures/misc/texture-npot-video.html [ Skip ]
+webgl/1.0.x/conformance/textures/misc/texture-upload-size.html [ Skip ]
+webgl/1.0.x/conformance/textures/misc/video-rotation.html [ Skip ]
+webgl/1.0.x/conformance/textures/video [ Skip ]
+webgl/2.0.y/conformance/textures/image_bitmap_from_image_bitmap [ Skip ]
 webgl/2.0.y/conformance/textures/image_bitmap_from_video [ Skip ]
-webgl/2.0.y/conformance/textures/video [ Skip ]
-webgl/2.0.0/conformance2/textures/image_bitmap_from_video [ Skip ]
-webgl/2.0.0/conformance2/textures/video [ Skip ]
+webgl/2.0.y/conformance/textures/misc/tex-video-using-tex-unit-non-zero.html [ Skip ]
 webgl/2.0.y/conformance/textures/misc/texture-corner-case-videos.html [ Skip ]
+webgl/2.0.y/conformance/textures/misc/video-rotation.html [ Skip ]
+webgl/2.0.y/conformance/textures/video [ Skip ]
+webgl/2.0.y/conformance2/textures/image_bitmap_from_video [ Skip ]
+webgl/2.0.y/conformance2/textures/video [ Skip ]
+webgl/2.0.y/conformance2/textures/misc/npot-video-sizing.html [ Skip ]
 webgl/pending/conformance/textures/misc/tex-image-video-repeated.html [ Skip ]
 webgl/tex-2d-video-no-change-wrap.html [ Skip ]
-webgl/2.0.y/conformance/textures/misc/tex-video-using-tex-unit-non-zero.html [ Skip ]
-webgl/2.0.y/conformance/textures/misc/video-rotation.html [ Skip ]
-
-webgl/1.0.3 [ Skip ]
-webgl/1.0.x [ Skip ]
-webgl/2.0.y/conformance/textures/image_bitmap_from_image_bitmap [ Skip ]
-webgl/2.0.0/conformance2/textures/image_bitmap_from_image_bitmap [ Skip ]
 
 [ Debug ] webgl/2.0.y/conformance/attribs/gl-vertexattribpointer.html [ Skip ] # Slow
 [ Debug ] webgl/2.0.y/conformance/glsl/bugs/compound-assignment-type-combination.html [ Skip ] # Slow
@@ -1767,14 +1814,13 @@ webgl/2.0.0/conformance2/textures/image_bitmap_from_image_bitmap [ Skip ]
 [ Debug ] webgl/2.0.y/conformance/textures/misc/tex-image-and-sub-image-2d-with-array-buffer-view.html [ Skip ] # Slow
 [ Debug ] webgl/2.0.y/conformance2/glsl3/compound-assignment-type-combination.html [ Skip ] # Slow
 [ Debug ] webgl/2.0.y/conformance2/rendering/blitframebuffer-filter-outofbounds.html [ Skip ] # Slow
-[ Debug ] webgl/2.0.0/conformance2/textures/misc/copy-texture-image-luma-format.html [ Skip ] # Slow
+[ Debug ] webgl/2.0.y/conformance2/textures/misc/copy-texture-image-luma-format.html [ Skip ] # Slow
 
 [ Debug ] fast/canvas/webgl/webgl2-large-getbuffersubdata.html [ Skip ] # Slow
 
 webgl/2.0.y/conformance2/glsl3/fragment-shader-loop-crash.html [ Failure Pass ] # Flake, passes locally
 webgl/2.0.y/conformance2/extensions/required-extensions.html [ Failure Pass ] # Flake, passes locally
 webgl/2.0.y/conformance2/query/occlusion-query.html [ Skip ] # Slow, timeout on buildbot. Passes locally
-webgl/2.0.y/conformance2/transform_feedback/transform_feedback.html [ Skip ] # Slow, timeout on buildbot. Passes locally
 
 # Needs JIT
 webkit.org/b/274059 webgl/2.0.y/conformance/uniforms/uniform-default-values.html [ Skip ] # Timeout
@@ -1795,7 +1841,6 @@ fast/canvas/webgl/texImage2D-mse-flipY-false.html [ Skip ] # Timeout
 fast/canvas/webgl/texImage2D-mse-flipY-true.html [ Skip ] # Timeout
 fast/canvas/webgl/texImage2D-mse-in-dom-flipY-false.html [ Skip ] # Timeout
 fast/canvas/webgl/texImage2D-mse-in-dom-flipY-true.html [ Skip ] # Timeout
-fast/canvas/webgl/webgl-compressed-texture-astc.html [ Failure ]
 fast/canvas/webgl/webgl-compressed-texture-size-limit.html [ Failure ]
 fast/canvas/webgl/webgl-depth-texture.html [ Failure ]
 fast/canvas/webgl/webgl2-texture-upload-enums.html [ Failure ]
@@ -1813,9 +1858,9 @@ webgl/2.0.y/conformance2/glsl3/tricky-loop-conditions.html [ Failure ]
 webgl/2.0.y/conformance2/rendering/blitframebuffer-filter-srgb.html [ Pass Failure ]
 webgl/2.0.y/conformance2/rendering/blitframebuffer-stencil-only.html [ Pass Failure ]
 webgl/2.0.y/conformance2/rendering/fs-color-type-mismatch-color-buffer-type.html [ Failure ]
-webgl/2.0.0/conformance2/state/gl-object-get-calls.html [ Skip ] # Timeout Failure Pass
-webgl/2.0.0/conformance2/textures/misc/tex-image-with-bad-args-from-dom-elements.html [ Skip ] # Timeout
-webgl/2.0.0/conformance2/transform_feedback/transform_feedback.html [ Skip ] # Timeout and flaky
+webgl/2.0.y/conformance2/state/gl-object-get-calls.html [ Skip ] # Timeout Failure Pass
+webgl/2.0.y/conformance2/textures/misc/tex-image-with-bad-args-from-dom-elements.html [ Skip ] # Timeout
+webgl/2.0.y/conformance2/transform_feedback/transform_feedback.html [ Skip ] # Timeout and flaky
 webgl/2.0.y/conformance2/rendering/framebuffer-mismatched-attachment-targets.html [ Failure ]
 webgl/2.0.y/conformance2/rendering/framebuffer-render-to-layer-angle-issue.html [ Failure ]
 
@@ -1835,7 +1880,6 @@ fast/canvas/webgl/context-lost-restored-p3.html [ Failure ]
 
 fast/canvas/webgl/move-canvas-in-document-while-clean.html [ ImageOnlyFailure ]
 
-webgl/2.0.y/conformance2/state/gl-object-get-calls.html [ Skip ] # Timeout
 webgl/many-contexts.html [ Skip ] # Timeout
 webgl/pending/conformance/glsl/misc/swizzle-as-lvalue.html [ Skip ] # Timeout
 
@@ -1848,9 +1892,18 @@ fast/canvas/webgl/webgl-clear-composited-notshowing.html [ Slow ]
 
 fast/canvas/webgl/debug-messages-to-console.html [ Failure Pass ]
 
+webgl/1.0.x/conformance/canvas/to-data-url-test.html [ Failure ]
+webgl/1.0.x/conformance/context/premultiplyalpha-test.html [ Failure ]
+webgl/1.0.x/conformance/textures/misc/png-image-types.html [ Failure ]
+
 webgl/2.0.y/conformance/textures/misc/png-image-types.html [ Failure ]
 webgl/2.0.y/conformance2/glsl3/switch-case.html [ Failure ]
 webgl/2.0.y/conformance2/glsl3/texture-bias.html [ Failure ]
+
+# Relies on Cocoa IOSurface copy-on-write semantics and full OffscreenCanvas+WebGL
+# support, neither of which the Skia-based Windows port has. Fails the same way on
+# glib (which marks it [ Failure ] as well).
+webgl/webgl-modify-after-drawimage.html [ Failure ]
 
 #//////////////////////////////////////////////////////////////////////////////////////////
 # Unknown category
@@ -1889,12 +1942,13 @@ streams/readable-stream-byob-request-worker.html [ Skip ]
 imported/w3c/web-platform-tests/cookiestore [ Skip ]
 imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.tentative.https.html [ Skip ]
 http/tests/cookies/cookie-store-set-secure.https.html [ Skip ]
+cookies/cookie-store-start-listening-for-change-with-null-url-crash.html [ Skip ] # crash
 http/tests/navigation/ping-attribute/anchor-cookie.html [ Skip ]
 http/tests/navigation/ping-attribute/cross-site-url-anchor-cookie-preexisting-cookie.html [ Skip ]
 http/tests/navigation/ping-attribute/cross-site-url-anchor-cookie.html [ Skip ]
 http/tests/resourceLoadStatistics/only-partitioned-cookies-after-redirect.html [ Skip ]
 http/tests/workers/service/basic-install-event-sw-fetch-third-party.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/prefix/__HostHttp.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/prefix/__Host-Http.https.html [ Skip ]
 imported/w3c/web-platform-tests/cookies/prefix/__host.document-cookie.html [ Skip ]
 imported/w3c/web-platform-tests/cookies/prefix/__host.document-cookie.https.html [ Skip ]
 imported/w3c/web-platform-tests/cookies/prefix/__host.header.html [ Skip ]
@@ -1902,6 +1956,7 @@ imported/w3c/web-platform-tests/cookies/prefix/__host.header.https.html [ Skip ]
 imported/w3c/web-platform-tests/cookies/prefix/__secure.document-cookie.html [ Skip ]
 imported/w3c/web-platform-tests/cookies/prefix/__secure.document-cookie.https.html [ Skip ]
 imported/w3c/web-platform-tests/cookies/prefix/__secure.header.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/third-party-cookies/third-party-cookies.tentative.https.html [ Skip ]
 
 # `scrollend` events are not supported on Windows
 webkit.org/b/201556 imported/w3c/web-platform-tests/dom/events/scrolling/scrollend-event-fired-after-sequence-of-scrolls.tentative.html [ Skip ]
@@ -2072,6 +2127,7 @@ fast/images/pdf-in-canvas.html [ Skip ] # Timeout
 fast/images/pixel-crack-image-background-webkit-transform-scale.html [ Skip ] # Failure
 fast/images/sprite-sheet-image-draw.html [ Skip ] # Timeout
 fast/images/imagebitmap-memory.html [ Failure Pass ]
+fast/images/imagemap-focus-ring-zoom-style.html [ ImageOnlyFailure ]
 
 fast/inline [ Skip ]
 fast/invalid [ Skip ]
@@ -2226,8 +2282,6 @@ imported/w3c/web-platform-tests/css/selectors/user-valid.html [ Skip ] # Failure
 imported/w3c/web-platform-tests/css/selectors/open-pseudo.html [ Skip ] # Timeout
 imported/w3c/web-platform-tests/css/selectors/invalidation/open-pseudo-class-in-has.html [ Skip ] # Timeout
 
-imported/w3c/web-platform-tests/css/selectors/invalidation/media-loading-pseudo-classes-in-has.html [ Skip ] # Failure on Buildbot
-
 imported/w3c/web-platform-tests/css/support [ Skip ]
 imported/w3c/web-platform-tests/css/WOFF2 [ Skip ]
 
@@ -2242,7 +2296,6 @@ imported/w3c/web-platform-tests/encoding [ Skip ]
 imported/w3c/web-platform-tests/encrypted-media [ Skip ]
 imported/w3c/web-platform-tests/entries-api [ Skip ]
 imported/w3c/web-platform-tests/eventsource [ Skip ]
-imported/w3c/web-platform-tests/feature-policy [ Skip ]
 imported/w3c/web-platform-tests/fetch [ Skip ]
 imported/w3c/web-platform-tests/fonts [ Skip ]
 imported/w3c/web-platform-tests/fullscreen [ Skip ]
@@ -2303,6 +2356,7 @@ imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-br-eleme
 imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-ruby-element [ Skip ]
 imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-time-element [ Skip ]
 imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-wbr-element [ Skip ]
+imported/w3c/web-platform-tests/html/semantics/text-level-semantics/the-a-element/a-type.historical.html [ Skip ] # timeout
 imported/w3c/web-platform-tests/html/syntax [ Skip ]
 imported/w3c/web-platform-tests/html/the-xhtml-syntax [ Skip ]
 imported/w3c/web-platform-tests/html/user-activation [ Skip ]
@@ -2426,6 +2480,7 @@ fast/canvas/font-family-system-ui-canvas.html [ Skip ] # ImageOnlyFailure
 fast/css-grid-layout/grid-align-baseline-vertical.html [ Failure ]
 fast/dom/call-a-constructor-as-a-function.html [ Failure ]
 fast/dynamic/float-in-trailing-whitespace-after-last-line-break-2.html [ Failure ]
+fast/events/anchor-mouse-focusable-quirk.html [ Skip ] # Cocoa-only quirk
 fast/events/attempt-scroll-with-no-scrollbars.html [ Failure ]
 fast/events/autoscroll-when-input-is-offscreen.html [ Skip ] # UIScript
 fast/events/autoscroll-with-software-keyboard.html [ Skip ] # UIScript
@@ -2444,6 +2499,7 @@ fast/events/keydown-numpad-keys.html [ Failure ]
 fast/events/mouseover-button.html [ Failure ]
 fast/events/mouseup-from-button2.html [ Failure ]
 fast/events/option-tab.html [ Failure ]
+fast/events/popup-blocking-timers3.html [ Skip ] # Crash
 fast/events/popup-blocking-timers5.html [ Pass Failure ]
 fast/events/scroll-in-scaled-page-with-overflow-hidden.html [ Skip ] # Timeout
 fast/events/shadow-event-path-2.html [ Failure ]
@@ -2538,8 +2594,6 @@ fast/css3-text/font-synthesis.html [ ImageOnlyFailure ]
 
 fast/css3-text/css3-text-decoration/text-underline-position/underline-visual-overflow-with-subpixel-position.html [ Failure ]
 
-fast/canvas/toDataURL-alpha-permutation.html [ ImageOnlyFailure ]
-
 fast/dynamic/float-from-empty-line.html [ Failure ]
 
 imported/w3c/web-platform-tests/resource-timing/cross-origin-redirects.html [ Pass Failure ]
@@ -2592,6 +2646,7 @@ compositing/overflow/parent-overflow.html [ Skip ]
 compositing/overflow/remove-overflow-crash2.html [ Skip ]
 compositing/overflow/scrollbar-painting.html [ Skip ]
 compositing/overflow/theme-affects-visual-overflow.html [ Skip ]
+compositing/overflow/absolute-in-overflow.html [ Skip ]
 compositing/reflections/animation-inside-reflection.html [ Skip ]
 compositing/reflections/compositing-change-inside-reflection.html [ Skip ]
 compositing/reflections/deeply-nested-reflections.html [ Skip ]
@@ -3356,6 +3411,7 @@ fast/css/css-imports.html [ Skip ]
 fast/css/css1_forward_compatible_parsing.html [ Skip ]
 fast/css/css3-nth-child.html [ Skip ]
 fast/css/css3-space-in-nth-and-lang.html [ Skip ]
+fast/css/css-anchor-position/anchor-positioned-select-picker.html [ Skip ] # timeout
 fast/css/disabled-author-styles.html [ Skip ]
 fast/css/dynamic-sibling-selector.html [ Skip ]
 fast/css/empty-body-test.html [ Skip ]
@@ -3376,6 +3432,7 @@ fast/css/first-letter-visibility.html [ Skip ]
 fast/css/first-line-text-decoration-inherited-from-parent.html [ Skip ]
 fast/css/first-line-text-decoration.html [ Skip ]
 fast/css/first-of-type-pseudo-class.html [ Skip ]
+fast/css/focus-ring-border-radius-outline-offset.html [ ImageOnlyFailure ]
 fast/css/focus-ring-continuations.html [ Skip ]
 fast/css/focus-ring-detached.html [ Skip ]
 fast/css/focus-ring-exists-for-search-field.html [ Skip ]
@@ -3639,6 +3696,7 @@ fast/flexbox/clear-overflow-before-scroll-update.html [ Skip ]
 fast/gradients/crash-on-zero-radius.html [ Skip ]
 fast/gradients/generated-gradients.html [ Skip ]
 fast/gradients/list-item-gradient.html [ Skip ]
+fast/gradients/oklch-shorter-hue-wrap.html [ Skip ] # webkit.org/b/317853 - Cocoa-only gradient renderer bug
 fast/gradients/radial-centered.html [ Skip ]
 fast/gradients/simple-gradients.html [ Skip ]
 fast/html/crash-marquee-fullscreen.html [ Skip ] # Timeout
@@ -4227,6 +4285,7 @@ compositing/overflow/clipping-behaviour-change-is-not-propagated-to-descendants2
 compositing/overflow/composited-scrolling-paint-phases.html [ Skip ]
 compositing/overflow/content-gains-scrollbars.html [ Skip ]
 compositing/overflow/content-loses-scrollbars.html [ Skip ]
+compositing/overflow/non-contained-descendant-clipping-absolute.html [ Skip ]
 compositing/overflow/overflow-auto-with-touch-toggle.html [ Skip ]
 compositing/overflow/overflow-auto-with-touch.html [ Skip ]
 compositing/overflow/overflow-overlay-with-touch.html [ Skip ]
@@ -4315,6 +4374,10 @@ css3/blending/blend-mode-parent-of-composited-blended-has-layer.html [ Skip ]
 css3/blending/blend-mode-with-accelerated-sibling.html [ Skip ]
 css3/blending/blend-mode-with-composited-descendant-should-have-layer.html [ Skip ]
 css3/filters/backdrop/resource-use-change-size-from-zero.html [ Skip ]
+# Backdrop Root subtree painting fix at 313560@main was only landed in SkiaCompositingLayer
+# (USE(COORDINATED_GRAPHICS) && USE(SKIA)); the Windows WC compositor (USE_GRAPHICS_LAYER_WC)
+# still paints subsequent elements into the Backdrop Root Image, so this ref test fails.
+css3/filters/backdrop/backdrop-blur-and-subsequent-elements.html [ Skip ]
 css3/filters/filtered-compositing-descendant.html [ Skip ]
 
 
@@ -4356,7 +4419,6 @@ fast/text/unicode-range-download.html [ Failure ]
 fast/text/web-font-load-fallback-during-loading-no-multiple.html [ Failure ]
 imported/w3c/web-platform-tests/permissions/all-permissions.html [ Failure ]
 loader/go-back-cached-main-resource.html [ Failure ]
-streams/pipe-to.html [ Failure ]
 
 fast/canvas/canvas-composite-text-alpha.html [ Failure Pass ]
 
@@ -4417,6 +4479,7 @@ fast/html/transient-activation.html [ Skip ]
 fast/html/history-action-user-activation.html [ Skip ]
 
 http/tests/inspector/network/resource-timing.html [ Pass Failure ]
+http/tests/inspector/target/pause-on-inline-debugger-statement.html [ Skip ]
 
 fast/canvas/image-buffer-backend-variants.html [ Skip ]
 
@@ -4453,9 +4516,6 @@ imported/w3c/web-platform-tests/css/selectors/selectors-4/lang-020.html [ Pass ]
 fast/css/bidi-override-in-anonymous-block.html [ Failure ]
 
 fonts/font-cache-memory-pressure-crash.html [ Failure ]
-
-# SFrameTransform isn't supported yet
-streams/writable-stream-create-within-multiple-workers-crash.html [ Skip ]
 
 [ Release ] imported/w3c/web-platform-tests/scroll-animations/css/view-timeline-inset-animation.html [ Pass Failure ]
 imported/w3c/web-platform-tests/scroll-animations/css/view-timeline-lookup.html [ Pass Failure ]
@@ -4513,6 +4573,10 @@ fast/css/highlight-text-repaint.html [ Skip ] # Failure
 fast/css/text-underline-offset-repaint.html [ Skip ] # Failure
 fast/flexbox/missing-repaint-when-flext-item-never-had-layout.html [ Skip ] # Failure
 
+fast/canvas/fillText-edge-clip-shadow.html [ ImageOnlyFailure ]
+fast/canvas/fillText-edge-shadow.html [ ImageOnlyFailure ]
+fast/canvas/fillText-edge-shadow-mix.html [ ImageOnlyFailure ]
+
 webkit.org/b/286284 fast/canvas/canvas-image-shadow.html [ Failure ]
 webkit.org/b/286284 webgl/2.0.y/conformance/canvas/to-data-url-test.html [ Failure ]
 
@@ -4543,6 +4607,7 @@ imported/w3c/web-platform-tests/wasm/core/data.wast.js.html [ Failure Pass ]
 imported/w3c/web-platform-tests/wasm/core/elem.wast.js.html [ Failure Pass ]
 imported/w3c/web-platform-tests/wasm/core/global.wast.js.html [ Failure Pass ]
 imported/w3c/web-platform-tests/wasm/core/unreached-invalid.wast.js.html [ Failure Pass ]
+imported/w3c/web-platform-tests/wasm/core/float_exprs.wast.js.html [ Skip ] # timeout
 # 2) tests timing out on wimpy Windows test machines
 imported/w3c/web-platform-tests/wasm/core/f32.wast.js.html [ Timeout Pass ]
 imported/w3c/web-platform-tests/wasm/core/f32_cmp.wast.js.html [ Timeout Pass ]
@@ -4567,6 +4632,7 @@ imported/w3c/web-platform-tests/speculation-rules/speculation-tags/invalid-tags.
 imported/w3c/web-platform-tests/speculation-rules/speculation-tags/invalid-tags.https.html?tag-level=ruleset&type=prefetch [ Failure ]
 imported/w3c/web-platform-tests/speculation-rules/speculation-tags/valid-tags.https.html?tag-level=rule&type=prefetch [ Failure ]
 imported/w3c/web-platform-tests/speculation-rules/speculation-tags/valid-tags.https.html?tag-level=ruleset&type=prefetch [ Failure ]
+imported/w3c/web-platform-tests/speculation-rules/prefetch/no-http-cache-interference-slow-error.https.html [ Skip ] # timeout
 
 # Lockdown Mode does not apply
 dom/xsl/lockdown-mode [ Skip ]
@@ -4604,6 +4670,8 @@ imported/w3c/web-platform-tests/css/css-mixins/function-attr.html [ Failure ]
 webgl/2.0.y/conformance2/wasm/teximage2d-2gb-in-4gb-wasm-memory.html [ Skip ]
 # Flaky crash due to running out of commit space
 workers/btoa-oom.html [ Skip ]
+
+webgl/2.0.y/conformance2/textures/webgl_canvas/tex-2d-rg16f-rg-half_float.html [ Skip ] # Crash
 
 webkit.org/b/298727 css3/text-decoration/text-decoration-line-spelling-error-1.html [ Skip ]
 webkit.org/b/298727 css3/text-decoration/text-decoration-line-spelling-error-2.html [ Skip ]
@@ -4645,6 +4713,13 @@ imported/w3c/web-platform-tests/css/css-fonts/generic-family-lang-attr-cascade.h
 
 http/tests/security/offscreen-canvas-remote-read-remote-image.html [ Skip ]
 
+http/tests/security/no-javascript-location-percent-escaped.html [ Skip ] # Crash
+http/tests/security/no-javascript-location.html [ Skip ] # Crash
+http/tests/security/no-javascript-refresh-percent-escaped.py [ Skip ] # Crash
+http/tests/security/no-javascript-refresh-spaces.py [ Skip ] # Crash
+
+webkit.org/b/315806 imported/w3c/web-platform-tests/gpc/sec-gpc.https.html [ Pass Failure ] # Flaky harness timeout after serviceworker subtests were added in 314317@main
+
 imported/w3c/web-platform-tests/largest-contentful-paint/broken-image-icon.html [ Skip ] # Flake
 imported/w3c/web-platform-tests/largest-contentful-paint/transparent-text.html [ Skip ] # Flake or perhaps always fails
 imported/w3c/web-platform-tests/largest-contentful-paint/video-play-after-poster.html [ Failure ] # Harness Error The operation is not supported.
@@ -4652,3 +4727,16 @@ imported/w3c/web-platform-tests/largest-contentful-paint/video-play-after-poster
 webkit.org/b/306256 editing/selection/modify-up-on-rtl-wrapping-text.html [ Failure ]
 
 fast/canvas/offscreen-webgl-transfer-after-navigation-crash.html [ Skip ] # Flaky failing test
+
+webkit.org/b/312135 fast/animation/request-video-frame-callback-in-isolated-world-with-javascript-disabled.html [ Timeout ]
+
+webkit.org/b/312924 fast/webcodecs/resetting-audio-decoder-with-zero-size-crash.html [ Skip ]
+
+fast/message-channel/transfer-mediastreamtrack.html [ Skip ]
+
+# Cross-origin isolation (COOP/COEP) is not fully implemented on the Windows port,
+# so SharedArrayBuffer / WebAssembly.Memory{shared:true} is not exposed in
+# cross-origin-isolated contexts. The glib ports skip the same wasm/serialization/memory
+# tests for the same reason (see webkit.org/b/268068).
+imported/w3c/web-platform-tests/wasm/serialization/memory/messageport-via-sharedworker-success.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/window-success.tentative.https.html [ Skip ]

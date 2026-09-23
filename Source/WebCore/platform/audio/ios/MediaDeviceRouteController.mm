@@ -31,10 +31,12 @@
 
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
 
+#import "Logging.h"
 #import "MediaDeviceRoute.h"
 #import "MediaSessionHelperIOS.h"
 #import "MediaStrategy.h"
 #import "PlatformStrategies.h"
+#import <wtf/darwin/DispatchExtras.h>
 #import <WebKitAdditions/MediaDeviceRouteControllerAdditions.mm>
 
 #import <pal/ios/AVRoutingSoftLink.h>

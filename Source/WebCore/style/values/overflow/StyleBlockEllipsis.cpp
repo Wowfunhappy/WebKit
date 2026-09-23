@@ -26,7 +26,7 @@
 #include "config.h"
 #include "StyleBlockEllipsis.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -36,20 +36,19 @@ namespace Style {
 
 auto CSSValueConversion<BlockEllipsis>::operator()(BuilderState& state, const CSSValue& value) -> BlockEllipsis
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::None { };
-
-    switch (primitiveValue->valueID()) {
-    case CSSValueNone:
-        return CSS::Keyword::None { };
-    case CSSValueAuto:
-        return CSS::Keyword::Auto { };
-    default:
-        break;
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
     }
 
-    return AtomString { primitiveValue->stringValue() };
+    return toStyleFromCSSValue<String>(state, value);
 }
 
 } // namespace Style

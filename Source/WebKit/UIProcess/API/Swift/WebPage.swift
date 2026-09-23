@@ -91,7 +91,7 @@ import WebKit_Internal
 /// of PDF or image export, use ``WebPage/exported(as:)``.
 @MainActor
 @Observable
-@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@available(anyAppleOSAndDownlevels 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 #if compiler(>=6.2.3)
@@ -104,7 +104,7 @@ final public class WebPage {
     /// by webpages to apply parts of a style sheet depending on the media properties specified.
     ///
     /// You can customize the media type of a ``WebPage`` by using the ``WebPage/mediaType`` property.
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct CSSMediaType: Hashable, RawRepresentable, Sendable {
@@ -131,7 +131,7 @@ final public class WebPage {
     }
 
     /// The set of possible fullscreen states a webpage may be in.
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public enum FullscreenState: Hashable, Sendable {
@@ -419,6 +419,9 @@ final public class WebPage {
     @ObservationIgnored
     private var indefiniteNavigations: [UUID: AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
 
+    @ObservationIgnored
+    private var editorStateSnapshotsContinuations: [UUID: AsyncStream<EditorStateSnapshot>.Continuation] = [:]
+
     /// Loads the web content that the specified URL references and navigates to that content.
     ///
     /// Use this method to load a page from a local or network-based URL. For example, you might use this method
@@ -674,8 +677,28 @@ final public class WebPage {
     public func setMicrophoneCaptureState(_ state: WKMediaCaptureState) async {
         await backingWebView.setMicrophoneCaptureState(state)
     }
+}
 
-    // MARK: Helper functions
+// MARK: Helper functions
+
+extension WebPage {
+    private struct KeyValueObservations: ~Copyable {
+        var contents: [PartialKeyPath<WebPage>: NSKeyValueObservation] = [:]
+
+        deinit {
+            for (_, observation) in contents {
+                observation.invalidate()
+            }
+        }
+    }
+
+    func addEditorStateUpdate(_ newEditorState: [AnyHashable: Any]) {
+        let snapshot = EditorStateSnapshot(newEditorState)
+
+        for continuation in editorStateSnapshotsContinuations.values {
+            continuation.yield(snapshot)
+        }
+    }
 
     func addNavigationEvent(_ event: Result<NavigationEvent, any Error>, for cocoaNavigation: WKNavigation?) {
         if let cocoaNavigation {
@@ -798,24 +821,105 @@ extension WebPage.FullscreenState {
     }
 }
 
-extension WebPage {
-    private struct KeyValueObservations: ~Copyable {
-        var contents: [PartialKeyPath<WebPage>: NSKeyValueObservation] = [:]
+// MARK: Testing
 
-        deinit {
-            for (_, observation) in contents {
-                observation.invalidate()
-            }
+extension WebPage {
+    /// Represents details about the current editor state.
+    @_spi(Testing)
+    public struct EditorStateSnapshot: Sendable, Equatable {
+        /// The post-layout data associated with an editor state.
+        @_spi(Testing)
+        public struct PostLayoutData: Sendable, Equatable {
+            /// The current selection is bold.
+            @_spi(Testing)
+            public let bold: Bool
+
+            /// The current selection is italic.
+            @_spi(Testing)
+            public let italic: Bool
+
+            /// The current selection is underlined.
+            @_spi(Testing)
+            public let underline: Bool
+
+            /// The text alignment of the current selection.
+            @_spi(Testing)
+            public let textAlignment: NSTextAlignment
+
+            /// The CSS color string of the current selection.
+            @_spi(Testing)
+            public let textColor: Swift.String
         }
-    }
-}
 
-extension WebPage {
+        /// A type of selection.
+        @_spi(Testing)
+        public enum SelectionType: Int, Sendable, Equatable {
+            /// No selection.
+            case none
+
+            /// A caret selection.
+            case caret
+
+            /// A range selection.
+            case range
+        }
+
+        /// The current type of selection.
+        @_spi(Testing)
+        public let selectionType: SelectionType
+
+        /// The post-layout data of the editor state, if any.
+        @_spi(Testing)
+        public let postLayoutData: PostLayoutData?
+    }
+
     // SPI for testing.
     // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @_spi(Testing)
     public func terminateWebContentProcess() {
         backingWebView._killWebContentProcess()
+    }
+
+    /// An indefinite sequence of editor state snapshot changes for this page.
+    @_spi(Testing)
+    public func editorStateSnapshots() -> some AsyncSequence<EditorStateSnapshot, Never> & Sendable {
+        let id = UUID()
+
+        let (stream, continuation) = AsyncStream.makeStream(of: EditorStateSnapshot.self)
+        continuation.onTermination = { [weak self] termination in
+            guard let self else {
+                return
+            }
+            Task { @MainActor in
+                editorStateSnapshotsContinuations[id] = nil
+            }
+        }
+
+        editorStateSnapshotsContinuations[id] = continuation
+        return stream
+    }
+}
+
+extension WebPage.EditorStateSnapshot {
+    init(_ dictionary: [AnyHashable: Any]) {
+        // The Objective-C interface this is converting from is not able to express at compile-time that this is guaranteed.
+        // swift-format-ignore: NeverForceUnwrap
+        self.selectionType = SelectionType(rawValue: dictionary["selection-type"] as! SelectionType.RawValue)!
+
+        guard let postLayoutData = dictionary["post-layout-data"] as? Bool, postLayoutData else {
+            self.postLayoutData = nil
+            return
+        }
+
+        // The Objective-C interface this is converting from is not able to express at compile-time that these are guaranteed.
+        // swift-format-ignore: NeverForceUnwrap
+        self.postLayoutData = .init(
+            bold: dictionary["bold"] as! Bool,
+            italic: dictionary["italic"] as! Bool,
+            underline: dictionary["underline"] as! Bool,
+            textAlignment: NSTextAlignment(rawValue: dictionary["text-alignment"] as! Int)!,
+            textColor: dictionary["text-color"] as! String
+        )
     }
 }
 

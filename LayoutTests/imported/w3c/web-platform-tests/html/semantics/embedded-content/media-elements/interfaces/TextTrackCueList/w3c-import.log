@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/interfaces/TextTrackCueList/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/interfaces/TextTrackCueList/getCueById.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/interfaces/TextTrackCueList/getter.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/interfaces/TextTrackCueList/length.html

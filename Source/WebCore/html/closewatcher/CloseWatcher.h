@@ -29,13 +29,15 @@
 #include <WebCore/ActiveDOMObject.h>
 #include <WebCore/EventTarget.h>
 #include <WebCore/EventTargetInterfaces.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class Document;
 class KeyboardEvent;
+
+enum class RequireHistoryActionActivation : bool { No, Yes };
 
 class CloseWatcher final : public RefCounted<CloseWatcher>, public EventTarget, public ActiveDOMObject {
     WTF_MAKE_TZONE_ALLOCATED(CloseWatcher);
@@ -44,6 +46,7 @@ public:
         RefPtr<AbortSignal> signal;
     };
 
+    static RefPtr<CloseWatcher> create(Document&);
     static ExceptionOr<Ref<CloseWatcher>> create(ScriptExecutionContext&, const Options&);
 
     explicit CloseWatcher(Document&);
@@ -51,9 +54,10 @@ public:
     bool isActive() const { return m_active; }
 
     void requestClose();
-    bool requestToClose();
+    bool requestToClose(RequireHistoryActionActivation);
     void close();
     void destroy();
+    void setEnabled(bool enabled) { m_enabled = enabled; }
 
     ScriptExecutionContext* scriptExecutionContext() const final;
 
@@ -73,12 +77,13 @@ private:
     void derefEventTarget() final { deref(); }
     void eventListenersDidChange() final;
 
-    bool canBeClosed() const;
+    bool enabled() const { return m_enabled; }
 
     bool m_active { true };
     bool m_isRunningCancelAction { false };
     bool m_hasCancelEventListener { false };
     bool m_hasCloseEventListener { false };
+    bool m_enabled { true };
     RefPtr<AbortSignal> m_signal;
     uint32_t m_signalAlgorithm { };
 };

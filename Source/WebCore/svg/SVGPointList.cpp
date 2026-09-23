@@ -47,8 +47,12 @@ bool SVGPointList::parse(StringView value)
                 return false;
 
             auto yPos = parseNumber(buffer, SuffixSkippingPolicy::DontSkip);
-            if (!yPos)
-                return false;
+            if (!yPos) {
+                skipOptionalSVGSpaces(buffer);
+                if (buffer.hasCharactersRemaining())
+                    return false;
+                break;
+            }
 
             skipOptionalSVGSpaces(buffer);
 

@@ -77,7 +77,7 @@ private:
         Ticket ticket;
         RefPtr<Plan> plan;
 
-        void setToNextPriority();
+        void NODELETE setToNextPriority();
     };
 
     static bool isHigherPriority(const QueueElement& left, const QueueElement& right)
@@ -96,7 +96,7 @@ private:
     Vector<Ref<Thread>> m_threads;
 };
 
-Worklist* existingWorklistOrNull();
+Worklist* NODELETE existingWorklistOrNull();
 JS_EXPORT_PRIVATE Worklist& ensureWorklist();
 
 } } // namespace JSC::Wasm

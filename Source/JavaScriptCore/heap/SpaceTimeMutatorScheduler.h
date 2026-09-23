@@ -65,13 +65,13 @@ private:
     class Snapshot;
     friend class Snapshot;
     
-    double bytesAllocatedThisCycleImpl();
+    double NODELETE bytesAllocatedThisCycleImpl();
     
-    double bytesSinceBeginningOfCycle(const Snapshot&);
-    double maxHeadroom();
-    double headroomFullness(const Snapshot&);
-    double mutatorUtilization(const Snapshot&);
-    double collectorUtilization(const Snapshot&);
+    double NODELETE bytesSinceBeginningOfCycle(const Snapshot&);
+    double NODELETE maxHeadroom();
+    double NODELETE headroomFullness(const Snapshot&);
+    double NODELETE mutatorUtilization(const Snapshot&);
+    double NODELETE collectorUtilization(const Snapshot&);
     Seconds elapsedInPeriod(const Snapshot&);
     double phase(const Snapshot&);
     bool shouldBeResumed(const Snapshot&);

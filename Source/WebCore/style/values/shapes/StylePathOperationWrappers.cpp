@@ -26,16 +26,18 @@
 #include "config.h"
 #include "StylePathOperationWrappers.h"
 
+#include "AcceleratedEffectOffsetPath.h"
 #include "CSSBasicShapeValue.h"
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSRayValue.h"
 #include "CSSURLValue.h"
 #include "SVGURIReference.h"
 #include "CSSValueList.h"
 #include "StyleBuilderState.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Logging.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Logging.h"
+#include "StyleKeyword+Serialization.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
@@ -46,9 +48,14 @@ namespace Style {
 
 RefPtr<PathOperation> CSSValueConversion<RefPtr<PathOperation>>::operator()(BuilderState& state, const CSSValue& value, SupportRayPathOperation supportRayPathOperation)
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        ASSERT_UNUSED(primitiveValue, primitiveValue->valueID() == CSSValueNone);
-        return nullptr;
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return nullptr;
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return nullptr;
+        }
     }
 
     if (RefPtr url = dynamicDowncast<CSSURLValue>(value)) {
@@ -89,7 +96,7 @@ RefPtr<PathOperation> CSSValueConversion<RefPtr<PathOperation>>::operator()(Buil
         } else if (RefPtr shape = dynamicDowncast<CSSBasicShapeValue>(singleValue))
             operation = ShapePathOperation::create(toStyle(shape->shape(), state, std::nullopt));
         else
-            referenceBox = fromCSSValue<CSSBoxType>(singleValue);
+            referenceBox = toStyleFromCSSValue<CSSBoxType>(state, singleValue);
         return true;
     };
 
@@ -113,12 +120,12 @@ RefPtr<PathOperation> CSSValueConversion<RefPtr<PathOperation>>::operator()(Buil
     return operation;
 }
 
-Ref<CSSValue> CSSValueCreation<RayPath>::operator()(CSSValuePool&, const RenderStyle& style, const RayPath& path)
+Ref<CSSValue> CSSValueCreation<RayPath>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const RayPath& path)
 {
     return CSSRayValue::create(toCSS(path.ray(), style), path.referenceBox());
 }
 
-Ref<CSSValue> CSSValueCreation<BasicShapePath>::operator()(CSSValuePool& pool, const RenderStyle& style, const BasicShapePath& path, PathConversion conversion)
+Ref<CSSValue> CSSValueCreation<BasicShapePath>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const BasicShapePath& path, PathConversion conversion)
 {
     if (path.referenceBox() == CSSBoxType::BoxMissing)
         return CSSValueList::createSpaceSeparated(createCSSValue(pool, style, path.shape(), conversion));
@@ -127,7 +134,7 @@ Ref<CSSValue> CSSValueCreation<BasicShapePath>::operator()(CSSValuePool& pool, c
 
 // MARK: - Serialization
 
-void Serialize<BasicShapePath>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const BasicShapePath& shape, PathConversion conversion)
+void Serialize<BasicShapePath>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const BasicShapePath& shape, PathConversion conversion)
 {
     if (shape.referenceBox() == CSSBoxType::BoxMissing) {
         serializationForCSS(builder, context, style, shape.shape(), conversion);
@@ -138,6 +145,65 @@ void Serialize<BasicShapePath>::operator()(StringBuilder& builder, const CSS::Se
     builder.append(' ');
     serializationForCSS(builder, context, style, shape.referenceBox());
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+static std::optional<AcceleratedEffectCoordBox> toAcceleratedEffectCoordBox(CSSBoxType boxType)
+{
+    switch (boxType) {
+    case CSSBoxType::BoxMissing:
+        return std::nullopt;
+    case CSSBoxType::MarginBox:
+        return AcceleratedEffectCoordBox::MarginBox;
+    case CSSBoxType::BorderBox:
+        return AcceleratedEffectCoordBox::BorderBox;
+    case CSSBoxType::PaddingBox:
+        return AcceleratedEffectCoordBox::PaddingBox;
+    case CSSBoxType::ContentBox:
+        return AcceleratedEffectCoordBox::ContentBox;
+    case CSSBoxType::FillBox:
+        return AcceleratedEffectCoordBox::FillBox;
+    case CSSBoxType::StrokeBox:
+        return AcceleratedEffectCoordBox::StrokeBox;
+    case CSSBoxType::ViewBox:
+        return AcceleratedEffectCoordBox::ViewBox;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+AcceleratedEffectRayPath Evaluation<RayPath, AcceleratedEffectRayPath>::operator()(const RayPath& value, const TransformOperationData& data, ZoomFactor zoom)
+{
+    return {
+        .ray = evaluate<AcceleratedEffectRayFunction>(value.ray(), data, zoom),
+        .box = toAcceleratedEffectCoordBox(value.referenceBox()),
+    };
+}
+
+AcceleratedEffectReferencePath Evaluation<ReferencePath, AcceleratedEffectReferencePath>::operator()(const ReferencePath& value, const TransformOperationData&, ZoomFactor)
+{
+    return {
+        .url = value.url().resolved,
+        .path = value.path(),
+        .box = toAcceleratedEffectCoordBox(value.referenceBox()),
+    };
+}
+
+AcceleratedEffectBasicShapePath Evaluation<BasicShapePath, AcceleratedEffectBasicShapePath>::operator()(const BasicShapePath& value, const FloatRect& containingBlock, ZoomFactor zoom)
+{
+    return {
+        .basicShape = evaluate<AcceleratedEffectBasicShape>(value.shape(), containingBlock, zoom),
+        .box = toAcceleratedEffectCoordBox(value.referenceBox()),
+    };
+}
+
+AcceleratedEffectBoxPath Evaluation<BoxPath, AcceleratedEffectBoxPath>::operator()(const BoxPath& value, const TransformOperationData&, ZoomFactor)
+{
+    return { .box = *toAcceleratedEffectCoordBox(value.referenceBox()) };
+}
+
+#endif
 
 // MARK: - Logging
 

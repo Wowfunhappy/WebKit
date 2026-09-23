@@ -45,7 +45,6 @@
 #include "HTMLDivElement.h"
 #include "HTMLStyleElement.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "NodeTraversal.h"
 #include "ScriptDisallowedScope.h"
 #include "Text.h"
@@ -54,8 +53,10 @@
 #include "UserAgentParts.h"
 #include "VTTCue.h"
 #include "VTTRegionList.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <limits.h>
 #include <wtf/HexNumber.h>
+#include <wtf/MainThread.h>
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OptionSet.h>
@@ -79,6 +80,8 @@ TextTrackCueBox::TextTrackCueBox(Document& document, TextTrackCue& cue)
     , m_cue(cue)
 {
 }
+
+TextTrackCueBox::~TextTrackCueBox() = default;
 
 void TextTrackCueBox::initialize()
 {
@@ -228,6 +231,8 @@ TextTrackCue::TextTrackCue(Document& document, const MediaTime& start, const Med
 {
 }
 
+TextTrackCue::~TextTrackCue() = default;
+
 void TextTrackCue::didMoveToNewDocument(Document& newDocument)
 {
     ActiveDOMObject::didMoveToNewDocument(newDocument);
@@ -252,7 +257,7 @@ void TextTrackCue::willChange()
     if (++m_processingCueChanges > 1)
         return;
 
-    if (RefPtr track = m_track.get())
+    if (RefPtr track = this->track())
         track->cueWillChange(*this);
 }
 
@@ -264,7 +269,7 @@ void TextTrackCue::didChange(bool affectOrder)
 
     m_displayTreeNeedsUpdate = true;
 
-    if (RefPtr track = m_track.get())
+    if (RefPtr track = this->track())
         track->cueDidChange(*this, affectOrder);
 }
 
@@ -275,6 +280,7 @@ TextTrack* TextTrackCue::track() const
 
 void TextTrackCue::setTrack(TextTrack* track)
 {
+    Locker locker { m_trackLockForGC };
     m_track = track;
 }
 
@@ -303,12 +309,16 @@ void TextTrackCue::setStartTime(const MediaTime& value)
     didChange(true);
 }
 
-void TextTrackCue::setEndTime(double value)
+ExceptionOr<void> TextTrackCue::setEndTime(double value)
 {
+    if (std::isnan(value) || value == -std::numeric_limits<double>::infinity())
+        return Exception { ExceptionCode::TypeError, "The provided value is NaN or negative Infinity"_s };
+
     if (m_endTime.toDouble() == value)
-        return;
+        return { };
 
     setEndTime(MediaTime::createWithDouble(value));
+    return { };
 }
 
 void TextTrackCue::setEndTime(const MediaTime& value)
@@ -345,10 +355,11 @@ void TextTrackCue::setIsActive(bool active)
 
 unsigned TextTrackCue::cueIndex() const
 {
-    ASSERT(m_track && m_track->cuesInternal());
-    if (!m_track)
+    RefPtr track = this->track();
+    ASSERT(track && track->cuesInternal());
+    if (!track)
         return std::numeric_limits<unsigned>::max();
-    RefPtr cuesInternal = m_track->cuesInternal();
+    RefPtr cuesInternal = track->cuesInternal();
     if (!cuesInternal)
         return std::numeric_limits<unsigned>::max();
 
@@ -386,7 +397,7 @@ bool TextTrackCue::isEqual(const TextTrackCue& other, TextTrackCue::CueMatchRule
 bool TextTrackCue::hasEquivalentStartTime(const TextTrackCue& cue) const
 {
     MediaTime startTimeVariance = MediaTime::zeroTime();
-    if (RefPtr track = m_track.get())
+    if (RefPtr track = this->track())
         startTimeVariance = track->startTimeVariance();
     else if (RefPtr track = cue.track())
         startTimeVariance = track->startTimeVariance();
@@ -528,6 +539,16 @@ void TextTrackCue::rebuildDisplayTree()
 
     m_displayTreeNeedsUpdate = false;
 }
+
+template<typename Visitor>
+void TextTrackCue::visitAdditionalChildrenInGCThread(Visitor& visitor)
+{
+    Locker locker { m_trackLockForGC };
+    if (m_track)
+        SUPPRESS_UNCHECKED_ARG addWebCoreOpaqueRoot(visitor, *m_track);
+}
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(TextTrackCue);
 
 } // namespace WebCore
 

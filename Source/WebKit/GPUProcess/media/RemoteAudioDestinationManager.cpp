@@ -272,7 +272,8 @@ void RemoteAudioDestinationManager::createAudioDestination(RemoteAudioDestinatio
 #endif
 
     size_t latency = destination->audioUnitLatency();
-    m_audioDestinations.add(identifier, WTF::move(destination));
+    bool success = m_audioDestinations.add(identifier, WTF::move(destination)).isNewEntry;
+    MESSAGE_CHECK(success, "AudioDestination already cached.");
     completionHandler(latency);
 }
 
@@ -358,5 +359,6 @@ void RemoteAudioDestinationManager::setSceneIdentifier(RemoteAudioDestinationIde
 } // namespace WebKit
 
 #undef MESSAGE_CHECK
+#undef MESSAGE_CHECK_COMPLETION
 
 #endif // ENABLE(GPU_PROCESS) && ENABLE(WEB_AUDIO)

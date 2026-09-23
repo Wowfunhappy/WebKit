@@ -48,6 +48,7 @@
 #include <WebCore/NavigationAction.h>
 #include <WebCore/NavigationIdentifier.h>
 #include <WebCore/NavigationRequester.h>
+#include <WebCore/OriginKeyed.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ResourceLoaderOptions.h>
@@ -90,12 +91,9 @@ struct CustomHeaderFields;
 class FrameLoader;
 class IconLoader;
 class LocalFrame;
-class Page;
 class PreviewConverter;
 class ResourceLoader;
 class FragmentedSharedBuffer;
-class SWClientConnection;
-class SharedBuffer;
 class SubresourceLoader;
 class SubstituteResource;
 class UserContentProvider;
@@ -105,7 +103,6 @@ struct IntegrityPolicy;
 
 enum class ClearSiteDataValue : uint8_t;
 enum class LoadWillContinueInAnotherProcess : bool;
-enum class ShouldContinue;
 enum class ShouldTreatAsContinuingLoad : uint8_t;
 
 using ResourceLoaderMap = HashSet<Ref<ResourceLoader>>;
@@ -282,7 +279,6 @@ public:
 #endif
 
     void scheduleSubstituteResourceLoad(ResourceLoader&, SubstituteResource&);
-    void scheduleCannotShowURLError(ResourceLoader&);
 
     // FrameDestructionObserver.
     WEBCORE_EXPORT void frameDestroyed() final;
@@ -504,6 +500,9 @@ public:
     OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections); }
     std::optional<OptionSet<AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections; }
 
+    void setGlobalPrivacyControlEnabled(std::optional<bool> enabled) { m_globalPrivacyControlEnabled = enabled; }
+    std::optional<bool> globalPrivacyControlEnabled() const { return m_globalPrivacyControlEnabled; }
+
     void setIdempotentModeAutosizingOnlyHonorsPercentages(bool idempotentModeAutosizingOnlyHonorsPercentages) { m_idempotentModeAutosizingOnlyHonorsPercentages = idempotentModeAutosizingOnlyHonorsPercentages; }
     bool idempotentModeAutosizingOnlyHonorsPercentages() const { return m_idempotentModeAutosizingOnlyHonorsPercentages; }
 
@@ -515,6 +514,8 @@ public:
 
     ContentSecurityPolicy* contentSecurityPolicy() const { return m_contentSecurityPolicy.get(); }
     const std::optional<CrossOriginOpenerPolicy>& crossOriginOpenerPolicy() const LIFETIME_BOUND { return m_responseCOOP; }
+    OriginKeyed isOriginKeyedFromUIProcess() const { return m_isOriginKeyedFromUIProcess; }
+    void setIsOriginKeyedFromUIProcess(OriginKeyed value) { m_isOriginKeyedFromUIProcess = value; }
     OptionSet<ClearSiteDataValue> responseClearSiteDataValues() const { return m_responseClearSiteDataValues; }
 
     std::unique_ptr<IntegrityPolicy> integrityPolicy();
@@ -542,7 +543,7 @@ public:
     std::optional<NavigationIdentifier> navigationID() const { return m_navigationID.asOptional(); }
     WEBCORE_EXPORT void NODELETE setNavigationID(NavigationIdentifier);
 
-    bool isInitialAboutBlank() const { return m_isInitialAboutBlank; }
+    IsInitialAboutBlank isInitialAboutBlank() const { return m_isInitialAboutBlank; }
 
     CanTriggerCrossDocumentViewTransition navigationCanTriggerCrossDocumentViewTransition(Document& oldDocument, bool fromBackForwardCache);
     WEBCORE_EXPORT void whenDocumentIsCreated(Function<void(Document*)>&&);
@@ -619,7 +620,7 @@ private:
 
     bool shouldClearContentSecurityPolicyForResponse(const ResourceResponse&) const;
 
-    bool isMultipartReplacingLoad() const;
+    bool NODELETE isMultipartReplacingLoad() const;
     bool isPostOrRedirectAfterPost(const ResourceRequest&, const ResourceResponse&);
 
     bool tryLoadingSubstituteData();
@@ -700,6 +701,7 @@ private:
     Vector<ResourceResponse> m_responses;
 
     std::optional<CrossOriginOpenerPolicy> m_responseCOOP;
+    OriginKeyed m_isOriginKeyedFromUIProcess { OriginKeyed::No };
     OptionSet<ClearSiteDataValue> m_responseClearSiteDataValues;
     
     using SubstituteResourceMap = HashMap<Ref<ResourceLoader>, RefPtr<SubstituteResource>>;
@@ -768,6 +770,7 @@ private:
 
     OptionSet<AdvancedPrivacyProtections> m_advancedPrivacyProtections;
     std::optional<OptionSet<AdvancedPrivacyProtections>> m_originatorAdvancedPrivacyProtections;
+    std::optional<bool> m_globalPrivacyControlEnabled;
     AutoplayPolicy m_autoplayPolicy { AutoplayPolicy::Default };
     OptionSet<AutoplayQuirk> m_allowedAutoplayQuirks;
     PopUpPolicy m_popUpPolicy { PopUpPolicy::Default };
@@ -807,7 +810,7 @@ private:
     bool m_isClientRedirect { false };
     bool m_isLoadingMultipartContent { false };
     bool m_isInFinishedLoadingOfEmptyDocument { false };
-    bool m_isInitialAboutBlank { false };
+    IsInitialAboutBlank m_isInitialAboutBlank { IsInitialAboutBlank::No };
 
     // FIXME: Document::m_processingLoadEvent and DocumentLoader::m_wasOnloadDispatched are roughly the same
     // and should be merged.
@@ -828,6 +831,7 @@ private:
 #endif
 
     bool m_canUseServiceWorkers { true };
+    bool m_prefetchResponseFailed { false };
 
 #if ASSERT_ENABLED
     bool m_hasEverBeenAttached { false };

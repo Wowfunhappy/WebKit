@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 #if USE(CG)
 #include <CoreGraphics/CGImage.h>
 #endif

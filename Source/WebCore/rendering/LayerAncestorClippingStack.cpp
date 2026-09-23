@@ -123,9 +123,9 @@ bool LayerAncestorClippingStack::updateWithClipData(ScrollingCoordinator* scroll
 {
     bool stackChanged = false;
 
-    int clipEntryCount = clipDataStack.size();
-    int stackEntryCount = m_stack.size();
-    for (int i = 0; i < clipEntryCount; ++i) {
+    auto clipEntryCount = clipDataStack.size();
+    auto stackEntryCount = m_stack.size();
+    for (size_t i = 0; i < clipEntryCount; ++i) {
         auto& clipDataEntry = clipDataStack[i];
         
         if (i >= stackEntryCount) {
@@ -149,7 +149,7 @@ bool LayerAncestorClippingStack::updateWithClipData(ScrollingCoordinator* scroll
     }
     
     if (stackEntryCount > clipEntryCount) {
-        for (int i = clipEntryCount; i < stackEntryCount; ++i) {
+        for (auto i = clipEntryCount; i < stackEntryCount; ++i) {
             auto& entry = m_stack[i];
             if (entry.overflowScrollProxyNodeID) {
                 ASSERT(scrollingCoordinator);

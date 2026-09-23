@@ -68,7 +68,7 @@ JSArray* RegExpCachedResult::lastResult(JSGlobalObject* globalObject, JSObject* 
                 ASSERT(!pattern.isEmpty());
                 ASSERT(pattern.length() == 1);
                 // Reify precise m_result.
-                size_t found = input->reverseFind(pattern.characterAt(0));
+                size_t found = input->reverseFind(pattern.codeUnitAt(0));
                 if (found != notFound) {
                     m_result.start = found;
                     m_result.end = found + 1;

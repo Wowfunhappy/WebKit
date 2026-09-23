@@ -77,12 +77,12 @@ public:
 
     sk_sp<Texture> createWrappedTexture(const BackendTexture&, std::string_view label);
 
-    sk_sp<Buffer> findOrCreateNonShareableBuffer(size_t size,
-                                                 BufferType type,
+    sk_sp<Buffer> findOrCreateNonShareableBuffer(size_t,
+                                                 BufferType,
                                                  AccessPattern,
                                                  std::string_view label);
-    sk_sp<Buffer> findOrCreateScratchBuffer(size_t size,
-                                            BufferType type,
+    sk_sp<Buffer> findOrCreateScratchBuffer(size_t,
+                                            BufferType,
                                             AccessPattern,
                                             std::string_view label,
                                             const ResourceCache::ScratchResourceSet& unavailable);
@@ -109,10 +109,12 @@ public:
     }
 
     void freeGpuResources();
-    void purgeResourcesNotUsedSince(StdSteadyClock::time_point purgeTime);
+    void purgeResourcesNotUsedSince(
+            StdSteadyClock::time_point purgeTime,
+            std::optional<std::chrono::microseconds> microsMaxPurgingDur);
     void forceProcessReturnedResources() { fResourceCache->forceProcessReturnedResources(); }
 
-#if defined(GPU_TEST_UTILS)
+#if defined(GPU_TEST_UTILS) || defined(SK_DEBUG)
     ResourceCache* resourceCache() { return fResourceCache.get(); }
     const SharedContext* sharedContext() { return fSharedContext; }
 #endif
@@ -140,8 +142,11 @@ protected:
 
 private:
     virtual sk_sp<ComputePipeline> createComputePipeline(const ComputePipelineDesc&) = 0;
-    virtual sk_sp<Texture> createTexture(SkISize, const TextureInfo&) = 0;
-    virtual sk_sp<Buffer> createBuffer(size_t size, BufferType type, AccessPattern) = 0;
+    virtual sk_sp<Texture> createTexture(SkISize, const TextureInfo&, std::string_view label) = 0;
+    virtual sk_sp<Buffer> createBuffer(size_t,
+                                       BufferType,
+                                       AccessPattern,
+                                       std::string_view label) = 0;
     virtual sk_sp<Sampler> createSampler(const SamplerDesc&) = 0;
 
     sk_sp<Texture> findOrCreateTexture(SkISize dimensions,
@@ -151,14 +156,15 @@ private:
                                        Shareable,
                                        const ResourceCache::ScratchResourceSet* = nullptr);
 
-    sk_sp<Buffer> findOrCreateBuffer(size_t size,
-                                     BufferType type,
+    sk_sp<Buffer> findOrCreateBuffer(size_t,
+                                     BufferType,
                                      AccessPattern,
                                      std::string_view label,
                                      Shareable,
                                      const ResourceCache::ScratchResourceSet* = nullptr);
 
-    virtual sk_sp<Texture> onCreateWrappedTexture(const BackendTexture&) = 0;
+    virtual sk_sp<Texture> onCreateWrappedTexture(const BackendTexture&,
+                                                  std::string_view label) = 0;
 
     virtual BackendTexture onCreateBackendTexture(SkISize dimensions, const TextureInfo&) = 0;
 #ifdef SK_BUILD_FOR_ANDROID
@@ -171,7 +177,9 @@ private:
     virtual void onDeleteBackendTexture(const BackendTexture&) = 0;
 
     virtual void onFreeGpuResources() {}
-    virtual void onPurgeResourcesNotUsedSince(StdSteadyClock::time_point purgeTime) {}
+    virtual void onPurgeResourcesNotUsedSince(
+            StdSteadyClock::time_point purgeTime,
+            std::optional<StdSteadyClock::time_point> quitPurgingTime) {}
 };
 
 } // namespace skgpu::graphite

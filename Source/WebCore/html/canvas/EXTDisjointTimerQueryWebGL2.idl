@@ -33,5 +33,5 @@
   const unsigned long TIMESTAMP_EXT          = 0x8E28;
   const unsigned long GPU_DISJOINT_EXT       = 0x8FBB;
 
-  undefined queryCounterEXT(WebGLQuery query, unsigned long target);
+  [CallWith=CurrentScriptExecutionContext] undefined queryCounterEXT(WebGLQuery query, unsigned long target);
 };

@@ -120,7 +120,7 @@ TEST(TypeCastsCocoa, bridge_id_cast)
     }
 
     @autoreleasepool {
-        auto objectCF = adoptCF(CFStringCreateWithBytes(NULL, (const UInt8*)helloWorldCString, helloWorldCStringLength(), kCFStringEncodingUTF8, false));
+        RetainPtr objectCF = adoptCF(CFStringCreateWithBytes(NULL, (const UInt8*)helloWorldCString, helloWorldCStringLength(), kCFStringEncodingUTF8, false));
         auto objectCFPtr = reinterpret_cast<uintptr_t>(objectCF.get());
         EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectCFPtr));
 
@@ -204,7 +204,7 @@ TEST(TypeCastsCocoa, dynamic_objc_cast)
     }
 
     @autoreleasepool {
-        auto objectNS = adoptNS([[NSString alloc] initWithFormat:@"%s", helloWorldCString]);
+        RetainPtr objectNS = adoptNS([[NSString alloc] initWithFormat:@"%s", helloWorldCString]);
         uintptr_t objectNSPtr;
         AUTORELEASEPOOL_FOR_ARC_DEBUG {
             objectNSPtr = reinterpret_cast<uintptr_t>(objectNS.get());
@@ -226,7 +226,7 @@ TEST(TypeCastsCocoa, dynamic_objc_cast)
     }
 
     @autoreleasepool {
-        auto objectNS = adoptNS([[NSObject alloc] init]);
+        RetainPtr objectNS = adoptNS([[NSObject alloc] init]);
         uintptr_t objectNSPtr;
         AUTORELEASEPOOL_FOR_ARC_DEBUG {
             objectNSPtr = reinterpret_cast<uintptr_t>(objectNS.get());
@@ -297,7 +297,7 @@ TEST(TypeCastsCocoa, dynamic_objc_cast_RetainPtr)
     }
 
     @autoreleasepool {
-        auto object = adoptNS([[NSString alloc] initWithFormat:@"%s", helloWorldCString]);
+        RetainPtr object = adoptNS([[NSString alloc] initWithFormat:@"%s", helloWorldCString]);
         uintptr_t objectPtr;
         AUTORELEASEPOOL_FOR_ARC_DEBUG {
             objectPtr = reinterpret_cast<uintptr_t>(object.get());

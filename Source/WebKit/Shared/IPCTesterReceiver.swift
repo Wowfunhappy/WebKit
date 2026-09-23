@@ -43,7 +43,7 @@ final class IPCTesterReceiver {
     }
 
     func asyncMessage(data: UInt32, completionHandler: CompletionHandlers.IPCTesterReceiver.AsyncMessageCompletionHandler) {
-        callFunction(completionHandler, data + 2)
+        completionHandler.pointee(data + 2)
     }
 }
 

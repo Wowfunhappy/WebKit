@@ -54,8 +54,8 @@
 
         target3.ariaActiveDescendantElement = descendant3;
         descendant3.id = "descendant3-new";
+        axDescendant3 = await waitForElementById("descendant3-new");
         axTarget3 = accessibilityController.accessibleElementById("target3");
-        axDescendant3 = accessibilityController.accessibleElementById("descendant3-new");
         await waitFor(() => {
             selectedChild = axTarget3.selectedChildAtIndex(0);
             return selectedChild && selectedChild.isEqual(axDescendant3);

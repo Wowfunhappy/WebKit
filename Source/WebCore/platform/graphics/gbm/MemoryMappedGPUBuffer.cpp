@@ -39,15 +39,44 @@
 #include <linux/dma-buf.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include <wtf/SafeStrerror.h>
+#include <wtf/Scope.h>
 #include <wtf/StdLibExtras.h>
 
 #if USE(LIBDRM)
 #include <drm_fourcc.h>
-#include <xf86drm.h>
 #endif
 
 namespace WebCore {
+
+// How CPU-side access to the BO is performed. The GPU-sampling export is always
+// gbm_bo_get_fd_for_plane() so Mesa attaches its implicit-sync fence; only the
+// CPU-mapping side varies.
+enum class CPUMappingStrategy : uint8_t {
+    Unsupported,
+    // mmap() the FD returned by gbm_bo_get_fd_for_plane(). Available on Mesa builds
+    // where that FD is RDWR-capable.
+    DmaBufFDMmap,
+    // gbm_bo_map() / gbm_bo_unmap(). Driver-native CPU mapping that does not touch
+    // the kernel dma-buf cache, so the GPU-sampling export's mode flags don't
+    // constrain it. Used as a fallback on Mesa builds where the dma-buf FD is not
+    // PROT_WRITE-mappable (e.g. Mesa 25.02 RPi5).
+    GBMBoMap,
+};
+
+static ASCIILiteral strategyName(CPUMappingStrategy strategy)
+{
+    switch (strategy) {
+    case CPUMappingStrategy::DmaBufFDMmap:
+        return "mmap(gbm_bo_get_fd_for_plane)"_s;
+    case CPUMappingStrategy::GBMBoMap:
+        return "gbm_bo_map()"_s;
+    case CPUMappingStrategy::Unsupported:
+        return "Unavailable"_s;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
 
 MemoryMappedGPUBuffer::MemoryMappedGPUBuffer(const IntSize& size, OptionSet<BufferFlag> flags)
     : m_size(size)
@@ -59,16 +88,110 @@ MemoryMappedGPUBuffer::MemoryMappedGPUBuffer(const IntSize& size, OptionSet<Buff
 MemoryMappedGPUBuffer::~MemoryMappedGPUBuffer()
 {
     unmapIfNeeded();
+
+    if (m_bo)
+        gbm_bo_destroy(m_bo);
+}
+
+static bool probeReadWriteMappability(int fd, size_t length)
+{
+    int flags = fcntl(fd, F_GETFL);
+    if (flags < 0 || (flags & O_ACCMODE) != O_RDWR)
+        return false;
+
+    void* mapped = mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED)
+        return false;
+
+    munmap(mapped, length);
+    return true;
+}
+
+static CPUMappingStrategy runCapabilityProbe()
+{
+    // The probe result is cached for the rest of the session; if we
+    // ran before DRM init, we'd remember Unsupported and silently
+    // disable the MemoryMappedGPUBuffer path on hardware where it works.
+    // Crash instead of hiding the ordering bug, if that happens.
+    auto& manager = WebCore::DRMDeviceManager::singleton();
+    RELEASE_ASSERT_WITH_MESSAGE(manager.isInitialized(), "MemoryMappedGPUBuffer capability probe ran before DRMDeviceManager initialization");
+
+    auto gbmDevice = manager.mainGBMDevice(WebCore::DRMDeviceManager::NodeType::Render);
+    if (!gbmDevice) {
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer capability probe: no GBM render device node");
+        return CPUMappingStrategy::Unsupported;
+    }
+
+    // mmap capability depends on the kernel dma-buf subsystem and the GBM backend, not on
+    // buffer size, format, or modifier -- so the single-plane linear probe generalizes.
+    static constexpr int probeSize = 16;
+    auto createProbeBO = [&]() -> struct gbm_bo* {
+        auto* bo = gbm_bo_create(gbmDevice->device(), probeSize, probeSize, DRM_FORMAT_ARGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
+        if (!bo)
+            RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer capability probe: gbm_bo_create failed: %s", safeStrerror(errno).data());
+        return bo;
+    };
+
+    auto strategy = CPUMappingStrategy::Unsupported;
+
+    if (auto* bo = createProbeBO()) {
+        UnixFileDescriptor fd { gbm_bo_get_fd_for_plane(bo, 0), UnixFileDescriptor::Adopt };
+        if (fd && probeReadWriteMappability(fd.value(), gbm_bo_get_stride_for_plane(bo, 0) * probeSize))
+            strategy = CPUMappingStrategy::DmaBufFDMmap;
+        gbm_bo_destroy(bo);
+    }
+
+    if (strategy == CPUMappingStrategy::Unsupported) {
+        if (auto* bo = createProbeBO()) {
+            uint32_t stride = 0;
+            void* mapData = nullptr;
+            void* mapped = gbm_bo_map(bo, 0, 0, probeSize, probeSize, GBM_BO_TRANSFER_READ_WRITE, &stride, &mapData);
+            if (mapped && mapped != MAP_FAILED) {
+                gbm_bo_unmap(bo, mapData);
+                strategy = CPUMappingStrategy::GBMBoMap;
+            }
+            gbm_bo_destroy(bo);
+        }
+    }
+
+    RELEASE_LOG(GraphicsBuffer, "MemoryMappedGPUBuffer capability probe: strategy=%s", strategyName(strategy).characters());
+    return strategy;
+}
+
+static CPUMappingStrategy cachedCPUMappingStrategy()
+{
+    static const CPUMappingStrategy strategy = runCapabilityProbe();
+    return strategy;
+}
+
+bool MemoryMappedGPUBuffer::isSupported()
+{
+    return cachedCPUMappingStrategy() != CPUMappingStrategy::Unsupported;
+}
+
+ASCIILiteral MemoryMappedGPUBuffer::exportStrategyDescription()
+{
+    return strategyName(cachedCPUMappingStrategy());
 }
 
 std::unique_ptr<MemoryMappedGPUBuffer> MemoryMappedGPUBuffer::create(const IntSize& size, OptionSet<BufferFlag> flags)
 {
+    if (!isSupported())
+        return nullptr;
+
+    // Vivante super-tiled writes need a stable linear mapping at the BO's natural
+    // stride. gbm_bo_map() is allowed to return a staging buffer with its own stride
+    // (typically linearized for tiled BOs), which would silently corrupt the
+    // VivanteSuperTiledTexture writer. Only the dma-buf-mmap path is safe here.
+    RELEASE_ASSERT_WITH_MESSAGE(!flags.contains(BufferFlag::ForceVivanteSuperTiled) || cachedCPUMappingStrategy() == CPUMappingStrategy::DmaBufFDMmap,
+        "ForceVivanteSuperTiled requires the dma-buf-mmap CPU-mapping strategy; gbm_bo_map() may linearize tiled BOs.");
+
     auto& manager = WebCore::DRMDeviceManager::singleton();
     ASSERT(manager.isInitialized());
 
     auto gbmDevice = manager.mainGBMDevice(WebCore::DRMDeviceManager::NodeType::Render);
     if (!gbmDevice) {
-        LOG_ERROR("MemoryMappedGPUBuffer::create(), failed to get GBM render device node");
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer::create(), failed to get GBM render device node");
         return nullptr;
     }
 
@@ -116,24 +239,28 @@ std::unique_ptr<MemoryMappedGPUBuffer> MemoryMappedGPUBuffer::create(const IntSi
     }
 
     if (!bufferFormat.has_value()) {
-        LOG_ERROR("MemoryMappedGPUBuffer::create(), failed to negotiate buffer format");
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer::create(), failed to negotiate buffer format");
         return nullptr;
     }
 
     auto buffer = std::unique_ptr<MemoryMappedGPUBuffer>(new MemoryMappedGPUBuffer(size, flags));
     auto* bo = buffer->allocate(gbmDevice->device(), bufferFormat.value());
     if (!bo) {
-        LOG_ERROR("MemoryMappedGPUBuffer::create(), failed to create GBM buffer of size %dx%d: %s", size.width(), size.height(), safeStrerror(errno).data());
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer::create(), failed to create GBM buffer of size %dx%d: %s", size.width(), size.height(), safeStrerror(errno).data());
         return nullptr;
     }
 
+    // Single prime export, via gbm so Mesa observes it and attaches its implicit-sync
+    // dma_resv fence. Routing this through libdrm directly leaves V3D Gallium without
+    // the fence and pre-draw waits then return EINVAL (or hang waiting for a fence
+    // that never signals).
     if (!buffer->createDMABufFromGBMBufferObject(bo)) {
-        LOG_ERROR("MemoryMappedGPUBuffer::create(), failed to create dma-buf from GBM buffer object");
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer::create(), failed to create dma-buf from GBM buffer object");
         gbm_bo_destroy(bo);
         return nullptr;
     }
 
-    gbm_bo_destroy(bo);
+    buffer->m_bo = bo;
     return buffer;
 }
 
@@ -179,38 +306,15 @@ bool MemoryMappedGPUBuffer::isVivanteSuperTiled() const
 
 bool MemoryMappedGPUBuffer::createDMABufFromGBMBufferObject(struct gbm_bo* bo)
 {
-    Vector<UnixFileDescriptor> fds;
-    Vector<uint32_t> offsets;
-    Vector<uint32_t> strides;
+    auto attributes = DMABufBufferAttributes::fromGBMBufferObject(bo);
+    if (!attributes)
+        return false;
 
-    auto format = gbm_bo_get_format(bo);
-    auto planeCount = gbm_bo_get_plane_count(bo);
-
-    for (int i = 0; i < planeCount; ++i) {
-        if (auto fd = exportGBMBufferObjectAsDMABuf(bo, i))
-            fds.append(WTF::move(fd));
-        else
-            return false;
-        offsets.append(gbm_bo_get_offset(bo, i));
-        strides.append(gbm_bo_get_stride_for_plane(bo, i));
-    }
+    attributes->modifier = m_modifier;
 
     ASSERT(!m_dmaBuf);
-    m_dmaBuf = DMABufBuffer::create(m_size, format, WTF::move(fds), WTF::move(offsets), WTF::move(strides), m_modifier);
+    m_dmaBuf = DMABufBuffer::create(WTF::move(*attributes));
     return true;
-}
-
-int MemoryMappedGPUBuffer::primaryPlaneDmaBufFD() const
-{
-    ASSERT(m_dmaBuf);
-
-    auto& fds = m_dmaBuf->attributes().fds;
-    ASSERT(!fds.isEmpty());
-
-    auto fd = fds[0].value();
-    ASSERT(fd >= 0);
-
-    return fd;
 }
 
 uint32_t MemoryMappedGPUBuffer::primaryPlaneDmaBufStride() const
@@ -225,6 +329,18 @@ uint32_t MemoryMappedGPUBuffer::primaryPlaneDmaBufStride() const
     return stride;
 }
 
+int MemoryMappedGPUBuffer::primaryPlaneDmaBufFD() const
+{
+    ASSERT(m_dmaBuf);
+
+    auto& fds = m_dmaBuf->attributes().fds;
+    ASSERT(!fds.isEmpty());
+
+    auto fd = fds[0].value();
+    ASSERT(fd >= 0);
+    return fd;
+}
+
 bool MemoryMappedGPUBuffer::mapIfNeeded()
 {
     if (isMapped())
@@ -232,14 +348,33 @@ bool MemoryMappedGPUBuffer::mapIfNeeded()
 
     ASSERT(isLinear() || isVivanteSuperTiled());
     m_mappedLength = primaryPlaneDmaBufStride() * m_allocatedSize.height();
-    m_mappedData = mmap(nullptr, m_mappedLength, PROT_READ | PROT_WRITE, MAP_SHARED, primaryPlaneDmaBufFD(), 0);
-    if (m_mappedData == MAP_FAILED) {
-        m_mappedLength = 0;
-        m_mappedData = nullptr;
-        return false;
-    }
 
-    return true;
+    switch (cachedCPUMappingStrategy()) {
+    case CPUMappingStrategy::DmaBufFDMmap:
+        m_mappedData = mmap(nullptr, m_mappedLength, PROT_READ | PROT_WRITE, MAP_SHARED, primaryPlaneDmaBufFD(), 0);
+        if (m_mappedData == MAP_FAILED) {
+            m_mappedLength = 0;
+            m_mappedData = nullptr;
+            return false;
+        }
+        return true;
+    case CPUMappingStrategy::GBMBoMap: {
+        ASSERT(m_bo);
+        uint32_t stride = 0;
+        void* mapData = nullptr;
+        void* mapped = gbm_bo_map(m_bo, 0, 0, m_allocatedSize.width(), m_allocatedSize.height(), GBM_BO_TRANSFER_READ_WRITE, &stride, &mapData);
+        if (!mapped || mapped == MAP_FAILED) {
+            m_mappedLength = 0;
+            return false;
+        }
+        m_mappedData = mapped;
+        m_gbmBoMapData = mapData;
+        return true;
+    }
+    case CPUMappingStrategy::Unsupported:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 void MemoryMappedGPUBuffer::unmapIfNeeded()
@@ -247,7 +382,19 @@ void MemoryMappedGPUBuffer::unmapIfNeeded()
     if (!isMapped())
         return;
 
-    munmap(m_mappedData, m_mappedLength);
+    switch (cachedCPUMappingStrategy()) {
+    case CPUMappingStrategy::DmaBufFDMmap:
+        munmap(m_mappedData, m_mappedLength);
+        break;
+    case CPUMappingStrategy::GBMBoMap:
+        ASSERT(m_bo);
+        gbm_bo_unmap(m_bo, m_gbmBoMapData);
+        m_gbmBoMapData = nullptr;
+        break;
+    case CPUMappingStrategy::Unsupported:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
+
     m_mappedData = nullptr;
     m_mappedLength = 0;
 }
@@ -256,66 +403,12 @@ EGLImage MemoryMappedGPUBuffer::createEGLImageFromDMABuf()
 {
     ASSERT(m_dmaBuf);
 
-    const auto& attributes = m_dmaBuf->attributes();
-    auto planeCount = attributes.fds.size();
-
-    Vector<EGLAttrib> eglAttributes {
-        EGL_WIDTH, static_cast<EGLAttrib>(m_allocatedSize.width()),
-        EGL_HEIGHT, static_cast<EGLAttrib>(m_allocatedSize.height()),
-        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLAttrib>(attributes.fourcc)
-    };
-
-    static constexpr std::array planeAttributeNames = {
-        std::array { EGL_DMA_BUF_PLANE0_FD_EXT, EGL_DMA_BUF_PLANE0_OFFSET_EXT, EGL_DMA_BUF_PLANE0_PITCH_EXT, EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT },
-        std::array { EGL_DMA_BUF_PLANE1_FD_EXT, EGL_DMA_BUF_PLANE1_OFFSET_EXT, EGL_DMA_BUF_PLANE1_PITCH_EXT, EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT },
-        std::array { EGL_DMA_BUF_PLANE2_FD_EXT, EGL_DMA_BUF_PLANE2_OFFSET_EXT, EGL_DMA_BUF_PLANE2_PITCH_EXT, EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT },
-        std::array { EGL_DMA_BUF_PLANE3_FD_EXT, EGL_DMA_BUF_PLANE3_OFFSET_EXT, EGL_DMA_BUF_PLANE3_PITCH_EXT, EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT },
-    };
-
-    for (size_t i = 0; i < planeCount; ++i) {
-        const auto& names = planeAttributeNames[i];
-        std::array<EGLAttrib, 6> planeAttrs {
-            names[0], static_cast<EGLAttrib>(attributes.fds[i].value()),
-            names[1], static_cast<EGLAttrib>(attributes.offsets[i]),
-            names[2], static_cast<EGLAttrib>(attributes.strides[i])
-        };
-        eglAttributes.append(std::span<const EGLAttrib> { planeAttrs });
-
-        if (m_modifier != DRM_FORMAT_MOD_INVALID) {
-            std::array<EGLAttrib, 4> modifierAttrs {
-                names[3], static_cast<EGLAttrib>(m_modifier >> 32),
-                names[4], static_cast<EGLAttrib>(m_modifier & 0xffffffff)
-            };
-            eglAttributes.append(std::span<const EGLAttrib> { modifierAttrs });
-        }
-    }
-
-    eglAttributes.append(EGL_NONE);
-
     auto& display = WebCore::PlatformDisplay::sharedDisplay();
-    auto eglImage = display.createEGLImage(EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, eglAttributes);
+    auto eglImage = m_dmaBuf->createEGLImage(display.glDisplay());
     if (!eglImage)
-        LOG_ERROR("MemoryMappedGPUBuffer::createEGLImageFromDMABuf(), failed to export GBM buffer as EGLImage");
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer::createEGLImageFromDMABuf(), failed to export GBM buffer as EGLImage");
 
     return eglImage;
-}
-
-UnixFileDescriptor MemoryMappedGPUBuffer::exportGBMBufferObjectAsDMABuf(struct gbm_bo* bo, unsigned planeIndex)
-{
-    auto handle = gbm_bo_get_handle_for_plane(bo, planeIndex);
-    if (handle.s32 == -1) {
-        LOG_ERROR("MemoryMappedGPUBuffer::exportGBMBufferObjectAsDMABuf(), failed to obtain gbm handle for plane %u", planeIndex);
-        return { };
-    }
-
-    int fd = 0;
-    int ret = drmPrimeHandleToFD(gbm_device_get_fd(gbm_bo_get_device(bo)), handle.u32, DRM_CLOEXEC | DRM_RDWR, &fd);
-    if (ret < 0) {
-        LOG_ERROR("MemoryMappedGPUBuffer::exportGBMBufferObjectAsDMABuf(), failed to export dma-buf for plane %u", planeIndex);
-        return { };
-    }
-
-    return UnixFileDescriptor { fd, UnixFileDescriptor::Adopt };
 }
 
 void MemoryMappedGPUBuffer::updateContents(AccessScope& scope, const void* srcData, const IntRect& targetRect, unsigned bytesPerLine)
@@ -426,7 +519,7 @@ bool MemoryMappedGPUBuffer::performDMABufSyncSystemCall(OptionSet<DMABufSyncFlag
     } while (result == -1 && (errno == EAGAIN || errno == EINTR) && (counter++) < maxRetries);
 
     if (result < 0) {
-        LOG_ERROR("MemoryMappedGPUBuffer::performDMABufSyncSystemCall(), DMA_BUF_SYNC_IOCTL failed - may result in visual artifacts.");
+        RELEASE_LOG_ERROR(GraphicsBuffer, "MemoryMappedGPUBuffer::performDMABufSyncSystemCall(), DMA_BUF_SYNC_IOCTL failed - may result in visual artifacts.");
         return false;
     }
 

@@ -734,6 +734,11 @@ framework module WebKit_Private [system] {
     export *
   }
 
+  explicit module WKNavigationPrivateForTesting {
+    header "WKNavigationPrivateForTesting.h"
+    export *
+  }
+
   explicit module WKNavigationResponsePrivate {
     header "WKNavigationResponsePrivate.h"
     export *
@@ -884,6 +889,11 @@ framework module WebKit_Private [system] {
     export *
   }
 
+  explicit module WKPageResourceLoadClient {
+    header "WKPageResourceLoadClient.h"
+    export *
+  }
+
   explicit module WKPageUIClient {
     header "WKPageUIClient.h"
     export *
@@ -994,11 +1004,6 @@ framework module WebKit_Private [system] {
     export *
   }
 
-  explicit module WKSpeechRecognitionPermissionCallback {
-    header "WKSpeechRecognitionPermissionCallback.h"
-    export *
-  }
-
   explicit module WKString {
     header "WKString.h"
     export *
@@ -1086,11 +1091,6 @@ framework module WebKit_Private [system] {
 
   explicit module WKUserContentURLPattern {
     header "WKUserContentURLPattern.h"
-    export *
-  }
-
-  explicit module WKUserMediaPermissionCheck {
-    header "WKUserMediaPermissionCheck.h"
     export *
   }
 
@@ -1719,6 +1719,11 @@ framework module WebKit_Private [system] {
     export *
   }
 
+  explicit module _WKAutomationSessionPrivateForTesting {
+    header "_WKAutomationSessionPrivateForTesting.h"
+    export *
+  }
+
   explicit module _WKContentRuleListAction {
     header "_WKContentRuleListAction.h"
     export *
@@ -1994,18 +1999,8 @@ framework module WebKit_Private [system] {
     export *
   }
 
-  explicit module _WKSerializedNode {
-    header "_WKSerializedNode.h"
-    export *
-  }
-
   explicit module _WKSessionState {
     header "_WKSessionState.h"
-    export *
-  }
-
-  explicit module _WKJSBuffer {
-    header "_WKJSBuffer.h"
     export *
   }
 

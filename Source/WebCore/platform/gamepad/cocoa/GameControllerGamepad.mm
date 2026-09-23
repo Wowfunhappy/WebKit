@@ -79,7 +79,8 @@ void GameControllerGamepad::setupElements()
     }
 
     RetainPtr<GCControllerButtonInput> homeButton = profile.get().buttons[GCInputButtonHome];
-    m_buttonValues.resize(homeButton ? numberOfStandardGamepadButtonsWithHomeButton : numberOfStandardGamepadButtonsWithoutHomeButton);
+    bool isExtended = m_gcController.get().extendedGamepad != nil;
+    m_buttonValues.resize((homeButton || isExtended) ? numberOfStandardGamepadButtonsWithHomeButton : numberOfStandardGamepadButtonsWithoutHomeButton);
 
     m_id = makeString(String(m_gcController.get().vendorName), m_gcController.get().extendedGamepad ? " Extended Gamepad"_s : " Gamepad"_s);
 

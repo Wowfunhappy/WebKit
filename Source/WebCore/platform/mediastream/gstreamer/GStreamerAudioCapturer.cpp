@@ -68,12 +68,12 @@ void GStreamerAudioCapturer::setSinkAudioCallback(SinkAudioDataCallback&& callba
 
     m_sinkAudioDataCallback.second = WTF::move(callback);
     m_sinkAudioDataCallback.first.newSampleSignalId = g_signal_connect_swapped(sink(), "new-sample", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
-        auto sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
+        GRefPtr sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
         capturer->handleSample(WTF::move(sample));
         return GST_FLOW_OK;
     }), this);
     m_sinkAudioDataCallback.first.prerollSignalId = g_signal_connect_swapped(sink(), "new-preroll", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
-        auto sample = adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(sink)));
+        GRefPtr sample = adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(sink)));
         capturer->handleSample(WTF::move(sample));
         return GST_FLOW_OK;
     }), this);
@@ -96,9 +96,9 @@ GstElement* GStreamerAudioCapturer::createConverter()
     }
 #endif
 
-    if (auto pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SRC)))
+    if (GRefPtr pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SRC)))
         gst_element_add_pad(GST_ELEMENT_CAST(bin), gst_ghost_pad_new("src", pad.get()));
-    if (auto pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SINK)))
+    if (GRefPtr pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SINK)))
         gst_element_add_pad(GST_ELEMENT_CAST(bin), gst_ghost_pad_new("sink", pad.get()));
 
     return bin;

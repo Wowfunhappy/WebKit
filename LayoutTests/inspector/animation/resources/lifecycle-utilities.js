@@ -35,7 +35,9 @@ function destroyAnimations() {
 
     // Force GC to make sure the animation and it's target are both destroyed, as otherwise the
     // frontend will not receive Animation.animationDestroyed events.
-    setTimeout(() => {
+    // Use requestAnimationFrame to ensure any pending style changes (such as removing a class
+    // that triggers animation cancellation) are fully processed before forcing GC.
+    requestAnimationFrame(() => {
         GCController.collect();
     });
 }

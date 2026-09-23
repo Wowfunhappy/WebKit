@@ -29,6 +29,7 @@
 #include "DisplayRefreshMonitorClient.h"
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 

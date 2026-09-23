@@ -352,7 +352,7 @@ RefPtr<VideoFrame> ImageTransferSessionVT::createVideoFrame(CMSampleBufferRef bu
     return VideoFrameCV::create(sampleBuffer.get(), mirrored, rotation);
 }
 
-RetainPtr<CVPixelBufferRef> ImageTransferSessionVT::convertPixelBuffer(CVPixelBufferRef source, uint32_t targetPixelFormat)
+RetainPtr<CVPixelBufferRef> ImageTransferSessionVT::convertPixelBuffer(CVPixelBufferRef source, uint32_t targetPixelFormat, DestinationColorSpace colorSpace)
 {
     if (!source)
         return nullptr;
@@ -363,6 +363,13 @@ RetainPtr<CVPixelBufferRef> ImageTransferSessionVT::convertPixelBuffer(CVPixelBu
     if (shouldUseIOSurface)
         targetOptions = @{ bridge_cast(kCVPixelBufferIOSurfacePropertiesKey) : @{ } };
     RetainPtr transferSession = createTransferSession(shouldUseIOSurface);
+
+    if (colorSpace == DestinationColorSpace::BT709) {
+        VTSessionSetProperty(transferSession.get(), kVTPixelTransferPropertyKey_DestinationColorPrimaries, kCMFormatDescriptionColorPrimaries_ITU_R_709_2);
+        VTSessionSetProperty(transferSession.get(), kVTPixelTransferPropertyKey_DestinationTransferFunction, kCMFormatDescriptionTransferFunction_ITU_R_709_2);
+        VTSessionSetProperty(transferSession.get(), kVTPixelTransferPropertyKey_DestinationYCbCrMatrix, kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2);
+    }
+
     CVPixelBufferRef rawTarget = nullptr;
     auto status = CVPixelBufferCreate(kCFAllocatorDefault, CVPixelBufferGetWidth(source), CVPixelBufferGetHeight(source), targetPixelFormat, bridge_cast(targetOptions), &rawTarget);
     if (status != kCVReturnSuccess)

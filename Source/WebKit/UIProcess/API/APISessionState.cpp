@@ -38,8 +38,6 @@ SessionState::SessionState(WebKit::SessionState sessionState)
 {
 }
 
-SessionState::~SessionState()
-{
-}
+SessionState::~SessionState() = default;
 
 } // namespace API

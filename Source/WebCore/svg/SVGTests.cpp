@@ -22,7 +22,6 @@
 #include "config.h"
 #include "SVGTests.h"
 
-#include "EventTarget.h"
 #include "HTMLNames.h"
 #include "NodeName.h"
 #include "SVGElement.h"
@@ -30,7 +29,6 @@
 #include "SVGPropertyOwnerRegistry.h"
 #include "SVGStringList.h"
 #include <wtf/Language.h>
-#include <wtf/SortedArrayMap.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(MATHML)
@@ -69,18 +67,50 @@ bool SVGTests::hasExtension(const String& extension)
     return extension == HTMLNames::xhtmlNamespaceURI;
 }
 
+// FIXME: RFC 4647 Basic Filtering with parent language tags can cause cross-script
+// matches (e.g., "zh" matching "zh-Hant" when user prefers "zh-Hans"). Consider
+// Extended Filtering (RFC 4647 3.3.2) for script-aware matching.
+static bool matchesLanguageTag(StringView range, StringView tag)
+{
+    if (range.isEmpty())
+        return false;
+    if (range.length() == tag.length())
+        return equalIgnoringASCIICase(range, tag);
+    return range.length() < tag.length()
+        && tag[range.length()] == '-'
+        && equalIgnoringASCIICase(range, tag.left(range.length()));
+}
+
+// SVG2 5.6.5 implementation note: try the full user language tag, then iteratively
+// strip subtags to synthesize parent language tags (e.g. "zh-Hans-CN" → "zh-Hans" → "zh").
+static bool userLanguageMatchesAnyListedTag(StringView userLanguage, const Vector<String>& listedTags)
+{
+    for (StringView range = userLanguage; !range.isEmpty(); ) {
+        for (auto& listedTag : listedTags) {
+            if (matchesLanguageTag(range, listedTag))
+                return true;
+        }
+        auto hyphenIndex = range.reverseFind('-');
+        if (hyphenIndex == notFound)
+            return false;
+        range = range.left(hyphenIndex);
+    }
+    return false;
+}
+
 bool SVGTests::isValid() const
 {
     auto attributes = conditionalProcessingAttributesIfExists();
     if (!attributes)
         return true;
 
-    String defaultLanguage = WTF::defaultLanguage();
-    auto genericDefaultLanguage = StringView(defaultLanguage).left(2);
-    for (auto& language : attributes->systemLanguage().items()) {
-        if (language != genericDefaultLanguage)
+    auto& systemLanguageList = attributes->systemLanguage().items();
+    if (!systemLanguageList.isEmpty()) {
+        // Match against the same value navigator.language / navigator.languages exposes.
+        if (!userLanguageMatchesAnyListedTag(defaultLanguage(), systemLanguageList))
             return false;
     }
+
     for (auto& extension : attributes->requiredExtensions().items()) {
         if (!hasExtension(extension))
             return false;
@@ -92,10 +122,10 @@ void SVGTests::parseAttribute(const QualifiedName& attributeName, const AtomStri
 {
     switch (attributeName.nodeName()) {
     case AttributeNames::requiredExtensionsAttr:
-        protect(requiredExtensions())->reset(value);
+        protect(requiredExtensions())->setFromSpaceSeparatedTokens(value);
         break;
     case AttributeNames::systemLanguageAttr:
-        protect(systemLanguage())->reset(value);
+        protect(systemLanguage())->setFromCommaSeparatedTokens(value);
         break;
     default:
         break;

@@ -24,16 +24,17 @@
 #include <WebCore/Document.h>
 #include <WebCore/Element.h>
 #include <WebCore/EventLoop.h>
+#include <WebCore/EventTargetInlines.h>
 #include <WebCore/GCReachableRef.h>
 #include <WebCore/InspectorInstrumentationPublic.h>
 #include <WebCore/LayoutRect.h>
 #include <WebCore/Node.h>
 #include <WebCore/NodeDocument.h>
+#include <WebCore/NodeInlinesLight.h>
 #include <WebCore/PseudoElement.h>
 #include <WebCore/RenderBox.h>
 #include <WebCore/ShadowRoot.h>
 #include <WebCore/TreeScopeInlines.h>
-#include <WebCore/WebCoreOpaqueRoot.h>
 
 namespace WebCore {
 
@@ -49,16 +50,6 @@ inline ContainerNode* Node::parentOrShadowHostNode() const
     if (auto* shadowRoot = dynamicDowncast<ShadowRoot>(*this))
         return shadowRoot->host();
     return parentNode();
-}
-
-inline WebCoreOpaqueRoot Node::opaqueRoot() const
-{
-    if (isConnected()) {
-        Locker locker { TreeScope::treeScopeMutationLock() };
-        return WebCoreOpaqueRoot { &treeScope().documentScope() };
-    }
-    // FIXME: Possible race?
-    return traverseToOpaqueRoot();
 }
 
 inline Document* Node::ownerDocument() const
@@ -176,7 +167,7 @@ inline Node& Node::rootNode() const
 {
     if (isInTreeScope())
         return treeScope().rootNode();
-    return traverseToRootNode();
+    return *m_shadowIncludingRoot;
 }
 
 inline void Node::setParentNode(ContainerNode* parent)
@@ -202,9 +193,8 @@ ALWAYS_INLINE void Node::clearStyleFlags(OptionSet<NodeStyleFlag> flags)
 
 inline void Node::clearChildNeedsStyleRecalc()
 {
-    auto bitfields = styleBitfields();
-    bitfields.clearDescendantsNeedStyleResolution();
-    setStyleBitfields(bitfields);
+    clearStateFlag(StateFlag::DescendantNeedsStyleResolution);
+    clearStateFlag(StateFlag::DirectChildNeedsStyleResolution);
 }
 
 inline void Node::setHasValidStyle()
@@ -263,7 +253,7 @@ inline IntRect Node::pixelSnappedAbsoluteBoundingRect(bool* isReplaced)
 }
 
 // Used in Node::addSubresourceAttributeURLs() and in addSubresourceStyleURLs()
-inline void addSubresourceURL(ListHashSet<URL>& urls, const URL& url)
+inline void addSubresourceURL(OrderedHashSet<URL>& urls, const URL& url)
 {
     if (!url.isNull())
         urls.add(url);

@@ -44,9 +44,6 @@ public:
 
     CoreIPCError(NSError *);
     CoreIPCError(String&& domain, int64_t code, std::unique_ptr<CoreIPCError>&& underlyingError, std::optional<Vector<RetainPtr<SecCertificateRef>>>&& clientCertificateChain, std::optional<Vector<RetainPtr<SecCertificateRef>>>&& peerCertificateChain, String&& localizedDescription, String&& localizedFailureReasonError, String&& localizedRecoverySuggestionError, std::optional<Vector<String>>&& localizedRecoveryOptionsError, String&& localizedFailureError, String&& helpAnchorError, String&& debugDescriptionError, RetainPtr<NSNumber>&& stringEncodingError, RetainPtr<SecTrustRef>&& failingURLPeerTrustError, RetainPtr<NSURL>&& urlError, RetainPtr<NSURL>&& failingURLError,
-#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
-        String&& failingURLStringError,
-#endif
         String&& filePathError, String&& networkTaskDescription, String&& networkTaskMetricsPrivacyStance, String&& description)
         : m_domain(WTF::move(domain))
         , m_code(WTF::move(code))
@@ -64,9 +61,6 @@ public:
         , m_failingURLPeerTrustError(WTF::move(failingURLPeerTrustError))
         , m_urlError(WTF::move(urlError))
         , m_failingURLError(WTF::move(failingURLError))
-#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
-        , m_failingURLStringError(WTF::move(failingURLStringError))
-#endif
         , m_filePathError(WTF::move(filePathError))
         , m_networkTaskDescription(WTF::move(networkTaskDescription))
         , m_networkTaskMetricsPrivacyStance(WTF::move(networkTaskMetricsPrivacyStance))
@@ -99,9 +93,6 @@ private:
     RetainPtr<SecTrustRef> m_failingURLPeerTrustError;
     RetainPtr<NSURL> m_urlError;
     RetainPtr<NSURL> m_failingURLError;
-#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
-    String m_failingURLStringError;
-#endif
 
     String m_filePathError;
 

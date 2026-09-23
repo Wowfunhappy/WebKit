@@ -26,7 +26,7 @@
 #include "CSSPropertyParserConsumer+String.h"
 
 #include "CSSParserTokenRange.h"
-#include "CSSPrimitiveValue.h"
+#include "CSSStringValue.h"
 #include "CSSValueKeywords.h"
 #include <wtf/text/StringView.h>
 
@@ -43,11 +43,18 @@ StringView consumeStringRaw(CSSParserTokenRange& range)
     return range.consumeIncludingWhitespace().value();
 }
 
-RefPtr<CSSPrimitiveValue> consumeString(CSSParserTokenRange& range)
+std::optional<CSS::String> consumeUnresolvedString(CSSParserTokenRange& range)
+{
+    if (range.peek().type() != StringToken)
+        return { };
+    return CSS::String { range.consumeIncludingWhitespace().value().toString() };
+}
+
+RefPtr<CSSValue> consumeString(CSSParserTokenRange& range)
 {
     if (range.peek().type() != StringToken)
         return nullptr;
-    return CSSPrimitiveValue::create(range.consumeIncludingWhitespace().value().toString());
+    return CSSStringValue::create(CSS::String { range.consumeIncludingWhitespace().value().toString() });
 }
 
 } // namespace CSSPropertyParserHelpers

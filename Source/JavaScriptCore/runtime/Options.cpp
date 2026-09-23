@@ -40,7 +40,7 @@
 #include <wtf/BitSet.h>
 #include <wtf/Compiler.h>
 #include <wtf/DataLog.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/NumberOfCores.h>
 #include <wtf/StdLibExtras.h>
@@ -114,10 +114,10 @@ public:
     bool operator==(const Option&) const;
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-    ASCIILiteral name() const { return g_constMetaData[m_id].name; }
-    ASCIILiteral description() const { return g_constMetaData[m_id].description; }
-    Options::Type type() const { return g_constMetaData[m_id].type; }
-    Options::Availability availability() const { return g_constMetaData[m_id].availability; }
+    ASCIILiteral NODELETE name() const { return g_constMetaData[m_id].name; }
+    ASCIILiteral NODELETE description() const { return g_constMetaData[m_id].description; }
+    Options::Type NODELETE type() const { return g_constMetaData[m_id].type; }
+    Options::Availability NODELETE availability() const { return g_constMetaData[m_id].availability; }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     Option(Options::ID id, void* addressOfValue)
@@ -169,7 +169,7 @@ static const Option defaultFor(Options::ID id)
     return Option(id, addressOfDefault);
 }
 
-inline static void* addressOfOption(Options::ID id)
+inline static void* NODELETE addressOfOption(Options::ID id)
 {
     auto offset = g_constMetaData[id].offsetOfOption;
     return reinterpret_cast<uint8_t*>(&g_jscConfig.options) + offset;
@@ -182,18 +182,18 @@ static const Option optionFor(Options::ID id)
     return Option(id, addressOfOption(id));
 }
 
-inline static bool hasMetadata()
+inline static bool NODELETE hasMetadata()
 {
     return !!g_metadata.get();
 }
 
-inline static bool wasOverridden(Options::ID id)
+inline static bool NODELETE wasOverridden(Options::ID id)
 {
     ASSERT(id < NumberOfOptions);
     return g_optionWasOverridden->get(id);
 }
 
-inline static void setWasOverridden(Options::ID id)
+inline static void NODELETE setWasOverridden(Options::ID id)
 {
     ASSERT(id < NumberOfOptions);
     g_optionWasOverridden->set(id);
@@ -318,7 +318,7 @@ std::optional<OptionsStorage::OSLogType> parse(const char* string)
 }
 
 #if OS(DARWIN)
-static os_log_type_t asDarwinOSLogType(OSLogType type)
+static os_log_type_t NODELETE asDarwinOSLogType(OSLogType type)
 {
     switch (type) {
     case OSLogType::None:
@@ -582,7 +582,31 @@ static void overrideDefaults()
     }
 
 #if OS(DARWIN) && CPU(ARM64)
-    Options::numberOfGCMarkers() = std::min<unsigned>(4, kernTCSMAwareNumberOfProcessorCores());
+    {
+        // Example topologies.
+        //                P0       P1       GC
+        // M1       :      4        4        6
+        // M1 Pro   :      6        2        6
+        // M1 Max   :      8        2        7
+        // M1 Ultra :     16        4        7
+        // M4       :    3-4      4-6      6-7
+        // M4 Pro   :   8-10        4        7
+        // M4 Max   :  10-12        4        7
+        // M5       :    3-4        6        7
+        // M5 Pro   :    5-6    10-12        7
+        // M5 Max   :      6       12        7
+        // A18      :      2        4        4
+        unsigned p0 = hwNumberOfP0Cores();
+        unsigned p1 = hwNumberOfP1Cores();
+        unsigned gcMarkers = 0;
+        if (p0 < 3)
+            gcMarkers = std::min<unsigned>(4, kernTCSMAwareNumberOfProcessorCores());
+        else if ((p0 + p1) < 9)
+            gcMarkers = std::min<unsigned>(6, kernTCSMAwareNumberOfProcessorCores());
+        else
+            gcMarkers = std::min<unsigned>(7, kernTCSMAwareNumberOfProcessorCores());
+        Options::numberOfGCMarkers() = gcMarkers;
+    }
 
     Options::minNumberOfWorklistThreads() = 1;
     Options::maxNumberOfWorklistThreads() = std::min<unsigned>(4, kernTCSMAwareNumberOfProcessorCores());
@@ -594,6 +618,18 @@ static void overrideDefaults()
     Options::worklistDFGLoadWeight() = 5;
     // Set the FTL load weight equal to the load-factor so that a new thread is started for each FTL plan
     Options::worklistFTLLoadWeight() = 20;
+#endif
+
+#if PLATFORM(MAC) && CPU(ARM64)
+    // JIT compilation can contribute to thermal load on low P-core count Apple silicon Macs.
+    constexpr int32_t maxP0CoresForThresholdScaling = 2;
+    if (hwNumberOfP0Cores() <= maxP0CoresForThresholdScaling) {
+        Options::thresholdForOptimizeAfterWarmUp() *= Options::dfgThresholdScaleForLowP0Cores();
+        Options::thresholdForOptimizeAfterLongWarmUp() *= Options::dfgThresholdScaleForLowP0Cores();
+        Options::thresholdForOptimizeSoon() *= Options::dfgThresholdScaleForLowP0Cores();
+        Options::thresholdForFTLOptimizeAfterWarmUp() *= Options::ftlThresholdScaleForLowP0Cores();
+        Options::thresholdForFTLOptimizeSoon() *= Options::ftlThresholdScaleForLowP0Cores();
+    }
 #endif
 
 #if OS(LINUX) && CPU(ARM)
@@ -655,7 +691,7 @@ void Options::setAllJITCodeValidations(bool value)
     Options::useJITAsserts() = value;
 }
 
-static inline void disableAllWasmJITOptions()
+static inline void NODELETE disableAllWasmJITOptions()
 {
 #if ENABLE(WEBASSEMBLY)
     // This really only makes sense if could use wasm, otherwise we should not override this.
@@ -671,7 +707,7 @@ static inline void disableAllWasmJITOptions()
     Options::dumpOMGDisassembly() = false;
 }
 
-static inline void disableAllWasmOptions()
+static inline void NODELETE disableAllWasmOptions()
 {
     disableAllWasmJITOptions();
 
@@ -689,7 +725,7 @@ static inline void disableAllWasmOptions()
     Options::useWasmTailCalls() = false;
 }
 
-static inline void disableAllJITOptions()
+static inline void NODELETE disableAllJITOptions()
 {
 #if ENABLE(WEBASSEMBLY)
     // This really only makes sense if could use wasm, otherwise we should not override this.
@@ -718,7 +754,7 @@ static inline void disableAllJITOptions()
 }
 
 #if OS(DARWIN)
-static void disableAllSignalHandlerBasedOptions()
+static void NODELETE disableAllSignalHandlerBasedOptions()
 {
     Options::usePollingTraps() = true;
     Options::useSharedArrayBuffer() = false;
@@ -1045,7 +1081,7 @@ void Options::initializeWithOptionsCustomization(const ScopedLambda<void()>& opt
             RELEASE_ASSERT(OptionsHelper::addressOfOption(gcMaxHeapSizeID) ==  &Options::gcMaxHeapSize());
             RELEASE_ASSERT(OptionsHelper::addressOfOption(forceOSRExitToLLIntID) ==  &Options::forceOSRExitToLLInt());
 
-#if ENABLE(JSC_RESTRICTED_OPTIONS_BY_DEFAULT)
+#if defined(ENGINEERING_BUILD) && ENGINEERING_BUILD
             Config::enableRestrictedOptions();
 #endif
 
@@ -1142,7 +1178,7 @@ void Options::finalize()
     OptionsHelper::releaseMetadata();
 }
 
-static bool isSeparator(char c)
+static bool NODELETE isSeparator(char c)
 {
     return isUnicodeCompatibleASCIIWhitespace(c) || (c == ',');
 }
@@ -1398,10 +1434,6 @@ void Options::assertOptionsAreCoherent()
         coherent = false;
         dataLog("INCOHERENT OPTIONS: at least one of useWasmIPInt, or useBBQJIT must be true\n");
     }
-    if (useWasmIPIntSIMD() && useWasmRelaxedSIMD()) {
-        coherent = false;
-        dataLog("INCOHERENT OPTIONS: useWasmIPIntSIMD and useWasmRelaxedSIMD cannot both be enabled (relaxed SIMD opcodes 0x100-0x10c are not yet supported in IPInt)\n");
-    }
     if (useProfiler() && useConcurrentJIT()) {
         coherent = false;
         dataLogLn("Bytecode profiler is not concurrent JIT safe.");
@@ -1525,10 +1557,10 @@ SUPPRESS_ASAN bool canUseJITCage()
     return JSC_JIT_CAGE_VERSION() && !ASAN_ENABLED && WTF::processHasEntitlement("com.apple.private.verified-jit"_s);
 }
 #else
-bool canUseJITCage() { return false; }
+bool NODELETE canUseJITCage() { return false; }
 #endif
 
-bool canUseWasm()
+bool NODELETE canUseWasm()
 {
 #if ENABLE(WEBASSEMBLY) && !PLATFORM(WATCHOS)
     return true;
@@ -1537,7 +1569,7 @@ bool canUseWasm()
 #endif
 }
 
-bool hasCapacityToUseLargeGigacage()
+bool NODELETE hasCapacityToUseLargeGigacage()
 {
     // Gigacage::hasCapacityToUseLargeGigacage is determined based on EFFECTIVE_ADDRESS_WIDTH.
     // If we have enough address range to potentially use a large gigacage,

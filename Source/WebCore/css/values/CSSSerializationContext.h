@@ -35,11 +35,11 @@ namespace CSS {
 
 struct SerializationContext {
     SerializationContext();
-    SerializationContext(HashMap<String, String>&&, HashMap<Ref<CSSStyleSheet>, String>&&, bool);
+    SerializationContext(HashMap<WTF::String, WTF::String>&&, HashMap<Ref<CSSStyleSheet>, WTF::String>&&, bool);
     ~SerializationContext();
 
-    HashMap<String, String> replacementURLStrings;
-    HashMap<Ref<CSSStyleSheet>, String> replacementURLStringsForCSSStyleSheet;
+    HashMap<WTF::String, WTF::String> replacementURLStrings;
+    HashMap<Ref<CSSStyleSheet>, WTF::String> replacementURLStringsForCSSStyleSheet;
     bool shouldUseResolvedURLInCSSText = false;
 };
 

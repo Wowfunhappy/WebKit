@@ -28,6 +28,7 @@
 #include "config.h"
 #include "SVGRenderSupport.h"
 
+#include "DashArray.h"
 #include "ElementAncestorIteratorInlines.h"
 #include "LegacyRenderSVGForeignObject.h"
 #include "LegacyRenderSVGImage.h"
@@ -54,13 +55,13 @@
 #include "RenderSVGRoot.h"
 #include "RenderSVGShapeInlines.h"
 #include "RenderSVGText.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGClipPathElement.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGGeometryElement.h"
 #include "SVGResources.h"
 #include "SVGResourcesCache.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TransformOperationData.h"
 #include "TransformState.h"
 #include "VisibleRectContext.h"
@@ -87,8 +88,10 @@ std::optional<FloatRect> SVGRenderSupport::computeFloatVisibleRectInContainer(co
     if (!is<SVGElement>(parent.element()))
         return FloatRect();
 
+    CheckedRef style = renderer.style();
+
     FloatRect adjustedRect = rect;
-    adjustedRect.inflate(Style::evaluate<float>(renderer.style().usedOutlineWidth(), Style::ZoomNeeded { }));
+    adjustedRect.inflate(style->usedOutlineSize(style->usedZoomForLength(), style->deviceScaleFactor()));
 
     // Translate to coords in our parent renderer, and then call computeFloatVisibleRectInContainer() on our parent.
     adjustedRect = renderer.localToParentTransform().mapRect(adjustedRect);
@@ -121,7 +124,7 @@ void SVGRenderSupport::mapLocalToContainer(const RenderElement& renderer, const 
 
     transformState.applyTransform(transform);
 
-    OptionSet<MapCoordinatesMode> mode = UseTransforms;
+    OptionSet<MapCoordinatesMode> mode = MapCoordinatesMode::UseTransforms;
     parent.mapLocalToContainer(ancestorContainer, transformState, mode, wasFixed);
 }
 
@@ -327,7 +330,7 @@ void SVGRenderSupport::layoutChildren(RenderElement& start, bool selfNeedsLayout
         }
 
         if (needsLayout)
-            child.setNeedsLayout(MarkOnlyThis);
+            child.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
         if (child.needsLayout()) {
             CheckedRef childElement = downcast<RenderElement>(child);
@@ -513,7 +516,7 @@ bool SVGRenderSupport::pointInClippingArea(const RenderElement& renderer, const 
     return true;
 }
 
-void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext& context, const RenderStyle& style, const RenderElement& renderer)
+void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext& context, const Style::ComputedStyle& style, const RenderElement& renderer)
 {
     auto element = dynamicDowncast<SVGElement>(protect(renderer.element()));
     if (!element) {
@@ -536,17 +539,23 @@ void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext& context, const
 
         if (auto geometryElement = dynamicDowncast<SVGGeometryElement>(*element)) {
             ASSERT(renderer.isRenderOrLegacyRenderSVGShape());
-            // FIXME: A value of zero is valid. Need to differentiate this case from being unspecified.
-            if (float pathLength = geometryElement->pathLength()) {
-                if (CheckedPtr shape = dynamicDowncast<LegacyRenderSVGShape>(renderer))
-                    scaleFactor = shape->getTotalLength() / pathLength;
-                else if (CheckedPtr shape = dynamicDowncast<RenderSVGShape>(renderer))
-                    scaleFactor = shape->getTotalLength() / pathLength;
+            if (geometryElement->hasAttribute(SVGNames::pathLengthAttr)) {
+                float pathLength = geometryElement->pathLength();
+                if (!pathLength) {
+                    context.setStrokeStyle(StrokeStyle::SolidStroke);
+                    return;
+                }
+                if (pathLength > 0) {
+                    if (CheckedPtr shape = dynamicDowncast<LegacyRenderSVGShape>(renderer))
+                        scaleFactor = shape->getTotalLength() / pathLength;
+                    else if (CheckedPtr shape = dynamicDowncast<RenderSVGShape>(renderer))
+                        scaleFactor = shape->getTotalLength() / pathLength;
+                }
             }
         }
         
         bool canSetLineDash = false;
-        auto dashArray = DashArray::map(dashes, [&](auto& dash) -> DashArrayElement {
+        auto dashArray = DashArray::map(dashes, [&lengthContext, scaleFactor, &canSetLineDash](auto& dash) -> DashArrayElement {
             auto value = lengthContext.valueForLength(dash, Style::ZoomNeeded { }) * scaleFactor;
             if (value > 0)
                 canSetLineDash = true;
@@ -560,7 +569,7 @@ void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext& context, const
     }
 }
 
-void SVGRenderSupport::styleChanged(RenderElement& renderer, const RenderStyle* oldStyle)
+void SVGRenderSupport::styleChanged(RenderElement& renderer, const Style::ComputedStyle* oldStyle)
 {
     if (renderer.element() && renderer.element()->isSVGElement() && (!oldStyle || (renderer.style().blendMode() != BlendMode::Normal) != (oldStyle->blendMode() != BlendMode::Normal)))
         SVGRenderSupport::updateMaskedAncestorShouldIsolateBlending(renderer);
@@ -593,7 +602,7 @@ void SVGRenderSupport::elementWillBeRemovedFromTree(RenderElement& renderer)
         updateAncestorNonScalingStrokeCounts(renderer, -1);
 }
 
-bool SVGRenderSupport::isolatesBlending(const RenderStyle& style)
+bool SVGRenderSupport::isolatesBlending(const Style::ComputedStyle& style)
 {
     return style.hasPositionedMask()
         || !style.filter().isNone()

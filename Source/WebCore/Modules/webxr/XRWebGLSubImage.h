@@ -27,6 +27,8 @@
 
 #if ENABLE(WEBXR_LAYERS)
 
+#include "ExceptionOr.h"
+#include "IntSize.h"
 #include "XRSubImage.h"
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
@@ -35,28 +37,44 @@
 namespace WebCore {
 
 class WebGLTexture;
+class XRCompositionLayer;
 
 // https://immersive-web.github.io/layers/#xrwebglsubimagetype
 class XRWebGLSubImage : public XRSubImage {
     WTF_MAKE_TZONE_ALLOCATED(XRWebGLSubImage);
 public:
+    static ExceptionOr<Ref<XRWebGLSubImage>> create(Ref<WebXRViewport>&&, XRCompositionLayer&, uint32_t colorTextureIndex = 0);
     virtual ~XRWebGLSubImage();
 
-    const WebXRViewport& viewport() const final { RELEASE_ASSERT_NOT_REACHED(); }
-    Ref<WebGLTexture> colorTexture() const { RELEASE_ASSERT_NOT_REACHED(); }
-    RefPtr<WebGLTexture> depthStencilTexture() const { RELEASE_ASSERT_NOT_REACHED(); }
-    RefPtr<WebGLTexture> motionVectorTexture() const { RELEASE_ASSERT_NOT_REACHED(); }
+    const WebXRViewport& viewport() const final { return m_viewport.get(); }
+    const WebGLTexture& colorTexture() const;
+    RefPtr<WebGLTexture> depthStencilTexture() const;
+    RefPtr<WebGLTexture> motionVectorTexture() const;
 
-    std::optional<uint32_t> imageIndex() const { RELEASE_ASSERT_NOT_REACHED(); }
-    uint32_t colorTextureWidth() const { RELEASE_ASSERT_NOT_REACHED(); }
-    uint32_t colorTextureHeight() const { RELEASE_ASSERT_NOT_REACHED(); }
-    std::optional<uint32_t> depthStencilTextureWidth() const { RELEASE_ASSERT_NOT_REACHED(); }
-    std::optional<uint32_t> depthStencilTextureHeight() const { RELEASE_ASSERT_NOT_REACHED(); }
-    std::optional<uint32_t> motionVectorTextureWidth() const { RELEASE_ASSERT_NOT_REACHED(); }
-    std::optional<uint32_t> motionVectorTextureHeight() const { RELEASE_ASSERT_NOT_REACHED(); }
+    std::optional<uint32_t> imageIndex() const { return m_imageIndex; }
+    void setImageIndex(uint32_t imageIndex) { m_imageIndex = imageIndex; }
+
+    uint32_t colorTextureWidth() const { return m_colorTextureSize.width(); }
+    uint32_t colorTextureHeight() const { return m_colorTextureSize.height(); }
+    std::optional<uint32_t> depthStencilTextureWidth() const;
+    std::optional<uint32_t> depthStencilTextureHeight() const;
+    std::optional<uint32_t> motionVectorTextureWidth() const { return std::nullopt; }
+    std::optional<uint32_t> motionVectorTextureHeight() const { return std::nullopt; }
 
 private:
+    XRWebGLSubImage(Ref<WebXRViewport>&&, WebGLTexture& colorTexture, IntSize colorTextureSize, WebGLTexture* depthStencilTexture, std::optional<IntSize> depthStencilTextureSize);
+
     bool isXRWebGLSubImage() const final { return true; }
+
+    Ref<WebXRViewport> m_viewport;
+
+    Ref<WebGLTexture> m_colorTexture;
+    IntSize m_colorTextureSize;
+
+    RefPtr<WebGLTexture> m_depthStencilTexture;
+    std::optional<IntSize> m_depthStencilTextureSize;
+
+    std::optional<uint32_t> m_imageIndex;
 };
 
 } // namespace WebCore

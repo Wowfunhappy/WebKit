@@ -131,6 +131,8 @@
 
 .content-view.audit-test > header table.controls > tr.supports input[type="number"] {
     text-align: end;
+    field-sizing: content;
+    font-variant-numeric: tabular-nums;
 }
 
 .content-view.audit-test > header table.controls > tr.supports .warning {

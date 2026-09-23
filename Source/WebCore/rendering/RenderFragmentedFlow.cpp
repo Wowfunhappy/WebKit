@@ -42,11 +42,9 @@
 #include "RenderLayerCompositor.h"
 #include "RenderLayoutState.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
-#include "RenderTableCell.h"
-#include "RenderTableSection.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TransformState.h"
 #include <wtf/StackStats.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -55,7 +53,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderFragmentedFlow);
 
-RenderFragmentedFlow::RenderFragmentedFlow(Type type, Document& document, RenderStyle&& style)
+RenderFragmentedFlow::RenderFragmentedFlow(Type type, Document& document, Style::ComputedStyle&& style)
     : RenderBlockFlow(type, document, WTF::move(style), BlockFlowFlag::IsFragmentedFlow)
     , m_currentFragmentMaintainer(nullptr)
     , m_fragmentsInvalidated(false)
@@ -68,7 +66,7 @@ RenderFragmentedFlow::RenderFragmentedFlow(Type type, Document& document, Render
 
 RenderFragmentedFlow::~RenderFragmentedFlow() = default;
 
-void RenderFragmentedFlow::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderFragmentedFlow::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderBlockFlow::styleDidChange(diff, oldStyle);
 
@@ -193,7 +191,7 @@ RenderBox::LogicalExtentComputedValues RenderFragmentedFlow::computeLogicalHeigh
 
 bool RenderFragmentedFlow::nodeAtPoint(const HitTestRequest& request, HitTestResult& result, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction hitTestAction)
 {
-    if (hitTestAction == HitTestBlockBackground)
+    if (hitTestAction == HitTestAction::BlockBackground)
         return false;
     return RenderBlockFlow::nodeAtPoint(request, result, locationInContainer, accumulatedOffset, hitTestAction);
 }
@@ -222,7 +220,7 @@ bool RenderFragmentedFlow::absoluteQuadsForBox(Vector<FloatQuad>& quads, bool* w
     if (!hasValidFragmentInfo())
         return false;
 
-    auto boxRect = FloatRect { { }, box.size() };
+    auto boxRect = FloatRect { { }, box.borderBoxSize() };
     auto boxRectInFlowCoordinates = LayoutRect { box.localToContainerQuad(boxRect, this).boundingBox() };
 
     RenderFragmentContainer* startFragment = nullptr;
@@ -234,7 +232,7 @@ bool RenderFragmentedFlow::absoluteQuadsForBox(Vector<FloatQuad>& quads, bool* w
         auto& fragment = *it;
         auto rectsInFragment = fragment.fragmentRectsForFlowContentRect(boxRectInFlowCoordinates);
         for (auto rect : rectsInFragment) {
-            auto absoluteQuad = fragment.localToAbsoluteQuad(FloatRect(rect), UseTransforms, wasFixed);
+            auto absoluteQuad = fragment.localToAbsoluteQuad(FloatRect(rect), MapCoordinatesMode::UseTransforms, wasFixed);
             quads.append(absoluteQuad);
         }
 
@@ -249,7 +247,7 @@ bool RenderFragmentedFlow::boxIsFragmented(const RenderBox& box) const
 {
     ASSERT(hasValidFragmentInfo());
 
-    auto boxRect = FloatRect { { }, box.size() };
+    auto boxRect = FloatRect { { }, box.borderBoxSize() };
     auto boxRectInFlowCoordinates = LayoutRect { box.localToContainerQuad(boxRect, this).boundingBox() };
 
     RenderFragmentContainer* startFragment = nullptr;
@@ -274,7 +272,7 @@ public:
     const LayoutUnit& NODELETE lowValue() const { return m_offset; }
     const LayoutUnit& NODELETE highValue() const { return m_offset; }
 
-    void collectIfNeeded(const PODInterval<LayoutUnit, SingleThreadWeakPtr<RenderFragmentContainer>>& interval)
+    void NODELETE collectIfNeeded(const PODInterval<LayoutUnit, SingleThreadWeakPtr<RenderFragmentContainer>>& interval)
     {
         if (m_result)
             return;
@@ -780,34 +778,39 @@ LayoutRect RenderFragmentedFlow::fragmentsBoundingBox(const LayoutRect& layerBou
 LayoutUnit RenderFragmentedFlow::offsetFromLogicalTopOfFirstFragment(const RenderBlock* currentBlock) const
 {
     // As a last resort, take the slow path.
-    LayoutRect blockRect(0_lu, 0_lu, currentBlock->width(), currentBlock->height());
-    while (currentBlock && !is<RenderView>(*currentBlock) && !currentBlock->isRenderFragmentedFlow()) {
-        RenderBlock* containerBlock = currentBlock->containingBlock();
-        ASSERT(containerBlock);
-        if (!containerBlock)
+    // Use container() rather than containingBlock() since containingBlock()
+    // skips non-RenderBlock ancestors like RenderTableSection.
+    CheckedPtr<const RenderBox> currentBox = currentBlock;
+    LayoutRect blockRect(0_lu, 0_lu, currentBox->borderBoxWidth(), currentBox->borderBoxHeight());
+    auto nextBoxContainer = [](const RenderElement& renderer) -> const RenderElement* {
+        auto* container = renderer.container();
+        // Skip non-box ancestors like RenderInline that don't contribute offsets.
+        while (container && !is<RenderBox>(*container))
+            container = container->container();
+        return container;
+    };
+    while (currentBox && !is<RenderView>(*currentBox) && !currentBox->isRenderFragmentedFlow()) {
+        CheckedPtr containerBox = dynamicDowncast<RenderBox>(nextBoxContainer(*currentBox));
+        if (!containerBox)
             return 0;
-        LayoutPoint currentBlockLocation = currentBlock->location();
-        if (auto* cell = dynamicDowncast<RenderTableCell>(*currentBlock)) {
-            if (auto* section = cell->section())
-                currentBlockLocation.moveBy(section->location());
-        }
+        auto currentBoxLocation = currentBox->location();
 
-        if (containerBlock->writingMode().blockDirection() != currentBlock->writingMode().blockDirection()) {
+        if (containerBox->writingMode().blockDirection() != currentBox->writingMode().blockDirection()) {
             // We have to put the block rect in container coordinates
             // and we have to take into account both the container and current block flipping modes
-            if (containerBlock->writingMode().isBlockFlipped()) {
-                if (containerBlock->isHorizontalWritingMode())
-                    blockRect.setY(currentBlock->height() - blockRect.maxY());
+            if (containerBox->writingMode().isBlockFlipped()) {
+                if (containerBox->isHorizontalWritingMode())
+                    blockRect.setY(currentBox->borderBoxHeight() - blockRect.maxY());
                 else
-                    blockRect.setX(currentBlock->width() - blockRect.maxX());
+                    blockRect.setX(currentBox->borderBoxWidth() - blockRect.maxX());
             }
-            currentBlock->flipForWritingMode(blockRect);
+            currentBox->flipForWritingMode(blockRect);
         }
-        blockRect.moveBy(currentBlockLocation);
-        currentBlock = containerBlock;
+        blockRect.moveBy(currentBoxLocation);
+        currentBox = containerBox;
     }
 
-    return currentBlock->isHorizontalWritingMode() ? blockRect.y() : blockRect.x();
+    return currentBox->isHorizontalWritingMode() ? blockRect.y() : blockRect.x();
 }
 
 void RenderFragmentedFlow::mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState& transformState, OptionSet<MapCoordinatesMode> mode, bool* wasFixed) const

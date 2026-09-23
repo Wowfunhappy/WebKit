@@ -49,12 +49,19 @@
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/SpanCocoa.h>
 
-#import <pal/ios/QuickLookSoftLink.h>
+#if PLATFORM(VISION)
+#if USE(APPLE_INTERNAL_SDK)
+#import <AssetViewer/ASVLaunchPreview.h>
+#else
+@interface ASVLaunchPreview : NSObject
+@end
+#endif
+#endif
 
 #import <pal/ios/QuickLookSoftLink.h>
 
 #if HAVE(ARKIT_QUICK_LOOK_PREVIEW_ITEM)
-#import "ARKitSoftLink.h"
+#import <pal/cocoa/ARKitSoftLink.h>
 #import <pal/spi/ios/SystemPreviewSPI.h>
 
 SOFT_LINK_PRIVATE_FRAMEWORK(AssetViewer);
@@ -133,7 +140,7 @@ static NSString * const _WKARQLWebsiteURLParameterKey = @"ARQLWebsiteURLParamete
     RetainPtr contentType = WebCore::UTIFromMIMEType("model/vnd.usdz+zip"_s).createNSString();
 
 #if HAVE(ARKIT_QUICK_LOOK_PREVIEW_ITEM)
-    RetainPtr previewItem = adoptNS([WebKit::allocARQuickLookPreviewItemInstance() initWithFileAtURL:_downloadedURL.createNSURL().get()]);
+    RetainPtr previewItem = adoptNS([PAL::allocARQuickLookPreviewItemInstance() initWithFileAtURL:_downloadedURL.createNSURL().get()]);
     [previewItem setCanonicalWebPageURL:_originatingPageURL.createNSURL().get()];
 
     _item = adoptNS([allocARQuickLookWebKitItemInstance() initWithPreviewItemProvider:_itemProvider.get() contentType:contentType.get() previewTitle:@"Preview" fileSize:@(0) previewItem:previewItem.get()]);

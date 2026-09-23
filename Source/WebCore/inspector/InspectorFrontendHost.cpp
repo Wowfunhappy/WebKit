@@ -63,7 +63,6 @@
 #include "LocalFrameView.h"
 #include "MouseEvent.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "OffscreenCanvasRenderingContext2D.h"
 #include "Page.h"
 #include "PageInspectorController.h"
@@ -75,8 +74,11 @@
 #include "SystemSoundManager.h"
 #include "UserGestureIndicator.h"
 #include "WebCorePersistentCoders.h"
+#include <JavaScriptCore/FrameTracers.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/ScriptFunctionCall.h>
 #include <JavaScriptCore/Strong.h>
+#include <JavaScriptCore/StrongInlines.h>
 #include <pal/system/Sound.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/JSONValues.h>
@@ -86,6 +88,8 @@
 #include <wtf/text/MakeString.h>
 
 #if PLATFORM(COCOA)
+#include "ScriptSourceCode.h"
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/spi/darwin/OSVariantSPI.h>
 #endif
 
@@ -290,7 +294,7 @@ void InspectorFrontendHost::setForcedAppearance(String appearance)
 {
     if (appearance == "light"_s) {
         if (m_frontendPage)
-            m_frontendPage->setUseDarkAppearanceOverride(false);
+            protect(m_frontendPage)->setUseDarkAppearanceOverride(false);
         if (m_client)
             m_client->setForcedAppearance(InspectorFrontendClient::Appearance::Light);
         return;
@@ -298,14 +302,14 @@ void InspectorFrontendHost::setForcedAppearance(String appearance)
 
     if (appearance == "dark"_s) {
         if (m_frontendPage)
-            m_frontendPage->setUseDarkAppearanceOverride(true);
+            protect(m_frontendPage)->setUseDarkAppearanceOverride(true);
         if (m_client)
             m_client->setForcedAppearance(InspectorFrontendClient::Appearance::Dark);
         return;
     }
 
     if (m_frontendPage)
-        m_frontendPage->setUseDarkAppearanceOverride(std::nullopt);
+        protect(m_frontendPage)->setUseDarkAppearanceOverride(std::nullopt);
     if (m_client)
         m_client->setForcedAppearance(InspectorFrontendClient::Appearance::System);
 }
@@ -452,7 +456,7 @@ void InspectorFrontendHost::killText(const String& text, bool shouldPrependToKil
 
 void InspectorFrontendHost::openURLExternally(const String& url)
 {
-    if (WTF::protocolIsJavaScript(url))
+    if (WTF::isValidJavaScriptURL(url))
         return;
 
     if (m_client)
@@ -525,7 +529,7 @@ void InspectorFrontendHost::pickColorFromScreen(Ref<DeferredPromise>&& promise)
 
         String serializedColor;
         // FIXME: <webkit.org/b/241198> Inspector frontend should support all color function gamuts.
-        if (color->colorSpace() != ColorSpace::SRGB || color->colorSpace() != ColorSpace::DisplayP3) {
+        if (color->colorSpace() != ColorSpace::SRGB && color->colorSpace() != ColorSpace::DisplayP3) {
             // DisplayP3 is the least-lossy format the frontend currently supports. This conversion will only be lossy
             // if the color space the system is providing colors in were to support a wider gamut than DisplayP3.
             auto colorForFrontend = color->toColorTypeLossy<DisplayP3<float>>();
@@ -827,7 +831,6 @@ ExceptionOr<JSC::JSValue> InspectorFrontendHost::evaluateScriptInExtensionTab(HT
     JSDOMGlobalObject* frameGlobalObject = frame->script().globalObject(mainThreadNormalWorldSingleton());
     if (!frameGlobalObject)
         return Exception { ExceptionCode::InvalidStateError, "Unable to find global object for <iframe>"_s };
-
 
     JSC::SuspendExceptionScope scope(frameGlobalObject->vm());
     ValueOrException result = frame->script().evaluateInWorld(ScriptSourceCode(scriptSource, JSC::SourceTaintedOrigin::Untainted), mainThreadNormalWorldSingleton());

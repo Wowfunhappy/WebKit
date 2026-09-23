@@ -62,9 +62,7 @@ LegacyRootInlineBox::LegacyRootInlineBox(RenderBlockFlow& block)
     setIsHorizontal(block.isHorizontalWritingMode());
 }
 
-LegacyRootInlineBox::~LegacyRootInlineBox()
-{
-}
+LegacyRootInlineBox::~LegacyRootInlineBox() = default;
 
 void LegacyRootInlineBox::adjustPosition(float dx, float dy)
 {

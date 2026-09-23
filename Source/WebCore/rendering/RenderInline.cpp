@@ -64,14 +64,14 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderInline);
 
-RenderInline::RenderInline(Type type, Element& element, RenderStyle&& style)
+RenderInline::RenderInline(Type type, Element& element, Style::ComputedStyle&& style)
     : RenderBoxModelObject(type, element, WTF::move(style), TypeFlag::IsRenderInline, { })
 {
     setChildrenInline(true);
     ASSERT(isRenderInline());
 }
 
-RenderInline::RenderInline(Type type, Document& document, RenderStyle&& style)
+RenderInline::RenderInline(Type type, Document& document, Style::ComputedStyle&& style)
     : RenderBoxModelObject(type, document, WTF::move(style), TypeFlag::IsRenderInline, { })
 {
     setChildrenInline(true);
@@ -82,19 +82,6 @@ RenderInline::~RenderInline() = default;
 
 void RenderInline::willBeDestroyed()
 {
-#if ASSERT_ENABLED
-    // Make sure we do not retain "this" in the continuation outline table map of our containing blocks.
-    if (parent() && style().usedVisibility() == Visibility::Visible && hasOutline()) {
-        bool containingBlockPaintsContinuationOutline = continuation() || isContinuation();
-        if (containingBlockPaintsContinuationOutline) {
-            if (RenderBlock* cb = containingBlock()) {
-                if (RenderBlock* cbCb = cb->containingBlock())
-                    ASSERT(!cbCb->paintsContinuationOutline(*this));
-            }
-        }
-    }
-#endif // ASSERT_ENABLED
-
     if (!renderTreeBeingDestroyed()) {
         if (auto* inlineBox = firstLegacyInlineBox()) {
             // We can't wait for RenderBoxModelObject::destroy to clear the selection,
@@ -129,42 +116,7 @@ void RenderInline::updateFromStyle()
     setHasReflection(false);    
 }
 
-static RenderElement* NODELETE inFlowPositionedInlineAncestor(RenderElement* p)
-{
-    while (p && p->isRenderInline()) {
-        if (p->isInFlowPositioned())
-            return p;
-        p = p->parent();
-    }
-    return nullptr;
-}
-
-static void updateStyleOfAnonymousBlockContinuations(const RenderBlock& block, const RenderStyle* newStyle, const RenderStyle* oldStyle)
-{
-    // If any descendant blocks exist then they will be in the next anonymous block and its siblings.
-    for (RenderBox* box = block.nextSiblingBox(); box && box->isAnonymousBlock(); box = box->nextSiblingBox()) {
-        if (box->style().position() == newStyle->position())
-            continue;
-
-        CheckedPtr block = dynamicDowncast<RenderBlock>(*box);
-        if (!block)
-            continue;
-
-        if (!block->isContinuation())
-            continue;
-        
-        // If we are no longer in-flow positioned but our descendant block(s) still have an in-flow positioned ancestor then
-        // their containing anonymous block should keep its in-flow positioning. 
-        RenderInline* continuation = block->inlineContinuation();
-        if (oldStyle->hasInFlowPosition() && inFlowPositionedInlineAncestor(continuation))
-            continue;
-        auto blockStyle = RenderStyle::createAnonymousStyleWithDisplay(block->style(), Style::DisplayType::BlockFlow);
-        blockStyle.setPosition(newStyle->position());
-        block->setStyle(WTF::move(blockStyle));
-    }
-}
-
-void RenderInline::styleWillChange(Style::Difference diff, const RenderStyle& newStyle)
+void RenderInline::styleWillChange(Style::Difference diff, const Style::ComputedStyle& newStyle)
 {
     RenderBoxModelObject::styleWillChange(diff, newStyle);
 
@@ -174,32 +126,14 @@ void RenderInline::styleWillChange(Style::Difference diff, const RenderStyle& ne
     if (!container)
         return;
 
-    const RenderStyle* oldStyle = hasInitializedStyle() ? &style() : nullptr;
+    const Style::ComputedStyle* oldStyle = hasInitializedStyle() ? &style() : nullptr;
     if (oldStyle)
         removeOutOfFlowBoxesIfNeededOnStyleChange(*container, *oldStyle, newStyle);
 }
 
-void RenderInline::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderInline::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderBoxModelObject::styleDidChange(diff, oldStyle);
-
-    // Ensure that all of the split inlines pick up the new style. We
-    // only do this if we're an inline, since we don't want to propagate
-    // a block's style to the other inlines.
-    // e.g., <font>foo <h4>goo</h4> moo</font>.  The <font> inlines before
-    // and after the block share the same style, but the block doesn't
-    // need to pass its style on to anyone else.
-    auto& newStyle = style();
-    RenderInline* continuation = inlineContinuation();
-    if (continuation && !isContinuation()) {
-        for (RenderInline* currCont = continuation; currCont; currCont = currCont->inlineContinuation())
-            currCont->setStyle(RenderStyle::clone(newStyle));
-        // If an inline's in-flow positioning has changed and it is part of an active continuation as a descendant of an anonymous containing block,
-        // then any descendant blocks will need to change their in-flow positioning accordingly.
-        // Do this by updating the position of the descendant blocks' containing anonymous blocks - there may be more than one.
-        if (containingBlock()->isAnonymousBlock() && oldStyle && newStyle.position() != oldStyle->position() && (newStyle.hasInFlowPosition() || oldStyle->hasInFlowPosition()))
-            updateStyleOfAnonymousBlockContinuations(*containingBlock(), &newStyle, oldStyle);
-    }
 
     propagateStyleToAnonymousChildren(StylePropagationType::AllChildren);
 }
@@ -276,13 +210,6 @@ void RenderInline::boundingRects(Vector<LayoutRect>& rects, const LayoutPoint& a
 {
     AbsoluteRectsGeneratorContext context(rects, accumulatedOffset);
     generateLineBoxRects(context);
-
-    if (auto* continuation = this->continuation()) {
-        if (auto* box = dynamicDowncast<RenderBox>(*continuation)) {
-            continuation->boundingRects(rects, toLayoutPoint(accumulatedOffset - containingBlock()->location() + box->locationOffset()));
-        } else
-            continuation->boundingRects(rects, toLayoutPoint(accumulatedOffset - containingBlock()->location()));
-    }
 }
 
 namespace {
@@ -307,14 +234,7 @@ private:
 
 } // unnamed namespace
 
-void RenderInline::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
-{
-    absoluteQuadsIgnoringContinuation({ }, quads, wasFixed);
-    if (continuation())
-        collectAbsoluteQuadsForContinuation(quads, wasFixed);
-}
-
-void RenderInline::absoluteQuadsIgnoringContinuation(const FloatRect&, Vector<FloatQuad>& quads, bool*) const
+void RenderInline::absoluteQuads(Vector<FloatQuad>& quads, bool*) const
 {
     AbsoluteQuadsGeneratorContext context(this, quads);
     generateLineBoxRects(context);
@@ -420,19 +340,6 @@ bool RenderInline::nodeAtPoint(const HitTestRequest& request, HitTestResult& res
 PositionWithAffinity RenderInline::positionForPoint(const LayoutPoint& point, HitTestSource source, const RenderFragmentContainer* fragment)
 {
     auto& containingBlock = *this->containingBlock();
-
-    if (auto* continuation = this->continuation()) {
-        // Translate the coords from the pre-anonymous block to the post-anonymous block.
-        LayoutPoint parentBlockPoint = containingBlock.location() + point;
-        while (continuation) {
-            RenderBlock* currentBlock = continuation->isInline() ? continuation->containingBlock() : downcast<RenderBlock>(continuation);
-            if (continuation->isInline() || continuation->firstChild())
-                return continuation->positionForPoint(parentBlockPoint - currentBlock->locationOffset(), source, fragment);
-            continuation = continuation->inlineContinuation();
-        }
-        return RenderBoxModelObject::positionForPoint(point, source, fragment);
-    }
-
     return containingBlock.positionForPoint(point, source, fragment);
 }
 
@@ -586,8 +493,6 @@ LayoutRect RenderInline::clippedOverflowRect(const RenderLayerModelObject* repai
     auto knownEmpty = [&] {
         if (firstLegacyInlineBox())
             return false;
-        if (continuation())
-            return false;
         if (LayoutIntegration::LineLayout::containing(*this))
             return false;
         return true;
@@ -614,7 +519,7 @@ LayoutRect RenderInline::clippedOverflowRect(const RenderLayerModelObject* repai
             repaintRect.move(renderInline->layer()->offsetForInFlowPosition());
     }
 
-    LayoutUnit outlineSize { style().usedOutlineSize() };
+    LayoutUnit outlineSize { style().usedOutlineSize(style().usedZoomForLength(), style().deviceScaleFactor()) };
     repaintRect.inflate(outlineSize);
 
     if (hitRepaintContainer || !containingBlock)
@@ -631,11 +536,6 @@ LayoutRect RenderInline::clippedOverflowRect(const RenderLayerModelObject* repai
     if (outlineSize) {
         for (auto& child : childrenOfType<RenderElement>(*this))
             repaintRect.unite(child.rectWithOutlineForRepaint(repaintContainer, outlineSize));
-
-        if (RenderBoxModelObject* continuation = this->continuation()) {
-            if (!continuation->isInline() && continuation->parent())
-                repaintRect.unite(continuation->rectWithOutlineForRepaint(repaintContainer, outlineSize));
-        }
     }
 
     return repaintRect;
@@ -748,13 +648,13 @@ void RenderInline::mapLocalToContainer(const RenderLayerModelObject* ancestorCon
     if (!container)
         return;
 
-    if (mode.contains(ApplyContainerFlip)) {
+    if (mode.contains(MapCoordinatesMode::ApplyContainerFlip)) {
         if (CheckedPtr box = dynamicDowncast<RenderBox>(*container)) {
             if (container->writingMode().isBlockFlipped()) {
                 LayoutPoint centerPoint(transformState.mappedPoint());
                 transformState.move(box->flipForWritingMode(centerPoint) - centerPoint);
             }
-            mode.remove(ApplyContainerFlip);
+            mode.remove(MapCoordinatesMode::ApplyContainerFlip);
         }
     }
 
@@ -788,13 +688,6 @@ void RenderInline::updateHitTestResult(HitTestResult& result, const LayoutPoint&
 
     LayoutPoint localPoint(point);
     if (RefPtr node = nodeForHitTest()) {
-        if (isContinuation()) {
-            // We're in the continuation of a split inline. Adjust our local point to be in the coordinate space
-            // of the principal renderer's containing block. This will end up being the innerNonSharedNode.
-            auto* firstBlock = node->renderer()->containingBlock();
-            localPoint.moveBy(containingBlock()->location() - firstBlock->locationOffset());
-        }
-
         result.setInnerNode(node.get());
         if (!result.innerNonSharedNode())
             result.setInnerNonSharedNode(node.get());

@@ -34,6 +34,10 @@ option(SHOW_BINDINGS_GENERATION_PROGRESS "Show progress of generating bindings" 
 #   target is a new target name to be added
 #   OUTPUT_SOURCE is a list name which will contain generated sources.(eg. WebCore_SOURCES)
 #   INPUT_FILES are IDL files to generate.
+#   SUPPLEMENTAL_IDL_FILES are partial/mixin IDL files. The generator emits
+#       stub JS*.cpp/.h for each, which we declare as BYPRODUCTS so the build
+#       system knows they exist, but we do not add them to OUTPUT_SOURCE
+#       since the stubs contain no code.
 #   PP_INPUT_FILES are IDL files to preprocess.
 #   BASE_DIR is base directory where script is called.
 #   INCLUDED_FILES are additional IDL files that can be imported by the generator.
@@ -43,10 +47,20 @@ option(SHOW_BINDINGS_GENERATION_PROGRESS "Show progress of generating bindings" 
 #   SUPPLEMENTAL_DEPFILE is a value of --supplementalDependencyFile. (optional)
 #   PP_EXTRA_OUTPUT is extra outputs of preprocess-idls.pl. (optional)
 #   PP_EXTRA_ARGS is extra arguments for preprocess-idls.pl. (optional)
+#   EXTRA_OUTPUT is extra source files emitted by the bindings generator that
+#       aren't derived from a single IDL via the JS<name>.cpp/.h convention
+#       (e.g. JSDOMWindowConstructorAttributes.cpp, the sibling translation
+#       unit emitted for any interface tagged [StandaloneConstructorAttributes]
+#       in IDL). Declared as BYPRODUCTS so ninja knows the custom command
+#       produces them; callers add the file to their source list via
+#       Sources.txt (the unified-source machinery) like any other compiled
+#       .cpp. CMake passes --ignoreStandaloneConstructorAttributes so the file
+#       is emitted as an empty TU here, since jumbo bundles negate the split's
+#       parallelism win.
 function(GENERATE_BINDINGS target)
     set(options)
     set(oneValueArgs OUTPUT_SOURCE BASE_DIR FEATURES DESTINATION GENERATOR SUPPLEMENTAL_DEPFILE)
-    set(multiValueArgs INPUT_FILES PP_INPUT_FILES INCLUDED_FILES PP_EXTRA_OUTPUT PP_EXTRA_ARGS)
+    set(multiValueArgs INPUT_FILES SUPPLEMENTAL_IDL_FILES PP_INPUT_FILES INCLUDED_FILES PP_EXTRA_OUTPUT PP_EXTRA_ARGS EXTRA_OUTPUT)
     cmake_parse_arguments(arg "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
     set(binding_generator ${WEBCORE_DIR}/bindings/scripts/generate-bindings-all.pl)
     set(idl_attributes_file ${WEBCORE_DIR}/bindings/scripts/IDLAttributes.json)
@@ -55,29 +69,53 @@ function(GENERATE_BINDINGS target)
     set(included_idl_files_list ${CMAKE_CURRENT_BINARY_DIR}/included_idl_files_${target}.tmp)
     set(_supplemental_dependency)
 
-    set(content)
+    # Absolutize inputs once. These feed both the file lists handed to the
+    # generator and the custom command DEPENDS below: relative DEPENDS force
+    # CMake's O(N^2) linear output-to-source search during generation, and with
+    # ~1000 IDLs that dominates the configure's generate step.
+    set(_abs_input_files)
     foreach (f ${arg_INPUT_FILES})
         if (NOT IS_ABSOLUTE ${f})
             set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
         endif ()
+        list(APPEND _abs_input_files ${f})
+    endforeach ()
+    set(_abs_supplemental_files)
+    foreach (f ${arg_SUPPLEMENTAL_IDL_FILES})
+        if (NOT IS_ABSOLUTE ${f})
+            set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
+        endif ()
+        list(APPEND _abs_supplemental_files ${f})
+    endforeach ()
+    set(_abs_pp_input_files)
+    foreach (f ${arg_PP_INPUT_FILES})
+        if (NOT IS_ABSOLUTE ${f})
+            set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
+        endif ()
+        list(APPEND _abs_pp_input_files ${f})
+    endforeach ()
+    set(_abs_included_files)
+    foreach (f ${arg_INCLUDED_FILES})
+        if (NOT IS_ABSOLUTE ${f})
+            set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
+        endif ()
+        list(APPEND _abs_included_files ${f})
+    endforeach ()
+
+    set(content)
+    foreach (f ${_abs_input_files} ${_abs_supplemental_files})
         set(content "${content}${f}\n")
     endforeach ()
     file(WRITE ${idl_files_list} ${content})
 
     set(pp_content)
-    foreach (f ${arg_PP_INPUT_FILES})
-        if (NOT IS_ABSOLUTE ${f})
-            set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
-        endif ()
+    foreach (f ${_abs_pp_input_files})
         set(pp_content "${pp_content}${f}\n")
     endforeach ()
     file(WRITE ${pp_idl_files_list} ${pp_content})
 
     set(include_content)
-    foreach (f ${arg_INPUT_FILES} ${arg_INCLUDED_FILES})
-        if (NOT IS_ABSOLUTE ${f})
-            set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
-        endif ()
+    foreach (f ${_abs_input_files} ${_abs_supplemental_files} ${_abs_included_files})
         set(include_content "${include_content}${f}\n")
     endforeach ()
     file(WRITE ${included_idl_files_list} ${include_content})
@@ -89,8 +127,8 @@ function(GENERATE_BINDINGS target)
         --idlFilesList ${idl_files_list}
         --idlFileNamesList ${included_idl_files_list}
         --ppIDLFilesList ${pp_idl_files_list}
-        --preprocessor "${CODE_GENERATOR_PREPROCESSOR}"
         --idlAttributesFile ${idl_attributes_file}
+        --ignoreStandaloneConstructorAttributes
     )
     if (arg_SUPPLEMENTAL_DEPFILE)
         list(APPEND args --supplementalDependencyFile ${arg_SUPPLEMENTAL_DEPFILE})
@@ -132,21 +170,56 @@ function(GENERATE_BINDINGS target)
         list(APPEND gen_sources ${arg_DESTINATION}/JS${_name}.cpp)
         list(APPEND gen_headers ${arg_DESTINATION}/JS${_name}.h)
     endforeach ()
+
+    set(supplemental_stubs)
+    foreach (_file ${arg_SUPPLEMENTAL_IDL_FILES})
+        get_filename_component(_name ${_file} NAME_WE)
+        list(APPEND supplemental_stubs ${arg_DESTINATION}/JS${_name}.cpp ${arg_DESTINATION}/JS${_name}.h)
+    endforeach ()
+
     set(${arg_OUTPUT_SOURCE} ${${arg_OUTPUT_SOURCE}} ${gen_sources} PARENT_SCOPE)
-    set(act_args)
     if (SHOW_BINDINGS_GENERATION_PROGRESS)
         list(APPEND args --showProgress)
     endif ()
-    list(APPEND act_args BYPRODUCTS ${gen_sources} ${gen_headers})
-    if (SHOW_BINDINGS_GENERATION_PROGRESS)
-        list(APPEND act_args USES_TERMINAL)
+
+    # Use a stamp file so the build system only runs the generator when inputs
+    # actually change, instead of on every build (add_custom_target is always
+    # considered out of date).
+    set(_stamp_file ${arg_DESTINATION}/${target}.stamp)
+
+    set(_byproducts ${gen_sources} ${gen_headers} ${supplemental_stubs})
+    if (arg_PP_EXTRA_OUTPUT)
+        list(APPEND _byproducts ${arg_PP_EXTRA_OUTPUT})
     endif ()
-    add_custom_target(${target}
+    if (arg_EXTRA_OUTPUT)
+        list(APPEND _byproducts ${arg_EXTRA_OUTPUT})
+    endif ()
+    if (arg_SUPPLEMENTAL_DEPFILE)
+        list(APPEND _byproducts ${arg_SUPPLEMENTAL_DEPFILE})
+    endif ()
+
+    set(_uses_terminal)
+    if (SHOW_BINDINGS_GENERATION_PROGRESS)
+        set(_uses_terminal USES_TERMINAL)
+    endif ()
+
+    add_custom_command(
+        OUTPUT ${_stamp_file}
         COMMAND ${PERL_EXECUTABLE} ${binding_generator} ${args}
-        DEPENDS ${arg_INPUT_FILES} ${arg_PP_INPUT_FILES}
+        COMMAND ${CMAKE_COMMAND} -E touch ${_stamp_file}
+        DEPENDS
+            ${_abs_input_files}
+            ${_abs_supplemental_files}
+            ${_abs_pp_input_files}
+            ${common_generator_dependencies}
+            ${binding_generator}
+            ${idl_attributes_file}
         WORKING_DIRECTORY ${arg_BASE_DIR}
         COMMENT "Generate bindings (${target})"
-        VERBATIM ${act_args})
+        VERBATIM
+        BYPRODUCTS ${_byproducts}
+        ${_uses_terminal})
+    add_custom_target(${target} DEPENDS ${_stamp_file})
 endfunction()
 
 
@@ -158,7 +231,7 @@ macro(GENERATE_FONT_NAMES _infile)
     add_custom_command(
         OUTPUT  ${_outputfiles}
         MAIN_DEPENDENCY ${_infile}
-        DEPENDS ${MAKE_NAMES_DEPENDENCIES} ${NAMES_GENERATOR} ${SCRIPTS_BINDINGS}
+        DEPENDS ${NAMES_GENERATOR} ${SCRIPTS_BINDINGS}
         COMMAND ${PERL_EXECUTABLE} ${NAMES_GENERATOR} --outputDir ${WebCore_DERIVED_SOURCES_DIR} ${_arguments}
         VERBATIM)
 endmacro()
@@ -207,7 +280,7 @@ function(GENERATE_DOM_NAMES _namespace _attrs)
 
     add_custom_command(
         OUTPUT  ${_outputfiles}
-        DEPENDS ${MAKE_NAMES_DEPENDENCIES} ${NAMES_GENERATOR} ${SCRIPTS_BINDINGS} ${_attrs} ${_elements}
+        DEPENDS ${NAMES_GENERATOR} ${SCRIPTS_BINDINGS} ${_attrs} ${_elements}
         COMMAND ${PERL_EXECUTABLE} ${NAMES_GENERATOR} --outputDir ${WebCore_DERIVED_SOURCES_DIR} ${_arguments} ${_additionArguments}
         VERBATIM)
 endfunction()
@@ -216,7 +289,7 @@ endfunction()
 function(GENERATE_DOM_NAME_ENUM _enum)
     add_custom_command(
         OUTPUT ${WebCore_DERIVED_SOURCES_DIR}/${_enum}.cpp ${WebCore_DERIVED_SOURCES_DIR}/${_enum}.h
-        DEPENDS ${WEBCORE_DIR}/html/HTMLTagNames.in ${WEBCORE_DIR}/svg/svgtags.in ${WEBCORE_DIR}/mathml/mathtags.in ${WEBCORE_DIR}/html/HTMLAttributeNames.in ${WEBCORE_DIR}/mathml/mathattrs.in ${WEBCORE_DIR}/svg/svgattrs.in ${WEBCORE_DIR}/svg/xlinkattrs.in ${WEBCORE_DIR}/xml/xmlattrs.in ${WEBCORE_DIR}/xml/xmlnsattrs.in ${MAKE_NAMES_DEPENDENCIES} ${WEBCORE_DIR}/dom/make_names.pl  ${SCRIPTS_BINDINGS}
+        DEPENDS ${WEBCORE_DIR}/html/HTMLTagNames.in ${WEBCORE_DIR}/svg/svgtags.in ${WEBCORE_DIR}/mathml/mathtags.in ${WEBCORE_DIR}/html/HTMLAttributeNames.in ${WEBCORE_DIR}/mathml/mathattrs.in ${WEBCORE_DIR}/svg/svgattrs.in ${WEBCORE_DIR}/svg/xlinkattrs.in ${WEBCORE_DIR}/xml/xmlattrs.in ${WEBCORE_DIR}/xml/xmlnsattrs.in ${WEBCORE_DIR}/dom/make_names.pl  ${SCRIPTS_BINDINGS}
         COMMAND ${PERL_EXECUTABLE} ${WEBCORE_DIR}/dom/make_names.pl --outputDir ${WebCore_DERIVED_SOURCES_DIR} --enum ${_enum} --elements ${WEBCORE_DIR}/html/HTMLTagNames.in --elements ${WEBCORE_DIR}/svg/svgtags.in --elements ${WEBCORE_DIR}/mathml/mathtags.in --attrs ${WEBCORE_DIR}/html/HTMLAttributeNames.in --attrs ${WEBCORE_DIR}/mathml/mathattrs.in --attrs ${WEBCORE_DIR}/svg/svgattrs.in --attrs ${WEBCORE_DIR}/svg/xlinkattrs.in --attrs ${WEBCORE_DIR}/xml/xmlattrs.in --attrs ${WEBCORE_DIR}/xml/xmlnsattrs.in
         VERBATIM)
 endfunction()

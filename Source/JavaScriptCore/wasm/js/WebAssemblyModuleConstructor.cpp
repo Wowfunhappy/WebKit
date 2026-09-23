@@ -77,7 +77,7 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyModuleCustomSections, (JSGlobalObject* globa
     if (callFrame->argumentCount() < 2) [[unlikely]]
         return JSValue::encode(throwException(globalObject, throwScope, createNotEnoughArgumentsError(globalObject)));
 
-    JSWebAssemblyModule* module = jsDynamicCast<JSWebAssemblyModule*>(callFrame->uncheckedArgument(0));
+    JSWebAssemblyModule* module = dynamicDowncast<JSWebAssemblyModule>(callFrame->uncheckedArgument(0));
     if (!module)
         return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Module.customSections called with non WebAssembly.Module argument"_s)));
 
@@ -120,14 +120,13 @@ static JSObject* createTypeReflectionObject(JSGlobalObject* globalObject, JSWebA
     case Wasm::ExternalKind::Function: {
         typeObj = constructEmptyObject(globalObject, globalObject->objectPrototype(), 2);
 
-        Wasm::TypeIndex typeIndex = module->moduleInformation().typeIndexFromFunctionIndexSpace(Wasm::FunctionSpaceIndex(impOrExp.kindIndex));
-        SUPPRESS_UNCOUNTED_LOCAL const auto& signature = Wasm::TypeInformation::getFunctionSignature(typeIndex);
+        Ref signature = module->moduleInformation().rtt(Wasm::FunctionSpaceIndex(impOrExp.kindIndex));
 
         JSArray* functionParametersTypes = constructEmptyArray(globalObject, nullptr);
         RETURN_IF_EXCEPTION(throwScope, { });
-        auto argumentCount = signature.argumentCount();
+        auto argumentCount = signature->argumentCount();
         for (unsigned i = 0; i < argumentCount; ++i) {
-            JSString* typeString = Wasm::typeToJSAPIString(vm, signature.argumentType(i));
+            JSString* typeString = Wasm::typeToJSAPIString(vm, signature->argumentType(i));
             if (!typeString) {
                 throwException(globalObject, throwScope, createTypeError(globalObject, errorMessage));
                 return nullptr;
@@ -138,9 +137,9 @@ static JSObject* createTypeReflectionObject(JSGlobalObject* globalObject, JSWebA
 
         JSArray* functionResultsTypes = constructEmptyArray(globalObject, nullptr);
         RETURN_IF_EXCEPTION(throwScope, { });
-        auto returnCount = signature.returnCount();
+        auto returnCount = signature->returnCount();
         for (unsigned i = 0; i < returnCount; ++i) {
-            JSString* typeString = Wasm::typeToJSAPIString(vm, signature.returnType(i));
+            JSString* typeString = Wasm::typeToJSAPIString(vm, signature->returnType(i));
             if (!typeString) {
                 throwException(globalObject, throwScope, createTypeError(globalObject, errorMessage));
                 return nullptr;
@@ -211,7 +210,7 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyModuleImports, (JSGlobalObject* globalObject
     VM& vm = globalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    JSWebAssemblyModule* module = jsDynamicCast<JSWebAssemblyModule*>(callFrame->argument(0));
+    JSWebAssemblyModule* module = dynamicDowncast<JSWebAssemblyModule>(callFrame->argument(0));
     if (!module)
         return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Module.imports called with non WebAssembly.Module argument"_s)));
 
@@ -254,7 +253,7 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyModuleExports, (JSGlobalObject* globalObject
     VM& vm = globalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    JSWebAssemblyModule* module = jsDynamicCast<JSWebAssemblyModule*>(callFrame->argument(0));
+    JSWebAssemblyModule* module = dynamicDowncast<JSWebAssemblyModule>(callFrame->argument(0));
     if (!module)
         return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Module.exports called with non WebAssembly.Module argument"_s)));
 
@@ -291,7 +290,10 @@ JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyModule, (JSGlobalObject* globalOb
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    
+
+    if (!globalObject->webAssemblyEnabled()) [[unlikely]]
+        return JSValue::encode(throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, globalObject->webAssemblyDisabledErrorMessage())));
+
     Vector<uint8_t> source = createSourceBufferFromValue(vm, globalObject, callFrame->argument(0));
     RETURN_IF_EXCEPTION(scope, { });
 

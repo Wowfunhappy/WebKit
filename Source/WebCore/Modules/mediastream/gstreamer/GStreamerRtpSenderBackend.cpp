@@ -126,11 +126,11 @@ void GStreamerRtpSenderBackend::stopSource()
 {
     GST_DEBUG_OBJECT(m_rtcSender.get(), "Stopping source");
     switchOn(m_source, [&](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) {
-        source->stop([self = RefPtr { this }] {
+        source->stop([self = protect(this)] {
             self->clearSource();
         });
     }, [&](Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
-        source->stop([self = RefPtr { this }] {
+        source->stop([self = protect(this)] {
             self->clearSource();
         });
     }, [&](std::nullptr_t&) {
@@ -149,7 +149,7 @@ void GStreamerRtpSenderBackend::tearDown()
     m_rtcSender = nullptr;
 }
 
-bool GStreamerRtpSenderBackend::replaceTrack(RTCRtpSender&, MediaStreamTrack* track)
+bool GStreamerRtpSenderBackend::replaceTrack(RTCRtpSender& sender, MediaStreamTrack* track)
 {
     GST_DEBUG_OBJECT(m_rtcSender.get(), "Replacing sender track with track %p", track);
 
@@ -161,6 +161,7 @@ bool GStreamerRtpSenderBackend::replaceTrack(RTCRtpSender&, MediaStreamTrack* tr
     // FIXME: We might want to set the reconfiguring flag back to false once the webrtcbin sink pad
     // has renegotiated its caps. Perhaps a pad probe can be used for this.
 
+    auto previousTrackId = sender.trackId();
     RefPtr newTrack = track;
     switchOn(m_source, [&](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) {
         source->replaceTrack(newTrack);
@@ -170,6 +171,7 @@ bool GStreamerRtpSenderBackend::replaceTrack(RTCRtpSender&, MediaStreamTrack* tr
         GST_DEBUG_OBJECT(m_rtcSender.get(), "No outgoing source yet");
     });
 
+    peerConnectionBackend->trackWasReplaced(previousTrackId, newTrack ? newTrack->id() : emptyString());
     return true;
 }
 
@@ -179,13 +181,15 @@ RTCRtpSendParameters GStreamerRtpSenderBackend::getParameters() const
         m_currentParameters = source->parameters();
     }, [&](const Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
         m_currentParameters = source->parameters();
-    }, [](const std::nullptr_t&) {
+    }, [&](const std::nullptr_t&) {
+        GST_DEBUG_OBJECT(m_rtcSender.get(), "No outgoing source yet, unable to retrieve parameters");
     });
 
     GST_DEBUG_OBJECT(m_rtcSender.get(), "Current parameters: %" GST_PTR_FORMAT, m_currentParameters.get());
-    if (!m_currentParameters)
+    if (!m_currentParameters) {
+        GST_DEBUG_OBJECT(m_rtcSender.get(), "Using init data: %" GST_PTR_FORMAT, m_initData.get());
         return toRTCRtpSendParameters(m_initData.get());
-
+    }
     return toRTCRtpSendParameters(m_currentParameters.get());
 }
 

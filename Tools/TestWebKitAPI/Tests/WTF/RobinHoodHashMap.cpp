@@ -26,11 +26,11 @@
 
 #include "config.h"
 
-#include "Counters.h"
+#include "Helpers/Counters.h"
 #include "DeletedAddressOfOperator.h"
 #include "MoveOnly.h"
 #include "RefLogger.h"
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <string>
 #include <wtf/Function.h>
 #include <wtf/Ref.h>
@@ -91,7 +91,7 @@ TEST(WTF_RobinHoodHashMap, DoubleHashCollisions)
     // The "clobber" key here is one that ends up stealing the bucket that the -0 key
     // originally wants to be in. This makes the 0 and -0 keys collide and the test then
     // fails unless the FloatHash::equals() implementation can distinguish them.
-    const double clobberKey = 6;
+    const double clobberKey = 7;
     const double zeroKey = 0;
     const double negativeZeroKey = -zeroKey;
 

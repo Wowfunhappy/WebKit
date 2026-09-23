@@ -95,7 +95,7 @@ protected:
     void setAudioSource(RefPtr<RealtimeMediaSource>&&);
     void setVideoSource(RefPtr<RealtimeMediaSource>&&);
 
-    void checkTrackState(const MediaStreamTrackPrivate&);
+    void NODELETE checkTrackState(const MediaStreamTrackPrivate&);
 
     bool shouldMuteAudio() const { return m_shouldMuteAudio; }
     bool shouldMuteVideo() const { return m_shouldMuteVideo; }

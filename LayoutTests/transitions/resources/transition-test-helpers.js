@@ -192,7 +192,7 @@ function checkExpectedValueCallback(expected, index)
 }
 
 const prefix = "-webkit-";
-const propertiesRequiringPrefix = ["-webkit-text-stroke-color", "-webkit-text-fill-color"];
+const propertiesRequiringPrefix = ["-webkit-box-shadow", "-webkit-text-stroke-color", "-webkit-text-fill-color"];
 
 function pauseTransitionAtTimeOnElement(transitionProperty, time, element)
 {

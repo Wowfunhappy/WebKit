@@ -111,7 +111,8 @@ public:
         Auto = 1 << 0,
         IdeographAlpha = 1 << 1,
         IdeographNumeric = 1 << 2,
-        Normal = 1 << 3
+        Normal = 1 << 3,
+        Insert = 1 << 4
     };
 
     using Options = OptionSet<Type>;
@@ -127,6 +128,7 @@ public:
     constexpr bool isNormal() const { return m_options.contains(Type::Normal); }
     constexpr bool hasIdeographAlpha() const { return m_options.containsAny({ Type::IdeographAlpha, Type::Normal }); }
     constexpr bool hasIdeographNumeric() const { return m_options.containsAny({ Type::IdeographNumeric, Type::Normal }); }
+    constexpr bool hasInsert() const { return m_options.contains(Type::Insert); }
     constexpr Options options() { return m_options; }
 
     bool operator==(const TextAutospace&) const = default;
@@ -152,6 +154,8 @@ inline WTF::TextStream& operator<<(WTF::TextStream& ts, const TextAutospace& val
         ts << "ideograph-alpha"_s;
     if (value.hasIdeographNumeric())
         ts << "ideograph-numeric"_s;
+    if (value.hasInsert())
+        ts << "insert"_s;
     return ts;
 }
 

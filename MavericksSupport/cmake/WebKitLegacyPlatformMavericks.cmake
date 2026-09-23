@@ -37,23 +37,11 @@ MAVERICKS_FILTER_SOURCE_LIST("${WEBKITLEGACY_DIR}" WebKitLegacy_UNIFIED_SOURCE_L
 
 elseif (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "SOURCES")
 
-# Stale entry in upstream's own list: it names WebDefaultPolicyDelegate.m, and upstream ships the
-# Objective-C++ .mm at that path.
-list(REMOVE_ITEM WebKitLegacy_SOURCES
-    mac/DefaultDelegates/WebDefaultPolicyDelegate.m
-)
-
 list(APPEND WebKitLegacy_SOURCES
-    mac/DefaultDelegates/WebDefaultPolicyDelegate.mm
     # Safari's HTTP WebDownload over the shared curl transport; WebDownload.mm reaches its header by
     # bare name, so the directory goes on the include path.
     ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/Misc/WebDownloadCurl.mm
 
-    # The legacy socket provider and the WebKitLegacy inspector debuggable/controller, which the
-    # modern upstream WebKitLegacy build omits.
-    WebCoreSupport/LegacySocketProvider.cpp
-    WebCoreSupport/LegacyWebPageDebuggable.cpp
-    WebCoreSupport/LegacyWebPageInspectorController.cpp
     # The in-process SocketStreamHandle and the legacy WebSocketChannel, the WebKitLegacy-side backing
     # for the 10.9 WebSocket implementation. Its transport is this port's curl one rather than
     # upstream's CFStream file, so a WebSocket handshake presents the browser's ClientHello.
@@ -61,36 +49,17 @@ list(APPEND WebKitLegacy_SOURCES
     WebCoreSupport/SocketStreamHandleImpl.cpp
     ${MAVERICKS_SUPPORT}/source/WebKitLegacy/WebCoreSupport/SocketStreamHandleImplCurl.cpp
     WebCoreSupport/WebSocketChannel.cpp
-    # WebCrypto is libgcrypt-backed on this port, and WebKit1 needs its own client for it.
-    WebCoreSupport/WebCryptoClient.mm
 
-    # The legacy WebKeyGenerator (<keygen> support) and LegacyHistoryItemClient, which the modern
-    # upstream WebKitLegacy build omits.
+    # The legacy WebKeyGenerator (<keygen> support).
     mac/Misc/WebKeyGenerator.mm
-    mac/WebCoreSupport/LegacyHistoryItemClient.mm
     # The restored WebKit1 getUserMedia client.
     ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport/WebUserMediaClient.mm
 )
 
-# The preferences add_custom_command below reads WebKit_WEB_PREFERENCES and
-# WebKit_WEB_PREFERENCES_TEMPLATES, which are set in Source/WebKit's directory scope and are empty
-# here -- so the rule had no file-level input and an edit to the yaml's WebKitLegacy column never
-# regenerated WebPreferencesDefinitions.h. Name WebKitLegacy's own inputs in this scope: the yaml the
-# generator reads (a copy destination under WTF_SCRIPTS_DIR, hence GENERATED) and the four templates
-# it renders.
-set(WebKit_WEB_PREFERENCES
-    ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
-)
-set_source_files_properties(${WebKit_WEB_PREFERENCES} PROPERTIES GENERATED TRUE)
-
-set(WebKit_WEB_PREFERENCES_TEMPLATES
-    ${WEBKITLEGACY_DIR}/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb
-    ${WEBKITLEGACY_DIR}/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb
-    ${WEBKITLEGACY_DIR}/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb
-    ${WEBKITLEGACY_DIR}/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb
-)
-
 elseif (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "POST")
+
+# The SOURCES phase supplies the complete in-process WebSocket transport.
+target_compile_definitions(WebKitLegacy PRIVATE WEBKIT_LEGACY_WEBSOCKET_CHANNEL=1)
 
 # NSURLDownload file-format gzip decoding is separate from HTTP Content-Encoding.
 find_package(ZLIB REQUIRED)

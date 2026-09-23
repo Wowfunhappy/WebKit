@@ -29,12 +29,13 @@
 
 #include "Exception.h"
 #include "ExceptionCode.h"
+#include "JSDOMPromiseDeferred.h"
 #include "JSWebCodecsVideoFrame.h"
 #include "MediaStreamTrack.h"
 #include "VideoFrame.h"
 #include "WritableStream.h"
 #include "WritableStreamSink.h"
-
+#include <JavaScriptCore/JSCellInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -45,7 +46,7 @@ ExceptionOr<Ref<VideoTrackGenerator>> VideoTrackGenerator::create(ScriptExecutio
 {
     auto source = Source::create(context.identifier());
     auto sink = Sink::create(Ref { source });
-    auto writableOrException = WritableStream::create(*JSC::jsCast<JSDOMGlobalObject*>(context.globalObject()), Ref { sink });
+    auto writableOrException = WritableStream::create(*downcast<JSDOMGlobalObject>(context.globalObject()), Ref { sink });
 
     if (writableOrException.hasException())
         return writableOrException.releaseException();
@@ -188,7 +189,7 @@ VideoTrackGenerator::Sink::Sink(Ref<Source>&& source)
 
 void VideoTrackGenerator::Sink::write(ScriptExecutionContext&, JSC::JSValue value, DOMPromiseDeferred<void>&& promise)
 {
-    auto* jsFrameObject = JSC::jsDynamicCast<JSWebCodecsVideoFrame*>(value);
+    auto* jsFrameObject = dynamicDowncast<JSWebCodecsVideoFrame>(value);
     RefPtr frameObject = jsFrameObject ? &jsFrameObject->wrapped() : nullptr;
     if (!frameObject) {
         promise.reject(Exception { ExceptionCode::TypeError, "Expected a VideoFrame object"_s });

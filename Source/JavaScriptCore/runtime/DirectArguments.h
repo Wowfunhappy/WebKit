@@ -75,17 +75,7 @@ public:
         return m_length;
     }
     
-    uint32_t length(JSGlobalObject* globalObject) const
-    {
-        VM& vm = getVM(globalObject);
-        auto scope = DECLARE_THROW_SCOPE(vm);
-        if (m_mappedArguments) [[unlikely]] {
-            JSValue value = get(globalObject, vm.propertyNames->length);
-            RETURN_IF_EXCEPTION(scope, { });
-            RELEASE_AND_RETURN(scope, value.toUInt32(globalObject));
-        }
-        return m_length;
-    }
+    uint32_t length(JSGlobalObject*) const;
     
     bool isMappedArgument(uint32_t i) const
     {
@@ -184,7 +174,7 @@ private:
         return std::bit_cast<WriteBarrier<Unknown>*>(std::bit_cast<char*>(this) + storageOffset());
     }
     
-    unsigned mappedArgumentsSize();
+    unsigned NODELETE mappedArgumentsSize();
     
     WriteBarrier<JSFunction> m_callee;
     uint32_t m_length; // Always the actual length of captured arguments and never what was stored into the length property.

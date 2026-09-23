@@ -1,4 +1,13 @@
 
+PASS alignment-baseline: baseline
+FAIL alignment-baseline: text-bottom assert_equals: alignment-baseline raw inline style declaration expected "text-bottom" but got ""
+PASS alignment-baseline: alphabetic
+PASS alignment-baseline: ideographic
+PASS alignment-baseline: middle
+PASS alignment-baseline: central
+PASS alignment-baseline: mathematical
+FAIL alignment-baseline: text-top assert_equals: alignment-baseline raw inline style declaration expected "text-top" but got ""
+PASS alignment-baseline: inherit
 PASS background-attachment: scroll
 PASS background-attachment: fixed
 PASS background-attachment: inherit
@@ -187,6 +196,21 @@ PASS background-repeat: repeat-x
 PASS background-repeat: repeat-y
 PASS background-repeat: no-repeat
 PASS background-repeat: inherit
+PASS baseline-shift: sub
+PASS baseline-shift: super
+FAIL baseline-shift: top assert_equals: baseline-shift raw inline style declaration expected "top" but got ""
+FAIL baseline-shift: center assert_equals: baseline-shift raw inline style declaration expected "center" but got ""
+FAIL baseline-shift: bottom assert_equals: baseline-shift raw inline style declaration expected "bottom" but got ""
+PASS baseline-shift: 5%
+PASS baseline-shift: .5%
+PASS baseline-shift: 0px
+PASS baseline-shift: 1px
+PASS baseline-shift: .1em
+PASS baseline-shift: inherit
+FAIL baseline-source: auto assert_equals: baseline-source raw inline style declaration expected (string) "auto" but got (undefined) undefined
+FAIL baseline-source: first assert_equals: baseline-source raw inline style declaration expected (string) "first" but got (undefined) undefined
+FAIL baseline-source: last assert_equals: baseline-source raw inline style declaration expected (string) "last" but got (undefined) undefined
+FAIL baseline-source: inherit assert_equals: baseline-source raw inline style declaration expected (string) "inherit" but got (undefined) undefined
 PASS border-collapse: collapse
 PASS border-collapse: separate
 PASS border-collapse: inherit
@@ -324,13 +348,13 @@ PASS content: counter(par-num, decimal)
 PASS content: counter(par-num, upper-roman)
 PASS content: attr(foo-bar)
 PASS content: attr(foo_bar)
-FAIL content: attr(|bar) assert_equals: content raw inline style declaration expected "attr(bar)" but got ""
-FAIL content: attr( |bar ) assert_equals: content raw inline style declaration expected "attr(bar)" but got ""
+PASS content: attr(|bar)
+PASS content: attr( |bar )
 PASS content: attr(foo-bar, "fallback")
 PASS content: attr(foo_bar, "fallback")
-FAIL content: attr(|bar, "fallback") assert_equals: content raw inline style declaration expected "attr(bar, \"fallback\")" but got ""
-FAIL content: attr(foo, "") assert_equals: content raw inline style declaration expected "attr(foo, \"\")" but got "attr(foo)"
-FAIL content: attr( |foo ,  "" ) assert_equals: content raw inline style declaration expected "attr(foo)" but got ""
+PASS content: attr(|bar, "fallback")
+PASS content: attr(foo, "")
+PASS content: attr( |foo ,  "" )
 PASS content: inherit
 PASS cursor: auto
 PASS cursor: crosshair
@@ -643,20 +667,6 @@ PASS unicode-bidi: normal
 PASS unicode-bidi: embed
 PASS unicode-bidi: bidi-override
 PASS unicode-bidi: inherit
-PASS vertical-align: baseline
-PASS vertical-align: sub
-PASS vertical-align: super
-PASS vertical-align: top
-PASS vertical-align: text-top
-PASS vertical-align: middle
-PASS vertical-align: bottom
-PASS vertical-align: text-bottom
-PASS vertical-align: 5%
-PASS vertical-align: .5%
-PASS vertical-align: 0px
-PASS vertical-align: 1px
-PASS vertical-align: .1em
-PASS vertical-align: inherit
 PASS visibility: visible
 PASS visibility: hidden
 PASS visibility: collapse

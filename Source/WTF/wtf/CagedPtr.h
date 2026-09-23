@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/MathExtras.h>
 #include <wtf/PtrTag.h>
 #include <wtf/RawPtrTraits.h>

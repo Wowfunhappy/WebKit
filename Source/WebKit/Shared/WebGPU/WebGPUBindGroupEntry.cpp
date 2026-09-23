@@ -40,15 +40,15 @@ namespace WebKit::WebGPU {
 std::optional<BindGroupEntry> ConvertToBackingContext::convertToBacking(const WebCore::WebGPU::BindGroupEntry& bindGroupEntry)
 {
     return WTF::switchOn(bindGroupEntry.resource, [&] (std::reference_wrapper<WebCore::WebGPU::Sampler> sampler) -> std::optional<BindGroupEntry> {
-        auto identifier = convertToBacking(Ref { sampler.get() }.get());
+        auto identifier = convertToBacking(protect(sampler.get()).get());
 
         return { { bindGroupEntry.binding, { identifier }, identifier, BindingResourceType::Sampler } };
     }, [&] (std::reference_wrapper<WebCore::WebGPU::Texture> texture) -> std::optional<BindGroupEntry> {
-        auto identifier = convertToBacking(Ref { texture.get() }.get());
+        auto identifier = convertToBacking(protect(texture.get()).get());
 
         return { { bindGroupEntry.binding, { identifier }, identifier, BindingResourceType::Texture } };
     }, [&] (std::reference_wrapper<WebCore::WebGPU::TextureView> textureView) -> std::optional<BindGroupEntry> {
-        auto identifier = convertToBacking(Ref { textureView.get() }.get());
+        auto identifier = convertToBacking(protect(textureView.get()).get());
 
         return { { bindGroupEntry.binding, { identifier }, identifier, BindingResourceType::TextureView } };
     }, [&] (const auto& bufferBinding) -> std::optional<BindGroupEntry> {
@@ -58,7 +58,7 @@ std::optional<BindGroupEntry> ConvertToBackingContext::convertToBacking(const We
 
         return { { bindGroupEntry.binding, WTF::move(*convertedBufferBinding), convertedBufferBinding->buffer, BindingResourceType::BufferBinding } };
     }, [&] (std::reference_wrapper<WebCore::WebGPU::ExternalTexture> externalTexture) -> std::optional<BindGroupEntry> {
-        auto identifier = convertToBacking(Ref { externalTexture.get() }.get());
+        auto identifier = convertToBacking(protect(externalTexture.get()).get());
 
         return { { bindGroupEntry.binding, { identifier }, identifier, BindingResourceType::ExternalTexture } };
     });

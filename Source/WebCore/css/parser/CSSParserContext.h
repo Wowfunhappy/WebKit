@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +30,6 @@
 #include <WebCore/CSSPropertyNames.h>
 #include <WebCore/LoadedFromOpaqueSource.h>
 #include <WebCore/StyleRuleType.h>
-#include <pal/text/TextEncoding.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/Hasher.h>
 #include <wtf/URL.h>
@@ -76,6 +76,7 @@ struct CSSParserContext {
     bool targetTextPseudoElementEnabled : 1 { false };
     bool htmlEnhancedSelectEnabled : 1 { false };
     bool cssRandomFunctionEnabled : 1 { false };
+    bool cssRandomItemFunctionEnabled : 1 { false };
     bool cssRubyDisplayTypesEnabled : 1 { false };
     bool cssTreeCountingFunctionsEnabled : 1 { false };
     bool cssURLModifiersEnabled : 1 { false };
@@ -84,10 +85,15 @@ struct CSSParserContext {
     bool cssDynamicRangeLimitMixEnabled : 1 { false };
     bool cssConstrainedDynamicRangeLimitEnabled : 1 { false };
     bool cssTextTransformMathAutoEnabled : 1 { false };
+    bool cssFontSynthesisStyleObliqueOnlyEnabled : 1 { false };
     bool cssInternalAutoBaseParsingEnabled : 1 { false };
     bool webkitMediaTextTrackDisplayQuirkEnabled : 1 { false };
     bool cssMathDepthEnabled : 1 { false };
     bool openPseudoClassEnabled : 1 { false };
+    bool cssAttrSubstitutionFunctionEnabled : 1 { false };
+    bool cssScrollStateContainerQueriesEnabled : 1 { false };
+    bool cssCalcMixEnabled : 1 { false };
+    bool cssIdentFunctionEnabled : 1 { false };
 
     // Settings, those affecting properties.
     CSSPropertySettings propertySettings;

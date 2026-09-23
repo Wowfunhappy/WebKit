@@ -78,6 +78,14 @@
         let suite = InspectorTest.createAsyncSuite("SiteIsolation.Target");
 
         suite.addTestCase({
+            name: "SiteIsolation.Target.DataURLIframe",
+            description: "Data URL iframe creates non-provisional frame target.",
+            test(resolve) {
+                runCallbackCountingTest(resolve, 1, `addIframe("data:text/html,<p>No JavaScript.</p>");`);
+            },
+        });
+
+        suite.addTestCase({
             name: "SiteIsolation.Target.SameOriginIframe",
             description: "Same-origin iframe creates non-provisional frame target.",
             test(resolve) {

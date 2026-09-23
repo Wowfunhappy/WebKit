@@ -1,4 +1,4 @@
-// requireOptions("--collectContinuously=1")
+//@ requireOptions("--collectContinuously=1")
 
 import * as assert from "../assert.js";
 import { instantiate } from "./wast-wrapper.js";

@@ -53,7 +53,7 @@ public:
 
     DECLARE_INFO;
 
-    JSDOMGlobalObject* window() const { return JSC::jsCast<JSDOMGlobalObject*>(target()); }
+    JSDOMGlobalObject* window() const { return downcast<JSDOMGlobalObject>(target()); }
 
     void setWindow(JSC::VM&, JSDOMGlobalObject&);
     void setWindow(DOMWindow&);
@@ -75,16 +75,6 @@ private:
     ~JSWindowProxy();
     void finishCreation(JSC::VM&, DOMWindow&);
     static JSC::GCClient::IsoSubspace* NODELETE subspaceForImpl(JSC::VM&);
-
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    static bool getOwnPropertySlot(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&);
-    static bool getOwnPropertySlotByIndex(JSC::JSObject*, JSC::JSGlobalObject*, unsigned, JSC::PropertySlot&);
-    static bool put(JSC::JSCell*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::JSValue, JSC::PutPropertySlot&);
-    static bool putByIndex(JSC::JSCell*, JSC::JSGlobalObject*, unsigned, JSC::JSValue, bool shouldThrow);
-    static bool deleteProperty(JSC::JSCell*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::DeletePropertySlot&);
-    static bool deletePropertyByIndex(JSC::JSCell*, JSC::JSGlobalObject*, unsigned);
-    static bool defineOwnProperty(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, const JSC::PropertyDescriptor&, bool shouldThrow);
-#endif
 
     const Ref<DOMWrapperWorld> m_world;
 };

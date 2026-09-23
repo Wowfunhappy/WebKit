@@ -117,7 +117,7 @@ static void getFontPropertiesFromPattern(FcPattern* pattern, const FontDescripti
     // We requested an italic font, but Fontconfig gave us one that was neither oblique nor italic.
     syntheticOblique = false;
     int actualFontSlant;
-    bool allowSyntheticOblique = fontDescription.hasAutoFontSynthesisStyle()
+    bool allowSyntheticOblique = fontDescription.allowsItalicOrObliqueFontSynthesisStyle()
         && !options.contains(FontLookupOptions::DisallowObliqueSynthesis);
     if (allowSyntheticOblique && fontDescription.fontStyleSlope()
         && FcPatternGetInteger(pattern, FC_SLANT, 0, &actualFontSlant) == FcResultMatch) {
@@ -571,12 +571,12 @@ String buildVariationSettings(FT_Face face, const FontDescription& fontDescripti
     if (auto slopeValue = fontCreationContext.fontFaceCapabilities().slope)
         slope = std::max(std::min(slope, static_cast<float>(slopeValue->maximum)), static_cast<float>(slopeValue->minimum));
 
-    variationsToBeApplied.set({ { 'w', 'g', 'h', 't' } }, weight);
-    variationsToBeApplied.set({ { 'w', 'd', 't', 'h' } }, width);
+    variationsToBeApplied.set(FontVariationAxisTag::wght, weight);
+    variationsToBeApplied.set(FontVariationAxisTag::wdth, width);
     if (fontStyleAxis == FontStyleAxis::ital)
-        variationsToBeApplied.set({ { 'i', 't', 'a', 'l' } }, 1);
+        variationsToBeApplied.set(FontVariationAxisTag::ital, 1);
     else
-        variationsToBeApplied.set({ { 's', 'l', 'n', 't' } }, slope);
+        variationsToBeApplied.set(FontVariationAxisTag::slnt, slope);
 
     auto applyVariation = [&](const FontTag& tag, float value) {
         auto iterator = defaultValues.find(tag);

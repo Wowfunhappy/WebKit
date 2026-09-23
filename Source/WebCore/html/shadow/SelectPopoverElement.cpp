@@ -27,11 +27,10 @@
 #include "SelectPopoverElement.h"
 
 #include "Document.h"
-#include "EventLoop.h"
 #include "HTMLSelectElement.h"
-#include "RenderStyle.h"
 #include "ShadowRoot.h"
-#include <JavaScriptCore/ConsoleTypes.h>
+#include "StyleAppearance.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -44,7 +43,7 @@ Ref<SelectPopoverElement> SelectPopoverElement::create(Document& document)
 }
 
 SelectPopoverElement::SelectPopoverElement(Document& document)
-    : HTMLDivElement(document)
+    : HTMLDivElement(document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
 }
 
@@ -56,37 +55,19 @@ HTMLSelectElement* SelectPopoverElement::selectElement() const
     return dynamicDowncast<HTMLSelectElement>(shadowRoot->host());
 }
 
-void SelectPopoverElement::didRecalcStyle(OptionSet<Style::Change> change)
+void SelectPopoverElement::didAttachRenderers()
 {
-    HTMLDivElement::didRecalcStyle(change);
+    HTMLDivElement::didAttachRenderers();
 
     CheckedPtr style = computedStyle();
-    if (!style)
-        return;
+    bool newIsAppearanceBase = style && style->usedAppearance() == StyleAppearance::Base;
 
-    auto usedAppearance = style->usedAppearance();
-    bool newIsAppearanceBase = (usedAppearance == StyleAppearance::Base);
-
-    RefPtr select = selectElement();
-    if (!select) {
-        m_isAppearanceBase = newIsAppearanceBase;
-        return;
+    if (m_wasBaseAppearancePicker && !newIsAppearanceBase) {
+        if (RefPtr select = selectElement(); select && select->popupIsVisible())
+            select->queuePickerCloseForAppearanceChange();
     }
 
-#if !PLATFORM(IOS_FAMILY)
-    if (m_isAppearanceBase != newIsAppearanceBase && select->popupIsVisible()) {
-        protect(protect(document())->eventLoop())->queueTask(TaskSource::DOMManipulation, [weakSelect = WeakPtr { select }] {
-            RefPtr select = weakSelect.get();
-            if (!select)
-                return;
-            protect(select->document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning,
-                "The select element's appearance property changed while its picker was open. The picker has been closed."_s);
-            select->hidePopup();
-        });
-    }
-#endif
-
-    m_isAppearanceBase = newIsAppearanceBase;
+    m_wasBaseAppearancePicker = newIsAppearanceBase;
 }
 
 void SelectPopoverElement::popoverWasHidden()

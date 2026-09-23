@@ -29,10 +29,12 @@
 #pragma once
 
 #include <JavaScriptCore/DeferTermination.h>
+#include <JavaScriptCore/Error.h>
 #include <JavaScriptCore/ErrorInstance.h>
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/ThrowScope.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -94,5 +96,47 @@ JS_EXPORT_PRIVATE Exception* throwStackOverflowError(JSGlobalObject*, ThrowScope
         JSC::DeferTerminationForAWhile deferScope(vm); \
         RELEASE_ASSERT_WITH_MESSAGE(assertion, __VA_ARGS__); \
     } while (false)
+
+// Defined here rather than in JSCJSValue.h because they need throwException/createRangeError/createNotAnObjectError.
+// https://tc39.es/ecma262/#sec-toindex
+inline uint64_t JSValue::toIndex(JSGlobalObject* globalObject, ASCIILiteral errorName) const
+{
+    VM& vm = getVM(globalObject);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (isInt32()) {
+        int32_t integer = asInt32();
+        if (integer < 0) [[unlikely]] {
+            throwException(globalObject, scope, createRangeError(globalObject, makeString(errorName, " cannot be negative"_s)));
+            return 0;
+        }
+        return integer;
+    }
+
+    double d = toIntegerOrInfinity(globalObject);
+    RETURN_IF_EXCEPTION(scope, 0);
+    if (d < 0) [[unlikely]] {
+        throwException(globalObject, scope, createRangeError(globalObject, makeString(errorName, " cannot be negative"_s)));
+        return 0;
+    }
+
+    if (d > maxSafeInteger()) [[unlikely]] {
+        throwException(globalObject, scope, createRangeError(globalObject, makeString(errorName, " larger than (2 ** 53) - 1"_s)));
+        return 0;
+    }
+
+    RELEASE_AND_RETURN(scope, d);
+}
+
+ALWAYS_INLINE bool JSValue::requireObjectCoercible(JSGlobalObject* globalObject) const
+{
+    VM& vm = getVM(globalObject);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!isUndefinedOrNull())
+        return true;
+    throwException(globalObject, scope, createNotAnObjectError(globalObject, *this));
+    return false;
+}
 
 } // namespace JSC

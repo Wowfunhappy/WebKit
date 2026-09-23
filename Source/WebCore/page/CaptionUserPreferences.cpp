@@ -179,7 +179,7 @@ void CaptionUserPreferences::setUserPrefersTextDescriptions(bool preference)
 
 void CaptionUserPreferences::captionPreferencesChanged()
 {
-    CheckedRef { m_pageGroup.get() }->captionPreferencesChanged();
+    CheckedRef { m_pageGroup }->captionPreferencesChanged();
 }
 
 Vector<String> CaptionUserPreferences::preferredLanguages() const
@@ -223,7 +223,7 @@ static String trackDisplayName(const TextTrack& track)
     if (&track == &TextTrack::captionMenuAutomaticItemSingleton())
         return textTrackAutomaticMenuItemText();
 
-    if (auto label = track.label().string().trim(isASCIIWhitespace); !label.isEmpty())
+    if (!track.label().string().containsOnly<isASCIIWhitespace>())
         return track.label();
     if (auto languageIdentifier = track.validBCP47Language(); !languageIdentifier.isEmpty())
         return languageIdentifier;
@@ -294,7 +294,7 @@ Vector<Ref<TextTrack>> CaptionUserPreferences::sortedTrackListForMenu(TextTrackL
 
 static String trackDisplayName(const AudioTrack& track)
 {
-    if (auto label = track.label().string().trim(isASCIIWhitespace); !label.isEmpty())
+    if (!track.label().string().containsOnly<isASCIIWhitespace>())
         return track.label();
     if (auto languageIdentifier = track.validBCP47Language(); !languageIdentifier.isEmpty())
         return languageIdentifier;

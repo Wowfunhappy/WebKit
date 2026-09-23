@@ -499,7 +499,7 @@ void IDBDatabase::didDeleteIndexInfo(const IDBIndexInfo& info)
 
 std::optional<ScriptExecutionContextIdentifier> IDBDatabase::scriptExecutionContextIdentifier() const
 {
-    if (RefPtr context = scriptExecutionContext())
+    if (auto* context = scriptExecutionContext())
         return context->identifier();
 
     return std::nullopt;

@@ -16,6 +16,9 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/OWNERS
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/WEB_FEATURES.yml
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/animated-dashoffset-odd-dasharray-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/animated-dashoffset-odd-dasharray-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/animated-dashoffset-odd-dasharray.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/color-interpolation-001-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/color-interpolation-001.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/color-interpolation-animation.html
@@ -37,6 +40,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/foreignObject-overflow-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/foreignObject-overflow.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/inheritance.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/inner-outer-svg-overflow-auto-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/inner-outer-svg-overflow-auto-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/inner-outer-svg-overflow-auto.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/marker-001-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/marker-001-ref.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/marker-001.svg
@@ -70,6 +76,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/marker-with-mask-cycle-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/mask-containing-image-with-clip-path-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/mask-containing-image-with-clip-path.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/negative-dashoffset-odd-dasharray-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/negative-dashoffset-odd-dasharray-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/painting/negative-dashoffset-odd-dasharray.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/subpixel-clip-path-transform-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/subpixel-clip-path-transform-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/painting/subpixel-clip-path-transform.html

@@ -31,7 +31,8 @@
 [RValue] struct WebKit::FullScreenMediaDetails {
     WebKit::FullScreenMediaDetails::Type type;
     WebCore::FloatSize mediaDimensions;
-    String mimeType;
-    std::optional<WebCore::SharedMemory::Handle> imageHandle;
+#if ENABLE(QUICKLOOK_FULLSCREEN)
+    WebKit::FullScreenMediaDetails::ImageData imageData;
     bool launchInImmersive;
+#endif
 };

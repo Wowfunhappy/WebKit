@@ -27,6 +27,9 @@
 
 @class _WKWebExtensionSidebar;
 
+/*! @abstract Indicates a script error occurred in the extension, such as an uncaught exception, unhandled promise rejection, or a call to console.error(). */
+static const WKWebExtensionContextError WKWebExtensionContextErrorScriptExecutionError = (WKWebExtensionContextError)7;
+
 WK_HEADER_AUDIT_BEGIN(nullability, sendability)
 
 @interface WKWebExtensionContext ()
@@ -69,6 +72,10 @@ WK_HEADER_AUDIT_BEGIN(nullability, sendability)
  The default sidebar should not be directly displayed. When possible, specify the tab to get the most context-relevant sidebar.
  */
 - (nullable _WKWebExtensionSidebar *)sidebarForTab:(nullable id <WKWebExtensionTab>)tab NS_SWIFT_NAME(sidebar(for:));
+
+/*! @abstract Whether the extension context has access to file:// URLs.
+ @discussion When YES, the extension can inject content into and interact with file:// pages. Defaults to NO. */
+@property (nonatomic, setter=_setHasAccessToFileURLs:) BOOL _hasAccessToFileURLs;
 
 @end
 

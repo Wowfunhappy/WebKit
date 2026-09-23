@@ -434,6 +434,8 @@ void WebInspectorUIExtensionController::evaluateScriptInExtensionTab(const Inspe
             return;
         }
 
+        JSC::JSLockHolder lock(frontendGlobalObject);
+
         if (auto parsedError = weakThis->parseExtensionErrorFromEvaluationResult(result)) {
             if (!result.value().has_value()) {
                 auto exceptionDetails = result.value().error();

@@ -45,6 +45,12 @@
 /**
  * WPEBufferDMABuf:
  *
+ * A [class@Buffer] backed by a DMA-BUF.
+ *
+ * [class@BufferDMABuf] is a [class@Buffer] that wraps one or more DMA-BUF file
+ * descriptors, identified by a DRM format (FourCC) and a modifier. This is the
+ * buffer type used for hardware-accelerated rendering and, where supported,
+ * direct scanout.
  */
 struct _WPEBufferDMABufPrivate {
     uint32_t format;
@@ -137,34 +143,32 @@ static gpointer wpeBufferDMABufImportToEGLImage(WPEBuffer* buffer, GError** erro
         EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLint>(priv->format)
     };
 
-    static const uint64_t invalidModifier = ((1ULL << 56) - 1);
-#define ADD_PLANE_ATTRIBUTES(planeIndex) { \
-    std::array<EGLAttrib, 6> planeAttributes { \
-        EGL_DMA_BUF_PLANE##planeIndex##_FD_EXT, priv->fds[planeIndex].value(), \
-        EGL_DMA_BUF_PLANE##planeIndex##_OFFSET_EXT, static_cast<EGLint>(priv->offsets[planeIndex]), \
-        EGL_DMA_BUF_PLANE##planeIndex##_PITCH_EXT, static_cast<EGLint>(priv->strides[planeIndex]) \
-    }; \
-    attributes.append(std::span<const EGLAttrib> { planeAttributes }); \
-    if (priv->modifier != invalidModifier && wpeDisplayCheckEGLExtension(display, "EXT_image_dma_buf_import_modifiers")) { \
-        std::array<EGLint, 4> modifierAttributes { \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_HI_EXT, static_cast<EGLint>(priv->modifier >> 32), \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_LO_EXT, static_cast<EGLint>(priv->modifier & 0xffffffff) \
-        }; \
-        attributes.append(std::span<const EGLint> { modifierAttributes }); \
-    } \
-    }
+    static constexpr uint64_t invalidModifier = ((1ULL << 56) - 1);
+    static constexpr std::array planeAttributeNames = {
+        std::array { EGL_DMA_BUF_PLANE0_FD_EXT, EGL_DMA_BUF_PLANE0_OFFSET_EXT, EGL_DMA_BUF_PLANE0_PITCH_EXT, EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT },
+        std::array { EGL_DMA_BUF_PLANE1_FD_EXT, EGL_DMA_BUF_PLANE1_OFFSET_EXT, EGL_DMA_BUF_PLANE1_PITCH_EXT, EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT },
+        std::array { EGL_DMA_BUF_PLANE2_FD_EXT, EGL_DMA_BUF_PLANE2_OFFSET_EXT, EGL_DMA_BUF_PLANE2_PITCH_EXT, EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT },
+        std::array { EGL_DMA_BUF_PLANE3_FD_EXT, EGL_DMA_BUF_PLANE3_OFFSET_EXT, EGL_DMA_BUF_PLANE3_PITCH_EXT, EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT },
+    };
 
     auto planeCount = priv->fds.size();
-    if (planeCount > 0)
-        ADD_PLANE_ATTRIBUTES(0);
-    if (planeCount > 1)
-        ADD_PLANE_ATTRIBUTES(1);
-    if (planeCount > 2)
-        ADD_PLANE_ATTRIBUTES(2);
-    if (planeCount > 3)
-        ADD_PLANE_ATTRIBUTES(3);
+    bool hasModifiers = priv->modifier != invalidModifier && wpeDisplayCheckEGLExtension(display, "EXT_image_dma_buf_import_modifiers");
 
-#undef ADD_PLANE_ATTRIBUTES
+    for (size_t i = 0; i < planeCount; ++i) {
+        const auto& names = planeAttributeNames[i];
+        attributes.appendList<EGLint>({
+            names[0], priv->fds[i].value(),
+            names[1], static_cast<EGLint>(priv->offsets[i]),
+            names[2], static_cast<EGLint>(priv->strides[i])
+        });
+
+        if (hasModifiers) {
+            attributes.appendList<EGLint>({
+                names[3], static_cast<EGLint>(priv->modifier >> 32),
+                names[4], static_cast<EGLint>(priv->modifier & 0xffffffff)
+            });
+        }
+    }
 
     attributes.append(EGL_NONE);
     priv->eglImage = s_eglCreateImageKHR(eglDisplay, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.span().data());
@@ -373,7 +377,7 @@ guint32 wpe_buffer_dma_buf_get_n_planes(WPEBufferDMABuf* buffer)
  *
  * Get the @buffer file descriptor of @plane
  *
- * Return: a file descriptor, or -1
+ * Returns: a file descriptor, or -1
  */
 int wpe_buffer_dma_buf_get_fd(WPEBufferDMABuf* buffer, guint32 plane)
 {
@@ -390,7 +394,7 @@ int wpe_buffer_dma_buf_get_fd(WPEBufferDMABuf* buffer, guint32 plane)
  *
  * Get the @buffer offset of @plane
  *
- * Return: the buffer offset
+ * Returns: the buffer offset
  */
 guint32 wpe_buffer_dma_buf_get_offset(WPEBufferDMABuf* buffer, guint32 plane)
 {
@@ -407,7 +411,7 @@ guint32 wpe_buffer_dma_buf_get_offset(WPEBufferDMABuf* buffer, guint32 plane)
  *
  * Get the @buffer stride of @plane
  *
- * Return: the buffer stride
+ * Returns: the buffer stride
  */
 guint32 wpe_buffer_dma_buf_get_stride(WPEBufferDMABuf* buffer, guint32 plane)
 {
@@ -423,7 +427,7 @@ guint32 wpe_buffer_dma_buf_get_stride(WPEBufferDMABuf* buffer, guint32 plane)
  *
  * Get the @buffer modifier
  *
- * Return: the buffer modifier
+ * Returns: the buffer modifier
  */
 guint64 wpe_buffer_dma_buf_get_modifier(WPEBufferDMABuf* buffer)
 {

@@ -71,6 +71,8 @@ class VertexConversionBuffer : public ConversionBuffer
   public:
     struct CacheKey final
     {
+        VertexArrayVk *vertexArrayVk;
+        size_t attribIndex;
         angle::FormatID formatID;
         GLuint stride;
         size_t offset;
@@ -86,7 +88,9 @@ class VertexConversionBuffer : public ConversionBuffer
     bool match(const CacheKey &cacheKey)
     {
         // If anything other than offset mismatch, it can't reuse.
-        if (mCacheKey.formatID != cacheKey.formatID || mCacheKey.stride != cacheKey.stride ||
+        if (mCacheKey.vertexArrayVk != cacheKey.vertexArrayVk ||
+            mCacheKey.attribIndex != cacheKey.attribIndex ||
+            mCacheKey.formatID != cacheKey.formatID || mCacheKey.stride != cacheKey.stride ||
             mCacheKey.offsetMustMatchExactly != cacheKey.offsetMustMatchExactly ||
             mCacheKey.hostVisible != cacheKey.hostVisible)
         {
@@ -165,13 +169,15 @@ class BufferVk : public BufferImpl
                                         gl::BufferUsage usage,
                                         GLbitfield flags,
                                         gl::BufferStorage bufferStorage,
-                                        BufferFeedback *feedback) override;
+                                        BufferFeedback *feedback,
+                                        gl::ZeroFillRequired zeroFillRequired) override;
     angle::Result setData(const gl::Context *context,
                           gl::BufferBinding target,
                           const void *data,
                           size_t size,
                           gl::BufferUsage usage,
-                          BufferFeedback *feedback) override;
+                          BufferFeedback *feedback,
+                          gl::ZeroFillRequired zeroFillRequired) override;
     angle::Result setSubData(const gl::Context *context,
                              gl::BufferBinding target,
                              const void *data,

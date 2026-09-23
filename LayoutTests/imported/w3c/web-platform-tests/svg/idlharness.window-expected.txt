@@ -13,7 +13,6 @@ PASS Partial interface Element: member names are unique
 PASS Partial interface ShadowRoot: member names are unique
 PASS Partial interface Document[4]: member names are unique
 PASS SVGElement includes GlobalEventHandlers: member names are unique
-PASS SVGElement includes SVGElementInstance: member names are unique
 PASS SVGElement includes HTMLOrSVGElement: member names are unique
 PASS SVGGraphicsElement includes SVGTests: member names are unique
 PASS SVGSVGElement includes SVGFitToViewBox: member names are unique
@@ -57,8 +56,6 @@ PASS SVGElement interface: existence and properties of interface prototype objec
 PASS SVGElement interface: attribute className
 PASS SVGElement interface: attribute ownerSVGElement
 PASS SVGElement interface: attribute viewportElement
-FAIL SVGElement interface: attribute correspondingElement assert_true: The prototype object must have a property "correspondingElement" expected true got false
-FAIL SVGElement interface: attribute correspondingUseElement assert_true: The prototype object must have a property "correspondingUseElement" expected true got false
 PASS SVGGraphicsElement interface: existence and properties of interface object
 PASS SVGGraphicsElement interface object length
 PASS SVGGraphicsElement interface object name
@@ -484,8 +481,6 @@ PASS SVGGraphicsElement interface: objects.svg must inherit property "systemLang
 PASS SVGElement interface: objects.svg must inherit property "className" with the proper type
 PASS SVGElement interface: objects.svg must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.svg must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.svg must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.svg must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGGElement interface: existence and properties of interface object
 PASS SVGGElement interface object length
 PASS SVGGElement interface object name
@@ -504,8 +499,6 @@ PASS SVGGraphicsElement interface: objects.g must inherit property "systemLangua
 PASS SVGElement interface: objects.g must inherit property "className" with the proper type
 PASS SVGElement interface: objects.g must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.g must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.g must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.g must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGDefsElement interface: existence and properties of interface object
 PASS SVGDefsElement interface object length
 PASS SVGDefsElement interface object name
@@ -524,8 +517,6 @@ PASS SVGGraphicsElement interface: objects.defs must inherit property "systemLan
 PASS SVGElement interface: objects.defs must inherit property "className" with the proper type
 PASS SVGElement interface: objects.defs must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.defs must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.defs must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.defs must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGDescElement interface: existence and properties of interface object
 PASS SVGDescElement interface object length
 PASS SVGDescElement interface object name
@@ -537,8 +528,6 @@ PASS Stringification of objects.desc
 PASS SVGElement interface: objects.desc must inherit property "className" with the proper type
 PASS SVGElement interface: objects.desc must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.desc must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.desc must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.desc must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGMetadataElement interface: existence and properties of interface object
 PASS SVGMetadataElement interface object length
 PASS SVGMetadataElement interface object name
@@ -550,8 +539,6 @@ PASS Stringification of objects.metadata
 PASS SVGElement interface: objects.metadata must inherit property "className" with the proper type
 PASS SVGElement interface: objects.metadata must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.metadata must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.metadata must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.metadata must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGTitleElement interface: existence and properties of interface object
 PASS SVGTitleElement interface object length
 PASS SVGTitleElement interface object name
@@ -563,8 +550,6 @@ PASS Stringification of objects.title
 PASS SVGElement interface: objects.title must inherit property "className" with the proper type
 PASS SVGElement interface: objects.title must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.title must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.title must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.title must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGSymbolElement interface: existence and properties of interface object
 PASS SVGSymbolElement interface object length
 PASS SVGSymbolElement interface object name
@@ -587,8 +572,6 @@ PASS SVGGraphicsElement interface: objects.symbol must inherit property "systemL
 PASS SVGElement interface: objects.symbol must inherit property "className" with the proper type
 PASS SVGElement interface: objects.symbol must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.symbol must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.symbol must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.symbol must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGUseElement interface: existence and properties of interface object
 PASS SVGUseElement interface object length
 PASS SVGUseElement interface object name
@@ -621,8 +604,6 @@ PASS SVGGraphicsElement interface: objects.use must inherit property "systemLang
 PASS SVGElement interface: objects.use must inherit property "className" with the proper type
 PASS SVGElement interface: objects.use must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.use must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.use must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.use must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 FAIL SVGUseElementShadowRoot interface: existence and properties of interface object assert_own_property: self does not have own property "SVGUseElementShadowRoot" expected property "SVGUseElementShadowRoot" missing
 FAIL SVGUseElementShadowRoot interface object length assert_own_property: self does not have own property "SVGUseElementShadowRoot" expected property "SVGUseElementShadowRoot" missing
 FAIL SVGUseElementShadowRoot interface object name assert_own_property: self does not have own property "SVGUseElementShadowRoot" expected property "SVGUseElementShadowRoot" missing
@@ -654,8 +635,6 @@ PASS SVGGraphicsElement interface: objects.switch must inherit property "systemL
 PASS SVGElement interface: objects.switch must inherit property "className" with the proper type
 PASS SVGElement interface: objects.switch must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.switch must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.switch must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.switch must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGStyleElement interface: existence and properties of interface object
 PASS SVGStyleElement interface object length
 PASS SVGStyleElement interface object name
@@ -675,8 +654,6 @@ PASS SVGStyleElement interface: objects.style must inherit property "disabled" w
 PASS SVGElement interface: objects.style must inherit property "className" with the proper type
 PASS SVGElement interface: objects.style must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.style must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.style must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.style must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGTransform interface: existence and properties of interface object
 PASS SVGTransform interface object length
 PASS SVGTransform interface object name
@@ -883,8 +860,6 @@ PASS SVGGraphicsElement interface: objects.rect must inherit property "systemLan
 PASS SVGElement interface: objects.rect must inherit property "className" with the proper type
 PASS SVGElement interface: objects.rect must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.rect must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.rect must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.rect must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGCircleElement interface: existence and properties of interface object
 PASS SVGCircleElement interface object length
 PASS SVGCircleElement interface object name
@@ -917,8 +892,6 @@ PASS SVGGraphicsElement interface: objects.circle must inherit property "systemL
 PASS SVGElement interface: objects.circle must inherit property "className" with the proper type
 PASS SVGElement interface: objects.circle must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.circle must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.circle must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.circle must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGEllipseElement interface: existence and properties of interface object
 PASS SVGEllipseElement interface object length
 PASS SVGEllipseElement interface object name
@@ -953,8 +926,6 @@ PASS SVGGraphicsElement interface: objects.ellipse must inherit property "system
 PASS SVGElement interface: objects.ellipse must inherit property "className" with the proper type
 PASS SVGElement interface: objects.ellipse must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.ellipse must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.ellipse must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.ellipse must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGLineElement interface: existence and properties of interface object
 PASS SVGLineElement interface object length
 PASS SVGLineElement interface object name
@@ -989,8 +960,6 @@ PASS SVGGraphicsElement interface: objects.line must inherit property "systemLan
 PASS SVGElement interface: objects.line must inherit property "className" with the proper type
 PASS SVGElement interface: objects.line must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.line must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.line must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.line must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGPointList interface: existence and properties of interface object
 PASS SVGPointList interface object length
 PASS SVGPointList interface object name
@@ -1053,8 +1022,6 @@ PASS SVGGraphicsElement interface: objects.polyline must inherit property "syste
 PASS SVGElement interface: objects.polyline must inherit property "className" with the proper type
 PASS SVGElement interface: objects.polyline must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.polyline must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.polyline must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.polyline must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGPolygonElement interface: existence and properties of interface object
 PASS SVGPolygonElement interface object length
 PASS SVGPolygonElement interface object name
@@ -1085,8 +1052,6 @@ PASS SVGGraphicsElement interface: objects.polygon must inherit property "system
 PASS SVGElement interface: objects.polygon must inherit property "className" with the proper type
 PASS SVGElement interface: objects.polygon must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.polygon must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.polygon must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.polygon must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGTextContentElement interface: existence and properties of interface object
 PASS SVGTextContentElement interface object length
 PASS SVGTextContentElement interface object name
@@ -1165,8 +1130,6 @@ PASS SVGGraphicsElement interface: objects.text must inherit property "systemLan
 PASS SVGElement interface: objects.text must inherit property "className" with the proper type
 PASS SVGElement interface: objects.text must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.text must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.text must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.text must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGTSpanElement interface: existence and properties of interface object
 PASS SVGTSpanElement interface object length
 PASS SVGTSpanElement interface object name
@@ -1211,8 +1174,6 @@ PASS SVGGraphicsElement interface: objects.tspan must inherit property "systemLa
 PASS SVGElement interface: objects.tspan must inherit property "className" with the proper type
 PASS SVGElement interface: objects.tspan must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.tspan must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.tspan must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.tspan must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGTextPathElement interface: existence and properties of interface object
 PASS SVGTextPathElement interface object length
 PASS SVGTextPathElement interface object name
@@ -1278,8 +1239,6 @@ PASS SVGGraphicsElement interface: objects.textPath must inherit property "syste
 PASS SVGElement interface: objects.textPath must inherit property "className" with the proper type
 PASS SVGElement interface: objects.textPath must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.textPath must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.textPath must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.textPath must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGImageElement interface: existence and properties of interface object
 PASS SVGImageElement interface object length
 PASS SVGImageElement interface object name
@@ -1312,8 +1271,6 @@ PASS SVGGraphicsElement interface: objects.image must inherit property "systemLa
 PASS SVGElement interface: objects.image must inherit property "className" with the proper type
 PASS SVGElement interface: objects.image must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.image must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.image must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.image must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGForeignObjectElement interface: existence and properties of interface object
 PASS SVGForeignObjectElement interface object length
 PASS SVGForeignObjectElement interface object name
@@ -1340,8 +1297,6 @@ PASS SVGGraphicsElement interface: objects.foreignObject must inherit property "
 PASS SVGElement interface: objects.foreignObject must inherit property "className" with the proper type
 PASS SVGElement interface: objects.foreignObject must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.foreignObject must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.foreignObject must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.foreignObject must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGMarkerElement interface: existence and properties of interface object
 PASS SVGMarkerElement interface object length
 PASS SVGMarkerElement interface object name
@@ -1399,8 +1354,6 @@ PASS SVGMarkerElement interface: objects.marker must inherit property "preserveA
 PASS SVGElement interface: objects.marker must inherit property "className" with the proper type
 PASS SVGElement interface: objects.marker must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.marker must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.marker must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.marker must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGGradientElement interface: existence and properties of interface object
 PASS SVGGradientElement interface object length
 PASS SVGGradientElement interface object name
@@ -1446,8 +1399,6 @@ PASS SVGGradientElement interface: objects.linearGradient must inherit property 
 PASS SVGElement interface: objects.linearGradient must inherit property "className" with the proper type
 PASS SVGElement interface: objects.linearGradient must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.linearGradient must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.linearGradient must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.linearGradient must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGRadialGradientElement interface: existence and properties of interface object
 PASS SVGRadialGradientElement interface object length
 PASS SVGRadialGradientElement interface object name
@@ -1479,8 +1430,6 @@ PASS SVGGradientElement interface: objects.radialGradient must inherit property 
 PASS SVGElement interface: objects.radialGradient must inherit property "className" with the proper type
 PASS SVGElement interface: objects.radialGradient must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.radialGradient must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.radialGradient must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.radialGradient must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGStopElement interface: existence and properties of interface object
 PASS SVGStopElement interface object length
 PASS SVGStopElement interface object name
@@ -1494,8 +1443,6 @@ PASS SVGStopElement interface: objects.stop must inherit property "offset" with 
 PASS SVGElement interface: objects.stop must inherit property "className" with the proper type
 PASS SVGElement interface: objects.stop must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.stop must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.stop must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.stop must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGPatternElement interface: existence and properties of interface object
 PASS SVGPatternElement interface object length
 PASS SVGPatternElement interface object name
@@ -1527,8 +1474,6 @@ PASS SVGPatternElement interface: objects.pattern must inherit property "href" w
 PASS SVGElement interface: objects.pattern must inherit property "className" with the proper type
 PASS SVGElement interface: objects.pattern must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.pattern must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.pattern must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.pattern must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGScriptElement interface: existence and properties of interface object
 PASS SVGScriptElement interface object length
 PASS SVGScriptElement interface object name
@@ -1546,8 +1491,6 @@ PASS SVGScriptElement interface: objects.script must inherit property "href" wit
 PASS SVGElement interface: objects.script must inherit property "className" with the proper type
 PASS SVGElement interface: objects.script must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.script must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.script must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.script must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGAElement interface: existence and properties of interface object
 PASS SVGAElement interface object length
 PASS SVGAElement interface object name
@@ -1604,8 +1547,6 @@ PASS SVGGraphicsElement interface: objects.a must inherit property "systemLangua
 PASS SVGElement interface: objects.a must inherit property "className" with the proper type
 PASS SVGElement interface: objects.a must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.a must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.a must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.a must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGViewElement interface: existence and properties of interface object
 PASS SVGViewElement interface object length
 PASS SVGViewElement interface object name
@@ -1621,8 +1562,6 @@ PASS SVGViewElement interface: objects.view must inherit property "preserveAspec
 PASS SVGElement interface: objects.view must inherit property "className" with the proper type
 PASS SVGElement interface: objects.view must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.view must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.view must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.view must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 FAIL TimeEvent interface: existence and properties of interface object assert_own_property: self does not have own property "TimeEvent" expected property "TimeEvent" missing
 FAIL TimeEvent interface object length assert_own_property: self does not have own property "TimeEvent" expected property "TimeEvent" missing
 FAIL TimeEvent interface object name assert_own_property: self does not have own property "TimeEvent" expected property "TimeEvent" missing
@@ -1677,8 +1616,6 @@ PASS SVGAnimationElement interface: objects.animate must inherit property "syste
 PASS SVGElement interface: objects.animate must inherit property "className" with the proper type
 PASS SVGElement interface: objects.animate must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.animate must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.animate must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.animate must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGSetElement interface: existence and properties of interface object
 PASS SVGSetElement interface object length
 PASS SVGSetElement interface object name
@@ -1705,8 +1642,6 @@ PASS SVGAnimationElement interface: objects.set must inherit property "systemLan
 PASS SVGElement interface: objects.set must inherit property "className" with the proper type
 PASS SVGElement interface: objects.set must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.set must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.set must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.set must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGAnimateMotionElement interface: existence and properties of interface object
 PASS SVGAnimateMotionElement interface object length
 PASS SVGAnimateMotionElement interface object name
@@ -1733,8 +1668,6 @@ PASS SVGAnimationElement interface: objects.animateMotion must inherit property 
 PASS SVGElement interface: objects.animateMotion must inherit property "className" with the proper type
 PASS SVGElement interface: objects.animateMotion must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.animateMotion must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.animateMotion must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.animateMotion must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGMPathElement interface: existence and properties of interface object
 PASS SVGMPathElement interface object length
 PASS SVGMPathElement interface object name
@@ -1748,8 +1681,6 @@ PASS SVGMPathElement interface: objects.mpath must inherit property "href" with 
 PASS SVGElement interface: objects.mpath must inherit property "className" with the proper type
 PASS SVGElement interface: objects.mpath must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.mpath must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.mpath must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.mpath must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS SVGAnimateTransformElement interface: existence and properties of interface object
 PASS SVGAnimateTransformElement interface object length
 PASS SVGAnimateTransformElement interface object name
@@ -1776,7 +1707,5 @@ PASS SVGAnimationElement interface: objects.animateTransform must inherit proper
 PASS SVGElement interface: objects.animateTransform must inherit property "className" with the proper type
 PASS SVGElement interface: objects.animateTransform must inherit property "ownerSVGElement" with the proper type
 PASS SVGElement interface: objects.animateTransform must inherit property "viewportElement" with the proper type
-FAIL SVGElement interface: objects.animateTransform must inherit property "correspondingElement" with the proper type assert_inherits: property "correspondingElement" not found in prototype chain
-FAIL SVGElement interface: objects.animateTransform must inherit property "correspondingUseElement" with the proper type assert_inherits: property "correspondingUseElement" not found in prototype chain
 PASS Document interface: attribute rootElement
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #import "FrameProcess.h"
 #import "FullscreenClient.h"
 #import "GPUProcessProxy.h"
+#import "LayerHostingVisibilityPropagator.h"
 #import "Logging.h"
 #import "ModelProcessProxy.h"
 #import "PDFDisplayMode.h"
@@ -227,25 +228,10 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 #endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
-#if USE(EXTENSIONKIT)
     RetainPtr<NSMutableSet<WKVisibilityPropagationView *>> _visibilityPropagationViews;
-#elif HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
-    HashMap<WebCore::ProcessIdentifier, RetainPtr<_UINonHostingVisibilityPropagationView>> _visibilityPropagationViewsForWebProcesses;
-#if ENABLE(GPU_PROCESS)
-    RetainPtr<_UINonHostingVisibilityPropagationView> _visibilityPropagationViewForGPUProcess;
-#endif // ENABLE(GPU_PROCESS)
-#if ENABLE(MODEL_PROCESS)
-    RetainPtr<_UINonHostingVisibilityPropagationView> _visibilityPropagationViewForModelProcess;
-#endif // ENABLE(MODEL_PROCESS)
-#else
-    HashMap<WebCore::ProcessIdentifier, RetainPtr<_UILayerHostView>> _visibilityPropagationViewsForWebProcesses;
-#if ENABLE(GPU_PROCESS)
-    RetainPtr<_UILayerHostView> _visibilityPropagationViewForGPUProcess;
-#endif // ENABLE(GPU_PROCESS)
-#if ENABLE(MODEL_PROCESS)
-    RetainPtr<_UILayerHostView> _visibilityPropagationViewForModelProcess;
-#endif // ENABLE(MODEL_PROCESS)
-#endif // !USE(EXTENSIONKIT)
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    WeakHashSet<WebKit::LayerHostingVisibilityPropagator> _layerHostingVisibilityPropagators;
+#endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
     __weak UIScreen *_screen;
@@ -285,17 +271,16 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 
     WebKit::WebProcessPool::statistics().wkViewCount++;
 
-    _rootContentView = adoptNS([[UIView alloc] init]);
-    [_rootContentView layer].name = @"RootContent";
-    [_rootContentView layer].masksToBounds = NO;
-    [_rootContentView setAutoresizingMask:UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight];
-
     _fixedClippingView = adoptNS([[UIView alloc] init]);
     [_fixedClippingView layer].name = @"FixedClipping";
     [_fixedClippingView layer].masksToBounds = YES;
     [_fixedClippingView layer].anchorPoint = CGPointZero;
-
     [self addSubview:_fixedClippingView.get()];
+
+    _rootContentView = adoptNS([[UIView alloc] init]);
+    [_rootContentView layer].name = @"RootContent";
+    [_rootContentView layer].masksToBounds = NO;
+    [_rootContentView layer].anchorPoint = CGPointZero;
     [_fixedClippingView addSubview:_rootContentView.get()];
 
     if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::LazyGestureRecognizerInstallation))
@@ -310,7 +295,8 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 #endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    [self _installVisibilityPropagationViews];
+    [self addSubview:[self _createVisibilityPropagationView].get()];
+    [self _setupVisibilityPropagation];
 #endif
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
@@ -343,65 +329,39 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 }
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
-- (void)_installVisibilityPropagationViews
-{
-#if USE(EXTENSIONKIT)
-    if (UIView *visibilityPropagationView = [self _createVisibilityPropagationView]) {
-        [self addSubview:visibilityPropagationView];
-        return;
-    }
-#endif
-
-    [self _setupVisibilityPropagation];
-}
 
 - (void)_setupVisibilityPropagationForWebProcess:(WebKit::WebProcessProxy&)process contextID:(WebKit::LayerHostingContextID)contextID
 {
-#if USE(EXTENSIONKIT)
     for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
-        [visibilityPropagationView propagateVisibilityToProcess:process];
-#else
-    auto processID = process.processID();
-    if (!processID)
-        return;
-    auto coreIdentifier = process.coreProcessIdentifier();
-    if (_visibilityPropagationViewsForWebProcesses.contains(coreIdentifier))
-        return;
-#if HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
-    auto environmentIdentifier = process.environmentIdentifier();
-    RetainPtr visibilityPropagationViewForWebProcess = adoptNS([[_UINonHostingVisibilityPropagationView alloc] initWithFrame:CGRectZero pid:processID environmentIdentifier:environmentIdentifier.createNSString().get()]);
-#else
-    if (!contextID)
-        return;
-    RetainPtr visibilityPropagationViewForWebProcess = adoptNS([[_UILayerHostView alloc] initWithFrame:CGRectZero pid:processID contextID:contextID]);
-#endif
-    RELEASE_LOG(Process, "Created visibility propagation view %p (contextID=%u) for WebContent process with PID=%d", visibilityPropagationViewForWebProcess.get(), contextID, processID);
-    _visibilityPropagationViewsForWebProcesses.add(coreIdentifier, visibilityPropagationViewForWebProcess);
-    [self addSubview:visibilityPropagationViewForWebProcess.get()];
+        [visibilityPropagationView propagateVisibilityToProcess:process contextID:contextID];
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.propagateVisibilityToProcess(process);
 #endif
 }
 
 - (void)_removeVisibilityPropagationForWebProcess:(WebKit::WebProcessProxy&)process
 {
-#if USE(EXTENSIONKIT)
     for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
         [visibilityPropagationView stopPropagatingVisibilityToProcess:process];
-#else
-    auto coreIdentifier = process.coreProcessIdentifier();
-    ASSERT(_visibilityPropagationViewsForWebProcesses.contains(coreIdentifier));
-    if (!_visibilityPropagationViewsForWebProcesses.contains(coreIdentifier))
-        return;
-    _visibilityPropagationViewsForWebProcesses.remove(coreIdentifier);
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.stopPropagatingVisibilityToProcess(process);
 #endif
 }
 
 - (void)_setupVisibilityPropagationForAllWebProcesses
 {
-    if (!protect(_page)->hasRunningProcess())
+    RefPtr page = _page.get();
+    if (!page)
         return;
 
-    Ref mainFrameProcess = _page->siteIsolatedProcess();
-    [self _setupVisibilityPropagationForWebProcess:mainFrameProcess contextID:_page->contextIDForVisibilityPropagationInWebProcess()];
+    if (!page->hasRunningProcess())
+        return;
+
+    Ref mainFrameProcess = page->siteIsolatedProcess();
+    [self _setupVisibilityPropagationForWebProcess:mainFrameProcess contextID:page->contextIDForVisibilityPropagationInWebProcess()];
+
     auto remotePages = mainFrameProcess->remotePages();
     for (auto& remotePage : remotePages)
         [self _setupVisibilityPropagationForWebProcess:remotePage->process() contextID:remotePage->contextIDForVisibilityPropagationInWebProcess()];
@@ -410,33 +370,19 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 #if ENABLE(GPU_PROCESS)
 - (void)_setupVisibilityPropagationForGPUProcess
 {
-    RefPtr gpuProcess = _page->configuration().processPool().gpuProcess();
+    RefPtr page = _page.get();
+    if (!page)
+        return;
+
+    RefPtr gpuProcess = page->configuration().processPool().gpuProcess();
     if (!gpuProcess)
         return;
 
-#if USE(EXTENSIONKIT)
     for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
-        [visibilityPropagationView propagateVisibilityToProcess:*gpuProcess];
-#else
-    auto processID = gpuProcess->processID();
-    if (!processID)
-        return;
-
-    if (_visibilityPropagationViewForGPUProcess)
-        return;
-
-    // Propagate the view's visibility state to the GPU process so that it is marked as "Foreground Running" when necessary.
-#if HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
-    auto environmentIdentifier = gpuProcess->environmentIdentifier();
-    _visibilityPropagationViewForGPUProcess = adoptNS([[_UINonHostingVisibilityPropagationView alloc] initWithFrame:CGRectZero pid:processID environmentIdentifier:environmentIdentifier.createNSString().get()]);
-#else
-    auto contextID = _page->contextIDForVisibilityPropagationInGPUProcess();
-    if (!contextID)
-        return;
-    _visibilityPropagationViewForGPUProcess = adoptNS([[_UILayerHostView alloc] initWithFrame:CGRectZero pid:processID contextID:contextID]);
-#endif
-    [self addSubview:_visibilityPropagationViewForGPUProcess.get()];
-    RELEASE_LOG(Process, "Created visibility propagation view %p for GPU process with PID=%d", _visibilityPropagationViewForGPUProcess.get(), processID);
+        [visibilityPropagationView propagateVisibilityToProcess:*gpuProcess contextID:page->contextIDForVisibilityPropagationInGPUProcess()];
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.propagateVisibilityToProcess(*gpuProcess);
 #endif
 }
 #endif // ENABLE(GPU_PROCESS)
@@ -444,83 +390,75 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 #if ENABLE(MODEL_PROCESS)
 - (void)_setupVisibilityPropagationForModelProcess
 {
-    RefPtr modelProcess = _page->configuration().processPool().modelProcess();
+    RefPtr page = _page.get();
+    if (!page)
+        return;
+
+    RefPtr modelProcess = page->configuration().processPool().modelProcess();
     if (!modelProcess)
         return;
-    auto processIdentifier = modelProcess->processID();
-    if (!processIdentifier)
-        return;
 
-    if (_visibilityPropagationViewForModelProcess)
-        return;
-
-    // Propagate the view's visibility state to the model process so that it is marked as "Foreground Running" when necessary.
-#if HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
-    auto environmentIdentifier = modelProcess->environmentIdentifier();
-    _visibilityPropagationViewForModelProcess = adoptNS([[_UINonHostingVisibilityPropagationView alloc] initWithFrame:CGRectZero pid:processIdentifier environmentIdentifier:environmentIdentifier.createNSString().get()]);
-#else
-    auto contextID = _page->contextIDForVisibilityPropagationInModelProcess();
-    if (!contextID)
-        return;
-    _visibilityPropagationViewForModelProcess = adoptNS([[_UILayerHostView alloc] initWithFrame:CGRectZero pid:processIdentifier contextID:contextID]);
+    for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
+        [visibilityPropagationView propagateVisibilityToProcess:*modelProcess contextID:page->contextIDForVisibilityPropagationInModelProcess()];
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.propagateVisibilityToProcess(*modelProcess);
 #endif
-    RELEASE_LOG(Process, "Created visibility propagation view %p for model process with PID=%d", _visibilityPropagationViewForModelProcess.get(), processIdentifier);
-    [self addSubview:_visibilityPropagationViewForModelProcess.get()];
 }
 #endif // ENABLE(MODEL_PROCESS)
 
 - (void)_removeVisibilityPropagationViewForWebProcess
 {
-#if USE(EXTENSIONKIT)
-    if (RefPtr page = _page.get()) {
-        Ref mainFrameProcess = _page->siteIsolatedProcess();
-        for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
-            [visibilityPropagationView stopPropagatingVisibilityToProcess:mainFrameProcess];
-        auto remotePages = mainFrameProcess->remotePages();
-        for (auto& remotePage : remotePages) {
-            for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
-                [visibilityPropagationView stopPropagatingVisibilityToProcess:remotePage->process()];
-        }
-    }
-#else
-    for (auto& keyAndValue : _visibilityPropagationViewsForWebProcesses) {
-        RetainPtr visibilityPropagationViewForWebProcess = keyAndValue.value;
-        RELEASE_LOG(Process, "Removing visibility propagation view %p", visibilityPropagationViewForWebProcess.get());
-        [visibilityPropagationViewForWebProcess removeFromSuperview];
-    }
-    _visibilityPropagationViewsForWebProcesses.clear();
-#endif
+    RefPtr page = _page.get();
+    if (!page)
+        return;
+
+    Ref mainFrameProcess = page->siteIsolatedProcess();
+    [self _removeVisibilityPropagationForWebProcess:mainFrameProcess];
+
+    auto remotePages = mainFrameProcess->remotePages();
+    for (auto& remotePage : remotePages)
+        [self _removeVisibilityPropagationForWebProcess:remotePage->process()];
 }
 
 - (void)_removeVisibilityPropagationViewForGPUProcess
 {
-#if USE(EXTENSIONKIT)
     RefPtr page = _page.get();
-    if (RefPtr gpuProcess = page ? page->configuration().processPool().gpuProcess() : nullptr) {
-        for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
-            [visibilityPropagationView stopPropagatingVisibilityToProcess:*gpuProcess];
-    }
-#else
-    if (!_visibilityPropagationViewForGPUProcess)
+    if (!page)
         return;
 
-    RELEASE_LOG(Process, "Removing visibility propagation view %p", _visibilityPropagationViewForGPUProcess.get());
-    [_visibilityPropagationViewForGPUProcess removeFromSuperview];
-    _visibilityPropagationViewForGPUProcess = nullptr;
+    RefPtr gpuProcess = page->configuration().processPool().gpuProcess();
+    if (!gpuProcess)
+        return;
+
+    for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
+        [visibilityPropagationView stopPropagatingVisibilityToProcess:*gpuProcess];
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.stopPropagatingVisibilityToProcess(*gpuProcess);
 #endif
 }
 
 #if ENABLE(MODEL_PROCESS)
 - (void)_removeVisibilityPropagationViewForModelProcess
 {
-    if (!_visibilityPropagationViewForModelProcess)
+    RefPtr page = _page.get();
+    if (!page)
         return;
 
-    RELEASE_LOG(Process, "Removing visibility propagation view %p", _visibilityPropagationViewForModelProcess.get());
-    [_visibilityPropagationViewForModelProcess removeFromSuperview];
-    _visibilityPropagationViewForModelProcess = nullptr;
+    RefPtr modelProcess = page->configuration().processPool().modelProcess();
+    if (!modelProcess)
+        return;
+
+    for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
+        [visibilityPropagationView stopPropagatingVisibilityToProcess:*modelProcess];
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.stopPropagatingVisibilityToProcess(*modelProcess);
+#endif
 }
 #endif // ENABLE(MODEL_PROCESS)
+
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 - (instancetype)initWithFrame:(CGRect)frame processPool:(std::reference_wrapper<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration webView:(WKWebView *)webView
@@ -694,8 +632,16 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
     WebCore::FloatRect clippingBounds = [self bounds];
     clippingBounds.unite(fixedPositionRectForUI);
 
-    [_fixedClippingView setCenter:clippingBounds.location()]; // Not really the center since we set an anchor point.
+    [_fixedClippingView setCenter:clippingBounds.location()];
     [_fixedClippingView setBounds:clippingBounds];
+
+    [_rootContentView setCenter:clippingBounds.location()];
+    [_rootContentView setBounds:clippingBounds];
+}
+
+- (CGRect)_fixedClippingViewBoundsForTesting
+{
+    return [_fixedClippingView bounds];
 }
 
 - (void)_didExitStableState
@@ -947,9 +893,11 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 
 - (void)_resetVisibilityPropagation
 {
-#if USE(EXTENSIONKIT)
     for (WKVisibilityPropagationView *visibilityPropagationView in _visibilityPropagationViews.get())
         [visibilityPropagationView clear];
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    for (auto& propagator : _layerHostingVisibilityPropagators)
+        propagator.clear();
 #endif
 }
 
@@ -989,6 +937,7 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 }
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
+
 - (void)_webProcessDidCreateContextForVisibilityPropagation
 {
     [self _setupVisibilityPropagationForAllWebProcesses];
@@ -1006,8 +955,7 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 }
 #endif
 
-#if USE(EXTENSIONKIT)
-- (WKVisibilityPropagationView *)_createVisibilityPropagationView
+- (RetainPtr<UIView>)_createVisibilityPropagationView
 {
     if (!_visibilityPropagationViews)
         _visibilityPropagationViews = adoptNS([[NSMutableSet alloc] init]);
@@ -1015,9 +963,7 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
     RetainPtr visibilityPropagationView = adoptNS([[WKVisibilityPropagationView alloc] init]);
     [_visibilityPropagationViews addObject:visibilityPropagationView.get()];
 
-    [self _setupVisibilityPropagation];
-
-    return visibilityPropagationView.autorelease();
+    return visibilityPropagationView;
 }
 
 - (void)_removeVisibilityPropagationView:(UIView *)view
@@ -1025,7 +971,17 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
     if (RetainPtr visibilityPropagationView = dynamic_objc_cast<WKVisibilityPropagationView>(view))
         [_visibilityPropagationViews removeObject:visibilityPropagationView.get()];
 }
-#endif // USE(EXTENSIONKIT)
+
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+- (RefPtr<WebKit::LayerHostingVisibilityPropagator>)_createLayerHostingVisibilityPropagator
+{
+    Ref propagator = WebKit::LayerHostingVisibilityPropagator::create();
+    _layerHostingVisibilityPropagators.add(propagator.get());
+    [self _setupVisibilityPropagation];
+    return propagator.ptr();
+}
+#endif // ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 - (void)_didCommitLayerTree:(const WebKit::RemoteLayerTreeTransaction&)layerTreeTransaction mainFrameData:(const std::optional<WebKit::MainFrameData>&)mainFrameData pageData:(const WebKit::PageData&)pageData transactionID:(const WebKit::TransactionID&)transactionID
@@ -1064,8 +1020,10 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
     // Updating the selection requires a full editor state. If the editor state is missing post layout
     // data then it means there is a layout pending and we're going to be called again after the layout
     // so we delay the selection update.
-    if (page->editorState().hasPostLayoutAndVisualData())
+    if (page->editorState().hasPostLayoutAndVisualData()) {
+        _cachedSelectionContainerView = nil;
         [self _updateChangedSelection];
+    }
 }
 
 - (void)_layerTreeCommitComplete
@@ -1190,7 +1148,7 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
     if (self.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular)
         return;
 
-    page->requestPDFDisplayMode(WebKit::PDFDisplayMode::SinglePageContinuous);
+    page->requestPDFDisplayMode(WebKit::PDFPluginDisplayMode::SinglePageContinuous);
 }
 #endif
 

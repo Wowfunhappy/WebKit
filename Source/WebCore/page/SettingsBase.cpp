@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009, 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,28 +26,21 @@
 #include "config.h"
 #include "SettingsBase.h"
 
-#include "AudioSession.h"
 #include "BackForwardCache.h"
-#include "BackForwardController.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
-#include "CookieStorage.h"
 #include "DOMTimer.h"
-#include "Database.h"
 #include "DocumentResourceLoader.h"
 #include "DocumentView.h"
 #include "FontCache.h"
 #include "FrameTree.h"
-#include "HistoryItem.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "Page.h"
 #include "RenderObjectInlines.h"
 #include "RenderWidget.h"
 #include "Settings.h"
-#include "StorageMap.h"
-#include <limits>
-#include <wtf/RuntimeApplicationChecks.h>
+#include "SystemFontDatabase.h"
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -64,6 +57,7 @@ static void invalidateAfterGenericFamilyChange(Page* page)
     // No need to invalidate FontCascadeCaches in worker threads, since workers
     // do not respond to changes in Settings values.
     FontCascadeCache::forCurrentThread().invalidate();
+    SystemFontDatabase::singleton().invalidate();
 
     if (page)
         page->setNeedsRecalcStyleInAllFrames();
@@ -110,7 +104,7 @@ void SettingsBase::setStandardFontFamily(const String& family, UScriptCode scrip
 {
     bool changes = fontGenericFamilies().setStandardFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::fixedFontFamily(UScriptCode script) const
@@ -122,7 +116,7 @@ void SettingsBase::setFixedFontFamily(const String& family, UScriptCode script)
 {
     bool changes = fontGenericFamilies().setFixedFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::serifFontFamily(UScriptCode script) const
@@ -134,7 +128,7 @@ void SettingsBase::setSerifFontFamily(const String& family, UScriptCode script)
 {
     bool changes = fontGenericFamilies().setSerifFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::sansSerifFontFamily(UScriptCode script) const
@@ -146,7 +140,7 @@ void SettingsBase::setSansSerifFontFamily(const String& family, UScriptCode scri
 {
     bool changes = fontGenericFamilies().setSansSerifFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::cursiveFontFamily(UScriptCode script) const
@@ -158,7 +152,7 @@ void SettingsBase::setCursiveFontFamily(const String& family, UScriptCode script
 {
     bool changes = fontGenericFamilies().setCursiveFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::fantasyFontFamily(UScriptCode script) const
@@ -170,7 +164,7 @@ void SettingsBase::setFantasyFontFamily(const String& family, UScriptCode script
 {
     bool changes = fontGenericFamilies().setFantasyFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::pictographFontFamily(UScriptCode script) const
@@ -182,7 +176,7 @@ void SettingsBase::setPictographFontFamily(const String& family, UScriptCode scr
 {
     bool changes = fontGenericFamilies().setPictographFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 const String& SettingsBase::mathFontFamily(UScriptCode script) const
@@ -194,7 +188,7 @@ void SettingsBase::setMathFontFamily(const String& family, UScriptCode script)
 {
     bool changes = fontGenericFamilies().setMathFontFamily(family, script);
     if (changes)
-        invalidateAfterGenericFamilyChange(m_page.get());
+        invalidateAfterGenericFamilyChange(protect(m_page).get());
 }
 
 void SettingsBase::setMinimumDOMTimerInterval(Seconds interval)
@@ -323,7 +317,7 @@ void SettingsBase::resetToConsistentState()
 void SettingsBase::setNeedsRecalcStyleInAllFrames()
 {
     if (m_page)
-        m_page->setNeedsRecalcStyleInAllFrames();
+        protect(m_page)->setNeedsRecalcStyleInAllFrames();
 }
 
 void SettingsBase::setNeedsRelayoutAllFrames()
@@ -337,7 +331,7 @@ void SettingsBase::setNeedsRelayoutAllFrames()
             continue;
         if (!localFrame->ownerRenderer())
             continue;
-        localFrame->ownerRenderer()->setNeedsLayoutAndPreferredWidthsUpdate();
+        localFrame->ownerRenderer()->setNeedsLayoutAndInvalidateContentLogicalWidths();
     }
 }
 
@@ -345,7 +339,7 @@ void SettingsBase::updateDisplayEDRHeadroom()
 {
 #if HAVE(SUPPORT_HDR_DISPLAY)
     if (m_page)
-        m_page->updateDisplayEDRHeadroom();
+        protect(m_page)->updateDisplayEDRHeadroom();
 #endif
 }
 
@@ -400,9 +394,9 @@ void SettingsBase::iceCandidateFilteringEnabledChanged()
         return;
 
     if (m_page->settings().iceCandidateFilteringEnabled())
-        m_page->enableICECandidateFiltering();
+        protect(m_page)->enableICECandidateFiltering();
     else
-        m_page->disableICECandidateFiltering();
+        protect(m_page)->disableICECandidateFiltering();
 }
 
 #if ENABLE(TEXT_AUTOSIZING)
@@ -467,7 +461,7 @@ void SettingsBase::layerBasedSVGEngineEnabledChanged()
 void SettingsBase::userStyleSheetLocationChanged()
 {
     if (m_page)
-        m_page->userStyleSheetLocationChanged();
+        protect(m_page)->userStyleSheetLocationChanged();
 }
 
 void SettingsBase::usesBackForwardCacheChanged()
@@ -482,7 +476,7 @@ void SettingsBase::usesBackForwardCacheChanged()
 void SettingsBase::storageBlockingPolicyChanged()
 {
     if (m_page)
-        m_page->storageBlockingStateChanged();
+        protect(m_page)->storageBlockingStateChanged();
 }
 
 void SettingsBase::backgroundShouldExtendBeyondPageChanged()
@@ -516,27 +510,27 @@ void SettingsBase::scrollingPerformanceTestingEnabledChanged()
 void SettingsBase::hiddenPageDOMTimerThrottlingStateChanged()
 {
     if (m_page)
-        m_page->hiddenPageDOMTimerThrottlingStateChanged();
+        protect(m_page)->hiddenPageDOMTimerThrottlingStateChanged();
 }
 
 void SettingsBase::hiddenPageCSSAnimationSuspensionEnabledChanged()
 {
     if (m_page)
-        m_page->hiddenPageCSSAnimationSuspensionStateChanged();
+        protect(m_page)->hiddenPageCSSAnimationSuspensionStateChanged();
 }
 
 void SettingsBase::resourceUsageOverlayVisibleChanged()
 {
 #if ENABLE(RESOURCE_USAGE)
     if (m_page)
-        m_page->setResourceUsageOverlayVisible(m_page->settings().resourceUsageOverlayVisible());
+        protect(m_page)->setResourceUsageOverlayVisible(m_page->settings().resourceUsageOverlayVisible());
 #endif
 }
 
 void SettingsBase::useSystemAppearanceChanged()
 {
     if (m_page)
-        m_page->useSystemAppearanceChanged();
+        protect(m_page)->useSystemAppearanceChanged();
 }
 
 void SettingsBase::fontFallbackPrefersPictographsChanged()

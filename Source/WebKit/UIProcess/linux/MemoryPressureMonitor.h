@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
 
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Noncopyable.h>

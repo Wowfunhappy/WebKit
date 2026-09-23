@@ -25,7 +25,6 @@
 #include <wtf/Compiler.h>
 #include <wtf/text/TextBreakIteratorInternalICU.h>
 #include <wtf/text/icu/UTextProviderLatin1.h>
-#include <wtf/text/icu/UTextProviderUTF16.h>
 #include <atomic>
 #include <unicode/ubrk.h>
 

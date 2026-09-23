@@ -33,6 +33,14 @@ namespace CSS {
 
 // MARK: Numeric Primitives Raw
 
+// A primitive numeric type that has doesn't have a static category or range.
+struct UnconstrainedPrimitiveNumericRaw {
+    CSSUnitType unit;
+    double value;
+
+    constexpr bool operator==(const UnconstrainedPrimitiveNumericRaw&) const = default;
+};
+
 // NOTE: `ResolvedValueType` only effects the type the CSS value gets resolved to. Unresolved CSS
 // primitive numeric types always use a `double` as its internal representation.
 
@@ -222,10 +230,16 @@ template<Range R = All, typename V = double> struct FlexRaw : PrimitiveNumericRa
 template<Range R = All, typename V = float> struct AnglePercentageRaw : PrimitiveNumericRaw<R, AnglePercentageUnit, V> {
     using Base = PrimitiveNumericRaw<R, AnglePercentageUnit, V>;
     using Base::Base;
+
+    using Dimension = CSS::AngleRaw<R, V>;
+    using Percentage = CSS::PercentageRaw<R, V>;
 };
 template<Range R = All, typename V = float> struct LengthPercentageRaw : PrimitiveNumericRaw<R, LengthPercentageUnit, V> {
     using Base = PrimitiveNumericRaw<R, LengthPercentageUnit, V>;
     using Base::Base;
+
+    using Dimension = CSS::LengthRaw<R, V>;
+    using Percentage = CSS::PercentageRaw<R, V>;
 };
 
 } // namespace CSS

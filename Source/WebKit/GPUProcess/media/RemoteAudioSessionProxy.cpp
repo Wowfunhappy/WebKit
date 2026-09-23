@@ -80,7 +80,6 @@ RemoteAudioSessionConfiguration RemoteAudioSessionProxy::configuration()
         session->preferredBufferSize(),
         session->outputLatency(),
         session->isMuted(),
-        m_active,
         m_sceneIdentifier,
         m_soundStageSize,
         session->categoryOverride(),

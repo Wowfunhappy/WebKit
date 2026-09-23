@@ -27,34 +27,39 @@
 
 #if ENABLE(WEBXR_LAYERS)
 
+#include "ExceptionOr.h"
+#include "FloatSize.h"
 #include "XRCompositionLayer.h"
+#include "XRQuadLayerInit.h"
+#include <wtf/Ref.h>
 
 namespace WebCore {
 
-class WebXRRigidTransform;
-class WebXRSpace;
+class WebXRSession;
+class XRLayerBacking;
 
 // https://immersive-web.github.io/layers/#xrquadlayertype
 class XRQuadLayer : public XRCompositionLayer {
+    WTF_MAKE_TZONE_ALLOCATED(XRQuadLayer);
 public:
+    static Ref<XRQuadLayer> create(ScriptExecutionContext& scriptExecutionContext, WebXRSession& session, Ref<XRLayerBacking>&& backing, const XRQuadLayerInit& init)
+    {
+        return adoptRef(*new XRQuadLayer(scriptExecutionContext, session, WTF::move(backing), init));
+    }
     virtual ~XRQuadLayer();
 
-    const WebXRSpace& space() const { RELEASE_ASSERT_NOT_REACHED(); }
-    [[noreturn]] void setSpace(const WebXRSpace&) { RELEASE_ASSERT_NOT_REACHED(); }
-    const WebXRRigidTransform& transform() const { RELEASE_ASSERT_NOT_REACHED(); }
-    [[noreturn]] void setTransform(WebXRRigidTransform&) { RELEASE_ASSERT_NOT_REACHED(); }
-
-    float width() const { RELEASE_ASSERT_NOT_REACHED(); }
-    [[noreturn]] void setWidth(float) { RELEASE_ASSERT_NOT_REACHED(); }
-    float height() const { RELEASE_ASSERT_NOT_REACHED(); }
-    [[noreturn]] void setHeight(float) { RELEASE_ASSERT_NOT_REACHED(); }
+    float width() const { return m_worldSize.width(); }
+    void setWidth(float width) { m_worldSize.setWidth(width); }
+    float height() const { return m_worldSize.height(); }
+    void setHeight(float height) { m_worldSize.setHeight(height); }
 
 private:
+    XRQuadLayer(ScriptExecutionContext&, WebXRSession&, Ref<XRLayerBacking>&&, const XRQuadLayerInit&);
     bool isXRQuadLayer() const final { return true; }
 
-    // WebXRLayer.
-    [[noreturn]] void startFrame(PlatformXR::FrameData&) final { RELEASE_ASSERT_NOT_REACHED(); }
-    [[noreturn]] PlatformXR::Device::Layer endFrame() final { RELEASE_ASSERT_NOT_REACHED(); }
+    void fillInTypeSpecificDeviceLayerData(PlatformXR::DeviceLayer&) const final;
+
+    FloatSize m_worldSize;
 };
 
 } // namespace WebCore
@@ -64,4 +69,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::XRQuadLayer)
 SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WEBXR_LAYERS)
-

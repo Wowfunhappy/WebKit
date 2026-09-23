@@ -24,7 +24,6 @@
 #include <WebCore/CSSSelectorEnums.h>
 #include <WebCore/QualifiedName.h>
 #include <WebCore/RenderStyleConstants.h>
-#include <wtf/EnumTraits.h>
 #include <wtf/FixedVector.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Variant.h>
@@ -123,7 +122,7 @@ public:
         Right,
     };
 
-    enum AttributeMatchType { CaseSensitive, CaseInsensitive };
+    enum class AttributeMatchType : uint8_t { Default, CaseInsensitive, CaseSensitive };
 
     // Maps from the selector pseudo-element type to the style type. Only pseudo-elements that are not element-backed have a type in style.
     static std::optional<PseudoElementType> NODELETE stylePseudoElementTypeFor(PseudoElement);
@@ -138,15 +137,16 @@ public:
     static const ASCIILiteral selectorTextForPseudoClass(PseudoClass);
     static const ASCIILiteral nameForUserAgentPartLegacyAlias(StringView);
 
-    // Selectors are kept in an array by CSSSelectorList.
-    // The left component of the selector is the next item in the array.
+    // Selectors are kept in an array by CSSSelectorList. Compounds are stored right-to-left
+    // (subject compound first), but simples within a compound are stored left-to-right.
+    // For example, ".a.b > div#id" is stored as [div, #id, .a, .b].
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     const CSSSelector* precedingInComplexSelector() const { return m_isFirstInComplexSelector ? nullptr : this + 1; }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-    const CSSSelector* NODELETE firstInCompound() const;
-    const CSSSelector* NODELETE lastInCompound() const;
-    const CSSSelector* NODELETE precedingInCompound() const;
+    const CSSSelector* NODELETE leftmostInCompound() const;
+    const CSSSelector* NODELETE rightmostInCompound() const;
+    const CSSSelector* NODELETE followingInCompound() const;
 
     const QualifiedName& tagQName() const LIFETIME_BOUND;
     const AtomString& tagLowercaseLocalName() const LIFETIME_BOUND;
@@ -155,7 +155,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     const AtomString& serializingValue() const LIFETIME_BOUND;
     const QualifiedName& attribute() const LIFETIME_BOUND;
     const AtomString& argument() const LIFETIME_BOUND { return m_hasRareData ? m_data.rareData->argument : nullAtom(); }
-    bool attributeValueMatchingIsCaseInsensitive() const;
+    AttributeMatchType attributeMatchType() const;
     const FixedVector<int>* integerList() const LIFETIME_BOUND { return m_hasRareData ? std::get_if<FixedVector<int>>(&m_data.rareData->argumentList) : nullptr; }
     const FixedVector<AtomString>* stringList() const LIFETIME_BOUND { return m_hasRareData ? std::get_if<FixedVector<AtomString>>(&m_data.rareData->argumentList) : nullptr; }
     const FixedVector<PossiblyQuotedIdentifier>* langList() const LIFETIME_BOUND { return m_hasRareData ? std::get_if<FixedVector<PossiblyQuotedIdentifier>>(&m_data.rareData->argumentList) : nullptr; }
@@ -182,8 +182,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     Relation relation() const { return static_cast<Relation>(m_relation); }
     Match match() const { return static_cast<Match>(m_match); }
 
-    bool isFirstInComplexSelector() const { return m_isFirstInComplexSelector; }
-    bool isLastInComplexSelector() const { return m_isLastInComplexSelector; }
     bool isForPage() const { return m_isForPage; }
 
     // Implicit means that this selector is not author/UA written.
@@ -232,9 +230,9 @@ private:
     unsigned m_hasRareData : 1 { false };
     unsigned m_isForPage : 1 { false };
     unsigned m_tagIsForNamespaceRule : 1 { false };
-    unsigned m_caseInsensitiveAttributeValueMatching : 1 { false };
+    unsigned m_attributeMatchType : 2 { std::to_underlying(AttributeMatchType::Default) };
     unsigned m_isImplicit : 1 { false };
-    // 25 bits
+    // 26 bits
 #if !ASSERT_WITH_SECURITY_IMPLICATION_DISABLED
     unsigned m_destructorHasBeenCalled : 1 { false };
 #endif
@@ -384,7 +382,7 @@ inline CSSSelector::CSSSelector(CSSSelector&& other)
     , m_hasRareData(other.m_hasRareData)
     , m_isForPage(other.m_isForPage)
     , m_tagIsForNamespaceRule(other.m_tagIsForNamespaceRule)
-    , m_caseInsensitiveAttributeValueMatching(other.m_caseInsensitiveAttributeValueMatching)
+    , m_attributeMatchType(other.m_attributeMatchType)
     , m_isImplicit(other.m_isImplicit)
     , m_data(WTF::move(other.m_data))
 {
@@ -446,9 +444,9 @@ inline const AtomString& CSSSelector::serializingValue() const
     return *reinterpret_cast<const AtomString*>(&m_data.value);
 }
 
-inline bool CSSSelector::attributeValueMatchingIsCaseInsensitive() const
+inline auto CSSSelector::attributeMatchType() const -> AttributeMatchType
 {
-    return m_caseInsensitiveAttributeValueMatching;
+    return static_cast<AttributeMatchType>(m_attributeMatchType);
 }
 
 inline auto CSSSelector::pseudoClass() const -> PseudoClass

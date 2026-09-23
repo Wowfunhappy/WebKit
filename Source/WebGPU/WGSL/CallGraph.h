@@ -28,6 +28,7 @@
 #include "ASTForward.h"
 #include "WGSLEnums.h"
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -41,23 +42,42 @@ class CallGraph {
     friend class CallGraphBuilder;
 
 public:
+    struct Global {
+        struct Resource {
+            unsigned group;
+            unsigned binding;
+        };
+
+        std::optional<Resource> resource;
+        AST::Variable* declaration;
+    };
+
     struct Callee {
         AST::Function* target;
         Vector<std::tuple<AST::Function*, AST::CallExpression*>> callSites;
+        HashSet<const Global*> usedGlobals { };
     };
 
     struct EntryPoint {
         AST::Function& function;
         ShaderStage stage;
         String originalName;
+        HashSet<const Global*> usedGlobals { };
     };
 
     const Vector<EntryPoint>& entrypoints() const LIFETIME_BOUND { return m_entrypoints; }
     const Vector<Callee>& callees(AST::Function& function) const LIFETIME_BOUND { return m_calleeMap.find(&function)->value; }
 
+    const Global* addGlobal(Global&& global) const
+    {
+        m_globals.append(std::unique_ptr<Global>(new Global(WTF::move(global))));
+        return m_globals.last().get();
+    }
+
 private:
     CallGraph() { }
 
+    mutable Vector<std::unique_ptr<Global>> m_globals;
     Vector<EntryPoint> m_entrypoints;
     HashMap<String, AST::Function*> m_functionsByName;
     HashMap<AST::Function*, Vector<Callee>> m_calleeMap;

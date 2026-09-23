@@ -44,13 +44,13 @@ protected:
     void childrenChanged(const ChildChange&) override;
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     bool childShouldCreateRenderer(const Node&) const final;
 
     void didAttachRenderers() final;
 
     bool isMathMLToken() const final { return true; }
-    bool acceptsMathVariantAttribute() final { return true; }
+    bool acceptsLegacyMathVariantAttribute() final;
 };
 
 }

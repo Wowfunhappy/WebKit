@@ -46,6 +46,7 @@
         await UIHelper.ensurePresentationUpdate();
         const markupUsingHebrewKeyboard = document.body.innerHTML;
 
+        window.getSelection().removeAllRanges();
         document.body.blur();
         await UIHelper.waitForKeyboardToHide();
         await UIHelper.setKeyboardInputModeIdentifier("en_US");

@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 (function() {
     
     function bench(name, f, arg) {

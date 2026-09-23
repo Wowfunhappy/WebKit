@@ -22,6 +22,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from . import loadConfig
+import json
 import os
 import unittest
 
@@ -41,61 +42,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'compile-webkit',
             'trigger'
         ],
-        'Apple-Tahoe-Release-WK1-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'download-built-product',
-            'extract-built-product',
-            'wait-for-crash-collection',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'lldb-webkit-test',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'trigger-crash-log-submission'
-        ],
         'Apple-Tahoe-Release-AppleSilicon-WK2-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'download-built-product',
-            'extract-built-product',
-            'wait-for-crash-collection',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'lldb-webkit-test',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'trigger-crash-log-submission'
-        ],
-        'Apple-Tahoe-Release-AppleSilicon-WK1-Tests': [
             'configure-build',
             'configuration',
             'clean-and-update-working-directory',
@@ -162,61 +109,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'compile-webkit',
             'trigger'
         ],
-        'Apple-Tahoe-Debug-WK1-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'download-built-product',
-            'extract-built-product',
-            'wait-for-crash-collection',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'lldb-webkit-test',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'trigger-crash-log-submission'
-        ],
         'Apple-Tahoe-Debug-WK2-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'download-built-product',
-            'extract-built-product',
-            'wait-for-crash-collection',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'lldb-webkit-test',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'trigger-crash-log-submission'
-        ],
-        'Apple-Tahoe-Debug-AppleSilicon-WK1-Tests': [
             'configure-build',
             'configuration',
             'clean-and-update-working-directory',
@@ -330,26 +223,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'extract-test-results',
             'set-permissions'
         ],
-        'Apple-Tahoe-Release-WK2-Site-Isolation-Tree-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'download-built-product',
-            'extract-built-product',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests'
-        ],
         'Apple-Tahoe-Release-World-Leaks-Tests': [
             'configure-build',
             'configuration',
@@ -376,7 +249,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'builtins-generator-tests',
             'trigger-crash-log-submission'
         ],
-        'Apple-Sequoia-Safer-CPP-Checks': [
+        'Apple-Tahoe-Safer-CPP-Checks': [
             'configure-build',
             'configuration',
             'clean-and-update-working-directory',
@@ -397,23 +270,9 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'update-swift-checkouts',
             'build-swift',
             'install-metal-toolchain',
-            'update-clang',
             'scan-build'
         ],
-        'Apple-Sequoia-Release-Build': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'compile-webkit',
-            'trigger'
-        ],
-        'Apple-Sequoia-Release-WK1-Tests': [
+        'Apple-Tahoe-Debug-WK2-Site-Isolation-Tree-Tests': [
             'configure-build',
             'configuration',
             'clean-and-update-working-directory',
@@ -439,6 +298,39 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'bindings-generation-tests',
             'builtins-generator-tests',
             'trigger-crash-log-submission'
+        ],
+        'Apple-Sequoia-Release-Build': [
+            'configure-build',
+            'configuration',
+            'clean-and-update-working-directory',
+            'checkout-specific-revision',
+            'show-identifier',
+            'kill-old-processes',
+            'delete-WebKitBuild-directory',
+            'delete-stale-build-files',
+            'prune-coresymbolicationd-cache-if-too-large',
+            'compile-webkit',
+            'trigger'
+        ],
+        'Apple-Sequoia-Release-WK2-Site-Isolation-Tree-Tests': [
+            'configure-build',
+            'configuration',
+            'clean-and-update-working-directory',
+            'checkout-specific-revision',
+            'show-identifier',
+            'kill-old-processes',
+            'delete-WebKitBuild-directory',
+            'delete-stale-build-files',
+            'prune-coresymbolicationd-cache-if-too-large',
+            'download-built-product',
+            'extract-built-product',
+            'layout-test',
+            'dashboard-tests',
+            'archive-test-results',
+            'upload',
+            'extract-test-results',
+            'set-permissions',
+            'run-api-tests'
         ],
         'Apple-Sequoia-Release-AppleSilicon-WK2-Tests': [
             'configure-build',
@@ -506,33 +398,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'prune-coresymbolicationd-cache-if-too-large',
             'compile-webkit',
             'trigger'
-        ],
-        'Apple-Sequoia-Debug-WK1-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'prune-coresymbolicationd-cache-if-too-large',
-            'download-built-product',
-            'extract-built-product',
-            'wait-for-crash-collection',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'lldb-webkit-test',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'trigger-crash-log-submission'
         ],
         'Apple-Sequoia-Debug-WK2-Tests': [
             'configure-build',
@@ -616,7 +481,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'extract-built-product',
             'test262-test'
         ],
-        'Apple-Sequoia-AppleSilicon-O3-Debug-JSC-BuildAndTest': [
+        'Apple-Tahoe-AppleSilicon-O3-Debug-JSC-BuildAndTest': [
             'configure-build',
             'configuration',
             'clean-and-update-working-directory',
@@ -782,7 +647,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'update-swift-checkouts',
             'build-swift',
             'install-metal-toolchain',
-            'update-clang',
             'scan-build'
         ],
         'Apple-iPadOS-26-Simulator-Release-WK2-Tests': [
@@ -973,7 +837,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-stale-build-files',
             'jhbuild',
             'compile-webkit',
-            'generate-jsc-bundle',
             'trigger'
         ],
         'GTK-Linux-64-bit-Release-Clang-Build': [
@@ -1041,19 +904,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'extract-built-product',
             'webdriver-test'
         ],
-        'GTK-Linux-64-bit-Debug-Build': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'compile-webkit',
-            'trigger'
-        ],
         'GTK-Linux-64-bit-Debug-Tests': [
             'configure-build',
             'configuration',
@@ -1064,8 +914,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-WebKitBuild-directory',
             'delete-stale-build-files',
             'jhbuild',
-            'download-built-product',
-            'extract-built-product',
+            'compile-webkit',
             'layout-test',
             'dashboard-tests',
             'archive-test-results',
@@ -1078,7 +927,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'bindings-generation-tests',
             'builtins-generator-tests'
         ],
-        'GTK-Linux-64-bit-Debug-JS-Tests': [
+        'GTK-Linux-64-bit-Release-Perf-Build': [
             'configure-build',
             'configuration',
             'clean-and-update-working-directory',
@@ -1088,24 +937,8 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-WebKitBuild-directory',
             'delete-stale-build-files',
             'jhbuild',
-            'download-built-product',
-            'extract-built-product',
-            'jscore-test',
-            'test262-test'
-        ],
-        'GTK-Linux-64-bit-Debug-WebDriver-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'download-built-product',
-            'extract-built-product',
-            'webdriver-test'
+            'compile-webkit',
+            'trigger'
         ],
         'GTK-Linux-64-bit-Release-Perf': [
             'configure-build',
@@ -1166,19 +999,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-stale-build-files',
             'jhbuild',
             'compile-webkit',
-            'generate-minibrowser-bundle'
-        ],
-        'GTK-Linux-64bit-Release-Packaging-Nightly': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'compile-webkit',
+            'generate-jsc-bundle',
             'generate-minibrowser-bundle'
         ],
         'GTK-Linux-64-bit-Release-GTK3-Build': [
@@ -1192,46 +1013,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-stale-build-files',
             'jhbuild',
             'compile-webkit'
-        ],
-        'GTK-Linux-64-bit-Release-SDK-Container': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'compile-webkit',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'archive-built-product',
-            'upload-built-product'
-        ],
-        'GTK-Linux-64bit-Release-GNOMEWebCanary-Packaging-Nightly': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'compile-webkit',
-            'install-built-product',
-            'archive-built-product',
-            'upload-built-product-via-sftp'
         ],
         'GTK-Linux-64-bit-Release-MVT-Tests': [
             'configure-build',
@@ -1425,19 +1206,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'extract-built-product',
             'webdriver-test'
         ],
-        'WPE-Linux-64-bit-Debug-Build': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'compile-webkit',
-            'trigger'
-        ],
         'WPE-Linux-64-bit-Debug-Tests': [
             'configure-build',
             'configuration',
@@ -1448,8 +1216,7 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-WebKitBuild-directory',
             'delete-stale-build-files',
             'jhbuild',
-            'download-built-product',
-            'extract-built-product',
+            'compile-webkit',
             'layout-test',
             'dashboard-tests',
             'archive-test-results',
@@ -1461,35 +1228,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'webkitperl-test',
             'bindings-generation-tests',
             'builtins-generator-tests'
-        ],
-        'WPE-Linux-64-bit-Debug-JS-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'download-built-product',
-            'extract-built-product',
-            'jscore-test',
-            'test262-test'
-        ],
-        'WPE-Linux-64-bit-Debug-WebDriver-Tests': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'download-built-product',
-            'extract-built-product',
-            'webdriver-test'
         ],
         'WPE-Linux-64bit-Release-Packaging-Nightly': [
             'configure-build',
@@ -1548,28 +1286,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-WebKitBuild-directory',
             'delete-stale-build-files',
             'jhbuild',
-            'compile-webkit'
-        ],
-        'WPE-Linux-ARM32-bit-Release-Debian-Stable-Build': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'compile-webkit'
-        ],
-        'WPE-Linux-ARM64-bit-Release-Debian-Stable-Build': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
             'compile-webkit'
         ],
         'WPE-Linux-RPi4-32bits-Mesa-Release-Perf-Build': [
@@ -1637,31 +1353,6 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'delete-stale-build-files',
             'jhbuild',
             'compile-webkit'
-        ],
-        'WPE-Linux-64-bit-Release-SDK-Container': [
-            'configure-build',
-            'configuration',
-            'clean-and-update-working-directory',
-            'checkout-specific-revision',
-            'show-identifier',
-            'kill-old-processes',
-            'delete-WebKitBuild-directory',
-            'delete-stale-build-files',
-            'jhbuild',
-            'compile-webkit',
-            'layout-test',
-            'dashboard-tests',
-            'archive-test-results',
-            'upload',
-            'extract-test-results',
-            'set-permissions',
-            'run-api-tests',
-            'webkitpy-test',
-            'webkitperl-test',
-            'bindings-generation-tests',
-            'builtins-generator-tests',
-            'archive-built-product',
-            'upload-built-product'
         ],
         'WPE-Linux-64-bit-Release-MVT-Tests': [
             'configure-build',
@@ -1748,6 +1439,33 @@ class TestExpectedBuildSteps(unittest.TestCase):
             'extract-built-product',
             'jscore-test',
             'test262-test'
+        ],
+        'WPE-Linux-ARM64-bit-Release-v252-BuildAndTest': [
+            'configure-build',
+            'configuration',
+            'clean-and-update-working-directory',
+            'checkout-specific-revision',
+            'show-identifier',
+            'kill-old-processes',
+            'delete-WebKitBuild-directory',
+            'delete-stale-build-files',
+            'jhbuild',
+            'compile-webkit',
+            'jscore-test',
+            'layout-test',
+            'dashboard-tests',
+            'archive-test-results',
+            'upload',
+            'extract-test-results',
+            'set-permissions',
+            'run-api-tests',
+            'webkitpy-test',
+            'webkitperl-test',
+            'bindings-generation-tests',
+            'builtins-generator-tests',
+            'test262-test',
+            'webdriver-test',
+            'MVT-tests'
         ]
     }
 
@@ -1771,3 +1489,122 @@ class TestExpectedBuildSteps(unittest.TestCase):
             builders.add(builder['name'])
         for builder in self.expected_steps:
             self.assertTrue(builder in builders, "Builder %s doesn't exist, but has unnecessary expected steps" % builder)
+
+    def test_unique_platform_for_build_product_upload(self):
+        # A builder that compiles WebKit and triggers other builders uploads its build product so the triggered testers can download it.
+        # The upload destination is derived (see CompileWebKit and ConfigureBuild in steps.py) from the build properties as:
+        #   "{fullPlatform}-{archForUpload}-{configuration}"
+        # where fullPlatform is the builder's "platform", archForUpload is the architectures joined with "-", and configuration is "release"/"debug".
+        # The matching testers re-derive that same key to download the product, so if two uploading builders share the key their build products collide
+        # in the same remote directory (see the bug fixed in 308273@main, where two "wpe" builders overwrote each other's release.zip on S3).
+        # Note: the actual upload step is added at runtime by CompileWebKit (addStepsAfterCurrentStep, gated on the "triggers" property), so it is
+        # not present in the static factory step list. We therefore identify the uploading builders by the condition that produces the upload:
+        # they run a compile step and have triggers set.
+        upload_key_to_builder = {}
+        for builder in self.config['builders']:
+            configure_kwargs = None
+            compiles = False
+            for step in builder['factory'].steps:
+                step_name = step.kwargs.get('name', step.step_class.name)
+                if step_name == 'configure-build':
+                    configure_kwargs = step.kwargs
+                if step_name.startswith('compile'):
+                    compiles = True
+            if configure_kwargs is None:
+                continue
+            triggers = configure_kwargs.get('triggers')
+            if not (compiles and triggers):
+                continue
+            arch_for_upload = '-'.join(configure_kwargs['architecture'].split(' '))
+            upload_key = '%s-%s-%s' % (configure_kwargs['platform'], arch_for_upload, configure_kwargs['configuration'])
+            self.assertNotIn(
+                upload_key, upload_key_to_builder,
+                msg='Builders "%s" and "%s" both upload their build product to the same path '
+                    '"%s" (derived from platform-architecture-configuration). Give one of them a '
+                    'unique "platform" suffix so the build products do not collide (see 308273@main).'
+                    % (upload_key_to_builder.get(upload_key), builder['name'], upload_key))
+            upload_key_to_builder[upload_key] = builder['name']
+
+    def test_triggered_testers_share_builder_platform(self):
+        # This is the complement of test_unique_platform_for_build_product_upload:
+        # every bot that gets trigerred should share the same platform keys than the builder,
+        # so the download URI for the built-product matches the builder upload.
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(cwd, 'config.json')) as config_json:
+            raw_config = json.load(config_json)
+        triggerable_builders = {
+            scheduler['name']: scheduler.get('builderNames', [])
+            for scheduler in raw_config['schedulers']
+            if scheduler.get('type') == 'Triggerable'
+        }
+
+        info = {}
+        for builder in self.config['builders']:
+            configure_kwargs = None
+            downloads_product = False
+            for step in builder['factory'].steps:
+                step_name = step.kwargs.get('name', step.step_class.name)
+                if step_name == 'configure-build':
+                    configure_kwargs = step.kwargs
+                if step_name == 'download-built-product':
+                    downloads_product = True
+            if configure_kwargs is None:
+                continue
+            arch_for_upload = '-'.join(configure_kwargs['architecture'].split(' '))
+            info[builder['name']] = {
+                'key': '%s-%s-%s' % (configure_kwargs['platform'], arch_for_upload, configure_kwargs['configuration']),
+                'triggers': configure_kwargs.get('triggers') or [],
+                'downloads_product': downloads_product,
+            }
+
+        for builder_name, data in info.items():
+            for trigger_name in data['triggers']:
+                for triggered_name in triggerable_builders.get(trigger_name, []):
+                    triggered = info.get(triggered_name)
+                    if triggered is None or not triggered['downloads_product']:
+                        continue
+                    self.assertEqual(
+                        triggered['key'], data['key'],
+                        msg='Builder "%s" uploads its build product to "%s" and triggers "%s", but '
+                            '"%s" downloads the build product from "%s". A triggered builder must use '
+                            'the same platform-architecture-configuration as the builder that triggers '
+                            'it, otherwise it cannot find the uploaded product.'
+                            % (builder_name, data['key'], triggered_name, triggered_name, triggered['key']))
+
+    def test_all_builders_are_reachable_by_a_scheduler(self):
+        # Every builder must be able to run automatically: either it is attached to an
+        # automatic scheduler or it is triggered by other bot.
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(cwd, 'config.json')) as config_json:
+            raw_config = json.load(config_json)
+
+        root_scheduler_types = ('AnyBranchScheduler', 'Nightly', 'PlatformSpecificScheduler')
+        directly_scheduled = set()
+        triggerable_builders = {}
+        for scheduler in raw_config['schedulers']:
+            if scheduler.get('type') in root_scheduler_types:
+                directly_scheduled.update(scheduler.get('builderNames', []))
+            elif scheduler.get('type') == 'Triggerable':
+                triggerable_builders[scheduler['name']] = scheduler.get('builderNames', [])
+
+        builder_triggers = {builder['name']: (builder.get('triggers') or []) for builder in raw_config['builders']}
+
+        # Walk the trigger graph outward from the directly-scheduled builders.
+        reachable = set(directly_scheduled)
+        frontier = list(directly_scheduled)
+        while frontier:
+            builder_name = frontier.pop()
+            for trigger_name in builder_triggers.get(builder_name, []):
+                for triggered_name in triggerable_builders.get(trigger_name, []):
+                    if triggered_name not in reachable:
+                        reachable.add(triggered_name)
+                        frontier.append(triggered_name)
+
+        all_builders = set(builder['name'] for builder in self.config['builders'])
+        unreachable = sorted(all_builders - reachable)
+        self.assertEqual(
+            unreachable, [],
+            msg='These builders cannot run automatically: %s. Each is neither attached to a '
+                'scheduler (AnyBranchScheduler / Nightly / PlatformSpecificScheduler) nor triggered '
+                'by a builder that is. Attach each to a scheduler or trigger it from a build bot.'
+                % unreachable)

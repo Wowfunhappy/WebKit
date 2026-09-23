@@ -248,7 +248,7 @@ TEST(U2fCommandConstructorTest, TestCreateSignWithIncorrectKeyHandle)
 
     ASSERT_TRUE(isConvertibleToU2fSignCommand(getAssertionReq));
 
-    Vector<uint8_t> keyHandle(kMaxKeyHandleLength, 0xff);
+    Vector<uint8_t> keyHandle(FillWith { }, kMaxKeyHandleLength, 0xff);
     const auto validSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(keyHandle.span()));
     EXPECT_TRUE(validSignCommand);
 

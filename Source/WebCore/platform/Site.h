@@ -37,12 +37,10 @@ public:
     WEBCORE_EXPORT explicit Site(String&& protocol, RegistrableDomain&&);
     WEBCORE_EXPORT explicit Site(const SecurityOriginData&);
 
-    Site(const Site&) = default;
-    Site& operator=(const Site&) = default;
-
     WEBCORE_EXPORT const String& protocol() const;
     const RegistrableDomain& domain() const LIFETIME_BOUND { return m_domain; }
     WEBCORE_EXPORT String toString() const;
+    WEBCORE_EXPORT String loggingString() const;
     bool isEmpty() const { return m_domain.isEmpty(); }
     WEBCORE_EXPORT bool matches(const URL&) const;
 

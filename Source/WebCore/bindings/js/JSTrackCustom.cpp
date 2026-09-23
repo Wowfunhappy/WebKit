@@ -30,6 +30,7 @@
 #include "JSTrackCustom.h"
 
 #include "JSAudioTrack.h"
+#include "JSDOMWrapperCache.h"
 #include "JSTextTrack.h"
 #include "JSVideoTrack.h"
 

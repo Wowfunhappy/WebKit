@@ -30,6 +30,7 @@
 #include "FocusController.h"
 #include "FocusControllerTypes.h"
 #include "Logging.h"
+#include "NodeDocument.h"
 #include "Page.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -37,7 +38,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(AutofillElements);
 
-static inline bool isAutofillableElement(Element& node)
+static inline bool NODELETE isAutofillableElement(Element& node)
 {
     auto* inputElement = dynamicDowncast<HTMLInputElement>(node);
     return inputElement && (inputElement->isTextField() || inputElement->isEmailField());

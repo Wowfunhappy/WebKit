@@ -48,12 +48,12 @@
 
 namespace WebCore {
 
-static inline LegacyRenderSVGResource* requestPaintingResource(RenderSVGResourceMode mode, RenderElement& renderer, const RenderStyle& style, Color& fallbackColor)
+static inline LegacyRenderSVGResource* requestPaintingResource(RenderSVGResourceMode mode, RenderElement& renderer, const Style::ComputedStyle& style, Color& fallbackColor)
 {
     bool applyToFill = mode == RenderSVGResourceMode::ApplyToFill;
 
     // When rendering the mask for a LegacyRenderSVGResourceClipper, always use the initial fill paint server.
-    if (protect(renderer.view().frameView())->paintBehavior().contains(PaintBehavior::RenderingSVGClipOrMask)) {
+    if (renderer.view().frameView().paintBehavior().contains(PaintBehavior::RenderingSVGClipOrMask)) {
         // Ignore stroke.
         if (!applyToFill)
             return nullptr;
@@ -126,22 +126,20 @@ void LegacyRenderSVGResource::removeAllClientsFromCacheAndMarkForInvalidation(bo
     removeAllClientsFromCacheAndMarkForInvalidationIfNeeded(markForInvalidation, &visitedRenderers);
 }
 
-LegacyRenderSVGResource* LegacyRenderSVGResource::fillPaintingResource(RenderElement& renderer, const RenderStyle& style, Color& fallbackColor)
+LegacyRenderSVGResource* LegacyRenderSVGResource::fillPaintingResource(RenderElement& renderer, const Style::ComputedStyle& style, Color& fallbackColor)
 {
     return requestPaintingResource(RenderSVGResourceMode::ApplyToFill, renderer, style, fallbackColor);
 }
 
-LegacyRenderSVGResource* LegacyRenderSVGResource::strokePaintingResource(RenderElement& renderer, const RenderStyle& style, Color& fallbackColor)
+LegacyRenderSVGResource* LegacyRenderSVGResource::strokePaintingResource(RenderElement& renderer, const Style::ComputedStyle& style, Color& fallbackColor)
 {
     return requestPaintingResource(RenderSVGResourceMode::ApplyToStroke, renderer, style, fallbackColor);
 }
 
 LegacyRenderSVGResourceSolidColor* LegacyRenderSVGResource::sharedSolidPaintingResource()
 {
-    static LegacyRenderSVGResourceSolidColor* s_sharedSolidPaintingResource = 0;
-    if (!s_sharedSolidPaintingResource)
-        s_sharedSolidPaintingResource = new LegacyRenderSVGResourceSolidColor;
-    return s_sharedSolidPaintingResource;
+    static NeverDestroyed<LegacyRenderSVGResourceSolidColor> s_sharedSolidPaintingResource;
+    return &s_sharedSolidPaintingResource.get();
 }
 
 static void removeFromCacheAndInvalidateDependencies(RenderElement& renderer, bool needsLayout, SingleThreadWeakHashSet<RenderObject>* visitedRenderers)
@@ -157,7 +155,7 @@ static void removeFromCacheAndInvalidateDependencies(RenderElement& renderer, bo
             clipper->removeClientFromCacheAndMarkForInvalidation(renderer);
     }
 
-    auto svgElement = dynamicDowncast<SVGElement>(protect(renderer.element()));
+    RefPtr svgElement = dynamicDowncast<SVGElement>(renderer.element());
     if (!svgElement)
         return;
 
@@ -167,7 +165,7 @@ static void removeFromCacheAndInvalidateDependencies(RenderElement& renderer, bo
             // reference graph adjustments on changes, so we need to break possible cycles here.
             static NeverDestroyed<WeakHashSet<SVGElement, WeakPtrImplWithEventTargetData>> invalidatingDependencies;
             if (!invalidatingDependencies.get().add(element.get()).isNewEntry) [[unlikely]] {
-                // Reference cycle: we are in process of invalidating this dependant.
+                // Reference cycle: we are in process of invalidating this dependent.
                 continue;
             }
             LegacyRenderSVGResource::markForLayoutAndParentResourceInvalidationIfNeeded(*renderer, needsLayout, visitedRenderers);
@@ -206,21 +204,21 @@ void LegacyRenderSVGResource::markForLayoutAndParentResourceInvalidationIfNeeded
         // If we are inside the layout of an LegacyRenderSVGRoot, do not cross the SVG boundary to
         // invalidate the ancestor renderer because it may have finished its layout already.
         if (CheckedPtr svgRoot = dynamicDowncast<LegacyRenderSVGRoot>(object); svgRoot && svgRoot->isInLayout())
-            svgRoot->setNeedsLayout(MarkOnlyThis);
+            svgRoot->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         else {
             if (CheckedPtr element = dynamicDowncast<RenderElement>(object)) {
                 auto svgRoot = SVGRenderSupport::findTreeRootObject(*element);
                 if (!svgRoot || !svgRoot->isInLayout())
-                    element->setNeedsLayout(MarkContainingBlockChain);
+                    element->setNeedsLayout(MarkingBehavior::MarkContainingBlockChain);
                 else {
                     // We just want to re-layout the ancestors up to the RenderSVGRoot.
-                    element->setNeedsLayout(MarkOnlyThis);
+                    element->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
                     for (auto current = element->parent(); current != svgRoot; current = current->parent())
-                        current->setNeedsLayout(MarkOnlyThis);
-                    svgRoot->setNeedsLayout(MarkOnlyThis);
+                        current->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
+                    svgRoot->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
                 }
             } else
-                object.setNeedsLayout(MarkOnlyThis);
+                object.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         }
     }
 

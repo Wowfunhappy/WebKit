@@ -29,7 +29,6 @@
 #include "HTMLParserIdioms.h"
 #include "LegacyRenderSVGImage.h"
 #include "LegacyRenderSVGResource.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
 #include "RenderImageResource.h"
 #include "RenderSVGImage.h"
@@ -152,13 +151,14 @@ void SVGImageElement::svgAttributeChanged(const QualifiedName& attrName)
     if (SVGURIReference::isKnownAttribute(attrName)) {
         m_imageLoader->updateFromElementIgnoringPreviousError();
         invalidateResourceImageBuffersIfNeeded();
+        updateSVGRendererForElementChange();
         return;
     }
 
     SVGGraphicsElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGImageElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGImageElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGImage>(*this, WTF::move(style));
@@ -185,20 +185,20 @@ void SVGImageElement::didAttachRenderers()
     }
 }
 
-Node::InsertedIntoAncestorResult SVGImageElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGImageElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = SVGGraphicsElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = SVGGraphicsElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (!insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::No;
     // Update image loader, as soon as we're living in the tree.
     // We can only resolve base URIs properly, after that!
     m_imageLoader->updateFromElement();
     return result;
 }
 
-const AtomString& SVGImageElement::imageSourceURL() const
+String SVGImageElement::imageSourceURL() const
 {
-    return getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr);
+    return href();
 }
 
 void SVGImageElement::setCrossOrigin(const AtomString& value)
@@ -211,11 +211,11 @@ String SVGImageElement::crossOrigin() const
     return parseCORSSettingsAttribute(attributeWithoutSynchronization(HTMLNames::crossoriginAttr));
 }
 
-void SVGImageElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void SVGImageElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     SVGGraphicsElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, document().completeURL(href()));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(href()));
 }
 
 void SVGImageElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)

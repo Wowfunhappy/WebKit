@@ -207,7 +207,7 @@ void MediaStreamPrivate::stopProducingData()
 
 bool MediaStreamPrivate::isProducingData() const
 {
-    for (Ref track : m_tracks) {
+    for (auto& track : m_tracks) {
         if (track->isProducingData())
             return true;
     }
@@ -216,7 +216,7 @@ bool MediaStreamPrivate::isProducingData() const
 
 bool MediaStreamPrivate::hasVideo() const
 {
-    for (Ref track : m_tracks) {
+    for (auto& track : m_tracks) {
         if (track->isVideo() && track->isActive())
             return true;
     }
@@ -225,7 +225,7 @@ bool MediaStreamPrivate::hasVideo() const
 
 bool MediaStreamPrivate::hasAudio() const
 {
-    for (Ref track : m_tracks) {
+    for (auto& track : m_tracks) {
         if (track->isAudio() && track->isActive())
             return true;
     }
@@ -234,7 +234,7 @@ bool MediaStreamPrivate::hasAudio() const
 
 bool MediaStreamPrivate::muted() const
 {
-    for (Ref track : m_tracks) {
+    for (auto& track : m_tracks) {
         if (!track->muted() && !track->ended())
             return false;
     }
@@ -244,7 +244,7 @@ bool MediaStreamPrivate::muted() const
 IntSize MediaStreamPrivate::intrinsicSize() const
 {
     IntSize size;
-    if (RefPtr videoTrack = m_activeVideoTrack.get()) {
+    if (auto* videoTrack = m_activeVideoTrack.get()) {
         const RealtimeMediaSourceSettings& setting = videoTrack->settings();
         size.setWidth(setting.width());
         size.setHeight(setting.height());
@@ -256,7 +256,7 @@ IntSize MediaStreamPrivate::intrinsicSize() const
 void MediaStreamPrivate::updateActiveVideoTrack()
 {
     m_activeVideoTrack = nullptr;
-    for (Ref track : m_tracks) {
+    for (auto& track : m_tracks) {
         if (!track->ended() && track->isVideo()) {
             m_activeVideoTrack = track.ptr();
             break;

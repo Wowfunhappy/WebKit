@@ -59,6 +59,12 @@
 (allow file-read*
     (literal "/"))
 
+#if USE(EXTENSIONKIT)
+(allow file-read* file-write*
+    (container-subpath "Library/Caches")
+    (container-subpath "tmp"))
+#endif // USE(EXTENSIONKIT)
+
 (device-access)
 
 ;; <rdar://problem/14215718>
@@ -307,3 +313,7 @@
         (syscall-number
             SYS_mkdirat
             SYS_rmdir)))
+
+(with-filter (require-all (system-attribute virtual-device) (system-attribute apple-internal))
+    (allow iokit-open-service (iokit-registry-entry-class "AppleVideoToolboxParavirtualizationDriver"))
+    (allow iokit-open-user-client (iokit-user-client-class "AppleVideoToolboxParavirtualizationUserClient")))

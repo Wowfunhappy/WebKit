@@ -2,21 +2,33 @@
 <html>
 <style>
 * { font-size: 16px; }
-svg, rect { font-family: 'Ahem'; }
-div { font-size: 8px; } 
+svg, rect, circle { font-family: 'Ahem'; }
+div { font-size: 8px; }
 </style>
 <html>
 <svg id="svg" width="0" height="0"></svg>
-<script src="../../resources/js-test-pre.js"></script>
+<script src="../../resources/js-test.js"></script>
 <script>
 description("Test that length values for presentation attribute accept calc.");
 
+function elementForProperty(property) {
+    switch (property) {
+    case 'cx':
+    case 'cy':
+    case 'r':
+        return 'circle';
+    default:
+        return 'rect';
+    }
+}
+
 function computedStyle(property, value) {
-    var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    document.getElementById('svg').appendChild(rect);
-    rect.setAttribute(property, value);
-    var computedValue = getComputedStyle(rect).getPropertyValue(property);
-    document.getElementById('svg').removeChild(rect);
+    var tagName = elementForProperty(property);
+    var el = document.createElementNS('http://www.w3.org/2000/svg', tagName);
+    document.getElementById('svg').appendChild(el);
+    el.setAttribute(property, value);
+    var computedValue = getComputedStyle(el).getPropertyValue(property);
+    document.getElementById('svg').removeChild(el);
     return computedValue;
 }
 
@@ -64,13 +76,13 @@ testComputed("y", "calc(40px + 60px)", "100px");
 testComputed("baseline-shift", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("cx", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("cy", "calc(0% + 100px)", "calc(0% + 100px)");
-testComputed("height", "calc(0% + 100px)", "calc(0% + 100px)");
+testComputed("height", "calc(0% + 100px)", "100px");
 testComputed("r", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("rx", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("ry", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("stroke-width", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("stroke-dashoffset", "calc(0% + 100px)", "calc(0% + 100px)");
-testComputed("width", "calc(0% + 100px)", "calc(0% + 100px)")
+testComputed("width", "calc(0% + 100px)", "100px")
 testComputed("x", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("y", "calc(0% + 100px)", "calc(0% + 100px)");
 
@@ -78,13 +90,13 @@ testComputed("y", "calc(0% + 100px)", "calc(0% + 100px)");
 testComputed("baseline-shift", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("cx", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("cy", "calc(100% - 100px)", "calc(100% - 100px)");
-testComputed("height", "calc(100% - 100px)", "calc(100% - 100px)");
+testComputed("height", "calc(100% - 100px)", "0px");
 testComputed("r", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("rx", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("ry", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("stroke-width", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("stroke-dashoffset", "calc(100% - 100px)", "calc(100% - 100px)");
-testComputed("width", "calc(100% - 100px)", "calc(100% - 100px)")
+testComputed("width", "calc(100% - 100px)", "0px")
 testComputed("x", "calc(100% - 100px)", "calc(100% - 100px)");
 testComputed("y", "calc(100% - 100px)", "calc(100% - 100px)");
 
@@ -93,6 +105,5 @@ testComputed("stroke-miterlimit", "calc(500 - 400)", "100");
 testComputed("flood-opacity", "calc(0.75 - 0.25)", "0.5");
 
 </script>
-<script src="../../resources/js-test-post.js"></script>
 </body>
 </html>

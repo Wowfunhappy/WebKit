@@ -51,6 +51,7 @@ StepRange::StepRange(const StepRange& stepRange)
     , m_stepDescription(stepRange.m_stepDescription)
     , m_hasRangeLimitations(stepRange.m_hasRangeLimitations)
     , m_hasStep(stepRange.m_hasStep)
+    , m_isReversible(stepRange.m_isReversible)
 {
 }
 

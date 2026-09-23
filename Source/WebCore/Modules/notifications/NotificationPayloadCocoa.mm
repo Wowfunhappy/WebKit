@@ -28,15 +28,20 @@
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
 
+namespace WebCore {
+
+namespace NotificationPayloadKeys {
 static NSString * const WebNotificationDefaultActionKey = @"WebNotificationDefaultActionKey";
+static NSString * const WebNotificationTitleKey = @"WebNotificationTitleKey";
 static NSString * const WebNotificationAppBadgeKey = @"WebNotificationAppBadgeKey";
 static NSString * const WebNotificationOptionsKey = @"WebNotificationOptionsKey";
 static NSString * const WebNotificationMutableKey = @"WebNotificationMutableKey";
-
-namespace WebCore {
+}
 
 std::optional<NotificationPayload> NotificationPayload::fromDictionary(NSDictionary *dictionary)
 {
+    using namespace NotificationPayloadKeys;
+
     RetainPtr<NSURL> defaultAction = dictionary[WebNotificationDefaultActionKey];
     if (!defaultAction)
         return std::nullopt;
@@ -76,6 +81,8 @@ std::optional<NotificationPayload> NotificationPayload::fromDictionary(NSDiction
 
 NSDictionary *NotificationPayload::dictionaryRepresentation() const
 {
+    using namespace NotificationPayloadKeys;
+
     RetainPtr nsAppBadge = appBadge ? @(*appBadge) : [NSNull null];
     RetainPtr nsOptions = options ? options->dictionaryRepresentation() : [NSNull null];
 

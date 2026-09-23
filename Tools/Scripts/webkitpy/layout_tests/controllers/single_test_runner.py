@@ -40,10 +40,17 @@ from webkitpy.layout_tests.models import test_expectations, test_failures
 from webkitpy.layout_tests.models.test_results import TestResult
 from webkitpy.port.driver import DriverInput, DriverOutput
 from webkitpy.thirdparty.BeautifulSoup import BeautifulSoup as Parser
+from webkitpy.port.base import Port
 
 _log = logging.getLogger(__name__)
 
-_render_tree_dump_pattern = re.compile(br"^layer at \(\d+,\d+\) size \d+x\d+\n")
+_render_tree_dump_pattern = re.compile(r"^layer at \(\d+,\d+\) size \d+x\d+\n")
+
+# A testharness.js subtest result line, e.g. "PASS some subtest name".
+_testharness_result_line_pattern = re.compile(r"^(PASS|FAIL|TIMEOUT|NOTRUN|PRECONDITION_FAILED) ")
+
+# Only imported WPT tests get order-insensitive comparison (see _compare_text).
+_imported_wpt_dir = "imported/w3c/web-platform-tests/"
 
 
 def run_single_test(port, options, results_directory, worker_name, driver, test_input, stop_when_done):
@@ -163,6 +170,8 @@ class SingleTestRunner(object):
             comparison_header = 'SiteIsolationEnabled=true'
             if self._reference_files:
                 return self._run_self_comparison_test(comparison_header)
+            if self._test_input.test.is_wpt_crash_test:
+                return self._run_wpt_crash_test(comparison_header)
             return self._run_self_comparison_without_reference_test(comparison_header)
         if self._reference_files:
             if self._port.get_option('no_ref_tests') or self._options.reset_results:
@@ -199,8 +208,12 @@ class SingleTestRunner(object):
         test_result_writer.write_test_result(self._filesystem, self._port, self._results_directory, self._test_name, driver_output, expected_driver_output, test_result.failures)
         return test_result
 
-    def _run_wpt_crash_test(self):
-        driver_output = self._driver.run_test(self._driver_input(), self._stop_when_done)
+    def _run_wpt_crash_test(self, additional_header=None):
+        driver_input = self._driver_input()
+        if additional_header is not None:
+            driver_input.additional_header = additional_header
+
+        driver_output = self._driver.run_test(driver_input, self._stop_when_done)
         if self._options.ignore_metrics:
             driver_output.strip_metrics()
 
@@ -272,7 +285,7 @@ class SingleTestRunner(object):
                 )
             )
         elif extension == ".png" or (
-            extension == ".txt" and _render_tree_dump_pattern.match(data)
+            extension == ".txt" and _render_tree_dump_pattern.match(string_utils.decode(data, target_type=str))
         ):
             # The baseline path applying to the Port.
             output_dir = fs.join(
@@ -385,15 +398,38 @@ class SingleTestRunner(object):
         failures = []
         if self._options.ignore_render_tree_dump_results and actual_text and _render_tree_dump_pattern.match(actual_text):
             return failures
-        if (expected_text and actual_text and
-            # Assuming expected_text is already normalized.
-            self._port.do_text_results_differ(expected_text, self._get_normalized_output_text(actual_text))):
+        normalized_actual_text = self._get_normalized_output_text(actual_text) if actual_text else actual_text
+        if (expected_text and actual_text and self._port.do_text_results_differ(expected_text, normalized_actual_text)):
+            # WPT treats testharness subtests as an unordered set matched by
+            # name, but site isolation can change their completion order. Sort
+            # the result lines and re-compare before reporting a mismatch.
+            if (self._is_site_isolation_enabled_by_default_mode() and self._is_wpt_test() and self._normalize_testharness_result_order(expected_text) == self._normalize_testharness_result_order(normalized_actual_text)):
+                _log.warning('%s: passed via order-insensitive testharness comparison' % self._test_name)
+                return failures
             failures.append(test_failures.FailureTextMismatch())
         elif actual_text and not expected_text:
             failures.append(test_failures.FailureMissingResult())
         elif not actual_text and expected_text:
             failures.append(test_failures.FailureNoOutput())
         return failures
+
+    def _is_site_isolation_enabled_by_default_mode(self):
+        return bool(self._options.site_isolation_enabled_by_default)
+
+    def _is_wpt_test(self):
+        return self._test_name.startswith(_imported_wpt_dir)
+
+    def _normalize_testharness_result_order(self, text):
+        """Returns text with testharness subtest result lines sorted in place
+        (all other lines untouched), so outputs with the same results in a
+        different order compare equal."""
+        lines = text.split('\n')
+        indices = [i for i, line in enumerate(lines) if _testharness_result_line_pattern.match(line)]
+        if len(indices) < 2:
+            return text
+        for index, line in zip(indices, sorted(lines[i] for i in indices)):
+            lines[index] = line
+        return '\n'.join(lines)
 
     def _compare_audio(self, expected_audio, actual_audio):
         failures = []
@@ -602,7 +638,9 @@ class SingleTestRunner(object):
         return os.path.join(relative_path, reference_file_name)
 
     def _fuzzy_tolerance_for_reference(self, reference_full_path):
-        test_full_path = self._port.abspath_for_test(self._test_name)
+        test_path = Port.test_name_and_variant(self._test_name)[0]
+        test_full_path = self._port.abspath_for_test(test_path)
+
         fuzzy = self._fuzzy_metadata_for_file(test_full_path)
         if not fuzzy:
             return None

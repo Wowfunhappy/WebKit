@@ -61,6 +61,9 @@ public:
     void advancePastNonNewline(); // Faster than calling advance when we know the current character is not a newline.
     void advancePastNewline(); // Faster than calling advance when we know the current character is a newline.
 
+    std::span<const Latin1Character> currentSubstringSpan8() const;
+    void advancePastMultiple8(unsigned count);
+
     enum AdvancePastResult { DidNotMatch, DidMatch, NotEnoughCharacters };
     AdvancePastResult advancePast(ASCIILiteral literal) { return advancePast<false>(literal); }
     AdvancePastResult advancePastLettersIgnoringASCIICase(ASCIILiteral literal) { return advancePast<true>(literal); }
@@ -290,6 +293,40 @@ inline void SegmentedString::advancePastNewline()
     }
 
     (this->*m_advanceAndUpdateLineNumberFunction)();
+}
+
+// Returns a span over the remaining characters in the current 8-bit substring,
+// starting from the current character. Returns an empty span if not 8-bit.
+inline std::span<const Latin1Character> SegmentedString::currentSubstringSpan8() const
+{
+    if (m_fastPathFlags & Use8BitAdvance)
+        return m_currentSubstring.s.currentCharacter8;
+    return { };
+}
+
+// Advances past `count` characters in the current 8-bit substring.
+// The caller must ensure at least one character remains after advancing
+// (i.e. count < currentSubstringSpan8().size()), as the function sets
+// the next remaining character as m_currentCharacter.
+inline void SegmentedString::advancePastMultiple8(unsigned count)
+{
+    ASSERT(m_fastPathFlags & Use8BitAdvance);
+    ASSERT(count < m_currentSubstring.s.currentCharacter8.size());
+
+    if (m_currentCharacter == '\n' && (m_fastPathFlags & Use8BitAdvanceAndUpdateLineNumbers)) {
+        // Must skip past the newline before calling startNewLine(), so that
+        // numberOfCharactersConsumed() reflects the position after the '\n'.
+        // This matches the ordering in advance().
+        skip(m_currentSubstring.s.currentCharacter8, 1);
+        startNewLine();
+        if (count > 1)
+            skip(m_currentSubstring.s.currentCharacter8, count - 1);
+    } else
+        skip(m_currentSubstring.s.currentCharacter8, count);
+
+    m_currentCharacter = m_currentSubstring.s.currentCharacter8[0];
+    if (m_currentSubstring.s.currentCharacter8.size() == 1) [[unlikely]]
+        updateAdvanceFunctionPointersForSingleCharacterSubstring();
 }
 
 inline unsigned SegmentedString::numberOfCharactersConsumed() const

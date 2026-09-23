@@ -25,35 +25,31 @@
 #include "config.h"
 #include "StyleTextAlignLast.h"
 
-#include "RenderStyle.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 auto CSSValueConversion<TextAlignLast>::operator()(BuilderState& state, const CSSValue& value) -> TextAlignLast
 {
-    auto* primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
         return TextAlignLast::Auto;
 
-    if (!primitiveValue->isValueID()) {
-        state.setCurrentPropertyInvalidAtComputedValueTime();
-        return TextAlignLast::Auto;
+    if (keywordValue->valueID() == CSSValueMatchParent) {
+        CheckedRef parentStyle = state.parentStyle();
+
+        if (parentStyle->textAlignLast() == TextAlignLast::Start)
+            return parentStyle->writingMode().isBidiLTR() ? TextAlignLast::Left : TextAlignLast::Right;
+        if (parentStyle->textAlignLast() == TextAlignLast::End)
+            return parentStyle->writingMode().isBidiLTR() ? TextAlignLast::Right : TextAlignLast::Left;
+        return parentStyle->textAlignLast();
     }
 
-    if (primitiveValue->valueID() == CSSValueMatchParent) {
-        auto& parentStyle = state.parentStyle();
-
-        if (parentStyle.textAlignLast() == TextAlignLast::Start)
-            return parentStyle.writingMode().isBidiLTR() ? TextAlignLast::Left : TextAlignLast::Right;
-        if (parentStyle.textAlignLast() == TextAlignLast::End)
-            return parentStyle.writingMode().isBidiLTR() ? TextAlignLast::Right : TextAlignLast::Left;
-        return parentStyle.textAlignLast();
-    }
-
-    return fromCSSValue<TextAlignLast>(value);
+    return fromCSSValue<TextAlignLast>(*keywordValue);
 }
 
 } // namespace Style

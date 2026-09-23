@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/AuxiliaryBarrier.h>
 #include <JavaScriptCore/JSObject.h>
-#include <wtf/TaggedArrayStoragePtr.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -349,9 +348,11 @@ public:
     static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(JSArrayBufferView, m_length); }
     static constexpr ptrdiff_t offsetOfByteOffset() { return OBJECT_OFFSETOF(JSArrayBufferView, m_byteOffset); }
     static constexpr ptrdiff_t offsetOfMode() { return OBJECT_OFFSETOF(JSArrayBufferView, m_mode); }
-    
+
     static inline RefPtr<ArrayBufferView> toWrapped(VM&, JSValue);
+    static inline RefPtr<ArrayBufferView> toWrappedAllowResizable(VM&, JSValue);
     static inline RefPtr<ArrayBufferView> toWrappedAllowShared(VM&, JSValue);
+    static inline RefPtr<ArrayBufferView> toWrappedAllowSharedAndResizable(VM&, JSValue);
 
     bool isIteratorProtocolFastAndNonObservable();
 
@@ -362,7 +363,7 @@ private:
     JS_EXPORT_PRIVATE ArrayBuffer* slowDownAndWasteMemory();
     static void finalize(JSCell*);
     void detachFromArrayBuffer();
-
+    void refreshVector(void* newData);
 
 protected:
     friend class LLIntOffsetsExtractor;

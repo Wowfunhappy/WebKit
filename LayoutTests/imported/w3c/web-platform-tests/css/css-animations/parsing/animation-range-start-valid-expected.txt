@@ -1,5 +1,6 @@
 
 PASS e.style['animation-range-start'] = "normal" should set the property value
+PASS e.style['animation-range-start'] = "cover 0px" should set the property value
 PASS e.style['animation-range-start'] = "cover 0%" should set the property value
 PASS e.style['animation-range-start'] = "cover 100%" should set the property value
 PASS e.style['animation-range-start'] = "cover 120%" should set the property value

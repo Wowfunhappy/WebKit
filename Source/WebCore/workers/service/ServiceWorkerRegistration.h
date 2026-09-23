@@ -40,10 +40,8 @@
 #include "Supplementable.h"
 #include "Timer.h"
 #include <wtf/Forward.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
-#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 

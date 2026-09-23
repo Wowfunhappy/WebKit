@@ -22,12 +22,13 @@ function shouldThrow(func, errorMessage) {
 }
 
 let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
+let expectedInner = "TypeError: undefined is not an object (evaluating '[]')";
 
 // AsyncFunction
 (() => {
     async function f(...[[]]) { }
     let isExpected = false;
-    f().then(e => isExpected = false).catch(e => isExpected = e == expected);
+    f().then(e => isExpected = false).catch(e => isExpected = e == expectedInner);
     drainMicrotasks();
     assert(isExpected);
 })();
@@ -43,7 +44,7 @@ let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
 (() => {
     async function f(a, ...[[]]) { }
     let isExpected = false;
-    f().then(e => isExpected = false).catch(e => isExpected = e == expected);
+    f().then(e => isExpected = false).catch(e => isExpected = e == expectedInner);
     drainMicrotasks();
     assert(isExpected);
 })();
@@ -66,7 +67,7 @@ let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
 (() => {
     let f = async (...[[]]) => { };
     let isExpected = false;
-    f().then(e => isExpected = false).catch(e => isExpected = e == expected);
+    f().then(e => isExpected = false).catch(e => isExpected = e == expectedInner);
     drainMicrotasks();
     assert(isExpected);
 })();
@@ -82,7 +83,7 @@ let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
 (() => {
     let f = async (a, ...[[]]) => { };
     let isExpected = false;
-    f().then(e => isExpected = false).catch(e => isExpected = e == expected);
+    f().then(e => isExpected = false).catch(e => isExpected = e == expectedInner);
     drainMicrotasks();
     assert(isExpected);
 })();
@@ -105,7 +106,7 @@ let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
 (() => {
     class x { static async f(...[[]]) { } }
     let isExpected = false;
-    x.f().then(e => isExpected = false).catch(e => isExpected = e == expected);
+    x.f().then(e => isExpected = false).catch(e => isExpected = e == expectedInner);
     drainMicrotasks();
     assert(isExpected);
 })();
@@ -121,7 +122,7 @@ let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
 (() => {
     class x { static async f(a, ...[[]]) { } }
     let isExpected = false;
-    x.f().then(e => isExpected = false).catch(e => isExpected = e == expected);
+    x.f().then(e => isExpected = false).catch(e => isExpected = e == expectedInner);
     drainMicrotasks();
     assert(isExpected);
 })();
@@ -143,8 +144,8 @@ let expected = "TypeError: undefined is not an object (evaluating '[[]]')";
 
 // AsyncGenerator
 shouldThrow(async function* f([[]]) { }, expected);
-shouldThrow(async function* f(...[[]]) { }, expected);
-shouldThrow(async function* f(a, ...[[]]) { }, expected);
+shouldThrow(async function* f(...[[]]) { }, expectedInner);
+shouldThrow(async function* f(a, ...[[]]) { }, expectedInner);
 (() => {
     var a = 1, b = 2, c = 3;
     async function* f(arg0, ...args) {
@@ -159,8 +160,8 @@ shouldThrow(async function* f(a, ...[[]]) { }, expected);
 
 // Generator
 shouldThrow(function* f([[]]) { }, expected);
-shouldThrow(function* f(...[[]]) { }, expected);
-shouldThrow(function* f(a, ...[[]]) { }, expected);
+shouldThrow(function* f(...[[]]) { }, expectedInner);
+shouldThrow(function* f(a, ...[[]]) { }, expectedInner);
 (() => {
     var a = 1, b = 2, c = 3;
     function* f(arg0, ...args) {
@@ -174,8 +175,8 @@ shouldThrow(function* f(a, ...[[]]) { }, expected);
 
 // Function
 shouldThrow(function f([[]]) { }, expected);
-shouldThrow(function f(...[[]]) { }, expected);
-shouldThrow(function f(a, ...[[]]) { }, expected);
+shouldThrow(function f(...[[]]) { }, expectedInner);
+shouldThrow(function f(a, ...[[]]) { }, expectedInner);
 (() => {
     var a = 1, b = 2, c = 3;
     function f(arg0, ...args) {

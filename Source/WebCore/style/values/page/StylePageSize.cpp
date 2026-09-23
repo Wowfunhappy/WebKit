@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StylePageSize.h"
 
+#include "CSSKeywordValue.h"
 #include "CSSValuePair.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
@@ -32,7 +33,7 @@
 namespace WebCore {
 namespace Style {
 
-static PageSize pageSizeFromName(BuilderState& state, const CSSPrimitiveValue& pageSizeName, RefPtr<const CSSPrimitiveValue> pageOrientation)
+static PageSize pageSizeFromName(BuilderState& state, const CSSKeywordValue& pageSizeName, RefPtr<const CSSKeywordValue> pageOrientation)
 {
     auto mmLength = [](double mm) {
         return Length<CSS::Nonnegative>(CSS::pixelsPerMm * mm);
@@ -131,57 +132,55 @@ static PageSize pageSizeFromName(BuilderState& state, const CSSPrimitiveValue& p
 
 auto CSSValueConversion<PageSize>::operator()(BuilderState& state, const CSSValue& value) -> PageSize
 {
+    // <length [0,∞]>{2} | [ <page-size> [ portrait | landscape ] ]
     if (RefPtr pair = dynamicDowncast<CSSValuePair>(value)) {
-        // <length [0,∞]>{2} | [ <page-size> [ portrait | landscape ] ]
-        RefPtr first = requiredDowncast<CSSPrimitiveValue>(state, pair->first());
-        if (!first)
-            return CSS::Keyword::Auto { };
-        RefPtr second = requiredDowncast<CSSPrimitiveValue>(state, pair->second());
-        if (!second)
-            return CSS::Keyword::Auto { };
+        Ref first = pair->first();
+        Ref second = pair->second();
 
-        if (first->isLength()) {
-            // <length [0,∞]>{2}
-            if (!second->isLength()) {
-                state.setCurrentPropertyInvalidAtComputedValueTime();
-                return CSS::Keyword::Auto { };
-            }
-
+        RefPtr primitiveValueFirst = dynamicDowncast<CSSPrimitiveValue>(first);
+        RefPtr primitiveValueSecond = dynamicDowncast<CSSPrimitiveValue>(second);
+        if (primitiveValueFirst && primitiveValueSecond) {
             auto conversionData = state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f);
             return PageSize::Lengths {
-                toStyleFromCSSValue<Length<CSS::Nonnegative>>(conversionData, *first),
-                toStyleFromCSSValue<Length<CSS::Nonnegative>>(conversionData, *second),
+                toStyleFromCSSValue<Length<CSS::Nonnegative>>(conversionData, *primitiveValueFirst),
+                toStyleFromCSSValue<Length<CSS::Nonnegative>>(conversionData, *primitiveValueSecond),
             };
         }
 
         // [ <page-size> [ portrait | landscape ] ]
         // The value order is guaranteed. See CSSParser::parseSizeParameter.
-        return pageSizeFromName(state, *first, second);
-    }
-
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        // <length [0,∞]> | auto | <page-size> | [ portrait | landscape]
-        if (primitiveValue->isLength()) {
-            // <length [0,∞]>
-            auto conversionData = state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f);
-            auto length = toStyleFromCSSValue<Length<CSS::Nonnegative>>(conversionData, *primitiveValue);
-            return PageSize::Lengths { length, length };
-        }
-
-        switch (primitiveValue->valueID()) {
-        case CSSValueAuto:
+        RefPtr keywordValueFirst = requiredDowncast<CSSKeywordValue>(state, first);
+        if (!keywordValueFirst)
             return CSS::Keyword::Auto { };
-        case CSSValuePortrait:
-            return CSS::Keyword::Portrait { };
-        case CSSValueLandscape:
-            return CSS::Keyword::Landscape { };
-        default:
-            return pageSizeFromName(state, *primitiveValue, nullptr);
-        }
+        RefPtr keywordValueSecond = requiredDowncast<CSSKeywordValue>(state, second);
+        if (!keywordValueSecond)
+            return CSS::Keyword::Auto { };
+
+        return pageSizeFromName(state, *keywordValueFirst, keywordValueSecond);
     }
 
-    state.setCurrentPropertyInvalidAtComputedValueTime();
-    return CSS::Keyword::Auto { };
+    // <length [0,∞]> | auto | <page-size> | [ portrait | landscape]
+    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
+        // <length [0,∞]>
+        auto conversionData = state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f);
+        auto length = toStyleFromCSSValue<Length<CSS::Nonnegative>>(conversionData, *primitiveValue);
+        return PageSize::Lengths { length, length };
+    }
+
+    RefPtr keywordValue = requiredDowncast<CSSKeywordValue>(state, value);
+    if (!keywordValue)
+        return CSS::Keyword::Auto { };
+
+    switch (keywordValue->valueID()) {
+    case CSSValueAuto:
+        return CSS::Keyword::Auto { };
+    case CSSValuePortrait:
+        return CSS::Keyword::Portrait { };
+    case CSSValueLandscape:
+        return CSS::Keyword::Landscape { };
+    default:
+        return pageSizeFromName(state, *keywordValue, nullptr);
+    }
 }
 
 } // namespace Style

@@ -36,6 +36,7 @@ class ArrayBuffer;
 namespace WebCore {
 
 class DOMPromise;
+class Exception;
 class FetchBodyOwner;
 class ReadableByteStreamController;
 

@@ -54,7 +54,7 @@ static gboolean agentSourcePrepare(GSource* base, gint* timeout)
     auto now = WTF::MonotonicTime::now().secondsSinceEpoch();
 
     gboolean result = FALSE;
-    while (true) {
+    {
         RiceAgentPoll ret;
         rice_agent_poll_init(&ret);
         GST_TRACE_OBJECT(iceAgent.get(), "Polling");
@@ -73,30 +73,31 @@ static gboolean agentSourcePrepare(GSource* base, gint* timeout)
             result = TRUE;
             break;
         case RICE_AGENT_POLL_ALLOCATE_SOCKET:
-            GST_FIXME("allocate socket is not handled");
+            GST_TRACE_OBJECT(iceAgent.get(), "Allocating new socket");
+            webkitGstWebRTCIceAgentAllocateSocketForStream(iceAgent.get(), ret.allocate_socket);
             result = TRUE;
             break;
         case RICE_AGENT_POLL_REMOVE_SOCKET:
-            GST_FIXME("remove socket is not handled");
+            GST_TRACE_OBJECT(iceAgent.get(), "Removing socket");
+            webkitGstWebRTCIceAgentRemoveSocketForStream(iceAgent.get(), ret.remove_socket);
             result = TRUE;
             break;
         case RICE_AGENT_POLL_WAIT_UNTIL_NANOS: {
             auto delta = Seconds::fromNanoseconds(ret.wait_until_nanos - now.nanoseconds());
             if (delta >= 99998_s) {
                 GST_TRACE_OBJECT(iceAgent.get(), "Nothing special to do.");
-                result = FALSE;
                 break;
             }
             if (timeout) {
                 *timeout = static_cast<int>(delta.milliseconds());
                 GST_TRACE_OBJECT(iceAgent.get(), "Waiting for %d ms", *timeout);
             }
-            result = FALSE;
             break;
         }
         case RICE_AGENT_POLL_GATHERING_COMPLETE:
             GST_TRACE_OBJECT(iceAgent.get(), "Gathering complete");
             webkitGstWebRTCIceAgentGatheringDoneForStream(iceAgent.get(), ret.gathering_complete.stream_id);
+            result = TRUE;
             break;
         case RICE_AGENT_POLL_GATHERED_CANDIDATE:
             GST_TRACE_OBJECT(iceAgent.get(), "Gathered candidate");
@@ -124,8 +125,6 @@ static gboolean agentSourcePrepare(GSource* base, gint* timeout)
             }
         } else
             rice_transmit_clear(&transmit);
-        if (!result)
-            break;
     }
 
     return result;
@@ -165,7 +164,7 @@ GRefPtr<GSource> agentSourceNew(GThreadSafeWeakPtr<WebKitGstIceAgent>&& agent)
         GST_DEBUG_CATEGORY_INIT(GST_CAT_DEFAULT, "webkitwebrtcricegio", 0, "webkitwebrtcricegio");
     });
 
-    auto source = adoptGRef(g_source_new(&agentEventSourceFuncs, sizeof(AgentSource)));
+    GRefPtr source = adoptGRef(g_source_new(&agentEventSourceFuncs, sizeof(AgentSource)));
     g_source_set_priority(source.get(), RunLoopSourcePriority::AsyncIONetwork);
     g_source_set_name(source.get(), "[WebKit] ICE Agent loop");
 

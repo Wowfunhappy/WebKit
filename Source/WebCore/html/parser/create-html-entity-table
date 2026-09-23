@@ -95,7 +95,7 @@ output_file.write("""/*
 #include "config.h"
 #include "HTMLEntityTable.h"
 
-#include <array>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace WebCore {
@@ -171,19 +171,19 @@ for entry in entries:
     assert entry[OFFSET] < (1 << 14)
     assert name_length < (1 << 5)
     output_file.write('    HTMLEntityTableEntry { %s, %s, %s, %s, %s }, // &%s\n' % (
-        first_character, second_character, entry[OFFSET], name_length, name_includes_trailing_semicolon, entry[ENTITY]))
+        first_character, name_length, name_includes_trailing_semicolon, entry[OFFSET], second_character, entry[ENTITY]))
 
 output_file.write("""};
 
 """)
 
-output_file.write("static constexpr auto uppercaseOffset = std::to_array<uint16_t>({\n")
+output_file.write("static constexpr auto uppercaseOffset = WTF::toArray<uint16_t>({\n")
 for letter in string.ascii_uppercase:
     output_file.write("%d,\n" % index[letter])
 output_file.write("%d\n" % index['a'])
 output_file.write("""});
 
-static constexpr auto lowercaseOffset = std::to_array<uint16_t>({\n""")
+static constexpr auto lowercaseOffset = WTF::toArray<uint16_t>({\n""")
 for letter in string.ascii_lowercase:
     output_file.write("%d,\n" % index[letter])
 output_file.write("%d\n" % entity_count)
@@ -191,7 +191,7 @@ output_file.write("""});
 
 std::span<const char> HTMLEntityTableEntry::nameCharacters() const
 {
-    return staticEntityStringStorage.span().subspan(nameCharactersOffset);
+    return staticEntityStringStorage.span().subspan(nameCharactersOffset, nameLengthExcludingSemicolon);
 }
 
 std::span<const HTMLEntityTableEntry> HTMLEntityTable::entriesStartingWith(char16_t c)

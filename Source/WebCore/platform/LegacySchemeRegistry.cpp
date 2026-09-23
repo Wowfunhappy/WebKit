@@ -80,7 +80,7 @@ static const URLSchemesMap& allBuiltinSchemes()
         };
 
         // Other misc schemes that the LegacySchemeRegistry doesn't know about.
-        static constexpr auto otherSchemes = std::to_array<ASCIILiteral>({
+        static constexpr auto otherSchemes = WTF::toArray<ASCIILiteral>({
             "webkit-fake-url"_s,
 #if PLATFORM(MAC)
             "safari-extension"_s,

@@ -128,7 +128,9 @@ globalThis.testRunner?.waitUntilDone();
 async function window0() {
 // START
 adapter0 = await navigator.gpu.requestAdapter();
-device0 = await adapter0.requestDevice();
+device0 = await adapter0.requestDevice({
+  requiredFeatures: ["shader-f16"],
+});
 bindGroupLayout2 = device0.createBindGroupLayout({
   entries : [
     {

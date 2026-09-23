@@ -21,7 +21,6 @@ class PrivateState;
 class PrivateStateCache;
 class ErrorSet;
 
-bool ValidateBlendBarrier(const Context *context, angle::EntryPoint entryPoint);
 bool ValidateBlendEquationSeparatei(const PrivateState &state,
                                     ErrorSet *errors,
                                     angle::EntryPoint entryPoint,
@@ -72,10 +71,6 @@ bool ValidateCopyImageSubData(const Context *context,
                               GLsizei srcWidth,
                               GLsizei srcHeight,
                               GLsizei srcDepth);
-bool ValidateDebugMessageCallback(const Context *context,
-                                  angle::EntryPoint entryPoint,
-                                  GLDEBUGPROC callback,
-                                  const void *userParam);
 bool ValidateDebugMessageControl(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  GLenum source,
@@ -142,7 +137,6 @@ bool ValidateGetDebugMessageLog(const Context *context,
                                 const GLenum *severities,
                                 const GLsizei *lengths,
                                 const GLchar *messageLog);
-bool ValidateGetGraphicsResetStatus(const Context *context, angle::EntryPoint entryPoint);
 bool ValidateGetObjectLabel(const Context *context,
                             angle::EntryPoint entryPoint,
                             GLenum identifier,
@@ -163,12 +157,12 @@ bool ValidateGetPointerv(const Context *context,
 bool ValidateGetSamplerParameterIiv(const Context *context,
                                     angle::EntryPoint entryPoint,
                                     SamplerID samplerPacked,
-                                    GLenum pname,
+                                    SamplerParameter pnamePacked,
                                     const GLint *params);
 bool ValidateGetSamplerParameterIuiv(const Context *context,
                                      angle::EntryPoint entryPoint,
                                      SamplerID samplerPacked,
-                                     GLenum pname,
+                                     SamplerParameter pnamePacked,
                                      const GLuint *params);
 bool ValidateGetTexParameterIiv(const Context *context,
                                 angle::EntryPoint entryPoint,
@@ -203,10 +197,6 @@ bool ValidateIsEnabledi(const PrivateState &state,
                         angle::EntryPoint entryPoint,
                         GLenum target,
                         GLuint index);
-bool ValidateMinSampleShading(const PrivateState &state,
-                              ErrorSet *errors,
-                              angle::EntryPoint entryPoint,
-                              GLfloat value);
 bool ValidateObjectLabel(const Context *context,
                          angle::EntryPoint entryPoint,
                          GLenum identifier,
@@ -224,17 +214,6 @@ bool ValidatePatchParameteri(const PrivateState &state,
                              GLenum pname,
                              GLint value);
 bool ValidatePopDebugGroup(const Context *context, angle::EntryPoint entryPoint);
-bool ValidatePrimitiveBoundingBox(const PrivateState &state,
-                                  ErrorSet *errors,
-                                  angle::EntryPoint entryPoint,
-                                  GLfloat minX,
-                                  GLfloat minY,
-                                  GLfloat minZ,
-                                  GLfloat minW,
-                                  GLfloat maxX,
-                                  GLfloat maxY,
-                                  GLfloat maxZ,
-                                  GLfloat maxW);
 bool ValidatePushDebugGroup(const Context *context,
                             angle::EntryPoint entryPoint,
                             GLenum source,
@@ -254,12 +233,12 @@ bool ValidateReadnPixels(const Context *context,
 bool ValidateSamplerParameterIiv(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  SamplerID samplerPacked,
-                                 GLenum pname,
+                                 SamplerParameter pnamePacked,
                                  const GLint *param);
 bool ValidateSamplerParameterIuiv(const Context *context,
                                   angle::EntryPoint entryPoint,
                                   SamplerID samplerPacked,
-                                  GLenum pname,
+                                  SamplerParameter pnamePacked,
                                   const GLuint *param);
 bool ValidateTexBuffer(const Context *context,
                        angle::EntryPoint entryPoint,

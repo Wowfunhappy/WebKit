@@ -48,8 +48,9 @@ struct CLExtensions
     cl_device_integer_dot_product_acceleration_properties_khr
         integerDotProductAccelerationProperties4x8BitPacked;
     ExternalMemoryHandleBitset externalMemoryHandleSupport;
-    // keep an "OpenCL list" version of supported external memory types
+    ExternalMemoryHandleBitset externalMemoryLinearImagesHandleSupport;
     ExternalMemoryHandleFixedVector externalMemoryHandleSupportList;
+    ExternalMemoryHandleFixedVector externalMemoryLinearImagesHandleSupportList;
     SupportedDepthOrderTypes supportedDepthOrderTypes;
 
     // These Khronos extension names must be returned by all devices that support OpenCL 1.1.
@@ -75,6 +76,7 @@ struct CLExtensions
     bool khrIntegerDotProduct    = false;  // cl_khr_integer_dot_product
     bool khrExternalMemory       = false;  // cl_khr_external_memory
     bool khrPriorityHints        = false;  // cl_khr_priority_hints
+    bool khrSubgroups            = false;  // cl_khr_subgroups
 
     bool armNonUniformWorkGroupSize = false;  // cl_arm_non_uniform_work_group_size
     bool armImportMemory            = false;  // cl_arm_import_memory

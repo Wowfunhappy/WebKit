@@ -34,6 +34,7 @@
 #include "JSDOMPromiseDeferred.h"
 #include "PictureInPictureSupport.h"
 #include <wtf/TZoneMallocInlines.h>
+#include "HTMLVideoElement.h"
 
 namespace WebCore {
 

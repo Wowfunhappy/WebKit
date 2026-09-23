@@ -26,7 +26,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/VM.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {

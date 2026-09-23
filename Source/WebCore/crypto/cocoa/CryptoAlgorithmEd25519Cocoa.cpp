@@ -27,58 +27,22 @@
 #include "CryptoAlgorithmEd25519.h"
 
 #include "CryptoKeyOKP.h"
+#include "CryptoTypesBridging.h"
 #include "ExceptionOr.h"
-#include <pal/PALSwift.h>
+#include <pal/crypto/CryptoAlgorithmEd25519CocoaBridging.h>
+#include <pal/crypto/CryptoTypes.h>
 #include <pal/spi/cocoa/CoreCryptoSPI.h>
-
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
 
 namespace WebCore {
 
-static ExceptionOr<Vector<uint8_t>> signEd25519CryptoKit(const Vector<uint8_t>&sk, const Vector<uint8_t>& data)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (sk.size() != ed25519KeySize)
-        return Exception { ExceptionCode::OperationError };
-    auto rv = pal::EdKey::sign(pal::EdSigningAlgorithm::ed25519(), sk.span(), data.span());
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return Exception { ExceptionCode::OperationError };
-    return WTF::move(rv.result);
-#else
-    UNUSED_PARAM(sk);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
-static ExceptionOr<bool> verifyEd25519CryptoKit(const Vector<uint8_t>& pubKey, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (pubKey.size() != ed25519KeySize || signature.size() != ed25519SignatureSize)
-        return false;
-    auto rv = pal::EdKey::verify(pal::EdSigningAlgorithm::ed25519(), pubKey.span(), signature.span(), data.span());
-    return rv.errorCode == Cpp::ErrorCodes::Success;
-#else
-    UNUSED_PARAM(pubKey);
-    UNUSED_PARAM(signature);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmEd25519::platformSign(const CryptoKeyOKP& key, const Vector<uint8_t>& data)
 {
-    return signEd25519CryptoKit(key.platformKey(), data);
+    return toException(PAL::Crypto::signEd25519CryptoKit(key.platformKey(), data));
 }
 
 ExceptionOr<bool> CryptoAlgorithmEd25519::platformVerify(const CryptoKeyOKP& key, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
 {
-    return verifyEd25519CryptoKit(key.platformKey(), signature, data);
+    return toException(PAL::Crypto::verifyEd25519CryptoKit(key.platformKey(), signature, data));
 }
 
 } // namespace WebCore

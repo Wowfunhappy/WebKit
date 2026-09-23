@@ -33,7 +33,6 @@
     [CEReactions=NotNeeded, Reflect] attribute DOMString rel;
     [CEReactions=NotNeeded, Reflect] attribute DOMString rev;
     [CEReactions=NotNeeded, Reflect] attribute DOMString shape;
-    [CEReactions=NotNeeded, Reflect] attribute DOMString target;
     [CEReactions=NotNeeded, Reflect] attribute DOMString type;
 
     [CEReactions=Needed] attribute DOMString text;
@@ -43,4 +42,5 @@
     [CEReactions=NotNeeded, ImplementedAs=referrerPolicyForBindings, ReflectSetter] attribute [AtomString] DOMString referrerPolicy;
 };
 
+HTMLAnchorElement includes HyperlinkElementUtils;
 HTMLAnchorElement includes HTMLHyperlinkElementUtils;

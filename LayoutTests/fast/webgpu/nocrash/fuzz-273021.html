@@ -3,7 +3,7 @@
 <script>
 async function run() {
     let adapter = await navigator.gpu.requestAdapter()
-    let device = await adapter.requestDevice({ requiredLimits: { maxInterStageShaderVariables: 40, maxInterStageShaderComponents: 88 }});
+    let device = await adapter.requestDevice({ requiredLimits: { maxInterStageShaderVariables: 16 }});
     let shaderModule = device.createShaderModule({ code: `
     struct d {
         @location(21) e: vec3<f16>,

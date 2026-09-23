@@ -76,11 +76,11 @@ private:
     HTMLScriptElement(const QualifiedName&, Document&, bool wasInsertedByParser, bool alreadyStarted);
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
     void childrenChanged(const ChildChange&) final;
     void finishParsingChildren() final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     void potentiallyBlockRendering() final;
@@ -91,7 +91,7 @@ private:
 
     bool NODELETE isURLAttribute(const Attribute&) const final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     String sourceAttributeValue() const final;
     AtomString charsetAttributeValue() const final;

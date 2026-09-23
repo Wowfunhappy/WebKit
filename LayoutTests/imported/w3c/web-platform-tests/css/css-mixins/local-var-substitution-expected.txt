@@ -1,6 +1,6 @@
 
-FAIL Fallback directly in result assert_equals: expected "PASS" but got "var(--unknown, PASS)"
-FAIL Fallback via present, but invalid local assert_equals: expected "PASS" but got "var(--x, PASS)"
-FAIL Fallback is locally resolved (result) assert_equals: expected "PASS" but got "var(--unknown, var(--x))"
-FAIL Fallback is locally resolved (local var) assert_equals: expected "PASS" but got "var(--x)"
+PASS Fallback directly in result
+PASS Fallback via present, but invalid local
+PASS Fallback is locally resolved (result)
+PASS Fallback is locally resolved (local var)
 

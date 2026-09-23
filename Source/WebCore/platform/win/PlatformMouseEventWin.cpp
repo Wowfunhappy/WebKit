@@ -84,7 +84,6 @@ PlatformMouseEvent::PlatformMouseEvent(HWND hWnd, UINT message, WPARAM wParam, L
     , m_position(positionForEvent(hWnd, lParam))
     , m_globalPosition(globalPositionForEvent(hWnd, lParam))
     , m_clickCount(0)
-    , m_modifierFlags(wParam)
     , m_buttons(buttonsForEvent(wParam))
     , m_didActivateWebView(didActivateWebView)
 {

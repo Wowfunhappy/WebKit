@@ -10,10 +10,10 @@ classes = [
 classes = [
     "WTTextSuggestion",
 ]
-symbols = [
-    "$s5UIKit16UITextEffectViewC09PonderingC0C2idAC0C2IDVvgTj",
-    "$s5UIKit16UITextEffectViewC0C2IDVSHAAMc",
-    "$s5UIKit16UITextEffectViewC16removeAllEffectsyyFTj",
+swift-decls = [
+    { name = "UIKit.UITextEffectView.EffectID", type_kinds = { "EffectID" = "struct" } },
+    { name = "UIKit.UITextEffectView.PonderingEffect.id" },
+    { name = "UIKit.UITextEffectView.removeAllEffects" },
 ]
 
 [[legacy]]
@@ -32,7 +32,7 @@ selectors = [
     { name = "_transitionCoordinator", class = "?" },
     { name = "accessibilityElementsWithPlugin:", class = "?" },
     { name = "accessibilityHitTest:withPlugin:", class = "?" },
-    { name = "auditToken", class = "?" },
+    { name = "auditToken", class = "RBSProcessHandle" },
     { name = "canPerformAuthorizationWithURL:responseCode:callerBundleIdentifier:useInternalExtensions:completion:", class = "?" },
     { name = "canSendResponse", class = "?" },
     { name = "cancelExtensionRequestWithIdentifier:", class = "?" },
@@ -74,6 +74,12 @@ selectors = [
 requires = [ "!HAVE_WK_SECURE_CODING_PKPAYMENT" ]
 
 [[legacy]]
+selectors = [
+    { name = "paymentServicesMerchantURLForAPIType:completion:", class = "?" },
+]
+requires = [ "!HAVE_PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED" ]
+
+[[legacy]]
 classes = [
     "AKAuthorizationController",
     "AMSEngagementRequest",
@@ -100,7 +106,6 @@ classes = [
     "ASDInstallWebAttributionParamsConfig",
     "ASDInstallWebAttributionService",
     "ASGlobalFrameIdentifier",
-    "ASVInlinePreview",
     "ASVThumbnailView",
     "AVBackgroundView",
     "CAContext",
@@ -185,7 +190,6 @@ selectors = [
     { name = "_cfBundle", class = "?" },
     { name = "_checkmarkOffset", class = "?" },
     { name = "_classForObjectAtArgumentIndex:", class = "?" },
-    { name = "_cloneEvent", class = "?" },
     { name = "_completeStoppedInteractiveTransition", class = "?" },
     { name = "_connectionIdentifier", class = "?" },
     { name = "_containsCJScripts", class = "?" },
@@ -206,7 +210,6 @@ selectors = [
     { name = "_enqueueHIDEvent:", class = "?" },
     { name = "_existingPresentationControllerImmediate:effective:", class = "?" },
     { name = "_flashScrollIndicatorsForAxes:persistingPreviousFlashes:", class = "?" },
-    { name = "_gsModifierFlags", class = "?" },
     { name = "_hidEvent", class = "?" },
     { name = "_holdLiveResizeSnapshotForReason:", class = "?" },
     { name = "_hostApplicationBundleIdentifier", class = "?" },
@@ -227,12 +230,10 @@ selectors = [
     { name = "_keyCode", class = "?" },
     { name = "_legacy_sizeWithFont:minFontSize:actualFontSize:forWidth:lineBreakMode:", class = "?" },
     { name = "_lp_simplifiedDisplayString", class = "?" },
-    { name = "_modifiedInput", class = "?" },
     { name = "_networkContext", class = "?" },
     { name = "_nsTextAlternative", class = "?" },
     { name = "_pageContentRect:", class = "?" },
     { name = "_preconnect", class = "?" },
-    { name = "_presentMenuAtLocation:", class = "?" },
     { name = "_privateLocalContext", class = "?" },
     { name = "_purgeDevice", class = "?" },
     { name = "_resolvedCNAMEChain", class = "?" },
@@ -301,7 +302,6 @@ selectors = [
     { name = "activeInstance", class = "?" },
     { name = "activeKeyboard", class = "?" },
     { name = "activeLimitations", class = "?" },
-    { name = "addFence:", class = "?" },
     { name = "addFinishBlock:", class = "?" },
     { name = "addInputString:withFlags:withInputManagerHint:", class = "?" },
     { name = "addInstallWebAttributionParamsWithConfig:completionHandler:", class = "?" },
@@ -335,7 +335,6 @@ selectors = [
     { name = "contextMenuConfigurationWithResult:inView:context:menuIdentifier:", class = "?" },
     { name = "contextMenuConfigurationWithURL:inView:context:menuIdentifier:", class = "?" },
     { name = "createBagForSubProfile", class = "AMSUIEngagementTask" },
-    { name = "createFullscreenInstanceWithInitialFrame:previewOptions:completionHandler:", class = "?" },
     { name = "createIdentityFromEndpoint:error:", class = "?" },
     { name = "credentialKind", class = "?" },
     { name = "crossSiteTrackingPreventionRelaxedDomains", class = "?" },
@@ -364,7 +363,6 @@ selectors = [
     { name = "gestureRecognizer", class = "?" },
     { name = "getArePasskeysDisallowedForRelyingParty:withCompletionHandler:", class = "?" },
     { name = "getAuthorizationHintsWithURL:responseCode:completion:", class = "?" },
-    { name = "getCameraTransform:", class = "?" },
     { name = "getCanCurrentProcessAccessPasskeysForRelyingParty:withCompletionHandler:", class = "?" },
     { name = "getSystemContentDatabaseObject4WebKit:", class = "?" },
     { name = "getUnderlyingHTTPConnectionInfoWithCompletionHandler:", class = "?" },
@@ -375,7 +373,6 @@ selectors = [
     { name = "handleKeyInputMethodCommandForCurrentEvent", class = "?" },
     { name = "handleKeyTextCommandForCurrentEvent", class = "?" },
     { name = "hasActiveTextSelection", class = "?" },
-    { name = "hasAudio", class = "ASVInlinePreview" },
     { name = "hasResultsForAnalysisTypes:", class = "?" },
     { name = "hasUserInterface", class = "?" },
     { name = "hideAnimated:allowDelay:", class = "?" },
@@ -425,7 +422,6 @@ selectors = [
     { name = "isErrorStatusCode:", class = "?" },
     { name = "isInHardwareKeyboardMode", class = "?" },
     { name = "isLiveCameraOnlyAction", class = "?" },
-    { name = "isLooping", class = "?" },
     { name = "isLowConfidence", class = "?" },
     { name = "isMalware", class = "?" },
     { name = "isMinimized", class = "?" },
@@ -457,7 +453,6 @@ selectors = [
     { name = "nonPreloadedHosts", class = "?" },
     { name = "nonWakingTopics", class = "?" },
     { name = "observeDatabaseChange4WebKit:", class = "?" },
-    { name = "observeDismissFullscreenWithCompletionHandler:", class = "?" },
     { name = "openPaymentSetupForMerchantIdentifier:domain:completion:", class = "?" },
     { name = "openURL:configuration:completionHandler:", class = "?" },
     { name = "openerType", class = "?" },
@@ -466,7 +461,6 @@ selectors = [
     { name = "pageLayout", class = "?" },
     { name = "paragraphs", class = "?" },
     { name = "passwordField", class = "?" },
-    { name = "paymentServicesMerchantURLForAPIType:completion:", class = "?" },
     { name = "paymentSetupFeaturesForConfiguration:completion:", class = "?" },
     { name = "performAction:fromAlertController:interactionDelegate:", class = "?" },
     { name = "performAuthorizationRequestsForContext:withCompletionHandler:", class = "?" },
@@ -536,7 +530,6 @@ selectors = [
     { name = "setAttributionContext:", class = "?" },
     { name = "setAvailableShippingMethods:", class = "?" },
     { name = "setCTDataConnectionServiceType:", class = "?" },
-    { name = "setCameraTransform:", class = "?" },
     { name = "setCanSuspendLocked:", class = "?" },
     { name = "setChecked:", class = "?" },
     { name = "setClientDataJSON:", class = "?" },
@@ -560,7 +553,6 @@ selectors = [
     { name = "setFirstRect:", class = "?" },
     { name = "setFormattedAddress:", class = "?" },
     { name = "setFractionCompleted:", class = "?" },
-    { name = "setFrameWithinFencedTransaction:", class = "?" },
     { name = "setFrontBoardOptions:", class = "?" },
     { name = "setGlobalFrameID:", class = "?" },
     { name = "setHighFrameRateReason:", class = "?" },
@@ -579,9 +571,6 @@ selectors = [
     { name = "setIsInFixedPosition:", class = "?" },
     { name = "setIsLastOnLine:", class = "?" },
     { name = "setIsLineBreak:", class = "?" },
-    { name = "setIsLooping:", class = "?" },
-    { name = "setIsMuted:", class = "?" },
-    { name = "setIsPlaying:reply:", class = "?" },
     { name = "setLastRect:", class = "?" },
     { name = "setMaxThumbnailSize:", class = "?" },
     { name = "setOriginatingURL:", class = "?" },
@@ -622,7 +611,6 @@ selectors = [
     { name = "setThumbnailURLs:", class = "?" },
     { name = "setTracksImmediatelyWhileDecelerating:", class = "?" },
     { name = "setUpdateHandler:", class = "?" },
-    { name = "setUrlFragment:", class = "?" },
     { name = "setUseLoadingTimeout:", class = "?" },
     { name = "setUserAgent:", class = "?" },
     { name = "setUserDisplayName:", class = "?" },
@@ -656,7 +644,6 @@ selectors = [
     { name = "set_suppressedAutoAddedHTTPHeaders:", class = "?" },
     { name = "set_timingDataOptions:", class = "?" },
     { name = "set_usesNWLoader:", class = "?" },
-    { name = "setupRemoteConnectionWithCompletionHandler:", class = "?" },
     { name = "sharedConnection", class = "?" },
     { name = "sharedDatabaseContext", class = "?" },
     { name = "sharedHardwareManager", class = "?" },
@@ -691,7 +678,6 @@ selectors = [
     { name = "triggerPages", class = "?" },
     { name = "updateContext:withSourceRect:", class = "?" },
     { name = "updateForChangedSelection", class = "?" },
-    { name = "updateFrame:completionHandler:", class = "?" },
     { name = "updateInterfaceForUserVisibleError:", class = "?" },
     { name = "updateInterfaceWithLoginChoices:", class = "?" },
     { name = "updateToPosition:", class = "?" },
@@ -730,25 +716,6 @@ selectors = [
     { name = "sharedTextEffectsWindowForWindowScene:", class = "?" },
     ]
 symbols = [
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C2idAC0C2IDVvgTj",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegateMp",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegateP011replacementC11DidCompleteyyAEFTq",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegateP07performE18AndGeneratePreview3for6effect9animationSo010UITargetedK0CSgAA0bcF5ChunkC_A2E19AnimationParametersVtYaFTq",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0CAC0fC0AAWP",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0CMa",
-    "$s5UIKit16UITextEffectViewC03addC0yAC0C2IDVAC04TextC0_pFTj",
-    "$s5UIKit16UITextEffectViewC06removeC0yyAC0C2IDVFTj",
-    "$s5UIKit16UITextEffectViewC09PonderingC0CAC04TextC0AAWP",
-    "$s5UIKit16UITextEffectViewC09PonderingC0CMa",
-    "$s5UIKit16UITextEffectViewC0C2IDV2eeoiySbAE_AEtFZ",
-    "$s5UIKit16UITextEffectViewC0C2IDVMa",
-    "$s5UIKit16UITextEffectViewC0C2IDVMn",
-    "$s5UIKit16UITextEffectViewCMa",
-    "$s5UIKit16UITextEffectViewCMn",
-    "$s5UIKit21UITextEffectTextChunkCMn",
-    "$s5UIKit28UIDirectionalLightEffectViewC13ConfigurationV9fillColorSo7UIColorCvg",
-    "$s5UIKit28UIDirectionalLightEffectViewC13ConfigurationV9ponderingAEvgZ",
-    "$s5UIKit28UIDirectionalLightEffectViewC13ConfigurationVMa",
     "APSEnvironmentProduction",
     "ASCAuthorizationErrorDomain",
     "BKSDisplayBrightnessGetCurrent",
@@ -929,11 +896,26 @@ symbols = [
     "SecTrustSetClientAuditToken",
     "_AXSEnhanceTextLegibilityEnabled",
     "_CFNetworkHTTPConnectionCacheSetLimit",
-    "_CFNetworkIsKnownHSTSHostWithSession",
     "_CFURLStorageSessionCopyCookieStorage",
     "_kCFURLConnectionPropertyShouldSniff",
     "kAXSEnhanceTextLegibilityChangedNotification",
     "kGSEventHardwareKeyboardAvailabilityChangedNotification",
+]
+swift-decls = [
+    { name = "UIKit.UIDirectionalLightEffectView.Configuration", type_kinds = { "Configuration" = "struct" } },
+    { name = "UIKit.UIDirectionalLightEffectView.Configuration.fillColor", type_kinds = { "Configuration" = "struct" } },
+    { name = "UIKit.UIDirectionalLightEffectView.Configuration.pondering", type_kinds = { "Configuration" = "struct" } },
+    { name = "UIKit.UITextEffectTextChunk" },
+    { name = "UIKit.UITextEffectView" },
+    { name = "UIKit.UITextEffectView.EffectID", type_kinds = { "EffectID" = "struct" } },
+    { name = "UIKit.UITextEffectView.PonderingEffect" },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect" },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate", type_kinds = { "Delegate" = "protocol" } },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate.performReplacementAndGeneratePreview(for:effect:animation:)", type_kinds = { "Delegate" = "protocol" } },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate.replacementEffectDidComplete(_:)", type_kinds = { "Delegate" = "protocol" } },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.id" },
+    { name = "UIKit.UITextEffectView.addEffect(_:)" },
+    { name = "UIKit.UITextEffectView.removeEffect(_:)" },
 ]
 
 # Some of the TextEffectView SPI symbols WebKit uses change between Debug and Release builds. This appears to be an
@@ -941,27 +923,26 @@ symbols = [
 # audit-spi should have a higher level way to declare usage of Swift types that
 # allows use of both kinds of symbols. (rdar://158963645)
 [[legacy]]
-symbols = [
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegateP015performAnimatedE03for6effect9animationyAA0bcF5ChunkC_A2E19AnimationParametersVtYaFTq",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegateP07performE03for6effect9animationyAA0bcF5ChunkC_A2E19AnimationParametersVtYaFTq",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegatePAAE015performAnimatedE03for6effect9animationyAA0bcF5ChunkC_A2E19AnimationParametersVtYaF",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegatePAAE015performAnimatedE03for6effect9animationyAA0bcF5ChunkC_A2E19AnimationParametersVtYaFTu",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegatePAAE07performE03for6effect9animationyAA0bcF5ChunkC_A2E19AnimationParametersVtYaF",
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C8DelegatePAAE07performE03for6effect9animationyAA0bcF5ChunkC_A2E19AnimationParametersVtYaFTu",
+swift-decls = [
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect" },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate.performAnimatedReplacement(for:effect:animation:)", type_kinds = { "Delegate" = "protocol" } },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate.performAnimatedReplacement(for:effect:animation:)", type_kinds = { "Delegate" = "protocol" }, extension = "UIKit", extension_base_depth = 3 },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate.performReplacement(for:effect:animation:)", type_kinds = { "Delegate" = "protocol" } },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.Delegate.performReplacement(for:effect:animation:)", type_kinds = { "Delegate" = "protocol" }, extension = "UIKit", extension_base_depth = 3 },
 ]
 [[legacy]]
-symbols = [
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C5chunk4view8delegate9fromColorAeA0bcF5ChunkC_AcE8Delegate_pSo7UIColorCtcfC",
-    "$s5UIKit16UITextEffectViewC09PonderingC0C5chunk4view18lightConfigurationAeA0bC9TextChunkC_AcA018UIDirectionalLightcD0C0I0VtcfC",
-    "$s5UIKit16UITextEffectViewC6sourceAcA0bcD6Source_p_tcfC",
+swift-decls = [
+    { name = "UIKit.UITextEffectView.PonderingEffect.init(chunk:view:lightConfiguration:)" },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.init(chunk:view:delegate:fromColor:)" },
+    { name = "UIKit.UITextEffectView.init(source:)" },
 ]
 requires = ["!NDEBUG"]
 [[legacy]]
-symbols = [
-    "$s5UIKit16UITextEffectViewC015ReplacementTextC0C5chunk4view8delegate9fromColorAeA0bcF5ChunkC_AcE8Delegate_pSo7UIColorCtcfc",
-    "$s5UIKit16UITextEffectViewC09PonderingC0C5chunk4view18lightConfigurationAeA0bC9TextChunkC_AcA018UIDirectionalLightcD0C0I0Vtcfc",
-    "$s5UIKit16UITextEffectViewC0C2IDVSQAAMc",
-    "$s5UIKit16UITextEffectViewC6sourceAcA0bcD6Source_p_tcfc",
+swift-decls = [
+    { name = "UIKit.UITextEffectView.EffectID", type_kinds = { "EffectID" = "struct" } },
+    { name = "UIKit.UITextEffectView.PonderingEffect.init(chunk:view:lightConfiguration:)" },
+    { name = "UIKit.UITextEffectView.ReplacementTextEffect.init(chunk:view:delegate:fromColor:)" },
+    { name = "UIKit.UITextEffectView.init(source:)" },
 ]
 requires = ["NDEBUG"]
 
@@ -1098,37 +1079,43 @@ selectors = [
 ]
 requires = ["!SDKDB_HAS_148943382"]
 
+
+[[legacy]]
+requires = ["!SDKDB_HAS_164901718", "HAVE_UIINTELLIGENCESUPPORT_FRAMEWORK", "!NDEBUG"]
+swift-decls = [
+    { name = "Foundation.AttributeDynamicLookup.subscript(dynamicMember:)", type_kinds = { "AttributeDynamicLookup" = "enum" }, extension = "UIIntelligenceSupport", extension_base_depth = 1 },
+]
+allow-unused = true
+
 [[legacy]]
 requires = ["!SDKDB_HAS_164901718", "HAVE_UIINTELLIGENCESUPPORT_FRAMEWORK"]
-symbols = [
-    "$s21UIIntelligenceSupport0A16ElementCollectorC7collectyyAA012IntelligenceC0V7ContentOF",
-    "$s21UIIntelligenceSupport0A16ElementCollectorC7contextAA29IntelligenceCollectionContext_pvg",
-    "$s21UIIntelligenceSupport0A30CollectionRemoteContextWrapperCMn",
-    "$s21UIIntelligenceSupport17IntelligenceImageVMa",
-    "$s21UIIntelligenceSupport17IntelligenceImageVMn",
-    "$s21UIIntelligenceSupport19IntelligenceElementV11boundingBox7content11subelementsACSo6CGRectV_AC7ContentOSayACGtcfC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV11subelementsSayACGvs",
-    "$s21UIIntelligenceSupport19IntelligenceElementV4TextV010attributedE08editable11textOptionsAE10Foundation16AttributedStringV_AE8EditableVSgAA0C17CollectionRequestV0eI0VSgtcfC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV4TextV10AttributesV17SelectedAttributeV10Foundation19AttributedStringKeyAAMc",
-    "$s21UIIntelligenceSupport19IntelligenceElementV4TextV10AttributesV17SelectedAttributeVMa",
-    "$s21UIIntelligenceSupport19IntelligenceElementV4TextV8EditableV5label6prompt11contentType8isSecure0K7FocusedAGSSSg_A2MS2btcfC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV4TextV8EditableVMa",
-    "$s21UIIntelligenceSupport19IntelligenceElementV4TextV8EditableVMn",
-    "$s21UIIntelligenceSupport19IntelligenceElementV5ImageV4name15textDescription5imageAESSSg_AiA0cE0VSgtcfC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV7ContentO4baseyA2EmFWC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV7ContentO4textyAeC4TextVcAEmFWC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV7ContentO5imageyAeC5ImageVcAEmFWC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV7ContentO6remoteyAeA0C8FragmentV13RemoteContextVcAEmFWC",
-    "$s21UIIntelligenceSupport19IntelligenceElementV7ContentOMa",
-    "$s21UIIntelligenceSupport19IntelligenceElementVMa",
-    "$s21UIIntelligenceSupport19IntelligenceElementVMn",
-    "$s21UIIntelligenceSupport20IntelligenceFragmentV13RemoteContextVMa",
-    "$s21UIIntelligenceSupport29IntelligenceCollectionContextP012createRemoteE011descriptionAA0C8FragmentV0gE0VSS_tFTj",
-    "$s21UIIntelligenceSupport29IntelligenceCollectionRequestV11TextOptionsVMa",
-    "$s21UIIntelligenceSupport29IntelligenceCollectionRequestV11TextOptionsVMn",
-    "$s21UIIntelligenceSupport29IntelligenceFragmentCollectorC7collectyyAA0C7ElementVF",
-    "$s21UIIntelligenceSupport33IntelligenceCollectionCoordinatorC06finishD0yyAA0C17FragmentCollectorCF",
-    "$s21UIIntelligenceSupport33IntelligenceCollectionCoordinatorC15createCollector20remoteContextWrapperAA0c8FragmentG0CAA0ad6RemoteiJ0C_tF",
-    "$s21UIIntelligenceSupport33IntelligenceCollectionCoordinatorC6sharedACvgZ",
-    "$s21UIIntelligenceSupport33IntelligenceCollectionCoordinatorCMa",
+swift-decls = [
+    { name = "UIIntelligenceSupport.IntelligenceCollectionContext.createRemoteContext(description:)", type_kinds = { "IntelligenceCollectionContext" = "protocol" } },
+    { name = "UIIntelligenceSupport.IntelligenceCollectionCoordinator" },
+    { name = "UIIntelligenceSupport.IntelligenceCollectionCoordinator.createCollector(remoteContextWrapper:)" },
+    { name = "UIIntelligenceSupport.IntelligenceCollectionCoordinator.finishCollection(_:)" },
+    { name = "UIIntelligenceSupport.IntelligenceCollectionCoordinator.shared" },
+    { name = "UIIntelligenceSupport.IntelligenceCollectionRequest.TextOptions", type_kinds = { "IntelligenceCollectionRequest" = "struct", "TextOptions" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement", type_kinds = { "IntelligenceElement" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.Content", type_kinds = { "Content" = "enum", "IntelligenceElement" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.Image.init(name:textDescription:image:)", type_kinds = { "Image" = "struct", "IntelligenceElement" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.Text.Attributes.SelectedAttribute", type_kinds = { "Attributes" = "struct", "IntelligenceElement" = "struct", "SelectedAttribute" = "struct", "Text" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.Text.Editable", type_kinds = { "Editable" = "struct", "IntelligenceElement" = "struct", "Text" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.Text.Editable.init(label:prompt:contentType:isSecure:isFocused:)", type_kinds = { "Editable" = "struct", "IntelligenceElement" = "struct", "Text" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.Text.init(attributedText:editable:textOptions:)", type_kinds = { "IntelligenceElement" = "struct", "Text" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.init(boundingBox:content:subelements:)", type_kinds = { "IntelligenceElement" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceElement.subelements", type_kinds = { "IntelligenceElement" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceFragment.RemoteContext", type_kinds = { "IntelligenceFragment" = "struct", "RemoteContext" = "struct" } },
+    { name = "UIIntelligenceSupport.IntelligenceFragmentCollector.collect(_:)" },
+    { name = "UIIntelligenceSupport.IntelligenceImage", type_kinds = { "IntelligenceImage" = "struct" } },
+    { name = "UIIntelligenceSupport.UIIntelligenceCollectionRemoteContextWrapper" },
+    { name = "UIIntelligenceSupport.UIIntelligenceElementCollector.collect(_:)" },
+    { name = "UIIntelligenceSupport.UIIntelligenceElementCollector.context" },
 ]
+allow-unused = true
+
+[[legacy]]
+symbols = [
+    "CGImageSetCachingFlags",
+]
+requires = ["ENABLE_GPU_PROCESS_MODEL"]

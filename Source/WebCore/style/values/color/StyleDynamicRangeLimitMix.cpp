@@ -28,7 +28,7 @@
 
 #include "CSSDynamicRangeLimitMix.h"
 #include "StyleDynamicRangeLimit.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
@@ -62,7 +62,7 @@ void addWeightedLimitTo(DynamicRangeLimitMixFunction& addingTo, const DynamicRan
 
 // MARK: - Conversion
 
-auto ToCSS<DynamicRangeLimitMixFunction>::operator()(const DynamicRangeLimitMixFunction& mix, const RenderStyle& style) -> CSS::DynamicRangeLimitMixFunction
+auto ToCSS<DynamicRangeLimitMixFunction>::operator()(const DynamicRangeLimitMixFunction& mix, const Style::ComputedStyle& style) -> CSS::DynamicRangeLimitMixFunction
 {
     CSS::DynamicRangeLimitMixFunction result;
 

@@ -180,7 +180,7 @@ void TextureGL::onDestroy(const gl::Context *context)
 }
 
 angle::Result TextureGL::setImage(const gl::Context *context,
-                                  const gl::ImageIndex &index,
+                                  const gl::OwnImageIndex &ownIndex,
                                   GLenum internalFormat,
                                   const gl::Extents &size,
                                   GLenum format,
@@ -189,6 +189,8 @@ angle::Result TextureGL::setImage(const gl::Context *context,
                                   gl::Buffer *unpackBuffer,
                                   const uint8_t *pixels)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+
     const angle::FeaturesGL &features = GetFeaturesGL(context);
 
     gl::TextureTarget target = index.getTarget();
@@ -256,6 +258,11 @@ angle::Result TextureGL::setImageHelper(const gl::Context *context,
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
+
+    if (features.reattachFboDepthStencilOnReallocation.enabled)
+    {
+        onStateChange(angle::SubjectMessage::ObjectReallocated);
+    }
 
     const gl::InternalFormat &originalInternalFormatInfo =
         gl::GetInternalFormatInfo(internalFormat, type);
@@ -332,7 +339,7 @@ angle::Result TextureGL::reserveTexImageToBeFilled(const gl::Context *context,
 }
 
 angle::Result TextureGL::setSubImage(const gl::Context *context,
-                                     const gl::ImageIndex &index,
+                                     const gl::OwnImageIndex &ownIndex,
                                      const gl::Box &area,
                                      GLenum format,
                                      GLenum type,
@@ -340,6 +347,8 @@ angle::Result TextureGL::setSubImage(const gl::Context *context,
                                      gl::Buffer *unpackBuffer,
                                      const uint8_t *pixels)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+
     ASSERT(TextureTargetToType(index.getTarget()) == getType());
 
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
@@ -450,8 +459,8 @@ angle::Result TextureGL::setSubImageRowByRowWorkaround(const gl::Context *contex
     bool useTexImage3D = nativegl::UseTexImage3D(getType());
 
     ANGLE_CHECK_GL_MATH(contextGL, glFormat.computeRowDepthSkipBytes(
-                                       type, gl::Extents{area.width, area.height, area.depth},
-                                       unpack, useTexImage3D, &rowBytes, &imageBytes, &skipBytes));
+                                       type, area.width, area.height, unpack, useTexImage3D,
+                                       &rowBytes, &imageBytes, &skipBytes));
 
     GLint rowsPerChunk =
         std::min(std::max(static_cast<GLint>(maxBytesUploadedPerChunk / rowBytes), 1), area.height);
@@ -521,8 +530,8 @@ angle::Result TextureGL::setSubImagePaddingWorkaround(const gl::Context *context
     GLuint skipBytes   = 0;
 
     ANGLE_CHECK_GL_MATH(contextGL, glFormat.computeRowDepthSkipBytes(
-                                       type, gl::Extents{area.width, area.height, area.depth},
-                                       unpack, useTexImage3D, &rowBytes, &imageBytes, &skipBytes));
+                                       type, area.width, area.height, unpack, useTexImage3D,
+                                       &rowBytes, &imageBytes, &skipBytes));
 
     ANGLE_TRY(stateManager->setPixelUnpackState(context, unpack));
     ANGLE_TRY(stateManager->setPixelUnpackBuffer(context, unpackBuffer));
@@ -546,7 +555,7 @@ angle::Result TextureGL::setSubImagePaddingWorkaround(const gl::Context *context
         {
             // Do not include skipBytes in the last image pixel start offset as it will be done by
             // the driver
-            GLint lastImageOffset          = (area.depth - 1) * imageBytes;
+            size_t lastImageOffset         = (area.depth - 1) * imageBytes;
             const GLubyte *lastImagePixels = pixels + lastImageOffset;
             ANGLE_GL_TRY(context, functions->texSubImage3D(
                                       ToGLenum(target), static_cast<GLint>(level), area.x, area.y,
@@ -557,7 +566,7 @@ angle::Result TextureGL::setSubImagePaddingWorkaround(const gl::Context *context
         // Upload the last row of the last slice "manually"
         ANGLE_TRY(stateManager->setPixelUnpackState(context, directUnpack));
 
-        GLint lastRowOffset =
+        size_t lastRowOffset =
             skipBytes + (area.depth - 1) * imageBytes + (area.height - 1) * rowBytes;
         const GLubyte *lastRowPixels = pixels + lastRowOffset;
         ANGLE_GL_TRY(context,
@@ -580,7 +589,7 @@ angle::Result TextureGL::setSubImagePaddingWorkaround(const gl::Context *context
         // Upload the last row "manually"
         ANGLE_TRY(stateManager->setPixelUnpackState(context, directUnpack));
 
-        GLint lastRowOffset          = skipBytes + (area.height - 1) * rowBytes;
+        size_t lastRowOffset         = skipBytes + (area.height - 1) * rowBytes;
         const GLubyte *lastRowPixels = pixels + lastRowOffset;
         ANGLE_GL_TRY(context, functions->texSubImage2D(ToGLenum(target), static_cast<GLint>(level),
                                                        area.x, area.y + area.height - 1, area.width,
@@ -591,13 +600,15 @@ angle::Result TextureGL::setSubImagePaddingWorkaround(const gl::Context *context
 }
 
 angle::Result TextureGL::setCompressedImage(const gl::Context *context,
-                                            const gl::ImageIndex &index,
+                                            const gl::OwnImageIndex &ownIndex,
                                             GLenum internalFormat,
                                             const gl::Extents &size,
                                             const gl::PixelUnpackState &unpack,
                                             size_t imageSize,
                                             const uint8_t *pixels)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
@@ -644,13 +655,15 @@ angle::Result TextureGL::setCompressedImage(const gl::Context *context,
 }
 
 angle::Result TextureGL::setCompressedSubImage(const gl::Context *context,
-                                               const gl::ImageIndex &index,
+                                               const gl::OwnImageIndex &ownIndex,
                                                const gl::Box &area,
                                                GLenum format,
                                                const gl::PixelUnpackState &unpack,
                                                size_t imageSize,
                                                const uint8_t *pixels)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
@@ -692,12 +705,79 @@ angle::Result TextureGL::setCompressedSubImage(const gl::Context *context,
     return angle::Result::Continue;
 }
 
+angle::Result TextureGL::handleCopyImageSelfCopyRedefine(const gl::Context *context,
+                                                         GLenum internalFormat,
+                                                         GLenum initTexFormat,
+                                                         GLenum initTexType,
+                                                         const gl::Rectangle &sourceArea,
+                                                         bool outside,
+                                                         const gl::ImageIndex &destIndex,
+                                                         gl::Framebuffer *source)
+{
+    StateManagerGL *stateManager = GetStateManagerGL(context);
+    const FunctionsGL *functions = GetFunctionsGL(context);
+    gl::TextureTarget target     = destIndex.getTarget();
+    size_t level                 = static_cast<size_t>(destIndex.getLevelIndex());
+
+    gl::Extents fbSize = source->getReadColorAttachment()->getSize();
+    gl::Rectangle clippedArea;
+    if (!ClipRectangle(sourceArea, gl::Rectangle(0, 0, fbSize.width, fbSize.height), &clippedArea))
+    {
+        // We won't be copying, but redefine the destination texture in case sourceArea is larger
+        stateManager->bindTexture(getType(), mTextureID);
+        ANGLE_GL_TRY_ALWAYS_CHECK(
+            context, functions->texImage2D(ToGLenum(target), static_cast<GLint>(level),
+                                           internalFormat, sourceArea.width, sourceArea.height, 0,
+                                           initTexFormat, initTexType, nullptr));
+        return angle::Result::Continue;
+    }
+
+    gl::Offset destOffset(clippedArea.x - sourceArea.x, clippedArea.y - sourceArea.y, 0);
+
+    // Avoid redefining the texture before the copy, as that would invalidate the
+    // source attachment. Copy through a temporary texture first.
+
+    GLuint tempTex = 0;
+    ANGLE_GL_TRY(context, functions->genTextures(1, &tempTex));
+
+    // Always use a 2D temp texture to keep the attachment complete (especially for
+    // cube maps in ES, which require all faces to be defined).
+    stateManager->bindTexture(gl::TextureType::_2D, tempTex);
+    ANGLE_GL_TRY(context, functions->copyTexImage2D(GL_TEXTURE_2D, 0, internalFormat, clippedArea.x,
+                                                    clippedArea.y, clippedArea.width,
+                                                    clippedArea.height, 0));
+
+    GLuint tempFBO = 0;
+    ANGLE_GL_TRY(context, functions->genFramebuffers(1, &tempFBO));
+    stateManager->bindFramebuffer(GL_FRAMEBUFFER, tempFBO);
+    ANGLE_GL_TRY(context, functions->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                          GL_TEXTURE_2D, tempTex, 0));
+
+    // Redefine the destination texture after the temp framebuffer is set up.
+    stateManager->bindTexture(getType(), mTextureID);
+    ANGLE_GL_TRY_ALWAYS_CHECK(
+        context, functions->texImage2D(ToGLenum(target), static_cast<GLint>(level), internalFormat,
+                                       sourceArea.width, sourceArea.height, 0, initTexFormat,
+                                       initTexType, nullptr));
+
+    ANGLE_GL_TRY(context, functions->copyTexSubImage2D(ToGLenum(target), static_cast<GLint>(level),
+                                                       destOffset.x, destOffset.y, 0, 0,
+                                                       clippedArea.width, clippedArea.height));
+
+    stateManager->deleteFramebuffer(tempFBO);
+    stateManager->deleteTexture(tempTex);
+
+    return angle::Result::Continue;
+}
+
 angle::Result TextureGL::copyImage(const gl::Context *context,
-                                   const gl::ImageIndex &index,
+                                   const gl::OwnImageIndex &ownIndex,
                                    const gl::Rectangle &sourceArea,
                                    GLenum internalFormat,
                                    gl::Framebuffer *source)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
@@ -716,6 +796,11 @@ angle::Result TextureGL::copyImage(const gl::Context *context,
         nativegl::GetTexImageFormat(functions, features, internalFormat,
                                     copyInternalFormatInfo.format, copyInternalFormatInfo.type);
 
+    if (features.flushBeforeDeleteTextureIfCopiedTo.enabled)
+    {
+        contextGL->setNeedsFlushBeforeDeleteTextures();
+    }
+
     stateManager->bindTexture(getType(), mTextureID);
 
     const FramebufferGL *sourceFramebufferGL = GetImplAs<FramebufferGL>(source);
@@ -725,6 +810,44 @@ angle::Result TextureGL::copyImage(const gl::Context *context,
     bool outside = sourceArea.x < 0 || sourceArea.y < 0 ||
                    sourceArea.x + sourceArea.width > fbSize.width ||
                    sourceArea.y + sourceArea.height > fbSize.height;
+
+    // If fbo's read buffer and the target texture are the same texture but different levels,
+    // and if the read buffer is a non-base texture level, then implementations glTexImage2D
+    // may change the target texture and make the original texture mipmap incomplete, which in
+    // turn makes the fbo incomplete.
+    // To avoid that, we clamp BASE_LEVEL and MAX_LEVEL to the same texture level as the fbo's
+    // read buffer attachment. See http://crbug.com/797235
+    bool isSourceTextureSame                    = false;
+    bool isSelfCopy                             = false;
+    const gl::FramebufferAttachment *readBuffer = source->getReadColorAttachment();
+    if (readBuffer && readBuffer->type() == GL_TEXTURE)
+    {
+        TextureGL *sourceTexture = GetImplAs<TextureGL>(readBuffer->getTexture());
+        if (sourceTexture && sourceTexture->mTextureID == mTextureID)
+        {
+            GLuint attachedTextureLevel = readBuffer->mipLevel();
+            if (attachedTextureLevel != mState.getEffectiveBaseLevel())
+            {
+                ANGLE_TRY(setBaseLevel(context, attachedTextureLevel));
+                ANGLE_TRY(setMaxLevel(context, attachedTextureLevel));
+            }
+        }
+        const bool isSameCubeFace = readBuffer->cubeMapFace() == gl::TextureTarget::InvalidEnum ||
+                                    readBuffer->cubeMapFace() == target;
+        isSourceTextureSame = sourceTexture && sourceTexture->mTextureID == mTextureID;
+        isSelfCopy          = isSourceTextureSame && isSameCubeFace &&
+                     readBuffer->mipLevel() == static_cast<GLint>(level);
+    }
+
+    if (isSelfCopy)
+    {
+        ANGLE_TRY(handleCopyImageSelfCopyRedefine(
+            context, copyTexImageFormat.internalFormat, initTexImageFormat.format,
+            initTexImageFormat.type, sourceArea, outside, index, source));
+
+        contextGL->markWorkSubmitted();
+        return angle::Result::Continue;
+    }
 
     // TODO: Find a way to initialize the texture entirely in the gl level with ensureInitialized.
     // Right now there is no easy way to pre-fill the texture when it is being redefined with
@@ -740,10 +863,14 @@ angle::Result TextureGL::copyImage(const gl::Context *context,
         const gl::InternalFormat &initFormatInfo =
             gl::GetInternalFormatInfo(initTexImageFormat.format, initTexImageFormat.type);
         GLuint pixelBytes = initFormatInfo.pixelBytes;
-        angle::MemoryBuffer *zero;
-        ANGLE_CHECK_GL_ALLOC(
-            contextGL,
-            context->getZeroFilledBuffer(sourceArea.width * sourceArea.height * pixelBytes, &zero));
+        // TODO(b/495363705): Validate if this CheckedNumeric is required, remove either this TODO
+        // or the CheckedNumeric based on the result.
+        angle::CheckedNumeric<size_t> checkedBufferSize = angle::base::CheckMul(
+            angle::base::CheckMul(sourceArea.width, sourceArea.height), pixelBytes);
+        ANGLE_CHECK_GL_MATH(contextGL, checkedBufferSize.IsValid());
+        const angle::MemoryBuffer *zero;
+        ANGLE_CHECK_GL_ALLOC(contextGL,
+                             context->getZeroFilledBuffer(checkedBufferSize.ValueOrDie(), &zero));
 
         gl::PixelUnpackState unpack;
         unpack.alignment = 1;
@@ -761,40 +888,18 @@ angle::Result TextureGL::copyImage(const gl::Context *context,
     gl::Rectangle clippedArea;
     if (ClipRectangle(sourceArea, gl::Rectangle(0, 0, fbSize.width, fbSize.height), &clippedArea))
     {
-        // If fbo's read buffer and the target texture are the same texture but different levels,
-        // and if the read buffer is a non-base texture level, then implementations glTexImage2D
-        // may change the target texture and make the original texture mipmap incomplete, which in
-        // turn makes the fbo incomplete.
-        // To avoid that, we clamp BASE_LEVEL and MAX_LEVEL to the same texture level as the fbo's
-        // read buffer attachment. See http://crbug.com/797235
-        const gl::FramebufferAttachment *readBuffer = source->getReadColorAttachment();
-        if (readBuffer && readBuffer->type() == GL_TEXTURE)
-        {
-            TextureGL *sourceTexture = GetImplAs<TextureGL>(readBuffer->getTexture());
-            if (sourceTexture && sourceTexture->mTextureID == mTextureID)
-            {
-                GLuint attachedTextureLevel = readBuffer->mipLevel();
-                if (attachedTextureLevel != mState.getEffectiveBaseLevel())
-                {
-                    ANGLE_TRY(setBaseLevel(context, attachedTextureLevel));
-                    ANGLE_TRY(setMaxLevel(context, attachedTextureLevel));
-                }
-            }
-        }
-
-        bool isSelfCopy = false;
-        if (readBuffer && readBuffer->type() == GL_TEXTURE)
-        {
-            TextureGL *sourceTexture = GetImplAs<TextureGL>(readBuffer->getTexture());
-            const bool isSameCubeFace =
-                readBuffer->cubeMapFace() == gl::TextureTarget::InvalidEnum ||
-                readBuffer->cubeMapFace() == target;
-            isSelfCopy = sourceTexture && sourceTexture->mTextureID == mTextureID &&
-                         readBuffer->mipLevel() == static_cast<GLint>(level) && isSameCubeFace;
-        }
-
         LevelInfoGL levelInfo =
             GetLevelInfo(features, originalInternalFormatInfo, copyTexImageFormat.internalFormat);
+        if (features.forceLumaWorkaroundForSameTextureCopyTexImage2D.enabled &&
+            !levelInfo.lumaWorkaround.enabled && originalInternalFormatInfo.isLUMA() &&
+            isSourceTextureSame)
+        {
+            ASSERT(functions->isAtLeastGLES(gl::Version(3, 0)));
+            const GLenum workaroundFormat =
+                (originalInternalFormatInfo.format == GL_LUMINANCE_ALPHA) ? GL_RG : GL_RED;
+            levelInfo.lumaWorkaround = LUMAWorkaroundGL(true, workaroundFormat);
+        }
+
         gl::Offset destOffset(clippedArea.x - sourceArea.x, clippedArea.y - sourceArea.y, 0);
 
         if (levelInfo.lumaWorkaround.enabled)
@@ -838,66 +943,7 @@ angle::Result TextureGL::copyImage(const gl::Context *context,
             }
             else
             {
-                if (isSelfCopy)
-                {
-                    // Avoid redefining the texture before the copy, as that would invalidate the
-                    // source attachment. Copy through a temporary texture first.
-
-                    GLuint tempTex = 0;
-                    ANGLE_GL_TRY(context, functions->genTextures(1, &tempTex));
-
-                    // Always use a 2D temp texture to keep the attachment complete (especially for
-                    // cube maps in ES, which require all faces to be defined).
-                    stateManager->bindTexture(gl::TextureType::_2D, tempTex);
-                    ANGLE_GL_TRY(context,
-                                 functions->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0));
-                    ANGLE_GL_TRY(context,
-                                 functions->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
-                    ANGLE_GL_TRY(context, functions->texParameteri(
-                                              GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-                    ANGLE_GL_TRY(context, functions->texParameteri(
-                                              GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
-                    ANGLE_GL_TRY_ALWAYS_CHECK(
-                        context, functions->texImage2D(
-                                     GL_TEXTURE_2D, 0, copyTexImageFormat.internalFormat,
-                                     clippedArea.width, clippedArea.height, 0,
-                                     initTexImageFormat.format, initTexImageFormat.type, nullptr));
-                    ANGLE_GL_TRY(context, functions->copyTexSubImage2D(
-                                              GL_TEXTURE_2D, 0, 0, 0, clippedArea.x, clippedArea.y,
-                                              clippedArea.width, clippedArea.height));
-
-                    GLuint tempFBO = 0;
-                    ANGLE_GL_TRY(context, functions->genFramebuffers(1, &tempFBO));
-                    const GLenum readFramebufferTarget =
-                        stateManager->getHasSeparateFramebufferBindings() ? GL_READ_FRAMEBUFFER
-                                                                          : GL_FRAMEBUFFER;
-                    stateManager->bindFramebuffer(readFramebufferTarget, tempFBO);
-                    ANGLE_GL_TRY(context, functions->framebufferTexture2D(
-                                              readFramebufferTarget, GL_COLOR_ATTACHMENT0,
-                                              GL_TEXTURE_2D, tempTex, 0));
-
-                    // Redefine the destination texture after the temp framebuffer is set up.
-                    stateManager->bindTexture(getType(), mTextureID);
-                    ANGLE_GL_TRY_ALWAYS_CHECK(
-                        context,
-                        functions->texImage2D(ToGLenum(target), static_cast<GLint>(level),
-                                              copyTexImageFormat.internalFormat, sourceArea.width,
-                                              sourceArea.height, 0, initTexImageFormat.format,
-                                              initTexImageFormat.type, nullptr));
-
-                    ANGLE_GL_TRY(context,
-                                 functions->copyTexSubImage2D(
-                                     ToGLenum(target), static_cast<GLint>(level), destOffset.x,
-                                     destOffset.y, 0, 0, clippedArea.width, clippedArea.height));
-
-                    stateManager->deleteFramebuffer(tempFBO);
-                    stateManager->deleteTexture(tempTex);
-
-                    // Restore the read framebuffer binding for the rest of this function.
-                    stateManager->bindFramebuffer(readFramebufferTarget,
-                                                  sourceFramebufferGL->getFramebufferID());
-                }
-                else if (features.emulateCopyTexImage2D.enabled)
+                if (features.emulateCopyTexImage2D.enabled)
                 {
                     ANGLE_GL_TRY_ALWAYS_CHECK(
                         context,
@@ -924,21 +970,18 @@ angle::Result TextureGL::copyImage(const gl::Context *context,
         setLevelInfo(context, target, level, 1, levelInfo);
     }
 
-    if (features.flushBeforeDeleteTextureIfCopiedTo.enabled)
-    {
-        contextGL->setNeedsFlushBeforeDeleteTextures();
-    }
-
     contextGL->markWorkSubmitted();
     return angle::Result::Continue;
 }
 
 angle::Result TextureGL::copySubImage(const gl::Context *context,
-                                      const gl::ImageIndex &index,
+                                      const gl::OwnImageIndex &ownIndex,
                                       const gl::Offset &destOffset,
                                       const gl::Rectangle &sourceArea,
                                       gl::Framebuffer *source)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
@@ -1016,15 +1059,18 @@ angle::Result TextureGL::copySubImage(const gl::Context *context,
 }
 
 angle::Result TextureGL::copyTexture(const gl::Context *context,
-                                     const gl::ImageIndex &index,
+                                     const gl::OwnImageIndex &ownIndex,
                                      GLenum internalFormat,
                                      GLenum type,
-                                     GLint sourceLevel,
+                                     gl::OwnLevel ownSourceLevel,
                                      bool unpackFlipY,
                                      bool unpackPremultiplyAlpha,
                                      bool unpackUnmultiplyAlpha,
                                      const gl::Texture *source)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+    const uint32_t sourceLevel = ownSourceLevel.getUntranslated().get();
+
     gl::TextureTarget target  = index.getTarget();
     size_t level              = static_cast<size_t>(index.getLevelIndex());
     const TextureGL *sourceGL = GetImplAs<TextureGL>(source);
@@ -1043,15 +1089,18 @@ angle::Result TextureGL::copyTexture(const gl::Context *context,
 }
 
 angle::Result TextureGL::copySubTexture(const gl::Context *context,
-                                        const gl::ImageIndex &index,
+                                        const gl::OwnImageIndex &ownIndex,
                                         const gl::Offset &destOffset,
-                                        GLint sourceLevel,
+                                        gl::OwnLevel ownSourceLevel,
                                         const gl::Box &sourceBox,
                                         bool unpackFlipY,
                                         bool unpackPremultiplyAlpha,
                                         bool unpackUnmultiplyAlpha,
                                         const gl::Texture *source)
 {
+    const gl::ImageIndex index = ownIndex.getUntranslated();
+    const uint32_t sourceLevel = ownSourceLevel.getUntranslated().get();
+
     gl::TextureTarget target                 = index.getTarget();
     size_t level                             = static_cast<size_t>(index.getLevelIndex());
     const gl::InternalFormat &destFormatInfo = *mState.getImageDesc(target, level).format.info;
@@ -1162,6 +1211,11 @@ angle::Result TextureGL::setStorage(const gl::Context *context,
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
+
+    if (features.reattachFboDepthStencilOnReallocation.enabled)
+    {
+        onStateChange(angle::SubjectMessage::ObjectReallocated);
+    }
 
     const gl::InternalFormat &originalInternalFormatInfo =
         gl::GetSizedInternalFormatInfo(internalFormat);
@@ -1335,28 +1389,6 @@ angle::Result TextureGL::setStorage(const gl::Context *context,
     return angle::Result::Continue;
 }
 
-angle::Result TextureGL::setImageExternal(const gl::Context *context,
-                                          const gl::ImageIndex &index,
-                                          GLenum internalFormat,
-                                          const gl::Extents &size,
-                                          GLenum format,
-                                          GLenum type)
-{
-    const FunctionsGL *functions      = GetFunctionsGL(context);
-    const angle::FeaturesGL &features = GetFeaturesGL(context);
-
-    gl::TextureTarget target = index.getTarget();
-    size_t level             = static_cast<size_t>(index.getLevelIndex());
-    const gl::InternalFormat &originalInternalFormatInfo =
-        gl::GetInternalFormatInfo(internalFormat, type);
-    nativegl::TexImageFormat texImageFormat =
-        nativegl::GetTexImageFormat(functions, features, internalFormat, format, type);
-
-    setLevelInfo(context, target, level, 1,
-                 GetLevelInfo(features, originalInternalFormatInfo, texImageFormat.internalFormat));
-    return angle::Result::Continue;
-}
-
 angle::Result TextureGL::setStorageMultisample(const gl::Context *context,
                                                gl::TextureType type,
                                                GLsizei samples,
@@ -1367,6 +1399,11 @@ angle::Result TextureGL::setStorageMultisample(const gl::Context *context,
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
+
+    if (features.reattachFboDepthStencilOnReallocation.enabled)
+    {
+        onStateChange(angle::SubjectMessage::ObjectReallocated);
+    }
 
     const gl::InternalFormat &originalInternalFormatInfo =
         gl::GetSizedInternalFormatInfo(internalformat);
@@ -1481,6 +1518,15 @@ angle::Result TextureGL::generateMipmap(const gl::Context *context)
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
 
+    stateManager->bindTexture(getType(), mTextureID);
+
+    bool recreateMipmapLevelsBeforeGenerate =
+        features.recreateMipmapLevelsBeforeGenerate.enabled && !mState.getImmutableFormat();
+    if (recreateMipmapLevelsBeforeGenerate)
+    {
+        ANGLE_TRY(allocateMipmapLevelsForGeneration(context));
+    }
+
     const GLuint effectiveBaseLevel = mState.getEffectiveBaseLevel();
     const GLuint maxLevel           = mState.getMipmapMaxLevel();
 
@@ -1489,7 +1535,6 @@ angle::Result TextureGL::generateMipmap(const gl::Context *context)
 
     const LevelInfoGL &baseLevelInfo = getBaseLevelInfo();
 
-    stateManager->bindTexture(getType(), mTextureID);
     if (getType() == gl::TextureType::_2D &&
         ((baseLevelInternalFormat.colorEncoding == GL_SRGB &&
           features.decodeEncodeSRGBForGenerateMipmap.enabled) ||
@@ -1497,34 +1542,19 @@ angle::Result TextureGL::generateMipmap(const gl::Context *context)
           nativegl::SupportsNativeRendering(functions, mState.getType(),
                                             baseLevelInfo.nativeInternalFormat))))
     {
-        nativegl::TexImageFormat texImageFormat = nativegl::GetTexImageFormat(
-            functions, features, baseLevelInternalFormat.internalFormat,
-            baseLevelInternalFormat.format, baseLevelInternalFormat.type);
-
         // Manually allocate the mip levels of this texture if they don't exist
-        GLuint levelCount = maxLevel - effectiveBaseLevel + 1;
-        for (GLuint levelIdx = 1; levelIdx < levelCount; levelIdx++)
+        // This might already be done above if recreateMipmapLevelsBeforeGenerate is in effect.
+        if (!recreateMipmapLevelsBeforeGenerate)
         {
-            gl::Extents levelSize(std::max(baseLevelDesc.size.width >> levelIdx, 1),
-                                  std::max(baseLevelDesc.size.height >> levelIdx, 1), 1);
-
-            const gl::ImageDesc &levelDesc =
-                mState.getImageDesc(gl::TextureTarget::_2D, effectiveBaseLevel + levelIdx);
-
-            if (levelDesc.size != levelSize || *levelDesc.format.info != baseLevelInternalFormat)
-            {
-                // Make sure no pixel unpack buffer is bound
-                stateManager->bindBuffer(gl::BufferBinding::PixelUnpack, 0);
-
-                ANGLE_GL_TRY_ALWAYS_CHECK(
-                    context, functions->texImage2D(
-                                 ToGLenum(getType()), effectiveBaseLevel + levelIdx,
-                                 texImageFormat.internalFormat, levelSize.width, levelSize.height,
-                                 0, texImageFormat.format, texImageFormat.type, nullptr));
-            }
+            ANGLE_TRY(allocateMipmapLevelsForGeneration(context));
         }
 
         // Use the blitter to generate the mips
+        const nativegl::TexImageFormat texImageFormat = nativegl::GetTexImageFormat(
+            functions, features, baseLevelInternalFormat.internalFormat,
+            baseLevelInternalFormat.format, baseLevelInternalFormat.type);
+        const GLuint levelCount = maxLevel - effectiveBaseLevel + 1;
+
         BlitGL *blitter = GetBlitGL(context);
         if (baseLevelInternalFormat.colorEncoding == GL_SRGB)
         {
@@ -1549,12 +1579,92 @@ angle::Result TextureGL::generateMipmap(const gl::Context *context)
     return angle::Result::Continue;
 }
 
+angle::Result TextureGL::allocateMipmapLevelsForGeneration(const gl::Context *context)
+{
+    const FunctionsGL *functions      = GetFunctionsGL(context);
+    StateManagerGL *stateManager      = GetStateManagerGL(context);
+    const angle::FeaturesGL &features = GetFeaturesGL(context);
+
+    const GLuint effectiveBaseLevel = mState.getEffectiveBaseLevel();
+    const GLuint maxLevel           = mState.getMipmapMaxLevel();
+
+    const gl::ImageDesc &baseLevelDesc                = mState.getBaseLevelDesc();
+    const gl::InternalFormat &baseLevelInternalFormat = *baseLevelDesc.format.info;
+
+    nativegl::TexImageFormat texImageFormat =
+        nativegl::GetTexImageFormat(functions, features, baseLevelInternalFormat.internalFormat,
+                                    baseLevelInternalFormat.format, baseLevelInternalFormat.type);
+
+    const bool is3D                = getType() == gl::TextureType::_3D;
+    const gl::TextureTarget target = getType() == gl::TextureType::CubeMap
+                                         ? gl::TextureTarget::CubeMapPositiveX
+                                         : NonCubeTextureTypeToTarget(getType());
+
+    // Manually allocate the mip levels of this texture if they don't exist
+    GLuint levelCount = maxLevel - effectiveBaseLevel + 1;
+    for (GLuint levelIdx = 1; levelIdx < levelCount; levelIdx++)
+    {
+        gl::Extents levelSize(
+            std::max(baseLevelDesc.size.width >> levelIdx, 1),
+            std::max(baseLevelDesc.size.height >> levelIdx, 1),
+            is3D ? std::max(baseLevelDesc.size.depth >> levelIdx, 1) : baseLevelDesc.size.depth);
+
+        const gl::ImageDesc &levelDesc = mState.getImageDesc(target, effectiveBaseLevel + levelIdx);
+
+        if (levelDesc.size != levelSize || *levelDesc.format.info != baseLevelInternalFormat)
+        {
+            // Make sure no pixel unpack buffer is bound
+            stateManager->bindBuffer(gl::BufferBinding::PixelUnpack, 0);
+
+            switch (getType())
+            {
+                case gl::TextureType::_2D:
+                    ANGLE_GL_TRY_ALWAYS_CHECK(
+                        context,
+                        functions->texImage2D(ToGLenum(getType()), effectiveBaseLevel + levelIdx,
+                                              texImageFormat.internalFormat, levelSize.width,
+                                              levelSize.height, 0, texImageFormat.format,
+                                              texImageFormat.type, nullptr));
+                    break;
+                case gl::TextureType::_3D:
+                case gl::TextureType::_2DArray:
+                case gl::TextureType::CubeMapArray:
+                    ANGLE_GL_TRY_ALWAYS_CHECK(
+                        context,
+                        functions->texImage3D(ToGLenum(getType()), effectiveBaseLevel + levelIdx,
+                                              texImageFormat.internalFormat, levelSize.width,
+                                              levelSize.height, levelSize.depth, 0,
+                                              texImageFormat.format, texImageFormat.type, nullptr));
+                    break;
+                case gl::TextureType::CubeMap:
+                    for (gl::TextureTarget face : gl::AllCubeFaceTextureTargets())
+                    {
+                        ANGLE_GL_TRY_ALWAYS_CHECK(
+                            context,
+                            functions->texImage2D(ToGLenum(face), effectiveBaseLevel + levelIdx,
+                                                  texImageFormat.internalFormat, levelSize.width,
+                                                  levelSize.height, 0, texImageFormat.format,
+                                                  texImageFormat.type, nullptr));
+                    }
+                    break;
+                default:
+                    // Cannot call glGenerateMipmap with any other texture type
+                    UNREACHABLE();
+                    break;
+            }
+        }
+    }
+    return angle::Result::Continue;
+}
+
 angle::Result TextureGL::clearImage(const gl::Context *context,
-                                    GLint level,
+                                    gl::OwnLevel ownLevel,
                                     GLenum format,
                                     GLenum type,
                                     const uint8_t *data)
 {
+    const uint32_t level = ownLevel.getUntranslated().get();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
@@ -1573,12 +1683,14 @@ angle::Result TextureGL::clearImage(const gl::Context *context,
 }
 
 angle::Result TextureGL::clearSubImage(const gl::Context *context,
-                                       GLint level,
+                                       gl::OwnLevel ownLevel,
                                        const gl::Box &area,
                                        GLenum format,
                                        GLenum type,
                                        const uint8_t *data)
 {
+    const uint32_t level = ownLevel.getUntranslated().get();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
@@ -1637,11 +1749,6 @@ angle::Result TextureGL::setEGLImageTarget(const gl::Context *context,
                  GetLevelInfo(features, originalInternalFormatInfo, imageNativeInternalFormat));
 
     return angle::Result::Continue;
-}
-
-GLint TextureGL::getNativeID() const
-{
-    return mTextureID;
 }
 
 angle::Result TextureGL::syncState(const gl::Context *context,
@@ -2347,8 +2454,10 @@ gl::TextureType TextureGL::getType() const
 
 angle::Result TextureGL::initializeContents(const gl::Context *context,
                                             GLenum binding,
-                                            const gl::ImageIndex &imageIndex)
+                                            const gl::OwnImageIndex &ownImageIndex)
 {
+    const gl::ImageIndex imageIndex = ownImageIndex.getUntranslated();
+
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
@@ -2393,7 +2502,8 @@ angle::Result TextureGL::initializeContents(const gl::Context *context,
 
     GLenum nativeInternalFormat =
         getLevelInfo(imageIndex.getTarget(), imageIndex.getLevelIndex()).nativeInternalFormat;
-    if (features.allowClearForRobustResourceInit.enabled &&
+    if ((features.allowClearForRobustResourceInit.enabled ||
+         !nativegl::SupportsTexImage(getType())) &&
         nativegl::SupportsNativeRendering(functions, mState.getType(), nativeInternalFormat))
     {
         BlitGL *blitter = GetBlitGL(context);
@@ -2432,7 +2542,7 @@ angle::Result TextureGL::initializeContents(const gl::Context *context,
         ANGLE_CHECK_GL_MATH(contextGL,
                             internalFormatInfo.computeCompressedImageSize(desc.size, &imageSize));
 
-        angle::MemoryBuffer *zero;
+        const angle::MemoryBuffer *zero;
         ANGLE_CHECK_GL_ALLOC(contextGL, context->getZeroFilledBuffer(imageSize, &zero));
 
         // WebGL spec requires that zero data is uploaded to compressed textures even if it might
@@ -2463,7 +2573,7 @@ angle::Result TextureGL::initializeContents(const gl::Context *context,
                                            nativeSubImageFormat.type, desc.size, unpackState,
                                            nativegl::UseTexImage3D(getType()), &imageSize));
 
-        angle::MemoryBuffer *zero;
+        const angle::MemoryBuffer *zero;
         ANGLE_CHECK_GL_ALLOC(contextGL, context->getZeroFilledBuffer(imageSize, &zero));
 
         if (nativegl::UseTexImage2D(getType()))

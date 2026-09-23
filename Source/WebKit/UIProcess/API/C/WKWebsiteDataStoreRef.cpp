@@ -110,6 +110,11 @@ void WKWebsiteDataStoreResetServiceWorkerFetchTimeoutForTesting(WKWebsiteDataSto
     protect(WebKit::toImpl(dataStore))->resetServiceWorkerTimeoutForTesting();
 }
 
+void WKWebsiteDataStoreClearCrossOriginPreflightResultCacheForTesting(WKWebsiteDataStoreRef dataStore)
+{
+    protect(WebKit::toImpl(dataStore))->clearCrossOriginPreflightResultCacheForTesting();
+}
+
 void WKWebsiteDataStoreSetResourceLoadStatisticsEnabled(WKWebsiteDataStoreRef dataStoreRef, bool enable)
 {
     protect(WebKit::toImpl(dataStoreRef))->setTrackingPreventionEnabled(enable);
@@ -816,4 +821,14 @@ void WKWebsiteDataStoreSetStorageAccessForTesting(WKWebsiteDataStoreRef dataStor
     if (blocked)
         store->clearStorageAccessForTesting([callbackAggregator] { });
     store->setResourceLoadStatisticsShouldBlockThirdPartyCookiesForTesting(blocked, WebCore::ThirdPartyCookieBlockingMode::All, [callbackAggregator] { });
+}
+
+void WKWebsiteDataStoreFlushNetworkProcessIPC(WKWebsiteDataStoreRef dataStore, void* context, WKWebsiteDataStoreFlushNetworkProcessIPCCallback callback)
+{
+    if (RefPtr networkProcess = protect(WebKit::toImpl(dataStore))->networkProcess()) {
+        networkProcess->flushNetworkProcessIPC([callback, context] {
+            callback(context);
+        });
+    } else
+        callback(context);
 }

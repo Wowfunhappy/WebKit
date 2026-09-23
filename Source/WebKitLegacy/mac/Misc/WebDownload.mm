@@ -33,7 +33,7 @@
 #import "WebDownloadCurl.h" // MAVERICKS_BACKPORT: native download ABI with curl transport.
 #import <wtf/RunLoop.h> // MAVERICKS_BACKPORT: begin after the initializer returns to Safari.
 #import <Foundation/NSURLAuthenticationChallenge.h>
-#import <WebCore/AuthenticationMac.h>
+#import <WebCore/AuthenticationCocoa.h>
 #import <WebCore/Credential.h>
 #import <WebCore/CredentialStorage.h>
 #import <WebCore/NetworkStorageSession.h>
@@ -84,7 +84,6 @@ static void callOnDelegateThreadAndWait(Callable&& work)
     }
 }
 
-using namespace WebCore;
 
 @interface WebDownloadInternal : NSObject <NSURLDownloadDelegate> {
     RetainPtr<id> realDelegate;
@@ -147,7 +146,7 @@ using namespace WebCore;
 #if !PLATFORM(IOS_FAMILY)
     // Try previously stored credential first.
     if (![challenge previousFailureCount]) {
-        RetainPtr credential = NetworkStorageSessionMap::defaultStorageSession().credentialStorage().get(emptyString(), ProtectionSpace([challenge protectionSpace])).nsCredential();
+        RetainPtr credential = NetworkStorageSessionMap::defaultStorageSession().credentialStorage().get(emptyString(), WebCore::ProtectionSpace([challenge protectionSpace])).nsCredential();
         if (credential) {
             [[challenge sender] useCredential:credential.get() forAuthenticationChallenge:challenge];
             return;
@@ -334,7 +333,7 @@ IGNORE_WARNINGS_END
     [_webInternal setRealDelegate:delegate];
     // MAVERICKS_BACKPORT: preserve the NetworkProcess owner of serialized WK2 downloads, including private sessions.
     if ([resume objectForKey:@"WebKitNetworkProcessResumeData"])
-        _webInternal->curlDownload = createCocoaRemoteDownload(self, _webInternal, resume, path);
+        _webInternal->curlDownload = WebCore::createCocoaRemoteDownload(self, _webInternal, resume, path);
     else
         _webInternal->curlDownload = adoptNS([[WebDownloadCurl alloc] initWithDownload:self delegate:_webInternal request:request resumeInformation:resume path:path directory:directory]);
     if (!_webInternal->curlDownload) {

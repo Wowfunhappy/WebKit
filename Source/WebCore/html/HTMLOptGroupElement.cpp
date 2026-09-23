@@ -27,6 +27,8 @@
 
 #include "Document.h"
 #include "ElementAncestorIteratorInlines.h"
+#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "ElementIterator.h"
 #include "HTMLDivElement.h"
 #include "HTMLLegendElement.h"
@@ -39,6 +41,7 @@
 #include "NodeRenderStyle.h"
 #include "ScriptDisallowedScope.h"
 #include "ScriptElement.h"
+#include "Settings.h"
 #include "StyleResolver.h"
 #include "Text.h"
 #include "TypedElementDescendantIteratorInlines.h"
@@ -120,9 +123,9 @@ void HTMLOptGroupElement::didAddUserAgentShadowRoot(ShadowRoot& root)
     root.appendChild(HTMLSlotElement::create(slotTag, document));
 }
 
-auto HTMLOptGroupElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto HTMLOptGroupElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
-    auto result = HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (!document().settings().htmlEnhancedSelectParsingEnabled())
         return result;
@@ -140,9 +143,9 @@ auto HTMLOptGroupElement::insertedIntoAncestor(InsertionType insertionType, Cont
     return result;
 }
 
-void HTMLOptGroupElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLOptGroupElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (removalType.disconnectedFromDocument && m_shadowTreeNeedsUpdate)
         protect(document())->removeElementWithPendingUserAgentShadowTreeUpdate(*this);
@@ -150,7 +153,7 @@ void HTMLOptGroupElement::removedFromAncestor(RemovalType removalType, Container
     if (!document().settings().htmlEnhancedSelectParsingEnabled() || !m_ownerSelect)
         return;
 
-    if (RefPtr select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::Yes)) {
+    if (auto* select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::Yes)) {
         ASSERT_UNUSED(select, select == m_ownerSelect.get());
         return;
     }
@@ -164,6 +167,14 @@ void HTMLOptGroupElement::removedFromAncestor(RemovalType removalType, Container
 bool HTMLOptGroupElement::isDisabledFormControl() const
 {
     return m_isDisabled;
+}
+
+bool HTMLOptGroupElement::isActuallyDisabled() const
+{
+    if (HTMLElement::isActuallyDisabled())
+        return true;
+    RefPtr select = ownerSelectElement();
+    return select && select->isDisabledFormControl();
 }
 
 bool HTMLOptGroupElement::isFocusable() const

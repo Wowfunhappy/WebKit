@@ -26,9 +26,7 @@
 #include "config.h"
 #include <wtf/ResourceUsage.h>
 
-#include <mach/mach_error.h>
 #include <mach/mach_init.h>
-#include <utility>
 #include <wtf/spi/cocoa/MachVMSPI.h>
 #include <wtf/text/MakeString.h>
 

@@ -65,19 +65,19 @@ RefPtr<CSSValue> consumeMarginTrim(CSSParserTokenRange& range, CSS::PropertyPars
         // Try to serialize into either block or inline form
         if (idents.size() == 2) {
             if (idents.contains(CSSValueBlockStart) && idents.contains(CSSValueBlockEnd))
-                return CSSPrimitiveValue::create(CSSValueBlock);
+                return CSSKeywordValue::create(CSSValueBlock);
             if (idents.contains(CSSValueInlineStart) && idents.contains(CSSValueInlineEnd))
-                return CSSPrimitiveValue::create(CSSValueInline);
+                return CSSKeywordValue::create(CSSValueInline);
         } else if (idents.size() == 4) {
             CSSValueListBuilder list;
-            list.append(CSSPrimitiveValue::create(CSSValueBlock));
-            list.append(CSSPrimitiveValue::create(CSSValueInline));
+            list.append(CSSKeywordValue::create(CSSValueBlock));
+            list.append(CSSKeywordValue::create(CSSValueInline));
             return CSSValueList::createSpaceSeparated(WTF::move(list));
         }
     }
     CSSValueListBuilder list;
     for (auto ident : idents)
-        list.append(CSSPrimitiveValue::create(ident));
+        list.append(CSSKeywordValue::create(ident));
     return CSSValueList::createSpaceSeparated(WTF::move(list));
 }
 

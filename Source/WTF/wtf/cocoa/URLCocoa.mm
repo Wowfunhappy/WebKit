@@ -26,11 +26,8 @@
 #import "config.h"
 #import <wtf/URL.h>
 
-#import <wtf/URLParser.h>
 #import <wtf/cf/CFURLExtras.h>
-#import <wtf/cocoa/NSURLExtras.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
-#import <wtf/text/CString.h>
 
 @interface NSString (WTFNSURLExtras)
 - (BOOL)_web_looksLikeIPAddress;

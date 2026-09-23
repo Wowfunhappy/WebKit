@@ -27,6 +27,7 @@
 
 #include "NetworkResourceLoadIdentifier.h"
 #include <WebCore/FrameIdentifier.h>
+#include <wtf/Markable.h>
 #include <wtf/URL.h>
 #include <wtf/UUID.h>
 #include <wtf/WallTime.h>

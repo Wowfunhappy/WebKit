@@ -47,7 +47,7 @@ class XcodeProjectFileChecker(object):
                                     'developmentRegion is not en.')
         return True
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         development_region_is_detected = False
         for line_index, line in enumerate(lines):
             if self._check_development_region(line_index, line):

@@ -87,7 +87,7 @@ static_assert(NUMBER_OF_BYTECODE_IDS < 255);
 static constexpr OpcodeSize maxJSOpcodeIDWidth = OpcodeSize::Narrow;
 static constexpr unsigned maxJSBytecodeStructLength = /* Opcode */ maxJSOpcodeIDWidth + /* Wide32 Opcode */ 1 + /* Operands */ MAX_LENGTH_OF_BYTECODE_IDS * 4;
 static constexpr unsigned maxBytecodeStructLength = maxJSBytecodeStructLength;
-static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSetConstexpr(maxBytecodeStructLength) + 1;
+static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSet(maxBytecodeStructLength) + 1;
 
 #define FOR_EACH_OPCODE_WITH_VALUE_PROFILE(macro) \
     macro(OpCallVarargs) \
@@ -98,7 +98,6 @@ static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSetCon
     macro(OpGetById) \
     macro(OpGetLength) \
     macro(OpGetByIdWithThis) \
-    macro(OpTryGetById) \
     macro(OpGetByIdDirect) \
     macro(OpGetByValWithThis) \
     macro(OpGetPrototypeOf) \
@@ -114,6 +113,7 @@ static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSetCon
     macro(OpGetFromScope) \
     macro(OpGetPrivateName) \
     macro(OpNewArrayWithSpecies) \
+    macro(OpAsyncIteratorNext) \
 
 #define FOR_EACH_OPCODE_WITH_CALL_LINK_INFO(macro) \
     macro(OpCall) \
@@ -123,6 +123,8 @@ static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSetCon
     macro(OpSuperConstruct) \
     macro(OpIteratorOpen) \
     macro(OpIteratorNext) \
+    macro(OpAsyncIteratorOpen) \
+    macro(OpAsyncIteratorNext) \
     macro(OpCallVarargs) \
     macro(OpTailCallVarargs) \
     macro(OpConstructVarargs) \
@@ -173,6 +175,7 @@ static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSetCon
     macro(OpNegate) \
     macro(OpToNumber) \
     macro(OpToNumeric) \
+    macro(OpUnsigned) \
 
 
 IGNORE_WARNINGS_BEGIN("type-limits")
@@ -273,8 +276,8 @@ inline bool isThrow(OpcodeID opcodeID)
     }
 }
 
-unsigned metadataSize(OpcodeID);
-unsigned metadataAlignment(OpcodeID);
+unsigned NODELETE metadataSize(OpcodeID);
+unsigned NODELETE metadataAlignment(OpcodeID);
 
 } // namespace JSC
 

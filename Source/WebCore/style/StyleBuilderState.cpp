@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  * Copyright (C) 2004-2005 Allan Sandfeld Jensen (kde@carewolf.com)
  * Copyright (C) 2006, 2007 Nicholas Shanks (webkit@nickshanks.com)
- * Copyright (C) 2005-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
  * Copyright (C) 2007, 2008 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2008, 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
@@ -33,6 +33,7 @@
 
 #include "CSSCalcRandomCachingKey.h"
 #include "CSSCanvasValue.h"
+#include "CSSColorImageValue.h"
 #include "CSSColorValue.h"
 #include "CSSCrossfadeValue.h"
 #include "CSSCursorImageValue.h"
@@ -42,6 +43,7 @@
 #include "CSSGradientValue.h"
 #include "CSSImageSetValue.h"
 #include "CSSImageValue.h"
+#include "CSSLightDarkImageValue.h"
 #include "CSSNamedImageValue.h"
 #include "CSSPaintImageValue.h"
 #include "DocumentInlines.h"
@@ -52,7 +54,6 @@
 #include "FrameDestructionObserverInlines.h"
 #include "HTMLElement.h"
 #include "LocalFrame.h"
-#include "RenderStyle+SettersInlines.h"
 #include "RenderTheme.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGSVGElement.h"
@@ -61,33 +62,44 @@
 #include "StyleCachedImage.h"
 #include "StyleCanvasImage.h"
 #include "StyleColor.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleCrossfadeImage.h"
 #include "StyleCursorImage.h"
+#include "StyleCustomPropertyRegistry.h"
 #include "StyleFilterImage.h"
 #include "StyleFontSizeFunctions.h"
 #include "StyleGeneratedImage.h"
 #include "StyleGradientImage.h"
 #include "StyleImageSet.h"
+#include "StyleLocalPropertyRegistry.h"
 #include "StyleNamedImage.h"
 #include "StylePaintImage.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
+#include "StyleScope.h"
 
 namespace WebCore {
 namespace Style {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(BuilderState);
 
-BuilderState::BuilderState(RenderStyle& style)
+BuilderState::BuilderState(Style::ComputedStyle& style)
     : m_style(style)
 {
 }
 
-BuilderState::BuilderState(RenderStyle& style, BuilderContext&& context)
+BuilderState::BuilderState(Style::ComputedStyle& style, BuilderContext&& context)
     : m_style(style)
     , m_context(WTF::move(context))
     , m_cssToLengthConversionData(style, *this)
 {
+}
+
+const CSSRegisteredCustomProperty* BuilderState::registeredProperty(const AtomString& name) const
+{
+    if (m_context.localPropertyRegistry)
+        return m_context.localPropertyRegistry->get(name);
+    return document().customPropertyRegistry().get(name);
 }
 
 float BuilderState::zoomWithTextZoomFactor()
@@ -105,7 +117,7 @@ float BuilderState::zoomWithTextZoomFactor()
 // multiplies each resolved length with the zoom multiplier - so for SVG we need to disable that.
 // Though all CSS values that can be applied to outermost <svg> elements (width/height/border/padding...)
 // need to respect the scaling. RenderBox (the parent class of LegacyRenderSVGRoot) grabs values like
-// width/height/border/padding/... from the RenderStyle -> for SVG these values would never scale,
+// width/height/border/padding/... from the ComputedStyle -> for SVG these values would never scale,
 // if we'd pass a 1.0 zoom factor everywhere. So we only pass a zoom factor of 1.0 for specific
 // properties that are NOT allowed to scale within a zoomed SVG document (letter/word-spacing/font-size).
 bool BuilderState::useSVGZoomRules() const
@@ -136,15 +148,18 @@ RefPtr<Image> BuilderState::createStyleImage(const CSSValue& value) const
         return filterImageValue->createStyleImage(*this);
     if (auto* gradientValue = dynamicDowncast<CSSGradientValue>(value))
         return gradientValue->createStyleImage(*this);
+    if (auto* colorImageValue = dynamicDowncast<CSSColorImageValue>(value))
+        return colorImageValue->createStyleImage(*this);
+    if (auto* lightDarkImageValue = dynamicDowncast<CSSLightDarkImageValue>(value))
+        return lightDarkImageValue->createStyleImage(*this);
     if (auto* paintImageValue = dynamicDowncast<CSSPaintImageValue>(value))
         return paintImageValue->createStyleImage(*this);
     return nullptr;
 }
 
-void BuilderState::registerContentAttribute(const AtomString& attributeLocalName)
+void BuilderState::registerSubstitutionAttribute(const AtomString& attributeLocalName, const Scope* targetScope)
 {
-    if (style().pseudoElementType() == PseudoElementType::Before || style().pseudoElementType() == PseudoElementType::After)
-        m_registeredContentAttributes.append(attributeLocalName);
+    m_registeredSubstitutionAttributes.append({ attributeLocalName, targetScope });
 }
 
 void BuilderState::adjustStyleForInterCharacterRuby()
@@ -192,10 +207,14 @@ void BuilderState::updateFontForTextSizeAdjust()
         return;
 
     auto newFontDescription = m_style.fontDescription();
+    auto baseSize = newFontDescription.specifiedSize();
     if (!m_style.textSizeAdjust().isNone())
-        newFontDescription.setComputedSize(newFontDescription.specifiedSize() * m_style.textSizeAdjust().multiplier());
-    else
-        newFontDescription.setComputedSize(newFontDescription.specifiedSize());
+        baseSize *= m_style.textSizeAdjust().multiplier();
+
+    float zoomFactor = m_style.usedZoom();
+    if (auto* frame = document().frame(); frame && m_style.textZoom() != TextZoom::Reset)
+        zoomFactor *= frame->textZoomFactor();
+    newFontDescription.setComputedSize(baseSize * zoomFactor, zoomFactor);
 
     m_style.setFontDescriptionWithoutUpdate(WTF::move(newFontDescription));
 }
@@ -205,6 +224,19 @@ void BuilderState::updateFontForZoomChange()
 {
     if (m_style.usedZoom() == parentStyle().usedZoom() && m_style.textZoom() == parentStyle().textZoom())
         return;
+
+#if ENABLE(TEXT_AUTOSIZING)
+    // When text-size-adjust has an active percentage, updateFontForTextSizeAdjust() has already
+    // computed the correct size (incorporating both the multiplier and the current zoom factor).
+    // Skip recalculation here to avoid overwriting that result, which would lose the
+    // text-size-adjust multiplier.
+    if (document().settings().textAutosizingEnabled()
+        && !m_style.textSizeAdjust().isAuto()
+        && !m_style.textSizeAdjust().isNone()
+        && (!document().settings().textAutosizingUsesIdempotentMode()
+            || document().settings().idempotentModeAutosizingOnlyHonorsPercentages()))
+        return;
+#endif
 
     setFontDescriptionFontSize(m_style.fontDescription().specifiedSize());
 }
@@ -286,15 +318,15 @@ void BuilderState::setUsesViewportUnits()
     m_style.setUsesViewportUnits();
 }
 
-void BuilderState::setUsesContainerUnits()
+void BuilderState::setIsContainerDependent()
 {
-    m_style.setUsesContainerUnits();
+    m_style.setIsContainerDependent();
 }
 
-double BuilderState::lookupCSSRandomBaseValue(const CSSCalc::RandomCachingKey& key, std::optional<CSS::Keyword::ElementShared> elementShared) const
+double BuilderState::lookupCSSRandomBaseValue(const CSSCalc::RandomCachingKey& key, std::optional<CSS::Keyword::ElementScoped> elementScoped) const
 {
-    if (!elementShared)
-        return element()->lookupCSSRandomBaseValue(style().pseudoElementIdentifier(), key);
+    if (elementScoped)
+        return protect(element())->lookupCSSRandomBaseValue(style().pseudoElementIdentifier(), key);
 
     return document().lookupCSSRandomBaseValue(key);
 }
@@ -306,6 +338,11 @@ unsigned BuilderState::siblingCount()
     // https://drafts.csswg.org/css-values-5/#funcdef-sibling-count
 
     ASSERT(element());
+
+    // https://drafts.csswg.org/css-shadow-1/#tree-scoped-name-loosely-matched
+    // "loosely-matched tree-scoped references" return 0 for cross-tree styling.
+    if (m_currentProperty && m_currentProperty->styleScopeOrdinal <= ScopeOrdinal::ContainingHost)
+        return 0;
 
     auto* parent = element()->parentElement();
     if (!parent)
@@ -328,6 +365,11 @@ unsigned BuilderState::siblingIndex()
     // https://drafts.csswg.org/css-values-5/#funcdef-sibling-index
 
     ASSERT(element());
+
+    // https://drafts.csswg.org/css-shadow-1/#tree-scoped-name-loosely-matched
+    // "loosely-matched tree-scoped references" return 0 for cross-tree styling.
+    if (m_currentProperty && m_currentProperty->styleScopeOrdinal <= ScopeOrdinal::ContainingHost)
+        return 0;
 
     auto* parent = element()->parentElement();
     if (!parent)
@@ -352,7 +394,7 @@ void BuilderState::disableNativeAppearanceIfNeeded(CSSPropertyID propertyID, Pro
             return false;
         if (!applyPropertyToRegularStyle())
             return false;
-        return element()->isDevolvableWidget() || RenderTheme::hasAppearanceForElementTypeFromUAStyle(*element());
+        SUPPRESS_UNCOUNTED_ARG return element()->isDevolvableWidget() || RenderTheme::hasAppearanceForElementTypeFromUAStyle(*element());
     };
 
     if (shouldDisable())

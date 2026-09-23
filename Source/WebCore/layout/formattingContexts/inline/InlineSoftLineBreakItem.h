@@ -26,6 +26,7 @@
 #pragma once
 
 #include "InlineItem.h"
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 namespace Layout {
@@ -35,6 +36,8 @@ public:
     static InlineSoftLineBreakItem createSoftLineBreakItem(const InlineTextBox&, unsigned position, UBiDiLevel = UBIDI_DEFAULT_LTR);
 
     unsigned position() const { return m_startOrPosition; }
+    char16_t character() const { return inlineTextBox().content()[position()]; }
+    bool isBidiParagraphStart() const { return character() != lineSeparator; }
     const InlineTextBox& inlineTextBox() const { return downcast<InlineTextBox>(layoutBox()); }
 
 private:

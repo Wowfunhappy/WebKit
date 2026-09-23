@@ -1,4 +1,4 @@
-//@skip if $memoryLimited
+//@ memoryHog!
 //@ runNoFTL("--watchdog=3000", "--watchdog-exception-ok")
 async function foo() {
   foo();

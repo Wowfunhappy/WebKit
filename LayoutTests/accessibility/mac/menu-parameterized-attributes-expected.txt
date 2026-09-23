@@ -39,6 +39,10 @@ AXLineTextMarkerRangeForTextMarker
 AXSelectTextWithCriteria
 AXSearchTextWithCriteria
 AXTextOperation
+AXTextMarkerForIndex
+AXTextMarkerIsValid
+AXIndexForTextMarker
+AXRelativeIndexForTextMarker
 
 
 #menuitem supported paramterized attributes:
@@ -80,6 +84,10 @@ AXLineTextMarkerRangeForTextMarker
 AXSelectTextWithCriteria
 AXSearchTextWithCriteria
 AXTextOperation
+AXTextMarkerForIndex
+AXTextMarkerIsValid
+AXIndexForTextMarker
+AXRelativeIndexForTextMarker
 
 
 

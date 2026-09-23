@@ -62,7 +62,7 @@ public:
     void disconnect();
     Vector<Ref<PerformanceEntry>> takeRecords();
 
-    OptionSet<PerformanceEntry::Type> typeFilter() const { return m_typeFilter; }
+    EnumSet<PerformanceEntry::Type> typeFilter() const { return m_typeFilter; }
 
     bool hasNavigationTiming() const { return m_hasNavigationTiming; }
     void addedNavigationTiming() { m_hasNavigationTiming = true; }
@@ -80,7 +80,7 @@ private:
     RefPtr<Performance> m_performance;
     Vector<Ref<PerformanceEntry>> m_entriesToDeliver;
     const Ref<PerformanceObserverCallback> m_callback;
-    OptionSet<PerformanceEntry::Type> m_typeFilter;
+    EnumSet<PerformanceEntry::Type> m_typeFilter;
     Seconds m_durationThreshold;
     bool m_registered { false };
     bool m_isTypeObserver { false };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2022, 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <JavaScriptCore/Integrity.h>
 #include <JavaScriptCore/JSAPIValueWrapper.h>
 #include <JavaScriptCore/JSCJSValue.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
@@ -80,7 +80,7 @@ inline JSC::JSValue toJS(JSC::JSGlobalObject* globalObject, JSValueRef v)
         return JSC::jsNull();
     JSC::JSValue result;
     if (jsCell->isAPIValueWrapper())
-        result = JSC::jsCast<JSC::JSAPIValueWrapper*>(jsCell)->value();
+        result = uncheckedDowncast<JSC::JSAPIValueWrapper>(jsCell)->value();
     else
         result = jsCell;
 #else
@@ -100,6 +100,12 @@ inline JSC::JSValue toJS(JSValueRef value)
 {
     return JSC::Integrity::audit(std::bit_cast<JSC::JSValue>(value));
 }
+#else
+inline JSC::JSValue toJS(JSValueRef value)
+{
+    JSC::JSGlobalObject* unused = nullptr;
+    return toJS(unused, value);
+}
 #endif
 
 inline JSC::JSValue toJSForGC(JSC::JSGlobalObject* globalObject, JSValueRef v)
@@ -118,6 +124,12 @@ inline JSC::JSValue toJSForGC(JSC::JSGlobalObject* globalObject, JSValueRef v)
         RELEASE_ASSERT(result.asCell()->methodTable());
     }
     return result;
+}
+
+inline JSC::JSValue toJSForGC(JSValueRef value)
+{
+    JSC::JSGlobalObject* unused = nullptr;
+    return toJSForGC(unused, value);
 }
 
 // Used in JSObjectGetPrivate as that may be called during finalization

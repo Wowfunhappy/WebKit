@@ -26,3 +26,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-gaps-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-gaps-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-gaps-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-percentage-gap-001-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-percentage-gap-001-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-percentage-gap-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-percentage-gap-002-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-percentage-gap-002-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-grid/grid-lanes/gap/row-percentage-gap-002.html

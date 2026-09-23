@@ -249,7 +249,7 @@ void VTTCueBox::applyCSSProperties()
     // unless if it is the child of a region, then it is to be relatively positioned.
     setInlineStyleProperty(CSSPropertyPosition, CSSValueAbsolute);
 
-    if (!cue->snapToLines()) {
+    if (cue->preventLineWrapping()) {
         setInlineStyleProperty(CSSPropertyWhiteSpaceCollapse, CSSValuePreserve);
         setInlineStyleProperty(CSSPropertyTextWrapMode, CSSValueNowrap);
     }
@@ -258,23 +258,26 @@ void VTTCueBox::applyCSSProperties()
     // NOTE: Set in text-tracks.css
 }
 
-RenderPtr<RenderElement> VTTCueBox::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> VTTCueBox::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderVTTCue>(*this, WTF::move(style));
 }
 
 // ----------------------------
 
-Ref<VTTCue> VTTCue::create(Document& document, double start, double end, String&& content)
+ExceptionOr<Ref<VTTCue>> VTTCue::create(Document& document, double start, double end, String&& content)
 {
-    auto cue = adoptRef(*new VTTCue(document, MediaTime::createWithDouble(start), MediaTime::createWithDouble(end), WTF::move(content)));
+    if (std::isnan(end) || end == -std::numeric_limits<double>::infinity())
+        return Exception { ExceptionCode::TypeError, "The provided endTime value is NaN or negative Infinity"_s };
+
+    Ref cue = adoptRef(*new VTTCue(document, MediaTime::createWithDouble(start), MediaTime::createWithDouble(end), WTF::move(content)));
     cue->suspendIfNeeded();
     return cue;
 }
 
 Ref<VTTCue> VTTCue::create(Document& document, Ref<WebVTTCueData>&& data)
 {
-    auto cue = adoptRef(*new VTTCue(document, WTF::move(data)));
+    Ref cue = adoptRef(*new VTTCue(document, WTF::move(data)));
     cue->suspendIfNeeded();
     return cue;
 }
@@ -305,9 +308,7 @@ VTTCue::VTTCue(Document& document, Ref<WebVTTCueData>&& cueData)
     setCueSettings(cueData->settings());
 }
 
-VTTCue::~VTTCue()
-{
-}
+VTTCue::~VTTCue() = default;
 
 RefPtr<VTTCueBox> VTTCue::createDisplayTree()
 {
@@ -1199,13 +1200,9 @@ void VTTCue::setCueSettings(const String& inputString)
         case Line: {
             bool isValid = false;
             do {
-                // 1-2 - Collect chars that are either '-', '%', or a digit.
-                // 1. If value contains any characters other than U+002D HYPHEN-MINUS characters (-), U+0025 PERCENT SIGN
-                //    characters (%), and characters in the range U+0030 DIGIT ZERO (0) to U+0039 DIGIT NINE (9), then jump
-                //    to the step labeled next setting.
-                float linePosition;
+                double linePosition;
                 bool isNegative;
-                if (!input.scanFloat(linePosition, &isNegative))
+                if (!input.scanDouble(linePosition, &isNegative))
                     break;
 
                 LineAlignSetting alignment { LineAlignSetting::Start };
@@ -1226,37 +1223,17 @@ void VTTCue::setCueSettings(const String& inputString)
                     }
                 }
 
-                // 2. If value does not contain at least one character in the range U+0030 DIGIT ZERO (0) to U+0039 DIGIT
-                //    NINE (9), then jump to the step labeled next setting.
-                // 3. If any character in value other than the first character is a U+002D HYPHEN-MINUS character (-), then
-                //    jump to the step labeled next setting.
-                // 4. If any character in value other than the last character is a U+0025 PERCENT SIGN character (%), then
-                //    jump to the step labeled next setting.
-                // 5. If the first character in value is a U+002D HYPHEN-MINUS character (-) and the last character in value is a
-                //    U+0025 PERCENT SIGN character (%), then jump to the step labeled next setting.
                 if (isPercentage && isNegative)
                     break;
 
-                // 6. Ignoring the trailing percent sign, if any, interpret value as a (potentially signed) integer, and
-                //    let number be that number.
-                // 7. If the last character in value is a U+0025 PERCENT SIGN character (%), but number is not in the range
-                //    0 ≤ number ≤ 100, then jump to the step labeled next setting.
-                // 8. Let cue's text track cue line position be number.
-                // 9. If the last character in value is a U+0025 PERCENT SIGN character (%), then let cue's text track cue
-                //    snap-to-lines flag be false. Otherwise, let it be true.
                 if (isPercentage) {
                     if (linePosition < 0 || linePosition > 100)
                         break;
 
-                    // 10 - If '%' then set snap-to-lines flag to false.
                     m_snapToLines = false;
-                } else {
-                    if (linePosition - static_cast<int>(linePosition))
-                        break;
-
+                } else
                     m_snapToLines = true;
-                }
-                
+
                 m_linePosition = linePosition;
                 m_lineAlignment = alignment;
                 isValid = true;
@@ -1268,10 +1245,10 @@ void VTTCue::setCueSettings(const String& inputString)
             break;
         }
         case Position: {
-            float position;
+            double position;
             PositionAlignSetting alignment { PositionAlignSetting::Auto };
 
-            auto parsePosition = [&] (VTTScanner& input, auto end, float& position, auto& alignment) -> bool {
+            auto parsePosition = [&](VTTScanner& input, auto end, double& position, auto& alignment) -> bool {
                 // 1. a position value consisting of: a WebVTT percentage.
                 if (!WebVTTParser::parseFloatPercentageValue(input, position)) {
                     ALWAYS_LOG(identifier, "Invalid position percentage");
@@ -1309,7 +1286,7 @@ void VTTCue::setCueSettings(const String& inputString)
             break;
         }
         case Size: {
-            float cueSize;
+            double cueSize;
             if (WebVTTParser::parseFloatPercentageValue(input, cueSize) && input.isAt(valueRun.end()))
                 m_cueSize = cueSize;
             else
@@ -1471,7 +1448,7 @@ void VTTCue::prepareToSpeak(SpeechSynthesis& speechSynthesis, double rate, doubl
 uint64_t VTTCue::logIdentifier() const
 {
     if (!m_logIdentifier && track())
-        m_logIdentifier = childLogIdentifier(track()->logIdentifier(), cryptographicallyRandomNumber<uint64_t>());
+        m_logIdentifier = childLogIdentifier(protect(track())->logIdentifier(), cryptographicallyRandomNumber<uint64_t>());
     return m_logIdentifier;
 }
 

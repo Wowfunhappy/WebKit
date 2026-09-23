@@ -122,6 +122,16 @@ class FramebufferWgpu : public FramebufferImpl
     bool flipY() const { return mFlipY; }
 
   private:
+    gl::ColorF getClearColorWithCorrectAlpha(const gl::ColorF &clearValue, size_t drawBufferIndex);
+
+    angle::Result clearImpl(const gl::Context *context,
+                            gl::DrawBufferMask clearColorBuffers,
+                            bool clearDepth,
+                            bool clearStencil,
+                            const gl::ColorF &clearColorValue,
+                            float clearDepthValue,
+                            uint32_t clearStencilValue);
+
     void mergeClearWithDeferredClears(const gl::ColorF &clearValue,
                                       gl::DrawBufferMask clearColorBuffers,
                                       float depthValue,
@@ -129,6 +139,38 @@ class FramebufferWgpu : public FramebufferImpl
                                       bool clearColor,
                                       bool clearDepth,
                                       bool clearStencil);
+
+    bool formatsAndSizesMatchForDirectCopy(const gl::Context *context,
+                                           const FramebufferWgpu *readFramebuffer,
+                                           RenderTargetWgpu *readRenderTarget,
+                                           RenderTargetWgpu *drawRenderTarget,
+                                           const gl::Rectangle &sourceArea,
+                                           const gl::Rectangle &destArea) const;
+
+    angle::Result blitWithDirectCopy(ContextWgpu *contextWgpu,
+                                     RenderTargetWgpu *readRenderTarget,
+                                     RenderTargetWgpu *drawRenderTarget,
+                                     const gl::Rectangle &sourceArea,
+                                     const gl::Rectangle &destArea,
+                                     bool srcFlipY,
+                                     bool dstFlipY,
+                                     WGPUTextureAspect aspect);
+
+    angle::Result blitWithShader(const gl::Context *context,
+                                 RenderTargetWgpu *readRenderTarget,
+                                 RenderTargetWgpu *drawRenderTarget,
+                                 const gl::Rectangle &sourceArea,
+                                 const gl::Rectangle &destArea,
+                                 GLenum filter,
+                                 bool srcFlipY,
+                                 bool dstFlipY,
+                                 WGPUTextureAspect aspect,
+                                 const gl::Rectangle *scissor);
+
+    angle::Result getBlitImageAndSize(ContextWgpu *contextWgpu,
+                                      RenderTargetWgpu *renderTarget,
+                                      webgpu::ImageHelper **imageOut,
+                                      WGPUExtent3D *levelSizeOut);
 
     RenderTargetCache<RenderTargetWgpu> mRenderTargetCache;
     webgpu::PackedRenderPassDescriptor mCurrentRenderPassDesc;

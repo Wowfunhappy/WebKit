@@ -36,6 +36,7 @@ promise_test(async (test) => {
     removedVideo2.remove();
 
     video4.srcObject = await navigator.mediaDevices.getUserMedia({ video : true });
+    test.add_cleanup(() => video4.srcObject.getTracks().forEach(track => track.stop()));
 
     while (video4.paused)
         await new Promise(resolve => setTimeout(resolve, 50));

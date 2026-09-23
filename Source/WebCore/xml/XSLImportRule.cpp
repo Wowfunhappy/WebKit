@@ -72,13 +72,13 @@ void XSLImportRule::setXSLStyleSheet(const String& href, const URL& baseURL, con
 
 bool XSLImportRule::isLoading()
 {
-    return (m_loading || (m_styleSheet && m_styleSheet->isLoading()));
+    return (m_loading || (m_styleSheet && protect(m_styleSheet)->isLoading()));
 }
 
 void XSLImportRule::loadSheet()
 {
     RefPtr rootSheet = parentStyleSheet();
-    while (auto* parentSheet = rootSheet->parentStyleSheet())
+    while (RefPtr parentSheet = rootSheet->parentStyleSheet())
         rootSheet = parentSheet;
 
     RefPtr cachedResourceLoader = rootSheet->cachedResourceLoader();
@@ -97,17 +97,17 @@ void XSLImportRule::loadSheet()
     }
 
     if (m_cachedSheet)
-        m_cachedSheet->removeClient(*this);
+        protect(m_cachedSheet)->removeClient(*this);
 
     auto options = CachedResourceLoader::defaultCachedResourceOptions();
     options.mode = FetchOptions::Mode::SameOrigin;
-    if (auto result = cachedResourceLoader->requestXSLStyleSheet({ ResourceRequest(protect(cachedResourceLoader->document())->completeURL(absHref)), options }))
+    if (auto result = cachedResourceLoader->requestXSLStyleSheet({ ResourceRequest(protect(cachedResourceLoader->document())->encodingParseURL(absHref)), options }))
         m_cachedSheet = WTF::move(result.value());
     else
         m_cachedSheet = nullptr;
 
     if (m_cachedSheet) {
-        m_cachedSheet->addClient(*this);
+        protect(m_cachedSheet)->addClient(*this);
 
         // If the imported sheet is in the cache, then setXSLStyleSheet gets called,
         // and the sheet even gets parsed (via parseString).  In this case we have

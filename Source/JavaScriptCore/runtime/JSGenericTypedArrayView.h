@@ -20,14 +20,13 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
 #include <JavaScriptCore/JSArrayBufferView.h>
 #include <JavaScriptCore/ThrowScope.h>
-#include <wtf/CheckedArithmetic.h>
 
 namespace JSC {
 
@@ -98,10 +97,10 @@ public:
     static JSGenericTypedArrayView* create(VM&, Structure*, RefPtr<typename Adaptor::ViewType>&& impl);
     static JSGenericTypedArrayView* create(Structure*, JSGlobalObject*, RefPtr<typename Adaptor::ViewType>&& impl);
     static JSGenericTypedArrayView* tryCreate(JSGlobalObject*, Structure*, RefPtr<typename Adaptor::ViewType>&& impl);
-    
+
     inline size_t byteLength() const;
     inline size_t byteLengthRaw() const;
-    
+
     inline const typename Adaptor::Type* typedVector() const;
     inline typename Adaptor::Type* typedVector();
 
@@ -127,7 +126,7 @@ public:
     inline SortResult sort();
 
     inline bool canAccessRangeQuickly(size_t offset, size_t length);
-    
+
     // Like canSetQuickly, except: if it returns false, it will throw the
     // appropriate exception.
     bool validateRange(JSGlobalObject*, size_t offset, size_t length);
@@ -137,26 +136,28 @@ public:
     bool setFromTypedArray(JSGlobalObject*, size_t offset, JSArrayBufferView*, size_t objectOffset, size_t length, CopyType);
     bool setFromArrayLike(JSGlobalObject*, size_t offset, JSObject*, size_t objectOffset, size_t length);
     bool setFromArrayLike(JSGlobalObject*, size_t offset, JSValue source);
-    
+
     RefPtr<typename Adaptor::ViewType> possiblySharedTypedImpl();
     RefPtr<typename Adaptor::ViewType> unsharedTypedImpl();
 
     static inline Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
-    
+
     static const ClassInfo s_info; // This is never accessed directly, since that would break linkage on some compilers.
     static inline const ClassInfo* info();
 
     template<typename CellType, SubspaceAccess mode> static inline GCClient::IsoSubspace* subspaceFor(VM&);
-    
+
     ArrayBuffer* existingBuffer();
 
     static constexpr TypedArrayType TypedArrayStorageType = Adaptor::typeValue;
 
     // This is the default DOM unwrapping. It calls toUnsharedNativeTypedView().
     static inline RefPtr<typename Adaptor::ViewType> toWrapped(VM&, JSValue);
+    static inline RefPtr<typename Adaptor::ViewType> toWrappedAllowResizable(VM&, JSValue);
 
     // [AllowShared] annotation allows accepting TypedArray originated from SharedArrayBuffer.
     static inline RefPtr<typename Adaptor::ViewType> toWrappedAllowShared(VM&, JSValue);
+    static inline RefPtr<typename Adaptor::ViewType> toWrappedAllowSharedAndResizable(VM&, JSValue);
 
     inline void copyFromInt32ShapeArray(size_t offset, JSArray*, size_t objectOffset, size_t length);
     inline void copyFromDoubleShapeArray(size_t offset, JSArray*, size_t objectOffset, size_t length);
@@ -176,7 +177,7 @@ protected:
     static bool getOwnPropertySlotByIndex(JSObject*, JSGlobalObject*, unsigned propertyName, PropertySlot&);
     static bool putByIndex(JSCell*, JSGlobalObject*, unsigned propertyName, JSValue, bool shouldThrow);
     static bool deletePropertyByIndex(JSCell*, JSGlobalObject*, unsigned propertyName);
-    
+
     static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
 
     static size_t estimatedSize(JSCell*, VM&);

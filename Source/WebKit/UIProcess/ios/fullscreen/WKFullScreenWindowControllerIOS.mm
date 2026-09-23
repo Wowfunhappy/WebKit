@@ -97,6 +97,14 @@ static constexpr float ZoomForFullscreenWindow = 1.0;
 static constexpr float ZoomForVisionFullscreenVideoWindow = 1.36;
 #endif
 
+#if PLATFORM(VISION)
+#if HAVE(FULLSCREEN_LIGHTSPILL)
+static constexpr WKSurroundingsEffectType DefaultFullscreenSurroundingsEffect = WKSurroundingsEffectTypeNone;
+#else
+static constexpr WKSurroundingsEffectType DefaultFullscreenSurroundingsEffect = WKSurroundingsEffectTypeDark;
+#endif
+#endif
+
 static CGSize sizeExpandedToSize(CGSize initial, CGSize other)
 {
     return CGSizeMake(std::max(initial.width, other.width),  std::max(initial.height, other.height));
@@ -170,7 +178,7 @@ static constexpr auto baseScale = 1;
 static constexpr auto baseMinimumEffectiveDeviceWidth = 0;
 
 #if PLATFORM(VISION)
-static void configureElementFullscreenLayer(CALayer *) { }
+static void setLightspillEnabledForElementFullscreenLayer(CALayer *, bool) { }
 #endif
 #endif
 
@@ -662,8 +670,10 @@ static constexpr CGFloat kWindowTranslationDuration = 0.6;
 
 @property (nonatomic, readonly) CATransform3D transform3D;
 @property (nonatomic, readonly) Class windowClass;
+@property (nonatomic, readonly) CGRect windowFrame;
 @property (nonatomic, readonly) CGSize sceneSize;
 @property (nonatomic, readonly) CGSize sceneMinimumSize;
+@property (nonatomic, readonly) CGSize sceneMaximumSize;
 @property (nonatomic, readonly) RSSSceneChromeOptions sceneChromeOptions;
 @property (nonatomic, readonly) MRUISceneResizingBehavior sceneResizingBehavior;
 @property (nonatomic, readonly) WKSurroundingsEffectType preferredSurroundingsEffect;
@@ -686,6 +696,7 @@ static constexpr CGFloat kWindowTranslationDuration = 0.6;
 
     _transform3D = window.transform3D;
     _windowClass = object_getClass(window);
+    _windowFrame = window.frame;
 
     UIWindowScene *windowScene = window.windowScene;
     _preferredSurroundingsEffect = [WKSurroundingsEffectManager shared].currentEffect;
@@ -693,6 +704,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     _sceneSize = windowScene.coordinateSpace.bounds.size;
 ALLOW_DEPRECATED_DECLARATIONS_END
     _sceneMinimumSize = windowScene.sizeRestrictions.minimumSize;
+    _sceneMaximumSize = windowScene.sizeRestrictions.maximumSize;
     _sceneChromeOptions = windowScene.mrui_placement.preferredChromeOptions;
     _sceneResizingBehavior = windowScene.mrui_placement.preferredResizingBehavior;
 
@@ -1029,7 +1041,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             prefersAutoDimming = bestVideo->playbackSessionModel()->prefersAutoDimming();
     }
 
-    WKSurroundingsEffectType targetEffect = prefersAutoDimming ? WKSurroundingsEffectTypeDark : WKSurroundingsEffectTypeNone;
+    WKSurroundingsEffectType targetEffect = prefersAutoDimming ? WebKit::DefaultFullscreenSurroundingsEffect : WKSurroundingsEffectTypeNone;
     if ([WKSurroundingsEffectManager shared].currentEffect != targetEffect)
         [WKSurroundingsEffectManager shared].currentEffect = targetEffect;
 #endif
@@ -1120,7 +1132,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [_window setNeedsLayout];
         [_window layoutIfNeeded];
     }
-    WebKit::configureElementFullscreenLayer([_window layer]);
+    WebKit::setLightspillEnabledForElementFullscreenLayer([_window layer], self.prefersSceneDimming);
 #endif
 
     _rootViewController = adoptNS([[UIViewController alloc] init]);
@@ -2163,30 +2175,37 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return YES;
 }
 
+- (void)_updateFullscreenWindowOrigin
+{
+    CGRect originalWindowBounds = [_lastKnownParentWindow bounds];
+    CGRect fullscreenWindowBounds = [_window bounds];
+    CGRect adjustedFullscreenWindowFrame = fullscreenWindowBounds;
+    adjustedFullscreenWindowFrame.origin.x = (CGRectGetWidth(originalWindowBounds) - CGRectGetWidth(adjustedFullscreenWindowFrame)) / 2;
+    adjustedFullscreenWindowFrame.origin.y = (CGRectGetHeight(originalWindowBounds)  - CGRectGetHeight(adjustedFullscreenWindowFrame)) / 2;
+    [_window setFrame:adjustedFullscreenWindowFrame];
+}
+
 - (void)_performSpatialFullScreenTransition:(BOOL)enter completionHandler:(CompletionHandler<void()>&&)completionHandler
 {
     OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER, enter);
     WKFullScreenWindowController *controller = self;
     UIWindow *inWindow = enter ? _window.get() : _lastKnownParentWindow.get();
     UIWindow *outWindow = enter ? _lastKnownParentWindow.get() : _window.get();
-    CGRect inWindowBounds = [inWindow bounds];
-    CGRect outWindowBounds = [outWindow bounds];
     WKFullScreenParentWindowState *originalState = _parentWindowState.get();
 
     const BOOL shouldAnimateResizeScene = [self _shouldAnimateResizeScene];
 
-    // This is a workaround for the fact that the content in the window is anchored to the top left of the scene
-    // As a result, we need to apply an XY offset that animates as the inWindow comes in, such that it
-    // is centered while the animation happens during scene resize.
-    CGFloat sceneWidthDifference = inWindowBounds.size.width - outWindowBounds.size.width;
-    CGFloat sceneHeightDifference = inWindowBounds.size.height - outWindowBounds.size.height;
-    float inWindowXOffset = shouldAnimateResizeScene ? sceneWidthDifference / 2 : 0;
-    float inWindowYOffset = shouldAnimateResizeScene ? sceneHeightDifference / 2 : 0;
-    CGSize targetSceneSize = [inWindow bounds].size;
+    CGSize targetSceneSize = (!enter && !CGRectIsEmpty([originalState windowFrame])) ? [originalState windowFrame].size : [inWindow bounds].size;
 
-    inWindow.transform3D = CATransform3DTranslate(originalState.transform3D, -inWindowXOffset, -inWindowYOffset, kIncomingWindowZOffset);
+    if (!enter && !CGRectIsEmpty([originalState windowFrame]))
+        inWindow.frame = [originalState windowFrame];
 
-    WKSurroundingsEffectType targetDarkness = enter ? (self.prefersSceneDimming ? WKSurroundingsEffectTypeDark : originalState.preferredSurroundingsEffect) : originalState.preferredSurroundingsEffect;
+    if (shouldAnimateResizeScene && enter)
+        [self _updateFullscreenWindowOrigin];
+
+    inWindow.transform3D = CATransform3DTranslate(originalState.transform3D, 0, 0, kIncomingWindowZOffset);
+
+    WKSurroundingsEffectType targetDarkness = enter ? (self.prefersSceneDimming ? WebKit::DefaultFullscreenSurroundingsEffect : originalState.preferredSurroundingsEffect) : originalState.preferredSurroundingsEffect;
 
     WKSurroundingsEffectType currentEffect = [WKSurroundingsEffectManager shared].currentEffect;
     if (currentEffect != targetDarkness) {
@@ -2202,8 +2221,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         allowSceneGeometryUpdates = page->preferences().updateSceneGeometryEnabled() && shouldAnimateResizeScene;
 #endif
 
-    WeakObjCPtr<WKFullScreenWindowController> weakSelf { self };
-    auto resizeCompletionBlock = makeBlockPtr([controller = retainPtr(controller), inWindow = retainPtr(inWindow), originalState = retainPtr(originalState), enter, completionHandler = WTF::move(completionHandler)] mutable {
+    auto resizeCompletionBlock = makeBlockPtr([controller = retainPtr(controller), inWindow = retainPtr(inWindow), outWindow = retainPtr(outWindow), originalState = retainPtr(originalState), enter, completionHandler = WTF::move(completionHandler)] mutable {
         Class inWindowClass = enter ? [UIWindow class] : [originalState windowClass];
         object_setClass(inWindow.get(), inWindowClass);
 
@@ -2217,6 +2235,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             if ([controller _sceneAspectRatioLockingEnabled])
                 scene.mrui_placement.preferredResizingBehavior = MRUISceneResizingBehaviorUniform;
             scene.delegate = adoptNS([[WKFullscreenWindowSceneDelegate alloc] initWithController:controller.get() originalDelegate:scene.delegate]).get();
+
+            [outWindow setFrame:scene.effectiveGeometry.coordinateSpace.bounds];
         } else {
             scene.sizeRestrictions.minimumSize = [originalState sceneMinimumSize];
             scene.mrui_placement.preferredResizingBehavior = [originalState sceneResizingBehavior];
@@ -2234,16 +2254,19 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         completionHandler();
     });
 
-    auto animationCompletionBlock = makeBlockPtr([inWindow, targetSceneSize, shouldAnimateResizeScene, resizeCompletionBlock = WTF::move(resizeCompletionBlock)] (BOOL finished) mutable {
-        if (shouldAnimateResizeScene)
-            resizeCompletionBlock();
+    auto animationCompletionBlock = makeBlockPtr([enter, inWindow = retainPtr(inWindow), targetSceneSize, shouldAnimateResizeScene, resizeCompletionBlock = WTF::move(resizeCompletionBlock)] (BOOL finished) mutable {
+        if (!shouldAnimateResizeScene || enter)
+            WebKit::resizeScene([inWindow windowScene], targetSceneSize, 0, !shouldAnimateResizeScene, WTF::move(resizeCompletionBlock));
         else
-            WebKit::resizeScene([inWindow windowScene], targetSceneSize, 0, shouldAnimateResizeScene, WTF::move(resizeCompletionBlock));
+            resizeCompletionBlock();
     });
 
-    auto animationBlock = makeBlockPtr([inWindow, outWindow, originalState, enter, allowSceneGeometryUpdates, inWindowXOffset, inWindowYOffset, sceneWidthDifference, sceneHeightDifference, shouldAnimateResizeScene, self, weakSelf = WTF::move(weakSelf), animationCompletionBlock = WTF::move(animationCompletionBlock)] mutable {
+    auto animationBlock = makeBlockPtr([inWindow = retainPtr(inWindow), outWindow = retainPtr(outWindow), originalState = retainPtr(originalState), enter, allowSceneGeometryUpdates, shouldAnimateResizeScene, strongSelf = retainPtr(self), animationCompletionBlock = WTF::move(animationCompletionBlock)] mutable {
+        if (shouldAnimateResizeScene && !enter)
+            [strongSelf _updateFullscreenWindowOrigin];
+
 #if ENABLE(SCENE_GEOMETRY_UPDATE)
-        [UIView animateWithDuration:kWindowTranslationDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        [UIView animateWithDuration:kOutgoingWindowFadeDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
             if (allowSceneGeometryUpdates)
                 [[inWindow windowScene] setUsesDefaultGeometry:!enter];
         } completion:nil];
@@ -2253,38 +2276,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
         [UIView animateWithDuration:kOutgoingWindowFadeDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
             if (enter)
-                [self _setOrnamentsHidden:YES];
+                [strongSelf _setOrnamentsHidden:YES];
 
-            outWindow.alpha = 0;
+            [outWindow setAlpha:0];
         } completion:nil];
 
         [UIView animateWithDuration:kWindowTranslationDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-            outWindow.transform3D = CATransform3DTranslate(outWindow.transform3D, inWindowXOffset, inWindowYOffset, kOutgoingWindowZOffset);
+            [outWindow setTransform3D:CATransform3DTranslate([outWindow transform3D], 0, 0, kOutgoingWindowZOffset)];
         } completion:nil];
 
         [UIView animateWithDuration:kWindowTranslationDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-            inWindow.transform3D = originalState.transform3D;
+            [inWindow setTransform3D:[originalState transform3D]];
         } completion:nil];
 
-        if (shouldAnimateResizeScene) {
-            [UIView animateWithDuration:kWindowTranslationDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-                if (enter) {
-                    for (MRUIPlatterOrnament *ornament in [originalState ornamentProperties]) {
-                        CGPoint originalOffset2D = [[[_parentWindowState ornamentProperties] objectForKey:ornament] offset2D];
-                        ornament.offset2D = CGPointMake(
-                            originalOffset2D.x + sceneWidthDifference * (0.5 - ornament.sceneAnchorPoint.x),
-                            originalOffset2D.y + sceneHeightDifference * (0.5 - ornament.sceneAnchorPoint.y)
-                        );
-                    }
-                } else {
-                    for (MRUIPlatterOrnament *ornament in [originalState ornamentProperties])
-                        ornament.offset2D = [[[originalState ornamentProperties] objectForKey:ornament] offset2D];
-                }
-            } completion:nil];
-        }
-
-        for (MRUIPlatterOrnament *ornament in originalState.ornamentProperties) {
-            CGFloat originalDepth = [[originalState.ornamentProperties objectForKey:ornament] depthDisplacement];
+        for (MRUIPlatterOrnament *ornament in [originalState ornamentProperties]) {
+            CGFloat originalDepth = [[[originalState ornamentProperties] objectForKey:ornament] depthDisplacement];
             CGFloat finalDepth = originalDepth;
             if (enter)
                 finalDepth += kOutgoingWindowZOffset;
@@ -2297,17 +2303,20 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         }
 
         [UIView animateWithDuration:kIncomingWindowFadeDuration delay:kIncomingWindowFadeDelay options:UIViewAnimationOptionCurveEaseInOut animations:^{
-            if (!enter && self._shouldShowOrnaments)
-                [self _setOrnamentsHidden:NO];
+            if (!enter && [strongSelf _shouldShowOrnaments])
+                [strongSelf _setOrnamentsHidden:NO];
 
-            inWindow.alpha = 1;
+            [inWindow setAlpha:1];
         } completion:animationCompletionBlock.get()];
     });
 
-    if (shouldAnimateResizeScene)
-        WebKit::resizeScene([inWindow windowScene], targetSceneSize, kWindowTranslationDuration, shouldAnimateResizeScene, WTF::move(animationBlock));
-    else
+    if (!enter)
+        [inWindow windowScene].sizeRestrictions.maximumSize = [originalState sceneMaximumSize];
+
+    if (!shouldAnimateResizeScene || enter)
         animationBlock();
+    else
+        WebKit::resizeScene([inWindow windowScene], targetSceneSize, 0, !shouldAnimateResizeScene, WTF::move(animationBlock));
 }
 
 - (void)toggleSceneDimming
@@ -2320,9 +2329,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 
     if (self.isFullScreen) {
-        WKSurroundingsEffectType target = updatedPrefersSceneDimming ? WKSurroundingsEffectTypeDark : (_parentWindowState ? [_parentWindowState preferredSurroundingsEffect] : WKSurroundingsEffectTypeNone);
+        WKSurroundingsEffectType target = updatedPrefersSceneDimming ? WebKit::DefaultFullscreenSurroundingsEffect : (_parentWindowState ? [_parentWindowState preferredSurroundingsEffect] : WKSurroundingsEffectTypeNone);
         if ([WKSurroundingsEffectManager shared].currentEffect != target)
             [WKSurroundingsEffectManager shared].currentEffect = target;
+        WebKit::setLightspillEnabledForElementFullscreenLayer([_window layer], updatedPrefersSceneDimming);
     }
 }
 
@@ -2338,6 +2348,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         scene.mrui_placement.preferredChromeOptions = [_parentWindowState sceneChromeOptions];
         scene.mrui_placement.preferredResizingBehavior = [_parentWindowState sceneResizingBehavior];
         scene.sizeRestrictions.minimumSize = [_parentWindowState sceneMinimumSize];
+        scene.sizeRestrictions.maximumSize = [_parentWindowState sceneMaximumSize];
 
         _lastKnownParentWindow = nil;
         _parentWindowState = nil;

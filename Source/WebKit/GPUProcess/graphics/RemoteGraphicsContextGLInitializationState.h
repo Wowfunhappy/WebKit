@@ -28,16 +28,29 @@
 #if ENABLE(WEBGL)
 
 #include <WebCore/GCGLExtension.h>
+#include <WebCore/GraphicsContextGLAttributes.h>
 #include <WebCore/GraphicsTypesGL.h>
+#include <array>
 #include <wtf/OptionSet.h>
 
 namespace WebKit {
 
 struct RemoteGraphicsContextGLInitializationState {
+    WebCore::GraphicsContextGLAttributes attributes;
     uint64_t knownActiveExtensions { 0 }; // EnumSet<WebCore::GCGLExtension> when EnumSet serialization works.
     uint64_t requestableExtensions { 0 }; // EnumSet<WebCore::GCGLExtension> when EnumSet serialization works.
-    GCGLenum externalImageTarget { 0 };
-    GCGLenum externalImageBindingQuery { 0 };
+    GCGLint maxCombinedTextureImageUnits { 0 };
+    GCGLint maxVertexAttribs { 0 };
+    GCGLint maxTextureSize { 0 };
+    GCGLint maxCubeMapTextureSize { 0 };
+    GCGLint maxRenderbufferSize { 0 };
+    std::array<GCGLint, 2> maxViewportDims { { 0, 0 } };
+    GCGLint maxSamples { 0 };
+    GCGLint maxTransformFeedbackSeparateAttribs { 0 };
+    GCGLint maxUniformBufferBindings { 0 };
+    GCGLint uniformBufferOffsetAlignment { 0 };
+    GCGLint max3DTextureSize { 0 };
+    GCGLint maxArrayTextureLayers { 0 };
 };
 
 } // namespace WebKit

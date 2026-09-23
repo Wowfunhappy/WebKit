@@ -38,7 +38,7 @@ static JSC_DECLARE_HOST_FUNCTION(runStdFunction);
 template<typename Visitor>
 void JSNativeStdFunction::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSNativeStdFunction* thisObject = jsCast<JSNativeStdFunction*>(cell);
+    JSNativeStdFunction* thisObject = uncheckedDowncast<JSNativeStdFunction>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_captures.begin(), thisObject->m_captures.end());
@@ -46,30 +46,24 @@ void JSNativeStdFunction::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 
 DEFINE_VISIT_CHILDREN(JSNativeStdFunction);
 
-void JSNativeStdFunction::finishCreation(VM& vm, NativeExecutable* executable, unsigned length, const String& name)
+NativeExecutable* JSNativeStdFunction::getHostFunction(VM& vm, Intrinsic intrinsic, NativeFunction nativeConstructor, unsigned length, const String& name)
 {
-    Base::finishCreation(vm, executable, length, name);
-    ASSERT(inherits(info()));
-}
-
-NativeExecutable* JSNativeStdFunction::getHostFunction(VM& vm, Intrinsic intrinsic, NativeFunction nativeConstructor, const String& name)
-{
-    return vm.getHostFunction(runStdFunction, ImplementationVisibility::Private, intrinsic, nativeConstructor, nullptr, name);
+    return vm.getHostFunction(runStdFunction, ImplementationVisibility::Private, intrinsic, nativeConstructor, nullptr, length, name);
 }
 
 JSC_DEFINE_HOST_FUNCTION(runStdFunction, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    JSNativeStdFunction* function = jsCast<JSNativeStdFunction*>(callFrame->jsCallee());
+    JSNativeStdFunction* function = uncheckedDowncast<JSNativeStdFunction>(callFrame->jsCallee());
     ASSERT(function);
     return function->function()(globalObject, callFrame);
 }
 
 JSNativeStdFunction* JSNativeStdFunction::create(VM& vm, JSGlobalObject* globalObject, unsigned length, const String& name, NativeStdFunction&& nativeStdFunction, Intrinsic intrinsic, NativeFunction nativeConstructor)
 {
-    NativeExecutable* executable = vm.getHostFunction(runStdFunction, ImplementationVisibility::Private, intrinsic, nativeConstructor, nullptr, name);
+    NativeExecutable* executable = vm.getHostFunction(runStdFunction, ImplementationVisibility::Private, intrinsic, nativeConstructor, nullptr, length, name);
     Structure* structure = globalObject->nativeStdFunctionStructure();
     JSNativeStdFunction* function = new (NotNull, allocateCell<JSNativeStdFunction>(vm)) JSNativeStdFunction(vm, executable, globalObject, structure, WTF::move(nativeStdFunction));
-    function->finishCreation(vm, executable, length, name);
+    function->finishCreation(vm);
     return function;
 }
 

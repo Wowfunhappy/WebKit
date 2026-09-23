@@ -37,16 +37,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 namespace JSC {
 
 template<typename Adaptor>
-GenericTypedArrayView<Adaptor>::GenericTypedArrayView(RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> length)
-    : ArrayBufferView(Adaptor::typeValue, WTF::move(buffer), byteOffset, length ? std::optional { length.value() * sizeof(typename Adaptor::Type) } : std::nullopt)
-{
-#if ASSERT_ENABLED
-    if (length)
-        ASSERT((length.value() / sizeof(typename Adaptor::Type)) < std::numeric_limits<size_t>::max());
-#endif
-}
-
-template<typename Adaptor>
 Ref<GenericTypedArrayView<Adaptor>> GenericTypedArrayView<Adaptor>::create(size_t length)
 {
     auto result = tryCreate(length);
@@ -61,13 +51,6 @@ Ref<GenericTypedArrayView<Adaptor>> GenericTypedArrayView<Adaptor>::create(
     auto result = tryCreate(array, length);
     RELEASE_ASSERT(result);
     return result.releaseNonNull();
-}
-
-template<typename Adaptor>
-Ref<GenericTypedArrayView<Adaptor>> GenericTypedArrayView<Adaptor>::create(Ref<ArrayBuffer>&& buffer)
-{
-    auto length = buffer->byteLength();
-    return adoptRef(*new GenericTypedArrayView(WTF::move(buffer), 0, length));
 }
 
 template<typename Adaptor>
@@ -99,23 +82,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     memcpy(result->data(), array, length * sizeof(typename Adaptor::Type));
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     return result;
-}
-
-template<typename Adaptor>
-RefPtr<GenericTypedArrayView<Adaptor>> GenericTypedArrayView<Adaptor>::tryCreate(RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> length)
-{
-    if (!buffer)
-        return nullptr;
-
-    ASSERT(length || buffer->isResizableOrGrowableShared());
-
-    if (!ArrayBufferView::verifySubRangeLength(buffer->byteLength(), byteOffset, length.value_or(0), sizeof(typename Adaptor::Type)))
-        return nullptr;
-
-    if (!verifyByteOffsetAlignment(byteOffset, sizeof(typename Adaptor::Type)))
-        return nullptr;
-
-    return adoptRef(new GenericTypedArrayView(WTF::move(buffer), byteOffset, length));
 }
 
 template<typename Adaptor>

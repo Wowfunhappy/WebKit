@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPICookies.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -44,28 +45,6 @@
 #import <wtf/cocoa/VectorCocoa.h>
 
 namespace WebKit {
-
-static NSString * const domainKey = @"domain";
-static NSString * const expirationDateKey = @"expirationDate";
-static NSString * const hostOnlyKey = @"hostOnly";
-static NSString * const httpOnlyKey = @"httpOnly";
-static NSString * const idKey = @"id";
-static NSString * const incognitoKey = @"incognito";
-static NSString * const pathKey = @"path";
-static NSString * const sameSiteKey = @"sameSite";
-static NSString * const secureKey = @"secure";
-static NSString * const sessionKey = @"session";
-static NSString * const storeIdKey = @"storeId";
-static NSString * const tabIdsKey = @"tabIds";
-static NSString * const urlKey = @"url";
-static NSString * const valueKey = @"value";
-
-static NSString * const noRestrictionKey = @"no_restriction";
-static NSString * const laxKey = @"lax";
-static NSString * const strictKey = @"strict";
-
-static NSString * const ephemeralPrefix = @"ephemeral-";
-static NSString * const persistentPrefix = @"persistent-";
 
 static inline std::optional<PAL::SessionID> toImpl(NSString *storeID)
 {
@@ -136,7 +115,7 @@ static inline NSDictionary *toWebAPI(const WebExtensionCookieParameters& cookieP
     return [result copy];
 }
 
-static inline NSArray *toWebAPI(const HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>& stores)
+static inline NSArray *toWebAPI(const HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>& stores, PAL::SessionID ownSessionID)
 {
     auto *result = [NSMutableArray arrayWithCapacity:stores.size()];
 
@@ -145,7 +124,8 @@ static inline NSArray *toWebAPI(const HashMap<PAL::SessionID, Vector<WebExtensio
             return @(toWebAPI(tabIdentifier));
         }).get();
 
-        [result addObject:@{ idKey: toWebAPI(entry.key), tabIdsKey: tabIdentifiers, incognitoKey: @(entry.key.isEphemeral()) }];
+        bool incognito = entry.key.isEphemeral() && entry.key != ownSessionID;
+        [result addObject:@{ idKey: toWebAPI(entry.key), tabIdsKey: tabIdentifiers, incognitoKey: @(incognito) }];
     }
 
     return [result copy];
@@ -177,7 +157,7 @@ std::optional<WebExtensionAPICookies::ParsedDetails> WebExtensionAPICookies::par
 
         url = URL { urlString };
         if (!url.isValid()) {
-            *outExceptionString = toErrorString(nullString(), urlKey, @"'%@' is not a valid URL", urlString).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), urlKey, makeString("'"_s, String(urlString), "' is not a valid URL"_s)).createNSString().autorelease();
             return std::nullopt;
         }
     }
@@ -191,7 +171,7 @@ std::optional<WebExtensionAPICookies::ParsedDetails> WebExtensionAPICookies::par
 
         sessionID = toImpl(storeID);
         if (!sessionID) {
-            *outExceptionString = toErrorString(nullString(), storeIdKey, @"'%@' is not a valid cookie store identifier", storeID).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), storeIdKey, makeString("'"_s, String(storeID), "' is not a valid cookie store identifier"_s)).createNSString().autorelease();
             return std::nullopt;
         }
     }
@@ -375,7 +355,7 @@ void WebExtensionAPICookies::getAllCookieStores(Ref<WebExtensionCallbackHandler>
             return;
         }
 
-        callback->call(toJSValueRef(callback->globalContext(), toWebAPI(result.value())));
+        callback->call(toJSValueRef(callback->globalContext(), toWebAPI(result.value(), protectedThis->extensionContext().defaultSessionID())));
     }, extensionContext().identifier());
 }
 

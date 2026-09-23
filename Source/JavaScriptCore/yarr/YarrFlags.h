@@ -60,8 +60,8 @@ enum class Flags : uint16_t {
     DeletedValue = 1 << numberOfFlags,
 };
 
-JS_EXPORT_PRIVATE std::optional<OptionSet<Flags>> parseFlags(StringView);
+JS_EXPORT_PRIVATE std::optional<OptionSet<Flags>> NODELETE parseFlags(StringView);
 using FlagsString = std::array<char, Yarr::numberOfFlags + 1>; // numberOfFlags + null-terminator
-JS_EXPORT_PRIVATE FlagsString flagsString(OptionSet<Flags>);
+JS_EXPORT_PRIVATE FlagsString NODELETE flagsString(OptionSet<Flags>);
 
 } } // namespace JSC::Yarr

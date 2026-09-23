@@ -35,7 +35,6 @@ extern "C" {
 #endif
 
 #include <cstdio>
-#include <mutex>
 #include <signal.h>
 #include <wtf/StdLibExtras.h>
 
@@ -49,20 +48,14 @@ extern "C" {
 #endif
 
 #if OS(DARWIN)
-#include <mach/vm_param.h>
 #endif
 
-#include <unistd.h>
-#include <wtf/Atomics.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/DataLog.h>
-#include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/PlatformRegisters.h>
-#include <wtf/Scope.h>
 #include <wtf/ThreadGroup.h>
 #include <wtf/Threading.h>
-#include <wtf/TranslatedProcess.h>
 #include <wtf/WTFConfig.h>
 
 namespace WTF {
@@ -138,16 +131,7 @@ static void initMachExceptionHandlerThread()
     if (!handlers.addedExceptions)
         return;
 
-    uint16_t flags = MPO_INSERT_SEND_RIGHT;
-
-    // This provisional flag can be removed once macos sonoma is no longer supported
-#ifdef MPO_PROVISIONAL_ID_PROT_OPTOUT
-    flags |= MPO_PROVISIONAL_ID_PROT_OPTOUT;
-#endif
-
-#if CPU(ARM64) && HAVE(HARDENED_MACH_EXCEPTIONS)
-    flags |= MPO_EXCEPTION_PORT;
-#endif
+    uint16_t flags = MPO_INSERT_SEND_RIGHT | MPO_EXCEPTION_PORT;
 
     mach_port_options_t options { };
     options.flags = flags;
@@ -239,7 +223,7 @@ inline ptrauth_generic_signature_t hashThreadState(std::span<const natural_t> so
     }
     const uint32_t* cpsrPtr = reinterpret_cast<const uint32_t*>(&srcSpan[threadStateSizeInPointers - 1]);
     hash = ptrauth_sign_generic_data(static_cast<uint64_t>(*cpsrPtr), hash);
-    
+
     return hash;
 }
 #endif

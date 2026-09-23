@@ -55,8 +55,8 @@ public:
 private:
     WebXRRay(Ref<DOMPointReadOnly>&& origin, Ref<DOMPointReadOnly>&& direction);
 
-    Ref<DOMPointReadOnly> m_origin;
-    Ref<DOMPointReadOnly> m_direction;
+    const Ref<DOMPointReadOnly> m_origin;
+    const Ref<DOMPointReadOnly> m_direction;
     RefPtr<Float32Array> m_matrix;
 };
 

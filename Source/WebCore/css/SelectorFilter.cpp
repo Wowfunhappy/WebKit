@@ -83,7 +83,7 @@ void SelectorFilter::initializeParentStack(Element& parent)
     Vector<Element*, 20> ancestors;
     for (CheckedPtr ancestor = &parent; ancestor; ancestor = ancestor->parentElement())
         ancestors.append(ancestor.get());
-    m_parentStack.reserveCapacity(m_parentStack.capacity() + ancestors.size());
+    m_parentStack.reserveCapacity(ancestors.size());
     for (unsigned i = ancestors.size(); i--;)
         pushParent(protect(ancestors[i]));
 }

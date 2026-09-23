@@ -3,7 +3,7 @@ Check that a select control does not render children that are not <option> or <o
 On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
 
 
-PASS select.innerText is ""
+PASS select.innerText is "PASS"
 PASS successfullyParsed is true
 
 TEST COMPLETE

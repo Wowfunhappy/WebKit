@@ -31,10 +31,9 @@
 #include "CSSPrimitiveNumericTypes+CSSValueVisitation.h"
 #include "CSSPrimitiveNumericTypes+ComputedStyleDependencies.h"
 #include "CSSPrimitiveNumericTypes+Serialization.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "ColorInterpolation.h"
-#include "StyleCalculationValue.h"
 #include "StyleGradientImage.h"
+#include "StyleKeyword+Mappings.h"
 #include "StylePosition.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include <wtf/text/StringBuilder.h>

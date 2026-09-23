@@ -27,8 +27,7 @@
 
 [
     EnabledBySetting=ShapeDetection,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary FaceDetectorOptions {
-    unsigned short maxDetectedFaces;
-    boolean fastMode;
+    [ImplementationDefaultValue=65535] unsigned short maxDetectedFaces;
+    [ImplementationDefaultValue=true] boolean fastMode;
 };

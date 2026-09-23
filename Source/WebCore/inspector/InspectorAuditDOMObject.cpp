@@ -28,7 +28,6 @@
 #include "InspectorAuditDOMObject.h"
 
 #include "Document.h"
-#include "EventTargetInlines.h"
 #include "ExceptionOr.h"
 #include "Node.h"
 #include "UserGestureEmulationScope.h"

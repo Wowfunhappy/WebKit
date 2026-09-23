@@ -34,6 +34,12 @@
 
 GST_DEBUG_CATEGORY_EXTERN(webkit_media_common_encryption_decrypt_debug_category);
 
+enum DecryptionResult {
+    Success,
+    Failure,
+    NoKey
+};
+
 namespace WebCore {
 class InitData {
 public:
@@ -98,8 +104,8 @@ public:
     static constexpr auto s_unspecifiedUUID = GST_PROTECTION_UNSPECIFIED_SYSTEM_ID ""_s;
     static constexpr auto s_unspecifiedKeySystem = GST_PROTECTION_UNSPECIFIED_SYSTEM_ID ""_s;
 
-    static constexpr std::array<ASCIILiteral, 11> s_cencEncryptionMediaTypes = { "video/mp4"_s, "audio/mp4"_s, "video/x-h264"_s, "video/x-h265"_s, "audio/mpeg"_s,
-        "audio/x-eac3"_s, "audio/x-ac3"_s, "audio/x-flac"_s, "audio/x-opus"_s, "video/x-vp9"_s, "video/x-av1"_s };
+    static constexpr std::array<ASCIILiteral, 12> s_cencEncryptionMediaTypes = { "video/mp4"_s, "audio/mp4"_s, "video/x-h264"_s, "video/x-h265"_s, "audio/mpeg"_s,
+        "audio/x-eac3"_s, "audio/x-ac3"_s, "audio/x-ac4"_s, "audio/x-flac"_s, "audio/x-opus"_s, "video/x-vp9"_s, "video/x-av1"_s };
     static constexpr std::array<ASCIILiteral, 7> s_webmEncryptionMediaTypes = { "video/webm"_s, "audio/webm"_s, "video/x-vp9"_s, "video/x-av1"_s, "audio/x-opus"_s, "audio/x-vorbis"_s, "video/x-vp8"_s };
 
     static bool isClearKeyKeySystem(const String& keySystem)

@@ -273,7 +273,7 @@ void StackVisitor::readInlinableNativeCalleeFrame(CallFrame* callFrame)
 }
 
 #if ENABLE(DFG_JIT)
-static int inlinedFrameOffset(CodeOrigin* codeOrigin)
+static int NODELETE inlinedFrameOffset(CodeOrigin* codeOrigin)
 {
     InlineCallFrame* inlineCallFrame = codeOrigin->inlineCallFrame();
     int frameOffset = inlineCallFrame ? inlineCallFrame->stackOffset : 0;
@@ -348,13 +348,13 @@ StackVisitor::Frame::CodeType StackVisitor::Frame::codeType() const
 }
 
 #if ENABLE(ASSEMBLER)
-std::optional<RegisterAtOffsetList> StackVisitor::Frame::calleeSaveRegistersForUnwinding()
+const RegisterAtOffsetList* StackVisitor::Frame::calleeSaveRegistersForUnwinding()
 {
     if (!NUMBER_OF_CALLEE_SAVES_REGISTERS)
-        return std::nullopt;
+        return nullptr;
 
     if (isInlinedDFGFrame())
-        return std::nullopt;
+        return nullptr;
 
     if (isNativeCalleeFrame()) {
         auto* nativeCallee = callee().asNativeCallee();
@@ -363,7 +363,7 @@ std::optional<RegisterAtOffsetList> StackVisitor::Frame::calleeSaveRegistersForU
 #if ENABLE(WEBASSEMBLY)
             auto* wasmCallee = uncheckedDowncast<Wasm::Callee>(nativeCallee);
             if (auto* calleeSaveRegisters = wasmCallee->calleeSaveRegisters())
-                return *calleeSaveRegisters;
+                return calleeSaveRegisters;
 #endif // ENABLE(WEBASSEMBLY)
             break;
         }
@@ -371,13 +371,13 @@ std::optional<RegisterAtOffsetList> StackVisitor::Frame::calleeSaveRegistersForU
             break;
         }
         }
-        return std::nullopt;
+        return nullptr;
     }
 
     if (CodeBlock* codeBlock = this->codeBlock())
-        return *codeBlock->jitCode()->calleeSaveRegisters();
+        return codeBlock->jitCode()->calleeSaveRegisters();
 
-    return std::nullopt;
+    return nullptr;
 }
 #endif // ENABLE(ASSEMBLER)
 
@@ -398,11 +398,11 @@ String StackVisitor::Frame::functionName() const
     case CodeType::Native: {
         JSCell* callee = this->callee().asCell();
         if (callee)
-            traceLine = getCalculatedDisplayName(callFrame()->deprecatedVM(), jsCast<JSObject*>(callee)).impl();
+            traceLine = getCalculatedDisplayName(callFrame()->deprecatedVM(), uncheckedDowncast<JSObject>(callee)).impl();
         break;
     }
     case CodeType::Function: 
-        traceLine = getCalculatedDisplayName(callFrame()->deprecatedVM(), jsCast<JSObject*>(this->callee().asCell())).impl();
+        traceLine = getCalculatedDisplayName(callFrame()->deprecatedVM(), uncheckedDowncast<JSObject>(this->callee().asCell())).impl();
         break;
     case CodeType::Global:
         traceLine = "global code"_s;
@@ -544,7 +544,7 @@ bool StackVisitor::Frame::isImplementationVisibilityPrivate() const
 
         if (callee().isCell()) {
             if (auto* callee = this->callee().asCell()) {
-                if (auto* jsFunction = jsDynamicCast<JSFunction*>(callee)) {
+                if (auto* jsFunction = dynamicDowncast<JSFunction>(callee)) {
                     if (auto* executable = jsFunction->executable())
                         return executable->implementationVisibility();
                     return ImplementationVisibility::Public;

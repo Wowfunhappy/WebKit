@@ -38,7 +38,7 @@ GStreamerQuirkAmLogic::GStreamerQuirkAmLogic()
 
 bool GStreamerQuirkAmLogic::isPlatformSupported() const
 {
-    auto amlogicFactory = adoptGRef(gst_element_factory_find("amlhalasink"));
+    GRefPtr amlogicFactory = adoptGRef(gst_element_factory_find("amlhalasink"));
     return amlogicFactory;
 }
 

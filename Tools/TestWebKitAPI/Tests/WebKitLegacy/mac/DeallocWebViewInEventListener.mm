@@ -24,9 +24,9 @@
  */
 
 #import "config.h"
-#import "DeprecatedGlobalValues.h"
-#import "PlatformUtilities.h"
-#import "Test.h"
+#import "Helpers/DeprecatedGlobalValues.h"
+#import "Helpers/PlatformUtilities.h"
+#import "Helpers/Test.h"
 #import <Carbon/Carbon.h>
 #import <WebKit/WebViewPrivate.h>
 #import <wtf/RetainPtr.h>
@@ -71,13 +71,13 @@ TEST(WebKitLegacy, DeallocWebViewInEventListener)
 {
     @autoreleasepool {
         webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
-        auto loadDelegate = adoptNS([[DeallocWebViewInEventListenerLoadDelegate alloc] init]);
+        RetainPtr loadDelegate = adoptNS([[DeallocWebViewInEventListenerLoadDelegate alloc] init]);
         webView.get().frameLoadDelegate = loadDelegate.get();
 
         [[webView mainFrame] loadHTMLString:@"<html><body></body></html>" baseURL:nil];
         Util::run(&didFinishLoad);
 
-        auto listener = adoptNS([[DeallocWebViewInEventListener alloc] init]);
+        RetainPtr listener = adoptNS([[DeallocWebViewInEventListener alloc] init]);
         [[[webView mainFrameDocument] body] addEventListener:@"keypress" listener:listener.get() useCapture:NO];
         [[[webView mainFrameDocument] body] addEventListener:@"keypress" listener:nullptr useCapture:NO];
         listener = nullptr;

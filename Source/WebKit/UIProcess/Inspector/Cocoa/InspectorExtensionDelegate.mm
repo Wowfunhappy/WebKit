@@ -66,9 +66,7 @@ InspectorExtensionDelegate::InspectorExtensionClient::InspectorExtensionClient(I
 {
 }
 
-InspectorExtensionDelegate::InspectorExtensionClient::~InspectorExtensionClient()
-{
-}
+InspectorExtensionDelegate::InspectorExtensionClient::~InspectorExtensionClient() = default;
 
 void InspectorExtensionDelegate::InspectorExtensionClient::didShowExtensionTab(const Inspector::ExtensionTabID& extensionTabID, WebCore::FrameIdentifier frameID)
 {

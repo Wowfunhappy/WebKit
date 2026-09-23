@@ -52,9 +52,7 @@ ScrollAnimatorIOS::ScrollAnimatorIOS(ScrollableArea& scrollableArea)
 {
 }
 
-ScrollAnimatorIOS::~ScrollAnimatorIOS()
-{
-}
+ScrollAnimatorIOS::~ScrollAnimatorIOS() = default;
 
 #if ENABLE(TOUCH_EVENTS)
 bool ScrollAnimatorIOS::handleTouchEvent(const PlatformTouchEvent& touchEvent)

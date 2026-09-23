@@ -33,7 +33,6 @@
 
 #include "MutationObserverInterestGroup.h"
 #include "MutationRecord.h"
-#include "NodeInlines.h"
 #include "StaticNodeList.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>

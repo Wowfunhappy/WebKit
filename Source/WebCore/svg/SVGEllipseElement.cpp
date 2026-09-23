@@ -26,6 +26,7 @@
 #include "LegacyRenderSVGResource.h"
 #include "NodeName.h"
 #include "RenderSVGEllipse.h"
+#include "Settings.h"
 #include "SVGElementInlines.h"
 #include "SVGParsingError.h"
 #include "SVGPropertyOwnerRegistry.h"
@@ -91,7 +92,7 @@ void SVGEllipseElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGGeometryElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGEllipseElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGEllipseElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGEllipse>(*this, WTF::move(style));

@@ -46,7 +46,7 @@ WebDocumentSyncClient::WebDocumentSyncClient(WebPage& webPage)
 
 bool WebDocumentSyncClient::siteIsolationEnabled()
 {
-    RefPtr corePage = m_page->corePage();
+    auto* corePage = m_page->corePage();
     return corePage && corePage->settings().siteIsolationEnabled();
 }
 

@@ -155,7 +155,6 @@ class DisplayMtl : public DisplayImpl
     mtl::RenderUtils &getUtils() { return *mUtils; }
     mtl::StateCache &getStateCache() { return mStateCache; }
     mtl::LibraryCache &getLibraryCache() { return mLibraryCache; }
-    uint32_t getMaxColorTargetBits() { return mMaxColorTargetBits; }
     bool hasFragmentMemoryBarriers() const { return mHasFragmentMemoryBarriers; }
 
     id<MTLLibrary> getDefaultShadersLib();
@@ -189,7 +188,6 @@ class DisplayMtl : public DisplayImpl
     void initializeExtensions() const;
     void initializeTextureCaps() const;
     void initializeFeatures();
-    void initializeLimitations();
     EGLenum EGLDrawingBufferTextureTarget();
     angle::ObjCPtr<id<MTLDevice>> getMetalDeviceMatchingAttribute(const egl::AttributeMap &attribs);
     angle::Result initializeShaderLibrary();
@@ -220,7 +218,6 @@ class DisplayMtl : public DisplayImpl
     mutable gl::Caps mNativeCaps;
     mutable gl::Limitations mNativeLimitations;
     mutable ShPixelLocalStorageOptions mNativePLSOptions;
-    mutable uint32_t mMaxColorTargetBits = 0;
     mutable bool mHasFragmentMemoryBarriers;
 
     angle::FeaturesMtl mFeatures;

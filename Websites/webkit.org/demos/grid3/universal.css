@@ -118,6 +118,37 @@ button.hide-controls {
   grid-area: 4 / 1;
   place-self: start;
 }
+@media (max-width: 600px) {
+  aside.interface {
+    grid-template-columns: 1fr;
+    gap: 0.75lh;
+  }
+  nav {
+    grid-area: auto;
+    line-height: 1.8;
+  }
+  section.layout-switcher {
+    grid-area: auto;
+    select {
+      max-width: 100%;
+    }
+  }
+  section.number-toggle {
+    grid-area: auto;
+  }
+  section.show-code {
+    grid-area: auto;
+    grid-row: span 1;
+    padding: 0.5rem 1rem;
+    pre {
+      width: auto;
+      font-size: 90%;
+    }
+  }
+  button.hide-controls {
+    grid-area: auto;
+  }
+}
 label {
   display: inline-block;
 }

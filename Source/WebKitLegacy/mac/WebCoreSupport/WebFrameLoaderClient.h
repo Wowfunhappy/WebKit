@@ -256,5 +256,5 @@ private:
     WeakObjCPtr<WebFramePolicyListener> m_policyListener;
 };
 
-WebDataSource *dataSource(WebCore::DocumentLoader*);
+WebDataSource *NODELETE dataSource(WebCore::DocumentLoader*);
 void addTypesFromClass(NSMutableDictionary *, Class, NSArray *);

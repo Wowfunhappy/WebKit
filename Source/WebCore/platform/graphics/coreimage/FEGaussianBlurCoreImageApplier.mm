@@ -59,7 +59,8 @@ bool FEGaussianBlurCoreImageApplier::apply(const Filter& filter, std::span<const
         return false;
 
     // FIXME: Support edge modes.
-    auto absoluteStdDeviation = filter.scaledByFilterScale(FloatSize(m_effect->stdDeviationX(), m_effect->stdDeviationY()));
+    auto stdDeviation = m_effect->effectiveStdDeviation(filter.renderingOptions());
+    auto absoluteStdDeviation = filter.scaledByFilterScale(stdDeviation);
 
     RetainPtr ciFilter = [CIFilter filterWithName:@"CIGaussianBlurXY"];
     [ciFilter setValue:inputImage.get() forKey:kCIInputImageKey];

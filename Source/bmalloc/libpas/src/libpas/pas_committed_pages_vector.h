@@ -27,7 +27,6 @@
 #define PAS_COMMITTED_PAGES_VECTOR_H
 
 #include "pas_utils.h"
-#include <sys/types.h>
 #if !PAS_OS(WINDOWS)
 #include <sys/mman.h>
 #endif

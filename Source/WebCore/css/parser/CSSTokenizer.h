@@ -56,7 +56,6 @@ public:
     unsigned NODELETE tokenCount();
 
     static bool NODELETE isWhitespace(CSSParserTokenType);
-    static bool NODELETE isNewline(char16_t);
 
     Vector<String>&& escapedStringsForAdoption() { return WTF::move(m_stringPool); }
 

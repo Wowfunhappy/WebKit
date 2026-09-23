@@ -26,9 +26,9 @@
 
 #pragma once
 
+#include <WebCore/CSSSubstitutionValue.h>
 #include <WebCore/CSSValue.h>
 #include <WebCore/CSSVariableData.h>
-#include <WebCore/CSSVariableReferenceValue.h>
 #include <WebCore/CSSWideKeyword.h>
 
 namespace WebCore {
@@ -38,13 +38,13 @@ class CSSParserToken;
 class CSSCustomPropertyValue final : public CSSValue {
 public:
     using VariantValue = Variant<
-        Ref<CSSVariableReferenceValue>,
+        Ref<CSSSubstitutionValue>,
         Ref<CSSVariableData>,
         CSSWideKeyword
     >;
 
     static Ref<CSSCustomPropertyValue> createEmpty(const AtomString& name);
-    static Ref<CSSCustomPropertyValue> createUnresolved(const AtomString& name, Ref<CSSVariableReferenceValue>&&);
+    static Ref<CSSCustomPropertyValue> createUnresolved(const AtomString& name, Ref<CSSSubstitutionValue>&&);
     static Ref<CSSCustomPropertyValue> createSyntaxAll(const AtomString& name, Ref<CSSVariableData>&&);
     static Ref<CSSCustomPropertyValue> createWithCSSWideKeyword(const AtomString& name, CSSWideKeyword);
 
@@ -61,6 +61,9 @@ public:
 
     std::optional<CSSWideKeyword> tryCSSWideKeyword() const;
 
+    // The value's tokens (empty for a CSS-wide keyword).
+    const Vector<CSSParserToken>& tokens() const;
+
     String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSCustomPropertyValue&) const;
     IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
@@ -72,8 +75,6 @@ private:
         , m_value(WTF::move(value))
     {
     }
-
-    const Vector<CSSParserToken>& tokens() const;
 
     const AtomString m_name;
     const VariantValue m_value;

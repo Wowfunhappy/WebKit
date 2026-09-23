@@ -53,6 +53,7 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/DateInstance.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <wtf/AutodrainedPool.h>
@@ -82,27 +83,27 @@ static bool get(JSGlobalObject& lexicalGlobalObject, JSValue object, const Strin
         RETURN_IF_EXCEPTION(scope, false);
         return true;
     }
-    if (obj->inherits<JSBlob>() && (keyPathElement == "size"_s || keyPathElement == "type"_s)) {
+    if (auto* blob = dynamicDowncast<JSBlob>(*obj); blob && (keyPathElement == "size"_s || keyPathElement == "type"_s)) {
         if (keyPathElement == "size"_s) {
-            result = jsNumber(jsCast<JSBlob*>(obj)->wrapped().size());
+            result = jsNumber(blob->wrapped().size());
             return true;
         }
         if (keyPathElement == "type"_s) {
-            result = jsString(vm, jsCast<JSBlob*>(obj)->wrapped().type());
+            result = jsString(vm, blob->wrapped().type());
             return true;
         }
     }
-    if (obj->inherits<JSFile>()) {
+    if (auto* file = dynamicDowncast<JSFile>(*obj)) {
         if (keyPathElement == "name"_s) {
-            result = jsString(vm, jsCast<JSFile*>(obj)->wrapped().name());
+            result = jsString(vm, file->wrapped().name());
             return true;
         }
         if (keyPathElement == "lastModified"_s) {
-            result = jsNumber(protect(jsCast<JSFile*>(obj)->wrapped())->lastModified());
+            result = jsNumber(protect(file->wrapped())->lastModified());
             return true;
         }
         if (keyPathElement == "lastModifiedDate"_s) {
-            result = jsDate(lexicalGlobalObject, WallTime::fromRawSeconds(Seconds::fromMilliseconds(protect(jsCast<JSFile*>(obj)->wrapped())->lastModified()).value()));
+            result = jsDate(lexicalGlobalObject, WallTime::fromRawSeconds(Seconds::fromMilliseconds(protect(file->wrapped())->lastModified()).value()));
             return true;
         }
     }
@@ -217,7 +218,7 @@ static RefPtr<IDBKey> createIDBKeyFromValue(JSGlobalObject& lexicalGlobalObject,
 
     if (value.isObject()) {
         JSObject* object = asObject(value);
-        if (auto* array = jsDynamicCast<JSArray*>(object)) {
+        if (auto* array = dynamicDowncast<JSArray>(*object)) {
             size_t length = array->length();
 
             if (stack.contains(array))
@@ -244,10 +245,10 @@ static RefPtr<IDBKey> createIDBKeyFromValue(JSGlobalObject& lexicalGlobalObject,
             return IDBKey::createArray(WTF::move(subkeys));
         }
 
-        if (auto* arrayBuffer = jsDynamicCast<JSArrayBuffer*>(value))
+        if (auto* arrayBuffer = dynamicDowncast<JSArrayBuffer>(value))
             return IDBKey::createBinary(*arrayBuffer);
 
-        if (auto* arrayBufferView = jsDynamicCast<JSArrayBufferView*>(value))
+        if (auto* arrayBufferView = dynamicDowncast<JSArrayBufferView>(value))
             return IDBKey::createBinary(*arrayBufferView);
     }
     return nullptr;
@@ -297,7 +298,7 @@ static JSValue ensureNthValueOnKeyPath(JSGlobalObject& lexicalGlobalObject, JSVa
         JSValue parentValue(currentValue);
         const String& keyPathElement = keyPathElements[i];
         if (!get(lexicalGlobalObject, parentValue, keyPathElement, currentValue)) {
-            JSObject* object = constructEmptyObject(&lexicalGlobalObject);
+            JSObject* object = JSC::constructEmptyObject(&lexicalGlobalObject);
             if (!set(lexicalGlobalObject.vm(), parentValue, keyPathElement, JSValue(object)))
                 return jsUndefined();
             currentValue = JSValue(object);

@@ -35,6 +35,7 @@
 #include "Node.h"
 #include "PromiseRejectionEvent.h"
 #include "ScriptExecutionContext.h"
+#include "WebCoreJSClientData.h"
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
@@ -58,9 +59,10 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RejectedPromiseTracker);
 class UnhandledPromise {
     WTF_MAKE_NONCOPYABLE(UnhandledPromise);
 public:
-    UnhandledPromise(JSDOMGlobalObject& globalObject, JSPromise& promise, RefPtr<ScriptCallStack>&& stack)
+    UnhandledPromise(JSDOMGlobalObject& globalObject, JSPromise& promise, RefPtr<ScriptCallStack>&& stack, String&& unmaskedSourceURL)
         : m_promise(DOMPromise::create(globalObject, promise))
         , m_stack(WTF::move(stack))
+        , m_unmaskedSourceURL(WTF::move(unmaskedSourceURL))
     {
     }
 
@@ -76,9 +78,12 @@ public:
         return m_promise.get();
     }
 
+    const String& unmaskedSourceURL() const { return m_unmaskedSourceURL; }
+
 private:
     const Ref<DOMPromise> m_promise;
     const RefPtr<ScriptCallStack> m_stack;
+    String m_unmaskedSourceURL;
 };
 
 
@@ -110,7 +115,17 @@ void RejectedPromiseTracker::promiseRejected(JSDOMGlobalObject& globalObject, JS
     // https://html.spec.whatwg.org/multipage/webappapis.html#the-hostpromiserejectiontracker-implementation
 
     JSValue reason = promise.result();
-    m_aboutToBeNotifiedRejectedPromises.append(UnhandledPromise { globalObject, promise, createScriptCallStackFromReason(globalObject, reason) });
+
+    String unmaskedURL;
+    if (globalObject.hasScriptErrorCallbacks()) {
+        // Capture the unmasked source URL now while vm.lastException() is still set.
+        // The JSC::Exception is not kept alive past this point, so it won't be available
+        // when reportUnhandledRejections runs asynchronously via a posted task.
+        if (auto* exception = globalObject.vm().lastException(); exception && exception->value() == reason)
+            unmaskedURL = unmaskedSourceURLFromException(*exception, globalObject.vm());
+    }
+
+    m_aboutToBeNotifiedRejectedPromises.append(UnhandledPromise { globalObject, promise, createScriptCallStackFromReason(globalObject, reason), WTF::move(unmaskedURL) });
 }
 
 void RejectedPromiseTracker::promiseHandled(JSDOMGlobalObject& globalObject, JSPromise& promise)
@@ -169,12 +184,12 @@ void RejectedPromiseTracker::reportUnhandledRejections(Vector<UnhandledPromise>&
             WTF::move(domPromise),
             promise.result(),
         };
-        Ref event = PromiseRejectionEvent::create(eventNames().unhandledrejectionEvent, WTF::move(initializer));
+        Ref event = PromiseRejectionEvent::create(lexicalGlobalObject, eventNames().unhandledrejectionEvent, WTF::move(initializer));
         RefPtr target = m_context->errorEventTarget();
         target->dispatchEvent(event);
 
         if (!event->defaultPrevented())
-            m_context->reportUnhandledPromiseRejection(lexicalGlobalObject, promise, unhandledPromise.callStack());
+            m_context->reportUnhandledPromiseRejection(lexicalGlobalObject, promise, unhandledPromise.callStack(), unhandledPromise.unmaskedSourceURL());
 
         if (!promise.isHandled())
             m_outstandingRejectedPromises.set(&promise, &promise);
@@ -191,6 +206,10 @@ void RejectedPromiseTracker::reportRejectionHandled(Ref<DOMPromise>&& rejectedPr
     if (rejectedPromise->isSuspended())
         return;
 
+    auto* globalObject = rejectedPromise->globalObject();
+    if (!globalObject)
+        return;
+
     auto& promise = *rejectedPromise->promise();
 
     auto initializer = PromiseRejectionEvent::Init {
@@ -198,7 +217,7 @@ void RejectedPromiseTracker::reportRejectionHandled(Ref<DOMPromise>&& rejectedPr
         WTF::move(rejectedPromise),
         promise.result(),
     };
-    Ref event = PromiseRejectionEvent::create(eventNames().rejectionhandledEvent, WTF::move(initializer));
+    Ref event = PromiseRejectionEvent::create(*globalObject, eventNames().rejectionhandledEvent, WTF::move(initializer));
     RefPtr target = m_context->errorEventTarget();
     target->dispatchEvent(event);
 }

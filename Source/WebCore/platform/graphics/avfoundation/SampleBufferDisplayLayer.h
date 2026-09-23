@@ -50,6 +50,7 @@ class SampleBufferDisplayLayerClient : public AbstractRefCountedAndCanMakeWeakPt
 public:
     virtual ~SampleBufferDisplayLayerClient() = default;
     virtual void sampleBufferDisplayLayerStatusDidFail() = 0;
+    virtual void updateVideoFrameCounters(uint64_t, uint64_t) = 0;
 #if PLATFORM(IOS_FAMILY)
     virtual bool canShowWhileLocked() const = 0;
 #endif

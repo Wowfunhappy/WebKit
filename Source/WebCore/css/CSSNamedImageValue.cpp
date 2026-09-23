@@ -27,11 +27,11 @@
 #include "CSSNamedImageValue.h"
 
 #include "StyleNamedImage.h"
-#include <wtf/text/MakeString.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-CSSNamedImageValue::CSSNamedImageValue(String&& name)
+CSSNamedImageValue::CSSNamedImageValue(CSS::CustomIdent&& name)
     : CSSValue { ClassType::NamedImage }
     , m_name { WTF::move(name) }
 {
@@ -39,9 +39,13 @@ CSSNamedImageValue::CSSNamedImageValue(String&& name)
 
 CSSNamedImageValue::~CSSNamedImageValue() = default;
 
-String CSSNamedImageValue::customCSSText(const CSS::SerializationContext&) const
+String CSSNamedImageValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    return makeString("-webkit-named-image("_s, m_name, ')');
+    StringBuilder builder;
+    builder.append("-webkit-named-image("_s);
+    CSS::serializationForCSS(builder, context, m_name);
+    builder.append(')');
+    return builder.toString();
 }
 
 bool CSSNamedImageValue::equals(const CSSNamedImageValue& other) const
@@ -49,12 +53,12 @@ bool CSSNamedImageValue::equals(const CSSNamedImageValue& other) const
     return m_name == other.m_name;
 }
 
-RefPtr<Style::Image> CSSNamedImageValue::createStyleImage(const Style::BuilderState&) const
+RefPtr<Style::Image> CSSNamedImageValue::createStyleImage(const Style::BuilderState& state) const
 {
     if (m_cachedStyleImage)
         return m_cachedStyleImage;
 
-    m_cachedStyleImage = Style::NamedImage::create(m_name);
+    m_cachedStyleImage = Style::NamedImage::create(Style::toStyle(m_name, state));
     return m_cachedStyleImage;
 }
 

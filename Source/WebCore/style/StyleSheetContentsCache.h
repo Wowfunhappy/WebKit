@@ -28,6 +28,7 @@
 #include "CSSParserContext.h"
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -40,7 +41,7 @@ class StyleSheetContentsCache {
 public:
     static StyleSheetContentsCache& NODELETE singleton();
 
-    using Key = std::pair<String, CSSParserContext>;
+    using Key = std::pair<WTF::String, CSSParserContext>;
 
     RefPtr<StyleSheetContents> get(const Key&);
     void add(Key&&, Ref<StyleSheetContents>);

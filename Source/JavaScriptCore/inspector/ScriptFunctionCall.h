@@ -34,10 +34,8 @@
 #include <JavaScriptCore/ArgList.h>
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/JSCJSValue.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Strong.h>
-#include <JavaScriptCore/StrongInlines.h>
 #include <wtf/Expected.h>
 #include <wtf/JSONValues.h>
 #include <wtf/text/WTFString.h>
@@ -64,7 +62,7 @@ public:
 
 protected:
     JSC::MarkedArgumentBuffer m_arguments;
-    JSC::JSGlobalObject* const m_globalObject;
+    SUPPRESS_FORWARD_DECL_MEMBER JSC::JSGlobalObject* const m_globalObject;
 
 private:
     // MarkedArgumentBuffer must be stack allocated, so prevent heap
@@ -77,6 +75,7 @@ class ScriptFunctionCall : public ScriptCallArgumentHandler {
 public:
     typedef JSC::JSValue (*ScriptFunctionCallHandler)(JSC::JSGlobalObject*, JSC::JSValue functionObject, const JSC::CallData& callData, JSC::JSValue thisValue, const JSC::ArgList& args, NakedPtr<JSC::Exception>&);
     JS_EXPORT_PRIVATE ScriptFunctionCall(JSC::JSGlobalObject*, JSC::JSObject* thisObject, const String& name, ScriptFunctionCallHandler = nullptr);
+    JS_EXPORT_PRIVATE ~ScriptFunctionCall();
     JS_EXPORT_PRIVATE Expected<JSC::JSValue, NakedPtr<JSC::Exception>> call();
 
 protected:

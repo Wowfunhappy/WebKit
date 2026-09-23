@@ -58,8 +58,14 @@ void AttributeChangeInvalidation::invalidateStyle(const QualifiedName& attribute
             mayAffectStyleInShadowTree = true;
         if (features.attributesAffectingHost.contains(attributeNameForLookups))
             shouldInvalidateCurrent = true;
-        else if (features.contentAttributeNamesInRules.contains(attributeNameForLookups))
+        else if (auto affectsShadowTree = features.substitutionAttributeNamesInRules.getOptional(attributeNameForLookups)) {
             shouldInvalidateCurrent = true;
+            // Only invalidate the host's shadow subtree if a shadow-piercing rule (::part(),
+            // ::placeholder, etc.) actually uses attr() on this attribute and the element has
+            // a shadow tree to invalidate.
+            if (m_element->shadowRoot() && *affectsShadowTree == RuleFeatureSet::AffectsShadowTree::Yes)
+                mayAffectStyleInShadowTree = true;
+        }
     });
 
     if (mayAffectStyleInShadowTree) {
@@ -70,13 +76,13 @@ void AttributeChangeInvalidation::invalidateStyle(const QualifiedName& attribute
     if (shouldInvalidateCurrent)
         m_element->invalidateStyle();
 
-    auto collect = [&](auto& ruleSets, std::optional<MatchElement> onlyMatchElement = { }) {
+    auto collect = [&](auto& ruleSets, std::optional<MatchElement::Relation> onlyRelation = { }) {
         auto* invalidationRuleSets = ruleSets.attributeInvalidationRuleSets(attributeNameForLookups);
         if (!invalidationRuleSets)
             return;
 
         for (auto& invalidationRuleSet : *invalidationRuleSets) {
-            if (onlyMatchElement && invalidationRuleSet.matchElement != onlyMatchElement)
+            if (onlyRelation && invalidationRuleSet.matchElement.relation != onlyRelation)
                 continue;
 
             for (auto& selector : invalidationRuleSet.invalidationSelectors) {
@@ -94,7 +100,7 @@ void AttributeChangeInvalidation::invalidateStyle(const QualifiedName& attribute
     collect(m_element->styleResolver().ruleSets());
 
     if (RefPtr shadowRoot = m_element->shadowRoot())
-        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Host);
+        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Relation::Host);
 }
 
 void AttributeChangeInvalidation::invalidateStyleWithRuleSets()

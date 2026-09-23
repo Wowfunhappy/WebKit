@@ -25,6 +25,7 @@
 #import "WebDateTimePickerMac.h"
 #import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
+#import "APIPageConfiguration.h"
 #import "WindowServerConnection.h"
 #import "WebPopupMenuProxyMac.h"
 #import "WebProcessProxy.h"
@@ -342,6 +343,7 @@ private:
     bool isViewWindowActive() final;
     bool isViewFocused() final;
     bool isActiveViewVisible() final;
+    bool isViewVisible(NSView *, NSWindow *) const final;
     // PageClientImplCocoa::platformWindow() returns [webView() window], but this
     // client has no WKWebView (constructed with nil), so surface the WKView's window — used by
     // MediaPermissionUtilities::alertForPermission to host the getUserMedia consent sheet.
@@ -567,16 +569,13 @@ private:
     RetainPtr<NSView> inspectorAttachmentView() final;
 #endif
 #if PLATFORM(MAC)
-    _WKRemoteObjectRegistry *remoteObjectRegistry() final;
-#endif
-#if PLATFORM(MAC)
     void intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize) final;
 #endif
 #if PLATFORM(MAC)
     void registerInsertionUndoGrouping() final;
 #endif
 #if PLATFORM(MAC)
-    void setEditableElementIsFocused(bool) final;
+    void setFocusedElementInputType(InputType) final;
 #endif
 #if PLATFORM(COCOA)
     void scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID) final;
@@ -748,7 +747,7 @@ private:
 #if ENABLE(MODEL_PROCESS)
     void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) final;
 #endif
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 #if USE(WPE_RENDERER)
     UnixFileDescriptor hostFileDescriptor() final;
 #endif
@@ -760,9 +759,6 @@ private:
 #endif
 #if ENABLE(WRITING_TOOLS) && ENABLE(CONTEXT_MENUS)
     bool canHandleContextMenuWritingTools() const final;
-#endif
-#if ENABLE(WRITING_TOOLS)
-    void proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView) final;
 #endif
 #if USE(GRAPHICS_LAYER_WC)
     bool usesOffscreenRendering() const final;
@@ -845,22 +841,21 @@ CocoaWindow *MavericksPageClient::platformWindow() const
 
 bool MavericksPageClient::isActiveViewVisible()
 {
-    // Upstream PageClientImpl::isViewVisible's truth table — window presence,
-    // the view's own hidden-ancestor chain, window visibility, then window occlusion. The view's
-    // own isHidden matters here: Safari hides the BrowserWKView itself (not an ancestor) behind the
-    // Reader view, and -viewDidHide/-viewDidUnhide forwarding recomputes activity state on every
-    // toggle. WKView observes NSWindowDidChangeOcclusionStateNotification to recompute this.
-    if (!m_view)
-        return false;
-    NSWindow *window = [m_view window];
+    return isViewVisible(m_view, [m_view window]);
+}
+
+bool MavericksPageClient::isViewVisible(NSView *view, NSWindow *window) const
+{
     if (!window)
         return false;
-    if ([m_view isHiddenOrHasHiddenAncestor])
+    if ([view isHiddenOrHasHiddenAncestor])
         return false;
-    if (![window isVisible])
-        return false;
-    if (m_windowOcclusionDetectionEnabled && (window.occlusionState & NSWindowOcclusionStateVisible) != NSWindowOcclusionStateVisible)
-        return false;
+    if (!m_page || !m_page->configuration().backgroundTextExtractionEnabled()) {
+        if (![window isVisible])
+            return false;
+        if (m_windowOcclusionDetectionEnabled && (window.occlusionState & NSWindowOcclusionStateVisible) != NSWindowOcclusionStateVisible)
+            return false;
+    }
     return true;
 }
 
@@ -1700,10 +1695,6 @@ RetainPtr<NSView> MavericksPageClient::inspectorAttachmentView()
 { return m_view; }
 #endif
 #if PLATFORM(MAC)
-_WKRemoteObjectRegistry *MavericksPageClient::remoteObjectRegistry()
-{ return { }; }
-#endif
-#if PLATFORM(MAC)
 void MavericksPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
 {
     // Forward the web process's laid-out content size to the WKView's
@@ -1720,7 +1711,7 @@ void MavericksPageClient::registerInsertionUndoGrouping()
 }
 #endif
 #if PLATFORM(MAC)
-void MavericksPageClient::setEditableElementIsFocused(bool)
+void MavericksPageClient::setFocusedElementInputType(InputType)
 { }
 #endif
 #if PLATFORM(COCOA)
@@ -2091,7 +2082,7 @@ void MavericksPageClient::hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResp
     m_domPasteMenuDelegate = nil;
 }
 
-void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completion)
+void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, WebCore::FrameIdentifier frameID, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completion)
 {
     hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse::DeniedForGesture);
 
@@ -2103,7 +2094,7 @@ void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory 
     if (requiresInteraction == WebCore::DOMPasteRequiresInteraction::No && WebCore::PasteboardCustomData::fromSharedBuffer(buffer.get()).origin() == originIdentifier) {
         m_page->grantAccessToCurrentPasteboardData(pasteboardNameForAccessCategory(pasteAccessCategory), [completion = WTF::move(completion)] () mutable {
             completion(WebCore::DOMPasteAccessResponse::GrantedForGesture);
-        });
+        }, frameID);
         return;
     }
 
@@ -2136,10 +2127,6 @@ void MavericksPageClient::handleContextMenuTranslation(const WebCore::Translatio
 #if ENABLE(WRITING_TOOLS) && ENABLE(CONTEXT_MENUS)
 bool MavericksPageClient::canHandleContextMenuWritingTools() const
 { return { }; }
-#endif
-#if ENABLE(WRITING_TOOLS)
-void MavericksPageClient::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView)
-{ }
 #endif
 #if USE(GRAPHICS_LAYER_WC)
 bool MavericksPageClient::usesOffscreenRendering() const

@@ -26,6 +26,7 @@
 #pragma once
 
 #include "SVGNames.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
@@ -35,29 +36,33 @@
 namespace WebCore {
 
 class CSSSVGResourceElementClient;
+class WeakPtrImplWithEventTargetData;
 class Document;
 class LegacyRenderSVGResourceClipper;
 class LegacyRenderSVGResourceContainer;
 class QualifiedName;
 class RenderElement;
 class RenderSVGResourceFilter;
-class RenderStyle;
+class RenderSVGResourcePaintServer;
 class SVGClipPathElement;
 class SVGElement;
 class SVGFilterElement;
 class SVGMarkerElement;
 class SVGMaskElement;
 class TreeScope;
+enum class SVGPaintType : bool;
 
 namespace Style {
+class ComputedStyle;
 class Image;
 struct FilterReference;
 struct ReferencePath;
 struct URL;
 }
 
-class ReferencedSVGResources {
+class ReferencedSVGResources : public CanMakeCheckedPtr<ReferencedSVGResources> {
     WTF_MAKE_TZONE_ALLOCATED(ReferencedSVGResources);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ReferencedSVGResources);
 public:
     ReferencedSVGResources(RenderElement&);
     ~ReferencedSVGResources();
@@ -65,7 +70,7 @@ public:
     using SVGQualifiedNames = Vector<SVGQualifiedName>;
     using SVGElementIdentifierAndTagPairs = Vector<std::pair<AtomString, SVGQualifiedNames>>;
 
-    static SVGElementIdentifierAndTagPairs referencedSVGResourceIDs(const RenderStyle&, const Document&);
+    static SVGElementIdentifierAndTagPairs referencedSVGResourceIDs(const Style::ComputedStyle&, const Document&);
     void updateReferencedResources(TreeScope&, const SVGElementIdentifierAndTagPairs&);
     bool addReferencedSVGResourceIfNeeded(SVGElement&, const AtomString&);
 
@@ -82,6 +87,18 @@ public:
     static RefPtr<SVGMaskElement> referencedMaskElement(TreeScope&, const AtomString&);
     static RefPtr<SVGElement> referencedPaintServerElement(TreeScope&, const Style::URL&);
 
+    // Cached fill and stroke paint server, filled in by RenderLayerModelObject. The weak pointer
+    // clears itself if the paint server dies, so a live pointer is a hit and a null one re-resolves.
+    // Defined out of line, they need the complete RenderSVGResourcePaintServer type for the weak pointer.
+    RenderSVGResourcePaintServer* cachedFillPaintServer() const;
+    RenderSVGResourcePaintServer* cachedStrokePaintServer() const;
+    void setCachedPaintServer(SVGPaintType, RenderSVGResourcePaintServer&);
+    void invalidatePaintServerCache()
+    {
+        m_cachedFillPaintServer = nullptr;
+        m_cachedStrokePaintServer = nullptr;
+    }
+
 private:
     static RefPtr<SVGElement> elementForResourceID(TreeScope&, const AtomString& resourceID, const SVGQualifiedName& tagName);
     static RefPtr<SVGElement> elementForResourceIDs(TreeScope&, const AtomString& resourceID, const SVGQualifiedNames& tagNames);
@@ -95,6 +112,9 @@ private:
         WeakPtr<SVGElement, WeakPtrImplWithEventTargetData> targetElement;
     };
     MemoryCompactRobinHoodHashMap<AtomString, ClientEntry> m_elementClients;
+
+    SingleThreadWeakPtr<RenderSVGResourcePaintServer> m_cachedFillPaintServer;
+    SingleThreadWeakPtr<RenderSVGResourcePaintServer> m_cachedStrokePaintServer;
 };
 
 } // namespace WebCore

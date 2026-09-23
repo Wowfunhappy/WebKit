@@ -25,8 +25,8 @@ PASS Basic supported configuration
 PASS Partially supported configuration
 PASS Supported audio codec
 PASS ContentType formatting must be preserved
-FAIL org.w3.clearkey, requestMediaKeySystemAccess: Unsupported audio codec ('audio/webm; codecs=fake') should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
-FAIL org.w3.clearkey, requestMediaKeySystemAccess: Unsupported video codec () should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
+PASS org.w3.clearkey, requestMediaKeySystemAccess: Unsupported audio codec ('audio/webm; codecs=fake') should result in NotSupportedError
+PASS org.w3.clearkey, requestMediaKeySystemAccess: Unsupported video codec () should result in NotSupportedError
 FAIL org.w3.clearkey, requestMediaKeySystemAccess: Mismatched audio container/codec ('audio/webm; codecs=mp4a','audio/webm; codecs=mp4a.40.2') should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
 FAIL org.w3.clearkey, requestMediaKeySystemAccess: Video codec specified in audio field ('video/mp4;codecs="avc1.4d401e"') should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
 FAIL org.w3.clearkey, requestMediaKeySystemAccess: Audio codec specified in video field ('audio/mp4;codecs="mp4a.40.2"') should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
@@ -46,15 +46,15 @@ PASS Trailing space in contentType
 PASS Space at start of codecs parameter
 PASS Space at end of codecs parameter
 PASS Video/
-FAIL Codecs= promise_test: Unhandled rejection with value: object "NotSupportedError: The operation is not supported."
+PASS Codecs=
 PASS Upper case MIME type
-FAIL CODECS= promise_test: Unhandled rejection with value: object "NotSupportedError: The operation is not supported."
+PASS CODECS=
 PASS org.w3.clearkey, requestMediaKeySystemAccess: Unrecognized foo with webm ('video/webm; foo="bar"') should result in NotSupportedError
 PASS org.w3.clearkey, requestMediaKeySystemAccess: Unrecognized foo with mp4 ('video/mp4; foo="bar"') should result in NotSupportedError
 PASS org.w3.clearkey, requestMediaKeySystemAccess: Unrecognized foo with codecs ('video/mp4;codecs="avc1.4d401e"; foo="bar"') should result in NotSupportedError
 PASS org.w3.clearkey, requestMediaKeySystemAccess: contentType: 'fake' should result in NotSupportedError
 PASS org.w3.clearkey, requestMediaKeySystemAccess: contentType: 'audio/fake' should result in NotSupportedError
 PASS org.w3.clearkey, requestMediaKeySystemAccess: contentType: 'video/fake' should result in NotSupportedError
-FAIL org.w3.clearkey, requestMediaKeySystemAccess: contentType: 'video/mp4;codecs="AVC1.4D401E"' should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
+PASS org.w3.clearkey, requestMediaKeySystemAccess: contentType: 'video/mp4;codecs="AVC1.4D401E"' should result in NotSupportedError
 FAIL org.w3.clearkey, requestMediaKeySystemAccess: contentType: 'video/mp4;codecs=",avc1.4d401e"' should result in NotSupportedError assert_unreached: Should have rejected: undefined Reached unreachable code
 

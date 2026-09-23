@@ -33,10 +33,10 @@
 #include "HTMLFrameOwnerElement.h"
 #include "FrameInlines.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "RemoteDOMWindow.h"
 #include "RemoteFrameClient.h"
 #include "RemoteFrameView.h"
+#include "ResourceTiming.h"
 #include "SecurityOrigin.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/HexNumber.h>
@@ -66,6 +66,16 @@ RemoteFrame::RemoteFrame(Page& page, ClientCreator&& clientCreator, FrameIdentif
 
 RemoteFrame::~RemoteFrame() = default;
 
+ProcessIdentifier RemoteFrame::hostingProcessIdentifier() const
+{
+    if (m_hostingProcessIdentifier)
+        return *m_hostingProcessIdentifier;
+    // Fallback to the process encoded in the FrameIdentifier's upper bits when the
+    // hosting process has not been recorded. This reproduces the legacy
+    // IdentifierRegistry::protocolFrameId(FrameIdentifier) value. See webkit.org/b/310164.
+    return ObjectIdentifier<ProcessIdentifierType>(frameID().toRawValue() >> 32);
+}
+
 DOMWindow* RemoteFrame::virtualWindow() const
 {
     return &window();
@@ -86,7 +96,7 @@ void RemoteFrame::didFinishLoadInAnotherProcess()
     m_preventsParentFromBeingComplete = false;
 
     if (RefPtr ownerElement = this->ownerElement())
-        ownerElement->document().checkCompleted();
+        protect(ownerElement->document())->checkCompleted();
 }
 
 bool RemoteFrame::preventsParentFromBeingComplete() const
@@ -167,14 +177,19 @@ String RemoteFrame::customNavigatorPlatform() const
     return m_customNavigatorPlatform;
 }
 
-void RemoteFrame::documentURLForConsoleLog(CompletionHandler<void(const URL&)>&& completionHandler)
+URL RemoteFrame::urlForConsoleLog() const
 {
-    m_client->documentURLForConsoleLog(WTF::move(completionHandler));
+    return protect(frameDocumentSecurityOrigin())->toURL();
 }
 
 OptionSet<AdvancedPrivacyProtections> RemoteFrame::advancedPrivacyProtections() const
 {
     return m_advancedPrivacyProtections;
+}
+
+bool RemoteFrame::allowPrivacyProxy() const
+{
+    return m_allowPrivacyProxy;
 }
 
 void RemoteFrame::updateScrollingMode()
@@ -188,6 +203,11 @@ void RemoteFrame::reportMixedContentViolation(bool blocked, const URL& target) c
     m_client->reportMixedContentViolation(blocked, target);
 }
 
+void RemoteFrame::addResourceTimingFromChild(ResourceTiming&& resourceTiming)
+{
+    m_client->addResourceTimingFromChild(WTF::move(resourceTiming));
+}
+
 SecurityOrigin* RemoteFrame::frameDocumentSecurityOrigin() const
 {
     return frameTreeSyncData().frameDocumentSecurityOrigin.get();
@@ -196,6 +216,11 @@ SecurityOrigin* RemoteFrame::frameDocumentSecurityOrigin() const
 std::optional<DocumentSecurityPolicy> RemoteFrame::frameDocumentSecurityPolicy() const
 {
     return frameTreeSyncData().frameDocumentSecurityPolicy;
+}
+
+bool RemoteFrame::frameDocumentIsSandboxedOrigin() const
+{
+    return frameTreeSyncData().frameDocumentIsSandboxedOrigin;
 }
 
 String RemoteFrame::frameURLProtocol() const
@@ -217,8 +242,10 @@ AutoplayPolicy RemoteFrame::autoplayPolicy() const
 
 float RemoteFrame::usedZoomForChild(const Frame& child) const
 {
-    auto maybeInfo = frameTreeSyncData().childrenFrameLayoutInfo.getOptional(child.frameID());
-    return maybeInfo.transform([] (auto& info) { return info.usedZoom; }).value_or(1.0);
+    if (RefPtr info = frameTreeSyncData().childrenFrameLayoutInfo.get(child.frameID()))
+        return info->usedZoom();
+
+    return 1.0;
 }
 
 String RemoteFrame::debugDescription() const

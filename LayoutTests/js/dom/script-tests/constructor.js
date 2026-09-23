@@ -14,7 +14,3 @@ shouldBeTrue("window.document.body.constructor.prototype.__proto__ === window.HT
 var htmlCollection = document.getElementsByTagName('script');
 shouldBeTrue("htmlCollection.constructor === window.HTMLCollection");
 shouldBeTrue("htmlCollection.constructor.prototype === window.HTMLCollection.prototype");
-
-var mutationEvent = document.createEvent("MutationEvent");
-shouldBeTrue("mutationEvent.constructor === window.MutationEvent");
-shouldBeTrue("mutationEvent.constructor.prototype.__proto__ === window.Event.prototype");

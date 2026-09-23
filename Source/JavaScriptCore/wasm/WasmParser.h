@@ -37,6 +37,7 @@
 #include "WasmOps.h"
 #include "WasmSections.h"
 #include "WasmTypeDefinitionInlines.h"
+#include "WasmTypeSectionState.h"
 #include "Width.h"
 #include <type_traits>
 #include <wtf/Expected.h>
@@ -60,19 +61,13 @@ inline String makeString(const T& failure) { return WTF::toString(failure); }
 class ParserBase {
 public:
     typedef String ErrorType;
-    typedef Unexpected<ErrorType> UnexpectedResult;
+    typedef std::unexpected<ErrorType> UnexpectedResult;
     typedef Expected<void, ErrorType> PartialResult;
 
     std::span<const uint8_t> source() const { return m_source; }
     size_t offset() const { return m_offset; }
 
 protected:
-    struct RecursionGroupInformation {
-        bool inRecursionGroup;
-        uint32_t start;
-        uint32_t end;
-    };
-
     explicit ParserBase(std::span<const uint8_t>);
 
     [[nodiscard]] bool consumeCharacter(char);
@@ -128,10 +123,10 @@ private:
     std::span<const uint8_t> m_source;
 
 protected:
-    // We keep a local reference to the global table so we don't have to fetch it to find thunk types.
-    const TypeInformation& m_typeInformation;
-    // Used to track whether we are in a recursion group and the group's type indices, if any.
-    RecursionGroupInformation m_recursionGroupInformation;
+    // Parser-local state for Subtype / Projection / RecursionGroup objects;
+    // set by SectionParser::parseType for the duration of the type section,
+    // null otherwise. Also carries the currently-active RecursionGroupInformation.
+    TypeSectionState* m_typeSectionState { nullptr };
 };
 
 template<typename SuccessType> class Parser : public ParserBase {
@@ -145,8 +140,6 @@ public:
 
 ALWAYS_INLINE ParserBase::ParserBase(std::span<const uint8_t> source)
     : m_source(source)
-    , m_typeInformation(TypeInformation::singleton())
-    , m_recursionGroupInformation({ })
 {
 }
 
@@ -185,13 +178,12 @@ ALWAYS_INLINE bool ParserBase::consumeUTF8String(Name& result, size_t stringLeng
         return false;
 
     auto string = byteCast<char8_t>(m_source.subspan(m_offset, stringLength));
-    if (auto checkResult = WTF::Unicode::checkUTF8(string); checkResult.characters.size() != string.size())
+    if (auto checkResult = WTF::Unicode::checkUTF8WithoutUTF16Length(string); checkResult.size() != string.size())
         return false;
 
-    result.grow(stringLength);
-    // FIXME: Adopt memcpySpan().
-    memcpy(result.mutableSpan().data(), string.data(), stringLength);
-    m_offset += stringLength;
+    result.grow(string.size());
+    memcpySpan(result.mutableSpan().last(string.size()), string);
+    m_offset += string.size();
     return true;
 }
 
@@ -315,7 +307,7 @@ ALWAYS_INLINE bool ParserBase::parseHeapType(const ModuleInformation& info, int3
         return false;
     }
 
-    if (static_cast<size_t>(heapType) >= info.typeCount() && (!m_recursionGroupInformation.inRecursionGroup || !(static_cast<uint32_t>(heapType) >= m_recursionGroupInformation.start && static_cast<uint32_t>(heapType) < m_recursionGroupInformation.end)))
+    if (static_cast<size_t>(heapType) >= info.typeCount() && (!m_typeSectionState || !m_typeSectionState->recursionGroupInformation.inRecursionGroup || !(static_cast<uint32_t>(heapType) >= m_typeSectionState->recursionGroupInformation.start && static_cast<uint32_t>(heapType) < m_typeSectionState->recursionGroupInformation.end)))
         return false;
 
     result = heapType;
@@ -345,15 +337,14 @@ ALWAYS_INLINE bool ParserBase::parseValueType(const ModuleInformation& info, Typ
             // For recursive references inside recursion groups, we construct a
             // placeholder projection with an invalid group index. These should
             // be replaced with a real type index in expand() before use.
-            if (m_recursionGroupInformation.inRecursionGroup && static_cast<uint32_t>(heapType) >= m_recursionGroupInformation.start) {
-                ASSERT(static_cast<uint32_t>(heapType) >= info.typeCount() && static_cast<uint32_t>(heapType) < m_recursionGroupInformation.end);
-                ProjectionIndex groupIndex = static_cast<ProjectionIndex>(heapType - m_recursionGroupInformation.start);
-                RefPtr<TypeDefinition> def = TypeInformation::getPlaceholderProjection(groupIndex);
-                RELEASE_ASSERT(def->refCount() > 2); // tbl + RefPtr + owner
-                typeIndex = def->index(); // Owned by TypeInformation placeholder projections singleton.
+            if (m_typeSectionState && m_typeSectionState->recursionGroupInformation.inRecursionGroup && static_cast<uint32_t>(heapType) >= m_typeSectionState->recursionGroupInformation.start) {
+                ASSERT(static_cast<uint32_t>(heapType) >= info.typeCount() && static_cast<uint32_t>(heapType) < m_typeSectionState->recursionGroupInformation.end);
+                ProjectionIndex groupIndex = static_cast<ProjectionIndex>(heapType - m_typeSectionState->recursionGroupInformation.start);
+                const Projection* def = m_typeSectionState->createPlaceholderProjection(groupIndex);
+                typeIndex = tagAsProjection(def); // Tagged so isRefWithRecursiveReference can detect.
             } else {
                 ASSERT(static_cast<uint32_t>(heapType) < info.typeCount());
-                typeIndex = TypeInformation::get(info.typeSignatures[heapType].get());
+                typeIndex = info.rtt(ModuleInformation::typeSignatureIndexFromHeapType(heapType)).asTypeIndex();
             }
         }
     }
@@ -382,7 +373,7 @@ ALWAYS_INLINE bool ParserBase::parseExternalKind(ExternalKind& result)
     return true;
 }
 
-ALWAYS_INLINE I32InitExpr makeI32InitExpr(uint8_t opcode, bool isExtendedConstantExpression, uint32_t bits)
+ALWAYS_INLINE I32InitExpr makeI32InitExpr(uint8_t opcode, bool isExtendedConstantExpression, uint64_t bits)
 {
     RELEASE_ASSERT(opcode == I32Const || opcode == GetGlobal);
     if (isExtendedConstantExpression)
@@ -390,6 +381,16 @@ ALWAYS_INLINE I32InitExpr makeI32InitExpr(uint8_t opcode, bool isExtendedConstan
     if (opcode == I32Const)
         return I32InitExpr::constValue(bits);
     return I32InitExpr::globalImport(bits);
+}
+
+ALWAYS_INLINE I64InitExpr makeI64InitExpr(uint8_t opcode, bool isExtendedConstantExpression, uint64_t bits)
+{
+    RELEASE_ASSERT(opcode == I64Const || opcode == GetGlobal);
+    if (isExtendedConstantExpression)
+        return I64InitExpr::extendedExpression(bits);
+    if (opcode == I64Const)
+        return I64InitExpr::constValue(bits);
+    return I64InitExpr::globalImport(bits);
 }
 
 } } // namespace JSC::Wasm

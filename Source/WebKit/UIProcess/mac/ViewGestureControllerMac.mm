@@ -40,6 +40,7 @@
 #import "Logging.h"
 #import "NativeWebWheelEvent.h"
 #import "ProvisionalPageProxy.h"
+#import "SwipeProgressTrackerMac.h"
 #import "ViewGestureControllerMessages.h"
 #import "ViewGestureGeometryCollectorMessages.h"
 #import "ViewSnapshotStore.h"
@@ -56,6 +57,10 @@
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <pal/spi/mac/NSEventSPI.h>
 #import <wtf/BlockObjCExceptions.h>
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+#import <WebKitAdditions/AppKitUtilities.h>
+#endif
 
 static const double zoomOutBoost = 1.6;
 static const double zoomOutResistance = 0.10;
@@ -83,8 +88,18 @@ static const CGFloat swipeOverlayShadowWidth = 81;
 namespace WebKit {
 using namespace WebCore;
 
+void ViewGestureController::platformInitialize()
+{
+    RefPtr page = m_webPageProxy.get();
+    if (page)
+        m_swipeProgressTracker = makeUnique<SwipeProgressTracker>(*page, *this);
+}
+
 void ViewGestureController::platformTeardown()
 {
+    if (m_swipeProgressTracker)
+        protect(*m_swipeProgressTracker)->reset();
+
     if (m_swipeCancellationTracker)
         [m_swipeCancellationTracker setIsCancelled:YES];
 
@@ -256,7 +271,7 @@ void ViewGestureController::didCollectGeometryForSmartMagnificationGesture(Float
 
 bool ViewGestureController::PendingSwipeTracker::scrollEventCanStartSwipe(NativeWebWheelEvent event)
 {
-    return event.phase() == WebWheelEvent::Phase::Began && event.nativeEvent();
+    return event.phase() == WebWheelEvent::Phase::Began;
 }
 
 bool ViewGestureController::PendingSwipeTracker::scrollEventCanEndSwipe(NativeWebWheelEvent event)
@@ -266,7 +281,13 @@ bool ViewGestureController::PendingSwipeTracker::scrollEventCanEndSwipe(NativeWe
 
 bool ViewGestureController::PendingSwipeTracker::scrollEventCanInfluenceSwipe(NativeWebWheelEvent event)
 {
-    return event.hasPreciseScrollingDeltas() && [NSEvent isSwipeTrackingFromScrollEventsEnabled];
+    if (!event.hasPreciseScrollingDeltas())
+        return false;
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    return isSwipeTrackingFromScrollEventsEnabled(event);
+#else
+    return NSEvent.isSwipeTrackingFromScrollEventsEnabled;
+#endif
 }
 
 FloatSize ViewGestureController::PendingSwipeTracker::scrollEventGetScrollingDeltas(NativeWebWheelEvent event)
@@ -276,6 +297,8 @@ FloatSize ViewGestureController::PendingSwipeTracker::scrollEventGetScrollingDel
 
 bool ViewGestureController::handleScrollWheelEvent(NativeWebWheelEvent event)
 {
+    if (m_swipeProgressTracker && protect(*m_swipeProgressTracker)->handleEvent(event))
+        return true;
     if (m_activeGestureType != ViewGestureType::None)
         return false;
     return m_pendingSwipeTracker.handleEvent(event);
@@ -283,34 +306,40 @@ bool ViewGestureController::handleScrollWheelEvent(NativeWebWheelEvent event)
 
 void ViewGestureController::trackSwipeGesture(PlatformScrollEvent event, SwipeDirection direction, RefPtr<WebBackForwardListItem> targetItem)
 {
-    BOOL swipingLeft = isPhysicallySwipingLeft(direction);
-    CGFloat maxProgress = swipingLeft ? 1 : 0;
-    CGFloat minProgress = !swipingLeft ? -1 : 0;
-
-    __block bool swipeCancelled = false;
-
     ASSERT(!m_swipeCancellationTracker);
     RetainPtr<WKSwipeCancellationTracker> swipeCancellationTracker = adoptNS([[WKSwipeCancellationTracker alloc] init]);
     m_swipeCancellationTracker = swipeCancellationTracker;
 
-    BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [protect(event.nativeEvent()) trackSwipeEventWithOptions:NSEventSwipeTrackingConsumeMouseEvents dampenAmountThresholdMin:minProgress max:maxProgress usingHandler:^(CGFloat progress, NSEventPhase phase, BOOL isComplete, BOOL *stop) {
-        if ([swipeCancellationTracker isCancelled]) {
-            *stop = YES;
-            return;
-        }
-        if (phase == NSEventPhaseBegan)
-            this->beginSwipeGesture(targetItem.get(), direction);
-        CGFloat clampedProgress = std::min(std::max(progress, minProgress), maxProgress);
-        this->handleSwipeGesture(targetItem.get(), clampedProgress, direction);
-        if (phase == NSEventPhaseCancelled)
-            swipeCancelled = true;
-        if (phase == NSEventPhaseEnded || phase == NSEventPhaseCancelled)
-            this->willEndSwipeGesture(*targetItem, swipeCancelled);
-        if (isComplete)
-            this->endSwipeGesture(targetItem.get(), swipeCancelled);
-    }];
-    END_BLOCK_OBJC_EXCEPTIONS
+    if (event.nativeEvent()) {
+        BOOL swipingLeft = isPhysicallySwipingLeft(direction);
+        CGFloat maxProgress = swipingLeft ? 1 : 0;
+        CGFloat minProgress = !swipingLeft ? -1 : 0;
+
+        __block bool swipeCancelled = false;
+
+        BEGIN_BLOCK_OBJC_EXCEPTIONS
+        [protect(event.nativeEvent()) trackSwipeEventWithOptions:NSEventSwipeTrackingConsumeMouseEvents dampenAmountThresholdMin:minProgress max:maxProgress usingHandler:^(CGFloat progress, NSEventPhase phase, BOOL isComplete, BOOL *stop) {
+            if ([swipeCancellationTracker isCancelled]) {
+                *stop = YES;
+                return;
+            }
+            if (phase == NSEventPhaseBegan)
+                this->beginSwipeGesture(targetItem.get(), direction);
+            CGFloat clampedProgress = std::min(std::max(progress, minProgress), maxProgress);
+            this->handleSwipeGesture(targetItem.get(), clampedProgress, direction);
+            if (phase == NSEventPhaseCancelled)
+                swipeCancelled = true;
+            if (phase == NSEventPhaseEnded || phase == NSEventPhaseCancelled)
+                this->willEndSwipeGesture(*targetItem, swipeCancelled);
+            if (isComplete)
+                this->endSwipeGesture(targetItem.get(), swipeCancelled);
+        }];
+        END_BLOCK_OBJC_EXCEPTIONS
+    } else {
+        CheckedRef tracker = *m_swipeProgressTracker;
+        tracker->startTracking(WTF::move(targetItem), direction);
+        tracker->handleEvent(event);
+    }
 }
 
 FloatRect ViewGestureController::windowRelativeBoundsForCustomSwipeViews() const
@@ -398,6 +427,21 @@ void ViewGestureController::applyDebuggingPropertiesToSwipeViews()
     [m_swipeSnapshotLayer setBackgroundColor:RetainPtr { [NSColor greenColor].CGColor }.get()];
     [m_swipeSnapshotLayer setBorderColor:RetainPtr { [NSColor redColor].CGColor }.get()];
     [m_swipeSnapshotLayer setBorderWidth:2];
+}
+
+std::optional<bool> ViewGestureController::platformEventShouldCancelSwipe(PlatformScrollEvent event, FloatSize delta)
+{
+    static constexpr float minimumHorizontalSwipeDistance = 50;
+    static constexpr float minVerticalSwipeHysteresis = 10;
+    static constexpr float maxVerticalSwipeHysteresis = 25;
+
+    if (!event.nativeEvent()) {
+        static constexpr float verticalSwipeTolerance = (minimumHorizontalSwipeDistance - minVerticalSwipeHysteresis) / maxVerticalSwipeHysteresis;
+        float yBoundary = std::min(maxVerticalSwipeHysteresis, std::abs(verticalSwipeTolerance * delta.width()) + minVerticalSwipeHysteresis);
+        return std::abs(delta.height()) >= yBoundary;
+    }
+
+    return std::nullopt;
 }
 
 void ViewGestureController::beginSwipeGesture(WebBackForwardListItem* targetItem, SwipeDirection direction)
@@ -628,6 +672,14 @@ void ViewGestureController::removeSwipeSnapshot()
 
 void ViewGestureController::resetState()
 {
+    if (m_activeGestureType == ViewGestureType::Swipe) {
+        if (RefPtr page = m_webPageProxy.get())
+            page->interruptSyntheticMomentumScrolling();
+    }
+
+    if (m_swipeProgressTracker)
+        protect(*m_swipeProgressTracker)->reset();
+
     if (RefPtr currentSwipeSnapshot = m_currentSwipeSnapshot)
         currentSwipeSnapshot->setVolatile(true);
     m_currentSwipeSnapshot = nullptr;

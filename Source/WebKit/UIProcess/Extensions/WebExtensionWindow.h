@@ -30,10 +30,10 @@
 #include "WebExtensionError.h"
 #include "WebExtensionWindowIdentifier.h"
 #include "WebPageProxyIdentifier.h"
-#include <wtf/Forward.h>
 #include <wtf/Identified.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 #if PLATFORM(COCOA)
 #include <wtf/WeakObjCPtr.h>
 #endif

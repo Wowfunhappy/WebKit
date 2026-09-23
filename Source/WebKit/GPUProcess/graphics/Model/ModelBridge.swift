@@ -24,26 +24,23 @@
 import Metal
 import WebKit
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreRenderer, _version: 11) && compiler(>=6.2)
-@_weakLinked @_spi(UsdLoaderAPI) import _USDKit_RealityKit
-@_spi(RealityCoreRendererAPI) import RealityKit
-@_weakLinked import USDKit
-@_weakLinked @_spi(SwiftAPI) import DirectResource
-@_weakLinked import _USDKit_RealityKit
-@_weakLinked import ShaderGraph
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
+import RealityKit
+import USDKit
+import DirectResource
 #endif
 
 @objc
 @implementation
 extension WKBridgeVertexAttributeFormat {
-    let semantic: Int
-    let format: UInt
+    let semantic: WKBridgeVertexSemantic
+    let format: MTLVertexFormat
     let layoutIndex: Int
     let offset: Int
 
     init(
-        semantic: Int,
-        format: UInt,
+        semantic: WKBridgeVertexSemantic,
+        format: MTLVertexFormat,
         layoutIndex: Int,
         offset: Int
     ) {
@@ -60,15 +57,21 @@ extension WKBridgeVertexLayout {
     let bufferIndex: Int
     let bufferOffset: Int
     let bufferStride: Int
+    let stepFunction: MTLVertexStepFunction
+    let stepRate: Int
 
     init(
         bufferIndex: Int,
         bufferOffset: Int,
-        bufferStride: Int
+        bufferStride: Int,
+        stepFunction: MTLVertexStepFunction,
+        stepRate: Int
     ) {
         self.bufferIndex = bufferIndex
         self.bufferOffset = bufferOffset
         self.bufferStride = bufferStride
+        self.stepFunction = stepFunction
+        self.stepRate = stepRate
     }
 }
 
@@ -135,6 +138,7 @@ extension WKBridgeSkinningData {
     let influenceJointIndicesData: Data?
     let influenceWeightsData: Data?
     let geometryBindTransform: simd_float4x4
+    let rootJointIndicesData: Data?
 
     init(
         influencePerVertexCount: UInt8,
@@ -142,7 +146,8 @@ extension WKBridgeSkinningData {
         inverseBindPoses: Data?,
         influenceJointIndices: Data?,
         influenceWeights: Data?,
-        geometryBindTransform: simd_float4x4
+        geometryBindTransform: simd_float4x4,
+        rootJointIndices: Data?
     ) {
         self.influencePerVertexCount = influencePerVertexCount
         self.jointTransformsData = jointTransforms
@@ -150,6 +155,7 @@ extension WKBridgeSkinningData {
         self.influenceJointIndicesData = influenceJointIndices
         self.influenceWeightsData = influenceWeights
         self.geometryBindTransform = geometryBindTransform
+        self.rootJointIndicesData = rootJointIndices
     }
 }
 
@@ -209,8 +215,63 @@ extension WKBridgeDeformationData {
 
 @objc
 @implementation
+extension WKBridgeTypedResourceId {
+    let value: String
+    let path: String
+    let cachedHashValue: Int
+
+    init(
+        value: UUID,
+        path: String,
+        hashValue: Int
+    ) {
+        self.value = value.uuidString
+        self.path = path
+        self.cachedHashValue = hashValue
+    }
+
+    public override var hash: Int {
+        cachedHashValue
+    }
+
+    public override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? WKBridgeTypedResourceId else {
+            return false
+        }
+        return self.cachedHashValue == other.cachedHashValue
+    }
+
+    public override var description: String {
+        path + "@" + value
+    }
+}
+
+@objc
+@implementation
+extension WKBridgeRemovals {
+    let meshRemovals: [WKBridgeTypedResourceId]
+    let materialRemovals: [WKBridgeTypedResourceId]
+    let textureRemovals: [WKBridgeTypedResourceId]
+
+    func isEmpty() -> Bool {
+        meshRemovals.isEmpty && materialRemovals.isEmpty && textureRemovals.isEmpty
+    }
+
+    init(
+        meshRemovals: [WKBridgeTypedResourceId],
+        materialRemovals: [WKBridgeTypedResourceId],
+        textureRemovals: [WKBridgeTypedResourceId]
+    ) {
+        self.meshRemovals = meshRemovals
+        self.materialRemovals = materialRemovals
+        self.textureRemovals = textureRemovals
+    }
+}
+
+@objc
+@implementation
 extension WKBridgeUpdateMesh {
-    let identifier: String
+    let identifier: WKBridgeTypedResourceId
     let updateType: WKBridgeDataUpdateType
     let descriptor: WKBridgeMeshDescriptor?
     let parts: [WKBridgeMeshPart]
@@ -218,11 +279,11 @@ extension WKBridgeUpdateMesh {
     let vertexData: [Data]
     let instanceTransformsData: Data? // [float4x4]
     let instanceTransformsCount: Int
-    let materialPrims: [String]
+    let assignedMaterials: [WKBridgeTypedResourceId]
     let deformationData: WKBridgeDeformationData?
 
     init(
-        identifier: String,
+        identifier: WKBridgeTypedResourceId,
         updateType: WKBridgeDataUpdateType,
         descriptor: WKBridgeMeshDescriptor?,
         parts: [WKBridgeMeshPart],
@@ -230,7 +291,7 @@ extension WKBridgeUpdateMesh {
         vertexData: [Data],
         instanceTransforms: Data?,
         instanceTransformsCount: Int,
-        materialPrims: [String],
+        assignedMaterials: [WKBridgeTypedResourceId],
         deformationData: WKBridgeDeformationData?
     ) {
         self.identifier = identifier
@@ -241,28 +302,18 @@ extension WKBridgeUpdateMesh {
         self.vertexData = vertexData
         self.instanceTransformsData = instanceTransforms
         self.instanceTransformsCount = instanceTransformsCount
-        self.materialPrims = materialPrims
+        self.assignedMaterials = assignedMaterials
         self.deformationData = deformationData
     }
 }
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreRenderer, _version: 11) && compiler(>=6.2)
-func decodeValues<T>(from data: Data) -> [T] {
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
+func decodeValues<T>(from data: Data) -> [T] where T: BitwiseCopyable {
     let stride = MemoryLayout<T>.stride
-
-    guard data.count > 0, data.count % stride == 0 else {
-        return []
-    }
-
-    return unsafe data.withUnsafeBytes { rawBufferPointer in
-        guard let baseAddress = rawBufferPointer.baseAddress else {
-            return []
-        }
-
-        let count = rawBufferPointer.count / stride
-        let pointer = unsafe baseAddress.assumingMemoryBound(to: T.self)
-        return (0..<count).map { unsafe pointer[$0] }
-    }
+    guard !data.isEmpty, data.count % stride == 0 else { return [] }
+    // rdar://164559261 - this is needed because there is no way to represnt an NSArray of
+    // primitive types in Objective-C
+    return unsafe data.withUnsafeBytes { unsafe Array(unsafe $0.bindMemory(to: T.self)) }
 }
 
 extension WKBridgeBlendShapeData {
@@ -330,7 +381,6 @@ extension WKBridgeImageAsset {
     let width: Int
     let height: Int
     let depth: Int
-    let bytesPerPixel: Int
     let textureType: MTLTextureType
     let pixelFormat: MTLPixelFormat
     let mipmapLevelCount: Int
@@ -343,7 +393,6 @@ extension WKBridgeImageAsset {
         width: Int,
         height: Int,
         depth: Int,
-        bytesPerPixel: Int,
         textureType: MTLTextureType,
         pixelFormat: MTLPixelFormat,
         mipmapLevelCount: Int,
@@ -355,7 +404,6 @@ extension WKBridgeImageAsset {
         self.width = width
         self.height = height
         self.depth = depth
-        self.bytesPerPixel = bytesPerPixel
         self.textureType = textureType
         self.pixelFormat = pixelFormat
         self.mipmapLevelCount = mipmapLevelCount
@@ -367,19 +415,40 @@ extension WKBridgeImageAsset {
 
 @objc
 @implementation
-extension WKBridgeUpdateTexture {
-    let imageAsset: WKBridgeImageAsset?
-    let identifier: String
-    let hashString: String
+extension WKBridgeTextureLevelInfo {
+    let dataOffset: Int
+    let byteCountPerRow: Int
+    let byteCountPerImage: Int
 
     init(
-        imageAsset: WKBridgeImageAsset?,
-        identifier: String,
-        hashString: String
+        dataOffset: Int,
+        byteCountPerRow: Int,
+        byteCountPerImage: Int
+    ) {
+        self.dataOffset = dataOffset
+        self.byteCountPerRow = byteCountPerRow
+        self.byteCountPerImage = byteCountPerImage
+    }
+}
+
+@objc
+@implementation
+extension WKBridgeUpdateTexture {
+    let imageAsset: WKBridgeImageAsset
+    let identifier: WKBridgeTypedResourceId
+    let hashString: String
+    let layout: [WKBridgeTextureLevelInfo]
+
+    init(
+        imageAsset: WKBridgeImageAsset,
+        identifier: WKBridgeTypedResourceId,
+        hashString: String,
+        layout: [WKBridgeTextureLevelInfo]
     ) {
         self.imageAsset = imageAsset
         self.identifier = identifier
         self.hashString = hashString
+        self.layout = layout
     }
 }
 
@@ -387,11 +456,11 @@ extension WKBridgeUpdateTexture {
 @implementation
 extension WKBridgeUpdateMaterial {
     let materialGraph: WKBridgeMaterialGraph?
-    let identifier: String
+    let identifier: WKBridgeTypedResourceId
 
     init(
         materialGraph: WKBridgeMaterialGraph?,
-        identifier: String,
+        identifier: WKBridgeTypedResourceId,
     ) {
         self.materialGraph = materialGraph
         self.identifier = identifier
@@ -403,21 +472,18 @@ extension WKBridgeUpdateMaterial {
 extension WKBridgeInputOutput {
     let type: WKBridgeDataType
     let name: String
-    let semanticType: WKBridgeDataType
-    let hasSemanticType: Bool
+    let semanticTypeName: String?
     let defaultValue: WKBridgeConstantContainer?
 
     init(
         type: WKBridgeDataType,
         name: String,
-        semanticType: WKBridgeDataType,
-        hasSemanticType: Bool,
+        semanticTypeName: String?,
         defaultValue: WKBridgeConstantContainer?
     ) {
         self.type = type
         self.name = name
-        self.semanticType = semanticType
-        self.hasSemanticType = hasSemanticType
+        self.semanticTypeName = semanticTypeName
         self.defaultValue = defaultValue
     }
 }
@@ -428,15 +494,18 @@ extension WKBridgeConstantContainer {
     let constant: WKBridgeConstant
     let constantValues: [WKBridgeValueString]
     let name: String
+    let colorSpaceName: String?
 
     init(
         constant: WKBridgeConstant,
         constantValues: [WKBridgeValueString],
-        name: String
+        name: String,
+        colorSpaceName: String?
     ) {
         self.constant = constant
         self.constantValues = constantValues
         self.name = name
+        self.colorSpaceName = colorSpaceName
     }
 }
 
@@ -521,59 +590,70 @@ extension WKBridgeNode {
 @objc
 @implementation
 extension WKBridgeMaterialGraph {
+    let graphName: String
     let nodes: [WKBridgeNode]
     let edges: [WKBridgeEdge]
     let arguments: WKBridgeNode
     let results: WKBridgeNode
     let inputs: [WKBridgeInputOutput]
     let outputs: [WKBridgeInputOutput]
+    let primvarMappingPrimvarNames: [String]
+    let primvarMappingTexcoordNames: [String]
+    let functionConstantInputNames: [String]
 
     init(
+        graphName: String = "",
         nodes: [WKBridgeNode],
         edges: [WKBridgeEdge],
         arguments: WKBridgeNode,
         results: WKBridgeNode,
         inputs: [WKBridgeInputOutput],
-        outputs: [WKBridgeInputOutput]
+        outputs: [WKBridgeInputOutput],
+        primvarMappingPrimvarNames: [String] = [],
+        primvarMappingTexcoordNames: [String] = [],
+        functionConstantInputNames: [String] = []
     ) {
+        self.graphName = graphName
         self.nodes = nodes
         self.edges = edges
         self.arguments = arguments
         self.results = results
         self.inputs = inputs
         self.outputs = outputs
+        self.primvarMappingPrimvarNames = primvarMappingPrimvarNames
+        self.primvarMappingTexcoordNames = primvarMappingTexcoordNames
+        self.functionConstantInputNames = functionConstantInputNames
     }
 }
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreRenderer, _version: 11) && compiler(>=6.2)
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
 
-internal func toData<T>(_ input: [T]) -> Data {
-    // FIXME: (rdar://164559261) understand/document/remove unsafety
-    unsafe input.withUnsafeBytes { bufferPointer in
-        unsafe Data(bufferPointer)
-    }
+func toData<T>(_ input: [T]) -> Data {
+    // rdar://164559261 - this is needed because there is no way to represnt an NSArray of
+    // primitive types in Objective-C
+    unsafe input.withUnsafeBytes { unsafe Data($0) }
 }
 
-private func toDataArray<T>(_ input: [[T]]) -> [Data] {
+func toDataArray<T>(_ input: [[T]]) -> [Data] {
     input.map { toData($0) }
 }
 
-private func convertSemantic(_ semantic: LowLevelMesh.VertexSemantic) -> Int {
+private func convertSemantic(_ semantic: LowLevelMesh.VertexSemantic) -> WKBridgeVertexSemantic {
     switch semantic {
-    case .position: 0
-    case .color: 1
-    case .normal: 2
-    case .tangent: 3
-    case .bitangent: 4
-    case .uv0: 5
-    case .uv1: 6
-    case .uv2: 7
-    case .uv3: 8
-    case .uv4: 9
-    case .uv5: 10
-    case .uv6: 11
-    case .uv7: 12
-    default: 13
+    case .position: .position
+    case .color: .color
+    case .normal: .normal
+    case .tangent: .tangent
+    case .bitangent: .bitangent
+    case .uv0: .UV0
+    case .uv1: .UV1
+    case .uv2: .UV2
+    case .uv3: .UV3
+    case .uv4: .UV4
+    case .uv5: .UV5
+    case .uv6: .UV6
+    case .uv7: .UV7
+    default: .unspecified
     }
 }
 
@@ -581,7 +661,7 @@ private func webAttributesFromAttributes(_ attributes: [LowLevelMesh.Attribute])
     attributes.map({ a in
         WKBridgeVertexAttributeFormat(
             semantic: convertSemantic(a.semantic),
-            format: a.format.rawValue,
+            format: a.format,
             layoutIndex: a.layoutIndex,
             offset: a.offset
         )
@@ -590,7 +670,13 @@ private func webAttributesFromAttributes(_ attributes: [LowLevelMesh.Attribute])
 
 private func webLayoutsFromLayouts(_ attributes: [LowLevelMesh.Layout]) -> [WKBridgeVertexLayout] {
     attributes.map({ a in
-        WKBridgeVertexLayout(bufferIndex: a.bufferIndex, bufferOffset: a.bufferOffset, bufferStride: a.bufferStride)
+        WKBridgeVertexLayout(
+            bufferIndex: a.bufferIndex,
+            bufferOffset: a.bufferOffset,
+            bufferStride: a.bufferStride,
+            stepFunction: a.stepFunction,
+            stepRate: a.stepRate
+        )
     })
 }
 
@@ -608,184 +694,48 @@ extension WKBridgeMeshDescriptor {
     }
 }
 extension WKBridgeSkinningData {
-    var jointTransforms: [simd_float4x4] {
-        guard let data = jointTransformsData else {
-            return []
-        }
-
-        let jointTransformsCount = data.count / MemoryLayout<simd_float4x4>.size
-        guard jointTransformsCount > 0 else {
-            return []
-        }
-
-        let matrixSize = MemoryLayout<simd_float4x4>.stride
-        let expectedSize = matrixSize * jointTransformsCount
-
-        guard data.count >= expectedSize else {
-            assertionFailure("instanceTransforms data size (\(data.count)) is less than expected (\(expectedSize))")
-            return []
-        }
-
-        return unsafe data.withUnsafeBytes { rawBufferPointer in
-            guard let baseAddress = rawBufferPointer.baseAddress else {
-                return []
-            }
-
-            let matrices = unsafe baseAddress.assumingMemoryBound(to: simd_float4x4.self)
-            return (0..<jointTransformsCount).map { unsafe matrices[$0] }
-        }
-    }
-
-    var inverseBindPoses: [simd_float4x4] {
-        guard let data = inverseBindPosesData else {
-            return []
-        }
-
-        let inverseBindPosesCount = data.count / MemoryLayout<simd_float4x4>.size
-        guard inverseBindPosesCount > 0 else {
-            return []
-        }
-
-        let matrixSize = MemoryLayout<simd_float4x4>.stride
-        let expectedSize = matrixSize * inverseBindPosesCount
-
-        guard data.count >= expectedSize else {
-            assertionFailure("instanceTransforms data size (\(data.count)) is less than expected (\(expectedSize))")
-            return []
-        }
-
-        return unsafe data.withUnsafeBytes { rawBufferPointer in
-            guard let baseAddress = rawBufferPointer.baseAddress else {
-                return []
-            }
-
-            let matrices = unsafe baseAddress.assumingMemoryBound(to: simd_float4x4.self)
-            return (0..<inverseBindPosesCount).map { unsafe matrices[$0] }
-        }
-    }
-
-    var influenceJointIndices: [UInt32] {
-        guard let data = influenceJointIndicesData else {
-            return []
-        }
-
-        let influenceJointIndicesCount = data.count / MemoryLayout<UInt32>.size
-        guard influenceJointIndicesCount > 0 else {
-            return []
-        }
-
-        let matrixSize = MemoryLayout<UInt32>.stride
-        let expectedSize = matrixSize * influenceJointIndicesCount
-
-        guard data.count >= expectedSize else {
-            assertionFailure("instanceTransforms data size (\(data.count)) is less than expected (\(expectedSize))")
-            return []
-        }
-
-        return unsafe data.withUnsafeBytes { rawBufferPointer in
-            guard let baseAddress = rawBufferPointer.baseAddress else {
-                return []
-            }
-
-            let matrices = unsafe baseAddress.assumingMemoryBound(to: UInt32.self)
-            return (0..<influenceJointIndicesCount).map { unsafe matrices[$0] }
-        }
-    }
-
-    var influenceWeights: [Float] {
-        guard let data = influenceWeightsData else {
-            return []
-        }
-
-        let influenceWeightsCount = data.count / MemoryLayout<Float>.size
-        guard influenceWeightsCount > 0 else {
-            return []
-        }
-
-        let matrixSize = MemoryLayout<Float>.stride
-        let expectedSize = matrixSize * influenceWeightsCount
-
-        guard data.count >= expectedSize else {
-            assertionFailure("instanceTransforms data size (\(data.count)) is less than expected (\(expectedSize))")
-            return []
-        }
-
-        #if compiler(>=6.2)
-        return unsafe data.withUnsafeBytes { rawBufferPointer in
-            guard let baseAddress = rawBufferPointer.baseAddress else {
-                return []
-            }
-
-            let matrices = unsafe baseAddress.assumingMemoryBound(to: Float.self)
-            return (0..<influenceWeightsCount).map { unsafe matrices[$0] }
-        }
-        #else
-        return data.withUnsafeBytes { rawBufferPointer in
-            guard let baseAddress = rawBufferPointer.baseAddress else {
-                return []
-            }
-
-            let matrices = baseAddress.assumingMemoryBound(to: Float.self)
-            return (0..<influenceWeightsCount).map { matrices[$0] }
-        }
-        #endif
-    }
-
-    @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1.SkinningData?) {
-        guard let request else {
-            return nil
-        }
-
-        self.init(
-            influencePerVertexCount: request.influencePerVertexCount,
-            jointTransforms: toData(request.jointTransformsCompat()),
-            inverseBindPoses: toData(request.inverseBindPosesCompat()),
-            influenceJointIndices: toData(request.influenceJointIndices),
-            influenceWeights: toData(request.influenceWeights),
-            geometryBindTransform: request.geometryBindTransformCompat()
-        )
-    }
-}
-extension WKBridgeBlendShapeData {
-    @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1.BlendShapeData?) {
-        guard let request else {
-            return nil
-        }
-
-        self.init(
-            weights: toData(request.weights),
-            positionOffsets: toDataArray(request.positionOffsets),
-            normalOffsets: toDataArray(request.normalOffsets)
-        )
-    }
-}
-extension WKBridgeRenormalizationData {
-    @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1.RenormalizationData?) {
-        guard let request else {
-            return nil
-        }
-
-        self.init(
-            vertexIndicesPerTriangle: toData(request.vertexIndicesPerTriangle),
-            vertexAdjacencies: toData(request.vertexAdjacencies),
-            vertexAdjacencyEndIndices: toData(request.vertexAdjacencyEndIndices)
-        )
-    }
+    var jointTransforms: [simd_float4x4] { jointTransformsData.map { decodeValues(from: $0) } ?? [] }
+    var inverseBindPoses: [simd_float4x4] { inverseBindPosesData.map { decodeValues(from: $0) } ?? [] }
+    var influenceJointIndices: [UInt32] { influenceJointIndicesData.map { decodeValues(from: $0) } ?? [] }
+    var influenceWeights: [Float] { influenceWeightsData.map { decodeValues(from: $0) } ?? [] }
+    var rootJointIndices: [UInt32] { rootJointIndicesData.map { decodeValues(from: $0) } ?? [] }
 }
 extension WKBridgeDeformationData {
     @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1?) {
+    convenience init?(_ request: DeformationData?, rootJointIndices: [UInt32] = []) {
         guard let request else {
             return nil
         }
 
+        let skinning = request.skinning.map {
+            WKBridgeSkinningData(
+                influencePerVertexCount: $0.influencePerVertexCount,
+                jointTransforms: toData($0.jointTransforms),
+                inverseBindPoses: toData($0.inverseBindPoses),
+                influenceJointIndices: toData($0.influenceJointIndices),
+                influenceWeights: toData($0.influenceWeights),
+                geometryBindTransform: $0.geometryBindTransform,
+                rootJointIndices: rootJointIndices.isEmpty ? nil : toData(rootJointIndices)
+            )
+        }
+        let blendShape = request.blendShapes.map {
+            WKBridgeBlendShapeData(
+                weights: toData($0.weights),
+                positionOffsets: toDataArray($0.positionOffsets),
+                normalOffsets: []
+            )
+        }
+        let renormalization = request.renormalization.map {
+            WKBridgeRenormalizationData(
+                vertexIndicesPerTriangle: toData($0.vertexIndicesPerTriangle),
+                vertexAdjacencies: toData($0.vertexAdjacencies),
+                vertexAdjacencyEndIndices: toData($0.vertexAdjacencyEndIndices)
+            )
+        }
         self.init(
-            skinningData: .init(request.skinningData),
-            blendShapeData: .init(request.blendShapeData),
-            renormalizationData: .init(request.renormalizationData)
+            skinningData: skinning,
+            blendShapeData: blendShape,
+            renormalizationData: renormalization
         )
     }
 }
@@ -797,7 +747,6 @@ extension WKBridgeImageAsset {
             width: asset.width,
             height: asset.height,
             depth: asset.depth,
-            bytesPerPixel: 0, // client calculates this
             textureType: asset.textureType,
             pixelFormat: asset.pixelFormat,
             mipmapLevelCount: asset.mipmapLevelCount,

@@ -30,8 +30,12 @@ def get_config_file_for_platform(platform):
     return top_level_path('Tools', platform, 'jhbuildrc')
 
 
+def should_use_jhbuild():
+    return os.environ.get('WEBKIT_JHBUILD') == '1'
+
+
 def enter_jhbuild_environment_if_available(platform):
-    if not os.path.exists(get_dependencies_path(platform)):
+    if not should_use_jhbuild() or not os.path.exists(get_dependencies_path(platform)):
         return False
 
     # Sometimes jhbuild chooses to install in a way that reads the library from the source directory, so fall

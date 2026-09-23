@@ -52,7 +52,7 @@ private:
 
     const UniqueRef<RuntimeFrontendDispatcher> m_frontendDispatcher;
     const Ref<RuntimeBackendDispatcher> m_backendDispatcher;
-    JSC::JSGlobalObject& m_globalObject;
+    SUPPRESS_FORWARD_DECL_MEMBER JSC::JSGlobalObject& m_globalObject;
 };
 
 } // namespace Inspector

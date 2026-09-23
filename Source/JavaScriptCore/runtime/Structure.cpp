@@ -44,6 +44,40 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
+template<typename DetailsFunc>
+void Structure::checkOffsetConsistency(PropertyTable* propertyTable, const DetailsFunc& detailsFunc) const
+{
+    // We cannot reliably assert things about the property table in the concurrent
+    // compilation thread. It is possible for the table to be stolen and then have
+    // things added to it, which leads to the offsets being all messed up. We could
+    // get around this by grabbing a lock here, but I think that would be overkill.
+    if (isCompilationThread())
+        return;
+
+    unsigned totalSize = propertyTable->propertyStorageSize();
+    unsigned inlineOverflowAccordingToTotalSize = totalSize < m_inlineCapacity ? 0 : totalSize - m_inlineCapacity;
+
+    auto fail = [&] (const char* description) {
+        dataLog("Detected offset inconsistency: ", description, "!\n");
+        dataLog("this = ", RawPointer(this), "\n");
+        dataLog("transitionOffset = ", transitionOffset(), "\n");
+        dataLog("maxOffset = ", maxOffset(), "\n");
+        dataLog("m_inlineCapacity = ", m_inlineCapacity, "\n");
+        dataLog("propertyTable = ", RawPointer(propertyTable), "\n");
+        dataLog("numberOfSlotsForMaxOffset = ", numberOfSlotsForMaxOffset(maxOffset(), m_inlineCapacity), "\n");
+        dataLog("totalSize = ", totalSize, "\n");
+        dataLog("inlineOverflowAccordingToTotalSize = ", inlineOverflowAccordingToTotalSize, "\n");
+        dataLog("numberOfOutOfLineSlotsForMaxOffset = ", numberOfOutOfLineSlotsForMaxOffset(maxOffset()), "\n");
+        detailsFunc();
+        UNREACHABLE_FOR_PLATFORM();
+    };
+
+    if (numberOfSlotsForMaxOffset(maxOffset(), m_inlineCapacity) != totalSize)
+        fail("numberOfSlotsForMaxOffset doesn't match totalSize");
+    if (inlineOverflowAccordingToTotalSize != numberOfOutOfLineSlotsForMaxOffset(maxOffset()))
+        fail("inlineOverflowAccordingToTotalSize doesn't match numberOfOutOfLineSlotsForMaxOffset");
+}
+
 #if DUMP_STRUCTURE_ID_STATISTICS
 static UncheckedKeyHashSet<Structure*>& liveStructureSet = *(new UncheckedKeyHashSet<Structure*>);
 #endif
@@ -182,6 +216,9 @@ void Structure::validateFlags()
         methodTable.isExtensible != static_cast<MethodTable::IsExtensibleFunctionPtr>(JSObject::isExtensible)
         && methodTable.isExtensible != JSCell::isExtensible;
     RELEASE_ASSERT(overridesIsExtensible == typeInfo().overridesIsExtensible());
+
+    // MasqueradesAsUndefined requires non-null Realm.
+    RELEASE_ASSERT(realm() || !typeInfo().masqueradesAsUndefined());
 }
 #else
 inline void Structure::validateFlags() { }
@@ -201,22 +238,23 @@ Structure::Structure(VM& vm, JSGlobalObject* globalObject, JSValue prototype, co
     , m_inlineCapacity(inlineCapacity)
     , m_bitField(0)
     , m_propertyHash(0)
-    , m_globalObject(globalObject, WriteBarrierEarlyInit)
+    , m_realm(globalObject, WriteBarrierEarlyInit)
     , m_prototype(prototype, WriteBarrierEarlyInit)
     , m_classInfo(classInfo)
     , m_transitionWatchpointSet(IsWatched)
 {
     bool hasStaticNonEnumerableProperty = m_classInfo->hasStaticPropertyWithAnyOfAttributes(static_cast<uint8_t>(PropertyAttribute::DontEnum));
     bool hasStaticNonConfigurableProperty = m_classInfo->hasStaticPropertyWithAnyOfAttributes(static_cast<uint8_t>(PropertyAttribute::DontDelete));
+    bool isArrayStorage = hasAnyArrayStorage(indexingType);
 
     setDictionaryKind(NoneDictionaryKind);
     setIsPinnedPropertyTable(false);
     setHasAnyKindOfGetterSetterProperties(m_classInfo->hasStaticPropertyWithAnyOfAttributes(static_cast<uint8_t>(PropertyAttribute::AccessorOrCustomAccessorOrValue)));
     setHasReadOnlyOrGetterSetterPropertiesExcludingProto(hasAnyKindOfGetterSetterProperties() || m_classInfo->hasStaticPropertyWithAnyOfAttributes(static_cast<uint8_t>(PropertyAttribute::ReadOnly)));
-    setHasNonEnumerableProperties(hasStaticNonEnumerableProperty || typeInfo.overridesGetOwnPropertySlot());
+    setHasNonEnumerableProperties(hasStaticNonEnumerableProperty || typeInfo.overridesGetOwnPropertySlot() || isArrayStorage);
     setHasSpecialProperties(false);
-    setHasNonConfigurableProperties(hasStaticNonConfigurableProperty || typeInfo.overridesGetOwnPropertySlot());
-    setHasNonConfigurableReadOnlyOrGetterSetterProperties(hasStaticNonConfigurableProperty || (typeInfo.overridesGetOwnPropertySlot() && typeInfo.type() != ArrayType));
+    setHasNonConfigurableProperties(hasStaticNonConfigurableProperty || typeInfo.overridesGetOwnPropertySlot() || isArrayStorage);
+    setHasNonConfigurableReadOnlyOrGetterSetterProperties(hasStaticNonConfigurableProperty || (typeInfo.overridesGetOwnPropertySlot() && typeInfo.type() != ArrayType) || isArrayStorage);
     setHasUnderscoreProtoPropertyExcludingOriginalProto(false);
     setIsQuickPropertyAccessAllowedForEnumeration(true);
     setTransitionPropertyAttributes(0);
@@ -336,8 +374,8 @@ Structure::Structure(VM& vm, StructureVariant variant, Structure* previous)
     // Copy this bit now, in case previous was being watched.
     setTransitionWatchpointIsLikelyToBeFired(previous->transitionWatchpointIsLikelyToBeFired());
 
-    if (previous->m_globalObject)
-        m_globalObject.set(vm, this, previous->m_globalObject.get());
+    if (previous->m_realm)
+        m_realm.set(vm, this, previous->m_realm.get());
     ASSERT(hasAnyKindOfGetterSetterProperties() || !m_classInfo->hasStaticPropertyWithAnyOfAttributes(static_cast<uint8_t>(PropertyAttribute::AccessorOrCustomAccessorOrValue)));
     ASSERT(hasReadOnlyOrGetterSetterPropertiesExcludingProto() || !m_classInfo->hasStaticPropertyWithAnyOfAttributes(static_cast<uint8_t>(PropertyAttribute::ReadOnlyOrAccessorOrCustomAccessorOrValue)));
     ASSERT(!this->typeInfo().overridesGetCallData() || m_classInfo->methodTable.getCallData != &JSCell::getCallData);
@@ -726,7 +764,7 @@ Structure* Structure::changeGlobalProxyTargetTransition(VM& vm, Structure* struc
     DeferGC deferGC(vm);
     Structure* transition = Structure::create(vm, structure, &deferred);
 
-    transition->setGlobalObject(vm, globalObject);
+    transition->setRealm(vm, globalObject);
 
     PropertyTable* table = structure->copyPropertyTableForPinning(vm);
     transition->pin(Locker { transition->m_lock }, vm, table);
@@ -1327,6 +1365,11 @@ void Structure::getPropertyNamesFromStructure(VM& vm, PropertyNameArrayBuilder& 
     }
 }
 
+StructureFireDetail::StructureFireDetail(ClangVTableWorkaroundTag)
+    : m_structure(nullptr)
+{
+}
+
 void StructureFireDetail::dump(PrintStream& out) const
 {
     out.print("Structure transition from ", *m_structure);
@@ -1359,14 +1402,14 @@ void Structure::didTransitionFromThisStructure(DeferredStructureTransitionWatchp
 template<typename Visitor>
 void Structure::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    Structure* thisObject = jsCast<Structure*>(cell);
+    Structure* thisObject = uncheckedDowncast<Structure>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
     
     ConcurrentJSLocker locker(thisObject->m_lock);
     
-    visitor.append(thisObject->m_globalObject);
+    visitor.append(thisObject->m_realm);
     if (!thisObject->isObject()) {
         // We do not need to clear JSPropertyNameEnumerator since it is never cached for non-object Structure.
         // We do not have code clearing JSPropertyNameEnumerator since this function can be called concurrently.
@@ -1390,8 +1433,21 @@ void Structure::visitChildrenImpl(JSCell* cell, Visitor& visitor)
     else if (thisObject->m_propertyTableUnsafe)
         thisObject->m_propertyTableUnsafe.clear();
 
-    if (thisObject->isBrandedStructure())
+    switch (thisObject->variant()) {
+    case StructureVariant::Normal:
+        break;
+    case StructureVariant::Branded:
         BrandedStructure::visitAdditionalChildren(cell, visitor);
+        break;
+    case StructureVariant::WebAssemblyGC:
+#if ENABLE(WEBASSEMBLY)
+        WebAssemblyGCStructure::visitAdditionalChildren(cell, visitor);
+        break;
+#endif
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        break;
+    }
 
     // Mark only in non Full collection. In full collection, we handle it as a weak-link.
     if (!(visitor.heap()->collectionScope() == CollectionScope::Full)) {
@@ -1409,7 +1465,7 @@ ALWAYS_INLINE bool Structure::isCheapDuringGC(Visitor& visitor)
     // has any large property names.
     // https://bugs.webkit.org/show_bug.cgi?id=157334
     
-    return (!m_globalObject || visitor.isMarked(m_globalObject.get()))
+    return (!m_realm || visitor.isMarked(m_realm.get()))
         && (hasPolyProto() || !storedPrototypeObject() || visitor.isMarked(storedPrototypeObject()));
 }
 
@@ -1753,6 +1809,21 @@ void dumpTransitionKind(PrintStream& out, TransitionKind kind)
 
     out.print(kindName);
 }
+
+void Structure::checkOffsetConsistency() const
+{
+    if (auto* propertyTable = propertyTableOrNull())
+        checkOffsetConsistency(propertyTable, [] { });
+    else
+        ASSERT(!isPinnedPropertyTable());
+}
+
+#if ASSERT_ENABLED
+void Structure::checkConsistency()
+{
+    checkOffsetConsistency();
+}
+#endif
 
 } // namespace JSC
 

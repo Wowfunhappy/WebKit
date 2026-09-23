@@ -19,14 +19,16 @@ fast/forms/datalist/datalist-fallback-content.html [ Pass ]
 # Tests which pass only with form control refresh enabled (support added in Tahoe)
 fast/forms/appearance-default-button.html  [ Skip ]
 fast/forms/form-control-refresh [ Skip ]
+fast/forms/vertical-writing-mode/select-menulist.html [ Skip ]
+fast/forms/vertical-writing-mode/select-menulist-rtl.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-ui/button-author-level-padding-applies.html [ Skip ]
 
 # Tests which pass only with form control refresh disabled (support added in Tahoe)
 fast/forms/datalist/input-appearance-range-with-datalist-rtl.html [ Pass ]
 
 # Test only passes with AppKit support for scrollbar color, added in Tahoe
-fast/scrolling/mac/scrollbars/scrollbar-color.html [ Skip ]
-fast/scrolling/mac/scrollbars/scrollbar-color-body.html [ Skip ]
+fast/scrolling/scrollbars/scrollbar-color.html [ Skip ]
+fast/scrolling/scrollbars/scrollbar-color-body.html [ Skip ]
 
 imported/w3c/web-platform-tests/mixed-content/gen/top.http-rp/opt-in/sharedworker-import-data.https.html [ Skip ]
 imported/w3c/web-platform-tests/mixed-content/gen/top.meta/opt-in/sharedworker-import-data.https.html [ Skip ]

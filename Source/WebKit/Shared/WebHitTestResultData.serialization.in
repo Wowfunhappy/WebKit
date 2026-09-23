@@ -39,6 +39,7 @@ struct WebKit::WebHitTestResultData {
     String absolutePDFURL;
     String absoluteLinkURL;
     String absoluteMediaURL;
+    String absoluteModelURL;
     String linkLabel;
     String linkTitle;
     String linkSuggestedFilename;

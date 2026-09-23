@@ -871,7 +871,8 @@ angle::Result IncompleteTextureSet::getIncompleteTexture(
             mutableContext, gl::BufferBinding::Texture, &kBufferInitData, sizeof(kBufferInitData),
             gl::BufferUsage::StaticDraw));
     }
-    else if (createType == gl::TextureType::_2DMultisample)
+    else if (createType == gl::TextureType::_2DMultisample ||
+             createType == gl::TextureType::_2DMultisampleArray)
     {
         ANGLE_TRY(t->setStorageMultisample(mutableContext, createType, 1,
                                            incompleteTextureParam.sizedInternalFormat, colorSize,
@@ -910,15 +911,18 @@ angle::Result IncompleteTextureSet::getIncompleteTexture(
                                  incompleteTextureParam.format, incompleteTextureParam.type,
                                  *incompleteCubeArrayPixels));
     }
-    else if (type == gl::TextureType::_2DMultisample)
+    else if (type == gl::TextureType::_2DMultisample ||
+             type == gl::TextureType::_2DMultisampleArray)
     {
         // Call a specialized clear function to init a multisample texture.
         ANGLE_TRY(multisampleInitializer->initializeMultisampleTextureToBlack(context, t.get()));
+        // The above initialization is invisible to the front-end
+        t->setInitState(gl::InitState::Initialized);
     }
     else if (type == gl::TextureType::Buffer)
     {
         ASSERT(incompleteTextureBufferAttachment != nullptr);
-        ANGLE_TRY(t->setBuffer(context, incompleteTextureBufferAttachment,
+        ANGLE_TRY(t->setBuffer(mutableContext, incompleteTextureBufferAttachment,
                                incompleteTextureParam.sizedInternalFormat));
     }
     else
@@ -1611,7 +1615,15 @@ angle::Result GetVertexRangeInfo(const gl::Context *context,
             context->getState().isPrimitiveRestartEnabled(), &indexRange));
         ANGLE_TRY(ComputeStartVertex(context->getImplementation(), indexRange, baseVertex,
                                      startVertexOut));
-        *vertexCountOut = indexRange.vertexCount();
+
+        // Protect against requiring 64-bits to store a draw count. Most math is done in size_t and
+        // not safe on 32-bit systems. This would require a UINT_MAX index when primitive restart is
+        // disabled.
+        uint64_t vertexCount = indexRange.vertexCount();
+        ANGLE_CHECK_GL_MATH(context->getImplementation(),
+                            vertexCount <= std::numeric_limits<GLuint>::max());
+
+        *vertexCountOut = static_cast<size_t>(vertexCount);
     }
     else
     {
@@ -2106,6 +2118,26 @@ angle::FormatID ConvertToSRGB(angle::FormatID formatID)
             return angle::FormatID::ASTC_12x10_SRGB_BLOCK;
         case angle::FormatID::ASTC_12x12_UNORM_BLOCK:
             return angle::FormatID::ASTC_12x12_SRGB_BLOCK;
+        case angle::FormatID::ASTC_3x3x3_UNORM_BLOCK:
+            return angle::FormatID::ASTC_3x3x3_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_4x3x3_UNORM_BLOCK:
+            return angle::FormatID::ASTC_4x3x3_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_4x4x3_UNORM_BLOCK:
+            return angle::FormatID::ASTC_4x4x3_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_4x4x4_UNORM_BLOCK:
+            return angle::FormatID::ASTC_4x4x4_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_5x4x4_UNORM_BLOCK:
+            return angle::FormatID::ASTC_5x4x4_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_5x5x4_UNORM_BLOCK:
+            return angle::FormatID::ASTC_5x5x4_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_5x5x5_UNORM_BLOCK:
+            return angle::FormatID::ASTC_5x5x5_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_6x5x5_UNORM_BLOCK:
+            return angle::FormatID::ASTC_6x5x5_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_6x6x5_UNORM_BLOCK:
+            return angle::FormatID::ASTC_6x6x5_UNORM_SRGB_BLOCK;
+        case angle::FormatID::ASTC_6x6x6_UNORM_BLOCK:
+            return angle::FormatID::ASTC_6x6x6_UNORM_SRGB_BLOCK;
         default:
             return angle::FormatID::NONE;
     }
@@ -2169,6 +2201,26 @@ angle::FormatID ConvertToLinear(angle::FormatID formatID)
             return angle::FormatID::ASTC_12x10_UNORM_BLOCK;
         case angle::FormatID::ASTC_12x12_SRGB_BLOCK:
             return angle::FormatID::ASTC_12x12_UNORM_BLOCK;
+        case angle::FormatID::ASTC_3x3x3_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_3x3x3_UNORM_BLOCK;
+        case angle::FormatID::ASTC_4x3x3_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_4x3x3_UNORM_BLOCK;
+        case angle::FormatID::ASTC_4x4x3_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_4x4x3_UNORM_BLOCK;
+        case angle::FormatID::ASTC_4x4x4_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_4x4x4_UNORM_BLOCK;
+        case angle::FormatID::ASTC_5x4x4_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_5x4x4_UNORM_BLOCK;
+        case angle::FormatID::ASTC_5x5x4_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_5x5x4_UNORM_BLOCK;
+        case angle::FormatID::ASTC_5x5x5_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_5x5x5_UNORM_BLOCK;
+        case angle::FormatID::ASTC_6x5x5_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_6x5x5_UNORM_BLOCK;
+        case angle::FormatID::ASTC_6x6x5_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_6x6x5_UNORM_BLOCK;
+        case angle::FormatID::ASTC_6x6x6_UNORM_SRGB_BLOCK:
+            return angle::FormatID::ASTC_6x6x6_UNORM_BLOCK;
         default:
             return angle::FormatID::NONE;
     }
@@ -2402,9 +2454,20 @@ bool TextureRedefineLevel(const TextureLevelAllocation levelAllocation,
     // so it can be recreated immediately.  This is needed so that the texture can be reallocated
     // with the correct format/size.
     //
-    // This is not done for cubemaps because every face may be separately redefined.  Note
-    // that this is not possible for texture arrays in general.
-    bool shouldReleaseImage = !isCompatibleRedefinition && isUpdateToSingleLevelImage && !isCubeMap;
+    // For cubemaps, every face may be separately redefined, so only release the image if all faces
+    // have been redefined.  Note that this is not possible for texture arrays in general.
+    bool shouldReleaseImage = !isCompatibleRedefinition && isUpdateToSingleLevelImage;
+    if (shouldReleaseImage && isCubeMap)
+    {
+        for (uint32_t face = 0; face < 6; ++face)
+        {
+            if (!(*redefinedLevels)[face][levelIndexGL.get()])
+            {
+                shouldReleaseImage = false;
+                break;
+            }
+        }
+    }
     return shouldReleaseImage;
 }
 

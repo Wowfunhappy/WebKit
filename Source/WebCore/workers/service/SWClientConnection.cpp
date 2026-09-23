@@ -211,7 +211,7 @@ void SWClientConnection::setRegistrationLastUpdateTime(ServiceWorkerRegistration
 
     for (auto& document : Document::allDocuments()) {
         if (RefPtr container = document->serviceWorkerContainer()) {
-            if (RefPtr registration = container->registration(identifier))
+            if (auto* registration = container->registration(identifier))
                 registration->setLastUpdateTime(lastUpdateTime);
         }
     }
@@ -219,7 +219,7 @@ void SWClientConnection::setRegistrationLastUpdateTime(ServiceWorkerRegistration
     forDedicatedAndSharedWorkers([identifier, lastUpdateTime] {
         return [identifier, lastUpdateTime] (auto& context) {
             if (RefPtr container = context.serviceWorkerContainer()) {
-                if (RefPtr registration = container->registration(identifier))
+                if (auto* registration = container->registration(identifier))
                     registration->setLastUpdateTime(lastUpdateTime);
             }
         };
@@ -232,7 +232,7 @@ void SWClientConnection::setRegistrationUpdateViaCache(ServiceWorkerRegistration
 
     for (auto& document : Document::allDocuments()) {
         if (RefPtr container = document->serviceWorkerContainer()) {
-            if (RefPtr registration = container->registration(identifier))
+            if (auto* registration = container->registration(identifier))
                 registration->setUpdateViaCache(updateViaCache);
         }
     }

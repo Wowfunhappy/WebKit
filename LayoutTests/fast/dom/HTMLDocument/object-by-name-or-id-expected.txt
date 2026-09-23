@@ -1,4 +1,4 @@
-This tests when object elements are accessible by name or id directly as properties of the document object. IE allows this only if the object has not child nodes other than param and whitespace anonymous text. A PASS result means that behavior matches IE. WebKit’s results for comments differ.
+This tests that object elements are accessible by name or id directly as properties of the document object. Per the HTML spec and Chrome/Firefox behavior, an object element is “exposed” as long as it does not have an exposed object ancestor and does not contain any descendant object or embed elements.
 
 Results:
 

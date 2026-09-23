@@ -44,22 +44,15 @@ enum class CursorDirection : uint8_t {
     Prev,
     Prevunique,
 };
-const unsigned CursorDirectionMaximum = 3;
 
 enum class CursorType : bool {
     KeyAndValue,
     KeyOnly,
 };
-const unsigned CursorTypeMaximum = 1;
 
 enum class CursorSource : bool {
     Index,
     ObjectStore,
-};
-
-enum class VersionNullness : uint8_t {
-    Null,
-    NonNull,
 };
 
 enum class ObjectStoreOverwriteMode : uint8_t {
@@ -96,9 +89,10 @@ enum class RequestType : uint8_t {
     Other,
 };
 
-enum class GetAllType : bool {
+enum class GetAllType : uint8_t {
     Keys,
     Values,
+    Records
 };
 
 enum class ConnectionClosedOnBehalfOfServer : bool { No, Yes };

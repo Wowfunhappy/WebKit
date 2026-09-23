@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleScrollFunction.h>
 #include <WebCore/StyleValueTypes.h>
 #include <WebCore/StyleViewFunction.h>
@@ -44,7 +45,7 @@ struct SingleAnimationTimeline {
     {
     }
 
-    SingleAnimationTimeline(CustomIdentifier&& identifier)
+    SingleAnimationTimeline(CustomIdent&& identifier)
         : m_value { identifier }
     {
     }
@@ -61,8 +62,8 @@ struct SingleAnimationTimeline {
 
     bool isAuto() const { return std::holds_alternative<CSS::Keyword::Auto>(m_value); }
     bool isNone() const { return std::holds_alternative<CSS::Keyword::None>(m_value); }
-    bool isCustomIdentifier() const { return std::holds_alternative<CustomIdentifier>(m_value); }
-    std::optional<CustomIdentifier> tryCustomIdentifier() const { return isCustomIdentifier() ? std::make_optional(std::get<CustomIdentifier>(m_value)) : std::nullopt; }
+    bool isCustomIdent() const { return std::holds_alternative<CustomIdent>(m_value); }
+    std::optional<CustomIdent> tryCustomIdent() const { return isCustomIdent() ? std::make_optional(std::get<CustomIdent>(m_value)) : std::nullopt; }
     bool isScrollFunction() const { return std::holds_alternative<ScrollFunction>(m_value); }
     std::optional<ScrollFunction> tryScrollFunction() const { return isScrollFunction() ? std::make_optional(std::get<ScrollFunction>(m_value)) : std::nullopt; }
     bool isViewFunction() const { return std::holds_alternative<ViewFunction>(m_value); }
@@ -76,7 +77,7 @@ struct SingleAnimationTimeline {
     bool operator==(const SingleAnimationTimeline&) const = default;
 
 private:
-    Variant<CSS::Keyword::Auto, CSS::Keyword::None, CustomIdentifier, ScrollFunction, ViewFunction> m_value;
+    Variant<CSS::Keyword::Auto, CSS::Keyword::None, CustomIdent, ScrollFunction, ViewFunction> m_value;
 };
 
 // MARK: - Conversion

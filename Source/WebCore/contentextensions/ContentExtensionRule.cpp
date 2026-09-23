@@ -77,7 +77,7 @@ template<typename... Types> struct VariantDeserializer<Variant<Types...>> {
     {
         return VariantDeserializerHelper<sizeof...(Types) - 1, Types...>::deserialize(span, i);
     }
-    static size_t serializedLength(std::span<const uint8_t> span, size_t i)
+    static size_t NODELETE serializedLength(std::span<const uint8_t> span, size_t i)
     {
         return VariantDeserializerHelper<sizeof...(Types) - 1, Types...>::serializedLength(span, i);
     }

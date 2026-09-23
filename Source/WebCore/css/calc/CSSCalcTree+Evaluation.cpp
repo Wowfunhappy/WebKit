@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,12 @@
 #include "CSSCalcTree+Mappings.h"
 #include "CSSCalcTree+Simplification.h"
 #include "CSSCalcTree.h"
+#include "CSSCalcType.h"
 #include "CSSUnevaluatedCalc.h"
-#include "RenderStyle.h"
 #include "StyleBuilderState.h"
+#include "StyleComputedStyle.h"
+#include "StyleCustomIdent.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
 
 namespace WebCore {
 namespace CSSCalc {
@@ -52,10 +55,15 @@ static auto evaluate(const SiblingCount&, const EvaluationOptions&) -> std::opti
 static auto evaluate(const SiblingIndex&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Sum>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Product>&, const EvaluationOptions&) -> std::optional<double>;
+static auto evaluate(const IndirectNode<Deg2Rad>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Min>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Max>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Hypot>&, const EvaluationOptions&) -> std::optional<double>;
+static auto evaluate(const IndirectNode<Sin>&, const EvaluationOptions&) -> std::optional<double>;
+static auto evaluate(const IndirectNode<Cos>&, const EvaluationOptions&) -> std::optional<double>;
+static auto evaluate(const IndirectNode<Tan>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Random>&, const EvaluationOptions&) -> std::optional<double>;
+static auto evaluate(const IndirectNode<CalcMix>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Anchor>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<AnchorSize>&, const EvaluationOptions&) -> std::optional<double>;
 template<typename Op>
@@ -192,6 +200,41 @@ std::optional<double> evaluate(const IndirectNode<Hypot>& root, const Evaluation
     return executeVariadicMathOperationAfterUnwrapping(root, options);
 }
 
+std::optional<double> evaluate(const IndirectNode<Deg2Rad>& root, const EvaluationOptions& options)
+{
+    // The canonical unit for <angle> is degrees, so `evaluate(root->angle, ...)` returns a value
+    // in degrees. Deg2Rad converts that into radians so trig functions can be evaluated directly.
+    auto angle = evaluate(root->angle, options);
+    if (!angle)
+        return std::nullopt;
+    return deg2rad(*angle);
+}
+
+template<typename Op> static std::optional<double> evaluateTrig(const IndirectNode<Op>& root, const EvaluationOptions& options)
+{
+    // `root->a` is either a <number> or a Deg2Rad-wrapped <angle> subtree. Either way, evaluating
+    // it yields a plain double in radians, so we can pass it directly to the trig operator.
+    auto radians = evaluate(root->a, options);
+    if (!radians)
+        return std::nullopt;
+    return executeOperation<ToCalculationTreeOp<Op>::op>(*radians);
+}
+
+std::optional<double> evaluate(const IndirectNode<Sin>& root, const EvaluationOptions& options)
+{
+    return evaluateTrig(root, options);
+}
+
+std::optional<double> evaluate(const IndirectNode<Cos>& root, const EvaluationOptions& options)
+{
+    return evaluateTrig(root, options);
+}
+
+std::optional<double> evaluate(const IndirectNode<Tan>& root, const EvaluationOptions& options)
+{
+    return evaluateTrig(root, options);
+}
+
 std::optional<double> evaluate(const IndirectNode<Random>& root, const EvaluationOptions& options)
 {
     if (!options.conversionData || !options.conversionData->styleBuilderState())
@@ -202,38 +245,82 @@ std::optional<double> evaluate(const IndirectNode<Random>& root, const Evaluatio
         return { };
 
     auto max = evaluate(root->max, options);
-    if (!min)
+    if (!max)
         return { };
 
     auto step = evaluate(root->step, options);
     if (!step)
         return { };
 
+    CheckedPtr builderState = options.conversionData->styleBuilderState();
+
     auto randomBaseValue = WTF::switchOn(root->sharing,
         [&](const Random::SharingOptions& sharingOptions) -> std::optional<double> {
-            if (!sharingOptions.elementShared.has_value() && !options.conversionData->styleBuilderState()->element())
+            if (sharingOptions.elementScoped.has_value() && !builderState->element())
                 return { };
 
-            return protect(options.conversionData->styleBuilderState())->lookupCSSRandomBaseValue(
-                sharingOptions.identifier,
-                sharingOptions.elementShared
+            return WTF::switchOn(sharingOptions.identifier,
+                [&](const Random::SharingOptions::Auto& autoValue) {
+                    return builderState->lookupCSSRandomBaseValue(
+                        autoValue,
+                        sharingOptions.elementScoped
+                    );
+                },
+                [&](const CSS::CustomIdent& customIdent) {
+                    return builderState->lookupCSSRandomBaseValue(
+                        Style::toStyle(customIdent, *builderState),
+                        sharingOptions.elementScoped
+                    );
+                }
             );
         },
         [&](const Random::SharingFixed& sharingFixed) -> std::optional<double> {
-            return WTF::switchOn(sharingFixed.value,
-                [&](const CSS::Number<CSS::ClosedUnitRange>::Raw& raw) -> std::optional<double> {
-                    return raw.value;
-                },
-                [&](const CSS::Number<CSS::ClosedUnitRange>::Calc& calc) -> std::optional<double> {
-                    return calc.evaluate(CSS::Category::Number, *protect(options.conversionData->styleBuilderState()));
-                }
-            );
+            return Style::toStyle(sharingFixed.value, *builderState).value;
         }
     );
     if (!randomBaseValue)
         return { };
 
     return executeOperation<ToCalculationTreeOp<Random>::op>(*randomBaseValue, *min, *max, *step);
+}
+
+std::optional<double> evaluate(const IndirectNode<CalcMix>& root, const EvaluationOptions& options)
+{
+    if (!options.conversionData || !options.conversionData->styleBuilderState())
+        return { };
+
+    CheckedPtr builderState = options.conversionData->styleBuilderState();
+
+    unsigned numberOfOmittedWeights = 0;
+    double total = 0.0;
+
+    struct EvaluatedItem {
+        double value;
+        std::optional<double> weight;
+    };
+    Vector<EvaluatedItem, 8> evaluatedItems;
+
+    for (auto& item : root->children) {
+        auto value = evaluate(item.value, options);
+        if (!value)
+            return { };
+
+        std::optional<double> weight;
+        if (item.weight) {
+            weight = Style::toStyle(*item.weight, *builderState).value;
+            total += *weight;
+        } else
+            ++numberOfOmittedWeights;
+
+        evaluatedItems.append(EvaluatedItem { *value, weight });
+    }
+
+    auto weightForOmitted = numberOfOmittedWeights > 0 ? (100.0 - std::min(total, 100.0)) / static_cast<double>(numberOfOmittedWeights) : 0.0;
+    auto normalizationFactor = total > 100.0 ? (100.0 / total) : 1.0;
+
+    return executeOperation<ToCalculationTreeOp<CalcMix>::op>(evaluatedItems, [&](const auto& item) -> std::pair<double, double> {
+        return { item.value, item.weight.value_or(weightForOmitted) * normalizationFactor };
+    });
 }
 
 std::optional<double> evaluate(const IndirectNode<Anchor>& anchor, const EvaluationOptions& options)
@@ -263,9 +350,9 @@ std::optional<double> evaluate(const IndirectNode<AnchorSize>& anchorSize, const
     CheckedPtr builderState = options.conversionData->styleBuilderState();
 
     std::optional<Style::ScopedName> anchorSizeScopedName;
-    if (!anchorSize->elementName.isNull()) {
+    if (anchorSize->elementName) {
         anchorSizeScopedName = Style::ScopedName {
-            .name = anchorSize->elementName,
+            .name = Style::toStyle(*anchorSize->elementName, *builderState).value,
             .scopeOrdinal = builderState->styleScopeOrdinal()
         };
     }
@@ -305,9 +392,9 @@ std::optional<double> evaluateWithoutFallback(const Anchor& anchor, const Evalua
     );
 
     std::optional<Style::ScopedName> anchorScopedName;
-    if (!anchor.elementName.isNull()) {
+    if (anchor.elementName) {
         anchorScopedName = Style::ScopedName {
-            .name = anchor.elementName,
+            .name = Style::toStyle(*anchor.elementName, *builderState).value,
             .scopeOrdinal = builderState->styleScopeOrdinal()
         };
     }

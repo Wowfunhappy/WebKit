@@ -28,6 +28,7 @@
 
 #include "Exception.h"
 #include "JSCJSValue.h"
+#include "JSGlobalObject.h"
 #include "JSGlobalObjectInspectorController.h"
 #include "JSValueRef.h"
 #include "TopExceptionScope.h"

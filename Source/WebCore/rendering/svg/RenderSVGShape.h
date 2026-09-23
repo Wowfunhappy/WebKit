@@ -61,7 +61,7 @@ public:
         GlobalCoordinateSpace,
         LocalCoordinateSpace
     };
-    RenderSVGShape(Type, SVGGraphicsElement&, RenderStyle&&);
+    RenderSVGShape(Type, SVGGraphicsElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGShape();
 
     inline SVGGraphicsElement& graphicsElement() const;
@@ -88,6 +88,9 @@ public:
 
     ShapeType shapeType() const { return m_shapeType; }
 
+    bool fillRequiresClip() const { return m_fillRequiresClip; }
+    void setFillRequiresClip(bool fillRequiresClip) const { m_fillRequiresClip = fillRequiresClip; }
+
     FloatRect objectBoundingBox() const final { return m_fillBoundingBox; }
     FloatRect strokeBoundingBox() const final;
     FloatRect approximateStrokeBoundingBox() const;
@@ -96,7 +99,7 @@ public:
 
     bool needsHasSVGTransformFlags() const final;
 
-    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
 
     AffineTransform nonScalingStrokeTransform() const;
 
@@ -137,12 +140,12 @@ private:
     
     std::unique_ptr<Path> createPath() const;
 
-    void fillShape(const RenderStyle&, GraphicsContext&);
-    void strokeShape(const RenderStyle&, GraphicsContext&);
+    void fillShape(const Style::ComputedStyle&, GraphicsContext&);
+    void strokeShape(const Style::ComputedStyle&, GraphicsContext&);
     void fillStrokeMarkers(PaintInfo&);
     virtual void drawMarkers(PaintInfo&) { }
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
 
     FloatRect calculateApproximateStrokeBoundingBox() const;
 
@@ -152,6 +155,7 @@ protected:
     mutable Markable<FloatRect> m_approximateStrokeBoundingBox;
 private:
     bool m_needsShapeUpdate { true };
+    mutable bool m_fillRequiresClip : 1 { true };
 protected:
     ShapeType m_shapeType : 3 { ShapeType::Empty };
 private:

@@ -43,7 +43,7 @@ namespace WebCore {
 namespace {
 
 template<typename CharacterType>
-static bool isVCHAR(CharacterType c)
+static bool NODELETE isVCHAR(CharacterType c)
 {
     return c >= 0x21 && c <= 0x7e;
 }
@@ -115,7 +115,7 @@ std::optional<Vector<EncodedResourceCryptographicDigest>> parseIntegrityMetadata
     return result;
 }
 
-static bool isResponseEligible(const CachedResource& resource)
+static bool NODELETE isResponseEligible(const CachedResource& resource)
 {
     // FIXME: The spec says this should check XXX.
     return resource.isCORSSameOrigin();

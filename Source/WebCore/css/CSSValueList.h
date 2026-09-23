@@ -23,7 +23,6 @@
 #include <WebCore/CSSValue.h>
 #include <array>
 #include <ranges>
-#include <unicode/umachine.h>
 #include <wtf/MallocSpan.h>
 
 namespace WebCore {
@@ -124,6 +123,8 @@ public:
 
     String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSValueList&) const;
+
+    Ref<DeprecatedCSSOMValue> customCreateDeprecatedCSSOMWrapper(CSSStyleDeclaration&) const;
 
 private:
     friend void add(Hasher&, const CSSValueList&);

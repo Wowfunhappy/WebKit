@@ -387,7 +387,7 @@ def preparePlayStationTestRunner(runlist, serialPlans, completedPlans)
 end
 
 class PlaystationTestRunner < TestRunner
-    def prepareRunner(runlist, serialPlans, completedPlans, remoteHosts)
+    def prepareRunner(runlist, serialPlans, exclusivePlans, completedPlans, remoteHosts)
         File.open(@runnerDir + "runscript", "w") {
             | outp |
             runlist.each {

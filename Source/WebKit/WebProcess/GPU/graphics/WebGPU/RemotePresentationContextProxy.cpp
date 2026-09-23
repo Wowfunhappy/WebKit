@@ -79,7 +79,7 @@ RefPtr<WebCore::WebGPU::Texture> RemotePresentationContextProxy::getCurrentTextu
 
         m_currentTexture[frameIndex] = RemoteTextureProxy::create(protect(root()), m_convertToBackingContext, identifier, true);
     } else
-        RefPtr { m_currentTexture[frameIndex] }->undestroy();
+        protect(m_currentTexture[frameIndex])->undestroy();
 
     return m_currentTexture[frameIndex];
 }

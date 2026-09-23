@@ -8,5 +8,5 @@ PASS Property font-family value 'serif, sans-serif, cursive, fantasy, monospace'
 PASS Property font-family value 'Helvetica, Verdana, sans-serif'
 PASS Property font-family value '"New Century Schoolbook", serif'
 PASS Property font-family value '"21st Century", fantasy'
-FAIL Property font-family value '"inherit", "serif"' assert_equals: expected "\"inherit\", \"serif\"" but got "inherit, serif"
+PASS Property font-family value '"inherit", "serif"'
 

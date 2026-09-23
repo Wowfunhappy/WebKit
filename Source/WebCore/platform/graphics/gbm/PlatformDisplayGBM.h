@@ -45,4 +45,6 @@ private:
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_PLATFORM_DISPLAY(PlatformDisplayGBM, GBM)
+
 #endif // USE(GBM)

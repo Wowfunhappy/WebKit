@@ -26,6 +26,8 @@
 #include "config.h"
 #include "TextExtractionURLCache.h"
 
+#include <wtf/text/MakeString.h>
+
 namespace WebKit {
 
 void TextExtractionURLCache::clear()

@@ -27,6 +27,7 @@
 #include "WebXRHitTestSource.h"
 
 #include "WebXRSession.h"
+#include "WebXRSpace.h"
 #include <wtf/Ref.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -57,7 +58,7 @@ ExceptionOr<void> WebXRHitTestSource::cancel()
 {
     if (!m_source)
         return Exception { ExceptionCode::InvalidStateError };
-    RefPtr session = m_session.get();
+    RefPtr session { m_session };
     if (!session)
         return Exception { ExceptionCode::InvalidStateError };
 

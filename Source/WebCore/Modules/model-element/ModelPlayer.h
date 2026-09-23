@@ -45,32 +45,43 @@
 #include <WebCore/StageModeOperations.h>
 #endif
 
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+#include <WebCore/PlatformDynamicRangeLimit.h>
+#endif
+
 namespace WebCore {
 
 class FloatPoint3D;
 class GraphicsLayer;
+class ImageBuffer;
 class Model;
 class ModelPlayerAnimationState;
 class ModelPlayerTransformState;
 class SharedBuffer;
 class TransformationMatrix;
 
+class DestinationColorSpace;
+class FloatSize;
 struct ModelPlayerGraphicsLayerConfiguration;
 
-class WEBCORE_EXPORT ModelPlayer : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ModelPlayer> {
+class WEBCORE_EXPORT ModelPlayer : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ModelPlayer, WTF::DestructionThread::Main> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(ModelPlayer, WEBCORE_EXPORT);
 public:
     virtual ~ModelPlayer();
 
     virtual ModelPlayerIdentifier identifier() const = 0;
     virtual bool NODELETE isPlaceholder() const;
+    virtual bool NODELETE isWebModelPlayerInstance() const;
 
     // Loading.
-    virtual void load(Model&, LayoutSize) = 0;
+    virtual void load(Model&, LayoutSize, bool) = 0;
     virtual void NODELETE reload(Model&, LayoutSize, ModelPlayerAnimationState&, std::unique_ptr<ModelPlayerTransformState>&&);
 
     // Graphics.
     virtual void configureGraphicsLayer(GraphicsLayer&, ModelPlayerGraphicsLayerConfiguration&&) = 0;
+    virtual void NODELETE adoptContentsDisplayDelegateFrom(ModelPlayer&);
+
+    virtual RefPtr<ImageBuffer> snapshotCurrentFrame(const FloatSize& deviceSize, const DestinationColorSpace&);
 
     // State changes.
     virtual void NODELETE visibilityStateDidChange();
@@ -119,12 +130,6 @@ public:
     virtual void animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&&) = 0;
     virtual void setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&) = 0;
 
-    virtual void hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&) = 0;
-    virtual void isMuted(CompletionHandler<void(std::optional<bool>&&)>&&) = 0;
-    virtual void setIsMuted(bool, CompletionHandler<void(bool success)>&&) = 0;
-
-    virtual String inlinePreviewUUIDForTesting() const;
-
 #if ENABLE(MODEL_ELEMENT_ACCESSIBILITY)
     virtual ModelPlayerAccessibilityChildren accessibilityChildren() = 0;
 #endif
@@ -155,6 +160,11 @@ public:
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     virtual void ensureImmersivePresentation(CompletionHandler<void(std::optional<LayerHostingContextIdentifier>)>&&);
     virtual void exitImmersivePresentation(CompletionHandler<void()>&&);
+#endif
+
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+    virtual void setDynamicRangeLimit(PlatformDynamicRangeLimit, float, bool);
+    virtual std::optional<double> getEffectiveDynamicRangeLimitValue() const;
 #endif
 };
 

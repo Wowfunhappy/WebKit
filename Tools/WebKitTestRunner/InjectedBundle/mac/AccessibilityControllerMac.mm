@@ -110,6 +110,22 @@ void AccessibilityController::resetToConsistentState()
 {
     if (m_globalNotificationHandler)
         removeNotificationListener();
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    // Clear any queued AX thread functions from the previous test and wait
+    // for any in-flight function to finish. This avoids running functions
+    // from one test in another.
+    if (m_accessibilityIsolatedTreeMode) {
+        AXThread::clearQueuedFunctions();
+        // Wait for any currently-executing function to complete.
+        std::atomic<bool> complete = false;
+        AXThread::dispatch([&complete] {
+            complete = true;
+        });
+        while (!complete)
+            spinMainRunLoop();
+    }
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 }
 
 static id findAccessibleObjectById(id obj, NSString *idAttribute)
@@ -168,11 +184,12 @@ RefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JS
         return findElementByIdRecursive(root.ptr(), toWTFString(idAttribute));
     }
 
-    PlatformUIElement root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
+    WKRetainPtr<WKBundleFrameRef> frame = WKBundleFrameForJavaScriptContext(context);
 
     NSString *attributeName = [NSString stringWithJSStringRef:idAttribute];
     RetainPtr<id> result;
-    executeOnAXThreadAndWait([&root, &attributeName, &result] {
+    executeOnAXThreadAndWait([&frame, &attributeName, &result] {
+        PlatformUIElement root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(frame.get()));
         result = findAccessibleObjectById(root, attributeName);
     });
 
@@ -253,22 +270,10 @@ void AccessibilityController::platformInitializeClientAccessibility()
 {
     setIsolatedTreeMode(true);
 
+    _WKAccessibilityAllowAuthenticationForTesting(true);
+
     // This triggers WebKit's normal accessibility initialization flow via IPC
     WTR::postSynchronousMessage("InitializeWebProcessAccessibility");
-
-    // The above IPC triggers async initialization. Force the isolated tree to be built
-    // now by accessing the root object ON THE AX THREAD, so it's ready before the first
-    // axGetRoot() call from the test.
-    WKBundlePageRef page = InjectedBundle::singleton().page()->page();
-    WKBundleFrameRef mainFrame = WKBundlePageGetMainFrame(page);
-    if (!mainFrame)
-        return;
-
-    // Access the root object on the AX thread to trigger isolated tree creation with proper thread setup
-    RetainPtr<PlatformUIElement> root;
-    executeOnAXThreadAndWait([&mainFrame, &root] () {
-        root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(mainFrame));
-    });
 }
 
 } // namespace WTR

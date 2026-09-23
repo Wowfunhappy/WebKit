@@ -1,11 +1,11 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
  * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *     * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
  *     * Redistributions in binary form must reproduce the above
@@ -15,7 +15,7 @@
  *     * Neither the name of Google Inc. nor the names of its
  * contributors may be used to endorse or promote products derived from
  * this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -28,7 +28,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
- 
+
 #include "config.h"
 #include "WorkerRunLoop.h"
 
@@ -47,7 +47,10 @@
 #include "WorkerThread.h"
 #include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSRunLoopTimer.h>
+#include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/TopExceptionScope.h>
+#include <JavaScriptCore/VMManager.h>
+#include <JavaScriptCore/VMTraps.h>
 #include <wtf/AutodrainedPool.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -114,9 +117,7 @@ private:
     bool m_allowEventLoopTasks;
 };
 
-WorkerDedicatedRunLoop::WorkerDedicatedRunLoop()
-{
-}
+WorkerDedicatedRunLoop::WorkerDedicatedRunLoop() = default;
 
 WorkerDedicatedRunLoop::~WorkerDedicatedRunLoop()
 {
@@ -233,12 +234,11 @@ void WorkerDedicatedRunLoop::run(WorkerOrWorkletGlobalScope* context)
         if (currentRunLoopStatus.addRunLoopSpin() == RunLoopStatus::ShouldLogExcessiveRunLoopSpinning::No)
             continue;
 
-        auto reason = makeString("ServiceWorker message queue spun excessively without making web content progress for "_s, currentRunLoopStatus.secondsSpentSpinning(), " seconds. Shared timer firing in "_s, m_sharedTimer->fireTimeDelay().seconds(), " seconds. RunLoop rimers before: "_s, result.activeRunLoopTimersBeforeFiring, ". RunLoop timers after: "_s, result.activeRunLoopTimersAfterFiring);
-        RELEASE_LOG(ServiceWorker, "%s", reason.utf8().data());
+        RELEASE_LOG(ServiceWorker, "ServiceWorker message queue spun excessively without making web content progress for %f seconds. Shared timer firing in %f seconds. RunLoop rimers before: %s. RunLoop timers after: %s", currentRunLoopStatus.secondsSpentSpinning(), m_sharedTimer->fireTimeDelay().seconds(), result.activeRunLoopTimersBeforeFiring.utf8().data(), result.activeRunLoopTimersAfterFiring.utf8().data());
 
 #if PLATFORM(COCOA)
         if (WTF::CocoaApplication::isAppleApplication())
-            RELEASE_LOG_FAULT_WITH_PAYLOAD(ServiceWorker, reason.utf8().data());
+            RELEASE_LOG_FAULT_WITH_PAYLOAD(ServiceWorker, "ServiceWorker message queue spun excessively without making web content progress for %f seconds. Shared timer firing in %f seconds. RunLoop rimers before: %s. RunLoop timers after: %s", currentRunLoopStatus.secondsSpentSpinning(), m_sharedTimer->fireTimeDelay().seconds(), result.activeRunLoopTimersBeforeFiring.utf8(), result.activeRunLoopTimersAfterFiring.utf8());
 #endif
 
         // Reset status to start tracking a new sequence of spinning.
@@ -306,12 +306,29 @@ WorkerDedicatedRunLoop::RunInModeResult WorkerDedicatedRunLoop::runInMode(Worker
     if (script) {
         script->releaseHeapAccess();
         script->addTimerSetNotification(timerAddedTask);
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+        // Apply the STW check cap last so it overrides all platform-specific timeouts.
+        // Zero overhead when the WASM debugger is disabled.
+        if (JSC::Options::enableWasmDebugger()) [[unlikely]]
+            timeoutDelay = std::min(timeoutDelay, JSC::DebuggerSTWCheckInterval);
+#endif
     }
     MessageQueueWaitResult result;
     auto task = m_messageQueue.waitForMessageFilteredWithTimeout(result, predicate, timeoutDelay);
     if (script) {
         script->acquireHeapAccess();
         script->removeTimerSetNotification(timerAddedTask);
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+        // Heap access is released above; participate in STW if needed while it remains released.
+        // Check regardless of result — NeedStopTheWorld may be set even when a message arrived.
+        if (JSC::Options::enableWasmDebugger()) [[unlikely]] {
+            JSC::VM& vm = script->vm();
+            if (vm.traps().hasTrapBit(JSC::VMTraps::NeedStopTheWorld))
+                JSC::VMManager::singleton().notifyVMStop(vm, JSC::StopTheWorldEvent::VMStopped);
+        }
+#endif
     }
 
     RunInModeResult runInModeResult;
@@ -426,9 +443,7 @@ WorkerDedicatedRunLoop::Task::Task(ScriptExecutionContext::Task&& task, const St
 {
 }
 
-WorkerMainRunLoop::WorkerMainRunLoop()
-{
-}
+WorkerMainRunLoop::WorkerMainRunLoop() = default;
 
 void WorkerMainRunLoop::setGlobalScope(WorkerOrWorkletGlobalScope& globalScope)
 {

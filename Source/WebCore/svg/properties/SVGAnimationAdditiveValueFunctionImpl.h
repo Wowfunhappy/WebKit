@@ -43,10 +43,11 @@ public:
     using Base = SVGAnimationAdditiveValueFunction<SVGAngleValue>;
     using Base::Base;
 
-    void setFromAndToValues(SVGElement&, const String&, const String&) override
+    bool setFromAndToValues(SVGElement&, const String&, const String&) override
     {
         // Values will be set by SVGAnimatedAngleOrientAnimator.
         ASSERT_NOT_REACHED();
+        return false;
     }
 
     void animate(SVGElement&, float progress, unsigned repeatCount, SVGAngleValue& animated)
@@ -70,15 +71,18 @@ public:
     using Base = SVGAnimationAdditiveValueFunction<Color>;
     using Base::Base;
 
-    void setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
+    bool setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
     {
         m_from = SVGPropertyTraits<Color>::fromString(targetElement, from);
         m_to = SVGPropertyTraits<Color>::fromString(targetElement, to);
+        // Allow empty 'from' for to-animation mode.
+        return (from.isEmpty() || m_from.isValid()) && m_to.isValid();
     }
 
-    void setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) override
+    bool setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) override
     {
         m_toAtEndOfDuration = SVGPropertyTraits<Color>::fromString(targetElement, toAtEndOfDuration);
+        return m_toAtEndOfDuration->isValid();
     }
 
     void animate(SVGElement&, float progress, unsigned repeatCount, Color& animated)
@@ -116,15 +120,17 @@ public:
     using Base = SVGAnimationAdditiveValueFunction<int>;
     using Base::Base;
 
-    void setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
+    bool setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
     {
         m_from = SVGPropertyTraits<int>::fromString(targetElement, from);
         m_to = SVGPropertyTraits<int>::fromString(targetElement, to);
+        return true;
     }
 
-    void setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) final
+    bool setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) final
     {
         m_toAtEndOfDuration = SVGPropertyTraits<int>::fromString(targetElement, toAtEndOfDuration);
+        return true;
     }
 
     void animate(SVGElement&, float progress, unsigned repeatCount, int& animated)
@@ -151,15 +157,21 @@ public:
     {
     }
 
-    void setFromAndToValues(SVGElement&, const String& from, const String& to) override
+    bool setFromAndToValues(SVGElement&, const String& from, const String& to) override
     {
-        m_from = SVGLengthValue(m_lengthMode, from);
-        m_to = SVGLengthValue(m_lengthMode, to);
+        // Allow empty 'from' for to-animation mode, where the start value is derived at runtime.
+        if (!from.isEmpty() && m_from.setValueAsString(from, m_lengthMode).hasException())
+            return false;
+        return !m_to.setValueAsString(to, m_lengthMode).hasException();
     }
 
-    void setToAtEndOfDurationValue(SVGElement&, const String& toAtEndOfDuration) override
+    bool setToAtEndOfDurationValue(SVGElement&, const String& toAtEndOfDuration) override
     {
-        m_toAtEndOfDuration = SVGLengthValue(m_lengthMode, toAtEndOfDuration);
+        SVGLengthValue value(m_lengthMode);
+        if (value.setValueAsString(toAtEndOfDuration).hasException())
+            return false;
+        m_toAtEndOfDuration = WTF::move(value);
+        return true;
     }
 
     void animate(SVGElement& targetElement, float progress, unsigned repeatCount, SVGLengthValue& animated)
@@ -201,15 +213,25 @@ public:
     using Base = SVGAnimationAdditiveValueFunction<float>;
     using Base::Base;
 
-    void setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
+    bool setFromAndToValues(SVGElement&, const String& from, const String& to) override
     {
-        m_from = SVGPropertyTraits<float>::fromString(targetElement, from);
-        m_to = SVGPropertyTraits<float>::fromString(targetElement, to);
+        // In to-animation mode 'from' is empty; the start value is resolved at runtime.
+        auto fromNumber = !from.isEmpty() ? SVGPropertyTraits<float>::parse(from) : std::optional<float>(0);
+        auto toNumber = SVGPropertyTraits<float>::parse(to);
+        if (!fromNumber || !toNumber)
+            return false;
+        m_from = *fromNumber;
+        m_to = *toNumber;
+        return true;
     }
 
-    void setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) override
+    bool setToAtEndOfDurationValue(SVGElement&, const String& toAtEndOfDuration) override
     {
-        m_toAtEndOfDuration = SVGPropertyTraits<float>::fromString(targetElement, toAtEndOfDuration);
+        auto toAtEndOfDurationNumber = SVGPropertyTraits<float>::parse(toAtEndOfDuration);
+        if (!toAtEndOfDurationNumber)
+            return false;
+        m_toAtEndOfDuration = *toAtEndOfDurationNumber;
+        return true;
     }
 
     void animate(SVGElement&, float progress, unsigned repeatCount, float& animated)
@@ -235,15 +257,26 @@ public:
     using Base = SVGAnimationAdditiveValueFunction<SVGPathByteStream>;
     using Base::Base;
 
-    void setFromAndToValues(SVGElement&, const String& from, const String& to) override
+    bool setFromAndToValues(SVGElement&, const String& from, const String& to) override
     {
-        m_from = SVGPathByteStream(from);
-        m_to = SVGPathByteStream(to);
+        // An empty string is a legal (empty) path, so it is accepted; only a malformed
+        // path yields std::nullopt and rejects the animation.
+        auto fromStream = SVGPathByteStream::create(from);
+        auto toStream = SVGPathByteStream::create(to);
+        if (!fromStream || !toStream)
+            return false;
+        m_from = WTF::move(*fromStream);
+        m_to = WTF::move(*toStream);
+        return true;
     }
 
-    void setToAtEndOfDurationValue(SVGElement&, const String& toAtEndOfDuration) override
+    bool setToAtEndOfDurationValue(SVGElement&, const String& toAtEndOfDuration) override
     {
-        m_toAtEndOfDuration = SVGPathByteStream(toAtEndOfDuration);
+        auto toAtEndOfDurationStream = SVGPathByteStream::create(toAtEndOfDuration);
+        if (!toAtEndOfDurationStream)
+            return false;
+        m_toAtEndOfDuration = WTF::move(*toAtEndOfDurationStream);
+        return true;
     }
 
     void animate(SVGElement&, float progress, unsigned repeatCount, SVGPathByteStream& animated)
@@ -284,15 +317,17 @@ public:
     using Base = SVGAnimationAdditiveValueFunction<FloatRect>;
     using Base::Base;
 
-    void setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
+    bool setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
     {
         m_from = SVGPropertyTraits<FloatRect>::fromString(targetElement, from);
         m_to = SVGPropertyTraits<FloatRect>::fromString(targetElement, to);
+        return true;
     }
 
-    void setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) override
+    bool setToAtEndOfDurationValue(SVGElement& targetElement, const String& toAtEndOfDuration) override
     {
         m_toAtEndOfDuration = SVGPropertyTraits<FloatRect>::fromString(targetElement, toAtEndOfDuration);
+        return true;
     }
 
     void animate(SVGElement&, float progress, unsigned repeatCount, FloatRect& animated)

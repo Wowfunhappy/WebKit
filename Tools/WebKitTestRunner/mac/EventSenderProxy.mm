@@ -361,13 +361,13 @@ void EventSenderProxy::mouseDown(unsigned buttonNumber, WKEventModifiers modifie
         location:NSMakePoint(m_position.x, m_position.y)
         modifierFlags:buildModifierFlags(modifiers)
         timestamp:absoluteTimeForEventTime(currentEventTime())
-        windowNumber:[m_testController->mainWebView()->platformWindow() windowNumber]
+        windowNumber:[m_testController->targetView()->platformWindow() windowNumber]
         context:[NSGraphicsContext currentContext]
         eventNumber:++m_eventNumber
         clickCount:m_clickCount
         pressure:WebCore::ForceAtClick];
 
-    RetainPtr targetView = [m_testController->mainWebView()->platformView() hitTest:[event locationInWindow]];
+    RetainPtr targetView = [m_testController->targetView()->platformView() hitTest:[event locationInWindow]];
     if (!targetView) {
         if (completionHandler)
             completionHandler();
@@ -390,7 +390,7 @@ void EventSenderProxy::mouseDown(unsigned buttonNumber, WKEventModifiers modifie
         return;
     }
 
-    RetainPtr webView = m_testController->mainWebView()->platformView();
+    RetainPtr webView = m_testController->targetView()->platformView();
     dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([dispatchMouseDown = WTF::move(dispatchMouseDown), webView, completionHandler = WTF::move(completionHandler)] mutable {
         dispatchMouseDown();
         [webView _doAfterProcessingAllPendingMouseEvents:makeBlockPtr([completionHandler = WTF::move(completionHandler)] mutable {
@@ -410,7 +410,7 @@ void EventSenderProxy::mouseUp(unsigned buttonNumber, WKEventModifiers modifiers
         location:NSMakePoint(m_position.x, m_position.y)
         modifierFlags:buildModifierFlags(modifiers)
         timestamp:absoluteTimeForEventTime(currentEventTime())
-        windowNumber:[m_testController->mainWebView()->platformWindow() windowNumber]
+        windowNumber:[m_testController->targetView()->platformWindow() windowNumber]
         context:[NSGraphicsContext currentContext]
         eventNumber:++m_eventNumber
         clickCount:m_clickCount
@@ -419,9 +419,9 @@ void EventSenderProxy::mouseUp(unsigned buttonNumber, WKEventModifiers modifiers
     // FIXME: Silly hack to teach WKTR to respect capturing mouse events outside the WKView.
     // The right solution is just to use NSApplication's built-in event sending methods,
     // instead of rolling our own algorithm for selecting an event target.
-    RetainPtr targetView = [m_testController->mainWebView()->platformView() hitTest:[event locationInWindow]];
+    RetainPtr targetView = [m_testController->targetView()->platformView() hitTest:[event locationInWindow]];
     if (!targetView)
-        targetView = m_testController->mainWebView()->platformView();
+        targetView = m_testController->targetView()->platformView();
 
     if (button == WebCore::MouseButton::Left)
         m_leftMouseButtonDown = false;
@@ -441,7 +441,7 @@ void EventSenderProxy::mouseUp(unsigned buttonNumber, WKEventModifiers modifiers
         return;
     }
 
-    RetainPtr webView = m_testController->mainWebView()->platformView();
+    RetainPtr webView = m_testController->targetView()->platformView();
     dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([dispatchMouseUp = WTF::move(dispatchMouseUp), webView, completionHandler = WTF::move(completionHandler)] mutable {
         dispatchMouseUp();
         [webView _doAfterProcessingAllPendingMouseEvents:makeBlockPtr([completionHandler = WTF::move(completionHandler)] mutable {
@@ -652,7 +652,7 @@ void EventSenderProxy::mouseForceChanged(float force)
 
 void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType, CompletionHandler<void()>&& completionHandler)
 {
-    auto *view = m_testController->mainWebView()->platformView();
+    auto *view = m_testController->targetView()->platformView();
     auto newMousePosition = [view convertPoint:NSMakePoint(x, y) toView:nil];
     auto isDrag = m_leftMouseButtonDown;
     RetainPtr event = [NSEvent mouseEventWithType:(isDrag ? NSEventTypeLeftMouseDragged : NSEventTypeMouseMoved)
@@ -672,7 +672,9 @@ void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType, 
     m_position.x = newMousePosition.x;
     m_position.y = newMousePosition.y;
 
-    RetainPtr webView = m_testController->mainWebView()->platformView();
+    m_testController->targetView()->setCursorOverlayPosition(x, y);
+
+    RetainPtr webView = m_testController->targetView()->platformView();
 
     // Always target drags at the WKWebView to allow for drag-scrolling outside the view.
     // For non-drag moves, _simulateMouseMove: must be called on the WKWebView directly

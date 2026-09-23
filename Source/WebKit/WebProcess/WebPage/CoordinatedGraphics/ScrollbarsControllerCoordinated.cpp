@@ -98,5 +98,40 @@ void ScrollbarsControllerCoordinated::pressedPartChanged(WebCore::Scrollbar& scr
         scrollingCoordinator->setHoveredAndPressedScrollbarParts(protect(scrollableArea()));
 }
 
+void ScrollbarsControllerCoordinated::scrollbarColorChanged(std::optional<WebCore::ScrollbarColor> color)
+{
+    if (auto scrollingCoordinator = m_coordinator.get())
+        scrollingCoordinator->setScrollbarColor(protect(scrollableArea()), color);
+}
+
+String ScrollbarsControllerCoordinated::scrollbarStateForTesting(WebCore::Scrollbar* scrollbar) const
+{
+    if (!scrollbar)
+        return "none"_s;
+
+    StringBuilder result;
+    result.append(scrollbar->enabled() ? "enabled"_s : "disabled"_s);
+
+    auto scrollbarColor = protect(scrollableArea())->scrollbarColorStyle();
+    if (scrollbarColor) {
+        result.append(",trackColor:"_s);
+        result.append(scrollbarColor->trackColor.debugDescription());
+        result.append(",knobColor:"_s);
+        result.append(scrollbarColor->thumbColor.debugDescription());
+    }
+
+    return result.toString();
+}
+
+String ScrollbarsControllerCoordinated::horizontalScrollbarStateForTesting() const
+{
+    return scrollbarStateForTesting(protect(protect(scrollableArea())->horizontalScrollbar()).get());
+}
+
+String ScrollbarsControllerCoordinated::verticalScrollbarStateForTesting() const
+{
+    return scrollbarStateForTesting(protect(protect(scrollableArea())->verticalScrollbar()).get());
+}
+
 }
 #endif // USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)

@@ -15,7 +15,9 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/META.yml
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/beforeinput.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/historical-search-event.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/historical.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/input-change-event-properties.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/setCustomValidity-normalize-newlines.html

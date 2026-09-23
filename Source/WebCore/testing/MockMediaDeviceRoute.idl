@@ -31,12 +31,16 @@
     undefined setURLCallback(MockMediaDeviceRouteURLCallback? callback);
 
     attribute DOMString deviceName;
+    readonly attribute boolean connected;
     attribute boolean ready;
     attribute boolean playing;
     attribute boolean hasPlaybackError;
+    attribute sequence<MockMediaDeviceRouteAudioOption> audioOptions;
     attribute float playbackRate;
     attribute float currentPlaybackPosition;
     attribute MockMediaDeviceRouteTimeRange timeRange;
+    attribute float volume;
+    attribute boolean muted;
 };
 
 [
@@ -46,4 +50,14 @@
 ] dictionary MockMediaDeviceRouteTimeRange {
     required double start;
     required double duration;
+};
+
+[
+    Conditional=WIRELESS_PLAYBACK_MEDIA_PLAYER,
+    JSGenerateToJSObject,
+    JSGenerateToNativeObject,
+] dictionary MockMediaDeviceRouteAudioOption {
+    required DOMString displayName;
+    required DOMString identifier;
+    DOMString extendedLanguageTag;
 };

@@ -112,22 +112,27 @@ Ref<DocumentParser> HTMLDocument::createParser()
 // https://html.spec.whatwg.org/multipage/dom.html#dom-document-nameditem
 std::optional<Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>>> HTMLDocument::namedItem(const AtomString& name)
 {
+    // hasDocumentNamedItem() is a fast-path that over-counts: it includes
+    // non-exposed object/embed elements. The collection applies isExposed()
+    // filtering, so it may end up empty even when the map has entries.
     if (name.isNull() || !hasDocumentNamedItem(name))
         return std::nullopt;
 
-    if (documentNamedItemContainsMultipleElements(name)) [[unlikely]] {
-        Ref collection = documentNamedItems(name);
-        ASSERT(collection->length() > 1);
-        return Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>> { WTF::move(collection) };
+    Ref collection = documentNamedItems(name);
+    auto length = collection->length();
+    if (!length)
+        return std::nullopt;
+
+    if (length == 1) {
+        Ref element = *collection->item(0);
+        if (RefPtr iframe = dynamicDowncast<HTMLIFrameElement>(element)) [[unlikely]] {
+            if (RefPtr window = iframe->contentWindow())
+                return Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>> { window.releaseNonNull() };
+        }
+        return Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>> { WTF::move(element) };
     }
 
-    Ref element = *documentNamedItem(name);
-    if (RefPtr iframe = dynamicDowncast<HTMLIFrameElement>(element)) [[unlikely]] {
-        if (RefPtr window = iframe->contentWindow())
-            return Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>> { window.releaseNonNull() };
-    }
-
-    return Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>> { WTF::move(element) };
+    return Variant<Ref<WindowProxy>, Ref<Element>, Ref<HTMLCollection>> { WTF::move(collection) };
 }
 
 bool HTMLDocument::isSupportedPropertyName(const AtomString& name) const

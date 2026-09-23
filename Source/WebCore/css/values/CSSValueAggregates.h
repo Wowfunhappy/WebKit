@@ -34,8 +34,8 @@
 #include <utility>
 #include <wtf/EnumSet.h>
 #include <wtf/FixedVector.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/Markable.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/RefCountedFixedVector.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
@@ -194,27 +194,6 @@ template<typename... Ts> inline constexpr auto TreatAsTupleLike<std::tuple<Ts...
 template<typename... Ts> inline constexpr auto TreatAsVariantLike<Variant<Ts...>> = true;
 
 // MARK: - Standard Leaf Types
-
-// Helper type used to represent an arbitrary constant identifier.
-struct CustomIdentifier {
-    AtomString value;
-
-    bool operator==(const CustomIdentifier&) const = default;
-    bool operator==(const AtomString& other) const { return value == other; }
-};
-TextStream& operator<<(TextStream&, const CustomIdentifier&);
-
-void NODELETE add(Hasher&, const CustomIdentifier&);
-
-// Helper type used to represent an arbitrary property identifier.
-struct PropertyIdentifier {
-    CSSPropertyID value;
-
-    bool operator==(const PropertyIdentifier&) const = default;
-};
-TextStream& operator<<(TextStream&, const PropertyIdentifier&);
-
-void NODELETE add(Hasher&, const PropertyIdentifier&);
 
 template<CSSValueID C> TextStream& operator<<(TextStream& ts, const Constant<C>&)
 {
@@ -432,27 +411,27 @@ struct CommaSeparatedEnumSet {
 template<typename T> inline constexpr auto TreatAsRangeLike<CommaSeparatedEnumSet<T>> = true;
 template<typename T> inline constexpr auto SerializationSeparator<CommaSeparatedEnumSet<T>> = SerializationSeparatorType::Comma;
 
-// Wraps a ListHashSet, semantically marking it as serializing as "space separated".
+// Wraps an OrderedHashSet, semantically marking it as serializing as "space separated".
 template<typename T>
-struct SpaceSeparatedListHashSet {
-    using Container = ListHashSet<T>;
+struct SpaceSeparatedOrderedHashSet {
+    using Container = OrderedHashSet<T>;
     using const_iterator = typename Container::const_iterator;
     using value_type = T;
 
-    constexpr SpaceSeparatedListHashSet() = default;
+    constexpr SpaceSeparatedOrderedHashSet() = default;
 
-    constexpr SpaceSeparatedListHashSet(std::initializer_list<T> initializerList)
+    constexpr SpaceSeparatedOrderedHashSet(std::initializer_list<T> initializerList)
         : value { initializerList }
     {
     }
 
-    constexpr SpaceSeparatedListHashSet(Container&& value)
+    constexpr SpaceSeparatedOrderedHashSet(Container&& value)
         : value { WTF::move(value) }
     {
     }
 
     template<typename SizedRange, typename Mapper>
-    static SpaceSeparatedListHashSet map(SizedRange&& range, NOESCAPE Mapper&& mapper)
+    static SpaceSeparatedOrderedHashSet map(SizedRange&& range, NOESCAPE Mapper&& mapper)
     {
         Container result;
         for (auto&& value : range)
@@ -468,34 +447,34 @@ struct SpaceSeparatedListHashSet {
 
     constexpr bool contains(const T& item) const { return value.contains(item); }
 
-    constexpr bool operator==(const SpaceSeparatedListHashSet&) const = default;
+    constexpr bool operator==(const SpaceSeparatedOrderedHashSet&) const = default;
 
     Container value;
 };
-template<typename T> inline constexpr auto TreatAsRangeLike<SpaceSeparatedListHashSet<T>> = true;
-template<typename T> inline constexpr auto SerializationSeparator<SpaceSeparatedListHashSet<T>> = SerializationSeparatorType::Space;
+template<typename T> inline constexpr auto TreatAsRangeLike<SpaceSeparatedOrderedHashSet<T>> = true;
+template<typename T> inline constexpr auto SerializationSeparator<SpaceSeparatedOrderedHashSet<T>> = SerializationSeparatorType::Space;
 
-// Wraps a ListHashSet, semantically marking it as serializing as "comma separated".
+// Wraps an OrderedHashSet, semantically marking it as serializing as "comma separated".
 template<typename T>
-struct CommaSeparatedListHashSet {
-    using Container = ListHashSet<T>;
+struct CommaSeparatedOrderedHashSet {
+    using Container = OrderedHashSet<T>;
     using const_iterator = typename Container::const_iterator;
     using value_type = T;
 
-    constexpr CommaSeparatedListHashSet() = default;
+    constexpr CommaSeparatedOrderedHashSet() = default;
 
-    constexpr CommaSeparatedListHashSet(std::initializer_list<T> initializerList)
+    constexpr CommaSeparatedOrderedHashSet(std::initializer_list<T> initializerList)
         : value { initializerList }
     {
     }
 
-    constexpr CommaSeparatedListHashSet(Container&& value)
+    constexpr CommaSeparatedOrderedHashSet(Container&& value)
         : value { WTF::move(value) }
     {
     }
 
     template<typename SizedRange, typename Mapper>
-    static CommaSeparatedListHashSet map(SizedRange&& range, NOESCAPE Mapper&& mapper)
+    static CommaSeparatedOrderedHashSet map(SizedRange&& range, NOESCAPE Mapper&& mapper)
     {
         Container result;
         for (auto&& value : range)
@@ -511,12 +490,12 @@ struct CommaSeparatedListHashSet {
 
     constexpr bool contains(const T& item) const { return value.contains(item); }
 
-    constexpr bool operator==(const CommaSeparatedListHashSet&) const = default;
+    constexpr bool operator==(const CommaSeparatedOrderedHashSet&) const = default;
 
     Container value;
 };
-template<typename T> inline constexpr auto TreatAsRangeLike<CommaSeparatedListHashSet<T>> = true;
-template<typename T> inline constexpr auto SerializationSeparator<CommaSeparatedListHashSet<T>> = SerializationSeparatorType::Comma;
+template<typename T> inline constexpr auto TreatAsRangeLike<CommaSeparatedOrderedHashSet<T>> = true;
+template<typename T> inline constexpr auto SerializationSeparator<CommaSeparatedOrderedHashSet<T>> = SerializationSeparatorType::Comma;
 
 // Wraps a variable number of elements of a single type, semantically marking them as serializing as "space separated".
 template<typename T, size_t inlineCapacity = 0> struct SpaceSeparatedVector {
@@ -1256,6 +1235,21 @@ template<typename T, size_t N> struct SpaceSeparatedArray {
 
     constexpr bool operator==(const SpaceSeparatedArray<T, N>&) const = default;
 
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return std::ranges::any_of(value, std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return std::ranges::all_of(value, std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return std::ranges::none_of(value, std::forward<F>(functor));
+    }
+
     std::array<T, N> value;
 };
 
@@ -1307,6 +1301,21 @@ template<typename T> struct MinimallySerializingSpaceSeparatedPair {
     constexpr void transpose() { WebCore::transpose(value); }
     constexpr MinimallySerializingSpaceSeparatedPair<T> transposed() const { return WebCore::transposed(value); }
 
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return value.noneOf(std::forward<F>(functor));
+    }
+
     SpaceSeparatedPair<T> value;
 };
 
@@ -1337,6 +1346,21 @@ template<typename T, size_t N> struct CommaSeparatedArray {
     }
 
     constexpr bool operator==(const CommaSeparatedArray<T, N>&) const = default;
+
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return std::ranges::any_of(value, std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return std::ranges::all_of(value, std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return std::ranges::none_of(value, std::forward<F>(functor));
+    }
 
     std::array<T, N> value;
 };
@@ -1421,6 +1445,38 @@ template<size_t I, typename... Ts> decltype(auto) get(const CommaSeparatedTuple<
 template<typename... Ts> inline constexpr auto TreatAsTupleLike<CommaSeparatedTuple<Ts...>> = true;
 template<typename... Ts> inline constexpr auto SerializationSeparator<CommaSeparatedTuple<Ts...>> = SerializationSeparatorType::Comma;
 
+// Wraps a variadic list of types, semantically marking them as serializing as "slash separated".
+template<typename... Ts> struct SlashSeparatedTuple {
+    using Tuple = std::tuple<Ts...>;
+
+    constexpr SlashSeparatedTuple(Ts&&... values)
+        : value { std::make_tuple(std::forward<Ts>(values)...) }
+    {
+    }
+
+    constexpr SlashSeparatedTuple(const Ts&... values)
+        : value { std::make_tuple(values...) }
+    {
+    }
+
+    constexpr SlashSeparatedTuple(std::tuple<Ts...>&& tuple)
+        : value { WTF::move(tuple) }
+    {
+    }
+
+    constexpr bool operator==(const SlashSeparatedTuple<Ts...>&) const = default;
+
+    std::tuple<Ts...> value;
+};
+
+template<size_t I, typename... Ts> decltype(auto) get(const SlashSeparatedTuple<Ts...>& tuple)
+{
+    return std::get<I>(tuple.value);
+}
+
+template<typename... Ts> inline constexpr auto TreatAsTupleLike<SlashSeparatedTuple<Ts...>> = true;
+template<typename... Ts> inline constexpr auto SerializationSeparator<SlashSeparatedTuple<Ts...>> = SerializationSeparatorType::Slash;
+
 // Wraps a pair of elements of a single type representing a point, semantically marking them as serializing as "space separated".
 template<typename T> struct SpaceSeparatedPoint {
     using Array = SpaceSeparatedPair<T>;
@@ -1443,6 +1499,21 @@ template<typename T> struct SpaceSeparatedPoint {
 
     constexpr void transpose() { WebCore::transpose(value); }
     constexpr SpaceSeparatedPoint<T> transposed() const { return WebCore::transposed(value); }
+
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return value.noneOf(std::forward<F>(functor));
+    }
 
     SpaceSeparatedPair<T> value;
 };
@@ -1477,6 +1548,21 @@ template<typename T> struct SpaceSeparatedSize {
 
     constexpr void transpose() { WebCore::transpose(value); }
     constexpr SpaceSeparatedSize<T> transposed() const { return WebCore::transposed(value); }
+
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return value.noneOf(std::forward<F>(functor));
+    }
 
     SpaceSeparatedPair<T> value;
 };
@@ -1517,6 +1603,21 @@ template<typename T> struct MinimallySerializingSpaceSeparatedPoint {
     constexpr void transpose() { WebCore::transpose(value); }
     constexpr MinimallySerializingSpaceSeparatedPoint<T> transposed() const { return WebCore::transposed(value); }
 
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return value.noneOf(std::forward<F>(functor));
+    }
+
     SpaceSeparatedPair<T> value;
 };
 
@@ -1556,6 +1657,21 @@ template<typename T> struct MinimallySerializingSpaceSeparatedSize {
 
     constexpr void transpose() { WebCore::transpose(value); }
     constexpr MinimallySerializingSpaceSeparatedSize<T> transposed() const { return WebCore::transposed(value); }
+
+    template<typename F> bool anyOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool allOf(F&& functor) const
+    {
+        return value.allOf(std::forward<F>(functor));
+    }
+
+    template<typename F> bool noneOf(F&& functor) const
+    {
+        return value.noneOf(std::forward<F>(functor));
+    }
 
     SpaceSeparatedPair<T> value;
 };
@@ -1835,15 +1951,15 @@ template<typename T> TextStream& operator<<(TextStream& ts, const CommaSeparated
     return ts;
 }
 
-template<typename T> TextStream& operator<<(TextStream& ts, const SpaceSeparatedListHashSet<T>& value)
+template<typename T> TextStream& operator<<(TextStream& ts, const SpaceSeparatedOrderedHashSet<T>& value)
 {
-    logForCSSOnRangeLike(ts, value, SerializationSeparatorString<SpaceSeparatedListHashSet<T>>);
+    logForCSSOnRangeLike(ts, value, SerializationSeparatorString<SpaceSeparatedOrderedHashSet<T>>);
     return ts;
 }
 
-template<typename T> TextStream& operator<<(TextStream& ts, const CommaSeparatedListHashSet<T>& value)
+template<typename T> TextStream& operator<<(TextStream& ts, const CommaSeparatedOrderedHashSet<T>& value)
 {
-    logForCSSOnRangeLike(ts, value, SerializationSeparatorString<CommaSeparatedListHashSet<T>>);
+    logForCSSOnRangeLike(ts, value, SerializationSeparatorString<CommaSeparatedOrderedHashSet<T>>);
     return ts;
 }
 
@@ -1892,6 +2008,12 @@ template<typename... Ts> TextStream& operator<<(TextStream& ts, const SpaceSepar
 template<typename... Ts> TextStream& operator<<(TextStream& ts, const CommaSeparatedTuple<Ts...>& value)
 {
     logForCSSOnTupleLike(ts, value, SerializationSeparatorString<CommaSeparatedTuple<Ts...>>);
+    return ts;
+}
+
+template<typename... Ts> TextStream& operator<<(TextStream& ts, const SlashSeparatedTuple<Ts...>& value)
+{
+    logForCSSOnTupleLike(ts, value, SerializationSeparatorString<SlashSeparatedTuple<Ts...>>);
     return ts;
 }
 
@@ -1990,6 +2112,12 @@ public:
     using type = tuple_element_t<I, tuple<Ts...>>;
 };
 
+template<typename... Ts> class tuple_size<WebCore::SlashSeparatedTuple<Ts...>> : public std::integral_constant<size_t, sizeof...(Ts)> { };
+template<size_t I, typename... Ts> class tuple_element<I, WebCore::SlashSeparatedTuple<Ts...>> {
+public:
+    using type = tuple_element_t<I, tuple<Ts...>>;
+};
+
 template<typename T> class tuple_size<WebCore::MinimallySerializingSpaceSeparatedPair<T>> : public std::integral_constant<size_t, 2> { };
 template<size_t I, typename T> class tuple_element<I, WebCore::MinimallySerializingSpaceSeparatedPair<T>> {
 public:
@@ -2055,10 +2183,10 @@ template<typename T>
 struct supports_text_stream_insertion<WebCore::CommaSeparatedEnumSet<T>> : supports_text_stream_insertion<T> { };
 
 template<typename T>
-struct supports_text_stream_insertion<WebCore::SpaceSeparatedListHashSet<T>> : supports_text_stream_insertion<T> { };
+struct supports_text_stream_insertion<WebCore::SpaceSeparatedOrderedHashSet<T>> : supports_text_stream_insertion<T> { };
 
 template<typename T>
-struct supports_text_stream_insertion<WebCore::CommaSeparatedListHashSet<T>> : supports_text_stream_insertion<T> { };
+struct supports_text_stream_insertion<WebCore::CommaSeparatedOrderedHashSet<T>> : supports_text_stream_insertion<T> { };
 
 template<typename T, size_t inlineCapacity>
 struct supports_text_stream_insertion<WebCore::SpaceSeparatedVector<T, inlineCapacity>> : supports_text_stream_insertion<T> { };
@@ -2098,11 +2226,5 @@ struct supports_text_stream_insertion<WebCore::MinimallySerializingSpaceSeparate
 
 template<typename T>
 struct supports_text_stream_insertion<WebCore::MinimallySerializingSpaceSeparatedRectCorners<T>> : supports_text_stream_insertion<T> { };
-
-template<>
-struct MarkableTraits<WebCore::CustomIdentifier> {
-    static bool isEmptyValue(const WebCore::CustomIdentifier& value) { return value.value.isNull(); }
-    static WebCore::CustomIdentifier emptyValue() { return WebCore::CustomIdentifier { nullAtom() }; }
-};
 
 } // namespace WTF

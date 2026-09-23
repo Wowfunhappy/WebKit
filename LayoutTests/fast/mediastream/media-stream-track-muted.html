@@ -26,9 +26,11 @@
         setTimeout(() => { waitForPageStateChange(--numberOfTries, originalState, resolve, reject); }, 10);
     }
 
-    function testTrack(track, title)
+    function testTrack(track, title, stream)
     {
         promise_test((test) => {
+            if (stream)
+                test.add_cleanup(() => stream.getTracks().forEach(t => t.stop()));
             return new Promise((resolve, reject) => {
                 let isVideo = track.kind == "video";
                 if (window.internals) {
@@ -70,7 +72,7 @@
         return navigator.mediaDevices.getUserMedia({ video: true, audio: true})
             .then((stream) => {
                 testTrack(stream.getVideoTracks()[0], "Mute video track only");
-                testTrack(stream.getAudioTracks()[0], "Mute audio track only");
+                testTrack(stream.getAudioTracks()[0], "Mute audio track only", stream);
             });
     }, "Create stream");
 

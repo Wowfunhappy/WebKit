@@ -302,13 +302,14 @@ void ScrollingTree::traverseScrollingTreeRecursive(ScrollingTreeNode& node, NOES
 
 void ScrollingTree::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNode& node, ScrollingLayerPositionAction)
 {
+    setNeedsApplyLayerPositions();
     if (node.isRootNode())
         setMainFrameScrollPosition(node.currentScrollPosition());
 }
 
 void ScrollingTree::mainFrameViewportChangedViaDelegatedScrolling(const FloatPoint& scrollPosition, const FloatRect& layoutViewport, double)
 {
-    LOG_WITH_STREAM(Scrolling, stream << "ScrollingTree::viewportChangedViaDelegatedScrolling - layoutViewport " << layoutViewport);
+    LOG_WITH_STREAM(Scrolling, stream << "ScrollingTree::mainFrameViewportChangedViaDelegatedScrolling - layoutViewport " << layoutViewport);
     
     if (RefPtr rootNode = m_rootNode)
         rootNode->wasScrolledByDelegatedScrolling(scrollPosition, layoutViewport);
@@ -458,6 +459,7 @@ bool ScrollingTree::commitTreeStateInternal(std::unique_ptr<ScrollingStateTree>&
     }
 
     didCommitTree();
+    setNeedsApplyLayerPositions();
 
     return succeeded;
 }
@@ -583,19 +585,12 @@ void ScrollingTree::removeAllNodes()
     }
 }
 
-void ScrollingTree::applyLayerPositionsAfterCommit()
-{
-    // Scrolling tree needs to make adjustments only if the UI side positions have changed.
-    if (!m_needsApplyLayerPositionsAfterCommit)
-        return;
-    m_needsApplyLayerPositionsAfterCommit = false;
-
-    applyLayerPositions();
-}
-
 void ScrollingTree::applyLayerPositions()
 {
     Locker locker { m_treeLock };
+
+    if (!m_needsApplyLayerPositions.exchange(false))
+        return;
 
     applyLayerPositionsInternal();
 }
@@ -787,10 +782,13 @@ WebCore::RectEdges<bool> ScrollingTree::pinnedStateIncludingAncestorsAtPoint(Flo
     if (!rootNode)
         return false;
 
-    Locker locker { m_treeStateLock };
-
     FloatPoint position = viewPoint;
-    position.move(rootNode->viewToContentsOffset(m_treeState.mainFrameScrollPosition));
+    {
+        Locker locker { m_treeStateLock };
+        position.move(rootNode->viewToContentsOffset(m_treeState.mainFrameScrollPosition));
+    }
+
+    HitTestLocker hitTestLocker { *this };
 
     WebCore::RectEdges<bool> pinnedState = { true, true, true, true };
 
@@ -1165,6 +1163,12 @@ String ScrollingTree::scrollingTreeAsText(OptionSet<ScrollingStateTreeAsTextBeha
         }
     }
     return ts.release();
+}
+
+float ScrollingTree::rubberbandHyperbolicCoefficientForTesting()
+{
+    RefPtr rootNode = m_rootNode;
+    return rootNode ? rootNode->rubberbandHyperbolicCoefficientForTesting() : 0;
 }
 
 bool ScrollingTree::hasFixedOrSticky() const

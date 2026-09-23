@@ -33,7 +33,7 @@
 
 namespace WebKit {
 
-AuxiliaryProcessMainCommon::AuxiliaryProcessMainCommon() { }
+AuxiliaryProcessMainCommon::AuxiliaryProcessMainCommon() = default;
 
 void AuxiliaryProcess::platformInitialize(const AuxiliaryProcessInitializationParameters&)
 {

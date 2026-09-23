@@ -65,6 +65,20 @@ extension WKWebViewConfiguration {
             let handlerAdapter = WKURLSchemeHandlerAdapter(handler)
             self.setURLSchemeHandler(handlerAdapter, forURLScheme: scheme.rawValue)
         }
+
+        #if ENABLE_MODEL_ELEMENT_IMMERSIVE
+        self.allowsImmersiveEnvironments = wrapped.allowsImmersiveEnvironments
+        #endif
+
+        if let processPool = wrapped.processPool {
+            self.processPool = processPool
+        }
+
+        #if os(macOS)
+        self._requiresUserActionForEditingControlsManager = wrapped.requiresUserActionForEditingControlsManager
+        #endif
+
+        self._isControlledByAutomation = wrapped.isControlledByAutomation
     }
 }
 

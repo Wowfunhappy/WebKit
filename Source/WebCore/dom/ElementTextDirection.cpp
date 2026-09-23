@@ -226,7 +226,7 @@ static std::optional<TextDirection> computeTextDirectionOfSlotElement(const HTML
 std::optional<TextDirection> computeAutoDirectionality(const Element& element)
 {
     if (auto* textFormControl = dynamicDowncast<HTMLTextFormControlElement>(element)) {
-        if (!textFormControl->dirAutoUsesValue())
+        if (!textFormControl->dirAutoUsesValue() || !elementHasAutoTextDirectionState(element))
             return computeContainedTextAutoDirection(*textFormControl);
 
         // Specs: The directionality of the auto-directionality form-associated
@@ -319,7 +319,16 @@ void updateEffectiveTextDirectionOfDescendants(Element& element, std::optional<T
     for (auto it = descendantsOfType<Element>(element).begin(); it; ) {
         Ref child = *it;
 
-        if (child.ptr() == initiator || elementHasValidTextDirectionState(child)) {
+        if (child.ptr() == initiator) {
+            it.traverseNextSkippingChildren();
+            continue;
+        }
+
+        if (elementHasValidTextDirectionState(child)) {
+            // Slot elements with dir=auto depend on slotted light DOM content,
+            // so recompute their direction when propagating changes through the shadow tree.
+            if (RefPtr slotElement = dynamicDowncast<HTMLSlotElement>(child.get()); slotElement && slotElement->isInShadowTree() && elementHasAutoTextDirectionState(child))
+                updateEffectiveTextDirectionOfElementAndDescendants(child, TextDirectionState::Auto);
             it.traverseNextSkippingChildren();
             continue;
         }

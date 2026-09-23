@@ -40,6 +40,7 @@
 #include "JSMediaKeyStatusMap.h"
 #include "JSMediaKeysRequirement.h"
 #include <wtf/JSONValues.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 

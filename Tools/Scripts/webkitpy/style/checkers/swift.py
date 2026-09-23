@@ -30,8 +30,9 @@ class SwiftChecker(object):
     def __init__(self, file_path, handle_style_error):
         self.file_path = file_path
         self.handle_style_error = handle_style_error
+        self.has_swift_format_errors = False
 
-    def _process_lines(self, file_path, lines, error):
+    def _swift_format(self, file_path, lines, error):
         lint_result = subprocess.run(['/usr/bin/swift', 'format', 'lint', '--strict', file_path], capture_output=True, text=True)
 
         # matches <filename>:<line>: error: [<category>] <message>
@@ -53,7 +54,36 @@ class SwiftChecker(object):
             category = match.group("category")
             message = match.group("message")
 
+            self.has_swift_format_errors = True
             self.handle_style_error(int(line_number), category, 5, message)
 
-    def check(self, lines):
-        self._process_lines(self.file_path, lines, self.handle_style_error)
+    def _check_unsafe(self, lines):
+        in_block_comment = False
+        for index, line in enumerate(lines):
+            if in_block_comment:
+                if '*/' in line:
+                    in_block_comment = False
+                continue
+
+            stripped = line.lstrip()
+            if stripped.startswith('//'):
+                continue
+
+            if '/*' in line:
+                if '*/' not in line[line.index('/*') + 2:]:
+                    in_block_comment = True
+                continue
+
+            if re.search(r'"[^"]*\bunsafe\b[^"]*"', line):
+                continue
+            elif re.search(r'@unsafe\b', line):
+                continue
+            elif re.search(r'\bunsafe\b', line):
+                self.handle_style_error(index + 1, 'webkit/unsafe', 5, "Please avoid new use of 'unsafe' in WebKit. See https://github.com/WebKit/WebKit/wiki/Safer-Swift-Guidelines.")
+
+            if re.search(r'@safe\b', line) and not re.search(r'@unsafe\b', line):
+                self.handle_style_error(index + 1, 'webkit/unsafe', 5, "Please avoid new use of '@safe' in WebKit. See https://github.com/WebKit/WebKit/wiki/Safer-Swift-Guidelines.")
+
+    def check(self, lines, line_numbers=None):
+        self._swift_format(self.file_path, lines, self.handle_style_error)
+        self._check_unsafe(lines)

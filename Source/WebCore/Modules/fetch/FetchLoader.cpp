@@ -33,6 +33,7 @@
 #include "BlobURL.h"
 #include "CachedResourceRequestInitiatorTypes.h"
 #include "ContentSecurityPolicy.h"
+#include "Document.h"
 #include "FetchBody.h"
 #include "FetchBodyConsumer.h"
 #include "FetchLoaderClient.h"
@@ -104,19 +105,16 @@ void FetchLoader::start(ScriptExecutionContext& context, const FetchRequest& req
 
     ResourceRequest fetchRequest = request.resourceRequest();
 
-    if (context.requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory::NetworkRequests)) {
-        if (RefPtr client = m_client.get())
-            client->didFail({ errorDomainWebKitInternal, 0, fetchRequest.url(), "Blocked by script tracking privacy protection"_s, ResourceError::Type::AccessControl });
-        return;
-    }
-
     ASSERT(context.contentSecurityPolicy());
     {
         CheckedRef contentSecurityPolicy = *context.contentSecurityPolicy();
 
         contentSecurityPolicy->upgradeInsecureRequestIfNeeded(fetchRequest, ContentSecurityPolicy::InsecureRequestType::Load);
 
-        if (!context.shouldBypassMainWorldContentSecurityPolicy() && !contentSecurityPolicy->allowConnectToSource(fetchRequest.url())) {
+        std::optional<TextPosition> sourcePosition;
+        if (RefPtr document = dynamicDowncast<Document>(context))
+            sourcePosition = document->currentParserSourcePosition();
+        if (!context.shouldBypassMainWorldContentSecurityPolicy() && !contentSecurityPolicy->allowConnectToSource(fetchRequest.url(), WTF::move(sourcePosition))) {
             if (RefPtr client = m_client.get())
                 client->didFail({ errorDomainWebKitInternal, 0, fetchRequest.url(), "Not allowed by ContentSecurityPolicy"_s, ResourceError::Type::AccessControl });
             return;

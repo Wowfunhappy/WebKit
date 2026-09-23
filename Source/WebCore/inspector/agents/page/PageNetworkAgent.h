@@ -33,12 +33,23 @@ namespace WebCore {
 class InspectorBackendClient;
 class Page;
 
-class PageNetworkAgent final : public InspectorNetworkAgent {
+class PageNetworkAgent final : public InspectorNetworkAgent, public CanMakeCheckedPtr<PageNetworkAgent> {
     WTF_MAKE_NONCOPYABLE(PageNetworkAgent);
     WTF_MAKE_TZONE_ALLOCATED(PageNetworkAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageNetworkAgent);
 public:
     PageNetworkAgent(PageAgentContext&, InspectorBackendClient*);
     ~PageNetworkAgent();
+
+    // AbstractCanMakeCheckedPtr overrides
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
+    // NetworkBackendDispatcherHandler
+    Inspector::Protocol::ErrorStringOr<void> enable() final;
 
 private:
     Inspector::Protocol::Network::LoaderId loaderIdentifier(DocumentLoader*);

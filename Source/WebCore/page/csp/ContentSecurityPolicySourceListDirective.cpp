@@ -43,10 +43,10 @@ ContentSecurityPolicySourceListDirective::ContentSecurityPolicySourceListDirecti
     m_sourceList.parse(value);
 }
 
-bool ContentSecurityPolicySourceListDirective::allows(const URL& url, bool didReceiveRedirectResponse, ShouldAllowEmptyURLIfSourceListIsNotNone shouldAllowEmptyURLIfSourceListEmpty)
+bool ContentSecurityPolicySourceListDirective::allows(const URL& url, bool didReceiveRedirectResponse)
 {
     if (url.isEmpty())
-        return shouldAllowEmptyURLIfSourceListEmpty == ShouldAllowEmptyURLIfSourceListIsNotNone::Yes && !m_sourceList.isNone();
+        return false;
     return m_sourceList.matches(url, didReceiveRedirectResponse);
 }
 

@@ -166,8 +166,10 @@ AudioContext::~AudioContext()
 {
     m_mediaSession->invalidateClient();
 
-    if (RefPtr document = this->document())
-        document->removeAudioProducer(*this);
+    if (!isStopped()) {
+        if (RefPtr document = this->document())
+            document->removeAudioProducer(*this);
+    }
 }
 
 void AudioContext::uninitialize()
@@ -183,6 +185,13 @@ void AudioContext::uninitialize()
 #endif
 
     setState(State::Closed);
+}
+
+void AudioContext::stop()
+{
+    if (RefPtr document = this->document())
+        document->removeAudioProducer(*this);
+    BaseAudioContext::stop();
 }
 
 double AudioContext::baseLatency()
@@ -541,7 +550,7 @@ void AudioContext::didReceiveRemoteControlCommand(PlatformMediaSession::RemoteCo
 
 std::optional<MediaSessionGroupIdentifier> AudioContext::mediaSessionGroupIdentifier() const
 {
-    RefPtr document = this->document();
+    auto* document = this->document();
     return document && document->page() ? document->page()->mediaSessionGroupIdentifier() : std::nullopt;
 }
 
@@ -710,7 +719,7 @@ bool AudioContext::shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSess
     if (interruption != PlatformMediaSession::InterruptionType::EnteringBackground)
         return false;
 
-    if (m_canOverrideBackgroundPlaybackRestriction && !protect(destination())->isConnected())
+    if (m_canOverrideBackgroundPlaybackRestriction && !destination().isConnected())
         return true;
 
     RefPtr document = this->document();

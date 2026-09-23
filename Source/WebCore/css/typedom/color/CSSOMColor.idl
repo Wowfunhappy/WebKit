@@ -24,8 +24,8 @@
 */
 
 typedef (double or CSSNumericValue) CSSNumberish;
-typedef (DOMString or CSSKeywordValue) CSSKeywordish;
-typedef (CSSNumberish or CSSKeywordish) CSSColorPercent;
+typedef (DOMString or CSSOMKeywordValue) CSSOMKeywordish;
+typedef (CSSNumberish or CSSOMKeywordish) CSSColorPercent;
 
 // https://drafts.css-houdini.org/css-typed-om/#csscolor
 [
@@ -34,9 +34,9 @@ typedef (CSSNumberish or CSSKeywordish) CSSColorPercent;
     Exposed=(Window,Worker,PaintWorklet/*,LayoutWorklet*/),
     JSGenerateToNativeObject,
 ] interface CSSOMColor : CSSOMColorValue {
-    constructor(CSSKeywordish colorSpace, sequence<CSSColorPercent> channels, optional CSSNumberish alpha = 1.0);
+    constructor(CSSOMKeywordish colorSpace, sequence<CSSColorPercent> channels, optional CSSNumberish alpha = 1.0);
     // FIXME: `colorSpace` should not be nullable.
-    attribute CSSKeywordish? colorSpace;
+    attribute CSSOMKeywordish? colorSpace;
     // FIXME: Add support for ObservableArray and add this.
     // https://bugs.webkit.org/show_bug.cgi?id=238281
     // attribute ObservableArray<CSSColorPercent> channels;

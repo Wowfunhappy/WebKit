@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -220,15 +220,15 @@ void SMILTimeContainer::updateDocumentOrderIndexes()
 {
     unsigned timingElementCount = 0;
 
-    for (Ref smilElement : descendantsOfType<SVGSMILElement>(m_ownerSVGElement.get()))
-        smilElement->setDocumentOrderIndex(timingElementCount++);
+    for (auto& smilElement : descendantsOfType<SVGSMILElement>(m_ownerSVGElement.get()))
+        smilElement.setDocumentOrderIndex(timingElementCount++);
 
     m_documentOrderIndexesDirty = false;
 }
 
 struct PriorityCompare {
     PriorityCompare(SMILTime elapsed) : m_elapsed(elapsed) {}
-    bool operator()(auto& a, auto& b)
+    bool NODELETE operator()(auto& a, auto& b)
     {
         // FIXME: This should also consider possible timing relations between the elements.
         SMILTime aBegin = a->intervalBegin();
@@ -254,7 +254,7 @@ void SMILTimeContainer::processScheduledAnimations(NOESCAPE const Function<void(
 {
     for (auto& animations : copyToVector(m_scheduledAnimations.values())) {
         for (auto& weakAnimation : animations)
-            callback(Ref { weakAnimation.get() });
+            callback(protect(weakAnimation));
     }
 }
 
@@ -292,7 +292,7 @@ void SMILTimeContainer::updateAnimations(SMILTime elapsed, bool seekToTime)
             // Results are accumulated to the first animation that animates and contributes to a particular element/attribute pair.
             if (!firstAnimation) {
                 if (!animation->hasValidAttributeType())
-                    return;
+                    continue;
                 firstAnimation = animation.copyRef();
             }
 

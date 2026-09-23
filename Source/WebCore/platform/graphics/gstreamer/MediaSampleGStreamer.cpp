@@ -23,12 +23,22 @@
 #include "MediaSampleGStreamer.h"
 
 #include "GStreamerCommon.h"
-#include "VideoFrameMetadataGStreamer.h"
 #include <algorithm>
 
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
+GST_DEBUG_CATEGORY(webkit_media_sample_debug);
+#define GST_CAT_DEFAULT webkit_media_sample_debug
+
 namespace WebCore {
+
+static void ensureMediaSampleDebugCategoryInitialized()
+{
+    static std::once_flag debugRegisteredFlag;
+    std::call_once(debugRegisteredFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_media_sample_debug, "webkitmediasample", 0, "WebKit Media Sample");
+    });
+}
 
 MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const FloatSize& presentationSize, TrackID trackId)
     : m_pts(MediaTime::zeroTime())
@@ -37,6 +47,7 @@ MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const Fl
     , m_trackId(trackId)
     , m_presentationSize(presentationSize)
 {
+    ensureMediaSampleDebugCategoryInitialized();
     ASSERT(sample);
     m_sample = WTF::move(sample);
     const GstClockTime minimumDuration = 1000; // 1 us
@@ -79,6 +90,7 @@ MediaSampleGStreamer::MediaSampleGStreamer(const FloatSize& presentationSize, Tr
     , m_trackId(trackId)
     , m_presentationSize(presentationSize)
 {
+    ensureMediaSampleDebugCategoryInitialized();
 }
 
 Ref<MediaSampleGStreamer> MediaSampleGStreamer::createFakeSample(GstCaps*, const MediaTime& pts, const MediaTime& dts, const MediaTime& duration, const FloatSize& presentationSize, TrackID trackId)
@@ -93,6 +105,7 @@ Ref<MediaSampleGStreamer> MediaSampleGStreamer::createFakeSample(GstCaps*, const
 
 void MediaSampleGStreamer::extendToTheBeginning()
 {
+    GST_TRACE("Extending to beginning");
     // Only to be used with the first sample, as a hack for lack of support for edit lists.
     // See AppendPipeline::appsinkNewSample()
     ASSERT(m_dts == MediaTime::zeroTime());
@@ -100,28 +113,63 @@ void MediaSampleGStreamer::extendToTheBeginning()
     m_pts = MediaTime::zeroTime();
 }
 
+void MediaSampleGStreamer::updateSampleTimestamps([[maybe_unused]] const String& debugMessage)
+{
+    RELEASE_ASSERT(m_sample);
+    GRefPtr buffer = gst_sample_get_buffer(m_sample.get());
+    RELEASE_ASSERT(buffer);
+
+    GstClockTime newPts = 0;
+    if (m_pts >= MediaTime::zeroTime())
+        newPts = toGstClockTime(m_pts);
+    else
+        GST_WARNING("New PTS is negative: %s", m_pts.toString().ascii().data());
+
+    GstClockTime newDts = 0;
+    if (m_dts >= MediaTime::zeroTime())
+        newDts = toGstClockTime(m_dts);
+    else
+        GST_WARNING("New DTS is negative: %s", m_dts.toString().ascii().data());
+
+    GST_TRACE("%s, new PTS: %" GST_TIME_FORMAT " (prev: %" GST_TIME_FORMAT "), new DTS: %" GST_TIME_FORMAT " (prev: %" GST_TIME_FORMAT ")", debugMessage.ascii().data(),
+        GST_TIME_ARGS(newPts), GST_TIME_ARGS(GST_BUFFER_PTS(buffer.get())),
+        GST_TIME_ARGS(newDts), GST_TIME_ARGS(GST_BUFFER_DTS(buffer.get())));
+
+    GRefPtr writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    GST_BUFFER_PTS(writableBuffer.get()) = newPts;
+    GST_BUFFER_DTS(writableBuffer.get()) = newDts;
+    m_sample = adoptGRef(gst_sample_make_writable(m_sample.leakRef()));
+    gst_sample_set_buffer(m_sample.get(), writableBuffer.get());
+}
+
 void MediaSampleGStreamer::setTimestamps(const MediaTime& presentationTime, const MediaTime& decodeTime)
 {
     m_pts = presentationTime;
     m_dts = decodeTime;
-    if (auto* buffer = gst_sample_get_buffer(m_sample.get())) {
-        // MAVERICKS_BACKPORT: toValidGstClockTime() (not upstream toGstClockTime) maps negative/out-of-range MediaTimes to GST_CLOCK_TIME_NONE — see the note above setTimestamps().
-        GST_BUFFER_PTS(buffer) = toValidGstClockTime(m_pts);
-        GST_BUFFER_DTS(buffer) = toValidGstClockTime(m_dts);
-    }
+
+    if (!m_sample)
+        return;
+
+    updateSampleTimestamps("Setting timestamps"_s);
 }
 
 void MediaSampleGStreamer::offsetTimestampsBy(const MediaTime& timestampOffset)
 {
     if (!timestampOffset)
         return;
+
     m_pts += timestampOffset;
     m_dts += timestampOffset;
-    if (auto* buffer = gst_sample_get_buffer(m_sample.get())) {
-        // MAVERICKS_BACKPORT: toValidGstClockTime() (not upstream toGstClockTime) maps negative/out-of-range MediaTimes to GST_CLOCK_TIME_NONE — see the note above setTimestamps().
-        GST_BUFFER_PTS(buffer) = toValidGstClockTime(m_pts);
-        GST_BUFFER_DTS(buffer) = toValidGstClockTime(m_dts);
-    }
+
+    if (!m_sample)
+        return;
+
+    auto debugMessage = emptyString();
+#ifndef GST_DISABLE_GST_DEBUG
+    if (gst_debug_category_get_threshold(GST_CAT_DEFAULT) >= GST_LEVEL_TRACE)
+        debugMessage = makeString("Offsetting timestamps by "_s, timestampOffset.toString());
+#endif
+    updateSampleTimestamps(debugMessage);
 }
 
 PlatformSample MediaSampleGStreamer::platformSample() const
@@ -134,16 +182,46 @@ Ref<MediaSample> MediaSampleGStreamer::createNonDisplayingCopy() const
     if (!m_sample)
         return createFakeSample(nullptr, m_pts, m_dts, m_duration, m_presentationSize, m_trackId);
 
-    GstBuffer* buffer = gst_sample_get_buffer(m_sample.get());
-    GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DECODE_ONLY);
+    GRefPtr sample = adoptGRef(gst_sample_copy(m_sample.get()));
 
-    GstCaps* caps = gst_sample_get_caps(m_sample.get());
-    GstSegment* segment = gst_sample_get_segment(m_sample.get());
-    const GstStructure* originalInfo = gst_sample_get_info(m_sample.get());
-    GstStructure* info = originalInfo ? gst_structure_copy(originalInfo) : nullptr;
-    GRefPtr<GstSample> sample = adoptGRef(gst_sample_new(buffer, caps, segment, info));
+    GRefPtr buffer = gst_sample_get_buffer(sample.get());
+    RELEASE_ASSERT(buffer);
+    GRefPtr writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+
+    GST_BUFFER_FLAG_SET(writableBuffer.get(), GST_BUFFER_FLAG_DECODE_ONLY);
+    sample = adoptGRef(gst_sample_make_writable(sample.leakRef()));
+    gst_sample_set_buffer(sample.get(), writableBuffer.get());
 
     return adoptRef(*new MediaSampleGStreamer(WTF::move(sample), m_presentationSize, m_trackId));
+}
+
+Ref<MediaSample> MediaSampleGStreamer::createCopyWithAdjustedStartTime(const MediaTime& offset) const
+{
+    MediaTime clampedOffset = std::max(MediaTime::zeroTime(), std::min(offset, m_duration));
+
+    MediaTime newPresentationTime = m_pts + clampedOffset;
+    MediaTime newDecodeTime = m_dts + clampedOffset;
+    MediaTime adjustedDuration = m_duration - clampedOffset;
+
+    if (!m_sample)
+        return createFakeSample(nullptr, newPresentationTime, newDecodeTime, adjustedDuration, m_presentationSize, m_trackId);
+
+    GRefPtr<GstSample> newSample = adoptGRef(gst_sample_copy(m_sample.get()));
+
+    GRefPtr buffer = gst_sample_get_buffer(newSample.get());
+    if (!buffer) [[unlikely]]
+        return createFakeSample(nullptr, newPresentationTime, newDecodeTime, adjustedDuration, m_presentationSize, m_trackId);
+
+    GRefPtr newBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    GST_BUFFER_PTS(newBuffer.get()) = toGstClockTime(newPresentationTime);
+    GST_BUFFER_DTS(newBuffer.get()) = toGstClockTime(newDecodeTime);
+    GST_BUFFER_DURATION(newBuffer.get()) = toGstClockTime(adjustedDuration);
+    newSample = adoptGRef(gst_sample_make_writable(newSample.leakRef()));
+    gst_sample_set_buffer(newSample.get(), newBuffer.get());
+
+    Ref copy = adoptRef(*new MediaSampleGStreamer(WTF::move(newSample), m_presentationSize, m_trackId));
+    copy->m_flags = m_flags;
+    return copy;
 }
 
 void MediaSampleGStreamer::dump(PrintStream& out) const
@@ -171,5 +249,7 @@ void MediaSampleGStreamer::dump(PrintStream& out) const
 }
 
 } // namespace WebCore.
+
+#undef GST_CAT_DEFAULT
 
 #endif // ENABLE(VIDEO) && USE(GSTREAMER)

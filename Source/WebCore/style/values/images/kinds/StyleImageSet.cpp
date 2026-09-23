@@ -29,10 +29,12 @@
 #include "CSSImageSetOptionValue.h"
 #include "CSSImageSetValue.h"
 #include "CSSPrimitiveValue.h"
+#include "DeprecatedCSSOMValue.h"
 #include "DocumentPage.h"
 #include "MIMETypeRegistry.h"
 #include "Page.h"
 #include "StyleInvalidImage.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -66,12 +68,21 @@ bool ImageSet::equals(const ImageSet& other) const
     return m_images == other.m_images && MultiImage::equals(other);
 }
 
-Ref<CSSValue> ImageSet::computedStyleValue(const RenderStyle& style) const
+Ref<CSSValue> ImageSet::computedStyleValue(const Style::ComputedStyle& style) const
 {
     auto builder = WTF::map<CSSValueListBuilderInlineCapacity>(m_images, [&](auto& image) -> Ref<CSSValue> {
-        return CSSImageSetOptionValue::create(image.image->computedStyleValue(style), CSSPrimitiveValue::create(image.scaleFactor, CSSUnitType::CSS_DPPX), image.mimeType);
+        return CSSImageSetOptionValue::create(
+            image.image->computedStyleValue(style),
+            toCSS(image.scaleFactor, style),
+            toCSS(image.mimeType, style)
+        );
     });
     return CSSImageSetValue::create(WTF::move(builder));
+}
+
+Ref<DeprecatedCSSOMValue> ImageSet::computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle& style, CSSStyleDeclaration& owner) const
+{
+    return computedStyleValue(style)->createDeprecatedCSSOMWrapper(owner);
 }
 
 ImageWithScale ImageSet::selectBestFitImage(const Document& document)
@@ -91,7 +102,7 @@ ImageWithScale ImageSet::bestImageForScaleFactor()
     ImageWithScale result;
     for (auto index : m_sortedIndices) {
         const auto& image = m_images[index];
-        if (!image.mimeType.isNull() && !MIMETypeRegistry::isSupportedImageMIMEType(image.mimeType))
+        if (image.mimeType && !MIMETypeRegistry::isSupportedImageMIMEType(image.mimeType->parameters.value))
             continue;
         if (!result.image->isInvalidImage() && result.scaleFactor == image.scaleFactor)
             continue;
@@ -102,8 +113,8 @@ ImageWithScale ImageSet::bestImageForScaleFactor()
     }
 
     ASSERT(result.scaleFactor >= 0);
-    if (result.image->isInvalidImage() || !result.scaleFactor)
-        result = ImageWithScale { InvalidImage::create(), 1, String() };
+    if (result.image->isInvalidImage() || !result.scaleFactor.value)
+        result = ImageWithScale { InvalidImage::create(), 1, std::nullopt };
 
     return result;
 }

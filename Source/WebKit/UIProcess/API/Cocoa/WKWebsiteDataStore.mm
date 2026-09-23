@@ -109,10 +109,10 @@ public:
         , m_hasGetDisplayedNotificationsSelector([m_delegate.get() respondsToSelector:@selector(websiteDataStore:getDisplayedNotificationsForWorkerOrigin:completionHandler:)])
         , m_hasRequestBackgroundFetchPermissionSelector([m_delegate.get() respondsToSelector:@selector(requestBackgroundFetchPermission:frameOrigin:decisionHandler:)])
         , m_hasNotifyBackgroundFetchChangeSelector([m_delegate.get() respondsToSelector:@selector(notifyBackgroundFetchChange:change:)])
-        , m_hasWindowProxyPropertyAccessSelector([m_delegate.get() respondsToSelector:@selector(websiteDataStore:domain:didOpenDomainViaWindowOpen:withProperty:directly:)])
         , m_hasDidAllowPrivateTokenUsageByThirdPartyForTestingSelector([m_delegate.get() respondsToSelector:@selector(websiteDataStore:didAllowPrivateTokenUsageByThirdPartyForTesting:forResourceURL:)])
         , m_hasDidExceedMemoryFootprintThresholdSelector([m_delegate.get() respondsToSelector:@selector(websiteDataStore:domain:didExceedMemoryFootprintThreshold:withPageCount:processLifetime:inForeground:wasPrivateRelayed:canSuspend:)])
         , m_hasWebCryptoMasterKeySelector([m_delegate.get() respondsToSelector:@selector(webCryptoMasterKey:)])
+        , m_hasDidPerformEvictionForDomainsSelector([m_delegate.get() respondsToSelector:@selector(didEvictDataForDomains:)])
     {
     }
 
@@ -131,6 +131,18 @@ private:
                 return completionHandler(std::nullopt);
             completionHandler(makeVector(result));
         }).get()];
+    }
+
+    void didEvictDataForDomains(const Vector<WebCore::RegistrableDomain>& domains) final
+    {
+        if (!m_hasDidPerformEvictionForDomainsSelector || !m_delegate)
+            return;
+
+        RetainPtr array = createNSArray(domains, [] (auto& domain) {
+            return domain.string().createNSString();
+        });
+
+        [m_delegate.get() didEvictDataForDomains:array.get()];
     }
 
     void requestStorageSpace(const WebCore::SecurityOriginData& topOrigin, const WebCore::SecurityOriginData& frameOrigin, uint64_t quota, uint64_t currentSize, uint64_t spaceRequired, CompletionHandler<void(std::optional<uint64_t>)>&& completionHandler) final
@@ -320,26 +332,6 @@ private:
         [m_delegate.get() notifyBackgroundFetchChange:backgroundFetchIdentifier.createNSString().get() change:change];
     }
 
-    void didAccessWindowProxyProperty(const WebCore::RegistrableDomain& parentDomain, const WebCore::RegistrableDomain& childDomain, WebCore::WindowProxyProperty property, bool directlyAccessedProperty) final
-    {
-        if (!m_hasWindowProxyPropertyAccessSelector)
-            return;
-
-        WKWindowProxyProperty windowProxyProperty;
-        switch (property) {
-        case WebCore::WindowProxyProperty::PostMessage:
-            windowProxyProperty = WKWindowProxyPropertyPostMessage;
-            break;
-        case WebCore::WindowProxyProperty::Closed:
-            windowProxyProperty = WKWindowProxyPropertyClosed;
-            break;
-        default:
-            windowProxyProperty = WKWindowProxyPropertyOther;
-        }
-
-        [m_delegate.get() websiteDataStore:m_dataStore.get().get() domain:parentDomain.string().createNSString().get() didOpenDomainViaWindowOpen:childDomain.string().createNSString().get() withProperty:windowProxyProperty directly:directlyAccessedProperty];
-    }
-
     void didAllowPrivateTokenUsageByThirdPartyForTesting(bool wasAllowed, WTF::URL&& resourceURL) final
     {
         if (!m_hasDidAllowPrivateTokenUsageByThirdPartyForTestingSelector)
@@ -368,10 +360,10 @@ private:
     bool m_hasGetDisplayedNotificationsSelector { false };
     bool m_hasRequestBackgroundFetchPermissionSelector { false };
     bool m_hasNotifyBackgroundFetchChangeSelector { false };
-    bool m_hasWindowProxyPropertyAccessSelector { false };
     bool m_hasDidAllowPrivateTokenUsageByThirdPartyForTestingSelector { false };
     bool m_hasDidExceedMemoryFootprintThresholdSelector { false };
     bool m_hasWebCryptoMasterKeySelector { false };
+    bool m_hasDidPerformEvictionForDomainsSelector { false };
 };
 
 #if PLATFORM(IOS)
@@ -803,6 +795,11 @@ struct WKWebsiteData {
     protect(*_websiteDataStore)->resolveDirectoriesAsynchronously();
 
     return self;
+}
+
++ (instancetype)_storeWithConfiguration:(_WKWebsiteDataStoreConfiguration *)configuration
+{
+    return adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:configuration]).autorelease();
 }
 
 - (void)_fetchDataRecordsOfTypes:(NSSet<NSString *> *)dataTypes withOptions:(_WKWebsiteDataStoreFetchOptions)options completionHandler:(void (^)(NSArray<WKWebsiteDataRecord *> *))completionHandler
@@ -1606,6 +1603,35 @@ struct WKWebsiteData {
     protect(*_websiteDataStore)->isStorageSuspendedForTesting([completionHandlerCopy = WTF::move(completionHandlerCopy)](auto result) {
         completionHandlerCopy(result);
     });
+}
+
+- (void)_canPrefetchDNSForTesting:(void(^)(BOOL))completionHandler
+{
+    auto completionHandlerCopy = makeBlockPtr(completionHandler);
+    protect(*_websiteDataStore)->canPrefetchDNSForTesting([completionHandlerCopy = WTF::move(completionHandlerCopy)](auto result) {
+        completionHandlerCopy(result);
+    });
+}
+
+- (void)_prefetchedDNSHostnameCountForTesting:(void(^)(NSUInteger))completionHandler
+{
+    auto completionHandlerCopy = makeBlockPtr(completionHandler);
+    protect(*_websiteDataStore)->prefetchedDNSHostnameCountForTesting([completionHandlerCopy = WTF::move(completionHandlerCopy)](uint64_t result) {
+        completionHandlerCopy(result);
+    });
+}
+
+- (void)_installMockParentalControlsURLFilterForTestingWithBlockedURLs:(NSArray<NSURL *> *)blockedURLs completionHandler:(void(^)(void))completionHandler
+{
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    auto urls = makeVector<URL>(blockedURLs);
+
+    protect(*_websiteDataStore)->installMockParentalControlsURLFilterForTesting(WTF::move(urls), [completionHandler = makeBlockPtr(completionHandler)] {
+        completionHandler();
+    });
+#else
+    completionHandler();
+#endif
 }
 
 - (NSString *)_thirdPartyCookieBlockingModeForTesting

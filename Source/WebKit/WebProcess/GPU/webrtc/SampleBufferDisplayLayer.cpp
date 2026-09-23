@@ -163,6 +163,12 @@ void SampleBufferDisplayLayer::setDidFail(bool value)
         client->sampleBufferDisplayLayerStatusDidFail();
 }
 
+void SampleBufferDisplayLayer::updateVideoFrameCounters(uint64_t totalVideoFrames, uint64_t droppedVideoFrames)
+{
+    if (RefPtr client = m_client.get())
+        client->updateVideoFrameCounters(totalVideoFrames, droppedVideoFrames);
+}
+
 void SampleBufferDisplayLayer::gpuProcessConnectionDidClose(GPUProcessConnection&)
 {
     m_sharedVideoFrameWriter.disable();

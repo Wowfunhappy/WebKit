@@ -77,7 +77,7 @@ template<typename Handler> static bool forEachProtobufField(std::span<const uint
 
 static bool verifiesWith(std::span<const uint8_t> publicKey, std::span<const uint8_t> signature, std::span<const uint8_t> payload)
 {
-    RetainPtr keyData = toNSData(publicKey);
+    RetainPtr keyData = WTF::toNSData(publicKey);
     SecExternalFormat format = kSecFormatOpenSSL;
     SecExternalItemType type = kSecItemTypePublicKey;
     SecItemImportExportKeyParameters parameters { };

@@ -26,7 +26,7 @@
   }
   @media (max-width: 700px) {
     ul {
-      grid-template-columns: minmax(250px, 400px);
+      grid-template-columns: minmax(200px, 400px);
     }
   }
   li {
@@ -44,5 +44,19 @@
   }
   footer p {
     margin-block: 0;
+  }
+}
+@media (max-width: 500px) {
+  .toc {
+    margin: 1.5rem;
+    h1 {
+      font-size: 1.5rem;
+    }
+    ul {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    p {
+      font-size: 0.9rem;
+    }
   }
 }

@@ -76,7 +76,7 @@ void ScrollUpdate::merge(ScrollUpdate&& other)
         shouldFireScrollEnd = ShouldFireScrollEnd::Yes;
 
     if (std::holds_alternative<ScrollUpdateData>(data)) {
-        std::get<ScrollUpdateData>(data).layoutViewportOrigin = std::get<ScrollUpdateData>(other.data).layoutViewportOrigin;
+        std::get<ScrollUpdateData>(data).layoutViewportOriginOrOverrideRect = std::get<ScrollUpdateData>(other.data).layoutViewportOriginOrOverrideRect;
         return;
     }
 
@@ -263,8 +263,19 @@ TextStream& operator<<(TextStream& ts, const ScrollUpdate& update)
     if (std::holds_alternative<ScrollUpdateData>(update.data)) {
         auto updateData = std::get<ScrollUpdateData>(update.data);
         ts << "updateType: " << updateData.updateType << " nodeID: " << update.nodeID;
-        if (updateData.updateType == ScrollUpdateType::PositionUpdate)
-            ts << " scrollPosition: " << update.scrollPosition << " layoutViewportOrigin: " << updateData.layoutViewportOrigin << " updateLayerPositionAction: " << updateData.updateLayerPositionAction;
+        if (updateData.updateType == ScrollUpdateType::PositionUpdate) {
+            ts << " scrollPosition: " << update.scrollPosition;
+
+            if (updateData.layoutViewportOriginOrOverrideRect) {
+                WTF::switchOn(*updateData.layoutViewportOriginOrOverrideRect,
+                    [&ts](FloatPoint origin) { ts << " layoutViewportOrigin: " << origin; },
+                    [&ts](FloatRect overrideRect) { ts << " layoutViewportOverrideRect: " << overrideRect; }
+                );
+            } else
+                ts << " layoutViewportOriginOrOverrideRect: (none)";
+
+            ts << " updateLayerPositionAction: " << updateData.updateLayerPositionAction;
+        }
         return ts;
     }
 

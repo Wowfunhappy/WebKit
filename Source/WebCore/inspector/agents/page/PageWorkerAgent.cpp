@@ -26,8 +26,8 @@
 #include "config.h"
 #include "PageWorkerAgent.h"
 
-#include "Document.h"
 #include "Page.h"
+#include "Settings.h"
 #include "WorkerInspectorProxy.h"
 
 namespace WebCore {
@@ -46,6 +46,12 @@ PageWorkerAgent::~PageWorkerAgent() = default;
 
 void PageWorkerAgent::connectToAllWorkerInspectorProxies()
 {
+    // Under site isolation, every frame (including the main frame) has its own
+    // FrameInspectorController with a FrameWorkerAgent that handles workers for
+    // that frame. PageWorkerAgent does not need to connect to any workers.
+    if (m_page->settings().siteIsolationEnabled())
+        return;
+
     for (Ref proxy : WorkerInspectorProxy::proxiesForPage(*m_page->identifier()))
         connectToWorkerInspectorProxy(proxy);
 }

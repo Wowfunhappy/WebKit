@@ -28,6 +28,7 @@
 
 #include <array>
 #include <math.h>
+#include <numeric>
 
 namespace WebCore {
 
@@ -151,7 +152,7 @@ namespace WebCore {
                     t0 = t2;
                 else
                     t1 = t2;
-                t2 = (t1 + t0) * .5;
+                t2 = std::midpoint(t0, t1);
             }
 
             // Failure.

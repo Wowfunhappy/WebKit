@@ -219,7 +219,9 @@ static UIWindowScene *windowScene()
 
 static CGRect viewRectForWindowRect(CGRect windowRect, PlatformWebView::WebViewSizingMode mode)
 {
-    CGFloat statusBarBottom = CGRectGetMaxY([[UIApplication sharedApplication] statusBarFrame]);
+    CGFloat statusBarBottom = 0;
+    if (auto *scene = windowScene())
+        statusBarBottom = CGRectGetMaxY(scene.statusBarManager.statusBarFrame);
     return CGRectMake(windowRect.origin.x, windowRect.origin.y + statusBarBottom, windowRect.size.width, windowRect.size.height - (mode == PlatformWebView::WebViewSizingMode::HeightRespectsStatusBar ? statusBarBottom : 0));
 }
 

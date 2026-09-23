@@ -40,8 +40,8 @@
 #include "LayoutState.h"
 #include "Logging.h"
 #include "PlacedFloats.h"
-#include "RenderStyle+GettersInlines.h"
 #include "TableWrapperBlockFormattingContext.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
@@ -569,7 +569,7 @@ IntrinsicWidthConstraints BlockFormattingContext::computedIntrinsicWidthConstrai
             // <div></div>
             // <div style="float: left; width: 40px;"></div>
             // ...will produce a max width of 40px which makes the floats vertically stacked.
-            // Vertically stacked floats makes me think we haven't managed to provide the maximum preferred width for the content.
+            // Vertically stacked floats makes me think we haven't managed to provide the maximum width contribution for the content.
             maximumHorizontalStackingWidth = std::max(currentHorizontalStackingWidth, maximumHorizontalStackingWidth);
             currentHorizontalStackingWidth = { };
             // Already has computed intrinsic constraints.

@@ -29,7 +29,10 @@
 
 #if ENABLE(MATHML)
 
+#include "ContainerNodeInlines.h"
 #include "RenderMathMLRoot.h"
+#include "RenderObjectInlines.h"
+#include "StyleComputedStyle.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -57,7 +60,7 @@ Ref<MathMLRootElement> MathMLRootElement::create(const QualifiedName& tagName, D
     return adoptRef(*new MathMLRootElement(tagName, document));
 }
 
-RenderPtr<RenderElement> MathMLRootElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLRootElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     ASSERT(hasTagName(msqrtTag) || hasTagName(mrootTag));
     return createRenderer<RenderMathMLRoot>(*this, WTF::move(style));
@@ -69,7 +72,7 @@ void MathMLRootElement::childrenChanged(const ChildChange& change)
 
     if (CheckedPtr rootRenderer = dynamicDowncast<RenderMathMLRoot>(this->renderer())) {
         rootRenderer->resetRadicalOperator();
-        rootRenderer->setNeedsLayoutAndPreferredWidthsUpdate();
+        rootRenderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
     }
 }
 

@@ -275,11 +275,12 @@ Document* HTMLDocumentParser::contextForParsingSession()
 bool HTMLDocumentParser::pumpTokenizerLoop(SynchronousMode mode, bool parsingFragment, PumpSession& session)
 {
     RefPtr parserScheduler = m_parserScheduler;
+    RefPtr frame = parsingFragment ? nullptr : document()->frame();
     do {
         if (isWaitingForScripts()) [[unlikely]] {
             if (mode == SynchronousMode::AllowYield && parserScheduler->shouldYieldBeforeExecutingScript(protect(m_treeBuilder->scriptToProcess()).get(), session))
                 return true;
-            
+
             runScriptsForPausedTreeBuilder();
             // If we're paused waiting for a script, we try to execute scripts before continuing.
             if (isWaitingForScripts() || isStopped())
@@ -290,7 +291,7 @@ bool HTMLDocumentParser::pumpTokenizerLoop(SynchronousMode mode, bool parsingFra
         // how the parser has always handled stopping when the page assigns window.location. What should
         // happen instead is that assigning window.location causes the parser to stop parsing cleanly.
         // The problem is we're not prepared to do that at every point where we run JavaScript.
-        if (!parsingFragment && document()->frame() && protect(document()->frame()->navigationScheduler())->locationChangePending()) [[unlikely]]
+        SUPPRESS_UNCOUNTED_ARG if (frame && frame->navigationScheduler().locationChangePending()) [[unlikely]]
             return false;
 
         if (mode == SynchronousMode::AllowYield && parserScheduler->shouldYieldBeforeToken(session)) [[unlikely]]
@@ -394,7 +395,7 @@ void HTMLDocumentParser::insert(SegmentedString&& source)
     Ref<HTMLDocumentParser> protectedThis(*this);
 
     source.setExcludeLineNumbers();
-    m_input.insertAtCurrentInsertionPoint(WTF::move(source));
+    m_input.insertAtCurrentInsertionPoint(source);
     pumpTokenizerIfPossible(SynchronousMode::ForceSynchronous);
 
     if (isWaitingForScripts() && !isDetached()) {

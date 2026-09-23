@@ -49,6 +49,13 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
+#if ENABLE(QUICKLOOK_FULLSCREEN)
+#include <ImageIO/ImageIO.h>
+#include <WebCore/ShareableBitmap.h>
+#include <WebCore/ShareableSpatialImage.h>
+#include <wtf/cf/VectorCF.h>
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -174,6 +181,16 @@ void WebFullScreenManagerProxy::close()
 void WebFullScreenManagerProxy::detachFromClient()
 {
     close();
+
+    // If we were in fullscreen, notify the client that fullscreen has exited,
+    // since the normal IPC round-trip through the web process won't complete
+    // after the page is closed.
+    if (m_fullscreenState != FullscreenState::NotInFullscreen) {
+        m_fullscreenState = FullscreenState::NotInFullscreen;
+        if (RefPtr page = m_page.get())
+            page->fullscreenClient().didExitFullscreen(page.get());
+    }
+
     m_client = nullptr;
 }
 
@@ -202,12 +219,7 @@ Awaitable<bool> WebFullScreenManagerProxy::enterFullScreen(IPC::Connection& conn
     m_isVideoElement = mediaDetails.type == FullScreenMediaDetails::Type::Video;
 #endif
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    if (mediaDetails.imageHandle) {
-        auto sharedMemoryBuffer = SharedMemory::map(WTF::move(*mediaDetails.imageHandle), WebCore::SharedMemory::Protection::ReadOnly);
-        if (sharedMemoryBuffer)
-            m_imageBuffer = sharedMemoryBuffer->createSharedBuffer(sharedMemoryBuffer->size());
-    }
-    m_imageMIMEType = mediaDetails.mimeType;
+    m_mediaDetails = WTF::move(mediaDetails);
     m_launchInImmersive = mediaDetails.launchInImmersive;
 #endif // ENABLE(QUICKLOOK_FULLSCREEN)
 #endif // PLATFORM(IOS_FAMILY)
@@ -265,11 +277,7 @@ void WebFullScreenManagerProxy::enterFullScreenForOwnerElementsInOtherProcesses(
 #if ENABLE(QUICKLOOK_FULLSCREEN)
 void WebFullScreenManagerProxy::updateImageSource(FullScreenMediaDetails&& mediaDetails)
 {
-    if (mediaDetails.imageHandle) {
-        if (auto sharedMemoryBuffer = SharedMemory::map(WTF::move(*mediaDetails.imageHandle), WebCore::SharedMemory::Protection::ReadOnly))
-            m_imageBuffer = sharedMemoryBuffer->createSharedBuffer(sharedMemoryBuffer->size());
-    }
-    m_imageMIMEType = mediaDetails.mimeType;
+    m_mediaDetails = WTF::move(mediaDetails);
 
     if (CheckedPtr client = m_client)
         client->updateImageSource();
@@ -279,7 +287,7 @@ void WebFullScreenManagerProxy::updateImageSource(FullScreenMediaDetails&& media
 Awaitable<void> WebFullScreenManagerProxy::exitFullScreen()
 {
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    m_imageBuffer = nullptr;
+    m_mediaDetails = std::nullopt;
 #endif
     CheckedPtr client = m_client;
     if (!client)
@@ -297,16 +305,51 @@ Awaitable<void> WebFullScreenManagerProxy::exitFullScreen()
 #if ENABLE(QUICKLOOK_FULLSCREEN)
 void WebFullScreenManagerProxy::prepareQuickLookImageURL(CompletionHandler<void(URL&&)>&& completionHandler) const
 {
-    if (!m_imageBuffer)
+    if (!m_mediaDetails)
         return completionHandler(URL());
 
-    sharedQuickLookFileQueue().dispatch([buffer = m_imageBuffer, mimeType = crossThreadCopy(m_imageMIMEType), completionHandler = WTF::move(completionHandler)]() mutable {
-        auto suffix = makeString('.', WebCore::MIMETypeRegistry::preferredExtensionForMIMEType(mimeType));
-        auto [filePath, fileHandle] = FileSystem::openTemporaryFile("QuickLook"_s, suffix);
+    auto mediaDetails = *m_mediaDetails;
+    sharedQuickLookFileQueue().dispatch([mediaDetails, completionHandler = WTF::move(completionHandler)]() mutable {
+        auto heicData = WTF::switchOn(mediaDetails.imageData,
+            [](const ShareableSpatialImage& spatialImage) -> RetainPtr<CFDataRef> {
+                return spatialImage.createHEICData();
+            },
+            [](const WebCore::ShareableBitmap::Handle& bitmapHandle) -> RetainPtr<CFDataRef> {
+                RefPtr bitmap = ShareableBitmap::create(ShareableBitmap::Handle(bitmapHandle), WebCore::SharedMemory::Protection::ReadOnly);
+                if (!bitmap)
+                    return nullptr;
+
+                RetainPtr cgImage = bitmap->createPlatformImage();
+                if (!cgImage)
+                    return nullptr;
+
+                RetainPtr destinationData = adoptCF(CFDataCreateMutable(nullptr, 0));
+                RetainPtr destination = adoptCF(CGImageDestinationCreateWithData(destinationData.get(), CFSTR("public.heic"), 1, nullptr));
+                CGImageDestinationAddImage(destination.get(), cgImage.get(), nullptr);
+
+                if (!CGImageDestinationFinalize(destination.get()))
+                    return nullptr;
+
+                return destinationData;
+            },
+            [](const std::monostate&) -> RetainPtr<CFDataRef> {
+                return nullptr;
+            }
+        );
+
+        if (!heicData) {
+            RunLoop::mainSingleton().dispatch([completionHandler = WTF::move(completionHandler)]() mutable {
+                completionHandler(URL());
+            });
+            return;
+        }
+
+        auto [filePath, fileHandle] = FileSystem::openTemporaryFile("QuickLook"_s, ".heic"_s);
         ASSERT(fileHandle);
 
-        auto byteCount = fileHandle.write(buffer->span());
-        ASSERT_UNUSED(byteCount, byteCount == buffer->size());
+        auto span = WTF::span(heicData.get());
+        auto byteCount = fileHandle.write(span);
+        ASSERT_UNUSED(byteCount, byteCount == span.size());
         fileHandle = { };
 
         RunLoop::mainSingleton().dispatch([filePath, completionHandler = WTF::move(completionHandler)]() mutable {

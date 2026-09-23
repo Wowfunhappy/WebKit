@@ -10,12 +10,23 @@ sys.stdout.write(
 print('''<!DOCTYPE html>
 <html>
 <body>
-<p>This tests that multiple violations on a page trigger multiple reports
-if and only if the violations are distinct. This test passes if only one.
-PingLoader callback is visible in the output.</p>
 <script>
-for (var i = 0; i< 5; i++)
-    setTimeout("alert('PASS: setTimeout #" + i + " executed.');", 0);
+if (window.testRunner) {
+    testRunner.dumpAsText(false);
+    testRunner.waitUntilDone();
+}
+var callbackCount = 0;
+function done() {
+    if (++callbackCount === 5 && window.testRunner)
+        testRunner.notifyDone();
+}
+</script>
+<p>This tests that multiple violations on a page trigger multiple reports
+if and only if the violations are distinct. This test passes if five
+identical CSP violation console messages are visible in the output.</p>
+<script>
+for (var i = 0; i < 5; i++)
+    setTimeout("done()", 0);
 </script>
 </body>
 </html>''')

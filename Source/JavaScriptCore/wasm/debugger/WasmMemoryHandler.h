@@ -49,7 +49,7 @@ public:
     }
 
     void read(StringView packet);
-    NO_RETURN_DUE_TO_CRASH void write(StringView packet);
+    void write(StringView packet);
     void handleMemoryRegionInfo(StringView packet);
 
 private:

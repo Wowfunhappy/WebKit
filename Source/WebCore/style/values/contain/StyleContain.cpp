@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleContain.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -32,8 +33,8 @@ namespace Style {
 
 auto CSSValueConversion<Contain>::operator()(BuilderState& state, const CSSValue& value) -> Contain
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNone:
             return CSS::Keyword::None { };
         case CSSValueStrict:
@@ -56,7 +57,7 @@ auto CSSValueConversion<Contain>::operator()(BuilderState& state, const CSSValue
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::None { };
 

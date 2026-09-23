@@ -77,6 +77,7 @@
             }, "Hide and mute page, video and audio should be muted");
 
             promise_test(async (t) => {
+                t.add_cleanup(() => { audioTrack.stop(); videoTrack.stop(); });
                 if (window.internals)
                     window.internals.setPageVisibility(true);
                 assert_true(audioTrack.muted, "audio track is muted");

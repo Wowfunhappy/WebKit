@@ -32,6 +32,7 @@
 #include "SerializedScriptValue.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/Error.h>
+#include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
 
@@ -43,17 +44,33 @@ JSDOMObject::JSDOMObject(JSC::Structure* structure, JSC::JSGlobalObject& globalO
     ASSERT(scriptExecutionContext() || globalObject.classInfo() == JSDOMWindow::info());
 }
 
+void JSDOMObject::finishCreation(JSC::VM& vm)
+{
+    Base::finishCreation(vm);
+}
+
 JSC::JSValue cloneAcrossWorlds(JSC::JSGlobalObject& lexicalGlobalObject, const JSDOMObject& owner, JSC::JSValue value)
 {
-    if (isWorldCompatible(lexicalGlobalObject, value))
+    if (!value.isObject())
         return value;
+
+    // Realmless objects (e.g. WebAssembly GC structs/arrays) are world-agnostic
+    // and don't need cloning. They have no realm and thus no world association.
+    auto* realm = value.getObject()->realmMayBeNull();
+    if (!realm)
+        return value;
+
+    // Same world — no cloning needed.
+    if (&worldForDOMObject(*value.getObject()) == &currentWorld(lexicalGlobalObject))
+        return value;
+
     // FIXME: Is it best to handle errors by returning null rather than throwing an exception?
     auto serializedValue = SerializedScriptValue::create(lexicalGlobalObject, value, SerializationForStorage::No, SerializationErrorMode::NonThrowing, SerializationContext::CloneAcrossWorlds);
     if (!serializedValue)
         return JSC::jsNull();
-    // FIXME: Why is owner->globalObject() better than lexicalGlobalObject.lexicalGlobalObject() here?
+    // FIXME: Why is owner->realm() better than lexicalGlobalObject.lexicalGlobalObject() here?
     // Unlike this, isWorldCompatible uses lexicalGlobalObject.lexicalGlobalObject(); should the two match?
-    return serializedValue->deserialize(lexicalGlobalObject, owner.globalObject());
+    return serializedValue->deserialize(lexicalGlobalObject, owner.realm());
 }
 
 } // namespace WebCore

@@ -27,46 +27,53 @@
 #include "config.h"
 #include "SVGElement.h"
 
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSPropertyParser.h"
 #include "ContainerNodeInlines.h"
 #include "Document.h"
 #include "DocumentClasses.h"
+#include "DocumentPage.h"
 #include "ElementChildIteratorInlines.h"
 #include "Event.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLElement.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
 #include "JSEventListener.h"
 #include "LegacyRenderSVGResourceContainer.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
+#include "Page.h"
 #include "RenderAncestorIterator.h"
 #include "RenderSVGResourceContainer.h"
-#include "RenderStyle+GettersInlines.h"
 #include "ResolvedStyle.h"
+#include "SVGCircleElement.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGElementRareData.h"
 #include "SVGElementTypeHelpers.h"
+#include "SVGEllipseElement.h"
 #include "SVGForeignObjectElement.h"
 #include "SVGGraphicsElement.h"
 #include "SVGImageElement.h"
 #include "SVGNames.h"
 #include "SVGParsingError.h"
+#include "SVGPathElement.h"
 #include "SVGPropertyAnimatorFactory.h"
 #include "SVGPropertyOwnerRegistry.h"
+#include "SVGRectElement.h"
 #include "SVGRenderSupport.h"
 #include "SVGResourceElementClient.h"
 #include "SVGSVGElement.h"
+#include "SVGSymbolElement.h"
 #include "SVGTitleElement.h"
 #include "SVGUseElement.h"
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "StyleAdjuster.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleExtractor.h"
+#include "StyleKeyword+Mappings.h"
 #include "StyleResolver.h"
+#include "StyleUpdate.h"
 #include "XMLNames.h"
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -106,7 +113,7 @@ SVGElement::~SVGElement()
     protect(document->svgExtensions())->removeElementToRebuild(*this);
 
     if (hasPendingResources()) {
-        treeScopeForSVGReferences().removeElementFromPendingSVGResources(*this);
+        protect(treeScopeForSVGReferences())->removeElementFromPendingSVGResources(*this);
         ASSERT(!hasPendingResources());
     }
 }
@@ -183,9 +190,9 @@ void SVGElement::reportAttributeParsingError(SVGParsingError error, const Qualif
     ASSERT_NOT_REACHED();
 }
 
-void SVGElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void SVGElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    StyledElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    StyledElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (!parentNode()) {
         m_hasRegisteredWithParentForRelativeLengths = false;
@@ -194,7 +201,7 @@ void SVGElement::removedFromAncestor(RemovalType removalType, ContainerNode& old
     }
 
     if (hasPendingResources())
-        treeScopeForSVGReferences().removeElementFromPendingSVGResources(*this);
+        protect(treeScopeForSVGReferences())->removeElementFromPendingSVGResources(*this);
 
     if (removalType.disconnectedFromDocument) {
         Ref<Document> document = this->document();
@@ -633,7 +640,7 @@ void SVGElement::animatorWillBeDeleted(const QualifiedName& attributeName)
     propertyAnimatorFactory().animatorWillBeDeleted(attributeName);
 }
 
-std::optional<Style::UnadjustedStyle> SVGElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle*)
+std::optional<Style::UnadjustedStyle> SVGElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const Style::ComputedStyle*)
 {
     // If the element is in a <use> tree we get the style from the definition tree.
     if (RefPtr styleElement = this->correspondingElement()) {
@@ -665,25 +672,25 @@ void SVGElement::setUseOverrideComputedStyle(bool value)
         m_svgRareData->setUseOverrideComputedStyle(value);
 }
 
-inline const RenderStyle* SVGElementRareData::overrideComputedStyle(Element& element, const RenderStyle* parentStyle)
+inline const Style::ComputedStyle* SVGElementRareData::overrideComputedStyle(Element& element, const Style::ComputedStyle* parentStyle)
 {
     if (!m_useOverrideComputedStyle)
         return nullptr;
     if (!m_overrideComputedStyle || m_needsOverrideComputedStyleUpdate) {
         // The style computed here contains no CSS Animations/Transitions or SMIL induced rules - this is needed to compute the "base value" for the SMIL animation sandwhich model.
-        m_overrideComputedStyle = element.styleResolver().styleForElement(element, { parentStyle }, RuleMatchingBehavior::MatchAllRulesExcludingSMIL).style;
+        m_overrideComputedStyle = protect(element.styleResolver())->styleForElement(element, { parentStyle }, RuleMatchingBehavior::MatchAllRulesExcludingSMIL).style;
         m_needsOverrideComputedStyleUpdate = false;
     }
     ASSERT(m_overrideComputedStyle);
     return m_overrideComputedStyle.get();
 }
 
-const RenderStyle* SVGElement::computedStyle(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier)
+const Style::ComputedStyle* SVGElement::computedStyle(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier)
 {
     if (!m_svgRareData || !m_svgRareData->useOverrideComputedStyle())
         return Element::computedStyle(pseudoElementIdentifier);
 
-    const RenderStyle* parentStyle = nullptr;
+    const Style::ComputedStyle* parentStyle = nullptr;
     if (auto* parent = parentOrShadowHostElement()) {
         if (auto renderer = parent->renderer())
             parentStyle = &renderer->style();
@@ -842,7 +849,7 @@ String SVGElement::title() const
     return firstTitle ? const_cast<SVGTitleElement&>(*firstTitle).innerText() : String();
 }
 
-bool SVGElement::rendererIsNeeded(const RenderStyle& style)
+bool SVGElement::rendererIsNeeded(const Style::ComputedStyle& style)
 {
     // http://www.w3.org/TR/SVG/extend.html#PrivateData
     // Prevent anything other than SVG renderers from appearing in our render tree
@@ -855,10 +862,27 @@ bool SVGElement::rendererIsNeeded(const RenderStyle& style)
     return false;
 }
 
-CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& attrName, const Settings& settings)
+CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& attrName) const
 {
+    // The 10 SVG2 geometry presentation attributes (cx, cy, r, rx, ry, x, y, width, height, d)
+    // are element-restricted per https://w3c.github.io/svgwg/svg2-draft/geometry.html. The
+    // applicability check is folded into the switch below: each geometry case returns its
+    // CSS property only when *this is one of the owning element types, otherwise
+    // CSSPropertyInvalid. Doing this inline rather than via a virtual override keeps this
+    // mapping non-virtual on the attribute fast path; bug 313380.
     if (!attrName.namespaceURI().isNull())
         return CSSPropertyInvalid;
+
+    auto supportsXY = [&] {
+        return is<SVGForeignObjectElement>(*this) || is<SVGImageElement>(*this) || is<SVGRectElement>(*this)
+            || is<SVGSVGElement>(*this) || is<SVGSymbolElement>(*this) || is<SVGUseElement>(*this);
+    };
+    auto supportsWidthHeight = [&] {
+        if (is<SVGForeignObjectElement>(*this) || is<SVGImageElement>(*this) || is<SVGRectElement>(*this))
+            return true;
+        auto* svg = dynamicDowncast<SVGSVGElement>(*this);
+        return svg && svg->isOutermostSVGSVGElement();
+    };
 
     switch (attrName.nodeName()) {
     case AttributeNames::alignment_baselineAttr:
@@ -882,13 +906,11 @@ CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& 
     case AttributeNames::cursorAttr:
         return CSSPropertyCursor;
     case AttributeNames::cxAttr:
-        return CSSPropertyCx;
+        return is<SVGCircleElement>(*this) || is<SVGEllipseElement>(*this) ? CSSPropertyCx : CSSPropertyInvalid;
     case AttributeNames::cyAttr:
-        return CSSPropertyCy;
+        return is<SVGCircleElement>(*this) || is<SVGEllipseElement>(*this) ? CSSPropertyCy : CSSPropertyInvalid;
     case AttributeNames::dAttr:
-        if (settings.cssDPropertyEnabled())
-            return CSSPropertyD;
-        break;
+        return is<SVGPathElement>(*this) && document().settings().cssDPropertyEnabled() ? CSSPropertyD : CSSPropertyInvalid;
     case AttributeNames::directionAttr:
         return CSSPropertyDirection;
     case AttributeNames::displayAttr:
@@ -922,14 +944,12 @@ CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& 
         return CSSPropertyFontVariant;
     case AttributeNames::font_weightAttr:
         return CSSPropertyFontWeight;
-    case AttributeNames::glyph_orientation_horizontalAttr:
-        return CSSPropertyGlyphOrientationHorizontal;
     case AttributeNames::glyph_orientation_verticalAttr:
         return CSSPropertyGlyphOrientationVertical;
+    case AttributeNames::heightAttr:
+        return supportsWidthHeight() ? CSSPropertyHeight : CSSPropertyInvalid;
     case AttributeNames::image_renderingAttr:
         return CSSPropertyImageRendering;
-    case AttributeNames::heightAttr:
-        return CSSPropertyHeight;
     case AttributeNames::letter_spacingAttr:
         return CSSPropertyLetterSpacing;
     case AttributeNames::lighting_colorAttr:
@@ -953,11 +973,11 @@ CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& 
     case AttributeNames::pointer_eventsAttr:
         return CSSPropertyPointerEvents;
     case AttributeNames::rAttr:
-        return CSSPropertyR;
+        return is<SVGCircleElement>(*this) ? CSSPropertyR : CSSPropertyInvalid;
     case AttributeNames::rxAttr:
-        return CSSPropertyRx;
+        return is<SVGEllipseElement>(*this) || is<SVGRectElement>(*this) ? CSSPropertyRx : CSSPropertyInvalid;
     case AttributeNames::ryAttr:
-        return CSSPropertyRy;
+        return is<SVGEllipseElement>(*this) || is<SVGRectElement>(*this) ? CSSPropertyRy : CSSPropertyInvalid;
     case AttributeNames::shape_renderingAttr:
         return CSSPropertyShapeRendering;
     case AttributeNames::stop_colorAttr:
@@ -993,15 +1013,15 @@ CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& 
     case AttributeNames::visibilityAttr:
         return CSSPropertyVisibility;
     case AttributeNames::widthAttr:
-        return CSSPropertyWidth;
+        return supportsWidthHeight() ? CSSPropertyWidth : CSSPropertyInvalid;
     case AttributeNames::word_spacingAttr:
         return CSSPropertyWordSpacing;
     case AttributeNames::writing_modeAttr:
         return CSSPropertyWritingMode;
     case AttributeNames::xAttr:
-        return CSSPropertyX;
+        return supportsXY() ? CSSPropertyX : CSSPropertyInvalid;
     case AttributeNames::yAttr:
-        return CSSPropertyY;
+        return supportsXY() ? CSSPropertyY : CSSPropertyInvalid;
     case AttributeNames::transform_originAttr:
         return CSSPropertyTransformOrigin;
     default:
@@ -1013,27 +1033,31 @@ CSSPropertyID SVGElement::cssPropertyIdForSVGAttributeName(const QualifiedName& 
 
 bool SVGElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (cssPropertyIdForSVGAttributeName(name, document().settings()) > 0)
+    if (cssPropertyIdForSVGAttributeName(name) > 0)
+        return true;
+    if (name.matches(XMLNames::langAttr) || name.matches(HTMLNames::langAttr))
         return true;
     return StyledElement::hasPresentationalHintsForAttribute(name);
 }
 
 void SVGElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    CSSPropertyID propertyID = cssPropertyIdForSVGAttributeName(name, document().settings());
+    CSSPropertyID propertyID = cssPropertyIdForSVGAttributeName(name);
     if (propertyID > 0)
         addPropertyToPresentationalHintStyle(style, propertyID, value);
+    else if (name.matches(XMLNames::langAttr) || (name.matches(HTMLNames::langAttr) && !hasAttributeWithoutSynchronization(XMLNames::langAttr)))
+        mapLanguageAttributeToLocale(value, style);
 }
 
-void SVGElement::updateSVGRendererForElementChange()
+void SVGElement::updateSVGRendererForElementChange(Style::SVGRendererUpdateType kind)
 {
     Ref<Document> document = this->document();
-    document->updateSVGRenderer(*this);
+    document->updateSVGRenderer(*this, kind);
 }
 
 void SVGElement::svgAttributeChanged(const QualifiedName& attrName)
 {
-    CSSPropertyID propId = cssPropertyIdForSVGAttributeName(attrName, document().settings());
+    CSSPropertyID propId = cssPropertyIdForSVGAttributeName(attrName);
     if (propId > 0) {
         invalidateInstances();
         return;
@@ -1049,6 +1073,8 @@ void SVGElement::svgAttributeChanged(const QualifiedName& attrName)
         // Notify resources about id changes, this is important as we cache resources by id in SVGDocumentExtensions
         if (CheckedPtr container = dynamicDowncast<LegacyRenderSVGResourceContainer>(renderer()))
             container->idChanged();
+        else if (CheckedPtr container = dynamicDowncast<RenderSVGResourceContainer>(renderer()))
+            container->idChanged();
         if (isConnected())
             buildPendingResourcesIfNeeded();
         invalidateInstances();
@@ -1056,9 +1082,9 @@ void SVGElement::svgAttributeChanged(const QualifiedName& attrName)
     }
 }
 
-Node::InsertedIntoAncestorResult SVGElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    StyledElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    StyledElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (!m_hasInitializedRelativeLengthsState)
         updateRelativeLengthsInformation();
@@ -1068,14 +1094,14 @@ Node::InsertedIntoAncestorResult SVGElement::insertedIntoAncestor(InsertionType 
     hideNonce();
 
     if (needsPendingResourceHandling() && insertionType.connectedToDocument && !isInShadowTree()) {
-        if (treeScopeForSVGReferences().isIdOfPendingSVGResource(getIdAttribute()))
-            return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        if (protect(treeScopeForSVGReferences())->isIdOfPendingSVGResource(getIdAttribute()))
+            return NeedsPostConnectionSteps::Yes;
     }
 
-    return InsertedIntoAncestorResult::Done;
+    return NeedsPostConnectionSteps::No;
 }
 
-void SVGElement::didFinishInsertingNode()
+void SVGElement::postConnectionSteps()
 {
     buildPendingResourcesIfNeeded();
 }

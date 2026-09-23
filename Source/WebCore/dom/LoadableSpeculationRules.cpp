@@ -38,6 +38,7 @@
 #include "ResourceRequest.h"
 #include "ScriptController.h"
 #include "ScriptSourceCode.h"
+#include "Settings.h"
 
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringConcatenate.h>

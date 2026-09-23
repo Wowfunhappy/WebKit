@@ -33,6 +33,7 @@
 #include "ServiceWorkerGlobalScope.h"
 #include "ServiceWorkerRoute.h"
 #include "WorkerSWClientConnection.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -170,7 +171,7 @@ static ExceptionOr<ServiceWorkerRoute> convertServiceWorkerRule(RouterRule&& rul
 // https://w3c.github.io/ServiceWorker/#dom-installevent-addroutes
 void InstallEvent::addRoutes(JSC::JSGlobalObject& globalObject, Variant<RouterRule, Vector<RouterRule>>&& rules, Ref<DeferredPromise>&& promise)
 {
-    auto& jsDOMGlobalObject = *JSC::jsCast<JSDOMGlobalObject*>(&globalObject);
+    auto& jsDOMGlobalObject = downcast<JSDOMGlobalObject>(globalObject);
     RefPtr serviceWorkerGlobalScope = dynamicDowncast<ServiceWorkerGlobalScope>(jsDOMGlobalObject.scriptExecutionContext());
 
     auto rulesVector = switchOn(WTF::move(rules), [](RouterRule&& rule) -> Vector<RouterRule> {
@@ -204,7 +205,7 @@ void InstallEvent::addRoutes(JSC::JSGlobalObject& globalObject, Variant<RouterRu
 
     RefPtr delayPromise = DeferredPromise::create(jsDOMGlobalObject);
     if (delayPromise) {
-        auto& jsPromise = *JSC::jsCast<JSC::JSPromise*>(delayPromise->promise());
+        auto& jsPromise = *downcast<JSC::JSPromise>(delayPromise->promise());
         waitUntil(DOMPromise::create(jsDOMGlobalObject, jsPromise));
     }
 

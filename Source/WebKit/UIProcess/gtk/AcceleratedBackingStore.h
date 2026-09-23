@@ -28,6 +28,7 @@
 #include "FenceMonitor.h"
 #include "MessageReceiver.h"
 #include "RendererBufferDescription.h"
+#include <WebCore/DMABufBuffer.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/RefPtrCairo.h>
@@ -91,7 +92,7 @@ private:
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    void didCreateDMABufBuffer(uint64_t id, const WebCore::IntSize&, uint32_t format, Vector<WTF::UnixFileDescriptor>&&, Vector<uint32_t>&& offsets, Vector<uint32_t>&& strides, uint64_t modifier, RendererBufferFormat::Usage);
+    void didCreateDMABufBuffer(uint64_t id, WebCore::DMABufBufferAttributes&&, RendererBufferFormat::Usage);
     void didCreateSHMBuffer(uint64_t id, WebCore::ShareableBitmapHandle&&);
     void didDestroyBuffer(uint64_t id);
     void frame(uint64_t id, Rects&&, WTF::UnixFileDescriptor&&);
@@ -151,7 +152,7 @@ private:
 #if GTK_CHECK_VERSION(4, 13, 4)
     class BufferDMABuf final : public Buffer {
     public:
-        static RefPtr<Buffer> create(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, uint32_t format, Vector<WTF::UnixFileDescriptor>&&, Vector<uint32_t>&& offsets, Vector<uint32_t>&& strides, uint64_t modifier);
+        static RefPtr<Buffer> create(WebPageProxy&, uint64_t id, uint64_t surfaceID, RendererBufferFormat::Usage, WebCore::DMABufBufferAttributes&&);
 
     private:
         BufferDMABuf(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, Vector<WTF::UnixFileDescriptor>&&, GRefPtr<GdkDmabufTextureBuilder>&&);
@@ -171,11 +172,11 @@ private:
 
     class BufferEGLImage final : public Buffer {
     public:
-        static RefPtr<Buffer> create(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, uint32_t format, Vector<WTF::UnixFileDescriptor>&&, Vector<uint32_t>&& offsets, Vector<uint32_t>&& strides, uint64_t modifier);
+        static RefPtr<Buffer> create(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, WebCore::DMABufBufferAttributes&&);
         ~BufferEGLImage();
 
     private:
-        BufferEGLImage(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, uint32_t format, Vector<WTF::UnixFileDescriptor>&&, uint64_t modifier, EGLImage);
+        BufferEGLImage(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, WebCore::DMABufBufferAttributes&&, EGLImage);
 
         Buffer::Type type() const override { return Buffer::Type::EglImage; }
         void didUpdateContents(Buffer*, const Rects&) override;
@@ -188,7 +189,7 @@ private:
         RefPtr<WebCore::NativeImage> asNativeImageForTesting() const override;
         void release() override;
 
-        Vector<WTF::UnixFileDescriptor> m_fds;
+        WebCore::DMABufBufferAttributes m_dmaBufAttributes;
         EGLImage m_image { nullptr };
 #if USE(GTK4)
         GRefPtr<GdkTexture> m_texture;
@@ -196,8 +197,6 @@ private:
         GRefPtr<GdkGLContext> m_gdkGLContext;
         unsigned m_textureID { 0 };
 #endif
-        uint32_t m_fourcc { 0 };
-        uint64_t m_modifier { 0 };
     };
 
 #if USE(GBM)

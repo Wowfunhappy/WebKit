@@ -43,7 +43,7 @@ WebWheelEvent::WebWheelEvent(WebEvent&& event, const IntPoint& position, const I
 }
 
 #if PLATFORM(COCOA)
-WebWheelEvent::WebWheelEvent(WebEvent&& event, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& delta, const FloatSize& wheelTicks, Granularity granularity, bool directionInvertedFromDevice, Phase phase, Phase momentumPhase, bool hasPreciseScrollingDeltas, uint32_t scrollCount, const WebCore::FloatSize& unacceleratedScrollingDelta, MonotonicTime ioHIDEventTimestamp, std::optional<WebCore::FloatSize> rawPlatformDelta, MomentumEndType momentumEndType)
+WebWheelEvent::WebWheelEvent(WebEvent&& event, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& delta, const FloatSize& wheelTicks, Granularity granularity, bool directionInvertedFromDevice, Phase phase, Phase momentumPhase, bool hasPreciseScrollingDeltas, uint32_t scrollCount, const WebCore::FloatSize& unacceleratedScrollingDelta, MonotonicTime ioHIDEventTimestamp, std::optional<WebCore::FloatSize> rawPlatformDelta, MomentumEndType momentumEndType, WebEventInputSource inputSource)
     : WebEvent(WTF::move(event))
     , m_position(position)
     , m_globalPosition(globalPosition)
@@ -59,6 +59,7 @@ WebWheelEvent::WebWheelEvent(WebEvent&& event, const IntPoint& position, const I
     , m_rawPlatformDelta(rawPlatformDelta)
     , m_scrollCount(scrollCount)
     , m_unacceleratedScrollingDelta(unacceleratedScrollingDelta)
+    , m_inputSource(inputSource)
 {
     ASSERT(isWheelEventType(type()));
 }
@@ -140,6 +141,7 @@ WTF::TextStream& operator<<(WTF::TextStream& ts, const WebWheelEvent& event)
     ts.dumpProperty("rawPlatformDelta"_s, event.rawPlatformDelta());
     ts.dumpProperty("scrollCount"_s, event.scrollCount());
     ts.dumpProperty("unacceleratedScrollingDelta"_s, event.unacceleratedScrollingDelta());
+    ts.dumpProperty("inputSource"_s, event.inputSource() == WebEventInputSource::Automation ? "automation"_s : "userDriven"_s);
 #endif
     return ts;
 }

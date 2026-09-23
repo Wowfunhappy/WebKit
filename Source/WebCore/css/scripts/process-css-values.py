@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 #
 # Copyright (C) 2022 Apple Inc. All rights reserved.
+# Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -163,9 +164,11 @@ class GenerationContext:
             #include "config.h"
             #include "CSSValueKeywords.h"
 
+            #include <array>
             #include <wtf/ASCIICType.h>
             #include <wtf/NeverDestroyed.h>
             #include <wtf/text/AtomString.h>
+            #include <wtf/text/StringImpl.h>
             #include <string.h>
 
             WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -209,22 +212,23 @@ class GenerationContext:
         to.write("%%\n")
 
     def _generate_name_string_tables(self, *, to):
-        to.write(f"constexpr ASCIILiteral valueList[] = {{\n")
-        to.write(f"    \"\"_s,\n")
+        value_count = len(self.values) + 2
+        to.write(f"static constexpr std::array<StringImpl::StaticStringImpl, {value_count}> valueData = {{{{\n")
+        to.write(f"    StringImpl::StaticStringImpl(\"\", StringImpl::StringAtom),\n")
 
         for value in self.values:
-            to.write(f"    \"{value.name}\"_s,\n")
+            to.write(f"    StringImpl::StaticStringImpl(\"{value.name}\", StringImpl::StringAtom),\n")
 
-        to.write(f"    ASCIILiteral()\n")
-        to.write(f"}};\n")
-        to.write(f"constexpr ASCIILiteral valueListForSerialization[] = {{\n")
-        to.write(f"    \"\"_s,\n")
+        to.write(f"    StringImpl::StaticStringImpl(\"\", StringImpl::StringAtom)\n")
+        to.write(f"}}}};\n")
+        to.write(f"static constexpr std::array<StringImpl::StaticStringImpl, {value_count}> valueDataForSerialization = {{{{\n")
+        to.write(f"    StringImpl::StaticStringImpl(\"\", StringImpl::StringAtom),\n")
 
         for value in self.values:
-            to.write(f"    \"{value.name_lowercase}\"_s,\n")
+            to.write(f"    StringImpl::StaticStringImpl(\"{value.name_lowercase}\", StringImpl::StringAtom),\n")
 
-        to.write(f"    ASCIILiteral()\n")
-        to.write(f"}};\n")
+        to.write(f"    StringImpl::StaticStringImpl(\"\", StringImpl::StringAtom)\n")
+        to.write(f"}}}};\n")
 
     def _generate_lookup_functions(self, *, to):
         to.write(textwrap.dedent("""
@@ -238,7 +242,7 @@ class GenerationContext:
             {
                 if (static_cast<uint16_t>(id) >= numCSSValueKeywords)
                     return { };
-                return valueList[id];
+                return valueData[id].literal();
             }
 
             // When serializing a CSS keyword, it should be converted to ASCII lowercase.
@@ -247,7 +251,7 @@ class GenerationContext:
             {
                 if (static_cast<uint16_t>(id) >= numCSSValueKeywords)
                     return { };
-                return valueListForSerialization[id];
+                return valueDataForSerialization[id].literal();
             }
 
             const AtomString& nameString(CSSValueID id)
@@ -258,7 +262,7 @@ class GenerationContext:
                 static NeverDestroyed<std::array<AtomString, numCSSValueKeywords>> strings;
                 auto& string = strings.get()[id];
                 if (string.isNull())
-                    string = valueList[id];
+                    string = valueData[id];
                 return string;
             }
 
@@ -272,7 +276,7 @@ class GenerationContext:
                 static NeverDestroyed<std::array<AtomString, numCSSValueKeywords>> strings;
                 auto& string = strings.get()[id];
                 if (string.isNull())
-                    string = valueListForSerialization[id];
+                    string = valueDataForSerialization[id];
                 return string;
             }
 
@@ -366,12 +370,24 @@ class GenerationContext:
         to.write(f"    constexpr bool operator==(const Constant<C>&) const = default;\n")
         to.write(f"}};\n\n")
 
-        to.write(f"namespace CSS::Keyword {{\n\n")
+        to.write(f"namespace CSS {{\n\n")
 
+        to.write(f"// A predefined keyword value\n")
+        to.write(f"// https://drafts.csswg.org/css-values-4/#keywords\n")
+        to.write(f"struct Keyword {{\n")
+        to.write(f"    CSSValueID value;\n\n")
+
+        to.write(f"    constexpr bool operator==(const Keyword&) const = default;\n")
+        to.write(f"    constexpr bool operator==(CSSValueID other) const {{ return value == other; }};\n\n")
+
+        to.write(f"    // Unique types for each predefined keyword value.\n\n")
         for value in self.values:
-            to.write(f"using {value.id_without_prefix} = Constant<{value.id_without_scope}>;\n")
+            to.write(f"    using {value.id_without_prefix} = Constant<{value.id_without_scope}>;\n")
 
-        to.write(f"\n}} // namespace CSS::Keyword\n")
+        to.write(f"}};\n\n")
+
+        to.write(f"\n}} // namespace CSS\n")
+
         to.write(f"}} // namespace WebCore\n\n")
 
     def _generate_css_value_keywords_h_hash_traits(self, *, to):

@@ -27,7 +27,6 @@
 #include <WebCore/RenderWidget.h>
 #include <memory>
 #include <wtf/HashSet.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
@@ -48,14 +47,14 @@ class RenderView final : public RenderBlockFlow {
     WTF_MAKE_TZONE_ALLOCATED(RenderView);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderView);
 public:
-    RenderView(Document&, RenderStyle&&);
+    RenderView(Document&, Style::ComputedStyle&&);
     virtual ~RenderView();
 
     ASCIILiteral renderName() const override { return "RenderView"_s; }
 
     bool requiresLayer() const override { return true; }
 
-    bool isChildAllowed(const RenderObject&, const RenderStyle&) const override;
+    bool isChildAllowed(const RenderObject&, const Style::ComputedStyle&) const override;
 
     void layout() override;
     void updateLogicalWidth() override;
@@ -86,6 +85,16 @@ public:
 
     bool needsEventRegionUpdateForNonCompositedFrame() const { return m_needsEventRegionUpdateForNonCompositedFrame; }
     void setNeedsEventRegionUpdateForNonCompositedFrame(bool value = true) { m_needsEventRegionUpdateForNonCompositedFrame = value; }
+
+#if ENABLE(TEXT_AUTOSIZING)
+    enum class TextAutosizingState : uint8_t {
+        Normal,
+        ResetScheduled,
+        SkipAfterReset,
+    };
+    TextAutosizingState textAutosizingState() const { return m_textAutosizingState; }
+    void setTextAutosizingState(TextAutosizingState state) { m_textAutosizingState = state; }
+#endif
 
     std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const override;
     void repaintRootContents();
@@ -226,12 +235,12 @@ protected:
     void willBeDestroyed() override;
 
 private:
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void mapLocalToContainer(const RenderLayerModelObject* repaintContainer, TransformState&, OptionSet<MapCoordinatesMode>, bool* wasFixed) const override;
     const RenderElement* pushMappingToContainer(const RenderLayerModelObject* ancestorToStopAt, RenderGeometryMap&) const override;
     void mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode>, TransformState&) const override;
-    bool requiresColumns(int desiredColumnCount) const override;
+    bool requiresFragmentedFlow() const override;
 
     void computeColumnCountAndWidth() override;
 
@@ -282,12 +291,14 @@ private:
     bool m_hasQuotesNeedingUpdate { false };
 
     SingleThreadWeakHashSet<RenderCounter> m_countersNeedingUpdate;
-    unsigned m_renderCounterCount { 0 };
     unsigned m_renderersWithOutlineCount { 0 };
 
     bool m_hasSoftwareFilters { false };
     bool m_needsRepaintHackAfterCompositingLayerUpdateForDebugOverlaysOnly { false };
     bool m_needsEventRegionUpdateForNonCompositedFrame { false };
+#if ENABLE(TEXT_AUTOSIZING)
+    TextAutosizingState m_textAutosizingState { TextAutosizingState::Normal };
+#endif
 
     SingleThreadWeakHashMap<RenderElement, Vector<WeakPtr<CachedImage>>> m_renderersWithPausedImageAnimation;
     WeakHashSet<SVGSVGElement, WeakPtrImplWithEventTargetData> m_SVGSVGElementsWithPausedImageAnimation;

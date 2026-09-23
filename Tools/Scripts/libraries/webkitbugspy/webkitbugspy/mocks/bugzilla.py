@@ -265,7 +265,7 @@ class Bugzilla(Base, mocks.Requests):
                 id=id,
                 see_also=[
                     'https://{}/show_bug.cgi?id={}'.format(self.hosts[0], n) for n in issue.get('references', [])
-                ],
+                ] + issue.get('related_links', []),
             )],
         ), url=url)
 
@@ -358,7 +358,7 @@ class Bugzilla(Base, mocks.Requests):
                 name='keywords',
                 type=8,
                 display_name='Keywords',
-                values=[dict(name='InRadar')]
+                values=[dict(name='InRadar', description='This bug also has a copy in Apple Radar.')]
             )]), url=url
         )
 

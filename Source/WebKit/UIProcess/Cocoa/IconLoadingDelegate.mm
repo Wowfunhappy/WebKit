@@ -42,9 +42,7 @@ IconLoadingDelegate::IconLoadingDelegate(WKWebView *webView)
 {
 }
 
-IconLoadingDelegate::~IconLoadingDelegate()
-{
-}
+IconLoadingDelegate::~IconLoadingDelegate() = default;
 
 std::unique_ptr<API::IconLoadingClient> IconLoadingDelegate::createIconLoadingClient()
 {
@@ -68,9 +66,7 @@ IconLoadingDelegate::IconLoadingClient::IconLoadingClient(IconLoadingDelegate& i
 {
 }
 
-IconLoadingDelegate::IconLoadingClient::~IconLoadingClient()
-{
-}
+IconLoadingDelegate::IconLoadingClient::~IconLoadingClient() = default;
 
 typedef void (^IconLoadCompletionHandler)(NSData*);
 

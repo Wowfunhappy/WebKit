@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include "InsertTextCommand.h"
+#include "SimpleRange.h"
 #include "TextInsertionBaseCommand.h"
 #include <wtf/CheckedRef.h>
 
@@ -124,6 +126,8 @@ private:
     RefPtr<DataTransfer> inputEventDataTransfer() const final;
     bool isBeforeInputEventCancelable() const final;
 
+    bool performSmartListUndo(TextGranularity);
+
     static void updateSelectionIfDifferentFromCurrentSelection(TypingCommand*, Document&);
 
     void NODELETE updatePreservesTypingStyle(Type);
@@ -165,6 +169,8 @@ private:
     bool m_shouldRetainAutocorrectionIndicator;
     bool m_shouldPreventSpellChecking;
     bool m_triggeringEventIsUntrusted { false };
+
+    std::optional<SmartListUndoData> m_smartListUndoData;
 };
 
 } // namespace WebCore

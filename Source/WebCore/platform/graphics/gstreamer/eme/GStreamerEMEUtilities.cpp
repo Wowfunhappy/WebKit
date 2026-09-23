@@ -44,8 +44,6 @@ ProtectionSystemEvents::ProtectionSystemEvents(GstMessage* message)
         m_events.append(GRefPtr<GstEvent>(GST_EVENT_CAST(g_value_get_boxed(gst_value_list_get_value(streamEncryptionEventsList, i)))));
     const GValue* streamEncryptionAllowedSystemsValue = gst_structure_get_value(structure, "available-stream-encryption-systems");
     auto systemsArray = g_value_get_boxed(streamEncryptionAllowedSystemsValue);
-    if (!systemsArray)
-        return;
     for (const auto system : span(static_cast<char**>(systemsArray)))
         m_availableSystems.append(String::fromLatin1(system));
 }

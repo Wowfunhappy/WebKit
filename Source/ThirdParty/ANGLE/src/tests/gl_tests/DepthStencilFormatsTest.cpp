@@ -4,10 +4,7 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -184,8 +181,6 @@ void main()
 
     bool hasReadStencilSupport() const { return IsGLExtensionEnabled("GL_NV_read_stencil"); }
 
-    bool hasFloatDepthSupport() const { return IsGLExtensionEnabled("GL_NV_depth_buffer_float2"); }
-
     void depthStencilReadbackCase(const ReadbackTestParam &type);
 
     GLuint mProgram;
@@ -247,7 +242,8 @@ void DepthStencilFormatsTestBase::depthStencilReadbackCase(const ReadbackTestPar
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_depth_texture"));
 
     const bool hasFloatDepth = (type.type == GL_FLOAT);
-    ANGLE_SKIP_TEST_IF(hasFloatDepth && !hasFloatDepthSupport());
+    const bool hasFloatDepthSupport = getClientMajorVersion() >= 3;
+    ANGLE_SKIP_TEST_IF(hasFloatDepth && !hasFloatDepthSupport);
 
     const bool hasStencil = (type.format != GL_DEPTH_COMPONENT);
 
@@ -376,18 +372,22 @@ void DepthStencilFormatsTestBase::depthStencilReadbackCase(const ReadbackTestPar
             constexpr float kEpsilon = 0.002f;
             const float *pixels      = reinterpret_cast<const float *>(actualPixels);
             ASSERT_NEAR(pixels[0], d00, kEpsilon);
-            ASSERT_NEAR(pixels[0 + destRes], d01, kEpsilon);
-            ASSERT_NEAR(pixels[1], d10, kEpsilon);
-            ASSERT_NEAR(pixels[1 + destRes], d11, kEpsilon);
+            ANGLE_UNSAFE_TODO({
+                ASSERT_NEAR(pixels[0 + destRes], d01, kEpsilon);
+                ASSERT_NEAR(pixels[1], d10, kEpsilon);
+                ASSERT_NEAR(pixels[1 + destRes], d11, kEpsilon);
+            })
         }
         else
         {
             constexpr unsigned short kEpsilon = 2;
             const unsigned short *pixels = reinterpret_cast<const unsigned short *>(actualPixels);
             ASSERT_NEAR(pixels[0], gl::unorm<16>(d00), kEpsilon);
-            ASSERT_NEAR(pixels[0 + destRes], gl::unorm<16>(d01), kEpsilon);
-            ASSERT_NEAR(pixels[1], gl::unorm<16>(d10), kEpsilon);
-            ASSERT_NEAR(pixels[1 + destRes], gl::unorm<16>(d11), kEpsilon);
+            ANGLE_UNSAFE_TODO({
+                ASSERT_NEAR(pixels[0 + destRes], gl::unorm<16>(d01), kEpsilon);
+                ASSERT_NEAR(pixels[1], gl::unorm<16>(d10), kEpsilon);
+                ASSERT_NEAR(pixels[1 + destRes], gl::unorm<16>(d11), kEpsilon);
+            })
         }
     }
     else
@@ -429,11 +429,13 @@ void DepthStencilFormatsTestBase::depthStencilReadbackCase(const ReadbackTestPar
             const Pixel *pixels               = reinterpret_cast<const Pixel *>(actualPixels);
 
             ASSERT_NEAR(pixels[0].d24(), gl::unorm<24>(d00), kEpsilon);
-            ASSERT_NEAR(pixels[0 + destRes].d24(), gl::unorm<24>(d01), kEpsilon);
-            ASSERT_NEAR(pixels[1].d24(), gl::unorm<24>(d10), kEpsilon);
-            ASSERT_NEAR(pixels[1 + destRes].d24(), gl::unorm<24>(d11), kEpsilon);
-            ASSERT_TRUE((pixels[0].s8() == 1) && (pixels[1].s8() == 2) &&
-                        (pixels[0 + destRes].s8() == 3) && (pixels[1 + destRes].s8() == 4));
+            ANGLE_UNSAFE_TODO({
+                ASSERT_NEAR(pixels[0 + destRes].d24(), gl::unorm<24>(d01), kEpsilon);
+                ASSERT_NEAR(pixels[1].d24(), gl::unorm<24>(d10), kEpsilon);
+                ASSERT_NEAR(pixels[1 + destRes].d24(), gl::unorm<24>(d11), kEpsilon);
+                ASSERT_TRUE((pixels[0].s8() == 1) && (pixels[1].s8() == 2) &&
+                            (pixels[0 + destRes].s8() == 3) && (pixels[1 + destRes].s8() == 4));
+            })
         }
         else
         {
@@ -518,11 +520,7 @@ TEST_P(DepthStencilFormatsTest, DepthStencilReadback_DepthStencil)
 // Verify that packed D/S readPixels with a D32_FLOAT_S8X24_UINT attachment
 TEST_P(DepthStencilFormatsTestES3, DepthStencilReadback_DepthFloatStencil)
 {
-    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_packed_depth_stencil") ||
-                       !IsGLExtensionEnabled("GL_NV_depth_buffer_float2") ||
-                       !IsGLExtensionEnabled("GL_NV_read_depth") ||
-                       !IsGLExtensionEnabled("GL_NV_read_depth_stencil") ||
-                       !IsGLExtensionEnabled("GL_NV_read_stencil"));
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_NV_read_depth_stencil"));
 
     GLFramebuffer FBO;
     glBindFramebuffer(GL_FRAMEBUFFER, FBO);
@@ -816,8 +814,8 @@ void main()
             {
                 GLfloat init[] = {d00, d00, d10, d10, d00, d00, d10, d10,
                                   d01, d01, d11, d11, d01, d01, d11, d11};
-                expectedMin.insert(expectedMin.begin(), init, init + 16);
-                expectedMax.insert(expectedMax.begin(), init, init + 16);
+                expectedMin.insert(expectedMin.begin(), init, ANGLE_UNSAFE_TODO(init + 16));
+                expectedMax.insert(expectedMax.begin(), init, ANGLE_UNSAFE_TODO(init + 16));
 
                 for (int i = 0; i < 16; i++)
                 {
@@ -835,15 +833,16 @@ void main()
                     d00 + eps, d10, d10, d10 + eps, d01,       d11, d11, d11,
                     d01,       d11, d11, d11,       d01 + eps, d11, d11, d11 + eps,
                 };
-                expectedMin.insert(expectedMin.begin(), initMin, initMin + 16);
-                expectedMax.insert(expectedMax.begin(), initMax, initMax + 16);
+                expectedMin.insert(expectedMin.begin(), initMin, ANGLE_UNSAFE_TODO(initMin + 16));
+                expectedMax.insert(expectedMax.begin(), initMax, ANGLE_UNSAFE_TODO(initMax + 16));
             }
             for (int yy = 0; yy < destRes; ++yy)
             {
                 for (int xx = 0; xx < destRes; ++xx)
                 {
                     const int t        = xx + destRes * yy;
-                    const GLfloat was  = (GLfloat)(actualPixels[4 * t] / 255.0);  // 4bpp
+                    const GLfloat was =
+                        (GLfloat)(ANGLE_UNSAFE_TODO(actualPixels[4 * t]) / 255.0);  // 4bpp
                     const GLfloat eMin = expectedMin[t];
                     const GLfloat eMax = expectedMax[t];
                     EXPECT_TRUE(was >= eMin && was <= eMax)
@@ -920,7 +919,7 @@ TEST_P(DepthStencilFormatsTestES3, DrawWithDepth16)
     GLushort data[16];
     for (unsigned int i = 0; i < 16; i++)
     {
-        data[i] = std::numeric_limits<GLushort>::max();
+        ANGLE_UNSAFE_TODO(data[i]) = std::numeric_limits<GLushort>::max();
     }
     glBindTexture(GL_TEXTURE_2D, mTexture);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT16, 4, 4);
@@ -1101,6 +1100,66 @@ TEST_P(DepthStencilFormatsTest, VerifyDepthStencilUploadData)
     ASSERT_GL_NO_ERROR();
 
     EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::black);
+}
+
+// TexImage2D with (D32_OES, DEPTH_COMPONENT, UNSIGNED_INT) should succeed.
+TEST_P(DepthStencilFormatsTest, DepthComponent32OES_UnsignedInt_Accepted)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_depth_texture") &&
+                       !IsGLExtensionEnabled("GL_ANGLE_depth_texture"));
+
+    GLTexture depthTex;
+    glBindTexture(GL_TEXTURE_2D, depthTex);
+
+    std::vector<GLuint> pixels(1, 0xffffffff);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32_OES, 1, 1, 0, GL_DEPTH_COMPONENT,
+                 GL_UNSIGNED_INT, pixels.data());
+    ASSERT_GL_NO_ERROR();
+
+    GLTexture colorTex;
+    glBindTexture(GL_TEXTURE_2D, colorTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTex, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTex, 0);
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_GEQUAL);
+    glClearColor(0, 1, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    ANGLE_GL_PROGRAM(programRed, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+
+    // Fail Depth Test: 0.99 >= 1.0 is false, color stays green
+    float depthValue = 0.99f;
+    drawQuad(programRed, essl1_shaders::PositionAttrib(), depthValue * 2 - 1);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Pass Depth Test: 1.0 >= 1.0 is true, color becomes red
+    depthValue = 1.0f;
+    drawQuad(programRed, essl1_shaders::PositionAttrib(), depthValue * 2 - 1);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    glDisable(GL_DEPTH_TEST);
+    ASSERT_GL_NO_ERROR();
+}
+
+// TexImage2D with (D32_OES, DEPTH_COMPONENT, UNSIGNED_INT_24_8) should fail.
+TEST_P(DepthStencilFormatsTest, DepthComponent32OES_UnsignedInt248_Rejected)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_depth_texture") &&
+                       !IsGLExtensionEnabled("GL_ANGLE_depth_texture"));
+
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    std::vector<GLuint> pixels(64 * 4, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32_OES, 64, 4, 0, GL_DEPTH_COMPONENT,
+                 GL_UNSIGNED_INT_24_8, pixels.data());
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
 // Verify that depth texture's data can be uploaded correctly

@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Test that await navigation.back().finished during onnavigate should reject Test timed out
+PASS Test that await navigation.back().finished during onnavigate should reject
 

@@ -86,7 +86,7 @@ template<typename SortedArrayKeyType> struct SortedArrayKeyTraits {
     static std::optional<SortedArrayKeyType> parse(const SortedArrayKeyType& key) { return key; }
 };
 
-// NoUppercaseLettersOptimized means no characters with the 0x20 bit set.
+// NoUppercaseLettersOptimized means no characters without the 0x20 bit set.
 // That means the strings can't include control characters, uppercase letters, or any of @[\]_.
 enum class ASCIISubset : uint8_t { All, NoUppercaseLetters, NoUppercaseLettersOptimized };
 

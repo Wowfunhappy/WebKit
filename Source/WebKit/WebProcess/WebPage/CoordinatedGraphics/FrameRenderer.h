@@ -37,6 +37,10 @@ class Region;
 class RunLoopObserver;
 }
 
+namespace WTF {
+enum class Critical : bool;
+}
+
 namespace WebKit {
 struct RenderProcessInfo;
 
@@ -73,6 +77,8 @@ public:
     virtual void adjustTransientZoom(double, WebCore::FloatPoint, WebCore::FloatPoint) = 0;
     virtual void commitTransientZoom(double, WebCore::FloatPoint, WebCore::FloatPoint) = 0;
 #endif
+
+    virtual void releaseMemory(WTF::Critical) = 0;
 
     void setLayerTreeStateIsFrozen(bool);
     void updateRenderingWithForcedRepaintAsync(CompletionHandler<void()>&&);

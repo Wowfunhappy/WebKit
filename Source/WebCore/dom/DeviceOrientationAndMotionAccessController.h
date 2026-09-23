@@ -28,7 +28,6 @@
 #if ENABLE(DEVICE_ORIENTATION)
 
 #include "DeviceOrientationOrMotionPermissionState.h"
-#include "EventTarget.h"
 #include "SecurityOriginData.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
@@ -45,13 +44,14 @@ class DeviceOrientationAndMotionAccessController final : public CanMakeWeakPtr<D
     WTF_MAKE_TZONE_ALLOCATED(DeviceOrientationAndMotionAccessController);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DeviceOrientationAndMotionAccessController);
 public:
-    explicit DeviceOrientationAndMotionAccessController(Document& topDocument);
+    explicit DeviceOrientationAndMotionAccessController(Page&);
 
     DeviceOrientationOrMotionPermissionState accessState(const Document&) const;
     void shouldAllowAccess(const Document&, Function<void(DeviceOrientationOrMotionPermissionState)>&&);
+    void clearPermissions() { m_accessStatePerOrigin.clear(); }
 
 private:
-    WeakRef<Document, WeakPtrImplWithEventTargetData> m_topDocument;
+    WeakPtr<Page> m_page;
     HashMap<SecurityOriginData, DeviceOrientationOrMotionPermissionState> m_accessStatePerOrigin;
 };
 

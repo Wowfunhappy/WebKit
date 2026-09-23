@@ -31,7 +31,7 @@
 
 namespace WebKit {
 
-enum class WebMouseEventInputSource : uint8_t;
+enum class WebEventInputSource : uint8_t;
 
 enum class ContextMenuItemEnablement : bool { Disabled, Enabled };
 
@@ -53,7 +53,7 @@ struct PDFContextMenu {
     WebCore::IntPoint point;
     Vector<PDFContextMenuItem> items;
     std::optional<int> openInDefaultViewerTag;
-    WebMouseEventInputSource inputSource;
+    WebEventInputSource inputSource;
 };
     
 };

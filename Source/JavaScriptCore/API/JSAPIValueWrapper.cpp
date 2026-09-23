@@ -24,7 +24,7 @@
 #include "JSAPIValueWrapper.h"
 
 #include "JSCellInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 

@@ -36,7 +36,7 @@ class RenderSVGRoot final : public RenderReplaced {
     WTF_MAKE_TZONE_ALLOCATED(RenderSVGRoot);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGRoot);
 public:
-    RenderSVGRoot(SVGSVGElement&, RenderStyle&&);
+    RenderSVGRoot(SVGSVGElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGRoot();
 
     SVGSVGElement& NODELETE svgSVGElement() const;
@@ -45,8 +45,8 @@ public:
     bool isEmbeddedThroughSVGImage() const;
     bool isEmbeddedThroughFrameContainingSVGDocument() const;
 
-    FloatSize computeIntrinsicSize() const final;
-    FloatSize preferredAspectRatio() const final;
+    FloatSize computeIntrinsicSize() const;
+    FloatSize preferredAspectRatioAsSize() const final;
     bool hasIntrinsicAspectRatio() const final;
 
     bool isLayoutSizeChanged() const { return m_isLayoutSizeChanged; }
@@ -60,9 +60,15 @@ public:
 
     bool NODELETE shouldApplyViewportClip() const;
 
-    FloatRect objectBoundingBox() const final { return m_objectBoundingBox; }
+    FloatRect objectBoundingBox() const final
+    {
+        updateSVGTransformDependentBoundingBoxesIfNeeded();
+        return m_objectBoundingBox;
+    }
     FloatRect objectBoundingBoxWithoutTransformations() const final { return m_objectBoundingBoxWithoutTransformations; }
     FloatRect strokeBoundingBox() const final;
+
+    void invalidateCachedSVGTransformDependentBoundingBoxes() final { m_transformDependentBoundingBoxesDirty = true; }
     FloatRect repaintRectInLocalCoordinates(RepaintRectCalculation = RepaintRectCalculation::Fast) const final { return SVGBoundingBoxComputation::computeRepaintBoundingBox(*this); }
     FloatRect decoratedBoundingBox() const final { return SVGBoundingBoxComputation::computeDecoratedBoundingBox(*this); }
 
@@ -89,7 +95,7 @@ private:
     // To prevent certain legacy code paths to hit assertions in debug builds, when switching off LBSE (during the teardown of the LBSE tree).
     std::optional<FloatRect> NODELETE computeFloatVisibleRectInContainer(const FloatRect&, const RenderLayerModelObject*, VisibleRectContext) const final;
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred  = ShouldComputePreferred::ComputeActual) const final;
+    LayoutUnit computeReplacedLogicalWidth(IsComputingIntrinsicSize  = IsComputingIntrinsicSize::No) const final;
     LayoutUnit computeReplacedLogicalHeight(std::optional<LayoutUnit> estimatedUsedWidth = std::nullopt) const final;
     void layout() final;
     void layoutChildren();
@@ -118,9 +124,14 @@ private:
     bool m_inLayout { false };
     bool m_didTransformToRootUpdate { false };
     bool m_isLayoutSizeChanged { false };
+    mutable bool m_transformDependentBoundingBoxesDirty { false };
+
+    // See RenderSVGContainer: lazily recompute the transform-dependent bounding boxes when a
+    // descendant transform changed via the deferred (layout-free) SVG transform-attribute flush.
+    void updateSVGTransformDependentBoundingBoxesIfNeeded() const;
 
     IntSize m_containerSize;
-    FloatRect m_objectBoundingBox;
+    mutable FloatRect m_objectBoundingBox;
     FloatRect m_objectBoundingBoxWithoutTransformations;
     mutable Markable<FloatRect> m_strokeBoundingBox;
     mutable std::optional<LayoutRect> m_cachedVisualOverflowRect;

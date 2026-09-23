@@ -23,6 +23,7 @@ selectors = [
     { name = "lookUpURL:isMainFrame:hasHighConfidenceOfSafety:cachedResult:completionHandler:", class = "SSBLookupContext" },
     { name = "_getListsForNamespace:collectionId:completionHandler:", class = "SSBLookupContext" },
 ]
+requires = ["HAVE_SAFE_BROWSING"]
 
 [[not-web-essential]]
 request = "rdar://166711133"
@@ -93,8 +94,11 @@ symbols = [
     "nw_connection_abort_reads",
     "nw_connection_abort_writes",
     "nw_http_fields_access_value_by_name",
+    "nw_parameters_add_custom_proxy_config",
+    "nw_parameters_clear_custom_proxy_configs",
     "nw_parameters_create_webtransport_http",
     "nw_protocol_copy_webtransport_definition",
+    "nw_proxy_config_get_type",
     "nw_webtransport_create_options",
     "nw_webtransport_metadata_get_is_peer_initiated",
     "nw_webtransport_metadata_get_is_unidirectional",
@@ -255,28 +259,34 @@ selectors = [
 requires = ["HAVE_UIKIT_SCROLLBAR_COLOR_SPI"]
 
 [[temporary-usage]]
-request = "rdar://164431329"
-cleanup = "rdar://164667890"
-selectors = [
-    { name = "buildMenuOfType:", class = "AVLegibleMediaOptionsMenuController" },
-]
-requires = ["HAVE_AVLEGIBLEMEDIAOPTIONSMENUCONTROLLER"]
-
-[[temporary-usage]]
 request = "rdar://165789536"
 cleanup = "rdar://165842824"
 selectors = [
     { name = "requestProofreadingReviewOfString:range:language:options:completionHandler:", class = "UITextChecker" },
 ]
 
-[[staging]]
-request = "rdar://163791929"
-cleanup = "rdar://165836164"
+ [[temporary-usage]]
+ request = "rdar://165789536"
+ cleanup = "rdar://179184814"
+ selectors = [
+     { name = "requestGrammarCheckingOfString:range:waitForAllResults:completionHandler:", class = "UITextChecker" },
+ ]
+
+[[temporary-usage]]
+request = "rdar://165789536"
+cleanup = "rdar://165842824"
 selectors = [
- { name = "setIsDelegatedRequest:", class = "PKPaymentRequest" },
+    { name = "proofreadingSessionType", class = "WTSession" },
 ]
-requires = ["HAVE_PASSKIT_DELEGATED_REQUEST"]
-requires-sdk = ["iOS < 26.4"]
+requires = ["ENABLE_WRITING_TOOLS_EXTENDED_PROOFREADING"]
+
+[[not-web-essential]]
+request = "rdar://178257869"
+selectors = [
+    { name = "paymentServicesMerchantURLForAPIType:isDelegated:completion:", class = "PKPaymentAuthorizationController" },
+    { name = "paymentServicesMerchantURLForAPIType:isDelegated:completion:", class = "PKPaymentAuthorizationViewController" },
+]
+requires = ["HAVE_PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED"]
 
 [[not-web-essential]]
 request = "rdar://165006869"
@@ -293,7 +303,7 @@ selectors = [
 ]
 requires = ["PLATFORM_VISION"]
 
- [[staging]]
+[[staging]]
 request = "rdar://170178645"
 selectors = [
     { name = "screenCaptureWithEnvironment:", class = "BEProcessCapability" },
@@ -308,3 +318,34 @@ selectors = [
     { name = "_lookToScrollGroupName", class = "UIScrollView" },
 ]
 requires = ["PLATFORM_VISION"]
+
+[[temporary-usage]]
+request = "rdar://165789536"
+cleanup = "rdar://173046822"
+selectors = [
+    { name = "cancelAllAnimations", class = "?" },
+    { name = "cancelAnimationForSuggestionWithUUID:", class = "?" },
+    { name = "startAnimationForSuggestionWithUUID:writingDirection:effectType:completion:", class = "?" },
+]
+requires = ["ENABLE_WRITING_TOOLS_TEXT_EFFECTS"]
+
+[[staging]]
+request = "rdar://171222829"
+selectors = [
+    { name = "setPresentingAppBundleID:", class = "?" },
+    { name = "setPresentingAppProcessIdentifier:", class = "?" },
+]
+requires = ["ENABLE_AIRPLAY_PICKER", "ENABLE_WIRELESS_PLAYBACK_MEDIA_PLAYER"]
+
+[[staging]]
+request = "rdar://161102071"
+selectors = [
+    { name = "setAllowsTypeSelect:", class = "UIContextMenuConfiguration" },
+]
+requires = ["HAVE_UICONTEXTMENUCONFIGURATION_ALLOWTYPESELECT_SUPPORT"]
+
+[[not-web-essential]]
+request = "rdar://171940190"
+selectors = [
+    { name = "endSessionWithCompletion:", class = "NFSession" },
+]

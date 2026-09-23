@@ -21,6 +21,12 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-005.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-006.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-007.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-column-rtl-direction-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-column-rtl-direction.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-column-vert-lr-rtl-wrap-reverse-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-column-vert-lr-rtl-wrap-reverse.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-column-vert-rl-rtl-wrap-reverse-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-column-vert-rl-rtl-wrap-reverse.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-fieldset-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-fieldset-002.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-fieldset-003.html
@@ -43,3 +49,5 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-table-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-table-002.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-align-baseline-table-003.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/flex-content-alignment-with-abspos-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-flexbox/alignment/multiline-align-self.html

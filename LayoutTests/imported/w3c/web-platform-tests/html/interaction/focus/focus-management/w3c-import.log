@@ -14,5 +14,6 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/focus-management/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/focus-management/focus-event-targets-simple.html
 /LayoutTests/imported/w3c/web-platform-tests/html/interaction/focus/focus-management/focus-events.html

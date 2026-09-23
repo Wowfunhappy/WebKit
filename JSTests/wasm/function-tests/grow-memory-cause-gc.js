@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 import Builder from '../Builder.js';
 import * as assert from '../assert.js';

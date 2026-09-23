@@ -202,7 +202,9 @@ public:
         default:
             break;
         }
-        return trackIndexFor(*stream);
+        auto trackIndex = trackIndexFor(*stream);
+        m_audioTimelines[trackIndex - 1] = AudioTimeline { };
+        return trackIndex;
     }
 
     std::optional<uint8_t> addVideoTrack(const VideoInfo& info)
@@ -233,8 +235,9 @@ public:
         }
         AVDictionary* options = nullptr;
         // A movie header with no sample tables followed by self-contained fragments, each one cut
-        // where flushFragment() asks for it rather than on a duration the muxer picks.
-        av_dict_set(&options, "movflags", "frag_custom+empty_moov+default_base_moof", 0);
+        // where flushFragment() asks for it rather than on a duration the muxer picks. The header
+        // goes out with the first fragment, whose samples give each track's edit list its start.
+        av_dict_set(&options, "movflags", "frag_custom+delay_moov+default_base_moof", 0);
         int result = avformat_init_output(m_context, &options);
         av_dict_free(&options);
         if (result < 0) {
@@ -245,7 +248,7 @@ public:
         return true;
     }
 
-    bool writeSample(uint8_t trackIndex, std::span<const uint8_t> data, const MediaTime& presentationTime, const MediaTime& decodeTime, const MediaTime& duration, bool isSync)
+    bool writeSample(uint8_t trackIndex, std::span<const uint8_t> data, const MediaTime& presentationTime, const MediaTime& decodeTime, const MediaTime& duration, const std::pair<MediaTime, MediaTime>& trimInterval, bool isSync)
     {
         if (m_failed || trackIndex > m_streams.size() || !trackIndex)
             return false;
@@ -275,6 +278,9 @@ public:
             return true;
         }
 
+        if (auto& timeline = m_audioTimelines[trackIndex - 1])
+            return writeAudioSample(*timeline, trackIndex, data, presentationTime, duration, trimInterval, isSync);
+
         return writeSampleImmediately(trackIndex, data, presentationTime, decodeTime, duration, isSync);
     }
 
@@ -286,7 +292,13 @@ public:
             m_failed = true;
             return;
         }
+        // The movie header carries each track's edit list, which needs the track's first sample.
+        if (!m_movieHeaderWritten && m_streamHasSamples.contains(false))
+            return;
         av_write_frame(m_context, nullptr);
+        // The first flush writes only the movie header; the next one cuts the fragment.
+        if (!std::exchange(m_movieHeaderWritten, true))
+            av_write_frame(m_context, nullptr);
         avio_flush(m_context->pb);
     }
 
@@ -297,6 +309,12 @@ public:
         if (!writePendingVideoSample(endTime)) {
             m_failed = true;
             return;
+        }
+        for (auto& timeline : m_audioTimelines) {
+            if (timeline && !timeline->primingSamples.isEmpty() && !writePrimingSamples(*timeline, timeline->primingSamples.last().presentationTime)) {
+                m_failed = true;
+                return;
+            }
         }
         av_write_trailer(m_context);
         avio_flush(m_context->pb);
@@ -312,6 +330,55 @@ private:
         MediaTime duration;
         bool isSync;
     };
+
+    struct PrimingSample {
+        uint8_t trackIndex;
+        Vector<uint8_t> data;
+        MediaTime presentationTime;
+        MediaTime duration;
+        bool isSync;
+    };
+
+    // The samples of an MP4 audio track are contiguous, each starting where its predecessor ends,
+    // as the native timeline of the encoder's packets is. CoreMedia stamps a packet with the time its
+    // first untrimmed frame presents at, so a packet trimmed whole shares its successor's time; it is
+    // held until that successor places it.
+    struct AudioTimeline {
+        std::optional<MediaTime> nextTime;
+        Vector<PrimingSample> primingSamples;
+    };
+
+    bool writeAudioSample(AudioTimeline& timeline, uint8_t trackIndex, std::span<const uint8_t> data, const MediaTime& presentationTime, const MediaTime& duration, const std::pair<MediaTime, MediaTime>& trimInterval, bool isSync)
+    {
+        if (trimInterval.first + trimInterval.second >= duration) {
+            timeline.primingSamples.append({ trackIndex, Vector<uint8_t>(data), presentationTime, duration, isSync });
+            return true;
+        }
+
+        if (!writePrimingSamples(timeline, presentationTime - trimInterval.first))
+            return false;
+
+        auto start = *timeline.nextTime;
+        timeline.nextTime = start + duration;
+        return writeSampleImmediately(trackIndex, data, start, start, duration, isSync);
+    }
+
+    // Places the held packets so they end at `end`, where their successor's first frame starts.
+    bool writePrimingSamples(AudioTimeline& timeline, const MediaTime& end)
+    {
+        auto start = end;
+        for (auto& sample : timeline.primingSamples)
+            start -= sample.duration;
+        if (timeline.nextTime && start < *timeline.nextTime)
+            start = *timeline.nextTime;
+        timeline.nextTime = start;
+        for (auto& sample : std::exchange(timeline.primingSamples, { })) {
+            if (!writeSampleImmediately(sample.trackIndex, sample.data.span(), *timeline.nextTime, *timeline.nextTime, sample.duration, sample.isSync))
+                return false;
+            *timeline.nextTime += sample.duration;
+        }
+        return true;
+    }
 
     bool writePendingVideoSample(const MediaTime& endTime)
     {
@@ -345,6 +412,7 @@ private:
             m_failed = true;
             return false;
         }
+        m_streamHasSamples[trackIndex - 1] = true;
         return true;
     }
     static int writeData(void* opaque, const uint8_t* data, int size)
@@ -370,6 +438,8 @@ private:
     uint8_t trackIndexFor(AVStream& stream)
     {
         m_streams.append(&stream);
+        m_streamHasSamples.append(false);
+        m_audioTimelines.append(std::nullopt);
         return static_cast<uint8_t>(m_streams.size());
     }
 
@@ -391,7 +461,10 @@ private:
     Vector<AVStream*> m_streams;
     std::optional<uint8_t> m_videoTrackIndex;
     std::optional<PendingVideoSample> m_pendingVideoSample;
+    Vector<bool> m_streamHasSamples;
+    Vector<std::optional<AudioTimeline>> m_audioTimelines;
     bool m_headerWritten { false };
+    bool m_movieHeaderWritten { false };
     bool m_failed { false };
 };
 
@@ -427,7 +500,7 @@ MediaRecorderPrivateWriterMP4::Result MediaRecorderPrivateWriterMP4::writeFrame(
     for (auto& sample : block) {
         ASSERT(sample.data);
         Ref buffer = Ref { *sample.data }->makeContiguous();
-        if (!m_delegate->writeSample(static_cast<uint8_t>(block.trackID()), buffer->span(), sample.presentationTime, sample.decodeTime, sample.duration, sample.isSync()))
+        if (!m_delegate->writeSample(static_cast<uint8_t>(block.trackID()), buffer->span(), sample.presentationTime, sample.decodeTime, sample.duration, sample.trimInterval, sample.isSync()))
             return Result::Failure;
     }
     return Result::Success;

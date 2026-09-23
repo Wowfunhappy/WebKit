@@ -88,7 +88,7 @@ void FindIndicator::hide()
     if (!m_isShowingFindIndicator)
         return;
 
-    m_webPage->send(Messages::WebPageProxy::ClearTextIndicator());
+    protect(m_webPage.get())->send(Messages::WebPageProxy::ClearTextIndicator());
     m_isShowingFindIndicator = false;
 }
 

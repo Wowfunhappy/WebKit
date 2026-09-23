@@ -27,17 +27,21 @@
 #include "Frame.h"
 
 #include "ContainerNodeInlines.h"
+#include "DocumentPage.h"
+#include "DocumentView.h"
 #include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
 #include "HTMLFrameOwnerElement.h"
 #include "HTMLIFrameElement.h"
 #include "LocalDOMWindow.h"
+#include "LocalFrameView.h"
 #include "NavigationScheduler.h"
 #include "NodeDocument.h"
 #include "OwnerPermissionsPolicyData.h"
 #include "Page.h"
 #include "RemoteFrame.h"
+#include "RemoteFrameLayoutInfo.h"
 #include "RenderElement.h"
 #include "RenderWidget.h"
 #include "ScrollingCoordinator.h"
@@ -346,7 +350,29 @@ void Frame::updateFrameTreeSyncData(Ref<FrameTreeSyncData>&& data)
 
 void Frame::updateFrameTreeSyncData(const FrameTreeSyncSerializationData& data)
 {
+    auto invalidateChildFrameForDarkAppearanceChange = [&](const auto& oldMap, const auto& newMap) {
+        for (RefPtr child = tree().firstChild(); child; child = child->tree().nextSibling()) {
+            RefPtr localChild = dynamicDowncast<LocalFrame>(child);
+            if (!localChild)
+                continue;
+
+            RefPtr oldFrameInfo = oldMap.get(child->frameID());
+            RefPtr newFrameInfo = newMap.get(child->frameID());
+
+            if (!oldFrameInfo || !newFrameInfo || oldFrameInfo->ownerElementAppearance().contains(FrameOwnerElementAppearance::IsDark) != newFrameInfo->ownerElementAppearance().contains(FrameOwnerElementAppearance::IsDark)) {
+                RefPtr localChildView = localChild->view();
+
+                localChildView->invalidateForFrameOwnerColorSchemeChange();
+                protect(localChildView->layoutContext())->scheduleLayout();
+            }
+        }
+    };
+
+    auto oldChildrenFrameLayoutMap = m_frameTreeSyncData->childrenFrameLayoutInfo;
+
     protect(frameTreeSyncData())->update(data);
+
+    invalidateChildFrameForDarkAppearanceChange(oldChildrenFrameLayoutMap, m_frameTreeSyncData->childrenFrameLayoutInfo);
 }
 
 bool Frame::frameCanCreatePaymentSession() const
@@ -354,11 +380,6 @@ bool Frame::frameCanCreatePaymentSession() const
     // Prefer the LocalFrame code path when site isolation is disabled.
     ASSERT(m_settings->siteIsolationEnabled());
     return m_frameTreeSyncData->frameCanCreatePaymentSession;
-}
-
-bool Frame::isPrinting() const
-{
-    return m_isPrinting;
 }
 
 RefPtr<Frame> Frame::parent() const
@@ -415,5 +436,6 @@ TextStream& operator<<(TextStream& ts, const Frame& frame)
     ts << frame.debugDescription();
     return ts;
 }
+
 
 } // namespace WebCore

@@ -268,12 +268,6 @@ typedef enum {
     kUIKeyboardInputModifierFlagsChanged   = 1 << 5,
 } UIKeyboardInputFlags;
 
-#if PLATFORM(IOS) && !defined(__IPHONE_13_4)
-typedef NS_OPTIONS(NSInteger, UIEventButtonMask) {
-    UIEventButtonMaskSecondary = 1 << 1,
-};
-#endif
-
 @interface UIEvent ()
 - (void *)_hidEvent;
 - (NSString *)_unmodifiedInput;
@@ -1124,6 +1118,7 @@ typedef NS_ENUM(NSInteger, _UIScrollViewDecelerationTrackingBehavior) {
 @end
 
 @interface UITextChecker (Staging_165842824)
+- (void)requestGrammarCheckingOfString:(NSString *)stringToCheck range:(NSRange)range waitForAllResults:(BOOL)waitForAllResults completionHandler:(void (^)(NSArray<NSTextCheckingResult *> *results))completionHandler;
 - (void)requestProofreadingReviewOfString:(NSString *)stringToCheck range:(NSRange)range language:(NSString *)language options:(NSDictionary<NSString *, id> *)options completionHandler:(void (^)(NSArray<NSTextCheckingResult *> *results))completionHandler;
 @end
 

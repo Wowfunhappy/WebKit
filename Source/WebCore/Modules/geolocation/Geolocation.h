@@ -41,6 +41,7 @@
 #include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/OrderedHashMap.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
@@ -97,7 +98,7 @@ private:
 
     bool isDenied() const { return m_allowGeolocation == AllowGeolocation::No; }
 
-    Page* page() const;
+    Page* NODELETE page() const;
     SecurityOrigin* securityOrigin() const;
 
     typedef Vector<Ref<GeoNotifier>> GeoNotifierVector;
@@ -114,7 +115,7 @@ private:
         bool NODELETE isEmpty() const;
         void getNotifiersVector(GeoNotifierVector&) const;
     private:
-        typedef HashMap<int, Ref<GeoNotifier>> IdToNotifierMap;
+        typedef OrderedHashMap<int, Ref<GeoNotifier>> IdToNotifierMap;
         typedef HashMap<Ref<GeoNotifier>, int> NotifierToIdMap;
         IdToNotifierMap m_idToNotifierMap;
         NotifierToIdMap m_notifierToIdMap;

@@ -29,8 +29,10 @@
 #include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
+#include "HTMLSelectElement.h"
 #include "MutableStyleProperties.h"
 #include "NodeName.h"
+#include "Settings.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -55,9 +57,9 @@ Ref<HTMLHRElement> HTMLHRElement::create(const QualifiedName& tagName, Document&
     return adoptRef(*new HTMLHRElement(tagName, document));
 }
 
-auto HTMLHRElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto HTMLHRElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
-    auto result = HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (!document().settings().htmlEnhancedSelectParsingEnabled() || m_ownerSelect)
         return result;
@@ -70,14 +72,14 @@ auto HTMLHRElement::insertedIntoAncestor(InsertionType insertionType, ContainerN
     return result;
 }
 
-void HTMLHRElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLHRElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (!document().settings().htmlEnhancedSelectParsingEnabled() || !m_ownerSelect)
         return;
 
-    if (RefPtr select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::Yes)) {
+    if (auto* select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::Yes)) {
         ASSERT_UNUSED(select, select == m_ownerSelect.get());
         return;
     }

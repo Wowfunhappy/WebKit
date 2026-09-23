@@ -31,7 +31,7 @@ namespace CSS {
 
 // MARK: Primitive Numeric or Keyword
 
-template<Numeric NumericType, PrimitiveKeyword... Ks> struct PrimitiveNumericOrKeyword {
+template<Numeric NumericType, SpecificKeyword... Ks> struct PrimitiveNumericOrKeyword {
     using Raw = typename NumericType::Raw;
     using Calc = typename NumericType::Calc;
     using UnitType = typename NumericType::UnitType;
@@ -88,30 +88,6 @@ template<Numeric NumericType, PrimitiveKeyword... Ks> struct PrimitiveNumericOrK
             )
         }
     {
-    }
-
-    // MARK: Copy/Move Construction/Assignment
-
-    PrimitiveNumericOrKeyword(const PrimitiveNumericOrKeyword& other)
-        : m_data { other.m_data }
-    {
-    }
-
-    PrimitiveNumericOrKeyword(PrimitiveNumericOrKeyword&& other)
-        : m_data { WTF::move(other.m_data) }
-    {
-    }
-
-    PrimitiveNumericOrKeyword& operator=(const PrimitiveNumericOrKeyword& other)
-    {
-        m_data = other.m_data;
-        return *this;
-    }
-
-    PrimitiveNumericOrKeyword& operator=(PrimitiveNumericOrKeyword&& other)
-    {
-        m_data = WTF::move(other.m_data);
-        return *this;
     }
 
     // MARK: Construction/Assignment from `NumericType`

@@ -174,7 +174,7 @@ public:
         static constexpr unsigned fract = 0;
         static constexpr unsigned exp = 1;
 
-        static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, unsigned>>({
+        static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, unsigned>>({
             { "exp"_s, exp },
             { "fract"_s, fract },
         }) };
@@ -185,7 +185,7 @@ public:
         static constexpr unsigned fract = 0;
         static constexpr unsigned whole = 1;
 
-        static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, unsigned>>({
+        static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, unsigned>>({
             { "fract"_s, fract },
             { "whole"_s, whole },
         }) };
@@ -196,13 +196,13 @@ public:
         static constexpr unsigned oldValue = 0;
         static constexpr unsigned exchanged = 1;
 
-        static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, unsigned>>({
+        static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, unsigned>>({
             { "exchanged"_s, exchanged },
             { "old_value"_s, oldValue },
         }) };
     };
 
-    static constexpr auto keys = std::to_array<SortedArrayMap<std::pair<ComparableASCIILiteral, unsigned>, 2>>({
+    static constexpr auto keys = WTF::toArray<SortedArrayMap<std::pair<ComparableASCIILiteral, unsigned>, 2>>({
         FrexpResult::map,
         ModfResult::map,
         AtomicCompareExchangeResult::map,

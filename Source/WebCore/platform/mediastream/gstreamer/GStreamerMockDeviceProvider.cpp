@@ -97,7 +97,7 @@ void webkitGstMockDeviceProviderSwitchDefaultDevice(const CaptureDevice& oldDevi
 
     CaptureDevice previousDefaultDevice = oldDevice;
     previousDefaultDevice.setIsDefault(false);
-    auto previousDefaultGstDevice = adoptGRef(webkitMockDeviceCreate(previousDefaultDevice));
+    GRefPtr previousDefaultGstDevice = adoptGRef(webkitMockDeviceCreate(previousDefaultDevice));
     gst_device_provider_device_changed(GST_DEVICE_PROVIDER_CAST(s_provider), previousDefaultGstDevice.get(), oldGstDevice.get());
 
     if (!newGstDevice) {
@@ -107,7 +107,7 @@ void webkitGstMockDeviceProviderSwitchDefaultDevice(const CaptureDevice& oldDevi
 
     CaptureDevice nextDefaultDevice = newDevice;
     nextDefaultDevice.setIsDefault(true);
-    auto nextDefaultGstDevice = adoptGRef(webkitMockDeviceCreate(nextDefaultDevice));
+    GRefPtr nextDefaultGstDevice = adoptGRef(webkitMockDeviceCreate(nextDefaultDevice));
     GST_DEBUG_OBJECT(s_provider, "Emitting device-changed notification");
     gst_device_provider_device_changed(GST_DEVICE_PROVIDER_CAST(s_provider), nextDefaultGstDevice.get(), newGstDevice.get());
 }

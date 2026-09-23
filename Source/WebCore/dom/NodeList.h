@@ -23,9 +23,8 @@
 
 #pragma once
 
+#include <JavaScriptCore/EmbedderArrayLike.h>
 #include <WebCore/ScriptWrappable.h>
-#include <wtf/Forward.h>
-#include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -33,7 +32,7 @@ namespace WebCore {
 class Node;
 class ScriptExecutionContext;
 
-class NodeList : public ScriptWrappable, public RefCounted<NodeList> {
+class NodeList : public ScriptWrappable, public JSC::EmbedderArrayLike {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(NodeList, WEBCORE_EXPORT);
 public:
     virtual ~NodeList();
@@ -59,6 +58,8 @@ public:
     virtual bool isChildNodeList() const { return false; }
     virtual bool isEmptyNodeList() const { return false; }
     virtual size_t memoryCost() const { return 0; }
+
+    int64_t fastIndexOf(JSC::JSGlobalObject*, JSC::JSValue searchElement, uint64_t startIndex, uint64_t length) override;
 };
 
 } // namespace WebCore

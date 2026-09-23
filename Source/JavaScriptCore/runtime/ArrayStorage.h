@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/ArrayConventions.h>
 #include <JavaScriptCore/Butterfly.h>
 #include <JavaScriptCore/IndexingHeader.h>
 #include <JavaScriptCore/MarkedSpace.h>

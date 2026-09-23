@@ -22,6 +22,7 @@
 #include "SVGTextQuery.h"
 
 #include "FloatConversion.h"
+#include "FontCascadeInlines.h"
 #include "LegacyInlineFlowBox.h"
 #include "RenderBlockFlow.h"
 #include "RenderElementInlines.h"
@@ -325,6 +326,15 @@ bool SVGTextQuery::startPositionOfCharacterCallback(Data* queryData, const SVGTe
 
     data->startPosition = FloatPoint(fragment.x, fragment.y);
 
+    // Subtract baseline shift so the returned position reflects the y attribute
+    // value, not the visually shifted position. This matches Chrome/Firefox behavior.
+    if (fragment.baselineShift) {
+        if (queryData->isVerticalText)
+            data->startPosition.move(-fragment.baselineShift, 0);
+        else
+            data->startPosition.move(0, fragment.baselineShift);
+    }
+
     if (startPosition) {
         SVGTextMetrics metrics = SVGTextMetrics::measureCharacterRange(*queryData->textRenderer, fragment.characterOffset, startPosition);
         if (queryData->isVerticalText)
@@ -377,6 +387,15 @@ bool SVGTextQuery::endPositionOfCharacterCallback(Data* queryData, const SVGText
         return false;
 
     data->endPosition = FloatPoint(fragment.x, fragment.y);
+
+    // Subtract baseline shift so the returned position reflects the y attribute
+    // value, not the visually shifted position. This matches Chrome/Firefox behavior.
+    if (fragment.baselineShift) {
+        if (queryData->isVerticalText)
+            data->endPosition.move(-fragment.baselineShift, 0);
+        else
+            data->endPosition.move(0, fragment.baselineShift);
+    }
 
     SVGTextMetrics metrics = SVGTextMetrics::measureCharacterRange(*queryData->textRenderer, fragment.characterOffset, startPosition + 1);
     if (queryData->isVerticalText)

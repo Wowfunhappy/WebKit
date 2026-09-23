@@ -28,7 +28,6 @@
 #include <JavaScriptCore/DirectArgumentsOffset.h>
 #include <JavaScriptCore/ScopeOffset.h>
 #include <JavaScriptCore/VirtualRegister.h>
-#include <wtf/HashMap.h>
 
 namespace JSC {
 

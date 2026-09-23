@@ -27,7 +27,6 @@
 
 #ifdef __cplusplus
 
-#include <wtf/Seconds.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace WebKit::WebPushD {
@@ -35,12 +34,8 @@ namespace WebKit::WebPushD {
 // If an origin processes more than this many silent pushes, then it will be unsubscribed from push.
 constexpr unsigned maxSilentPushCount = 3;
 
-// getPendingPushMessage starts a timer with this time interval after returning a push message to the client. If the timer expires, then we increment the subscription's silent push count.
-static constexpr Seconds silentPushTimeoutForProduction { 30_s };
-static constexpr Seconds silentPushTimeoutForTesting { 1_s };
-
 constexpr auto protocolVersionKey = "protocol version"_s;
-constexpr uint64_t protocolVersionValue = 5;
+constexpr uint64_t protocolVersionValue = 6;
 constexpr auto protocolEncodedMessageKey = "encoded message"_s;
 
 #if USE(MOZILLA_PUSH_SERVICE)

@@ -28,6 +28,7 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "AbortSignal.h"
 #include "Chrome.h"
 #include "CredentialRequestCoordinator.h"
 #include "CredentialRequestOptions.h"
@@ -39,6 +40,7 @@
 #include "IDLTypes.h"
 #include "JSDOMConvertDictionary.h"
 #include "JSDOMConvertJSON.h"
+#include "JSDOMPromiseDeferred.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "MediationRequirement.h"
@@ -178,7 +180,7 @@ void DigitalCredential::discoverFromExternalSource(const Document& document, Cre
     }
 
     Ref coordinator = page->credentialRequestCoordinator();
-    coordinator->prepareCredentialRequest(document, WTF::move(promise), presentationRequestsOrException.releaseReturnValue(), options.signal);
+    coordinator->prepareCredentialRequests(document, WTF::move(promise), presentationRequestsOrException.releaseReturnValue(), options.signal);
 }
 
 } // namespace WebCore

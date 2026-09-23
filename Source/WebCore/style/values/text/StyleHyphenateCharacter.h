@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
@@ -32,7 +33,7 @@ namespace Style {
 
 // <'hyphenate-character'> = auto | <string>
 // https://drafts.csswg.org/css-text-4/#propdef-hyphenate-character
-struct HyphenateCharacter : ValueOrKeyword<AtomString, CSS::Keyword::Auto> {
+struct HyphenateCharacter : ValueOrKeyword<String, CSS::Keyword::Auto> {
     using Base::Base;
 
     bool isAuto() const { return isKeyword(); }

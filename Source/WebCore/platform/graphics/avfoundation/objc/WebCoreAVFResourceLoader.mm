@@ -39,6 +39,7 @@
 #import "SharedBuffer.h"
 #import "UTIUtilities.h"
 #import <AVFoundation/AVAssetResourceLoader.h>
+#import <WebCore/HTTPStatusCodes.h>
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/LoggerHelper.h>
@@ -116,7 +117,7 @@ CachedResourceMediaLoader::CachedResourceMediaLoader(WebCoreAVFResourceLoader& p
     : m_parent(parent)
     , m_resource(WTF::move(resource))
 {
-    m_resource->addClient(*this);
+    protect(*m_resource)->addClient(*this);
 }
 
 void CachedResourceMediaLoader::stop()
@@ -124,7 +125,7 @@ void CachedResourceMediaLoader::stop()
     if (!m_resource)
         return;
 
-    m_resource->removeClient(*this);
+    protect(*m_resource)->removeClient(*this);
     m_resource = nullptr;
 }
 
@@ -206,7 +207,7 @@ void PlatformResourceMediaLoader::stop()
     if (!m_resource)
         return;
 
-    m_resource->shutdown();
+    protect(m_resource)->shutdown();
     m_resource = nullptr;
 }
 
@@ -237,7 +238,7 @@ void PlatformResourceMediaLoader::dataReceived(PlatformMediaResource&, const Sha
     assertIsCurrent(m_targetDispatcher.get());
 
     m_buffer.append(buffer);
-    m_parent.get()->newDataStoredInSharedBuffer(*m_buffer.buffer());
+    m_parent.get()->newDataStoredInSharedBuffer(protect(*m_buffer.buffer()));
 }
 
 class DataURLResourceMediaLoader : public ThreadSafeRefCounted<DataURLResourceMediaLoader> {
@@ -275,7 +276,7 @@ DataURLResourceMediaLoader::DataURLResourceMediaLoader(WebCoreAVFResourceLoader&
     RELEASE_ASSERT(m_request.url().protocolIsData());
     assertIsCurrent(parent.m_targetDispatcher);
 
-    decodeQueue().dispatch([protectedThis = Ref { *this }, targetDispatcher = parent.m_targetDispatcher, url = m_request.url().isolatedCopy()] mutable {
+    protect(decodeQueue())->dispatch([protectedThis = Ref { *this }, targetDispatcher = parent.m_targetDispatcher, url = m_request.url().isolatedCopy()] mutable {
         targetDispatcher->dispatch([protectedThis = WTF::move(protectedThis), result = DataURLDecoder::decode(url)] mutable {
             protectedThis->handleDecodeResult(WTF::move(result));
         });
@@ -327,9 +328,7 @@ WebCoreAVFResourceLoader::WebCoreAVFResourceLoader(MediaPlayerPrivateAVFoundatio
 {
 }
 
-WebCoreAVFResourceLoader::~WebCoreAVFResourceLoader()
-{
-}
+WebCoreAVFResourceLoader::~WebCoreAVFResourceLoader() = default;
 
 void WebCoreAVFResourceLoader::startLoading()
 {
@@ -387,7 +386,7 @@ void WebCoreAVFResourceLoader::stopLoading()
     m_dataURLMediaLoader = nullptr;
 
     if (m_resourceMediaLoader)
-        m_resourceMediaLoader->stop();
+        protect(m_resourceMediaLoader)->stop();
 
     callOnMainThread([weakParent = WTF::move(m_parent), loader = WTF::move(m_resourceMediaLoader), avRequest = WTF::move(m_avRequest)] {
         if (RefPtr parent = weakParent.get(); parent && avRequest)
@@ -401,7 +400,7 @@ bool WebCoreAVFResourceLoader::responseReceived(const String& mimeType, int stat
 
     ALWAYS_LOG(LOGIDENTIFIER, "status: ", status, ", range: ", contentRange.firstBytePosition(), "-", contentRange.lastBytePosition(), "/", contentRange.instanceLength(), ", expectedContentLength: ", expectedContentLength);
 
-    if (status && (status < 200 || status > 299)) {
+    if (status && !isHttpOkStatus(status)) {
         [m_avRequest finishLoadingWithError:0];
         return true;
     }

@@ -12,11 +12,6 @@ PASS [object Promise] is non-null.
      unadjustedMovement is supported.
      Unlock
 PASS onpointerlockchange received after: Unlock
-     Lock with PointerLockOptionsEnabled = false
-PASS undefined is undefined.
-PASS onpointerlockchange received after: Lock with PointerLockOptionsEnabled = false
-     Unlock
-PASS onpointerlockchange received after: Unlock
 PASS successfullyParsed is true
 
 TEST COMPLETE

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2024 Apple, Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia, S.L. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +30,10 @@
 
 #include "ExceptionOr.h"
 #include "XREye.h"
+#include "XRLayerInit.h"
+#include "XRLayerLayout.h"
+#include "XRProjectionLayerInit.h"
+#include "XRTextureType.h"
 
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
@@ -36,7 +41,9 @@
 
 namespace WebCore {
 
+class ScriptExecutionContext;
 class WebGL2RenderingContext;
+class WebGLOpaqueTexture;
 class WebGLRenderingContext;
 class WebXRFrame;
 class WebXRSession;
@@ -52,14 +59,12 @@ class XRWebGLSubImage;
 struct XRCubeLayerInit;
 struct XRCylinderLayerInit;
 struct XREquirectLayerInit;
-struct XRProjectionLayerInit;
 struct XRQuadLayerInit;
 
 // https://immersive-web.github.io/layers/#XRWebGLBindingtype
 class XRWebGLBinding : public RefCounted<XRWebGLBinding> {
     WTF_MAKE_TZONE_ALLOCATED(XRWebGLBinding);
 public:
-
     using WebXRWebGLRenderingContext = Variant<
         Ref<WebGLRenderingContext>,
         Ref<WebGL2RenderingContext>
@@ -70,19 +75,36 @@ public:
     double nativeProjectionScaleFactor() const { RELEASE_ASSERT_NOT_REACHED(); }
     bool usesDepthValues() const { RELEASE_ASSERT_NOT_REACHED(); }
 
-    ExceptionOr<Ref<XRProjectionLayer>> createProjectionLayer(const XRProjectionLayerInit&) { RELEASE_ASSERT_NOT_REACHED(); }
-    ExceptionOr<Ref<XRQuadLayer>> createQuadLayer(const XRQuadLayerInit&) { RELEASE_ASSERT_NOT_REACHED(); }
-    ExceptionOr<Ref<XRCylinderLayer>> createCylinderLayer(const XRCylinderLayerInit&) { RELEASE_ASSERT_NOT_REACHED(); }
-    ExceptionOr<Ref<XREquirectLayer>> createEquirectLayer(const XREquirectLayerInit&) { RELEASE_ASSERT_NOT_REACHED(); }
-    ExceptionOr<Ref<XRCubeLayer>> createCubeLayer(const XRCubeLayerInit&) { RELEASE_ASSERT_NOT_REACHED(); }
+    ExceptionOr<Ref<XRProjectionLayer>> createProjectionLayer(ScriptExecutionContext&, const XRProjectionLayerInit&);
+    ExceptionOr<Ref<XRQuadLayer>> createQuadLayer(ScriptExecutionContext&, const XRQuadLayerInit&);
+    ExceptionOr<Ref<XRCylinderLayer>> createCylinderLayer(ScriptExecutionContext&, const XRCylinderLayerInit&);
+    ExceptionOr<Ref<XREquirectLayer>> createEquirectLayer(ScriptExecutionContext&, const XREquirectLayerInit&);
+    ExceptionOr<Ref<XRCubeLayer>> createCubeLayer(ScriptExecutionContext&, const XRCubeLayerInit&);
 
-    ExceptionOr<Ref<XRWebGLSubImage>> getSubImage(const XRCompositionLayer&, const WebXRFrame&, XREye) { RELEASE_ASSERT_NOT_REACHED(); }
-    ExceptionOr<Ref<XRWebGLSubImage>> getViewSubImage(const XRProjectionLayer&, const WebXRView&) { RELEASE_ASSERT_NOT_REACHED(); }
+    Ref<WebXRViewport> initializeViewport(IntSize, XRLayerLayout, XRTextureType, int offset, int num);
+
+    ExceptionOr<Ref<XRWebGLSubImage>> getSubImage(XRCompositionLayer&, const WebXRFrame&, XREye);
+    ExceptionOr<Ref<XRWebGLSubImage>> getViewSubImage(XRProjectionLayer&, const WebXRView&);
 
 private:
     XRWebGLBinding(Ref<WebXRSession>&&, WebXRWebGLRenderingContext&&);
 
-    Ref<WebXRSession> m_session;
+    void initializeCompositionLayer(XRCompositionLayer&);
+    ExceptionOr<XRLayerLayout> determineLayout(XRTextureType, XRLayerLayout);
+    bool colorFormatIsSupportedForProjectionLayer(GCGLenum) const;
+    bool depthFormatIsSupportedForProjectionLayer(GCGLenum) const;
+    bool colorFormatIsSupportedForNonProjectionLayer(GCGLenum) const;
+    bool depthFormatIsSupportedForNonProjectionLayer(GCGLenum) const;
+    ExceptionOr<void> validateCompositionLayerInitParameters(const XRLayerInit&) const;
+    ExceptionOr<Vector<RefPtr<WebGLOpaqueTexture>>> allocateColorTexturesForProjectionLayer(XRProjectionLayer&, XRTextureType, GCGLenum textureFormat, double scaleFactor);
+    ExceptionOr<Vector<RefPtr<WebGLOpaqueTexture>>> allocateDepthTexturesForProjectionLayer(XRProjectionLayer&, XRTextureType, GCGLenum textureFormat, double scaleFactor);
+    ExceptionOr<Vector<RefPtr<WebGLOpaqueTexture>>> allocateColorTexturesForLayer(XRCompositionLayer&);
+    ExceptionOr<Vector<RefPtr<WebGLOpaqueTexture>>> allocateDepthTexturesForLayer(XRCompositionLayer&, const XRLayerInit&);
+    bool validateXRWebGLSubImageCreation(const XRCompositionLayer&, const WebXRFrame&) const;
+
+    IntRect rectForView(const XRProjectionLayer&, const XRTextureType, const WebXRView&) const;
+
+    const Ref<WebXRSession> m_session;
     WebXRWebGLRenderingContext m_context;
 };
 

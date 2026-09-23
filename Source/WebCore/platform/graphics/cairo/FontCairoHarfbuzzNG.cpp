@@ -35,7 +35,7 @@
 
 namespace WebCore {
 
-bool FontCascade::canUseGlyphDisplayList(const RenderStyle&)
+bool FontCascade::canUseGlyphDisplayList(const Style::ComputedStyle&)
 {
     return true;
 }
@@ -118,7 +118,7 @@ RefPtr<const Font> FontCascade::fontForCombiningCharacterSequence(StringView str
     else if (characters[length - 1] == 0xFE0F)
         preferColoredFont = true;
 
-    RefPtr baseFont = glyphDataForCharacter(character, false, NormalVariant).font.get();
+    RefPtr baseFont = glyphDataForCharacter(character, false, FontVariant::Normal).font.get();
     if (baseFont
         && (clusterLength == length || baseFont->canRenderCombiningCharacterSequence(normalizedString.view))
         && (!preferColoredFont || baseFont->platformData().isColorBitmapFont()))

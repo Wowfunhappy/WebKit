@@ -28,11 +28,14 @@ public import Foundation
 extension WebPage {
     /// A type that contains information about a frame on a webpage.
     @MainActor
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct FrameInfo {
-        init(_ wrapped: WKFrameInfo) {
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        @_spi(CrossImportOverlay)
+        @_spi(Testing)
+        public init(_ wrapped: WKFrameInfo) {
             self.wrapped = wrapped
         }
 

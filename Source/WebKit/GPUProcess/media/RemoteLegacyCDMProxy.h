@@ -49,7 +49,7 @@ public:
     void deref() const final { RefCounted::deref(); }
 
     RemoteLegacyCDMFactoryProxy* factory() const { return m_factory.get(); }
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
 private:
     friend class RemoteLegacyCDMFactoryProxy;

@@ -31,9 +31,12 @@
 #if ENABLE(MATHML)
 
 #include "ContainerNodeInlines.h"
+#include "ElementInlinesLight.h"
 #include "HTTPParsers.h"
 #include "MathMLNames.h"
 #include "RenderMathMLToken.h"
+#include "Settings.h"
+#include "StyleComputedStyle.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -66,7 +69,7 @@ void MathMLTokenElement::childrenChanged(const ChildChange& change)
         mathmlRenderer->updateTokenContent();
 }
 
-RenderPtr<RenderElement> MathMLTokenElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLTokenElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     ASSERT(hasTagName(MathMLNames::miTag) || hasTagName(MathMLNames::mnTag) || hasTagName(MathMLNames::msTag) || hasTagName(MathMLNames::mtextTag));
 
@@ -79,6 +82,10 @@ bool MathMLTokenElement::childShouldCreateRenderer(const Node& child) const
     return StyledElement::childShouldCreateRenderer(child);
 }
 
+bool MathMLTokenElement::acceptsLegacyMathVariantAttribute()
+{
+    return !document().settings().coreMathMLDeprecateLegacyMathvariant();
+}
 }
 
 #endif // ENABLE(MATHML)

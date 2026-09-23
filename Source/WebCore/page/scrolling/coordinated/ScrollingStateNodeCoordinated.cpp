@@ -28,32 +28,9 @@
 #include "ScrollingStateNode.h"
 
 #if ENABLE(ASYNC_SCROLLING) && USE(COORDINATED_GRAPHICS)
-#include "CoordinatedPlatformLayer.h"
 #include "GraphicsLayerCoordinated.h"
 
 namespace WebCore {
-
-void LayerRepresentation::retainPlatformLayer(void* typelessLayer)
-{
-    if (auto* layer = makePlatformLayerTyped(typelessLayer))
-        layer->ref();
-}
-
-void LayerRepresentation::releasePlatformLayer(void* typelessLayer)
-{
-    if (auto* layer = makePlatformLayerTyped(typelessLayer))
-        layer->deref();
-}
-
-CoordinatedPlatformLayer* LayerRepresentation::makePlatformLayerTyped(void* typelessLayer)
-{
-    return static_cast<CoordinatedPlatformLayer*>(typelessLayer);
-}
-
-void* LayerRepresentation::makePlatformLayerTypeless(CoordinatedPlatformLayer* layer)
-{
-    return layer;
-}
 
 CoordinatedPlatformLayer* LayerRepresentation::platformLayerFromGraphicsLayer(GraphicsLayer& graphicsLayer)
 {

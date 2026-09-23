@@ -9,11 +9,8 @@
 //   in the ES 3 specs.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "GLES2/gl2.h"
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -190,7 +187,7 @@ TEST_P(ProvokingVertexTest, FlatTriWithTransformFeedback)
     int *mappedInts = static_cast<int *>(mapPointer);
     for (unsigned int cnt = 0; cnt < 6; ++cnt)
     {
-        EXPECT_EQ(vertexData[cnt], mappedInts[cnt]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(vertexData[cnt], mappedInts[cnt]));
     }
 }
 
@@ -289,10 +286,12 @@ TEST_P(ProvokingVertexTest, FlatTriStrip)
 
     for (unsigned int triIndex = 0; triIndex < 4; ++triIndex)
     {
-        GLfloat sumX = positionData[triIndex * 2 + 0] + positionData[triIndex * 2 + 2] +
-                       positionData[triIndex * 2 + 4];
-        GLfloat sumY = positionData[triIndex * 2 + 1] + positionData[triIndex * 2 + 3] +
-                       positionData[triIndex * 2 + 5];
+        GLfloat sumX = ANGLE_UNSAFE_TODO(positionData[triIndex * 2 + 0]) +
+                       ANGLE_UNSAFE_TODO(positionData[triIndex * 2 + 2]) +
+                       ANGLE_UNSAFE_TODO(positionData[triIndex * 2 + 4]);
+        GLfloat sumY = ANGLE_UNSAFE_TODO(positionData[triIndex * 2 + 1]) +
+                       ANGLE_UNSAFE_TODO(positionData[triIndex * 2 + 3]) +
+                       ANGLE_UNSAFE_TODO(positionData[triIndex * 2 + 5]);
 
         float centerX = sumX / 3.0f * 0.5f + 0.5f;
         float centerY = sumY / 3.0f * 0.5f + 0.5f;
@@ -304,7 +303,7 @@ TEST_P(ProvokingVertexTest, FlatTriStrip)
 
         unsigned int provokingVertexIndex = triIndex + 2;
 
-        EXPECT_EQ(vertexData[provokingVertexIndex], pixelBuffer[pixelIndex * 4]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(vertexData[provokingVertexIndex], pixelBuffer[pixelIndex * 4]));
     }
 }
 
@@ -341,14 +340,16 @@ TEST_P(ProvokingVertexTest, FlatTriStripPrimitiveRestart)
 
     for (unsigned int triIndex = 0; triIndex < 4; ++triIndex)
     {
-        GLint vertexA = indexData[triOffsets[triIndex] + 0];
-        GLint vertexB = indexData[triOffsets[triIndex] + 1];
-        GLint vertexC = indexData[triOffsets[triIndex] + 2];
+        GLint vertexA = ANGLE_UNSAFE_TODO(indexData[triOffsets[triIndex] + 0]);
+        GLint vertexB = ANGLE_UNSAFE_TODO(indexData[triOffsets[triIndex] + 1]);
+        GLint vertexC = ANGLE_UNSAFE_TODO(indexData[triOffsets[triIndex] + 2]);
 
-        GLfloat sumX =
-            positionData[vertexA * 2] + positionData[vertexB * 2] + positionData[vertexC * 2];
-        GLfloat sumY = positionData[vertexA * 2 + 1] + positionData[vertexB * 2 + 1] +
-                       positionData[vertexC * 2 + 1];
+        GLfloat sumX = ANGLE_UNSAFE_TODO(positionData[vertexA * 2]) +
+                       ANGLE_UNSAFE_TODO(positionData[vertexB * 2]) +
+                       ANGLE_UNSAFE_TODO(positionData[vertexC * 2]);
+        GLfloat sumY = ANGLE_UNSAFE_TODO(positionData[vertexA * 2 + 1]) +
+                       ANGLE_UNSAFE_TODO(positionData[vertexB * 2 + 1]) +
+                       ANGLE_UNSAFE_TODO(positionData[vertexC * 2 + 1]);
 
         float centerX = sumX / 3.0f * 0.5f + 0.5f;
         float centerY = sumY / 3.0f * 0.5f + 0.5f;
@@ -360,7 +361,20 @@ TEST_P(ProvokingVertexTest, FlatTriStripPrimitiveRestart)
 
         unsigned int provokingVertexIndex = triIndex + 2;
 
-        EXPECT_EQ(vertexData[provokingVertexIndex], pixelBuffer[pixelIndex * 4]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(vertexData[provokingVertexIndex], pixelBuffer[pixelIndex * 4]));
+    }
+}
+
+TEST_P(ProvokingVertexTest, ANGLEProvokingVertexIsAvailable)
+{
+    const bool hasExt = IsGLExtensionEnabled("GL_ANGLE_provoking_vertex");
+    if (IsD3D11())
+    {
+        EXPECT_TRUE(hasExt);
+    }
+    else if (IsMetal())
+    {
+        EXPECT_TRUE(hasExt);
     }
 }
 
@@ -389,16 +403,12 @@ TEST_P(ProvokingVertexTest, ANGLEProvokingVertex)
         glReadPixels(0, 0, 1, 1, GL_RGBA_INTEGER, GL_INT, &pixelValue);
 
         ASSERT_GL_NO_ERROR();
-        EXPECT_EQ(vertexData[id], pixelValue[0]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(vertexData[id], pixelValue[0]));
     };
 
     fnExpectId(2);
 
     const bool hasExt = IsGLExtensionEnabled("GL_ANGLE_provoking_vertex");
-    if (IsD3D11())
-    {
-        EXPECT_TRUE(hasExt);
-    }
     if (hasExt)
     {
         GLint mode;
@@ -744,8 +754,72 @@ TEST_P(ProvokingVertexBufferUpdateTest, DrawFlatWithPartialBufferSubUpdatesBetwe
     checkFlatQuadColors(kWidth, kHeight, GLColor::red, GLColor::green);
 }
 
+// Only run these tests on Metal. Other backends tend to time out the test suite but not crash.
+class ProvokingVertexTestMetal : public ProvokingVertexTest
+{};
+
+// Test that a very large draw call with flat shading doesn't cause an integer overflow in the Metal
+// backend.
+TEST_P(ProvokingVertexTestMetal, LargeDrawTriangleFan)
+{
+    GLsizei count = 1431655768;
+    glUseProgram(mProgram);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, count);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Test that a very large draw call with flat shading doesn't cause an integer overflow in the Metal
+// backend.
+TEST_P(ProvokingVertexTestMetal, LargeDrawTriangleStrip)
+{
+    GLsizei count = 1431655768;
+    glUseProgram(mProgram);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, count);
+}
+
+// Test that drawing TriangleStrip with primitive restart and flat shading doesn't read out of
+// bounds. Regression test for GPU memory disclosure vulnerability during index rewriting.
+TEST_P(ProvokingVertexTestMetal, PrimitiveRestartWithTriangleStrip)
+{
+    glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+
+    GLfloat halfPixel = 1.0f / static_cast<GLfloat>(getWindowWidth());
+
+    // 3 vertices
+    GLint vertexData[]     = {1, 2, 3};
+    GLfloat positionData[] = {-1.0f + halfPixel, -1.0f, -1.0f + halfPixel, 1.0f,
+                              1.0f - halfPixel,  -1.0f};
+
+    glVertexAttribIPointer(mIntAttribLocation, 1, GL_INT, 0, vertexData);
+
+    GLint positionLocation = glGetAttribLocation(mProgram, "position");
+    glEnableVertexAttribArray(positionLocation);
+    glVertexAttribPointer(positionLocation, 2, GL_FLOAT, GL_FALSE, 0, positionData);
+
+    // [0, 1, 2, R, R, R, R] -> Triangle Strip with 10 indices
+    const GLuint R     = 0xFFFFFFFF;
+    GLuint indexData[] = {0, 1, 2, R, R, R, R, R, R, R};
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indexData), indexData, GL_STATIC_DRAW);
+
+    glUseProgram(mProgram);
+    glDrawElements(GL_TRIANGLE_STRIP, 10, GL_UNSIGNED_INT, 0);
+
+    ASSERT_GL_NO_ERROR();
+
+    // Verify it rendered the single triangle correctly
+    GLint pixelValue[4] = {0};
+    glReadPixels(0, 0, 1, 1, GL_RGBA_INTEGER, GL_INT, &pixelValue);
+    EXPECT_EQ(vertexData[2], pixelValue[0]);  // Flat shading with provoking vertex last (index 2)
+}
+
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProvokingVertexTest);
 ANGLE_INSTANTIATE_TEST_ES3(ProvokingVertexTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProvokingVertexTestMetal);
+ANGLE_INSTANTIATE_TEST(ProvokingVertexTestMetal, ES3_METAL());
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProvokingVertexBufferUpdateTest);
 ANGLE_INSTANTIATE_TEST_ES3(ProvokingVertexBufferUpdateTest);

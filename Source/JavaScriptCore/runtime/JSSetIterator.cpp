@@ -61,37 +61,11 @@ void JSSetIterator::finishCreation(VM& vm)
 template<typename Visitor>
 void JSSetIterator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSSetIterator*>(cell);
+    auto* thisObject = uncheckedDowncast<JSSetIterator>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 }
 
 DEFINE_VISIT_CHILDREN(JSSetIterator);
-
-JSC_DEFINE_HOST_FUNCTION(setIteratorPrivateFuncSetIteratorNext, (JSGlobalObject * globalObject, CallFrame* callFrame))
-{
-    ASSERT(callFrame->argument(0).isCell());
-
-    VM& vm = globalObject->vm();
-    JSCell* cell = callFrame->uncheckedArgument(0).asCell();
-    if (cell == vm.orderedHashTableSentinel())
-        return JSValue::encode(cell);
-
-    JSSetIterator* iterator = jsCast<JSSetIterator*>(cell);
-    return JSValue::encode(iterator->next(vm));
-}
-
-JSC_DEFINE_HOST_FUNCTION(setIteratorPrivateFuncSetIteratorKey, (JSGlobalObject * globalObject, CallFrame* callFrame))
-{
-    ASSERT(callFrame->argument(0).isCell());
-
-    VM& vm = globalObject->vm();
-    JSCell* cell = callFrame->uncheckedArgument(0).asCell();
-    if (cell == vm.orderedHashTableSentinel())
-        return JSValue::encode(cell);
-
-    JSSetIterator* iterator = jsCast<JSSetIterator*>(cell);
-    return JSValue::encode(iterator->peekKey(vm));
-}
 
 }

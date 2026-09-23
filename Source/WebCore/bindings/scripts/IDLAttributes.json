@@ -67,6 +67,12 @@
         "CheckSecurityForNode": {
             "contextsAllowed": ["attribute", "operation"]
         },
+        "CheckSecurityForNodeWithFrameOwner": {
+            "contextsAllowed": ["attribute", "operation"]
+        },
+        "CheckSecurityForNodeWithDOMWindow": {
+            "contextsAllowed": ["attribute", "operation"]
+        },
         "Clamp": {
             "contextsAllowed": ["type"],
             "standard": {
@@ -234,12 +240,20 @@
         "ExportToWrappedFunction": {
             "contextsAllowed": ["interface"]
         },
+        "EmbedderArrayLike": {
+            "contextsAllowed": ["interface"]
+        },
         "Exposed": {
             "contextsAllowed": ["interface", "namespace", "attribute", "operation", "constant"],
             "values": ["*"],
             "standard": {
                 "url": "https://webidl.spec.whatwg.org/#Exposed"
             }
+        },
+        "ExposedEnabledBySetting": {
+            "contextsAllowed": ["interface"],
+            "values": ["*"],
+            "note": "Gates exposure in a specific context behind a runtime setting. Value is Context|SettingName, e.g., ExposedEnabledBySetting=SharedWorker|WorkerInSharedWorkerEnabled"
         },
         "GenerateAddOpaqueRoot": {
             "contextsAllowed": ["interface"],
@@ -290,6 +304,10 @@
         "ImplementationRequired": {
             "contextsAllowed": ["dictionary-member"],
             "notes": "Allows treating the dictionary member as required when the specification doesn't specify the required keyword but using it is unobservable."
+        },
+        "InlineCapacity": {
+            "contextsAllowed": ["type"],
+            "values": ["*"]
         },
         "InterfaceName": {
             "contextsAllowed": ["interface", "namespace"],
@@ -368,9 +386,6 @@
                 "url": "https://webidl.spec.whatwg.org/#LegacyNamespace"
             },
             "unsupported": true
-        },
-        "LegacyNativeDictionaryRequiredInterfaceNullability": {
-            "contextsAllowed": ["dictionary"]
         },
         "LegacyNoInterfaceObject": {
             "contextsAllowed": ["interface"],
@@ -548,6 +563,9 @@
             "contextsAllowed": ["operation", "callback-function"]
         },
         "SkipVTableValidation": {
+            "contextsAllowed": ["interface"]
+        },
+        "StandaloneConstructorAttributes": {
             "contextsAllowed": ["interface"]
         },
         "SuppressToJSObject": {

@@ -48,6 +48,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Lock.h>
 #include <wtf/LoggerHelper.h>
+#include <wtf/NativePromise.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
 // MAVERICKS_BACKPORT: Cocoa presents through the shared sample-buffer layer and video manager.
@@ -158,8 +159,7 @@ public:
     void pause() override;
     bool paused() const final;
     bool ended() const final;
-    bool seeking() const override { return m_isSeeking; }
-    void seekToTarget(const SeekTarget&) override;
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) override;
     void setRate(float) override;
     double rate() const final;
     void setPreservesPitch(bool) final;
@@ -172,7 +172,7 @@ public:
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
     void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
-    void setVisibleInViewport(bool isVisible) final;
+    void setViewportVisibility(ViewportVisibility) final;
     void setPresentationSize(const IntSize&) final;
     MediaTime duration() const override;
     MediaTime currentTime() const override;
@@ -239,7 +239,6 @@ public:
     bool handleNeedContextMessage(GstMessage*);
 
     void handleStreamCollectionMessage(GstMessage*);
-    void handleSyncErrorMessage(GstMessage*);
     void handleMessage(GstMessage*);
 
     void triggerRepaint(GRefPtr<GstSample>&&);
@@ -332,6 +331,8 @@ protected:
         Ok,
         Rejected,
         Failed,
+        // Pipeline is suspended, and the requested state change was saved to be executed when it resumes.
+        SavedUntilResume,
     };
     ChangePipelineStateResult changePipelineState(GstState);
 
@@ -358,11 +359,10 @@ protected:
     void destroyVideoLayer();
     void pushSampleToVideoLayer(bool isDuplicateSample, bool flush = false);
     void sampleBufferDisplayLayerStatusDidFail() final;
+    void updateVideoFrameCounters(uint64_t, uint64_t) final; // MAVERICKS_BACKPORT: receive Cocoa display-layer playback metrics.
 #endif
 
     GstElement* videoSink() const { return m_videoSink.get(); }
-
-    void setStreamVolumeElement(GstStreamVolume*);
 
     void repaint();
     void cancelRepaint(bool destroying = false);
@@ -375,19 +375,20 @@ protected:
     static void volumeChangedCallback(MediaPlayerPrivateGStreamer*);
     static void muteChangedCallback(MediaPlayerPrivateGStreamer*);
 
-    void pausedTimerFired();
+    void eosTimerFired();
 
     template <typename TrackPrivateType> void notifyPlayerOfTrack();
 
     void ensureAudioSourceProvider();
     virtual void checkPlayingConsistency();
 
-    virtual bool doSeek(const SeekTarget& position, float rate, bool isAsync = false, bool isSegment = false);
+    virtual bool doSeek(const SeekTarget&, float rate, bool isAsync = false, bool isSegment = false);
     void invalidateCachedPosition() const;
+    bool prepareSeek(const SeekTarget&);
 
     static void sourceSetupCallback(MediaPlayerPrivateGStreamer*, GstElement*);
 
-    void timeChanged(const MediaTime&); // If MediaTime is valid, indicates that a seek has completed.
+    void timeChanged();
     void loadingFailed(MediaPlayer::NetworkState, MediaPlayer::ReadyState = MediaPlayer::ReadyState::HaveNothing, bool forceNotifications = false);
     void loadStateChanged();
 
@@ -400,8 +401,10 @@ protected:
     bool isPipelineWaitingPreroll(GstState current, GstState pending, GstStateChangeReturn) const;
     bool isPipelineWaitingPreroll() const;
 
-    void didEnd();
+    virtual void didEnd();
+    void tearDown(bool clearMediaPlayer);
 
+    URL m_url;
     Ref<MainThreadNotifier<MainThreadNotification>> m_notifier;
     ThreadSafeWeakPtr<MediaPlayer> m_player;
     String m_referrer;
@@ -440,23 +443,25 @@ protected:
     GstState m_requestedState { GST_STATE_VOID_PENDING };
     bool m_shouldResetPipeline { false };
     bool m_isSeeking { false };
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise;
     bool m_isSeekPending { false };
     SeekTarget m_seekTarget;
     GRefPtr<GstElement> m_source { nullptr };
     bool m_areVolumeAndMuteInitialized { false };
 
-    // Reflects whether the pipeline was paused due to the HTMLMediaElement being both muted and invisible in the viewport.
-    bool isPausedByViewport() const { return m_stateToRestoreWhenVisible != GST_STATE_VOID_PENDING; };
+    // Reflects whether the pipeline was suspended due to the HTMLMediaElement being both muted and invisible in the viewport.
+    bool isSuspended() const { return m_isSuspended; };
 
 #if USE(TEXTURE_MAPPER)
     OptionSet<TextureMapperFlags> m_textureMapperFlags;
 #endif
 
-    GRefPtr<GstStreamVolume> m_volumeElement;
     GRefPtr<GstElement> m_audioSink;
     GRefPtr<GstElement> m_videoSink;
     GRefPtr<GstElement> m_pipeline;
     IntSize m_size;
+
+    String m_originalPipelineName;
 
     MediaPlayer::ReadyState m_readyState { MediaPlayer::ReadyState::HaveNothing };
     mutable MediaPlayer::NetworkState m_networkState { MediaPlayer::NetworkState::Empty };
@@ -485,8 +490,6 @@ protected:
 #endif
 
     std::optional<GstVideoDecoderPlatform> m_videoDecoderPlatform;
-    bool m_ignoreErrors { false };
-    Atomic<unsigned> m_queuedSyncErrors { 0 };
 
     TrackIDHashMap<Ref<AudioTrackPrivateGStreamer>> m_audioTracks;
     TrackIDHashMap<Ref<VideoTrackPrivateGStreamer>> m_videoTracks;
@@ -537,7 +540,6 @@ private:
         Function<void()> m_task = Function<void()>();
     };
 
-    void tearDown(bool clearMediaPlayer);
     bool isPlayerShuttingDown() const { return m_isPlayerShuttingDown.load(); }
     MediaTime maxTimeLoaded() const;
     bool setVideoSourceOrientation(ImageOrientation);
@@ -565,7 +567,9 @@ private:
 
     virtual void updateStates();
     void finishSeek();
-    virtual void didPreroll() { }
+    virtual void didPreroll();
+
+    void managePlayerSuspend();
 
     void createGSTPlayBin(const URL&);
 
@@ -614,6 +618,8 @@ private:
     void initializationDataEncountered(InitData&&);
     InitData parseInitDataFromProtectionMessage(GstMessage*);
     bool waitForCDMAttachment();
+
+    GRefPtr<GstContext> m_cdmContext;
 #endif
 
 #if ENABLE(MEDIA_TELEMETRY)
@@ -641,7 +647,7 @@ private:
     Condition m_drawCondition;
     Lock m_drawLock;
     RunLoop::Timer m_drawTimer WTF_GUARDED_BY_LOCK(m_drawLock);
-    RunLoop::Timer m_pausedTimerHandler;
+    RunLoop::Timer m_eosTimerHandler;
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
 #elif PLATFORM(COCOA)
@@ -661,14 +667,18 @@ private:
 
     bool m_hasWebKitWebSrcSentEOS { false };
     mutable unsigned long long m_totalBytes { 0 };
-    URL m_url;
     bool m_shouldPreservePitch { false };
     bool m_isLegacyPlaybin;
 #if ENABLE(MEDIA_STREAM)
     RefPtr<MediaStreamPrivate> m_streamPrivate;
 #endif
 
+    // Only notifyPlayerOfMute uses this to avoid sending redundant notifications.
+    // Since it's updated by a callback, this will be incorrect right after un/muting the player,
+    // use isMuted() instead.
     bool m_isMuted { false };
+
+    bool m_isVisibleInViewport { true };
 
     // Whether the page containing the HTMLMediaElement is visible, reflects: setPageIsVisible()
     bool m_pageIsVisible { false };
@@ -731,8 +741,9 @@ private:
 
     bool m_didTryToRecoverPlayingState { false };
 
-    // The state the pipeline should be set back to after the player becomes visible in the viewport again.
-    GstState m_stateToRestoreWhenVisible { GST_STATE_VOID_PENDING };
+    bool m_isSuspended { false };
+    // The state the pipeline should be set back to after the player is resumed.
+    GstState m_stateToResume { GST_STATE_VOID_PENDING };
 
     // Specific to MediaStream playback.
     MediaTime m_startTime;
@@ -740,6 +751,8 @@ private:
     String m_videoDecoderName;
 
     void setupCodecProbe(GstElement*);
+    Lock m_decoderConfigurationLock;
+    Vector<RefPtr<PadProbeHandle<MediaPlayerPrivateGStreamer>>> m_codecProbes WTF_GUARDED_BY_LOCK(m_decoderConfigurationLock);
     Lock m_codecsLock;
     TrackIDHashMap<String> m_codecs WTF_GUARDED_BY_LOCK(m_codecsLock);
 
@@ -753,9 +766,9 @@ private:
     RefPtr<GStreamerQuirksManager> m_quirksManagerForTesting;
     HashMap<const GStreamerQuirk*, std::unique_ptr<GStreamerQuirkBase::GStreamerQuirkState>> m_quirkStates;
 
-    MediaTime m_estimatedVideoFrameDuration { MediaTime::zeroTime() };
-
     std::optional<VideoFrameGStreamer::Info> m_videoInfo;
+    RefPtr<PadProbeHandle<MediaPlayerPrivateGStreamer>> m_videoFrameInputProbe WTF_GUARDED_BY_LOCK(m_decoderConfigurationLock);
+    RefPtr<PadProbeHandle<MediaPlayerPrivateGStreamer>> m_videoFrameOutputProbe WTF_GUARDED_BY_LOCK(m_decoderConfigurationLock);
 
     bool m_volumeLocked { false };
 

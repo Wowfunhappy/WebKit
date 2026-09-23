@@ -589,6 +589,50 @@ void testPGMAllocMetadataOnly()
 }
 #endif
 
+#ifdef __APPLE__
+static task_t received_task;
+
+static void* mockCrashReporterReader(task_t task, vm_address_t address, size_t size)
+{
+    (void)size;
+    received_task = task;
+    return (void*)address;
+}
+
+void testPGMCrashReportTaskPassthrough()
+{
+    pas_probabilistic_guard_malloc_initialize_pgm_as_enabled(1);
+
+    pas_heap_lock_lock();
+    pas_root* root = pas_root_create();
+    pas_heap_lock_unlock();
+
+    // Allocate and free to populate PGM hash map with a freed entry.
+    int* arr = static_cast<int*>(bmalloc_allocate(1000 * sizeof(int), pas_non_compact_allocation_mode));
+    CHECK(arr);
+    bmalloc_deallocate(arr);
+
+    // Use the allocation address as fault address so it matches a UAF entry.
+    vm_address_t fault_address = (vm_address_t)arr;
+    task_t sentinel_task = (task_t)0xDEAD;
+    received_task = 0;
+
+    pas_report_crash_pgm_report report = { };
+    kern_return_t result = pas_report_crash_extract_pgm_failure(
+        fault_address,
+        (mach_vm_address_t)root,
+        pas_crash_report_version,
+        sentinel_task,
+        &report,
+        mockCrashReporterReader);
+
+    // Verify the task was passed through to the mock reader.
+    CHECK_EQUAL(received_task, sentinel_task);
+    CHECK_EQUAL(result, KERN_SUCCESS);
+    CHECK(report.error_type);
+}
+#endif
+
 } // anonymous namespace
 
 void addPGMTests()
@@ -606,5 +650,8 @@ void addPGMTests()
     ADD_TEST(testPGMMetadataDoubleFreeBehavior());
     ADD_TEST(testPGMBmallocAllocationBacktrace());
     ADD_TEST(testPGMAllocMetadataOnly());
+#endif
+#ifdef __APPLE__
+    ADD_TEST(testPGMCrashReportTaskPassthrough());
 #endif
 }

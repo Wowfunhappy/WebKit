@@ -34,6 +34,7 @@
 #import "DocumentPage.h"
 #import "DocumentView.h"
 #import "RenderObject.h"
+#import "RenderObjectDocument.h"
 #import "WebAccessibilityObjectWrapperIOS.h"
 #import <wtf/RetainPtr.h>
 
@@ -113,23 +114,26 @@ void AXObjectCache::postPlatformNotification(AccessibilityObject& object, AXNoti
         return;
 
     auto notificationName = stringNotification.createNSString();
-    [object.wrapper() accessibilityOverrideProcessNotification:notificationName.get() notificationData:nil];
+    // The wrapper must outlive the call chain: accessibilityOverrideProcessNotification: re-enters WebKit and can detach the AccessibilityObject, clearing m_wrapper mid-call.
+    RetainPtr wrapper = object.wrapper();
+    [wrapper accessibilityOverrideProcessNotification:notificationName.get() notificationData:nil];
 
     // To simulate AX notifications for LayoutTests on the simulator, call
     // the wrapper's accessibilityPostedNotification.
-    [object.wrapper() accessibilityPostedNotification:notificationName.get()];
+    [wrapper accessibilityPostedNotification:notificationName.get()];
 }
 
 void AXObjectCache::postPlatformAnnouncementNotification(const String& message)
 {
     auto notificationName = notificationPlatformName(AXNotification::AnnouncementRequested).createNSString();
     RetainPtr nsMessage = message.createNSString();
-    if (RefPtr root = getOrCreate(m_document->view())) {
-        [root->wrapper() accessibilityOverrideProcessNotification:notificationName.get() notificationData:[nsMessage dataUsingEncoding:NSUTF8StringEncoding]];
+    if (RefPtr root = getOrCreate(protect(m_document->view()))) {
+        RetainPtr wrapper = root->wrapper();
+        [wrapper accessibilityOverrideProcessNotification:notificationName.get() notificationData:[nsMessage dataUsingEncoding:NSUTF8StringEncoding]];
 
         // To simulate AX notifications for LayoutTests on the simulator, call
         // the wrapper's accessibilityPostedNotification.
-        [root->wrapper() accessibilityPostedNotification:notificationName.get() userInfo:@{ notificationName.get() : nsMessage.get() }];
+        [wrapper accessibilityPostedNotification:notificationName.get() userInfo:@{ notificationName.get() : nsMessage.get() }];
     }
 }
 
@@ -140,7 +144,7 @@ void AXObjectCache::postPlatformARIANotifyNotification(AccessibilityObject&, con
 
     // For tests, also call the wrapper's accessibilityPostedNotification.
     if (gShouldRepostNotificationsForTests) [[unlikely]] {
-        if (RefPtr root = getOrCreate(m_document->view())) {
+        if (RefPtr root = getOrCreate(protect(m_document->view()))) {
             RetainPtr notificationName = notificationPlatformName(AXNotification::AnnouncementRequested).createNSString();
             RetainPtr message = notificationData.message.createNSString();
             RetainPtr announcementString = adoptNS([[NSAttributedString alloc] initWithString:message.get() attributes:@{
@@ -166,7 +170,7 @@ void AXObjectCache::postPlatformLiveRegionNotification(AccessibilityObject&, con
 
     // For tests, also call the wrapper's accessibilityPostedNotification.
     if (gShouldRepostNotificationsForTests) [[unlikely]] {
-        if (RefPtr root = getOrCreate(m_document->view())) {
+        if (RefPtr root = getOrCreate(protect(m_document->view()))) {
             RetainPtr notificationName = notificationPlatformName(AXNotification::AnnouncementRequested).createNSString();
             RetainPtr priority = notificationData.status == LiveRegionStatus::Assertive ? UIAccessibilityPriorityDefault : UIAccessibilityPriorityLow;
 

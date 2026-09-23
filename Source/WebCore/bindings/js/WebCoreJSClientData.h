@@ -33,6 +33,10 @@
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
+namespace JSC {
+class Exception;
+}
+
 namespace WebCore {
 
 class ExtendedDOMClientIsoSubspaces;
@@ -193,6 +197,10 @@ private:
 
     WeakHashSet<JSVMClientDataClient> m_clients;
 };
+
+// Returns the first non-native source URL from the exception's stack frames without applying
+// URL masking, unlike StackFrame::sourceURL(VM&) which goes through overrideSourceURL.
+String unmaskedSourceURLFromException(const JSC::Exception&, JSC::VM&);
 
 } // namespace WebCore
 

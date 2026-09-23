@@ -61,7 +61,7 @@ public:
 
     static std::pair<Vector<FileChooserFileInfo>, String> filesFromFormControlState(const FormControlState&);
     bool canSetStringValue() const final;
-    bool valueMissing(const String&) const final;
+    bool valueMissing(StringView) const final;
 
 private:
     explicit FileInputType(HTMLInputElement&);
@@ -72,7 +72,7 @@ private:
     bool appendFormData(DOMFormData&) const final;
     String valueMissingText() const final;
     void handleDOMActivateEvent(Event&) final;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
+    RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&) final;
     enum class RequestIcon : bool { No, Yes };
     void setFiles(RefPtr<FileList>&&, RequestIcon, WasSetByJavaScript);
     String NODELETE displayString() const final;

@@ -1,4 +1,4 @@
-//@ $skipModes << "no-llint".to_sym if ($buildType == "debug" or $architecture == "arm")
+//@ $skipModes << "no-llint".to_sym
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
  *

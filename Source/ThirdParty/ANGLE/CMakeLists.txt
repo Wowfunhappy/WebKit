@@ -1,7 +1,12 @@
 set_property(DIRECTORY . PROPERTY FOLDER "ANGLE")
 
 if (APPLE)
-    set(is_mac TRUE)
+    set(is_apple TRUE)
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(is_ios TRUE)
+    else ()
+        set(is_mac TRUE)
+    endif ()
 elseif (WIN32)
     set(is_win TRUE)
     set(angle_enable_d3d9 TRUE)
@@ -87,8 +92,8 @@ set(ANGLE_SOURCES
     ${angle_translator_essl_symbol_table_sources}
     ${angle_translator_glsl_and_vulkan_base_sources}
     ${angle_translator_glsl_sources}
+    $<$<BOOL:${is_apple}>:${angle_translator_glsl_apple_sources}>
     ${angle_translator_sources}
-    ${angle_system_utils_sources}
     src/common/angle_version_info.cpp
     src/libANGLE/capture/FrameCapture_mock.cpp
     src/libANGLE/capture/serialize_mock.cpp
@@ -166,6 +171,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
     )
 
     target_link_libraries(GLESv2 PRIVATE ${ANGLEGLESv2_LIBRARIES} ${CMAKE_DL_LIBS})
+    WEBKIT_REUSE_PREFIX_HEADER(GLESv2 ANGLE ANGLEPrefix.h PREFIX_LANGUAGES CXX)
 
     if (WIN32)
         # Output library name according to the .def
@@ -177,6 +183,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
     target_link_libraries(GLESv2Framework INTERFACE GLESv2)
     target_include_directories(GLESv2Framework INTERFACE ${ANGLE_FRAMEWORK_HEADERS_DIR})
     target_compile_definitions(GLESv2Framework INTERFACE USE_SYSTEM_EGL)
+    add_dependencies(GLESv2Framework GLSLANGHeaders ANGLEHeaders)
     add_library(ANGLE::GLES ALIAS GLESv2Framework)
 
     if (USE_ANGLE_EGL)
@@ -203,6 +210,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
         target_include_directories(EGLFramework INTERFACE ${ANGLE_FRAMEWORK_HEADERS_DIR}/)
         target_compile_definitions(EGLFramework INTERFACE ${gl_prototypes})
         target_link_libraries(EGLFramework INTERFACE EGL)
+        add_dependencies(EGLFramework GLSLANGHeaders ANGLEHeaders)
         add_library(ANGLE::EGL ALIAS EGLFramework)
     endif ()
 else ()
@@ -216,6 +224,8 @@ else ()
     )
 endif ()
 
+WEBKIT_ADD_PREFIX_HEADER(ANGLE ANGLEPrefix.h PREFIX_LANGUAGES CXX OBJCXX)
+
 if (ENABLE_WEBGL)
     set(libglesv2_entry_points_headers
         src/libGLESv2/entry_points_egl_autogen.h
@@ -228,7 +238,7 @@ if (ENABLE_WEBGL)
     WEBKIT_COPY_FILES(LibGLESv2EntryPointsHeaders
         DESTINATION ${ANGLE_FRAMEWORK_HEADERS_DIR}/ANGLE
         FILES ${libglesv2_entry_points_headers}
-        FLATTENED
+        FLATTENED NO_SYMLINK  # adjust-angle-include-paths.py rewrites these in-place
     )
     if (WIN32 AND TARGET GLESv2)
         # GLESv2 needs to have a direct or indirect dependency to
@@ -238,14 +248,21 @@ if (ENABLE_WEBGL)
         add_dependencies(GLESv2 LibGLESv2EntryPointsHeaders)
     endif ()
 
-    add_custom_target(ANGLE-webgl-headers
-        DEPENDS LibGLESv2EntryPointsHeaders ANGLEWebGLHeaders
+    set(_angle_webgl_stamp ${CMAKE_CURRENT_BINARY_DIR}/ANGLE-webgl-headers.stamp)
+    add_custom_command(
+        OUTPUT ${_angle_webgl_stamp}
         COMMAND ${CMAKE_COMMAND} -E env
             BUILT_PRODUCTS_DIR=${ANGLE_FRAMEWORK_HEADERS_DIR}
             PUBLIC_HEADERS_FOLDER_PATH=/ANGLE
             ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/adjust-angle-include-paths.py
+        COMMAND ${CMAKE_COMMAND} -E touch ${_angle_webgl_stamp}
+        DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/adjust-angle-include-paths.py
+            ${libglesv2_entry_points_headers}
         VERBATIM
     )
+    add_custom_target(ANGLE-webgl-headers DEPENDS ${_angle_webgl_stamp})
+    add_dependencies(ANGLE-webgl-headers LibGLESv2EntryPointsHeaders ANGLEWebGLHeaders)
     add_dependencies(GLESv2Framework ANGLE-webgl-headers)
 endif ()
 

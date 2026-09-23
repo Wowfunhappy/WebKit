@@ -33,6 +33,7 @@ import signal
 
 from webkitpy.common.iteration_compatibility import iteritems
 from webkitpy.layout_tests.models import test_expectations, test_failures
+from webkitpy.port.base import Port
 
 _log = logging.getLogger(__name__)
 
@@ -160,8 +161,15 @@ class TestRunResults(object):
         self.unexpected_timeouts += test_run_results.unexpected_timeouts
         self.tests_by_expectation = merge_dict_sets(self.tests_by_expectation, test_run_results.tests_by_expectation)
         self.tests_by_timeline = merge_dict_sets(self.tests_by_timeline, test_run_results.tests_by_timeline)
-        self.repeated_results_by_name = merge_dict_sets(self.repeated_results_by_name, test_run_results.repeated_results_by_name)
-        self.results_by_name.update(test_run_results.results_by_name)
+
+        merged_repeated = merge_dict_sets(self.repeated_results_by_name, test_run_results.repeated_results_by_name)
+        for v in merged_repeated.values():
+            v.discard(test_expectations.SKIP)
+        self.repeated_results_by_name = merged_repeated
+        for test_name, result in test_run_results.results_by_name.items():
+            if result.type != test_expectations.SKIP or test_name not in self.results_by_name:
+                self.results_by_name[test_name] = result
+
         self.all_results += test_run_results.all_results
         self.expected_results_by_name.update(test_run_results.expected_results_by_name)
         self.unexpected_results_by_name.update(test_run_results.unexpected_results_by_name)
@@ -363,7 +371,9 @@ def summarize_results(port_obj, expectations_by_type, initial_results, retry_res
         #         baz1.html: test_dict
         #     }
         # }
-        parts = test_name.split('/')
+        (base_name, variant) = Port.test_name_and_variant(test_name)
+        parts = base_name.split('/')
+        parts[-1] += variant
         current_map = tests
         for i, part in enumerate(parts):
             if i == (len(parts) - 1):

@@ -28,13 +28,14 @@
 #include <WebCore/RenderStyleConstants.h>
 #include <WebCore/StyleColor.h>
 #include <WebCore/StyleLineWidth.h>
+#include <WebCore/StyleOutlineOffset.h>
 
 namespace WebCore {
 
 struct OutlineValue {
     Style::Color outlineColor { Style::Color::currentColor() };
     Style::LineWidth outlineWidth { Style::LineWidth::Length { 3.0f } };
-    Style::Length<> outlineOffset { 0 };
+    Style::OutlineOffset outlineOffset { Style::Length<CSS::AllUnzoomed> { 0.0f } };
     PREFERRED_TYPE(OutlineStyle) unsigned outlineStyle : 4 { static_cast<unsigned>(OutlineStyle::None) };
 
     bool isVisible() const;

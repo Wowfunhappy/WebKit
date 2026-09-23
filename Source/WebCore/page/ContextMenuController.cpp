@@ -38,6 +38,7 @@
 #include "ContextMenuProvider.h"
 #include "DocumentFragment.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentSecurityOrigin.h"
 #include "DocumentView.h"
 #include "Editor.h"
@@ -46,6 +47,7 @@
 #include "Event.h"
 #include "EventHandler.h"
 #include "FormState.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameInlines.h"
 #include "FrameLoadRequest.h"
 #include "FrameLoader.h"
@@ -62,6 +64,7 @@
 #include "ImageBuffer.h"
 #include "ImageOverlay.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameLoaderClient.h"
 #include "LocalizedStrings.h"
 #include "MouseEvent.h"
@@ -88,7 +91,7 @@
 #include <wtf/unicode/CharacterNames.h>
 
 #if ENABLE(PDFJS)
-#include "PDFDocument.h"
+#include "PDFJSDocument.h"
 #endif
 
 #if ENABLE(SERVICE_CONTROLS)
@@ -96,6 +99,7 @@
 #endif
 
 #if PLATFORM(COCOA)
+#include "ContainerNodeInlines.h"
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
@@ -111,9 +115,7 @@ ContextMenuController::ContextMenuController(Page& page, UniqueRef<ContextMenuCl
 {
 }
 
-ContextMenuController::~ContextMenuController()
-{
-}
+ContextMenuController::~ContextMenuController() = default;
 
 Page& ContextMenuController::page()
 {
@@ -212,7 +214,7 @@ static void prepareContextForQRCode(ContextMenuContext& context)
     if (!frame)
         return;
 
-    auto nodeSnapshotImageBuffer = snapshotNode(*frame, *element, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
+    RefPtr nodeSnapshotImageBuffer = snapshotNode(*frame, *element, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
     RefPtr nodeSnapshotImage = BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTF::move(nodeSnapshotImageBuffer)));
     context.setPotentialQRCodeNodeSnapshotImage(nodeSnapshotImage.get());
 
@@ -1233,7 +1235,7 @@ void ContextMenuController::populate()
             
             RefPtr page = frame->page();
             RefPtr ownerElement = frame->ownerElement();
-            bool isPDFDocument = ownerElement && ownerElement->document().isPDFDocument();
+            bool isPDFJSDocument = ownerElement && ownerElement->document().isPDFJSDocument();
             bool isMainFrame = frame->isMainFrame();
 
             if (m_context.hitTestResult().isSelected()) {
@@ -1299,7 +1301,7 @@ void ContextMenuController::populate()
 #endif
                 }
 
-                if (page && !isMainFrame && !isPDFDocument) 
+                if (page && !isMainFrame && !isPDFJSDocument)
                     appendItem(OpenFrameItem, m_contextMenu.get());
                 if (!ShareMenuItem.isNull()) {
                     appendItem(*separatorItem(), m_contextMenu.get());
@@ -1307,7 +1309,7 @@ void ContextMenuController::populate()
                 }
             }
 #if ENABLE(PDFJS)
-            if (isPDFDocument) {
+            if (isPDFJSDocument) {
                 if (m_contextMenu && !m_contextMenu->items().isEmpty())
                     appendItem(*separatorItem(), m_contextMenu.get());
                 appendItem(PDFAutoSizeItem, m_contextMenu.get());
@@ -1531,7 +1533,7 @@ void ContextMenuController::addDebuggingItems()
     ASSERT(page->inspectorController().enabled());
 
 #if ENABLE(PDFJS)
-    if (RefPtr ownerElement = frame->ownerElement(); ownerElement && ownerElement->document().isPDFDocument())
+    if (RefPtr ownerElement = frame->ownerElement(); ownerElement && ownerElement->document().isPDFJSDocument())
         return;
 #endif
 
@@ -1817,7 +1819,7 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
                 item.setTitle(contextMenuItemTagDownloadVideoToDisk());
             else
                 item.setTitle(contextMenuItemTagDownloadAudioToDisk());
-            if (m_context.hitTestResult().absoluteImageURL().protocolIsFile())
+            if (m_context.hitTestResult().absoluteMediaURL().protocolIsFile())
                 shouldEnable = false;
             // MAVERICKS_BACKPORT: upstream omits this item when the media cannot be saved; this port
             // proposes it disabled instead. See mediaCanBeSaved() and populate().
@@ -1938,11 +1940,8 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
         case ContextMenuItemTagProofread:
         case ContextMenuItemTagRewrite:
         case ContextMenuItemTagSummarize:
-            break;
-#if ENABLE(VIDEO)
         case ContextMenuItemCaptionDisplayStyleSubmenu:
             break;
-#endif
     }
 
     item.setChecked(shouldCheck);
@@ -1981,7 +1980,7 @@ void ContextMenuController::showImageControlsMenu(Event& event)
 
 void ContextMenuController::performPDFJSAction(LocalFrame& frame, const String& action)
 {
-    if (RefPtr document = dynamicDowncast<PDFDocument>(frame.ownerElement()->document()))
+    if (RefPtr document = dynamicDowncast<PDFJSDocument>(frame.ownerElement()->document()))
         document->postMessageToIframe(action, nullptr);
 }
 

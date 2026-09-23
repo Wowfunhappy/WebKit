@@ -37,6 +37,10 @@
 #include <WebCore/StyleXywhFunction.h>
 
 namespace WebCore {
+
+struct AcceleratedEffectBasicShape;
+struct TransformOperationData;
+
 namespace Style {
 
 // NOTE: This differs from CSS::BasicShape due to lack of RectFunction and XywhFunction, both of
@@ -54,15 +58,15 @@ template<typename T> concept ShapeWithCenterCoordinate = std::same_as<T, CircleF
 
 // MARK: - Conversion
 
-template<> struct ToCSS<BasicShape> { auto operator()(const BasicShape&, const RenderStyle&, PathConversion = PathConversion::None) -> CSS::BasicShape; };
+template<> struct ToCSS<BasicShape> { auto operator()(const BasicShape&, const Style::ComputedStyle&, PathConversion = PathConversion::None) -> CSS::BasicShape; };
 template<> struct ToStyle<CSS::BasicShape> { auto operator()(const CSS::BasicShape&, const BuilderState&, std::optional<float> zoom = 1.0f) -> BasicShape; };
 
-template<> struct CSSValueCreation<BasicShape> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const BasicShape&, PathConversion = PathConversion::None); };
+template<> struct CSSValueCreation<BasicShape> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const BasicShape&, PathConversion = PathConversion::None); };
 template<> struct CSSValueConversion<BasicShape> { BasicShape operator()(BuilderState&, const CSSValue&, std::optional<float> zoom = 1.0f); };
 
 // MARK: - Serialization
 
-template<> struct Serialize<BasicShape> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const BasicShape&, PathConversion = PathConversion::None); };
+template<> struct Serialize<BasicShape> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const BasicShape&, PathConversion = PathConversion::None); };
 
 // MARK: - Blending
 
@@ -74,10 +78,19 @@ template<> struct Blending<BasicShape> {
 // MARK: - Path
 
 template<> struct PathComputation<BasicShape> { WebCore::Path operator()(const BasicShape&, const FloatRect&, ZoomFactor); };
+std::optional<WebCore::Path> tryPath(const BasicShape&, const TransformOperationData&, ZoomFactor);
 
 // MARK: - Winding
 
 template<> struct WindRuleComputation<BasicShape> { WebCore::WindRule operator()(const BasicShape&); };
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<BasicShape, AcceleratedEffectBasicShape> { AcceleratedEffectBasicShape operator()(const BasicShape&, const FloatRect&, ZoomFactor); };
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

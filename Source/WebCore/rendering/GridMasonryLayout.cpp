@@ -28,7 +28,7 @@
 #include "GridLayoutFunctions.h"
 #include "RenderBoxInlines.h"
 #include "RenderGrid.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleFlowTolerance.h"
 #include "StyleGridPositionsResolver.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
@@ -130,7 +130,7 @@ void GridMasonryLayout::setItemContainingBlockToGridArea(const GridTrackSizingAl
     }
 
     // FIXME(249230): Try to cache masonry layout sizes
-    gridItem.setChildNeedsLayout(MarkOnlyThis);
+    gridItem.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
 }
 
 void GridMasonryLayout::insertIntoGridAndLayoutItem(const GridTrackSizingAlgorithm& algorithm, RenderBox& gridItem, const GridArea& area, GridMasonryLayout::MasonryLayoutPhase layoutPhase)
@@ -168,13 +168,13 @@ LayoutUnit GridMasonryLayout::masonryAxisMarginBoxForItem(const RenderBox& gridI
     LayoutUnit marginBoxSize;
     if (m_masonryAxisDirection == Style::GridTrackSizingDirection::Rows) {
         if (GridLayoutFunctions::isOrthogonalGridItem(m_renderGrid, gridItem))
-            marginBoxSize = gridItem.isHorizontalWritingMode() ? gridItem.width() + gridItem.horizontalMarginExtent() : gridItem.height() + gridItem.verticalMarginExtent();
+            marginBoxSize = gridItem.isHorizontalWritingMode() ? gridItem.borderBoxWidth() + gridItem.horizontalMarginExtent() : gridItem.borderBoxHeight() + gridItem.verticalMarginExtent();
         else
             marginBoxSize = gridItem.logicalHeight() + gridItem.marginLogicalHeight();
 
     } else {
         if (GridLayoutFunctions::isOrthogonalGridItem(m_renderGrid, gridItem))
-            marginBoxSize = gridItem.isHorizontalWritingMode() ? gridItem.height() + gridItem.verticalMarginExtent() : gridItem.width() + gridItem.horizontalMarginExtent();
+            marginBoxSize = gridItem.isHorizontalWritingMode() ? gridItem.borderBoxHeight() + gridItem.verticalMarginExtent() : gridItem.borderBoxWidth() + gridItem.horizontalMarginExtent();
         else
             marginBoxSize = gridItem.logicalWidth() + gridItem.marginLogicalWidth();
     }
@@ -216,7 +216,7 @@ LayoutUnit GridMasonryLayout::maxRunningPositionForSpan(unsigned startLine, unsi
 
 GridArea GridMasonryLayout::gridAreaForIndefiniteGridAxisItem(const RenderBox& item)
 {
-    auto itemSpanLength = Style::GridPositionsResolver::spanSizeForAutoPlacedItem(item, gridAxisDirection());
+    auto itemSpanLength = std::min<unsigned>(Style::GridPositionsResolver::spanSizeForAutoPlacedItem(item, gridAxisDirection()), m_gridAxisTracksCount);
     auto gridAxisLines = m_gridAxisTracksCount + 1;
 
     // Get flow-tolerance from the masonry container's style

@@ -64,6 +64,8 @@ enum class IsNoSniffSet : bool;
 // adjustMIMETypeIfNecessary over the native response CFNetwork would build from this one, for a response
 // the transport found no type for.
 WEBCORE_EXPORT void adjustCocoaCurlMIMETypeIfNecessary(ResourceResponse&, IsMainResourceLoad, IsNoSniffSet);
+WEBCORE_EXPORT void setCocoaCurlContentType(ResourceResponse&, const String& selectedContentType);
+WEBCORE_EXPORT void clearCocoaCurlHTTPBody(ResourceRequest&);
 
 // The storage session's NSURLCache, consulted and filled as NSURLConnection does for WebKitLegacy
 // loads. Private sessions own a memory-only cache. NSURLDownload consults it and stores nothing.

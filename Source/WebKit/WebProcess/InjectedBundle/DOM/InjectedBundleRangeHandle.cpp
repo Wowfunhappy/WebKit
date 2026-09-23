@@ -30,6 +30,7 @@
 #include "WebImage.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
 #include <WebCore/BoundaryPointInlines.h>
 #include <WebCore/DocumentPage.h>
 #include <WebCore/DocumentView.h>

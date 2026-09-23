@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2023-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,24 +25,31 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
 #include <wtf/Compiler.h>
 #include <wtf/Platform.h>
 
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+#if HAVE(ARKIT)
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
 DECLARE_SYSTEM_HEADER
 
-#if USE(APPLE_INTERNAL_SDK) && !__has_feature(modules)
-
 #import <ARKit/ARKit.h>
-#import <ARKit/ARKitPrivate.h>
 
-#else // !USE(APPLE_INTERNAL_SDK)
+#if USE(APPLE_INTERNAL_SDK)
 
-#import <simd/simd.h>
+#import <ARKit/ARKitCore.h>
+#import <ARKit/ARKitCorePrivate.h>
 
-FOUNDATION_EXTERN simd_float4x4 ARMatrixMakeLookAt(simd_float3 origin, simd_float3 direction);
+#elif PLATFORM(VISION)
+
+typedef void (^ar_plane_detection_floor_plane_completion_handler_t)(bool, ar_plane_anchor_t _Nullable, ar_error_t _Nullable);
 
 #endif
 
-#endif // !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+ALLOW_DEPRECATED_DECLARATIONS_END
+#endif // HAVE(ARKIT)
+
+#endif // !__has_feature(modules)

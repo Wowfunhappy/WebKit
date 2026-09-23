@@ -39,7 +39,6 @@
 #include <wtf/DataLog.h>
 #include <wtf/StackCheck.h>
 #include <wtf/TZoneMallocInlines.h>
-#include <wtf/text/WTFString.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -90,14 +89,14 @@ public:
         ParenthesesDisjunctionContext* lastContext;
     };
 
-    static inline void appendParenthesesDisjunctionContext(BackTrackInfoParentheses* backTrack, ParenthesesDisjunctionContext* context)
+    static inline void NODELETE appendParenthesesDisjunctionContext(BackTrackInfoParentheses* backTrack, ParenthesesDisjunctionContext* context)
     {
         context->next = backTrack->lastContext;
         backTrack->lastContext = context;
         ++backTrack->matchAmount;
     }
 
-    static inline void popParenthesesDisjunctionContext(BackTrackInfoParentheses* backTrack)
+    static inline void NODELETE popParenthesesDisjunctionContext(BackTrackInfoParentheses* backTrack)
     {
         RELEASE_ASSERT(backTrack->matchAmount);
         RELEASE_ASSERT(backTrack->lastContext);
@@ -109,7 +108,7 @@ public:
     {
         DisjunctionContext() = default;
 
-        void* operator new(size_t, void* where)
+        void* NODELETE operator new(size_t, void* where)
         {
             return where;
         }
@@ -143,7 +142,7 @@ public:
         return new (allocatorPool->alloc(size)) DisjunctionContext();
     }
 
-    void freeDisjunctionContext(DisjunctionContext* context)
+    void NODELETE freeDisjunctionContext(DisjunctionContext* context)
     {
 #if ASSERT_ENABLED
         ASSERT(context->m_magicNumber == DisjunctionContext::magicNumber);
@@ -179,7 +178,7 @@ public:
             new (getDisjunctionContext()) DisjunctionContext();
         }
 
-        void* operator new(size_t, void* where)
+        void* NODELETE operator new(size_t, void* where)
         {
             return where;
         }
@@ -201,7 +200,7 @@ public:
             return std::bit_cast<DisjunctionContext*>(std::bit_cast<uintptr_t>(this) + allocationSize(m_numBackupIds));
         }
 
-        unsigned backupOffsetForDuplicateNamedGroup(unsigned duplicateNamedGroup)
+        unsigned NODELETE backupOffsetForDuplicateNamedGroup(unsigned duplicateNamedGroup)
         {
             unsigned offset = (m_numNestedSubpatterns << 1) + duplicateNamedGroup;
             ASSERT(offset < m_numBackupIds);
@@ -281,18 +280,18 @@ public:
         {
         }
 
-        void next()
+        void NODELETE next()
         {
             ++pos;
         }
 
-        void rewind(unsigned amount)
+        void NODELETE rewind(unsigned amount)
         {
             ASSERT(pos >= amount);
             pos -= amount;
         }
 
-        char32_t read()
+        char32_t NODELETE read()
         {
             ASSERT(pos < length);
             if (pos < length)
@@ -300,7 +299,7 @@ public:
             return errorCodePoint;
         }
 
-        char32_t readChecked(unsigned negativePositionOffest)
+        char32_t NODELETE readChecked(unsigned negativePositionOffest)
         {
             RELEASE_ASSERT(pos >= negativePositionOffest);
             unsigned p = pos - negativePositionOffest;
@@ -316,7 +315,7 @@ public:
             return result;
         }
 
-        char32_t readCheckedDontAdvance(unsigned negativePositionOffest)
+        char32_t NODELETE readCheckedDontAdvance(unsigned negativePositionOffest)
         {
             RELEASE_ASSERT(pos >= negativePositionOffest);
             unsigned p = pos - negativePositionOffest;
@@ -331,7 +330,7 @@ public:
 
         // readForCharacterDump() is only for use by the DUMP_CURR_CHAR macro.
         // We don't want any side effects like the next() in readChecked() above.
-        char32_t readForCharacterDump(unsigned negativePositionOffest)
+        char32_t NODELETE readForCharacterDump(unsigned negativePositionOffest)
         {
             RELEASE_ASSERT(pos >= negativePositionOffest);
             unsigned p = pos - negativePositionOffest;
@@ -345,7 +344,7 @@ public:
             return result;
         }
         
-        char32_t tryReadBackward(unsigned negativePositionOffest)
+        char32_t NODELETE tryReadBackward(unsigned negativePositionOffest)
         {
             if (pos < negativePositionOffest)
                 return errorCodePoint;
@@ -359,7 +358,7 @@ public:
             return result;
         }
 
-        char32_t readSurrogatePairChecked(unsigned negativePositionOffset)
+        char32_t NODELETE readSurrogatePairChecked(unsigned negativePositionOffset)
         {
             RELEASE_ASSERT(pos >= negativePositionOffset);
             unsigned p = pos - negativePositionOffset;
@@ -373,7 +372,7 @@ public:
             return errorCodePoint;
         }
 
-        char32_t reread(unsigned from)
+        char32_t NODELETE reread(unsigned from)
         {
             ASSERT(from < length);
             auto result = input[from];
@@ -394,12 +393,12 @@ public:
             return errorCodePoint;
         }
 
-        unsigned getPos()
+        unsigned NODELETE getPos()
         {
             return pos;
         }
 
-        void setPos(unsigned p)
+        void NODELETE setPos(unsigned p)
         {
             pos = p;
         }
@@ -409,17 +408,17 @@ public:
             return pos == 0;
         }
 
-        bool atEnd()
+        bool NODELETE atEnd()
         {
             return pos == length;
         }
 
-        unsigned end()
+        unsigned NODELETE end()
         {
             return length;
         }
 
-        bool checkInput(unsigned count)
+        bool NODELETE checkInput(unsigned count)
         {
             if (((pos + count) <= length) && ((pos + count) >= pos)) {
                 pos += count;
@@ -428,13 +427,13 @@ public:
             return false;
         }
 
-        void uncheckInput(unsigned count)
+        void NODELETE uncheckInput(unsigned count)
         {
             RELEASE_ASSERT(pos >= count);
             pos -= count;
         }
 
-        bool tryUncheckInput(unsigned count)
+        bool NODELETE tryUncheckInput(unsigned count)
         {
             if (count > pos)
                 return false;
@@ -442,23 +441,23 @@ public:
             return true;
         }
 
-        bool atStart(unsigned negativePositionOffset)
+        bool NODELETE atStart(unsigned negativePositionOffset)
         {
             return pos == negativePositionOffset;
         }
 
-        bool atEnd(unsigned negativePositionOffest)
+        bool NODELETE atEnd(unsigned negativePositionOffest)
         {
             RELEASE_ASSERT(pos >= negativePositionOffest);
             return (pos - negativePositionOffest) == length;
         }
 
-        bool isAvailableInput(unsigned offset)
+        bool NODELETE isAvailableInput(unsigned offset)
         {
             return (((pos + offset) <= length) && ((pos + offset) >= pos));
         }
 
-        bool isValidNegativeInputOffset(unsigned offset)
+        bool NODELETE isValidNegativeInputOffset(unsigned offset)
         {
             return (pos >= offset) && ((pos - offset) < length);
         }
@@ -549,38 +548,41 @@ public:
         if (characterClass->m_table && ch < CharacterClass::tableSize)
             return static_cast<bool>(characterClass->m_table[ch]);
 
+        if (characterClass->m_latin1Table && isLatin1(ch))
+            return static_cast<bool>(characterClass->m_latin1Table->data[ch]);
+
         const size_t thresholdForBinarySearch = 6;
 
-        if (!isASCII(ch)) {
-            if (characterClass->m_matchesUnicode.size()) {
-                if (characterClass->m_matchesUnicode.size() > thresholdForBinarySearch) {
-                    if (binarySearchMatches(characterClass->m_matchesUnicode))
+        if (!isLatin1(ch)) {
+            if (characterClass->m_matches32.size()) {
+                if (characterClass->m_matches32.size() > thresholdForBinarySearch) {
+                    if (binarySearchMatches(characterClass->m_matches32))
                         return true;
-                } else if (linearSearchMatches(characterClass->m_matchesUnicode))
+                } else if (linearSearchMatches(characterClass->m_matches32))
                     return true;
             }
 
-            if (characterClass->m_rangesUnicode.size()) {
-                if (characterClass->m_rangesUnicode.size() > thresholdForBinarySearch) {
-                    if (binarySearchRanges(characterClass->m_rangesUnicode))
+            if (characterClass->m_ranges32.size()) {
+                if (characterClass->m_ranges32.size() > thresholdForBinarySearch) {
+                    if (binarySearchRanges(characterClass->m_ranges32))
                         return true;
-                } else if (linearSearchRanges(characterClass->m_rangesUnicode))
+                } else if (linearSearchRanges(characterClass->m_ranges32))
                     return true;
             }
         } else {
-            if (characterClass->m_matches.size()) {
-                if (characterClass->m_matches.size() > thresholdForBinarySearch) {
-                    if (binarySearchMatches(characterClass->m_matches))
+            if (characterClass->m_matches8.size()) {
+                if (characterClass->m_matches8.size() > thresholdForBinarySearch) {
+                    if (binarySearchMatches(characterClass->m_matches8))
                         return true;
-                } else if (linearSearchMatches(characterClass->m_matches))
+                } else if (linearSearchMatches(characterClass->m_matches8))
                     return true;
             }
 
-            if (characterClass->m_ranges.size()) {
-                if (characterClass->m_ranges.size() > thresholdForBinarySearch) {
-                    if (binarySearchRanges(characterClass->m_ranges))
+            if (characterClass->m_ranges8.size()) {
+                if (characterClass->m_ranges8.size() > thresholdForBinarySearch) {
+                    if (binarySearchRanges(characterClass->m_ranges8))
                         return true;
-                } else if (linearSearchRanges(characterClass->m_ranges))
+                } else if (linearSearchRanges(characterClass->m_ranges8))
                     return true;
             }
         }
@@ -588,7 +590,7 @@ public:
         return false;
     }
 
-    bool checkCharacter(ByteTerm& term, unsigned negativeInputOffset)
+    bool NODELETE checkCharacter(ByteTerm& term, unsigned negativeInputOffset)
     {
         ASSERT(term.isCharacterType());
         if (term.matchDirection() == Forward)
@@ -597,13 +599,13 @@ public:
         return term.atom.patternCharacter == static_cast<char32_t>(input.tryReadBackward(negativeInputOffset));
     }
 
-    bool checkSurrogatePair(ByteTerm& term, unsigned negativeInputOffset)
+    bool NODELETE checkSurrogatePair(ByteTerm& term, unsigned negativeInputOffset)
     {
         ASSERT(term.isCharacterType());
         return term.atom.patternCharacter == static_cast<char32_t>(input.readSurrogatePairChecked(negativeInputOffset));
     }
 
-    bool checkCasedCharacter(ByteTerm& term, unsigned negativeInputOffset)
+    bool NODELETE checkCasedCharacter(ByteTerm& term, unsigned negativeInputOffset)
     {
         ASSERT(term.isCasedCharacterType());
         char32_t ch = term.matchDirection() == Forward ? input.readChecked(negativeInputOffset) : input.tryReadBackward(negativeInputOffset);
@@ -638,7 +640,7 @@ public:
         return testCharacterClass(characterClass, static_cast<char32_t>(readCharacter));
     }
 
-    bool tryConsumeBackReference(int matchBegin, int matchEnd, ByteTerm& term)
+    bool NODELETE tryConsumeBackReference(int matchBegin, int matchEnd, ByteTerm& term)
     {
         unsigned matchSize = (unsigned)(matchEnd - matchBegin);
 
@@ -647,10 +649,14 @@ public:
                 return false;
         }
 
+        unsigned savedPos = input.getPos();
+
         for (unsigned i = 0; i < matchSize; ++i) {
             unsigned negativeInputOffset = term.inputPosition + matchSize - i;
-            if (term.matchDirection() == Backward && negativeInputOffset > input.getPos())
+            if (term.matchDirection() == Backward && negativeInputOffset > input.getPos()) {
+                input.setPos(savedPos);
                 return false;
+            }
 
             char32_t oldCh = input.reread(matchBegin + i);
             char32_t ch;
@@ -660,8 +666,11 @@ public:
             } else
                 ch = term.matchDirection() == Forward ? input.readCheckedDontAdvance(negativeInputOffset) : input.tryReadBackward(negativeInputOffset);
 
-            if (oldCh == errorCodePoint || ch == errorCodePoint)
+            if (oldCh == errorCodePoint || ch == errorCodePoint) {
+                if (term.matchDirection() == Backward)
+                    input.setPos(savedPos);
                 return false;
+            }
 
             if (oldCh == ch)
                 continue;
@@ -679,6 +688,8 @@ public:
 
             if (term.matchDirection() == Forward)
                 input.uncheckInput(matchSize);
+            else
+                input.setPos(savedPos);
 
             return false;
         }
@@ -719,7 +730,7 @@ public:
         return term.invert() ? !wordBoundary : wordBoundary;
     }
 
-    bool backtrackPatternCharacter(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE backtrackPatternCharacter(ByteTerm& term, DisjunctionContext* context)
     {
         BackTrackInfoPatternCharacter* backTrack = reinterpret_cast<BackTrackInfoPatternCharacter*>(context->frame + term.frameLocation);
 
@@ -769,7 +780,7 @@ public:
         return false;
     }
 
-    bool backtrackPatternCasedCharacter(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE backtrackPatternCasedCharacter(ByteTerm& term, DisjunctionContext* context)
     {
         BackTrackInfoPatternCharacter* backTrack = reinterpret_cast<BackTrackInfoPatternCharacter*>(context->frame + term.frameLocation);
 
@@ -1062,7 +1073,7 @@ public:
         return false;
     }
 
-    bool backtrackBackReference(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE backtrackBackReference(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::BackReference);
         BackTrackInfoBackReference* backTrack = reinterpret_cast<BackTrackInfoBackReference*>(context->frame + term.frameLocation);
@@ -1142,7 +1153,7 @@ public:
         while (backTrack->matchAmount) {
             ParenthesesDisjunctionContext* context = backTrack->lastContext;
 
-            JSRegExpResult result = matchDisjunction(term.atom.parenthesesDisjunction, context->getDisjunctionContext(), true);
+            JSRegExpResult result = matchDisjunction(term.atom.parenthesesDisjunction, context->getDisjunctionContext(), /* btrack= */ true);
             if (result == JSRegExpResult::Match)
                 return JSRegExpResult::Match;
 
@@ -1157,7 +1168,7 @@ public:
         return JSRegExpResult::NoMatch;
     }
 
-    bool matchParenthesesOnceBegin(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE matchParenthesesOnceBegin(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternOnceBegin);
         ASSERT(term.atom.quantityMaxCount == 1);
@@ -1188,7 +1199,7 @@ public:
         return true;
     }
 
-    bool matchParenthesesOnceEnd(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE matchParenthesesOnceEnd(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternOnceEnd);
         ASSERT(term.atom.quantityMaxCount == 1);
@@ -1284,46 +1295,67 @@ public:
         return false;
     }
 
-    bool matchParenthesesTerminalBegin(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE matchParenthesesTerminalBegin(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternTerminalBegin);
         ASSERT(term.atom.quantityType == QuantifierType::Greedy);
+        ASSERT(!term.atom.quantityMinCount || term.atom.quantityMinCount == 1);
         ASSERT(term.atom.quantityMaxCount == quantifyInfinite);
         ASSERT(!term.capture());
 
         BackTrackInfoParenthesesTerminal* backTrack = reinterpret_cast<BackTrackInfoParenthesesTerminal*>(context->frame + term.frameLocation);
         backTrack->begin = input.getPos();
+        backTrack->entryPosition = input.getPos();
         return true;
     }
 
-    bool matchParenthesesTerminalEnd(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE matchParenthesesTerminalEnd(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternTerminalEnd);
+        ASSERT(!term.atom.quantityMinCount || term.atom.quantityMinCount == 1);
 
         BackTrackInfoParenthesesTerminal* backTrack = reinterpret_cast<BackTrackInfoParenthesesTerminal*>(context->frame + term.frameLocation);
-        // Empty match is a failed match.
-        if (backTrack->begin == input.getPos())
-            return false;
+        if (backTrack->begin == input.getPos()) {
+            // An empty iteration cannot be repeated, so it is only ever acceptable as the single
+            // iteration a minimum of one demands, and only before anything has been consumed.
+            // Clearing entryPosition both records that the minimum is now met and rejects any
+            // further empty iteration.
+            if (!term.atom.quantityMinCount || backTrack->entryPosition != input.getPos())
+                return false;
+            backTrack->entryPosition = notFound;
+        }
+
+        backTrack->begin = input.getPos();
 
         // Successful match! Okay, what's next? - loop around and try to match more!
-        context->term -= (term.atom.parenthesesWidth + 1);
+        // Loop back to the body's first term rather than to ParenthesesSubpatternTerminalBegin,
+        // whose stores initialize the whole group and must not run again per iteration.
+        context->term -= term.atom.parenthesesWidth;
         return true;
     }
 
-    bool backtrackParenthesesTerminalBegin(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE backtrackParenthesesTerminalBegin(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternTerminalBegin);
         ASSERT(term.atom.quantityType == QuantifierType::Greedy);
+        ASSERT(!term.atom.quantityMinCount || term.atom.quantityMinCount == 1);
         ASSERT(term.atom.quantityMaxCount == quantifyInfinite);
         ASSERT(!term.capture());
 
         // If we backtrack to this point, we have failed to match this iteration of the parens.
-        // Since this is greedy / zero minimum a failed is also accepted as a match!
+        // Nothing follows a terminal group, so an already satisfied minimum makes that failure an
+        // acceptable end of the match; an unsatisfied one fails the match.
+        if (term.atom.quantityMinCount) {
+            BackTrackInfoParenthesesTerminal* backTrack = reinterpret_cast<BackTrackInfoParenthesesTerminal*>(context->frame + term.frameLocation);
+            if (backTrack->entryPosition == input.getPos())
+                return false;
+        }
+
         context->term += term.atom.parenthesesWidth;
         return true;
     }
 
-    bool backtrackParenthesesTerminalEnd(ByteTerm&, DisjunctionContext*)
+    bool NODELETE backtrackParenthesesTerminalEnd(ByteTerm&, DisjunctionContext*)
     {
         // 'Terminal' parentheses are at the end of the regex, and as such a match past end
         // should always be returned as a successful match - we should never backtrack to here.
@@ -1331,7 +1363,7 @@ public:
         return false;
     }
 
-    bool matchParentheticalAssertionBegin(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE matchParentheticalAssertionBegin(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParentheticalAssertionBegin);
         ASSERT(term.atom.quantityMaxCount == 1);
@@ -1343,7 +1375,7 @@ public:
         return true;
     }
 
-    bool matchParentheticalAssertionEnd(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE matchParentheticalAssertionEnd(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParentheticalAssertionEnd);
         ASSERT(term.atom.quantityMaxCount == 1);
@@ -1367,7 +1399,7 @@ public:
         return true;
     }
 
-    bool backtrackParentheticalAssertionBegin(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE backtrackParentheticalAssertionBegin(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParentheticalAssertionBegin);
         ASSERT(term.atom.quantityMaxCount == 1);
@@ -1386,7 +1418,7 @@ public:
         return false;
     }
 
-    bool backtrackParentheticalAssertionEnd(ByteTerm& term, DisjunctionContext* context)
+    bool NODELETE backtrackParentheticalAssertionEnd(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParentheticalAssertionEnd);
         ASSERT(term.atom.quantityMaxCount == 1);
@@ -1420,31 +1452,13 @@ public:
         ASSERT(term.atom.quantityType != QuantifierType::FixedCount || term.atom.quantityMinCount == term.atom.quantityMaxCount);
 
         unsigned minimumMatchCount = term.atom.quantityMinCount;
-        JSRegExpResult fixedMatchResult;
 
         // Handle fixed matches and the minimum part of a variable length match.
         if (minimumMatchCount) {
-            // While we haven't yet reached our fixed limit,
-            while (backTrack->matchAmount < minimumMatchCount) {
-                // Try to do a match, and it it succeeds, add it to the list.
-                ParenthesesDisjunctionContext* context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
-                if (!context) [[unlikely]]
-                    return JSRegExpResult::ErrorNoMemory;
-                fixedMatchResult = matchDisjunction(disjunctionBody, context->getDisjunctionContext());
-                if (fixedMatchResult == JSRegExpResult::Match)
-                    appendParenthesesDisjunctionContext(backTrack, context);
-                else {
-                    // The match failed; try to find an alternate point to carry on from.
-                    resetMatches(term, context);
-                    freeParenthesesDisjunctionContext(context);
-                    
-                    if (fixedMatchResult != JSRegExpResult::NoMatch)
-                        return fixedMatchResult;
-                    JSRegExpResult backtrackResult = parenthesesDoBacktrack(term, backTrack);
-                    if (backtrackResult != JSRegExpResult::Match)
-                        return backtrackResult;
-                }
-            }
+            // Match the mandatory iterations, backtracking earlier ones as needed.
+            JSRegExpResult result = refillParenthesesContextsToMinCount(term, backTrack, disjunctionBody);
+            if (result != JSRegExpResult::Match)
+                return result;
 
             ParenthesesDisjunctionContext* context = backTrack->lastContext;
             recordParenthesesMatch(term, context);
@@ -1457,23 +1471,9 @@ public:
         }
 
         case QuantifierType::Greedy: {
-            while (backTrack->matchAmount < term.atom.quantityMaxCount) {
-                ParenthesesDisjunctionContext* context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
-                if (!context) [[unlikely]]
-                    return JSRegExpResult::ErrorNoMemory;
-                JSRegExpResult result = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext());
-                if (result == JSRegExpResult::Match)
-                    appendParenthesesDisjunctionContext(backTrack, context);
-                else {
-                    resetMatches(term, context);
-                    freeParenthesesDisjunctionContext(context);
-
-                    if (result != JSRegExpResult::NoMatch)
-                        return result;
-
-                    break;
-                }
-            }
+            JSRegExpResult result = extendParenthesesContextsToMaxCount(term, backTrack, disjunctionBody);
+            if (result != JSRegExpResult::Match)
+                return result;
 
             if (backTrack->matchAmount) {
                 ParenthesesDisjunctionContext* context = backTrack->lastContext;
@@ -1510,38 +1510,20 @@ public:
         switch (term.atom.quantityType) {
         case QuantifierType::FixedCount: {
             ASSERT(backTrack->matchAmount == term.atom.quantityMaxCount);
+            ASSERT(term.atom.quantityMinCount == term.atom.quantityMaxCount);
 
-            ParenthesesDisjunctionContext* context = nullptr;
             JSRegExpResult result = parenthesesDoBacktrack(term, backTrack);
-
             if (result != JSRegExpResult::Match)
                 return result;
 
-            // While we haven't yet reached our fixed limit,
-            while (backTrack->matchAmount < term.atom.quantityMaxCount) {
-                // Try to do a match, and it it succeeds, add it to the list.
-                context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
-                if (!context) [[unlikely]]
-                    return JSRegExpResult::ErrorNoMemory;
-                result = matchDisjunction(disjunctionBody, context->getDisjunctionContext());
-
-                if (result == JSRegExpResult::Match)
-                    appendParenthesesDisjunctionContext(backTrack, context);
-                else {
-                    // The match failed; try to find an alternate point to carry on from.
-                    resetMatches(term, context);
-                    freeParenthesesDisjunctionContext(context);
-
-                    if (result != JSRegExpResult::NoMatch)
-                        return result;
-                    JSRegExpResult backtrackResult = parenthesesDoBacktrack(term, backTrack);
-                    if (backtrackResult != JSRegExpResult::Match)
-                        return backtrackResult;
-                }
-            }
+            // For FixedCount min == max, so refilling to min refills to max; the
+            // helper handles the inner content-backtrack-on-failure loop too.
+            result = refillParenthesesContextsToMinCount(term, backTrack, disjunctionBody);
+            if (result != JSRegExpResult::Match)
+                return result;
 
             ASSERT(backTrack->matchAmount == term.atom.quantityMaxCount);
-            context = backTrack->lastContext;
+            ParenthesesDisjunctionContext* context = backTrack->lastContext;
             recordParenthesesMatch(term, context);
             return JSRegExpResult::Match;
         }
@@ -1551,44 +1533,48 @@ public:
                 return JSRegExpResult::NoMatch;
 
             ParenthesesDisjunctionContext* context = backTrack->lastContext;
-            JSRegExpResult result = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext(), true);
+            // Per RepeatMatcher, only iterations beyond the mandatory minimum must be
+            // non-empty; a mandatory iteration (count <= min) may match zero-length, so
+            // retry its content allowing an empty match in that case.
+            JSRegExpResult result = (backTrack->matchAmount <= term.atom.quantityMinCount)
+                ? matchDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ true)
+                : matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ true);
             if (result == JSRegExpResult::Match) {
-                while (backTrack->matchAmount < term.atom.quantityMaxCount) {
-                    ParenthesesDisjunctionContext* context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
-                    if (!context) [[unlikely]]
-                        return JSRegExpResult::ErrorNoMemory;
-                    JSRegExpResult parenthesesResult = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext());
-                    if (parenthesesResult == JSRegExpResult::Match)
-                        appendParenthesesDisjunctionContext(backTrack, context);
-                    else {
-                        resetMatches(term, context);
-                        freeParenthesesDisjunctionContext(context);
-
-                        if (parenthesesResult != JSRegExpResult::NoMatch)
-                            return parenthesesResult;
-
-                        break;
-                    }
-                }
+                result = extendParenthesesContextsToMaxCount(term, backTrack, disjunctionBody);
+                if (result != JSRegExpResult::Match)
+                    return result;
             } else {
                 resetMatches(term, context);
                 popParenthesesDisjunctionContext(backTrack);
                 freeParenthesesDisjunctionContext(context);
 
-                if (backTrack->matchAmount < term.atom.quantityMinCount) {
-                    while (backTrack->matchAmount) {
-                        context = backTrack->lastContext;
-                        resetMatches(term, context);
-                        popParenthesesDisjunctionContext(backTrack);
-                        freeParenthesesDisjunctionContext(context);
-                    }
-
-                    input.setPos(backTrack->begin);
-                    return result;
-                }
-
                 if (result != JSRegExpResult::NoMatch)
                     return result;
+
+                // When matchAmount falls below the minimum, do not give up immediately:
+                // try parenthesesDoBacktrack on the remaining contexts to find an
+                // alternative match distribution that allows us to reach min, then
+                // refill back up to min.
+                //
+                // For example, /((a+){2,3}){2,3}$/  matched against  "aaaaaa",
+                // `a+` will drain all input and this makes {2,3}'s `2` count failed.
+                // But instead of immediately saying "this is failed", we should backtrack `a+`,
+                // reducing drained count of `a`, and then the parentheses succeeds.
+                if (backTrack->matchAmount < term.atom.quantityMinCount) {
+                    result = parenthesesDoBacktrack(term, backTrack);
+                    if (result != JSRegExpResult::Match)
+                        return result;
+
+                    // Now content-backtracking succeeded. Refill back up to min-count.
+                    result = refillParenthesesContextsToMinCount(term, backTrack, disjunctionBody);
+                    if (result != JSRegExpResult::Match)
+                        return result;
+
+                    // And now we should expand the matching up to max count, then we can say Greedy is fully backtracked.
+                    result = extendParenthesesContextsToMaxCount(term, backTrack, disjunctionBody);
+                    if (result != JSRegExpResult::Match)
+                        return result;
+                }
             }
 
             if (backTrack->matchAmount) {
@@ -1604,7 +1590,7 @@ public:
                 ParenthesesDisjunctionContext* context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
                 if (!context) [[unlikely]]
                     return JSRegExpResult::ErrorNoMemory;
-                JSRegExpResult result = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext());
+                JSRegExpResult result = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ false);
                 if (result == JSRegExpResult::Match) {
                     appendParenthesesDisjunctionContext(backTrack, context);
                     recordParenthesesMatch(term, context);
@@ -1621,8 +1607,22 @@ public:
             // Nope - okay backtrack looking for an alternative.
             while (backTrack->matchAmount) {
                 ParenthesesDisjunctionContext* context = backTrack->lastContext;
-                JSRegExpResult result = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext(), true);
+                // Mandatory iterations (count <= min) may match zero-length; only extra
+                // iterations must be non-empty (RepeatMatcher).
+                JSRegExpResult result = (backTrack->matchAmount <= term.atom.quantityMinCount)
+                    ? matchDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ true)
+                    : matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ true);
                 if (result == JSRegExpResult::Match) {
+                    // A successful content backtrack may have left us below the mandatory
+                    // minimum (we popped iterations above while searching for an alternative).
+                    // NonGreedy still requires at least min iterations, so refill back up to
+                    // min before accepting — mirroring the Greedy case. Without this the
+                    // interpreter would return a match with fewer than quantityMinCount
+                    // iterations (e.g. /(?:xy|x){2,3}?yxw/ wrongly matching "xyxw").
+                    result = refillParenthesesContextsToMinCount(term, backTrack, disjunctionBody);
+                    if (result != JSRegExpResult::Match)
+                        return result;
+
                     // successful backtrack! we're back in the game!
                     if (backTrack->matchAmount) {
                         context = backTrack->lastContext;
@@ -1646,6 +1646,50 @@ public:
 
         RELEASE_ASSERT_NOT_REACHED();
         return JSRegExpResult::ErrorNoMatch;
+    }
+
+    JSRegExpResult refillParenthesesContextsToMinCount(ByteTerm& term, BackTrackInfoParentheses* backTrack, ByteDisjunction* disjunctionBody)
+    {
+        while (backTrack->matchAmount < term.atom.quantityMinCount) {
+            ParenthesesDisjunctionContext* context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
+            if (!context) [[unlikely]]
+                return JSRegExpResult::ErrorNoMemory;
+            JSRegExpResult result = matchDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ false);
+            if (result == JSRegExpResult::Match) {
+                appendParenthesesDisjunctionContext(backTrack, context);
+                continue;
+            }
+            resetMatches(term, context);
+            freeParenthesesDisjunctionContext(context);
+            if (result != JSRegExpResult::NoMatch)
+                return result;
+            result = parenthesesDoBacktrack(term, backTrack);
+            if (result != JSRegExpResult::Match)
+                return result;
+        }
+        return JSRegExpResult::Match;
+    }
+
+    // Greedy extension appends as many additional iterations as possible up
+    // to quantityMaxCount, each required to match at least one character.
+    JSRegExpResult extendParenthesesContextsToMaxCount(ByteTerm& term, BackTrackInfoParentheses* backTrack, ByteDisjunction* disjunctionBody)
+    {
+        while (backTrack->matchAmount < term.atom.quantityMaxCount) {
+            ParenthesesDisjunctionContext* context = allocParenthesesDisjunctionContext(disjunctionBody, output, term);
+            if (!context) [[unlikely]]
+                return JSRegExpResult::ErrorNoMemory;
+            JSRegExpResult result = matchNonZeroDisjunction(disjunctionBody, context->getDisjunctionContext(), /* btrack= */ false);
+            if (result == JSRegExpResult::Match) {
+                appendParenthesesDisjunctionContext(backTrack, context);
+                continue;
+            }
+            resetMatches(term, context);
+            freeParenthesesDisjunctionContext(context);
+            if (result != JSRegExpResult::NoMatch)
+                return result;
+            break;
+        }
+        return JSRegExpResult::Match;
     }
 
     bool matchDotStarEnclosure(ByteTerm& term, DisjunctionContext* context)
@@ -1729,7 +1773,7 @@ public:
     } \
 }
 
-    JSRegExpResult matchDisjunction(ByteDisjunction* disjunction, DisjunctionContext* context, bool btrack = false)
+    JSRegExpResult matchDisjunction(ByteDisjunction* disjunction, DisjunctionContext* context, bool btrack)
     {
         if (!isSafeToRecurse()) [[unlikely]]
             return JSRegExpResult::ErrorNoMemory;
@@ -2181,13 +2225,13 @@ public:
         return JSRegExpResult::ErrorNoMatch;
     }
 
-    JSRegExpResult matchNonZeroDisjunction(ByteDisjunction* disjunction, DisjunctionContext* context, bool btrack = false)
+    JSRegExpResult matchNonZeroDisjunction(ByteDisjunction* disjunction, DisjunctionContext* context, bool btrack)
     {
         JSRegExpResult result = matchDisjunction(disjunction, context, btrack);
 
         if (result == JSRegExpResult::Match) {
             while (context->matchBegin == context->matchEnd) {
-                result = matchDisjunction(disjunction, context, true);
+                result = matchDisjunction(disjunction, context, /* btrack= */ true);
                 if (result != JSRegExpResult::Match)
                     return result;
             }
@@ -2222,7 +2266,7 @@ public:
 
         dataLogLnIf(verbose, "  Interpret input: ", input, "\n  Matching");
 
-        JSRegExpResult result = matchDisjunction(pattern->m_body.get(), context, false);
+        JSRegExpResult result = matchDisjunction(pattern->m_body.get(), context, /* btrack= */ false);
         if (result == JSRegExpResult::Match) {
             output[0] = context->matchBegin;
             output[1] = context->matchEnd;
@@ -2248,10 +2292,10 @@ public:
     }
 
 private:
-    inline bool isLegacyCompilation() const { return compileMode == CompileMode::Legacy; }
-    inline bool isUnicodeCompilation() const { return compileMode == CompileMode::Unicode; }
-    inline bool isUnicodeSetsCompilation() const { return compileMode == CompileMode::UnicodeSets; }
-    inline bool isEitherUnicodeCompilation() const { return isUnicodeCompilation() || isUnicodeSetsCompilation(); }
+    inline bool NODELETE isLegacyCompilation() const { return compileMode == CompileMode::Legacy; }
+    inline bool NODELETE isUnicodeCompilation() const { return compileMode == CompileMode::Unicode; }
+    inline bool NODELETE isUnicodeSetsCompilation() const { return compileMode == CompileMode::UnicodeSets; }
+    inline bool NODELETE isEitherUnicodeCompilation() const { return isUnicodeCompilation() || isUnicodeSetsCompilation(); }
 
     inline bool isSafeToRecurse() { return m_stackCheck.isSafeToRecurse(); }
 
@@ -2337,10 +2381,12 @@ public:
 
     void atomPatternCharacter(char32_t ch, MatchDirection matchDirection, unsigned inputPosition, unsigned frameLocation, Checked<unsigned> quantityMaxCount, QuantifierType quantityType, OptionSet<Flags> flags)
     {
-        if (flags.contains(Flags::IgnoreCase)) {
-            char32_t lo = u_tolower(ch);
-            char32_t hi = u_toupper(ch);
-
+        // For case-insesitive compares, non-ascii characters that have different
+        // upper & lower case representations are converted to a character class.
+        ASSERT(!flags.contains(Flags::IgnoreCase) || isASCIIAlpha(ch) || isCanonicallyUnique(ch, m_pattern.eitherUnicode() ? CanonicalMode::Unicode : CanonicalMode::UCS2));
+        if (flags.contains(Flags::IgnoreCase) && isASCIIAlpha(ch)) {
+            auto lo = toASCIILower(static_cast<Latin1Character>(ch));
+            auto hi = toASCIIUpper(static_cast<Latin1Character>(ch));
             if (lo != hi) {
                 m_bodyDisjunction->terms.append(ByteTerm(lo, hi, inputPosition, frameLocation, quantityMaxCount, quantityType, flags));
                 m_bodyDisjunction->terms.last().m_matchDirection = matchDirection;
@@ -2364,17 +2410,18 @@ public:
         m_bodyDisjunction->terms.last().m_matchDirection = matchDirection;
     }
 
-    void atomBackReference(unsigned subpatternId, MatchDirection matchDirection, unsigned inputPosition, unsigned frameLocation, Checked<unsigned> quantityMaxCount, QuantifierType quantityType, OptionSet<Flags> flags)
+    void atomBackReference(bool isNamed, unsigned subpatternId, MatchDirection matchDirection, unsigned inputPosition, unsigned frameLocation, Checked<unsigned> quantityMaxCount, QuantifierType quantityType, OptionSet<Flags> flags)
     {
         ASSERT(subpatternId);
 
         m_bodyDisjunction->terms.append(ByteTerm::BackReference(subpatternId, matchDirection, inputPosition, flags));
 
-        if (m_pattern.hasDuplicateNamedCaptureGroups()) {
+        if (isNamed && m_pattern.hasDuplicateNamedCaptureGroups()) {
             auto duplicateNamedGroupId = m_pattern.m_duplicateNamedGroupForSubpatternId[subpatternId];
             if (duplicateNamedGroupId)
                 m_bodyDisjunction->terms.last().atom.parenIds.duplicateNamedGroupId = duplicateNamedGroupId;
         }
+
         m_bodyDisjunction->terms.last().atom.quantityMaxCount = quantityMaxCount;
         m_bodyDisjunction->terms.last().atom.quantityType = quantityType;
         m_bodyDisjunction->terms.last().frameLocation = frameLocation;
@@ -2464,7 +2511,7 @@ public:
         m_bodyDisjunction->terms.append(ByteTerm::DotStarEnclosure(bolAnchored, eolAnchored, m_currentFlags));
     }
 
-    unsigned popParenthesesStack()
+    unsigned NODELETE popParenthesesStack()
     {
         ASSERT(m_parenthesesStack.size());
         unsigned beginTerm = m_parenthesesStack.last().beginTerm;
@@ -2756,6 +2803,7 @@ public:
                     auto currentInputPosition = currentCountAlreadyChecked - term.inputPosition;
                     if (currentInputPosition.hasOverflowed())
                         return ErrorCode::OffsetTooLarge;
+
                     atomPatternCharacter(term.patternCharacter, matchDirection, currentInputPosition, term.frameLocation, term.quantityMaxCount, term.quantityType, term.m_currentFlags);
                     break;
                 }
@@ -2768,15 +2816,17 @@ public:
                     break;
                 }
 
-                case PatternTerm::Type::BackReference: {
+                case PatternTerm::Type::NumberedBackReference:
+                case PatternTerm::Type::NamedBackReference: {
                     auto currentInputPosition = currentCountAlreadyChecked - term.inputPosition;
                     if (currentInputPosition.hasOverflowed())
                         return ErrorCode::OffsetTooLarge;
-                    atomBackReference(term.backReferenceSubpatternId, matchDirection, currentInputPosition, term.frameLocation, term.quantityMaxCount, term.quantityType, term.m_currentFlags);
+                    atomBackReference(term.type == PatternTerm::Type::NamedBackReference, term.backReferenceSubpatternId, matchDirection, currentInputPosition, term.frameLocation, term.quantityMaxCount, term.quantityType, term.m_currentFlags);
                     break;
                 }
 
-                case PatternTerm::Type::ForwardReference:
+                case PatternTerm::Type::NumberedForwardReference:
+                case PatternTerm::Type::NamedForwardReference:
                     break;
 
                 case PatternTerm::Type::ParenthesesSubpattern: {
@@ -3222,6 +3272,7 @@ static_assert(sizeof(BackTrackInfoBackReference) == (YarrStackSpaceForBackTrackI
 static_assert(sizeof(BackTrackInfoAlternative) == (YarrStackSpaceForBackTrackInfoAlternative * sizeof(uintptr_t)));
 static_assert(sizeof(BackTrackInfoParentheticalAssertion) == (YarrStackSpaceForBackTrackInfoParentheticalAssertion * sizeof(uintptr_t)));
 static_assert(sizeof(BackTrackInfoParenthesesOnce) == (YarrStackSpaceForBackTrackInfoParenthesesOnce * sizeof(uintptr_t)));
+static_assert(sizeof(BackTrackInfoParenthesesTerminal) == (YarrStackSpaceForBackTrackInfoParenthesesTerminal * sizeof(uintptr_t)));
 static_assert(sizeof(Interpreter<char16_t>::BackTrackInfoParentheses) <= (YarrStackSpaceForBackTrackInfoParentheses * sizeof(uintptr_t)));
 
 

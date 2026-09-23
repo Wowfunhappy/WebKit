@@ -31,12 +31,9 @@
 
 #include <sys/file.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/uio.h>
 #include <unistd.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/FileSystem.h>
-#include <wtf/MallocSpan.h>
 #include <wtf/MappedFileData.h>
 
 namespace WTF::FileSystemImpl {
@@ -163,7 +160,7 @@ std::optional<MappedFileData> FileHandle::map(MappedFileMode mapMode, FileOpenMo
         return { };
 
     if (!size)
-        return MappedFileData { };
+        return MappedFileData::emptyFile();
 
     int pageProtection = PROT_READ;
     switch (openMode) {

@@ -29,44 +29,29 @@
 #include "CommonCryptoDERUtilities.h"
 #include "CommonCryptoUtilities.h"
 #include "CryptoAlgorithmEcdsaParams.h"
-#include "CryptoDigestAlgorithm.h"
 #include "CryptoKeyEC.h"
+#include "CryptoTypesBridging.h"
 #include "ExceptionOr.h"
-#include <pal/PALSwift.h>
+#include <pal/crypto/CryptoTypes.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
 static ExceptionOr<Vector<uint8_t>> signECDSACryptoKit(CryptoAlgorithmIdentifier hash, const PlatformECKeyContainer& key, const Vector<uint8_t>& data)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
     if (!isValidHashParameter(hash))
         return Exception { ExceptionCode::OperationError };
-    auto rv = key->sign(data.span(), std::to_underlying(toCKHashFunction(hash)));
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
+    auto rv = key.sign(data.span(), toCKHashFunction(hash));
+    if (rv.errorCode != PAL::Crypto::Error::Success)
         return Exception { ExceptionCode::OperationError };
     return WTF::move(rv.result);
-#else
-    UNUSED_PARAM(hash);
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
 }
 
 static ExceptionOr<bool> verifyECDSACryptoKit(CryptoAlgorithmIdentifier hash, const PlatformECKeyContainer& key, const Vector<uint8_t>& signature, const Vector<uint8_t> data)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
     if (!isValidHashParameter(hash))
         return Exception { ExceptionCode::OperationError };
-    return key->verify(data.span(), signature.span(), std::to_underlying(toCKHashFunction(hash))).errorCode == Cpp::ErrorCodes::Success;
-#else
-    UNUSED_PARAM(hash);
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(signature);
-    UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
+    return key.doVerify(data.span(), signature.span(), toCKHashFunction(hash)).errorCode == PAL::Crypto::Error::Success;
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmECDSA::platformSign(const CryptoAlgorithmEcdsaParams& parameters, const CryptoKeyEC& key, const Vector<uint8_t>& data)

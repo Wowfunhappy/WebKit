@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPIStorageArea.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -44,9 +45,6 @@
 #import "WebProcess.h"
 #import <wtf/cocoa/VectorCocoa.h>
 
-static NSString * const accessLevelKey = @"accessLevel";
-static NSString * const accessLevelTrustedContexts = @"TRUSTED_CONTEXTS";
-static NSString * const accessLevelTrustedAndUntrustedContexts = @"TRUSTED_AND_UNTRUSTED_CONTEXTS";
 
 namespace WebKit {
 
@@ -194,6 +192,11 @@ void WebExtensionAPIStorageArea::set(WebPageProxyIdentifier webPageProxyIdentifi
 
     if (m_type == WebExtensionDataType::Sync && anyItemsExceedQuota(serializedData, webExtensionStorageAreaSyncQuotaBytesPerItem, &keyWithError)) {
         *outExceptionString = toErrorString(nullString(), adoptNS([[NSString alloc] initWithFormat:@"items[`%@`]", keyWithError]).get(), @"it exceeded maximum size for a single item").createNSString().autorelease();
+        return;
+    }
+
+    if (storageSizeOf(serializedData) > webExtensionStorageAreaMaximumBytesPerCall) {
+        *outExceptionString = toErrorString(nullString(), nullString(), @"it exceeded maximum data size allowed per call").createNSString().autorelease();
         return;
     }
 

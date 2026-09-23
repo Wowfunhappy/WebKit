@@ -23,6 +23,7 @@
 #include "WebKitNetworkProxySettingsPrivate.h"
 #include <WebCore/SoupNetworkProxySettings.h>
 #include <wtf/URL.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/WTFString.h>
 
@@ -99,8 +100,8 @@ WebKitNetworkProxySettings* webkit_network_proxy_settings_new(const char* defaul
         g_return_val_if_fail(URL(String::fromUTF8(defaultProxyURI)).isValid(), nullptr);
         proxySettings->settings.defaultProxyURL = defaultProxyURI;
     }
-    if (ignoreHosts)
-        proxySettings->settings.ignoreHosts.reset(g_strdupv(const_cast<char**>(ignoreHosts)));
+    for (auto* host : span(ignoreHosts))
+        proxySettings->settings.ignoreHosts.append(CString(host));
     return proxySettings;
 }
 

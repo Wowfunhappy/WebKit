@@ -20,6 +20,7 @@
 #pragma once
 
 #if USE(LIBRICE)
+#include "RiceVersioning.h"
 #include <rice-io.h>
 #include <wtf/glib/GRefPtr.h>
 
@@ -31,7 +32,6 @@ WTF_DEFINE_GREF_TRAITS_INLINE(RiceSockets, rice_sockets_ref, rice_sockets_unref)
 WTF_DEFINE_GREF_TRAITS_INLINE(RiceComponent, rice_component_ref, rice_component_unref)
 WTF_DEFINE_GREF_TRAITS_INLINE(RiceUdpSocket, rice_udp_socket_ref, rice_udp_socket_unref)
 WTF_DEFINE_GREF_TRAITS_INLINE(RiceTlsConfig, rice_tls_config_ref, rice_tls_config_unref)
-WTF_DEFINE_GREF_TRAITS_INLINE(RiceTurnConfig, rice_turn_config_ref, rice_turn_config_unref)
 WTF_DEFINE_GREF_TRAITS_INLINE(RiceTcpListener, rice_tcp_listener_ref, rice_tcp_listener_unref)
 
 } // namespace WTF

@@ -31,14 +31,7 @@ class JSTestEventTarget : public JSEventTarget {
 public:
     using Base = JSEventTarget;
     using DOMWrapped = TestEventTarget;
-    static JSTestEventTarget* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestEventTarget>&& impl)
-    {
-        SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        globalObject->masqueradesAsUndefinedWatchpointSet().fireAll(vm, "Allocated masquerading object");
-        JSTestEventTarget* ptr = new (NotNull, JSC::allocateCell<JSTestEventTarget>(vm)) JSTestEventTarget(structure, *globalObject, WTF::move(impl));
-        ptr->finishCreation(vm);
-        return ptr;
-    }
+    static JSTestEventTarget* create(JSC::Structure*, JSDOMGlobalObject*, Ref<TestEventTarget>&&);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -55,11 +48,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::MayHaveIndexedAccessors);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {

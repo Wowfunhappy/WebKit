@@ -29,6 +29,8 @@
 #include "EventTargetInlines.h"
 #include "Node.h"
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 

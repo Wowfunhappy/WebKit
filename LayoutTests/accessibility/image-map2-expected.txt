@@ -23,7 +23,7 @@ AXSelected: 0
 AXBlockQuoteLevel: 0
 AXTopLevelUIElement: <AXLink>
 AXLanguage:
-AXDOMIdentifier:
+AXDOMIdentifier: area1
 AXDOMClassList: <array of size 0>
 AXFocusableAncestor: <AXLink>
 AXEditableAncestor: (null)
@@ -58,7 +58,7 @@ AXSelected: 0
 AXBlockQuoteLevel: 0
 AXTopLevelUIElement: <AXLink>
 AXLanguage:
-AXDOMIdentifier:
+AXDOMIdentifier: area2
 AXDOMClassList: <array of size 0>
 AXFocusableAncestor: <AXLink>
 AXEditableAncestor: (null)

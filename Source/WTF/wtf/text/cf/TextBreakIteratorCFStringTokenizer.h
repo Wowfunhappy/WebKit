@@ -86,7 +86,7 @@ public:
         auto stringObject = createString(string, priorContext);
         m_stringLength = string.length();
         m_priorContextLength = priorContext.length();
-        CFStringTokenizerSetString(m_stringTokenizer.get(), stringObject.get(), CFRangeMake(0, m_stringLength));
+        CFStringTokenizerSetString(m_stringTokenizer.get(), stringObject.get(), CFRangeMake(0, m_stringLength + m_priorContextLength));
     }
 
     std::optional<unsigned> preceding(unsigned location) const

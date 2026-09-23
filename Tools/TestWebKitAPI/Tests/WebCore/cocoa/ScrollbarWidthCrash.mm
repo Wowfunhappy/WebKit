@@ -25,11 +25,11 @@
 
 #import "config.h"
 
-#import "PlatformUtilities.h"
+#import "Helpers/PlatformUtilities.h"
 #import "TestInputDelegate.h"
-#import "TestNavigationDelegate.h"
-#import "TestWKWebView.h"
-#import "UISideCompositingScope.h"
+#import "Helpers/cocoa/TestNavigationDelegate.h"
+#import "Helpers/cocoa/TestWKWebView.h"
+#import "Helpers/cocoa/UISideCompositingScope.h"
 
 #import <WebKit/WKWebViewPrivate.h>
 
@@ -63,7 +63,7 @@ TEST(ScrollbarWidthCrash, DynamicallyChangeScrollbarWidth)
 {
     UISideCompositingScope scope { UISideCompositingState::Disabled };
 
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, viewHeight)]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, viewHeight)]);
 
     RetainPtr delegate = adoptNS([[CrashNavigationDelegate alloc] init]);
 

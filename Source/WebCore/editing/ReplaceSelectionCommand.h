@@ -75,7 +75,7 @@ private:
         void willRemoveNode(Node*);
         void didReplaceNode(Node*, Node* newNode);
 
-        bool isEmpty() { return !m_firstNodeInserted; }
+        bool NODELETE isEmpty() { return !m_firstNodeInserted; }
         Node* firstNodeInserted() const { return m_firstNodeInserted.get(); }
         Node* lastLeafInserted() const
         {

@@ -96,7 +96,7 @@ public:
 
     MonotonicTime NODELETE startTime() const;
 
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
 private:
     ServiceWorkerFetchTask(WebSWServerConnection&, NetworkResourceLoader&, WebCore::ResourceRequest&&, WebCore::SWServerConnectionIdentifier, WebCore::ServiceWorkerIdentifier, WebCore::SWServerRegistration&, NetworkSession*, bool isWorkerReady, bool shouldRaceNetworkAndFetchHandler);
@@ -134,7 +134,7 @@ private:
     void finishLoadingWithCacheResponse(WebCore::DOMCacheEngine::Record&&);
     void sendData(Ref<WebCore::SharedBuffer>&&);
 
-    RefPtr<IPC::Connection> serviceWorkerConnection();
+    RefPtr<IPC::Connection> NODELETE serviceWorkerConnection();
     template<typename Message> bool sendToClient(Message&&);
 
     void sendNavigationPreloadUpdate();

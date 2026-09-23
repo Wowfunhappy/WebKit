@@ -31,10 +31,11 @@
 #include "DocumentPage.h"
 #include "DocumentType.h"
 #include "Element.h"
-#include "FTPDirectoryDocument.h"
 #include "FrameLoader.h"
+#include "HTMLBodyElement.h"
 #include "HTMLDocument.h"
 #include "HTMLHeadElement.h"
+#include "HTMLHtmlElement.h"
 #include "HTMLTitleElement.h"
 #include "Image.h"
 #include "ImageDocument.h"
@@ -45,7 +46,7 @@
 #include "MediaPlayer.h"
 #include "MediaQueryParser.h"
 #include "NameValidation.h"
-#include "PDFDocument.h"
+#include "PDFJSDocument.h"
 #include "ParserContentPolicy.h"
 #include "PluginData.h"
 #include "PluginDocument.h"
@@ -136,14 +137,22 @@ Ref<HTMLDocument> DOMImplementation::createHTMLDocument(String&& title)
     Ref thisDocument = m_document.get();
     Ref document = HTMLDocument::create(nullptr, thisDocument->settings(), URL(), { });
     document->setParserContentPolicy({ ParserContentPolicy::AllowScriptingContent });
-    document->open();
-    document->write(nullptr, FixedVector<String> { "<!doctype html><html><head></head><body></body></html>"_s });
+
+    Ref htmlElement = HTMLHtmlElement::create(document);
+    Ref headElement = HTMLHeadElement::create(document);
+    htmlElement->appendChild(headElement);
+
     if (!title.isNull()) {
-        auto titleElement = HTMLTitleElement::create(titleTag, document);
+        Ref titleElement = HTMLTitleElement::create(titleTag, document);
         titleElement->appendChild(document->createTextNode(WTF::move(title)));
-        ASSERT(document->head());
-        protect(document->head())->appendChild(titleElement);
+        headElement->appendChild(titleElement);
     }
+
+    htmlElement->appendChild(HTMLBodyElement::create(document));
+
+    document->appendChild(DocumentType::create(document, "html"_s, emptyString(), emptyString()));
+    document->appendChild(htmlElement);
+
     document->setContextDocument(thisDocument->contextDocument());
     document->setSecurityOriginPolicy(thisDocument->securityOriginPolicy());
     return document;
@@ -165,7 +174,7 @@ Ref<Document> DOMImplementation::createDocument(const String& contentType, Local
 
 #if ENABLE(PDFJS)
     if (frame && settings.pdfJSViewerEnabled() && MIMETypeRegistry::isPDFMIMEType(contentType))
-        return PDFDocument::create(*frame, url);
+        return PDFJSDocument::create(*frame, url);
 #endif
 
     bool isImage = MIMETypeRegistry::isSupportedImageMIMEType(contentType);
@@ -177,21 +186,13 @@ Ref<Document> DOMImplementation::createDocument(const String& contentType, Local
         return ImageDocument::create(*frame, url);
 
 #if ENABLE(VIDEO)
-    MediaEngineSupportParameters parameters;
-    parameters.type = ContentType { contentType };
-    parameters.url = url;
-    if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsNotSupported)
+    if (MIMETypeRegistry::isSupportedMediaMIMEType(contentType))
         return MediaDocument::create(frame, settings, url);
 #endif
 
 #if ENABLE(MODEL_ELEMENT)
     if (MIMETypeRegistry::isUSDMIMEType(contentType) && DeprecatedGlobalSettings::modelDocumentEnabled())
         return ModelDocument::create(frame, settings, url);
-#endif
-
-#if ENABLE(FTPDIR)
-    if (equalLettersIgnoringASCIICase(contentType, "application/x-ftp-directory"_s))
-        return FTPDirectoryDocument::create(frame, settings, url);
 #endif
 
     // The following is the relatively costly lookup that requires initializing the plug-in database.

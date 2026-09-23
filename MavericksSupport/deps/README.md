@@ -4,7 +4,7 @@ Libraries WebKit links that the 10.9 system doesn't provide. **`build_deps.sh`**
 them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 `build/include` + `build/bin`):
 
-- the static libraries WebKit links directly — ICU 74.2, libgcrypt/libgpg-error/libtasn1,
+- the static libraries WebKit links directly — ICU 78.3, libgcrypt/libgpg-error/libtasn1,
   brotli, woff2, and the image codecs. This build decodes every image format in WebCore rather
   than in 10.9's ImageIO, so libjpeg-turbo 3.1.2, libpng 1.6.43, libwebp 1.3.2, libtiff 4.7.0 and
   libavif 1.3.0 (on the dav1d below) are on the path every page's images take, with lcms2 2.16
@@ -12,12 +12,21 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 - libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
   the crash-prone 10.9 system libxml2 2.9;
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,
-  FFmpeg + gst-libav, libvpx, dav1d, OpenSSL (HLS AES-128 keys) —
+  FFmpeg + gst-libav, libvpx, dav1d, OpenSSL (HLS AES-128 keys),
+  gst-plugins-rs 0.15.2 closed-caption parsers/converters —
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
 - `include/cdm`, the Chromium Content Decryption Module interface (pinned to one revision of
   Chromium's own repository) that WebCore's `CDMWidevine.cpp` hosts. Headers only: the module
   is Google's Widevine CDM, which is not redistributable and which WebCore downloads and installs
   at runtime (`MavericksSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmInstaller.h`).
+
+The Rust caption plugin supplies `cea608tott`, which WebCore requires to convert
+in-band CEA-608 into WebVTT. Its pinned Cargo build preserves upstream's unwind
+panic strategy and rebuilds the target standard library for 10.9. The toolchain's
+host-only support stays under `toolchain/build`; the deployed plugin force-loads
+the same shared gap archive as the C plugins. Native Cairo/Pango overlay elements
+are an optional default-on upstream feature, disabled here because WebCore renders
+the converted cues. All parsers and converters remain enabled.
 
 Every deployed Mach-O targets 10.9, and the script ends with a symbol-resolution gate
 checking, on this host, that every strong undefined symbol resolves and that no weak import

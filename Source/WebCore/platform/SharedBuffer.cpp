@@ -130,11 +130,15 @@ Ref<SharedBuffer> FragmentedSharedBuffer::makeContiguous() const
 
 auto FragmentedSharedBuffer::toIPCData() const -> IPCData
 {
-    if (useUnixDomainSockets || size() < minimumPageSize) {
+    auto segmentSpans = [&] {
         return WTF::map(m_segments, [](auto& segment) {
             return segment.segment->span();
         });
-    }
+    };
+
+    if (useUnixDomainSockets || size() < minimumPageSize)
+        return segmentSpans();
+
 #if PLATFORM(COCOA)
     if (m_segments.size() == 1) {
         Ref segment = m_segments[0].segment;
@@ -142,8 +146,9 @@ auto FragmentedSharedBuffer::toIPCData() const -> IPCData
             return SharedMemoryHandle::createVMShare(segment->span(), SharedMemory::Protection::ReadOnly);
     }
 #endif
-    RefPtr sharedMemoryBuffer = SharedMemory::copyBuffer(*this);
-    return sharedMemoryBuffer->createHandle(SharedMemory::Protection::ReadOnly);
+    if (RefPtr<SharedMemory> sharedMemoryBuffer = SharedMemory::copyBuffer(*this))
+        return sharedMemoryBuffer->createHandle(SharedMemory::Protection::ReadOnly);
+    return segmentSpans();
 }
 
 Vector<uint8_t> FragmentedSharedBuffer::copyData() const
@@ -214,6 +219,7 @@ std::span<const FragmentedSharedBuffer::DataSegmentVectorEntry> FragmentedShared
 String FragmentedSharedBuffer::toHexString() const
 {
     StringBuilder stringBuilder;
+    stringBuilder.reserveCapacity(size() * 2);
     forEachSegment([&](auto segment) {
         for (auto byte : segment)
             stringBuilder.append(pad('0', 2, hex(byte)));
@@ -743,13 +749,16 @@ Ref<SharedBuffer> SharedBufferDataView::createSharedBuffer() const
 RefPtr<SharedBuffer> utf8Buffer(const String& string)
 {
     // Allocate a buffer big enough to hold all the characters.
+    // 8-bit (Latin1) characters expand to at most 2 UTF-8 bytes.
+    // 16-bit characters expand to at most 3 UTF-8 bytes.
     const size_t length = string.length();
+    const size_t maxExpansion = string.is8Bit() ? 2 : 3;
     if constexpr (String::MaxLength > std::numeric_limits<size_t>::max() / 3) {
-        if (length > std::numeric_limits<size_t>::max() / 3)
+        if (length > std::numeric_limits<size_t>::max() / maxExpansion)
             return nullptr;
     }
 
-    Vector<uint8_t> buffer(length * 3);
+    Vector<uint8_t> buffer(length * maxExpansion);
     WTF::Unicode::ConversionResult<char8_t> result;
     if (length) {
         if (string.is8Bit())

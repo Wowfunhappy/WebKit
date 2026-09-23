@@ -20,6 +20,10 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include <openssl/bytestring.h>
+#include <openssl/digest.h>
+#include <openssl/rsa.h>
+
 // Key-type and keychain attribute values. kSecAttrKeyTypeECSECPrimeRandom is the CFNumber-shaped
 // string "73" — Security's algorithm id for ECDSA/EC keys (CSSM_ALGID_ECDSA), which is the value
 // keychain queries are matched against.
@@ -75,6 +79,10 @@ WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureDigestPSS
 WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureDigestPSSSHA256, CFSTR("algid:sign:RSA:digest-PSS:SHA256"));
 WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureDigestPSSSHA384, CFSTR("algid:sign:RSA:digest-PSS:SHA384"));
 WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureDigestPSSSHA512, CFSTR("algid:sign:RSA:digest-PSS:SHA512"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureMessagePSSSHA1, CFSTR("algid:sign:RSA:message-PSS:SHA1"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureMessagePSSSHA256, CFSTR("algid:sign:RSA:message-PSS:SHA256"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureMessagePSSSHA384, CFSTR("algid:sign:RSA:message-PSS:SHA384"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureMessagePSSSHA512, CFSTR("algid:sign:RSA:message-PSS:SHA512"));
 WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmRSASignatureRaw, CFSTR("algid:sign:RSA:raw"));
 
 // ---------------------------------------------------------------------------------------------------
@@ -780,15 +788,17 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
     // client/server direction -- and SecPolicyCreateWithProperties writes the name back with its NUL
     // included, so a hostname that went in as "example.org" came back as "example.org\0". Reading the
     // options and rebuilding with SecPolicyCreateSSL keeps both.
+    // A trust created with no policies (SecTrustCreateWithCertificates with NULL) reports none, and travels
+    // as an empty list.
     CFArrayRef policies = NULL;
-    CFIndex policyCount = SecTrustCopyPolicies(trust, &policies) == errSecSuccess && policies ? CFArrayGetCount(policies) : 0;
-    if (!policyCount) {
+    if (SecTrustCopyPolicies(trust, &policies) != errSecSuccess || !policies) {
         if (policies)
             CFRelease(policies);
         CFRelease(state);
         mav_reportOSStatus(error, errSecParam);
         return NULL;
     }
+    CFIndex policyCount = CFArrayGetCount(policies);
     CFMutableArrayRef described = CFArrayCreateMutable(NULL, policyCount, &kCFTypeArrayCallBacks);
     for (CFIndex i = 0; i < policyCount; ++i) {
         CFDictionaryRef one = mav_copyPolicyDescription((SecPolicyRef)CFArrayGetValueAtIndex(policies, i));
@@ -883,8 +893,7 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
     }
 
     SecTrustRef trust = NULL;
-    OSStatus status = CFArrayGetCount(policies) ? SecTrustCreateWithCertificates(certificates, policies, &trust)
-                                                : errSecDecode;
+    OSStatus status = SecTrustCreateWithCertificates(certificates, CFArrayGetCount(policies) ? policies : NULL, &trust);
     CFRelease(certificates);
     CFRelease(policies);
     if (status != errSecSuccess || !trust) {
@@ -1190,8 +1199,9 @@ typedef enum {
 } mav_digest;
 
 // A modern SecKeyAlgorithm names the digest as well as the padding; CSSM's SecPadding is the same
-// choice under the older spelling. An algorithm with no entry here is one 10.9 cannot express -- OAEP
-// is the notable case, since kSecPaddingOAEP is iOS-only -- and its caller is told so.
+// choice under the older spelling. An algorithm with no entry here is one 10.9's CSSM cannot express --
+// OAEP is the notable case, since kSecPaddingOAEP is iOS-only -- and its caller is told so, except that
+// SecKeyVerifySignature verifies RSASSA-PSS itself (mav_pssDigest).
 static bool mav_secPaddingForAlgorithm(CFStringRef algorithm, uint32_t *padding, mav_digest *digest)
 {
     // These identifiers are declared above by this same file; taking their address is what the layer
@@ -1762,8 +1772,91 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateSignature, (SecKeyRef key,
     return mav_secKeyTransform(key, algorithm, dataToSign, mav_secKeySign, error);
 }
 
+// RSASSA-PSS, which 10.9's CSSM does not implement: MGF1 with the signature's own hash and a salt as long
+// as that hash, as the Security framework defines these algorithms. The vendored BoringSSL verifies it
+// against the key's RSAPublicKey. A NULL digest is not a PSS algorithm.
+static const EVP_MD *mav_pssDigest(CFStringRef algorithm, bool *isMessage)
+{
+    _Pragma("clang diagnostic push")
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"")
+    static const struct { const CFStringRef *name; mav_digest digest; bool message; } table[] = {
+        { &kSecKeyAlgorithmRSASignatureDigestPSSSHA1,    MAV_DIGEST_SHA1,   false },
+        { &kSecKeyAlgorithmRSASignatureDigestPSSSHA256,  MAV_DIGEST_SHA256, false },
+        { &kSecKeyAlgorithmRSASignatureDigestPSSSHA384,  MAV_DIGEST_SHA384, false },
+        { &kSecKeyAlgorithmRSASignatureDigestPSSSHA512,  MAV_DIGEST_SHA512, false },
+        { &kSecKeyAlgorithmRSASignatureMessagePSSSHA1,   MAV_DIGEST_SHA1,   true },
+        { &kSecKeyAlgorithmRSASignatureMessagePSSSHA256, MAV_DIGEST_SHA256, true },
+        { &kSecKeyAlgorithmRSASignatureMessagePSSSHA384, MAV_DIGEST_SHA384, true },
+        { &kSecKeyAlgorithmRSASignatureMessagePSSSHA512, MAV_DIGEST_SHA512, true },
+    };
+    _Pragma("clang diagnostic pop")
+    if (!algorithm)
+        return NULL;
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
+        if (!CFEqual(algorithm, *table[i].name))
+            continue;
+        *isMessage = table[i].message;
+        switch (table[i].digest) {
+        case MAV_DIGEST_SHA1: return EVP_sha1();
+        case MAV_DIGEST_SHA256: return EVP_sha256();
+        case MAV_DIGEST_SHA384: return EVP_sha384();
+        case MAV_DIGEST_SHA512: return EVP_sha512();
+        case MAV_DIGEST_NONE: return NULL;
+        }
+    }
+    return NULL;
+}
+
+static Boolean mav_verifyPSS(SecKeyRef key, const EVP_MD *md, bool isMessage, CFDataRef signedData, CFDataRef signature,
+    CFErrorRef *error)
+{
+    // SecKeyCopyExternalRepresentation is this file's, above.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+    CFDataRef publicKey = SecKeyCopyExternalRepresentation(key, error);
+#pragma clang diagnostic pop
+    if (!publicKey)
+        return false;
+    CBS cbs;
+    CBS_init(&cbs, CFDataGetBytePtr(publicKey), (size_t)CFDataGetLength(publicKey));
+    RSA *rsa = RSA_parse_public_key(&cbs);
+    CFRelease(publicKey);
+    if (!rsa) {
+        mav_reportOSStatus(error, errSecDecode);
+        return false;
+    }
+    uint8_t digest[EVP_MAX_MD_SIZE];
+    size_t digestLength = EVP_MD_size(md);
+    const uint8_t *hashed = digest;
+    if (isMessage) {
+        unsigned produced = 0;
+        if (!EVP_Digest(CFDataGetBytePtr(signedData), (size_t)CFDataGetLength(signedData), digest, &produced, md, NULL)) {
+            RSA_free(rsa);
+            mav_reportOSStatus(error, errSecInternalError);
+            return false;
+        }
+    } else {
+        hashed = CFDataGetBytePtr(signedData);
+        if ((size_t)CFDataGetLength(signedData) != digestLength) {
+            RSA_free(rsa);
+            mav_reportOSStatus(error, errSecParam);
+            return false;
+        }
+    }
+    Boolean valid = RSA_verify_pss_mgf1(rsa, hashed, digestLength, md, md, RSA_PSS_SALTLEN_DIGEST,
+        CFDataGetBytePtr(signature), (size_t)CFDataGetLength(signature)) == 1;
+    RSA_free(rsa);
+    return valid;
+}
+
 WK_POLYFILL_ABSENT("Security", Boolean, SecKeyVerifySignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef signedData, CFDataRef signature, CFErrorRef *error))
 {
+    bool isMessage = false;
+    const EVP_MD *pssDigest = mav_pssDigest(algorithm, &isMessage);
+    if (key && signedData && signature && pssDigest)
+        return mav_verifyPSS(key, pssDigest, isMessage, signedData, signature, error);
+
     uint32_t padding = 0;
     mav_digest digest = MAV_DIGEST_NONE;
     if (!key || !signedData || !signature

@@ -32,16 +32,21 @@
 
 #pragma once
 
-#include <WebCore/StyleLengthWrapper.h>
+#include <WebCore/StylePrimitiveNumericOrKeyword.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct GridTrackBreadth;
+}
+
+class CSSKeywordValue;
+
 namespace Style {
 
-using namespace CSS::Literals;
+// FIXME: Make PrimitiveNumericOrKeyword support additional numeric types in addition to the <length-percentage> one and then replace GridTrackBreadth with that.
 
-// FIXME: Make LengthWrapperBase support additional numeric types in addition to the <length-percentage> one and then replace GridTrackBreadth with that.
-
-struct GridTrackBreadthLength : LengthWrapperBase<LengthPercentage<CSS::Nonnegative>, CSS::Keyword::MinContent, CSS::Keyword::MaxContent, CSS::Keyword::Auto> {
+struct GridTrackBreadthLength : PrimitiveNumericOrKeyword<LengthPercentage<CSS::Nonnegative>, CSS::Keyword::MinContent, CSS::Keyword::MaxContent, CSS::Keyword::Auto> {
     using Base::Base;
 
     ALWAYS_INLINE bool isMinContent() const { return holdsAlternative<CSS::Keyword::MinContent>(); }
@@ -60,27 +65,27 @@ public:
 
     GridTrackBreadth(Fixed fixed)
         : m_length(fixed)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(Percentage percent)
         : m_length(percent)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(GridTrackBreadthLength&& length)
         : m_length(WTF::move(length))
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(Flex flex)
-        : m_length(0_css_px)
+        : m_length(CSS::Literals::px(0))
         , m_flex(flex)
         , m_type(GridTrackBreadthType::Flex)
     {
@@ -88,41 +93,41 @@ public:
 
     GridTrackBreadth(CSS::Keyword::MinContent keyword)
         : m_length(keyword)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(CSS::Keyword::MaxContent keyword)
         : m_length(keyword)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(CSS::Keyword::Auto keyword)
         : m_length(keyword)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(CSS::ValueLiteral<CSS::LengthUnit::Px> literal)
         : m_length(literal)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(CSS::ValueLiteral<CSS::PercentageUnit::Percentage> literal)
         : m_length(literal)
-        , m_flex(0_css_fr)
+        , m_flex(CSS::Literals::fr(0))
         , m_type(GridTrackBreadthType::Length)
     {
     }
 
     GridTrackBreadth(CSS::ValueLiteral<CSS::FlexUnit::Fr> literal)
-        : m_length(0_css_px)
+        : m_length(CSS::Literals::px(0))
         , m_flex(literal)
         , m_type(GridTrackBreadthType::Flex)
     {
@@ -147,6 +152,15 @@ public:
         return WTF::switchOn(m_length, [&](const auto& value) { return visitor(value); });
     }
 
+    template<typename... F> decltype(auto) switchOnUsingNumeric(F&&... f) const
+    {
+        auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
+
+        if (isFlex())
+            return visitor(m_flex);
+        return m_length.switchOnUsingNumeric([&](const auto& value) { return visitor(value); });
+    }
+
     bool operator==(const GridTrackBreadth&) const = default;
 
 private:
@@ -159,7 +173,17 @@ private:
 
 // MARK: - Conversion
 
-template<> struct CSSValueConversion<GridTrackBreadth> { auto operator()(BuilderState&, const CSSPrimitiveValue&) -> GridTrackBreadth; };
+template<> struct ToCSS<GridTrackBreadth> {
+    auto operator()(const GridTrackBreadth&, const Style::ComputedStyle&) -> CSS::GridTrackBreadth;
+};
+template<> struct ToStyle<CSS::GridTrackBreadth> {
+    auto operator()(const CSS::GridTrackBreadth&, const BuilderState&) -> GridTrackBreadth;
+};
+
+template<> struct CSSValueConversion<GridTrackBreadth> {
+    auto operator()(BuilderState&, const CSSPrimitiveValue&) -> GridTrackBreadth;
+    auto operator()(BuilderState&, const CSSKeywordValue&) -> GridTrackBreadth;
+};
 
 // MARK: - Blending
 

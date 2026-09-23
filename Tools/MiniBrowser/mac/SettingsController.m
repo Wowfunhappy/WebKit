@@ -76,12 +76,14 @@ static NSString * const AdvancedPrivacyProtectionsPreferenceKey = @"AdvancedPriv
 static NSString * const AllowsContentJavascriptPreferenceKey = @"AllowsContentJavascript";
 static NSString * const AllowUniversalAccessFromFileURLsPreferenceKey = @"AllowUniversalAccessFromFileURLs";
 static NSString * const TabFocusesLinksEnabledPreferenceKey = @"TabFocusesLinksEnabled";
+static NSString * const AcceptAllTLSCertificatesPreferenceKey = @"AcceptAllTLSCertificates";
 
 // This default name intentionally overlaps with the key that WebKit2 checks when creating a view.
 static NSString * const UseRemoteLayerTreeDrawingAreaPreferenceKey = @"WebKit2UseRemoteLayerTreeDrawingArea";
 
 static NSString * const PerWindowWebProcessesDisabledKey = @"PerWindowWebProcessesDisabled";
 static NSString * const NetworkCacheSpeculativeRevalidationDisabledKey = @"NetworkCacheSpeculativeRevalidationDisabled";
+static NSString * const UseFindDelegatePreferenceKey = @"UseFindDelegate";
 
 typedef NS_ENUM(NSInteger, DebugOverylayMenuItemTag) {
     NonFastScrollableRegionOverlayTag = 100,
@@ -115,6 +117,7 @@ typedef NS_ENUM(NSInteger, AttachmentElementEnabledMenuItemTag) {
         WebViewFillsWindowKey,
         ResourceLoadStatisticsEnabledPreferenceKey,
         AllowsContentJavascriptPreferenceKey,
+        UseFindDelegatePreferenceKey,
     ];
 
     NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
@@ -205,6 +208,7 @@ static NSMenu *addSubmenuToMenu(NSMenu *menu, NSString *title)
     addItem(@"Advanced Privacy Protections", @selector(toggleAdvancedPrivacyProtections:));
     addItem(@"Disable local file restrictions", @selector(toggleAllowUniversalAccessFromFileURLs:));
     addItem(@"Enable focusing on links/form controls by pressing tab key", @selector(toggleTabFocusesLinksEnabled:));
+    addItem(@"Accept all TLS certificates", @selector(toggleAcceptAllTLSCertificates:));
 
     NSMenu *attachmentElementMenu = addSubmenu(@"Enable Attachment Element");
     addItemToMenu(attachmentElementMenu, @"Disabled", @selector(changeAttachmentElementEnabled:), NO, AttachmentElementDisabledTag);
@@ -222,6 +226,7 @@ static NSMenu *addSubmenuToMenu(NSMenu *menu, NSString *title)
     addItem(@"Use GameController.framework on macOS (Restart required)", @selector(toggleUsesGameControllerFramework:));
     addItem(@"Disable network cache speculative revalidation", @selector(toggleNetworkCacheSpeculativeRevalidationDisabled:));
     addItem(@"Allow JavaScript from web content to run", @selector(toggleAllowsContentJavascript:));
+    addItem(@"Use Find Delegate", @selector(toggleUseFindDelegate:));
     indent = NO;
 
     NSMenu *debugOverlaysMenu = addSubmenu(@"Debug Overlays");
@@ -407,6 +412,8 @@ static NSMenu *addSubmenuToMenu(NSMenu *menu, NSString *title)
         [menuItem setState:[self appleColorFilterEnabled] ? NSControlStateValueOn : NSControlStateValueOff];
     else if (action == @selector(toggleSiteSpecificQuirksModeEnabled:))
         [menuItem setState:[self siteSpecificQuirksModeEnabled] ? NSControlStateValueOn : NSControlStateValueOff];
+    else if (action == @selector(toggleAcceptAllTLSCertificates:))
+        [menuItem setState:[self acceptAllTLSCertificates] ? NSControlStateValueOn : NSControlStateValueOff];
     else if (action == @selector(togglePunchOutWhiteBackgroundsInDarkMode:))
         [menuItem setState:[self punchOutWhiteBackgroundsInDarkMode] ? NSControlStateValueOn : NSControlStateValueOff];
     else if (action == @selector(toggleUseSystemAppearance:))
@@ -454,6 +461,8 @@ static NSMenu *addSubmenuToMenu(NSMenu *menu, NSString *title)
         [menuItem setState:[self attachmentElementEnabled:menuItem] ? NSControlStateValueOn : NSControlStateValueOff];
     else if (action == @selector(toggleTabFocusesLinksEnabled:))
         [menuItem setState:[self tabFocusesLinksEnabled] ? NSControlStateValueOn : NSControlStateValueOff];
+    else if (action == @selector(toggleUseFindDelegate:))
+        [menuItem setState:[self useFindDelegate] ? NSControlStateValueOn : NSControlStateValueOff];
 
     WKPreferences *defaultPreferences = [[NSApplication sharedApplication] browserAppDelegate].defaultPreferences;
     if (menuItem.tag == ExperimentalFeatureTag) {
@@ -738,6 +747,19 @@ static NSMenu *addSubmenuToMenu(NSMenu *menu, NSString *title)
     return [[NSUserDefaults standardUserDefaults] boolForKey:SiteSpecificQuirksModeEnabledPreferenceKey];
 }
 
+- (void)toggleAcceptAllTLSCertificates:(id)sender
+{
+    [self _toggleBooleanDefault:AcceptAllTLSCertificatesPreferenceKey];
+}
+
+- (BOOL)acceptAllTLSCertificates
+{
+    id acceptTLSCertificates = [[NSUserDefaults standardUserDefaults] objectForKey:AcceptAllTLSCertificatesPreferenceKey];
+    if (acceptTLSCertificates)
+        return [acceptTLSCertificates boolValue];
+    return NO;
+}
+
 - (void)toggleTabFocusesLinksEnabled:(id)sender
 {
     [self _toggleBooleanDefault:TabFocusesLinksEnabledPreferenceKey];
@@ -746,6 +768,16 @@ static NSMenu *addSubmenuToMenu(NSMenu *menu, NSString *title)
 - (BOOL)tabFocusesLinksEnabled
 {
     return [[NSUserDefaults standardUserDefaults] boolForKey:TabFocusesLinksEnabledPreferenceKey];
+}
+
+- (void)toggleUseFindDelegate:(id)sender
+{
+    [self _toggleBooleanDefault:UseFindDelegatePreferenceKey];
+}
+
+- (BOOL)useFindDelegate
+{
+    return [[NSUserDefaults standardUserDefaults] boolForKey:UseFindDelegatePreferenceKey];
 }
 
 - (void)togglePunchOutWhiteBackgroundsInDarkMode:(id)sender

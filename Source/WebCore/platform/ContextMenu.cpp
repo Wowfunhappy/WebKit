@@ -33,9 +33,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ContextMenu);
 
-ContextMenu::ContextMenu()
-{
-}
+ContextMenu::ContextMenu() = default;
 
 } // namespace WebCore
 

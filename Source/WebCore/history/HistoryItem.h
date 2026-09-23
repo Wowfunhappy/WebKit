@@ -35,8 +35,10 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/PolicyContainer.h>
 #include <memory>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Platform.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/Scope.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UUID.h>
 #include <wtf/WeakPtr.h>
@@ -57,6 +59,7 @@ class Document;
 class FormData;
 class HistoryItem;
 class Image;
+class LocalFrame;
 class ResourceRequest;
 class SerializedScriptValue;
 
@@ -66,6 +69,12 @@ public:
     virtual ~HistoryItemClient() = default;
     virtual void historyItemChanged(const HistoryItem&) = 0;
     virtual void clearChildren(const HistoryItem&) const = 0;
+
+    virtual ScopeExit<CompletionHandler<void()>> ignoreChangesForScopeDuringRedirect(const LocalFrame&)
+    {
+        return makeScopeExit(CompletionHandler<void()> { [] { } });
+    }
+
 protected:
     HistoryItemClient() = default;
 };
@@ -84,8 +93,6 @@ public:
 
     BackForwardItemIdentifier itemID() const { return m_itemID; }
     BackForwardFrameItemIdentifier frameItemID() const { return m_frameItemID; }
-    const WTF::UUID& uuidIdentifier() const LIFETIME_BOUND { return m_uuidIdentifier; }
-    void setUUIDIdentifier(const WTF::UUID& uuidIdentifier) { m_uuidIdentifier = uuidIdentifier; }
 
     // Resets the HistoryItem to its initial state, as returned by create().
     void reset();
@@ -147,6 +154,9 @@ public:
     void setNavigationAPIStateObject(RefPtr<SerializedScriptValue>&&);
     SerializedScriptValue* navigationAPIStateObject() const { return m_navigationAPIStateObject.get(); }
 
+    const WTF::UUID& navigationAPIKey() const LIFETIME_BOUND { return m_navigationAPIKey; }
+    void setNavigationAPIKey(const WTF::UUID& navigationAPIKey) { m_navigationAPIKey = navigationAPIKey; }
+
     void setItemSequenceNumber(long long number) { m_itemSequenceNumber = number; }
     long long itemSequenceNumber() const { return m_itemSequenceNumber; }
 
@@ -163,7 +173,6 @@ public:
     void setChildItem(Ref<HistoryItem>&&);
     WEBCORE_EXPORT HistoryItem* NODELETE childItemWithTarget(const AtomString&);
     WEBCORE_EXPORT HistoryItem* NODELETE childItemWithFrameID(FrameIdentifier);
-    HistoryItem* NODELETE childItemWithDocumentSequenceNumber(long long number);
     WEBCORE_EXPORT const Vector<Ref<HistoryItem>>& NODELETE children() const LIFETIME_BOUND;
     void clearChildren();
 
@@ -215,8 +224,11 @@ public:
     void setWasRestoredFromSession(bool wasRestoredFromSession) { m_wasRestoredFromSession = wasRestoredFromSession; }
     bool wasRestoredFromSession() const { return m_wasRestoredFromSession; }
 
-    void setWasCreatedByJSWithoutUserInteraction(bool wasCreatedByJSWithoutUserInteraction) { m_wasCreatedByJSWithoutUserInteraction = wasCreatedByJSWithoutUserInteraction; }
+    WEBCORE_EXPORT void setWasCreatedByJSWithoutUserInteraction(bool);
     bool wasCreatedByJSWithoutUserInteraction() const { return m_wasCreatedByJSWithoutUserInteraction; }
+
+    void setIsInitialAboutBlank(IsInitialAboutBlank isInitialAboutBlank) { m_isInitialAboutBlank = isInitialAboutBlank; }
+    IsInitialAboutBlank isInitialAboutBlank() const { return m_isInitialAboutBlank; }
 
 #if !LOG_DISABLED
     String logString() const;
@@ -251,6 +263,7 @@ private:
     bool m_lastVisitWasFailure { false };
     bool m_wasRestoredFromSession { false };
     bool m_wasCreatedByJSWithoutUserInteraction { false };
+    IsInitialAboutBlank m_isInitialAboutBlank { IsInitialAboutBlank::No };
     bool m_shouldRestoreScrollPosition { true };
     bool m_isTargetItem { false };
 
@@ -267,9 +280,10 @@ private:
 
     // Support for HTML5 History
     RefPtr<SerializedScriptValue> m_stateObject;
-    
+
     // Navigation API
     RefPtr<SerializedScriptValue> m_navigationAPIStateObject;
+    WTF::UUID m_navigationAPIKey { WTF::UUID::createVersion4() };
 
     // info used to repost form data
     RefPtr<FormData> m_formData;
@@ -292,7 +306,6 @@ private:
 
     BackForwardItemIdentifier m_itemID;
     BackForwardFrameItemIdentifier m_frameItemID;
-    WTF::UUID m_uuidIdentifier;
     std::optional<PolicyContainer> m_policyContainer;
     const Ref<Client> m_client;
 };

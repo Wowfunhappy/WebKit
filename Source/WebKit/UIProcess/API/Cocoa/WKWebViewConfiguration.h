@@ -237,7 +237,7 @@ on the system setting.
     */
 @property (nonatomic) BOOL supportsAdaptiveImageGlyph WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 
-#if (TARGET_OS_IOS && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000) || (defined(TARGET_OS_VISION) && TARGET_OS_VISION && __VISION_OS_VERSION_MIN_REQUIRED >= 20400)
+#if TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION && __VISION_OS_VERSION_MIN_REQUIRED >= 20400)
 /*! @abstract The preferred behavior of Writing Tools.
     @discussion The default behavior is equivalent to `UIWritingToolsBehaviorLimited`.
     */
@@ -247,6 +247,15 @@ on the system setting.
     @discussion The default behavior is equivalent to `NSWritingToolsBehaviorLimited`.
     */
 @property (nonatomic) NSWritingToolsBehavior writingToolsBehavior WK_API_AVAILABLE(macos(15.0));
+#endif
+
+#if defined(TARGET_OS_VISION) && TARGET_OS_VISION
+/*! @abstract A Boolean value that determines whether the web view allows immersive environments.
+ @discussion Set this property to YES to enable support for website-provided immersive environments.
+ If NO, requests to present immersive environments are ignored. If YES, requests are routed to your `WKImmersiveEnvironmentDelegate`.
+ The default value is NO.
+ */
+@property (nonatomic) BOOL allowsImmersiveEnvironments WK_API_AVAILABLE(visionos(27.0));
 #endif
 
 @end

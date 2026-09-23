@@ -28,6 +28,8 @@
 #include "CSSMarkup.h"
 #include "CSSParserContext.h"
 #include "CSSSerializationContext.h"
+#include "CSSURLValue.h"
+#include "DeprecatedCSSOMPrimitiveValue.h"
 #include "Document.h"
 
 namespace WebCore {
@@ -43,13 +45,13 @@ void Serialize<URL>::operator()(StringBuilder& builder, const SerializationConte
 
     if (!value.resolved.isNull()) {
         if (auto replacementURLString = context.replacementURLStrings.get(value.resolved.string()); !replacementURLString.isEmpty())
-            serializeString(replacementURLString, builder);
+            serializeString(builder, replacementURLString);
         else if (context.shouldUseResolvedURLInCSSText)
-            serializeString(value.resolved.string(), builder);
+            serializeString(builder, value.resolved.string());
         else
-            serializeString(value.specified, builder);
+            serializeString(builder, value.specified);
     } else
-        serializeString(value.specified, builder);
+        serializeString(builder, value.specified);
 
     if (value.modifiers.crossOrigin) {
         builder.append(' ');
@@ -67,9 +69,21 @@ void Serialize<URL>::operator()(StringBuilder& builder, const SerializationConte
     builder.append(')');
 }
 
+// MARK: - Conversion
+
+Ref<CSSValue> CSSValueCreation<URL>::operator()(CSSValuePool&, const URL& value)
+{
+    return CSSURLValue::create(value);
+}
+
+Ref<DeprecatedCSSOMValue> DeprecatedCSSOMValueCreation<URL>::operator()(CSSValuePool&, CSSStyleDeclaration& owner, const URL& value)
+{
+    return DeprecatedCSSOMPrimitiveValue::create(value, owner);
+}
+
 // MARK: Operations
 
-static URL completeURL(const String& string, const WTF::URL& baseURL)
+static URL completeURL(const WTF::String& string, const WTF::URL& baseURL)
 {
     if (string.isEmpty() || string.startsWith('#'))
         return URL { .specified = string, .resolved = WTF::URL { string }, .modifiers = { } };
@@ -78,7 +92,7 @@ static URL completeURL(const String& string, const WTF::URL& baseURL)
     return URL { .specified = string, .resolved = WTF::URL { baseURL, string }, .modifiers = { } };
 }
 
-std::optional<URL> completeURL(const String& string, const CSSParserContext& context)
+std::optional<URL> completeURL(const WTF::String& string, const CSSParserContext& context)
 {
     if (string.isNull())
         return { };
@@ -92,7 +106,7 @@ std::optional<URL> completeURL(const String& string, const CSSParserContext& con
     return result;
 }
 
-std::optional<URL> completeURL(const String& string, const Document& document)
+std::optional<URL> completeURL(const WTF::String& string, const Document& document)
 {
     if (string.isNull())
         return { };

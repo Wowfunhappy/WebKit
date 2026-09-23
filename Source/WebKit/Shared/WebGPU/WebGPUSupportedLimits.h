@@ -55,7 +55,6 @@ struct SupportedLimits {
     uint64_t maxBufferSize { 0 };
     uint32_t maxVertexAttributes { 0 };
     uint32_t maxVertexBufferArrayStride { 0 };
-    uint32_t maxInterStageShaderComponents { 0 };
     uint32_t maxInterStageShaderVariables { 0 };
     uint32_t maxColorAttachments { 0 };
     uint32_t maxColorAttachmentBytesPerSample { 0 };

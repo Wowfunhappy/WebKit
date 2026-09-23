@@ -27,7 +27,21 @@ import socket
 
 def load_password(name, default=None, master_prefix_path=os.path.dirname(os.path.abspath(__file__))):
     if os.getenv(name):
-        return os.getenv(name)
+        value = os.getenv(name)
+        # If the default is a list, dict, or bool, try to parse the env var as JSON
+        if isinstance(default, (list, dict)):
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
+        elif isinstance(default, bool):
+            # Handle boolean strings
+            if value.lower() in ('true', '1', 'yes'):
+                return True
+            elif value.lower() in ('false', '0', 'no'):
+                return False
+            return value
+        return value
     try:
         passwords = json.load(open(os.path.join(master_prefix_path, 'passwords.json')))
         return passwords.get(name, default)

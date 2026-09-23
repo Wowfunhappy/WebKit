@@ -60,7 +60,7 @@ bool MediaRecorderPrivateAVFImpl::isTypeSupported(Document& document, ContentTyp
         for (auto& codec : mimeType.codecs()) {
             // FIXME: We should further validate parameters.
             if (!startsWithLettersIgnoringASCIICase(codec, "avc1"_s)
-#if ENABLE(AV1)
+#if ENABLE(AV1) && ENABLE(WEB_RTC)
                 && !(codec.startsWith("av01."_s) && document.settings().webRTCAV1CodecEnabled())
 #endif
 #if ENABLE(WEB_RTC)

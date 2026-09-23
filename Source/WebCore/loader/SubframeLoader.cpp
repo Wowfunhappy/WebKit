@@ -94,11 +94,11 @@ void FrameLoader::SubframeLoader::clear()
 
 bool FrameLoader::SubframeLoader::canCreateSubFrame() const
 {
-    Ref frame = m_frame;
-    if (!frame->page() || frame->page()->subframeCount() >= Page::maxNumberOfFrames)
+    auto& frame = m_frame.get();
+    if (!frame.page() || frame.page()->subframeCount() >= Page::maxNumberOfFrames)
         return false;
 
-    if (frame->tree().depth() >= Page::maxFrameDepth)
+    if (frame.tree().depth() >= Page::maxFrameDepth)
         return false;
 
     return true;
@@ -316,8 +316,6 @@ RefPtr<LocalFrame> FrameLoader::SubframeLoader::loadSubframe(HTMLFrameOwnerEleme
     if (!frame->page() || frame->page()->subframeCount() >= Page::maxNumberOfFrames)
         return nullptr;
 
-    if (frame->tree().depth() >= Page::maxFrameDepth)
-
     if (!canCreateSubFrame())
         return nullptr;
 
@@ -450,7 +448,7 @@ bool FrameLoader::SubframeLoader::loadPlugin(HTMLPlugInElement& pluginElement, c
 URL FrameLoader::SubframeLoader::completeURL(const String& url) const
 {
     ASSERT(m_frame->document());
-    return protect(m_frame->document())->completeURL(url);
+    return protect(m_frame->document())->encodingParseURL(url);
 }
 
 bool FrameLoader::SubframeLoader::shouldConvertInvalidURLsToBlank() const

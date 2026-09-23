@@ -116,7 +116,7 @@ public:
     std::span<uint8_t> mutableSpan() LIFETIME_BOUND { return m_sharedMemory->mutableSpan().subspan(headerSize()); }
     size_t dataSize() const { return m_dataSize; }
 
-    static constexpr size_t maximumSize() { return std::min(static_cast<size_t>(ClientOffset::serverIsSleepingTag), static_cast<size_t>(ClientOffset::serverIsSleepingTag)) - 1; }
+    static constexpr size_t maximumSize() { return std::min(static_cast<size_t>(ClientOffset::serverIsSleepingTag), static_cast<size_t>(ServerOffset::clientIsWaitingTag)) - 1; }
 
     std::span<uint8_t> NODELETE headerForTesting();
     std::span<uint8_t> dataForTesting() LIFETIME_BOUND { return mutableSpan(); }

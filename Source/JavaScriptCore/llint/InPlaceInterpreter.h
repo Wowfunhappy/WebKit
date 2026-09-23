@@ -29,12 +29,16 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include <JavaScriptCore/LLIntCommon.h>
 #include <JavaScriptCore/WasmCallee.h>
 
 extern "C" void SYSV_ABI ipint_entry();
 
 #define IPINT_VALIDATE_DEFINE_FUNCTION(opcode, name) \
     extern "C" void SYSV_ABI ipint_ ## name ## _validate() REFERENCED_FROM_ASM WTF_INTERNAL NO_REORDER;
+
+#define IPINT_ATOMIC_VALIDATE_DEFINE_FUNCTION(opcode, name) \
+    extern "C" void SYSV_ABI ipint_ ## name ## _atomic_validate() REFERENCED_FROM_ASM WTF_INTERNAL NO_REORDER;
 
 #define FOR_EACH_IPINT_OPCODE(m) \
     m(0x00, unreachable) \
@@ -707,11 +711,6 @@ extern "C" void SYSV_ABI ipint_entry();
     m(0x11, argumINT_stack_vector) \
     m(0x12, argumINT_end) \
 
-#define FOR_EACH_IPINT_SLOW_PATH(m) \
-    m(0x00, local_get_slow_path) \
-    m(0x01, local_set_slow_path) \
-    m(0x02, local_tee_slow_path) \
-
 #define FOR_EACH_IPINT_MINT_CALL_OPCODE(m) \
     m(0x00, mint_a0) \
     m(0x01, mint_a1) \
@@ -789,9 +788,8 @@ FOR_EACH_IPINT_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_GC_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_CONVERSION_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_SIMD_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
-FOR_EACH_IPINT_ATOMIC_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
+FOR_EACH_IPINT_ATOMIC_OPCODE(IPINT_ATOMIC_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_ARGUMINT_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
-FOR_EACH_IPINT_SLOW_PATH(IPINT_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_MINT_CALL_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_MINT_RETURN_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
 FOR_EACH_IPINT_UINT_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
@@ -799,14 +797,23 @@ FOR_EACH_IPINT_UINT_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
 
 namespace JSC { namespace IPInt {
 
+#if LLINT_TRACING
+// When LLINT_TRACING is enabled, each ipintOp handler has a trace prologue injected,
+// which can push the largest handlers past 256 bytes. Double the slot size in tracing
+// builds so the dispatch table stays valid.
+constexpr uint64_t alignIPInt = 512;
+#else
 constexpr uint64_t alignIPInt = 256;
+#endif
+// FIXME: adding an adds instruction to offlineasm could shrink atomic handlers back to 256 bytes
+constexpr uint64_t alignAtomicIPInt = 2 * alignIPInt;
 constexpr uint64_t alignArgumInt = 64;
 constexpr uint64_t alignUInt = 64;
 constexpr uint64_t alignMInt = 64;
 
 
 void initialize();
-void verifyInitialization();
+void NODELETE verifyInitialization();
 
 } }
 

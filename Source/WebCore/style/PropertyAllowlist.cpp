@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,9 +31,46 @@ namespace Style {
 
 PropertyAllowlist propertyAllowlistForPseudoElement(PseudoElementType type)
 {
-    if (type == PseudoElementType::Marker)
+    switch (type) {
+    case PseudoElementType::GrammarError:
+    case PseudoElementType::Highlight:
+    case PseudoElementType::Selection:
+    case PseudoElementType::SpellingError:
+    case PseudoElementType::TargetText:
+        return PropertyAllowlist::Highlight;
+    case PseudoElementType::Marker:
         return PropertyAllowlist::Marker;
-    return PropertyAllowlist::None;
+    default:
+        return PropertyAllowlist::None;
+    }
+}
+
+// https://drafts.csswg.org/css-pseudo-4/#highlight-styling
+bool isValidHighlightStyleProperty(CSSPropertyID id)
+{
+    switch (id) {
+    case CSSPropertyBackgroundColor:
+    case CSSPropertyColor:
+    case CSSPropertyCustom:
+    case CSSPropertyFill:
+    case CSSPropertyStroke:
+    case CSSPropertyStrokeColor:
+    case CSSPropertyStrokeWidth:
+    case CSSPropertyTextDecoration:
+    case CSSPropertyTextDecorationColor:
+    case CSSPropertyTextDecorationLine:
+    case CSSPropertyTextDecorationSkip:
+    case CSSPropertyTextDecorationSkipInk:
+    case CSSPropertyTextDecorationStyle:
+    case CSSPropertyTextDecorationThickness:
+    case CSSPropertyTextShadow:
+    case CSSPropertyTextUnderlineOffset:
+    case CSSPropertyTextUnderlinePosition:
+        return true;
+    default:
+        break;
+    }
+    return false;
 }
 
 // https://drafts.csswg.org/css-lists-3/#marker-properties (Editor's Draft, 14 July 2021)
@@ -89,6 +126,7 @@ bool isValidMarkerStyleProperty(CSSPropertyID id)
     case CSSPropertyTextWrapMode:
     case CSSPropertyTextWrapStyle:
     case CSSPropertyUnicodeBidi:
+    case CSSPropertyWebkitTextFillColor:
     case CSSPropertyWebkitTextOrientation:
     case CSSPropertyWordBreak:
     case CSSPropertyWordSpacing:
@@ -141,7 +179,10 @@ bool isValidCueStyleProperty(CSSPropertyID id)
     case CSSPropertyWhiteSpace:
     case CSSPropertyWhiteSpaceCollapse:
     case CSSPropertyTextCombineUpright:
+    case CSSPropertyTextDecorationColor:
     case CSSPropertyTextDecorationLine:
+    case CSSPropertyTextDecorationStyle:
+    case CSSPropertyTextDecorationThickness:
     case CSSPropertyTextShadow:
     case CSSPropertyTextWrapMode:
     case CSSPropertyTextWrapStyle:
@@ -193,7 +234,10 @@ bool isValidCueSelectorStyleProperty(CSSPropertyID id)
     case CSSPropertyWhiteSpace:
     case CSSPropertyWhiteSpaceCollapse:
     case CSSPropertyTextCombineUpright:
+    case CSSPropertyTextDecorationColor:
     case CSSPropertyTextDecorationLine:
+    case CSSPropertyTextDecorationStyle:
+    case CSSPropertyTextDecorationThickness:
     case CSSPropertyTextShadow:
     case CSSPropertyTextWrapMode:
     case CSSPropertyTextWrapStyle:

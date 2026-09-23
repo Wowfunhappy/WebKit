@@ -29,8 +29,10 @@
 #include "ClonedArguments.h"
 #include "CommonSlowPaths.h"
 #include "DirectArguments.h"
+#include "JSGlobalLexicalEnvironment.h"
 #include "JSSetInlines.h"
 #include "ScopedArguments.h"
+#include "SymbolTableInlines.h"
 
 namespace JSC {
 
@@ -60,7 +62,7 @@ inline void tryCachePutToScopeGlobal(
     case GlobalPropertyWithVarInjectionChecks: {
         // Global Lexical Binding Epoch is changed. Update op_get_from_scope from GlobalProperty to GlobalLexicalVar.
         if (scope->isGlobalLexicalEnvironment()) {
-            JSGlobalLexicalEnvironment* globalLexicalEnvironment = jsCast<JSGlobalLexicalEnvironment*>(scope);
+            JSGlobalLexicalEnvironment* globalLexicalEnvironment = uncheckedDowncast<JSGlobalLexicalEnvironment>(scope);
             ResolveType newResolveType = needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar;
             SymbolTableEntry entry = globalLexicalEnvironment->symbolTable()->get(ident.impl());
             ASSERT(!entry.isNull());
@@ -126,7 +128,7 @@ inline void tryCacheGetFromScopeGlobal(
     case GlobalPropertyWithVarInjectionChecks: {
         // Global Lexical Binding Epoch is changed. Update op_get_from_scope from GlobalProperty to GlobalLexicalVar.
         if (scope->isGlobalLexicalEnvironment()) {
-            JSGlobalLexicalEnvironment* globalLexicalEnvironment = jsCast<JSGlobalLexicalEnvironment*>(scope);
+            JSGlobalLexicalEnvironment* globalLexicalEnvironment = uncheckedDowncast<JSGlobalLexicalEnvironment>(scope);
             ResolveType newResolveType = needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar;
             SymbolTableEntry entry = globalLexicalEnvironment->symbolTable()->get(ident.impl());
             ASSERT(!entry.isNull());
@@ -161,7 +163,7 @@ inline void tryCacheGetFromScopeGlobal(
 ALWAYS_INLINE JSCellButterfly* trySpreadFast(JSGlobalObject* globalObject, JSCell* iterable)
 {
     if (isJSArray(iterable)) {
-        JSArray* array = jsCast<JSArray*>(iterable);
+        JSArray* array = uncheckedDowncast<JSArray>(iterable);
         if (array->isIteratorProtocolFastAndNonObservable()) {
             // JSCellButterfly::createFromArray does not consult the prototype chain,
             // so we must be sure that not consulting the prototype chain would
@@ -174,29 +176,29 @@ ALWAYS_INLINE JSCellButterfly* trySpreadFast(JSGlobalObject* globalObject, JSCel
     switch (iterable->type()) {
     case StringType: {
         if (globalObject->isStringPrototypeIteratorProtocolFastAndNonObservable()) [[likely]]
-            return JSCellButterfly::createFromString(globalObject, jsCast<JSString*>(iterable));
+            return JSCellButterfly::createFromString(globalObject, uncheckedDowncast<JSString>(iterable));
         return nullptr;
     }
     case ClonedArgumentsType: {
-        auto* arguments = jsCast<ClonedArguments*>(iterable);
+        auto* arguments = uncheckedDowncast<ClonedArguments>(iterable);
         if (arguments->isIteratorProtocolFastAndNonObservable()) [[likely]]
             return JSCellButterfly::createFromClonedArguments(globalObject, arguments);
         return nullptr;
     }
     case DirectArgumentsType: {
-        auto* arguments = jsCast<DirectArguments*>(iterable);
+        auto* arguments = uncheckedDowncast<DirectArguments>(iterable);
         if (arguments->isIteratorProtocolFastAndNonObservable()) [[likely]]
             return JSCellButterfly::createFromDirectArguments(globalObject, arguments);
         return nullptr;
     }
     case ScopedArgumentsType: {
-        auto* arguments = jsCast<ScopedArguments*>(iterable);
+        auto* arguments = uncheckedDowncast<ScopedArguments>(iterable);
         if (arguments->isIteratorProtocolFastAndNonObservable()) [[likely]]
             return JSCellButterfly::createFromScopedArguments(globalObject, arguments);
         return nullptr;
     }
     case JSSetType: {
-        auto* set = jsCast<JSSet*>(iterable);
+        auto* set = uncheckedDowncast<JSSet>(iterable);
         if (set->isIteratorProtocolFastAndNonObservable()) [[likely]]
             return JSCellButterfly::createFromSet(globalObject, set);
         return nullptr;

@@ -71,7 +71,7 @@ public:
         return adoptRef(*new Module(plan));
     }
 
-    Wasm::TypeIndex typeIndexFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const;
+    const Wasm::RTT& rttFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const;
     const Wasm::ModuleInformation& moduleInformation() const { return m_moduleInformation.get(); }
 
     void applyCompileOptions(const WebAssemblyCompileOptions&);
@@ -94,8 +94,8 @@ public:
     std::unique_ptr<MergedProfile> createMergedProfile(const IPIntCallee&);
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
-    uint32_t debugId() const;
-    void setDebugId(uint32_t);
+    uint32_t NODELETE debugId() const;
+    void NODELETE setDebugId(uint32_t);
 #endif
 
 private:

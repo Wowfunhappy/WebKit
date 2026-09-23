@@ -236,7 +236,7 @@
 
     protect(_page)->immediateActionDidCancel();
 
-    CheckedPtr { _viewImpl.get() }->cancelImmediateActionAnimation();
+    CheckedPtr { _viewImpl }->cancelImmediateActionAnimation();
 
     protect(_page)->setTextIndicatorAnimationProgress(0);
     [self _clearImmediateActionState];
@@ -250,7 +250,7 @@
 
     protect(_page)->immediateActionDidComplete();
 
-    CheckedPtr { _viewImpl.get() }->completeImmediateActionAnimation();
+    CheckedPtr { _viewImpl }->completeImmediateActionAnimation();
 
     protect(_page)->setTextIndicatorAnimationProgress(1);
 }
@@ -505,7 +505,7 @@
         return nil;
 #endif
 
-    CheckedPtr { _viewImpl.get() }->prepareForDictionaryLookup();
+    CheckedPtr { _viewImpl }->prepareForDictionaryLookup();
     return WebCore::DictionaryLookup::animationControllerForPopup(dictionaryPopupInfo, _view.get().get(), [self](WebCore::TextIndicator& textIndicator) {
         protect(_page)->setTextIndicator(textIndicator, WebCore::TextIndicatorLifetime::Permanent);
     }, nullptr, [strongSelf = retainPtr(self)]() {

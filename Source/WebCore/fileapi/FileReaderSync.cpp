@@ -40,9 +40,7 @@
 
 namespace WebCore {
 
-FileReaderSync::FileReaderSync()
-{
-}
+FileReaderSync::FileReaderSync() = default;
 
 ExceptionOr<RefPtr<ArrayBuffer>> FileReaderSync::readAsArrayBuffer(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
 {
@@ -63,6 +61,7 @@ ExceptionOr<String> FileReaderSync::readAsText(ScriptExecutionContext& scriptExe
 {
     Ref loader = FileReaderLoader::create(FileReaderLoader::ReadAsText, nullptr);
     loader->setEncoding(encoding);
+    loader->setDataType(blob.type());
     return startLoadingString(scriptExecutionContext, loader, blob);
 }
 

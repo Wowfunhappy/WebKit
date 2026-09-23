@@ -28,7 +28,7 @@
 #include "JSObjectInlines.h"
 #include "StringObject.h"
 #include "StrongInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -67,7 +67,7 @@ void JSRopeString::RopeBuilder<RecordOverflow>::expand()
 
 void JSString::dumpToStream(const JSCell* cell, PrintStream& out)
 {
-    const JSString* thisObject = jsCast<const JSString*>(cell);
+    const JSString* thisObject = uncheckedDowncast<JSString>(cell);
     out.printf("<%p, %s, [%u], ", thisObject, thisObject->className().characters(), thisObject->length());
     uintptr_t pointer = thisObject->fiberConcurrently();
     if (pointer & isRopeInPointer) {
@@ -229,8 +229,11 @@ template<bool reportAllocation, typename Function>
 const String& JSRopeString::resolveRopeWithFunction(JSGlobalObject* nullOrGlobalObjectForOOM, Function&& function) const
 {
     ASSERT(isRope());
-    
+
     VM& vm = this->vm();
+    if constexpr (validateDFGDoesGC)
+        vm.verifyCanGC();
+
     if (isSubstring()) {
         ASSERT(!substringBase()->isRope());
         auto newImpl = substringBase()->valueInternal().substringSharingImpl(substringOffset(), length());

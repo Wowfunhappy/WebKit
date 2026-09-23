@@ -67,6 +67,8 @@ public:
         friend bool operator==(const Parameters&, const Parameters&) = default;
     };
 
+    static constexpr double minimumShrinkToFitWidthWhenPreferringHorizontalScrolling = 820;
+
     WEBCORE_EXPORT ViewportConfiguration();
 
     const Parameters& defaultConfiguration() const LIFETIME_BOUND { return m_defaultConfiguration; }

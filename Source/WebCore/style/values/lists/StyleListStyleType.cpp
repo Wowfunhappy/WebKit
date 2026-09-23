@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2023 Apple Inc. All rights reserved.
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,11 @@
 #include "config.h"
 #include "StyleListStyleType.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
+#include "CSSPropertyParserConsumer+CounterStyles.h"
+#include "CSSStringValue.h"
+#include "CSSValueKeywords.h"
 #include "StyleBuilderChecking.h"
-#include "StyleValueTypes.h"
-#include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 namespace Style {
@@ -107,27 +108,27 @@ bool ListStyleType::isSquare() const
 
 auto CSSValueConversion<ListStyleType>::operator()(BuilderState& state, const CSSValue& value) -> ListStyleType
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::None { };
-
-    if (primitiveValue->isValueID()) {
-        if (primitiveValue->valueID() == CSSValueNone)
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (auto valueID = keywordValue->valueID(); valueID) {
+        case CSSValueNone:
             return CSS::Keyword::None { };
-        return CounterStyle { { AtomString { primitiveValue->stringValue() } } };
+        default:
+            return CounterStyle { CustomIdent { nameStringForSerialization(valueID) } };
+        }
     }
-    if (primitiveValue->isCustomIdent())
-        return CounterStyle { { AtomString { primitiveValue->stringValue() } } };
 
-    return AtomString { primitiveValue->stringValue() };
+    if (RefPtr stringValue = dynamicDowncast<CSSStringValue>(value))
+        return toStyleFromCSSValue<String>(state, *stringValue);
+
+    return CounterStyle { toStyleFromCSSValue<CustomIdent>(state, value) };
 }
 
-auto CSSValueCreation<ListStyleType>::operator()(CSSValuePool& pool, const RenderStyle& style, const ListStyleType& value) -> Ref<CSSValue>
+auto CSSValueCreation<ListStyleType>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const ListStyleType& value) -> Ref<CSSValue>
 {
     return WTF::switchOn(value,
-        [&](const CSS::Keyword::None& none) { return Style::createCSSValue(pool, style, none); }, // none
-        [&](const CounterStyle& counterStyle) { return Style::createCSSValue(pool, style, counterStyle.identifier); }, // custom-ident
-        [&](const AtomString& identifier) { return Style::createCSSValue(pool, style, identifier); } // string
+        [&](const CSS::Keyword::None& none) { return Style::createCSSValue(pool, style, none); },
+        [&](const CounterStyle& counterStyle) { return Style::createCSSValue(pool, style, counterStyle); },
+        [&](const String& string) { return Style::createCSSValue(pool, style, string); }
     );
 }
 

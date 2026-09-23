@@ -21,11 +21,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if HAVE_CORE_ANIMATION_SEPARATED_LAYERS && compiler(>=6.2)
+#if HAVE_CORE_ANIMATION_SEPARATED_LAYERS
 
-#if canImport(CoreRE)
-@_weakLinked import CoreRE
-#endif
 import os
 @_weakLinked @_spi(Private) @_spi(RealityKit) import RealityKit
 @_weakLinked @_spi(Private) @_spi(ForUIKitOnly) import SwiftUI
@@ -106,12 +103,9 @@ extension WKSeparatedImageView {
         let scaleFactor = Float(bounds.size.height / layer.effectivePointsPerMeter)
         portalEntity.scale = SIMD3(scaleFactor, scaleFactor, 1.0)
 
-        #if canImport(CoreRE)
-        if let component = unsafe RECALayerGetCALayerClientComponent(layer) {
-            let rootEntity = unsafe Entity.fromCore(REComponentGetEntity(component))
+        if let rootEntity = layer.rootEntity {
             portalEntity.setParent(rootEntity)
         }
-        #endif
 
         Task { @MainActor [weak self] in
             await self?.nextDisplayLink()

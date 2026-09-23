@@ -74,8 +74,8 @@ public: // DOM
     void pauseAnimations();
     void unpauseAnimations();
     bool resumePausedAnimationsIfNeeded(const IntRect&);
-    bool animationsPaused() const;
-    bool hasActiveAnimation() const;
+    bool NODELETE animationsPaused() const;
+    bool NODELETE hasActiveAnimation() const;
     float getCurrentTime() const;
     void setCurrentTime(float);
     
@@ -108,6 +108,8 @@ public:
     bool hasIntrinsicDimensions() const;
 
     FloatSize currentViewportSizeExcludingZoom() const;
+    void invalidateCachedViewportSizeExcludingZoom() const { m_cachedViewportSizeExcludingZoom = std::nullopt; }
+
     FloatRect currentViewBoxRect() const;
 
     AffineTransform viewBoxToViewTransform(float viewWidth, float viewHeight) const;
@@ -134,11 +136,11 @@ private:
     bool selfHasRelativeLengths() const override;
     bool isValid() const override;
 
-    bool rendererIsNeeded(const RenderStyle&) override;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isReplaced(const RenderStyle* = nullptr) const final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    bool rendererIsNeeded(const Style::ComputedStyle&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void removingSteps(RemovalType, ContainerNode&) override;
     void prepareForDocumentSuspension() override;
     void resumeFromDocumentSuspension() override;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
@@ -147,17 +149,21 @@ private:
     RefPtr<LocalFrame> frameForCurrentScale() const;
     Ref<NodeList> collectIntersectionOrEnclosureList(SVGRect&, SVGElement*, bool (*checkFunction)(SVGElement&, SVGRect&));
 
+    FloatSize computeCurrentViewportSizeExcludingZoom() const;
+
     RefPtr<SVGViewElement> findViewAnchor(StringView fragmentIdentifier) const;
     SVGSVGElement* NODELETE findRootAnchor(const SVGViewElement*) const;
     SVGSVGElement* findRootAnchor(StringView) const;
 
     bool m_useCurrentView { false };
-    Ref<SMILTimeContainer> m_timeContainer;
+    const Ref<SMILTimeContainer> m_timeContainer;
     RefPtr<SVGViewSpec> m_viewSpec;
     RefPtr<SVGViewElement> m_currentViewElement;
     String m_currentViewFragmentIdentifier;
 
     Ref<SVGPoint> m_currentTranslate { SVGPoint::create() };
+
+    mutable std::optional<FloatSize> m_cachedViewportSizeExcludingZoom;
 
     const Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
     const Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height) };

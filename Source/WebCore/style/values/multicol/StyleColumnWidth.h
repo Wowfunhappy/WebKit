@@ -26,8 +26,7 @@
 
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
-namespace WebCore {
-namespace Style {
+namespace WebCore::Style {
 
 // <'column-width'> = auto | <length [0,∞]>
 // https://www.w3.org/TR/css-multicol-1/#propdef-column-width
@@ -40,14 +39,6 @@ struct ColumnWidth : ValueOrKeyword<Length<CSS::Nonnegative, float>, CSS::Keywor
     std::optional<Length> tryLength() const { return tryValue(); }
 };
 
-// MARK: - Blending
-
-template<> struct Blending<ColumnWidth> {
-    bool NODELETE canBlend(const ColumnWidth&, const ColumnWidth&);
-    auto blend(const ColumnWidth&, const ColumnWidth&, const BlendingContext&) -> ColumnWidth;
-};
-
-} // namespace Style
-} // namespace WebCore
+} // namespace WebCore::Style
 
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::ColumnWidth)

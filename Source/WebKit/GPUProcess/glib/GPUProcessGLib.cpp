@@ -29,13 +29,15 @@
 #if ENABLE(GPU_PROCESS) && (PLATFORM(GTK) || PLATFORM(WPE))
 
 #include "GPUProcessCreationParameters.h"
-
+#include <glib.h>
 #if USE(GBM)
 #include <WebCore/DRMDevice.h>
 #include <WebCore/DRMDeviceManager.h>
 #include <WebCore/GBMDevice.h>
 #include <WebCore/PlatformDisplayGBM.h>
 #endif
+#include <WebCore/PlatformDisplaySurfaceless.h>
+#include <wtf/text/CStringView.h>
 
 namespace WebKit {
 
@@ -51,6 +53,10 @@ void GPUProcess::platformInitializeGPUProcess(GPUProcessCreationParameters& para
 #else
     UNUSED_PARAM(parameters);
 #endif
+    if (auto display = WebCore::PlatformDisplaySurfaceless::create()) {
+        WebCore::PlatformDisplay::setSharedDisplay(WTF::move(display));
+        return;
+    }
 
     WTFLogAlways("Could not create EGL display for GPU process: no supported platform available. Aborting...");
     CRASH();

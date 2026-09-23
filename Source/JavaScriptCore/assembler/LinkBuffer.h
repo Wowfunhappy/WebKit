@@ -370,12 +370,12 @@ ALLOW_NONLITERAL_FORMAT_END
         return m_code.dataLocation();
     }
 
-    size_t size() const { return m_size; }
+    size_t NODELETE size() const { return m_size; }
     
     bool wasAlreadyDisassembled() const { return m_alreadyDisassembled; }
     void didAlreadyDisassemble() { m_alreadyDisassembled = true; }
 
-    JS_EXPORT_PRIVATE static void clearProfileStatistics();
+    JS_EXPORT_PRIVATE static void NODELETE clearProfileStatistics();
     JS_EXPORT_PRIVATE static void dumpProfileStatistics(std::optional<PrintStream*> = std::nullopt);
 
     void setIsThunk() { m_isThunk = true; }

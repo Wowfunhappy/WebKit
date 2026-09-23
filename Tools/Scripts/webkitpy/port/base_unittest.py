@@ -38,7 +38,9 @@ from webkitpy.common.system.executive_mock import MockExecutive2
 from webkitpy.common.system.systemhost_mock import MockSystemHost
 from webkitpy.common.host_mock import MockHost
 from webkitpy.port import Port
+from webkitpy.port.config import Config
 from webkitpy.port.test import add_unit_tests_to_mock_filesystem, TestPort
+from webkitpy.thirdparty.mock import patch
 
 from webkitcorepy import OutputCapture
 from webkitscmpy import mocks
@@ -48,6 +50,9 @@ def cmp(a, b):
     return (a > b) - (a < b)
 
 class PortTest(unittest.TestCase):
+    def setUp(self):
+        Config._clear_cache_for_testing()
+
     def make_port(self, executive=None, with_tests=False, port_name=None, **kwargs):
         host = MockHost(create_stub_repository_files=True)
         if executive:
@@ -256,6 +261,7 @@ class PortTest(unittest.TestCase):
         self.assertTrue(port.test_exists('passes/text.html'))
         self.assertFalse(port.test_exists('passes/does_not_exist.html'))
         self.assertTrue(port.test_exists('variant/variant.any.html?1-100'))
+        self.assertTrue(port.test_exists('variant/variant.any.html?val=2.3'))
 
     def test_test_isfile(self):
         port = self.make_port(with_tests=True)
@@ -277,6 +283,7 @@ class PortTest(unittest.TestCase):
         )
         self.assertEqual(port._build_path(), '/my-build-directory/Debug')
 
+        Config._clear_cache_for_testing()
         port = self.make_port(
             executive=MockExecutive2(output='/default-build-path/Debug-embedded-port'),
             options=optparse.Values({'build_directory': '/my-build-directory/'}),
@@ -291,7 +298,10 @@ class PortTest(unittest.TestCase):
         self.assertFalse(port._should_use_jhbuild())
         port._filesystem.maybe_make_directory(jhbuild_path)
         self.assertTrue(port._filesystem.isdir(jhbuild_path))
-        self.assertTrue(port._should_use_jhbuild())
+        # false unless WEBKIT_JHBUILD=1 in env
+        self.assertFalse(port._should_use_jhbuild())
+        with patch('os.environ', {'WEBKIT_JHBUILD': '1'}):
+            self.assertTrue(port._should_use_jhbuild())
 
     def test_commits_for_upload(self):
         with mocks.local.Svn(path='/'), mocks.local.Git():

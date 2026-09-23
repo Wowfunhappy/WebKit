@@ -105,6 +105,7 @@ public:
     WEBCORE_EXPORT void getRecordBySubscriptionSetAndScope(const PushSubscriptionSetIdentifier&, const String& scope, CompletionHandler<void(std::optional<PushRecord>&&)>&&);
     WEBCORE_EXPORT void getIdentifiers(CompletionHandler<void(HashSet<PushSubscriptionIdentifier>&&)>&&);
     WEBCORE_EXPORT void getPushSubscriptionSetRecords(CompletionHandler<void(Vector<PushSubscriptionSetRecord>&&)>&&);
+    WEBCORE_EXPORT void getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<String>&&)>&&);
     WEBCORE_EXPORT void getTopics(CompletionHandler<void(PushTopics&&)>&&);
 
     WEBCORE_EXPORT void incrementSilentPushCount(const PushSubscriptionSetIdentifier&, const String& securityOrigin, CompletionHandler<void(unsigned)>&&);

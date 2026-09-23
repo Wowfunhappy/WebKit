@@ -64,12 +64,13 @@ IPAddressSpace determineIPAddressSpace(const URL& url)
             host = host.substring(7);
             if (!host.contains('.')) {
                 // Parse hex representation like "c0a8:101" -> "192.168.1.1"
-                Vector<String> halves = host.split(':');
-                if (halves.size() != 2)
+                StringView hostView { host };
+                auto colonPosition = hostView.find(':');
+                if (colonPosition == notFound || hostView.find(':', colonPosition + 1) != notFound)
                     return IPAddressSpace::Public;
 
-                auto value1 = parseInteger<uint16_t>(halves[0], 16);
-                auto value2 = parseInteger<uint16_t>(halves[1], 16);
+                auto value1 = parseInteger<uint16_t>(hostView.left(colonPosition), 16);
+                auto value2 = parseInteger<uint16_t>(hostView.substring(colonPosition + 1), 16);
 
                 if (!value1.has_value() || !value2.has_value())
                     return IPAddressSpace::Public;
@@ -88,17 +89,18 @@ IPAddressSpace determineIPAddressSpace(const URL& url)
         }
     }
     if (host.contains('.')) {
-        Vector<String> octets = host.split('.');
-        if (octets.size() != 4)
-            return IPAddressSpace::Public;
-
         std::array<uint8_t, 4> parts;
-        for (size_t i = 0; i < 4; i++) {
-            auto value = parseInteger<uint8_t>(octets[i]);
+        size_t i = 0;
+        for (auto octet : StringView(host).split('.')) {
+            if (i >= 4)
+                return IPAddressSpace::Public;
+            auto value = parseInteger<uint8_t>(octet);
             if (!value)
                 return IPAddressSpace::Public;
-            parts[i] = *value;
+            parts[i++] = *value;
         }
+        if (i != 4)
+            return IPAddressSpace::Public;
 
         // Check IPv4 address blocks according to spec table:
 

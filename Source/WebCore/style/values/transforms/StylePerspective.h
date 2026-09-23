@@ -26,8 +26,7 @@
 
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
-namespace WebCore {
-namespace Style {
+namespace WebCore::Style {
 
 // <'perspective'> = none | <length [0,∞]>
 // https://drafts.csswg.org/css-transforms-2/#propdef-perspective
@@ -46,14 +45,6 @@ static_assert(sizeof(Perspective) == sizeof(float));
 
 template<> struct CSSValueConversion<Perspective> { auto operator()(BuilderState&, const CSSValue&) -> Perspective; };
 
-// MARK: - Blending
-
-template<> struct Blending<Perspective> {
-    bool NODELETE canBlend(const Perspective&, const Perspective&);
-    auto blend(const Perspective&, const Perspective&, const BlendingContext&) -> Perspective;
-};
-
-} // namespace Style
-} // namespace WebCore
+} // namespace WebCore::Style
 
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::Perspective)

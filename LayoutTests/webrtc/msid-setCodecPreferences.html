@@ -11,11 +11,9 @@
         <script>
 var track, firstConnection, secondConnection;
 promise_test(async (test) => {
-    if (window.testRunner)
-        testRunner.setUserMediaPermission(true);
-
     let pc = new RTCPeerConnection();
     let stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
 	let track = stream.getVideoTracks()[0];
     pc.addTrack(track, stream);
     pc.getTransceivers()[0].setCodecPreferences([{mimeType: "video/VP8", clockRate: 90000}]);

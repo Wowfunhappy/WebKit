@@ -58,7 +58,7 @@ public:
     bool isSecureTransitionTo(const URL&) const;
 
     enum class SandboxFlagsSource : bool { CSP, Other };
-    void enforceSandboxFlags(SandboxFlags, SandboxFlagsSource = SandboxFlagsSource::Other);
+    virtual void enforceSandboxFlags(SandboxFlags, SandboxFlagsSource = SandboxFlagsSource::Other);
 
     bool isSandboxed(SandboxFlag flag) const { return m_sandboxFlags.contains(flag); }
 

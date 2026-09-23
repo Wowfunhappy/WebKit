@@ -26,6 +26,7 @@ typedef double DOMHighResTimeStamp;
     ExportToWrappedFunction,
     Exposed=*,
     JSCustomHeader,
+    JSCustomMarkFunction,
 ] interface Event {
     constructor([AtomString] DOMString type, optional EventInit eventInitDict = {});
 
@@ -50,7 +51,7 @@ typedef double DOMHighResTimeStamp;
     readonly attribute boolean defaultPrevented;
     readonly attribute boolean composed;
 
-    [LegacyUnforgeable] readonly attribute boolean isTrusted;
+    [LegacyUnforgeable, ImplementedAs=isTrustedForBindings] readonly attribute boolean isTrusted;
     [CallWith=RelevantScriptExecutionContext, ImplementedAs=timeStampForBindings] readonly attribute DOMHighResTimeStamp timeStamp;
 
     undefined initEvent([AtomString] DOMString type, optional boolean bubbles = false, optional boolean cancelable = false); // Historical.

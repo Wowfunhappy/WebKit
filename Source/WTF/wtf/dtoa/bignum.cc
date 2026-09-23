@@ -549,7 +549,7 @@ uint16_t Bignum::DivideModuloIntBignum(const Bignum& other) {
 
 
 template<typename S>
-static int SizeInHexChars(S number) {
+static int NODELETE SizeInHexChars(S number) {
   ASSERT(number > 0);
   int result = 0;
   while (number != 0) {

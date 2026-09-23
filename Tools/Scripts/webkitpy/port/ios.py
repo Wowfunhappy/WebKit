@@ -24,7 +24,7 @@ import logging
 
 from webkitcorepy import Version
 
-from webkitpy.common.version_name_map import VersionNameMap, INTERNAL_TABLE
+from webkitpy.common.version_name_map import VersionNameMap, INTERNAL_TABLE, PUBLIC_TABLE
 from webkitpy.port.config import apple_additions
 from webkitpy.port.embedded_port import EmbeddedPort
 from webkitpy.port.simulator_process import SimulatorProcess
@@ -38,6 +38,7 @@ class IOSPort(EmbeddedPort):
 
     DEVICE_TYPE = DeviceType(software_variant='iOS')
     DRIVER_NAMES = ('WebKitTestRunner', 'DumpRenderTree')
+    DEFAULT_SUPPORTED_DRIVERS = [DRIVER_NAMES[0]]
 
     def __init__(self, host, port_name, **kwargs):
         super(IOSPort, self).__init__(host, port_name, **kwargs)
@@ -110,6 +111,48 @@ class IOSPort(EmbeddedPort):
             expectations.append(self._webkit_baseline_path('wk2'))
 
         return expectations
+
+    def _api_test_version_name(self, version, table=PUBLIC_TABLE):
+        name = VersionNameMap.map(self.host.platform).to_name(version, platform=IOSPort.port_name, table=table)
+        return name.lower().replace(' ', '') if name else None
+
+    def _api_test_platform_cascade(self):
+        cascade = []
+        version = self.device_version()
+        internal_version = self._api_test_version_name(version, table=INTERNAL_TABLE) if apple_additions() else None
+        internal_name = 'ios-{}'.format(internal_version) if internal_version else None
+        cascade.append(('ios', internal_name))
+
+        if version:
+            cascade.append(('ios-{}'.format(version.major), internal_name))
+
+        if 'simulator' in self.SDK:
+            internal_sim_name = 'ios-{}-simulator'.format(internal_version) if internal_version else None
+            cascade.append(('ios-simulator', internal_sim_name))
+            if version:
+                cascade.append(('ios-simulator-{}'.format(version.major), internal_sim_name))
+
+        return cascade
+
+    def api_test_version_order(self):
+        return ['ios{}'.format(version.major) for version in self._allowed_versions()]
+
+    def api_test_current_configuration(self):
+        config = super(IOSPort, self).api_test_current_configuration()
+        config['platform'] = 'ios'
+
+        version = self.device_version()
+        if version:
+            config['version'] = 'ios{}'.format(version.major)
+
+        config['hardware'] = 'simulator' if 'simulator' in self.SDK else 'device'
+
+        if self.DEVICE_TYPE:
+            hw_family = getattr(self.DEVICE_TYPE, 'hardware_family', None)
+            if hw_family and hw_family.lower() in ('iphone', 'ipad'):
+                config['hardware_type'] = hw_family.lower()
+
+        return config
 
     def port_adjust_environment_for_test_driver(self, env):
         env = super(IOSPort, self).port_adjust_environment_for_test_driver(env)

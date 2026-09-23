@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StylePolygonFunction.h"
 
+#include "AcceleratedEffectPolygonFunction.h"
 #include "FloatRect.h"
 #include "GeometryUtilities.h"
 #include "Path.h"
@@ -90,6 +91,22 @@ auto Blending<Polygon>::blend(const Polygon& a, const Polygon& b, const Blending
         .vertices = WebCore::Style::blend(a.vertices, b.vertices, context),
     };
 }
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+AcceleratedEffectPolygonFunction Evaluation<PolygonFunction, AcceleratedEffectPolygonFunction>::operator()(const PolygonFunction& value, const FloatSize& containingBlockSize, ZoomFactor zoom)
+{
+    return {
+        .fillRule = windRule(value),
+        .vertices = WTF::map(value->vertices, [&](auto& vertex) -> FloatPoint {
+            return evaluate<FloatPoint>(vertex, containingBlockSize, zoom);
+        }),
+    };
+}
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

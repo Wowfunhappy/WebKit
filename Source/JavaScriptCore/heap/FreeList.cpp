@@ -33,9 +33,7 @@ FreeList::FreeList(unsigned cellSize)
 {
 }
 
-FreeList::~FreeList()
-{
-}
+FreeList::~FreeList() = default;
 
 void FreeList::clear()
 {

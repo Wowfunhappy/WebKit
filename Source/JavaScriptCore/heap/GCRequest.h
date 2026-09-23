@@ -45,7 +45,7 @@ struct GCRequest {
     {
     }
     
-    bool subsumedBy(const GCRequest& other) const;
+    bool NODELETE subsumedBy(const GCRequest& other) const;
     
     void dump(PrintStream&) const;
     

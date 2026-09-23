@@ -58,7 +58,7 @@ struct SVGPropertyTraits<ComponentTransferType> {
 
     static ComponentTransferType fromString(SVGElement&, const String& value)
     {
-        static constexpr SortedArrayMap map { std::to_array<std::pair<PackedASCIILiteral<uint64_t>, ComponentTransferType>>({
+        static constexpr SortedArrayMap map { WTF::toArray<std::pair<PackedASCIILiteral<uint64_t>, ComponentTransferType>>({
             { "discrete"_s, ComponentTransferType::FECOMPONENTTRANSFER_TYPE_DISCRETE },
             { "gamma"_s, ComponentTransferType::FECOMPONENTTRANSFER_TYPE_GAMMA },
             { "identity"_s, ComponentTransferType::FECOMPONENTTRANSFER_TYPE_IDENTITY },
@@ -100,7 +100,7 @@ protected:
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
-    bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) override { return false; }
     
 private:
     const Ref<SVGAnimatedEnumeration> m_type { SVGAnimatedEnumeration::create(this, ComponentTransferType::FECOMPONENTTRANSFER_TYPE_IDENTITY) };

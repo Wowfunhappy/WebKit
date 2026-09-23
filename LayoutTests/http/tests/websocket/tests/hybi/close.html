@@ -26,7 +26,7 @@ var ws;
 var testId;
 
 var codeTestCodes = [
-    999, 1001, 2999, 5000, 65536 + 1000, 0x100000000 + 1000, 2999.9, NaN, "0", "100", 1/0, -1/0, 0/0,
+    999, 1001, 2999, 5000, 65536 + 1000, 0x100000000 + 1000, NaN, "0", "100", 1/0, -1/0, 0/0,
     1000.0
 ];
 
@@ -152,12 +152,21 @@ function runCodeAndReasonTest()
 {
     var codes = [
         1000,
+        1000.5,
+        3000,
+        4000,
+        4999
+    ];
+    var expectedCodes = [
+        1000,
+        1000,
         3000,
         4000,
         4999
     ];
     var reasons = [
         "OK, Bye!",
+        "round-half-to-even",
         "3000",
         "code is 4000",
         "\u00a9 Google"
@@ -173,7 +182,7 @@ function runCodeAndReasonTest()
         ws.onclose = function (e)
         {
             closeEvent = e;
-            code = codes[id];
+            code = expectedCodes[id];
             reason = reasons[id];
             debug("Code and reason must be");
             debug("  code  : " + code);

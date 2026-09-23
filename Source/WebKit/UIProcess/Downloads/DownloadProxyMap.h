@@ -26,6 +26,7 @@
 #pragma once
 
 #include "DownloadID.h"
+#include "NetworkProcessProxy.h"
 #include <wtf/HashMap.h>
 // MAVERICKS_BACKPORT: pull in the full NetworkProcessProxy definition (the file's own forward declaration is not enough) so the WeakRef<NetworkProcessProxy> m_process member resolves the complete type in this build's include ordering.
 #include "NetworkProcessProxy.h"
@@ -49,7 +50,6 @@ class ResourceRequest;
 namespace WebKit {
 
 class DownloadProxy;
-class NetworkProcessProxy;
 class ProcessAssertion;
 class WebPageProxy;
 class WebsiteDataStore;
@@ -74,8 +74,8 @@ public:
 private:
     NetworkProcessProxy& process() const { return m_process; }
 
-    void platformCreate();
-    void platformDestroy();
+    void NODELETE platformCreate();
+    void NODELETE platformDestroy();
 
     WeakRef<NetworkProcessProxy> m_process;
     HashMap<DownloadID, Ref<DownloadProxy>> m_downloads;

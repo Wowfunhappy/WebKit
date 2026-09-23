@@ -29,8 +29,8 @@ FAIL :rhs_constructible:type="atomic_u32" assert_unreached:
     }
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:682:31
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
+    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
     @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
  Reached unreachable code
 FAIL :rhs_constructible:type="atomic_i32" assert_unreached:
@@ -48,8 +48,8 @@ FAIL :rhs_constructible:type="atomic_i32" assert_unreached:
     }
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:682:31
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
+    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
     @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
  Reached unreachable code
 PASS :rhs_with_decl:test="storage"
@@ -69,8 +69,8 @@ FAIL :rhs_with_decl:test="storage_unsized" assert_unreached:
     }
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:682:31
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
+    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
     @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
  Reached unreachable code
 FAIL :rhs_with_decl:test="storage_atomic" assert_unreached:
@@ -89,8 +89,8 @@ FAIL :rhs_with_decl:test="storage_atomic" assert_unreached:
     }
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:682:31
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
+    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
     @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
  Reached unreachable code
 PASS :rhs_with_decl:test="uniform"
@@ -115,8 +115,8 @@ FAIL :rhs_with_decl:test="workgroup_atomic" assert_unreached:
     }
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:682:31
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
+    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
     @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
  Reached unreachable code
 PASS :rhs_with_decl:test="override"
@@ -148,7 +148,7 @@ FAIL :parse:test="in_for_init" assert_unreached:
       at (elided: below max severity)
   - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
     4:2: Invalid for-loop initialization clause
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
+    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:466:44
  Reached unreachable code
 PASS :parse:test="in_for_init_semi"
 FAIL :parse:test="in_for_update" assert_unreached:
@@ -164,7 +164,7 @@ FAIL :parse:test="in_for_update" assert_unreached:
       at (elided: below max severity)
   - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
     4:2: Invalid for-loop update clause
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
+    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:466:44
  Reached unreachable code
 PASS :parse:test="in_for_update_semi"
 PASS :parse:test="in_block"

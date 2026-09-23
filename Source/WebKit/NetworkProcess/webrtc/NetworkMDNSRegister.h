@@ -88,7 +88,7 @@ public:
 
     bool hasRegisteredName(const String&) const;
 
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
     struct PendingRegistrationRequestIdentifierType { };
     using PendingRegistrationRequestIdentifier = ObjectIdentifier<PendingRegistrationRequestIdentifierType>;

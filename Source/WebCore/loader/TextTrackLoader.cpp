@@ -38,6 +38,7 @@
 #include "HTMLTrackElement.h"
 #include "InspectorInstrumentation.h"
 #include "Logging.h"
+#include "NodeInlinesLight.h"
 #include "SharedBuffer.h"
 #include "VTTCue.h"
 #include "WebVTTParser.h"
@@ -167,7 +168,7 @@ bool TextTrackLoader::load(const URL& url, HTMLTrackElement& element)
         return false;
 
     // FIXME: Do we really need to call completeURL here?
-    ResourceRequest resourceRequest(document->completeURL(url.string()));
+    ResourceRequest resourceRequest(document->encodingParseURL(url.string()));
 
     if (RefPtr mediaElement = element.mediaElement())
         resourceRequest.setInspectorInitiatorNodeIdentifier(InspectorInstrumentation::identifierForNode(*mediaElement));

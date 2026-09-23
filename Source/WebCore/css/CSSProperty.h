@@ -23,16 +23,14 @@
 
 #include <WebCore/CSSPropertyNames.h>
 #include <WebCore/CSSValue.h>
-#include <WebCore/CSSValueKeywords.h>
 #include <WebCore/IsImportant.h>
-#include <WebCore/WritingMode.h>
 #include <wtf/BitSet.h>
-#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
 class CSSValueList;
 class Settings;
+class WritingMode;
 struct CSSParserContext;
 
 enum class IsImplicit : bool { No, Yes };

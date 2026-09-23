@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 var map = new Set();
 
 for (var i = 0; i < 1000; i++) {

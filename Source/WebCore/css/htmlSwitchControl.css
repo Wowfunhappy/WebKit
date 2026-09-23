@@ -29,10 +29,6 @@ input[type="checkbox"][switch] {
     display: initial;
 }
 
-input[type="checkbox"][switch]::slider-thumb, input[type="checkbox"][switch]::slider-track {
-    appearance: inherit !important;
-}
-
 #if defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY
 input[type="checkbox"][switch] {
     border-radius: initial;

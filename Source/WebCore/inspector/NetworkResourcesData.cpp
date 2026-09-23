@@ -33,8 +33,10 @@
 #include "CachedResource.h"
 #include "CertificateInfo.h"
 #include "InspectorNetworkAgent.h"
+#include "InspectorResourceUtilities.h"
 #include "ResourceResponse.h"
 #include "TextResourceDecoder.h"
+#include <WebCore/HTTPStatusCodes.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/Base64.h>
 
@@ -107,7 +109,7 @@ void NetworkResourcesData::ResourceData::decodeDataToContent()
 
     if (m_decoder) {
         m_base64Encoded = false;
-        m_content = m_decoder->decodeAndFlush(buffer->span());
+        m_content = protect(m_decoder)->decodeAndFlush(buffer->span());
     } else {
         m_base64Encoded = true;
         m_content = base64EncodeToString(buffer->span());
@@ -299,7 +301,7 @@ NetworkResourcesData::ResourceData const* NetworkResourcesData::dataForURL(const
     
     for (auto* resourceData : resources()) {
         // responseTimestamp is checked so that we only grab the most recent response for the URL, instead of potentionally getting a more stale response.
-        if (resourceData->url() == url && resourceData->httpStatusCode() != 304 && (!mostRecentResourceData || (resourceData->responseTimestamp() > mostRecentResourceData->responseTimestamp())))
+        if (resourceData->url() == url && resourceData->httpStatusCode() != httpStatus304NotModified && (!mostRecentResourceData || (resourceData->responseTimestamp() > mostRecentResourceData->responseTimestamp())))
             mostRecentResourceData = resourceData;
     }
     

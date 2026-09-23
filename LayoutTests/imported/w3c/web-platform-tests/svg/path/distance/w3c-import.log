@@ -14,6 +14,14 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-overrides-presentation-attribute.tentative-expected.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-overrides-presentation-attribute.tentative.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-property-ref.tentative.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-property.tentative-expected.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-property.tentative.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-zero-ref.tentative.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-zero.tentative-expected.svg
+/LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/path-length-css-zero.tentative.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/pathLength-positive-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/pathLength-positive-percentage-expected.svg
 /LayoutTests/imported/w3c/web-platform-tests/svg/path/distance/pathLength-positive-percentage.svg

@@ -1821,6 +1821,11 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementAtspi::pathDescription() const
     return nullptr;
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementAtspi::pathAsBounds() const
+{
+    return nullptr;
+}
+
 JSRetainPtr<JSStringRef> AccessibilityUIElementAtspi::mathPostscriptsDescription() const
 {
     return nullptr;

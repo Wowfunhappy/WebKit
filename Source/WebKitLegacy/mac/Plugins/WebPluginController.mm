@@ -55,6 +55,7 @@
 #import <WebCore/HTMLMediaElement.h>
 #import <WebCore/HTMLNames.h>
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/UserGestureIndicator.h>

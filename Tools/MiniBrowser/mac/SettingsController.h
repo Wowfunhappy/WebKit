@@ -73,6 +73,8 @@ typedef NS_ENUM(NSInteger, AttachmentElementEnabledState) {
 @property (nonatomic, readonly) BOOL allowUniversalAccessFromFileURLs;
 @property (nonatomic, readonly) BOOL siteSpecificQuirksModeEnabled;
 @property (nonatomic, readonly) BOOL tabFocusesLinksEnabled;
+@property (nonatomic, readonly) BOOL useFindDelegate;
+@property (nonatomic, readonly) BOOL acceptAllTLSCertificates;
 
 @property (nonatomic, readonly) NSString *defaultURL;
 @property (nonatomic, readonly) NSString *customUserAgent;

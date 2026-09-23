@@ -70,17 +70,20 @@
 #import <WebCore/Chrome.h>
 #import <WebCore/ColorMac.h>
 #import <WebCore/CompositionHighlight.h>
+#import <WebCore/ContainerNodeInlines.h>
 #import <WebCore/DatabaseManager.h>
 #import <WebCore/DocumentFragment.h>
 #import <WebCore/DocumentInlines.h>
 #import <WebCore/DocumentLoader.h>
 #import <WebCore/DocumentMarkerController.h>
 #import <WebCore/DocumentMarkers.h>
+#import <WebCore/DocumentPage.h>
 #import <WebCore/DocumentView.h>
 #import <WebCore/Editing.h>
 #import <WebCore/Editor.h>
 #import <WebCore/EventHandler.h>
 #import <WebCore/EventNames.h>
+#import <WebCore/FrameInlines.h>
 #import <WebCore/FrameLoadRequest.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/FrameLoaderStateMachine.h>
@@ -114,7 +117,6 @@
 #import <WebCore/RenderLayerCompositor.h>
 #import <WebCore/RenderLayerScrollableArea.h>
 #import <WebCore/RenderObjectStyle.h>
-#import <WebCore/RenderStyle+GettersInlines.h>
 #import <WebCore/RenderTextControl.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/RenderWidget.h>
@@ -122,6 +124,7 @@
 #import <WebCore/ReportingScope.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/SecurityOrigin.h>
+#import <WebCore/SimpleRange.h>
 #import <WebCore/SmartReplace.h>
 #import <WebCore/SubframeLoader.h>
 #import <WebCore/TextIterator.h>
@@ -1335,7 +1338,7 @@ static WebFrameLoadType NODELETE toWebFrameLoadType(WebCore::FrameLoadType frame
     if (!n)
         return CGSizeMake(0, 0);
     if (auto* renderBox = dynamicDowncast<WebCore::RenderBox>(n->renderer()))
-        return CGSizeMake(std::min((float)renderBox->maxPreferredLogicalWidth(), width), renderBox->height());
+        return CGSizeMake(std::min((float)renderBox->maxContentLogicalWidthContribution(), width), renderBox->borderBoxHeight());
     return CGSizeMake(0, 0);
 }
 
@@ -2141,13 +2144,13 @@ static WebFrameLoadType NODELETE toWebFrameLoadType(WebCore::FrameLoadType frame
     // The global object is probably a proxy object? - if so, we know how to use this!
     JSC::JSObject* globalObjectObj = toJS(globalObjectRef);
     if (!strcmp(globalObjectObj->classInfo()->className, "JSWindowProxy"))
-        anyWorldGlobalObject = JSC::jsDynamicCast<WebCore::JSDOMWindow*>(static_cast<WebCore::JSWindowProxy*>(globalObjectObj)->window());
+        anyWorldGlobalObject = dynamicDowncast<WebCore::JSDOMWindow>(static_cast<WebCore::JSWindowProxy*>(globalObjectObj)->window());
 
     if (!anyWorldGlobalObject)
         return @"";
 
     // Get the frame frome the global object we've settled on.
-    auto* frame = dynamicDowncast<WebCore::LocalFrame>(JSC::jsCast<WebCore::JSDOMWindow*>(anyWorldGlobalObject)->wrapped().frame());
+    auto* frame = dynamicDowncast<WebCore::LocalFrame>(uncheckedDowncast<WebCore::JSDOMWindow>(anyWorldGlobalObject)->wrapped().frame());
     ASSERT(frame->document());
     RetainPtr<WebFrame> webFrame(kit(frame)); // Running arbitrary JavaScript can destroy the frame.
 
@@ -2407,6 +2410,23 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     if (RefPtr document = coreFrame->document())
         document->reportingScope().generateTestReport(message, group);
+}
+
+- (NSString *)_plainTextForTesting
+{
+    auto coreFrame = _private->coreFrame;
+    if (!coreFrame)
+        return @"";
+
+    RefPtr document = coreFrame->document();
+    if (!document || !document->documentElement())
+        return @"";
+
+    Ref documentElement = *document->documentElement();
+    document->updateLayoutIgnorePendingStylesheets();
+    if (!documentElement->renderer())
+        return documentElement->textContent(true).createNSString().autorelease();
+    return plainText(makeRangeSelectingNodeContents(documentElement)).createNSString().autorelease();
 }
 
 @end

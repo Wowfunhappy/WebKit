@@ -6,6 +6,9 @@ SVG * > title
 
 
 
+Interactive Elements > SVG > title
+
+
 SVG a[xlink:title][href]
 
 
@@ -19,6 +22,12 @@ PASS circle > title
 PASS rect > title
 PASS polygon > title
 PASS g > title
+PASS a > circle > title
+PASS a > rect > title
+PASS a > polygon > title
+PASS button > circle > title
+PASS button > rect > title
+PASS button > polygon > title
 PASS [xlink:title][href] > circle
 PASS [xlink:title][href] > rect
 PASS [xlink:title][href] > polygon

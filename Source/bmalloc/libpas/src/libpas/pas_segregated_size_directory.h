@@ -28,17 +28,13 @@
 
 #include "pas_allocator_index.h"
 #include "pas_bitfit_size_class.h"
-#include "pas_compact_atomic_page_sharing_pool_ptr.h"
 #include "pas_compact_atomic_segregated_size_directory_ptr.h"
-#include "pas_compact_atomic_thread_local_cache_layout_node.h"
 #include "pas_compact_tagged_page_granule_use_count_ptr.h"
 #include "pas_compact_tagged_unsigned_ptr.h"
 #include "pas_config.h"
 #include "pas_heap_config.h"
-#include "pas_page_granule_use_count.h"
 #include "pas_segregated_directory.h"
 #include "pas_segregated_size_directory_creation_mode.h"
-#include "pas_zero_memory.h"
 
 #if LIBPAS_ENABLED
 

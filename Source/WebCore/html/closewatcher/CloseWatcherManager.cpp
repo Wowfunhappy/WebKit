@@ -56,9 +56,11 @@ void CloseWatcherManager::remove(CloseWatcher& watcher)
         group.removeFirstMatching([&watcher] (const Ref<CloseWatcher>& current) {
             return current.ptr() == &watcher;
         });
-        if (group.isEmpty())
-            m_groups.removeFirst(group);
     }
+
+    m_groups.removeAllMatching([] (const Vector<Ref<CloseWatcher>>& group) {
+        return group.isEmpty();
+    });
 }
 
 void CloseWatcherManager::notifyAboutUserActivation()
@@ -74,13 +76,13 @@ bool CloseWatcherManager::canPreventClose()
     return m_groups.size() < m_allowedNumberOfGroups;
 }
 
-void CloseWatcherManager::escapeKeyHandler(KeyboardEvent& event)
+void CloseWatcherManager::processCloseWatchers()
 {
-    if (!m_groups.isEmpty() && !event.defaultHandled() && event.isTrusted() && event.key() == "Escape"_s) {
+    if (!m_groups.isEmpty()) {
         auto& group = m_groups.last();
         Vector<Ref<CloseWatcher>> groupCopy(group);
         for (Ref watcher : groupCopy | std::views::reverse) {
-            if (!watcher->requestToClose())
+            if (!watcher->requestToClose(RequireHistoryActionActivation::Yes))
                 break;
         }
     }

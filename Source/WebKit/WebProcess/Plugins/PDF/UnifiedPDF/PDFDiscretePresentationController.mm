@@ -28,6 +28,7 @@
 
 #if ENABLE(UNIFIED_PDF)
 
+#include "AsyncPDFRenderer.h"
 #include "Logging.h"
 #include "UnifiedPDFPlugin.h"
 #include "WebEventConversion.h"
@@ -96,12 +97,12 @@ void PDFDiscretePresentationController::teardown()
     m_rows.clear();
 }
 
-bool PDFDiscretePresentationController::supportsDisplayMode(PDFDisplayMode mode) const
+bool PDFDiscretePresentationController::supportsDisplayMode(PDFPluginDisplayMode mode) const
 {
     return isDiscretePDFDisplayMode(mode);
 }
 
-void PDFDiscretePresentationController::willChangeDisplayMode(PDFDisplayMode newMode)
+void PDFDiscretePresentationController::willChangeDisplayMode(PDFPluginDisplayMode newMode)
 {
     ASSERT(supportsDisplayMode(newMode));
     m_visibleRowIndex = 0;

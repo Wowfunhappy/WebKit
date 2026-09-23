@@ -82,6 +82,8 @@ SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourcePrivateGSt
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_mse_sourcebuffer_debug, "webkitmsesourcebuffer", 0, "WebKit MSE SourceBuffer");
     });
+
+    GST_DEBUG_OBJECT(m_appendPipeline ? m_appendPipeline->pipeline() : nullptr, "SourceBufferPrivate created");
 }
 
 SourceBufferPrivateGStreamer::~SourceBufferPrivateGStreamer()
@@ -198,7 +200,8 @@ void SourceBufferPrivateGStreamer::flush(TrackID trackId)
     if (!player)
         return;
     GST_DEBUG_OBJECT(player->pipeline(), "Source element has emitted tracks, let it handle the flush, which may cause a pipeline flush as well. trackId = '%" PRIu64 "'", track->id());
-    webKitMediaSrcFlush(player->webKitMediaSrc(), track->id());
+    if (auto source = player->webKitMediaSrc())
+        webKitMediaSrcFlush(source, track->id());
 }
 
 void SourceBufferPrivateGStreamer::enqueueSample(Ref<MediaSample>&& sample, TrackID trackId)
@@ -241,7 +244,7 @@ bool SourceBufferPrivateGStreamer::isReadyForMoreSamples(TrackID trackId)
     auto track = m_tracks[trackId];
     bool ret = track->isReadyForMoreSamples();
     if (RefPtr player = this->player())
-        GST_TRACE_OBJECT(player->pipeline(), "track %" PRIu64 "isReadyForMoreSamples: %s", trackId, boolForPrinting(ret));
+        GST_TRACE_OBJECT(player->pipeline(), "track %" PRIu64 " isReadyForMoreSamples: %s", trackId, boolForPrinting(ret));
     return ret;
 }
 
@@ -475,24 +478,6 @@ void SourceBufferPrivateGStreamer::detach()
 
     if (RefPtr mediaSource = m_mediaSource.get())
         downcast<MediaSourcePrivateGStreamer>(mediaSource)->detach();
-}
-
-void SourceBufferPrivateGStreamer::willSeek()
-{
-    ALWAYS_LOG(LOGIDENTIFIER);
-    m_seeking = true;
-}
-
-bool SourceBufferPrivateGStreamer::isSeeking() const
-{
-    return m_seeking;
-}
-
-void SourceBufferPrivateGStreamer::seekToTime(const MediaTime& time)
-{
-    m_seeking = false;
-    // WebKit now has the samples to complete the seek and is about to enqueue them.
-    SourceBufferPrivate::seekToTime(time);
 }
 
 #undef GST_CAT_DEFAULT

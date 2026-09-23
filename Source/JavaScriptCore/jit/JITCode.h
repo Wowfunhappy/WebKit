@@ -28,6 +28,7 @@
 #include <JavaScriptCore/ArityCheckMode.h>
 #include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/CodeOrigin.h>
+#include <JavaScriptCore/Intrinsic.h>
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/MacroAssemblerCodeRef.h>
 #include <JavaScriptCore/RegisterAtOffsetList.h>
@@ -70,7 +71,7 @@ enum class JITType : uint8_t {
     FTLJIT = 0b101,
 };
 static constexpr unsigned widthOfJITType = 3;
-static_assert(WTF::getMSBSetConstexpr(static_cast<std::underlying_type_t<JITType>>(JITType::FTLJIT)) + 1 == widthOfJITType);
+static_assert(WTF::getMSBSet(static_cast<std::underlying_type_t<JITType>>(JITType::FTLJIT)) + 1 == widthOfJITType);
 
 #if CPU(ADDRESS64)
 template<typename ByteSizedEnumType>
@@ -238,6 +239,9 @@ public:
 
     virtual bool canSwapCodeRefForDebugger() const { return false; }
     virtual CodeRef<JSEntryPtrTag> swapCodeRefForDebugger(CodeRef<JSEntryPtrTag>);
+
+    virtual bool canSwapCodePtrWithArityCheckForDebugger() const { return false; }
+    virtual CodePtr<JSEntryPtrTag> swapCodePtrWithArityCheckForDebugger(CodePtr<JSEntryPtrTag>);
     
     enum class ShareAttribute : uint8_t {
         NotShared,
@@ -255,7 +259,7 @@ public:
         return m_jitType;
     }
 
-    bool isUnlinked() const;
+    bool NODELETE isUnlinked() const;
     
     template<typename PointerType>
     static JITType jitTypeFor(PointerType jitCode)
@@ -341,6 +345,10 @@ public:
     ~DirectJITCode() override;
     
     CodePtr<JSEntryPtrTag> addressForCall(ArityCheckMode) override;
+
+    bool canSwapCodeRefForDebugger() const override { return jitType() == JITType::HostCallThunk; }
+    bool canSwapCodePtrWithArityCheckForDebugger() const override { return jitType() == JITType::HostCallThunk; }
+    CodePtr<JSEntryPtrTag> swapCodePtrWithArityCheckForDebugger(CodePtr<JSEntryPtrTag>) override;
 
 protected:
     void initializeCodeRefForDFG(CodeRef<JSEntryPtrTag>, CodePtr<JSEntryPtrTag> withArityCheck);

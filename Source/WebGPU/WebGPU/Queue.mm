@@ -35,20 +35,22 @@
 #import "MetalSPI.h"
 #import "Texture.h"
 #import "TextureView.h"
+#import <simd/simd.h>
+#import <wtf/Borrow.h>
+#import <wtf/CheckedArithmetic.h>
+#import <wtf/StdLibExtras.h>
+#import <wtf/TZoneMallocInlines.h>
+
 #if ENABLE(WEBGPU_SWIFT)
 #import "CxxBridging.h"
 #import <WebGPU/CxxBridgingPublic.h>
 #import <WebGPU/WGPUTextureImpl.h>
 #import "WebGPUSwift-Generated.h"
 #endif
-#import <simd/simd.h>
-#import <wtf/CheckedArithmetic.h>
-#import <wtf/StdLibExtras.h>
-#import <wtf/TZoneMallocInlines.h>
 
 namespace WebGPU {
 
-constexpr static auto largeBufferSize = 32 * 1024 * 1024;
+constexpr static auto largeBufferSize = WGPU_LARGE_BUFFER_SIZE;
 constexpr bool skipMemoryAttribution = true;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Queue);
@@ -284,14 +286,14 @@ void Queue::commitMTLCommandBuffer(id<MTLCommandBuffer> commandBuffer)
     }
 
     ASSERT(commandBuffer.commandQueue == m_commandQueue);
-    [commandBuffer addScheduledHandler:[protectedThis = Ref { *this }](id<MTLCommandBuffer>) {
+    [commandBuffer addScheduledHandler:[protectedThis = protect(*this)](id<MTLCommandBuffer>) {
         protectedThis->scheduleWork([protectedThis = protectedThis.copyRef()]() {
             ++(protectedThis->m_scheduledCommandBufferCount);
             for (auto& callback : protectedThis->m_onSubmittedWorkScheduledCallbacks.take(protectedThis->m_scheduledCommandBufferCount))
                 callback();
         });
     }];
-    [commandBuffer addCompletedHandler:[protectedThis = Ref { *this }](id<MTLCommandBuffer> mtlCommandBuffer) {
+    [commandBuffer addCompletedHandler:[protectedThis = protect(*this)](id<MTLCommandBuffer> mtlCommandBuffer) {
         MTLCommandBufferStatus status = mtlCommandBuffer.status;
         bool loseTheDevice = false;
         if (NSError *error = mtlCommandBuffer.error; status != MTLCommandBufferStatusCompleted) {
@@ -303,6 +305,7 @@ void Queue::commitMTLCommandBuffer(id<MTLCommandBuffer> commandBuffer)
                 else {
 #define makeCase(N) case N: crashGPUProcess<N>(error, underlyingError);
                     switch (underlyingError.code) {
+                        makeCase(8); // kIOGPUCommandBufferCallbackErrorOutOfMemory = 8,
                         makeCase(9); // kIOGPUCommandBufferCallbackErrorInvalidResource = 9,
                         makeCase(10); // kIOGPUCommandBufferCallbackErrorInvalidInput = 10,
                         makeCase(11); // kIOGPUCommandBufferCallbackErrorPageFault = 11,
@@ -411,7 +414,7 @@ uint64_t Queue::retainCounterSampleBuffer(CommandEncoder& encoder)
 
 void Queue::releaseCounterSampleBuffer(uint64_t encoderHandle)
 {
-    scheduleWork([protectedThis = Ref { *this }, encoderHandle]() {
+    scheduleWork([protectedThis = protect(*this), encoderHandle]() {
         [protectedThis->m_retainedCounterSampleBuffers removeObjectForKey:[NSNumber numberWithUnsignedLongLong:encoderHandle]];
     });
 }
@@ -422,7 +425,7 @@ void Queue::retainTimestampsForOneUpdate(NSMutableSet<id<MTLCounterSampleBuffer>
     if (!timestamps)
         return;
 
-    scheduleWork([protectedThis = Ref { *this }, timestamps]() {
+    scheduleWork([protectedThis = protect(*this), timestamps]() {
         UNUSED_PARAM(timestamps);
     });
 }
@@ -455,11 +458,13 @@ bool Queue::validateWriteBuffer(const Buffer& buffer, uint64_t bufferOffset, siz
 void Queue::synchronizeResourceAndWait(id<MTLBuffer> buffer)
 {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (buffer.storageMode != MTLStorageModeManaged)
         return;
 
     ensureBlitCommandEncoder();
     [m_blitCommandEncoder synchronizeResource:buffer];
+    ALLOW_DEPRECATED_DECLARATIONS_END
     id<MTLCommandBuffer> commandBuffer = m_commandBuffer;
     finalizeBlitCommandEncoder();
     [commandBuffer waitUntilCompleted];
@@ -476,7 +481,7 @@ id<MTLIndirectCommandBuffer> Queue::trimICB(id<MTLIndirectCommandBuffer> dest, i
     return dest;
 }
 
-static std::pair<uint32_t, uint16_t> maxIndexValueSlow(std::span<uint8_t> data)
+static std::pair<uint32_t, uint16_t> NODELETE maxIndexValueSlow(std::span<uint8_t> data)
 {
     auto lengthUint32 = data.size() / 4;
     std::span<uint32_t> dataUint = unsafeMakeSpan(static_cast<uint32_t*>(static_cast<void*>(data.data())), lengthUint32);
@@ -561,13 +566,15 @@ void Queue::writeBuffer(Buffer& buffer, uint64_t bufferOffset, std::span<uint8_t
     if (isIdle()) {
         switch (buffer.buffer().storageMode) {
         case MTLStorageModeShared:
-            memcpySpan(buffer.getBufferContents().subspan(bufferOffset, data.size()), data);
+            SUPPRESS_UNCOUNTED_ARG memcpySpan(borrow(buffer)->getBufferContents().subspan(bufferOffset, data.size()), data);
             return;
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         case MTLStorageModeManaged:
-            memcpySpan(buffer.getBufferContents().subspan(bufferOffset, data.size()), data);
+            SUPPRESS_UNCOUNTED_ARG memcpySpan(borrow(buffer)->getBufferContents().subspan(bufferOffset, data.size()), data);
             [buffer.buffer() didModifyRange:NSMakeRange(bufferOffset, data.size())];
             return;
+        ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
         case MTLStorageModePrivate:
             // The only way to get data into a private resource is to tell the GPU to copy it in.
@@ -611,7 +618,7 @@ void Queue::writeBuffer(id<MTLBuffer> buffer, uint64_t bufferOffset, std::span<u
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled()) {
-        Queue_writeBuffer_thunk(this, buffer, bufferOffset, data);
+        queueWriteBuffer(this, buffer, bufferOffset, data);
         return;
     }
 #endif
@@ -919,7 +926,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
 
     switch (textureDimension) {
     case WGPUTextureDimension_1D:
-        if (!widthForMetal)
+        if (!widthForMetal || !heightForMetal)
             return;
         break;
     case WGPUTextureDimension_2D:
@@ -953,7 +960,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         auto checkedNewBytesPerImageTimesMaxZ = checkedProduct<uint32_t>(newBytesPerImage, maxZ);
         if (checkedNewBytesPerImageTimesMaxZ.hasOverflowed())
             return;
-        newData = Vector<uint8_t>(checkedNewBytesPerImageTimesMaxZ.value(), 0);
+        newData = Vector<uint8_t>(FillWith { }, checkedNewBytesPerImageTimesMaxZ.value(), 0);
         dataLayoutOffset = 0;
 
         auto verticalOffset = checkedProduct<uint64_t>(maxY ? (maxY - 1) : 0, bytesPerRow);
@@ -1015,12 +1022,14 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         switch (mtlTexture.storageMode) {
         case MTLStorageModeShared:
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         case MTLStorageModeManaged:
+        ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
             {
                 switch (textureDimension) {
                 case WGPUTextureDimension_1D: {
-                    if (!widthForMetal)
+                    if (!widthForMetal || !heightForMetal)
                         return;
 
                     auto region = MTLRegionMake1D(destination.origin.x, widthForMetal);
@@ -1127,7 +1136,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         // https://developer.apple.com/documentation/metal/mtlblitcommandencoder/1400771-copyfrombuffer?language=objc
         // "When you copy to a 1D texture, height and depth must be 1."
         auto sourceSize = MTLSizeMake(widthForMetal, 1, 1);
-        if (!widthForMetal)
+        if (!widthForMetal || !heightForMetal)
             return;
 
         auto destinationOrigin = MTLOriginMake(destination.origin.x, 0, 0);
@@ -1223,8 +1232,16 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         return;
     }
 
-    if (noCopy)
+    if (noCopy) {
+        if (!newData.isEmpty()) {
+            // The MTLBuffer above was created with newBufferWithBytesNoCopy and aliases newData's storage; keep that storage alive until the GPU has consumed it.
+            __block Vector<uint8_t> retainedNewData = WTF::move(newData);
+            [m_commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+                retainedNewData = { };
+            }];
+        }
         finalizeBlitCommandEncoder();
+    }
 }
 
 void Queue::setLabel(String&& label)

@@ -51,14 +51,20 @@ class RenderSVGModelObject : public RenderLayerModelObject {
 public:
     virtual ~RenderSVGModelObject();
 
-    bool requiresLayer() const override { return true; }
+    bool requiresLayer() const override;
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     static bool checkIntersection(RenderElement*, const FloatRect&);
     static bool checkEnclosure(RenderElement*, const FloatRect&);
 
     inline SVGElement& element() const;
+
+    // Cached local SVG transform for non-layered elements.
+    // For layered elements, the layer caches the transform instead.
+    // Updated via updateLocalTransform(), analogous to updateLayerTransform() for layered elements.
+    AffineTransform localTransform() const override { return m_localTransform.value_or(AffineTransform()); }
+    void updateLocalTransform();
 
     LayoutRect currentSVGLayoutRect() const { return m_layoutRect; }
     void setCurrentSVGLayoutRect(const LayoutRect& layoutRect) { m_layoutRect = layoutRect; }
@@ -93,8 +99,8 @@ public:
     void invalidateCachedVisualOverflowRect() override { m_cachedVisualOverflowRect = std::nullopt; }
 
 protected:
-    RenderSVGModelObject(Type, Document&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
-    RenderSVGModelObject(Type, SVGElement&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    RenderSVGModelObject(Type, Document&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    RenderSVGModelObject(Type, SVGElement&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
 
     void updateFromStyle() override;
 
@@ -117,10 +123,13 @@ protected:
 
     mutable std::optional<LayoutRect> m_cachedVisualOverflowRect;
 
+    void updateLayerTransform() override;
+
 private:
     LayoutSize NODELETE cachedSizeForOverflowClip() const;
 
     LayoutRect m_layoutRect;
+    std::optional<AffineTransform> m_localTransform;
 };
 
 } // namespace WebCore

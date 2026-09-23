@@ -31,6 +31,8 @@ endif ()
 
 set(CMAKE_C_COMPILER   ${_TC}/bin/clang)
 set(CMAKE_CXX_COMPILER ${_TC}/bin/clang++)
+set(CMAKE_OBJC_COMPILER ${_TC}/bin/clang)
+set(CMAKE_OBJCXX_COMPILER ${_TC}/bin/clang++)
 
 # --- ccache (in-tree) ---------------------------------------------------------
 # Launch the compiler through the in-tree ccache so incremental AND reconfigured
@@ -111,8 +113,14 @@ else ()
 endif ()
 set(Ruby_EXECUTABLE "${_RUBY}" CACHE FILEPATH "")
 
+# The system Mach interface generator emits the exception server stubs.
+find_program(Mig_EXECUTABLE mig REQUIRED)
+
 # --- RTTI ---------------------------------------------------------------------
 # WebKit builds without RTTI; the CMake port spells that only for CXX, leaving ObjC++
 # with RTTI on. A .mm then references C++ typeinfos that the -fno-rtti .cpp definitions
 # never emit, and every WebKit process aborts at dyld load on the undefined symbols.
 set(CMAKE_OBJCXX_FLAGS "-fno-rtti" CACHE STRING "" FORCE)
+
+# The port uses upstream C++ backends and the native Objective-C host interface.
+set(SWIFT_REQUIRED OFF)

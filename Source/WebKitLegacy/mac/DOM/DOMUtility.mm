@@ -47,6 +47,7 @@
 #import "DOMTreeWalkerInternal.h"
 #import "DOMXPathExpressionInternal.h"
 #import "DOMXPathResultInternal.h"
+#import <JavaScriptCore/HeapCellInlines.h>
 #import <WebCore/JSCSSRule.h>
 #import <WebCore/JSCSSRuleList.h>
 #import <WebCore/JSCSSStyleDeclaration.h>

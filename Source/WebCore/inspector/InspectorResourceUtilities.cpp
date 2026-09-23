@@ -31,13 +31,18 @@
 #include "CachedScript.h"
 #include "DocumentInlines.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentResourceLoader.h"
 #include "FrameLoader.h"
 #include "InspectorResourceType.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "MIMETypeRegistry.h"
 #include "MemoryCache.h"
+#include "Page.h"
 #include "SharedBuffer.h"
+#include <JavaScriptCore/ContentSearchUtilities.h>
+#include <JavaScriptCore/InspectorProtocolObjects.h>
 
 namespace Inspector {
 
@@ -111,7 +116,7 @@ Vector<CachedResource*> cachedResourcesForFrame(LocalFrame* frame)
 {
     Vector<CachedResource*> result;
 
-    for (auto& cachedResourceHandle : frame->document()->cachedResourceLoader().allCachedResources().values()) {
+    for (auto& cachedResourceHandle : protect(frame->document())->cachedResourceLoader().allCachedResources().values()) {
         RefPtr cachedResource = cachedResourceHandle;
         if (cachedResource->resourceRequest().hiddenFromInspector())
             continue;
@@ -141,7 +146,7 @@ bool mainResourceContent(LocalFrame* frame, bool withBase64Encode, String* resul
     RefPtr<FragmentedSharedBuffer> buffer = frame->loader().documentLoader()->mainResourceData();
     if (!buffer)
         return false;
-    return dataContent(buffer->makeContiguous()->span(), frame->document()->encoding(), withBase64Encode, result);
+    return dataContent(buffer->makeContiguous()->span(), protect(frame->document())->encoding(), withBase64Encode, result);
 }
 
 void resourceContent(Inspector::Protocol::ErrorString& errorString, LocalFrame* frame, const URL& url, String* result, bool* base64Encoded)
@@ -164,6 +169,51 @@ void resourceContent(Inspector::Protocol::ErrorString& errorString, LocalFrame* 
 
     if (!success)
         errorString = "Missing resource for given url"_s;
+}
+
+Ref<JSON::ArrayOf<Inspector::Protocol::Page::FrameResource>> buildResourceObjectsForFrame(LocalFrame& frame)
+{
+    auto resources = JSON::ArrayOf<Inspector::Protocol::Page::FrameResource>::create();
+    for (auto& resource : buildResourceDataForFrame(frame))
+        resources->addItem(buildResourceObject(resource));
+    return resources;
+}
+
+Vector<Inspector::FrameResource> buildResourceDataForFrame(LocalFrame& frame)
+{
+    Vector<Inspector::FrameResource> resources;
+    for (RefPtr cachedResource : cachedResourcesForFrame(&frame)) {
+        Inspector::FrameResource resource;
+        resource.url = cachedResource->url().string();
+        resource.type = inspectorResourceType(*cachedResource);
+        resource.mimeType = cachedResource->response().mimeType();
+        if (cachedResource->wasCanceled())
+            resource.canceled = true;
+        else if (cachedResource->status() == CachedResource::LoadError || cachedResource->status() == CachedResource::DecodeError)
+            resource.failed = true;
+        resource.sourceMapURL = sourceMapURLForResource(cachedResource.get());
+        resource.targetId = cachedResource->resourceRequest().initiatorIdentifier();
+        resources.append(WTF::move(resource));
+    }
+    return resources;
+}
+
+Ref<Inspector::Protocol::Page::FrameResource> buildResourceObject(const Inspector::FrameResource& resource)
+{
+    auto resourceObject = Inspector::Protocol::Page::FrameResource::create()
+        .setUrl(resource.url)
+        .setType(resourceTypeToProtocol(resource.type))
+        .setMimeType(resource.mimeType)
+        .release();
+    if (resource.canceled)
+        resourceObject->setCanceled(true);
+    else if (resource.failed)
+        resourceObject->setFailed(true);
+    if (!resource.sourceMapURL.isEmpty())
+        resourceObject->setSourceMapURL(resource.sourceMapURL);
+    if (!resource.targetId.isEmpty())
+        resourceObject->setTargetId(resource.targetId);
+    return resourceObject;
 }
 
 String sourceMapURLForResource(CachedResource* cachedResource)
@@ -196,10 +246,13 @@ RefPtr<CachedResource> cachedResource(const LocalFrame* frame, const URL& url)
     if (url.isNull())
         return nullptr;
 
-    RefPtr cachedResource = frame->document()->cachedResourceLoader().cachedResource(MemoryCache::removeFragmentIdentifierIfNeeded(url));
+    RefPtr cachedResource = protect(frame->document())->cachedResourceLoader().cachedResource(MemoryCache::removeFragmentIdentifierIfNeeded(url));
     if (!cachedResource) {
         ResourceRequest request(URL { url });
-        request.setDomainForCachePartition(frame->document()->domainForCachePartition());
+        if (RefPtr document = frame->document()) {
+            request.setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
+            request.setFirstPartyForCookies(document->firstPartyForCookies());
+        }
         cachedResource = MemoryCache::singleton().resourceForRequest(request, frame->page()->sessionID());
     }
 
@@ -273,7 +326,7 @@ LocalFrame* findFrameWithSecurityOrigin(Page& page, const String& originRawStrin
         SUPPRESS_UNCOUNTED_LOCAL auto* localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
-        if (localFrame->document()->securityOrigin().toRawString() == originRawString)
+        if (protect(localFrame->document())->securityOrigin().toRawString() == originRawString)
             return localFrame;
     }
     return nullptr;

@@ -36,7 +36,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <wtf/ZippedRange.h>
 #include <wtf/text/AdaptiveStringSearcher.h>
 #include <wtf/text/MakeString.h>
-#include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
 
@@ -420,10 +419,10 @@ bool equalRespectingNullity(StringView a, StringView b)
 
 SUPPRESS_NODELETE size_t StringView::reverseFind(StringView matchString, unsigned start) const
 {
-    if (isNull())
+    if (isNull() || matchString.isNull())
         return notFound;
 
-    if (matchString.length())
+    if (matchString.isEmpty())
         return std::min(start, length());
 
     // Check start & matchLength are in range.
@@ -473,7 +472,7 @@ String makeStringByReplacingAll(StringView string, char16_t target, char16_t rep
     return StringImpl::createByReplacingInCharacters(characters, target, replacement, i);
 }
 
-std::strong_ordering codePointCompare(StringView lhs, StringView rhs)
+SUPPRESS_NODELETE std::strong_ordering codePointCompare(StringView lhs, StringView rhs)
 {
     bool lhsIs8Bit = lhs.is8Bit();
     bool rhsIs8Bit = rhs.is8Bit();

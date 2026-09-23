@@ -89,7 +89,7 @@ void SharedWorkerObjectConnection::postErrorToWorkerObject(SharedWorkerObjectIde
     if (!workerObject)
         return;
 
-    auto event = isErrorEvent ? Ref<Event> { ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, { }) } : Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No);
+    auto event = isErrorEvent ? Ref<Event> { ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber) } : Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No);
     ActiveDOMObject::queueTaskToDispatchEvent(*workerObject, TaskSource::DOMManipulation, WTF::move(event));
 }
 

@@ -34,9 +34,11 @@
 #import <JavaScriptCore/APICast.h>
 #import <JavaScriptCore/ArrayBuffer.h>
 #import <JavaScriptCore/JSArrayBuffer.h>
+#import <JavaScriptCore/JSCJSValueInlines.h>
 #import <JavaScriptCore/JSContextRef.h>
 #import <JavaScriptCore/JSObjectRef.h>
 #import <JavaScriptCore/JavaScriptCore.h>
+#import <JavaScriptCore/OpaqueJSString.h>
 #import <objc/runtime.h>
 #import <wtf/cocoa/SpanCocoa.h>
 
@@ -132,7 +134,7 @@ static JSValue *jsValueWithDataInContext(NSData *data, JSContext *context)
 
     auto* lexicalGlobalObject = toJS([context JSGlobalContextRef]);
     // FIXME: It is a layering violation to use the JSDOMGlobalObject type in the platform directory.
-    JSC::JSValue array = dataArray ? toJS(lexicalGlobalObject, JSC::jsCast<JSDOMGlobalObject*>(lexicalGlobalObject), *dataArray) : JSC::jsNull();
+    JSC::JSValue array = dataArray ? toJS(lexicalGlobalObject, downcast<JSDOMGlobalObject>(lexicalGlobalObject), *dataArray) : JSC::jsNull();
 
     return [JSValue valueWithJSValueRef:toRef(lexicalGlobalObject, array) inContext:context];
 }

@@ -17,4 +17,6 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/origin/inheritance/about-blank-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/origin/inheritance/about-blank-window.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/origin/inheritance/about-srcdoc.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/origin/inheritance/document-write.https.window.js
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/origin/inheritance/document-write.https.window.js.headers
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/origin/inheritance/javascript-url.html

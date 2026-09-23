@@ -10,6 +10,13 @@ selectors = [
     { name = "initWithUUID:andRemotePid:andContextId:", class = "?" },
 ]
 
+[[temporary-usage]]
+request = "rdar://181067589"
+cleanup = "rdar://181067932"
+symbols = [
+    "kCMTextMarkupAttribute_PreventLineWrapping",
+]
+
 [[not-web-essential]]
 request = "rdar://157890384"
 classes = ["MTMaterialLayer"]
@@ -67,12 +74,13 @@ selectors = [
     { name = "_parentTypes", class = "UTType" },
 ]
 
-[[temporary-usage]]
+[[staging]]
 request = "rdar://161241270"
 cleanup = "rdar://161241477"
 symbols = [
     "CTFontGetUIFontType",
 ]
+requires-sdk = ["iOS <= 26.4"]
 
 [[temporary-usage]]
 request = "rdar://168834967"
@@ -92,6 +100,24 @@ symbols = [
 cleanup = "rdar://171200085"
 symbols = [
     "MACaptionAppearanceCopyPreviewText",
+]
+
+[[temporary-usage]]
+request = "rdar://175714562"
+cleanup = "rdar://175714562"
+symbols = [
+    "CGImageApplyHDRGainMap",
+    "CGImageSourceCopyAuxiliaryDataInfoAtIndexWithOptions",
+    "CGImageCreateFromIOSurface",
+    "CGImageCreatePixelBufferAttributesForHDRTarget",
+    "CGImageGetHDRGainMapHeadroom",
+    "kCGImageAuxiliaryDataInfoPixelBuffer",
+    "kCGImageAuxiliaryDataRepresentation",
+    "kCGImageAuxiliaryDataRepresentationPixelBuffer",
+    "kCGFlexRangeAlternateColorSpace",
+    "kCGTargetColorSpace",
+    "kCGTargetHeadroom",
+    "kCGTargetPixelFormat",
 ]
 
 [[not-web-essential]]
@@ -130,4 +156,29 @@ request = "rdar://170092229"
 cleanup = "rdar://170092414"
 symbols = [
     "CGPatternCreateWithImageTransformStep",
+]
+
+[[temporary-usage]]
+request = "rdar://165789536"
+cleanup = "rdar://173046822"
+classes = [
+    "_WTTextEffectManager",
+    "_WTTextPreview",
+]
+
+[[temporary-usage]]
+requires = [ "HAVE_CORE_TEXT_GLYPHHASCOMPLEXCOLOR_FUNCTION" ]
+request = "rdar://168960112"
+cleanup = "rdar://170480216"
+symbols = [
+    "CTFontHasComplexColorFormatForGlyph",
+]
+
+[[temporary-usage]]
+request = "rdar://182597756"
+cleanup = "rdar://182597920"
+requires-sdk = ["iOS >= 27"]
+allow-unused = true
+swift-decls = [
+    { name = "Foundation.ContiguousBytes.withBytes(_:)", type_kinds = { "ContiguousBytes" = "protocol" } },
 ]

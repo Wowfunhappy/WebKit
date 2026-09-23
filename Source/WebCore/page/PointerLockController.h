@@ -60,7 +60,7 @@ class PointerLockController {
 public:
     explicit PointerLockController(Page&);
     ~PointerLockController();
-    void requestPointerLock(Element* target, std::optional<PointerLockOptions>&& = std::nullopt, RefPtr<DeferredPromise> = nullptr);
+    void requestPointerLock(Element* target, PointerLockOptions&&, Ref<DeferredPromise>&&);
 
     void NODELETE ref() const;
     void deref() const;
@@ -93,7 +93,7 @@ private:
     bool m_lockPending { false };
     bool m_unlockPending { false };
     bool m_forceCursorVisibleUponUnlock { false };
-    std::optional<PointerLockOptions> m_options;
+    PointerLockOptions m_options;
     RefPtr<Element> m_element;
     Vector<Ref<DeferredPromise>> m_promises;
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_documentOfRemovedElementWhileWaitingForUnlock;

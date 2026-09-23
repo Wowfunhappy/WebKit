@@ -31,6 +31,7 @@ import sre_compile
 #        after moving the relevant cpp_unittest.ErrorCollector code
 #        into a shared location and refactoring appropriately.
 categories = set([
+    "non-inclusive-term",
     "whitespace/carriage_return",
     "whitespace/tab"])
 
@@ -79,7 +80,7 @@ class CarriageReturnChecker(object):
     def __init__(self, handle_style_error):
         self._handle_style_error = handle_style_error
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         """Check for and strip trailing carriage returns from lines."""
         for line_number in range(len(lines)):
             if not lines[line_number].endswith("\r"):
@@ -104,7 +105,7 @@ class TabChecker(object):
         self.file_path = file_path
         self.handle_style_error = handle_style_error
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         # FIXME: share with cpp_style.
         for line_number, line in enumerate(lines):
             if "\t" in line:

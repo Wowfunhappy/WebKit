@@ -38,9 +38,7 @@ namespace WebCore {
 
 static ServiceWorkerProvider* sharedProvider;
 
-ServiceWorkerProvider::~ServiceWorkerProvider()
-{
-}
+ServiceWorkerProvider::~ServiceWorkerProvider() = default;
 
 ServiceWorkerProvider& ServiceWorkerProvider::singleton()
 {

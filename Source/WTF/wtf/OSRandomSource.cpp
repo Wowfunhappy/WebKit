@@ -26,7 +26,6 @@
 #include "config.h"
 #include <wtf/OSRandomSource.h>
 
-#include <mutex>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RandomDevice.h>
 

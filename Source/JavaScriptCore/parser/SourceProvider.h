@@ -38,7 +38,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <JavaScriptCore/SourceOrigin.h>
 #include <JavaScriptCore/SourceTaintedOrigin.h>
 #include <wtf/Lock.h>
-#include <wtf/RefCounted.h>
 #include <wtf/text/TextPosition.h>
 #include <wtf/text/WTFString.h>
 
@@ -119,7 +118,7 @@ private:
     JS_EXPORT_PRIVATE virtual void lockUnderlyingBufferImpl();
     JS_EXPORT_PRIVATE virtual void unlockUnderlyingBufferImpl();
 
-    JS_EXPORT_PRIVATE void getID();
+    JS_EXPORT_PRIVATE void NODELETE getID();
 
     std::atomic<unsigned> m_lockingCount { 0 };
     SourceProviderSourceType m_sourceType;

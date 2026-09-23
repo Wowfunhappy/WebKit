@@ -26,6 +26,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -33,7 +34,6 @@
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -66,10 +66,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestDefaultToJSONIndirectInheritancePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestDefaultToJSONIndirectInheritancePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -107,11 +104,16 @@ static const std::array<HashTableValue, 1> JSTestDefaultToJSONIndirectInheritanc
 
 const ClassInfo JSTestDefaultToJSONIndirectInheritancePrototype::s_info = { "TestDefaultToJSONIndirectInheritance"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSONIndirectInheritancePrototype) };
 
+JSC::Structure* JSTestDefaultToJSONIndirectInheritancePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestDefaultToJSONIndirectInheritancePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestDefaultToJSONIndirectInheritance::info(), JSTestDefaultToJSONIndirectInheritancePrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestDefaultToJSONIndirectInheritance::s_info = { "TestDefaultToJSONIndirectInheritance"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSONIndirectInheritance) };
@@ -122,6 +124,19 @@ JSTestDefaultToJSONIndirectInheritance::JSTestDefaultToJSONIndirectInheritance(S
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestDefaultToJSONIndirectInheritance>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestDefaultToJSONIndirectInheritance* JSTestDefaultToJSONIndirectInheritance::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSONIndirectInheritance>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestDefaultToJSONIndirectInheritance* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONIndirectInheritance>(vm)) JSTestDefaultToJSONIndirectInheritance(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestDefaultToJSONIndirectInheritance::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestDefaultToJSONIndirectInheritance::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -137,17 +152,17 @@ JSObject* JSTestDefaultToJSONIndirectInheritance::prototype(VM& vm, JSDOMGlobalO
 
 JSValue JSTestDefaultToJSONIndirectInheritance::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestDefaultToJSONIndirectInheritanceDOMConstructor, DOMConstructorID::TestDefaultToJSONIndirectInheritance>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestDefaultToJSONIndirectInheritanceDOMConstructor, DOMConstructorID::TestDefaultToJSONIndirectInheritance>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSONIndirectInheritanceConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestDefaultToJSONIndirectInheritancePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestDefaultToJSONIndirectInheritancePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestDefaultToJSONIndirectInheritance::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestDefaultToJSONIndirectInheritance::getConstructor(vm, prototype->realm()));
 }
 
 JSC::GCClient::IsoSubspace* JSTestDefaultToJSONIndirectInheritance::subspaceForImpl(JSC::VM& vm)
@@ -162,7 +177,7 @@ JSC::GCClient::IsoSubspace* JSTestDefaultToJSONIndirectInheritance::subspaceForI
 
 void JSTestDefaultToJSONIndirectInheritance::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestDefaultToJSONIndirectInheritance*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestDefaultToJSONIndirectInheritance>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));

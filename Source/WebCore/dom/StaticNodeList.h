@@ -46,6 +46,7 @@ public:
 
     WEBCORE_EXPORT unsigned length() const override;
     WEBCORE_EXPORT Node* item(unsigned index) const override;
+    size_t memoryCost() const override { return m_nodes.capacity() * sizeof(Ref<Node>); }
 
 private:
     WEBCORE_EXPORT StaticNodeList(Vector<Ref<Node>>&& nodes);
@@ -62,6 +63,7 @@ public:
 
     unsigned length() const override;
     Node* item(unsigned index) const override;
+    size_t memoryCost() const override { return m_nodeList->memoryCost(); }
 
 private:
     StaticWrapperNodeList(NodeList& nodeList)
@@ -81,6 +83,7 @@ public:
 
     unsigned length() const override;
     Element* item(unsigned index) const override;
+    size_t memoryCost() const override { return m_elements.capacity() * sizeof(Ref<Element>); }
 
 private:
     StaticElementList(Vector<Ref<Element>>&& elements)

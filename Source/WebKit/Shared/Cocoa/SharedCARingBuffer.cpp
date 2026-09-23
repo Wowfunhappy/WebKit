@@ -30,6 +30,7 @@
 
 #include "Logging.h"
 #include <WebCore/CARingBuffer.h>
+#include <utility>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -46,7 +47,12 @@ SharedCARingBufferBase::SharedCARingBufferBase(size_t bytesPerFrame, size_t fram
 
 std::unique_ptr<ConsumerSharedCARingBuffer> ConsumerSharedCARingBuffer::map(uint32_t bytesPerFrame, uint32_t numChannelStreams, ConsumerSharedCARingBuffer::Handle&& handle)
 {
-    auto frameCount = roundUpToPowerOfTwo(handle.frameCount);
+    if (!std::in_range<size_t>(handle.frameCount)) {
+        RELEASE_LOG_FAULT(Media, "ConsumerSharedCARingBuffer::map: handle.frameCount doesn't fit in a size_t");
+        return nullptr;
+    }
+
+    auto frameCount = roundUpToPowerOfTwo(static_cast<size_t>(handle.frameCount));
 
     // Validate the parameters as they may be coming from an untrusted process.
     auto expectedStorageSize = computeSizeForBuffers(bytesPerFrame, frameCount, numChannelStreams) + sizeof(TimeBoundsBuffer);

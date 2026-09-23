@@ -41,7 +41,6 @@
 #include <wtf/Lock.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
-#include <wtf/Threading.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
 
@@ -135,7 +134,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode, OptionSet<O
         if (!m_db)
             return;
 
-        m_openingThread = nullptr;
+        m_openingThreadID = 0;
         m_openErrorMessage = sqlite3_errmsg(m_db);
         m_openError = sqlite3_errcode(m_db);
         close();
@@ -178,7 +177,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode, OptionSet<O
 
     overrideUnauthorizedFunctions();
 
-    m_openingThread = Thread::currentSingleton();
+    m_openingThreadID = currentThreadID();
     if (sqlite3_extended_result_codes(m_db, 1) != SQLITE_OK)
         return false;
 
@@ -297,7 +296,7 @@ void SQLiteDatabase::close()
         ASSERT_WITH_MESSAGE(!m_statementCount, "All SQLiteTransaction objects should be destroyed before closing the database");
 
         // FIXME: This is being called on the main thread during JS GC. <rdar://problem/5739818>
-        // ASSERT(m_openingThread == &Thread::currentSingleton());
+        // ASSERT(m_openingThreadID == currentThreadID());
         sqlite3* db = m_db;
         {
             Locker locker { m_databaseClosingMutex };
@@ -319,7 +318,7 @@ void SQLiteDatabase::close()
 
 void SQLiteDatabase::overrideUnauthorizedFunctions()
 {
-    static constexpr auto functionParameters = std::to_array<std::pair<ASCIILiteral, int>>({
+    static constexpr auto functionParameters = WTF::toArray<std::pair<ASCIILiteral, int>>({
         { "rtreenode"_s, 2 },
         { "rtreedepth"_s, 1 },
         { "eval"_s, 1 },

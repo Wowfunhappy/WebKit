@@ -7,11 +7,8 @@
 //   Performance benchmark for the Vulkan Pipeline cache.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "ANGLEPerfTest.h"
+#include "common/unsafe_buffers.h"
 
 #include "libANGLE/renderer/vulkan/vk_cache_utils.h"
 #include "libANGLE/renderer/vulkan/vk_helpers.h"
@@ -89,7 +86,7 @@ void VulkanPipelineCachePerfTest::randomizeDesc(vk::GraphicsPipelineDesc *desc)
 {
     std::vector<uint8_t> bytes(sizeof(vk::GraphicsPipelineDesc));
     FillVectorWithRandomUBytes(&mRNG, &bytes);
-    memcpy(desc, bytes.data(), sizeof(vk::GraphicsPipelineDesc));
+    ANGLE_UNSAFE_TODO(memcpy(desc, bytes.data(), sizeof(vk::GraphicsPipelineDesc)));
 
     desc->setSupportsDynamicStateForTest(GetParam().withDynamicState);
 }
@@ -115,17 +112,14 @@ void VulkanPipelineCachePerfTest::step()
 
     spc.init(&pc, nullptr);
 
-    vk::SpecializationConstants defaultSpecConsts{};
-
     for (unsigned int iteration = 0; iteration < kIterationsPerStep; ++iteration)
     {
         for (const auto &hit : mCacheHits)
         {
             if (!mCache.getPipeline(hit, &desc, &result))
             {
-                (void)mCache.createPipeline(VK_NULL_HANDLE, &spc, rp, pl,
-                                            {&ssm, &defaultSpecConsts}, PipelineSource::Draw, hit,
-                                            &desc, &result);
+                (void)mCache.createPipeline(VK_NULL_HANDLE, &spc, rp, pl, {&ssm},
+                                            PipelineSource::Draw, hit, &desc, &result);
             }
         }
     }
@@ -136,8 +130,8 @@ void VulkanPipelineCachePerfTest::step()
         const auto &miss = mCacheMisses[mMissIndex];
         if (!mCache.getPipeline(miss, &desc, &result))
         {
-            (void)mCache.createPipeline(VK_NULL_HANDLE, &spc, rp, pl, {&ssm, &defaultSpecConsts},
-                                        PipelineSource::Draw, miss, &desc, &result);
+            (void)mCache.createPipeline(VK_NULL_HANDLE, &spc, rp, pl, {&ssm}, PipelineSource::Draw,
+                                        miss, &desc, &result);
         }
     }
 

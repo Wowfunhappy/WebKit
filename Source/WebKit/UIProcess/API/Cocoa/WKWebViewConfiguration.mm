@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -405,7 +405,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (WKWebExtensionController *)_strongWebExtensionController
 {
 #if ENABLE(WK_WEB_EXTENSIONS)
-    return wrapper(protect(_pageConfiguration->webExtensionController()).get());
+    return wrapper(_pageConfiguration->webExtensionController());
 #else
     return nil;
 #endif
@@ -414,7 +414,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (WKWebExtensionController *)_weakWebExtensionController
 {
 #if ENABLE(WK_WEB_EXTENSIONS)
-    return wrapper(protect(_pageConfiguration->weakWebExtensionController()).get());
+    return wrapper(_pageConfiguration->weakWebExtensionController());
 #else
     return nil;
 #endif
@@ -423,7 +423,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_setWeakWebExtensionController:(WKWebExtensionController *)webExtensionController
 {
 #if ENABLE(WK_WEB_EXTENSIONS)
-    protect(*_pageConfiguration)->setWeakWebExtensionController(webExtensionController ? Ref { webExtensionController._webExtensionController }.ptr() : nullptr);
+    _pageConfiguration->setWeakWebExtensionController(webExtensionController ? Ref { webExtensionController._webExtensionController }.ptr() : nullptr);
 #endif
 }
 
@@ -660,9 +660,12 @@ SUPPRESS_NODELETE static NSString *NODELETE defaultApplicationNameForUserAgent()
 
 - (void)_setRelatedWebView:(WKWebView *)relatedWebView
 {
-    if (relatedWebView)
+    if (relatedWebView) {
         _pageConfiguration->setRelatedPage(relatedWebView->_page.get());
-    else
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        [self setProcessPool:[relatedWebView->_configuration processPool]];
+        ALLOW_DEPRECATED_DECLARATIONS_END
+    } else
         _pageConfiguration->setRelatedPage(nullptr);
 }
 
@@ -1070,7 +1073,7 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (WKWebsiteDataStore *)_websiteDataStoreIfExists
 {
-    return wrapper(protect(_pageConfiguration->websiteDataStoreIfExists()).get());
+    return wrapper(_pageConfiguration->websiteDataStoreIfExists());
 }
 
 - (NSArray<NSString *> *)_corsDisablingPatterns
@@ -1229,7 +1232,7 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (_WKApplicationManifest *)_applicationManifest
 {
-    return wrapper(protect(_pageConfiguration->applicationManifest()).get());
+    return wrapper(_pageConfiguration->applicationManifest());
 }
 
 - (void)_setApplicationManifest:(_WKApplicationManifest *)applicationManifest
@@ -1645,14 +1648,14 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 #endif
 }
 
-- (void)_setAllowsImmersiveEnvironments:(BOOL)allows
+- (void)setAllowsImmersiveEnvironments:(BOOL)allows
 {
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     _pageConfiguration->setAllowsImmersiveEnvironments(allows);
 #endif
 }
 
-- (BOOL)_allowsImmersiveEnvironments
+- (BOOL)allowsImmersiveEnvironments
 {
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     return _pageConfiguration->allowsImmersiveEnvironments();

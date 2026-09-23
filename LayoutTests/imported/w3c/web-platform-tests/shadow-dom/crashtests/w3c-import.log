@@ -14,4 +14,10 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/WEB_FEATURES.yml
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/highlight-api-orphan-node-crash.html
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/highlight-api-remove-node-crash.html
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/manual-assignment-beforeattrmodified.html
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/modify-style-element-in-disconnected-shadow-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/move-to-new-tree-1343016.html
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/crashtests/slot-dir-auto-unbound.html

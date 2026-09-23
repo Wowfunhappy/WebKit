@@ -58,9 +58,7 @@ ScrollingTreeFrameScrollingNodeRemoteIOS::ScrollingTreeFrameScrollingNodeRemoteI
 {
 }
 
-ScrollingTreeFrameScrollingNodeRemoteIOS::~ScrollingTreeFrameScrollingNodeRemoteIOS()
-{
-}
+ScrollingTreeFrameScrollingNodeRemoteIOS::~ScrollingTreeFrameScrollingNodeRemoteIOS() = default;
 
 ScrollingTreeScrollingNodeDelegateIOS* ScrollingTreeFrameScrollingNodeRemoteIOS::delegate() const
 {

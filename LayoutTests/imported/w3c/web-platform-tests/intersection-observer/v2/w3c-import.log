@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/3d-transform-occlusion.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/animated-occlusion.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/animated-opacity.html
@@ -35,3 +36,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/simple-occlusion.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/text-editor-occlusion.html
 /LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/text-shadow.html
+/LayoutTests/imported/w3c/web-platform-tests/intersection-observer/v2/z-index-changes.html

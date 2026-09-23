@@ -45,18 +45,18 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
 #include <webrtc/api/audio_codecs/builtin_audio_decoder_factory.h>
 #include <webrtc/api/audio_codecs/builtin_audio_encoder_factory.h>
-#include <webrtc/api/create_modular_peer_connection_factory.h>
 #include <webrtc/api/enable_media.h>
 #include <webrtc/api/environment/environment_factory.h>
 IGNORE_CLANG_WARNINGS_BEGIN("nullability-completeness")
+#include <webrtc/api/create_modular_peer_connection_factory.h>
 #include <webrtc/api/rtc_event_log/rtc_event_log_factory.h>
 #include <webrtc/modules/audio_processing/include/audio_processing.h>
 #include <webrtc/p2p/base/basic_packet_socket_factory.h>
 #include <webrtc/p2p/client/basic_port_allocator.h>
-IGNORE_CLANG_WARNINGS_END
-// See Bug 274508: Disable thread-safety-reference-return warnings in libwebrtc
 IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
+// See Bug 274508: Disable thread-safety-reference-return warnings in libwebrtc
 #include <webrtc/pc/peer_connection_factory.h>
+IGNORE_CLANG_WARNINGS_END
 IGNORE_CLANG_WARNINGS_END
 #include <webrtc/pc/peer_connection_factory_proxy.h>
 #include <webrtc/rtc_base/physical_socket_server.h>
@@ -75,13 +75,9 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCProvider);
 
-LibWebRTCProvider::LibWebRTCProvider()
-{
-}
+LibWebRTCProvider::LibWebRTCProvider() = default;
 
-LibWebRTCProvider::~LibWebRTCProvider()
-{
-}
+LibWebRTCProvider::~LibWebRTCProvider() = default;
 
 #if !PLATFORM(COCOA)
 void LibWebRTCProvider::registerWebKitVP9Decoder()
@@ -145,9 +141,9 @@ static void doReleaseLogging(webrtc::LoggingSeverity severity, const char* messa
     UNUSED_PARAM(message);
 #else
     if (severity == webrtc::LS_ERROR)
-        RELEASE_LOG_ERROR_FORWARDABLE_UNSAFE_ARGS(WebRTC, LIBWEBRTC_LOG_ERROR, message);
+        RELEASE_LOG_ERROR_FORWARDABLE_UNSAFE_ARGS(WebRTC, LibWebRtcLogError, message);
     else
-        RELEASE_LOG_FORWARDABLE_UNSAFE_ARGS(WebRTC, LIBWEBRTC_LOG_MESSAGE, message);
+        RELEASE_LOG_FORWARDABLE_UNSAFE_ARGS(WebRTC, LibWebRtcLogMessage, message);
 #endif
 }
 
@@ -354,7 +350,7 @@ Ref<webrtc::PeerConnectionFactoryInterface> LibWebRTCProvider::createPeerConnect
 #endif
     );
     dependencies.network_thread = networkThread;
-    dependencies.worker_thread = signalingThread;
+    dependencies.worker_thread = networkThread;
     dependencies.signaling_thread = signalingThread;
     dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
@@ -485,7 +481,7 @@ static inline RTCRtpCapabilities toRTCRtpCapabilities(const webrtc::RtpCapabilit
         String sdpFmtpLine;
         if (sdpFmtpLineBuilder.length())
             sdpFmtpLine = sdpFmtpLineBuilder.toString();
-        return RTCRtpCodecCapability { fromStdString(codec.mime_type()), static_cast<uint32_t>(codec.clock_rate ? *codec.clock_rate : 0), codec.num_channels, WTF::move(sdpFmtpLine) };
+        return RTCRtpCodec { fromStdString(codec.mime_type()), static_cast<uint32_t>(codec.clock_rate ? *codec.clock_rate : 0), codec.num_channels, WTF::move(sdpFmtpLine) };
 
     });
 
@@ -591,10 +587,8 @@ std::optional<PlatformMediaCapabilitiesDecodingInfo> LibWebRTCProvider::videoDec
         info.powerEfficient = info.smooth = true;
     else if (equalLettersIgnoringASCIICase(containerType, "video/h265"_s))
         info.powerEfficient = info.smooth = true;
-    else if (equalLettersIgnoringASCIICase(containerType, "video/av1"_s)) {
-        // FIXME: Set value to true if AV1 is only enabled when HW decoder support is enabled.
-        info.powerEfficient = false;
-    }
+    else if (equalLettersIgnoringASCIICase(containerType, "video/av1"_s))
+        info.powerEfficient = info.smooth = isSupportingAV1HardwareDecoder();
 
     info.supported = true;
     return { info };

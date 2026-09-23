@@ -29,11 +29,17 @@
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct MaskBorderRepeat;
+}
+
 namespace Style {
 
 // <'mask-border-repeat'> = [ stretch | repeat | round | space ]{1,2}
 // https://drafts.fxtf.org/css-masking-1/#propdef-mask-border-repeat
 struct MaskBorderRepeat {
+    using Value = NinePieceImageRule;
     MinimallySerializingSpaceSeparatedSize<NinePieceImageRule> values { NinePieceImageRule::Stretch };
 
     constexpr MaskBorderRepeat(MinimallySerializingSpaceSeparatedSize<NinePieceImageRule> values)
@@ -74,7 +80,11 @@ DEFINE_TYPE_WRAPPER_GET(MaskBorderRepeat, values);
 
 // MARK: - Conversion
 
-template<> struct CSSValueConversion<MaskBorderRepeat> { MaskBorderRepeat NODELETE operator()(BuilderState&, const CSSValue&); };
+template<> struct ToCSS<MaskBorderRepeat> { auto operator()(const MaskBorderRepeat&, const Style::ComputedStyle&) -> CSS::MaskBorderRepeat; };
+template<> struct ToStyle<CSS::MaskBorderRepeat> { auto operator()(const CSS::MaskBorderRepeat&, const BuilderState&) -> MaskBorderRepeat; };
+
+template<> struct CSSValueConversion<MaskBorderRepeat> { auto operator()(BuilderState&, const CSSValue&) -> MaskBorderRepeat; };
+template<> struct CSSValueCreation<MaskBorderRepeat> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const MaskBorderRepeat&) -> Ref<CSSValue>; };
 
 } // namespace Style
 } // namespace WebCore

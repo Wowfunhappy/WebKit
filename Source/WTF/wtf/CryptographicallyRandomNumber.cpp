@@ -32,7 +32,6 @@
 #include <wtf/CryptographicallyRandomNumber.h>
 
 #include <array>
-#include <mutex>
 #include <ranges>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>

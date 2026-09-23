@@ -49,9 +49,11 @@ enum class SpeciesConstructResult : uint8_t {
 
 ALWAYS_INLINE bool arraySpeciesWatchpointIsValid(VM& vm, JSObject* thisObject)
 {
-    JSGlobalObject* globalObject = thisObject->globalObject();
-    ArrayPrototype* arrayPrototype = globalObject->arrayPrototype();
+    JSGlobalObject* globalObject = thisObject->realmMayBeNull();
+    if (!globalObject)
+        return false;
 
+    ArrayPrototype* arrayPrototype = globalObject->arrayPrototype();
     ASSERT(globalObject->arraySpeciesWatchpointSet().state() != ClearWatchpoint);
     if (arrayPrototype != thisObject->getPrototypeDirect())
         return false;
@@ -67,7 +69,9 @@ ALWAYS_INLINE bool arraySpeciesWatchpointIsValid(VM& vm, JSObject* thisObject)
 
 ALWAYS_INLINE bool arrayMissingIsConcatSpreadable(VM& vm, JSObject* thisObject)
 {
-    JSGlobalObject* globalObject = thisObject->globalObject();
+    JSGlobalObject* globalObject = thisObject->realmMayBeNull();
+    if (!globalObject)
+        return false;
     ASSERT(globalObject->arrayIsConcatSpreadableWatchpointSet().state() != ClearWatchpoint);
     if (globalObject->arrayIsConcatSpreadableWatchpointSet().state() != IsWatched)
         return false;
@@ -101,7 +105,7 @@ ALWAYS_INLINE std::pair<SpeciesConstructResult, JSObject*> speciesConstructArray
     if (thisIsArray) [[likely]] {
         // Fast path in the normal case where the user has not set an own constructor and the Array.prototype.constructor is normal.
         // We need prototype check for subclasses of Array, which are Array objects but have a different prototype by default.
-        bool isValid = arraySpeciesWatchpointIsValid(vm, thisObject);
+        bool isValid = isJSArray(thisObject) && arraySpeciesWatchpointIsValid(vm, thisObject);
         RETURN_IF_EXCEPTION(scope, exceptionResult);
         if (isValid) [[likely]]
             return std::pair { SpeciesConstructResult::FastPath, nullptr };
@@ -109,8 +113,8 @@ ALWAYS_INLINE std::pair<SpeciesConstructResult, JSObject*> speciesConstructArray
         constructor = thisObject->get(globalObject, vm.propertyNames->constructor);
         RETURN_IF_EXCEPTION(scope, exceptionResult);
         if (constructor.isConstructor()) {
-            JSObject* constructorObject = jsCast<JSObject*>(constructor);
-            bool isArrayConstructorFromAnotherRealm = globalObject != constructorObject->globalObject()
+            JSObject* constructorObject = uncheckedDowncast<JSObject>(constructor);
+            bool isArrayConstructorFromAnotherRealm = globalObject != constructorObject->realm()
                 && constructorObject->inherits<ArrayConstructor>();
             if (isArrayConstructorFromAnotherRealm)
                 return std::pair { SpeciesConstructResult::FastPath, nullptr };
@@ -147,7 +151,7 @@ ALWAYS_INLINE void setLength(JSGlobalObject* globalObject, VM& vm, JSObject* obj
             return;
         }
         scope.release();
-        jsCast<JSArray*>(obj)->setLength(globalObject, static_cast<uint32_t>(value), throwException);
+        uncheckedDowncast<JSArray>(obj)->setLength(globalObject, static_cast<uint32_t>(value), throwException);
         return;
     }
     scope.release();
@@ -346,6 +350,7 @@ ALWAYS_INLINE JSString* fastArrayJoin(JSGlobalObject* globalObject, JSObject* th
                 RETURN_IF_EXCEPTION(scope, { });
                 if (!withoutSideEffect) {
                     genericCase = true;
+                    holesKnownToBeOK = false;
                     if (thisObject->butterfly() == &butterfly && originalLength == butterfly.publicLength()) [[likely]]
                         continue;
                     ++i;

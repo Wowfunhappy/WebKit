@@ -23,33 +23,33 @@
 #include "config.h"
 #include "CSSCursorImageValue.h"
 
-#include "CSSImageSetValue.h"
 #include "CSSImageValue.h"
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 #include "StyleBuilderState.h"
 #include "StyleCursorImage.h"
-#include <wtf/MathExtras.h>
+#include "StylePrimitiveNumericTypes+Conversions.h"
 #include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-Ref<CSSCursorImageValue> CSSCursorImageValue::create(Ref<CSSValue>&& value, RefPtr<CSSValue>&& hotSpot)
+Ref<CSSCursorImageValue> CSSCursorImageValue::create(Ref<CSSValue>&& value, std::optional<HotSpot>&& hotSpot)
 {
     auto* imageValue = dynamicDowncast<CSSImageValue>(value.get());
     auto originalURL = imageValue ? imageValue->url() : CSS::URL::none();
     return adoptRef(*new CSSCursorImageValue(WTF::move(value), WTF::move(hotSpot), WTF::move(originalURL)));
 }
 
-Ref<CSSCursorImageValue> CSSCursorImageValue::create(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, CSS::URL&& originalURL)
+Ref<CSSCursorImageValue> CSSCursorImageValue::create(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&& hotSpot, CSS::URL&& originalURL)
 {
     return adoptRef(*new CSSCursorImageValue(WTF::move(imageValue), WTF::move(hotSpot), WTF::move(originalURL)));
 }
 
-CSSCursorImageValue::CSSCursorImageValue(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, CSS::URL&& originalURL)
+CSSCursorImageValue::CSSCursorImageValue(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&& hotSpot, CSS::URL&& originalURL)
     : CSSValue(ClassType::CursorImage)
-    , m_originalURL(WTF::move(originalURL))
     , m_imageValue(WTF::move(imageValue))
     , m_hotSpot(WTF::move(hotSpot))
+    , m_originalURL(WTF::move(originalURL))
 {
 }
 
@@ -60,13 +60,13 @@ String CSSCursorImageValue::customCSSText(const CSS::SerializationContext& conte
     auto text = m_imageValue->cssText(context);
     if (!m_hotSpot)
         return text;
-    return makeString(text, ' ', m_hotSpot->first().cssText(context), ' ', m_hotSpot->second().cssText(context));
+    return makeString(text, ' ', CSS::serializationForCSS(context, *m_hotSpot));
 }
 
 bool CSSCursorImageValue::equals(const CSSCursorImageValue& other) const
 {
     return compareCSSValue(m_imageValue, other.m_imageValue)
-        && compareCSSValuePtr(m_hotSpot, other.m_hotSpot);
+        && m_hotSpot == other.m_hotSpot;
 }
 
 RefPtr<Style::CursorImage> CSSCursorImageValue::createStyleImage(const Style::BuilderState& state) const
@@ -75,15 +75,11 @@ RefPtr<Style::CursorImage> CSSCursorImageValue::createStyleImage(const Style::Bu
     if (!styleImage)
         return nullptr;
 
-    std::optional<IntPoint> hotSpot;
-    if (m_hotSpot) {
-        // FIXME: Should we clamp or round instead of just casting from double to int?
-        hotSpot = IntPoint {
-            static_cast<int>(downcast<CSSPrimitiveValue>(m_hotSpot->first()).resolveAsNumber(state.cssToLengthConversionData())),
-            static_cast<int>(downcast<CSSPrimitiveValue>(m_hotSpot->second()).resolveAsNumber(state.cssToLengthConversionData()))
-        };
-    }
-    return Style::CursorImage::create(styleImage.releaseNonNull(), hotSpot, Style::toStyle(m_originalURL, state));
+    return Style::CursorImage::create(
+        styleImage.releaseNonNull(),
+        Style::toStyle(m_hotSpot, state),
+        Style::toStyle(m_originalURL, state)
+    );
 }
 
 } // namespace WebCore

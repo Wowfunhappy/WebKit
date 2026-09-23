@@ -357,7 +357,6 @@ public:
     WEBCORE_EXPORT ~FontPlatformData();
 
     static FontPlatformData cloneWithOrientation(const FontPlatformData&, FontOrientation);
-    static FontPlatformData cloneWithSyntheticOblique(const FontPlatformData&, bool);
 
     static FontPlatformData cloneWithSize(const FontPlatformData&, float);
     void updateSizeWithFontSizeAdjust(const FontSizeAdjust&, float);
@@ -388,8 +387,6 @@ public:
 #if PLATFORM(COCOA)
     bool isSystemFont() const { return m_isSystemFont; }
 #endif
-
-    bool hasVariations() const { return m_hasVariations; }
 
     bool isFixedPitch() const;
     float size() const { return m_size; }
@@ -444,15 +441,6 @@ public:
     }
 
     static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
-
-    bool isEmoji() const
-    {
-#if PLATFORM(IOS_FAMILY)
-        return m_isEmoji;
-#else
-        return false;
-#endif
-    }
 
     RefPtr<SharedBuffer> openTypeTable(uint32_t table) const;
     RefPtr<SharedBuffer> NODELETE platformOpenTypeTable(uint32_t table) const;
@@ -531,12 +519,8 @@ private:
 #if PLATFORM(COCOA)
     bool m_isSystemFont { false };
 #endif
-    bool m_hasVariations { false };
     // The values above are common to all ports
 
-#if PLATFORM(IOS_FAMILY)
-    bool m_isEmoji { false };
-#endif
 
 #if USE(FREETYPE)
     bool m_fixedWidth { false };

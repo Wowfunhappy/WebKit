@@ -249,7 +249,7 @@ static size_t NODELETE checkForValidDouble(std::span<const CharacterType> string
 // Returns the number of characters consumed for parsing a valid double
 // terminated by the given terminator character
 template <typename CharacterType>
-static size_t parseDouble(std::span<const CharacterType> string, char terminator, double& value)
+static size_t NODELETE parseDouble(std::span<const CharacterType> string, char terminator, double& value)
 {
     size_t length = checkForValidDouble(string, terminator);
     if (!length)
@@ -485,7 +485,7 @@ static std::optional<SRGBA<uint8_t>> NODELETE finishParsingHexColor(uint32_t val
 }
 
 template<typename CharacterType>
-static std::optional<SRGBA<uint8_t>> parseHexColorInternal(std::span<const CharacterType> characters)
+static std::optional<SRGBA<uint8_t>> NODELETE parseHexColorInternal(std::span<const CharacterType> characters)
 {
     if (characters.size() != 3 && characters.size() != 4 && characters.size() != 6 && characters.size() != 8)
         return std::nullopt;
@@ -500,18 +500,40 @@ static std::optional<SRGBA<uint8_t>> parseHexColorInternal(std::span<const Chara
     return finishParsingHexColor(value, characters.size());
 }
 
-template<typename CharacterType> static std::optional<SRGBA<uint8_t>> parseLegacyHSL(std::span<const CharacterType> characters)
+template<typename CharacterType> static std::optional<SRGBA<uint8_t>> parseHSL(std::span<const CharacterType> characters)
 {
-    // Commas only exist in the legacy syntax.
-    size_t delimiter = find(characters, ',');
-    if (delimiter == notFound)
-        return std::nullopt;
-
     auto skipWhitespace = [](std::span<const CharacterType>& characters) ALWAYS_INLINE_LAMBDA {
         skipWhile<isCSSSpace>(characters);
     };
 
-    auto parsePercentageWithOptionalLeadingWhitespace = [&](std::span<const CharacterType>& characters) -> std::optional<double> {
+    // Find the end of the hue token (terminated by comma or whitespace).
+    // A comma means legacy syntax (comma-separated), whitespace means modern (space-separated).
+    size_t hueEnd = 0;
+    bool isLegacy = false;
+    while (hueEnd < characters.size()) {
+        if (characters[hueEnd] == ',') {
+            isLegacy = true;
+            break;
+        }
+        if (isCSSSpace(characters[hueEnd]))
+            break;
+        ++hueEnd;
+    }
+    if (!hueEnd || hueEnd == characters.size())
+        return std::nullopt;
+
+    double hue;
+    auto angleUnit = CSS::AngleUnit::Deg;
+    if (!parseSimpleAngle(characters.first(hueEnd), RequireUnits::No, angleUnit, hue))
+        return std::nullopt;
+
+    skip(characters, hueEnd);
+
+    // In legacy syntax, components are separated by commas.
+    if (isLegacy && !skipExactly(characters, ','))
+        return std::nullopt;
+
+    auto parsePercentage = [&]() -> std::optional<double> {
         skipWhitespace(characters);
 
         double value = 0;
@@ -526,73 +548,51 @@ template<typename CharacterType> static std::optional<SRGBA<uint8_t>> parseLegac
         return value;
     };
 
-    auto skipComma = [](std::span<const CharacterType>& characters) {
-        return skipExactly(characters, ',');
-    };
-
-    double hue;
-    auto angleChars = characters.first(delimiter);
-    auto angleUnit = CSS::AngleUnit::Deg;
-    if (!parseSimpleAngle(angleChars, RequireUnits::No, angleUnit, hue))
-        return std::nullopt;
-
-    skip(characters, delimiter);
-    if (!skipComma(characters))
-        return std::nullopt;
-
-    auto saturation = parsePercentageWithOptionalLeadingWhitespace(characters);
+    auto saturation = parsePercentage();
     if (!saturation)
         return std::nullopt;
 
-    if (!skipComma(characters))
+    if (isLegacy && !skipExactly(characters, ','))
         return std::nullopt;
 
-    auto lightness = parsePercentageWithOptionalLeadingWhitespace(characters);
+    auto lightness = parsePercentage();
     if (!lightness)
         return std::nullopt;
 
-    auto parseAlpha = [&](std::span<const CharacterType>& characters) -> std::optional<double> {
+    skipWhitespace(characters);
+
+    // Alpha is optional. Legacy uses comma separator, modern uses slash.
+    double alpha = 1.0;
+    char alphaSeparator = isLegacy ? ',' : '/';
+    if (!characters.empty() && characters.front() == alphaSeparator) {
+        skip(characters, 1);
         skipWhitespace(characters);
 
         size_t numCharactersParsed;
-        double alpha = 1;
         if ((numCharactersParsed = parseDouble(characters, ')', alpha))) {
             skip(characters, numCharactersParsed);
-            return alpha;
-        }
-
-        if ((numCharactersParsed = parseDouble(characters, '%', alpha))) {
-            skip(characters, numCharactersParsed + 1); // Skip the '%'
-            return alpha / 100.0;
-        }
-
-        return std::nullopt;
-    };
-
-    double alpha = 1.0;
-    // Alpha is optional for both hsl() and hsla().
-    if (skipComma(characters)) {
-        auto alphaValue = parseAlpha(characters);
-        if (!alphaValue)
+        } else if ((numCharactersParsed = parseDouble(characters, '%', alpha))) {
+            skip(characters, numCharactersParsed);
+            if (!skipExactly(characters, '%'))
+                return std::nullopt;
+            alpha /= 100.0;
+        } else
             return std::nullopt;
 
-        alpha = *alphaValue;
+        skipWhitespace(characters);
     }
-
-    skipWhitespace(characters);
 
     if (characters.empty() || characters.front() != ')')
         return std::nullopt;
 
-    auto parsedColor = StyleColorParseType<HSLFunctionLegacy> {
+    auto parsedColor = StyleColorParseType<HSLFunctionModern> {
         Style::Angle<>      { narrowPrecisionToFloat(CSS::convertAngle<CSS::AngleUnit::Deg>(hue, angleUnit)) },
         Style::Percentage<> { narrowPrecisionToFloat(*saturation) },
         Style::Percentage<> { narrowPrecisionToFloat(*lightness) },
         Style::Number<>     { narrowPrecisionToFloat(alpha) }
     };
-    auto typedColor = convertToTypedColor<HSLFunctionLegacy>(parsedColor, 1.0);
-    auto resultColor = convertToColor<HSLFunctionLegacy, CSSColorFunctionForm::Absolute>(typedColor, 0);
-    return resultColor.tryGetAsSRGBABytes();
+    auto typedColor = convertToTypedColor<HSLFunctionModern>(parsedColor, 1.0);
+    return convertToColor<HSLFunctionModern, CSSColorFunctionForm::Absolute>(typedColor, 0).tryGetAsSRGBABytes();
 }
 
 template<typename CharacterType>
@@ -651,10 +651,10 @@ static std::optional<SRGBA<uint8_t>> parseNumericColor(std::span<const Character
 
     // hsl() and hsla() are synonyms.
     if (mightBeHSLA(characters))
-        return parseLegacyHSL(characters.subspan(5));
+        return parseHSL(characters.subspan(5));
 
     if (mightBeHSL(characters))
-        return parseLegacyHSL(characters.subspan(4));
+        return parseHSL(characters.subspan(4));
 
     return std::nullopt;
 }
@@ -673,7 +673,7 @@ static RefPtr<CSSValue> parseColor(StringView string, const CSSParserContext& co
     if (CSS::isColorKeyword(valueID)) {
         if (!CSSPropertyParserHelpers::isColorKeywordAllowed(valueID, context))
             return nullptr;
-        return CSSPrimitiveValue::create(valueID);
+        return CSSKeywordValue::create(valueID);
     }
     if (auto color = parseNumericColor(string, context))
         return CSSValuePool::singleton().createColorValue(*color);
@@ -761,10 +761,10 @@ static RefPtr<CSSValue> parseKeywordValue(CSSPropertyID property, StringView str
         return nullptr;
 
     if (isCSSWideKeyword(valueID))
-        return CSSPrimitiveValue::create(valueID);
+        return CSSKeywordValue::create(valueID);
 
     if (CSSPropertyParsing::isKeywordValidForStyleProperty(property, valueID, state))
-        return CSSPrimitiveValue::create(valueID);
+        return CSSKeywordValue::create(valueID);
     return nullptr;
 }
 
@@ -1005,10 +1005,10 @@ static RefPtr<CSSValue> parseDisplay(StringView string)
     case CSSValueWebkitBox:
     // No layout support for the full <display-listitem> syntax, so treat it as <display-legacy>
     case CSSValueListItem:
-        return CSSPrimitiveValue::create(valueID);
+        return CSSKeywordValue::create(valueID);
     default:
         if (isCSSWideKeyword(valueID))
-            return CSSPrimitiveValue::create(valueID);
+            return CSSKeywordValue::create(valueID);
         return nullptr;
     }
 }
@@ -1032,7 +1032,7 @@ static RefPtr<CSSValue> parseColorWithAuto(StringView string, const CSSParserCon
 {
     ASSERT(!string.isEmpty());
     if (cssValueKeywordID(string) == CSSValueAuto)
-        return CSSPrimitiveValue::create(CSSValueAuto);
+        return CSSKeywordValue::create(CSSValueAuto);
     return parseColor(string, context);
 }
 

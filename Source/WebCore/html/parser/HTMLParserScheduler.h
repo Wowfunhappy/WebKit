@@ -48,7 +48,7 @@ public:
     ~ActiveParserSession();
 
 private:
-    RefPtr<Document> m_document;
+    const RefPtr<Document> m_document;
 };
 
 class PumpSession : public NestingLevelIncrementer, public ActiveParserSession {

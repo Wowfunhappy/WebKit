@@ -29,7 +29,7 @@
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderLineBreak.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
@@ -85,7 +85,7 @@ void LegacyInlineBox::invalidateParentChildList()
 
 #endif
 
-CheckedRef<const RenderStyle> LegacyInlineBox::lineStyle() const
+CheckedRef<const Style::ComputedStyle> LegacyInlineBox::lineStyle() const
 {
     return m_bitfields.firstLine() ? renderer().firstLineStyle() : CheckedRef { renderer().style() };
 }
@@ -251,8 +251,8 @@ FloatPoint LegacyInlineBox::locationIncludingFlipping() const
     if (!writingMode.isBlockFlipped())
         return topLeft();
     if (writingMode.isHorizontal())
-        return { x(), rootContainer.height() - height() - y() };
-    return { rootContainer.width() - width() - x(), y() };
+        return { x(), rootContainer.borderBoxHeight() - height() - y() };
+    return { rootContainer.borderBoxWidth() - width() - x(), y() };
 }
 
 void LegacyInlineBox::flipForWritingMode(FloatRect& rect) const

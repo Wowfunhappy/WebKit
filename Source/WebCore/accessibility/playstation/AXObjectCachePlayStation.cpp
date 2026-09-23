@@ -37,6 +37,7 @@
 #include "LocalFrame.h"
 #include "NodeDocument.h"
 #include "Page.h"
+#include "RenderView.h"
 
 namespace WebCore {
 

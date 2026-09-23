@@ -115,7 +115,7 @@ JSValue RegExpSubstringGlobalAtomCache::collectMatches(JSGlobalObject* globalObj
             if (pattern.length() == 1) {
                 if (input->length() >= startIndex) {
                     oneCharacterMatch = true;
-                    numberOfMatches += WTF::countMatchedCharacters(input->span16().subspan(startIndex), pattern.characterAt(0));
+                    numberOfMatches += WTF::countMatchedCharacters(input->span16().subspan(startIndex), pattern.codeUnitAt(0));
                     startIndex = input->length(); // Because the pattern atom is one character, it is ensured that we no longer find anything until this input string's end.
                 }
             } else {
@@ -133,7 +133,7 @@ JSValue RegExpSubstringGlobalAtomCache::collectMatches(JSGlobalObject* globalObj
             if (pattern.length() == 1) {
                 if (input->length() >= startIndex) {
                     oneCharacterMatch = true;
-                    numberOfMatches += WTF::countMatchedCharacters(input->span16().subspan(startIndex), pattern.characterAt(0));
+                    numberOfMatches += WTF::countMatchedCharacters(input->span16().subspan(startIndex), pattern.codeUnitAt(0));
                     startIndex = input->length(); // Because the pattern atom is one character, it is ensured that we no longer find anything until this input string's end.
                 }
             } else {

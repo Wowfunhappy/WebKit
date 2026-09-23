@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include "AXObjectCache.h"
+#include "AXObjectTypes.h"
 #include "EditCommand.h"
 #include "CSSPropertyNames.h"
 #include "UndoStep.h"
@@ -36,6 +36,7 @@
 
 namespace WebCore {
 
+class AXObjectCache;
 class EditingStyle;
 class DataTransfer;
 class HTMLElement;
@@ -119,7 +120,7 @@ public:
 
     void apply();
     bool isFirstCommand(EditCommand* command) { return !m_commands.isEmpty() && m_commands.first() == command; }
-    EditCommandComposition* composition() const;
+    EditCommandComposition* NODELETE composition() const;
     Ref<EditCommandComposition> ensureComposition();
 
     virtual bool isTypingCommand() const;
@@ -191,6 +192,7 @@ protected:
     Position positionOutsideTabSpan(const Position&);
     void setNodeAttribute(Element&, const QualifiedName& attribute, const AtomString& value);
     void splitElement(Element&, Node& atChild);
+    void splitListElement(Element&, Node& atChild);
     void splitTextNode(Text&, unsigned offset);
     void splitTextNodeContainingElement(Text&, unsigned offset);
     void wrapContentsInDummySpan(Element&);
@@ -216,11 +218,8 @@ protected:
     void cloneParagraphUnderNewElement(const Position& start, const Position& end, Node* outerNode, Element* blockElement);
     void cleanupAfterDeletion(VisiblePosition destination = VisiblePosition());
 
-    enum class ReconstitutePlainTextListIfNeeded : bool { No, Yes };
-
     VisibleSelection shouldBreakOutOfEmptyListItem() const;
-    bool hasSmartListMarkerAttribute() const;
-    bool breakOutOfEmptyListItem(ReconstitutePlainTextListIfNeeded = ReconstitutePlainTextListIfNeeded::No);
+    bool breakOutOfEmptyListItem();
     bool breakOutOfEmptyMailBlockquotedParagraph();
     
     Position positionAvoidingSpecialElementBoundary(const Position&);

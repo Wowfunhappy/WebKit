@@ -39,7 +39,6 @@ typedef RTCRtpTransceiverDirection RtpTransceiverDirection;
 [
     Conditional=WEB_RTC,
     EnabledBySetting=PeerConnectionEnabled,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary RTCDataChannelInit {
     boolean ordered = true;
     [EnforceRange] unsigned short maxPacketLifeTime;

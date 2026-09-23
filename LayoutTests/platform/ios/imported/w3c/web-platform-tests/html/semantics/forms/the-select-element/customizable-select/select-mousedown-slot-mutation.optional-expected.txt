@@ -1,8 +1,5 @@
 
-Option A
-Option B
-Option C
 
-PASS Select opens when options are mutated during mousedown
-FAIL Select options work correctly after mousedown mutation assert_false: select should be closed initially expected false got true
+FAIL Select opens when options are mutated during mousedown assert_true: select should be open after click despite mousedown mutation expected true got false
+FAIL Select options work correctly after mousedown mutation assert_true: select should be open expected true got false
 

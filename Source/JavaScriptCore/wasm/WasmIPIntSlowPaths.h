@@ -70,15 +70,15 @@ static constexpr uintptr_t SlowPathExceptionTag = JSValue::InvalidTag;
 
 #if ENABLE(WEBASSEMBLY_BBQJIT)
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prologue_osr, CallFrame* callFrame);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(loop_osr, CallFrame* callFrame, uint8_t* pc, IPIntLocal* pl);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(loop_osr, CallFrame* callFrame, uint8_t* pc, IPIntStackEntry* sp);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(epilogue_osr, CallFrame* callFrame);
 #endif
 
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(retrieve_and_clear_exception, CallFrame*, IPIntStackEntry* stack, IPIntLocal* pl);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(retrieve_clear_and_push_exception, CallFrame*, IPIntStackEntry* stack, IPIntLocal* pl);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(retrieve_clear_and_push_exception_and_arguments, CallFrame*, IPIntStackEntry* stack, IPIntLocal* pl);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(retrieve_and_clear_exception, CallFrame*, IPIntStackEntry* stack);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(retrieve_clear_and_push_exception, CallFrame*, IPIntStackEntry* stack);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(retrieve_clear_and_push_exception_and_arguments, CallFrame*, IPIntStackEntry* stack);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(throw_exception, CallFrame*, IPIntStackEntry* arguments, unsigned exceptionIndex);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(rethrow_exception, CallFrame*, IPIntStackEntry* pl, unsigned tryDepth);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(rethrow_exception, CallFrame*, unsigned tryDepth);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(throw_ref, CallFrame* callFrame, EncodedJSValue exnref);
 
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(ref_func, unsigned index);
@@ -87,11 +87,12 @@ WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_set, unsigned tableIndex, unsigned index
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_init, IPIntStackEntry* sp, TableInitMetadata* metadata);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_fill, IPIntStackEntry* sp, TableFillMetadata* metadata);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_grow, IPIntStackEntry* sp, TableGrowMetadata* metadata);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_grow, int64_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_init, int32_t, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_grow, int64_t, uint8_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_size, uint8_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_init, int32_t, IPIntStackEntry*, uint8_t);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(data_drop, int32_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_copy, int64_t, int64_t, int64_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_fill, int64_t, int32_t, int64_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_copy, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_fill, IPIntStackEntry*);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(elem_drop, int32_t);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_copy, IPIntStackEntry* sp, TableCopyMetadata* metadata);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_size, int32_t);
@@ -130,17 +131,43 @@ WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_function_body, CallFrame*);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_call, CallFrame*, CallMetadata*, Register* callee);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_call_indirect, CallFrame* callFrame, Wasm::FunctionSpaceIndex* functionIndex, CallIndirectMetadata* call);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_call_ref, CallFrame*, CallRefMetadata*, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_tail_call, CallFrame*, TailCallMetadata*, Register* callee);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_tail_call_indirect, CallFrame* callFrame, Wasm::FunctionSpaceIndex* functionIndex, TailCallIndirectMetadata* call);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(prepare_tail_call_ref, CallFrame*, TailCallRefMetadata*, IPIntStackEntry*);
 
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(set_global_ref, uint32_t globalIndex, JSValue value);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(get_global_64, unsigned);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(set_global_64, unsigned, uint64_t);
 
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_wait32, uint64_t, uint32_t, uint64_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_wait64, uint64_t, uint64_t, uint64_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_notify, unsigned, unsigned, int32_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_wait32, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_wait64, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_notify, IPIntStackEntry*);
 
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(check_stack_and_vm_traps, void* candidateNewStackPointer, Wasm::IPIntCallee*);
-WASM_IPINT_EXTERN_CPP_DECL(unreachable_breakpoint_handler, CallFrame*, Register*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(check_stack_and_vm_traps, void* candidateNewStackPointer, Wasm::IPIntCallee*, CallFrame*);
+WASM_IPINT_EXTERN_CPP_DECL(handle_debugger_trap_if_needed, CallFrame*, Register*);
+
+
+class FrameAccess {
+public:
+    FrameAccess(CallFrame* callFrame, const Wasm::IPIntCallee* callee)
+        : m_callFrame(callFrame)
+        , m_callee(callee)
+    {
+    }
+
+    IPIntLocal* localSlot(unsigned);
+    IPIntLocal* rethrowSlot(unsigned);
+    // Past-the-end pointer for the expression stack area (= bottom of rethrow/locals area).
+    IPIntStackEntry* stackEnd();
+
+private:
+    // Returns pointer to local[0], matching assembly's CFR - IPIntLocalsBaseOffset.
+    // local[i] = localBase()[-i], rethrow[i] = localBase()[-(localSizeToAlloc + i)].
+    IPIntLocal* localBase();
+
+    CallFrame* m_callFrame;
+    SUPPRESS_UNCOUNTED_MEMBER const Wasm::IPIntCallee* m_callee;
+};
 
 } } // namespace JSC::IPInt
 

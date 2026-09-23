@@ -30,6 +30,7 @@
 #include "InlineWalker.h"
 #include "RenderBlockFlow.h"
 #include "RenderDeprecatedFlexibleBox.h"
+#include "RenderElementInlines.h"
 #include "RenderFlexibleBox.h"
 #include "RenderImage.h"
 #include "RenderInline.h"
@@ -38,11 +39,11 @@
 #include "RenderObjectInlines.h"
 #include "RenderSVGBlock.h"
 #include "RenderSVGForeignObject.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTable.h"
 #include "RenderTextControl.h"
 #include "RenderView.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
 #include "StyleContentAlignmentData.h"
 #include "StyleSelfAlignmentData.h"
@@ -94,7 +95,7 @@ enum class IncludeReasons : bool {
     }
 #endif
 
-static inline bool NODELETE mayHaveScrollbarOrScrollableOverflow(const RenderStyle& style)
+static inline bool NODELETE mayHaveScrollbarOrScrollableOverflow(const Style::ComputedStyle& style)
 {
     return !style.isOverflowVisible() || !style.scrollbarGutter().isAuto();
 }
@@ -341,7 +342,7 @@ bool canUseForLineLayout(const RenderBlockFlow& rootContainer)
     return true;
 }
 
-bool canUseForPreferredWidthComputation(const RenderBlockFlow& blockContainer)
+bool canUseForIntrinsicWidthComputation(const RenderBlockFlow& blockContainer)
 {
     for (auto walker = InlineWalker(blockContainer); !walker.atEnd(); walker.advance()) {
         CheckedRef renderer = *walker.current();
@@ -352,6 +353,15 @@ bool canUseForPreferredWidthComputation(const RenderBlockFlow& blockContainer)
         if (isFullySupportedInFlowRenderer)
             continue;
 
+        if (CheckedPtr renderBlock = dynamicDowncast<RenderBlock>(renderer.get()); renderBlock && renderBlock->isAtomicInlineLevelBox() && !renderBlock->firstChild()) {
+            if (renderBlock->style().usedAppearance() != StyleAppearance::None || (renderBlock->element() && renderBlock->element()->firstChild())) {
+                // FIXME: Various widgets with or without appearance.
+                // Dynamic content change (e.g. adding/removing select options) needs to dirty inlineContentCache.
+                return false;
+            }
+            continue;
+        }
+
         CheckedRef unsupportedRenderElement = downcast<RenderElement>(renderer.get());
         if (!unsupportedRenderElement->writingMode().isHorizontal() || !unsupportedRenderElement->style().logicalWidth().isFixed())
             return false;
@@ -361,7 +371,7 @@ bool canUseForPreferredWidthComputation(const RenderBlockFlow& blockContainer)
             auto allowImagesToBreak = !blockContainer.document().inQuirksMode() || !blockContainer.isRenderTableCell();
             if (!allowImagesToBreak)
                 return true;
-            // FIXME: See RenderReplaced::computePreferredLogicalWidths where m_minPreferredLogicalWidth is set to 0.
+            // FIXME: See RenderReplaced::computeIntrinsicLogicalWidthContributions where m_minContentLogicalWidthContribution is set to 0.
             auto isReplacedWithSpecialIntrinsicWidth = [&] {
                 if (auto* renderReplaced = dynamicDowncast<RenderReplaced>(unsupportedRenderElement.get()))
                     return renderReplaced->style().logicalMaxWidth().isPercentOrCalculated();

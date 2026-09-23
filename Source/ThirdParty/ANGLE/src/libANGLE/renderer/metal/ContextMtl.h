@@ -31,6 +31,7 @@ namespace rx
 {
 class DisplayMtl;
 class FramebufferMtl;
+class QueryMtl;
 class VertexArrayMtl;
 class ProgramMtl;
 class ProgramExecutableMtl;
@@ -301,20 +302,22 @@ class ContextMtl : public ContextImpl, public mtl::Context
                                        bool renderPassChanged);
     void onBackbufferResized(const gl::Context *context, WindowSurfaceMtl *backbuffer);
 
-    // Invoke by QueryMtl
-    angle::Result onOcclusionQueryBegin(const gl::Context *context, QueryMtl *query);
-    void onOcclusionQueryEnd(const gl::Context *context, QueryMtl *query);
-    void onOcclusionQueryDestroy(const gl::Context *context, QueryMtl *query);
+    angle::Result onOcclusionQueryBegin(QueryMtl &query);
+    void onOcclusionQueryEnd();
+    void onOcclusionQueryDestroy(QueryMtl &query);
 
     // Useful for temporarily pause then restart occlusion query during clear/blit with draw.
-    bool hasActiveOcclusionQuery() const { return mOcclusionQuery; }
+    bool isOcclusionQueryEnabledInRenderPass() const
+    {
+        return mOcclusionQueryIsEnabledInRenderPass;
+    }
     // Disable the occlusion query in the current render pass.
     // The render pass must already started.
-    void disableActiveOcclusionQueryInRenderPass();
+    void disableOcclusionQueryInRenderPass();
     // Re-enable the occlusion query in the current render pass.
     // The render pass must already started.
     // NOTE: the old query's result will be retained and combined with the new result.
-    angle::Result restartActiveOcclusionQueryInRenderPass();
+    angle::Result enableOcclusionQueryInRenderPass();
 
     // Invoke by TransformFeedbackMtl
     void onTransformFeedbackActive(const gl::Context *context, TransformFeedbackMtl *xfb);
@@ -405,6 +408,8 @@ class ContextMtl : public ContextImpl, public mtl::Context
 
     mtl::BufferManager &getBufferManager() { return mBufferManager; }
 
+    ProvokingVertexHelper &getProvokingVertexHelper() { return mProvokingVertexHelper; }
+
     mtl::PipelineCache &getPipelineCache() { return mPipelineCache; }
 
     const angle::ImageLoadContext &getImageLoadContext() const { return mImageLoadContext; }
@@ -420,6 +425,7 @@ class ContextMtl : public ContextImpl, public mtl::Context
                             GLint firstVertex,
                             GLsizei vertexOrIndexCount,
                             GLsizei instanceCount,
+                            GLuint baseInstance,
                             gl::DrawElementsType indexTypeOrNone,
                             const void *indices,
                             bool xfbPass,
@@ -429,6 +435,7 @@ class ContextMtl : public ContextImpl, public mtl::Context
                                 GLint firstVertex,
                                 GLsizei vertexOrIndexCount,
                                 GLsizei instanceCount,
+                                GLuint baseInstance,
                                 gl::DrawElementsType indexTypeOrNone,
                                 const void *indices,
                                 bool xfbPass,
@@ -532,8 +539,6 @@ class ContextMtl : public ContextImpl, public mtl::Context
                                          bool xfbPass,
                                          bool *pipelineDescChanged);
 
-    angle::Result startOcclusionQueryInRenderPass(QueryMtl *query, bool clearOldValue);
-
     angle::Result checkCommandBufferError();
 
     // Dirty bits.
@@ -568,12 +573,12 @@ class ContextMtl : public ContextImpl, public mtl::Context
     // src/compiler/translator/DriverUniformMetal.cpp
     struct DriverUniforms
     {
-        uint32_t acbBufferOffsets[2];
         float depthRange[2];
         uint32_t renderArea;
         uint32_t flipXY;
-        uint32_t unused;
         uint32_t misc;
+        uint32_t unused;
+        uint32_t acbBufferOffsets[2];
 
         int32_t xfbBufferOffsets[4];
         int32_t xfbVerticesPerInstance;
@@ -603,7 +608,6 @@ class ContextMtl : public ContextImpl, public mtl::Context
     FramebufferMtl *mDrawFramebuffer  = nullptr;
     VertexArrayMtl *mVertexArray      = nullptr;
     ProgramExecutableMtl *mExecutable = nullptr;
-    QueryMtl *mOcclusionQuery         = nullptr;
 
     using DirtyBits = angle::BitSet<DIRTY_BIT_MAX>;
 
@@ -654,6 +658,9 @@ class ContextMtl : public ContextImpl, public mtl::Context
     id<MTLTexture> mRasterizationRateMapTexture;
 
     mtl::ContextDevice mContextDevice;
+
+    mtl::BufferRef mOcclusionQueryResultBuffer;
+    bool mOcclusionQueryIsEnabledInRenderPass{false};
 };
 
 }  // namespace rx

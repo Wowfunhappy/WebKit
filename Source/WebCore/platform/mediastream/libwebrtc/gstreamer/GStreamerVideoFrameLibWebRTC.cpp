@@ -59,15 +59,15 @@ GRefPtr<GstSample> convertLibWebRTCVideoFrameToGStreamerSample(const webrtc::Vid
     };
     GstVideoInfo info;
     gst_video_info_set_format(&info, GST_VIDEO_FORMAT_I420, frame.width(), frame.height());
-    auto buffer = adoptGRef(gst_buffer_new_wrapped_full(static_cast<GstMemoryFlags>(GST_MEMORY_FLAG_NO_SHARE | GST_MEMORY_FLAG_READONLY),
+    GRefPtr buffer = adoptGRef(gst_buffer_new_wrapped_full(static_cast<GstMemoryFlags>(GST_MEMORY_FLAG_NO_SHARE | GST_MEMORY_FLAG_READONLY),
         const_cast<gpointer>(reinterpret_cast<const void*>(i420Buffer->DataY())), info.size, 0, info.size, i420Buffer, [](gpointer buffer) {
             reinterpret_cast<webrtc::I420Buffer*>(buffer)->Release();
     }));
 
     gst_buffer_add_video_meta_full(buffer.get(), GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_FORMAT_I420, frame.width(), frame.height(), 3, offsets, strides);
     GST_BUFFER_PTS(buffer.get()) = toGstClockTime(WTF::MediaTime(frame.render_time_ms(), G_USEC_PER_SEC * 1000));
-    auto caps = adoptGRef(gst_video_info_to_caps(&info));
-    auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
+    GRefPtr caps = adoptGRef(gst_video_info_to_caps(&info));
+    GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
     return sample;
 }
 
@@ -109,7 +109,7 @@ webrtc::scoped_refptr<webrtc::I420BufferInterface> GStreamerVideoFrameLibWebRTC:
         auto info = inFrame.info();
         outInfo.fps_n = info->fps_n;
         outInfo.fps_d = info->fps_d;
-        auto caps = adoptGRef(gst_video_info_to_caps(&outInfo));
+        GRefPtr caps = adoptGRef(gst_video_info_to_caps(&outInfo));
 
         auto& converter = GStreamerVideoFrameConverter::singleton();
         auto sample = converter.convert(m_sample, caps);

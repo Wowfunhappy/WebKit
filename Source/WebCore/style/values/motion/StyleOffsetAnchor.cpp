@@ -25,10 +25,11 @@
 #include "config.h"
 #include "StyleOffsetAnchor.h"
 
+#include "CSSKeywordValue.h"
 #include "CSSPositionValue.h"
 #include "StyleBuilderChecking.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StyleLengthWrapper+Blending.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include <wtf/text/TextStream.h>
 
@@ -50,13 +51,20 @@ auto OffsetAnchor::convert(const AcceleratedEffectOffsetAnchor& value) -> Varian
 
 auto CSSValueConversion<OffsetAnchor>::operator()(BuilderState& state, const CSSValue& value) -> OffsetAnchor
 {
-    if (value.valueID() == CSSValueAuto)
-        return OffsetAnchor { CSS::Keyword::Auto { } };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Auto { };
+        }
+    }
 
     RefPtr positionValue = requiredDowncast<CSSPositionValue>(state, value);
     if (!positionValue)
-        return Style::ComputedStyle::initialOffsetAnchor();
-    return OffsetAnchor { toStyle(positionValue->position(), state) };
+        return CSS::Keyword::Auto { };
+    return toStyle(positionValue->position(), state);
 }
 
 // MARK: - Blending

@@ -28,7 +28,7 @@
     [ImplementedAs=formForBindings] readonly attribute HTMLFormElement? form;
     [CEReactions=NotNeeded, ReflectSetter] attribute [AtomString] DOMString label;
     [CEReactions=NotNeeded, Reflect="selected"] attribute boolean defaultSelected;
-    attribute boolean selected;
+    [ImplementedAs=selectedForBindings] attribute boolean selected;
     [CEReactions=NotNeeded, ReflectSetter] attribute [AtomString] DOMString value;
 
     [CEReactions=Needed] attribute DOMString text;

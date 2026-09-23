@@ -42,6 +42,7 @@
 #include "SourceCode.h"
 #include "SourceOrigin.h"
 #include "Structure.h"
+#include "StructureCreateInlines.h"
 #include "StructureInlines.h"
 #include "TestScripts.h"
 #include "VM.h"
@@ -265,14 +266,12 @@ void setupTestEnvironment(DebugServer*& debugServer, ExecutionHandler*& executio
     Options::setOptions("--enableWasmDebugger=true");
 
     debugServer = &DebugServer::singleton();
-    bool started = debugServer->startRWI([](const String& packet) {
+    debugServer->startRWI([](const String& packet) {
         replyCount++;
         dataLogLnIf(verboseLogging, RWI_REPLY_PREFIX, packet);
         return true;
     });
-
-    RELEASE_ASSERT(started, "Failed to start DebugServer in RWI mode");
-    RELEASE_ASSERT(debugServer->isConnected(), "DebugServer not connected");
+    RELEASE_ASSERT(debugServer->hasDebugger(), "DebugServer has no debug client after RWI start");
 
     executionHandler = &debugServer->execution();
     executionHandler->setDebugServerThreadId(Thread::currentSingleton().uid());

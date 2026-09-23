@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--validateExceptionChecks=1")
 try {
     btoa('\u0100'.padStart(2 ** 31-1));

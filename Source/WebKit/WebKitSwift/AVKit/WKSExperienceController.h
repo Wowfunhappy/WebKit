@@ -32,6 +32,7 @@ NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 @class AVPlayerViewControllerContentSource;
 @class WKSExperienceController;
 
+NS_SWIFT_MAIN_ACTOR
 @protocol WKSExperienceControllerDelegate <NSObject>
 - (void)experienceControllerDidExitFullscreen:(WKSExperienceController *)experienceController;
 - (void)experienceControllerDidBeginScrubbing:(WKSExperienceController *)experienceController;

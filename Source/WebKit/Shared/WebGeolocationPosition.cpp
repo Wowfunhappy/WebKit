@@ -37,8 +37,6 @@ Ref<WebGeolocationPosition> WebGeolocationPosition::create(GeolocationPositionDa
     return adoptRef(*new WebGeolocationPosition(WTF::move(geolocationPosition)));
 }
 
-WebGeolocationPosition::~WebGeolocationPosition()
-{
-}
+WebGeolocationPosition::~WebGeolocationPosition() = default;
 
 } // namespace WebKit

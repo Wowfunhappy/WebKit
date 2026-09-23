@@ -37,6 +37,11 @@ struct Zoom {
     using Number = Value::Number;
     using Percentage = Value::Percentage;
 
+    // Clamp range for the effective zoom value, used to avoid overflow in
+    // derived computations. Matches the values used by other engines.
+    static constexpr float minEffective = 1e-6f;
+    static constexpr float maxEffective = 1e6f;
+
     Value value;
 
     constexpr Zoom(Value value) : value { value } { }

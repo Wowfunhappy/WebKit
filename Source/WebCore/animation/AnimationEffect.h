@@ -64,7 +64,6 @@ public:
     ExceptionOr<void> updateTiming(Document&, const OptionalEffectTiming&);
 
     virtual void animationDidTick() { };
-    virtual void animationBecameReady() { };
     virtual void animationDidChangeTimingProperties() { };
     virtual void animationWasCanceled() { };
     virtual void animationSuspensionStateDidChange(bool) { };

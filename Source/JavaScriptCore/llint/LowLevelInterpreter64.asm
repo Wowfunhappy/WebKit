@@ -943,8 +943,8 @@ end
 
 macro equalNullComparisonOp(opcodeName, opcodeStruct, fn)
     llintOpWithReturn(opcodeName, opcodeStruct, macro (size, get, dispatch, return)
-        get(m_operand, t0)
-        loadq [cfr, t0, 8], t0
+        get(m_operand, t1)
+        loadConstantOrVariable(size, t1, t0)
         btqnz t0, notCellMask, .immediate
         btbnz JSCell::m_flags[t0], MasqueradesAsUndefined, .masqueradesAsUndefined
         move 0, t0
@@ -953,7 +953,7 @@ macro equalNullComparisonOp(opcodeName, opcodeStruct, fn)
         loadStructureWithScratch(t0, t2, t1)
         loadp CodeBlock[cfr], t0
         loadp CodeBlock::m_globalObject[t0], t0
-        cpeq Structure::m_globalObject[t2], t0, t0
+        cpeq Structure::m_realm[t2], t0, t0
         jmp .done
     .immediate:
         andq ~TagUndefined, t0
@@ -995,7 +995,9 @@ macro strictEqOp(opcodeName, opcodeStruct, createBoolean)
         # result = (left == right);
         # if (result)
         #     goto done;
-        # if (left is Cell || right is Cell)
+        # if (left is non-cell || right is non-cell)
+        #     done (result is already false)
+        # if (left is empty || right is empty || either is String/HeapBigInt)
         #     goto slowPath;
         # done:
         # return result;
@@ -1016,10 +1018,15 @@ macro strictEqOp(opcodeName, opcodeStruct, createBoolean)
         cqeq t0, t1, t5
         btqnz t5, t5, .done #is there a better way of checking t5 != 0 ?
 
-        move t0, t2
-        # This andq could be an 'or' if not for BigInt32 (since it makes it possible for a Cell to be strictEqual to a non-Cell)
-        andq t1, t2
-        btqz t2, notCellMask, .slow
+        # Pointer-equal failed. Doubles were filtered above, so any non-cell here is
+        # Int32 / Null / Undefined / true / false, and a non-cell on either side means
+        # strict equality is already known to be false.
+        btqnz t0, notCellMask, .done
+        btqnz t1, notCellMask, .done
+        # Both are cells. Only String / HeapBigInt have value-based equality, so if either
+        # cell is something else the pointer compare result (false) is correct.
+        bba JSCell::m_type[t0], constexpr LastValueCompareCellType, .done
+        bbbeq JSCell::m_type[t1], constexpr LastValueCompareCellType, .slow
 
     .done:
         createBoolean(t5)
@@ -1052,7 +1059,9 @@ macro strictEqualityJumpOp(opcodeName, opcodeStruct, jumpIfEqual, jumpIfNotEqual
         #     goto slowPath;
         # if (left == right)
         #     goto jumpTarget;
-        # if (left is Cell || right is Cell)
+        # if (left is non-cell || right is non-cell)
+        #     goto otherJumpTarget (result is already not equal)
+        # if (left is empty || right is empty || either is String/HeapBigInt)
         #     goto slowPath;
         # goto otherJumpTarget
 
@@ -1071,11 +1080,17 @@ macro strictEqualityJumpOp(opcodeName, opcodeStruct, jumpIfEqual, jumpIfNotEqual
 
         bqeq t0, t1, .equal
 
-        move t0, t2
-        # This andq could be an 'or' if not for BigInt32 (since it makes it possible for a Cell to be strictEqual to a non-Cell)
-        andq t1, t2
-        btqz t2, notCellMask, .slow
+        # Pointer-equal failed. Doubles were filtered above, so any non-cell here is
+        # Int32 / Null / Undefined / true / false, and a non-cell on either side means
+        # strict equality is already known to be false.
+        btqnz t0, notCellMask, .notEqual
+        btqnz t1, notCellMask, .notEqual
+        # Both are cells. Only String / HeapBigInt have value-based equality, so if either
+        # cell is something else the pointer compare result (false) is correct.
+        bba JSCell::m_type[t0], constexpr LastValueCompareCellType, .notEqual
+        bbbeq JSCell::m_type[t1], constexpr LastValueCompareCellType, .slow
 
+    .notEqual:
         jumpIfNotEqual(jump, m_targetLabel, dispatch)
 
     .equal:
@@ -1465,7 +1480,7 @@ llintOpWithReturn(op_typeof_is_undefined, OpTypeofIsUndefined, macro (size, get,
     loadStructureWithScratch(t0, t3, t1)
     loadp CodeBlock[cfr], t1
     loadp CodeBlock::m_globalObject[t1], t1
-    cpeq Structure::m_globalObject[t3], t1, t0
+    cpeq Structure::m_realm[t3], t1, t0
     orq ValueFalse, t0
     return(t0)
 end)
@@ -1559,19 +1574,19 @@ end)
 
 
 macro loadInlineOffset(propertyOffsetAsInt, objectAndStorage, value)
-    addp sizeof JSObject - (firstOutOfLineOffset - 2) * 8, objectAndStorage
+    addp sizeof JSObjectWithButterfly - (firstOutOfLineOffset - 2) * 8, objectAndStorage
     loadq (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffsetAsInt, 8], value
 end
 
 
 macro loadPropertyAtVariableOffset(propertyOffsetAsInt, objectAndStorage, value)
     bilt propertyOffsetAsInt, firstOutOfLineOffset, .isInline
-    loadp JSObject::m_butterfly[objectAndStorage], objectAndStorage
+    loadp JSObjectWithButterfly::m_butterfly[objectAndStorage], objectAndStorage
     negi propertyOffsetAsInt
     sxi2q propertyOffsetAsInt, propertyOffsetAsInt
     jmp .ready
 .isInline:
-    addp sizeof JSObject - (firstOutOfLineOffset - 2) * 8, objectAndStorage
+    addp sizeof JSObjectWithButterfly - (firstOutOfLineOffset - 2) * 8, objectAndStorage
 .ready:
     loadq (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffsetAsInt, 8], value
 end
@@ -1579,33 +1594,16 @@ end
 
 macro storePropertyAtVariableOffset(propertyOffsetAsInt, objectAndStorage, value)
     bilt propertyOffsetAsInt, firstOutOfLineOffset, .isInline
-    loadp JSObject::m_butterfly[objectAndStorage], objectAndStorage
+    loadp JSObjectWithButterfly::m_butterfly[objectAndStorage], objectAndStorage
     negi propertyOffsetAsInt
     sxi2q propertyOffsetAsInt, propertyOffsetAsInt
     jmp .ready
 .isInline:
-    addp sizeof JSObject - (firstOutOfLineOffset - 2) * 8, objectAndStorage
+    addp sizeof JSObjectWithButterfly - (firstOutOfLineOffset - 2) * 8, objectAndStorage
 .ready:
     storeq value, (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffsetAsInt, 8]
 end
 
-
-llintOpWithMetadata(op_try_get_by_id, OpTryGetById, macro (size, get, dispatch, metadata, return)
-    metadata(t2, t0)
-    get(m_base, t0)
-    loadConstantOrVariableCell(size, t0, t3, .opTryGetByIdSlow)
-    loadi JSCell::m_structureID[t3], t1
-    loadi OpTryGetById::Metadata::m_structureID[t2], t0
-    bineq t0, t1, .opTryGetByIdSlow
-    loadi OpTryGetById::Metadata::m_offset[t2], t1
-    loadPropertyAtVariableOffset(t1, t3, t0)
-    valueProfile(size, OpTryGetById, m_valueProfile, t0, t2)
-    return(t0)
-
-.opTryGetByIdSlow:
-    callSlowPath(_llint_slow_path_try_get_by_id)
-    dispatch()
-end)
 
 llintOpWithMetadata(op_get_by_id_direct, OpGetByIdDirect, macro (size, get, dispatch, metadata, return)
     metadata(t2, t0)
@@ -1660,7 +1658,7 @@ macro performGetByIDHelper(opcodeStruct, modeMetadataName, valueProfileName, slo
     loadb JSCell::m_indexingTypeAndMisc[t3], t0
     btiz t0, IsArray, slowLabel
     btiz t0, IndexingShapeMask, slowLabel
-    loadCagedJSValue(JSObject::m_butterfly[t3], t0, t1)
+    loadCagedJSValue(JSObjectWithButterfly::m_butterfly[t3], t0, t1)
     loadi -sizeof IndexingHeader + IndexingHeader::u.lengths.publicLength[t0], t0
     bilt t0, 0, slowLabel
     orq numberTag, t0
@@ -1847,7 +1845,7 @@ llintOpWithMetadata(op_get_by_val, OpGetByVal, macro (size, get, dispatch, metad
     # This sign-extension makes the bounds-checking in getByValTypedArray work even on 4GB TypedArray.
     sxi2q t1, t1
 
-    loadCagedJSValue(JSObject::m_butterfly[t0], t3, numberTag)
+    loadCagedJSValue(JSObjectWithButterfly::m_butterfly[t0], t3, numberTag)
     move TagNumber, numberTag
 
     andi IndexingShapeMask, t2
@@ -2034,7 +2032,7 @@ macro putByValOp(opcodeName, opcodeStruct, osrExitPoint)
         get(m_property, t0)
         loadConstantOrVariableInt32(size, t0, t3, .opPutByValSlow)
         sxi2q t3, t3
-        loadCagedJSValue(JSObject::m_butterfly[t1], t0, numberTag)
+        loadCagedJSValue(JSObjectWithButterfly::m_butterfly[t1], t0, numberTag)
         move TagNumber, numberTag
         btinz t2, CopyOnWrite, .opPutByValSlow
         andi IndexingShapeMask, t2
@@ -2129,7 +2127,7 @@ macro llintJumpTrueOrFalseOp(opcodeName, opcodeStruct, miscConditionOp, truthyCe
 
     .maybeCell:
         btqnz t0, notCellMask, .slow
-        bbbeq JSCell::m_type[t0], constexpr LastMaybeFalsyCellPrimitive, .slow
+        bbbeq JSCell::m_type[t0], constexpr LastValueCompareCellType, .slow
         btbnz JSCell::m_flags[t0], constexpr MasqueradesAsUndefined, .slow
         truthyCellConditionOp(dispatch)
 
@@ -2145,9 +2143,8 @@ end
 
 macro equalNullJumpOp(opcodeName, opcodeStruct, cellHandler, immediateHandler)
     llintOpWithJump(op_%opcodeName%, opcodeStruct, macro (size, get, jump, dispatch)
-        get(m_value, t0)
-        assertNotConstant(size, t0)
-        loadq [cfr, t0, 8], t0
+        get(m_value, t1)
+        loadConstantOrVariable(size, t1, t0)
         btqnz t0, notCellMask, .immediate
         loadStructureWithScratch(t0, t2, t1)
         cellHandler(t2, JSCell::m_flags[t0], .target)
@@ -2168,7 +2165,7 @@ equalNullJumpOp(jeq_null, OpJeqNull,
         btbz value, MasqueradesAsUndefined, .notMasqueradesAsUndefined
         loadp CodeBlock[cfr], t0
         loadp CodeBlock::m_globalObject[t0], t0
-        bpeq Structure::m_globalObject[structure], t0, target
+        bpeq Structure::m_realm[structure], t0, target
 .notMasqueradesAsUndefined:
     end,
     macro (value, target) bqeq value, ValueNull, target end)
@@ -2179,7 +2176,7 @@ equalNullJumpOp(jneq_null, OpJneqNull,
         btbz value, MasqueradesAsUndefined, target
         loadp CodeBlock[cfr], t0
         loadp CodeBlock::m_globalObject[t0], t0
-        bpneq Structure::m_globalObject[structure], t0, target
+        bpneq Structure::m_realm[structure], t0, target
     end,
     macro (value, target) bqneq value, ValueNull, target end)
 
@@ -3270,19 +3267,19 @@ llintOpWithMetadata(op_instanceof, OpInstanceof, macro (size, get, dispatch, met
     dispatch()
 end)
 
-llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch, metadata, return)
+macro iteratorOpenGenericImpl(size, get, dispatch, metadata, opcodeStruct, opcodeName, tryFastNarrow, tryFastWide16, tryFastWide32, getNextSlowPath, updateArrayProfile)
     macro fastNarrow()
-        callSlowPath(_iterator_open_try_fast_narrow)
+        callSlowPath(tryFastNarrow)
     end
     macro fastWide16()
-        callSlowPath(_iterator_open_try_fast_wide16)
+        callSlowPath(tryFastWide16)
     end
     macro fastWide32()
-        callSlowPath(_iterator_open_try_fast_wide32)
+        callSlowPath(tryFastWide32)
     end
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
-    
-    bbeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
+
+    bpeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
     dispatch()
 
 .iteratorOpenGeneric:
@@ -3296,20 +3293,15 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     end
 
     macro getArgumentIncludingThisStart(dst)
-        getu(size, OpIteratorOpen, m_stackOffset, dst)
+        getu(size, opcodeStruct, m_stackOffset, dst)
     end
 
     macro getArgumentIncludingThisCount(dst)
         move 1, dst
     end
 
-    metadata(t5, t0)
-    get(m_iterable, t0)
-    btqnz t0, notCellMask, .done
-    loadi JSCell::m_structureID[t0], t3
-    storei t3, OpIteratorOpen::Metadata::m_arrayProfile.m_lastSeenStructureID[t5]
-    .done:
-    callHelper(op_iterator_open, OpIteratorOpen, dispatchAfterRegularCall, m_iteratorValueProfile, m_iterator, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetByIdCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
+    updateArrayProfile(get, metadata)
+    callHelper(opcodeName, opcodeStruct, dispatchAfterRegularCall, m_iteratorValueProfile, m_iterator, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetByIdCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
 
 .getByIdStart:
     macro storeNextAndDispatch(value)
@@ -3322,21 +3314,33 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     loadVariable(get, m_iterator, t3)
     btqnz t3, notCellMask, .iteratorOpenGenericGetNextSlow
     metadata(t2, t1)
-    performGetByIDHelper(OpIteratorOpen, m_modeMetadata, m_nextValueProfile, .iteratorOpenGenericGetNextSlow, size, storeNextAndDispatch)
+    performGetByIDHelper(opcodeStruct, m_modeMetadata, m_nextValueProfile, .iteratorOpenGenericGetNextSlow, size, storeNextAndDispatch)
 
 .iteratorOpenGenericGetNextSlow:
-    callSlowPath(_llint_slow_path_iterator_open_get_next)
+    callSlowPath(getNextSlowPath)
     dispatch()
 
 .iteratorOpenException:
     jmp _llint_throw_from_slow_path_trampoline
+end
 
+llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch, metadata, return)
+    macro updateArrayProfile(get, metadata)
+        metadata(t5, t0)
+        get(m_iterable, t0)
+        btqnz t0, notCellMask, .iteratorOpenArrayProfileDone
+        loadi JSCell::m_structureID[t0], t3
+        storei t3, OpIteratorOpen::Metadata::m_arrayProfile.m_lastSeenStructureID[t5]
+    .iteratorOpenArrayProfileDone:
+    end
+    iteratorOpenGenericImpl(size, get, dispatch, metadata, OpIteratorOpen, op_iterator_open, _iterator_open_try_fast_narrow, _iterator_open_try_fast_wide16, _iterator_open_try_fast_wide32, _llint_slow_path_iterator_open_get_next, updateArrayProfile)
 end)
 
 llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch, metadata, return)
 
     loadVariable(get, m_next, t0)
-    btqnz t0, t0, .iteratorNextGeneric
+    btqnz t0, notCellMask, .iteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .iteratorNextGeneric
     macro fastNarrow()
         callSlowPath(_iterator_next_try_fast_narrow)
     end
@@ -3349,7 +3353,7 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
 
     # FIXME: We should do this with inline assembly since it's the "fast" case.
-    bbeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
+    bpeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
     dispatch()
 
 .iteratorNextGeneric:
@@ -3371,6 +3375,9 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
 
     # Use m_value slot as a tmp since we are going to write to it later.
     metadata(t5, t0)
+    loadh OpIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5], t0
+    ori constexpr IterationMode::Generic, t0
+    storeh t0, OpIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5]
     callHelper(op_iterator_next, OpIteratorNext, dispatchAfterRegularCall, m_nextResultValueProfile, m_value, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetDoneCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
 
 .getDoneStart:
@@ -3417,6 +3424,41 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
 .getValueSlow:
     callSlowPath(_llint_slow_path_iterator_next_get_value)
     dispatch()
+end)
+
+llintOpWithMetadata(op_async_iterator_next, OpAsyncIteratorNext, macro (size, get, dispatch, metadata, return)
+    loadVariable(get, m_next, t0)
+    btqnz t0, notCellMask, .asyncIteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .asyncIteratorNextGeneric
+
+    callSlowPath(_llint_slow_path_async_iterator_next_with_driver)
+    dispatch()
+
+.asyncIteratorNextGeneric:
+    macro getCallee(dst)
+        get(m_next, dst)
+    end
+
+    macro getArgumentIncludingThisStart(dst)
+        getu(size, OpAsyncIteratorNext, m_stackOffset, dst)
+    end
+
+    macro getArgumentIncludingThisCount(dst)
+        getArgumentIncludingThisCountForAsyncIteratorNext(size, dst)
+    end
+
+    metadata(t5, t0)
+    loadh OpAsyncIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5], t0
+    ori constexpr IterationMode::Generic, t0
+    storeh t0, OpAsyncIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5]
+    callHelper(op_async_iterator_next, OpAsyncIteratorNext, dispatchAfterRegularCall, m_valueProfile, m_dst, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, dispatch, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
+end)
+
+llintOpWithMetadata(op_async_iterator_open, OpAsyncIteratorOpen, macro (size, get, dispatch, metadata, return)
+    macro updateArrayProfile(get, metadata)
+        metadata(t5, t0)
+    end
+    iteratorOpenGenericImpl(size, get, dispatch, metadata, OpAsyncIteratorOpen, op_async_iterator_open, _async_iterator_open_try_fast_narrow, _async_iterator_open_try_fast_wide16, _async_iterator_open_try_fast_wide32, _llint_slow_path_async_iterator_open_get_next, updateArrayProfile)
 end)
 
 llintOpWithReturn(op_get_property_enumerator, OpGetPropertyEnumerator, macro (size, get, dispatch, return)
@@ -3498,11 +3540,11 @@ llintOpWithMetadata(op_enumerator_get_by_val, OpEnumeratorGetByVal, macro (size,
     biaeq t2, t1, .outOfLine
 
     zxi2q t2, t2
-    loadq sizeof JSObject[t0, t2, 8], t2
+    loadq sizeof JSObjectWithButterfly[t0, t2, 8], t2
     jmp .done
 
 .outOfLine:
-    loadp JSObject::m_butterfly[t0], t0
+    loadp JSObjectWithButterfly::m_butterfly[t0], t0
     subi t1, t2
     negi t2
     sxi2q t2, t2
@@ -3551,12 +3593,12 @@ llintOpWithMetadata(op_enumerator_put_by_val, OpEnumeratorPutByVal, macro (size,
     biaeq t2, t1, .outOfLine
 
     zxi2q t2, t2
-    storeq t3, sizeof JSObject[t0, t2, 8]
+    storeq t3, sizeof JSObjectWithButterfly[t0, t2, 8]
     jmp .done
 
 .outOfLine:
     subi t1, t2
-    loadp JSObject::m_butterfly[t0], t1
+    loadp JSObjectWithButterfly::m_butterfly[t0], t1
     negi t2
     sxi2q t2, t2
     storeq t3, constexpr ((offsetInButterfly(firstOutOfLineOffset)) * sizeof(EncodedJSValue))[t1, t2, 8]

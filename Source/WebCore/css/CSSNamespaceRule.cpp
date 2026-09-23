@@ -55,7 +55,7 @@ String CSSNamespaceRule::cssText() const
     auto prefix = this->prefix();
     StringBuilder result;
     result.append("@namespace "_s);
-    serializeIdentifier(prefix, result);
+    serializeIdentifier(result, prefix);
     result.append(prefix.isEmpty() ? ""_s : " "_s, "url("_s, serializeString(namespaceURI()), ");"_s);
     return result.toString();
 }

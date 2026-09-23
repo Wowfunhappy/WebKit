@@ -100,6 +100,8 @@ enum class DocumentMarkerType : uint32_t {
 #endif
     TransparentContent = 1 << 17,
     DictationStreamingOpacity = 1 << 18,
+    // FIXME(172843016)
+    ActiveTextMatch = 1 << 19,
 };
 
 // A range of a node within a document that is "marked", such as the range of a misspelled word.
@@ -147,6 +149,11 @@ public:
         float opacity { 0 };
     };
 
+    struct GrammarData {
+        String description;
+        String uuid;
+    };
+
     using Data = Variant<
         String
         , DictationData // DictationAlternatives
@@ -163,6 +170,7 @@ public:
 #endif
         , TransparentContentData // TransparentContent
         , DictationStreamingOpacityData // DictationStreamingOpacity
+        , GrammarData // Grammar
     >;
 
     DocumentMarker(DocumentMarkerType, OffsetRange, Data&& = { });
@@ -218,6 +226,7 @@ constexpr auto DocumentMarker::allMarkers() -> OptionSet<DocumentMarkerType>
 #endif
         DocumentMarkerType::TransparentContent,
         DocumentMarkerType::DictationStreamingOpacity,
+        DocumentMarkerType::ActiveTextMatch,
     };
 }
 
@@ -238,6 +247,9 @@ inline String DocumentMarker::description() const
 {
     if (auto* description = std::get_if<String>(&m_data))
         return *description;
+
+    if (auto* data = std::get_if<DocumentMarker::GrammarData>(&m_data))
+        return data->description;
 
 #if ENABLE(WRITING_TOOLS)
     if (auto* data = std::get_if<DocumentMarker::WritingToolsTextSuggestionData>(&m_data))

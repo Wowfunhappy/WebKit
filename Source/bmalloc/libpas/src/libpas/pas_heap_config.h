@@ -39,8 +39,9 @@
 #include "pas_heap_config_kind.h"
 #include "pas_heap_lock.h"
 #include "pas_heap_ref.h"
+#include "pas_large_map_variant.h"
 #include "pas_heap_ref_kind.h"
-#include "pas_mmap_capability.h"
+#include "pas_page_flags.h"
 #include "pas_segregated_heap_lookup_kind.h"
 #include "pas_segregated_page_config.h"
 #include "pas_size_lookup_mode.h"
@@ -53,14 +54,12 @@ struct pas_heap_config;
 struct pas_heap_runtime_config;
 struct pas_heap_type;
 struct pas_large_heap;
-struct pas_segregated_shared_page_directory;
 struct pas_stream;
 typedef struct pas_heap pas_heap;
 typedef struct pas_heap_config pas_heap_config;
 typedef struct pas_heap_runtime_config pas_heap_runtime_config;
 typedef struct pas_heap_type pas_heap_type;
 typedef struct pas_large_heap pas_large_heap;
-typedef struct pas_segregated_shared_page_directory pas_segregated_shared_page_directory;
 typedef struct pas_stream pas_stream;
 
 typedef void (*pas_heap_config_activate_callback)(void);
@@ -76,19 +75,6 @@ typedef pas_aligned_allocation_result (*pas_heap_config_aligned_allocator)(
     pas_large_heap* large_heap,
     const pas_heap_config* config);
 typedef void* (*pas_heap_config_prepare_to_enumerate)(pas_enumerator* enumerator);
-typedef bool (*pas_heap_config_for_each_shared_page_directory)(
-    pas_segregated_heap* heap,
-    bool (*callback)(pas_segregated_shared_page_directory* directory, void* arg),
-    void* arg);
-typedef bool (*pas_heap_config_for_each_shared_page_directory_remote)(
-    pas_enumerator* enumerator,
-    pas_segregated_heap* heap,
-    bool (*callback)(pas_enumerator* enumerator,
-                     pas_segregated_shared_page_directory* directory,
-                     void* arg),
-    void* arg);
-typedef void (*pas_heap_config_dump_shared_page_directory_arg)(
-    pas_stream* stream, pas_segregated_shared_page_directory* directory);
 
 typedef pas_allocation_result
 (*pas_heap_config_specialized_local_allocator_try_allocate_small_segregated_slow)(
@@ -179,20 +165,16 @@ struct pas_heap_config {
     bool aligned_allocator_talks_to_sharing_pool;
     pas_deallocator deallocator;
 
-    /* Tells if it's OK to call mmap on memory managed by this heap. */
-    pas_mmap_capability mmap_capability;
+    /* Properties of memory managed by this heap (executability, whether libpas may mprotect it, etc.).
+       Carried by pas_virtual_range, pas_large_virtual_range, pas_commit_span, and pas_large_sharing_node
+       for adjacent ranges to be coalesced, the page_flags must match. */
+    pas_page_flags page_flags;
 
     /* This points to things that are necessary for enumeration that are specific to the heap config. */
     void* root_data;
 
     /* The enumerator uses this to prepare itself for enumerating the active heap config. */
     pas_heap_config_prepare_to_enumerate prepare_to_enumerate;
-
-    /* Gives you a way to iterate over the shared page directories that a heap uses. Note that multiple
-       heaps may have the same shared page directories. */
-    pas_heap_config_for_each_shared_page_directory for_each_shared_page_directory;
-    pas_heap_config_for_each_shared_page_directory_remote for_each_shared_page_directory_remote;
-    pas_heap_config_dump_shared_page_directory_arg dump_shared_page_directory_arg;
 
     pas_heap_config_specialized_local_allocator_try_allocate_small_segregated_slow specialized_local_allocator_try_allocate_small_segregated_slow;
     pas_heap_config_specialized_local_allocator_try_allocate_medium_segregated_with_free_bits specialized_local_allocator_try_allocate_medium_segregated_with_free_bits;
@@ -208,6 +190,8 @@ struct pas_heap_config {
      * allocated through the system allocator, which provides additional
      * memory protection guarantees. */
     bool delegate_large_user_allocations;
+
+    pas_large_map_variant large_map_variant;
 };
 
 /*
@@ -225,7 +209,7 @@ pas_heap_config_assert_global_invariants(pas_heap_config config)
      * Heaps that want special attributes on their memory cannot
      * be delegated to the system allocator.
      */
-    PAS_ASSERT(config.mmap_capability == pas_may_mmap || !config.delegate_large_user_allocations);
+    PAS_ASSERT(!pas_page_flags_client_owns_permissions(config.page_flags) || !config.delegate_large_user_allocations);
 }
 
 #define PAS_HEAP_CONFIG_SPECIALIZATIONS(lower_case_heap_config_name) \

@@ -57,8 +57,11 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-animation-inactive-timeline.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-animation.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-in-removed-iframe-crash.html
+/LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-invalidation-002.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-invalidation.html
+/LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-range-with-zoom.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-range.html
+/LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-snapshot-elementsFromPoint.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/scroll-timeline-snapshotting.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/set-current-time-before-play-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/scroll-animations/scroll-timelines/set-current-time-before-play.html

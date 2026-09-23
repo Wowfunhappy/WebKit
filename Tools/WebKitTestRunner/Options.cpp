@@ -89,6 +89,12 @@ static bool handleOptionShowWindow(Options& options, const char*, const char*)
     return true;
 }
 
+static bool handleOptionShowCursor(Options& options, const char*, const char*)
+{
+    options.features.boolTestRunnerFeatures.insert_or_assign("shouldShowCursor", true);
+    return true;
+}
+
 static bool handleOptionShowTouches(Options& options, const char*, const char*)
 {
     options.features.boolTestRunnerFeatures.insert_or_assign("shouldShowTouches", true);
@@ -184,6 +190,12 @@ static bool handleOptionLockdownMode(Options& options, const char*, const char*)
     return true;
 }
 
+static bool handleOptionSiteIsolationEnabledByDefault(Options& options, const char*, const char*)
+{
+    options.siteIsolationEnabledByDefault = true;
+    return true;
+}
+
 #if PLATFORM(WPE)
 static bool handleOptionWPELegacyAPI(Options& options, const char*, const char*)
 {
@@ -217,6 +229,7 @@ OptionsHandler::OptionsHandler(Options& o)
     optionList.append(Option("--allow-any-certificate-for-allowed-hosts", "Allows any HTTPS certificate for an allowed host.", handleOptionAllowAnyHTTPSCertificateForAllowedHosts));
     optionList.append(Option("--show-webview", "DEPRECATED. Same as --show-window", handleOptionShowWindow));
     optionList.append(Option("--show-window", "Make the test runner window visible during testing", handleOptionShowWindow));
+    optionList.append(Option("--show-cursor", "Show the cursor overlay in the test runner window during testing (for debugging). Use with --show-window", handleOptionShowCursor));
     optionList.append(Option("--show-touches", "Show the touches during test runs (for debugging)", handleOptionShowTouches));
     optionList.append(Option("--world-leaks", "Check for leaks of world objects (currently, documents)", handleOptionCheckForWorldLeaks));
     optionList.append(Option("--no-enable-all-experimental-features", "Do not enable all experimental features by default", handleOptionNoEnableAllExperimentalFeatures));
@@ -229,6 +242,7 @@ OptionsHandler::OptionsHandler(Options& o)
     optionList.append(Option("--webcore-logging", "Enable WebCore log channels", handleOptionWebCoreLogging, true));
     optionList.append(Option("--webkit-logging", "Enable WebKit log channels", handleOptionWebKitLogging, true));
     optionList.append(Option("--lockdown-mode", "Enable Lockdown Mode", handleOptionLockdownMode));
+    optionList.append(Option("--site-isolation-enabled-by-default", "Enable site isolation by default for all tests; individual tests can still disable it with SiteIsolationEnabled=false", handleOptionSiteIsolationEnabledByDefault));
 #if PLATFORM(WPE)
     optionList.append(Option("--wpe-legacy-api", "Use the WPE legacy API (libwpe)", handleOptionWPELegacyAPI));
 #endif

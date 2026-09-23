@@ -26,7 +26,6 @@
 #include "Document.h"
 #include "FloatRect.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGElement.h"
 #include "SVGNames.h"

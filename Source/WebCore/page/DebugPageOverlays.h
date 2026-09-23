@@ -67,7 +67,7 @@ private:
 
     void updateRegionIfNecessary(Page&, RegionType);
 
-    void regionChanged(LocalFrame&, RegionType);
+    void NODELETE regionChanged(LocalFrame&, RegionType);
 
     bool NODELETE hasOverlaysForPage(Page&) const;
     

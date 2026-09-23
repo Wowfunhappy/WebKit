@@ -184,6 +184,31 @@ int main()
         auto maxAge = Probe { }.run(context, directivesPath, ResourceRequestCachePolicy::UseProtocolCachePolicy, { }, "max-age=100"_s);
         expect("request nonzero max-age reuses a fresh response"_s, maxAge.body == "CACHED"_s && !maxAge.willCache && hits(directivesName) == 3);
 
+        struct FreshnessCase {
+            ASCIILiteral description;
+            unsigned age;
+            ASCIILiteral directives;
+            CocoaCurlCacheAnswer answer;
+        };
+        unsigned freshnessIndex = 0;
+        for (auto test : {
+                 FreshnessCase { "request min-fresh within remaining lifetime permits reuse"_s, 100, "min-fresh=800"_s, CocoaCurlCacheAnswer::UseCached },
+                 FreshnessCase { "max-stale does not override fresh response max-age validation"_s, 100, "max-age=50, max-stale=500"_s, CocoaCurlCacheAnswer::Revalidate },
+                 FreshnessCase { "max-stale does not override fresh response min-fresh validation"_s, 100, "min-fresh=1000, max-stale=500"_s, CocoaCurlCacheAnswer::Revalidate },
+                 FreshnessCase { "expired responses follow max-stale after the fresh-only constraints"_s, 1200, "max-age=50, min-fresh=1000, max-stale=500"_s, CocoaCurlCacheAnswer::UseCached },
+                 FreshnessCase { "max-stale does not override request no-store"_s, 1200, "no-store, max-stale=500"_s, CocoaCurlCacheAnswer::Revalidate } }) {
+            ResourceRequest request(URL { makeString("http://127.0.0.1:18981/cache/freshness/"_s, run, '/', freshnessIndex++) });
+            ResourceResponse response(URL { request.url() }, "text/plain"_s, 0, "UTF-8"_s);
+            response.setHTTPStatusCode(200);
+            response.setHTTPHeaderField(HTTPHeaderName::CacheControl, "max-age=1000"_s);
+            response.setHTTPHeaderField(HTTPHeaderName::Age, String::number(test.age));
+            response.setHTTPHeaderField(HTTPHeaderName::ETag, "\"freshness\""_s);
+            auto entry = createCocoaCurlCachedResponse(&storage, request, response, { }, WallTime::now());
+            storeCocoaCurlCachedResponse(&storage, entry.get(), request);
+            request.setHTTPHeaderField(HTTPHeaderName::CacheControl, String(test.directives));
+            expect(test.description, lookUpCocoaCurlCachedResponse(&storage, request).answer == test.answer);
+        }
+
         auto maxStalePath = makeString(path("stale"_s), "-max-stale"_s);
         auto maxStaleName = makeString(name("stale"_s), "-max-stale"_s);
         Probe { }.run(context, maxStalePath, ResourceRequestCachePolicy::UseProtocolCachePolicy);
@@ -345,7 +370,7 @@ int main()
             && lookUpCocoaCurlCachedResponse(&storage, collisionRequests[1]).answer == CocoaCurlCacheAnswer::UseCached);
 
         ResourceRequest wholeRequest(URL { makeString("http://127.0.0.1:18981/cache/range/"_s, run) });
-        wholeRequest.setCachePartition("cache-invalidation.example"_s);
+        wholeRequest.setFirstPartyForCookies(URL { "https://cache-invalidation.example/"_s });
         auto rangeRequest = wholeRequest;
         rangeRequest.setHTTPHeaderField(HTTPHeaderName::Range, "bytes=0-2"_s);
         ResourceResponse partialResponse(URL { wholeRequest.url() }, "text/plain"_s, 3, "UTF-8"_s);
@@ -354,6 +379,17 @@ int main()
         partialResponse.setHTTPHeaderField(HTTPHeaderName::ContentRange, "bytes 0-2/6"_s);
         std::array<uint8_t, 3> rangeBody { 'a', 'b', 'c' };
         check(cocoaCurlCacheMayStore(&storage, rangeRequest, partialResponse), "single byte-range response is cacheable");
+        ResourceResponse notModified(URL { wholeRequest.url() }, "text/plain"_s, 0, "UTF-8"_s);
+        notModified.setHTTPStatusCode(304);
+        notModified.setHTTPHeaderField(HTTPHeaderName::CacheControl, "max-age=3600"_s);
+        check(!cocoaCurlCacheMayStore(&storage, wholeRequest, notModified), "304 response is never stored");
+        ResourceResponse forbidden(URL { wholeRequest.url() }, "text/plain"_s, 3, "UTF-8"_s);
+        forbidden.setHTTPStatusCode(403);
+        check(!cocoaCurlCacheMayStore(&storage, wholeRequest, forbidden), "403 without expiration headers or public is not stored");
+        forbidden.setHTTPHeaderField(HTTPHeaderName::CacheControl, "public"_s);
+        check(cocoaCurlCacheMayStore(&storage, wholeRequest, forbidden), "403 marked public is stored");
+        forbidden.setHTTPHeaderField(HTTPHeaderName::CacheControl, "max-age=3600"_s);
+        check(cocoaCurlCacheMayStore(&storage, wholeRequest, forbidden), "403 with max-age is stored");
         auto rangeEntry = createCocoaCurlCachedResponse(&storage, rangeRequest, partialResponse, rangeBody, WallTime::now());
         storeCocoaCurlCachedResponse(&storage, rangeEntry.get(), rangeRequest);
         auto sameRange = lookUpCocoaCurlCachedResponse(&storage, rangeRequest);
@@ -370,7 +406,8 @@ int main()
         [nativeUnsafeRequest setHTTPMethod:@"POST"];
         [nativeUnsafeRequest setHTTPBody:[NSData dataWithBytes:rangeBody.data() length:rangeBody.size()]];
         ResourceRequest unsafeRequest { nativeUnsafeRequest.get() };
-        unsafeRequest.setCachePartition(wholeRequest.cachePartition());
+        unsafeRequest.setFirstPartyForCookies(wholeRequest.firstPartyForCookies());
+        unsafeRequest.setShouldBlockThirdPartyStorage(wholeRequest.shouldBlockThirdPartyStorage());
         unsafeRequest.setCachePolicy(ResourceRequestCachePolicy::DoNotUseAnyCache);
         ResourceResponse unsafeResponse(URL { wholeRequest.url() }, "text/plain"_s, 0, "UTF-8"_s);
         unsafeResponse.setHTTPStatusCode(500);

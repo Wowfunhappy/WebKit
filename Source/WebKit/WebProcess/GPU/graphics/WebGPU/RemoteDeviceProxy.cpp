@@ -185,10 +185,10 @@ RefPtr<WebCore::WebGPU::ExternalTexture> RemoteDeviceProxy::importExternalTextur
     if (!convertedDescriptor->mediaIdentifier) {
         auto* videoFrame = std::get_if<RefPtr<WebCore::VideoFrame>>(&descriptor.videoBacking);
         if (videoFrame && videoFrame->get()) {
-            convertedDescriptor->sharedFrame = m_sharedVideoFrameWriter.write(*videoFrame->get(), [this, protectedThis = Ref { *this }](auto& semaphore) {
+            convertedDescriptor->sharedFrame = m_sharedVideoFrameWriter.write(*videoFrame->get(), [this, protectedThis = protect(*this)](auto& semaphore) {
                 auto sendResult = send(Messages::RemoteDevice::SetSharedVideoFrameSemaphore { semaphore });
                 UNUSED_VARIABLE(sendResult);
-            }, [this, protectedThis = Ref { *this }](WebCore::SharedMemory::Handle&& handle) {
+            }, [this, protectedThis = protect(*this)](WebCore::SharedMemory::Handle&& handle) {
                 auto sendResult = send(Messages::RemoteDevice::SetSharedVideoFrameMemory { WTF::move(handle) });
                 UNUSED_VARIABLE(sendResult);
             });
@@ -320,7 +320,7 @@ void RemoteDeviceProxy::createComputePipelineAsync(const WebCore::WebGPU::Comput
     }
 
     auto identifier = WebGPUIdentifier::generate();
-    auto sendResult = sendWithAsyncReply(Messages::RemoteDevice::CreateComputePipelineAsync(*convertedDescriptor, identifier), [identifier, callback = WTF::move(callback), protectedThis = Ref { *this }, label = WTF::move(convertedDescriptor->label)](auto result, String&& error) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteDevice::CreateComputePipelineAsync(*convertedDescriptor, identifier), [identifier, callback = WTF::move(callback), protectedThis = protect(*this), label = WTF::move(convertedDescriptor->label)](auto result, String&& error) mutable {
         if (!result) {
             callback(nullptr, WTF::move(error));
             return;
@@ -340,7 +340,7 @@ void RemoteDeviceProxy::createRenderPipelineAsync(const WebCore::WebGPU::RenderP
         return callback(nullptr, "GPUDevice.createRenderPipelineAsync() descriptor is invalid"_s);
 
     auto identifier = WebGPUIdentifier::generate();
-    auto sendResult = sendWithAsyncReply(Messages::RemoteDevice::CreateRenderPipelineAsync(*convertedDescriptor, identifier), [identifier, callback = WTF::move(callback), protectedThis = Ref { *this }, label = WTF::move(convertedDescriptor->label)](auto result, String&& error) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteDevice::CreateRenderPipelineAsync(*convertedDescriptor, identifier), [identifier, callback = WTF::move(callback), protectedThis = protect(*this), label = WTF::move(convertedDescriptor->label)](auto result, String&& error) mutable {
         if (!result) {
             callback(nullptr, WTF::move(error));
             return;

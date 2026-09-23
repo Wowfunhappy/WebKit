@@ -79,7 +79,7 @@ if (window.accessibilityController) {
 
         tab4.ariaControlsElements = [panel4];
         panel4.id = "panel4-new";
-        axPanel4 = accessibilityController.accessibleElementById("panel4-new");
+        axPanel4 = await waitForElementById("panel4-new");
         axTab4 = accessibilityController.accessibleElementById("tab4");
         await waitFor(() => axTab4.ariaControlsElementAtIndex(0) != null);
         output += expect("axTab4.ariaControlsElementAtIndex(0).isEqual(axPanel4)", "true");

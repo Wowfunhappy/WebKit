@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 // This tests that array.Prototype.reverse() doesn't inadvertently clobber indexed properties.
 // This test shouldn't throw or crash.

@@ -111,6 +111,11 @@ public:
         case VectorRelaxedMAdd:
         case VectorRelaxedNMAdd:
         case VectorRelaxedLaneSelect:
+        case VectorRelaxedMin:
+        case VectorRelaxedMax:
+        case VectorRelaxedQ15Mulr:
+        case VectorRelaxedDotI8x16I7x16:
+        case VectorRelaxedDotI8x16I7x16Add:
             return true;
         default:
             return false;

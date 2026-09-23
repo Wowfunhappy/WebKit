@@ -29,6 +29,7 @@
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
 #include <WebCore/EventListener.h>
+#include <WebCore/HTMLMediaElement.h>
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/ImmersiveVideoMetadata.h>
 #include <WebCore/PlaybackSessionModel.h>
@@ -43,12 +44,13 @@
 namespace WebCore {
 
 class AudioTrack;
-class HTMLMediaElement;
+class MediaSession;
 class TextTrack;
 
 class PlaybackSessionModelMediaElement final
     : public PlaybackSessionModel
     , public EventListener
+    , public HTMLMediaElementClient
     , public CanMakeCheckedPtr<PlaybackSessionModelMediaElement> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(PlaybackSessionModelMediaElement, WEBCORE_EXPORT);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionModelMediaElement);
@@ -60,6 +62,9 @@ public:
     WEBCORE_EXPORT virtual ~PlaybackSessionModelMediaElement();
 
     USING_CAN_MAKE_WEAKPTR(PlaybackSessionModel);
+
+    void ref() const final { EventListener::ref(); }
+    void deref() const final { EventListener::deref(); }
 
     // CheckedPtr interface
     uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
@@ -153,6 +158,8 @@ private:
     void updateRate();
 
     void videoTrackConfigurationChanged();
+    void captionTracksChanged() final;
+    void captionsEnabledChanged() final;
 
 #if !RELEASE_LOG_DISABLED
     uint64_t logIdentifier() const final;

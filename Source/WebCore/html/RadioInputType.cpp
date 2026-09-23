@@ -48,7 +48,7 @@ const AtomString& RadioInputType::formControlType() const
     return InputTypeNames::radio();
 }
 
-bool RadioInputType::valueMissing(const String&) const
+bool RadioInputType::valueMissing(StringView) const
 {
     RefPtr element = this->element();
     ASSERT(element);

@@ -215,6 +215,7 @@ private:
         case CaptureDevice::DeviceType::Microphone:
             return process->allowsAudioCapture();
         case CaptureDevice::DeviceType::Camera:
+        case CaptureDevice::DeviceType::Canvas:
             return process->allowsVideoCapture();
         case CaptureDevice::DeviceType::Screen:
             return process->allowsDisplayCapture();
@@ -464,6 +465,11 @@ void GPUConnectionToWebProcess::didClose(IPC::Connection& connection)
     RemoteLegacyCDMFactoryProxy& legacyCdmFactoryProxy();
 #endif
 
+#if ENABLE(VIDEO)
+    if (m_remoteAudioVideoRendererProxyManager)
+        m_remoteAudioVideoRendererProxyManager->connectionToWebProcessClosed();
+#endif
+
     Ref gpuProcess = this->gpuProcess();
     gpuProcess->connectionToWebProcessClosed(connection);
     gpuProcess->removeGPUConnectionToWebProcess(*this); // May destroy |this|.
@@ -536,7 +542,7 @@ bool GPUConnectionToWebProcess::allowsExitUnderMemoryPressure() const
         return false;
 #endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    if (m_userMediaCaptureManagerProxy && Ref { *m_userMediaCaptureManagerProxy }->hasSourceProxies())
+    if (m_userMediaCaptureManagerProxy && m_userMediaCaptureManagerProxy->hasSourceProxies())
         return false;
     if (m_audioMediaStreamTrackRendererInternalUnitManager && m_audioMediaStreamTrackRendererInternalUnitManager->hasUnits())
         return false;
@@ -556,7 +562,7 @@ bool GPUConnectionToWebProcess::allowsExitUnderMemoryPressure() const
         return false;
 #endif
 #if PLATFORM(COCOA) && USE(LIBWEBRTC)
-    if (!protect(m_libWebRTCCodecsProxy.get())->allowsExitUnderMemoryPressure())
+    if (!m_libWebRTCCodecsProxy->allowsExitUnderMemoryPressure())
         return false;
 #endif
     return true;
@@ -574,7 +580,7 @@ Logger& GPUConnectionToWebProcess::logger()
 
 void GPUConnectionToWebProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName messageName, const Vector<uint32_t>&)
 {
-    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, makeString("Received an invalid message '"_s, description(messageName), "' from WebContent process "_s, m_webProcessIdentifier.toUInt64(), ", requesting for it to be terminated."_s).utf8().data());
+    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, "Received an invalid message %s from WebContent process %" PRIu64 ", requesting for it to be terminated.", description(messageName), m_webProcessIdentifier.toUInt64());
     terminateWebProcess();
 }
 
@@ -634,7 +640,10 @@ void GPUConnectionToWebProcess::canDecodeExtendedType(PlatformMediaDecodingType 
         .platformType = platformType,
         .type = contentType,
     };
-    completionHandler(MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsNotSupported);
+    MediaPlayerEngineSelection selection {
+        .scope = MediaPlayerScope::Supports,
+    };
+    completionHandler(MediaPlayer::supportsType(parameters, selection) != MediaPlayer::SupportsType::IsNotSupported);
 }
 #endif
 
@@ -713,6 +722,7 @@ void GPUConnectionToWebProcess::releaseRenderingBackend(RemoteRenderingBackendId
 void GPUConnectionToWebProcess::createGraphicsContextGL(RemoteGraphicsContextGLIdentifier identifier, WebCore::GraphicsContextGLAttributes attributes, RemoteRenderingBackendIdentifier renderingBackendIdentifier, IPC::StreamServerConnection::Handle&& connectionHandle)
 {
     MESSAGE_CHECK(!isLockdownModeEnabled());
+    MESSAGE_CHECK(!attributes.supportWebGLDraftExtensions || m_sharedPreferencesForWebProcess.webGLDraftExtensionsEnabled);
 
     auto it = m_remoteRenderingBackendMap.find(renderingBackendIdentifier);
     if (it == m_remoteRenderingBackendMap.end())
@@ -878,7 +888,7 @@ RemoteMediaEngineConfigurationFactoryProxy& GPUConnectionToWebProcess::mediaEngi
 void GPUConnectionToWebProcess::createAudioHardwareListener(RemoteAudioHardwareListenerIdentifier identifier)
 {
     auto addResult = m_remoteAudioHardwareListenerMap.ensure(identifier, [&]() {
-        return makeUnique<RemoteAudioHardwareListenerProxy>(*this, WTF::move(identifier));
+        return RemoteAudioHardwareListenerProxy::create(*this, WTF::move(identifier));
     });
     ASSERT_UNUSED(addResult, addResult.isNewEntry);
 }
@@ -1227,16 +1237,6 @@ RemoteVideoFrameObjectHeap& GPUConnectionToWebProcess::videoFrameObjectHeap() co
 }
 #endif
 
-
-#if ENABLE(MEDIA_SOURCE)
-void GPUConnectionToWebProcess::enableMockMediaSource()
-{
-    if (m_mockMediaSourceEnabled)
-        return;
-    MediaStrategy::addMockMediaSourceEngine();
-    m_mockMediaSourceEnabled = true;
-}
-#endif
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 void GPUConnectionToWebProcess::updateSampleBufferDisplayLayerBoundsAndPosition(SampleBufferDisplayLayerIdentifier identifier, WebCore::FloatRect bounds, std::optional<MachSendRightAnnotated>&& fence)

@@ -68,6 +68,39 @@ selectors = [
 ]
 requires = ["!HAVE_LINK_PRESENTATION_CHANGE_FOR_RADAR_115801517"]
 
+[[legacy]]
+classes = [
+    "NSTextTable",
+    "NSTextTableBlock",
+]
+selectors = [
+    { name = "columnSpan", class = "?" },
+    { name = "initWithTable:startingRow:rowSpan:startingColumn:columnSpan:", class = "?" },
+    { name = "rowSpan", class = "?" },
+    { name = "setCollapsesBorders:", class = "?" },
+    { name = "setHidesEmptyCells:", class = "?" },
+    { name = "setLayoutAlgorithm:", class = "?" },
+    { name = "setTextBlocks:", class = "?" },
+    { name = "setValue:type:forDimension:", class = "?" },
+    { name = "startingColumn", class = "?" },
+    { name = "table", class = "?" },
+    { name = "textBlocks", class = "?" },
+    { name = "startingRow", class = "?" },
+    { name = "setVerticalAlignment:", class = "NSTextBlock" },
+    { name = "collapsesBorders", class = "?" },
+    { name = "hidesEmptyCells", class = "?" },
+    { name = "layoutAlgorithm", class = "?" },
+    { name = "valueForDimension:", class = "?" },
+    { name = "verticalAlignment", class = "?" },
+]
+requires-sdk = ["iOS <= 26.*"]
+
+[[legacy]]
+symbols = [
+    "kCTFontDescriptorLanguageAttribute",
+]
+requires-sdk = ["iOS <= 26.4"]
+
 # ------------------------------------------------------------------------
 # Below are uncategorized and unconditionally used SPI introduced in older
 # releases.
@@ -76,12 +109,7 @@ requires = ["!HAVE_LINK_PRESENTATION_CHANGE_FOR_RADAR_115801517"]
 [[legacy]]
 selectors = [
     { name = "borderColorForEdge:", class = "?" },
-    { name = "collapsesBorders", class = "?" },
-    { name = "hidesEmptyCells", class = "?" },
-    { name = "layoutAlgorithm", class = "?" },
     { name = "transferVideoViewTo:", class = "?" },
-    { name = "valueForDimension:", class = "?" },
-    { name = "verticalAlignment", class = "?" },
     { name = "widthForLayer:edge:", class = "?" },
 ]
 symbols = [
@@ -145,8 +173,6 @@ classes = [
     "MCProfileConnection",
     "NEFilterSource",
     "NSColor",
-    "NSTextTable",
-    "NSTextTableBlock",
     "NSURLFileTypeMappings",
     "PKDisbursementPaymentRequest",
     "PKPaymentInstallmentConfiguration",
@@ -272,7 +298,6 @@ selectors = [
     { name = "bundleProxyWithAuditToken:error:", class = "?" },
     { name = "canParseExtendedMIMEType:", class = "?" },
     { name = "colorWithCalibratedRed:green:blue:alpha:", class = "?" },
-    { name = "columnSpan", class = "?" },
     { name = "containsAttachments", class = "?" },
     { name = "contentDispositionEncodingFallbackArray", class = "?" },
     { name = "coreResult", class = "?" },
@@ -308,7 +333,6 @@ selectors = [
     { name = "initWithRTF:documentAttributes:", class = "?" },
     { name = "initWithRTFD:documentAttributes:", class = "?" },
     { name = "initWithStorageDirectoryAtURL:", class = "?" },
-    { name = "initWithTable:startingRow:rowSpan:startingColumn:columnSpan:", class = "?" },
     { name = "initWithText:selectedRange:", class = "?" },
     { name = "initWithType:location:", class = "?" },
     { name = "installmentAuthorizationToken", class = "?" },
@@ -326,7 +350,6 @@ selectors = [
     { name = "lastModifiedDateOfEntryForKey:", class = "?" },
     { name = "makeContentKeyGroup", class = "?" },
     { name = "maxAlpha", class = "?" },
-    { name = "merchandisingImageData", class = "?" },
     { name = "objectForWebScript", class = "?" },
     { name = "openToBuyThresholdAmount", class = "?" },
     { name = "optionID", class = "?" },
@@ -360,7 +383,6 @@ selectors = [
     { name = "retailChannel", class = "?" },
     { name = "revealRangeAtIndex:selectedRanges:shouldUpdateSelection:", class = "?" },
     { name = "routingContextUID", class = "?" },
-    { name = "rowSpan", class = "?" },
     { name = "safeRequestForRequest:", class = "?" },
     { name = "scrollView:shouldScrollToPoint:", class = "?" },
     { name = "setAllowsHitTesting:", class = "?" },
@@ -370,7 +392,6 @@ selectors = [
     { name = "setAuditTokensForProcessAssertion:error:", class = "?" },
     { name = "setBindingTotalAmount:", class = "?" },
     { name = "setBorderColor:forEdge:", class = "?" },
-    { name = "setCollapsesBorders:", class = "?" },
     { name = "setContentDispositionEncodingFallbackArray:", class = "?" },
     { name = "setContentsOpaque:", class = "?" },
     { name = "setContextId:", class = "?" },
@@ -380,14 +401,11 @@ selectors = [
     { name = "setFeature:", class = "?" },
     { name = "setFencePort:", class = "?" },
     { name = "setHeaderLevel:", class = "?" },
-    { name = "setHidesEmptyCells:", class = "?" },
     { name = "setHostProcessAttribution:error:", class = "?" },
     { name = "setInStorePurchase:", class = "?" },
     { name = "setInstallmentItemType:", class = "?" },
     { name = "setInstallmentItems:", class = "?" },
     { name = "setInstallmentMerchantIdentifier:", class = "?" },
-    { name = "setLayoutAlgorithm:", class = "?" },
-    { name = "setMerchandisingImageData:", class = "?" },
     { name = "setNeedsLayoutOnGeometryChange:", class = "?" },
     { name = "setOpenToBuyThresholdAmount:", class = "?" },
     { name = "setPIPModeEnabled:", class = "?" },
@@ -402,13 +420,10 @@ selectors = [
     { name = "setSortsSublayers:", class = "?" },
     { name = "setSourceAppIdentifier:", class = "?" },
     { name = "setSourceAppPid:", class = "?" },
-    { name = "setTextBlocks:", class = "?" },
     { name = "setThumbstickUserIntentHandler:", class = "?" },
     { name = "setToneMapToStandardDynamicRange:", class = "?" },
     { name = "setURLSession:", class = "?" },
     { name = "setUsesWebKitBehavior:", class = "?" },
-    { name = "setValue:type:forDimension:", class = "?" },
-    { name = "setVerticalAlignment:", class = "NSTextBlock" },
     { name = "setVideoView:", class = "?" },
     { name = "setWidth:type:forLayer:edge:", class = "?" },
     { name = "sharedAVSystemController", class = "?" },
@@ -419,14 +434,10 @@ selectors = [
     { name = "signature", class = "RSABSSATokenReady" },
     { name = "sizeValue", class = "?" },
     { name = "startRoutingVideoToPictureInPicturePlayerLayerView", class = "?" },
-    { name = "startingColumn", class = "?" },
-    { name = "startingRow", class = "?" },
     { name = "stopRoutingVideoToPictureInPicturePlayerLayerView", class = "?" },
     { name = "supportedOptions", class = "?" },
     { name = "supportsMultipleOutputDevices", class = "?" },
-    { name = "table", class = "?" },
     { name = "tableCellDefaultSelectionTintColor", class = "?" },
-    { name = "textBlocks", class = "?" },
     { name = "tokenContent", class = "?" },
     { name = "tokenWaitingActivationWithContent:error:", class = "?" },
     { name = "valueForTimeStamp:", class = "?" },
@@ -572,7 +583,6 @@ symbols = [
     "CGSNextRect",
     "CGSRegionEnumerator",
     "CGSReleaseRegionEnumerator",
-    "CGShadingCreateConic",
     "CGStyleCreateColorMatrix",
     "CGStyleCreateFocusRingWithColor",
     "CGStyleCreateGaussianBlur",
@@ -800,7 +810,6 @@ symbols = [
     "kCTFontCSSWeightAttribute",
     "kCTFontCSSWidthAttribute",
     "kCTFontContentSizeCategoryL",
-    "kCTFontDescriptorLanguageAttribute",
     "kCTFontDescriptorTextStyleAttribute",
     "kCTFontFallbackOptionAttribute",
     "kCTFontGradeTrait",

@@ -76,6 +76,13 @@ public:
         ObservedSlowPathAndMakesCalls,
     };
 
+    enum class LookupMode : bool {
+        // Normal property lookups can traverse the prototype chain
+        Normal,
+        // Direct property lookups only work for own properties (see getByIdDirect)
+        Direct
+    };
+
     GetByStatus()
         : m_state(NoInformation)
     {
@@ -97,7 +104,7 @@ public:
     }
 
     static GetByStatus computeFor(CodeBlock* baselineBlock, ICStatusMap& baselineMap, ICStatusContextStack& dfgContextStack, CodeOrigin);
-    static GetByStatus computeFor(JSGlobalObject*, const StructureSet&, CacheableIdentifier);
+    static GetByStatus computeFor(JSGlobalObject*, const StructureSet&, CacheableIdentifier, LookupMode);
 
     State state() const { return m_state; }
     
@@ -119,9 +126,9 @@ public:
         return m_state == LikelyTakesSlowPath || m_state == ObservedTakesSlowPath || m_state == MakesCalls || m_state == ObservedSlowPathAndMakesCalls || m_state == CustomAccessor || m_state == ModuleNamespace || m_state == Megamorphic;
     }
     bool observedPropertyInlineCacheSlowPath() const { return m_state == ObservedTakesSlowPath || m_state == ObservedSlowPathAndMakesCalls; }
-    bool makesCalls() const;
+    bool NODELETE makesCalls() const;
     
-    GetByStatus slowVersion() const;
+    GetByStatus NODELETE slowVersion() const;
     
     bool wasSeenInJIT() const { return m_wasSeenInJIT; }
     
@@ -142,7 +149,7 @@ public:
 
     void dump(PrintStream&) const;
 
-    CacheableIdentifier singleIdentifier() const;
+    CacheableIdentifier NODELETE singleIdentifier() const;
 
     bool viaGlobalProxy() const
     {
@@ -152,7 +159,7 @@ public:
     }
 
 #if ENABLE(JIT)
-    CacheType preferredCacheType() const;
+    CacheType NODELETE preferredCacheType() const;
 #endif
     
 private:

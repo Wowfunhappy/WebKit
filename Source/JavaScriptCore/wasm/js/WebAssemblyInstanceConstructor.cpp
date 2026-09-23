@@ -51,7 +51,7 @@ JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyInstance, (JSGlobalObject* global
     RefPtr<SourceProvider> provider = StringSourceProvider::create("[wasm code]"_s, SourceOrigin(url), String(), taintedness, TextPosition(), SourceProviderSourceType::Program);
 
     // If moduleObject is not a WebAssembly.Module instance, a TypeError is thrown.
-    JSWebAssemblyModule* module = jsDynamicCast<JSWebAssemblyModule*>(callFrame->argument(0));
+    JSWebAssemblyModule* module = dynamicDowncast<JSWebAssemblyModule>(callFrame->argument(0));
     if (!module)
         return JSValue::encode(throwException(globalObject, scope, createTypeError(globalObject, "first argument to WebAssembly.Instance must be a WebAssembly.Module"_s, defaultSourceAppender, runtimeTypeForValue(callFrame->argument(0)))));
 
@@ -71,7 +71,7 @@ JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyInstance, (JSGlobalObject* global
     instance->initializeImports(globalObject, importObject, Wasm::CreationMode::FromJS);
     RETURN_IF_EXCEPTION(scope, { });
 
-    instance->finalizeCreation(vm, globalObject, module->module().compileSync(vm, instance->memoryMode()), Wasm::CreationMode::FromJS);
+    instance->finalizeCreation(vm, globalObject, module->module().compileSync(vm, instance->memory0Mode()), Wasm::CreationMode::FromJS);
     RETURN_IF_EXCEPTION(scope, { });
     return JSValue::encode(instance);
 }

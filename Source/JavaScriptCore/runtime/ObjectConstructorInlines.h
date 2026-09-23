@@ -25,7 +25,10 @@
 
 #pragma once
 
+#include "JSObjectInlines.h"
+#include "MarkedVector.h"
 #include "ObjectConstructor.h"
+#include "StructureCreateInlines.h"
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -193,7 +196,7 @@ ALWAYS_INLINE bool objectCloneFast(VM& vm, JSFinalObject* target, JSObject* sour
         return false;
     }
 
-    if (targetStructure->globalObject() != sourceStructure->globalObject()) {
+    if (targetStructure->realm() != sourceStructure->realm()) {
         dataLogLnIf(verbose, "source and target has different globalObject");
         return false;
     }
@@ -255,7 +258,7 @@ ALWAYS_INLINE JSObject* tryCreateObjectViaCloning(VM& vm, JSGlobalObject* global
         return nullptr;
     }
 
-    if (globalObject != sourceStructure->globalObject()) {
+    if (globalObject != sourceStructure->realm()) {
         dataLogLnIf(verbose, "source and target has different globalObject");
         return nullptr;
     }

@@ -20,13 +20,16 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
 #include <JavaScriptCore/ArrayStorageInlines.h>
 #include <JavaScriptCore/Butterfly.h>
+#include <JavaScriptCore/ButterflyInlinesLight.h>
+#include <JavaScriptCore/GCMemoryOperations.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/VM.h>
@@ -35,18 +38,9 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-template<typename T>
-const typename ContiguousData<T>::Data ContiguousData<T>::at(const JSCell* owner, size_t index) const
+inline size_t NODELETE nextLength(size_t length)
 {
-    ASSERT(index < m_length);
-    return Data(m_data[index], owner->indexingMode());
-}
-
-template<typename T>
-typename ContiguousData<T>::Data ContiguousData<T>::at(const JSCell* owner, size_t index)
-{
-    ASSERT(index < m_length);
-    return Data(m_data[index], owner->indexingMode());
+    return length + length / 2;
 }
 
 ALWAYS_INLINE unsigned Butterfly::availableContiguousVectorLength(size_t propertyCapacity, unsigned vectorLength)
@@ -190,7 +184,7 @@ inline Butterfly* Butterfly::growArrayRight(
 {
     return growArrayRight(
         vm, intendedOwner, oldStructure, oldStructure->outOfLineCapacity(),
-        oldStructure->hasIndexingHeader(intendedOwner), 
+        oldStructure->hasIndexingHeader(intendedOwner),
         indexingHeader()->indexingPayloadSizeInBytes(oldStructure),
         newIndexingPayloadSizeInBytes);
 }

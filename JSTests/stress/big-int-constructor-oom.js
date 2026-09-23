@@ -1,4 +1,5 @@
-//@ skip if $buildType == "debug" or $memoryLimited
+//@ memoryHog!
+//@ skip if $buildType == "debug"
 
 function assert(a) {
     if (!a)

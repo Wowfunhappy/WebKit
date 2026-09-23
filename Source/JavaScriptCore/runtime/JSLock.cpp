@@ -25,6 +25,7 @@
 #include "JSGlobalObject.h"
 #include "MachineStackMarker.h"
 #include "SamplingProfiler.h"
+#include "VMTrapsInlines.h"
 #include <wtf/StackPointer.h>
 #include <wtf/Threading.h>
 #include <wtf/threads/Signals.h>
@@ -52,7 +53,7 @@ JSLockHolder::JSLockHolder(VM* vm)
 JSLockHolder::JSLockHolder(VM& vm)
     : m_vm(&vm)
 {
-    m_vm->apiLock().lock();
+    protect(m_vm->apiLock())->lock();
 }
 
 JSLockHolder::~JSLockHolder()
@@ -105,8 +106,7 @@ void JSLock::lock(intptr_t lockCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     }
 
     m_ownerThread = &Thread::currentSingleton();
-    WTF::storeStoreFence();
-    m_hasOwnerThread = true;
+    m_hasOwnerThread.store(true, std::memory_order_release);
     ASSERT(!m_lockCount);
     m_lockCount = lockCount;
 
@@ -163,6 +163,7 @@ void JSLock::unlock()
 }
 
 #if PLATFORM(COCOA) && CPU(ADDRESS64) && CPU(ARM64)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 // FIXME: rdar://168614004
 NO_RETURN_DUE_TO_CRASH NEVER_INLINE void JSLock::dumpInfoAndCrashForLockNotOwned() // __attribute__((optnone))
 {
@@ -266,6 +267,7 @@ NO_RETURN_DUE_TO_CRASH NEVER_INLINE void JSLock::dumpInfoAndCrashForLockNotOwned
 
 #undef updateDumpState
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #endif
 
 // Use WTF_IGNORES_THREAD_SAFETY_ANALYSIS because this function conditionally unlocks m_lock, which
@@ -289,7 +291,7 @@ void JSLock::unlock(intptr_t unlockCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     m_lockCount -= unlockCount;
 
     if (!m_lockCount) {
-        m_hasOwnerThread = false;
+        m_hasOwnerThread.store(false, std::memory_order_release);
         m_lock.unlock();
     }
 }
@@ -329,12 +331,12 @@ void JSLock::willReleaseLock()
 
 void JSLock::lock(JSGlobalObject* globalObject)
 {
-    globalObject->vm().apiLock().lock();
+    protect(globalObject->vm().apiLock())->lock();
 }
 
 void JSLock::unlock(JSGlobalObject* globalObject)
 {
-    globalObject->vm().apiLock().unlock();
+    protect(globalObject->vm().apiLock())->unlock();
 }
 
 // This function returns the number of locks that were dropped.
@@ -393,8 +395,8 @@ JSLock::DropAllLocks::DropAllLocks(VM* vm)
     // the JSLock before getting here. Its goal is to release the lock if it is held. So,
     // if the lock isn't already held, there's nothing to do, and that's fine.
     // See https://bugs.webkit.org/show_bug.cgi?id=139654#c11.
-    RELEASE_ASSERT(!m_vm->apiLock().currentThreadIsHoldingLock() || !m_vm->isCollectorBusyOnCurrentThread(), m_vm->apiLock().currentThreadIsHoldingLock(), m_vm->isCollectorBusyOnCurrentThread());
-    m_droppedLockCount = m_vm->apiLock().dropAllLocks(this);
+    RELEASE_ASSERT(!m_vm->currentThreadIsHoldingAPILock() || !m_vm->isCollectorBusyOnCurrentThread(), m_vm->currentThreadIsHoldingAPILock(), m_vm->isCollectorBusyOnCurrentThread());
+    m_droppedLockCount = protect(m_vm->apiLock())->dropAllLocks(this);
 }
 
 JSLock::DropAllLocks::DropAllLocks(JSGlobalObject* globalObject)
@@ -411,7 +413,7 @@ JSLock::DropAllLocks::~DropAllLocks()
 {
     if (!m_vm)
         return;
-    m_vm->apiLock().grabAllLocks(this, m_droppedLockCount);
+    protect(m_vm->apiLock())->grabAllLocks(this, m_droppedLockCount);
 }
 
 } // namespace JSC

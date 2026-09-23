@@ -51,7 +51,7 @@ Ref<CStringBuffer> CStringBuffer::createUninitialized(size_t length)
 
 CString::CString(ASCIILiteral string)
 {
-    if (!string)
+    if (string.isNull())
         return;
 
     init(string.span());
@@ -139,6 +139,15 @@ bool operator==(const CString& a, const CString& b)
     if (a.length() != b.length())
         return false;
     return equal(byteCast<Latin1Character>(a.span()).data(), byteCast<Latin1Character>(b.span()));
+}
+
+bool operator==(const CString& a, ASCIILiteral b)
+{
+    if (a.isNull() != b.isNull())
+        return false;
+    if (a.length() != b.length())
+        return false;
+    return equal(byteCast<Latin1Character>(a.span()).data(), b.span8());
 }
 
 unsigned CString::hash() const

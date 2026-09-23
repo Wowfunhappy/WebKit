@@ -34,12 +34,14 @@
 #import <WebCore/Document.h>
 #import <WebCore/Editor.h>
 #import <WebCore/FocusController.h>
+#import <WebCore/FrameDestructionObserverInlines.h>
 #import <WebCore/FrameSelection.h>
 // MAVERICKS_BACKPORT: didShareImageData below decodes and re-encodes in WebCore, not in ImageIO.
 #import <WebCore/ImageDecoder.h>
 #import <WebCore/ImageUtilities.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/LocalFrameInlines.h>
+#import <WebCore/NodeDocument.h>
 #import <WebCore/Page.h>
 #import <wtf/cocoa/SpanCocoa.h> // MAVERICKS_BACKPORT: WTF::toNSData for the encoded TIFF below.
 

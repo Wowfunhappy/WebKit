@@ -116,8 +116,8 @@ public:
 
     Ref<IDBRequest> requestPutOrAdd(IDBObjectStore&, RefPtr<IDBKey>&&, SerializedScriptValue&, IndexedDB::ObjectStoreOverwriteMode);
     Ref<IDBRequest> requestGetRecord(IDBObjectStore&, const IDBGetRecordData&);
-    Ref<IDBRequest> requestGetAllObjectStoreRecords(IDBObjectStore&, const IDBKeyRangeData&, IndexedDB::GetAllType, std::optional<uint32_t> count);
-    Ref<IDBRequest> requestGetAllIndexRecords(IDBIndex&, const IDBKeyRangeData&, IndexedDB::GetAllType, std::optional<uint32_t> count);
+    Ref<IDBRequest> requestGetAllObjectStoreRecords(IDBObjectStore&, const IDBKeyRangeData&, IndexedDB::GetAllType, std::optional<uint32_t> count, IndexedDB::CursorDirection);
+    Ref<IDBRequest> requestGetAllIndexRecords(IDBIndex&, const IDBKeyRangeData&, IndexedDB::GetAllType, std::optional<uint32_t> count, IndexedDB::CursorDirection);
     Ref<IDBRequest> requestDeleteRecord(IDBObjectStore&, const IDBKeyRangeData&);
     Ref<IDBRequest> requestClearObjectStore(IDBObjectStore&);
     Ref<IDBRequest> requestCount(IDBObjectStore&, const IDBKeyRangeData&);
@@ -231,7 +231,7 @@ private:
     void iterateCursorOnServer(IDBClient::TransactionOperation&, const IDBIterateCursorData&);
     void didIterateCursorOnServer(IDBRequest&, const IDBResultData&);
 
-    void transitionedToFinishing(IndexedDB::TransactionState);
+    void NODELETE transitionedToFinishing(IndexedDB::TransactionState);
 
     void establishOnServer();
 

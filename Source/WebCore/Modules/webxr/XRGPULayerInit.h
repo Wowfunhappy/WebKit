@@ -38,7 +38,7 @@ struct XRGPULayerInit {
     GPUTextureFormat colorFormat;
     std::optional<GPUTextureFormat> depthStencilFormat;
     GPUTextureUsageFlags textureUsage { GPUTextureUsage::RENDER_ATTACHMENT };
-    RefPtr<WebXRSpace> space;
+    Ref<WebXRSpace> space;
     unsigned long mipLevels { 1 };
     unsigned long viewPixelWidth;
     unsigned long viewPixelHeight;

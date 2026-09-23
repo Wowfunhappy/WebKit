@@ -25,7 +25,7 @@ import sys
 
 from .command import Command
 
-from webkitbugspy import Tracker
+from webkitbugspy import Tracker, bugzilla
 from webkitcorepy import run, string_utils, arguments
 from webkitscmpy import local
 
@@ -69,14 +69,15 @@ class Commit(Command):
         if not issue:
             return ''
 
-        bug_urls = [issue.link]
+        issues = [(issue.link, issue.tracker)]
         types = [type(issue.tracker)]
         for related in issue.references:
             if type(related.tracker) in types:
                 continue
-            bug_urls.append(related.link)
+            issues.append((related.link, related.tracker))
             types.append(type(related.tracker))
-        return bug_urls
+        issues.sort(key=lambda x: not isinstance(x[1], bugzilla.Tracker))
+        return [url for url, _ in issues]
 
     @classmethod
     def main(cls, args, repository, command=None, representation=None, **kwargs):

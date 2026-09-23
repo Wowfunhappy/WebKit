@@ -36,7 +36,6 @@
 #include "CSSTokenizerInputStream.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
@@ -46,7 +45,7 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSTokenizer);
 String CSSTokenizer::preprocessString(const String& string)
 {
     // We don't replace '\r' and '\f' with '\n' as the specification suggests, instead
-    // we treat them all the same in the isNewline function below.
+    // we treat them all the same in the isCSSNewline() function from CSSParserIdioms.h.
     StringImpl* oldImpl = string.impl();
     String replaced = makeStringByReplacingAll(string, '\0', replacementCharacter);
     replaced = replaceUnpairedSurrogatesWithReplacementCharacter(WTF::move(replaced));
@@ -145,12 +144,6 @@ bool CSSTokenizer::isWhitespace(CSSParserTokenType type)
     return type == NonNewlineWhitespaceToken || type == NewlineToken;
 }
 
-bool CSSTokenizer::isNewline(char16_t cc)
-{
-    // We check \r and \f here, since we have no preprocessing stage
-    return (cc == '\r' || cc == '\n' || cc == '\f');
-}
-
 CSSParserToken CSSTokenizer::newline(char16_t)
 {
     return CSSParserToken(NewlineToken);
@@ -159,7 +152,7 @@ CSSParserToken CSSTokenizer::newline(char16_t)
 // http://dev.w3.org/csswg/css-syntax/#check-if-two-code-points-are-a-valid-escape
 static bool NODELETE twoCharsAreValidEscape(char16_t first, char16_t second)
 {
-    return first == '\\' && !CSSTokenizer::isNewline(second);
+    return first == '\\' && !isCSSNewline(second);
 }
 
 void CSSTokenizer::reconsume(char16_t c)
@@ -631,7 +624,7 @@ CSSParserToken CSSTokenizer::consumeStringTokenUntil(char16_t endingCodePoint)
             m_input.advance(size + 1);
             return CSSParserToken(StringToken, m_input.rangeAt(startOffset, size));
         }
-        if (isNewline(cc)) {
+        if (isCSSNewline(cc)) {
             m_input.advance(size);
             return CSSParserToken(BadStringToken);
         }
@@ -644,14 +637,14 @@ CSSParserToken CSSTokenizer::consumeStringTokenUntil(char16_t endingCodePoint)
         char16_t cc = consume();
         if (cc == endingCodePoint || cc == kEndOfFileMarker)
             return CSSParserToken(StringToken, registerString(output.toString()));
-        if (isNewline(cc)) {
+        if (isCSSNewline(cc)) {
             reconsume(cc);
             return CSSParserToken(BadStringToken);
         }
         if (cc == '\\') {
             if (m_input.nextInputChar() == kEndOfFileMarker)
                 continue;
-            if (isNewline(m_input.peek(0)))
+            if (isCSSNewline(m_input.peek(0)))
                 consumeSingleWhitespaceIfNext(); // This handles \r\n for us
             else
                 output.append(consumeEscape());
@@ -805,18 +798,16 @@ StringView CSSTokenizer::consumeName()
 char32_t CSSTokenizer::consumeEscape()
 {
     char16_t cc = consume();
-    ASSERT(!isNewline(cc));
+    ASSERT(!isCSSNewline(cc));
     if (isASCIIHexDigit(cc)) {
+        uint32_t codePoint = toASCIIHexValue(cc);
         unsigned consumedHexDigits = 1;
-        StringBuilder hexChars;
-        hexChars.append(cc);
         while (consumedHexDigits < 6 && isASCIIHexDigit(m_input.peek(0))) {
             cc = consume();
-            hexChars.append(cc);
+            codePoint = codePoint * 16 + toASCIIHexValue(cc);
             consumedHexDigits++;
-        };
+        }
         consumeSingleWhitespaceIfNext();
-        auto codePoint = parseInteger<uint32_t>(hexChars, 16).value();
         if (!codePoint || U_IS_SURROGATE(codePoint) || codePoint > UCHAR_MAX_VALUE)
             return replacementCharacter;
         return codePoint;

@@ -25,11 +25,11 @@
 #include "config.h"
 #include "StyleScrollFunction.h"
 
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSScrollValue.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Serialization.h"
 
 namespace WebCore {
 namespace Style {
@@ -44,17 +44,17 @@ auto CSSValueConversion<ScrollFunction>::operator()(BuilderState& state, const C
     return this->operator()(state, *scrollValue);
 }
 
-auto CSSValueConversion<ScrollFunction>::operator()(BuilderState&, const CSSScrollValue& value) -> ScrollFunction
+auto CSSValueConversion<ScrollFunction>::operator()(BuilderState& state, const CSSScrollValue& value) -> ScrollFunction
 {
     return ScrollFunction {
         ScrollFunctionParameters {
-            value.scroller() ? fromCSSValueID<Scroller>(value.scroller()->valueID()) : Scroller::Nearest,
-            value.axis() ? fromCSSValueID<ScrollAxis>(value.axis()->valueID()) : ScrollAxis::Block
+            value.scroller() ? toStyleFromCSSValue<Scroller>(state, *value.scroller()) : Scroller::Nearest,
+            value.axis() ? toStyleFromCSSValue<ScrollAxis>(state, *value.axis()) : ScrollAxis::Block
         }
     };
 }
 
-Ref<CSSValue> CSSValueCreation<ScrollFunction>::operator()(CSSValuePool& pool, const RenderStyle& style, const ScrollFunction& value)
+Ref<CSSValue> CSSValueCreation<ScrollFunction>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const ScrollFunction& value)
 {
     return CSSScrollValue::create(
         createCSSValue(pool, style, value.parameters.scroller),
@@ -64,7 +64,7 @@ Ref<CSSValue> CSSValueCreation<ScrollFunction>::operator()(CSSValuePool& pool, c
 
 // MARK: - Serialization
 
-void Serialize<ScrollFunctionParameters>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const ScrollFunctionParameters& value)
+void Serialize<ScrollFunctionParameters>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const ScrollFunctionParameters& value)
 {
     auto hasScroller = value.scroller != Scroller::Nearest;
     auto hasAxis = value.axis != ScrollAxis::Block;

@@ -34,7 +34,7 @@
 #include "LayoutContext.h"
 #include "LayoutInitialContainingBlock.h"
 #include "PlacedFloats.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TableFormattingConstraints.h"
 #include "TableFormattingState.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -233,7 +233,7 @@ void TableFormattingContext::setUsedGeometryForRows(LayoutUnit availableHorizont
     }
 
     auto& columns = grid.columns();
-    Vector<InlineLayoutUnit> rowBaselines(rows.size(), 0);
+    Vector<InlineLayoutUnit> rowBaselines(FillWith { }, rows.size(), 0);
     // Now that cells are laid out, let's compute the row baselines.
     for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
         for (size_t columnIndex = 0; columnIndex < columns.size(); ++columnIndex) {
@@ -297,12 +297,12 @@ IntrinsicWidthConstraints TableFormattingContext::computedIntrinsicWidthConstrai
         return *computedWidthConstraints;
 
     // Compute the minimum/maximum width of each column.
-    auto computedWidthConstraints = computedPreferredWidthForColumns();
+    auto computedWidthConstraints = computedIntrinsicWidthForColumns();
     grid.setWidthConstraints(computedWidthConstraints);
     return computedWidthConstraints;
 }
 
-IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColumns()
+IntrinsicWidthConstraints TableFormattingContext::computedIntrinsicWidthForColumns()
 {
     auto& formattingState = this->formattingState();
     auto& grid = formattingState.tableGrid();

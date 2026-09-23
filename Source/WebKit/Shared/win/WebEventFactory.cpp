@@ -110,26 +110,37 @@ static inline bool IsKeyInDownState(int vk)
     return ::GetKeyState(vk) & 0x8000;
 }
 
+static WindowsKeyNames& windowsKeyNames()
+{
+    static NeverDestroyed<WindowsKeyNames> keyNames;
+    return keyNames;
+}
+
 static inline OptionSet<WebEventModifier> modifiersForEvent(WPARAM wparam)
 {
     OptionSet<WebEventModifier> modifiers;
-    if (wparam & MK_CONTROL)
+    bool shouldExposeAltGraph = windowsKeyNames().shouldExposeLeftControlPlusRightAltAsAltGraph();
+    if (shouldExposeAltGraph)
+        modifiers.add(WebEventModifier::AltGraphKey);
+    if ((wparam & MK_CONTROL) && !shouldExposeAltGraph)
         modifiers.add(WebEventModifier::ControlKey);
     if (wparam & MK_SHIFT)
         modifiers.add(WebEventModifier::ShiftKey);
-    if (IsKeyInDownState(VK_MENU))
+    if (IsKeyInDownState(VK_MENU) && !shouldExposeAltGraph)
         modifiers.add(WebEventModifier::AltKey);
     return modifiers;
 }
 
-static inline OptionSet<WebEventModifier> modifiersForCurrentKeyState()
+static inline OptionSet<WebEventModifier> modifiersForCurrentKeyState(bool shouldExposeAltGraph)
 {
     OptionSet<WebEventModifier> modifiers;
-    if (IsKeyInDownState(VK_CONTROL))
+    if (shouldExposeAltGraph)
+        modifiers.add(WebEventModifier::AltGraphKey);
+    if (IsKeyInDownState(VK_CONTROL) && !shouldExposeAltGraph)
         modifiers.add(WebEventModifier::ControlKey);
     if (IsKeyInDownState(VK_SHIFT))
         modifiers.add(WebEventModifier::ShiftKey);
-    if (IsKeyInDownState(VK_MENU))
+    if (IsKeyInDownState(VK_MENU) && !shouldExposeAltGraph)
         modifiers.add(WebEventModifier::AltKey);
     return modifiers;
 }
@@ -406,7 +417,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(HWND hWnd, UINT message, WPAR
     auto modifiers = modifiersForEvent(wParam);
     auto buttons = buttonsForEvent(wParam);
 
-    return WebMouseEvent( { type, modifiers, MonotonicTime::now() }, button, buttons, flooredIntPoint(position), flooredIntPoint(globalPosition), 0, 0, 0, clickCount, didActivateWebView, WebMouseEventInputSource::UserDriven);
+    return WebMouseEvent( { type, modifiers, MonotonicTime::now() }, button, buttons, flooredIntPoint(position), flooredIntPoint(globalPosition), 0, 0, 0, clickCount, didActivateWebView, WebEventInputSource::UserDriven);
 }
 
 WebWheelEvent WebEventFactory::createWebWheelEvent(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, float deviceScaleFactor)
@@ -456,12 +467,6 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(HWND hWnd, UINT message, WPAR
     return WebWheelEvent( { WebEventType::Wheel, modifiers, MonotonicTime::now() }, flooredIntPoint(position), flooredIntPoint(globalPosition), FloatSize(deltaX, deltaY), FloatSize(wheelTicksX, wheelTicksY), granularity);
 }
 
-static WindowsKeyNames& windowsKeyNames()
-{
-    static NeverDestroyed<WindowsKeyNames> keyNames;
-    return keyNames;
-}
-
 WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
     auto type = keyboardEventTypeForEvent(message);
@@ -476,7 +481,7 @@ WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(HWND hwnd, UINT message
     bool autoRepeat = HIWORD(lparam) & KF_REPEAT;
     bool isKeypad = isKeypadEvent(wparam, lparam, type);
     bool isSystemKey = isSystemKeyEvent(message);
-    auto modifiers = modifiersForCurrentKeyState();
+    auto modifiers = modifiersForCurrentKeyState(windowsKeyNames().shouldExposeAltGraphForKeyEvent(message, wparam, lparam));
 
     return WebKeyboardEvent( { type, modifiers, MonotonicTime::now() }, text, unmodifiedText, key, code, keyIdentifier, windowsVirtualKeyCode, nativeVirtualKeyCode, macCharCode, autoRepeat, isKeypad, isSystemKey);
 }

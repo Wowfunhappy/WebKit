@@ -73,9 +73,7 @@ private:
 
     const CheckedRef<RemoteLayerTreeDrawingAreaProxy> m_drawingArea;
     Vector<ScrollingLogEvent> m_events;
-#if PLATFORM(MAC)
-    uint64_t m_lastUnfilledArea;
-#endif
+    uint64_t m_lastUnfilledArea { 0 };
 };
 
 }

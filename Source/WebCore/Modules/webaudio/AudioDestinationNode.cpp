@@ -65,7 +65,7 @@ void AudioDestinationNode::renderQuantum(AudioBus& destinationBus, size_t number
     // This will take care of all AudioNodes because they all process within this scope.
     DenormalDisabler denormalDisabler;
     
-    context().setAudioThread(Thread::currentSingleton());
+    context().setAudioThread(currentThreadID());
 
     // For performance reasons, we forbid heap allocations while doing rendering on the audio thread.
     // Heap allocations that cannot be avoided or have not been fixed yet can be allowed using

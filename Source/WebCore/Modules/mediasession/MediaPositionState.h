@@ -27,6 +27,8 @@
 
 #if ENABLE(MEDIA_SESSION)
 
+#include <wtf/text/WTFString.h>
+
 namespace WebCore {
 
 struct MediaPositionState {

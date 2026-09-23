@@ -37,7 +37,7 @@
 #import <WebCore/PlatformXRPose.h>
 #import <wtf/TZoneMallocInlines.h>
 
-#import "ARKitSoftLink.h"
+#import <pal/cocoa/ARKitSoftLink.h>
 
 namespace WebKit {
 

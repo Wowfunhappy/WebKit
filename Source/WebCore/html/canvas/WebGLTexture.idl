@@ -27,6 +27,7 @@
     Conditional=WEBGL,
     EnabledBySetting=WebGLEnabled,
     GenerateIsReachable=Impl,
+    SkipVTableValidation,
     Exposed=(Window,Worker)
 ] interface WebGLTexture {
 };

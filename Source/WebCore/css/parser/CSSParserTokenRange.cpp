@@ -105,8 +105,31 @@ void CSSParserTokenRange::trimTrailingWhitespace()
 const CSSParserToken& CSSParserTokenRange::consumeLast() LIFETIME_BOUND
 {
     if (atEnd())
-        eofToken();
+        return eofToken();
     return WTF::consumeLast(m_tokens);
+}
+
+bool CSSParserTokenRange::consumeAnyValue()
+{
+    // https://drafts.csswg.org/css-syntax-3/#typedef-any-value
+    // <any-value> must not contain bad tokens or unmatched close brackets.
+    while (!atEnd()) {
+        auto& token = consume();
+        switch (token.type()) {
+        case BadStringToken:
+        case BadUrlToken:
+            return false;
+        case RightParenthesisToken:
+        case RightBracketToken:
+        case RightBraceToken:
+            if (token.getBlockType() != CSSParserToken::BlockEnd)
+                return false;
+            break;
+        default:
+            break;
+        }
+    }
+    return true;
 }
 
 String CSSParserTokenRange::serialize(CSSParserToken::SerializationMode mode) const

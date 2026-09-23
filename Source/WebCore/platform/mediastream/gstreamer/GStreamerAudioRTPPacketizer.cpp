@@ -59,7 +59,7 @@ RefPtr<GStreamerAudioRTPPacketizer> GStreamerAudioRTPPacketizer::create(RefPtr<U
     GRefPtr<GstElement> payloader = gst_element_factory_create(lookupResult.factory.get(), nullptr);
     GST_DEBUG("Using %" GST_PTR_FORMAT " for %s RTP packetizing", payloader.get(), encoding.ascii().data());
 
-    auto inputCaps = adoptGRef(gst_caps_new_any());
+    GRefPtr inputCaps = adoptGRef(gst_caps_new_any());
     GUniquePtr<GstStructure> structure(gst_structure_copy(codecParameters));
 
     auto ssrc = ssrcGenerator->generateSSRC();
@@ -133,7 +133,7 @@ RefPtr<GStreamerAudioRTPPacketizer> GStreamerAudioRTPPacketizer::create(RefPtr<U
     if (!payloadType)
         payloadType = gstStructureGet<int>(encodingParameters.get(), "payload"_s);
 
-    auto rtpCaps = adoptGRef(gst_caps_new_empty());
+    GRefPtr rtpCaps = adoptGRef(gst_caps_new_empty());
 
     // When not present in caps, the vad support of the ssrc-audio-level extension should be
     // enabled. In order to prevent caps negotiation issues with downstream, explicitely set it.

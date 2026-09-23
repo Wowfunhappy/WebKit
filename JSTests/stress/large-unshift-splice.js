@@ -1,4 +1,4 @@
-//@ if $memoryLimited then skip else runDefault end
+//@ memoryHog!
 
 function make_contig_arr(sz)
 {

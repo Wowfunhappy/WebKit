@@ -73,19 +73,35 @@ bool AutoscrollController::autoscrollInProgress() const
     return m_autoscrollType == AutoscrollType::Selection;
 }
 
-void AutoscrollController::startAutoscrollForSelection(RenderObject* renderer)
+bool AutoscrollController::startAutoscrollForSelection(RenderObject* renderer)
 {
     // We don't want to trigger the autoscroll or the panScroll if it's already active
     if (m_autoscrollTimer.isActive())
-        return;
+        return true;
+
     CheckedPtr scrollable = RenderBox::findAutoscrollable(renderer);
     if (!scrollable)
         scrollable = renderer->isRenderListBox() ? downcast<RenderListBox>(renderer) : nullptr;
+
     if (!scrollable)
-        return;
+        return false;
+
+    auto rendererIsInsideFixedPosition = [renderer] ALWAYS_INLINE_LAMBDA {
+        if (!renderer)
+            return false;
+
+        bool isInFixed = false;
+        renderer->localToAbsolute({ }, { }, &isInFixed);
+        return isInFixed;
+    };
+
+    if (is<RenderView>(*scrollable) && scrollable->frame().isMainFrame() && rendererIsInsideFixedPosition())
+        return false;
+
     m_autoscrollType = AutoscrollType::Selection;
     m_autoscrollRenderer = WeakPtr { *scrollable };
     startAutoscrollTimer();
+    return true;
 }
 
 void AutoscrollController::stopAutoscrollTimer(bool rendererIsBeingDestroyed)
@@ -100,7 +116,7 @@ void AutoscrollController::stopAutoscrollTimer(bool rendererIsBeingDestroyed)
 
     RefPtr frame = scrollable->document().frame();
     if (autoscrollInProgress() && frame && frame->eventHandler().mouseDownWasInSubframe()) {
-        if (RefPtr subframe = dynamicDowncast<LocalFrame>(frame->eventHandler().subframeForTargetNode(frame->eventHandler().mousePressNode())))
+        if (RefPtr subframe = dynamicDowncast<LocalFrame>(frame->eventHandler().subframeForTargetNode(protect(frame->eventHandler().mousePressNode()))))
             subframe->eventHandler().stopAutoscrollTimer(rendererIsBeingDestroyed);
         return;
     }

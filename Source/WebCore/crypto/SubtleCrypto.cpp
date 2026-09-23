@@ -73,6 +73,8 @@
 #include "Settings.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/JSONObject.h>
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <wtf/text/WTFString.h>
 
@@ -114,20 +116,6 @@ static ExceptionOr<CryptoAlgorithmIdentifier> toHashIdentifier(JSGlobalObject& s
     return digestParams.returnValue()->identifier;
 }
 
-static bool isSafeCurvesEnabled(JSGlobalObject& state)
-{
-    auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(&state);
-    RefPtr context = globalObject.scriptExecutionContext();
-    return context && context->settingsValues().webCryptoSafeCurvesEnabled;
-}
-
-static bool isX25519Enabled(JSGlobalObject& state)
-{
-    auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(&state);
-    RefPtr context = globalObject.scriptExecutionContext();
-    return context && context->settingsValues().webCryptoX25519Enabled;
-}
-
 template<typename T, typename... Rest>
 static std::unique_ptr<CryptoAlgorithmParameters> makeParameters(Rest&&... rest)
 {
@@ -140,7 +128,7 @@ static ExceptionOr<std::unique_ptr<CryptoAlgorithmParameters>> normalizeCryptoAl
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (std::holds_alternative<String>(algorithmIdentifier)) {
-        auto newParams = Strong<JSObject>(vm, constructEmptyObject(&state));
+        auto newParams = Strong<JSObject>(vm, JSC::constructEmptyObject(&state));
         newParams->putDirect(vm, Identifier::fromString(vm, "name"_s), jsString(vm, std::get<String>(algorithmIdentifier)));
         
         return normalizeCryptoAlgorithmParameters(state, newParams, operation);
@@ -156,12 +144,6 @@ static ExceptionOr<std::unique_ptr<CryptoAlgorithmParameters>> normalizeCryptoAl
 
     auto identifier = CryptoAlgorithmRegistry::singleton().identifier(params.returnValue().name);
     if (!identifier) [[unlikely]]
-        return Exception { ExceptionCode::NotSupportedError };
-
-    if (*identifier == CryptoAlgorithmIdentifier::Ed25519 && !isSafeCurvesEnabled(state))
-        return Exception { ExceptionCode::NotSupportedError };
-
-    if (*identifier == CryptoAlgorithmIdentifier::X25519 && !isX25519Enabled(state))
         return Exception { ExceptionCode::NotSupportedError };
 
     switch (operation) {
@@ -295,7 +277,7 @@ static ExceptionOr<std::unique_ptr<CryptoAlgorithmParameters>> normalizeCryptoAl
             // Remove this hack once https://bugs.webkit.org/show_bug.cgi?id=169333 is fixed.
             JSValue nameValue = value.get()->get(&state, Identifier::fromString(vm, "name"_s));
             JSValue publicValue = value.get()->get(&state, Identifier::fromString(vm, "public"_s));
-            JSObject* newValue = constructEmptyObject(&state);
+            JSObject* newValue = JSC::constructEmptyObject(&state);
             newValue->putDirect(vm, Identifier::fromString(vm, "name"_s), nameValue);
             newValue->putDirect(vm, Identifier::fromString(vm, "publicKey"_s), publicValue);
 
@@ -308,7 +290,7 @@ static ExceptionOr<std::unique_ptr<CryptoAlgorithmParameters>> normalizeCryptoAl
             // Remove this hack once https://bugs.webkit.org/show_bug.cgi?id=169333 is fixed.
             JSValue nameValue = value.get()->get(&state, Identifier::fromString(vm, "name"_s));
             JSValue publicValue = value.get()->get(&state, Identifier::fromString(vm, "public"_s));
-            JSObject* newValue = constructEmptyObject(&state);
+            JSObject* newValue = JSC::constructEmptyObject(&state);
             newValue->putDirect(vm, Identifier::fromString(vm, "name"_s), nameValue);
             newValue->putDirect(vm, Identifier::fromString(vm, "publicKey"_s), publicValue);
 
@@ -1084,7 +1066,7 @@ void SubtleCrypto::wrapKey(JSC::JSGlobalObject& state, KeyFormat format, CryptoK
     auto index = promise.ptr();
     m_pendingPromises.add(index, WTF::move(promise));
     WeakPtr weakThis { *this };
-    auto callback = [index, weakThis, wrapAlgorithm, wrappingKey = Ref { wrappingKey }, wrapParams = WTF::move(wrapParams), isEncryption, context, workQueue = m_workQueue](SubtleCrypto::KeyFormat format, KeyData&& key) mutable {
+    auto callback = [index, weakThis, wrapAlgorithm, wrappingKey = protect(wrappingKey), wrapParams = WTF::move(wrapParams), isEncryption, context, workQueue = m_workQueue](SubtleCrypto::KeyFormat format, KeyData&& key) mutable {
         if (!weakThis)
             return;
         RefPtr promise = weakThis->m_pendingPromises.get(index);

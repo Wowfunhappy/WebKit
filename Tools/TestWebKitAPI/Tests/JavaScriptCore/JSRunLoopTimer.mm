@@ -25,7 +25,7 @@
 
 #import "config.h"
 
-#import "Test.h"
+#import "Helpers/Test.h"
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
@@ -87,7 +87,7 @@ TEST(JavaScriptCore, DISABLED_IncrementalSweeperMainThread)
 TEST(JavaScriptCore, IncrementalSweeperMainThread)
 #endif
 {
-    auto context = adoptNS([JSContext new]);
+    RetainPtr context = adoptNS([JSContext new]);
     s_expectedRunLoop = &RunLoop::currentSingleton();
 
     while (!s_done) {
@@ -103,7 +103,7 @@ TEST(JavaScriptCore, DISABLED_IncrementalSweeperSecondaryThread)
 TEST(JavaScriptCore, IncrementalSweeperSecondaryThread)
 #endif
 {
-    auto context = adoptNS([JSContext new]);
+    RetainPtr context = adoptNS([JSContext new]);
     s_expectedRunLoop = &RunLoop::currentSingleton();
 
     while (!s_done) {

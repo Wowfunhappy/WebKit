@@ -26,7 +26,7 @@ import sys
 from .command import Command
 from .commit import Commit
 
-from webkitbugspy import Tracker, radar
+from webkitbugspy import Tracker, bugzilla, radar
 from webkitcorepy import arguments, run, string_utils, Terminal
 from webkitscmpy import local, log, remote
 
@@ -120,10 +120,9 @@ class Branch(Command):
         return None
 
     @classmethod
-    def main(cls, args, repository, why=None, redact=False, target_remote='fork', **kwargs):
-        if not isinstance(repository, local.Git):
-            sys.stderr.write("Can only 'branch' on a native Git repository\n")
-            return 1
+    def ensure_issue(cls, args, repository, why=None, redact=False):
+        if not args.issue:
+            args.issue = repository.config().get('branch.{}.bug'.format(repository.branch))
 
         if not args.issue:
             if Tracker.instance() and getattr(args, 'update_issue', True):
@@ -148,9 +147,12 @@ class Branch(Command):
             if ' ' in args.issue:
                 if getattr(Tracker.instance(), 'credentials', None):
                     Tracker.instance().credentials(required=True, validate=True)
-                description = Terminal.input('Issue description: ')
 
-                # Asking for a radar here will prevent race conditions with the bug importer
+                description = Terminal.input('Issue description: ')
+                while not description.strip():
+                    description = Terminal.input('Invalid description. Please enter a valid issue description: ')
+                description = description.strip()
+
                 needs_radar = any([isinstance(tracker, radar.Tracker) and tracker.radarclient() for tracker in Tracker._trackers])
                 radar_cc_default = repository.config().get('webkitscmpy.cc-radar', 'true') == 'true'
                 if not getattr(args, 'defaults', None) and needs_radar and not isinstance(Tracker.instance(), radar.Tracker):
@@ -162,12 +164,11 @@ class Branch(Command):
                             input = '<rdar://problem/{}>'.format(input)
                         rdar_to_cc = Tracker.from_string(input) or False
 
-                default_proj = list(Tracker.instance().projects.keys())[0] if rdar_to_cc and rdar_to_cc.redacted else None
-                if default_proj and Terminal.choose(
-                    f"Automatically classifying bug as {default_proj}.",
-                    default='Continue', options=('Continue', 'Modify')
-                ) == 'Modify':
-                    default_proj = None
+                default_proj = None
+                if rdar_to_cc:
+                    default_proj, _, _ = bugzilla.Tracker.classify_from_radar(
+                        rdar_to_cc, None, None,
+                    )
 
                 issue = Tracker.instance().create(
                     title=args.issue,
@@ -177,7 +178,7 @@ class Branch(Command):
                 )
                 if not issue:
                     sys.stderr.write('Failed to create new issue\n')
-                    return 1
+                    return None, 1
                 print("Created '{}'".format(issue))
                 if issue and issue.title and not redact and not issue.redacted and not issue.tracker.hide_title:
                     args.issue = cls.to_branch_name(issue.title)
@@ -192,7 +193,20 @@ class Branch(Command):
             args._title = issue.title
         if issue:
             args._bug_urls = Commit.bug_urls(issue)
-        elif not (repository or local.Scm).DEV_BRANCHES.match(args.issue):
+
+        return issue, 0
+
+    @classmethod
+    def main(cls, args, repository, why=None, redact=False, target_remote='fork', **kwargs):
+        if not isinstance(repository, local.Git):
+            sys.stderr.write("Can only 'branch' on a native Git repository\n")
+            return 1
+
+        issue, result = cls.ensure_issue(args, repository, why=why, redact=redact)
+        if result:
+            return result
+
+        if not issue and not (repository or local.Scm).DEV_BRANCHES.match(args.issue):
             # Support creating a branch from PR or revert when update_issue is False
             args.issue = cls.to_branch_name(args.issue)
 

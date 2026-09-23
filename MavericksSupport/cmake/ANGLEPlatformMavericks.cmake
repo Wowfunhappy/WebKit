@@ -27,15 +27,8 @@ endif ()
 
 elseif (MAVERICKS_ANGLE_PHASE STREQUAL "POST")
 
-# The GLSL (desktop-GL) output path on Apple runs Apple-specific AST tree operations
-# (UnfoldShortCircuitAST, AddAndTrueToLoopCondition, RewriteRowMajorMatrices). Compiler.cmake defines
-# the group and upstream's ANGLE_SOURCES never names it, so TranslatorGLSL leaves
-# sh::UnfoldShortCircuitAST undefined and WebContent takes a dyld lazy-bind crash on the first
-# glCompileShader.
-list(APPEND ANGLE_SOURCES ${angle_translator_glsl_apple_sources})
-
-# The CGL/desktop-GL backend sources in place of the Metal ones.
-list(REMOVE_ITEM ANGLE_SOURCES ${metal_backend_sources})
+# CGL uses the desktop-GL renderer and GLSL translator.
+list(REMOVE_ITEM ANGLE_SOURCES ${metal_backend_sources} ${angle_translator_lib_msl_sources})
 list(APPEND ANGLE_SOURCES ${gl_backend_sources})
 
 list(REMOVE_ITEM ANGLE_DEFINITIONS ANGLE_ENABLE_METAL)

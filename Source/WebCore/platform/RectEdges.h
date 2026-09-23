@@ -30,7 +30,6 @@
 #include <WebCore/WritingMode.h>
 #include <array>
 #include <concepts>
-#include <wtf/OptionSet.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -94,12 +93,12 @@ public:
     T& bottom() { return at(BoxSide::Bottom); }
     T& left() { return at(BoxSide::Left); }
 
-    const T& at(BoxSide side) const { return m_sides[static_cast<size_t>(side)]; }
-    const T& operator[](BoxSide side) const { return m_sides[static_cast<size_t>(side)]; }
-    const T& top() const { return at(BoxSide::Top); }
-    const T& right() const { return at(BoxSide::Right); }
-    const T& bottom() const { return at(BoxSide::Bottom); }
-    const T& left() const { return at(BoxSide::Left); }
+    const T& at(BoxSide side) const LIFETIME_BOUND { return m_sides[static_cast<size_t>(side)]; }
+    const T& operator[](BoxSide side) const LIFETIME_BOUND { return m_sides[static_cast<size_t>(side)]; }
+    const T& top() const LIFETIME_BOUND { return at(BoxSide::Top); }
+    const T& right() const LIFETIME_BOUND { return at(BoxSide::Right); }
+    const T& bottom() const LIFETIME_BOUND { return at(BoxSide::Bottom); }
+    const T& left() const LIFETIME_BOUND { return at(BoxSide::Left); }
 
     void setAt(BoxSide side, const T& v) { at(side) = v; }
     void setTop(const T& top) { setAt(BoxSide::Top, top); }
@@ -154,6 +153,18 @@ public:
         if (writingMode.isHorizontal())
             return xFlippedCopy();
         return yFlippedCopy();
+    }
+
+    void transpose()
+    {
+        std::swap(m_sides[3], m_sides[2]);
+        std::swap(m_sides[2], m_sides[1]);
+        std::swap(m_sides[1], m_sides[0]);
+    }
+
+    RectEdges<T> transposed() const
+    {
+        return { left(), top(), right(), bottom() };
     }
 
     template<typename F> bool anyOf(F&& functor) const

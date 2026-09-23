@@ -99,7 +99,7 @@ namespace Xsum {
 // SmallAccumulator
 
 SmallAccumulator::SmallAccumulator()
-    : chunk(XSUM_SCHUNKS, 0LL), addsUntilPropagate { XSUM_SMALL_CARRY_TERMS }, inf { 0 }, nan { 0 },
+    : chunk(FillWith { }, XSUM_SCHUNKS, 0LL), addsUntilPropagate { XSUM_SMALL_CARRY_TERMS }, inf { 0 }, nan { 0 },
     sizeCount { 0 }, hasPosNumber { false } { }
 
 SmallAccumulator::SmallAccumulator(
@@ -264,7 +264,7 @@ ALWAYS_INLINE void SmallAccumulator::incrementWhenValueAdded(double value)
 // LargeAccumulator
 
 LargeAccumulator::LargeAccumulator()
-    : chunk(XSUM_LCHUNKS), count(XSUM_LCHUNKS, -1), chunksUsed(XSUM_LCHUNKS / 64, 0), usedUsed { 0 }, sacc { } { }
+    : chunk(XSUM_LCHUNKS), count(FillWith { }, XSUM_LCHUNKS, -1), chunksUsed(FillWith { }, XSUM_LCHUNKS / 64, 0), usedUsed { 0 }, sacc { } { }
 
 /*
 ADD CHUNK FROM A LARGE ACCUMULATOR TO THE SMALL ACCUMULATOR WITHIN IT.

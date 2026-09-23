@@ -28,7 +28,6 @@
 
 #include "pas_page_sharing_mode.h"
 #include "pas_segregated_heap_lookup_kind.h"
-#include "pas_segregated_page_config_variant.h"
 #include "pas_utils.h"
 
 PAS_BEGIN_EXTERN_C;
@@ -48,7 +47,6 @@ struct pas_heap_runtime_config {
     bool statically_allocated : 1;
     bool is_part_of_heap : 1;
     
-    unsigned directory_size_bound_for_partial_views;
     unsigned directory_size_bound_for_baseline_allocators;
     unsigned directory_size_bound_for_no_view_cache;
 

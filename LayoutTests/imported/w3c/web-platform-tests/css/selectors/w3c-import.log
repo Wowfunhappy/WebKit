@@ -16,6 +16,8 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/META.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/WEB_FEATURES.yml
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/active-toplayer-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/backdrop-input-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/caret-color-visited-inheritance-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/caret-color-visited-inheritance-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/caret-color-visited-inheritance.html
@@ -191,6 +193,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-013-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-013.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-display-none-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-focus-move.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-removal.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-shadow-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-shadow-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-shadow-001.html
@@ -204,11 +208,13 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-shadow-005.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-shadow-006-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-shadow-006.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/focus-within-toplayer-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-argument-with-explicit-scope.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-basic.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-display-none-checked-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-display-none-checked-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-display-none-checked.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-focus-display-change.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-matches-to-uninserted-elements.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-nth-of-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-relative-argument.html
@@ -262,11 +268,13 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-visited-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-visited-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/has-visited.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/hash-collision-cssom.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/hash-collision.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/heading.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/historical-xmlid-expected.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/historical-xmlid.xht
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/hover-002.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/hover-toplayer-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-default-ns-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-default-ns-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-default-ns-002-expected.html
@@ -277,6 +285,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-specificity-shadow.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-specificity.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-where-basic.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-where-error-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-where-error-recovery.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-where-not.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/is-where-pseudo-classes.html
@@ -422,6 +431,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selection-image-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selection-image-002-expected-mismatch.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selection-image-002.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-after-font-family.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-placeholder-shown-emptify-placeholder.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-placeholder-shown-type-change-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-placeholder-shown-type-change-001-ref.html
@@ -450,6 +460,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-structural-pseudo-root-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-structural-pseudo-root-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selector-structural-pseudo-root.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/selectors-attr-many-2.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selectors-attr-many-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selectors-attr-many-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/selectors-attr-many.html
@@ -476,6 +487,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/text-stroke-color-visited-inheritance-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/text-stroke-color-visited-inheritance-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/text-stroke-color-visited-inheritance.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/toplayer-transition-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/user-action-pseudo-top-layer.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/user-invalid-form-submission-invalidation-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/user-invalid-form-submission-invalidation-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/user-invalid-form-submission-invalidation.html
@@ -483,9 +496,15 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/user-valid-user-invalid-multifield-inputs.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/user-valid.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/valid-invalid-form-fieldset.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-in-visited-compound-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-in-visited-compound-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-in-visited-compound.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-inheritance-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-inheritance-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-inheritance.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-nested-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-nested-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-nested.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/visited-part-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/webkit-pseudo-element.html
 /LayoutTests/imported/w3c/web-platform-tests/css/selectors/x-pseudo-element.html

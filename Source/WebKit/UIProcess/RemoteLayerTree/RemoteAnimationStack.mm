@@ -56,7 +56,9 @@ RemoteAnimationStack::RemoteAnimationStack(RemoteAnimations&& animations, WebCor
         affectsFilter = affectsFilter || properties.containsAny({ WebCore::AcceleratedEffectProperty::Filter, WebCore::AcceleratedEffectProperty::BackdropFilter });
         affectsOpacity = affectsOpacity || properties.contains(WebCore::AcceleratedEffectProperty::Opacity);
         affectsTransform = affectsTransform || properties.containsAny(WebCore::transformRelatedAcceleratedProperties);
-        if (affectsFilter && affectsOpacity && affectsTransform)
+        m_hasProgressBasedAnimations = m_hasProgressBasedAnimations || animation->timeline().isProgressBased();
+        m_hasTimeBasedAnimations = m_hasTimeBasedAnimations || animation->timeline().isMonotonic();
+        if (affectsFilter && affectsOpacity && affectsTransform && m_hasProgressBasedAnimations && m_hasTimeBasedAnimations)
             break;
     }
 
@@ -247,13 +249,6 @@ bool RemoteAnimationStack::isDependentOnScrollingNodeWithID(WebCore::ScrollingNo
     return m_animations.containsIf([scrollingNodeID](auto& animation) {
         RefPtr progressBasedTimeline = dynamicDowncast<RemoteProgressBasedTimeline>(animation->timeline());
         return progressBasedTimeline && progressBasedTimeline->source() == scrollingNodeID;
-    });
-}
-
-bool RemoteAnimationStack::isTimeDependent() const
-{
-    return m_animations.containsIf([](auto& animation) {
-        return animation->timeline().isMonotonic();
     });
 }
 

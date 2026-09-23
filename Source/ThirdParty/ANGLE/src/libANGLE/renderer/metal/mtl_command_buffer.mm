@@ -184,7 +184,7 @@ inline void SetVertexBufferCmd(id<MTLRenderCommandEncoder> encoder,
                                IntermediateCommandStream *stream)
 {
     id<MTLBuffer> buffer = stream->fetch<id<MTLBuffer>>();
-    size_t offset      = stream->fetch<size_t>();
+    size_t offset        = stream->fetch<size_t>();
     uint32_t index       = stream->fetch<uint32_t>();
     [encoder setVertexBuffer:buffer offset:offset atIndex:index];
     [buffer ANGLE_MTL_RELEASE];
@@ -193,7 +193,7 @@ inline void SetVertexBufferCmd(id<MTLRenderCommandEncoder> encoder,
 inline void SetVertexBufferOffsetCmd(id<MTLRenderCommandEncoder> encoder,
                                      IntermediateCommandStream *stream)
 {
-    size_t offset = stream->fetch<size_t>();
+    size_t offset   = stream->fetch<size_t>();
     uint32_t index  = stream->fetch<uint32_t>();
     [encoder setVertexBufferOffset:offset atIndex:index];
 }
@@ -358,7 +358,7 @@ inline void DrawIndexedInstancedBaseVertexBaseInstanceCmd(id<MTLRenderCommandEnc
     id<MTLBuffer> indexBuffer      = stream->fetch<id<MTLBuffer>>();
     size_t bufferOffset            = stream->fetch<size_t>();
     uint32_t instances             = stream->fetch<uint32_t>();
-    uint32_t baseVertex            = stream->fetch<uint32_t>();
+    int32_t baseVertex             = stream->fetch<int32_t>();
     uint32_t baseInstance          = stream->fetch<uint32_t>();
     [encoder drawIndexedPrimitives:primitiveType
                         indexCount:indexCount
@@ -1542,8 +1542,7 @@ void RenderCommandEncoder::endEncodingImpl(bool considerDiscardSimulation)
                                 objCRenderPassDesc.stencilAttachment))
         hasAttachment = true;
 
-    // Set visibility result buffer
-    if (mOcclusionQueryPool.getNumRenderPassAllocatedQueries())
+    if (mOcclusionQueryPool.hasPendingVisibilityResults())
     {
         objCRenderPassDesc.visibilityResultBuffer =
             mOcclusionQueryPool.getRenderPassVisibilityPoolBuffer()->get();
@@ -2245,7 +2244,7 @@ RenderCommandEncoder &RenderCommandEncoder::drawIndexedInstancedBaseVertexBaseIn
     const BufferRef &indexBuffer,
     size_t bufferOffset,
     uint32_t instances,
-    uint32_t baseVertex,
+    int32_t baseVertex,
     uint32_t baseInstance)
 {
     ASSERT(mPipelineStateSet &&

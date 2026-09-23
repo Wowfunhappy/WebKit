@@ -47,6 +47,7 @@ public:
     GCGLDisplay platformDisplay() const;
     GCGLConfig platformConfig() const;
 
+    // MAVERICKS_BACKPORT: upstream drawing-buffer target selection for CGL.
     GCGLenum drawingBufferTextureTarget();
     std::tuple<GCGLenum, GCGLenum> drawingBufferTextureBindingPoint();
     static GCGLint NODELETE EGLDrawingBufferTextureTargetForDrawingTarget(GCGLenum drawingTarget);
@@ -115,6 +116,19 @@ public:
     void getIntegeri_v(GCGLenum pname, GCGLuint index, std::span<GCGLint, 4> value) final; // NOLINT
     GCGLint64 getInteger64(GCGLenum pname) final;
     GCGLint64 getInteger64i(GCGLenum pname, GCGLuint index) final;
+
+    GCGLint maxCombinedTextureImageUnits() final;
+    GCGLint maxVertexAttribs() final;
+    GCGLint maxTextureSize() final;
+    GCGLint maxCubeMapTextureSize() final;
+    GCGLint maxRenderbufferSize() final;
+    std::array<GCGLint, 2> maxViewportDims() final;
+    GCGLint maxSamples() final;
+    GCGLint maxTransformFeedbackSeparateAttribs() final;
+    GCGLint maxUniformBufferBindings() final;
+    GCGLint uniformBufferOffsetAlignment() final;
+    GCGLint max3DTextureSize() final;
+    GCGLint maxArrayTextureLayers() final;
     GCGLint getProgrami(PlatformGLObject program, GCGLenum pname) final;
     CString getProgramInfoLog(PlatformGLObject) final;
     GCGLint getRenderbufferParameteri(GCGLenum target, GCGLenum pname) final;
@@ -156,9 +170,9 @@ public:
     void texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLintptr offset) final;
     void texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels) final;
     void texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset) final;
-    void compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLsizei imageSize, std::span<const uint8_t> data) final;
+    void compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, std::span<const uint8_t> data) final;
     void compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLsizei imageSize, GCGLintptr offset) final;
-    void compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, std::span<const uint8_t> data) final;
+    void compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, std::span<const uint8_t> data) final;
     void compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset) final;
     void texParameterf(GCGLenum target, GCGLenum pname, GCGLfloat param) final;
     void texParameteri(GCGLenum target, GCGLenum pname, GCGLint param) final;
@@ -217,9 +231,9 @@ public:
     void texSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels) final;
     void texSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, GCGLintptr offset) final;
     void copyTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height) final;
-    void compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, GCGLsizei imageSize, std::span<const uint8_t> data) final;
+    void compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, std::span<const uint8_t> data) final;
     void compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, GCGLsizei imageSize, GCGLintptr offset) final;
-    void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, std::span<const uint8_t> data) final;
+    void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, std::span<const uint8_t> data) final;
     void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset) final;
     GCGLint getFragDataLocation(PlatformGLObject program, const CString& name) final;
     void uniform1ui(GCGLint location, GCGLuint v0) final;
@@ -401,7 +415,7 @@ protected:
 #endif
     virtual bool reshapeDrawingBuffer() = 0;
 
-    static void platformReleaseThreadResources();
+    static void NODELETE platformReleaseThreadResources();
 
     virtual void invalidateKnownTextureContent(GCGLuint);
     bool supportsExtensionImpl(ASCIILiteral) const;
@@ -419,8 +433,6 @@ protected:
     HashSet<CString> m_allRequestableExtensions;
     HashSet<CString> m_allEnabledRequestableExtensions;
     HashSet<CString> m_extensions;
-    bool m_webglColorBufferFloatRGB { false };
-    bool m_webglColorBufferFloatRGBA { false };
     GCGLuint m_texture { 0 };
     GCGLuint m_fbo { 0 };
     GCGLuint m_depthStencilBuffer { 0 };
@@ -433,7 +445,7 @@ protected:
     GCGLuint m_preserveDrawingBufferTexture { 0 };
     // Attaches m_texture when m_preserveDrawingBufferTexture is non-zero.
     GCGLuint m_preserveDrawingBufferFBO { 0 };
-    // Queried at display startup.
+    // MAVERICKS_BACKPORT: cache the EGL configuration's IOSurface texture target.
     GCGLint m_drawingBufferTextureTarget { -1 };
     GCGLErrorCodeSet m_errors;
     bool m_isForWebGL2 { false };

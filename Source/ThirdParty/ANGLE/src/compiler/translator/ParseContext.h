@@ -86,12 +86,15 @@ class TParseContext : angle::NonCopyable
     void *getScanner() const { return mScanner; }
     void setScanner(void *scanner) { mScanner = scanner; }
     int getShaderVersion() const { return mShaderVersion; }
-    void onShaderVersionDeclared(int version);
+    void onShaderVersionDeclared(const TSourceLoc &loc, int version);
+    bool checkShaderVersion(const TSourceLoc &loc);
+    bool checkCanUseShaderType(const TSourceLoc &loc);
     sh::GLenum getShaderType() const { return mShaderType; }
     ShShaderSpec getShaderSpec() const { return mShaderSpec; }
     int numErrors() const { return mDiagnostics->numErrors(); }
     void error(const TSourceLoc &loc, const char *reason, const char *token);
     void error(const TSourceLoc &loc, const char *reason, const ImmutableString &token);
+    void fatal(const TSourceLoc &loc, const char *reason);
     void warning(const TSourceLoc &loc, const char *reason, const char *token);
 
     // If isError is false, a warning will be reported instead.
@@ -115,9 +118,9 @@ class TParseContext : angle::NonCopyable
 
     int getNumViews() const { return mNumViews; }
 
-    const std::map<int, ShPixelLocalStorageFormat> &pixelLocalStorageFormats() const
+    const std::map<int, ShPixelLocalStorageLayout> &pixelLocalStorageLayouts() const
     {
-        return mPLSFormats;
+        return mPLSLayouts;
     }
 
     void enterFunctionDeclaration() { mDeclaringFunction = true; }
@@ -753,7 +756,7 @@ class TParseContext : angle::NonCopyable
     bool parseTessControlShaderOutputLayoutQualifier(const TTypeQualifier &typeQualifier);
     bool parseTessEvaluationShaderInputLayoutQualifier(const TTypeQualifier &typeQualifier);
 
-    void checkVariableSize(const TSourceLoc &line,
+    bool checkVariableSize(const TSourceLoc &line,
                            const ImmutableString &identifier,
                            const TType *type);
     void checkVaryingLocations(const TSourceLoc &line, const TVariable *variable);
@@ -832,7 +835,7 @@ class TParseContext : angle::NonCopyable
     };
 
     // Generates an error if any pixel local storage uniforms have been declared (more specifically,
-    // if mPLSFormats is not empty).
+    // if mPLSLayouts is not empty).
     //
     // If no pixel local storage uniforms have been declared, and if the PLS extension is enabled,
     // saves the potential error to mPLSPotentialErrors in case we encounter a PLS uniform later.
@@ -884,6 +887,12 @@ class TParseContext : angle::NonCopyable
     // Keep track of number of views declared in layout.
     int mNumViews;
 
+    // Maximum number of uniform blocks allowed to be declared in this shader. Taken from the
+    // built-in resources and resolved to this shader type.
+    unsigned int mMaxUniformBlocks;
+    // Current count of declared uniform blocks.
+    unsigned int mNumUniformBlocks;
+
     // Keeps track of whether any of the built-ins that can be redeclared (see
     // IsRedeclarableBuiltIn()) has been marked as invariant/precise before the possible
     // redeclaration.
@@ -906,6 +915,8 @@ class TParseContext : angle::NonCopyable
     // Keeps track of the total size of shader-private variables, if validating that this size
     // should not exceed a sensible threshold.
     angle::base::CheckedNumeric<size_t> mTotalPrivateVariablesSize;
+    // Tracks if a type has been validated as safe in checkVariableSize.
+    TMap<TType, bool> mValidatedVariableTypeSizes;
 
     // Track state related to control flow, used for various validation:
     //
@@ -955,8 +966,8 @@ class TParseContext : angle::NonCopyable
     // Track the state of each atomic counter binding.
     std::map<int, AtomicCounterBindingState> mAtomicCounterBindingStates;
 
-    // Track the format of each pixel local storage binding.
-    std::map<int, ShPixelLocalStorageFormat> mPLSFormats;
+    // Track the layout qualifier of each pixel local storage binding.
+    std::map<int, ShPixelLocalStorageLayout> mPLSLayouts;
 
     // Potential errors to generate immediately upon encountering a pixel local storage uniform.
     std::vector<std::tuple<const TSourceLoc, PLSIllegalOperations>> mPLSPotentialErrors;
@@ -971,6 +982,7 @@ class TParseContext : angle::NonCopyable
     TVector<VariableAndLocation> mFragmentOutputsYuv;
     bool mFragmentOutputIndex1Used;
     bool mFragmentOutputFragDepthUsed;
+    int mMaxFragDataArrayIndexUsed;
 
     // Track the geometry shader global parameters declared in layout.
     TLayoutPrimitiveType mGeometryShaderInputPrimitiveType;

@@ -273,6 +273,7 @@
 40644666 VULKAN LINUX NVIDIA : dEQP-GLES2.functional.shaders.invariance.lowp.subexpression_precision_mediump = FAIL
 40644666 VULKAN LINUX NVIDIA : dEQP-GLES2.functional.shaders.invariance.mediump.subexpression_precision_lowp = FAIL
 // New failures when upgrading to Ubuntu 22/newer driver 535.183.01.
+362486580 VULKAN LINUX NVIDIA : dEQP-GLES2.functional.texture.completeness.cube.npot_all_repeat = FAIL
 362486580 VULKAN LINUX NVIDIA : dEQP-GLES2.functional.texture.completeness.cube.npot_mirrored_repeat = FAIL
 362486580 VULKAN LINUX NVIDIA : dEQP-GLES2.functional.texture.completeness.cube.npot_s_repeat = FAIL
 362486580 VULKAN LINUX NVIDIA : dEQP-GLES2.functional.texture.completeness.cube.npot_t_repeat = FAIL
@@ -343,22 +344,14 @@
 // loop bodies on Ventura. These tests always fail on Sonoma with or without __asm__. crbug.com/1513738
 1513738 MAC METAL AMD : dEQP-GLES2.functional.shaders.indexing.tmp_array.*_const_write_dynamic_read_* = FAIL
 
-// Pixel 4 test expectations.
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.fragment_ops.interaction.basic_shader.48 = SKIP
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.fragment_ops.interaction.basic_shader.89 = SKIP
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.fragment_ops.random.52* = SKIP
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.fragment_ops.random.77* = SKIP
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.fragment_ops.random.82* = SKIP
-42267039 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.texture.mipmap.cube.projected.nearest_linear = SKIP
-428802465 PIXEL4ORXL VULKAN : dEQP-GLES2.functional.negative_api.texture.generatemipmap_zero_level_array_compressed = FAIL
-
 42265027 PIXEL4ORXL GLES : dEQP-GLES2.functional.shaders.struct.uniform.sampler_in_array_function_arg_vertex = FAIL
 42265027 PIXEL4ORXL GLES : dEQP-GLES2.functional.shaders.struct.uniform.sampler_in_function_arg_vertex = FAIL
 42266310 PIXEL4ORXL GLES : dEQP-GLES2.functional.shaders.function.global_variable_aliasing_* = FAIL
 42267039 PIXEL4ORXL GLES : dEQP-GLES2.functional.texture.mipmap.cube.projected.nearest_linear = FAIL
 
-// Pixel 6 test expectations.
-428802465 PIXEL6 VULKAN : dEQP-GLES2.functional.negative_api.texture.generatemipmap_zero_level_array_compressed = FAIL
+// Pixel 10
+449087811 PIXEL10 GLES : dEQP-GLES2.functional.shaders.fragdata.valid_dynamic_index = FAIL
+449087811 PIXEL10 GLES : dEQP-GLES2.functional.shaders.fragdata.valid_uniform_index = FAIL
 
 42265203 LINUX NVIDIA GTX1660 VULKAN : dEQP-GLES2.functional.shaders.random.all_features.fragment.13 = FAIL
 42265203 LINUX NVIDIA GTX1660 VULKAN : dEQP-GLES2.functional.shaders.random.all_features.fragment.26 = FAIL
@@ -383,23 +376,23 @@
 42266598 GALAXYS23 VULKAN : dEQP-GLES2.functional.shaders.random.* = SKIP
 
 // Snapdragon 8 Gen3 Mobile Reference Device
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.fbo.render*stencil* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.fragment_ops.interaction.basic_shader.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.rasterization.primitives.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.fragdata.valid_dynamic_index = SKIP
-b/338287961 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.all_features.fragment.39 = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.basic_expression.combined.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.basic_expression.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.comparison_ops.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.conditionals.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.exponential.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.scalar_conversion.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.swizzle.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.texture.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.trigonometric.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.texture*cube* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.random.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.fbo.render*stencil* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.fragment_ops.interaction.basic_shader.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.rasterization.primitives.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.fragdata.valid_dynamic_index = SKIP
+338287961 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.all_features.fragment.39 = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.basic_expression.combined.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.basic_expression.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.comparison_ops.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.conditionals.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.exponential.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.scalar_conversion.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.swizzle.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.texture.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.shaders.random.trigonometric.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.texture*cube* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.random.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.* = SKIP
 
 // WebGPU failures
 // These tests fail because the WGSL translator doesn't know what to do with matrix attributes yet.
@@ -418,23 +411,26 @@ b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.
 356399840 WGPU : dEQP-GLES2.functional.buffer.write.use.index_array.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.buffer.write.random.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.clipping.* = FAIL
-356399840 WGPU : dEQP-GLES2.functional.color_clear.*complex* = FAIL
-356399840 WGPU : dEQP-GLES2.functional.color_clear.*masked* = FAIL
-356399840 WGPU : dEQP-GLES2.functional.color_clear.*scissored* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.default_vertex_attrib.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.depth_range.* = FAIL
-356399840 WGPU : dEQP-GLES2.functional.depth_stencil_clear.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.draw.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.fbo.api.attachment_query_tex2d = FAIL
 356399840 WGPU : dEQP-GLES2.functional.fbo.api.delete_tex_2d_attached_to_bound_fbo = FAIL
 356399840 WGPU : dEQP-GLES2.functional.fbo.api.delete_tex_2d_attached_to_not_bound_fbo = FAIL
 356399840 WGPU : dEQP-GLES2.functional.fbo.api.texture_levels = FAIL
 356399840 WGPU : dEQP-GLES2.functional.fbo.completeness.renderable.texture.stencil.stencil_index8 = FAIL
-356399840 WGPU : dEQP-GLES2.functional.fbo.render.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.depth.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.stencil.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.color.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.shared_colorbuffer.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.shared_depthbuffer.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.resize.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.recreate_* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.texsubimage.* = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.stencil_clear.tex2d_rgb_stencil_index8 = FAIL
+356399840 WGPU : dEQP-GLES2.functional.fbo.render.stencil_clear.rbo_rgb565_stencil_index8 = FAIL
 370690274 WGPU : dEQP-GLES2.functional.fragment_ops.depth.* = FAIL
-370690274 WGPU : dEQP-GLES2.functional.fragment_ops.stencil.* = FAIL
 370690274 WGPU : dEQP-GLES2.functional.fragment_ops.depth_stencil.* = FAIL
-370690274 WGPU : dEQP-GLES2.functional.fragment_ops.scissor.clear_* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.fragment_ops.blend.*constant_alpha* = FAIL
 370690274 WGPU MAC INTEL : dEQP-GLES2.functional.fragment_ops.blend.* = FAIL
 370690274 WGPU : dEQP-GLES2.functional.fragment_ops.random.* = FAIL
@@ -468,6 +464,8 @@ b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.
 356399840 WGPU : dEQP-GLES2.functional.shaders.functions.qualifiers.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.shaders.indexing.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.shaders.linkage.* = FAIL
+// This variation times out
+356399840 WGPU : dEQP-GLES2.functional.shaders.loops.for_constant_iterations.mixed_break_continue_* = SKIP
 356399840 WGPU : dEQP-GLES2.functional.shaders.loops.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.shaders.matrix.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.shaders.misc.compound_assignment.* = FAIL
@@ -493,7 +491,7 @@ b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.
 // Cube textures not yet supported
 389145696 WGPU : dEQP-GLES2.functional.texture.mipmap.cube.* = SKIP
 // Mipmap generation not supported
-389145696 WGPU : dEQP-GLES2.functional.texture.mipmap.2d.generate.* = SKIP
+389145696 WGPU : dEQP-GLES2.functional.texture.mipmap.2d.* = SKIP
 389145696 WGPU : dEQP-GLES2.functional.texture.format.* = SKIP
 389145696 WGPU : dEQP-GLES2.functional.texture.size.* = SKIP
 389145696 WGPU : dEQP-GLES2.functional.texture.specification.* = SKIP
@@ -504,7 +502,3 @@ b/328156792 PINEAPPLE VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.
 356399840 WGPU : dEQP-GLES2.functional.uniform_api.value.*.render.* = FAIL
 356399840 WGPU : dEQP-GLES2.functional.uniform_api.random.* = FAIL
 392542001 WGPU : dEQP-GLES2.functional.vertex_arrays.multiple_attributes* = FAIL
-
-// Translator IR failures
-// The workaround in b/274859104 is not applied because the IR does not generate non-constant initializers
-274859104 IR PIXEL6 VULKAN : dEQP-GLES2.functional.shaders.algorithm.rgb_to_hsl_vertex = SKIP

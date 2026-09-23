@@ -32,6 +32,96 @@ NO_EVENT_MARKER_EXCEPTIONS_LIST = sorted([
     "glInsertEventMarkerEXT",
 ])
 
+# These commands do not need validation
+ALWAYS_VALID = [
+    # ES 1.0
+    "glClearColorx",
+    "glClearDepthx",
+    "glColor4f",
+    "glColor4ub",
+    "glColor4x",
+    "glDepthRangex",
+    "glLoadIdentity",
+    "glLoadMatrixf",
+    "glLoadMatrixx",
+    "glMultMatrixf",
+    "glMultMatrixx",
+    "glNormal3f",
+    "glNormal3x",
+    "glPolygonOffsetx",
+    "glRotatef",
+    "glRotatex",
+    "glSampleCoveragex",
+    "glScalef",
+    "glScalex",
+    "glTranslatef",
+    "glTranslatex",
+
+    # ES 2.0
+    "glBlendColor",
+    "glClearColor",
+    "glClearDepthf",
+    "glClearStencil",
+    "glColorMask",
+    "glCreateProgram",
+    "glDepthMask",
+    "glFinish",
+    "glFlush",
+    "glGetError",
+    "glIsBuffer",
+    "glIsFramebuffer",
+    "glIsProgram",
+    "glIsRenderbuffer",
+    "glIsShader",
+    "glIsTexture",
+    "glPolygonOffset",
+    "glReleaseShaderCompiler",
+    "glSampleCoverage",
+    "glStencilMask",
+
+    # ES 3.0
+    "glIsQuery",
+    "glIsSampler",
+    "glIsSync",
+    "glIsTransformFeedback",
+    "glIsVertexArray",
+
+    # ES 3.1
+    "glIsProgramPipeline",
+
+    # ES 3.2
+    "glBlendBarrier",
+    "glDebugMessageCallback",
+    "glGetGraphicsResetStatus",
+    "glMinSampleShading",
+    "glPrimitiveBoundingBox",
+
+    # Extensions
+    "glBlendBarrierKHR",  # GL_KHR_blend_equation_advanced
+    "glDebugMessageCallbackKHR",  # GL_KHR_debug
+    "glEndPixelLocalStorageImplicitANGLE",  # GL_ANGLE_shader_pixel_local_storage
+    "glFramebufferFetchBarrierEXT",  # GL_EXT_shader_framebuffer_fetch_non_coherent
+    "glGetGraphicsResetStatusEXT",  # GL_EXT_robustness
+    "glGetGraphicsResetStatusKHR",  # GL_KHR_robustness
+    "glInsertEventMarkerEXT",  # GL_EXT_debug_marker
+    "glIsFenceNV",  # GL_NV_fence
+    "glIsFramebufferOES",  # GL_OES_framebuffer_object
+    "glIsMemoryObjectEXT",  # GL_EXT_memory_object
+    "glIsProgramPipelineEXT",  # GL_EXT_separate_shader_objects
+    "glIsQueryEXT",  # GL_EXT_disjoint_timer_query / GL_EXT_occlusion_query_boolean
+    "glIsRenderbufferOES",  # GL_OES_framebuffer_object
+    "glIsSemaphoreEXT",  # GL_EXT_semaphore
+    "glIsVertexArrayOES",  # GL_OES_vertex_array_object
+    "glLoadPaletteFromModelViewMatrixOES",  # GL_OES_matrix_palette
+    "glMaxShaderCompilerThreadsKHR",  # GL_KHR_parallel_shader_compile
+    "glMinSampleShadingOES",  # GL_OES_sample_shading
+    "glPolygonOffsetClampEXT",  # GL_EXT_polygon_offset_clamp
+    "glPopGroupMarkerEXT",  # GL_EXT_debug_marker
+    "glPrimitiveBoundingBoxEXT",  # GL_EXT_primitive_bounding_box
+    "glPrimitiveBoundingBoxOES",  # GL_OES_primitive_bounding_box
+    "glQueryMatrixxOES",  # GL_OES_query_matrix
+]
+
 ALIASING_EXCEPTIONS = [
     # glRenderbufferStorageMultisampleEXT aliases
     # glRenderbufferStorageMultisample on desktop GL, and is marked as such in
@@ -72,13 +162,14 @@ PLS_DISABLE_LIST = {
     "glFramebufferRenderbuffer",
     "glInvalidateFramebuffer",
     "glInvalidateSubFramebuffer",
-    "glReadPixels",
     "glStartTilingQCOM",
 }
 PLS_DISABLE_WILDCARDS = [
     "glCopyTexSubImage*",
     "glFramebufferParameter*",
     "glFramebufferTexture*",
+    "glReadnPixels*",
+    "glReadPixels*",
 ]
 
 # These are the entry points which purely set state in the current context with
@@ -1694,7 +1785,9 @@ def is_cmd_map_buffer_range(cmd_name):
 def validation_needs_private_state_cache(name):
     return name in VALIDATION_NEEDS_PRIVATE_STATE_CACHE_LIST
 
-def get_validation_expression(api, cmd_name, entry_point_name, internal_params, sources):
+
+def get_validation_expression(api, cmd_name, entry_point_name, internal_params, cmd_sources,
+                              sources_by_command_no_suffix):
     if api != "GLES":
         return ""
 
@@ -1705,35 +1798,55 @@ def get_validation_expression(api, cmd_name, entry_point_name, internal_params, 
     private_params += ["context->getMutableErrorSetForValidation()"]
     is_private = is_context_private_state_command(api, cmd_name)
     extra_params = private_params if is_private else ["context"]
-    expr = "Validate{name}({params})".format(
-        name=name, params=", ".join(extra_params + [entry_point_name] + internal_params))
+    if cmd_name in ALWAYS_VALID:
+        expr = "true"
+    else:
+        expr = "Validate{name}({params})".format(
+            name=name, params=", ".join(extra_params + [entry_point_name] + internal_params))
 
     def get_camel_case(name_with_underscores):
         words = name_with_underscores.split('_')
         words = [words[2]] + [(word[0].upper() + word[1:]) for word in words[3:]] + [words[1]]
         return ''.join(words)
 
-    condition = ""
-    error_suffix = sources[0].replace("_", "")
-    if sorted(sources) == ["1_0", "2_0"]:
-        # Entry points existing in all context versions
-        condition = "true"
-    elif sorted(sources) == ["1_0", "3_2"]:
-        # glGetPointerv is a special case: defined in ES 1.0 and ES 3.2 only
-        condition = "context->getClientVersion() < ES_2_0 || context->getClientVersion() >= ES_3_2"
-        error_suffix = "1Or32"
-    elif sources == ["1_0"]:
-        condition = "context->getClientVersion() < ES_2_0"
-    elif len(sources) == 1 and sources[0] in ["2_0", "3_0", "3_1", "3_2"]:
-        condition = "context->getClientVersion() >= ES_{}".format(sources[0])
-    else:
-        assert (sources[0].startswith("GL_"))
-        exts = map(lambda x: "context->getExtensions().{}".format(get_camel_case(x)), sources)
-        condition = " || ".join(sorted(list(exts)))
-        error_suffix = "EXT"
+    def get_condition_and_error_suffix(sources):
+        condition = ""
+        error_suffix = sources[0].replace("_", "")
+        if sorted(sources) == ["1_0", "2_0"]:
+            # Entry points existing in all context versions
+            condition = "true"
+        elif sorted(sources) == ["1_0", "3_2"]:
+            # glGetPointerv is a special case: defined in ES 1.0 and ES 3.2 only
+            condition = "context->getClientVersion() < ES_2_0 || context->getClientVersion() >= ES_3_2"
+            error_suffix = "1Or32"
+        elif sources == ["1_0"]:
+            condition = "context->getClientVersion() < ES_2_0"
+        elif len(sources) == 1 and sources[0] in ["2_0", "3_0", "3_1", "3_2"]:
+            condition = "context->getClientVersion() >= ES_{}".format(sources[0])
+        else:
+            assert (sources[0].startswith("GL_"))
+            exts = map(lambda x: "context->getExtensions().{}".format(get_camel_case(x)), sources)
+            condition = " || ".join(sorted(list(exts)))
+            error_suffix = "EXT"
+        return (condition, error_suffix)
+
+    (condition, error_suffix) = get_condition_and_error_suffix(cmd_sources)
 
     record_error = "else {{RecordVersionErrorES{}(context, {});}}".format(
         error_suffix, entry_point_name) if condition != "true" else ""
+
+    pre_robust = ""
+    post_robust = ""
+    if cmd_sources[0] == "GL_ANGLE_robust_client_memory":
+        base_sources = sorted(
+            sources_by_command_no_suffix[cmd_name[:cmd_name.rfind("RobustANGLE")]])
+        if "2_0" not in base_sources:
+            # Generate a separate condition string for each source
+            robust_conditions = sorted(
+                list(map(lambda s: get_condition_and_error_suffix([s])[0], base_sources)))
+            pre_robust = "if (ANGLE_LIKELY({})){{\n".format(" || ".join(robust_conditions))
+            post_robust = "\n}} else {{RecordEntryPointBaseUnsupportedError(context, {});}}".format(
+                entry_point_name)
 
     pre_validation = """#if defined(ANGLE_ENABLE_ASSERTS)
     const uint32_t errorCount = context->getPushedErrorCount();
@@ -1763,14 +1876,16 @@ if (!isCallValid)
 {{
     if (ANGLE_LIKELY({support_condition}))
     {{
-        {pre_validation}isCallValid = {validation_expression};{post_validation}
+        {pre_robust}{pre_validation}isCallValid = {validation_expression};{post_validation}{post_robust}
     }}
     {record_error}
 }}""".format(
+        pre_robust=pre_robust,
         support_condition=condition,
         pre_validation=pre_validation,
         validation_expression=expr,
         post_validation=post_validation,
+        post_robust=post_robust,
         record_error=record_error)
 
 
@@ -2041,7 +2156,8 @@ def get_def_template(api, cmd_name, return_type, has_errcode_ret):
 
 
 def format_entry_point_def(api, command_node, cmd_name, proto, params, cmd_packed_enums,
-                           packed_param_types, ep_to_object, sources):
+                           packed_param_types, ep_to_object, sources,
+                           sources_by_command_no_suffix):
     packed_enums = get_packed_enums(api, cmd_packed_enums, cmd_name, packed_param_types, params)
     internal_params = [just_the_name_packed(param, packed_enums) for param in params]
     if internal_params and internal_params[-1] == "errcode_ret":
@@ -2127,7 +2243,8 @@ def format_entry_point_def(api, command_node, cmd_name, proto, params, cmd_packe
         "egl_capture_params":
             ", ".join(["thread"] + internal_params),
         "validation_expression":
-            get_validation_expression(api, cmd_name, entry_point_name, internal_params, sources),
+            get_validation_expression(api, cmd_name, entry_point_name, internal_params, sources,
+                                      sources_by_command_no_suffix),
         "format_params":
             ", ".join(format_params),
         "context_getter":
@@ -2474,14 +2591,16 @@ class ANGLEEntryPoints(registry_xml.EntryPoints):
             self.defs.append(
                 format_entry_point_def(self.api, command_node, cmd_name, proto_text, param_text,
                                        cmd_packed_enums, packed_param_types, ep_to_object,
-                                       xml.sources_by_command[cmd_name]))
+                                       xml.sources_by_command[cmd_name],
+                                       xml.sources_by_command_no_suffix))
 
             self.export_defs.append(
                 format_entry_point_export(cmd_name, proto_text, param_text, export_template))
 
-            self.validation_protos.append(
-                format_validation_proto(self.api, cmd_name, param_text, cmd_packed_enums,
-                                        packed_param_types))
+            if (cmd_name not in ALWAYS_VALID):
+                self.validation_protos.append(
+                    format_validation_proto(self.api, cmd_name, param_text, cmd_packed_enums,
+                                            packed_param_types))
 
             if is_context_private_state_command(self.api, cmd_name):
                 proto, function = format_context_private_call_proto(self.api, cmd_name, proto_text,

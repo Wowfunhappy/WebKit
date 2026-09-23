@@ -211,7 +211,7 @@ template <typename T> static void writeLittleEndian(Vector<uint8_t>& buffer, T v
     buffer.append(asByteSpan(value));
 }
 
-template <typename T> static bool readLittleEndian(std::span<const uint8_t>& data, T& value)
+template <typename T> static bool NODELETE readLittleEndian(std::span<const uint8_t>& data, T& value)
 {
     if (data.size() < sizeof(value))
         return false;

@@ -29,6 +29,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "ArgumentCoders.h"
+#include "Logging.h"
 #include "RemoteRenderingBackend.h"
 #include "SharedPreferencesForWebProcess.h"
 #include <WebCore/DetectedFaceInterface.h>
@@ -53,7 +54,7 @@ RemoteFaceDetector::~RemoteFaceDetector() = default;
 
 std::optional<SharedPreferencesForWebProcess> RemoteFaceDetector::sharedPreferencesForWebProcess() const
 {
-    return Ref { m_renderingBackend.get() }->sharedPreferencesForWebProcess();
+    return m_renderingBackend.get().sharedPreferencesForWebProcess();
 }
 
 void RemoteFaceDetector::detect(WebCore::RenderingResourceIdentifier renderingResourceIdentifier, CompletionHandler<void(Vector<WebCore::ShapeDetection::DetectedFace>&&)>&& completionHandler)

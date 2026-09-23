@@ -30,10 +30,13 @@
 #if ENABLE(CONTEXT_MENUS)
 
 #include "WebEventConversion.h"
+#include <WebCore/ContextMenuContext.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/MouseEvent.h>
 
 namespace WebKit {
+
+using namespace WebCore;
 
 ContextMenuContextData::ContextMenuContextData()
     : m_type(Type::ContextMenu)
@@ -175,7 +178,7 @@ ContextMenuContextData::ContextMenuContextData(WebCore::ContextMenuContext::Type
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     , std::optional<WebCore::HTMLMediaElementIdentifier> mediaElementIdentifier
 #endif
-    , std::optional<WebMouseEventInputSource> inputSource
+    , std::optional<WebEventInputSource> inputSource
 )
     : m_type(type)
     , m_menuLocation(WTF::move(menuLocation))

@@ -28,13 +28,14 @@
 #include "EventNames.h"
 #include "EventPath.h"
 #include "EventTarget.h"
-#include "EventTargetInlines.h"
 #include "InspectorInstrumentation.h"
 #include "JSDOMGlobalObject.h"
+#include "JSNodeCustomInlines.h"
 #include "LocalDOMWindow.h"
 #include "Performance.h"
 #include "ScriptWrappableInlines.h"
 #include "UserGestureIndicator.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include "WorkerGlobalScope.h"
 #include <wtf/HexNumber.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -57,6 +58,7 @@ ALWAYS_INLINE Event::Event(MonotonicTime createTime, enum EventInterfaceType eve
     , m_defaultHandled { false }
     , m_isDefaultEventHandlerIgnored { false }
     , m_isTrusted { isTrusted == IsTrusted::Yes }
+    , m_isTrustedForBindingsOnly { false }
     , m_isExecutingPassiveEventListener { false }
     , m_currentTargetIsInShadowTree { false }
     , m_isAutofillEvent { false }
@@ -92,6 +94,7 @@ Event::Event(enum EventInterfaceType eventInterface, const AtomString& eventType
 {
     ASSERT(!eventType.isNull());
     m_isConstructedFromInitializer = true;
+    m_isTrustedForBindingsOnly = initializer.trustedForBindingsOnly;
 }
 
 Event::~Event() = default;
@@ -134,7 +137,10 @@ void Event::setTarget(RefPtr<EventTarget>&& target)
     if (m_target == target)
         return;
 
-    m_target = WTF::move(target);
+    {
+        Locker targetLocker { m_targetLock };
+        m_target = WTF::move(target);
+    }
     if (m_target)
         receivedTarget();
 }
@@ -159,7 +165,7 @@ Vector<Ref<EventTarget>> Event::composedPath(JSC::JSGlobalObject& lexicalGlobalO
 {
     if (!m_eventPath)
         return Vector<Ref<EventTarget>>();
-    if (JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject)->world().shadowRootIsAlwaysOpen())
+    if (downcast<JSDOMGlobalObject>(&lexicalGlobalObject)->world().shadowRootIsAlwaysOpen())
         return m_eventPath->computePathTreatingAllShadowRootsAsOpen();
     return m_eventPath->computePathUnclosedToTarget(*protect(currentTarget()));
 }
@@ -203,6 +209,16 @@ void Event::resetAfterDispatch()
 
     InspectorInstrumentation::eventDidResetAfterDispatch(*this);
 }
+
+template<typename Visitor>
+void Event::visitInGCThread(Visitor& visitor)
+{
+    Locker targetLocker { m_targetLock };
+    addWebCoreOpaqueRoot(visitor, dynamicDowncast<Node>(m_target.get()));
+}
+
+template void Event::visitInGCThread(JSC::AbstractSlotVisitor&);
+template void Event::visitInGCThread(JSC::SlotVisitor&);
 
 String Event::debugDescription() const
 {

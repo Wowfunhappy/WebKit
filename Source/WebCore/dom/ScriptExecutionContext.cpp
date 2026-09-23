@@ -45,6 +45,7 @@
 #include "FontLoadRequest.h"
 #include "FrameDestructionObserverInlines.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObject.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSWorkerGlobalScope.h"
 #include "JSWorkletGlobalScope.h"
@@ -67,6 +68,7 @@
 #include "ScriptDisallowedScope.h"
 #include "ScriptExecutionContextInlines.h"
 #include "ScriptTrackingPrivacyCategory.h"
+#include "SecurityOrigin.h"
 #include "ServiceWorker.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "ServiceWorkerProvider.h"
@@ -91,6 +93,7 @@
 #include <JavaScriptCore/SourceTaintedOrigin.h>
 #include <JavaScriptCore/StackVisitor.h>
 #include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/VM.h>
 #include <JavaScriptCore/WeakGCSetInlines.h>
@@ -234,10 +237,25 @@ ScriptExecutionContext::~ScriptExecutionContext()
 #endif
 }
 
-void ScriptExecutionContext::processMessageWithMessagePortsSoon(CompletionHandler<void()>&& completionHandler)
+void ScriptExecutionContext::resumeAllMessagePortsSoon()
+{
+    ASSERT(isContextThread());
+    m_dispatchAllPorts = true;
+
+    if (m_willprocessMessageWithMessagePortsSoon)
+        return;
+
+    m_willprocessMessageWithMessagePortsSoon = true;
+    postTask([] (ScriptExecutionContext& context) {
+        context.dispatchMessagePortEvents();
+    });
+}
+
+void ScriptExecutionContext::processMessageForPortSoon(const MessagePortIdentifier& portIdentifier, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(isContextThread());
     m_processMessageWithMessagePortsSoonHandlers.append(WTF::move(completionHandler));
+    m_portsWithAvailableMessages.add(portIdentifier);
 
     if (m_willprocessMessageWithMessagePortsSoon)
         return;
@@ -258,11 +276,22 @@ void ScriptExecutionContext::dispatchMessagePortEvents()
     m_willprocessMessageWithMessagePortsSoon = false;
 
     auto completionHandlers = std::exchange(m_processMessageWithMessagePortsSoonHandlers, Vector<CompletionHandler<void()>> { });
+    bool dispatchAll = std::exchange(m_dispatchAllPorts, false);
+    auto portsToDispatch = WTF::move(m_portsWithAvailableMessages);
 
-    m_messagePorts.forEach([](auto& messagePort) {
-        if (messagePort.started())
-            messagePort.dispatchMessages();
-    });
+    if (dispatchAll) {
+        m_messagePorts.forEach([](auto& messagePort) {
+            if (messagePort.started())
+                messagePort.dispatchMessages();
+        });
+    } else {
+        for (auto& portIdentifier : portsToDispatch) {
+            m_messagePorts.forEach([&portIdentifier](auto& messagePort) {
+                if (messagePort.identifier() == portIdentifier && messagePort.started())
+                    messagePort.dispatchMessages();
+            });
+        }
+    }
 
     for (auto& completionHandler : completionHandlers)
         completionHandler();
@@ -320,6 +349,12 @@ JSC::ScriptExecutionStatus ScriptExecutionContext::jscScriptExecutionStatus() co
     if (activeDOMObjectsAreStopped())
         return JSC::ScriptExecutionStatus::Stopped;
     return JSC::ScriptExecutionStatus::Running;
+}
+
+// https://html.spec.whatwg.org/multipage/webappapis.html#encoding-parsing-a-url
+URL ScriptExecutionContext::encodingParseURL(const String& url) const
+{
+    return parseURL(url);
 }
 
 URL ScriptExecutionContext::currentSourceURL(CallStackPosition position) const
@@ -422,7 +457,7 @@ void ScriptExecutionContext::resumeActiveDOMObjects(ReasonForSuspension why)
 
     // In case there were pending messages at the time the script execution context entered the BackForwardCache,
     // make sure those get dispatched shortly after restoring from the BackForwardCache.
-    processMessageWithMessagePortsSoon([] { });
+    resumeAllMessagePortsSoon();
 }
 
 void ScriptExecutionContext::stopActiveDOMObjects()
@@ -496,7 +531,7 @@ bool ScriptExecutionContext::canIncludeErrorDetails(CachedScript* script, const 
     // Errors from module scripts are never muted.
     if (fromModule)
         return true;
-    URL completeSourceURL = completeURL(sourceURL);
+    URL completeSourceURL = encodingParseURL(sourceURL);
     if (completeSourceURL.protocolIsData())
         return true;
     if (script) {
@@ -528,7 +563,7 @@ void ScriptExecutionContext::reportException(const String& errorMessage, int lin
         logExceptionToConsole(exception->m_errorMessage, exception->m_sourceURL, exception->m_lineNumber, exception->m_columnNumber, WTF::move(exception->m_callStack));
 }
 
-void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject& state, JSC::JSPromise& promise, RefPtr<Inspector::ScriptCallStack>&& callStack)
+void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject& state, JSC::JSPromise& promise, RefPtr<Inspector::ScriptCallStack>&& callStack, const String& unmaskedSourceURL)
 {
     Page* page = nullptr;
     if (auto* document = dynamicDowncast<Document>(*this))
@@ -560,6 +595,25 @@ void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject
     if (!errorMessage)
         errorMessage = "Unhandled Promise Rejection"_s;
 
+    if (auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(&state); domGlobalObject && domGlobalObject->hasScriptErrorCallbacks()) {
+        // Use the unmasked source URL captured at rejection time when available; fall back
+        // to the call stack URL which may be masked for extension content scripts.
+        String rejectionSourceURL = unmaskedSourceURL;
+        unsigned rejectionLine = 0;
+        unsigned rejectionColumn = 0;
+
+        if (callStack) {
+            if (auto* frame = callStack->firstNonNativeCallFrame()) {
+                if (rejectionSourceURL.isEmpty())
+                    rejectionSourceURL = frame->sourceURL();
+                rejectionLine = frame->lineNumber();
+                rejectionColumn = frame->columnNumber();
+            }
+        }
+
+        domGlobalObject->invokeScriptErrorCallbacks(resultMessage, rejectionSourceURL, rejectionLine, rejectionColumn);
+    }
+
     std::unique_ptr<Inspector::ConsoleMessage> message;
     if (callStack)
         message = makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, callStack.releaseNonNull());
@@ -579,11 +633,15 @@ bool ScriptExecutionContext::dispatchErrorEvent(const String& errorMessage, int 
     if (!target)
         return false;
 
+    auto* jsGlobalObject = globalObject();
+    if (!jsGlobalObject)
+        return false;
+
     RefPtr<ErrorEvent> errorEvent;
     if (canIncludeErrorDetails(cachedScript, sourceURL, fromModule))
-        errorEvent = ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, { vm(), exception ? exception->value() : JSC::jsNull() });
+        errorEvent = ErrorEvent::create(*jsGlobalObject, errorMessage, sourceURL, lineNumber, columnNumber, { vm(), exception ? exception->value() : JSC::jsNull() });
     else
-        errorEvent = ErrorEvent::create("Script error."_s, { }, 0, 0, { });
+        errorEvent = ErrorEvent::create(*jsGlobalObject, "Script error."_s, { }, 0, 0, { });
 
     ASSERT(!m_inDispatchErrorEvent);
     m_inDispatchErrorEvent = true;
@@ -694,13 +752,15 @@ JSC::JSGlobalObject* ScriptExecutionContext::globalObject() const
 
 String ScriptExecutionContext::domainForCachePartition() const
 {
-    if (!m_domainForCachePartition.isNull())
-        return m_domainForCachePartition;
-
     if (m_storageBlockingPolicy != StorageBlockingPolicy::BlockThirdParty)
         return emptyString();
 
     return protect(topOrigin())->domainForCachePartition();
+}
+
+bool ScriptExecutionContext::shouldBlockThirdPartyStorage() const
+{
+    return m_storageBlockingPolicy == StorageBlockingPolicy::BlockThirdParty;
 }
 
 bool ScriptExecutionContext::allowsMediaDevices() const
@@ -963,23 +1023,26 @@ public:
 private:
     explicit ScriptExecutionContextDispatcher(ScriptExecutionContext& context)
         : m_identifier(context.identifier())
-        , m_threadId(context.isWorkerGlobalScope() ? Thread::currentSingleton().uid() : 1)
+        , m_workerThreadId(context.isWorkerGlobalScope() ? std::optional { Thread::currentSingleton().uid() } : std::nullopt)
     {
     }
 
     // GuaranteedSerialFunctionDispatcher
     void dispatch(Function<void()>&& callback) final
     {
-        if (m_threadId == 1) {
+        if (!m_workerThreadId) {
             callOnMainThread(WTF::move(callback));
             return;
         }
         ScriptExecutionContext::postTaskTo(m_identifier, WTF::move(callback));
     }
-    bool isCurrent() const final { return m_threadId == Thread::currentSingleton().uid(); }
+    bool isCurrent() const final
+    {
+        return m_workerThreadId ? *m_workerThreadId == Thread::currentSingleton().uid() : isMainThread();
+    }
 
     ScriptExecutionContextIdentifier m_identifier;
-    const uint32_t m_threadId { 1 };
+    const std::optional<uint32_t> m_workerThreadId;
 };
 
 GuaranteedSerialFunctionDispatcher& ScriptExecutionContext::nativePromiseDispatcher()
@@ -1008,7 +1071,7 @@ bool ScriptExecutionContext::requiresScriptTrackingPrivacyProtection(ScriptTrack
         break;
     }
 
-    RefPtr document = dynamicDowncast<Document>(*this);
+    auto* document = dynamicDowncast<Document>(*this);
     if (!document)
         return true;
 
@@ -1016,11 +1079,8 @@ bool ScriptExecutionContext::requiresScriptTrackingPrivacyProtection(ScriptTrack
     if (!page)
         return true;
 
-    if (category == ScriptTrackingPrivacyCategory::NetworkRequests && !page->settings().scriptTrackingPrivacyNetworkRequestBlockingEnabled())
-        return false;
-
     bool shouldApplyConsistently = (category == ScriptTrackingPrivacyCategory::QueryParameters && document->quirks().needsConsistentQueryParameterFilteringQuirk(taintedURL))
-        || (category != ScriptTrackingPrivacyCategory::NetworkRequests && document->quirks().mayBenefitFromFingerprintingProtectionQuirk(taintedURL));
+        || document->quirks().mayBenefitFromFingerprintingProtectionQuirk(taintedURL);
     if (!shouldEnableScriptTrackingPrivacy(category, advancedPrivacyProtections(), shouldApplyConsistently))
         return false;
 

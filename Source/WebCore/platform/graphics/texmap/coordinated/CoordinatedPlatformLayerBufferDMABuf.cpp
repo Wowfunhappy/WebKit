@@ -66,50 +66,14 @@ CoordinatedPlatformLayerBufferDMABuf::CoordinatedPlatformLayerBufferDMABuf(Ref<D
 
 CoordinatedPlatformLayerBufferDMABuf::~CoordinatedPlatformLayerBufferDMABuf() = default;
 
-static RefPtr<BitmapTexture> importToTexture(const IntSize& size, const IntSize& subsampling, uint32_t fourcc, const Vector<int>& fds, const Vector<uint32_t>& offsets, const Vector<uint32_t>& strides, uint64_t modifier, OptionSet<BitmapTexture::Flags> textureFlags)
+static RefPtr<BitmapTexture> importToTexture(const IntSize& textureSize, const DMABufBuffer::Attributes& dmaBufAttributes, OptionSet<BitmapTexture::Flags> textureFlags)
 {
     auto& display = PlatformDisplay::sharedDisplay();
-    Vector<EGLAttrib> attributes = {
-        EGL_WIDTH, size.width() / subsampling.width(),
-        EGL_HEIGHT, size.height() / subsampling.height(),
-        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLAttrib>(fourcc)
-    };
-
-#define ADD_PLANE_ATTRIBUTES(planeIndex) { \
-    std::array<EGLAttrib, 6> planeAttributes { \
-        EGL_DMA_BUF_PLANE##planeIndex##_FD_EXT, fds[planeIndex], \
-        EGL_DMA_BUF_PLANE##planeIndex##_OFFSET_EXT, static_cast<EGLAttrib>(offsets[planeIndex]), \
-        EGL_DMA_BUF_PLANE##planeIndex##_PITCH_EXT, static_cast<EGLAttrib>(strides[planeIndex]) \
-    }; \
-    attributes.append(std::span<const EGLAttrib> { planeAttributes }); \
-    if (modifier != DRM_FORMAT_MOD_INVALID && display.eglExtensions().EXT_image_dma_buf_import_modifiers) { \
-        std::array<EGLAttrib, 4> modifierAttributes { \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_HI_EXT, static_cast<EGLAttrib>(modifier >> 32), \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_LO_EXT, static_cast<EGLAttrib>(modifier & 0xffffffff) \
-        }; \
-        attributes.append(std::span<const EGLAttrib> { modifierAttributes }); \
-    } \
-    }
-
-    auto planeCount = fds.size();
-    if (planeCount > 0)
-        ADD_PLANE_ATTRIBUTES(0);
-    if (planeCount > 1)
-        ADD_PLANE_ATTRIBUTES(1);
-    if (planeCount > 2)
-        ADD_PLANE_ATTRIBUTES(2);
-    if (planeCount > 3)
-        ADD_PLANE_ATTRIBUTES(3);
-
-#undef ADD_PLANE_ATTRIBUTES
-
-    attributes.append(EGL_NONE);
-
-    auto image = display.createEGLImage(EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes);
+    auto image = DMABufBuffer::createEGLImage(display.glDisplay(), dmaBufAttributes);
     if (!image)
         return nullptr;
 
-    auto texture = BitmapTexturePool::singleton().createTextureForImage(image, size, textureFlags);
+    auto texture = BitmapTexturePool::singleton().createTextureForImage(image, textureSize, textureFlags);
     display.destroyEGLImage(image);
     return texture;
 }
@@ -193,6 +157,29 @@ static const HashMap<uint32_t, Vector<YUVPlaneInfo>>& yuvFormatPlaneInfo()
     return yuvFormatsMap;
 }
 
+static CoordinatedPlatformLayerBufferYUV::Format yuvFormatFromDRMFourcc(uint32_t fourcc)
+{
+    switch (fourcc) {
+    case DRM_FORMAT_AYUV:
+        return CoordinatedPlatformLayerBufferYUV::Format::AYUV;
+    case DRM_FORMAT_NV12:
+        return CoordinatedPlatformLayerBufferYUV::Format::NV12;
+    case DRM_FORMAT_P010:
+        return CoordinatedPlatformLayerBufferYUV::Format::P010;
+    case DRM_FORMAT_YUV420:
+        return CoordinatedPlatformLayerBufferYUV::Format::YUV420;
+    case DRM_FORMAT_YVU420:
+        return CoordinatedPlatformLayerBufferYUV::Format::YVU420;
+    case DRM_FORMAT_YUV444:
+        return CoordinatedPlatformLayerBufferYUV::Format::YUV444;
+    case DRM_FORMAT_YUV411:
+        return CoordinatedPlatformLayerBufferYUV::Format::YUV411;
+    case DRM_FORMAT_YUV422:
+        return CoordinatedPlatformLayerBufferYUV::Format::YUV422;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
 std::unique_ptr<CoordinatedPlatformLayerBuffer> CoordinatedPlatformLayerBufferDMABuf::importYUV() const
 {
     OptionSet<BitmapTexture::Flags> textureFlags;
@@ -204,14 +191,17 @@ std::unique_ptr<CoordinatedPlatformLayerBuffer> CoordinatedPlatformLayerBufferDM
     std::array<unsigned, 4> yuvPlaneOffset;
 
     const auto& attributes = m_dmabuf->attributes();
-    const auto& iter = yuvFormatPlaneInfo().find(attributes.fourcc);
+    const auto& iter = yuvFormatPlaneInfo().find(attributes.fourcc.value);
     if (iter == yuvFormatPlaneInfo().end())
         return nullptr;
 
     const auto& planeInfo = iter->value;
     for (unsigned i = 0; i < planeInfo.size(); ++i) {
         const auto& plane = planeInfo[i];
-        auto texture = importToTexture(attributes.size, plane.subsampling, plane.fourcc, { attributes.fds[i].value() }, { attributes.offsets[i] }, { attributes.strides[i] }, attributes.modifier, textureFlags);
+        IntSize adjustedSize { attributes.size.width() / plane.subsampling.width(), attributes.size.height() / plane.subsampling.height() };
+        auto planeFds = Vector<UnixFileDescriptor>::from(attributes.fds[i].borrow());
+        DMABufBuffer::Attributes planeAttributes { adjustedSize, plane.fourcc, WTF::move(planeFds), { attributes.offsets[i] }, { attributes.strides[i] }, attributes.modifier };
+        auto texture = importToTexture(attributes.size, planeAttributes, textureFlags);
         if (!texture)
             return nullptr;
         textures.append(WTF::move(texture));
@@ -221,6 +211,8 @@ std::unique_ptr<CoordinatedPlatformLayerBuffer> CoordinatedPlatformLayerBufferDM
 
     if (textures.isEmpty())
         return nullptr;
+
+    auto format = yuvFormatFromDRMFourcc(attributes.fourcc.value);
 
     CoordinatedPlatformLayerBufferYUV::YuvToRgbColorSpace yuvToRgbColorSpace;
     switch (m_dmabuf->colorSpace().value_or(DMABufBuffer::ColorSpace::Bt601)) {
@@ -249,22 +241,19 @@ std::unique_ptr<CoordinatedPlatformLayerBuffer> CoordinatedPlatformLayerBufferDM
     }
 
     unsigned numberOfPlanes = textures.size();
-    return CoordinatedPlatformLayerBufferYUV::create(numberOfPlanes, WTF::move(textures), WTF::move(yuvPlane), WTF::move(yuvPlaneOffset), yuvToRgbColorSpace, transferFunction, m_size, m_flags, nullptr);
+    return CoordinatedPlatformLayerBufferYUV::create(format, numberOfPlanes, WTF::move(textures), WTF::move(yuvPlane), WTF::move(yuvPlaneOffset), yuvToRgbColorSpace, transferFunction, m_size, m_flags, nullptr);
 }
 
 std::unique_ptr<CoordinatedPlatformLayerBuffer> CoordinatedPlatformLayerBufferDMABuf::importDMABuf() const
 {
     const auto& attributes = m_dmabuf->attributes();
-    if (formatIsYUV(attributes.fourcc))
+    if (formatIsYUV(attributes.fourcc.value))
         return importYUV();
 
     OptionSet<BitmapTexture::Flags> textureFlags;
     if (m_flags.contains(TextureMapperFlags::ShouldBlend))
         textureFlags.add(BitmapTexture::Flags::SupportsAlpha);
-    Vector<int> fds = attributes.fds.map<Vector<int>>([] (const UnixFileDescriptor& fd) {
-        return fd.value();
-    });
-    auto texture = importToTexture(attributes.size, { 1, 1 }, attributes.fourcc, fds, attributes.offsets, attributes.strides, attributes.modifier, textureFlags);
+    auto texture = importToTexture(attributes.size, attributes, textureFlags);
     return texture ? CoordinatedPlatformLayerBufferRGB::create(texture.releaseNonNull(), m_flags, nullptr) : nullptr;
 }
 
@@ -283,6 +272,26 @@ void CoordinatedPlatformLayerBufferDMABuf::paintToTextureMapper(TextureMapper& t
     if (auto* buffer = m_dmabuf->buffer())
         buffer->paintToTextureMapper(textureMapper, targetRect, modelViewMatrix, opacity);
 }
+
+#if USE(SKIA)
+sk_sp<SkImage> CoordinatedPlatformLayerBufferDMABuf::skiaImage()
+{
+    waitForContentsIfNeeded();
+
+    if (m_fenceFD) {
+        if (auto fence = GLFence::importFD(PlatformDisplay::sharedDisplay().glDisplay(), WTF::move(m_fenceFD)))
+            fence->serverWait();
+    }
+
+    if (!m_dmabuf->buffer())
+        m_dmabuf->setBuffer(importDMABuf());
+
+    if (auto* buffer = m_dmabuf->buffer())
+        return buffer->skiaImage();
+
+    return nullptr;
+}
+#endif
 
 } // namespace WebCore
 

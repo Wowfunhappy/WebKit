@@ -32,6 +32,7 @@
 #import <Foundation/NSProcessInfo.h>
 #import <wtf/MainThread.h>
 #import <wtf/TZoneMallocInlines.h>
+#import <wtf/WeakPtr.h>
 
 namespace WebCore {
 static bool isThermalMitigationEnabled()
@@ -67,7 +68,7 @@ static bool isThermalMitigationEnabled()
 - (void)thermalStateDidChange
 {
     callOnMainThread([self, protectedSelf = RetainPtr<WebThermalMitigationObserver>(self)] {
-        if (CheckedPtr notifier = _notifier.get())
+        if (RefPtr notifier = _notifier)
             notifyThermalMitigationChanged(*notifier, self.thermalMitigationEnabled);
     });
 }

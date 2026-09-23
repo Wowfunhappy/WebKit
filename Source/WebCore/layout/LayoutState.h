@@ -70,7 +70,7 @@ public:
 
     void updateQuirksMode(const Document&);
 
-    InlineContentCache& inlineContentCache(const ElementBox& formattingContextRoot) LIFETIME_BOUND;
+    InlineContentCache& inlineContentCache(const ElementBox& formattingContextRoot);
 
     BlockFormattingState& ensureBlockFormattingState(const ElementBox& formattingContextRoot) LIFETIME_BOUND;
     TableFormattingState& ensureTableFormattingState(const ElementBox& formattingContextRoot) LIFETIME_BOUND;
@@ -81,7 +81,6 @@ public:
     FormattingState& formattingStateForFormattingContext(const ElementBox& formattingRoot) const LIFETIME_BOUND;
 
     void destroyBlockFormattingState(const ElementBox& formattingContextRoot);
-    void destroyInlineContentCache(const ElementBox& formattingContextRoot);
 
     bool NODELETE hasFormattingState(const ElementBox& formattingRoot) const;
 
@@ -117,8 +116,6 @@ private:
     BoxGeometry& ensureGeometryForBoxSlow(const Box&) LIFETIME_BOUND;
 
     const Type m_type;
-
-    HashMap<CheckedRef<const ElementBox>, std::unique_ptr<InlineContentCache>> m_inlineContentCaches;
 
     HashMap<CheckedRef<const ElementBox>, std::unique_ptr<BlockFormattingState>> m_blockFormattingStates;
     HashMap<CheckedRef<const ElementBox>, std::unique_ptr<TableFormattingState>> m_tableFormattingStates;

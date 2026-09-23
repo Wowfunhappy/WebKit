@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "pas_config.h"
@@ -29,7 +29,6 @@
 
 #include "pas_enumerate_large_heaps.h"
 
-#include "pas_enumerator_internal.h"
 #include "pas_large_map.h"
 #include "pas_range_begin_min_heap.h"
 #include "pas_ptr_hash_map.h"
@@ -63,10 +62,10 @@ static bool large_map_hashtable_entry_callback(
     pas_enumerator* enumerator, pas_large_map_entry* entry, void* arg)
 {
     PAS_ASSERT_WITH_DETAIL(!arg);
-    
+
     pas_enumerator_record(
         enumerator, (void*)entry->begin, entry->end - entry->begin, pas_enumerator_object_record);
-    
+
     return true;
 }
 
@@ -87,7 +86,7 @@ static bool small_large_map_hashtable_entry_callback(
 {
     uintptr_t begin;
     uintptr_t end;
-    
+
     PAS_ASSERT_WITH_DETAIL(!arg);
 
     begin = pas_small_large_map_entry_begin(*entry);
@@ -114,45 +113,50 @@ static bool tiny_large_map_second_level_hashtable_entry_callback(
     return true;
 }
 
+/* The arg carries the remote pointer to the variant's
+   tiny_large_map_second_level_hashtable_in_flux_stash. */
 static bool tiny_large_map_hashtable_entry_callback(
     pas_enumerator* enumerator, pas_first_level_tiny_large_map_entry* entry, void* arg)
 {
-    PAS_ASSERT_WITH_DETAIL(!arg);
-    
     return pas_tiny_large_map_second_level_hashtable_for_each_entry_remote(
         enumerator, entry->hashtable,
-        enumerator->root->tiny_large_map_second_level_hashtable_in_flux_stash_instance,
+        (pas_tiny_large_map_second_level_hashtable_in_flux_stash*)arg,
         tiny_large_map_second_level_hashtable_entry_callback, (void*)entry->base);
 }
 
-static PAS_NEVER_INLINE bool enumerate_large_map(pas_enumerator* enumerator)
+static PAS_NEVER_INLINE bool enumerate_large_maps(pas_enumerator* enumerator)
 {
-    return pas_large_map_hashtable_for_each_entry_remote(
-        enumerator,
-        enumerator->root->large_map_hashtable_instance,
-        enumerator->root->large_map_hashtable_instance_in_flux_stash,
-        large_map_hashtable_entry_callback,
-        NULL);
-}
+    unsigned variant_index;
 
-static PAS_NEVER_INLINE bool enumerate_small_large_map(pas_enumerator* enumerator)
-{
-    return pas_small_large_map_hashtable_for_each_entry_remote(
-        enumerator,
-        enumerator->root->small_large_map_hashtable_instance,
-        enumerator->root->small_large_map_hashtable_instance_in_flux_stash,
-        small_large_map_hashtable_entry_callback,
-        NULL);
-}
+    for (variant_index = 0; variant_index < enumerator->root->num_large_map_variants; variant_index++) {
+        pas_large_map* remote_map = &enumerator->root->large_maps[variant_index];
 
-static PAS_NEVER_INLINE bool enumerate_tiny_large_map(pas_enumerator* enumerator)
-{
-    return pas_tiny_large_map_hashtable_for_each_entry_remote(
-        enumerator,
-        enumerator->root->tiny_large_map_hashtable_instance,
-        enumerator->root->tiny_large_map_hashtable_instance_in_flux_stash,
-        tiny_large_map_hashtable_entry_callback,
-        NULL);
+        if (!pas_large_map_hashtable_for_each_entry_remote(
+                enumerator,
+                &remote_map->large_map_hashtable,
+                &remote_map->large_map_hashtable_in_flux_stash,
+                large_map_hashtable_entry_callback,
+                NULL))
+            return false;
+
+        if (!pas_small_large_map_hashtable_for_each_entry_remote(
+                enumerator,
+                &remote_map->small_large_map_hashtable,
+                &remote_map->small_large_map_hashtable_in_flux_stash,
+                small_large_map_hashtable_entry_callback,
+                NULL))
+            return false;
+
+        if (!pas_tiny_large_map_hashtable_for_each_entry_remote(
+                enumerator,
+                &remote_map->tiny_large_map_hashtable,
+                &remote_map->tiny_large_map_hashtable_in_flux_stash,
+                tiny_large_map_hashtable_entry_callback,
+                &remote_map->tiny_large_map_second_level_hashtable_in_flux_stash))
+            return false;
+    }
+
+    return true;
 }
 
 static PAS_NEVER_INLINE bool enumerate_pgm_map(pas_enumerator* enumerator)
@@ -168,7 +172,7 @@ static PAS_NEVER_INLINE bool enumerate_pgm_map(pas_enumerator* enumerator)
 bool pas_enumerate_large_heaps(pas_enumerator* enumerator)
 {
     static const bool verbose = false;
-    
+
     pas_range_begin_min_heap payloads;
     pas_range span;
     pas_range range;
@@ -194,7 +198,7 @@ bool pas_enumerate_large_heaps(pas_enumerator* enumerator)
 
             if (verbose)
                 pas_log("Looking at page %p\n", (void*)page);
-            
+
             if (!pas_enumerator_exclude_accounted_page(enumerator, (void*)page))
                 continue;
 
@@ -211,13 +215,7 @@ bool pas_enumerate_large_heaps(pas_enumerator* enumerator)
     record_span(enumerator, span);
 
     if (enumerator->record_object) {
-        if (!enumerate_large_map(enumerator))
-            return false;
-
-        if (!enumerate_small_large_map(enumerator))
-            return false;
-
-        if (!enumerate_tiny_large_map(enumerator))
+        if (!enumerate_large_maps(enumerator))
             return false;
 
         if (!enumerate_pgm_map(enumerator))

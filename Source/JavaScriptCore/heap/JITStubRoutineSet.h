@@ -49,7 +49,7 @@ public:
     
     void add(GCAwareJITStubRoutine*);
 
-    void clearMarks();
+    void NODELETE clearMarks();
     
     void mark(void* candidateAddress)
     {

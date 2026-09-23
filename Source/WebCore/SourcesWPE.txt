@@ -62,6 +62,7 @@ platform/glib/DragDataGLib.cpp
 platform/glib/PasteboardGLib.cpp
 platform/glib/RunLoopObserverGLib.cpp
 
+platform/graphics/DMABufBuffer.cpp
 platform/graphics/PlatformDisplay.cpp @no-unify
 
 platform/graphics/android/BufferFormatAndroid.cpp @no-unify
@@ -85,7 +86,6 @@ platform/graphics/egl/GLFenceGL.cpp @no-unify
 platform/graphics/egl/PlatformDisplayDefault.cpp @no-unify
 platform/graphics/egl/PlatformDisplaySurfaceless.cpp @no-unify
 
-platform/graphics/gbm/DMABufBuffer.cpp
 platform/graphics/gbm/DRMDeviceManager.cpp
 platform/graphics/gbm/GBMDevice.cpp
 platform/graphics/gbm/GraphicsContextGLTextureMapperGBM.cpp @no-unify
@@ -97,11 +97,16 @@ platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
 
 platform/graphics/opentype/OpenTypeVerticalData.cpp
 
+platform/graphics/vulkan/VulkanTypes.cpp
+platform/graphics/vulkan/VulkanUtilities.cpp
+
 platform/libwpe/PlatformKeyboardEventLibWPE.cpp
 platform/libwpe/PlatformPasteboardLibWPE.cpp
 
 platform/text/Hyphenation.cpp
 platform/text/LocaleICU.cpp
+
+platform/text/enchant/TextCheckerEnchant.cpp
 
 platform/text/hyphen/HyphenationLibHyphen.cpp
 

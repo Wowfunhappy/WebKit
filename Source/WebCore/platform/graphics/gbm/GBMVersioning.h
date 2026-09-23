@@ -29,28 +29,10 @@
 
 #include <gbm.h>
 
-#if !HAVE(GBM_BO_GET_FD_FOR_PLANE)
-#include <fcntl.h>
-#include <xf86drm.h>
-#endif
-
 #if !HAVE(GBM_BO_CREATE_WITH_MODIFIERS2)
 static inline struct gbm_bo* gbm_bo_create_with_modifiers2(struct gbm_device* gbm, uint32_t width, uint32_t height, uint32_t format, const uint64_t* modifiers, const unsigned count, uint32_t)
 {
     return gbm_bo_create_with_modifiers(gbm, width, height, format, modifiers, count);
-}
-#endif
-
-#if !HAVE(GBM_BO_GET_FD_FOR_PLANE)
-static inline int gbm_bo_get_fd_for_plane(struct gbm_bo* bo, int plane)
-{
-    auto handle = gbm_bo_get_handle_for_plane(bo, plane);
-    if (handle.s32 == -1)
-        return -1;
-
-    int fd;
-    int ret = drmPrimeHandleToFD(gbm_device_get_fd(gbm_bo_get_device(bo)), handle.u32, DRM_CLOEXEC | DRM_RDWR, &fd);
-    return ret < 0 ? -1 : fd;
 }
 #endif
 

@@ -29,9 +29,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import sys
 
 parser = argparse.ArgumentParser(
     description='This tool takes the compile_commands.json output by CMake and expands any UnifiedSources in it to regular sources.'
@@ -45,10 +47,24 @@ args = parser.parse_args()
 source_dir = args.source_dir
 build_dir = args.build_dir
 
+# CMake regenerates the input on every reconfigure with a fresh mtime even when
+# content is identical, so ninja keeps invoking us. Short-circuit on input hash.
+with open(args.input_file, 'rb') as f:
+    input_data = f.read()
+input_hash = hashlib.sha256(input_data).hexdigest()
+hash_sentinel = args.output_file + '.input_hash'
+try:
+    with open(hash_sentinel) as f:
+        last_hash = f.read().strip()
+except FileNotFoundError:
+    last_hash = None
+
+if last_hash == input_hash and os.path.exists(args.output_file):
+    sys.exit(0)
+
 generated_compile_commands = []
 
-with open(args.input_file) as f:
-    compile_commands = json.load(f)
+compile_commands = json.loads(input_data)
 
 for entry in compile_commands:
     entry_file = entry['file']
@@ -97,5 +113,16 @@ output_directory = os.path.dirname(args.output_file)
 if not os.path.isdir(output_directory):
     os.makedirs(output_directory)
 
-with open(args.output_file, 'w') as f:
-    json.dump(generated_compile_commands, f, indent=2)
+new_content = json.dumps(generated_compile_commands, indent=2)
+try:
+    with open(args.output_file) as f:
+        existing_content = f.read()
+except FileNotFoundError:
+    existing_content = None
+
+if new_content != existing_content:
+    with open(args.output_file, 'w') as f:
+        f.write(new_content)
+
+with open(hash_sentinel, 'w') as f:
+    f.write(input_hash)

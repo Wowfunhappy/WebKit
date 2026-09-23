@@ -81,8 +81,6 @@ public:
     using Source = ResourceResponseSource;
     static constexpr unsigned bitWidthOfSource = 4;
 
-    static bool isRedirectionStatusCode(int code) { return code == 301 || code == 302 || code == 303 || code == 307 || code == 308; }
-
     using CrossThreadData = ResourceResponseData;
 
     WEBCORE_EXPORT CrossThreadData crossThreadData() const;
@@ -121,7 +119,8 @@ public:
     enum class SanitizationType { Redirection, RemoveCookies, CrossOriginSafe };
     WEBCORE_EXPORT void sanitizeHTTPHeaderFields(SanitizationType);
 
-    String httpHeaderField(StringView name) const;
+    // String httpHeaderField(StringView name) const;
+    WEBCORE_EXPORT String httpHeaderField(StringView name) const; // MAVERICKS_BACKPORT: curl downloads read authentication and HSTS response headers.
     WEBCORE_EXPORT String httpHeaderField(HTTPHeaderName) const;
     WEBCORE_EXPORT void setHTTPHeaderField(const String& name, const String& value);
     WEBCORE_EXPORT void setUncommonHTTPHeaderField(const String& name, const String& value);
@@ -161,6 +160,7 @@ public:
     // These functions return parsed values of the corresponding response headers.
     WEBCORE_EXPORT bool cacheControlContainsNoCache() const;
     WEBCORE_EXPORT bool cacheControlContainsNoStore() const;
+    WEBCORE_EXPORT bool cacheControlContainsPublic() const;
     WEBCORE_EXPORT bool cacheControlContainsMustRevalidate() const;
     WEBCORE_EXPORT bool cacheControlContainsImmutable() const;
     WEBCORE_EXPORT bool hasCacheValidatorFields() const;

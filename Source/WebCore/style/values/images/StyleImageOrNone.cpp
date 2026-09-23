@@ -28,6 +28,7 @@
 #include "StyleImageOrNone.h"
 
 #include "AnimationUtilities.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderState.h"
 
 namespace WebCore {
@@ -37,8 +38,15 @@ namespace Style {
 
 auto CSSValueConversion<ImageOrNone>::operator()(BuilderState& state, const CSSValue& value) -> ImageOrNone
 {
-    if (value.valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
 
     RefPtr image = state.createStyleImage(value);
     if (!image)
@@ -54,7 +62,7 @@ auto Blending<ImageOrNone>::canBlend(const ImageOrNone& a, const ImageOrNone& b)
     return !a.isNone() && !b.isNone();
 }
 
-auto Blending<ImageOrNone>::blend(const ImageOrNone& a, const ImageOrNone& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> ImageOrNone
+auto Blending<ImageOrNone>::blend(const ImageOrNone& a, const ImageOrNone& b, const Style::ComputedStyle& aStyle, const Style::ComputedStyle& bStyle, const BlendingContext& context) -> ImageOrNone
 {
     if (context.isDiscrete) {
         ASSERT(!context.progress || context.progress == 1.0);

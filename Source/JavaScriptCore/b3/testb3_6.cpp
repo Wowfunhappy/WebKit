@@ -659,6 +659,105 @@ void testSelectFloatCompareFloatWithAliasing()
     testSelectFloatCompareFloat<EqualOrUnordered>([](float a, float b) -> bool { return a != a || b != b || a == b; });
 }
 
+void testSelectInt32WithZeroElse()
+{
+    // Select(Equal(a, b), x, 0) where both a and b are int32 registers.
+    // On ARM64 this should use csel Wd, Ws, wzr, cc (MoveConditionally32 with ZeroReg elseCase).
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t, int32_t, int32_t>(proc, root);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(
+            proc, Select, Origin(),
+            root->appendNew<Value>(
+                proc, Equal, Origin(),
+                arguments[0],
+                arguments[1]),
+            arguments[2],
+            root->appendNew<Const32Value>(proc, Origin(), 0)));
+
+    auto code = compileProc(proc);
+    CHECK_EQ(invoke<int32_t>(*code, 1, 1, 42), 42);
+    CHECK_EQ(invoke<int32_t>(*code, 1, 2, 42), 0);
+    CHECK_EQ(invoke<int32_t>(*code, 0, 0, 13), 13);
+    CHECK_EQ(invoke<int32_t>(*code, 5, 6, 99), 0);
+}
+
+void testSelectInt64WithZeroElse()
+{
+    // Select(Equal(a, b), x, 0) where all values are int64.
+    // On ARM64 this should use csel Xd, Xs, xzr, cc (MoveConditionally64 with ZeroReg elseCase).
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int64_t, int64_t, int64_t>(proc, root);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(
+            proc, Select, Origin(),
+            root->appendNew<Value>(
+                proc, Equal, Origin(),
+                arguments[0],
+                arguments[1]),
+            arguments[2],
+            root->appendNew<Const64Value>(proc, Origin(), 0)));
+
+    auto code = compileProc(proc);
+    CHECK_EQ(invoke<int64_t>(*code, INT64_C(1), INT64_C(1), INT64_C(42)), INT64_C(42));
+    CHECK_EQ(invoke<int64_t>(*code, INT64_C(1), INT64_C(2), INT64_C(42)), INT64_C(0));
+    CHECK_EQ(invoke<int64_t>(*code, INT64_C(0), INT64_C(0), INT64_C(13)), INT64_C(13));
+    CHECK_EQ(invoke<int64_t>(*code, INT64_C(5), INT64_C(6), INT64_C(99)), INT64_C(0));
+}
+
+void testSelectInt32ImmWithZeroElse()
+{
+    // Select(LessThan(a, imm), x, 0) — exercises the RelCond/Tmp/Imm/Tmp/ZeroReg/Tmp form
+    // on ARM64 (MoveConditionally32 with an immediate comparison and ZeroReg elseCase).
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t, int32_t>(proc, root);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(
+            proc, Select, Origin(),
+            root->appendNew<Value>(
+                proc, LessThan, Origin(),
+                arguments[0],
+                root->appendNew<Const32Value>(proc, Origin(), 42)),
+            arguments[1],
+            root->appendNew<Const32Value>(proc, Origin(), 0)));
+
+    auto code = compileProc(proc);
+    CHECK_EQ(invoke<int32_t>(*code, 10, 99), 99);
+    CHECK_EQ(invoke<int32_t>(*code, 42, 99), 0);
+    CHECK_EQ(invoke<int32_t>(*code, 100, 99), 0);
+}
+
+void testSelectTestWithZeroElse()
+{
+    // Select(a & 0xff, x, 0) — exercises the ResCond/Test form with ZeroReg elseCase.
+    // On ARM64: tst w0, #0xff; csel Wd, Ws, wzr, ne
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t, int32_t>(proc, root);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(
+            proc, Select, Origin(),
+            root->appendNew<Value>(
+                proc, BitAnd, Origin(),
+                arguments[0],
+                root->appendNew<Const32Value>(proc, Origin(), 0xff)),
+            arguments[1],
+            root->appendNew<Const32Value>(proc, Origin(), 0)));
+
+    auto code = compileProc(proc);
+    CHECK_EQ(invoke<int32_t>(*code, 1, 99), 99);
+    CHECK_EQ(invoke<int32_t>(*code, 0x100, 99), 0);
+    CHECK_EQ(invoke<int32_t>(*code, 0, 99), 0);
+    CHECK_EQ(invoke<int32_t>(*code, 0xff, 7), 7);
+}
+
 void testSelectFold(intptr_t value)
 {
     Procedure proc;
@@ -859,6 +958,81 @@ void testCheckSelectAndCSE()
     CHECK_EQ(generationCount, 1u);
     CHECK_EQ(invoke<int>(*code, true), 0);
     CHECK_EQ(invoke<int>(*code, false), 666);
+}
+
+void testCheckSelectAndDeadCheckCSE()
+{
+    // Exercises B3 strength reduction's "select specialization" (specializeSelect) together with pure CSE.
+    //
+    // When a Check is reached (within selectSpecializationBound) from a Select that has a constant arm,
+    // reduceStrength specializes the Select: it splits the block at the Check, clones the values between
+    // the Select and the Check into a then/else pair of blocks -- substituting the Select's then/else
+    // value in each -- and replaces the originals with Phis at the merge. Void values in that range (such
+    // as an intermediate Check) are removed from the original block and re-emitted in both arms.
+    //
+    // The IR (single block):
+    //
+    //   @cond = arg1
+    //   @sel  = Select(arg0, -42, 35)   ; Select with a constant arm
+    //           Check(@cond)            ; intermediate Check
+    //   @add  = Add(@sel, 42)
+    //           Check(@add)             ; triggering Check (reaches @sel within the bound)
+    //           Check(@cond)            ; later Check on the same condition (CSE)
+    //           Return(@add)
+    //
+    Procedure proc;
+    if (proc.optLevel() < 1)
+        return;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t, int32_t>(proc, root);
+
+    // Condition shared by the intermediate and later Checks, so the later Check is a CSE candidate. A
+    // plain argument: each Check is kept (the condition isn't a known constant) and doesn't lead back to
+    // the Select.
+    Value* condition = arguments[1];
+
+    auto appendCheck = [&] (Value* predicate, int32_t exitValue) {
+        CheckValue* check = root->appendNew<CheckValue>(proc, Check, Origin(), predicate);
+        check->setGenerator(
+            [exitValue] (CCallHelpers& jit, const StackmapGenerationParams&) {
+                AllowMacroScratchRegisterUsage allowScratch(jit);
+                jit.move(CCallHelpers::TrustedImm32(exitValue), GPRInfo::returnValueGPR);
+                jit.emitFunctionEpilogue();
+                jit.ret();
+            });
+    };
+
+    // Defined before the Select so the Select -> triggering-Check run stays within
+    // selectSpecializationBound (== 3): Select, intermediate Check, Add, triggering Check.
+    auto* constant = root->appendNew<ConstPtrValue>(proc, Origin(), 42);
+
+    // (1) The Select to specialize: at least one data arm is constant.
+    auto* selectValue = root->appendNew<Value>(
+        proc, Select, Origin(),
+        arguments[0],
+        root->appendNew<ConstPtrValue>(proc, Origin(), -42),
+        root->appendNew<ConstPtrValue>(proc, Origin(), 35));
+
+    // (2) An intermediate Check between the Select and the triggering Check. Specialization moves it out
+    //     of this block and clones it into both arms.
+    appendCheck(condition, 1);
+
+    // (3) Add consuming the Select, feeding (4); keeps the Select within bound 3 of the triggering Check.
+    auto* addValue = root->appendNew<Value>(proc, Add, Origin(), selectValue, constant);
+
+    // (4) The Check that triggers specialization: it reaches the Select within selectSpecializationBound.
+    appendCheck(addValue, 2);
+
+    // (5) A later Check on the SAME condition as (2), so pure CSE relates the two across the specialized
+    //     region.
+    appendCheck(condition, 3);
+
+    root->appendNewControlValue(proc, Return, Origin(), addValue);
+
+    // After specialization the merged value is unchanged: select(true, -42, 35) + 42 == 0, with no Check
+    // firing for these inputs.
+    auto code = compileProc(proc);
+    CHECK_EQ(invoke<intptr_t>(*code, 1, 0), 0);
 }
 
 double NODELETE b3Pow(double x, int y)
@@ -2293,9 +2467,9 @@ void testBranchBitAndImmFusion(
     // The first basic block must end in a BranchTest64(resCond, tmp, bitImm).
     Air::Inst terminal = proc.code()[0]->last();
     CHECK_EQ(terminal.kind.opcode, expectedOpcode);
-    CHECK_EQ(terminal.args[0].kind(), Air::Arg::ResCond);
-    CHECK_EQ(terminal.args[1].kind(), firstKind);
-    CHECK(terminal.args[2].kind() == Air::Arg::BitImm || terminal.args[2].kind() == Air::Arg::BitImm64);
+    CHECK_EQ(terminal.args()[0].kind(), Air::Arg::ResCond);
+    CHECK_EQ(terminal.args()[1].kind(), firstKind);
+    CHECK(terminal.args()[2].kind() == Air::Arg::BitImm || terminal.args()[2].kind() == Air::Arg::BitImm64);
 }
 
 void testTerminalPatchpointThatNeedsToBeSpilled()

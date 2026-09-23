@@ -177,6 +177,47 @@ void ScrollingTreeCoordinated::hasNodeWithAnimatedScrollChanged(bool hasNodeWith
 }
 #endif
 
+#if ENABLE(WHEEL_EVENT_REGIONS)
+static OptionSet<EventListenerRegionType> findEventListenerRegionTypes(const Ref<CoordinatedPlatformLayer>& parent, const FloatPoint& point)
+{
+    bool existsOnLayer = parent->bounds().contains(point) && parent->eventRegion().contains(roundedIntPoint(point));
+    for (auto& child : parent->children()) {
+        Locker childLocker { child->lock() };
+        FloatPoint transformedPoint(point);
+        if (child->transform().isInvertible()) {
+            float originX = child->anchorPoint().x() * child->size().width();
+            float originY = child->anchorPoint().y() * child->size().height();
+            auto transform = *(TransformationMatrix()
+                .translate3d(originX + child->position().x() - parent->boundsOrigin().x(), originY + child->position().y() - parent->boundsOrigin().y(), child->anchorPoint().z())
+                .multiply(child->transform())
+                .translate3d(-originX, -originY, -child->anchorPoint().z()).inverse());
+            auto pointInChildSpace = transform.projectPoint(point);
+            transformedPoint.set(pointInChildSpace.x(), pointInChildSpace.y());
+        }
+        if (auto result = findEventListenerRegionTypes(child, transformedPoint))
+            return result;
+    }
+
+    if (existsOnLayer)
+        return parent->eventRegion().eventListenerRegionTypesForPoint(roundedIntPoint(point));
+
+    return { };
+}
+
+OptionSet<EventListenerRegionType> ScrollingTreeCoordinated::eventListenerRegionTypesForPoint(FloatPoint point) const
+{
+    RefPtr rootScrollingNode = rootNode();
+    if (!rootScrollingNode)
+        return { };
+
+    Locker locker { m_layerHitTestMutex };
+
+    Ref rootContentsLayer = *static_cast<ScrollingTreeFrameScrollingNodeCoordinated*>(rootScrollingNode.get())->rootContentsLayer();
+    Locker rootContentsLayerLocker { rootContentsLayer->lock() };
+    return findEventListenerRegionTypes(rootContentsLayer, point);
+}
+#endif
+
 } // namespace WebCore
 
 #endif // ENABLE(ASYNC_SCROLLING) && USE(COORDINATED_GRAPHICS)

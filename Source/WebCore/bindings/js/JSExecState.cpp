@@ -28,9 +28,11 @@
 
 #include "EventLoop.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObject.h"
 #include "RejectedPromiseTracker.h"
 #include "ScriptExecutionContext.h"
 #include "WorkerGlobalScope.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/MicrotaskQueue.h>
 #include <JavaScriptCore/ScriptProfilingScope.h>
 #include <JavaScriptCore/VMEntryScopeInlines.h>
@@ -58,9 +60,10 @@ JSC::JSValue evaluateHandlerFromAnyThread(JSC::JSGlobalObject* lexicalGlobalObje
 
 ScriptExecutionContext* executionContext(JSC::JSGlobalObject* globalObject)
 {
-    if (!globalObject || !globalObject->inherits<JSDOMGlobalObject>())
+    auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(globalObject);
+    if (!domGlobalObject)
         return nullptr;
-    return JSC::jsCast<JSDOMGlobalObject*>(globalObject)->scriptExecutionContext();
+    return domGlobalObject->scriptExecutionContext();
 }
 
 } // namespace WebCore

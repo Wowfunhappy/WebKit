@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/focus/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/focus/activeelement-after-calling-window-focus.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/activeelement-after-focusing-different-site-iframe-contentwindow.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/activeelement-after-focusing-different-site-iframe-then-immediately-focusing-back.html
@@ -26,6 +27,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/focus/activeelement-after-immediately-focusing-same-site-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/activeelement-after-nested-loses-focus.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/ancestor-activeelement-after-child-lose-focus.html
+/LayoutTests/imported/w3c/web-platform-tests/focus/anchor-remove-href.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/cross-origin-ancestor-activeelement-after-child-lose-focus.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/focus-already-focused-iframe-deep-different-site.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/focus-already-focused-iframe-deep-same-site.html
@@ -59,3 +61,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/focus/iframe-focuses-parent-same-site.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/nested-focus-within-iframe-focus-event.html
 /LayoutTests/imported/w3c/web-platform-tests/focus/scroll-matches-focus.html
+/LayoutTests/imported/w3c/web-platform-tests/focus/synthetic-focus-event-crash.html

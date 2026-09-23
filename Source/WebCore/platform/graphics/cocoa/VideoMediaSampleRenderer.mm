@@ -78,7 +78,7 @@ static constexpr CMItemCount SampleQueueHighWaterMark = 30;
 static constexpr CMItemCount SampleQueueLowWaterMark = 15;
 
 static constexpr MediaTime DecodeLowWaterMark { 100, 1000 };
-static constexpr MediaTime DecodeHighWaterMark { 133, 1000 };
+static constexpr MediaTime DecodeHighWaterMark { 166, 1000 };
 
 static bool isRendererThreadSafe(WebSampleBufferVideoRendering *renderering)
 {
@@ -148,7 +148,9 @@ VideoMediaSampleRenderer::~VideoMediaSampleRenderer()
 #if HAVE(AVSAMPLEBUFFERVIDEORENDERER)
 AVSampleBufferVideoRenderer *VideoMediaSampleRenderer::videoRendererFor(WebSampleBufferVideoRendering *renderer)
 {
-    ASSERT(renderer);
+    if (!renderer)
+        return nullptr;
+
     if (auto *displayLayer = dynamic_objc_cast<AVSampleBufferDisplayLayer>(renderer))
         return [displayLayer sampleBufferRenderer];
     return checked_objc_cast<AVSampleBufferVideoRenderer>(renderer);
@@ -463,10 +465,10 @@ MediaTime VideoMediaSampleRenderer::currentTime() const
     return MediaTime::invalidTime();
 }
 
-void VideoMediaSampleRenderer::enqueueSample(const MediaSample& sample, const MediaTime& minimumUpcomingTime)
+void VideoMediaSampleRenderer::enqueueSample(const MediaSample& sample, std::optional<MediaTime> minimumUpcomingTime)
 {
     assertIsMainThread();
-    DEBUG_LOG(LOGIDENTIFIER, "sample: ", sample, " minimumUpcomingTime: ", minimumUpcomingTime);
+    DEBUG_LOG(LOGIDENTIFIER, "sample: ", sample, " minimumUpcomingTime: ", minimumUpcomingTime.value_or(MediaTime::invalidTime()));
 
     ASSERT(sample.type() == MediaSample::Type::CMSampleBuffer);
     if (sample.type() != MediaSample::Type::CMSampleBuffer)
@@ -544,31 +546,55 @@ void VideoMediaSampleRenderer::decodeNextSampleIfNeeded()
     while (!m_compressedSampleQueue.isEmpty() && !m_isDecodingSample) {
         WebCoreDecompressionSession::DecodingFlags decodingFlags;
 
-        if (currentTime.isValid() && !m_wasProtected && !m_decompressionSessionWasBlocked) {
-            auto endTime = lastDecodedSampleTime();
-            if (endTime.isValid() && endTime > highWaterMarkTime) {
-                auto [sample, upcomingMinimum, flushId, blocked] = m_compressedSampleQueue.first();
-                upcomingMinimum = std::min(sample->presentationTime(), upcomingMinimum.isValid() ? upcomingMinimum : MediaTime::positiveInfiniteTime());
+        auto endTime = lastDecodedSampleTime();
 
-                if (endTime < upcomingMinimum) {
-                    if (m_lastMinimumUpcomingPresentationTime.isInvalid() || upcomingMinimum != m_lastMinimumUpcomingPresentationTime) {
-                        ASSERT(m_lastMinimumUpcomingPresentationTime.isInvalid() || m_lastMinimumUpcomingPresentationTime < upcomingMinimum);
-                        m_lastMinimumUpcomingPresentationTime = upcomingMinimum;
-                        LogPerformance("VideoMediaSampleRenderer::decodeNextSampleIfNeeded currentTime:%0.2f expectMinimumUpcomingSampleBufferPresentationTime:%0.2f decoded queued:%zu upcoming:%zu high watermark reached", currentTime.toDouble(), m_lastMinimumUpcomingPresentationTime.toDouble(), decodedSamplesCount(), compressedSamplesCount());
-                        [rendererOrDisplayLayer() expectMinimumUpcomingSampleBufferPresentationTime:PAL::toCMTime(m_lastMinimumUpcomingPresentationTime)];
-                    }
+        if (currentTime.isValid() && !m_wasProtected && !m_decompressionSessionWasBlocked) {
+            // Hysteresis: once we stopped at the high watermark, stay idle
+            // until the decoded buffer drains below the low watermark.
+            if (m_decoderIdledAtHighWaterMark) {
+                if (endTime.isValid() && endTime >= lowWaterMarkTime)
                     return;
-                }
-                DEBUG_LOG(LOGIDENTIFIER, "Out of order frames detected, forcing extra decode");
+                m_decoderIdledAtHighWaterMark = false;
             }
-            if (endTime.isValid() && endTime >= lowWaterMarkTime && playbackRate > 0.9 && playbackRate < 1.1) {
-                LogPerformance("VideoMediaSampleRenderer::decodeNextSampleIfNeeded expectMinimumUpcomingSampleBufferPresentationTime:%0.2f decoded queued:%zu upcoming:%zu currentTime:%0.2f endTime:%0.2f low:%0.2f high:%0.2f low watermark reached", m_lastMinimumUpcomingPresentationTime.toDouble(), decodedSamplesCount(), compressedSamplesCount(), currentTime.toDouble(), endTime.toDouble(), lowWaterMarkTime.toDouble(), highWaterMarkTime.toDouble());
-                decodingFlags.add(WebCoreDecompressionSession::DecodingFlag::RealTime);
+
+            if (endTime.isValid() && endTime > highWaterMarkTime) {
+                m_hasReachedHighWatermark = true;
+                const auto& [sample, upcomingMinimumOpt, flushId, blocked] = m_compressedSampleQueue.first();
+                // Tri-state on upcomingMinimumOpt:
+                //   nullopt            -> caller did not supply a bound; use
+                //                         sample->presentationTime() as an
+                //                         internal ceiling. Do not publish a
+                //                         floor to AVF — external floors are
+                //                         only promised when a caller has
+                //                         explicitly asserted a lookahead.
+                //   !isFinite()        -> caller marked as unknown
+                //                         (MediaTime::indefiniteTime()); keep
+                //                         decoding unbounded.
+                //   finite MediaTime   -> caller-supplied lookahead bound; use
+                //                         it and publish the floor to AVF.
+                const bool explicitUnknown = upcomingMinimumOpt && !upcomingMinimumOpt->isFinite();
+                if (!explicitUnknown) {
+                    const bool callerSuppliedBound = upcomingMinimumOpt.has_value();
+                    auto upcomingMinimum = callerSuppliedBound ? std::min(sample->presentationTime(), *upcomingMinimumOpt) : sample->presentationTime();
+                    if (endTime < upcomingMinimum) {
+                        if (callerSuppliedBound && (m_lastMinimumUpcomingPresentationTime.isInvalid() || upcomingMinimum != m_lastMinimumUpcomingPresentationTime)) {
+                            ASSERT(m_lastMinimumUpcomingPresentationTime.isInvalid() || m_lastMinimumUpcomingPresentationTime < upcomingMinimum);
+                            m_lastMinimumUpcomingPresentationTime = upcomingMinimum;
+                            LogPerformance("VideoMediaSampleRenderer::decodeNextSampleIfNeeded currentTime:%0.2f expectMinimumUpcomingSampleBufferPresentationTime:%0.2f decoded queued:%zu upcoming:%zu high watermark reached", currentTime.toDouble(), m_lastMinimumUpcomingPresentationTime.toDouble(), decodedSamplesCount(), compressedSamplesCount());
+                            [rendererOrDisplayLayer() expectMinimumUpcomingSampleBufferPresentationTime:PAL::toCMTime(m_lastMinimumUpcomingPresentationTime)];
+                        }
+                        m_decoderIdledAtHighWaterMark = true;
+                        return;
+                    }
+                    if (callerSuppliedBound)
+                        DEBUG_LOG(LOGIDENTIFIER, "Out of order frames detected, forcing extra decode");
+                }
             }
         }
 
-        auto [sample, upcomingMinimum, flushId, blocked] = m_compressedSampleQueue.takeFirst();
+        auto [sample, upcomingMinimumOpt, flushId, blocked] = m_compressedSampleQueue.takeFirst();
         m_compressedSamplesCount = m_compressedSampleQueue.size();
+
         maybeBecomeReadyForMoreMediaData();
 
         if (flushId != m_flushId) {
@@ -601,6 +627,21 @@ void VideoMediaSampleRenderer::decodeNextSampleIfNeeded()
             decodingFlags.add(WebCoreDecompressionSession::DecodingFlag::NonDisplaying);
         if (useStereoDecoding())
             decodingFlags.add(WebCoreDecompressionSession::DecodingFlag::EnableStereo);
+        // Mirror AVF's RealTime policy. On iOS-family the flag is set
+        // whenever we're in normal 1x playback and the sample is displaying.
+        // On macOS it is additionally suppressed during the
+        // kVMC2DecayingFromHighWaterLevel state: we have previously crossed
+        // the high watermark at least once since the last flush, and the
+        // decoded buffer has since drained below the low watermark.
+#if PLATFORM(MAC)
+        bool suppressRealTime = m_hasReachedHighWatermark && endTime.isValid() && endTime < lowWaterMarkTime;
+#else
+        bool suppressRealTime = false;
+#endif
+        if (currentTime.isValid() && !sample->isNonDisplaying() && playbackRate > 0.9 && playbackRate < 1.1 && !suppressRealTime) {
+            LogPerformance("VideoMediaSampleRenderer::decodeNextSampleIfNeeded RealTime set currentTime:%0.2f endTime:%0.2f low:%0.2f high:%0.2f reachedHigh:%d", currentTime.toDouble(), endTime.toDouble(), lowWaterMarkTime.toDouble(), highWaterMarkTime.toDouble(), m_hasReachedHighWatermark);
+            decodingFlags.add(WebCoreDecompressionSession::DecodingFlag::RealTime);
+        }
 
         RetainPtr cmSample = sample->platformSample().cmSampleBuffer();
         auto decodePromise = decompressionSession->decodeSample(cmSample.get(), decodingFlags);
@@ -790,6 +831,8 @@ void VideoMediaSampleRenderer::flushDecodedSampleQueue()
     m_lastDisplayedTime.reset();
     m_isDisplayingSample = false;
     m_lastMinimumUpcomingPresentationTime = MediaTime::invalidTime();
+    m_decoderIdledAtHighWaterMark = false;
+    m_hasReachedHighWatermark = false;
 }
 
 void VideoMediaSampleRenderer::cancelTimer()
@@ -1121,55 +1164,31 @@ unsigned VideoMediaSampleRenderer::totalDisplayedFrames() const
     return isUsingDecompressionSession() ? m_presentedVideoFrames.load() : ++m_sampleCount;
 }
 
-unsigned VideoMediaSampleRenderer::totalVideoFrames() const
+std::optional<VideoPlaybackQualityMetrics> VideoMediaSampleRenderer::videoPlaybackQualityMetrics() const
 {
     assertIsMainThread();
 
-    if (isUsingDecompressionSession() && !m_decompressionSessionBlocked)
-        return m_totalVideoFrames;
+    if (isUsingDecompressionSession() && !m_decompressionSessionBlocked) {
+        return VideoPlaybackQualityMetrics {
+            m_totalVideoFrames.load(),
+            m_droppedVideoFrames.load(),
+            m_corruptedVideoFrames.load(),
+            m_totalFrameDelay.toDouble(),
+            m_presentedVideoFrames.load()
+        };
+    }
 #if PLATFORM(WATCHOS)
-    return 0;
+    return std::nullopt;
 #else
-    return [renderer() videoPerformanceMetrics].totalNumberOfVideoFrames;
-#endif
-}
-
-unsigned VideoMediaSampleRenderer::droppedVideoFrames() const
-{
-    assertIsMainThread();
-
-    if (isUsingDecompressionSession() && !m_decompressionSessionBlocked)
-        return m_droppedVideoFrames;
-#if PLATFORM(WATCHOS)
-    return 0;
-#else
-    return [renderer() videoPerformanceMetrics].numberOfDroppedVideoFrames + m_droppedVideoFramesOffset;
-#endif
-}
-
-unsigned VideoMediaSampleRenderer::corruptedVideoFrames() const
-{
-    assertIsMainThread();
-
-    if (isUsingDecompressionSession() && !m_decompressionSessionBlocked)
-        return m_corruptedVideoFrames;
-#if PLATFORM(WATCHOS)
-    return 0;
-#else
-    return [renderer() videoPerformanceMetrics].numberOfCorruptedVideoFrames + m_corruptedVideoFrames;
-#endif
-}
-
-MediaTime VideoMediaSampleRenderer::totalFrameDelay() const
-{
-    assertIsMainThread();
-
-    if (isUsingDecompressionSession() && !m_decompressionSessionBlocked)
-        return m_totalFrameDelay;
-#if PLATFORM(WATCHOS)
-    return MediaTime::invalidTime();
-#else
-    return MediaTime::createWithDouble([renderer() videoPerformanceMetrics].totalFrameDelay);
+    RetainPtr renderer = this->renderer();
+    RetainPtr metrics = [renderer videoPerformanceMetrics];
+    return VideoPlaybackQualityMetrics {
+        static_cast<uint32_t>([metrics totalNumberOfVideoFrames]),
+        static_cast<uint32_t>([metrics numberOfDroppedVideoFrames] + m_droppedVideoFramesOffset),
+        static_cast<uint32_t>([metrics numberOfCorruptedVideoFrames] + m_corruptedVideoFrames.load()),
+        [metrics totalFrameDelay],
+        totalDisplayedFrames()
+    };
 #endif
 }
 

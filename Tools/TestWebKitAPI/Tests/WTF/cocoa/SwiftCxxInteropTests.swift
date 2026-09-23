@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if compiler(>=6.2) && ENABLE_CXX_INTEROP
+#if ENABLE_CXX_INTEROP
 
 import Testing
 import wtf
@@ -59,4 +59,4 @@ struct SwiftCxxInteropTests {
     }
 }
 
-#endif // compiler(>=6.2) && ENABLE_CXX_INTEROP
+#endif // ENABLE_CXX_INTEROP

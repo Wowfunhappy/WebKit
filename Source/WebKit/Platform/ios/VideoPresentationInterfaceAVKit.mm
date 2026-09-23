@@ -159,10 +159,9 @@ void VideoPresentationInterfaceAVKit::setupPlayerViewController()
 
     RetainPtr contentSource = playbackSessionInterface().contentSource();
     [contentSource setVideoLayer:fullscreenPlayerLayer()];
-    [contentSource setCaptionLayer:captionsLayer()];
 
-    RetainPtr platformContentSource = [allocAVPlayerViewControllerContentSourceInstance() initWithVideoPlaybackControllable:contentSource.get()];
-    m_experienceController = [allocWKSExperienceControllerInstance() initWithContentSource:platformContentSource.get()];
+    RetainPtr platformContentSource = adoptNS([allocAVPlayerViewControllerContentSourceInstance() initWithVideoPlaybackControllable:contentSource.get()]);
+    m_experienceController = adoptNS([allocWKSExperienceControllerInstance() initWithContentSource:platformContentSource.get()]);
     [m_experienceController setDelegate:m_experienceControllerDelegate.get()];
 }
 
@@ -173,16 +172,6 @@ void VideoPresentationInterfaceAVKit::invalidatePlayerViewController()
     m_fullscreenPlayerLayerView = nil;
     [m_experienceController setDelegate:nil];
     m_experienceController = nil;
-}
-
-void VideoPresentationInterfaceAVKit::setupCaptionsLayer(CALayer *, const WebCore::FloatSize&)
-{
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    [captionsLayer() removeFromSuperlayer];
-    [fullscreenPlayerLayer() setCaptionsLayer:captionsLayer()];
-    [fullscreenPlayerLayer() layoutSublayers];
-    [CATransaction commit];
 }
 
 void VideoPresentationInterfaceAVKit::presentFullscreen(bool animated, Function<void(BOOL, NSError *)>&& completionHandler)

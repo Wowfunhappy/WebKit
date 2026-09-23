@@ -27,12 +27,16 @@
 #include "config.h"
 #include "HTMLElementStack.h"
 
+#include "Document.h"
 #include "DocumentFragment.h"
+#include "ElementInlines.h"
 #include "HTMLOptGroupElement.h"
 #include "HTMLOptionElement.h"
 #include "HTMLTableElement.h"
 #include "HTMLTemplateElement.h"
 #include "MathMLNames.h"
+#include "NodeDocument.h"
+#include "Settings.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -275,13 +279,13 @@ bool HTMLElementStack::isMathMLTextIntegrationPoint(HTMLStackItem& item)
 bool HTMLElementStack::isHTMLIntegrationPoint(HTMLStackItem& item)
 {
     if (item.elementName() == MathML::annotation_xml) {
-        const Attribute* encodingAttr = item.findAttribute(MathMLNames::encodingAttr);
-        if (encodingAttr) {
-            const String& encoding = encodingAttr->value();
-            return equalLettersIgnoringASCIICase(encoding, "text/html"_s)
-                || equalLettersIgnoringASCIICase(encoding, "application/xhtml+xml"_s);
-        }
-        return false;
+        // Read encoding off the element directly: m_attributes is unset for fragment-context items.
+        RefPtr element = item.elementOrNull();
+        if (!element)
+            return false;
+        auto& encoding = element->attributeWithoutSynchronization(MathMLNames::encodingAttr);
+        return equalLettersIgnoringASCIICase(encoding, "text/html"_s)
+            || equalLettersIgnoringASCIICase(encoding, "application/xhtml+xml"_s);
     }
     return item.elementName() == SVG::foreignObject
         || item.elementName() == SVG::desc
@@ -508,7 +512,8 @@ bool HTMLElementStack::inSelectScope(ElementName targetElement) const
 
 bool HTMLElementStack::hasTemplateInHTMLScope() const
 {
-    return inScopeCommon<isRootNode>(m_top.get(), HTML::template_);
+    // The root is pushed first and never popped, and <template> can only be pushed above it, so the counter alone suffices.
+    return m_templateElementCount;
 }
 
 Element& HTMLElementStack::htmlElement() const

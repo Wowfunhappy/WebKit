@@ -76,7 +76,7 @@ void BlockDirectory::updatePercentageOfPagedOutPages(SimpleStats& stats)
     // For some reason this can be unsigned char or char on different OSes...
     using MincoreBufferType = std::remove_pointer_t<FunctionTraits<decltype(mincore)>::ArgumentType<2>>;
     static_assert(std::is_same_v<std::make_unsigned_t<MincoreBufferType>, unsigned char>);
-    Vector<MincoreBufferType, 16> pagedBits(numberOfPagesInMarkedBlock, MincoreBufferType { });
+    Vector<MincoreBufferType, 16> pagedBits(FillWith { }, numberOfPagesInMarkedBlock, MincoreBufferType { });
 
     for (auto* handle : m_blocks) {
         if (!handle)

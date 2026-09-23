@@ -27,6 +27,7 @@
 #include "AttributeChangeInvalidation.h"
 #include "CSSComputedStyleDeclaration.h"
 #include "CSSImageValue.h"
+#include "CSSMarkup.h"
 #include "CSSParser.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyParser.h"
@@ -70,6 +71,11 @@ void StyledElement::synchronizeStyleAttributeInternalImpl()
         setSynchronizedLazyAttribute(styleAttr, inlineStyle->asTextAtom(CSS::defaultSerializationContext()));
 }
 
+StyledElement::StyledElement(ClangVTableWorkaroundTag, const QualifiedName& name, Document& document)
+    : Element(name, document, { })
+{
+}
+
 StyledElement::~StyledElement() = default;
 
 CSSStyleProperties& StyledElement::cssomStyle()
@@ -107,15 +113,15 @@ void StyledElement::attributeChanged(const QualifiedName& name, const AtomString
             styleAttributeChanged(newValue, reason);
         else if (hasPresentationalHintsForAttribute(name)) {
             elementData()->setPresentationalHintStyleIsDirty(true);
-            invalidateStyleInternal();
+            invalidateStyle();
         }
     }
 }
 
 CSSStyleProperties* StyledElement::inlineStyleCSSOMWrapper()
 {
-    if (!inlineStyle() || !inlineStyle()->hasCSSOMWrapper())
-        return 0;
+    if (auto* style = inlineStyle(); !style || !style->hasCSSOMWrapper())
+        return nullptr;
     SUPPRESS_UNCOUNTED_LOCAL auto* cssomWrapper = ensureMutableInlineStyle()->cssStyleProperties();
     ASSERT(cssomWrapper && cssomWrapper->parentElement() == this);
     return cssomWrapper;
@@ -150,7 +156,7 @@ void StyledElement::styleAttributeChanged(const AtomString& newStyleString, Attr
     Ref document = this->document();
     auto startLineNumber = OrdinalNumber::beforeFirst();
     if (document->scriptableDocumentParser() && !document->isInDocumentWrite())
-        startLineNumber = document->scriptableDocumentParser()->textPosition().m_line;
+        startLineNumber = protect(document->scriptableDocumentParser())->textPosition().m_line;
 
     if (newStyleString.isNull())
         ensureMutableInlineStyle()->clear();
@@ -163,18 +169,22 @@ void StyledElement::styleAttributeChanged(const AtomString& newStyleString, Attr
     InspectorInstrumentation::didInvalidateStyleAttr(*this);
 }
 
+void StyledElement::synchronizeStyleAttributeForSelectorInvalidation()
+{
+    if (RefPtr inlineStyle = this->inlineStyle()) {
+        elementData()->setStyleAttributeIsDirty(false);
+        auto newValue = inlineStyle->asTextAtom(CSS::defaultSerializationContext());
+        Style::AttributeChangeInvalidation styleInvalidation(*this, styleAttr, attributeWithoutSynchronization(styleAttr), newValue);
+        setSynchronizedLazyAttribute(styleAttr, newValue);
+    }
+}
+
 void StyledElement::dirtyStyleAttribute()
 {
     elementData()->setStyleAttributeIsDirty(true);
 
-    if (styleResolver().ruleSets().selectorsForStyleAttribute() != Style::SelectorsForStyleAttribute::None) {
-        if (RefPtr inlineStyle = this->inlineStyle()) {
-            elementData()->setStyleAttributeIsDirty(false);
-            auto newValue = inlineStyle->asTextAtom(CSS::defaultSerializationContext());
-            Style::AttributeChangeInvalidation styleInvalidation(*this, styleAttr, attributeWithoutSynchronization(styleAttr), newValue);
-            setSynchronizedLazyAttribute(styleAttr, newValue);
-        }
-    }
+    if (styleResolver().ruleSets().selectorsForStyleAttribute() != Style::SelectorsForStyleAttribute::None)
+        synchronizeStyleAttributeForSelectorInvalidation();
 }
 
 void StyledElement::invalidateStyleAttribute()
@@ -193,20 +203,12 @@ void StyledElement::invalidateStyleAttribute()
 
     Node::invalidateStyle(validity);
 
-    if (isSVGElement()) {
-        if (auto* svgElement = dynamicDowncast<SVGElement>(this))
-            svgElement->invalidateInstances();
-    }
+    if (auto* svgElement = dynamicDowncast<SVGElement>(*this))
+        svgElement->invalidateInstances();
 
     // In the rare case of selectors like "[style] ~ div" we need to synchronize immediately to invalidate.
-    if (selectorsForStyleAttribute == Style::SelectorsForStyleAttribute::NonSubjectPosition) {
-        if (RefPtr inlineStyle = this->inlineStyle()) {
-            elementData()->setStyleAttributeIsDirty(false);
-            auto newValue = inlineStyle->asTextAtom(CSS::defaultSerializationContext());
-            Style::AttributeChangeInvalidation styleInvalidation(*this, styleAttr, attributeWithoutSynchronization(styleAttr), newValue);
-            setSynchronizedLazyAttribute(styleAttr, newValue);
-        }
-    }
+    if (selectorsForStyleAttribute == Style::SelectorsForStyleAttribute::NonSubjectPosition)
+        synchronizeStyleAttributeForSelectorInvalidation();
 }
 
 void StyledElement::inlineStyleChanged()
@@ -218,14 +220,7 @@ void StyledElement::inlineStyleChanged()
     
 bool StyledElement::setInlineStyleProperty(CSSPropertyID propertyID, CSSValueID identifier, IsImportant important)
 {
-    ensureMutableInlineStyle()->setProperty(propertyID, CSSPrimitiveValue::create(identifier), important);
-    inlineStyleChanged();
-    return true;
-}
-
-bool StyledElement::setInlineStyleProperty(CSSPropertyID propertyID, CSSPropertyID identifier, IsImportant important)
-{
-    ensureMutableInlineStyle()->setProperty(propertyID, CSSPrimitiveValue::create(identifier), important);
+    ensureMutableInlineStyle()->setProperty(propertyID, CSSKeywordValue::create(identifier), important);
     inlineStyleChanged();
     return true;
 }
@@ -262,9 +257,10 @@ bool StyledElement::setInlineStyleCustomProperty(const AtomString& property, con
 
 bool StyledElement::setInlineStyleCustomProperty(Ref<CSSValue>&& customPropertyValue, IsImportant important)
 {
-    ensureMutableInlineStyle()->addParsedProperty(CSSProperty(CSSPropertyCustom, WTF::move(customPropertyValue), important));
-    inlineStyleChanged();
-    return true;
+    bool changes = ensureMutableInlineStyle()->addParsedProperty(CSSProperty(CSSPropertyCustom, WTF::move(customPropertyValue), important));
+    if (changes)
+        inlineStyleChanged();
+    return changes;
 }
 
 bool StyledElement::removeInlineStyleProperty(CSSPropertyID propertyID)
@@ -295,7 +291,7 @@ void StyledElement::removeAllInlineStyleProperties()
     inlineStyleChanged();
 }
 
-void StyledElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void StyledElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     RefPtr inlineStyle = this->inlineStyle();
     if (!inlineStyle)
@@ -371,7 +367,7 @@ void StyledElement::rebuildPresentationalHintStyle()
 
 void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties& style, CSSPropertyID propertyID, CSSValueID identifier)
 {
-    style.setProperty(propertyID, CSSPrimitiveValue::create(identifier));
+    style.setProperty(propertyID, CSSKeywordValue::create(identifier));
 }
 
 void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties& style, CSSPropertyID propertyID, double value, CSSUnitType unit)
@@ -381,12 +377,23 @@ void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties&
     
 void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties& style, CSSPropertyID propertyID, const String& value)
 {
-    style.setProperty(propertyID, value, protect(document())->cssParserContext());
+    SUPPRESS_UNCOUNTED_ARG style.setProperty(propertyID, value, document().cssParserContext());
 }
 
 void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties& style, CSSPropertyID propertyID, Ref<CSSValue>&& value)
 {
     style.setProperty(propertyID, WTF::move(value));
+}
+
+void StyledElement::mapLanguageAttributeToLocale(const AtomString& value, MutableStyleProperties& style)
+{
+    if (!value.isEmpty()) {
+        // Quote the locale id so it is treated as a string instead of as a CSS keyword.
+        addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitLocale, serializeString(value));
+    } else {
+        // The empty string means the language is explicitly unknown.
+        addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitLocale, CSSValueAuto);
+    }
 }
 
 }

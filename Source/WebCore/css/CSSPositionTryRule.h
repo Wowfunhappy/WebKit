@@ -66,7 +66,7 @@ public:
 
     StyleRulePositionTry& positionTryRule() const { return m_positionTryRule; }
 
-    WEBCORE_EXPORT AtomString NODELETE name() const;
+    WEBCORE_EXPORT String name() const;
     WEBCORE_EXPORT CSSPositionTryDescriptors& style();
 
 private:

@@ -12,6 +12,7 @@ promise_test(async (test) => {
     const receiver = new RTCPeerConnection();
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
         const localTracks = stream.getTracks();
         [[sender, receiver], [receiver, sender]].forEach(([pc1, pc2]) => {
             pc1.onicecandidate = ({ candidate }) => {

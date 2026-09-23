@@ -28,7 +28,6 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGBlockMapInlines.h"
 #include "DFGClobbersExitState.h"
 #include "DFGCombinedLiveness.h"
 #include "DFGGraph.h"
@@ -42,18 +41,18 @@
 #include "DFGValidate.h"
 #include "JSArrayIterator.h"
 #include "JSAsyncFromSyncIterator.h"
+#include "JSAsyncFunctionGenerator.h"
 #include "JSAsyncGenerator.h"
 #include "JSGenerator.h"
-#include "JSInternalPromise.h"
 #include "JSIteratorHelper.h"
 #include "JSMapIterator.h"
+#include "JSPromise.h"
 #include "JSPromiseReaction.h"
 #include "JSRegExpStringIterator.h"
 #include "JSSetIterator.h"
 #include "JSStringIterator.h"
 #include "JSWrapForValidIterator.h"
-#include "StructureInlines.h"
-#include <wtf/StdList.h>
+#include <wtf/IndexMap.h>
 
 namespace JSC { namespace DFG {
 
@@ -148,7 +147,7 @@ public:
     // once it is escaped if it still has pointers to it in order to
     // replace any use of those pointers by the corresponding
     // materialization
-    enum class Kind { Escaped, Array, ArrayButterfly, Object, Activation, Function, GeneratorFunction, AsyncFunction, AsyncGeneratorFunction, InternalFieldObject, RegExpObject };
+    enum class Kind { Escaped, Array, ArrayButterfly, Object, Activation, Function, GeneratorFunction, AsyncFunction, AsyncGeneratorFunction, InternalFieldObject, RegExpObject, Promise };
 
     using Fields = UncheckedKeyHashMap<PromotedLocationDescriptor, Node*>;
 
@@ -161,12 +160,12 @@ public:
     }
 
 
-    const Fields& fields() const
+    const Fields& NODELETE fields() const
     {
         return m_fields;
     }
 
-    Fields& fields()
+    Fields& NODELETE fields()
     {
         return m_fields;
     }
@@ -193,36 +192,36 @@ public:
         set(descriptor, nullptr);
     }
 
-    IndexingType indexingType() const
+    IndexingType NODELETE indexingType() const
     {
         return m_indexingType;
     }
 
-    unsigned length() const
+    unsigned NODELETE length() const
     {
         return m_initializedIndices.size();
     }
 
-    bool isIndexInitialized(unsigned index) const
+    bool NODELETE isIndexInitialized(unsigned index) const
     {
         ASSERT(index < length());
         return m_initializedIndices[index];
     }
 
-    void setIndexInitialized(unsigned index)
+    void NODELETE setIndexInitialized(unsigned index)
     {
         ASSERT(index < length());
         m_initializedIndices[index] = true;
     }
 
-    Allocation& mergeInitializedIndices(const Allocation& other)
+    Allocation& NODELETE mergeInitializedIndices(const Allocation& other)
     {
         ASSERT(length() == other.length());
         m_initializedIndices &= other.m_initializedIndices;
         return *this;
     }
 
-    bool hasStructures() const
+    bool NODELETE hasStructures() const
     {
         switch (kind()) {
         case Kind::Object:
@@ -259,56 +258,61 @@ public:
         return *this;
     }
 
-    const RegisteredStructureSet& structures() const
+    const RegisteredStructureSet& NODELETE structures() const
     {
         return m_structures;
     }
 
-    const RegisteredStructureSet& structuresForMaterialization() const
+    const RegisteredStructureSet& NODELETE structuresForMaterialization() const
     {
         return m_structuresForMaterialization;
     }
 
-    Node* identifier() const { return m_identifier; }
+    Node* NODELETE identifier() const { return m_identifier; }
 
-    Kind kind() const { return m_kind; }
+    Kind NODELETE kind() const { return m_kind; }
 
-    bool isEscapedAllocation() const
+    bool NODELETE isEscapedAllocation() const
     {
         return kind() == Kind::Escaped;
     }
 
-    bool isArrayAllocation() const
+    bool NODELETE isArrayAllocation() const
     {
         return m_kind == Kind::Array;
     }
 
-    bool isObjectAllocation() const
+    bool NODELETE isObjectAllocation() const
     {
         return m_kind == Kind::Object;
     }
 
-    bool isActivationAllocation() const
+    bool NODELETE isActivationAllocation() const
     {
         return m_kind == Kind::Activation;
     }
 
-    bool isFunctionAllocation() const
+    bool NODELETE isFunctionAllocation() const
     {
         return m_kind == Kind::Function || m_kind == Kind::GeneratorFunction || m_kind == Kind::AsyncFunction || m_kind == Kind::AsyncGeneratorFunction;
     }
 
-    bool isInternalFieldObjectAllocation() const
+    bool NODELETE isInternalFieldObjectAllocation() const
     {
         return m_kind == Kind::InternalFieldObject;
     }
 
-    bool isRegExpObjectAllocation() const
+    bool NODELETE isRegExpObjectAllocation() const
     {
         return m_kind == Kind::RegExpObject;
     }
 
-    friend bool operator==(const Allocation&, const Allocation&) = default;
+    bool NODELETE isPromiseAllocation() const
+    {
+        return m_kind == Kind::Promise;
+    }
+
+    friend bool NODELETE operator==(const Allocation&, const Allocation&) = default;
 
     void dump(PrintStream& out) const
     {
@@ -460,12 +464,12 @@ public:
     // set, the current escapees can be retrieved at any time using
     // takeEscapees(), which will clear the cached set of escapees;
     // otherwise the heap won't remember escaping allocations.
-    void setWantEscapees()
+    void NODELETE setWantEscapees()
     {
         m_wantEscapees = true;
     }
 
-    UncheckedKeyHashMap<Node*, Allocation> takeEscapees()
+    UncheckedKeyHashMap<Node*, Allocation> NODELETE takeEscapees()
     {
         return WTF::move(m_escapees);
     }
@@ -637,7 +641,7 @@ public:
             && m_pointers == other.m_pointers;
     }
 
-    const UncheckedKeyHashMap<Node*, Allocation>& allocations() const
+    const UncheckedKeyHashMap<Node*, Allocation>& NODELETE allocations() const
     {
         return m_allocations;
     }
@@ -657,12 +661,12 @@ public:
         }
     }
 
-    bool reached() const
+    bool NODELETE reached() const
     {
         return m_reached;
     }
 
-    void setReached()
+    void NODELETE setReached()
     {
         m_reached = true;
     }
@@ -853,8 +857,8 @@ private:
 
     void performAnalysis()
     {
-        m_heapAtHead = BlockMap<LocalHeap>(m_graph);
-        m_heapAtTail = BlockMap<LocalHeap>(m_graph);
+        m_heapAtHead = IndexMap<BasicBlock*, LocalHeap>(m_graph.numBlocks());
+        m_heapAtTail = IndexMap<BasicBlock*, LocalHeap>(m_graph.numBlocks());
 
         bool changed;
         do {
@@ -1142,25 +1146,17 @@ private:
             case JSWrapForValidIteratorType:
                 target = handleInternalFieldClass<JSWrapForValidIterator>(node, writes);
                 break;
-            case JSAsyncFromSyncIteratorType:
-                target = handleInternalFieldClass<JSAsyncFromSyncIterator>(node, writes);
-                break;
             case JSRegExpStringIteratorType:
                 target = handleInternalFieldClass<JSRegExpStringIterator>(node, writes);
                 break;
             case JSGeneratorType:
                 target = handleInternalFieldClass<JSGenerator>(node, writes);
                 break;
+            case JSAsyncFunctionGeneratorType:
+                target = handleInternalFieldClass<JSAsyncFunctionGenerator>(node, writes);
+                break;
             case JSAsyncGeneratorType:
                 target = handleInternalFieldClass<JSAsyncGenerator>(node, writes);
-                break;
-            case JSPromiseType:
-                if (node->structure()->classInfoForCells() == JSInternalPromise::info())
-                    target = handleInternalFieldClass<JSInternalPromise>(node, writes);
-                else {
-                    ASSERT(node->structure()->classInfoForCells() == JSPromise::info());
-                    target = handleInternalFieldClass<JSPromise>(node, writes);
-                }
                 break;
             default:
                 DFG_CRASH(m_graph, node, "Bad structure");
@@ -1173,6 +1169,13 @@ private:
 
             writes.add(RegExpObjectRegExpPLoc, LazyNode(node->cellOperand()));
             writes.add(RegExpObjectLastIndexPLoc, LazyNode(node->child1().node()));
+            break;
+        }
+
+        case NewPromise: {
+            ASSERT(node->structure()->classInfoForCells() == JSPromise::info());
+            target = &m_heap.newAllocation(node, Allocation::Kind::Promise);
+            writes.add(StructurePLoc, LazyNode(m_graph.freeze(node->structure().get())));
             break;
         }
 
@@ -1511,7 +1514,9 @@ escapeChildren:
         // 2) If we put a sink candidate into a local allocation, that
         //    allocation becomes a sink candidate as well.
         //
-        // We currently choose to implement closure rule #2.
+        // Typically we implement closure rule #2. However, when a candidate is
+        // excluded due to InlineCallFrame mismatch, we use rule #1 to also exclude
+        // anything that transitively depends on it.
         UncheckedKeyHashMap<Node*, Vector<Node*>> dependencies;
         bool hasUnescapedReads = false;
         for (BasicBlock* block : m_graph.blocksInPreOrder()) {
@@ -1593,32 +1598,17 @@ escapeChildren:
             }
         };
 
-        if (m_sinkCandidates.size()) {
-            // If we're moving an allocation to `where` in the program, we need to ensure
-            // we can still walk the stack at that point in the program for the
-            // InlineCallFrame of the original allocation. Certain InlineCallFrames rely on
-            // data in the stack when taking a stack trace. All allocation sites can do a
-            // stack walk (we do a stack walk when we GC). Conservatively, we say we're
-            // still ok to move this allocation if we are moving within the same InlineCallFrame.
-            // We could be more precise here and do an analysis of stack writes. However,
-            // this scenario is so rare that we just take the conservative-and-straight-forward 
-            // approach of checking that we're in the same InlineCallFrame.
+        auto shouldDemote = [] (Node* candidate, Node* where) {
+            InlineCallFrame* inlineCallFrame = candidate->origin.semantic.inlineCallFrame();
+            if (!inlineCallFrame)
+                return false;
+            if (!inlineCallFrame->isClosureCall && !inlineCallFrame->isVarargs())
+                return false;
+            return inlineCallFrame != where->origin.semantic.inlineCallFrame();
+        };
 
-            forEachEscapee([&] (UncheckedKeyHashMap<Node*, Allocation>& escapees, Node* where) {
-                for (Node* allocation : escapees.keys()) {
-                    InlineCallFrame* inlineCallFrame = allocation->origin.semantic.inlineCallFrame();
-                    if (!inlineCallFrame)
-                        continue;
-                    if ((inlineCallFrame->isClosureCall || inlineCallFrame->isVarargs()) && inlineCallFrame != where->origin.semantic.inlineCallFrame()) {
-                        dataLogLnIf(Options::verboseObjectAllocationSinking(), "Removing candidate because it escapes from a frame that has a closure: ", allocation);
-                        m_sinkCandidates.remove(allocation);
-                    }
-                }
-            });
-        }
-
-        // Ensure that the set of sink candidates is closed for put operations
-        // This is (2) as described above.
+        // Closure rule #2: for each candidate, promote every `dependencies` entry
+        // (i.e. every allocation it was put into).
         Vector<Node*> worklist;
         worklist.appendRange(m_sinkCandidates.begin(), m_sinkCandidates.end());
 
@@ -1629,6 +1619,49 @@ escapeChildren:
             }
         }
 
+        bool hasDemotedAnyCandidate = false;
+        if (m_sinkCandidates.size()) {
+            // If we're moving an allocation to `where` in the program, we need to ensure
+            // we can still walk the stack at that point in the program for the
+            // InlineCallFrame of the original allocation. Certain InlineCallFrames rely on
+            // data in the stack when taking a stack trace. All allocation sites can do a
+            // stack walk (we do a stack walk when we GC). Conservatively, we say we're
+            // still ok to move this allocation if we are moving within the same InlineCallFrame.
+            // We could be more precise here and do an analysis of stack writes. However,
+            // this scenario is so rare that we just take the conservative-and-straight-forward
+            // approach of checking that we're in the same InlineCallFrame.
+            forEachEscapee([&] (UncheckedKeyHashMap<Node*, Allocation>& escapees, Node* where) {
+                for (Node* allocation : escapees.keys()) {
+                    if (shouldDemote(allocation, where)) {
+                        dataLogLnIf(Options::verboseObjectAllocationSinking(), "Removing candidate because it escapes from a frame that has a closure: ", allocation);
+                        m_sinkCandidates.remove(allocation);
+                        hasDemotedAnyCandidate = true;
+                    }
+                }
+            });
+        }
+
+        // Closure rule #1: demote any candidate that was put into a demoted allocation
+        // (i.e. one removed by the InlineCallFrame check above). Iterate to fixpoint;
+        // rule #2's fixpoint is preserved through this loop and doesn't need re-running.
+        if (hasDemotedAnyCandidate) [[unlikely]] {
+            Vector<Node*> toRemove;
+            do {
+                toRemove.shrink(0);
+                for (Node* candidate : m_sinkCandidates) {
+                    for (Node* parent : dependencies.get(candidate)) {
+                        if (!m_sinkCandidates.contains(parent)) {
+                            dataLogLnIf(Options::verboseObjectAllocationSinking(), "Removing candidate ", candidate, " because parent ", parent, " was a demoted candidate");
+                            toRemove.append(candidate);
+                            break;
+                        }
+                    }
+                }
+                for (Node* candidate : toRemove)
+                    m_sinkCandidates.remove(candidate);
+            } while (!toRemove.isEmpty());
+        }
+
         if (m_sinkCandidates.isEmpty())
             return hasUnescapedReads;
 
@@ -1636,6 +1669,10 @@ escapeChildren:
 
         // Create the materialization nodes.
         forEachEscapee([&] (UncheckedKeyHashMap<Node*, Allocation>& escapees, Node* where) {
+#if ASSERT_ENABLED
+            for (Node* allocation : escapees.keys())
+                ASSERT(!shouldDemote(allocation, where));
+#endif
             placeMaterializations(WTF::move(escapees), where);
         });
 
@@ -1926,6 +1963,13 @@ escapeChildren:
                 where->origin.withSemantic(
                     allocation.identifier()->origin.semantic),
                 OpInfo(allocation.identifier()->structure()), OpInfo(data), 0, 0);
+        }
+
+        case Allocation::Kind::Promise: {
+            return m_graph.addNode(
+                allocation.identifier()->prediction(), NewPromise,
+                where->origin.withSemantic(allocation.identifier()->origin.semantic),
+                OpInfo(allocation.identifier()->structure()));
         }
 
         case Allocation::Kind::Activation: {
@@ -2302,14 +2346,6 @@ escapeChildren:
 
                         doLower = true;
 
-                        if (node->op() == PutByVal) {
-                            // We must insert the check before the PutHint inserted below. This is because that both PutHint and PutByVal
-                            // clobber the exit state. Since they have consistent exit state clobberization assumption, an ExitOK wouldn't be
-                            // inserted below which breaks the validation.
-                            Edge value = m_graph.varArgChild(node, 2);
-                            m_insertionSet.insertNode(nodeIndex + 1, SpecNone, Check, node->origin, Edge(value.node(), value.useKind()));
-                        }
-
                         dataLogLnIf(Options::verboseObjectAllocationSinking(), "Creating hint with value ", nodeValue, " before ", node);
                         m_insertionSet.insert(
                             nodeIndex + 1,
@@ -2321,9 +2357,6 @@ escapeChildren:
                     });
 
 
-                // After inserting a PutHint, the next node cannot exit. If the current node does clobber the exit state, then we are fine since
-                // the exit state clobberization are consistent after the insertion. Otherwise, the assumption was broken and an ExitOK is required
-                // to ensure a valid exit state.
                 if (!nextCanExit && desiredNextExitOK) {
                     // We indicate that the exit state is fine now. We need to do this because we
                     // emitted hints that appear to invalidate the exit state.
@@ -2362,6 +2395,10 @@ escapeChildren:
 
                     case NewInternalFieldObject:
                         node->convertToPhantomNewInternalFieldObject();
+                        break;
+
+                    case NewPromise:
+                        node->convertToPhantomNewPromise();
                         break;
 
                     case CreateActivation:
@@ -2702,14 +2739,20 @@ escapeChildren:
         case NewAsyncFunction: {
             Vector<PromotedHeapLocation> locations = m_locationsForAllocation.get(escapee);
             ASSERT(locations.size() == 2);
-                
+
             PromotedHeapLocation executable(FunctionExecutablePLoc, allocation.identifier());
             ASSERT_UNUSED(executable, locations.contains(executable));
-                
+
             PromotedHeapLocation activation(FunctionActivationPLoc, allocation.identifier());
             ASSERT(locations.contains(activation));
 
             node->child1() = Edge(resolve(block, activation), KnownCellUse);
+            break;
+        }
+
+        case NewPromise: {
+            ASSERT(m_locationsForAllocation.get(escapee).size() == 1);
+            ASSERT(m_locationsForAllocation.get(escapee)[0] == PromotedHeapLocation(StructurePLoc, allocation.identifier()));
             break;
         }
 
@@ -3056,8 +3099,8 @@ escapeChildren:
 
     UncheckedKeyHashMap<unsigned, Node*, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_constants;
 
-    BlockMap<LocalHeap> m_heapAtHead;
-    BlockMap<LocalHeap> m_heapAtTail;
+    IndexMap<BasicBlock*, LocalHeap> m_heapAtHead;
+    IndexMap<BasicBlock*, LocalHeap> m_heapAtTail;
     LocalHeap m_heap;
 
     Node* m_bottom { nullptr };

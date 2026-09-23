@@ -49,6 +49,7 @@ let device0 = await adapter0.requestDevice({
     maxBindingsPerBindGroup: 1000,
     maxUniformBufferBindingSize: 21715455,
   },
+  requiredFeatures: ['shader-f16'],
 });
 // START
 let shaderModule4 = device0.createShaderModule({ code: `

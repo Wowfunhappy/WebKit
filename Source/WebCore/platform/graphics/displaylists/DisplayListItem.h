@@ -34,6 +34,7 @@ class TextStream;
 
 namespace WebCore {
 
+class AffineTransform;
 class ControlFactory;
 class GraphicsContext;
 
@@ -182,7 +183,7 @@ enum class AsTextFlag : uint8_t {
     IncludeResourceIdentifiers     = 1 << 1,
 };
 
-void applyItem(GraphicsContext&, ControlFactory&, const Item&);
+void applyItem(GraphicsContext&, const AffineTransform& baseTransform, ControlFactory&, const Item&);
 
 bool shouldDumpItem(const Item&, OptionSet<AsTextFlag>);
 

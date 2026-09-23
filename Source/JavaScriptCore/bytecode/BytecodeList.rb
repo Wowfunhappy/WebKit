@@ -226,6 +226,29 @@ op :iterator_open,
         getNext: nil,
     }
 
+# iterator = symbolIterator.@call(iterable); next = iterator.next. Mirrors op_iterator_open; the fast
+# path skips the call for a genuine async generator, leaving the driver sentinel in next.
+op :async_iterator_open,
+    args: {
+        iterator: VirtualRegister,
+        next: VirtualRegister,
+        symbolIterator: VirtualRegister,
+        iterable: VirtualRegister,
+        stackOffset: unsigned,
+        iterableValueProfile: unsigned,
+        iteratorValueProfile: unsigned,
+        nextValueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        modeMetadata: GetByIdModeMetadata,
+        iterationMetadata: IterationModeMetadata,
+    },
+    checkpoints: {
+        symbolCall: nil,
+        getNext: nil,
+    }
+
 # Semantically, this is dst = value instanceof constructor.
 op :instanceof,
     args: {
@@ -351,7 +374,6 @@ op :create_promise,
     args: {
         dst: VirtualRegister,
         callee: VirtualRegister,
-        isInternalPromise: bool,
     },
     metadata: {
         cachedCallee: WriteBarrier[JSCell]
@@ -463,6 +485,31 @@ op :call_ignore_result,
         callLinkInfo: DataOnlyCallLinkInfo,
         arrayProfile: ArrayProfile,
     }
+
+# dst = next.call(iterator [, value]), or -- if next is the fast async generator driver sentinel --
+# enqueue value onto the producer instead (dst unused; the result is awaited via a separate op_yield).
+# The resume value (yield* passes the received value; for-await leaves hasValue false, so next() is
+# called with just `this`) is call argument index 1: like op_call's argc/argv model, there's no separate
+# VirtualRegister field for it -- its register is derived from stackOffset via
+# virtualRegisterForArgumentIncludingThis(1, -stackOffset) whenever hasValue is set. This keeps every
+# arg field a plain unsigned/bool, so an absent resume value never forces this bytecode to Wide32
+# encoding. Unlike op_iterator_next there are no getDone/getValue checkpoints: the intervening await
+# makes .done/.value separate get_by_id bytecodes after suspension.
+op :async_iterator_next,
+    args: {
+        dst: VirtualRegister,
+        next: VirtualRegister,
+        iterator: VirtualRegister,
+        driver: VirtualRegister,
+        hasValue: bool,
+        stackOffset: unsigned,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        iterationMetadata: IterationModeMetadata,
+    }
+
 
 op :resolve_scope,
     args: {
@@ -741,18 +788,6 @@ op :get_by_id_direct,
         base: VirtualRegister,
         property: unsigned,
         valueProfile: unsigned, # not used in llint
-    },
-    metadata: {
-        structureID: StructureID,
-        offset: unsigned,
-    }
-
-op :try_get_by_id,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: unsigned,
-        valueProfile: unsigned,
     },
     metadata: {
         structureID: StructureID,
@@ -1204,10 +1239,14 @@ op :create_cloned_arguments,
 op :new_promise,
     args: {
         dst: VirtualRegister,
-        isInternalPromise: bool,
     }
 
 op :new_generator,
+    args: {
+        dst: VirtualRegister,
+    }
+
+op :new_async_function_generator,
     args: {
         dst: VirtualRegister,
     }
@@ -1305,7 +1344,6 @@ op_group :UnaryOp,
         :eq_null,
         :neq_null,
         :to_string,
-        :unsigned,
         :is_empty,
         :typeof_is_undefined,
         :typeof_is_object,
@@ -1380,6 +1418,7 @@ op_group :ProfiledUnaryOp,
         :to_number,
         :to_numeric,
         :bitnot,
+        :unsigned,
     ],
     args: {
         dst: VirtualRegister,
@@ -1429,6 +1468,7 @@ op :llint_polymorphic_closure_call_trampoline
 op :checkpoint_osr_exit_from_inlined_call_trampoline
 op :checkpoint_osr_exit_trampoline
 op :normal_osr_exit_trampoline
+op :array_sort_comparator_return_trampoline
 op :fuzzer_return_early_from_loop_hint
 op :loop_osr_entry_gate
 op :llint_get_host_call_return_value
@@ -1441,6 +1481,7 @@ op :op_call_varargs_return_location
 op :op_construct_varargs_return_location
 op :op_super_construct_varargs_return_location
 op :op_get_by_id_return_location
+op :op_async_iterator_open_return_location
 op :op_get_by_id_direct_return_location
 op :op_get_length_return_location
 op :op_get_by_val_return_location
@@ -1455,6 +1496,7 @@ op :op_enumerator_put_by_val_return_location
 op :op_enumerator_in_by_val_return_location
 op :op_iterator_open_return_location
 op :op_iterator_next_return_location
+op :op_async_iterator_next_return_location
 op :op_call_direct_eval_slow_return_location
 op :js_to_wasm_wrapper_entry
 op :wasm_to_wasm_ipint_wrapper_entry
@@ -1477,6 +1519,8 @@ op :js_trampoline_op_construct_varargs
 op :js_trampoline_op_super_construct_varargs
 op :js_trampoline_op_iterator_next
 op :js_trampoline_op_iterator_open
+op :js_trampoline_op_async_iterator_open
+op :js_trampoline_op_async_iterator_next
 op :js_trampoline_op_call_direct_eval_slow
 op :js_trampoline_llint_function_for_call_arity_check_untag
 op :js_trampoline_llint_function_for_call_arity_check_tag

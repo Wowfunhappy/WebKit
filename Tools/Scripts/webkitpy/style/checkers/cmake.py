@@ -95,7 +95,7 @@ class CMakeChecker(object):
         self._handle_style_error = handle_style_error
         self._tab_checker = TabChecker(file_path, handle_style_error)
 
-    def check(self, lines):
+    def check(self, lines, line_numbers=None):
         self._tab_checker.check(lines)
         for line_number, line in enumerate(lines, start=1):
             self._process_line(line_number, line)

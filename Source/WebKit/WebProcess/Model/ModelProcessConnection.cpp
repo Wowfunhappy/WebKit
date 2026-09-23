@@ -89,7 +89,7 @@ void ModelProcessConnection::invalidate()
 void ModelProcessConnection::didClose(IPC::Connection&)
 {
     RELEASE_LOG(Process, "%p - ModelProcessConnection::didClose", this);
-    auto protector = Ref { *this };
+    Ref protector { *this };
     WebProcess::singleton().modelProcessConnectionClosed(*this);
 
     m_clients.forEach([this] (auto& client) {

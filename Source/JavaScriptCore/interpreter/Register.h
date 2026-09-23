@@ -28,8 +28,7 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValue.h>
-#include <wtf/Assertions.h>
+#include <JavaScriptCore/EncodedValueDescriptor.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/VectorTraits.h>
 
@@ -37,19 +36,21 @@ namespace JSC {
 
     class CallFrame;
     class CodeBlock;
+    class JSCell;
     class JSLexicalEnvironment;
     class JSObject;
     class JSScope;
+    class JSValue;
 
     class Register {
         WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(Register);
     public:
-        Register();
+        inline Register(); // Defined in RegisterInlines.h
 
-        Register(const JSValue&);
-        JSValue jsValue() const;
-        JSValue asanUnsafeJSValue() const;
-        EncodedJSValue encodedJSValue() const;
+        inline Register(const JSValue&); // Defined in RegisterInlines.h
+        inline JSValue jsValue() const; // Defined in RegisterInlines.h
+        inline JSValue asanUnsafeJSValue() const; // Defined in RegisterInlines.h
+        inline EncodedJSValue encodedJSValue() const; // Defined in RegisterInlines.h
         
         ALWAYS_INLINE Register& operator=(CallFrame*);
         ALWAYS_INLINE Register& operator=(CodeBlock*);
@@ -57,7 +58,7 @@ namespace JSC {
         ALWAYS_INLINE Register& operator=(JSCell*);
         ALWAYS_INLINE Register& operator=(EncodedJSValue);
 
-        int32_t i() const;
+        inline int32_t i() const; // Defined in RegisterInlines.h
         ALWAYS_INLINE CallFrame* callFrame() const;
         ALWAYS_INLINE CodeBlock* codeBlock() const;
         ALWAYS_INLINE CodeBlock* asanUnsafeCodeBlock() const;
@@ -66,8 +67,8 @@ namespace JSC {
         int32_t unboxedInt32() const;
         uint32_t unboxedUInt32() const;
         int32_t asanUnsafeUnboxedInt32() const;
-        int64_t unboxedInt52() const;
-        int64_t asanUnsafeUnboxedInt52() const;
+        inline int64_t unboxedInt52() const; // Defined in RegisterInlines.h
+        inline int64_t asanUnsafeUnboxedInt52() const; // Defined in RegisterInlines.h
         int64_t unboxedStrictInt52() const;
         int64_t asanUnsafeUnboxedStrictInt52() const;
         int64_t unboxedInt64() const;
@@ -91,11 +92,7 @@ namespace JSC {
         void* pointer() const;
         void* asanUnsafePointer() const;
 
-        static Register withInt(int32_t i)
-        {
-            Register r = jsNumber(i);
-            return r;
-        }
+        static inline Register withInt(int32_t); // Defined in RegisterInlines.h
 
     private:
         union {
@@ -108,40 +105,9 @@ namespace JSC {
         } u;
     };
 
-    ALWAYS_INLINE Register::Register()
-    {
-#ifndef NDEBUG
-        *this = JSValue();
-#endif
-    }
-
-    ALWAYS_INLINE Register::Register(const JSValue& v)
-    {
-        u.value = JSValue::encode(v);
-    }
-
-    // FIXME (rdar://problem/19379214): ASan only needs to be suppressed for Register::jsValue() when called from prepareOSREntry(), but there is currently no way to express this short of adding a separate copy of the function.
-    SUPPRESS_ASAN ALWAYS_INLINE JSValue Register::asanUnsafeJSValue() const
-    {
-        return JSValue::decode(u.value);
-    }
-
-    ALWAYS_INLINE JSValue Register::jsValue() const
-    {
-        return JSValue::decode(u.value);
-    }
-
-    ALWAYS_INLINE EncodedJSValue Register::encodedJSValue() const
-    {
-        return u.value;
-    }
-
-    // Interpreter functions
-
-    ALWAYS_INLINE int32_t Register::i() const
-    {
-        return jsValue().asInt32();
-    }
+    // Register(), Register(const JSValue&), jsValue(), asanUnsafeJSValue(),
+    // encodedJSValue(), i(), unboxedInt52(), asanUnsafeUnboxedInt52()
+    // are defined in RegisterInlines.h
 
     ALWAYS_INLINE int32_t Register::unboxedInt32() const
     {
@@ -156,16 +122,6 @@ namespace JSC {
     SUPPRESS_ASAN ALWAYS_INLINE int32_t Register::asanUnsafeUnboxedInt32() const
     {
         return unsafePayload();
-    }
-
-    ALWAYS_INLINE int64_t Register::unboxedInt52() const
-    {
-        return u.integer >> JSValue::int52ShiftAmount;
-    }
-
-    SUPPRESS_ASAN ALWAYS_INLINE int64_t Register::asanUnsafeUnboxedInt52() const
-    {
-        return u.integer >> JSValue::int52ShiftAmount;
     }
 
     ALWAYS_INLINE int64_t Register::unboxedStrictInt52() const

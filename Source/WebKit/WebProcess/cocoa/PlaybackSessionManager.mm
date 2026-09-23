@@ -38,6 +38,7 @@
 #import "WebPage.h"
 #import "WebProcess.h"
 #import <WebCore/Color.h>
+#import <WebCore/DocumentPage.h>
 #import <WebCore/DocumentQuirks.h>
 #import <WebCore/DocumentView.h>
 #import <WebCore/ElementInlines.h>
@@ -419,6 +420,13 @@ void PlaybackSessionManager::rateChanged(WebCore::HTMLMediaElementIdentifier con
     m_textRecognitionRequest->requestTextRecognitionFor(contextId);
 #endif
 }
+
+#if ENABLE(IMAGE_ANALYSIS)
+void PlaybackSessionManager::cancelTextRecognition()
+{
+    m_textRecognitionRequest->cancel();
+}
+#endif
 
 void PlaybackSessionManager::seekableRangesChanged(WebCore::HTMLMediaElementIdentifier contextId, const WebCore::PlatformTimeRanges& timeRanges, double lastModifiedTime, double liveUpdateInterval)
 {

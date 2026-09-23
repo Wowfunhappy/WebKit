@@ -89,7 +89,7 @@ private:
         {
         }
         
-        bool operator<(const Case& other) const
+        bool NODELETE operator<(const Case& other) const
         {
             return value < other.value;
         }

@@ -216,6 +216,11 @@ GLint FramebufferAttachment::layer() const
     return (index.has3DLayer() ? index.getLayerIndex() : 0);
 }
 
+bool FramebufferAttachment::hasLayer() const
+{
+    return mTarget.textureIndex().hasLayer();
+}
+
 bool FramebufferAttachment::isLayered() const
 {
     return mTarget.textureIndex().isLayered();
@@ -334,8 +339,8 @@ angle::Result FramebufferAttachmentObject::getAttachmentRenderTarget(
     GLsizei samples,
     rx::FramebufferAttachmentRenderTarget **rtOut) const
 {
-    return getAttachmentImpl()->getAttachmentRenderTarget(context, binding, imageIndex, samples,
-                                                          rtOut);
+    return getAttachmentImpl()->getAttachmentRenderTarget(
+        context, binding, OwnImageIndex(imageIndex), samples, rtOut);
 }
 
 angle::Result FramebufferAttachmentObject::initializeContents(const Context *context,
@@ -353,11 +358,12 @@ angle::Result FramebufferAttachmentObject::initializeContents(const Context *con
 
         ImageIndex fullMipIndex = ImageIndex::MakeFromType(
             imageIndex.getType(), imageIndex.getLevelIndex(), ImageIndex::kEntireLevel, size.depth);
-        return getAttachmentImpl()->initializeContents(context, binding, fullMipIndex);
+        return getAttachmentImpl()->initializeContents(context, binding,
+                                                       OwnImageIndex(fullMipIndex));
     }
     else
     {
-        return getAttachmentImpl()->initializeContents(context, binding, imageIndex);
+        return getAttachmentImpl()->initializeContents(context, binding, OwnImageIndex(imageIndex));
     }
 }
 

@@ -242,6 +242,8 @@ class PerfTest(object):
 
     _lines_to_ignore = [
         re.compile(r"^\s+$"),
+        # PerformanceTests/CSS/WhereIs*Indexing.html print lot of lines containing "x" or "xx"
+        re.compile(r"^x+$"),
         # Following are for handle existing test like Dromaeo
         re.compile(re.escape("""main frame - has 1 onunload handler(s)""")),
         re.compile('frame \"[^"]+\" - has \\d+ onunload handler\\(s\\)'),
@@ -271,7 +273,7 @@ class PerfTest(object):
         re.compile(r"^vulkan:"),
         re.compile(r"^Note:"),
         re.compile(r"^MESA"),
-        re.compile(r"^[0-9:.]+\s.+0x[0-9A-Fa-f]+\s.+msdkcontext")
+        re.compile(r"^[0-9:.]+\s.*msdkcontext")
     ]
 
     def _filter_output(self, output):

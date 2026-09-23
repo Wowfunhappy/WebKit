@@ -41,9 +41,7 @@ FormattingState::FormattingState(Type type, LayoutState& layoutState)
 {
 }
 
-FormattingState::~FormattingState()
-{
-}
+FormattingState::~FormattingState() = default;
 
 BoxGeometry& FormattingState::boxGeometry(const Box& layoutBox)
 {

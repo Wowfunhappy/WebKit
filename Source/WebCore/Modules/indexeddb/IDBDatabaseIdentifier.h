@@ -76,8 +76,6 @@ public:
     String loggingString() const;
 #endif
 
-    bool isRelatedToOrigin(const SecurityOriginData& other) const { return m_origin.isRelated(other); }
-
 private:
     friend struct IPC::ArgumentCoder<IDBDatabaseIdentifier>;
 

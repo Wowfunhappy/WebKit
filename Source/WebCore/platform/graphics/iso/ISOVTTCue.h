@@ -48,9 +48,6 @@ public:
     WEBCORE_EXPORT ISOWebVTTCue(ISOWebVTTCue&&);
     WEBCORE_EXPORT ~ISOWebVTTCue();
 
-    ISOWebVTTCue& operator=(const ISOWebVTTCue&) = default;
-    ISOWebVTTCue& operator=(ISOWebVTTCue&&) = default;
-
     static FourCC boxTypeName() { return std::span { "vttc" }; }
 
     const MediaTime& presentationTime() const LIFETIME_BOUND { return m_presentationTime; }

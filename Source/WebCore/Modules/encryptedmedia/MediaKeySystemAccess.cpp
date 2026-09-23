@@ -40,6 +40,7 @@
 #include "JSMediaKeys.h"
 #include "MediaKeys.h"
 #include "MediaKeysRequirement.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 
 namespace WebCore {
 

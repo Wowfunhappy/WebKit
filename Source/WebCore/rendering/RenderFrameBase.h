@@ -36,12 +36,12 @@ class RenderView;
 class RenderFrameBase : public RenderWidget {
     WTF_MAKE_TZONE_ALLOCATED(RenderFrameBase);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderFrameBase);
+
 protected:
-    RenderFrameBase(Type, HTMLFrameElementBase&, RenderStyle&&);
+    RenderFrameBase(Type, HTMLFrameElementBase&, Style::ComputedStyle&&);
     virtual ~RenderFrameBase();
 
-private:
-    void widget() const = delete;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
 };
 
 } // namespace WebCore

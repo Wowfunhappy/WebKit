@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
+ * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
  * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -23,7 +23,7 @@
 
 #include "DOMMatrix2DInit.h"
 #include "SVGTransform.h"
-#include "SVGTransformable.h"
+#include "SVGTransformValue.h"
 #include "SVGValuePropertyList.h"
 
 namespace WebCore {
@@ -57,10 +57,20 @@ public:
     }
 
     ExceptionOr<RefPtr<SVGTransform>> consolidate();
-    AffineTransform concatenate() const;
+    std::optional<AffineTransform> NODELETE concatenate() const;
 
-    void parse(StringView);
+    bool parse(StringView);
     String valueAsString() const override;
+
+    static std::optional<SVGTransformValue::SVGTransformType> parseTransformType(StringView);
+    static std::optional<SVGTransformValue::SVGTransformType> parseTransformType(StringParsingBuffer<Latin1Character>&);
+    static std::optional<SVGTransformValue::SVGTransformType> parseTransformType(StringParsingBuffer<char16_t>&);
+
+    template<typename CharacterType>
+    static bool parseAndReplaceTransform(SVGTransformValue::SVGTransformType, StringParsingBuffer<CharacterType>&, SVGTransform&); // Defined in SVGTransformListInlines.h
+
+    template<typename CharacterType>
+    static RefPtr<SVGTransform> parseTransform(SVGTransformValue::SVGTransformType, StringParsingBuffer<CharacterType>&); // Defined in SVGTransformListInlines.h
 
 private:
 

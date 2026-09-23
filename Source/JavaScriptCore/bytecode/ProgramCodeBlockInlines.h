@@ -30,7 +30,7 @@
 #pragma once
 
 #include "ProgramCodeBlock.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 

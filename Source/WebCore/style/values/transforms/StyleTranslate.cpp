@@ -25,10 +25,8 @@
 #include "config.h"
 #include "StyleTranslate.h"
 
-#include "CSSPrimitiveValueMappings.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "StyleLengthWrapper+Blending.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
@@ -58,9 +56,14 @@ auto CSSValueConversion<Translate>::operator()(BuilderState& state, const CSSVal
     // https://drafts.csswg.org/css-transforms-2/#propdef-translate
     // none | <length-percentage> [ <length-percentage> <length>? ]?
 
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        ASSERT_UNUSED(primitiveValue, primitiveValue->valueID() == CSSValueNone);
-        return CSS::Keyword::None { };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
     }
 
     auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
@@ -68,9 +71,9 @@ auto CSSValueConversion<Translate>::operator()(BuilderState& state, const CSSVal
         return CSS::Keyword::None { };
 
     auto type = list->size() > 2 ? TransformFunctionType::Translate3D : TransformFunctionType::Translate;
-    auto tx = toStyleFromCSSValue<TranslateTransformFunction::LengthPercentage>(state, list->item(0));
-    auto ty = list->size() > 1 ? toStyleFromCSSValue<TranslateTransformFunction::LengthPercentage>(state, list->item(1)) : TranslateTransformFunction::LengthPercentage { 0_css_px };
-    auto tz = list->size() > 2 ? toStyleFromCSSValue<TranslateTransformFunction::Length>(state, list->item(2)) : TranslateTransformFunction::Length { 0_css_px };
+    auto tx = toStyleFromCSSValue<TranslateTransformFunction::LengthPercentage>(state, protect(list->item(0)));
+    auto ty = list->size() > 1 ? toStyleFromCSSValue<TranslateTransformFunction::LengthPercentage>(state, protect(list->item(1))) : TranslateTransformFunction::LengthPercentage { 0_css_px };
+    auto tz = list->size() > 2 ? toStyleFromCSSValue<TranslateTransformFunction::Length>(state, protect(list->item(2))) : TranslateTransformFunction::Length { 0_css_px };
 
     return TranslateTransformFunction::create(WTF::move(tx), WTF::move(ty), WTF::move(tz), type);
 }

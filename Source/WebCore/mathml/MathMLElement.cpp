@@ -34,6 +34,7 @@
 #include "ContainerNodeInlines.h"
 #include "ElementInlines.h"
 #include "EventHandler.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLAnchorElement.h"
 #include "HTMLElement.h"
@@ -46,6 +47,7 @@
 #include "NodeName.h"
 #include "RenderTableCell.h"
 #include "Settings.h"
+#include "StyleComputedStyle.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -78,7 +80,7 @@ unsigned MathMLElement::rowSpan() const
 {
     if (!hasTagName(mtdTag))
         return 1u;
-    auto& rowSpanValue = attributeWithoutSynchronization(rowspanAttr);
+    auto& rowSpanValue = attributeWithoutSynchronization(MathMLNames::rowspanAttr);
     return std::max(1u, std::min(limitToOnlyHTMLNonNegative(rowSpanValue, 1u), HTMLTableCellElement::maxRowspan));
 }
 
@@ -86,7 +88,7 @@ void MathMLElement::attributeChanged(const QualifiedName& name, const AtomString
 {
     switch (name.nodeName()) {
     case AttributeNames::hrefAttr:
-        setIsLink(!newValue.isNull() && !shouldProhibitLinks(this));
+        setIsLink(!newValue.isNull() && !shouldProhibitLinks(this) && allowsHref());
         break;
     case AttributeNames::columnspanAttr:
     case AttributeNames::rowspanAttr:
@@ -125,6 +127,8 @@ bool MathMLElement::hasPresentationalHintsForAttribute(const QualifiedName& name
     case AttributeNames::displaystyleAttr:
     case AttributeNames::scriptlevelAttr:
         return true;
+    case AttributeNames::mathvariantAttr:
+        return document().settings().coreMathMLDeprecateLegacyMathvariant();
     default:
         break;
     }
@@ -239,6 +243,15 @@ void MathMLElement::collectPresentationalHintsForAttribute(const QualifiedName& 
         break;
     }
 
+    if (document().settings().coreMathMLDeprecateLegacyMathvariant() && name.nodeName() == AttributeNames::mathvariantAttr) {
+        // In MathML Core the mathvariant attribute only has a supported value of normal which sets
+        // a presentational hint resetting the value of text-transform to none.
+        // https://w3c.github.io/mathml-core/#dfn-mathvariant
+        if (hasTagName(MathMLNames::miTag) && equalLettersIgnoringASCIICase(value, "normal"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyTextTransform, CSSValueNone);
+        return;
+    }
+
     if (document().settings().coreMathMLEnabled()) {
         StyledElement::collectPresentationalHintsForAttribute(name, value, style);
         return;
@@ -291,10 +304,10 @@ void MathMLElement::defaultEventHandler(Event& event)
             return;
         }
         if (MouseEvent::canTriggerActivationBehavior(event)) {
-            const auto& href = attributeWithoutSynchronization(hrefAttr);
+            const auto& href = attributeWithoutSynchronization(MathMLNames::hrefAttr);
             event.setDefaultHandled();
             if (RefPtr frame = document().frame())
-                frame->loader().changeLocation(document().completeURL(href), selfTargetFrameName(), &event, ReferrerPolicy::EmptyString, document().shouldOpenExternalURLsPolicyToPropagate());
+                frame->loader().changeLocation(protect(document())->encodingParseURL(href), selfTargetFrameName(), &event, ReferrerPolicy::EmptyString, protect(document())->shouldOpenExternalURLsPolicyToPropagate());
             return;
         }
     }
@@ -335,7 +348,16 @@ bool MathMLElement::isMouseFocusable() const
 
 bool MathMLElement::isURLAttribute(const Attribute& attribute) const
 {
-    return attribute.name().localName() == hrefAttr || StyledElement::isURLAttribute(attribute);
+    if (!allowsHref())
+        return false;
+    // FIXME: Should this be attribute.name().matches(hrefAttr) to also enforce the namespace?
+    return MathMLNames::hrefAttr->hasLocalName(attribute.name().localName()) || StyledElement::isURLAttribute(attribute);
+}
+
+bool MathMLElement::allowsHref() const
+{
+    // FIXME: Should this be hasTagName(HTMLNames::aTag) to also enforce the namespace?
+    return !document().settings().mathMLDisableHrefOnNonAnchorElement() || HTMLNames::aTag->hasLocalName(localName());
 }
 
 bool MathMLElement::supportsFocus() const
@@ -344,6 +366,19 @@ bool MathMLElement::supportsFocus() const
         return StyledElement::supportsFocus();
     // If not a link we should still be able to focus the element if it has tabIndex.
     return isLink() || StyledElement::supportsFocus();
+}
+
+int MathMLElement::defaultTabIndex() const
+{
+    // FIXME: Should this be hasTagName(HTMLNames::aTag) to also enforce the namespace?
+    return HTMLNames::aTag->hasLocalName(localName()) ? 0 : -1;
+}
+
+Node::NeedsPostConnectionSteps MathMLElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+{
+    auto result = StyledElement::insertionSteps(insertionType, parentOfInsertedTree);
+    hideNonce();
+    return result;
 }
 
 }

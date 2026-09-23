@@ -27,8 +27,8 @@
 
 #include "BoxSides.h"
 #include "CSSPropertyParserConsumer+Anchor.h"
-#include "RenderStyle.h"
 #include "StyleBuilderChecking.h"
+#include "StyleComputedStyle.h"
 #include "StylePositionTryFallbackTactic.h"
 #include "StyleSelfAlignmentData.h"
 #include "WritingMode.h"
@@ -457,16 +457,17 @@ auto CSSValueConversion<PositionArea>::operator()(BuilderState& state, const CSS
 {
     std::pair<CSSValueID, CSSValueID> dimPair;
 
-    if (value.isValueID()) {
-        if (value.valueID() == CSSValueNone)
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        auto valueID = keywordValue->valueID();
+        if (valueID == CSSValueNone)
             return CSS::Keyword::None { };
 
-        dimPair = positionAreaExpandKeyword(value.valueID());
+        dimPair = positionAreaExpandKeyword(valueID);
     } else if (auto* pair = dynamicDowncast<CSSValuePair>(value)) {
-        const auto& first = pair->first();
-        const auto& second = pair->second();
+        RefPtr first = dynamicDowncast<CSSKeywordValue>(pair->first());
+        RefPtr second = dynamicDowncast<CSSKeywordValue>(pair->second());
 
-        if (!first.isValueID() || !second.isValueID()) {
+        if (!first || !second) {
             state.setCurrentPropertyInvalidAtComputedValueTime();
             return CSS::Keyword::None { };
         }
@@ -474,7 +475,7 @@ auto CSSValueConversion<PositionArea>::operator()(BuilderState& state, const CSS
         // The parsing logic guarantees the keyword pair is in the correct order
         // (horizontal/x/block axis before vertical/Y/inline axis)
 
-        dimPair = { first.valueID(), second.valueID() };
+        dimPair = { first->valueID(), second->valueID() };
     } else {
         // value MUST be a single ValueID or a pair of ValueIDs, as returned by the parsing logic.
         state.setCurrentPropertyInvalidAtComputedValueTime();
@@ -655,7 +656,7 @@ static CSSValueID NODELETE keywordForPositionAreaSpan(PositionAreaSpan span)
     return CSSValueLeft;
 }
 
-Ref<CSSValue> CSSValueCreation<PositionAreaValue>::operator()(CSSValuePool&, const RenderStyle&, const PositionAreaValue& value)
+Ref<CSSValue> CSSValueCreation<PositionAreaValue>::operator()(CSSValuePool&, const Style::ComputedStyle&, const PositionAreaValue& value)
 {
     auto blockOrXAxisKeyword = keywordForPositionAreaSpan(value.blockOrXAxis());
     auto inlineOrYAxisKeyword = keywordForPositionAreaSpan(value.inlineOrYAxis());
@@ -665,7 +666,7 @@ Ref<CSSValue> CSSValueCreation<PositionAreaValue>::operator()(CSSValuePool&, con
 
 // MARK: - Serialization
 
-void Serialize<PositionAreaValue>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle&, const PositionAreaValue& value)
+void Serialize<PositionAreaValue>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle&, const PositionAreaValue& value)
 {
     auto blockOrXAxisKeyword = keywordForPositionAreaSpan(value.blockOrXAxis());
     auto inlineOrYAxisKeyword = keywordForPositionAreaSpan(value.inlineOrYAxis());

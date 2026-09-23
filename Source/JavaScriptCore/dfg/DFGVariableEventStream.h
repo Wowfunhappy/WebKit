@@ -70,7 +70,10 @@ class VariableEventStreamBuilder {
 public:
     static constexpr bool verbose = false;
 
-    VariableEventStreamBuilder() = default;
+    VariableEventStreamBuilder()
+    {
+        m_stream.reserveInitialCapacity(128);
+    }
 
     void appendAndLog(const VariableEvent& event)
     {

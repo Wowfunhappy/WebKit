@@ -56,7 +56,7 @@ void jit_heap_add_fresh_memory(pas_range range)
 
     if (verbose)
         pas_log("JIT heap adding memory at %p...%p\n", (void*)range.begin, (void*)range.end);
-    
+
     pas_heap_lock_lock();
     jit_heap_config_add_fresh_memory(range);
     pas_heap_lock_unlock();

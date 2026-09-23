@@ -28,7 +28,6 @@
 
 #include "Logging.h"
 #include <wtf/CrossThreadCopier.h>
-#include <wtf/CrossThreadCopier.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/Expected.h>
 #include <wtf/URL.h>
@@ -79,6 +78,26 @@ PCM::UnlinkableToken PCM::UnlinkableToken::isolatedCopy()&&
 #endif
         WTF::move(valueBase64URL).isolatedCopy()
     };
+}
+
+PCM::SourceUnlinkableToken PCM::SourceUnlinkableToken::isolatedCopy() const &
+{
+    return { UnlinkableToken::isolatedCopy() };
+}
+
+PCM::SourceUnlinkableToken PCM::SourceUnlinkableToken::isolatedCopy() &&
+{
+    return { UnlinkableToken::isolatedCopy() };
+}
+
+PCM::DestinationUnlinkableToken PCM::DestinationUnlinkableToken::isolatedCopy() const &
+{
+    return { UnlinkableToken::isolatedCopy() };
+}
+
+PCM::DestinationUnlinkableToken PCM::DestinationUnlinkableToken::isolatedCopy() &&
+{
+    return { UnlinkableToken::isolatedCopy() };
 }
 
 PrivateClickMeasurement PrivateClickMeasurement::isolatedCopy() const &

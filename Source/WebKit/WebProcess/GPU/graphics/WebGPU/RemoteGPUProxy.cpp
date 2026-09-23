@@ -203,7 +203,6 @@ void RemoteGPUProxy::requestAdapter(const WebCore::WebGPU::RequestAdapterOptions
         response->limits.maxBufferSize,
         response->limits.maxVertexAttributes,
         response->limits.maxVertexBufferArrayStride,
-        response->limits.maxInterStageShaderComponents,
         response->limits.maxInterStageShaderVariables,
         response->limits.maxColorAttachments,
         response->limits.maxColorAttachmentBytesPerSample,
@@ -221,14 +220,16 @@ void RemoteGPUProxy::requestAdapter(const WebCore::WebGPU::RequestAdapterOptions
     callback(WebGPU::RemoteAdapterProxy::create(WTF::move(response->name), WTF::move(resultSupportedFeatures), WTF::move(resultSupportedLimits), response->isFallbackAdapter, options.xrCompatible, *this, m_convertToBackingContext, identifier));
 }
 
-RefPtr<WebKit::Mesh> RemoteGPUProxy::createModelBacking(unsigned width, unsigned height, const WebModel::ImageAsset& diffuseTexture, const WebModel::ImageAsset& specularTexture, CompletionHandler<void(Vector<MachSendRight>&&)>&& callback)
+RefPtr<WebKit::Mesh> RemoteGPUProxy::createModelBacking(unsigned width, unsigned height, WebModel::ImageAsset&& diffuseTexture, WebModel::ImageAsset&& specularTexture, bool standardDynamicRange, CompletionHandler<void(Vector<MachSendRight>&&)>&& callback)
 {
 #if ENABLE(GPU_PROCESS_MODEL)
     auto identifier = WebModelIdentifier::generate();
 
-    auto sendResult = sendSync(Messages::RemoteGPU::CreateModelBacking(width, height, diffuseTexture, specularTexture, identifier));
-    if (!sendResult.succeeded())
+    auto sendResult = sendSync(Messages::RemoteGPU::CreateModelBacking(width, height, WTF::move(diffuseTexture), WTF::move(specularTexture), identifier, standardDynamicRange));
+    if (!sendResult.succeeded()) {
         callback({ });
+        return nullptr;
+    }
 
     auto [response] = sendResult.takeReply();
     callback(WTF::move(response));
@@ -241,6 +242,7 @@ RefPtr<WebKit::Mesh> RemoteGPUProxy::createModelBacking(unsigned width, unsigned
 #else
     UNUSED_PARAM(width);
     UNUSED_PARAM(height);
+    UNUSED_PARAM(standardDynamicRange);
     UNUSED_PARAM(callback);
     return nullptr;
 #endif
@@ -252,7 +254,7 @@ RefPtr<WebCore::WebGPU::PresentationContext> RemoteGPUProxy::createPresentationC
 
     // FIXME: This is super yucky. We should solve this a better way. (For both WK1 and WK2.)
     // Maybe PresentationContext needs a present() function?
-    Ref compositorIntegration = const_cast<WebGPU::RemoteCompositorIntegrationProxy&>(m_convertToBackingContext->convertToRawBacking(Ref { descriptor.compositorIntegration }.get()));
+    Ref compositorIntegration = const_cast<WebGPU::RemoteCompositorIntegrationProxy&>(m_convertToBackingContext->convertToRawBacking(protect(descriptor.compositorIntegration).get()));
 
     auto convertedDescriptor = m_convertToBackingContext->convertToBacking(descriptor);
     if (!convertedDescriptor)

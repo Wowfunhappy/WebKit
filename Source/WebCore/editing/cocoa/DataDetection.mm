@@ -47,13 +47,14 @@
 #import "HitTestResult.h"
 #import "HitTestSource.h"
 #import "ImageOverlay.h"
+#import "LocalFrameInlines.h"
 #import "LocalFrameView.h"
 #import "NodeList.h"
 #import "NodeTraversal.h"
 #import "QualifiedName.h"
 #import "Range.h"
 #import "RenderObject.h"
-#import "RenderStyle+GettersInlines.h"
+#import "StyleComputedStyle.h"
 #import "StyleProperties.h"
 #import "Text.h"
 #import "TextIterator.h"
@@ -61,6 +62,9 @@
 #import "TypedElementDescendantIteratorInlines.h"
 #import "VisiblePosition.h"
 #import "VisibleUnits.h"
+#import <pal/cocoa/DataDetectorsCoreSoftLink.h>
+#import <pal/mac/DataDetectorsSoftLink.h>
+#import <pal/spi/ios/DataDetectorsUISoftLink.h>
 #import <wtf/WorkQueue.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
@@ -68,10 +72,6 @@
 #import <wtf/text/ParsingUtilities.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/StringToIntegerConversion.h>
-
-#import <pal/cocoa/DataDetectorsCoreSoftLink.h>
-#import <pal/mac/DataDetectorsSoftLink.h>
-#import <pal/spi/ios/DataDetectorsUISoftLink.h>
 
 #if PLATFORM(MAC)
 template<> struct WTF::CFTypeTrait<DDResultRef> {
@@ -740,7 +740,7 @@ void DataDetection::detectContentInFrame(LocalFrame* frame, OptionSet<DataDetect
     if (types.contains(DataDetectorType::LookupSuggestion))
         PAL::softLink_DataDetectorsCore_DDScannerEnableOptionalSource(scanner.get(), DDScannerSourceSpotlight, true);
 
-    workQueue().dispatch([scanner = WTF::move(scanner), types, referenceDateFromContext, scanQuery = WTF::move(scanQuery), weakDocument = WeakPtr { *document }, fragments = WTF::move(fragments), completionHandler = WTF::move(completionHandler)]() mutable {
+    protect(workQueue())->dispatch([scanner = WTF::move(scanner), types, referenceDateFromContext, scanQuery = WTF::move(scanQuery), weakDocument = WeakPtr { *document }, fragments = WTF::move(fragments), completionHandler = WTF::move(completionHandler)]() mutable {
         if (!PAL::softLink_DataDetectorsCore_DDScannerScanQuery(scanner.get(), scanQuery.get())) {
             callOnMainRunLoop([scanner = WTF::move(scanner), scanQuery = WTF::move(scanQuery), weakDocument = WTF::move(weakDocument), fragments = WTF::move(fragments), completionHandler = WTF::move(completionHandler)]() mutable {
                 completionHandler(nil);

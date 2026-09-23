@@ -37,6 +37,7 @@
 #include <webrtc/api/stats/rtcstats_objects.h>
 #include <wtf/Assertions.h>
 #include <wtf/MainThread.h>
+#include <wtf/ReducedResolutionSeconds.h>
 
 namespace WebCore {
 
@@ -86,11 +87,19 @@ RTCStatsReport::ReceivedRtpStreamStats RTCStatsReport::ReceivedRtpStreamStats::c
     };
 }
 
-RTCStatsReport::InboundRtpStreamStats RTCStatsReport::InboundRtpStreamStats::convert(const webrtc::RTCInboundRtpStreamStats& rtcStats)
+RTCStatsReport::InboundRtpStreamStats RTCStatsReport::InboundRtpStreamStats::convert(const webrtc::RTCInboundRtpStreamStats& rtcStats, const HashMap<String, String>& trackIds)
 {
+    String trackId;
+    if (rtcStats.track_identifier) {
+        auto rtcTrackId = fromStdString(*rtcStats.track_identifier);
+        ASSERT(!rtcTrackId.isEmpty());
+        trackId = trackIds.get(rtcTrackId);
+        ASSERT(!trackId.isEmpty());
+    }
+
     return InboundRtpStreamStats {
         ReceivedRtpStreamStats::convert(RTCStatsReport::Type::InboundRtp, rtcStats, rtcStats.packets_received ? std::optional { *rtcStats.packets_received } : std::nullopt),
-        rtcStats.track_identifier ? fromStdString(*rtcStats.track_identifier) : String(),
+        WTF::move(trackId),
         rtcStats.mid ? fromStdString(*rtcStats.mid) : String(),
         rtcStats.remote_id ? fromStdString(*rtcStats.remote_id) : String(),
         rtcStats.frames_decoded ? std::optional { *rtcStats.frames_decoded } : std::nullopt,
@@ -519,11 +528,21 @@ void addToStatsMap(DOMMapAdapter& report, const webrtc::RTCStats& rtcStats)
     report.set<IDLDOMString, IDLDictionary<T>>(WTF::move(statsId), WTF::move(stats));
 }
 
-static inline void initializeRTCStatsReportBackingMap(DOMMapAdapter& report, const webrtc::RTCStatsReport& rtcReport)
+
+template<typename T, typename PreciseType>
+void addToStatsMap(DOMMapAdapter& report, const webrtc::RTCStats& rtcStats, const HashMap<String, String>& trackIds)
+{
+    // This is a cast from a webrtc type, not much we can do to make it safe.
+    SUPPRESS_MEMORY_UNSAFE_CAST auto stats = T::convert(static_cast<const PreciseType&>(rtcStats), trackIds);
+    auto statsId = stats.id;
+    report.set<IDLDOMString, IDLDictionary<T>>(WTF::move(statsId), WTF::move(stats));
+}
+
+static inline void initializeRTCStatsReportBackingMap(DOMMapAdapter& report, const webrtc::RTCStatsReport& rtcReport, const HashMap<String, String>& trackIds)
 {
     for (const auto& rtcStats : rtcReport) {
         if (rtcStats.type() == webrtc::RTCInboundRtpStreamStats::kType)
-            addToStatsMap<RTCStatsReport::InboundRtpStreamStats, webrtc::RTCInboundRtpStreamStats>(report, rtcStats);
+            addToStatsMap<RTCStatsReport::InboundRtpStreamStats, webrtc::RTCInboundRtpStreamStats>(report, rtcStats, trackIds);
         else if (rtcStats.type() == webrtc::RTCOutboundRtpStreamStats::kType)
             addToStatsMap<RTCStatsReport::OutboundRtpStreamStats, webrtc::RTCOutboundRtpStreamStats>(report, rtcStats);
         else if (rtcStats.type() == webrtc::RTCDataChannelStats::kType)
@@ -555,16 +574,18 @@ static inline void initializeRTCStatsReportBackingMap(DOMMapAdapter& report, con
 
 void LibWebRTCStatsCollector::OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& rtcReport)
 {
-    callOnMainThread([this, protectedThis = webrtc::scoped_refptr<LibWebRTCStatsCollector>(this), rtcReport]() {
-        m_callback(rtcReport);
+    callOnMainThread([protectedThis = webrtc::scoped_refptr<LibWebRTCStatsCollector>(this), rtcReport = webrtc::scoped_refptr { rtcReport }]() mutable {
+        protectedThis->m_callback(WTF::move(rtcReport));
     });
 }
 
-Ref<RTCStatsReport> LibWebRTCStatsCollector::createReport(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& rtcReport)
+Ref<RTCStatsReport> LibWebRTCStatsCollector::createReport(webrtc::scoped_refptr<const webrtc::RTCStatsReport>&& rtcReport, HashMap<String, String>&& trackIds)
 {
-    return RTCStatsReport::create([rtcReport](auto& mapAdapter) {
+    ASSERT(isMainThread());
+    return RTCStatsReport::create([rtcReport = WTF::move(rtcReport), trackIds = WTF::move(trackIds)](auto& mapAdapter) {
+        ASSERT(isMainThread());
         if (rtcReport)
-            initializeRTCStatsReportBackingMap(mapAdapter, *rtcReport);
+            initializeRTCStatsReportBackingMap(mapAdapter, *rtcReport, trackIds);
     });
 }
 

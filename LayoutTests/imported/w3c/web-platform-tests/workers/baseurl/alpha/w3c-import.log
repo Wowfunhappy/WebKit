@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/workers/baseurl/alpha/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/workers/baseurl/alpha/import-in-moduleworker.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/baseurl/alpha/importScripts-in-sharedworker.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/baseurl/alpha/importScripts-in-worker.html

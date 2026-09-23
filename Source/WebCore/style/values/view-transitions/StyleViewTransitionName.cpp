@@ -25,7 +25,7 @@
 #include "config.h"
 #include "StyleViewTransitionName.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -35,22 +35,21 @@ namespace Style {
 
 auto CSSValueConversion<ViewTransitionName>::operator()(BuilderState& state, const CSSValue& value) -> ViewTransitionName
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::None { };
-
-    switch (primitiveValue->valueID()) {
-    case CSSValueNone:
-        return CSS::Keyword::None { };
-    case CSSValueAuto:
-        return { CSS::Keyword::Auto { }, state.styleScopeOrdinal() };
-    case CSSValueMatchElement:
-        return { CSS::Keyword::MatchElement { }, state.styleScopeOrdinal() };
-    default:
-        break;
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        case CSSValueAuto:
+            return { CSS::Keyword::Auto { }, state.styleScopeOrdinal() };
+        case CSSValueMatchElement:
+            return { CSS::Keyword::MatchElement { }, state.styleScopeOrdinal() };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
     }
 
-    return { CustomIdentifier { AtomString { primitiveValue->stringValue() } }, state.styleScopeOrdinal() };
+    return { toStyleFromCSSValue<CustomIdent>(state, value), state.styleScopeOrdinal() };
 }
 
 } // namespace Style

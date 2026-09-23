@@ -379,7 +379,7 @@ module DSL
             when true
                 "validate#{name[0].upcase}#{name[1..]}"
             else
-                entry[:const]
+                entry[:validate]
             end
 
             stages = entry[:stage].kind_of?(Array) ? entry[:stage] : [entry[:stage]]

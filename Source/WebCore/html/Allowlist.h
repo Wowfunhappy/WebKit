@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/HashSet.h>
 
 namespace WebCore {
 

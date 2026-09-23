@@ -129,6 +129,8 @@ typedef void (*AXPostedNotificationCallback)(id element, NSString* notification,
 - (id)_accessibilityLandmarkAncestor;
 - (id)_accessibilityListAncestor;
 - (id)_accessibilityPhotoDescription;
+- (NSValue *)accessibilityImageDataSize;
+- (NSData *)accessibilityImageDataWithParameters:(NSDictionary *)parameters;
 - (NSArray *)accessibilityImageOverlayElements;
 - (NSRange)accessibilityVisibleCharacterRange;
 - (NSString *)_accessibilityWebRoleAsString;
@@ -137,6 +139,7 @@ typedef void (*AXPostedNotificationCallback)(id element, NSString* notification,
 - (BOOL)accessibilityIsFirstItemInSuggestion;
 - (BOOL)accessibilityIsLastItemInSuggestion;
 - (BOOL)accessibilityIsMarkAnnotation;
+- (BOOL)_accessibilityIsFrameGeometryInitialized;
 
 // TextMarker related
 - (NSArray *)textMarkerRange;
@@ -155,6 +158,7 @@ typedef void (*AXPostedNotificationCallback)(id element, NSString* notification,
 - (NSArray *)textMarkerRangeFromMarkers:(NSArray *)markers withText:(NSString *)text;
 - (NSAttributedString *)_attributedStringForTextMarkerRangeForTesting:(NSArray *)markers;
 - (NSArray *)_associatedActionElements;
+- (NSNumber *)lineNumberForIndex:(NSUInteger)index;
 @end
 
 @interface NSObject (WebAccessibilityObjectWrapperPrivate)
@@ -396,7 +400,9 @@ RefPtr<AccessibilityUIElement> AccessibilityUIElementIOS::titleUIElement()
 
 RefPtr<AccessibilityUIElement> AccessibilityUIElementIOS::parentElement()
 {
-    return nil;
+    if (id container = [m_element accessibilityContainer])
+        return AccessibilityUIElement::create(container);
+    return nullptr;
 }
 
 RefPtr<AccessibilityUIElement> AccessibilityUIElementIOS::disclosedByRow()
@@ -827,7 +833,10 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::ariaDropEffects() const
 // parameterized attributes
 int AccessibilityUIElementIOS::lineForIndex(int index)
 {
-    return -1;
+    NSNumber *lineNumber = [m_element lineNumberForIndex:index];
+    if (![lineNumber isKindOfClass:[NSNumber class]])
+        return -1;
+    return [lineNumber intValue];
 }
 
 JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::rangeForLine(int line)
@@ -871,6 +880,14 @@ bool AccessibilityUIElementIOS::attributedStringRangeIsMisspelled(unsigned locat
     return false;
 }
 
+bool AccessibilityUIElementIOS::isRemotePlatformElement() const
+{
+    // A search that crosses into an out-of-process iframe surfaces that frame as an AXRemoteElement
+    // placeholder (the iOS analog of NSAccessibilityRemoteUIElement on macOS). The class is soft-linked
+    // by WebCore, so it is only present in the process once such a placeholder has been created.
+    return [m_element isKindOfClass:NSClassFromString(@"AXRemoteElement")];
+}
+
 unsigned AccessibilityUIElementIOS::uiElementCountForSearchPredicate(JSContextRef context, AccessibilityUIElement *startElement, bool isDirectionNext, JSValueRef searchKey, JSStringRef searchText, bool visibleOnly, bool immediateDescendantsOnly)
 {
     return 0;
@@ -901,8 +918,11 @@ JSValueRef AccessibilityUIElementIOS::uiElementsForSearchPredicate(JSContextRef 
         return nullptr;
 
     Vector<RefPtr<AccessibilityUIElement>> elements;
+    Class remoteElementClass = NSClassFromString(@"AXRemoteElement");
     for (id result in searchResults) {
-        if ([result isAccessibilityElement])
+        // Include the remote-frame placeholder (an AXRemoteElement, which is not itself an accessibility
+        // element) so tests can observe that a search crossing an out-of-process iframe returns it.
+        if ([result isAccessibilityElement] || [result isKindOfClass:remoteElementClass])
             elements.append(AccessibilityUIElement::create(result));
     }
     return makeJSArray(context, elements);
@@ -1276,6 +1296,54 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::embeddedImageDescription() c
     return concatenateAttributeAndValue(@"AXEmbeddedImageDescription", [m_element _accessibilityPhotoDescription]);
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::imageDataSize() const
+{
+    NSValue *sizeValue = [m_element accessibilityImageDataSize];
+    if (!sizeValue)
+        return adopt(JSStringCreateWithUTF8CString("AXImageDataSize: (null)"));
+    CGSize size = [sizeValue CGSizeValue];
+    RetainPtr description = adoptNS([[NSString alloc] initWithFormat:@"NSSize: {%g, %g}", size.width, size.height]);
+    return concatenateAttributeAndValue(@"AXImageDataSize", description.get());
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::imageDataForParameters(int resizeWidth, int resizeHeight) const
+{
+    return imageDataForParametersWithFormat(resizeWidth, resizeHeight, nullptr);
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::imageDataForParametersWithFormat(int resizeWidth, int resizeHeight, JSStringRef format) const
+{
+    NSString *formatString = format ? [NSString stringWithJSStringRef:format] : @"RGBA";
+    NSDictionary *dictionary = @{
+        @"AXImageDataResizeWidth" : @(resizeWidth),
+        @"AXImageDataResizeHeight" : @(resizeHeight),
+        @"AXImageDataFormat" : formatString
+    };
+    NSData *data = [m_element accessibilityImageDataWithParameters:dictionary];
+    if (!data)
+        return adopt(JSStringCreateWithUTF8CString("(null)"));
+    RetainPtr description = adoptNS([[NSString alloc] initWithFormat:@"AXImageData: %lu bytes", (unsigned long)[data length]]);
+    return adopt(JSStringCreateWithCFString((__bridge CFStringRef)description.get()));
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::imageDataForSubrect(int resizeWidth, int resizeHeight, int left, int top, int width, int height) const
+{
+    NSDictionary *dictionary = @{
+        @"AXImageDataResizeWidth" : @(resizeWidth),
+        @"AXImageDataResizeHeight" : @(resizeHeight),
+        @"AXImageDataFormat" : @"RGBA",
+        @"AXImageDataLeft" : @(left),
+        @"AXImageDataTop" : @(top),
+        @"AXImageDataWidth" : @(width),
+        @"AXImageDataHeight" : @(height)
+    };
+    NSData *data = [m_element accessibilityImageDataWithParameters:dictionary];
+    if (!data)
+        return adopt(JSStringCreateWithUTF8CString("(null)"));
+    RetainPtr description = adoptNS([[NSString alloc] initWithFormat:@"AXImageData: %lu bytes", (unsigned long)[data length]]);
+    return adopt(JSStringCreateWithCFString((__bridge CFStringRef)description.get()));
+}
+
 JSValueRef AccessibilityUIElementIOS::imageOverlayElements(JSContextRef context)
 {
     return makeJSArray(context, makeVector<RefPtr<AccessibilityUIElement>>([m_element accessibilityImageOverlayElements]));
@@ -1346,6 +1414,8 @@ RefPtr<AccessibilityTextMarkerRange> AccessibilityUIElementIOS::lineTextMarkerRa
 {
     id startTextMarker = [m_element lineStartMarkerForMarker:textMarker->platformTextMarker()];
     id endTextMarker = [m_element lineEndMarkerForMarker:textMarker->platformTextMarker()];
+    if (!startTextMarker || !endTextMarker)
+        return nullptr;
     NSArray *textMarkers = @[startTextMarker, endTextMarker];
 
     id textMarkerRange = [m_element textMarkerRangeForMarkers:textMarkers];
@@ -1615,6 +1685,16 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::pathDescription() const
     return [result createJSStringRef];
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::pathAsBounds() const
+{
+    CGPathRef pathRef = [m_element _accessibilityPath];
+    if (!pathRef)
+        return nullptr;
+
+    CGRect bounds = CGPathGetBoundingBox(pathRef);
+    return [[NSString stringWithFormat:@"{{%f, %f}, {%f, %f}}", bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height] createJSStringRef];
+}
+
 JSRetainPtr<JSStringRef> AccessibilityUIElementIOS::supportedActions() const
 {
     return nullptr;
@@ -1643,6 +1723,11 @@ bool AccessibilityUIElementIOS::isLastItemInSuggestion() const
 bool AccessibilityUIElementIOS::isMarkAnnotation() const
 {
     return [m_element accessibilityIsMarkAnnotation];
+}
+
+bool AccessibilityUIElementIOS::isFrameGeometryInitialized() const
+{
+    return [m_element _accessibilityIsFrameGeometryInitialized];
 }
 
 } // namespace WTR

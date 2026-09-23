@@ -21,7 +21,6 @@
 #import "config.h"
 #import <wtf/text/WTFString.h>
 
-#import <CoreFoundation/CFString.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WTF {

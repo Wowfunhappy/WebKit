@@ -74,7 +74,6 @@ SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTimeRangeZero, CMTi
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTimeIndefinite, CMTime, PAL_EXPORT)
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_ColorPrimaries, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_BitsPerComponent, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_DCI_P3, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_ITU_R_2020, CFStringRef, PAL_EXPORT)
@@ -86,18 +85,6 @@ SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionTr
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_SMPTE_ST_428_1, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionYCbCrMatrix_ITU_R_2020, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_ITU_R_709_2, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_EBU_3213, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_SMPTE_C, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_TransferFunction, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_ITU_R_709_2, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_YCbCrMatrix, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCVImageBufferYCbCrMatrix_ITU_R_709_2, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCVImageBufferYCbCrMatrix_ITU_R_601_4, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_PixelAspectRatio, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing, CFStringRef, PAL_EXPORT)
-SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing, CFStringRef, PAL_EXPORT)
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAlignmentType_End, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAlignmentType_Middle, CFStringRef, PAL_EXPORT)
@@ -111,6 +98,7 @@ SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_ForegroundColorARGB, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_ItalicStyle, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_OrthogonalLinePositionPercentageRelativeToWritingDirection, CFStringRef, PAL_EXPORT)
+SOFT_LINK_CONSTANT_MAY_FAIL_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_PreventLineWrapping, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_RelativeFontSize, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_TextPositionPercentageRelativeToWritingDirection, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMTextMarkupAttribute_UnderlineStyle, CFStringRef, PAL_EXPORT)
@@ -152,7 +140,7 @@ SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMGetAttachment, CFTyp
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMSetAttachment, void, (CMAttachmentBearerRef target, CFStringRef key, CFTypeRef value, CMAttachmentMode attachmentMode), (target, key, value, attachmentMode), PAL_EXPORT)
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMRemoveAttachment, void, (CMAttachmentBearerRef target, CFStringRef key), (target, key), PAL_EXPORT)
 
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMTimebaseCreateWithMasterClock, OSStatus, (CFAllocatorRef allocator, CMClockRef masterClock, CMTimebaseRef* timebaseOut), (allocator, masterClock, timebaseOut), PAL_EXPORT)
+SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMTimebaseCreateWithSourceClock, OSStatus, (CFAllocatorRef allocator, CMClockRef masterClock, CMTimebaseRef* timebaseOut), (allocator, masterClock, timebaseOut), PAL_EXPORT)
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMTimebaseGetTime, CMTime, (CMTimebaseRef timebase), (timebase), PAL_EXPORT)
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMTimebaseGetRate, Float64, (CMTimebaseRef timebase), (timebase), PAL_EXPORT)
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMTimebaseSetRate, OSStatus, (CMTimebaseRef timebase, Float64 rate), (timebase, rate), PAL_EXPORT)
@@ -240,7 +228,7 @@ SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMAudioClockCreate, OS
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, FigThreadRegisterAbortAction, OSStatus, (FigThreadAbortAction action, void* refcon, FigThreadAbortActionToken* token), (action, refcon, token), PAL_EXPORT)
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, FigThreadUnregisterAbortAction, void, (FigThreadAbortActionToken token), (token), PAL_EXPORT)
 
-SOFT_LINK_CONSTANT_MAY_FAIL_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_sRGB, CFStringRef, PAL_EXPORT)
+SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_sRGB, CFStringRef, PAL_EXPORT)
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection, CFStringRef, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, kCMFormatDescriptionExtension_HasLeftStereoEyeView, CFStringRef, PAL_EXPORT)
@@ -310,5 +298,9 @@ SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMBaseObjectGetDerived
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMBaseObjectGetVTable, const CMBaseVTable*, (CMBaseObjectRef baseObject), (baseObject), PAL_EXPORT)
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, CoreMedia, CMDerivedObjectCreate, OSStatus, (CFAllocatorRef allocator, const CMBaseVTable* vTable, CMBaseClassID classID, CMBaseObjectRef* baseObject), (allocator, vTable, classID, baseObject), PAL_EXPORT)
 #endif // PLATFORM(MAC)
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/CoreMediaSoftLinkAdditions.cpp>)
+#import <WebKitAdditions/CoreMediaSoftLinkAdditions.cpp>
+#endif
 
 #endif // USE(AVFOUNDATION)

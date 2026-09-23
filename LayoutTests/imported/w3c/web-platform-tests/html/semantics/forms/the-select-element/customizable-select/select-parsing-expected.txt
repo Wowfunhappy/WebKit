@@ -14,6 +14,9 @@ PASS Input tags should not parse inside select instead of closing the select
 PASS textarea tags should parse inside select instead of closing the select
 FAIL Input tags should parse inside select if nested in another tag assert_equals: expected "<div><input></div>" but got "<div></div>"
 PASS Input tags should close select when directly inside an <option>
+PASS hr should generate implied end tags inside select
+PASS optgroup should generate implied end tags inside select
+PASS option inside optgroup should close previous option
 PASS The last test should not leave any tags open after parsing
 PASS Nested selects should be retained 1
 PASS Nested selects should be retained 2

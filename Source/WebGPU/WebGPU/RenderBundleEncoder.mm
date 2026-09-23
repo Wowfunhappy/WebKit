@@ -94,7 +94,7 @@ static constexpr uint64_t maxCommandCount = 0x4000;
 bool RenderBundleEncoder::returnIfEncodingIsFinished(NSString* errorString)
 {
     if (!validToEncodeCommand()) {
-        Ref { m_device }->generateAValidationError(errorString);
+        protect(m_device)->generateAValidationError(errorString);
         return true;
     }
 
@@ -299,6 +299,11 @@ bool RenderBundleEncoder::executePreDrawCommands(bool needsValidationLayerWorkar
         return false;
     }
 
+    if (!pipeline->isValid()) {
+        makeInvalid(@"pipeline is not valid prior to draw");
+        return false;
+    }
+
     Ref pipelineLayout = pipeline->pipelineLayout();
     auto vertexDynamicOffsetSum = checkedSum<uint64_t>(m_vertexDynamicOffset, sizeof(uint32_t) * pipelineLayout->sizeOfVertexDynamicOffsets());
     if (vertexDynamicOffsetSum.hasOverflowed()) {
@@ -452,7 +457,7 @@ RenderBundleEncoder::FinalizeRenderCommand RenderBundleEncoder::draw(uint32_t ve
         if (!vertexCount || !instanceCount)
             return finalizeRenderCommand();
 
-        recordCommand([vertexCount, instanceCount, firstVertex, firstInstance, protectedThis = Ref { *this }] {
+        recordCommand([vertexCount, instanceCount, firstVertex, firstInstance, protectedThis = protect(*this)] {
             protectedThis->draw(vertexCount, instanceCount, firstVertex, firstInstance);
             return true;
         });
@@ -729,7 +734,7 @@ RenderBundleEncoder::FinalizeRenderCommand RenderBundleEncoder::drawIndexed(uint
         if (!indexCount || !instanceCount || !indexBuffer || m_indexBuffer->isDestroyed())
             return finalizeRenderCommand();
 
-        recordCommand([indexCount, instanceCount, firstIndex, baseVertex, firstInstance, protectedThis = Ref { *this }] {
+        recordCommand([indexCount, instanceCount, firstIndex, baseVertex, firstInstance, protectedThis = protect(*this)] {
             protectedThis->drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
             return true;
         });
@@ -789,7 +794,7 @@ RenderBundleEncoder::FinalizeRenderCommand RenderBundleEncoder::drawIndexedIndir
             return finalizeRenderCommand();
         }
 
-        recordCommand([indirectBuffer = Ref { indirectBuffer }, indirectOffset, protectedThis = Ref { *this }] {
+        recordCommand([indirectBuffer = protect(indirectBuffer), indirectOffset, protectedThis = protect(*this)] {
             protectedThis->drawIndexedIndirect(indirectBuffer.get(), indirectOffset);
             return true;
         });
@@ -843,7 +848,7 @@ RenderBundleEncoder::FinalizeRenderCommand RenderBundleEncoder::drawIndirect(Buf
             return finalizeRenderCommand();
         }
 
-        recordCommand([indirectBuffer = Ref { indirectBuffer }, indirectOffset, protectedThis = Ref { *this }] {
+        recordCommand([indirectBuffer = protect(indirectBuffer), indirectOffset, protectedThis = protect(*this)] {
             protectedThis->drawIndirect(indirectBuffer.get(), indirectOffset);
             return true;
         });
@@ -945,7 +950,7 @@ bool RenderBundleEncoder::validToEncodeCommand() const
     if (!m_device->isValid())
         return false;
 
-    return !m_finished || (m_renderPassEncoder && RefPtr { m_renderPassEncoder.get() }->renderCommandEncoder() && !m_makeSubmitInvalid);
+    return !m_finished || (m_renderPassEncoder && m_renderPassEncoder->renderCommandEncoder() && !m_makeSubmitInvalid);
 }
 
 void RenderBundleEncoder::resetIndexBuffer()
@@ -1114,7 +1119,7 @@ void RenderBundleEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* gro
     m_maxBindGroupSlot = std::max(groupIndex, m_maxBindGroupSlot);
     if (!replayingCommands()) {
         if (groupPtr)
-            m_allBindGroups.add(RefPtr { groupPtr });
+            m_allBindGroups.add(protect(groupPtr));
 
         if (groupIndex >= m_device->limits().maxBindGroups) {
             makeInvalid(@"setBindGroup: groupIndex >= limits.maxBindGroups");
@@ -1140,7 +1145,7 @@ void RenderBundleEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* gro
                 m_icbDescriptor.maxFragmentBufferBindCount = std::max<NSUInteger>(m_icbDescriptor.maxFragmentBufferBindCount, 2 + groupIndex);
         }
 
-        recordCommand([groupIndex, group = RefPtr { groupPtr }, protectedThis = Ref { *this }, dynamicOffsets = WTF::move(dynamicOffsets)]() mutable {
+        recordCommand([groupIndex, group = protect(groupPtr), protectedThis = protect(*this), dynamicOffsets = WTF::move(dynamicOffsets)]() mutable {
             protectedThis->setBindGroup(groupIndex, group.get(), WTF::move(dynamicOffsets));
             return false;
         });
@@ -1222,7 +1227,7 @@ void RenderBundleEncoder::setIndexBuffer(Buffer& buffer, WGPUIndexFormat format,
             return;
         }
 
-        recordCommand([buffer = Ref { buffer }, format, offset, size, protectedThis = Ref { *this }] {
+        recordCommand([buffer = protect(buffer), format, offset, size, protectedThis = protect(*this)] {
             protectedThis->setIndexBuffer(buffer.get(), format, offset, size);
             return false;
         });
@@ -1377,7 +1382,7 @@ void RenderBundleEncoder::setPipeline(const RenderPipeline& pipeline)
         if (pipeline.sampleMask() != defaultSampleMask)
             m_requiresCommandReplay = true;
 
-        recordCommand([pipeline = Ref { pipeline }, protectedThis = Ref { *this }] {
+        recordCommand([pipeline = protect(pipeline), protectedThis = protect(*this)] {
             protectedThis->setPipeline(pipeline);
             return false;
         });
@@ -1413,7 +1418,7 @@ void RenderBundleEncoder::setVertexBuffer(uint32_t slot, Buffer* optionalBuffer,
             }
         }
 
-        recordCommand([slot, optionalBuffer = RefPtr { optionalBuffer }, offset, size, protectedThis = Ref { *this }] {
+        recordCommand([slot, optionalBuffer = protect(optionalBuffer), offset, size, protectedThis = protect(*this)] {
             protectedThis->setVertexBuffer(slot, optionalBuffer.get(), offset, size);
             return false;
         });

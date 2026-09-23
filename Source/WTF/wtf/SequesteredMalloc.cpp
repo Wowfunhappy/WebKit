@@ -25,8 +25,6 @@
 #include "config.h"
 #include <wtf/SequesteredMalloc.h>
 
-#include <wtf/SequesteredAllocator.h>
-
 #if USE(PROTECTED_JIT)
 
 namespace WTF {

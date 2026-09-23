@@ -27,7 +27,6 @@
 #include "config.h"
 #include <wtf/StackTrace.h>
 
-#include <type_traits>
 #include <wtf/Assertions.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StringPrintStream.h>

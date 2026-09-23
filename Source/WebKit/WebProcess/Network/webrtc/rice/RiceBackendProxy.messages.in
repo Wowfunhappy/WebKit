@@ -24,6 +24,7 @@
 ]
 messages -> RiceBackendProxy {
     NotifyIncomingData(unsigned streamId, enum:uint8_t WebCore::RTCIceProtocol protocol, String from, String to, WebCore::SharedMemory::Handle data);
+    AllocatedSocket(unsigned streamId, unsigned componentId, enum:uint8_t WebCore::RTCIceProtocol protocol, String from, String to, String socket);
 }
 
 #endif

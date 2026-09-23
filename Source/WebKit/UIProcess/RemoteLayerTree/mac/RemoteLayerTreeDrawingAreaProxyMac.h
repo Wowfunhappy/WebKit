@@ -39,6 +39,7 @@ class RemoteLayerTreeDisplayLinkClient;
 class RemoteLayerTreeTransaction;
 class RemoteScrollingCoordinatorProxy;
 class RemoteScrollingCoordinatorTransaction;
+class WebProcessPool;
 
 class RemoteLayerTreeDrawingAreaProxyMac final : public RemoteLayerTreeDrawingAreaProxy {
 friend class RemoteScrollingCoordinatorProxyMac;
@@ -54,7 +55,7 @@ public:
     DisplayLink& displayLink();
     DisplayLink* existingDisplayLink();
 
-    void updateZoomTransactionID();
+    void NODELETE updateZoomTransactionID();
     std::optional<WebCore::PlatformLayerIdentifier> pageScalingLayerID() { return m_pageScalingLayerID.asOptional(); }
     std::optional<WebCore::PlatformLayerIdentifier> pageScrollingLayerID() { return m_pageScrollingLayerID.asOptional(); }
     std::optional<WebCore::PlatformLayerIdentifier> scrolledContentsLayerID() const { return m_scrolledContentsLayerID.asOptional(); }
@@ -107,7 +108,8 @@ private:
 
     std::optional<DisplayLinkObserverID> m_displayRefreshObserverID;
     std::optional<DisplayLinkObserverID> m_fullSpeedUpdateObserverID;
-    const UniqueRef<RemoteLayerTreeDisplayLinkClient> m_displayLinkClient;
+    const Ref<RemoteLayerTreeDisplayLinkClient> m_displayLinkClient;
+    const WeakPtr<WebProcessPool> m_processPool;
 
     Markable<WebCore::PlatformLayerIdentifier> m_pageScalingLayerID;
     Markable<WebCore::PlatformLayerIdentifier> m_pageScrollingLayerID;

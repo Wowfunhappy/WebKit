@@ -462,7 +462,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationToInt32SensibleSlow, UCPUStrictInt32,
 #if HAVE(ARM_IDIV_INSTRUCTIONS)
 static inline bool isStrictInt32(double value)
 {
-    int32_t valueAsInt32 = static_cast<int32_t>(value);
+    int32_t valueAsInt32 = truncateDoubleToInt32(value);
     if (value != valueAsInt32)
         return false;
 
@@ -580,7 +580,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(jsRoundDouble, double, (double value))
     return roundDoubleImpl(value);
 }
 
-static ALWAYS_INLINE float roundFloatImpl(float value)
+static ALWAYS_INLINE float NODELETE roundFloatImpl(float value)
 {
     float integer = ceil(value);
     return integer - (integer - 0.5 > value);
@@ -594,37 +594,13 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(roundFloat, float, (float value))
 #if USE(JSVALUE32_64)
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_nearest, float, (float operand))
 {
-    static_assert(std::numeric_limits<float>::round_style == std::round_to_nearest);
-    return std::nearbyint(operand);
+    return roundevenf(operand);
 }
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_nearest, double, (double operand))
 {
-    static_assert(std::numeric_limits<float>::round_style == std::round_to_nearest);
-    return std::nearbyint(operand);
+    return roundeven(operand);
 }
-
-#if (OS(LINUX) && !defined(__GLIBC__)) || OS(HAIKU)
-static inline float roundevenf(float operand)
-{
-    float rounded = roundf(operand);
-    if (fabsf(operand - rounded) == 0.5f) {
-        if (fmod(rounded, 2.0f) != 0.0f)
-            return rounded - copysignf(1.0f, operand);
-    }
-    return rounded;
-}
-
-static inline double roundeven(double operand)
-{
-    double rounded = round(operand);
-    if (fabs(operand - rounded) == 0.5) {
-        if (fmod(rounded, 2.0) != 0.0)
-            return rounded - copysign(1.0, operand);
-    }
-    return rounded;
-}
-#endif
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_roundeven, float, (float operand)) { return roundevenf(operand); }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_roundeven, double, (double operand)) { return roundeven(operand); }
@@ -640,10 +616,10 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_div_u, uint64_t, (uint64_t a, uint64_t b))
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_rem_s, int64_t, (int64_t a, int64_t b)) { return a % b; }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_rem_u, uint64_t, (uint64_t a, uint64_t b)) { return a % b; }
 
-JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_u_f32, uint64_t, (float operand)) { return static_cast<uint64_t>(operand); }
-JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_s_f32, int64_t, (float operand)) { return static_cast<int64_t>(operand); }
-JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_u_f64, uint64_t, (double operand)) { return static_cast<uint64_t>(operand); }
-JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_s_f64, int64_t, (double operand)) { return static_cast<int64_t>(operand); }
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_u_f32, uint64_t, (float operand)) { return truncateFloatToUint64(operand); }
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_s_f32, int64_t, (float operand)) { return truncateFloatToInt64(operand); }
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_u_f64, uint64_t, (double operand)) { return truncateDoubleToUint64(operand); }
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(i64_trunc_s_f64, int64_t, (double operand)) { return truncateDoubleToInt64(operand); }
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_convert_u_i64, float, (uint64_t operand)) { return static_cast<float>(operand); }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_convert_s_i64, float, (int64_t operand)) { return static_cast<float>(operand); }

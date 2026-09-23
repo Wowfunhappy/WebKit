@@ -52,9 +52,7 @@ RemoteCDMInstanceSessionProxy::RemoteCDMInstanceSessionProxy(WeakPtr<RemoteCDMPr
 {
 }
 
-RemoteCDMInstanceSessionProxy::~RemoteCDMInstanceSessionProxy()
-{
-}
+RemoteCDMInstanceSessionProxy::~RemoteCDMInstanceSessionProxy() = default;
 
 void RemoteCDMInstanceSessionProxy::setLogIdentifier(uint64_t logIdentifier)
 {

@@ -269,7 +269,7 @@ bool RadioButtonGroups::hasCheckedButton(const HTMLInputElement& element) const
     if (name.isEmpty())
         return element.checked();
     auto* group = m_nameToGroupMap.get(name.impl());
-    // FIXME: Update the radio button group before author script had a chance to run in didFinishInsertingNode().
+    // FIXME: Update the radio button group before author script had a chance to run in postConnectionSteps().
     return group && group->checkedButton();
 }
 

@@ -34,6 +34,7 @@
 #include <WebCore/ThreadableWebSocketChannel.h>
 #include <WebCore/WebSocketChannelInspector.h>
 #include <WebCore/WebSocketFrame.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace IPC {
@@ -49,7 +50,7 @@ namespace WebKit {
 
 class WebSocketChannel : public IPC::MessageSender, public IPC::MessageReceiver, public WebCore::ThreadableWebSocketChannel, public RefCounted<WebSocketChannel> {
 public:
-    static Ref<WebSocketChannel> create(WebPageProxyIdentifier, WebCore::Document&, WebCore::WebSocketChannelClient&);
+    static Ref<WebSocketChannel> create(WebPageProxyIdentifier, WebCore::Document&, WebCore::WebSocketChannelClient&, WebCore::IsInitiatedByDedicatedWorker = WebCore::IsInitiatedByDedicatedWorker::No);
     ~WebSocketChannel();
 
     // IPC::MessageReceiver, WebCore::ThreadableWebSocketChannel.
@@ -60,7 +61,7 @@ public:
     void networkProcessCrashed();
 
 private:
-    WebSocketChannel(WebPageProxyIdentifier, WebCore::Document&, WebCore::WebSocketChannelClient&);
+    WebSocketChannel(WebPageProxyIdentifier, WebCore::Document&, WebCore::WebSocketChannelClient&, WebCore::IsInitiatedByDedicatedWorker);
 
     static Ref<WebCore::NetworkSendQueue> createMessageQueue(WebCore::Document&, WebSocketChannel&);
 
@@ -111,11 +112,13 @@ private:
     String m_extensions;
     size_t m_bufferedAmount { 0 };
     bool m_isClosing { false };
+    bool m_needsToCallClose { false };
     const Ref<WebCore::NetworkSendQueue> m_messageQueue;
     WebCore::WebSocketChannelInspector m_inspector;
     WebCore::ResourceRequest m_handshakeRequest;
     WebCore::ResourceResponse m_handshakeResponse;
     WebPageProxyIdentifier m_webPageProxyID;
+    WebCore::IsInitiatedByDedicatedWorker m_isInitiatedByDedicatedWorker { WebCore::IsInitiatedByDedicatedWorker::No };
 };
 
 } // namespace WebKit

@@ -60,6 +60,8 @@ public:
     SourceBufferPrivateGStreamer& sourceBufferPrivate() { return m_sourceBufferPrivate; }
     MediaPlayerPrivateGStreamerMSE* playerPrivate() { return m_playerPrivate; }
 
+    GstElement* pipeline() const { return m_pipeline.get(); }
+
 private:
     struct Track {
         // Track objects are created on pad-added for the first initialization segment, and destroyed after
@@ -126,7 +128,6 @@ private:
     void handleEndOfAppend();
     void didReceiveInitializationSegment();
 
-    GstElement* pipeline() { return m_pipeline.get(); }
     GstElement* appsrc() { return m_appsrc.get(); }
 
     static AtomString generateTrackId(StreamType, int padIndex);

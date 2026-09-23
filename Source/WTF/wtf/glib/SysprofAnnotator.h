@@ -51,7 +51,9 @@ public:
     {
         va_list args;
         va_start(args, description);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         sysprof_collector_mark_vprintf(SYSPROF_CAPTURE_CURRENT_TIME, 0, m_processName, name.data(), description, args);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         va_end(args);
     }
 
@@ -59,49 +61,93 @@ public:
     {
         va_list args;
         va_start(args, description);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         sysprof_collector_mark_vprintf(time, 0, m_processName, name.data(), description, args);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         va_end(args);
     }
 
     void beginMark(const void* pointer, std::span<const char> name, const char* description, ...) WTF_ATTRIBUTE_PRINTF(4, 5)
     {
-        auto key = std::make_pair(pointer, static_cast<const void*>(name.data()));
+        auto time = SYSPROF_CAPTURE_CURRENT_TIME;
 
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         Vector<char> buffer(1024);
-        va_list args;
-        va_start(args, description);
-        vsnprintf(buffer.mutableSpan().data(), buffer.size(), description, args);
-        va_end(args);
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-        auto value = std::make_pair(SYSPROF_CAPTURE_CURRENT_TIME, WTF::move(buffer));
+        if (!description || description[0] == '\0') {
+            buffer.resize(0);
+            buffer.append('\0');
+        } else {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib ports
+            va_list args, copyArgs;
+            va_start(args, description);
+            va_copy(copyArgs, args);
+
+            auto descriptionLength = vsnprintf(nullptr, 0, description, args);
+            va_end(args);
+            buffer.resize(descriptionLength + 1);
+
+            vsnprintf(buffer.mutableSpan().data(), descriptionLength + 1, description, copyArgs);
+            va_end(copyArgs);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        }
+
+        auto key = std::make_pair(pointer, static_cast<const void*>(name.data()));
+        auto value = std::make_pair(time, WTF::move(buffer));
 
         Locker locker { m_lock };
-        m_ongoingMarks.set(key, value);
+        m_ongoingMarks.set(key, WTF::move(value));
     }
 
     void endMark(const void* pointer, std::span<const char> name, const char* description, ...) WTF_ATTRIBUTE_PRINTF(4, 5)
     {
+        auto time = SYSPROF_CAPTURE_CURRENT_TIME;
+
         auto key = std::make_pair(pointer, static_cast<const void*>(name.data()));
         std::optional<TimestampAndString> value;
 
         {
             Locker locker { m_lock };
-
-            TimestampAndString v = m_ongoingMarks.take(key);
-            if (v.first)
-                value = WTF::move(v);
+            value = m_ongoingMarks.takeOptional(key);
         }
 
         if (value) {
             int64_t startTime = std::get<0>(*value);
-            const Vector<char>& description = std::get<1>(*value);
-            sysprof_collector_mark(startTime, SYSPROF_CAPTURE_CURRENT_TIME - startTime, m_processName, name.data(), description[0] ? description.span().data() : nullptr);
+            Vector<char>& buffer = std::get<1>(*value);
+
+            if (description && description[0] != '\0') {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib ports
+                va_list args, copyArgs;
+                va_start(args, description);
+                va_copy(copyArgs, args);
+
+                auto descriptionLength = vsnprintf(nullptr, 0, description, args);
+                va_end(args);
+
+                if (descriptionLength > 0) {
+                    bool needsSeparator = buffer.size() > 1;
+                    static constexpr auto separator = " | "_span;
+
+                    auto oldSize = buffer.size();
+                    buffer.resize(oldSize + (needsSeparator ? separator.size() : 0) + descriptionLength);
+
+                    auto span = buffer.mutableSpan().subspan(oldSize - 1);
+                    if (needsSeparator) {
+                        memcpySpan(span, separator);
+                        skip(span, separator.size());
+                    }
+                    vsnprintf(span.data(), descriptionLength + 1, description, copyArgs);
+                }
+                va_end(copyArgs);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+            }
+
+            sysprof_collector_mark(startTime, time - startTime, m_processName, name.data(), buffer.span().data());
         } else {
             va_list args;
             va_start(args, description);
-            sysprof_collector_mark_vprintf(SYSPROF_CAPTURE_CURRENT_TIME, 0, m_processName, name.data(), description, args);
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+            sysprof_collector_mark_vprintf(time, 0, m_processName, name.data(), description, args);
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
             va_end(args);
         }
     }

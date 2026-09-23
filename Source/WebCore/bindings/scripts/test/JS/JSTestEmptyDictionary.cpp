@@ -21,8 +21,8 @@
 #include "config.h"
 #include "JSTestEmptyDictionary.h"
 
+#include "JSDOMBindingFacade.h"
 #include "JSDOMGlobalObject.h"
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <type_traits>
 #include <wtf/IsIncreasing.h>
@@ -60,7 +60,7 @@ JSC::JSObject* convertDictionaryToJS(JSC::JSGlobalObject& lexicalGlobalObject, J
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    auto result = constructEmptyObject(&lexicalGlobalObject, globalObject.objectPrototype());
+    auto result = WebCore::constructEmptyObject(&lexicalGlobalObject, globalObject.objectPrototype());
 
     UNUSED_PARAM(dictionary);
     UNUSED_VARIABLE(throwScope);

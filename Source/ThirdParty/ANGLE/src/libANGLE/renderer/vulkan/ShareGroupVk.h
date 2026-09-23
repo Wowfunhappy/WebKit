@@ -42,7 +42,6 @@ class ShareGroupVk : public ShareGroupImpl
 
     void onContextAdd() override;
 
-    FramebufferCache &getFramebufferCache() { return mFramebufferCache; }
     SamplerCache &getSamplerCache() { return mSamplerCache; }
     SamplerYcbcrConversionCache &getYuvConversionCache() { return mYuvConversionCache; }
 
@@ -106,6 +105,9 @@ class ShareGroupVk : public ShareGroupImpl
     void onFrameBoundary();
     uint32_t getCurrentFrameCount() const { return mCurrentFrameCount; }
 
+    void imageWillFallbackFromTileMemory(vk::ImageHelper *image);
+    void finalizeImageLayoutInAllSharedContexts(vk::ImageHelper *image);
+
   private:
     angle::Result updateContextsPriority(ContextVk *contextVk, egl::ContextPriority newPriority);
 
@@ -116,8 +118,6 @@ class ShareGroupVk : public ShareGroupImpl
     // Tracks the total number of frames rendered.
     uint32_t mCurrentFrameCount;
 
-    // VkFramebuffer caches
-    FramebufferCache mFramebufferCache;
 
     // VkSampler and VkSamplerYcbcrConversion caches
     SamplerCache mSamplerCache;

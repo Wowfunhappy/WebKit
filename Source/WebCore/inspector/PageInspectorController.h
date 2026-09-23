@@ -33,10 +33,13 @@
 
 #include <JavaScriptCore/InspectorAgentRegistry.h>
 #include <JavaScriptCore/InspectorEnvironment.h>
+#include <WebCore/InspectorBackendClient.h>
+#include <WebCore/InspectorFrontendClient.h>
 #include <WebCore/InspectorOverlay.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/Ref.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
@@ -45,6 +48,7 @@ namespace Inspector {
 class BackendDispatcher;
 class FrontendChannel;
 class FrontendRouter;
+class IdentifierRegistry;
 class InspectorAgent;
 }
 
@@ -52,9 +56,7 @@ namespace WebCore {
 
 class DOMWrapperWorld;
 class GraphicsContext;
-class InspectorBackendClient;
 class InspectorDOMAgent;
-class InspectorFrontendClient;
 class InspectorInstrumentation;
 class InspectorPageAgent;
 class InstrumentingAgents;
@@ -103,8 +105,11 @@ public:
     WEBCORE_EXPORT void disconnectFrontend(Inspector::FrontendChannel&);
     WEBCORE_EXPORT void disconnectAllFrontends();
 
+    WEBCORE_EXPORT void connectRemoteInstrumentation();
+    WEBCORE_EXPORT void disconnectRemoteInstrumentation();
+
     void inspect(Node*);
-    WEBCORE_EXPORT bool shouldShowOverlay() const;
+    WEBCORE_EXPORT bool NODELETE shouldShowOverlay() const;
     WEBCORE_EXPORT void drawHighlight(GraphicsContext&) const;
     WEBCORE_EXPORT void getHighlight(InspectorOverlay::Highlight&, InspectorOverlay::CoordinateSystem) const;
     void hideHighlight();
@@ -127,6 +132,7 @@ public:
     InspectorFrontendClient* inspectorFrontendClient() const { return m_inspectorFrontendClient; }
 
     InstrumentingAgents& instrumentingAgents() const { return m_instrumentingAgents.get(); }
+    Inspector::FrontendRouter& frontendRouter() const { return m_frontendRouter.get(); }
     Inspector::BackendDispatcher& backendDispatcher() const { return m_backendDispatcher.get(); }
     WebInjectedScriptManager& injectedScriptManager() const { return m_injectedScriptManager.get(); }
 
@@ -134,13 +140,16 @@ public:
     InspectorDOMAgent& ensureDOMAgent();
     WEBCORE_EXPORT InspectorPageAgent& ensurePageAgent();
 
+    Inspector::IdentifierRegistry& identifierRegistry() const { return m_identifierRegistry.get(); }
+    WEBCORE_EXPORT void siteIsolationFirstEnabled();
+
     // InspectorEnvironment
     bool developerExtrasEnabled() const override;
     bool canAccessInspectedScriptState(JSC::JSGlobalObject*) const override;
     Inspector::InspectorFunctionCallHandler functionCallHandler() const override;
     Inspector::InspectorEvaluateHandler evaluateHandler() const override;
     void frontendInitialized() override;
-    WTF::Stopwatch& NODELETE executionStopwatch() const final;
+    WEBCORE_EXPORT WTF::Stopwatch& NODELETE executionStopwatch() const final;
     JSC::Debugger* debugger() override;
     JSC::VM& vm() override;
 
@@ -161,6 +170,7 @@ private:
     Inspector::AgentRegistry m_agents;
 
     std::unique_ptr<InspectorBackendClient> m_inspectorBackendClient;
+    Ref<Inspector::IdentifierRegistry> m_identifierRegistry;
     InspectorFrontendClient* m_inspectorFrontendClient { nullptr };
 
     // Lazy, but also on-demand agents.

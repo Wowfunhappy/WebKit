@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 #include <unicode/utypes.h>
+#include <wtf/ASCIICType.h>
 #include <wtf/BitSet.h>
 #include <wtf/SIMDHelpers.h>
 #include <wtf/StdLibExtras.h>
@@ -118,89 +119,91 @@ inline bool containsOnlyASCII(MachineWord word)
     return !(word & NonASCIIMask<sizeof(MachineWord), CharacterType>::value());
 }
 
-// Note: This function assume the input is likely all ASCII, and
-// does not leave early if it is not the case.
 template<typename CharacterType>
-inline bool charactersAreAllASCII(std::span<const CharacterType> span)
+SUPPRESS_NODELETE inline bool NODELETE charactersAreAllASCII(std::span<const CharacterType> span)
 {
-    MachineWord allCharBits = 0;
-
-    // Prologue: align the input.
-    while (!span.empty() && !isAlignedToMachineWord(span.data()))
-        allCharBits |= WTF::consume(span);
-
-    // Compare the values of CPU word size.
-    size_t sizeAfterAlignedEnd = std::to_address(span.end()) - alignToMachineWord(std::to_address(span.end()));
-    const size_t loopIncrement = sizeof(MachineWord) / sizeof(CharacterType);
-    while (span.size() > sizeAfterAlignedEnd)
-        allCharBits |= reinterpretCastSpanStartTo<const MachineWord>(consumeSpan(span, loopIncrement));
-
-    // Process the remaining bytes.
-    while (!span.empty())
-        allCharBits |= WTF::consume(span);
-
-    MachineWord nonASCIIBitMask = NonASCIIMask<sizeof(MachineWord), CharacterType>::value();
-    return !(allCharBits & nonASCIIBitMask);
-}
-
-ALWAYS_INLINE bool charactersAreAllLatin1(std::span<const Latin1Character>)
-{
-    return true;
-}
-
-inline bool charactersAreAllLatin1(std::span<const char16_t> span)
-{
-#if CPU(ARM64)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    using UnsignedType = SameSizeUnsignedInteger<CharacterType>;
+    constexpr size_t simdStride = SIMD::stride<UnsignedType>;
+    constexpr size_t chunkSize = 8 * simdStride;
+
     const auto* characters = span.data();
     size_t length = span.size();
-
     const auto* end = characters + length;
-    const auto* simdEnd = characters + (length & ~7); // Process 8 chars at a time.
 
-    uint16x8_t mask = vdupq_n_u16(0xFF00);
+    if (length >= simdStride) {
+        constexpr auto nonASCIIMask = static_cast<UnsignedType>(~UnsignedType { 0x7F });
+        auto mask = SIMD::splat<UnsignedType>(nonASCIIMask);
 
-    // SIMD loop with early exit.
-    while (characters < simdEnd) {
-        uint16x8_t chunk = vld1q_u16(reinterpret_cast<const uint16_t*>(characters));
-        uint16x8_t nonLatin1Bits = vandq_u16(chunk, mask);
-
-        // Early exit: check if any non-Latin1 character found.
-        if (vmaxvq_u16(nonLatin1Bits))
+        // Process chunkSize elements per chunk (8 x SIMD vectors), check once per chunk.
+        const auto* chunkEnd = characters + (length & ~(chunkSize - 1));
+        while (characters < chunkEnd) {
+            auto acc = SIMD::load(std::bit_cast<const UnsignedType*>(characters));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + simdStride)));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + 2 * simdStride)));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + 3 * simdStride)));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + 4 * simdStride)));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + 5 * simdStride)));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + 6 * simdStride)));
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters + 7 * simdStride)));
+            if (SIMD::isNonZero(SIMD::bitAnd2(acc, mask)))
+                return false;
+            characters += chunkSize;
+        }
+        // Handle remaining SIMD vectors.
+        const auto* simdEnd = characters + (static_cast<size_t>(end - characters) & ~(simdStride - 1));
+        auto acc = SIMD::splat<UnsignedType>(0);
+        while (characters < simdEnd) {
+            acc = SIMD::bitOr2(acc, SIMD::load(std::bit_cast<const UnsignedType*>(characters)));
+            characters += simdStride;
+        }
+        if (SIMD::isNonZero(SIMD::bitAnd2(acc, mask)))
             return false;
-
-        characters += 8;
     }
 
     // Scalar tail with early exit.
     while (characters < end) {
-        if (!isLatin1(*characters++))
+        if (!isASCII(*characters++))
             return false;
     }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
-#else
-    constexpr size_t loopIncrement = sizeof(MachineWord) / sizeof(char16_t);
-    MachineWord nonLatin1BitMask = NonLatin1Mask<sizeof(MachineWord), char16_t>::value();
+    return true;
+}
 
-    // Align to machine word.
-    while (!span.empty() && !isAlignedToMachineWord(span.data())) {
-        if (!isLatin1(WTF::consume(span)))
-            return false;
-    }
+ALWAYS_INLINE constexpr bool charactersAreAllLatin1(std::span<const Latin1Character>)
+{
+    return true;
+}
 
-    // Process machine words with early exit.
-    while (span.size() >= loopIncrement) {
-        auto word = reinterpretCastSpanStartTo<const MachineWord>(consumeSpan(span, loopIncrement));
-        if (word & nonLatin1BitMask)
-            return false;
-    }
+inline constexpr bool charactersAreAllLatin1(std::span<const char16_t> span)
+{
+    if (std::is_constant_evaluated()) {
+        for (auto character : span) {
+            if (static_cast<uint16_t>(character) > 0xFF)
+                return false;
+        }
+    } else {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+        constexpr size_t simdStride = SIMD::stride<uint16_t>;
 
-    // Process remaining characters.
-    while (!span.empty()) {
-        if (!isLatin1(WTF::consume(span)))
-            return false;
+        const auto* characters = span.data();
+        const auto* end = characters + span.size();
+        const auto* simdEnd = characters + (span.size() & ~(simdStride - 1));
+
+        auto nonLatin1Mask = SIMD::splat16(0xFF00);
+        while (characters < simdEnd) {
+            auto chunk = SIMD::load(reinterpret_cast<const uint16_t*>(characters));
+            if (SIMD::isNonZero(SIMD::bitAnd2(chunk, nonLatin1Mask)))
+                return false;
+            characters += simdStride;
+        }
+
+        while (characters < end) {
+            if (!isLatin1(*characters++))
+                return false;
+        }
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
-#endif
     return true;
 }
 

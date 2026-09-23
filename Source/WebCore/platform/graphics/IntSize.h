@@ -31,7 +31,7 @@
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/JSONValues.h>
 #include <wtf/Forward.h>
-#include <wtf/Platform.h>
+#include <wtf/MathExtras.h>
 
 #if USE(CG)
 typedef struct CGSize CGSize;
@@ -93,8 +93,8 @@ public:
 
     void scale(float widthScale, float heightScale)
     {
-        m_width = static_cast<int>(static_cast<float>(m_width) * widthScale);
-        m_height = static_cast<int>(static_cast<float>(m_height) * heightScale);
+        m_width = truncateFloatToInt32(static_cast<float>(m_width) * widthScale);
+        m_height = truncateFloatToInt32(static_cast<float>(m_height) * heightScale);
     }
 
     void scale(float scale)
@@ -176,7 +176,7 @@ public:
     WEBCORE_EXPORT operator SIZE() const;
 #endif
 
-    String toJSONString() const;
+    WEBCORE_EXPORT String toJSONString() const;
     Ref<JSON::Object> toJSONObject() const;
 
 private:

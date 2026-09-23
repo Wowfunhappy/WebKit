@@ -39,9 +39,7 @@ Icon::Icon(CocoaImage *image)
 {
 }
 
-Icon::~Icon()
-{
-}
+Icon::~Icon() = default;
 
 RefPtr<Icon> Icon::create(CocoaImage *image)
 {

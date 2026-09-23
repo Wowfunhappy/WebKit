@@ -47,6 +47,7 @@ messages -> NetworkProcessConnection WantsDispatchMessage {
 #endif
 
     MessagesAvailableForPort(struct WebCore::MessagePortIdentifier port)
+    DropNonSerializableInProcessCache(WebCore::NonSerializedDataIdentifier identifier)
 
     BroadcastConsoleMessage(enum:uint8_t JSC::MessageSource messageSource, enum:uint8_t JSC::MessageLevel messageLevel, String message)
     LoadCancelledDownloadRedirectRequestInFrame(WebCore::ResourceRequest request, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier pageID)

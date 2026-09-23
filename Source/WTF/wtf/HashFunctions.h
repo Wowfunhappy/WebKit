@@ -23,62 +23,37 @@
 #include <stdint.h>
 #include <tuple>
 #include <wtf/GetPtr.h>
+#include <wtf/Int128.h>
 #include <wtf/RefPtr.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WTF {
     // integer hash function
 
-    // Thomas Wang's 32 Bit Mix Function: http://www.cris.com/~Ttwang/tech/inthash.htm
-    inline unsigned intHash(uint8_t key8)
-    {
-        unsigned key = key8;
-        key += ~(key << 15);
-        key ^= (key >> 10);
-        key += (key << 3);
-        key ^= (key >> 6);
-        key += ~(key << 11);
-        key ^= (key >> 16);
-        return key;
-    }
-
-    // Thomas Wang's 32 Bit Mix Function: http://www.cris.com/~Ttwang/tech/inthash.htm
-    inline unsigned intHash(uint16_t key16)
-    {
-        unsigned key = key16;
-        key += ~(key << 15);
-        key ^= (key >> 10);
-        key += (key << 3);
-        key ^= (key >> 6);
-        key += ~(key << 11);
-        key ^= (key >> 16);
-        return key;
-    }
-
-    // Thomas Wang's 32 Bit Mix Function: http://www.cris.com/~Ttwang/tech/inthash.htm
-    inline unsigned intHash(uint32_t key) 
-    {
-        key += ~(key << 15);
-        key ^= (key >> 10);
-        key += (key << 3);
-        key ^= (key >> 6);
-        key += ~(key << 11);
-        key ^= (key >> 16);
-        return key;
-    }
-    
-    // Thomas Wang's 64 bit Mix Function: http://www.cris.com/~Ttwang/tech/inthash.htm
+    // rapidhash "mum" mixer.
+    // Keep in sync with AssemblyHelpers::rapidHashMix64 and FTL rapidHashMix64 code as we need to use the same hash function.
     inline unsigned intHash(uint64_t key)
     {
-        key += ~(key << 32);
-        key ^= (key >> 22);
-        key += ~(key << 13);
-        key ^= (key >> 8);
-        key += (key << 3);
-        key ^= (key >> 15);
-        key += ~(key << 27);
-        key ^= (key >> 31);
-        return static_cast<unsigned>(key);
+        constexpr uint64_t secret1 = 0x2d358dccaa6c78a5ULL;
+        constexpr uint64_t secret2 = 0x8bb84b93962eacc9ULL;
+        UInt128 product = static_cast<UInt128>(key ^ secret1) * static_cast<UInt128>(key ^ secret2);
+        uint64_t folded = static_cast<uint64_t>(product) ^ static_cast<uint64_t>(product >> 64);
+        return static_cast<unsigned>(folded);
+    }
+
+    inline unsigned intHash(uint32_t key)
+    {
+        return intHash(static_cast<uint64_t>(key));
+    }
+
+    inline unsigned intHash(uint8_t key8)
+    {
+        return intHash(static_cast<uint32_t>(key8));
+    }
+
+    inline unsigned intHash(uint16_t key16)
+    {
+        return intHash(static_cast<uint32_t>(key16));
     }
 
     // Compound integer hash method: http://opendatastructures.org/versions/edition-0.1d/ods-java/node33.html#SECTION00832000000000000000

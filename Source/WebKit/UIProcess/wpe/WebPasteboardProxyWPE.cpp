@@ -33,6 +33,7 @@
 #include <WebCore/PasteboardItemInfo.h>
 #include <WebCore/PlatformPasteboard.h>
 #include <WebCore/SelectionData.h>
+#include <wtf/ListHashSet.h>
 #include <wtf/glib/GSpanExtras.h>
 
 #if ENABLE(WPE_PLATFORM)

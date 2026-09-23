@@ -68,9 +68,9 @@ void testLotsOfHeapsAndThreads(unsigned numHeaps, unsigned numThreads, unsigned 
 void addLotsOfHeapsAndThreadsTests()
 {
 #if PAS_ENABLE_BMALLOC
+    (void)testLotsOfHeapsAndThreads;
     ForceTLAs forceTLAs;
-    ForcePartials forcePartials;
-    
+
     ADD_TEST(testLotsOfHeapsAndThreads(10000, 100, 10));
     ADD_TEST(testLotsOfHeapsAndThreads(25000, 100, 10));
     ADD_TEST(testLotsOfHeapsAndThreads(30000, 100, 10)); // This is about as high as we can reliably go right now!

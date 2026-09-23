@@ -27,6 +27,7 @@ bytecode/DirectEvalCodeCache.h
 bytecode/GetByStatus.cpp
 bytecode/InByStatus.cpp
 bytecode/InlineCacheCompiler.cpp
+bytecode/InlineCacheHandler.cpp
 bytecode/ObjectPropertyConditionSet.cpp
 bytecode/PolyProtoAccessChain.cpp
 bytecode/PropertyCondition.cpp
@@ -34,7 +35,6 @@ bytecode/PropertyInlineCache.cpp
 bytecode/PutByStatus.cpp
 bytecode/Repatch.cpp
 bytecode/SetPrivateBrandStatus.cpp
-bytecode/SharedJITStubSet.h
 bytecode/UnlinkedFunctionExecutable.cpp
 bytecompiler/BytecodeGenerator.cpp
 bytecompiler/BytecodeGenerator.h
@@ -50,7 +50,6 @@ dfg/DFGJITCompiler.cpp
 dfg/DFGJITCompiler.h
 dfg/DFGJITFinalizer.cpp
 dfg/DFGLazyJSValue.cpp
-dfg/DFGLoopUnrollingPhase.cpp
 dfg/DFGOperations.cpp
 dfg/DFGPlan.cpp
 dfg/DFGSpeculativeJIT.cpp
@@ -74,7 +73,6 @@ heap/ParallelSourceAdapter.h
 heap/SubspaceInlines.h
 inspector/ConsoleMessage.cpp
 inspector/JSGlobalObjectInspectorController.cpp
-inspector/JSInjectedScriptHost.cpp
 inspector/JSJavaScriptCallFrame.cpp
 inspector/ScriptCallStack.cpp
 inspector/agents/InspectorAgent.cpp
@@ -100,7 +98,6 @@ llint/LLIntSlowPaths.cpp
 parser/Lexer.cpp
 parser/Parser.cpp
 parser/Parser.h
-parser/SourceCode.h
 parser/SourceProvider.h
 parser/UnlinkedSourceCode.cpp
 parser/UnlinkedSourceCode.h
@@ -109,7 +106,6 @@ profiler/ProfilerEvent.cpp
 runtime/ArrayBufferView.cpp
 runtime/ArrayBufferView.h
 runtime/AtomicsObject.cpp
-runtime/CacheableIdentifier.h
 runtime/CacheableIdentifierInlines.h
 runtime/CodeCache.cpp
 runtime/CodeCache.h
@@ -142,7 +138,6 @@ runtime/ScriptExecutable.h
 runtime/Structure.cpp
 runtime/StructureInlines.h
 runtime/SymbolTable.cpp
-runtime/TemporalDuration.cpp
 runtime/TemporalObject.cpp
 runtime/TypeProfiler.cpp
 runtime/TypeProfilerLog.cpp
@@ -152,30 +147,19 @@ runtime/Watchdog.cpp
 tools/FunctionOverrides.cpp
 tools/JSDollarVM.cpp
 wasm/WasmBBQJIT.cpp
-wasm/WasmBBQJIT64.cpp
-wasm/WasmBBQPlan.cpp
 wasm/WasmCallee.cpp
 wasm/WasmCalleeGroup.cpp
 wasm/WasmEntryPlan.cpp
-wasm/WasmFormat.h
 wasm/WasmFunctionParser.h
-wasm/WasmIPIntGenerator.cpp
 wasm/WasmIPIntPlan.cpp
-wasm/WasmIPIntSlowPaths.cpp
 wasm/WasmMemory.cpp
 wasm/WasmMemory.h
 wasm/WasmOMGIRGenerator.cpp
-wasm/WasmOMGPlan.cpp
-wasm/WasmOSREntryPlan.cpp
-wasm/WasmOperations.cpp
 wasm/WasmOperationsInlines.h
 wasm/WasmPlan.cpp
-wasm/WasmSectionParser.cpp
 wasm/WasmStreamingCompiler.cpp
 wasm/WasmStreamingParser.cpp
 wasm/WasmTypeDefinition.cpp
-wasm/WasmTypeDefinition.h
-wasm/WasmTypeDefinitionInlines.h
 wasm/WasmWorklist.cpp
 wasm/js/JSWebAssembly.cpp
 wasm/js/JSWebAssemblyHelpers.h
@@ -183,7 +167,7 @@ wasm/js/JSWebAssemblyInstance.cpp
 wasm/js/JSWebAssemblyInstance.h
 wasm/js/JSWebAssemblyMemory.cpp
 wasm/js/JSWebAssemblyMemory.h
-wasm/js/WasmToJS.cpp
+wasm/js/WebAssemblyFunction.cpp
 wasm/js/WebAssemblyFunction.h
 wasm/js/WebAssemblyInstanceConstructor.cpp
 wasm/js/WebAssemblyModuleConstructor.cpp

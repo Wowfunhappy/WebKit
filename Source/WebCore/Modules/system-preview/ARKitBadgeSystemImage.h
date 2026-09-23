@@ -46,15 +46,24 @@ namespace WebCore {
 class WEBCORE_EXPORT ARKitBadgeSystemImage final : public SystemImage {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(ARKitBadgeSystemImage, WEBCORE_EXPORT);
 public:
+    struct BadgeMetrics {
+        static constexpr int largeDimension = 70;
+        static constexpr int largeOffset = 20;
+        static constexpr int smallDimension = 35;
+        static constexpr int smallOffset = 8;
+        static constexpr int minimumSizeForLarge = 240;
+    };
     static Ref<ARKitBadgeSystemImage> create(Image& image)
     {
         return adoptRef(*new ARKitBadgeSystemImage(image));
     }
 
-    static Ref<ARKitBadgeSystemImage> create(RenderingResourceIdentifier renderingResourceIdentifier, FloatSize size)
+    static Ref<ARKitBadgeSystemImage> create(std::optional<RenderingResourceIdentifier> renderingResourceIdentifier, FloatSize size)
     {
         return adoptRef(*new ARKitBadgeSystemImage(renderingResourceIdentifier, size));
     }
+
+    static Ref<ARKitBadgeSystemImage> createWithoutImage();
 
     virtual ~ARKitBadgeSystemImage() = default;
 
@@ -63,7 +72,7 @@ public:
     Image* image() const { return m_image.get(); }
     void setImage(Image& image) { m_image = image; }
 
-    RenderingResourceIdentifier imageIdentifier() const;
+    std::optional<RenderingResourceIdentifier> imageIdentifier() const;
 
 private:
     friend struct IPC::ArgumentCoder<ARKitBadgeSystemImage>;
@@ -74,7 +83,7 @@ private:
     {
     }
 
-    ARKitBadgeSystemImage(RenderingResourceIdentifier renderingResourceIdentifier, FloatSize size)
+    ARKitBadgeSystemImage(std::optional<RenderingResourceIdentifier> renderingResourceIdentifier, FloatSize size)
         : SystemImage(SystemImageType::ARKitBadge)
         , m_renderingResourceIdentifier(renderingResourceIdentifier)
         , m_imageSize(size)

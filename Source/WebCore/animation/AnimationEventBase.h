@@ -42,7 +42,7 @@ public:
 
 protected:
     AnimationEventBase(enum EventInterfaceType, const AtomString&, WebAnimation*, std::optional<Seconds> scheduledTime);
-    AnimationEventBase(enum EventInterfaceType, const AtomString&, EventInit&&, IsTrusted);
+    AnimationEventBase(enum EventInterfaceType, const AtomString&, EventInit&&, IsTrusted, RefPtr<WebAnimation>&&);
 
 private:
     const RefPtr<WebAnimation> m_animation;

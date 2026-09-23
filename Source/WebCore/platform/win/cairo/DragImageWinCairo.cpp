@@ -159,7 +159,7 @@ DragImageRef createDragImageFromImage(Image* img, ImageOrientation, GraphicsClie
     if (!workingDC)
         return 0;
 
-    GraphicsContextCairo* drawContext = 0;
+    GraphicsContextCairo* drawContext = nullptr;
     auto hbmp = allocImage(workingDC.get(), IntSize(img->size()), &drawContext);
     if (!hbmp || !drawContext)
         return 0;

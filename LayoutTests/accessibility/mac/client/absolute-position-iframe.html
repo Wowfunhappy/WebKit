@@ -34,14 +34,24 @@ if (window.accessibilityController) {
         });
 
         // Web area -> iframe -> paragraph -> static text.
-        var text = webArea.childAtIndex(0).childAtIndex(0).childAtIndex(0);
+        await waitFor(() => {
+            var iframe = webArea.childAtIndex(0);
+            if (!iframe)
+                return false;
+            var paragraph = iframe.childAtIndex(0);
+            if (!paragraph)
+                return false;
+            text = paragraph.childAtIndex(0);
+            return text;
+        });
 
-        var pageOrigin = { x: webArea.x, y: webArea.y };
+        // Wait for frame geometry to be resolved before reading coordinates
+        await waitForFrameGeometryReady();
 
         // The text in the iframe is offset by (20, 30).
         await waitFor(() => {
-            textX = text.x - pageOrigin.x;
-            textY = text.y - pageOrigin.y;
+            textX = text.x - webArea.x;
+            textY = text.y - webArea.y;
             return textX == 120 && textY == 80;
         });
 

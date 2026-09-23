@@ -24,11 +24,11 @@
  */
 
 #import "config.h"
-#import "Test.h"
+#import "Helpers/Test.h"
 
 #if PLATFORM(COCOA) && ENABLE(WEBGL)
-#import "GraphicsTestUtilities.h"
-#import "WebCoreTestUtilities.h"
+#import "Helpers/GraphicsTestUtilities.h"
+#import "Helpers/WebCoreTestUtilities.h"
 #import <Metal/Metal.h>
 #import <WebCore/Color.h>
 #import <WebCore/GraphicsContextGLCocoa.h>
@@ -40,6 +40,7 @@
 #import <wtf/MemoryFootprint.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/TZoneMallocInlines.h>
+#import <wtf/Threading.h>
 
 namespace TestWebKitAPI {
 
@@ -62,7 +63,7 @@ class TestedGraphicsContextGLCocoa : public GraphicsContextGLCocoa {
 public:
     static RefPtr<TestedGraphicsContextGLCocoa> create(GraphicsContextGLAttributes&& attributes)
     {
-        auto context = adoptRef(*new TestedGraphicsContextGLCocoa(WTF::move(attributes)));
+        Ref context = adoptRef(*new TestedGraphicsContextGLCocoa(WTF::move(attributes)));
         if (!context->initialize())
             return nullptr;
         return context;
@@ -370,7 +371,7 @@ TEST_F(GraphicsContextGLCocoaTest, ClearBufferIncorrectSizes)
     auto texture = gl->createTexture();
     gl->bindTexture(GL::TEXTURE_2D, texture);
     gl->texParameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST);
-    gl->texImage2D(GL::TEXTURE_2D, 0, GL::R8UI, 1, 1, 0, GL::RED_INTEGER, GL::UNSIGNED_BYTE, 0);
+    gl->texImage2D(GL::TEXTURE_2D, 0, GL::R8UI, 1, 1, 0, GL::RED_INTEGER, GL::UNSIGNED_BYTE, std::span<const uint8_t> { });
     ASSERT_TRUE(gl->getErrors().isEmpty());
 
     auto fbo = gl->createFramebuffer();
@@ -493,6 +494,33 @@ TEST_F(GraphicsContextGLCocoaTest, CopyImageAndMutateDrawingBuffer)
     EXPECT_TRUE(imagePixelIs(Color::green, *drawingImage1, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::blue, *drawingImage2, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::blue, *displayImage, FloatPoint(5, 5)));
+}
+
+// Verify that the internal paint readback (copyNativeImageYFlipped) is not affected by content
+// setting glReadBuffer(GL_NONE) on the emulated default framebuffer in WebGL2.
+TEST_F(GraphicsContextGLCocoaTest, CopyNativeImageWithReadBufferNoneWebGL2)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    attributes.alpha = true;
+    attributes.antialias = false;
+    attributes.preserveDrawingBuffer = false;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    ASSERT_NE(gl, nullptr);
+    gl->reshape(10, 10);
+    gl->clearColor(0.f, 1.f, 0.f, 1.f);
+    gl->clear(GL::COLOR_BUFFER_BIT);
+
+    gl->bindFramebuffer(GL::FRAMEBUFFER, 0);
+    gl->readBuffer(GL::NONE);
+    EXPECT_TRUE(gl->getErrors().isEmpty());
+
+    RefPtr drawingImage = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DrawingBuffer);
+    ASSERT_NE(drawingImage, nullptr);
+    EXPECT_EQ(drawingImage->size(), FloatSize(10, 10));
+    EXPECT_TRUE(imagePixelIs(Color::green, *drawingImage, FloatPoint(5, 5)));
+    EXPECT_TRUE(gl->getErrors().isEmpty());
 }
 
 TEST_P(AnyContextAttributeTest, DisplayBuffersAreRecycled)
@@ -850,6 +878,94 @@ TEST_F(GraphicsContextGLCocoaReshapeTest, reshapeHeightTooLarge)
     m_context->reshape(framebufferSize.width(), framebufferSize.height());
     EXPECT_EQ(m_context->getInternalFramebufferSize().width(), INITIAL_WIDTH);
     EXPECT_EQ(m_context->getInternalFramebufferSize().height(), INITIAL_HEIGHT);
+}
+
+TEST_F(GraphicsContextGLCocoaTest, CompressedTexImage2DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->compressedTexImage2D(GL::TEXTURE_2D, 0, GL::COMPRESSED_RGB8_ETC2, 4, 4, 0, 8, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, CompressedTexSubImage2DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->compressedTexSubImage2D(GL::TEXTURE_2D, 0, 0, 0, 4, 4, GL::COMPRESSED_RGB8_ETC2, 8, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, CompressedTexImage3DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->compressedTexImage3D(GL::TEXTURE_2D_ARRAY, 0, GL::COMPRESSED_RGB8_ETC2, 4, 4, 1, 0, 8, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, CompressedTexSubImage3DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->compressedTexSubImage3D(GL::TEXTURE_2D_ARRAY, 0, 0, 0, 0, 4, 4, 1, GL::COMPRESSED_RGB8_ETC2, 8, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, TexImage2DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->texImage2D(GL::TEXTURE_2D, 0, GL::RGBA, 4, 4, 0, GL::RGBA, GL::UNSIGNED_BYTE, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, TexSubImage2DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->texSubImage2D(GL::TEXTURE_2D, 0, 0, 0, 4, 4, GL::RGBA, GL::UNSIGNED_BYTE, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, TexImage3DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->texImage3D(GL::TEXTURE_2D_ARRAY, 0, GL::RGBA, 4, 4, 1, 0, GL::RGBA, GL::UNSIGNED_BYTE, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
+}
+
+TEST_F(GraphicsContextGLCocoaTest, TexSubImage3DRejectsOffsetWithNoPBO)
+{
+    using GL = GraphicsContextGL;
+    GraphicsContextGLAttributes attributes;
+    attributes.isWebGL2 = true;
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
+    gl->reshape(1, 1);
+    gl->texSubImage3D(GL::TEXTURE_2D_ARRAY, 0, 0, 0, 0, 4, 4, 1, GL::RGBA, GL::UNSIGNED_BYTE, 0x41414140);
+    EXPECT_TRUE(gl->getErrors().contains(GCGLErrorCode::InvalidOperation));
 }
 
 }

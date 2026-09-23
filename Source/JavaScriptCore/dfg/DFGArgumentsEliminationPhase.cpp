@@ -31,8 +31,9 @@
 #include "ArrayPrototype.h"
 #include "ClonedArguments.h"
 #include "DFGArgumentsUtilities.h"
-#include "DFGBlockMapInlines.h"
+#include <wtf/IndexMap.h>
 #include "DFGClobberize.h"
+#include "DFGCombinedLiveness.h"
 #include "DFGForAllKills.h"
 #include "DFGGraph.h"
 #include "DFGInsertionSet.h"
@@ -503,7 +504,7 @@ private:
         m_graph.initializeNodeOwners();
         CombinedLiveness combinedLiveness(m_graph);
 
-        BlockMap<Operands<bool>> clobberedByBlock(m_graph);
+        IndexMap<BasicBlock*, Operands<bool>> clobberedByBlock(m_graph.numBlocks());
         for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
             Operands<bool>& clobberedByThisBlock = clobberedByBlock[block];
             clobberedByThisBlock = Operands<bool>(OperandsLike, m_graph.block(0)->variablesAtHead);
@@ -604,7 +605,7 @@ private:
             return interfere;
         };
 
-        auto removeViaKill = [&](BasicBlock* block, unsigned nodeIndex, Node* candidate) {
+        auto removeViaKill = [&](BasicBlock* block, const unsigned nodeIndex, Node* candidate) {
             if (!m_candidates.contains(candidate))
                 return;
 
@@ -660,21 +661,17 @@ private:
                 }
 
                 // This loop considers all nodes up to the nodeIndex, excluding the nodeIndex.
+                // scanIndex is a working copy so each inline call frame independently
+                // scans the full [0, nodeIndex) range.
                 //
-                // Note: nodeIndex here has a double meaning. Before entering this
-                // while loop, it refers to the remaining number of nodes that have
-                // yet to be processed. Inside the loop, it refers to the index
-                // of the current node to process (after we decrement it).
-                //
-                // If the remaining number of nodes is 0, we should not decrement nodeIndex.
-                // Hence, we must only decrement nodeIndex inside the while loop instead of
-                // in its condition statement. Note that this while loop is embedded in an
-                // outer for loop. If we decrement nodeIndex in the condition statement, a
-                // nodeIndex of 0 will become UINT_MAX, and the outer loop will wrongly
-                // treat this as there being UINT_MAX remaining nodes to process.
-                while (nodeIndex) {
-                    --nodeIndex;
-                    Node* node = block->at(nodeIndex);
+                // If the remaining number of nodes is 0, we should not decrement
+                // scanIndex. Hence, we must only decrement it inside the while loop
+                // instead of in its condition statement; otherwise a scanIndex of 0 would
+                // become UINT_MAX.
+                unsigned scanIndex = nodeIndex;
+                while (scanIndex) {
+                    --scanIndex;
+                    Node* node = block->at(scanIndex);
                     if (node == candidate)
                         break;
 
@@ -693,7 +690,7 @@ private:
                         NoOpClobberize());
 
                     if (found) {
-                        dataLogLnIf(DFGArgumentsEliminationPhaseInternal::verbose, "eliminating candidate: ", candidate, " because it is clobbered by ", block->at(nodeIndex));
+                        dataLogLnIf(DFGArgumentsEliminationPhaseInternal::verbose, "eliminating candidate: ", candidate, " because it is clobbered by ", block->at(scanIndex));
                         transitivelyRemoveCandidate(candidate);
                         return;
                     }
@@ -726,7 +723,16 @@ private:
             }
 
             if (clobberStack) {
-                for (Node* node : combinedLiveness.liveAtTail[block])
+                // liveAtTail is the union of the CFG successors' liveAtHead, but a candidate can be kept
+                // alive solely by an exceptional exit to a catch entrypoint, which the DFG models as a
+                // non-CFG successor. Such a candidate is OSR-live at the terminal yet absent from
+                // liveAtTail, so a clobber of its source slots in this block would otherwise go
+                // unnoticed. Cover that gap with the nodes live at the terminal but dead on the tail.
+                // FIXME: If this is ever too conservative we can just calculate the locals used by
+                // the catch block for the terminal.
+                NodeSet possiblyLiveOut = bytecodeLivenessAtTerminal(m_graph, block);
+                possiblyLiveOut.addAll(combinedLiveness.liveAtTail[block]);
+                for (Node* node : possiblyLiveOut)
                     removeViaKill(block, block->size(), node);
 
                 for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {

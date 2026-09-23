@@ -27,6 +27,7 @@
 
 #include "ImplementationVisibility.h"
 #include "Lexer.h"
+#include "Nodes.h"
 #include "ParserFunctionInfo.h"
 #include "YarrSyntaxChecker.h"
 
@@ -164,7 +165,7 @@ public:
     ExpressionType createLogicalNot(const JSTokenLocation&, ExpressionType) { return UnaryExpr; }
     ExpressionType createUnaryPlus(const JSTokenLocation&, ExpressionType) { return UnaryExpr; }
     ExpressionType createVoid(const JSTokenLocation&, ExpressionType) { return UnaryExpr; }
-    ExpressionType createImportExpr(const JSTokenLocation&, ExpressionType, ExpressionType, int, int, int) { return ImportExpr; }
+    ExpressionType createImportExpr(const JSTokenLocation&, ExpressionType, ExpressionType, bool, int, int, int) { return ImportExpr; }
     ExpressionType createThisExpr(const JSTokenLocation&) { return ThisExpr; }
     ExpressionType createSuperExpr(const JSTokenLocation&) { return SuperExpr; }
     ExpressionType createNewTargetExpr(const JSTokenLocation&) { return NewTargetExpr; }
@@ -186,7 +187,7 @@ public:
     ExpressionType createNull(const JSTokenLocation&) { return NullExpr; }
     ExpressionType createBracketAccess(const JSTokenLocation&, ExpressionType, ExpressionType, bool, int, int, int) { return BracketExpr; }
     ExpressionType createDotAccess(const JSTokenLocation&, ExpressionType, const Identifier*, DotType type, int, int, int) { return type == DotType::PrivateMember ? PrivateDotExpr : DotExpr; }
-    ExpressionType createRegExp(const JSTokenLocation&, const Identifier& pattern, const Identifier& flags, int) { return Yarr::hasError(Yarr::checkSyntax(pattern.string(), flags.string())) ? 0 : RegExpExpr; }
+    ExpressionType createRegExp(const JSTokenLocation&, const Identifier& pattern, const Identifier& flags, int, bool skipSyntaxCheck) { return !skipSyntaxCheck && Yarr::hasError(Yarr::checkSyntax(pattern.string(), flags.string())) ? 0 : RegExpExpr; }
     ExpressionType createNewExpr(const JSTokenLocation&, ExpressionType, int, int, int, int) { return NewExpr; }
     ExpressionType createNewExpr(const JSTokenLocation&, ExpressionType, int, int, int) { return NewExpr; }
     ExpressionType createOptionalChain(const JSTokenLocation&, ExpressionType, ExpressionType, bool) { return OptionalChain; }

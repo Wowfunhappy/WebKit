@@ -126,7 +126,7 @@ void FlexLayout::updateFormattingContexGeometries()
     boxGeometryUpdater.setFormattingContextContentGeometry(layoutState().geometryForBox(flexBox()).contentBoxWidth(), { });
 }
 
-void FlexLayout::updateStyle(const RenderBlock&, const RenderStyle&)
+void FlexLayout::updateStyle(const RenderBlock&, const Style::ComputedStyle&)
 {
 }
 
@@ -153,18 +153,18 @@ void FlexLayout::layout()
             auto isOrthogonal = flexContainerIsHorizontal != renderer->writingMode().isHorizontal();
             auto borderBox = Layout::BoxGeometry::borderBoxRect(layoutState().geometryForBox(layoutBox));
 
-            renderer->setWidth(LayoutUnit { });
-            renderer->setHeight(LayoutUnit { });
+            renderer->setBorderBoxWidth(LayoutUnit { });
+            renderer->setBorderBoxHeight(LayoutUnit { });
             // logical here means width and height constraints for the _content_ of the flex items not the flex items' own dimension inside the flex container.
             renderer->setOverridingBorderBoxLogicalWidth(isOrthogonal ? borderBox.height() : borderBox.width());
             renderer->setOverridingBorderBoxLogicalHeight(isOrthogonal ? borderBox.width() : borderBox.height());
 
-            renderer->setChildNeedsLayout(MarkOnlyThis);
+            renderer->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
             renderer->layoutIfNeeded();
             renderer->clearOverridingSize();
 
-            renderer->setWidth(flexContainerIsHorizontal ? borderBox.width() : borderBox.height());
-            renderer->setHeight(flexContainerIsHorizontal ? borderBox.height() : borderBox.width());
+            renderer->setBorderBoxWidth(flexContainerIsHorizontal ? borderBox.width() : borderBox.height());
+            renderer->setBorderBoxHeight(flexContainerIsHorizontal ? borderBox.height() : borderBox.width());
         }
     };
     relayoutFlexItems();
@@ -178,8 +178,8 @@ void FlexLayout::updateRenderers()
         auto& flexItemGeometry = layoutState().geometryForBox(layoutBox);
         auto borderBox = Layout::BoxGeometry::borderBoxRect(flexItemGeometry);
         renderer->setLocation(flexContainerIsHorizontal ? borderBox.topLeft() : borderBox.topLeft().transposedPoint());
-        renderer->setWidth(flexContainerIsHorizontal ? borderBox.width() : borderBox.height());
-        renderer->setHeight(flexContainerIsHorizontal ? borderBox.height() : borderBox.width());
+        renderer->setBorderBoxWidth(flexContainerIsHorizontal ? borderBox.width() : borderBox.height());
+        renderer->setBorderBoxHeight(flexContainerIsHorizontal ? borderBox.height() : borderBox.width());
 
         renderer->setMarginStart(flexItemGeometry.marginStart());
         renderer->setMarginEnd(flexItemGeometry.marginEnd());

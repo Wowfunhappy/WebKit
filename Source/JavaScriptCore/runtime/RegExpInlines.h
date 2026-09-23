@@ -164,10 +164,16 @@ ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm
         }
 
         if (result == static_cast<int>(Yarr::JSRegExpResult::JITCodeFailure)) {
-            // JIT'ed code couldn't handle expression, so punt back to the interpreter.
-            byteCodeCompileIfNecessary(&vm);
-            if (m_state == ParseError)
-                return throwError();
+            // Punt to the bytecode interpreter. Only the mutator may compile bytecode; the compiler
+            // thread must use the bytecode that already exists, and bails out if there is no
+            // bytecode.
+            if constexpr (matchFrom == Yarr::MatchFrom::VMThread) {
+                byteCodeCompileIfNecessary(&vm);
+                if (m_state == ParseError)
+                    return throwError();
+            }
+            if (!m_regExpBytecode)
+                return -1;
             {
                 Yarr::MatchingContextHolder regExpContext(vm, this, matchFrom);
                 result = Yarr::interpret(m_regExpBytecode.get(), s, startOffset, reinterpret_cast<unsigned*>(offsetVector));
@@ -288,10 +294,16 @@ ALWAYS_INLINE MatchResult RegExp::matchInline(JSGlobalObject* nullOrGlobalObject
         if (result.start != static_cast<size_t>(Yarr::JSRegExpResult::JITCodeFailure))
             return result;
 
-        // JIT'ed code couldn't handle expression, so punt back to the interpreter.
-        byteCodeCompileIfNecessary(&vm);
-        if (m_state == ParseError)
-            return throwError();
+        // Punt to the bytecode interpreter. Only the mutator may compile bytecode; the compiler
+        // thread must use the bytecode that already exists, and bails out if there is no
+        // bytecode.
+        if constexpr (matchFrom == Yarr::MatchFrom::VMThread) {
+            byteCodeCompileIfNecessary(&vm);
+            if (m_state == ParseError)
+                return throwError();
+        }
+        if (!m_regExpBytecode)
+            return MatchResult::failed();
     }
 #endif
 

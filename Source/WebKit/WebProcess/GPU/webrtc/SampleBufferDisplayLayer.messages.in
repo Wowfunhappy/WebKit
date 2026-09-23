@@ -29,6 +29,7 @@
 ]
 messages -> SampleBufferDisplayLayer {
     SetDidFail(bool value)
+    UpdateVideoFrameCounters(uint64_t totalVideoFrames, uint64_t droppedVideoFrames)
 }
 
 #endif

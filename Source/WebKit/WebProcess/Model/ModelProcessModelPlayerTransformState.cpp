@@ -26,10 +26,10 @@
 #include "config.h"
 #include "ModelProcessModelPlayerTransformState.h"
 
-#if ENABLE(MODEL_PROCESS)
+#if ENABLE(MODEL_PROCESS) || ENABLE(GPU_PROCESS_MODEL)
 
+#include "CoreRESPI.h"
 #include "Logging.h"
-#include <CoreRE/CoreRE.h>
 
 namespace WebKit {
 
@@ -42,16 +42,26 @@ ModelProcessModelPlayerTransformState::ModelProcessModelPlayerTransformState(std
     : m_entityTransform(entityTransform)
     , m_boundingBoxCenter(boundingBoxCenter)
     , m_boundingBoxExtents(boundingBoxExtents)
+#if ENABLE(MODEL_ELEMENT_PORTAL)
     , m_hasPortal(hasPortal)
+#endif
     , m_stageModeOperation(stageModeOperation)
 {
+#if !ENABLE(MODEL_ELEMENT_PORTAL)
+    UNUSED_PARAM(hasPortal);
+#endif
 }
 
 std::unique_ptr<WebCore::ModelPlayerTransformState> ModelProcessModelPlayerTransformState::clone() const
 {
+#if ENABLE(MODEL_ELEMENT_PORTAL)
     return makeUnique<ModelProcessModelPlayerTransformState>(m_entityTransform, m_boundingBoxCenter, m_boundingBoxExtents, m_hasPortal, m_stageModeOperation);
+#else
+    return makeUnique<ModelProcessModelPlayerTransformState>(m_entityTransform, m_boundingBoxCenter, m_boundingBoxExtents, false, m_stageModeOperation);
+#endif
 }
 
+#if ENABLE(MODEL_PROCESS)
 static bool areSameSignAndAlmostEqual(float a, float b, float tolerance)
 {
     if (a * b < 0)
@@ -84,19 +94,29 @@ bool ModelProcessModelPlayerTransformState::transformSupported(const WebCore::Tr
 
     return true;
 }
+#endif
 
 void ModelProcessModelPlayerTransformState::setEntityTransform(WebCore::TransformationMatrix entityTransform)
 {
     ASSERT(m_stageModeOperation == WebCore::StageModeOperation::None);
+#if ENABLE(MODEL_PROCESS)
     if (transformSupported(entityTransform))
         m_entityTransform = entityTransform;
+#else
+    m_entityTransform = entityTransform;
+#endif
 }
 
 bool ModelProcessModelPlayerTransformState::isEntityTransformSupported(const WebCore::TransformationMatrix& transform) const
 {
+#if ENABLE(MODEL_PROCESS)
     return transformSupported(transform);
+#else
+    return true;
+#endif
 }
 
+#if ENABLE(MODEL_ELEMENT_PORTAL)
 void ModelProcessModelPlayerTransformState::setHasPortal(bool hasPortal)
 {
     if (m_hasPortal == hasPortal)
@@ -105,6 +125,7 @@ void ModelProcessModelPlayerTransformState::setHasPortal(bool hasPortal)
     m_hasPortal = hasPortal;
     invalidateTransform();
 }
+#endif
 
 void ModelProcessModelPlayerTransformState::setStageMode(WebCore::StageModeOperation stageModeOperation)
 {

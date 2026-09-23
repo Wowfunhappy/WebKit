@@ -39,7 +39,7 @@
 
     function remove() {
         waitForEventOn(sourceBuffer, 'updateend', checkRemoved, false, true);
-        run('sourceBuffer.remove(1.9, 2)');
+        run('sourceBuffer.remove(1, 2)');
     }
 
     function checkRemoved() {

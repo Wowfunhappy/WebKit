@@ -30,7 +30,7 @@
 
 #include "JSCellInlines.h"
 #include "JSObjectInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 #include "WasmTag.h"
 
 namespace JSC {

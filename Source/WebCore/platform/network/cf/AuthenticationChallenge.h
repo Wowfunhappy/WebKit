@@ -50,7 +50,7 @@ public:
 
 private:
     friend class AuthenticationChallengeBase;
-    static bool platformCompare(const AuthenticationChallenge& a, const AuthenticationChallenge& b);
+    static bool NODELETE platformCompare(const AuthenticationChallenge& a, const AuthenticationChallenge& b);
 
     // Platform challenge may be null. If it's non-null, it's always up to date with other fields.
     RetainPtr<id> m_sender;

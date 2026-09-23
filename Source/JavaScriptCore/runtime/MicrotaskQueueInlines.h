@@ -27,10 +27,12 @@
 
 #include <JavaScriptCore/Debugger.h>
 #include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSMicrotaskDispatcher.h>
 #include <JavaScriptCore/MicrotaskQueue.h>
 #include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/VMEntryScopeInlines.h>
+#include <wtf/SetForScope.h>
 
 namespace JSC {
 
@@ -42,14 +44,14 @@ inline JSCell* QueuedTask::dispatcher() const
 inline JSGlobalObject* QueuedTask::globalObject() const
 {
     if (isJSMicrotaskDispatcher()) [[unlikely]]
-        return jsCast<JSMicrotaskDispatcher*>(dispatcher())->globalObject();
-    return jsCast<JSGlobalObject*>(dispatcher());
+        return uncheckedDowncast<JSMicrotaskDispatcher>(dispatcher())->globalObject();
+    return uncheckedDowncast<JSGlobalObject>(dispatcher());
 }
 
 inline JSMicrotaskDispatcher* QueuedTask::jsMicrotaskDispatcher() const
 {
     if (isJSMicrotaskDispatcher()) [[unlikely]]
-        return jsCast<JSMicrotaskDispatcher*>(dispatcher());
+        return uncheckedDowncast<JSMicrotaskDispatcher>(dispatcher());
     return nullptr;
 }
 
@@ -72,9 +74,29 @@ inline void MicrotaskQueue::enqueue(QueuedTask&& task)
         scheduleToRunIfNeeded();
 }
 
+inline MicrotaskQueue& JSGlobalObject::microtaskQueue() const
+{
+    return m_microtaskQueue.get();
+}
+
+inline void JSGlobalObject::queueMicrotask(VM& vm, QueuedTask&& task)
+{
+    if (!m_canFastQueueMicrotask || vm.crossTaskToken()) [[unlikely]] {
+        queueMicrotaskSlow(vm, WTF::move(task));
+        return;
+    }
+    SUPPRESS_UNCOUNTED_ARG m_microtaskQueue->enqueue(WTF::move(task));
+}
+
+inline void JSGlobalObject::queueMicrotask(VM& vm, InternalMicrotask job, uint8_t payload, JSValue argument0, JSValue argument1, JSValue argument2)
+{
+    queueMicrotask(vm, QueuedTask { nullptr, job, payload, this, argument0, argument1, argument2 });
+}
+
 template<bool useCallOnEachMicrotask>
 inline void MicrotaskQueue::performMicrotaskCheckpoint(VM& vm, NOESCAPE const Invocable<void(JSGlobalObject*, JSGlobalObject*)> auto& globalObjectSwitchCallback)
 {
+    SetForScope inCheckpoint(m_isPerformingMicrotaskCheckpoint, true);
     auto catchScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     if (vm.executionForbidden()) [[unlikely]]
         clear();

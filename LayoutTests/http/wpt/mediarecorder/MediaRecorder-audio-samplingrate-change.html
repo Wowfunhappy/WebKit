@@ -63,6 +63,12 @@
         video.currentTime = 0.6;
         watcher = new EventWatcher(t, video, [ 'seeking', 'seeked' ]);
         await watcher.wait_for([ 'seeking', 'seeked' ]);
+        // The demuxing of webm samples is asynchronous and may not have completed by the time the seek completed.
+        // wait for duration to be known.
+        if (Number.isNaN(video.duration)) {
+            let watcher = new EventWatcher(t, video, [ 'durationchange' ]);
+            await watcher.wait_for([ 'durationchange' ]);
+        }
         assert_greater_than(video.duration, 0.5, "video got recorded past change of sample rate");
     }, "Recorder WebM with sampling rate change");
 </script>

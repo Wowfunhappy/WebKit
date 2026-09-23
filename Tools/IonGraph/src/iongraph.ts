@@ -1,4 +1,4 @@
-export const currentVersion = 1 as const;
+export const currentVersion = 2 as const;
 
 export interface IonJSON {
   version: typeof currentVersion,
@@ -7,6 +7,8 @@ export interface IonJSON {
 
 export interface Func {
   name: string,
+  tier: string | null,
+  osr: boolean,
   passes: Pass[],
 }
 
@@ -83,6 +85,15 @@ export function migrate(ionJSON: any): IonJSON {
 }
 
 function migrateFunc(f: any, version: number): Func {
+  if (version < 2) {
+    if (f.tier === undefined) {
+      f.tier = null;
+    }
+    if (f.osr === undefined) {
+      f.osr = false;
+    }
+  }
+
   for (const p of f.passes) {
     for (const b of p.mir.blocks) {
       migrateMIRBlock(b, version);
@@ -152,5 +163,11 @@ function migrateLIRInstruction(ins: any, version: number): LIRInstruction {
     stably identified by their corresponding MIR block.
   - Added "mirPtr" to LIR instructions so that they can be traced back to their
     MIR instruction. May be null.
+
+- Version 2: Added compilation tier metadata to functions:
+  - Added "tier" on Func: a string identifying the compilation tier (e.g.
+    "DFG", "FTL", "OMG"). May be null when unknown.
+  - Added "osr" on Func: true when the compilation is an OSR-entry variant
+    (FTLForOSREntry, OMGForOSREntry).
 
 */

@@ -23,9 +23,15 @@
 
 #include "BaseTarget.xcconfig"
 
-WK_OPTIMIZATION_PROFILE_FILE = $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/JavaScriptCore.profdata;
-WK_COMPRESSED_OPTIMIZATION_PROFILE_FILE = $(WK_COMPRESSED_OPTIMIZATION_PROFILE_FILE_$(USE_INTERNAL_SDK));
-WK_COMPRESSED_OPTIMIZATION_PROFILE_FILE_YES = $(WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH)/Profiling/JavaScriptCore.profdata.compressed;
+WK_OPTIMIZATION_PROFILE_FILE = $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/Profiling/$(arch).profdata;
+WK_COMPRESSED_OPTIMIZATION_PROFILE_FOLDER = $(WK_COMPRESSED_OPTIMIZATION_PROFILE_FOLDER_$(USE_INTERNAL_SDK));
+WK_COMPRESSED_OPTIMIZATION_PROFILE_FOLDER_YES = $(WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH)/Profiling;
+
+// WTF builds first as a dependency of JSC and decompresses the same
+// PGO profile JSC uses. JSC's Copy Profiling Data phase symlinks to WTF's
+// already-decompressed output when present, falling back to a fresh decompression
+// if WTF's output is missing. This saves 50MB of disk space at desk.
+WK_PGO_REUSE_FROM_TARGET = WTF;
 
 WK_ENABLE_PGO_USE = $(WK_ENABLE_PGO_USE_$(WK_NOT_$(ENABLE_LLVM_PROFILE_GENERATION))_$(USE_INTERNAL_SDK)_$(CONFIGURATION)_$(WK_PLATFORM_NAME));
 WK_ENABLE_PGO_USE_YES_YES_Release_macosx = YES;
@@ -42,8 +48,13 @@ WK_PGO_USE_LDFLAGS_YES = -fprofile-use=$(WK_OPTIMIZATION_PROFILE_FILE) -Wno-erro
 
 OTHER_CFLAGS = $(inherited) $(WK_PGO_USE_CFLAGS) $(WK_PGO_GEN_FLAGS);
 OTHER_LDFLAGS = $(inherited) $(WK_PGO_USE_LDFLAGS) $(WK_PGO_GEN_FLAGS);
+// rdar://174426778: Force a 64-bit fat header, as some build configurations
+// generate a >4GB static archive but do not trigger sizing logic inside lipo.
+OTHER_LIPOFLAGS = $(inherited) -fat64;
 
 SKIP_INSTALL = YES;
+
+ENABLE_USER_SCRIPT_SANDBOXING = NO;
 
 STRIP_INSTALLED_PRODUCT = NO;
 

@@ -31,15 +31,13 @@
 #include "WebProcessMessages.h"
 #include "WebProcessPool.h"
 #include "WebsiteDataStore.h"
-#include "WebsiteDataStoreParameters.h"
 #include <WebCore/Cookie.h>
-#include <WebCore/CookieStorage.h>
 #include <WebCore/HTTPCookieAcceptPolicy.h>
-#include <WebCore/NetworkStorageSession.h>
 #include <wtf/CallbackAggregator.h>
 // MAVERICKS_BACKPORT: the legacy observer uses the same typed allocation and callback ownership as native API observers.
 #include <wtf/Function.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/CrossThreadCopier.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "DefaultWebBrowserChecks.h"
@@ -68,45 +66,87 @@ WebKit::WebsiteDataStore* HTTPCookieStore::owningDataStore() const
     return m_owningDataStore.get();
 }
 
+#if ENABLE(APP_BOUND_DOMAINS)
+static Vector<WebCore::Cookie> filterCookiesByAppBoundDomains(Vector<WebCore::Cookie>&& cookies, const HashSet<WebCore::RegistrableDomain>& appBoundDomains)
+{
+    if (appBoundDomains.isEmpty())
+        return cookies;
+
+    return WTF::compactMap(WTF::move(cookies), [&](auto&& cookie) -> std::optional<WebCore::Cookie> {
+        if (appBoundDomains.contains(WebCore::RegistrableDomain::uncheckedCreateFromHost(cookie.domain)))
+            return WTF::move(cookie);
+        return std::nullopt;
+    });
+}
+#endif
+
 void HTTPCookieStore::filterAppBoundCookies(Vector<WebCore::Cookie>&& cookies, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
 #if ENABLE(APP_BOUND_DOMAINS)
     if (!m_owningDataStore)
         return completionHandler({ });
-    RefPtr { m_owningDataStore.get() }->getAppBoundDomains([cookies = WTF::move(cookies), completionHandler = WTF::move(completionHandler)] (auto& domains) mutable {
-        Vector<WebCore::Cookie> appBoundCookies;
-        if (!domains.isEmpty() && !isFullWebBrowserOrRunningTest()) {
-            for (auto& cookie : WTF::move(cookies)) {
-                if (domains.contains(WebCore::RegistrableDomain::uncheckedCreateFromHost(cookie.domain)))
-                    appBoundCookies.append(WTF::move(cookie));
-            }
-        } else
-            appBoundCookies = WTF::move(cookies);
-        completionHandler(WTF::move(appBoundCookies));
+    protect(m_owningDataStore)->getAppBoundDomains([cookies = WTF::move(cookies), completionHandler = WTF::move(completionHandler)] (auto& domains) mutable {
+        HashSet<WebCore::RegistrableDomain> appBoundDomains;
+        if (!isFullWebBrowserOrRunningTest())
+            appBoundDomains = domains;
+        completionHandler(filterCookiesByAppBoundDomains(WTF::move(cookies), appBoundDomains));
     });
 #else
     completionHandler(WTF::move(cookies));
 #endif
 }
 
-void HTTPCookieStore::cookies(CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
+template<typename Message>
+void HTTPCookieStore::fetchCookies(Message&& message, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler, RefPtr<WorkQueue> replyQueue)
 {
-    if (RefPtr networkProcess = networkProcessIfExists()) {
-        networkProcess->sendWithAsyncReply(Messages::WebCookieManager::GetAllCookies(m_sessionID), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (Vector<WebCore::Cookie>&& cookies) mutable {
+    RefPtr networkProcess = networkProcessLaunchingIfNecessary();
+    if (!networkProcess) {
+        if (replyQueue)
+            replyQueue->dispatch([completionHandler = WTF::move(completionHandler)]() mutable { completionHandler({ }); });
+        else
+            completionHandler({ });
+        return;
+    }
+
+    if (!replyQueue) {
+        // Existing main-thread path: reply lands on main, then filter on main.
+        networkProcess->sendWithAsyncReply(std::forward<Message>(message), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (Vector<WebCore::Cookie>&& cookies) mutable {
             filterAppBoundCookies(WTF::move(cookies), WTF::move(completionHandler));
         });
-    } else
-        completionHandler({ });
+        return;
+    }
+
+#if ENABLE(APP_BOUND_DOMAINS)
+    // Resolve app-bound domains on the main thread first, then send the IPC with the reply
+    // dispatched on replyQueue. The filtering itself happens on replyQueue using the captured set.
+    RefPtr dataStore = m_owningDataStore;
+    if (!dataStore) {
+        replyQueue->dispatch([completionHandler = WTF::move(completionHandler)]() mutable { completionHandler({ }); });
+        return;
+    }
+    dataStore->getAppBoundDomains([message = std::forward<Message>(message), completionHandler = WTF::move(completionHandler), replyQueue = WTF::move(replyQueue), networkProcess = WTF::move(networkProcess)] (auto& domains) mutable {
+        HashSet<WebCore::RegistrableDomain> appBoundDomains;
+        if (!domains.isEmpty() && !isFullWebBrowserOrRunningTest())
+            appBoundDomains = crossThreadCopy(domains);
+        networkProcess->sendWithAsyncReplyOnDispatcher(WTF::move(message), *replyQueue, [completionHandler = WTF::move(completionHandler), appBoundDomains = WTF::move(appBoundDomains), replyQueue = protect(*replyQueue)] (Vector<WebCore::Cookie>&& cookies) mutable {
+            assertIsCurrent(replyQueue);
+            completionHandler(filterCookiesByAppBoundDomains(WTF::move(cookies), appBoundDomains));
+        });
+    });
+#else
+    // No app-bound filtering needed. Send IPC with reply directly on replyQueue.
+    networkProcess->sendWithAsyncReplyOnDispatcher(std::forward<Message>(message), *replyQueue, WTF::move(completionHandler));
+#endif
 }
 
-void HTTPCookieStore::cookiesForURL(WTF::URL&& url, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
+void HTTPCookieStore::cookies(CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler, RefPtr<WorkQueue> replyQueue)
 {
-    if (RefPtr networkProcess = networkProcessIfExists()) {
-        networkProcess->sendWithAsyncReply(Messages::WebCookieManager::GetCookies(m_sessionID, url), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (Vector<WebCore::Cookie>&& cookies) mutable {
-            filterAppBoundCookies(WTF::move(cookies), WTF::move(completionHandler));
-        });
-    } else
-        completionHandler({ });
+    fetchCookies(Messages::WebCookieManager::GetAllCookies(m_sessionID), WTF::move(completionHandler), WTF::move(replyQueue));
+}
+
+void HTTPCookieStore::cookiesForURL(WTF::URL&& url, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler, RefPtr<WorkQueue> replyQueue)
+{
+    fetchCookies(Messages::WebCookieManager::GetCookies(m_sessionID, WTF::move(url)), WTF::move(completionHandler), WTF::move(replyQueue));
 }
 
 void HTTPCookieStore::setCookies(Vector<WebCore::Cookie>&& cookies, CompletionHandler<void()>&& completionHandler)

@@ -35,12 +35,9 @@ class RenderBlockFlow;
 class RenderTreeBuilder::Block {
     WTF_MAKE_TZONE_ALLOCATED(Block);
 public:
-    static RenderBlock* continuationBefore(RenderBlock& parent, RenderObject* beforeChild);
-
     Block(RenderTreeBuilder&);
 
     void attach(RenderBlock& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild);
-    void attachIgnoringContinuation(RenderBlock& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild);
 
     [[nodiscard]] RenderPtr<RenderObject> detach(RenderBlock& parent, RenderObject& oldChild, RenderTreeBuilder::WillBeDestroyed, CanCollapseAnonymousBlock = CanCollapseAnonymousBlock::Yes);
     [[nodiscard]] RenderPtr<RenderObject> detach(RenderBlockFlow& parent, RenderObject& child, RenderTreeBuilder::WillBeDestroyed, CanCollapseAnonymousBlock = CanCollapseAnonymousBlock::Yes);
@@ -48,10 +45,9 @@ public:
     void dropAnonymousBoxChild(RenderBlock& parent, RenderBlock& child);
     void childBecameNonInline(RenderBlock& parent, RenderElement& child);
 
-    static RenderPtr<RenderBlockFlow> createAnonymousBlockWithStyle(Document&, const RenderStyle&);
+    static RenderPtr<RenderBlockFlow> createAnonymousBlockWithStyle(Document&, const Style::ComputedStyle&);
 
 private:
-    void insertChildToContinuation(RenderBlock& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild);
     void removeLeftoverAnonymousBlock(RenderBlock& anonymousBlock);
 
     RenderTreeBuilder& m_builder;

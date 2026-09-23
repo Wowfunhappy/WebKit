@@ -49,6 +49,8 @@ public:
     void glyphWidths(unsigned count, const hb_codepoint_t* glyphs, unsigned glyphStride, hb_position_t* advances, unsigned advanceStride);
     void glyphExtents(hb_codepoint_t, hb_glyph_extents_t*);
 
+    bool isColorBitmapFont() const { return m_isColorBitmapFont; }
+
     ~SkiaHarfBuzzFont();
 
 private:

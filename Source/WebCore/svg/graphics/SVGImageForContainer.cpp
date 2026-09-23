@@ -56,7 +56,7 @@ void SVGImageForContainer::drawPattern(GraphicsContext& context, const FloatRect
 
 RefPtr<NativeImage> SVGImageForContainer::currentNativeImage()
 {
-    return protect(m_image)->currentNativeImage();
+    return protect(m_image)->nativeImage(size());
 }
 
 } // namespace WebCore

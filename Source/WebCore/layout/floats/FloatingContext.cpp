@@ -34,7 +34,7 @@
 #include "LayoutContainingBlockChainIterator.h"
 #include "LayoutElementBox.h"
 #include "LayoutShape.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <ranges>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -349,6 +349,56 @@ std::optional<FloatingContext::BlockAxisPositionWithClearance> FloatingContext::
     return { };
 }
 
+static bool floatContainsLine(const Rect& floatBoxRect, LayoutUnit candidateTop, LayoutUnit candidateBottom, LayoutUnit candidateHeight)
+{
+    if (floatBoxRect.isEmpty())
+        return false;
+    if (!candidateHeight)
+        return floatBoxRect.top() <= candidateTop && floatBoxRect.bottom() > candidateTop;
+    return floatBoxRect.top() < candidateBottom && floatBoxRect.bottom() > candidateTop;
+}
+
+static std::optional<std::pair<LayoutUnit, LayoutUnit>> computeShapeEdge(const PlacedFloats::Item& floatItem, const Rect& marginRect, LayoutUnit candidateTop, LayoutUnit candidateHeight)
+{
+    RefPtr shape = floatItem.shape();
+    if (!shape)
+        return { };
+
+    auto borderRect = floatItem.absoluteBorderBoxRect();
+    auto positionInShape = candidateTop - borderRect.top();
+
+    if (!shape->lineOverlapsShapeMarginBounds(positionInShape, candidateHeight))
+        return { };
+
+    // PolygonShape gets confused when passing in 0px height interval at vertices.
+    auto segment = shape->getExcludedInterval(positionInShape, std::max(candidateHeight, 1_lu));
+    if (!segment.isValid)
+        return { };
+
+    // FIXME: This is potentially slow.
+    auto bottom = candidateTop + 1_lu;
+
+    if (floatItem.isStartPositioned()) {
+        auto shapeRight = borderRect.left() + LayoutUnit { segment.logicalRight };
+        return std::pair { std::min(shapeRight, marginRect.right()), bottom };
+    }
+    auto shapeLeft = borderRect.left() + LayoutUnit { segment.logicalLeft };
+    return std::pair { std::max(shapeLeft, marginRect.left()), bottom };
+}
+
+static std::optional<std::pair<LayoutUnit, LayoutUnit>> computeFloatEdgeAndBottom(const PlacedFloats::Item& floatItem, LayoutUnit candidateTop, LayoutUnit candidateBottom, LayoutUnit candidateHeight)
+{
+    auto marginRect = floatItem.absoluteRectWithMargin();
+    if (!floatContainsLine(marginRect, candidateTop, candidateBottom, candidateHeight))
+        return { };
+
+    if (floatItem.shape())
+        return computeShapeEdge(floatItem, marginRect, candidateTop, candidateHeight);
+
+    auto edge = floatItem.isStartPositioned() ? marginRect.right() : marginRect.left();
+    return std::pair { edge, marginRect.bottom() };
+}
+
 FloatingContext::Constraints FloatingContext::constraints(LayoutUnit candidateTop, LayoutUnit candidateBottom, MayBeAboveLastFloat mayBeAboveLastFloat) const
 {
     if (isEmpty())
@@ -368,56 +418,13 @@ FloatingContext::Constraints FloatingContext::constraints(LayoutUnit candidateTo
     auto adjustedCandidateBottom = adjustedCandidateTop + (candidateBottom - candidateTop);
     auto candidateHeight = adjustedCandidateBottom - adjustedCandidateTop;
 
-    auto contains = [&] (auto& floatBoxRect) {
-        if (floatBoxRect.isEmpty())
-            return false;
-        if (!candidateHeight)
-            return floatBoxRect.top() <= adjustedCandidateTop && floatBoxRect.bottom() > adjustedCandidateTop;
-        return floatBoxRect.top() < adjustedCandidateBottom && floatBoxRect.bottom() > adjustedCandidateTop;
-    };
-
-    auto computeFloatEdgeAndBottom = [&](auto& floatItem) -> std::optional<std::pair<LayoutUnit, LayoutUnit>> {
-        auto marginRect = floatItem.absoluteRectWithMargin();
-        if (!contains(marginRect))
-            return { };
-
-        if (auto* shape = floatItem.shape()) {
-            // Shapes are relative to the border box.
-            auto borderRect = floatItem.absoluteBorderBoxRect();
-            auto positionInShape = adjustedCandidateTop - borderRect.top();
-
-            if (!shape->lineOverlapsShapeMarginBounds(positionInShape, candidateHeight))
-                return { };
-
-            // PolygonShape gets confused when passing in 0px height interval at vertices.
-            auto segment = shape->getExcludedInterval(positionInShape, std::max(candidateHeight, 1_lu));
-            if (!segment.isValid)
-                return { };
-
-            // Bottom is used to decide the next line top if nothing fits. With shape we'll just sample one pixel down.
-            // FIXME: This is potentially slow.
-            auto bottom = adjustedCandidateTop + 1_lu;
-
-            if (floatItem.isStartPositioned()) {
-                auto shapeRight = borderRect.left() + LayoutUnit { segment.logicalRight };
-                // Shape can't extend beyond the margin box.
-                return std::pair { std::min(shapeRight, marginRect.right()), bottom };
-            }
-            auto shapeLeft = borderRect.left() + LayoutUnit { segment.logicalLeft };
-            return std::pair { std::max(shapeLeft, marginRect.left()), bottom };
-        }
-
-        auto edge = floatItem.isStartPositioned() ? marginRect.right() : marginRect.left();
-        return std::pair { edge, marginRect.bottom() };
-    };
-
     auto constraints = Constraints { };
     if (mayBeAboveLastFloat == MayBeAboveLastFloat::No) {
         for (auto& floatItem : placedFloats.list() | std::views::reverse) {
             if ((constraints.start && floatItem.isStartPositioned()) || (constraints.end && !floatItem.isStartPositioned()))
                 continue;
 
-            auto edgeAndBottom = computeFloatEdgeAndBottom(floatItem);
+            auto edgeAndBottom = computeFloatEdgeAndBottom(floatItem, adjustedCandidateTop, adjustedCandidateBottom, candidateHeight);
             if (!edgeAndBottom)
                 continue;
 
@@ -428,14 +435,12 @@ FloatingContext::Constraints FloatingContext::constraints(LayoutUnit candidateTo
             else
                 constraints.end = PointInContextRoot { edge, bottom };
 
-            if ((constraints.start && constraints.end)
-                || (constraints.start && !placedFloats.hasEndPositioned())
-                || (constraints.end && !placedFloats.hasStartPositioned()))
+            if ((constraints.start && constraints.end) || (constraints.start && !placedFloats.hasEndPositioned()) || (constraints.end && !placedFloats.hasStartPositioned()))
                 break;
         }
     } else {
         for (auto& floatItem : placedFloats.list() | std::views::reverse) {
-            auto edgeAndBottom = computeFloatEdgeAndBottom(floatItem);
+            auto edgeAndBottom = computeFloatEdgeAndBottom(floatItem, adjustedCandidateTop, adjustedCandidateBottom, candidateHeight);
             if (!edgeAndBottom)
                 continue;
 
@@ -659,7 +664,7 @@ bool FloatPair::intersects(const FloatAvoider& floatAvoider) const
     return intersects(inlineStart()) || intersects(inlineEnd());
 }
 
-bool FloatPair::intersects(BoxGeometry::HorizontalEdges containingBlockContentBoxEdges) const
+bool NODELETE FloatPair::intersects(BoxGeometry::HorizontalEdges containingBlockContentBoxEdges) const
 {
     ASSERT(!m_floatPair.isEmpty());
 

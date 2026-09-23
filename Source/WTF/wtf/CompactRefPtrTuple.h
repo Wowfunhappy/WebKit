@@ -29,6 +29,7 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WTF {
 
@@ -82,6 +83,7 @@ public:
     ~CompactRefPtrTuple()
     {
         WTF::DefaultRefDerefTraits<T>::derefIfNotNull(m_data.pointer());
+        secureZeroBytes(m_data);
     }
 
     T* pointer() const LIFETIME_BOUND

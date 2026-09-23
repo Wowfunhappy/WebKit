@@ -1,4 +1,6 @@
 
+PASS intrinsic size of a with contain: size; contain-intrinsic-inline-size: 111px;
+PASS inline-size of a with contain: size; contain-intrinsic-inline-size: 111px;
 PASS intrinsic size of maction with contain: size; contain-intrinsic-inline-size: 111px;
 PASS inline-size of maction with contain: size; contain-intrinsic-inline-size: 111px;
 PASS intrinsic size of menclose with contain: size; contain-intrinsic-inline-size: 111px;

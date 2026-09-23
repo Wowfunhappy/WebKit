@@ -152,6 +152,9 @@ MediaTime/
 # Bug 167616 - Performance test IndexedDB/large-binary-keys.html creates a DB of more than 6GB and takes more than 10 minutes to run.
 [GTK] IndexedDB/stress/large-binary-keys.html
 
+# WTR doesn't load any content-extension rules, so it can't benchmark meaningfully here. Run manually.
+Bindings/insert-img-with-src.html
+
 # Skip timeouts.
 [Win] IndexedDB/basic/index-cursor-delete-2.html
 [Win] IndexedDB/basic/index-cursor-delete.html

@@ -35,6 +35,8 @@
 
 namespace WebCore {
 
+class Exception;
+
 class ReadableStreamSource : public AbstractRefCounted {
 public:
     WEBCORE_EXPORT ReadableStreamSource();
@@ -55,7 +57,8 @@ protected:
 
     void startFinished();
     void pullFinished();
-    void cancelFinished(std::optional<Exception>&& = { });
+    void cancelFinished();
+    void cancelFinished(Exception&&);
     void cancelFinishedWithError(JSC::JSValue);
     WEBCORE_EXPORT void clean();
 

@@ -59,7 +59,7 @@ public:
     void clearLatchedNode();
 
 private:
-    bool latchedNodeIsRelevant() const;
+    bool latchedNodeHasRecentInteraction() const;
 
     mutable Lock m_latchedNodeLock;
     std::optional<ScrollingNodeAndProcessingSteps> m_latchedNodeAndSteps WTF_GUARDED_BY_LOCK(m_latchedNodeLock);

@@ -65,7 +65,7 @@ void PseudoClassChangeInvalidation::computeInvalidation(CSSSelector::PseudoClass
     bool shouldInvalidateCurrent = false;
     bool mayAffectStyleInShadowTree = false;
 
-    traverseRuleFeatures(m_element, [&] (const RuleFeatureSet& features, bool mayAffectShadowTree) {
+    traverseRuleFeatures(protect(m_element), [&] (const RuleFeatureSet& features, bool mayAffectShadowTree) {
         if (mayAffectShadowTree && features.pseudoClasses.contains(pseudoClass))
             mayAffectStyleInShadowTree = true;
         if (m_element.shadowRoot() && features.pseudoClassesAffectingHost.contains(pseudoClass))
@@ -74,30 +74,30 @@ void PseudoClassChangeInvalidation::computeInvalidation(CSSSelector::PseudoClass
 
     if (mayAffectStyleInShadowTree) {
         // FIXME: We should do fine-grained invalidation for shadow tree.
-        m_element.invalidateStyleForSubtree();
+        protect(m_element)->invalidateStyleForSubtree();
     }
 
     if (shouldInvalidateCurrent)
-        m_element.invalidateStyle();
+        protect(m_element)->invalidateStyle();
 
-    for (auto& key : makePseudoClassInvalidationKeys(pseudoClass, m_element))
+    for (auto& key : makePseudoClassInvalidationKeys(pseudoClass, protect(m_element)))
         collectRuleSets(key, value, invalidationScope);
 }
 
 void PseudoClassChangeInvalidation::collectRuleSets(const PseudoClassInvalidationKey& key, Value value, InvalidationScope invalidationScope)
 {
-    auto collect = [&](auto& ruleSets, std::optional<MatchElement> onlyMatchElement = { }) {
+    auto collect = [&](auto& ruleSets, std::optional<MatchElement::Relation> onlyRelation = { }) {
         auto* invalidationRuleSets = ruleSets.pseudoClassInvalidationRuleSets(key);
         if (!invalidationRuleSets)
             return;
 
         for (auto& invalidationRuleSet : *invalidationRuleSets) {
-            if (onlyMatchElement && invalidationRuleSet.matchElement != onlyMatchElement)
+            if (onlyRelation && invalidationRuleSet.matchElement.relation != onlyRelation)
                 continue;
 
             // For focus/hover we flip the whole ancestor chain. We only need to do deep invalidation traversal in the change root.
             auto shouldInvalidate = [&] {
-                bool invalidatesAllDescendants = invalidationRuleSet.matchElement == MatchElement::Ancestor && isUniversalInvalidation(key);
+                bool invalidatesAllDescendants = invalidationRuleSet.matchElement.relation == MatchElement::Relation::Ancestor && isUniversalInvalidation(key);
                 switch (invalidationScope) {
                 case InvalidationScope::All:
                     return true;
@@ -126,20 +126,20 @@ void PseudoClassChangeInvalidation::collectRuleSets(const PseudoClassInvalidatio
         }
     };
 
-    collect(m_element.styleResolver().ruleSets());
+    collect(protect(m_element)->styleResolver().ruleSets());
 
     if (RefPtr shadowRoot = m_element.shadowRoot())
-        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Host);
+        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Relation::Host);
 }
 
 void PseudoClassChangeInvalidation::invalidateBeforeChange()
 {
-    Invalidator::invalidateWithMatchElementRuleSets(m_element, m_beforeChangeRuleSets);
+    Invalidator::invalidateWithMatchElementRuleSets(protect(m_element), m_beforeChangeRuleSets);
 }
 
 void PseudoClassChangeInvalidation::invalidateAfterChange()
 {
-    Invalidator::invalidateWithMatchElementRuleSets(m_element, m_afterChangeRuleSets);
+    Invalidator::invalidateWithMatchElementRuleSets(protect(m_element), m_afterChangeRuleSets);
 }
 
 

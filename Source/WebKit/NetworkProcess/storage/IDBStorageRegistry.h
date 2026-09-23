@@ -42,23 +42,28 @@ class UniqueIDBDatabaseTransaction;
 namespace WebKit {
 
 class IDBStorageConnectionToClient;
+class NetworkStorageManager;
 
 class IDBStorageRegistry : public CanMakeThreadSafeCheckedPtr<IDBStorageRegistry> {
     WTF_MAKE_TZONE_ALLOCATED(IDBStorageRegistry);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(IDBStorageRegistry);
 public:
-    IDBStorageRegistry();
+    explicit IDBStorageRegistry(NetworkStorageManager&);
     ~IDBStorageRegistry();
-    WebCore::IDBServer::IDBConnectionToClient& ensureConnectionToClient(IPC::Connection::UniqueID, WebCore::IDBConnectionIdentifier);
+    WebCore::IDBServer::IDBConnectionToClient* ensureConnectionToClient(IPC::Connection&, const WebCore::IDBResourceIdentifier&, NetworkStorageManager&);
+    WebCore::IDBServer::IDBConnectionToClient* existingConnectionToClient(WebCore::IDBConnectionIdentifier);
     void removeConnectionToClient(IPC::Connection::UniqueID);
     void registerConnection(WebCore::IDBServer::UniqueIDBDatabaseConnection&);
     void unregisterConnection(WebCore::IDBServer::UniqueIDBDatabaseConnection&);
-    WebCore::IDBServer::UniqueIDBDatabaseConnection* NODELETE connection(WebCore::IDBDatabaseConnectionIdentifier);
+    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection> NODELETE connection(WebCore::IDBDatabaseConnectionIdentifier, IPC::Connection&);
     void registerTransaction(WebCore::IDBServer::UniqueIDBDatabaseTransaction&);
     void unregisterTransaction(WebCore::IDBServer::UniqueIDBDatabaseTransaction&);
-    WebCore::IDBServer::UniqueIDBDatabaseTransaction* NODELETE transaction(WebCore::IDBResourceIdentifier);
+    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction> NODELETE transaction(WebCore::IDBResourceIdentifier, IPC::Connection&);
 
 private:
+    bool isValidConnectionForIPC(WebCore::IDBServer::UniqueIDBDatabaseConnection&, IPC::Connection&);
+
+    ThreadSafeWeakRef<NetworkStorageManager> m_manager;
     HashMap<WebCore::IDBConnectionIdentifier, std::unique_ptr<IDBStorageConnectionToClient>> m_connectionsToClient;
     HashMap<WebCore::IDBDatabaseConnectionIdentifier, WeakPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection>> m_connections;
     HashMap<WebCore::IDBResourceIdentifier, WeakPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction>> m_transactions;

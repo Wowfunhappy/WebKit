@@ -30,17 +30,14 @@
 #include "Options.h"
 #include "WasmFaultSignalHandler.h"
 #include <cstring>
-#include <limits>
 #include <mutex>
-#include <wtf/CheckedArithmetic.h>
 #include <wtf/DataLog.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OSAllocator.h>
 #include <wtf/Platform.h>
 #include <wtf/PrintStream.h>
-#include <wtf/SafeStrerror.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
@@ -54,6 +51,10 @@ namespace JSC {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(BufferMemoryHandle);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(BufferMemoryManager);
+
+BufferMemoryManager::BufferMemoryManager()
+    : m_maxFastMemoryCount(Options::maxNumWasmFastMemories())
+{ }
 
 size_t BufferMemoryHandle::fastMappedRedzoneBytes()
 {
@@ -302,7 +303,6 @@ void BufferMemoryHandle::registerInstance(JSWebAssemblyInstance& instance)
     RefPtr anchor = instance.anchor();
     RELEASE_ASSERT(anchor);
     m_anchors.add(*anchor);
-    instance.updateCachedMemory();
 }
 #endif
 

@@ -38,6 +38,7 @@ namespace WebCore {
 class FontCache;
 class FontCascadeDescription;
 class FontDescription;
+struct FontFamily;
 class FontSelectorClient;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(FontAccessor);
@@ -55,7 +56,7 @@ class FontSelector : public RefCountedAndCanMakeWeakPtr<FontSelector> {
 public:
     virtual ~FontSelector() = default;
 
-    virtual FontRanges fontRangesForFamily(const FontDescription&, const AtomString&) = 0;
+    virtual FontRanges fontRangesForFamily(const FontDescription&, const FontFamily&) = 0;
     virtual RefPtr<Font> fallbackFontAt(const FontDescription&, size_t) = 0;
 
     virtual size_t fallbackFontCount() = 0;
@@ -68,7 +69,7 @@ public:
     virtual void unregisterForInvalidationCallbacks(FontSelectorClient&) = 0;
 
     virtual unsigned uniqueId() const = 0;
-    virtual unsigned version() const = 0;
+    virtual unsigned NODELETE version() const = 0;
 
     virtual bool isSimpleFontSelectorForDescription() const = 0;
 

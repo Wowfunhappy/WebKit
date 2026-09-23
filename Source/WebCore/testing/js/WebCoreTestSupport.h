@@ -65,6 +65,9 @@ TEST_SUPPORT_EXPORT void setLinkedOnOrAfterEverythingForTesting();
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 TEST_SUPPORT_EXPORT void setAccessibilityIsolatedTreeEnabled(bool);
+TEST_SUPPORT_EXPORT bool isAccessibilityIsolatedTreeModeEnabled();
+TEST_SUPPORT_EXPORT void setAccessibilityTestTeardownCallback(Function<void()>&&);
+TEST_SUPPORT_EXPORT void notifyAccessibilityTestTeardown();
 #endif
 
 TEST_SUPPORT_EXPORT void installMockGamepadProvider();

@@ -193,7 +193,7 @@ enum class ContextMenuItemType : uint8_t {
 class ContextMenuItem {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(ContextMenuItem, WEBCORE_EXPORT);
 public:
-    WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, ContextMenu* subMenu = 0);
+    WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, ContextMenu* subMenu = nullptr);
     WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, bool enabled, bool checked, unsigned indentationLevel = 0);
 
     WEBCORE_EXPORT ~ContextMenuItem();

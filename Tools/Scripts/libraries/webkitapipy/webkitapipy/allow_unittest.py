@@ -32,6 +32,7 @@ Toml = b'''
 request = "rdar://123456789"
 cleanup = "rdar://123456790"
 symbols = ["TemporarilyAllowedSymbol"]
+swift-decls = [{ name = "UIKit._SomeSPIClass" }]
 selectors = [{ name = "_initWithTemporarilyAllowedData:", class = "?" }]
 classes = ["NSTemporarilyAllowed"]
 
@@ -48,7 +49,8 @@ A1 = AllowedSPI(reason=AllowedReason.TEMPORARY_USAGE,
                                      cleanup='rdar://123456790'),
                 symbols=['_TemporarilyAllowedSymbol'],
                 selectors=[AllowedSPI.Selector('_initWithTemporarilyAllowedData:', None)],
-                classes=['NSTemporarilyAllowed'])
+                classes=['NSTemporarilyAllowed'],
+                swift_decls=[AllowedSPI.SwiftDecl(name='UIKit._SomeSPIClass')])
 A2 = AllowedSPI(reason=AllowedReason.NOT_WEB_ESSENTIAL,
                 bugs=AllowedSPI.Bugs(request='rdar://234567890', cleanup=None),
                 symbols=['_Permanent1', '_Permanent2'],

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -58,13 +59,10 @@ ExceptionOr<Ref<CSSMatrixComponent>> CSSMatrixComponent::create(Ref<const CSSFun
     auto makeMatrix = [&](NOESCAPE const Function<Ref<CSSMatrixComponent>(Vector<double>&&)>& create, size_t expectedNumberOfComponents) -> ExceptionOr<Ref<CSSMatrixComponent>> {
         Vector<double> components;
         for (Ref componentCSSValue : cssFunctionValue.get()) {
-            auto valueOrException = CSSStyleValueFactory::reifyValue(document, componentCSSValue.get(), std::nullopt);
+            auto valueOrException = CSSUnitValue::reifyValue(document, componentCSSValue.get());
             if (valueOrException.hasException())
                 return valueOrException.releaseException();
-            RefPtr unitValue = dynamicDowncast<CSSUnitValue>(valueOrException.releaseReturnValue());
-            if (!unitValue)
-                return Exception { ExceptionCode::TypeError, "Expected a CSSUnitValue."_s };
-            components.append(unitValue->value());
+            components.append(valueOrException.returnValue()->value());
         }
         if (components.size() != expectedNumberOfComponents) {
             ASSERT_NOT_REACHED();

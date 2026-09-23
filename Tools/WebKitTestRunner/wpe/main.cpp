@@ -26,7 +26,8 @@
 #include "config.h"
 
 #include "TestController.h"
-#include <glib.h>
+#include <WebKit/WKTextCheckerGLib.h>
+#include <wtf/glib/GRefPtr.h>
 
 int main(int argc, char** argv)
 {
@@ -34,6 +35,11 @@ int main(int argc, char** argv)
 #if USE(ATSPI)
     g_setenv("WEBKIT_A11Y_BUS_ADDRESS", "", FALSE);
 #endif
+
+    // Set spell-checking language to en-US.
+    GRefPtr<GPtrArray> languages = adoptGRef(g_ptr_array_new());
+    g_ptr_array_add(languages.get(), const_cast<gpointer>(static_cast<const void*>("en_US")));
+    WKTextCheckerSetSpellCheckingLanguages(reinterpret_cast<const char* const*>(languages->pdata), languages->len);
 
     WTR::TestController controller(argc, const_cast<const char**>(argv));
     return 0;

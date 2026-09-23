@@ -32,6 +32,7 @@
 #include "Common.h"
 #include "MiniBrowserLibResource.h"
 #include "WebKitBrowserWindow.h"
+#include <wtf/RunLoop.h>
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int nCmdShow)
 {
@@ -41,7 +42,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPWSTR, _
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
 #endif
 
-    MSG msg { };
     HACCEL hAccelTable, hPreAccelTable;
 
     INITCOMMONCONTROLSEX InitCtrlEx;
@@ -78,17 +78,15 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPWSTR, _
 
     // Main message loop:
     __try {
-        while (GetMessage(&msg, nullptr, 0, 0)) {
+        RunLoop::setWindowsMessageHandler([hAccelTable, hPreAccelTable] (MSG& msg) {
             if (TranslateAccelerator(msg.hwnd, hPreAccelTable, &msg))
-                continue;
+                return true;
             bool processed = false;
             if (MainWindow::isInstance(msg.hwnd))
                 processed = TranslateAccelerator(msg.hwnd, hAccelTable, &msg);
-            if (!processed) {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-        }
+            return processed;
+        });
+        RunLoop::run();
     } __except(createCrashReport(GetExceptionInformation()), EXCEPTION_EXECUTE_HANDLER) { }
 
 exit:
@@ -99,5 +97,5 @@ exit:
     // Shut down COM.
     OleUninitialize();
 
-    return static_cast<int>(msg.wParam);
+    return 0;
 }

@@ -74,9 +74,9 @@ Ref<HTMLSourceElement> HTMLSourceElement::create(Document& document)
     return create(sourceTag, document);
 }
 
-Node::InsertedIntoAncestorResult HTMLSourceElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLSourceElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     RefPtr<Element> parent = parentElement();
     if (parent == &parentOfInsertedTree) {
 #if ENABLE(VIDEO)
@@ -100,12 +100,12 @@ Node::InsertedIntoAncestorResult HTMLSourceElement::insertedIntoAncestor(Inserti
                 pictureElement->sourcesChanged();
         }
     }
-    return InsertedIntoAncestorResult::Done;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLSourceElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLSourceElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {        
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (!parentNode() && is<Element>(oldParentOfRemovedTree)) {
 #if ENABLE(VIDEO)
         if (RefPtr medialElement = dynamicDowncast<HTMLMediaElement>(oldParentOfRemovedTree))
@@ -184,6 +184,12 @@ void HTMLSourceElement::attributeChanged(const QualifiedName& name, const AtomSt
         RefPtr parent = parentElement();
         if (m_shouldCallSourcesChanged && parent)
             downcast<HTMLPictureElement>(*parent).sourcesChanged();
+#if ENABLE(MODEL_ELEMENT)
+        if (name == mediaAttr) {
+            if (RefPtr parentModelElement = dynamicDowncast<HTMLModelElement>(parent.get()))
+                parentModelElement->sourcesChanged();
+        }
+#endif
         break;
     }
     case AttributeNames::widthAttr:
@@ -222,7 +228,7 @@ Attribute HTMLSourceElement::replaceURLsInAttributeValue(const Attribute& attrib
     return Attribute { srcsetAttr, AtomString { replaceURLsInSrcsetAttribute(*this, StringView(attribute.value()), serializationContext) } };
 }
 
-void HTMLSourceElement::addCandidateSubresourceURLs(ListHashSet<URL>& urls) const
+void HTMLSourceElement::addCandidateSubresourceURLs(OrderedHashSet<URL>& urls) const
 {
     getURLsFromSrcsetAttribute(*this, attributeWithoutSynchronization(srcsetAttr), urls);
 }

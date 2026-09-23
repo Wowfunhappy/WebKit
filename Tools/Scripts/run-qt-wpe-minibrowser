@@ -25,11 +25,12 @@ use FindBin;
 use lib $FindBin::Bin;
 use webkitdirs;
 
+maybeEnterWebKitContainerSDK();
+
 setConfiguration();
 
-if (!inFlatpakSandbox()) {
-    push @ARGV, "--wpe";
-}
+push @ARGV, "--wpe";
+
 maybeUseContainerSDKRootDir();
 
 my $launcherName;

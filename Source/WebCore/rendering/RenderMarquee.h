@@ -62,7 +62,7 @@ public:
     explicit RenderMarquee(RenderLayer*);
     ~RenderMarquee();
 
-    bool isHorizontal() const;
+    bool NODELETE isHorizontal() const;
 
     void start();
     void suspend();
@@ -75,7 +75,7 @@ private:
     int speed() const { return m_speed; }
     int marqueeSpeed() const;
 
-    MarqueeDirection direction() const;
+    MarqueeDirection NODELETE direction() const;
 
     int computePosition(MarqueeDirection, bool stopAtClientEdge);
 

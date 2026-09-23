@@ -25,6 +25,8 @@
 
 #include "config.h"
 #include "MessageReceiveQueueMap.h"
+
+#include "Decoder.h"
 #include <wtf/text/TextStream.h>
 
 namespace IPC {

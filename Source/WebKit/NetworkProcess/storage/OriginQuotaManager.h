@@ -28,6 +28,7 @@
 #include "QuotaIncreaseRequestIdentifier.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/Deque.h>
+#include <wtf/Markable.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 

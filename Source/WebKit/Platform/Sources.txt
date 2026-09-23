@@ -23,3 +23,5 @@ Platform/IPC/StreamConnectionWorkQueue.cpp
 Platform/IPC/SharedFileHandle.cpp
 Platform/IPC/StreamServerConnection.cpp
 Platform/IPC/TransferString.cpp
+
+Platform/EditingRangeClamping.cpp

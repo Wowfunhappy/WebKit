@@ -199,7 +199,7 @@ static _WKAutoFillButtonType NODELETE toWKAutoFillButtonType(WebCore::AutoFillBu
 
 - (BOOL)isSelectableTextNode
 {
-    return protect(*_nodeHandle)->isSelectableTextNode();
+    return _nodeHandle->isSelectableTextNode();
 }
 
 - (BOOL)isTextField

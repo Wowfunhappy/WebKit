@@ -28,9 +28,11 @@
 #include "CSSValueKeywords.h"
 #include "CachedImage.h"
 #include "ContainerNodeInlines.h"
+#include "ElementAncestorIteratorInlines.h"
 #include "ElementChildIteratorInlines.h"
 #include "FrameLoader.h"
 #include "HTMLDocument.h"
+#include "HTMLEmbedElement.h"
 #include "HTMLFormElement.h"
 #include "HTMLImageLoader.h"
 #include "HTMLMetaElement.h"
@@ -39,7 +41,6 @@
 #include "LocalFrame.h"
 #include "MIMETypeRegistry.h"
 #include "NodeList.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
 #include "Page.h"
 #include "RenderEmbeddedObject.h"
@@ -48,9 +49,9 @@
 #include "Settings.h"
 #include "SubframeLoader.h"
 #include "Text.h"
+#include "TypedElementDescendantIteratorInlines.h"
 #include "Widget.h"
 #include <wtf/Ref.h>
-#include <wtf/RobinHoodHashSet.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -63,21 +64,34 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLObjectElement);
 
 using namespace HTMLNames;
 
-inline HTMLObjectElement::HTMLObjectElement(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
+inline HTMLObjectElement::HTMLObjectElement(const QualifiedName& tagName, Document& document)
     : HTMLPlugInElement(tagName, document)
-    , FormListedElement(form)
 {
     ASSERT(hasTagName(objectTag));
 }
 
-Ref<HTMLObjectElement> HTMLObjectElement::create(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
+Ref<HTMLObjectElement> HTMLObjectElement::create(const QualifiedName& tagName, Document& document)
 {
-    return adoptRef(*new HTMLObjectElement(tagName, document, form));
+    return adoptRef(*new HTMLObjectElement(tagName, document));
 }
 
 HTMLObjectElement::~HTMLObjectElement()
 {
     clearForm();
+}
+
+// https://html.spec.whatwg.org/multipage/dom.html#exposed
+bool HTMLObjectElement::isExposed() const
+{
+    for (Ref ancestor : ancestorsOfType<HTMLObjectElement>(*this)) {
+        if (ancestor->isExposed())
+            return false;
+    }
+    for (auto& descendant : descendantsOfType<HTMLElement>(*this)) {
+        if (is<HTMLObjectElement>(descendant) || is<HTMLEmbedElement>(descendant))
+            return false;
+    }
+    return true;
 }
 
 int HTMLObjectElement::defaultTabIndex() const
@@ -172,7 +186,7 @@ void HTMLObjectElement::parametersForPlugin(Vector<AtomString>& paramNames, Vect
 
 bool HTMLObjectElement::hasFallbackContent() const
 {
-    for (RefPtr<Node> child = firstChild(); child; child = child->nextSibling()) {
+    for (auto* child = firstChild(); child; child = child->nextSibling()) {
         // Ignore whitespace-only text, and <param> tags, any other content is fallback content.
         if (auto* textChild = dynamicDowncast<Text>(*child)) {
             if (!textChild->containsOnlyASCIIWhitespace())
@@ -237,29 +251,28 @@ void HTMLObjectElement::updateWidget(CreatePlugins createPlugins)
         renderFallbackContent();
 }
 
-Node::InsertedIntoAncestorResult HTMLObjectElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLObjectElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLPlugInElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLPlugInElement::insertionSteps(insertionType, parentOfInsertedTree);
     FormListedElement::elementInsertedIntoAncestor(*this, insertionType);
     if (!insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::Done;
-    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        return NeedsPostConnectionSteps::No;
+    return NeedsPostConnectionSteps::Yes;
 }
 
-void HTMLObjectElement::didFinishInsertingNode()
+void HTMLObjectElement::postConnectionSteps()
 {
     resetFormOwner();
 }
 
-void HTMLObjectElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLObjectElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLPlugInElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLPlugInElement::removingSteps(removalType, oldParentOfRemovedTree);
     FormListedElement::elementRemovedFromAncestor(*this, removalType);
 }
 
 void HTMLObjectElement::childrenChanged(const ChildChange& change)
 {
-    updateExposedState();
     if (isConnected() && !m_useFallbackContent) {
         setNeedsWidgetUpdate(true);
         scheduleUpdateForAfterStyleResolution();
@@ -273,7 +286,7 @@ bool HTMLObjectElement::isURLAttribute(const Attribute& attribute) const
     return attribute.name() == dataAttr || attribute.name() == codebaseAttr || HTMLPlugInElement::isURLAttribute(attribute);
 }
 
-const AtomString& HTMLObjectElement::imageSourceURL() const
+String HTMLObjectElement::imageSourceURL() const
 {
     return attributeWithoutSynchronization(dataAttr);
 }
@@ -308,89 +321,11 @@ void HTMLObjectElement::renderFallbackContent()
     m_useFallbackContent = true;
 }
 
-static inline bool preventsParentObjectFromExposure(const Element& child)
-{
-    static NeverDestroyed mostKnownTags = [] {
-        MemoryCompactLookupOnlyRobinHoodHashSet<QualifiedName> set;
-        auto tags = HTMLNames::getHTMLTags();
-        set.reserveInitialCapacity(tags.size());
-        for (auto* tagPtr : tags) {
-            auto& tag = *tagPtr;
-            // Only the param element was explicitly mentioned in the HTML specification rule
-            // we were trying to implement, but these are other known HTML elements that we
-            // have decided, over the years, to treat as children that do not prevent object
-            // names from being exposed.
-            if (tag == bgsoundTag
-                || tag == detailsTag
-                || tag == figcaptionTag
-                || tag == figureTag
-                || tag == paramTag
-                || tag == summaryTag
-                || tag == trackTag) {
-                continue;
-            }
-            set.add(tag);
-        }
-        return set;
-    }();
-    return mostKnownTags.get().contains(child.tagQName());
-}
-
-static inline bool preventsParentObjectFromExposure(const Node& child)
-{
-    if (auto* childElement = dynamicDowncast<Element>(child))
-        return preventsParentObjectFromExposure(*childElement);
-    if (auto* childText = dynamicDowncast<Text>(child))
-        return !childText->containsOnlyASCIIWhitespace();
-    return true;
-}
-
-static inline bool shouldBeExposed(const HTMLObjectElement& element)
-{
-    // FIXME: This should be redone to use the concept of an exposed object element,
-    // as documented in the HTML specification section describing DOM tree accessors.
-
-    // The rule we try to implement here, from older HTML specifications, is "object elements
-    // with no children other than param elements, unknown elements and whitespace can be found
-    // by name in a document, and other object elements cannot".
-
-    for (RefPtr child = element.firstChild(); child; child = child->nextSibling()) {
-        if (preventsParentObjectFromExposure(*child))
-            return false;
-    }
-    return true;
-}
-
-void HTMLObjectElement::updateExposedState()
-{
-    bool wasExposed = std::exchange(m_isExposed, shouldBeExposed(*this));
-
-    if (m_isExposed != wasExposed && isConnected() && !isInShadowTree()) {
-        if (RefPtr document = dynamicDowncast<HTMLDocument>(this->document())) {
-            auto& id = getIdAttribute();
-            if (!id.isEmpty()) {
-                if (m_isExposed)
-                    document->addDocumentNamedItem(id, *this);
-                else
-                    document->removeDocumentNamedItem(id, *this);
-            }
-
-            auto& name = getNameAttribute();
-            if (!name.isEmpty() && id != name) {
-                if (m_isExposed)
-                    document->addDocumentNamedItem(name, *this);
-                else
-                    document->removeDocumentNamedItem(name, *this);
-            }
-        }
-    }
-}
-
-void HTMLObjectElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLObjectElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLPlugInElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(attributeWithoutSynchronization(dataAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(dataAttr)));
 }
 
 void HTMLObjectElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)

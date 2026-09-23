@@ -43,17 +43,25 @@ namespace JSC {
 JSObject* createStackOverflowError(JSGlobalObject* globalObject)
 {
     auto* error = createRangeError(globalObject, "Maximum call stack size exceeded."_s);
-    jsCast<ErrorInstance*>(error)->setStackOverflowError();
+    uncheckedDowncast<ErrorInstance>(error)->setStackOverflowError();
     return error;
 }
 
 JSObject* createUndefinedVariableError(JSGlobalObject* globalObject, const Identifier& ident)
 {
-    if (ident.isPrivateName())
-        return createReferenceError(globalObject, makeString("Can't find private variable: PrivateSymbol."_s, ident.string()));
-    return createReferenceError(globalObject, makeString("Can't find variable: "_s, ident.string()));
+    String message;
+    if (ident.isPrivateName()) {
+        message = tryMakeString("Can't find private variable: PrivateSymbol."_s, ident.string());
+        if (!message) [[unlikely]]
+            message = "Can't find private variable"_s;
+    } else {
+        message = tryMakeString("Can't find variable: "_s, ident.string());
+        if (!message) [[unlikely]]
+            message = "Can't find variable"_s;
+    }
+    return createReferenceError(globalObject, message);
 }
-    
+
 String errorDescriptionForValue(JSGlobalObject* globalObject, JSValue v)
 {
     if (v.isString()) {
@@ -80,7 +88,7 @@ String errorDescriptionForValue(JSGlobalObject* globalObject, JSValue v)
     return v.toString(globalObject)->value(globalObject);
 }
     
-static StringView clampErrorMessage(const String& originalMessage LIFETIME_BOUND)
+static StringView NODELETE clampErrorMessage(const String& originalMessage LIFETIME_BOUND)
 {
     // Hopefully this is sufficiently long. Note, this is the length of the string not the number of bytes used.
     constexpr unsigned maxLength = 2 * KB;
@@ -101,7 +109,7 @@ String defaultSourceAppender(const String& originalMessage, StringView sourceTex
     return makeString(clampErrorMessage(originalMessage), " (evaluating '"_s, sourceText, "')"_s);
 }
 
-static StringView functionCallBase(StringView sourceText)
+static StringView NODELETE functionCallBase(StringView sourceText)
 { 
     // This function retrieves the 'foo.bar' substring from 'foo.bar(baz)'.
     // FIXME: This function has simple processing of /* */ style comments.
@@ -327,22 +335,34 @@ JSObject* createInvalidPrototypeError(JSGlobalObject* globalObject, JSValue valu
 
 JSObject* createErrorForDuplicateGlobalVariableDeclaration(JSGlobalObject* globalObject, UniquedStringImpl* key)
 {
-    return createSyntaxError(globalObject, makeString("Can't create duplicate variable: '"_s, StringView(key), '\''));
+    String message = tryMakeString("Can't create duplicate variable: '"_s, StringView(key), '\'');
+    if (!message) [[unlikely]]
+        message = "Can't create duplicate variable"_s;
+    return createSyntaxError(globalObject, message);
 }
 
 JSObject* createErrorForInvalidGlobalFunctionDeclaration(JSGlobalObject* globalObject, const Identifier& ident)
 {
-    return createTypeError(globalObject, makeString("Can't declare global function '"_s, ident.string(), "': property must be either configurable or both writable and enumerable"_s));
+    String message = tryMakeString("Can't declare global function '"_s, ident.string(), "': property must be either configurable or both writable and enumerable"_s);
+    if (!message) [[unlikely]]
+        message = "Can't declare global function: property must be either configurable or both writable and enumerable"_s;
+    return createTypeError(globalObject, message);
 }
 
 JSObject* createErrorForInvalidGlobalVarDeclaration(JSGlobalObject* globalObject, const Identifier& ident)
 {
-    return createTypeError(globalObject, makeString("Can't declare global variable '"_s, ident.string(), "': global object must be extensible"_s));
+    String message = tryMakeString("Can't declare global variable '"_s, ident.string(), "': global object must be extensible"_s);
+    if (!message) [[unlikely]]
+        message = "Can't declare global variable: global object must be extensible"_s;
+    return createTypeError(globalObject, message);
 }
 
 JSObject* createTDZError(JSGlobalObject* globalObject, StringView ident)
 {
-    return createReferenceError(globalObject, makeString("Cannot access '"_s, ident, "' before initialization."_s));
+    String message = tryMakeString("Cannot access '"_s, ident, "' before initialization."_s);
+    if (!message) [[unlikely]]
+        return createTDZError(globalObject);
+    return createReferenceError(globalObject, message);
 }
 
 JSObject* createTDZError(JSGlobalObject* globalObject)

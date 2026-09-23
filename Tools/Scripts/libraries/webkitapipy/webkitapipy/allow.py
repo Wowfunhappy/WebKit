@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from enum import Enum
-from typing import Any, NamedTuple, Optional, Union
+from typing import Any, Mapping, NamedTuple, Optional, Union
 
 if sys.version_info < (3, 11):
     from webkitapipy._vendor import tomli as tomllib
@@ -54,6 +54,8 @@ class AllowedSPI:
     symbols: list[str]
     selectors: list[Selector]
     classes: list[str]
+    swift_decls: list[SwiftDecl] = field(default_factory=list)
+
     requires: list[str] = field(default_factory=list)
     requires_os: list[RequiredVersion] = field(default_factory=list)
     requires_sdk: list[RequiredVersion] = field(default_factory=list)
@@ -72,6 +74,12 @@ class AllowedSPI:
         operator: str
         version: str
 
+    @dataclass(frozen=True)
+    class SwiftDecl:
+        name: str
+        type_kinds: Optional[Mapping[str, str]] = None
+        extension: Optional[str] = None
+        extension_base_depth: Optional[int] = None
 
 class AllowedReason(StrEnum):
     LEGACY = 'legacy'
@@ -142,6 +150,11 @@ class AllowList:
                 for sym in entry.pop('symbols', []):
                     syms.append(f'_{sym}')
 
+                swift_decls = []
+                for decl in entry.pop('swift-decls', []):
+                    decl = AllowedSPI.SwiftDecl(**decl)
+                    swift_decls.append(decl)
+
                 bugs = AllowedSPI.Bugs(entry.pop('request', None),
                                        entry.pop('cleanup', None))
                 allow_unused = bool(entry.pop('allow-unused', False))
@@ -167,7 +180,8 @@ class AllowList:
                             AllowedSPI.RequiredVersion(platform, op,
                                                        version))
                 allow = AllowedSPI(reason=reason, bugs=bugs, symbols=syms,
-                                   selectors=sels, classes=clss, requires=reqs,
+                                   selectors=sels, classes=clss,
+                                   swift_decls=swift_decls, requires=reqs,
                                    allow_unused=allow_unused,
                                    requires_os=requires_os,
                                    requires_sdk=requires_sdk)

@@ -27,10 +27,16 @@
 package Hasher;
 
 use strict;
-use bigint;
+use integer;
 
-my $mask64 = 2**64 - 1;
-my $mask32 = 2**32 - 1;
+# Performance: 'use integer' gives native 64-bit wrapping arithmetic, which is
+# vastly faster than the previous 'use bigint' (Math::BigInt arbitrary precision).
+# Caveat: '>>' becomes arithmetic (sign-extending) shift under 'use integer',
+# so we mask with & $mask32 after >> 32 to get correct unsigned upper-32-bit extraction.
+
+my $mask32 = 0xFFFFFFFF;
+my $SIGN_BIT = (1 << 63);
+my @secret = ( 3257665815644502181, 10067880064238660809, 5418857496715711651 );
 
 sub maskTop8BitsAndAvoidZero($) {
     my ($value) = @_;
@@ -49,144 +55,119 @@ sub maskTop8BitsAndAvoidZero($) {
     return $value;
 }
 
-sub uint64_add($$) {
-    my ($a, $b) = @_;
-    my $sum = $a + $b;
-    return $sum & $mask64;
+# Unsigned less-than for 64-bit values under 'use integer' (signed arithmetic).
+sub _unsigned_lt($$) {
+    return (($_[0] ^ $SIGN_BIT) < ($_[1] ^ $SIGN_BIT)) ? 1 : 0;
 }
 
-sub uint64_multi($$) {
-    my ($a, $b) = @_;
-    my $product = $a * $b;
-    return $product & $mask64;
-}
-
-sub wymum($$) {
+sub rapid_mul128($$) {
     my ($A, $B) = @_;
 
-    my $ha = $A >> 32;
-    my $hb = $B >> 32;
+    my $ha = ($A >> 32) & $mask32;
+    my $hb = ($B >> 32) & $mask32;
     my $la = $A & $mask32;
     my $lb = $B & $mask32;
-    my $hi;
-    my $lo;
-    my $rh = uint64_multi($ha, $hb);
-    my $rm0 = uint64_multi($ha, $lb);
-    my $rm1 = uint64_multi($hb, $la);
-    my $rl = uint64_multi($la, $lb);
-    my $t = uint64_add($rl, ($rm0 << 32));
-    my $c = int($t < $rl);
+    my $rh = $ha * $hb;
+    my $rm0 = $ha * $lb;
+    my $rm1 = $hb * $la;
+    my $rl = $la * $lb;
+    my $t = $rl + ($rm0 << 32);
+    my $c = _unsigned_lt($t, $rl);
 
-    $lo = uint64_add($t, ($rm1 << 32));
-    $c += int($lo < $t);
-    $hi = uint64_add($rh, uint64_add(($rm0 >> 32), uint64_add(($rm1 >> 32), $c)));
+    my $lo = $t + ($rm1 << 32);
+    $c += _unsigned_lt($lo, $t);
+    my $hi = $rh + (($rm0 >> 32) & $mask32) + (($rm1 >> 32) & $mask32) + $c;
 
     return ($lo, $hi);
 };
 
-sub wymix($$) {
+sub rapid_mix($$) {
     my ($A, $B) = @_;
-    ($A, $B) = wymum($A, $B);
+    ($A, $B) = rapid_mul128($A, $B);
     return $A ^ $B;
 }
 
-sub convert32BitTo64Bit($) {
-    my ($v) = @_;
-    my ($mask1) = 281470681808895;   # 0x0000_ffff_0000_ffff
-    $v = ($v | ($v << 16)) & $mask1;
-    my ($mask2) = 71777214294589695; # 0x00ff_00ff_00ff_00ff
-    return ($v | ($v << 8)) & $mask2;
+# Read 8 bytes from string at index $i as a little-endian 64-bit value.
+sub _read64($$) {
+    my ($str, $i) = @_;
+    return ord(substr($str, $i, 1))
+        | (ord(substr($str, $i + 1, 1)) << 8)
+        | (ord(substr($str, $i + 2, 1)) << 16)
+        | (ord(substr($str, $i + 3, 1)) << 24)
+        | (ord(substr($str, $i + 4, 1)) << 32)
+        | (ord(substr($str, $i + 5, 1)) << 40)
+        | (ord(substr($str, $i + 6, 1)) << 48)
+        | (ord(substr($str, $i + 7, 1)) << 56);
 }
 
-sub convert16BitTo32Bit($) {
-    my ($v) = @_;
-    return ($v | ($v << 8)) & 0x00ff_00ff;
+# Read 4 bytes from string at index $i as a little-endian 32-bit value.
+sub _read32($$) {
+    my ($str, $i) = @_;
+    return ord(substr($str, $i, 1))
+        | (ord(substr($str, $i + 1, 1)) << 8)
+        | (ord(substr($str, $i + 2, 1)) << 16)
+        | (ord(substr($str, $i + 3, 1)) << 24);
 }
 
-sub wyhash {
-    # https://github.com/wangyi-fudan/wyhash
-    my @chars = @_;
-    my $charCount = scalar @chars;
-    my $byteCount = $charCount << 1;
-    my $charIndex = 0;
-    my $seed = 0;
-    my @secret = ( 11562461410679940143, 16646288086500911323, 10285213230658275043, 6384245875588680899 );
-    my $move1 = (($byteCount >> 3) << 2) >> 1;
+# Read 1-3 bytes from string at index $i (length $k) into a 64-bit value.
+sub _readSmall($$$) {
+    my ($str, $i, $k) = @_;
+    return (ord(substr($str, $i, 1)) << 56)
+        | (ord(substr($str, $i + ($k >> 1), 1)) << 32)
+        | ord(substr($str, $i + $k - 1, 1));
+}
 
-    $seed ^= wymix($seed ^ $secret[0], $secret[1]);
+sub GenerateHashValue($) {
+    my ($string) = @_;
+
+    # https://github.com/Nicoshev/rapidhash
+    # Hashes raw ASCII bytes (1 byte per character).
+    my $len = length($string);
+
+    my $seed = rapid_mix(0 ^ $secret[0], $secret[1]) ^ $len;
     my $a = 0;
     my $b = 0;
 
-    local *c2i = sub {
-        my ($i) = @_;
-        return ord($chars[$i]);
-    };
-
-    local *wyr8 = sub {
-        my ($i) = @_;
-        my $v = c2i($i) | (c2i($i + 1) << 8) | (c2i($i + 2) << 16) | (c2i($i + 3) << 24);
-        return convert32BitTo64Bit($v);
-    };
-
-    local *wyr4 = sub {
-        my ($i) = @_;
-        my $v = c2i($i) | (c2i($i + 1) << 8);
-        return convert16BitTo32Bit($v);
-    };
-
-    local *wyr2 = sub {
-        my ($i) = @_;
-        return c2i($i) << 16;
-    };
-
-    if ($byteCount <= 16) {
-        if ($byteCount >= 4) {
-            $a = (wyr4($charIndex) << 32) | wyr4($charIndex + $move1);
-            $charIndex = $charIndex + $charCount - 2;
-            $b = (wyr4($charIndex) << 32) | wyr4($charIndex - $move1);
-        } elsif ($byteCount > 0) {
-            $a = wyr2($charIndex);
+    if ($len <= 16) {
+        if ($len >= 4) {
+            my $delta = ($len >= 8) ? 4 : 0;
+            $a = (_read32($string, 0) << 32) | _read32($string, $len - 4);
+            $b = (_read32($string, $delta) << 32) | _read32($string, $len - 4 - $delta);
+        } elsif ($len > 0) {
+            $a = _readSmall($string, 0, $len);
             $b = 0;
         } else {
             $a = $b = 0;
         }
     } else {
-        my $i = $byteCount;
+        my $i = $len;
+        my $off = 0;
         if ($i > 48) {
             my $see1 = $seed;
             my $see2 = $seed;
             do {
-                $seed = wymix(wyr8($charIndex) ^ $secret[1], wyr8($charIndex + 4) ^ $seed);
-                $see1 = wymix(wyr8($charIndex + 8) ^ $secret[2], wyr8($charIndex + 12) ^ $see1);
-                $see2 = wymix(wyr8($charIndex + 16) ^ $secret[3], wyr8($charIndex + 20) ^ $see2);
-                $charIndex += 24;
+                $seed = rapid_mix(_read64($string, $off) ^ $secret[0], _read64($string, $off + 8) ^ $seed);
+                $see1 = rapid_mix(_read64($string, $off + 16) ^ $secret[1], _read64($string, $off + 24) ^ $see1);
+                $see2 = rapid_mix(_read64($string, $off + 32) ^ $secret[2], _read64($string, $off + 40) ^ $see2);
+                $off += 48;
                 $i -= 48;
-            } while ($i > 48);
+            } while ($i >= 48);
             $seed ^= $see1 ^ $see2;
         }
-        while ($i > 16) {
-            $seed = wymix(wyr8($charIndex) ^ $secret[1], wyr8($charIndex + 4) ^ $seed);
-            $i -= 16;
-            $charIndex += 8;
+        if ($i > 16) {
+            $seed = rapid_mix(_read64($string, $off) ^ $secret[2], _read64($string, $off + 8) ^ $seed ^ $secret[1]);
+            if ($i > 32) {
+                $seed = rapid_mix(_read64($string, $off + 16) ^ $secret[2], _read64($string, $off + 24) ^ $seed);
+            }
         }
-        my $move2 = $i >> 1;
-        $a = wyr8($charIndex + $move2 - 8);
-        $b = wyr8($charIndex + $move2 - 4);
+        $a = _read64($string, $off + $i - 16);
+        $b = _read64($string, $off + $i - 8);
     }
     $a ^= $secret[1];
     $b ^= $seed;
 
-    ($a, $b) = wymum($a, $b);
-    my $hash = wymix($a ^ $secret[0] ^ $byteCount, $b ^ $secret[1]) & $mask32;
-
-    return maskTop8BitsAndAvoidZero($hash);
-}
-
-
-sub GenerateHashValue($) {
-    my ($string) = @_;
-    my @chars = split(/ */, $string);
-    return wyhash(@chars);
+    ($a, $b) = rapid_mul128($a, $b);
+    return maskTop8BitsAndAvoidZero(rapid_mix($a ^ $secret[0] ^ $len, $b ^ $secret[1]) & $mask32);
 }
 
 1;

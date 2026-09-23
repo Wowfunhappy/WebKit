@@ -56,8 +56,8 @@ bool RealtimeIncomingSourceGStreamer::setBin(GRefPtr<GstElement>&& bin)
 
     auto handoffCallback = G_CALLBACK(+[](GstElement*, GstBuffer* buffer, GstPad* pad, gpointer userData) {
         auto source = reinterpret_cast<RealtimeIncomingSourceGStreamer*>(userData);
-        auto caps = adoptGRef(gst_pad_get_current_caps(pad));
-        auto sample = adoptGRef(gst_sample_new(buffer, caps.get(), nullptr, nullptr));
+        GRefPtr caps = adoptGRef(gst_pad_get_current_caps(pad));
+        GRefPtr sample = adoptGRef(gst_sample_new(buffer, caps.get(), nullptr, nullptr));
         // dispatchSample might trigger RealtimeMediaSource::notifySettingsDidChangeObservers()
         // which expects to run in the main thread.
         callOnMainThread([source, sample = WTF::move(sample)]() mutable {
@@ -67,7 +67,7 @@ bool RealtimeIncomingSourceGStreamer::setBin(GRefPtr<GstElement>&& bin)
     g_signal_connect(m_sink.get(), "preroll-handoff", handoffCallback, this);
     g_signal_connect(m_sink.get(), "handoff", handoffCallback, this);
 
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
     m_sinkPadProbeId = gst_pad_add_probe(sinkPad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM | GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM), reinterpret_cast<GstPadProbeCallback>(+[](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
         auto self = reinterpret_cast<RealtimeIncomingSourceGStreamer*>(userData);
         if (info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
@@ -77,7 +77,7 @@ bool RealtimeIncomingSourceGStreamer::setBin(GRefPtr<GstElement>&& bin)
 
         auto query = GST_PAD_PROBE_INFO_QUERY(info);
         self->forEachClient([&](auto* appsrc) {
-            auto srcSrcPad = adoptGRef(gst_element_get_static_pad(appsrc, "src"));
+            GRefPtr srcSrcPad = adoptGRef(gst_element_get_static_pad(appsrc, "src"));
             gst_pad_peer_query(srcSrcPad.get(), query);
         });
         return GST_PAD_PROBE_OK;
@@ -92,7 +92,7 @@ void RealtimeIncomingSourceGStreamer::tearDown()
 
     g_object_set(m_sink.get(), "signal-handoffs", FALSE, nullptr);
 
-    auto sinkPad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
+    GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
     gst_pad_remove_probe(sinkPad.get(), m_sinkPadProbeId);
     g_signal_handlers_disconnect_by_data(m_sink.get(), this);
 
@@ -145,7 +145,7 @@ void RealtimeIncomingSourceGStreamer::handleUpstreamEvent(GRefPtr<GstEvent>&& ev
         return;
 
     GST_DEBUG_OBJECT(m_bin.get(), "Handling %" GST_PTR_FORMAT, event.get());
-    auto pad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
     gst_pad_push_event(pad.get(), event.leakRef());
 }
 
@@ -155,7 +155,7 @@ bool RealtimeIncomingSourceGStreamer::handleUpstreamQuery(GstQuery* query)
         return false;
 
     GST_DEBUG_OBJECT(m_bin.get(), "Handling %" GST_PTR_FORMAT, query);
-    auto pad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
     return gst_pad_peer_query(pad.get(), query);
 }
 
@@ -196,7 +196,7 @@ GstPadProbeReturn RealtimeIncomingSourceGStreamer::handleDownstreamEvent(GRefPtr
     }
 
     forEachClient([&](auto* appsrc) {
-        auto pad = adoptGRef(gst_element_get_static_pad(appsrc, "src"));
+        GRefPtr pad = adoptGRef(gst_element_get_static_pad(appsrc, "src"));
         GST_DEBUG_OBJECT(m_sink.get(), "Forwarding event %" GST_PTR_FORMAT " to client %" GST_PTR_FORMAT, event.get(), appsrc);
         gst_pad_push_event(pad.get(), event.ref());
     });

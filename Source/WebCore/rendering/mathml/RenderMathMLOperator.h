@@ -39,8 +39,8 @@ class RenderMathMLOperator : public RenderMathMLToken {
     WTF_MAKE_TZONE_ALLOCATED(RenderMathMLOperator);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLOperator);
 public:
-    RenderMathMLOperator(Type, MathMLOperatorElement&, RenderStyle&&);
-    RenderMathMLOperator(Type, Document&, RenderStyle&&);
+    RenderMathMLOperator(Type, MathMLOperatorElement&, Style::ComputedStyle&&);
+    RenderMathMLOperator(Type, Document&, Style::ComputedStyle&&);
     virtual ~RenderMathMLOperator();
 
     MathMLOperatorElement& NODELETE element() const;
@@ -53,15 +53,15 @@ public:
     bool isStretchWidthLocked() const { return m_isStretchWidthLocked; }
 
     virtual bool hasOperatorFlag(MathMLOperatorDictionary::Flag) const;
-    bool isLargeOperatorInDisplayStyle() const { return !hasOperatorFlag(MathMLOperatorDictionary::Stretchy) && hasOperatorFlag(MathMLOperatorDictionary::LargeOp) && style().mathStyle() == MathStyle::Normal; }
+    bool isLargeOperatorInDisplayStyle() const;
     bool shouldMoveLimits() const { return hasOperatorFlag(MathMLOperatorDictionary::MovableLimits); }
     virtual bool isVertical() const;
     LayoutUnit italicCorrection() const { return m_mathOperator.italicCorrection(); }
 
     void updateTokenContent() final;
     void updateFromElement() final;
-    virtual char32_t textContent() const;
-    bool isStretchy() const { return textContent() && hasOperatorFlag(MathMLOperatorDictionary::Stretchy); }
+    virtual char32_t singleCharCodePoint() const;
+    bool isStretchy() const { return singleCharCodePoint() && hasOperatorFlag(MathMLOperatorDictionary::Stretchy); }
 
 protected:
     virtual void updateMathOperator();
@@ -72,8 +72,8 @@ protected:
     virtual bool useMathOperator() const;
 
 private:
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) final;
-    void computePreferredLogicalWidths() final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
+    void computeIntrinsicLogicalWidthContributions() final;
     void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
     void paint(PaintInfo&, const LayoutPoint&) final;
 

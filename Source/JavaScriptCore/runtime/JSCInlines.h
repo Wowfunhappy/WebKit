@@ -52,11 +52,12 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <JavaScriptCore/JSGlobalProxy.h>
 #include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/JSString.h>
-#include <JavaScriptCore/Operations.h>
+#include <JavaScriptCore/OperationsInlines.h>
 #include <JavaScriptCore/SlotVisitorInlines.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/StructureInlines.h>
 #include <JavaScriptCore/ThrowScope.h>
+#include <JavaScriptCore/VariableWriteFireDetailInlines.h>
 #include <JavaScriptCore/WeakGCMapInlines.h>
 #include <JavaScriptCore/WeakGCSetInlines.h>
 

@@ -37,7 +37,10 @@ bool ComputedStyleDependencies::canResolveDependenciesWithConversionData(const C
     if (!properties.isEmpty() && !conversionData.style())
         return false;
 
-    if (containerDimensions && !conversionData.elementForContainerUnitResolution())
+    // Container dimensions are resolved against a specific element or the small viewport size if no element is available:
+    //   "If no eligible query container is available, then use the small viewport size for that axis."
+    //   https://drafts.csswg.org/css-conditional-5/#container-lengths
+    if (containerDimensions && !(conversionData.elementForContainerUnitResolution() || conversionData.renderView()))
         return false;
 
     if (viewportDimensions && !conversionData.renderView())

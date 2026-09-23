@@ -66,6 +66,19 @@ static Ref<SupportedLimits> supportedLimits(WGPUAdapter adapter)
     WGPUSupportedLimits limits;
     auto result = wgpuAdapterGetLimits(adapter, &limits);
     ASSERT_UNUSED(result, result);
+
+    // https://www.w3.org/TR/webgpu/#devices
+    // maxStorageBuffersPerShaderStage = max(perStage, inVertex, inFragment)
+    // Then set inVertex and inFragment equal to the per-stage value.
+    auto& lm = limits.limits;
+    lm.maxStorageBuffersPerShaderStage = std::max({ lm.maxStorageBuffersPerShaderStage, lm.maxStorageBuffersInVertexStage, lm.maxStorageBuffersInFragmentStage });
+    lm.maxStorageBuffersInVertexStage = lm.maxStorageBuffersPerShaderStage;
+    lm.maxStorageBuffersInFragmentStage = lm.maxStorageBuffersPerShaderStage;
+
+    lm.maxStorageTexturesPerShaderStage = std::max({ lm.maxStorageTexturesPerShaderStage, lm.maxStorageTexturesInVertexStage, lm.maxStorageTexturesInFragmentStage });
+    lm.maxStorageTexturesInVertexStage = lm.maxStorageTexturesPerShaderStage;
+    lm.maxStorageTexturesInFragmentStage = lm.maxStorageTexturesPerShaderStage;
+
     return SupportedLimits::create(
         limits.limits.maxTextureDimension1D,
         limits.limits.maxTextureDimension2D,
@@ -89,7 +102,6 @@ static Ref<SupportedLimits> supportedLimits(WGPUAdapter adapter)
         limits.limits.maxBufferSize,
         limits.limits.maxVertexAttributes,
         limits.limits.maxVertexBufferArrayStride,
-        limits.limits.maxInterStageShaderComponents,
         limits.limits.maxInterStageShaderVariables,
         limits.limits.maxColorAttachments,
         limits.limits.maxColorAttachmentBytesPerSample,
@@ -174,6 +186,9 @@ void AdapterImpl::requestDevice(const DeviceDescriptor& descriptor, CompletionHa
         return convertToBackingContext.convertToBacking(featureName);
     });
 
+    if (features.contains(WGPUFeatureName_TextureFormatsTier2) && !features.contains(WGPUFeatureName_TextureFormatsTier1))
+        features.append(WGPUFeatureName_TextureFormatsTier1);
+
     if (features.contains(WGPUFeatureName_TextureFormatsTier1) && !features.contains(WGPUFeatureName_RG11B10UfloatRenderable))
         features.append(WGPUFeatureName_RG11B10UfloatRenderable);
 
@@ -224,7 +239,6 @@ void AdapterImpl::requestDevice(const DeviceDescriptor& descriptor, CompletionHa
         SET_MAX_VALUE(maxBufferSize)
         SET_MAX_VALUE(maxVertexAttributes)
         SET_MAX_VALUE(maxVertexBufferArrayStride)
-        SET_MAX_VALUE(maxInterStageShaderComponents)
         SET_MAX_VALUE(maxInterStageShaderVariables)
         SET_MAX_VALUE(maxColorAttachments)
         SET_MAX_VALUE(maxColorAttachmentBytesPerSample)
@@ -283,7 +297,6 @@ void AdapterImpl::requestDevice(const DeviceDescriptor& descriptor, CompletionHa
         limits.maxBufferSize,
         limits.maxVertexAttributes,
         limits.maxVertexBufferArrayStride,
-        limits.maxInterStageShaderComponents,
         limits.maxInterStageShaderVariables,
         limits.maxColorAttachments,
         limits.maxColorAttachmentBytesPerSample,
@@ -299,7 +312,7 @@ void AdapterImpl::requestDevice(const DeviceDescriptor& descriptor, CompletionHa
         limits.maxStorageTexturesInVertexStage);
 
     auto requestedFeatures = supportedFeatures(features);
-    auto blockPtr = makeBlockPtr([protectedThis = Ref { *this }, convertToBackingContext = m_convertToBackingContext.copyRef(), callback = WTF::move(callback), requestedLimits, requestedFeatures](WGPURequestDeviceStatus status, WGPUDevice device, const char*) mutable {
+    auto blockPtr = makeBlockPtr([protectedThis = protect(*this), convertToBackingContext = m_convertToBackingContext.copyRef(), callback = WTF::move(callback), requestedLimits, requestedFeatures](WGPURequestDeviceStatus status, WGPUDevice device, const char*) mutable {
         callback(DeviceImpl::create(adoptWebGPU(device), status == WGPURequestDeviceStatus_Success ? WTF::move(requestedFeatures) : SupportedFeatures::create({ }), WTF::move(requestedLimits), convertToBackingContext));
     });
     wgpuAdapterRequestDevice(m_backing.get(), &backingDescriptor, &requestDeviceCallback, Block_copy(blockPtr.get())); // Block_copy is matched with Block_release above in requestDeviceCallback().

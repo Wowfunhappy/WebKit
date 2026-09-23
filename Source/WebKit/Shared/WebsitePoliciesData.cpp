@@ -155,6 +155,7 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
     documentLoader.setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
     if (!documentLoader.originatorAdvancedPrivacyProtections())
         documentLoader.setOriginatorAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
+    documentLoader.setGlobalPrivacyControlEnabled(websitePolicies.globalPrivacyControlEnabled);
     documentLoader.setIdempotentModeAutosizingOnlyHonorsPercentages(websitePolicies.idempotentModeAutosizingOnlyHonorsPercentages);
     documentLoader.setHTTPSByDefaultMode(websitePolicies.httpsByDefaultMode);
 

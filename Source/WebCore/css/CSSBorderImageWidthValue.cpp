@@ -26,37 +26,31 @@
 #include "config.h"
 #include "CSSBorderImageWidthValue.h"
 
-#include <wtf/text/WTFString.h>
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 
 namespace WebCore {
 
-CSSBorderImageWidthValue::CSSBorderImageWidthValue(Quad widths, bool overridesBorderWidths)
+CSSBorderImageWidthValue::CSSBorderImageWidthValue(CSS::BorderImageWidth&& widths)
     : CSSValue(ClassType::BorderImageWidth)
     , m_widths(WTF::move(widths))
-    , m_overridesBorderWidths(overridesBorderWidths)
 {
 }
 
 CSSBorderImageWidthValue::~CSSBorderImageWidthValue() = default;
 
-Ref<CSSBorderImageWidthValue> CSSBorderImageWidthValue::create(Quad widths, bool overridesBorderWidths)
+Ref<CSSBorderImageWidthValue> CSSBorderImageWidthValue::create(CSS::BorderImageWidth widths)
 {
-    return adoptRef(*new CSSBorderImageWidthValue(WTF::move(widths), overridesBorderWidths));
+    return adoptRef(*new CSSBorderImageWidthValue(WTF::move(widths)));
 }
 
 String CSSBorderImageWidthValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    // The border-image-width longhand can't set m_overridesBorderWidths to true, so serialize as empty string.
-    // This can only be created by the -webkit-border-image shorthand, which will not serialize as empty string in this case.
-    // This is an unconventional relationship between a longhand and a shorthand, which we may want to revise.
-    if (m_overridesBorderWidths)
-        return String();
-    return m_widths.cssText(context);
+    return CSS::serializationForCSS(context, m_widths);
 }
 
 bool CSSBorderImageWidthValue::equals(const CSSBorderImageWidthValue& other) const
 {
-    return m_overridesBorderWidths == other.m_overridesBorderWidths && m_widths.equals(other.m_widths);
+    return m_widths == other.m_widths;
 }
 
 } // namespace WebCore

@@ -14,10 +14,12 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/accept-header.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/block-mime-as-script.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/conditional-get.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/error-after-response.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/gc.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/header-value-combining.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/header-value-null-byte.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/basic/historical.any.js

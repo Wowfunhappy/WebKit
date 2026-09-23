@@ -64,6 +64,7 @@ private:
     void simulateAccessibilitySettingsChangeNotification(JSValueRef) override;
     double zoomScale() const override;
     void touchDownAtPoint(long x, long y, long touchCount, JSValueRef) override;
+    void touchDownAtPointWithMajorRadius(long x, long y, float majorRadius, float majorRadiusTolerance, JSValueRef) override;
     void liftUpAtPoint(long x, long y, long touchCount, JSValueRef) override;
     void singleTapAtPoint(long x, long y, JSValueRef) override;
     void singleTapAtPointWithModifiers(long x, long y, JSValueRef modifierArray, JSValueRef) override;
@@ -115,6 +116,7 @@ private:
     void applyAutocorrection(JSStringRef newString, JSStringRef oldString, JSValueRef, bool) override;
     double minimumZoomScale() const override;
     double maximumZoomScale() const override;
+    bool enhancedWindowingEnabled() const override;
     std::optional<bool> stableStateOverride() const override;
     void setStableStateOverride(std::optional<bool> overrideValue) override;
     JSObjectRef contentVisibleRect() const override;
@@ -144,6 +146,7 @@ private:
     void completeBackSwipe(JSValueRef) override;
     bool isShowingDataListSuggestions() const override;
     void activateDataListSuggestion(unsigned, JSValueRef) override;
+    void insertAutofillSuggestion(JSStringRef, JSStringRef, JSValueRef) override;
     void setSelectedColorForColorPicker(double, double, double) override;
     bool isShowingColorPicker() const override;
     void setKeyboardInputModeIdentifier(JSStringRef) override;
@@ -190,6 +193,7 @@ private:
 
     void presentFindNavigator() override;
     void dismissFindNavigator() override;
+    void findStringMatchesUsingFindInteraction(JSStringRef, JSValueRef) override;
 
     JSRetainPtr<JSStringRef> frontmostViewAtPoint(int, int) final;
 

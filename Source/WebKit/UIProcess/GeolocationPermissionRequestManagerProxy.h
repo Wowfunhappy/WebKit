@@ -28,8 +28,8 @@
 
 #include "GeolocationIdentifier.h"
 #include "GeolocationPermissionRequestProxy.h"
+#include <WebCore/RegistrableDomain.h>
 #include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -48,17 +48,18 @@ public:
     void deref() const;
 
     // Create a request to be presented to the user.
-    Ref<GeolocationPermissionRequestProxy> createRequest(GeolocationIdentifier, WebProcessProxy&);
-    
+    Ref<GeolocationPermissionRequestProxy> createRequest(GeolocationIdentifier, WebProcessProxy&, WebCore::RegistrableDomain&&);
+
     // Called by GeolocationPermissionRequestProxy when a decision is made by the user.
     void didReceiveGeolocationPermissionDecision(GeolocationIdentifier, bool allow);
 
     bool isValidAuthorizationToken(const String&) const;
+    std::optional<WebCore::RegistrableDomain> registrableDomainForAuthorizationToken(const String&) const;
     void revokeAuthorizationToken(const String&);
 
 private:
     HashMap<GeolocationIdentifier, Ref<GeolocationPermissionRequestProxy>> m_pendingRequests;
-    HashSet<String> m_validAuthorizationTokens;
+    HashMap<String, WebCore::RegistrableDomain> m_validAuthorizationTokens;
     WeakRef<WebPageProxy> m_page;
 };
 

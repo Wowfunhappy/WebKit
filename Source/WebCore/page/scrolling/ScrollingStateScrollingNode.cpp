@@ -119,6 +119,8 @@ ScrollingStateScrollingNode::ScrollingStateScrollingNode(const ScrollingStateScr
     , m_scrollPosition(stateNode.scrollPosition())
     , m_scrollOrigin(stateNode.scrollOrigin())
     , m_snapOffsetsInfo(stateNode.m_snapOffsetsInfo)
+    // m_currentHorizontalSnapPointIndex is not currently copied.
+    // m_currentVerticalSnapPointIndex is not currently copied.
 #if PLATFORM(MAC) || USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
     , m_scrollbarHoverState(stateNode.scrollbarHoverState())
 #endif
@@ -130,9 +132,7 @@ ScrollingStateScrollingNode::ScrollingStateScrollingNode(const ScrollingStateScr
     , m_verticalScrollerImp(stateNode.verticalScrollerImp())
     , m_horizontalScrollerImp(stateNode.horizontalScrollerImp())
 #endif
-#if PLATFORM(COCOA)
     , m_scrollbarColor(stateNode.scrollbarColor())
-#endif
     , m_scrollableAreaParameters(stateNode.scrollableAreaParameters())
     , m_requestedScrollData(stateNode.requestedScrollData())
     , m_keyboardScrollData(stateNode.keyboardScrollData())
@@ -265,7 +265,7 @@ void ScrollingStateScrollingNode::setCurrentVerticalSnapPointIndex(std::optional
 {
     if (m_currentVerticalSnapPointIndex == index)
         return;
-    
+
     m_currentVerticalSnapPointIndex = index;
     setPropertyChanged(Property::CurrentVerticalSnapOffsetIndex);
 }
@@ -669,6 +669,9 @@ void ScrollingStateScrollingNode::dumpProperties(TextStream& ts, OptionSet<Scrol
     if (!m_synchronousScrollingReasons.isEmpty())
         ts.dumpProperty("Scrolling on main thread because:"_s, ScrollingCoordinator::synchronousScrollingReasonsAsText(m_synchronousScrollingReasons));
 #endif
+
+    if (m_useDarkAppearanceForScrollbars)
+        ts.dumpProperty("uses dark appearance for scrollbars"_s, m_useDarkAppearanceForScrollbars);
 
     if (m_isMonitoringWheelEvents)
         ts.dumpProperty("expects wheel event test trigger"_s, m_isMonitoringWheelEvents);

@@ -98,8 +98,8 @@ class LinuxBrowserDriver(BrowserDriver):
                     _log.info('Killing browser {browser_name} with pid {browser_pid}'.format(
                                browser_name=self.browser_name, browser_pid=self._browser_process.pid))
                     self._browser_process.kill()
-                    _log.warning('python psutil not found, cant check for '
-                                 'still-alive browser childs to kill.')
+                    _log.warning('python psutil not found, can\'t check for '
+                                 'still-alive browser children to kill.')
             else:
                 _log.error('Browser {browser_name} with pid {browser_pid} ended prematurely with return code {browser_retcode}.'.format(
                             browser_name=self.browser_name, browser_pid=self._browser_process.pid,
@@ -172,5 +172,3 @@ class LinuxBrowserDriver(BrowserDriver):
             monitor = display.get_primary_monitor()
             return monitor.get_geometry()
 
-    def _save_screenshot_to_path(self, output_directory, filename):
-        pass

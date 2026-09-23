@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-//#import "AttributedString.h"
-//#import "SimpleRange.h"
+#import <Foundation/Foundation.h>
 
 @interface NSURL (WebCoreNSURLDetails)
 // FIXME: What is the reason to use this Foundation method, and not +[NSURL URLWithString:relativeToURL:]?

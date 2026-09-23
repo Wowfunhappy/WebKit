@@ -36,9 +36,7 @@ BlobDataFileReferenceWithSandboxExtension::BlobDataFileReferenceWithSandboxExten
 {
 }
 
-BlobDataFileReferenceWithSandboxExtension::~BlobDataFileReferenceWithSandboxExtension()
-{
-}
+BlobDataFileReferenceWithSandboxExtension::~BlobDataFileReferenceWithSandboxExtension() = default;
 
 void BlobDataFileReferenceWithSandboxExtension::prepareForFileAccess()
 {

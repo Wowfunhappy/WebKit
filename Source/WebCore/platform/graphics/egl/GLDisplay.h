@@ -46,6 +46,10 @@ public:
     EGLDisplay eglDisplay() const { return m_display; }
     bool checkVersion(int major, int minor) const;
 
+#if USE(LIBEPOXY)
+    bool isSoftwareRendered() const;
+#endif
+
     void terminate();
 
     EGLImage createImage(EGLContext, EGLenum, EGLClientBuffer, const Vector<EGLAttrib>&) const;

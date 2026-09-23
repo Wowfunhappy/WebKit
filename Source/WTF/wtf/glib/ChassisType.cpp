@@ -28,7 +28,10 @@
 
 #include <mutex>
 #include <optional>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
+#include <wtf/text/CStringView.h>
+#include <wtf/text/StringCommon.h>
 
 namespace WTF {
 
@@ -43,22 +46,22 @@ static std::optional<ChassisType> readMachineInfoChassisType()
     }
 
     GUniquePtr<char*> split(g_strsplit(buffer.get(), "\n", -1));
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port.
-    for (int i = 0; split.get()[i]; ++i) {
-        if (g_str_has_prefix(split.get()[i], "CHASSIS=")) {
-            char* chassis = split.get()[i] + 8;
+    for (const auto* line : span(split)) {
+        auto lineView = CStringView::unsafeFromUTF8(line);
+        if (startsWith(lineView.span(), "CHASSIS="_s)) {
+            const auto chassis = CStringView::fromUTF8(lineView.spanIncludingNullTerminator().subspan(8));
 
-            GUniquePtr<char> unquoted(g_shell_unquote(chassis, &error.outPtr()));
+            GUniquePtr<char> unquoted(g_shell_unquote(chassis.utf8(), &error.outPtr()));
             if (error)
-                g_warning("Could not unquote chassis type %s: %s", chassis, error->message);
+                g_warning("Could not unquote chassis type %s: %s", chassis.utf8(), error->message);
 
-            if (!strcmp(unquoted.get(), "tablet") || !strcmp(unquoted.get(), "handset"))
+            auto unquotedView = CStringView::unsafeFromUTF8(unquoted.get());
+            if (unquotedView == "tablet"_s || unquotedView == "handset"_s)
                 return ChassisType::Mobile;
 
             return ChassisType::Desktop;
         }
     }
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     return std::nullopt;
 }

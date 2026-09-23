@@ -30,6 +30,7 @@
 #include "ColorSerialization.h"
 #include "ContainerNodeInlines.h"
 #include "Document.h"
+#include "DocumentView.h"
 #include "ElementInlines.h"
 #include "FrameSelection.h"
 #include "GraphicsLayer.h"
@@ -46,12 +47,12 @@
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "PrintContext.h"
 #include "PseudoElement.h"
 #include "RemoteFrame.h"
 #include "RemoteFrameView.h"
 #include "RenderBlockFlow.h"
+#include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderCounter.h"
 #include "RenderElementInlines.h"
@@ -80,7 +81,7 @@
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
 #include "StylePropertiesInlines.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include <wtf/HexNumber.h>
 #include <wtf/Vector.h>
@@ -202,7 +203,7 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
         ts << " zI: "_s << value->value;
 
     if (o.node()) {
-        String tagName = getTagName(o.node());
+        String tagName = getTagName(protect(o.node()));
         // FIXME: Temporary hack to make tests pass by simulating the old generated content output.
         if (o.isPseudoElement() || (o.parent() && o.parent()->isPseudoElement()))
             tagName = emptyAtom();
@@ -210,7 +211,7 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
             ts << " {"_s << tagName << '}';
             // flag empty or unstyled AppleStyleSpan because we never
             // want to leave them in the DOM
-            if (isEmptyOrUnstyledAppleStyleSpan(o.node()))
+            if (isEmptyOrUnstyledAppleStyleSpan(protect(o.node())))
                 ts << " *empty or unstyled AppleStyleSpan*"_s;
         }
     }
@@ -227,9 +228,11 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
         // FIXME: Deliberately dump the "inner" box of table cells, since that is what current results reflect.  We'd like
         // to clean up the results to dump both the outer box and the intrinsic padding so that both bits of information are
         // captured by the results.
-        r = LayoutRect(cell->x(), cell->y() + cell->intrinsicPaddingBefore(), cell->width(), cell->height() - cell->intrinsicPaddingBefore() - cell->intrinsicPaddingAfter());
+        // FIXME: Cell positions are row-relative but we dump them as section-relative to avoid rebaselining every table test.
+        auto rowOffset = cell->parent() ? downcast<RenderBox>(*cell->parent()).location() : LayoutPoint();
+        r = LayoutRect(cell->x() + rowOffset.x(), cell->y() + rowOffset.y() + cell->intrinsicPaddingBefore(), cell->borderBoxWidth(), cell->borderBoxHeight() - cell->intrinsicPaddingBefore() - cell->intrinsicPaddingAfter());
     } else if (auto* box = dynamicDowncast<RenderBox>(o))
-        r = box->frameRect();
+        r = box->borderBoxRectInContainer();
     else if (auto* svgModelObject = dynamicDowncast<RenderSVGModelObject>(o)) {
         r = svgModelObject->frameRectEquivalent();
         ASSERT(r.location() == svgModelObject->currentSVGLayoutLocation());
@@ -245,7 +248,7 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
         writeSVGPaintingFeatures(ts, *svgModelObject, behavior);
 
         if (auto* svgShape = dynamicDowncast<RenderSVGShape>(*svgModelObject))
-            writeSVGGraphicsElement(ts, svgShape->graphicsElement());
+            writeSVGGraphicsElement(ts, protect(svgShape->graphicsElement()));
 
         writeDebugInfo(ts, o, behavior);
         return;
@@ -303,6 +306,7 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
                 break;
             case FlowDirection::RightToLeft:
                 borderRight -= block.intrinsicBorderForFieldset();
+                break;
             }
         }
         if (borderTop || borderRight || borderBottom || borderLeft) {
@@ -483,7 +487,7 @@ static inline void writeTextRuns(TextStream& ts, auto& textRenderer)
         ts << ": "_s
             << quoteAndEscapeNonPrintables(textRun.originalText());
         if (textRun.hasHyphen())
-            ts << " + hyphen string "_s << quoteAndEscapeNonPrintables(textRenderer.style().hyphenString().string());
+            ts << " + hyphen string "_s << quoteAndEscapeNonPrintables(textRenderer.style().hyphenString());
         ts << '\n';
     };
 
@@ -552,7 +556,7 @@ void write(TextStream& ts, const RenderObject& renderer, OptionSet<RenderAsTextF
     }
 
     if (auto* renderWidget = dynamicDowncast<RenderWidget>(renderer); renderWidget && renderWidget->widget() && is<FrameView>(renderWidget->widget()))
-        dynamicDowncast<FrameView>(renderWidget->widget())->writeRenderTreeAsText(ts, behavior);
+        protect(dynamicDowncast<FrameView>(renderWidget->widget()))->writeRenderTreeAsText(ts, behavior);
 
     if (isAnyOf<RenderSVGModelObject, RenderSVGRoot>(renderer))
         writeResources(ts, renderer, behavior);
@@ -591,9 +595,9 @@ inline void writeLayerUsingGeometryType(TextStream& ts, const RenderLayer& layer
                 ts << " scrollX "_s << scrollableArea->scrollOffset().x();
             if (scrollableArea->scrollOffset().y())
                 ts << " scrollY "_s << scrollableArea->scrollOffset().y();
-            if (layer.renderBox() && roundToInt(layer.renderBox()->clientWidth()) != scrollableArea->scrollWidth())
+            if (layer.renderBox() && roundToInt(layer.renderBox()->paddingBoxWidth()) != scrollableArea->scrollWidth())
                 ts << " scrollWidth "_s << scrollableArea->scrollWidth();
-            if (layer.renderBox() && roundToInt(layer.renderBox()->clientHeight()) != scrollableArea->scrollHeight())
+            if (layer.renderBox() && roundToInt(layer.renderBox()->paddingBoxHeight()) != scrollableArea->scrollHeight())
                 ts << " scrollHeight "_s << scrollableArea->scrollHeight();
         }
 #if PLATFORM(MAC)
@@ -674,7 +678,13 @@ static void writeLayers(TextStream& ts, const RenderLayer& rootLayer, RenderLaye
     layer.updateLayerListsIfNeeded();
     layer.updateDescendantDependentFlags();
 
-    bool shouldPaint = (behavior.contains(RenderAsTextFlag::ShowAllLayers)) ? true : layer.intersectsDamageRect(rects.layerBounds(), rects.dirtyBackgroundRect().rect(), &rootLayer, layer.offsetFromAncestor(&rootLayer));
+    // SVG layers with non-empty bounds bypass the intersectsDamageRect cull. layerBounds (via
+    // offsetFromAncestor) accumulates raw location() without the SVG transforms of the ancestor
+    // chain, so it sits in a different space than the damage rect and on-screen layers get wrongly
+    // culled. Empty SVG layers keep the normal cull so they stay out of the dump.
+    bool isNonEmptySVGLayer = layer.renderer().isSVGLayerAwareRenderer() && !rects.layerBounds().isEmpty();
+    bool shouldPaint = (behavior.contains(RenderAsTextFlag::ShowAllLayers) || isNonEmptySVGLayer)
+        ? true : layer.intersectsDamageRect(rects.layerBounds(), rects.dirtyBackgroundRect().rect(), &rootLayer, layer.offsetFromAncestor(&rootLayer));
     auto negativeZOrderLayers = layer.negativeZOrderLayers();
     bool paintsBackgroundSeparately = negativeZOrderLayers.size() > 0;
     if (shouldPaint && paintsBackgroundSeparately) {
@@ -785,13 +795,14 @@ static void writeSelection(TextStream& ts, const RenderBox& renderer)
 
     VisibleSelection selection = frame->selection().selection();
     if (selection.isCaret()) {
-        ts << "caret: position "_s << selection.start().deprecatedEditingOffset() << " of "_s << nodePosition(selection.start().deprecatedNode());
+        ts << "caret: position "_s << selection.start().deprecatedEditingOffset() << " of "_s << nodePosition(protect(selection.start().deprecatedNode()));
         if (selection.affinity() == Affinity::Upstream)
             ts << " (upstream affinity)"_s;
         ts << '\n';
-    } else if (selection.isRange())
-        ts << "selection start: position "_s << selection.start().deprecatedEditingOffset() << " of "_s << nodePosition(selection.start().deprecatedNode()) << '\n'
-           << "selection end:   position " << selection.end().deprecatedEditingOffset() << " of " << nodePosition(selection.end().deprecatedNode()) << "\n";
+    } else if (selection.isRange()) {
+        ts << "selection start: position "_s << selection.start().deprecatedEditingOffset() << " of "_s << nodePosition(protect(selection.start().deprecatedNode())) << '\n'
+            << "selection end:   position " << selection.end().deprecatedEditingOffset() << " of " << nodePosition(protect(selection.end().deprecatedNode())) << "\n";
+    }
 }
 
 static TextStream createTextStream(const Document& document)
@@ -807,12 +818,12 @@ static TextStream createTextStream(const Document& document)
 
 TextStream createTextStream(const RenderView& view)
 {
-    return createTextStream(view.document());
+    return createTextStream(protect(view.document()));
 }
 
 static String externalRepresentation(RenderBox& renderer, OptionSet<RenderAsTextFlag> behavior)
 {
-    auto ts = createTextStream(renderer.document());
+    auto ts = createTextStream(protect(renderer.document()));
     if (!renderer.hasLayer())
         return ts.release();
 
@@ -831,7 +842,7 @@ String externalRepresentation(LocalFrame* frame, OptionSet<RenderAsTextFlag> beh
     ASSERT(frame->document());
 
     if (!(behavior.contains(RenderAsTextFlag::DontUpdateLayout)) && frame->view())
-        frame->view()->updateLayoutAndStyleIfNeededRecursive({ LayoutOptions::IgnorePendingStylesheets, LayoutOptions::UpdateCompositingLayers });
+        protect(frame)->view()->updateLayoutAndStyleIfNeededRecursive({ LayoutOptions::IgnorePendingStylesheets, LayoutOptions::UpdateCompositingLayers });
 
     auto* renderer = frame->contentRenderer();
     if (!renderer)
@@ -839,7 +850,7 @@ String externalRepresentation(LocalFrame* frame, OptionSet<RenderAsTextFlag> beh
 
     Ref printContext = PrintContext::create(frame);
     if (behavior.contains(RenderAsTextFlag::PrintingMode))
-        printContext->begin(renderer->width());
+        printContext->begin(renderer->borderBoxWidth());
 
     return externalRepresentation(*renderer, behavior);
 }
@@ -862,7 +873,7 @@ String externalRepresentation(Element* element, OptionSet<RenderAsTextFlag> beha
     ASSERT(!(behavior.contains(RenderAsTextFlag::PrintingMode)));
 
     if (!(behavior.contains(RenderAsTextFlag::DontUpdateLayout)) && element->document().view())
-        element->document().view()->updateLayoutAndStyleIfNeededRecursive({ LayoutOptions::IgnorePendingStylesheets, LayoutOptions::UpdateCompositingLayers });
+        protect(element)->document().view()->updateLayoutAndStyleIfNeededRecursive({ LayoutOptions::IgnorePendingStylesheets, LayoutOptions::UpdateCompositingLayers });
 
     auto* renderer = element->renderer();
     if (!is<RenderBox>(renderer))
@@ -888,8 +899,8 @@ String counterValueForElement(Element* element)
 {
     // Make sure the element is not freed during the layout.
     RefPtr<Element> elementRef(element);
-    element->document().updateLayout();
-    auto stream = createTextStream(element->document());
+    elementRef->document().updateLayout();
+    auto stream = createTextStream(elementRef->document());
     bool isFirstCounter = true;
     // The counter renderers should be children of :before or :after pseudo-elements.
     if (RefPtr before = element->beforePseudoElement())
@@ -903,7 +914,7 @@ String markerTextForListItem(Element* element)
 {
     // Make sure the element is not freed during the layout.
     RefPtr protectedElement { element };
-    element->document().updateLayout();
+    protect(element->document())->updateLayout();
 
     auto* renderer = dynamicDowncast<RenderListItem>(element->renderer());
     if (!renderer)

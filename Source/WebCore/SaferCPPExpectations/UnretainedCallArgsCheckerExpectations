@@ -1,15 +1,13 @@
 Modules/WebGPU/GPUQueue.cpp
-[ Mac ] Modules/model-element/scenekit/SceneKitModelPlayer.mm
 [ iOS ] Modules/system-preview/ARKitBadgeSystemImage.mm
 [ Mac ] accessibility/cocoa/AXCoreObjectCocoa.mm
 [ Mac ] accessibility/cocoa/AXTextMarkerCocoa.mm
-[ Mac ] accessibility/cocoa/AccessibilityObjectCocoa.mm
+accessibility/cocoa/WebAccessibilityObjectWrapperBase.mm
 [ iOS ] accessibility/ios/AXObjectCacheIOS.mm
 [ iOS ] accessibility/ios/AccessibilityObjectIOS.mm
 [ iOS ] accessibility/ios/WebAccessibilityObjectWrapperIOS.mm
 [ Mac ] accessibility/mac/AXObjectCacheMac.mm
 [ Mac ] accessibility/mac/AccessibilityObjectMac.mm
-accessibility/mac/WebAccessibilityObjectWrapperBase.mm
 [ Mac ] accessibility/mac/WebAccessibilityObjectWrapperMac.mm
 bridge/objc/WebScriptObject.mm
 bridge/objc/objc_instance.mm
@@ -19,11 +17,10 @@ crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm
 editing/SmartReplaceCF.cpp
 [ iOS ] editing/cocoa/DataDetection.mm
 editing/cocoa/EditingHTMLConverter.mm
-editing/cocoa/FontAttributeChangesCocoa.mm
 editing/cocoa/NodeHTMLConverter.mm
 editing/cocoa/WebContentReaderCocoa.mm
 inspector/agents/page/PageTimelineAgent.cpp
-[ iOS ] page/InteractionRegion.cpp
+page/InteractionRegion.cpp
 page/cocoa/PageCocoa.mm
 page/cocoa/WebTextIndicatorLayer.mm
 [ iOS ] page/ios/EventHandlerIOS.mm
@@ -42,7 +39,7 @@ platform/cf/MainThreadSharedTimerCF.cpp
 platform/cocoa/FileMonitorCocoa.mm
 platform/cocoa/LocalizedStringsCocoa.mm
 platform/cocoa/NetworkExtensionContentFilter.mm
-[ iOS ] platform/cocoa/ParentalControlsURLFilter.mm
+platform/cocoa/ParentalControlsURLFilter.mm
 platform/cocoa/PlatformPasteboardCocoa.mm
 platform/cocoa/SearchPopupMenuCocoa.mm
 platform/cocoa/UserAgentCocoa.mm
@@ -51,7 +48,7 @@ platform/cocoa/WebAVPlayerLayer.mm
 platform/graphics/BitmapImageDescriptor.cpp
 platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
 platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm
-[ iOS ] platform/graphics/avfoundation/FormatDescriptionUtilities.cpp
+platform/graphics/avfoundation/FormatDescriptionUtilities.cpp
 [ Mac ] platform/graphics/avfoundation/objc/AVOutputDeviceMenuControllerTargetPicker.mm
 [ Mac ] platform/graphics/avfoundation/objc/AVRoutePickerViewTargetPicker.mm
 platform/graphics/avfoundation/objc/CDMInstanceFairPlayStreamingAVFObjC.mm
@@ -118,14 +115,14 @@ platform/ios/WebAVPlayerController.mm
 [ iOS ] platform/ios/wak/WebCoreThread.mm
 [ iOS ] platform/ios/wak/WebCoreThreadRun.cpp
 platform/mediarecorder/MediaRecorderPrivateEncoder.cpp
-platform/mediastream/mac/AVVideoCaptureSource.mm
-[ Mac ] platform/mediastream/mac/ScreenCaptureKitCaptureSource.mm
-[ Mac ] platform/mediastream/mac/ScreenCaptureKitSharingSessionManager.mm
+platform/mediastream/cocoa/AVVideoCaptureSource.mm
+[ Mac ] platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.mm
+[ Mac ] platform/mediastream/cocoa/ScreenCaptureKitSharingSessionManager.mm
 platform/network/cf/DNSResolveQueueCFNet.cpp
-platform/network/mac/ResourceHandleMac.mm
-platform/network/mac/SynchronousLoaderClient.mm
-platform/network/mac/WebCoreResourceHandleAsOperationQueueDelegate.mm
-[ iOS ] platform/text/mac/TextBoundaries.mm
+platform/network/cocoa/ResourceHandleCocoa.mm
+platform/network/cocoa/SynchronousLoaderClient.mm
+platform/network/cocoa/WebCoreResourceHandleAsOperationQueueDelegate.mm
+[ iOS ] platform/text/cocoa/TextBoundaries.mm
 rendering/AttachmentLayout.mm
 [ iOS ] rendering/ios/RenderThemeIOS.mm
 [ Mac ] testing/ServiceWorkerInternals.mm

@@ -81,6 +81,7 @@
 #include "InspectorBackendClient.h"
 #include "InspectorCSSAgent.h"
 #include "InspectorHistory.h"
+#include "InspectorIdentifierRegistry.h"
 #include "InspectorNodeFinder.h"
 #include "InspectorPageAgent.h"
 #include "InstrumentingAgents.h"
@@ -95,10 +96,10 @@
 #include "JSVideoTransferCharacteristics.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "MutationEvent.h"
 #include "Node.h"
-#include "NodeInlines.h"
 #include "NodeList.h"
 #include "Page.h"
 #include "PageInspectorController.h"
@@ -106,12 +107,12 @@
 #include "PseudoElement.h"
 #include "RenderGrid.h"
 #include "RenderObject.h"
-#include "RenderStyle.h"
 #include "RenderStyleConstants.h"
 #include "ScriptController.h"
 #include "SelectorChecker.h"
 #include "ShadowRoot.h"
 #include "StaticNodeList.h"
+#include "StyleComputedStyle.h"
 #include "StyleProperties.h"
 #include "StyleResolver.h"
 #include "StyleSheetList.h"
@@ -131,8 +132,10 @@
 #include <JavaScriptCore/InjectedScriptManager.h>
 #include <JavaScriptCore/InspectorDebuggerAgent.h>
 #include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <pal/crypto/CryptoDigest.h>
 #include <wtf/Function.h>
+#include <wtf/Stopwatch.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/Base64.h>
@@ -282,7 +285,7 @@ public:
 
 #if ENABLE(FULLSCREEN_API)
         if (event.type() == eventNames().webkitfullscreenchangeEvent || event.type() == eventNames().fullscreenchangeEvent)
-            data->setBoolean("enabled"_s, !!node->document().fullscreen().fullscreenElement());
+            data->setBoolean("enabled"_s, !!protect(node->document())->fullscreen().fullscreenElement());
 #endif // ENABLE(FULLSCREEN_API)
 
         auto timestamp = protect(domAgent->environment())->executionStopwatch().elapsedTime().seconds();
@@ -331,7 +334,7 @@ void InspectorDOMAgent::didCreateFrontendAndBackend()
     m_domEditor = makeUnique<DOMEditor>(*m_history);
 
     Ref { m_instrumentingAgents.get() }->setPersistentDOMAgent(this);
-    m_document = m_inspectedPage->localTopDocument();
+    m_document = protect(m_inspectedPage)->localTopDocument();
 
     // Force a layout so that we can collect additional information from the layout process.
     relayoutDocument();
@@ -585,7 +588,7 @@ void InspectorDOMAgent::discardBindings()
     m_childrenRequested.clear();
 }
 
-static RefPtr<Element> elementToPushForStyleable(const Styleable& styleable)
+static RefPtr<Element> NODELETE elementToPushForStyleable(const Styleable& styleable)
 {
     auto& element = styleable.element;
     // FIXME: We want to get rid of PseudoElement.
@@ -601,7 +604,7 @@ static RefPtr<Element> elementToPushForStyleable(const Styleable& styleable)
 Inspector::Protocol::DOM::NodeId InspectorDOMAgent::pushStyleableElementToFrontend(const Styleable& styleable)
 {
     RefPtr element = elementToPushForStyleable(styleable);
-    return pushNodeToFrontend(element ? element.get() : &styleable.element);
+    return pushNodeToFrontend(protect(element ? element.get() : &styleable.element));
 }
 
 Inspector::Protocol::DOM::NodeId InspectorDOMAgent::pushNodeToFrontend(Node* nodeToPush)
@@ -744,7 +747,7 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::DOM::N
 
     auto nodeIds = JSON::ArrayOf<Inspector::Protocol::DOM::NodeId>::create();
     for (unsigned i = 0; i < nodes->length(); ++i)
-        nodeIds->addItem(pushNodePathToFrontend(nodes->item(i)));
+        nodeIds->addItem(pushNodePathToFrontend(protect(nodes->item(i))));
     return nodeIds;
 }
 
@@ -811,7 +814,7 @@ Inspector::Protocol::DOM::NodeId InspectorDOMAgent::pushNodePathToFrontend(Inspe
     }
 
     for (int i = path.size() - 1; i >= 0; --i) {
-        auto nodeId = boundNodeId(path.at(i));
+        auto nodeId = boundNodeId(protect(path.at(i)));
         ASSERT(nodeId);
         pushChildNodesToFrontend(nodeId);
     }
@@ -1118,7 +1121,7 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::DOM::E
             m_eventListenerEntries.add(identifier, inspectorEventListener);
         }
 
-        listeners->addItem(buildObjectForEventListener(listener, identifier, *info.eventTarget, info.eventType, disabled, breakpoint));
+        listeners->addItem(buildObjectForEventListener(listener, identifier, protect(*info.eventTarget), info.eventType, disabled, breakpoint));
     };
 
     // Get Capturing Listeners (in this order)
@@ -1203,7 +1206,7 @@ Inspector::Protocol::ErrorStringOr<std::tuple<String /* searchId */, int /* resu
 {
     Inspector::Protocol::ErrorString errorString;
 
-    // FIXME: Search works with node granularity - number of matches within node is not calculated.
+    // FIXME: <https://webkit.org/b/316549> Search works with node granularity - number of matches within node is not calculated.
     InspectorNodeFinder finder(query, caseSensitive && *caseSensitive);
 
     if (nodeIds) {
@@ -1513,12 +1516,7 @@ Inspector::Protocol::ErrorStringOr<void> InspectorDOMAgent::highlightSelector(co
     RefPtr<Document> document;
 
     if (!!frameId) {
-        Ref agents = m_instrumentingAgents.get();
-        CheckedPtr pageAgent = agents->enabledPageAgent();
-        if (!pageAgent)
-            return makeUnexpected("Page domain must be enabled"_s);
-
-        RefPtr frame = pageAgent->assertFrame(errorString, frameId);
+        RefPtr frame = m_inspectedPage->inspectorController().identifierRegistry().assertFrame(errorString, frameId);
         if (!frame)
             return makeUnexpected(errorString);
 
@@ -1689,12 +1687,7 @@ Inspector::Protocol::ErrorStringOr<void> InspectorDOMAgent::highlightFrame(const
 {
     Inspector::Protocol::ErrorString errorString;
 
-    Ref agents = m_instrumentingAgents.get();
-    CheckedPtr pageAgent = agents->enabledPageAgent();
-    if (!pageAgent)
-        return makeUnexpected("Page domain must be enabled"_s);
-
-    RefPtr frame = pageAgent->assertFrame(errorString, frameId);
+    RefPtr frame = m_inspectedPage->inspectorController().identifierRegistry().assertFrame(errorString, frameId);
     if (!frame)
         return makeUnexpected(errorString);
 
@@ -1918,7 +1911,7 @@ String InspectorDOMAgent::documentURLString(Document* document)
 
 static String documentBaseURLString(Document* document)
 {
-    return document->completeURL(emptyString()).string();
+    return document->encodingParseURL(emptyString()).string();
 }
 
 static bool NODELETE pseudoElementType(PseudoElementType pseudoElementType, Inspector::Protocol::DOM::PseudoType* type)
@@ -1965,10 +1958,10 @@ static String computeContentSecurityPolicySHA256Hash(const Element& element)
 {
     // FIXME: Compute the digest with respect to the raw bytes received from the page.
     // See <https://bugs.webkit.org/show_bug.cgi?id=155184>.
-    PAL::TextEncoding documentEncoding = element.document().textEncoding();
+    PAL::TextEncoding documentEncoding = protect(element.document())->textEncoding();
     const PAL::TextEncoding& encodingToUse = documentEncoding.isValid() ? documentEncoding : PAL::UTF8Encoding();
     auto content = encodingToUse.encode(TextNodeTraversal::contentsAsString(element), PAL::UnencodableHandling::Entities);
-    auto cryptoDigest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto cryptoDigest = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     cryptoDigest->addBytes(content.span());
     auto digest = cryptoDigest->computeHash();
     return makeString("sha256-"_s, base64Encoded(digest));
@@ -2027,11 +2020,8 @@ Ref<Inspector::Protocol::DOM::Node> InspectorDOMAgent::buildObjectForNode(Node* 
             value->setLayoutFlags(layoutFlags.releaseNonNull());
     }
 
-    CheckedPtr pageAgent = agents->enabledPageAgent();
-    if (pageAgent) {
-        if (RefPtr frameView = node->document().view())
-            value->setFrameId(pageAgent->frameId(&frameView->frame()));
-    }
+    if (RefPtr frameView = node->document().view())
+        value->setFrameId(m_inspectedPage->inspectorController().identifierRegistry().frameId(protect(&frameView->frame())));
 
     if (RefPtr element = dynamicDowncast<Element>(*node)) {
         value->setAttributes(buildArrayForElementAttributes(element.get()));
@@ -2065,8 +2055,7 @@ Ref<Inspector::Protocol::DOM::Node> InspectorDOMAgent::buildObjectForNode(Node* 
                 value->setPseudoElements(pseudoElements.releaseNonNull());
         }
     } else if (RefPtr document = dynamicDowncast<Document>(*node)) {
-        if (pageAgent)
-            value->setFrameId(pageAgent->frameId(document->frame()));
+        value->setFrameId(m_inspectedPage->inspectorController().identifierRegistry().frameId(protect(document->frame())));
         value->setDocumentURL(documentURLString(document.get()));
         value->setBaseURL(documentBaseURLString(document.get()));
         value->setXmlVersion(document->xmlVersion());
@@ -2145,7 +2134,7 @@ Ref<Inspector::Protocol::DOM::EventListener> InspectorDOMAgent::buildObjectForEv
     String scriptID;
     if (RefPtr scriptListener = dynamicDowncast<JSEventListener>(eventListener); scriptListener && scriptListener->isolatedWorld()) {
         RefPtr<Document> document;
-        if (auto* scriptExecutionContext = eventTarget.scriptExecutionContext())
+        if (RefPtr scriptExecutionContext = eventTarget.scriptExecutionContext())
             document = dynamicDowncast<Document>(*scriptExecutionContext);
         else if (RefPtr node = dynamicDowncast<Node>(eventTarget))
             document = node->document();
@@ -2161,13 +2150,13 @@ Ref<Inspector::Protocol::DOM::EventListener> InspectorDOMAgent::buildObjectForEv
                 CheckedRef script = frame->script();
                 // FIXME: Why do we need the canExecuteScripts check here?
                 if (script->canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript))
-                    globalObject = script->globalObject(*scriptListener->isolatedWorld());
+                    globalObject = script->globalObject(protect(*scriptListener->isolatedWorld()));
             }
         }
 
         if (handlerObject && globalObject) {
             JSC::VM& vm = globalObject->vm();
-            JSC::JSFunction* handlerFunction = JSC::jsDynamicCast<JSC::JSFunction*>(handlerObject);
+            JSC::JSFunction* handlerFunction = dynamicDowncast<JSC::JSFunction>(handlerObject);
 
             if (!handlerFunction) {
                 auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
@@ -2179,7 +2168,7 @@ Ref<Inspector::Protocol::DOM::EventListener> InspectorDOMAgent::buildObjectForEv
                     scope.clearException();
 
                 if (handleEventValue)
-                    handlerFunction = JSC::jsDynamicCast<JSC::JSFunction*>(handleEventValue);
+                    handlerFunction = dynamicDowncast<JSC::JSFunction>(handleEventValue);
             }
 
             if (handlerFunction && !handlerFunction->isHostOrBuiltinFunction()) {
@@ -2246,8 +2235,7 @@ void InspectorDOMAgent::processAccessibilityChildren(AXCoreObject& axObject, JSO
 
 Ref<Inspector::Protocol::DOM::AccessibilityProperties> InspectorDOMAgent::buildObjectForAccessibilityProperties(Node& node)
 {
-    if (!WebCore::AXObjectCache::accessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility();
+    WebCore::AXObjectCache::enableAccessibility();
 
     RefPtr<Node> activeDescendantNode;
     bool busy = false;
@@ -2436,7 +2424,7 @@ Ref<Inspector::Protocol::DOM::AccessibilityProperties> InspectorDOMAgent::buildO
                     liveRegionStatus = Inspector::Protocol::DOM::AccessibilityProperties::LiveRegionStatus::Polite;
             }
 
-            if (auto* clickableObject = axObject->clickableSelfOrAncestor(ClickHandlerFilter::IncludeBody))
+            if (RefPtr clickableObject = axObject->clickableSelfOrAncestor(ClickHandlerFilter::IncludeBody))
                 mouseEventNode = clickableObject->node();
 
             if (axObject->supportsARIAOwns()) {
@@ -2572,7 +2560,7 @@ Ref<Inspector::Protocol::DOM::AccessibilityProperties> InspectorDOMAgent::buildO
     return value;
 }
 
-static bool containsOnlyASCIIWhitespace(Node* node)
+static bool NODELETE containsOnlyASCIIWhitespace(Node* node)
 {
     // FIXME: Respect ignoreWhitespace setting from inspector front end?
     // This static is invoked during node deletion so cannot use RefPtr.
@@ -2607,7 +2595,7 @@ Node* InspectorDOMAgent::innerPreviousSibling(Node* node)
 unsigned InspectorDOMAgent::innerChildNodeCount(Node* node)
 {
     unsigned count = 0;
-    for (RefPtr child = innerFirstChild(node); child; child = innerNextSibling(child.get()))
+    for (auto* child = innerFirstChild(node); child; child = innerNextSibling(child))
         ++count;
     return count;
 }
@@ -2642,7 +2630,7 @@ void InspectorDOMAgent::didCommitLoad(Document* document)
         return;
 
     // Re-add frame owner element together with its new children.
-    auto parentId = boundNodeId(innerParentNode(frameOwner.get()));
+    auto parentId = boundNodeId(protect(innerParentNode(frameOwner.get())));
     m_frontendDispatcher->childNodeRemoved(parentId, frameOwnerId);
     unbind(*frameOwner);
 
@@ -2766,7 +2754,7 @@ void InspectorDOMAgent::willDestroyDOMNode(Node& node)
     // while the GC is still active.
 
     // FIXME: <webkit.org/b/189687> Unify m_destroyedAttachedNodeIdentifiers and m_destroyedDetachedNodeIdentifiers.
-    if (auto parentId = boundNodeId(node.parentNode()))
+    if (auto parentId = boundNodeId(protect(node.parentNode())))
         m_destroyedAttachedNodeIdentifiers.append({ parentId, nodeId });
     else
         m_destroyedDetachedNodeIdentifiers.append(nodeId);
@@ -3063,7 +3051,7 @@ void InspectorDOMAgent::mediaMetricsTimerFired()
             continue;
         }
 
-        bool isPowerEfficient = (displayCompositedVideoFrames - iterator->value.displayCompositedFrames) > 0;
+        bool isPowerEfficient = displayCompositedVideoFrames > iterator->value.displayCompositedFrames;
         if (iterator->value.isPowerEfficient != isPowerEfficient) {
             iterator->value.isPowerEfficient = isPowerEfficient;
 
@@ -3148,7 +3136,7 @@ Inspector::Protocol::ErrorStringOr<Inspector::Protocol::DOM::NodeId> InspectorDO
 RefPtr<Inspector::Protocol::Runtime::RemoteObject> InspectorDOMAgent::resolveNode(Node* node, const String& objectGroup)
 {
     RefPtr document = &node->document();
-    if (auto* templateHost = document->templateDocumentHost())
+    if (RefPtr templateHost = document->templateDocumentHost())
         document = templateHost;
     RefPtr frame =  document->frame();
     if (!frame)

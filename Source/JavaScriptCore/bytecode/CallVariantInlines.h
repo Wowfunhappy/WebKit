@@ -27,6 +27,7 @@
 
 #include "CallVariant.h"
 #include "ExecutableBaseInlines.h"
+#include "Intrinsic.h"
 
 namespace JSC {
 

@@ -120,6 +120,17 @@ int main(void)
     CFDataRef bareBlob = SecTrustSerialize(bare, &error);
     check(bareBlob && certificatesOnWire(bareBlob) == 1, "a trust created from a bare certificate serializes that certificate");
 
+    // A trust created with no policies, as a test's local-server allowance is.
+    SecTrustRef unpolicied = trustWith(leaf, NULL);
+    CFDataRef unpoliciedBlob = SecTrustSerialize(unpolicied, &error);
+    check(unpoliciedBlob && !error && certificatesOnWire(unpoliciedBlob) == 1, "a trust with no policies serializes");
+    SecTrustRef unpoliciedBack = unpoliciedBlob ? SecTrustDeserialize(unpoliciedBlob, &error) : NULL;
+    CFArrayRef unpoliciedPolicies = NULL;
+    if (unpoliciedBack)
+        SecTrustCopyPolicies(unpoliciedBack, &unpoliciedPolicies);
+    check(unpoliciedBack && sameDER(SecTrustGetCertificateAtIndex(unpoliciedBack, 0), leaf)
+        && unpoliciedPolicies && !CFArrayGetCount(unpoliciedPolicies), "and deserializes to the same certificate with no policies");
+
     // The refusals: no trust, and no blob.
     error = NULL;
     check(!SecTrustSerialize(NULL, &error) && error && CFErrorGetCode(error) == errSecParam, "a NULL trust is refused with errSecParam");

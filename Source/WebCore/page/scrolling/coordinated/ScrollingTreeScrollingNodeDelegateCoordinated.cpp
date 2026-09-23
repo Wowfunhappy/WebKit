@@ -130,6 +130,11 @@ void ScrollingTreeScrollingNodeDelegateCoordinated::updateFromStateNode(const Sc
         verticalScroller->setOpacity(scrollbarOpacity);
     }
 
+    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::ScrollbarColor)) {
+        horizontalScroller->setScrollbarColor(scrollingStateNode.scrollbarColor());
+        verticalScroller->setScrollbarColor(scrollingStateNode.scrollbarColor());
+    }
+
     ThreadedScrollingTreeScrollingNodeDelegate::updateFromStateNode(scrollingStateNode);
 }
 #endif

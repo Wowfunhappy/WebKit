@@ -203,9 +203,9 @@ public:
     // Maps a point on the z=0 plane into a point on the plane with with the transform applied, by
     // extending a ray perpendicular to the source plane and computing the local x,y position of
     // the point where that ray intersects with the destination plane.
-    FloatPoint NODELETE projectPoint(const FloatPoint&, bool* clamped = 0) const;
+    FloatPoint NODELETE projectPoint(const FloatPoint&, bool* clamped = nullptr) const;
     // Projects the four corners of the quad.
-    FloatQuad NODELETE projectQuad(const FloatQuad&,  bool* clamped = 0) const;
+    FloatQuad NODELETE projectQuad(const FloatQuad&,  bool* clamped = nullptr) const;
     // Projects the four corners of the quad and takes a bounding box,
     // while sanitizing values created when the w component is negative.
     LayoutRect clampedBoundsOfProjectedQuad(const FloatQuad&) const;
@@ -407,6 +407,8 @@ public:
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT TransformationMatrix(const simd_float4x4&);
     WEBCORE_EXPORT operator simd_float4x4() const;
+
+    WEBCORE_EXPORT static TransformationMatrix makeLookAt(simd_float3, simd_float3);
 #endif
 #if USE(SKIA)
     WEBCORE_EXPORT TransformationMatrix(const SkM44&);
@@ -445,7 +447,7 @@ public:
 
 private:
     // multiply passed 2D point by matrix (assume z=0)
-    void NODELETE multVecMatrix(double x, double y, double& dstX, double& dstY) const;
+    WEBCORE_EXPORT void NODELETE multVecMatrix(double x, double y, double& dstX, double& dstY) const;
     FloatPoint internalMapPoint(const FloatPoint& sourcePoint) const
     {
         double resultX;
@@ -454,7 +456,7 @@ private:
         return FloatPoint(static_cast<float>(resultX), static_cast<float>(resultY));
     }
 
-    void multVecMatrix(double x, double y, double z, double& dstX, double& dstY, double& dstZ) const;
+    WEBCORE_EXPORT void multVecMatrix(double x, double y, double z, double& dstX, double& dstY, double& dstZ) const;
     FloatPoint3D internalMapPoint(const FloatPoint3D& sourcePoint) const
     {
         double resultX;

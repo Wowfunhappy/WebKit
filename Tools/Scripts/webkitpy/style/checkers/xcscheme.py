@@ -132,6 +132,6 @@ class XcodeSchemeChecker:
                                          'xcscheme/sync', 5,
                                          'internal attribute \'internalIOSLaunchStyle\' used')
 
-    def check(self, lines, rules=None):
+    def check(self, lines, rules=None, line_numbers=None):
         self._check_inclusion_rules(rules)
         self._check_invalide_launch_style(lines)

@@ -33,6 +33,7 @@
 #include "ExceptionOr.h"
 #include "Logging.h"
 #include "MessagePort.h"
+#include "MessageWithMessagePorts.h"
 #include "SWClientConnection.h"
 #include "ScriptExecutionContextInlines.h"
 #include "SerializedScriptValue.h"
@@ -111,7 +112,7 @@ ExceptionOr<void> ServiceWorker::postMessage(JSC::JSGlobalObject& globalObject, 
         return Exception { ExceptionCode::InvalidStateError };
 
     Vector<Ref<MessagePort>> ports;
-    auto messageData = SerializedScriptValue::create(globalObject, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
+    auto messageData = SerializedScriptValue::create(globalObject, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No);
     if (messageData.hasException())
         return messageData.releaseException();
 

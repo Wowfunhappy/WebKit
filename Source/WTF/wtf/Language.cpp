@@ -36,10 +36,6 @@
 #include <wtf/text/TextStream.h>
 #include <wtf/text/WTFString.h>
 
-#if USE(CF)
-#include <CoreFoundation/CoreFoundation.h>
-#endif
-
 namespace WTF {
 
 static Lock languagesLock;

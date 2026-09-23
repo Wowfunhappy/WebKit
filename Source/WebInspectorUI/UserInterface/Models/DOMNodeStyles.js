@@ -221,7 +221,8 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             this._pseudoElements.clear();
             for (let {pseudoId, matches} of pseudoElementRulesPayload) {
                 let pseudoElementRules = parseRuleMatchArrayPayload(matches, this._node, false, pseudoId);
-                this._pseudoElements.set(pseudoId, {matchedRules: pseudoElementRules});
+                let pseudoElementOrderedStyles = this._collectStylesInCascadeOrder(pseudoElementRules, null, null);
+                this._pseudoElements.set(pseudoId, WI.DOMNodeStyles.uniqueOrderedStyles(pseudoElementOrderedStyles));
             }
 
             this._inheritedRules = [];
@@ -346,14 +347,15 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             fetchedFontDataPromise.resolve();
         }
 
-        let target = WI.assumingMainTarget();
-        target.CSSAgent.getMatchedStylesForNode.invoke({nodeId: this._node.id, includePseudo: true, includeInherited: true}, wrap.call(this, fetchedMatchedStyles, fetchedMatchedStylesPromise));
-        target.CSSAgent.getInlineStylesForNode.invoke({nodeId: this._node.id}, wrap.call(this, fetchedInlineStyles, fetchedInlineStylesPromise));
-        target.CSSAgent.getComputedStyleForNode.invoke({nodeId: this._node.id}, wrap.call(this, fetchedComputedStyle, fetchedComputedStylesPromise));
+        let target = this._node.owningTarget || WI.assumingMainTarget();
+        let nodeId = this._node.backendNodeId;
+        target.CSSAgent.getMatchedStylesForNode.invoke({nodeId, includePseudo: true, includeInherited: true}, wrap.call(this, fetchedMatchedStyles, fetchedMatchedStylesPromise));
+        target.CSSAgent.getInlineStylesForNode.invoke({nodeId}, wrap.call(this, fetchedInlineStyles, fetchedInlineStylesPromise));
+        target.CSSAgent.getComputedStyleForNode.invoke({nodeId}, wrap.call(this, fetchedComputedStyle, fetchedComputedStylesPromise));
 
         // COMPATIBILITY (iOS 14.0): `CSS.getFontDataForNode` did not exist yet.
         if (InspectorBackend.hasCommand("CSS.getFontDataForNode"))
-            target.CSSAgent.getFontDataForNode.invoke({nodeId: this._node.id}, wrap.call(this, fetchedFontData, fetchedFontDataPromise));
+            target.CSSAgent.getFontDataForNode.invoke({nodeId}, wrap.call(this, fetchedFontData, fetchedFontDataPromise));
         else
             fetchedFontDataPromise.resolve();
 
@@ -374,11 +376,11 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         selector = selector || this._node.appropriateSelectorFor(true);
 
         let result = Promise.withResolvers();
-        let target = WI.assumingMainTarget();
+        let target = this._node.owningTarget || WI.assumingMainTarget();
 
         function completed()
         {
-            target.DOMAgent.markUndoableState();
+            WI.domUndoCoordinator.markUndoableState(target);
 
             // Wait for the refresh promise caused by injecting an empty inspector stylesheet to resolve
             // (another call will be ignored while one is still pending),
@@ -423,9 +425,9 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         }
 
         if (styleSheetId)
-            inspectorStyleSheetAvailable.call(this, WI.cssManager.styleSheetForIdentifier(styleSheetId));
+            inspectorStyleSheetAvailable.call(this, WI.cssManager.styleSheetForIdentifier(styleSheetId, this._node.owningTarget));
         else
-            WI.cssManager.preferredInspectorStyleSheetForFrame(this._node.frame, inspectorStyleSheetAvailable.bind(this));
+            WI.cssManager.preferredInspectorStyleSheetForFrame(this._node.frame, inspectorStyleSheetAvailable.bind(this), this._node.owningTarget);
 
         return result.promise;
     }
@@ -462,7 +464,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
     {
         selector = selector || "";
         let result = Promise.withResolvers();
-        let target = WI.assumingMainTarget();
+        let target = this._node.owningTarget || WI.assumingMainTarget();
 
         function ruleSelectorChanged(error, rulePayload)
         {
@@ -471,7 +473,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
                 return;
             }
 
-            target.DOMAgent.markUndoableState();
+            WI.domUndoCoordinator.markUndoableState(target);
 
             // Do a full refresh incase the rule no longer matches the node or the
             // matched selector indices changed.
@@ -511,7 +513,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             this.refresh();
         };
 
-        let target = WI.assumingMainTarget();
+        let target = this._node.owningTarget || WI.assumingMainTarget();
         target.CSSAgent.setStyleText(style.id, text, didSetStyleText);
     }
 
@@ -655,7 +657,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         if (!matchesNode)
             return null;
 
-        var styleSheet = id ? WI.cssManager.styleSheetForIdentifier(id.styleSheetId) : null;
+        var styleSheet = id ? WI.cssManager.styleSheetForIdentifier(id.styleSheetId, this._node.owningTarget) : null;
         if (styleSheet) {
             if (type === WI.CSSStyleDeclaration.Type.Inline)
                 styleSheet.markAsInlineStyleAttributeStyleSheet();
@@ -705,7 +707,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         if (!style)
             return null;
 
-        var styleSheet = id ? WI.cssManager.styleSheetForIdentifier(id.styleSheetId) : null;
+        var styleSheet = id ? WI.cssManager.styleSheetForIdentifier(id.styleSheetId, this._node.owningTarget) : null;
 
         var selectorText = payload.selectorList.text;
         let selectors = DOMNodeStyles.parseSelectorListPayload(payload.selectorList);
@@ -762,7 +764,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             // The style sheet may be different from the style rule's style sheet, since groupings are computed beyond
             // `@import` boundaries, and an `@import` statement from another style sheet may have been wrapped in
             // another `@` rule.
-            let groupingStyleSheet = ruleId ? WI.cssManager.styleSheetForIdentifier(ruleId.styleSheetId) : null;
+            let groupingStyleSheet = ruleId ? WI.cssManager.styleSheetForIdentifier(ruleId.styleSheetId, this._node.owningTarget) : null;
 
             let groupingSourceCodeLocation = WI.DOMNodeStyles.createSourceCodeLocation(grouping.sourceURL, location);
             let offsetGroupingSourceCodeLocation = styleSheet?.offsetSourceCodeLocation(groupingSourceCodeLocation) ?? groupingSourceCodeLocation;
@@ -835,10 +837,9 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         this._markOverriddenProperties(cascadeOrderedStyleDeclarations, this._propertyNameToEffectivePropertyMap);
         this._collectCSSVariables(cascadeOrderedStyleDeclarations);
 
-        for (let pseudoElementInfo of this._pseudoElements.values()) {
-            pseudoElementInfo.orderedStyles = this._collectStylesInCascadeOrder(pseudoElementInfo.matchedRules, null, null);
-            this._associateRelatedProperties(pseudoElementInfo.orderedStyles);
-            this._markOverriddenProperties(pseudoElementInfo.orderedStyles);
+        for (let pseudoElementOrderedStyles of this._pseudoElements.values()) {
+            this._associateRelatedProperties(pseudoElementOrderedStyles);
+            this._markOverriddenProperties(pseudoElementOrderedStyles);
         }
     }
 

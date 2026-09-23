@@ -11,6 +11,7 @@
 
 promise_test(async (test) => {
     const localStream = await navigator.mediaDevices.getUserMedia({video:true });
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
 
     const pc1 = new RTCPeerConnection();
     const pc2 = new RTCPeerConnection();

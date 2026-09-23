@@ -40,6 +40,7 @@ struct MediaSessionActionDetails {
 #if ENABLE(MEDIA_SESSION_PLAYLIST)
     String trackIdentifier { };
 #endif
+    std::optional<unsigned long> trackIndex { };
 };
 
 }

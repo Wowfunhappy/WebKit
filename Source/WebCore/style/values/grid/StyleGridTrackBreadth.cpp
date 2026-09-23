@@ -27,9 +27,10 @@
 #include "StyleGridTrackBreadth.h"
 
 #include "AnimationUtilities.h"
+#include "CSSGridTrackBreadth.h"
 #include "CSSPrimitiveValue.h"
-#include "StyleLengthWrapper+Blending.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
+#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
@@ -38,11 +39,58 @@ namespace Style {
 
 // MARK: - Conversion
 
+auto ToCSS<GridTrackBreadth>::operator()(const GridTrackBreadth& value, const Style::ComputedStyle& style) -> CSS::GridTrackBreadth
+{
+    return value.switchOnUsingNumeric(
+        [&](const LengthPercentage<CSS::Nonnegative>& lengthPercentage) -> CSS::GridTrackBreadth {
+            return toCSS(lengthPercentage, style);
+        },
+        [&](const Flex<CSS::Nonnegative>& flex) -> CSS::GridTrackBreadth {
+            return toCSS(flex, style);
+        },
+        [&](const CSS::Keyword::MinContent& keyword) -> CSS::GridTrackBreadth {
+            return keyword;
+        },
+        [&](const CSS::Keyword::MaxContent& keyword) -> CSS::GridTrackBreadth {
+            return keyword;
+        },
+        [&](const CSS::Keyword::Auto& keyword) -> CSS::GridTrackBreadth {
+            return keyword;
+        }
+    );
+}
+
+auto ToStyle<CSS::GridTrackBreadth>::operator()(const CSS::GridTrackBreadth& value, const BuilderState& state) -> GridTrackBreadth
+{
+    return WTF::switchOn(value,
+        [&](const CSS::LengthPercentage<CSS::Nonnegative>& lengthPercentage) -> GridTrackBreadth {
+            return GridTrackBreadthLength { toStyle(lengthPercentage, state) };
+        },
+        [&](const CSS::Flex<CSS::Nonnegative>& flex) -> GridTrackBreadth {
+            return toStyle(flex, state);
+        },
+        [&](const CSS::Keyword::MinContent& keyword) -> GridTrackBreadth {
+            return keyword;
+        },
+        [&](const CSS::Keyword::MaxContent& keyword) -> GridTrackBreadth {
+            return keyword;
+        },
+        [&](const CSS::Keyword::Auto& keyword) -> GridTrackBreadth {
+            return keyword;
+        }
+    );
+}
+
 auto CSSValueConversion<GridTrackBreadth>::operator()(BuilderState& state, const CSSPrimitiveValue& primitiveValue) -> GridTrackBreadth
 {
     if (primitiveValue.isFlex())
         return toStyleFromCSSValue<Flex<CSS::Nonnegative>>(state, primitiveValue);
     return toStyleFromCSSValue<GridTrackBreadthLength>(state, primitiveValue);
+}
+
+auto CSSValueConversion<GridTrackBreadth>::operator()(BuilderState& state, const CSSKeywordValue& keywordValue) -> GridTrackBreadth
+{
+    return toStyleFromCSSValue<GridTrackBreadthLength>(state, keywordValue);
 }
 
 // MARK: - Blending

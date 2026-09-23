@@ -80,6 +80,12 @@ UMBRELLA_FRAMEWORKS_DIR_OVERRIDE_YES = $(WK_OVERRIDE_FRAMEWORKS_DIR);
 WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH = $(BUILT_PRODUCTS_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/WebKitAdditions;
 WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH[config=Production] = $(SDK_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/WebKitAdditions;
 
+WK_WEBKITADDITIONS_POSTPROCESS_SCRIPTS_INPUT = $(WK_WEBKITADDITIONS_POSTPROCESS_SCRIPTS_INPUT_$(USE_INTERNAL_SDK)_$(WK_IS_INSTALLHDRS));
+WK_WEBKITADDITIONS_POSTPROCESS_SCRIPTS_INPUT_YES_NO = $(WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH)/Scripts/postprocess-framework-headers-definitions;
+
+WK_WEBKITADDITIONS_BRANCH_CONFIG_INPUT = $(WK_WEBKITADDITIONS_BRANCH_CONFIG_INPUT_$(USE_INTERNAL_SDK)_$(WK_IS_INSTALLHDRS));
+WK_WEBKITADDITIONS_BRANCH_CONFIG_INPUT_YES_NO = $(WK_WEBKITADDITIONS_HEADERS_FOLDER_PATH)/Scripts/branch_config.json;
+
 // The root directory of the workspace / WebKit repo is determined by how many directories up "Source" or "Tools" is from the SRCROOT.
 WK_WORKSPACE_DIR = $(WK_WORKSPACE_DIR_1_$(SRCROOT:dir:standardizepath:file):standardizepath:default=$(WK_WORKSPACE_DIR_2_$(SRCROOT:dir:standardizepath:dir:standardizepath:file):standardizepath:default=$(WK_WORKSPACE_DIR_3_$(SRCROOT:dir:standardizepath:dir:standardizepath:dir:standardizepath:file):standardizepath:default=$(WK_WORKSPACE_DIR_4_$(SRCROOT:dir:standardizepath:dir:standardizepath:dir:standardizepath:dir:standardizepath:file):standardizepath:default=$(WK_WORKSPACE_DIR_5_$(SRCROOT:dir:standardizepath:dir:standardizepath:dir:standardizepath:dir:standardizepath:dir:standardizepath:file):standardizepath:default=$(WK_WORKSPACE_DIR_6_$(SRCROOT:dir:standardizepath:dir:standardizepath:dir:standardizepath:dir:standardizepath:dir:standardizepath:dir:standardizepath:file):standardizepath))))));
 WK_WORKSPACE_DIR_1_Source = $(SRCROOT)/../..;
@@ -91,9 +97,6 @@ WK_WORKSPACE_DIR_4_Source = $(SRCROOT)/../../../../..;
 WK_WORKSPACE_DIR_5_Source = $(SRCROOT)/../../../../../..;
 WK_WORKSPACE_DIR_6_Source = $(SRCROOT)/../../../../../../..;
 
-WK_DOWNLEVEL_FRAMEWORK_STUBS_DIR[sdk=macos*] = $(WK_DOWNLEVEL_FRAMEWORK_STUBS_DIR$(WK_MACOS_1400);
-WK_DOWNLEVEL_FRAMEWORK_STUBS_DIR_MACOS_BEFORE_1400 = $(WK_WORKSPACE_DIR)/WebKitLibraries/DownlevelFrameworkStubs/$(TARGET_MAC_OS_X_VERSION_MAJOR);
-
 WK_VERSIONED_SDK_ADDITIONS_PATH = $(WK_VERSIONED_SDK_ADDITIONS_PATH_$(USE_INTERNAL_SDK));
 WK_VERSIONED_SDK_ADDITIONS_PATH_ = $(WK_WORKSPACE_DIR)/WebKitLibraries/SDKs/$(PLATFORM_NAME)$(SDK_VERSION:base).0-additions.sdk;
 WK_VERSIONED_SDK_ADDITIONS_PATH_YES = $(WK_WORKSPACE_DIR)/WebKitLibraries/SDKs/$(PLATFORM_NAME)$(SDK_VERSION:base).0.internal-additions.sdk;
@@ -101,6 +104,19 @@ WK_VERSIONED_SDK_ADDITIONS_PATH_YES = $(WK_WORKSPACE_DIR)/WebKitLibraries/SDKs/$
 // Partial SDK DBs used for analysis are checked in to WebKitLibraries, but the
 // internal build may override this location.
 WK_SDKDB_DIR = $(inherited:default=$(WK_WORKSPACE_DIR)/WebKitLibraries/SDKDBs);
+
+// Used by script phases that re-run when a framework or library's header list changes.
+// CPP_HEADERMAP_PRODUCT_HEADERS_VFS_FILE is not exported to script phases, so it must be bound to a different name.
+WK_HEADERS_VFS_FILE = $(WK_HEADERS_VFS_FILE_$(WK_IS_INSTALLHDRS));
+WK_HEADERS_VFS_FILE_NO = $(CPP_HEADERMAP_PRODUCT_HEADERS_VFS_FILE);
+
+BMALLOC_BUILD_SCRIPTS_DIR = $(BMALLOC_BUILD_SCRIPTS_DIR_$(CONFIGURATION));
+BMALLOC_BUILD_SCRIPTS_DIR_Release = $(BMALLOC_BUILD_SCRIPTS_DIR_engineering);
+BMALLOC_BUILD_SCRIPTS_DIR_Debug = $(BMALLOC_BUILD_SCRIPTS_DIR_engineering);
+BMALLOC_BUILD_SCRIPTS_DIR_Production = $(BMALLOC_BUILD_SCRIPTS_DIR_Production_COCOA_TOUCH_$(WK_IS_COCOA_TOUCH));
+BMALLOC_BUILD_SCRIPTS_DIR_Production_COCOA_TOUCH_YES = $(SDK_DIR)$(WK_ALTERNATE_WEBKIT_SDK_PATH)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/bmalloc/Scripts;
+BMALLOC_BUILD_SCRIPTS_DIR_Production_COCOA_TOUCH_NO = $(SDK_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/bmalloc/Scripts;
+BMALLOC_BUILD_SCRIPTS_DIR_engineering = $(BUILT_PRODUCTS_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/bmalloc/Scripts;
 
 WTF_BUILD_SCRIPTS_DIR = $(WTF_BUILD_SCRIPTS_DIR_$(CONFIGURATION));
 WTF_BUILD_SCRIPTS_DIR_Release = $(WTF_BUILD_SCRIPTS_DIR_engineering);
@@ -130,7 +146,7 @@ WEBCORE_TEST_SUPPORT_DIR = $(WEBCORE_TEST_SUPPORT_DIR_$(CONFIGURATION));
 WEBCORE_TEST_SUPPORT_DIR_Release = $(WEBCORE_TEST_SUPPORT_DIR_Engineering);
 WEBCORE_TEST_SUPPORT_DIR_Debug = $(WEBCORE_TEST_SUPPORT_DIR_Engineering);
 WEBCORE_TEST_SUPPORT_DIR_Production = $(SDK_DIR)$(WK_ALTERNATE_WEBKIT_SDK_PATH)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/WebCoreTestSupport;
-WEBCORE_TEST_SUPPORT_DIR_Engineering = $(BUILT_PRODUCTS_DIR)/WebCoreTestSupport;
+WEBCORE_TEST_SUPPORT_DIR_Engineering = $(BUILT_PRODUCTS_DIR)$(WK_ALTERNATE_WEBKIT_SDK_PATH)$(WK_LIBRARY_HEADERS_FOLDER_PATH)/WebCoreTestSupport;
 
 // Where libwebrtc and ANGLE go.
 WEBCORE_LIBRARY_DIR = $(UMBRELLA_FRAMEWORKS_DIR)/WebCore.framework/Frameworks

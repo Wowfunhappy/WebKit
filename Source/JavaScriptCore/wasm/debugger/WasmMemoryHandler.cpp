@@ -40,6 +40,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include "WasmVirtualAddress.h"
 #include <cstdlib>
 #include <cstring>
+#include <wtf/ASCIICType.h>
 #include <wtf/DataLog.h>
 #include <wtf/HexNumber.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -130,8 +131,9 @@ bool MemoryHandler::readMemoryData(VirtualAddress address, size_t length, String
         return false;
     }
 
-    void* memoryBase = jsInstance->cachedMemory();
-    size_t size = jsInstance->cachedMemorySize();
+    // FIXME(wasm-multimemory): Need to support WASM multiple memories once it's enabled.
+    void* memoryBase = jsInstance->memory(0)->basePointer();
+    size_t size = jsInstance->memory(0)->memory().size();
     if (!memoryBase || offset + length > size) {
         dataLogLnIf(Options::verboseWasmDebugger(), "[MemoryHandler] - memory access out of bounds. Instance ID: ", instanceId, " offset: ", offset, " size: ", length, " memory size: ", size);
         return false;
@@ -188,7 +190,8 @@ void MemoryHandler::handleWasmMemoryRegionInfo(VirtualAddress address, uint32_t 
 {
     JSWebAssemblyInstance* instance = m_debugServer.m_moduleManager->jsInstance(instanceId);
     if (instance) {
-        size_t memorySize = instance->cachedMemorySize();
+        // FIXME(wasm-multimemory): Need to support WASM multiple memories once it's enabled.
+        size_t memorySize = instance->memory(0)->memory().size();
         if (offset < memorySize) {
             // Address is within WASM memory - return the memory region
             uint32_t moduleId = instance->moduleInformation().debugInfo->id;
@@ -278,9 +281,71 @@ void MemoryHandler::sendUnmappedRegionReply(uint64_t start, uint64_t size)
     m_debugServer.sendReply(response);
 }
 
-NO_RETURN_DUE_TO_CRASH void MemoryHandler::write(StringView)
+void MemoryHandler::write(StringView packet)
 {
-    RELEASE_ASSERT_NOT_REACHED("Not supported yet.");
+    // Format: M<addr>,<length>:<hex-data>
+    // LLDB: Write memory at specified address and length
+    // Reference: [3] in wasm/debugger/README.md
+
+    // WebAssembly Context: Write to WASM linear memory only
+    // Module bytecode is read-only; only linear memory (Type::Memory) is writable
+    if (packet.isEmpty() || packet[0] != 'M') {
+        m_debugServer.sendErrorReply(ProtocolError::InvalidPacket);
+        return;
+    }
+
+    StringView params = packet.substring(1);
+    auto parts = splitWithDelimiters(params, ",:"_s);
+    if (parts.size() != 3) {
+        m_debugServer.sendErrorReply(ProtocolError::InvalidPacket);
+        return;
+    }
+
+    VirtualAddress address = VirtualAddress(parseHex(parts[0]));
+    size_t length = static_cast<size_t>(parseHex(parts[1]));
+    StringView hexData = parts[2];
+
+    // Validate hex data length (2 hex chars per byte)
+    if (hexData.length() != length * 2) {
+        m_debugServer.sendErrorReply(ProtocolError::InvalidPacket);
+        return;
+    }
+
+    VirtualAddress::Type addressType = address.type();
+
+    // Only allow writes to WASM linear memory for security; module bytecode is read-only
+    if (addressType != VirtualAddress::Type::Memory) {
+        dataLogLnIf(Options::verboseWasmDebugger(), "[MemoryHandler] Write rejected: only WASM linear memory is writable, address: ", address);
+        m_debugServer.sendErrorReply(ProtocolError::InvalidAddress);
+        return;
+    }
+
+    uint32_t instanceId = address.id();
+    uint32_t offset = address.offset();
+
+    JSWebAssemblyInstance* jsInstance = m_debugServer.m_moduleManager->jsInstance(instanceId);
+    if (!jsInstance) {
+        dataLogLnIf(Options::verboseWasmDebugger(), "[MemoryHandler] Write failed: instance not found for ID: ", instanceId);
+        m_debugServer.sendErrorReply(ProtocolError::InvalidAddress);
+        return;
+    }
+
+    // FIXME(wasm-multimemory): Need to support WASM multiple memories once it's enabled.
+    void* memoryBase = jsInstance->memory(0)->basePointer();
+    size_t memorySize = jsInstance->memory(0)->memory().size();
+    if (!memoryBase || offset + length > memorySize) {
+        dataLogLnIf(Options::verboseWasmDebugger(), "[MemoryHandler] Write out of bounds. Instance ID: ", instanceId, " offset: ", offset, " size: ", length, " memory size: ", memorySize);
+        m_debugServer.sendErrorReply(ProtocolError::MemoryError);
+        return;
+    }
+
+    // Decode hex data and write to WASM linear memory
+    uint8_t* memPtr = static_cast<uint8_t*>(memoryBase) + offset;
+    for (size_t i = 0; i < length; i++)
+        memPtr[i] = toASCIIHexValue(hexData[i * 2], hexData[i * 2 + 1]);
+
+    dataLogLnIf(Options::verboseWasmDebugger(), "[MemoryHandler] - wrote ", length, " bytes at offset: ", offset, " to instance ID: ", instanceId);
+    m_debugServer.sendReply("OK"_s);
 }
 
 } // namespace Wasm

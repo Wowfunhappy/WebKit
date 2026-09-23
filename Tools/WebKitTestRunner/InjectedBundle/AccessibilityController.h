@@ -136,6 +136,7 @@ class AXThread {
 public:
     static bool isCurrentThread();
     static void dispatch(Function<void()>&&);
+    static void clearQueuedFunctions();
 
     // Will dispatch the given function on the main thread once all pending functions
     // on the AX thread have finished executing. Used for synchronization purposes.

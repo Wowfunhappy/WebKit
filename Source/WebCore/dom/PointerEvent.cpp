@@ -136,7 +136,7 @@ auto PointerEvent::tiltFromAngle(double altitudeAngle, double azimuthAngle) -> P
 
 PointerEvent::PointerEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
     : MouseEvent(EventInterfaceType::PointerEvent, type, initializer, isTrusted)
-    , m_pointerId(initializer.pointerId)
+    , m_pointerId(static_cast<PointerID>(initializer.pointerId))
     , m_width(initializer.width)
     , m_height(initializer.height)
     , m_pressure(initializer.pressure)

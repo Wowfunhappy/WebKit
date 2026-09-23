@@ -33,6 +33,7 @@
 #include "HTMLDetailsElement.h"
 #include "HTMLDialogElement.h"
 #include "HTMLFrameElement.h"
+#include "HTMLHeadingElement.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLImageElement.h"
 #include "HTMLInputElement.h"
@@ -198,8 +199,8 @@ ALWAYS_INLINE bool containslanguageSubtagMatchingRange(StringView language, Stri
 
         StringView languageSubtag = language.substring(languageSubtagsStartIndex, languageSubtagsEndIndex - languageSubtagsStartIndex);
         bool isEqual = equalIgnoringASCIICase(range, languageSubtag);
-        if (!isAsteriskRange) {
-            if ((!isEqual && !languageSubtagsStartIndex) || (languageSubtag.length() == 1 && languageSubtagsStartIndex > 0))
+        if (!isAsteriskRange && !isEqual) {
+            if (!languageSubtagsStartIndex || (languageSubtag.length() == 1 && languageSubtagsStartIndex > 0))
                 return false;
         }
         languageSubtagsStartIndex = languageSubtagsEndIndex;
@@ -234,7 +235,7 @@ ALWAYS_INLINE bool matchesLangPseudoClass(const Element& element, const FixedVec
             continue;
         if (rangeStringView == "*"_s)
             return true;
-        if (equalIgnoringASCIICase(languageStringView, rangeStringView) && !languageStringView.contains('-'))
+        if (equalIgnoringASCIICase(languageStringView, rangeStringView))
             return true;
 
         unsigned rangeLength = rangeStringView.length();
@@ -259,6 +260,16 @@ ALWAYS_INLINE bool matchesLangPseudoClass(const Element& element, const FixedVec
             return true;
     }
     return false;
+}
+
+ALWAYS_INLINE bool matchesHeadingPseudoClass(const Element& element, const FixedVector<int>* integerList)
+{
+    CheckedPtr headingElement = dynamicDowncast<HTMLHeadingElement>(element);
+    if (!headingElement)
+        return false;
+    if (!integerList)
+        return true;
+    return integerList->contains(static_cast<int>(headingElement->level()));
 }
 
 ALWAYS_INLINE bool matchesDirPseudoClass(const Element& element, const AtomString& argument)

@@ -31,6 +31,7 @@
 #include <WebCore/CompositionUnderline.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/Assertions.h>
+#include <wtf/NotFound.h>
 #include <wtf/Platform.h>
 #include <wtf/text/WTFString.h>
 
@@ -50,6 +51,7 @@ struct KeypressCommand {
     KeypressCommand(const String& commandName, const String& text)
         : commandName(commandName)
         , text(text)
+        , replacementRange { WTF::notFound, 0 }
     {
         ASSERT(commandName == "insertText:"_s || text.isEmpty());
     }

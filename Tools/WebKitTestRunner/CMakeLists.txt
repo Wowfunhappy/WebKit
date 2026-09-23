@@ -28,6 +28,9 @@ set(WebKitTestRunner_FRAMEWORKS
     WebKit
     bmalloc
 )
+if (APPLE)
+    list(APPEND WebKitTestRunner_FRAMEWORKS WebKitLegacy)
+endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
     if (HAVE_STD_EXPERIMENTAL_FILESYSTEM)
@@ -59,11 +62,11 @@ add_custom_command(
     COMMAND_EXPAND_LISTS
     VERBATIM)
 
-list(APPEND WebKitTestRunner_SOURCES
-    ${WebKitTestRunner_DERIVED_SOURCES_DIR}/TestOptionsGeneratedKeys.h
+add_custom_target(WebKitTestRunnerGeneratedPreferences
+    DEPENDS ${WebKitTestRunner_DERIVED_SOURCES_DIR}/TestOptionsGeneratedKeys.h
 )
 
-set(WebKitTestRunner_DEPENDENCIES TestRunnerInjectedBundle)
+set(WebKitTestRunner_DEPENDENCIES TestRunnerInjectedBundle WebKitTestRunnerGeneratedPreferences)
 
 set(TestRunnerInjectedBundle_SOURCES
     InjectedBundle/AccessibilityController.cpp
@@ -91,7 +94,13 @@ set(TestRunnerInjectedBundle_PRIVATE_INCLUDE_DIRECTORIES
     ${WebKitTestRunner_DIR}/cocoa
 )
 
-set(TestRunnerInjectedBundle_LIBRARY_TYPE SHARED)
+# macOS: MODULE + BUNDLE TRUE (PlatformMac) emits a CFBundle matching Xcode's MH_BUNDLE output.
+# Other ports: SHARED dylib/so.
+if (APPLE)
+    set(TestRunnerInjectedBundle_LIBRARY_TYPE MODULE)
+else ()
+    set(TestRunnerInjectedBundle_LIBRARY_TYPE SHARED)
+endif ()
 set(TestRunnerInjectedBundle_PRIVATE_LIBRARIES
     WebKit::TestRunnerShared
     WebKit::WebCoreTestSupport
@@ -127,7 +136,24 @@ WEBKIT_LIBRARY_DECLARE(TestRunnerInjectedBundle)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
 WEBKIT_LIBRARY(TestRunnerInjectedBundle)
+WEBKIT_ADD_PREFIX_HEADER(TestRunnerInjectedBundle WebKitTestRunnerPrefix.h PREFIX_LANGUAGES CXX OBJCXX)
 WEBKIT_EXECUTABLE(WebKitTestRunner)
+WEBKIT_ADD_PREFIX_HEADER(WebKitTestRunner WebKitTestRunnerPrefix.h PREFIX_LANGUAGES CXX OBJCXX)
+
+if (APPLE)
+    # libWebCoreTestSupport.a (static archive) contains TUs that reference
+    # `inline` JSC/WebCore wrappers (jsUndefined(), `intersection()` calling
+    # `LayoutRect::intersect()`, ...). With Cocoa's project-wide
+    # -fvisibility=hidden -fvisibility-inlines-hidden, the wrappers' callees
+    # in WebCore/JSC are emitted only as local `t` symbols, so the test
+    # runner link can't find them. Defer resolution to dyld via
+    # -undefined,dynamic_lookup; at load time the runner's own loaded
+    # WebCore.framework / JavaScriptCore.framework satisfy them via the
+    # process flat namespace. Bug 312083.
+    target_link_options(WebKitTestRunner PRIVATE
+        "LINKER:-undefined,dynamic_lookup"
+    )
+endif ()
 
 # MAVERICKS_BACKPORT: the SHARED injected bundle absorbs the WTF (and bmalloc) OBJECT libraries directly, which
 # REDEFINES the WTF/JSC process-singleton g_config (the __DATA,__wtf_config record holding the JSC structure-heap

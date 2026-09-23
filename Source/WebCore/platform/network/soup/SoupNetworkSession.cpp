@@ -87,7 +87,7 @@ private:
         if (!certificateData)
             return String();
 
-        auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+        auto digest = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
         digest->addBytes(span(certificateData));
 
         return base64EncodeToString(digest->computeHash());
@@ -103,9 +103,18 @@ SoupNetworkSession::SoupNetworkSession(PAL::SessionID sessionID)
     static const int maxConnections = 256;
     static const int maxConnectionsPerHost = 6;
 
+    // libsoup's default idle-timeout is 60s. Raise it to 115s, matching
+    // Firefox's network.http.keep-alive.timeout default, to keep connections
+    // warm for same-origin renavigation within a browsing session.
+    // Firefox flags a problem with IIS7 servers' default timeout of 120s, so
+    // the timeout chosen is a little shorter to keep a reserve for cases
+    // when the packet is lost or delayed on the route.
+    static const int idleTimeout = 115;
+
     m_soupSession = adoptGRef(soup_session_new_with_options(
         "max-conns", maxConnections,
         "max-conns-per-host", maxConnectionsPerHost,
+        "idle-timeout", idleTimeout,
         "timeout", 0,
         nullptr));
 
@@ -273,8 +282,13 @@ void SoupNetworkSession::setProxySettings(const SoupNetworkProxySettings& settin
         resolver = adoptGRef(g_simple_proxy_resolver_new(nullptr, nullptr));
         if (!m_proxySettings.defaultProxyURL.isNull())
             g_simple_proxy_resolver_set_default_proxy(G_SIMPLE_PROXY_RESOLVER(resolver.get()), m_proxySettings.defaultProxyURL.data());
-        if (m_proxySettings.ignoreHosts)
-            g_simple_proxy_resolver_set_ignore_hosts(G_SIMPLE_PROXY_RESOLVER(resolver.get()), m_proxySettings.ignoreHosts.get());
+        if (!m_proxySettings.ignoreHosts.isEmpty()) {
+            auto ignoreHosts = m_proxySettings.ignoreHosts.map([](const CString& host) {
+                return const_cast<char*>(host.data());
+            });
+            ignoreHosts.append(nullptr);
+            g_simple_proxy_resolver_set_ignore_hosts(G_SIMPLE_PROXY_RESOLVER(resolver.get()), ignoreHosts.mutableSpan().data());
+        }
         for (const auto& iter : m_proxySettings.proxyMap)
             g_simple_proxy_resolver_set_uri_proxy(G_SIMPLE_PROXY_RESOLVER(resolver.get()), iter.key.data(), iter.value.data());
         break;

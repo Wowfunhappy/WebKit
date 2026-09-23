@@ -173,12 +173,12 @@ TestHarness = class TestHarness extends WI.Object
 
     expectNull(actual, message)
     {
-        this._expect(TestHarness.ExpectationType.Null, actual === null, message, actual, null);
+        this._expect(TestHarness.ExpectationType.Null, actual === null || actual === undefined, message, actual, null);
     }
 
     expectNotNull(actual, message)
     {
-        this._expect(TestHarness.ExpectationType.NotNull, actual !== null, message, actual);
+        this._expect(TestHarness.ExpectationType.NotNull, actual !== null && actual !== undefined, message, actual);
     }
 
     expectEqual(actual, expected, message)

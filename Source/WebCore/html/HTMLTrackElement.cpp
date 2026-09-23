@@ -33,7 +33,6 @@
 #include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "HTMLMediaElement.h"
 #include "HTMLNames.h"
 #include "LoadableTextTrack.h"
@@ -85,9 +84,9 @@ Ref<HTMLTrackElement> HTMLTrackElement::create(const QualifiedName& tagName, Doc
     return trackElement;
 }
 
-Node::InsertedIntoAncestorResult HTMLTrackElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLTrackElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
     if (parentNode() == &parentOfInsertedTree) {
         if (auto* mediaElement = dynamicDowncast<HTMLMediaElement>(parentOfInsertedTree)) {
@@ -96,12 +95,12 @@ Node::InsertedIntoAncestorResult HTMLTrackElement::insertedIntoAncestor(Insertio
         }
     }
 
-    return InsertedIntoAncestorResult::Done;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLTrackElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLTrackElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
     if (!parentNode()) {
         if (auto* mediaElement = dynamicDowncast<HTMLMediaElement>(oldParentOfRemovedTree))
@@ -224,7 +223,7 @@ bool HTMLTrackElement::canLoadURL(const URL& url)
     Ref document = this->document();
     ASSERT(document->contentSecurityPolicy());
     // Elements in user agent show tree should load whatever the embedding document policy is.
-    if (!isInUserAgentShadowTree() && !protect(document->contentSecurityPolicy())->allowMediaFromSource(url)) {
+    if (!isInUserAgentShadowTree() && !protect(document->contentSecurityPolicy())->allowMediaFromSource(url, document->currentParserSourcePosition())) {
         LOG(Media, "HTMLTrackElement::canLoadURL(%s) -> rejected by Content Security Policy", urlForLoggingTrack(url).utf8().data());
         return false;
     }

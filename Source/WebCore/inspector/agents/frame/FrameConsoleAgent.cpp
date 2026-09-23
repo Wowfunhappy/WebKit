@@ -31,6 +31,7 @@
 
 #include "config.h"
 #include "FrameConsoleAgent.h"
+#include "DocumentPage.h"
 
 #include "CommandLineAPIHost.h"
 #include "Frame.h"

@@ -45,7 +45,7 @@ private:
     void frameDetached() final;
     void frameRectDidChange(WebCore::IntRect) final;
     void paintContents(WebCore::GraphicsContext&, const WebCore::IntRect&) final;
-    void postMessageToRemote(WebCore::FrameIdentifier source, const WebCore::SecurityOriginData& sourceOrigin, WebCore::FrameIdentifier target, std::optional<WebCore::SecurityOriginData> targetOrigin, const WebCore::MessageWithMessagePorts&) final;
+    void postMessageToRemote(WebCore::FrameIdentifier source, const WebCore::SecurityOriginData& sourceOrigin, WebCore::FrameIdentifier target, std::optional<WebCore::SecurityOriginData> targetOrigin, const WebCore::MessageWithMessagePorts&, const std::optional<WebCore::UserGestureTokenData>&) final;
     void changeLocation(WebCore::FrameLoadRequest&&) final;
     String renderTreeAsText(size_t baseIndent, OptionSet<WebCore::RenderAsTextFlag>) final;
     String layerTreeAsText(size_t baseIndent, OptionSet<WebCore::LayerTreeAsTextOptions>) final;
@@ -60,18 +60,22 @@ private:
     void closePage() final;
     void focus() final;
     void unfocus() final;
-    void documentURLForConsoleLog(CompletionHandler<void(const URL&)>&&) final;
     void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool hasOpener, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
     void updateSandboxFlags(WebCore::SandboxFlags) final;
     void updateOpener(std::optional<WebCore::FrameIdentifier>) final;
     void setPrinting(bool printing, WebCore::FloatSize pageSize, WebCore::FloatSize originalPageSize, float maximumShrinkRatio, WebCore::AdjustViewSize) final;
     void updateScrollingMode(WebCore::ScrollbarMode scrollingMode) final;
     void reportMixedContentViolation(bool blocked, const URL& target) final;
+    void addResourceTimingFromChild(WebCore::ResourceTiming&&) final;
     void findFocusableElementDescendingIntoRemoteFrame(WebCore::FocusDirection, const WebCore::FocusEventData&, WebCore::ShouldFocusElement, CompletionHandler<void(WebCore::FoundElementInRemoteFrame)>&&) final;
     void findFocusableElementContinuingFromFrame(WebCore::FocusDirection, WebCore::FrameIdentifier, const WebCore::FocusEventData&, WebCore::ShouldFocusElement) final;
+    void dispatchCrossOriginBeforeUnloadCheck(const WebCore::SecurityOriginData& navigatingFrameOrigin) final;
 
     void broadcastAllFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncData&) final;
     void broadcastFrameTreeSyncDataToOtherProcesses(const WebCore::FrameTreeSyncSerializationData&) final;
+
+    void didNotifyUserActivation(MonotonicTime) final;
+    void didConsumeUserActivation() final;
 };
 
 }

@@ -28,19 +28,16 @@
 #if ENABLE(GAMEPAD)
 
 #include <WebCore/GamepadHapticEffectType.h>
-#include <WebCore/SharedGamepadValue.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/CompletionHandler.h>
-#include <wtf/Forward.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/TZoneMallocInlines.h>
-#include <wtf/WeakHashMap.h>
-#include <wtf/WeakHashSet.h>
-#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class SharedGamepadValue;
 struct GamepadEffectParameters;
 
 class PlatformGamepad : public CanMakeWeakPtr<PlatformGamepad>, public CanMakeCheckedPtr<PlatformGamepad> {

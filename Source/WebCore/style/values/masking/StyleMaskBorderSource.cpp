@@ -27,7 +27,8 @@
 #include "StyleMaskBorderSource.h"
 
 #include "AnimationUtilities.h"
-#include "CSSValue.h"
+#include "CSSKeywordValue.h"
+#include "CSSMaskBorderSourceValue.h"
 #include "StyleBuilderState.h"
 
 namespace WebCore {
@@ -35,16 +36,58 @@ namespace Style {
 
 // MARK: - Conversion
 
+auto ToCSS<MaskBorderSource>::operator()(const MaskBorderSource& value, const Style::ComputedStyle& style) -> CSS::MaskBorderSource
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Keyword::None& keyword) -> CSS::MaskBorderSource {
+            return keyword;
+        },
+        [&](const ImageWrapper& imageWrapper) -> CSS::MaskBorderSource {
+            return CSS::ImageWrapper { protect(imageWrapper.value)->computedStyleValue(style) };
+        }
+    );
+}
+
+auto ToStyle<CSS::MaskBorderSource>::operator()(const CSS::MaskBorderSource& value, const BuilderState& state) -> MaskBorderSource
+{
+    return WTF::switchOn(value,
+        [&](const CSS::Keyword::None& keyword) -> MaskBorderSource {
+            return keyword;
+        },
+        [&](const CSS::ImageWrapper& imageWrapper) -> MaskBorderSource {
+            RefPtr image = state.createStyleImage(protect(imageWrapper.value));
+            if (!image)
+                return CSS::Keyword::None { };
+            return ImageWrapper { image.releaseNonNull() };
+        }
+    );
+}
+
 auto CSSValueConversion<MaskBorderSource>::operator()(BuilderState& state, const CSSValue& value) -> MaskBorderSource
 {
-    if (value.valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
+    if (auto* sourceValue = dynamicDowncast<CSSMaskBorderSourceValue>(value))
+        return toStyle(sourceValue->source(), state);
+
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
 
     RefPtr image = state.createStyleImage(value);
     if (!image)
         return CSS::Keyword::None { };
 
     return ImageWrapper { image.releaseNonNull() };
+}
+
+auto CSSValueCreation<MaskBorderSource>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const MaskBorderSource& value) -> Ref<CSSValue>
+{
+    return CSSMaskBorderSourceValue::create(toCSS(value, style));
 }
 
 // MARK: - Blending
@@ -54,7 +97,7 @@ auto Blending<MaskBorderSource>::canBlend(const MaskBorderSource& a, const MaskB
     return !a.isNone() && !b.isNone();
 }
 
-auto Blending<MaskBorderSource>::blend(const MaskBorderSource& a, const MaskBorderSource& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> MaskBorderSource
+auto Blending<MaskBorderSource>::blend(const MaskBorderSource& a, const MaskBorderSource& b, const Style::ComputedStyle& aStyle, const Style::ComputedStyle& bStyle, const BlendingContext& context) -> MaskBorderSource
 {
     if (context.isDiscrete) {
         ASSERT(!context.progress || context.progress == 1);

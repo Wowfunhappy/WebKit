@@ -92,9 +92,7 @@ static String replaceNonPrintableCharacters(const String& text)
     return stringBuilder.toString();
 }
 
-MHTMLArchive::MHTMLArchive()
-{
-}
+MHTMLArchive::MHTMLArchive() = default;
 
 MHTMLArchive::~MHTMLArchive()
 {

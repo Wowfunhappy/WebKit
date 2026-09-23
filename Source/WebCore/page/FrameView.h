@@ -32,6 +32,7 @@ namespace WebCore {
 
 class Frame;
 class RenderElement;
+enum class FrameOwnerElementAppearance : uint8_t;
 enum class RenderAsTextFlag : uint16_t;
 
 class FrameView : public ScrollView {
@@ -125,11 +126,25 @@ public:
     // direct child of this frame.
     virtual std::optional<LayoutRect> visibleRectOfChild(const Frame&) const = 0;
 
-    // Whether the child frame's owner element (which is in this frame) uses dark
-    // appearance or not. Note that this is _different_ from the child frame's
+    // Returns the appearance info of the child frame's owner element (which is
+    // in this frame). Note that this is _different_ from the child frame's
     // document's appearance, and they can be different (e.g the owner element
     // uses dark appearance, but the child frame's document is light).
-    virtual bool ownerElementOfChildFrameUsesDarkAppearance(const Frame&) const = 0;
+    virtual OptionSet<FrameOwnerElementAppearance> appearanceOfOwnerElementOfChildFrame(const Frame&) const = 0;
+
+    // Returns the offset of the content box of the child's frame owner content box
+    // from its border box. This can be non-zero due to padding or border.
+    virtual LayoutPoint childFrameOwnerContentBoxLocation(const Frame&) const = 0;
+
+    // Return the transformation matrix to convert a point/rect from the coordinate
+    // system of the child's frame owner to this FrameView's RenderView. Note this
+    // does not correspond to the absolute coordinate of this FrameView, as it doesn't
+    // include the page scale transform on the RenderView (if page is scaled).
+    virtual TransformationMatrix childFrameOwnerToRootContentTransform(const Frame&) const = 0;
+
+    // Returns the transformation matrix to project from this frame view's absolute coordinate
+    // to a child frame's owner renderer's local coordinate.
+    virtual TransformationMatrix absoluteToChildFrameOwnerLocalTransform(const Frame&) const = 0;
 
 private:
     ScrollableArea* enclosingScrollableArea() const final;

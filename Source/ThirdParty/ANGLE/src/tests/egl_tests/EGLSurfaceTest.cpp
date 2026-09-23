@@ -7,11 +7,8 @@
 //   Tests pertaining to egl::Surface.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
 #include <thread>
 #include <vector>
@@ -125,6 +122,12 @@ class EGLSurfaceTest : public ANGLETest<>
         std::vector<EGLAttrib> displayAttributes;
         displayAttributes.push_back(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
         displayAttributes.push_back(platformType);
+        // Note: when the native display is Wayland, pbuffers are not supported.  Some tests only
+        // need a pbuffer; if they are split into their own suite, they can use
+        // GetPbufferOnlyDefaultPlatformType() instead to run when the window system is otherwise
+        // Wayland.
+        displayAttributes.push_back(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE);
+        displayAttributes.push_back(mOSWindow->getNativeDisplayPlatformType());
         displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE);
         displayAttributes.push_back(EGL_DONT_CARE);
         displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE);
@@ -420,7 +423,13 @@ class EGLSingleBufferTest : public ANGLETest<>
 
     void testSetUp() override
     {
-        EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
+        mOSWindow = OSWindow::New();
+        mOSWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
+
+        EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
+                                 EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+                                 static_cast<EGLAttrib>(mOSWindow->getNativeDisplayPlatformType()),
+                                 EGL_NONE};
         mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
                                                       reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
         ASSERT_TRUE(mDisplay != EGL_NO_DISPLAY);
@@ -430,6 +439,9 @@ class EGLSingleBufferTest : public ANGLETest<>
 
     void testTearDown() override
     {
+        mOSWindow->destroy();
+        OSWindow::Delete(&mOSWindow);
+
         eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         eglTerminate(mDisplay);
     }
@@ -489,6 +501,7 @@ class EGLSingleBufferTest : public ANGLETest<>
 
     uint32_t drawAndSwap(EGLSurface &surface, EGLDisplay &display, uint32_t color, bool flush);
 
+    OSWindow *mOSWindow  = nullptr;
     EGLDisplay mDisplay  = EGL_NO_DISPLAY;
     EGLint mMajorVersion = 0;
     const EGLint kWidth  = 32;
@@ -744,7 +757,7 @@ TEST_P(EGLSurfaceTest, SurfaceUseAfterFreeBug)
 // Test that the window can be reset repeatedly before surface creation.
 TEST_P(EGLSurfaceTest, ResetNativeWindow)
 {
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
 
@@ -1957,10 +1970,8 @@ TEST_P(EGLSingleBufferTest, OnCreateWindowSurface)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_SINGLE_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_SINGLE_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2002,8 +2013,6 @@ TEST_P(EGLSingleBufferTest, OnCreateWindowSurface)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2022,10 +2031,8 @@ TEST_P(EGLSingleBufferTest, OnSetSurfaceAttrib)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2082,8 +2089,6 @@ TEST_P(EGLSingleBufferTest, OnSetSurfaceAttrib)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2140,10 +2145,8 @@ TEST_P(EGLSingleBufferTest, MutableRenderBuffer)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2195,8 +2198,6 @@ TEST_P(EGLSingleBufferTest, MutableRenderBuffer)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2215,10 +2216,8 @@ TEST_P(EGLSingleBufferTest, SharedPresentBarrier)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2258,8 +2257,6 @@ TEST_P(EGLSingleBufferTest, SharedPresentBarrier)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2278,10 +2275,8 @@ TEST_P(EGLSingleBufferTest, ScissoredClear)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2312,8 +2307,6 @@ TEST_P(EGLSingleBufferTest, ScissoredClear)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2332,10 +2325,8 @@ TEST_P(EGLSingleBufferTest, ScissoredDraw)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2368,8 +2359,6 @@ TEST_P(EGLSingleBufferTest, ScissoredDraw)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2398,10 +2387,8 @@ TEST_P(EGLSingleBufferTest, WaitOneOffSubmission)
     ASSERT_EGL_SUCCESS() << "eglCreatePbufferSurface failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2443,8 +2430,6 @@ TEST_P(EGLSingleBufferTest, WaitOneOffSubmission)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroySurface(mDisplay, pbufferSurface);
     pbufferSurface = EGL_NO_SURFACE;
@@ -2470,10 +2455,8 @@ TEST_P(EGLSingleBufferTest, AcquireImageFromSwapImpl)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2520,8 +2503,6 @@ TEST_P(EGLSingleBufferTest, AcquireImageFromSwapImpl)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2559,10 +2540,8 @@ TEST_P(EGLSingleBufferTest, StagedClearResolveOnSwap)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2590,8 +2569,6 @@ TEST_P(EGLSingleBufferTest, StagedClearResolveOnSwap)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2629,10 +2606,8 @@ TEST_P(EGLSingleBufferTest, SharedPresentLayoutWithMSAA)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2657,8 +2632,6 @@ TEST_P(EGLSingleBufferTest, SharedPresentLayoutWithMSAA)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2677,10 +2650,8 @@ TEST_P(EGLSingleBufferTest, WindowResize)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2707,7 +2678,7 @@ TEST_P(EGLSingleBufferTest, WindowResize)
 
         // Window resize should not invalidate the previous content.  Note, window resize may be
         // ignored to preserve the content (native GLES Android behavior).
-        osWindow->resize(kWidth + 16, kHeight + 16);
+        mOSWindow->resize(kWidth + 16, kHeight + 16);
 
         // Draw after resize
         glScissor(1, 1, 1, 1);
@@ -2729,8 +2700,6 @@ TEST_P(EGLSingleBufferTest, WindowResize)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2751,10 +2720,8 @@ TEST_P(EGLSingleBufferTest, WindowRotation)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2774,7 +2741,7 @@ TEST_P(EGLSingleBufferTest, WindowRotation)
         glEnable(GL_SCISSOR_TEST);
 
         // Set landscape orientation.  Note, this will not change window size.
-        osWindow->setOrientation(200, 100);
+        mOSWindow->setOrientation(200, 100);
         angle::Sleep(1000);
 
         // Draw in landscape orientation.
@@ -2785,7 +2752,7 @@ TEST_P(EGLSingleBufferTest, WindowRotation)
 
         // Set portrait orientation.  Window rotation should not invalidate the previous content.
         // Note, window rotation may be ignored to preserve content (native GLES Android behavior).
-        osWindow->setOrientation(100, 200);
+        mOSWindow->setOrientation(100, 200);
         angle::Sleep(1000);
 
         // Draw in portrait orientation.
@@ -2808,8 +2775,6 @@ TEST_P(EGLSingleBufferTest, WindowRotation)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2832,10 +2797,8 @@ TEST_P(EGLAndroidAutoRefreshTest, Basic)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_BACK_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2886,8 +2849,6 @@ TEST_P(EGLAndroidAutoRefreshTest, Basic)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -2917,10 +2878,8 @@ TEST_P(EGLAndroidAutoRefreshTest, SwapCPUThrottling)
     ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
 
     EGLSurface surface = EGL_NO_SURFACE;
-    OSWindow *osWindow = OSWindow::New();
-    osWindow->initialize("EGLSingleBufferTest", kWidth, kHeight);
     EXPECT_EGL_TRUE(
-        createWindowSurface(config, osWindow->getNativeWindow(), &surface, EGL_SINGLE_BUFFER));
+        createWindowSurface(config, mOSWindow->getNativeWindow(), &surface, EGL_SINGLE_BUFFER));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface, surface, context));
@@ -2961,8 +2920,6 @@ TEST_P(EGLAndroidAutoRefreshTest, SwapCPUThrottling)
 
     eglDestroySurface(mDisplay, surface);
     surface = EGL_NO_SURFACE;
-    osWindow->destroy();
-    OSWindow::Delete(&osWindow);
 
     eglDestroyContext(mDisplay, context);
     context = EGL_NO_CONTEXT;
@@ -3305,7 +3262,7 @@ TEST_P(EGLSurfaceTest, DISABLED_RandomClearTearing)
 // the app get over the problem.
 TEST_P(EGLSurfaceTest, DestroyAndRecreateWhileCurrent)
 {
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
 
@@ -3488,7 +3445,7 @@ TEST_P(EGLSurfaceTest, SurfaceFixedRateCompression)
     EGLint rates[3];
     // Success, actual values of rates are depended on each platform
     EXPECT_EGL_TRUE(
-        eglQuerySupportedCompressionRatesEXT(mDisplay, mConfig, NULL, rates, 3, &numRates));
+        eglQuerySupportedCompressionRatesEXT(mDisplay, mConfig, nullptr, rates, 3, &numRates));
     ASSERT_EGL_SUCCESS();
 
     if (numRates > 0 && rates[0] != EGL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT)
@@ -3834,7 +3791,7 @@ int EGLSurfaceTest::drawSizeCheckRect(EGLSurface surface,
     int result = 0;
     for (size_t i = 0; i < std::size(referenceColors); ++i)
     {
-        result += (surfaceColors[i] != referenceColors[i]) ? 1 : 0;
+        result += ANGLE_UNSAFE_TODO(surfaceColors[i] != referenceColors[i] ? 1 : 0);
     }
 
     // Surface size must not change after the draw.
@@ -3863,7 +3820,7 @@ TEST_P(EGLSurfaceTest, ResizeAfterSwap)
     constexpr std::array<int, kSizeCount> kHeights{499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -3908,7 +3865,7 @@ TEST_P(EGLSurfaceTest, ResizeAfterSwapSkipSizeQuery)
     constexpr std::array<int, kSizeCount> kHeights{499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -3943,7 +3900,7 @@ TEST_P(EGLSurfaceTest, ResizeBeforeDraw)
     constexpr std::array<int, kSizeCount> kHeights{64, 499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -3996,7 +3953,7 @@ TEST_P(EGLSurfaceTest, ResizeBeforeDrawPostSizeQuery)
     constexpr std::array<int, kSizeCount> kHeights{64, 499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -4055,7 +4012,7 @@ TEST_P(EGLSurfaceTest, ResizeAfterDraw)
     constexpr std::array<int, kSizeCount> kHeights{64, 499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -4113,7 +4070,7 @@ TEST_P(EGLSurfaceTest, ResizeLargeWindow)
     constexpr std::array<int, kSizeCount> kHeights{999, 1079};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -4214,7 +4171,7 @@ TEST_P(EGLSurfaceTest, ResizeBeforeMakeCurrent)
     constexpr std::array<int, kSizeCount> kHeights{64, 499};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -4282,7 +4239,7 @@ TEST_P(EGLSurfaceTest, ResizeBeforeMakeCurrentPostSizeQuery)
     constexpr std::array<int, kSizeCount> kHeights{64, 499};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -4349,7 +4306,7 @@ TEST_P(EGLSurfaceTest, ResizeAndReadPixelsRobustANGLE)
     constexpr std::array<int, kSizeCount> kHeights{499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
     initializeSurfaceWithDefaultConfig(true);
@@ -4400,7 +4357,7 @@ TEST_P(EGLSurfaceTest, ResizeAndBlitFramebufferANGLE)
     constexpr std::array<int, kSizeCount> kHeights{499, 200};
 
     // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
-    setWindowVisible(mOSWindow, true);
+    setWindowVisible(mOSWindow, shouldShowWindow());
 
     initializeDisplay();
 
@@ -4469,6 +4426,289 @@ TEST_P(EGLSurfaceTest, ResizeAndBlitFramebufferANGLE)
         EXPECT_GL_NO_ERROR();
     }
 }
+
+class EGLWindowSurfaceColorspaceTestES3 : public EGLSurfaceTest
+{};
+
+// Test interaction between GL_EXT_sRGB_write_control and default framebuffer
+TEST_P(EGLWindowSurfaceColorspaceTestES3, ToggleSrgbWriteControl)
+{
+    setWindowVisible(mOSWindow, shouldShowWindow());
+
+    initializeDisplay();
+
+    ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(mDisplay, "EGL_KHR_gl_colorspace"));
+
+    // Choose an EGLConfig
+    constexpr EGLint kConfigAttributes[] = {EGL_RED_SIZE,     8,
+                                            EGL_GREEN_SIZE,   8,
+                                            EGL_BLUE_SIZE,    8,
+                                            EGL_ALPHA_SIZE,   8,
+                                            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                                            EGL_NONE};
+    EGLint configCount                   = 0;
+    EGLConfig config                     = nullptr;
+    ANGLE_SKIP_TEST_IF(!eglChooseConfig(mDisplay, kConfigAttributes, &config, 1, &configCount));
+    ANGLE_SKIP_TEST_IF(configCount == 0);
+    ASSERT_NE(config, nullptr);
+
+    // Create a window surface with sRGB colorspace
+    std::vector<EGLint> sutfaceAttribs;
+    sutfaceAttribs.push_back(EGL_GL_COLORSPACE);
+    sutfaceAttribs.push_back(EGL_GL_COLORSPACE_SRGB);
+    sutfaceAttribs.push_back(EGL_NONE);
+    initializeSurfaceWithAttribs(config, sutfaceAttribs);
+    EXPECT_EGL_SUCCESS();
+    ASSERT_NE(mWindowSurface, EGL_NO_SURFACE);
+
+    // Create a context
+    initializeMainContext();
+    ASSERT_EGL_SUCCESS();
+    ASSERT_NE(mContext, EGL_NO_CONTEXT);
+
+    eglMakeCurrent(mDisplay, mWindowSurface, mWindowSurface, mContext);
+    EXPECT_EGL_SUCCESS();
+
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_sRGB_write_control"));
+
+    constexpr angle::GLColor uniformColor(13, 54, 133, 255);
+    constexpr angle::GLColor linearColor = uniformColor;
+    constexpr angle::GLColor srgbColor(64, 127, 191, 255);
+
+    // Bind default framebuffer
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    EXPECT_GL_NO_ERROR();
+
+    // Clear and expect values in sRGB colorspace
+    glClearColor(uniformColor[0] / 255.0, uniformColor[1] / 255.0, uniformColor[2] / 255.0,
+                 uniformColor[3] / 255.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, srgbColor, 1.0);
+    EXPECT_GL_NO_ERROR();
+
+    // Disable encoding to sRGB colorspace.
+    glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+
+    // Clear again but this time expect values in linear colorspace
+    glClearColor(uniformColor[0] / 255.0, uniformColor[1] / 255.0, uniformColor[2] / 255.0,
+                 uniformColor[3] / 255.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, linearColor, 1.0);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Regression test for a vulkan backend bug where toggling colorspace within a renderpass
+// wouldn't refresh the framebuffer
+TEST_P(EGLWindowSurfaceColorspaceTestES3, ToggleSrgbWriteControlWithinRenderPass)
+{
+    setWindowVisible(mOSWindow, shouldShowWindow());
+
+    initializeDisplay();
+
+    ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(mDisplay, "EGL_KHR_gl_colorspace"));
+
+    // Choose an EGLConfig
+    constexpr EGLint kConfigAttributes[] = {EGL_RED_SIZE,     8,
+                                            EGL_GREEN_SIZE,   8,
+                                            EGL_BLUE_SIZE,    8,
+                                            EGL_ALPHA_SIZE,   8,
+                                            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                                            EGL_NONE};
+    EGLint configCount                   = 0;
+    EGLConfig config                     = nullptr;
+    ANGLE_SKIP_TEST_IF(!eglChooseConfig(mDisplay, kConfigAttributes, &config, 1, &configCount));
+    ANGLE_SKIP_TEST_IF(configCount == 0);
+    ASSERT_NE(config, nullptr);
+
+    // Create a window surface with sRGB colorspace
+    std::vector<EGLint> sutfaceAttribs;
+    sutfaceAttribs.push_back(EGL_GL_COLORSPACE);
+    sutfaceAttribs.push_back(EGL_GL_COLORSPACE_SRGB);
+    sutfaceAttribs.push_back(EGL_NONE);
+    initializeSurfaceWithAttribs(config, sutfaceAttribs);
+    EXPECT_EGL_SUCCESS();
+    ASSERT_NE(mWindowSurface, EGL_NO_SURFACE);
+
+    // Create a context
+    initializeMainContext();
+    ASSERT_EGL_SUCCESS();
+    ASSERT_NE(mContext, EGL_NO_CONTEXT);
+
+    eglMakeCurrent(mDisplay, mWindowSurface, mWindowSurface, mContext);
+    EXPECT_EGL_SUCCESS();
+
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_sRGB_write_control"));
+
+    constexpr angle::GLColor uniformColor(13, 54, 133, 255);
+    constexpr angle::GLColor srgbColor(64, 127, 191, 255);
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    glUseProgram(program);
+    GLint colorLocation = glGetUniformLocation(program, essl1_shaders::ColorUniform());
+    ASSERT_NE(-1, colorLocation);
+    Vector4 uniformColorNormalized = uniformColor.toNormalizedVector();
+    glUniform4f(colorLocation, uniformColorNormalized.x(), uniformColorNormalized.y(),
+                uniformColorNormalized.z(), uniformColorNormalized.w());
+    EXPECT_GL_NO_ERROR();
+
+    // Bind default framebuffer
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    EXPECT_GL_NO_ERROR();
+
+    // Disable encoding to sRGB colorspace.
+    glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+
+    // Draw
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_GL_NO_ERROR();
+
+    // Don't break the renderpass, toggle colorspace and draw again
+
+    // Enable encoding to sRGB colorspace.
+    glEnable(GL_FRAMEBUFFER_SRGB_EXT);
+
+    // Draw
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, srgbColor, 1.0);
+}
+
+// Test that a PRESERVED surface can be cleared to black (emulated-format clear color).
+TEST_P(EGLSurfaceTest, PreserveThenClearToBlack)
+{
+    // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
+    setWindowVisible(mOSWindow, shouldShowWindow());
+
+    initializeDisplay();
+
+    // Initialize an RGBA8 window surface with 4x MSAA
+    constexpr EGLint kSurfaceAttributes[] = {
+        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
+        // Make sure ALPHA is not set, increasing the chance
+        // that an RGB format is chosen that is emulated with
+        // RGBA.
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT, EGL_NONE};
+
+    EGLint configCount      = 0;
+    EGLConfig surfaceConfig = nullptr;
+    ANGLE_SKIP_TEST_IF(
+        !eglChooseConfig(mDisplay, kSurfaceAttributes, &surfaceConfig, 1, &configCount));
+    ANGLE_SKIP_TEST_IF(configCount == 0);
+    ASSERT_NE(surfaceConfig, nullptr);
+
+    initializeSurface(surfaceConfig);
+    initializeMainContext();
+    ASSERT_NE(mWindowSurface, EGL_NO_SURFACE);
+
+    eglMakeCurrent(mDisplay, mWindowSurface, mWindowSurface, mContext);
+    ASSERT_EGL_SUCCESS();
+
+    // Draw something non-black to the surface.
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Enable preserve behavior.
+    EXPECT_TRUE(
+        eglSurfaceAttrib(mDisplay, mWindowSurface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED));
+    eglSwapBuffers(mDisplay, mWindowSurface);
+
+    // Clear to black, ensure it's not dropped.
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+}
+
+// Test that a PRESERVED surface can be blended to.
+TEST_P(EGLSurfaceTest, PreserveThenBlend)
+{
+    // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
+    setWindowVisible(mOSWindow, shouldShowWindow());
+
+    initializeDisplay();
+
+    // Initialize an RGBA8 window surface with 4x MSAA
+    constexpr EGLint kSurfaceAttributes[] = {
+        EGL_RED_SIZE,  8, EGL_GREEN_SIZE,   8,
+        EGL_BLUE_SIZE, 8, EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT,
+        EGL_NONE};
+
+    EGLint configCount      = 0;
+    EGLConfig surfaceConfig = nullptr;
+    ANGLE_SKIP_TEST_IF(
+        !eglChooseConfig(mDisplay, kSurfaceAttributes, &surfaceConfig, 1, &configCount));
+    ANGLE_SKIP_TEST_IF(configCount == 0);
+    ASSERT_NE(surfaceConfig, nullptr);
+
+    initializeSurface(surfaceConfig);
+    initializeMainContext();
+    ASSERT_NE(mWindowSurface, EGL_NO_SURFACE);
+
+    eglMakeCurrent(mDisplay, mWindowSurface, mWindowSurface, mContext);
+    ASSERT_EGL_SUCCESS();
+
+    // Draw something to the surface.
+    ANGLE_GL_PROGRAM(drawBlue, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+    drawQuad(drawBlue, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Enable preserve behavior.
+    EXPECT_TRUE(
+        eglSurfaceAttrib(mDisplay, mWindowSurface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED));
+    eglSwapBuffers(mDisplay, mWindowSurface);
+
+    // Blend something else to the surface.
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+    glBlendFunc(GL_ONE, GL_ONE);
+    glEnable(GL_BLEND);
+    drawQuad(drawRed, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::magenta);
+}
+
+// Verify switching to preserved swap behavior works if the only update to the surface is clear.
+TEST_P(EGLSurfaceTest, ClearThenPreserve)
+{
+    // Necessary for some platforms (NVIDIA on Linux) if there is no per-frame window size query.
+    setWindowVisible(mOSWindow, shouldShowWindow());
+
+    initializeDisplay();
+
+    // Initialize an RGBA8 window surface with 4x MSAA
+    constexpr EGLint kSurfaceAttributes[] = {
+        EGL_RED_SIZE,  8, EGL_GREEN_SIZE,   8,
+        EGL_BLUE_SIZE, 8, EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT,
+        EGL_NONE};
+
+    EGLint configCount      = 0;
+    EGLConfig surfaceConfig = nullptr;
+    ANGLE_SKIP_TEST_IF(
+        !eglChooseConfig(mDisplay, kSurfaceAttributes, &surfaceConfig, 1, &configCount));
+    ANGLE_SKIP_TEST_IF(configCount == 0);
+    ASSERT_NE(surfaceConfig, nullptr);
+
+    initializeSurface(surfaceConfig);
+    initializeMainContext();
+    ASSERT_NE(mWindowSurface, EGL_NO_SURFACE);
+
+    eglMakeCurrent(mDisplay, mWindowSurface, mWindowSurface, mContext);
+    ASSERT_EGL_SUCCESS();
+
+    // Clear the surface, but don't flush it.
+    glClearColor(0, 0, 1, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Enable preserve behavior.
+    EXPECT_TRUE(
+        eglSurfaceAttrib(mDisplay, mWindowSurface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED));
+    eglSwapBuffers(mDisplay, mWindowSurface);
+
+    // Verify that the clear color is visible after swap.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+}
+
 }  // anonymous namespace
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLSingleBufferTest);
@@ -4511,3 +4751,6 @@ ANGLE_INSTANTIATE_TEST(EGLSurfaceTest3,
 #if defined(ANGLE_ENABLE_D3D11)
 ANGLE_INSTANTIATE_TEST(EGLSurfaceTestD3D11, WithNoFixture(ES2_D3D11()), WithNoFixture(ES3_D3D11()));
 #endif
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLWindowSurfaceColorspaceTestES3);
+ANGLE_INSTANTIATE_TEST(EGLWindowSurfaceColorspaceTestES3, WithNoFixture(ES3_VULKAN()));

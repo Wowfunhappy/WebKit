@@ -46,15 +46,13 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderLineBreak);
 
-RenderLineBreak::RenderLineBreak(HTMLElement& element, RenderStyle&& style)
+RenderLineBreak::RenderLineBreak(HTMLElement& element, Style::ComputedStyle&& style)
     : RenderBoxModelObject(Type::LineBreak, element, WTF::move(style), { }, is<HTMLWBRElement>(element) ? OptionSet<LineBreakFlag> { LineBreakFlag::IsWBR } : OptionSet<LineBreakFlag> { })
 {
     ASSERT(isRenderLineBreak());
 }
 
-RenderLineBreak::~RenderLineBreak()
-{
-}
+RenderLineBreak::~RenderLineBreak() = default;
 
 int RenderLineBreak::caretMinOffset() const
 {
@@ -103,7 +101,7 @@ void RenderLineBreak::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) co
         return;
 
     auto rect = box->visualRectIgnoringBlockDirection();
-    quads.append(localToAbsoluteQuad(FloatRect(rect.location(), rect.size()), UseTransforms, wasFixed));
+    quads.append(localToAbsoluteQuad(FloatRect(rect.location(), rect.size()), MapCoordinatesMode::UseTransforms, wasFixed));
 }
 
 void RenderLineBreak::updateFromStyle()
@@ -152,10 +150,10 @@ void RenderLineBreak::collectSelectionGeometries(Vector<SelectionGeometry>& rect
     bool isLastOnLine = !run->nextLineRightwardOnLine();
 
     bool isFixed = false;
-    auto absoluteQuad = localToAbsoluteQuad(FloatRect(rect), UseTransforms, &isFixed);
+    auto absoluteQuad = localToAbsoluteQuad(FloatRect(rect), MapCoordinatesMode::UseTransforms, &isFixed);
     bool boxIsHorizontal = !is<InlineIterator::SVGTextBoxIterator>(run) ? run->isHorizontal() : !writingMode().isVertical();
 
-    rects.append(SelectionGeometry(absoluteQuad, HTMLElement::selectionRenderingBehavior(WTF::protect(element())), run->direction(), extentsRect.x(), extentsRect.maxX(), extentsRect.maxY(), 0, run->isLineBreak(), isFirstOnLine, isLastOnLine, false, false, boxIsHorizontal, isFixed, protect(view())->pageNumberForBlockProgressionOffset(absoluteQuad.enclosingBoundingBox().x())));
+    rects.append(SelectionGeometry(absoluteQuad, HTMLElement::selectionRenderingBehavior(WTF::protect(element())), run->direction(), extentsRect.x(), extentsRect.maxX(), extentsRect.maxY(), 0, run->isLineBreak(), isFirstOnLine, isLastOnLine, false, false, boxIsHorizontal, isFixed, view().pageNumberForBlockProgressionOffset(absoluteQuad.enclosingBoundingBox().x())));
 }
 
 } // namespace WebCore

@@ -146,14 +146,11 @@ void FindIndicatorIOS::hide()
     if (!m_isShowingFindIndicator)
         return;
 
-    protect(*m_webPage)->corePage()->pageOverlayController().uninstallPageOverlay(*protect(m_findIndicatorOverlay), PageOverlay::FadeMode::DoNotFade);
+    RefPtr webPage = { m_webPage.get() };
+    protect(webPage->corePage())->pageOverlayController().uninstallPageOverlay(*protect(m_findIndicatorOverlay), PageOverlay::FadeMode::DoNotFade);
     m_findIndicatorOverlay = nullptr;
     m_isShowingFindIndicator = false;
-    setSelectionChangeUpdatesEnabledInAllFrames(protect(*m_webPage), false);
-}
-
-void FindIndicatorIOS::willFindString()
-{
+    setSelectionChangeUpdatesEnabledInAllFrames(*webPage, false);
 }
 
 void FindIndicatorIOS::didFindString(WebCore::LocalFrame* selectedFrame)

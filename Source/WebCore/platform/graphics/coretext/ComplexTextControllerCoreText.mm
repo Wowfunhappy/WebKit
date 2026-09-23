@@ -237,8 +237,6 @@ void ComplexTextController::collectComplexTextRunsForCharacters(std::span<const 
     if (!line)
         return;
 
-    m_coreTextLines.append(line.get());
-
     RetainPtr runArray = CTLineGetGlyphRuns(line.get());
 
     if (!runArray)

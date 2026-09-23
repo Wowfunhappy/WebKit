@@ -73,7 +73,7 @@ public:
     static JSDisposableStack* createWithInitialValues(VM&);
     static JSDisposableStack* create(VM&, Structure*);
 
-    bool disposed();
+    bool NODELETE disposed();
 
 private:
     JSDisposableStack(VM& vm, Structure* structure)

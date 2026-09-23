@@ -37,18 +37,22 @@ for e in json.load(open(build / "compile_commands.json")):
     else:
         ok = e["file"].endswith("/" + anchor)
     if ok:
-        args = shlex.split(e["command"]); out = []; skip = False
-        for a in args[1:]:
-            if skip: skip = False; continue
-            if a == "-o": skip = True; continue
+        args = shlex.split(e["command"]); out = []; i = 1
+        while i < len(args):
+            if args[i:i + 3] == ["-Xclang", "-include-pch", "-Xclang"]:
+                if i + 3 >= len(args):
+                    raise RuntimeError("Incomplete PCH argument group")
+                i += 4
+                continue
+            a = args[i]; i += 1
+            if a == "-o": i += 1; continue
             if a in ("-c", e["file"]): continue
             out.append(a)
         print(shlex.join(out)); break
 PY
 }
-# WebCore compiles its own sources with no prefix header, taking the macros from config.h on its include
-# path; the legacy command carries WebKitPrefix.h and no config.h. Force-including it here keeps a test
-# over WebCore internals independent of which unified source the flags came from.
+# Standalone tests parse the build's textual prefix headers with the same feature definitions.
+# Force-including config.h supplies WebCore's configuration for every internal test.
 WEBCORE_FLAGS="$(flags_for WebCore) -include $ROOT/Source/WebCore/config.h"
 LEGACY_FLAGS=$(flags_for WebDownloadCurl.mm)
 [ -n "$WEBCORE_FLAGS" ] && [ -n "$LEGACY_FLAGS" ] \

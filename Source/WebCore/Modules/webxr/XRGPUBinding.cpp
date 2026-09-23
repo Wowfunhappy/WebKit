@@ -90,7 +90,7 @@ ExceptionOr<Ref<XRProjectionLayer>> XRGPUBinding::createProjectionLayer(ScriptEx
         return Exception { ExceptionCode::AbortError };
 
     m_init = init;
-    return XRProjectionLayer::create(scriptExecutionContext, projectionLayer.releaseNonNull());
+    return XRProjectionLayer::create(scriptExecutionContext, *m_session, projectionLayer.releaseNonNull(), { });
 }
 
 double XRGPUBinding::nativeProjectionScaleFactor() const

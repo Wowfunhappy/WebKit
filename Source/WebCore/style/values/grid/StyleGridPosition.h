@@ -32,6 +32,7 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleGridPositionSide.h>
 #include <WebCore/StylePrimitiveNumeric.h>
 #include <WebCore/StyleValueTypes.h>
@@ -45,7 +46,7 @@ struct GridPositionExplicit {
     using Position = Integer<>;
 
     Position position { 1 };
-    CustomIdentifier name { nullAtom() };
+    CustomIdent name { nullAtom() };
 
     template<typename... F> decltype(auto) switchOn(F&&... f) const
     {
@@ -61,10 +62,10 @@ struct GridPositionExplicit {
 
 // <grid-line-span> = [ span && [ <integer [1,∞]> || <custom-ident>  ] ]
 struct GridPositionSpan {
-    using Position = Integer<CSS::Range{1,CSS::Range::infinity}>;
+    using Position = Integer<CSS::Positive>;
 
     Position position { 1 };
-    CustomIdentifier name { nullAtom() };
+    CustomIdent name { nullAtom() };
 
     template<typename... F> decltype(auto) switchOn(F&&... f) const
     {
@@ -82,7 +83,7 @@ struct GridPositionSpan {
 
 // <grid-line> = auto | <custom-ident> | <grid-line-explicit> | <grid-line-span>
 // https://drafts.csswg.org/css-grid/#typedef-grid-row-start-grid-line
-// FIXME: The standard calls this type "grid-line". We should consider matching it.
+// FIXME: The standard calls this type "grid-line" and the CSS equivalent type is CSS::GridLine. We should consider matching it.
 struct GridPosition {
     using Explicit = GridPositionExplicit;
     using Span = GridPositionSpan;
@@ -90,7 +91,7 @@ struct GridPosition {
     GridPosition(CSS::Keyword::Auto) { }
     WEBCORE_EXPORT GridPosition(Explicit&&);
     WEBCORE_EXPORT GridPosition(Span&&);
-    GridPosition(CustomIdentifier&&);
+    GridPosition(CustomIdent&&);
 
     bool isAuto() const { return m_type == GridPositionType::Auto; }
     bool isExplicit() const { return m_type == GridPositionType::Explicit; }
@@ -99,7 +100,7 @@ struct GridPosition {
 
     WEBCORE_EXPORT int NODELETE explicitPosition() const;
     WEBCORE_EXPORT int NODELETE spanPosition() const;
-    String NODELETE namedGridLine() const;
+    const CustomIdent& NODELETE namedGridLine() const LIFETIME_BOUND;
 
     bool shouldBeResolvedAgainstOppositePosition() const { return isAuto() || isSpan(); }
 
@@ -141,16 +142,13 @@ private:
 
     GridPositionType m_type { GridPositionType::Auto };
     int m_integerPosition { 1 };
-    CustomIdentifier m_namedGridLine;
+    CustomIdent m_namedGridLine;
 };
 
 // MARK: - Conversion
 
 template<> struct CSSValueConversion<GridPosition> { auto operator()(BuilderState&, const CSSValue&) -> GridPosition; };
-
-// MARK: - Logging
-
-WTF::TextStream& operator<<(WTF::TextStream&, const GridPosition&);
+template<> struct CSSValueCreation<GridPosition> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const GridPosition&); };
 
 } // namespace Style
 } // namespace WebCore

@@ -32,6 +32,8 @@
 #include <pal/spi/cocoa/AudioToolboxSPI.h>
 #include <span>
 
+#include <pal/cf/AudioToolboxSoftLink.h>
+
 namespace WebCore {
 
 bool SpatialAudioPlaybackHelper::supportsSpatialAudioPlaybackForConfiguration(const PlatformMediaConfiguration& configuration)

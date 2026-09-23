@@ -10,7 +10,6 @@ Object.preventExtensions(globalThis);
 let didThrow = false;
 try {
     eval(`
-        var d = 4;
         function a() {}
         function b() {}
         var c = 3;

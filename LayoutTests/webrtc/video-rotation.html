@@ -128,6 +128,7 @@ promise_test(async (test) => {
 }, "Track is enabled and rotated, remote video should not be black and should change size");
 
 promise_test(async (test) => {
+    test.add_cleanup(() => track.stop());
     if (window.internals)
         window.internals.setCameraMediaStreamTrackOrientation(track, 180);
     if (window.testRunner)

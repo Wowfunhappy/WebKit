@@ -27,13 +27,14 @@
 #include "PropertyCascade.h"
 
 #include "CSSCustomPropertyValue.h"
+#include "CSSKeywordValueInlines.h"
 #include "CSSPaintImageValue.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSValuePool.h"
 #include "ComputedStyleDependencies.h"
 #include "PaintWorkletGlobalScope.h"
 #include "PropertyAllowlist.h"
 #include "StyleBuilderGenerated.h"
+#include "StyleKeyword+Mappings.h"
 #include "StylePropertyShorthand.h"
 #include <ranges>
 #include <wtf/TZoneMallocInlines.h>
@@ -43,7 +44,7 @@ namespace Style {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PropertyCascade);
 
-PropertyCascade::PropertyCascade(const MatchResult& matchResult, IncludedProperties&& includedProperties, const HashSet<AnimatableCSSProperty>* animatedProperties, const StyleProperties* positionTryFallbackProperties)
+PropertyCascade::PropertyCascade(const MatchResult& matchResult, IncludedProperties&& includedProperties, const HashMap<AnimatableCSSProperty, EnumSet<AnimationSource>>* animatedProperties, const StyleProperties* positionTryFallbackProperties)
     : m_matchResult(matchResult)
     , m_includedProperties(WTF::move(includedProperties))
     , m_maximumOrigin(positionTryFallbackProperties ? PropertyCascade::Origin::PositionFallback : PropertyCascade::Origin::Author)
@@ -85,12 +86,15 @@ PropertyCascade::PropertyCascade(const PropertyCascade& parent, RevertRuleTag)
 
 PropertyCascade::~PropertyCascade() = default;
 
-PropertyCascade::AnimationLayer::AnimationLayer(const HashSet<AnimatableCSSProperty>& properties)
+PropertyCascade::AnimationLayer::AnimationLayer(const HashMap<AnimatableCSSProperty, EnumSet<AnimationSource>>& properties)
     : properties(properties)
 {
-    hasCustomProperties = std::ranges::find_if(properties, [](auto& property) {
-        return std::holds_alternative<AtomString>(property);
-    }) != properties.end();
+    for (auto& key : properties.keys()) {
+        if (std::holds_alternative<AtomString>(key)) {
+            hasCustomProperties = true;
+            break;
+        }
+    }
 
     hasFontSize = properties.contains(CSSPropertyFontSize);
     hasLineHeight = properties.contains(CSSPropertyLineHeight);
@@ -209,7 +213,7 @@ void PropertyCascade::setDelayingForRuleRollback(CSSPropertyID propertyID, CSSVa
         return;
 
     auto last = delayedValues.takeLast();
-    set(propertyID, last.value, last.properties, last.origin);
+    SUPPRESS_UNCOUNTED_ARG set(propertyID, last.value, last.properties, last.origin);
 }
 
 bool PropertyCascade::hasProperty(CSSPropertyID propertyID, const CSSValue& value)
@@ -229,6 +233,12 @@ bool PropertyCascade::mayOverrideExistingProperty(CSSPropertyID propertyID, cons
     // Apply all logical group properties if we have applied any. They may override the ones we already applied.
     // FIXME: This could check if any existing properties are actually in the same group.
     return !!m_lastIndexForLogicalGroup;
+}
+
+const PropertyCascade::Property& PropertyCascade::functionResultProperty() const
+{
+    ASSERT(hasNormalProperty(CSSPropertyResult));
+    return normalProperty(CSSPropertyResult);
 }
 
 const PropertyCascade::Property* PropertyCascade::lastPropertyResolvingLogicalPropertyPair(CSSPropertyID propertyID, WritingMode writingMode) const
@@ -292,6 +302,8 @@ bool PropertyCascade::addMatch(const MatchedProperties& matchedProperties, Origi
 #endif
             if (propertyAllowlist == PropertyAllowlist::Marker && !isValidMarkerStyleProperty(propertyID))
                 return false;
+            if (propertyAllowlist == PropertyAllowlist::Highlight && !isValidHighlightStyleProperty(propertyID))
+                return false;
 
             if (m_includedProperties.types.containsAll(normalPropertyTypes()))
                 return true;
@@ -306,7 +318,7 @@ bool PropertyCascade::addMatch(const MatchedProperties& matchedProperties, Origi
             if (mayOverrideExistingProperty(propertyID, *current.value()))
                 return true;
 
-            if (m_includedProperties.types.containsAny({ PropertyType::AfterAnimation, PropertyType::AfterTransition })) {
+            if (m_includedProperties.types.contains(PropertyType::AfterAnimation)) {
                 if (shouldApplyAfterAnimation(current)) {
                     m_animationLayer->overriddenProperties.add(propertyID);
                     return true;
@@ -329,11 +341,11 @@ bool PropertyCascade::addMatch(const MatchedProperties& matchedProperties, Origi
             continue;
 
         if (m_ruleRollbackDepth) {
-            setDelayingForRuleRollback(propertyID, *current.value(), matchedProperties, origin);
+            setDelayingForRuleRollback(propertyID, protect(*current.value()), matchedProperties, origin);
             continue;
         }
 
-        set(propertyID, *current.value(), matchedProperties, origin);
+        SUPPRESS_UNCOUNTED_ARG set(propertyID, *current.value(), matchedProperties, origin);
     }
 
     return hasImportantProperties;
@@ -346,16 +358,13 @@ bool PropertyCascade::shouldApplyAfterAnimation(const StyleProperties::PropertyR
     auto id = property.id();
     RefPtr customProperty = dynamicDowncast<CSSCustomPropertyValue>(*property.value());
 
-    auto isAnimatedProperty = [&] {
-        if (customProperty)
-            return m_animationLayer->properties.contains(customProperty->name());
-        return m_animationLayer->properties.contains(id);
-    }();
-
-    if (isAnimatedProperty) {
+    auto animationSource = m_animationLayer->properties.getOptional(customProperty ? AnimatableCSSProperty { customProperty->name() } : id);
+    if (animationSource) {
         // "Important declarations from all origins take precedence over animations."
         // https://drafts.csswg.org/css-cascade-5/#importance
-        return m_includedProperties.types.contains(PropertyType::AfterAnimation) && property.isImportant();
+        // But transitions take precedence over !important, so only allow the
+        // override for properties not animated by a transition.
+        return !animationSource->contains(AnimationSource::CSSTransition) && property.isImportant();
     }
 
     // If we are animating custom properties they may affect other properties so we need to re-resolve them.
@@ -363,13 +372,13 @@ bool PropertyCascade::shouldApplyAfterAnimation(const StyleProperties::PropertyR
         // We could check if the we are actually animating the referenced variable. Indirect cases would need to be taken into account.
         if (customProperty && customProperty->isVariableReference())
             return true;
-        if (property.value()->hasVariableReferences())
+        if (property.value()->hasSubstitutionFunctions())
             return true;
     }
 
     // Check for 'em' units and similar property dependencies.
     if (m_animationLayer->hasFontSize || m_animationLayer->hasLineHeight) {
-        auto dependencies = property.value()->computedStyleDependencies();
+        auto dependencies = protect(property.value())->computedStyleDependencies();
         if (m_animationLayer->hasFontSize && dependencies.properties.contains(CSSPropertyFontSize))
             return true;
         if (m_animationLayer->hasLineHeight && dependencies.properties.contains(CSSPropertyLineHeight))
@@ -482,7 +491,7 @@ void PropertyCascade::sortLogicalGroupPropertyIDs()
     });
 }
 
-const HashSet<AnimatableCSSProperty> PropertyCascade::overriddenAnimatedProperties() const
+ValueOrReference<HashSet<AnimatableCSSProperty>> PropertyCascade::overriddenAnimatedProperties() const
 {
     if (m_animationLayer)
         return m_animationLayer->overriddenProperties;

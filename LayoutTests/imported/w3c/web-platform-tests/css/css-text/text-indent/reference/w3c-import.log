@@ -15,7 +15,12 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/anonymous-flex-grid-item-001-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-abspos-hanging-001-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-caret-001-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-caret-hanging-001-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-each-line-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-each-line-hanging-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-hanging-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-length-001-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-length-002-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-indent/reference/text-indent-min-max-content-001-ref.html

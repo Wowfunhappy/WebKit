@@ -90,6 +90,7 @@ public:
     Markable<ScriptExecutionContextIdentifier> clientIdentifier;
     OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections;
     std::optional<uint64_t> noiseInjectionHashSalt;
+    String agentClusterID;
 
     WorkerParameters isolatedCopy() const;
 };

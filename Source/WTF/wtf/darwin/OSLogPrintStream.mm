@@ -27,7 +27,6 @@
 #include <wtf/darwin/OSLogPrintStream.h>
 
 #include <wtf/StdLibExtras.h>
-#include <wtf/text/ParsingUtilities.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 

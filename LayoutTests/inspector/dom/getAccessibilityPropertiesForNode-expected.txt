@@ -305,6 +305,7 @@ Total elements to be tested: 126.
     exists: true
     label:
     role: button
+    expanded: false
     focused: false
     parentNodeId: exists
     required: false

@@ -23,10 +23,8 @@
 #include "SVGDocumentExtensions.h"
 
 #include "DocumentPage.h"
-#include "EventListener.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
-#include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "SMILTimeContainer.h"
 #include "SVGElement.h"
@@ -35,8 +33,6 @@
 #include "SVGSMILElement.h"
 #include "SVGSVGElement.h"
 #include "SVGUseElement.h"
-#include "ScriptableDocumentParser.h"
-#include "ShadowRoot.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>

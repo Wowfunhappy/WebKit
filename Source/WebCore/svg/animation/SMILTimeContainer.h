@@ -51,7 +51,7 @@ public:
     void unschedule(SVGSMILElement*, SVGElement*, const QualifiedName&);
     void notifyIntervalsChanged();
 
-    WEBCORE_EXPORT Seconds animationFrameDelay() const;
+    WEBCORE_EXPORT Seconds NODELETE animationFrameDelay() const;
 
     SMILTime elapsed() const;
 

@@ -34,7 +34,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/cf/TypeCastsCF.h>
 
-#include "PDFKitSoftlink.h"
+#include "PDFKitSoftLink.h"
 #include <pal/cocoa/DataDetectorsCoreSoftLink.h>
 #include <pal/mac/DataDetectorsSoftLink.h>
 

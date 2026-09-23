@@ -329,6 +329,7 @@ void VideoPresentationInterfaceIOS::doSetup()
     if (shouldCreateWindow()) {
         m_window = adoptNS([PAL::allocUIWindowInstance() initWithWindowScene:[[m_parentView window] windowScene]]);
         [m_window setBackgroundColor:clearUIColor()];
+        [m_window setValue:@"WebCore::VideoPresentationInterfaceIOS" forKey:@"_debugName"];
         if (!m_viewController)
             m_viewController = adoptNS([PAL::allocUIViewControllerInstance() init]);
         [[m_viewController view] setFrame:[m_window bounds]];

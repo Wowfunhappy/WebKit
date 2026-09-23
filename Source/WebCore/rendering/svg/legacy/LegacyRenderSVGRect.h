@@ -36,7 +36,7 @@ class LegacyRenderSVGRect final : public LegacyRenderSVGShape {
     WTF_MAKE_TZONE_ALLOCATED(LegacyRenderSVGRect);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LegacyRenderSVGRect);
 public:
-    LegacyRenderSVGRect(SVGRectElement&, RenderStyle&&);
+    LegacyRenderSVGRect(SVGRectElement&, Style::ComputedStyle&&);
     virtual ~LegacyRenderSVGRect();
 
     SVGRectElement& NODELETE rectElement() const;
@@ -55,8 +55,8 @@ private:
     bool shapeDependentFillContains(const FloatPoint&, const WindRule) const override;
 
 private:
-    bool definitelyHasSimpleStroke() const;
-    bool canUseStrokeHitTestFastPath() const;
+    bool NODELETE definitelyHasSimpleStroke() const;
+    bool NODELETE canUseStrokeHitTestFastPath() const;
 };
 
 } // namespace WebCore

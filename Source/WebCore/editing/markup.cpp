@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2009, 2010, 2011 Google Inc. All rights reserved.
  * Copyright (C) 2011 Igalia S.L.
  * Copyright (C) 2011 Motorola Mobility. All rights reserved.
@@ -77,7 +77,6 @@
 #include "LocalFrameInlines.h"
 #include "MarkupAccumulator.h"
 #include "MutableStyleProperties.h"
-#include "NodeInlines.h"
 #include "NodeList.h"
 #include "Page.h"
 #include "PageConfiguration.h"
@@ -201,10 +200,12 @@ void removeSubresourceURLAttributes(Ref<DocumentFragment>&& fragment, Function<b
         element->removeAttribute(attribute);
 }
 
-Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument)
+Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument, std::optional<PageConfiguration>&& overrideConfiguration)
 {
     bool useDarkAppearance = false;
     bool useElevatedUserInterfaceLevel = false;
+    std::optional<FontGenericFamilies> fontGenericFamilies;
+    DownloadableBinaryFontTrustedTypes fontTrustedTypes = DownloadableBinaryFontTrustedTypes::Any;
 
     if (destinationDocument) {
         if (RefPtr destinationPage = destinationDocument->page()) {
@@ -217,12 +218,14 @@ Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument)
 
             useDarkAppearance = documentNeedsDarkAppearance && destinationPage->useDarkAppearance();
             useElevatedUserInterfaceLevel = destinationPage->useElevatedUserInterfaceLevel();
+            fontGenericFamilies = destinationPage->settings().fontGenericFamilies();
+            fontTrustedTypes = destinationPage->settings().downloadableBinaryFontTrustedTypes();
         }
     }
 
-    auto pageConfiguration = pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
-    
-    Ref page = Page::create(WTF::move(pageConfiguration));
+    Ref page = Page::create(*WTF::move(overrideConfiguration).or_else([] {
+        return std::make_optional(pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID()));
+    }));
     page->setUseColorAppearance(useDarkAppearance, useElevatedUserInterfaceLevel);
 #if ENABLE(VIDEO)
     page->settings().setMediaEnabled(false);
@@ -231,6 +234,10 @@ Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument)
     page->settings().setHTMLParserScriptingFlagPolicy(HTMLParserScriptingFlagPolicy::Enabled);
     page->settings().setAcceleratedCompositingEnabled(false);
     page->settings().setLinkPreloadEnabled(false);
+    page->settings().setDownloadableBinaryFontTrustedTypes(fontTrustedTypes);
+
+    if (fontGenericFamilies)
+        page->settings().fontGenericFamilies() = *fontGenericFamilies;
 
     RefPtr frame = page->localMainFrame();
     if (!frame)
@@ -607,7 +614,7 @@ const String& StyledMarkupAccumulator::styleNodeCloseTag(bool isBlock)
     return isBlock ? divClose : styleSpanClose;
 }
 
-bool StyledMarkupAccumulator::containsOnlyASCII() const
+bool NODELETE StyledMarkupAccumulator::containsOnlyASCII() const
 {
     for (auto& preceding : m_reversedPrecedingMarkup) {
         if (!preceding.containsOnlyASCII())
@@ -640,9 +647,9 @@ void StyledMarkupAccumulator::appendText(StringBuilder& out, const Text& text)
         // Make sure spans are inline style in paste side e.g. span { display: block }.
         wrappingStyle->forceDisplayInline();
         // FIXME: Should this be included in forceDisplayInline?
-        wrappingStyle->style()->setProperty(CSSPropertyFloat, CSSValueNone);
+        protect(wrappingStyle->style())->setProperty(CSSPropertyFloat, CSSValueNone);
 
-        appendStyleNodeOpenTag(out, wrappingStyle->style(), false, [&] -> std::optional<TextDirection> {
+        appendStyleNodeOpenTag(out, protect(wrappingStyle->style()), false, [&] -> std::optional<TextDirection> {
             if (m_hasAppendedAnyText)
                 return std::nullopt;
 
@@ -809,7 +816,7 @@ void StyledMarkupAccumulator::appendStartTag(StringBuilder& out, const Element& 
 
 #if ENABLE(DATA_DETECTION)
         if (replacementType == SpanReplacementType::DataDetector && newInlineStyle->style())
-            newInlineStyle->style()->removeProperty(CSSPropertyTextDecorationColor);
+            protect(newInlineStyle->style())->removeProperty(CSSPropertyTextDecorationColor);
 #endif
 
         if (shouldAnnotateOrForceInline) {
@@ -827,12 +834,12 @@ void StyledMarkupAccumulator::appendStartTag(StringBuilder& out, const Element& 
             // If the node is not fully selected by the range, then we don't want to keep styles that affect its relationship to the nodes around it
             // only the ones that affect it and the nodes within it.
             if (rangeFullySelectsNode == DoesNotFullySelectNode && newInlineStyle->style())
-                newInlineStyle->style()->removeProperty(CSSPropertyFloat);
+                protect(newInlineStyle->style())->removeProperty(CSSPropertyFloat);
         }
 
         if (!newInlineStyle->isEmpty()) {
             out.append(" style=\""_s);
-            appendAttributeValue(out, newInlineStyle->style()->asText(CSS::defaultSerializationContext()));
+            appendAttributeValue(out, protect(newInlineStyle->style())->asText(CSS::defaultSerializationContext()));
             out.append('"');
         }
     }
@@ -1027,7 +1034,7 @@ bool StyledMarkupAccumulator::appendNodeToPreserveMSOList(Node& node)
     return false;
 }
 
-static Node* ancestorToRetainStructureAndAppearanceForBlock(Node* commonAncestorBlock)
+static Node* NODELETE ancestorToRetainStructureAndAppearanceForBlock(Node* commonAncestorBlock)
 {
     if (!commonAncestorBlock)
         return nullptr;
@@ -1105,7 +1112,7 @@ static RefPtr<Node> highestAncestorToWrapMarkup(const Position& start, const Pos
             specialCommonAncestor = WTF::move(highestMailBlockquote);
     }
 
-    RefPtr checkAncestor = specialCommonAncestor ? specialCommonAncestor : RefPtr { &commonAncestor };
+    RefPtr checkAncestor = specialCommonAncestor ? specialCommonAncestor : protect(commonAncestor);
     if (checkAncestor->renderer() && checkAncestor->renderer()->containingBlock()) {
         RefPtr newSpecialCommonAncestor = highestEnclosingNodeOfType(firstPositionInNode(*checkAncestor), &isElementPresentational, CanCrossEditingBoundary, protect(checkAncestor->renderer()->containingBlock()->element()).get());
         if (newSpecialCommonAncestor)
@@ -1187,21 +1194,22 @@ static String serializePreservingVisualAppearanceInternal(const Position& start,
                 // appears to have no effect.
                 if ((!fullySelectedRootStyle || !fullySelectedRootStyle->style() || !fullySelectedRootStyle->style()->getPropertyCSSValue(CSSPropertyBackgroundImage))
                     && fullySelectedRoot->hasAttributeWithoutSynchronization(backgroundAttr))
-                    fullySelectedRootStyle->style()->setProperty(CSSPropertyBackgroundImage, makeString("url('"_s, fullySelectedRoot->getAttribute(backgroundAttr), "')"_s));
+                    protect(fullySelectedRootStyle->style())->setProperty(CSSPropertyBackgroundImage, makeString("url('"_s, fullySelectedRoot->getAttribute(backgroundAttr), "')"_s));
 
                 if (fullySelectedRootStyle->style()) {
+                    RefPtr style = fullySelectedRootStyle->style();
                     // Reset the CSS properties to avoid an assertion error in addStyleMarkup().
                     // This assertion is caused at least when we select all text of a <body> element whose
                     // 'text-decoration' property is "inherit", and copy it.
-                    if (!propertyMissingOrEqualToNone(fullySelectedRootStyle->style(), CSSPropertyTextDecorationLine)) {
-                        fullySelectedRootStyle->style()->setProperty(CSSPropertyTextDecorationLine, CSSValueNone);
-                        fullySelectedRootStyle->style()->setProperty(CSSPropertyTextDecorationThickness, CSSValueAuto);
-                        fullySelectedRootStyle->style()->setProperty(CSSPropertyTextDecorationStyle, CSSValueSolid);
-                        fullySelectedRootStyle->style()->setProperty(CSSPropertyTextDecorationColor, CSSValueCurrentcolor);
+                    if (!propertyMissingOrEqualToNone(style.get(), CSSPropertyTextDecorationLine)) {
+                        style->setProperty(CSSPropertyTextDecorationLine, CSSValueNone);
+                        style->setProperty(CSSPropertyTextDecorationThickness, CSSValueAuto);
+                        style->setProperty(CSSPropertyTextDecorationStyle, CSSValueSolid);
+                        style->setProperty(CSSPropertyTextDecorationColor, CSSValueCurrentcolor);
                     }
-                    if (!propertyMissingOrEqualToNone(fullySelectedRootStyle->style(), CSSPropertyWebkitTextDecorationsInEffect))
-                        fullySelectedRootStyle->style()->setProperty(CSSPropertyWebkitTextDecorationsInEffect, CSSValueNone);
-                    accumulator.wrapWithStyleNode(fullySelectedRootStyle->style(), true);
+                    if (!propertyMissingOrEqualToNone(style.get(), CSSPropertyWebkitTextDecorationsInEffect))
+                        style->setProperty(CSSPropertyWebkitTextDecorationsInEffect, CSSValueNone);
+                    accumulator.wrapWithStyleNode(style.get(), true);
                 }
             } else {
                 // Since this node and all the other ancestors are not in the selection we want to set RangeFullySelectsNode to DoesNotFullySelectNode
@@ -1220,8 +1228,9 @@ static String serializePreservingVisualAppearanceInternal(const Position& start,
         if (accumulator.needClearingDiv())
             accumulator.append("<div style=\"clear: both;\"></div>"_s);
         RefPtr<EditingStyle> positionRelativeStyle = styleFromMatchedRulesAndInlineDecl(*body);
-        positionRelativeStyle->style()->setProperty(CSSPropertyPosition, CSSValueRelative);
-        accumulator.wrapWithStyleNode(positionRelativeStyle->style(), true);
+        RefPtr positionStyle = positionRelativeStyle->style();
+        positionStyle->setProperty(CSSPropertyPosition, CSSValueRelative);
+        accumulator.wrapWithStyleNode(positionStyle.get(), true);
     }
 
     // FIXME: The interchange newline should be placed in the block that it's in, not after all of the content, unconditionally.
@@ -1430,7 +1439,7 @@ bool isPlainTextMarkup(Node* node)
     if (secondChild->nextSibling())
         return false;
 
-    return parentTabSpanNode(protect(firstChild->firstChild()).get()) && is<Text>(secondChild);
+    return parentTabSpanNode(firstChild->firstChild()) && is<Text>(secondChild);
 }
 
 static bool contextPreservesNewline(const SimpleRange& context)
@@ -1531,7 +1540,7 @@ String urlToMarkup(const URL& url, const String& title)
 enum class DocumentFragmentMode : bool { New, ReuseForInnerOuterHTML };
 static ALWAYS_INLINE ExceptionOr<Ref<DocumentFragment>> createFragmentForMarkup(Element& contextElement, const String& markup, DocumentFragmentMode mode, OptionSet<ParserContentPolicy> parserContentPolicy, CustomElementRegistry* registry = nullptr)
 {
-    Ref document = contextElement.hasTagName(templateTag) ? contextElement.document().ensureTemplateDocument() : contextElement.document();
+    Ref document = contextElement.hasTagName(templateTag) ? protect(contextElement.document())->ensureTemplateDocument() : contextElement.document();
     auto fragment = mode == DocumentFragmentMode::New ? DocumentFragment::create(document.get()) : document->documentFragmentForInnerOuterHTML();
     ASSERT(!fragment->hasChildNodes());
     if (document->isHTMLDocument() || parserContentPolicy.contains(ParserContentPolicy::AlwaysParseAsHTML)) {
@@ -1616,7 +1625,7 @@ static void removeElementFromFragmentPreservingChildren(DocumentFragment& fragme
 
 ExceptionOr<Ref<DocumentFragment>> createContextualFragment(Element& element, const String& markup, OptionSet<ParserContentPolicy> parserContentPolicy)
 {
-    auto result = createFragmentForMarkup(element, markup, DocumentFragmentMode::New, parserContentPolicy, CustomElementRegistry::registryForElement(element));
+    auto result = createFragmentForMarkup(element, markup, DocumentFragmentMode::New, parserContentPolicy, protect(CustomElementRegistry::registryForElement(element)));
     if (result.hasException())
         return result.releaseException();
 
@@ -1665,10 +1674,10 @@ ExceptionOr<void> replaceChildrenWithFragment(ContainerNode& container, Ref<Docu
     SUPPRESS_UNCOUNTED_LOCAL auto* containerChild = dynamicDowncast<Text>(containerNode->firstChild());
     if (containerChild && !containerChild->nextSibling()) {
         if (RefPtr fragmentChild = singleTextChild(fragment); fragmentChild && canUseSetDataOptimization(*containerChild, mutation)) {
-            Ref { *containerChild }->setData(fragmentChild->data());
+            protect(*containerChild)->setData(fragmentChild->data());
             return { };
         }
-        return containerNode->replaceChild(fragment, Ref { *containerChild });
+        return containerNode->replaceChild(fragment, protect(*containerChild));
     }
 
     containerNode->removeChildren();

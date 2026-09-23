@@ -50,6 +50,9 @@ void UPluralRulesDeleter::operator()(UPluralRules* pluralRules)
 
 const ClassInfo IntlPluralRules::s_info = { "Object"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(IntlPluralRules) };
 
+// Approximate size of UPluralRules for GC memory pressure reporting, measured empirically with uplrules_open + select.
+static constexpr size_t estimatedUPluralRulesSize = 1000;
+
 using UEnumerationDeleter = ICUDeleter<uenum_close>;
 
 IntlPluralRules* IntlPluralRules::create(VM& vm, Structure* structure)
@@ -72,10 +75,17 @@ IntlPluralRules::IntlPluralRules(VM& vm, Structure* structure)
 template<typename Visitor>
 void IntlPluralRules::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    IntlPluralRules* thisObject = jsCast<IntlPluralRules*>(cell);
+    IntlPluralRules* thisObject = uncheckedDowncast<IntlPluralRules>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
+
+    if (thisObject->m_numberFormatter)
+        visitor.reportExtraMemoryVisited(estimatedUNumberFormatterSize);
+    if (thisObject->m_numberRangeFormatter)
+        visitor.reportExtraMemoryVisited(estimatedUNumberRangeFormatterSize);
+    if (thisObject->m_pluralRules)
+        visitor.reportExtraMemoryVisited(estimatedUPluralRulesSize);
 }
 
 DEFINE_VISIT_CHILDREN(IntlPluralRules);
@@ -115,6 +125,12 @@ void IntlPluralRules::initializePluralRules(JSGlobalObject* globalObject, JSValu
     m_notation = intlOption<IntlNotation>(globalObject, options, Identifier::fromString(vm, "notation"_s), { { "standard"_s, IntlNotation::Standard }, { "scientific"_s, IntlNotation::Scientific }, { "engineering"_s, IntlNotation::Engineering }, { "compact"_s, IntlNotation::Compact } }, "notation must be either \"standard\", \"scientific\", \"engineering\", or \"compact\""_s, IntlNotation::Standard);
     RETURN_IF_EXCEPTION(scope, void());
 
+    CompactDisplay compactDisplay = intlOption<CompactDisplay>(globalObject, options, Identifier::fromString(vm, "compactDisplay"_s), { { "short"_s, CompactDisplay::Short }, { "long"_s, CompactDisplay::Long } }, "compactDisplay must be either \"short\" or \"long\""_s, CompactDisplay::Short);
+    RETURN_IF_EXCEPTION(scope, void());
+
+    if (m_notation == IntlNotation::Compact)
+        m_compactDisplay = compactDisplay;
+
     setNumberFormatDigitOptions(globalObject, this, options, 0, 3, m_notation);
     RETURN_IF_EXCEPTION(scope, void());
 
@@ -126,7 +142,7 @@ void IntlPluralRules::initializePluralRules(JSGlobalObject* globalObject, JSValu
     appendNumberFormatDigitOptionsToSkeleton(this, skeletonBuilder);
     appendNumberFormatNotationOptionsToSkeleton(this, skeletonBuilder);
 
-    StringView skeletonView { skeletonBuilder.toString() };
+    StringView skeletonView { skeletonBuilder };
     auto upconverted = skeletonView.upconvertedCharacters();
 
     m_numberFormatter = std::unique_ptr<UNumberFormatter, UNumberFormatterDeleter>(unumf_openForSkeletonAndLocale(upconverted.get(), skeletonView.length(), locale.data(), &status));
@@ -135,17 +151,23 @@ void IntlPluralRules::initializePluralRules(JSGlobalObject* globalObject, JSValu
         return;
     }
 
+    vm.heap.reportExtraMemoryAllocated(this, estimatedUNumberFormatterSize);
+
     m_numberRangeFormatter = std::unique_ptr<UNumberRangeFormatter, UNumberRangeFormatterDeleter>(unumrf_openForSkeletonWithCollapseAndIdentityFallback(upconverted.get(), skeletonView.length(), UNUM_RANGE_COLLAPSE_NONE, UNUM_IDENTITY_FALLBACK_RANGE, locale.data(), nullptr, &status));
     if (U_FAILURE(status)) {
         throwTypeError(globalObject, scope, "failed to initialize PluralRules"_s);
         return;
     }
 
+    vm.heap.reportExtraMemoryAllocated(this, estimatedUNumberRangeFormatterSize);
+
     m_pluralRules = std::unique_ptr<UPluralRules, UPluralRulesDeleter>(uplrules_openForType(locale.data(), m_type == Type::Ordinal ? UPLURAL_TYPE_ORDINAL : UPLURAL_TYPE_CARDINAL, &status));
     if (U_FAILURE(status)) {
         throwTypeError(globalObject, scope, "failed to initialize PluralRules"_s);
         return;
     }
+
+    vm.heap.reportExtraMemoryAllocated(this, estimatedUPluralRulesSize);
 }
 
 // https://tc39.es/ecma402/#sec-intl.pluralrules.prototype.resolvedoptions
@@ -160,6 +182,8 @@ JSObject* IntlPluralRules::resolvedOptions(JSGlobalObject* globalObject) const
     options->putDirect(vm, vm.propertyNames->locale, jsNontrivialString(vm, m_locale));
     options->putDirect(vm, vm.propertyNames->type, jsNontrivialString(vm, m_type == Type::Ordinal ? "ordinal"_s : "cardinal"_s));
     options->putDirect(vm, Identifier::fromString(vm, "notation"_s), jsNontrivialString(vm, IntlNumberFormat::notationString(m_notation)));
+    if (m_notation == IntlNotation::Compact)
+        options->putDirect(vm, Identifier::fromString(vm, "compactDisplay"_s), jsNontrivialString(vm, IntlNumberFormat::compactDisplayString(m_compactDisplay)));
     options->putDirect(vm, vm.propertyNames->minimumIntegerDigits, jsNumber(m_minimumIntegerDigits));
     switch (m_roundingType) {
     case IntlRoundingType::FractionDigits:

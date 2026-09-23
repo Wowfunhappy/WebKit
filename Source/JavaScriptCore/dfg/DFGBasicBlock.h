@@ -142,8 +142,8 @@ public:
     }
     bool isPhiIndex(size_t i) const { return i < phis.size(); }
     
-    bool isInPhis(Node* node) const;
-    bool isInBlock(Node* myNode) const;
+    bool NODELETE isInPhis(Node* node) const;
+    bool NODELETE isInBlock(Node* myNode) const;
     
     BlockNodeList::iterator begin() { return m_nodes.begin(); }
     BlockNodeList::iterator end() { return m_nodes.end(); }
@@ -165,9 +165,12 @@ public:
     }
 
     bool isJumpPad() { return m_nodes.size() == 1 && m_nodes[0]->isJump(); }
-    
-    void removePredecessor(BasicBlock* block);
-    void replacePredecessor(BasicBlock* from, BasicBlock* to);
+
+    BlockIndex index() const { return m_index; }
+    void setIndex(BlockIndex index) { m_index = index; }
+
+    void NODELETE removePredecessor(BasicBlock* block);
+    void NODELETE replacePredecessor(BasicBlock* from, BasicBlock* to);
 
     inline Node* cloneAndAppend(Graph&, const Node*);
 
@@ -192,9 +195,9 @@ public:
     // This value is used internally for block linking and OSR entry. It is mostly meaningless
     // for other purposes due to inlining.
     BytecodeIndex bytecodeBegin;
-    
-    BlockIndex index;
-
+private:
+    BlockIndex m_index;
+public:
     StructureClobberState cfaStructureClobberStateAtHead;
     StructureClobberState cfaStructureClobberStateAtTail;
     BranchDirection cfaBranchDirection;

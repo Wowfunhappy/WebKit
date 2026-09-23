@@ -35,6 +35,7 @@
 #include "HTMLObjectElement.h"
 #include "IdTargetObserver.h"
 #include "LocalFrame.h"
+#include "Settings.h"
 #include "TreeScopeInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakRef.h>
@@ -59,10 +60,7 @@ private:
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FormAttributeTargetObserver);
 
-FormListedElement::FormListedElement(HTMLFormElement* form)
-    : FormAssociatedElement(form)
-{
-}
+FormListedElement::FormListedElement() = default;
 
 FormListedElement::~FormListedElement() = default;
 

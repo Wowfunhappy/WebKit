@@ -33,13 +33,16 @@
 #include "ImageBuffer.h"
 #include "ImageUtilities.h"
 #include "InspectorBackendClient.h"
+#include "InspectorDOMAgent.h"
 #include "InstrumentingAgents.h"
 #include "Page.h"
 #include "PageInspectorController.h"
+#include "RenderElementInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderView.h"
 #include "TimelineRecordFactory.h"
 #include "WebDebuggerAgent.h"
+#include <wtf/SetForScope.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "WebCoreThreadInternal.h"
@@ -145,8 +148,10 @@ void PageTimelineAgent::internalStart(std::optional<int>&& maxCallStackDepth)
             checkedThis->pushCurrentRecord(TimelineRecordFactory::createRenderingFrameData(name), TimelineRecordType::RenderingFrame, false);
             break;
         case RunLoop::Event::DidDispatch:
-            if (checkedThis->m_startedComposite)
-                checkedThis->didComposite();
+            if (checkedThis->m_startedComposite) {
+                ASSERT(checkedThis->m_inspectedPage->localMainFrame());
+                checkedThis->didComposite(*checkedThis->m_inspectedPage->localMainFrame());
+            }
             checkedThis->didCompleteCurrentRecord(TimelineRecordType::RenderingFrame);
             break;
         }
@@ -187,9 +192,14 @@ Inspector::Protocol::ErrorStringOr<void> PageTimelineAgent::setAutoCaptureEnable
     return { };
 }
 
-void PageTimelineAgent::didInvalidateLayout()
+void PageTimelineAgent::didInvalidateLayout(const RenderElement& layoutRoot)
 {
-    appendRecord(JSON::Object::create(), TimelineRecordType::InvalidateLayout, true);
+    auto data = JSON::Object::create();
+
+    if (auto nodeId = nodeIdForRenderer(layoutRoot))
+        TimelineRecordFactory::appendNodeId(data.get(), nodeId);
+
+    appendRecord(WTF::move(data), TimelineRecordType::InvalidateLayout, true);
 }
 
 void PageTimelineAgent::willLayout()
@@ -197,23 +207,31 @@ void PageTimelineAgent::willLayout()
     pushCurrentRecord(JSON::Object::create(), TimelineRecordType::Layout, true);
 }
 
-void PageTimelineAgent::didLayout(const Vector<FloatQuad>& layoutAreas)
+void PageTimelineAgent::didLayout(const RenderElement& layoutRoot, const Vector<FloatQuad>& layoutAreas)
 {
     auto* entry = lastRecordEntry();
     if (!entry)
         return;
 
     ASSERT(entry->type == TimelineRecordType::Layout);
-    ASSERT(!layoutAreas.isEmpty());
+
     if (!layoutAreas.isEmpty())
         TimelineRecordFactory::appendLayoutRoot(entry->data.get(), layoutAreas[0]);
+
+    if (auto nodeId = nodeIdForRenderer(layoutRoot))
+        TimelineRecordFactory::appendNodeId(entry->data.get(), nodeId);
 
     didCompleteCurrentRecord(TimelineRecordType::Layout);
 }
 
-void PageTimelineAgent::didScheduleStyleRecalculation()
+void PageTimelineAgent::didScheduleStyleRecalculation(Document& document)
 {
-    appendRecord(JSON::Object::create(), TimelineRecordType::ScheduleStyleRecalculation, true);
+    auto data = JSON::Object::create();
+
+    if (auto nodeId = nodeIdForDocument(document))
+        TimelineRecordFactory::appendNodeId(data.get(), nodeId);
+
+    appendRecord(WTF::move(data), TimelineRecordType::ScheduleStyleRecalculation, true);
 }
 
 void PageTimelineAgent::willRecalculateStyle()
@@ -221,8 +239,17 @@ void PageTimelineAgent::willRecalculateStyle()
     pushCurrentRecord(JSON::Object::create(), TimelineRecordType::RecalculateStyles, true);
 }
 
-void PageTimelineAgent::didRecalculateStyle()
+void PageTimelineAgent::didRecalculateStyle(Document& document)
 {
+    auto* entry = lastRecordEntry();
+    if (!entry)
+        return;
+
+    ASSERT(entry->type == TimelineRecordType::RecalculateStyles);
+
+    if (auto nodeId = nodeIdForDocument(document))
+        TimelineRecordFactory::appendNodeId(entry->data.get(), nodeId);
+
     didCompleteCurrentRecord(TimelineRecordType::RecalculateStyles);
 }
 
@@ -233,10 +260,22 @@ void PageTimelineAgent::willComposite()
     m_startedComposite = true;
 }
 
-void PageTimelineAgent::didComposite()
+void PageTimelineAgent::didComposite(const LocalFrame& frame)
 {
-    if (m_startedComposite)
+    if (m_startedComposite) {
+        auto* entry = lastRecordEntry();
+        if (!entry)
+            return;
+
+        ASSERT(entry->type == TimelineRecordType::Composite);
+
+        ASSERT(frame.document());
+        Ref document = *frame.document();
+        if (auto nodeId = nodeIdForDocument(document.get()))
+            TimelineRecordFactory::appendNodeId(entry->data.get(), nodeId);
+
         didCompleteCurrentRecord(TimelineRecordType::Composite);
+    }
     m_startedComposite = false;
 
     if (instruments().contains(Inspector::Protocol::Timeline::Instrument::Screenshot))
@@ -265,11 +304,17 @@ void PageTimelineAgent::didPaint(RenderObject& renderer, const LayoutRect& clipR
     auto clipQuadInRootView = protect(renderer.view().frameView())->contentsToRootView(renderer.localToAbsoluteQuad({ clipRect }));
     entry->data = TimelineRecordFactory::createPaintData(clipQuadInRootView);
 
+    if (auto nodeId = nodeIdForRenderer(renderer))
+        TimelineRecordFactory::appendNodeId(entry->data.get(), nodeId);
+
     didCompleteCurrentRecord(TimelineRecordType::Paint);
 }
 
 void PageTimelineAgent::mainFrameStartedLoading()
 {
+    if (tracking())
+        return;
+
     if (!m_autoCaptureEnabled)
         return;
 
@@ -297,7 +342,7 @@ void PageTimelineAgent::mainFrameNavigated()
     }
 }
 
-void PageTimelineAgent::didCompleteRenderingFrame()
+void PageTimelineAgent::didCompleteRenderingFrame(const LocalFrame& frame)
 {
 #if PLATFORM(COCOA)
     if (!tracking() || protect(environment())->debugger()->isPaused())
@@ -309,9 +354,11 @@ void PageTimelineAgent::didCompleteRenderingFrame()
         return;
 
     if (m_startedComposite)
-        didComposite();
+        didComposite(frame);
 
     didCompleteCurrentRecord(TimelineRecordType::RenderingFrame);
+#else
+    UNUSED_PARAM(frame);
 #endif
 }
 
@@ -342,6 +389,54 @@ void PageTimelineAgent::captureScreenshot()
         pushCurrentRecord(WTF::move(snapshotRecord), TimelineRecordType::Screenshot, false, snapshotStartTime);
         didCompleteCurrentRecord(TimelineRecordType::Screenshot);
     }
+}
+
+Inspector::Protocol::DOM::NodeId PageTimelineAgent::nodeIdForDocument(Document& document) const
+{
+    CheckedPtr domAgent = Ref { m_instrumentingAgents.get() }->persistentDOMAgent();
+    if (!domAgent)
+        return 0;
+
+    if (document.isTopDocument())
+        return domAgent->boundNodeId(&document);
+
+    return domAgent->pushNodePathToFrontend(&document);
+}
+
+Inspector::Protocol::DOM::NodeId PageTimelineAgent::nodeIdForRenderer(const RenderObject& renderer) const
+{
+    CheckedPtr domAgent = Ref { m_instrumentingAgents.get() }->persistentDOMAgent();
+    if (!domAgent)
+        return 0;
+
+    if (renderer.isRenderView()) {
+        RefPtr document = renderer.document();
+        if (document->isTopDocument())
+            return domAgent->boundNodeId(document);
+        return domAgent->pushNodePathToFrontend(document);
+    }
+
+    if (renderer.isAnonymous()) {
+        for (CheckedPtr ancestor = renderer.parent(); ancestor; ancestor = ancestor->parent()) {
+            if (RefPtr element = ancestor->element())
+                return domAgent->pushNodeToFrontend(element);
+        }
+        ASSERT_NOT_REACHED();
+        return 0;
+    }
+
+    if (CheckedPtr renderElement = dynamicDowncast<RenderElement>(renderer)) {
+        if (renderElement->isPseudoElement()) {
+            RefPtr generatingElement = renderElement->generatingElement();
+            return domAgent->pushNodeToFrontend(generatingElement);
+        }
+
+        RefPtr element = renderElement->element();
+        return domAgent->pushNodeToFrontend(element);
+    }
+
+    RefPtr node = renderer.node();
+    return domAgent->pushNodeToFrontend(node);
 }
 
 } // namespace WebCore

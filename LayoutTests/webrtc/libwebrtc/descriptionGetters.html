@@ -19,6 +19,7 @@ promise_test((test) => {
      var remoteConnection = new RTCPeerConnection();
      var currentSDP;
      return navigator.mediaDevices.getUserMedia({ video: true}).then((stream) => {
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
 
         localConnection.addTrack(stream.getVideoTracks()[0], stream);
         return localConnection.createOffer();

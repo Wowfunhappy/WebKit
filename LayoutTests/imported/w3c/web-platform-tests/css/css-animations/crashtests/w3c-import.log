@@ -23,3 +23,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/crashtests/keyframe-easing-var-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/crashtests/pseudo-element-animation-with-marker.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-animations/crashtests/replace-keyframes-animating-filter-001.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-animations/crashtests/transform-properties-from-none-to-none-crash.html

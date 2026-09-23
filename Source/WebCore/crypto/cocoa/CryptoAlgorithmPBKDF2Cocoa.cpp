@@ -28,6 +28,7 @@
 
 #include "CryptoAlgorithmPbkdf2Params.h"
 #include "CryptoKeyRaw.h"
+#include "ExceptionOr.h"
 #include <CommonCrypto/CommonKeyDerivation.h>
 
 namespace WebCore {

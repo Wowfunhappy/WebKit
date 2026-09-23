@@ -51,6 +51,7 @@ enum class FontTechnology : uint8_t;
 struct CSSParserContext;
 
 namespace CSS {
+struct FontStyleRange;
 struct PropertyParserState;
 }
 
@@ -149,6 +150,7 @@ RefPtr<CSSValue> parseFontFaceDisplay(const String&, ScriptExecutionContext&);
 // https://drafts.csswg.org/css-fonts-4/#descdef-font-face-font-style
 RefPtr<CSSValue> parseFontFaceFontStyle(const String&, ScriptExecutionContext&);
 RefPtr<CSSValue> consumeFontFaceFontStyle(CSSParserTokenRange&, CSS::PropertyParserState&);
+std::optional<CSS::FontStyleRange> consumeUnresolvedFontFaceFontStyle(CSSParserTokenRange&, CSS::PropertyParserState&);
 
 // MARK: @font-face 'font-feature-settings'
 // https://drafts.csswg.org/css-fonts-4/#descdef-font-face-font-feature-settings

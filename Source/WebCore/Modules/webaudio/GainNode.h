@@ -27,7 +27,6 @@
 #include "AudioNode.h"
 #include "AudioParam.h"
 #include "GainOptions.h"
-#include <wtf/Threading.h>
 
 namespace WebCore {
 

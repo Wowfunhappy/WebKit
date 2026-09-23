@@ -59,7 +59,7 @@ public:
     };
 
 private:
-    PaymentMethodChangeEvent(const AtomString& type, Init&&);
+    PaymentMethodChangeEvent(JSC::JSGlobalObject&, const AtomString& type, Init&&);
     PaymentMethodChangeEvent(const AtomString& type, const String& methodName, MethodDetailsFunction&&);
 
     String m_methodName;

@@ -46,6 +46,7 @@
 #include "ImageBuffer.h"
 #include "ImageData.h"
 #include "IntRect.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSImageBitmap.h"
 #include "LayoutSize.h"
@@ -77,6 +78,14 @@ DetachedImageBitmap::DetachedImageBitmap(UniqueRef<SerializedImageBuffer> bitmap
 {
 }
 
+DetachedImageBitmap::DetachedImageBitmap(const DetachedImageBitmap& other)
+    : m_bitmap(makeUniqueRefFromNonNullUniquePtr(other.m_bitmap->clone()))
+    , m_originClean(other.m_originClean)
+    , m_premultiplyAlpha(other.m_premultiplyAlpha)
+    , m_forciblyPremultiplyAlpha(other.m_forciblyPremultiplyAlpha)
+{
+}
+
 DetachedImageBitmap::DetachedImageBitmap(DetachedImageBitmap&&) = default;
 
 DetachedImageBitmap::~DetachedImageBitmap() = default;
@@ -98,8 +107,8 @@ static inline RenderingMode NODELETE bufferRenderingMode(ScriptExecutionContext&
     static RenderingMode defaultRenderingMode = RenderingMode::Unaccelerated;
 #endif
 
-#if PLATFORM(GTK)
-    if (!scriptExecutionContext.settingsValues().acceleratedCompositingEnabled)
+#if PLATFORM(GTK) || ENABLE(WPE_PLATFORM)
+    if (!scriptExecutionContext.settingsValues().hardwareAccelerationEnabled)
         return RenderingMode::Unaccelerated;
 #else
     UNUSED_PARAM(scriptExecutionContext);
@@ -610,7 +619,7 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
     //      playback position, at the media resource's intrinsic width and
     //      intrinsic height (i.e., after any aspect-ratio correction has been
     //      applied), cropped to the source rectangle with formatting.
-    auto size = video->player() ? roundedIntSize(video->player()->naturalSize()) : IntSize();
+    auto size = video->player() ? roundedIntSize(protect(video->player())->naturalSize()) : IntSize();
     auto maybeSourceRectangle = croppedSourceRectangleWithFormatting(size, options, WTF::move(rect));
     if (maybeSourceRectangle.hasException()) {
         completionHandler(maybeSourceRectangle.releaseException());
@@ -624,7 +633,7 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
     if (!colorSpace)
         colorSpace = DestinationColorSpace::SRGB();
 
-    const bool originClean = !taintsOrigin(scriptExecutionContext.securityOrigin(), video);
+    const bool originClean = !taintsOrigin(protect(scriptExecutionContext.securityOrigin()), video);
 
     // FIXME: Add support for pixel formats to ImageBitmap.
     auto bitmapData = video->createBufferForPainting(outputSize, bufferRenderingMode(scriptExecutionContext), *colorSpace, { PixelFormat::BGRA8 });
@@ -677,21 +686,21 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
 
     // 4. Let the ImageBitmap object's bitmap data be a copy of the image argument's
     //    bitmap data, cropped to the source rectangle with formatting.
-    auto sourceRectangle = croppedSourceRectangleWithFormatting(existingImageBitmap->buffer()->truncatedLogicalSize(), options, WTF::move(rect));
+    auto sourceRectangle = croppedSourceRectangleWithFormatting(protect(existingImageBitmap->buffer())->truncatedLogicalSize(), options, WTF::move(rect));
     if (sourceRectangle.hasException()) {
         completionHandler(Exception { sourceRectangle.releaseException() });
         return;
     }
 
     auto outputSize = outputSizeForSourceRectangle(sourceRectangle.returnValue(), options);
-    auto bitmapData = createImageBuffer(scriptExecutionContext, outputSize, bufferRenderingMode(scriptExecutionContext), existingImageBitmap->buffer()->colorSpace());
+    auto bitmapData = createImageBuffer(scriptExecutionContext, outputSize, bufferRenderingMode(scriptExecutionContext), protect(existingImageBitmap->buffer())->colorSpace());
 
     if (!bitmapData) {
         completionHandler(createBlankImageBuffer(scriptExecutionContext, existingImageBitmap->originClean()));
         return;
     }
 
-    RefPtr imageForRender = BitmapImage::create(existingImageBitmap->buffer()->copyNativeImage());
+    RefPtr imageForRender = BitmapImage::create(protect(existingImageBitmap->buffer())->copyNativeImage());
     if (!imageForRender) {
         completionHandler(createBlankImageBuffer(scriptExecutionContext, existingImageBitmap->originClean()));
         return;
@@ -826,7 +835,7 @@ private:
             return;
         }
 
-        ImageBitmap::createFromBuffer(*scriptExecutionContext(), m_arrayBufferToProcess.releaseNonNull(), m_blob->type(), m_blob->size(), m_blobLoader->url(), WTF::move(m_options), WTF::move(m_rect), WTF::move(m_completionHandler));
+        ImageBitmap::createFromBuffer(protect(*scriptExecutionContext()), m_arrayBufferToProcess.releaseNonNull(), m_blob->type(), m_blob->size(), m_blobLoader->url(), WTF::move(m_options), WTF::move(m_rect), WTF::move(m_completionHandler));
     }
 
     const Ref<FileReaderLoader> m_blobLoader;
@@ -966,12 +975,12 @@ RefPtr<ImageBuffer> ImageBitmap::takeImageBuffer()
 
 unsigned ImageBitmap::width() const
 {
-    return m_bitmap ? m_bitmap->truncatedLogicalSize().width() : 0;
+    return m_bitmap ? protect(m_bitmap)->truncatedLogicalSize().width() : 0;
 }
 
 unsigned ImageBitmap::height() const
 {
-    return m_bitmap ? m_bitmap->truncatedLogicalSize().height() : 0;
+    return m_bitmap ? protect(m_bitmap)->truncatedLogicalSize().height() : 0;
 }
 
 size_t ImageBitmap::memoryCost() const

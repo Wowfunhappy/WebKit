@@ -58,11 +58,11 @@ RefPtr<FrameHandle> FrameInfo::parentFrameHandle() const
 
 WTF::String FrameInfo::title() const
 {
-    RefPtr page = this->page();
+    auto* page = this->page();
     if (!page)
         return { };
 
-    if (RefPtr frame = WebKit::WebFrameProxy::webFrame(m_data.frameID); frame && frame->page() == page)
+    if (auto* frame = WebKit::WebFrameProxy::webFrame(m_data.frameID); frame && frame->page() == page)
         return frame->title();
 
     return { };

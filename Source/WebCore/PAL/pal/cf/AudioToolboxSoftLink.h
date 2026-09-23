@@ -77,6 +77,8 @@ typedef struct AudioComponentDescription AudioComponentDescription;
 typedef UInt32 AudioUnitPropertyID;
 typedef UInt32 AudioUnitScope;
 typedef UInt32 AudioUnitElement;
+typedef UInt32 AudioUnitParameterID;
+typedef Float32 AudioUnitParameterValue;
 
 enum SpatialContentTypeID : UInt32;
 struct SpatialAudioPreferences;
@@ -152,6 +154,8 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitInitialize, OSStatus, 
 #define AudioUnitInitialize softLink_AudioToolbox_AudioUnitInitialize
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitSetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize), (inUnit, inID, inScope, inElement, inData, inDataSize))
 #define AudioUnitSetProperty softLink_AudioToolbox_AudioUnitSetProperty
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitSetParameter, OSStatus, (AudioUnit inUnit, AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames), (inUnit, inID, inScope, inElement, inValue, inBufferOffsetInFrames))
+#define AudioUnitSetParameter softLink_AudioToolbox_AudioUnitSetParameter
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitRender, OSStatus, (AudioUnit inUnit, AudioUnitRenderActionFlags* ioActionFlags, const AudioTimeStamp* inTimeStamp, UInt32 inOutputBusNumber, UInt32 inNumberFrames, AudioBufferList* ioData), (inUnit, ioActionFlags, inTimeStamp, inOutputBusNumber, inNumberFrames, ioData))
 #define AudioUnitRender softLink_AudioToolbox_AudioUnitRender
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitUninitialize, OSStatus, (AudioUnit inUnit), (inUnit))

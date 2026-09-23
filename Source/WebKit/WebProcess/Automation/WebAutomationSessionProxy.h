@@ -38,6 +38,7 @@
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(WEBDRIVER_BIDI)
+#include "IdentifierTypes.h"
 #include <JavaScriptCore/ConsoleMessage.h>
 #include <WebCore/AutomationInstrumentation.h>
 #endif
@@ -111,6 +112,9 @@ private:
 
 #if ENABLE(WEBDRIVER_BIDI)
     void addMessageToConsole(const JSC::MessageSource&, const JSC::MessageLevel&, const String&, const JSC::MessageType&, const WallTime&) override;
+    void scriptRealmCreated(WebCore::FrameIdentifier, const WebCore::SecurityOriginData&) override;
+    void scriptRealmDestroyed(WebCore::FrameIdentifier) override;
+    void ensureRealmForInitialEmptyDocument(WebCore::PageIdentifier);
 #endif
 
     String m_sessionIdentifier;
@@ -118,6 +122,9 @@ private:
 
     HashMap<WebCore::FrameIdentifier, HashMap<JSCallbackIdentifier, CompletionHandler<void(String&&, String&&)>>> m_webFramePendingEvaluateJavaScriptCallbacksMap;
     HashMap<WebCore::FrameIdentifier, Ref<WebAutomationDOMWindowObserver>> m_frameObservers;
+#if ENABLE(WEBDRIVER_BIDI)
+    HashMap<WebCore::FrameIdentifier, RealmIdentifier> m_frameToRealmIdentifier;
+#endif
 };
 
 } // namespace WebKit

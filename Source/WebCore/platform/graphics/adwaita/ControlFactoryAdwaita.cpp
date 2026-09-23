@@ -141,13 +141,7 @@ std::unique_ptr<PlatformControl> ControlFactoryAdwaita::createPlatformSliderTrac
     return makeUnique<SliderTrackAdwaita>(part, *this);
 }
 
-std::unique_ptr<PlatformControl> ControlFactoryAdwaita::createPlatformSwitchThumb(SwitchThumbPart&)
-{
-    notImplemented();
-    return nullptr;
-}
-
-std::unique_ptr<PlatformControl> ControlFactoryAdwaita::createPlatformSwitchTrack(SwitchTrackPart&)
+std::unique_ptr<PlatformControl> ControlFactoryAdwaita::createPlatformSwitch(SwitchPart&)
 {
     notImplemented();
     return nullptr;

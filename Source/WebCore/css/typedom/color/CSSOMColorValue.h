@@ -25,26 +25,26 @@
 
 #pragma once
 
-#include "CSSKeywordValue.h"
 #include "CSSNumericValue.h"
+#include "CSSOMKeywordValue.h"
 #include "CSSStyleValue.h"
 
 namespace WebCore {
 
-class CSSKeywordValue;
+class CSSOMKeywordValue;
 
-using CSSKeywordish = Variant<String, Ref<CSSKeywordValue>>;
-using CSSColorPercent = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSKeywordValue>>;
-using RectifiedCSSColorPercent = Variant<Ref<CSSNumericValue>, Ref<CSSKeywordValue>>;
-using CSSColorNumber = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSKeywordValue>>;
-using RectifiedCSSColorNumber = Variant<Ref<CSSNumericValue>, Ref<CSSKeywordValue>>;
-using CSSColorAngle = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSKeywordValue>>;
-using RectifiedCSSColorAngle = Variant<Ref<CSSNumericValue>, Ref<CSSKeywordValue>>;
+using CSSOMKeywordish = Variant<String, Ref<CSSOMKeywordValue>>;
+using CSSColorPercent = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSOMKeywordValue>>;
+using RectifiedCSSColorPercent = Variant<Ref<CSSNumericValue>, Ref<CSSOMKeywordValue>>;
+using CSSColorNumber = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSOMKeywordValue>>;
+using RectifiedCSSColorNumber = Variant<Ref<CSSNumericValue>, Ref<CSSOMKeywordValue>>;
+using CSSColorAngle = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSOMKeywordValue>>;
+using RectifiedCSSColorAngle = Variant<Ref<CSSNumericValue>, Ref<CSSOMKeywordValue>>;
 
 class CSSOMColorValue : public CSSStyleValue {
 public:
-    RefPtr<CSSKeywordValue> NODELETE colorSpace();
-    RefPtr<CSSOMColorValue> NODELETE to(CSSKeywordish);
+    RefPtr<CSSOMKeywordValue> NODELETE colorSpace();
+    RefPtr<CSSOMColorValue> to(CSSOMKeywordish);
     static std::optional<Variant<Ref<CSSOMColorValue>, Ref<CSSStyleValue>>> NODELETE parse(const String&);
 
     static ExceptionOr<RectifiedCSSColorPercent> rectifyCSSColorPercent(CSSColorPercent&&);

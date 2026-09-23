@@ -24,13 +24,13 @@
 PRODUCT_NAME = yasm;
 
 // Needs to be ad-hoc signed by the linker due to rdar://107696259.
-CODE_SIGN_IDENTITY = ;
+CODE_SIGNING_ALLOWED = NO;
 
 // Support building WebKit for an OS that is newer than the machine doing the
 // building. This is the oldest version of macOS the project should be buildable on.
 MACOSX_DEPLOYMENT_TARGET = 13.0;
 
-HEADER_SEARCH_PATHS = Source/third_party/yasm;
+HEADER_SEARCH_PATHS = $(SRCROOT)/Source/third_party/yasm;
 
 SKIP_INSTALL = YES;
 PUBLIC_HEADERS_FOLDER_PATH = $(WK_LIBRARY_HEADERS_FOLDER_PATH)/libwebrtc;

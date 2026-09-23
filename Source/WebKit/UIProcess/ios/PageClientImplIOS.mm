@@ -33,11 +33,13 @@
 #import "APIPageConfiguration.h"
 #import "APIUIClient.h"
 #import "ApplicationStateTracker.h"
+#import "DefaultWebBrowserChecks.h"
 #import "DrawingAreaProxy.h"
 #import "EndowmentStateTracker.h"
 #import "FrameInfoData.h"
 #import "InteractionInformationAtPosition.h"
 #import "KeyEventInterpretationContext.h"
+#import "LayerHostingVisibilityPropagator.h"
 #import "Logging.h"
 #import "NativeWebKeyboardEvent.h"
 #import "NavigationState.h"
@@ -72,6 +74,7 @@
 #import "WebPreferences.h"
 #import "WebProcessProxy.h"
 #import "_WKDownloadInternal.h"
+#import <ImageIO/ImageIO.h>
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/Color.h>
 #import <WebCore/Cursor.h>
@@ -88,6 +91,7 @@
 #import <WebCore/ShareData.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/TextIndicator.h>
+#import <WebCore/UTIRegistry.h>
 #import <WebCore/ValidationBubble.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/cocoa/Entitlements.h>
@@ -117,9 +121,7 @@ PageClientImpl::PageClientImpl(WKContentView *contentView, WKWebView *webView)
 {
 }
 
-PageClientImpl::~PageClientImpl()
-{
-}
+PageClientImpl::~PageClientImpl() = default;
 
 Ref<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& webProcessProxy)
 {
@@ -299,8 +301,7 @@ void PageClientImpl::didReceiveInteractiveModelElement(std::optional<WebCore::No
 }
 #endif // ENABLE(MODEL_PROCESS)
 
-#if USE(EXTENSIONKIT)
-UIView *PageClientImpl::createVisibilityPropagationView()
+RetainPtr<UIView> PageClientImpl::createVisibilityPropagationView()
 {
     return [contentView() _createVisibilityPropagationView];
 }
@@ -308,6 +309,12 @@ UIView *PageClientImpl::createVisibilityPropagationView()
 void PageClientImpl::removeVisibilityPropagationView(UIView *view)
 {
     [contentView() _removeVisibilityPropagationView:view];
+}
+
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+RefPtr<LayerHostingVisibilityPropagator> PageClientImpl::createLayerHostingVisibilityPropagator()
+{
+    return [contentView() _createLayerHostingVisibilityPropagator];
 }
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -376,7 +383,7 @@ void PageClientImpl::didFailProvisionalLoadForMainFrame()
 
 void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
 {
-    auto webView = this->webView();
+    RetainPtr webView = this->webView();
     [webView _hidePasswordView];
     [webView _setHasCustomContentView:useCustomContentProvider loadedMIMEType:mimeType];
     [contentView() _didCommitLoadForMainFrame];
@@ -385,8 +392,12 @@ void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useC
     [webView _clearTextExtractionFilterCache];
 #endif
 
+#if ENABLE(WRITING_TOOLS)
+    [webView _clearWritingToolsPreservedNodes];
+#endif
+
 #if ENABLE(SYSTEM_TEXT_EXTRACTION)
-    if (protect(*[webView _page])->preferences().systemTextExtractionEnabled())
+    if (RefPtr page = [webView _page].get(); page && page->preferences().systemTextExtractionEnabled())
         [webView _addTextExtractionAnnotation];
 #endif
 }
@@ -465,9 +476,16 @@ void PageClientImpl::positionInformationDidChange(const InteractionInformationAt
     [contentView() _positionInformationDidChange:info];
 }
 
-void PageClientImpl::saveImageToLibrary(Ref<SharedBuffer>&& imageBuffer)
+void PageClientImpl::saveImageToLibrary(const Ref<SharedBuffer>& imageBuffer)
 {
-    RetainPtr<NSData> imageData = imageBuffer->createNSData();
+    RetainPtr<NSData> imageData = toNSData(imageBuffer->span());
+    RetainPtr source = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)imageData.get(), nullptr));
+    if (!source)
+        return;
+    RetainPtr type = CGImageSourceGetType(source.get());
+    if (!type || !WebCore::isSupportedImageType(type.get()))
+        return;
+
     UIImageDataWriteToSavedPhotosAlbum(imageData.get(), nil, NULL, NULL);
 }
 
@@ -588,6 +606,14 @@ IntRect PageClientImpl::rootViewToAccessibilityScreen(const IntRect& rect)
     auto contentView = this->contentView();
     if ([contentView respondsToSelector:@selector(accessibilityConvertRectToSceneReferenceCoordinates:)])
         rootViewRect = [contentView accessibilityConvertRectToSceneReferenceCoordinates:rootViewRect];
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    else if (isRunningTest(applicationBundleIdentifier())) [[unlikely]] {
+        // accessibilityConvertRectToSceneReferenceCoordinates is a no-op when running tests,
+        // so fall back to standard UIKit coordinate conversion.
+        if (UIWindow *window = [contentView window])
+            rootViewRect = [contentView convertRect:rootViewRect toCoordinateSpace:window.screen.coordinateSpace];
+    }
+#endif
     return enclosingIntRect(rootViewRect);
 }
     
@@ -841,14 +867,14 @@ void PageClientImpl::showContactPicker(WebCore::ContactsRequestData&& requestDat
 }
 
 #if ENABLE(WEB_AUTHN)
-void PageClientImpl::showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
+void PageClientImpl::showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
 {
-    [contentView() _showDigitalCredentialsPicker:requestData completionHandler:WTF::move(completionHandler)];
+    [contentView() _showDigitalCredentialsChooser:requestData completionHandler:WTF::move(completionHandler)];
 }
 
-void PageClientImpl::dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& completionHandler)
+void PageClientImpl::dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& completionHandler)
 {
-    [contentView() _dismissDigitalCredentialsPicker:WTF::move(completionHandler)];
+    [contentView() _dismissDigitalCredentialsChooser:WTF::move(completionHandler)];
 }
 #endif
 
@@ -1129,6 +1155,11 @@ Ref<ValidationBubble> PageClientImpl::createValidationBubble(String&& message, c
     return ValidationBubble::create(protect(m_contentView.getAutoreleased()), WTF::move(message), settings);
 }
 
+bool PageClientImpl::shouldSuppressFormValidationBubble() const
+{
+    return [webView() _shouldSuppressFormValidationBubble];
+}
+
 RefPtr<WebDataListSuggestionsDropdown> PageClientImpl::createDataListSuggestionsDropdown(WebPageProxy& page)
 {
     return WebDataListSuggestionsDropdownIOS::create(page, protect(m_contentView.getAutoreleased()));
@@ -1191,9 +1222,9 @@ void PageClientImpl::requestPasswordForQuickLookDocument(const String& fileName,
 }
 #endif
 
-void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, WebCore::FrameIdentifier frameID, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
-    [contentView() _requestDOMPasteAccessForCategory:pasteAccessCategory requiresInteraction:requiresInteraction elementRect:elementRect originIdentifier:originIdentifier completionHandler:WTF::move(completionHandler)];
+    [contentView() _requestDOMPasteAccessForCategory:pasteAccessCategory requiresInteraction:requiresInteraction frameID:frameID elementRect:elementRect originIdentifier:originIdentifier completionHandler:WTF::move(completionHandler)];
 }
 
 void PageClientImpl::cancelPointersForGestureRecognizer(UIGestureRecognizer* gestureRecognizer)

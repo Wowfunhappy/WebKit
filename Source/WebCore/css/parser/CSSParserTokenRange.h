@@ -90,6 +90,9 @@ public:
 
     void NODELETE consumeComponentValue();
 
+    // https://drafts.csswg.org/css-syntax-3/#typedef-any-value
+    bool NODELETE consumeAnyValue();
+
     void consumeWhitespace()
     {
         size_t i = 0;

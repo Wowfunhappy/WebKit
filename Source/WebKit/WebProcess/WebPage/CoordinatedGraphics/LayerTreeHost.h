@@ -114,6 +114,7 @@ private:
     void resume() override;
     void sizeDidChange() override;
     void backgroundColorDidChange() override;
+    void releaseMemory(WTF::Critical) override;
     bool ensureDrawing() override;
     void fillGLInformation(RenderProcessInfo&&, CompletionHandler<void(RenderProcessInfo&&)>&&) override;
     WebCore::GraphicsLayerFactory* graphicsLayerFactory() override;

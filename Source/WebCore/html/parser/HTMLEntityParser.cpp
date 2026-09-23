@@ -70,7 +70,7 @@ constexpr DecodedHTMLEntity::DecodedHTMLEntity(ConstructNotEnoughCharactersType)
 
 static constexpr DecodedHTMLEntity NODELETE makeEntity(char32_t character)
 {
-    if (character <= 0 || character > UCHAR_MAX_VALUE || U_IS_SURROGATE(character))
+    if (!character || character > UCHAR_MAX_VALUE || U_IS_SURROGATE(character))
         return { replacementCharacter };
     if ((character & ~0x1F) != 0x80) {
         if (U_IS_BMP(character)) {
@@ -281,14 +281,14 @@ DecodedHTMLEntity consumeHTMLEntity(SegmentedString& source, char16_t additional
     return consumeHTMLEntity(SegmentedStringSource { source }, additionalAllowedCharacter);
 }
 
-DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<Latin1Character>& source)
+DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<Latin1Character>& source, char16_t additionalAllowedCharacter)
 {
-    return consumeHTMLEntity(StringParsingBufferSource<Latin1Character> { source }, 0);
+    return consumeHTMLEntity(StringParsingBufferSource<Latin1Character> { source }, additionalAllowedCharacter);
 }
 
-DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<char16_t>& source)
+DecodedHTMLEntity consumeHTMLEntity(StringParsingBuffer<char16_t>& source, char16_t additionalAllowedCharacter)
 {
-    return consumeHTMLEntity(StringParsingBufferSource<char16_t> { source }, 0);
+    return consumeHTMLEntity(StringParsingBufferSource<char16_t> { source }, additionalAllowedCharacter);
 }
 
 DecodedHTMLEntity decodeNamedHTMLEntityForXMLParser(const char* name)

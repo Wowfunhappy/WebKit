@@ -70,6 +70,17 @@ static inline const char* testAtomStringNumber(double number)
     return testBuffer;
 }
 
+TEST(WTF, AtomStringCreationFromNullASCIILiteral)
+{
+    AtomString stringFromNull { ASCIILiteral() };
+    ASSERT_TRUE(stringFromNull.isNull());
+    ASSERT_TRUE(stringFromNull.isEmpty());
+
+    AtomString stringFromEmpty(""_s);
+    ASSERT_FALSE(stringFromEmpty.isNull());
+    ASSERT_TRUE(stringFromEmpty.isEmpty());
+}
+
 TEST(WTF, AtomStringNumberDouble)
 {
     using Limits = std::numeric_limits<double>;

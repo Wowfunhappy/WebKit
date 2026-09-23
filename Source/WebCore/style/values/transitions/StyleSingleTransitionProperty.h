@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 #pragma once
 
 #include <WebCore/CSSPropertyParser.h>
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleValueTypes.h>
 #include <WebCore/WebAnimationTypes.h>
 #include <WebCore/WebAnimationUtilities.h>
@@ -36,18 +37,18 @@ namespace Style {
 // https://www.w3.org/TR/css-transitions-1/#single-transition-property
 struct SingleTransitionProperty {
     struct UnknownProperty {
-        CustomIdentifier value;
+        CustomIdent value;
 
         bool operator==(const UnknownProperty&) const = default;
     };
-    struct SingleProperty {
-        AnimatableCSSProperty value;
+    struct CustomProperty {
+        CustomIdent value;
 
-        template<typename... F> decltype(auto) switchOn(F&&... f) const
-        {
-            auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
-            return visitor(CustomIdentifier { animatablePropertyAsString(value) });
-        }
+        bool operator==(const CustomProperty&) const = default;
+    };
+    struct SingleProperty {
+        CustomIdent value;
+        CSSPropertyID propertyID;
 
         bool operator==(const SingleProperty&) const = default;
     };
@@ -62,19 +63,15 @@ struct SingleTransitionProperty {
     {
     }
 
-    SingleTransitionProperty(CustomIdentifier&& identifier)
-        : m_value { fromCustomIdentifier(WTF::move(identifier)) }
-    {
-    }
-
-    SingleTransitionProperty(CSSPropertyID propertyID)
-        : m_value { SingleProperty { .value = propertyID } }
+    SingleTransitionProperty(CustomIdent&& customIdent)
+        : m_value { fromCustomIdent(WTF::move(customIdent)) }
     {
     }
 
     bool isAll() const { return WTF::holdsAlternative<CSS::Keyword::All>(m_value); }
     bool isNone() const { return WTF::holdsAlternative<CSS::Keyword::None>(m_value); }
     bool isUnknownProperty() const { return WTF::holdsAlternative<UnknownProperty>(m_value); }
+    bool isCustomProperty() const { return WTF::holdsAlternative<CustomProperty>(m_value); }
     bool isSingleProperty() const { return WTF::holdsAlternative<SingleProperty>(m_value); }
 
     template<typename... F> decltype(auto) switchOn(F&&... f) const
@@ -85,19 +82,23 @@ struct SingleTransitionProperty {
     bool operator==(const SingleTransitionProperty&) const = default;
 
 private:
-    using Kind = Variant<CSS::Keyword::All, CSS::Keyword::None, UnknownProperty, SingleProperty>;
+    using Kind = Variant<CSS::Keyword::All, CSS::Keyword::None, UnknownProperty, CustomProperty, SingleProperty>;
 
-    static Kind fromCustomIdentifier(CustomIdentifier&& identifier)
+    static Kind fromCustomIdent(CustomIdent&& customIdent)
     {
-        if (isCustomPropertyName(identifier.value))
-            return Kind { SingleProperty { .value = WTF::move(identifier.value) } };
-        return Kind { UnknownProperty { .value = WTF::move(identifier) } };
+        if (isCustomPropertyName(customIdent.value))
+            return Kind { CustomProperty { .value = WTF::move(customIdent) } };
+        if (auto propertyID = cssPropertyID(customIdent.value))
+            return Kind { SingleProperty { .value = WTF::move(customIdent), .propertyID = propertyID } };
+        return Kind { UnknownProperty { .value = WTF::move(customIdent) } };
     }
 
     Kind m_value;
 };
 
 DEFINE_TYPE_WRAPPER_GET(SingleTransitionProperty::UnknownProperty, value);
+DEFINE_TYPE_WRAPPER_GET(SingleTransitionProperty::CustomProperty, value);
+DEFINE_TYPE_WRAPPER_GET(SingleTransitionProperty::SingleProperty, value);
 
 // MARK: - Conversion
 
@@ -107,5 +108,6 @@ template<> struct CSSValueConversion<SingleTransitionProperty> { auto operator()
 } // namespace WebCore
 
 DEFINE_TUPLE_LIKE_CONFORMANCE_FOR_TYPE_WRAPPER(WebCore::Style::SingleTransitionProperty::UnknownProperty)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::SingleTransitionProperty::SingleProperty)
+DEFINE_TUPLE_LIKE_CONFORMANCE_FOR_TYPE_WRAPPER(WebCore::Style::SingleTransitionProperty::CustomProperty)
+DEFINE_TUPLE_LIKE_CONFORMANCE_FOR_TYPE_WRAPPER(WebCore::Style::SingleTransitionProperty::SingleProperty)
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::SingleTransitionProperty)

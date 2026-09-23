@@ -77,11 +77,13 @@ public:
     };
 
     ResumeMode stopCode(Locker<Lock>&, StopTheWorldEvent) WTF_REQUIRES_LOCK(m_lock);
-    bool hitBreakpoint(CallFrame*, JSWebAssemblyInstance*, IPIntCallee*, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal* = nullptr, IPInt::IPIntStackEntry* = nullptr);
+
+    DebuggerTrapStatus handleDebuggerTrapIfNeeded(CallFrame*, JSWebAssemblyInstance*, IPIntCallee*, uint8_t* pc, uint8_t* mc, IPInt::IPIntStackEntry*, Wasm::ExceptionType);
 
     JS_EXPORT_PRIVATE void resume();
     JS_EXPORT_PRIVATE void step();
     JS_EXPORT_PRIVATE void interrupt();
+    void notifyDebuggerOfNewModule(VM&);
     void handleThreadStopInfo(StringView packet);
     String callStackStringFor(uint64_t threadId);
     JS_EXPORT_PRIVATE void reset();
@@ -97,7 +99,6 @@ public:
 
     bool hasBreakpoints() const;
 
-    JS_EXPORT_PRIVATE static uint64_t threadId(const VM&);
     uint64_t debugServerThreadId() const
     {
         RELEASE_ASSERT(m_debugServerThreadId.has_value());
@@ -106,7 +107,7 @@ public:
     void setDebugServerThreadId(uint64_t threadId) { m_debugServerThreadId = threadId; }
 
     JS_EXPORT_PRIVATE DebugState* debuggeeState() const WTF_REQUIRES_LOCK(m_lock);
-    JS_EXPORT_PRIVATE DebugState* debuggeeStateSafe() const; // FIXME: Should be used for test only
+    JS_EXPORT_PRIVATE DebugState* debuggeeStateForTest() const; // FIXME: Should be used for test only
 
     VM* debuggeeVM() const // Used for test only
     {
@@ -136,7 +137,7 @@ private:
 
     void resumeImpl(Locker<Lock>&) WTF_REQUIRES_LOCK(m_lock);
 
-    bool stepAtBreakpoint(Locker<Lock>&, DebugState*) WTF_REQUIRES_LOCK(m_lock);
+    bool stepAtBytecode(Locker<Lock>&, DebugState*) WTF_REQUIRES_LOCK(m_lock);
 
     void sendStopReply(AbstractLocker&);
     void sendStopReplyForThread(AbstractLocker&, uint64_t threadId);

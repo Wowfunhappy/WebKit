@@ -274,11 +274,11 @@ static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const Inline
     // They never refer to children.
     // FIXME: Paint the carets inside empty blocks differently than the carets before/after elements.
 
-    LayoutRect rect(renderer.location(), LayoutSize(caretWidth(), renderer.height()));
+    LayoutRect rect(renderer.location(), LayoutSize(caretWidth(), renderer.borderBoxHeight()));
     auto writingMode = boxAndOffset.box ? boxAndOffset.box->writingMode() : renderer.writingMode();
 
     if ((!boxAndOffset.offset) == writingMode.isInlineFlipped())
-        rect.move(LayoutSize(renderer.width() - caretWidth(), 0_lu));
+        rect.move(LayoutSize(renderer.borderBoxWidth() - caretWidth(), 0_lu));
 
     if (boxAndOffset.box) {
         auto lineBox = boxAndOffset.box->lineBox();
@@ -305,13 +305,13 @@ static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const Inline
     // FIXME: Border/padding should be added for all elements but this workaround
     // is needed because we use offsets inside an "atomic" element to represent
     // positions before and after the element in deprecated editing offsets.
-    if (renderer.element() && !(editingIgnoresContent(*renderer.element()) || isRenderedTable(renderer.element()))) {
+    if (renderer.element() && !(editingIgnoresContent(protect(*renderer.element())) || isRenderedTable(renderer.element()))) {
         rect.setX(rect.x() + renderer.borderLeft() + renderer.paddingLeft());
         rect.setY(rect.y() + renderer.paddingTop() + renderer.borderTop());
     }
 
     if (caretRectMode == CaretRectMode::ExpandToEndOfLine)
-        rect.shiftMaxXEdgeTo(renderer.x() + renderer.width());
+        rect.shiftMaxXEdgeTo(renderer.x() + renderer.borderBoxWidth());
 
     return writingMode.isHorizontal() ? rect : rect.transposedRect();
 }

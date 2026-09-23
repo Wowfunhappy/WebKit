@@ -52,6 +52,8 @@ public:
 
     using JSSetupFunction = Function<bool(JSDOMGlobalObject&, JSC::JSGlobalObject&, ScriptController&, DOMWrapperWorld&)>;
     bool setupAndCallMediaControlsJS(NOESCAPE const JSSetupFunction&);
+    bool setupAndCallYouTubeQuirkJS(NOESCAPE const JSSetupFunction&);
+    bool setupAndCallCNNQuirkJS(NOESCAPE const JSSetupFunction&);
 
 private:
     bool isDocumentMediaElement() const final { return true; }
@@ -61,11 +63,16 @@ private:
 
     DOMWrapperWorld& ensureIsolatedWorld();
     bool ensureMediaControlsScript();
-    bool setupAndCallJS(NOESCAPE const JSSetupFunction&);
+    bool setupAndCallJS(NOESCAPE const JSSetupFunction&, DOMWrapperWorld&);
+
+    bool ensureYouTubeQuirkScript();
+    bool ensureCNNQuirkScript();
 
     CheckedRef<Document> m_document;
     RefPtr<DOMWrapperWorld> m_isolatedWorld;
     bool m_haveParsedMediaControlsScript { false };
+    bool m_haveParsedYouTubeQuirkScript { false };
+    bool m_haveParsedCNNQuirkScript { false };
 };
 
 }

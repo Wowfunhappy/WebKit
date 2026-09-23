@@ -31,6 +31,7 @@
 #include <WebCore/GUniquePtrRice.h>
 #include <WebCore/RTCIceComponent.h>
 #include <WebCore/RTCIceProtocol.h>
+#include <WebCore/RiceGatherResult.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SharedMemory.h>
 #include <wtf/Expected.h>
@@ -78,17 +79,22 @@ public:
     using ResolveCallback = CompletionHandler<void(Expected<String, WebCore::ExceptionData>&&)>;
     void resolveAddress(const String&, ResolveCallback&&);
 
-    void sendData(unsigned, WebCore::RTCIceProtocol, String, String, WebCore::SharedMemory::Handle&&);
+    void resolveAddressSync(const String&, ResolveCallback&&);
+
+    void sendData(unsigned, WebCore::RTCIceProtocol, const String&, const String&, WebCore::SharedMemory::Handle&&);
     void finalizeStream(unsigned);
     void setSocketTypeOfService(unsigned, unsigned);
 
-    using GatherSocketAddressesCallback = CompletionHandler<void(HashMap<std::pair<String, WebCore::RTCIceProtocol>, String>&&)>;
-    void gatherSocketAddresses(WebCore::ScriptExecutionContextIdentifier, unsigned, GatherSocketAddressesCallback&&);
+    using GatherSocketAddressesCallback = CompletionHandler<void(WebCore::RiceGatherResult&&)>;
+    void gatherSocketAddresses(WebCore::ScriptExecutionContextIdentifier, unsigned, unsigned, unsigned, GatherSocketAddressesCallback&&);
 
     GRefPtr<RiceSockets> getSocketsForStream(unsigned);
     GRefPtr<GSource> getRecvSourceForStream(unsigned);
 
     void notifyIncomingData(unsigned streamId, WebCore::RTCIceProtocol, String&&, String&&, WebCore::SharedMemory::Handle&&);
+
+    void allocateSocket(unsigned, unsigned, WebCore::RTCIceProtocol, const String&, const String&);
+    void removeSocket(unsigned, unsigned, WebCore::RTCIceProtocol, const String&, const String&);
 
 private:
 
@@ -102,17 +108,20 @@ private:
 
     RefPtr<RunLoop> m_runLoop;
 
+    void configureSockets();
+
     struct SocketData {
         GRefPtr<RiceSockets> sockets;
         GRefPtr<GSource> source;
     };
-    HashMap<unsigned, SocketData, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_sockets;
+    Lock m_socketsLock;
+    HashMap<unsigned, SocketData, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_sockets WTF_GUARDED_BY_LOCK(m_socketsLock);
 
     HashMap<unsigned, Vector<GUniquePtr<RiceAddress>>, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_udpAddresses;
+    HashMap<unsigned, Vector<std::pair<String, String>>, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_tcpAddresses;
     Vector<GRefPtr<RiceTcpListener>> m_tcpListeners;
 
     HashMap<String, GUniquePtr<RiceAddress>> m_addressCache;
-    HashMap<unsigned, Vector<String>, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_udpSocketAddressesCache;
 
     const RiceAddress* ensureRiceAddressFromCache(const String&);
 };

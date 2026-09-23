@@ -26,6 +26,7 @@
 #pragma once
 
 #include "DatabaseUtilities.h"
+#include "ITPThirdPartyDataForSpecificFirstParty.h"
 #include "ResourceLoadStatisticsClassifier.h"
 #include "WebResourceLoadStatisticsStore.h"
 #include <JavaScriptCore/ConsoleTypes.h>

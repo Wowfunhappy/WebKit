@@ -41,7 +41,7 @@ namespace ContentExtensions {
 namespace {
 
 template<typename VectorType, typename Iterable, typename Function>
-static inline void iterateIntersections(const VectorType& singularTransitionsFirsts, const Iterable& iterableTransitionList, NOESCAPE const Function& intersectionHandler)
+static inline void NODELETE iterateIntersections(const VectorType& singularTransitionsFirsts, const Iterable& iterableTransitionList, NOESCAPE const Function& intersectionHandler)
 {
     ASSERT(!singularTransitionsFirsts.isEmpty());
     auto otherIterator = iterableTransitionList.begin();
@@ -291,7 +291,7 @@ public:
             counter = 0;
         m_flattenedTransitions.resize(flattenedTransitionsSize);
 
-        Vector<uint32_t> transitionPerRangeOffset(m_transitionPartition.size(), 0);
+        Vector<uint32_t> transitionPerRangeOffset(FillWith { }, m_transitionPartition.size(), 0);
 
         for (unsigned i = 0; i < dfa.nodes.size(); ++i) {
             const DFANode& node = dfa.nodes[i];

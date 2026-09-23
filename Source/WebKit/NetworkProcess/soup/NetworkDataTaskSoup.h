@@ -98,7 +98,6 @@ private:
     static void skipInputStreamForRedirectionCallback(GInputStream*, GAsyncResult*, NetworkDataTaskSoup*);
     void skipInputStreamForRedirection();
     void didFinishSkipInputStreamForRedirection();
-    bool shouldStartHTTPRedirection();
     void continueHTTPRedirection();
 
     static void readCallback(GInputStream*, GAsyncResult*, NetworkDataTaskSoup*);

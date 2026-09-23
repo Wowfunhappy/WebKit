@@ -25,7 +25,7 @@ std::shared_ptr<ShaderTranslateTask> ShaderVk::compile(const gl::Context *contex
 {
     ContextVk *contextVk = vk::GetImpl(context);
 
-    if (context->isWebGL())
+    if (context->isWebGL() || context->isHardenedContext())
     {
         // Only WebGL requires initialization of local variables, others don't.
         // Extra initialization in spirv shader may affect performance.
@@ -95,24 +95,10 @@ std::shared_ptr<ShaderTranslateTask> ShaderVk::compile(const gl::Context *contex
         options->addVulkanXfbEmulationSupportCode = true;
     }
 
-    if (contextVk->getFeatures().emulateDithering.enabled)
-    {
-        options->emulateDithering = true;
-    }
-
-    if (contextVk->getFeatures().roundOutputAfterDithering.enabled)
-    {
-        options->roundOutputAfterDithering = true;
-    }
 
     if (contextVk->getFeatures().appendAliasedMemoryDecorations.enabled)
     {
         options->aliasedUnlessRestrict = true;
-    }
-
-    if (contextVk->getFeatures().explicitlyCastMediumpFloatTo16Bit.enabled)
-    {
-        options->castMediumpFloatTo16Bit = true;
     }
 
     if (contextVk->getExtensions().shaderPixelLocalStorageANGLE)
@@ -133,6 +119,11 @@ std::shared_ptr<ShaderTranslateTask> ShaderVk::compile(const gl::Context *contex
     if (contextVk->getFeatures().emulateR32fImageAtomicExchange.enabled)
     {
         options->emulateR32fImageAtomicExchange = true;
+    }
+
+    if (contextVk->getFeatures().supportsShaderDemoteToHelperInvocation.enabled)
+    {
+        options->useDemoteToHelperInvocation = true;
     }
 
     // https://issuetracker.google.com/406827038

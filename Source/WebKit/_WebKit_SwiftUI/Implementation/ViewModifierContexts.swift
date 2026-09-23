@@ -51,4 +51,12 @@ struct ScrollEdgeEffectStyleContext {
     let edges: Edge.Set
 }
 
+#if ENABLE_MODEL_ELEMENT_IMMERSIVE
+struct ImmersiveEnvironmentRequestContext {
+    let shouldAllow: @MainActor (_ sourceFrame: WebPage.FrameInfo) async -> Bool
+    let present: @MainActor (_ environment: WebPage.ImmersiveEnvironment) async throws -> Void
+    let dismiss: @MainActor (_ environment: WebPage.ImmersiveEnvironment) async -> Void
+}
+#endif
+
 #endif

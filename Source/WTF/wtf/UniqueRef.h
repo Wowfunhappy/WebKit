@@ -45,14 +45,14 @@ template<typename T, class... Args>
 template<class T, class... Args>
 [[nodiscard]] UniqueRef<T> makeUniqueRefWithoutRefCountedCheck(Args&&... args)
 {
-    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use FastMalloc (WTF_DEPRECATED_MAKE_FAST_ALLOCATED)");
+    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use TZoneMalloc (WTF_MAKE_TZONE_ALLOCATED or one of its variants)");
     return makeUniqueRefWithoutFastMallocCheck<T>(std::forward<Args>(args)...);
 }
 
 template<typename T, class... Args>
 [[nodiscard]] UniqueRef<T> makeUniqueRef(Args&&... args)
 {
-    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use FastMalloc (WTF_DEPRECATED_MAKE_FAST_ALLOCATED)");
+    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use TZoneMalloc (WTF_MAKE_TZONE_ALLOCATED or one of its variants)");
     static_assert(!HasRefPtrMemberFunctions<T>::value, "T should not be RefCounted");
     return makeUniqueRefWithoutFastMallocCheck<T>(std::forward<Args>(args)...);
 }

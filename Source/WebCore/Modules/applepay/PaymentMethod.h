@@ -44,7 +44,7 @@ public:
 
     virtual ApplePayPaymentMethod toApplePayPaymentMethod() const;
 
-    PKPaymentMethod *pkPaymentMethod() const;
+    PKPaymentMethod *NODELETE pkPaymentMethod() const;
 
 private:
     friend struct IPC::ArgumentCoder<PaymentMethod>;

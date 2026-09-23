@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <algorithm>
 #include <thread>
 #include <wtf/HashCountedSet.h>
@@ -89,6 +89,7 @@ template<typename T, typename U> using WeakHashMap = WTF::WeakHashMap<T, U, Weak
 template<typename T> using WeakHashSet = WTF::WeakHashSet<T, WeakPtrImplWithCounter>;
 template<typename T> using WeakListHashSet = WTF::WeakListHashSet<T, WeakPtrImplWithCounter>;
 template<typename T> using WeakPtr = WTF::WeakPtr<T, WeakPtrImplWithCounter>;
+template<typename T> using WeakRef = WTF::WeakRef<T, WeakPtrImplWithCounter>;
 template<typename T> using WeakPtrFactory = WTF::WeakPtrFactory<T, WeakPtrImplWithCounter>;
 
 struct Int : public CanMakeWeakPtr<Int> {
@@ -2832,7 +2833,7 @@ TEST(WTF_ThreadSafeWeakPtr, ThreadSafety)
 
 TEST(WTF_ThreadSafeWeakPtr, UseAfterMoveResistance)
 {
-    auto counter = adoptRef(*new ThreadSafeInstanceCounter());
+    Ref counter = adoptRef(*new ThreadSafeInstanceCounter());
     auto weakPtr = ThreadSafeWeakPtr { counter.get() };
     auto movedTo = WTF::move(weakPtr);
     SUPPRESS_USE_AFTER_MOVE EXPECT_NULL(weakPtr.get());
@@ -3021,7 +3022,7 @@ TEST(WTF_ThreadSafeWeakPtr, ThreadSafeWeakHashAmortizedCleanupWhenOnlyAdding)
 
     ThreadSafeWeakHashSet<Struct> set;
     for (int i = 0; i < 10000; ++i) {
-        auto obj = adoptRef(*new Struct);
+        Ref obj = adoptRef(*new Struct);
         set.add(obj.get());
     }
     EXPECT_LT(set.sizeIncludingEmptyEntriesForTesting(), 1000u);
@@ -3037,7 +3038,7 @@ TEST(WTF_ThreadSafeWeakPtr, AmortizedCleanupNotQuadratic)
     ThreadSafeWeakHashSet<Struct> set;
     HashSet<Ref<Struct>> strongSet;
     for (int i = 0; i < 1000000; ++i) {
-        auto obj = adoptRef(*new Struct);
+        Ref obj = adoptRef(*new Struct);
         set.add(obj.get());
         strongSet.add(WTF::move(obj));
     }
@@ -3085,7 +3086,7 @@ TEST(WTF_ThreadSafeWeakPtr, MultipleInheritance)
     ThreadSafeWeakHashSet<Dog> dogs;
     ThreadSafeWeakHashSet<Cat> cats;
     {
-        auto catDog = adoptRef(*new CatDog);
+        Ref catDog = adoptRef(*new CatDog);
         Cat* catPointer { nullptr };
         Dog* dogPointer { nullptr };
 
@@ -3106,12 +3107,12 @@ TEST(WTF_ThreadSafeWeakPtr, MultipleInheritance)
     EXPECT_TRUE(dogs.isEmptyIgnoringNullReferences());
     EXPECT_TRUE(cats.isEmptyIgnoringNullReferences());
 
-    auto keepCat = adoptRef(new CatDog);
+    RefPtr keepCat = adoptRef(new CatDog);
     RefPtr<Cat> cat(keepCat.get());
     keepCat = nullptr;
     cat = nullptr;
 
-    auto keepDog = adoptRef(new CatDog);
+    RefPtr keepDog = adoptRef(new CatDog);
     RefPtr<Dog> dog(keepDog.get());
     keepDog = nullptr;
     dog = nullptr;
@@ -3334,6 +3335,67 @@ TEST(WTF_WeakRef, HashCountedSetLookupFromRawRef)
     EXPECT_TRUE(set.remove(object));
     EXPECT_EQ(set.size(), 0U);
     set.add(object);
+}
+
+TEST(WTF_WeakPtr, AssignFromWeakRef)
+{
+    Derived derived;
+
+    {
+        // Copy assign WeakRef<Derived> to WeakPtr<Derived> (same type).
+        WeakRef<Derived> derivedWeakRef { derived };
+        WeakPtr<Derived> derivedWeakPtr;
+        derivedWeakPtr = derivedWeakRef;
+        EXPECT_EQ(derivedWeakPtr.get(), &derived);
+        EXPECT_EQ(&derivedWeakRef.get(), &derived);
+    }
+
+    {
+        // Move assign WeakRef<Derived> to WeakPtr<Derived> (same type).
+        WeakRef<Derived> derivedWeakRef { derived };
+        WeakPtr<Derived> derivedWeakPtr;
+        derivedWeakPtr = WTF::move(derivedWeakRef);
+        EXPECT_EQ(derivedWeakPtr.get(), &derived);
+    }
+
+    {
+        // Copy assign WeakRef<Derived> to WeakPtr<Base> (cross-type).
+        WeakRef<Derived> derivedWeakRef { derived };
+        WeakPtr<Base> baseWeakPtr;
+        baseWeakPtr = derivedWeakRef;
+        EXPECT_EQ(baseWeakPtr.get(), &derived);
+        EXPECT_EQ(&derivedWeakRef.get(), &derived);
+    }
+
+    {
+        // Move assign WeakRef<Derived> to WeakPtr<Base> (cross-type).
+        WeakRef<Derived> derivedWeakRef { derived };
+        WeakPtr<Base> baseWeakPtr;
+        baseWeakPtr = WTF::move(derivedWeakRef);
+        EXPECT_EQ(baseWeakPtr.get(), &derived);
+    }
+}
+
+TEST(WTF_WeakPtr, AssignFromWeakRefConst)
+{
+    const Derived derived;
+
+    {
+        // Copy assign WeakRef<const Derived> to WeakPtr<const Base> (cross-type).
+        WeakRef<const Derived> derivedWeakRef { derived };
+        WeakPtr<const Base> baseWeakPtr;
+        baseWeakPtr = derivedWeakRef;
+        EXPECT_EQ(baseWeakPtr.get(), &derived);
+        EXPECT_EQ(&derivedWeakRef.get(), &derived);
+    }
+
+    {
+        // Move assign WeakRef<const Derived> to WeakPtr<const Base> (cross-type).
+        WeakRef<const Derived> derivedWeakRef { derived };
+        WeakPtr<const Base> baseWeakPtr;
+        baseWeakPtr = WTF::move(derivedWeakRef);
+        EXPECT_EQ(baseWeakPtr.get(), &derived);
+    }
 }
 
 } // namespace TestWebKitAPI

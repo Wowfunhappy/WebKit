@@ -27,9 +27,8 @@
 [
     Conditional=WEBXR_HIT_TEST,
     EnabledBySetting=WebXREnabled&WebXRHitTestModuleEnabled,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary XRHitTestOptionsInit {
     required WebXRSpace space;
-    sequence<XRHitTestTrackableType> entityTypes;
-    WebXRRay offsetRay;
+    [ImplementationDefaultValue=[]] sequence<XRHitTestTrackableType> entityTypes;
+    [ImplementationDefaultValue=null] WebXRRay offsetRay;
 };

@@ -28,6 +28,7 @@
 #import "ArgumentCodersCocoa.h"
 #import "CoreIPCCFDictionary.h"
 #import "CoreIPCError.h"
+#import "CoreIPCNSURLCredential.h"
 #import "CoreIPCNSURLRequest.h"
 #import "CoreIPCPKPayment.h"
 #import "CoreIPCPKPaymentMethod.h"
@@ -36,7 +37,7 @@
 #import "CoreIPCPlistDictionary.h"
 #import "Encoder.h"
 #import "MessageSenderInlines.h"
-#import "test.h"
+#import "Helpers/Test.h"
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/NSValue.h>
 #import <Security/Security.h>
@@ -183,19 +184,29 @@ static bool secTrustRefsEqual(SecTrustRef trust1, SecTrustRef trust2)
 {
     // SecTrust doesn't compare equal after round-tripping through SecTrustSerialize/SecTrustDeserialize <rdar://122051396>
     // Therefore, we compare all the attributes we can access to verify equality.
-    CFErrorRef error = NULL;
     bool equal;
 #if HAVE(WK_SECURE_CODING_SECTRUST)
-    CFPropertyListRef trust1Plist = SecTrustCopyPropertyListRepresentation(trust1, &error);
-    EXPECT_FALSE(error);
-    CFPropertyListRef trust2Plist = SecTrustCopyPropertyListRepresentation(trust2, &error);
-    EXPECT_FALSE(error);
-    EXPECT_TRUE(CFGetTypeID(trust1Plist) == CFDictionaryGetTypeID());
-    EXPECT_TRUE(CFGetTypeID(trust2Plist) == CFDictionaryGetTypeID());
-    equal = CFEqual(trust1Plist, trust2Plist);
+    RetainPtr<CFPropertyListRef> trust1Plist;
+    RetainPtr<CFErrorRef> plistError;
+    {
+        // FIXME: The Security framework API is missing the `CF_RETURNS_RETAINED` annotation (rdar://161546781).
+        CFErrorRef rawError = NULL;
+        trust1Plist = adoptCF(SecTrustCopyPropertyListRepresentation(trust1, &rawError));
+        SUPPRESS_RETAINPTR_CTOR_ADOPT plistError = adoptCF(rawError);
+    }
+    EXPECT_FALSE(plistError);
+    plistError = NULL;
+    RetainPtr<CFPropertyListRef> trust2Plist;
+    {
+        CFErrorRef rawError = NULL;
+        trust2Plist = adoptCF(SecTrustCopyPropertyListRepresentation(trust2, &rawError));
+        SUPPRESS_RETAINPTR_CTOR_ADOPT plistError = adoptCF(rawError);
+    }
+    EXPECT_FALSE(plistError);
+    EXPECT_TRUE(CFGetTypeID(trust1Plist.get()) == CFDictionaryGetTypeID());
+    EXPECT_TRUE(CFGetTypeID(trust2Plist.get()) == CFDictionaryGetTypeID());
+    equal = CFEqual(trust1Plist.get(), trust2Plist.get());
     EXPECT_TRUE(equal);
-    CFRelease(trust1Plist);
-    CFRelease(trust2Plist);
 #endif
 
     SecKeyRef pk1 = SecTrustCopyPublicKey(trust1);
@@ -214,34 +225,42 @@ static bool secTrustRefsEqual(SecTrustRef trust1, SecTrustRef trust2)
     if (!equal)
         return false;
 
-    CFDataRef ex1 = SecTrustCopyExceptions(trust1);
-    CFDataRef ex2 = SecTrustCopyExceptions(trust2);
+    RetainPtr<CFDataRef> ex1 = adoptCF(SecTrustCopyExceptions(trust1));
+    RetainPtr<CFDataRef> ex2 = adoptCF(SecTrustCopyExceptions(trust2));
     EXPECT_TRUE(ex1);
     EXPECT_TRUE(ex2);
-    equal = CFEqual(ex1, ex2);
+    equal = CFEqual(ex1.get(), ex2.get());
 
     CFPropertyListFormat format;
-    CFPropertyListRef ex1plist = CFPropertyListCreateWithData(
-        kCFAllocatorDefault,
-        ex1,
-        kCFPropertyListImmutable,
-        &format,
-        &error
-    );
+    RetainPtr<CFErrorRef> error;
+    RetainPtr<CFPropertyListRef> ex1plist;
+    {
+        CFErrorRef rawError = NULL;
+        ex1plist = adoptCF(CFPropertyListCreateWithData(
+            kCFAllocatorDefault,
+            ex1.get(),
+            kCFPropertyListImmutable,
+            &format,
+            &rawError
+        ));
+        SUPPRESS_RETAINPTR_CTOR_ADOPT error = adoptCF(rawError);
+    }
     EXPECT_FALSE(error);
-    CFPropertyListRef ex2plist = CFPropertyListCreateWithData(
-        kCFAllocatorDefault,
-        ex2,
-        kCFPropertyListImmutable,
-        &format,
-        &error
-    );
+    error = NULL;
+    RetainPtr<CFPropertyListRef> ex2plist;
+    {
+        CFErrorRef rawError = NULL;
+        ex2plist = adoptCF(CFPropertyListCreateWithData(
+            kCFAllocatorDefault,
+            ex2.get(),
+            kCFPropertyListImmutable,
+            &format,
+            &rawError
+        ));
+        SUPPRESS_RETAINPTR_CTOR_ADOPT error = adoptCF(rawError);
+    }
     EXPECT_FALSE(error);
-    equal = CFEqual(ex1plist, ex2plist);
-    CFRelease(ex1);
-    CFRelease(ex2);
-    CFRelease(ex1plist);
-    CFRelease(ex2plist);
+    equal = CFEqual(ex1plist.get(), ex2plist.get());
     EXPECT_TRUE(equal);
     if (!equal)
         return false;
@@ -822,7 +841,7 @@ String certDataBase64(""
 static RetainPtr<SecCertificateRef> createCertificate()
 {
     RetainPtr certData = adoptNS([[NSData alloc] initWithBase64EncodedString:certDataBase64.createNSString().get() options:0]);
-    auto cert = adoptCF(SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certData.get()));
+    RetainPtr cert = adoptCF(SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certData.get()));
     EXPECT_NOT_NULL(cert);
     return cert;
 }
@@ -837,21 +856,21 @@ static RetainPtr<SecKeyRef> createPrivateKey()
         (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate
     };
 
-    auto privateKey = adoptCF(SecKeyCreateWithData((CFDataRef)keyData.get(), (CFDictionaryRef)keyAttrs, NULL));
+    RetainPtr privateKey = adoptCF(SecKeyCreateWithData((CFDataRef)keyData.get(), (CFDictionaryRef)keyAttrs, NULL));
     EXPECT_NOT_NULL(privateKey);
     return privateKey;
 }
 
 static RetainPtr<NSPersonNameComponents> personNameComponentsForTesting()
 {
-    auto phoneticComponents = adoptNS([[NSPersonNameComponents alloc] init]);
+    RetainPtr phoneticComponents = adoptNS([[NSPersonNameComponents alloc] init]);
     phoneticComponents.get().familyName = @"Family";
     phoneticComponents.get().middleName = @"Middle";
     phoneticComponents.get().namePrefix = @"Doctor";
     phoneticComponents.get().givenName = @"Given";
     phoneticComponents.get().nickname = @"Buddy";
 
-    auto components = adoptNS([[NSPersonNameComponents alloc] init]);
+    RetainPtr components = adoptNS([[NSPersonNameComponents alloc] init]);
     components.get().familyName = @"Familia";
     components.get().middleName = @"Median";
     components.get().namePrefix = @"Physician";
@@ -994,7 +1013,7 @@ TEST(IPCSerialization, Basic)
 
     // NSData/CFData
     runTestNS({ [NSData dataWithBytes:"Data test" length:strlen("Data test")] });
-    auto cfData = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
+    RetainPtr cfData = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
     runTestCF({ cfData.get() });
 
     // NSDate
@@ -1012,14 +1031,14 @@ TEST(IPCSerialization, Basic)
     runTestCF({ kCFBooleanFalse });
 
     // CGColor
-    auto sRGBColorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+    RetainPtr sRGBColorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     constexpr CGFloat testComponents[4] = { 1, .75, .5, .25 };
-    auto cgColor = adoptCF(CGColorCreate(sRGBColorSpace.get(), testComponents));
+    RetainPtr cgColor = adoptCF(CGColorCreate(sRGBColorSpace.get(), testComponents));
     runTestCF({ cgColor.get() });
 
     // CGColorSpace
     runTestCF({ sRGBColorSpace.get() });
-    auto grayColorSpace = adoptCF(CGColorSpaceCreateDeviceGray());
+    RetainPtr grayColorSpace = adoptCF(CGColorSpaceCreateDeviceGray());
     runTestCF({ grayColorSpace.get() });
 
     auto runNumberTest = [&](NSNumber *number) {
@@ -1058,7 +1077,7 @@ TEST(IPCSerialization, Basic)
     runTestNS({ @{ @"Dictionary": @[ @"array value", @12 ] } });
 
     // CFDictionary with a non-toll-free bridged CFType, also run as NSDictionary
-    auto cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 1, NULL, NULL));
+    RetainPtr cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 1, NULL, NULL));
     CFDictionaryAddValue(cfDictionary.get(), CFSTR("MyKey"), cgColor.get());
     runTestCF({ cfDictionary.get() });
     runTestNS({ bridge_cast(cfDictionary.get()) });
@@ -1184,9 +1203,9 @@ TEST(IPCSerialization, Basic)
     // CFURL
     // The following URL described is quite nonsensical.
     const UInt8 baseBytes[10] = { 'h', 't', 't', 'p', ':', '/', '/', 0xE2, 0x80, 0x80 };
-    auto baseURL = adoptCF(CFURLCreateAbsoluteURLWithBytes(nullptr, baseBytes, 10, kCFStringEncodingUTF8, nullptr, true));
+    RetainPtr baseURL = adoptCF(CFURLCreateAbsoluteURLWithBytes(nullptr, baseBytes, 10, kCFStringEncodingUTF8, nullptr, true));
     const UInt8 compoundBytes[10] = { 'p', 'a', 't', 'h' };
-    auto compoundURL = adoptCF(CFURLCreateAbsoluteURLWithBytes(nullptr, compoundBytes, 4, kCFStringEncodingUTF8, baseURL.get(), true));
+    RetainPtr compoundURL = adoptCF(CFURLCreateAbsoluteURLWithBytes(nullptr, compoundBytes, 4, kCFStringEncodingUTF8, baseURL.get(), true));
     runTestCF({ baseURL.get() });
     runTestCF({ compoundURL.get() });
 
@@ -1206,10 +1225,10 @@ TEST(IPCSerialization, Basic)
 
     // SecTrust -- evaluate the trust of the cert created above
     SecTrustRef trustRef = NULL;
-    auto policy = adoptCF(SecPolicyCreateBasicX509());
+    RetainPtr policy = adoptCF(SecPolicyCreateBasicX509());
     EXPECT_TRUE(SecTrustCreateWithCertificates(cert.get(), policy.get(), &trustRef) == errSecSuccess);
     EXPECT_NOT_NULL(trustRef);
-    auto trust = adoptCF(trustRef);
+    RetainPtr trust = adoptCF(trustRef);
     runTestCF({ trust.get() });
 
     EXPECT_TRUE(SecTrustEvaluateWithError(trust.get(), NULL) == errSecSuccess);
@@ -1221,7 +1240,7 @@ TEST(IPCSerialization, Basic)
         (id)kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly : @(YES),
         (id)kSecAttrAccessibleWhenUnlocked: @(YES) };
     SecAccessControlCreateFlags flags = (kSecAccessControlDevicePasscode | kSecAccessControlBiometryAny | kSecAccessControlOr);
-    auto accessControlRef = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
+    RetainPtr accessControlRef = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
     EXPECT_NOT_NULL(accessControlRef);
     runTestCF({ accessControlRef.get() });
 
@@ -1235,7 +1254,7 @@ TEST(IPCSerialization, Basic)
     CFArrayRef itemsPtr = NULL;
     EXPECT_TRUE(SecKeychainItemImport(certData, CFSTR(".pem"), NULL, NULL, 0, NULL, tempKeychain, &itemsPtr) == errSecSuccess);
     EXPECT_NOT_NULL(itemsPtr);
-    auto items = adoptCF(itemsPtr);
+    RetainPtr items = adoptCF(itemsPtr);
     EXPECT_GT(CFArrayGetCount(items.get()), 0);
 
     RetainPtr keychainItemRef = (SecKeychainItemRef)CFArrayGetValueAtIndex(items.get(), 0);
@@ -1494,6 +1513,11 @@ TEST(IPCSerialization, SecTrustRef)
             @{ },
         ],
         @"info" : @{
+            @"Builder" : @{
+                @"RevocationDbIgnored" : @(NO),
+                @"RevocationIfTrusted" : @(YES),
+                @"RevocationOnline" : @(NO)
+            },
             @"CertificateTransparency" : @(YES),
             @"CompanyName" : @"Apple Inc.",
             @"ExtendedValidation" : @(YES),
@@ -1722,6 +1746,10 @@ TEST(IPCSerialization, NSURLRequestProtocolProperties)
     props.fileProtocolExpectedDevice = WebKit::CoreIPCNumber(@123);
     props.shouldSniff = false;
     props.contentDecoderSkipURLCheck = true;
+    props.adIdentifier = WebKit::CoreIPCString(@"test-ad-id");
+    props.maximumRequestCount = WebKit::CoreIPCNumber(@5);
+    props.apProxyIsRecursive = true;
+    props.requestType = WebKit::APProxyRequestType::WebView;
     requestData.protocolProperties = WTF::move(props);
 
     WebKit::CoreIPCNSURLRequest wrapper(WTF::move(requestData));
@@ -1733,7 +1761,7 @@ TEST(IPCSerialization, NSURLRequestProtocolProperties)
     RetainPtr plistData = [reconstructedRequest _webKitPropertyListData];
     RetainPtr protocolProperties = [plistData.get() objectForKey:@"protocolProperties"];
     EXPECT_TRUE(protocolProperties != nil);
-    EXPECT_EQ([protocolProperties count], 8U);
+    EXPECT_EQ([protocolProperties count], 12U);
 
     EXPECT_TRUE([[protocolProperties objectForKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue]);
     EXPECT_FALSE([[protocolProperties objectForKey:@"kCFURLRequestAllowAllPOSTCaching"] boolValue]);
@@ -1743,6 +1771,10 @@ TEST(IPCSerialization, NSURLRequestProtocolProperties)
     EXPECT_EQ([[protocolProperties objectForKey:@"NSURLRequestFileProtocolExpectedDevice"] intValue], 123);
     EXPECT_FALSE([[protocolProperties objectForKey:@"_kCFURLConnectionPropertyShouldSniff"] boolValue]);
     EXPECT_TRUE([[protocolProperties objectForKey:@"kCFURLRequestContentDecoderSkipURLCheck"] boolValue]);
+    EXPECT_TRUE([[protocolProperties objectForKey:@"adIdentifier"] isEqualToString:@"test-ad-id"]);
+    EXPECT_EQ([[protocolProperties objectForKey:@"maximumRequestCount"] intValue], 5);
+    EXPECT_TRUE([[protocolProperties objectForKey:@"com.apple.ap.pc.proxy-is-recursive"] boolValue]);
+    EXPECT_EQ([[protocolProperties objectForKey:@"requestType"] intValue], 1);
 
     // Test full round-trip serialization
     runTestNS({ reconstructedRequest });
@@ -1796,6 +1828,89 @@ TEST(IPCSerialization, NSURLRequestProtocolProperties)
     EXPECT_EQ([[protocolProperties3 objectForKey:@"NSURLRequestFileProtocolExpectedDevice"] intValue], 0);
 
     runTestNS({ reconstructedRequest3 });
+}
+
+TEST(IPCSerialization, NSURLRequestNSURLProtocolProperties)
+{
+    RetainPtr request = adoptNS([[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:@"https://webkit.org/"]]);
+    [NSURLProtocol setProperty:@"ad-123" forKey:@"adIdentifier" inRequest:request.get()];
+    [NSURLProtocol setProperty:@3 forKey:@"maximumRequestCount" inRequest:request.get()];
+    [NSURLProtocol setProperty:@YES forKey:@"com.apple.ap.pc.proxy-is-recursive" inRequest:request.get()];
+    [NSURLProtocol setProperty:@2 forKey:@"requestType" inRequest:request.get()];
+
+    WebKit::CoreIPCNSURLRequest wrapper(request.get());
+    RetainPtr reconstructed = dynamic_objc_cast<NSURLRequest>(wrapper.toID().get());
+    EXPECT_TRUE(reconstructed);
+
+    EXPECT_TRUE([[NSURLProtocol propertyForKey:@"adIdentifier" inRequest:reconstructed.get()] isEqualToString:@"ad-123"]);
+    EXPECT_EQ([[NSURLProtocol propertyForKey:@"maximumRequestCount" inRequest:reconstructed.get()] intValue], 3);
+    EXPECT_TRUE([[NSURLProtocol propertyForKey:@"com.apple.ap.pc.proxy-is-recursive" inRequest:reconstructed.get()] boolValue]);
+    EXPECT_EQ([[NSURLProtocol propertyForKey:@"requestType" inRequest:reconstructed.get()] integerValue], 2);
+
+    runTestNS({ request.get() });
+}
+
+TEST(IPCSerialization, NSURLRequestArbitraryAppProperties)
+{
+    // App-supplied properties via NSURLProtocol +setProperty:forKey:inRequest: that are
+    // not in the typed allowlist must still round-trip through IPC, but only when they
+    // are plist-primitive values (NSNumber/NSString/NSData) and the key is not in a
+    // reserved CFNetwork/Foundation/WebKit/Apple namespace.
+
+    RetainPtr request = adoptNS([[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:@"https://webkit.org/"]]);
+
+    // Allowed app-supplied entries: number, string, bool (NSNumber), data.
+    [NSURLProtocol setProperty:@"hello" forKey:@"com.example.appName" inRequest:request.get()];
+    [NSURLProtocol setProperty:@42 forKey:@"com.example.requestCount" inRequest:request.get()];
+    [NSURLProtocol setProperty:@YES forKey:@"com.example.featureFlag" inRequest:request.get()];
+    RetainPtr<NSData> blob = [NSData dataWithBytes:"\x01\x02\x03\x04" length:4];
+    [NSURLProtocol setProperty:blob.get() forKey:@"com.example.blob" inRequest:request.get()];
+
+    // Disallowed values: complex container types must be dropped on the wire.
+    [NSURLProtocol setProperty:@{ @"nested": @1 } forKey:@"com.example.dictValue" inRequest:request.get()];
+    [NSURLProtocol setProperty:@[ @"a", @"b" ] forKey:@"com.example.arrayValue" inRequest:request.get()];
+
+    // Disallowed key: reserved-prefix keys an app should not be able to spoof over IPC.
+    [NSURLProtocol setProperty:@"injected" forKey:@"_kCFFutureInternalProperty" inRequest:request.get()];
+    [NSURLProtocol setProperty:@"injected" forKey:@"NSURLRequestFutureInternalProperty" inRequest:request.get()];
+    [NSURLProtocol setProperty:@"injected" forKey:@"com.apple.something-private" inRequest:request.get()];
+
+    WebKit::CoreIPCNSURLRequest wrapper(request.get());
+    RetainPtr reconstructed = dynamic_objc_cast<NSURLRequest>(wrapper.toID().get());
+    EXPECT_TRUE(reconstructed);
+
+    EXPECT_TRUE([[NSURLProtocol propertyForKey:@"com.example.appName" inRequest:reconstructed.get()] isEqualToString:@"hello"]);
+    EXPECT_EQ([[NSURLProtocol propertyForKey:@"com.example.requestCount" inRequest:reconstructed.get()] intValue], 42);
+    EXPECT_TRUE([[NSURLProtocol propertyForKey:@"com.example.featureFlag" inRequest:reconstructed.get()] boolValue]);
+    EXPECT_TRUE([[NSURLProtocol propertyForKey:@"com.example.blob" inRequest:reconstructed.get()] isEqualToData:blob.get()]);
+
+    EXPECT_NULL([NSURLProtocol propertyForKey:@"com.example.dictValue" inRequest:reconstructed.get()]);
+    EXPECT_NULL([NSURLProtocol propertyForKey:@"com.example.arrayValue" inRequest:reconstructed.get()]);
+
+    EXPECT_NULL([NSURLProtocol propertyForKey:@"_kCFFutureInternalProperty" inRequest:reconstructed.get()]);
+    EXPECT_NULL([NSURLProtocol propertyForKey:@"NSURLRequestFutureInternalProperty" inRequest:reconstructed.get()]);
+    EXPECT_NULL([NSURLProtocol propertyForKey:@"com.apple.something-private" inRequest:reconstructed.get()]);
+
+    // Full wire-format round-trip on a request containing only the allowed entries —
+    // runTestNS asserts that the original and the round-tripped request compare equal,
+    // so we cannot include the keys we expect to be stripped above.
+    RetainPtr cleanRequest = adoptNS([[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:@"https://webkit.org/"]]);
+    [NSURLProtocol setProperty:@"hello" forKey:@"com.example.appName" inRequest:cleanRequest.get()];
+    [NSURLProtocol setProperty:@42 forKey:@"com.example.requestCount" inRequest:cleanRequest.get()];
+    [NSURLProtocol setProperty:@YES forKey:@"com.example.featureFlag" inRequest:cleanRequest.get()];
+    [NSURLProtocol setProperty:blob.get() forKey:@"com.example.blob" inRequest:cleanRequest.get()];
+    runTestNS({ cleanRequest.get() });
+}
+
+TEST(IPCSerialization, NSURLRequestAttribution)
+{
+    WebKit::CoreIPCNSURLRequestData requestData;
+    requestData.url = WebKit::CoreIPCURL([NSURL URLWithString:@"https://webkit.org/"]);
+    requestData.attribution = WebKit::NSURLRequestAttribution::User;
+
+    RetainPtr request = dynamic_objc_cast<NSURLRequest>(WebKit::CoreIPCNSURLRequest(WTF::move(requestData)).toID().get());
+    RetainPtr reconstructed = dynamic_objc_cast<NSURLRequest>(WebKit::CoreIPCNSURLRequest(request.get()).toID().get());
+    EXPECT_EQ([reconstructed attribution], NSURLRequestAttributionUser);
 }
 
 #endif // PLATFORM(COCOA) && HAVE(WK_SECURE_CODING_NSURLREQUEST)
@@ -1888,13 +2003,13 @@ TEST(IPCSerialization, PKPayment)
 
 static RetainPtr<DDScannerResult> fakeDataDetectorResultForTesting()
 {
-    auto scanner = adoptCF(PAL::softLink_DataDetectorsCore_DDScannerCreate(DDScannerTypeStandard, 0, nullptr));
+    RetainPtr scanner = adoptCF(PAL::softLink_DataDetectorsCore_DDScannerCreate(DDScannerTypeStandard, 0, nullptr));
     auto stringToScan = CFSTR("webkit.org");
-    auto query = adoptCF(PAL::softLink_DataDetectorsCore_DDScanQueryCreateFromString(kCFAllocatorDefault, stringToScan, CFRangeMake(0, CFStringGetLength(stringToScan))));
+    RetainPtr query = adoptCF(PAL::softLink_DataDetectorsCore_DDScanQueryCreateFromString(kCFAllocatorDefault, stringToScan, CFRangeMake(0, CFStringGetLength(stringToScan))));
     if (!PAL::softLink_DataDetectorsCore_DDScannerScanQuery(scanner.get(), query.get()))
         return nil;
 
-    auto results = adoptCF(PAL::softLink_DataDetectorsCore_DDScannerCopyResultsWithOptions(scanner.get(), DDScannerCopyResultsOptionsNoOverlap));
+    RetainPtr results = adoptCF(PAL::softLink_DataDetectorsCore_DDScannerCopyResultsWithOptions(scanner.get(), DDScannerCopyResultsOptionsNoOverlap));
     if (!CFArrayGetCount(results.get()))
         return nil;
 
@@ -1962,6 +2077,61 @@ TEST(IPCSerialization, DDScannerResultPlist)
 }
 #endif // HAVE(WK_SECURE_CODING_DATA_DETECTORS)
 
+#if HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
+
+@interface NSURLCredential (WKSecureCodingForTesting)
+- (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
+- (NSDictionary *)_webKitPropertyListData;
+@end
+
+TEST(IPCSerialization, NSURLCredentialKerberosFlags)
+{
+    RetainPtr credential = adoptNS([[NSURLCredential alloc] _initWithWebKitPropertyListData:@{
+        @"type": @(kURLCredentialKerberosTicket),
+        @"uuid": @"uuid",
+        @"flags": @{ @"name": @"value" },
+    }]);
+
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_AsyncPing, 0);
+    encoder << WebKit::CoreIPCNSURLCredential { credential.get() };
+    auto decoder = IPC::Decoder::create(encoder.span(), encoder.releaseAttachments());
+    auto decoded = decoder->decode<WebKit::CoreIPCNSURLCredentialData>();
+    EXPECT_FALSE(decoded->flags->isEmpty());
+}
+
+TEST(IPCSerialization, NSURLCredentialAttributes)
+{
+    RetainPtr credential = adoptNS([[NSURLCredential alloc] _initWithWebKitPropertyListData:@{
+        @"type": @(kURLCredentialInternetPassword),
+        @"persistence": @(kCFURLCredentialPersistenceForSession),
+        @"attributes": @{ @"name": @"value" },
+    }]);
+
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_AsyncPing, 0);
+    encoder << WebKit::CoreIPCNSURLCredential { credential.get() };
+    auto decoder = IPC::Decoder::create(encoder.span(), encoder.releaseAttachments());
+    auto decoded = decoder->decode<WebKit::CoreIPCNSURLCredentialData>();
+    EXPECT_EQ(decoded->attributes->size(), 1u);
+}
+
+TEST(IPCSerialization, NSURLCredentialAttributesToID)
+{
+    using Attributes = WebKit::CoreIPCNSURLCredentialData::Attributes;
+
+    WebKit::CoreIPCNSURLCredentialData credentialData;
+    credentialData.type = WebKit::CoreIPCNSURLCredentialType::Password;
+    credentialData.attributes = Vector<Attributes> { { WebKit::CoreIPCString(@"key"), WebKit::CoreIPCString(@"value") } };
+
+    // WebKit::CoreIPCNSURLCredential wrapper(WTF::move(credentialData));
+    WebKit::CoreIPCNSURLCredential wrapper(WTF::move(credentialData), std::nullopt); // MAVERICKS_BACKPORT: this password credential carries no keychain capability.
+    RetainPtr reconstructed = dynamic_objc_cast<NSURLCredential>(wrapper.toID().get());
+    RetainPtr attributes = dynamic_objc_cast<NSDictionary>([[reconstructed _webKitPropertyListData] objectForKey:@"attributes"]);
+    EXPECT_TRUE([[attributes objectForKey:@"key"] isEqual:@"value"]);
+}
+
+#endif // HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
+
+#if USE(PASSKIT) // MAVERICKS_BACKPORT: PassKit payment fixtures.
 @interface PKPaymentMerchantSession ()
 - (instancetype)initWithMerchantIdentifier:(NSString *)merchantIdentifier
                  merchantSessionIdentifier:(NSString *)merchantSessionIdentifier
@@ -2001,6 +2171,7 @@ TEST(IPCSerialization, DDScannerResultPlist)
                                   signature:(NSData *)signature;
 #endif
 @end
+#endif // MAVERICKS_BACKPORT: PassKit payment fixtures.
 
 TEST(IPCSerialization, DataDetectors)
 {
@@ -2010,7 +2181,7 @@ TEST(IPCSerialization, DataDetectors)
     runTestNS({ scannerResult.get() });
 
     // DDActionContext/DDSecureActionContext
-    auto actionContext = adoptNS([PAL::allocWKDDActionContextInstance() init]);
+    RetainPtr actionContext = adoptNS([PAL::allocWKDDActionContextInstance() init]);
     [actionContext setAllResults:@[ (__bridge id)scannerResult.get().coreResult ]];
     [actionContext setMainResult:scannerResult.get().coreResult];
     auto components = personNameComponentsForTesting();
@@ -2020,6 +2191,7 @@ TEST(IPCSerialization, DataDetectors)
     runTestNS({ actionContext.get() });
 }
 
+#if USE(PASSKIT) // MAVERICKS_BACKPORT: PassKit secure-coding round trips.
 TEST(IPCSerialization, SecureCoding)
 {
     // PKPaymentMerchantSession
@@ -2161,6 +2333,8 @@ TEST(IPCSerialization, SecureCoding)
     runTestNS({ payment.get() });
 }
 
+#endif // MAVERICKS_BACKPORT: PassKit secure-coding round trips.
+
 #if USE(PASSKIT) && HAVE(WK_SECURE_CODING_PKSHIPPINGMETHOD)
 TEST(IPCSerialization, PKShippingMethod)
 {
@@ -2205,69 +2379,69 @@ TEST(CoreIPCCFDictionary, InsertDifferentValueTypes)
     // Test that a CoreIPCCFDictionary can be created, encoded, and decoded with valid key-value pairs.
     // Keys will be string type (CFStringRef).
     // Values will be all possible variants from IPC::CFType.
-    auto cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    RetainPtr cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
 
     // CFBooleanRef
-    auto booleanKey = adoptCF(CFSTR("booleanKey"));
-    auto booleanValue = adoptCF(kCFBooleanFalse);
+    RetainPtr booleanKey = adoptCF(CFSTR("booleanKey"));
+    RetainPtr booleanValue = adoptCF(kCFBooleanFalse);
     CFDictionaryAddValue(cfDictionary.get(), booleanKey.get(), booleanValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 1);
 
     // CFCharacterSetRef
-    auto charSetKey = adoptCF(CFSTR("charSetKey"));
-    auto charSetValue = adoptCF(CFCharacterSetCreateWithCharactersInString(kCFAllocatorDefault, CFSTR("ABC")));
+    RetainPtr charSetKey = adoptCF(CFSTR("charSetKey"));
+    RetainPtr charSetValue = adoptCF(CFCharacterSetCreateWithCharactersInString(kCFAllocatorDefault, CFSTR("ABC")));
     CFDictionaryAddValue(cfDictionary.get(), charSetKey.get(), charSetValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 2);
 
     // CFDataRef
-    auto dataKey = adoptCF(CFSTR("dataKey"));
-    auto dataValue = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
+    RetainPtr dataKey = adoptCF(CFSTR("dataKey"));
+    RetainPtr dataValue = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
     CFDictionaryAddValue(cfDictionary.get(), dataKey.get(), dataValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 3);
 
     // CFDateRef
-    auto dateKey = adoptCF(CFSTR("dateKey"));
-    auto dateValue = adoptCF(CFDateCreate(kCFAllocatorDefault, 1.23));
+    RetainPtr dateKey = adoptCF(CFSTR("dateKey"));
+    RetainPtr dateValue = adoptCF(CFDateCreate(kCFAllocatorDefault, 1.23));
     CFDictionaryAddValue(cfDictionary.get(), dateKey.get(), dateValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 4);
 
     // CFDictionaryRef
-    auto dictKey = adoptCF(CFSTR("dictKey"));
-    auto dictValue = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    auto key1 = adoptCF(CFSTR("key1"));
-    auto value1 = adoptCF(CFSTR("value1"));
+    RetainPtr dictKey = adoptCF(CFSTR("dictKey"));
+    RetainPtr dictValue = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    RetainPtr key1 = adoptCF(CFSTR("key1"));
+    RetainPtr value1 = adoptCF(CFSTR("value1"));
     CFDictionaryAddValue(dictValue.get(), key1.get(), value1.get());
     CFDictionaryAddValue(cfDictionary.get(), dictKey.get(), dictValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 5);
 
     // CFNullRef
-    auto nullKey = adoptCF(CFSTR("nullKey"));
-    auto nullValue = adoptCF(kCFNull);
+    RetainPtr nullKey = adoptCF(CFSTR("nullKey"));
+    RetainPtr nullValue = adoptCF(kCFNull);
     CFDictionaryAddValue(cfDictionary.get(), nullKey.get(), nullValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 6);
 
     // CFNumberRef
-    auto numberKey = adoptCF(CFSTR("numberKey"));
+    RetainPtr numberKey = adoptCF(CFSTR("numberKey"));
     int32_t num = 123;
-    auto numberValue = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, (const void*)&num));
+    RetainPtr numberValue = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, (const void*)&num));
     CFDictionaryAddValue(cfDictionary.get(), numberKey.get(), numberValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 7);
 
     // CFStringRef
-    auto stringKey = adoptCF(CFSTR("stringKey"));
-    auto stringValue = adoptCF(CFSTR("stringValue"));
+    RetainPtr stringKey = adoptCF(CFSTR("stringKey"));
+    RetainPtr stringValue = adoptCF(CFSTR("stringValue"));
     CFDictionaryAddValue(cfDictionary.get(), stringKey.get(), stringValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 8);
 
     // CFURLRef
-    auto urlKey = adoptCF(CFSTR("urlKey"));
-    auto url = adoptCF(CFSTR("localhost.com"));
-    auto urlValue = adoptCF(CFURLCreateWithString(kCFAllocatorDefault, url.get(), NULL));
+    RetainPtr urlKey = adoptCF(CFSTR("urlKey"));
+    RetainPtr url = adoptCF(CFSTR("localhost.com"));
+    RetainPtr urlValue = adoptCF(CFURLCreateWithString(kCFAllocatorDefault, url.get(), NULL));
     CFDictionaryAddValue(cfDictionary.get(), urlKey.get(), urlValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 9);
 
     // SecCertificateRef
-    auto secCertificateKey = adoptCF(CFSTR("secCertificateKey"));
+    RetainPtr secCertificateKey = adoptCF(CFSTR("secCertificateKey"));
     auto secCertificateValue = createCertificate();
     CFDictionaryAddValue(cfDictionary.get(), secCertificateKey.get(), secCertificateValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 10);
@@ -2275,42 +2449,42 @@ TEST(CoreIPCCFDictionary, InsertDifferentValueTypes)
     // SecTrustRef
     auto certificate = createCertificate();
     NSArray* certArray = @[(__bridge id) certificate.get()];
-    auto policy = adoptCF(SecPolicyCreateBasicX509());
+    RetainPtr policy = adoptCF(SecPolicyCreateBasicX509());
     SecTrustRef trust;
     SecTrustCreateWithCertificates((__bridge CFTypeRef) certArray, policy.get(), &trust);
 
-    auto secTrustKey = adoptCF(CFSTR("secTrustKey"));
-    auto secTrustValue = adoptCF(trust);
+    RetainPtr secTrustKey = adoptCF(CFSTR("secTrustKey"));
+    RetainPtr secTrustValue = adoptCF(trust);
     CFDictionaryAddValue(cfDictionary.get(), secTrustKey.get(), secTrustValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 11);
 
     // CGColorSpaceRef
-    auto colorSpaceKey = adoptCF(CFSTR("colorSpaceKey"));
-    auto colorSpaceValue = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+    RetainPtr colorSpaceKey = adoptCF(CFSTR("colorSpaceKey"));
+    RetainPtr colorSpaceValue = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     CFDictionaryAddValue(cfDictionary.get(), colorSpaceKey.get(), colorSpaceValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 12);
 
     // CGColorRef
-    auto colorKey = adoptCF(CFSTR("colorKey"));
-    auto colorValue = adoptCF(CGColorCreateSRGB(1.0, 0.0, 0.0, 1.0));
+    RetainPtr colorKey = adoptCF(CFSTR("colorKey"));
+    RetainPtr colorValue = adoptCF(CGColorCreateSRGB(1.0, 0.0, 0.0, 1.0));
     CFDictionaryAddValue(cfDictionary.get(), colorKey.get(), colorValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 13);
 
     // SecAccessControlRef
-    auto secAccessControlKey = adoptCF(CFSTR("secAccessControlKey"));
+    RetainPtr secAccessControlKey = adoptCF(CFSTR("secAccessControlKey"));
     SecAccessControlCreateFlags flags = (kSecAccessControlDevicePasscode | kSecAccessControlBiometryAny | kSecAccessControlOr);
     NSDictionary *protection = @{
         (id)kSecUseDataProtectionKeychain : @(YES),
         (id)kSecAttrSynchronizable : @(NO),
         (id)kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly : @(YES),
         (id)kSecAttrAccessibleWhenUnlocked: @(YES) };
-    auto secAccessControlValue = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
+    RetainPtr secAccessControlValue = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
     CFDictionaryAddValue(cfDictionary.get(), secAccessControlKey.get(), secAccessControlValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 14);
 
     // CFSocketRef (should not be accepted by CoreIPCCFDictionary)
-    auto socketKey = adoptCF(CFSTR("socketKey"));
-    auto socketValue = adoptCF(CFSocketCreate(kCFAllocatorDefault, 0, 0, 0, 0, NULL, NULL));
+    RetainPtr socketKey = adoptCF(CFSTR("socketKey"));
+    RetainPtr socketValue = adoptCF(CFSocketCreate(kCFAllocatorDefault, 0, 0, 0, 0, NULL, NULL));
     CFDictionaryAddValue(cfDictionary.get(), socketKey.get(), socketValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 15);
 
@@ -2358,94 +2532,94 @@ TEST(CoreIPCCFDictionary, InsertDifferentKeyTypes)
     // Test that a CoreIPCCFDictionary can be created, encoded, and decoded with valid key-value pairs.
     // Keys will be all possible variants from CoreIPCCFDictionary::KeyType
     // Values will be string type (CFStringRef).
-    auto cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    RetainPtr cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
 
     // CFBooleanRef
-    auto booleanKey = adoptCF(kCFBooleanFalse);
-    auto booleanValue = adoptCF(CFSTR("booleanValue"));
+    RetainPtr booleanKey = adoptCF(kCFBooleanFalse);
+    RetainPtr booleanValue = adoptCF(CFSTR("booleanValue"));
     CFDictionaryAddValue(cfDictionary.get(), booleanKey.get(), booleanValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 1);
 
     // CFCharacterSetRef
-    auto charSetKey = adoptCF(CFCharacterSetCreateWithCharactersInString(kCFAllocatorDefault, CFSTR("ABC")));
-    auto charSetValue = adoptCF(CFSTR("charSetValue"));
+    RetainPtr charSetKey = adoptCF(CFCharacterSetCreateWithCharactersInString(kCFAllocatorDefault, CFSTR("ABC")));
+    RetainPtr charSetValue = adoptCF(CFSTR("charSetValue"));
     CFDictionaryAddValue(cfDictionary.get(), charSetKey.get(), charSetValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 2);
 
     // CFDataRef
-    auto dataKey = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
-    auto dataValue = adoptCF(CFSTR("dataValue"));
+    RetainPtr dataKey = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
+    RetainPtr dataValue = adoptCF(CFSTR("dataValue"));
     CFDictionaryAddValue(cfDictionary.get(), dataKey.get(), dataValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 3);
 
     // CFDateRef
-    auto dateKey = adoptCF(CFDateCreate(kCFAllocatorDefault, 1.23));
-    auto dateValue = adoptCF(CFSTR("dateValue"));
+    RetainPtr dateKey = adoptCF(CFDateCreate(kCFAllocatorDefault, 1.23));
+    RetainPtr dateValue = adoptCF(CFSTR("dateValue"));
     CFDictionaryAddValue(cfDictionary.get(), dateKey.get(), dateValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 4);
 
     // CFDictionaryRef
-    auto dictKey = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    auto dictValue = adoptCF(CFSTR("dictValue"));
-    auto key1 = adoptCF(CFSTR("key1"));
-    auto value1 = adoptCF(CFSTR("value1"));
+    RetainPtr dictKey = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    RetainPtr dictValue = adoptCF(CFSTR("dictValue"));
+    RetainPtr key1 = adoptCF(CFSTR("key1"));
+    RetainPtr value1 = adoptCF(CFSTR("value1"));
     CFDictionaryAddValue(dictKey.get(), key1.get(), value1.get());
     CFDictionaryAddValue(cfDictionary.get(), dictKey.get(), dictValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 5);
 
     // CFNullRef
-    auto nullKey = adoptCF(kCFNull);
-    auto nullValue = adoptCF(CFSTR("nullValue"));
+    RetainPtr nullKey = adoptCF(kCFNull);
+    RetainPtr nullValue = adoptCF(CFSTR("nullValue"));
     CFDictionaryAddValue(cfDictionary.get(), nullKey.get(), nullValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 6);
 
     // CFNumberRef
     int32_t num = 123;
-    auto numberKey = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, (const void*)&num));
-    auto numberValue = adoptCF(CFSTR("numberValue"));
+    RetainPtr numberKey = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, (const void*)&num));
+    RetainPtr numberValue = adoptCF(CFSTR("numberValue"));
     CFDictionaryAddValue(cfDictionary.get(), numberKey.get(), numberValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 7);
 
     // CFStringRef
-    auto stringKey = adoptCF(CFSTR("stringKey"));
-    auto stringValue = adoptCF(CFSTR("stringValue"));
+    RetainPtr stringKey = adoptCF(CFSTR("stringKey"));
+    RetainPtr stringValue = adoptCF(CFSTR("stringValue"));
     CFDictionaryAddValue(cfDictionary.get(), stringKey.get(), stringValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 8);
 
     // CFURLRef
-    auto url = adoptCF(CFSTR("localhost.com"));
-    auto urlKey = adoptCF(CFURLCreateWithString(kCFAllocatorDefault, url.get(), NULL));
-    auto urlValue = adoptCF(CFSTR("urlValue"));
+    RetainPtr url = adoptCF(CFSTR("localhost.com"));
+    RetainPtr urlKey = adoptCF(CFURLCreateWithString(kCFAllocatorDefault, url.get(), NULL));
+    RetainPtr urlValue = adoptCF(CFSTR("urlValue"));
     CFDictionaryAddValue(cfDictionary.get(), urlKey.get(), urlValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 9);
 
     // SecCertificateRef
     auto secCertificateKey = createCertificate();
-    auto secCertificateValue = adoptCF(CFSTR("secCertificateValue"));
+    RetainPtr secCertificateValue = adoptCF(CFSTR("secCertificateValue"));
     CFDictionaryAddValue(cfDictionary.get(), secCertificateKey.get(), secCertificateValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 10);
 
     // SecTrustRef
     auto certificate = createCertificate();
     NSArray* certArray = @[(__bridge id) certificate.get()];
-    auto policy = adoptCF(SecPolicyCreateBasicX509());
+    RetainPtr policy = adoptCF(SecPolicyCreateBasicX509());
     SecTrustRef trust;
     SecTrustCreateWithCertificates((__bridge CFTypeRef) certArray, policy.get(), &trust);
 
-    auto secTrustKey = adoptCF(trust);
-    auto secTrustValue = adoptCF(CFSTR("secTrustValue"));
+    RetainPtr secTrustKey = adoptCF(trust);
+    RetainPtr secTrustValue = adoptCF(CFSTR("secTrustValue"));
     CFDictionaryAddValue(cfDictionary.get(), secTrustKey.get(), secTrustValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 11);
 
     // CGColorSpaceRef
-    auto colorSpaceKey = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
-    auto colorSpaceValue = adoptCF(CFSTR("colorSpaceValue"));
+    RetainPtr colorSpaceKey = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+    RetainPtr colorSpaceValue = adoptCF(CFSTR("colorSpaceValue"));
     CFDictionaryAddValue(cfDictionary.get(), colorSpaceKey.get(), colorSpaceValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 12);
 
     // CGColorRef
-    auto colorKey = adoptCF(CGColorCreateSRGB(1.0, 0.0, 0.0, 1.0));
-    auto colorValue = adoptCF(CFSTR("colorValue"));
+    RetainPtr colorKey = adoptCF(CGColorCreateSRGB(1.0, 0.0, 0.0, 1.0));
+    RetainPtr colorValue = adoptCF(CFSTR("colorValue"));
     CFDictionaryAddValue(cfDictionary.get(), colorKey.get(), colorValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 13);
 
@@ -2456,14 +2630,14 @@ TEST(CoreIPCCFDictionary, InsertDifferentKeyTypes)
         (id)kSecAttrSynchronizable : @(NO),
         (id)kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly : @(YES),
         (id)kSecAttrAccessibleWhenUnlocked: @(YES) };
-    auto secAccessControlKey = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
-    auto secAccessControlValue = adoptCF(CFSTR("secAccessControlValue"));
+    RetainPtr secAccessControlKey = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
+    RetainPtr secAccessControlValue = adoptCF(CFSTR("secAccessControlValue"));
     CFDictionaryAddValue(cfDictionary.get(), secAccessControlKey.get(), secAccessControlValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 14);
 
     // CFSocketRef (should not be accepted by CoreIPCCFDictionary)
-    auto socketKey = adoptCF(CFSocketCreate(kCFAllocatorDefault, 0, 0, 0, 0, NULL, NULL));
-    auto socketValue = adoptCF(CFSTR("socketValue"));
+    RetainPtr socketKey = adoptCF(CFSocketCreate(kCFAllocatorDefault, 0, 0, 0, 0, NULL, NULL));
+    RetainPtr socketValue = adoptCF(CFSTR("socketValue"));
     CFDictionaryAddValue(cfDictionary.get(), socketKey.get(), socketValue.get());
     EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 15);
 

@@ -45,4 +45,5 @@
 #import "WKSLinearMediaPlayer.h"
 #import "WKSLinearMediaTypes.h"
 #import "WKStageMode.h"
+#import "WKStageModeOrbitSimulator.h"
 #import "WKTextAnimationManagerIOS.h"

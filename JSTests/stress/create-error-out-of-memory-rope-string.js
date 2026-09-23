@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 function assert(a, message) {
     if (!a)
         throw new Error(message);

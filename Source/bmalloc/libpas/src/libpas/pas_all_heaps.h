@@ -26,7 +26,6 @@
 #ifndef PAS_ALL_HEAPS_H
 #define PAS_ALL_HEAPS_H
 
-#include "pas_allocator_scavenge_action.h"
 #include "pas_heap_summary.h"
 #include "pas_lock.h"
 #include "pas_utils.h"

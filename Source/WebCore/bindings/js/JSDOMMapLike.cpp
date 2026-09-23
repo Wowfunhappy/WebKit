@@ -28,6 +28,7 @@
 
 #include "WebCoreJSBuiltinInternals.h"
 #include "WebCoreJSClientData.h"
+#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSMap.h>
 #include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/VMTrapsInlines.h>

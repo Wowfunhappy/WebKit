@@ -38,10 +38,12 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <wtf/Assertions.h>
+#include <wtf/Borrow.h>
 #include <wtf/MallocSpan.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/Threading.h>
 #include <wtf/UniStdExtras.h>
 
 #if OS(DARWIN)
@@ -127,7 +129,8 @@ bool Connection::processMessage()
     if (m_readBuffer.size() < sizeof(MessageInfo))
         return false;
 
-    auto messageData = m_readBuffer.mutableSpan();
+    Borrow readBuffer = m_readBuffer;
+    auto messageData = readBuffer->mutableSpan();
     MessageInfo messageInfo;
     memcpySpan(asMutableByteSpan(messageInfo), consumeSpan(messageData, sizeof(messageInfo)));
 

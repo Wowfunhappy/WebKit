@@ -29,6 +29,7 @@
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 

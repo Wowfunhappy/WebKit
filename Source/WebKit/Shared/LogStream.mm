@@ -31,6 +31,7 @@
 #import "StreamConnectionWorkQueue.h"
 #import "StreamServerConnection.h"
 #import "WebProcessProxy.h"
+#import <wtf/NeverDestroyed.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/TZoneMallocInlines.h>
 
@@ -45,6 +46,17 @@ namespace WebKit {
 static std::atomic<unsigned> globalLogCountForTesting { 0 };
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LogStream);
+
+#if ENABLE(STREAMING_IPC_IN_LOG_FORWARDING)
+// All LogStreams share a single work queue: the StreamServerConnection for each LogStream is opened on
+// (and thus bound to) this queue, so all of its connection work -- including invalidate() -- must run
+// on it. See rdar://182244946 and the comment in stopListeningForIPC().
+static IPC::StreamConnectionWorkQueue& logWorkQueue()
+{
+    static NeverDestroyed<Ref<IPC::StreamConnectionWorkQueue>> queue = IPC::StreamConnectionWorkQueue::create("Log work queue"_s);
+    return queue.get();
+}
+#endif
 
 LogStream::LogStream(WebProcessProxy& process, Ref<ConnectionType>&& connection, LogStreamIdentifier identifier)
     : m_connection(WTF::move(connection))
@@ -62,48 +74,67 @@ void LogStream::stopListeningForIPC()
 {
     assertIsMainRunLoop();
 #if ENABLE(STREAMING_IPC_IN_LOG_FORWARDING)
-    m_connection->stopReceivingMessages(Messages::LogStream::messageReceiverName(), m_identifier.toUInt64());
+    // Fully tear down the stream connection. stopReceivingMessages() clears the StreamServerConnection's
+    // receiver map (breaking the m_receivers <-> m_connection retain cycle so the objects can be freed),
+    // and invalidate() invalidates the underlying IPC::Connection so its Mach port / kqueue workloop is
+    // released. Neither alone is sufficient; without this the connection leaked after the WebContent
+    // process was gone, until the UI process was killed for resource exhaustion. See rdar://182244946.
+    //
+    // The connection was opened on the log work queue, so it is bound to that queue's dispatcher and its
+    // teardown must run there too: IPC::Connection::invalidate() asserts it is called on its own
+    // dispatcher (a release ASSERT_WITH_SECURITY_IMPLICATION). Dispatch the teardown onto the queue
+    // rather than running it synchronously on the main thread. The queue is shared by every LogStream,
+    // so we must not stop it (unlike single-owner StreamServerConnection users, which can block in
+    // StreamConnectionWorkQueue::stopAndWaitForCompletion()); we only invalidate our own connection.
+    //
+    // We are typically the last reference holder (ScopedActiveMessageReceiveQueue drops its RefPtr as
+    // soon as this returns), so capture Ref to both the LogStream and its connection: invalidate()
+    // clears the connection's CheckedPtr back to us (the client), so the LogStream must outlive the
+    // dispatched teardown.
+    logWorkQueue().dispatch([protectedThis = Ref { *this }, connection = Ref { m_connection }, identifier = m_identifier] {
+        connection->stopReceivingMessages(Messages::LogStream::messageReceiverName(), identifier.toUInt64());
+        connection->invalidate();
+    });
 #endif
 }
 
-void LogStream::logOnBehalfOfWebContent(std::span<const uint8_t> logSubsystem, std::span<const uint8_t> logCategory, std::span<const uint8_t> nullTerminatedLogString, uint8_t logType)
+void LogStream::logOnBehalfOfWebContent(std::span<const uint8_t> subsystemSpan, std::span<const uint8_t> categorySpan, std::span<const uint8_t> stringSpan, uint8_t logType)
 {
 #if ENABLE(STREAMING_IPC_IN_LOG_FORWARDING)
     ASSERT(!isMainRunLoop());
 #endif
-    auto isNullTerminated = [](std::span<const uint8_t> view) {
-        return view.data() && !view.empty() && view.back() == '\0';
-    };
-
-    bool isValidLogType = logType == OS_LOG_TYPE_DEFAULT || logType == OS_LOG_TYPE_INFO || logType == OS_LOG_TYPE_DEBUG || logType == OS_LOG_TYPE_ERROR || logType == OS_LOG_TYPE_FAULT;
 
     RefPtr connection = m_connection.get();
-    MESSAGE_CHECK(isNullTerminated(nullTerminatedLogString) && isValidLogType, connection);
-    MESSAGE_CHECK(logSubsystem.size() <= logSubsystemMaxSize, connection);
-    MESSAGE_CHECK(logCategory.size() <= logCategoryMaxSize, connection);
-    MESSAGE_CHECK(nullTerminatedLogString.size() <= logStringMaxSize, connection);
+
+    bool isValidLogType = logType == OS_LOG_TYPE_DEFAULT || logType == OS_LOG_TYPE_INFO || logType == OS_LOG_TYPE_DEBUG || logType == OS_LOG_TYPE_ERROR || logType == OS_LOG_TYPE_FAULT;
+    MESSAGE_CHECK(isValidLogType, connection);
+
+    CString subsystem = subsystemSpan;
+    CString category = categorySpan;
+    CString string = stringSpan;
+    MESSAGE_CHECK(subsystem.length() < logSubsystemMaxSize, connection);
+    MESSAGE_CHECK(category.length() < logCategoryMaxSize, connection);
+    MESSAGE_CHECK(string.length() < logStringMaxSize, connection);
 
     // os_log_hook on sender side sends a null category and subsystem when logging to OS_LOG_DEFAULT.
     OSObjectPtr<os_log_t> osLog;
-    if (isNullTerminated(logSubsystem) && isNullTerminated(logCategory)) {
-        auto subsystem = byteCast<char>(logSubsystem.data());
-        auto category = byteCast<char>(logCategory.data());
-        if (equalSpans("Testing\0"_span, logCategory))
+    if (!subsystem.isEmpty() && !category.isEmpty()) {
+        if (category == "Testing"_s)
             globalLogCountForTesting++;
-        osLog = adoptOSObject(os_log_create(subsystem, category));
+        osLog = adoptOSObject(os_log_create(subsystem.data(), category.data()));
     }
     if (!osLog)
         osLog = OS_LOG_DEFAULT;
 
 #if HAVE(OS_SIGNPOST)
-    if (WTFSignpostHandleIndirectLog(osLog.get(), m_pid, byteCast<char>(nullTerminatedLogString)))
+    if (WTFSignpostHandleIndirectLog(osLog.get(), m_pid, string.spanIncludingNullTerminator()))
         return;
 #endif
 
     // Use '%{public}s' in the format string for the preprocessed string from the WebContent process.
     // This should not reveal any redacted information in the string, since it has already been composed in the WebContent process.
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-    SUPPRESS_UNCOUNTED_LOCAL os_log_with_type(osLog.get(), static_cast<os_log_type_t>(logType), "WebContent[%d] %{public}s", m_pid, byteCast<char>(nullTerminatedLogString).data());
+    SUPPRESS_UNCOUNTED_LOCAL os_log_with_type(osLog.get(), static_cast<os_log_type_t>(logType), "WebContent[%d] %{public}s", m_pid, string.data());
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
@@ -112,20 +143,24 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 RefPtr<LogStream> LogStream::create(WebProcessProxy& process, IPC::StreamServerConnectionHandle&& serverConnection, LogStreamIdentifier identifier, CompletionHandler<void(IPC::Semaphore& streamWakeUpSemaphore, IPC::Semaphore& streamClientWaitSemaphore)>&& completionHandler)
 {
     RefPtr connection = IPC::StreamServerConnection::tryCreate(WTF::move(serverConnection), { });
-    if (!connection)
+    if (!connection) {
+        IPC::Semaphore invalidWakeUpSemaphore;
+        IPC::Semaphore invalidClientWaitSemaphore;
+        completionHandler(invalidWakeUpSemaphore, invalidClientWaitSemaphore);
         return nullptr;
-    static NeverDestroyed<Ref<IPC::StreamConnectionWorkQueue>> logQueue = IPC::StreamConnectionWorkQueue::create("Log work queue"_s);
+    }
+    Ref logQueue = logWorkQueue();
 
     Ref instance = adoptRef(*new LogStream(process, connection.releaseNonNull(), identifier));
     instance->m_connection->open(instance.get(), logQueue.get());
     instance->m_connection->startReceivingMessages(instance, Messages::LogStream::messageReceiverName(), identifier.toUInt64());
-    completionHandler(logQueue.get()->wakeUpSemaphore(), instance->m_connection->clientWaitSemaphore());
+    completionHandler(logQueue->wakeUpSemaphore(), instance->m_connection->clientWaitSemaphore());
     return instance;
 }
 
 void LogStream::didReceiveInvalidMessage(IPC::StreamServerConnection&, IPC::MessageName messageName, const Vector<uint32_t>&)
 {
-    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, makeString("Received an invalid message '"_s, description(messageName), "' from WebContent process, requesting for it to be terminated."_s).utf8().data());
+    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, "Received an invalid message %s from WebContent process %d, requesting for it to be terminated.", description(messageName), m_pid);
     callOnMainRunLoop([weakProcess = m_process] {
         if (RefPtr process = weakProcess.get())
             process->terminate();

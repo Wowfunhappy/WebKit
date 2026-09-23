@@ -34,7 +34,10 @@
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
 #include <wtf/ThreadSafeWeakPtr.h>
-#include <wtf/Threading.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
@@ -76,7 +79,7 @@ private:
 
     // Holding a m_threadLock is required when accessing m_databaseLoaderThread.
     Lock m_threadLock;
-    RefPtr<Thread> m_databaseLoaderThread WTF_GUARDED_BY_LOCK(m_threadLock);
+    RefPtr<WTF::Thread> m_databaseLoaderThread WTF_GUARDED_BY_LOCK(m_threadLock);
 
     float m_databaseSampleRate;
 };

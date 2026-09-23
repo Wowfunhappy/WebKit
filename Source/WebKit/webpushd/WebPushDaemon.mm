@@ -736,7 +736,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 Seconds WebPushDaemon::silentPushTimeout() const
 {
-    return m_usingMockPushService ? silentPushTimeoutForTesting : silentPushTimeoutForProduction;
+    return m_usingMockPushService ? WebCore::silentPushTimeoutForTesting : WebCore::silentPushTimeoutForProduction;
 }
 
 // This only needs to be called if the first entry in m_potentialSilentPushes was changed or removed.
@@ -1037,6 +1037,19 @@ void WebPushDaemon::removePushSubscriptionsForOrigin(PushClientConnection& conne
         }
 
         daemon.m_pushService->removeRecordsForSubscriptionSetAndOrigin(identifier, securityOrigin, WTF::move(replySender));
+    });
+}
+
+void WebPushDaemon::getAllPushSubscriptionOrigins(PushClientConnection&, CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&& replySender)
+{
+    runAfterStartingPushService([replySender = WTF::move(replySender)]() mutable {
+        auto& daemon = WebPushDaemon::singleton();
+        if (!daemon.m_pushService) {
+            replySender({ });
+            return;
+        }
+
+        daemon.m_pushService->getAllPushSubscriptionOrigins(WTF::move(replySender));
     });
 }
 

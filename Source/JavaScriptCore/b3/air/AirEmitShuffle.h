@@ -29,6 +29,7 @@
 
 #include "AirArg.h"
 #include "AirInst.h"
+#include "AirOpcode.h"
 #include <wtf/Vector.h>
 
 namespace JSC { namespace B3 {
@@ -75,7 +76,7 @@ public:
     // For GP, it picks between Move32 and Move. For FP, it picks between MoveFloat and MoveDouble.
     Width width() const { return m_width; }
     
-    Bank bank() const;
+    Bank NODELETE bank() const;
 
     // Creates an instruction sequence for the move represented by this shuffle pair.
     // You need to pass Code because we may need to create a tmp.
@@ -90,7 +91,7 @@ private:
 };
 
 // Create a Shuffle instruction.
-Inst createShuffle(Value* origin, const Vector<ShufflePair>&);
+Inst createShuffle(Value* origin, std::span<const ShufflePair>);
 
 // Perform a shuffle of a given type. The scratch argument is mandatory. You should pass it as
 // follows: If you know that you have scratch registers or temporaries available - that is, they're

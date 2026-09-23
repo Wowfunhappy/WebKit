@@ -45,6 +45,7 @@ promise_test(async (test) => {
         testRunner.setUserMediaPermission(true);
 
     const localStream = await navigator.mediaDevices.getUserMedia({video: true});
+    test.add_cleanup(() => localStream.getTracks().forEach(t => t.stop()));
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             firstConnection.addTrack(localStream.getVideoTracks()[0], localStream);
@@ -71,6 +72,7 @@ promise_test(async (test) => {
         testRunner.setUserMediaPermission(true);
 
     const localStream = await navigator.mediaDevices.getUserMedia({video: true});
+    test.add_cleanup(() => localStream.getTracks().forEach(t => t.stop()));
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             firstConnection.addTrack(localStream.getVideoTracks()[0], localStream);

@@ -31,7 +31,6 @@
 #include <sys/qos.h>
 #endif
 
-#include "pas_allocation_mode.h"
 
 PAS_BEGIN_EXTERN_C;
 

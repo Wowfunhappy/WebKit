@@ -37,7 +37,7 @@
 #include <wtf/MetaAllocatorHandle.h>
 #endif
 
-#if BENABLE(LIBPAS) && (OS(DARWIN) || OS(LINUX))
+#if BENABLE(LIBPAS) && (OS(DARWIN) || OS(LINUX) || OS(WINDOWS))
 #define ENABLE_LIBPAS_JIT_HEAP 1
 #endif
 

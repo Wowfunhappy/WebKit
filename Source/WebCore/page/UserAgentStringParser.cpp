@@ -34,7 +34,6 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringCommon.h>
 #include <wtf/text/StringImpl.h>
-#include <wtf/text/WTFString.h>
 
 /*
  * GRAMMAR:
@@ -260,7 +259,7 @@ void UserAgentStringParser::populateUserAgentData()
                 return;
             }
             if (p.name == "Safari") {
-                browsersSeen.firefoxVersion = p.version;
+                browsersSeen.safariVersion = p.version;
                 browsersSeen.safari = true;
                 return;
             }

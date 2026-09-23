@@ -32,6 +32,10 @@
 #include <WebCore/FetchOptions.h>
 #include <WebCore/ResourceLoaderOptions.h>
 
+namespace WTF {
+class URL;
+}
+
 namespace WebCore {
 
 class LocalFrame;
@@ -48,6 +52,8 @@ bool shouldUpgradeInsecureContent(LocalFrame&, IsUpgradable, const URL&, FetchOp
 bool shouldBlockRequest(Frame&, const URL&, IsUpgradable = IsUpgradable::No);
 
 WEBCORE_EXPORT bool canModifyRequest(const URL&, FetchOptions::Destination, Initiator);
+
+WEBCORE_EXPORT String mixedContentViolationMessage(bool shouldUpgradeLocalhostAndIPAddressInMixedContent, bool blocked, const URL& current, const URL& target);
 
 } // namespace MixedContentChecker
 } // namespace WebCore

@@ -33,11 +33,13 @@ namespace WebCore {
 #define WEBCORE_COMMON_ATOM_STRINGS_FOR_EACH_KEYWORD(macro) \
     macro(all, "all") \
     macro(alternative, "alternative") \
+    macro(any, "any") \
     macro(applicationXHTMLContentType, "application/xhtml+xml") \
     macro(applicationXMLContentType, "application/xml") \
     macro(applicationOctetStream, "application/octet-stream") \
     macro(auto, "auto") \
-    macro(captions, "captions") \
+    macro(captions, "captions")                             \
+    macro(closerequest, "closerequest") \
     macro(commentary, "commentary") \
     macro(cssContentType, "text/css") \
     macro(eager, "eager") \

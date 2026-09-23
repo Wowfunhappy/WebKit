@@ -53,7 +53,7 @@ SandboxExtensionImpl::SandboxExtensionImpl(std::span<const uint8_t> serializedFo
 SandboxExtensionImpl::~SandboxExtensionImpl()
 {
     if (!m_token.isNull())
-        secureMemsetSpan(m_token.mutableSpan(), 0);
+        secureZeroSpan(m_token.mutableSpan());
 }
 
 [[nodiscard]] bool SandboxExtensionImpl::consume()

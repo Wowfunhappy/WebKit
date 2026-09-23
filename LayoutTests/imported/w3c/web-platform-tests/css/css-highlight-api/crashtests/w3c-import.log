@@ -14,5 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/css/css-highlight-api/crashtests/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/css/css-highlight-api/crashtests/highlight-first-letter-float-crash.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-highlight-api/crashtests/highlight-image-multiple-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-highlight-api/crashtests/highlight-overlap-with-aria-invalid-crash.html

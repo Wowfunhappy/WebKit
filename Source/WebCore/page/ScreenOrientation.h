@@ -61,7 +61,7 @@ private:
     ScreenOrientation(Document*);
 
     Document* NODELETE document() const;
-    ScreenOrientationManager* manager() const;
+    ScreenOrientationManager* NODELETE manager() const;
 
     bool shouldListenForChangeNotification() const;
 

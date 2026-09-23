@@ -76,12 +76,14 @@ void applyProcessCreationParameters(AuxiliaryProcessCreationParameters&& paramet
     RELEASE_ASSERT(!exemptClassNames);
 
     if (parameters.classNamesExemptFromSecureCodingCrash)
-        *exemptClassNames = WTF::move(*parameters.classNamesExemptFromSecureCodingCrash);
+        exemptClassNames = WTF::move(parameters.classNamesExemptFromSecureCodingCrash);
 }
 
 } // namespace SecureCoding
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors needs the generic secure coder independently of NSURLRequest.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCSecureCoding);
 #endif
 
@@ -91,7 +93,9 @@ bool conformsToWebKitSecureCoding(id object)
         && [object respondsToSelector:@selector(_initWithWebKitPropertyListData:)];
 }
 
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+// MAVERICKS_BACKPORT: Data Detectors needs the generic secure coder independently of NSURLRequest.
+// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 [[noreturn]] static void crashWithClassName(Class objectClass)
 {
     WebKit::logAndSetCrashLogMessage("NSSecureCoding path used for unexpected object"_s);
@@ -113,7 +117,9 @@ CoreIPCSecureCoding::CoreIPCSecureCoding(id object)
     if (exemptClassNames->contains(NSStringFromClass([object class])))
         return;
 
-    crashWithClassName([object class]);
+    // MAVERICKS_BACKPORT: Qualify the secure coder helper in unified Objective-C++ translation units.
+    // crashWithClassName([object class]);
+    WebKit::crashWithClassName([object class]);
 }
 #endif
 

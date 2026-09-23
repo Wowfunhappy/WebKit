@@ -55,7 +55,7 @@ public:
 
     virtual ~DocumentTimeline();
 
-    Document* document() const { return m_document.get(); }
+    Document* document() const;
 
     std::optional<WebAnimationTime> currentTime(UseCachedCurrentTime = UseCachedCurrentTime::Yes) override;
     ExceptionOr<Ref<WebAnimation>> animate(Ref<CustomEffectCallback>&&, Variant<double, CustomAnimationOptions>&&);
@@ -98,7 +98,7 @@ private:
 
     AnimationTimelinesController* controller() const override;
 #if ENABLE(THREADED_ANIMATIONS)
-    bool canBeAccelerated() const final { return true; }
+    bool canBeAccelerated() const final;
     Ref<AcceleratedTimeline> createAcceleratedRepresentation() const final;
 #endif
 

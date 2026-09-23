@@ -228,6 +228,8 @@
 		97CB27C12F43C25F0024DD32 /* AliasAnalysis.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97CB27BF2F43C25F0024DD32 /* AliasAnalysis.cpp */; };
 		97CB27CC2F579A6F0024DD32 /* UniformityAnalysis.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97CB27CB2F579A6F0024DD32 /* UniformityAnalysis.cpp */; };
 		97CB27CD2F579A6F0024DD32 /* UniformityAnalysis.h in Headers */ = {isa = PBXBuildFile; fileRef = 97CB27CA2F579A6F0024DD32 /* UniformityAnalysis.h */; };
+		97CB27D22F730F670024DD32 /* IOValidator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97CB27D12F730F670024DD32 /* IOValidator.cpp */; };
+		97CB27D32F730F670024DD32 /* IOValidator.h in Headers */ = {isa = PBXBuildFile; fileRef = 97CB27D02F730F670024DD32 /* IOValidator.h */; };
 		97D398E32B05106000D8C4AA /* ASTFloat16Literal.h in Headers */ = {isa = PBXBuildFile; fileRef = 97D398E22B05106000D8C4AA /* ASTFloat16Literal.h */; };
 		97D398E62B06A85B00D8C4AA /* ASTDiagnosticDirective.h in Headers */ = {isa = PBXBuildFile; fileRef = 97D398E42B06A85B00D8C4AA /* ASTDiagnosticDirective.h */; };
 		97D398E72B06A85B00D8C4AA /* ASTDiagnostic.h in Headers */ = {isa = PBXBuildFile; fileRef = 97D398E52B06A85B00D8C4AA /* ASTDiagnostic.h */; };
@@ -246,6 +248,7 @@
 		97FA1AA729C0DA890052D650 /* libwgsl.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1CEBD7F22716B2CC00A5254D /* libwgsl.a */; };
 		DD05A35C27BF09C60096EFAB /* libWTF.a in Product Dependencies */ = {isa = PBXBuildFile; fileRef = 1CEBD8292716CAE700A5254D /* libWTF.a */; };
 		DD5697FE2DC1316A00050321 /* rdar150228472.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD5697FC2DC1311D00050321 /* rdar150228472.swift */; };
+		DDE748802F7B4337008013AB /* WorkAround173516139.h in Headers */ = {isa = PBXBuildFile; fileRef = DDE7487F2F7B4331008013AB /* WorkAround173516139.h */; settings = {ATTRIBUTES = (Private, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -264,6 +267,21 @@
 			);
 			runOncePerArchitecture = 0;
 			script = "/usr/bin/env ruby \"${SCRIPT_INPUT_FILE_0}\" \"${INPUT_FILE_PATH}\" \"${SCRIPT_OUTPUT_FILE_0}\" \"${SCRIPT_OUTPUT_FILE_1}\"\n";
+		};
+		DDE748762F7B28F4008013AB /* PBXBuildRule */ = {
+			isa = PBXBuildRule;
+			compilerSpec = com.apple.compilers.proxy.script;
+			filePatterns = "*/WorkAround173516139.h";
+			fileType = pattern.proxy;
+			inputFiles = (
+				"$(WK_HEADERS_VFS_FILE)",
+			);
+			isEditable = 1;
+			name = "Workaround for rdar://173516139";
+			outputFiles = (
+				"$(HEADER_OUTPUT_DIR)/$(INPUT_FILE_NAME)",
+			);
+			script = "cp \"${INPUT_FILE_PATH}\" \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 		};
 /* End PBXBuildRule section */
 
@@ -565,6 +583,8 @@
 		97CB27BF2F43C25F0024DD32 /* AliasAnalysis.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = AliasAnalysis.cpp; sourceTree = "<group>"; };
 		97CB27CA2F579A6F0024DD32 /* UniformityAnalysis.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UniformityAnalysis.h; sourceTree = "<group>"; };
 		97CB27CB2F579A6F0024DD32 /* UniformityAnalysis.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = UniformityAnalysis.cpp; sourceTree = "<group>"; };
+		97CB27D02F730F670024DD32 /* IOValidator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IOValidator.h; sourceTree = "<group>"; };
+		97CB27D12F730F670024DD32 /* IOValidator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = IOValidator.cpp; sourceTree = "<group>"; };
 		97D398E22B05106000D8C4AA /* ASTFloat16Literal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASTFloat16Literal.h; sourceTree = "<group>"; };
 		97D398E42B06A85B00D8C4AA /* ASTDiagnosticDirective.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASTDiagnosticDirective.h; sourceTree = "<group>"; };
 		97D398E52B06A85B00D8C4AA /* ASTDiagnostic.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASTDiagnostic.h; sourceTree = "<group>"; };
@@ -586,6 +606,7 @@
 		DD7181312E21D3C800A096B7 /* AllowedSPI.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = AllowedSPI.toml; sourceTree = "<group>"; };
 		DD7181322E21D3C800A096B7 /* AllowedSPI-legacy.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AllowedSPI-legacy.toml"; sourceTree = "<group>"; };
 		DD8EE22F2CE6B4B3004DD6F8 /* module.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = module.modulemap; sourceTree = "<group>"; };
+		DDE7487F2F7B4331008013AB /* WorkAround173516139.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WorkAround173516139.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -739,6 +760,7 @@
 				075BAABF2EEFCAE1008765CE /* WGPUQuerySetImpl.h */,
 				075BAABB2EEFC6B4008765CE /* WGPUTextureImpl.h */,
 				075BAABD2EEFCA9C008765CE /* WGPUTextureViewImpl.h */,
+				DDE7487F2F7B4331008013AB /* WorkAround173516139.h */,
 				0D943C0D2C6571BC00D33BA5 /* XRBinding.h */,
 				0D943C0E2C6571BC00D33BA5 /* XRBinding.mm */,
 				0DD5FD332C66947B004AF552 /* XRProjectionLayer.h */,
@@ -784,6 +806,8 @@
 				979EDBB02A826B2800B4B7D0 /* GlobalSorting.h */,
 				97F547B6298055D90011D79A /* GlobalVariableRewriter.cpp */,
 				97F547B7298055D90011D79A /* GlobalVariableRewriter.h */,
+				97CB27D12F730F670024DD32 /* IOValidator.cpp */,
+				97CB27D02F730F670024DD32 /* IOValidator.h */,
 				338BB2D527B6B68700E066AB /* Lexer.cpp */,
 				338BB2D327B6B66C00E066AB /* Lexer.h */,
 				978A9123298A4E8400B37E5E /* MangleNames.cpp */,
@@ -1040,6 +1064,7 @@
 				075BAAC02EEFCAE1008765CE /* WGPUQuerySetImpl.h in Headers */,
 				075BAABC2EEFC6B4008765CE /* WGPUTextureImpl.h in Headers */,
 				075BAABE2EEFCA9C008765CE /* WGPUTextureViewImpl.h in Headers */,
+				DDE748802F7B4337008013AB /* WorkAround173516139.h in Headers */,
 				0D943C0F2C6571BC00D33BA5 /* XRBinding.h in Headers */,
 				0DD5FD352C66947B004AF552 /* XRProjectionLayer.h in Headers */,
 				0D943C242C65E46400D33BA5 /* XRSubImage.h in Headers */,
@@ -1138,6 +1163,7 @@
 				979240C829769AC00050EA2C /* EntryPointRewriter.h in Headers */,
 				979EDBB22A826B2800B4B7D0 /* GlobalSorting.h in Headers */,
 				97F547B9298055D90011D79A /* GlobalVariableRewriter.h in Headers */,
+				97CB27D32F730F670024DD32 /* IOValidator.h in Headers */,
 				338BB2D427B6B66C00E066AB /* Lexer.h in Headers */,
 				978A9126298A4E8400B37E5E /* MangleNames.h in Headers */,
 				979240B6297018290050EA2C /* MetalCodeGenerator.h in Headers */,
@@ -1194,6 +1220,7 @@
 				DD725EBA2D8937A200E72544 /* Audit SPI use */,
 			);
 			buildRules = (
+				DDE748762F7B28F4008013AB /* PBXBuildRule */,
 			);
 			dependencies = (
 				31EAB9DF2CD039A100E92E40 /* PBXTargetDependency */,
@@ -1247,7 +1274,7 @@
 			isa = PBXProject;
 			attributes = {
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1330;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					1CA5B4F02A6F28C400E5F297 = {
 						CreatedOnToolsVersion = 15.0;
@@ -1349,6 +1376,11 @@
 			);
 			inputPaths = (
 				"$(WTF_BUILD_SCRIPTS_DIR)/audit-spi-if-needed.sh",
+				"$(BUILT_PRODUCTS_DIR)/DerivedSources/WebGPU/platform-enabled-swift-args.arm64.resp",
+				"$(BUILT_PRODUCTS_DIR)/DerivedSources/WebGPU/platform-enabled-swift-args.arm64_32.resp",
+				"$(BUILT_PRODUCTS_DIR)/DerivedSources/WebGPU/platform-enabled-swift-args.arm64e.resp",
+				"$(BUILT_PRODUCTS_DIR)/DerivedSources/WebGPU/platform-enabled-swift-args.armv7k.resp",
+				"$(BUILT_PRODUCTS_DIR)/DerivedSources/WebGPU/platform-enabled-swift-args.x86_64.resp",
 			);
 			name = "Audit SPI use";
 			outputFileListPaths = (
@@ -1435,6 +1467,7 @@
 				979240C929769AC00050EA2C /* EntryPointRewriter.cpp in Sources */,
 				979EDBB12A826B2800B4B7D0 /* GlobalSorting.cpp in Sources */,
 				97F547B8298055D90011D79A /* GlobalVariableRewriter.cpp in Sources */,
+				97CB27D22F730F670024DD32 /* IOValidator.cpp in Sources */,
 				338BB2D627B6B68700E066AB /* Lexer.cpp in Sources */,
 				978A9125298A4E8400B37E5E /* MangleNames.cpp in Sources */,
 				979240B8297018290050EA2C /* MetalCodeGenerator.cpp in Sources */,

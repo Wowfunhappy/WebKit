@@ -123,6 +123,12 @@ public:
 
     const String& localizedDecimalSeparator();
 
+    // Converts digit and decimal separator characters to their localized
+    // equivalents, passing through all other characters unchanged. Unlike
+    // convertToLocalizedNumber, this handles partial input (e.g. containing
+    // 'e', '+') and does not add sign prefixes or suffixes.
+    String localizeNumberCharacters(const String&);
+
     enum FormatType { FormatTypeUnspecified, FormatTypeShort, FormatTypeMedium };
 
     // Serializes the specified date into a formatted date string to

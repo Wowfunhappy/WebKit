@@ -19,7 +19,6 @@ list(APPEND WTF_SOURCES
     glib/URLGLib.cpp
 
     linux/CurrentProcessMemoryStatus.cpp
-    linux/MemoryFootprintLinux.cpp
     linux/RealTimeThreads.cpp
 
     posix/CPUTimePOSIX.cpp
@@ -33,18 +32,31 @@ list(APPEND WTF_SOURCES
 
     unix/LanguageUnix.cpp
     unix/LoggingUnix.cpp
-    unix/MemoryPressureHandlerUnix.cpp
     unix/UniStdExtrasUnix.cpp
 )
 
+if (ANDROID)
+    list(APPEND WTF_SOURCES
+        generic/MemoryFootprintGeneric.cpp
+        generic/MemoryPressureHandlerGeneric.cpp
+    )
+else ()
+    list(APPEND WTF_SOURCES
+        linux/MemoryFootprintLinux.cpp
+
+        unix/MemoryPressureHandlerUnix.cpp
+    )
+endif ()
+
 list(APPEND WTF_PUBLIC_HEADERS
+    PlatformEnableGlib.h
+
     android/RefPtrAndroid.h
 
     glib/ActivityObserver.h
     glib/Application.h
     glib/ChassisType.h
     glib/GMallocString.h
-    glib/GMutexLocker.h
     glib/GRefPtr.h
     glib/GResources.h
     glib/GSocketMonitor.h

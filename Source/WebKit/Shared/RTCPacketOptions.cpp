@@ -26,10 +26,14 @@
 #include "config.h"
 #include "RTCPacketOptions.h"
 
+#include <wtf/CheckedArithmetic.h>
+
 #if USE(LIBWEBRTC)
 
 
 namespace WebKit {
+
+#if !PLATFORM(COCOA)
 
 static_assert(static_cast<webrtc::DiffServCodePoint>(RTCPacketOptions::DifferentiatedServicesCodePoint::NoChange) == webrtc::DSCP_NO_CHANGE);
 static_assert(static_cast<webrtc::DiffServCodePoint>(RTCPacketOptions::DifferentiatedServicesCodePoint::Default) == webrtc::DSCP_DEFAULT);
@@ -107,10 +111,14 @@ static RTCPacketOptions::DifferentiatedServicesCodePoint NODELETE toDifferentiat
     return RTCPacketOptions::DifferentiatedServicesCodePoint::Default;
 }
 
+#endif // !PLATFORM(COCOA)
+
 RTCPacketOptions::RTCPacketOptions(const SerializableData& data)
 {
-    options.dscp = static_cast<webrtc::DiffServCodePoint>(data.dscp);
     options.packet_id = data.packetId;
+
+#if !PLATFORM(COCOA)
+    options.dscp = static_cast<webrtc::DiffServCodePoint>(data.dscp);
 
     webrtc::PacketTimeUpdateParams params;
     params.rtp_sendtime_extension_id = data.rtpSendtimeExtensionId;
@@ -120,17 +128,20 @@ RTCPacketOptions::RTCPacketOptions(const SerializableData& data)
     params.srtp_packet_index = data.srtpPacketIndex;
 
     options.packet_time_params = WTF::move(params);
+#endif
 }
 
 auto RTCPacketOptions::serializableData() const -> SerializableData
 {
     return {
-        toDifferentiatedServicesCodePoint(options.dscp),
         safeCast<int32_t>(options.packet_id),
+#if !PLATFORM(COCOA)
+        toDifferentiatedServicesCodePoint(options.dscp),
         options.packet_time_params.rtp_sendtime_extension_id,
         static_cast<int64_t>(options.packet_time_params.srtp_auth_tag_len),
-        options.packet_time_params.srtp_auth_tag_len > 0  ? std::span<const char> { } : std::span<const char> { options.packet_time_params.srtp_auth_key },
+        options.packet_time_params.srtp_auth_tag_len > 0  ? std::span<const char> { options.packet_time_params.srtp_auth_key } : std::span<const char> { },
         options.packet_time_params.srtp_packet_index
+#endif
     };
 }
 

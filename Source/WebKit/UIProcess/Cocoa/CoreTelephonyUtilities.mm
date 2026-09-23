@@ -79,11 +79,7 @@ bool shouldAllowAutoFillForCellularIdentifiers(const URL& topURL)
         return false;
     }
 
-#if HAVE(DELAY_INIT_LINKING)
     static NeverDestroyed cachedClient = adoptNS([[CoreTelephonyClient alloc] initWithQueue:mainDispatchQueueSingleton()]);
-#else
-    static NeverDestroyed cachedClient = adoptNS([PAL::allocCoreTelephonyClientInstance() initWithQueue:mainDispatchQueueSingleton()]);
-#endif
     RetainPtr client = cachedClient->get();
 
     static NeverDestroyed<String> lastQueriedHost;

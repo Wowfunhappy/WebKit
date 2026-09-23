@@ -32,13 +32,12 @@
 #include "ReadableStream.h"
 #include "ReadableStreamBYOBRequest.h"
 #include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
-DatagramByteSource::DatagramByteSource()
-{
-}
+DatagramByteSource::DatagramByteSource() = default;
 
 DatagramByteSource::~DatagramByteSource() = default;
 
@@ -188,7 +187,7 @@ void DatagramByteSource::tryEnqueuing(JSC::ArrayBuffer& buffer, ReadableByteStre
 void DatagramByteSource::error(JSC::JSGlobalObject& globalObject, JSC::JSValue value)
 {
     if (RefPtr controller = m_controller) {
-        auto& jsDOMGlobalObject = *JSC::jsCast<JSDOMGlobalObject*>(&globalObject);
+        auto& jsDOMGlobalObject = downcast<JSDOMGlobalObject>(globalObject);
         controller->error(jsDOMGlobalObject, value);
     }
 }

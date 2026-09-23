@@ -66,9 +66,7 @@ public:
 
     void updateAfterDescendants(RenderElement&);
     void destroyAndCleanUpAnonymousWrappers(RenderObject& child, const RenderElement* destroyRoot);
-    void normalizeTreeAfterStyleChange(RenderElement&, RenderStyle& oldStyle);
-
-    bool hasBrokenContinuation() const { return m_hasBrokenContinuation; }
+    void normalizeTreeAfterStyleChange(RenderElement&, Style::ComputedStyle& oldStyle);
 
 private:
     static void markBoxForRelayoutAfterSplit(RenderBoxModelObject&);
@@ -77,7 +75,6 @@ private:
 
     void childFlowStateChangesAndAffectsParentBlock(RenderElement& child);
     void childFlowStateChangesAndNoLongerAffectsParentBlock(RenderElement& child);
-    void attachIgnoringContinuation(RenderElement& parent, RenderPtr<RenderObject>, RenderObject* beforeChild = nullptr);
     void attachToRenderGrid(RenderGrid& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
     void attachToRenderElement(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
     void attachToRenderElementInternal(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
@@ -102,9 +99,7 @@ private:
 
     void reportVisuallyNonEmptyContent(const RenderElement& parent, const RenderObject& child);
 
-    void setHasBrokenContinuation() { m_hasBrokenContinuation = true; }
-
-    static RenderPtr<RenderBox> createAnonymousBoxWithSameTypeAndWithStyle(const RenderBox&, const RenderStyle&);
+    static RenderPtr<RenderBox> createAnonymousBoxWithSameTypeAndWithStyle(const RenderBox&, const Style::ComputedStyle&);
 
     class FirstLetter;
     class List;
@@ -119,7 +114,6 @@ private:
 #if ENABLE(MATHML)
     class MathML;
 #endif
-    class Continuation;
 
     FirstLetter& firstLetterBuilder() LIFETIME_BOUND { return m_firstLetterBuilder; }
     List& listBuilder() LIFETIME_BOUND { return m_listBuilder; }
@@ -134,7 +128,6 @@ private:
 #if ENABLE(MATHML)
     MathML& mathMLBuilder() LIFETIME_BOUND { return m_mathMLBuilder; }
 #endif
-    Continuation& continuationBuilder() LIFETIME_BOUND { return m_continuationBuilder; }
 
     WidgetHierarchyUpdatesSuspensionScope m_widgetHierarchyUpdatesSuspensionScope;
     RenderView& m_view;
@@ -154,8 +147,6 @@ private:
 #if ENABLE(MATHML)
     const UniqueRef<MathML> m_mathMLBuilder;
 #endif
-    const UniqueRef<Continuation> m_continuationBuilder;
-    bool m_hasBrokenContinuation { false };
     IsInternalMove m_internalMovesType { IsInternalMove::No };
     TearDownType m_tearDownType { TearDownType::Root };
     CheckedPtr<const RenderElement> m_subtreeDestroyRoot;

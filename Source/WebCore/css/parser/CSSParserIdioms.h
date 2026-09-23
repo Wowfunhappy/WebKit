@@ -47,6 +47,13 @@ inline bool isCSSSpace(CharacterType c)
     return c == ' ' || c == '\t' || c == '\n';
 }
 
+// https://drafts.csswg.org/css-syntax-3/#newline
+template<typename CharacterType>
+inline bool isCSSNewline(CharacterType c)
+{
+    return c == '\n' || c == '\r' || c == '\f';
+}
+
 // http://dev.w3.org/csswg/css-syntax/#name-start-code-point
 template <typename CharacterType>
 bool isNameStartCodePoint(CharacterType c)
@@ -65,6 +72,26 @@ inline bool isValidCustomIdentifier(CSSValueID valueID)
 {
     // "default" is obsolete as a CSS-wide keyword but is still not allowed as a custom identifier.
     return !isCSSWideKeyword(valueID) && valueID != CSSValueDefault;
+}
+
+// Unlike CSSPropertyParserHelpers::genericFontFamily, this does not access
+// NeverDestroyed objects that require main-thread access, making it
+// safe to call from OffscreenCanvas workers.
+inline bool isGenericFontFamilyKeyword(CSSValueID valueID)
+{
+    switch (valueID) {
+    case CSSValueSerif:
+    case CSSValueSansSerif:
+    case CSSValueCursive:
+    case CSSValueFantasy:
+    case CSSValueMonospace:
+    case CSSValueSystemUi:
+    case CSSValueWebkitPictograph:
+    case CSSValueMath:
+        return true;
+    default:
+        return false;
+    }
 }
 
 // https://drafts.csswg.org/css-conditional-5/#propdef-container-name

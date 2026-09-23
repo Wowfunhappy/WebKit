@@ -180,7 +180,31 @@ ADD_RESULTS({
                     "reftest_type": ["!="]
                 }
             }
+        },
+        "imported": {
+            "w3c": {
+                "web-platform-tests": {
+                    "css": {
+                        "css-backgrounds": {
+                            "box-shadow-radius-generated.html?width=300&height=60&spread=30&radius=0px%200px%2030px%2030px": {
+                                "reftest_type": [
+                                    "=="
+                                ],
+                                "report": "REGRESSION",
+                                "expected": "PASS",
+                                "actual": "IMAGE",
+                                "image_diff_percent": 0.28308165,
+                                "image_difference": {
+                                    "max_difference": 255,
+                                    "total_pixels": 1792
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+        
     },
     "skipped": 5367,
     "num_regressions": 7,

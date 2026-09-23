@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleWebKitTextStrokeWidth.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 #include "StyleLengthResolution.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
@@ -37,16 +38,14 @@ namespace Style {
 
 auto CSSValueConversion<WebkitTextStrokeWidth>::operator()(BuilderState& state, const CSSValue& value) -> WebkitTextStrokeWidth
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return 0_css_px;
+    using namespace CSS::Literals;
 
-    auto convertFromEms = [&](auto ems) -> WebkitTextStrokeWidth::Length {
-        return emToPx<float>(ems, state.renderStyle());
-    };
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        auto convertFromEms = [&](auto ems) -> WebkitTextStrokeWidth::Length {
+            return emToPx<float>(ems, state.renderStyle());
+        };
 
-    if (primitiveValue->isValueID()) {
-        switch (primitiveValue->valueID()) {
+        switch (keywordValue->valueID()) {
         case CSSValueThin:
             return convertFromEms(1.0 / 48.0);
         case CSSValueMedium:
@@ -59,7 +58,7 @@ auto CSSValueConversion<WebkitTextStrokeWidth>::operator()(BuilderState& state, 
         }
     }
 
-    return toStyleFromCSSValue<WebkitTextStrokeWidth::Length>(state, *primitiveValue);
+    return toStyleFromCSSValue<WebkitTextStrokeWidth::Length>(state, value);
 }
 
 } // namespace Style

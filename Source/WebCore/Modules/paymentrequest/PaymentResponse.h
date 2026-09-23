@@ -34,6 +34,7 @@
 #include "ExceptionOr.h"
 #include "JSValueInWrappedObject.h"
 #include "PaymentAddress.h"
+#include <JavaScriptCore/Strong.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {

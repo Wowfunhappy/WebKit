@@ -52,13 +52,13 @@ struct CachedFunctionExecutableMetadata {
 };
 
 struct CachedFunctionExecutableOffsets {
-    static ptrdiff_t codeBlockForCallOffset();
-    static ptrdiff_t codeBlockForConstructOffset();
-    static ptrdiff_t metadataOffset();
+    static ptrdiff_t NODELETE codeBlockForCallOffset();
+    static ptrdiff_t NODELETE codeBlockForConstructOffset();
+    static ptrdiff_t NODELETE metadataOffset();
 };
 
 struct CachedWriteBarrierOffsets {
-    static ptrdiff_t ptrOffset();
+    static ptrdiff_t NODELETE ptrOffset();
 };
 
 struct CachedPtrOffsets {
@@ -85,7 +85,7 @@ public:
 
     ~Decoder();
 
-    VM& vm() { return m_vm; }
+    VM& NODELETE vm() { return m_vm; }
     size_t size() const;
 
     ptrdiff_t offsetOf(const void*);
@@ -95,7 +95,7 @@ public:
     CompactTDZEnvironmentMap::Handle handleForTDZEnvironment(CompactTDZEnvironment*) const;
     void setHandleForTDZEnvironment(CompactTDZEnvironment*, const CompactTDZEnvironmentMap::Handle&);
     void addLeafExecutable(const UnlinkedFunctionExecutable*, ptrdiff_t);
-    RefPtr<SourceProvider> provider() const;
+    RefPtr<SourceProvider> NODELETE provider() const;
 
     template<typename Functor>
     void addFinalizer(const Functor&);
@@ -119,7 +119,7 @@ UnlinkedCodeBlock* decodeCodeBlockImpl(VM&, const SourceCodeKey&, Ref<CachedByte
 template<typename UnlinkedCodeBlockType>
 UnlinkedCodeBlockType* decodeCodeBlock(VM& vm, const SourceCodeKey& key, Ref<CachedBytecode> cachedBytecode)
 {
-    return jsCast<UnlinkedCodeBlockType*>(decodeCodeBlockImpl(vm, key, WTF::move(cachedBytecode)));
+    return uncheckedDowncast<UnlinkedCodeBlockType>(decodeCodeBlockImpl(vm, key, WTF::move(cachedBytecode)));
 }
 
 JS_EXPORT_PRIVATE RefPtr<CachedBytecode> encodeFunctionCodeBlock(VM&, const UnlinkedFunctionCodeBlock*, BytecodeCacheError&);

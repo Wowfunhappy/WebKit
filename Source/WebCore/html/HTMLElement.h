@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2004-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,7 +24,6 @@
 
 #include <WebCore/HTMLNames.h>
 #include <WebCore/StyledElement.h>
-#include <wtf/Platform.h>
 
 namespace WebCore {
 
@@ -78,8 +77,7 @@ public:
     WEBCORE_EXPORT bool spellcheck() const;
     WEBCORE_EXPORT void setSpellcheck(bool);
 
-    WEBCORE_EXPORT bool writingsuggestions() const;
-    WEBCORE_EXPORT void setWritingsuggestions(bool);
+    WEBCORE_EXPORT const AtomString& writingSuggestions() const;
 
     WEBCORE_EXPORT bool translate() const;
     WEBCORE_EXPORT void setTranslate(bool);
@@ -168,7 +166,7 @@ public:
     static SelectionRenderingBehavior selectionRenderingBehavior(const Node*);
 
 protected:
-    HTMLElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag>);
+    HTMLElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
 
     enum class AllowZeroValue : bool { No, Yes };
     void addHTMLLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value, AllowZeroValue = AllowZeroValue::Yes);
@@ -189,8 +187,8 @@ protected:
 
     bool matchesReadWritePseudoClass() const override;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
-    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType , ContainerNode& parentOfInsertedTree) override;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
+    Node::NeedsPostConnectionSteps insertionSteps(InsertionType , ContainerNode& parentOfInsertedTree) override;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const override;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
     unsigned parseBorderWidthAttribute(const AtomString&) const;
@@ -201,23 +199,17 @@ protected:
     static const AtomString& NODELETE eventNameForEventHandlerAttribute(const QualifiedName& attributeName, const EventHandlerNameMap&);
 
 private:
+    HTMLElement(ClangVTableWorkaroundTag, const QualifiedName&, Document&);
+
     void setInvoker(HTMLElement*);
 
     String nodeName() const final;
-
-    void mapLanguageAttributeToLocale(const AtomString&, MutableStyleProperties&);
 
     enum class AllowPercentage : bool { No, Yes };
     enum class UseCSSPXAsUnitType : bool { No, Yes };
     enum class IsMultiLength : bool { No, Yes };
     void addHTMLLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value, AllowPercentage, UseCSSPXAsUnitType, IsMultiLength, AllowZeroValue = AllowZeroValue::Yes);
 };
-
-inline HTMLElement::HTMLElement(const QualifiedName& tagName, Document& document, OptionSet<TypeFlag> type = { })
-    : StyledElement(tagName, document, type | TypeFlag::IsHTMLElement)
-{
-    ASSERT(tagName.localName().impl());
-}
 
 inline bool Node::hasTagName(const HTMLQualifiedName& name) const
 {

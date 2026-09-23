@@ -24,9 +24,9 @@
  */
 
 #import "config.h"
-#import "DeprecatedGlobalValues.h"
-#import "PlatformUtilities.h"
-#import "Test.h"
+#import "Helpers/DeprecatedGlobalValues.h"
+#import "Helpers/PlatformUtilities.h"
+#import "Helpers/Test.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/DOM.h>
 #import <WebKit/WebViewPrivate.h>
@@ -82,8 +82,8 @@ namespace TestWebKitAPI {
 
 TEST(WebKitLegacy, AccessingImageInPastedRTFD)
 {
-    auto webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
-    auto delegate = adoptNS([[SubresourceForBlobURLFrameLoadDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
+    RetainPtr delegate = adoptNS([[SubresourceForBlobURLFrameLoadDelegate alloc] init]);
     [webView.get() setFrameLoadDelegate:delegate.get()];
     [webView.get() setUIDelegate:delegate.get()];
 
@@ -93,7 +93,7 @@ TEST(WebKitLegacy, AccessingImageInPastedRTFD)
     [webView.get() setEditable:YES];
 
     auto *pngData = [NSData dataWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"sunset-in-cupertino-200px" ofType:@"png"]];
-    auto attachment = adoptNS([[NSTextAttachment alloc] initWithData:pngData ofType:UTTypePNG.identifier]);
+    RetainPtr attachment = adoptNS([[NSTextAttachment alloc] initWithData:pngData ofType:UTTypePNG.identifier]);
     NSAttributedString *string = [NSAttributedString attributedStringWithAttachment:attachment.get()];
     NSData *RTFDData = [string RTFDFromRange:NSMakeRange(0, [string length]) documentAttributes:@{ }];
 
@@ -117,9 +117,9 @@ TEST(WebKitLegacy, AccessingImageInPastedRTFD)
 
 TEST(WebKitLegacy, AccessingImageInPastedWebArchive)
 {
-    auto sourceWebView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
-    auto destinationWebView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
-    auto delegate = adoptNS([[SubresourceForBlobURLFrameLoadDelegate alloc] init]);
+    RetainPtr sourceWebView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
+    RetainPtr destinationWebView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
+    RetainPtr delegate = adoptNS([[SubresourceForBlobURLFrameLoadDelegate alloc] init]);
     [sourceWebView.get() setFrameLoadDelegate:delegate.get()];
     [sourceWebView.get() setUIDelegate:delegate.get()];
     [destinationWebView.get() setFrameLoadDelegate:delegate.get()];

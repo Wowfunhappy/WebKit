@@ -39,7 +39,10 @@
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
+#if !defined(WebCore_AVKitLibrary_SoftLinked)
+#define WebCore_AVKitLibrary_SoftLinked
 SOFTLINK_AVKIT_FRAMEWORK()
+#endif
 SOFT_LINK_CLASS_OPTIONAL(AVKit, AVOutputDeviceMenuController)
 
 using namespace WebCore;
@@ -189,7 +192,7 @@ AVOutputContext * AVOutputDeviceMenuControllerTargetPicker::outputContext()
         return;
 
     callOnMainThread([self, protectedSelf = retainPtr(self), keyPath = retainPtr(keyPath)] {
-        CheckedPtr callback = m_callback.get();
+        CheckedPtr callback = m_callback;
         if (!callback)
             return;
 

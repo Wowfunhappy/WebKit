@@ -31,7 +31,10 @@
 ]
 messages -> RemoteAudioSourceProviderManager {
     AudioStorageChanged(WebCore::MediaPlayerIdentifier id, struct WebKit::ConsumerSharedCARingBufferHandle storageHandle, WebCore::CAAudioStreamDescription description)
-    AudioSamplesAvailable(WebCore::MediaPlayerIdentifier id, uint64_t startFrame, uint64_t numberOfFrames, bool needsFlush)
+    SetNeedsFlush(WebCore::MediaPlayerIdentifier id)
+    SetPlaybackRate(WebCore::MediaPlayerIdentifier id, double playbackRate)
+    SetPreservesPitch(WebCore::MediaPlayerIdentifier id, bool preservesPitch)
+    SetVolume(WebCore::MediaPlayerIdentifier id, double volume)
 }
 
 #endif

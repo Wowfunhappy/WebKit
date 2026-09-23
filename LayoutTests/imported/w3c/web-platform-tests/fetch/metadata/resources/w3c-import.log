@@ -18,7 +18,9 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/dedicatedWorker.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/echo-as-json.py
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/echo-as-script.py
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/es-json-module.sub.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/es-module.sub.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/es-text-module.sub.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/fetch-via-serviceworker--fallback--sw.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/fetch-via-serviceworker--respondWith--sw.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/fetch-via-serviceworker-frame.html
@@ -34,4 +36,3 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/serviceworker-accessors.sw.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/sharedWorker.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/unload-with-beacon.html
-/LayoutTests/imported/w3c/web-platform-tests/fetch/metadata/resources/xslt-test.sub.xml

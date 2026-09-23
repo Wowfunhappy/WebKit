@@ -39,4 +39,6 @@ test(function() {
     document.designMode='on';
     document.execCommand('italic');
 });
+// Remove SVG to prevent flaky text output from mangled DOM.
+document.querySelector('svg').remove();
 </script>

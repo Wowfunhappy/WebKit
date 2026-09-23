@@ -37,7 +37,7 @@
 
 namespace WebCore {
 
-static CheckedUint32 computeDataSize(const IntSize& size, ImageDataPixelFormat pixelFormat)
+static CheckedUint32 NODELETE computeDataSize(const IntSize& size, ImageDataPixelFormat pixelFormat)
 {
     return PixelBuffer::computePixelComponentCount(toPixelFormat(pixelFormat), size);
 }

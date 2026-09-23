@@ -8,6 +8,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,10 @@ CFTypeRef wk_createProtectionSpace(CFStringRef host, int port, int serverType, C
 // credential laid out as 10.9.5's are.
 int wk_credentialKind(CFTypeRef credential);
 SecTrustRef wk_credentialServerTrust(CFTypeRef credential);
+
+// Foundation's NSURLRequest dictionary bit positions for explicitly assigned CFNetwork properties.
+uint16_t wk_requestExplicitFlags(CFTypeRef request);
+void wk_requestSetExplicitFlags(CFTypeRef request, uint16_t flags);
 
 #ifdef __cplusplus
 }

@@ -30,14 +30,43 @@
 
 G_BEGIN_DECLS
 
-#define WEBKIT_TYPE_IMAGE                          (webkit_image_get_type())
+#define WEBKIT_TYPE_IMAGE      (webkit_image_get_type())
 
 WEBKIT_DECLARE_FINAL_TYPE (WebKitImage, webkit_image, WEBKIT, IMAGE, GObject)
 
-WEBKIT_API int          webkit_image_get_width  (WebKitImage *image);
-WEBKIT_API int          webkit_image_get_height (WebKitImage *image);
-WEBKIT_API guint        webkit_image_get_stride (WebKitImage *image);
-WEBKIT_API GBytes      *webkit_image_as_bytes   (WebKitImage *image);
+WEBKIT_API int
+webkit_image_get_width         (WebKitImage *image);
+
+WEBKIT_API int
+webkit_image_get_height        (WebKitImage *image);
+
+WEBKIT_API guint
+webkit_image_get_stride        (WebKitImage *image);
+
+WEBKIT_API GBytes *
+webkit_image_as_bytes          (WebKitImage *image);
+
+#define WEBKIT_TYPE_IMAGE_LIST (webkit_image_list_get_type())
+
+typedef struct _WebKitImageList WebKitImageList;
+
+WEBKIT_API GType
+webkit_image_list_get_type     (void);
+
+WEBKIT_API WebKitImageList *
+webkit_image_list_ref          (WebKitImageList *image_list);
+
+WEBKIT_API void
+webkit_image_list_unref        (WebKitImageList *image_list);
+
+WEBKIT_API gsize
+webkit_image_list_get_length   (WebKitImageList *image_list);
+
+WEBKIT_API WebKitImage *
+webkit_image_list_get          (WebKitImageList *image_list,
+                                gsize            index);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(WebKitImageList, webkit_image_list_unref)
 
 G_END_DECLS
 

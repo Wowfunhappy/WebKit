@@ -34,6 +34,7 @@ public:
     unsigned getAdditionalPlaybinFlags() const final { return getGstPlayFlag("text") | getGstPlayFlag("native-video"); }
 
     bool processWebAudioSilentBuffer(GstBuffer*) const final;
+    std::optional<GstState> eosMediaPlayerState() const final { return GST_STATE_PAUSED; }
 };
 
 } // namespace WebCore

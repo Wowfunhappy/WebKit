@@ -203,6 +203,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HideEditMenuScope);
 #endif
 }
 
+- (BOOL)areSelectionHandlesVisible
+{
+#if HAVE(UI_TEXT_SELECTION_DISPLAY_INTERACTION)
+    for (UIView *handleView in [self textSelectionDisplayInteraction].handleViews) {
+        if (!handleView.hidden)
+            return YES;
+    }
+#endif
+    return NO;
+}
+
 - (void)prepareToMoveSelectionContainer:(UIView *)newContainer
 {
     RetainPtr contentView = _view;

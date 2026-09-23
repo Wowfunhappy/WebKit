@@ -47,6 +47,7 @@
 #include "JSExecStateInstrumentation.h"
 #include "JSHTMLElement.h"
 #include "ScriptExecutionContext.h"
+#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/WeakInlines.h>
 
@@ -85,8 +86,8 @@ Ref<Element> JSCustomElementInterface::constructElementWithFallback(Document& do
 Ref<Element> JSCustomElementInterface::constructElementWithFallback(Document& document, CustomElementRegistry& registry, const QualifiedName& name)
 {
     if (auto element = tryToConstructCustomElement(document, registry, name.localName(), ParserConstructElementWithEmptyStack::No)) {
-        if (!name.prefix().isNull())
-            element->setPrefix(name.prefix());
+        if (!name.prefix().isEmpty())
+            element->setPrefixForCustomElementUpgrade(name.prefix());
         return element.releaseNonNull();
     }
 
@@ -137,7 +138,7 @@ RefPtr<Element> JSCustomElementInterface::tryToConstructCustomElement(Document& 
     if (!element) {
         auto* exception = scope.exception();
         scope.clearException();
-        reportException(m_constructor->globalObject(), exception);
+        reportException(m_constructor->realm(), exception);
         return nullptr;
     }
 
@@ -323,7 +324,7 @@ void JSCustomElementInterface::invokeCallback(Element& element, JSObject* callba
     InspectorInstrumentation::didCallFunction(context.get());
 
     if (exception)
-        reportException(callback->globalObject(), exception);
+        reportException(callback->realm(), exception);
 }
 
 void JSCustomElementInterface::setConnectedCallback(JSC::JSObject* callback)
@@ -344,6 +345,16 @@ void JSCustomElementInterface::setDisconnectedCallback(JSC::JSObject* callback)
 void JSCustomElementInterface::invokeDisconnectedCallback(Element& element)
 {
     invokeCallback(element, m_disconnectedCallback.get(), [](JSC::JSGlobalObject*, JSDOMGlobalObject*, JSC::MarkedArgumentBuffer&) { });
+}
+
+void JSCustomElementInterface::setConnectedMoveCallback(JSC::JSObject* callback)
+{
+    m_connectedMoveCallback = callback;
+}
+
+void JSCustomElementInterface::invokeConnectedMoveCallback(Element& element)
+{
+    invokeCallback(element, m_connectedMoveCallback.get(), [](JSC::JSGlobalObject*, JSDOMGlobalObject*, JSC::MarkedArgumentBuffer&) { });
 }
 
 void JSCustomElementInterface::setAdoptedCallback(JSC::JSObject* callback)
@@ -456,6 +467,7 @@ void JSCustomElementInterface::visitJSFunctionsInGCThread(Visitor& visitor) cons
     visitor.append(m_constructor);
     visitor.append(m_connectedCallback);
     visitor.append(m_disconnectedCallback);
+    visitor.append(m_connectedMoveCallback);
     visitor.append(m_adoptedCallback);
     visitor.append(m_attributeChangedCallback);
     visitor.append(m_formAssociatedCallback);

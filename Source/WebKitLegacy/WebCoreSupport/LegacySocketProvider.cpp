@@ -25,14 +25,28 @@
 
 #import "LegacySocketProvider.h"
 
+// MAVERICKS_BACKPORT: this target supplies the legacy WebSocket channel and socket backend.
+// #ifdef BUILDING_WITH_CMAKE
+#if defined(BUILDING_WITH_CMAKE) && !defined(WEBKIT_LEGACY_WEBSOCKET_CHANNEL)
+// WebSocketChannel.cpp (in Sources.txt, not loaded by CMake) depends on SocketStreamHandle.
+// Stub out -- WK2 NetworkProcess handles WebSockets.
+#import <WebCore/WebTransportSession.h>
+#import <wtf/CompletionHandler.h>
+
+RefPtr<WebCore::ThreadableWebSocketChannel> LegacySocketProvider::createWebSocketChannel(WebCore::Document&, WebCore::WebSocketChannelClient&, WebCore::IsInitiatedByDedicatedWorker)
+{
+    return nullptr;
+}
+#else
 #import "WebSocketChannel.h"
 #import <WebCore/WebTransportSession.h>
 #import <wtf/CompletionHandler.h>
 
-RefPtr<WebCore::ThreadableWebSocketChannel> LegacySocketProvider::createWebSocketChannel(WebCore::Document& document, WebCore::WebSocketChannelClient& client)
+RefPtr<WebCore::ThreadableWebSocketChannel> LegacySocketProvider::createWebSocketChannel(WebCore::Document& document, WebCore::WebSocketChannelClient& client, WebCore::IsInitiatedByDedicatedWorker)
 {
     return WebCore::WebSocketChannel::create(document, client, *this);
 }
+#endif
 
 std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebCore::WebTransportSessionPromise>> LegacySocketProvider::initializeWebTransportSession(WebCore::ScriptExecutionContext&, WebCore::WebTransportSessionClient&, const URL&, const WebCore::WebTransportOptions&)
 {

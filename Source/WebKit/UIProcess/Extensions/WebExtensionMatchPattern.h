@@ -68,6 +68,7 @@ public:
         IgnoreSchemes        = 1 << 0, // Ignore the scheme component when matching.
         IgnorePaths          = 1 << 1, // Ignore the path component when matching.
         MatchBidirectionally = 1 << 2, // Match two patterns in either direction (A matches B, or B matches A). Invalid for matching URLs.
+        AllowFileScheme      = 1 << 3, // Allow file:// to be considered a match for <all_urls>. The scheme wildcard `*` still does not match file://, matching Chrome and Firefox behavior.
     };
 
     enum class CreateOptions : uint8_t {
@@ -98,7 +99,7 @@ public:
     static void registerCustomURLScheme(String);
     static bool isWebExtensionURL(const URL&);
 
-    bool operator==(const WebExtensionMatchPattern&) const;
+    bool NODELETE operator==(const WebExtensionMatchPattern&) const;
 
     bool isValid() const { return m_valid; }
     bool isSupported() const;
@@ -116,7 +117,7 @@ public:
     bool matchesPattern(const WebExtensionMatchPattern&, OptionSet<Options> = { }) const;
 
     String string() const { return stringWithScheme(nullString()); }
-    Vector<String> expandedStrings() const;
+    Vector<String> expandedStrings(OptionSet<Options> = { }) const;
 
     const WebCore::UserContentURLPattern& pattern() const LIFETIME_BOUND { return m_pattern; }
 
@@ -134,8 +135,8 @@ private:
     static bool isValidScheme(String);
 
     bool schemeMatches(const WebExtensionMatchPattern&, OptionSet<Options> = { }) const;
-    bool hostMatches(const WebExtensionMatchPattern&, OptionSet<Options> = { }) const;
-    bool pathMatches(const WebExtensionMatchPattern&, OptionSet<Options> = { }) const;
+    bool NODELETE hostMatches(const WebExtensionMatchPattern&, OptionSet<Options> = { }) const;
+    bool NODELETE pathMatches(const WebExtensionMatchPattern&, OptionSet<Options> = { }) const;
 
     WebCore::UserContentURLPattern m_pattern;
     bool m_matchesAllURLs { false };

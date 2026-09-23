@@ -250,7 +250,6 @@ sub defaultElementPropertyHash
         parsedTagName => lc $localName,
         parsedTagEnumValue => $requiresAdjustment ? lc($identifier) . "CaseUnadjusted" : $tagEnumValue,
         constructorNeedsCreatedByParser => 0,
-        constructorNeedsFormElement => 0,
         noConstructor => 0,
         interfaceName => defaultInterfaceName($identifier),
         # By default, the JSInterfaceName is the same as the interfaceName.
@@ -477,10 +476,6 @@ sub printConstructorSignature
     my ($F, $elementKey, $constructorName, $constructorTagName) = @_;
 
     print F "static Ref<$parameters{namespace}Element> ${constructorName}Constructor(const QualifiedName& $constructorTagName, Document& document";
-    if ($parameters{namespace} eq "HTML") {
-        print F ", HTMLFormElement*";
-        print F " formElement" if $allElements{$elementKey}{constructorNeedsFormElement};
-    }
     print F ", bool";
     print F " createdByParser" if $allElements{$elementKey}{constructorNeedsCreatedByParser};
     print F ")\n{\n";
@@ -541,7 +536,6 @@ END
 
     # Call the constructor with the right parameters.
     print F "    return ${interfaceName}::create($constructorTagName, document";
-    print F ", formElement" if $allElements{$elementKey}{constructorNeedsFormElement};
     print F ", createdByParser" if $allElements{$elementKey}{constructorNeedsCreatedByParser};
     print F ");\n}\n";
 }
@@ -610,13 +604,7 @@ sub printTagNameCases
     my ($F, $tagConstructorMap, $usePassedName) = @_;
     my %tagConstructorMap = %$tagConstructorMap;
 
-    my $argumentList;
-
-    if ($parameters{namespace} eq "HTML") {
-        $argumentList = "document, formElement, createdByParser";
-    } else {
-        $argumentList = "document, createdByParser";
-    }
+    my $argumentList = "document, createdByParser";
 
     for my $elementKey (sort keys %tagConstructorMap) {
         next if $allElements{$elementKey}{noConstructor};
@@ -1371,6 +1359,49 @@ sub candidatesWithStringLength
     return grep { length($_->{string}) == $expectedLength } @$candidates;
 }
 
+sub computeCommonPrefixLength
+{
+    my $candidates = shift;
+    my $startIndex = shift;
+    my $length = shift;
+
+    my $firstString = $candidates->[0]{string};
+    my $commonEnd = $length;
+    for my $candidate (@$candidates) {
+        my $string = $candidate->{string};
+        for (my $i = $startIndex; $i < $commonEnd; $i++) {
+            if (substr($string, $i, 1) ne substr($firstString, $i, 1)) {
+                $commonEnd = $i;
+                last;
+            }
+        }
+    }
+    return $commonEnd - $startIndex;
+}
+
+sub printPrefixCheck
+{
+    my $indent = shift;
+    my $startIndex = shift;
+    my $string = shift;
+    my $prefixLen = shift;
+
+    my $bufferStart = $startIndex > 0 ? "buffer.subspan($startIndex).data()" : "buffer.data()";
+    if ($prefixLen == 1) {
+        my $letter = substr($string, $startIndex, 1);
+        print F "${indent}if (buffer[$startIndex] == '$letter') {\n";
+    } elsif ($prefixLen <= 8) {
+        print F "${indent}if (compareCharacters($bufferStart";
+        for (my $index = $startIndex; $index < $startIndex + $prefixLen; $index++) {
+            my $letter = substr($string, $index, 1);
+            print F ", '$letter'";
+        }
+        print F ")) {\n";
+    } else {
+        print F "${indent}if (WTF::equal($bufferStart, \"". substr($string, $startIndex, $prefixLen) . "\"_span8)) {\n";
+    }
+}
+
 sub generateFindNameForLength
 {
     my $indent = shift;
@@ -1386,23 +1417,7 @@ sub generateFindNameForLength
         my $enumValue = $candidate->{enumValue};
         my $needsIfCheck = $currentIndex < $length;
         if ($needsIfCheck) {
-            my $lengthToCompare = $length - $currentIndex;
-            if ($lengthToCompare == 1) {
-                my $letter = substr($string, $currentIndex, 1);
-                print F "${indent}if (buffer[$currentIndex] == '$letter') {\n";
-            } else {
-                my $bufferStart = $currentIndex > 0 ? "buffer.subspan($currentIndex).data()" : "buffer.data()";
-                if ($lengthToCompare <= 8) {
-                    print F "${indent}if (compareCharacters($bufferStart";
-                    for (my $index = $currentIndex; $index < $length; $index = $index + 1) {
-                        my $letter = substr($string, $index, 1);
-                        print F ", '$letter'";
-                    }
-                    print F ")) {\n";
-                } else {
-                    print F "${indent}if (WTF::equal($bufferStart, \"". substr($string, $currentIndex, $length - $currentIndex) . "\"_span8)) {\n";
-                }
-            }
+            printPrefixCheck($indent, $currentIndex, $string, $length - $currentIndex);
             print F "$indent    return ${enumClass}::$enumValue;\n";
             print F "$indent}\n";
         } else {
@@ -1410,6 +1425,18 @@ sub generateFindNameForLength
         }
         return;
     }
+
+    # When all candidates share a common prefix at currentIndex, emit a single
+    # comparison for the shared prefix instead of single-case switches per character.
+    my $commonPrefixLen = computeCommonPrefixLength($candidates, $currentIndex, $length);
+    if ($commonPrefixLen > 1) {
+        printPrefixCheck($indent, $currentIndex, $candidates->[0]{string}, $commonPrefixLen);
+        generateFindNameForLength($indent . "    ", $candidates, $length, $currentIndex + $commonPrefixLen, $enumClass);
+        print F "${indent}    return ${enumClass}::Unknown;\n";
+        print F "$indent}\n";
+        return;
+    }
+
     print F "${indent}switch (buffer[$currentIndex]) {\n";
     for (my $i = 0; $i < $candidateCount;) {
         my $candidate = $candidates->[$i];
@@ -1468,7 +1495,7 @@ sub generateFindBody {
     }
     print F "    default:\n";
     print F "        break;\n";
-    print F "    };\n";
+    print F "    }\n";
     print F "    return ${enumClass}::Unknown;\n";
 }
 
@@ -1679,11 +1706,6 @@ sub printFactoryCppFile
     my $F;
     open F, ">$cppPath";
 
-    my $formElementArgumentForDeclaration = "";
-    my $formElementArgumentForDefinition = "";
-    $formElementArgumentForDeclaration = ", HTMLFormElement*" if $parameters{namespace} eq "HTML";
-    $formElementArgumentForDefinition = ", HTMLFormElement* formElement" if $parameters{namespace} eq "HTML";
-
     printLicenseHeader($F);
 
     print F <<END;
@@ -1715,13 +1737,7 @@ namespace WebCore {
 END
 
     my %tagConstructorMap = buildConstructorMap();
-    my $argumentList;
-
-    if ($parameters{namespace} eq "HTML") {
-        $argumentList = "document, formElement, createdByParser";
-    } else {
-        $argumentList = "document, createdByParser";
-    }
+    my $argumentList = "document, createdByParser";
 
     my $lowercaseNamespacePrefix = lc($parameters{namespacePrefix});
 
@@ -1735,7 +1751,7 @@ END
 
     print F <<END;
 
-RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElement(TagName tagName, Document& document$formElementArgumentForDefinition, bool createdByParser)
+RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElement(TagName tagName, Document& document, bool createdByParser)
 {
     switch (tagName) {
 END
@@ -1748,7 +1764,7 @@ END
     }
 }
 
-RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElementWithName(TagName tagName, const QualifiedName& name, Document& document$formElementArgumentForDefinition, bool createdByParser)
+RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElementWithName(TagName tagName, const QualifiedName& name, Document& document, bool createdByParser)
 {
     switch (tagName) {
 END
@@ -1761,17 +1777,17 @@ END
     }
 }
 
-RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElement(const AtomString& localName, Document& document$formElementArgumentForDefinition, bool createdByParser)
+RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElement(const AtomString& localName, Document& document, bool createdByParser)
 {
     return createKnownElement(tagNameForElementName(find$parameters{namespace}ElementName(localName)), $argumentList);
 }
 
-RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElement(const QualifiedName& name, Document& document$formElementArgumentForDefinition, bool createdByParser)
+RefPtr<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createKnownElement(const QualifiedName& name, Document& document, bool createdByParser)
 {
     return createKnownElementWithName(tagNameForElementName(name.nodeName()), name, $argumentList);
 }
 
-Ref<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createElement(const AtomString& localName, Document& document$formElementArgumentForDefinition, bool createdByParser)
+Ref<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createElement(const AtomString& localName, Document& document, bool createdByParser)
 {
     auto elementName = find$parameters{namespace}ElementName(localName);
     if (elementName != ElementName::Unknown)
@@ -1779,7 +1795,7 @@ Ref<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createE
     return $parameters{fallbackInterfaceName}::create(QualifiedName(nullAtom(), localName, $parameters{namespace}Names::${lowercaseNamespacePrefix}NamespaceURI), document);
 }
 
-Ref<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createElement(const QualifiedName& name, Document& document$formElementArgumentForDefinition, bool createdByParser)
+Ref<$parameters{namespace}Element> $parameters{namespace}ElementFactory::createElement(const QualifiedName& name, Document& document, bool createdByParser)
 {
     auto elementName = name.nodeName();
     if (elementName != ElementName::Unknown) {
@@ -1814,7 +1830,6 @@ sub printFactoryHeaderFile
 namespace WebCore {
 
 class Document;
-class HTMLFormElement;
 class QualifiedName;
 
 class $parameters{namespace}Element;
@@ -1825,29 +1840,12 @@ class $parameters{namespace}ElementFactory {
 public:
 END
 
-print F "    static RefPtr<$parameters{namespace}Element> createKnownElement(const AtomString&, Document&";
-print F ", HTMLFormElement* = nullptr" if $parameters{namespace} eq "HTML";
-print F ", bool createdByParser = false);\n";
-
-print F "    static RefPtr<$parameters{namespace}Element> createKnownElement(const QualifiedName&, Document&";
-print F ", HTMLFormElement* = nullptr" if $parameters{namespace} eq "HTML";
-print F ", bool createdByParser = false);\n";
-
-print F "    static RefPtr<$parameters{namespace}Element> createKnownElement(TagName, Document&";
-print F ", HTMLFormElement* = nullptr" if $parameters{namespace} eq "HTML";
-print F ", bool createdByParser = false);\n";
-
-print F "    static RefPtr<$parameters{namespace}Element> createKnownElementWithName(TagName, const QualifiedName&, Document&";
-print F ", HTMLFormElement* = nullptr" if $parameters{namespace} eq "HTML";
-print F ", bool createdByParser = false);\n";
-
-print F "    static Ref<$parameters{namespace}Element> createElement(const AtomString&, Document&";
-print F ", HTMLFormElement* = nullptr" if $parameters{namespace} eq "HTML";
-print F ", bool createdByParser = false);\n";
-
-print F "    static Ref<$parameters{namespace}Element> createElement(const QualifiedName&, Document&";
-print F ", HTMLFormElement* = nullptr" if $parameters{namespace} eq "HTML";
-print F ", bool createdByParser = false);\n";
+print F "    static RefPtr<$parameters{namespace}Element> createKnownElement(const AtomString&, Document&, bool createdByParser = false);\n";
+print F "    static RefPtr<$parameters{namespace}Element> createKnownElement(const QualifiedName&, Document&, bool createdByParser = false);\n";
+print F "    static RefPtr<$parameters{namespace}Element> createKnownElement(TagName, Document&, bool createdByParser = false);\n";
+print F "    static RefPtr<$parameters{namespace}Element> createKnownElementWithName(TagName, const QualifiedName&, Document&, bool createdByParser = false);\n";
+print F "    static Ref<$parameters{namespace}Element> createElement(const AtomString&, Document&, bool createdByParser = false);\n";
+print F "    static Ref<$parameters{namespace}Element> createElement(const QualifiedName&, Document&, bool createdByParser = false);\n";
 
 printf F <<END;
 };
@@ -1954,6 +1952,7 @@ sub printWrapperFactoryCppFile
 
 #include "DeprecatedGlobalSettings.h"
 #include "Document.h"
+#include "JSDOMWrapperCache.h"
 #include "NodeName.h"
 #include "Settings.h"
 #include <wtf/NeverDestroyed.h>
@@ -1963,8 +1962,6 @@ END
     printConditionalElementIncludes($F, 1);
 
     print F <<END;
-
-using namespace JSC;
 
 namespace WebCore {
 

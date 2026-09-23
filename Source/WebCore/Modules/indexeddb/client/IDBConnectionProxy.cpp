@@ -62,6 +62,11 @@ void IDBConnectionProxy::ref()
     m_connectionToServer->ref();
 }
 
+bool IDBConnectionProxy::isValid() const
+{
+    return m_connectionToServer->isValid();
+}
+
 void IDBConnectionProxy::deref()
 {
     m_connectionToServer->deref();
@@ -539,7 +544,7 @@ void IDBConnectionProxy::handleMainThreadTasks()
 
 void IDBConnectionProxy::getAllDatabaseNamesAndVersions(ScriptExecutionContext& context, Function<void(std::optional<Vector<IDBDatabaseNameAndVersion>>&&)>&& callback)
 {
-    ClientOrigin origin { context.securityOrigin()->data(), context.topOrigin().data() };
+    ClientOrigin origin { context.topOrigin().data(), context.securityOrigin()->data() };
 
     RefPtr<IDBDatabaseNameAndVersionRequest> request;
     {

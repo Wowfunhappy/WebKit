@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@
 #include "DataTaskIdentifier.h"
 #include "DownloadID.h"
 #include "DownloadManager.h"
+#include "NetworkActivityTracker.h"
 #include "NetworkContentRuleListManager.h"
 #include "QuotaIncreaseRequestIdentifier.h"
 #include "SharedPreferencesForWebProcess.h"
@@ -115,6 +116,7 @@ struct ParentalControlsURLFilterParameters;
 namespace WebKit {
 
 class AuthenticationManager;
+class LaunchServicesDatabaseObserver;
 class NetworkConnectionToWebProcess;
 class NetworkProcessSupplement;
 class NetworkProximityManager;
@@ -213,6 +215,8 @@ public:
 
     void processWillSuspendImminentlyForTestingSync(CompletionHandler<void()>&&);
     void isStorageSuspendedForTesting(PAL::SessionID, CompletionHandler<void(bool)>&&);
+    void canPrefetchDNSForTesting(PAL::SessionID, CompletionHandler<void(bool)>&&);
+    void prefetchedDNSHostnameCountForTesting(CompletionHandler<void(uint64_t)>&&) const;
     void prepareToSuspend(bool isSuspensionImminent, MonotonicTime estimatedSuspendTime, CompletionHandler<void()>&&);
     void processDidResume(bool forForegroundActivity);
 
@@ -239,11 +243,15 @@ public:
 
     void findPendingDownloadLocation(NetworkDataTask&, ResponseCompletionHandler&&, const WebCore::ResourceResponse&);
 
+#if USE(SOUP)
     void prefetchDNS(const String&);
+#endif
 
     void addWebsiteDataStore(WebsiteDataStoreParameters&&);
 
     void registrableDomainsWithLastAccessedTime(PAL::SessionID, CompletionHandler<void(std::optional<HashMap<RegistrableDomain, WallTime>>&&)>&&);
+    void diskCacheOriginAccessTimes(PAL::SessionID, CompletionHandler<void(HashMap<WebCore::RegistrableDomain, WallTime>&&)>&&);
+    void getAllPushSubscriptionOrigins(PAL::SessionID, CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
     void registrableDomainsExemptFromWebsiteDataDeletion(PAL::SessionID, CompletionHandler<void(HashSet<RegistrableDomain>)>&&);
     void clearPrevalentResource(PAL::SessionID, RegistrableDomain&&, CompletionHandler<void()>&&);
     void clearUserInteraction(PAL::SessionID, RegistrableDomain&&, CompletionHandler<void()>&&);
@@ -404,8 +412,12 @@ public:
 
     void setServiceWorkerFetchTimeoutForTesting(Seconds, CompletionHandler<void()>&&);
     void resetServiceWorkerFetchTimeoutForTesting(CompletionHandler<void()>&&);
+    void clearCrossOriginPreflightResultCacheForTesting(CompletionHandler<void()>&&);
     Seconds serviceWorkerFetchTimeout() const { return m_serviceWorkerFetchTimeout; }
     void terminateIdleServiceWorkers(WebCore::ProcessIdentifier, CompletionHandler<void()>&&);
+    void setWebProcessSuspended(WebCore::ProcessIdentifier, bool isSuspended);
+
+    void lastPageLoadNetworkActivityCompletionCodeForTesting(PAL::SessionID, WebCore::PageIdentifier, CompletionHandler<void(std::optional<NetworkActivityTracker::CompletionCode>)>&&);
 
     static Seconds randomClosedPortDelay();
 
@@ -421,13 +433,19 @@ public:
     void clearBundleIdentifier(CompletionHandler<void()>&&);
 
     bool shouldDisableCORSForRequestTo(WebCore::PageIdentifier, const URL&) const;
-    void setCORSDisablingPatterns(NetworkConnectionToWebProcess&, WebCore::PageIdentifier, Vector<String>&&);
+    void setCORSDisablingPatternsForPage(WebCore::ProcessIdentifier, WebCore::PageIdentifier, Vector<String>&&);
+
+    void recordMessagePortTransferDestinationsForSiteIsolation(Vector<WebCore::MessagePortIdentifier>&&, WebCore::ProcessIdentifier destination, CompletionHandler<void()>&&);
 
 #if PLATFORM(COCOA)
     void appPrivacyReportTestingData(PAL::SessionID, CompletionHandler<void(const AppPrivacyReportTestingData&)>&&);
     void clearAppPrivacyReportTestingData(PAL::SessionID, CompletionHandler<void()>&&);
 
     bool isParentProcessFullWebBrowserOrRunningTest() const { return m_isParentProcessFullWebBrowserOrRunningTest; }
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+    String containerTemporaryDirectory() const { return m_containerTemporaryDirectory; }
 #endif
 
 #if ENABLE(WEB_RTC)
@@ -464,6 +482,12 @@ public:
     AllowCookieAccess allowsFirstPartyForCookies(WebCore::ProcessIdentifier, const RegistrableDomain&);
     void addAllowedFirstPartyForCookies(WebCore::ProcessIdentifier, WebCore::RegistrableDomain&&, LoadedWebArchive, CompletionHandler<void()>&&);
 
+    // Per-process allow-list of WebPageProxyIdentifiers the WebContent process is permitted to reference. Fed by the
+    // (trusted) UIProcess as it associates a process with a page, and used to reject a process that supplies a
+    // WebPageProxyIdentifier it does not own over IPC.
+    bool allowsWebPageProxyIdentifier(WebCore::ProcessIdentifier, std::optional<WebPageProxyIdentifier>) const;
+    void addAllowedWebPageProxyIdentifier(WebCore::ProcessIdentifier, WebPageProxyIdentifier);
+
     void requestBackgroundFetchPermission(PAL::SessionID, const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
     void setInspectionForServiceWorkersAllowed(PAL::SessionID, bool);
     void setStorageSiteValidationEnabled(PAL::SessionID, bool);
@@ -472,7 +496,7 @@ public:
     void getAppBadgeForTesting(PAL::SessionID, CompletionHandler<void(std::optional<uint64_t>)>&&);
 
     void allowFilesAccessFromWebProcess(WebCore::ProcessIdentifier, const Vector<String>&, CompletionHandler<void()>&&);
-    void allowFileAccessFromWebProcess(WebCore::ProcessIdentifier, const String&, CompletionHandler<void()>&&);
+    void allowFileAccessFromWebProcess(WebCore::ProcessIdentifier, const String&, std::optional<WebKit::SandboxExtensionHandle>, CompletionHandler<void()>&&);
 
     bool enableModernDownloadProgress() const { return m_enableModernDownloadProgress; }
 
@@ -484,7 +508,7 @@ public:
 
     WebCore::ShouldRelaxThirdPartyCookieBlocking NODELETE shouldRelaxThirdPartyCookieBlockingForPage(std::optional<WebPageProxyIdentifier>) const;
 
-    void setDefaultRequestTimeoutInterval(double);
+    void NODELETE setDefaultRequestTimeoutInterval(double);
 
 #if PLATFORM(COCOA)
     // MAVERICKS_BACKPORT: the certificate a user accepted for a host (see
@@ -499,6 +523,7 @@ public:
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
     void allowEvaluatedURL(const WebCore::ParentalControlsURLFilterParameters&, CompletionHandler<void(bool)>&&);
+    void installMockParentalControlsURLFilterForTesting(Vector<URL>&& blockedURLs, CompletionHandler<void()>&&);
 #endif
 
 #if HAVE(ENHANCED_SECURITY_LINKS)
@@ -576,6 +601,7 @@ private:
     void allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo&, const String& host);
     void allowTLSCertificateChainForLocalPCMTesting(PAL::SessionID, const WebCore::CertificateInfo&);
     void flushCookies(PAL::SessionID, CompletionHandler<void()>&&);
+    void flushNetworkProcessIPC(CompletionHandler<void()>&& completionHandler) { completionHandler(); }
 
     void addWebPageNetworkParameters(PAL::SessionID, WebPageProxyIdentifier, WebPageNetworkParameters&&);
     void removeWebPageNetworkParameters(PAL::SessionID, WebPageProxyIdentifier);
@@ -648,6 +674,7 @@ private:
     HashMap<PAL::SessionID, std::unique_ptr<NetworkSession>> m_networkSessions;
     HashMap<PAL::SessionID, std::unique_ptr<WebCore::NetworkStorageSession>> m_networkStorageSessions;
     HashMap<WebCore::ProcessIdentifier, std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>> m_allowedFirstPartiesForCookies;
+    HashMap<WebCore::ProcessIdentifier, HashSet<WebPageProxyIdentifier>> m_allowedWebPageProxyIdentifiers;
 
 #if PLATFORM(COCOA)
     void platformInitializeNetworkProcessCocoa(const NetworkProcessCreationParameters&);
@@ -656,6 +683,10 @@ private:
     // multiple requests to clear the cache can come in before previous requests complete, and we need to wait for all of them.
     // In the future using WorkQueue and a counting semaphore would work, as would WorkQueue supporting the libdispatch concept of "work groups".
     OSObjectPtr<dispatch_group_t> m_clearCacheDispatchGroup;
+#endif
+
+#if HAVE(LSDATABASECONTEXT)
+    const Ref<LaunchServicesDatabaseObserver> m_launchServicesDatabaseObserver;
 #endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -692,6 +723,9 @@ private:
 #if PLATFORM(COCOA)
     int m_mediaStreamingActivitityToken { NOTIFY_TOKEN_INVALID };
     bool m_isParentProcessFullWebBrowserOrRunningTest { false };
+#endif
+#if PLATFORM(IOS_FAMILY)
+    String m_containerTemporaryDirectory;
 #endif
     bool m_enableModernDownloadProgress { false };
 #if HAVE(ENHANCED_SECURITY_LINKS)

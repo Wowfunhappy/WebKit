@@ -27,6 +27,7 @@
 #include "libANGLE/Compiler.h"
 #include "libANGLE/Constants.h"
 #include "libANGLE/Context.h"
+#include "libANGLE/Debug.h"
 #include "libANGLE/Display.h"
 #include "libANGLE/MemoryShaderCache.h"
 #include "libANGLE/Program.h"
@@ -330,13 +331,6 @@ angle::Result CompileTask::postTranslate()
     mTranslateTask->postTranslate(mCompilerHandle, *mCompiledState.get());
 
     return angle::Result::Continue;
-}
-
-template <typename T>
-void AppendHashValue(angle::base::SecureHashAlgorithm &hasher, T value)
-{
-    static_assert(std::is_fundamental<T>::value || std::is_enum<T>::value);
-    hasher.Update(&value, sizeof(T));
 }
 
 angle::JobThreadSafety GetTranslateTaskThreadSafety(const Context *context)
@@ -645,10 +639,14 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
         options.initGLPosition             = true;
         options.limitCallStackDepth        = true;
         options.limitExpressionComplexity  = true;
-        options.enforcePackingRestrictions = true;
         options.initSharedVariables        = true;
         options.rejectWebglShadersWithLargeVariables    = true;
         options.rejectWebglShadersWithUndefinedBehavior = true;
+
+        if (context->getFrontendFeatures().allowExtensionDisableAfterNonPpTokens.enabled)
+        {
+            options.allowExtensionDisableAfterNonPPTokensInWebGL = true;
+        }
     }
     else if (!context->isWebGL())
     {
@@ -761,6 +759,19 @@ void Shader::resolveCompile(const Context *context)
     const bool success    = WaitCompileJobUnlocked(mCompileJob);
     mInfoLog              = std::move(mCompileJob->compileEvent->getInfoLog());
     mState.mCompileStatus = success ? CompileStatus::COMPILED : CompileStatus::NOT_COMPILED;
+
+    // Report the compiler logs so they are more obviously visible.
+    if (!mInfoLog.empty())
+    {
+        static std::atomic_uint32_t sLoggedMessages = 0;
+        constexpr uint32_t kMaxLoggedMessages       = 4;
+        bool isLastMessage                          = false;
+        if (MessageCounterBelowMaxRepeat(&sLoggedMessages, kMaxLoggedMessages, &isLastMessage))
+        {
+            WARN() << "Compiler log: " << mInfoLog
+                   << (isLastMessage ? " (No more compiler logs will be reported in logs)" : "");
+        }
+    }
 
     if (mCompileJob->shCompilerInstance.getHandle())
     {
@@ -1003,28 +1014,28 @@ void Shader::setShaderKey(const Context *context,
                           const ShBuiltInResources &resources)
 {
     // Compute shader key.
-    angle::base::SecureHashAlgorithm hasher;
+    angle::BlobCacheHasher hasher;
     hasher.Init();
 
     // Start with the shader type and source.
-    AppendHashValue(hasher, mState.getShaderType());
-    hasher.Update(mState.getSource().c_str(), mState.getSource().length());
+    angle::UpdateHashWithValue(hasher, mState.getShaderType());
+    hasher.Update(mState.getSource().data(), mState.getSource().size());
 
     // Include the shader program version hash.
     hasher.Update(angle::GetANGLEShaderProgramVersion(),
                   angle::GetANGLEShaderProgramVersionHashSize());
 
-    AppendHashValue(hasher, Compiler::SelectShaderSpec(context->getState()));
-    AppendHashValue(hasher, outputType);
+    angle::UpdateHashWithValue(hasher, Compiler::SelectShaderSpec(context->getState()));
+    angle::UpdateHashWithValue(hasher, outputType);
     hasher.Update(reinterpret_cast<const uint8_t *>(&compileOptions), sizeof(compileOptions));
 
     // Include the ShBuiltInResources, which represent the extensions and constants used by the
     // shader.
     hasher.Update(reinterpret_cast<const uint8_t *>(&resources), sizeof(resources));
 
-    // Call the secure SHA hashing function.
+    // Get the hash.
     hasher.Final();
-    memcpy(mShaderHash.data(), hasher.Digest(), angle::base::kSHA1Length);
+    memcpy(mShaderHash.data(), hasher.Digest(), angle::kBlobCacheKeyLength);
 }
 
 bool WaitCompileJobUnlocked(const SharedCompileJob &compileJob)

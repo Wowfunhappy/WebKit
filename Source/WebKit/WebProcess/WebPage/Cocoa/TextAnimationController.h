@@ -93,7 +93,7 @@ private:
     void removeTransparentMarkersForTextAnimationID(const WTF::UUID&);
     void removeTransparentMarkersForActiveWritingToolsSession();
 
-    WebCore::Document* document() const;
+    WebCore::Document* NODELETE document() const;
 
     WeakPtr<WebPage> m_webPage;
 

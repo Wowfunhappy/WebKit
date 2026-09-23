@@ -4,7 +4,7 @@
  *           (C) 1998 Waldo Bastian (bastian@kde.org)
  *           (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2016 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "RenderBlock.h"
 #include "RenderTableSection.h"
 
 namespace WebCore {
@@ -32,12 +33,12 @@ namespace WebCore {
 static const unsigned unsetRowIndex = 0x7FFFFFFF;
 static const unsigned maxRowIndex = 0x7FFFFFFE; // 2,147,483,646
 
-class RenderTableRow final : public RenderBox {
+class RenderTableRow final : public RenderBlock {
     WTF_MAKE_TZONE_ALLOCATED(RenderTableRow);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderTableRow);
 public:
-    RenderTableRow(Element&, RenderStyle&&);
-    RenderTableRow(Document&, RenderStyle&&);
+    RenderTableRow(Element&, Style::ComputedStyle&&);
+    RenderTableRow(Document&, Style::ComputedStyle&&);
     virtual ~RenderTableRow();
 
     RenderTableRow* nextRow() const;
@@ -49,6 +50,7 @@ public:
     RenderTable* table() const;
 
     void paintOutlineForRowIfNeeded(PaintInfo&, const LayoutPoint&);
+    void paintShadowForRowIfNeeded(PaintInfo&, const LayoutPoint&);
 
     void setRowIndex(unsigned);
     bool rowIndexWasSet() const { return m_rowIndex != unsetRowIndex; }
@@ -71,7 +73,7 @@ public:
     bool backgroundIsKnownToBeOpaqueInRect(const LayoutRect&) const override { return false; }
 
 private:
-    static RenderPtr<RenderTableRow> createTableRowWithStyle(Document&, const RenderStyle&);
+    static RenderPtr<RenderTableRow> createTableRowWithStyle(Document&, const Style::ComputedStyle&);
 
     ASCIILiteral renderName() const override;
     bool canHaveChildren() const override { return true; }
@@ -80,19 +82,19 @@ private:
 
     LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext) const override;
     RepaintRects rectsForRepaintingAfterLayout(const RenderLayerModelObject* repaintContainer, RepaintOutlineBounds) const override;
-    void computeIntrinsicLogicalWidths(LayoutUnit&, LayoutUnit&) const override { }
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { return { }; }
 
     bool requiresLayer() const final;
     void paint(PaintInfo&, const LayoutPoint&) override;
     void imageChanged(WrappedImagePtr, const IntRect* = 0) override;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void firstChild() const = delete;
     void lastChild() const = delete;
     void nextSibling() const = delete;
     void previousSibling() const = delete;
 
-    unsigned m_rowIndex : 31;
+    unsigned m_rowIndex : 31 { unsetRowIndex };
 };
 
 inline void RenderTableRow::setRowIndex(unsigned rowIndex)
@@ -118,12 +120,12 @@ inline RenderTable* RenderTableRow::table() const
 
 inline RenderTableRow* RenderTableRow::nextRow() const
 {
-    return downcast<RenderTableRow>(RenderBox::nextSibling());
+    return downcast<RenderTableRow>(RenderBlock::nextSibling());
 }
 
 inline RenderTableRow* RenderTableRow::previousRow() const
 {
-    return downcast<RenderTableRow>(RenderBox::previousSibling());
+    return downcast<RenderTableRow>(RenderBlock::previousSibling());
 }
 
 inline RenderTableRow* RenderTableSection::firstRow() const

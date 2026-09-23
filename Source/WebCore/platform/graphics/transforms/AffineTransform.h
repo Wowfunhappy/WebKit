@@ -119,7 +119,7 @@ public:
     WEBCORE_EXPORT AffineTransform& NODELETE multiply(const AffineTransform& other);
     WEBCORE_EXPORT AffineTransform& NODELETE scale(double);
     WEBCORE_EXPORT AffineTransform& scale(double sx, double sy);
-    WEBCORE_EXPORT AffineTransform& scaleNonUniform(double sx, double sy); // Same as scale(sx, sy).
+    WEBCORE_EXPORT AffineTransform& NODELETE scaleNonUniform(double sx, double sy); // Same as scale(sx, sy).
     WEBCORE_EXPORT AffineTransform& scale(const FloatSize&);
     WEBCORE_EXPORT AffineTransform& rotate(double);
     WEBCORE_EXPORT AffineTransform& rotateRadians(double);
@@ -139,7 +139,7 @@ public:
     WEBCORE_EXPORT double xScale() const;
     WEBCORE_EXPORT double yScale() const;
 
-    bool isInvertible() const; // If you call this, you're probably doing it wrong.
+    bool NODELETE isInvertible() const; // If you call this, you're probably doing it wrong.
     WEBCORE_EXPORT std::optional<AffineTransform> NODELETE inverse() const;
 
     WEBCORE_EXPORT void blend(const AffineTransform& from, double progress, CompositeOperation = CompositeOperation::Replace);

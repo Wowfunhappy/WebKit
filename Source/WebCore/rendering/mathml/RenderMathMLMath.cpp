@@ -32,7 +32,7 @@
 #include "MathMLRowElement.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -41,7 +41,7 @@ using namespace MathMLNames;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMathMLMath);
 
-RenderMathMLMath::RenderMathMLMath(MathMLRowElement& element, RenderStyle&& style)
+RenderMathMLMath::RenderMathMLMath(MathMLRowElement& element, Style::ComputedStyle&& style)
     : RenderMathMLRow(Type::MathMLMath, element, WTF::move(style))
 {
     ASSERT(isRenderMathMLMath());
@@ -58,10 +58,10 @@ void RenderMathMLMath::centerChildren(LayoutUnit contentWidth)
     if (!style().writingMode().deprecatedIsLeftToRightDirection())
         centerBlockOffset = -centerBlockOffset;
     for (CheckedPtr child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox()) {
-        auto repaintRect = child->checkForRepaintDuringLayout() ? std::make_optional(child->frameRect()) : std::nullopt;
+        auto repaintRect = child->checkForRepaintDuringLayout() ? std::make_optional(child->borderBoxRectInContainer()) : std::nullopt;
         child->move(centerBlockOffset, { });
         if (repaintRect) {
-            repaintRect->uniteEvenIfEmpty(child->frameRect());
+            repaintRect->uniteEvenIfEmpty(child->borderBoxRectInContainer());
             repaintRectangle(*repaintRect);
         }
     }

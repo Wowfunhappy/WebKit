@@ -940,10 +940,8 @@ end
 
 macro equalNullComparisonOp(opcodeName, opcodeStruct, fn)
     llintOpWithReturn(opcodeName, opcodeStruct, macro (size, get, dispatch, return)
-        get(m_operand, t0)
-        assertNotConstant(size, t0)
-        loadi TagOffset[cfr, t0, 8], t1
-        loadi PayloadOffset[cfr, t0, 8], t0
+        get(m_operand, t2)
+        loadConstantOrVariable(size, t2, t1, t0)
         bineq t1, CellTag, .opEqNullImmediate
         btbnz JSCell::m_flags[t0], MasqueradesAsUndefined, .opEqNullMasqueradesAsUndefined
         move 0, t1
@@ -952,7 +950,7 @@ macro equalNullComparisonOp(opcodeName, opcodeStruct, fn)
         loadi JSCell::m_structureID[t0], t1
         loadp CodeBlock[cfr], t0
         loadp CodeBlock::m_globalObject[t0], t0
-        cpeq Structure::m_globalObject[t1], t0, t1
+        cpeq Structure::m_realm[t1], t0, t1
         jmp .opEqNullNotImmediate
     .opEqNullImmediate:
         cieq t1, NullTag, t2
@@ -1354,7 +1352,7 @@ llintOpWithReturn(op_typeof_is_undefined, OpTypeofIsUndefined, macro (size, get,
     loadi JSCell::m_structureID[t3], t1
     loadp CodeBlock[cfr], t3
     loadp CodeBlock::m_globalObject[t3], t3
-    cpeq Structure::m_globalObject[t1], t3, t1
+    cpeq Structure::m_realm[t1], t3, t1
     return(BooleanTag, t1)
 end)
 
@@ -1411,18 +1409,18 @@ end)
 macro loadPropertyAtVariableOffsetKnownNotInline(propertyOffset, objectAndStorage, tag, payload)
     assert(macro (ok) bigteq propertyOffset, firstOutOfLineOffset, ok end)
     negi propertyOffset
-    loadp JSObject::m_butterfly[objectAndStorage], objectAndStorage
+    loadp JSObjectWithButterfly::m_butterfly[objectAndStorage], objectAndStorage
     loadi TagOffset + (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffset, 8], tag
     loadi PayloadOffset + (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffset, 8], payload
 end
 
 macro loadPropertyAtVariableOffset(propertyOffset, objectAndStorage, tag, payload)
     bilt propertyOffset, firstOutOfLineOffset, .isInline
-    loadp JSObject::m_butterfly[objectAndStorage], objectAndStorage
+    loadp JSObjectWithButterfly::m_butterfly[objectAndStorage], objectAndStorage
     negi propertyOffset
     jmp .ready
 .isInline:
-    addp sizeof JSObject - (firstOutOfLineOffset - 2) * 8, objectAndStorage
+    addp sizeof JSObjectWithButterfly - (firstOutOfLineOffset - 2) * 8, objectAndStorage
 .ready:
     loadi TagOffset + (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffset, 8], tag
     loadi PayloadOffset + (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffset, 8], payload
@@ -1430,11 +1428,11 @@ end
 
 macro storePropertyAtVariableOffset(propertyOffsetAsInt, objectAndStorage, tag, payload)
     bilt propertyOffsetAsInt, firstOutOfLineOffset, .isInline
-    loadp JSObject::m_butterfly[objectAndStorage], objectAndStorage
+    loadp JSObjectWithButterfly::m_butterfly[objectAndStorage], objectAndStorage
     negi propertyOffsetAsInt
     jmp .ready
 .isInline:
-    addp sizeof JSObject - (firstOutOfLineOffset - 2) * 8, objectAndStorage
+    addp sizeof JSObjectWithButterfly - (firstOutOfLineOffset - 2) * 8, objectAndStorage
 .ready:
     storeJSValueConcurrent(
         macro(val, offset)
@@ -1453,22 +1451,6 @@ end
 # we would have been doing anyway. For prototype/unset properties, we will attempt to
 # convert opcode into a get_by_id_proto_load/get_by_id_unset, respectively, after an
 # execution counter hits zero.
-
-llintOpWithMetadata(op_try_get_by_id, OpTryGetById, macro (size, get, dispatch, metadata, return)
-    metadata(t5, t0)
-    get(m_base, t0)
-    loadi OpTryGetById::Metadata::m_structureID[t5], t1
-    loadConstantOrVariablePayload(size, t0, CellTag, t3, .opTryGetByIdSlow)
-    loadi OpTryGetById::Metadata::m_offset[t5], t2
-    bineq JSCell::m_structureID[t3], t1, .opTryGetByIdSlow
-    loadPropertyAtVariableOffset(t2, t3, t0, t1)
-    valueProfile(size, OpTryGetById, m_valueProfile, t0, t1, t5)
-    return(t0, t1)
-
-.opTryGetByIdSlow:
-    callSlowPath(_llint_slow_path_try_get_by_id)
-    dispatch()
-end)
 
 llintOpWithMetadata(op_get_by_id_direct, OpGetByIdDirect, macro (size, get, dispatch, metadata, return)
     metadata(t5, t0)
@@ -1523,7 +1505,7 @@ macro performGetByIDHelper(opcodeStruct, modeMetadataName, valueProfileName, slo
     loadb JSCell::m_indexingTypeAndMisc[t3], t0
     btiz t0, IsArray, slowLabel
     btiz t0, IndexingShapeMask, slowLabel
-    loadp JSObject::m_butterfly[t3], t0
+    loadp JSObjectWithButterfly::m_butterfly[t3], t0
     loadi -sizeof IndexingHeader + IndexingHeader::u.lengths.publicLength[t0], t0
     bilt t0, 0, slowLabel
     valueProfile(size, opcodeStruct, valueProfileName, Int32Tag, t0, t2)
@@ -1560,7 +1542,7 @@ llintOpWithMetadata(op_get_by_id, OpGetById, macro (size, get, dispatch, metadat
     loadb JSCell::m_indexingTypeAndMisc[t3], t2
     btiz t2, IsArray, .opGetByIdSlow
     btiz t2, IndexingShapeMask, .opGetByIdSlow
-    loadp JSObject::m_butterfly[t3], t0
+    loadp JSObjectWithButterfly::m_butterfly[t3], t0
     loadi -sizeof IndexingHeader + IndexingHeader::u.lengths.publicLength[t0], t0
     bilt t0, 0, .opGetByIdSlow
     valueProfile(size, OpGetById, m_valueProfile, Int32Tag, t0, t5)
@@ -1615,7 +1597,7 @@ llintOpWithMetadata(op_get_length, OpGetLength, macro (size, get, dispatch, meta
     loadb JSCell::m_indexingTypeAndMisc[t3], t2
     btiz t2, IsArray, .opGetLengthSlow
     btiz t2, IndexingShapeMask, .opGetLengthSlow
-    loadp JSObject::m_butterfly[t3], t0
+    loadp JSObjectWithButterfly::m_butterfly[t3], t0
     loadi -sizeof IndexingHeader + IndexingHeader::u.lengths.publicLength[t0], t0
     bilt t0, 0, .opGetLengthSlow
     valueProfile(size, OpGetLength, m_valueProfile, Int32Tag, t0, t5)
@@ -1742,7 +1724,7 @@ llintOpWithMetadata(op_get_by_val, OpGetByVal, macro (size, get, dispatch, metad
     loadb JSCell::m_indexingTypeAndMisc[t2], t2
     get(m_property, t3)
     loadConstantOrVariablePayload(size, t3, Int32Tag, t1, .opGetByValSlow)
-    loadp JSObject::m_butterfly[t0], t3
+    loadp JSObjectWithButterfly::m_butterfly[t0], t3
     andi IndexingShapeMask, t2
     bieq t2, Int32Shape, .opGetByValIsContiguous
     bineq t2, ContiguousShape, .opGetByValNotContiguous
@@ -1887,7 +1869,7 @@ macro putByValOp(opcodeName, opcodeStruct, osrExitPoint)
         loadb JSCell::m_indexingTypeAndMisc[t2], t2
         get(m_property, t0)
         loadConstantOrVariablePayload(size, t0, Int32Tag, t3, .opPutByValSlow)
-        loadp JSObject::m_butterfly[t1], t0
+        loadp JSObjectWithButterfly::m_butterfly[t1], t0
         btinz t2, CopyOnWrite, .opPutByValSlow
         andi IndexingShapeMask, t2
         bineq t2, Int32Shape, .opPutByValNotInt32
@@ -2003,10 +1985,8 @@ end
 
 macro equalNullJumpOp(opcodeName, opcodeStruct, cellHandler, immediateHandler)
     llintOpWithJump(op_%opcodeName%, opcodeStruct, macro (size, get, jump, dispatch)
-        get(m_value, t0)
-        assertNotConstant(size, t0)
-        loadi TagOffset[cfr, t0, 8], t1
-        loadi PayloadOffset[cfr, t0, 8], t0
+        get(m_value, t2)
+        loadConstantOrVariable(size, t2, t1, t0)
         bineq t1, CellTag, .immediate
         loadi JSCell::m_structureID[t0], t2
         cellHandler(t2, JSCell::m_flags[t0], .target)
@@ -2027,7 +2007,7 @@ equalNullJumpOp(jeq_null, OpJeqNull,
         btbz value, MasqueradesAsUndefined, .opJeqNullNotMasqueradesAsUndefined
         loadp CodeBlock[cfr], t0
         loadp CodeBlock::m_globalObject[t0], t0
-        bpeq Structure::m_globalObject[structure], t0, target
+        bpeq Structure::m_realm[structure], t0, target
     .opJeqNullNotMasqueradesAsUndefined:
     end,
     macro (value, target) bieq value, NullTag, target end)
@@ -2038,7 +2018,7 @@ equalNullJumpOp(jneq_null, OpJneqNull,
         btbz value, MasqueradesAsUndefined, target
         loadp CodeBlock[cfr], t0
         loadp CodeBlock::m_globalObject[t0], t0
-        bpneq Structure::m_globalObject[structure], t0, target
+        bpneq Structure::m_realm[structure], t0, target
     end,
     macro (value, target) bineq value, NullTag, target end)
 
@@ -3055,19 +3035,19 @@ llintOpWithMetadata(op_profile_control_flow, OpProfileControlFlow, macro (size, 
     dispatch()
 end)
 
-llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch, metadata, return)
+macro iteratorOpenGenericImpl(size, get, dispatch, metadata, opcodeStruct, opcodeName, tryFastNarrow, tryFastWide16, tryFastWide32, getNextSlowPath)
     macro fastNarrow()
-        callSlowPath(_iterator_open_try_fast_narrow)
+        callSlowPath(tryFastNarrow)
     end
     macro fastWide16()
-        callSlowPath(_iterator_open_try_fast_wide16)
+        callSlowPath(tryFastWide16)
     end
     macro fastWide32()
-        callSlowPath(_iterator_open_try_fast_wide32)
+        callSlowPath(tryFastWide32)
     end
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
-    
-    bbeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
+
+    bpeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
     dispatch()
 
 .iteratorOpenGeneric:
@@ -3081,7 +3061,7 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     end
 
     macro getArgumentIncludingThisStart(dst)
-        getu(size, OpIteratorOpen, m_stackOffset, dst)
+        getu(size, opcodeStruct, m_stackOffset, dst)
     end
 
     macro getArgumentIncludingThisCount(dst)
@@ -3089,7 +3069,7 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     end
 
     metadata(t5, t0)
-    callHelper(op_iterator_open, OpIteratorOpen, dispatchAfterRegularCall, m_iteratorValueProfile, m_iterator, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetByIdCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
+    callHelper(opcodeName, opcodeStruct, dispatchAfterRegularCall, m_iteratorValueProfile, m_iterator, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetByIdCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
 
 .getByIdStart:
     macro storeNextAndDispatch(valueTag, valuePayload)
@@ -3101,26 +3081,29 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
         dispatch()
     end
 
-    # We need to load m_iterator into t3 because that's where
-    # performGetByIDHelper expects the base object    
+    # We need to load m_iterator into t3 because that's where performGetByIDHelper expects the base.
     loadVariable(get, m_iterator, t3, t0, t3)
     bineq t0, CellTag, .iteratorOpenGenericGetNextSlow
     metadata(t2, t1)
-    performGetByIDHelper(OpIteratorOpen, m_modeMetadata, m_nextValueProfile, .iteratorOpenGenericGetNextSlow, size, storeNextAndDispatch)
+    performGetByIDHelper(opcodeStruct, m_modeMetadata, m_nextValueProfile, .iteratorOpenGenericGetNextSlow, size, storeNextAndDispatch)
 
 .iteratorOpenGenericGetNextSlow:
-    callSlowPath(_llint_slow_path_iterator_open_get_next)
+    callSlowPath(getNextSlowPath)
     dispatch()
 
 .iteratorOpenException:
     jmp _llint_throw_from_slow_path_trampoline
+end
 
+llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch, metadata, return)
+    iteratorOpenGenericImpl(size, get, dispatch, metadata, OpIteratorOpen, op_iterator_open, _iterator_open_try_fast_narrow, _iterator_open_try_fast_wide16, _iterator_open_try_fast_wide32, _llint_slow_path_iterator_open_get_next)
 end)
 
 llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch, metadata, return)
-        
+
     loadVariable(get, m_next, t0, t1, t0)
-    bineq t1, EmptyValueTag, .iteratorNextGeneric
+    bineq t1, CellTag, .iteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .iteratorNextGeneric
 
     macro fastNarrow()
         callSlowPath(_iterator_next_try_fast_narrow)
@@ -3134,7 +3117,7 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
 
     # FIXME: We should do this with inline assembly since it's the "fast" case.
-    bbeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
+    bpeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
     dispatch()
 
 .iteratorNextGeneric:
@@ -3156,6 +3139,9 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
 
     # Use m_value slot as a tmp since we are going to write to it later.
     metadata(t5, t0)
+    loadh OpIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5], t0
+    ori constexpr IterationMode::Generic, t0
+    storeh t0, OpIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5]
     callHelper(op_iterator_next, OpIteratorNext, dispatchAfterRegularCall, m_nextResultValueProfile, m_value, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetDoneCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
 
 .getDoneStart:
@@ -3208,6 +3194,41 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
     callSlowPath(_llint_slow_path_iterator_next_get_value)
     dispatch()
 end)
+
+llintOpWithMetadata(op_async_iterator_next, OpAsyncIteratorNext, macro (size, get, dispatch, metadata, return)
+    loadVariable(get, m_next, t0, t1, t0)
+    bineq t1, CellTag, .asyncIteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .asyncIteratorNextGeneric
+
+    # Fast case: next is the fast async generator driver sentinel; see LowLevelInterpreter64.asm.
+    callSlowPath(_llint_slow_path_async_iterator_next_with_driver)
+    dispatch()
+
+.asyncIteratorNextGeneric:
+    macro getCallee(dst)
+        get(m_next, dst)
+    end
+
+    macro getArgumentIncludingThisStart(dst)
+        getu(size, OpAsyncIteratorNext, m_stackOffset, dst)
+    end
+
+    macro getArgumentIncludingThisCount(dst)
+        getArgumentIncludingThisCountForAsyncIteratorNext(size, dst)
+    end
+
+    metadata(t5, t0)
+    loadh OpAsyncIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5], t0
+    ori constexpr IterationMode::Generic, t0
+    storeh t0, OpAsyncIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5]
+    callHelper(op_async_iterator_next, OpAsyncIteratorNext, dispatchAfterRegularCall, m_valueProfile, m_dst, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, dispatch, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
+end)
+
+# See the op_async_iterator_open comment in LowLevelInterpreter64.asm for the full semantics.
+llintOpWithMetadata(op_async_iterator_open, OpAsyncIteratorOpen, macro (size, get, dispatch, metadata, return)
+    iteratorOpenGenericImpl(size, get, dispatch, metadata, OpAsyncIteratorOpen, op_async_iterator_open, _async_iterator_open_try_fast_narrow, _async_iterator_open_try_fast_wide16, _async_iterator_open_try_fast_wide32, _llint_slow_path_async_iterator_open_get_next)
+end)
+
 
 llintOpWithProfile(op_get_internal_field, OpGetInternalField, macro (size, get, dispatch, return)
     get(m_base, t0)

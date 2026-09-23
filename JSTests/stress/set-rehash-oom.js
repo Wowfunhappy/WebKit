@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 
 function testSet() {
     const oomString = '\u1234'.padEnd(0x7fffffff, 'a');

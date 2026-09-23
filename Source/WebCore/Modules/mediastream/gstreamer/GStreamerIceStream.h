@@ -23,6 +23,7 @@
 
 #include "GStreamerIceAgent.h"
 #include "GStreamerIceTransport.h"
+#include "GUniquePtrRice.h"
 #include "RTCIceComponent.h"
 #include "RTCIceConnectionState.h"
 #include "RTCIceProtocol.h"
@@ -45,6 +46,7 @@ WebKitGstIceStream* webkitGstWebRTCCreateIceStream(WebKitGstIceAgent*, GRefPtr<R
 GstWebRTCICETransport* webkitGstWebRTCIceStreamFindTransport(GstWebRTCICEStream*, GstWebRTCICEComponent);
 
 void webkitGstWebRTCIceStreamHandleIncomingData(const WebKitGstIceStream*, WebCore::RTCIceProtocol, String&&, String&&, WebCore::SharedMemory::Handle&&);
+void webkitGstWebRTCIceStreamHandleAllocatedSocket(const WebKitGstIceStream*, unsigned, WebCore::RTCIceProtocol, String&&, String&&, String&&);
 
 const GRefPtr<RiceStream>& webkitGstWebRTCIceStreamGetRiceStream(WebKitGstIceStream*);
 void webkitGstWebRTCIceStreamSetLocalCredentials(WebKitGstIceStream*, const String& ufrag, const String& pwd);
@@ -52,9 +54,10 @@ void webkitGstWebRTCIceStreamSetRemoteCredentials(WebKitGstIceStream*, const Str
 bool webkitGstWebRTCIceStreamGatherCandidates(WebKitGstIceStream*);
 void webkitGstWebRTCIceStreamGatheringDone(const WebKitGstIceStream*);
 
-void webkitGstWebRTCIceStreamAddLocalGatheredCandidate(const WebKitGstIceStream*, RiceGatheredCandidate&);
-void webkitGstWebRTCIceStreamNewSelectedPair(const WebKitGstIceStream*, RiceAgentSelectedPair&);
-void webkitGstWebRTCIceStreamComponentStateChanged(const WebKitGstIceStream*, RiceAgentComponentStateChange&);
+
+void webkitGstWebRTCIceStreamAddLocalGatheredCandidate(const WebKitGstIceStream*, const RiceGatheredCandidate&);
+void webkitGstWebRTCIceStreamNewSelectedPair(const WebKitGstIceStream*, const RiceAgentSelectedPair&);
+void webkitGstWebRTCIceStreamComponentStateChanged(const WebKitGstIceStream*, const RiceAgentComponentStateChange&);
 bool webkitGstWebRTCIceStreamGetSelectedPair(WebKitGstIceStream*, GstWebRTCICECandidateStats**, GstWebRTCICECandidateStats**);
 
 #endif // USE(GSTREAMER_WEBRTC) && USE(LIBRICE)

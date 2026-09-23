@@ -30,6 +30,7 @@
 #include <WebCore/DisplayList.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/ShareableBitmap.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/FunctionDispatcher.h>
 #include <wtf/HashMap.h>

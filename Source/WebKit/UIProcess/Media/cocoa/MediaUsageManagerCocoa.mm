@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -102,8 +102,10 @@ MediaUsageManagerCocoa::~MediaUsageManagerCocoa()
 void MediaUsageManagerCocoa::reset()
 {
     for (auto& session : m_mediaSessions.values()) {
-        if (session->usageTracker && session->mediaUsageInfo && session->mediaUsageInfo->isPlaying)
+        if (session->usageTracker && session->mediaUsageInfo && session->mediaUsageInfo->isPlaying) {
             [session->usageTracker stop];
+            session->usageTracker = nullptr;
+        }
     }
     m_mediaSessions.clear();
 }
@@ -119,7 +121,11 @@ void MediaUsageManagerCocoa::addMediaSession(WebCore::MediaSessionIdentifier ide
 void MediaUsageManagerCocoa::removeMediaSession(WebCore::MediaSessionIdentifier identifier)
 {
     ASSERT(m_mediaSessions.contains(identifier));
-    m_mediaSessions.remove(identifier);
+    auto session = m_mediaSessions.take(identifier);
+    if (session && session->usageTracker) {
+        [session->usageTracker stop];
+        session->usageTracker = nullptr;
+    }
 }
 
 void MediaUsageManagerCocoa::updateMediaUsage(WebCore::MediaSessionIdentifier identifier, const WebCore::MediaUsageInfo& mediaUsageInfo)

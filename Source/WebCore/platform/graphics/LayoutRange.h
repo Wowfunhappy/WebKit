@@ -60,7 +60,6 @@ public:
     inline void sizeFromMinEdge(LayoutUnit size = 0_lu);
     inline void sizeFromMaxEdge(LayoutUnit size = 0_lu);
 
-    inline void floorMinEdgeTo(LayoutUnit target);
     inline void floorMaxEdgeTo(LayoutUnit target);
     inline void capMinEdgeTo(LayoutUnit target);
     inline void capMaxEdgeTo(LayoutUnit target);
@@ -94,12 +93,6 @@ inline void LayoutRange::shiftMaxEdgeBy(LayoutUnit shift)
 
 inline void LayoutRange::shiftMinEdgeTo(LayoutUnit target) { shiftMinEdgeBy(target - min()); }
 inline void LayoutRange::shiftMaxEdgeTo(LayoutUnit target) { shiftMaxEdgeBy(target - max()); }
-
-inline void LayoutRange::floorMinEdgeTo(LayoutUnit target)
-{
-    if (target > max())
-        shiftMaxEdgeTo(target);
-}
 
 inline void LayoutRange::floorMaxEdgeTo(LayoutUnit target)
 {

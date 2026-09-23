@@ -29,26 +29,26 @@
 
 #include <WebCore/AcceleratedEffectOffsetAnchor.h>
 #include <WebCore/AcceleratedEffectOffsetDistance.h>
+#include <WebCore/AcceleratedEffectOffsetPath.h>
 #include <WebCore/AcceleratedEffectOffsetPosition.h>
 #include <WebCore/AcceleratedEffectOffsetRotate.h>
 #include <WebCore/AcceleratedEffectOpacity.h>
 #include <WebCore/AcceleratedEffectTransformBox.h>
 #include <WebCore/AcceleratedEffectTransformOrigin.h>
 #include <WebCore/FilterOperations.h>
-#include <WebCore/FloatPoint.h>
-#include <WebCore/PathOperation.h>
-#include <WebCore/RotateTransformOperation.h>
-#include <WebCore/ScaleTransformOperation.h>
+#include <WebCore/TransformOperationData.h>
 #include <WebCore/TransformOperations.h>
-#include <WebCore/TransformationMatrix.h>
-#include <WebCore/TranslateTransformOperation.h>
 
 namespace WebCore {
 
 class IntRect;
 class Path;
 class RenderLayerModelObject;
-class RenderStyle;
+class TransformationMatrix;
+
+namespace Style {
+class ComputedStyle;
+}
 
 struct AcceleratedEffectValues {
     AcceleratedEffectOpacity opacity { };
@@ -60,8 +60,7 @@ struct AcceleratedEffectValues {
     RefPtr<TransformOperation> translate;
     RefPtr<TransformOperation> scale;
     RefPtr<TransformOperation> rotate;
-    // FIXME: It is a layering violation to use `PathOperation` here, as it is defined in the rendering directory.
-    RefPtr<PathOperation> offsetPath;
+    AcceleratedEffectOffsetPath offsetPath { };
     AcceleratedEffectOffsetDistance offsetDistance { };
     // FIXME: This `offsetPosition` is not used.
     AcceleratedEffectOffsetPosition offsetPosition { };
@@ -71,9 +70,9 @@ struct AcceleratedEffectValues {
     FilterOperations backdropFilter { };
 
     AcceleratedEffectValues() = default;
-    // FIXME: It is a layering violation to use `RenderStyle` and `RenderLayerModelObject` here, as they are defined in the rendering directory.
-    AcceleratedEffectValues(const RenderStyle&, const IntRect&, const RenderLayerModelObject* = nullptr);
-    AcceleratedEffectValues(AcceleratedEffectOpacity opacity, std::optional<TransformOperationData>&& transformOperationData, AcceleratedEffectTransformOrigin transformOrigin, AcceleratedEffectTransformBox transformBox, TransformOperations&& transform, RefPtr<TransformOperation>&& translate, RefPtr<TransformOperation>&& scale, RefPtr<TransformOperation>&& rotate, RefPtr<PathOperation>&& offsetPath, AcceleratedEffectOffsetDistance offsetDistance, AcceleratedEffectOffsetPosition offsetPosition, AcceleratedEffectOffsetAnchor offsetAnchor, AcceleratedEffectOffsetRotate offsetRotate, FilterOperations&& filter, FilterOperations&& backdropFilter)
+    // FIXME: It is a layering violation to use `StyleComputedStyle` and `RenderLayerModelObject` here, as they are defined in the rendering directory.
+    AcceleratedEffectValues(const Style::ComputedStyle&, const IntRect&, const RenderLayerModelObject*);
+    AcceleratedEffectValues(AcceleratedEffectOpacity opacity, std::optional<TransformOperationData>&& transformOperationData, AcceleratedEffectTransformOrigin transformOrigin, AcceleratedEffectTransformBox transformBox, TransformOperations&& transform, RefPtr<TransformOperation>&& translate, RefPtr<TransformOperation>&& scale, RefPtr<TransformOperation>&& rotate, AcceleratedEffectOffsetPath&& offsetPath, AcceleratedEffectOffsetDistance offsetDistance, AcceleratedEffectOffsetPosition offsetPosition, AcceleratedEffectOffsetAnchor offsetAnchor, AcceleratedEffectOffsetRotate offsetRotate, FilterOperations&& filter, FilterOperations&& backdropFilter)
         : opacity(opacity)
         , transformOperationData(WTF::move(transformOperationData))
         , transformOrigin(transformOrigin)

@@ -19,7 +19,7 @@ class ResourceResponse;
 
 class CFNetworkSuppressedGzipDecoder {
     WTF_MAKE_NONCOPYABLE(CFNetworkSuppressedGzipDecoder);
-    WTF_MAKE_TZONE_ALLOCATED(CFNetworkSuppressedGzipDecoder);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CFNetworkSuppressedGzipDecoder, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT static bool responseBodyIsStillGzipped(const ResourceResponse&);
 

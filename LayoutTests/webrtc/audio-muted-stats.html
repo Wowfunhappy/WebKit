@@ -13,7 +13,7 @@ async function getOutboundRTPStats(connection, counter)
 {
     if (!counter)
         counter = 0;
-    const stats = await connection.getStats().then((report) => {
+        const stats = await connection.getStats().then((report) => {
         var stats;
         report.forEach((statItem) => {
             if (statItem.type === "outbound-rtp") {
@@ -50,7 +50,8 @@ promise_test((test) => {
         testRunner.setUserMediaPermission(true);
 
     return navigator.mediaDevices.getUserMedia({ audio: true}).then((stream) => {
-	track = stream.getAudioTracks()[0];
+        test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
+        track = stream.getAudioTracks()[0];
         return new Promise((resolve, reject) => {
             createConnections((connection) => {
                 firstConnection = connection;
@@ -66,9 +67,9 @@ promise_test((test) => {
         statsFirstConnection = stats;
         return checkOutboundBytesSentIncreased(firstConnection, statsFirstConnection, 0);
     }).then(() => {
-	track.enabled = false;
+        track.enabled = false;
         // Let's wait a little bit so that audio is disabled.
-	return waitFor(100);
+        return waitFor(100);
     }).then((stats) => {
         return getOutboundRTPStats(firstConnection);
     }).then((stats) => {

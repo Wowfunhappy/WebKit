@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault
 var prop = "".padEnd(2 ** 31 - 1, "a");
 

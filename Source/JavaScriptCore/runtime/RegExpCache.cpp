@@ -29,7 +29,9 @@
 #include "config.h"
 #include "RegExpCache.h"
 
+#include "HeapCellInlines.h"
 #include "StrongInlines.h"
+#include "WeakInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
@@ -56,6 +58,9 @@ RegExp* RegExpCache::lookupOrCreate(VM& vm, const String& patternString, OptionS
 #if ENABLE(REGEXP_TRACING)
     vm.addRegExpToTrace(regExp);
 #endif
+
+    if (!regExp->isValid())
+        return regExp;
 
     {
         Locker locker { m_lock };

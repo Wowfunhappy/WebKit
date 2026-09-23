@@ -82,8 +82,8 @@ public:
     // We currently only use this hack for callees to make CallFrame::vm() fast. It's not
     // recommended to use it for too many other things, since the large allocation cutoff is
     // a runtime option and its default value is small (400 bytes).
-    JSC::Heap* heap() const;
-    VM& vm() const;
+    inline JSC::Heap* heap() const; // Defined in HeapCellInlines.h
+    inline VM& vm() const; // Defined in HeapCellInlines.h
     
     size_t cellSize() const;
     CellAttributes cellAttributes() const;

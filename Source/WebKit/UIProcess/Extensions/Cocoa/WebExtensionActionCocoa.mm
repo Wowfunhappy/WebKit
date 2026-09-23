@@ -552,6 +552,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     action.setPopupPopoverAppearance(action.popupPopoverAppearance());
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(_otherPopoverWillShow:) name:NSPopoverWillShowNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(popoverWillClose:) name:NSPopoverWillCloseNotification object:self];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(popoverDidClose:) name:NSPopoverDidCloseNotification object:self];
 
     return self;
 }
@@ -567,6 +569,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)popoverDidClose:(NSNotification *)notification
 {
     ASSERT([self isEqual:notification.object]);
+
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 
     if (RefPtr webExtensionAction = _webExtensionAction.get())
         webExtensionAction->closePopup();
@@ -1076,12 +1080,12 @@ void WebExtensionAction::popupDidFinishDocumentLoad()
 
 void WebExtensionAction::readyToPresentPopup()
 {
-    ASSERT(presentsPopupWhenReady());
-    ASSERT(canProgrammaticallyPresentPopup());
+    if (!presentsPopupWhenReady())
+        return;
 
     m_presentsPopupWhenReady = false;
 
-    if (!extensionContext())
+    if (!canProgrammaticallyPresentPopup() || !extensionContext())
         return;
 
     // The popup might have presented or closed already.

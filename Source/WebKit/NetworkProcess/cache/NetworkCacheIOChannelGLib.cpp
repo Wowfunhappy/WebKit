@@ -29,6 +29,7 @@
 #include "NetworkCacheFileSystem.h"
 #include <wtf/MainThread.h>
 #include <wtf/RunLoop.h>
+#include <wtf/Threading.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
 

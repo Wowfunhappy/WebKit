@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 let size = 4096;
 let array = new Float64Array(size);
 for (let i = 0; i < size; ++i)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -143,6 +143,16 @@ WTF::TextStream& operator<<(WTF::TextStream& ts, FontSynthesisLonghandValue valu
     switch (value) {
     case FontSynthesisLonghandValue::None: ts << "none"_s; break;
     case FontSynthesisLonghandValue::Auto: ts << "auto"_s; break;
+    }
+    return ts;
+}
+
+WTF::TextStream& operator<<(WTF::TextStream& ts, FontSynthesisStyleLonghandValue value)
+{
+    switch (value) {
+    case FontSynthesisStyleLonghandValue::None: ts << "none"_s; break;
+    case FontSynthesisStyleLonghandValue::Auto: ts << "auto"_s; break;
+    case FontSynthesisStyleLonghandValue::ObliqueOnly: ts << "oblique-only"_s; break;
     }
     return ts;
 }

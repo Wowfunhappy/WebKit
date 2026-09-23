@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2023 Apple Inc. All rights reserved.
+# Copyright (C) 2020-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -58,7 +58,7 @@ def CallbackAction(action, callback=lambda namespace: None):
     return Action
 
 
-def LoggingGroup(parser, loggers=None, default=logging.WARNING, help='{} amount of logging'):
+def LoggingGroup(parser, loggers=None, log_config=None, default=logging.WARNING, help='{} amount of logging'):
     if not isinstance(parser, argparse.ArgumentParser):
         raise ValueError('Provided parser is not a {}'.format(type(argparse.ArgumentParser)))
 
@@ -75,6 +75,9 @@ def LoggingGroup(parser, loggers=None, default=logging.WARNING, help='{} amount 
 
         for logger in loggers:
             logger.setLevel(log_level)
+
+        if log_config:
+            log_config.set_verbose(log_level <= logging.DEBUG)
 
     group = parser.add_argument_group('Logging')
     group.add_argument(

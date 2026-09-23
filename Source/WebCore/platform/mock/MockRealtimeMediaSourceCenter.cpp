@@ -46,7 +46,7 @@
 #include "CoreAudioCaptureSource.h"
 #include "DisplayCaptureSourceCocoa.h"
 #include "MockAudioCaptureUnit.h"
-#include "MockRealtimeVideoSourceMac.h"
+#include "MockRealtimeVideoSourceCocoa.h"
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -285,6 +285,7 @@ public:
         case CaptureDevice::DeviceType::Microphone:
         case CaptureDevice::DeviceType::Speaker:
         case CaptureDevice::DeviceType::Camera:
+        case CaptureDevice::DeviceType::Canvas:
         case CaptureDevice::DeviceType::SystemAudio:
         case CaptureDevice::DeviceType::Unknown:
             ASSERT_NOT_REACHED();

@@ -27,6 +27,7 @@
 #include "config.h"
 #include "JSPromiseRejectionEvent.h"
 
+#include "JSValueInWrappedObjectInlines.h"
 #include "PromiseRejectionEvent.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>

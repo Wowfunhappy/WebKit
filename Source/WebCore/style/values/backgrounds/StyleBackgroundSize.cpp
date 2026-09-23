@@ -27,13 +27,13 @@
 #include "StyleBackgroundSize.h"
 
 #include "AnimationUtilities.h"
-#include "CSSPrimitiveValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSValuePair.h"
 #include "StyleBuilderChecking.h"
-#include "StyleLengthWrapper+Blending.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Serialization.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Serialization.h"
+#include "StylePrimitiveNumericOrKeyword+Blending.h"
+#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
@@ -52,12 +52,8 @@ auto CSSValueConversion<BackgroundSize>::operator()(BuilderState& state, const C
         };
     }
 
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return CSS::Keyword::Auto { };
-
-    if (primitiveValue->isValueID()) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueAuto:
             return CSS::Keyword::Auto { };
         case CSSValueCover:
@@ -72,10 +68,10 @@ auto CSSValueConversion<BackgroundSize>::operator()(BuilderState& state, const C
         return CSS::Keyword::Auto { };
     }
 
-    return toStyleFromCSSValue<BackgroundSizeLength>(state, *primitiveValue);
+    return toStyleFromCSSValue<BackgroundSizeLength>(state, value);
 }
 
-auto CSSValueCreation<BackgroundSize>::operator()(CSSValuePool& pool, const RenderStyle& style, const BackgroundSize& value) -> Ref<CSSValue>
+auto CSSValueCreation<BackgroundSize>::operator()(CSSValuePool& pool, const Style::ComputedStyle& style, const BackgroundSize& value) -> Ref<CSSValue>
 {
     return WTF::switchOn(value,
         [&](const CSS::Keyword::Cover& keyword) -> Ref<CSSValue> {
@@ -95,7 +91,7 @@ auto CSSValueCreation<BackgroundSize>::operator()(CSSValuePool& pool, const Rend
 
 // MARK: - Serialization
 
-void Serialize<BackgroundSize>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const BackgroundSize& value)
+void Serialize<BackgroundSize>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const BackgroundSize& value)
 {
     WTF::switchOn(value,
         [&](const CSS::Keyword::Cover& keyword) {

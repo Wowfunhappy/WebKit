@@ -48,7 +48,7 @@ public:
 
     static void forEachButtonInDetachedGroup(ContainerNode& rootName, const String& groupName, NOESCAPE const Function<bool(HTMLInputElement&)>&);
 
-    bool valueMissing(const String&) const final;
+    bool valueMissing(StringView) const final;
 
 private:
     explicit RadioInputType(HTMLInputElement& element)

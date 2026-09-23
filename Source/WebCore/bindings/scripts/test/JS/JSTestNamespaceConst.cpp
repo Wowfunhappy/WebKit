@@ -25,13 +25,13 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotCallable.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWrapperCache.h"
 #include "TestNamespaceConst.h"
 #include "WebCoreJSClientData.h"
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectPrototype.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -64,7 +64,7 @@ template<> JSValue JSTestNamespaceConstDOMConstructor::prototypeForStructure(JSC
 
 template<> void JSTestNamespaceConstDOMConstructor::initializeProperties(VM& vm, JSDOMGlobalObject& globalObject)
 {
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
     reifyStaticProperties(vm, JSTestNamespaceConst::info(), JSTestNamespaceConstConstructorTableValues, *this);
     UNUSED_PARAM(globalObject);
 }
@@ -76,9 +76,22 @@ JSTestNamespaceConst::JSTestNamespaceConst(Structure* structure, JSDOMGlobalObje
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestNamespaceConst>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
 
+JSTestNamespaceConst* JSTestNamespaceConst::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestNamespaceConst* ptr = new (NotNull, JSC::allocateCell<JSTestNamespaceConst>(vm)) JSTestNamespaceConst(structure, *globalObject);
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestNamespaceConst::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 JSValue JSTestNamespaceConst::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestNamespaceConstDOMConstructor, DOMConstructorID::TestNamespaceConst>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestNamespaceConstDOMConstructor, DOMConstructorID::TestNamespaceConst>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestNamespaceConst::destroy(JSC::JSCell* cell)

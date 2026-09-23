@@ -63,12 +63,12 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSharedWorkerContextManagerConnection);
 
-Ref<WebSharedWorkerContextManagerConnection> WebSharedWorkerContextManagerConnection::create(Ref<IPC::Connection>&& connectionToNetworkProcess, WebCore::Site&& site, PageGroupIdentifier pageGroupID, WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, const WebPreferencesStore& preferencesStore, RemoteWorkerInitializationData&& initializationData)
+Ref<WebSharedWorkerContextManagerConnection> WebSharedWorkerContextManagerConnection::create(Ref<IPC::Connection>&& connectionToNetworkProcess, WebCore::Site&& site, PageGroupIdentifier pageGroupID, WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, const WebPreferencesStore& preferencesStore, RemoteWorkerInitializationData&& initializationData, WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicyValue)
 {
-    return adoptRef(*new WebSharedWorkerContextManagerConnection(WTF::move(connectionToNetworkProcess), WTF::move(site), pageGroupID, webPageProxyID, pageID, preferencesStore, WTF::move(initializationData)));
+    return adoptRef(*new WebSharedWorkerContextManagerConnection(WTF::move(connectionToNetworkProcess), WTF::move(site), pageGroupID, webPageProxyID, pageID, preferencesStore, WTF::move(initializationData), crossOriginEmbedderPolicyValue));
 }
 
-WebSharedWorkerContextManagerConnection::WebSharedWorkerContextManagerConnection(Ref<IPC::Connection>&& connectionToNetworkProcess, WebCore::Site&& site, PageGroupIdentifier pageGroupID, WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, const WebPreferencesStore& preferencesStore, RemoteWorkerInitializationData&& initializationData)
+WebSharedWorkerContextManagerConnection::WebSharedWorkerContextManagerConnection(Ref<IPC::Connection>&& connectionToNetworkProcess, WebCore::Site&& site, PageGroupIdentifier pageGroupID, WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, const WebPreferencesStore& preferencesStore, RemoteWorkerInitializationData&& initializationData, WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicyValue)
     : m_connectionToNetworkProcess(WTF::move(connectionToNetworkProcess))
     , m_site(WTF::move(site))
     , m_pageGroupID(pageGroupID)
@@ -80,6 +80,7 @@ WebSharedWorkerContextManagerConnection::WebSharedWorkerContextManagerConnection
     , m_userAgent(WebCore::standardUserAgent())
 #endif
     , m_userContentController(WebUserContentController::getOrCreate(WTF::move(initializationData.userContentControllerParameters)))
+    , m_crossOriginEmbedderPolicyValue(crossOriginEmbedderPolicyValue)
 {
     updatePreferencesStore(preferencesStore);
     WebProcess::singleton().disableTermination();
@@ -89,7 +90,7 @@ WebSharedWorkerContextManagerConnection::~WebSharedWorkerContextManagerConnectio
 
 void WebSharedWorkerContextManagerConnection::establishConnection(CompletionHandler<void()>&& completionHandler)
 {
-    m_connectionToNetworkProcess->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::EstablishSharedWorkerContextConnection { m_webPageProxyID, m_site }, WTF::move(completionHandler), 0);
+    m_connectionToNetworkProcess->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::EstablishSharedWorkerContextConnection { m_webPageProxyID, m_site, m_crossOriginEmbedderPolicyValue }, WTF::move(completionHandler), 0);
 }
 
 void WebSharedWorkerContextManagerConnection::postErrorToWorkerObject(WebCore::SharedWorkerIdentifier sharedWorkerIdentifier, const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, bool isErrorEvent)
@@ -129,13 +130,13 @@ void WebSharedWorkerContextManagerConnection::launchSharedWorker(WebCore::Client
     if (WebProcess::singleton().isLockdownModeEnabled())
         WebPage::adjustSettingsForLockdownMode(page->settings(), m_preferencesStore ? &m_preferencesStore.value() : nullptr);
 
-    if (!initializationData.userAgent.isEmpty())
+    if (initializationData.userAgent.isEmpty())
         initializationData.userAgent = m_userAgent;
 
     if (!initializationData.clientIdentifier)
         initializationData.clientIdentifier = WebCore::ScriptExecutionContextIdentifier::generate();
 
-    page->setupForRemoteWorker(workerFetchResult.responseURL, origin.topOrigin, workerFetchResult.referrerPolicy, initializationData.advancedPrivacyProtections);
+    page->setupForRemoteWorker(workerFetchResult.responseURL, origin.topOrigin, workerFetchResult.referrerPolicy, initializationData.advancedPrivacyProtections, initializationData.globalPrivacyControlEnabled);
 
     auto sharedWorkerThreadProxy = WebCore::SharedWorkerThreadProxy::create(Ref { page }, sharedWorkerIdentifier, origin, WTF::move(workerFetchResult), WTF::move(workerOptions), WTF::move(initializationData), WebProcess::singleton().cacheStorageProvider());
 

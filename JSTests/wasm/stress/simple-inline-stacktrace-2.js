@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefaultWasm("--wasmInliningMaximumDepth=10", "--wasmInliningMaximumWasmCalleeSize=10000000", "--wasmInliningBudget=100000", "--useBBQJIT=0")
 var wasm_code = read('simple-inline-stacktrace.wasm', 'binary')
 var wasm_module = new WebAssembly.Module(wasm_code);

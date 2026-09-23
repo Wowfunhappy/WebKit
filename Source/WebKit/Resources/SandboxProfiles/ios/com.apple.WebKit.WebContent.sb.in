@@ -92,10 +92,7 @@
 
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
 #if ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
-(with-filter (logd-blocking)
-    (deny mach-lookup NO_REPORT (log-services)))
-(with-filter (require-not (logd-blocking))
-    (allow mach-lookup (log-services)))
+(deny mach-lookup NO_REPORT (log-services))
 #else
 (with-filter (require-not (lockdown-mode))
     (allow mach-lookup (log-services)))
@@ -145,11 +142,10 @@
     (allow network-outbound
         (literal "/private/var/run/syslog")))
 
-#if ENABLE(NOTIFY_BLOCKING)
-(with-filter (require-not (notify-blocking))
-    (allow-notifyd))
-#else
+#if !PLATFORM(IOS_SIMULATOR)
+#if !ENABLE(NOTIFY_BLOCKING)
 (allow-notifyd)
+#endif
 #endif
 
 (managed-configuration-read-public)
@@ -355,12 +351,13 @@
             (xpc-service-name "com.apple.MTLCompilerService"))))
 #endif
 
-(with-filter (system-attribute apple-internal)
-    (allow mach-lookup (global-name "com.apple.diagnosticd")))
-
+#if !RC_XBS
 (with-filter (system-attribute apple-internal)
     (allow mach-lookup
-        (global-name "com.apple.osanalytics.osanalyticshelper")))
+        (global-name
+            "com.apple.diagnosticd"
+            "com.apple.osanalytics.osanalyticshelper")))
+#endif
 
 (disable-syscall-inference)
 
@@ -421,6 +418,7 @@
 (when (not (defined? 'process-codesigning*))
     (allow process-info-codesignature (target self)))
 
+#if !PLATFORM(IOS_SIMULATOR)
 (allow mach-bootstrap
     (apply-message-filter
         (deny mach-message-send NO_REPORT)
@@ -432,6 +430,7 @@
 #endif
         (with-filter (require-not (webcontent-process-launched))
             (allow mach-message-send (mach-bootstrap-message-numbers)))))
+#endif
 
 (deny syscall-mach (with telemetry))
 (allow syscall-mach

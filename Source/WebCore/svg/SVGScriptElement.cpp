@@ -25,8 +25,7 @@
 #include "Document.h"
 #include "ElementInlines.h"
 #include "Event.h"
-#include "EventTargetInlines.h"
-#include "NodeInlines.h"
+#include "EventNames.h"
 #include "ScriptElement.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -80,16 +79,16 @@ void SVGScriptElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGElement::svgAttributeChanged(attrName);
 }
 
-Node::InsertedIntoAncestorResult SVGScriptElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGScriptElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result1 = SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    auto result2 = ScriptElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    return result1 == InsertedIntoAncestorResult::NeedsPostInsertionCallback ? result1 : result2;
+    auto result1 = SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
+    auto result2 = ScriptElement::insertionSteps(insertionType, parentOfInsertedTree);
+    return result1 == NeedsPostConnectionSteps::Yes ? result1 : result2;
 }
 
-void SVGScriptElement::didFinishInsertingNode()
+void SVGScriptElement::postConnectionSteps()
 {
-    ScriptElement::didFinishInsertingNode();
+    ScriptElement::postConnectionSteps();
 }
 
 void SVGScriptElement::childrenChanged(const ChildChange& change)
@@ -109,11 +108,11 @@ bool SVGScriptElement::isURLAttribute(const Attribute& attribute) const
     return SVGURIReference::isKnownAttribute(attribute.name()) || SVGElement::isURLAttribute(attribute);
 }
 
-void SVGScriptElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void SVGScriptElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     SVGElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(href()));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(href()));
 }
 Ref<Element> SVGScriptElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*) const
 {

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/GraphicsLayer.h>
 #include <WebCore/LayoutRect.h>
 #include <WebCore/RenderLayer.h>
 #include <WebCore/ScrollTypes.h>

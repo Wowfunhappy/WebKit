@@ -29,8 +29,10 @@
 
 #if USE(LIBWEBRTC)
 
+#import "WebRTCVideoDecoderVTBAV1.h"
+#import "WebRTCVideoDecoderVTBVP9.h"
+#import <WebCore/CMUtilities.h>
 #import <WebCore/LibWebRTCMacros.h>
-#import "RTCVideoDecoderVTBAV1.h"
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
@@ -43,8 +45,9 @@ namespace WebCore {
 class WebRTCLocalVideoDecoder final : public WebRTCVideoDecoder {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(WebRTCLocalVideoDecoder);
 public:
-    explicit WebRTCLocalVideoDecoder(webrtc::LocalDecoder decoder)
-        : m_decoder(decoder)
+    WebRTCLocalVideoDecoder(webrtc::LocalDecoder decoder, std::optional<PlatformVideoColorSpace>&& colorSpaceOverride)
+        : WebRTCVideoDecoder(WTF::move(colorSpaceOverride))
+        , m_decoder(decoder)
     {
     }
 
@@ -62,43 +65,26 @@ private:
     webrtc::LocalDecoder m_decoder;
 };
 
-class WebRTCDecoderVTBAV1 final : public WebRTCVideoDecoder {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(WebRTCDecoderVTBAV1);
-public:
-    explicit WebRTCDecoderVTBAV1(RTCVideoDecoderVTBAV1Callback callback)
-        : m_decoder(adoptNS([[RTCVideoDecoderVTBAV1 alloc] init]))
-    {
-        [m_decoder setCallback:callback];
-    }
-
-    ~WebRTCDecoderVTBAV1()
-    {
-        [m_decoder releaseDecoder];
-    }
-
-private:
-    void flush() final { [m_decoder flush]; }
-    void setFormat(std::span<const uint8_t>, uint16_t width, uint16_t height) final { setFrameSize(width, height); }
-    int32_t decodeFrame(int64_t timeStamp, std::span<const uint8_t> data) final { return [m_decoder decodeData:data.data() size:data.size() timeStamp:timeStamp]; }
-    void setFrameSize(uint16_t width, uint16_t height) final { [m_decoder setWidth:width height:height];; }
-
-    RetainPtr<RTCVideoDecoderVTBAV1> m_decoder;
-};
-
-std::unique_ptr<WebRTCVideoDecoder> WebRTCVideoDecoder::create(VideoCodecType decoderType, WebRTCVideoDecoderCallback callback)
+std::unique_ptr<WebRTCVideoDecoder> WebRTCVideoDecoder::create(VideoCodecType decoderType, WebRTCVideoDecoderCallback callback, std::optional<PlatformVideoColorSpace>&& colorSpaceOverride)
 {
     switch (decoderType) {
     case VideoCodecType::H264:
-        return makeUnique<WebRTCLocalVideoDecoder>(webrtc::createLocalH264Decoder(callback));
+        return makeUnique<WebRTCLocalVideoDecoder>(webrtc::createLocalH264Decoder(callback), WTF::move(colorSpaceOverride));
     case VideoCodecType::H265:
-        return makeUnique<WebRTCLocalVideoDecoder>(webrtc::createLocalH265Decoder(callback));
+        return makeUnique<WebRTCLocalVideoDecoder>(webrtc::createLocalH265Decoder(callback), WTF::move(colorSpaceOverride));
     case VideoCodecType::VP9:
-        return makeUnique<WebRTCLocalVideoDecoder>(webrtc::createLocalVP9Decoder(callback));
+        return makeUnique<WebRTCVideoDecoderVTBVP9>(callback, WTF::move(colorSpaceOverride));
     case VideoCodecType::AV1:
-        return makeUnique<WebRTCDecoderVTBAV1>(callback);
+        return makeUnique<WebRTCVideoDecoderVTBAV1>(callback, WTF::move(colorSpaceOverride));
     }
     ASSERT_NOT_REACHED();
     return nullptr;
+}
+
+void WebRTCVideoDecoder::setColorSpaceOverride(std::optional<PlatformVideoColorSpace>&& colorSpaceOverride)
+{
+    m_colorSpaceOverride = WTF::move(colorSpaceOverride);
+    colorSpaceOverrideChanged();
 }
 
 }

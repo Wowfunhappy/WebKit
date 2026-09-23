@@ -29,6 +29,10 @@
 #include "CallbackResult.h"
 #include <wtf/RefCounted.h>
 
+namespace JSC {
+class JSValue;
+}
+
 namespace WebCore {
 
 class MapperCallback : public RefCounted<MapperCallback>, public ActiveDOMCallback {

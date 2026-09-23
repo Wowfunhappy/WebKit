@@ -51,11 +51,11 @@ template<> struct Converter<IDLInterface<XPathNSResolver>> : DefaultConverter<ID
             return Result::exception();
         }
 
-        auto object = asObject(value);
-        if (object->inherits<JSXPathNSResolver>())
-            return { JSC::jsCast<JSXPathNSResolver*>(object)->wrapped() };
+        auto* object = asObject(value);
+        if (auto* resolver = dynamicDowncast<JSXPathNSResolver>(*object))
+            return { resolver->wrapped() };
 
-        return { JSCustomXPathNSResolver::create(object, JSC::jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject)) };
+        return { JSCustomXPathNSResolver::create(object, downcast<JSDOMGlobalObject>(&lexicalGlobalObject)) };
     }
 };
 

@@ -38,7 +38,7 @@ class RenderSVGRect final : public RenderSVGShape {
     WTF_MAKE_TZONE_ALLOCATED(RenderSVGRect);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGRect);
 public:
-    RenderSVGRect(SVGRectElement&, RenderStyle&&);
+    RenderSVGRect(SVGRectElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGRect();
 
     SVGRectElement& NODELETE rectElement() const;
@@ -57,8 +57,8 @@ private:
     bool shapeDependentFillContains(const FloatPoint&, const WindRule) const override;
 
 private:
-    bool definitelyHasSimpleStroke() const;
-    bool canUseStrokeHitTestFastPath() const;
+    bool NODELETE definitelyHasSimpleStroke() const;
+    bool NODELETE canUseStrokeHitTestFastPath() const;
 };
 
 } // namespace WebCore

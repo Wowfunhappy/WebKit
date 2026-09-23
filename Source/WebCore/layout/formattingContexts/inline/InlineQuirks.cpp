@@ -27,11 +27,12 @@
 #include "InlineQuirks.h"
 
 #include "InlineFormattingContext.h"
+#include "FontCascadeInlines.h"
 #include "InlineLineBox.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutBoxInlines.h"
 #include "LayoutElementBox.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 namespace Layout {
@@ -68,8 +69,12 @@ bool InlineQuirks::lineBreakBoxAffectsParentInlineBox(const LineBox& lineBox)
     // At this point we either have only the <br> on the line or inline boxes with or without content.
     auto& inlineLevelBoxes = lineBox.nonRootInlineLevelBoxes();
     ASSERT(!inlineLevelBoxes.isEmpty());
-    if (inlineLevelBoxes.size() == 1)
-        return true;
+    if (inlineLevelBoxes.size() == 1) {
+        // When the BR has explicit line-height, don't mark the parent as having content —
+        // the BR's own layout bounds will drive the line height directly.
+        auto& lineBreakBox = inlineLevelBoxes.first();
+        return lineBreakBox.isLineBreakBox() && lineBreakBox.isPreferredLineHeightFontMetricsBased();
+    }
     for (auto& inlineLevelBox : lineBox.nonRootInlineLevelBoxes()) {
         // Filter out empty inline boxes e.g. <div><span></span><span></span><br></div>
         if (inlineLevelBox.isInlineBox() && inlineLevelBox.hasContent())
@@ -103,7 +108,7 @@ bool InlineQuirks::inlineBoxAffectsLineBox(const InlineLevelBox& inlineLevelBox)
     return false;
 }
 
-std::optional<LayoutUnit> InlineQuirks::initialLetterAlignmentOffset(const Box& floatBox, const RenderStyle& lineBoxStyle) const
+std::optional<LayoutUnit> InlineQuirks::initialLetterAlignmentOffset(const Box& floatBox, const Style::ComputedStyle& lineBoxStyle) const
 {
     ASSERT(floatBox.isFloatingPositioned());
     if (!floatBox.style().lineBoxContain().contains(Style::WebkitLineBoxContainValue::InitialLetter))

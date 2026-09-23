@@ -56,9 +56,7 @@ WebSQLiteDatabaseTrackerClient::WebSQLiteDatabaseTrackerClient()
     ASSERT(pthread_main_np());
 }
 
-WebSQLiteDatabaseTrackerClient::~WebSQLiteDatabaseTrackerClient()
-{
-}
+WebSQLiteDatabaseTrackerClient::~WebSQLiteDatabaseTrackerClient() = default;
 
 void WebSQLiteDatabaseTrackerClient::willBeginFirstTransaction()
 {

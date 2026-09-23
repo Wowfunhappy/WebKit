@@ -42,7 +42,7 @@ private:
     WebKitColorChooser(WebPageProxy&, const WebCore::Color&, const WebCore::IntRect&, std::optional<WebCore::FrameIdentifier>);
 
     void endPicker() override;
-    void showColorPicker(const WebCore::Color&) override;
+    void showColorPicker(const WebCore::Color&, const WebCore::IntRect&) override;
 
     static void colorChooserRequestFinished(WebKitColorChooserRequest*, WebKitColorChooser*);
     static void colorChooserRequestRGBAChanged(WebKitColorChooserRequest*, GParamSpec*, WebKitColorChooser*);

@@ -26,24 +26,28 @@
 #pragma once
 
 #include <WebCore/RenderStyleConstants.h>
-#include <WebCore/StyleLengthWrapper.h>
 #include <WebCore/StyleMaskBorder.h>
+#include <WebCore/StylePrimitiveNumeric.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct WebkitBoxReflect;
+}
+
 namespace Style {
 
-struct WebkitBoxReflectionOffset : LengthWrapperBase<LengthPercentage<>> {
-    using Base::Base;
-};
-
 struct WebkitBoxReflection {
-    ReflectionDirection direction { ReflectionDirection::Below };
-    WebkitBoxReflectionOffset offset;
-    MaskBorder mask;
+    using Direction = ReflectionDirection;
+    using Offset = LengthPercentage<>;
+    using Mask = MaskBorder;
+
+    Direction direction { Direction::Below };
+    Offset offset;
+    Mask mask;
 
     bool operator==(const WebkitBoxReflection&) const = default;
 };
-
 template<size_t I> const auto& get(const WebkitBoxReflection& value)
 {
     if constexpr (!I)
@@ -54,7 +58,7 @@ template<size_t I> const auto& get(const WebkitBoxReflection& value)
         return value.mask;
 }
 
-// <'-webkit-box-reflect'> = none | [ [ above | below | left | right ] <length-percentage>? <border-image>? ]
+// <'-webkit-box-reflect'> = none | [ [ above | below | left | right ] <length-percentage>? <mask-border>? ]
 // NOTE: There is no standard associated with this property.
 struct WebkitBoxReflect {
     WebkitBoxReflect(CSS::Keyword::None)
@@ -87,16 +91,17 @@ private:
 
 // MARK: - Conversion
 
+DEFINE_TYPE_MAPPING(CSS::WebkitBoxReflect, WebkitBoxReflect);
+
 template<> struct CSSValueConversion<WebkitBoxReflect> { auto operator()(BuilderState&, const CSSValue&) -> WebkitBoxReflect; };
-template<> struct CSSValueCreation<WebkitBoxReflection> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const WebkitBoxReflection&); };
+template<> struct CSSValueCreation<WebkitBoxReflect> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const WebkitBoxReflect&); };
 
 // MARK: - Serialization
 
-template<> struct Serialize<WebkitBoxReflection> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const WebkitBoxReflection&); };
+template<> struct Serialize<WebkitBoxReflection> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const WebkitBoxReflection&); };
 
 } // namespace Style
 } // namespace WebCore
 
 DEFINE_SPACE_SEPARATED_TUPLE_LIKE_CONFORMANCE(WebCore::Style::WebkitBoxReflection, 3)
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::WebkitBoxReflectionOffset);
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::WebkitBoxReflect);

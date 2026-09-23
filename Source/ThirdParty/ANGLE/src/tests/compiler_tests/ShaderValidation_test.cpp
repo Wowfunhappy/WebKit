@@ -7,11 +7,8 @@
 //   Tests that malformed shaders fail compilation, and that correct shaders pass compilation.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "GLSLANG/ShaderLang.h"
+#include "common/unsafe_buffers.h"
 #include "gtest/gtest.h"
 #include "tests/test_utils/ShaderCompileTreeTest.h"
 
@@ -71,32 +68,6 @@ class ComputeShaderValidationTest : public ShaderCompileTreeTest
   protected:
     ::GLenum getShaderType() const override { return GL_COMPUTE_SHADER; }
     ShShaderSpec getShaderSpec() const override { return SH_GLES3_1_SPEC; }
-};
-
-class ComputeShaderEnforcePackingValidationTest : public ComputeShaderValidationTest
-{
-  public:
-    ComputeShaderEnforcePackingValidationTest() {}
-
-  protected:
-    void initResources(ShBuiltInResources *resources) override
-    {
-        resources->MaxComputeUniformComponents = kMaxComputeUniformComponents;
-
-        // We need both MaxFragmentUniformVectors and MaxFragmentUniformVectors smaller than
-        // MaxComputeUniformComponents / 4.
-        resources->MaxVertexUniformVectors   = 16;
-        resources->MaxFragmentUniformVectors = 16;
-    }
-
-    void SetUp() override
-    {
-        mCompileOptions.enforcePackingRestrictions = true;
-        ShaderCompileTreeTest::SetUp();
-    }
-
-    // It is unnecessary to use a very large MaxComputeUniformComponents in this test.
-    static constexpr GLint kMaxComputeUniformComponents = 128;
 };
 
 class GeometryShaderValidationTest : public ShaderCompileTreeTest
@@ -1915,37 +1886,6 @@ TEST_F(FragmentShaderValidationTest, StructAsBoolConstructorArgument)
     if (compile(shaderString))
     {
         FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
-    }
-}
-
-// Test that a compute shader can be compiled with MAX_COMPUTE_UNIFORM_COMPONENTS uniform
-// components.
-TEST_F(ComputeShaderEnforcePackingValidationTest, MaxComputeUniformComponents)
-{
-    GLint uniformVectorCount = kMaxComputeUniformComponents / 4;
-
-    std::ostringstream ostream;
-    ostream << "#version 310 es\n"
-               "layout(local_size_x = 1) in;\n";
-
-    for (GLint i = 0; i < uniformVectorCount; ++i)
-    {
-        ostream << "uniform vec4 u_value" << i << ";\n";
-    }
-
-    ostream << "void main()\n"
-               "{\n";
-
-    for (GLint i = 0; i < uniformVectorCount; ++i)
-    {
-        ostream << "    vec4 v" << i << " = u_value" << i << ";\n";
-    }
-
-    ostream << "}\n";
-
-    if (!compile(ostream.str()))
-    {
-        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
     }
 }
 
@@ -4120,8 +4060,9 @@ TEST_F(FragmentShaderValidationTest, NothingButEarlyFragmentTestsWithInWithoutVa
 
     for (size_t i = 0; i < ArraySize(noValueQualifiers); ++i)
     {
-        const std::string shaderString =
-            kShaderStringPre + std::string(noValueQualifiers[i]) + kShaderStringPost;
+        const std::string shaderString = kShaderStringPre +
+                                         std::string(ANGLE_UNSAFE_TODO(noValueQualifiers[i])) +
+                                         kShaderStringPost;
 
         if (compile(shaderString))
         {
@@ -4131,8 +4072,9 @@ TEST_F(FragmentShaderValidationTest, NothingButEarlyFragmentTestsWithInWithoutVa
 
     for (size_t i = 0; i < ArraySize(withValueQualifiers); ++i)
     {
-        const std::string shaderString =
-            kShaderStringPre + std::string(withValueQualifiers[i]) + "=1" + kShaderStringPost;
+        const std::string shaderString = kShaderStringPre +
+                                         std::string(ANGLE_UNSAFE_TODO(withValueQualifiers[i])) +
+                                         "=1" + kShaderStringPost;
 
         if (compile(shaderString))
         {

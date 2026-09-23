@@ -57,9 +57,7 @@ UniqueRef<WebRTCProvider> WebRTCProvider::create()
     return makeUniqueRef<LibWebRTCProviderCocoa>();
 }
 
-LibWebRTCProviderCocoa::~LibWebRTCProviderCocoa()
-{
-}
+LibWebRTCProviderCocoa::~LibWebRTCProviderCocoa() = default;
 
 std::unique_ptr<webrtc::VideoDecoderFactory> LibWebRTCProviderCocoa::createDecoderFactory()
 {

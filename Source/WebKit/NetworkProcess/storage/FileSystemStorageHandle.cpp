@@ -29,6 +29,7 @@
 #include "FileSystemStorageError.h"
 #include "FileSystemStorageManager.h"
 #include "SharedFileHandle.h"
+#include <WebCore/ClientOrigin.h>
 #include <WebCore/FileSystemWriteCloseReason.h>
 #include <WebCore/FileSystemWriteCommandType.h>
 #include <wtf/FileSystem.h>
@@ -37,11 +38,6 @@
 
 namespace WebKit {
 
-#if OS(WINDOWS)
-constexpr char pathSeparator = '\\';
-#else
-constexpr char pathSeparator = '/';
-#endif
 constexpr uint64_t defaultInitialCapacity = 1 * MB;
 constexpr uint64_t defaultMaxCapacityForExponentialGrowth = 256 * MB;
 constexpr uint64_t defaultCapacityStep = 128 * MB;
@@ -78,6 +74,13 @@ FileSystemStorageHandle::FileSystemStorageHandle(FileSystemStorageManager& manag
     ASSERT(!m_path.isEmpty());
 }
 
+std::optional<WebCore::ClientOrigin> FileSystemStorageHandle::origin() const
+{
+    if (RefPtr manager = m_manager.get())
+        return manager->origin();
+    return std::nullopt;
+}
+
 void FileSystemStorageHandle::close()
 {
     RefPtr manager = m_manager.get();
@@ -111,13 +114,13 @@ bool FileSystemStorageHandle::isSameEntry(WebCore::FileSystemHandleIdentifier id
 static bool isValidFileName(const String& directory, const String& name)
 {
     // https://fs.spec.whatwg.org/#valid-file-name
-    if (name.isEmpty() || (name == "."_s) || (name == ".."_s) || name.contains(pathSeparator))
+    if (name.isEmpty() || (name == "."_s) || (name == ".."_s) || name.contains('/') || name.contains(FileSystem::pathSeparator))
         return false;
 
     return FileSystem::pathFileName(FileSystem::pathByAppendingComponent(directory, name)) == name;
 }
 
-Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystemStorageHandle::requestCreateHandle(IPC::Connection::UniqueID connection, Type type, String&& name, bool createIfNecessary)
+Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageHandle::requestCreateHandle(IPC::Connection::UniqueID connection, Type type, String&& name, bool createIfNecessary)
 {
     if (m_type != FileSystemStorageHandle::Type::Directory)
         return makeUnexpected(FileSystemStorageError::TypeMismatch);
@@ -133,12 +136,12 @@ Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystem
     return manager->createHandle(connection, type, WTF::move(path), WTF::move(name), createIfNecessary);
 }
 
-Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystemStorageHandle::getFileHandle(IPC::Connection::UniqueID connection, String&& name, bool createIfNecessary)
+Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageHandle::getFileHandle(IPC::Connection::UniqueID connection, String&& name, bool createIfNecessary)
 {
     return requestCreateHandle(connection, FileSystemStorageHandle::Type::File, WTF::move(name), createIfNecessary);
 }
 
-Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystemStorageHandle::getDirectoryHandle(IPC::Connection::UniqueID connection, String&& name, bool createIfNecessary)
+Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageHandle::getDirectoryHandle(IPC::Connection::UniqueID connection, String&& name, bool createIfNecessary)
 {
     return requestCreateHandle(connection, FileSystemStorageHandle::Type::Directory, WTF::move(name), createIfNecessary);
 }
@@ -155,6 +158,13 @@ std::optional<FileSystemStorageError> FileSystemStorageHandle::removeEntry(const
     if (!FileSystem::fileExists(path))
         return FileSystemStorageError::FileNotFound;
 
+    RefPtr manager = m_manager;
+    if (!manager)
+        return FileSystemStorageError::Unknown;
+
+    if (manager->hasActiveLock(path))
+        return FileSystemStorageError::NoModificationAllowed;
+
     auto type = FileSystem::fileType(path);
     if (!type)
         return FileSystemStorageError::TypeMismatch;
@@ -167,8 +177,10 @@ std::optional<FileSystemStorageError> FileSystemStorageHandle::removeEntry(const
         break;
     case FileSystem::FileType::Directory:
         if (!deleteRecursively) {
-            if (!FileSystem::deleteEmptyDirectory(path))
-                result = FileSystemStorageError::Unknown;
+            if (!FileSystem::deleteEmptyDirectory(path)) {
+                auto entries = FileSystem::listDirectory(path);
+                result = entries.isEmpty() ? FileSystemStorageError::Unknown : FileSystemStorageError::InvalidModification;
+            }
         } else if (!FileSystem::deleteNonEmptyDirectory(path))
             result = FileSystemStorageError::Unknown;
         break;
@@ -179,7 +191,7 @@ std::optional<FileSystemStorageError> FileSystemStorageHandle::removeEntry(const
     return result;
 }
 
-Expected<Vector<String>, FileSystemStorageError> FileSystemStorageHandle::resolve(WebCore::FileSystemHandleIdentifier identifier)
+Expected<std::optional<Vector<String>>, FileSystemStorageError> FileSystemStorageHandle::resolve(WebCore::FileSystemHandleIdentifier identifier)
 {
     RefPtr manager = m_manager.get();
     if (!manager)
@@ -190,10 +202,13 @@ Expected<Vector<String>, FileSystemStorageError> FileSystemStorageHandle::resolv
         return makeUnexpected(FileSystemStorageError::Unknown);
 
     if (!path.startsWith(m_path))
-        return Vector<String> { };
+        return { std::nullopt };
 
     auto restPath = path.substring(m_path.length());
-    return restPath.split(pathSeparator);
+    if (!restPath.isEmpty() && !restPath.startsWith(FileSystem::pathSeparator))
+        return { std::nullopt };
+
+    return { restPath.split(FileSystem::pathSeparator) };
 }
 
 Expected<FileSystemSyncAccessHandleInfo, FileSystemStorageError> FileSystemStorageHandle::createSyncAccessHandle()
@@ -418,7 +433,7 @@ Expected<Vector<String>, FileSystemStorageError> FileSystemStorageHandle::getHan
     return FileSystem::listDirectory(m_path);
 }
 
-Expected<std::pair<WebCore::FileSystemHandleIdentifier, bool>, FileSystemStorageError> FileSystemStorageHandle::getHandle(IPC::Connection::UniqueID connection, String&& name)
+Expected<WebCore::FileSystemHandleInfo, FileSystemStorageError> FileSystemStorageHandle::getHandle(IPC::Connection::UniqueID connection, String&& name)
 {
     bool createIfNecessary = false;
     auto result = requestCreateHandle(connection, FileSystemStorageHandle::Type::Any, WTF::move(name), createIfNecessary);
@@ -429,9 +444,11 @@ Expected<std::pair<WebCore::FileSystemHandleIdentifier, bool>, FileSystemStorage
     if (!manager)
         return makeUnexpected(FileSystemStorageError::Unknown);
 
-    auto resultType = manager->getType(result.value());
+    auto& [globalIdentifier, identifier] = result.value();
+    auto resultType = manager->getType(identifier);
     ASSERT(resultType != FileSystemStorageHandle::Type::Any);
-    return std::pair { result.value(), resultType == FileSystemStorageHandle::Type::Directory };
+    auto kind = resultType == FileSystemStorageHandle::Type::Directory ? WebCore::FileSystemHandleKind::Directory : WebCore::FileSystemHandleKind::File;
+    return WebCore::FileSystemHandleInfo { globalIdentifier, identifier, kind };
 }
 
 std::optional<FileSystemStorageError> FileSystemStorageHandle::move(WebCore::FileSystemHandleIdentifier destinationIdentifier, const String& newName)

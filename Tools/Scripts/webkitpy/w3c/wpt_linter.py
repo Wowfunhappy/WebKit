@@ -24,13 +24,46 @@
  This script is a wrapper for the web-platform-tests linter
 """
 
+import json
+import logging
+import os
 import subprocess
+import tempfile
+
+_log = logging.getLogger(__name__)
 
 
 class WPTLinter(object):
-    def __init__(self, repository_directory, filesystem):
+    def __init__(self, repository_directory):
         self.wpt_path = repository_directory
 
-    def lint(self):
-        proc = subprocess.Popen(['./wpt', 'lint'], cwd=self.wpt_path)
-        return proc.wait()
+    def lint(self, paths=None):
+        """Yield each ``./wpt lint --json`` error dict."""
+        cmd = ['./wpt', 'lint', '--json', '--repo-root', '.']
+
+        if paths is not None:
+            paths_file = None
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                    paths_file = f.name
+                    for path in paths:
+                        f.write(path + '\n')
+                cmd.extend(['--paths-file', paths_file])
+                yield from self._run_lint(cmd)
+            finally:
+                if paths_file and os.path.exists(paths_file):
+                    os.unlink(paths_file)
+        else:
+            yield from self._run_lint(cmd)
+
+    def _run_lint(self, cmd):
+        _log.debug('Running WPT linter: %s (cwd=%s)', ' '.join(cmd), self.wpt_path)
+        result = subprocess.run(
+            cmd,
+            cwd=self.wpt_path,
+            capture_output=True,
+        )
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            yield json.loads(line)

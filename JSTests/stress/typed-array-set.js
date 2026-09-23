@@ -1,4 +1,4 @@
-//@skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault
 let f64 = new Float64Array(2 ** 29);
 f64.__proto__ = new Uint8Array();

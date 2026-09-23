@@ -72,9 +72,6 @@ struct MainFrameData {
     Markable<WebCore::PlatformLayerIdentifier> pageScalingLayerID; // Only used for non-delegated scaling.
     Markable<WebCore::PlatformLayerIdentifier> scrolledContentsLayerID;
     Markable<WebCore::PlatformLayerIdentifier> mainFrameClipLayerID;
-#if ENABLE(SCROLL_STRETCH_NOTIFICATIONS)
-    uint64_t topScrollStretch { 0 };
-#endif
 #endif
 
     double pageScaleFactor { 1 };
@@ -90,9 +87,9 @@ struct MainFrameData {
     bool viewportMetaTagWidthWasExplicit { false };
     bool viewportMetaTagCameFromImageDocument { false };
     bool isInStableState { false };
+    bool hasMainThreadScrollDrivenAnimations { false };
     WebCore::InteractiveWidget viewportMetaTagInteractiveWidget { WebCore::InteractiveWidget::ResizesVisual };
 
-    std::optional<EditorState> editorState;
 #if PLATFORM(IOS_FAMILY)
     std::optional<DynamicViewportSizeUpdateID> dynamicViewportSizeUpdateID;
 #endif
@@ -108,6 +105,8 @@ struct RemoteLayerTreeCommitBundle {
     Vector<RootFrameData> transactions;
     PageData pageData;
     std::optional<MainFrameData> mainFrameData;
+
+    std::optional<EditorState> editorState;
 
     TransactionID transactionID;
     MonotonicTime startTime;

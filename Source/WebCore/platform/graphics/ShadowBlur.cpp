@@ -133,8 +133,16 @@ private:
     void scheduleScratchBufferPurge()
     {
         ASSERT(lock().isHeld());
-        const Seconds scratchBufferPurgeInterval { 2_s };
-        m_purgeTimer.startOneShot(scratchBufferPurgeInterval);
+        static constexpr Seconds scratchBufferPurgeInterval { 2_s };
+
+        // m_purgeTimer fires on the main run loop and so must be started/restarted there: getScratchBuffer()
+        // runs on a paint worker thread in the GPU process, and restarting an active timer off its run
+        // loop's thread races with an in-flight callback. The ScratchBuffer singleton is NeverDestroyed,
+        // so capturing it across the hop is safe, and m_purgeTimer is then only ever touched on the main
+        // run loop.
+        ensureOnMainRunLoop([checkedThis = CheckedRef { *this }] {
+            checkedThis->m_purgeTimer.startOneShot(scratchBufferPurgeInterval);
+        });
     }
 
     void purgeTimerFired()
@@ -248,7 +256,7 @@ static void calculateLobes(std::array<std::array<int, 2>, 3>& lobes, float blurR
 {
     int diameter;
     if (shadowsIgnoreTransforms)
-        diameter = std::max(2, static_cast<int>(floorf((2 / 3.f) * blurRadius))); // Canvas shadow. FIXME: we should adjust the blur radius higher up.
+        diameter = std::max(2, truncateFloatToInt32(floorf((2 / 3.f) * blurRadius))); // Canvas shadow. FIXME: we should adjust the blur radius higher up.
     else {
         // http://dev.w3.org/csswg/css3-background/#box-shadow
         // Approximate a Gaussian blur with a standard deviation equal to half the blur radius,
@@ -258,7 +266,7 @@ static void calculateLobes(std::array<std::array<int, 2>, 3>& lobes, float blurR
         float stdDev = blurRadius / 2;
         const float gaussianKernelFactor = 3 / 4.f * sqrtf(2 * std::numbers::pi_v<float>);
         const float fudgeFactor = 0.88f;
-        diameter = std::max(2, static_cast<int>(floorf(stdDev * gaussianKernelFactor * fudgeFactor + 0.5f)));
+        diameter = std::max(2, truncateFloatToInt32(floorf(stdDev * gaussianKernelFactor * fudgeFactor + 0.5f)));
     }
 
     if (diameter & 1) {

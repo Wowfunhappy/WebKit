@@ -47,10 +47,16 @@ namespace LayoutIntegration {
 class GridLayout {
 public:
     GridLayout(RenderGrid&);
+    ~GridLayout();
 
     void updateFormattingContextGeometries();
 
     void layout();
+
+    // A GFC layout marks the legacy grid as placed without populating it, since the GFC path does not
+    // rely on the legacy grid state. Reverts that stale state so a subsequent legacy (non-GFC) layout
+    // treats the grid as needing a fresh layout, for example re-placing items to rebuild its tracks.
+    static void invalidateFormattingContextRootRenderer(RenderGrid&);
 
     std::pair<LayoutUnit, LayoutUnit> computeIntrinsicWidths();
 
@@ -59,6 +65,8 @@ public:
 private:
     void updateGridItemRenderers();
     void updateFormattingContextRootRenderer(const Layout::GridLayoutConstraints&, const Layout::UsedTrackSizes&);
+    void layoutOutOfFlowBoxes(const Layout::UsedTrackSizes&);
+    void populateGridPositionsForOutOfFlowLayout(const Layout::UsedTrackSizes&);
 
     const Layout::ElementBox& gridBox() const { return *m_gridBox; }
     Layout::ElementBox& gridBox() { return *m_gridBox; }

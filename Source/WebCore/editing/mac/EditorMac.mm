@@ -29,7 +29,6 @@
 #if PLATFORM(MAC)
 
 #import "Blob.h"
-#import "CSSPrimitiveValueMappings.h"
 #import "CSSValuePool.h"
 #import "Color.h"
 #import "ColorCocoa.h"
@@ -56,6 +55,7 @@
 #import "RenderBlock.h"
 #import "RenderImage.h"
 #import "SharedBuffer.h"
+#import "StyleKeyword+Mappings.h"
 #import "WebContentReader.h"
 #import "WebNSAttributedStringExtras.h"
 #import "markup.h"

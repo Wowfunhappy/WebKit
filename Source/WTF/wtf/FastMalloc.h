@@ -21,6 +21,7 @@
 #pragma once
 
 #include <bmalloc/BPlatform.h>
+#include <bmalloc/Gigacage.h>
 #include <new>
 #include <stdlib.h>
 #include <wtf/DebugHeap.h>
@@ -178,6 +179,10 @@ WTF_EXPORT_PRIVATE void fastDecommitAlignedMemory(void*, size_t);
 WTF_EXPORT_PRIVATE void fastEnableMiniMode(bool forceMiniMode = false);
 
 WTF_EXPORT_PRIVATE void fastDisableScavenger();
+
+#if HAVE(QOS_CLASSES)
+WTF_EXPORT_PRIVATE void fastSetScavengerThreadQOSClass(unsigned);
+#endif
 
 // allocate with guard pages at a rate of 1/guardMallocRate
 WTF_EXPORT_PRIVATE void forceEnablePGM(uint16_t guardMallocRate);
@@ -361,6 +366,25 @@ inline constexpr bool usesTZoneHeap()
 }
 
 } // namespace WTF
+
+namespace Gigacage {
+
+WTF_EXPORT_PRIVATE void* tryAlignedMalloc(Kind, size_t alignment, size_t);
+WTF_EXPORT_PRIVATE void* tryMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* tryZeroedMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* tryRealloc(Kind, void*, size_t);
+WTF_EXPORT_PRIVATE void free(Kind, void*);
+
+WTF_EXPORT_PRIVATE void* tryAllocateZeroedVirtualPages(Kind, size_t);
+WTF_EXPORT_PRIVATE void freeVirtualPages(Kind, void* basePtr, size_t);
+
+WTF_EXPORT_PRIVATE void* tryMallocArray(Kind, size_t numElements, size_t elementSize);
+
+WTF_EXPORT_PRIVATE void* malloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* zeroedMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* mallocArray(Kind, size_t numElements, size_t elementSize);
+
+} // namespace Gigacage
 
 #if !defined(NDEBUG)
 using WTF::fastSetMaxSingleAllocationSize;
@@ -625,7 +649,7 @@ void operator delete(T* object, std::destroying_delete_t, size_t size) { \
     object->setDidBeginCheckedPtrDeletion(); \
     object->T::~T(); \
     if (object->checkedPtrCountWithoutThreadCheck()) [[unlikely]] { \
-        zeroBytes(*object); \
+        secureZeroBytes(*object); \
         return; \
     } \
     T::operator delete(object); \

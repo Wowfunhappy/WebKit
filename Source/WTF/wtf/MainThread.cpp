@@ -30,14 +30,9 @@
 #include <wtf/MainThread.h>
 
 #include <mutex>
-#include <wtf/Deque.h>
-#include <wtf/Lock.h>
-#include <wtf/MonotonicTime.h>
-#include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Threading.h>
-#include <wtf/WorkQueue.h>
 #include <wtf/threads/BinarySemaphore.h>
 
 namespace WTF {
@@ -49,6 +44,7 @@ void initializeMainThread()
         initialize();
         initializeMainThreadPlatform();
         RunLoop::initializeMain();
+        RELEASE_ASSERT(!isMainThread() || Thread::currentSingleton().uid() == 1);
     });
 }
 
@@ -56,6 +52,11 @@ void initializeMainThread()
 bool canCurrentThreadAccessThreadLocalData(Thread& thread)
 {
     return &thread == &Thread::currentSingleton();
+}
+
+bool canCurrentThreadIDAccessThreadLocalData(uint32_t threadID)
+{
+    return threadID == currentThreadID();
 }
 #endif
 

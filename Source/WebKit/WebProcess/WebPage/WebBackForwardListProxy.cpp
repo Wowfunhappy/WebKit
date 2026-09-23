@@ -109,7 +109,7 @@ RefPtr<HistoryItem> WebBackForwardListProxy::itemAtIndex(int itemIndex, FrameIde
     if (!page)
         return nullptr;
 
-    auto sendResult = page->sendSync(Messages::WebBackForwardList::BackForwardItemAtIndex(itemIndex, frameID));
+    auto sendResult = page->sendSync(Messages::WebBackForwardList::BackForwardItemAtIndexForWebContent(itemIndex, frameID));
     auto [frameState] = sendResult.takeReplyOr(nullptr);
     if (!frameState)
         return nullptr;

@@ -25,7 +25,8 @@
 #include "config.h"
 #include "StyleMathDepth.h"
 
-#include "RenderStyle+GettersInlines.h"
+#include "CSSKeywordValue.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
 namespace WebCore {
@@ -35,8 +36,16 @@ namespace Style {
 
 auto CSSValueConversion<MathDepth>::operator()(BuilderState& state, const CSSValue& value) -> MathDepth
 {
-    if (value.valueID() == CSSValueAutoAdd)
-        return { state.parentStyle().mathDepth().value + (state.parentStyle().mathStyle() == MathStyle::Compact) };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAutoAdd:
+            return { state.parentStyle().mathDepth().value + (state.parentStyle().mathStyle() == MathStyle::Compact) };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return 0_css_integer;
+        }
+    }
+
     if (auto function = dynamicDowncast<CSSFunctionValue>(value); function && function->name() == CSSValueAdd) {
         if (auto addFunction = requiredListDowncast<CSSFunctionValue, CSSPrimitiveValue>(state, value)) {
             RefPtr first = addFunction->item(0);

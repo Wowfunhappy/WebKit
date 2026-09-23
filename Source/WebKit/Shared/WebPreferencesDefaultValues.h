@@ -52,7 +52,11 @@
 #define Supporthdrdisplay_feature_status Testable
 #endif
 
+#if defined(ENABLE_WEBXR_LAYERS) && ENABLE_WEBXR_LAYERS && USE(OPENXR)
+#define Webxr_layers_feature_status Testable
+#else
 #define Webxr_layers_feature_status Unstable
+#endif
 
 #if defined(ENABLE_WEBXR_WEBGPU) && ENABLE_WEBXR_WEBGPU && PLATFORM(VISION)
 #define Webgpu_webxr_feature_status Stable
@@ -167,6 +171,10 @@ bool NODELETE defaultWebRTCSocketsServiceClassEnabled();
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
 bool NODELETE defaultBuiltInNotificationsEnabled();
+#endif
+
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+bool defaultHorizontalBannerViewOverlaysEnabled();
 #endif
 
 #if ENABLE(DEVICE_ORIENTATION)

@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 let size = 16;
 let array = new Int32Array(size);
 for (let i = 0; i < size; ++i)

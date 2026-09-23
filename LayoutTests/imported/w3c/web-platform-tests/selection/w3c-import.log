@@ -9,14 +9,14 @@ Do NOT modify or remove this file.
 
 ------------------------------------------------------------------------
 Properties requiring vendor prefixes:
-None
+user-select
 Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/selection/Document-open.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/META.yml
-/LayoutTests/imported/w3c/web-platform-tests/selection/Selection-direction-on-clicks.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/selection/addRange-00.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/addRange-04.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/addRange-08.html
@@ -36,6 +36,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/selection/addRange.js
 /LayoutTests/imported/w3c/web-platform-tests/selection/addRange.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/anchor-removal.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/canvas-click.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/canvas-drag.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/caret-position-should-be-correct-while-moveup-movedown.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/collapse-00.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/collapse-15.html
@@ -45,14 +47,18 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/selection/collapse.js
 /LayoutTests/imported/w3c/web-platform-tests/selection/collapseToStartEnd.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/common.js
+/LayoutTests/imported/w3c/web-platform-tests/selection/deleteFromDocument-HTMLDetails.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/deleteFromDocument.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/drag-disabled-textarea-shadow-dom.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/drag-selection-extend-to-user-select-none.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/extend-00.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/extend-20.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/extend-40.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/extend-exception.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/extend-selection-backward-on-input.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/extend-selection-in-shadow-tree.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/extend.js
+/LayoutTests/imported/w3c/web-platform-tests/selection/fire-selectionchange-event-on-deleting-single-character-inside-inline-element.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/fire-selectionchange-event-on-document-if-textcontrol-element-is-in-shadow-tree.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/fire-selectionchange-event-on-pressing-backspace.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/fire-selectionchange-event-on-textcontrol-element-on-pressing-backspace.html
@@ -65,18 +71,24 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/selection/modify-line-flex-row.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/modify-line-grid-basic.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/modify.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/move-by-word-korean.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/move-by-word-with-symbol.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/move-paragraph-cross-editing-boundary.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/move-paragraphboundary-cross-editing-boundary.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/move-selection-range-into-different-root.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/onselectionchange-on-distinct-text-controls.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/onselectionchange-on-document.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/onselectstart-on-key-in-contenteditable.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/removeAllRanges.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/removeRange.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/script-and-style-elements.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/select-end-of-line-image.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/selectAllChildren.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/selection-content-visibility-hidden.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/selection-direction-on-double-click.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/selection-direction-on-single-click.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/selection-direction-on-triple-click.tentative.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/selection-modify-extend-word-generated-content.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/selection-nested-video.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/selection-range-after-editinghost-removed.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/selection-range-after-textcontrol-removed.html
@@ -88,5 +100,6 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/selection/stringifier_editable_element.tentative.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/test-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/toString-ff-bug-001.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/toString-user-select-none.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/type.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/user-select-on-input-and-contenteditable.html

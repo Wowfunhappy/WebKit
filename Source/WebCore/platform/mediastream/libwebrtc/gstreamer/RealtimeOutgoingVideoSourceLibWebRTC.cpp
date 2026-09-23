@@ -75,7 +75,7 @@ void RealtimeOutgoingVideoSourceLibWebRTC::videoFrameAvailable(VideoFrame& video
     }
 
     GST_TRACE("Sending video frame");
-    sendFrame(GStreamerVideoFrameLibWebRTC::create(static_cast<VideoFrameGStreamer&>(videoFrame).sample()));
+    sendFrame(GStreamerVideoFrameLibWebRTC::create(GRefPtr(static_cast<VideoFrameGStreamer&>(videoFrame).sample())), videoFrame.colorSpace());
 }
 
 webrtc::scoped_refptr<webrtc::VideoFrameBuffer> RealtimeOutgoingVideoSourceLibWebRTC::createBlackFrame(size_t  width, size_t  height)

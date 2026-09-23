@@ -42,7 +42,7 @@ GstElement* GStreamerHolePunchQuirkWesteros::createHolePunchVideoSink(bool isLeg
     if (isPIPRequested) {
         g_object_set(videoSink, "res-usage", 0u, nullptr);
         // Set context for pipelines that use ERM in decoder elements.
-        auto context = adoptGRef(gst_context_new("erm", FALSE));
+        GRefPtr context = adoptGRef(gst_context_new("erm", FALSE));
         auto contextStructure = gst_context_writable_structure(context.get());
         gst_structure_set(contextStructure, "res-usage", G_TYPE_UINT, 0x0u, nullptr);
         auto playerPrivate = reinterpret_cast<const MediaPlayerPrivateGStreamer*>(player->playerPrivate());

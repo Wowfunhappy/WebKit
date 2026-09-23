@@ -59,6 +59,7 @@ WK_EXPORT WKHTTPCookieStoreRef WKWebsiteDataStoreGetHTTPCookieStore(WKWebsiteDat
 
 WK_EXPORT void WKWebsiteDataStoreSetServiceWorkerFetchTimeoutForTesting(WKWebsiteDataStoreRef dataStore, double seconds);
 WK_EXPORT void WKWebsiteDataStoreResetServiceWorkerFetchTimeoutForTesting(WKWebsiteDataStoreRef dataStore);
+WK_EXPORT void WKWebsiteDataStoreClearCrossOriginPreflightResultCacheForTesting(WKWebsiteDataStoreRef dataStore);
 
 WK_EXPORT void WKWebsiteDataStoreSetAllowsAnySSLCertificateForWebSocketTesting(WKWebsiteDataStoreRef dataStore, bool allows) WK_C_API_DEPRECATED;
 WK_EXPORT void WKWebsiteDataStoreTerminateNetworkProcess(WKWebsiteDataStoreRef dataStore);
@@ -236,6 +237,9 @@ WK_EXPORT void WKWebsiteDataStoreSetStorageAccessPermissionForTesting(WKWebsiteD
 
 typedef void (*WKWebsiteDataStoreSetStorageAccessForTestingFunction)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreSetStorageAccessForTesting(WKWebsiteDataStoreRef dataStoreRef, bool blocked, void* context, WKWebsiteDataStoreSetStorageAccessForTestingFunction completionHandler);
+
+typedef void (*WKWebsiteDataStoreFlushNetworkProcessIPCCallback)(void* context);
+WK_EXPORT void WKWebsiteDataStoreFlushNetworkProcessIPC(WKWebsiteDataStoreRef dataStore, void* context, WKWebsiteDataStoreFlushNetworkProcessIPCCallback callback);
 
 #ifdef __cplusplus
 }

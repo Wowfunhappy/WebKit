@@ -1,7 +1,7 @@
-// Shadow gate probe: which registered class stubs name a class this 10.9 already has. dlopens the class
-// dylib (argv[1]) to read its __wk_clsmap but does NOT link libpolyfill.a, so objc_getClass gets 10.9's
-// own answer; each entry's provider framework is loaded before asking, so a class cannot be reported
-// absent merely because nothing had loaded its framework yet.
+// Shadow gate probe: which registered class stubs name a class this 10.9 already has. dlopens a dylib
+// carrying class registrations (argv[1]) to read its __wk_clsmap but does NOT link libpolyfill.a, so
+// objc_getClass gets 10.9's own answer; each entry's provider framework is loaded before asking, so a
+// class cannot be reported absent merely because nothing had loaded its framework yet.
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
@@ -33,8 +33,11 @@ int main(int argc, char **argv)
         struct entry *entries = (struct entry *)section;
         for (size_t j = 0; j < size / sizeof(*entries); j++) {
             char path[512];
-            snprintf(path, sizeof path, "/System/Library/Frameworks/%s.framework/%s",
-                     entries[j].provider, entries[j].provider);
+            if (entries[j].provider[0] == '/')
+                snprintf(path, sizeof path, "%s", entries[j].provider);
+            else
+                snprintf(path, sizeof path, "/System/Library/Frameworks/%s.framework/%s",
+                         entries[j].provider, entries[j].provider);
             dlopen(path, RTLD_LAZY);
             Class cls = objc_getClass(entries[j].name);
             printf("%s\t%s\t%s\n", entries[j].name, entries[j].provider,

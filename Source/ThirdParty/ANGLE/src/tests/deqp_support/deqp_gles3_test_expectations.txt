@@ -803,10 +803,6 @@
 
 /////////////////////////////////////
 
-// Pixel 4 expectations.
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES3.functional.fbo.invalidate.default.bind_depth = SKIP
-42264522 PIXEL4ORXL VULKAN : dEQP-GLES3.functional.fragment_ops.random.* = SKIP
-
 42265027 PIXEL4ORXL GLES : dEQP-GLES3.functional.multisample.fbo_4_samples.* = FAIL
 42265027 PIXEL4ORXL GLES : dEQP-GLES3.functional.multisample.fbo_max_samples.* = FAIL
 42265027 PIXEL4ORXL GLES : dEQP-GLES3.functional.transform_feedback.random.interleaved.lines.3 = FAIL
@@ -814,6 +810,29 @@
 42265027 PIXEL4ORXL GLES : dEQP-GLES3.functional.transform_feedback.random.interleaved.triangles.10 = FAIL
 42265027 PIXEL4ORXL GLES : dEQP-GLES3.functional.transform_feedback.random_full_array_capture.* = FAIL
 42266310 PIXEL4ORXL GLES : dEQP-GLES3.functional.shaders.function.global_variable_aliasing_* = FAIL
+
+// Pixel 10
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.fbo.blit.default_framebuffer.srgb8_alpha8 = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.fbo.blit.default_framebuffer.srgb8_alpha8_linear_out_of_bounds_blit_to_default = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.fbo.blit.default_framebuffer.srgb8_alpha8_linear_scale_blit_to_default = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.fbo.blit.default_framebuffer.srgb8_alpha8_nearest_scale_blit_to_default = FAIL
+449087811 PIXEL10 GLES : dEQP-GLES3.functional.shaders.fragdata.valid_dynamic_index = FAIL
+449087811 PIXEL10 GLES : dEQP-GLES3.functional.shaders.fragdata.valid_uniform_index = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.array_member_dynamic_index_fragment = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.array_member_dynamic_index_vertex = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.array_member_fragment = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.array_member_vertex = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.dynamic_loop_nested_struct_array_fragment = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.dynamic_loop_nested_struct_array_vertex = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.loop_nested_struct_array_fragment = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.loop_nested_struct_array_vertex = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.nested_struct_array_dynamic_index_fragment = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.nested_struct_array_dynamic_index_vertex = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.nested_struct_array_fragment = FAIL
+449120558 PIXEL10 GLES : dEQP-GLES3.functional.shaders.struct.local.nested_struct_array_vertex = FAIL
+523128541 PIXEL10 GLES : dEQP-GLES3.functional.ubo.random.all_shared_buffer.21 = FAIL
+523128541 PIXEL10 GLES : dEQP-GLES3.functional.ubo.random.all_shared_buffer.40 = FAIL
+523128541 PIXEL10 GLES : dEQP-GLES3.functional.ubo.random.nested_structs_arrays.9 = FAIL
 
 42265203 LINUX NVIDIA GTX1660 VULKAN : dEQP-GLES3.functional.shaders.random.all_features.fragment.26 = FAIL
 42265203 LINUX NVIDIA GTX1660 VULKAN : dEQP-GLES3.functional.shaders.random.all_features.fragment.31 = FAIL
@@ -829,14 +848,14 @@
 42265173 UBSAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride17_components4_quads* = SKIP
 
 // Samsung Galaxy S22 (Xclipse)
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.draw.random.* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.instance_array_basic_type.* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.multi_basic_types.* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.multi_nested_struct.* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.random.* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.single_nested_struct* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.single_struct_array* = SKIP
-b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.*int2_10_10_10* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.draw.random.* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.instance_array_basic_type.* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.multi_basic_types.* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.multi_nested_struct.* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.random.* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.single_nested_struct* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.ubo.single_struct_array* = SKIP
+267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.*int2_10_10_10* = SKIP
 
 // Samsung Galaxy S23
 42266598 GALAXYS23 VULKAN : dEQP-GLES3.functional.fbo.blit.depth_stencil.* = SKIP
@@ -871,82 +890,82 @@ b/267953710 GALAXYS22 VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attrib
 42266598 GALAXYS23 VULKAN : dEQP-GLES3.functional.shaders.random.trigonometric.fragment.* = SKIP
 
 // Samsung Galaxy S24 (Xclipse)
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.118 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.124 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.136 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.138 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride32_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride32_quads5 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride8_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride8_quads5 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride32_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride32_quads5 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride8_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride8_quads5 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.int2_10_10_10.components4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.int2_10_10_10.components4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.usigned_int2_10_10_10.components4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.usigned_int2_10_10_10.components4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride32_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride32_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride32_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride32_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec2_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec2_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec3_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec3_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec2_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec2_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec3_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec3_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride16_components4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride16_components4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride32_components4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride32_components4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride16_components4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride16_components4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride17_components4_quads256 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride32_components4_quads1 = SKIP
-b/410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride32_components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.118 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.124 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.136 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.draw.random.138 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride32_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride32_quads5 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride8_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first24_offset16_stride8_quads5 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride32_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride32_quads5 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride8_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.first.int2_10_10_10.first6_offset16_stride8_quads5 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.int2_10_10_10.components4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.int2_10_10_10.components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.usigned_int2_10_10_10.components4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.normalize.usigned_int2_10_10_10.components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride32_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride32_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset32_stride4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride32_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride32_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.offset.int2_10_10_10.offset4_stride4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec2_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec2_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec3_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec3_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.int2_10_10_10.components4_vec4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec2_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec2_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec3_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec3_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.output_types.usigned_int2_10_10_10.components4_vec4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride16_components4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride16_components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride32_components4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.buffer_stride32_components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride16_components4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride16_components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride17_components4_quads256 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride32_components4_quads1 = SKIP
+410630704 GALAXYS24EXYNOS VULKAN : dEQP-GLES3.functional.vertex_arrays.single_attribute.strides.int2_10_10_10.user_ptr_stride32_components4_quads256 = SKIP
 
 // Snapdragon 8 Gen3 Mobile Reference Device
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.blit.depth_stencil.*stencil* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.msaa.*_samples.*stencil* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.render.*stencil* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.stencil.basic.*stencil* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fragment_ops.interaction.basic_shader.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.rasterization*line*wide = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.builtin_functions.pack_unpack.unpackhalf2x16_fragment = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.fragdata.valid_dynamic_index = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.function.global_variable_aliasing_fragment = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.indexing.moredynamic.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.all_features.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.basic_expression.combined.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.basic_expression.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.comparison_ops.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.conditionals.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.exponential.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.scalar_conversion.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.swizzle.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.texture.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.trigonometric.fragment.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.texture_functions.texture*.*sampler3d* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.texture*3d* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.texture*cube* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.texture*mixed* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.array* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.basic_types* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.interpolation.* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.random* = SKIP
-b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.uniform_api.value.assigned.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.blit.depth_stencil.*stencil* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.msaa.*_samples.*stencil* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.render.*stencil* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fbo.stencil.basic.*stencil* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.fragment_ops.interaction.basic_shader.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.rasterization*line*wide = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.builtin_functions.pack_unpack.unpackhalf2x16_fragment = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.fragdata.valid_dynamic_index = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.function.global_variable_aliasing_fragment = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.indexing.moredynamic.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.all_features.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.basic_expression.combined.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.basic_expression.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.comparison_ops.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.conditionals.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.exponential.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.scalar_conversion.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.swizzle.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.texture.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.random.trigonometric.fragment.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.shaders.texture_functions.texture*.*sampler3d* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.texture*3d* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.texture*cube* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.texture*mixed* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.array* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.basic_types* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.interpolation.* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.transform_feedback.random* = SKIP
+328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.uniform_api.value.assigned.* = SKIP
 
 // VK_EXT_transform_feedback doesn't support capturing array elements and a waiver exists
 42262773 VULKAN : dEQP-GLES3.functional.transform_feedback.array_element.interleaved.* = FAIL
@@ -972,7 +991,7 @@ b/328156792 PINEAPPLE VULKAN : dEQP-GLES3.functional.uniform_api.value.assigned.
 
 // Translator IR failures
 /// IR's use of `while` and `if (!condition) break` instead of `for(..)` makes the HLSL generator think the loops are discontinous, and as a result it drops the derivative built-ins!
-349994211 IR D3D11 NVIDIA : dEQP-GLES3.functional.shaders.derivate.*_loop* = SKIP
+349994211 IR D3D11 NVIDIA : dEQP-GLES3.functional.shaders.derivate.*.uniform_loop* = SKIP
 // Untriaged failures with HLSL
 349994211 IR D3D11 NVIDIA : dEQP-GLES3.functional.shaders.switch.default_label_static_* = SKIP
 349994211 IR D3D11 NVIDIA : dEQP-GLES3.functional.shaders.switch.default_not_last_static_* = SKIP

@@ -41,10 +41,10 @@ protected:
     MathMLRowElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
     void childrenChanged(const ChildChange&) override;
 
-    bool acceptsMathVariantAttribute() override;
+    bool acceptsLegacyMathVariantAttribute() override;
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
 };
 
 }

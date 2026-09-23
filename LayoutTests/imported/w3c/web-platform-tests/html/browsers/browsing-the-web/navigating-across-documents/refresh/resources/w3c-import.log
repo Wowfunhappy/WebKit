@@ -14,6 +14,9 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/resources/javascript.asis
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/resources/multiple.asis
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/resources/refresh-with-section.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/resources/refresh-with-svg.py
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/resources/refresh.py
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/refresh/resources/refreshed.txt

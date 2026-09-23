@@ -55,24 +55,25 @@ void HTMLBaseElement::attributeChanged(const QualifiedName& name, const AtomStri
         HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
-Node::InsertedIntoAncestorResult HTMLBaseElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLBaseElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
         protect(document())->processBaseElement();
-    return InsertedIntoAncestorResult::Done;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLBaseElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLBaseElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         protect(document())->processBaseElement();
 }
 
 bool HTMLBaseElement::isURLAttribute(const Attribute& attribute) const
 {
-    return attribute.name().localName() == hrefAttr || HTMLElement::isURLAttribute(attribute);
+    // FIXME: Should this be attribute.name().matches(hrefAttr) to also enforce the namespace?
+    return hrefAttr->hasLocalName(attribute.name().localName()) || HTMLElement::isURLAttribute(attribute);
 }
 
 AtomString HTMLBaseElement::target() const
@@ -88,7 +89,7 @@ String HTMLBaseElement::href() const
         url = emptyAtom();
 
     Ref document = this->document();
-    auto urlRecord = document->completeURL(url, document->fallbackBaseURL());
+    auto urlRecord = document->encodingParseURL(url, document->fallbackBaseURL());
     if (!urlRecord.isValid())
         return url;
 

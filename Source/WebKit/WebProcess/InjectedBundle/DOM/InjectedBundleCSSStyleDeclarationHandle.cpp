@@ -27,6 +27,7 @@
 #include "InjectedBundleCSSStyleDeclarationHandle.h"
 
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCellInlines.h>
 #include <WebCore/CSSStyleDeclaration.h>
 #include <WebCore/JSCSSStyleDeclaration.h>
 #include <wtf/HashMap.h>

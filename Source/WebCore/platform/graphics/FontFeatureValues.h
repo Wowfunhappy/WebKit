@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include <wtf/HashMap.h>
 #include <wtf/Hasher.h>
+#include <wtf/OrderedHashMap.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -45,7 +45,9 @@ enum class FontFeatureValuesType {
 
 class FontFeatureValues : public RefCounted<FontFeatureValues> {
 public:
-    using Tags = HashMap<String, Vector<unsigned>>;
+    // Insertion-ordered per CSS OM spec: serialization must reproduce the
+    // order in which `@<variant>` tags were declared in the stylesheet.
+    using Tags = OrderedHashMap<String, Vector<unsigned>>;
     static Ref<FontFeatureValues> create() { return adoptRef(*new FontFeatureValues()); }
     virtual ~FontFeatureValues() = default;
 
@@ -61,12 +63,12 @@ public:
     
     bool operator==(const FontFeatureValues& other) const
     {
-        return m_styleset == other.styleset()
-            && m_stylistic == other.stylistic()
-            && m_characterVariant == other.characterVariant()
-            && m_swash == other.swash()
-            && m_ornaments == other.ornaments()
-            && m_annotation == other.annotation();
+        return equalIgnoringOrder(m_styleset, other.styleset())
+            && equalIgnoringOrder(m_stylistic, other.stylistic())
+            && equalIgnoringOrder(m_characterVariant, other.characterVariant())
+            && equalIgnoringOrder(m_swash, other.swash())
+            && equalIgnoringOrder(m_ornaments, other.ornaments())
+            && equalIgnoringOrder(m_annotation, other.annotation());
     }
     
     const Tags& styleset() const
@@ -136,6 +138,7 @@ public:
 
 private:
     FontFeatureValues() = default;
+
     Tags m_styleset;
     Tags m_stylistic;
     Tags m_characterVariant;

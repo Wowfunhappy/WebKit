@@ -109,6 +109,8 @@ public:
     WEBCORE_EXPORT virtual void setVP9HardwareSupportForTesting(std::optional<bool> value) { m_supportsVP9VTBForTesting = value; }
     virtual bool isSupportingVP9HardwareDecoder() const { return m_supportsVP9VTBForTesting.value_or(false); }
 
+    virtual bool isSupportingAV1HardwareDecoder() const { return false; }
+
     WEBCORE_EXPORT void NODELETE disableEnumeratingAllNetworkInterfaces();
     WEBCORE_EXPORT void NODELETE enableEnumeratingAllNetworkInterfaces();
     bool NODELETE isEnumeratingAllNetworkInterfacesEnabled() const;
@@ -124,6 +126,8 @@ public:
         virtual bool shouldEnableServiceClass() { return true; }
     };
     virtual std::unique_ptr<SuspendableSocketFactory> createSocketFactory(String&& /* userAgent */, ScriptExecutionContextIdentifier, bool /* isFirstParty */, RegistrableDomain&&, bool /* enableServiceClass */);
+
+    virtual void clearCodecsConnectionForTesting() { }
 
 protected:
     LibWebRTCProvider();

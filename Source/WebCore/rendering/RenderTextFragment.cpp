@@ -24,11 +24,12 @@
 #include "RenderTextFragment.h"
 
 #include "RenderBlock.h"
+#include "RenderInline.h"
 #include "RenderIterator.h"
 #include "RenderObjectInlines.h"
 #include "RenderMultiColumnFlow.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTreeBuilder.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -68,7 +69,14 @@ RenderTextFragment::~RenderTextFragment()
 
 bool RenderTextFragment::canBeSelectionLeaf() const
 {
-    return textNode() && textNode()->hasEditableStyle();
+    if (RefPtr textNode = this->textNode()) {
+        // Remaining (trailing) text fragments with first-letter are always selectable,
+        // matching the base RenderText::canBeSelectionLeaf() behavior.
+        return firstLetter() || textNode->hasEditableStyle();
+    }
+    // First-letter is always selectable.
+    CheckedPtr anonymousInlineWrapper = dynamicDowncast<RenderInline>(this->parent());
+    return anonymousInlineWrapper && anonymousInlineWrapper->firstLetterRemainingText();
 }
 
 void RenderTextFragment::setTextInternal(const String& newText, bool force)
@@ -87,15 +95,35 @@ void RenderTextFragment::setTextInternal(const String& newText, bool force)
     ASSERT(!textNode() || textNode()->renderer() == this);
 }
 
-Vector<char16_t> RenderTextFragment::previousCharacter() const
+void RenderTextFragment::setTextWithOffset(const String& newText, unsigned offset)
+{
+    // Edits within the first-letter range invalidate the first-letter split.
+    // The base class skips the update when the fragment text matches the new
+    // content, but the split is stale and the tree builder needs to recreate it.
+    if (m_firstLetter && offset < m_start)
+        RenderTreeBuilder::current() ? RenderTreeBuilder::current()->destroy(*m_firstLetter) : RenderTreeBuilder(*document().renderView()).destroy(*m_firstLetter);
+    RenderText::setTextWithOffset(newText, offset);
+}
+
+Node* RenderTextFragment::nodeForHitTest() const
+{
+    if (!textNode()) {
+        // The anonymous first-letter text has no DOM node. Resolve to the DOM text
+        // node via the remaining fragment so cursor and selection work.
+        if (auto* parent = dynamicDowncast<RenderBoxModelObject>(this->parent()); parent && parent->isFirstLetter()) {
+            if (auto* remainingText = parent->firstLetterRemainingText())
+                return remainingText->textNode();
+        }
+    }
+    return RenderText::nodeForHitTest();
+}
+
+char32_t RenderTextFragment::previousCharacter() const
 {
     if (start()) {
         String original = textNode() ? textNode()->data() : contentString();
-        if (!original.isNull() && start() <= original.length()) {
-            Vector<char16_t> previous;
-            previous.append(original[start() - 1]);
-            return previous;
-        }
+        if (start() <= original.length())
+            return StringView(original).codePointBefore(start());
     }
     return RenderText::previousCharacter();
 }

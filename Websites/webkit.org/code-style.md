@@ -1623,6 +1623,41 @@ public:
 }
 ```
 
+### Smart Pointer Variable Types
+
+[](#auto-with-adopt) When declaring a local variable that is initialized with an `adopt` method, the variable's type should be declared explicitly as the smart pointer type and not declared using `auto`.
+
+###### Right:
+
+```cpp
+RetainPtr nsDictionary = adoptNS([NSMutableDictionary new]);
+
+RetainPtr cfDictionary = adoptCF(CFDictionaryCreateMutable(
+    kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+		
+Ref origin1 = adoptRef(*new SecurityOrigin);
+
+RefPtr origin2 = adoptRef(new SecurityOrigin);
+
+OSObjectPtr synchronousFileLoadingGroup = adoptOSObject(dispatch_group_create());
+
+```
+
+###### Wrong:
+
+```cpp
+auto nsDictionary = adoptNS([NSMutableDictionary new]);
+
+auto cfDictionary = adoptCF(CFDictionaryCreateMutable(
+    kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+		
+auto origin1 = adoptRef(*new SecurityOrigin);
+
+auto origin2 = adoptRef(new SecurityOrigin);
+
+auto synchronousFileLoadingGroup = adoptOSObject(dispatch_group_create());
+```
+
 ### Python
 
 [](#python) For Python use PEP8 style.

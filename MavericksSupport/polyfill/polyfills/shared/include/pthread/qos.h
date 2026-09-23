@@ -1,9 +1,7 @@
 /*
  * Wrapper/replacement for <pthread/qos.h> (the pthread QoS API, macOS 10.10+),
- * which is absent from the 10.9 SDK. Declarations only: the QoS family is
- * implemented in c/libSystem.m for WebKit and in cdm/widevine-gap.c for the CDM
- * (10.9 has no QoS scheduling classes; callers use these only as scheduling
- * hints).
+ * which is absent from the 10.9 SDK. Class and attribute operations use Apple's
+ * unsupported-kernel branch in shared/pthread_qos.c for every consumer.
  *
  * QOS_CLASS_* values are Apple's standard constants.
  */

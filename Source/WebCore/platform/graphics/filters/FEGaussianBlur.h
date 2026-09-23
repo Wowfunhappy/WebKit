@@ -27,6 +27,8 @@
 
 namespace WebCore {
 
+enum class FilterRenderingOption : uint8_t;
+
 class FEGaussianBlur final : public FilterEffect {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEGaussianBlur);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEGaussianBlur);
@@ -43,6 +45,8 @@ public:
 
     EdgeModeType edgeMode() const { return m_edgeMode; }
     bool NODELETE setEdgeMode(EdgeModeType);
+
+    FloatSize effectiveStdDeviation(OptionSet<FilterRenderingOption> = { }) const;
 
     static IntSize calculateKernelSize(const Filter&, FloatSize stdDeviation);
     static IntSize calculateUnscaledKernelSize(FloatSize stdDeviation);

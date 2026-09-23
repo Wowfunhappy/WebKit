@@ -26,13 +26,6 @@
 #include "config.h"
 #include <wtf/CompactPtr.h>
 
-#include <wtf/AccessibleAddress.h>
-#include <wtf/HashMap.h>
-#include <wtf/Lock.h>
-#include <wtf/NeverDestroyed.h>
-#include <wtf/SegmentedVector.h>
-#include <wtf/Threading.h>
-
 namespace WTF {
 
 #if HAVE(36BIT_ADDRESS)

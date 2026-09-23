@@ -33,9 +33,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentSecurityPolicyDirective);
 
-ContentSecurityPolicyDirective::~ContentSecurityPolicyDirective()
-{
-}
+ContentSecurityPolicyDirective::~ContentSecurityPolicyDirective() = default;
 
 bool ContentSecurityPolicyDirective::isDefaultSrc() const
 {

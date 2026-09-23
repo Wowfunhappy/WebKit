@@ -47,7 +47,7 @@ String BasicCredential::type() const
 {
     switch (m_type) {
     case Type::DigitalCredential:
-        return "digital-credential"_s;
+        return "digital"_s;
 
     case Type::PublicKey:
         return "public-key"_s;

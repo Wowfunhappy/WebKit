@@ -110,14 +110,14 @@ void BlobRegistryImpl::appendStorageItems(BlobData* blobData, const BlobDataItem
         auto& item = items[itemsIndex];
         long long currentLength = item.length() - offset;
         long long newLength = currentLength > length ? length : currentLength;
-        switch (item.type()) {
-        case BlobDataItem::Type::Data:
-            blobData->appendData(item.data(), item.offset() + offset, newLength);
-            break;
-        case BlobDataItem::Type::File:
-            blobData->appendFile(protect(item.file()), item.offset() + offset, newLength);
-            break;
-        }
+        WTF::switchOn(item,
+            [&](DataSegment& data) {
+                blobData->appendData(data, item.offset() + offset, newLength);
+            },
+            [&](BlobDataFileReference& file) {
+                blobData->appendFile(file, item.offset() + offset, newLength);
+            }
+        );
         length -= newLength;
         offset = 0;
     }
@@ -343,14 +343,14 @@ bool BlobRegistryImpl::populateBlobsForFileWriting(const Vector<String>& blobURL
             return false;
 
         for (auto& item : blobData->items()) {
-            switch (item.type()) {
-            case BlobDataItem::Type::Data:
-                blobsForWriting.last().filePathsOrDataBuffers.append(protect(item.data()));
-                break;
-            case BlobDataItem::Type::File:
-                blobsForWriting.last().filePathsOrDataBuffers.append(protect(item.file())->path().isolatedCopy());
-                break;
-            }
+            WTF::switchOn(item,
+                [&](DataSegment& data) {
+                    blobsForWriting.last().filePathsOrDataBuffers.append(data);
+                },
+                [&](BlobDataFileReference& file) {
+                    blobsForWriting.last().filePathsOrDataBuffers.append(file.path().isolatedCopy());
+                }
+            );
         }
     }
     return true;
@@ -419,9 +419,13 @@ Vector<Ref<BlobDataFileReference>> BlobRegistryImpl::filesInBlob(const URL& url,
         return { };
 
     Vector<Ref<BlobDataFileReference>> result;
-    for (const BlobDataItem& item : blobData->items()) {
-        if (item.type() == BlobDataItem::Type::File)
-            result.append(protect(item.file()));
+    for (auto& item : blobData->items()) {
+        WTF::switchOn(item,
+            [](const DataSegment&) { },
+            [&](BlobDataFileReference& file) {
+                result.append(file);
+            }
+        );
     }
 
     return result;

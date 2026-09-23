@@ -33,6 +33,8 @@
 #include "JSDOMPromise.h"
 #include "JSFetchResponse.h"
 #include "Logging.h"
+#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/StrongInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
@@ -59,9 +61,9 @@ static inline Ref<DOMPromise> retrieveHandledPromise(JSC::JSGlobalObject& global
 
     JSC::JSLockHolder lock(globalObject.vm());
 
-    auto& jsDOMGlobalObject = *JSC::jsCast<JSDOMGlobalObject*>(&globalObject);
+    auto& jsDOMGlobalObject = downcast<JSDOMGlobalObject>(globalObject);
     auto deferredPromise = DeferredPromise::create(jsDOMGlobalObject);
-    return DOMPromise::create(jsDOMGlobalObject, *JSC::jsCast<JSC::JSPromise*>(deferredPromise->promise()));
+    return DOMPromise::create(jsDOMGlobalObject, *downcast<JSC::JSPromise>(deferredPromise->promise()));
 }
 
 FetchEvent::FetchEvent(JSC::JSGlobalObject& globalObject, const AtomString& type, Init&& initializer, IsTrusted isTrusted)
@@ -195,7 +197,7 @@ void FetchEvent::navigationPreloadIsReady(ResourceResponse&& response)
 
     auto& vm = globalObject->vm();
     JSC::JSLockHolder lock(vm);
-    JSC::Strong<JSC::Unknown> value { vm, toJS(globalObject, JSC::jsCast<JSDOMGlobalObject*>(globalObject), fetchResponse.get()) };
+    JSC::Strong<JSC::Unknown> value { vm, toJS(globalObject, globalObject, fetchResponse.get()) };
     m_preloadResponsePromise->resolve(value);
 
     // We postpone the load to leave some time for the service worker to use the preload before loading it.

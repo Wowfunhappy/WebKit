@@ -5,7 +5,22 @@
 
 run TestWTF
 run TestWebCore
-run TestWebKitCocoa WKHTTPCookieStore.*:WebSocket.*:Challenge.*:WebKit.Cookie*:WebKit.ServerTrust:WebKit.FastServerTrust:WebKit.ErrorSecureCoding
+run TestWebKitAPI WKHTTPCookieStore.*:WebSocket.*:Challenge.*:WebKit.Cookie*:WebKit.ServerTrust:WebKit.FastServerTrust:WebKit.ErrorSecureCoding
 
 # The port builds with ENABLE_PDF_PLUGIN=0; its layout scope also excludes PDF plugins.
-TestWebKitCocoa WebKit.CookieAccessFromPDFInAboutBlank [ Skip ]
+TestWebKitAPI WebKit.CookieAccessFromPDFInAboutBlank [ Skip ]
+
+# On 10.9 the shared cookie jar's accept policy is account-wide, and Safari 7 sets and restores it itself, so the
+# policy this test writes does not stay its own.
+TestWebKitAPI WebKit.CookieAcceptPolicy [ Skip ]
+
+# The daemon tests register an adattributiond launchd job through -[NSDictionary writeToURL:error:], which 10.9's
+# Foundation lacks, and this port ships no PCM daemon: Safari 7 sets no PCM mach service, so measurement runs in
+# the network process, as the other PrivateClickMeasurement tests exercise.
+TestWebKitAPI PrivateClickMeasurement.DaemonBasicFunctionality [ Skip ]
+TestWebKitAPI PrivateClickMeasurement.DaemonDebugMode [ Skip ]
+
+# The SKAdNetwork console message is broadcast from WebPageProxy's commit of the cross-site navigation; when it reaches
+# the committed process before that process's inspector frontend connects, FAST_RETURN_IF_NO_FRONTENDS drops it and the
+# test waits for a message that never arrives.
+TestWebKitAPI PrivateClickMeasurement.SKAdNetwork [ Skip ]

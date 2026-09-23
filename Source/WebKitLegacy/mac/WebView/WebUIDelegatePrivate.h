@@ -102,7 +102,7 @@ enum {
     WebMenuItemTagToggleVideoFullscreen,
     WebMenuItemTagShareMenu,
     WebMenuItemTagTogglePictureInPicture,
-    WebMenuItemTagToggleEnhancedFullscreen = WebMenuItemTagTogglePictureInPicture,
+    WebMenuItemTagToggleVideoEnhancedFullscreen = WebMenuItemTagTogglePictureInPicture,
     WebMenuItemTagToggleVideoViewer,
     WebMenuItemTagAddHighlightToCurrentQuickNote,
     WebMenuItemTagAddHighlightToNewQuickNote,

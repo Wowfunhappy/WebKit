@@ -39,6 +39,7 @@
 #include "ResourceError.h"
 #include "ScriptExecutionContext.h"
 #include "WorkerGlobalScope.h"
+#include "WorkerOrWorkletThread.h"
 #include "WorkerRunLoop.h"
 #include "WorkerThreadableLoader.h"
 #include "WorkletGlobalScope.h"

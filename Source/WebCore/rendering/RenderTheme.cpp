@@ -63,12 +63,13 @@
 #include "MeterPart.h"
 #include "Page.h"
 #include "PaintInfo.h"
+#include "PlatformRenderTheme.h"
 #include "ProgressBarPart.h"
 #include "RenderMeter.h"
 #include "RenderElementInlines.h"
+#include "RenderObjectInlines.h"
 #include "RenderProgress.h"
-#include "RenderStyle+GettersInlines.h"
-#include "RenderStyle+SettersInlines.h"
+#include "RenderText.h"
 #include "RenderView.h"
 #include "SearchFieldCancelButtonPart.h"
 #include "SearchFieldPart.h"
@@ -79,11 +80,12 @@
 #include "SliderTrackPart.h"
 #include "SpinButtonElement.h"
 #include "StringTruncator.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StylePadding.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
-#include "SwitchThumbPart.h"
-#include "SwitchTrackPart.h"
+#include "SwitchPart.h"
 #include "TextAreaPart.h"
 #include "TextControlInnerElements.h"
 #include "TextFieldPart.h"
@@ -94,6 +96,10 @@
 #include <wtf/FileSystem.h>
 #include <wtf/Language.h>
 #include <wtf/NeverDestroyed.h>
+
+#if PLATFORM(COCOA)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
 
 #if ENABLE(SERVICE_CONTROLS)
 #include "ImageControlsMac.h"
@@ -107,7 +113,12 @@ using namespace HTMLNames;
 RenderTheme::RenderTheme() = default;
 RenderTheme::~RenderTheme() = default;
 
-StyleAppearance RenderTheme::adjustAppearanceForElement(RenderStyle& style, const RenderStyle& parentStyle, const Element* element, StyleAppearance autoAppearance) const
+float RenderTheme::usedZoomForComputedStyle(const Style::ComputedStyle& renderStyle) const
+{
+    return renderStyle.evaluationTimeZoomEnabled() ? 1.0f : renderStyle.usedZoom();
+}
+
+StyleAppearance RenderTheme::adjustAppearanceForElement(Style::ComputedStyle& style, const Style::ComputedStyle& parentStyle, const Element* element, StyleAppearance autoAppearance) const
 {
     if (!element) {
         style.setUsedAppearance(StyleAppearance::None);
@@ -252,17 +263,18 @@ bool RenderTheme::hasAppearanceForElementTypeFromUAStyle(const Element& element)
 {
     // NOTE: This is just a legacy hard-coded list of elements that have some appearance value in html.css
     // FIXME: Remove when devolvable widgets are universally enabled.
+    // FIXME: Should these be hasTagName() checks to also enforce the namespace?
     const auto& localName = element.localName();
-    return localName == HTMLNames::inputTag
-        || localName == HTMLNames::textareaTag
-        || localName == HTMLNames::buttonTag
-        || localName == HTMLNames::progressTag
-        || localName == HTMLNames::selectTag
-        || localName == HTMLNames::meterTag
+    return HTMLNames::inputTag->hasLocalName(localName)
+        || HTMLNames::textareaTag->hasLocalName(localName)
+        || HTMLNames::buttonTag->hasLocalName(localName)
+        || HTMLNames::progressTag->hasLocalName(localName)
+        || HTMLNames::selectTag->hasLocalName(localName)
+        || HTMLNames::meterTag->hasLocalName(localName)
         || (element.isInUserAgentShadowTree() && element.userAgentPart() == UserAgentParts::webkitListButton());
 }
 
-void RenderTheme::adjustStyle(RenderStyle& style, const RenderStyle& parentStyle, const Element* element)
+void RenderTheme::adjustStyle(Style::ComputedStyle& style, const Style::ComputedStyle& parentStyle, const Element* element)
 {
     auto autoAppearance = autoAppearanceForElement(style, element);
     auto appearance = adjustAppearanceForElement(style, parentStyle, element, autoAppearance);
@@ -309,7 +321,7 @@ void RenderTheme::adjustStyle(RenderStyle& style, const RenderStyle& parentStyle
     if (!isAppearanceAllowedForAllElements(appearance)
         && !hasAppearanceFromUAStyle
         && autoAppearance == StyleAppearance::None
-        && !style.borderAndBackgroundEqual(RenderStyle::defaultStyleSingleton()))
+        && !style.borderAndBackgroundEqual(Style::ComputedStyle::defaultStyleSingleton()))
         style.setUsedAppearance(StyleAppearance::None);
 
     if (!style.hasUsedAppearance())
@@ -364,9 +376,6 @@ void RenderTheme::adjustStyle(RenderStyle& style, const RenderStyle& parentStyle
         return adjustSearchFieldResultsButtonStyle(style, element);
     case StyleAppearance::Switch:
         return adjustSwitchStyle(style, element);
-    case StyleAppearance::SwitchThumb:
-    case StyleAppearance::SwitchTrack:
-        return adjustSwitchThumbOrSwitchTrackStyle(style);
     case StyleAppearance::ProgressBar:
         return adjustProgressBarStyle(style, element);
     case StyleAppearance::Meter:
@@ -386,7 +395,7 @@ void RenderTheme::adjustStyle(RenderStyle& style, const RenderStyle& parentStyle
     }
 }
 
-StyleAppearance RenderTheme::autoAppearanceForElement(RenderStyle& style, const Element* elementPtr) const
+StyleAppearance RenderTheme::autoAppearanceForElement(Style::ComputedStyle& style, const Element* elementPtr) const
 {
     if (!elementPtr)
         return StyleAppearance::None;
@@ -512,12 +521,6 @@ StyleAppearance RenderTheme::autoAppearanceForElement(RenderStyle& style, const 
 
         if (part == UserAgentParts::webkitColorSwatchWrapper())
             return StyleAppearance::ColorWellSwatchWrapper;
-
-        if (part == UserAgentParts::sliderThumb())
-            return StyleAppearance::SwitchThumb;
-
-        if (part == UserAgentParts::sliderTrack())
-            return StyleAppearance::SwitchTrack;
     }
 
     return StyleAppearance::None;
@@ -578,11 +581,12 @@ static void updateSliderTrackPartForRenderer(SliderTrackPart& sliderTrackPart, c
     IntSize thumbSize;
     if (CheckedPtr thumbRenderer = input->sliderThumbElement()->renderer()) {
         const auto& thumbStyle = thumbRenderer->style();
+        auto zoom = thumbStyle.usedZoomForLength();
 
         auto fixedWidth = thumbStyle.width().tryFixed();
         auto fixedHeight = thumbStyle.height().tryFixed();
-        auto thumbWidth = fixedWidth ? static_cast<int>(fixedWidth->resolveZoom(thumbStyle.usedZoomForLength())) : 0;
-        auto thumbHeight = fixedHeight ? static_cast<int>(fixedHeight->resolveZoom(thumbStyle.usedZoomForLength())) : 0;
+        auto thumbWidth = fixedWidth ? Style::evaluate<int>(*fixedWidth, zoom) : 0;
+        auto thumbHeight = fixedHeight ? Style::evaluate<int>(*fixedHeight, zoom) : 0;
 
         thumbSize = { thumbWidth, thumbHeight };
     }
@@ -623,22 +627,13 @@ static void updateSliderTrackPartForRenderer(SliderTrackPart& sliderTrackPart, c
     sliderTrackPart.setTickRatios(WTF::move(tickRatios));
 }
 
-static void updateSwitchThumbPartForRenderer(SwitchThumbPart& switchThumbPart, const RenderElement& renderer)
+static void updateSwitchPartForRenderer(SwitchPart& switchPart, const RenderElement& renderer)
 {
-    Ref input = downcast<HTMLInputElement>(*renderer.element()->shadowHost());
+    Ref input = downcast<HTMLInputElement>(*renderer.element());
     ASSERT(input->isSwitch());
 
-    switchThumbPart.setIsOn(input->isSwitchVisuallyOn());
-    switchThumbPart.setProgress(input->switchAnimationVisuallyOnProgress());
-}
-
-static void updateSwitchTrackPartForRenderer(SwitchTrackPart& switchTrackPart, const RenderElement& renderer)
-{
-    Ref input = downcast<HTMLInputElement>(*renderer.element()->shadowHost());
-    ASSERT(input->isSwitch());
-
-    switchTrackPart.setIsOn(input->isSwitchVisuallyOn());
-    switchTrackPart.setProgress(input->switchAnimationVisuallyOnProgress());
+    switchPart.setIsOn(input->isSwitchVisuallyOn());
+    switchPart.setProgress(input->switchAnimationVisuallyOnProgress());
 }
 
 RefPtr<ControlPart> RenderTheme::createControlPart(const RenderElement& renderer) const
@@ -732,13 +727,7 @@ RefPtr<ControlPart> RenderTheme::createControlPart(const RenderElement& renderer
         return SliderThumbPart::create(appearance);
 
     case StyleAppearance::Switch:
-        break;
-
-    case StyleAppearance::SwitchThumb:
-        return SwitchThumbPart::create();
-
-    case StyleAppearance::SwitchTrack:
-        return SwitchTrackPart::create();
+        return SwitchPart::create();
     }
 
     ASSERT_NOT_REACHED();
@@ -762,13 +751,8 @@ void RenderTheme::updateControlPartForRenderer(ControlPart& part, const RenderEl
         return;
     }
 
-    if (auto* switchThumbPart = dynamicDowncast<SwitchThumbPart>(part)) {
-        updateSwitchThumbPartForRenderer(*switchThumbPart, renderer);
-        return;
-    }
-
-    if (auto* switchTrackPart = dynamicDowncast<SwitchTrackPart>(part)) {
-        updateSwitchTrackPartForRenderer(*switchTrackPart, renderer);
+    if (auto* switchPart = dynamicDowncast<SwitchPart>(part)) {
+        updateSwitchPartForRenderer(*switchPart, renderer);
         return;
     }
 
@@ -827,7 +811,7 @@ OptionSet<ControlStyle::State> RenderTheme::extractControlStyleStatesForRenderer
     return states;
 }
 
-static const RenderElement* effectiveRendererForAppearance(const RenderObject& renderObject)
+static const RenderElement* NODELETE effectiveRendererForAppearance(const RenderObject& renderObject)
 {
     auto* renderer = dynamicDowncast<RenderElement>(renderObject);
     if (!renderer) {
@@ -836,9 +820,7 @@ static const RenderElement* effectiveRendererForAppearance(const RenderObject& r
     }
 
     auto type = renderer->style().usedAppearance();
-    if (type == StyleAppearance::SearchFieldCancelButton
-        || type == StyleAppearance::SwitchTrack
-        || type == StyleAppearance::SwitchThumb) {
+    if (type == StyleAppearance::SearchFieldCancelButton) {
         auto* element = renderer->element();
         auto* input = element->shadowHost();
         if (!input)
@@ -869,7 +851,7 @@ ControlStyle RenderTheme::extractControlStyleForRenderer(const RenderElement& re
         style->usedZoom(),
         style->usedAccentColor(renderObject.styleColorOptions()),
         style->visitedDependentColorApplyingColorFilter(),
-        Style::evaluate<FloatBoxExtent>(style->usedBorderWidths().to<Style::LineWidthBox>(), Style::ZoomNeeded { })
+        Style::evaluate<FloatBoxExtent>(style->usedBorderWidths().to<Style::LineWidthBox>(), style->usedZoomForLength(), style->deviceScaleFactor())
     };
 }
 
@@ -914,7 +896,7 @@ bool RenderTheme::paint(const RenderBox& box, const PaintInfo& paintInfo, const 
     
     auto appearance = box.style().usedAppearance();
 
-    if (!canPaint(paintInfo, box.settings(), appearance)) [[unlikely]]
+    if (!canPaint(paintInfo, protect(box.settings()), appearance)) [[unlikely]]
         return false;
 
     float deviceScaleFactor = protect(box.document())->deviceScaleFactor();
@@ -967,11 +949,7 @@ bool RenderTheme::paint(const RenderBox& box, const PaintInfo& paintInfo, const 
     case StyleAppearance::SearchFieldResultsButton:
         return paintSearchFieldResultsButton(box, paintInfo, devicePixelSnappedRect);
     case StyleAppearance::Switch:
-        return true;
-    case StyleAppearance::SwitchThumb:
-        return paintSwitchThumb(box, paintInfo, devicePixelSnappedRect);
-    case StyleAppearance::SwitchTrack:
-        return paintSwitchTrack(box, paintInfo, devicePixelSnappedRect);
+        return paintSwitch(box, paintInfo, devicePixelSnappedRect);
 #if ENABLE(SERVICE_CONTROLS)
     case StyleAppearance::ImageControlsButton:
         return paintImageControlsButton(box, paintInfo, snappedIntRect(rect));
@@ -1197,7 +1175,7 @@ Color RenderTheme::platformInactiveListBoxSelectionForegroundColor(OptionSet<Sty
 
 int RenderTheme::baselinePosition(const RenderBox& box) const
 {
-    return box.isHorizontalWritingMode() ? box.height() : LayoutUnit(box.width() / 2.0f);
+    return box.isHorizontalWritingMode() ? box.borderBoxHeight() : LayoutUnit(box.borderBoxWidth() / 2.0f);
 }
 
 bool RenderTheme::isControlContainer(StyleAppearance appearance) const
@@ -1207,7 +1185,7 @@ bool RenderTheme::isControlContainer(StyleAppearance appearance) const
     return appearance != StyleAppearance::Checkbox && appearance != StyleAppearance::Radio;
 }
 
-bool RenderTheme::isControlStyled(const RenderStyle& style) const
+bool RenderTheme::isControlStyled(const Style::ComputedStyle& style) const
 {
     switch (style.usedAppearance()) {
     case StyleAppearance::PushButton:
@@ -1229,7 +1207,7 @@ bool RenderTheme::isControlStyled(const RenderStyle& style) const
     }
 }
 
-bool RenderTheme::supportsFocusRing(const RenderElement&, const RenderStyle& style) const
+bool RenderTheme::supportsFocusRing(const RenderElement&, const Style::ComputedStyle& style) const
 {
     return style.hasUsedAppearance()
         && style.usedAppearance() != StyleAppearance::TextField
@@ -1317,7 +1295,7 @@ bool RenderTheme::isSpinUpButtonPartHovered(const RenderElement& renderer) const
 
 bool RenderTheme::isPresenting(const RenderElement& renderer) const
 {
-    RefPtr input = dynamicDowncast<HTMLInputElement>(renderer.element());
+    auto* input = dynamicDowncast<HTMLInputElement>(renderer.element());
     return input && input->isPresentingAttachedView();
 }
 
@@ -1383,9 +1361,9 @@ Style::MinimumSizePair RenderTheme::minimumControlSize(StyleAppearance appearanc
 
     // Other StyleAppearance types are composed controls with shadow subtree.
     if (appearance == StyleAppearance::Radio || appearance == StyleAppearance::Checkbox) {
-        if (minSize.width().isSizingKeywordOrAuto())
+        if (minSize.width().isSizingKeywordOrAuto() && preferredSize.width().tryFixed())
             resultWidth = preferredSize.width().asMinimumSize();
-        if (minSize.height().isSizingKeywordOrAuto())
+        if (minSize.height().isSizingKeywordOrAuto() && preferredSize.height().tryFixed())
             resultHeight = preferredSize.height().asMinimumSize();
     }
 
@@ -1408,7 +1386,7 @@ Style::LineWidthBox RenderTheme::controlBorder(StyleAppearance appearance, const
 
 // FIXME: iOS does not use this so arguably this should be better abstracted. Or maybe we should
 // investigate if we can bring the various ports closer together.
-void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(Style::ComputedStyle& style, const Element* element) const
 {
     auto appearance = style.usedAppearance();
     CheckedRef fontCascade = style.fontCascade();
@@ -1424,27 +1402,30 @@ void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle
     };
     // Transpose for vertical writing mode:
     if (!style.writingMode().isHorizontal() && supportsVerticalWritingMode(appearance))
-        borderBox = Style::LineWidthBox { borderBox.left(), borderBox.top(), borderBox.right(), borderBox.bottom() };
+        borderBox.transpose();
 
-    if (Style::evaluate<float>(borderBox.top(), Style::ZoomNeeded { }) != Style::evaluate<int>(style.usedBorderTopWidth(), Style::ZoomNeeded { })) {
+    auto zoom = style.usedZoomForLength();
+    auto deviceScaleFactor = style.deviceScaleFactor();
+
+    if (Style::evaluate<float>(borderBox.top(), zoom, deviceScaleFactor) != Style::evaluate<int>(style.usedBorderTopWidth(), zoom, deviceScaleFactor)) {
         if (!borderBox.top().isZero())
             style.setBorderTopWidth(Style::LineWidth { borderBox.top() });
         else
             style.resetBorderTop();
     }
-    if (Style::evaluate<float>(borderBox.right(), Style::ZoomNeeded { }) != Style::evaluate<int>(style.usedBorderRightWidth(), Style::ZoomNeeded { })) {
+    if (Style::evaluate<float>(borderBox.right(), zoom, deviceScaleFactor) != Style::evaluate<int>(style.usedBorderRightWidth(), zoom, deviceScaleFactor)) {
         if (!borderBox.right().isZero())
             style.setBorderRightWidth(Style::LineWidth { borderBox.right() });
         else
             style.resetBorderRight();
     }
-    if (Style::evaluate<float>(borderBox.bottom(), Style::ZoomNeeded { }) != Style::evaluate<int>(style.usedBorderBottomWidth(), Style::ZoomNeeded { })) {
+    if (Style::evaluate<float>(borderBox.bottom(), zoom, deviceScaleFactor) != Style::evaluate<int>(style.usedBorderBottomWidth(), zoom, deviceScaleFactor)) {
         if (!borderBox.bottom().isZero())
             style.setBorderBottomWidth(Style::LineWidth { borderBox.bottom() });
         else
             style.resetBorderBottom();
     }
-    if (Style::evaluate<float>(borderBox.left(), Style::ZoomNeeded { }) != Style::evaluate<int>(style.usedBorderLeftWidth(), Style::ZoomNeeded { })) {
+    if (Style::evaluate<float>(borderBox.left(), zoom, deviceScaleFactor) != Style::evaluate<int>(style.usedBorderLeftWidth(), zoom, deviceScaleFactor)) {
         if (!borderBox.left().isZero())
             style.setBorderLeftWidth(Style::LineWidth { borderBox.left() });
         else
@@ -1537,38 +1518,38 @@ void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle
     style.setInsideDefaultButton(appearance == StyleAppearance::DefaultButton && element && !element->isDisabledFormControl());
 }
 
-void RenderTheme::adjustCheckboxStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustCheckboxStyle(Style::ComputedStyle& style, const Element* element) const
 {
     adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(style, element);
 }
 
-void RenderTheme::adjustRadioStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustRadioStyle(Style::ComputedStyle& style, const Element* element) const
 {
     adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(style, element);
 }
 
-void RenderTheme::adjustColorWellStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustColorWellStyle(Style::ComputedStyle& style, const Element* element) const
 {
     adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(style, element);
 }
 
-void RenderTheme::adjustButtonStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustButtonStyle(Style::ComputedStyle& style, const Element* element) const
 {
     adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(style, element);
 }
 
-void RenderTheme::adjustInnerSpinButtonStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustInnerSpinButtonStyle(Style::ComputedStyle& style, const Element* element) const
 {
     adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle(style, element);
 }
 
-void RenderTheme::adjustMenuListStyle(RenderStyle& style, const Element*) const
+void RenderTheme::adjustMenuListStyle(Style::ComputedStyle& style, const Element*) const
 {
     style.setOverflowX(Overflow::Visible);
     style.setOverflowY(Overflow::Visible);
 }
 
-void RenderTheme::adjustMeterStyle(RenderStyle& style, const Element*) const
+void RenderTheme::adjustMeterStyle(Style::ComputedStyle& style, const Element*) const
 {
     style.setBoxShadow(CSS::Keyword::None { });
 }
@@ -1725,27 +1706,12 @@ void RenderTheme::setColorWellSwatchBackground(HTMLElement& swatch, Color color)
     swatch.setInlineStyleProperty(CSSPropertyBackgroundColor, serializationForHTML(color));
 }
 
-void RenderTheme::adjustSliderThumbStyle(RenderStyle& style, const Element* element) const
+void RenderTheme::adjustSliderThumbStyle(Style::ComputedStyle& style, const Element* element) const
 {
     adjustSliderThumbSize(style, element);
 }
 
-void RenderTheme::adjustSwitchStyleDisplay(RenderStyle& style) const
-{
-    // RenderTheme::adjustStyle() normalizes a bunch of display types to InlineBlock and Block.
-    switch (style.display().value) {
-    case Style::DisplayType::InlineFlowRoot:
-        style.setDisplayMaintainingOriginalDisplay(Style::DisplayType::InlineGrid);
-        break;
-    case Style::DisplayType::BlockFlow:
-        style.setDisplayMaintainingOriginalDisplay(Style::DisplayType::BlockGrid);
-        break;
-    default:
-        break;
-    }
-}
-
-void RenderTheme::adjustSwitchStyle(RenderStyle& style, const Element*) const
+void RenderTheme::adjustSwitchStyle(Style::ComputedStyle& style, const Element*) const
 {
     // FIXME: This probably has the same flaw as
     // RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle() by not taking
@@ -1753,17 +1719,27 @@ void RenderTheme::adjustSwitchStyle(RenderStyle& style, const Element*) const
     auto controlSize = this->controlSize(StyleAppearance::Switch, protect(style.fontCascade()).get(), { style.logicalWidth(), style.logicalHeight() }, usedZoomForComputedStyle(style));
     style.setLogicalWidth(Style::PreferredSize { controlSize.width() });
     style.setLogicalHeight(Style::PreferredSize { controlSize.height() });
-
-    adjustSwitchStyleDisplay(style);
 }
 
-void RenderTheme::adjustSwitchThumbOrSwitchTrackStyle(RenderStyle& style) const
+Style::PaddingBox RenderTheme::popupInternalPaddingBox(const Style::ComputedStyle& style) const
 {
-    style.setGridItemRowStart(Style::GridPosition::Explicit { { 1 } });
-    style.setGridItemColumnStart(Style::GridPosition::Explicit { { 1 } });
+    auto padding = platformPopupInternalPaddingBox(style);
+    auto mode = style.writingMode();
+    // Platform returns padding in horizontal-tb LTR.
+    Style::PaddingBox result { 0_css_px };
+    if (mode.isLineInverted()) {
+        result.after(mode) = padding.top();
+        result.before(mode) = padding.bottom();
+    } else {
+        result.before(mode) = padding.top();
+        result.after(mode) = padding.bottom();
+    }
+    result.start(mode) = padding.left();
+    result.end(mode) = padding.right();
+    return result;
 }
 
-Style::PaddingBox RenderTheme::popupInternalPaddingBox(const RenderStyle&) const
+Style::PaddingBox RenderTheme::platformPopupInternalPaddingBox(const Style::ComputedStyle&) const
 {
     return Style::PaddingBox { 0_css_px };
 }
@@ -2123,7 +2099,6 @@ Color RenderTheme::datePlaceholderTextColor(const Color& textColor, const Color&
     return convertColor<SRGBA<float>>(hsla);
 }
 
-
 Color RenderTheme::spellingMarkerColor(OptionSet<StyleColorOptions> options) const
 {
     auto& cache = colorCache(options);
@@ -2229,12 +2204,14 @@ String RenderTheme::fileListNameForWidth(const FileList* fileList, const FontCas
 }
 
 #if USE(SYSTEM_PREVIEW)
-void RenderTheme::paintSystemPreviewBadge(Image& image, const PaintInfo& paintInfo, const FloatRect& rect)
+void RenderTheme::paintSystemPreviewBadge(Image&, const PaintInfo& paintInfo, const FloatRect& rect)
 {
-    // The default implementation paints a small marker
-    // in the upper right corner, as long as the image is big enough.
+    paintSystemPreviewBadge(paintInfo, rect);
+}
 
-    UNUSED_PARAM(image);
+void RenderTheme::paintSystemPreviewBadge(const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    // Default imageless variant: draw the same fallback marker.
     auto& context = paintInfo.context();
 
     GraphicsContextStateSaver stateSaver { context };
@@ -2242,7 +2219,7 @@ void RenderTheme::paintSystemPreviewBadge(Image& image, const PaintInfo& paintIn
     if (rect.width() < 32 || rect.height() < 32)
         return;
 
-    auto markerRect = FloatRect {rect.x() + rect.width() - 24, rect.y() + 8, 16, 16 };
+    auto markerRect = FloatRect { rect.x() + rect.width() - 24, rect.y() + 8, 16, 16 };
     auto roundedMarkerRect = FloatRoundedRect { markerRect, CornerRadii { 8 } };
     context.fillRoundedRect(roundedMarkerRect, Color::red);
 }

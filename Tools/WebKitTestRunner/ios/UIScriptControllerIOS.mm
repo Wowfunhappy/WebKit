@@ -105,6 +105,57 @@ SOFT_LINK_CLASS(UIKit, UIPhysicalKeyboardEvent)
 
 @end
 
+#if HAVE(UIFINDINTERACTION)
+@interface WTRTextSearchAggregator : NSObject <UITextSearchAggregator>
+- (instancetype)initWithCompletionHandler:(void (^)(NSUInteger matchCount))completionHandler;
+@end
+
+@implementation WTRTextSearchAggregator {
+    RetainPtr<NSMutableOrderedSet<UITextRange *>> _foundRanges;
+    BlockPtr<void(NSUInteger)> _completionHandler;
+}
+
+- (instancetype)initWithCompletionHandler:(void (^)(NSUInteger))completionHandler
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _foundRanges = adoptNS([[NSMutableOrderedSet alloc] init]);
+    _completionHandler = makeBlockPtr(completionHandler);
+
+    return self;
+}
+
+- (NSOrderedSet<UITextRange *> *)allFoundRanges
+{
+    return _foundRanges.get();
+}
+
+- (void)foundRange:(UITextRange *)range forSearchString:(NSString *)string inDocument:(UITextSearchDocumentIdentifier)document
+{
+    if (range)
+        [_foundRanges addObject:range];
+}
+
+- (void)finishedSearching
+{
+    if (_completionHandler)
+        _completionHandler([_foundRanges count]);
+}
+
+- (void)invalidateFoundRange:(UITextRange *)range inDocument:(UITextSearchDocumentIdentifier)document
+{
+    [_foundRanges removeObject:range];
+}
+
+- (void)invalidate
+{
+    [_foundRanges removeAllObjects];
+}
+
+@end
+#endif // HAVE(UIFINDINTERACTION)
+
 namespace WTR {
 
 #if HAVE(UI_TEXT_SELECTION_DISPLAY_INTERACTION)
@@ -331,6 +382,18 @@ void UIScriptControllerIOS::touchDownAtPoint(long x, long y, long touchCount, JS
 
     auto location = globalToContentCoordinates(webView(), x, y);
     [[HIDEventGenerator sharedHIDEventGenerator] touchDown:location touchCount:touchCount completionBlock:makeBlockPtr([this, protectedThis = Ref { *this }, callbackID] {
+        if (!m_context)
+            return;
+        m_context->asyncTaskComplete(callbackID);
+    }).get()];
+}
+
+void UIScriptControllerIOS::touchDownAtPointWithMajorRadius(long x, long y, float majorRadius, float majorRadiusTolerance, JSValueRef callback)
+{
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+
+    auto location = globalToContentCoordinates(webView(), x, y);
+    [[HIDEventGenerator sharedHIDEventGenerator] touchDown:location majorRadius:majorRadius majorRadiusTolerance:majorRadiusTolerance completionBlock:makeBlockPtr([this, protectedThis = Ref { *this }, callbackID] {
         if (!m_context)
             return;
         m_context->asyncTaskComplete(callbackID);
@@ -919,6 +982,15 @@ double UIScriptControllerIOS::maximumZoomScale() const
     return webView().scrollView.maximumZoomScale;
 }
 
+bool UIScriptControllerIOS::enhancedWindowingEnabled() const
+{
+#if HAVE(UIKIT_RESIZABLE_WINDOWS)
+    return webView().window.windowScene._enhancedWindowingEnabled;
+#else
+    return false;
+#endif
+}
+
 std::optional<bool> UIScriptControllerIOS::stableStateOverride() const
 {
     TestRunnerWKWebView *webView = this->webView();
@@ -1443,6 +1515,20 @@ void UIScriptControllerIOS::activateDataListSuggestion(unsigned index, JSValueRe
     }).get());
 }
 
+void UIScriptControllerIOS::insertAutofillSuggestion(JSStringRef username, JSStringRef password, JSValueRef callback)
+{
+    RetainPtr contentView = static_cast<id<UITextInputPrivate>>(platformContentView());
+    RetainPtr suggestion = [UITextAutofillSuggestion autofillSuggestionWithUsername:toWTFString(username).createNSString().get() password:toWTFString(password).createNSString().get()];
+    [contentView insertTextSuggestion:suggestion];
+
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+    [webView() _doAfterNextPresentationUpdate:makeBlockPtr([this, protectedThis = Ref { *this }, callbackID] {
+        if (!m_context)
+            return;
+        m_context->asyncTaskComplete(callbackID);
+    }).get()];
+}
+
 bool UIScriptControllerIOS::isShowingDataListSuggestions() const
 {
     return [webView() _isShowingDataListSuggestions];
@@ -1651,6 +1737,26 @@ void UIScriptControllerIOS::presentFindNavigator()
 {
 #if HAVE(UIFINDINTERACTION)
     [webView().findInteraction presentFindNavigatorShowingReplace:NO];
+#endif
+}
+
+void UIScriptControllerIOS::findStringMatchesUsingFindInteraction(JSStringRef string, JSValueRef callback)
+{
+#if HAVE(UIFINDINTERACTION)
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+
+    RetainPtr aggregator = adoptNS([[WTRTextSearchAggregator alloc] initWithCompletionHandler:makeBlockPtr([this, protectedThis = Ref { *this }, callbackID](NSUInteger matchCount) {
+        if (!m_context)
+            return;
+        JSValueRef matchCountValue = JSValueMakeNumber(m_context->jsContext(), matchCount);
+        m_context->asyncTaskComplete(callbackID, { matchCountValue });
+    }).get()]);
+
+    RetainPtr searchOptions = adoptNS([[UITextSearchOptions alloc] init]);
+    [(id<UITextSearching>)webView() performTextSearchWithQueryString:toWTFString(string).createNSString().get() usingOptions:searchOptions.get() resultAggregator:aggregator.get()];
+#else
+    UNUSED_PARAM(string);
+    UNUSED_PARAM(callback);
 #endif
 }
 

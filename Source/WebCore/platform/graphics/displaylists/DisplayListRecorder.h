@@ -92,10 +92,10 @@ protected:
             return ContextState { WTF::move(stateClone), ctm, clipBounds, WTF::move(lastDrawingStateClone) };
         }
 
-        void translate(float x, float y);
+        void NODELETE translate(float x, float y);
         void rotate(float angleInRadians);
         void scale(const FloatSize&);
-        void concatCTM(const AffineTransform&);
+        void NODELETE concatCTM(const AffineTransform&);
         void NODELETE setCTM(const AffineTransform&);
     };
 
@@ -107,10 +107,10 @@ protected:
 protected:
     WEBCORE_EXPORT void updateStateForSave(GraphicsContextState::Purpose);
     [[nodiscard]] WEBCORE_EXPORT bool updateStateForRestore(GraphicsContextState::Purpose);
-    [[nodiscard]] WEBCORE_EXPORT bool updateStateForTranslate(float x, float y);
+    [[nodiscard]] WEBCORE_EXPORT bool NODELETE updateStateForTranslate(float x, float y);
     [[nodiscard]] WEBCORE_EXPORT bool updateStateForRotate(float angleInRadians);
     [[nodiscard]] WEBCORE_EXPORT bool updateStateForScale(const FloatSize&);
-    [[nodiscard]] WEBCORE_EXPORT bool updateStateForConcatCTM(const AffineTransform&);
+    [[nodiscard]] WEBCORE_EXPORT bool NODELETE updateStateForConcatCTM(const AffineTransform&);
     WEBCORE_EXPORT void NODELETE updateStateForSetCTM(const AffineTransform&);
     WEBCORE_EXPORT void updateStateForBeginTransparencyLayer(float opacity);
     WEBCORE_EXPORT void updateStateForBeginTransparencyLayer(CompositeOperator, BlendMode);

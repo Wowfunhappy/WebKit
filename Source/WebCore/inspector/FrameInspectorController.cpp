@@ -32,9 +32,15 @@
 
 #include "CommonVM.h"
 #include "DocumentPage.h"
+#include "FrameCSSAgent.h"
 #include "FrameConsoleAgent.h"
+#include "FrameDOMAgent.h"
+#include "FrameDOMStorageAgent.h"
+#include "FrameDebugger.h"
+#include "FrameDebuggerAgent.h"
 #include "FrameInlines.h"
 #include "FrameRuntimeAgent.h"
+#include "FrameWorkerAgent.h"
 #include "InspectorInstrumentation.h"
 #include "InspectorWebAgentBase.h"
 #include "InstrumentingAgents.h"
@@ -126,20 +132,6 @@ void FrameInspectorController::createConsoleAgent()
     m_didCreateConsoleAgent = true;
 }
 
-void FrameInspectorController::createRuntimeAgent()
-{
-    if (m_didCreateRuntimeAgent)
-        return;
-
-    RefPtr frame = m_frame.get();
-    if (!frame)
-        return;
-
-    auto context = frameAgentContext();
-    m_agents.append(makeUniqueRef<FrameRuntimeAgent>(context));
-    m_didCreateRuntimeAgent = true;
-}
-
 void FrameInspectorController::createLazyAgents()
 {
     if (m_didCreateLazyAgents)
@@ -148,14 +140,22 @@ void FrameInspectorController::createLazyAgents()
     m_didCreateLazyAgents = true;
 
     RefPtr frame = m_frame.get();
-    if (!frame || !frame->settings().siteIsolationEnabled())
+    if (!frame)
+        return;
+
+    if (!frame->settings().siteIsolationEnabled())
         return;
 
     // Create debugger before agents that depend on it.
-    // FIXME: <https://webkit.org/b/298909> Add FrameDebuggerAgent to actively use this debugger.
-    m_debugger = makeUnique<JSC::Debugger>(vm());
+    m_debugger = makeUnique<FrameDebugger>(*frame);
 
-    createRuntimeAgent();
+    auto context = frameAgentContext();
+    m_agents.append(makeUniqueRef<FrameDebuggerAgent>(context));
+    m_agents.append(makeUniqueRef<FrameDOMAgent>(context));
+    m_agents.append(makeUniqueRef<FrameDOMStorageAgent>(context));
+    m_agents.append(makeUniqueRef<FrameRuntimeAgent>(context));
+    m_agents.append(makeUniqueRef<FrameCSSAgent>(context));
+    m_agents.append(makeUniqueRef<FrameWorkerAgent>(context));
 }
 
 void FrameInspectorController::connectFrontend(Inspector::FrontendChannel& frontendChannel, bool isAutomaticInspection, bool immediatelyPause)
@@ -224,7 +224,7 @@ bool FrameInspectorController::canAccessInspectedScriptState(JSC::JSGlobalObject
 {
     JSLockHolder lock(lexicalGlobalObject);
 
-    auto* inspectedWindow = jsDynamicCast<JSDOMWindow*>(lexicalGlobalObject);
+    auto* inspectedWindow = dynamicDowncast<JSDOMWindow>(lexicalGlobalObject);
     if (!inspectedWindow)
         return false;
 
@@ -253,7 +253,6 @@ Stopwatch& FrameInspectorController::executionStopwatch() const
 
 JSC::Debugger* FrameInspectorController::debugger()
 {
-    // FIXME: <https://webkit.org/b/298909> Add full Debugger domain support for frame targets.
     return m_debugger.get();
 }
 

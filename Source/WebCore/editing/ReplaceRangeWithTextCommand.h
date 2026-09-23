@@ -26,6 +26,7 @@
 #pragma once
 
 #include "CompositeEditCommand.h"
+#include "SimpleRange.h"
 
 namespace WebCore {
 

@@ -148,7 +148,8 @@ ALWAYS_INLINE void ObjectAllocationProfileBase<Derived>::initializeProfile(VM& v
 template<typename Derived>
 ALWAYS_INLINE unsigned ObjectAllocationProfileBase<Derived>::possibleDefaultPropertyCount(VM& vm, JSObject* prototype)
 {
-    if (prototype == prototype->globalObject()->objectPrototype())
+    JSGlobalObject* prototypeRealm = prototype->realmMayBeNull();
+    if (!prototypeRealm || prototype == prototypeRealm->objectPrototype())
         return 0;
 
     size_t count = 0;
@@ -159,7 +160,7 @@ ALWAYS_INLINE unsigned ObjectAllocationProfileBase<Derived>::possibleDefaultProp
         JSValue value = prototype->getDirect(vm, propertyNameVector[i]);
 
         // Functions are common, and are usually class-level objects that are not overridden.
-        if (jsDynamicCast<JSFunction*>(value))
+        if (is<JSFunction>(value))
             continue;
 
         ++count;

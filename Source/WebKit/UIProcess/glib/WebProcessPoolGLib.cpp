@@ -161,7 +161,7 @@ void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization)
     }
 #endif
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
     if (!MemoryPressureMonitor::disabled())
         installMemoryPressureHandler();
 #endif
@@ -220,7 +220,7 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
     parameters.availableInputDevices = availableInputDevices();
     parameters.memoryCacheDisabled = m_memoryCacheDisabled || LegacyGlobalSettings::singleton().cacheModel() == CacheModel::DocumentViewer;
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
     if (MemoryPressureMonitor::disabled())
         parameters.shouldSuppressMemoryPressureHandler = true;
 #endif

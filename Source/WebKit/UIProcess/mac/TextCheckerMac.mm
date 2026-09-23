@@ -414,6 +414,7 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
                 detail.userDescription = [incomingDetail objectForKey:NSGrammarUserDescription];
                 RetainPtr<NSArray> guesses = [incomingDetail objectForKey:NSGrammarCorrections];
                 detail.guesses = makeVector<String>(guesses.get());
+                detail.uuid = [incomingDetail objectForKey:@"NSGrammarUUID"];
                 result.details.append(WTF::move(detail));
             }
             results.append(result);
@@ -572,6 +573,7 @@ static Vector<TextCheckingResult> convertExtendedCheckingResults(NSArray<NSTextC
                 detail.userDescription = [incomingDetail objectForKey:NSGrammarUserDescription];
                 RetainPtr<NSArray> guesses = [incomingDetail objectForKey:NSGrammarCorrections];
                 detail.guesses = makeVector<String>(guesses.get());
+                detail.uuid = [incomingDetail objectForKey:@"NSGrammarUUID"];
                 result.details.append(WTF::move(detail));
             }
             results.append(result);

@@ -71,6 +71,9 @@ WEBCORE_EXPORT Vector<String> findImagesForTranscoding(const Vector<String>& pat
 // happens while transcoding, a null string will be added to the returned list.
 WEBCORE_EXPORT Vector<String> transcodeImages(const Vector<String>& paths, const String& destinationUTI, const String& destinationExtension);
 
+// Same as transcodeImages, but performs the work on a background queue and invokes the completion handler on the main thread with the transcoded paths.
+WEBCORE_EXPORT void transcodeImagesInBackgroundQueue(Vector<String>&& paths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&);
+
 enum class ImageDecodingError : uint8_t {
     Internal,
     BadData,
@@ -78,6 +81,7 @@ enum class ImageDecodingError : uint8_t {
 };
 WEBCORE_EXPORT String descriptionString(ImageDecodingError);
 WEBCORE_EXPORT Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t>);
+WEBCORE_EXPORT Expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFromImageData(std::span<const uint8_t>);
 WEBCORE_EXPORT void createBitmapsFromImageData(std::span<const uint8_t> data, std::span<const unsigned> lengths, CompletionHandler<void(Vector<Ref<ShareableBitmap>>&&)>&&);
 WEBCORE_EXPORT RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&&);
 WEBCORE_EXPORT void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&&);
@@ -87,7 +91,8 @@ WEBCORE_EXPORT void decodeImageWithSize(std::span<const uint8_t> data, std::opti
 // to hand straight to CGImageDestinationAddImageFromSource now comes from the decoder and is
 // written with CGImageDestinationAddImage. Null when there is nothing to record.
 WEBCORE_EXPORT RetainPtr<CFDictionaryRef> imagePropertiesForOrientation(ImageOrientation);
-Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
+// Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
+WEBCORE_EXPORT Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt); // MAVERICKS_BACKPORT: WebKitLegacy encodes decoded images for the sharing pasteboard.
 WEBCORE_EXPORT String encodeDataURL(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
 WEBCORE_EXPORT uint8_t NODELETE verifyImageBufferIsBigEnough(std::span<const uint8_t> buffer);
 RetainPtr<CFStringRef> utiFromImageBufferMIMEType(const String& mimeType);

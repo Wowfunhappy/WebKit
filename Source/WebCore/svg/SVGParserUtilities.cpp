@@ -33,7 +33,7 @@
 
 namespace WebCore {
 
-template <typename FloatType> static inline bool isValidRange(const FloatType x)
+template <typename FloatType> static inline bool NODELETE isValidRange(const FloatType x)
 {
     static const FloatType max = std::numeric_limits<FloatType>::max();
     return x >= -max && x <= max;
@@ -43,7 +43,7 @@ template <typename FloatType> static inline bool isValidRange(const FloatType x)
 // at a higher precision internally, without any unnecessary runtime cost or code
 // complexity.
 // FIXME: Can this be shared/replaced with number parsing in WTF?
-template <typename CharacterType, typename FloatType = float> static std::optional<FloatType> genericParseNumber(StringParsingBuffer<CharacterType>& buffer, SuffixSkippingPolicy skip = SuffixSkippingPolicy::Skip)
+template <typename CharacterType, typename FloatType = float> static std::optional<FloatType> NODELETE genericParseNumber(StringParsingBuffer<CharacterType>& buffer, SuffixSkippingPolicy skip = SuffixSkippingPolicy::Skip)
 {
     // read the sign
     int sign = 1;
@@ -131,7 +131,7 @@ template <typename CharacterType, typename FloatType = float> static std::option
         // Fail if the exponent is greater than the largest positive power of ten
         // (that would yield a representable float).
         if (exponent > std::numeric_limits<FloatType>::max_exponent10)
-            return false;
+            return std::nullopt;
 
         // If the exponent is smaller than smallest negative power of 10 (that
         // would yield a representable float), then rely on the pow()+rounding to
@@ -404,7 +404,7 @@ std::optional<std::pair<UnicodeRanges, HashSet<String>>> parseKerningUnicodeStri
     });
 }
 
-template <typename CharacterType> static std::optional<FloatPoint> genericParseFloatPoint(StringParsingBuffer<CharacterType>& buffer)
+template <typename CharacterType> static std::optional<FloatPoint> NODELETE genericParseFloatPoint(StringParsingBuffer<CharacterType>& buffer)
 {
     auto x = parseNumber(buffer);
     if (!x)

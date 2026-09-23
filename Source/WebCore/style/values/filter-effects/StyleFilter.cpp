@@ -26,6 +26,7 @@
 #include "StyleFilter.h"
 
 #include "CSSFilterValue.h"
+#include "CSSKeywordValue.h"
 #include "Document.h"
 #include "FilterOperations.h"
 #include "StyleBuilderChecking.h"
@@ -91,9 +92,10 @@ bool Filter::hasFilterThatShouldBeRestrictedBySecurityOrigin() const
     });
 }
 
-IntOutsets Filter::calculateOutsets(ZoomFactor zoom) const
+std::optional<IntOutsets> Filter::calculateOutsets(ZoomFactor zoom) const
 {
     IntOutsets totalOutsets;
+    bool haveReferenceFilter = false;
     for (auto& filterValue : *this) {
         WTF::switchOn(filterValue,
             [&](const BlurFunction& blurFunction) {
@@ -102,12 +104,16 @@ IntOutsets Filter::calculateOutsets(ZoomFactor zoom) const
             [&](const DropShadowFunction& dropShadowFunction) {
                 totalOutsets += dropShadowFunction->calculateOutsets(zoom);
             },
-            [](const FilterReference&) {
-                ASSERT_NOT_REACHED();
+            [&](const FilterReference&) {
+                haveReferenceFilter = true;
             },
             [](const auto&) { }
         );
     }
+
+    if (haveReferenceFilter)
+        return { };
+
     return totalOutsets;
 }
 
@@ -115,7 +121,7 @@ IntOutsets Filter::calculateOutsets(ZoomFactor zoom) const
 
 // MARK: (FilterValueList)
 
-auto ToCSS<FilterValueList>::operator()(const FilterValueList& value, const RenderStyle& style) -> CSS::FilterValueList
+auto ToCSS<FilterValueList>::operator()(const FilterValueList& value, const Style::ComputedStyle& style) -> CSS::FilterValueList
 {
     return CSS::FilterValueList::map(value, [&](const auto& x) -> CSS::FilterValue { return toCSS(x, style); });
 }
@@ -129,8 +135,15 @@ auto ToStyle<CSS::FilterValueList>::operator()(const CSS::FilterValueList& value
 
 auto CSSValueConversion<Filter>::operator()(BuilderState& state, const CSSValue& value) -> Filter
 {
-    if (value.valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
 
     RefPtr filter = requiredDowncast<CSSFilterValue>(state, value);
     if (!filter)
@@ -139,7 +152,7 @@ auto CSSValueConversion<Filter>::operator()(BuilderState& state, const CSSValue&
     return toStyle(filter->filter(), state);
 }
 
-Ref<CSSValue> CSSValueCreation<Filter>::operator()(CSSValuePool&, const RenderStyle& style, const Filter& value)
+Ref<CSSValue> CSSValueCreation<Filter>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const Filter& value)
 {
     return CSSFilterValue::create(toCSS(value, style));
 }
@@ -155,7 +168,7 @@ auto Blending<Filter>::canBlend(const Filter& from, const Filter& to, CompositeO
     return canBlendFilterLists(from.m_value, to.m_value, compositeOperation);
 }
 
-auto Blending<Filter>::blend(const Filter& from, const Filter& to, const RenderStyle& fromStyle, const RenderStyle& toStyle, const BlendingContext& context) -> Filter
+auto Blending<Filter>::blend(const Filter& from, const Filter& to, const Style::ComputedStyle& fromStyle, const Style::ComputedStyle& toStyle, const BlendingContext& context) -> Filter
 {
     auto blendedFilterList = blendFilterLists(from.m_value, to.m_value, fromStyle, toStyle, context);
 
@@ -167,7 +180,7 @@ auto Blending<Filter>::blend(const Filter& from, const Filter& to, const RenderS
 
 // MARK: - Platform
 
-auto ToPlatform<FilterValue>::operator()(const FilterValue& value, const RenderStyle& style) -> Ref<FilterOperation>
+auto ToPlatform<FilterValue>::operator()(const FilterValue& value, const Style::ComputedStyle& style) -> Ref<FilterOperation>
 {
     return WTF::switchOn(value,
         [&](const BlurFunction& blurFunction) -> Ref<FilterOperation> {
@@ -185,7 +198,7 @@ auto ToPlatform<FilterValue>::operator()(const FilterValue& value, const RenderS
     );
 }
 
-auto ToPlatform<Filter>::operator()(const Filter& value, const RenderStyle& style) -> FilterOperations
+auto ToPlatform<Filter>::operator()(const Filter& value, const Style::ComputedStyle& style) -> FilterOperations
 {
     return FilterOperations { WTF::map(value, [&](auto& filterValue) -> Ref<FilterOperation> {
         return toPlatform(filterValue, style);

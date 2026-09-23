@@ -30,6 +30,9 @@
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+struct AcceleratedEffectOffsetPath;
+
 namespace Style {
 
 // <'offset-path'> = none | [ [ <ray()> | <url> | <basic-shape> ] || <coord-box> ]
@@ -145,11 +148,11 @@ inline std::optional<BoxPath> OffsetPath::tryBox() const
 // MARK: - Conversion
 
 template<> struct CSSValueConversion<OffsetPath> { OffsetPath operator()(BuilderState&, const CSSValue&); };
-template<> struct CSSValueCreation<OffsetPath> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const OffsetPath&); };
+template<> struct CSSValueCreation<OffsetPath> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const OffsetPath&); };
 
 // MARK: - Serialization
 
-template<> struct Serialize<OffsetPath> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const OffsetPath&); };
+template<> struct Serialize<OffsetPath> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const OffsetPath&); };
 
 // MARK: - Blending
 
@@ -161,6 +164,14 @@ template<> struct Blending<OffsetPath> {
 // MARK: - Platform
 
 template<> struct ToPlatform<OffsetPath> { RefPtr<PathOperation> NODELETE operator()(const OffsetPath&); };
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<OffsetPath, AcceleratedEffectOffsetPath> { AcceleratedEffectOffsetPath operator()(const OffsetPath&, const TransformOperationData&, ZoomFactor); };
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

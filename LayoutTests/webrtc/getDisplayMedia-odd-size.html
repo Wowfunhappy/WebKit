@@ -63,6 +63,7 @@ promise_test(async (test) => {
 }, "Testing odd width");
 
 promise_test(async (test) => {
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     await localStream.getVideoTracks()[0].applyConstraints({ height:479 });
 
     while (!(video.videoHeight % 2))

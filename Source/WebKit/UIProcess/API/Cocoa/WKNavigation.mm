@@ -60,6 +60,11 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     return _navigation->wasUserInitiated();
 }
 
+- (unsigned)_processActivityGroupSizeForTesting
+{
+    return protect(*_navigation)->processActivityGroupSizeForTesting();
+}
+
 - (WKFrameInfo *)_initiatingFrame
 {
     auto& frameInfo = _navigation->originatingFrameInfo();

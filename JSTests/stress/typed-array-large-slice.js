@@ -1,4 +1,5 @@
-//@ skip if $memoryLimited or $addressBits <= 32
+//@ memoryHog!
+//@ skip if $addressBits <= 32
 
 let giga = 1024 * 1024 * 1024;
 

@@ -30,7 +30,11 @@ let device0 = await adapter1.requestDevice({
   ],
 });
 // START
-a = await adapter0.requestDevice()
+a = await adapter0.requestDevice({
+  requiredFeatures: [
+    'shader-f16',
+  ],
+})
 veryExplicitBindGroupLayout1 = a.createBindGroupLayout({
   entries : [ {
     binding : 3,

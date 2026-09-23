@@ -62,11 +62,11 @@ RefPtr<InjectedBundleNodeHandle> InjectedBundleHitTestResult::urlElementHandle()
 
 RefPtr<WebFrame> InjectedBundleHitTestResult::frame() const
 {
-    RefPtr node = m_hitTestResult.innerNonSharedNode();
+    auto* node = m_hitTestResult.innerNonSharedNode();
     if (!node)
         return nullptr;
 
-    RefPtr frame = node->document().frame();
+    auto* frame = node->document().frame();
     if (!frame)
         return nullptr;
 

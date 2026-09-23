@@ -32,19 +32,16 @@
 #if USE(COORDINATED_GRAPHICS)
 
 #if USE(SKIA)
-#include "BitmapTexture.h"
 #include "FontRenderOptions.h"
 #include "GLContext.h"
 #include "GLFence.h"
 #include "PlatformDisplay.h"
 #include "ProcessCapabilities.h"
+#include "SkiaUtilities.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkColorSpace.h>
 #include <skia/core/SkImage.h>
 #include <skia/core/SkStream.h>
-#include <skia/gpu/ganesh/GrBackendSurface.h>
-#include <skia/gpu/ganesh/SkSurfaceGanesh.h>
-#include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
 #include <skia/gpu/ganesh/gl/GrGLDirectContext.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/MainThread.h>
@@ -76,15 +73,6 @@ double CoordinatedTileBuffer::getMemoryUsage()
     s_maxLayersMemoryUsage = s_currentLayersMemoryUsage;
     return memoryUsage;
 }
-
-#if USE(SKIA)
-SkCanvas* CoordinatedTileBuffer::canvas()
-{
-    if (!tryEnsureSurface())
-        return nullptr;
-    return m_surface->getCanvas();
-}
-#endif
 
 void CoordinatedTileBuffer::beginPainting()
 {
@@ -143,16 +131,15 @@ CoordinatedUnacceleratedTileBuffer::~CoordinatedUnacceleratedTileBuffer()
 }
 
 #if USE(SKIA)
-bool CoordinatedUnacceleratedTileBuffer::tryEnsureSurface()
+SkCanvas* CoordinatedUnacceleratedTileBuffer::canvas()
 {
-    if (m_surface)
-        return true;
-
-    auto imageInfo = SkImageInfo::Make(m_size.width(), m_size.height(), kBGRA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
-    // FIXME: ref buffer and unref on release proc?
-    SkSurfaceProps properties = FontRenderOptions::singleton().createSurfaceProps();
-    m_surface = SkSurfaces::WrapPixels(imageInfo, data(), imageInfo.minRowBytes64(), &properties);
-    return true;
+    if (!m_surface) {
+        auto imageInfo = SkImageInfo::Make(m_size.width(), m_size.height(), kBGRA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
+        // FIXME: ref buffer and unref on release proc?
+        auto properties = FontRenderOptions::singleton().createSurfaceProps();
+        m_surface = SkSurfaces::WrapPixels(imageInfo, data(), imageInfo.minRowBytes64(), &properties);
+    }
+    return m_surface->getCanvas();
 }
 #endif
 
@@ -169,66 +156,63 @@ CoordinatedAcceleratedTileBuffer::CoordinatedAcceleratedTileBuffer(Ref<BitmapTex
 {
 }
 
+Ref<CoordinatedTileBuffer> CoordinatedAcceleratedTileBuffer::create(const sk_sp<GrContextThreadSafeProxy>& threadSafeGrContext, const IntSize& size, Flags flags)
+{
+    auto imageInfo = SkImageInfo::Make(size.width(), size.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
+    auto backendFormat = threadSafeGrContext->defaultBackendFormat(kRGBA_8888_SkColorType, GrRenderable::kYes);
+    ASSERT(backendFormat.isValid());
+    auto properties = FontRenderOptions::singleton().createSurfaceProps();
+    auto maxResourceCacheBytes = PlatformDisplay::sharedDisplay().maxSkiaResourceCacheBytes();
+    auto characterization = threadSafeGrContext->createCharacterization(maxResourceCacheBytes, imageInfo, backendFormat, 0, kTopLeft_GrSurfaceOrigin, properties, skgpu::Mipmapped::kNo);
+    return adoptRef(*new CoordinatedAcceleratedTileBuffer(WTF::move(characterization), flags));
+}
+
+CoordinatedAcceleratedTileBuffer::CoordinatedAcceleratedTileBuffer(GrSurfaceCharacterization&& characterization, Flags flags)
+    : CoordinatedTileBuffer(flags)
+    , m_characterization(WTF::move(characterization))
+{
+}
+
 CoordinatedAcceleratedTileBuffer::~CoordinatedAcceleratedTileBuffer() = default;
 
 IntSize CoordinatedAcceleratedTileBuffer::size() const
 {
-    return m_texture->size();
+    if (m_texture)
+        return m_texture->size();
+
+    return { m_characterization.width(), m_characterization.height() };
 }
 
-bool CoordinatedAcceleratedTileBuffer::tryEnsureSurface()
+SkCanvas* CoordinatedAcceleratedTileBuffer::canvas()
 {
-    if (m_surface)
-        return true;
+    if (m_texture) {
+        if (!m_surface) {
+            if (!PlatformDisplay::sharedDisplay().skiaGLContext()->makeContextCurrent())
+                return nullptr;
 
-    if (!PlatformDisplay::sharedDisplay().skiaGLContext()->makeContextCurrent())
-        return false;
+            m_surface = m_texture->createSkiaSurface(PlatformDisplay::sharedDisplay().skiaGrContext());
+        }
+        return m_surface->getCanvas();
+    }
 
-    GrGLTextureInfo externalTexture;
-    externalTexture.fTarget = GL_TEXTURE_2D;
-    externalTexture.fID = m_texture->id();
-    externalTexture.fFormat = GL_RGBA8;
-
-    const auto& size = m_texture->size();
-    auto backendTexture = GrBackendTextures::MakeGL(size.width(), size.height(), skgpu::Mipmapped::kNo, externalTexture);
-
-#if PLATFORM(GTK)
-    // FIXME: there's a deadlock when two rendering threads try to create a texture with MSAA enabled. So, for now
-    // we just disable MSAA for the GTK port to render tiles until we find a solution.
-    unsigned msaaSampleCount = 0;
-#else
-    unsigned msaaSampleCount = PlatformDisplay::sharedDisplay().msaaSampleCount();
-#endif
-
-    SkSurfaceProps properties = FontRenderOptions::singleton().createSurfaceProps();
-    m_surface = SkSurfaces::WrapBackendTexture(PlatformDisplay::sharedDisplay().skiaGrContext(),
-        backendTexture,
-        kTopLeft_GrSurfaceOrigin,
-        msaaSampleCount,
-        kRGBA_8888_SkColorType,
-        SkColorSpace::MakeSRGB(),
-        &properties);
-
-    return true;
+    if (!m_recorder)
+        m_recorder = std::make_unique<GrDeferredDisplayListRecorder>(m_characterization);
+    return m_recorder->getCanvas();
 }
 
 void CoordinatedAcceleratedTileBuffer::completePainting()
 {
-    auto* recordingContext = m_surface->recordingContext();
-    auto* grContext = recordingContext ? recordingContext->asDirectContext() : nullptr;
-    if (!grContext) {
-        CoordinatedTileBuffer::completePainting();
-        return;
-    }
+    if (m_surface) {
+        auto* recordingContext = m_surface->recordingContext();
+        auto* grContext = recordingContext ? recordingContext->asDirectContext() : nullptr;
+        if (!grContext) {
+            CoordinatedTileBuffer::completePainting();
+            return;
+        }
 
-    auto& glDisplay = PlatformDisplay::sharedDisplay().glDisplay();
-    if (GLFence::isSupported(glDisplay)) {
-        grContext->flushAndSubmit(m_surface.get(), GrSyncCpu::kNo);
-        m_fence = GLFence::create(glDisplay);
-        if (!m_fence)
-            grContext->submit(GrSyncCpu::kYes);
-    } else
-        grContext->flushAndSubmit(m_surface.get(), GrSyncCpu::kYes);
+        m_fence = SkiaUtilities::flushAndSubmitSurfaceWithFence(grContext, m_surface.get());
+    } else if (m_recorder)
+        m_displayList = m_recorder->detach();
 
     CoordinatedTileBuffer::completePainting();
 }

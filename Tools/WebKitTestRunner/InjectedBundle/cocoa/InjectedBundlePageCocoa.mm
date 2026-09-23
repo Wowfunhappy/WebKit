@@ -50,20 +50,4 @@ void InjectedBundlePage::platformDidStartProvisionalLoadForFrame(WKBundleFrameRe
     setCrashReportApplicationSpecificInformationToURL(testRunner->testURL());
 }
 
-String InjectedBundlePage::platformResponseMimeType(WKURLResponseRef response)
-{
-    auto nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
-    return [nsURLResponse.get() MIMEType];
-}
-
-uint64_t InjectedBundlePage::responseHeaderCount(WKURLResponseRef response)
-{
-    auto nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
-    if (![nsURLResponse isKindOfClass:[NSHTTPURLResponse class]])
-        return { };
-
-    NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)nsURLResponse.get();
-    return [[httpResponse allHeaderFields] count];
-}
-
 } // namespace WTR

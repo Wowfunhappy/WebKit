@@ -22,6 +22,7 @@
 
 #include "EventTarget.h"
 #include "JSEventTarget.h"
+#include <WebCore/JSDOMBindingFacade.h>
 #include <WebCore/JSDOMWrapper.h>
 
 namespace WebCore {
@@ -32,12 +33,7 @@ class JSWorkerGlobalScope : public JSEventTarget {
 public:
     using Base = JSEventTarget;
     using DOMWrapped = WorkerGlobalScope;
-    static JSWorkerGlobalScope* create(JSC::VM& vm, JSC::Structure* structure, Ref<WorkerGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
-    {
-        JSWorkerGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSWorkerGlobalScope>(vm)) JSWorkerGlobalScope(vm, structure, WTF::move(impl));
-        ptr->finishCreation(vm, proxy);
-        return ptr;
-    }
+    static JSWorkerGlobalScope* create(JSC::VM&, JSC::Structure*, Ref<WorkerGlobalScope>&&, JSC::JSGlobalProxy*);
 
     static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
     static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
@@ -45,11 +41,7 @@ public:
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -91,10 +83,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSWorkerGlobalScopePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSWorkerGlobalScopePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)

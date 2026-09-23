@@ -28,6 +28,9 @@
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
 
+namespace WebCore {
+
+namespace NotificationOptionsPayloadKeys {
 static NSString * const WebDirKey = @"WebDirKey";
 static NSString * const WebLangKey = @"WebLangKey";
 static NSString * const WebBodyKey = @"WebBodyKey";
@@ -35,11 +38,12 @@ static NSString * const WebTagKey = @"WebTagKey";
 static NSString * const WebIconKey = @"WebIconKey";
 static NSString * const WebDataJSONKey = @"WebDataJSONKey";
 static NSString * const WebSilentKey = @"WebSilentKey";
-
-namespace WebCore {
+}
 
 std::optional<NotificationOptionsPayload> NotificationOptionsPayload::fromDictionary(NSDictionary *dictionary)
 {
+    using namespace NotificationOptionsPayloadKeys;
+
     if (![dictionary isKindOfClass:[NSDictionary class]])
         return std::nullopt;
 
@@ -75,6 +79,8 @@ std::optional<NotificationOptionsPayload> NotificationOptionsPayload::fromDictio
 
 NSDictionary *NotificationOptionsPayload::dictionaryRepresentation() const
 {
+    using namespace NotificationOptionsPayloadKeys;
+
     return @{
         WebDirKey : @((uint8_t)dir),
         WebLangKey : lang.createNSString().get(),

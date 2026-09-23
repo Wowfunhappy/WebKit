@@ -28,6 +28,11 @@
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct GridTrackSizes;
+}
+
 namespace Style {
 
 using GridTrackSizeList = SpaceSeparatedFixedVector<GridTrackSize>;
@@ -40,6 +45,7 @@ struct GridTrackSizeDefaulter {
 
 // <'grid-auto-columns'>/<'grid-auto-rows'> = <track-size>+
 // https://www.w3.org/TR/css-grid-2/#propdef-grid-auto-rows
+// FIXME: GridTrackSizes is not a great name for this as this is specific to grid-auto-columns/grid-auto-rows property definitions.
 struct GridTrackSizes : ListOrDefault<GridTrackSizeList, GridTrackSizeDefaulter> {
     using ListOrDefault<GridTrackSizeList, GridTrackSizeDefaulter>::ListOrDefault;
 
@@ -49,6 +55,14 @@ struct GridTrackSizes : ListOrDefault<GridTrackSizeList, GridTrackSizeDefaulter>
     {
     }
 };
+
+// MARK: - Conversion
+
+template<> struct ToCSS<GridTrackSizes> { auto operator()(const GridTrackSizes&, const Style::ComputedStyle&) -> CSS::GridTrackSizes; };
+template<> struct ToStyle<CSS::GridTrackSizes> { auto operator()(const CSS::GridTrackSizes&, const BuilderState&) -> GridTrackSizes; };
+
+template<> struct CSSValueConversion<GridTrackSizes> { auto operator()(BuilderState&, const CSSValue&) -> GridTrackSizes; };
+template<> struct CSSValueCreation<GridTrackSizes> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const GridTrackSizes&) -> Ref<CSSValue>; };
 
 } // namespace Style
 } // namespace WebCore

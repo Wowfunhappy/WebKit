@@ -23,6 +23,7 @@
 
 import SwiftUI
 import WebKit
+import _WebKit_SwiftUI
 
 #if os(macOS)
 private struct WebContextMenu: ViewModifier {

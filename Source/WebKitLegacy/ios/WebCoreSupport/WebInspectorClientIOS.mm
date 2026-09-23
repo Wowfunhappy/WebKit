@@ -145,4 +145,9 @@ void WebInspectorFrontendClient::updateWindowTitle() const { }
 bool WebInspectorFrontendClient::canSave(WebCore::InspectorFrontendClient::SaveMode) { return false; }
 void WebInspectorFrontendClient::save(Vector<InspectorFrontendClient::SaveData>&&, bool /* forceSaveAs */) { }
 
+void WebInspectorFrontendClient::sendMessageToBackend(const String&)
+{
+    notImplemented();
+}
+
 #endif // PLATFORM(IOS_FAMILY)

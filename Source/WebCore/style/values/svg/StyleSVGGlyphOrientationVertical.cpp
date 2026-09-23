@@ -25,8 +25,9 @@
 #include "config.h"
 #include "StyleSVGGlyphOrientationVertical.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include <cmath>
 
@@ -35,14 +36,17 @@ namespace Style {
 
 auto CSSValueConversion<SVGGlyphOrientationVertical>::operator()(BuilderState& state, const CSSValue& value) -> SVGGlyphOrientationVertical
 {
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
-    if (!primitiveValue)
-        return SVGGlyphOrientationVertical::Auto;
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return SVGGlyphOrientationVertical::Auto;
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return SVGGlyphOrientationVertical::Auto;
+        }
+    }
 
-    if (primitiveValue->valueID() == CSSValueAuto)
-        return SVGGlyphOrientationVertical::Auto;
-
-    auto angle = std::abs(std::fmod(toStyleFromCSSValue<Style::Angle<>>(state, *primitiveValue).value, 360.0f));
+    auto angle = std::abs(std::fmod(toStyleFromCSSValue<Style::Angle<>>(state, value).value, 360.0f));
     if (angle <= 45.0f || angle > 315.0f)
         return SVGGlyphOrientationVertical::Degrees0;
     if (angle > 45.0f && angle <= 135.0f)

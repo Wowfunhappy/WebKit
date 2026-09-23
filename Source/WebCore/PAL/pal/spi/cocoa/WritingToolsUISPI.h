@@ -30,27 +30,29 @@
 
 DECLARE_SYSTEM_HEADER
 
-#if ENABLE(WRITING_TOOLS) && PLATFORM(MAC)
+#if ENABLE(WRITING_TOOLS)
 
-// FIXME: (rdar://149216417) Import WritingToolsUI when using the internal SDK instead of using forward declarations.
-
-#import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <Foundation/Foundation.h>
+
+#if USE(APPLE_INTERNAL_SDK)
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
+#import <WebKitAdditions/WTTextEffectManagerEffectTypeAdditions.h>
+#pragma clang diagnostic pop
+
+#else // !USE(APPLE_INTERNAL_SDK)
+#define WTTextEffectManagerEffectTypeDefault ((WTTextEffectManagerEffectType)0)
+#endif
 
 // MARK: Forward-declared Writing Tools types
 
-typedef NS_ENUM(NSInteger, WTRequestedTool);
+@class WTSession;
+@class WTContext;
 
-@protocol WTWritingToolsDelegate;
-
-// MARK: _WTTextChunk
-
-@interface _WTTextChunk : NSObject
-
-@property (readonly) NSString *identifier;
-
-- (instancetype)initChunkWithIdentifier:(NSString *)identifier;
-
+@interface NSObject (WritingToolsSPI)
+- (void)willBeginWritingToolsSession:(WTSession *)session forProofreadingReview:(BOOL)proofreadingReview requestContexts:(void (^)(NSArray<WTContext *> *))completion;
 @end
 
 // MARK: _WTTextPreview
@@ -76,6 +78,57 @@ typedef NS_ENUM(NSInteger, WTRequestedTool);
 - (instancetype)initWithSnapshotImage:(CGImageRef)snapshotImage presentationFrame:(CGRect)presentationFrame backgroundColor:(CGColorRef)backgroundColor clippingPath:(CGPathRef)clippingPath scale:(CGFloat)scale;
 
 - (instancetype)initWithSnapshotImage:(CGImageRef)snapshotImage presentationFrame:(CGRect)presentationFrame backgroundColor:(CGColorRef)backgroundColor clippingPath:(CGPathRef)clippingPath scale:(CGFloat)scale candidateRects:(NSArray <NSValue *> *)candidateRects;
+
+@end
+
+typedef NS_ENUM(NSInteger, WTTextEffectManagerEffectType) {
+    WTTextEffectManagerEffectTypeNone = 0
+};
+
+typedef NS_ENUM(NSInteger, WTTextEffectManagerWritingDirection) {
+    WTTextEffectManagerWritingDirectionLeftToRight = 0,
+    WTTextEffectManagerWritingDirectionRightToLeft = 1,
+};
+
+// MARK: _WTTextEffectManagerDelegate
+
+@protocol _WTTextEffectManagerDelegate <NSObject>
+
+- (void)hideTextForSuggestionWithUUID:(NSUUID *)uuid completion:(void(^)(void))completion;
+- (void)showTextForSuggestionWithUUID:(NSUUID *)uuid completion:(void(^)(void))completion;
+
+@optional
+- (void)previewForSuggestionWithUUID:(NSUUID *)uuid completion:(void(^)(NSArray<_WTTextPreview *> * _Nullable textPreviews))completion;
+- (void)previewAndUnderlineForSuggestionWithUUID:(NSUUID *)uuid completion:(void(^)(NSArray<_WTTextPreview *> * _Nullable textPreviews, NSArray<_WTTextPreview *> * _Nullable underlinePreviews))completion;
+
+@end
+
+// MARK: _WTTextEffectManager
+
+@interface _WTTextEffectManager : NSObject
+@property (weak, readonly) id <_WTTextEffectManagerDelegate> delegate;
+
+- (instancetype)initWithDelegate:(id <_WTTextEffectManagerDelegate>)delegate;
+- (void)startAnimationForSuggestionWithUUID:(NSUUID *)uuid writingDirection:(WTTextEffectManagerWritingDirection)direction effectType:(WTTextEffectManagerEffectType)effectType completion:(void(^)(NSUUID * uuid))completion;
+- (void)cancelAnimationForSuggestionWithUUID:(NSUUID *)uuid;
+- (void)cancelAllAnimations;
+@end
+
+#if PLATFORM(MAC)
+
+#import <AppKit/AppKit.h>
+
+typedef NS_ENUM(NSInteger, WTRequestedTool);
+
+@protocol WTWritingToolsDelegate;
+
+// MARK: _WTTextChunk
+
+@interface _WTTextChunk : NSObject
+
+@property (readonly) NSString *identifier;
+
+- (instancetype)initChunkWithIdentifier:(NSString *)identifier;
 
 @end
 
@@ -207,4 +260,6 @@ NS_ASSUME_NONNULL_END
 
 @end
 
-#endif // ENABLE(WRITING_TOOLS) && PLATFORM(MAC)
+#endif
+
+#endif

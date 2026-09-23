@@ -35,7 +35,6 @@
 #include "CommandLineAPIHost.h"
 #include "CommonVM.h"
 #include "DOMWrapperWorld.h"
-#include "EventTargetInlines.h"
 #include "GraphicsContext.h"
 #include "InspectorAnimationAgent.h"
 #include "InspectorBackendClient.h"
@@ -44,6 +43,7 @@
 #include "InspectorDOMAgent.h"
 #include "InspectorDOMStorageAgent.h"
 #include "InspectorFrontendClient.h"
+#include "InspectorIdentifierRegistry.h"
 #include "InspectorIndexedDBAgent.h"
 #include "InspectorInstrumentation.h"
 #include "InspectorLayerTreeAgent.h"
@@ -99,6 +99,7 @@ PageInspectorController::PageInspectorController(Page& page, std::unique_ptr<Ins
     , m_overlay(makeUniqueRefWithoutRefCountedCheck<InspectorOverlay>(*this, inspectorBackendClient.get()))
     , m_executionStopwatch(Stopwatch::create())
     , m_inspectorBackendClient(WTF::move(inspectorBackendClient))
+    , m_identifierRegistry(Inspector::LegacyIdentifierRegistry::create())
 {
     ASSERT_ARG(inspectorBackendClient, m_inspectorBackendClient);
 
@@ -154,6 +155,10 @@ void PageInspectorController::createLazyAgents()
 
     m_didCreateLazyAgents = true;
 
+    // Under site isolation, debugging is handled per-frame by FrameDebugger instead of
+    // a single PageDebugger for the whole page. The PageDebugger is still created so that
+    // PageDebuggerAgent can register the Debugger domain, but it will not attach to any
+    // frames (see PageDebugger::attachDebugger).
     m_debugger = makeUnique<PageDebugger>(m_page);
 
     auto pageContext = pageAgentContext();
@@ -189,6 +194,11 @@ void PageInspectorController::createLazyAgents()
     m_agents.append(makeUniqueRef<PageCanvasAgent>(pageContext));
     m_agents.append(makeUniqueRef<PageTimelineAgent>(pageContext));
     m_agents.append(makeUniqueRef<InspectorAnimationAgent>(pageContext));
+}
+
+void PageInspectorController::siteIsolationFirstEnabled()
+{
+    m_identifierRegistry = Inspector::BackendIdentifierRegistry::create();
 }
 
 void PageInspectorController::inspectedPageDestroyed()
@@ -320,6 +330,23 @@ void PageInspectorController::disconnectAllFrontends()
     m_pauseAfterInitialization = false;
 
     m_inspectorBackendClient->frontendCountChanged(m_frontendRouter->frontendCount());
+}
+
+void PageInspectorController::connectRemoteInstrumentation()
+{
+    // Called before any frontend connects to this WebProcess. The UIProcess has an
+    // active frontend on the web-page target and needs this WebProcess to participate
+    // in instrumentation (e.g., network events) before connectFrontend() is called.
+    // frontendCreated() / registerInstrumentingAgents() make InspectorInstrumentation
+    // hooks active so that FrameNetworkAgentProxy can observe early page loads.
+    InspectorInstrumentation::frontendCreated();
+    InspectorInstrumentation::registerInstrumentingAgents(m_instrumentingAgents.get());
+}
+
+void PageInspectorController::disconnectRemoteInstrumentation()
+{
+    InspectorInstrumentation::unregisterInstrumentingAgents(m_instrumentingAgents.get());
+    InspectorInstrumentation::frontendDeleted();
 }
 
 void PageInspectorController::show()
@@ -465,7 +492,7 @@ bool PageInspectorController::canAccessInspectedScriptState(JSC::JSGlobalObject*
 {
     JSLockHolder lock(lexicalGlobalObject);
 
-    auto* inspectedWindow = jsDynamicCast<JSDOMWindow*>(lexicalGlobalObject);
+    auto* inspectedWindow = dynamicDowncast<JSDOMWindow>(lexicalGlobalObject);
     if (!inspectedWindow)
         return false;
 

@@ -50,9 +50,7 @@ PrefetchCache::PrefetchCache()
 {
 }
 
-PrefetchCache::~PrefetchCache()
-{
-}
+PrefetchCache::~PrefetchCache() = default;
 
 void PrefetchCache::clear()
 {

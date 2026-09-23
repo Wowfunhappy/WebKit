@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,26 +46,64 @@
 
 namespace WebCore {
 
-RefPtr<CSSStyleValue> StylePropertyMapReadOnly::reifyValue(Document& document, RefPtr<CSSValue>&& value, std::optional<CSSPropertyID> propertyID)
+RefPtr<CSSStyleValue> StylePropertyMapReadOnly::reifyValue(Document& document, RefPtr<CSSValue>&& value, AssociatedProperty&& associatedProperty)
 {
     if (!value)
         return nullptr;
-    auto result = CSSStyleValueFactory::reifyValue(document, value.releaseNonNull(), propertyID);
+    auto result = CSSStyleValueFactory::reifyValue(document, value.releaseNonNull(), WTF::move(associatedProperty));
     return (result.hasException() ? nullptr : RefPtr<CSSStyleValue> { result.releaseReturnValue() });
 }
 
-Vector<RefPtr<CSSStyleValue>> StylePropertyMapReadOnly::reifyValueToVector(Document& document, RefPtr<CSSValue>&& value, std::optional<CSSPropertyID> propertyID)
+RefPtr<CSSStyleValue> StylePropertyMapReadOnly::reifyValue(Document& document, RefPtr<CSSValue>&& value, CSSPropertyID propertyID)
+{
+    return StylePropertyMapReadOnly::reifyValue(document, WTF::move(value), AssociatedProperty { propertyID });
+}
+
+RefPtr<CSSStyleValue> StylePropertyMapReadOnly::reifyValue(Document& document, RefPtr<CSSValue>&& value, AtomString&& customPropertyName)
+{
+    return StylePropertyMapReadOnly::reifyValue(document, WTF::move(value), AssociatedProperty { WTF::move(customPropertyName) });
+}
+
+Vector<RefPtr<CSSStyleValue>> StylePropertyMapReadOnly::reifyValueToVector(Document& document, RefPtr<CSSValue>&& value, AssociatedProperty&& associatedProperty)
+{
+    return WTF::switchOn(WTF::move(associatedProperty.property),
+        [&](CSSPropertyID propertyID) {
+            return StylePropertyMapReadOnly::reifyValueToVector(document, WTF::move(value), propertyID);
+        },
+        [&](AtomString&& customPropertyName) {
+            return StylePropertyMapReadOnly::reifyValueToVector(document, WTF::move(value), WTF::move(customPropertyName));
+        }
+    );
+}
+
+Vector<RefPtr<CSSStyleValue>> StylePropertyMapReadOnly::reifyValueToVector(Document& document, RefPtr<CSSValue>&& value, CSSPropertyID propertyID)
 {
     if (!value)
         return { };
 
-    if (RefPtr valueList = dynamicDowncast<CSSValueList>(*value); valueList && (propertyID && CSSProperty::isListValuedProperty(*propertyID))) {
-        return WTF::map(*valueList, [&](auto& item) {
-            return StylePropertyMapReadOnly::reifyValue(document, Ref { const_cast<CSSValue&>(item) }, propertyID);
-        });
+    if (RefPtr valueList = dynamicDowncast<CSSValueList>(*value)) {
+        if (CSSProperty::isListValuedProperty(propertyID)) {
+            return WTF::map(*valueList, [&](auto& item) {
+                return StylePropertyMapReadOnly::reifyValue(document, protect(const_cast<CSSValue&>(item)), propertyID);
+            });
+        }
     }
 
     return { StylePropertyMapReadOnly::reifyValue(document, WTF::move(value), propertyID) };
+}
+
+Vector<RefPtr<CSSStyleValue>> StylePropertyMapReadOnly::reifyValueToVector(Document& document, RefPtr<CSSValue>&& value, AtomString&& customPropertyName)
+{
+    if (!value)
+        return { };
+
+    if (RefPtr valueList = dynamicDowncast<CSSValueList>(*value)) {
+        return WTF::map(*valueList, [&](auto& item) {
+            return StylePropertyMapReadOnly::reifyValue(document, protect(const_cast<CSSValue&>(item)), AtomString { customPropertyName });
+        });
+    }
+
+    return { StylePropertyMapReadOnly::reifyValue(document, WTF::move(value), WTF::move(customPropertyName)) };
 }
 
 StylePropertyMapReadOnly::Iterator::Iterator(StylePropertyMapReadOnly& map, ScriptExecutionContext* context)

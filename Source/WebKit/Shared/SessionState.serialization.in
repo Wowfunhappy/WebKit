@@ -49,6 +49,8 @@ header: "SessionState.h"
     int64_t documentSequenceNumber;
     int64_t itemSequenceNumber;
 
+    std::optional<WTF::UUID> navigationAPIKey;
+
     WebCore::IntPoint scrollPosition;
     bool shouldRestoreScrollPosition;
     float pageScaleFactor;
@@ -57,12 +59,12 @@ header: "SessionState.h"
 
     Markable<WebCore::BackForwardItemIdentifier> itemID;
     Markable<WebCore::BackForwardFrameItemIdentifier> frameItemID;
-    bool hasCachedPage;
     String title;
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy;
     RefPtr<WebCore::SerializedScriptValue> sessionStateObject;
     bool wasCreatedByJSWithoutUserInteraction;
     bool wasRestoredFromSession;
+    WebCore::IsInitialAboutBlank isInitialAboutBlank;
     std::optional<WebCore::PolicyContainer> policyContainer;
 
 #if PLATFORM(IOS_FAMILY)

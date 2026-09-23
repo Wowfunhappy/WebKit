@@ -32,6 +32,33 @@ struct NoConversionDataRequiredToken;
 
 namespace CSS {
 
+// MARK: Integer
+
+// There are no integer units, so canonicalization is trivially just return the underlying value.
+
+template<auto R, typename V> double canonicalize(IntegerRaw<R, V> raw)
+{
+    return raw.value;
+}
+
+// MARK: Number
+
+// There are no number units, so canonicalization is trivially just return the underlying value.
+
+template<auto R, typename V> double canonicalize(NumberRaw<R, V> raw)
+{
+    return raw.value;
+}
+
+// MARK: Percentage
+
+// There are no percentage units, so canonicalization is trivially just return the underlying value.
+
+template<auto R, typename V> double canonicalize(PercentageRaw<R, V> raw)
+{
+    return raw.value;
+}
+
 // MARK: Angle
 
 double canonicalizeAngle(double value, AngleUnit);
@@ -66,6 +93,15 @@ double canonicalizeResolution(double, ResolutionUnit);
 template<auto R, typename V> double canonicalize(ResolutionRaw<R, V> raw)
 {
     return canonicalizeResolution(raw.value, raw.unit);
+}
+
+// MARK: Flex
+
+// There is only one flex unit, `fr`, so canonicalization is trivially just return the underlying value.
+
+template<auto R, typename V> double canonicalize(FlexRaw<R, V> raw)
+{
+    return raw.value;
 }
 
 } // namespace CSS

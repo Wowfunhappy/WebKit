@@ -29,7 +29,12 @@
 #include <wtf/Condition.h>
 #include <wtf/Function.h>
 #include <wtf/Lock.h>
+#include <wtf/RefPtr.h>
 #include <wtf/RunLoop.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebKit {
 class DisplayVBlankMonitorThreaded;
@@ -64,7 +69,7 @@ private:
     bool startThreadIfNeeded();
     void destroyThreadTimerFired();
 
-    RefPtr<Thread> m_thread;
+    RefPtr<WTF::Thread> m_thread;
     Lock m_lock;
     Condition m_condition;
     State m_state WTF_GUARDED_BY_LOCK(m_lock) { State::Stop };

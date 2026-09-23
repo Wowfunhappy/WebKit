@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefaultWasm("--watchdog=1000", "--watchdog-exception-ok")
 let b = 2n ** 1000n;
 

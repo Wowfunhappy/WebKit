@@ -25,6 +25,7 @@
 
 #import "config.h"
 #import "SpatialAudioExperienceHelper.h"
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 #if HAVE(SPATIAL_AUDIO_EXPERIENCE)
 

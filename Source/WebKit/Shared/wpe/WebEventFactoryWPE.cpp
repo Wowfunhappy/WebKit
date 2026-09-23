@@ -121,7 +121,7 @@ static IntPoint positionFromEvent(WPEEvent* event)
 {
     double x, y;
     if (wpe_event_get_position(event, &x, &y))
-        return { clampToInteger(x), clampToInteger(y) };
+        return { clampTo<int>(x), clampTo<int>(y) };
     return { };
 }
 
@@ -170,7 +170,8 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(WPEEvent* event)
         0 /* deltaZ */,
         clickCount,
         0 /* force */,
-        WebMouseEventInputSource::UserDriven,
+        WebEventInputSource::UserDriven,
+        WebCore::PlatformMouseEvent::CanInitiateDrag::Yes,
         syntheticClickType);
 }
 

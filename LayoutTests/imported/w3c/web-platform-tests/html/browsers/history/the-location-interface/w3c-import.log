@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/allow_prototype_cycle_through_location.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/assign-replace-from-iframe.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/assign-replace-from-top-to-nested-iframe.html
@@ -24,8 +25,14 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/assign_before_load-1.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/assign_before_load-2.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/assign_before_load.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/create-script-set-location.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/cross-origin-location-stringify-crash.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/cross_origin_joined_frame.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/document_location.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-ancestor-origins-inactive-document.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-ancestor-origins-new-object.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-ancestor-origins-referrerpolicy-snapshot.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-ancestor-origins.sub.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-non-configurable-toString-valueOf.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-origin-idna.sub.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location-pathname-setter-question-mark.html
@@ -62,6 +69,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location_reload.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location_reload_javascript_url.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location_replace.html
+/LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location_replace_session_history.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/location_search.html
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/no-browsing-context.window.js
 /LayoutTests/imported/w3c/web-platform-tests/html/browsers/history/the-location-interface/per-global.window.js

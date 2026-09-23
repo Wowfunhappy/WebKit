@@ -65,6 +65,7 @@ void RemoteAudioSession::gpuProcessConnectionDidClose(GPUProcessConnection& conn
 {
     ASSERT(m_gpuProcessConnection.get() == &connection);
     m_gpuProcessConnection = nullptr;
+    setActive(false);
     connection.messageReceiverMap().removeMessageReceiver(Messages::RemoteAudioSession::messageReceiverName());
 }
 
@@ -128,8 +129,6 @@ bool RemoteAudioSession::tryToSetActiveInternal(bool active)
 
     auto sendResult = protect(ensureConnection())->sendSync(Messages::RemoteAudioSessionProxy::TryToSetActive(active), { });
     auto [succeeded] = sendResult.takeReplyOr(false);
-    if (succeeded)
-        configuration().isActive = active;
     return succeeded;
 }
 
@@ -164,7 +163,6 @@ void RemoteAudioSession::configurationChanged(RemoteAudioSessionConfiguration&& 
     bool mutedStateChanged = !m_configuration || configuration.isMuted != (*m_configuration).isMuted;
     bool bufferSizeChanged = !m_configuration || configuration.bufferSize != (*m_configuration).bufferSize;
     bool sampleRateChanged = !m_configuration || configuration.sampleRate != (*m_configuration).sampleRate;
-    bool isActiveChanged = !m_configuration || configuration.isActive != (*m_configuration).isActive;
     bool routingContextUIDChanged = !m_configuration || configuration.routingContextUID != (*m_configuration).routingContextUID;
 
     m_configuration = WTF::move(configuration);
@@ -182,10 +180,8 @@ void RemoteAudioSession::configurationChanged(RemoteAudioSessionConfiguration&& 
         if (routingContextUIDChanged)
             observer.routingContextUIDDidChange(*this);
     });
-    if (isActiveChanged)
-        activeStateChanged();
 
-    if (!mutedStateChanged && !bufferSizeChanged && !sampleRateChanged && !isActiveChanged && !routingContextUIDChanged)
+    if (!mutedStateChanged && !bufferSizeChanged && !sampleRateChanged && !routingContextUIDChanged)
         return;
 
     RefPtr protectedProcess = m_webProcess.get();

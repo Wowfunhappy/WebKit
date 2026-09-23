@@ -35,7 +35,7 @@
 #include "JSObjectInlines.h"
 #include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyMemory.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyMemoryProtoFuncGrow);
@@ -65,7 +65,7 @@ ALWAYS_INLINE JSWebAssemblyMemory* getMemory(JSGlobalObject* globalObject, VM& v
 {
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    JSWebAssemblyMemory* memory = jsDynamicCast<JSWebAssemblyMemory*>(value); 
+    JSWebAssemblyMemory* memory = dynamicDowncast<JSWebAssemblyMemory>(value);
     if (!memory) {
         throwException(globalObject, throwScope, 
             createTypeError(globalObject, "WebAssembly.Memory.prototype.buffer getter called with non WebAssembly.Memory |this| value"_s));

@@ -21,18 +21,17 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreRenderer, _version: 11) && compiler(>=6.2)
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
 
-@_weakLinked import USDKit
-@_weakLinked @_spi(UsdLoaderAPI) import _USDKit_RealityKit
-@_spi(RealityCoreRendererAPI) import RealityKit
+import USDKit
+import RealityKit
 
 func makeParameters(
-    for function: any _Proto_LowLevelMaterialResource_v1.Function,
-    renderContext: any _Proto_LowLevelRenderContext_v1,
-    buffers: [_Proto_LowLevelBufferSpan_v1] = [],
-    textures: [_Proto_LowLevelTextureResource_v1] = []
-) throws -> _Proto_LowLevelArgumentTable_v1? {
+    for function: any LowLevelMaterialResource.Function,
+    renderContext: any LowLevelRenderContext,
+    buffers: [LowLevelBufferSlice] = [],
+    textures: [LowLevelTextureResource] = []
+) throws -> LowLevelArgumentTable? {
     guard let argumentTableDescriptor = function.argumentTableDescriptor else {
         return nil
     }
@@ -44,19 +43,19 @@ func makeParameters(
 }
 
 func makeParameters(
-    for material: _Proto_LowLevelMaterialResource_v1,
-    renderContext: any _Proto_LowLevelRenderContext_v1,
-    geometryBuffers: [_Proto_LowLevelBufferSpan_v1] = [],
-    geometryTextures: [_Proto_LowLevelTextureResource_v1] = [],
-    surfaceBuffers: [_Proto_LowLevelBufferSpan_v1] = [],
-    surfaceTextures: [_Proto_LowLevelTextureResource_v1] = [],
-    lightingBuffers: [_Proto_LowLevelBufferSpan_v1] = [],
-    lightingTextures: [_Proto_LowLevelTextureResource_v1] = []
+    for material: LowLevelMaterialResource,
+    renderContext: any LowLevelRenderContext,
+    geometryBuffers: [LowLevelBufferSlice] = [],
+    geometryTextures: [LowLevelTextureResource] = [],
+    surfaceBuffers: [LowLevelBufferSlice] = [],
+    surfaceTextures: [LowLevelTextureResource] = [],
+    lightingBuffers: [LowLevelBufferSlice] = [],
+    lightingTextures: [LowLevelTextureResource] = []
 ) throws
     -> (
-        geometryArguments: _Proto_LowLevelArgumentTable_v1?,
-        surfaceArguments: _Proto_LowLevelArgumentTable_v1?,
-        lightingArguments: _Proto_LowLevelArgumentTable_v1?
+        geometryArguments: LowLevelArgumentTable?,
+        surfaceArguments: LowLevelArgumentTable?,
+        lightingArguments: LowLevelArgumentTable?
     )
 {
     let geometryArguments = try makeParameters(

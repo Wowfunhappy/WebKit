@@ -44,6 +44,9 @@
     [Conditional=MEDIA_STREAM, EnabledBySetting=MediaSessionCaptureToggleAPIEnabled] Promise<undefined> setMicrophoneActive(boolean active);
     [Conditional=MEDIA_STREAM, EnabledBySetting=MediaSessionCaptureToggleAPIEnabled] Promise<undefined> setCameraActive(boolean active);
     [Conditional=MEDIA_STREAM, EnabledBySetting=MediaSessionCaptureToggleAPIEnabled] Promise<undefined> setScreenshareActive(boolean active);
+
+    [EnabledByQuirk=needsYouTubeCaptions] attribute sequence<MediaSessionCaptionTrack> captionTracks;
+    [EnabledByQuirk=needsYouTubeCaptions] attribute boolean captionsEnabled;
 };
 
 MediaSession includes MediaSessionCoordinatorMixin;

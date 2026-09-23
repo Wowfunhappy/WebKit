@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,6 @@
 namespace WebCore {
 
 // Token passed around to indicate that the caller has checked that no conversion data is required.
-struct NoConversionDataRequiredToken { };
+struct NoConversionDataRequiredToken { constexpr explicit NoConversionDataRequiredToken() { } };
 
 } // namespace WebCore

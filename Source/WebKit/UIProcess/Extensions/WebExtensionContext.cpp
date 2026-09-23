@@ -66,6 +66,8 @@ int WebExtensionContext::toAPIError(WebExtensionContext::Error error)
         return static_cast<int>(WebExtensionContext::APIError::NoBackgroundContent);
     case WebExtensionContext::Error::BackgroundContentFailedToLoad:
         return static_cast<int>(WebExtensionContext::APIError::BackgroundContentFailedToLoad);
+    case WebExtensionContext::Error::ScriptExecutionError:
+        return static_cast<int>(WebExtensionContext::APIError::ScriptExecutionError);
     }
 
     ASSERT_NOT_REACHED();
@@ -100,6 +102,10 @@ Ref<API::Error> WebExtensionContext::createError(Error error, const String& cust
 
     case Error::BackgroundContentFailedToLoad:
         localizedDescription = WEB_UI_STRING("The background content failed to load due to an error.", "WKWebExtensionContextErrorBackgroundContentFailedToLoad description");
+        break;
+
+    case Error::ScriptExecutionError:
+        localizedDescription = WEB_UI_STRING("A script error has occurred.", "WKWebExtensionContextErrorScriptExecutionError description");
         break;
     }
 
@@ -246,6 +252,26 @@ void WebExtensionContext::setHasAccessToPrivateData(bool hasAccess)
 #if ENABLE(INSPECTOR_EXTENSIONS)
         unloadInspectorBackgroundPagesForPrivateBrowsing();
 #endif
+    }
+}
+
+void WebExtensionContext::setHasAccessToFileURLs(bool hasAccess)
+{
+    if (m_hasAccessToFileURLs == hasAccess)
+        return;
+
+    m_hasAccessToFileURLs = hasAccess;
+
+    if (!safeToInjectContent())
+        return;
+
+    if (m_hasAccessToFileURLs && hasAccessToAllHosts()) {
+        auto filePattern = WebExtensionMatchPattern::getOrCreate("file"_s, "*"_s, "/*"_s);
+        if (filePattern)
+            addInjectedContent(injectedContents(), *filePattern);
+    } else {
+        removeInjectedContent();
+        addInjectedContent();
     }
 }
 
@@ -848,6 +874,9 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     if (!WebExtensionMatchPattern::validSchemes().contains(url.protocol().toStringWithoutCopying()))
         return PermissionState::Unknown;
 
+    if (url.protocolIsFile() && !m_hasAccessToFileURLs)
+        return PermissionState::Unknown;
+
     if (tab) {
         auto temporaryPattern = tab->temporaryPermissionMatchPattern();
         if (temporaryPattern && temporaryPattern->matchesURL(url))
@@ -895,10 +924,14 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
 
     // First, check for patterns that are specific to certain domains, ignoring wildcard host patterns that
     // match all hosts. The order is denied, then granted. This makes sure denied takes precedence over granted.
+    OptionSet<WebExtensionMatchPattern::Options> fileOptions;
+    if (m_hasAccessToFileURLs)
+        fileOptions.add(WebExtensionMatchPattern::Options::AllowFileScheme);
+
     auto urlMatchesPatternIgnoringWildcardHostPatterns = [&](WebExtensionMatchPattern& pattern) {
         if (pattern.matchesAllHosts())
             return false;
-        return pattern.matchesURL(url);
+        return pattern.matchesURL(url, fileOptions);
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
@@ -917,7 +950,7 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     auto urlMatchesWildcardHostPatterns = [&](WebExtensionMatchPattern& pattern) {
         if (!pattern.matchesAllHosts())
             return false;
-        return pattern.matchesURL(url);
+        return pattern.matchesURL(url, fileOptions);
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
@@ -973,6 +1006,9 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     if (!pattern.matchesAllURLs() && !WebExtensionMatchPattern::validSchemes().contains(pattern.scheme()))
         return PermissionState::Unknown;
 
+    if (!pattern.matchesAllURLs() && pattern.scheme() == "file"_s && !m_hasAccessToFileURLs)
+        return PermissionState::Unknown;
+
     if (tab) {
         auto temporaryPattern = tab->temporaryPermissionMatchPattern();
         if (temporaryPattern && temporaryPattern->matchesPattern(pattern))
@@ -986,10 +1022,14 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     // First, check for patterns that are specific to certain domains, ignoring wildcard host patterns that
     // match all hosts. The order is denied, then granted. This makes sure denied takes precedence over granted.
 
+    auto fileOptions = m_hasAccessToFileURLs
+        ? OptionSet<WebExtensionMatchPattern::Options> { WebExtensionMatchPattern::Options::AllowFileScheme }
+        : OptionSet<WebExtensionMatchPattern::Options> { };
+
     auto urlMatchesPatternIgnoringWildcardHostPatterns = [&](WebExtensionMatchPattern& otherPattern) {
         if (pattern.matchesAllHosts())
             return false;
-        return pattern.matchesPattern(otherPattern);
+        return pattern.matchesPattern(otherPattern, fileOptions);
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
@@ -1009,7 +1049,7 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     auto urlMatchesWildcardHostPatterns = [&](WebExtensionMatchPattern& otherPattern) {
         if (!pattern.matchesAllHosts())
             return false;
-        return pattern.matchesPattern(otherPattern);
+        return pattern.matchesPattern(otherPattern, fileOptions);
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
@@ -1183,6 +1223,11 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
     // This avoids duplicate injected content if individual hosts are granted in addition to "all hosts".
     if (hasAccessToAllHosts()) {
         addInjectedContent(injectedContents, WebExtensionMatchPattern::allHostsAndSchemesMatchPattern());
+        if (m_hasAccessToFileURLs) {
+            auto filePattern = WebExtensionMatchPattern::getOrCreate("file"_s, "*"_s, "/*"_s);
+            if (filePattern)
+                addInjectedContent(injectedContents, *filePattern);
+        }
         return;
     }
 
@@ -1263,6 +1308,10 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
     if (!safeToInjectContent())
         return;
 
+    OptionSet<WebExtensionMatchPattern::Options> expandOptions;
+    if (m_hasAccessToFileURLs)
+        expandOptions.add(WebExtensionMatchPattern::Options::AllowFileScheme);
+
     auto scriptAddResult = m_injectedScriptsPerPatternMap.ensure(pattern, [&] {
         return UserScriptVector { };
     });
@@ -1289,7 +1338,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
         if (!pattern.matchesPattern(deniedMatchPattern, { WebExtensionMatchPattern::Options::IgnorePaths, WebExtensionMatchPattern::Options::MatchBidirectionally }))
             continue;
 
-        for (const auto& deniedMatchPatternString : deniedMatchPattern->expandedStrings())
+        for (const auto& deniedMatchPatternString : deniedMatchPattern->expandedStrings(expandOptions))
             baseExcludeMatchPatternsSet.add(deniedMatchPatternString);
     }
 
@@ -1309,7 +1358,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
                 if (!restrictedPattern)
                     continue;
 
-                for (const auto& restrictedPattern : restrictedPattern->expandedStrings())
+                for (const auto& restrictedPattern : restrictedPattern->expandedStrings(expandOptions))
                     includeMatchPatternsSet.add(restrictedPattern);
                 continue;
             }
@@ -1329,7 +1378,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
             if (!restrictedPattern)
                 continue;
 
-            for (const auto& restrictedPattern : restrictedPattern->expandedStrings())
+            for (const auto& restrictedPattern : restrictedPattern->expandedStrings(expandOptions))
                 includeMatchPatternsSet.add(restrictedPattern);
         }
 
@@ -1340,7 +1389,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
 
         HashSet<String> excludeMatchPatternsSet;
         excludeMatchPatternsSet.addAll(injectedContentData.expandedExcludeMatchPatternStrings());
-        excludeMatchPatternsSet.unionWith(baseExcludeMatchPatternsSet);
+        excludeMatchPatternsSet.addAll(baseExcludeMatchPatternsSet);
 
         auto excludeMatchPatterns = copyToVector(excludeMatchPatternsSet);
 
@@ -1606,6 +1655,8 @@ WebExtensionContext::WebExtensionContext()
     webExtensionContexts().add(identifier(), *this);
 }
 
+WebExtensionContext::~WebExtensionContext() = default;
+
 WebExtensionContextIdentifier WebExtensionContext::privilegedIdentifier() const
 {
     if (!m_privilegedIdentifier)
@@ -1635,6 +1686,7 @@ WebExtensionContextParameters WebExtensionContext::parameters(IncludePrivilegedI
         extension->serializeManifest(),
         extension->manifestVersion(),
         isSessionStorageAllowedInContentScripts(),
+        extensionController()->configuration().defaultWebsiteDataStore().sessionID(),
         backgroundPageIdentifier(),
 #if ENABLE(INSPECTOR_EXTENSIONS)
         inspectorPageIdentifiers(),
@@ -1686,8 +1738,10 @@ WebExtensionContext::WebProcessProxySet WebExtensionContext::processes(EventList
                 if (!page)
                     continue;
 
-                if (!hasAccessToPrivateData() && page->sessionID().isEphemeral())
-                    continue;
+                if (!hasAccessToPrivateData() && page->sessionID().isEphemeral()) {
+                    if (RefPtr controller = extensionController(); !controller || page->sessionID() != controller->configuration().defaultWebsiteDataStore().sessionID())
+                        continue;
+                }
 
                 Ref webProcess = frame->process();
                 if (predicate && !predicate(webProcess, *page, frame))
@@ -1828,8 +1882,13 @@ void WebExtensionContext::wakeUpBackgroundContentIfNecessaryToFireEvents(EventLi
             }
         }
 
+        // Until the background content has loaded once, an empty listener set means the listeners
+        // aren't known yet, not that the event is unhandled. Queue rather than drop it, so a content
+        // script that calls runtime.sendMessage while racing the initial background load isn't lost.
+        bool backgroundContentListenersAreUnknown = m_backgroundContentEventListeners.isEmpty() && !m_backgroundContentHasLoadedOnce;
+
         // Don't load the background page if it isn't expecting these events.
-        if (!backgroundContentListensToAtLeastOneEvent) {
+        if (!backgroundContentListensToAtLeastOneEvent && !backgroundContentListenersAreUnknown) {
             completionHandler();
             return;
         }

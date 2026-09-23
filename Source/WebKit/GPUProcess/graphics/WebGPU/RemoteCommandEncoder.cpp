@@ -55,7 +55,7 @@ RemoteCommandEncoder::RemoteCommandEncoder(GPUConnectionToWebProcess& gpuConnect
     , m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_gpu(gpu)
 {
-    Ref { m_streamConnection }->startReceivingMessages(*this, Messages::RemoteCommandEncoder::messageReceiverName(), m_identifier.toUInt64());
+    protect(m_streamConnection)->startReceivingMessages(*this, Messages::RemoteCommandEncoder::messageReceiverName(), m_identifier.toUInt64());
 }
 
 RemoteCommandEncoder::~RemoteCommandEncoder() = default;
@@ -67,7 +67,7 @@ void RemoteCommandEncoder::destruct()
 
 void RemoteCommandEncoder::stopListeningForIPC()
 {
-    Ref { m_streamConnection }->stopReceivingMessages(Messages::RemoteCommandEncoder::messageReceiverName(), m_identifier.toUInt64());
+    protect(m_streamConnection)->stopReceivingMessages(Messages::RemoteCommandEncoder::messageReceiverName(), m_identifier.toUInt64());
 }
 
 void RemoteCommandEncoder::beginRenderPass(const WebGPU::RenderPassDescriptor& descriptor, WebGPUIdentifier identifier)

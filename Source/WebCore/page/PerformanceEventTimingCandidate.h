@@ -27,6 +27,7 @@
 
 #include <WebCore/EventTarget.h>
 #include <WebCore/EventTimingInteractionID.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -36,9 +37,9 @@ enum class EventType : uint16_t;
 struct PerformanceEventTimingCandidate {
     EventType type { };
     bool cancelable { false };
-    Seconds startTime;
-    Seconds processingStart;
-    Seconds processingEnd;
+    ReducedResolutionSeconds startTime;
+    ReducedResolutionSeconds processingStart;
+    ReducedResolutionSeconds processingEnd;
     Seconds duration;
     WeakPtr<EventTarget, EventTarget::WeakPtrImplType> target;
     EventTimingInteractionID interactionID;

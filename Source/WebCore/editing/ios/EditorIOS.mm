@@ -29,7 +29,6 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "CSSComputedStyleDeclaration.h"
-#import "CSSPrimitiveValueMappings.h"
 #import "CachedImage.h"
 #import "ContainerNodeInlines.h"
 #import "DataTransfer.h"
@@ -46,6 +45,7 @@
 #import "RenderBlock.h"
 #import "RenderImage.h"
 #import "SharedBuffer.h"
+#import "StyleKeyword+Mappings.h"
 #import "Text.h"
 #import "TypingCommand.h"
 #import "WAKAppKitStubs.h"
@@ -61,8 +61,8 @@ void Editor::removeUnchangeableStyles()
 {
     // This function removes styles that the user cannot modify by applying their default values.
     
-    auto editingStyle = EditingStyle::create(document().bodyOrFrameset());
-    auto defaultStyle = editingStyle->style()->mutableCopy();
+    auto editingStyle = EditingStyle::create(protect(protect(document())->bodyOrFrameset()));
+    auto defaultStyle = protect(editingStyle->style())->mutableCopy();
     
     // Text widgets implement background color via the UIView property. Their body element will not have one.
     defaultStyle->setProperty(CSSPropertyBackgroundColor, "rgba(255, 255, 255, 0.0)"_s);
@@ -109,7 +109,7 @@ void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element& imageElemen
         return;
     ASSERT(cachedImage);
 
-    auto imageSourceURL = imageElement.document().completeURL(imageElement.imageSourceURL());
+    auto imageSourceURL = protect(imageElement.document())->encodingParseURL(imageElement.imageSourceURL());
 
     auto pasteboardImageURL = url.isEmpty() ? imageSourceURL : url;
     if (!pasteboardImageURL.protocolIsFile()) {
@@ -119,7 +119,7 @@ void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element& imageElemen
     pasteboardImage.suggestedName = imageSourceURL.lastPathComponent().toString();
     pasteboardImage.imageSize = image->size();
     pasteboardImage.resourceMIMEType = pasteboard.resourceMIMEType(cachedImage->response().mimeType().createNSString().get());
-    if (auto* buffer = cachedImage->resourceBuffer())
+    if (RefPtr buffer = cachedImage->resourceBuffer())
         pasteboardImage.resourceData = buffer->makeContiguous();
 
     if (!pasteboard.isStatic())
@@ -217,11 +217,8 @@ void Editor::setDictationPhrasesAsChildOfElement(const Vector<Vector<String>>& d
     unsigned previousDictationPhraseStart = 0;
     for (auto& interpretations : dictationPhrases) {
         auto dictationPhraseLength = interpretations[0].length();
-        if (interpretations.size() > 1) {
-            auto alternatives = interpretations;
-            alternatives.removeAt(0);
-            addMarker(*textNode, previousDictationPhraseStart, dictationPhraseLength, DocumentMarkerType::DictationPhraseWithAlternatives, WTF::move(alternatives));
-        }
+        if (interpretations.size() > 1)
+            addMarker(*textNode, previousDictationPhraseStart, dictationPhraseLength, DocumentMarkerType::DictationPhraseWithAlternatives, interpretations.subvector(1));
         previousDictationPhraseStart += dictationPhraseLength;
     }
 

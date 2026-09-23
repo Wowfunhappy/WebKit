@@ -47,15 +47,12 @@ WebXRTest::WebXRTest(WeakPtr<WebXRSystem, WeakPtrImplWithEventTargetData>&& syst
 
 WebXRTest::~WebXRTest() = default;
 
-static PlatformXR::Device::FeatureList parseFeatures(const Vector<JSC::JSValue>& featureList, ScriptExecutionContext& context)
+static PlatformXR::Device::FeatureList parseFeatures(const Vector<String>& featureList)
 {
     PlatformXR::Device::FeatureList features;
-    if (auto* globalObject = context.globalObject()) {
-        for (auto& feature : featureList) {
-            auto featureString = feature.toWTFString(globalObject);
-            if (auto sessionFeature = PlatformXR::parseSessionFeatureDescriptor(featureString))
-                features.append(*sessionFeature);
-        }
+    for (auto& feature : featureList) {
+        if (auto sessionFeature = PlatformXR::parseSessionFeatureDescriptor(feature))
+            features.append(*sessionFeature);
     }
     return features;
 }
@@ -63,18 +60,14 @@ static PlatformXR::Device::FeatureList parseFeatures(const Vector<JSC::JSValue>&
 void WebXRTest::simulateDeviceConnection(ScriptExecutionContext& context, const FakeXRDeviceInit& init, WebFakeXRDevicePromise&& promise)
 {
     // https://immersive-web.github.io/webxr-test-api/#dom-xrtest-simulatedeviceconnection
-    context.postTask([this, protectedThis = Ref { *this }, init, promise = WTF::move(promise)] (ScriptExecutionContext& context) mutable {
+    context.postTask([this, protectedThis = protect(*this), init, promise = WTF::move(promise)](auto&) mutable {
         auto device = WebFakeXRDevice::create();
         auto& simulatedDevice = device->simulatedXRDevice();
 
         device->setViews(init.views);
 
-        PlatformXR::Device::FeatureList supportedFeatures;
-        if (init.supportedFeatures)
-            supportedFeatures = parseFeatures(init.supportedFeatures.value(), context);
-        PlatformXR::Device::FeatureList enabledFeatures;
-        if (init.enabledFeatures)
-            enabledFeatures = parseFeatures(init.enabledFeatures.value(), context);
+        auto supportedFeatures = parseFeatures(init.supportedFeatures);
+        auto enabledFeatures = parseFeatures(init.enabledFeatures);
 
         if (init.boundsCoordinates) {
             if (init.boundsCoordinates->size() < 3) {

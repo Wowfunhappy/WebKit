@@ -26,6 +26,8 @@
 #include "config.h"
 #include "SVGLength.h"
 
+#include "Document.h"
+#include "NodeDocument.h"
 #include "SVGElement.h"
 
 namespace WebCore {
@@ -79,7 +81,14 @@ ExceptionOr<void> SVGLength::convertToSpecifiedUnits(unsigned short unitType)
     if (unitType == SVG_LENGTHTYPE_UNKNOWN || unitType > SVG_LENGTHTYPE_PC)
         return Exception { ExceptionCode::NotSupportedError };
 
-    auto result = m_value.convertToSpecifiedUnits(SVGLengthContext { RefPtr { contextElement() }.get() }, static_cast<SVGLengthType>(unitType));
+    RefPtr element = contextElement();
+
+    // Ensure style is up-to-date for font-relative units (em, ex, etc.) and percentages,
+    // which depend on computed style or viewport size for resolution.
+    if (element)
+        protect(element->document())->updateStyleIfNeeded();
+
+    auto result = m_value.convertToSpecifiedUnits(SVGLengthContext { element.get() }, static_cast<SVGLengthType>(unitType));
     if (result.hasException())
         return result;
 

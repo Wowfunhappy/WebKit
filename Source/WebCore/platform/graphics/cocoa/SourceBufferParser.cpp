@@ -44,10 +44,11 @@ namespace WebCore {
 
 MediaPlayerEnums::SupportsType SourceBufferParser::isContentTypeSupported(const ContentType& type)
 {
-    MediaPlayerEnums::SupportsType supports = MediaPlayerEnums::SupportsType::IsNotSupported;
-    supports = std::max(supports, SourceBufferParserWebM::isContentTypeSupported(type));
-    // MAVERICKS_BACKPORT: SourceBufferParserAVFObjC is not built (no AVStreamDataParser on 10.9):
-    //     supports = std::max(supports, SourceBufferParserAVFObjC::isContentTypeSupported(type));
+    MediaPlayerEnums::SupportsType supports = SourceBufferParserWebM::isContentTypeSupported(type);
+    if (supports == MediaPlayerEnums::SupportsType::IsSupported)
+        return supports;
+    // MAVERICKS_BACKPORT: AVStreamDataParser is absent on 10.9; playback and MSE use GStreamer.
+    // return std::max(supports, SourceBufferParserAVFObjC::isContentTypeSupported(type));
     return supports;
 }
 
@@ -56,16 +57,9 @@ RefPtr<SourceBufferParser> SourceBufferParser::create(const ContentType& type, c
     if (SourceBufferParserWebM::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
         return SourceBufferParserWebM::create();
 
-    // MAVERICKS_BACKPORT: SourceBufferParserAVFObjC is not built (no AVStreamDataParser on 10.9):
-    //     if (SourceBufferParserAVFObjC::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
-    //         return adoptRef(new SourceBufferParserAVFObjC(configuration));
-    // Only the caller below is affected, and it is unreachable on this port: the sole callers of
-    // SourceBufferParser::create()/isContentTypeSupported() are MediaSourcePrivateAVFObjC,
-    // SourceBufferPrivateAVFObjC and MediaPlayerPrivateMediaSourceAVFObjC, and MediaPlayer.cpp
-    // registers that whole engine family inside #if !USE(GSTREAMER) -- this port uses GStreamer, so
-    // MSE runs through MediaPlayerPrivateGStreamerMSE. SourceBufferParserWebM above is still built
-    // and is genuinely used: AudioFileReaderCocoa.mm calls SourceBufferParserWebM::create()
-    // directly for Web Audio decodeAudioData.
+    // MAVERICKS_BACKPORT: AVStreamDataParser is absent on 10.9; Web Audio uses the WebM parser above.
+    // if (SourceBufferParserAVFObjC::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
+    //     return adoptRef(new SourceBufferParserAVFObjC(type, configuration));
     UNUSED_PARAM(configuration);
 
     return nullptr;

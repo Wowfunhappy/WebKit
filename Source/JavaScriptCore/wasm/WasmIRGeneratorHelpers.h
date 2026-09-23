@@ -31,10 +31,13 @@
 #include "B3StackmapGenerationParams.h"
 #include "B3StackmapValue.h"
 #include "CCallHelpers.h"
+#include "JSCConfig.h"
 #include "JSWebAssemblyException.h"
 #include "JSWebAssemblyInstance.h"
 #include "LinkBuffer.h"
 #include "ProbeContext.h"
+#include "WasmCallee.h"
+#include "WasmCompilationContext.h"
 #include "WasmOperations.h"
 
 namespace JSC { namespace Wasm {
@@ -176,7 +179,7 @@ static inline void SYSV_ABI buildEntryBufferForCatch(Probe::Context& context)
 
     JSValue thrownValue = JSValue::decode(exception);
     void* payload = nullptr;
-    if (JSWebAssemblyException* wasmException = jsDynamicCast<JSWebAssemblyException*>(thrownValue))
+    if (JSWebAssemblyException* wasmException = dynamicDowncast<JSWebAssemblyException>(thrownValue))
         payload = std::bit_cast<void*>(wasmException->payload().span().data());
 
     context.gpr(GPRInfo::argumentGPR0) = std::bit_cast<uintptr_t>(buffer);
@@ -185,8 +188,8 @@ static inline void SYSV_ABI buildEntryBufferForCatch(Probe::Context& context)
 
     context.gpr(GPRInfo::wasmContextInstancePointer) = std::bit_cast<uintptr_t>(instance);
     if (instance->moduleInformation().memoryCount()) {
-        context.gpr(GPRInfo::wasmBaseMemoryPointer) = std::bit_cast<uintptr_t>(instance->cachedMemory());
-        context.gpr(GPRInfo::wasmBoundsCheckingSizeRegister) = instance->cachedBoundsCheckingSize();
+        context.gpr(GPRInfo::wasmBaseMemoryPointer) = std::bit_cast<uintptr_t>(instance->memory(0)->basePointer());
+        context.gpr(GPRInfo::wasmBoundsCheckingSizeRegister) = instance->memory(0)->memory().mappedCapacity();
     }
 }
 
@@ -220,6 +223,117 @@ static inline void prepareForTailCall(CCallHelpers& jit, const B3::StackmapGener
 }
 
 #endif // ENABLE(WEBASSEMBLY_OMGJIT)
+
+// Emits a RestoreInstanceCallee frame to restore our instance when returning from a
+// cross instance tail call chain. This is done lazily for performance of intra-module
+// tail call chains.
+// Note: since we know we're making a cross instance call it's likely valid to use
+// GPRInfo::wasmBaseMemoryPointer and GPRInfo::wasmBoundsCheckingSizeRegister as
+// two of the scratches. They'll be filled later anyway.
+//
+// FIXME: In OMG and BBQ, emit restore frame creation on an out-of-line slow path
+// so the common case (same instance || restore frame exists) doesn't have to jump over
+// this code.
+inline void emitRestoreInstanceFrameIfNeeded(CCallHelpers& jit, GPRReg currentInstanceReg, Checked<int32_t> callerStackSize, Checked<int32_t> frameSize, Checked<int32_t> topSourceOffsetFromFP, GPRReg scratch1, GPRReg scratch2)
+{
+#if CPU(ARM64E)
+    auto* restoreFrameReturnAddress = untagCodePtr<NativeToJITGatePtrTag>(g_jscConfig.llint.gateMap[static_cast<unsigned>(Gate::wasmRestoreFrame)]);
+#else
+    auto* restoreFrameReturnAddress = untagCodePtr<CFunctionPtrTag>(wasm_restore_frame_return);
+#endif
+    ASSERT(restoreFrameReturnAddress);
+    ASSERT(noOverlap(currentInstanceReg, scratch1, scratch2));
+    ASSERT(topSourceOffsetFromFP <= callerStackSize);
+    ASSERT(isMultipleOf(stackAlignmentBytes(), topSourceOffsetFromFP));
+    static constexpr unsigned restoreFrameSize = RestoreFrameCallee::restoreFrameSizeInBytes;
+    Checked<int32_t> restoreFrameBase = callerStackSize - Checked<int32_t>(restoreFrameSize);
+    bool needsCopy = topSourceOffsetFromFP != -frameSize;
+
+    JIT_COMMENT(jit, "Check for existing restore frame");
+    jit.loadPtr(CCallHelpers::Address(MacroAssembler::framePointerRegister, CallFrame::returnPCOffset()), scratch1);
+#if CPU(ARM64E)
+    jit.removePtrTag(scratch1);
+#endif
+    auto hasExistingThunk = jit.branchPtr(CCallHelpers::Equal, scratch1,
+        CCallHelpers::TrustedImmPtr(restoreFrameReturnAddress));
+
+    JIT_COMMENT(jit, "Restore frame body for callerStackSize: ", callerStackSize, " frameSize: ", frameSize, " topSourceOffsetFromFP: ", topSourceOffsetFromFP, " restoreFrameBase: ", restoreFrameBase);
+    // Lower sp so we don't write below it if we take the loop.
+    jit.subPtr(CCallHelpers::TrustedImm32(restoreFrameSize), MacroAssembler::stackPointerRegister);
+
+    if (needsCopy) {
+        // Copy [sp, cfr + topSourceOffsetFromFP) down by restoreFrameSize bytes.
+        // The range above cfr is the caller's argument area. OMG may reference
+        // these slots via positive-FP-offset ValueReps, so they must shift too.
+        jit.move(MacroAssembler::stackPointerRegister, scratch1);
+
+        jit.jitAssert(scopedLambda<MacroAssembler::Jump()>([&] {
+            jit.addPtr(CCallHelpers::TrustedImm32(topSourceOffsetFromFP), GPRInfo::callFrameRegister, scratch2);
+            return jit.branchPtr(CCallHelpers::AboveOrEqual, scratch2, MacroAssembler::stackPointerRegister);
+        }));
+
+        JIT_COMMENT(jit, "Copy loop start");
+        auto loop = jit.label();
+        {
+            auto scratch3 = jit.scratchRegister();
+            DisallowMacroScratchRegisterUsage disallowScratch(jit);
+            jit.loadPair64(scratch1, scratch2, scratch3);
+            // FIXME: This could be a PostIndexAddress.
+            jit.storePair64(scratch2, scratch3, CCallHelpers::Address(scratch1, -restoreFrameSize));
+        }
+        jit.addPtr(CCallHelpers::TrustedImm32(16), scratch1);
+        // FIXME: It'd be nice to use the address scratch on ARM64 to hold the end point.
+        jit.addPtr(CCallHelpers::TrustedImm32(topSourceOffsetFromFP), GPRInfo::callFrameRegister, scratch2);
+        jit.branchPtr(CCallHelpers::Below, scratch1, scratch2).linkTo(loop, &jit);
+    }
+
+    CCallHelpers::Address callerFrameAndPCAddress(GPRInfo::callFrameRegister, topSourceOffsetFromFP > 0 ? -static_cast<int32_t>(restoreFrameSize) : 0);
+
+    JIT_COMMENT(jit, "Creating the restore frame");
+#if CPU(ARM64E)
+    jit.loadPairPtr(callerFrameAndPCAddress, scratch1, ARM64Registers::lr);
+    jit.addPtr(CCallHelpers::TrustedImm32(sizeof(CallerFrameAndPC)), MacroAssembler::framePointerRegister, scratch2);
+    jit.untagPtr(scratch2, ARM64Registers::lr);
+    jit.validateUntaggedPtr(ARM64Registers::lr, scratch2);
+    if (Options::allowNonSPTagging()) {
+        jit.addPtr(CCallHelpers::TrustedImm32(restoreFrameBase + static_cast<int32_t>(sizeof(CallerFrameAndPC))), MacroAssembler::framePointerRegister, scratch2);
+        jit.tagPtr(scratch2, ARM64Registers::lr);
+    } else {
+        jit.addPtr(CCallHelpers::TrustedImm32(restoreFrameBase + static_cast<int32_t>(sizeof(CallerFrameAndPC))), MacroAssembler::framePointerRegister, MacroAssembler::stackPointerRegister);
+        jit.tagPtr(MacroAssembler::stackPointerRegister, ARM64Registers::lr);
+
+        // SP was already moved down by restoreFrameSize above repeat that logic.
+        // FIXME: We could probably elide the original SP shift above when isARM64E() && !Options::allowNonSPTagging().
+        jit.subPtr(MacroAssembler::framePointerRegister, CCallHelpers::TrustedImm32(frameSize + restoreFrameSize), MacroAssembler::stackPointerRegister);
+    }
+    jit.storePairPtr(scratch1, ARM64Registers::lr, CCallHelpers::Address(MacroAssembler::framePointerRegister, restoreFrameBase));
+#else
+    jit.loadPairPtr(callerFrameAndPCAddress, scratch1, scratch2);
+    jit.storePairPtr(scratch1, scratch2, CCallHelpers::Address(MacroAssembler::framePointerRegister, restoreFrameBase));
+#endif
+    // Store current instance and callee to the frame.
+    jit.move(CCallHelpers::TrustedImm64(g_restoreFrameCalleeBoxed), scratch1);
+    jit.storePairPtr(currentInstanceReg, scratch1, CCallHelpers::Address(MacroAssembler::framePointerRegister, restoreFrameBase + static_cast<int32_t>(CallFrameSlot::codeBlock) * static_cast<int32_t>(sizeof(Register))));
+
+    // Account for the lowering of callFrameRegister we're going to do below.
+    jit.addPtr(CCallHelpers::TrustedImm32(restoreFrameBase), GPRInfo::callFrameRegister, scratch1);
+
+    JIT_COMMENT(jit, "Update CallerFrameAndPC to return to the restore frame");
+#if CPU(ARM64E)
+    // Move to where callFrameRegister will be when actually untagging.
+    jit.subPtr(CCallHelpers::TrustedImm32(restoreFrameSize - sizeof(CallerFrameAndPC)), GPRInfo::callFrameRegister);
+    jit.move(CCallHelpers::TrustedImmPtr(restoreFrameReturnAddress), ARM64Registers::lr);
+    jit.tagPtr(GPRInfo::callFrameRegister, ARM64Registers::lr);
+    jit.storePair64(scratch1, ARM64Registers::lr, CCallHelpers::PreIndexAddress(GPRInfo::callFrameRegister, -static_cast<ptrdiff_t>(sizeof(CallerFrameAndPC))));
+#else
+    jit.move(CCallHelpers::TrustedImmPtr(restoreFrameReturnAddress), scratch2);
+    jit.subPtr(CCallHelpers::TrustedImm32(restoreFrameSize), GPRInfo::callFrameRegister);
+    jit.storePairPtr(scratch1, scratch2, GPRInfo::callFrameRegister);
+#endif
+
+    hasExistingThunk.link(jit);
+}
+
 } } // namespace JSC::Wasm
 
 #endif // ENABLE(WEBASSEMBLY_OMGJIT) || ENABLE(WEBASSEMBLY_BBQJIT)

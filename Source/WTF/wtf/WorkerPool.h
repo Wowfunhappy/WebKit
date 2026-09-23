@@ -37,7 +37,8 @@
 namespace WTF {
 
 class WorkerPool final : public ThreadSafeRefCounted<WorkerPool>, public CanMakeThreadSafeCheckedPtr<WorkerPool> {
-    WTF_MAKE_TZONE_ALLOCATED(WorkerPool);
+    // WTF_MAKE_TZONE_ALLOCATED(WorkerPool);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(WorkerPool, WTF_EXPORT_PRIVATE); // MAVERICKS_BACKPORT: WebCore allocates WorkerPool through its inline factory.
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WorkerPool);
 public:
     WTF_EXPORT_PRIVATE void postTask(Function<void()>&&);

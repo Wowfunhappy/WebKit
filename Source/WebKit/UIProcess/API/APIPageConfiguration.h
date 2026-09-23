@@ -117,6 +117,7 @@ public:
 
     Ref<PageConfiguration> copy() const;
     void copyDataFrom(const PageConfiguration&);
+    void ensureLazyInitializedRefsAreInitialized();
 
     struct OpenerInfo {
         Ref<WebKit::WebProcessProxy> process;
@@ -131,6 +132,9 @@ public:
 
     const WebCore::Site& NODELETE openedSite() const;
     void setOpenedSite(const WebCore::Site&);
+
+    bool processInheritedFromOpener() const { return m_data.processInheritedFromOpener; }
+    void setProcessInheritedFromOpener(bool value) { m_data.processInheritedFromOpener = value; }
 
     const WTF::String& NODELETE openedMainFrameName() const;
     void setOpenedMainFrameName(const WTF::String&);
@@ -491,13 +495,15 @@ public:
 #endif // PLATFORM(VISION)
 
 private:
+    bool defaultDelaysWebProcessLaunchUntilFirstLoad() const;
     struct Data {
         Data();
 
         template<typename T, Ref<T>(*initializer)()> class LazyInitializedRef {
         public:
             LazyInitializedRef() = default;
-            void operator=(const LazyInitializedRef& other) { m_value = other.get(); }
+            LazyInitializedRef(const LazyInitializedRef&) = default;
+            void operator=(const LazyInitializedRef& other) { m_value = other.m_value; }
             void operator=(RefPtr<T>&& t) { m_value = WTF::move(t); }
             T& get() const
             {
@@ -538,6 +544,7 @@ private:
         WeakPtr<WebKit::WebPageProxy> relatedPage;
         Box<std::optional<OpenerInfo>> openerInfo;
         WebCore::Site openedSite;
+        bool processInheritedFromOpener { false };
         WTF::String openedMainFrameName;
         std::optional<WebCore::WindowFeatures> windowFeatures;
         WebCore::SandboxFlags initialSandboxFlags;

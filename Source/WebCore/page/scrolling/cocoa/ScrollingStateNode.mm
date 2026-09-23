@@ -30,28 +30,6 @@
 
 namespace WebCore {
 
-void LayerRepresentation::retainPlatformLayer(void* typelessLayer)
-{
-    if (typelessLayer)
-        CFRetain(typelessLayer);
-}
-
-void LayerRepresentation::releasePlatformLayer(void* typelessLayer)
-{
-    if (typelessLayer)
-        CFRelease(typelessLayer);
-}
-
-CALayer *NODELETE LayerRepresentation::makePlatformLayerTyped(void* typelessLayer)
-{
-    return (__bridge CALayer *)typelessLayer;
-}
-
-void* LayerRepresentation::makePlatformLayerTypeless(CALayer *layer)
-{
-    return (__bridge void*)layer;
-}
-
 CALayer* LayerRepresentation::platformLayerFromGraphicsLayer(GraphicsLayer& graphicsLayer)
 {
     return graphicsLayer.platformLayer();

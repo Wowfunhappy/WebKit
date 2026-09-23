@@ -21,7 +21,7 @@
 
 #include "RenderBlock.h"
 #include "RenderBoxInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -49,6 +49,12 @@ inline LayoutUnit RenderBlock::availableLogicalWidthForLine(LayoutUnit position,
     auto logicalRightOffsetForLine = adjustLogicalRightOffsetForLine(logicalRightFloatOffsetForLine(position, logicalRightOffsetForContent(), logicalHeight));
     auto logicalLeftOffsetForLine = adjustLogicalLeftOffsetForLine(logicalLeftFloatOffsetForLine(position, logicalLeftOffsetForContent(), logicalHeight));
     return std::max(0_lu, logicalRightOffsetForLine - logicalLeftOffsetForLine);
+}
+
+inline LayoutUnit RenderBlock::marginIntrinsicLogicalWidthForChild(const RenderBox& child) const
+{
+    auto [start, end] = intrinsicLogicalMarginStartAndEnd(child);
+    return start + end;
 }
 
 } // namespace WebCore

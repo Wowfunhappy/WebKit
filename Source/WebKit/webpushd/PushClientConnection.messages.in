@@ -41,6 +41,7 @@ messages -> WebPushD::PushClientConnection NotUsingIPCConnection {
     IncrementSilentPushCount(WebCore::SecurityOriginData origin) -> (unsigned newCount)
     RemoveAllPushSubscriptions()  -> (unsigned removed)
     RemovePushSubscriptionsForOrigin(WebCore::SecurityOriginData origin) -> (unsigned removed)
+    GetAllPushSubscriptionOrigins() -> (Vector<WebCore::SecurityOriginData> origins)
     SetPublicTokenForTesting(String token) -> ()
     GetPushTopicsForTesting() -> (Vector<String> enabled, Vector<String> ignored)
     ShowNotification(struct WebCore::NotificationData notificationData, RefPtr<WebCore::NotificationResources> notificationResources) -> ()

@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/Strong.h>
 #include <JavaScriptCore/VM.h>
 
 #if ENABLE(REFTRACKER)
@@ -54,6 +54,30 @@ inline void Strong<T, shouldStrongDestructorGrabLock>::set(VM& vm, ExternalType 
     if (!slot())
         setSlot(vm.heap.handleSet()->allocate());
     set(value);
+}
+
+template <typename T, ShouldStrongDestructorGrabLock shouldStrongDestructorGrabLock>
+template <typename U> Strong<T, shouldStrongDestructorGrabLock>& Strong<T, shouldStrongDestructorGrabLock>::operator=(const Strong<U>& other)
+{
+    if (!other.slot()) {
+        clear();
+        return *this;
+    }
+
+    set(*HandleSet::heapFor(other.slot())->vm(), other.get());
+    return *this;
+}
+
+template <typename T, ShouldStrongDestructorGrabLock shouldStrongDestructorGrabLock>
+Strong<T, shouldStrongDestructorGrabLock>& Strong<T, shouldStrongDestructorGrabLock>::operator=(const Strong& other)
+{
+    if (!other.slot()) {
+        clear();
+        return *this;
+    }
+
+    set(HandleSet::heapFor(other.slot())->vm(), other.get());
+    return *this;
 }
 
 } // namespace JSC

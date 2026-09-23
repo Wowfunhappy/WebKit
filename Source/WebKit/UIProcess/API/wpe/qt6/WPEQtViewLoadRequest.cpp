@@ -40,9 +40,7 @@ WPEQtViewLoadRequest::WPEQtViewLoadRequest(const QUrl& url, WPEQtView::LoadStatu
 {
 }
 
-WPEQtViewLoadRequest::~WPEQtViewLoadRequest()
-{
-}
+WPEQtViewLoadRequest::~WPEQtViewLoadRequest() = default;
 
 bool WPEQtViewLoadRequest::event(QEvent* ev)
 {

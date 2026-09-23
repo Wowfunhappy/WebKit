@@ -54,6 +54,7 @@ public:
     virtual void unmap() = 0;
 
     virtual void destroy() = 0;
+    virtual void generateAValidationError() = 0;
     virtual std::span<uint8_t> getBufferContents() = 0;
     virtual void copyFrom(std::span<const uint8_t>, size_t offset) = 0;
 

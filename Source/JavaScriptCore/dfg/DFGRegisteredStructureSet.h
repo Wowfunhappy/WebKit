@@ -30,6 +30,7 @@
 #if ENABLE(DFG_JIT)
 
 #include "DFGRegisteredStructure.h"
+#include "SpeculatedType.h"
 #include <JavaScriptCore/ArrayProfile.h>
 #include <JavaScriptCore/StructureSet.h>
 #include <wtf/TinyPtrSet.h>

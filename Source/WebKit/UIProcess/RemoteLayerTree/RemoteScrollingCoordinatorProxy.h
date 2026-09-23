@@ -126,8 +126,8 @@ public:
     void adjustMainFrameDelegatedScrollPosition(WebCore::ScrollRequestData&&);
 
     bool hasFixedOrSticky() const;
-    bool NODELETE hasScrollableMainFrame() const;
-    bool NODELETE hasScrollableOrZoomedMainFrame() const;
+    bool hasScrollableMainFrame() const;
+    bool hasScrollableOrZoomedMainFrame() const;
 
     WebCore::ScrollbarWidth mainFrameScrollbarWidth() const;
     std::optional<WebCore::ScrollbarColor> mainFrameScrollbarColor() const;
@@ -166,6 +166,7 @@ public:
 #endif
 
     String scrollingTreeAsText() const;
+    float rubberbandHyperbolicCoefficientForTesting() const;
 
     void resetStateAfterProcessExited();
 
@@ -183,10 +184,10 @@ public:
     virtual void windowScreenDidChange(WebCore::PlatformDisplayID, std::optional<WebCore::FramesPerSecond>) { }
 
     WebCore::FloatBoxExtent obscuredContentInsets() const;
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    void setBannerViewHeight(float);
-    void setBannerViewMaximumHeight(float);
-    void setHasBannerViewOverlay(bool);
+#if HAVE(NSREFRESHCONTROLLER)
+    void setTopScrollStretchForRefreshController(float);
+    void setRefreshControllerSnappingThreshold(float);
+    void setHasRefreshController(bool);
 #endif
     WebCore::FloatPoint currentMainFrameScrollPosition() const;
     WebCore::FloatRect computeVisibleContentRect();
@@ -209,13 +210,14 @@ public:
     void receivedLastScrollingTreeNodeUpdateReply();
     bool NODELETE isMonitoringWheelEvents();
 
+    void establishLayerTreeScrollingRelations(IPC::Connection&);
+
 protected:
     explicit RemoteScrollingCoordinatorProxy(WebPageProxy&);
 
     RemoteScrollingTree& scrollingTree() const { return m_scrollingTree.get(); }
 
     virtual void connectStateNodeLayers(WebCore::ScrollingStateTree&, const RemoteLayerTreeHost&) = 0;
-    virtual void establishLayerTreeScrollingRelations(const RemoteLayerTreeHost&) = 0;
 
     virtual void didReceiveWheelEvent(bool /* wasHandled */) { }
 
@@ -228,8 +230,6 @@ private:
 protected:
     WebCore::ScrollRequestData m_scrollRequestData;
     RemoteScrollingUIState m_uiState;
-    std::optional<unsigned> m_currentHorizontalSnapPointIndex;
-    std::optional<unsigned> m_currentVerticalSnapPointIndex;
     bool m_waitingForDidScrollReply { false };
     HashSet<WebCore::PlatformLayerIdentifier> m_layersWithScrollingRelations;
 };

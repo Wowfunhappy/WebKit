@@ -25,6 +25,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-dynamic-change-4.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-dynamic-change-5.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-dynamic-change-6.html
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-dynamic-change-7.html
+/LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-dynamic-change-8.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-rewind-parallel-flow-1-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-rewind-parallel-flow-2-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/CSS2/floats/crashtests/float-rewind-parallel-flow-3-crash.html

@@ -25,11 +25,12 @@
 
 #import "config.h"
 
-#import "Test.h"
+#import "Helpers/Test.h"
 #import <WebCore/IOSurface.h>
 #import <WebCore/IOSurfacePool.h>
 #import <WebCore/RenderingMode.h>
 #import <wtf/MachSendRight.h>
+#import <wtf/Threading.h>
 
 namespace TestWebKitAPI {
 
@@ -58,6 +59,39 @@ TEST(IOSurfaceTest, CreatePlatformContext)
     EXPECT_FALSE(s1->isInUse());
     c2 = nullptr;
     EXPECT_FALSE(s1->isInUse());
+}
+
+TEST(IOSurfaceTest, createFromUntrustedUncompressedWebKitSendRightSRGB)
+{
+    auto original = WebCore::IOSurface::create(nullptr, { 5, 5 }, WebCore::DestinationColorSpace::SRGB());
+    ASSERT_NE(original, nullptr);
+
+    auto roundTripped = WebCore::IOSurface::createFromUntrustedUncompressedWebKitSendRight(original->createSendRight());
+    ASSERT_NE(roundTripped, nullptr);
+    EXPECT_EQ(roundTripped->size(), original->size());
+    EXPECT_EQ(roundTripped->colorSpace(), original->colorSpace());
+}
+
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+TEST(IOSurfaceTest, createFromUntrustedUncompressedWebKitSendRightRGBA16F)
+{
+    auto original = WebCore::IOSurface::create(nullptr, { 5, 5 }, WebCore::DestinationColorSpace::ExtendedDisplayP3(), WebCore::IOSurface::Name::Default, WebCore::IOSurface::Format::RGBA16F);
+    ASSERT_NE(original, nullptr);
+
+    auto roundTripped = WebCore::IOSurface::createFromUntrustedUncompressedWebKitSendRight(original->createSendRight());
+    ASSERT_NE(roundTripped, nullptr);
+    EXPECT_EQ(roundTripped->size(), original->size());
+    EXPECT_EQ(roundTripped->colorSpace(), original->colorSpace());
+}
+#endif // ENABLE(PIXEL_FORMAT_RGBA16F)
+
+TEST(IOSurfaceTest, createFromUntrustedUncompressedWebKitSendRightYUV422)
+{
+    auto original = WebCore::IOSurface::create(nullptr, { 5, 5 }, WebCore::DestinationColorSpace::ExtendedRec2020(), WebCore::IOSurface::Name::Default, WebCore::IOSurface::Format::YUV422);
+    ASSERT_NE(original, nullptr);
+
+    auto roundTripped = WebCore::IOSurface::createFromUntrustedUncompressedWebKitSendRight(original->createSendRight());
+    ASSERT_EQ(roundTripped, nullptr);
 }
 
 TEST(IOSurfaceTest, IOSurfaceNames)
@@ -94,6 +128,66 @@ TEST(IOSurfacePoolTest, IOSurfacePoolNames)
 
     auto s2 = WebCore::IOSurface::create(pool, { 5, 5 }, WebCore::DestinationColorSpace::SRGB(), WebCore::IOSurface::nameForRenderingPurpose(purpose));
     EXPECT_EQ(WebCore::IOSurface::Name::Canvas, s2->name());
+}
+
+static std::unique_ptr<WebCore::IOSurface> createSurface(WebCore::IOSurfacePool* pool, int width, int height)
+{
+    return WebCore::IOSurface::create(pool, { width, height }, WebCore::DestinationColorSpace::SRGB());
+}
+
+// Exercises IOSurfacePool::tryEvictOldestCachedSurface() with many distinct sizes so the
+// HashMap<IntSize, Deque<...>> backing store rehashes while m_sizesInPruneOrder is being
+// maintained.
+TEST(IOSurfacePoolTest, EvictionWithManyDistinctSizes)
+{
+    auto pool = WebCore::IOSurfacePool::create();
+
+    auto sample = createSurface(nullptr, 64, 64);
+    ASSERT_TRUE(sample);
+    pool->setPoolSize(sample->totalBytes() * 4);
+    pool->addSurface(WTF::move(sample));
+
+    for (int i = 0; i < 64; ++i)
+        pool->addSurface(createSurface(nullptr, 64 + i, 64));
+
+    for (int i = 0; i < 64; ++i) {
+        pool->addSurface(createSurface(nullptr, 64 + (i % 8), 64));
+        if (auto recycled = createSurface(pool.ptr(), 64 + (i % 8), 64))
+            pool->addSurface(WTF::move(recycled));
+    }
+
+    pool->setPoolSize(0);
+}
+
+// Reproduces the GPU-process pattern of two RemoteRenderingBackend work queues sharing one pool.
+TEST(IOSurfacePoolTest, ConcurrentAddAndEvict)
+{
+    auto pool = WebCore::IOSurfacePool::create();
+
+    auto sample = createSurface(nullptr, 32, 32);
+    ASSERT_TRUE(sample);
+    pool->setPoolSize(sample->totalBytes() * 4);
+    pool->addSurface(WTF::move(sample));
+
+    static constexpr int iterations = 200;
+    auto worker = [&pool](int base) {
+        for (int i = 0; i < iterations; ++i) {
+            pool->addSurface(createSurface(nullptr, 32 + ((base + i) % 16), 32));
+            if (auto surface = createSurface(pool.ptr(), 32 + ((base + i) % 16), 32))
+                pool->addSurface(WTF::move(surface));
+        }
+    };
+
+    auto thread1 = Thread::create("IOSurfacePoolTest worker 1"_s, [&] {
+        worker(0);
+    });
+    auto thread2 = Thread::create("IOSurfacePoolTest worker 2"_s, [&] {
+        worker(7);
+    });
+    thread1->waitForCompletion();
+    thread2->waitForCompletion();
+
+    pool->discardAllSurfaces();
 }
 
 }

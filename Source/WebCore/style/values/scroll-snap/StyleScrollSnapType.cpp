@@ -26,34 +26,31 @@
 #include "StyleScrollSnapType.h"
 
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 auto CSSValueConversion<ScrollSnapType>::operator()(BuilderState& state, const CSSValue& value) -> ScrollSnapType
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNone:
             return CSS::Keyword::None { };
         default:
-            break;
+            return toStyleFromCSSValue<ScrollSnapAxis>(state, *keywordValue);
         }
-
-        return fromCSSValue<ScrollSnapAxis>(*primitiveValue);
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return CSS::Keyword::None { };
 
-    auto axis = fromCSSValue<ScrollSnapAxis>(list->item(0));
-
+    auto axis = toStyleFromCSSValue<ScrollSnapAxis>(state, list->item(0));
     if (list->size() == 1)
-        return { axis };
+        return axis;
 
-    return { axis, fromCSSValue<ScrollSnapStrictness>(list->item(1)) };
+    return { axis, toStyleFromCSSValue<ScrollSnapStrictness>(state, list->item(1)) };
 }
 
 } // namespace Style

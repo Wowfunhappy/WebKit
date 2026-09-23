@@ -87,7 +87,7 @@ template<typename> struct HashAndCharactersTranslator;
 // Define STRING_STATS to 1 turn on runtime statistics of string sizes and memory usage.
 #define STRING_STATS 0
 
-template<bool isSpecialCharacter(char16_t), typename CharacterType, std::size_t Extent = std::dynamic_extent> bool containsOnly(std::span<const CharacterType, Extent>);
+template<bool isSpecialCharacter(char16_t), typename CharacterType, std::size_t Extent = std::dynamic_extent> bool NODELETE containsOnly(std::span<const CharacterType, Extent>);
 
 #if STRING_STATS
 
@@ -156,7 +156,7 @@ protected:
     StringImplShape(uint32_t refCount, std::span<const char16_t>, unsigned hashAndFlags);
 
     enum ConstructWithConstExprTag { ConstructWithConstExpr };
-    template<unsigned characterCount> constexpr StringImplShape(uint32_t refCount, unsigned length, const char (&characters)[characterCount], unsigned hashAndFlags, ConstructWithConstExprTag);
+    constexpr StringImplShape(uint32_t refCount, ASCIILiteral, unsigned hashAndFlags, ConstructWithConstExprTag);
     template<unsigned characterCount> constexpr StringImplShape(uint32_t refCount, unsigned length, const char16_t (&characters)[characterCount], unsigned hashAndFlags, ConstructWithConstExprTag);
 
     std::atomic<uint32_t> m_refCount;
@@ -228,12 +228,14 @@ private:
     static constexpr const unsigned s_hashFlag8BitBuffer = 1u << 2;
     static constexpr const unsigned s_hashMaskBufferOwnership = (1u << 0) | (1u << 1);
 
+public:
     enum StringKind {
         StringNormal = 0u, // non-symbol, non-atomic
         StringAtom = s_hashFlagStringKindIsAtom, // non-symbol, atomic
         StringSymbol = s_hashFlagStringKindIsSymbol, // symbol, non-atomic
     };
 
+private:
     // Create a normal 8-bit string with internal storage (BufferInternal).
     enum Force8Bit { Force8BitConstructor };
     StringImpl(unsigned length, Force8Bit);
@@ -406,10 +408,11 @@ public:
         //       StringImpl::hash() only sets a new hash iff !hasHash().
         //       Additionally, StringImpl::setHash() asserts hasHash() and !isStatic().
 
-        template<unsigned characterCount> explicit constexpr StaticStringImpl(const char (&characters)[characterCount], StringKind = StringNormal);
+        explicit constexpr StaticStringImpl(ASCIILiteral, StringKind = StringNormal);
         template<unsigned characterCount> explicit constexpr StaticStringImpl(const char16_t (&characters)[characterCount], StringKind = StringNormal);
         operator StringImpl&();
         operator const StringImpl&() const;
+        ASCIILiteral literal() const { return ASCIILiteral::fromLiteralUnsafe(m_data8Char); }
     };
 
     WTF_EXPORT_PRIVATE static StaticStringImpl s_emptyAtomString;
@@ -449,7 +452,7 @@ public:
 
     char16_t at(unsigned) const;
     char16_t operator[](unsigned i) const { return at(i); }
-    WTF_EXPORT_PRIVATE char32_t NODELETE characterStartingAt(unsigned);
+    WTF_EXPORT_PRIVATE char32_t NODELETE codePointAt(unsigned);
 
     // FIXME: Like the strict functions above, these give false for "ok" when there is trailing garbage.
     // Like the non-strict functions above, these return the value when there is trailing garbage.
@@ -462,6 +465,7 @@ public:
     WTF_EXPORT_PRIVATE Ref<StringImpl> convertToLowercaseWithoutLocale();
     WTF_EXPORT_PRIVATE Ref<StringImpl> convertToLowercaseWithoutLocaleStartingAtFailingIndex8Bit(unsigned);
     WTF_EXPORT_PRIVATE Ref<StringImpl> convertToUppercaseWithoutLocale();
+    WTF_EXPORT_PRIVATE Ref<StringImpl> convertToUppercaseWithoutLocaleStartingAtFailingIndex8Bit(unsigned);
     WTF_EXPORT_PRIVATE Ref<StringImpl> convertToLowercaseWithLocale(const AtomString& localeIdentifier);
     WTF_EXPORT_PRIVATE Ref<StringImpl> convertToUppercaseWithLocale(const AtomString& localeIdentifier);
 
@@ -474,19 +478,19 @@ public:
 
     bool containsOnlyASCII() const;
     bool containsOnlyLatin1() const;
-    template<bool isSpecialCharacter(char16_t)> bool containsOnly() const;
+    template<bool isSpecialCharacter(char16_t)> bool NODELETE containsOnly() const;
 
     size_t NODELETE find(Latin1Character, size_t start = 0);
-    size_t find(char, size_t start = 0);
-    size_t find(char16_t, size_t start = 0);
+    size_t NODELETE find(char, size_t start = 0);
+    size_t NODELETE find(char16_t, size_t start = 0);
     template<typename CodeUnitMatchFunction>
         requires (std::is_invocable_r_v<bool, CodeUnitMatchFunction, char16_t>)
-    size_t find(CodeUnitMatchFunction, size_t start = 0);
+    size_t NODELETE find(CodeUnitMatchFunction, size_t start = 0);
     ALWAYS_INLINE size_t find(ASCIILiteral literal, size_t start = 0) { return find(literal.span8(), start); }
-    WTF_EXPORT_PRIVATE size_t find(StringView);
-    WTF_EXPORT_PRIVATE size_t find(StringView, size_t start);
-    WTF_EXPORT_PRIVATE size_t findIgnoringASCIICase(StringView) const;
-    WTF_EXPORT_PRIVATE size_t findIgnoringASCIICase(StringView, size_t start) const;
+    WTF_EXPORT_PRIVATE size_t NODELETE find(StringView);
+    WTF_EXPORT_PRIVATE size_t NODELETE find(StringView, size_t start);
+    WTF_EXPORT_PRIVATE size_t NODELETE findIgnoringASCIICase(StringView) const;
+    WTF_EXPORT_PRIVATE size_t NODELETE findIgnoringASCIICase(StringView, size_t start) const;
 
     WTF_EXPORT_PRIVATE size_t NODELETE reverseFind(char16_t, size_t start = MaxLength);
     WTF_EXPORT_PRIVATE size_t NODELETE reverseFind(StringView, size_t start = MaxLength);
@@ -571,7 +575,6 @@ private:
     template<typename CharacterType> static Expected<Ref<StringImpl>, UTF8ConversionError> reallocateInternal(Ref<StringImpl>&&, unsigned, CharacterType*&);
     template<typename CharacterType> static Ref<StringImpl> createInternal(std::span<const CharacterType>);
     WTF_EXPORT_PRIVATE NEVER_INLINE unsigned hashSlowCase() const;
-    Ref<StringImpl> convertToUppercaseWithoutLocaleStartingAtFailingIndex8Bit(unsigned);
     Ref<StringImpl> convertToUppercaseWithoutLocaleUpconvert();
 
     // The bottom bit in the ref count indicates a static (immortal) string.
@@ -653,8 +656,7 @@ size_t NODELETE reverseFind(std::span<const Latin1Character>, char16_t matchChar
 template<size_t inlineCapacity> bool NODELETE equalIgnoringNullity(const Vector<char16_t, inlineCapacity>&, StringImpl*);
 
 template<typename CharacterType1, typename CharacterType2>
-std::strong_ordering NODELETE odePointCompare(std::span<const CharacterType1> characters1, std::span<const CharacterType2> characters2);
-std::strong_ordering NODELETE codePointCompare(const StringImpl* string1, const StringImpl* string2);
+SUPPRESS_NODELETE std::strong_ordering NODELETE codePointCompare(std::span<const CharacterType1> characters1, std::span<const CharacterType2> characters2);
 
 bool NODELETE isUnicodeWhitespace(char16_t);
 
@@ -702,7 +704,8 @@ template<typename CodeUnit, typename CodeUnitMatchFunction>
 inline size_t find(std::span<const CodeUnit> characters, CodeUnitMatchFunction&& matchFunction, size_t start)
 {
     while (start < characters.size()) {
-        if (matchFunction(characters[start]))
+        // FIXME: support NODELETE predicates (rdar://178355573).
+        SUPPRESS_NODELETE if (matchFunction(characters[start]))
             return start;
         ++start;
     }
@@ -730,11 +733,17 @@ template<typename CharacterType> inline size_t reverseFind(std::span<const Chara
         return notFound;
     if (start >= characters.size())
         start = characters.size() - 1;
-    while (characters[start] != matchCharacter) {
-        if (!start--)
-            return notFound;
-    }
-    return start;
+    size_t searchLength = start + 1;
+    const CharacterType* result;
+    if constexpr (sizeof(CharacterType) == 1)
+        result = std::bit_cast<const CharacterType*>(reverseFind8(std::bit_cast<const uint8_t*>(characters.data()), static_cast<uint8_t>(matchCharacter), searchLength));
+    else if constexpr (sizeof(CharacterType) == 2)
+        result = std::bit_cast<const CharacterType*>(reverseFind16(std::bit_cast<const uint16_t*>(characters.data()), static_cast<uint16_t>(matchCharacter), searchLength));
+    else
+        result = std::bit_cast<const CharacterType*>(reverseFind32(std::bit_cast<const uint32_t*>(characters.data()), static_cast<uint32_t>(matchCharacter), searchLength));
+    if (!result)
+        return notFound;
+    return result - characters.data();
 }
 
 ALWAYS_INLINE size_t reverseFind(std::span<const char16_t> characters, Latin1Character matchCharacter, size_t start)
@@ -783,7 +792,8 @@ template<size_t inlineCapacity> inline bool equalIgnoringNullity(const Vector<ch
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-template<typename CharacterType1, typename CharacterType2> inline std::strong_ordering codePointCompare(std::span<const CharacterType1> characters1, std::span<const CharacterType2> characters2)
+template<typename CharacterType1, typename CharacterType2>
+inline std::strong_ordering codePointCompare(std::span<const CharacterType1> characters1, std::span<const CharacterType2> characters2)
 {
     size_t commonLength = std::min(characters1.size(), characters2.size());
 
@@ -796,8 +806,12 @@ template<typename CharacterType1, typename CharacterType2> inline std::strong_or
         using ChunkType = std::conditional_t<sizeof(CharacterType1) == 1, uint32_t, uint64_t>;
         constexpr size_t stride = sizeof(ChunkType) / sizeof(CharacterType1);
         for (; position + (stride - 1) < commonLength;) {
-            auto lhs = *std::bit_cast<const ChunkType*>(characters1Ptr);
-            auto rhs = *std::bit_cast<const ChunkType*>(characters2Ptr);
+            // Even though CPU does not need aligned access, we cannot
+            // simply dereference ChunkType* or the compiler may perform
+            // optimizations based on the assumption that all ChunkType
+            // objects are naturally aligned.
+            auto lhs = unalignedLoad<ChunkType>(characters1Ptr);
+            auto rhs = unalignedLoad<ChunkType>(characters2Ptr);
             if (lhs != rhs) {
                 if constexpr (sizeof(CharacterType1) == 1)
                     return (flipBytes(lhs) > flipBytes(rhs)) ? std::strong_ordering::greater : std::strong_ordering::less;
@@ -838,26 +852,6 @@ template<typename CharacterType1, typename CharacterType2> inline std::strong_or
 }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-SUPPRESS_NODELETE inline std::strong_ordering codePointCompare(const StringImpl* string1, const StringImpl* string2)
-{
-    // FIXME: Should null strings compare as less than empty strings rather than equal to them?
-    if (!string1)
-        return (string2 && string2->length()) ? std::strong_ordering::less : std::strong_ordering::equal;
-    if (!string2)
-        return string1->length() ? std::strong_ordering::greater : std::strong_ordering::equal;
-
-    bool string1Is8Bit = string1->is8Bit();
-    bool string2Is8Bit = string2->is8Bit();
-    if (string1Is8Bit) {
-        if (string2Is8Bit)
-            return codePointCompare(string1->span8(), string2->span8());
-        return codePointCompare(string1->span8(), string2->span16());
-    }
-    if (string2Is8Bit)
-        return codePointCompare(string1->span16(), string2->span8());
-    return codePointCompare(string1->span16(), string2->span16());
-}
-
 // FIXME: For Latin1Character, isUnicodeCompatibleASCIIWhitespace(character) || character == 0x0085 || character == noBreakSpace would be enough
 SUPPRESS_NODELETE inline bool isUnicodeWhitespace(char16_t character)
 {
@@ -894,13 +888,13 @@ inline StringImplShape::StringImplShape(uint32_t refCount, std::span<const char1
     RELEASE_ASSERT(data.size() <= MaxLength);
 }
 
-template<unsigned characterCount> constexpr StringImplShape::StringImplShape(uint32_t refCount, unsigned length, const char (&characters)[characterCount], unsigned hashAndFlags, ConstructWithConstExprTag)
+constexpr StringImplShape::StringImplShape(uint32_t refCount, ASCIILiteral literal, unsigned hashAndFlags, ConstructWithConstExprTag)
     : m_refCount(refCount)
-    , m_length(length)
-    , m_data8Char(characters)
+    , m_length(literal.length())
+    , m_data8Char(literal.characters())
     , m_hashAndFlags(hashAndFlags)
 {
-    RELEASE_ASSERT(length <= MaxLength);
+    RELEASE_ASSERT(m_length <= MaxLength);
 }
 
 template<unsigned characterCount> constexpr StringImplShape::StringImplShape(uint32_t refCount, unsigned length, const char16_t (&characters)[characterCount], unsigned hashAndFlags, ConstructWithConstExprTag)
@@ -936,11 +930,7 @@ inline bool StringImpl::containsOnlyLatin1() const
 {
     if (is8Bit())
         return true;
-    auto characters = span16();
-    char16_t mergedCharacterBits = 0;
-    for (auto character : characters)
-        mergedCharacterBits |= character;
-    return isLatin1(mergedCharacterBits);
+    return charactersAreAllLatin1(span16());
 }
 
 template<bool isSpecialCharacter(char16_t), typename CharacterType, std::size_t Extent> inline bool containsOnly(std::span<const CharacterType, Extent> characters)
@@ -1275,6 +1265,21 @@ template<typename T> inline T* StringImpl::tailPointer()
 }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+template<typename CharacterType> inline Ref<StringImpl> StringImpl::createUninitializedInternalNonEmpty(size_t length, std::span<CharacterType>& data)
+{
+    ASSERT(length);
+
+    // Allocate a single buffer large enough to contain the StringImpl
+    // struct as well as the data which it contains. This removes one
+    // heap allocation from this call.
+    if (!isValidLength<CharacterType>(length))
+        CRASH();
+
+    SUPPRESS_UNCOUNTED_LOCAL StringImpl* string = static_cast<StringImpl*>(StringImplMalloc::malloc(allocationSize<CharacterType>(length)));
+    data = unsafeMakeSpan(string->tailPointer<CharacterType>(), length);
+    return constructInternal<CharacterType>(*string, length);
+}
+
 inline StringImpl* const& StringImpl::substringBuffer() const
 {
     ASSERT(bufferOwnership() == BufferSubstring);
@@ -1294,9 +1299,9 @@ inline void StringImpl::assertHashIsCorrect() const
     ASSERT(existingHash() == StringHasher::computeHashAndMaskTop8Bits(span8()));
 }
 
-template<unsigned characterCount> constexpr StringImpl::StaticStringImpl::StaticStringImpl(const char (&characters)[characterCount], StringKind stringKind)
-    : StringImplShape(s_refCountFlagIsStaticString, characterCount - 1, characters,
-        s_hashFlag8BitBuffer | s_hashFlagDidReportCost | stringKind | BufferInternal | (StringHasher::computeLiteralHashAndMaskTop8Bits(characters) << s_flagCount), ConstructWithConstExpr)
+constexpr StringImpl::StaticStringImpl::StaticStringImpl(ASCIILiteral literal, StringKind stringKind)
+    : StringImplShape(s_refCountFlagIsStaticString, literal,
+        s_hashFlag8BitBuffer | s_hashFlagDidReportCost | stringKind | BufferInternal | (StringHasher::computeLiteralHashAndMaskTop8Bits(literal) << s_flagCount), ConstructWithConstExpr)
 {
 }
 
@@ -1497,7 +1502,7 @@ inline Expected<std::invoke_result_t<Func, std::span<const char8_t>>, UTF8Conver
         return makeUnexpected(UTF8ConversionError::OutOfMemory);
 
     size_t bufferSize = characters.size() * 3;
-    bufferVector.grow(bufferSize);
+    bufferVector.resize(bufferSize);
     auto convertedSize = utf8ForCharactersIntoBuffer(characters, mode, bufferVector);
     if (!convertedSize)
         return makeUnexpected(convertedSize.error());

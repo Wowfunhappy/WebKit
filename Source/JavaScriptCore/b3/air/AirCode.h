@@ -109,7 +109,7 @@ public:
     void setOptLevel(unsigned optLevel) { m_optLevel = optLevel; }
     unsigned optLevel() const { return m_optLevel; }
     
-    bool needsUsedRegisters() const;
+    bool NODELETE needsUsedRegisters() const;
 
     JS_EXPORT_PRIVATE BasicBlock* addBlock(double frequency = 1);
 
@@ -191,9 +191,9 @@ public:
     unsigned numEntrypoints() const { return m_entrypoints.size(); }
     const Vector<FrequentedBlock>& entrypoints() const LIFETIME_BOUND { return m_entrypoints; }
     const FrequentedBlock& entrypoint(unsigned index) const { return m_entrypoints[index]; }
-    bool isEntrypoint(BasicBlock*) const;
+    bool NODELETE isEntrypoint(BasicBlock*) const;
     // Note: It is only valid to call this function after LowerEntrySwitch.
-    std::optional<unsigned> entrypointIndex(BasicBlock*) const;
+    std::optional<unsigned> NODELETE entrypointIndex(BasicBlock*) const;
 
     // Note: We allow this to be called even before we set m_entrypoints just for convenience to users of this API.
     // However, if you call this before setNumEntrypoints, setNumEntrypoints will overwrite this value.
@@ -259,12 +259,12 @@ public:
     Vector<std::unique_ptr<BasicBlock>>& blockList() LIFETIME_BOUND { return m_blocks; }
 
     // Finds the smallest index' such that at(index') != null and index' >= index.
-    JS_EXPORT_PRIVATE unsigned findFirstBlockIndex(unsigned index) const;
+    JS_EXPORT_PRIVATE unsigned NODELETE findFirstBlockIndex(unsigned index) const;
 
     // Finds the smallest index' such that at(index') != null and index' > index.
-    unsigned findNextBlockIndex(unsigned index) const;
+    unsigned NODELETE findNextBlockIndex(unsigned index) const;
 
-    BasicBlock* findNextBlock(BasicBlock*) const;
+    BasicBlock* NODELETE findNextBlock(BasicBlock*) const;
 
     class iterator {
     public:
@@ -310,7 +310,7 @@ public:
     const SparseCollection<Special>& specials() const LIFETIME_BOUND { return m_specials; }
     SparseCollection<Special>& specials() LIFETIME_BOUND { return m_specials; }
 
-    void addFastTmp(Tmp);
+    JS_EXPORT_PRIVATE void addFastTmp(Tmp);
 
     template<typename Functor>
     void forEachFastTmp(const Functor& functor) const
@@ -345,7 +345,7 @@ public:
     bool shouldPreserveB3Origins() const { return m_preserveB3Origins; }
     void forcePreservationOfB3Origins() { m_preserveB3Origins = true; }
 
-    bool usesSIMD() const;
+    bool NODELETE usesSIMD() const;
 
     void setDisassembler(std::unique_ptr<Disassembler>&& disassembler)
     {

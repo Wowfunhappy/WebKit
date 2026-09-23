@@ -57,6 +57,9 @@
 #include "StyleSheetContents.h"
 #include "StyledElement.h"
 #include "UserAgentStyle.h"
+#if ENABLE(VIDEO)
+#include "UserAgentParts.h"
+#endif
 #include <ranges>
 #include <wtf/SetForScope.h>
 
@@ -491,7 +494,7 @@ void ElementRuleCollector::collectMatchingUserAgentPartRules(const MatchRequest&
 
     auto& rules = matchRequest.ruleSet;
 #if ENABLE(VIDEO)
-    if (element().isWebVTTElement())
+    if (element().isWebVTTElement() || element().userAgentPart() == UserAgentParts::cue())
         collectMatchingRulesForList(&rules.cuePseudoRules(), matchRequest);
 #endif
     if (auto& part = element().userAgentPart(); !part.isEmpty())
@@ -549,7 +552,7 @@ static Vector<AtomString> classListForNamedViewTransitionPseudoElement(const Doc
     return capturedElement->classList;
 }
 
-inline bool ElementRuleCollector::ruleMatches(const RuleData& ruleData, unsigned& specificity, ScopeOrdinal styleScopeOrdinal, std::optional<ScopingRootWithDistance> scopingRoot)
+inline bool ElementRuleCollector::ruleMatches(const RuleData& ruleData, unsigned& specificity, ScopeOrdinal styleScopeOrdinal, const ScopingRootWithDistance* scopingRoot)
 {
     // We know a sufficiently simple single part selector matches simply because we found it from the rule hash when filtering the RuleSet.
     // This is limited to HTML only so we don't need to check the namespace (because of tag name match).
@@ -665,15 +668,19 @@ void ElementRuleCollector::collectMatchingRulesForListSlow(const RuleSet::RuleDa
         if (rule.properties().isEmpty() && !m_shouldIncludeEmptyRules)
             continue;
 
-        auto addRuleIfMatches = [&] (const ScopingRootWithDistance& scopingRootWithDistance = { }) {
+        auto addRuleIfMatches = [&] (const ScopingRootWithDistance* scopingRootWithDistance = nullptr) {
             unsigned specificity;
+            auto distance = scopingRootWithDistance ? scopingRootWithDistance->distance : std::numeric_limits<unsigned>::max();
             if (ruleMatches(ruleData, specificity, matchRequest.styleScopeOrdinal, scopingRootWithDistance))
-                addMatchedRule(ruleData, specificity, scopingRootWithDistance.distance, matchRequest);
+                addMatchedRule(ruleData, specificity, distance, matchRequest);
         };
 
         if (scopingRoots) {
-            for (auto& scopingRoot : *scopingRoots)
-                addRuleIfMatches(scopingRoot);
+            for (auto& scopingRoot : *scopingRoots) {
+                addRuleIfMatches(&scopingRoot);
+                if (isFirstMatchModeAndHasMatchedAnyRules())
+                    return;
+            }
             continue;
         }
 
@@ -703,8 +710,8 @@ bool ElementRuleCollector::containerQueriesMatch(const RuleData& ruleData, const
 
     // "Style rules defined on an element inside multiple nested container queries apply when all of the wrapping container queries are true for that element."
     ContainerQueryEvaluator evaluator(element(), selectionMode, matchRequest.styleScopeOrdinal, containerQueryEvaluationState);
-    for (auto* query : queries) {
-        if (!evaluator.evaluate(*query))
+    for (auto& containerRule : queries) {
+        if (!evaluator.evaluate(containerRule->containerQuery()))
             return false;
     }
     return true;
@@ -731,11 +738,17 @@ std::pair<bool, std::optional<Vector<ElementRuleCollector::ScopingRootWithDistan
             unsigned distance = 0;
             RefPtr ancestor = &element();
             bool shadowHostCrossed = false;
+            // Scope root traversal normally stops at shadow boundaries so document-scoped rules don't
+            // leak into shadow trees. However, slotted elements live in the light DOM, so the traversal
+            // must cross the shadow host to find scope roots in the containing document.
+            bool stopsAtShadowBoundary = element().containingShadowRoot() || context.styleScopeOrdinal == Style::ScopeOrdinal::Shadow;
             while (ancestor && !shadowHostCrossed) {
                 auto subContext = context;
-                if (auto* shadowRoot = ancestor->shadowRoot(); shadowRoot && shadowRoot->mode() != ShadowRootMode::UserAgent) {
-                    subContext.styleScopeOrdinal = Style::ScopeOrdinal::Shadow;
-                    shadowHostCrossed = true;
+                if (stopsAtShadowBoundary) {
+                    if (auto* shadowRoot = ancestor->shadowRoot(); shadowRoot && shadowRoot->mode() != ShadowRootMode::UserAgent) {
+                        subContext.styleScopeOrdinal = Style::ScopeOrdinal::Shadow;
+                        shadowHostCrossed = true;
+                    }
                 }
                 for (const auto& selector : selectorList) {
                     auto appendIfMatch = [&] (std::optional<ScopingRootWithDistance> previousScopingRoot = { }) {
@@ -784,7 +797,7 @@ std::pair<bool, std::optional<Vector<ElementRuleCollector::ScopingRootWithDistan
             };
 
             Vector<ScopingRootWithDistance> scopingRootsWithinScope;
-            for (auto scopingRootWithDistance : scopingRoots) {
+            for (auto& scopingRootWithDistance : scopingRoots) {
                 bool anyScopingLimitMatch = false;
                 for (const auto& selector : scopeEnd) {
                     if (match(scopingRootWithDistance.scopingRoot.get(), selector)) {

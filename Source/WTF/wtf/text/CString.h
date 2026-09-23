@@ -87,6 +87,8 @@ public:
     std::span<const char> span() const LIFETIME_BOUND; // Any encoding
     std::span<const char> spanIncludingNullTerminator() const LIFETIME_BOUND; // Any encoding
 
+    CString isolatedCopy() const { return CString { span() }; }
+
     // Copy-on-write
     WTF_EXPORT_PRIVATE std::span<char> mutableSpan() LIFETIME_BOUND;
     WTF_EXPORT_PRIVATE std::span<char> mutableSpanIncludingNullTerminator() LIFETIME_BOUND;
@@ -102,7 +104,7 @@ public:
 
     bool isHashTableDeletedValue() const { return m_buffer.isHashTableDeletedValue(); }
 
-    WTF_EXPORT_PRIVATE unsigned hash() const;
+    WTF_EXPORT_PRIVATE unsigned NODELETE hash() const;
 
 private:
     void copyBufferIfNeeded();
@@ -111,6 +113,7 @@ private:
 } SWIFT_ESCAPABLE;
 
 WTF_EXPORT_PRIVATE bool NODELETE operator==(const CString&, const CString&);
+WTF_EXPORT_PRIVATE bool NODELETE operator==(const CString&, ASCIILiteral);
 WTF_EXPORT_PRIVATE bool operator<(const CString&, const CString&);
 
 WTF_EXPORT_PRIVATE CString convertToASCIILowercase(std::span<const char8_t>);

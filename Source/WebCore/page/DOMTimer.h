@@ -28,13 +28,8 @@
 
 #include <WebCore/ActiveDOMObject.h>
 #include <WebCore/EventLoop.h>
-#include <WebCore/UserGestureIndicator.h>
-#include <memory>
-#include <wtf/MonotonicTime.h>
-#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -42,6 +37,7 @@ class DOMTimerFireState;
 class Document;
 class ImminentlyScheduledWorkScope;
 class ScheduledAction;
+class UserGestureToken;
 
 class DOMTimer final : public RefCounted<DOMTimer>, public ActiveDOMObject {
     WTF_MAKE_NONCOPYABLE(DOMTimer);
@@ -96,7 +92,7 @@ private:
         ShouldNotThrottle
     };
 
-    int m_timeoutId;
+    int m_timeoutId { 0 };
     int m_nestingLevel;
     EventLoopTimerHandle m_timer;
     Function<void(ScriptExecutionContext&)> m_action;

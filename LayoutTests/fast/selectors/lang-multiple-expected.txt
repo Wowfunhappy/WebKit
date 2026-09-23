@@ -39,11 +39,11 @@ PASS document.querySelectorAll(":lang(-en-, -en-)").length is 0
 PASS document.querySelectorAll(":lang(-en, -en-)").length is 0
 PASS document.querySelectorAll(":lang(-en-, -en--)").length is 0
 
-PASS document.querySelectorAll(":lang(fr-x, fr-x)").length is 0
+PASS document.querySelectorAll(":lang(fr-x, fr-x)").length is 2
 PASS document.querySelectorAll(":lang(fr-xenomorph, fr-xenomorph)").length is 1
 
-PASS document.querySelectorAll(":lang(cocoa-1, cocoa-1)").length is 0
-PASS document.querySelectorAll(":lang(cocoa-a, cocoa-a)").length is 0
+PASS document.querySelectorAll(":lang(cocoa-1, cocoa-1)").length is 1
+PASS document.querySelectorAll(":lang(cocoa-a, cocoa-a)").length is 1
 PASS document.querySelectorAll(":lang(cocoa-bar, cocoa-bar)").length is 0
 
 PASS document.querySelectorAll(":lang(foo, foo)").length is 1

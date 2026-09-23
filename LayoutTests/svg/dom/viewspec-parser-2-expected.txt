@@ -70,16 +70,16 @@ Loaded: resources/viewspec-target.svg#svgView(viewTarget())
 Parsed: [initial view] from: svgView(viewTarget())
 
 Loaded: resources/viewspec-target.svg#svgView(viewTarget(0))
-Parsed: svgView(viewTarget(0)) from: svgView(viewTarget(0))
+Parsed: [initial view] from: svgView(viewTarget(0))
 
 Loaded: resources/viewspec-target.svg#svgView(viewTarget(0,0))
-Parsed: svgView(viewTarget(0,0)) from: svgView(viewTarget(0,0))
+Parsed: [initial view] from: svgView(viewTarget(0,0))
 
 Loaded: resources/viewspec-target.svg#svgView(viewTarget(0,0,0))
-Parsed: svgView(viewTarget(0,0,0)) from: svgView(viewTarget(0,0,0))
+Parsed: [initial view] from: svgView(viewTarget(0,0,0))
 
 Loaded: resources/viewspec-target.svg#svgView(viewTarget(0,0,0,0))
-Parsed: svgView(viewTarget(0,0,0,0)) from: svgView(viewTarget(0,0,0,0))
+Parsed: [initial view] from: svgView(viewTarget(0,0,0,0))
 
 PASS successfullyParsed is true
 

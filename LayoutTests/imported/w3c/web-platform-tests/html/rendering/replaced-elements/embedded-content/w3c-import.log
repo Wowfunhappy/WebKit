@@ -32,6 +32,11 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/tall-cross-domain-iframe-in-scrolled.sub-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/tall-cross-domain-iframe-in-scrolled.sub-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/tall-cross-domain-iframe-in-scrolled.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-stacking-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-stacking-hit-test.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-stacking-ref.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-stacking.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-vertical-writing-mode-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-vertical-writing-mode-ref.html
 /LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-controls-vertical-writing-mode.html
+/LayoutTests/imported/w3c/web-platform-tests/html/rendering/replaced-elements/embedded-content/video-stacking-hit-test.html

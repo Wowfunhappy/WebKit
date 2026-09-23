@@ -41,7 +41,6 @@
 /third_party/android_system_sdk/cipd
 /third_party/android_toolchain
 /third_party/astc-encoder/src
-/third_party/bazel/desugar/*.jar
 /third_party/catapult
 /third_party/cherry
 /third_party/clang-format/script
@@ -51,6 +50,7 @@
 /third_party/dawn
 /third_party/depot_tools
 /third_party/EGL-Registry/src
+/third_party/expat/src
 /third_party/flatbuffers/src
 /third_party/fuchsia-sdk
 /third_party/gles1_conform
@@ -61,7 +61,6 @@
 /third_party/jdk/current
 /third_party/jinja2
 /third_party/jsoncpp
-/third_party/kotlin_stdlib
 /third_party/libdrm/src
 /third_party/libc++/src
 /third_party/libc++abi/src
@@ -81,12 +80,9 @@
 /third_party/OpenCL-ICD-Loader/src
 /third_party/OpenGL-Registry/src
 /third_party/perfetto
-/third_party/proguard/lib
 /third_party/protobuf
 /third_party/Python-Markdown
 /third_party/siso
-/third_party/qemu-linux-x64
-/third_party/qemu-mac-x64
 /third_party/r8/cipd
 /third_party/r8/d8/cipd
 /third_party/r8/lib
@@ -101,7 +97,37 @@
 /third_party/spirv-tools/src
 /third_party/SwiftShader
 /third_party/turbine/cipd
-/third_party/VK-GL-CTS/src
+/third_party/VK-GL-CTS/src/*
+!/third_party/VK-GL-CTS/src/framework
+!/third_party/VK-GL-CTS/src/execserver
+!/third_party/VK-GL-CTS/src/executor
+!/third_party/VK-GL-CTS/src/modules
+/third_party/VK-GL-CTS/src/modules/*
+!/third_party/VK-GL-CTS/src/modules/gles2
+!/third_party/VK-GL-CTS/src/modules/gles3
+!/third_party/VK-GL-CTS/src/modules/glshared
+!/third_party/VK-GL-CTS/src/data
+/third_party/VK-GL-CTS/src/data/*
+!/third_party/VK-GL-CTS/src/data/gles2
+!/third_party/VK-GL-CTS/src/data/gles3
+# Drill down to the two GLES2/GLES3 mustpass case lists the runner reads (the
+# rest of external/openglcts stays ignored). Each parent dir is re-included so
+# git descends to the files; one recursive exclude keeps everything else out
+# (a plain ignore of external would stop git descending -- nested re-includes
+# then have no effect; re-including ALL dirs would drag in upstream's own nested
+# .gitignore files, so only the dirs on the path are re-included).
+!/third_party/VK-GL-CTS/src/external
+/third_party/VK-GL-CTS/src/external/**
+!/third_party/VK-GL-CTS/src/external/openglcts
+!/third_party/VK-GL-CTS/src/external/openglcts/data
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data/mustpass
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data/mustpass/gles
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data/mustpass/gles/aosp_mustpass
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data/mustpass/gles/aosp_mustpass/main
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data/mustpass/gles/aosp_mustpass/main/gles2-main.txt
+!/third_party/VK-GL-CTS/src/external/openglcts/data/gl_cts/data/mustpass/gles/aosp_mustpass/main/gles3-main.txt
 /third_party/vulkan-deps
 /third_party/vulkan-headers/src
 /third_party/vulkan-loader/src
@@ -109,7 +135,8 @@
 /third_party/vulkan-utility-libraries/src
 /third_party/vulkan-validation-layers/src
 /third_party/vulkan_memory_allocator
-/third_party/wayland
+/third_party/wayland/src
+/third_party/wayland-protocols/src
 /third_party/zlib
 /tools/android
 /tools/clang

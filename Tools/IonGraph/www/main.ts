@@ -1,4 +1,4 @@
-import { migrate, type IonJSON, type Func, type SampleCounts } from "../src/iongraph.js";
+import { currentVersion, migrate, type IonJSON, type Func, type SampleCounts } from "../src/iongraph.js";
 import { must } from "../src/utils.js";
 import { E } from "../src/dom.js";
 import { GraphViewer } from "../src/GraphViewer.js";
@@ -18,6 +18,8 @@ class MenuBar {
   root: HTMLElement;
   funcSelector: HTMLElement;
   funcSelectorNone: HTMLElement;
+  funcTier: HTMLElement;
+  funcOSR: HTMLElement;
   funcName: HTMLElement;
   exportButton: HTMLButtonElement | null;
 
@@ -45,6 +47,8 @@ class MenuBar {
       E("span", ["num-functions"]),
     ]);
     this.funcSelectorNone = E("div", [], () => { }, ["No functions to display."]);
+    this.funcTier = E("div", ["ig-tier-badge"]);
+    this.funcOSR = E("div", ["ig-osr-badge"], () => { }, ["OSR"]);
     this.funcName = E("div");
     this.root = E("div", ["ig-bb", "ig-flex", "ig-bg-white"], () => { }, [
       E("div", ["ig-pv2", "ig-ph3", "ig-flex", "ig-g2", "ig-items-center", "ig-br", "ig-hide-if-empty"], () => { }, [
@@ -64,6 +68,8 @@ class MenuBar {
         this.funcSelectorNone,
       ]),
       E("div", ["ig-flex-grow-1", "ig-pv2", "ig-ph3", "ig-flex", "ig-g2", "ig-items-center"], () => { }, [
+        this.funcTier,
+        this.funcOSR,
         this.funcName,
         E("div", ["ig-flex-grow-1"]),
         props.export && E("div", [], () => { }, [
@@ -117,6 +123,13 @@ class MenuBar {
     this.funcName.hidden = !funcIndexValid;
     this.funcName.innerText = `${this.ionjson?.functions[this.funcIndex].name ?? ""}`;
 
+    const func = funcIndexValid ? this.ionjson?.functions[this.funcIndex] : null;
+    const tier = func?.tier ?? null;
+    this.funcTier.hidden = !tier;
+    this.funcTier.innerText = tier ?? "";
+    this.funcTier.dataset.tier = tier ?? "";
+    this.funcOSR.hidden = !(func?.osr);
+
     if (this.exportButton) {
       this.exportButton.disabled = !this.ionjson || !funcIndexValid;
     }
@@ -124,8 +137,10 @@ class MenuBar {
 
   async exportStandalone() {
     const ion = must(this.ionjson);
-    const name = ion.functions[this.funcIndex].name;
-    const result: IonJSON = { version: 1, functions: [ion.functions[this.funcIndex]] };
+    const func = ion.functions[this.funcIndex];
+    const name = func.name;
+    const tierSuffix = func.tier ? (func.osr ? `-${func.tier}-OSR` : `-${func.tier}`) : "";
+    const result: IonJSON = { version: currentVersion, functions: [func] };
 
     // Use embedded template if available (file:// mode), otherwise fetch
     const template = (window as any).__standaloneTemplate
@@ -134,7 +149,7 @@ class MenuBar {
     const url = URL.createObjectURL(new Blob([output], { type: "text/html;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `iongraph-${name}.html`;
+    a.download = `iongraph-${name}${tierSuffix}.html`;
     document.body.appendChild(a);
     a.click();
     a.remove();

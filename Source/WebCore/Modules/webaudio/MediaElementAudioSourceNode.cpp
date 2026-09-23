@@ -103,13 +103,7 @@ void MediaElementAudioSourceNode::setFormat(size_t numberOfChannels, float sourc
         m_sourceNumberOfChannels = numberOfChannels;
         m_sourceSampleRate = sourceSampleRate;
 
-        if (sourceSampleRate != sampleRate()) {
-            double scaleFactor = sourceSampleRate / sampleRate();
-            m_multiChannelResampler = makeUnique<MultiChannelResampler>(scaleFactor, numberOfChannels, AudioUtilities::renderQuantumSize, std::bind(&MediaElementAudioSourceNode::provideInput, this, std::placeholders::_1, std::placeholders::_2));
-        } else {
-            // Bypass resampling.
-            m_multiChannelResampler = nullptr;
-        }
+        updateResamplerIfNeeded();
 
         {
             // The context must be locked when changing the number of output channels.
@@ -118,6 +112,17 @@ void MediaElementAudioSourceNode::setFormat(size_t numberOfChannels, float sourc
             // Do any necesssary re-configuration to the output's number of channels.
             protect(output(0))->setNumberOfChannels(numberOfChannels);
         }
+    }
+}
+
+void MediaElementAudioSourceNode::updateResamplerIfNeeded()
+{
+    if (m_sourceSampleRate != sampleRate()) {
+        double scaleFactor = m_sourceSampleRate / sampleRate();
+        m_multiChannelResampler = makeUnique<MultiChannelResampler>(scaleFactor, m_sourceNumberOfChannels, AudioUtilities::renderQuantumSize, std::bind(&MediaElementAudioSourceNode::provideInput, this, std::placeholders::_1, std::placeholders::_2));
+    } else {
+        // Bypass resampling.
+        m_multiChannelResampler = nullptr;
     }
 }
 
@@ -161,11 +166,9 @@ void MediaElementAudioSourceNode::process(size_t numberOfFrames)
     }
 
     if (m_multiChannelResampler) {
-        ASSERT(m_sourceSampleRate != sampleRate());
         m_multiChannelResampler->process(outputBus.get(), numberOfFrames);
     } else {
-        // Bypass the resampler completely if the source is at the context's sample-rate.
-        ASSERT(m_sourceSampleRate == sampleRate());
+        // Bypass the resampler completely if no resampling is needed.
         provideInput(outputBus, numberOfFrames);
     }
 }

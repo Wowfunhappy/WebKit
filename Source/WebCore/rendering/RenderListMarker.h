@@ -26,7 +26,7 @@
 
 namespace WebCore {
 
-class CSSCounterStyle;
+class CSSRegisteredCounterStyle;
 class RenderListItem;
 class StyleRuleCounterStyle;
 
@@ -56,7 +56,7 @@ class RenderListMarker final : public RenderBox {
     WTF_MAKE_TZONE_ALLOCATED(RenderListMarker);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderListMarker);
 public:
-    RenderListMarker(RenderListItem&, RenderStyle&&);
+    RenderListMarker(RenderListItem&, Style::ComputedStyle&&);
     virtual ~RenderListMarker();
 
     String textWithoutSuffix() const { return m_textContent.textWithoutSuffix().toString(); };
@@ -64,7 +64,6 @@ public:
 
     bool NODELETE isInside() const;
     bool isDisclosureMarker() const;
-    bool shouldPaintInAssociatedListItemLayer() const;
 
     void updateInlineMarginsAndContent();
 
@@ -72,7 +71,6 @@ public:
 
     LayoutUnit lineLogicalOffsetForListItem() const { return m_lineLogicalOffsetForListItem; }
     const RenderListItem* NODELETE listItem() const;
-    void paintFromAssociatedListItemLayer(PaintInfo&, const LayoutPoint&);
 
     std::pair<float, float> layoutBounds() const { return m_layoutBounds; }
 
@@ -90,17 +88,17 @@ public:
 private:
     void willBeDestroyed() final;
     ASCIILiteral renderName() const final { return "RenderListMarker"_s; }
-    void computePreferredLogicalWidths() final;
+    void computeIntrinsicLogicalWidthContributions() final;
     bool canHaveChildren() const final { return false; }
     void paint(PaintInfo&, const LayoutPoint&) final;
     void layout() final;
     void imageChanged(WrappedImagePtr, const IntRect*) final;
     LayoutRect NODELETE selectionRectForRepaint(const RenderLayerModelObject* repaintContainer, bool clipToVisibleContent) final;
     bool canBeSelectionLeaf() const final { return true; }
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) final;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) final;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
     Node* nodeForHitTest() const final;
-    void computeIntrinsicLogicalWidths(LayoutUnit&, LayoutUnit&) const override { ASSERT_NOT_REACHED(); }
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { ASSERT_NOT_REACHED(); return { }; }
     std::pair<float, float> layoutBoundForTextContent(String) const;
 
     void element() const = delete;
@@ -112,7 +110,7 @@ private:
     LayoutRect NODELETE localSelectionRect();
     void paintDisclosureMarker(GraphicsContext&, const FloatRect& markerRect);
 
-    RefPtr<CSSCounterStyle> counterStyle() const;
+    RefPtr<CSSRegisteredCounterStyle> counterStyle() const;
     bool widthUsesMetricsOfPrimaryFont() const;
 
 private:

@@ -15,10 +15,19 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/META.yml
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/basic.any.js
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/clamped-time-origin-isolated.https.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/clamped-time-origin-isolated.https.html.headers
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/clamped-time-origin.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/cross-origin-isolated-timing-attack.https.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/cross-origin-isolated-timing-attack.https.html.headers
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/idlharness.any.js
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/monotonic-clock.any.js
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/navigation-start-post-before-unload.html
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/performance-tojson.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/raf-coarsened-time.https.html
+/LayoutTests/imported/w3c/web-platform-tests/hr-time/raf-coarsened-time.https.html.headers
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/test_cross_frame_start.html
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/timeOrigin.html
 /LayoutTests/imported/w3c/web-platform-tests/hr-time/timing-attack.html

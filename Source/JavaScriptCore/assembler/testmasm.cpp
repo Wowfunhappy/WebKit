@@ -189,7 +189,7 @@ Lock crashLock;
 
 typedef WTF::Function<void(CCallHelpers&)> Generator;
 
-template<typename T> T nextID(T id) { return static_cast<T>(id + 1); }
+template<typename T> T NODELETE nextID(T id) { return static_cast<T>(id + 1); }
 
 #define TESTWORD64 0x0c0defefebeef000
 #define TESTWORD32 0x0beef000
@@ -6047,7 +6047,7 @@ void testMoveDoubleConditionally64()
 
 #if CPU(X86_64) || CPU(ARM64)
 template<typename SelectionType>
-static SelectionType expectedResultForRelationalCondition(MacroAssembler::RelationalCondition cond, int32_t a, int32_t b, SelectionType thenValue, SelectionType elseValue)
+static SelectionType NODELETE expectedResultForRelationalCondition(MacroAssembler::RelationalCondition cond, int32_t a, int32_t b, SelectionType thenValue, SelectionType elseValue)
 {
     switch (cond) {
     case MacroAssembler::Equal:
@@ -6075,7 +6075,7 @@ static SelectionType expectedResultForRelationalCondition(MacroAssembler::Relati
 }
 
 template<typename SelectionType>
-static SelectionType expectedResultForResultCondition(MacroAssembler::ResultCondition cond, int32_t testValue, int32_t mask, SelectionType thenValue, SelectionType elseValue)
+static SelectionType NODELETE expectedResultForResultCondition(MacroAssembler::ResultCondition cond, int32_t testValue, int32_t mask, SelectionType thenValue, SelectionType elseValue)
 {
     int32_t result = testValue & mask;
     switch (cond) {

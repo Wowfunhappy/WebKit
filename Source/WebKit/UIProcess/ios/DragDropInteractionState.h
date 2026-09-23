@@ -77,8 +77,8 @@ public:
     const DragSourceState& stagedDragSource() const LIFETIME_BOUND { return m_stagedDragSource.value(); }
     enum class DidBecomeActive : bool { No, Yes };
     void clearStagedDragSource(DidBecomeActive = DidBecomeActive::No);
-    UITargetedDragPreview *previewForLifting(UIDragItem *, UIView *contentView, UIView *previewContainer, RefPtr<WebCore::TextIndicator>&&) const;
-    UITargetedDragPreview *previewForCancelling(UIDragItem *, UIView *contentView, UIView *previewContainer);
+    UITargetedDragPreview *previewForLifting(UIDragItem *, UIView *contentView, UIView *previewContainer, UIScrollView *, RefPtr<WebCore::TextIndicator>&&) const;
+    UITargetedDragPreview *previewForCancelling(UIDragItem *, UIView *contentView, UIView *previewContainer, UIScrollView *);
     void dragSessionWillDelaySetDownAnimation(dispatch_block_t completion);
     bool shouldRequestAdditionalItemForDragSession(id <UIDragSession>) const;
     void dragSessionWillRequestAdditionalItem(void (^completion)(NSArray <UIDragItem *> *));
@@ -110,7 +110,7 @@ private:
     std::optional<DragSourceState> activeDragSourceForItem(UIDragItem *) const;
     UITargetedDragPreview *defaultDropPreview(UIDragItem *) const;
 
-    RetainPtr<UITargetedDragPreview> createDragPreviewInternal(UIDragItem *, UIView *contentView, UIView *previewContainer, AddPreviewViewToContainer, const RefPtr<WebCore::TextIndicator>&&) const;
+    RetainPtr<UITargetedDragPreview> createDragPreviewInternal(UIDragItem *, UIView *contentView, UIView *previewContainer, UIScrollView *, AddPreviewViewToContainer, const RefPtr<WebCore::TextIndicator>&&) const;
 
     CGPoint m_lastGlobalPosition { CGPointZero };
     CGPoint m_adjustedPositionForDragEnd { CGPointZero };
@@ -128,6 +128,10 @@ private:
     DragItemToPreviewMap m_finalDropPreviews;
     std::optional<WebCore::NodeIdentifier> m_nodeIdentifier;
 };
+
+#if PLATFORM(VISION)
+CGFloat clampedDragPreviewCenterAxis(CGFloat naturalCenter, CGFloat viewportMin, CGFloat viewportMax, CGFloat halfSize);
+#endif
 
 } // namespace WebKit
 

@@ -37,8 +37,8 @@
 #include <WebCore/FourCC.h>
 #include <WebCore/HTMLParserScriptingFlagPolicy.h>
 #include <WebCore/MediaPlayerEnums.h>
+#include <WebCore/NavigatorWebDriverActivePolicy.h>
 #include <WebCore/StorageBlockingPolicy.h>
-#include <WebCore/StorageMap.h>
 #include <WebCore/TextDirectionSubmenuInclusionBehavior.h>
 #include <WebCore/Timer.h>
 #include <WebCore/TrustedFonts.h>
@@ -66,11 +66,12 @@ class SettingsBase : public AbstractRefCountedAndCanMakeWeakPtr<SettingsBase> {
 public:
 
 #if ENABLE(MEDIA_SOURCE)
-    WEBCORE_EXPORT static bool platformDefaultMediaSourceEnabled();
-    WEBCORE_EXPORT static uint64_t defaultMaximumSourceBufferSize();
+    WEBCORE_EXPORT static bool NODELETE platformDefaultMediaSourceEnabled();
+    WEBCORE_EXPORT static uint64_t NODELETE defaultMaximumSourceBufferSize();
 #endif
 
     static const unsigned defaultMaximumHTMLParserDOMTreeDepth = 512;
+    static const unsigned defaultMaximumXMLParserEntityExpansionCount = 512;
     static const unsigned defaultMaximumRenderTreeDepth = 512;
 
     virtual FontGenericFamilies& fontGenericFamilies() LIFETIME_BOUND = 0;

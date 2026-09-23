@@ -182,4 +182,9 @@ void TimelineRecordFactory::appendLayoutRoot(JSON::Object& data, const FloatQuad
     data.setArray("root"_s, createQuad(quad));
 }
 
+void TimelineRecordFactory::appendNodeId(JSON::Object& data, Inspector::Protocol::DOM::NodeId nodeId)
+{
+    data.setInteger("nodeId"_s, nodeId);
+}
+
 } // namespace WebCore

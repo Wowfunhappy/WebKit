@@ -39,6 +39,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/TZoneMalloc.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -46,9 +47,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaSessionManageriOS);
 
 RefPtr<PlatformMediaSessionManager> PlatformMediaSessionManager::create(PageIdentifier pageIdentifier)
 {
-    Ref manager = MediaSessionManageriOS::create(pageIdentifier);
-    MediaSessionHelper::sharedHelper().addClient(manager);
-    return manager;
+    return MediaSessionManageriOS::create(pageIdentifier);
 }
 
 Ref<MediaSessionManageriOS> MediaSessionManageriOS::create(PageIdentifier pageIdentifier)
@@ -59,14 +58,15 @@ Ref<MediaSessionManageriOS> MediaSessionManageriOS::create(PageIdentifier pageId
 MediaSessionManageriOS::MediaSessionManageriOS(PageIdentifier pageIdentifier)
     : MediaSessionManagerCocoa(pageIdentifier)
 {
+    MediaSessionHelper::sharedHelper().addClient(*this);
     AudioSession::addInterruptionObserver(*this);
 }
 
 MediaSessionManageriOS::~MediaSessionManageriOS()
 {
     if (m_isMonitoringWirelessRoutes)
-        MediaSessionHelper::sharedHelper().stopMonitoringWirelessRoutes();
-    MediaSessionHelper::sharedHelper().removeClient(*this);
+        protect(MediaSessionHelper::sharedHelper())->stopMonitoringWirelessRoutes();
+    protect(MediaSessionHelper::sharedHelper())->removeClient(*this);
     AudioSession::removeInterruptionObserver(*this);
 }
 
@@ -102,6 +102,10 @@ bool MediaSessionManageriOS::isMonitoringWirelessTargets() const
 
 void MediaSessionManageriOS::configureWirelessTargetMonitoring()
 {
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+    ensureMediaDeviceRouteControllerMonitoring();
+#endif
+
 #if !PLATFORM(WATCHOS)
     bool requiresMonitoring = anyOfSessions([] (auto& session) {
         return session.requiresPlaybackTargetRouteMonitoring();
@@ -115,11 +119,18 @@ void MediaSessionManageriOS::configureWirelessTargetMonitoring()
     ALWAYS_LOG(LOGIDENTIFIER, "requiresMonitoring = ", requiresMonitoring);
 
     if (requiresMonitoring)
-        MediaSessionHelper::sharedHelper().startMonitoringWirelessRoutes();
+        protect(MediaSessionHelper::sharedHelper())->startMonitoringWirelessRoutes();
     else
-        MediaSessionHelper::sharedHelper().stopMonitoringWirelessRoutes();
+        protect(MediaSessionHelper::sharedHelper())->stopMonitoringWirelessRoutes();
 #endif
 }
+
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+void MediaSessionManageriOS::ensureMediaDeviceRouteControllerMonitoring()
+{
+    protect(MediaSessionHelper::sharedHelper())->ensureMediaDeviceRouteControllerMonitoring();
+}
+#endif
 
 void MediaSessionManageriOS::sessionWillBeginPlayback(PlatformMediaSessionInterface& session, CompletionHandler<void(bool)>&& completionHandler)
 {
@@ -142,7 +153,7 @@ void MediaSessionManageriOS::sessionWillBeginPlayback(PlatformMediaSessionInterf
 #if PLATFORM(IOS_FAMILY)
         auto playbackTargetSupportsAirPlayVideo = MediaSessionHelper::sharedHelper().activeVideoRouteSupportsAirPlayVideo();
         ALWAYS_LOG_WITH_THIS(protectedThis, logSiteIdentifier, "Playback Target Supports AirPlay Video = ", playbackTargetSupportsAirPlayVideo);
-        if (auto target = MediaSessionHelper::sharedHelper().playbackTarget(); target && playbackTargetSupportsAirPlayVideo)
+        if (RefPtr target = MediaSessionHelper::sharedHelper().playbackTarget(); target && playbackTargetSupportsAirPlayVideo)
             strongSession->setPlaybackTarget(*target);
         strongSession->setShouldPlayToPlaybackTarget(playbackTargetSupportsAirPlayVideo);
 #endif
@@ -156,7 +167,13 @@ void MediaSessionManageriOS::sessionWillEndPlayback(PlatformMediaSessionInterfac
     MediaSessionManagerCocoa::sessionWillEndPlayback(session, delayCallingUpdateNowPlaying);
 
 #if USE(AUDIO_SESSION)
-    if (isApplicationInBackground() && !anyOfSessions([] (auto& session) { return session.state() == PlatformMediaSession::State::Playing; }))
+    if (isApplicationInBackground())
+        return;
+
+    if (!anyOfSessions([] (auto& session) {
+            return session.state() == PlatformMediaSession::State::Playing
+                || session.isPlayingToWirelessPlaybackTarget();
+        }))
         maybeDeactivateAudioSession();
 #endif
 }

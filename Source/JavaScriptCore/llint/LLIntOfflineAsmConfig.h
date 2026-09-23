@@ -29,7 +29,7 @@
 #include <JavaScriptCore/LLIntCommon.h>
 #include <JavaScriptCore/StructureID.h>
 #include <wtf/Assertions.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 
 #if ENABLE(C_LOOP)
 #define OFFLINE_ASM_C_LOOP 1

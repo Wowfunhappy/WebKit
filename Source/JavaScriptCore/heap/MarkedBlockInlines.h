@@ -26,7 +26,6 @@
 #pragma once
 
 #include <JavaScriptCore/BlockDirectory.h>
-#include <JavaScriptCore/JSCast.h>
 #include <JavaScriptCore/MarkedBlock.h>
 #include <JavaScriptCore/MarkedSpace.h>
 #include <JavaScriptCore/Scribble.h>
@@ -585,6 +584,32 @@ inline IterationStatus MarkedBlock::Handle::forEachMarkedCell(const Functor& fun
         return result;
     });
     return result;
+}
+
+inline void MarkedBlock::Handle::shrink()
+{
+    m_weakSet.shrink();
+}
+
+inline size_t MarkedBlock::Handle::markCount()
+{
+    return m_block->markCount();
+}
+
+inline size_t MarkedBlock::Handle::size()
+{
+    return markCount() * cellSize();
+}
+
+inline void MarkedBlock::noteMarked()
+{
+    // This is racy by design. We don't want to pay the price of an atomic increment!
+    // FIXME: We could probably make this relaxed atomics on Apple ARM64E since it's mostly free for those chips.
+    MarkCountBiasType biasedMarkCount = header().m_biasedMarkCount;
+    ++biasedMarkCount;
+    header().m_biasedMarkCount = biasedMarkCount;
+    if (!biasedMarkCount) [[unlikely]]
+        noteMarkedSlow();
 }
 
 } // namespace JSC

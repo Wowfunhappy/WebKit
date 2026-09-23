@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,25 +26,63 @@
 #include "config.h"
 #include "StyleBorderImageRepeat.h"
 
-#include "CSSValuePair.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "CSSBorderImageRepeatValue.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 // MARK: - Conversion
 
+static auto toCSSBorderImageRepeatValue(const BorderImageRepeat::Value& value) -> CSS::BorderImageRepeat::Value
+{
+    switch (value) {
+    case NinePieceImageRule::Stretch: return CSS::Keyword::Stretch { };
+    case NinePieceImageRule::Round:   return CSS::Keyword::Round { };
+    case NinePieceImageRule::Space:   return CSS::Keyword::Space { };
+    case NinePieceImageRule::Repeat:  return CSS::Keyword::Repeat { };
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+static auto toStyleBorderImageRepeatValue(const CSS::BorderImageRepeat::Value& value) -> BorderImageRepeat::Value
+{
+    return WTF::switchOn(value,
+        [](CSS::Keyword::Stretch) { return NinePieceImageRule::Stretch; },
+        [](CSS::Keyword::Round)   { return NinePieceImageRule::Round; },
+        [](CSS::Keyword::Space)   { return NinePieceImageRule::Space; },
+        [](CSS::Keyword::Repeat)  { return NinePieceImageRule::Repeat; }
+    );
+}
+
+auto ToCSS<BorderImageRepeat>::operator()(const BorderImageRepeat& value, const Style::ComputedStyle&) -> CSS::BorderImageRepeat
+{
+    return { {
+        toCSSBorderImageRepeatValue(value.values.width()),
+        toCSSBorderImageRepeatValue(value.values.height()),
+    } };
+}
+
+auto ToStyle<CSS::BorderImageRepeat>::operator()(const CSS::BorderImageRepeat& value, const BuilderState&) -> BorderImageRepeat
+{
+    return {
+        toStyleBorderImageRepeatValue(value.values.width()),
+        toStyleBorderImageRepeatValue(value.values.height()),
+    };
+}
+
 auto CSSValueConversion<BorderImageRepeat>::operator()(BuilderState& state, const CSSValue& value) -> BorderImageRepeat
 {
-    if (auto* pairValue = dynamicDowncast<CSSValuePair>(value)) {
-        return BorderImageRepeat {
-            toStyleFromCSSValue<NinePieceImageRule>(state, pairValue->first()),
-            toStyleFromCSSValue<NinePieceImageRule>(state, pairValue->second()),
-        };
-    }
+    if (RefPtr borderImageRepeatValue = dynamicDowncast<CSSBorderImageRepeatValue>(value))
+        return toStyle(borderImageRepeatValue->repeats(), state);
 
-    // Values coming from CSS Typed OM may not have been converted to a CSSValuePair.
+    // Values coming from CSS Typed OM may not have been converted to a CSSBorderImageRepeatValue.
     return toStyleFromCSSValue<NinePieceImageRule>(state, value);
+}
+
+auto CSSValueCreation<BorderImageRepeat>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const BorderImageRepeat& value) -> Ref<CSSValue>
+{
+    return CSSBorderImageRepeatValue::create(toCSS(value, style));
 }
 
 } // namespace Style

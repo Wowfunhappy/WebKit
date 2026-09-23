@@ -87,7 +87,7 @@ int DateComponents::maxWeekNumberInYear() const
     return day == Thursday || (day == Wednesday && isLeapYear(m_year)) ? maximumWeekNumber : maximumWeekNumber - 1;
 }
 
-template<typename CharacterType> static unsigned countDigits(StringParsingBuffer<CharacterType> buffer)
+template<typename CharacterType> static unsigned NODELETE countDigits(StringParsingBuffer<CharacterType> buffer)
 {
     auto begin = buffer.position();
     skipWhile<isASCIIDigit>(buffer);
@@ -95,7 +95,7 @@ template<typename CharacterType> static unsigned countDigits(StringParsingBuffer
 }
 
 // Differences from parseInteger<int>: Takes StringParsingBuffer. Does not allow leading or trailing spaces. Does not allow leading "+".
-template<typename CharacterType> static std::optional<int> parseInt(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse)
+template<typename CharacterType> static std::optional<int> NODELETE parseInt(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse)
 {
     if (maximumNumberOfDigitsToParse > buffer.lengthRemaining() || !maximumNumberOfDigitsToParse)
         return std::nullopt;
@@ -117,7 +117,7 @@ template<typename CharacterType> static std::optional<int> parseInt(StringParsin
     return value;
 }
 
-template<typename CharacterType> static std::optional<int> parseIntWithinLimits(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse, int minimumValue, int maximumValue)
+template<typename CharacterType> static std::optional<int> NODELETE parseIntWithinLimits(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse, int minimumValue, int maximumValue)
 {
     auto value = parseInt(buffer, maximumNumberOfDigitsToParse);
     if (!(value && *value >= minimumValue && *value <= maximumValue))
@@ -491,7 +491,7 @@ template<typename CharacterType> bool DateComponents::parseTime(StringParsingBuf
 
 // Gecko allows both 'T' and a space as datetime-local separator (see https://github.com/whatwg/html/issues/2276).
 // WPT tests also expect this behavior.
-template<typename CharacterType> static bool isDateTimeLocalSeparator(CharacterType c)
+template<typename CharacterType> static bool NODELETE isDateTimeLocalSeparator(CharacterType c)
 {
     return c == 'T' || c == ' ';
 }

@@ -28,7 +28,6 @@
 
 #include "pas_bitfit_page_config.h"
 #include "pas_compact_atomic_bitfit_view_ptr.h"
-#include "pas_lock.h"
 #include "pas_page_base.h"
 
 PAS_BEGIN_EXTERN_C;

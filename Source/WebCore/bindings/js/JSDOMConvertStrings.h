@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSCJSValuePropertyInlines.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSString.h>
 #include <WebCore/IDLTypes.h>
@@ -66,17 +66,7 @@ inline AtomString propertyNameToAtomString(JSC::PropertyName propertyName)
 template<> struct Converter<IDLDOMString> : DefaultConverter<IDLDOMString> {
     using Result = ConversionResult<IDLDOMString>;
 
-    static Result convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
-    {
-        auto& vm = lexicalGlobalObject.vm();
-        auto scope = DECLARE_THROW_SCOPE(vm);
-
-        auto string = value.toWTFString(&lexicalGlobalObject);
-
-        RETURN_IF_EXCEPTION(scope, Result::exception());
-
-        return Result { WTF::move(string) };
-    }
+    WEBCORE_EXPORT static Result convert(JSC::JSGlobalObject&, JSC::JSValue);
 };
 
 template<> struct JSConverter<IDLDOMString> {

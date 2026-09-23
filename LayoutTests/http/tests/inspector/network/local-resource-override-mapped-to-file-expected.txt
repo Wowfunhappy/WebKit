@@ -10,6 +10,14 @@ PASS: Resource Loaded.
 Resource Content: 'PASS: Should load from file.'
 Local Resource Override Content: 'PASS: Should load from file.'
 
+-- Running test case: LocalResourceOverride.MappedToFile.UTF8
+Creating Local Resource Override for: http://127.0.0.1:8000/inspector/network/resources/override.txt
+Linking to file...
+Triggering load...
+PASS: Resource Loaded.
+Resource Content: 'PASS: Should load from file with UTF-8 characters: café 日本語 🎉'
+Local Resource Override Content: 'PASS: Should load from file with UTF-8 characters: café 日本語 🎉'
+
 -- Running test case: LocalResourceOverride.MappedToFile.MappedFileChanged
 Creating Local Resource Override for: http://127.0.0.1:8000/inspector/network/resources/override.txt
 Linking to file...

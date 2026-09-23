@@ -53,8 +53,8 @@ public:
 
     void clearChildNodeListCache()
     {
-        if (m_childNodeList)
-            m_childNodeList->invalidateCache();
+        if (RefPtr childNodeList = m_childNodeList.get())
+            childNodeList->invalidateCache();
     }
 
     Ref<ChildNodeList> ensureChildNodeList(ContainerNode& node)
@@ -196,7 +196,7 @@ public:
 private:
     std::pair<std::underlying_type_t<CollectionType>, AtomString> namedCollectionKey(CollectionType type, const AtomString& name)
     {
-        return std::pair<std::underlying_type_t<CollectionType>, AtomString>(static_cast<std::underlying_type_t<CollectionType>>(type), name);
+        return { std::to_underlying(type), name };
     }
 
     template<typename NodeListType>

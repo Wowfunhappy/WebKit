@@ -42,7 +42,7 @@ function test()
         description: "A list item should have both the User Agent and authored `::marker` rules.",
         selector: "#listItem",
         async domNodeStylesHandler(styles) {
-            InspectorTest.expectEqual(styles.pseudoElements.get(WI.CSSManager.PseudoSelectorNames.Marker).matchedRules.length, 2, "Expected exactly 2 rules for selector `*::marker`.");
+            InspectorTest.expectEqual(styles.pseudoElements.get(WI.CSSManager.PseudoSelectorNames.Marker).length, 2, "Expected exactly 2 rules for selector `*::marker`.");
         }
     });
 
@@ -63,7 +63,7 @@ function test()
             InspectorTest.expectEqual(styles.pseudoElements.get(WI.CSSManager.PseudoSelectorNames.Marker), undefined, "Expected no rules entry for selector `*::marker`.");
             await changeElementDisplayValue("nonListItemWithMarkerSpecified", "list-item");
             await styles.refresh();
-            InspectorTest.expectEqual(styles.pseudoElements.get(WI.CSSManager.PseudoSelectorNames.Marker).matchedRules.length, 3, "Expected 3 rules for selector `*::marker`.");
+            InspectorTest.expectEqual(styles.pseudoElements.get(WI.CSSManager.PseudoSelectorNames.Marker).length, 3, "Expected 3 rules for selector `*::marker`.");
         }
     });
 

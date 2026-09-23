@@ -29,6 +29,7 @@
 #include "ContainerNodeInlines.h"
 #include "JSNode.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/AbstractSlotVisitorInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -84,7 +85,7 @@ bool StaticRange::computeValidity() const
     if (endOffset() > endContainer->length())
         return false;
     if (startContainer.ptr() == endContainer.ptr())
-        return endOffset() > startOffset();
+        return endOffset() >= startOffset();
     if (!connectedInSameTreeScope(&startContainer->rootNode(), &endContainer->rootNode()))
         return false;
     return !is_gt(treeOrder<ComposedTree>(startContainer, endContainer));

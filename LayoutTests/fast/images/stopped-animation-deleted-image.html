@@ -10,9 +10,9 @@
         jsTestIsAsync = true;
 
         internals.clearMemoryCache();
+        internals.settings.setWebkitImageReadyEventEnabled(true);
 
         var image = document.getElementsByTagName("img")[0];
-        var loopCount = 0;
         var frameIndex;
 
         function imageLoaded()
@@ -25,14 +25,14 @@
 
         function imageRemove()
         {
-            setTimeout(function() {
+            image.addEventListener("webkitImageFrameReady", function() {
                 frameIndex = internals.imageFrameIndex(image);
                 image.remove();
                 setTimeout(function() {
                     shouldBe("internals.imageFrameIndex(image)", "frameIndex");
                     finishJSTest();
                 }, 50);
-             }, 50);
+            }, true);
         }
     </script>
     <script src="../../resources/js-test-post.js"></script>

@@ -35,19 +35,21 @@
 #include "DOMWrapperWorld.h"
 #include "Document.h"
 #include "FrameConsoleClient.h"
-#include "InspectorPageAgent.h"
+#include "InspectorIdentifierRegistry.h"
 #include "InstrumentingAgents.h"
 #include "JSDOMWindowCustom.h"
 #include "JSExecState.h"
 #include "LocalFrame.h"
 #include "Page.h"
+#include "PageInspectorController.h"
+#include "RuntimeAgentUtilities.h"
 #include "ScriptController.h"
 #include "SecurityOrigin.h"
 #include "UserGestureEmulationScope.h"
 #include <JavaScriptCore/InjectedScript.h>
 #include <JavaScriptCore/InjectedScriptManager.h>
 #include <JavaScriptCore/InspectorProtocolObjects.h>
-#include <wtf/CheckedPtr.h>
+#include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -95,17 +97,22 @@ Inspector::Protocol::ErrorStringOr<void> PageRuntimeAgent::disable()
 
 void PageRuntimeAgent::frameNavigated(LocalFrame& frame)
 {
+    SetForScope ignoreDidClearWindowObject(m_ignoreDidClearWindowObject, true);
     // Ensure execution context is created for the frame even if it doesn't have scripts.
     mainWorldGlobalObject(frame);
 }
 
 void PageRuntimeAgent::didClearWindowObjectInWorld(LocalFrame& frame, DOMWrapperWorld& world)
 {
-    CheckedPtr pageAgent = Ref { m_instrumentingAgents.get() }->enabledPageAgent();
-    if (!pageAgent)
+    if (m_ignoreDidClearWindowObject)
         return;
 
-    notifyContextCreated(pageAgent->frameId(&frame), frame.script().globalObject(world), world);
+    auto frameId = m_inspectedPage->inspectorController().identifierRegistry().frameId(&frame);
+    if (frameId.isEmpty())
+        return;
+
+    SetForScope ignoreDidClearWindowObject(m_ignoreDidClearWindowObject, true);
+    notifyContextCreated(frameId, frame.script().globalObject(world), world);
 }
 
 InjectedScript PageRuntimeAgent::injectedScriptForEval(Inspector::Protocol::ErrorString& errorString, std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&& executionContextId)
@@ -139,15 +146,13 @@ void PageRuntimeAgent::unmuteConsole()
 
 void PageRuntimeAgent::reportExecutionContextCreation()
 {
-    CheckedPtr pageAgent = Ref { m_instrumentingAgents.get() }->enabledPageAgent();
-    if (!pageAgent)
-        return;
+    Ref identifierRegistry = m_inspectedPage->inspectorController().identifierRegistry();
 
-    m_inspectedPage->forEachLocalFrame([&](LocalFrame& frame) {
+    protect(m_inspectedPage)->forEachLocalFrame([&](LocalFrame& frame) {
         if (!frame.script().canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript))
             return;
 
-        auto frameId = pageAgent->frameId(&frame);
+        auto frameId = identifierRegistry->frameId(&frame);
 
         // Always send the main world first.
         auto& mainGlobalObject = mainWorldGlobalObject(frame);
@@ -158,25 +163,10 @@ void PageRuntimeAgent::reportExecutionContextCreation()
             if (globalObject == &mainGlobalObject)
                 continue;
 
-            Ref securityOrigin = downcast<LocalDOMWindow>(jsWindowProxy->wrapped()).document()->securityOrigin();
+            Ref securityOrigin = protect(downcast<LocalDOMWindow>(jsWindowProxy->wrapped()).document())->securityOrigin();
             notifyContextCreated(frameId, globalObject, jsWindowProxy->world(), securityOrigin.ptr());
         }
     });
-}
-
-static Inspector::Protocol::Runtime::ExecutionContextType NODELETE toProtocol(DOMWrapperWorld::Type type)
-{
-    switch (type) {
-    case DOMWrapperWorld::Type::Normal:
-        return Inspector::Protocol::Runtime::ExecutionContextType::Normal;
-    case DOMWrapperWorld::Type::User:
-        return Inspector::Protocol::Runtime::ExecutionContextType::User;
-    case DOMWrapperWorld::Type::Internal:
-        return Inspector::Protocol::Runtime::ExecutionContextType::Internal;
-    }
-
-    ASSERT_NOT_REACHED();
-    return Inspector::Protocol::Runtime::ExecutionContextType::Internal;
 }
 
 void PageRuntimeAgent::notifyContextCreated(const Inspector::Protocol::Network::FrameId& frameId, JSC::JSGlobalObject* globalObject, const DOMWrapperWorld& world, SecurityOrigin* securityOrigin)

@@ -32,12 +32,15 @@
 #import "LoaderNSURLExtras.h"
 #import "Logging.h"
 #import "PlatformNSAdaptiveImageGlyph.h"
+#import "UTIRegistry.h"
 #import "WebCoreTextAttachment.h"
 #import <Foundation/Foundation.h>
+#import <ImageIO/ImageIO.h>
 #import <pal/spi/cocoa/UIFoundationSPI.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/StringBuilder.h>
 #if PLATFORM(MAC)
 #import <AppKit/AppKit.h>
 #import <pal/spi/mac/NSTextTableSPI.h>
@@ -51,6 +54,8 @@ OBJC_CLASS NSTextTab;
 
 #if PLATFORM(IOS_FAMILY)
 SPECIALIZE_OBJC_TYPE_TRAITS(UIImage, PAL::getUIImageClassSingleton())
+SPECIALIZE_OBJC_TYPE_TRAITS(NSShadow, PAL::getNSShadowClassSingleton())
+SPECIALIZE_OBJC_TYPE_TRAITS(NSPresentationIntent, PAL::getNSPresentationIntentClassSingleton())
 #endif
 
 namespace WebCore {
@@ -59,6 +64,21 @@ using IdentifierToTableMap = HashMap<AttributedStringTextTableID, RetainPtr<NSTe
 using IdentifierToTableBlockMap = HashMap<AttributedStringTextTableBlockID, RetainPtr<NSTextTableBlock>>;
 using IdentifierToListMap = HashMap<AttributedStringTextListID, RetainPtr<NSTextList>>;
 
+using NSFontToInstalledFontCache = HashMap<CTFontRef, std::unique_ptr<InstalledFont>>;
+using InstalledFontToCTFontCache = HashMap<String, RetainPtr<CTFontRef>>;
+
+static unsigned s_encodeFontCacheMisses;
+static unsigned s_decodeFontCacheMisses;
+
+unsigned AttributedString::encodeFontCacheMissesForTesting()
+{
+    return s_encodeFontCacheMisses;
+}
+
+unsigned AttributedString::decodeFontCacheMissesForTesting()
+{
+    return s_decodeFontCacheMisses;
+}
 
 using TableToIdentifierMap = HashMap<NSTextTable *, AttributedString::TextTableID>;
 using TableBlockToIdentifierMap = HashMap<NSTextTableBlock *, AttributedString::TextTableBlockID>;
@@ -344,7 +364,86 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #endif
 
-static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists)
+static String stringifyCFNumber(CFNumberRef number)
+{
+    if (!number)
+        return { };
+    double value = 0;
+    CFNumberGetValue(number, kCFNumberDoubleType, &value);
+    return String::number(value);
+}
+
+static String stringifyCFBoolean(CFBooleanRef boolean)
+{
+    if (!boolean)
+        return { };
+    return CFBooleanGetValue(boolean) ? "1"_s : "0"_s;
+}
+
+// Keep in sync with FontPlatformSerializedAttributes; any new field needs to be folded in
+// or bailed on, or two distinct fonts will alias in the cache.
+static String cacheKeyForInstalledFont(const InstalledFont& font)
+{
+    return WTF::switchOn(font.font,
+        [&] (const InstalledFont::SystemUIFont& systemFont) -> String {
+            return makeString("S|"_s, static_cast<unsigned>(systemFont.systemUIFontType), '|', systemFont.language, '|', font.metadata.pointSize);
+        },
+        [&] (const InstalledFont::PostScriptFont& postScriptFont) -> String {
+            if (postScriptFont.fontSerializedAttributes) {
+                auto& attributes = *postScriptFont.fontSerializedAttributes;
+                if (attributes.matrix || attributes.paletteColors || attributes.featureSettings)
+                    return { };
+                StringBuilder builder;
+                builder.append("P|"_s, postScriptFont.postScriptName, '|', postScriptFont.fontDescriptorOptions, '|', font.metadata.pointSize, '|', attributes.fontName, '|', attributes.descriptorLanguage, '|', attributes.descriptorTextStyle);
+                builder.append("|b|"_s, stringifyCFBoolean(attributes.ignoreLegibilityWeight.get()));
+                builder.append("|n|"_s,
+                    stringifyCFNumber(attributes.baselineAdjust.get()), '|',
+                    stringifyCFNumber(attributes.fallbackOption.get()), '|',
+                    stringifyCFNumber(attributes.fixedAdvance.get()), '|',
+                    stringifyCFNumber(attributes.orientation.get()), '|',
+                    stringifyCFNumber(attributes.palette.get()), '|',
+                    stringifyCFNumber(attributes.size.get()), '|',
+                    stringifyCFNumber(attributes.sizeCategory.get()), '|',
+                    stringifyCFNumber(attributes.track.get()), '|',
+                    stringifyCFNumber(attributes.unscaledTracking.get()));
+#if HAVE(ADDITIONAL_FONT_PLATFORM_SERIALIZED_ATTRIBUTES)
+                builder.append("|a|"_s, stringifyCFNumber(attributes.additionalNumber.get()));
+#endif
+                if (attributes.traits) {
+                    auto& traits = *attributes.traits;
+                    builder.append("|t|"_s, traits.uiFontDesign, '|', stringifyCFNumber(traits.weight.get()), '|', stringifyCFNumber(traits.width.get()), '|', stringifyCFNumber(traits.symbolic.get()), '|', stringifyCFNumber(traits.grade.get()));
+                }
+                if (attributes.opticalSize) {
+                    builder.append("|o|"_s);
+                    WTF::switchOn(attributes.opticalSize->opticalSize,
+                        [&] (const RetainPtr<CFNumberRef>& number) {
+                            builder.append(stringifyCFNumber(number.get()));
+                        },
+                        [&] (const String& string) {
+                            builder.append(string);
+                        });
+                }
+                if (attributes.variations) {
+                    builder.append("|v|"_s);
+                    for (auto& pair : *attributes.variations)
+                        builder.append(stringifyCFNumber(pair.first.get()), '=', stringifyCFNumber(pair.second.get()), ',');
+                }
+                return builder.toString();
+            }
+            return makeString("P|"_s, postScriptFont.postScriptName, '|', postScriptFont.fontDescriptorOptions, '|', font.metadata.pointSize);
+        });
+}
+
+// Returns the image UTI of `data`, or nullptr if `data` is not image data.
+static RetainPtr<CFStringRef> imageTypeForAttachmentData(NSData *data)
+{
+    RetainPtr source = adoptCF(CGImageSourceCreateWithData(bridge_cast(data), nullptr));
+    if (!source)
+        return nullptr;
+    return CGImageSourceGetType(source.get());
+}
+
+static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists, InstalledFontToCTFontCache& fontCache)
 {
     return WTF::switchOn(value.value, [] (double value) -> RetainPtr<id> {
         return adoptNS([[NSNumber alloc] initWithDouble:value]);
@@ -367,16 +466,26 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
     }, [] (const TextAttachmentMissingImage& value) -> RetainPtr<id> {
         UNUSED_PARAM(value);
         RetainPtr<NSTextAttachment> attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithData:nil ofType:nil]);
-        attachment.get().image = RetainPtr { webCoreTextAttachmentMissingPlatformImage() }.get();
+        attachment.get().image = protect(webCoreTextAttachmentMissingPlatformImage()).get();
         return attachment;
     }, [] (const TextAttachmentFileWrapper& value) -> RetainPtr<id> {
         RetainPtr<NSData> data = value.data ? bridge_cast((value.data).get()) : nil;
 
+        // Drop image bytes whose type is not supported for web content so the UIProcess
+        // never decodes them, and show the missing-image placeholder instead. Non-image
+        // file wrappers and web-safe images are left untouched.
+        RetainPtr imageType = data ? imageTypeForAttachmentData(data.get()) : nullptr;
+        bool isUnsupportedImage = imageType && !isSupportedImageType(imageType.get());
+        if (isUnsupportedImage)
+            data = nil;
+
         RetainPtr fileWrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:data.get()]);
         if (!value.preferredFilename.isNull())
-            [fileWrapper setPreferredFilename:RetainPtr { filenameByFixingIllegalCharacters(value.preferredFilename.createNSString().get()) }.get()];
+            [fileWrapper setPreferredFilename:protect(filenameByFixingIllegalCharacters(value.preferredFilename.createNSString().get())).get()];
 
         auto textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
+        if (isUnsupportedImage)
+            ((NSTextAttachment *)textAttachment.get()).image = protect(webCoreTextAttachmentMissingPlatformImage()).get();
         if (!value.accessibilityLabel.isNull())
             ((NSTextAttachment*)textAttachment.get()).accessibilityLabel = value.accessibilityLabel.createNSString().get();
 
@@ -389,8 +498,17 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
         return value;
     }, [] (const RetainPtr<NSDate>& value) -> RetainPtr<id> {
         return value;
-    }, [] (const InstalledFont& font) -> RetainPtr<id> {
-        return (__bridge PlatformFont *)font.toCTFont().get();
+    }, [&] (const InstalledFont& font) -> RetainPtr<id> {
+        auto key = cacheKeyForInstalledFont(font);
+        if (!key.isNull()) {
+            if (RetainPtr cached = fontCache.get(key))
+                return (__bridge PlatformFont *)cached.get();
+        }
+        ++s_decodeFontCacheMisses;
+        RetainPtr ctFont = font.toCTFont();
+        if (ctFont && !key.isNull())
+            fontCache.set(key, ctFont);
+        return (__bridge PlatformFont *)ctFont.get();
     }, [] (const AttributedString::ColorFromPlatformColor& value) -> RetainPtr<id> {
         return cocoaColor(value.color);
     }, [] (const AttributedString::ColorFromCGColor& value) -> RetainPtr<id> {
@@ -398,11 +516,11 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
     });
 }
 
-static RetainPtr<NSDictionary> toNSDictionary(const HashMap<String, AttributedString::AttributeValue>& map, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists)
+static RetainPtr<NSDictionary> toNSDictionary(const HashMap<String, AttributedString::AttributeValue>& map, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists, InstalledFontToCTFontCache& fontCache)
 {
     auto result = adoptNS([[NSMutableDictionary alloc] initWithCapacity:map.size()]);
     for (auto& pair : map) {
-        if (auto nsObject = toNSObject(pair.value, tables, tableBlocks, lists))
+        if (auto nsObject = toNSObject(pair.value, tables, tableBlocks, lists, fontCache))
             [result setObject:nsObject.get() forKey:pair.key.createNSString().get()];
     }
     return result;
@@ -421,7 +539,8 @@ RetainPtr<NSDictionary> AttributedString::documentAttributesAsNSDictionary() con
     IdentifierToTableMap tables;
     IdentifierToTableBlockMap tableBlocks;
     IdentifierToListMap lists;
-    return toNSDictionary(*documentAttributes, tables, tableBlocks, lists);
+    InstalledFontToCTFontCache fontCache;
+    return toNSDictionary(*documentAttributes, tables, tableBlocks, lists, fontCache);
 }
 
 RetainPtr<NSAttributedString> AttributedString::nsAttributedString() const
@@ -432,11 +551,12 @@ RetainPtr<NSAttributedString> AttributedString::nsAttributedString() const
     IdentifierToTableMap tables;
     IdentifierToTableBlockMap tableBlocks;
     IdentifierToListMap lists;
+    InstalledFontToCTFontCache fontCache;
     RetainPtr result = adoptNS([[NSMutableAttributedString alloc] initWithString:string.createNSString().get()]);
     for (auto& pair : attributes) {
         auto& map = pair.second;
         auto& range = pair.first;
-        [result addAttributes:toNSDictionary(map, tables, tableBlocks, lists).get() range:NSMakeRange(range.location, range.length)];
+        [result addAttributes:toNSDictionary(map, tables, tableBlocks, lists, fontCache).get() range:NSMakeRange(range.location, range.length)];
     }
     return result;
 }
@@ -471,15 +591,6 @@ static std::optional<AttributedString::AttributeValue> extractArray(NSArray *arr
     RELEASE_LOG_ERROR(Editing, "NSAttributedString extraction failed with array of unknown values");
     ASSERT_NOT_REACHED();
     return std::nullopt;
-}
-
-inline static Vector<AttributedString::TextListID> extractListIDs(NSParagraphStyle *style, ListToIdentifierMap& listIDs)
-{
-    return makeVector(retainPtr(style.textLists).get(), [&](NSTextList *list) {
-        return std::optional { listIDs.ensure(list, [] {
-            return AttributedString::TextListID::generate();
-        }).iterator->value };
-    });
 }
 
 inline static ParagraphStyleAlignment NODELETE extractParagraphStyleAlignment(NSTextAlignment alignment)
@@ -699,7 +810,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     };
 }
 
-static std::optional<AttributedString::AttributeValue> extractValue(id value, TableToIdentifierMap& tableIDs, TableBlockToIdentifierMap& tableBlockIDs, ListToIdentifierMap& listIDs)
+static std::optional<AttributedString::AttributeValue> extractValue(id value, TableToIdentifierMap& tableIDs, TableBlockToIdentifierMap& tableBlockIDs, ListToIdentifierMap& listIDs, NSFontToInstalledFontCache& fontCache)
 {
     if (CFGetTypeID((CFTypeRef)value) == CGColorGetTypeID())
         return { { AttributedString::ColorFromCGColor  { Color::createAndPreserveColorSpace((CGColorRef) value) } } };
@@ -712,15 +823,15 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     if (auto* array = dynamic_objc_cast<NSArray>(value))
         return extractArray(array);
     if (auto* date = dynamic_objc_cast<NSDate>(value))
-        return { { { RetainPtr { date } } } };
-    if ([value isKindOfClass:PlatformNSShadow])
-        return { { { RetainPtr { (NSShadow *)value } } } };
+        return { { { protect(date) } } };
+    if (auto* shadow = dynamic_objc_cast<NSShadow>(value))
+        return { { { protect(shadow) } } };
     if ([value isKindOfClass:PlatformNSParagraphStyle]) {
         auto style = static_cast<NSParagraphStyle *>(value);
         return { { extractParagraphStyle(style, tableIDs, tableBlockIDs, listIDs) } };
     }
-    if ([value isKindOfClass:PlatformNSPresentationIntent])
-        return { { { RetainPtr { (NSPresentationIntent *)value } } } };
+    if (auto* intent = dynamic_objc_cast<NSPresentationIntent>(value))
+        return { { { protect(intent) } } };
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
     if ([value isKindOfClass:PlatformNSAdaptiveImageGlyph]) {
         auto attachment = static_cast<NSAdaptiveImageGlyph *>(value);
@@ -737,15 +848,27 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
         textAttachment.ignoresOrientation = [value ignoresOrientation];
 #endif
         if (auto fileWrapper = retainPtr([value fileWrapper])) {
-            if (auto data = bridge_cast(retainPtr([fileWrapper regularFileContents])))
-                textAttachment.data = data;
+            if ([fileWrapper isRegularFile]) {
+                if (auto data = bridge_cast(retainPtr([fileWrapper regularFileContents])))
+                    textAttachment.data = data;
+            }
             if (auto preferredFilename = retainPtr([fileWrapper preferredFilename]))
                 textAttachment.preferredFilename = preferredFilename.get();
         }
         return { { textAttachment } };
     }
-    if ([value isKindOfClass:PlatformFontClass])
-        return { { *Font::create(FontPlatformData((__bridge CTFontRef)value, [(PlatformFont *)value pointSize]))->toSerializableInstalledFont() } };
+    if ([value isKindOfClass:PlatformFontClass]) {
+        RetainPtr ctFont = bridge_cast((PlatformFont *)value);
+        if (auto it = fontCache.find(ctFont.get()); it != fontCache.end())
+            return AttributedString::AttributeValue { *it->value };
+        ++s_encodeFontCacheMisses;
+        auto installedFont = Font::create(FontPlatformData(ctFont.get(), [(PlatformFont *)value pointSize]))->toSerializableInstalledFont();
+        if (!installedFont)
+            return std::nullopt;
+        AttributedString::AttributeValue result { *installedFont };
+        fontCache.set(ctFont.get(), makeUniqueWithoutFastMallocCheck<InstalledFont>(WTF::move(*installedFont)));
+        return result;
+    }
     if ([value isKindOfClass:PlatformColorClass])
         return { { AttributedString::ColorFromPlatformColor { colorFromCocoaColor((PlatformColor *)value) } } };
     if (value) {
@@ -756,7 +879,7 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     return std::nullopt;
 }
 
-static HashMap<String, AttributedString::AttributeValue> extractDictionary(NSDictionary *dictionary, TableToIdentifierMap& tableIDs, TableBlockToIdentifierMap& tableBlockIDs, ListToIdentifierMap& listIDs)
+static HashMap<String, AttributedString::AttributeValue> extractDictionary(NSDictionary *dictionary, TableToIdentifierMap& tableIDs, TableBlockToIdentifierMap& tableBlockIDs, ListToIdentifierMap& listIDs, NSFontToInstalledFontCache& fontCache)
 {
     HashMap<String, AttributedString::AttributeValue> result;
     [dictionary enumerateKeysAndObjectsUsingBlock:[&](id key, id value, BOOL *) {
@@ -765,7 +888,7 @@ static HashMap<String, AttributedString::AttributeValue> extractDictionary(NSDic
             ASSERT_NOT_REACHED();
             return;
         }
-        auto extractedValue = extractValue(value, tableIDs, tableBlockIDs, listIDs);
+        auto extractedValue = extractValue(value, tableIDs, tableBlockIDs, listIDs, fontCache);
         if (!extractedValue) {
             ASSERT_NOT_REACHED();
             return;
@@ -785,13 +908,14 @@ AttributedString AttributedString::fromNSAttributedStringAndDocumentAttributes(R
     __block TableToIdentifierMap tableIDs;
     __block TableBlockToIdentifierMap tableBlockIDs;
     __block ListToIdentifierMap listIDs;
+    __block NSFontToInstalledFontCache fontCache;
     __block AttributedString result;
     result.string = [string string];
     [string enumerateAttributesInRange:NSMakeRange(0, [string length]) options:NSAttributedStringEnumerationLongestEffectiveRangeNotRequired usingBlock: ^(NSDictionary<NSAttributedStringKey, id> *attributes, NSRange range, BOOL *) {
-        result.attributes.append({ Range { range.location, range.length }, extractDictionary(attributes, tableIDs, tableBlockIDs, listIDs) });
+        result.attributes.append({ Range { range.location, range.length }, extractDictionary(attributes, tableIDs, tableBlockIDs, listIDs, fontCache) });
     }];
     if (dictionary)
-        result.documentAttributes = extractDictionary(dictionary.get(), tableIDs, tableBlockIDs, listIDs);
+        result.documentAttributes = extractDictionary(dictionary.get(), tableIDs, tableBlockIDs, listIDs, fontCache);
     return { WTF::move(result) };
 }
 

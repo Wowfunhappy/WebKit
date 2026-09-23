@@ -18,7 +18,13 @@
 	<string>FMWK</string>
 	<key>CFBundleShortVersionString</key>
 	<string>${SHORT_VERSION_STRING}</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>${WEBKIT_PLATFORM_NAME}</string>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>${BUNDLE_VERSION}</string>
+	<key>DTPlatformName</key>
+	<string>${WEBKIT_PLATFORM_NAME}</string>
 </dict>
 </plist>

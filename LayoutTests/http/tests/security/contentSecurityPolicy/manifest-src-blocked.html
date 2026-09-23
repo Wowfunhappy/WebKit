@@ -8,9 +8,10 @@
 <link rel="manifest" href="manifest.test/manifest.json">
 <script>
     if (window.testRunner) {
-        testRunner.getApplicationManifestThen(function() {
-            alert("Pass");
+        (async () => {
+            const success = await testRunner.getApplicationManifest();
+            alert("manifest fetch success: " + success);
             testRunner.notifyDone();
-        });
+        })();
     }
 </script>

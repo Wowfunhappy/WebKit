@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2005 Allan Sandfeld Jensen (kde@carewolf.com)
  *           (C) 2005, 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2005-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2010-2013 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -117,8 +117,11 @@ bool BackgroundPainter::paintsOwnBackground(const RenderBoxModelObject& renderer
         return true;
     if (renderer.shouldApplyAnyContainment())
         return true;
-    // The <body> only paints its background if the root element has defined a background independent of the body,
-    // or if the <body>'s parent is not the document element's renderer (e.g. inside SVG foreignObject).
+
+    // Per CSS Backgrounds spec, the background of <body> is used as the root background,
+    // hence it'll be painted by the root background painter. <body> only paints its background
+    // if the root element has defined a background independent of the body, or if the <body>'s
+    // parent is not the document element's renderer (e.g. inside SVG foreignObject).
     auto documentElementRenderer = renderer.document().documentElement()->renderer();
     return !documentElementRenderer || documentElementRenderer->shouldApplyAnyContainment() || documentElementRenderer->hasBackground() || documentElementRenderer != renderer.parent();
 }
@@ -175,7 +178,7 @@ template<typename Layers> void BackgroundPainter::paintFillLayersImpl(const Colo
         context.endTransparencyLayer();
 }
 
-static void applyBoxShadowForBackground(GraphicsContext& context, const RenderStyle& style)
+static void applyBoxShadowForBackground(GraphicsContext& context, const Style::ComputedStyle& style)
 {
     Style::ColorResolver colorResolver { style };
     const auto& zoomFactor = style.usedZoomForLength();
@@ -241,7 +244,7 @@ template<typename Layer> void BackgroundPainter::paintFillLayerImpl(const Color&
 
     if (context.invalidatingImagesWithAsyncDecodes()) {
         if (shouldPaintBackgroundImage && bgImage->cachedImage()->isClientWaitingForAsyncDecoding(m_renderer.cachedImageClient()))
-            bgImage->cachedImage()->removeAllClientsWaitingForAsyncDecoding();
+            protect(bgImage->cachedImage())->removeAllClientsWaitingForAsyncDecoding();
         return;
     }
 
@@ -533,14 +536,23 @@ template<typename Layer> void BackgroundPainter::paintFillLayerImpl(const Color&
         if (!geometry.destinationRect.isEmpty() && (image = bgImage->image(backgroundObject ? backgroundObject : &m_renderer, geometry.tileSize, context, isFirstLine))) {
             context.setDrawLuminanceMask(layer.layer.maskMode() == Style::MaskMode::Luminance);
 
+            // image-orientation does not apply to mask images (https://drafts.csswg.org/css-images-3/#propdef-image-orientation).
+            auto orientation = [&] {
+                if constexpr (std::is_same_v<Layer, Style::MaskLayer>)
+                    return ImageOrientation(ImageOrientation::Orientation::FromImage);
+                else
+                    return m_renderer.imageOrientation();
+            }();
+
             ImagePaintingOptions options = {
                 op == CompositeOperator::SourceOver ? layer.layer.compositeForPainting(layer.isLast) : op,
                 layerBlendMode,
                 m_renderer.decodingModeForImageDraw(*image, m_paintInfo),
-                ImageOrientation::Orientation::FromImage,
+                orientation,
                 m_renderer.chooseInterpolationQuality(context, *image, &layer.layer, geometry.tileSize),
                 document().settings().imageSubsamplingEnabled() ? AllowImageSubsampling::Yes : AllowImageSubsampling::No,
                 document().settings().showDebugBorders() ? ShowDebugBackground::Yes : ShowDebugBackground::No,
+                document().settings().hdrAcceleratedApplyGainMapEnabled() ? AllowAcceleratedApplyGainMap::Yes : AllowAcceleratedApplyGainMap::No,
                 m_paintInfo.paintBehavior.contains(PaintBehavior::DrawsHDRContent) ? DrawsHDRContent::Yes : DrawsHDRContent::No,
                 style.dynamicRangeLimit().toPlatformDynamicRangeLimit()
             };
@@ -548,16 +560,16 @@ template<typename Layer> void BackgroundPainter::paintFillLayerImpl(const Color&
             auto drawResult = context.drawTiledImage(*image, geometry.destinationRect, toLayoutPoint(geometry.relativePhase()), geometry.tileSize, geometry.spaceSize, options);
             if (drawResult == ImageDrawResult::DidRequestDecoding) {
                 ASSERT(bgImage->hasCachedImage());
-                bgImage->cachedImage()->addClientWaitingForAsyncDecoding(m_renderer.cachedImageClient());
+                protect(bgImage->cachedImage())->addClientWaitingForAsyncDecoding(protect(m_renderer)->cachedImageClient());
             }
 
             if (!context.paintingDisabled()) {
                 if (m_renderer.element())
-                    m_renderer.element()->setHasEverPaintedImages(true);
+                    protect(m_renderer)->element()->setHasEverPaintedImages(true);
 
                 if (RefPtr image = bgImage->cachedImage(); image && image->currentFrameIsComplete(&m_renderer)) {
                     if (auto styleable = Styleable::fromRenderer(m_renderer))
-                        document().didPaintImage(styleable->element, image, geometry.destinationRect);
+                        document().didPaintImage(protect(styleable->element), image, geometry.destinationRect);
                 }
             }
         }
@@ -615,7 +627,7 @@ template<typename Layer> BackgroundImageGeometry BackgroundPainter::calculateFil
     bool fixedAttachment = fillLayer.attachment() == FillAttachment::FixedBackground && !isTransformed;
 
     LayoutRect destinationRect(borderBoxRect);
-    float deviceScaleFactor = renderer.document().deviceScaleFactor();
+    float deviceScaleFactor = protect(renderer)->document().deviceScaleFactor();
     if (!fixedAttachment) {
         LayoutUnit right;
         LayoutUnit bottom;
@@ -638,10 +650,10 @@ template<typename Layer> BackgroundImageGeometry BackgroundPainter::calculateFil
         // its margins. Since those were added in already, we have to factor them out when computing
         // the background positioning area.
         if (renderer.isDocumentElementRenderer()) {
-            positioningAreaSize = downcast<RenderBox>(renderer).size() - LayoutSize(left + right, top + bottom);
+            positioningAreaSize = downcast<RenderBox>(renderer).borderBoxSize() - LayoutSize(left + right, top + bottom);
             positioningAreaSize = LayoutSize(snapSizeToDevicePixel(positioningAreaSize, LayoutPoint(), deviceScaleFactor));
-            if (view.frameView().hasExtendedBackgroundRectForPainting()) {
-                LayoutRect extendedBackgroundRect = view.frameView().extendedBackgroundRectForPainting();
+            if (protect(view)->frameView().hasExtendedBackgroundRectForPainting()) {
+                LayoutRect extendedBackgroundRect = protect(view)->frameView().extendedBackgroundRectForPainting();
                 left += (renderer.marginLeft() - extendedBackgroundRect.x());
                 top += (renderer.marginTop() - extendedBackgroundRect.y());
             }
@@ -788,7 +800,7 @@ template<typename Layer> BackgroundImageGeometry BackgroundPainter::calculateFil
 template<typename Layer> LayoutSize BackgroundPainter::calculateFillTileSize(const RenderBoxModelObject& renderer, const Layer& fillLayer, Style::ZoomFactor, const LayoutSize& positioningAreaSize)
 {
     RefPtr image = fillLayer.image().tryStyleImage();
-    auto devicePixelSize = LayoutUnit { 1.0 / renderer.document().deviceScaleFactor() };
+    auto devicePixelSize = LayoutUnit { 1.0 / protect(renderer)->document().deviceScaleFactor() };
 
     LayoutSize imageIntrinsicSize;
     if (image) {
@@ -843,7 +855,7 @@ template<typename Layer> LayoutSize BackgroundPainter::calculateFillTileSize(con
 
             // If one of the values is auto we have to use the appropriate
             // scale to maintain our aspect ratio.
-            bool hasNaturalAspectRatio = image && image->imageHasNaturalDimensions();
+            bool hasNaturalAspectRatio = image && image->imageHasNaturalAspectRatio();
             if (layerWidth.isAuto() && !layerHeight.isAuto()) {
                 if (hasNaturalAspectRatio && imageIntrinsicSize.height())
                     tileSize.setWidth(imageIntrinsicSize.width() * tileSize.height() / imageIntrinsicSize.height());
@@ -861,7 +873,7 @@ template<typename Layer> LayoutSize BackgroundPainter::calculateFillTileSize(con
     );
 }
 
-void BackgroundPainter::paintBoxShadow(const LayoutRect& paintRect, const RenderStyle& style, Style::ShadowStyle shadowStyle, RectEdges<bool> closedEdges) const
+void BackgroundPainter::paintBoxShadow(const LayoutRect& paintRect, const Style::ComputedStyle& style, Style::ShadowStyle shadowStyle, RectEdges<bool> closedEdges) const
 {
     // FIXME: Deal with border-image. Would be great to use border-image as a mask.
     GraphicsContext& context = m_paintInfo.context();
@@ -908,17 +920,14 @@ void BackgroundPainter::paintBoxShadow(const LayoutRect& paintRect, const Render
                 if (!shadowSpread)
                     return borderShape;
 
-                if (shadowSpread > 0) {
-                    auto spreadRect = paintRect;
-                    spreadRect.inflate(shadowSpread);
-                    return BorderShape::shapeForOutsetRect(style, paintRect, spreadRect, { }, closedEdges);
-                }
-
                 auto spreadRect = paintRect;
-                auto inflateX = std::max(shadowSpread, -paintRect.width() / 2);
-                auto inflateY = std::max(shadowSpread, -paintRect.height() / 2);
-                spreadRect.inflate(LayoutSize { inflateX, inflateY });
-                return BorderShape::shapeForInsetRect(style, paintRect, spreadRect /* , closedEdges*/);
+                if (shadowSpread < 0) {
+                    auto inflateX = std::max(shadowSpread, -paintRect.width() / 2);
+                    auto inflateY = std::max(shadowSpread, -paintRect.height() / 2);
+                    spreadRect.inflate(LayoutSize { inflateX, inflateY });
+                } else
+                    spreadRect.inflate(shadowSpread);
+                return BorderShape::shapeForOffsetRect(style, paintRect, spreadRect, { }, closedEdges);
             }();
 
             if (shadowShape.isEmpty())

@@ -30,7 +30,6 @@
 namespace JSC {
 
 class JSPromise;
-class JSInternalPromise;
 
 class JSPromisePrototype : public JSNonFinalObject {
 public:

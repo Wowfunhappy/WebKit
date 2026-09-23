@@ -28,7 +28,6 @@
 #include <JavaScriptCore/CellState.h>
 #include <JavaScriptCore/IndexingType.h>
 #include <JavaScriptCore/JSTypeInfo.h>
-#include <JavaScriptCore/StructureID.h>
 
 namespace JSC {
 

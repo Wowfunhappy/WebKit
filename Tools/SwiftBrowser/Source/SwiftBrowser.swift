@@ -54,10 +54,11 @@ struct SwiftBrowserApp: App {
             )
         } defaultValue: {
             // FIXME: <https://webkit.org/b/293859> BrowserView does not reflect URL argument passed to SwiftBrowser.app.
-            let parsedURL = CommandLine.value(for: "--url").flatMap {
-                let withProtocol = Self.addProtocolIfNecessary(to: $0)
-                return URL(string: withProtocol)
-            }
+            let parsedURL = CommandLine.value(for: "--url")
+                .flatMap {
+                    let withProtocol = Self.addProtocolIfNecessary(to: $0)
+                    return URL(string: withProtocol)
+                }
             let url = parsedURL ?? URL(string: homepage)!
             return CodableURLRequest(.init(url: url))
         }

@@ -36,8 +36,6 @@ class HTMLFrameElementBase : public HTMLFrameOwnerElement {
     WTF_MAKE_TZONE_ALLOCATED(HTMLFrameElementBase);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFrameElementBase);
 public:
-    void setLocation(JSC::JSGlobalObject&, const String&);
-
     ScrollbarMode scrollingMode() const final;
 
 protected:
@@ -46,8 +44,8 @@ protected:
     bool canLoad() const;
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
     void didAttachRenderers() override;
 
     WEBCORE_EXPORT void setLocation(const String&);

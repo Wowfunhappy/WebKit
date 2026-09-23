@@ -159,9 +159,6 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
     BOOL _bouncesVerticalInternal;
     std::optional<UIEdgeInsets> _contentScrollInsetFromClient;
     std::optional<UIEdgeInsets> _contentScrollInsetInternal;
-#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
-    Vector<CGRect> _overlayRegions;
-#endif
 #if HAVE(LIQUID_GLASS)
     WebCore::RectEdges<RetainPtr<WKUIScrollEdgeEffect>> _edgeEffectWrappers;
     RetainPtr<UIColor> _topPocketColorSetInternally;
@@ -276,11 +273,16 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
 
     super.backgroundColor = backgroundColor;
 
+    RetainPtr internalDelegate = _internalDelegate.get();
     if (!_backgroundColorSetByClient) {
-        RetainPtr internalDelegate = _internalDelegate.get();
         [internalDelegate _resetCachedScrollViewBackgroundColor];
         [internalDelegate _updateScrollViewBackground];
     }
+
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+    if (self.refreshControl)
+        [internalDelegate _updateRefreshControlAppearance];
+#endif
 }
 
 - (void)_setBackgroundColorInternal:(UIColor *)backgroundColor
@@ -290,7 +292,13 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
 
     super.backgroundColor = backgroundColor;
 
-    [_internalDelegate.get() _resetCachedScrollViewBackgroundColor];
+    RetainPtr internalDelegate = _internalDelegate.get();
+    [internalDelegate _resetCachedScrollViewBackgroundColor];
+
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+    if (self.refreshControl)
+        [internalDelegate _updateRefreshControlAppearance];
+#endif
 }
 
 - (void)setIndicatorStyle:(UIScrollViewIndicatorStyle)indicatorStyle
@@ -323,11 +331,6 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
         return;
 
     super.decelerationRate = rate;
-}
-
-static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
-{
-    return CGFAbs(a - b) < 1;
 }
 
 - (void)setContentInset:(UIEdgeInsets)contentInset
@@ -420,6 +423,14 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         adjustedOffset.y = -edgeInsets.top + rubberbandAmount.height;
 
     [self setContentOffset:adjustedOffset];
+}
+
+- (void)setRefreshControl:(UIRefreshControl *)refreshControl
+{
+    [super setRefreshControl:refreshControl];
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+    [self.internalDelegate _updateRefreshControlAppearance];
+#endif
 }
 
 - (void)_setContentSizePreservingContentOffsetDuringRubberband:(CGSize)contentSize

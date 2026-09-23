@@ -40,9 +40,9 @@
 #include "IntRect.h"
 #include "NoiseInjectionPolicy.h"
 #include "RenderElementInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "ScriptTrackingPrivacyCategory.h"
 #include "StyleCanvasImage.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "WebCoreOpaqueRoot.h"
 #include "WorkerClient.h"
 #include "WorkerGlobalScope.h"
@@ -85,6 +85,10 @@ RefPtr<ImageBuffer> CanvasBase::makeRenderingResultsAvailable(ShouldApplyPostPro
 {
     if (RefPtr context = renderingContext()) {
         RefPtr buffer = context->surfaceBufferToImageBuffer(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+#if ASSERT_ENABLED && HAVE(IOSURFACE)
+        if (RefPtr scriptExecutionContext = canvasBaseScriptExecutionContext())
+            ASSERT(!(scriptExecutionContext->isWorkerGlobalScope() && buffer && buffer->surface() && !buffer->isRemoteImageBufferProxy()), "Worker OffscreenCanvas is backed by a local IOSurface");
+#endif
         if (m_canvasNoiseHashSalt && shouldApplyPostProcessingToDirtyRect == ShouldApplyPostProcessingToDirtyRect::Yes)
             m_canvasNoiseInjection.postProcessDirtyCanvasBuffer(buffer.get(), *m_canvasNoiseHashSalt, context->is2d() ? CanvasNoiseInjectionPostProcessArea::DirtyRect : CanvasNoiseInjectionPostProcessArea::FullBuffer);
         return buffer;
@@ -237,8 +241,8 @@ bool CanvasBase::shouldAccelerate() const
         return false;
     if (area < scriptExecutionContext->settingsValues().minimumAccelerated2DContextArea)
         return false;
-#if PLATFORM(GTK)
-    if (!scriptExecutionContext->settingsValues().acceleratedCompositingEnabled)
+#if PLATFORM(GTK) || ENABLE(WPE_PLATFORM)
+    if (!scriptExecutionContext->settingsValues().hardwareAccelerationEnabled)
         return false;
 #endif
     return true;

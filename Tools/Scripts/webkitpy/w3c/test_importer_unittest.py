@@ -159,7 +159,6 @@ class TestImporterTest(unittest.TestCase):
             f'{FAKE_WPT_DIR}/css/t/test.html': MINIMAL_TESTHARNESS,
             f'{FAKE_WPT_DIR}/t/test.html': MINIMAL_TESTHARNESS,
             '/mock-checkout/Source/WebCore/css/CSSProperties.json': '',
-            '/mock-checkout/Source/WebCore/css/CSSValueKeywords.in': '',
         }
         FAKE_FILES.update(FAKE_RESOURCES)
 
@@ -579,7 +578,6 @@ class TestImporterTest(unittest.TestCase):
             f'{FAKE_WPT_DIR}/t/test.any.js': 'test(() => {}, "empty")',
             '/mock-checkout/LayoutTests/w3c/web-platform-tests/t/test.any.html': '<!-- This file is required for WebKit test infrastructure to run the templated test --><!-- webkit-test-runner [ dummy ] -->',
             '/mock-checkout/Source/WebCore/css/CSSProperties.json': '',
-            '/mock-checkout/Source/WebCore/css/CSSValueKeywords.in': '',
         }
         FAKE_FILES.update(FAKE_RESOURCES)
 
@@ -752,3 +750,56 @@ class TestImporterTest(unittest.TestCase):
         self.assertTrue(fs.exists('/test.checkout/LayoutTests/platform/test-mac-leopard/w3c/web-platform-tests/t/test-expected.txt'))
         self.assertTrue(fs.exists('/test.checkout/LayoutTests/platform/test-linux-x86_64/w3c/web-platform-tests/t/test-expected.txt'))
         self.assertTrue(fs.exists('/test.checkout/LayoutTests/platform/unknown-platform/w3c/web-platform-tests/t/test-expected.txt'))
+
+    def test_unmodified_files_not_rewritten(self):
+        """HTML files that need no conversion should be copied verbatim, not parsed and re-serialized."""
+        # HTMLParser lowercases end tags, so this content would be mangled by a parse/serialize cycle.
+        TEST_HTML = '<!DOCTYPE html>\n<script src="/resources/testharness.js"></script>\n<script src="/resources/testharnessreport.js"></script>\n<p>Content</P></BODY></HTML>'
+        FAKE_FILES = {
+            f'{FAKE_WPT_DIR}/t/test.html': TEST_HTML,
+            '/mock-checkout/Source/WebCore/css/CSSProperties.json': '{"properties":{}}',
+        }
+        FAKE_FILES.update(FAKE_RESOURCES)
+
+        fs = self.import_downloaded_tests(['--no-fetch', '--import-all', '--no-clean-dest-dir', '-d', 'w3c'], FAKE_FILES)
+
+        imported = fs.read_text_file('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/test.html')
+        self.assertEqual(imported, TEST_HTML)
+
+    def test_resource_files_not_rewritten(self):
+        """Resource HTML files should be copied without HTML parsing to avoid corrupting non-UTF-8 encoded content."""
+        RESOURCE_HTML = '<span data-bytes="1B 24 42 26 41 1B 28 42">&A</span>'
+        FAKE_FILES = {
+            f'{FAKE_WPT_DIR}/t/test.html': MINIMAL_TESTHARNESS,
+            f'{FAKE_WPT_DIR}/t/resource.html': RESOURCE_HTML,
+            '/mock-checkout/Source/WebCore/css/CSSProperties.json': '{"properties":{}}',
+        }
+        FAKE_FILES.update(FAKE_RESOURCES)
+
+        fs = self.import_downloaded_tests(['--no-fetch', '--import-all', '--no-clean-dest-dir', '-d', 'w3c'], FAKE_FILES)
+
+        imported = fs.read_text_file('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/resource.html')
+        self.assertEqual(imported, RESOURCE_HTML)
+
+    def test_import_no_rewrite_policy(self):
+        """Files under a directory marked 'import-no-rewrite' should be copied verbatim, and the policy should survive re-running the importer."""
+        TEST_HTML = '<!doctype html><meta charset=shift_jis><script src="/resources/testharness.js"></script><script src="/resources/testharnessreport.js"></script><span data-bytes="&A">&A</span>'
+        FAKE_FILES = {
+            '/mock-checkout/LayoutTests/imported/w3c/resources/import-expectations.json': '''
+{
+"web-platform-tests/encoding": "import-no-rewrite"
+}''',
+            f'{FAKE_WPT_DIR}/encoding/raw-test.html': TEST_HTML,
+            '/mock-checkout/Source/WebCore/css/CSSProperties.json': '{"properties":{}}',
+            '/mock-checkout/LayoutTests/imported/w3c/resources/resource-files.json': '{"directories": [], "files": []}',
+            f'{FAKE_WPT_DIR}/wpt': '',
+            f'{FAKE_WPT_DIR}/resources/testharness.js': '',
+        }
+
+        fs = self.import_downloaded_tests(['--no-fetch', '--no-clean-dest-dir', '-d', 'w3c', 'web-platform-tests/encoding'], FAKE_FILES)
+
+        imported = fs.read_text_file('/mock-checkout/LayoutTests/w3c/web-platform-tests/encoding/raw-test.html')
+        self.assertEqual(imported, TEST_HTML)
+
+        import_expectations = json.loads(fs.read_text_file('/mock-checkout/LayoutTests/imported/w3c/resources/import-expectations.json'))
+        self.assertEqual('import-no-rewrite', import_expectations['web-platform-tests/encoding'])

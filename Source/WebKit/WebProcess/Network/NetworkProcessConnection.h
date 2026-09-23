@@ -29,6 +29,7 @@
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/MessagePortChannelProvider.h>
+#include <WebCore/NonSerializedDataIdentifier.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/RTCDataChannelIdentifier.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
@@ -114,6 +115,7 @@ private:
     void cookieAcceptPolicyChanged(WebCore::HTTPCookieAcceptPolicy);
 
     void messagesAvailableForPort(const WebCore::MessagePortIdentifier&);
+    void dropNonSerializableInProcessCache(WebCore::NonSerializedDataIdentifier);
 
 #if ENABLE(SHAREABLE_RESOURCE)
     // Message handlers.

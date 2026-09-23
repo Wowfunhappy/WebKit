@@ -2394,6 +2394,8 @@ class CppStyleTest(CppStyleTestBase):
         self.assert_lint('        m_taskFunction = [callee, method, arguments...] {', '')
         self.assert_lint('int main(int argc, char* agrv [])', 'Extra space before [.  [whitespace/brackets] [5]')
         self.assert_lint('    str [strLength] = \'\\0\';', 'Extra space before [.  [whitespace/brackets] [5]')
+        self.assert_lint('define FOO [[noreturn]];', '')
+        self.assert_lint('define FOO [[return]];', 'Extra space before [.  [whitespace/brackets] [5]')
 
     def test_cpp_lambda_functions(self):
         self.assert_lint('        [&] (Type argument) {', '')
@@ -3043,6 +3045,31 @@ class CppStyleTest(CppStyleTestBase):
             '#endif /* __OBJC__ */\n',
             'Missing #pragma once for header guard.'
             '  [build/header_guard_missing] [5]')
+
+        # libpas headers must use #ifndef/#define guards, not #pragma once.
+        libpas_header = 'Source/bmalloc/libpas/src/libpas/pas_foo.h'
+
+        # No warning for libpas header with #ifndef/#define guard.
+        self.assert_header_guard(
+            '#ifndef PAS_FOO_H\n'
+            '#define PAS_FOO_H\n'
+            '#endif /* PAS_FOO_H */\n',
+            '',
+            libpas_header)
+
+        # Warning if a libpas header uses #pragma once.
+        self.assert_header_guard(
+            '#pragma once\n',
+            'Do not use #pragma once in libpas; use #ifndef/#define header guards instead.'
+            '  [build/header_guard] [5]',
+            libpas_header)
+
+        # Warning for libpas header with no guard at all.
+        self.assert_header_guard(
+            '',
+            'Missing #ifndef/#define header guard.'
+            '  [build/header_guard_missing] [5]',
+            libpas_header)
 
     def test_build_printf_format(self):
         self.assert_lint(
@@ -6020,6 +6047,35 @@ class WebKitStyleTest(CppStyleTestBase):
             "  [build/using_namespace] [4]",
             'foo.h')
 
+        self.assert_lint(
+            'using namespace WebCore;',
+            "Do not use 'using namespace WebCore;' at file or namespace scope; "
+            "global using namespace is likely to cause name collisions in the unified build."
+            "  [build/using_namespace] [4]",
+            'foo.cpp')
+
+        self.assert_lint(
+            'using namespace WebKit;',
+            "Do not use 'using namespace WebKit;' at file or namespace scope; "
+            "global using namespace is likely to cause name collisions in the unified build."
+            "  [build/using_namespace] [4]",
+            'foo.mm')
+
+        # Function-scope (indented) using-directives are fine.
+        self.assert_lint('    using namespace WebCore;', '', 'foo.cpp')
+
+        # Inside a namespace body the directive is contained, which is the
+        # recommended fix for unified-build collisions.
+        self.assert_multi_line_lint(
+            'namespace WebCore {\n'
+            'using namespace JSC;\n'
+            '}\n',
+            '', 'foo.cpp')
+
+        # std::literals namespaces are exempt at file scope.
+        self.assert_lint('using namespace std::literals;', '', 'foo.cpp')
+        self.assert_lint('using namespace std::literals::chrono_literals;', '', 'foo.cpp')
+
     def test_max_macro(self):
         self.assert_lint(
             'int i = MAX(0, 1);',
@@ -6103,6 +6159,53 @@ class WebKitStyleTest(CppStyleTestBase):
             "  [runtime/wtf_checked_size] [5]",
             'foo.cpp')
 
+    def test_auto_with_adopt(self):
+        self.assert_lint(
+            'RetainPtr webView = adoptNS([[TestWKWebView alloc] init]);',
+            '',
+            'foo.mm')
+        self.assert_lint(
+            'auto webView = adoptNS([[TestWKWebView alloc] init]);',
+            "Use 'RetainPtr' instead of 'auto' with 'adoptNS()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.mm')
+        self.assert_lint(
+            'auto context = adoptCF(CGBitmapContextCreate(0, 0, 0, 0, 0, 0, 0));',
+            "Use 'RetainPtr' instead of 'auto' with 'adoptCF()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.cpp')
+        self.assert_lint(
+            'auto obj = adoptRef(*new MyClass);',
+            "Use 'Ref/RefPtr' instead of 'auto' with 'adoptRef()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.cpp')
+        self.assert_lint(
+            'auto queue = adoptOSObject(dispatch_queue_create("foo", DISPATCH_QUEUE_SERIAL));',
+            "Use 'OSObjectPtr' instead of 'auto' with 'adoptOSObject()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.cpp')
+        self.assert_lint(
+            'auto dc = adoptGDIObject(CreateDC());',
+            "Use 'GDIObject' instead of 'auto' with 'adoptGDIObject()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.cpp')
+        self.assert_lint(
+            'Ref obj = adoptRef(*new MyClass);',
+            '',
+            'foo.cpp')
+        self.assert_lint(
+            'auto x = someOtherFunction();',
+            '',
+            'foo.cpp')
+        self.assert_lint(
+            'GRefPtr caps = adoptGRef(gst_caps_new_empty_simple("bleh"));',
+            '',
+            'foo.cpp')
+        self.assert_lint(
+            'auto caps = adoptGRef(gst_caps_new_empty_simple("bleh"));',
+            "Use 'GRefPtr' instead of 'auto' with 'adoptGRef()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.cpp')
 
     def test_wtf_make_unique(self):
         self.assert_lint(
@@ -6163,6 +6266,24 @@ class WebKitStyleTest(CppStyleTestBase):
             "Use 'WTF::move()' instead of 'std::move()'."
             "  [runtime/wtf_move] [4]",
             'foo.mm')
+
+    def test_wtf_to_array(self):
+        self.assert_lint(
+            'auto a = WTF::toArray<int>({ 1, 2, 3 });',
+            '',
+            'foo.cpp')
+
+        self.assert_lint(
+            'auto a = std::to_array<int>({ 1, 2, 3 });',
+            "Use 'WTF::toArray()' instead of 'std::to_array()'."
+            "  [runtime/wtf_to_array] [4]",
+            'foo.cpp')
+
+        self.assert_lint(
+            'auto a = std::to_array(src);',
+            "Use 'WTF::toArray()' instead of 'std::to_array()'."
+            "  [runtime/wtf_to_array] [4]",
+            'foo.cpp')
 
     def test_protected_getter(self):
         # Regular getter is fine.
@@ -6351,7 +6472,8 @@ class WebKitStyleTest(CppStyleTestBase):
     def test_wtf_os_object_ptr(self):
         self.assert_lint(
             'auto queue = adoptOSObject(dispatch_queue_create("foo", DISPATCH_QUEUE_SERIAL));',
-            '',
+            "Use 'OSObjectPtr' instead of 'auto' with 'adoptOSObject()'."
+            "  [runtime/auto_with_adopt] [4]",
             'foo.cpp')
         self.assert_lint(
             'OSObjectPtr queue = adoptOSObject(dispatch_queue_create("foo", DISPATCH_QUEUE_SERIAL));',
@@ -6363,7 +6485,8 @@ class WebKitStyleTest(CppStyleTestBase):
             'foo.cpp')
         self.assert_lint(
             'auto group = adoptOSObject(dispatch_group_create());',
-            '',
+            "Use 'OSObjectPtr' instead of 'auto' with 'adoptOSObject()'."
+            "  [runtime/auto_with_adopt] [4]",
             'foo.cpp')
         self.assert_lint(
             'RetainPtr<dispatch_queue_t> m_queue;',
@@ -6385,35 +6508,29 @@ class WebKitStyleTest(CppStyleTestBase):
             "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects."
             "  [runtime/wtf_os_object_ptr] [4]",
             'foo.mm')
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto queue = adoptNS(dispatch_queue_create("foo", DISPATCH_QUEUE_SERIAL));',
-            "Use 'adoptOSObject()' instead of 'adoptNS()' for dispatch objects."
-            "  [runtime/wtf_os_object_ptr] [4]",
+            r"Use 'adoptOSObject\(\)' instead of 'adoptNS\(\)' for dispatch objects.",
             'foo.mm')
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto group = adoptNS(dispatch_group_create());',
-            "Use 'adoptOSObject()' instead of 'adoptNS()' for dispatch objects."
-            "  [runtime/wtf_os_object_ptr] [4]",
+            r"Use 'adoptOSObject\(\)' instead of 'adoptNS\(\)' for dispatch objects.",
             'foo.mm')
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto queue = adoptOSObject(dispatch_queue_create("foo", RetainPtr { DISPATCH_QUEUE_CONCURRENT }.get()));',
-            "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects."
-            "  [runtime/wtf_os_object_ptr] [4]",
+            r"Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.",
             'foo.mm')
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto queue = adoptOSObject(dispatch_queue_create("foo", RetainPtr { DISPATCH_QUEUE_SERIAL }.get()));',
-            "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects."
-            "  [runtime/wtf_os_object_ptr] [4]",
+            r"Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.",
             'foo.mm')
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto queue = adoptOSObject(dispatch_queue_create("foo", retainPtr(DISPATCH_QUEUE_CONCURRENT).get()));',
-            "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects."
-            "  [runtime/wtf_os_object_ptr] [4]",
+            r"Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.",
             'foo.mm')
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto queue = adoptOSObject(dispatch_queue_create("foo", retainPtr(DISPATCH_QUEUE_SERIAL).get()));',
-            "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects."
-            "  [runtime/wtf_os_object_ptr] [4]",
+            r"Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.",
             'foo.mm')
 
     def test_wtf_xpc_object_ptr(self):
@@ -6433,15 +6550,15 @@ class WebKitStyleTest(CppStyleTestBase):
             '',
             'foo.mm')
 
-        self.assert_lint(
+        self.assert_lint_one_of_many_errors_re(
             'auto connection = adoptNS(xpc_connection_create_from_endpoint(endpoint));',
-            "Use 'adoptOSObject()' instead of 'adoptNS()' for XPC objects."
-            "  [runtime/wtf_xpc_object_ptr] [4]",
+            r"Use 'adoptOSObject\(\)' instead of 'adoptNS\(\)' for XPC objects.",
             'foo.mm')
 
         self.assert_lint(
             'auto connection = adoptOSObject(xpc_connection_create_from_endpoint(endpoint));',
-            '',
+            "Use 'OSObjectPtr' instead of 'auto' with 'adoptOSObject()'."
+            "  [runtime/auto_with_adopt] [4]",
             'foo.mm')
 
     def test_lock_guard(self):
@@ -7566,6 +7683,27 @@ class WebKitStyleTest(CppStyleTestBase):
     def test_other(self):
         # FIXME: Implement this.
         pass
+
+    def test_line_numbers_filters_errors(self):
+        code = ['void f() {', '\tint x;', '}', '']
+        error_collector = ErrorCollector(self.assertTrue, FilterConfiguration(('-', '+whitespace/tab')))
+        checker = CppChecker('foo.cpp', 'cpp', error_collector, self.min_confidence, {})
+        checker.check(code, line_numbers=[1])
+        self.assertEqual('', error_collector.results())
+
+    def test_line_numbers_reports_errors_on_listed_lines(self):
+        code = ['void f() {', '\tint x;', '}', '']
+        error_collector = ErrorCollector(self.assertTrue, FilterConfiguration(('-', '+whitespace/tab')))
+        checker = CppChecker('foo.cpp', 'cpp', error_collector, self.min_confidence, {})
+        checker.check(code, line_numbers=[2])
+        self.assertNotEqual('', error_collector.results())
+
+    def test_empty_line_numbers_suppresses_all_errors(self):
+        code = ['void f() {', '\tint x;', '}', '']
+        error_collector = ErrorCollector(self.assertTrue, FilterConfiguration(('-', '+whitespace/tab')))
+        checker = CppChecker('foo.cpp', 'cpp', error_collector, self.min_confidence, {})
+        checker.check(code, line_numbers=[])
+        self.assertEqual('', error_collector.results())
 
 
 class CppCheckerTest(unittest.TestCase):

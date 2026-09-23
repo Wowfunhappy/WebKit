@@ -30,6 +30,8 @@
 
 #include "DocumentEditingContext.h"
 #include "FrameInfoData.h"
+#include "Logging.h"
+#include "MessageSenderInlines.h"
 #include "PDFPlugin.h"
 #include "UnifiedPDFPlugin.h"
 #include "WebFrame.h"
@@ -49,6 +51,7 @@
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/DocumentPage.h>
 #include <WebCore/DocumentView.h>
+#include <WebCore/Event.h>
 #include <WebCore/EventHandler.h>
 #include <WebCore/EventNames.h>
 #include <WebCore/FocusController.h>
@@ -65,6 +68,7 @@
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/MouseEvent.h>
+#include <WebCore/MouseEventTypes.h>
 #include <WebCore/NetscapePlugInStreamLoader.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NodeDocument.h>
@@ -72,7 +76,6 @@
 #include <WebCore/PageInlines.h>
 #include <WebCore/PlatformMouseEvent.h>
 #include <WebCore/ProtectionSpace.h>
-#include <WebCore/RenderBoxModelObjectInlines.h>
 #include <WebCore/RenderEmbeddedObject.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/ScrollView.h>
@@ -86,7 +89,6 @@
 #include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
-using namespace JSC;
 using namespace WebCore;
 
 class PluginView::Stream : public RefCounted<PluginView::Stream>, NetscapePlugInStreamLoaderClient {
@@ -699,9 +701,20 @@ std::pair<String, String> PluginView::stringsBeforeAndAfterSelection(int charact
     return m_plugin->stringsBeforeAndAfterSelection(characterCount);
 }
 
+// Automation mouse events funnel through as synthetic clicks, except
+// for context menu events, which do not have a clear synthetic analogue.
+static bool shouldForwardToPlugin(const Event& event)
+{
+    auto* mouseEvent = dynamicDowncast<WebCore::MouseEvent>(event);
+    return !mouseEvent || mouseEvent->inputSource() != WebCore::MouseEventInputSource::Automation || event.type() == eventNames().contextmenuEvent;
+}
+
 void PluginView::handleEvent(Event& event)
 {
     if (!m_isInitialized)
+        return;
+
+    if (!shouldForwardToPlugin(event))
         return;
 
     const CheckedPtr currentEvent = WebPage::currentEvent();
@@ -735,6 +748,8 @@ void PluginView::handleEvent(Event& event)
 
     if (didHandleEvent)
         event.setDefaultHandled();
+
+    LOG_WITH_STREAM(Plugins, stream << "PluginView::handleEvent() for event: " << event << ", was handled: " << didHandleEvent);
 }
 
 bool PluginView::handleEditingCommand(const String& commandName, const String& argument)
@@ -1012,7 +1027,7 @@ void PluginView::invalidateRect(const IntRect& dirtyRect)
         return;
 
     auto contentRect = dirtyRect;
-    contentRect.move(renderer->borderLeft() + renderer->paddingLeft(), renderer->borderTop() + renderer->paddingTop());
+    contentRect.move(borderLeft(*renderer) + paddingLeft(*renderer), borderTop(*renderer) + paddingTop(*renderer));
     renderer->repaintRectangle(contentRect);
 }
 
@@ -1141,7 +1156,7 @@ PDFPluginIdentifier PluginView::pdfPluginIdentifier() const
     return m_plugin->identifier();
 }
 
-void PluginView::setPDFDisplayMode(PDFDisplayMode mode)
+void PluginView::setPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     m_plugin->setDisplayModeAndUpdateLayout(mode);
 }

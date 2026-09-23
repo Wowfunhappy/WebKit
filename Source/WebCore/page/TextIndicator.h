@@ -127,6 +127,9 @@ enum class TextIndicatorOption : uint16_t {
 
     // If this option is set, perform the snapshot with 3x as the base scale, rather than the device scale factor
     SnapshotContentAt3xBaseScale = 1 << 14,
+
+    // Include document markers in the snapshot
+    IncludeDocumentMarkers = 1 << 15,
 };
 
 struct TextIndicatorData {

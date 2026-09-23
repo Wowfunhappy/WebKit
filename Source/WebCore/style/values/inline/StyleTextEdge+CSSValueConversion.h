@@ -24,8 +24,9 @@
 
 #pragma once
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
 #include "StyleTextEdge.h"
 
 namespace WebCore {
@@ -36,8 +37,8 @@ template<TextEdgeDerived T> struct CSSValueConversion<T> {
     {
         using Keyword = typename T::Keyword;
 
-        if (is<CSSPrimitiveValue>(value)) {
-            switch (value.valueID()) {
+        if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+            switch (keywordValue->valueID()) {
             case Keyword::value:
                 return Keyword { };
             case CSSValueText:
@@ -51,14 +52,12 @@ template<TextEdgeDerived T> struct CSSValueConversion<T> {
             case CSSValueEx:
                 return { TextEdgeOver::Ex, TextEdgeUnder::Text };
             default:
-                break;
+                state.setCurrentPropertyInvalidAtComputedValueTime();
+                return Keyword { };
             }
-
-            state.setCurrentPropertyInvalidAtComputedValueTime();
-            return Keyword { };
         }
 
-        auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+        auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
         if (!pair)
             return Keyword { };
 

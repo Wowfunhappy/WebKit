@@ -29,25 +29,16 @@
 #include "config.h"
 #include <wtf/FileSystem.h>
 
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <fnmatch.h>
-#include <libgen.h>
 #include <stdio.h>
-#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
-#include <sys/types.h>
 #include <unistd.h>
-#include <wtf/EnumTraits.h>
 #include <wtf/FileHandle.h>
-#include <wtf/MallocSpan.h>
-#include <wtf/MappedFileData.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
-#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
@@ -182,14 +173,15 @@ static const char* temporaryFileDirectory()
 #endif
 }
 
-std::pair<String, FileHandle> openTemporaryFile(StringView prefix, StringView suffix)
+std::pair<String, FileHandle> openTemporaryFile(StringView prefix, StringView suffix, const String& temporaryDirectory)
 {
     // Suffix is not supported because that's incompatible with mkostemp, mkostemps would be needed for that.
     // This is OK for now since the code using it is built on macOS only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
+    const auto temporaryDirectoryUtf8 = temporaryDirectory.utf8();
     IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
-    const char* directory = temporaryFileDirectory();
+    const char* directory = !temporaryDirectory.isEmpty() ? temporaryDirectoryUtf8.data() : temporaryFileDirectory();
     CString prefixUTF8 = prefix.utf8();
     size_t length = strlen(directory) + 1 + prefixUTF8.length() + 1 + 6 + 1;
     auto buffer = MallocSpan<char>::malloc(length);

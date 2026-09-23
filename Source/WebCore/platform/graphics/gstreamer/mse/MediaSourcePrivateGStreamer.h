@@ -50,6 +50,9 @@ class PlatformTimeRanges;
 class MediaSourcePrivateGStreamer final : public MediaSourcePrivate
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
+#ifndef GST_DISABLE_GST_DEBUG
+    , public Logger::MessageHandlerObserver
+#endif
 #endif
 {
 public:
@@ -102,8 +105,6 @@ public:
     RegisteredTrack registerTrack(TrackID, StreamType);
     void unregisterTrack(TrackID);
 
-    void willSeek();
-
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
     ASCIILiteral logClassName() const override { return "MediaSourcePrivateGStreamer"_s; }
@@ -111,6 +112,9 @@ public:
     WTFLogChannel& logChannel() const final;
 
     uint64_t nextSourceBufferLogIdentifier() { return childLogIdentifier(m_logIdentifier, ++m_nextSourceBufferID); }
+#ifndef GST_DISABLE_GST_DEBUG
+    void handleLogMessage(const WTFLogChannel&, WTFLogLevel, std::optional<WTFLogLocation>, const Vector<JSONLogValue>&) final;
+#endif
 #endif
 
 private:

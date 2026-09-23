@@ -32,7 +32,7 @@
 #include "GraphicsContext.h"
 #include "LayoutRect.h"
 #include "Logging.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 #include <wtf/MathExtras.h>
 #include <wtf/RuntimeApplicationChecks.h>
@@ -61,7 +61,7 @@ static const AffineTransform& NODELETE rotateLeftTransform()
     return result;
 }
 
-AffineTransform computeBaseOverallTextMatrix(const std::optional<AffineTransform>& syntheticOblique)
+AffineTransform NODELETE computeBaseOverallTextMatrix(const std::optional<AffineTransform>& syntheticOblique)
 {
     AffineTransform result;
 
@@ -94,7 +94,7 @@ AffineTransform computeOverallTextMatrix(const Font& font)
     return computeBaseOverallTextMatrix(syntheticOblique);
 }
 
-AffineTransform computeBaseVerticalTextMatrix(const AffineTransform& previousTextMatrix)
+AffineTransform NODELETE computeBaseVerticalTextMatrix(const AffineTransform& previousTextMatrix)
 {
     // The translation here ("e" and "f" fields) are irrelevant, because
     // this matrix is inverted in fillVectorWithVerticalGlyphPositions to place the glyphs in the CTM's coordinate system.
@@ -106,7 +106,7 @@ AffineTransform computeBaseVerticalTextMatrix(const AffineTransform& previousTex
     return rotateLeftTransform() * previousTextMatrix;
 }
 
-AffineTransform computeVerticalTextMatrix(const Font& font, const AffineTransform& previousTextMatrix)
+AffineTransform NODELETE computeVerticalTextMatrix(const Font& font, const AffineTransform& previousTextMatrix)
 {
     ASSERT_UNUSED(font, font.platformData().orientation() == FontOrientation::Vertical);
     return computeBaseVerticalTextMatrix(previousTextMatrix);
@@ -425,7 +425,7 @@ RefPtr<const Font> FontCascade::fontForCombiningCharacterSequence(StringView str
     ++codePointsIterator;
     bool isOnlySingleCodePoint = codePointsIterator == codePoints.end();
 
-    GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacter, false, NormalVariant);
+    GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacter, false, FontVariant::Normal);
 
     if (!baseCharacterGlyphData.glyph)
         return nullptr;
@@ -532,7 +532,7 @@ ResolvedEmojiPolicy FontCascade::resolveEmojiPolicy(FontVariantEmoji fontVariant
     }
 }
 
-bool FontCascade::canUseGlyphDisplayList(const RenderStyle& style)
+bool FontCascade::canUseGlyphDisplayList(const Style::ComputedStyle& style)
 {
     // CoreText won't call the drawImage delegate for glyphs that are invisible, even if they have an associated shadow applied to its graphic context. This would result in a glyph display list without the invisible glyph which is drawn as image and we would not draw its associated shadow. Therefore, we won't use a display list for runs that are invisible and have an associated shadow.
     return !(!style.textShadow().isNone() && !style.color().isVisible());

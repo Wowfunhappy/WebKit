@@ -354,7 +354,7 @@ struct GSUBTable : TableBase {
         const FeatureList* features = featureList(buffer);
         if (!features)
             return 0;
-        const FeatureTable* feature = 0;
+        const FeatureTable* feature = nullptr;
         if (langSys)
             feature = langSys->feature(featureTag, features, buffer);
         if (!feature) {

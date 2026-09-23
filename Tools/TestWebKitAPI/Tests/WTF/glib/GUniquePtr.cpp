@@ -40,11 +40,6 @@ inline std::string takeLogStr()
     return string;
 }
 
-static void (* _g_free)(void*) = g_free;
-#define g_free(x) \
-    log() << "g_free(" << ptr << ");"; \
-    _g_free(x);
-
 static void (* _g_error_free)(GError*) = g_error_free;
 #define g_error_free(x) \
     log() << "g_error_free(" << ptr << ");"; \
@@ -81,6 +76,23 @@ static void (* _g_key_file_free)(GKeyFile*) = g_key_file_free;
     _g_key_file_free(x);
 
 #include <wtf/glib/GUniquePtr.h>
+
+// The g_free macro trick doesn't work for GPtrDeleter<char>: the compiler
+// generates a copy in every file that uses GUniquePtr<char>, and the linker
+// keeps only one. It may keep a copy from a file where the macro wasn't
+// active, so the log stays empty. Defining our own specialization with
+// operator() outside the class body makes it a strong symbol the linker
+// always picks.
+namespace WTF {
+template<> struct GPtrDeleter<char> {
+    void operator()(char* ptr) const;
+};
+}
+void WTF::GPtrDeleter<char>::operator()(char* ptr) const
+{
+    log() << "g_free(" << ptr << ");";
+    g_free(ptr);
+}
 
 namespace TestWebKitAPI {
 

@@ -34,7 +34,6 @@
 SOFT_LINK_FRAMEWORK_FOR_HEADER(PAL, UsageTracking);
 
 SOFT_LINK_CLASS_FOR_HEADER(PAL, USVideoUsage);
-#define _AXSIsolatedTreeModeFunctionIsAvailable PAL::canLoad_libAccessibility__AXSIsolatedTreeMode
 
 SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, UsageTracking, USVideoMetadataKeyCanShowControlsManager, NSString *)
 #define USVideoMetadataKeyCanShowControlsManager PAL::get_UsageTracking_USVideoMetadataKeyCanShowControlsManagerSingleton()

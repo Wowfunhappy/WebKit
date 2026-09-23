@@ -26,8 +26,8 @@
 
 #include "config.h"
 
-#include "Test.h"
-#include "Utilities.h"
+#include "Helpers/Test.h"
+#include "Helpers/Utilities.h"
 #include <ranges>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
@@ -130,7 +130,8 @@ TEST_F(FileSystemTest, MappingExistingEmptyFile)
 {
     auto mappedFileData = FileSystem::mapFile(tempEmptyFilePath(), FileSystem::MappedFileMode::Shared);
     EXPECT_TRUE(!!mappedFileData);
-    EXPECT_TRUE(!*mappedFileData);
+    EXPECT_TRUE(!!*mappedFileData);
+    EXPECT_EQ(mappedFileData->size(), 0u);
 }
 
 TEST_F(FileSystemTest, FilesHaveSameVolume)
@@ -964,6 +965,7 @@ TEST_F(FileSystemTest, isAncestor)
         { { "/a/b/c", "/a/b/c" }, false },
         { { "/a/b/c/x/..", "/a/b/c" }, false },
         { { "/a/b/c/dir1", "/a/b/c/dir2" }, false },
+        { { "/a/b/c", "/a/b/cd" }, false },
         { { "/a/b/c", "/a/b/c/" }, false },
         { { "/a/b/c", "/a/b/c/." }, false },
         { { "a/b/c", "/a/b/c/" }, false },
@@ -988,6 +990,7 @@ TEST_F(FileSystemTest, isAncestor)
         { { u"/a/b/c", u"/a/b/c" }, false },
         { { u"/a/b/c/x/..", u"/a/b/c" }, false },
         { { u"/a/b/c/dir1", u"/a/b/c/dir2" }, false },
+        { { u"/a/b/c", u"/a/b/cd" }, false },
         { { u"/a/b/c", u"/a/b/c/" }, false },
         { { u"/a/b/c", u"/a/b/c/." }, false },
         { { u"a/b/c", u"/a/b/c/" }, false },
@@ -1005,5 +1008,17 @@ TEST_F(FileSystemTest, isAncestor)
         }
     );
 }
+
+#if !OS(WINDOWS)
+// The third parameter to WTF::openTemporaryFile() is ignored on Windows.
+TEST_F(FileSystemTest, createTemporaryFileInDirectory)
+{
+    auto [filePath, fileHandle] = FileSystem::openTemporaryFile("tempTestFile"_s, { }, tempEmptyFolderPath());
+    EXPECT_TRUE(!!fileHandle);
+    EXPECT_TRUE(FileSystem::fileType(filePath) == FileSystem::FileType::Regular);
+    EXPECT_TRUE(FileSystem::isAncestor(tempEmptyFolderPath(), filePath));
+    EXPECT_TRUE(FileSystem::parentPath(filePath) == tempEmptyFolderPath());
+}
+#endif
 
 } // namespace TestWebKitAPI

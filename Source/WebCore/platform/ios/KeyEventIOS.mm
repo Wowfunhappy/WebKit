@@ -40,7 +40,7 @@ namespace WebCore {
 
 int windowsKeyCodeForKeyCode(uint16_t keyCode)
 {
-    static constexpr auto windowsKeyCode = std::to_array<int>({
+    static constexpr auto windowsKeyCode = WTF::toArray<int>({
         /* 0 */ 0, // n/a
         /* 1 */ 0, // n/a
         /* 2 */ 0, // n/a

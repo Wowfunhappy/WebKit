@@ -63,6 +63,10 @@ struct NetworkProcessCreationParameters {
     bool isParentProcessFullWebBrowserOrRunningTest { false };
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+    String containerTemporaryDirectory;
+#endif
+
 #if USE(SOUP)
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy { WebCore::HTTPCookieAcceptPolicy::AlwaysAccept };
     Vector<String> languages;
@@ -83,7 +87,6 @@ struct NetworkProcessCreationParameters {
     bool enableEnhancedSecurityLinks { false };
 #endif
     Vector<WebsiteDataStoreParameters> websiteDataStoreParameters;
-    Vector<std::pair<WebCore::ProcessIdentifier, WebCore::RegistrableDomain>> allowedFirstPartiesForCookies;
     HashMap<WebCore::ProcessIdentifier, Vector<String>> allowedFilePaths;
     HashSet<String> localhostAliasesForTesting;
     Vector<WebCore::OrganizationStorageAccessPromptQuirk> storageAccessPromptQuirksData;

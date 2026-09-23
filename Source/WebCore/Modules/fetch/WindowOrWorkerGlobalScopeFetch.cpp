@@ -34,6 +34,7 @@
 #include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSFetchResponse.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "LocalDOMWindow.h"
 #include "UserGestureIndicator.h"
 #include "WorkerGlobalScope.h"

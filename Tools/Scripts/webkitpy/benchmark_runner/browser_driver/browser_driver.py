@@ -80,3 +80,6 @@ class BrowserDriver:
 
     def collect_pgo_profile(self, destination):
         raise NotImplementedError()
+
+    def _save_screenshot_to_path(self, output_directory, filename):
+        pass

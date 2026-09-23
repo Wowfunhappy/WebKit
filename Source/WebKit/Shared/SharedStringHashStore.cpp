@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <ranges>
+#include <wtf/Borrow.h>
 #include <wtf/MathExtras.h>
 #include <wtf/PageBlock.h>
 #include <wtf/StdLibExtras.h>
@@ -134,7 +135,7 @@ void SharedStringHashStore::resizeTable(unsigned newTableLength)
         }
     }
 
-    for (auto& operation : m_pendingOperations) {
+    for (auto& operation : borrow(m_pendingOperations).get()) {
         switch (operation.type) {
         case Operation::Add:
             if (m_table.add(operation.sharedStringHash))
@@ -169,7 +170,7 @@ void SharedStringHashStore::processPendingOperations()
     Vector<SharedStringHash> removedSharedStringHashes;
     addedSharedStringHashes.reserveInitialCapacity(approximateNewHashCount);
     removedSharedStringHashes.reserveInitialCapacity(m_pendingOperations.size() - approximateNewHashCount);
-    for (auto& operation : m_pendingOperations) {
+    for (auto& operation : borrow(m_pendingOperations).get()) {
         switch (operation.type) {
         case Operation::Add:
             if (m_table.add(operation.sharedStringHash)) {

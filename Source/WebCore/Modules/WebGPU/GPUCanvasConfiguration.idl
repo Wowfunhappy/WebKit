@@ -37,7 +37,7 @@ typedef [EnforceRange] unsigned long GPUTextureUsageFlags;
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
     sequence<GPUTextureFormat> viewFormats = [];
-    GPUPredefinedColorSpace colorSpace = "srgb";
+    PredefinedColorSpace colorSpace = "srgb";
     GPUCanvasToneMapping toneMapping = {};
     GPUCanvasAlphaMode alphaMode = "opaque";
 };

@@ -23,7 +23,7 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-typedef (DOMString or CSSKeywordValue) CSSKeywordish;
+typedef (DOMString or CSSOMKeywordValue) CSSOMKeywordish;
 
 // https://drafts.css-houdini.org/css-typed-om/#csscolorvalue
 [
@@ -33,9 +33,9 @@ typedef (DOMString or CSSKeywordValue) CSSKeywordish;
     JSGenerateToNativeObject,
 ] interface CSSOMColorValue : CSSStyleValue {
     // FIXME: `colorSpace` should not exist on this type.
-    readonly attribute CSSKeywordValue? colorSpace;
+    readonly attribute CSSOMKeywordValue? colorSpace;
     // FIXME: `to` should not exist on this type.
-    CSSOMColorValue? to(CSSKeywordish colorSpace);
+    CSSOMColorValue? to(CSSOMKeywordish colorSpace);
     // FIXME: `parse` should return a non-nullable type.
     [Exposed=Window] static (CSSOMColorValue or CSSStyleValue)? parse(USVString cssText);
 };

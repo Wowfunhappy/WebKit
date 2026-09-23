@@ -44,7 +44,7 @@ GStreamerQuirkRialto::GStreamerQuirkRialto()
     std::array<ASCIILiteral, 2> rialtoSinks = { "rialtomsevideosink"_s, "rialtomseaudiosink"_s };
 
     for (auto sink : rialtoSinks) {
-        auto sinkFactory = adoptGRef(gst_element_factory_find(sink.characters()));
+        GRefPtr sinkFactory = adoptGRef(gst_element_factory_find(sink.characters()));
         if (!sinkFactory) [[unlikely]]
             continue;
 
@@ -66,11 +66,12 @@ GStreamerQuirkRialto::GStreamerQuirkRialto()
                 m_sinkCaps = WTF::move(templateCaps);
         }
     }
+    m_disallowedWebAudioDecoders = { "rialtomseaudiosink"_s };
 }
 
 bool GStreamerQuirkRialto::isPlatformSupported() const
 {
-    auto sinkFactory = adoptGRef(gst_element_factory_find("rialtomsevideosink"));
+    GRefPtr sinkFactory = adoptGRef(gst_element_factory_find("rialtomsevideosink"));
     if (!sinkFactory)
         return false;
     return gst_plugin_feature_get_rank(GST_PLUGIN_FEATURE(sinkFactory.get())) > GST_RANK_MARGINAL;
@@ -107,13 +108,13 @@ GstElement* /* transfer floating */ GStreamerQuirkRialto::createWebAudioSink()
     // template and/or caps negotiation implementation.
     auto bin = gst_bin_new(nullptr);
     auto capsFilter = gst_element_factory_make("capsfilter", nullptr);
-    auto caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "layout", G_TYPE_STRING, "interleaved", nullptr));
+    GRefPtr caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "layout", G_TYPE_STRING, "interleaved", nullptr));
     g_object_set(capsFilter, "caps", caps.get(), nullptr);
 
     gst_bin_add_many(GST_BIN_CAST(bin), capsFilter, sink, nullptr);
     gst_element_link(capsFilter, sink);
 
-    auto pad = adoptGRef(gst_element_get_static_pad(capsFilter, "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(capsFilter, "sink"));
     gst_element_add_pad(bin, gst_ghost_pad_new("sink", pad.get()));
 
     return bin;

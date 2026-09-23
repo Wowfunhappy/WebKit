@@ -37,9 +37,9 @@ struct CSSRegisteredCustomProperty {
 
     AtomString name;
     CSSCustomPropertySyntax syntax;
-    bool inherits;
-    RefPtr<const Style::CustomProperty> initialValue;
-    RefPtr<const CSSVariableData> initialValueTokensForViewportUnits;
+    bool inherits { };
+    RefPtr<const Style::CustomProperty> initialValue { };
+    RefPtr<const CSSVariableData> initialValueTokensForViewportUnits { };
 
     ~CSSRegisteredCustomProperty();
 };

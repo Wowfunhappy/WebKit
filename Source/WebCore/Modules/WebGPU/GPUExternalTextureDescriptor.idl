@@ -35,5 +35,5 @@
     required HTMLVideoElement source;
 #endif
 #endif
-    GPUPredefinedColorSpace colorSpace = "srgb";
+    PredefinedColorSpace colorSpace = "srgb";
 };

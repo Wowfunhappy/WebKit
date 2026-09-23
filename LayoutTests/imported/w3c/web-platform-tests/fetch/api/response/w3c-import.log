@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/json.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/many-empty-chunks-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-arraybuffer-realm.window.js
@@ -27,6 +28,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-consume.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-error-from-stream.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-error.any.js
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-form-data.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-from-stream.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-headers-guard.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/response/response-init-001.any.js

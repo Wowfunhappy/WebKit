@@ -41,6 +41,7 @@
 #include "VideoLayerRemote.h"
 #include "VideoTrackPrivateRemote.h"
 #include <WebCore/MediaPlayerPrivate.h>
+#include <WebCore/MediaTimeUpdateData.h>
 #include <WebCore/PlatformLayer.h>
 #include <WebCore/SecurityOriginData.h>
 #include <WebCore/VideoFrameMetadata.h>
@@ -48,10 +49,6 @@
 #include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
 #include <wtf/StdUnorderedMap.h>
-
-#if ENABLE(MEDIA_SOURCE)
-#include "MediaSourcePrivateRemote.h"
-#endif
 
 #if ENABLE(MACH_PORT_LAYER_HOSTING)
 #include <wtf/MachSendRightAnnotated.h>
@@ -76,18 +73,14 @@ class PixelBufferConformerCV;
 
 namespace WebKit {
 
+using WebCore::MediaTimeUpdateData;
+
 class RemoteAudioSourceProvider;
 class RemoteMediaResourceLoaderProxy;
 class UserData;
 struct AudioTrackPrivateRemoteConfiguration;
 struct TextTrackPrivateRemoteConfiguration;
 struct VideoTrackPrivateRemoteConfiguration;
-
-struct MediaTimeUpdateData {
-    MediaTime currentTime;
-    bool timeIsProgressing;
-    MonotonicTime wallTime;
-};
 
 class MediaPlayerPrivateRemote final
     : public WebCore::MediaPlayerPrivateInterface
@@ -126,7 +119,6 @@ public:
     void readyStateChanged(RemoteMediaPlayerState&&, WebCore::MediaPlayer::ReadyState);
     void volumeChanged(double);
     void muteChanged(bool);
-    void seeked(MediaTimeUpdateData&&);
     void timeChanged(RemoteMediaPlayerState&&, MediaTimeUpdateData&&);
     void durationChanged(RemoteMediaPlayerState&&);
     void rateChanged(double, MediaTimeUpdateData&&);
@@ -175,8 +167,6 @@ public:
 
     void resourceNotSupported();
 
-    void activeSourceBuffersChanged();
-
     bool inVideoFullscreenOrPictureInPicture() const final;
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -217,6 +207,10 @@ public:
     MediaTime currentTime() const final;
     MediaTime currentOrPendingSeekTime() const final;
 
+#if PLATFORM(MAC)
+    void screenReservedChanged(bool) final;
+#endif
+
     void gpuProcessConnectionDidClose();
 
 private:
@@ -236,17 +230,14 @@ private:
 
     private:
         mutable Lock m_lock;
-        std::atomic<bool> m_timeIsProgressing { false };
+        std::atomic<double> m_effectiveRate { 0 };
         MediaTime m_cachedMediaTime WTF_GUARDED_BY_LOCK(m_lock);
         MonotonicTime m_cachedMediaTimeQueryTime WTF_GUARDED_BY_LOCK(m_lock);
-        double m_rate WTF_GUARDED_BY_LOCK(m_lock) { 1.0 };
         mutable std::optional<MediaTime> m_lastReturnedTime WTF_GUARDED_BY_LOCK(m_lock);
         bool m_forceUseCachedTime WTF_GUARDED_BY_LOCK(m_lock) { false };
         ThreadSafeWeakRef<const MediaPlayerPrivateRemote> m_parent;
     };
     TimeProgressEstimator m_currentTimeEstimator;
-
-    MediaTime currentTimeWithLockHeld() const;
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
@@ -315,13 +306,13 @@ private:
     bool hasAudio() const final;
 
     void setPageIsVisible(bool) final;
+    void setViewportVisibility(ViewportVisibility) final;
 
     MediaTime getStartDate() const final;
 
     void willSeekToTarget(const MediaTime&) final;
     MediaTime pendingSeekTime() const final;
-    void seekToTarget(const WebCore::SeekTarget&) final;
-    bool seeking() const final;
+    Ref<WebCore::MediaTimePromise> seekToTarget(const WebCore::SeekTarget&) final;
 
     MediaTime startTime() const final;
 
@@ -369,6 +360,7 @@ private:
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     String wirelessPlaybackTargetName() const final;
+    String wirelessPlaybackRouteName() const final;
     WebCore::MediaPlayer::WirelessPlaybackTargetType wirelessPlaybackTargetType() const final;
 
     bool wirelessVideoPlaybackDisabled() const final;
@@ -438,8 +430,6 @@ private:
     void updateVideoPlaybackMetricsUpdateInterval(const Seconds&);
 
     void notifyTrackModeChanged() final;
-
-    void notifyActiveSourceBuffersChanged() final;
 
     void setShouldDisableSleep(bool) final;
 
@@ -526,10 +516,6 @@ private:
     RefPtr<RemoteAudioSourceProvider> m_audioSourceProvider;
 #endif
 
-#if ENABLE(MEDIA_SOURCE)
-    RefPtr<MediaSourcePrivateRemote> m_mediaSourcePrivate;
-#endif
-
     mutable Lock m_lock;
     HashMap<RemoteMediaResourceIdentifier, Ref<WebCore::PlatformMediaResource>> m_mediaResources;
     StdUnorderedMap<WebCore::TrackID, Ref<AudioTrackPrivateRemote>> m_audioTracks WTF_GUARDED_BY_LOCK(m_lock);
@@ -552,6 +538,7 @@ private:
     bool m_waitingForKey { false };
     std::optional<bool> m_shouldMaintainAspectRatio;
     std::optional<bool> m_pageIsVisible;
+    ViewportVisibility m_viewportVisibility { ViewportVisibility::NotVisible };
     RefPtr<RemoteVideoFrameProxy> m_videoFrameForCurrentTime;
 #if PLATFORM(COCOA)
     RefPtr<RemoteVideoFrameProxy> m_videoFrameGatheredWithVideoFrameMetadata;

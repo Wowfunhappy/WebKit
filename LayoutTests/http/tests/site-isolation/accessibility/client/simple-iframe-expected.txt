@@ -1,16 +1,9 @@
 Dump accessibility tree with isolated iframe
-AXRole: AXScrollArea
+AXRole: AXWebArea
+    AXRole: AXButton Before
     AXRole: AXWebArea
-        AXRole: AXButton Before
-        AXRole: AXScrollArea
-            AXRole: AXGroup null
-                AXRole: AXScrollArea
-                    AXRole: AXWebArea
-                        AXRole: AXHeading Hello, world!
-                            AXRole: AXStaticText
-                    AXRole: AXScrollBar
-                    AXRole: AXScrollBar
-        AXRole: AXButton After
+        AXRole: AXHeading Hello, world!
+    AXRole: AXButton After
 
 PASS successfullyParsed is true
 

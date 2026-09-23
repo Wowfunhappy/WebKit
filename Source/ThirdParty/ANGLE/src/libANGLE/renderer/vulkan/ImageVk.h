@@ -43,16 +43,10 @@ class ImageVk : public ImageImpl
     bool isFixedRatedCompression(const gl::Context *context) override;
 
     vk::ImageHelper *getImage() const { return mImage; }
-    gl::TextureType getImageTextureType() const;
-    gl::LevelIndex getImageLevel() const;
-    uint32_t getImageLayer() const;
-
-    UniqueSerial generateSiblingSerial() { return mImageSiblingSerialFactory.generate(); }
 
   private:
     bool mOwnsImage;
     vk::ImageHelper *mImage;
-    UniqueSerialFactory mImageSiblingSerialFactory;
 
     const gl::Context *mContext;
 };

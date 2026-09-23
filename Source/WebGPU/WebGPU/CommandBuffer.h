@@ -29,8 +29,9 @@
 #import <wtf/FastMalloc.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/TZoneMalloc.h>
+#import <wtf/ThreadSafeWeakPtr.h>
 #import <wtf/WeakPtr.h>
 #import <wtf/threads/BinarySemaphore.h>
 
@@ -99,10 +100,10 @@ private:
 
 inline void refCommandBuffer(WebGPU::CommandBuffer* obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefCommandBuffer(WebGPU::CommandBuffer* obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }

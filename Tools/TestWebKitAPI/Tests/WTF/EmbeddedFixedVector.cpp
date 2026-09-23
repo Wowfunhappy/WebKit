@@ -188,7 +188,7 @@ struct DestructorObserver {
 
 TEST(WTF_EmbeddedFixedVector, Destructor)
 {
-    Vector<bool> flags(3, false);
+    Vector<bool> flags(FillWith { }, 3, false);
     {
         auto vector = EmbeddedFixedVector<DestructorObserver>::create(flags.size());
         for (unsigned i = 0; i < flags.size(); ++i)
@@ -202,7 +202,7 @@ TEST(WTF_EmbeddedFixedVector, Destructor)
 
 TEST(WTF_EmbeddedFixedVector, DestructorAfterMove)
 {
-    Vector<bool> flags(3, false);
+    Vector<bool> flags(FillWith { }, 3, false);
     {
         std::unique_ptr<EmbeddedFixedVector<DestructorObserver>> outerVector;
         {

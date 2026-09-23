@@ -57,7 +57,7 @@ enum {
 typedef HashMap<WebBackForwardListItem*, GRefPtr<WebKitBackForwardListItem> > BackForwardListItemsMap;
 
 struct _WebKitBackForwardListPrivate {
-    WebBackForwardList* backForwardItems;
+    WebBackForwardListWrapper* backForwardItems;
     BackForwardListItemsMap itemsMap;
 };
 
@@ -120,7 +120,7 @@ static GList* webkitBackForwardListCreateList(WebKitBackForwardList* list, API::
     return returnValue;
 }
 
-WebKitBackForwardList* webkitBackForwardListCreate(WebBackForwardList* backForwardItems)
+WebKitBackForwardList* webkitBackForwardListCreate(WebBackForwardListWrapper* backForwardItems)
 {
     WebKitBackForwardList* list = WEBKIT_BACK_FORWARD_LIST(g_object_new(WEBKIT_TYPE_BACK_FORWARD_LIST, NULL));
     list->priv->backForwardItems = backForwardItems;
@@ -212,7 +212,7 @@ WebKitBackForwardListItem* webkit_back_forward_list_get_nth_item(WebKitBackForwa
 {
     g_return_val_if_fail(WEBKIT_IS_BACK_FORWARD_LIST(backForwardList), 0);
 
-    return webkitBackForwardListGetOrCreateItem(backForwardList, backForwardList->priv->backForwardItems->itemAtIndex(index));
+    return webkitBackForwardListGetOrCreateItem(backForwardList, backForwardList->priv->backForwardItems->itemAtDeltaFromCurrentIndex(index).get());
 }
 
 /**
@@ -229,7 +229,7 @@ guint webkit_back_forward_list_get_length(WebKitBackForwardList* backForwardList
 
     WebKitBackForwardListPrivate* priv = backForwardList->priv;
     guint currentItem = webkit_back_forward_list_get_current_item(backForwardList) ? 1 : 0;
-    return priv->backForwardItems->backListCount() + priv->backForwardItems->forwardListCount() + currentItem;
+    return priv->backForwardItems->backListCountForAPI() + priv->backForwardItems->forwardListCountForAPI() + currentItem;
 }
 
 /**
@@ -245,7 +245,7 @@ GList* webkit_back_forward_list_get_back_list(WebKitBackForwardList* backForward
 {
     g_return_val_if_fail(WEBKIT_IS_BACK_FORWARD_LIST(backForwardList), 0);
 
-    return webkit_back_forward_list_get_back_list_with_limit(backForwardList, backForwardList->priv->backForwardItems->backListCount());
+    return webkit_back_forward_list_get_back_list_with_limit(backForwardList, backForwardList->priv->backForwardItems->backListCountForAPI());
 }
 
 /**
@@ -280,7 +280,7 @@ GList* webkit_back_forward_list_get_forward_list(WebKitBackForwardList* backForw
 {
     g_return_val_if_fail(WEBKIT_IS_BACK_FORWARD_LIST(backForwardList), 0);
 
-    return webkit_back_forward_list_get_forward_list_with_limit(backForwardList, backForwardList->priv->backForwardItems->forwardListCount());
+    return webkit_back_forward_list_get_forward_list_with_limit(backForwardList, backForwardList->priv->backForwardItems->forwardListCountForAPI());
 }
 
 /**

@@ -49,15 +49,15 @@
 
 namespace WebKit {
 
-using namespace PAL;
 using namespace WebCore;
 
 class MediaPlayerRemoteFactory final : public MediaPlayerFactory {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(MediaPlayerRemoteFactory);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MediaPlayerRemoteFactory);
 public:
-    MediaPlayerRemoteFactory(MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, RemoteMediaPlayerManager& manager)
+    MediaPlayerRemoteFactory(MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, PlatformMediaDecodingType platformType, RemoteMediaPlayerManager& manager)
         : m_remoteEngineIdentifier(remoteEngineIdentifier)
+        , m_platformType(platformType)
         , m_manager(manager)
     {
     }
@@ -76,6 +76,8 @@ public:
 
     MediaPlayer::SupportsType supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters) const final
     {
+        if (parameters.platformType != m_platformType)
+            return MediaPlayer::SupportsType::IsNotSupported;
         return manager()->supportsTypeAndCodecs(m_remoteEngineIdentifier, parameters);
     }
 
@@ -104,6 +106,7 @@ private:
     Ref<RemoteMediaPlayerManager> manager() const { return m_manager.get(); }
 
     MediaPlayerEnums::MediaEngineIdentifier m_remoteEngineIdentifier;
+    const PlatformMediaDecodingType m_platformType;
     ThreadSafeWeakRef<RemoteMediaPlayerManager> m_manager;
 };
 
@@ -226,11 +229,6 @@ void RemoteMediaPlayerManager::getSupportedTypes(MediaPlayerEnums::MediaEngineId
 
 MediaPlayer::SupportsType RemoteMediaPlayerManager::supportsTypeAndCodecs(MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, const MediaEngineSupportParameters& parameters)
 {
-#if ENABLE(MEDIA_STREAM)
-    if (parameters.platformType == PlatformMediaDecodingType::MediaStream)
-        return MediaPlayer::SupportsType::IsNotSupported;
-#endif
-
     if (!contentTypeMeetsContainerAndCodecTypeRequirements(parameters.type, parameters.allowedMediaContainerTypes, parameters.allowedMediaCodecTypes))
         return MediaPlayer::SupportsType::IsNotSupported;
 
@@ -252,8 +250,8 @@ void RemoteMediaPlayerManager::didReceivePlayerMessage(IPC::Connection& connecti
 
 void RemoteMediaPlayerManager::setUseGPUProcess(bool useGPUProcess)
 {
-    auto registerEngine = [weakThis = ThreadSafeWeakPtr { *this }](MediaEngineRegistrar registrar, MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier) {
-        registrar(makeUnique<MediaPlayerRemoteFactory>(remoteEngineIdentifier, *weakThis.get()));
+    auto registerEngine = [weakThis = ThreadSafeWeakPtr { *this }](MediaEngineRegistrar registrar, MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, PlatformMediaDecodingType platformType) {
+        registrar(makeUnique<MediaPlayerRemoteFactory>(remoteEngineIdentifier, platformType, *weakThis.get()));
     };
 
     RemoteMediaPlayerSupport::setRegisterRemotePlayerCallback(useGPUProcess ? WTF::move(registerEngine) : RemoteMediaPlayerSupport::RegisterRemotePlayerCallback());

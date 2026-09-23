@@ -23,6 +23,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/chrome-bug-1474157.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/chrome-bug-333487749.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/chrome-bug-452651700.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/chrome-bug-485819134.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/chrome-bug-517309206.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-1688293.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-1703592.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-1719483.html
@@ -32,3 +34,4 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-1883804.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-1966754.html
 /LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-1980267.html
+/LayoutTests/imported/w3c/web-platform-tests/svg/crashtests/firefox-bug-2018671.html

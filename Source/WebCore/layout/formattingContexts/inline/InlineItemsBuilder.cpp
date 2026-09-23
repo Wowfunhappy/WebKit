@@ -28,10 +28,12 @@
 
 #include "FontCascade.h"
 #include "FontCascadeFonts.h"
+#include "InlineFormattingUtils.h"
+#include "FontCascadeInlines.h"
 #include "InlineSoftLineBreakItem.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleResolver.h"
 #include "TextBreakingPositionCache.h"
 #include "TextUtil.h"
@@ -70,7 +72,7 @@ static std::optional<WhitespaceContent> moveToNextNonWhitespacePosition(std::spa
     return nextNonWhiteSpacePosition == startPosition ? std::nullopt : std::make_optional(WhitespaceContent { nextNonWhiteSpacePosition - startPosition, hasWordSeparatorCharacter });
 }
 
-static unsigned moveToNextBreakablePosition(unsigned startPosition, CachedLineBreakIteratorFactory& lineBreakIteratorFactory, const RenderStyle& style)
+static unsigned moveToNextBreakablePosition(unsigned startPosition, CachedLineBreakIteratorFactory& lineBreakIteratorFactory, const Style::ComputedStyle& style)
 {
     auto textLength = lineBreakIteratorFactory.stringView().length();
     auto startPositionForNextBreakablePosition = startPosition;
@@ -215,8 +217,8 @@ void InlineItemsBuilder::computeInlineBoxBoundaryTextSpacings(const InlineItemLi
         size_t boundaryIndex = inlineBoxStartIndexesOnInlineItemsList[inlineBoxStartOnBoundaryIndex];
         CheckedRef boundaryOwnerStyle = inlineItemList[boundaryIndex].layoutBox().parent().style();
         auto boundaryTextAutospace = boundaryOwnerStyle->textAutospace();
-        if (!boundaryTextAutospace.isNoAutospace() && boundaryTextAutospace.shouldApplySpacing(inlineTextBox->content().characterAt(start), lastCharacterFromPreviousRun))
-            spacings.add(boundaryIndex, TextAutospace::textAutospaceSize(protect(boundaryOwnerStyle->fontCascade().primaryFont())));
+        if (!boundaryTextAutospace.isNoAutospace() && boundaryTextAutospace.shouldApplySpacing(inlineTextBox->content().codePointAt(start), lastCharacterFromPreviousRun))
+            spacings.add(boundaryIndex, TextAutospace::textAutospaceSize(boundaryOwnerStyle->fontCascade().primaryFont()));
 
         lastCharacterFromPreviousRun = TextUtil::lastBaseCharacterFromText(content);
         lastCharacterDepth = currentCharacterDepth;
@@ -365,10 +367,9 @@ void InlineItemsBuilder::collectInlineItems(InlineItemList& inlineItemList, Inli
                 handleInlineBoxEnd(layoutBox, inlineItemList);
             else if (layoutBox->isFloatingPositioned())
                 inlineItemList.append({ layoutBox, InlineItem::Type::Float });
-            else if (layoutBox->isBlockLevelBox()) {
-                ASSERT(m_root.rendererForIntegration()->settings().blocksInInlineLayoutEnabled() || m_root.rendererForIntegration()->settings().anonymousBlockGenerationDisabled());
+            else if (layoutBox->isBlockLevelBox())
                 inlineItemList.append({ layoutBox, InlineItem::Type::Block });
-            } else
+            else
                 ASSERT_NOT_REACHED();
 
             if (CheckedPtr nextSibling = layoutBox->nextSibling()) {
@@ -395,7 +396,7 @@ static void replaceNonPreservedNewLineAndTabCharactersAndAppend(const InlineText
                 char32_t character;
                 auto characters = textContent.span16();
                 U16_NEXT(characters, position, contentLength, character);
-                return character == newlineCharacter || character == tabCharacter;
+                return character == newlineCharacter || character == tabCharacter || character == paragraphSeparator;
             }
             auto isNewLineOrTab = textContent[position] == newlineCharacter || textContent[position] == tabCharacter;
             ++position;
@@ -546,7 +547,7 @@ static inline void handleBidiParagraphStart(StringBuilder& paragraphContentBuild
     rewindBidiContextStack(paragraphContentBuilder, bidiContextStack, copyOfBidiStack, blockLevelBidiContextIndex);
 }
 
-static inline void buildBidiParagraph(const RenderStyle& rootStyle, const InlineItemList& inlineItemList,  StringBuilder& paragraphContentBuilder, InlineItemOffsetList& inlineItemOffsetList)
+static inline void buildBidiParagraph(const Style::ComputedStyle& rootStyle, const InlineItemList& inlineItemList,  StringBuilder& paragraphContentBuilder, InlineItemOffsetList& inlineItemOffsetList)
 {
     auto bidiContextStack = BidiContextStack { };
     handleEnterExitBidiContext(paragraphContentBuilder, rootStyle.unicodeBidi(), rootStyle.writingMode().isBidiLTR(), EnterExitType::EnteringBlock, bidiContextStack);
@@ -559,7 +560,19 @@ static inline void buildBidiParagraph(const RenderStyle& rootStyle, const Inline
         auto& inlineItem = inlineItemList[index];
         CheckedRef layoutBox = inlineItem.layoutBox();
 
-        if (inlineItem.isText() || inlineItem.isSoftLineBreak()) {
+        auto isBidiParagraphSeparator = [&] {
+            // Bidi paragraph separators (hard line breaks, block-level items, and soft line breaks
+            // at characters with bidi class B like U+000A and U+2029) need handleBidiParagraphStart
+            // to unwind/rewind the bidi context stack. U+2028 LINE SEPARATOR has bidi class WS
+            // and does not reset the paragraph context.
+            if (inlineItem.isHardLineBreak() || inlineItem.isBlock())
+                return true;
+            auto* softLineBreak = dynamicDowncast<InlineSoftLineBreakItem>(inlineItem);
+            return softLineBreak && softLineBreak->isBidiParagraphStart();
+        };
+        if (isBidiParagraphSeparator())
+            handleBidiParagraphStart(paragraphContentBuilder, inlineItemOffsetList, bidiContextStack);
+        else if (inlineItem.isText() || inlineItem.isSoftLineBreak()) {
             CheckedPtr inlineTextBox = dynamicDowncast<InlineTextBox>(layoutBox.get());
             auto mayAppendTextContentAsOneEntry = inlineTextBox && !TextUtil::shouldPreserveNewline(*inlineTextBox);
             if (mayAppendTextContentAsOneEntry) {
@@ -574,9 +587,11 @@ static inline void buildBidiParagraph(const RenderStyle& rootStyle, const Inline
             } else if (auto* inlineTextItem = dynamicDowncast<InlineTextItem>(inlineItem)) {
                 inlineItemOffsetList.append({ paragraphContentBuilder.length() });
                 paragraphContentBuilder.append(inlineTextItem->content());
-            } else if (is<InlineSoftLineBreakItem>(inlineItem))
-                handleBidiParagraphStart(paragraphContentBuilder, inlineItemOffsetList, bidiContextStack);
-            else
+            } else if (auto* softLineBreak = dynamicDowncast<InlineSoftLineBreakItem>(inlineItem)) {
+                // Non-paragraph-separator soft breaks (e.g., U+2028) in per-item mode just record their offset.
+                inlineItemOffsetList.append({ paragraphContentBuilder.length() });
+                paragraphContentBuilder.append(softLineBreak->character());
+            } else
                 ASSERT_NOT_REACHED();
         } else if (inlineItem.isAtomicInlineBox()) {
             inlineItemOffsetList.append({ paragraphContentBuilder.length() });
@@ -598,9 +613,7 @@ static inline void buildBidiParagraph(const RenderStyle& rootStyle, const Inline
                 , isEnteringBidi ? EnterExitType::EnteringInlineBox : EnterExitType::ExitingInlineBox
                 , bidiContextStack
             );
-        } else if (inlineItem.isHardLineBreak())
-            handleBidiParagraphStart(paragraphContentBuilder, inlineItemOffsetList, bidiContextStack);
-        else if (inlineItem.isWordBreakOpportunity()) {
+        } else if (inlineItem.isWordBreakOpportunity()) {
             // Soft wrap opportunity markers are opaque to bidi. 
             inlineItemOffsetList.append({ });
         } else if (inlineItem.isFloat()) {
@@ -615,9 +628,7 @@ static inline void buildBidiParagraph(const RenderStyle& rootStyle, const Inline
                 // Out-of-flow items are also opaque to bidi.
                 inlineItemOffsetList.append({ });
             }
-        } else if (inlineItem.isBlock())
-            handleBidiParagraphStart(paragraphContentBuilder, inlineItemOffsetList, bidiContextStack);
-        else
+        } else
             ASSERT_NOT_IMPLEMENTED_YET();
 
     }
@@ -780,9 +791,9 @@ static void handleTextSpacing(TextSpacing::SpacingState& spacingState, Trimmable
     auto autospace = inlineTextItem.style().textAutospace();
     if (!autospace.isNoAutospace()) {
         // We need to store information about spacing added between inline text items since it needs to be trimmed during line breaking if the consecutive items are placed on different lines
-        auto characterClass = TextSpacing::characterClass(inlineTextItem.content().characterAt(0));
+        auto characterClass = TextSpacing::characterClass(inlineTextItem.content().codePointAt(0));
         if (autospace.shouldApplySpacing(spacingState.lastCharacterClassFromPreviousRun, characterClass))
-            trimmableTextSpacings.add(inlineItemIndex, TextAutospace::textAutospaceSize(protect(inlineTextItem.style().fontCascade().primaryFont())));
+            trimmableTextSpacings.add(inlineItemIndex, TextAutospace::textAutospaceSize(inlineTextItem.style().fontCascade().primaryFont()));
 
         auto lastCharacterFromPreviousRun = TextUtil::lastBaseCharacterFromText(inlineTextItem.content());
         spacingState.lastCharacterClassFromPreviousRun = TextSpacing::characterClass(lastCharacterFromPreviousRun);
@@ -878,7 +889,7 @@ bool InlineItemsBuilder::buildInlineItemListForTextFromBreakingPositionsCache(co
         }
 
         auto character = text[startPosition];
-        if (character == newlineCharacter && shouldPreserveNewline) {
+        if (character == lineSeparator || character == paragraphSeparator || (character == newlineCharacter && shouldPreserveNewline)) {
             inlineItemList.append(InlineSoftLineBreakItem::createSoftLineBreakItem(inlineTextBox, startPosition));
             continue;
         }
@@ -941,9 +952,10 @@ void InlineItemsBuilder::handleTextContent(const InlineTextBox& inlineTextBox, I
     ASSERT(currentPosition <= contentLength);
 
     auto handleSegmentBreak = [&] {
-        // Segment breaks with preserve new line style (white-space: pre, pre-wrap, break-spaces and pre-line) compute to forced line break.
-        auto isSegmentBreakCandidate = text[currentPosition] == newlineCharacter;
-        if (!isSegmentBreakCandidate || !shouldPreserveNewline)
+        // U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR are always forced line breaks (UAX#14 class BK, CSS Text §5.1).
+        // U+000A is a forced line break only when white-space preserves newlines.
+        auto character = text[currentPosition];
+        if (character != lineSeparator && character != paragraphSeparator && (character != newlineCharacter || !shouldPreserveNewline))
             return false;
         inlineItemList.append(InlineSoftLineBreakItem::createSoftLineBreakItem(inlineTextBox, currentPosition++));
         return true;

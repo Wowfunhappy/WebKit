@@ -29,6 +29,7 @@
 #include "IDBBindingUtilities.h"
 #include "JSDOMBinding.h"
 #include "JSIDBCursorWithValue.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
@@ -38,7 +39,7 @@ JSC::JSValue JSIDBCursor::key(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
     auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
     return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().keyWrapper(), [&](JSC::ThrowScope&) {
-        return toJS(lexicalGlobalObject, lexicalGlobalObject, wrapped().key());
+        return toJS(lexicalGlobalObject, lexicalGlobalObject, protect(wrapped().key()));
     });
 }
 
@@ -46,7 +47,7 @@ JSC::JSValue JSIDBCursor::primaryKey(JSC::JSGlobalObject& lexicalGlobalObject) c
 {
     auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
     return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().primaryKeyWrapper(), [&](JSC::ThrowScope&) {
-        return toJS(lexicalGlobalObject, lexicalGlobalObject, wrapped().primaryKey());
+        return toJS(lexicalGlobalObject, lexicalGlobalObject, protect(wrapped().primaryKey()));
     });
 }
 

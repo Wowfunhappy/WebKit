@@ -34,9 +34,13 @@
 #include <wtf/LoggerHelper.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/URL.h>
+#include <wtf/darwin/DispatchOSObject.h>
+
+typedef struct OpaqueCMTimebase* CMTimebaseRef;
 
 namespace WebCore {
 
@@ -83,15 +87,14 @@ private:
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) final { }
 #endif
-    void cancelLoad() final { }
+    void cancelLoad() final;
     void play() final;
     void pause() final;
     FloatSize naturalSize() const final { return { }; }
     bool hasVideo() const final { return true; }
     bool hasAudio() const final;
     void setPageIsVisible(bool) final { }
-    void seekToTarget(const SeekTarget&) final;
-    bool seeking() const final { return false; }
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final;
     bool paused() const final;
     MediaPlayer::NetworkState networkState() const final { return m_networkState; }
     MediaPlayer::ReadyState readyState() const final { return m_readyState; }
@@ -101,6 +104,7 @@ private:
     DestinationColorSpace colorSpace() final { return DestinationColorSpace::SRGB(); }
     static OptionSet<MediaPlaybackTargetType> playbackTargetTypes();
     String wirelessPlaybackTargetName() const final;
+    String wirelessPlaybackRouteName() const final;
     MediaPlayer::WirelessPlaybackTargetType wirelessPlaybackTargetType() const final;
     bool wirelessVideoPlaybackDisabled() const final { return !m_allowsWirelessVideoPlayback; }
     void setWirelessVideoPlaybackDisabled(bool disabled) final { m_allowsWirelessVideoPlayback = !disabled; }
@@ -116,16 +120,29 @@ private:
     bool setCurrentTimeDidChangeCallback(MediaPlayer::CurrentTimeDidChangeCallback&&) final;
     void setRate(float) final;
     double rate() const final;
-    void setVolume(float) final { }
-    float volume() const final { return 0; }
-    void setMuted(bool) final { }
+    double effectiveRate() const final;
+    void setVolumeLocked(bool) final;
+    void setVolume(float) final;
+    float volume() const final;
+    void setMuted(bool) final;
     String engineDescription() const final;
 
     // MediaDeviceRouteClient
     void timeRangeDidChange(MediaDeviceRoute&) final;
     void readyDidChange(MediaDeviceRoute&) final;
-    void playbackErrorDidChange(MediaDeviceRoute&) final;
-    void currentPlaybackPositionDidChange(MediaDeviceRoute&) final;
+    void errorDidChange(MediaDeviceRoute&) final;
+    void audioOptionsDidChange(MediaDeviceRoute&) final;
+    void playbackPositionDidChange(MediaDeviceRoute&) final;
+    void playingDidChange(MediaDeviceRoute&) final;
+    void playbackSpeedDidChange(MediaDeviceRoute&) final;
+    void mutedDidChange(MediaDeviceRoute&) final;
+    void volumeDidChange(MediaDeviceRoute&) final;
+
+    CMTimebaseRef ensureTimebase();
+    void destroyTimebase();
+    void updateTimebaseTimeAndRate(MediaTime, float rate);
+    void scheduleTimebaseTimer();
+    void timebaseTimerFired();
 
 #if !RELEASE_LOG_DISABLED
     // LoggerHelper
@@ -144,10 +161,13 @@ private:
     MediaPlayer::ReadyState m_readyState { MediaPlayer::ReadyState::HaveNothing };
     bool m_didLoadingProgress { false };
     bool m_allowsWirelessVideoPlayback { true };
+    bool m_volumeLocked { false };
     ShouldPlayToTarget m_shouldPlayToTarget { ShouldPlayToTarget::Unknown };
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise;
     RefPtr<MediaPlaybackTarget> m_playbackTarget;
     MediaPlayer::CurrentTimeDidChangeCallback m_currentTimeDidChangeCallback;
-    std::optional<SeekTarget> m_pendingSeekTarget;
+    RetainPtr<CMTimebaseRef> m_timebase;
+    OSObjectPtr<dispatch_source_t> m_timerSource;
 #if !RELEASE_LOG_DISABLED
     const Ref<const Logger> m_logger;
     const uint64_t m_logIdentifier;

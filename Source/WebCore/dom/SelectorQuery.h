@@ -50,7 +50,7 @@ class SelectorDataList {
 public:
     explicit SelectorDataList(const CSSSelectorList&);
     bool matches(Element&) const;
-    Element* closest(Element&) const;
+    RefPtr<Element> closest(Element&) const;
     Ref<NodeList> queryAll(ContainerNode& rootNode) const;
     Element* queryFirst(ContainerNode& rootNode) const;
 
@@ -66,7 +66,6 @@ private:
     };
 
     bool selectorMatches(const SelectorData&, Element&, const ContainerNode& rootNode, Style::SelectorMatchingState* = nullptr) const;
-    Element* selectorClosest(const SelectorData&, Element&, const ContainerNode& rootNode, Style::SelectorMatchingState* = nullptr) const;
 
     template <typename OutputType> void execute(ContainerNode& rootNode, OutputType&) const;
     template <typename OutputType> void executeFastPathForIdSelector(const ContainerNode& rootNode, const SelectorData&, const CSSSelector* idSelector, OutputType&) const;
@@ -107,7 +106,7 @@ class SelectorQuery {
 public:
     explicit SelectorQuery(CSSSelectorList&&);
     bool matches(Element&) const;
-    Element* closest(Element&) const;
+    RefPtr<Element> closest(Element&) const;
     Ref<NodeList> queryAll(ContainerNode& rootNode) const;
     Element* queryFirst(ContainerNode& rootNode) const;
 
@@ -137,7 +136,7 @@ inline bool SelectorQuery::matches(Element& element) const
     return m_selectors.matches(element);
 }
 
-inline Element* SelectorQuery::closest(Element& element) const
+inline RefPtr<Element> SelectorQuery::closest(Element& element) const
 {
     return m_selectors.closest(element);
 }

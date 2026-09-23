@@ -31,21 +31,23 @@
 #include "CommonVM.h"
 #include "DocumentView.h"
 #include "Element.h"
-#include "FrameDestructionObserverInlines.h"
 #include "ExceptionCode.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLBodyElement.h"
 #include "HistoryController.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "Navigation.h"
 #include "NavigationNavigationType.h"
+#include "ScriptWrappableInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigateEvent);
 
-NavigateEvent::NavigateEvent(const AtomString& type, Init&& init, EventIsTrusted isTrusted, AbortController* abortController)
+NavigateEvent::NavigateEvent(JSC::JSGlobalObject& globalObject, const AtomString& type, Init&& init, EventIsTrusted isTrusted, AbortController* abortController)
     : Event(EventInterfaceType::NavigateEvent, type, WTF::move(init), isTrusted)
     , m_navigationType(init.navigationType)
     , m_destination(WTF::move(init.destination))
@@ -60,18 +62,36 @@ NavigateEvent::NavigateEvent(const AtomString& type, Init&& init, EventIsTrusted
     , m_abortController(abortController)
 {
     Locker<JSC::JSLock> locker(commonVM().apiLock());
-    m_info.setWeakly(init.info);
+    m_info.set(globalObject, wrapper(), init.info);
 }
 
-Ref<NavigateEvent> NavigateEvent::create(const AtomString& type, Init&& init, AbortController* abortController)
+NavigateEvent::NavigateEvent(RefPtr<DOMWrapperWorld>&& world, const AtomString& type, Init&& init, EventIsTrusted isTrusted, AbortController* abortController)
+    : Event(EventInterfaceType::NavigateEvent, type, WTF::move(init), isTrusted)
+    , m_navigationType(init.navigationType)
+    , m_destination(WTF::move(init.destination))
+    , m_signal(WTF::move(init.signal))
+    , m_formData(WTF::move(init.formData))
+    , m_downloadRequest(WTF::move(init.downloadRequest))
+    , m_sourceElement(WTF::move(init.sourceElement))
+    , m_canIntercept(init.canIntercept)
+    , m_userInitiated(init.userInitiated)
+    , m_hashChange(init.hashChange)
+    , m_hasUAVisualTransition(init.hasUAVisualTransition)
+    , m_abortController(abortController)
 {
-    return adoptRef(*new NavigateEvent(type, WTF::move(init), EventIsTrusted::Yes, abortController));
+    Locker<JSC::JSLock> locker(commonVM().apiLock());
+    m_info.setWeakly(WTF::move(world), init.info);
 }
 
-Ref<NavigateEvent> NavigateEvent::create(const AtomString& type, Init&& init)
+Ref<NavigateEvent> NavigateEvent::create(RefPtr<DOMWrapperWorld>&& world, const AtomString& type, Init&& init, AbortController* abortController)
+{
+    return adoptRef(*new NavigateEvent(WTF::move(world), type, WTF::move(init), EventIsTrusted::Yes, abortController));
+}
+
+Ref<NavigateEvent> NavigateEvent::create(JSC::JSGlobalObject& globalObject, const AtomString& type, Init&& init)
 {
     // FIXME: AbortController is required but JS bindings need to create it without one.
-    return adoptRef(*new NavigateEvent(type, WTF::move(init), EventIsTrusted::No, nullptr));
+    return adoptRef(*new NavigateEvent(globalObject, type, WTF::move(init), EventIsTrusted::No, nullptr));
 }
 
 // https://html.spec.whatwg.org/multipage/nav-history-apis.html#navigateevent-perform-shared-checks
@@ -87,6 +107,11 @@ ExceptionOr<void> NavigateEvent::sharedChecks(Document& document)
         return Exception { ExceptionCode::InvalidStateError, "Event was already canceled"_s };
 
     return { };
+}
+
+JSC::JSValue NavigateEvent::info()
+{
+    return m_info.getValue();
 }
 
 // https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-navigateevent-intercept
@@ -129,7 +154,6 @@ void NavigateEvent::processScrollBehavior(Document& document)
 
     if (m_navigationType == NavigationNavigationType::Traverse) {
         document.frame()->loader().history().restoreScrollPositionAndViewState();
-
         return;
     }
 
@@ -137,8 +161,7 @@ void NavigateEvent::processScrollBehavior(Document& document)
         if (m_navigationType == NavigationNavigationType::Reload)
             document.frame()->loader().history().restoreScrollPositionAndViewState();
         else
-            document.frame()->view()->setScrollPosition({ 0, 0 });
-
+            protect(protect(document)->frame()->view())->setScrollPosition({ 0, 0 });
         return;
     }
 
@@ -147,14 +170,13 @@ void NavigateEvent::processScrollBehavior(Document& document)
     if (!document.findAnchor(document.url().fragmentIdentifier())) {
         if (m_navigationType == NavigationNavigationType::Reload)
             document.frame()->loader().history().restoreScrollPositionAndViewState();
-
         return;
     }
 
     if (!document.haveStylesheetsLoaded())
         document.setGotoAnchorNeededAfterStylesheetsLoad(true);
     else
-        document.frame()->view()->scrollToFragment(document.url());
+        protect(protect(document)->frame()->view())->scrollToFragment(document.url());
 }
 
 // https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-navigateevent-scroll

@@ -104,6 +104,8 @@ public:
     void shrinkToFit();
     void releaseCaches();
 
+    void clearFormattingContextRoot();
+
 private:
     friend class InlineContentBuilder;
     friend class LineLayout;
@@ -119,7 +121,7 @@ private:
 
     const Vector<size_t>& nonRootInlineBoxIndexesForLayoutBox(const Layout::Box&) const LIFETIME_BOUND;
 
-    CheckedRef<const RenderBlockFlow> m_formattingContextRoot;
+    CheckedPtr<const RenderBlockFlow> m_formattingContextRoot;
 
     InlineDisplay::Content m_displayContent;
     using FirstBoxIndexCache = HashMap<CheckedRef<const Layout::Box>, size_t>;

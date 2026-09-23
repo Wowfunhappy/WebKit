@@ -9,18 +9,18 @@ Test that 'with' presentation attribute is parsed with CSS presentation rules.
 On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
 
 
-PASS computedStyle("height", "auto") is "auto"
+PASS computedStyle("height", "auto") is "0px"
 PASS computedStyle("height", "  100") is "100px"
 PASS computedStyle("height", "100   ") is "100px"
 PASS computedStyle("height", "100px") is "100px"
 PASS computedStyle("height", "1em") is "16px"
 PASS computedStyle("height", "1ex") is "12.8px"
-PASS computedStyle("height", "20%") is "20%"
-PASS computedStyle("height", "100   px") is "auto"
-PASS computedStyle("height", "100px;") is "auto"
-PASS computedStyle("height", "100px !important") is "auto"
-PASS computedStyle("height", "{ 100px }") is "auto"
-PASS computedStyle("height", "-100px") is "auto"
+PASS computedStyle("height", "20%") is "0px"
+PASS computedStyle("height", "100   px") is "0px"
+PASS computedStyle("height", "100px;") is "0px"
+PASS computedStyle("height", "100px !important") is "0px"
+PASS computedStyle("height", "{ 100px }") is "0px"
+PASS computedStyle("height", "-100px") is "0px"
 PASS successfullyParsed is true
 
 TEST COMPLETE

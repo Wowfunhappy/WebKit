@@ -89,8 +89,8 @@ public:
         std::optional<NavigationScrollBehavior> scroll;
     };
 
-    static Ref<NavigateEvent> create(const AtomString& type, Init&&);
-    static Ref<NavigateEvent> create(const AtomString& type, Init&&, AbortController*);
+    static Ref<NavigateEvent> create(JSC::JSGlobalObject&, const AtomString& type, Init&&);
+    static Ref<NavigateEvent> create(RefPtr<DOMWrapperWorld>&&, const AtomString& type, Init&&, AbortController*);
 
     NavigationNavigationType navigationType() const { return m_navigationType; }
     bool canIntercept() const { return m_canIntercept; }
@@ -101,7 +101,7 @@ public:
     AbortSignal& signal() { return m_signal; }
     DOMFormData* formData() { return m_formData.get(); }
     String downloadRequest() { return m_downloadRequest; }
-    JSC::JSValue info() { return m_info.getValue(); }
+    JSC::JSValue info();
     JSValueInWrappedObject& infoWrapper() LIFETIME_BOUND { return m_info; }
     Element* sourceElement() { return m_sourceElement.get(); }
 
@@ -116,7 +116,8 @@ public:
     Vector<Ref<NavigationInterceptHandler>>& handlers() LIFETIME_BOUND { return m_handlers; }
 
 private:
-    NavigateEvent(const AtomString& type, Init&&, EventIsTrusted, AbortController*);
+    NavigateEvent(JSC::JSGlobalObject&, const AtomString& type, Init&&, EventIsTrusted, AbortController*);
+    NavigateEvent(RefPtr<DOMWrapperWorld>&&, const AtomString& type, Init&&, EventIsTrusted, AbortController*);
 
     ExceptionOr<void> sharedChecks(Document&);
     void potentiallyProcessScrollBehavior(Document&);

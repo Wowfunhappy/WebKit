@@ -184,11 +184,12 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
         gint length;
         const auto* markupData = gtk_selection_data_get_data_with_length(data, &length);
         if (length > 0) {
+            const auto span = unsafeMakeSpan(markupData, length);
             // If data starts with UTF-16 BOM assume it's UTF-16, otherwise assume UTF-8.
             if (length >= 2 && reinterpret_cast<const char16_t*>(markupData)[0] == 0xFEFF)
-                m_selectionData->setMarkup(String(unsafeMakeSpan(reinterpret_cast<const char16_t*>(markupData),  (length / 2) - 1).subspan(1)));
+                m_selectionData->setMarkup(String(spanReinterpretCast<const char16_t>(span).subspan(1)));
             else
-                m_selectionData->setMarkup(String(unsafeMakeSpan(markupData, length)));
+                m_selectionData->setMarkup(String(span));
         }
         break;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2008 Torch Mobile, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -147,18 +147,17 @@ struct FontDescriptionKey {
 private:
     static std::array<unsigned, 2> makeFlagsKey(const FontDescription& description)
     {
-        unsigned first = static_cast<unsigned>(description.script()) << 15
-            | static_cast<unsigned>(description.shouldDisableLigaturesForSpacing()) << 14
-            | static_cast<unsigned>(description.shouldAllowUserInstalledFonts()) << 13
-            | static_cast<unsigned>(description.fontStyleAxis() == FontStyleAxis::slnt) << 12
-            | static_cast<unsigned>(description.opticalSizing()) << 11
-            | static_cast<unsigned>(description.textRenderingMode()) << 9
-            | static_cast<unsigned>(description.fontSynthesisSmallCaps()) << 8
-            | static_cast<unsigned>(description.fontSynthesisStyle()) << 7
-            | static_cast<unsigned>(description.fontSynthesisWeight()) << 6
-            | static_cast<unsigned>(description.widthVariant()) << 4
-            | static_cast<unsigned>(description.nonCJKGlyphOrientation()) << 3
-            | static_cast<unsigned>(description.orientation()) << 2;
+        unsigned first = static_cast<unsigned>(description.script()) << 13
+            | static_cast<unsigned>(description.shouldDisableLigaturesForSpacing()) << 12
+            | static_cast<unsigned>(description.shouldAllowUserInstalledFonts()) << 11
+            | static_cast<unsigned>(description.opticalSizing()) << 10
+            | static_cast<unsigned>(description.textRenderingMode()) << 8
+            | static_cast<unsigned>(description.fontSynthesisSmallCaps()) << 7
+            | static_cast<unsigned>(description.fontSynthesisStyle()) << 5
+            | static_cast<unsigned>(description.fontSynthesisWeight()) << 4
+            | static_cast<unsigned>(description.widthVariant()) << 2
+            | static_cast<unsigned>(description.nonCJKGlyphOrientation()) << 1
+            | static_cast<unsigned>(description.orientation()) << 0;
         unsigned second = static_cast<unsigned>(description.variantEmoji()) << 27
             | static_cast<unsigned>(description.variantEastAsianRuby()) << 26
             | static_cast<unsigned>(description.variantEastAsianWidth()) << 24
@@ -221,8 +220,8 @@ bool NODELETE operator==(const FontFamilyName&, const FontFamilyName&);
 struct FontCascadeCacheKey {
     FontDescriptionKey fontDescriptionKey; // Shared with the lower level FontCache (caching Font objects)
     Vector<FontFamilyName, 3> families;
-    unsigned fontSelectorId;
-    unsigned fontSelectorVersion;
+    unsigned fontSelectorId { 0 };
+    unsigned fontSelectorVersion { 0 };
     bool hasComplexFontSelector { true };
 
 

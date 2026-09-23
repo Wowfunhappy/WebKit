@@ -50,9 +50,7 @@ DOMGCOutputConstraint::DOMGCOutputConstraint(VM& vm, JSHeapData& heapData)
 {
 }
 
-DOMGCOutputConstraint::~DOMGCOutputConstraint()
-{
-}
+DOMGCOutputConstraint::~DOMGCOutputConstraint() = default;
 
 template<typename Visitor>
 void DOMGCOutputConstraint::executeImplImpl(Visitor& visitor)

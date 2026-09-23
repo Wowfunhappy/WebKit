@@ -57,6 +57,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessCase);
 #define JSC_FOR_EACH_ACCESS_TYPE(macro) \
     macro(Load) \
     macro(LoadMegamorphic) \
+    macro(LoadMegamorphicGetter) \
     macro(Transition) \
     macro(StoreMegamorphic) \
     macro(Delete) \
@@ -81,6 +82,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessCase);
     macro(ScopedArgumentsLength) \
     macro(RegExpLastIndexLoad) \
     macro(RegExpLastIndexStore) \
+    macro(ArrayLengthStore) \
     macro(ModuleNamespaceLoad) \
     macro(ProxyObjectIn) \
     macro(ProxyObjectLoad) \
@@ -120,6 +122,22 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessCase);
     macro(IndexedResizableTypedArrayFloat64Load) \
     macro(IndexedStringLoad) \
     macro(IndexedNoIndexingMiss) \
+    macro(IndexedUndefinedKeyLoad) \
+    macro(IndexedUndefinedKeyMiss) \
+    macro(IndexedNullKeyLoad) \
+    macro(IndexedNullKeyMiss) \
+    macro(IndexedTrueKeyLoad) \
+    macro(IndexedTrueKeyMiss) \
+    macro(IndexedFalseKeyLoad) \
+    macro(IndexedFalseKeyMiss) \
+    macro(IndexedUndefinedKeyReplace) \
+    macro(IndexedUndefinedKeyTransition) \
+    macro(IndexedNullKeyReplace) \
+    macro(IndexedNullKeyTransition) \
+    macro(IndexedTrueKeyReplace) \
+    macro(IndexedTrueKeyTransition) \
+    macro(IndexedFalseKeyReplace) \
+    macro(IndexedFalseKeyTransition) \
     macro(IndexedProxyObjectStore) \
     macro(IndexedMegamorphicStore) \
     macro(IndexedInt32Store) \
@@ -211,11 +229,14 @@ public:
     static RefPtr<AccessCase> fromPropertyInlineCache(VM&, JSCell* owner, CacheableIdentifier, PropertyInlineCache&);
 
     AccessType type() const { return m_type; }
+    void convertToNonStringPrimitiveKeyAccessType(AccessType);
     PropertyOffset offset() const { return m_offset; }
 
     Structure* structure() const
     {
-        if (m_type == Transition || m_type == Delete || m_type == SetPrivateBrand)
+        if (m_type == Transition || m_type == Delete || m_type == SetPrivateBrand
+            || m_type == IndexedUndefinedKeyTransition || m_type == IndexedNullKeyTransition
+            || m_type == IndexedTrueKeyTransition || m_type == IndexedFalseKeyTransition)
             return m_structureID->previousID();
         return m_structureID.get();
     }
@@ -229,13 +250,17 @@ public:
 
     Structure* newStructure() const
     {
-        ASSERT(m_type == Transition || m_type == Delete || m_type == SetPrivateBrand);
+        ASSERT(m_type == Transition || m_type == Delete || m_type == SetPrivateBrand
+            || m_type == IndexedUndefinedKeyTransition || m_type == IndexedNullKeyTransition
+            || m_type == IndexedTrueKeyTransition || m_type == IndexedFalseKeyTransition);
         return m_structureID.get();
     }
 
     StructureID newStructureID() const
     {
-        ASSERT(m_type == Transition || m_type == Delete || m_type == SetPrivateBrand);
+        ASSERT(m_type == Transition || m_type == Delete || m_type == SetPrivateBrand
+            || m_type == IndexedUndefinedKeyTransition || m_type == IndexedNullKeyTransition
+            || m_type == IndexedTrueKeyTransition || m_type == IndexedFalseKeyTransition);
         return m_structureID.value();
     }
 
@@ -295,8 +320,8 @@ public:
         return !!m_polyProtoAccessChain;
     }
 
-    bool requiresIdentifierNameMatch() const;
-    bool requiresInt32PropertyCheck() const;
+    bool NODELETE requiresIdentifierNameMatch() const;
+    bool NODELETE requiresInt32PropertyCheck() const;
 
     UniquedStringImpl* uid() const { return m_identifier.uid(); }
     CacheableIdentifier identifier() const { return m_identifier; }
@@ -349,7 +374,7 @@ protected:
     JSObject* tryGetAlternateBaseImpl() const;
     void dumpImpl(PrintStream&, CommaPrinter&, Indenter&) const { }
 
-    bool guardedByStructureCheckSkippingConstantIdentifierCheck() const;
+    bool NODELETE guardedByStructureCheckSkippingConstantIdentifierCheck() const;
 
 private:
     friend class CodeBlock;

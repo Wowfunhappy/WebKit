@@ -63,7 +63,8 @@ public:
     static ExceptionOr<Ref<TransformStream>> runTransferReceivingSteps(JSDOMGlobalObject&, DetachedTransformStream&&);
 
 private:
-    TransformStream(JSC::JSValue, Ref<ReadableStream>&&, Ref<WritableStream>&&);
+    TransformStream(Ref<ReadableStream>&&, Ref<WritableStream>&&);
+    TransformStream(JSC::JSGlobalObject&, JSC::JSValue internalTransformStream, Ref<ReadableStream>&&, Ref<WritableStream>&&);
 
     JSValueInWrappedObject m_internalTransformStream;
     const Ref<ReadableStream> m_readable;

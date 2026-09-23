@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleTextEmphasisPosition.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -32,8 +33,8 @@ namespace Style {
 
 auto CSSValueConversion<TextEmphasisPosition>::operator()(BuilderState& state, const CSSValue& value) -> TextEmphasisPosition
 {
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueOver:
             return { TextEmphasisPositionValue::Over, TextEmphasisPositionValue::Right };
         case CSSValueUnder:
@@ -44,7 +45,7 @@ auto CSSValueConversion<TextEmphasisPosition>::operator()(BuilderState& state, c
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue>(state, value);
     if (!list)
         return { TextEmphasisPositionValue::Over, TextEmphasisPositionValue::Right };
 

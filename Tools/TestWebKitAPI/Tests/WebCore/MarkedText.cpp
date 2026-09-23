@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <WebCore/FloatRect.h>
 #include <WebCore/MarkedText.h>
 #include <WebCore/RenderedDocumentMarker.h>
@@ -74,6 +74,8 @@ std::ostream& operator<<(std::ostream& os, MarkedText::Type type)
         return os << "TransparentContent";
     case MarkedText::Type::DictationStreamingOpacity:
         return os << "DictationStreamingOpacity";
+    case MarkedText::Type::ActiveTextMatch:
+        return os << "ActiveTextMatch";
     case MarkedText::Type::Unmarked:
         return os << "Unmarked";
     }

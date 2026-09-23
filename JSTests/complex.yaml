@@ -64,6 +64,54 @@
           runComplexTest [], [], "TZ=UNDEFINED", "--useDollarVM=1", "--useTemporal=1"
       end
 
+- path: complex/intl-default-timezone-backward-link.js
+  cmd: |
+      if ($hostOS == "windows" || $hostOS == "linux")
+          skip
+      else
+          runComplexTest [], [], "TZ=Asia/Calcutta", "--useDollarVM=1", "--useTemporal=1"
+      end
+
+- path: complex/intl-default-timezone-utc-alias.js
+  cmd: |
+      if ($hostOS == "windows")
+          skip
+      else
+          runComplexTest [], [], "TZ=Etc/UTC", "--useDollarVM=1", "--useTemporal=1"
+      end
+
+- path: complex/intl-default-timezone-three-letter-alias.js
+  cmd: |
+      if ($hostOS == "windows")
+          skip
+      else
+          runComplexTest [], [], "TZ=ACT", "--useDollarVM=1", "--useTemporal=1"
+      end
+
+- path: complex/intl-default-timezone-etc-gmt-offset.js
+  cmd: |
+      if ($hostOS == "windows")
+          skip
+      else
+          runComplexTest [], [], "TZ=Etc/GMT+5", "--useDollarVM=1", "--useTemporal=1"
+      end
+
+- path: complex/intl-default-timezone-region-alias.js
+  cmd: |
+      if ($hostOS == "windows")
+          skip
+      else
+          runComplexTest [], [], "TZ=US/Eastern", "--useDollarVM=1", "--useTemporal=1"
+      end
+
+- path: complex/intl-default-timezone-etc-unknown.js
+  cmd: |
+      if ($hostOS == "windows")
+          skip
+      else
+          runComplexTest [], [], "TZ=Etc/Unknown", "--useDollarVM=1", "--useTemporal=1"
+      end
+
 - path: complex/for-in-clobberize.js
   cmd: runComplexTest [], [], nil, "--destroy-vm"
 

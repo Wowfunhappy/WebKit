@@ -15,7 +15,7 @@
 </div>
 
 <script>
-var output = "This tests that a focusable object inside an aria-hidden is in the hieararchy only after it gains focus.\n\n";
+var output = "This tests that a focusable object inside an aria-hidden is visible to accessibility when it gains focus.\n\n";
 
 if (window.accessibilityController) {
     jsTestIsAsync = true;
@@ -41,14 +41,6 @@ if (window.accessibilityController) {
             output += expect("button.title", "'AXTitle: BUTTON'");
         else
             output += expect("button.description", "'AXDescription: BUTTON'");
-
-        // Lose focus and this element should be hidden again.
-        document.getElementById("otherbutton").focus();
-        await waitFor(() => {
-            button = accessibilityController.accessibleElementById("button");
-            return !button || !button.isValid;
-        });
-        output += expect("!button || !button.isValid", "true");
 
         debug(output);
         finishJSTest();

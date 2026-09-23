@@ -27,19 +27,18 @@
 
 #pragma once
 
-#include <JavaScriptCore/YarrErrorCode.h>
 #include <climits>
 #include <limits>
 
 namespace JSC { namespace Yarr {
 
 #define YarrStackSpaceForBackTrackInfoPatternCharacter 2 // Only for !fixed quantifiers.
-#define YarrStackSpaceForBackTrackInfoCharacterClass 2 // Only for !fixed quantifiers.
+#define YarrStackSpaceForBackTrackInfoCharacterClass 2 // Greedy/NonGreedy, or FixedCount with unicode/unicodeSets flag.
 #define YarrStackSpaceForBackTrackInfoBackReference 3
 #define YarrStackSpaceForBackTrackInfoAlternative 1 // One per alternative.
 #define YarrStackSpaceForBackTrackInfoParentheticalAssertion 1
 #define YarrStackSpaceForBackTrackInfoParenthesesOnce 2
-#define YarrStackSpaceForBackTrackInfoParenthesesTerminal 1
+#define YarrStackSpaceForBackTrackInfoParenthesesTerminal 2
 #define YarrStackSpaceForBackTrackInfoParentheses 4
 #define YarrStackSpaceForDotStarEnclosure 1
 
@@ -84,6 +83,12 @@ enum class SpecificPattern : uint8_t {
     TrailingSpacesStar,
     TrailingSpacesPlus,
     Newlines,
+};
+
+enum class ExecutionMode : uint8_t {
+    MatchOnly,
+    IncludeSubpatterns,
+    InlineTest
 };
 
 struct BytecodePattern;

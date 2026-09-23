@@ -7,17 +7,17 @@ String with range: ello
 worl
 Attributed string with range:
 	Default text attributes:
-		direction:ltr
-		family-name:-webkit-standard
-		strikethrough:false
-		style:normal
-		fg-color:0,0,0
-		invisible:false
-		weight:400
-		editable:true
-		underline:none
 		size:12pt
+		editable:true
+		invisible:false
+		direction:ltr
+		fg-color:0,0,0
 		indent:0
+		family-name:-webkit-standard
+		weight:400
+		underline:none
+		style:normal
+		strikethrough:false
 	Range attributes for 'ello<\n>':
 	Range attributes for 'worl':
 		weight:700

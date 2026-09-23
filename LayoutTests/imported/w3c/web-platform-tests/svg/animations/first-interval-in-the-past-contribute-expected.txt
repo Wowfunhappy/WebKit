@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Inserting animation elements that end before current presentation time Test timed out
+PASS Inserting animation elements that end before current presentation time
 

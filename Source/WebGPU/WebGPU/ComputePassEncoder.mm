@@ -180,6 +180,11 @@ void ComputePassEncoder::executePreDispatchCommands(const Buffer* indirectBuffer
         return;
     }
 
+    if (!pipeline->isValid()) {
+        makeInvalid(@"pipeline is not valid prior to dispatch");
+        return;
+    }
+
     if (NSString *error = protect(pipeline->pipelineLayout())->errorValidatingBindGroupCompatibility(m_bindGroups)) {
         makeInvalid(error);
         return;
@@ -228,7 +233,7 @@ void ComputePassEncoder::executePreDispatchCommands(const Buffer* indirectBuffer
             for (size_t i = 0, sz = bindGroupResources->mtlResources.size(); i < sz; ++i) {
                 auto& usageData = bindGroupResources->resourceUsages[i];
                 constexpr ShaderStage shaderStages[] = { ShaderStage::Vertex, ShaderStage::Fragment, ShaderStage::Compute, ShaderStage::Undefined };
-                std::optional<BindGroupLayout::StageMapValue> bindingAccess = std::nullopt;
+                std::optional<BindGroupLayout::StageMapValue> bindingAccess;
                 for (auto shaderStage : shaderStages) {
                     bindingAccess = bindGroupLayout->bindingAccessForBindingIndex(usageData.binding, shaderStage);
                     if (bindingAccess)
@@ -447,7 +452,7 @@ void ComputePassEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* grou
 {
     RETURN_IF_FINISHED();
 
-    auto dynamicOffsetCount = (groupPtr && groupPtr->bindGroupLayout()) ? protect(groupPtr->bindGroupLayout())->dynamicBufferCount() : 0;
+    auto dynamicOffsetCount = (groupPtr && groupPtr->bindGroupLayout()) ? groupPtr->bindGroupLayout()->dynamicBufferCount() : 0;
     if (groupIndex >= m_device->limits().maxBindGroups || (dynamicOffsets && dynamicOffsetCount != dynamicOffsets->size())) {
         makeInvalid(@"GPUComputePassEncoder.setBindGroup: groupIndex >= limits.maxBindGroups");
         return;

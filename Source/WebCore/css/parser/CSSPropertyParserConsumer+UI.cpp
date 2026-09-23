@@ -30,9 +30,9 @@
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
 #include "CSSPrimitiveValue.h"
-#include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 #include "CSSPropertyParserConsumer+Image.h"
+#include "CSSPropertyParserConsumer+MetaConsumer.h"
 #include "CSSPropertyParserConsumer+NumberDefinitions.h"
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserState.h"
@@ -50,12 +50,12 @@ RefPtr<CSSValue> consumeCursor(CSSParserTokenRange& range, CSS::PropertyParserSt
 
     CSSValueListBuilder list;
     while (auto image = consumeImage(range, state, { AllowedImageType::URLFunction, AllowedImageType::ImageSet })) {
-        RefPtr<CSSValuePair> hotSpot;
-        if (auto x = CSSPrimitiveValueResolver<CSS::Number<>>::consumeAndResolve(range, state)) {
-            auto y = CSSPrimitiveValueResolver<CSS::Number<>>::consumeAndResolve(range, state);
+        std::optional<CSSCursorImageValue::HotSpot> hotSpot;
+        if (auto x = MetaConsumer<CSS::Number<>>::consume(range, state)) {
+            auto y = MetaConsumer<CSS::Number<>>::consume(range, state);
             if (!y)
                 return nullptr;
-            hotSpot = CSSValuePair::createNoncoalescing(x.releaseNonNull(), y.releaseNonNull());
+            hotSpot = { WTF::move(*x), WTF::move(*y) };
         }
         list.append(CSSCursorImageValue::create(image.releaseNonNull(), WTF::move(hotSpot)));
         if (!consumeCommaIncludingWhitespace(range))
@@ -67,7 +67,7 @@ RefPtr<CSSValue> consumeCursor(CSSParserTokenRange& range, CSS::PropertyParserSt
     if (id == CSSValueHand) {
         if (state.context.mode != HTMLQuirksMode) // Non-standard behavior
             return nullptr;
-        cursorType = CSSPrimitiveValue::create(CSSValuePointer);
+        cursorType = CSSKeywordValue::create(CSSValuePointer);
         range.consumeIncludingWhitespace();
     } else if ((id >= CSSValueAuto && id <= CSSValueWebkitZoomOut) || id == CSSValueCopy || id == CSSValueNone)
         cursorType = consumeIdent(range);

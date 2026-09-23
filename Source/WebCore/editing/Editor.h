@@ -93,6 +93,7 @@ class Text;
 class TextCheckerClient;
 class TextEvent;
 class TextPlaceholderElement;
+class CachedMatchFinder;
 class WritingSuggestionData;
 
 struct CompositionHighlight;
@@ -213,7 +214,7 @@ public:
 
     CompositeEditCommand* lastEditCommand() { return m_lastEditCommand.get(); }
 
-    Document& document() const { return m_document; }
+    Document& NODELETE document() const;
 
     WEBCORE_EXPORT void NODELETE ref() const;
     WEBCORE_EXPORT void deref() const;
@@ -582,6 +583,8 @@ public:
     WEBCORE_EXPORT void toggleSmartLists();
 #endif
 
+    WEBCORE_EXPORT bool isAlternativeTextUIActive() const;
+
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT bool isSmartListsEnabled();
 #endif
@@ -589,7 +592,7 @@ public:
     RefPtr<DocumentFragment> webContentFromPasteboard(Pasteboard&, const SimpleRange& context, bool allowPlainText, bool& chosePlainText);
 
     WEBCORE_EXPORT RefPtr<Font> fontForSelection(bool& hasMultipleFonts);
-    WEBCORE_EXPORT const RenderStyle* styleForSelectionStart(RefPtr<Node>& nodeToRemove);
+    WEBCORE_EXPORT const Style::ComputedStyle* styleForSelectionStart(RefPtr<Node>& nodeToRemove);
     WEBCORE_EXPORT FontAttributes fontAttributesAtSelectionStart();
 
 #if PLATFORM(COCOA)
@@ -667,6 +670,8 @@ public:
     void NODELETE setWritingSuggestionRenderer(RenderInline&);
 
     WEBCORE_EXPORT void closeTyping();
+
+    void releaseMemory();
 
 #if PLATFORM(IOS_FAMILY)
     bool shouldDrawVisuallyContiguousBidiSelection() const;
@@ -784,6 +789,8 @@ private:
     bool m_isGettingDictionaryPopupInfo { false };
     bool m_hasHandledAnyEditing { false };
     HashSet<Ref<HTMLImageElement>> m_imageElementsToLoadBeforeRevealingSelection;
+
+    std::unique_ptr<CachedMatchFinder> m_matchFinder;
 };
 
 inline void Editor::setStartNewKillRingSequence(bool flag)

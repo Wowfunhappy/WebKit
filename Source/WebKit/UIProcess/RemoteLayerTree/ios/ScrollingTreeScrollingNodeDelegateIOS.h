@@ -65,6 +65,7 @@ public:
     void scrollDidEnd();
     void scrollViewWillStartPanGesture() const;
     void scrollViewDidScroll(const WebCore::FloatPoint& scrollOffset, bool inUserInteraction);
+    bool isScrollingPerformanceTestingEnabled() const;
 
     void currentSnapPointIndicesDidChange(std::optional<unsigned> horizontal, std::optional<unsigned> vertical) const;
     CALayer *scrollLayer() const { return m_scrollLayer.get(); }
@@ -89,7 +90,7 @@ public:
     WKBaseScrollView *scrollView() const;
 
     bool startAnimatedScrollToPosition(WebCore::FloatPoint) final;
-    void stopAnimatedScroll() final;
+    void stopAnimatedScroll(EnumSet<WebCore::AnimatedScrollType>) final;
 
     void serviceScrollAnimation(MonotonicTime) final { }
     
@@ -108,8 +109,11 @@ private:
 
 } // namespace WebKit
 
+#import "ScrollPerfIntervalState.h"
+
 @interface WKScrollingNodeScrollViewDelegate : NSObject <WKBEScrollViewDelegate> {
     WeakPtr<WebKit::ScrollingTreeScrollingNodeDelegateIOS> _scrollingTreeNodeDelegate;
+    ScrollPerfIntervalState _scrollPerfIntervalState;
 }
 
 @property (nonatomic, getter=_isInUserInteraction) BOOL inUserInteraction;

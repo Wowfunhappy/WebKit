@@ -183,6 +183,8 @@ bool contains(TreeType type, const SimpleRange& range, const BoundaryPoint& poin
         return contains<ShadowIncludingTree>(range, point);
     case ComposedTree:
         return contains<ComposedTree>(range, point);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(range, point);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -226,6 +228,8 @@ bool contains(TreeType type, const SimpleRange& outerRange, const SimpleRange& i
         return contains<ShadowIncludingTree>(outerRange, innerRange);
     case ComposedTree:
         return contains<ComposedTree>(outerRange, innerRange);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(outerRange, innerRange);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -248,6 +252,8 @@ bool intersectsForTesting(TreeType type, const SimpleRange& a, const SimpleRange
         return intersects<ShadowIncludingTree>(a, b);
     case ComposedTree:
         return intersects<ComposedTree>(a, b);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(a, b);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -291,6 +297,8 @@ bool contains(TreeType type, const SimpleRange& range, const Node& node)
         return contains<ShadowIncludingTree>(range, node);
     case ComposedTree:
         return contains<ComposedTree>(range, node);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(range, node);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -333,6 +341,8 @@ bool intersectsForTesting(TreeType type, const SimpleRange& range, const Node& n
         return intersects<ShadowIncludingTree>(range, node);
     case ComposedTree:
         return intersects<ComposedTree>(range, node);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(range, node);
     }
     ASSERT_NOT_REACHED();
     return false;

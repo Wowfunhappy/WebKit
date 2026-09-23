@@ -92,8 +92,8 @@ messages -> RemoteGraphicsContext Stream {
     DrawDotsForDocumentMarker(WebCore::FloatRect rect, struct WebCore::DocumentMarkerLineStyle style) StreamBatched
     DrawEllipse(WebCore::FloatRect rect) StreamBatched
     DrawPath(WebCore::Path path) StreamBatched
-    DrawFocusRingPath(WebCore::Path path, float outlineWidth, WebCore::Color color) StreamBatched
-    DrawFocusRingRects(Vector<WebCore::FloatRect> rects, float outlineOffset, float outlineWidth, WebCore::Color color) StreamBatched
+    DrawFocusRingPath(WebCore::Path path, float outlineWidth, WebCore::Color color, float zoomFactor) StreamBatched
+    DrawFocusRingRects(Vector<WebCore::FloatRect> rects, float outlineWidth, WebCore::Color color, float zoomFactor) StreamBatched
     FillRect(WebCore::FloatRect rect, enum:bool WebCore::RequiresClipToRect requiresClipToRect) StreamBatched
     FillRectWithColor(WebCore::FloatRect rect, WebCore::Color color) StreamBatched
     FillRectWithGradient(WebCore::FloatRect rect, Ref<WebCore::Gradient> gradient) StreamBatched
@@ -101,26 +101,22 @@ messages -> RemoteGraphicsContext Stream {
     FillCompositedRect(WebCore::FloatRect rect, WebCore::Color color, enum:uint8_t WebCore::CompositeOperator op, enum:uint8_t WebCore::BlendMode blendMode) StreamBatched
     FillRoundedRect(WebCore::FloatRoundedRect rect, WebCore::Color color, enum:uint8_t WebCore::BlendMode blendMode) StreamBatched
     FillRectWithRoundedHole(WebCore::FloatRect rect, WebCore::FloatRoundedRect roundedHoleRect, WebCore::Color color) StreamBatched
-#if ENABLE(INLINE_PATH_DATA)
     FillLine(struct WebCore::PathDataLine line) StreamBatched
     FillArc(struct WebCore::PathArc arc) StreamBatched
     FillClosedArc(struct WebCore::PathClosedArc closedArc) StreamBatched
     FillQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched
     FillBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched
-#endif
     FillPathSegment(WebCore::PathSegment segment) StreamBatched
     FillPath(WebCore::Path path)
     FillCachedPath(WebKit::RemotePathImplIdentifier identifier)
     FillEllipse(WebCore::FloatRect rect)
     StrokeRect(WebCore::FloatRect rect, float lineWidth)
-#if ENABLE(INLINE_PATH_DATA)
     StrokeLine(struct WebCore::PathDataLine line) StreamBatched
-    StrokeLineWithColorAndThickness(struct WebCore::PathDataLine line, std::optional<WebCore::PackedColor::RGBA> strokeColor, std::optional<float> strokeThickness) StreamBatched
+    StrokeLinesWithColorAndThickness(std::span<const WebCore::PathDataLineColorThickness> lines) StreamBatched
     StrokeArc(struct WebCore::PathArc arc) StreamBatched
     StrokeClosedArc(struct WebCore::PathClosedArc closedArc) StreamBatched
     StrokeQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched
     StrokeBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched
-#endif
     StrokePathSegment(WebCore::PathSegment segment) StreamBatched
     StrokePath(WebCore::Path path) StreamBatched
     StrokeEllipse(WebCore::FloatRect rect) StreamBatched

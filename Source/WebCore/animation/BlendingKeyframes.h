@@ -2,7 +2,7 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -26,8 +26,9 @@
 
 #include "CompositeOperation.h"
 #include "KeyframeInterpolation.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
 #include "StyleSingleAnimationRangeName.h"
+#include "StylePrimitiveNumericTypes.h"
 #include "WebAnimationTypes.h"
 #include <wtf/Vector.h>
 #include <wtf/HashSet.h>
@@ -48,22 +49,34 @@ class BlendingKeyframe final : public KeyframeInterpolation::Keyframe {
 public:
     struct Offset {
         Style::SingleAnimationRangeName name;
-        double value;
+        Style::Percentage<> value;
 
-        Offset(double value)
+        Offset(Style::Percentage<> value)
             : name(Style::SingleAnimationRangeName::Omitted)
             , value(value)
         {
         }
 
-        Offset(Style::SingleAnimationRangeName name, double value)
+        Offset(CSS::ValueLiteral<CSS::PercentageUnit::Percentage> literal)
+            : name(Style::SingleAnimationRangeName::Omitted)
+            , value(literal)
+        {
+        }
+
+        Offset(Style::SingleAnimationRangeName name, Style::Percentage<> value)
             : name(name)
             , value(value)
         {
         }
+
+        Offset(Style::SingleAnimationRangeName name, CSS::ValueLiteral<CSS::PercentageUnit::Percentage> literal)
+            : name(name)
+            , value(literal)
+        {
+        }
     };
 
-    BlendingKeyframe(Offset&&, std::unique_ptr<RenderStyle>&&);
+    BlendingKeyframe(Offset&&, std::unique_ptr<Style::ComputedStyle>&&);
     BlendingKeyframe(const BlendingKeyframe&);
 
     BlendingKeyframe(BlendingKeyframe&&) = default;
@@ -83,8 +96,8 @@ public:
 
     bool NODELETE usesRangeOffset() const;
 
-    const RenderStyle* style() const LIFETIME_BOUND { return m_style.get(); }
-    void setStyle(std::unique_ptr<RenderStyle>&& style) { m_style = WTF::move(style); }
+    const Style::ComputedStyle* style() const LIFETIME_BOUND { return m_style.get(); }
+    void setStyle(std::unique_ptr<Style::ComputedStyle>&& style) { m_style = WTF::move(style); }
 
     TimingFunction* timingFunction() const { return m_timingFunction.get(); }
     void setTimingFunction(const RefPtr<TimingFunction>& timingFunction) { m_timingFunction = timingFunction; }
@@ -100,7 +113,7 @@ private:
     Offset m_specifiedOffset;
     double m_computedOffset { std::numeric_limits<double>::quiet_NaN() };
     HashSet<AnimatableCSSProperty> m_properties; // The properties specified in this keyframe.
-    std::unique_ptr<RenderStyle> m_style;
+    std::unique_ptr<Style::ComputedStyle> m_style;
     RefPtr<TimingFunction> m_timingFunction;
     std::optional<CompositeOperation> m_compositeOperation;
     bool m_containsDirectionAwareProperty { false };
@@ -143,14 +156,16 @@ public:
     void copyKeyframes(const BlendingKeyframes&);
     bool hasImplicitKeyframes() const;
     bool hasImplicitKeyframeForProperty(AnimatableCSSProperty) const;
-    void fillImplicitKeyframes(const KeyframeEffect&, const RenderStyle& elementStyle);
+    void fillImplicitKeyframes(const KeyframeEffect&, const Style::ComputedStyle& elementStyle);
 
     auto begin() const LIFETIME_BOUND { return m_keyframes.begin(); }
     auto end() const LIFETIME_BOUND { return m_keyframes.end(); }
 
     bool NODELETE usesContainerUnits() const;
+    bool usesViewportUnits() const;
+    bool NODELETE usesTreeCountingFunctions() const;
     bool usesRelativeFontWeight() const { return m_usesRelativeFontWeight; }
-    bool hasCSSVariableReferences() const { return m_containsCSSVariableReferences; }
+    bool hasSubstitutionFunctions() const { return m_containsSubstitutionFunctions; }
     bool hasColorSetToCurrentColor() const;
     bool NODELETE hasPropertySetToCurrentColor() const;
     const HashSet<AnimatableCSSProperty>& NODELETE propertiesSetToInherit() const LIFETIME_BOUND;
@@ -164,6 +179,7 @@ public:
     bool hasExplicitlyInheritedKeyframeProperty() const { return m_hasExplicitlyInheritedKeyframeProperty; }
     bool usesAnchorFunctions() const { return m_usesAnchorFunctions; }
     bool hasKeyframeNotUsingRangeOffset() const { return m_hasKeyframeNotUsingRangeOffset; }
+    bool animatesOffsetDistanceToPercentOrCalculated() const { return m_animatesOffsetDistanceToPercentOrCalculated; }
 
     void updatedComputedOffsets(NOESCAPE const Function<double(const BlendingKeyframe::Offset&)>&);
     bool hasKeyframeWithUnresolvedComputedOffset() const;
@@ -181,15 +197,16 @@ private:
     HashSet<AnimatableCSSProperty> m_explicitFromProperties; // The properties with an explicit value for the 0% keyframe.
     HashSet<AnimatableCSSProperty> m_propertiesSetToInherit;
     HashSet<AnimatableCSSProperty> m_propertiesSetToCurrentColor;
-    bool m_usesRelativeFontWeight { false };
-    bool m_containsCSSVariableReferences { false };
-    bool m_usesAnchorFunctions { false };
-    bool m_hasWidthDependentTransform { false };
-    bool m_hasHeightDependentTransform { false };
-    bool m_hasDiscreteTransformInterval { false };
-    bool m_hasExplicitlyInheritedKeyframeProperty { false };
-    bool m_hasKeyframeNotUsingRangeOffset { false };
-    bool m_hasPropertiesWithRevertRuleOrLayer { false };
+    bool m_usesRelativeFontWeight : 1 { false };
+    bool m_containsSubstitutionFunctions : 1 { false };
+    bool m_usesAnchorFunctions : 1 { false };
+    bool m_hasWidthDependentTransform : 1 { false };
+    bool m_hasHeightDependentTransform : 1 { false };
+    bool m_hasDiscreteTransformInterval : 1 { false };
+    bool m_hasExplicitlyInheritedKeyframeProperty : 1 { false };
+    bool m_hasKeyframeNotUsingRangeOffset : 1 { false };
+    bool m_hasPropertiesWithRevertRuleOrLayer : 1 { false };
+    bool m_animatesOffsetDistanceToPercentOrCalculated : 1 { false };
 };
 
 } // namespace WebCore

@@ -93,7 +93,7 @@ class Sequence
             | item |
             item = item.resolveSettings(settings)
             if item.is_a? Sequence
-                newList += item.list
+                newList.concat(item.list)
             else
                 newList << item
             end
@@ -452,7 +452,7 @@ class Sequence
                 if item.annotation
                     newList << Instruction.new(item.codeOrigin, "localAnnotation", [], item.annotation)
                 end
-                newList += macro.body.substitute(mapping).demacroify(myMyMacros).renameLabels(item.originalName).list
+                newList.concat(macro.body.substitute(mapping).demacroify(myMyMacros).renameLabels(item.originalName).list)
 
                 @@demacroifyStack.pop
             else

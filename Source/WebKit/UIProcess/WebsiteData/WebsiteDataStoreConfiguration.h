@@ -26,6 +26,7 @@
 #pragma once
 
 #include "APIObject.h"
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/Markable.h>
 #include <wtf/URL.h>
 #include <wtf/UUID.h>
@@ -34,6 +35,7 @@
 namespace WebKit {
 
 enum class UnifiedOriginStorageLevel : uint8_t;
+enum class TimeBasedEvictionMode : uint8_t;
 
 namespace WebPushD {
 struct WebPushDaemonConnectionConfiguration;
@@ -69,6 +71,18 @@ public:
 
     std::optional<double> originQuotaRatio() const { return m_originQuotaRatio; }
     void setOriginQuotaRatio(std::optional<double> ratio) { m_originQuotaRatio = ratio; }
+
+    static TimeBasedEvictionMode defaultTimeBasedEvictionMode();
+    TimeBasedEvictionMode timeBasedEvictionMode() const { return m_timeBasedEvictionMode; }
+    void setTimeBasedEvictionMode(TimeBasedEvictionMode mode) { m_timeBasedEvictionMode = mode; }
+    Seconds timeBasedEvictionThreshold() const { return m_timeBasedEvictionThreshold; }
+    void setTimeBasedEvictionThreshold(Seconds threshold) { m_timeBasedEvictionThreshold = threshold; }
+    std::optional<Seconds> lastModificationTimeUpdateIntervalOverride() const { return m_lastModificationTimeUpdateIntervalOverride; }
+    void setLastModificationTimeUpdateIntervalOverride(std::optional<Seconds> interval) { m_lastModificationTimeUpdateIntervalOverride = interval; }
+    std::optional<Seconds> timeBasedEvictionIntervalOverride() const { return m_timeBasedEvictionIntervalOverride; }
+    void setTimeBasedEvictionIntervalOverride(std::optional<Seconds> interval) { m_timeBasedEvictionIntervalOverride = interval; }
+    const Vector<WebCore::SecurityOriginData>& mockPushSubscriptionOriginsForTesting() const { return m_mockPushSubscriptionOriginsForTesting; }
+    void setMockPushSubscriptionOriginsForTesting(Vector<WebCore::SecurityOriginData>&& origins) { m_mockPushSubscriptionOriginsForTesting = WTF::move(origins); }
 
     std::optional<double> totalQuotaRatio() const { return m_totalQuotaRatio; }
     void setTotalQuotaRatio(std::optional<double> ratio) { m_totalQuotaRatio = ratio; }
@@ -115,10 +129,6 @@ public:
     const String& localStorageDirectory() const LIFETIME_BOUND { return m_directories.localStorageDirectory; }
     void setLocalStorageDirectory(String&& directory) { m_directories.localStorageDirectory = WTF::move(directory); }
 
-#if ENABLE(ARKIT_INLINE_PREVIEW)
-    const String& modelElementCacheDirectory() const LIFETIME_BOUND { return m_directories.modelElementCacheDirectory; }
-    void setModelElementCacheDirectory(String&& directory) { m_directories.modelElementCacheDirectory = WTF::move(directory); }
-#endif
 
     const String& boundInterfaceIdentifier() const LIFETIME_BOUND { return m_boundInterfaceIdentifier; }
     void setBoundInterfaceIdentifier(String&& identifier) { m_boundInterfaceIdentifier = WTF::move(identifier); }
@@ -264,6 +274,9 @@ public:
     const String& enhancedSecurityDirectory() const LIFETIME_BOUND { return m_directories.enhancedSecurityDirectory; }
     void setEnhancedSecurityDirectory(String&& directory) { m_directories.enhancedSecurityDirectory = WTF::move(directory); }
 
+    std::optional<unsigned> overridePersistentNotificationMinimumLifetimeForTesting() const { return m_overrideServiceWorkerRegistrationCountTestingValue; }
+    void setOverridePersistentNotificationMinimumLifetimeForTesting(unsigned count) { m_overrideServiceWorkerRegistrationCountTestingValue = count; }
+
     struct Directories {
         String alternativeServicesDirectory;
         String cacheStorageDirectory;
@@ -284,9 +297,6 @@ public:
         String searchFieldHistoryDirectory;
         String serviceWorkerRegistrationDirectory;
         String webSQLDatabaseDirectory;
-#if ENABLE(ARKIT_INLINE_PREVIEW)
-        String modelElementCacheDirectory;
-#endif
 #if ENABLE(CONTENT_EXTENSIONS)
         String resourceMonitorThrottlerDirectory;
 #endif
@@ -310,6 +320,11 @@ private:
     Directories m_directories;
     uint64_t m_perOriginStorageQuota;
     std::optional<double> m_originQuotaRatio;
+    TimeBasedEvictionMode m_timeBasedEvictionMode { defaultTimeBasedEvictionMode() };
+    Seconds m_timeBasedEvictionThreshold { 180 * 24_h };
+    std::optional<Seconds> m_lastModificationTimeUpdateIntervalOverride;
+    std::optional<Seconds> m_timeBasedEvictionIntervalOverride;
+    Vector<WebCore::SecurityOriginData> m_mockPushSubscriptionOriginsForTesting;
     std::optional<double> m_totalQuotaRatio;
     std::optional<uint64_t> m_standardVolumeCapacity;
     std::optional<uint64_t> m_volumeCapacityOverride;

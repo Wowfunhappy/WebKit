@@ -26,6 +26,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMExceptionHandling.h"
@@ -39,7 +40,6 @@
 #include <JavaScriptCore/BuiltinNames.h>
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -79,10 +79,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestIterablePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestIterablePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -125,12 +122,17 @@ static const std::array<HashTableValue, 5> JSTestIterablePrototypeTableValues {
 
 const ClassInfo JSTestIterablePrototype::s_info = { "TestIterable"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIterablePrototype) };
 
+JSC::Structure* JSTestIterablePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestIterablePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestIterable::info(), JSTestIterablePrototypeTableValues, *this);
-    putDirect(vm, vm.propertyNames->iteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    putDirect(vm, vm.propertyNames->iteratorSymbol, WebCore::getDirect(this, vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestIterable::s_info = { "TestIterable"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIterable) };
@@ -141,6 +143,19 @@ JSTestIterable::JSTestIterable(Structure* structure, JSDOMGlobalObject& globalOb
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestIterable>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestIterable* JSTestIterable::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestIterable>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestIterable* ptr = new (NotNull, JSC::allocateCell<JSTestIterable>(vm)) JSTestIterable(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestIterable::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestIterable::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -156,7 +171,7 @@ JSObject* JSTestIterable::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestIterable::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestIterableDOMConstructor, DOMConstructorID::TestIterable>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestIterableDOMConstructor, DOMConstructorID::TestIterable>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestIterable::destroy(JSC::JSCell* cell)
@@ -169,10 +184,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestIterableConstructor, (JSGlobalObject* lexicalGlob
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestIterablePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestIterablePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestIterable::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestIterable::getConstructor(vm, prototype->realm()));
 }
 
 struct TestIterableIteratorTraits {
@@ -201,7 +216,7 @@ public:
 
     static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
     {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
+        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
     }
 
     static TestIterableIterator* create(JSC::VM& vm, JSC::Structure* structure, JSTestIterable& iteratedObject, IterationKind kind, InternalIterator&& iterator)
@@ -291,12 +306,14 @@ JSC::GCClient::IsoSubspace* JSTestIterable::subspaceForImpl(JSC::VM& vm)
 
 void JSTestIterable::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestIterable*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestIterable>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestIterableOwner::JSTestIterableOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestIterableOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -310,7 +327,7 @@ void JSTestIterableOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* conte
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestIterable = static_cast<JSTestIterable*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestIterable->wrapped()).ptr(), jsTestIterable);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestIterable->wrapped(), jsTestIterable);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -358,7 +375,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestIterable* JSTestIterable::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestIterable*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestIterable>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

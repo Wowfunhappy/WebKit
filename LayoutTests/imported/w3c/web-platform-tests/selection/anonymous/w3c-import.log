@@ -16,3 +16,4 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/selection/anonymous/details-ancestor.html
 /LayoutTests/imported/w3c/web-platform-tests/selection/anonymous/details-mutate.html
+/LayoutTests/imported/w3c/web-platform-tests/selection/anonymous/setBaseAndExtent-start-or-end-in-anonymous-shadow-container.html

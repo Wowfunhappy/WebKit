@@ -47,6 +47,8 @@
 #include "VideoFrame.h"
 #include "WebCodecsVideoFrame.h"
 #include "WebGPUDevice.h"
+#include <JavaScriptCore/HeapCellInlines.h>
+#include <array>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/MallocSpan.h>
 
@@ -82,7 +84,7 @@ void GPUQueue::submit(Vector<Ref<GPUCommandBuffer>>&& commandBuffers)
     });
     m_backing->submit(WTF::move(result));
 
-    if (RefPtr device = m_device.get()) {
+    if (RefPtr device = m_device) {
         for (Ref commandBuffer : commandBuffers) {
             commandBuffer->setOverrideLabel(commandBuffer->label());
             commandBuffer->setBacking(device->invalidCommandEncoder(), device->invalidCommandBuffer());
@@ -411,10 +413,10 @@ static void clampDimension(WebGPU::Extent3D& extent3D, size_t dimension, WebGPU:
 
 static void getImageBytesFromVideoFrame(WebGPU::Queue& backing, const RefPtr<VideoFrame>& videoFrame, WebGPU::Extent3D& backingCopySize, NOESCAPE const ImageDataCallback& callback)
 {
-    if (!videoFrame.get())
+    if (!videoFrame)
         return callback({ }, 0, 0);
 
-    RefPtr<NativeImage> nativeImage = backing.getNativeImage(*videoFrame.get());
+    RefPtr<NativeImage> nativeImage = backing.getNativeImage(*videoFrame);
     if (!nativeImage)
         return callback({ }, 0, 0);
 
@@ -441,8 +443,8 @@ static void getImageBytesFromVideoFrame(WebGPU::Queue& backing, const RefPtr<Vid
         .width = width,
         .rowBytes = byteSpan.size() / height
     };
-    uint8_t permuteMap[4] = { 2, 1, 0, 3 };
-    vImagePermuteChannels_ARGB8888(&bgra, &bgra, permuteMap, kvImageNoFlags);
+    constexpr std::array<uint8_t, 4> permuteMap { 2, 1, 0, 3 };
+    vImagePermuteChannels_ARGB8888(&bgra, &bgra, permuteMap.data(), kvImageNoFlags);
 
     return callback(byteSpan.first(sizeInBytes), width, height);
 }
@@ -517,7 +519,7 @@ static void imageBytesForSource(WebGPU::Queue& backing, const GPUImageCopyExtern
             auto rawHeight = CGImageGetHeight(platformImage.get());
 
             // We need to account for EXIF orientation which may swap width/height.
-            auto orientation = RefPtr { imageElement->image() }->orientation().orientation();
+            auto orientation = protect(imageElement->image())->orientation().orientation();
             bool orientationSwapsDimensions = orientation == ImageOrientation::Orientation::OriginLeftTop
                 || orientation == ImageOrientation::Orientation::OriginRightTop
                 || orientation == ImageOrientation::Orientation::OriginRightBottom
@@ -579,7 +581,7 @@ static void imageBytesForSource(WebGPU::Queue& backing, const GPUImageCopyExtern
                 return callback(byteSpan.first(sizeInBytes), rawWidth, rawHeight);
 
             auto bytesPerRow = CGImageGetBytesPerRow(platformImage.get()) / (bitsPerComponent / 8);
-            Vector<uint8_t> tempBuffer(requiredSize, 255);
+            Vector<uint8_t> tempBuffer(FillWith { }, requiredSize, 255);
             auto bytesPerPixel = sizeInBytes / (rawWidth * rawHeight);
             bool flipY = sourceDescriptor.flipY;
             needsYFlip = false;
@@ -667,11 +669,11 @@ static bool isOriginClean(const auto& source, [[maybe_unused]] ScriptExecutionCo
             return true;
         },
         [&](const Ref<HTMLImageElement>& imageElement) -> ResultType {
-            return imageElement->originClean(*protect(context.securityOrigin()).get());
+            return imageElement->originClean(*protect(context.securityOrigin()));
         },
         [&]([[maybe_unused]] const Ref<HTMLVideoElement>& videoElement) -> ResultType {
 #if PLATFORM(COCOA)
-            return !videoElement->taintsOrigin(*protect(context.securityOrigin()).get());
+            return !videoElement->taintsOrigin(*protect(context.securityOrigin()));
 #else
             return true;
 #endif

@@ -126,7 +126,7 @@ public:
     bool containsOnlyASCII { true };
 
     AXTextRuns() = default;
-    AXTextRuns(RenderBlock* containingBlock, Vector<AXTextRun>&& textRuns, String&& text, bool containsOnlyASCII = true)
+    AXTextRuns(void* containingBlock, Vector<AXTextRun>&& textRuns, String&& text, bool containsOnlyASCII = true)
         : text(WTF::move(text))
         , containingBlock(containingBlock)
         , runs(WTF::move(textRuns))
@@ -179,6 +179,10 @@ public:
     // The local rect would be:
     //   {x: width_of_single_b, y: |lineHeight| * 1, width: width_of_two_b, height: |lineHeight * 1|}
     FloatRect localRect(unsigned start, unsigned end, FontOrientation) const;
+
+    // Like localRect(), but returns a separate rect for each line rather than a single union.
+    // Used to build non-rectangular (shrink-wrapped) paths for multi-line elements.
+    Vector<FloatRect> localRectsPerLine(unsigned start, unsigned end, FontOrientation) const;
 
     // Convenience methods for TextUnit movement.
     bool runStartsWithLineBreak(size_t runIndex) const { return text[runs[runIndex].startIndex] == '\n'; }

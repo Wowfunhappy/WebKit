@@ -61,7 +61,6 @@ private:
     void scrollingTreeNodeDidEndScrollSnapping(WebCore::ScrollingNodeID) override;
 
     void connectStateNodeLayers(WebCore::ScrollingStateTree&, const RemoteLayerTreeHost&) override;
-    void establishLayerTreeScrollingRelations(const RemoteLayerTreeHost&) override;
 
     void displayDidRefresh(WebCore::PlatformDisplayID) override;
     void windowScreenWillChange() override;

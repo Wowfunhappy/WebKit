@@ -65,10 +65,13 @@ StepRange WeekInputType::createStepRange(AnyStepHandling anyStepHandling) const
     ASSERT(element());
     Ref element = *this->element();
     const Decimal stepBase = findStepBase(weekDefaultStepBase);
-    const Decimal minimum = parseToNumber(element->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumWeek()));
-    const Decimal maximum = parseToNumber(element->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumWeek()));
+
+    RangeLimitations rangeLimitations = RangeLimitations::Invalid;
+    const Decimal minimum = extractStepRangeBound(minAttr, Decimal::fromDouble(DateComponents::minimumWeek()), rangeLimitations);
+    const Decimal maximum = extractStepRangeBound(maxAttr, Decimal::fromDouble(DateComponents::maximumWeek()), rangeLimitations);
+
     const Decimal step = StepRange::parseStep(anyStepHandling, weekStepDescription, element->attributeWithoutSynchronization(stepAttr));
-    return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, weekStepDescription);
+    return StepRange(stepBase, rangeLimitations, minimum, maximum, step, weekStepDescription);
 }
 
 std::optional<DateComponents> WeekInputType::parseToDateComponents(StringView source) const

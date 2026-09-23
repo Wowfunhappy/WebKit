@@ -32,6 +32,5 @@ namespace WGSL {
 class ShaderModule;
 
 std::optional<FailedCheck> validateAttributes(ShaderModule&);
-std::optional<FailedCheck> validateIO(ShaderModule&);
 
 } // namespace WGSL

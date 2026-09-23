@@ -36,6 +36,7 @@
 
 #if BOS(DARWIN)
 #include <CommonCrypto/CommonHMAC.h>
+#include <array>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/sysctl.h>
@@ -44,8 +45,6 @@
 #endif
 
 namespace bmalloc { namespace api {
-
-static bool (*hasDisableTZoneEntitlement)();
 
 #define BUSE_BUCKETS_FOR_SIZE_CLASSES_FROM_ENVVAR 0
 
@@ -94,11 +93,6 @@ static TypeNameTemplate typeNameTemplate;
 static void dumpRegisteredTypesAtExit(void)
 {
     TZoneHeapManager::singleton().dumpRegisteredTypes();
-}
-
-void TZoneHeapManager::setHasDisableTZoneEntitlementCallback(bool (*disableTZoneEntitlementCheck)())
-{
-    hasDisableTZoneEntitlement = disableTZoneEntitlementCheck;
 }
 
 TZoneHeapManager::TZoneHeapManager()
@@ -211,10 +205,10 @@ void TZoneHeapManager::init()
 
     uint64_t primordialSeed;
     struct timeval timeValue;
-    int mib[2] = { CTL_KERN, KERN_BOOTTIME };
+    std::array<int, 2> mib { CTL_KERN, KERN_BOOTTIME };
     size_t size = sizeof(timeValue);
 
-    auto sysctlResult = sysctl(mib, 2, &timeValue, &size, nullptr, 0);
+    auto sysctlResult = sysctl(mib.data(), mib.size(), &timeValue, &size, nullptr, 0);
     if (sysctlResult) {
         TZONE_LOG_DEBUG("kern.boottime is required for TZoneHeap initialization: %d errno %d\n", sysctlResult, errno);
         RELEASE_BASSERT(!sysctlResult || !requirePerBootPrimordialSeed);
@@ -627,7 +621,7 @@ BINLINE pas_heap_ref* TZoneHeapManager::heapRefForTZoneType(const TZoneSpecifica
     else
         group = populateGroupBuckets(lock, spec);
 
-    if (spec.allocationMode == CompactAllocationMode::NonCompact && PAS_USE_COMPACT_ONLY_TZONE_HEAP)
+    if (spec.allocationMode == CompactAllocationMode::NonCompact && PAS_BYPASS_TZONE_FOR_NONCOMPACT_OBJECTS)
         return &group->nonCompactBucket.heapref;
 
     unsigned bucket = bucketForKey(spec, group->numberOfBuckets, lock);

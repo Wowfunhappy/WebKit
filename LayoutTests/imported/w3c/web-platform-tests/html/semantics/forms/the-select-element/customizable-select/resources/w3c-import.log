@@ -18,4 +18,5 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/resources/customizable-select-styles.css
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/resources/customizable-select-utils.js
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/resources/fallback-helper.js
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/resources/selectedcontent-input.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/resources/selectedcontent-restore-iframe.html

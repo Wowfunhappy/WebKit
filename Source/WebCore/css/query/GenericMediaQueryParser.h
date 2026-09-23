@@ -38,11 +38,18 @@ struct MediaQueryParserContext;
 
 namespace MQ {
 
+// A <style-range-value> that is a bare <custom-property-name> is substituted as if wrapped in var().
+// Returns the referenced property name, or nullAtom() if the tokens are anything else.
+AtomString bareCustomPropertyName(std::span<const CSSParserToken>);
+
 struct FeatureParser {
     static std::optional<Feature> consumeFeature(CSSParserTokenRange&, const MediaQueryParserContext&);
     static std::optional<Feature> consumeBooleanOrPlainFeature(CSSParserTokenRange&, const MediaQueryParserContext&);
     static std::optional<Feature> consumeRangeFeature(CSSParserTokenRange&, const MediaQueryParserContext&);
-    static RefPtr<CSSValue> consumeValue(CSSParserTokenRange&, const MediaQueryParserContext&);
+
+    static AtomString consumeFeatureName(CSSParserTokenRange&);
+    static std::optional<Value> consumeCustomPropertyValue(const AtomString& propertyName, CSSParserTokenRange&, const MediaQueryParserContext&);
+    static std::optional<ComparisonOperator> consumeRangeComparisonOperator(CSSParserTokenRange&);
 
     static bool validateFeatureAgainstSchema(Feature&, const FeatureSchema&);
 };
@@ -127,6 +134,11 @@ std::optional<QueryInParens> GenericMediaQueryParser<ConcreteParser>::consumeQue
             auto name = range.peek().value();
             auto functionRange = range.consumeBlock();
             range.consumeWhitespace();
+
+            auto validationRange = functionRange;
+            if (!validationRange.consumeAnyValue())
+                return { };
+
             return GeneralEnclosed { name.toString(), functionRange.serialize() };
         }
     }
@@ -149,10 +161,14 @@ std::optional<QueryInParens> GenericMediaQueryParser<ConcreteParser>::consumeQue
     }
 
     auto featureRange = blockRange;
-    if (auto feature = consumeAndValidateFeature(featureRange, context, state)) {
+    if (auto feature = ConcreteParser::consumeAndValidateFeature(featureRange, context, state)) {
         feature->functionId = functionId;
         return { *feature };
     }
+
+    auto validationRange = originalBlockRange;
+    if (!validationRange.consumeAnyValue())
+        return { };
 
     return GeneralEnclosed { functionId ? nameString(*functionId) : nullAtom(), originalBlockRange.serialize() };
 }

@@ -91,9 +91,7 @@ void RemoteSampleBufferDisplayLayer::setLogIdentifier(uint64_t identifier)
 }
 #endif
 
-RemoteSampleBufferDisplayLayer::~RemoteSampleBufferDisplayLayer()
-{
-}
+RemoteSampleBufferDisplayLayer::~RemoteSampleBufferDisplayLayer() = default;
 
 CGRect RemoteSampleBufferDisplayLayer::bounds() const
 {
@@ -170,6 +168,11 @@ IPC::Connection* RemoteSampleBufferDisplayLayer::messageSenderConnection() const
 void RemoteSampleBufferDisplayLayer::sampleBufferDisplayLayerStatusDidFail()
 {
     send(Messages::SampleBufferDisplayLayer::SetDidFail { protect(m_sampleBufferDisplayLayer)->didFail() });
+}
+
+void RemoteSampleBufferDisplayLayer::updateVideoFrameCounters(uint64_t totalFrameCount, uint64_t droppedFrameCount)
+{
+    send(Messages::SampleBufferDisplayLayer::UpdateVideoFrameCounters { totalFrameCount,  droppedFrameCount });
 }
 
 void RemoteSampleBufferDisplayLayer::setSharedVideoFrameSemaphore(IPC::Semaphore&& semaphore)

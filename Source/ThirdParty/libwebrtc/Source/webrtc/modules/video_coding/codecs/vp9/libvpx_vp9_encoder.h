@@ -255,6 +255,13 @@ class LibvpxVp9Encoder : public VideoEncoder {
   // TODO(webrtc:388070060): Remove after rollout.
   const PsnrExperiment psnr_experiment_;
   FrameSampler psnr_frame_sampler_;
+
+#if WEBRTC_WEBKIT_BUILD
+  std::optional<webrtc::ColorSpace> current_color_space_;
+#endif
+
+  // TODO(webrtc:500517546): Remove once the feature is fully deployed.
+  const bool post_encode_frame_drop_;
 };
 
 }  // namespace webrtc

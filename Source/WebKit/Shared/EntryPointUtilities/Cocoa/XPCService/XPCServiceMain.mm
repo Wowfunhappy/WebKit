@@ -133,10 +133,10 @@ static void checkFrameworkVersion(xpc_object_t message)
 
 static bool s_isWebProcess = false;
 
-static void setUserDirSuffix(ASCIILiteral suffix)
+static void setUserDirSuffix(String&& suffix)
 {
 #if PLATFORM(IOS_FAMILY)
-    if (_set_user_dir_suffix(suffix)) {
+    if (_set_user_dir_suffix(suffix.utf8().data())) {
         RELEASE_LOG(IPC, "Successfully set temp dir");
         confstr(_CS_DARWIN_USER_TEMP_DIR, nullptr, 0);
         return;
@@ -171,10 +171,6 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             }
             return;
         }
-
-#if USE(EXIT_XPC_MESSAGE_WORKAROUND)
-        handleXPCExitMessage(event);
-#endif
 
         String messageName = xpcDictionaryGetString(event, "message-name"_s);
         if (!messageName) {
@@ -225,10 +221,14 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 return;
             }
 
+            String uiProcessName = xpcDictionaryGetString(event, "ui-process-name"_s);
+
             CFStringRef entryPointFunctionName = nullptr;
             if (serviceName.startsWith(webContentServiceName)) {
                 s_isWebProcess = true;
-#if !USE(EXTENSIONKIT)
+#if USE(EXTENSIONKIT)
+                setUserDirSuffix(WTF::move(uiProcessName));
+#else
                 setUserDirSuffix(webContentServiceName);
 #endif
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(WEBCONTENT_SERVICE_INITIALIZER));
@@ -236,7 +236,11 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 setUserDirSuffix(networkingServiceName);
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(NETWORK_SERVICE_INITIALIZER));
             } else if (serviceName == gpuServiceName) {
+#if USE(EXTENSIONKIT)
+                setUserDirSuffix(WTF::move(uiProcessName));
+#else
                 setUserDirSuffix(gpuServiceName);
+#endif
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(GPU_SERVICE_INITIALIZER));
             } else if (serviceName == modelServiceName)
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(MODEL_SERVICE_INITIALIZER));
@@ -245,13 +249,12 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 return;
             }
 
-            // MAVERICKS_BACKPORT: this build ships WK2 as WebKit2.framework with the bundle
-            // identifier com.apple.WebKit2, because Safari 7's API contract gives the
-            // WebKit.framework name and the com.apple.WebKit identity to WebKitLegacy.
-            // Upstream's com.apple.WebKit lookup finds the legacy framework here, which does
-            // not export the service initializers, so the entry-point lookup must use the
-            // identity this packaging actually installs.
+            // MAVERICKS_BACKPORT: Safari 7 loads modern WebKit from the private WebKit2 framework.
             RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit2"));
+            if (!webKitBundle) {
+                RetainPtr webKitFrameworkURL = adoptCF(CFURLCreateWithFileSystemPath(nullptr, CFSTR("/System/Library/PrivateFrameworks/WebKit2.framework"), kCFURLPOSIXPathStyle, true));
+                webKitBundle = adoptCF(CFBundleCreate(nullptr, webKitFrameworkURL.get()));
+            }
             typedef void (*InitializerFunction)(xpc_connection_t, xpc_object_t);
             InitializerFunction initializerFunctionPtr = reinterpret_cast<InitializerFunction>(CFBundleGetFunctionPointerForName(webKitBundle.get(), entryPointFunctionName));
             if (!initializerFunctionPtr) {

@@ -25,19 +25,19 @@
 
 #pragma once
 
-DECLARE_SYSTEM_HEADER
-
 #include <wtf/Compiler.h>
 
-WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+DECLARE_SYSTEM_HEADER
 
-WTF_EXTERN_C_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
 #if USE(APPLE_INTERNAL_SDK)
 #include <corecrypto/ccec25519.h>
 #include <corecrypto/ccec25519_priv.h>
 #include <corecrypto/ccsha2.h>
 #else
+
+WTF_EXTERN_C_BEGIN
 
 #define CC_SPTR(_sn_, _n_) _n_
 
@@ -118,8 +118,8 @@ int cced25519_make_pub(const struct ccdigest_info *, ccec25519pubkey pk, const c
 
 int cced25519_verify(const struct ccdigest_info *, size_t len, const void *cc_sized_by(len) msg, const ccec25519signature, const ccec25519pubkey pk);
 
-#endif // USE(APPLE_INTERNAL_SDK)
-
 WTF_EXTERN_C_END
+
+#endif // USE(APPLE_INTERNAL_SDK)
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END

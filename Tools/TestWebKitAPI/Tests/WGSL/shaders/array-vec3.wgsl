@@ -1,7 +1,7 @@
 @group(0) @binding(0) var<storage, read_write> un: array<vec3f, 1>;
 
-@vertex
-fn main() -> @builtin(position) vec4f {
+@compute @workgroup_size(1)
+fn main() {
   {
     let x = un[0].x;
     let xy = un[0].xy;
@@ -27,5 +27,4 @@ fn main() -> @builtin(position) vec4f {
     v.x = x;
     v[1] = y;
   }
-  return vec4();
 }

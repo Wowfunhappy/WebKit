@@ -45,7 +45,7 @@ static RefPtr<CSSValue> NODELETE consumeAlignmentBaseline(CSSParserTokenRange& r
     // FIXME: The spec states that <baseline-position> is defined as `<baseline-position> = [ first | last ]? && baseline`, allowing any ordering, but tests expect `[ first | last ]` to always be precede `baseline`.
 
     range.consumeIncludingWhitespace();
-    return CSSPrimitiveValue::create(CSSValueBaseline);
+    return CSSKeywordValue::create(CSSValueBaseline);
 }
 
 static RefPtr<CSSValue> consumeAlignmentFirstBaseline(CSSParserTokenRange& range, CSS::PropertyParserState&)
@@ -59,7 +59,7 @@ static RefPtr<CSSValue> consumeAlignmentFirstBaseline(CSSParserTokenRange& range
 
     range = copy;
     range.consumeIncludingWhitespace();
-    return CSSPrimitiveValue::create(CSSValueBaseline);
+    return CSSKeywordValue::create(CSSValueBaseline);
 }
 
 static RefPtr<CSSValue> consumeAlignmentLastBaseline(CSSParserTokenRange& range, CSS::PropertyParserState&)
@@ -74,8 +74,8 @@ static RefPtr<CSSValue> consumeAlignmentLastBaseline(CSSParserTokenRange& range,
     range = copy;
     range.consumeIncludingWhitespace();
     return CSSValuePair::create(
-        CSSPrimitiveValue::create(CSSValueLast),
-        CSSPrimitiveValue::create(CSSValueBaseline)
+        CSSKeywordValue::create(CSSValueLast),
+        CSSKeywordValue::create(CSSValueBaseline)
     );
 }
 
@@ -89,8 +89,8 @@ template<typename F> static RefPtr<CSSValue> consumeAlignmentOverflowPosition(CS
         range = copy;
         range.consumeIncludingWhitespace();
         return CSSValuePair::create(
-            CSSPrimitiveValue::create(overflowSafety),
-            CSSPrimitiveValue::create(position)
+            CSSKeywordValue::create(overflowSafety),
+            CSSKeywordValue::create(position)
         );
     }
     return nullptr;
@@ -116,7 +116,7 @@ RefPtr<CSSValue> consumeAlignContent(CSSParserTokenRange& range, CSS::PropertyPa
     case CSSValueFlexStart:
     case CSSValueFlexEnd:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <baseline-position>
     case CSSValueFirst:
@@ -169,7 +169,7 @@ RefPtr<CSSValue> consumeJustifyContent(CSSParserTokenRange& range, CSS::Property
     case CSSValueLeft:
     case CSSValueRight:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <overflow-position>? [ <content-position> | left | right ]
     case CSSValueUnsafe:
@@ -207,7 +207,7 @@ RefPtr<CSSValue> consumeAlignSelf(CSSParserTokenRange& range, CSS::PropertyParse
     // stretch
     case CSSValueStretch:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <self-position>
     case CSSValueAnchorCenter:
@@ -222,7 +222,7 @@ RefPtr<CSSValue> consumeAlignSelf(CSSParserTokenRange& range, CSS::PropertyParse
     case CSSValueFlexStart:
     case CSSValueFlexEnd:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <baseline-position>
     case CSSValueFirst:
@@ -272,7 +272,7 @@ RefPtr<CSSValue> consumeJustifySelf(CSSParserTokenRange& range, CSS::PropertyPar
     // stretch
     case CSSValueStretch:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // [ <self-position> | left | right ]
     case CSSValueAnchorCenter:
@@ -289,7 +289,7 @@ RefPtr<CSSValue> consumeJustifySelf(CSSParserTokenRange& range, CSS::PropertyPar
     case CSSValueLeft:
     case CSSValueRight:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <baseline-position>
     case CSSValueFirst:
@@ -339,7 +339,7 @@ RefPtr<CSSValue> consumeAlignItems(CSSParserTokenRange& range, CSS::PropertyPars
     // stretch
     case CSSValueStretch:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <self-position>
     case CSSValueAnchorCenter:
@@ -354,7 +354,7 @@ RefPtr<CSSValue> consumeAlignItems(CSSParserTokenRange& range, CSS::PropertyPars
     case CSSValueFlexStart:
     case CSSValueFlexEnd:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <baseline-position>
     case CSSValueFirst:
@@ -402,7 +402,7 @@ RefPtr<CSSValue> consumeJustifyItems(CSSParserTokenRange& range, CSS::PropertyPa
     // stretch
     case CSSValueStretch:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // [ <self-position> | left | right ] - NOTE: `left`, `right`, and `center` handled further below to account for additional `legacy` keyword.
     case CSSValueAnchorCenter:
@@ -416,7 +416,7 @@ RefPtr<CSSValue> consumeJustifyItems(CSSParserTokenRange& range, CSS::PropertyPa
     case CSSValueFlexStart:
     case CSSValueFlexEnd:
         range.consumeIncludingWhitespace();
-        return CSSPrimitiveValue::create(initial);
+        return CSSKeywordValue::create(initial);
 
     // <baseline-position>
     case CSSValueFirst:
@@ -460,11 +460,11 @@ RefPtr<CSSValue> consumeJustifyItems(CSSParserTokenRange& range, CSS::PropertyPa
         case CSSValueCenter:
             range.consumeIncludingWhitespace();
             return CSSValuePair::create(
-                CSSPrimitiveValue::create(initial),
-                CSSPrimitiveValue::create(second)
+                CSSKeywordValue::create(initial),
+                CSSKeywordValue::create(second)
             );
         default:
-            return CSSPrimitiveValue::create(initial);
+            return CSSKeywordValue::create(initial);
         }
     }
     case CSSValueCenter:
@@ -477,11 +477,11 @@ RefPtr<CSSValue> consumeJustifyItems(CSSParserTokenRange& range, CSS::PropertyPa
             range.consumeIncludingWhitespace();
             // NOTE: Order is flipped to canonicalize to 'legacy *foo*' for serialization.
             return CSSValuePair::create(
-                CSSPrimitiveValue::create(second),
-                CSSPrimitiveValue::create(initial)
+                CSSKeywordValue::create(second),
+                CSSKeywordValue::create(initial)
             );
         default:
-            return CSSPrimitiveValue::create(initial);
+            return CSSKeywordValue::create(initial);
         }
     }
     default:

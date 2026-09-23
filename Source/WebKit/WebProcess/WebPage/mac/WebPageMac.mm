@@ -36,6 +36,7 @@
 #import "InjectedBundlePageContextMenuClient.h"
 #import "LaunchServicesDatabaseManager.h"
 #import "Logging.h"
+#import "MessageSenderInlines.h"
 #import "PDFPluginBase.h"
 #import "PageBanner.h"
 #import "PlatformFontInfo.h"
@@ -50,6 +51,7 @@
 #import "WebInspectorBackend.h"
 #import "WebKeyboardEvent.h"
 #import "WebMouseEvent.h"
+#import "MessageSenderInlines.h"
 #import "WebPageOverlay.h"
 #import "WebPageProxyMessages.h"
 #import "WebPasteboardOverrides.h"
@@ -57,6 +59,7 @@
 #import "WebProcess.h"
 #import <Quartz/Quartz.h>
 #import <QuartzCore/QuartzCore.h>
+#import <WebCore/AXIsolatedTree.h>
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/BackForwardController.h>
 #import <WebCore/BoundaryPointInlines.h>
@@ -87,7 +90,7 @@
 // add them for LocalFrame::document()/selection() and IPC send<> (immediate action / acceptsFirstMouse).
 #import "MessageSenderInlines.h"
 #import <WebCore/LocalFrame.h>
-#import <WebCore/LocalFrameInlines.h> // MAVERICKS_BACKPORT: explicit inline defs (LocalFrame::document()/selection()) not transitively included under -fno-modules
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/NetworkStorageSession.h>
@@ -96,6 +99,7 @@
 #import <WebCore/Page.h>
 #import <WebCore/PageOverlayController.h>
 #import <WebCore/PlatformKeyboardEvent.h>
+#import <WebCore/PlatformRenderTheme.h>
 #import <WebCore/PluginDocument.h>
 #import <WebCore/PointerCharacteristics.h>
 #import <WebCore/Quirks.h>
@@ -103,10 +107,10 @@
 #import <WebCore/RemoteUserInputEventData.h>
 #import <WebCore/RenderElement.h>
 #import <WebCore/RenderObject.h>
-#import <WebCore/RenderStyle.h>
-#import <WebCore/RenderTheme.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/ScrollView.h>
+#import <WebCore/Settings.h>
+#import <WebCore/StyleComputedStyle.h>
 #import <WebCore/TextIterator.h>
 #import <WebCore/VisibleUnits.h>
 #import <WebCore/WindowsKeyboardCodes.h>
@@ -133,8 +137,13 @@ void WebPage::platformInitializeAccessibility(ShouldInitializeNSAccessibility sh
 {
     RELEASE_LOG(Process, "WebPage::platformInitializeAccessibility shouldInitializeNSAccessibility = %d", shouldInitializeNSAccessibility == ShouldInitializeNSAccessibility::Yes);
 
-    // For performance reasons, we should have received the LS database before initializing NSApplication.
-    ASSERT(LaunchServicesDatabaseManager::singleton().hasReceivedLaunchServicesDatabase());
+    // Wait for the LaunchServices database before initializing NSApplication, since it is needed
+    // for accessibility initialization. Normally this has already been received, but in rare cases
+    // (e.g. process restart after network process termination) there can be a race where CreateWebPage
+    // arrives before the database XPC message is processed.
+#if HAVE(LSDATABASECONTEXT) // MAVERICKS_BACKPORT: the database arrives only with LSDatabaseContext, as in WebProcess::networkProcessConnection().
+    LaunchServicesDatabaseManager::singleton().waitForDatabaseUpdate();
+#endif // MAVERICKS_BACKPORT: closes the LSDatabaseContext guard above.
 
     // Need to initialize accessibility for VoiceOver to work when the WebContent process is using NSRunLoop.
     // Currently, it is also needed to allocate and initialize an NSApplication object.
@@ -144,7 +153,14 @@ void WebPage::platformInitializeAccessibility(ShouldInitializeNSAccessibility sh
     // Get the pid for the starting process.
     pid_t pid = legacyPresentingApplicationPID();
     createMockAccessibilityElement(pid);
-    if (corePage()->localMainFrame())
+
+    if (shouldInitializeNSAccessibility == ShouldInitializeNSAccessibility::No) {
+        // The accessibility server hasn't been initialized yet. Defer sending
+        // the remote token until WebProcess::initializeAccessibility completes,
+        // otherwise the UI process will have a remote element that can't resolve.
+        m_needsAccessibilityTokenTransfer = true;
+        RELEASE_LOG(Process, "WebPage::platformInitializeAccessibility deferring token transfer for pageID=%" PRIu64, identifier().toUInt64());
+    } else if (corePage()->localMainFrame())
         accessibilityTransferRemoteToken(accessibilityRemoteTokenData());
 
     // Close Mach connection to Launch Services.
@@ -171,6 +187,18 @@ void WebPage::platformReinitializeAccessibilityToken()
     accessibilityTransferRemoteToken(accessibilityRemoteTokenData());
 }
 
+void WebPage::sendAccessibilityTokenIfNeeded()
+{
+    if (!m_needsAccessibilityTokenTransfer)
+        return;
+    m_needsAccessibilityTokenTransfer = false;
+
+    if (corePage()->localMainFrame()) {
+        RELEASE_LOG(Process, "WebPage::sendAccessibilityTokenIfNeeded sending deferred token for pageID=%" PRIu64, identifier().toUInt64());
+        accessibilityTransferRemoteToken(accessibilityRemoteTokenData());
+    }
+}
+
 RetainPtr<NSData> WebPage::accessibilityRemoteTokenData() const
 {
     ASSERT(m_mockAccessibilityElement);
@@ -189,6 +217,7 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
     result.canEnableAutomaticSpellingCorrection = result.isContentEditable && protect(frame.editor())->canEnableAutomaticSpellingCorrection();
     RefPtr document = frame.document();
     result.inputMethodUsesCorrectKeyEventOrder = frame.settings().inputMethodUsesCorrectKeyEventOrder() || (document && document->quirks().inputMethodUsesCorrectKeyEventOrder());
+    result.inputMethodMustUseCompositionEvents = document && document->quirks().inputMethodMustUseCompositionEvents();
 
     if (!result.hasPostLayoutAndVisualData())
         return;
@@ -225,7 +254,7 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
 
 void WebPage::handleAcceptedCandidate(WebCore::TextCheckingResult acceptedCandidate)
 {
-    if (RefPtr frame = m_page->focusController().focusedLocalFrame())
+    if (RefPtr frame = m_page->focusController().localFocusedFrame())
         protect(frame->editor())->handleAcceptedCandidate(acceptedCandidate);
 }
 
@@ -233,7 +262,7 @@ static String commandNameForSelectorName(const String& selectorName)
 {
     // Map selectors into Editor command names.
     // This is not needed for any selectors that have the same name as the Editor command.
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, ASCIILiteral>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, ASCIILiteral>>({
         { "insertNewlineIgnoringFieldEditor:"_s, "InsertNewline"_s },
         { "insertParagraphSeparator:"_s, "InsertNewline"_s },
         { "insertTabIgnoringFieldEditor:"_s, "InsertTab"_s },
@@ -278,6 +307,15 @@ bool WebPage::executeKeypressCommandsInternal(const Vector<WebCore::KeypressComm
             } else {
                 if (!editor->canEdit())
                     continue;
+
+                // Modeless input methods (Vietnamese Simple Telex, Korean Hangul) call insertText:
+                // with a replacementRange to commit a previously-inserted character into a longer
+                // sequence (e.g. replace 'v' with 'vi'). Set the selection to the replacement range
+                // first so editor->insertText replaces it, mirroring insertTextAsync.
+                if (currentCommand.replacementRange.location != WTF::notFound) {
+                    if (auto replacementSimpleRange = EditingRange::toRange(*frame, EditingRange { currentCommand.replacementRange }))
+                        protect(frame->selection())->setSelection(VisibleSelection(*replacementSimpleRange));
+                }
 
                 // An insertText: might be handled by other responders in the chain if we don't handle it.
                 // One example is space bar that results in scrolling down the page.
@@ -341,8 +379,9 @@ bool WebPage::handleEditingKeyboardEvent(KeyboardEvent& event)
             haveTextInsertionCommands = true;
     }
     // If there are no text insertion commands, default keydown handler is the right time to execute the commands.
-    // Keypress (Char event) handler is the latest opportunity to execute.
-    if (!haveTextInsertionCommands || platformEvent->type() == PlatformEvent::Type::Char) {
+    // Keypress (Char event) handler is the latest opportunity to execute. When the input method handled the
+    // keydown, no keypress will be dispatched, so text insertion commands must be executed here.
+    if (!haveTextInsertionCommands || platformEvent->type() == PlatformEvent::Type::Char || event.handledByInputMethod()) {
         eventWasHandled = executeKeypressCommandsInternal(commands, &event);
         commands.clear();
     }
@@ -452,7 +491,17 @@ void WebPage::registerRemoteFrameAccessibilityTokens(pid_t pid, WebCore::Accessi
     RetainPtr elementTokenData = toNSData(elementToken.bytes);
     auto remoteElement = [elementTokenData length] ? adoptNS([[NSAccessibilityRemoteUIElement alloc] initWithRemoteToken:elementTokenData.get()]) : nil;
 
-    createMockAccessibilityElement(pid);
+    // Don't replace m_mockAccessibilityElement here. The AXIsolatedTree's ScrollArea caches a strong
+    // reference to the current mock element as its RemoteParent property at construction time, so
+    // recreating the mock would leave the isolated tree pointing at a stale instance with no remote
+    // parent set, breaking cross-process accessibility-parent traversal from inside this iframe.
+    // Reuse the existing mock element and only update what changed: the presenter PID, the remote
+    // parent, and the frame identifier.
+    if (!m_mockAccessibilityElement)
+        createMockAccessibilityElement(pid);
+    else if ([m_mockAccessibilityElement respondsToSelector:@selector(accessibilitySetPresenterProcessIdentifier:)])
+        [(id)m_mockAccessibilityElement.get() accessibilitySetPresenterProcessIdentifier:pid];
+
     RetainPtr accessibilityRemoteObject = this->accessibilityRemoteObject();
     [accessibilityRemoteObject setRemoteParent:remoteElement.get() token:elementTokenData.get()];
     [accessibilityRemoteObject setFrameIdentifier:frameID];
@@ -883,13 +932,13 @@ std::optional<WebCore::SimpleRange> WebPage::lookupTextAtLocation(FrameIdentifie
 
 void WebPage::immediateActionDidUpdate()
 {
-    if (RefPtr localMainFrame = corePage()->localMainFrame())
+    if (auto* localMainFrame = corePage()->localMainFrame())
         localMainFrame->eventHandler().setImmediateActionStage(ImmediateActionStage::ActionUpdated);
 }
 
 void WebPage::immediateActionDidCancel()
 {
-    RefPtr localMainFrame = corePage()->localMainFrame();
+    auto* localMainFrame = corePage()->localMainFrame();
     if (!localMainFrame)
         return;
     ImmediateActionStage lastStage = localMainFrame->eventHandler().immediateActionStage();
@@ -901,7 +950,7 @@ void WebPage::immediateActionDidCancel()
 
 void WebPage::immediateActionDidComplete()
 {
-    if (RefPtr localMainFrame = corePage()->localMainFrame())
+    if (auto* localMainFrame = corePage()->localMainFrame())
         localMainFrame->eventHandler().setImmediateActionStage(ImmediateActionStage::ActionCompleted);
 }
 
@@ -1098,6 +1147,12 @@ void WebPage::removePDFHUD(PDFPluginBase& plugin)
 {
     if (m_pdfPlugInsWithHUD.remove(plugin.identifier()))
         send(Messages::WebPageProxy::RemovePDFHUD(plugin.identifier()));
+}
+
+void WebPage::showPDFHUD(PDFPluginBase& plugin)
+{
+    if (m_pdfPlugInsWithHUD.contains(plugin.identifier()))
+        send(Messages::WebPageProxy::ShowPDFHUD(plugin.identifier()));
 }
 
 #endif // ENABLE(PDF_PLUGIN)

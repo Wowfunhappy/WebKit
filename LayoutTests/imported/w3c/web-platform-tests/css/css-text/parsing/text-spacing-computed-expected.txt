@@ -1,4 +1,5 @@
 
+FAIL Property text-spacing value 'initial' assert_true: text-spacing doesn't seem to be supported in the computed style expected true got false
 FAIL Property text-spacing value 'normal' assert_true: text-spacing doesn't seem to be supported in the computed style expected true got false
 FAIL Property text-spacing value 'none' assert_true: text-spacing doesn't seem to be supported in the computed style expected true got false
 FAIL Property text-spacing value 'auto' assert_true: text-spacing doesn't seem to be supported in the computed style expected true got false

@@ -30,6 +30,7 @@
 #include "JSArrayBuffer.h"
 #include "JSCJSValueInlines.h"
 #include "JSGlobalObject.h"
+#include "JSGlobalObjectInlines.h"
 
 namespace JSC {
 
@@ -65,7 +66,7 @@ bool SimpleTypedArrayController::JSArrayBufferOwner::isReachableFromOpaqueRoots(
 {
     if (reason) [[unlikely]]
         *reason = "JSArrayBuffer is opaque root"_s;
-    auto& wrapper = *JSC::jsCast<JSC::JSArrayBuffer*>(handle.slot()->asCell());
+    auto& wrapper = uncheckedDowncast<JSArrayBuffer>(*handle.slot()->asCell());
     return visitor.containsOpaqueRoot(wrapper.impl());
 }
 

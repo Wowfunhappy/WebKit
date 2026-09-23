@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -60,13 +61,10 @@ ExceptionOr<Ref<CSSSkew>> CSSSkew::create(Ref<const CSSFunctionValue> cssFunctio
 
     Vector<Ref<CSSNumericValue>> components;
     for (Ref componentCSSValue : cssFunctionValue.get()) {
-        auto valueOrException = CSSStyleValueFactory::reifyValue(document, componentCSSValue, std::nullopt);
+        auto valueOrException = CSSNumericValue::reifyValue(document, componentCSSValue.get());
         if (valueOrException.hasException())
             return valueOrException.releaseException();
-        RefPtr numericValue = dynamicDowncast<CSSNumericValue>(valueOrException.releaseReturnValue());
-        if (!numericValue)
-            return Exception { ExceptionCode::TypeError, "Expected a CSSNumericValue."_s };
-        components.append(numericValue.releaseNonNull());
+        components.append(valueOrException.releaseReturnValue());
     }
 
     auto numberOfComponents = components.size();
@@ -109,10 +107,10 @@ void CSSSkew::serialize(StringBuilder& builder) const
 {
     // https://drafts.css-houdini.org/css-typed-om/#serialize-a-cssskew
     builder.append("skew("_s);
-    m_ax->serialize(builder);
+    protect(m_ax)->serialize(builder);
     if (RefPtr ayUnitValue = dynamicDowncast<CSSUnitValue>(m_ay); !ayUnitValue || ayUnitValue->value()) {
         builder.append(", "_s);
-        m_ay->serialize(builder);
+        protect(m_ay)->serialize(builder);
     }
     builder.append(')');
 }
@@ -138,8 +136,8 @@ ExceptionOr<Ref<DOMMatrix>> CSSSkew::toMatrix()
 
 RefPtr<CSSValue> CSSSkew::toCSSValue() const
 {
-    RefPtr ax = m_ax->toCSSValue();
-    RefPtr ay = m_ay->toCSSValue();
+    RefPtr ax = protect(m_ax)->toCSSValue();
+    RefPtr ay = protect(m_ay)->toCSSValue();
     if (!ax || !ay)
         return nullptr;
     if (RefPtr ayUnitValue = dynamicDowncast<CSSUnitValue>(m_ay); ayUnitValue && !ayUnitValue->value())

@@ -63,7 +63,7 @@ template<typename F, typename Op> void forAllChildren(const Op& root, const F& f
         {
             functor(root);
         }
-        void operator()(const AtomString& root)
+        void operator()(const CSS::CustomIdent& root)
         {
             functor(root);
         }
@@ -112,7 +112,7 @@ template<typename F, typename Op> void forAllChildNodes(const Op& root, const F&
         {
             functor(root);
         }
-        void operator()(const AtomString&)
+        void operator()(const CSS::CustomIdent&)
         {
         }
         void operator()(const Random::Sharing&)

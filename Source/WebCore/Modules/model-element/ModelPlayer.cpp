@@ -28,6 +28,7 @@
 
 #include "Color.h"
 #include "FloatPoint3D.h"
+#include "ImageBuffer.h"
 #include "ModelPlayerAnimationState.h"
 #include "ModelPlayerTransformState.h"
 #include "TransformationMatrix.h"
@@ -49,6 +50,11 @@ bool ModelPlayer::isPlaceholder() const
     return false;
 }
 
+bool ModelPlayer::isWebModelPlayerInstance() const
+{
+    return false;
+}
+
 std::optional<ModelPlayerAnimationState> ModelPlayer::currentAnimationState() const
 {
     return std::nullopt;
@@ -63,8 +69,17 @@ void ModelPlayer::reload(Model&, LayoutSize, ModelPlayerAnimationState&, std::un
 {
 }
 
+void ModelPlayer::adoptContentsDisplayDelegateFrom(ModelPlayer&)
+{
+}
+
 void ModelPlayer::visibilityStateDidChange()
 {
+}
+
+RefPtr<ImageBuffer> ModelPlayer::snapshotCurrentFrame(const FloatSize&, const DestinationColorSpace&)
+{
+    return nullptr;
 }
 
 #if ENABLE(MODEL_ELEMENT_BOUNDING_BOX)
@@ -111,11 +126,6 @@ bool ModelPlayer::supportsDragging()
 
 void ModelPlayer::setInteractionEnabled(bool)
 {
-}
-
-String ModelPlayer::inlinePreviewUUIDForTesting() const
-{
-    return emptyString();
 }
 
 #if ENABLE(MODEL_ELEMENT_ANIMATIONS_CONTROL)
@@ -224,5 +234,17 @@ void ModelPlayer::exitImmersivePresentation(CompletionHandler<void()>&& completi
 }
 
 #endif
+
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+void ModelPlayer::setDynamicRangeLimit(PlatformDynamicRangeLimit, float, bool)
+{
+}
+
+std::optional<double> ModelPlayer::getEffectiveDynamicRangeLimitValue() const
+{
+    return std::nullopt;
+}
+#endif
+
 
 } // namespace WebCore

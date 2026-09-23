@@ -224,17 +224,6 @@ static bool DetermineReadStencilSupport(const TextureCapsMap &textureCaps)
     return GetFormatSupport(textureCaps, requiredFormats, false, false, true, false, false);
 }
 
-// Checks for GL_NV_depth_buffer_float2 support
-static bool DetermineDepthBufferFloat2Support(const TextureCapsMap &textureCaps)
-{
-    constexpr GLenum requiredFormats[] = {
-        GL_DEPTH_COMPONENT32F,
-        GL_DEPTH32F_STENCIL8,
-    };
-
-    return GetFormatSupport(textureCaps, requiredFormats, true, false, true, false, false);
-}
-
 // Checks for GL_ARM_rgba8 support
 static bool DetermineRGBA8TextureSupport(const TextureCapsMap &textureCaps)
 {
@@ -895,7 +884,6 @@ void Extensions::setTextureExtensionSupport(const TextureCapsMap &textureCaps)
     rgb8Rgba8OES             = rgba8ARM && DetermineRGB8TextureSupport(textureCaps);
     readDepthNV              = DetermineReadDepthSupport(textureCaps);
     readStencilNV            = DetermineReadStencilSupport(textureCaps);
-    depthBufferFloat2NV      = DetermineDepthBufferFloat2Support(textureCaps);
     requiredInternalformatOES = DetermineRequiredInternalFormatTextureSupport(textureCaps);
     textureFormatBGRA8888EXT = DetermineBGRA8TextureSupport(textureCaps);
     readFormatBgraEXT        = DetermineBGRAReadFormatSupport(textureCaps);
@@ -1442,6 +1430,7 @@ std::vector<std::string> ClientExtensions::getStrings() const
     InsertExtensionString("EGL_ANGLE_platform_angle_metal",                   platformANGLEMetal,                 &extensionStrings);
     InsertExtensionString("EGL_ANGLE_platform_device_context_volatile_cgl",   platformANGLEDeviceContextVolatileCgl, &extensionStrings);
     InsertExtensionString("EGL_ANGLE_platform_angle_device_id",               platformANGLEDeviceId,              &extensionStrings);
+    InsertExtensionString("EGL_ANGLE_platform_angle_display_key",             platformANGLEDisplayKey,            &extensionStrings);
     InsertExtensionString("EGL_ANGLE_device_creation",                        deviceCreation,                     &extensionStrings);
     InsertExtensionString("EGL_ANGLE_device_creation_d3d11",                  deviceCreationD3D11,                &extensionStrings);
     InsertExtensionString("EGL_ANGLE_x11_visual",                             x11Visual,                          &extensionStrings);

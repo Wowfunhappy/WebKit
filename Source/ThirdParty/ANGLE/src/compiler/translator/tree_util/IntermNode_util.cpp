@@ -489,12 +489,13 @@ TIntermSymbol *ReferenceGlobalVariable(const ImmutableString &name, const TSymbo
 }
 
 TIntermSymbol *ReferenceBuiltInVariable(const ImmutableString &name,
-                                        const TSymbolTable &symbolTable,
+                                        TSymbolTable &symbolTable,
                                         int shaderVersion)
 {
     const TVariable *var =
         static_cast<const TVariable *>(symbolTable.findBuiltIn(name, shaderVersion));
     ASSERT(var);
+    symbolTable.markStaticUse(*var);
     return new TIntermSymbol(var);
 }
 
@@ -570,6 +571,34 @@ TIntermNode *CastScalar(const TType &type, TIntermTyped *scalar)
 
     TType castDestType(basicType, type.getPrecision());
     return TIntermAggregate::CreateConstructor(castDestType, {scalar});
+}
+
+void MoveDeclarationsBeforeFunctions(TIntermBlock *root)
+{
+    TIntermSequence *original = root->getSequence();
+
+    TIntermSequence replacement;
+    TIntermSequence functionDefs;
+
+    // Accumulate non-function-definition declarations in |replacement| and function definitions in
+    // |functionDefs|.
+    for (TIntermNode *node : *original)
+    {
+        if (node->getAsFunctionDefinition() || node->getAsFunctionPrototypeNode())
+        {
+            functionDefs.push_back(node);
+        }
+        else
+        {
+            replacement.push_back(node);
+        }
+    }
+
+    // Append function definitions to |replacement|.
+    replacement.insert(replacement.end(), functionDefs.begin(), functionDefs.end());
+
+    // Replace root's sequence with |replacement|.
+    root->replaceAllChildren(std::move(replacement));
 }
 
 }  // namespace sh

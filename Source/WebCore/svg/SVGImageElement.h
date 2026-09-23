@@ -36,7 +36,7 @@ public:
 
     WEBCORE_EXPORT CachedImage* NODELETE cachedImage() const;
     bool renderingTaintsOrigin() const;
-    const AtomString& imageSourceURL() const final;
+    String imageSourceURL() const final;
 
     const SVGLengthValue& x() const LIFETIME_BOUND { return m_x->currentValue(); }
     const SVGLengthValue& y() const LIFETIME_BOUND { return m_y->currentValue(); }
@@ -64,10 +64,10 @@ private:
     void svgAttributeChanged(const QualifiedName&) final;
 
     void didAttachRenderers() final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
     bool haveLoadedRequiredResources() final;
 
     bool isValid() const final { return SVGTests::isValid(); }

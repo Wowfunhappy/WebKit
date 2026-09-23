@@ -65,15 +65,26 @@ final class DialogPresenter: WebPage.DialogPresenting {
         }
     }
 
-    func handleJavaScriptPrompt(message: String, defaultText: String?, initiatedBy frame: WebPage.FrameInfo) async -> WebPage.JavaScriptPromptResult {
+    func handleJavaScriptPrompt(
+        message: String,
+        defaultText: String?,
+        initiatedBy frame: WebPage.FrameInfo
+    ) async -> WebPage.JavaScriptPromptResult {
         await withCheckedContinuation { continuation in
             owner?.currentDialog = Dialog(configuration: .prompt(message, defaultText: defaultText, continuation.resume(returning:)))
         }
     }
 
-    func handleFileInputPrompt(parameters: WKOpenPanelParameters, initiatedBy frame: WebPage.FrameInfo) async -> WebPage.FileInputPromptResult {
+    func handleFileInputPrompt(
+        parameters: WKOpenPanelParameters,
+        initiatedBy frame: WebPage.FrameInfo
+    ) async -> WebPage.FileInputPromptResult {
         await withCheckedContinuation { continuation in
-            owner?.currentFilePicker = FilePicker(allowsMultipleSelection: parameters.allowsMultipleSelection, allowsDirectories: parameters.allowsDirectories, completion: continuation.resume(returning:))
+            owner?.currentFilePicker = FilePicker(
+                allowsMultipleSelection: parameters.allowsMultipleSelection,
+                allowsDirectories: parameters.allowsDirectories,
+                completion: continuation.resume(returning:)
+            )
         }
     }
 }

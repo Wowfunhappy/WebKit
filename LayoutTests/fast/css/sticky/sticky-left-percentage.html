@@ -40,11 +40,19 @@
         background-color: red;
     }
 </style>
+<script src="../../../resources/ui-helper.js"></script>
 <script>
-    function doTest()
+    if (window.testRunner)
+        testRunner.waitUntilDone();
+
+    async function doTest()
     {
+        await UIHelper.resizeWindowTo(800, 700);
         window.scrollTo(100, 0);
-        window.resizeTo(800, 700)
+        requestAnimationFrame(() => {
+            if (window.testRunner)
+                testRunner.notifyDone();
+        });
     }
     window.addEventListener('load', doTest, false);
 </script>

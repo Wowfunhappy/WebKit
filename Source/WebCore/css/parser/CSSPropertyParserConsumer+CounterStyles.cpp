@@ -26,6 +26,8 @@
 #include "config.h"
 #include "CSSPropertyParserConsumer+CounterStyles.h"
 
+#include "CSSCounterStyle.h"
+#include "CSSCustomIdentValue.h"
 #include "CSSParserContext.h"
 #include "CSSParserIdioms.h"
 #include "CSSParserTokenRange.h"
@@ -42,29 +44,45 @@
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
 #include "CSSValuePool.h"
+#include "StylePrimitiveNumericTypes+DeprecatedCSSValueConversion.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
 
-static bool NODELETE isPredefinedCounterStyle(CSSValueID valueID)
+bool isPredefinedCounterStyle(CSSValueID valueID)
 {
     // https://drafts.csswg.org/css-counter-styles-3/#predefined-counters
 
     return valueID >= CSSValueDisc && valueID <= CSSValueEthiopicNumeric;
 }
 
-RefPtr<CSSValue> consumeCounterStyle(CSSParserTokenRange& range, CSS::PropertyParserState&)
+std::optional<CSS::CounterStyle> consumeUnresolvedCounterStyle(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
     // <counter-style> = <counter-style-name excluding=none> | <symbols()>
     // https://drafts.csswg.org/css-counter-styles-3/#typedef-counter-style
 
     // FIXME: Implement support for `symbols()`.
 
-    if (range.peek().id() == CSSValueNone)
-        return nullptr;
-    if (auto predefinedValues = consumeIdent(range, isPredefinedCounterStyle))
-        return predefinedValues;
-    return consumeCustomIdent(range);
+    if (isPredefinedCounterStyle(range.peek().id()))
+        return CSS::CounterStyle { CSS::Keyword { range.consumeIncludingWhitespace().id() } };
+
+    auto customIdent = consumeUnresolvedCustomIdentExcluding(range, state, { CSSValueNone });
+    if (!customIdent)
+        return { };
+
+    return CSS::CounterStyle { WTF::move(*customIdent) };
+}
+
+RefPtr<CSSValue> consumeCounterStyle(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <counter-style> = <counter-style-name excluding=none> | <symbols()>
+    // https://drafts.csswg.org/css-counter-styles-3/#typedef-counter-style
+
+    // FIXME: Implement support for `symbols()`.
+    if (isPredefinedCounterStyle(range.peek().id()))
+        return CSSKeywordValue::create(range.consumeIncludingWhitespace().id());
+
+    return consumeCustomIdentExcluding(range, state, { CSSValueNone });
 }
 
 AtomString consumeCounterStyleNameInPrelude(CSSParserTokenRange& prelude, CSSParserMode mode)
@@ -88,7 +106,7 @@ AtomString consumeCounterStyleNameInPrelude(CSSParserTokenRange& prelude, CSSPar
     return isPredefinedCounterStyle(nameToken.id()) ? name.convertToASCIILowercaseAtom() : name.toAtomString();
 }
 
-RefPtr<CSSValue> consumeCounterStyleName(CSSParserTokenRange& range, CSS::PropertyParserState&)
+RefPtr<CSSValue> consumeCounterStyleName(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
     // <counter-style-name> is a <custom-ident> that is not an ASCII case-insensitive match for "none".
     // https://drafts.csswg.org/css-counter-styles-3/#typedef-counter-style-name
@@ -96,10 +114,12 @@ RefPtr<CSSValue> consumeCounterStyleName(CSSParserTokenRange& range, CSS::Proper
     auto valueID = range.peek().id();
     if (valueID == CSSValueNone)
         return nullptr;
+
     // If the value is an ASCII case-insensitive match for any of the predefined counter styles, lowercase it.
-    if (auto name = consumeCustomIdent(range, isPredefinedCounterStyle(valueID)))
-        return name;
-    return nullptr;
+    if (isPredefinedCounterStyle(valueID))
+        return CSSKeywordValue::create(range.consumeIncludingWhitespace().id());
+
+    return consumeCustomIdentExcluding(range, state, { CSSValueNone });
 }
 
 RefPtr<CSSValue> consumeCounterStyleSystem(CSSParserTokenRange& range, CSS::PropertyParserState& state)
@@ -150,7 +170,7 @@ RefPtr<CSSValue> consumeCounterStyleRange(CSSParserTokenRange& range, CSS::Prope
     // <'range'> = [ [ <integer> | infinite ]{2} ]# | auto
     // https://drafts.csswg.org/css-counter-styles-3/#counter-style-range
 
-    auto consumeCounterStyleRangeBound = [&](CSSParserTokenRange& range) -> RefPtr<CSSPrimitiveValue> {
+    auto consumeCounterStyleRangeBound = [&](CSSParserTokenRange& range) -> RefPtr<CSSValue> {
         if (auto infinite = consumeIdent<CSSValueInfinite>(range))
             return infinite;
         if (auto integer = CSSPrimitiveValueResolver<CSS::Integer<>>::consumeAndResolve(range, state))
@@ -169,11 +189,16 @@ RefPtr<CSSValue> consumeCounterStyleRange(CSSParserTokenRange& range, CSS::Prope
         if (!upperBound)
             return nullptr;
 
-        // If the lower bound of any range is higher than the upper bound, the entire descriptor is invalid and must be
-        // ignored.
-        if (lowerBound->isInteger() && upperBound->isInteger() && lowerBound->resolveAsIntegerDeprecated() > upperBound->resolveAsIntegerDeprecated())
-            return nullptr;
-
+        // If the lower bound of any range is higher than the upper bound, the entire descriptor is invalid and must be ignored.
+        // NOTE: `infinity` means negative infinity when used for the lower bound and positive infinity when used for the upper bound, so if either value was `infinity`, the bound is valid.
+        RefPtr primitiveValueLowerBound = dynamicDowncast<CSSPrimitiveValue>(lowerBound);
+        RefPtr primitiveValueUpperBound = dynamicDowncast<CSSPrimitiveValue>(upperBound);
+        if (primitiveValueLowerBound && primitiveValueUpperBound) {
+            auto resolvedLowerBound = Style::deprecatedToStyleFromCSSValue<Style::Integer<>>(*primitiveValueLowerBound)->value;
+            auto resolvedUpperBound = Style::deprecatedToStyleFromCSSValue<Style::Integer<>>(*primitiveValueUpperBound)->value;
+            if (resolvedLowerBound > resolvedUpperBound)
+                return nullptr;
+        }
         return CSSValuePair::createNoncoalescing(lowerBound.releaseNonNull(), upperBound.releaseNonNull());
     });
 
@@ -202,7 +227,7 @@ RefPtr<CSSValue> consumeCounterStyleAdditiveSymbols(CSSParserTokenRange& range, 
             return nullptr;
 
         // Additive tuples must be specified in order of strictly descending weight.
-        auto weight = integer->resolveAsIntegerDeprecated();
+        auto weight = Style::deprecatedToStyleFromCSSValue<Style::Integer<CSS::Nonnegative>>(*integer)->value;
         if (lastWeight && !(weight < lastWeight))
             return nullptr;
         lastWeight = weight;

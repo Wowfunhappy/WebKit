@@ -15,5 +15,6 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/META.yml
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/historical.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/tabular-data/html-table-section-element.js

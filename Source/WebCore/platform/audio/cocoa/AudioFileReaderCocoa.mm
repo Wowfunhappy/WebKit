@@ -191,7 +191,7 @@ static OSStatus readProc(void* clientData, SInt64 position, UInt32 requestCount,
     return noErr;
 }
 
-static SInt64 getSizeProc(void* clientData)
+static SInt64 NODELETE getSizeProc(void* clientData)
 {
     return static_cast<std::span<const uint8_t>*>(clientData)->size();
 }
@@ -238,8 +238,26 @@ static String mimeTypeFor(std::span<const uint8_t> data)
         return "audio/wav"_s;
     case kAudioFileCAFType:
         return "audio/x-caf"_s;
+    // ISO-BMFF containers. MIMESniffer::getMIMETypeFromContent() only recognizes an MP4 file
+    // when a compatible brand begins with "mp4", so files carrying other valid brands (such as
+    // an M4A whose brands are "M4A "/"isom"/"iso2") reach here and must be handled.
+    case kAudioFileMPEG4Type:
+    case kAudioFileM4AType:
+    case kAudioFileM4BType:
+        return "audio/mp4"_s;
+    case kAudioFile3GPType:
+        return "audio/3gpp"_s;
+    case kAudioFile3GP2Type:
+        return "audio/3gpp2"_s;
+    case 'MooV': // kAudioFileQTMovieType
+        return "video/quicktime"_s;
+    case 'ec-3': // kAudioFileEAC3Type
+        return "audio/eac3"_s;
+    case 'Oggf': // kAudioFileOggType
+        return "audio/ogg"_s;
     case kAudioFileNextType:
     default:
+        RELEASE_LOG_FAULT(WebAudio, "mimeTypeFor typeID: %u unsupported", static_cast<unsigned>(typeID));
         return emptyString();
     }
 }
@@ -276,6 +294,11 @@ public:
     const Vector<Ref<MediaSampleAVFObjC>> samples;
     const size_t numberOfFrames { 0 };
 };
+
+bool AudioFileReader::isAvailable()
+{
+    return PAL::isAVFoundationFrameworkAvailable() && PAL::isCoreMediaFrameworkAvailable() && PAL::isAudioToolboxFrameworkAvailable();
+}
 
 AudioFileReader::AudioFileReader(std::span<const uint8_t> data)
     : m_data(data)
@@ -335,6 +358,8 @@ std::unique_ptr<AudioFileReaderData> AudioFileReader::demuxAVFData(std::span<con
         mimeType = mimeTypeFor(data);
     if (mimeType.isEmpty())
         return nullptr;
+    if (mimeType == "application/ogg"_s)
+        mimeType = "audio/ogg"_s;
 
     // Create a custom URL scheme for in-memory data
     RetainPtr url = adoptNS([[NSURL alloc] initWithString:@"custom-audiofilereader://audio"]);
@@ -362,7 +387,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr audioTracks = [asset tracksWithMediaType:AVMediaTypeAudio];
 ALLOW_DEPRECATED_DECLARATIONS_END
     if (!audioTracks || ![audioTracks count]) {
-        RELEASE_LOG_FAULT(WebAudio, "AudioFileReader: No audio tracks found");
+        RELEASE_LOG_FAULT(WebAudio, "AudioFileReader: No audio tracks found for '%s' type", mimeType.utf8().data());
         return nullptr;
     }
 
@@ -477,7 +502,7 @@ std::unique_ptr<AudioFileReaderData> AudioFileReader::demuxWebMData(std::span<co
     parser->setDidParseInitializationDataCallback([&](SourceBufferParserWebM::InitializationSegment&& init) {
         for (auto& audioTrack : init.audioTracks) {
             if (audioTrack.track) {
-                audioTrackId = RefPtr { audioTrack.track }->id();
+                audioTrackId = protect(audioTrack.track)->id();
                 // FIXME: Use downcast instead.
                 track = unsafeRefPtrDowncast<AudioTrackPrivateWebM>(audioTrack.track);
                 return;
@@ -569,7 +594,7 @@ static OSStatus passthroughInputDataCallback(AudioConverterRef, UInt32* numDataP
     return noErr;
 }
 
-static UInt32 SMPTEEquivalentLayout(UInt32 layout)
+static UInt32 NODELETE SMPTEEquivalentLayout(UInt32 layout)
 {
     // https://webaudio.github.io/web-audio-api/#ChannelOrdering
     // WebAudio API requires SMPTE channel ordering. However webkit has been returning
@@ -848,6 +873,9 @@ RefPtr<AudioBus> AudioFileReader::createBus(float sampleRate, bool mixToMono)
 
 RefPtr<AudioBus> createBusFromInMemoryAudioFile(std::span<const uint8_t> data, bool mixToMono, float sampleRate)
 {
+    if (!AudioFileReader::isAvailable())
+        return nullptr;
+
     AudioFileReader reader(data);
     return reader.createBus(sampleRate, mixToMono);
 }

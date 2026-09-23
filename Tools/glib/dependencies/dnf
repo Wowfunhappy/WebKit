@@ -45,6 +45,7 @@ PACKAGES=(
     ninja-build
     openjpeg2-devel
     openssl-devel
+    openxr-devel
     opus-devel
     patch
     perl-autouse
@@ -60,6 +61,7 @@ PACKAGES=(
     sysprof-capture-devel
     systemd-devel
     unifdef
+    vulkan-volk-devel
     wayland-devel
     wayland-protocols-devel
     woff2-devel
@@ -74,10 +76,12 @@ PACKAGES=(
     mod_ssl
     perl-CGI
     psmisc
+    python3-legacy-cgi
     pulseaudio-utils
     python3-psutil
     rubygem-highline
     rubygem-json
+    time
 
     # These are dependencies necessary for building the jhbuild.
     expat-devel
@@ -117,4 +121,13 @@ PACKAGES=(
     # These are for generate-bundle script
     patchelf
     p11-kit
+
+    # These are required to run the WebKit Container SDK via wkdev-build /
+    # wkdev-sdk. `podman` is the rootless container engine the host wrappers
+    # invoke; `crun` is the runtime we pin podman to (runc does not support
+    # `podman run --init`); `catatonit` is the helper `--init` spawns as
+    # PID 1.
+    catatonit
+    crun
+    podman
 )

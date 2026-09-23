@@ -52,7 +52,7 @@ using namespace WebCore;
 
 static dispatch_queue_t tcpSocketQueueSingleton()
 {
-    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> queue = adoptOSObject(dispatch_queue_create("WebRTC TCP socket queue", OSObjectPtr { DISPATCH_QUEUE_CONCURRENT }.get()));
+    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> queue = adoptOSObject(dispatch_queue_create("WebRTC TCP socket queue", DISPATCH_QUEUE_SERIAL));
     return queue.get().get();
 }
 

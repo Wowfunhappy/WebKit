@@ -46,8 +46,6 @@
 #import <WebCore/WidevineCdmLocation.h>
 #endif
 
-using namespace WebCore;
-
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebMediaKeySystemClient);
 
 WebMediaKeySystemClient& WebMediaKeySystemClient::singleton()
@@ -75,7 +73,7 @@ static String createMediaKeysHashSalt()
     return builder.toString();
 }
 
-String WebMediaKeySystemClient::mediaKeysHashSalt(MediaKeySystemRequest& request)
+String WebMediaKeySystemClient::mediaKeysHashSalt(WebCore::MediaKeySystemRequest& request)
 {
     RefPtr document = request.document();
     if (!document)
@@ -98,7 +96,7 @@ String WebMediaKeySystemClient::mediaKeysHashSalt(MediaKeySystemRequest& request
     return salt;
 }
 
-void WebMediaKeySystemClient::requestMediaKeySystem(MediaKeySystemRequest& request)
+void WebMediaKeySystemClient::requestMediaKeySystem(WebCore::MediaKeySystemRequest& request)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
@@ -112,12 +110,12 @@ void WebMediaKeySystemClient::requestMediaKeySystem(MediaKeySystemRequest& reque
     // it here is all it takes; a failed install denies the request, which the page sees as
     // NotSupportedError.
     if (request.keySystem() == "com.widevine.alpha"_s) {
-        WidevineCdmInstaller::singleton().ensureModule([request = Ref { request }, salt = WTF::move(salt)](const std::optional<WidevineCdmModule>& module) mutable {
+        WebCore::WidevineCdmInstaller::singleton().ensureModule([request = Ref { request }, salt = WTF::move(salt)](const std::optional<WebCore::WidevineCdmModule>& module) mutable {
             if (!module) {
                 request->deny();
                 return;
             }
-            setWidevineCdmModulePath(module->path);
+            WebCore::setWidevineCdmModulePath(module->path);
             request->allow(WTF::move(salt));
         });
         return;

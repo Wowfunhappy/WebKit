@@ -287,7 +287,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)touchDown:(CGPoint)location touchCount:(NSUInteger)touchCount window:(UIWindow *)window
 {
-    Vector<CGPoint, HIDMaxTouchCount> locations(std::min(touchCount, HIDMaxTouchCount), location);
+    Vector<CGPoint, HIDMaxTouchCount> locations(FillWith { }, std::min(touchCount, HIDMaxTouchCount), location);
     [self touchDownAtPoints:locations.mutableSpan().data() touchCount:locations.size() window:window];
 }
 
@@ -311,7 +311,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)liftUp:(CGPoint)location touchCount:(NSUInteger)touchCount window:(UIWindow *)window
 {
-    Vector<CGPoint, HIDMaxTouchCount> locations(std::min(touchCount, HIDMaxTouchCount), location);
+    Vector<CGPoint, HIDMaxTouchCount> locations(FillWith { }, std::min(touchCount, HIDMaxTouchCount), location);
     [self liftUpAtPoints:locations.mutableSpan().data() touchCount:locations.size() window:window];
 }
 

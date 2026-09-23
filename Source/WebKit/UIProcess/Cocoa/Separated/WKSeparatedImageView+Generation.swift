@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if HAVE_CORE_ANIMATION_SEPARATED_LAYERS && compiler(>=6.2)
+#if HAVE_CORE_ANIMATION_SEPARATED_LAYERS
 
 import os
 @_weakLinked import RealityKit
@@ -34,14 +34,14 @@ extension WKSeparatedImageView {
             Logger.separatedImage.log("\(self.logPrefix) - Cache Hit for Image Generation.")
             self.spatial3DImage = cachedData.spatial3DImage
             self.desiredViewingModeSpatial = cachedData.desiredViewingModeSpatial
-            return Task { [weak self] () -> Void in
-                self?.preparePortalEntity()
+            return Task { [weak self] in
+                try self?.preparePortalEntity()
             }
         }
 
-        return Task { [weak self] () -> Void in
+        return Task { [weak self] in
             guard let self else { return }
-            return try await self.generate()
+            try await self.generate()
         }
         #else
         return Task {}
@@ -67,7 +67,7 @@ extension WKSeparatedImageView {
         try await Task.sleep(for: SeparatedImageViewConstants.cancellationDelay)
 
         try await Task { @MainActor [weak self] in
-            // The compiler can't guarantee (yet) this closure won't be called multiple times.
+            // Safety: older compiler versions can't guarantee this closure won't be called multiple times.
             nonisolated(unsafe) let captured = spatial3DImage
             guard let self, let imageHash = self.imageHash else { return }
 
@@ -75,6 +75,7 @@ extension WKSeparatedImageView {
             self.preparePortalEntity()
 
             let start = Date()
+            // FIXME: rdar://173256879
             try await unsafe captured.generate()
             Logger.separatedImage.log("\(self.logPrefix) - Generation took \(Date().timeIntervalSince(start))")
             ImagePresentationCache.shared[imageHash] =

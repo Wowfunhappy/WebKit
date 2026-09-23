@@ -47,9 +47,9 @@ private:
     HTMLMetaElement(const QualifiedName&, Document&);
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = AttributeModificationReason::Directly) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode();
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps();
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     void process(const AtomString& oldValue = nullAtom());
 

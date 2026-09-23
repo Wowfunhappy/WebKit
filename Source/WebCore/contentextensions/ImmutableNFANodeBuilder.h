@@ -195,7 +195,12 @@ private:
                 m_immutableNFA->targets.append(target);
             unsigned targetsEnd = m_immutableNFA->targets.size();
 
-            m_immutableNFA->transitions.append(ImmutableRange<CharacterType> { targetsStart, targetsEnd, range.first, range.last });
+            ImmutableRange<CharacterType> transition;
+            transition.targetStart = targetsStart;
+            transition.targetEnd = targetsEnd;
+            transition.first = range.first;
+            transition.last = range.last;
+            m_immutableNFA->transitions.append(WTF::move(transition));
         }
         unsigned transitionsEnd = m_immutableNFA->transitions.size();
 

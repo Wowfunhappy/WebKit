@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003-2025 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Eric Seidel <eric@webkit.org>
  *
  *  This library is free software; you can redistribute it and/or
@@ -21,12 +21,16 @@
 #include "config.h"
 #include "Heap.h"
 
+#include "JSCJSValueInlines.h"
+
+#include "BaselineJITCode.h"
 #include "BuiltinExecutables.h"
 #include "CodeBlock.h"
 #include "CodeBlockSetInlines.h"
 #include "CollectingScope.h"
 #include "ConservativeRoots.h"
 #include "EdenGCActivityCallback.h"
+#include "EvalExecutable.h"
 #include "Exception.h"
 #include "FastMallocAlignedMemoryAllocator.h"
 #include "FullGCActivityCallback.h"
@@ -54,29 +58,36 @@
 #include "JSFunctionWithFields.h"
 #include "JSIterator.h"
 #include "JSMicrotaskDispatcher.h"
+#include "JSModuleLoader.h"
 #include "JSPromiseCombinatorsContext.h"
 #include "JSPromiseCombinatorsGlobalContext.h"
 #include "JSPromiseReaction.h"
 #include "JSRawJSONObject.h"
 #include "JSRemoteFunction.h"
+#include "JSSentinel.h"
 #include "JSVirtualMachineInternal.h"
 #include "JSWeakMap.h"
 #include "JSWeakObjectRef.h"
 #include "JSWeakSet.h"
 #include "MachineStackMarker.h"
 #include "MarkStackMergingConstraint.h"
-#include "MarkedJSValueRefArray.h"
 #include "MarkedSpaceInlines.h"
 #include "MarkingConstraintSet.h"
 #include "MegamorphicCache.h"
+#include "ModuleLoadingContext.h"
+#include "ModuleProgramExecutable.h"
+#include "ModuleRegistryEntry.h"
 #include "NumberObject.h"
 #include "PinballCompletion.h"
 #include "PreventCollectionScope.h"
+#include "ProgramExecutable.h"
+#include "ProxyObject.h"
 #include "SamplingProfiler.h"
 #include "ShadowChicken.h"
 #include "SpaceTimeMutatorScheduler.h"
 #include "StochasticSpaceTimeMutatorScheduler.h"
 #include "StopIfNecessaryTimer.h"
+#include "StringSplitCache.h"
 #include "StructureAlignedMemoryAllocator.h"
 #include "SubspaceInlines.h"
 #include "SuperSampler.h"
@@ -85,6 +96,7 @@
 #include "SynchronousStopTheWorldMutatorScheduler.h"
 #include "TypeProfiler.h"
 #include "TypeProfilerLog.h"
+#include "UnlinkedEvalCodeBlock.h"
 #include "VM.h"
 #include "VerifierSlotVisitorInlines.h"
 #include "WasmCallee.h"
@@ -97,6 +109,7 @@
 #include <wtf/MemoryFootprint.h>
 #include <wtf/RAMSize.h>
 #include <wtf/Scope.h>
+#include <wtf/SetForScope.h>
 #include <wtf/SimpleStats.h>
 #include <wtf/SystemTracing.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -126,7 +139,7 @@ static double maxPauseMS(double thisPauseMS)
     return maxPauseMS;
 }
 
-static GrowthMode growthMode(size_t ramSize)
+static GrowthMode NODELETE growthMode(size_t ramSize)
 {
     // An Aggressive heap uses more memory to go faster.
     // We do this for machines with enough RAM.
@@ -153,7 +166,7 @@ static size_t minHeapSize(HeapType heapType, size_t ramSize)
     }
 }
 
-static size_t maxEdenSizeForRateLimiting(GrowthMode growthMode, size_t minBytesPerCycle)
+static size_t NODELETE maxEdenSizeForRateLimiting(GrowthMode growthMode, size_t minBytesPerCycle)
 {
     // Only do rate limiting for Aggressive heaps.
     if (growthMode == GrowthMode::Aggressive)
@@ -205,7 +218,7 @@ static void recordType(TypeCountSet& set, JSCell* cell)
     set.add(typeName);
 }
 
-constexpr bool measurePhaseTiming()
+constexpr bool NODELETE measurePhaseTiming()
 {
     return false;
 }
@@ -242,12 +255,12 @@ public:
     {
     }
     
-    void setScope(std::optional<CollectionScope> scope)
+    void NODELETE setScope(std::optional<CollectionScope> scope)
     {
         m_scope = scope;
     }
     
-    void setScope(JSC::Heap& heap)
+    void NODELETE setScope(JSC::Heap& heap)
     {
         setScope(heap.collectionScope());
     }
@@ -401,13 +414,11 @@ Heap::Heap(VM& vm, HeapType heapType)
     , intlSegmenterHeapCellType(IsoHeapCellType::Args<IntlSegmenter>())
     , intlSegmentsHeapCellType(IsoHeapCellType::Args<IntlSegments>())
 #if ENABLE(WEBASSEMBLY)
-    , webAssemblyArrayHeapCellType(IsoHeapCellType::Args<JSWebAssemblyArray>())
     , webAssemblyExceptionHeapCellType(IsoHeapCellType::Args<JSWebAssemblyException>())
     , webAssemblyFunctionHeapCellType(IsoHeapCellType::Args<WebAssemblyFunction>())
     , webAssemblyGlobalHeapCellType(IsoHeapCellType::Args<JSWebAssemblyGlobal>())
     , webAssemblyInstanceHeapCellType(IsoHeapCellType::Args<JSWebAssemblyInstance>())
     , webAssemblyMemoryHeapCellType(IsoHeapCellType::Args<JSWebAssemblyMemory>())
-    , webAssemblyStructHeapCellType(IsoHeapCellType::Args<JSWebAssemblyStruct>())
     , webAssemblyModuleHeapCellType(IsoHeapCellType::Args<JSWebAssemblyModule>())
     , webAssemblyModuleRecordHeapCellType(IsoHeapCellType::Args<WebAssemblyModuleRecord>())
     , webAssemblyTableHeapCellType(IsoHeapCellType::Args<JSWebAssemblyTable>())
@@ -432,6 +443,11 @@ Heap::Heap(VM& vm, HeapType heapType)
     , unlinkedFunctionExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, UnlinkedFunctionExecutable) // Hash:0x3ba0f4e1
 
 {
+    if (Options::forceFencedBarrier()) {
+        m_mutatorShouldBeFenced = true;
+        m_barrierThreshold = tautologicalThreshold;
+    }
+
     m_worldState.store(0);
 
     for (unsigned i = 0, numberOfParallelThreads = heapHelperPool().numberOfThreads(); i < numberOfParallelThreads; ++i) {
@@ -684,7 +700,7 @@ void Heap::reportExtraMemoryAllocatedSlowCase(GCDeferralContext* deferralContext
 
 void Heap::deprecatedReportExtraMemorySlowCase(size_t size)
 {
-    // FIXME: Change this to use SaturatedArithmetic when available.
+    // FIXME: Change this to use SaturatingArithmetic when available.
     // https://bugs.webkit.org/show_bug.cgi?id=170411
     CheckedSize checkedNewSize = m_deprecatedExtraMemorySize;
     checkedNewSize += size;
@@ -716,15 +732,16 @@ void Heap::reportAbandonedObjectGraph()
     // are abandoning so we just guess for them.
     size_t abandonedBytes = static_cast<size_t>(0.1 * capacity());
 
-    // We want to accelerate the next collection. Because memory has just 
-    // been abandoned, the next collection has the potential to 
+    m_bytesAbandonedSinceLastFullCollect += abandonedBytes;
+
+    // We want to accelerate the next collection. Because memory has just
+    // been abandoned, the next collection has the potential to
     // be more profitable. Since allocation is the trigger for collection, 
     // we hasten the next collection by pretending that we've allocated more memory. 
     if (m_fullActivityCallback) {
         m_fullActivityCallback->didAllocate(*this,
             m_sizeAfterLastCollect - m_sizeAfterLastFullCollect + totalBytesAllocatedThisCycle() + m_bytesAbandonedSinceLastFullCollect);
     }
-    m_bytesAbandonedSinceLastFullCollect += abandonedBytes;
 }
 
 void Heap::protect(JSValue k)
@@ -792,6 +809,9 @@ void Heap::finalizeUnconditionalFinalizers()
     if (collectionScope == CollectionScope::Full) {
         finalizeMarkedUnconditionalFinalizers<Structure>(structureSpace, collectionScope);
         finalizeMarkedUnconditionalFinalizers<BrandedStructure>(brandedStructureSpace, collectionScope);
+#if ENABLE(WEBASSEMBLY)
+        finalizeMarkedUnconditionalFinalizers<WebAssemblyGCStructure>(webAssemblyGCStructureSpace, collectionScope);
+#endif
     }
     finalizeMarkedUnconditionalFinalizers<StructureRareData>(structureRareDataSpace, collectionScope);
     finalizeMarkedUnconditionalFinalizers<UnlinkedFunctionExecutable>(unlinkedFunctionExecutableSpaceAndSet.set, collectionScope);
@@ -812,6 +832,8 @@ void Heap::finalizeUnconditionalFinalizers()
     if (m_webAssemblyInstanceSpace)
         finalizeMarkedUnconditionalFinalizers<JSWebAssemblyInstance>(*m_webAssemblyInstanceSpace, collectionScope);
 #endif
+
+    vm().finalizeUnconditionally();
 }
 
 void Heap::willStartIterating()
@@ -900,10 +922,7 @@ void Heap::gatherVMRoots(ConservativeRoots& roots)
         vm.scanSideState(roots);
     }
 #endif
-#if ENABLE(WEBASSEMBLY)
-    vm.gatherEvacuatedStackRoots(roots);
-#endif
-#if !(ENABLE(DFG_JIT) || ENABLE(WEBASSEMBLY))
+#if !ENABLE(DFG_JIT)
     UNUSED_PARAM(roots);
     UNUSED_VARIABLE(vm);
 #endif
@@ -1014,7 +1033,7 @@ size_t Heap::objectCount()
 
 size_t Heap::extraMemorySize()
 {
-    // FIXME: Change this to use SaturatedArithmetic when available.
+    // FIXME: Change this to use SaturatingArithmetic when available.
     // https://bugs.webkit.org/show_bug.cgi?id=170411
     CheckedSize checkedTotal = m_extraMemorySize;
     checkedTotal += m_deprecatedExtraMemorySize;
@@ -1161,6 +1180,25 @@ void Heap::deleteAllUnlinkedCodeBlocks(DeleteAllCodeEffort effort)
             UnlinkedFunctionExecutable* executable = static_cast<UnlinkedFunctionExecutable*>(cell);
             executable->clearCode(vm);
         });
+
+#if ENABLE(JIT)
+    // Shareable Baseline JIT code is cached on UnlinkedCodeBlock::m_unlinkedBaselineCode (populated by
+    // CodeBlock::setupWithUnlinkedBaselineCode). That cache is not owned by any linked CodeBlock or
+    // executable, so it survives deleteAllCodeBlocks and is otherwise only released when the
+    // UnlinkedCodeBlock itself is collected. A "warm" UnlinkedCodeBlock can therefore pin Baseline JIT
+    // executable memory across memory warnings indefinitely. Drop the cache eagerly here: any still-linked
+    // CodeBlock holds its own ref to the BaselineJITCode (so we never free code that is still in use),
+    // while a cache-only entry is freed as soon as its last ref goes away, synchronously here.
+    if (Options::useBaselineJITCodeSharing()) {
+        auto clearUnlinkedBaselineCode = [] (HeapCell* cell, HeapCell::Kind) {
+            static_cast<UnlinkedCodeBlock*>(cell)->m_unlinkedBaselineCode = nullptr;
+        };
+        for (auto* space : { m_unlinkedFunctionCodeBlockSpace.get(), m_unlinkedProgramCodeBlockSpace.get(), m_unlinkedEvalCodeBlockSpace.get(), m_unlinkedModuleProgramCodeBlockSpace.get() }) {
+            if (space)
+                space->forEachLiveCell(clearUnlinkedBaselineCode);
+        }
+    }
+#endif
 }
 
 void Heap::deleteUnmarkedCompiledCode()
@@ -1221,6 +1259,37 @@ void Heap::addToRememberedSet(const JSCell* constCell)
     // be unfortunate but not the end of the world.
     cell->setCellState(CellState::PossiblyGrey);
     m_mutatorMarkStack->append(cell);
+}
+
+void Heap::clearConcurrentRetainedDataIfPossible()
+{
+
+    // FIXME: It's weird that we drive the runloop in the middle of a JS stack. But a few places in WebCore testing/debugger code do that so clearing would otherwise be invalid there. This is technically not strong enough to catch any bad code but it seems to work for the testing/debugger code in question.
+    if (vm().entryScope) [[unlikely]]
+        return;
+
+    // It wouldn't be safe to clear the list if it's possible to have a GCOwnedDataScope on the stack since
+    // m_possiblyAccessedStringsFromConcurrentThreadsOrGCOwnedDataScope
+    // is what's keeping the backing bytes alive.
+    ASSERT(!m_topGCOwnedDataScope);
+
+    if (!m_possiblyAccessedStringsFromConcurrentThreadsOrGCOwnedDataScope.size())
+        return;
+
+    // The mutator needs to be fenced while marking and marker threads can access StringImpl::costDuringGC so we have to keep the Impls alive.
+    if (mutatorShouldBeFenced())
+        return;
+#if ENABLE(JIT)
+    auto* worklist = JITWorklist::existingGlobalWorklistOrNull();
+    // We need to make sure no JIT thread could be looking at one of our old strings. Any thread that starts after
+    // this check will load the new StringImpl rather than the one in this list so we're safe to delete these as
+    // long as none were running at the time of this check.
+    if (!worklist || !worklist->totalOngoingCompilations()) {
+#else
+    {
+#endif
+        m_possiblyAccessedStringsFromConcurrentThreadsOrGCOwnedDataScope.clear();
+    }
 }
 
 void Heap::sweepSynchronously()
@@ -1496,6 +1565,10 @@ NEVER_INLINE bool Heap::runBeginPhase(GCConductor conn)
 
     beginMarking();
 
+#if ENABLE(WEBASSEMBLY)
+    prepareWasmCalleeCleanup();
+#endif
+
     forEachSlotVisitor(
         [&] (SlotVisitor& visitor) {
             visitor.didStartMarking();
@@ -1707,6 +1780,10 @@ NEVER_INLINE bool Heap::runEndPhase(GCConductor conn)
     updateObjectCounts();
     endMarking();
 
+#if ENABLE(WEBASSEMBLY)
+    finalizeWasmCalleeCleanup();
+#endif
+
     if (Options::verifyGC()) [[unlikely]]
         verifyGC();
 
@@ -1731,12 +1808,8 @@ NEVER_INLINE bool Heap::runEndPhase(GCConductor conn)
         snapshotUnswept();
         finalizeUnconditionalFinalizers(); // We rely on these unconditional finalizers running before clearCurrentlyExecuting since CodeBlock's finalizer relies on querying currently executing.
         removeDeadCompilerWorklistEntries();
+        deleteUnmarkedCompiledCode();
     }
-
-    // Keep in mind that we may use AtomStringTable, and this is totally OK since the main thread is suspended.
-    // End phase itself can run on main thread or concurrent collector thread. But whenever running this,
-    // mutator is suspended so there is no race condition.
-    deleteUnmarkedCompiledCode();
 
     notifyIncrementalSweeper();
     
@@ -2296,9 +2369,14 @@ void Heap::finalize()
         vm().stringReplaceCache.clear();
     }
     vm().keyAtomStringCache.clear();
-    vm().stringSplitCache.clear();
+    if (auto* cache = vm().stringSplitCache())
+        cache->clear();
+    vm().jsonAtomStringCache.clearJSStrings();
 
-    m_possiblyAccessedStringsFromConcurrentThreads.clear();
+    m_possiblyAccessedStringsFromConcurrentThreadsOrGCOwnedDataScope.removeAllMatching([&](const auto& iter) {
+        return !m_discoveredAccessedStringsFromGCOwnedDataScope.contains(iter.first);
+    });
+    m_discoveredAccessedStringsFromGCOwnedDataScope.clear();
 
     immutableButterflyToStringCache.clear();
     
@@ -2616,13 +2694,17 @@ void Heap::setGarbageCollectionTimerEnabled(bool enable)
 constexpr size_t oversizedAllocationThreshold = 64 * KB;
 void Heap::didAllocate(size_t bytes)
 {
-    if (m_edenActivityCallback)
-        m_edenActivityCallback->didAllocate(*this, totalBytesAllocatedThisCycle() + m_bytesAbandonedSinceLastFullCollect);
     if (bytes >= oversizedAllocationThreshold) {
         m_oversizedBytesAllocatedThisCycle += bytes;
         m_lastOversidedAllocationThisCycle = bytes;
     } else
         m_nonOversizedBytesAllocatedThisCycle += bytes;
+
+    // totalBytesAllocatedThisCycle() depends on values updated above.
+    // So, only do this m_edenActivityCallback after updating those values.
+    if (m_edenActivityCallback)
+        m_edenActivityCallback->didAllocate(*this, totalBytesAllocatedThisCycle() + m_bytesAbandonedSinceLastFullCollect);
+
     performIncrement(bytes);
 }
 
@@ -2801,7 +2883,7 @@ void Heap::reportExtraMemoryVisited(size_t size)
     
     for (;;) {
         size_t oldSize = *counter;
-        // FIXME: Change this to use SaturatedArithmetic when available.
+        // FIXME: Change this to use SaturatingArithmetic when available.
         // https://bugs.webkit.org/show_bug.cgi?id=170411
         CheckedSize checkedNewSize = oldSize;
         checkedNewSize += size;
@@ -2994,7 +3076,6 @@ void Heap::addCoreConstraints()
                 // If we tried to scan while not under a safepoint we could stop a thread that's in the process of calling
                 // one of the callees we are looking for.
                 // FIXME: Should we have two constraints for this? One for concurrent and one under safepoint at the bitter end.
-                // TODO: Verify this part only runs on one thread.
                 ASSERT(worldIsStopped());
                 ConservativeRoots conservativeRoots(*this);
 
@@ -3048,13 +3129,6 @@ void Heap::addCoreConstraints()
             if (!m_markListSet.isEmpty()) {
                 SetRootMarkReasonScope rootScope(visitor, RootMarkReason::ConservativeScan);
                 MarkedVectorBase::markLists(visitor, m_markListSet);
-            }
-
-            {
-                SetRootMarkReasonScope rootScope(visitor, RootMarkReason::MarkedJSValueRefArray);
-                m_markedJSValueRefArrays.forEach([&] (MarkedJSValueRefArray* array) {
-                    array->visitAggregate(visitor);
-                });
             }
 
             {
@@ -3139,7 +3213,38 @@ void Heap::addCoreConstraints()
         })),
         ConstraintVolatility::GreyedByMarking,
         ConstraintParallelism::Parallel);
-    
+
+#if ENABLE(WEBASSEMBLY)
+    m_constraintSet->add(
+        "Pbc", "Pinball Completions",
+        MAKE_MARKING_CONSTRAINT_EXECUTOR_PAIR(([this] (auto& visitor) {
+            // FIXME: Unlike the "Cs" constraint which is skipped during verification
+            // because conservative roots are not stable, this skip is only here because
+            // ConservativeRoots::genericAddPointer asserts isMarking(), which doesn't
+            // hold during verification. This constraint could run always otherwise, but
+            // that would require rethinking the assumptions in ConservativeRoots.
+            if (m_isMarkingForGCVerifier)
+                return;
+            IsoSubspace* subspace = m_pinballCompletionSpace.get();
+            if (!subspace)
+                return;
+            ASSERT(worldIsStopped());
+            // ConservativeRoots gathering requires an up-to-date precise allocations snapshot.
+            m_objectSpace.prepareForConservativeScan();
+            // FIXME: Add a second CellState for PinballCompletion so we can skip
+            // pinballs whose conservative roots have already been gathered this cycle.
+            ConservativeRoots conservativeRoots(*this);
+            subspace->forEachMarkedCell([&](HeapCell* cell, HeapCell::Kind) {
+                auto* pinball = uncheckedDowncast<PinballCompletion>(static_cast<JSCell*>(cell));
+                pinball->gatherConservativeRoots(conservativeRoots);
+            });
+            SetRootMarkReasonScope rootScope(visitor, RootMarkReason::PinballCompletionConservativeRoots);
+            visitor.append(conservativeRoots);
+        })),
+        ConstraintVolatility::GreyedByMarking,
+        ConstraintConcurrency::Sequential);
+#endif
+
 #if ENABLE(JIT)
     if (Options::useJIT()) {
         m_constraintSet->add(
@@ -3321,11 +3426,6 @@ void Heap::setBonusVisitorTask(RefPtr<SharedTask<void(SlotVisitor&)>> task)
 }
 
 
-void Heap::addMarkedJSValueRefArray(MarkedJSValueRefArray* array)
-{
-    m_markedJSValueRefArrays.append(array);
-}
-
 void Heap::runTaskInParallel(RefPtr<SharedTask<void(SlotVisitor&)>> task)
 {
     unsigned initialRefCount = task->refCount();
@@ -3475,6 +3575,58 @@ bool Heap::isWasmCalleePendingDestruction(Wasm::Callee& callee)
     return m_wasmCalleesPendingDestruction.contains(callee);
 }
 
+bool Heap::didDiscoverPendingWasmCallee(Wasm::Callee* callee)
+{
+    if (!m_wasmCalleesPendingDestructionSnapshot.contains(callee))
+        return false;
+    m_wasmCalleesDiscoveredDuringGC.add(callee);
+    return true;
+}
+
+void Heap::prepareWasmCalleeCleanup()
+{
+    ASSERT(worldIsStopped());
+    ASSERT(m_wasmCalleesPendingDestructionSnapshot.isEmpty());
+    ASSERT(m_wasmCalleesDiscoveredDuringGC.isEmpty());
+    m_wasmCalleesPendingDestructionSnapshot.clear();
+    m_wasmCalleesDiscoveredDuringGC.clear();
+    m_boxedWasmCalleeFilter = TinyBloomFilter<uintptr_t>();
+
+    Locker locker(m_wasmCalleesPendingDestructionLock);
+    for (auto& callee : m_wasmCalleesPendingDestruction) {
+        m_wasmCalleesPendingDestructionSnapshot.add(callee.ptr());
+        m_boxedWasmCalleeFilter.add(std::bit_cast<uintptr_t>(CalleeBits::boxNativeCallee(callee.ptr())));
+    }
+}
+
+void Heap::finalizeWasmCalleeCleanup()
+{
+    ASSERT(worldIsStopped());
+    if (m_wasmCalleesPendingDestructionSnapshot.isEmpty())
+        return;
+
+    // Release refs outside the lock since Callee destructors may call reportWasmCalleePendingDestruction.
+    Vector<RefPtr<Wasm::Callee>, 8> wasmCalleesToRelease;
+    {
+        Locker locker(m_wasmCalleesPendingDestructionLock);
+        wasmCalleesToRelease = m_wasmCalleesPendingDestruction.takeIf<8>([&](const auto& callee) {
+            return m_wasmCalleesPendingDestructionSnapshot.contains(callee.ptr())
+                && !m_wasmCalleesDiscoveredDuringGC.contains(callee.ptr());
+        });
+    }
+
+    // We need to ensure our thread sees all the new callsites otherwise we could be discarding a BBQCallee
+    // for foo but a different Callee could still have a stale direct call to foo's BBQ code on this core.
+    // Realistically, this is probably not needed, since we're essentially guarenteed to make a syscall
+    // that will syncronize the instruction cache during GC. That said, this happens so infrequently it's
+    // better to just have the code be clear.
+    if (!wasmCalleesToRelease.isEmpty())
+        WTF::crossModifyingCodeFence();
+
+    m_wasmCalleesPendingDestructionSnapshot.clear();
+    m_wasmCalleesDiscoveredDuringGC.clear();
+}
+
 #endif
 
 namespace GCClient {
@@ -3494,9 +3646,7 @@ Heap::Heap(JSC::Heap& heap)
 {
 }
 
-Heap::~Heap()
-{
-}
+Heap::~Heap() = default;
 
 #undef INIT_CLIENT_ISO_SUBSPACE
 #undef CLIENT_ISO_SUBSPACE_INIT_FROM_SPACE_AND_SET

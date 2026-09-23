@@ -49,4 +49,9 @@ STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(ArrayPrototype, ArrayPrototype::Base);
 JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncToString);
 JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncValues);
 
+JSArray* tryConcatAppendArrayFastWithWatchpoints(JSGlobalObject*, VM&, JSArray* firstArray, JSArray* secondArray);
+JSArray* tryConcatOneArgFast(JSGlobalObject*, VM&, JSArray* firstArray, JSValue argument);
+
+extern const ASCIILiteral unshiftArrayLengthExceeded;
+
 } // namespace JSC

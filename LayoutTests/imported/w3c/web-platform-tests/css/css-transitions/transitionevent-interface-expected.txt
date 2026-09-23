@@ -40,4 +40,5 @@ PASS elapsedTime cannot be set to 'sample'
 PASS elapsedTime cannot be set to [0.5, 1.0]
 PASS elapsedTime cannot be set to an object
 PASS TransitionEventInit properties set value
+PASS TransitionEventInit animation property sets value
 

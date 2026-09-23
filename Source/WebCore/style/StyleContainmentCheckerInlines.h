@@ -26,13 +26,14 @@
 #pragma once
 
 #include <WebCore/Element.h>
-#include <WebCore/RenderStyle+GettersInlines.h>
+#include <WebCore/NodeName.h>
+#include <WebCore/StyleComputedStyle+GettersInlines.h>
 #include <WebCore/StyleContainmentChecker.h>
 
 namespace WebCore {
 namespace Style {
 
-inline ContainmentChecker::ContainmentChecker(const RenderStyle& style, const Element& element)
+inline ContainmentChecker::ContainmentChecker(const Style::ComputedStyle& style, const Element& element)
     : m_style { style }
     , m_element { element }
 {
@@ -90,6 +91,12 @@ inline bool ContainmentChecker::shouldApplySizeContainment() const
         return false;
     if (m_style->display().isRubyContainerOrInternalRubyBox() || (m_style->display() == DisplayType::InlineFlow && !m_element->isReplaced(m_style.ptr())))
         return false;
+
+    // https://drafts.csswg.org/css-conditional-5/#size-container
+    // SVG foreignObject elements are not eligible to be size query containers.
+    if (m_element->elementName() == ElementNames::SVG::foreignObject)
+        return false;
+
     return true;
 }
 
@@ -114,6 +121,12 @@ inline bool ContainmentChecker::shouldApplyInlineSizeContainment() const
         return false;
     if (m_style->display().isRubyContainerOrInternalRubyBox() || (m_style->display() == DisplayType::InlineFlow && !m_element->isReplaced(m_style.ptr())))
         return false;
+
+    // https://drafts.csswg.org/css-conditional-5/#size-container
+    // SVG foreignObject elements are not eligible to be size query containers.
+    if (m_element->elementName() == ElementNames::SVG::foreignObject)
+        return false;
+
     return true;
 }
 

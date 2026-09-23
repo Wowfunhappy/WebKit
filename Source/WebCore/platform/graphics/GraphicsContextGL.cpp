@@ -377,6 +377,7 @@ GraphicsContextGL::GraphicsContextGL(GraphicsContextGLAttributes attrs)
 
 GraphicsContextGL::~GraphicsContextGL() = default;
 
+// MAVERICKS_BACKPORT: upstream default for platforms with 2D external textures.
 std::tuple<GCGLenum, GCGLenum> GraphicsContextGL::externalImageTextureBindingPoint()
 {
     return std::make_tuple(GraphicsContextGL::TEXTURE_2D, GraphicsContextGL::TEXTURE_BINDING_2D);

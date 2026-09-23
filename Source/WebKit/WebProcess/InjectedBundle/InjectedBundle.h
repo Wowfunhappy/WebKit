@@ -88,7 +88,7 @@ public:
     void setClient(std::unique_ptr<API::InjectedBundle::Client>&&);
     void postMessage(const String&, API::Object*);
     void postSynchronousMessage(const String&, API::Object*, RefPtr<API::Object>& returnData);
-    void setServiceWorkerProxyCreationCallback(void (*)(uint64_t));
+    void NODELETE setServiceWorkerProxyCreationCallback(void (*)(uint64_t));
 
     // TestRunner only SPI
     void addOriginAccessAllowListEntry(const String&, const String&, const String&, bool);
@@ -124,7 +124,7 @@ public:
 
     void NODELETE setTabKeyCyclesThroughElements(WebPage*, bool enabled);
     void setSerialLoadingEnabled(bool);
-    void setAccessibilityIsolatedTreeEnabled(bool);
+    void NODELETE setAccessibilityIsolatedTreeEnabled(bool);
     void dispatchPendingLoadRequests();
 
 #if PLATFORM(COCOA)

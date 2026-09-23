@@ -38,7 +38,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CSSRGB);
 static CSSColorRGBComp toCSSColorRGBComp(const RectifiedCSSColorRGBComp& component)
 {
     return switchOn(component,
-        [](const Ref<CSSKeywordValue>& keywordValue) -> CSSColorRGBComp {
+        [](const Ref<CSSOMKeywordValue>& keywordValue) -> CSSColorRGBComp {
             return keywordValue;
         },
         [](const Ref<CSSNumericValue>& numericValue) -> CSSColorRGBComp {
@@ -142,9 +142,9 @@ ExceptionOr<RectifiedCSSColorRGBComp> CSSRGB::rectifyCSSColorRGBComp(CSSColorRGB
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorRGBComp"_s };
         },
         [](String&& string) -> ExceptionOr<RectifiedCSSColorRGBComp> {
-            return { CSSKeywordValue::rectifyKeywordish(WTF::move(string)) };
+            return { CSSOMKeywordValue::rectifyKeywordish(WTF::move(string)) };
         },
-        [](Ref<CSSKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorRGBComp> {
+        [](Ref<CSSOMKeywordValue>&& keywordValue) -> ExceptionOr<RectifiedCSSColorRGBComp> {
             if (equalIgnoringASCIICase(keywordValue->value(), "none"_s))
                 return { WTF::move(keywordValue) };
             return Exception { ExceptionCode::SyntaxError, "Invalid CSSColorRGBComp"_s };

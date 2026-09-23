@@ -28,8 +28,10 @@
 #include <WebCore/CSSValueAggregates.h>
 #include <WebCore/CSSVariableData.h>
 #include <WebCore/StyleColor.h>
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleImageWrapper.h>
 #include <WebCore/StylePrimitiveNumeric.h>
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleTransformFunction.h>
 #include <WebCore/StyleURL.h>
 #include <wtf/RefCounted.h>
@@ -43,6 +45,8 @@ namespace WebCore {
 class CSSValuePool;
 
 namespace Style {
+
+enum class IsAttrTainted : bool { No, Yes };
 
 class CustomProperty final : public RefCounted<CustomProperty> {
     WTF_MAKE_TZONE_ALLOCATED(CustomProperty);
@@ -61,7 +65,7 @@ public:
         ImageWrapper,
         Color,
         URL,
-        CustomIdentifier,
+        CustomIdent,
         String,
         TransformFunction
     >;
@@ -81,8 +85,8 @@ public:
 
     static Ref<const CustomProperty> createForGuaranteedInvalid(const AtomString& name);
     static Ref<const CustomProperty> createForVariableData(const AtomString& name, Ref<CSSVariableData>&&);
-    static Ref<const CustomProperty> createForValue(const AtomString& name, Value&&);
-    static Ref<const CustomProperty> createForValueList(const AtomString& name, ValueList&&);
+    static Ref<const CustomProperty> createForValue(const AtomString& name, Value&&, IsAttrTainted = IsAttrTainted::No);
+    static Ref<const CustomProperty> createForValueList(const AtomString& name, ValueList&&, IsAttrTainted = IsAttrTainted::No);
 
     const AtomString& name() const LIFETIME_BOUND { return m_name; }
     const Kind& value() const LIFETIME_BOUND { return m_value; }
@@ -96,24 +100,30 @@ public:
 
     bool isAnimatable() const;
 
-    bool operator==(const CustomProperty&) const;
+    IsAttrTainted isAttrTainted() const { return m_isAttrTainted; }
 
-    Ref<CSSValue> propertyValue(CSSValuePool&, const RenderStyle&) const;
-    String propertyValueSerialization(const CSS::SerializationContext&, const RenderStyle&) const;
-    void propertyValueSerialization(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&) const;
+    bool operator==(const CustomProperty&) const;
+    bool valueEquals(const CustomProperty&) const;
+
+    Ref<CSSValue> propertyValue(CSSValuePool&, const Style::ComputedStyle&) const;
+    Ref<DeprecatedCSSOMValue> propertyValueDeprecatedCSSOMWrapper(CSSValuePool&, CSSStyleDeclaration&, const Style::ComputedStyle&) const;
+    WTF::String propertyValueSerialization(const CSS::SerializationContext&, const Style::ComputedStyle&) const;
+    void propertyValueSerialization(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&) const;
 
 private:
-    CustomProperty(const AtomString& name, Kind&& value)
+    CustomProperty(const AtomString& name, Kind&& value, IsAttrTainted isAttrTainted = IsAttrTainted::No)
         : m_name(name)
         , m_value(WTF::move(value))
+        , m_isAttrTainted(isAttrTainted)
     {
     }
 
-    String propertyValueSerializationForTokenization(const CSS::SerializationContext&, const RenderStyle&) const;
-    void propertyValueSerializationForTokenization(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&) const;
+    WTF::String propertyValueSerializationForTokenization(const CSS::SerializationContext&, const Style::ComputedStyle&) const;
+    void propertyValueSerializationForTokenization(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&) const;
 
     const AtomString m_name;
     const Kind m_value;
+    const IsAttrTainted m_isAttrTainted { IsAttrTainted::No };
     mutable RefPtr<CSSVariableData> m_cachedTokens;
 };
 
@@ -124,17 +134,18 @@ inline Ref<const CustomProperty> CustomProperty::createForGuaranteedInvalid(cons
 
 inline Ref<const CustomProperty> CustomProperty::createForVariableData(const AtomString& name, Ref<CSSVariableData>&& value)
 {
-    return adoptRef(*new CustomProperty(name, Kind { WTF::InPlaceType<Ref<CSSVariableData>>, WTF::move(value) }));
+    auto isAttrTainted = value->isAttrTainted();
+    return adoptRef(*new CustomProperty(name, Kind { WTF::InPlaceType<Ref<CSSVariableData>>, WTF::move(value) }, isAttrTainted));
 }
 
-inline Ref<const CustomProperty> CustomProperty::createForValue(const AtomString& name, Value&& value)
+inline Ref<const CustomProperty> CustomProperty::createForValue(const AtomString& name, Value&& value, IsAttrTainted isAttrTainted)
 {
-    return adoptRef(*new CustomProperty(name, Kind { WTF::move(value) }));
+    return adoptRef(*new CustomProperty(name, Kind { WTF::move(value) }, isAttrTainted));
 }
 
-inline Ref<const CustomProperty> CustomProperty::createForValueList(const AtomString& name, ValueList&& valueList)
+inline Ref<const CustomProperty> CustomProperty::createForValueList(const AtomString& name, ValueList&& valueList, IsAttrTainted isAttrTainted)
 {
-    return adoptRef(*new CustomProperty(name, Kind { WTF::move(valueList) }));
+    return adoptRef(*new CustomProperty(name, Kind { WTF::move(valueList) }, isAttrTainted));
 }
 
 inline bool CustomProperty::isGuaranteedInvalid() const

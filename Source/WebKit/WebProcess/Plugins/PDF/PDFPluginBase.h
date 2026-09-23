@@ -91,7 +91,7 @@ class WebMouseEvent;
 class WebWheelEvent;
 enum class SelectionEndpoint : bool;
 enum class SelectionWasFlipped : bool;
-enum class PDFDisplayMode : uint8_t;
+enum class PDFPluginDisplayMode : uint8_t;
 struct DocumentEditingContextRequest;
 struct DocumentEditingContext;
 struct EditorState;
@@ -156,7 +156,7 @@ public:
     virtual void setPageScaleFactor(double, std::optional<WebCore::IntPoint> origin) = 0;
     virtual void mainFramePageScaleFactorDidChange() { }
 
-    virtual void setDisplayModeAndUpdateLayout(PDFDisplayMode) { }
+    virtual void setDisplayModeAndUpdateLayout(PDFPluginDisplayMode) { }
 
     virtual double minScaleFactor() const { return 0.25; }
     virtual double maxScaleFactor() const { return 5; }
@@ -381,7 +381,7 @@ protected:
     explicit PDFPluginBase(WebCore::HTMLPlugInElement&);
 
     WebPage* webPage() const;
-    WebCore::Page* page() const;
+    WebCore::Page* NODELETE page() const;
 
     virtual void teardown();
 
@@ -453,7 +453,7 @@ protected:
 #if ENABLE(PDF_HUD)
     void updateHUDLocation();
     WebCore::IntRect frameForHUDInRootViewCoordinates() const;
-    bool hudEnabled() const;
+    bool NODELETE hudEnabled() const;
     bool shouldShowHUD() const;
     void updateHUDVisibility();
 #endif
@@ -475,9 +475,10 @@ protected:
     void writeStringToFindPasteboard(const String&) const;
 #endif
 
-    std::optional<WebCore::PageIdentifier> pageIdentifier() const;
+    std::optional<WebCore::PageIdentifier> NODELETE pageIdentifier() const;
 
     WebCore::Color pluginBackgroundColor() const;
+    void updateFullFramePluginBackgroundColor();
 
     SingleThreadWeakPtr<PluginView> m_view;
     WeakPtr<WebFrame> m_frame;
@@ -503,7 +504,8 @@ protected:
     WebCore::AffineTransform m_rootViewToPluginTransform;
 
     WebCore::IntSize m_scrollOffset;
-    std::optional<WebMouseEvent> m_lastMouseEvent;
+
+    std::optional<WebCore::PlatformMouseEvent> m_lastMouseEvent;
 
     RefPtr<WebCore::Scrollbar> m_horizontalScrollbar;
     RefPtr<WebCore::Scrollbar> m_verticalScrollbar;

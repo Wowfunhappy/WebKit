@@ -38,6 +38,19 @@ enum class WebExtensionDeclarativeNetRequestStorageType : uint8_t {
     Session
 };
 
+inline String toString(WebExtensionDeclarativeNetRequestStorageType ruleType)
+{
+    switch (ruleType) {
+    case WebExtensionDeclarativeNetRequestStorageType::Dynamic:
+        return "dynamic"_s;
+    case WebExtensionDeclarativeNetRequestStorageType::Session:
+        return "session"_s;
+    default:
+        ASSERT_NOT_REACHED();
+        return emptyString();
+    }
+}
+
 class WebExtensionDeclarativeNetRequestSQLiteStore final : public WebExtensionSQLiteStore {
     WTF_MAKE_TZONE_ALLOCATED(WebExtensionDeclarativeNetRequestSQLiteStore);
 
@@ -74,7 +87,7 @@ private:
 
     RefPtr<JSON::Array> getRulesWithRuleIDsInternal(Vector<double> ruleIDs, String& errorMessage);
     Ref<JSON::Array> getKeysAndValuesFromRowIterator(Ref<WebExtensionSQLiteRowEnumerator> rows);
-    String insertRule(const JSON::Object& rule, Ref<WebExtensionSQLiteDatabase>);
+    String insertRule(double ruleID, const String& ruleData, Ref<WebExtensionSQLiteDatabase>);
 
     WebExtensionDeclarativeNetRequestStorageType m_storageType;
     String m_tableName;

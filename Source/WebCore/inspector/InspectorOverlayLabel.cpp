@@ -33,8 +33,11 @@
 #include "FloatSize.h"
 #include "FontCascade.h"
 #include "FontCascadeDescription.h"
+#include "FontCascadeInlines.h"
+#include "FontSelector.h"
 #include "GraphicsContext.h"
 #include "Path.h"
+#include "TextRun.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
@@ -63,7 +66,7 @@ InspectorOverlayLabel::InspectorOverlayLabel(const String& text, FloatPoint loca
 static FontCascade systemFont()
 {
     FontCascadeDescription fontDescription;
-    fontDescription.setFamilies({ "system-ui"_s });
+    fontDescription.setFamilies({ { "system-ui"_s, FontFamilyKind::Generic } });
     fontDescription.setWeight(FontSelectionValue(500));
     fontDescription.setComputedSize(12);
 

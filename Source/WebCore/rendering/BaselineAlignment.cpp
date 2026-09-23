@@ -29,7 +29,7 @@
 #include "BaselineAlignmentInlines.h"
 #include "RenderBox.h"
 #include "RenderBoxModelObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -122,7 +122,7 @@ FontBaseline BaselineAlignmentState::dominantBaseline(WritingMode writingMode)
 
 LayoutUnit BaselineAlignmentState::synthesizedBaseline(const RenderBox& box, FontBaseline baselineType, WritingMode writingModeForSynthesis, LineDirection lineDirection, BaselineSynthesisEdge edge)
 {
-    auto boxSize = lineDirection == LineDirection::Horizontal ? box.height() : box.width();
+    auto boxSize = lineDirection == LineDirection::Horizontal ? box.borderBoxHeight() : box.borderBoxWidth();
     if (edge == BaselineSynthesisEdge::ContentBox)
         boxSize -= lineDirection == LineDirection::Horizontal ? box.verticalBorderAndPaddingExtent() : box.horizontalBorderAndPaddingExtent();
     else if (edge == BaselineSynthesisEdge::MarginBox)

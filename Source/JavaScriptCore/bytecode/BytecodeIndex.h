@@ -54,7 +54,7 @@ public:
     static constexpr uint32_t numberOfCheckpoints = 4;
     static_assert(hasOneBitSet(numberOfCheckpoints), "numberOfCheckpoints should be a power of 2");
     static constexpr uint32_t checkpointMask = numberOfCheckpoints - 1;
-    static constexpr uint32_t checkpointShift = WTF::getMSBSetConstexpr(numberOfCheckpoints);
+    static constexpr uint32_t checkpointShift = WTF::getMSBSet(numberOfCheckpoints);
 
     uint32_t offset() const { return m_packedBits >> checkpointShift; }
     Checkpoint checkpoint() const { return m_packedBits & checkpointMask; }

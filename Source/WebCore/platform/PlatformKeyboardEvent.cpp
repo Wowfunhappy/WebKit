@@ -119,7 +119,7 @@ static const KeyToEventDataMap& nonAlphaNumericKeys()
             { "\\"_s,           { "\\"_s,                                       92,     "U+005C"_s,     VK_OEM_5,       "Backslash"_s,        { { "insertText"_s, "\\"_s } } } },
             { "|"_s,            { "|"_s,                                        124,    "U+007C"_s,     VK_OEM_5,       "Backslash"_s,        { { "insertText"_s, "|"_s } } } },
             { "["_s,            { "["_s,                                        91,     "U+005B"_s,     VK_OEM_4,       "BracketLeft"_s,      { { "insertText"_s, "["_s } } } },
-            { "{ "_s,           { "{ "_s,                                       123,    "U+007B"_s,     VK_OEM_4,       "BracketLeft"_s,      { { "insertText"_s, "{"_s } } } },
+            { "{"_s,            { "{"_s,                                        123,    "U+007B"_s,     VK_OEM_4,       "BracketLeft"_s,      { { "insertText"_s, "{"_s } } } },
             { "]"_s,            { "]"_s,                                        93,     "U+005D"_s,     VK_OEM_6,       "BracketRight"_s,     { { "insertText"_s, "]"_s } } } },
             { "}"_s,            { "}"_s,                                        125,    "U+007D"_s,     VK_OEM_6,       "BracketRight"_s,     { { "insertText"_s, "}"_s } } } },
             { ";"_s,            { ";"_s,                                        59,     "U+003B"_s,     VK_OEM_1,       "Semicolon"_s,        { { "insertText"_s, ";"_s } } } },
@@ -168,7 +168,7 @@ static std::optional<KeyEventData> lookup(const String& key)
     if (key.length() != 1)
         return { };
 
-    auto character = key.characterAt(0);
+    auto character = key.codeUnitAt(0);
     if (character >= 'A' && character <= 'Z') {
         return { {
             key,

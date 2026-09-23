@@ -26,8 +26,8 @@
 #include "DebuggerCallFrame.h"
 #include "DebuggerScope.h"
 #include "HeapIterationScope.h"
+#include "JSAsyncFunctionGenerator.h"
 #include "JSCInlines.h"
-#include "JSGenerator.h"
 #include "MarkedSpaceInlines.h"
 #include "Microtask.h"
 #include "VMEntryScopeInlines.h"
@@ -179,9 +179,9 @@ void Debugger::attach(JSGlobalObject* globalObject)
         m_vm.heap.objectSpace().forEachLiveCell(iterationScope, [&] (HeapCell* heapCell, HeapCell::Kind kind) {
             if (isJSCellKind(kind)) {
                 auto* cell = static_cast<JSCell*>(heapCell);
-                if (auto* function = jsDynamicCast<JSFunction*>(cell)) {
-                    if (function->scope()->globalObject() == globalObject && function->executable()->isFunctionExecutable() && !function->isHostOrBuiltinFunction())
-                        sourceProviders.add(jsCast<FunctionExecutable*>(function->executable())->source().provider());
+                if (auto* function = dynamicDowncast<JSFunction>(cell)) {
+                    if (function->scope()->realm() == globalObject && function->executable()->isFunctionExecutable() && !function->isHostOrBuiltinFunction())
+                        sourceProviders.add(uncheckedDowncast<FunctionExecutable>(function->executable())->source().provider());
                 }
             }
             return IterationStatus::Continue;
@@ -287,6 +287,20 @@ void Debugger::willCallNativeExecutable(CallFrame* callFrame)
 {
     dispatchFunctionToObservers([&] (Observer& observer) {
         observer.willCallNativeExecutable(callFrame);
+    });
+}
+
+void Debugger::didCreateInternalFunction(InternalFunction& internalFunction)
+{
+    dispatchFunctionToObservers([&] (Observer& observer) {
+        observer.didCreateInternalFunction(internalFunction);
+    });
+}
+
+void Debugger::willCallInternalFunction(InternalFunction& internalFunction)
+{
+    dispatchFunctionToObservers([&] (Observer& observer) {
+        observer.willCallInternalFunction(internalFunction);
     });
 }
 
@@ -673,7 +687,7 @@ public:
     {
     }
 
-    void operator()(CodeBlock* codeBlock) const
+    void NODELETE operator()(CodeBlock* codeBlock) const
     {
         if (codeBlock->hasDebuggerRequests() && m_debugger == codeBlock->globalObject()->debugger())
             codeBlock->clearDebuggerRequests();
@@ -789,7 +803,7 @@ public:
     {
     }
 
-    void operator()(CodeBlock* codeBlock) const
+    void NODELETE operator()(CodeBlock* codeBlock) const
     {
         if (codeBlock->hasDebuggerRequests() && m_globalObject == codeBlock->globalObject())
             codeBlock->clearDebuggerRequests();
@@ -1164,7 +1178,7 @@ public:
         ASSERT(callFrame->isEmptyTopLevelCallFrameForDebugger());
     }
 
-    CallFrame* asCallFrame() { return CallFrame::create(m_values); }
+    CallFrame* NODELETE asCallFrame() { return CallFrame::create(m_values); }
 
 private:
     Register m_values[CallFrame::headerSizeInRegisters + /* thisValue */ 1] { };
@@ -1175,7 +1189,7 @@ void Debugger::exception(JSGlobalObject* globalObject, CallFrame* callFrame, JSV
     if (m_isPaused)
         return;
 
-    if (JSObject* object = jsDynamicCast<JSObject*>(exception)) {
+    if (JSObject* object = dynamicDowncast<JSObject>(exception)) {
         if (object->isErrorInstance()) {
             ErrorInstance* error = static_cast<ErrorInstance*>(object);
             // FIXME: <https://webkit.org/b/173625> Web Inspector: Should be able to pause and debug a StackOverflow Exception
@@ -1252,7 +1266,7 @@ void Debugger::willAwait(CallFrame* callFrame, JSValue generatorValue)
     if (!m_pauseOnCallFrame || m_pauseOnCallFrame != callFrame)
         return;
 
-    m_pauseForAwaitInGenerator = jsDynamicCast<JSGenerator*>(generatorValue);
+    m_pauseForAwaitInGenerator = dynamicDowncast<JSAsyncFunctionGenerator>(generatorValue);
     ASSERT(m_pauseForAwaitInGenerator);
     if (!m_pauseForAwaitInGenerator)
         return;
@@ -1276,7 +1290,7 @@ void Debugger::didAwait(CallFrame*, JSValue generatorValue)
     if (!m_pauseForAwaitInGenerator)
         return;
 
-    JSGenerator* generator = jsDynamicCast<JSGenerator*>(generatorValue);
+    JSAsyncFunctionGenerator* generator = dynamicDowncast<JSAsyncFunctionGenerator>(generatorValue);
     ASSERT(generator);
     if (m_pauseForAwaitInGenerator != generator)
         return;

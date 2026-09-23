@@ -43,7 +43,7 @@ public:
     GenerationalSet() = default;
 
     explicit GenerationalSet(size_t size)
-        : m_map(size, 0)
+        : m_map(FillWith { }, size, 0)
     {
     }
 

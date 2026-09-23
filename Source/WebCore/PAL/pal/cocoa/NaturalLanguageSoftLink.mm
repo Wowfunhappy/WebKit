@@ -29,5 +29,6 @@
 #import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, NaturalLanguage, PAL_EXPORT)
-// MAVERICKS_BACKPORT: the NaturalLanguage framework NLTokenizer is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
+// MAVERICKS_BACKPORT: NaturalLanguage is absent on 10.9; resolve its classes optionally.
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, NaturalLanguage, NLTokenizer, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, NaturalLanguage, NLEmbedding, PAL_EXPORT)

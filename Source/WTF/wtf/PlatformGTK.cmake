@@ -31,11 +31,12 @@ list(APPEND WTF_SOURCES
 )
 
 list(APPEND WTF_PUBLIC_HEADERS
+    PlatformEnableGlib.h
+
     glib/ActivityObserver.h
     glib/Application.h
     glib/ChassisType.h
     glib/GMallocString.h
-    glib/GMutexLocker.h
     glib/GRefPtr.h
     glib/GSocketMonitor.h
     glib/GSpanExtras.h

@@ -39,28 +39,28 @@ namespace {
 // with something else. And after the exit sideways case, we don't have to worry about either
 // exitsSideways or terminal. And so on...
 
-bool interferesWithTerminal(const Effects& terminal, const Effects& other)
+bool NODELETE interferesWithTerminal(const Effects& terminal, const Effects& other)
 {
     if (!terminal.terminal)
         return false;
     return other.terminal || other.controlDependent || other.writesLocalState || other.writes || other.writesPinned;
 }
 
-bool interferesWithExitSideways(const Effects& exitsSideways, const Effects& other)
+bool NODELETE interferesWithExitSideways(const Effects& exitsSideways, const Effects& other)
 {
     if (!exitsSideways.exitsSideways)
         return false;
     return other.controlDependent || other.writes || other.writesPinned;
 }
 
-bool interferesWithWritesLocalState(const Effects& writesLocalState, const Effects& other)
+bool NODELETE interferesWithWritesLocalState(const Effects& writesLocalState, const Effects& other)
 {
     if (!writesLocalState.writesLocalState)
         return false;
     return other.writesLocalState || other.readsLocalState;
 }
 
-bool interferesWithWritesPinned(const Effects& writesPinned, const Effects& other)
+bool NODELETE interferesWithWritesPinned(const Effects& writesPinned, const Effects& other)
 {
     if (!writesPinned.writesPinned)
         return false;

@@ -27,10 +27,11 @@
 # --treat-failing-as-flaky is in effect. It's a class so that we can
 # easily instantiate a subclass for testing.
 class BaseTestsExecutor
-    def initialize(runlist, serialPlans, remoteHosts, iterationLimits,
+    def initialize(runlist, serialPlans, exclusivePlans, remoteHosts, iterationLimits,
                    treatFailingAsFlaky, logStream=$stderr)
         @runlist = runlist
         @serialPlans = serialPlans
+        @exclusivePlans = exclusivePlans
         @remoteHosts = remoteHosts
         @treatFailingAsFlaky = treatFailingAsFlaky
         @infraIterationsFloor = iterationLimits.infraIterationsFloor
@@ -162,7 +163,7 @@ class BaseTestsExecutor
             end
 
             # Regenerate the lists of tests to run
-            refreshExecution(@runlist, @serialPlans, completedTests, @remoteHosts)
+            refreshExecution(@runlist, @serialPlans, @exclusivePlans, completedTests, @remoteHosts)
 
             numFlaky = @runlist.size - completedTests.size - evaluator.missing.size
             testsInfo = "completed #{completedTests.size}/#{@runlist.size} (#{numFlaky} flaky, #{evaluator.missing.size} missing)"
@@ -210,7 +211,7 @@ module ExecutorSelfTests
     class MockTestsExecutor < BaseTestsExecutor
         attr_reader :executedIterations
         def initialize(runlist, iterationResults, maxIterationsBounds, treatFailingAsFlaky, logStream)
-            super(runlist, [], nil, maxIterationsBounds, treatFailingAsFlaky, logStream)
+            super(runlist, [], Set.new, nil, maxIterationsBounds, treatFailingAsFlaky, logStream)
             @iterationResults = iterationResults
             @executedIterations = 0
             @remainingRetrySeconds = nil
@@ -249,7 +250,7 @@ module ExecutorSelfTests
             putd("statusMap: #{statusMap}")
             statusMap
         end
-        def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
+        def refreshExecution(runlist, serialPlans, exclusivePlans, completedTests, remoteHosts)
         end
     end
 

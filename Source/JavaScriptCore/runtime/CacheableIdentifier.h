@@ -38,6 +38,7 @@ class JSCell;
 class CacheableIdentifier {
 public:
     CacheableIdentifier() = default;
+    constexpr CacheableIdentifier(std::nullptr_t) { }
 
     static inline CacheableIdentifier createFromCell(JSCell* identifier);
     template <typename CodeBlockType>
@@ -48,31 +49,21 @@ public:
     static inline CacheableIdentifier createFromSharedStub(UniquedStringImpl*);
     static constexpr CacheableIdentifier createFromRawBits(uintptr_t rawBits) { return CacheableIdentifier(rawBits); }
 
-    CacheableIdentifier(const CacheableIdentifier&) = default;
-    CacheableIdentifier(CacheableIdentifier&&) = default;
-
-    CacheableIdentifier(std::nullptr_t)
-        : m_bits(0)
-    { }
-
     bool isUid() const { return m_bits & s_uidTag; }
     bool isCell() const { return !isUid(); }
     inline bool isSymbolCell() const;
     inline bool isStringCell() const;
     inline void ensureIsCell(VM&);
 
-    bool isSymbol() const { return m_bits && uid()->isSymbol(); }
-    bool isPrivateName() const { return isSymbol() && static_cast<SymbolImpl&>(*uid()).isPrivate(); }
+    inline bool isSymbol() const;
+    inline bool isPrivateName() const;
 
     inline JSCell* cell() const;
     UniquedStringImpl* uid() const;
 
     explicit operator bool() const { return m_bits; }
 
-    unsigned hash() const { return uid()->symbolAwareHash(); }
-
-    CacheableIdentifier& operator=(const CacheableIdentifier&) = default;
-    CacheableIdentifier& operator=(CacheableIdentifier&&) = default;
+    inline unsigned hash() const;
 
     bool operator==(const CacheableIdentifier&) const;
     bool operator==(const Identifier&) const;

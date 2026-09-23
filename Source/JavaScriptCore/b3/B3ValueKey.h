@@ -107,10 +107,10 @@ public:
     ValueKey(Kind, Type, SIMDInfo, Value*, uint8_t);
     ValueKey(Kind, Type, SIMDInfo, Value*, Value*, uint8_t);
 
-    ValueKey(Kind, Type, Value* child, unsigned packedFlags, const Wasm::RTT*);
-    ValueKey(Kind, Type, Value* child, unsigned packedFlags, int32_t targetHeapType);
+    ValueKey(Kind, Type, Value* child, Value* optionalChild2, unsigned packedFlags, const Wasm::RTT*);
+    ValueKey(Kind, Type, Value* child, Value* optionalChild2, unsigned packedFlags, int32_t targetHeapType);
 
-    static ValueKey intConstant(Type type, int64_t value);
+    static ValueKey NODELETE intConstant(Type type, int64_t value);
 
     SIMDInfo simdInfo() const { return m_simdInfo; }
     Kind kind() const { return m_kind; }

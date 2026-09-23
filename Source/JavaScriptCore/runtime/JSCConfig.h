@@ -26,7 +26,6 @@
 #pragma once
 
 #include <JavaScriptCore/Gate.h>
-#include <JavaScriptCore/Opcode.h>
 #include <JavaScriptCore/OptionsList.h>
 #include <JavaScriptCore/SecureARM64EHashPins.h>
 #include <JavaScriptCore/StopTheWorldCallback.h>
@@ -47,10 +46,10 @@ using JITWriteSeparateHeapsFunction = void (*)(off_t, const void*, size_t);
     WTF_FUNCPTR_PTRAUTH_STR("JSCConfig." #method) method
 
 struct Config {
-    static Config& singleton();
+    static Config& NODELETE singleton();
 
     static void disableFreezingForTesting() { g_wtfConfig.disableFreezingForTesting(); }
-    JS_EXPORT_PRIVATE static void enableRestrictedOptions();
+    JS_EXPORT_PRIVATE static void NODELETE enableRestrictedOptions();
     static void finalize() { WTF::Config::finalize(); }
 
     static void configureForTesting()
@@ -112,8 +111,9 @@ struct Config {
     PostResumeCallback JSC_CONFIG_METHOD(wasmDebuggerOnResume);
     StopTheWorldCallback JSC_CONFIG_METHOD(memoryDebuggerStopTheWorld);
 
+    static constexpr unsigned exceptionInstructionsSize = 64;
     struct {
-        uint8_t exceptionInstructions[maxBytecodeStructLength + 1];
+        uint8_t exceptionInstructions[exceptionInstructionsSize];
         const void* gateMap[numberOfGates];
     } llint;
 
@@ -149,6 +149,11 @@ constexpr size_t offsetOfJSCConfigDefaultCallThunk = offsetof(JSC::Config, defau
 ALWAYS_INLINE PURE_FUNCTION uintptr_t startOfStructureHeap()
 {
     return g_jscConfig.startOfStructureHeap;
+}
+
+ALWAYS_INLINE PURE_FUNCTION uintptr_t sizeOfStructureHeap()
+{
+    return g_jscConfig.sizeOfStructureHeap;
 }
 
 ALWAYS_INLINE PURE_FUNCTION uintptr_t structureIDBase()

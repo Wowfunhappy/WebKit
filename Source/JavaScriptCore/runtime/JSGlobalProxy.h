@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/JSCJSValueCell.h>
 #include <JavaScriptCore/JSObject.h>
 
 namespace JSC {
@@ -91,5 +92,21 @@ protected:
 private:
     WriteBarrier<JSGlobalObject> m_target;
 };
+
+// Defined here rather than in JSCJSValue.h because it needs JSGlobalProxy to be complete.
+ALWAYS_INLINE bool isThisValueAltered(const PutPropertySlot& slot, JSObject* baseObject)
+{
+    JSValue thisValue = slot.thisValue();
+    if (thisValue == baseObject) [[likely]]
+        return false;
+
+    if (!thisValue.isObject())
+        return true;
+    JSObject* thisObject = asObject(thisValue);
+    // Only GlobalProxyType can be seen as the same to the original target object.
+    if (thisObject->type() == GlobalProxyType && static_cast<void*>(uncheckedDowncast<JSGlobalProxy>(thisObject)->target()) == static_cast<void*>(baseObject))
+        return false;
+    return true;
+}
 
 } // namespace JSC

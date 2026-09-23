@@ -126,8 +126,8 @@ private:
     bool showShareSheet(WebCore::ShareDataWithParsedURL&&, WTF::CompletionHandler<void(bool)>&&) override;
 
 #if ENABLE(WEB_AUTHN)
-    void showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
-    void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&&) override;
+    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
+    void dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&&) override;
 #endif
 
     WebCore::FloatRect convertToDeviceSpace(const WebCore::FloatRect&) override;
@@ -203,11 +203,13 @@ private:
 
     void showDictationAlternativeUI(const WebCore::FloatRect& boundingBoxOfDictatedText, WebCore::DictationContext) final;
 
-    void setEditableElementIsFocused(bool) override;
+    void setFocusedElementInputType(InputType) override;
 
     void scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID) override;
 
-    void didCommitMainFrameData(const MainFrameData&) override;
+#if HAVE(NSREFRESHCONTROLLER)
+    void topScrollStretchDidChange(CGFloat) override;
+#endif
 
     void registerInsertionUndoGrouping() override;
 
@@ -217,6 +219,7 @@ private:
     void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) override;
     void removePDFHUD(PDFPluginIdentifier) override;
     void removeAllPDFHUDs() override;
+    void showPDFHUD(PDFPluginIdentifier) final;
 #endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) gate (PDFs download on 10.9)
 
 #if ENABLE(FULLSCREEN_API)
@@ -243,7 +246,7 @@ private:
     void willBeginViewGesture() final;
     void didEndViewGesture() final;
 
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 
     void makeViewBlank(bool) final;
 
@@ -284,7 +287,6 @@ private:
 #endif
 
     RetainPtr<NSView> inspectorAttachmentView() override;
-    _WKRemoteObjectRegistry *remoteObjectRegistry() override;
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     WebCore::WebMediaSessionManager& mediaSessionManager() final;
@@ -294,9 +296,13 @@ private:
     void derefView() override;
 
     void pageDidScroll(const WebCore::IntPoint&) override;
+    void didEndSyntheticMomentumScrolling() override;
     void didRestoreScrollPosition() override;
     bool windowIsFrontWindowUnderMouse(const NativeWebMouseEvent&) override;
 
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    void didUpdateTransientZoomStateForScrollPocket(std::optional<TransientZoomState>) override;
+#endif
     std::optional<float> computeAutomaticTopObscuredInset() override;
 
     void takeFocus(WebCore::FocusDirection) override;
@@ -320,6 +326,10 @@ private:
     void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool, WebCore::IntRect) override;
 #endif
 
+#if ENABLE(WRITING_TOOLS)
+    void showWritingToolsAffordance() override;
+#endif // ENABLE(WRITING_TOOLS)
+
 #if ENABLE(DATA_DETECTION)
     void handleClickForDataDetectionResult(const WebCore::DataDetectorElementInfo&, const WebCore::IntPoint&) final;
 #endif
@@ -338,7 +348,7 @@ private:
 
     void positionInformationDidChange(const InteractionInformationAtPosition&) override;
 
-    bool isViewVisible(NSView *, NSWindow *);
+    bool isViewVisible(NSView *, NSWindow *) const final;
 
     WeakObjCPtr<NSView> m_view;
     WeakPtr<WebViewImpl> m_impl;

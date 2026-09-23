@@ -22,12 +22,6 @@ using namespace angle;
 
 namespace gl
 {
-
-// ES2 requires that format is equal to internal format at all glTex*Image2D entry points and the
-// implementation can decide the true, sized, internal format. The ES2FormatMap determines the
-// internal format for all valid format and type combinations.
-GLenum GetSizedFormatInternal(GLenum format, GLenum type);
-
 namespace
 {
 bool CheckedMathResult(const CheckedNumeric<GLuint> &value, GLuint *resultOut)
@@ -47,7 +41,7 @@ constexpr uint32_t PackTypeInfo(GLuint bytes, bool specialized)
 {
     // static_assert within constexpr requires c++17
     // static_assert(isPow2(bytes));
-    return bytes | (rx::Log2(bytes) << 8) | (specialized << 16);
+    return bytes | (log2(bytes) << 8) | (specialized << 16);
 }
 
 }  // anonymous namespace
@@ -427,11 +421,6 @@ GLenum InternalFormat::getReadPixelsType(const Version &version) const
         default:
             return type;
     }
-}
-
-bool InternalFormat::supportSubImage() const
-{
-    return !CompressedFormatRequiresWholeImage(internalFormat);
 }
 
 bool InternalFormat::isRequiredRenderbufferFormat(const Version &version) const
@@ -1081,6 +1070,18 @@ void AddYUVFormat(InternalFormatInfoMap *map,
 //
 // TODO(ynovikov): http://anglebug.com/42261549 Verify support fields of BGRA, depth, stencil
 // and compressed formats. Perform texturable check as part of filterable and attachment checks.
+static bool RequireRGBXSRGBSupport(const Version &clientVersion, const Extensions &extensions)
+{
+    return extensions.rgbxInternalFormatANGLE &&
+           (clientVersion >= Version(3, 0) || extensions.sRGBEXT);
+}
+
+static bool RequireBGRXSRGBSupport(const Version &clientVersion, const Extensions &extensions)
+{
+    return extensions.textureFormatBGRA8888EXT &&
+           (clientVersion >= Version(3, 0) || extensions.sRGBEXT);
+}
+
 static InternalFormatInfoMap BuildInternalFormatInfoMap()
 {
     InternalFormatInfoMap map;
@@ -1149,12 +1150,12 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     AddRGBAFormat(&map, GL_R10X6G10X6B10X6A10X6_UNORM_ANGLEX,   true, 10, 10, 10,  10, 0, GL_RGBA,    GL_UNSIGNED_SHORT,   GL_UNSIGNED_NORMALIZED, false, RequireES<3, 0>,                                    NeverSupported,  NeverSupported,                                    NeverSupported,                                NeverSupported);
 
     // Special format to emulate RGB8 with RGBA8 within ANGLE.
-    AddRGBAXFormat(&map, GL_RGBX8_ANGLE,      true,   FB< 8,  8,  8,  0, 8, 0>(), GL_RGB,          GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, false, AlwaysSupported,                                   AlwaysSupported, AlwaysSupported,                                   AlwaysSupported,                               NeverSupported);
-    AddRGBAXFormat(&map, GL_RGBX8_SRGB_ANGLEX,      true,   FB< 8,  8,  8,  0, 8, 0>(), GL_RGB,          GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, true, AlwaysSupported,                                   AlwaysSupported, AlwaysSupported,                                   AlwaysSupported,                               NeverSupported);
+    AddRGBAXFormat(&map, GL_RGBX8_ANGLE,      true,   FB< 8,  8,  8,  0, 8, 0>(), GL_RGB,          GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::rgbxInternalFormatANGLE>,   AlwaysSupported, RequireExt<&Extensions::rgbxInternalFormatANGLE>,   RequireExt<&Extensions::rgbxInternalFormatANGLE>, NeverSupported);
+    AddRGBAXFormat(&map, GL_RGBX8_SRGB_ANGLEX,      true,   FB< 8,  8,  8,  0, 8, 0>(), GL_RGB,          GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, true, RequireRGBXSRGBSupport,                            AlwaysSupported, RequireRGBXSRGBSupport,                            RequireRGBXSRGBSupport,                           NeverSupported);
 
     // Special format to emulate BGR8 with BGRA8 within ANGLE.
-    AddRGBAXFormat(&map, GL_BGRX8_ANGLEX,      true,  FB< 8,  8,  8,  0, 8, 0>(), GL_BGRA_EXT,     GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, false, NeverSupported,                                    AlwaysSupported,  NeverSupported,                                    NeverSupported,                                NeverSupported);
-    AddRGBAXFormat(&map, GL_BGRX8_SRGB_ANGLEX,      true,  FB< 8,  8,  8,  0, 8, 0>(), GL_BGRA_EXT,     GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, true, NeverSupported,                                    AlwaysSupported,  NeverSupported,                                    NeverSupported,                                NeverSupported);
+    AddRGBAXFormat(&map, GL_BGRX8_ANGLEX,      true,  FB< 8,  8,  8,  0, 8, 0>(), GL_BGRA_EXT,     GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::textureFormatBGRA8888EXT>, AlwaysSupported,  NeverSupported,                                    NeverSupported,                                NeverSupported);
+    AddRGBAXFormat(&map, GL_BGRX8_SRGB_ANGLEX,      true,  FB< 8,  8,  8,  0, 8, 0>(), GL_BGRA_EXT,     GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, true, RequireBGRXSRGBSupport,                           AlwaysSupported,  NeverSupported,                                    NeverSupported,                                NeverSupported);
 
     // This format is supported on ES 2.0 with two extensions, so keep it out-of-line to not widen the table above even more.
     //                 | Internal format     |sized| R | G | B | A |S | Format         | Type                             | Component type        | SRGB | Texture supported                                                                            | Filterable     | Texture attachment                               | Renderbuffer                                   | Blend
@@ -1181,7 +1182,7 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT32F,    true, 32, 0,  0, GL_DEPTH_COMPONENT, GL_FLOAT,                          GL_FLOAT,               RequireES<3, 0>,                                                                               RequireESOrExt<3, 0, &Extensions::depthTextureANGLE>,                                    RequireES<3, 0>,                                                                               RequireES<3, 0>,                                                                                             NeverSupported);
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT32_OES, true, 32, 0,  0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT,                   GL_UNSIGNED_NORMALIZED, RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,                 AlwaysSupported,                                                                         RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,                 RequireExtOrExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES, &Extensions::depth32OES>, NeverSupported);
     AddDepthStencilFormat(&map, GL_DEPTH24_STENCIL8,      true, 24, 8,  0, GL_DEPTH_STENCIL,   GL_UNSIGNED_INT_24_8,              GL_UNSIGNED_NORMALIZED, RequireESOrExtOrExt<3, 0, &Extensions::depthTextureANGLE, &Extensions::packedDepthStencilOES>, AlwaysSupported,                                                                         RequireESOrExtOrExt<3, 0, &Extensions::depthTextureANGLE, &Extensions::packedDepthStencilOES>, RequireESOrExtOrExt<3, 0, &Extensions::depthTextureANGLE, &Extensions::packedDepthStencilOES>,               NeverSupported);
-    AddDepthStencilFormat(&map, GL_DEPTH32F_STENCIL8,     true, 32, 8, 24, GL_DEPTH_STENCIL,   GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_FLOAT,               RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>,                                        AlwaysSupported,                                                                         RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>,                                        RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>,                                                      NeverSupported);
+    AddDepthStencilFormat(&map, GL_DEPTH32F_STENCIL8,     true, 32, 8, 24, GL_DEPTH_STENCIL,   GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_FLOAT,               RequireES<3, 0>,                                                                               AlwaysSupported,                                                                         RequireES<3, 0>,                                                                               RequireES<3, 0>,                                                                                             NeverSupported);
     // STENCIL_INDEX8 is special-cased, see around the bottom of the list.
 
     // Luminance alpha formats
@@ -1333,14 +1334,6 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     //                         | Internal format  |sized|D |S |X | Format          | Type            | Component type        | Texture supported                                    | Filterable    | Texture attachment                                   | Renderbuffer   | Blend
     AddDepthStencilFormat(&map, GL_STENCIL_INDEX8, true, 0, 8, 0, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, GL_UNSIGNED_NORMALIZED, RequireESOrExt<3, 2, &Extensions::textureStencil8OES>, NeverSupported, RequireESOrExt<3, 2, &Extensions::textureStencil8OES>, RequireES<1, 0>, NeverSupported);
 
-    // From GL_ANGLE_lossy_etc_decode
-    //                       | Internal format                                                |W |H |D |BS |CC| SRGB | Texture supported                      | Filterable     | Texture attachment | Renderbuffer  | Blend
-    AddCompressedFormat(&map, GL_ETC1_RGB8_LOSSY_DECODE_ANGLE,                                 4, 4, 1, 64, 3, false, RequireExt<&Extensions::lossyEtcDecodeANGLE>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
-    AddCompressedFormat(&map, GL_COMPRESSED_RGB8_LOSSY_DECODE_ETC2_ANGLE,                      4, 4, 1, 64, 3, false, RequireExt<&Extensions::lossyEtcDecodeANGLE>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
-    AddCompressedFormat(&map, GL_COMPRESSED_SRGB8_LOSSY_DECODE_ETC2_ANGLE,                     4, 4, 1, 64, 3, true,  RequireExt<&Extensions::lossyEtcDecodeANGLE>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
-    AddCompressedFormat(&map, GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_LOSSY_DECODE_ETC2_ANGLE,  4, 4, 1, 64, 3, false, RequireExt<&Extensions::lossyEtcDecodeANGLE>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
-    AddCompressedFormat(&map, GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_LOSSY_DECODE_ETC2_ANGLE, 4, 4, 1, 64, 3, true,  RequireExt<&Extensions::lossyEtcDecodeANGLE>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
-
     // From GL_EXT_texture_norm16
     //                 | Internal format    |sized| R | G | B | A |S | Format | Type             | Component type        | SRGB | Texture supported                        | Filterable     | Texture attachment                                                          | Renderbuffer                                                                | Blend
     AddRGBAFormat(&map, GL_R16_EXT,          true, 16,  0,  0,  0, 0, GL_RED,  GL_UNSIGNED_SHORT, GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::textureNorm16EXT>, AlwaysSupported, RequireExt<&Extensions::textureNorm16EXT>,                                    RequireExt<&Extensions::textureNorm16EXT>,                                    RequireExt<&Extensions::textureNorm16EXT>);
@@ -1460,8 +1453,8 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
 
     // Non-standard YUV formats
     //                 | Internal format                             | sized | Cr | Y | Cb | A | S | Format                              | Type            | Comp                  | SRGB | Texture supported                                       | Filterable                                              | Texture attachment                                      | Renderbuffer  | Blend
-    AddYUVFormat(&map,  GL_G8_B8R8_2PLANE_420_UNORM_ANGLE,            true,   8,   8,  8,   0,  0,  GL_G8_B8R8_2PLANE_420_UNORM_ANGLE,    GL_UNSIGNED_BYTE, GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::yuvInternalFormatANGLE>,          RequireExt<&Extensions::yuvInternalFormatANGLE>,          RequireExt<&Extensions::yuvInternalFormatANGLE>,          NeverSupported, NeverSupported);
-    AddYUVFormat(&map,  GL_G8_B8_R8_3PLANE_420_UNORM_ANGLE,           true,   8,   8,  8,   0,  0,  GL_G8_B8_R8_3PLANE_420_UNORM_ANGLE,   GL_UNSIGNED_BYTE, GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::yuvInternalFormatANGLE>,          RequireExt<&Extensions::yuvInternalFormatANGLE>,          RequireExt<&Extensions::yuvInternalFormatANGLE>,          NeverSupported, NeverSupported);
+    AddYUVFormat(&map,  GL_G8_B8R8_2PLANE_420_UNORM_ANGLE,            true,   8,   8,  8,   0,  0,  GL_G8_B8R8_2PLANE_420_UNORM_ANGLE,    GL_UNSIGNED_BYTE, GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::yuvInternalFormatANGLE>,          RequireExt<&Extensions::yuvInternalFormatANGLE>,          NeverSupported,                                          NeverSupported, NeverSupported);
+    AddYUVFormat(&map,  GL_G8_B8_R8_3PLANE_420_UNORM_ANGLE,           true,   8,   8,  8,   0,  0,  GL_G8_B8_R8_3PLANE_420_UNORM_ANGLE,   GL_UNSIGNED_BYTE, GL_UNSIGNED_NORMALIZED, false, RequireExt<&Extensions::yuvInternalFormatANGLE>,          RequireExt<&Extensions::yuvInternalFormatANGLE>,          NeverSupported,                                          NeverSupported, NeverSupported);
 
     // clang-format on
 
@@ -1683,6 +1676,82 @@ const InternalFormat &GetInternalFormatInfo(GLenum internalFormat, GLenum type)
     return typeIter->second;
 }
 
+// Used by validation to determine if an internal format is internal to ANGLE and should not be
+// allowed for app use.
+bool IsAngleInternalFormat(GLenum internalFormat)
+{
+    switch (internalFormat)
+    {
+        case GL_A1RGB5_ANGLEX:
+        case GL_BGRX8_ANGLEX:
+        case GL_BGR565_ANGLEX:
+        case GL_BGRA4_ANGLEX:
+        case GL_BGR5_A1_ANGLEX:
+        case GL_BGRA8_SRGB_ANGLEX:
+        case GL_BGR10_A2_ANGLEX:
+        case GL_BGRX8_SRGB_ANGLEX:
+        case GL_RGBX8_SRGB_ANGLEX:
+        case GL_R10X6G10X6B10X6A10X6_UNORM_ANGLEX:
+        case GL_RGBA8_TYPELESS_ANGLEX:
+        case GL_RGBA8_TYPELESS_SRGB_ANGLEX:
+        case GL_BGRA8_TYPELESS_ANGLEX:
+        case GL_BGRA8_TYPELESS_SRGB_ANGLEX:
+        case GL_R8_SSCALED_ANGLEX:
+        case GL_RG8_SSCALED_ANGLEX:
+        case GL_RGB8_SSCALED_ANGLEX:
+        case GL_RGBA8_SSCALED_ANGLEX:
+        case GL_R8_USCALED_ANGLEX:
+        case GL_RG8_USCALED_ANGLEX:
+        case GL_RGB8_USCALED_ANGLEX:
+        case GL_RGBA8_USCALED_ANGLEX:
+        case GL_R16_SSCALED_ANGLEX:
+        case GL_RG16_SSCALED_ANGLEX:
+        case GL_RGB16_SSCALED_ANGLEX:
+        case GL_RGBA16_SSCALED_ANGLEX:
+        case GL_R16_USCALED_ANGLEX:
+        case GL_RG16_USCALED_ANGLEX:
+        case GL_RGB16_USCALED_ANGLEX:
+        case GL_RGBA16_USCALED_ANGLEX:
+        case GL_R32_SSCALED_ANGLEX:
+        case GL_RG32_SSCALED_ANGLEX:
+        case GL_RGB32_SSCALED_ANGLEX:
+        case GL_RGBA32_SSCALED_ANGLEX:
+        case GL_R32_USCALED_ANGLEX:
+        case GL_RG32_USCALED_ANGLEX:
+        case GL_RGB32_USCALED_ANGLEX:
+        case GL_RGBA32_USCALED_ANGLEX:
+        case GL_R32_SNORM_ANGLEX:
+        case GL_RG32_SNORM_ANGLEX:
+        case GL_RGB32_SNORM_ANGLEX:
+        case GL_RGBA32_SNORM_ANGLEX:
+        case GL_R32_UNORM_ANGLEX:
+        case GL_RG32_UNORM_ANGLEX:
+        case GL_RGB32_UNORM_ANGLEX:
+        case GL_RGBA32_UNORM_ANGLEX:
+        case GL_R32_FIXED_ANGLEX:
+        case GL_RG32_FIXED_ANGLEX:
+        case GL_RGB32_FIXED_ANGLEX:
+        case GL_RGBA32_FIXED_ANGLEX:
+        case GL_RGB10_A2_SINT_ANGLEX:
+        case GL_RGB10_A2_SNORM_ANGLEX:
+        case GL_RGB10_A2_SSCALED_ANGLEX:
+        case GL_RGB10_A2_USCALED_ANGLEX:
+        case GL_A2_RGB10_UNORM_ANGLEX:
+        case GL_A2_RGB10_SNORM_ANGLEX:
+        case GL_A2_RGB10_USCALED_ANGLEX:
+        case GL_A2_RGB10_SSCALED_ANGLEX:
+        case GL_X2_RGB10_UINT_ANGLEX:
+        case GL_X2_RGB10_SINT_ANGLEX:
+        case GL_X2_RGB10_USCALED_ANGLEX:
+        case GL_X2_RGB10_SSCALED_ANGLEX:
+        case GL_X2_RGB10_UNORM_ANGLEX:
+        case GL_X2_RGB10_SNORM_ANGLEX:
+            return true;
+        default:
+            return false;
+    }
+}
+
 GLuint InternalFormat::computePixelBytes(GLenum formatType) const
 {
     const auto &typeInfo = GetTypeInfo(formatType);
@@ -1749,7 +1818,8 @@ bool InternalFormat::computePalettedImageRowPitch(GLsizei width, GLuint *resultO
 }
 
 bool InternalFormat::computeRowDepthSkipBytes(GLenum formatType,
-                                              const Extents &area,
+                                              GLsizei width,
+                                              GLsizei height,
                                               const gl::PixelStoreStateBase &unpack,
                                               bool is3D,
                                               GLuint *rowPitchOut,
@@ -1757,13 +1827,14 @@ bool InternalFormat::computeRowDepthSkipBytes(GLenum formatType,
                                               GLuint *skipBytesOut) const
 {
     GLuint rowPitch = 0;
-    if (!computeRowPitch(formatType, area.width, unpack.alignment, unpack.rowLength, &rowPitch))
+    if (!computeRowPitch(formatType, width, unpack.alignment, unpack.rowLength, &rowPitch))
     {
         return false;
     }
+    // Compute depthPitch for 2D textures too. It is used to size the full texture uploads.
     GLuint depthPitch       = 0;
     const GLint imageHeight = is3D ? unpack.imageHeight : 0;
-    if (!computeDepthPitch(area.height, imageHeight, rowPitch, &depthPitch))
+    if (rowPitch > 0 && !computeDepthPitch(height, imageHeight, rowPitch, &depthPitch))
     {
         return false;
     }
@@ -1874,12 +1945,12 @@ bool InternalFormat::computeCompressedImageRowPitch(GLsizei width, GLuint *resul
 
     CheckedNumeric<GLuint> checkedWidth(width);
     CheckedNumeric<GLuint> checkedBlockWidth(compressedBlockWidth);
-    const GLuint minBlockWidth = getCompressedImageMinBlocks().first;
+    const GLuint minBlocks = getCompressedImageMinBlocks();
 
     auto numBlocksWide = (checkedWidth + checkedBlockWidth - 1u) / checkedBlockWidth;
-    if (numBlocksWide.IsValid() && numBlocksWide.ValueOrDie() < minBlockWidth)
+    if (numBlocksWide.IsValid() && numBlocksWide.ValueOrDie() < minBlocks)
     {
-        numBlocksWide = minBlockWidth;
+        numBlocksWide = minBlocks;
     }
     return CheckedMathResult(numBlocksWide * pixelBytes, resultOut);
 }
@@ -1889,17 +1960,17 @@ bool InternalFormat::computeCompressedImageDepthPitch(GLsizei height,
                                                       GLuint *resultOut) const
 {
     ASSERT(compressed);
-    ASSERT(rowPitch > 0 && rowPitch % pixelBytes == 0);
+    ASSERT(rowPitch % pixelBytes == 0);
 
     CheckedNumeric<GLuint> checkedHeight(height);
     CheckedNumeric<GLuint> checkedRowPitch(rowPitch);
     CheckedNumeric<GLuint> checkedBlockHeight(compressedBlockHeight);
-    const GLuint minBlockHeight = getCompressedImageMinBlocks().second;
+    const GLuint minBlocks = getCompressedImageMinBlocks();
 
     auto numBlocksHigh = (checkedHeight + checkedBlockHeight - 1u) / checkedBlockHeight;
-    if (numBlocksHigh.IsValid() && numBlocksHigh.ValueOrDie() < minBlockHeight)
+    if (numBlocksHigh.IsValid() && numBlocksHigh.ValueOrDie() < minBlocks)
     {
-        numBlocksHigh = minBlockHeight;
+        numBlocksHigh = minBlocks;
     }
     return CheckedMathResult(numBlocksHigh * checkedRowPitch, resultOut);
 }
@@ -1937,42 +2008,52 @@ bool InternalFormat::computeCompressedImageSize(const Extents &size, GLuint *res
     CheckedNumeric<GLuint> checkedBlockWidth(compressedBlockWidth);
     CheckedNumeric<GLuint> checkedBlockHeight(compressedBlockHeight);
     CheckedNumeric<GLuint> checkedBlockDepth(compressedBlockDepth);
-    GLuint minBlockWidth, minBlockHeight;
-    std::tie(minBlockWidth, minBlockHeight) = getCompressedImageMinBlocks();
+    const GLuint minBlocks = getCompressedImageMinBlocks();
 
     ASSERT(compressed);
     auto numBlocksWide = (checkedWidth + checkedBlockWidth - 1u) / checkedBlockWidth;
     auto numBlocksHigh = (checkedHeight + checkedBlockHeight - 1u) / checkedBlockHeight;
     auto numBlocksDeep = (checkedDepth + checkedBlockDepth - 1u) / checkedBlockDepth;
-    if (numBlocksWide.IsValid() && numBlocksWide.ValueOrDie() < minBlockWidth)
+    if (numBlocksWide.IsValid() && numBlocksWide.ValueOrDie() < minBlocks)
     {
-        numBlocksWide = minBlockWidth;
+        numBlocksWide = minBlocks;
     }
-    if (numBlocksHigh.IsValid() && numBlocksHigh.ValueOrDie() < minBlockHeight)
+    if (numBlocksHigh.IsValid() && numBlocksHigh.ValueOrDie() < minBlocks)
     {
-        numBlocksHigh = minBlockHeight;
+        numBlocksHigh = minBlocks;
     }
     auto bytes = numBlocksWide * numBlocksHigh * numBlocksDeep * pixelBytes;
     return CheckedMathResult(bytes, resultOut);
 }
 
-std::pair<GLuint, GLuint> InternalFormat::getCompressedImageMinBlocks() const
+bool InternalFormat::computeImageSize(const Extents &size, GLsizei samples, GLuint *resultOut) const
 {
-    GLuint minBlockWidth  = 0;
-    GLuint minBlockHeight = 0;
+    if (paletted || compressed)
+    {
+        ASSERT(samples == 0);
+        return computeCompressedImageSize(size, resultOut);
+    }
+    else
+    {
+        ASSERT(samples >= 0);
+        CheckedNumeric<GLuint> checkedImageSize(size.width);
+        checkedImageSize *= size.height;
+        checkedImageSize *= size.depth;
+        checkedImageSize *= pixelBytes;
+        checkedImageSize *= std::max(samples, 1);
+        return CheckedMathResult(checkedImageSize, resultOut);
+    }
+}
 
+GLuint InternalFormat::getCompressedImageMinBlocks() const
+{
     // Per the specification, a PVRTC block needs information from the 3 nearest blocks.
     // GL_IMG_texture_compression_pvrtc specifies the minimum size requirement in pixels, but
     // ANGLE's texture tables are written in terms of blocks. The 4BPP formats use 4x4 blocks, and
     // the 2BPP formats, 8x4 blocks. Therefore, both kinds of formats require a minimum of 2x2
     // blocks.
-    if (IsPVRTC1Format(internalFormat))
-    {
-        minBlockWidth  = 2;
-        minBlockHeight = 2;
-    }
 
-    return std::make_pair(minBlockWidth, minBlockHeight);
+    return IsPVRTC1Format(internalFormat) ? 2 : 0;
 }
 
 bool InternalFormat::computeSkipBytes(GLenum formatType,
@@ -1983,6 +2064,11 @@ bool InternalFormat::computeSkipBytes(GLenum formatType,
                                       GLuint skipImages,
                                       GLuint *resultOut) const
 {
+    if (compressed || paletted)
+    {
+        *resultOut = 0;
+        return true;
+    }
     auto skipBytes = CheckedNumeric<GLuint>{skipImages} * depthPitch +
                      CheckedNumeric<GLuint>{skipRows} * rowPitch +
                      CheckedNumeric<GLuint>{skipPixels} * computePixelBytes(formatType);
@@ -1998,8 +2084,8 @@ bool InternalFormat::computePackUnpackEndByte(GLenum formatType,
     GLuint rowPitch = 0;
     GLuint depthPitch = 0;
     GLuint skipBytes  = 0;
-    if (!computeRowDepthSkipBytes(formatType, size, state, is3D, &rowPitch, &depthPitch,
-                                  &skipBytes))
+    if (!computeRowDepthSkipBytes(formatType, size.width, size.height, state, is3D, &rowPitch,
+                                  &depthPitch, &skipBytes))
     {
         return false;
     }
@@ -2043,13 +2129,6 @@ GLenum GetUnsizedFormat(GLenum internalFormat)
     }
 
     return internalFormat;
-}
-
-bool CompressedFormatRequiresWholeImage(GLenum internalFormat)
-{
-    // List of compressed texture format that require that the sub-image size is equal to texture's
-    // respective mip level's size
-    return IsPVRTC1Format(internalFormat);
 }
 
 void MaybeOverrideLuminance(GLenum &format, GLenum &type, GLenum actualFormat, GLenum actualType)

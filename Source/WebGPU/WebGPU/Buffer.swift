@@ -34,20 +34,13 @@ extension WebGPU.Buffer {
     }
 }
 
-// FIXME(emw): Find a way to generate thunks like these, maybe via a macro?
-// FIXME: Eventually all these "thunks" should be removed.
-// swift-format-ignore: AlwaysUseLowerCamelCase
-// swift-format-ignore: AllPublicDeclarationsHaveDocumentation
 @_expose(Cxx)
-public func Buffer_copyFrom_thunk(_ buffer: WebGPU.Buffer, from data: WebGPU.SpanConstUInt8, offset: Int) {
+func bufferCopyFrom(_ buffer: WebGPU.Buffer, from data: WebGPU.SpanConstUInt8, offset: Int) {
     buffer.copy(from: unsafe Span<UInt8>(_unsafeCxxSpan: data), offset: offset)
 }
 
-// FIXME: Eventually all these "thunks" should be removed.
-// swift-format-ignore: AlwaysUseLowerCamelCase
-// swift-format-ignore: AllPublicDeclarationsHaveDocumentation
 @_expose(Cxx)
-public func Buffer_getMappedRange_thunk(_ buffer: WebGPU.Buffer, offset: Int, size: Int) -> WebGPU.SpanUInt8 {
+func bufferGetMappedRange(_ buffer: WebGPU.Buffer, offset: Int, size: Int) -> WebGPU.SpanUInt8 {
     unsafe buffer.getMappedRange(offset: offset, size: size)
 }
 

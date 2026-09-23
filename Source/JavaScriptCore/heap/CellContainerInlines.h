@@ -26,8 +26,8 @@
 #pragma once
 
 #include <JavaScriptCore/CellContainer.h>
-#include <JavaScriptCore/JSCast.h>
 #include <JavaScriptCore/MarkedBlock.h>
+#include <JavaScriptCore/MarkedBlockInlines.h>
 #include <JavaScriptCore/PreciseAllocation.h>
 #include <JavaScriptCore/VM.h>
 

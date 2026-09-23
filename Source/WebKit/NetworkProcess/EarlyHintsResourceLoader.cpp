@@ -31,6 +31,7 @@
 #include "PreconnectTask.h"
 #include "WebPageMessages.h"
 #include <WebCore/ContentSecurityPolicy.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <WebCore/LinkHeader.h>
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
@@ -65,7 +66,7 @@ void EarlyHintsResourceLoader::enqueueSecurityPolicyViolationEvent(SecurityPolic
 
 void EarlyHintsResourceLoader::handleEarlyHintsResponse(ResourceResponse&& response)
 {
-    RELEASE_ASSERT(response.httpStatusCode() == 103);
+    RELEASE_ASSERT(response.httpStatusCode() == httpStatus103EarlyHints);
 
     if (!m_loader)
         return;
@@ -127,7 +128,7 @@ void EarlyHintsResourceLoader::startPreconnectTask(const URL& baseURL, const Lin
         return;
 
     const auto& originalRequest = loader->originalRequest();
-    if (!contentSecurityPolicy.allowConnectToSource(url, ContentSecurityPolicy::RedirectResponseReceived::No, originalRequest.url()))
+    if (!contentSecurityPolicy.allowConnectToSource(url, { }, ContentSecurityPolicy::RedirectResponseReceived::No, originalRequest.url()))
         return;
 
     CheckedPtr networkSession = protect(loader->connectionToWebProcess())->networkSession();

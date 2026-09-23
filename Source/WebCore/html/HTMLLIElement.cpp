@@ -77,19 +77,14 @@ void HTMLLIElement::collectPresentationalHintsForAttribute(const QualifiedName& 
             addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueUpperRoman);
         else if (value == "1"_s)
             addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDecimal);
-        else {
-            auto valueLowerCase = value.convertToASCIILowercase();
-            if (valueLowerCase == "disc"_s)
-                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDisc);
-            else if (valueLowerCase == "circle"_s)
-                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueCircle);
-            else if (valueLowerCase == "round"_s)
-                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueRound);
-            else if (valueLowerCase == "square"_s)
-                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueSquare);
-            else if (valueLowerCase == "none"_s)
-                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueNone);
-        }
+        else if (equalLettersIgnoringASCIICase(value, "disc"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDisc);
+        else if (equalLettersIgnoringASCIICase(value, "circle"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueCircle);
+        else if (equalLettersIgnoringASCIICase(value, "square"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueSquare);
+        else if (equalLettersIgnoringASCIICase(value, "none"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueNone);
     } else if (name == valueAttr) {
         if (auto parsedValue = parseHTMLInteger(value))
             addPropertyToPresentationalHintStyle(style, CSSPropertyCounterSet, makeString("list-item "_s, *parsedValue));

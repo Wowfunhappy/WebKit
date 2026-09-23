@@ -31,8 +31,8 @@ namespace WebCore {
 
 template<typename> class ExceptionOr;
 
-using CSSColorRGBComp = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSKeywordValue>>;
-using RectifiedCSSColorRGBComp = Variant<Ref<CSSNumericValue>, Ref<CSSKeywordValue>>;
+using CSSColorRGBComp = Variant<double, Ref<CSSNumericValue>, String, Ref<CSSOMKeywordValue>>;
+using RectifiedCSSColorRGBComp = Variant<Ref<CSSNumericValue>, Ref<CSSOMKeywordValue>>;
 
 class CSSRGB final : public CSSOMColorValue {
     WTF_MAKE_TZONE_ALLOCATED(CSSRGB);

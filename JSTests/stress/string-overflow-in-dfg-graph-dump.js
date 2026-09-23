@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefault("--validateAbstractInterpreterState=1", "--jitPolicyScale=0", "--useConcurrentJIT=0")
 
 const s = 'A'.repeat(2**25 * 5);

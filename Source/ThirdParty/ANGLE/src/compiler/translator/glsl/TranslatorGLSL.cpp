@@ -7,13 +7,18 @@
 #include "compiler/translator/glsl/TranslatorGLSL.h"
 
 #include "angle_gl.h"
+#include "compiler/translator/BuiltInFunctionEmulator.h"
 #include "compiler/translator/glsl/BuiltInFunctionEmulatorGLSL.h"
 #include "compiler/translator/glsl/ExtensionGLSL.h"
 #include "compiler/translator/glsl/OutputGLSL.h"
 #include "compiler/translator/glsl/VersionGLSL.h"
+#include "compiler/translator/tree_ops/AddDefaultReturnStatements.h"
 #include "compiler/translator/tree_ops/MonomorphizeUnsupportedFunctions.h"
 #include "compiler/translator/tree_ops/PreTransformTextureCubeGradDerivatives.h"
+#include "compiler/translator/tree_ops/RemoveDynamicIndexing.h"
+#include "compiler/translator/tree_ops/RemoveInvariantDeclaration.h"
 #include "compiler/translator/tree_ops/RewriteTexelFetchOffset.h"
+#include "compiler/translator/tree_ops/glsl/ExpandFragmentOutputsToVec4.h"
 #include "compiler/translator/tree_ops/glsl/apple/RewriteRowMajorMatrices.h"
 
 namespace sh
@@ -23,27 +28,12 @@ TranslatorGLSL::TranslatorGLSL(sh::GLenum type, ShShaderSpec spec, ShShaderOutpu
     : TCompiler(type, spec, output)
 {}
 
-void TranslatorGLSL::initBuiltInFunctionEmulator(BuiltInFunctionEmulator *emu,
-                                                 const ShCompileOptions &compileOptions)
-{
-    if (compileOptions.emulateAbsIntFunction)
-    {
-        InitBuiltInAbsFunctionEmulatorForGLSLWorkarounds(emu, getShaderType());
-    }
-
-    if (compileOptions.emulateAtan2FloatFunction)
-    {
-        InitBuiltInAtanFunctionEmulatorForGLSLWorkarounds(emu);
-    }
-
-    int targetGLSLVersion = ShaderOutputTypeToGLSLVersion(getOutputType());
-    InitBuiltInFunctionEmulatorForGLSLMissingFunctions(emu, getShaderType(), targetGLSLVersion);
-}
-
 bool TranslatorGLSL::translate(TIntermBlock *root,
                                const ShCompileOptions &compileOptions,
                                PerformanceDiagnostics * /*perfDiagnostics*/)
 {
+    ASSERT(sh::IsGLSL150OrNewer(getOutputType()));
+
     TInfoSinkBase &sink = getInfoSink().obj;
 
     // Write GLSL version.
@@ -60,8 +50,16 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
     // variables. It should be harmless to do this twice in the case that the shader also explicitly
     // did this. However, it's important to emit invariant qualifiers only for those built-in
     // variables that are actually used, to avoid affecting the behavior of the shader.
-    if (compileOptions.flattenPragmaSTDGLInvariantAll && getPragma().stdgl.invariantAll &&
-        !sh::RemoveInvariant(getShaderType(), getShaderVersion(), getOutputType(), compileOptions))
+    const bool removeInvariant =
+        RemoveInvariant(getShaderType(), getShaderVersion(), getOutputType(), compileOptions);
+    if (removeInvariant)
+    {
+        if (!RemoveInvariantDeclaration(this, root))
+        {
+            return false;
+        }
+    }
+    else if (compileOptions.flattenPragmaSTDGLInvariantAll && getPragma().stdgl.invariantAll)
     {
         switch (getShaderType())
         {
@@ -101,6 +99,11 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
 
     if (!compileOptions.useIR)
     {
+        if (!sh::AddDefaultReturnStatements(this, root))
+        {
+            return false;
+        }
+
         // anglebug.com/42265954: The ESSL spec has a bug with images as function arguments. The
         // recommended workaround is to inline functions that accept image arguments.
         if (getShaderVersion() >= 310 &&
@@ -128,12 +131,41 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
         }
     }
 
+    if (compileOptions.removeDynamicIndexingOfSwizzledVector)
+    {
+        if (!sh::RemoveDynamicIndexingOfSwizzledVector(this, root, &getSymbolTable(), nullptr))
+        {
+            return false;
+        }
+    }
+    if (compileOptions.expandFragmentOutputsToVec4)
+    {
+        if (!ExpandFragmentOutputsToVec4(this, root, &getSymbolTable()))
+        {
+            return false;
+        }
+    }
+
     // Write emulated built-in functions if needed.
-    if (!getBuiltInFunctionEmulator().isOutputEmpty())
+    BuiltInFunctionEmulator builtInFunctionEmulator;
+    if (compileOptions.emulateAbsIntFunction)
+    {
+        InitBuiltInAbsFunctionEmulatorForGLSLWorkarounds(&builtInFunctionEmulator, getShaderType());
+    }
+    if (compileOptions.emulateAtan2FloatFunction)
+    {
+        InitBuiltInAtanFunctionEmulatorForGLSLWorkarounds(&builtInFunctionEmulator);
+    }
+    int targetGLSLVersion = ShaderOutputTypeToGLSLVersion(getOutputType());
+    InitBuiltInFunctionEmulatorForGLSLMissingFunctions(&builtInFunctionEmulator, getShaderType(),
+                                                       targetGLSLVersion);
+    builtInFunctionEmulator.markBuiltInFunctionsForEmulation(root);
+
+    if (!builtInFunctionEmulator.isOutputEmpty())
     {
         sink << "// BEGIN: Generated code for built-in function emulation\n\n";
         sink << "#define emu_precision\n\n";
-        getBuiltInFunctionEmulator().outputEmulatedFunctions(sink);
+        builtInFunctionEmulator.outputEmulatedFunctions(sink);
         sink << "// END: Generated code for built-in function emulation\n\n";
     }
 
@@ -144,7 +176,6 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
         const bool mayHaveESSL1SecondaryOutputs =
             IsExtensionEnabled(getExtensionBehavior(), TExtension::EXT_blend_func_extended) &&
             getShaderVersion() == 100;
-        const bool declareGLFragmentOutputs = IsGLSL130OrNewer(getOutputType());
 
         bool hasGLFragColor          = false;
         bool hasGLFragData           = false;
@@ -153,20 +184,17 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
 
         for (const auto &outputVar : mOutputVariables)
         {
-            if (declareGLFragmentOutputs)
+            if (outputVar.name == "gl_FragColor")
             {
-                if (outputVar.name == "gl_FragColor")
-                {
-                    ASSERT(!hasGLFragColor);
-                    hasGLFragColor = true;
-                    continue;
-                }
-                else if (outputVar.name == "gl_FragData")
-                {
-                    ASSERT(!hasGLFragData);
-                    hasGLFragData = true;
-                    continue;
-                }
+                ASSERT(!hasGLFragColor);
+                hasGLFragColor = true;
+                continue;
+            }
+            else if (outputVar.name == "gl_FragData")
+            {
+                ASSERT(!hasGLFragData);
+                hasGLFragData = true;
+                continue;
             }
             if (mayHaveESSL1SecondaryOutputs)
             {
@@ -233,23 +261,18 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
 
 bool TranslatorGLSL::shouldFlattenPragmaStdglInvariantAll()
 {
-    // Required when outputting to any GLSL version greater than 1.20, but since ANGLE doesn't
-    // translate to that version, return true for the next higher version.
-    return IsGLSL130OrNewer(getOutputType());
+    // Required when outputting to any GLSL version greater than 1.20, but since ANGLE always
+    // translates to at least version 1.50, return true.
+    return true;
 }
 
 void TranslatorGLSL::writeVersion(TIntermNode *root)
 {
-    TVersionGLSL versionGLSL(getShaderType(), getPragma(), getOutputType());
-    root->traverse(&versionGLSL);
-    int version = versionGLSL.getVersion();
-    // We need to write version directive only if it is greater than 110.
-    // If there is no version directive in the shader, 110 is implied.
-    if (version > 110)
-    {
-        TInfoSinkBase &sink = getInfoSink().obj;
-        sink << "#version " << version << "\n";
-    }
+    int version = ShaderOutputTypeToGLSLVersion(getOutputType());
+    ASSERT(version >= GLSL_VERSION_150);
+
+    TInfoSinkBase &sink = getInfoSink().obj;
+    sink << "#version " << version << "\n";
 }
 
 void TranslatorGLSL::writeExtensionBehavior(TIntermNode *root,
@@ -266,30 +289,6 @@ void TranslatorGLSL::writeExtensionBehavior(TIntermNode *root,
         if (iter.second == EBhUndefined)
         {
             continue;
-        }
-
-        if (getOutputType() == SH_GLSL_COMPATIBILITY_OUTPUT)
-        {
-            // For GLSL output, we don't need to emit most extensions explicitly,
-            // but some we need to translate in GL compatibility profile.
-            if (iter.first == TExtension::EXT_shader_texture_lod)
-            {
-                sink << "#extension GL_ARB_shader_texture_lod : " << GetBehaviorString(iter.second)
-                     << "\n";
-            }
-
-            if (iter.first == TExtension::EXT_draw_buffers)
-            {
-                sink << "#extension GL_ARB_draw_buffers : " << GetBehaviorString(iter.second)
-                     << "\n";
-            }
-
-            if (iter.first == TExtension::EXT_geometry_shader ||
-                iter.first == TExtension::OES_geometry_shader)
-            {
-                sink << "#extension GL_ARB_geometry_shader4 : " << GetBehaviorString(iter.second)
-                     << "\n";
-            }
         }
 
         const bool isMultiview =
@@ -381,7 +380,7 @@ void TranslatorGLSL::writeExtensionBehavior(TIntermNode *root,
     // Need to enable gpu_shader5 to have index constant sampler array indexing
     if (usesGPUShader5)
     {
-        if (getOutputType() >= SH_GLSL_COMPATIBILITY_OUTPUT &&
+        if (getOutputType() >= SH_GLSL_150_CORE_OUTPUT &&
             getOutputType() < SH_GLSL_400_CORE_OUTPUT && getShaderVersion() == 100)
         {
             // Don't use "require" on to avoid breaking WebGL 1 on drivers that silently
@@ -401,8 +400,7 @@ void TranslatorGLSL::writeExtensionBehavior(TIntermNode *root,
 
     if (usesTextureCubeMapArray)
     {
-        if (getOutputType() >= SH_GLSL_COMPATIBILITY_OUTPUT &&
-            getOutputType() < SH_GLSL_400_CORE_OUTPUT)
+        if (getOutputType() >= SH_GLSL_150_CORE_OUTPUT && getOutputType() < SH_GLSL_400_CORE_OUTPUT)
         {
             sink << "#extension GL_ARB_texture_cube_map_array : enable\n";
         }
@@ -415,8 +413,7 @@ void TranslatorGLSL::writeExtensionBehavior(TIntermNode *root,
 
     if (usesTextureBuffer)
     {
-        if (getOutputType() >= SH_GLSL_COMPATIBILITY_OUTPUT &&
-            getOutputType() < SH_GLSL_400_CORE_OUTPUT)
+        if (getOutputType() >= SH_GLSL_150_CORE_OUTPUT && getOutputType() < SH_GLSL_400_CORE_OUTPUT)
         {
             sink << "#extension GL_ARB_texture_buffer_objects : enable\n";
         }

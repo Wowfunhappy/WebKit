@@ -2,6 +2,7 @@
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
  * Copyright (C) 2004, 2005, 2006, 2008, 2019 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -74,10 +75,6 @@ enum class CSSUnitType : uint8_t {
     CSS_S,
     CSS_HZ,
     CSS_KHZ,
-    CSS_DIMENSION,
-    CSS_STRING,
-    CSS_IDENT,
-    CSS_ATTR,
 
     CSS_VW,
     CSS_VH,
@@ -122,8 +119,6 @@ enum class CSSUnitType : uint8_t {
     CSS_LH,
     CSS_RLH,
 
-    CustomIdent,
-
     CSS_TURN,
     CSS_REM,
     CSS_REX,
@@ -138,11 +133,6 @@ enum class CSSUnitType : uint8_t {
     CSS_CALC_PERCENTAGE_WITH_ANGLE,
     CSS_CALC_PERCENTAGE_WITH_LENGTH,
 
-    CSS_FONT_FAMILY,
-
-    CSS_PROPERTY_ID,
-    CSS_VALUE_ID,
-    
     // This value is used to handle quirky margins in reflow roots (body, td, and th) like WinIE.
     // The basic idea is that a stylesheet can use the value __qem (for quirky em) instead of em.
     // When the quirky value is used, if you're in quirks mode, the margin will collapse away
@@ -169,8 +159,9 @@ enum class CSSUnitCategory : uint8_t {
 CSSUnitCategory NODELETE unitCategory(CSSUnitType);
 CSSUnitType NODELETE canonicalUnitTypeForCategory(CSSUnitCategory);
 CSSUnitType NODELETE canonicalUnitTypeForUnitType(CSSUnitType);
-double NODELETE conversionToCanonicalUnitsScaleFactor(CSSUnitType);
+std::optional<double> NODELETE conversionToCanonicalUnitsScaleFactor(CSSUnitType);
 bool NODELETE conversionToCanonicalUnitRequiresConversionData(CSSUnitType);
+ASCIILiteral unitTypeString(CSSUnitType);
 
 WTF::TextStream& operator<<(WTF::TextStream&, CSSUnitCategory);
 WTF::TextStream& operator<<(WTF::TextStream&, CSSUnitType);

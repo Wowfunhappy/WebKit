@@ -26,9 +26,6 @@
 #include "config.h"
 #include <wtf/Language.h>
 
-#include <CoreFoundation/CoreFoundation.h>
-#include <mutex>
-#include <unicode/uloc.h>
 #include <wtf/Assertions.h>
 #include <wtf/Logging.h>
 #include <wtf/RetainPtr.h>

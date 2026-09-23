@@ -169,6 +169,7 @@ public:
     void setHasTailCalls() { m_hasTailCalls = true; }
     bool allowDirectEvalCache() const { return !(m_features & NoEvalCacheFeature); }
     bool usesImportMeta() const { return m_features & ImportMetaFeature; }
+    bool isBuiltinDefaultClassConstructor() const { return m_isBuiltinDefaultClassConstructor; }
 
     bool hasExpressionInfo() { return !m_expressionInfo->isEmpty(); }
 
@@ -224,8 +225,8 @@ public:
     unsigned jumpTarget(int index) const { return m_jumpTargets[index]; }
     unsigned lastJumpTarget() const { return m_jumpTargets.last(); }
 
-    UnlinkedHandlerInfo* handlerForBytecodeIndex(BytecodeIndex, RequiredHandler = RequiredHandler::AnyHandler);
-    UnlinkedHandlerInfo* handlerForIndex(unsigned, RequiredHandler = RequiredHandler::AnyHandler);
+    UnlinkedHandlerInfo* NODELETE handlerForBytecodeIndex(BytecodeIndex, RequiredHandler = RequiredHandler::AnyHandler);
+    UnlinkedHandlerInfo* NODELETE handlerForIndex(unsigned, RequiredHandler = RequiredHandler::AnyHandler);
 
     bool isBuiltinFunction() const { return m_isBuiltinFunction; }
 
@@ -339,7 +340,7 @@ public:
         return PrivateBrandRequirement::None;
     }
 
-    void dump(PrintStream&) const;
+    void NODELETE dump(PrintStream&) const;
 
     BytecodeLivenessAnalysis& livenessAnalysis(CodeBlock* codeBlock)
     {
@@ -385,7 +386,7 @@ public:
     bool hasIdentifier(UniquedStringImpl*);
 #endif
 
-    int32_t thresholdForJIT(int32_t threshold);
+    int32_t NODELETE thresholdForJIT(int32_t threshold);
 
 protected:
     UnlinkedCodeBlock(VM&, Structure*, CodeType, const ExecutableInfo&, OptionSet<CodeGenerationMode>);
@@ -424,6 +425,7 @@ private:
     unsigned m_hasCapturedVariables : 1;
 
     unsigned m_isBuiltinFunction : 1;
+    unsigned m_isBuiltinDefaultClassConstructor : 1;
     unsigned m_superBinding : 1;
     unsigned m_scriptMode: 1;
     unsigned m_isArrowFunctionContext : 1;
@@ -477,7 +479,7 @@ public:
     struct RareData {
         WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(RareData, UnlinkedCodeBlock_RareData);
 
-        size_t sizeInBytes(const AbstractLocker&) const;
+        size_t NODELETE sizeInBytes(const AbstractLocker&) const;
 
         FixedVector<UnlinkedHandlerInfo> m_exceptionHandlers;
 

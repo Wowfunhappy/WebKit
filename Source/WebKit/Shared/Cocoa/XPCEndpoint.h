@@ -28,15 +28,15 @@
 #ifdef __cplusplus
 
 #include <WebKit/WKBase.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/darwin/XPCExtras.h>
 #include <wtf/darwin/XPCObjectPtr.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace WebKit {
 
-class XPCEndpoint {
+class XPCEndpoint : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<XPCEndpoint, WTF::DestructionThread::MainRunLoop> {
 public:
-    WK_EXPORT XPCEndpoint();
     virtual ~XPCEndpoint() = default;
 
     WK_EXPORT void sendEndpointToConnection(xpc_connection_t);
@@ -44,6 +44,9 @@ public:
     WK_EXPORT OSObjectPtr<xpc_endpoint_t> endpoint() const;
 
     static constexpr auto xpcMessageNameKey = "message-name"_s;
+
+protected:
+    WK_EXPORT XPCEndpoint();
 
 private:
     virtual ASCIILiteral xpcEndpointMessageNameKey() const = 0;

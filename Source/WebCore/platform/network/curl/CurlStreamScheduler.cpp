@@ -26,6 +26,7 @@
 #include "config.h"
 #include "CurlStreamScheduler.h"
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/Threading.h>
 
 #if USE(CURL)
 

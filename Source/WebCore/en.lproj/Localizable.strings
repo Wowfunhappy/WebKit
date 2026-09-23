@@ -7,6 +7,9 @@
 /* accessibility help text for media controller time value >= 60 seconds */
 "%1$d minutes %2$d seconds" = "%1$d minutes %2$d seconds";
 
+/* Label for PDF page number indicator. */
+"%1$d of %2$d" = "%1$d of %2$d";
+
 /* accessibility help text for media controller time value < 60 seconds */
 "%1$d seconds" = "%1$d seconds";
 
@@ -40,6 +43,9 @@
 /* Forced text track display name format that includes the language and/or locale (e.g. 'English Forced'). */
 "%@ Forced (text track)" = "%@ Forced";
 
+/* Generated text track display name format that includes the language and/or locale (e.g. 'English Generated'). */
+"%@ Generated (text track)" = "%@ Generated";
+
 /* visible name of the GPU process. The argument is the application name. */
 "%@ Graphics and Media" = "%@ Graphics and Media";
 
@@ -64,9 +70,6 @@
 /* Visible name of the web process. The argument is the application name. */
 "%@ Web Content (Prewarmed)" = "%@ Web Content (Prewarmed)";
 
-/* Extension's process name that appears in Activity Monitor where the parameter is the name of the extension */
-"%s Web Extension" = "%s Web Extension";
-
 /* Visible name of Web Inspector's web process. The argument is the application name. */
 "%@ Web Inspector" = "%@ Web Inspector";
 
@@ -76,20 +79,11 @@
 /* The domain and application using the camera and/or microphone. The first argument is domain, the second is the application name (iOS only). */
 "%@ in %%@" = "%@ in %%@";
 
-/* Label for an inspectable Web Extension background page */
-"%s — Extension Background Page" = "%s— Extension Background Page";
-
 /* Label for an inspectable Web Extension popup page */
 "%@ — Extension Popup Page" = "%@ — Extension Popup Page";
 
-/* Label for an inspectable Web Extension service worker */
-"%s — Extension Service Worker" = "%s — Extension Service Worker";
-
 /* Label to describe the number of files selected in a file upload control that allows multiple files */
 "%d files" = "%d files";
-
-/* Label for PDF page number indicator. */
-"%1$d of %2$d" = "%1$d of %2$d";
 
 /* Codec Level (Codec Strings) */
 "%d.%d" = "%d.%d";
@@ -99,6 +93,15 @@
 
 /* window title for a standalone image (uses multiplication symbol, not x) */
 "%s %d×%d pixels" = "%s %d×%d pixels";
+
+/* Extension's process name that appears in Activity Monitor where the parameter is the name of the extension */
+"%s Web Extension" = "%s Web Extension";
+
+/* Label for an inspectable Web Extension background page */
+"%s — Extension Background Page" = "%s — Extension Background Page";
+
+/* Label for an inspectable Web Extension service worker */
+"%s — Extension Service Worker" = "%s — Extension Service Worker";
 
 /* Present the number of selected <option> items in a <select multiple> element (iOS only) */
 "%zu Items" = "%zu Items";
@@ -132,6 +135,9 @@
 
 /* WKErrorJavaScriptExceptionOccurred description */
 "A JavaScript exception occurred" = "A JavaScript exception occurred";
+
+/* WKWebExtensionContextErrorScriptExecutionError description */
+"A script error has occurred." = "A script error has occurred.";
 
 /* Codec Strings */
 "AAC-LC Codec String" = "AAC-LC";
@@ -286,14 +292,14 @@
 /* Cancel */
 "Cancel" = "Cancel";
 
+/* Cancel displaying QuickLook Preview of 3D object */
+"Cancel (QuickLook Preview)" = "Cancel";
+
 /* Button title in Device Orientation Permission API prompt */
 "Cancel (device motion and orientation access)" = "Cancel";
 
 /* Cancel displaying QuickLook Preview of 3D model */
 "Cancel (usdz QuickLook Preview)" = "Cancel";
-
-/* Cancel displaying QuickLook Preview of 3D object */
-"Cancel (QuickLook Preview)" = "Cancel";
 
 /* Title for Cancel button label in button bar */
 "Cancel button label in button bar" = "Cancel";
@@ -428,7 +434,7 @@
 "DAY (Date picker for extra zoom mode)" = "DAY";
 
 /* Base accessibility text for the window containing the date picker of <input type='date'> */
-"Date Picker Window Accessibility Title" = "date picker";
+"Date Picker Window Accessibility Title" = "Date Picker Window Accessibility Title";
 
 /* Phishing warning title */
 "Deceptive Website Warning" = "Deceptive Website Warning";
@@ -599,10 +605,7 @@
 "Exceeded maximum number of `declarative_net_request` rulesets. Ignoring extra rulesets." = "Exceeded maximum number of `declarative_net_request` rulesets. Ignoring extra rulesets.";
 
 /* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for too many enabled static rulesets */
-"Exceeded maximum number of enabled `declarative_net_request` static rulesets. The first %lu will be applied, the remaining will be ignored." = "Exceeded maximum number of enabled `declarative_net_request` static rulesets. The first %lu will be applied, the remaining will be ignored.";
-
-/* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for a duplicated rule id */
-"`declarative_net_request` ruleset with id `%@` duplicates the rule id `%@`." = "`declarative_net_request` ruleset with id `%@` duplicates the rule id `%@`.";
+"Exceeded maximum number of enabled `declarative_net_request` static rulesets. The first %zu will be applied, the remaining will be ignored." = "Exceeded maximum number of enabled `declarative_net_request` static rulesets. The first %zu will be applied, the remaining will be ignored.";
 
 /* Button for exiting full screen when in full screen media playback */
 "Exit Full Screen" = "Exit Full Screen";
@@ -634,6 +637,9 @@
 /* WKWebExtensionErrorInvalidActionIcon description for failing to load single image for browser_action or page_action */
 "Failed to load image for `default_icon` in the `browser_action` or `page_action` manifest entry." = "Failed to load image for `default_icon` in the `browser_action` or `page_action` manifest entry.";
 
+/* WKWebExtensionErrorInvalidManifestEntry description for icon with unsupported image format */
+"Failed to load image for path “%@”. The image is not in a supported format." = "Failed to load image for path “%@”. The image is not in a supported format.";
+
 /* WKWebExtensionErrorInvalidActionIcon description for failing to load images for action only */
 "Failed to load images in `default_icon` for the `action` manifest entry." = "Failed to load images in `default_icon` for the `action` manifest entry.";
 
@@ -661,12 +667,6 @@
 /* Default application name for Open With context menu */
 "Finder" = "Finder";
 
-/* Inspector element selection tooltip text for Flexbox containers. */
-"Flex (Inspector Element Selection)" = "Flex";
-
-/* Inspector element selection tooltip text for items inside a Flexbox Container. */
-"Flex Item (Inspector Element Selection)" = "Flex Item";
-
 /* Font context sub-menu item */
 "Font" = "Font";
 
@@ -685,20 +685,14 @@
 /* WebKitErrorFrameLoadInterruptedByPolicyChange description */
 "Frame load interrupted" = "Frame load interrupted";
 
+/* Display name for text track kind 'generated'. */
+"Generated (text track)" = "Generated";
+
 /* Title of the Go button for zoomed form controls. */
 "Go" = "Go";
 
 /* Action from safe browsing warning */
 "Go Back" = "Go Back";
-
-/* Google Safe Browsing */
-"Google Safe Browsing" = "Google Safe Browsing";
-
-/* Inspector element selection tooltip text for Grid containers. */
-"Grid (Inspector Element Selection)" = "Grid";
-
-/* Inspector element selection tooltip text for items inside a Grid Container. */
-"Grid Item (Inspector Element Selection)" = "Grid Item";
 
 /* Codec Strings */
 "HEVC (Codec String)" = "HEVC";
@@ -744,9 +738,6 @@
 
 /* WKWebExtensionMatchPatternErrorInvalidHost description for invalid or missing host */
 "Host \"%s\" is invalid." = "Host \"%s\" is invalid.";
-
-/* Phishing warning description */
-"This website was reported as deceptive by %provider-display-name%. If you believe this website is safe, you can %report-an-error% to %provider%. Or, if you understand the risks involved, you can %bypass-link%." = "This website was reported as deceptive by %provider-display-name%. If you believe this website is safe, you can %report-an-error% to %provider%. Or, if you understand the risks involved, you can %bypass-link%.";
 
 /* Action from safe browsing warning */
 "If you understand the risks involved, you can %visit-this-unsafe-site-link%." = "If you understand the risks involved, you can %visit-this-unsafe-site-link%.";
@@ -811,7 +802,7 @@
 /* Undo action name */
 "Italics (Undo action name)" = "Italics";
 
-/* Inspector Grid/Flex Item DOM order label */
+/* Inspector Grid Item DOM order label */
 "Item %lu" = "Item %lu";
 
 /* WebKitErrorJavaUnavailable description */
@@ -925,6 +916,9 @@
 /* Codec Strings */
 "Level 7.3 (AV1 Codec Level)" = "Level 7.3";
 
+/* Codec Strings */
+"Level Maximum (AV1 Codec Level)" = "Level Maximum";
+
 /* Media controller status message when watching a live broadcast */
 "Live Broadcast" = "Live Broadcast";
 
@@ -941,7 +935,7 @@
 "Local documents on your computer" = "Local documents on your computer";
 
 /* Lockdown Mode alert title */
-"Lockdown Mode is Turned On For “%@“" = "Lockdown Mode is Turned On For “%@“";
+"Lockdown Mode is Turned On For “%@”" = "Lockdown Mode is Turned On For “%@”";
 
 /* Title for Look Up action button */
 "Look Up" = "Look Up";
@@ -1000,11 +994,11 @@
 /* Malware warning title */
 "Malware Website Warning" = "Malware Website Warning";
 
-/* Media Element Source Type */
-"ManagedMediaSource (Media Element Source Type)" = "Managed Media Source";
-
 /* Subtitle Styles Submenu Link to System Preferences */
 "Manage Styles (Caption Style Menu Title)" = "Manage Styles";
+
+/* Media Element Source Type */
+"ManagedMediaSource (Media Element Source Type)" = "Managed Media Source";
 
 /* WKWebExtensionErrorInvalidBackgroundContent description for empty or invalid preferred environment key */
 "Manifest `background` entry has an empty or invalid `preferred_environment` key." = "Manifest `background` entry has an empty or invalid `preferred_environment` key.";
@@ -1018,8 +1012,8 @@
 /* WKWebExtensionErrorInvalidBackgroundContent description for missing background service_worker or scripts keys */
 "Manifest `background` entry has missing or empty required `service_worker` or `scripts` key for `preferred_environment` of `service_worker`." = "Manifest `background` entry has missing or empty required `service_worker` or `scripts` key for `preferred_environment` of `service_worker`.";
 
-/* WKWebExtensionErrorInvalidContentScripts description for missing or empty 'js' and 'css' arrays */
-"Manifest `content_scripts` entry has missing or empty 'js' and 'css' arrays." = "Manifest `content_scripts` entry has missing or empty 'js' and 'css' arrays.";
+/* WKWebExtensionErrorInvalidContentScripts description for missing or empty `js` and `css` arrays */
+"Manifest `content_scripts` entry has missing or empty `js` and `css` arrays." = "Manifest `content_scripts` entry has missing or empty `js` and `css` arrays.";
 
 /* WKWebExtensionErrorInvalidContentScripts description for missing matches entry */
 "Manifest `content_scripts` entry has no specified `matches` entry." = "Manifest `content_scripts` entry has no specified `matches` entry.";
@@ -1156,17 +1150,11 @@
 /* Title for Open in External Application Link action button */
 "Open in “%@”" = "Open in “%@”";
 
-/* context menu item for PDF */
+/* Open with default PDF viewer context menu item */
 "Open with %@" = "Open with %@";
-
-/* Open with Preview context menu item */
-"Open with Preview" = "Open with Preview";
 
 /* Codec Strings */
 "Opus Codec String" = "Opus";
-
-/* Inspector Grid/Flex Item CSS order property label */
-"order: %d" = "order: %d";
 
 /* Label for the order with Apple Pay button. */
 "Order with Apple Pay" = "Order with Apple Pay";
@@ -1318,6 +1306,9 @@
 /* Display name for SDH (i.e. deaf and/or hard of hearing) text tracks. */
 "SDH (text track)" = "SDH";
 
+/* Label for Spatial Photos with image controls next to spatial glyph */
+"SPATIAL" = "SPATIAL";
+
 /* Title for Save to Photos action button */
 "Save to Photos" = "Save to Photos";
 
@@ -1417,14 +1408,11 @@
 /* Smart Links context menu item */
 "Smart Links" = "Smart Links";
 
-/* Smart Quotes context menu item */
-"Smart Quotes" = "Smart Quotes";
-
 /* Smart Lists context menu item */
 "Smart Lists" = "Smart Lists";
 
-/* Label for Spatial Photos with image controls next to spatial glyph */
-"SPATIAL" = "SPATIAL";
+/* Smart Quotes context menu item */
+"Smart Quotes" = "Smart Quotes";
 
 /* Speech context sub-menu item */
 "Speech" = "Speech";
@@ -1465,11 +1453,11 @@
 /* Label for strong password. */
 "Strong Password" = "Strong Password";
 
-/* Styles context menu item */
-"Styles…" = "Styles…";
-
 /* Subtitles media controls menu title */
 "Styles (Media Controls Menu)" = "Styles";
+
+/* Styles context menu item */
+"Styles…" = "Styles…";
 
 /* default label for Submit buttons in forms on web pages */
 "Submit" = "Submit";
@@ -1515,9 +1503,6 @@
 
 /* Validation message for required switches that are not on */
 "Tap this switch" = "Tap this switch";
-
-/* Tencent Safe Browsing */
-"Tencent Safe Browsing" = "Tencent Safe Browsing";
 
 /* Text Replacement context menu item */
 "Text Replacement" = "Text Replacement";
@@ -1576,14 +1561,17 @@
 /* Title when a PDF needs a password to be unlocked */
 "This document is password protected." = "This document is password protected.";
 
+/* Description HTML for frame unloaded by ResourceMonitor */
+"This frame is hidden for using too many system resources." = "This frame is hidden for using too many system resources.";
+
+/* Caption Style Preview String */
+"This is a preview style (Caption User Preferences)" = "This is a preview style";
+
 /* text that appears at the start of nearly-obsolete web pages in the form of a 'searchable index' */
 "This is a searchable index. Enter search keywords: " = "This is a searchable index. Enter search keywords: ";
 
 /* This is the %s subtitle style (Caption User Preferences) */
 "This is the %s subtitle style" = "This is the %s subtitle style";
-
-/* Caption Style Preview String */
-"This is a preview style" = "This is a preview style";
 
 /* Not Secure Connection warning text */
 "This website does not support connecting securely over HTTPS. The information you see and enter on this website, including credit cards, phone numbers, and passwords, can be read and altered by other people." = "This website does not support connecting securely over HTTPS. The information you see and enter on this website, including credit cards, phone numbers, and passwords, can be read and altered by other people.";
@@ -1596,6 +1584,9 @@
 
 /* Unwanted software warning */
 "This website may try to trick you into installing software that harms your browsing experience, like changing your settings without your permission or showing you unwanted ads. Once installed, it may be difficult to remove." = "This website may try to trick you into installing software that harms your browsing experience, like changing your settings without your permission or showing you unwanted ads. Once installed, it may be difficult to remove.";
+
+/* Phishing warning description */
+"This website was reported as deceptive by %provider-display-name%. If you believe this website is safe, you can %report-an-error% to %provider%. Or, if you understand the risks involved, you can %bypass-link%." = "This website was reported as deceptive by %provider-display-name%. If you believe this website is safe, you can %report-an-error% to %provider%. Or, if you understand the risks involved, you can %bypass-link%.";
 
 /* Message informing the user that the website will have approximate location data */
 "This website will use your approximate location because “%@” currently has access to your approximate location." = "This website will use your approximate location because “%@” currently has access to your approximate location.";
@@ -1663,14 +1654,20 @@
 /* accessibility role description for a URL field. */
 "URL field" = "URL field";
 
-/* WKWebExtensionErrorResourceNotFound description with file name */
-"Unable to find \"%@\" in the extension’s resources." = "Unable to find \"%@\" in the extension’s resources.";
-
-/* WKWebExtensionErrorResourceNotFound description with invalid file path */
-"Unable to find \"%@\" in the extension’s resources. It is an invalid path." = "Unable to find \"%@\" in the extension’s resources. It is an invalid path.";
-
 /* Error description for missing default_locale */
 "Unable to find `default_locale` in “_locales” folder." = "Unable to find `default_locale` in “_locales” folder.";
+
+/* WKWebExtensionErrorResourceNotFound description with file name */
+"Unable to find “%@” in the extension’s resources." = "Unable to find “%@” in the extension’s resources.";
+
+/* WKWebExtensionErrorResourceNotFound description with invalid file path */
+"Unable to find “%@” in the extension’s resources. It is an invalid path." = "Unable to find “%@” in the extension’s resources. It is an invalid path.";
+
+/* WKWebExtensionErrorResourceNotFound description with file name */
+"Unable to find “%s” in the extension’s resources." = "Unable to find “%s” in the extension’s resources.";
+
+/* WKWebExtensionErrorResourceNotFound description with invalid file path */
+"Unable to find “%s” in the extension’s resources. It is an invalid path." = "Unable to find “%s” in the extension’s resources. It is an invalid path.";
 
 /* WKWebExtensionErrorInvalidDeclarativeNetRequest description */
 "Unable to parse `declarativeNetRequest` rules because of an unexpected error." = "Unable to parse `declarativeNetRequest` rules because of an unexpected error.";
@@ -1685,7 +1682,7 @@
 "Unable to parse manifest: %s" = "Unable to parse manifest: %s";
 
 /* WKWebExtensionErrorInvalidResourceCodeSignature description with file name */
-"Unable to validate \"%@\" with the extension’s code signature. It likely has been modified since the extension was built." = "Unable to validate \"%@\" with the extension’s code signature. It likely has been modified since the extension was built.";
+"Unable to validate “%@” with the extension’s code signature. It likely has been modified since the extension was built." = "Unable to validate “%@” with the extension’s code signature. It likely has been modified since the extension was built.";
 
 /* Unacceptable TLS certificate error */
 "Unacceptable TLS certificate" = "Unacceptable TLS certificate";
@@ -1759,32 +1756,26 @@
 /* Validation message for input form controls with value higher than allowed maximum */
 "Value must be less than or equal to %s" = "Value must be less than or equal to %s";
 
-/* Title for View Spatial action button while in fullscreen */
-"View Spatial" = "View Spatial";
-
-/* Title for View Immersive action button while in fullscreen */
-"View Immersive" = "View Immersive";
-
-/* Allow displaying QuickLook Preview of 3D model */
-"View in AR (usdz QuickLook Preview)" = "View in AR";
-
-/* View in AR? */
-"View in AR?" = "View in AR?";
-
-/* View in AR? description */
-"You can view this object in 3D and place it in your surroundings using augmented reality." = "You can view this object in 3D and place it in your surroundings using augmented reality.";
-
 /* Allow displaying QuickLook Preview of 3D object */
 "View 3D Object (QuickLook Preview)" = "View 3D Object";
 
 /* View 3D Object? */
 "View 3D Object?" = "View 3D Object?";
 
-/* View 3D Object description */
-"You can see a preview of this object before viewing in 3D." = "You can see a preview of this object before viewing in 3D.";
+/* Title for View Immersive action button while in fullscreen */
+"View Immersive" = "View Immersive";
+
+/* Title for View Spatial action button while in fullscreen */
+"View Spatial" = "View Spatial";
 
 /* Title for View Spatial Photo action button */
 "View Spatial Photo" = "View Spatial Photo";
+
+/* Allow displaying QuickLook Preview of 3D model */
+"View in AR (usdz QuickLook Preview)" = "View in AR";
+
+/* View in AR? */
+"View in AR?" = "View in AR?";
 
 /* Codec Strings */
 "Vorbis Codec String" = "Vorbis";
@@ -1819,6 +1810,12 @@
 /* Year label in date picker */
 "YEAR (Date picker for extra zoom mode)" = "YEAR";
 
+/* You can see a preview of this object before viewing in 3D. */
+"You can see a preview of this object before viewing in 3D." = "You can see a preview of this object before viewing in 3D.";
+
+/* You can view this object in 3D and place it in your surroundings using augmented reality. */
+"You can view this object in 3D and place it in your surroundings using augmented reality." = "You can view this object in 3D and place it in your surroundings using augmented reality.";
+
 /* message in authentication panel */
 "Your login information will be sent securely." = "Your login information will be sent securely.";
 
@@ -1848,6 +1845,9 @@
 
 /* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for duplicate ruleset id */
 "`declarative_net_request` ruleset with id \"%s\" is invalid. Ruleset id must be unique." = "`declarative_net_request` ruleset with id \"%s\" is invalid. Ruleset id must be unique.";
+
+/* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for a duplicated rule id */
+"`declarative_net_request` ruleset with id `%@` duplicates the rule id `%@`." = "`declarative_net_request` ruleset with id `%@` duplicates the rule id `%@`.";
 
 /* Verb stating the action that will occur when a text field is selected, as used by accessibility */
 "activate" = "activate";
@@ -1960,14 +1960,26 @@
 /* accessibility role description for a file upload button */
 "file upload button" = "file upload button";
 
-/* accessibility role description for a footer */
-"footer" = "footer";
+/* Inspector element selection tooltip text for Flexbox containers. */
+"flex (Inspector Element Selection)" = "flex";
 
-/* accessibility role description for a form */
- "form" = "form";
+/* Inspector element selection tooltip text for items inside a Flexbox Container. */
+"flex item (Inspector Element Selection)" = "flex item";
+
+/* An ARIA accessibility group that acts as a form region. */
+"form" = "form";
 
 /* Web Push Notification string to indicate the name of the Web App/Web Site a notification was sent from, such as 'from Wikipedia' */
 "from %@" = "from %@";
+
+/* Inspector element selection tooltip text for Grid containers. */
+"grid (Inspector Element Selection)" = "grid";
+
+/* Inspector element selection tooltip text for items inside a Grid Container. */
+"grid item (Inspector Element Selection)" = "grid item";
+
+/* Inspector element selection tooltip text for Grid Lanes containers. */
+"grid lanes (Inspector Element Selection)" = "grid lanes";
 
 /* accessibility role description for headings */
 "heading" = "heading";
@@ -2065,6 +2077,9 @@
 /* The optimum value description for a meter element. */
 "optimal value" = "optimal value";
 
+/* Inspector Grid Item CSS order property label */
+"order: %d" = "order: %d";
+
 /* accessibility role description for an output element */
 "output" = "output";
 
@@ -2095,9 +2110,6 @@
 /* accessibility label for time remaining display */
 "remaining time" = "remaining time";
 
-/* prefix for announcing removed content in ARIA live regions */
-"removed" = "removed";
-
 /* Action from safe browsing warning */
 "report an error" = "report an error";
 
@@ -2112,6 +2124,12 @@
 
 /* accessibility label for seconds fields. */
 "seconds" = "seconds";
+
+/* accessibility role description for a footer */
+"section footer" = "section footer";
+
+/* accessibility role description for a header */
+"section header" = "section header";
 
 /* accessibility help text for jump back 30 seconds button */
 "seek movie back 30 seconds" = "seek movie back 30 seconds";
@@ -2128,12 +2146,6 @@
 /* accessibility role description for a horizontal rule [<hr>] */
 "separator" = "separator";
 
-/* accessibility role description for a footer region [<footer>] */
-"section footer" = "section footer";
-
-/* accessibility role description for a header region [<header>] */
-"section header" = "section header";
-
 /* accessibility label for show closed captions button */
 "show closed captions" = "show closed captions";
 
@@ -2148,6 +2160,9 @@
 
 /* Label for the strong password AutoFill button inside a text field. */
 "strong password AutoFill" = "strong password AutoFill";
+
+/* Inspector element selection tooltip text for Subgrid containers. */
+"subgrid (Inspector Element Selection)" = "subgrid";
 
 /* The suboptimal value description for a meter element. */
 "suboptimal value" = "suboptimal value";
@@ -2221,6 +2236,9 @@
 /* Message for requesting access to the device motion and orientation */
 "“%@” Would Like to Access Motion and Orientation" = "“%@” Would Like to Access Motion and Orientation";
 
+/* Full Screen Warning Banner Content Text */
+"“%@” is in full screen.\nSwipe down to exit." = "“%@” is in full screen.\nSwipe down to exit.";
+
 /* Allow the specified bundle to sign in to the specified website */
 "“%@” would like to sign in to “%@”." = "“%@” would like to sign in to “%@”.";
 
@@ -2230,11 +2248,6 @@
 /* Prompt for a webpage to request location access. The parameter is the domain for the webpage. */
 "“%@” would like to use your current location." = "“%@” would like to use your current location.";
 
-/* Full Screen Warning Banner Content Text */
-"”%@” is in full screen.\nSwipe down to exit." = "”%@” is in full screen.\nSwipe down to exit.";
-
 /* Option in segmented control for choosing list type in text editing */
 "•" = "•";
 
-/* Description HTML for frame unloaded by ResourceMonitor */
-"This frame is hidden for using too many system resources." = "This frame is hidden for using too many system resources.";

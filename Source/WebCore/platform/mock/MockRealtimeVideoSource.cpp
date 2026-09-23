@@ -143,10 +143,10 @@ const FontCascade& MockRealtimeVideoSource::DrawingState::statsFont()
 MockRealtimeVideoSource::MockRealtimeVideoSource(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&& hashSalts, std::optional<PageIdentifier> pageIdentifier)
     : RealtimeVideoCaptureSource(CaptureDevice { WTF::move(deviceID), CaptureDevice::DeviceType::Camera, WTF::move(name) }, WTF::move(hashSalts), pageIdentifier)
     , m_runLoop(RunLoop::create("WebKit::MockRealtimeVideoSource generateFrame runloop"_s))
-    , m_emitFrameTimer(m_runLoop.get(), "MockRealtimeVideoSource::EmitFrameTimer"_s, [weakThis = ThreadSafeWeakPtr { *this }]() {
+    , m_emitFrameTimer(makeUnique<RunLoop::Timer>(m_runLoop.get(), "MockRealtimeVideoSource::EmitFrameTimer"_s, [weakThis = ThreadSafeWeakPtr { *this }]() {
         if (RefPtr protectedThis = weakThis.get())
             protectedThis->generateFrame();
-      })
+      }))
     , m_deviceOrientation { VideoFrameRotation::None }
 {
     allMockRealtimeVideoSource().add(*this);
@@ -173,7 +173,7 @@ MockRealtimeVideoSource::MockRealtimeVideoSource(String&& deviceID, AtomString&&
 
 MockRealtimeVideoSource::~MockRealtimeVideoSource()
 {
-    m_runLoop->dispatch([] {
+    m_runLoop->dispatch([emitFrameTimer = std::exchange(m_emitFrameTimer, { })] {
         threadGlobalDataSingleton().destroy();
         RunLoop::currentSingleton().stop();
     });
@@ -266,14 +266,25 @@ const RealtimeMediaSourceCapabilities& MockRealtimeVideoSource::capabilities()
 
 auto MockRealtimeVideoSource::takePhotoInternal(PhotoSettings&&) -> Ref<TakePhotoNativePromise>
 {
+    if (m_isTakingPhoto)
+        return TakePhotoNativePromise::createAndReject("Already taking photo"_s);
+
     {
         Locker lock { m_imageBufferLock };
         invalidateDrawingState();
     }
 
+    m_isTakingPhoto = true;
     return invokeAsync(m_runLoop, [this, protectedThis = Ref { *this }] () mutable {
-        if (auto currentImage = generatePhoto())
+        auto currentImage = generatePhoto();
+        m_isTakingPhoto = false;
+
+        if (m_captureWasInterrupted.exchange(false))
+            return TakePhotoNativePromise::createAndReject("Capture interrupted by session reconfiguration"_s);
+
+        if (currentImage)
             return TakePhotoNativePromise::createAndResolve(std::make_pair(encodeData(WTF::move(currentImage), "image/png"_s, std::nullopt), "image/png"_s));
+
         return TakePhotoNativePromise::createAndReject("Failed to capture photo"_s);
     });
 }
@@ -394,7 +405,7 @@ void MockRealtimeVideoSource::applyFrameRateAndZoomWithPreset(double frameRate, 
     if (m_preset)
         setIntrinsicSize(m_preset->size());
     if (isProducingData())
-        m_emitFrameTimer.startRepeating(1_s / frameRate);
+        startCaptureTimer(frameRate);
 }
 
 IntSize MockRealtimeVideoSource::captureSize() const
@@ -439,7 +450,24 @@ void MockRealtimeVideoSource::settingsDidChange(OptionSet<RealtimeMediaSourceSet
 
 void MockRealtimeVideoSource::startCaptureTimer()
 {
-    m_emitFrameTimer.startRepeating(1_s / frameRate());
+    startCaptureTimer(frameRate());
+}
+
+void MockRealtimeVideoSource::startCaptureTimer(double frameRate)
+{
+    // m_emitFrameTimer fires on m_runLoop's thread, so it must be started and stopped there to avoid
+    // racing CFRunLoopTimerInvalidate() against an in-flight callback. Marshal both onto m_runLoop so
+    // they also stay ordered relative to each other.
+    m_runLoop->dispatch([this, protectedThis = Ref { *this }, interval = 1_s / frameRate] {
+        m_emitFrameTimer->startRepeating(interval);
+    });
+}
+
+void MockRealtimeVideoSource::stopCaptureTimer()
+{
+    m_runLoop->dispatch([this, protectedThis = Ref { *this }] {
+        m_emitFrameTimer->stop();
+    });
 }
 
 void MockRealtimeVideoSource::startProducingData()
@@ -456,7 +484,7 @@ void MockRealtimeVideoSource::startProducingData()
 
 void MockRealtimeVideoSource::stopProducingData()
 {
-    m_emitFrameTimer.stop();
+    stopCaptureTimer();
     m_elapsedTime += MonotonicTime::now() - m_startTime;
     m_startTime = MonotonicTime::nan();
 }
@@ -543,7 +571,7 @@ void MockRealtimeVideoSource::drawBoxes(GraphicsContext& context)
 
     boxTop += boxSize + 2;
     boxLeft = boxSize;
-    constexpr auto boxColors = std::to_array<SRGBA<uint8_t>>({ Color::white, Color::yellow, Color::cyan, Color::darkGreen, Color::magenta, Color::red, Color::blue });
+    constexpr auto boxColors = WTF::toArray<SRGBA<uint8_t>>({ Color::white, Color::yellow, Color::cyan, Color::darkGreen, Color::magenta, Color::red, Color::blue });
     for (auto& boxColor : boxColors) {
         context.fillRect(FloatRect(boxLeft, boxTop, boxSize + 1, boxSize + 1), boxColor);
         boxLeft += boxSize + 1;
@@ -782,7 +810,7 @@ void MockRealtimeVideoSource::setIsInterrupted(bool isInterrupted)
         if (!source->isProducingData())
             continue;
         if (isInterrupted)
-            source->m_emitFrameTimer.stop();
+            source->stopCaptureTimer();
         else
             source->startCaptureTimer();
         source->notifyMutedChange(isInterrupted);
@@ -809,6 +837,8 @@ void MockRealtimeVideoSource::triggerCameraConfigurationChange()
 void MockRealtimeVideoSource::startApplyingConstraints()
 {
     ASSERT(!m_beingConfigured);
+    if (m_isTakingPhoto)
+        m_captureWasInterrupted = true;
     m_beingConfigured = true;
 }
 

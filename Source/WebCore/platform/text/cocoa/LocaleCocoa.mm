@@ -83,9 +83,7 @@ LocaleCocoa::LocaleCocoa(const AtomString& locale)
     [m_gregorianCalendar setLocale:m_locale];
 }
 
-LocaleCocoa::~LocaleCocoa()
-{
-}
+LocaleCocoa::~LocaleCocoa() = default;
 
 RetainPtr<NSDateFormatter> LocaleCocoa::shortDateFormatter()
 {

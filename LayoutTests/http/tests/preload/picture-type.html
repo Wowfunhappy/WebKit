@@ -59,6 +59,15 @@
         shouldBeTrue("internals.isPreloaded('/resources/square20.jpg?13&preload');");
         shouldBeFalse("internals.isPreloaded('/resources/square20.jpg?13&bad');");
         shouldBeFalse("internals.isPreloaded('/resources/square20.jpg?13&invalid');");
+
+        shouldBeTrue("internals.isPreloaded('/resources/square20.jpg?14&preload');");
+        shouldBeFalse("internals.isPreloaded('/resources/square20.jpg?14');");
+
+        shouldBeTrue("internals.isPreloaded('/resources/square20.jpg?15&preload');");
+        shouldBeFalse("internals.isPreloaded('/resources/square20.jpg?15');");
+
+        shouldBeTrue("internals.isPreloaded('/resources/square20.jpg?16&preload');");
+        shouldBeFalse("internals.isPreloaded('/resources/square20.jpg?16');");
     }
 </script>
 <!-- Control group -->
@@ -126,6 +135,22 @@
     <source type="image/bad" media="(min-width: 1px)" srcset="/resources/square20.jpg?13&bad">
     <source type="image/invalid" media="(min-width: 1px)" srcset="/resources/square20.jpg?13&invalid">
     <img src="/resources/square20.jpg?13&preload">
+</picture>
+
+<!-- Empty type - should not be skipped -->
+<picture>
+    <source type="" srcset="/resources/square20.jpg?14&preload">
+    <img src="/resources/square20.jpg?14">
+</picture>
+<!-- Whitespace type - should not be skipped -->
+<picture>
+    <source type=" " srcset="/resources/square20.jpg?15&preload">
+    <img src="/resources/square20.jpg?15">
+</picture>
+<!-- Parameter-only type - empty after stripping params, should not be skipped -->
+<picture>
+    <source type=";params=only" srcset="/resources/square20.jpg?16&preload">
+    <img src="/resources/square20.jpg?16">
 </picture>
 
 </body>

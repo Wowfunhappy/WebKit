@@ -29,12 +29,14 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "InitDataRegistry.h"
+#include "ParsedContentType.h"
 #include "SharedBuffer.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <algorithm>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/StringView.h>
 
@@ -42,16 +44,32 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MockCDM);
 
+static WeakHashSet<MockCDMFactory>& allMockFactories()
+{
+    static NeverDestroyed<WeakHashSet<MockCDMFactory>> factories;
+    return factories;
+}
+
+void MockCDMFactory::unregisterAllMockFactories()
+{
+    for (auto& weakFactory : copyToVector(allMockFactories())) {
+        if (RefPtr factory = weakFactory.get())
+            factory->unregister();
+    }
+}
+
 MockCDMFactory::MockCDMFactory()
     : m_supportedSessionTypes({ MediaKeySessionType::Temporary, MediaKeySessionType::PersistentUsageRecord, MediaKeySessionType::PersistentLicense })
     , m_supportedEncryptionSchemes({ MediaKeyEncryptionScheme::cenc })
 {
     CDMFactory::registerFactory(*this);
+    allMockFactories().add(*this);
 }
 
 MockCDMFactory::~MockCDMFactory()
 {
     unregister();
+    allMockFactories().remove(*this);
 }
 
 void MockCDMFactory::unregister()
@@ -159,9 +177,24 @@ bool MockCDM::supportsConfiguration(const MediaKeySystemConfiguration& configura
 
 }
 
-bool MockCDM::supportsConfigurationWithRestrictions(const MediaKeySystemConfiguration&, const MediaKeysRestrictions&) const
+bool MockCDM::supportsConfigurationWithRestrictions(const MediaKeySystemConfiguration& configuration, const MediaKeysRestrictions&) const
 {
-    // NOTE: Implement;
+    if (!m_factory)
+        return true;
+
+    const auto& unsupportedVideoCodecs = m_factory->unsupportedVideoCodecs();
+    if (unsupportedVideoCodecs.isEmpty())
+        return true;
+
+    for (const auto& capability : configuration.videoCapabilities) {
+        auto contentType = ParsedContentType::create(capability.contentType);
+        if (!contentType)
+            continue;
+        auto codecs = contentType->parameterValueForName("codecs"_s);
+        if (!codecs.isEmpty() && unsupportedVideoCodecs.contains(codecs))
+            return false;
+    }
+
     return true;
 }
 

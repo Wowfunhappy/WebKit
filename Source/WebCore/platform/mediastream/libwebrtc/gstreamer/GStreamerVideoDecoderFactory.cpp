@@ -95,7 +95,7 @@ public:
         m_pipeline = makeElement("pipeline"_s);
         connectSimpleBusMessageCallback(m_pipeline.get());
 
-        auto clock = adoptGRef(gst_system_clock_obtain());
+        GRefPtr clock = adoptGRef(gst_system_clock_obtain());
         gst_pipeline_use_clock(GST_PIPELINE(m_pipeline.get()), clock.get());
         gst_element_set_base_time(m_pipeline.get(), 0);
         gst_element_set_start_time(m_pipeline.get(), GST_CLOCK_TIME_NONE);
@@ -105,7 +105,7 @@ public:
         // This is a decoder, everything should happen as fast as possible and not be synced on the clock.
         g_object_set(m_sink.get(), "sync", FALSE, nullptr);
 
-        auto sinkpad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
+        GRefPtr sinkpad = adoptGRef(gst_element_get_static_pad(m_sink.get(), "sink"));
         g_signal_connect(decoder, "pad-added", G_CALLBACK(decodebinPadAddedCb), sinkpad.get());
 
         auto& quirksManager = GStreamerQuirksManager::singleton();
@@ -131,7 +131,7 @@ public:
         if (m_requireParse) {
             caps = gst_caps_new_simple(mediaType(), "parsed", G_TYPE_BOOLEAN, TRUE, nullptr);
 
-            auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+            GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
             gst_bus_enable_sync_message_emission(bus.get());
             g_signal_connect_swapped(bus.get(), "sync-message::warning", G_CALLBACK(+[](GStreamerWebRTCVideoDecoder* decoder, GstMessage* message) {
                 GUniqueOutPtr<GError> error;
@@ -175,7 +175,7 @@ public:
             return WEBRTC_VIDEO_CODEC_OK;
 
         disconnectSimpleBusMessageCallback(m_pipeline.get());
-        auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+        GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
         gst_bus_disable_sync_message_emission(bus.get());
 
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
@@ -219,13 +219,13 @@ public:
         encodedData->AddRef();
         auto data = const_cast<uint8_t*>(encodedData->data());
         auto dataSize = encodedData->size();
-        auto buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, data, dataSize, 0, dataSize, static_cast<gpointer>(encodedData.get()), [](gpointer data) {
+        GRefPtr buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, data, dataSize, 0, dataSize, static_cast<gpointer>(encodedData.get()), [](gpointer data) {
             static_cast<webrtc::EncodedImageBufferInterface*>(data)->Release();
         }));
         if (!m_requireParse)
             gst_buffer_add_reference_timestamp_meta(buffer.get(), m_rtpTimestampCaps.get(), inputImage.RtpTimestamp(), GST_CLOCK_TIME_NONE);
 
-        auto sample = adoptGRef(gst_sample_new(buffer.get(), m_caps.get(), nullptr, nullptr));
+        GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), m_caps.get(), nullptr, nullptr));
         switch (gst_app_src_push_sample(GST_APP_SRC_CAST(m_src.get()), sample.get())) {
         case GST_FLOW_OK:
             break;
@@ -235,7 +235,7 @@ public:
             return WEBRTC_VIDEO_CODEC_ERROR;
         }
 
-        auto pulledSample = adoptGRef(gst_app_sink_try_pull_sample(GST_APP_SINK_CAST(m_sink.get()), GST_SECOND));
+        GRefPtr pulledSample = adoptGRef(gst_app_sink_try_pull_sample(GST_APP_SINK_CAST(m_sink.get()), GST_SECOND));
         if (!pulledSample) {
             GST_WARNING_OBJECT(pipeline(), "No decoded frame within timeout");
             return WEBRTC_VIDEO_CODEC_OK;

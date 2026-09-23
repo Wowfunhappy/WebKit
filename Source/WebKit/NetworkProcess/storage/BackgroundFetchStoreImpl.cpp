@@ -54,9 +54,7 @@ BackgroundFetchStoreImpl::BackgroundFetchStoreImpl(ThreadSafeWeakPtr<NetworkStor
 {
 }
 
-BackgroundFetchStoreImpl::~BackgroundFetchStoreImpl()
-{
-}
+BackgroundFetchStoreImpl::~BackgroundFetchStoreImpl() = default;
 
 String BackgroundFetchStoreImpl::getFilename(const ServiceWorkerRegistrationKey& key, const String& identifier)
 {

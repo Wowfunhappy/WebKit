@@ -30,7 +30,7 @@
 #include "config.h"
 #include "CSSTokenizerInputStream.h"
 
-#include "CSSTokenizer.h"
+#include "CSSParserIdioms.h"
 
 #include <wtf/NeverDestroyed.h>
 
@@ -62,7 +62,7 @@ void CSSTokenizerInputStream::advanceUntilNewlineOrNonWhitespace()
 {
     auto advance = [this](auto characters) {
         while (m_offset < m_stringLength && isASCIIWhitespace(characters[m_offset])) {
-            if (CSSTokenizer::isNewline(characters[m_offset]))
+            if (isCSSNewline(characters[m_offset]))
                 return;
             ++m_offset;
         }

@@ -33,7 +33,7 @@
 namespace WebCore {
 
 template <typename CharacterType>
-static inline size_t findSlashDotDotSlash(std::span<const CharacterType> characters, size_t position)
+static inline size_t NODELETE findSlashDotDotSlash(std::span<const CharacterType> characters, size_t position)
 {
     if (characters.size() < 4)
         return notFound;
@@ -46,7 +46,7 @@ static inline size_t findSlashDotDotSlash(std::span<const CharacterType> charact
 }
 
 template <typename CharacterType>
-static inline size_t findSlashSlash(std::span<const CharacterType> characters, size_t position)
+static inline size_t NODELETE findSlashSlash(std::span<const CharacterType> characters, size_t position)
 {
     if (characters.size() < 2)
         return notFound;
@@ -59,7 +59,7 @@ static inline size_t findSlashSlash(std::span<const CharacterType> characters, s
 }
 
 template <typename CharacterType>
-static inline size_t findSlashDotSlash(std::span<const CharacterType> characters, size_t position)
+static inline size_t NODELETE findSlashDotSlash(std::span<const CharacterType> characters, size_t position)
 {
     if (characters.size() < 3)
         return notFound;
@@ -72,7 +72,7 @@ static inline size_t findSlashDotSlash(std::span<const CharacterType> characters
 }
 
 template <typename CharacterType>
-static inline bool containsColonSlashSlash(std::span<const CharacterType> characters)
+static inline bool NODELETE containsColonSlashSlash(std::span<const CharacterType> characters)
 {
     if (characters.size() < 3)
         return false;
@@ -85,7 +85,7 @@ static inline bool containsColonSlashSlash(std::span<const CharacterType> charac
 }
 
 template <typename CharacterType>
-static inline void squeezeOutNullCharacters(Vector<CharacterType, 512>& string)
+static inline void NODELETE squeezeOutNullCharacters(Vector<CharacterType, 512>& string)
 {
     size_t size = string.size();
     size_t i = 0;
@@ -105,7 +105,7 @@ static inline void squeezeOutNullCharacters(Vector<CharacterType, 512>& string)
 }
 
 template <typename CharacterType>
-static void cleanSlashDotDotSlashes(Vector<CharacterType, 512>& path, size_t firstSlash)
+static void NODELETE cleanSlashDotDotSlashes(Vector<CharacterType, 512>& path, size_t firstSlash)
 {
     size_t slash = firstSlash;
     do {
@@ -125,7 +125,7 @@ static void cleanSlashDotDotSlashes(Vector<CharacterType, 512>& path, size_t fir
 }
 
 template <typename CharacterType>
-static void mergeDoubleSlashes(Vector<CharacterType, 512>& path, size_t firstSlash)
+static void NODELETE mergeDoubleSlashes(Vector<CharacterType, 512>& path, size_t firstSlash)
 {
     size_t refPos = find(path.span(), '#');
     if (!refPos || refPos == notFound)
@@ -144,7 +144,7 @@ static void mergeDoubleSlashes(Vector<CharacterType, 512>& path, size_t firstSla
 }
 
 template <typename CharacterType>
-static void cleanSlashDotSlashes(Vector<CharacterType, 512>& path, size_t firstSlash)
+static void NODELETE cleanSlashDotSlashes(Vector<CharacterType, 512>& path, size_t firstSlash)
 {
     size_t slash = firstSlash;
     do {
@@ -156,7 +156,7 @@ static void cleanSlashDotSlashes(Vector<CharacterType, 512>& path, size_t firstS
 }
 
 template <typename CharacterType>
-static inline void cleanPath(Vector<CharacterType, 512>& path)
+static inline void NODELETE cleanPath(Vector<CharacterType, 512>& path)
 {
     // FIXME: Should not do this in the query or anchor part of the URL.
     size_t firstSlash = findSlashDotDotSlash(path.span(), 0);
@@ -175,13 +175,13 @@ static inline void cleanPath(Vector<CharacterType, 512>& path)
 }
 
 template <typename CharacterType>
-static inline bool matchLetter(CharacterType c, char lowercaseLetter)
+static inline bool NODELETE matchLetter(CharacterType c, char lowercaseLetter)
 {
     return (c | 0x20) == lowercaseLetter;
 }
 
 template <typename CharacterType>
-static inline bool needsTrailingSlash(std::span<const CharacterType> characters)
+static inline bool NODELETE needsTrailingSlash(std::span<const CharacterType> characters)
 {
     if (characters.size() < 6)
         return false;
@@ -204,7 +204,7 @@ static inline bool needsTrailingSlash(std::span<const CharacterType> characters)
 }
 
 template <typename CharacterType>
-static ALWAYS_INLINE SharedStringHash computeSharedStringHashInline(std::span<const CharacterType> url)
+static ALWAYS_INLINE SharedStringHash NODELETE computeSharedStringHashInline(std::span<const CharacterType> url)
 {
     return AlreadyHashed::avoidDeletedValue(SuperFastHash::computeHash(url));
 }

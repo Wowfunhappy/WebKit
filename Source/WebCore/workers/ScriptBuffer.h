@@ -53,7 +53,7 @@ public:
     explicit operator bool() const { return !!m_buffer; }
     bool isEmpty() const { return m_buffer.isEmpty(); }
 
-    WEBCORE_EXPORT bool containsSingleFileMappedSegment() const;
+    WEBCORE_EXPORT bool NODELETE containsSingleFileMappedSegment() const;
     void append(const String&);
     void append(const FragmentedSharedBuffer&);
 

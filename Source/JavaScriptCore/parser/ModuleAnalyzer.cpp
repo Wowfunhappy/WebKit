@@ -27,6 +27,7 @@
 #include "ModuleAnalyzer.h"
 
 #include "IdentifierInlines.h"
+#include "JSCJSValueInlines.h"
 #include "JSGlobalObject.h"
 #include "JSModuleRecord.h"
 #include "ModuleScopeData.h"
@@ -40,11 +41,10 @@ ModuleAnalyzer::ModuleAnalyzer(JSGlobalObject* globalObject, const Identifier& m
 {
 }
 
-void ModuleAnalyzer::appendRequestedModule(const Identifier& specifier, RefPtr<ScriptFetchParameters>&& attributes)
+void ModuleAnalyzer::appendRequestedModule(const Identifier& specifier, RefPtr<ScriptFetchParameters>&& attributes, AbstractModuleRecord::ModulePhase phase)
 {
-    auto result = m_requestedModules.add(specifier.impl());
-    if (result.isNewEntry)
-        moduleRecord()->appendRequestedModule(specifier, WTF::move(attributes));
+    if (m_requestedModules[phase].add(specifier.impl()).isNewEntry)
+        moduleRecord()->appendRequestedModule(specifier, WTF::move(attributes), phase);
 }
 
 void ModuleAnalyzer::exportVariable(ModuleProgramNode& moduleProgramNode, const RefPtr<UniquedStringImpl>& localName, const VariableEnvironmentEntry& variable)
@@ -83,8 +83,12 @@ void ModuleAnalyzer::exportVariable(ModuleProgramNode& moduleProgramNode, const 
         // export { namespace }
         //
         // Sec 15.2.1.16.1 step 11-a-ii-2-b https://tc39.github.io/ecma262/#sec-parsemodule
-        for (auto& exportName : moduleProgramNode.moduleScopeData().exportedBindings().get(localName.get()))
-            moduleRecord()->addExportEntry(JSModuleRecord::ExportEntry::createNamespace(Identifier::fromUid(m_vm, exportName.get()), importEntry.moduleRequest));
+        for (auto& exportName : moduleProgramNode.moduleScopeData().exportedBindings().get(localName.get())) {
+            if (importEntry.phase == AbstractModuleRecord::ModulePhase::Defer)
+                moduleRecord()->addExportEntry(JSModuleRecord::ExportEntry::createLocal(Identifier::fromUid(m_vm, exportName.get()), Identifier::fromUid(m_vm, localName.get())));
+            else
+                moduleRecord()->addExportEntry(JSModuleRecord::ExportEntry::createNamespace(Identifier::fromUid(m_vm, exportName.get()), importEntry.moduleRequest));
+        }
         return;
     }
 
@@ -146,6 +150,8 @@ Expected<JSModuleRecord*, std::tuple<ErrorType, String>> ModuleAnalyzer::analyze
 
     for (const auto& pair : m_moduleRecord->lexicalVariables())
         exportVariable(moduleProgramNode, pair.key, pair.value);
+
+    m_moduleRecord->setHasTLA(moduleProgramNode.usesAwait());
 
     if (Options::dumpModuleRecord()) [[unlikely]]
         m_moduleRecord->dump();

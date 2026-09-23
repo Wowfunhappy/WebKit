@@ -29,7 +29,7 @@
 #include "InlineContentAligner.h"
 #include "InlineFormattingContext.h"
 #include "InlineLine.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <ranges>
 
 namespace WebCore {
@@ -172,7 +172,8 @@ size_t RubyFormattingContext::applyRubyAlignOnBaseContent(size_t rubyBaseStart, 
         return rubyBaseStart + 1;
 
     auto spaceToDistribute = annotationBoxLogicalWidth - baseContentLogicalWidth;
-    auto alignmentOffset = InlineContentAligner::applyRubyAlign(rubyBaseLayoutBox->style().rubyAlign(), line.runs(), { rubyBaseStart, rubyBaseEnd ? *rubyBaseEnd + 1 : runs.size() }, spaceToDistribute);
+    auto rangeSize = (rubyBaseEnd ? *rubyBaseEnd + 1 : runs.size()) - rubyBaseStart;
+    auto alignmentOffset = InlineContentAligner::applyRubyAlign(rubyBaseLayoutBox->style().rubyAlign(), runs.mutableSubspan(rubyBaseStart, rangeSize), spaceToDistribute);
     if (rubyBaseEnd) {
         // Reset the spacing we added at LineBuilder.
         auto& rubyBaseEndRun = runs[*rubyBaseEnd];
@@ -202,21 +203,21 @@ HashMap<const Box*, InlineLayoutUnit> RubyFormattingContext::applyRubyAlign(Line
 
 InlineLayoutUnit RubyFormattingContext::applyRubyAlignOnAnnotationBox(Line& line, InlineLayoutUnit spaceToDistribute, InlineFormattingContext& inlineFormattingContext)
 {
-    return InlineContentAligner::applyRubyAlign(inlineFormattingContext.root().style().rubyAlign(), line.runs(), { 0, line.runs().size() }, spaceToDistribute);
+    return InlineContentAligner::applyRubyAlign(inlineFormattingContext.root().style().rubyAlign(), line.runs().mutableSpan(), spaceToDistribute);
 }
 
-void RubyFormattingContext::applyAlignmentOffsetList(std::span<InlineDisplay::Box> displayBoxes, const HashMap<const Box*, InlineLayoutUnit>& alignmentOffsetList, RubyBasesMayNeedResizing rubyBasesMayNeedResizing, InlineFormattingContext& inlineFormattingContext)
+void RubyFormattingContext::adjustRubyBaseContentWithAlignmentOffset(std::span<InlineDisplay::Box> displayBoxes, const HashMap<const Box*, InlineLayoutUnit>& alignmentOffsetList, InlineFormattingContext& inlineFormattingContext)
 {
     if (alignmentOffsetList.isEmpty())
         return;
-    InlineContentAligner::applyRubyBaseAlignmentOffset(displayBoxes, alignmentOffsetList, rubyBasesMayNeedResizing == RubyBasesMayNeedResizing::No ? InlineContentAligner::AdjustContentOnlyInsideRubyBase::Yes : InlineContentAligner::AdjustContentOnlyInsideRubyBase::No, inlineFormattingContext);
+    InlineContentAligner::adjustRubyBaseContentWithAlignmentOffset(displayBoxes, alignmentOffsetList, inlineFormattingContext);
 }
 
-void RubyFormattingContext::applyAnnotationAlignmentOffset(std::span<InlineDisplay::Box> displayBoxes, InlineLayoutUnit alignmentOffset, InlineFormattingContext& inlineFormattingContext)
+void RubyFormattingContext::adjustAnnotationContentWithAlignmentOffset(std::span<InlineDisplay::Box> displayBoxes, InlineLayoutUnit alignmentOffset, InlineFormattingContext& inlineFormattingContext)
 {
     if (!alignmentOffset)
         return;
-    InlineContentAligner::applyRubyAnnotationAlignmentOffset(displayBoxes, alignmentOffset, inlineFormattingContext);
+    InlineContentAligner::adjustAnnotationContentWithAlignmentOffset(displayBoxes, alignmentOffset, inlineFormattingContext);
 }
 
 InlineLayoutUnit RubyFormattingContext::baseEndAdditionalLogicalWidth(const Box& rubyBaseLayoutBox, const InlineDisplay::Box&, InlineLayoutUnit baseContentWidth, InlineFormattingContext& inlineFormattingContext)

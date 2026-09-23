@@ -31,6 +31,7 @@
 #include "CSSUnits.h"
 #include "LayoutUnit.h"
 #include "WebAnimationUtilities.h"
+#include <wtf/ReducedResolutionSeconds.h>
 
 namespace WebCore {
 
@@ -48,6 +49,12 @@ WebAnimationTime::WebAnimationTime(std::optional<Seconds> time, std::optional<do
 }
 
 WebAnimationTime::WebAnimationTime(const Seconds& value)
+    : m_type(Type::Time)
+    , m_value(value.seconds())
+{
+}
+
+WebAnimationTime::WebAnimationTime(const ReducedResolutionSeconds& value)
     : m_type(Type::Time)
     , m_value(value.seconds())
 {

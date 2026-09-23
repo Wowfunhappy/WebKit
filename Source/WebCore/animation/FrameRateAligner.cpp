@@ -34,7 +34,7 @@ FrameRateAligner::~FrameRateAligner() = default;
 
 static ReducedResolutionSeconds idealTimeForNextUpdate(ReducedResolutionSeconds firstUpdateTime, ReducedResolutionSeconds lastUpdateTime, FramesPerSecond frameRate)
 {
-    ReducedResolutionSeconds interval(1.0 / frameRate);
+    Seconds interval { 1.0 / frameRate };
     auto timeUntilNextUpdate = (lastUpdateTime - firstUpdateTime) % interval;
     return lastUpdateTime + interval - timeUntilNextUpdate;
 }

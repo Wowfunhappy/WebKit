@@ -25,6 +25,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMBuiltinConstructor.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -33,7 +34,6 @@
 #include "TestJSBuiltinConstructorBuiltins.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -71,10 +71,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestJSBuiltinConstructorPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestJSBuiltinConstructorPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -123,17 +120,35 @@ static const std::array<HashTableValue, 6> JSTestJSBuiltinConstructorPrototypeTa
 
 const ClassInfo JSTestJSBuiltinConstructorPrototype::s_info = { "TestJSBuiltinConstructor"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestJSBuiltinConstructorPrototype) };
 
+JSC::Structure* JSTestJSBuiltinConstructorPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestJSBuiltinConstructorPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestJSBuiltinConstructor::info(), JSTestJSBuiltinConstructorPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestJSBuiltinConstructor::s_info = { "TestJSBuiltinConstructor"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestJSBuiltinConstructor) };
 
 JSTestJSBuiltinConstructor::JSTestJSBuiltinConstructor(Structure* structure, JSDOMGlobalObject& globalObject)
     : JSDOMObject(structure, globalObject) { }
+
+JSTestJSBuiltinConstructor* JSTestJSBuiltinConstructor::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestJSBuiltinConstructor* ptr = new (NotNull, JSC::allocateCell<JSTestJSBuiltinConstructor>(vm)) JSTestJSBuiltinConstructor(structure, *globalObject);
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestJSBuiltinConstructor::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestJSBuiltinConstructor::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -149,7 +164,7 @@ JSObject* JSTestJSBuiltinConstructor::prototype(VM& vm, JSDOMGlobalObject& globa
 
 JSValue JSTestJSBuiltinConstructor::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestJSBuiltinConstructorDOMConstructor, DOMConstructorID::TestJSBuiltinConstructor>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestJSBuiltinConstructorDOMConstructor, DOMConstructorID::TestJSBuiltinConstructor>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestJSBuiltinConstructor::destroy(JSC::JSCell* cell)
@@ -162,10 +177,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestJSBuiltinConstructorConstructor, (JSGlobalObject*
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestJSBuiltinConstructorPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestJSBuiltinConstructorPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestJSBuiltinConstructor::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestJSBuiltinConstructor::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestJSBuiltinConstructor_testAttributeCustomGetter(JSGlobalObject& lexicalGlobalObject, JSTestJSBuiltinConstructor& thisObject)

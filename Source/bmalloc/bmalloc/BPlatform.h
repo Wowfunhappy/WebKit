@@ -78,7 +78,7 @@
 #define BOS_HAIKU 1
 #endif
 
-#if BOS(DARWIN) && !defined(BUILDING_WITH_CMAKE)
+#if BOS(DARWIN)
 #if TARGET_OS_IOS
 #define BOS_IOS 1
 #define BPLATFORM_IOS 1
@@ -339,11 +339,7 @@
 #define BOS_EFFECTIVE_ADDRESS_WIDTH 32
 #endif
 
-#if BCOMPILER(GCC_COMPATIBLE)
 #define BATTRIBUTE_PRINTF(formatStringArgument, extraArguments) __attribute__((__format__(printf, formatStringArgument, extraArguments)))
-#else
-#define BATTRIBUTE_PRINTF(formatStringArgument, extraArguments)
-#endif
 
 /* Export macro support. Detects the attributes available for shared library symbol export
    decorations. */
@@ -388,6 +384,8 @@
 #endif
 
 #if defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC
+#define BUSE_SYSTEM_MALLOC 1
+#elif BTSAN_ENABLED
 #define BUSE_SYSTEM_MALLOC 1
 #else
 #if BOS(DARWIN) && !BCPU(ADDRESS64)

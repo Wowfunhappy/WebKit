@@ -102,7 +102,7 @@ void VisitedLinkStore::removeAll()
 
 void VisitedLinkStore::addVisitedLinkHashFromPage(WebPageProxyIdentifier pageProxyID, SharedStringHash linkHash)
 {
-    if (RefPtr page = WebProcessProxy::webPage(pageProxyID)) {
+    if (auto* page = WebProcessProxy::webPage(pageProxyID)) {
         if (!page || !page->addsVisitedLinks())
             return;
     }

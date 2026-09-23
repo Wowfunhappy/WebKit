@@ -196,12 +196,11 @@ static void dumpSeparatedLayerProperties(TextStream&, CALayer *) { }
 
 static String allowListedClassToString(UIView *view)
 {
-    static constexpr SortedArraySet allowedClasses { std::to_array<ComparableASCIILiteral>({
+    static constexpr SortedArraySet allowedClasses { WTF::toArray<ComparableASCIILiteral>({
         "UIView"_s,
         "WKBackdropView"_s,
         "WKCompositingView"_s,
         "WKContentView"_s,
-        "WKModelView"_s,
         "WKScrollView"_s,
         "WKSeparatedImageView"_s,
         "WKSeparatedModelView"_s,
@@ -223,7 +222,7 @@ static String allowListedClassToString(UIView *view)
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
 static bool shouldDumpSeparatedDetails(UIView *view)
 {
-    static constexpr SortedArraySet deniedClasses { std::to_array<ComparableASCIILiteral>({
+    static constexpr SortedArraySet deniedClasses { WTF::toArray<ComparableASCIILiteral>({
         "WKCompositingView"_s,
         "WKSeparatedImageView"_s,
     }) };
@@ -439,6 +438,11 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
     return [_contentView tapHighlightViewRect];
 }
 
+- (CGRect)_focusedElementInteractionRect
+{
+    return [_contentView focusedElementInformation].interactionRect;
+}
+
 - (UIGestureRecognizer *)_imageAnalysisGestureRecognizer
 {
     return [_contentView imageAnalysisGestureRecognizer];
@@ -547,6 +551,11 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
 - (BOOL)_hasPendingVisibleContentRectUpdateTimerForTesting
 {
     return _pendingInteractiveObscuredInsetsChangeTimer && _pendingInteractiveObscuredInsetsChangeTimer->isActive();
+}
+
+- (CGRect)_fixedClippingViewBoundsForTesting
+{
+    return [_contentView _fixedClippingViewBoundsForTesting];
 }
 
 @end

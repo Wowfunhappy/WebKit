@@ -400,7 +400,7 @@ void CaptureGetRenderbufferImageANGLE_pixels(const State &glState,
 void CaptureGetTexLevelParameterivANGLE_params(const State &glState,
                                                TextureTarget targetPacked,
                                                GLint level,
-                                               GLenum pname,
+                                               TextureImageParameter pnamePacked,
                                                GLint *params,
                                                ParamCapture *paramCapture)
 {
@@ -410,7 +410,7 @@ void CaptureGetTexLevelParameterivANGLE_params(const State &glState,
 void CaptureGetTexLevelParameterfvANGLE_params(const State &glState,
                                                TextureTarget targetPacked,
                                                GLint level,
-                                               GLenum pname,
+                                               TextureImageParameter pnamePacked,
                                                GLfloat *params,
                                                ParamCapture *paramCapture)
 {
@@ -508,7 +508,7 @@ void CaptureMultiDrawArraysANGLE_firsts(const State &glState,
                                         GLsizei drawcount,
                                         ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureArray(firsts, drawcount, paramCapture);
 }
 
 void CaptureMultiDrawArraysANGLE_counts(const State &glState,
@@ -518,7 +518,7 @@ void CaptureMultiDrawArraysANGLE_counts(const State &glState,
                                         GLsizei drawcount,
                                         ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureArray(counts, drawcount, paramCapture);
 }
 
 void CaptureMultiDrawArraysInstancedANGLE_firsts(const State &glState,
@@ -529,7 +529,7 @@ void CaptureMultiDrawArraysInstancedANGLE_firsts(const State &glState,
                                                  GLsizei drawcount,
                                                  ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureArray(firsts, drawcount, paramCapture);
 }
 
 void CaptureMultiDrawArraysInstancedANGLE_counts(const State &glState,
@@ -540,7 +540,7 @@ void CaptureMultiDrawArraysInstancedANGLE_counts(const State &glState,
                                                  GLsizei drawcount,
                                                  ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureArray(counts, drawcount, paramCapture);
 }
 
 void CaptureMultiDrawArraysInstancedANGLE_instanceCounts(const State &glState,
@@ -551,7 +551,7 @@ void CaptureMultiDrawArraysInstancedANGLE_instanceCounts(const State &glState,
                                                          GLsizei drawcount,
                                                          ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureArray(instanceCounts, drawcount, paramCapture);
 }
 
 void CaptureMultiDrawElementsANGLE_counts(const State &glState,
@@ -620,38 +620,31 @@ void CaptureRequestExtensionANGLE_name(const State &glState,
     CaptureString(name, paramCapture);
 }
 
-void CaptureDisableExtensionANGLE_name(const State &glState,
-                                       const GLchar *name,
-                                       ParamCapture *paramCapture)
-{
-    CaptureString(name, paramCapture);
-}
-
 // GL_ANGLE_robust_client_memory
 void CaptureGetBooleanvRobustANGLE_length(const State &glState,
                                           GLenum pname,
-                                          GLsizei bufSize,
+                                          GLsizei paramCount,
                                           GLsizei *length,
-                                          GLboolean *params,
+                                          GLboolean *data,
                                           ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGetBooleanvRobustANGLE_params(const State &glState,
-                                          GLenum pname,
-                                          GLsizei bufSize,
-                                          GLsizei *length,
-                                          GLboolean *params,
-                                          ParamCapture *paramCapture)
+void CaptureGetBooleanvRobustANGLE_data(const State &glState,
+                                        GLenum pname,
+                                        GLsizei paramCount,
+                                        GLsizei *length,
+                                        GLboolean *data,
+                                        ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
 void CaptureGetBufferParameterivRobustANGLE_length(const State &glState,
                                                    BufferBinding targetPacked,
-                                                   GLenum pname,
-                                                   GLsizei bufSize,
+                                                   BufferParam pnamePacked,
+                                                   GLsizei paramCount,
                                                    GLsizei *length,
                                                    GLint *params,
                                                    ParamCapture *paramCapture)
@@ -661,8 +654,8 @@ void CaptureGetBufferParameterivRobustANGLE_length(const State &glState,
 
 void CaptureGetBufferParameterivRobustANGLE_params(const State &glState,
                                                    BufferBinding targetPacked,
-                                                   GLenum pname,
-                                                   GLsizei bufSize,
+                                                   BufferParam pnamePacked,
+                                                   GLsizei paramCount,
                                                    GLsizei *length,
                                                    GLint *params,
                                                    ParamCapture *paramCapture)
@@ -672,29 +665,29 @@ void CaptureGetBufferParameterivRobustANGLE_params(const State &glState,
 
 void CaptureGetFloatvRobustANGLE_length(const State &glState,
                                         GLenum pname,
-                                        GLsizei bufSize,
+                                        GLsizei paramCount,
                                         GLsizei *length,
-                                        GLfloat *params,
+                                        GLfloat *data,
                                         ParamCapture *paramCapture)
 {
     paramCapture->readBufferSizeBytes = sizeof(GLsizei);
 }
 
-void CaptureGetFloatvRobustANGLE_params(const State &glState,
-                                        GLenum pname,
-                                        GLsizei bufSize,
-                                        GLsizei *length,
-                                        GLfloat *params,
-                                        ParamCapture *paramCapture)
+void CaptureGetFloatvRobustANGLE_data(const State &glState,
+                                      GLenum pname,
+                                      GLsizei paramCount,
+                                      GLsizei *length,
+                                      GLfloat *data,
+                                      ParamCapture *paramCapture)
 {
-    CaptureGetFloatv_data(glState, pname, params, paramCapture);
+    CaptureGetFloatv_data(glState, pname, data, paramCapture);
 }
 
 void CaptureGetFramebufferAttachmentParameterivRobustANGLE_length(const State &glState,
                                                                   GLenum target,
                                                                   GLenum attachment,
                                                                   GLenum pname,
-                                                                  GLsizei bufSize,
+                                                                  GLsizei paramCount,
                                                                   GLsizei *length,
                                                                   GLint *params,
                                                                   ParamCapture *paramCapture)
@@ -706,7 +699,7 @@ void CaptureGetFramebufferAttachmentParameterivRobustANGLE_params(const State &g
                                                                   GLenum target,
                                                                   GLenum attachment,
                                                                   GLenum pname,
-                                                                  GLsizei bufSize,
+                                                                  GLsizei paramCount,
                                                                   GLsizei *length,
                                                                   GLint *params,
                                                                   ParamCapture *paramCapture)
@@ -716,7 +709,7 @@ void CaptureGetFramebufferAttachmentParameterivRobustANGLE_params(const State &g
 
 void CaptureGetIntegervRobustANGLE_length(const State &glState,
                                           GLenum pname,
-                                          GLsizei bufSize,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLint *data,
                                           ParamCapture *paramCapture)
@@ -726,7 +719,7 @@ void CaptureGetIntegervRobustANGLE_length(const State &glState,
 
 void CaptureGetIntegervRobustANGLE_data(const State &glState,
                                         GLenum pname,
-                                        GLsizei bufSize,
+                                        GLsizei paramCount,
                                         GLsizei *length,
                                         GLint *data,
                                         ParamCapture *paramCapture)
@@ -737,7 +730,7 @@ void CaptureGetIntegervRobustANGLE_data(const State &glState,
 void CaptureGetProgramivRobustANGLE_length(const State &glState,
                                            ShaderProgramID program,
                                            GLenum pname,
-                                           GLsizei bufSize,
+                                           GLsizei paramCount,
                                            GLsizei *length,
                                            GLint *params,
                                            ParamCapture *paramCapture)
@@ -748,7 +741,7 @@ void CaptureGetProgramivRobustANGLE_length(const State &glState,
 void CaptureGetProgramivRobustANGLE_params(const State &glState,
                                            ShaderProgramID program,
                                            GLenum pname,
-                                           GLsizei bufSize,
+                                           GLsizei paramCount,
                                            GLsizei *length,
                                            GLint *params,
                                            ParamCapture *paramCapture)
@@ -759,7 +752,7 @@ void CaptureGetProgramivRobustANGLE_params(const State &glState,
 void CaptureGetRenderbufferParameterivRobustANGLE_length(const State &glState,
                                                          GLenum target,
                                                          GLenum pname,
-                                                         GLsizei bufSize,
+                                                         GLsizei paramCount,
                                                          GLsizei *length,
                                                          GLint *params,
                                                          ParamCapture *paramCapture)
@@ -770,7 +763,7 @@ void CaptureGetRenderbufferParameterivRobustANGLE_length(const State &glState,
 void CaptureGetRenderbufferParameterivRobustANGLE_params(const State &glState,
                                                          GLenum target,
                                                          GLenum pname,
-                                                         GLsizei bufSize,
+                                                         GLsizei paramCount,
                                                          GLsizei *length,
                                                          GLint *params,
                                                          ParamCapture *paramCapture)
@@ -780,8 +773,8 @@ void CaptureGetRenderbufferParameterivRobustANGLE_params(const State &glState,
 
 void CaptureGetShaderivRobustANGLE_length(const State &glState,
                                           ShaderProgramID shader,
-                                          GLenum pname,
-                                          GLsizei bufSize,
+                                          ShaderParameter pnamePacked,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLint *params,
                                           ParamCapture *paramCapture)
@@ -791,19 +784,19 @@ void CaptureGetShaderivRobustANGLE_length(const State &glState,
 
 void CaptureGetShaderivRobustANGLE_params(const State &glState,
                                           ShaderProgramID shader,
-                                          GLenum pname,
-                                          GLsizei bufSize,
+                                          ShaderParameter pnamePacked,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLint *params,
                                           ParamCapture *paramCapture)
 {
-    CaptureGetShaderiv_params(glState, shader, pname, params, paramCapture);
+    CaptureGetShaderiv_params(glState, shader, pnamePacked, params, paramCapture);
 }
 
 void CaptureGetTexParameterfvRobustANGLE_length(const State &glState,
                                                 TextureType targetPacked,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLfloat *params,
                                                 ParamCapture *paramCapture)
@@ -814,7 +807,7 @@ void CaptureGetTexParameterfvRobustANGLE_length(const State &glState,
 void CaptureGetTexParameterfvRobustANGLE_params(const State &glState,
                                                 TextureType targetPacked,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLfloat *params,
                                                 ParamCapture *paramCapture)
@@ -825,7 +818,7 @@ void CaptureGetTexParameterfvRobustANGLE_params(const State &glState,
 void CaptureGetTexParameterivRobustANGLE_length(const State &glState,
                                                 TextureType targetPacked,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLint *params,
                                                 ParamCapture *paramCapture)
@@ -836,7 +829,7 @@ void CaptureGetTexParameterivRobustANGLE_length(const State &glState,
 void CaptureGetTexParameterivRobustANGLE_params(const State &glState,
                                                 TextureType targetPacked,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLint *params,
                                                 ParamCapture *paramCapture)
@@ -891,7 +884,7 @@ void CaptureGetUniformivRobustANGLE_params(const State &glState,
 void CaptureGetVertexAttribfvRobustANGLE_length(const State &glState,
                                                 GLuint index,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLfloat *params,
                                                 ParamCapture *paramCapture)
@@ -902,7 +895,7 @@ void CaptureGetVertexAttribfvRobustANGLE_length(const State &glState,
 void CaptureGetVertexAttribfvRobustANGLE_params(const State &glState,
                                                 GLuint index,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLfloat *params,
                                                 ParamCapture *paramCapture)
@@ -913,7 +906,7 @@ void CaptureGetVertexAttribfvRobustANGLE_params(const State &glState,
 void CaptureGetVertexAttribivRobustANGLE_length(const State &glState,
                                                 GLuint index,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLint *params,
                                                 ParamCapture *paramCapture)
@@ -924,7 +917,7 @@ void CaptureGetVertexAttribivRobustANGLE_length(const State &glState,
 void CaptureGetVertexAttribivRobustANGLE_params(const State &glState,
                                                 GLuint index,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLint *params,
                                                 ParamCapture *paramCapture)
@@ -935,7 +928,7 @@ void CaptureGetVertexAttribivRobustANGLE_params(const State &glState,
 void CaptureGetVertexAttribPointervRobustANGLE_length(const State &glState,
                                                       GLuint index,
                                                       GLenum pname,
-                                                      GLsizei bufSize,
+                                                      GLsizei paramCount,
                                                       GLsizei *length,
                                                       void **pointer,
                                                       ParamCapture *paramCapture)
@@ -946,7 +939,7 @@ void CaptureGetVertexAttribPointervRobustANGLE_length(const State &glState,
 void CaptureGetVertexAttribPointervRobustANGLE_pointer(const State &glState,
                                                        GLuint index,
                                                        GLenum pname,
-                                                       GLsizei bufSize,
+                                                       GLsizei paramCount,
                                                        GLsizei *length,
                                                        void **pointer,
                                                        ParamCapture *paramCapture)
@@ -1076,7 +1069,7 @@ void CaptureTexImage2DRobustANGLE_pixels(const State &glState,
 void CaptureTexParameterfvRobustANGLE_params(const State &glState,
                                              TextureType targetPacked,
                                              GLenum pname,
-                                             GLsizei bufSize,
+                                             GLsizei paramCount,
                                              const GLfloat *params,
                                              ParamCapture *paramCapture)
 {
@@ -1086,7 +1079,7 @@ void CaptureTexParameterfvRobustANGLE_params(const State &glState,
 void CaptureTexParameterivRobustANGLE_params(const State &glState,
                                              TextureType targetPacked,
                                              GLenum pname,
-                                             GLsizei bufSize,
+                                             GLsizei paramCount,
                                              const GLint *params,
                                              ParamCapture *paramCapture)
 {
@@ -1156,80 +1149,10 @@ void CaptureTexSubImage3DRobustANGLE_pixels(const State &glState,
                                 height, depth, format, type, pixels, paramCapture);
 }
 
-void CaptureCompressedTexImage2DRobustANGLE_data(const State &glState,
-                                                 TextureTarget targetPacked,
-                                                 GLint level,
-                                                 GLenum internalformat,
-                                                 GLsizei width,
-                                                 GLsizei height,
-                                                 GLint border,
-                                                 GLsizei imageSize,
-                                                 GLsizei dataSize,
-                                                 const GLvoid *data,
-                                                 ParamCapture *paramCapture)
-{
-    CaptureCompressedTexImage2D_data(glState, targetPacked, level, internalformat, width, height,
-                                     border, imageSize, data, paramCapture);
-}
-
-void CaptureCompressedTexSubImage2DRobustANGLE_data(const State &glState,
-                                                    TextureTarget targetPacked,
-                                                    GLint level,
-                                                    GLsizei xoffset,
-                                                    GLsizei yoffset,
-                                                    GLsizei width,
-                                                    GLsizei height,
-                                                    GLenum format,
-                                                    GLsizei imageSize,
-                                                    GLsizei dataSize,
-                                                    const GLvoid *data,
-                                                    ParamCapture *paramCapture)
-{
-    CaptureCompressedTexSubImage2D_data(glState, targetPacked, level, xoffset, yoffset, width,
-                                        height, format, imageSize, data, paramCapture);
-}
-
-void CaptureCompressedTexImage3DRobustANGLE_data(const State &glState,
-                                                 TextureTarget targetPacked,
-                                                 GLint level,
-                                                 GLenum internalformat,
-                                                 GLsizei width,
-                                                 GLsizei height,
-                                                 GLsizei depth,
-                                                 GLint border,
-                                                 GLsizei imageSize,
-                                                 GLsizei dataSize,
-                                                 const GLvoid *data,
-                                                 ParamCapture *paramCapture)
-{
-    CaptureCompressedTexImage3D_data(glState, targetPacked, level, internalformat, width, height,
-                                     depth, border, imageSize, data, paramCapture);
-}
-
-void CaptureCompressedTexSubImage3DRobustANGLE_data(const State &glState,
-                                                    TextureTarget targetPacked,
-                                                    GLint level,
-                                                    GLint xoffset,
-                                                    GLint yoffset,
-                                                    GLint zoffset,
-                                                    GLsizei width,
-                                                    GLsizei height,
-                                                    GLsizei depth,
-                                                    GLenum format,
-                                                    GLsizei imageSize,
-                                                    GLsizei dataSize,
-                                                    const GLvoid *data,
-                                                    ParamCapture *paramCapture)
-{
-    CaptureCompressedTexSubImage3D_data(glState, targetPacked, level, xoffset, yoffset, zoffset,
-                                        width, height, depth, format, imageSize, data,
-                                        paramCapture);
-}
-
 void CaptureGetQueryivRobustANGLE_length(const State &glState,
                                          QueryType targetPacked,
-                                         GLenum pname,
-                                         GLsizei bufSize,
+                                         QueryParameter pnamePacked,
+                                         GLsizei paramCount,
                                          GLsizei *length,
                                          GLint *params,
                                          ParamCapture *paramCapture)
@@ -1239,8 +1162,8 @@ void CaptureGetQueryivRobustANGLE_length(const State &glState,
 
 void CaptureGetQueryivRobustANGLE_params(const State &glState,
                                          QueryType targetPacked,
-                                         GLenum pname,
-                                         GLsizei bufSize,
+                                         QueryParameter pnamePacked,
+                                         GLsizei paramCount,
                                          GLsizei *length,
                                          GLint *params,
                                          ParamCapture *paramCapture)
@@ -1249,9 +1172,9 @@ void CaptureGetQueryivRobustANGLE_params(const State &glState,
 }
 
 void CaptureGetQueryObjectuivRobustANGLE_length(const State &glState,
-                                                QueryID id,
-                                                GLenum pname,
-                                                GLsizei bufSize,
+                                                QueryID idPacked,
+                                                QueryObjectParameter pnamePacked,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLuint *params,
                                                 ParamCapture *paramCapture)
@@ -1260,9 +1183,9 @@ void CaptureGetQueryObjectuivRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetQueryObjectuivRobustANGLE_params(const State &glState,
-                                                QueryID id,
-                                                GLenum pname,
-                                                GLsizei bufSize,
+                                                QueryID idPacked,
+                                                QueryObjectParameter pnamePacked,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 GLuint *params,
                                                 ParamCapture *paramCapture)
@@ -1273,7 +1196,7 @@ void CaptureGetQueryObjectuivRobustANGLE_params(const State &glState,
 void CaptureGetBufferPointervRobustANGLE_length(const State &glState,
                                                 BufferBinding targetPacked,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 void **params,
                                                 ParamCapture *paramCapture)
@@ -1284,7 +1207,7 @@ void CaptureGetBufferPointervRobustANGLE_length(const State &glState,
 void CaptureGetBufferPointervRobustANGLE_params(const State &glState,
                                                 BufferBinding targetPacked,
                                                 GLenum pname,
-                                                GLsizei bufSize,
+                                                GLsizei paramCount,
                                                 GLsizei *length,
                                                 void **params,
                                                 ParamCapture *paramCapture)
@@ -1295,7 +1218,7 @@ void CaptureGetBufferPointervRobustANGLE_params(const State &glState,
 void CaptureGetIntegeri_vRobustANGLE_length(const State &glState,
                                             GLenum target,
                                             GLuint index,
-                                            GLsizei bufSize,
+                                            GLsizei paramCount,
                                             GLsizei *length,
                                             GLint *data,
                                             ParamCapture *paramCapture)
@@ -1306,7 +1229,7 @@ void CaptureGetIntegeri_vRobustANGLE_length(const State &glState,
 void CaptureGetIntegeri_vRobustANGLE_data(const State &glState,
                                           GLenum target,
                                           GLuint index,
-                                          GLsizei bufSize,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLint *data,
                                           ParamCapture *paramCapture)
@@ -1318,7 +1241,7 @@ void CaptureGetInternalformativRobustANGLE_length(const State &glState,
                                                   GLenum target,
                                                   GLenum internalformat,
                                                   GLenum pname,
-                                                  GLsizei bufSize,
+                                                  GLsizei paramCount,
                                                   GLsizei *length,
                                                   GLint *params,
                                                   ParamCapture *paramCapture)
@@ -1330,19 +1253,19 @@ void CaptureGetInternalformativRobustANGLE_params(const State &glState,
                                                   GLenum target,
                                                   GLenum internalformat,
                                                   GLenum pname,
-                                                  GLsizei bufSize,
+                                                  GLsizei paramCount,
                                                   GLsizei *length,
                                                   GLint *params,
                                                   ParamCapture *paramCapture)
 {
-    CaptureGetInternalformativ_params(glState, target, internalformat, pname, bufSize, params,
+    CaptureGetInternalformativ_params(glState, target, internalformat, pname, paramCount, params,
                                       paramCapture);
 }
 
 void CaptureGetVertexAttribIivRobustANGLE_length(const State &glState,
                                                  GLuint index,
                                                  GLenum pname,
-                                                 GLsizei bufSize,
+                                                 GLsizei paramCount,
                                                  GLsizei *length,
                                                  GLint *params,
                                                  ParamCapture *paramCapture)
@@ -1353,7 +1276,7 @@ void CaptureGetVertexAttribIivRobustANGLE_length(const State &glState,
 void CaptureGetVertexAttribIivRobustANGLE_params(const State &glState,
                                                  GLuint index,
                                                  GLenum pname,
-                                                 GLsizei bufSize,
+                                                 GLsizei paramCount,
                                                  GLsizei *length,
                                                  GLint *params,
                                                  ParamCapture *paramCapture)
@@ -1364,7 +1287,7 @@ void CaptureGetVertexAttribIivRobustANGLE_params(const State &glState,
 void CaptureGetVertexAttribIuivRobustANGLE_length(const State &glState,
                                                   GLuint index,
                                                   GLenum pname,
-                                                  GLsizei bufSize,
+                                                  GLsizei paramCount,
                                                   GLsizei *length,
                                                   GLuint *params,
                                                   ParamCapture *paramCapture)
@@ -1375,7 +1298,7 @@ void CaptureGetVertexAttribIuivRobustANGLE_length(const State &glState,
 void CaptureGetVertexAttribIuivRobustANGLE_params(const State &glState,
                                                   GLuint index,
                                                   GLenum pname,
-                                                  GLsizei bufSize,
+                                                  GLsizei paramCount,
                                                   GLsizei *length,
                                                   GLuint *params,
                                                   ParamCapture *paramCapture)
@@ -1406,10 +1329,10 @@ void CaptureGetUniformuivRobustANGLE_params(const State &glState,
 }
 
 void CaptureGetActiveUniformBlockivRobustANGLE_length(const State &glState,
-                                                      ShaderProgramID program,
-                                                      UniformBlockIndex uniformBlockIndex,
-                                                      GLenum pname,
-                                                      GLsizei bufSize,
+                                                      ShaderProgramID programPacked,
+                                                      UniformBlockIndex uniformBlockIndexPacked,
+                                                      UniformBlockParameter pnamePacked,
+                                                      GLsizei paramCount,
                                                       GLsizei *length,
                                                       GLint *params,
                                                       ParamCapture *paramCapture)
@@ -1418,10 +1341,10 @@ void CaptureGetActiveUniformBlockivRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetActiveUniformBlockivRobustANGLE_params(const State &glState,
-                                                      ShaderProgramID program,
-                                                      UniformBlockIndex uniformBlockIndex,
-                                                      GLenum pname,
-                                                      GLsizei bufSize,
+                                                      ShaderProgramID programPacked,
+                                                      UniformBlockIndex uniformBlockIndexPacked,
+                                                      UniformBlockParameter pnamePacked,
+                                                      GLsizei paramCount,
                                                       GLsizei *length,
                                                       GLint *params,
                                                       ParamCapture *paramCapture)
@@ -1431,7 +1354,7 @@ void CaptureGetActiveUniformBlockivRobustANGLE_params(const State &glState,
 
 void CaptureGetInteger64vRobustANGLE_length(const State &glState,
                                             GLenum pname,
-                                            GLsizei bufSize,
+                                            GLsizei paramCount,
                                             GLsizei *length,
                                             GLint64 *data,
                                             ParamCapture *paramCapture)
@@ -1441,7 +1364,7 @@ void CaptureGetInteger64vRobustANGLE_length(const State &glState,
 
 void CaptureGetInteger64vRobustANGLE_data(const State &glState,
                                           GLenum pname,
-                                          GLsizei bufSize,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLint64 *data,
                                           ParamCapture *paramCapture)
@@ -1452,7 +1375,7 @@ void CaptureGetInteger64vRobustANGLE_data(const State &glState,
 void CaptureGetInteger64i_vRobustANGLE_length(const State &glState,
                                               GLenum target,
                                               GLuint index,
-                                              GLsizei bufSize,
+                                              GLsizei paramCount,
                                               GLsizei *length,
                                               GLint64 *data,
                                               ParamCapture *paramCapture)
@@ -1463,7 +1386,7 @@ void CaptureGetInteger64i_vRobustANGLE_length(const State &glState,
 void CaptureGetInteger64i_vRobustANGLE_data(const State &glState,
                                             GLenum target,
                                             GLuint index,
-                                            GLsizei bufSize,
+                                            GLsizei paramCount,
                                             GLsizei *length,
                                             GLint64 *data,
                                             ParamCapture *paramCapture)
@@ -1473,8 +1396,8 @@ void CaptureGetInteger64i_vRobustANGLE_data(const State &glState,
 
 void CaptureGetBufferParameteri64vRobustANGLE_length(const State &glState,
                                                      BufferBinding targetPacked,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
+                                                     BufferParam pnamePacked,
+                                                     GLsizei paramCount,
                                                      GLsizei *length,
                                                      GLint64 *params,
                                                      ParamCapture *paramCapture)
@@ -1484,8 +1407,8 @@ void CaptureGetBufferParameteri64vRobustANGLE_length(const State &glState,
 
 void CaptureGetBufferParameteri64vRobustANGLE_params(const State &glState,
                                                      BufferBinding targetPacked,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
+                                                     BufferParam pnamePacked,
+                                                     GLsizei paramCount,
                                                      GLsizei *length,
                                                      GLint64 *params,
                                                      ParamCapture *paramCapture)
@@ -1494,9 +1417,9 @@ void CaptureGetBufferParameteri64vRobustANGLE_params(const State &glState,
 }
 
 void CaptureSamplerParameterivRobustANGLE_param(const State &glState,
-                                                SamplerID sampler,
-                                                GLuint pname,
-                                                GLsizei bufSize,
+                                                SamplerID samplerPacked,
+                                                SamplerParameter pnamePacked,
+                                                GLsizei paramCount,
                                                 const GLint *param,
                                                 ParamCapture *paramCapture)
 {
@@ -1504,9 +1427,9 @@ void CaptureSamplerParameterivRobustANGLE_param(const State &glState,
 }
 
 void CaptureSamplerParameterfvRobustANGLE_param(const State &glState,
-                                                SamplerID sampler,
-                                                GLenum pname,
-                                                GLsizei bufSize,
+                                                SamplerID samplerPacked,
+                                                SamplerParameter pnamePacked,
+                                                GLsizei paramCount,
                                                 const GLfloat *param,
                                                 ParamCapture *paramCapture)
 {
@@ -1514,9 +1437,9 @@ void CaptureSamplerParameterfvRobustANGLE_param(const State &glState,
 }
 
 void CaptureGetSamplerParameterivRobustANGLE_length(const State &glState,
-                                                    SamplerID sampler,
-                                                    GLenum pname,
-                                                    GLsizei bufSize,
+                                                    SamplerID samplerPacked,
+                                                    SamplerParameter pnamePacked,
+                                                    GLsizei paramCount,
                                                     GLsizei *length,
                                                     GLint *params,
                                                     ParamCapture *paramCapture)
@@ -1525,9 +1448,9 @@ void CaptureGetSamplerParameterivRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetSamplerParameterivRobustANGLE_params(const State &glState,
-                                                    SamplerID sampler,
-                                                    GLenum pname,
-                                                    GLsizei bufSize,
+                                                    SamplerID samplerPacked,
+                                                    SamplerParameter pnamePacked,
+                                                    GLsizei paramCount,
                                                     GLsizei *length,
                                                     GLint *params,
                                                     ParamCapture *paramCapture)
@@ -1536,9 +1459,9 @@ void CaptureGetSamplerParameterivRobustANGLE_params(const State &glState,
 }
 
 void CaptureGetSamplerParameterfvRobustANGLE_length(const State &glState,
-                                                    SamplerID sampler,
-                                                    GLenum pname,
-                                                    GLsizei bufSize,
+                                                    SamplerID samplerPacked,
+                                                    SamplerParameter pnamePacked,
+                                                    GLsizei paramCount,
                                                     GLsizei *length,
                                                     GLfloat *params,
                                                     ParamCapture *paramCapture)
@@ -1547,9 +1470,9 @@ void CaptureGetSamplerParameterfvRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetSamplerParameterfvRobustANGLE_params(const State &glState,
-                                                    SamplerID sampler,
-                                                    GLenum pname,
-                                                    GLsizei bufSize,
+                                                    SamplerID samplerPacked,
+                                                    SamplerParameter pnamePacked,
+                                                    GLsizei paramCount,
                                                     GLsizei *length,
                                                     GLfloat *params,
                                                     ParamCapture *paramCapture)
@@ -1557,78 +1480,10 @@ void CaptureGetSamplerParameterfvRobustANGLE_params(const State &glState,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferParameterivRobustANGLE_length(const State &glState,
-                                                        GLenum target,
-                                                        GLenum pname,
-                                                        GLsizei bufSize,
-                                                        GLsizei *length,
-                                                        GLint *params,
-                                                        ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetFramebufferParameterivRobustANGLE_params(const State &glState,
-                                                        GLenum target,
-                                                        GLenum pname,
-                                                        GLsizei bufSize,
-                                                        GLsizei *length,
-                                                        GLint *params,
-                                                        ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetProgramInterfaceivRobustANGLE_length(const State &glState,
-                                                    ShaderProgramID program,
-                                                    GLenum programInterface,
-                                                    GLenum pname,
-                                                    GLsizei bufSize,
-                                                    GLsizei *length,
-                                                    GLint *params,
-                                                    ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetProgramInterfaceivRobustANGLE_params(const State &glState,
-                                                    ShaderProgramID program,
-                                                    GLenum programInterface,
-                                                    GLenum pname,
-                                                    GLsizei bufSize,
-                                                    GLsizei *length,
-                                                    GLint *params,
-                                                    ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetBooleani_vRobustANGLE_length(const State &glState,
-                                            GLenum target,
-                                            GLuint index,
-                                            GLsizei bufSize,
-                                            GLsizei *length,
-                                            GLboolean *data,
-                                            ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetBooleani_vRobustANGLE_data(const State &glState,
-                                          GLenum target,
-                                          GLuint index,
-                                          GLsizei bufSize,
-                                          GLsizei *length,
-                                          GLboolean *data,
-                                          ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
 void CaptureGetMultisamplefvRobustANGLE_length(const State &glState,
                                                GLenum pname,
                                                GLuint index,
-                                               GLsizei bufSize,
+                                               GLsizei paramCount,
                                                GLsizei *length,
                                                GLfloat *val,
                                                ParamCapture *paramCapture)
@@ -1639,7 +1494,7 @@ void CaptureGetMultisamplefvRobustANGLE_length(const State &glState,
 void CaptureGetMultisamplefvRobustANGLE_val(const State &glState,
                                             GLenum pname,
                                             GLuint index,
-                                            GLsizei bufSize,
+                                            GLsizei paramCount,
                                             GLsizei *length,
                                             GLfloat *val,
                                             ParamCapture *paramCapture)
@@ -1650,337 +1505,55 @@ void CaptureGetMultisamplefvRobustANGLE_val(const State &glState,
 void CaptureGetTexLevelParameterivRobustANGLE_length(const State &glState,
                                                      TextureTarget targetPacked,
                                                      GLint level,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
+                                                     TextureImageParameter pnamePacked,
+                                                     GLsizei paramCount,
                                                      GLsizei *length,
                                                      GLint *params,
                                                      ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    paramCapture->readBufferSizeBytes = sizeof(GLsizei);
 }
 
 void CaptureGetTexLevelParameterivRobustANGLE_params(const State &glState,
                                                      TextureTarget targetPacked,
                                                      GLint level,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
+                                                     TextureImageParameter pnamePacked,
+                                                     GLsizei paramCount,
                                                      GLsizei *length,
                                                      GLint *params,
                                                      ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    paramCapture->readBufferSizeBytes = sizeof(GLint);
 }
 
 void CaptureGetTexLevelParameterfvRobustANGLE_length(const State &glState,
                                                      TextureTarget targetPacked,
                                                      GLint level,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
+                                                     TextureImageParameter pnamePacked,
+                                                     GLsizei paramCount,
                                                      GLsizei *length,
                                                      GLfloat *params,
                                                      ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    paramCapture->readBufferSizeBytes = sizeof(GLsizei);
 }
 
 void CaptureGetTexLevelParameterfvRobustANGLE_params(const State &glState,
                                                      TextureTarget targetPacked,
                                                      GLint level,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
+                                                     TextureImageParameter pnamePacked,
+                                                     GLsizei paramCount,
                                                      GLsizei *length,
                                                      GLfloat *params,
                                                      ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
-}
-
-void CaptureGetPointervRobustANGLERobustANGLE_length(const State &glState,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
-                                                     GLsizei *length,
-                                                     void **params,
-                                                     ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetPointervRobustANGLERobustANGLE_params(const State &glState,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
-                                                     GLsizei *length,
-                                                     void **params,
-                                                     ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureReadnPixelsRobustANGLE_length(const State &glState,
-                                          GLint x,
-                                          GLint y,
-                                          GLsizei width,
-                                          GLsizei height,
-                                          GLenum format,
-                                          GLenum type,
-                                          GLsizei bufSize,
-                                          GLsizei *length,
-                                          GLsizei *columns,
-                                          GLsizei *rows,
-                                          void *data,
-                                          ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureReadnPixelsRobustANGLE_columns(const State &glState,
-                                           GLint x,
-                                           GLint y,
-                                           GLsizei width,
-                                           GLsizei height,
-                                           GLenum format,
-                                           GLenum type,
-                                           GLsizei bufSize,
-                                           GLsizei *length,
-                                           GLsizei *columns,
-                                           GLsizei *rows,
-                                           void *data,
-                                           ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureReadnPixelsRobustANGLE_rows(const State &glState,
-                                        GLint x,
-                                        GLint y,
-                                        GLsizei width,
-                                        GLsizei height,
-                                        GLenum format,
-                                        GLenum type,
-                                        GLsizei bufSize,
-                                        GLsizei *length,
-                                        GLsizei *columns,
-                                        GLsizei *rows,
-                                        void *data,
-                                        ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureReadnPixelsRobustANGLE_data(const State &glState,
-                                        GLint x,
-                                        GLint y,
-                                        GLsizei width,
-                                        GLsizei height,
-                                        GLenum format,
-                                        GLenum type,
-                                        GLsizei bufSize,
-                                        GLsizei *length,
-                                        GLsizei *columns,
-                                        GLsizei *rows,
-                                        void *data,
-                                        ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetnUniformfvRobustANGLE_length(const State &glState,
-                                            ShaderProgramID program,
-                                            UniformLocation location,
-                                            GLsizei bufSize,
-                                            GLsizei *length,
-                                            GLfloat *params,
-                                            ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetnUniformfvRobustANGLE_params(const State &glState,
-                                            ShaderProgramID program,
-                                            UniformLocation location,
-                                            GLsizei bufSize,
-                                            GLsizei *length,
-                                            GLfloat *params,
-                                            ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetnUniformivRobustANGLE_length(const State &glState,
-                                            ShaderProgramID program,
-                                            UniformLocation location,
-                                            GLsizei bufSize,
-                                            GLsizei *length,
-                                            GLint *params,
-                                            ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetnUniformivRobustANGLE_params(const State &glState,
-                                            ShaderProgramID program,
-                                            UniformLocation location,
-                                            GLsizei bufSize,
-                                            GLsizei *length,
-                                            GLint *params,
-                                            ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetnUniformuivRobustANGLE_length(const State &glState,
-                                             ShaderProgramID program,
-                                             UniformLocation location,
-                                             GLsizei bufSize,
-                                             GLsizei *length,
-                                             GLuint *params,
-                                             ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetnUniformuivRobustANGLE_params(const State &glState,
-                                             ShaderProgramID program,
-                                             UniformLocation location,
-                                             GLsizei bufSize,
-                                             GLsizei *length,
-                                             GLuint *params,
-                                             ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureTexParameterIivRobustANGLE_params(const State &glState,
-                                              TextureType targetPacked,
-                                              GLenum pname,
-                                              GLsizei bufSize,
-                                              const GLint *params,
-                                              ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureTexParameterIuivRobustANGLE_params(const State &glState,
-                                               TextureType targetPacked,
-                                               GLenum pname,
-                                               GLsizei bufSize,
-                                               const GLuint *params,
-                                               ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetTexParameterIivRobustANGLE_length(const State &glState,
-                                                 TextureType targetPacked,
-                                                 GLenum pname,
-                                                 GLsizei bufSize,
-                                                 GLsizei *length,
-                                                 GLint *params,
-                                                 ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetTexParameterIivRobustANGLE_params(const State &glState,
-                                                 TextureType targetPacked,
-                                                 GLenum pname,
-                                                 GLsizei bufSize,
-                                                 GLsizei *length,
-                                                 GLint *params,
-                                                 ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetTexParameterIuivRobustANGLE_length(const State &glState,
-                                                  TextureType targetPacked,
-                                                  GLenum pname,
-                                                  GLsizei bufSize,
-                                                  GLsizei *length,
-                                                  GLuint *params,
-                                                  ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetTexParameterIuivRobustANGLE_params(const State &glState,
-                                                  TextureType targetPacked,
-                                                  GLenum pname,
-                                                  GLsizei bufSize,
-                                                  GLsizei *length,
-                                                  GLuint *params,
-                                                  ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureSamplerParameterIivRobustANGLE_param(const State &glState,
-                                                 SamplerID sampler,
-                                                 GLenum pname,
-                                                 GLsizei bufSize,
-                                                 const GLint *param,
-                                                 ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureSamplerParameterIuivRobustANGLE_param(const State &glState,
-                                                  SamplerID sampler,
-                                                  GLenum pname,
-                                                  GLsizei bufSize,
-                                                  const GLuint *param,
-                                                  ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetSamplerParameterIivRobustANGLE_length(const State &glState,
-                                                     SamplerID sampler,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
-                                                     GLsizei *length,
-                                                     GLint *params,
-                                                     ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetSamplerParameterIivRobustANGLE_params(const State &glState,
-                                                     SamplerID sampler,
-                                                     GLenum pname,
-                                                     GLsizei bufSize,
-                                                     GLsizei *length,
-                                                     GLint *params,
-                                                     ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetSamplerParameterIuivRobustANGLE_length(const State &glState,
-                                                      SamplerID sampler,
-                                                      GLenum pname,
-                                                      GLsizei bufSize,
-                                                      GLsizei *length,
-                                                      GLuint *params,
-                                                      ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetSamplerParameterIuivRobustANGLE_params(const State &glState,
-                                                      SamplerID sampler,
-                                                      GLenum pname,
-                                                      GLsizei bufSize,
-                                                      GLsizei *length,
-                                                      GLuint *params,
-                                                      ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
+    paramCapture->readBufferSizeBytes = sizeof(GLfloat);
 }
 
 void CaptureGetQueryObjectivRobustANGLE_length(const State &glState,
-                                               QueryID id,
-                                               GLenum pname,
-                                               GLsizei bufSize,
+                                               QueryID idPacked,
+                                               QueryObjectParameter pnamePacked,
+                                               GLsizei paramCount,
                                                GLsizei *length,
                                                GLint *params,
                                                ParamCapture *paramCapture)
@@ -1989,9 +1562,9 @@ void CaptureGetQueryObjectivRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetQueryObjectivRobustANGLE_params(const State &glState,
-                                               QueryID id,
-                                               GLenum pname,
-                                               GLsizei bufSize,
+                                               QueryID idPacked,
+                                               QueryObjectParameter pnamePacked,
+                                               GLsizei paramCount,
                                                GLsizei *length,
                                                GLint *params,
                                                ParamCapture *paramCapture)
@@ -2000,9 +1573,9 @@ void CaptureGetQueryObjectivRobustANGLE_params(const State &glState,
 }
 
 void CaptureGetQueryObjecti64vRobustANGLE_length(const State &glState,
-                                                 QueryID id,
-                                                 GLenum pname,
-                                                 GLsizei bufSize,
+                                                 QueryID idPacked,
+                                                 QueryObjectParameter pnamePacked,
+                                                 GLsizei paramCount,
                                                  GLsizei *length,
                                                  GLint64 *params,
                                                  ParamCapture *paramCapture)
@@ -2011,9 +1584,9 @@ void CaptureGetQueryObjecti64vRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetQueryObjecti64vRobustANGLE_params(const State &glState,
-                                                 QueryID id,
-                                                 GLenum pname,
-                                                 GLsizei bufSize,
+                                                 QueryID idPacked,
+                                                 QueryObjectParameter pnamePacked,
+                                                 GLsizei paramCount,
                                                  GLsizei *length,
                                                  GLint64 *params,
                                                  ParamCapture *paramCapture)
@@ -2022,9 +1595,9 @@ void CaptureGetQueryObjecti64vRobustANGLE_params(const State &glState,
 }
 
 void CaptureGetQueryObjectui64vRobustANGLE_length(const State &glState,
-                                                  QueryID id,
-                                                  GLenum pname,
-                                                  GLsizei bufSize,
+                                                  QueryID idPacked,
+                                                  QueryObjectParameter pnamePacked,
+                                                  GLsizei paramCount,
                                                   GLsizei *length,
                                                   GLuint64 *params,
                                                   ParamCapture *paramCapture)
@@ -2033,9 +1606,9 @@ void CaptureGetQueryObjectui64vRobustANGLE_length(const State &glState,
 }
 
 void CaptureGetQueryObjectui64vRobustANGLE_params(const State &glState,
-                                                  QueryID id,
-                                                  GLenum pname,
-                                                  GLsizei bufSize,
+                                                  QueryID idPacked,
+                                                  QueryObjectParameter pnamePacked,
+                                                  GLsizei paramCount,
                                                   GLsizei *length,
                                                   GLuint64 *params,
                                                   ParamCapture *paramCapture)
@@ -2046,8 +1619,8 @@ void CaptureGetQueryObjectui64vRobustANGLE_params(const State &glState,
 void CaptureGetFramebufferPixelLocalStorageParameterfvRobustANGLE_length(
     const State &glState,
     GLint plane,
-    GLenum pname,
-    GLsizei bufSize,
+    PlaneParameter pnamePacked,
+    GLsizei paramCount,
     GLsizei *length,
     GLfloat *params,
     angle::ParamCapture *paramCapture)
@@ -2058,21 +1631,21 @@ void CaptureGetFramebufferPixelLocalStorageParameterfvRobustANGLE_length(
 void CaptureGetFramebufferPixelLocalStorageParameterfvRobustANGLE_params(
     const State &glState,
     GLint plane,
-    GLenum pname,
-    GLsizei bufSize,
+    PlaneParameter pnamePacked,
+    GLsizei paramCount,
     GLsizei *length,
     GLfloat *params,
     angle::ParamCapture *paramCapture)
 {
-    CaptureGetFramebufferPixelLocalStorageParameterfvANGLE_params(glState, plane, pname, params,
-                                                                  paramCapture);
+    CaptureGetFramebufferPixelLocalStorageParameterfvANGLE_params(glState, plane, pnamePacked,
+                                                                  params, paramCapture);
 }
 
 void CaptureGetFramebufferPixelLocalStorageParameterivRobustANGLE_length(
     const State &glState,
     GLint plane,
-    GLenum pname,
-    GLsizei bufSize,
+    PlaneParameter pnamePacked,
+    GLsizei paramCount,
     GLsizei *length,
     GLint *params,
     angle::ParamCapture *paramCapture)
@@ -2083,14 +1656,39 @@ void CaptureGetFramebufferPixelLocalStorageParameterivRobustANGLE_length(
 void CaptureGetFramebufferPixelLocalStorageParameterivRobustANGLE_params(
     const State &glState,
     GLint plane,
-    GLenum pname,
-    GLsizei bufSize,
+    PlaneParameter pnamePacked,
+    GLsizei paramCount,
     GLsizei *length,
     GLint *params,
     angle::ParamCapture *paramCapture)
 {
-    CaptureGetFramebufferPixelLocalStorageParameterivANGLE_params(glState, plane, pname, params,
-                                                                  paramCapture);
+    CaptureGetFramebufferPixelLocalStorageParameterivANGLE_params(glState, plane, pnamePacked,
+                                                                  params, paramCapture);
+}
+
+void CaptureGetFramebufferPixelLocalStorageParameteruivRobustANGLE_length(
+    const State &glState,
+    GLint plane,
+    PlaneParameter pnamePacked,
+    GLsizei paramCount,
+    GLsizei *length,
+    GLuint *params,
+    angle::ParamCapture *paramCapture)
+{
+    paramCapture->readBufferSizeBytes = sizeof(GLsizei);
+}
+
+void CaptureGetFramebufferPixelLocalStorageParameteruivRobustANGLE_params(
+    const State &glState,
+    GLint plane,
+    PlaneParameter pnamePacked,
+    GLsizei paramCount,
+    GLsizei *length,
+    GLuint *params,
+    angle::ParamCapture *paramCapture)
+{
+    CaptureGetFramebufferPixelLocalStorageParameteruivANGLE_params(glState, plane, pnamePacked,
+                                                                   params, paramCapture);
 }
 
 // GL_ANGLE_shader_pixel_local_storage
@@ -2137,39 +1735,31 @@ void CaptureEndPixelLocalStorageANGLE_storeops(const State &glState,
 void CaptureGetFramebufferPixelLocalStorageParameterfvANGLE_params(
     const State &glState,
     GLint plane,
-    GLenum pname,
+    PlaneParameter pnamePacked,
     GLfloat *params,
     angle::ParamCapture *paramCapture)
 {
-    size_t numParams = 1;
-    switch (pname)
-    {
-        case GL_PIXEL_LOCAL_CLEAR_VALUE_FLOAT_ANGLE:
-        case GL_PIXEL_LOCAL_CLEAR_VALUE_INT_ANGLE:
-        case GL_PIXEL_LOCAL_CLEAR_VALUE_UNSIGNED_INT_ANGLE:
-            numParams = 4;
-            break;
-    }
-    paramCapture->readBufferSizeBytes = sizeof(GLfloat) * numParams;
+    paramCapture->readBufferSizeBytes = sizeof(GLfloat) * 4;
 }
 
 void CaptureGetFramebufferPixelLocalStorageParameterivANGLE_params(
     const State &glState,
     GLint plane,
-    GLenum pname,
+    PlaneParameter pnamePacked,
     GLint *params,
     angle::ParamCapture *paramCapture)
 {
-    size_t numParams = 1;
-    switch (pname)
-    {
-        case GL_PIXEL_LOCAL_CLEAR_VALUE_FLOAT_ANGLE:
-        case GL_PIXEL_LOCAL_CLEAR_VALUE_INT_ANGLE:
-        case GL_PIXEL_LOCAL_CLEAR_VALUE_UNSIGNED_INT_ANGLE:
-            numParams = 4;
-            break;
-    }
-    paramCapture->readBufferSizeBytes = sizeof(GLint) * numParams;
+    paramCapture->readBufferSizeBytes = sizeof(GLint) * 4;
+}
+
+void CaptureGetFramebufferPixelLocalStorageParameteruivANGLE_params(
+    const State &glState,
+    GLint plane,
+    PlaneParameter pnamePacked,
+    GLuint *params,
+    angle::ParamCapture *paramCapture)
+{
+    paramCapture->readBufferSizeBytes = sizeof(GLuint) * 4;
 }
 
 // GL_ANGLE_texture_multisample
@@ -2468,8 +2058,8 @@ void CaptureGetInteger64vEXT_data(const State &glState,
 }
 
 void CaptureGetQueryObjecti64vEXT_params(const State &glState,
-                                         QueryID id,
-                                         GLenum pname,
+                                         QueryID idPacked,
+                                         QueryObjectParameter pnamePacked,
                                          GLint64 *params,
                                          ParamCapture *paramCapture)
 {
@@ -2477,8 +2067,8 @@ void CaptureGetQueryObjecti64vEXT_params(const State &glState,
 }
 
 void CaptureGetQueryObjectivEXT_params(const State &glState,
-                                       QueryID id,
-                                       GLenum pname,
+                                       QueryID idPacked,
+                                       QueryObjectParameter pnamePacked,
                                        GLint *params,
                                        ParamCapture *paramCapture)
 {
@@ -2486,8 +2076,8 @@ void CaptureGetQueryObjectivEXT_params(const State &glState,
 }
 
 void CaptureGetQueryObjectui64vEXT_params(const State &glState,
-                                          QueryID id,
-                                          GLenum pname,
+                                          QueryID idPacked,
+                                          QueryObjectParameter pnamePacked,
                                           GLuint64 *params,
                                           ParamCapture *paramCapture)
 {
@@ -2495,8 +2085,8 @@ void CaptureGetQueryObjectui64vEXT_params(const State &glState,
 }
 
 void CaptureGetQueryObjectuivEXT_params(const State &glState,
-                                        QueryID id,
-                                        GLenum pname,
+                                        QueryID idPacked,
+                                        QueryObjectParameter pnamePacked,
                                         GLuint *params,
                                         ParamCapture *paramCapture)
 {
@@ -2505,7 +2095,7 @@ void CaptureGetQueryObjectuivEXT_params(const State &glState,
 
 void CaptureGetQueryivEXT_params(const State &glState,
                                  QueryType targetPacked,
-                                 GLenum pname,
+                                 QueryParameter pnamePacked,
                                  GLint *params,
                                  ParamCapture *paramCapture)
 {
@@ -3174,7 +2764,7 @@ void CaptureProgramUniformMatrix4x3fvEXT_value(const State &glState,
 // GL_EXT_texture_border_clamp
 void CaptureGetSamplerParameterIivEXT_params(const State &glState,
                                              SamplerID samplerPacked,
-                                             GLenum pname,
+                                             SamplerParameter pnamePacked,
                                              GLint *params,
                                              angle::ParamCapture *paramCapture)
 {
@@ -3183,7 +2773,7 @@ void CaptureGetSamplerParameterIivEXT_params(const State &glState,
 
 void CaptureGetSamplerParameterIuivEXT_params(const State &glState,
                                               SamplerID samplerPacked,
-                                              GLenum pname,
+                                              SamplerParameter pnamePacked,
                                               GLuint *params,
                                               angle::ParamCapture *paramCapture)
 {
@@ -3210,7 +2800,7 @@ void CaptureGetTexParameterIuivEXT_params(const State &glState,
 
 void CaptureSamplerParameterIivEXT_param(const State &glState,
                                          SamplerID samplerPacked,
-                                         GLenum pname,
+                                         SamplerParameter pnamePacked,
                                          const GLint *param,
                                          angle::ParamCapture *paramCapture)
 {
@@ -3219,7 +2809,7 @@ void CaptureSamplerParameterIivEXT_param(const State &glState,
 
 void CaptureSamplerParameterIuivEXT_param(const State &glState,
                                           SamplerID samplerPacked,
-                                          GLenum pname,
+                                          SamplerParameter pnamePacked,
                                           const GLuint *param,
                                           angle::ParamCapture *paramCapture)
 {
@@ -3857,21 +3447,22 @@ void CaptureTexSubImage3DOES_pixels(const State &glState,
 
 // GL_OES_texture_border_clamp
 void CaptureGetSamplerParameterIivOES_params(const State &glState,
-                                             SamplerID sampler,
-                                             GLenum pname,
+                                             SamplerID samplerPacked,
+                                             SamplerParameter pnamePacked,
                                              GLint *params,
                                              ParamCapture *paramCapture)
 {
-    CaptureGetSamplerParameterIiv_params(glState, sampler, pname, params, paramCapture);
+    CaptureGetSamplerParameterIiv_params(glState, samplerPacked, pnamePacked, params, paramCapture);
 }
 
 void CaptureGetSamplerParameterIuivOES_params(const State &glState,
-                                              SamplerID sampler,
-                                              GLenum pname,
+                                              SamplerID samplerPacked,
+                                              SamplerParameter pnamePacked,
                                               GLuint *params,
                                               ParamCapture *paramCapture)
 {
-    CaptureGetSamplerParameterIuiv_params(glState, sampler, pname, params, paramCapture);
+    CaptureGetSamplerParameterIuiv_params(glState, samplerPacked, pnamePacked, params,
+                                          paramCapture);
 }
 
 void CaptureGetTexParameterIivOES_params(const State &glState,
@@ -3893,21 +3484,21 @@ void CaptureGetTexParameterIuivOES_params(const State &glState,
 }
 
 void CaptureSamplerParameterIivOES_param(const State &glState,
-                                         SamplerID sampler,
-                                         GLenum pname,
+                                         SamplerID samplerPacked,
+                                         SamplerParameter pnamePacked,
                                          const GLint *param,
                                          ParamCapture *paramCapture)
 {
-    CaptureSamplerParameterIiv_param(glState, sampler, pname, param, paramCapture);
+    CaptureSamplerParameterIiv_param(glState, samplerPacked, pnamePacked, param, paramCapture);
 }
 
 void CaptureSamplerParameterIuivOES_param(const State &glState,
-                                          SamplerID sampler,
-                                          GLenum pname,
+                                          SamplerID samplerPacked,
+                                          SamplerParameter pnamePacked,
                                           const GLuint *param,
                                           ParamCapture *paramCapture)
 {
-    CaptureSamplerParameterIuiv_param(glState, sampler, pname, param, paramCapture);
+    CaptureSamplerParameterIuiv_param(glState, samplerPacked, pnamePacked, param, paramCapture);
 }
 
 void CaptureTexParameterIivOES_params(const State &glState,

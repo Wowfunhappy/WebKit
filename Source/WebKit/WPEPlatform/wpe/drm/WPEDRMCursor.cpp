@@ -45,9 +45,7 @@ Cursor::Cursor(std::unique_ptr<Plane>&& plane, struct gbm_device* device, uint32
 {
 }
 
-Cursor::~Cursor()
-{
-}
+Cursor::~Cursor() = default;
 
 bool Cursor::tryEnsureBuffer()
 {

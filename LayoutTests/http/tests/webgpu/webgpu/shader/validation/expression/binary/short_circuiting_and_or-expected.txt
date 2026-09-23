@@ -811,326 +811,70 @@ PASS :invalid_types:op="%7C%7C";type="sampler";control=true
 PASS :invalid_types:op="%7C%7C";type="sampler";control=false
 PASS :invalid_types:op="%7C%7C";type="struct";control=true
 PASS :invalid_types:op="%7C%7C";type="struct";control=false
-FAIL :invalid_rhs_const:op="%26%26";rhs="overflow";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:22: error: value 2147483648 cannot be represented as 'i32'
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = false && i32(1<<thirty_one) < 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:21: value 2147483648 cannot be represented as 'i32'
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%26%26";rhs="overflow";short_circuit=true
 PASS :invalid_rhs_const:op="%26%26";rhs="overflow";short_circuit=false
-FAIL :invalid_rhs_const:op="%26%26";rhs="div_zero_i32";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:25: error: invalid division by zero
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = false && (1 / zero_i32) == 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:24: invalid division by zero
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%26%26";rhs="div_zero_i32";short_circuit=true
 PASS :invalid_rhs_const:op="%26%26";rhs="div_zero_i32";short_circuit=false
-FAIL :invalid_rhs_const:op="%26%26";rhs="div_zero_f32";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:31: error: value Infinity cannot be represented as 'f32'
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = false && (one_f32 / 0) == 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:30: value Infinity cannot be represented as 'f32'
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%26%26";rhs="div_zero_f32";short_circuit=true
 PASS :invalid_rhs_const:op="%26%26";rhs="div_zero_f32";short_circuit=false
-FAIL :invalid_rhs_const:op="%26%26";rhs="builtin";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:22: error: value NaN cannot be represented as 'f32'
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = false && sqrt(-one_f32) == 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:21: value NaN cannot be represented as 'f32'
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%26%26";rhs="builtin";short_circuit=true
 PASS :invalid_rhs_const:op="%26%26";rhs="builtin";short_circuit=false
-FAIL :invalid_rhs_const:op="%7C%7C";rhs="overflow";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:21: error: value 2147483648 cannot be represented as 'i32'
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = true || i32(1<<thirty_one) < 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:20: value 2147483648 cannot be represented as 'i32'
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%7C%7C";rhs="overflow";short_circuit=true
 PASS :invalid_rhs_const:op="%7C%7C";rhs="overflow";short_circuit=false
-FAIL :invalid_rhs_const:op="%7C%7C";rhs="div_zero_i32";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:24: error: invalid division by zero
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = true || (1 / zero_i32) == 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:23: invalid division by zero
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%7C%7C";rhs="div_zero_i32";short_circuit=true
 PASS :invalid_rhs_const:op="%7C%7C";rhs="div_zero_i32";short_circuit=false
-FAIL :invalid_rhs_const:op="%7C%7C";rhs="div_zero_f32";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:30: error: value Infinity cannot be represented as 'f32'
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = true || (one_f32 / 0) == 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:29: value Infinity cannot be represented as 'f32'
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%7C%7C";rhs="div_zero_f32";short_circuit=true
 PASS :invalid_rhs_const:op="%7C%7C";rhs="div_zero_f32";short_circuit=false
-FAIL :invalid_rhs_const:op="%7C%7C";rhs="builtin";short_circuit=true assert_unreached:
-  - (in subcase: ) VALIDATION FAILED: Unexpected compilationInfo 'error' message.
-    8:21: error: value NaN cannot be represented as 'f32'
-
-    ---- shader ----
-
-    const thirty_one = 31u;
-    const zero_i32 = 0i;
-    const one_f32 = 1.0f;
-
-    @compute @workgroup_size(1)
-    fn main() {
-      let foo = true || sqrt(-one_f32) == 0;
-    }
-
-      at (elided: below max severity)
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: 1 error generated while compiling the shader:
-    8:20: value NaN cannot be represented as 'f32'
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_const:op="%7C%7C";rhs="builtin";short_circuit=true
 PASS :invalid_rhs_const:op="%7C%7C";rhs="builtin";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%26%26";rhs="overflow";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%26%26";rhs="overflow";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%26%26";rhs="overflow";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%26%26";rhs="div_zero_i32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%26%26";rhs="div_zero_i32";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%26%26";rhs="div_zero_i32";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%26%26";rhs="div_zero_f32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%26%26";rhs="div_zero_f32";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%26%26";rhs="div_zero_f32";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%26%26";rhs="builtin";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%26%26";rhs="builtin";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%26%26";rhs="builtin";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%7C%7C";rhs="overflow";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="overflow";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="overflow";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%7C%7C";rhs="div_zero_i32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="div_zero_i32";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="div_zero_i32";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%7C%7C";rhs="div_zero_f32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="div_zero_f32";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="div_zero_f32";short_circuit=false
-FAIL :invalid_rhs_fn_override:op="%7C%7C";rhs="builtin";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="builtin";short_circuit=true
 PASS :invalid_rhs_fn_override:op="%7C%7C";rhs="builtin";short_circuit=false
-FAIL :invalid_rhs_override:op="%26%26";rhs="overflow";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%26%26";rhs="overflow";short_circuit=true
 PASS :invalid_rhs_override:op="%26%26";rhs="overflow";short_circuit=false
-FAIL :invalid_rhs_override:op="%26%26";rhs="div_zero_i32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%26%26";rhs="div_zero_i32";short_circuit=true
 PASS :invalid_rhs_override:op="%26%26";rhs="div_zero_i32";short_circuit=false
-FAIL :invalid_rhs_override:op="%26%26";rhs="div_zero_f32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%26%26";rhs="div_zero_f32";short_circuit=true
 PASS :invalid_rhs_override:op="%26%26";rhs="div_zero_f32";short_circuit=false
-FAIL :invalid_rhs_override:op="%26%26";rhs="builtin";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%26%26";rhs="builtin";short_circuit=true
 PASS :invalid_rhs_override:op="%26%26";rhs="builtin";short_circuit=false
-FAIL :invalid_rhs_override:op="%7C%7C";rhs="overflow";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%7C%7C";rhs="overflow";short_circuit=true
 PASS :invalid_rhs_override:op="%7C%7C";rhs="overflow";short_circuit=false
-FAIL :invalid_rhs_override:op="%7C%7C";rhs="div_zero_i32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%7C%7C";rhs="div_zero_i32";short_circuit=true
 PASS :invalid_rhs_override:op="%7C%7C";rhs="div_zero_i32";short_circuit=false
-FAIL :invalid_rhs_override:op="%7C%7C";rhs="div_zero_f32";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%7C%7C";rhs="div_zero_f32";short_circuit=true
 PASS :invalid_rhs_override:op="%7C%7C";rhs="div_zero_f32";short_circuit=false
-FAIL :invalid_rhs_override:op="%7C%7C";rhs="builtin";short_circuit=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :invalid_rhs_override:op="%7C%7C";rhs="builtin";short_circuit=true
 PASS :invalid_rhs_override:op="%7C%7C";rhs="builtin";short_circuit=false
-FAIL :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=false;cond_b_val=false assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=false;cond_b_val=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=true;cond_b_val=false assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=false;cond_b_val=false
+PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=false;cond_b_val=true
+PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=true;cond_b_val=false
 PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%26%26";cond_a_val=true;cond_b_val=true
 PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%7C%7C";cond_a_val=false;cond_b_val=false
 PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%7C%7C";cond_a_val=false;cond_b_val=true
 PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%7C%7C";cond_a_val=true;cond_b_val=false
-FAIL :nested_invalid_rhs_override:op_a="%26%26";op_b="%7C%7C";cond_a_val=true;cond_b_val=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%26%26";cond_a_val=false;cond_b_val=false assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :nested_invalid_rhs_override:op_a="%26%26";op_b="%7C%7C";cond_a_val=true;cond_b_val=true
+PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%26%26";cond_a_val=false;cond_b_val=false
 PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%26%26";cond_a_val=false;cond_b_val=true
 PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%26%26";cond_a_val=true;cond_b_val=false
 PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%26%26";cond_a_val=true;cond_b_val=true
 PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=false;cond_b_val=false
-FAIL :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=false;cond_b_val=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=true;cond_b_val=false assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
-FAIL :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=true;cond_b_val=true assert_unreached:
-  - (in subcase: ) INFO: subcase ran
-  - EXCEPTION: Error: Unexpected validation error occurred: Failed to evaluate override value
-    attemptEndTestScope@http://127.0.0.1:8000/webgpu/webgpu/util/device_pool.js:457:44
- Reached unreachable code
+PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=false;cond_b_val=true
+PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=true;cond_b_val=false
+PASS :nested_invalid_rhs_override:op_a="%7C%7C";op_b="%7C%7C";cond_a_val=true;cond_b_val=true
 PASS :invalid_array_count_on_rhs:op="%26%26";rhs="negative";control=true
 PASS :invalid_array_count_on_rhs:op="%26%26";rhs="negative";control=false
 PASS :invalid_array_count_on_rhs:op="%26%26";rhs="sqrt_neg1";control=true

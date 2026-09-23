@@ -30,6 +30,7 @@
 #include "CSSPlatformColorResolutionState.h"
 #include "CSSValueKeywords.h"
 #include "HashTools.h"
+#include "PlatformRenderTheme.h"
 #include "RenderTheme.h"
 #include "StyleColorOptions.h"
 #include <wtf/OptionSet.h>

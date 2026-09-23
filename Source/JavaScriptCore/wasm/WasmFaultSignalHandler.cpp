@@ -41,7 +41,6 @@
 #include "WasmMemory.h"
 #include "WasmThunks.h"
 #include <wtf/CodePtr.h>
-#include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/threads/Signals.h>
 
@@ -115,7 +114,7 @@ static SignalAction trapHandler(Signal signal, SigInfo& sigInfo, PlatformRegiste
 
             auto [isWasm, callee] = didFaultInWasm(faultingInstruction);
             if (isWasm) {
-                auto* instance = jsSecureCast<JSWebAssemblyInstance*>(static_cast<JSCell*>(MachineContext::wasmInstancePointer(context)));
+                auto* instance = downcast<JSWebAssemblyInstance>(static_cast<JSCell*>(MachineContext::wasmInstancePointer(context)));
                 instance->setFaultPC(exception.value(), faultingInstruction);
 #if CPU(ARM64E) && HAVE(HARDENED_MACH_EXCEPTIONS)
                 if (g_wtfConfig.signalHandlers.useHardenedHandler) {

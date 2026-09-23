@@ -38,7 +38,6 @@
 #include <wtf/Forward.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Threading.h>
 #include <wtf/TypeCasts.h>
 
 namespace WTF {
@@ -182,7 +181,6 @@ public:
     virtual bool isRubberBandInProgress(std::optional<ScrollingNodeID>) const { return false; }
     virtual bool isUserScrollInProgress(std::optional<ScrollingNodeID>) const { return false; }
     virtual bool isScrollSnapInProgress(std::optional<ScrollingNodeID>) const { return false; }
-    virtual void updateScrollSnapPropertiesWithFrameView(const LocalFrameView&) { }
     virtual void setScrollPinningBehavior(ScrollPinningBehavior) { }
     virtual bool hasSubscrollers(FrameIdentifier) const { return false; }
 

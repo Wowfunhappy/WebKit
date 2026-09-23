@@ -27,10 +27,6 @@
   <script>
       if (window.testRunner)
           testRunner.dumpAsText(true);
-      if (window.internals) {
-          // Force software rendering mode.
-          window.internals.settings.setAcceleratedCompositingEnabled(false);
-      }
 
       function repaintTest()
       {

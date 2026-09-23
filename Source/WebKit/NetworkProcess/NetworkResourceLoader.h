@@ -45,6 +45,7 @@
 #include <WebCore/SecurityPolicyViolationEvent.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/Timer.h>
+#include <wtf/Deque.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/WeakPtr.h>
 
@@ -176,7 +177,7 @@ public:
     void NODELETE setWorkerFinalRouterSource(WebCore::RouterSourceEnum);
 
     std::optional<WebCore::ResourceError> doCrossOriginOpenerHandlingOfResponse(const WebCore::ResourceResponse&);
-    void sendDidReceiveResponsePotentiallyInNewBrowsingContextGroup(const WebCore::ResourceResponse&, PrivateRelayed, bool needsContinueDidReceiveResponseMessage);
+    void sendDidReceiveResponseWithPotentialProcessSwap(const WebCore::ResourceResponse&, PrivateRelayed, bool needsContinueDidReceiveResponseMessage);
 
     bool NODELETE isAppInitiated();
 
@@ -284,6 +285,7 @@ private:
 
     enum class IsFromServiceWorker : bool { No, Yes };
     void willSendRedirectedRequestInternal(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&&, IsFromServiceWorker, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
+    void continueWillSendRedirectedRequestAfterContentFiltering(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&&, IsFromServiceWorker, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
     std::optional<WebCore::NetworkLoadMetrics> computeResponseMetrics(const WebCore::ResourceResponse&) const;
 
     void startRequest(const WebCore::ResourceRequest&);
@@ -297,6 +299,10 @@ private:
     void updateBytesTransferredOverNetwork(size_t bytesTransferredOverNetwork);
     void reportNetworkUsageToAllSharedWorkerObjects(WebCore::SharedWorkerIdentifier, size_t bytesTransferredOverNetworkDelta);
     void reportNetworkUsageToAllServiceWorkerClients(WebCore::ServiceWorkerIdentifier, size_t bytesTransferredOverNetworkDelta);
+#endif
+
+#if ENABLE(BLOCKING_OF_LOCAL_FILE_LOADS_WITHOUT_SANDBOX_EXTENSION)
+    bool isLocalFileLoadAllowed(const URL&);
 #endif
 
     NetworkResourceLoadParameters m_parameters;
@@ -322,8 +328,6 @@ private:
     size_t m_bytesTransferredOverNetwork { 0 };
 #endif
 
-    unsigned m_retrievedDerivedDataCount { 0 };
-
     WebCore::Timer m_bufferingTimer;
     RefPtr<NetworkCache::Cache> m_cache;
     WebCore::SharedBufferBuilder m_bufferedDataForCache;
@@ -333,7 +337,9 @@ private:
     std::unique_ptr<NetworkCache::Entry> m_cacheEntryWaitingForContinueDidReceiveResponse;
     RefPtr<NetworkLoadChecker> m_networkLoadChecker;
     bool m_shouldRestartLoad { false };
-    ResponseCompletionHandler m_responseCompletionHandler;
+    // A Deque (rather than a single handler) is needed because multipart/x-mixed-replace responses
+    // can deliver follow-up parts before the WebProcess has approved the first one via ContinueDidReceiveResponse.
+    Deque<ResponseCompletionHandler> m_responseCompletionHandlers;
     bool m_shouldCaptureExtraNetworkLoadMetrics { false };
     bool m_isKeptAlive { false };
     std::unique_ptr<EarlyHintsResourceLoader> m_earlyHintsResourceLoader;

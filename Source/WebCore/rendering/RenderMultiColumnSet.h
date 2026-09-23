@@ -46,7 +46,7 @@ class RenderMultiColumnSet final : public RenderFragmentContainerSet {
     WTF_MAKE_TZONE_ALLOCATED(RenderMultiColumnSet);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMultiColumnSet);
 public:
-    RenderMultiColumnSet(RenderFragmentedFlow&, RenderStyle&&);
+    RenderMultiColumnSet(RenderFragmentedFlow&, Style::ComputedStyle&&);
     virtual ~RenderMultiColumnSet();
 
     RenderBlockFlow* multiColumnBlockFlow() const { return downcast<RenderBlockFlow>(parent()); }
@@ -109,7 +109,7 @@ public:
     // element from being moved to the next column) at a column break. The smallest amount of space
     // shortage we find is the amount with which we will stretch the column height, if it turns out
     // after layout that the columns weren't tall enough.
-    void recordSpaceShortage(LayoutUnit spaceShortage);
+    void NODELETE recordSpaceShortage(LayoutUnit spaceShortage);
 
     void updateLogicalWidth() override;
 
@@ -138,7 +138,7 @@ public:
     void updateHitTestResult(HitTestResult&, const LayoutPoint&) const override;
     
     LayoutRect columnRectAt(unsigned index) const;
-    unsigned columnCount() const;
+    unsigned NODELETE columnCount() const;
 
     LayoutUnit columnGap() const;
 
@@ -185,11 +185,11 @@ private:
         ClampToExistingColumns, // Stay within the range of already existing columns.
         AssumeNewColumns // Allow column indices outside the range of already existing columns.
     };
-    unsigned columnIndexAtOffset(LayoutUnit, ColumnIndexCalculationMode = ClampToExistingColumns) const;
+    unsigned NODELETE columnIndexAtOffset(LayoutUnit, ColumnIndexCalculationMode = ClampToExistingColumns) const;
 
     std::pair<unsigned, unsigned> firstAndLastColumnsFromOffsets(LayoutUnit topOffset, LayoutUnit bottomOffset) const;
 
-    void setAndConstrainColumnHeight(LayoutUnit);
+    void NODELETE setAndConstrainColumnHeight(LayoutUnit);
 
     // Return the index of the content run with the currently tallest columns, taking all implicit
     // breaks assumed so far into account.

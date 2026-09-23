@@ -7,11 +7,8 @@
 //   Performance test for index buffer management.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "ANGLEPerfTest.h"
+#include "common/unsafe_buffers.h"
 
 #include <gmock/gmock.h>
 
@@ -66,7 +63,7 @@ class MockBufferFactoryD3D : public rx::BufferFactoryD3D
                                      const gl::VertexBinding &,
                                      size_t,
                                      GLsizei,
-                                     GLuint,
+                                     uint64_t,
                                      unsigned int *));
 
     // Dependency injection
@@ -91,12 +88,13 @@ class MockBufferD3D : public rx::BufferD3D
                           const void *data,
                           size_t size,
                           gl::BufferUsage,
-                          rx::BufferFeedback *feedback) override
+                          rx::BufferFeedback *feedback,
+                          gl::ZeroFillRequired zeroFillRequired) override
     {
         mData.resize(size);
         if (data && size > 0)
         {
-            memcpy(&mData[0], data, size);
+            ANGLE_UNSAFE_TODO(memcpy(&mData[0], data, size));
         }
         return angle::Result::Continue;
     }

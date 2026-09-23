@@ -29,82 +29,22 @@
 #include "CommonCryptoUtilities.h"
 #include "CryptoAlgorithmAesGcmParams.h"
 #include "CryptoKeyAES.h"
-#include <pal/PALSwift.h>
-#include <wtf/CryptographicUtilities.h>
-#include <wtf/StdLibExtras.h>
-
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
+#include "CryptoTypesBridging.h"
+#include <pal/crypto/CryptoAlgorithmAESGCMCocoa.h>
 
 namespace WebCore {
-
-static ExceptionOr<Vector<uint8_t>> encryptAESGCM(const Vector<uint8_t>& iv, const Vector<uint8_t>& key, const Vector<uint8_t>& plainText, const Vector<uint8_t>& additionalData, size_t desiredTagLengthInBytes)
-{
-    Vector<uint8_t> cipherText(plainText.size() + desiredTagLengthInBytes); // Per section 5.2.1.2: http://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf
-    Vector<uint8_t> tag(desiredTagLengthInBytes);
-    // tagLength is actual an input <rdar://problem/30660074>
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CCCryptorStatus status = CCCryptorGCM(kCCEncrypt, kCCAlgorithmAES, key.span().data(), key.size(), iv.span().data(), iv.size(), additionalData.span().data(), additionalData.size(), plainText.span().data(), plainText.size(), cipherText.mutableSpan().data(), tag.mutableSpan().data(), &desiredTagLengthInBytes);
-ALLOW_DEPRECATED_DECLARATIONS_END
-    if (status)
-        return Exception { ExceptionCode::OperationError };
-    memcpySpan(cipherText.mutableSpan().subspan(plainText.size()), tag.span());
-
-    return WTF::move(cipherText);
-}
-
-static ExceptionOr<Vector<uint8_t>> encryptCryptoKitAESGCM(const Vector<uint8_t>& iv, const Vector<uint8_t>& key, const Vector<uint8_t>& plainText, const Vector<uint8_t>& additionalData, size_t desiredTagLengthInBytes)
-{
-#if !defined(CLANG_WEBKIT_BRANCH)
-    auto rv = pal::AesGcm::encrypt(key.span(), iv.span(), additionalData.span(), plainText.span(), desiredTagLengthInBytes);
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return Exception { ExceptionCode::OperationError };
-    return WTF::move(rv.result);
-#else
-    UNUSED_PARAM(iv);
-    UNUSED_PARAM(key);
-    UNUSED_PARAM(plainText);
-    UNUSED_PARAM(additionalData);
-    UNUSED_PARAM(desiredTagLengthInBytes);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
-}
-
-static ExceptionOr<Vector<uint8_t>> decyptAESGCM(const Vector<uint8_t>& iv, const Vector<uint8_t>& key, const Vector<uint8_t>& cipherText, const Vector<uint8_t>& additionalData, size_t desiredTagLengthInBytes)
-{
-    Vector<uint8_t> plainText(cipherText.size()); // Per section 5.2.1.2: http://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf
-    Vector<uint8_t> tag(desiredTagLengthInBytes);
-    size_t offset = cipherText.size() - desiredTagLengthInBytes;
-    // tagLength is actual an input <rdar://problem/30660074>
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CCCryptorStatus status = CCCryptorGCM(kCCDecrypt, kCCAlgorithmAES, key.span().data(), key.size(), iv.span().data(), iv.size(), additionalData.span().data(), additionalData.size(), cipherText.span().data(), offset, plainText.mutableSpan().data(), tag.mutableSpan().data(), &desiredTagLengthInBytes);
-ALLOW_DEPRECATED_DECLARATIONS_END
-    if (status)
-        return Exception { ExceptionCode::OperationError };
-
-    // Using a constant time comparison to prevent timing attacks.
-    if (constantTimeMemcmp(tag.span(), cipherText.subspan(offset)))
-        return Exception { ExceptionCode::OperationError };
-
-    plainText.shrink(offset);
-    return WTF::move(plainText);
-}
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESGCM::platformEncrypt(const CryptoAlgorithmAesGcmParams& parameters, const CryptoKeyAES& key, const Vector<uint8_t>& plainText)
 {
     if (parameters.ivVector().size() >= 12)
-        return encryptCryptoKitAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
-    return encryptAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
+        return toException(PAL::Crypto::encryptCryptoKitAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8));
+    return toException(PAL::Crypto::encryptAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8));
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESGCM::platformDecrypt(const CryptoAlgorithmAesGcmParams& parameters, const CryptoKeyAES& key, const Vector<uint8_t>& cipherText)
 {
     // FIXME: Add decrypt with CryptoKit once rdar://92701544 is resolved.
-    return decyptAESGCM(parameters.ivVector(), key.key(), cipherText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
+    return toException(PAL::Crypto::decyptAESGCM(parameters.ivVector(), key.key(), cipherText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8));
 }
 
 } // namespace WebCore

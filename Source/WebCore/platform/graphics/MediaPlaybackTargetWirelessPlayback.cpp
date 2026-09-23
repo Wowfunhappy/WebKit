@@ -31,6 +31,7 @@
 #include "MediaDeviceRoute.h"
 #include "MediaDeviceRouteController.h"
 #include <wtf/CompletionHandler.h>
+#include <wtf/TypeCasts.h>
 #include <wtf/UUID.h>
 
 namespace WebCore {
@@ -71,6 +72,23 @@ String MediaPlaybackTargetWirelessPlayback::deviceName() const
     if (RefPtr route = m_route)
         return m_route->deviceName();
     return { };
+}
+
+String MediaPlaybackTargetWirelessPlayback::routeName() const
+{
+    if (RefPtr route = m_route)
+        return route->routeName();
+    return { };
+}
+
+bool MediaPlaybackTargetWirelessPlayback::operator==(const MediaPlaybackTarget& other) const
+{
+    RefPtr otherWirelessPlaybackTarget = dynamicDowncast<MediaPlaybackTargetWirelessPlayback>(other);
+    if (!otherWirelessPlaybackTarget)
+        return false;
+
+    std::optional identifier = this->identifier();
+    return identifier && identifier == otherWirelessPlaybackTarget->identifier();
 }
 
 } // namespace WebCore

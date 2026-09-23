@@ -40,13 +40,15 @@
 #include "Page.h"
 #include "UserGestureIndicator.h"
 #include <wtf/TZoneMallocInlines.h>
+#include "FrameDestructionObserverInlines.h"
+#include "DocumentPage.h"
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(DeviceOrientationAndMotionAccessController);
 
-DeviceOrientationAndMotionAccessController::DeviceOrientationAndMotionAccessController(Document& topDocument)
-    : m_topDocument(topDocument)
+DeviceOrientationAndMotionAccessController::DeviceOrientationAndMotionAccessController(Page& page)
+    : m_page(page)
 {
 }
 
@@ -56,9 +58,16 @@ DeviceOrientationOrMotionPermissionState DeviceOrientationAndMotionAccessControl
     if (iterator != m_accessStatePerOrigin.end())
         return iterator->value;
 
-    // Check per-site setting.
-    Ref topDocument = m_topDocument.get();
-    if (&document == topDocument.ptr() || protect(document.securityOrigin())->isSameOriginAs(protect(topDocument->securityOrigin()))) {
+    RefPtr page = m_page.get();
+    if (!page)
+        return DeviceOrientationOrMotionPermissionState::Denied;
+
+    RefPtr topDocument = page->localTopDocument();
+    bool topDocumentInAnotherProcess = !topDocument;
+    if (topDocumentInAnotherProcess)
+        return DeviceOrientationOrMotionPermissionState::Prompt;
+
+    if (&document == topDocument.get() || protect(document.securityOrigin())->isSameOriginAs(protect(topDocument->securityOrigin()))) {
         auto* frame = topDocument->frame();
         if (auto* documentLoader = frame ? frame->loader().documentLoader() : nullptr)
             return documentLoader->deviceOrientationAndMotionAccessState();
@@ -95,14 +104,17 @@ void DeviceOrientationAndMotionAccessController::shouldAllowAccess(const Documen
         if (permissionState != DeviceOrientationOrMotionPermissionState::Granted)
             return;
 
-        for (RefPtr<Frame> frame = checkedThis->m_topDocument->frame(); frame && frame->window(); frame = frame->tree().traverseNext()) {
-            RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
-            if (!localFrame)
-                continue;
-            RefPtr window = localFrame->window();
+        RefPtr page = checkedThis->m_page.get();
+        if (!page)
+            return;
+
+        page->forEachLocalFrame([](LocalFrame& localFrame) {
+            RefPtr window = localFrame.window();
+            if (!window)
+                return;
             window->startListeningForDeviceOrientationIfNecessary();
             window->startListeningForDeviceMotionIfNecessary();
-        }
+        });
     });
 }
 

@@ -29,6 +29,7 @@
 #if PLATFORM(COCOA)
 
 #include <wtf/RefPtr.h>
+#include <wtf/Seconds.h>
 #include <wtf/Vector.h>
 
 struct AudioStreamBasicDescription;

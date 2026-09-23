@@ -33,10 +33,14 @@ class AbstractSlotVisitor;
 
 class JS_EXPORT_PRIVATE WeakHandleOwner {
 public:
+    WeakHandleOwner() = default;
     virtual ~WeakHandleOwner();
     // reason will only be non-null when generating a debug GC heap snapshot.
     virtual bool isReachableFromOpaqueRoots(Handle<Unknown>, void* context, AbstractSlotVisitor&, ASCIILiteral* reason = nullptr);
     virtual void finalize(Handle<Unknown>, void* context);
+
+private:
+    explicit WeakHandleOwner(ClangVTableWorkaroundTag);
 };
 
 } // namespace JSC

@@ -40,7 +40,7 @@ layer at (0,0) size 800x52
           RenderBlock (anonymous) at (0,0) size 22x18
             RenderText {#text} at (0,-44) size 22x106
               text run at (0,-44) width 22: "\x{2230}"
-        RenderMathMLOperator {mo} at (429,7) size 22x23
+        RenderMathMLOperator {mo} at (429,6) size 22x24
           RenderBlock (anonymous) at (0,0) size 13x17
             RenderText {#text} at (0,-45) size 13x106
               text run at (0,-45) width 13: "\x{22C3}"
@@ -52,7 +52,7 @@ layer at (0,0) size 800x52
           RenderBlock (anonymous) at (0,0) size 13x18
             RenderText {#text} at (0,-44) size 13x106
               text run at (0,-44) width 13: "\x{22C1}"
-        RenderMathMLOperator {mo} at (491,6) size 22x23
+        RenderMathMLOperator {mo} at (491,6) size 22x24
           RenderBlock (anonymous) at (0,0) size 13x17
             RenderText {#text} at (0,-44) size 13x106
               text run at (0,-44) width 13: "\x{22C2}"

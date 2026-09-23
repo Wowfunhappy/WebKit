@@ -24,9 +24,9 @@
  */
 #pragma once
 
-#include "LayoutUnit.h"
-#include "RenderStyleConstants.h"
-#include "WritingMode.h"
+#include <WebCore/LayoutUnit.h>
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/WritingMode.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 

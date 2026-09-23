@@ -13,7 +13,7 @@ FAIL :values:stage="constant";type="vec3%3Cf16%3E" assert_unreached:
     const v  = cross(vec3(-65504.0h, -65504.0h, -65504.0h), vec3(-65504.0h, -65504.0h, -65504.0h));
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
   - (in subcase: a=-65504;b=-65504) INFO: subcase ran
   - (in subcase: a=-65504;b=-63.96875) EXPECTATION FAILED: Expected validation error
       at (elided: below max severity)
@@ -25,7 +25,7 @@ FAIL :values:stage="constant";type="vec3%3Cf16%3E" assert_unreached:
     const v  = cross(vec3(-65504.0h, -65504.0h, -65504.0h), vec3(-63.96875h, -63.96875h, -63.96875h));
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
     async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:534:28
+    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
   - (in subcase: a=-65504;b=-63.96875) INFO: subcase ran
   - (in subcase: a=-65504;b=-0.062469482421875) INFO: subcase ran
   - (in subcase: a=-65504;b=-0.00006103515625) INFO: subcase ran
@@ -264,14 +264,14 @@ PASS :values:stage="override";type="vec3%3Cf32%3E"
 FAIL :values:stage="override";type="vec3%3Cf16%3E" assert_unreached:
   - (in subcase: a=-65504;b=-65504) EXPECTATION FAILED: Expected validation error
     eventualAsyncExpectation@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:258:33
-    expectGPUError@http://127.0.0.1:8000/webgpu/webgpu/gpu_test.js:1143:34
+    expectGPUError@http://127.0.0.1:8000/webgpu/webgpu/gpu_test.js:1163:34
     expectPipelineResult@http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:216:24
     validateConstOrOverrideBuiltinEval@http://127.0.0.1:8000/webgpu/webgpu/shader/validation/expression/call/builtin/const_override_validation.js:194:31
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/expression/call/builtin/cross.spec.js:71:37
   - (in subcase: a=-65504;b=-65504) INFO: subcase ran
   - (in subcase: a=-65504;b=-63.96875) EXPECTATION FAILED: Expected validation error
     eventualAsyncExpectation@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:258:33
-    expectGPUError@http://127.0.0.1:8000/webgpu/webgpu/gpu_test.js:1143:34
+    expectGPUError@http://127.0.0.1:8000/webgpu/webgpu/gpu_test.js:1163:34
     expectPipelineResult@http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:216:24
     validateConstOrOverrideBuiltinEval@http://127.0.0.1:8000/webgpu/webgpu/shader/validation/expression/call/builtin/const_override_validation.js:194:31
     @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/expression/call/builtin/cross.spec.js:71:37

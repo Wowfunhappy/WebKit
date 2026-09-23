@@ -33,7 +33,6 @@ struct WebKit::NavigationActionData {
     WebCore::FloatPoint clickLocationInRootViewCoordinates;
     WebCore::ResourceResponse redirectResponse;
     bool isRequestFromClientOrUserInput;
-    bool treatAsSameOriginNavigation;
     bool hasOpenedFrames;
     bool openedByDOMWithOpener;
     bool hasOpener;
@@ -59,7 +58,7 @@ struct WebKit::NavigationActionData {
     std::optional<WebKit::WebPageProxyIdentifier> originatingPageID;
     WebKit::FrameInfoData frameInfo;
     std::optional<WebCore::NavigationIdentifier> navigationID;
-    WebCore::ResourceRequest originalRequest;
+    std::optional<WebCore::ResourceRequest> originalRequest;
     [EncodeRequestBody] WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;

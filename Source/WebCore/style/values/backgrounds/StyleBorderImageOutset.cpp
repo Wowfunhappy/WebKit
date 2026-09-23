@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,22 +27,39 @@
 #include "StyleBorderImageOutset.h"
 
 #include "AnimationUtilities.h"
+#include "CSSBorderImageOutsetValue.h"
 #include "CSSPrimitiveValue.h"
-#include "CSSQuadValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
+#include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 
 namespace WebCore {
 namespace Style {
 
-using namespace CSS::Literals;
-
 // MARK: - Conversion
 
-static BorderImageOutsetValue convertBorderImageOutsetValue(BuilderState& state, const CSSValue& value)
+DEFINE_TYPE_MAPPING(CSS::BorderImageOutset::Value, BorderImageOutset::Value);
+
+auto ToCSS<BorderImageOutset>::operator()(const BorderImageOutset& value, const Style::ComputedStyle& style) -> CSS::BorderImageOutset
 {
+    return { toCSS(value.values, style) };
+}
+
+auto ToStyle<CSS::BorderImageOutset>::operator()(const CSS::BorderImageOutset& value, const BuilderState& state) -> BorderImageOutset
+{
+    return { toStyle(value.values, state) };
+}
+
+auto CSSValueConversion<BorderImageOutset>::operator()(BuilderState& state, const CSSValue& value) -> BorderImageOutset
+{
+    using namespace CSS::Literals;
+
+    if (RefPtr borderImageOutsetValue = dynamicDowncast<CSSBorderImageOutsetValue>(value))
+        return toStyle(borderImageOutsetValue->outsets(), state);
+
+    // Values coming from CSS Typed OM may not have been converted to a CSSBorderImageOutsetValue.
     RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(state, value);
     if (!primitiveValue)
         return BorderImageOutsetValue { 0_css_number };
@@ -52,30 +69,9 @@ static BorderImageOutsetValue convertBorderImageOutsetValue(BuilderState& state,
     return toStyleFromCSSValue<BorderImageOutsetValue::Length>(state, *primitiveValue);
 }
 
-auto CSSValueConversion<BorderImageOutset>::operator()(BuilderState& state, const CSSValue& value) -> BorderImageOutset
+auto CSSValueCreation<BorderImageOutset>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const BorderImageOutset& value) -> Ref<CSSValue>
 {
-    if (RefPtr quadValue = dynamicDowncast<CSSQuadValue>(value)) {
-        auto& quad = quadValue->quad();
-        return BorderImageOutset {
-            convertBorderImageOutsetValue(state, quad.top()),
-            convertBorderImageOutsetValue(state, quad.right()),
-            convertBorderImageOutsetValue(state, quad.bottom()),
-            convertBorderImageOutsetValue(state, quad.left()),
-        };
-    }
-
-    // Values coming from CSS Typed OM may not have been converted to a Quad.
-    return convertBorderImageOutsetValue(state, value);
-}
-
-auto CSSValueCreation<BorderImageOutset>::operator()(CSSValuePool& pool, const RenderStyle& style, const BorderImageOutset& value) -> Ref<CSSValue>
-{
-    return CSSQuadValue::create({
-        createCSSValue(pool, style, value.values.top()),
-        createCSSValue(pool, style, value.values.right()),
-        createCSSValue(pool, style, value.values.bottom()),
-        createCSSValue(pool, style, value.values.left()),
-    });
+    return CSSBorderImageOutsetValue::create(toCSS(value, style));
 }
 
 // MARK: - Blending
@@ -92,6 +88,8 @@ inline auto Blending<BorderImageOutsetValue>::requiresInterpolationForAccumulati
 
 inline auto Blending<BorderImageOutsetValue>::blend(const BorderImageOutsetValue& a, const BorderImageOutsetValue& b, const BlendingContext& context) -> BorderImageOutsetValue
 {
+    using namespace CSS::Literals;
+
     if (!a.hasSameType(b))
         return BorderImageOutsetValue { 0_css_px };
 

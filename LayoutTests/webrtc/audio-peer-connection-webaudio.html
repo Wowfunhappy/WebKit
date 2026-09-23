@@ -37,6 +37,7 @@
             testRunner.setUserMediaPermission(true);
 
         return navigator.mediaDevices.getUserMedia({audio: true}).then((stream) => {
+            test.add_cleanup(() => stream.getTracks().forEach(track => track.stop()));
             return new Promise((resolve, reject) => {
                 createConnections((firstConnection) => {
                     firstConnection.addTrack(stream.getAudioTracks()[0], stream);

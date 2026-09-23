@@ -49,12 +49,11 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
     bool hadMainFrameMainResourcePrivateRelayed;
     bool allowPrivacyProxy;
     OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
-    std::optional<bool> mayBlockNetworkRequest;
+    bool mayBlockNetworkRequest;
     uint64_t requiredCookiesVersion;
 
     Markable<WebCore::ResourceLoaderIdentifier> identifier;
 
-    Vector<WebKit::SandboxExtensionHandle> requestBodySandboxExtensions;
     std::optional<WebKit::SandboxExtensionHandle> resourceSandboxExtension;
 
     Seconds maximumBufferingTime;
@@ -66,8 +65,6 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
     WebCore::CrossOriginEmbedderPolicy parentCrossOriginEmbedderPolicy;
     WebCore::CrossOriginEmbedderPolicy crossOriginEmbedderPolicy;
     WebCore::HTTPHeaderMap originalRequestHeaders;
-    
-    bool shouldRestrictHTTPResponseAccess;
     
     WebCore::PreflightPolicy preflightPolicy;
     
@@ -111,6 +108,8 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
 
     bool isInitiatorPrefetch;
     bool isInitiatedByDedicatedWorker;
+    bool globalPrivacyControlEnabled;
+    bool shouldConsiderEnhancedSecurityForInsecureResponse;
 };
 
 using WebCore::FetchingWorkerIdentifier = Variant<std::monostate, WebCore::SharedWorkerIdentifier, WebCore::ServiceWorkerIdentifier>;

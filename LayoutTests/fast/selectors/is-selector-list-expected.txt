@@ -10,16 +10,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseA)')[1].id is "testcase3"
 PASS document.querySelectorAll('#test-root :is(testcaseA)')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :is(testcaseA)')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(testcaseA)')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":is(testcaseA, testcaseB)"
 PASS document.querySelectorAll('#test-root :is(testcaseA, testcaseB)').length is 10
@@ -33,16 +24,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseA, testcaseB)')[6].id is 
 PASS document.querySelectorAll('#test-root :is(testcaseA, testcaseB)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(testcaseA, testcaseB)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(testcaseA, testcaseB)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5)"
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5)').length is 5
@@ -51,16 +33,7 @@ PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5)')[2].id is "testcase3"
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5)')[3].id is "testcase4"
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5)')[4].id is "testcase5"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5"]
 
 Testing ":is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5, #testcase6, #testcase7, #testcase8, #testcase9, #testcase10)"
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5, #testcase6, #testcase7, #testcase8, #testcase9, #testcase10)').length is 10
@@ -74,16 +47,7 @@ PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5, #testcase6, #testcase7, #testcase8, #testcase9, #testcase10)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5, #testcase6, #testcase7, #testcase8, #testcase9, #testcase10)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(#testcase1, #testcase2, #testcase3, #testcase4, #testcase5, #testcase6, #testcase7, #testcase8, #testcase9, #testcase10)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(testcaseA, #testcase1, #testcase2)"
 PASS document.querySelectorAll('#test-root :is(testcaseA, #testcase1, #testcase2)').length is 6
@@ -93,16 +57,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseA, #testcase1, #testcase2
 PASS document.querySelectorAll('#test-root :is(testcaseA, #testcase1, #testcase2)')[3].id is "testcase5"
 PASS document.querySelectorAll('#test-root :is(testcaseA, #testcase1, #testcase2)')[4].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(testcaseA, #testcase1, #testcase2)')[5].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":is([attribute3], [attribute2=value2])"
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2])').length is 6
@@ -112,16 +67,7 @@ PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2]
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2])')[3].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2])')[4].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2])')[5].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase5","testcase6","testcase9","testcase10"]
 
 Testing ":is([attribute3], [attribute2=value2], testcaseB)"
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2], testcaseB)').length is 8
@@ -133,16 +79,7 @@ PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2]
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2], testcaseB)')[5].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2], testcaseB)')[6].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is([attribute3], [attribute2=value2], testcaseB)')[7].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase4","testcase5","testcase6","testcase8","testcase9","testcase10"]
 
 Testing ":is(.bar)"
 PASS document.querySelectorAll('#test-root :is(.bar)').length is 7
@@ -153,16 +90,7 @@ PASS document.querySelectorAll('#test-root :is(.bar)')[3].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(.bar)')[4].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(.bar)')[5].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(.bar)')[6].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase4","testcase6","testcase7","testcase9","testcase10"]
 
 Testing ":is(.bar, .bazoo)"
 PASS document.querySelectorAll('#test-root :is(.bar, .bazoo)').length is 10
@@ -176,16 +104,7 @@ PASS document.querySelectorAll('#test-root :is(.bar, .bazoo)')[6].id is "testcas
 PASS document.querySelectorAll('#test-root :is(.bar, .bazoo)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(.bar, .bazoo)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(.bar, .bazoo)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(.foo, .bar)"
 PASS document.querySelectorAll('#test-root :is(.foo, .bar)').length is 10
@@ -199,16 +118,7 @@ PASS document.querySelectorAll('#test-root :is(.foo, .bar)')[6].id is "testcase7
 PASS document.querySelectorAll('#test-root :is(.foo, .bar)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(.foo, .bar)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(.foo, .bar)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(.baz, .foo)"
 PASS document.querySelectorAll('#test-root :is(.baz, .foo)').length is 10
@@ -222,16 +132,7 @@ PASS document.querySelectorAll('#test-root :is(.baz, .foo)')[6].id is "testcase7
 PASS document.querySelectorAll('#test-root :is(.baz, .foo)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(.baz, .foo)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(.baz, .foo)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(.bar.bazoo, .bar.baz)"
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz)').length is 7
@@ -242,16 +143,7 @@ PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz)')[3].id is 
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz)')[4].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz)')[5].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz)')[6].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase4","testcase6","testcase7","testcase9","testcase10"]
 
 Testing ":is(testcaseeA.bar.bazoo, .bar.baz)"
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz)').length is 4
@@ -259,16 +151,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz)')
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz)')[1].id is "testcase2"
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz)')[3].id is "testcase7"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase2","testcase6","testcase7"]
 
 Testing ":is(testcaseB.bar, .baz.foo.bar)"
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar)').length is 4
@@ -276,16 +159,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar)')[0]
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar)')[1].id is "testcase4"
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar)')[3].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase10"]
 
 Testing ":is(.baz.foo.bar, testcaseA[attribute1^=value])"
 PASS document.querySelectorAll('#test-root :is(.baz.foo.bar, testcaseA[attribute1^=value])').length is 4
@@ -293,16 +167,7 @@ PASS document.querySelectorAll('#test-root :is(.baz.foo.bar, testcaseA[attribute
 PASS document.querySelectorAll('#test-root :is(.baz.foo.bar, testcaseA[attribute1^=value])')[1].id is "testcase3"
 PASS document.querySelectorAll('#test-root :is(.baz.foo.bar, testcaseA[attribute1^=value])')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(.baz.foo.bar, testcaseA[attribute1^=value])')[3].id is "testcase7"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase6","testcase7"]
 
 Testing ":is(testcaseA[attribute1^=value], .foo:empty)"
 PASS document.querySelectorAll('#test-root :is(testcaseA[attribute1^=value], .foo:empty)').length is 4
@@ -310,16 +175,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseA[attribute1^=value], .fo
 PASS document.querySelectorAll('#test-root :is(testcaseA[attribute1^=value], .foo:empty)')[1].id is "testcase3"
 PASS document.querySelectorAll('#test-root :is(testcaseA[attribute1^=value], .foo:empty)')[2].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(testcaseA[attribute1^=value], .foo:empty)')[3].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase7","testcase9"]
 
 Testing ":is(.foo:empty, .bar.baz)"
 PASS document.querySelectorAll('#test-root :is(.foo:empty, .bar.baz)').length is 5
@@ -328,16 +184,7 @@ PASS document.querySelectorAll('#test-root :is(.foo:empty, .bar.baz)')[1].id is 
 PASS document.querySelectorAll('#test-root :is(.foo:empty, .bar.baz)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(.foo:empty, .bar.baz)')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(.foo:empty, .bar.baz)')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase2","testcase6","testcase7","testcase9"]
 
 Testing ":is(.bar.bazoo, .bar.baz, testcaseeA.bar.bazoo, .baz.foo.bar, testcaseA[attribute1^=value])"
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz, testcaseeA.bar.bazoo, .baz.foo.bar, testcaseA[attribute1^=value])').length is 8
@@ -349,16 +196,7 @@ PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz, testcaseeA.
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz, testcaseeA.bar.bazoo, .baz.foo.bar, testcaseA[attribute1^=value])')[5].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz, testcaseeA.bar.bazoo, .baz.foo.bar, testcaseA[attribute1^=value])')[6].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(.bar.bazoo, .bar.baz, testcaseeA.bar.bazoo, .baz.foo.bar, testcaseA[attribute1^=value])')[7].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase6","testcase7","testcase9","testcase10"]
 
 Testing ":is(testcaseeA.bar.bazoo, .bar.baz, .foo:empty)"
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz, .foo:empty)').length is 5
@@ -367,16 +205,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz, .
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz, .foo:empty)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz, .foo:empty)')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(testcaseeA.bar.bazoo, .bar.baz, .foo:empty)')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase2","testcase6","testcase7","testcase9"]
 
 Testing ":is(testcaseB.bar, .baz.foo.bar, testcaseA[attribute1^=value])"
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar, testcaseA[attribute1^=value])').length is 7
@@ -387,16 +216,7 @@ PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar, test
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar, testcaseA[attribute1^=value])')[4].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar, testcaseA[attribute1^=value])')[5].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(testcaseB.bar, .baz.foo.bar, testcaseA[attribute1^=value])')[6].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase6","testcase7","testcase10"]
 
 Testing ":is(html>body testcaseB.bar, html body div .baz.foo.bar)"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar)').length is 4
@@ -404,16 +224,7 @@ PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html bod
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar)')[1].id is "testcase4"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar)')[3].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase2","testcase4","testcase6","testcase10"]
 
 Testing ":is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])').length is 7
@@ -424,16 +235,7 @@ PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html bod
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])')[4].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])')[5].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])')[6].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase6","testcase7","testcase10"]
 
 Testing ":is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)').length is 8
@@ -445,16 +247,7 @@ PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html bod
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)')[5].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)')[6].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)')[7].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase6","testcase7","testcase9","testcase10"]
 
 Testing ":is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)').length is 9
@@ -467,16 +260,7 @@ PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html bod
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[6].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[7].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[8].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase9","testcase10"]
 
 Testing ":is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)').length is 9
@@ -489,16 +273,7 @@ PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html bod
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[6].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[7].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[8].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase9","testcase10"]
 
 Testing ":is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA ~ *)"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA ~ *)').length is 10
@@ -512,16 +287,7 @@ PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html bod
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA ~ *)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA ~ *)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(html>body testcaseB.bar, html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA ~ *)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])').length is 4
@@ -529,16 +295,7 @@ PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])')[1].id is "testcase3"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value])')[3].id is "testcase7"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase6","testcase7"]
 
 Testing ":is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)').length is 5
@@ -547,16 +304,7 @@ PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)')[2].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty)')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase6","testcase7","testcase9"]
 
 Testing ":is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)').length is 6
@@ -566,16 +314,7 @@ PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[3].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[4].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[5].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase6","testcase7","testcase9"]
 
 Testing ":is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)').length is 6
@@ -585,16 +324,7 @@ PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[3].id is "testcase6"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[4].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[5].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase6","testcase7","testcase9"]
 
 Testing ":is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)').length is 9
@@ -607,16 +337,7 @@ PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)')[6].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)')[7].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)')[8].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB, testcaseA ~ *)"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB, testcaseA ~ *)').length is 10
@@ -630,16 +351,7 @@ PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB, testcaseA ~ *)')[7].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB, testcaseA ~ *)')[8].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(html body div .baz.foo.bar, :root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB, testcaseA ~ *)')[9].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase2","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 Testing ":is(:root div>testcaseA[attribute1^=value], body>div .foo:empty)"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty)').length is 4
@@ -647,16 +359,7 @@ PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=v
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty)')[1].id is "testcase3"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty)')[2].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty)')[3].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase7","testcase9"]
 
 Testing ":is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)').length is 5
@@ -665,16 +368,7 @@ PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=v
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *)')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)').length is 5
@@ -683,16 +377,7 @@ PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=v
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[2].id is "testcase5"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[3].id is "testcase7"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *)')[4].id is "testcase9"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(255, 0, 0)"
+PASS styledElements is ["testcase1","testcase3","testcase5","testcase7","testcase9"]
 
 Testing ":is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)').length is 9
@@ -705,16 +390,7 @@ PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=v
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)')[6].id is "testcase8"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)')[7].id is "testcase9"
 PASS document.querySelectorAll('#test-root :is(:root div>testcaseA[attribute1^=value], body>div .foo:empty, testcaseB + *, :root body>div testcaseB + *, testcaseA + testcaseB ~ testcaseB)')[8].id is "testcase10"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[0]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[1]).backgroundColor is "rgb(255, 0, 0)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[2]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[3]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[4]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[5]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[6]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[7]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[8]).backgroundColor is "rgb(10, 100, 200)"
-PASS getComputedStyle(document.querySelectorAll("#test-root *")[9]).backgroundColor is "rgb(10, 100, 200)"
+PASS styledElements is ["testcase1","testcase3","testcase4","testcase5","testcase6","testcase7","testcase8","testcase9","testcase10"]
 
 PASS successfullyParsed is true
 

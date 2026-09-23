@@ -34,8 +34,15 @@
 #include "PlatformLayerIdentifier.h"
 #include "TextureMapperAnimation.h"
 #include "TransformationMatrix.h"
+#include <wtf/EnumSet.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
+
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/gpu/ganesh/GrContextThreadSafeProxy.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
 
 namespace WebCore {
 class CoordinatedAnimatedBackingStoreClient;
@@ -50,6 +57,7 @@ class NativeImage;
 class TextureMapperLayer;
 
 #if USE(SKIA)
+class SkiaCompositingLayer;
 class SkiaPaintingEngine;
 class SkiaRecordingResult;
 #endif
@@ -96,7 +104,10 @@ public:
     GraphicsLayerCoordinated* owner() const;
 
     TextureMapperLayer& ensureTarget();
-    TextureMapperLayer* target() const;
+#if USE(SKIA)
+    SkiaCompositingLayer& ensureSkiaTarget();
+    sk_sp<GrContextThreadSafeProxy> threadSafeGrContext() const;
+#endif
     void invalidateTarget();
 
 #if ENABLE(DAMAGE_TRACKING)
@@ -105,10 +116,9 @@ public:
 #endif
 
     void setPosition(FloatPoint&&);
-    enum class ForcePositionSync : bool { No, Yes };
-    void setPositionForScrolling(const FloatPoint&, ForcePositionSync = ForcePositionSync::No);
+    void setPositionForScrolling(const FloatPoint&);
     const FloatPoint& position() const;
-    void setTopLeftPositionForScrolling(const FloatPoint&, ForcePositionSync = ForcePositionSync::No);
+    void setTopLeftPositionForScrolling(const FloatPoint&);
     FloatPoint topLeftPositionForScrolling();
     void setBoundsOrigin(const FloatPoint&);
     void setBoundsOriginForScrolling(const FloatPoint&);
@@ -139,6 +149,7 @@ public:
     void setPreserves3D(bool);
     void setBackfaceVisibility(bool);
     void setOpacity(float);
+    void setBlendMode(BlendMode);
 
     void setContentsVisible(bool);
     bool contentsVisible() const;
@@ -147,6 +158,7 @@ public:
     void setContentsRectClipsDescendants(bool);
     void setContentsClippingRect(const FloatRoundedRect&);
     void setContentsScale(float);
+    float contentsScale() const;
     enum class RequireComposition : bool { No, Yes };
     void setContentsBuffer(std::unique_ptr<CoordinatedPlatformLayerBuffer>&&, std::optional<Damage>&& = std::nullopt, RequireComposition = RequireComposition::Yes);
 #if ENABLE(VIDEO) && USE(GSTREAMER)
@@ -159,15 +171,13 @@ public:
     void setContentsTilePhase(const FloatSize&);
     void setDirtyRegion(Damage&&);
 
-#if USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
-    void setContentsScrollbarImageForScrolling(NativeImage*);
-#endif
-
     void setFilters(const FilterOperations&);
     void setMask(CoordinatedPlatformLayer*);
     void setReplica(CoordinatedPlatformLayer*);
     void setBackdrop(CoordinatedPlatformLayer*);
+    void notifyBackdropFiltersChanged();
     void setBackdropRect(const FloatRoundedRect&);
+    void setIsBackdropRoot(bool);
 
     void setAnimations(const TextureMapperAnimations&);
 
@@ -177,15 +187,20 @@ public:
     void setEventRegion(const EventRegion&);
     const EventRegion& eventRegion() const;
 
+    void setClipPath(const Path&, WindRule);
+
     void setDebugBorder(Color&&, float);
     void setShowRepaintCounter(bool);
 
     void updateContents(bool affectedByTransformAnimation);
     void updateBackingStore();
 
-    void flushCompositingState(const OptionSet<CompositionReason>&);
+    void flushPendingState();
+    void flushCompositingState(const OptionSet<CompositionReason>&, bool = false);
 
     bool hasPendingTilesCreation() const { return m_pendingTilesCreation; }
+    bool hasPendingBackingStoreTileUpdates() const;
+    void processPendingBackingStoreTileUpdates();
     bool isCompositionRequiredOrOngoing() const;
     void requestComposition(CompositionReason);
     RunLoop* compositingRunLoop() const;
@@ -194,7 +209,7 @@ public:
     Ref<CoordinatedTileBuffer> paint(const IntRect&);
 #if USE(SKIA)
     Ref<SkiaRecordingResult> record(const IntRect&);
-    Ref<CoordinatedTileBuffer> replay(const RefPtr<SkiaRecordingResult>&, const IntRect&);
+    Ref<CoordinatedTileBuffer> replay(Ref<SkiaRecordingResult>&&, const IntRect&, const IntRect&);
 #endif
     void willPaintTile();
     void didPaintTile();
@@ -208,46 +223,56 @@ private:
     bool needsBackingStore() const;
     void purgeBackingStores();
 
+    bool hasCommittedContentsBuffer() const;
+
 #if ENABLE(DAMAGE_TRACKING)
     void addDamage(Damage&&);
 #endif
 
-    enum class Change : uint32_t {
-        Position                     = 1 << 0,
-        BoundsOrigin                 = 1 << 1,
-        AnchorPoint                  = 1 << 2,
-        Size                         = 1 << 3,
-        Transform                    = 1 << 4,
-        ChildrenTransform            = 1 << 5,
-        DrawsContent                 = 1 << 6,
-        MasksToBounds                = 1 << 7,
-        Preserves3D                  = 1 << 8,
-        BackfaceVisibility           = 1 << 9,
-        Opacity                      = 1 << 10,
-        Children                     = 1 << 11,
-        BackingStore                 = 1 << 12,
-        ContentsVisible              = 1 << 13,
-        ContentsOpaque               = 1 << 14,
-        ContentsRect                 = 1 << 15,
-        ContentsRectClipsDescendants = 1 << 16,
-        ContentsClippingRect         = 1 << 17,
-        ContentsTiling               = 1 << 18,
-        ContentsBuffer               = 1 << 19,
-        ContentsImage                = 1 << 20,
-        ContentsColor                = 1 << 21,
-        Filters                      = 1 << 22,
-        Mask                         = 1 << 23,
-        Replica                      = 1 << 24,
-        Backdrop                     = 1 << 25,
-        BackdropRect                 = 1 << 26,
-        Animations                   = 1 << 27,
-        DebugIndicators              = 1 << 28,
+    void flushCompositingStateOnTarget(const OptionSet<CompositionReason>&, TextureMapperLayer&);
+#if USE(SKIA)
+    void flushCompositingStateOnSkiaTarget(const OptionSet<CompositionReason>&, SkiaCompositingLayer&);
+#endif
+
+    enum class Change : uint8_t {
+        AnchorPoint,
+        Animations,
+        Backdrop,
+        BackdropRect,
+        BackdropRoot,
+        BackfaceVisibility,
+        BackingStore,
+        BlendMode,
+        BoundsOrigin,
+        Children,
+        ChildrenTransform,
+        ClipPath,
+        ContentsBuffer,
+        ContentsClippingRect,
+        ContentsColor,
+        ContentsImage,
+        ContentsOpaque,
+        ContentsRect,
+        ContentsRectClipsDescendants,
+        ContentsTiling,
+        ContentsVisible,
 #if ENABLE(DAMAGE_TRACKING)
-        Damage                       = 1 << 29,
+        Damage,
 #endif
+        DebugIndicators,
+        DrawsContent,
+        Filters,
+        Mask,
+        MasksToBounds,
+        Opacity,
+        Position,
+        Preserves3D,
+        Replica,
 #if ENABLE(SCROLLING_THREAD)
-        ScrollingNode                = 1 << 30
+        ScrollingNode,
 #endif
+        Size,
+        Transform,
     };
 
     // FIXME: remove the client when a subclass is added for the WebProcess.
@@ -257,6 +282,9 @@ private:
 
     GraphicsLayerCoordinated* m_owner { nullptr };
     std::unique_ptr<TextureMapperLayer> m_target;
+#if USE(SKIA)
+    RefPtr<SkiaCompositingLayer> m_skiaTarget;
+#endif
     bool m_pendingTilesCreation { false };
     bool m_needsTilesUpdate { false };
 
@@ -266,7 +294,7 @@ private:
 #endif
 
     Lock m_lock;
-    OptionSet<Change> m_pendingChanges WTF_GUARDED_BY_LOCK(m_lock);
+    EnumSet<Change> m_pendingChanges WTF_GUARDED_BY_LOCK(m_lock);
     FloatPoint m_position WTF_GUARDED_BY_LOCK(m_lock);
     FloatPoint3D m_anchorPoint WTF_GUARDED_BY_LOCK(m_lock) { 0.5f, 0.5f, 0 };
     FloatSize m_size WTF_GUARDED_BY_LOCK(m_lock);
@@ -281,6 +309,7 @@ private:
     bool m_preserves3D WTF_GUARDED_BY_LOCK(m_lock) { false };
     bool m_backfaceVisibility WTF_GUARDED_BY_LOCK(m_lock) { true };
     float m_opacity WTF_GUARDED_BY_LOCK(m_lock) { 1. };
+    BlendMode m_blendMode WTF_GUARDED_BY_LOCK(m_lock) { BlendMode::Normal };
     bool m_contentsVisible WTF_GUARDED_BY_LOCK(m_lock) { true };
     bool m_contentsOpaque WTF_GUARDED_BY_LOCK(m_lock) { false };
     FloatRect m_contentsRect WTF_GUARDED_BY_LOCK(m_lock);
@@ -301,12 +330,17 @@ private:
         std::unique_ptr<CoordinatedPlatformLayerBuffer> pending;
         std::unique_ptr<CoordinatedPlatformLayerBuffer> committed;
     } m_contentsBuffer WTF_GUARDED_BY_LOCK(m_lock);
+    struct {
+        Path path;
+        WindRule windRule;
+    } m_clipPath WTF_GUARDED_BY_LOCK(m_lock);
     Vector<IntRect, 1> m_dirtyRegion WTF_GUARDED_BY_LOCK(m_lock);
     FilterOperations m_filters WTF_GUARDED_BY_LOCK(m_lock);
     RefPtr<CoordinatedPlatformLayer> m_mask WTF_GUARDED_BY_LOCK(m_lock);
     RefPtr<CoordinatedPlatformLayer> m_replica WTF_GUARDED_BY_LOCK(m_lock);
     RefPtr<CoordinatedPlatformLayer> m_backdrop WTF_GUARDED_BY_LOCK(m_lock);
     FloatRoundedRect m_backdropRect WTF_GUARDED_BY_LOCK(m_lock);
+    bool m_isBackdropRoot WTF_GUARDED_BY_LOCK(m_lock) { false };
     TextureMapperAnimations m_animations WTF_GUARDED_BY_LOCK(m_lock);
     Vector<Ref<CoordinatedPlatformLayer>> m_children WTF_GUARDED_BY_LOCK(m_lock);
     EventRegion m_eventRegion WTF_GUARDED_BY_LOCK(m_lock);
@@ -319,6 +353,13 @@ private:
 #if ENABLE(SCROLLING_THREAD)
     Markable<ScrollingNodeID> m_scrollingNodeID WTF_GUARDED_BY_LOCK(m_lock);
 #endif
+
+    struct {
+        std::optional<FloatPoint> position;
+        std::optional<FloatPoint> positionForScrolling;
+        std::optional<FloatPoint> boundsOrigin;
+        std::optional<FloatPoint> boundsOriginForScrolling;
+    } m_pendingState WTF_GUARDED_BY_LOCK(m_lock);
 };
 
 } // namespace WebCore

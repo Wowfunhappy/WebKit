@@ -35,7 +35,7 @@ messages -> AuxiliaryProcess WantsDispatchMessage {
     [DeferSendingIfSuspendedWithCoalescingKeys=(domain, key)] PreferenceDidUpdate(String domain, String key, std::optional<String> encodedValue)
 #endif
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
     void DidReceiveMemoryPressureEvent(bool isCritical)
 #endif
 }

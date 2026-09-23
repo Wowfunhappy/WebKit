@@ -34,8 +34,8 @@ namespace JSC { namespace DFG {
 #if ENABLE(DFG_JIT)
 // Fast check functions; if they return true it is still necessary to
 // check opcodes.
-bool isSupported();
-bool isSupportedForInlining(CodeBlock*);
+bool NODELETE isSupported();
+bool NODELETE isSupportedForInlining(CodeBlock*);
 bool mightCompileEval(CodeBlock*);
 bool mightCompileProgram(CodeBlock*);
 bool mightCompileFunctionForCall(CodeBlock*);
@@ -43,7 +43,7 @@ bool mightCompileFunctionForConstruct(CodeBlock*);
 bool mightInlineFunctionForCall(JITType, CodeBlock*);
 bool mightInlineFunctionForClosureCall(JITType, CodeBlock*);
 bool mightInlineFunctionForConstruct(JITType, CodeBlock*);
-bool canUseOSRExitFuzzing(CodeBlock*);
+bool NODELETE canUseOSRExitFuzzing(CodeBlock*);
 #else // ENABLE(DFG_JIT)
 inline bool mightCompileEval(CodeBlock*) { return false; }
 inline bool mightCompileProgram(CodeBlock*) { return false; }

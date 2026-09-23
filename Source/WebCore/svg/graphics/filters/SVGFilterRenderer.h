@@ -38,8 +38,8 @@ class SVGFilterElement;
 
 class SVGFilterRenderer final : public Filter {
 public:
-    static RefPtr<SVGFilterRenderer> create(SVGElement* contextElement, SVGFilterElement&, const FilterGeometry&, OptionSet<FilterRenderingMode>, const GraphicsContext& destinationContext, std::optional<RenderingResourceIdentifier> = std::nullopt);
-    WEBCORE_EXPORT static Ref<SVGFilterRenderer> create(SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&&, FilterEffectVector&&, const FilterGeometry&, OptionSet<FilterRenderingMode>, bool showDebugOverlay, std::optional<RenderingResourceIdentifier>);
+    static RefPtr<SVGFilterRenderer> create(SVGElement* contextElement, SVGFilterElement&, const FilterGeometry&, OptionSet<FilterRenderingMode>, OptionSet<FilterRenderingOption>, const GraphicsContext& destinationContext, std::optional<RenderingResourceIdentifier> = std::nullopt);
+    WEBCORE_EXPORT static Ref<SVGFilterRenderer> create(SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&&, FilterEffectVector&&, const FilterGeometry&, OptionSet<FilterRenderingMode>, OptionSet<FilterRenderingOption>, std::optional<RenderingResourceIdentifier>);
 
     static bool isIdentity(SVGFilterElement&);
     static IntOutsets calculateOutsets(SVGFilterElement&, const FloatRect& targetBoundingBox);
@@ -64,8 +64,8 @@ public:
 
     WEBCORE_EXPORT static bool NODELETE isValidSVGFilterExpression(const SVGFilterExpression&, const FilterEffectVector&);
 private:
-    SVGFilterRenderer(const FilterGeometry&, SVGUnitTypes::SVGUnitType primitiveUnits, std::optional<RenderingResourceIdentifier>);
-    SVGFilterRenderer(const FilterGeometry&, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&&, FilterEffectVector&&, std::optional<RenderingResourceIdentifier>);
+    SVGFilterRenderer(const FilterGeometry&, SVGUnitTypes::SVGUnitType primitiveUnits, OptionSet<FilterRenderingOption>, std::optional<RenderingResourceIdentifier>);
+    SVGFilterRenderer(const FilterGeometry&, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&&, FilterEffectVector&&, OptionSet<FilterRenderingOption>, std::optional<RenderingResourceIdentifier>);
 
     static std::optional<std::tuple<SVGFilterExpression, FilterEffectVector>> buildExpression(SVGElement* contextElement, SVGFilterElement&, const SVGFilterRenderer&, const GraphicsContext& destinationContext);
     void setExpression(SVGFilterExpression&& expression) { m_expression = WTF::move(expression); }

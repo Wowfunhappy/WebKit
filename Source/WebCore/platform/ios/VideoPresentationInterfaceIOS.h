@@ -273,7 +273,7 @@ private:
 
     bool m_finalizeSetupNeedsVideoContentLayer { false };
     bool m_finalizeSetupNeedsReturnVideoContentLayer { false };
-    Ref<PlaybackSessionInterfaceIOS> m_playbackSessionInterface;
+    const Ref<PlaybackSessionInterfaceIOS> m_playbackSessionInterface;
     RetainPtr<UIView> m_pipPlacard;
 
 #if HAVE(SPATIAL_AUDIO_EXPERIENCE)

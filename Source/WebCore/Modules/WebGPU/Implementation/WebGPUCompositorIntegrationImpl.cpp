@@ -74,6 +74,7 @@ Vector<MachSendRight> CompositorIntegrationImpl::recreateRenderBuffers(int width
 {
     m_renderBuffers.clear();
     m_device = device;
+    m_alphaMode = alphaMode;
 
     if (RefPtr presentationContext = m_presentationContext) {
         static_cast<PresentationContext*>(presentationContext.get())->unconfigure();
@@ -119,7 +120,7 @@ Vector<MachSendRight> CompositorIntegrationImpl::recreateRenderBuffers(int width
 
 void CompositorIntegrationImpl::withDisplayBufferAsNativeImage(uint32_t bufferIndex, Function<void(WebCore::NativeImage*)> completion)
 {
-    if (!m_renderBuffers.size() || bufferIndex >= m_renderBuffers.size() || !m_device.get())
+    if (!m_renderBuffers.size() || bufferIndex >= m_renderBuffers.size() || !m_device)
         return completion(nullptr);
 
     RefPtr<NativeImage> displayImage;
@@ -131,16 +132,11 @@ void CompositorIntegrationImpl::withDisplayBufferAsNativeImage(uint32_t bufferIn
         if (!isIOSurfaceSupportedFormat)
             return completion(nullptr);
 
-        auto& renderBuffer = m_renderBuffers[bufferIndex];
-        std::optional<CGImageAlphaInfo> alphaInfo;
-#if ENABLE(PIXEL_FORMAT_RGBA16F)
-        if (renderBuffer->pixelFormat() == IOSurface::Format::RGBA16F)
-            alphaInfo = kCGImageAlphaNoneSkipLast;
-#endif
-        RetainPtr<CGContextRef> cgContext = renderBuffer->createPlatformContext(0, alphaInfo);
-
-        if (cgContext)
-            displayImage = NativeImage::create(renderBuffer->createImage(cgContext.get()));
+        // A premultiplied canvas must keep its alpha channel so transparent pixels
+        // composite over the page; an opaque canvas forces the alpha to be ignored.
+        // This matters for RGBA16F, whose IOSurface format cannot itself encode opacity.
+        auto shouldForceOpaque = m_alphaMode == WebCore::AlphaPremultiplication::Premultiplied ? IOSurface::ShouldForceOpaque::No : IOSurface::ShouldForceOpaque::Yes;
+        displayImage = m_renderBuffers[bufferIndex]->createNativeImage(shouldForceOpaque);
     }
 
     if (!displayImage)

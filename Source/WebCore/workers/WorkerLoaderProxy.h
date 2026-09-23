@@ -35,7 +35,12 @@
 
 namespace WebCore {
 
+namespace IDBClient {
+class IDBConnectionProxy;
+}
+
 class CacheStorageConnection;
+class FileSystemStorageConnection;
 class StorageConnection;
 struct ReportingClient;
 
@@ -52,6 +57,10 @@ public:
     virtual RefPtr<CacheStorageConnection> createCacheStorageConnection() = 0;
 
     virtual RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() = 0;
+
+    virtual RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() = 0;
+
+    virtual RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() = 0;
 
     virtual ScriptExecutionContextIdentifier loaderContextIdentifier() const = 0;
 

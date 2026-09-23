@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 import * as assert from '../assert.js';
 import { compile } from "../wabt-wrapper.js";
 

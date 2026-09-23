@@ -102,6 +102,8 @@ public:
 
     virtual IntSize presentationSize() const = 0;
     virtual uint32_t pixelFormat() const = 0;
+    virtual bool isEncoded() const { return false; }
+    virtual bool hasSameEncodedFormat(const VideoFrame&) const { return false; }
 
     virtual bool isRemoteProxy() const { return false; }
     virtual bool isLibWebRTC() const { return false; }
@@ -121,6 +123,8 @@ public:
 
     bool hasNoTransformation() const { return m_rotation == VideoFrameRotation::None && !m_isMirrored; }
     bool has90DegreeRotation() const { return m_rotation == VideoFrameRotation::Left || m_rotation == VideoFrameRotation::Right; }
+
+    WEBCORE_EXPORT bool is10bits() const;
 
 protected:
     WEBCORE_EXPORT VideoFrame(MediaTime presentationTime, bool isMirrored, Rotation, PlatformVideoColorSpace&& = { });

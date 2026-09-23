@@ -569,6 +569,22 @@ bool ValidateTexEnvCommon(const PrivateState &state,
                     return false;
             }
             break;
+        case TextureEnvTarget::TextureFilterControl:
+            if (!state.getExtensions().textureLodBiasEXT)
+            {
+                errors->validationError(entryPoint, GL_INVALID_ENUM, kInvalidTextureEnvTarget);
+                return false;
+            }
+            switch (pname)
+            {
+                case TextureEnvParameter::LodBias:
+                    break;
+                default:
+                    errors->validationError(entryPoint, GL_INVALID_ENUM,
+                                            kInvalidTextureEnvParameter);
+                    return false;
+            }
+            break;
         default:
             errors->validationError(entryPoint, GL_INVALID_ENUM, kInvalidTextureEnvTarget);
             return false;
@@ -701,25 +717,6 @@ bool ValidateAlphaFuncx(const PrivateState &state,
     return ValidateAlphaFuncCommon(state, errors, entryPoint, func);
 }
 
-bool ValidateClearColorx(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         GLfixed red,
-                         GLfixed green,
-                         GLfixed blue,
-                         GLfixed alpha)
-{
-    return true;
-}
-
-bool ValidateClearDepthx(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         GLfixed depth)
-{
-    return true;
-}
-
 bool ValidateClientActiveTexture(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  GLenum texture)
@@ -747,39 +744,6 @@ bool ValidateClipPlanex(const PrivateState &state,
     return ValidateClipPlaneCommon(state, errors, entryPoint, plane);
 }
 
-bool ValidateColor4f(const PrivateState &state,
-                     ErrorSet *errors,
-                     angle::EntryPoint entryPoint,
-                     GLfloat red,
-                     GLfloat green,
-                     GLfloat blue,
-                     GLfloat alpha)
-{
-    return true;
-}
-
-bool ValidateColor4ub(const PrivateState &state,
-                      ErrorSet *errors,
-                      angle::EntryPoint entryPoint,
-                      GLubyte red,
-                      GLubyte green,
-                      GLubyte blue,
-                      GLubyte alpha)
-{
-    return true;
-}
-
-bool ValidateColor4x(const PrivateState &state,
-                     ErrorSet *errors,
-                     angle::EntryPoint entryPoint,
-                     GLfixed red,
-                     GLfixed green,
-                     GLfixed blue,
-                     GLfixed alpha)
-{
-    return true;
-}
-
 bool ValidateColorPointer(const Context *context,
                           angle::EntryPoint entryPoint,
                           GLint size,
@@ -789,15 +753,6 @@ bool ValidateColorPointer(const Context *context,
 {
     return ValidateBuiltinVertexAttributeCommon(context, entryPoint, ClientVertexArrayType::Color,
                                                 size, type, stride, pointer);
-}
-
-bool ValidateDepthRangex(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         GLfixed n,
-                         GLfixed f)
-{
-    return true;
 }
 
 bool ValidateDisableClientState(const Context *context,
@@ -924,11 +879,9 @@ bool ValidateGetClipPlanex(const PrivateState &state,
 bool ValidateGetFixedv(const Context *context,
                        angle::EntryPoint entryPoint,
                        GLenum pname,
-                       const GLfixed *params)
+                       const GLfixed *data)
 {
-    GLenum nativeType;
-    unsigned int numParams = 0;
-    return ValidateStateQuery(context, entryPoint, pname, &nativeType, &numParams);
+    return ValidateStateQuery(context, entryPoint, pname, data, nullptr);
 }
 
 bool ValidateGetLightfv(const PrivateState &state,
@@ -1005,11 +958,11 @@ bool ValidateGetTexEnvxv(const PrivateState &state,
 
 bool ValidateGetTexParameterxv(const Context *context,
                                angle::EntryPoint entryPoint,
-                               TextureType target,
+                               TextureType targetPacked,
                                GLenum pname,
                                const GLfixed *params)
 {
-    return ValidateGetTexParameterBase(context, entryPoint, target, pname, nullptr);
+    return ValidateGetTexParameterBase(context, entryPoint, targetPacked, pname, nullptr);
 }
 
 bool ValidateLightModelf(const PrivateState &state,
@@ -1109,27 +1062,6 @@ bool ValidateLineWidthx(const PrivateState &state,
     return true;
 }
 
-bool ValidateLoadIdentity(const PrivateState &state, ErrorSet *errors, angle::EntryPoint entryPoint)
-{
-    return true;
-}
-
-bool ValidateLoadMatrixf(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         const GLfloat *m)
-{
-    return true;
-}
-
-bool ValidateLoadMatrixx(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         const GLfixed *m)
-{
-    return true;
-}
-
 bool ValidateLogicOp(const PrivateState &state,
                      ErrorSet *errors,
                      angle::EntryPoint entryPoint,
@@ -1203,22 +1135,6 @@ bool ValidateMatrixMode(const PrivateState &state,
     }
 }
 
-bool ValidateMultMatrixf(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         const GLfloat *m)
-{
-    return true;
-}
-
-bool ValidateMultMatrixx(const PrivateState &state,
-                         ErrorSet *errors,
-                         angle::EntryPoint entryPoint,
-                         const GLfixed *m)
-{
-    return true;
-}
-
 bool ValidateMultiTexCoord4f(const PrivateState &state,
                              ErrorSet *errors,
                              angle::EntryPoint entryPoint,
@@ -1241,26 +1157,6 @@ bool ValidateMultiTexCoord4x(const PrivateState &state,
                              GLfixed q)
 {
     return ValidateMultitextureUnit(state, errors, entryPoint, target);
-}
-
-bool ValidateNormal3f(const PrivateState &state,
-                      ErrorSet *errors,
-                      angle::EntryPoint entryPoint,
-                      GLfloat nx,
-                      GLfloat ny,
-                      GLfloat nz)
-{
-    return true;
-}
-
-bool ValidateNormal3x(const PrivateState &state,
-                      ErrorSet *errors,
-                      angle::EntryPoint entryPoint,
-                      GLfixed nx,
-                      GLfixed ny,
-                      GLfixed nz)
-{
-    return true;
 }
 
 bool ValidateNormalPointer(const Context *context,
@@ -1384,15 +1280,6 @@ bool ValidatePointSizex(const PrivateState &state,
     return ValidatePointSizeCommon(state, errors, entryPoint, ConvertFixedToFloat(size));
 }
 
-bool ValidatePolygonOffsetx(const PrivateState &state,
-                            ErrorSet *errors,
-                            angle::EntryPoint entryPoint,
-                            GLfixed factor,
-                            GLfixed units)
-{
-    return true;
-}
-
 bool ValidatePopMatrix(const PrivateState &state, ErrorSet *errors, angle::EntryPoint entryPoint)
 {
     const auto &stack = state.gles1().currentMatrixStack();
@@ -1412,57 +1299,6 @@ bool ValidatePushMatrix(const PrivateState &state, ErrorSet *errors, angle::Entr
         errors->validationError(entryPoint, GL_STACK_OVERFLOW, kMatrixStackOverflow);
         return false;
     }
-    return true;
-}
-
-bool ValidateRotatef(const PrivateState &state,
-                     ErrorSet *errors,
-                     angle::EntryPoint entryPoint,
-                     GLfloat angle,
-                     GLfloat x,
-                     GLfloat y,
-                     GLfloat z)
-{
-    return true;
-}
-
-bool ValidateRotatex(const PrivateState &state,
-                     ErrorSet *errors,
-                     angle::EntryPoint entryPoint,
-                     GLfixed angle,
-                     GLfixed x,
-                     GLfixed y,
-                     GLfixed z)
-{
-    return true;
-}
-
-bool ValidateSampleCoveragex(const PrivateState &state,
-                             ErrorSet *errors,
-                             angle::EntryPoint entryPoint,
-                             GLclampx value,
-                             GLboolean invert)
-{
-    return true;
-}
-
-bool ValidateScalef(const PrivateState &state,
-                    ErrorSet *errors,
-                    angle::EntryPoint entryPoint,
-                    GLfloat x,
-                    GLfloat y,
-                    GLfloat z)
-{
-    return true;
-}
-
-bool ValidateScalex(const PrivateState &state,
-                    ErrorSet *errors,
-                    angle::EntryPoint entryPoint,
-                    GLfixed x,
-                    GLfixed y,
-                    GLfixed z)
-{
     return true;
 }
 
@@ -1565,10 +1401,8 @@ bool ValidateTexEnvxv(const PrivateState &state,
 
 bool ValidateTexParameterBaseForGLfixed(const Context *context,
                                         angle::EntryPoint entryPoint,
-                                        TextureType target,
+                                        TextureType targetPacked,
                                         GLenum pname,
-                                        GLsizei bufSize,
-                                        bool vectorParams,
                                         const GLfixed *params)
 {
     // Convert GLfixed parameter for GL_TEXTURE_MAX_ANISOTROPY_EXT independently
@@ -1584,47 +1418,25 @@ bool ValidateTexParameterBaseForGLfixed(const Context *context,
     {
         paramValue = static_cast<GLfloat>(params[0]);
     }
-    return ValidateTexParameterBase(context, entryPoint, target, pname, bufSize, vectorParams,
-                                    &paramValue);
+    return ValidateTexParameterBase(context, entryPoint, targetPacked, pname, &paramValue);
 }
 
 bool ValidateTexParameterx(const Context *context,
                            angle::EntryPoint entryPoint,
-                           TextureType target,
+                           TextureType targetPacked,
                            GLenum pname,
                            GLfixed param)
 {
-    return ValidateTexParameterBaseForGLfixed(context, entryPoint, target, pname, -1, false,
-                                              &param);
+    return ValidateTexParameterBaseForGLfixed(context, entryPoint, targetPacked, pname, &param);
 }
 
 bool ValidateTexParameterxv(const Context *context,
                             angle::EntryPoint entryPoint,
-                            TextureType target,
+                            TextureType targetPacked,
                             GLenum pname,
                             const GLfixed *params)
 {
-    return ValidateTexParameterBaseForGLfixed(context, entryPoint, target, pname, -1, true, params);
-}
-
-bool ValidateTranslatef(const PrivateState &state,
-                        ErrorSet *errors,
-                        angle::EntryPoint entryPoint,
-                        GLfloat x,
-                        GLfloat y,
-                        GLfloat z)
-{
-    return true;
-}
-
-bool ValidateTranslatex(const PrivateState &state,
-                        ErrorSet *errors,
-                        angle::EntryPoint entryPoint,
-                        GLfixed x,
-                        GLfixed y,
-                        GLfixed z)
-{
-    return true;
+    return ValidateTexParameterBaseForGLfixed(context, entryPoint, targetPacked, pname, params);
 }
 
 bool ValidateVertexPointer(const Context *context,
@@ -1722,12 +1534,6 @@ bool ValidateCurrentPaletteMatrixOES(const Context *context,
     return true;
 }
 
-bool ValidateLoadPaletteFromModelViewMatrixOES(const Context *context, angle::EntryPoint entryPoint)
-{
-    UNIMPLEMENTED();
-    return true;
-}
-
 bool ValidateMatrixIndexPointerOES(const Context *context,
                                    angle::EntryPoint entryPoint,
                                    GLint size,
@@ -1758,15 +1564,6 @@ bool ValidatePointSizePointerOES(const Context *context,
 {
     return ValidateBuiltinVertexAttributeCommon(
         context, entryPoint, ClientVertexArrayType::PointSize, 1, type, stride, pointer);
-}
-
-bool ValidateQueryMatrixxOES(const Context *context,
-                             angle::EntryPoint entryPoint,
-                             const GLfixed *mantissa,
-                             const GLint *exponent)
-{
-    UNIMPLEMENTED();
-    return true;
 }
 
 bool ValidateGenFramebuffersOES(const Context *context,
@@ -1948,20 +1745,6 @@ bool ValidateGetRenderbufferParameterivOES(const Context *context,
                                            const GLint *params)
 {
     return ValidateGetRenderbufferParameterivBase(context, entryPoint, target, pname, nullptr);
-}
-
-bool ValidateIsFramebufferOES(const Context *context,
-                              angle::EntryPoint entryPoint,
-                              FramebufferID framebuffer)
-{
-    return true;
-}
-
-bool ValidateIsRenderbufferOES(const Context *context,
-                               angle::EntryPoint entryPoint,
-                               RenderbufferID renderbuffer)
-{
-    return true;
 }
 
 bool ValidateRenderbufferStorageOES(const Context *context,

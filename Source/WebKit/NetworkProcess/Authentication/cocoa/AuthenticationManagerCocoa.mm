@@ -53,9 +53,6 @@ void AuthenticationManager::initializeConnection(IPC::Connection* connection)
     // The following xpc event handler overwrites the boostrap event handler and is only used
     // to capture client certificate credential.
     xpc_connection_set_event_handler(protect(connection->xpcConnection()).get(), ^(xpc_object_t event) {
-#if USE(EXIT_XPC_MESSAGE_WORKAROUND)
-        handleXPCExitMessage(event);
-#endif
         callOnMainRunLoop([event = OSObjectPtr(event), weakThis = weakThis] {
             RELEASE_ASSERT(isMainRunLoop());
 

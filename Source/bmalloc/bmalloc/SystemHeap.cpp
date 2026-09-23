@@ -103,7 +103,7 @@ void SystemHeap::scavenge()
 
 void SystemHeap::dump()
 {
-    constexpr bool verbose = true;
+    constexpr bool verbose = false;
     malloc_zone_print(m_zone, verbose);
 }
 
@@ -201,7 +201,7 @@ void SystemHeap::dump()
 
 #endif
 
-// FIXME: This looks an awful lot like the code in wtf/Gigacage.cpp for large allocation.
+// FIXME: This looks an awful lot like the code in wtf/FastMalloc.cpp for large allocation.
 // https://bugs.webkit.org/show_bug.cgi?id=175086
 
 void* SystemHeap::memalignLarge(size_t alignment, size_t size)
@@ -413,4 +413,3 @@ void pas_system_heap_free(void* ptr)
 #endif // BUSE(LIBPAS) -> so end of !BUSE(LIBPAS)
 
 #endif // BENABLE(LIBPAS)
-

@@ -27,7 +27,7 @@
 #include "config.h"
 #include "Editor.h"
 
-#if PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(GTK) || PLATFORM(WPE) || PLATFORM(HAIKU)
 #include "CachedImage.h"
 #include "ContainerNodeInlines.h"
 #include "DocumentFragment.h"
@@ -75,7 +75,7 @@ void Editor::platformPasteFont()
 {
 }
 
-static const AtomString& elementURL(Element& element)
+static String elementURL(Element& element)
 {
     if (is<HTMLImageElement>(element) || is<HTMLInputElement>(element))
         return element.attributeWithoutSynchronization(HTMLNames::srcAttr);
@@ -83,7 +83,7 @@ static const AtomString& elementURL(Element& element)
         return element.attributeWithoutSynchronization(XLinkNames::hrefAttr);
     if (is<HTMLEmbedElement>(element) || is<HTMLObjectElement>(element))
         return element.imageSourceURL();
-    return nullAtom();
+    return nullString();
 }
 
 static bool getImageForElement(Element& element, RefPtr<Image>& image)
@@ -108,7 +108,7 @@ void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element& imageElemen
         return;
     ASSERT(pasteboardImage.image);
 
-    pasteboardImage.url.url = imageElement.document().completeURL(elementURL(imageElement));
+    pasteboardImage.url.url = imageElement.document().encodingParseURL(elementURL(imageElement));
     pasteboardImage.url.title = title;
     pasteboardImage.url.markup = serializeFragment(imageElement, SerializedNodes::SubtreeIncludingNode, nullptr, ResolveURLs::Yes);
     pasteboard.write(pasteboardImage);
@@ -134,4 +134,4 @@ RefPtr<DocumentFragment> Editor::webContentFromPasteboard(Pasteboard& pasteboard
 
 } // namespace WebCore
 
-#endif // PLATFORM(GTK) || PLATFORM(WPE)
+#endif // PLATFORM(GTK) || PLATFORM(WPE) || PLATFORM(HAIKU)

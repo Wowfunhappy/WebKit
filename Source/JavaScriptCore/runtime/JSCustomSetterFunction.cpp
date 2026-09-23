@@ -37,7 +37,7 @@ static JSC_DECLARE_HOST_FUNCTION(customSetterFunctionCall);
 
 JSC_DEFINE_HOST_FUNCTION(customSetterFunctionCall, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    auto customSetterFunction = jsCast<JSCustomSetterFunction*>(callFrame->jsCallee());
+    auto customSetterFunction = uncheckedDowncast<JSCustomSetterFunction>(callFrame->jsCallee());
     auto setter = customSetterFunction->setter();
     setter(globalObject, JSValue::encode(callFrame->thisValue()), JSValue::encode(callFrame->argument(0)), customSetterFunction->propertyName());
     return JSValue::encode(jsUndefined());
@@ -53,13 +53,16 @@ JSCustomSetterFunction::JSCustomSetterFunction(VM& vm, NativeExecutable* executa
 JSCustomSetterFunction* JSCustomSetterFunction::create(VM& vm, JSGlobalObject* globalObject, const PropertyName& propertyName, CustomFunctionPointer setter)
 {
     ASSERT(setter);
-    NativeExecutable* executable = vm.getHostFunction(customSetterFunctionCall, ImplementationVisibility::Public, callHostFunctionAsConstructor, String(propertyName.publicName()));
+    NativeExecutable* executable = vm.getHostFunction(customSetterFunctionCall, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, String(propertyName.publicName()));
     Structure* structure = globalObject->customSetterFunctionStructure();
     JSCustomSetterFunction* function = new (NotNull, allocateCell<JSCustomSetterFunction>(vm)) JSCustomSetterFunction(vm, executable, globalObject, structure, propertyName, setter);
-
-    // Can't do this during initialization because getHostFunction might do a GC allocation.
+    function->finishCreation(vm);
+    // ECMAScript-style "set foo" name is exposed via the JSFunction's `name` property; keep the
+    // raw NativeExecutable name unprefixed so toString() renders as `function foo() { [native code] }`.
     auto name = makeString("set "_s, propertyName.publicName());
-    function->finishCreation(vm, executable, 1, name);
+    FunctionRareData* rareData = function->ensureRareData(vm);
+    rareData->setHasReifiedName();
+    function->putDirect(vm, vm.propertyNames->name, jsString(vm, WTF::move(name)), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
     return function;
 }
 

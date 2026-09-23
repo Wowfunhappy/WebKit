@@ -27,7 +27,7 @@ layer at (0,0) size 785x2917
           RenderBlock {DIV} at (16,16) size 584x24 [bgcolor=#990000]
             RenderBlock {DIV} at (0,0) size 584x24 [bgcolor=#009900]
           RenderBlock {PRE} at (16,53) size 584x77 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "1"
+            RenderListMarker at (-33,7) size 17x17: "1"
             RenderText {#text} at (6,10) size 281x60
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -44,7 +44,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x0
             RenderBlock {DIV} at (0,0) size 584x24 [bgcolor=#009900]
           RenderBlock {PRE} at (16,53) size 584x92 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "2"
+            RenderListMarker at (-33,7) size 17x17: "2"
             RenderText {#text} at (6,10) size 281x75
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -63,7 +63,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x24 [bgcolor=#009900]
             RenderBlock {BLOCKQUOTE} at (0,24) size 584x0 [bgcolor=#009900]
           RenderBlock {PRE} at (16,53) size 584x92 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "3"
+            RenderListMarker at (-33,7) size 17x17: "3"
             RenderText {#text} at (6,10) size 281x75
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -83,7 +83,7 @@ layer at (0,0) size 785x2917
               RenderBlock {DIV} at (0,0) size 584x24
             RenderBlock {DIV} at (0,24) size 584x0 [bgcolor=#009900]
           RenderBlock {PRE} at (16,53) size 584x122 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "4"
+            RenderListMarker at (-33,7) size 17x17: "4"
             RenderText {#text} at (6,10) size 305x105
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -106,7 +106,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x24 [bgcolor=#009900]
               RenderBlock {DIV} at (0,0) size 584x24
           RenderBlock {PRE} at (16,53) size 584x107 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "5"
+            RenderListMarker at (-33,7) size 17x17: "5"
             RenderText {#text} at (6,10) size 305x90
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -128,7 +128,7 @@ layer at (0,0) size 785x2917
             RenderBlock {BLOCKQUOTE} at (0,24) size 584x0 [bgcolor=#009900]
               RenderBlock {DIV} at (0,0) size 584x0
           RenderBlock {PRE} at (16,53) size 584x122 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "6"
+            RenderListMarker at (-33,7) size 17x17: "6"
             RenderText {#text} at (6,10) size 281x105
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -151,7 +151,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x24
             RenderBlock {DIV} at (0,24) size 584x0 [bgcolor=#990000]
           RenderBlock {PRE} at (16,53) size 584x92 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "7"
+            RenderListMarker at (-33,7) size 17x17: "7"
             RenderText {#text} at (6,10) size 281x75
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -170,7 +170,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x24
             RenderBlock {DIV} at (0,24) size 584x0 [bgcolor=#990000]
           RenderBlock {PRE} at (16,53) size 584x92 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "8"
+            RenderListMarker at (-33,7) size 17x17: "8"
             RenderText {#text} at (6,10) size 281x75
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -189,7 +189,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x0
             RenderBlock {DIV} at (0,0) size 584x24 [bgcolor=#009900]
           RenderBlock {PRE} at (16,53) size 584x122 [bgcolor=#FFFFFF]
-            RenderListMarker at (-37,7) size 17x17: "9"
+            RenderListMarker at (-33,7) size 17x17: "9"
             RenderText {#text} at (6,10) size 481x105
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "
@@ -211,7 +211,7 @@ layer at (0,0) size 785x2917
             RenderBlock {DIV} at (0,0) size 584x24
             RenderBlock {DIV} at (0,24) size 584x0 [bgcolor=#990000]
           RenderBlock {PRE} at (16,53) size 584x122 [bgcolor=#FFFFFF]
-            RenderListMarker at (-46,7) size 26x17: "10"
+            RenderListMarker at (-42,7) size 26x17: "10"
             RenderText {#text} at (6,10) size 481x105
               text run at (6,10) width 145: "div:last-of-type {"
               text run at (150,10) width 1: " "

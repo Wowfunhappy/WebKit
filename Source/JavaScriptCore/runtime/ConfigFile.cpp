@@ -71,12 +71,12 @@ public:
         return true;
     }
 
-    unsigned lineNumber()
+    unsigned NODELETE lineNumber()
     {
         return m_lineNumber;
     }
 
-    const char* currentBuffer()
+    const char* NODELETE currentBuffer()
     {
         if (!m_srcPtr || m_srcPtr == m_bufferEnd)
             return "";

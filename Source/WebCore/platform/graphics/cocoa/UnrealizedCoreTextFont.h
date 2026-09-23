@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2023-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -70,33 +70,17 @@ public:
 private:
     CGFloat getSize() const;
 
-    struct OpticalSizingTypes { // Ideally this would be a namespace, but clang doesn't seem to let you define a namespace inside a class.
-        // When USE(CORE_TEXT_OPTICAL_SIZING_WORKAROUND) is no longer necessary, we can migrate this back to an enum.
-        struct None { };
-        struct JustVariation { };
-        struct Everything {
-            std::optional<float> opticalSizingValue;
-        };
+    enum class OpticalSizingType : uint8_t {
+        None,
+        JustVariation,
+        Everything,
     };
-
-    using OpticalSizingType = Variant<OpticalSizingTypes::None, OpticalSizingTypes::JustVariation, OpticalSizingTypes::Everything>;
 
     static void modifyFromContext(CFMutableDictionaryRef attributes, const FontDescription&, const FontCreationContext&, ApplyTraitsVariations, float weight, float width, float slope, CGFloat size, const OpticalSizingType&);
 
     using VariationsMap = HashMap<FontTag, float, FourCharacterTagHash, FourCharacterTagHashTraits>;
     static void addAttributesForOpticalSizing(CFMutableDictionaryRef attributes, VariationsMap& variationsToBeApplied, const OpticalSizingType&, CGFloat size);
     static void applyVariations(CFMutableDictionaryRef attributes, const VariationsMap& variationsToBeApplied);
-
-    struct RebuildReason {
-        bool gxVariations { false };
-        std::optional<VariationDefaultsMap> variationDefaults;
-
-        bool hasEffect() const
-        {
-            return gxVariations || variationDefaults;
-        }
-    };
-    RebuildReason rebuildReason(CTFontRef) const;
 
     Variant<RetainPtr<CTFontRef>, RetainPtr<CTFontDescriptorRef>> m_baseFont;
     RetainPtr<CFMutableDictionaryRef> m_attributes { adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)) };
@@ -106,8 +90,8 @@ private:
     float m_width { 0 };
     float m_slope { 0 };
     CGFloat m_size { 0 };
-    FontStyleAxis m_fontStyleAxis { FontStyleAxis::slnt };
-    OpticalSizingType m_opticalSizingType { OpticalSizingTypes::None { } };
+    FontStyleAxis m_fontStyleAxis { FontStyleAxis::normal };
+    OpticalSizingType m_opticalSizingType { OpticalSizingType::None };
     FontVariationSettings m_variationSettings;
 };
 

@@ -45,7 +45,7 @@ public:
 
     bool hasValidCache() const { return m_current || m_nodeCountValid || m_listValid; }
     inline void invalidate();
-    size_t memoryCost()
+    size_t memoryCost() const
     {
         // memoryCost() may be invoked concurrently from a GC thread, and we need to be careful
         // about what data we access here and how. Accessing m_cachedList.capacity() is safe

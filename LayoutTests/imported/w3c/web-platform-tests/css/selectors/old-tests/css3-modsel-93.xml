@@ -10,6 +10,6 @@
   <meta name="flags" content=" namespace" />
  </head>
  <body>
-<testA xmlns="">This paragraph has no declared namespace and should have a green background.</testa>
+<testA xmlns="">This paragraph has no declared namespace and should have a green background.</testA>
 </body>
 </html>

@@ -40,14 +40,25 @@ TreeWalker::TreeWalker(Node& rootNode, unsigned long whatToShow, RefPtr<NodeFilt
 {
 }
 
+WebCoreOpaqueRoot TreeWalker::opaqueRootForCurrentNodeInGCThread() const
+{
+    Locker locker { m_currentLock };
+    // Cannot ref in a GC thread.
+    SUPPRESS_UNCOUNTED_LOCAL return m_current->opaqueRoot();
+}
+
 void TreeWalker::setCurrentNode(Node& node)
 {
+    Locker locker { m_currentLock };
     m_current = node;
 }
 
 inline Node* TreeWalker::setCurrent(Ref<Node>&& node)
 {
-    m_current = WTF::move(node);
+    {
+        Locker locker { m_currentLock };
+        m_current = WTF::move(node);
+    }
     return m_current.ptr();
 }
 
@@ -78,8 +89,7 @@ ExceptionOr<Node*> TreeWalker::firstChild()
 
         switch (filterResult.returnValue()) {
             case NodeFilter::FILTER_ACCEPT:
-                m_current = node.releaseNonNull();
-                return m_current.ptr();
+                return setCurrent(node.releaseNonNull());
             case NodeFilter::FILTER_SKIP:
                 if (node->firstChild()) {
                     node = node->firstChild();
@@ -112,8 +122,7 @@ ExceptionOr<Node*> TreeWalker::lastChild()
 
         switch (filterResult.returnValue()) {
             case NodeFilter::FILTER_ACCEPT:
-                m_current = node.releaseNonNull();
-                return m_current.ptr();
+                return setCurrent(node.releaseNonNull());
             case NodeFilter::FILTER_SKIP:
                 if (node->lastChild()) {
                     node = node->lastChild();
@@ -150,10 +159,8 @@ template<TreeWalker::SiblingTraversalType type> ExceptionOr<Node*> TreeWalker::t
             if (filterResult.hasException())
                 return filterResult.releaseException();
 
-            if (filterResult.returnValue() == NodeFilter::FILTER_ACCEPT) {
-                m_current = sibling.releaseNonNull();
-                return m_current.ptr();
-            }
+            if (filterResult.returnValue() == NodeFilter::FILTER_ACCEPT)
+                return setCurrent(sibling.releaseNonNull());
             node = sibling;
             sibling = isNext ? sibling->firstChild() : sibling->lastChild();
             if (filterResult.returnValue() == NodeFilter::FILTER_REJECT || !sibling)
@@ -218,10 +225,8 @@ ExceptionOr<Node*> TreeWalker::previousNode()
                 if (acceptNodeResult == NodeFilter::FILTER_REJECT)
                     break;
             }
-            if (acceptNodeResult == NodeFilter::FILTER_ACCEPT) {
-                m_current = node.releaseNonNull();
-                return m_current.ptr();
-            }
+            if (acceptNodeResult == NodeFilter::FILTER_ACCEPT)
+                return setCurrent(node.releaseNonNull());
         }
         if (node == &root())
             return nullptr;

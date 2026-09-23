@@ -64,12 +64,12 @@ WK_OBJECT_DEALLOC_IMPL_ON_MAIN_THREAD(WKWebExtensionDataRecord, WebExtensionData
 
 - (NSSet<WKWebExtensionDataType> *)containedDataTypes
 {
-    return toAPI(protect(*_webExtensionDataRecord)->types());
+    return toAPI(_webExtensionDataRecord->types());
 }
 
 - (NSUInteger)totalSizeInBytes
 {
-    return protect(*_webExtensionDataRecord)->totalSize();
+    return _webExtensionDataRecord->totalSize();
 }
 
 - (NSUInteger)sizeInBytesOfTypes:(NSSet<WKWebExtensionDataType> *)dataTypes

@@ -45,7 +45,7 @@
 #include <pal/text/TextEncodingRegistry.h>
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/WTFGType.h>
-#include <wtf/text/CString.h>
+#include <wtf/text/CStringView.h>
 
 #if PLATFORM(GTK)
 #include "HardwareAccelerationManager.h"

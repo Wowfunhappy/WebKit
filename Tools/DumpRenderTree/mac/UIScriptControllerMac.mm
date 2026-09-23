@@ -106,6 +106,20 @@ void UIScriptControllerMac::activateDataListSuggestion(unsigned index, JSValueRe
     });
 }
 
+void UIScriptControllerMac::insertAutofillSuggestion(JSStringRef username, JSStringRef password, JSValueRef callback)
+{
+    // FIXME: Not implemented for Mac DumpRenderTree.
+    UNUSED_PARAM(username);
+    UNUSED_PARAM(password);
+
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+    WorkQueue::mainSingleton().dispatch([this, protectedThis = Ref { *this }, callbackID] {
+        if (!m_context)
+            return;
+        m_context->asyncTaskComplete(callbackID);
+    });
+}
+
 void UIScriptControllerMac::overridePreference(JSStringRef preferenceRef, JSStringRef valueRef)
 {
     WebPreferences *preferences = mainFrame.webView.preferences;
@@ -252,7 +266,7 @@ void UIScriptControllerMac::sendEventStream(JSStringRef eventsJSON, JSValueRef c
 
         id eventType = event[EventTypeKey];
         if (!event[EventTypeKey]) {
-            WTFLogAlways("Missing event type");
+            WTFLogAlways("Failed to find `%@` key in %@", EventTypeKey, event);
             break;
         }
         

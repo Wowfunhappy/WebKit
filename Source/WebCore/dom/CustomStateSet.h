@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <wtf/OrderedHashSet.h>
 #include "Element.h"
 #include "JSDOMSetLike.h"
 #include "ScriptWrappable.h"
@@ -55,7 +56,7 @@ private:
     {
     }
 
-    ListHashSet<AtomString> m_states;
+    OrderedHashSet<AtomString> m_states;
 
     WeakPtr<Element, WeakPtrImplWithEventTargetData> m_element;
 };

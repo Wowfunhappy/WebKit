@@ -28,6 +28,7 @@
 
 #import "Logging.h"
 #import "ScrollingStatePositionedNode.h"
+#import "ScrollingTree.h"
 #import "WebCoreCALayerExtras.h"
 #import <wtf/TZoneMallocInlines.h>
 

@@ -27,6 +27,7 @@
 
 #include "CacheableIdentifier.h"
 #include "CallLinkStatus.h"
+#include "Intrinsic.h"
 #include "JSFunctionInlines.h"
 #include "ObjectPropertyConditionSet.h"
 #include "PropertyOffset.h"

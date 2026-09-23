@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Animation element that end before time container begin Test timed out
+PASS Animation element that end before time container begin
 

@@ -11,6 +11,9 @@ if [ -z "$(xcrun --sdk $SDK_NAME -f sbutil 2> /dev/null)" ]; then
     exit 0;
 fi;
 
+SIMULATOR_SANDBOX_PATH="$SANDBOX_NAME.simulator"
+SIMULATOR_RUNTIME_ROOT="${SIMULATOR_RUNTIME_BUNDLE_INSTALL_DIR_iphonesimulator}/Contents/Resources/RuntimeRoot"
+
 if [[ $SDK_NAME =~ "iphone" || $SDK_NAME =~ "watch" || $SDK_NAME =~ "appletv" || $SDK_NAME =~ "xr" ]]; then
     if [[ $SANDBOX_NAME == "com.apple.WebKit.adattributiond" || $SANDBOX_NAME == "com.apple.WebKit.webpushd" ]]; then
         if [ ! -e $SANDBOX_IMPORT_DIR ]; then
@@ -21,8 +24,9 @@ if [[ $SDK_NAME =~ "iphone" || $SDK_NAME =~ "watch" || $SDK_NAME =~ "appletv" ||
             exit 1;
         fi
     fi;
-    if [[ $SANDBOX_NAME == "com.apple.WebKit.GPU."* || $SANDBOX_NAME == "com.apple.WebKit.Networking."* || $SANDBOX_NAME == "com.apple.WebKit.WebContent."* ]]; then
-        xcrun --sdk $SDK_NAME sbutil compile $SANDBOX_PATH > /dev/null;
+    if [[ $SANDBOX_NAME == "com.apple.WebKit.GPU" || $SANDBOX_NAME == "com.apple.WebKit.GPU.Development" || $SANDBOX_NAME == "com.apple.WebKit.Networking"* || $SANDBOX_NAME == "com.apple.WebKit.WebContent"* ]]; then
+
+        xcrun --sdk $SDK_NAME sbutil compile -D SIMULATOR_RUNTIME_ROOT="$SIMULATOR_RUNTIME_ROOT" $SANDBOX_PATH > $SIMULATOR_SANDBOX_PATH;
         if [[ $? != 0 ]]; then
             exit 1;
         fi

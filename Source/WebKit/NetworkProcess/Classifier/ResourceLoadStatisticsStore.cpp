@@ -980,7 +980,7 @@ void ResourceLoadStatisticsStore::addMissingTablesIfNecessary()
         ITP_RELEASE_LOG_ERROR("addMissingTablesIfNecessary: failed to create unique indices");
 }
 
-template<typename T, typename U, size_t size> bool vectorEqualsArray(const Vector<T>& vector, const std::array<U, size> array)
+template<typename T, typename U, size_t size> bool NODELETE vectorEqualsArray(const Vector<T>& vector, const std::array<U, size> array)
 {
     if (vector.size() != size)
         return false;
@@ -1456,7 +1456,12 @@ Vector<ITPThirdPartyData> ResourceLoadStatisticsStore::aggregatedThirdPartyData(
     ASSERT(!RunLoop::isMain());
 
     Vector<ITPThirdPartyData> thirdPartyDataList;
-    const auto prevalentDomainsBindParameter = thirdPartyCookieBlockingMode() == ThirdPartyCookieBlockingMode::All ? "%"_s : "1"_s;
+    auto mode = thirdPartyCookieBlockingMode();
+    bool isBlockAll = mode == ThirdPartyCookieBlockingMode::All;
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    isBlockAll = isBlockAll || mode == ThirdPartyCookieBlockingMode::AllExceptPartitioned;
+#endif
+    const auto prevalentDomainsBindParameter = isBlockAll ? "%"_s : "1"_s;
     auto sortedStatistics = m_database->prepareStatement(joinSubStatisticsForSorting());
     if (!sortedStatistics
         || sortedStatistics->bindText(1, prevalentDomainsBindParameter)
@@ -2856,7 +2861,7 @@ bool ResourceLoadStatisticsStore::shouldEnforceSameSiteStrictFor(DomainData& res
     return false;
 }
 
-std::optional<WallTime> ResourceLoadStatisticsStore::mostRecentUserInteractionTime(const DomainData& statistic)
+SUPPRESS_NODELETE std::optional<WallTime> ResourceLoadStatisticsStore::mostRecentUserInteractionTime(const DomainData& statistic)
 {
     if (statistic.mostRecentUserInteractionTime.secondsSinceEpoch().value() <= 0)
         return std::nullopt;
@@ -3137,7 +3142,7 @@ void ResourceLoadStatisticsStore::appendSubStatisticList(StringBuilder& builder,
     }
 }
 
-static bool hasHadRecentUserInteraction(WTF::Seconds interactionTimeSeconds, WallTime now)
+SUPPRESS_NODELETE static bool NODELETE hasHadRecentUserInteraction(WTF::Seconds interactionTimeSeconds, WallTime now)
 {
     return interactionTimeSeconds > Seconds(0) && now.secondsSinceEpoch() - interactionTimeSeconds < 24_h;
 }

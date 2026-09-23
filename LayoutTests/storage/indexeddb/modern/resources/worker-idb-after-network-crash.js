@@ -4,8 +4,6 @@ var dbname = "worker-idb-crash-test-" + Date.now();
 self.onmessage = function(event) {
     if (event.data === "open-db")
         openInitialDatabase();
-    else if (event.data === "idb-after-crash")
-        attemptRecoveryOpen();
 };
 
 function openInitialDatabase()
@@ -16,10 +14,14 @@ function openInitialDatabase()
     };
     request.onsuccess = function(e) {
         var db = e.target.result;
+        // Use db.onclose as the crash signal directly in the worker; the worker
+        // recovers on its own without needing the main page to do IDB.
+        db.onclose = function() {
+            attemptRecoveryOpen();
+        };
         var tx = db.transaction("store", "readwrite");
         tx.objectStore("store").put({ id: "key1", value: "hello" });
         tx.oncomplete = function() {
-            // Keep DB open — main page will use its own onclose as the crash signal.
             self.postMessage("db-ready");
         };
         tx.onerror = function(e) {

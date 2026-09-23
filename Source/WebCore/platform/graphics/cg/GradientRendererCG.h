@@ -26,78 +26,36 @@
 #pragma once
 
 #include <CoreGraphics/CoreGraphics.h>
-#include <WebCore/ColorComponents.h>
 #include <WebCore/ColorInterpolationMethod.h>
 #include <WebCore/DestinationColorSpace.h>
 #include <wtf/RetainPtr.h>
-#include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class GradientColorStops;
-
-struct ColorConvertedToInterpolationColorSpaceStop {
-    float offset;
-    ColorComponents<float, 4> colorComponents;
-};
+struct GradientColorStop;
+using GradientColorStopVector = Vector<GradientColorStop, 2>;
 
 class GradientRendererCG {
 public:
-    GradientRendererCG(ColorInterpolationMethod, const GradientColorStops&);
+    GradientRendererCG(ColorInterpolationMethod, const GradientColorStops&, std::optional<DestinationColorSpace> = { });
 
     void drawLinearGradient(CGContextRef, CGPoint startPoint, CGPoint endPoint, CGGradientDrawingOptions);
     void drawRadialGradient(CGContextRef, CGPoint startCenter, CGFloat startRadius, CGPoint endCenter, CGFloat endRadius, CGGradientDrawingOptions);
     void drawConicGradient(CGContextRef, CGPoint center, CGFloat angle);
 
+    const std::optional<DestinationColorSpace>& colorSpace() const { return m_colorSpace; }
+
+    static RetainPtr<CGGradientRef> createGradientBySampling(ColorInterpolationMethod, const GradientColorStopVector&, const std::optional<DestinationColorSpace>& = { });
+
 private:
-    struct Gradient {
-        RetainPtr<CGGradientRef> gradient;
-    };
+    using Gradient = RetainPtr<CGGradientRef>;
 
-    struct Shading {
-        template<typename InterpolationSpace, AlphaPremultiplication> static void shadingFunction(void*, const CGFloat*, CGFloat*);
+    Gradient makeGradient(ColorInterpolationMethod, const GradientColorStops&) const;
+    Gradient makeGradientBySampling(ColorInterpolationMethod, const GradientColorStops&) const;
 
-        class Data : public ThreadSafeRefCounted<Data> {
-        public:
-            static Ref<Data> create(ColorInterpolationMethod colorInterpolationMethod, Vector<ColorConvertedToInterpolationColorSpaceStop> stops, bool firstStopIsSynthetic, bool lastStopIsSynthetic)
-            {
-                return adoptRef(*new Data(colorInterpolationMethod, WTF::move(stops), firstStopIsSynthetic, lastStopIsSynthetic));
-            }
-
-            ColorInterpolationMethod colorInterpolationMethod() const { return m_colorInterpolationMethod; }
-            const Vector<ColorConvertedToInterpolationColorSpaceStop>& stops() const LIFETIME_BOUND { return m_stops; }
-
-            bool firstStopIsSynthetic() const { return m_firstStopIsSynthetic; }
-            bool lastStopIsSynthetic() const { return m_lastStopIsSynthetic; }
-
-        private:
-            Data(ColorInterpolationMethod colorInterpolationMethod, Vector<ColorConvertedToInterpolationColorSpaceStop> stops, bool firstStopIsSynthetic, bool lastStopIsSynthetic)
-                : m_colorInterpolationMethod { colorInterpolationMethod }
-                , m_firstStopIsSynthetic(firstStopIsSynthetic)
-                , m_lastStopIsSynthetic(lastStopIsSynthetic)
-                , m_stops { WTF::move(stops) }
-            {
-            }
-
-            ColorInterpolationMethod m_colorInterpolationMethod;
-            bool m_firstStopIsSynthetic { false };
-            bool m_lastStopIsSynthetic { false };
-            Vector<ColorConvertedToInterpolationColorSpaceStop> m_stops;
-        };
-
-        Ref<Data> data;
-        RetainPtr<CGFunctionRef> function;
-        RetainPtr<CGColorSpaceRef> colorSpace;
-    };
-
-    using Strategy = Variant<Gradient, Shading>;
-
-    Strategy pickStrategy(ColorInterpolationMethod, const GradientColorStops&) const;
-    Strategy makeGradient(ColorInterpolationMethod, const GradientColorStops&) const;
-    Strategy makeShading(ColorInterpolationMethod, const GradientColorStops&) const;
-
-    Strategy m_strategy;
+    std::optional<DestinationColorSpace> m_colorSpace;
+    Gradient m_gradient;
 };
 
 }

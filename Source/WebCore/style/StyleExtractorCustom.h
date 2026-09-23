@@ -38,13 +38,11 @@
 #include "CSSDashboardRegionValue.h"
 #endif
 #include "CSSFontValue.h"
-#include "CSSGridAutoRepeatValue.h"
-#include "CSSGridIntegerRepeatValue.h"
-#include "CSSGridLineNamesValue.h"
+#include "CSSGridTemplateList.h"
+#include "CSSKeywordValueInlines.h"
 #include "CSSMarkup.h"
 #include "CSSPrimitiveNumericTypes+Serialization.h"
 #include "CSSPrimitiveValue.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSProperty.h"
 #include "CSSPropertyNames.h"
 #include "CSSPropertyParserConsumer+Anchor.h"
@@ -62,22 +60,28 @@
 #include "RenderElementStyleInlines.h"
 #include "RenderGrid.h"
 #include "RenderInline.h"
-#include "RenderStyle+GettersInlines.h"
+#include "RenderSVGModelObject.h"
+#include "SVGElement.h"
+#include "SVGLengthContext.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
 #include "StyleExtractorState.h"
 #include "StyleInterpolation.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueCreation.h"
+#include "StyleKeyword+Serialization.h"
 #include "StyleOrderedNamedLinesCollector.h"
-#include "StylePrimitiveKeyword+CSSValueCreation.h"
-#include "StylePrimitiveKeyword+Serialization.h"
 #include "StylePrimitiveNumericTypes+CSSValueCreation.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
+#include "StylePrimitiveNumericTypes+EvaluationMinimum.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
 #include "StylePropertyShorthand.h"
 #include "StylePropertyShorthandFunctions.h"
 #include "StyleTransformFunction.h"
 #include "StyleTransformResolver.h"
 #include "WebAnimationUtilities.h"
+#include "WritingMode.h"
 
 namespace WebCore {
 namespace Style {
@@ -136,6 +140,7 @@ public:
     static Ref<CSSValue> extractWebkitMaskSourceType(ExtractorState&);
     static Ref<CSSValue> extractColor(ExtractorState&);
     static Ref<CSSValue> extractCaretColor(ExtractorState&);
+    static RefPtr<CSSValue> extractOutlineOffset(ExtractorState&);
 
     // MARK: Shorthands
 
@@ -237,6 +242,7 @@ public:
     static void extractWebkitMaskSourceTypeSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractColorSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractCaretColorSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
+    static void extractOutlineOffsetSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
 
     static void extractAnimationShorthandSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractAnimationRangeShorthandSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
@@ -286,7 +292,7 @@ public:
 
 // MARK: - Shared Adaptor
 
-// Shared adaptors are used by adaptors to further adapt a value that has been partially extracted from a RenderStyle. Like adaptors, they use a provided functor to allow them to be used for both CSSValue creation and serialization.
+// Shared adaptors are used by adaptors to further adapt a value that has been partially extracted from a ComputedStyle. Like adaptors, they use a provided functor to allow them to be used for both CSSValue creation and serialization.
 
 template<CSSPropertyID propertyID> struct InsetEdgeSharedAdaptor {
     template<typename F> decltype(auto) computedValue(ExtractorState& state, const InsetEdge& value, F&& functor) const
@@ -363,6 +369,13 @@ template<CSSPropertyID propertyID> struct InsetEdgeSharedAdaptor {
             // See http://www.w3.org/TR/CSS2/visuren.html#position-props
             //
             // Margins are included in offsetTop/offsetLeft so we need to remove them here.
+
+            // Per spec, when position-area or anchor-center is used, the used value
+            // of any auto inset properties and auto margin properties resolves to 0.
+            // See https://drafts.csswg.org/css-anchor-position-1/#position-area.
+            if (AnchorPositionEvaluator::isLayoutTimeAnchorPositioned(box.style()) && AnchorPositionEvaluator::defaultAnchorForBox(box)) [[unlikely]]
+                return LayoutUnit { };
+
             auto paddingBoxWidth = [&]() -> LayoutUnit {
                 if (CheckedPtr renderBlock = dynamicDowncast<RenderBlock>(container))
                     return renderBlock->paddingBoxWidth();
@@ -434,7 +447,7 @@ template<CSSPropertyID propertyID> struct MarginEdgeSharedAdaptor {
         };
 
         auto toMarginTrimSide = [](const RenderBox& renderer) -> Style::MarginTrimSide {
-            auto formattingContextRootStyle = [](const RenderBox& renderer) -> const RenderStyle& {
+            auto formattingContextRootStyle = [](const RenderBox& renderer) -> const Style::ComputedStyle& {
                 if (auto* ancestorToUse = (renderer.isFlexItem() || renderer.isGridItem()) ? renderer.parent() : renderer.containingBlock())
                     return ancestorToUse->style();
                 ASSERT_NOT_REACHED();
@@ -505,7 +518,7 @@ template<CSSPropertyID propertyID> struct PaddingEdgeSharedAdaptor {
     template<typename F> decltype(auto) computedValue(ExtractorState& state, const PaddingEdge& value, F&& functor) const
     {
         auto* renderBox = dynamicDowncast<RenderBox>(state.renderer);
-        if (!renderBox || value.isFixed())
+        if (!renderBox || value.value.isFixed())
             return functor(value);
 
         if constexpr (propertyID == CSSPropertyPaddingTop)
@@ -523,24 +536,54 @@ template<CSSPropertyID propertyID> struct PreferredSizeSharedAdaptor {
     template<typename F> decltype(auto) computedValue(ExtractorState& state, const PreferredSize& value, F&& functor) const
     {
         auto sizingBox = [](auto& renderer) -> LayoutRect {
+            if (auto* svgModelObject = dynamicDowncast<RenderSVGModelObject>(renderer))
+                return svgModelObject->borderBoxRectEquivalent();
             auto* box = dynamicDowncast<RenderBox>(renderer);
-            if (!box)
-                return LayoutRect();
-            return box->style().boxSizing() == BoxSizing::BorderBox ? box->borderBoxRect() : box->computedCSSContentBoxRect();
+            if (box)
+                return box->style().boxSizing() == BoxSizing::BorderBox ? box->borderBoxRect() : box->computedCSSContentBoxRect();
+            return LayoutRect();
         };
 
         auto isNonReplacedInline = [](auto& renderer) {
             return renderer.isInline() && !renderer.isBlockLevelReplacedOrAtomicInline();
         };
 
-        if (state.renderer && !state.renderer->isRenderOrLegacyRenderSVGModelObject()) {
-            // According to http://www.w3.org/TR/CSS2/visudet.html#the-height-property,
-            // the "height" property does not apply for non-replaced inline elements.
-            if (!isNonReplacedInline(*state.renderer)) {
-                if constexpr (propertyID == CSSPropertyHeight)
-                    return functor(Length<> { sizingBox(*state.renderer).height() });
-                else if constexpr (propertyID == CSSPropertyWidth)
-                    return functor(Length<> { sizingBox(*state.renderer).width() });
+        // In SVG, width/height are geometry properties that only apply to specific elements
+        // (svg, rect, image, foreignObject, inner svg). For those, the resolved value is the
+        // used value. For other SVG elements (text, g, etc.), the resolved value is the computed value.
+        // SVG shapes and inner svg elements that are not RenderBox subclasses need their CSS
+        // values resolved directly via SVGLengthContext rather than from the bounding box.
+        auto isSVGNonBoxGeometryElement = [](auto& renderer) {
+            return renderer.isRenderOrLegacyRenderSVGImage()
+                || renderer.isRenderOrLegacyRenderSVGRect();
+        };
+
+        if (state.renderer) {
+            if (state.renderer->isSVGRenderer() && isSVGNonBoxGeometryElement(*state.renderer)) {
+                // For SVG geometry elements that are not RenderBox subclasses, resolve the CSS
+                // value directly using SVGLengthContext rather than reading from the bounding box,
+                // because the bounding box may be empty when only one dimension is set. Per the
+                // SVG2 sizing spec, keywords like 'auto' resolve to 0 for these elements; that
+                // happens via SVGLengthContext's non-numeric fallback path. The Length<> wrapper
+                // divides by usedZoom on serialization, so pre-multiply to round-trip the value.
+                if (RefPtr svgElement = dynamicDowncast<SVGElement>(state.element.get())) {
+                    SVGLengthContext lengthContext(svgElement.get());
+                    auto usedZoom = state.style.usedZoom();
+                    if constexpr (propertyID == CSSPropertyWidth)
+                        return functor(Length<> { lengthContext.valueForLength(state.style.width(), Style::ZoomFactor::none(), SVGLengthMode::Width) * usedZoom });
+                    else if constexpr (propertyID == CSSPropertyHeight)
+                        return functor(Length<> { lengthContext.valueForLength(state.style.height(), Style::ZoomFactor::none(), SVGLengthMode::Height) * usedZoom });
+                }
+            } else if (!state.renderer->isSVGRenderer() || state.renderer->isRenderOrLegacyRenderSVGRoot() || state.renderer->isRenderOrLegacyRenderSVGForeignObject()) {
+                // For non-SVG elements (and SVG root / foreignObject which are proper RenderBox
+                // subclasses), use the sizing box. Per CSS2 the "height"/"width" property does
+                // not apply for non-replaced inline elements.
+                if (!isNonReplacedInline(*state.renderer)) {
+                    if constexpr (propertyID == CSSPropertyHeight)
+                        return functor(Length<> { sizingBox(*state.renderer).height() });
+                    else if constexpr (propertyID == CSSPropertyWidth)
+                        return functor(Length<> { sizingBox(*state.renderer).width() });
+                }
             }
         }
         return functor(value);
@@ -646,7 +689,7 @@ template<CSSPropertyID> struct WebkitColumnBreakSharedAdaptor {
 
 // MARK: - Adaptors
 
-// Adaptors are used to implement the logic for extracting a value from a RenderStyle and performing some operation of the CSS value equivalent. This allows the same code to be used for CSS creation and serialization.
+// Adaptors are used to implement the logic for extracting a value from a ComputedStyle and performing some operation of the CSS value equivalent. This allows the same code to be used for CSS creation and serialization.
 
 template<CSSPropertyID> struct PropertyExtractorAdaptor;
 
@@ -1307,7 +1350,6 @@ template<> struct PropertyExtractorAdaptor<CSSPropertyCaretColor> {
     }
 };
 
-
 // MARK: - Adaptor Invokers
 
 template<CSSPropertyID propertyID> Ref<CSSValue> extractCSSValue(ExtractorState& state)
@@ -1332,18 +1374,11 @@ template<CSSPropertyID propertyID, typename List, typename Mapper> Ref<CSSValue>
 
     CSSValueListBuilder resultListBuilder;
 
-    if constexpr (List::value_type::computedValueUsesUsedValues) {
-        for (auto& value : list.usedValues())
+    if (!list.isInitial()) {
+        for (auto& value : list.template computedValuesForProperty<propertyID>())
             resultListBuilder.append(mapper(state, PropertyAccessor { value }.get(), value, list));
-    } else {
-        if (!list.isInitial()) {
-            for (auto& value : list.computedValues()) {
-                if (!PropertyAccessor { value }.isFilled())
-                    resultListBuilder.append(mapper(state, PropertyAccessor { value }.get(), value, list));
-            }
-        } else
-            resultListBuilder.append(mapper(state, PropertyAccessor::initial(), std::nullopt, list));
-    }
+    } else
+        resultListBuilder.append(mapper(state, PropertyAccessor::initial(), std::nullopt, list));
 
     return CSSValueList::createCommaSeparated(WTF::move(resultListBuilder));
 }
@@ -1354,44 +1389,32 @@ template<CSSPropertyID propertyID, typename List, typename Mapper> void extractC
 
     bool includeComma = false;
 
-    if constexpr (List::value_type::computedValueUsesUsedValues) {
-        for (auto& value : list.usedValues()) {
+    if (!list.isInitial()) {
+        for (auto& value : list.template computedValuesForProperty<propertyID>()) {
             if (includeComma)
                 builder.append(", "_s);
             mapper(state, builder, context, PropertyAccessor { value }.get(), value, list);
             includeComma = true;
         }
-    } else {
-        if (!list.isInitial()) {
-            for (auto& value : list.computedValues()) {
-                if (!PropertyAccessor { value }.isFilled()) {
-                    if (includeComma)
-                        builder.append(", "_s);
-                    mapper(state, builder, context, PropertyAccessor { value }.get(), value, list);
-                    includeComma = true;
-                }
-            }
-        } else
-            mapper(state, builder, context, PropertyAccessor::initial(), std::nullopt, list);
-    }
+    } else
+        mapper(state, builder, context, PropertyAccessor::initial(), std::nullopt, list);
 }
 
 template<GridTrackSizingDirection direction> Ref<CSSValue> extractGridTemplateValue(ExtractorState& state)
 {
-    auto addValuesForNamedGridLinesAtIndex = [](auto& list, auto& collector, auto i, auto renderEmpty) {
+    auto addValuesForNamedGridLinesAtIndex = [&](auto& list, auto& collector, auto i, auto renderEmpty) {
         if (collector.isEmpty() && !renderEmpty)
             return;
 
-        Vector<String> lineNames;
+        GridLineNames lineNames;
         collector.collectLineNamesForIndex(lineNames, i);
         if (!lineNames.isEmpty() || renderEmpty)
-            list.append(CSSGridLineNamesValue::create(lineNames));
+            list.append(toCSS(lineNames, state.style));
     };
-
-    auto& tracks = state.style.gridTemplateList(direction);
 
     auto* renderGrid = dynamicDowncast<RenderGrid>(state.renderer);
 
+    auto& tracks = state.style.gridTemplateList(direction);
     auto& trackSizes = tracks.sizes;
     auto& autoRepeatTrackSizes = tracks.autoRepeatSizes;
 
@@ -1409,21 +1432,22 @@ template<GridTrackSizingDirection direction> Ref<CSSValue> extractGridTemplateVa
     if (trackListIsEmpty && !isSubgrid)
         return createCSSValue(state.pool, state.style, CSS::Keyword::None { });
 
-    CSSValueListBuilder list;
-
     // If the element is a grid container, the resolved value is the used value,
     // specifying track sizes in pixels and expanding the repeat() notation.
     // If subgrid was specified, but the element isn't a subgrid (due to not having
     // an appropriate grid parent), then we fall back to using the specified value.
     if (renderGrid && (!isSubgrid || renderGrid->isSubgrid(direction))) {
         if (isSubgrid) {
-            list.append(createCSSValue(state.pool, state.style, CSS::Keyword::Subgrid { }));
+            CSS::GridSubgrid subgrid;
 
             OrderedNamedLinesCollectorInSubgridLayout collector(state, tracks, renderGrid->numTracks(direction));
             for (int i = 0; i < collector.namedGridLineCount(); i++)
-                addValuesForNamedGridLinesAtIndex(list, collector, i, true);
-            return CSSValueList::createSpaceSeparated(WTF::move(list));
+                addValuesForNamedGridLinesAtIndex(subgrid.value.value, collector, i, true);
+
+            return CSS::createCSSValue(state.pool, CSS::GridTemplateList { WTF::move(subgrid) });
         }
+
+        CSS::GridTrackList trackList;
 
         OrderedNamedLinesCollectorInGridLayout collector(state, tracks, renderGrid->autoRepeatCountForDirection(direction), autoRepeatTrackSizes.size());
         auto computedTrackSizes = renderGrid->trackSizesForComputedStyle(direction);
@@ -1437,58 +1461,139 @@ template<GridTrackSizingDirection direction> Ref<CSSValue> extractGridTemplateVa
         ASSERT(static_cast<unsigned>(end) <= computedTrackSizes.size());
         for (int i = start; i < end; ++i) {
             if (i + offset >= 0)
-                addValuesForNamedGridLinesAtIndex(list, collector, i + offset, false);
-            list.append(createCSSValue(state.pool, state.style, Length<> { computedTrackSizes[i] }));
+                addValuesForNamedGridLinesAtIndex(trackList.value.value, collector, i + offset, false);
+
+            trackList.value.value.append(CSS::GridTrackSize { CSS::GridTrackBreadth {
+                toCSS(LengthPercentage<CSS::Nonnegative> { Length<CSS::Nonnegative> { computedTrackSizes[i] } }, state.style)
+            } });
         }
         if (end + offset >= 0)
-            addValuesForNamedGridLinesAtIndex(list, collector, end + offset, false);
-        return CSSValueList::createSpaceSeparated(WTF::move(list));
+            addValuesForNamedGridLinesAtIndex(trackList.value.value, collector, end + offset, false);
+
+        return CSS::createCSSValue(state.pool, CSS::GridTemplateList { WTF::move(trackList) });
     }
 
     // Otherwise, the resolved value is the computed value, preserving repeat().
     auto& computedTracks = tracks.list;
 
-    auto repeatVisitor = [&](CSSValueListBuilder& list, const RepeatEntry& entry) {
-        if (std::holds_alternative<Vector<String>>(entry)) {
-            const auto& names = std::get<Vector<String>>(entry);
-            if (names.isEmpty() && !isSubgrid)
-                return;
-            list.append(CSSGridLineNamesValue::create(names));
-        } else
-            list.append(createCSSValue(state.pool, state.style, std::get<GridTrackSize>(entry)));
+    if (isSubgrid) {
+        CSS::GridSubgrid subgrid;
+
+        auto addRepeatEntry = [&](auto& repeated, const RepeatEntry& entry) {
+            WTF::switchOn(entry,
+                [&](const GridLineNames& names) {
+                    repeated.value.append(toCSS(names, state.style));
+                },
+                [&](const GridTrackSize&) {
+                    ASSERT_NOT_REACHED();
+                }
+            );
+        };
+
+        for (auto& entry : computedTracks) {
+            WTF::switchOn(entry,
+                [&](const GridTrackSize&) {
+                    ASSERT_NOT_REACHED();
+                },
+                [&](const GridLineNames& names) {
+                    // Subgrids don't have track sizes specified, so empty line names sets
+                    // need to be serialized, as they are meaningful placeholders.
+                    subgrid.value.value.append(toCSS(names, state.style));
+                },
+                [&](const GridTrackEntryRepeat& repeat) {
+                    using Repetitions = CSS::GridNameRepeatFunctionParameters::Repetitions;
+                    SpaceSeparatedVector<CSS::GridNameRepeatFunctionParameters::Repeated> repeated;
+                    for (auto& repeatEntry : repeat.list)
+                        addRepeatEntry(repeated, repeatEntry);
+
+                    subgrid.value.value.append(CSS::GridNameRepeatFunction {
+                        .parameters {
+                            .repetitions = Repetitions { toCSS(Integer<CSS::Positive, unsigned> { repeat.repeats }, state.style) },
+                            .repeated = WTF::move(repeated),
+                        }
+                    });
+                },
+                [&](const GridTrackEntryAutoRepeat& repeat) {
+                    ASSERT(repeat.type == AutoRepeatType::Fill);
+                    using Repetitions = CSS::GridNameRepeatFunctionParameters::Repetitions;
+                    SpaceSeparatedVector<CSS::GridNameRepeatFunctionParameters::Repeated> repeated;
+                    for (auto& repeatEntry : repeat.list)
+                        addRepeatEntry(repeated, repeatEntry);
+
+                    subgrid.value.value.append(CSS::GridNameRepeatFunction {
+                        .parameters {
+                            .repetitions = Repetitions { CSS::Keyword::AutoFill { } },
+                            .repeated = WTF::move(repeated),
+                        }
+                    });
+                },
+                [&](const GridTrackEntrySubgrid&) {
+                    // Nothing to do.
+                }
+            );
+        }
+
+        return CSS::createCSSValue(state.pool, CSS::GridTemplateList { WTF::move(subgrid) });
+    }
+
+    auto addRepeatEntry = [&](auto& repeated, const RepeatEntry& entry) {
+        WTF::switchOn(entry,
+            [&](const GridLineNames& names) {
+                if (names.isEmpty())
+                    return;
+                repeated.value.append(toCSS(names, state.style));
+            },
+            [&](const GridTrackSize& trackSize) {
+                repeated.value.append(toCSS(trackSize, state.style));
+            }
+        );
     };
+
+    CSS::GridTrackList trackList;
 
     for (auto& entry : computedTracks) {
         WTF::switchOn(entry,
             [&](const GridTrackSize& size) {
-                list.append(createCSSValue(state.pool, state.style, size));
+                trackList.value.value.append(toCSS(size, state.style));
             },
-            [&](const Vector<String>& names) {
-                // Subgrids don't have track sizes specified, so empty line names sets
-                // need to be serialized, as they are meaningful placeholders.
-                if (names.isEmpty() && !isSubgrid)
+            [&](const GridLineNames& names) {
+                if (names.isEmpty())
                     return;
-                list.append(CSSGridLineNamesValue::create(names));
+                trackList.value.value.append(toCSS(names, state.style));
             },
             [&](const GridTrackEntryRepeat& repeat) {
-                CSSValueListBuilder repeatedValues;
-                for (auto& entry : repeat.list)
-                    repeatVisitor(repeatedValues, entry);
-                list.append(CSSGridIntegerRepeatValue::create(CSSPrimitiveValue::createInteger(repeat.repeats), WTF::move(repeatedValues)));
+                using Repetitions = CSS::GridTrackRepeatFunctionParameters::Repetitions;
+                SpaceSeparatedVector<CSS::GridTrackRepeatFunctionParameters::Repeated> repeated;
+                for (auto& repeatEntry : repeat.list)
+                    addRepeatEntry(repeated, repeatEntry);
+
+                trackList.value.value.append(CSS::GridTrackRepeatFunction {
+                    .parameters {
+                        .repetitions = Repetitions { toCSS(Integer<CSS::Positive, unsigned> { repeat.repeats }, state.style) },
+                        .repeated = WTF::move(repeated),
+                    }
+                });
             },
             [&](const GridTrackEntryAutoRepeat& repeat) {
-                CSSValueListBuilder repeatedValues;
-                for (auto& entry : repeat.list)
-                    repeatVisitor(repeatedValues, entry);
-                list.append(CSSGridAutoRepeatValue::create(repeat.type == AutoRepeatType::Fill ? CSSValueAutoFill : CSSValueAutoFit, WTF::move(repeatedValues)));
+                using Repetitions = CSS::GridTrackRepeatFunctionParameters::Repetitions;
+                SpaceSeparatedVector<CSS::GridTrackRepeatFunctionParameters::Repeated> repeated;
+                for (auto& repeatEntry : repeat.list)
+                    addRepeatEntry(repeated, repeatEntry);
+
+                trackList.value.value.append(CSS::GridTrackRepeatFunction {
+                    .parameters {
+                        .repetitions = repeat.type == AutoRepeatType::Fill ? Repetitions { CSS::Keyword::AutoFill { } } : Repetitions { CSS::Keyword::AutoFit { } },
+                        .repeated = WTF::move(repeated),
+                    }
+                });
             },
             [&](const GridTrackEntrySubgrid&) {
-                list.append(createCSSValue(state.pool, state.style, CSS::Keyword::Subgrid { }));
+                ASSERT_NOT_REACHED();
             }
         );
     }
 
-    return CSSValueList::createSpaceSeparated(WTF::move(list));
+    return CSS::createCSSValue(state.pool, CSS::GridTemplateList { WTF::move(trackList) });
 }
 
 template<GridTrackSizingDirection direction> void extractGridTemplateSerialization(ExtractorState& state, StringBuilder& builder, const CSS::SerializationContext& context)
@@ -1770,12 +1875,12 @@ template<CSSPropertyID property> inline Ref<CSSValue> extractFillLayerPropertySh
 {
     static_assert(property == CSSPropertyBackground || property == CSSPropertyMask);
 
-    auto computeRenderStyle = [&](std::unique_ptr<RenderStyle>& ownedStyle) -> const RenderStyle* {
+    auto computeRenderStyle = [&](std::unique_ptr<Style::ComputedStyle>& ownedStyle) -> const Style::ComputedStyle* {
         if (auto renderer = state.element->renderer(); renderer && renderer->isComposited() && Interpolation::isAccelerated(property, state.element->document().settings())) {
             ownedStyle = renderer->animatedStyle();
             if (state.pseudoElementIdentifier) {
                 // FIXME: This cached pseudo style will only exist if the animation has been run at least once.
-                return ownedStyle->getCachedPseudoStyle(*state.pseudoElementIdentifier);
+                return ownedStyle->pseudoElementStyle(*state.pseudoElementIdentifier);
             }
             return ownedStyle.get();
         }
@@ -1786,7 +1891,7 @@ template<CSSPropertyID property> inline Ref<CSSValue> extractFillLayerPropertySh
     auto layerCount = [&] -> size_t {
         // FIXME: Why does this not use state.style?
 
-        std::unique_ptr<RenderStyle> ownedStyle;
+        std::unique_ptr<Style::ComputedStyle> ownedStyle;
         auto style = computeRenderStyle(ownedStyle);
         if (!style)
             return 0;
@@ -1817,20 +1922,26 @@ template<CSSPropertyID property> inline Ref<CSSValue> extractFillLayerPropertySh
     // The computed properties are returned as lists of properties, with a list of layers in each.
     // We want to swap that around to have a list of layers, with a list of properties in each.
 
+    // A coordinated list longhand only serializes its specified values, which may be fewer
+    // than layerCount. The used value for a given layer repeats those values (modulo their
+    // count), so index into the longhand list by the layer index modulo its size.
+    auto valueForLayer = [&](const CSSValue& shorthandValue, size_t layerIndex) -> CSSValue& {
+        if (layerCount == 1)
+            return const_cast<CSSValue&>(shorthandValue);
+        auto& list = downcast<CSSValueList>(shorthandValue);
+        return const_cast<CSSValue&>(*list.item(layerIndex % list.size()));
+    };
+
     CSSValueListBuilder layers;
     for (size_t i = 0; i < layerCount; i++) {
         CSSValueListBuilder beforeList;
         if (i == layerCount - 1 && lastValue)
             beforeList.append(*lastValue);
-        for (size_t j = 0; j < propertiesBeforeSlashSeparator.length(); j++) {
-            auto& value = *before->item(j);
-            beforeList.append(const_cast<CSSValue&>(layerCount == 1 ? value : *downcast<CSSValueList>(value).item(i)));
-        }
+        for (size_t j = 0; j < propertiesBeforeSlashSeparator.length(); j++)
+            beforeList.append(valueForLayer(*before->item(j), i));
         CSSValueListBuilder afterList;
-        for (size_t j = 0; j < propertiesAfterSlashSeparator.length(); j++) {
-            auto& value = *after->item(j);
-            afterList.append(const_cast<CSSValue&>(layerCount == 1 ? value : *downcast<CSSValueList>(value).item(i)));
-        }
+        for (size_t j = 0; j < propertiesAfterSlashSeparator.length(); j++)
+            afterList.append(valueForLayer(*after->item(j), i));
         auto list = CSSValueList::createSlashSeparated(CSSValueList::createSpaceSeparated(WTF::move(beforeList)), CSSValueList::createSpaceSeparated(WTF::move(afterList)));
         if (layerCount == 1)
             return list;
@@ -1888,14 +1999,12 @@ inline void ExtractorCustom::extractContentSerialization(ExtractorState& state, 
 }
 
 #if ENABLE(DASHBOARD_SUPPORT)
-// MAVERICKS_BACKPORT: computed value for the legacy -apple-dashboard-region property, restored with the
-// rest of Dashboard support (removed upstream in 2d364c6). The four offsets are the pixel values
-// StyleDashboardRegion resolved at style-build time.
+// MAVERICKS_BACKPORT: computed Dashboard regions serialize their resolved pixel offsets.
 inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState& state)
 {
     auto& regions = state.style.dashboardRegions().list;
     if (regions.isEmpty())
-        return CSSPrimitiveValue::create(CSSValueNone);
+        return CSSKeywordValue::create(CSSValueNone);
 
     auto px = [](float value) { return CSSPrimitiveValue::create(value, CSSUnitType::CSS_PX); };
     Vector<CSSDashboardRegionValue::Region> values;
@@ -2387,7 +2496,7 @@ inline void ExtractorCustom::extractWebkitRubyPositionSerialization(ExtractorSta
 inline Ref<CSSValue> ExtractorCustom::extractWebkitMaskComposite(ExtractorState& state)
 {
     auto mapper = [](auto&, const auto& value, const std::optional<MaskLayers::value_type>&, const auto&) -> Ref<CSSValue> {
-        return CSSPrimitiveValue::create(toCSSValueIDForWebkitMaskComposite(value));
+        return CSSKeywordValue::create(toCSSValueIDForWebkitMaskComposite(value));
     };
     return extractCoordinatedValueListValue<CSSPropertyID::CSSPropertyMaskComposite>(state, state.style.maskLayers(), mapper);
 }
@@ -2403,7 +2512,7 @@ inline void ExtractorCustom::extractWebkitMaskCompositeSerialization(ExtractorSt
 inline Ref<CSSValue> ExtractorCustom::extractWebkitMaskSourceType(ExtractorState& state)
 {
     auto mapper = [](auto&, const auto& value, const std::optional<MaskLayers::value_type>&, const auto&) -> Ref<CSSValue> {
-        return CSSPrimitiveValue::create(toCSSValueIDForWebkitMaskSourceType(value));
+        return CSSKeywordValue::create(toCSSValueIDForWebkitMaskSourceType(value));
     };
     return extractCoordinatedValueListValue<CSSPropertyID::CSSPropertyMaskMode>(state, state.style.maskLayers(), mapper);
 }
@@ -2448,28 +2557,38 @@ inline void ExtractorCustom::extractCaretColorSerialization(ExtractorState& stat
     extractSerialization<CSSPropertyCaretColor>(state, builder, context);
 }
 
+inline RefPtr<CSSValue> ExtractorCustom::extractOutlineOffset(ExtractorState& state)
+{
+    return createCSSValue(state.pool, state.style, state.style.usedOutlineOffset());
+}
+
+inline void ExtractorCustom::extractOutlineOffsetSerialization(ExtractorState& state, StringBuilder& builder, const CSS::SerializationContext& context)
+{
+    serializationForCSS(builder, context, state.style, state.style.usedOutlineOffset());
+}
+
 // MARK: - Shorthands
 
 inline Ref<CSSValue> convertSingleAnimation(ExtractorState& state, const Animation& animation, const Animations& animations)
 {
     static NeverDestroyed<EasingFunction> initialTimingFunction(Animation::initialTimingFunction());
-    static NeverDestroyed<String> alternate { "alternate"_s };
-    static NeverDestroyed<String> alternateReverse { "alternate-reverse"_s };
-    static NeverDestroyed<String> backwards { "backwards"_s };
-    static NeverDestroyed<String> both { "both"_s };
-    static NeverDestroyed<String> ease { "ease"_s };
-    static NeverDestroyed<String> easeIn { "ease-in"_s };
-    static NeverDestroyed<String> easeInOut { "ease-in-out"_s };
-    static NeverDestroyed<String> easeOut { "ease-out"_s };
-    static NeverDestroyed<String> forwards { "forwards"_s };
-    static NeverDestroyed<String> infinite { "infinite"_s };
-    static NeverDestroyed<String> linear { "linear"_s };
-    static NeverDestroyed<String> normal { "normal"_s };
-    static NeverDestroyed<String> paused { "paused"_s };
-    static NeverDestroyed<String> reverse { "reverse"_s };
-    static NeverDestroyed<String> running { "running"_s };
-    static NeverDestroyed<String> stepEnd { "step-end"_s };
-    static NeverDestroyed<String> stepStart { "step-start"_s };
+    static NeverDestroyed<WTF::String> alternate { "alternate"_s };
+    static NeverDestroyed<WTF::String> alternateReverse { "alternate-reverse"_s };
+    static NeverDestroyed<WTF::String> backwards { "backwards"_s };
+    static NeverDestroyed<WTF::String> both { "both"_s };
+    static NeverDestroyed<WTF::String> ease { "ease"_s };
+    static NeverDestroyed<WTF::String> easeIn { "ease-in"_s };
+    static NeverDestroyed<WTF::String> easeInOut { "ease-in-out"_s };
+    static NeverDestroyed<WTF::String> easeOut { "ease-out"_s };
+    static NeverDestroyed<WTF::String> forwards { "forwards"_s };
+    static NeverDestroyed<WTF::String> infinite { "infinite"_s };
+    static NeverDestroyed<WTF::String> linear { "linear"_s };
+    static NeverDestroyed<WTF::String> normal { "normal"_s };
+    static NeverDestroyed<WTF::String> paused { "paused"_s };
+    static NeverDestroyed<WTF::String> reverse { "reverse"_s };
+    static NeverDestroyed<WTF::String> running { "running"_s };
+    static NeverDestroyed<WTF::String> stepEnd { "step-end"_s };
+    static NeverDestroyed<WTF::String> stepStart { "step-start"_s };
 
     // If we have an animation-delay but no animation-duration set, we must serialize
     // the animation-duration because they're both <time> values and animation-delay
@@ -2477,7 +2596,7 @@ inline Ref<CSSValue> convertSingleAnimation(ExtractorState& state, const Animati
     auto showsDelay = animation.delay() != Animation::initialDelay();
     auto showsDuration = showsDelay || animation.duration() != Animation::initialDuration();
 
-    auto name = [&] -> String {
+    auto name = [&] -> WTF::String {
         if (auto keyframesName = animation.name().tryKeyframesName())
             return keyframesName->name;
         return nullString();
@@ -2773,7 +2892,7 @@ inline RefPtr<CSSValue> ExtractorCustom::extractContainerShorthand(ExtractorStat
         return ExtractorGenerated::extractValue(state, CSSPropertyContainerName).releaseNonNull();
     }();
 
-    if (state.style.containerType() == ContainerType::Normal)
+    if (state.style.containerType().isNormal())
         return CSSValueList::createSlashSeparated(WTF::move(name));
 
     return CSSValueList::createSlashSeparated(
@@ -2789,7 +2908,7 @@ inline void ExtractorCustom::extractContainerShorthandSerialization(ExtractorSta
     else
         ExtractorGenerated::extractValueSerialization(state, builder, context, CSSPropertyContainerName);
 
-    if (state.style.containerType() == ContainerType::Normal)
+    if (state.style.containerType().isNormal())
         return;
 
     builder.append(" / "_s);
@@ -2846,20 +2965,20 @@ inline RefPtr<CSSValue> ExtractorCustom::extractFontShorthand(ExtractorState& st
     if (!propertiesResetByShorthandAreExpressible())
         return computedFont;
 
-    computedFont->size = dynamicDowncast<CSSPrimitiveValue>(createCSSValue(state.pool, state.style, Length<> { description.computedSize() }));
+    computedFont->size = createCSSValue(state.pool, state.style, Length<> { description.computedSize() });
 
-    auto computedLineHeight = dynamicDowncast<CSSPrimitiveValue>(ExtractorGenerated::extractValue(state, CSSPropertyLineHeight));
+    auto computedLineHeight = ExtractorGenerated::extractValue(state, CSSPropertyLineHeight);
     if (computedLineHeight && !isValueID(*computedLineHeight, CSSValueNormal))
         computedFont->lineHeight = computedLineHeight.releaseNonNull();
 
     if (description.variantCaps() == FontVariantCaps::Small)
-        computedFont->variant = CSSPrimitiveValue::create(CSSValueSmallCaps);
+        computedFont->variant = CSSKeywordValue::create(CSSValueSmallCaps);
     if (float weight = description.weight(); weight != 400)
         computedFont->weight = CSSPrimitiveValue::create(weight);
     if (*fontWidth != CSSValueNormal)
-        computedFont->width = CSSPrimitiveValue::create(*fontWidth);
+        computedFont->width = CSSKeywordValue::create(*fontWidth);
     if (*fontStyle != CSSValueNormal)
-        computedFont->style = CSSPrimitiveValue::create(*fontStyle);
+        computedFont->style = CSSKeywordValue::create(*fontStyle);
 
     computedFont->family = createCSSValue(state.pool, state.style, state.style.fontFamily());
 

@@ -45,7 +45,7 @@ window.addEventListener('load', doTest, false);
 <body>
 <p> Tests whether we switch back to a hidpi backing store when we zoom out (and would otherwise downscale the content too much).</p>
 <div style="opacity:0.5">
-<canvas id="canvas" width="1000" height="500" style="transform-origin:top left"></canvas>
+<canvas id="canvas" width="1000" height="500" style="transform-origin:top left; will-change:transform"></canvas>
 </div>
 <pre id="layers-before">Initial layer tree goes here in DRT</pre>
 <pre id="layers-after">Mutated layer tree goes here in DRT</pre>

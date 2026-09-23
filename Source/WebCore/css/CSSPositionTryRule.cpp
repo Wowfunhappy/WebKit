@@ -26,6 +26,7 @@
 #include "config.h"
 #include "CSSPositionTryRule.h"
 
+#include "CSSMarkup.h"
 #include "CSSPositionTryDescriptors.h"
 #include "CSSSerializationContext.h"
 
@@ -98,9 +99,11 @@ void CSSPositionTryRule::reattach(StyleRuleBase& rule)
         propertiesCSSOMWrapper->reattach(protect(positionTryRule())->mutableProperties());
 }
 
-AtomString CSSPositionTryRule::name() const
+String CSSPositionTryRule::name() const
 {
-    return m_positionTryRule->name();
+    StringBuilder builder;
+    serializeIdentifier(builder, m_positionTryRule->name());
+    return builder.toString();
 }
 
 CSSPositionTryDescriptors& CSSPositionTryRule::style()

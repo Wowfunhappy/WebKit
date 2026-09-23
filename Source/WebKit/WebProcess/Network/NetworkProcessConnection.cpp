@@ -42,6 +42,7 @@
 #include "WebIDBConnectionToServer.h"
 #include "WebIDBConnectionToServerMessages.h"
 #include "WebLoaderStrategy.h"
+#include "WebMessagePortChannelProvider.h"
 #include "WebPage.h"
 #include "WebPageMessages.h"
 #include "WebPaymentCoordinator.h"
@@ -223,15 +224,8 @@ void NetworkProcessConnection::didClose(IPC::Connection&)
     Ref<NetworkProcessConnection> protector(*this);
     WebProcess::singleton().networkProcessConnectionClosed(this);
 
-    if (auto idbConnection = std::exchange(m_webIDBConnection, nullptr)) {
+    if (auto idbConnection = std::exchange(m_webIDBConnection, nullptr))
         idbConnection->connectionToServerLost();
-
-        // Mark that workers need their IDB proxies refreshed. The actual refresh
-        // is deferred until the network process is relaunched for another reason
-        // (e.g. a document calling indexedDB.open()), to avoid unnecessarily
-        // relaunching the network process just for workers.
-        WebProcess::singleton().setNeedsIDBConnectionRefreshForWorkers();
-    }
 
     if (auto swConnection = std::exchange(m_swConnection, nullptr))
         swConnection->connectionToServerLost();
@@ -339,6 +333,11 @@ WebSharedWorkerObjectConnection& NetworkProcessConnection::sharedWorkerConnectio
 void NetworkProcessConnection::messagesAvailableForPort(const WebCore::MessagePortIdentifier& messagePortIdentifier)
 {
     WebProcess::singleton().messagesAvailableForPort(messagePortIdentifier);
+}
+
+void NetworkProcessConnection::dropNonSerializableInProcessCache(WebCore::NonSerializedDataIdentifier identifier)
+{
+    WebMessagePortChannelProvider::singleton().dropNonSerializableInProcessCache(identifier);
 }
 
 void NetworkProcessConnection::broadcastConsoleMessage(MessageSource source, MessageLevel level, const String& message)

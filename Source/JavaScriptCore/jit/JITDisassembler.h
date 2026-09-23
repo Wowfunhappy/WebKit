@@ -67,9 +67,9 @@ public:
     void reportToProfiler(Profiler::Compilation*, LinkBuffer&);
 
 private:
-    void setLinkedStartAndEnd(const LinkBuffer&);
+    void NODELETE setLinkedStartAndEnd(const LinkBuffer&);
     void dumpHeader(PrintStream&, LinkBuffer&);
-    MacroAssembler::Label firstSlowLabel();
+    MacroAssembler::Label NODELETE firstSlowLabel();
     
     struct DumpedOp {
         BytecodeIndex bytecodeIndex;

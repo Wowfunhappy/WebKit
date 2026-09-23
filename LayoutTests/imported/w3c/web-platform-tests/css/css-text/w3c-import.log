@@ -24,3 +24,5 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-stroke-width-subpixel-notref.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/text-stroke-width-subpixel.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/whitespace-followed-by-cham-symbol-crash.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/zwnj-renders-invisible-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/zwnj-renders-invisible.html

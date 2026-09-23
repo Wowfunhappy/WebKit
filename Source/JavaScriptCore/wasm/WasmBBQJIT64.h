@@ -34,7 +34,9 @@
 #include "WasmExceptionType.h"
 #include "WasmFunctionParser.h"
 #include "WasmLimits.h"
+#include "js/JSWebAssemblyInstance.h"
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/Scope.h>
 
 namespace JSC { namespace Wasm { namespace BBQJITImpl {
 
@@ -44,7 +46,7 @@ ALWAYS_INLINE bool BBQJIT::typeNeedsGPR2(TypeKind)
 }
 
 template<typename Functor>
-auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64_t uoffset, uint32_t sizeOfOperation, Functor&& functor) -> decltype(auto)
+auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64_t uoffset, uint32_t sizeOfOperation, uint8_t memoryIndex, Functor&& functor) -> decltype(auto)
 {
     if (WTF::sumOverflows<uint64_t>(static_cast<uint64_t>(sizeOfOperation), uoffset)) {
         recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.jump());
@@ -56,30 +58,47 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
     ScratchScope<1, 0> scratches(*this);
     Location pointerLocation;
 
+    std::optional<ScratchScope<2, 0>> nonZeroMemoryScratches;
+    GPRReg baseRegister = wasmBaseMemoryPointer;
+    GPRReg boundsCheckingSizeRegister = wasmBoundsCheckingSizeRegister;
+    if (memoryIndex) {
+        nonZeroMemoryScratches.emplace(*this);
+        baseRegister = nonZeroMemoryScratches->gpr(0);
+        boundsCheckingSizeRegister = nonZeroMemoryScratches->gpr(1);
+        m_jit.loadPtr(
+            Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(memoryIndex)),
+            baseRegister
+        );
+        m_jit.loadPtr(
+            Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(memoryIndex) + sizeof(UCPURegister)),
+            boundsCheckingSizeRegister
+        );
+    }
+
     if (pointer.isConst()) {
-        uint64_t constantPointer = m_info.theOnlyMemory().isMemory64() ? pointer.asI64() : static_cast<uint32_t>(pointer.asI32());
+        uint64_t constantPointer = m_info.memory(memoryIndex).isMemory64() ? pointer.asI64() : static_cast<uint32_t>(pointer.asI32());
         if (WTF::sumOverflows<uint64_t>(constantPointer, boundary))
             recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.jump());
         else {
             uint64_t finalOffset = constantPointer + uoffset;
             if (finalOffset <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) && B3::Air::Arg::isValidAddrForm(B3::Air::Move, static_cast<int32_t>(finalOffset), Width::Width128)) {
-                switch (m_mode) {
+                switch (memoryIndex ? MemoryMode::BoundsChecking : m_mode) {
                 case MemoryMode::BoundsChecking: {
                     m_jit.move(TrustedImmPtr(constantPointer + boundary), wasmScratchGPR);
-                    recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.branchPtr(RelationalCondition::AboveOrEqual, wasmScratchGPR, wasmBoundsCheckingSizeRegister));
+                    recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.branchPtr(RelationalCondition::AboveOrEqual, wasmScratchGPR, boundsCheckingSizeRegister));
                     break;
                 }
                 case MemoryMode::Signaling: {
                     // FIXME: it seems like this check is covered by the constantPointer + boundary >= maximum check below?
                     if (uoffset >= Memory::fastMappedRedzoneBytes()) {
-                        uint64_t maximum = m_info.theOnlyMemory().maximum() ? m_info.theOnlyMemory().maximum().bytes() : std::numeric_limits<uint32_t>::max();
+                        uint64_t maximum = m_info.memory(memoryIndex).maximum() ? m_info.memory(memoryIndex).maximum().bytes() : std::numeric_limits<uint32_t>::max();
                         if ((constantPointer + boundary) >= maximum)
                             recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.jump());
                     }
                     break;
                 }
                 }
-                return functor(CCallHelpers::Address(wasmBaseMemoryPointer, static_cast<int32_t>(finalOffset)));
+                return functor(CCallHelpers::Address(baseRegister, static_cast<int32_t>(finalOffset)));
             }
         }
         pointerLocation = Location::fromGPR(scratches.gpr(0));
@@ -88,25 +107,30 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
         pointerLocation = loadIfNecessary(pointer);
     ASSERT(pointerLocation.isGPR());
 
-    switch (m_mode) {
+    // FIXME: for clarity we should probably rename m_mode to m_memory0Mode or something similar
+    // conservatively force bounds checking for nonzero memories
+    switch (memoryIndex ? MemoryMode::BoundsChecking : m_mode) {
     case MemoryMode::BoundsChecking: {
         // We're not using signal handling only when the memory is not shared.
         // Regardless of signaling, we must check that no memory access exceeds the current memory size.
-        if (m_info.theOnlyMemory().isMemory64() && boundary) {
-            m_jit.move(TrustedImmPtr(boundary), wasmScratchGPR);
-            Jump overflow = m_jit.branchAddPtr(ResultCondition::Carry, pointerLocation.asGPR(), wasmScratchGPR);
-            recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, overflow);
+        if (m_info.memory(memoryIndex).isMemory64()) {
+            if (boundary) {
+                m_jit.move(TrustedImmPtr(boundary), wasmScratchGPR);
+                Jump overflow = m_jit.branchAddPtr(ResultCondition::Carry, pointerLocation.asGPR(), wasmScratchGPR);
+                recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, overflow);
+            } else
+                m_jit.move(pointerLocation.asGPR(), wasmScratchGPR);
         } else {
             m_jit.zeroExtend32ToWord(pointerLocation.asGPR(), wasmScratchGPR);
             if (boundary)
                 m_jit.addPtr(TrustedImmPtr(boundary), wasmScratchGPR);
         }
 
-        recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.branchPtr(RelationalCondition::AboveOrEqual, wasmScratchGPR, wasmBoundsCheckingSizeRegister));
+        recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.branchPtr(RelationalCondition::AboveOrEqual, wasmScratchGPR, boundsCheckingSizeRegister));
         break;
     }
     case MemoryMode::Signaling: {
-        RELEASE_ASSERT(!m_info.theOnlyMemory().isMemory64());
+        RELEASE_ASSERT(!m_info.memory(memoryIndex).isMemory64());
         // We've virtually mapped 4GiB+redzone for this memory. Only the user-allocated pages are addressable, contiguously in range [0, current],
         // and everything above is mapped PROT_NONE. We don't need to perform any explicit bounds check in the 4GiB range because WebAssembly register
         // memory accesses are 32-bit. However WebAssembly register + offset accesses perform the addition in 64-bit which can push an access above
@@ -118,7 +142,8 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
         // than the declared 'maximum' will trap, so we can compare against that number. If there was no declared 'maximum' then we still know that
         // any access equal to or greater than 4GiB will trap, no need to add the redzone.
         if (uoffset >= Memory::fastMappedRedzoneBytes()) {
-            uint64_t maximum = m_info.theOnlyMemory().maximum() ? m_info.theOnlyMemory().maximum().bytes() : std::numeric_limits<uint32_t>::max();
+            RELEASE_ASSERT(!m_info.memory(memoryIndex).isMemory64());
+            uint64_t maximum = m_info.memory(memoryIndex).maximum() ? m_info.memory(memoryIndex).maximum().bytes() : std::numeric_limits<uint32_t>::max();
             m_jit.zeroExtend32ToWord(pointerLocation.asGPR(), wasmScratchGPR);
             if (boundary)
                 m_jit.addPtr(TrustedImmPtr(boundary), wasmScratchGPR);
@@ -131,21 +156,21 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
     bool canUseOffsetForm = uoffset <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) && B3::Air::Arg::isValidAddrForm(B3::Air::Move, static_cast<int32_t>(uoffset), Width::Width128);
 #if CPU(ARM64)
     if (canUseOffsetForm) {
-        if (m_info.theOnlyMemory().isMemory64())
-            return functor(CCallHelpers::BaseIndex(wasmBaseMemoryPointer, pointerLocation.asGPR(), CCallHelpers::TimesOne, static_cast<int32_t>(uoffset)));
-        return functor(CCallHelpers::BaseIndex(wasmBaseMemoryPointer, pointerLocation.asGPR(), CCallHelpers::TimesOne, static_cast<int32_t>(uoffset), CCallHelpers::Extend::ZExt32));
+        if (m_info.memory(memoryIndex).isMemory64())
+            return functor(CCallHelpers::BaseIndex(baseRegister, pointerLocation.asGPR(), CCallHelpers::TimesOne, static_cast<int32_t>(uoffset)));
+        return functor(CCallHelpers::BaseIndex(baseRegister, pointerLocation.asGPR(), CCallHelpers::TimesOne, static_cast<int32_t>(uoffset), CCallHelpers::Extend::ZExt32));
     }
 
-    if (m_info.theOnlyMemory().isMemory64())
-        m_jit.addPtr(wasmBaseMemoryPointer, pointerLocation.asGPR(), wasmScratchGPR);
+    if (m_info.memory(memoryIndex).isMemory64())
+        m_jit.addPtr(baseRegister, pointerLocation.asGPR(), wasmScratchGPR);
     else
-        m_jit.addZeroExtend64(wasmBaseMemoryPointer, pointerLocation.asGPR(), wasmScratchGPR);
+        m_jit.addZeroExtend64(baseRegister, pointerLocation.asGPR(), wasmScratchGPR);
 #else
-    if (m_info.theOnlyMemory().isMemory64())
-        m_jit.addPtr(wasmBaseMemoryPointer, pointerLocation.asGPR(), wasmScratchGPR);
+    if (m_info.memory(memoryIndex).isMemory64())
+        m_jit.addPtr(baseRegister, pointerLocation.asGPR(), wasmScratchGPR);
     else {
         m_jit.zeroExtend32ToWord(pointerLocation.asGPR(), wasmScratchGPR);
-        m_jit.addPtr(wasmBaseMemoryPointer, wasmScratchGPR);
+        m_jit.addPtr(baseRegister, wasmScratchGPR);
     }
 #endif
 
@@ -492,11 +517,12 @@ void BBQJIT::emitShuffleMove(Vector<Value, N, OverflowHandler>& srcVector, Vecto
     if (srcLocation == dst)
         return; // Easily eliminate redundant moves here.
 
+    uint32_t dstSize = srcVector[index].size();
     statusVector[index] = ShuffleStatus::BeingMoved;
     for (unsigned i = 0; i < srcVector.size(); i ++) {
         // This check should handle constants too - constants always have location None, and no
         // dst should ever be a constant. But we assume that's asserted in the caller.
-        if (locationOf(srcVector[i]) == dst) {
+        if (Location::rangesOverlap(locationOf(srcVector[i]), srcVector[i].size(), dst, dstSize)) {
             switch (statusVector[i]) {
             case ShuffleStatus::ToMove:
                 emitShuffleMove(srcVector, dstVector, statusVector, i);
@@ -516,25 +542,26 @@ void BBQJIT::emitShuffleMove(Vector<Value, N, OverflowHandler>& srcVector, Vecto
     statusVector[index] = ShuffleStatus::Moved;
 }
 
-template<typename Func, size_t N>
-void BBQJIT::emitCCall(Func function, const Vector<Value, N>& arguments)
+template<typename Func>
+void BBQJIT::emitCCall(Func function, std::span<const Value> arguments)
 {
     // Currently, we assume the Wasm calling convention is the same as the C calling convention
     Vector<Type, 16> resultTypes;
     auto argumentTypes = WTF::map<16>(arguments, [](auto& value) {
         return Type { value.type(), 0u };
     });
-    RefPtr<TypeDefinition> functionType = TypeInformation::typeDefinitionForFunction(resultTypes, argumentTypes);
-    CallInformation callInfo = wasmCallingConvention().callInformationFor(*functionType, CallRole::Caller);
+    Ref<const RTT> functionRTT = TypeInformation::rttForFunction(resultTypes, argumentTypes);
+    CallInformation callInfo = wasmCallingConvention().callInformationFor(functionRTT.get(), CallRole::Caller);
     Checked<int32_t> calleeStackSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(callInfo.headerAndArgumentStackSizeInBytes);
-    m_maxCalleeStackSize = std::max<int>(calleeStackSize, m_maxCalleeStackSize);
+    m_maxCalleeStackSizeForValidation = std::max<uint32_t>(calleeStackSize, m_maxCalleeStackSizeForValidation);
+    ASSERT(static_cast<uint32_t>(alignedFrameSize(m_maxCalleeStackSizeForValidation + m_frameSizeForValidation)) <= m_frameSize);
 
     // Prepare wasm operation calls.
     m_jit.prepareWasmCallOperation(GPRInfo::wasmContextInstancePointer);
 
     // Preserve caller-saved registers and other info
     prepareForExceptions();
-    saveValuesAcrossCallAndPassArguments(arguments, callInfo, *functionType);
+    saveValuesAcrossCallAndPassArguments(arguments, callInfo, functionRTT.get());
 
     // Materialize address of native function and call register
     void* taggedFunctionPtr = tagCFunctionPtr<void*, OperationPtrTag>(function);
@@ -542,8 +569,8 @@ void BBQJIT::emitCCall(Func function, const Vector<Value, N>& arguments)
     m_jit.call(wasmScratchGPR, OperationPtrTag);
 }
 
-template<typename Func, size_t N>
-void BBQJIT::emitCCall(Func function, const Vector<Value, N>& arguments, Value& result)
+template<typename Func>
+void BBQJIT::emitCCall(Func function, std::span<const Value> arguments, Value& result)
 {
     ASSERT(result.isTemp());
 
@@ -553,17 +580,18 @@ void BBQJIT::emitCCall(Func function, const Vector<Value, N>& arguments, Value& 
         return Type { value.type(), 0u };
     });
 
-    RefPtr<TypeDefinition> functionType = TypeInformation::typeDefinitionForFunction(resultTypes, argumentTypes);
-    CallInformation callInfo = wasmCallingConvention().callInformationFor(*functionType, CallRole::Caller);
+    Ref<const RTT> functionRTT = TypeInformation::rttForFunction(resultTypes, argumentTypes);
+    CallInformation callInfo = wasmCallingConvention().callInformationFor(functionRTT.get(), CallRole::Caller);
     Checked<int32_t> calleeStackSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(callInfo.headerAndArgumentStackSizeInBytes);
-    m_maxCalleeStackSize = std::max<int>(calleeStackSize, m_maxCalleeStackSize);
+    m_maxCalleeStackSizeForValidation = std::max<uint32_t>(calleeStackSize, m_maxCalleeStackSizeForValidation);
+    ASSERT(static_cast<uint32_t>(alignedFrameSize(m_maxCalleeStackSizeForValidation + m_frameSizeForValidation)) <= m_frameSize);
 
     // Prepare wasm operation calls.
     m_jit.prepareWasmCallOperation(GPRInfo::wasmContextInstancePointer);
 
     // Preserve caller-saved registers and other info
     prepareForExceptions();
-    saveValuesAcrossCallAndPassArguments(arguments, callInfo, *functionType);
+    saveValuesAcrossCallAndPassArguments(arguments, callInfo, functionRTT.get());
 
     // Materialize address of native function and call register
     void* taggedFunctionPtr = tagCFunctionPtr<void*, OperationPtrTag>(function);

@@ -33,6 +33,7 @@ TestMixinInterface.idl:
 JSTestConditionallyReadWrite.h: 
 JSTestDOMJIT.h: 
 JSTestDefaultToJSON.h: 
+JSTestDefaultToJSONCustomGetter.h: 
 JSTestDefaultToJSONEnum.h: 
 JSTestDefaultToJSONFilteredByExposed.h: 
 JSTestDefaultToJSONIndirectInheritance.h: 
@@ -42,10 +43,10 @@ JSTestDelegateToSharedSyntheticAttribute.h:
 JSTestDerivedDictionary.h: 
 JSTestDerivedDictionary2.h: 
 JSTestDictionary.h: 
-JSTestDictionaryLegacyNativeDictionaryRequiredInterfaceNullability.h: 
 JSTestDictionaryNoToNative.h: 
 JSTestDictionaryWithOnlyConditionalMembers.h: 
 JSTestDomainSecurity.h: 
+JSTestEmbedderArrayLike.h: 
 JSTestEmptyDictionary.h: 
 JSTestEnabledBySetting.h: TestEnabledBySettingSupplemental.idl
 TestEnabledBySettingSupplemental.idl:

@@ -30,7 +30,6 @@
 #include "NetworkProcess.h"
 #include "NotificationManagerMessageHandler.h"
 #include "SharedPreferencesForWebProcess.h"
-#include "WebPushDaemonConnection.h"
 #include "WebPushDaemonConnectionConfiguration.h"
 #include "WebPushMessage.h"
 #include <WebCore/ExceptionData.h>
@@ -50,6 +49,7 @@ class SecurityOriginData;
 namespace WebKit {
 
 namespace WebPushD {
+class Connection;
 enum class MessageType : uint8_t;
 }
 
@@ -59,6 +59,7 @@ public:
     // MAVERICKS_BACKPORT: the session ID identifies this session in the push-messages-
     // available relay to the UI process; see the constructor.
     static Ref<NetworkNotificationManager> create(PAL::SessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
+    ~NetworkNotificationManager();
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
@@ -77,6 +78,7 @@ public:
     void incrementSilentPushCount(WebCore::SecurityOriginData&&, CompletionHandler<void(unsigned)>&&);
     void removeAllPushSubscriptions(CompletionHandler<void(unsigned)>&&);
     void removePushSubscriptionsForOrigin(WebCore::SecurityOriginData&&, CompletionHandler<void(unsigned)>&&);
+    void getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
 
     void showNotification(const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&);
     void getNotifications(const URL& registrationURL, const String& tag, CompletionHandler<void(Expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&&);

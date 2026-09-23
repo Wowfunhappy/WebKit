@@ -434,9 +434,13 @@ function test()
             InspectorTest.newline();
 
             InspectorTest.log("Object (doesn't have [Symbol.iterator]):");
-            InspectorTest.expectException(() => {
+            try {
                 test(object);
-            });
+                InspectorTest.fail("Should produce an exception.");
+            } catch (e) {
+                InspectorTest.pass("Should produce an exception.");
+                InspectorTest.expectThat(e instanceof TypeError, "Exception should be a TypeError.");
+            }
         },
     });
 

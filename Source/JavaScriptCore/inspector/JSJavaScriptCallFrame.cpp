@@ -30,6 +30,7 @@
 #include "JSCInlines.h"
 #include "JSJavaScriptCallFramePrototype.h"
 #include "ObjectConstructor.h"
+#include "StructureCreateInlines.h"
 
 namespace Inspector {
 
@@ -147,7 +148,7 @@ JSValue JSJavaScriptCallFrame::scopeDescriptions(JSGlobalObject* globalObject)
 
 JSValue JSJavaScriptCallFrame::caller(JSGlobalObject* lexicalGlobalObject) const
 {
-    return toJS(lexicalGlobalObject, this->globalObject(), impl().caller());
+    return toJS(lexicalGlobalObject, this->realm(), impl().caller());
 }
 
 JSValue JSJavaScriptCallFrame::sourceID(JSGlobalObject*) const
@@ -196,7 +197,7 @@ JSValue JSJavaScriptCallFrame::scopeChain(JSGlobalObject* globalObject) const
         return { };
     }
 
-    return constructArray(this->globalObject(), static_cast<ArrayAllocationProfile*>(nullptr), list);
+    return constructArray(this->realm(), static_cast<ArrayAllocationProfile*>(nullptr), list);
 }
 
 JSValue JSJavaScriptCallFrame::thisObject(JSGlobalObject* globalObject) const
@@ -234,6 +235,11 @@ JSValue toJS(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, 
     JSJavaScriptCallFrame* javaScriptCallFrame = JSJavaScriptCallFrame::create(vm, structure, *impl);
 
     return javaScriptCallFrame;
+}
+
+Structure* JSJavaScriptCallFrame::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
 }
 
 } // namespace Inspector

@@ -28,6 +28,13 @@
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct FontFamilyName;
+}
+
+class CSSFontFamilyNameValue;
+
 namespace Style {
 
 // <family-name> = <string> | <custom-ident>+
@@ -41,11 +48,20 @@ struct FontFamilyName {
 
 // MARK: - Conversion
 
-template<> struct CSSValueCreation<FontFamilyName> { auto operator()(CSSValuePool&, const RenderStyle&, const FontFamilyName&) -> Ref<CSSValue>; };
+template<> struct ToCSS<FontFamilyName> { auto operator()(const FontFamilyName&, const Style::ComputedStyle&) -> CSS::FontFamilyName; };
+template<> struct ToStyle<CSS::FontFamilyName> { auto operator()(const CSS::FontFamilyName&, const BuilderState&) -> FontFamilyName; };
+
+template<> struct CSSValueCreation<FontFamilyName> {
+    auto operator()(CSSValuePool&, const Style::ComputedStyle&, const FontFamilyName&) -> Ref<CSSValue>;
+};
+template<> struct CSSValueConversion<FontFamilyName> {
+    auto operator()(BuilderState&, const CSSFontFamilyNameValue&) -> FontFamilyName;
+    auto operator()(BuilderState&, const CSSValue&) -> FontFamilyName;
+};
 
 // MARK: - Serialization
 
-template<> struct Serialize<FontFamilyName> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const FontFamilyName&); };
+template<> struct Serialize<FontFamilyName> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const FontFamilyName&); };
 
 // MARK: - Logging
 

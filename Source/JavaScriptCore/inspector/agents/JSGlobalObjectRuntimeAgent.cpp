@@ -28,6 +28,7 @@
 
 #include "InjectedScript.h"
 #include "InjectedScriptManager.h"
+#include "JSGlobalObject.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {

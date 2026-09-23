@@ -38,6 +38,7 @@
 #include "OffscreenCanvas.h"
 #include "ReadableStream.h"
 #include "SVGImageElement.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/Scope.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -89,7 +90,7 @@ ExceptionOr<Ref<ReadableStream>> MediaStreamTrackProcessor::readable(JSC::JSGlob
     if (!m_readable) {
         if (!m_readableStreamSource)
             lazyInitialize(m_readableStreamSource, makeUniqueWithoutRefCountedCheck<Source>(*this));
-        auto readableOrException = ReadableStream::create(*JSC::jsCast<JSDOMGlobalObject*>(&globalObject), *m_readableStreamSource);
+        auto readableOrException = ReadableStream::create(downcast<JSDOMGlobalObject>(globalObject), *m_readableStreamSource);
         if (readableOrException.hasException()) {
             m_readableStreamSource->setAsCancelled();
             return readableOrException.releaseException();
@@ -181,14 +182,14 @@ void MediaStreamTrackProcessor::VideoFrameObserver::start()
 {
     assertIsMainThread();
     m_isStarted = true;
-    m_realtimeVideoSource->addVideoFrameObserver(*this);
+    protect(m_realtimeVideoSource)->addVideoFrameObserver(*this);
 }
 
 MediaStreamTrackProcessor::VideoFrameObserver::~VideoFrameObserver()
 {
     assertIsMainThread();
     if (m_isStarted)
-        m_realtimeVideoSource->removeVideoFrameObserver(*this);
+        protect(m_realtimeVideoSource)->removeVideoFrameObserver(*this);
 }
 
 RefPtr<WebCodecsVideoFrame> MediaStreamTrackProcessor::VideoFrameObserver::takeVideoFrame(ScriptExecutionContext& context)
@@ -255,7 +256,7 @@ void MediaStreamTrackProcessor::Source::enqueue(WebCodecsVideoFrame& frame, Scri
 {
     ASSERT(!m_isCancelled);
 
-    auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(context.globalObject());
+    auto* globalObject = downcast<JSDOMGlobalObject>(context.globalObject());
     if (!globalObject)
         return;
 
@@ -293,7 +294,6 @@ void MediaStreamTrackProcessor::Source::doCancel(JSC::JSValue)
     m_isCancelled = true;
     Ref { m_processor.get() }->stopObserving();
 }
-
 
 Ref<MediaStreamTrackProcessor::TrackObserverWrapper> MediaStreamTrackProcessor::TrackObserverWrapper::create(ScriptExecutionContext& context, MediaStreamTrackProcessor& processor, MediaStreamTrackHandle& handle)
 {

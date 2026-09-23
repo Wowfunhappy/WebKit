@@ -26,7 +26,6 @@
 #include "config.h"
 #include <wtf/RAMSize.h>
 
-#include <mutex>
 #include <wtf/AvailableMemory.h>
 
 #if OS(WINDOWS)
@@ -34,7 +33,6 @@
 #elif OS(LINUX) || OS(FREEBSD)
 #include <sys/sysinfo.h>
 #elif OS(UNIX) || OS(HAIKU)
-#include <unistd.h>
 #endif
 
 #if OS(DARWIN)

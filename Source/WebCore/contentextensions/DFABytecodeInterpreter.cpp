@@ -28,11 +28,14 @@
 
 #include "ContentExtensionsDebugging.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
 namespace WebCore::ContentExtensions {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DFABytecodeInterpreter);
 
 template <typename IntType>
 static IntType NODELETE getBits(std::span<const uint8_t> bytecode, uint32_t index)
@@ -246,6 +249,13 @@ auto DFABytecodeInterpreter::actionsMatchingEverything() -> Actions
     return actions;
 }
 
+DFABytecodeInterpreter::DFABytecodeInterpreter(std::span<const uint8_t> bytecode, EnableResumeCache enableCache)
+    : m_bytecode(bytecode)
+{
+    if (enableCache == EnableResumeCache::Yes)
+        m_resumeCache = makeUnique<ResumeSlots>();
+}
+
 auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags flags) -> Actions
 {
     CString urlCString;
@@ -258,9 +268,45 @@ auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags fl
         url = byteCast<Latin1Character>(urlCString.span());
     }
     ASSERT(url.data());
-    
+
+    uint32_t checkpointURLIndex = 0;
+    auto urlView = StringView(urlString);
+    if (auto schemeEnd = urlView.find("://"_s); schemeEnd != notFound) {
+        if (auto slash = urlView.find('/', schemeEnd + 3); slash != notFound && slash < std::numeric_limits<uint32_t>::max())
+            checkpointURLIndex = static_cast<uint32_t>(slash);
+    }
+
+    bool canResume = false;
+    if (checkpointURLIndex && m_resumeCache) {
+        auto& cache = *m_resumeCache;
+        if (cache.isEmpty())
+            cache.grow(4);
+        auto urlPrefix = urlView.left(checkpointURLIndex + 1);
+        for (size_t i = 0; i < cache.size(); ++i) {
+            auto& slot = cache[i];
+            if (slot.flags == flags && !slot.perDFA.isEmpty() && StringView(slot.url).startsWith(urlPrefix)) {
+                if (i)
+                    std::swap(cache[0], slot);
+                canResume = true;
+                break;
+            }
+        }
+        if (!canResume) {
+            for (size_t i = cache.size() - 1; i > 0; --i)
+                cache[i] = WTF::move(cache[i - 1]);
+            cache[0] = { urlString, flags, { } };
+        }
+    }
+
     Actions actions;
-    
+    size_t dfaIndex = 0;
+    Actions dfaDelta;
+
+    auto recordCheckpoint = [&](uint32_t pc) {
+        if (m_resumeCache && checkpointURLIndex && !canResume)
+            (*m_resumeCache)[0].perDFA.append({ pc, dfaDelta });
+    };
+
     uint32_t programCounter = 0;
     while (programCounter < m_bytecode.size()) {
 
@@ -269,30 +315,49 @@ auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags fl
         uint32_t dfaBytecodeLength = getBits<uint32_t>(m_bytecode, programCounter);
         programCounter += sizeof(uint32_t);
 
-        // Skip the actions without flags on the DFA root. These are accessed via actionsMatchingEverything.
-        if (!dfaStart) {
+        uint32_t urlIndex = 0;
+        bool snapshottedThisDFA = false;
+        dfaDelta.clear();
+
+        if (canResume && dfaIndex < (*m_resumeCache)[0].perDFA.size()) {
+            const auto& checkpoint = (*m_resumeCache)[0].perDFA[dfaIndex];
+            actions.addAll(checkpoint.actions);
+            if (checkpoint.programCounter == DFACheckpoint::terminatedBeforeCheckpoint)
+                goto nextDFA;
+            programCounter = checkpoint.programCounter;
+            urlIndex = checkpointURLIndex;
+            snapshottedThisDFA = true;
+        } else if (!dfaStart) {
+            // Skip the actions without flags on the DFA root. These are accessed via actionsMatchingEverything.
             while (programCounter < dfaBytecodeLength) {
                 DFABytecodeInstruction instruction = getInstruction(m_bytecode, programCounter);
                 if (instruction == DFABytecodeInstruction::AppendAction) {
                     auto instructionLocation = programCounter++;
                     consumeAction(m_bytecode, programCounter, instructionLocation);
                 } else if (instruction == DFABytecodeInstruction::TestFlagsAndAppendAction)
-                    interpretTestFlagsAndAppendAction(programCounter, flags, actions);
+                    interpretTestFlagsAndAppendAction(programCounter, flags, dfaDelta);
                 else
                     break;
             }
-            if (programCounter >= m_bytecode.size())
-                return actions;
+            if (programCounter >= m_bytecode.size()) {
+                recordCheckpoint(DFACheckpoint::terminatedBeforeCheckpoint);
+                actions.addAll(dfaDelta);
+                break;
+            }
         } else {
             ASSERT_WITH_MESSAGE(getInstruction(m_bytecode, programCounter) != DFABytecodeInstruction::AppendAction
                 && getInstruction(m_bytecode, programCounter) != DFABytecodeInstruction::TestFlagsAndAppendAction,
                 "Triggers that match everything should only be in the first DFA.");
         }
-        
+
         // Interpret the bytecode from this DFA.
         // This should always terminate if interpreting correctly compiled bytecode.
-        uint32_t urlIndex = 0;
         while (true) {
+            if (!snapshottedThisDFA && checkpointURLIndex && urlIndex >= checkpointURLIndex) {
+                recordCheckpoint(programCounter);
+                snapshottedThisDFA = true;
+            }
+
             ASSERT(programCounter <= m_bytecode.size());
             switch (getInstruction(m_bytecode, programCounter)) {
 
@@ -388,11 +453,11 @@ auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags fl
             }
                     
             case DFABytecodeInstruction::AppendAction:
-                interpretAppendAction(programCounter, actions);
+                interpretAppendAction(programCounter, dfaDelta);
                 break;
-                    
+
             case DFABytecodeInstruction::TestFlagsAndAppendAction:
-                interpretTestFlagsAndAppendAction(programCounter, flags, actions);
+                interpretTestFlagsAndAppendAction(programCounter, flags, dfaDelta);
                 break;
                     
             default:
@@ -403,9 +468,14 @@ auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags fl
         }
         RELEASE_ASSERT_NOT_REACHED(); // The while loop can only be exited using goto nextDFA.
         nextDFA:
+        if (!snapshottedThisDFA)
+            recordCheckpoint(DFACheckpoint::terminatedBeforeCheckpoint);
+        actions.addAll(dfaDelta);
+        ++dfaIndex;
         ASSERT(dfaBytecodeLength);
         programCounter = dfaStart + dfaBytecodeLength;
     }
+
     return actions;
 }
 

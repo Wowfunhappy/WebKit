@@ -54,8 +54,12 @@ public:
     bool isScrollbarsControllerCoordinated() const final { return true; }
     void hoveredPartChanged(WebCore::Scrollbar&) final;
     void pressedPartChanged(WebCore::Scrollbar&) final;
+    void scrollbarColorChanged(std::optional<WebCore::ScrollbarColor>) final;
+    String horizontalScrollbarStateForTesting() const final;
+    String verticalScrollbarStateForTesting() const final;
 
 private:
+    String scrollbarStateForTesting(WebCore::Scrollbar*) const;
     ThreadSafeWeakPtr<WebCore::ScrollingCoordinator> m_coordinator;
 };
 

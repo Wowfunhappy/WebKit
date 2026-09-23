@@ -466,7 +466,7 @@ const struct wl_touch_listener WaylandSeat::s_touchListener = {
         if (!seat.m_touch.toplevel)
             return;
 
-        if (GRefPtr<WPEView> view = wpeToplevelWaylandGetVisibleFocusedView(seat.m_touch.toplevel.get())) {
+        if (GRefPtr<WPEView> view = wpeToplevelWaylandGetVisibleViewUnderTouch(seat.m_touch.toplevel.get())) {
             for (const auto& iter : seat.m_touch.points) {
                 GRefPtr<WPEEvent> event = adoptGRef(wpe_event_touch_new(WPE_EVENT_TOUCH_CANCEL, view.get(), seat.m_touch.source, 0, seat.modifiers(),
                     iter.key, iter.value.first, iter.value.second));
@@ -521,6 +521,16 @@ const struct wl_seat_listener WaylandSeat::s_listener = {
             seat.m_touch.source = WPE_INPUT_SOURCE_TOUCHSCREEN;
             wl_touch_add_listener(seat.m_touch.object, &s_touchListener, data);
         } else if (!hasTouch && seat.m_touch.object) {
+            if (seat.m_touch.toplevel) {
+                if (GRefPtr<WPEView> view = wpeToplevelWaylandGetVisibleViewUnderTouch(seat.m_touch.toplevel.get())) {
+                    for (const auto& iter : seat.m_touch.points) {
+                        GRefPtr<WPEEvent> event = adoptGRef(wpe_event_touch_new(WPE_EVENT_TOUCH_CANCEL, view.get(), seat.m_touch.source, 0, seat.modifiers(),
+                            iter.key, iter.value.first, iter.value.second));
+                        wpe_view_event(view.get(), event.get());
+                    }
+                }
+            }
+
             wl_touch_release(seat.m_touch.object);
             seat.m_touch = { };
         }

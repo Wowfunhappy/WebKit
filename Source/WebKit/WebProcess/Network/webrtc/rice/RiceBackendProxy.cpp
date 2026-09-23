@@ -22,6 +22,7 @@
 
 #if USE(LIBRICE)
 
+#include "MessageSenderInlines.h"
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
 #include "RiceBackendMessages.h"
@@ -84,18 +85,37 @@ void RiceBackendProxy::resolveAddress(const String& address, RiceBackend::Resolv
     }, messageSenderDestinationID());
 }
 
-HashMap<WebCore::RiceBackend::Socket, String> RiceBackendProxy::gatherSocketAddresses(WebCore::ScriptExecutionContextIdentifier identifier, unsigned streamId)
+WebCore::ExceptionOr<String> RiceBackendProxy::resolveAddressSync(const String& address)
 {
-    HashMap<WebCore::RiceBackend::Socket, String> addresses;
+    std::optional<WebCore::ExceptionOr<String>> result;
+    callOnMainRunLoopAndWait([&] mutable {
+        auto sendResult = m_connection->sendSync(Messages::RiceBackend::ResolveAddressSync { address }, messageSenderDestinationID(), 3_s);
+        if (!sendResult.succeeded()) {
+            result = WebCore::Exception { ExceptionCode::NetworkError, makeString("Unable to resolve address for "_s, address, ": "_s, sendResult.error()) };
+            return;
+        }
+        auto [reply] = sendResult.takeReply();
+        if (!reply) {
+            result = reply.error().toException();
+            return;
+        }
+        result = reply.value().isolatedCopy();
+    });
+    return *result;
+}
+
+WebCore::RiceGatherResult RiceBackendProxy::gatherSocketAddresses(WebCore::ScriptExecutionContextIdentifier identifier, unsigned streamId, unsigned minRtpPort, unsigned maxRtpPort)
+{
+    WebCore::RiceGatherResult result;
     callOnMainRunLoopAndWait([&] {
-        auto sendResult = m_connection->sendSync(Messages::RiceBackend::GatherSocketAddresses { identifier, streamId }, messageSenderDestinationID(), 3_s);
+        auto sendResult = m_connection->sendSync(Messages::RiceBackend::GatherSocketAddresses { identifier, streamId, minRtpPort, maxRtpPort }, messageSenderDestinationID(), 3_s);
         if (!sendResult.succeeded())
             return;
 
         auto [reply] = sendResult.takeReply();
-        addresses = reply;
+        result = reply;
     });
-    return addresses;
+    return result;
 }
 
 void RiceBackendProxy::notifyIncomingData(unsigned streamId, RTCIceProtocol protocol, String&& from, String&& to, WebCore::SharedMemory::Handle&& data)
@@ -116,6 +136,21 @@ void RiceBackendProxy::finalizeStream(unsigned streamId)
 void RiceBackendProxy::setSocketTypeOfService(unsigned streamId, unsigned value)
 {
     MessageSender::send(Messages::RiceBackend::SetSocketTypeOfService { streamId, value });
+}
+
+void RiceBackendProxy::allocateSocket(unsigned streamId, unsigned componentId, WebCore::RTCIceProtocol protocol, String&& from, String&& to)
+{
+    MessageSender::send(Messages::RiceBackend::AllocateSocket { streamId, componentId, protocol, WTF::move(from), WTF::move(to) });
+}
+
+void RiceBackendProxy::allocatedSocket(unsigned streamId, unsigned componentId, WebCore::RTCIceProtocol protocol, String&& from, String&& to, String&& socket)
+{
+    m_client->allocatedSocket(streamId, componentId, protocol, WTF::move(from), WTF::move(to), WTF::move(socket));
+}
+
+void RiceBackendProxy::removeSocket(unsigned streamId, unsigned componentId, WebCore::RTCIceProtocol protocol, String&& from, String&& to)
+{
+    MessageSender::send(Messages::RiceBackend::RemoveSocket { streamId, componentId, protocol, WTF::move(from), WTF::move(to) });
 }
 
 } // namespace WebKit

@@ -42,6 +42,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Platform.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/WeakHashSet.h>
 
 namespace JSC {
@@ -56,10 +57,10 @@ namespace WebCore {
 class CloseWatcherManager;
 class SecurityOriginData;
 struct ScrollToOptions;
+struct UserGestureTokenData;
 struct WindowPostMessageOptions;
 
 enum class PlatformEventModifier : uint8_t;
-using ReducedResolutionSeconds = Seconds;
 
 template<typename> class ExceptionOr;
 
@@ -139,15 +140,21 @@ public:
     Navigator* optionalNavigator() const { return m_navigator.get(); }
 
     WEBCORE_EXPORT static void NODELETE overrideTransientActivationDurationForTesting(std::optional<Seconds>&&);
-    void setLastActivationTimestamp(MonotonicTime lastActivationTimestamp) { m_lastActivationTimestamp = lastActivationTimestamp; }
-    void NODELETE consumeLastActivationIfNecessary();
+    void updateActivation(MonotonicTime activationTime)
+    {
+        m_lastActivationTimestamp = activationTime;
+        m_hasStickyActivation = true;
+        m_hasHistoryActionActivation = true;
+    }
+    WEBCORE_EXPORT void NODELETE consumeLastActivationIfNecessary();
+    void consumeHistoryActionActivation() { m_hasHistoryActionActivation = false; }
     MonotonicTime lastActivationTimestamp() const { return m_lastActivationTimestamp; }
     void notifyActivated(MonotonicTime);
     WEBCORE_EXPORT bool hasTransientActivation() const;
     bool hasStickyActivation() const;
     WEBCORE_EXPORT bool consumeTransientActivation();
     WEBCORE_EXPORT bool NODELETE hasHistoryActionActivation() const;
-    WEBCORE_EXPORT bool consumeHistoryActionUserActivation();
+    WEBCORE_EXPORT bool NODELETE consumeHistoryActionUserActivation();
     WEBCORE_EXPORT static Seconds NODELETE transientActivationDuration();
 
     struct ClickEventData {
@@ -159,7 +166,7 @@ public:
 
     DOMSelection* getSelection();
 
-    HTMLFrameOwnerElement* frameElement() const;
+    HTMLFrameOwnerElement* NODELETE frameElement() const;
 
     WEBCORE_EXPORT void focus(bool allowFocus = false);
     void focus(LocalDOMWindow& incumbentWindow);
@@ -195,7 +202,7 @@ public:
 
     unsigned length() const;
 
-    AtomString name() const;
+    AtomString NODELETE name() const;
     void setName(const AtomString&);
 
     String status() const;
@@ -227,7 +234,7 @@ public:
     RefPtr<WebKitPoint> webkitConvertPointFromNodeToPage(Node*, const WebKitPoint*) const;
 
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, LocalDOMWindow& incumbentWindow, JSC::JSValue message, WindowPostMessageOptions&&);
-    WEBCORE_EXPORT void postMessageFromRemoteFrame(JSC::JSGlobalObject&, RefPtr<WindowProxy>&& source, const SecurityOriginData& sourceOrigin, std::optional<WebCore::SecurityOriginData>&& targetOrigin, const WebCore::MessageWithMessagePorts&);
+    WEBCORE_EXPORT void postMessageFromRemoteFrame(JSC::JSGlobalObject&, RefPtr<WindowProxy>&& source, const SecurityOriginData& sourceOrigin, std::optional<WebCore::SecurityOriginData>&& targetOrigin, const WebCore::MessageWithMessagePorts&, std::optional<UserGestureTokenData>&&);
 
     void languagesChanged();
 
@@ -265,6 +272,7 @@ public:
     bool isSecureContext() const;
 
     bool NODELETE crossOriginIsolated() const;
+    bool NODELETE originAgentCluster() const;
 
     // Events
     // EventTarget API
@@ -320,7 +328,7 @@ public:
 
 #if PLATFORM(IOS_FAMILY)
     void incrementScrollEventListenersCount();
-    void decrementScrollEventListenersCount();
+    void decrementScrollEventListenersCount(unsigned count = 1);
     unsigned scrollEventListenerCount() const { return m_scrollEventListenerCount; }
 #endif
 
@@ -387,7 +395,7 @@ private:
     void eventListenersDidChange() final;
     void setLocation(LocalDOMWindow& activeWindow, const URL& completedURL, NavigationHistoryBehavior, SetLocationLocking, CanNavigateState) final;
 
-    bool allowedToChangeWindowGeometry() const;
+    bool NODELETE allowedToChangeWindowGeometry() const;
 
     static ExceptionOr<RefPtr<Frame>> createWindow(const String& urlString, const AtomString& frameName, const WindowFeatures&, LocalDOMWindow& activeWindow, LocalFrame& firstFrame, LocalFrame& openerFrame, NOESCAPE const Function<void(LocalDOMWindow&)>& prepareDialogFunction = nullptr);
 
@@ -456,7 +464,7 @@ private:
     bool m_contextMenuTriggered { false };
 
     // Workaround for https://webkit.org/b/301443 causing very old timestamps to be produced:
-    Seconds m_lastInputEventStartTime;
+    ReducedResolutionSeconds m_lastInputEventStartTime;
 
     struct PendingKeyDownState {
         PerformanceEventTimingCandidate keyDown;
@@ -491,15 +499,17 @@ private:
 
     std::optional<ReducedResolutionSeconds> m_frozenNowTimestamp;
 
-    // For the purpose of tracking user activation, each Window W has a last activation timestamp. This is a number indicating the last time W got
-    // an activation notification. It corresponds to a DOMHighResTimeStamp value except for two cases: positive infinity indicates that W has never
-    // been activated, while negative infinity indicates that a user activation-gated API has consumed the last user activation of W. The initial
-    // value is positive infinity.
+    // User activation data model. m_lastActivationTimestamp drives transient
+    // activation only. m_hasStickyActivation and m_hasHistoryActionActivation
+    // replace the published spec's timestamp-derived states per the proposed
+    // whatwg/html#11454 (https://github.com/whatwg/html/pull/11454): sticky is
+    // monotonic (set once, never cleared), history-action is consumable.
     MonotonicTime m_lastActivationTimestamp { MonotonicTime::infinity() };
-    MonotonicTime m_lastHistoryActionActivationTimestamp { MonotonicTime::infinity() };
 
     std::optional<ClickEventData> m_lastUserClickEvent;
 
+    bool m_hasStickyActivation { false };
+    bool m_hasHistoryActionActivation { false };
     bool m_wasWrappedWithoutInitializedSecurityOrigin { false };
     bool m_mayReuseForNavigation { true };
     bool m_isStopping { false };

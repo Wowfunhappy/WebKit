@@ -45,9 +45,7 @@ Ref<TimeRanges> TimeRanges::create(const PlatformTimeRanges& other)
     return adoptRef(*new TimeRanges(other));
 }
 
-TimeRanges::TimeRanges()
-{
-}
+TimeRanges::TimeRanges() = default;
 
 TimeRanges::TimeRanges(double start, double end)
     : m_ranges(PlatformTimeRanges(MediaTime::createWithDouble(start), MediaTime::createWithDouble(end)))

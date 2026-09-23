@@ -49,9 +49,7 @@ MediaPlayerPrivateHolePunch::MediaPlayerPrivateHolePunch(MediaPlayer& player)
     m_readyTimer.startOneShot(0_s);
 }
 
-MediaPlayerPrivateHolePunch::~MediaPlayerPrivateHolePunch()
-{
-}
+MediaPlayerPrivateHolePunch::~MediaPlayerPrivateHolePunch() = default;
 
 #if USE(COORDINATED_GRAPHICS)
 PlatformLayer* MediaPlayerPrivateHolePunch::platformLayer() const

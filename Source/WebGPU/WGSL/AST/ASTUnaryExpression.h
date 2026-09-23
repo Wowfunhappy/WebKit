@@ -48,7 +48,7 @@ WGSL_AST_UNARYOP_IMPL
 
 constexpr ASCIILiteral toASCIILiteral(UnaryOperation op)
 {
-    constexpr auto unaryOperationNames = std::to_array<ASCIILiteral>({
+    constexpr auto unaryOperationNames = WTF::toArray<ASCIILiteral>({
 #define WGSL_AST_UNARYOP(x, y) y##_s,
 WGSL_AST_UNARYOP_IMPL
 #undef WGSL_AST_UNARYOP

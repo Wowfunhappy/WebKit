@@ -16,6 +16,7 @@ None
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/META.yml
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/README.md
+/LayoutTests/imported/w3c/web-platform-tests/cookiestore/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/change_eventhandler_for_already_expired.https.window.js
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/change_eventhandler_for_document_cookie.https.window.js
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/change_eventhandler_for_http_cookie_and_set_cookie_headers.https.window.js
@@ -53,6 +54,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_set_domain_parsing.sub.https.html
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_set_domain_parsing.tentative.sub.https.html
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_set_limit.https.any.js
+/LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_set_maxAge.https.window.js
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_set_path.https.window.js
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_special_names.https.any.js
 /LayoutTests/imported/w3c/web-platform-tests/cookiestore/cookieStore_subscribe_arguments.https.any.js

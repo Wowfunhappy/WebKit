@@ -50,6 +50,7 @@ print("\n=== Test 4: do-throw-func-catch-nested (function call, nested) ===");
 print("test_do_throw_func_catch_nested():", testDoThrowFuncCatchNested());  // Expected: 42
 
 print("\n=== Running continuous loop ===");
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     testDoThrowCatch(2);

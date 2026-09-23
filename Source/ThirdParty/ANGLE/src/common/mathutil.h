@@ -872,11 +872,8 @@ struct IndexRange
     {};
     IndexRange(Undefined) {}
     IndexRange() = default;
-    IndexRange(uint32_t start_, uint32_t end_) : mStart(start_), mCount(end_ - start_ + 1)
-    {
-        ASSERT(start_ <= end_);
-    }
-    bool isEmpty() const { return mCount == 0; }
+    IndexRange(uint32_t start, uint32_t end) : mStart(start), mEnd(end) { ASSERT(mStart <= mEnd); }
+    bool isEmpty() const { return mStart > mEnd; }
     uint32_t start() const
     {
         ASSERT(!isEmpty());
@@ -885,22 +882,23 @@ struct IndexRange
     uint32_t end() const
     {
         ASSERT(!isEmpty());
-        return mStart + mCount - 1;
+        return mEnd;
     }
 
     // Number of vertices in the range.
-    uint32_t vertexCount() const { return mCount; }
+    // Range: [0, 0] == 1
+    // Range: [0, 0xFFFFFFFF] == 0x100000000 (needs size_t).
+    size_t vertexCount() const
+    {
+        // Note: unsigned underflow ok on isEmpty() == true.
+        return static_cast<size_t>(mEnd) - mStart + 1u;
+    }
 
   private:
-    uint32_t mStart{0};
-    uint32_t mCount{0};
+    uint32_t mStart{1};
+    uint32_t mEnd{0};
+    friend bool operator==(const IndexRange &a, const IndexRange &b) noexcept = default;
 };
-
-inline bool operator==(const IndexRange &a, const IndexRange &b)
-{
-    return a.vertexCount() == b.vertexCount() &&
-           ((a.vertexCount() == 0) || (a.start() == b.start()));
-}
 
 std::ostream &operator<<(std::ostream &s, const IndexRange &a);
 
@@ -1538,6 +1536,12 @@ inline constexpr unsigned int UnsignedCeilDivide(unsigned int value, unsigned in
     return (divided + ((value % divisor == 0) ? 0 : 1));
 }
 
+inline constexpr uint64_t UnsignedCeilDivide64(uint64_t value, uint64_t divisor)
+{
+    uint64_t divided = value / divisor;
+    return (divided + ((value % divisor == 0) ? 0 : 1));
+}
+
 #if defined(__has_builtin)
 #    define ANGLE_HAS_BUILTIN(x) __has_builtin(x)
 #else
@@ -1578,12 +1582,8 @@ inline uint16_t RotR16(uint16_t x, int8_t r)
 #    define ANGLE_ROTL64(x, y) ::rx::RotL64(x, y)
 #    define ANGLE_ROTR16(x, y) ::rx::RotR16(x, y)
 
-#endif  // namespace rx
+#endif  // defined(_MSC_VER)
 
-constexpr unsigned int Log2(unsigned int bytes)
-{
-    return bytes == 1 ? 0 : (1 + Log2(bytes / 2));
-}
 }  // namespace rx
 
 #endif  // COMMON_MATHUTIL_H_

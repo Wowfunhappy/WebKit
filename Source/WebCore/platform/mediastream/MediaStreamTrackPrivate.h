@@ -29,6 +29,7 @@
 
 #if ENABLE(MEDIA_STREAM)
 
+#include <WebCore/MediaStreamTrackDataHolder.h>
 #include <WebCore/MediaStreamTrackHintValue.h>
 #include <WebCore/RealtimeMediaSource.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
@@ -45,7 +46,7 @@ class MediaStreamTrackPrivateSourceObserver;
 class RealtimeMediaSourceCapabilities;
 class WebAudioSourceProvider;
 
-struct MediaStreamTrackDataHolder;
+class MediaStreamTrackDataHolder;
 
 class MediaStreamTrackPrivateObserver : public AbstractRefCountedAndCanMakeWeakPtr<MediaStreamTrackPrivateObserver> {
 public:
@@ -69,7 +70,7 @@ public:
 
     void initialize(MediaStreamTrackPrivate&);
     std::function<void(Function<void()>&&)> getPostTask() { return m_postTask; }
-    RealtimeMediaSource& source() { return m_source.get(); }
+    RealtimeMediaSource& NODELETE source() { return m_source.get(); }
     void start();
     void stop();
     void requestToEnd();
@@ -102,32 +103,32 @@ public:
 
     WEBCORE_EXPORT virtual ~MediaStreamTrackPrivate();
 
-    const String& id() const LIFETIME_BOUND { return m_id; }
-    const String& label() const LIFETIME_BOUND { return m_label; }
+    const String& id() const LIFETIME_BOUND { return m_data.trackId; }
+    const String& label() const LIFETIME_BOUND { return m_data.label; }
 
     bool isActive() const { return enabled() && !ended() && !muted(); }
 
-    bool ended() const { return m_isEnded; }
+    bool ended() const { return m_data.isEnded; }
 
-    MediaStreamTrackHintValue contentHint() const { return m_contentHint; }
+    MediaStreamTrackHintValue contentHint() const { return m_data.contentHint; }
     void NODELETE setContentHint(MediaStreamTrackHintValue);
     
     void startProducingData();
     void stopProducingData();
-    bool isProducingData() const { return m_isProducingData; }
+    bool isProducingData() const { return m_data.isProducingData; }
 
     void dataFlowStarted();
 
-    bool muted() const { return m_isMuted; }
+    bool muted() const { return m_data.isMuted; }
     void setMuted(bool);
-    bool interrupted() const { return m_isInterrupted; }
+    bool interrupted() const { return m_data.isInterrupted; }
     bool captureDidFail() const { return m_captureDidFail; }
 
     void setIsInBackground(bool);
 
     bool isCaptureTrack() const { return m_isCaptureTrack; }
 
-    bool enabled() const { return m_isEnabled; }
+    bool enabled() const { return m_data.isEnabled; }
     void setEnabled(bool);
 
     Ref<MediaStreamTrackPrivate> clone();
@@ -137,10 +138,10 @@ public:
     RealtimeMediaSource& NODELETE sourceForProcessor();
     bool NODELETE hasSource(const RealtimeMediaSource*) const;
 
-    RealtimeMediaSource::Type type() const { return m_type; }
-    CaptureDevice::DeviceType deviceType() const { return m_deviceType; }
-    bool isVideo() const { return m_type == RealtimeMediaSource::Type::Video; }
-    bool isAudio() const { return m_type == RealtimeMediaSource::Type::Audio; }
+    RealtimeMediaSource::Type type() const { return m_data.type; }
+    CaptureDevice::DeviceType deviceType() const { return m_data.deviceType; }
+    bool isVideo() const { return m_data.type == RealtimeMediaSource::Type::Video; }
+    bool isAudio() const { return m_data.type == RealtimeMediaSource::Type::Audio; }
 
     void endTrack();
 
@@ -148,8 +149,8 @@ public:
     void removeObserver(MediaStreamTrackPrivateObserver&);
     bool hasObserver(MediaStreamTrackPrivateObserver& observer) const { return m_observers.contains(observer); }
 
-    const RealtimeMediaSourceSettings& settings() const LIFETIME_BOUND { return m_settings; }
-    const RealtimeMediaSourceCapabilities& capabilities() const LIFETIME_BOUND { return m_capabilities; }
+    const RealtimeMediaSourceSettings& settings() const LIFETIME_BOUND { return m_data.settings; }
+    const RealtimeMediaSourceCapabilities& capabilities() const LIFETIME_BOUND { return m_data.capabilities; }
 
     Ref<RealtimeMediaSource::TakePhotoNativePromise> takePhoto(PhotoSettings&&);
     Ref<RealtimeMediaSource::PhotoCapabilitiesNativePromise> getPhotoCapabilities();
@@ -166,7 +167,7 @@ public:
     enum class ReadyState { None, Live, Ended };
     ReadyState readyState() const { return m_readyState; }
 
-    void setIdForTesting(String&& id) { m_id = WTF::move(id); }
+    void setIdForTesting(String&& id) { m_data.trackId = WTF::move(id); }
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
@@ -176,15 +177,16 @@ public:
     friend class MediaStreamTrackPrivateSourceObserver;
     friend class MediaStreamTrackPrivateSourceObserverSourceProxy;
 
-    void initializeSettings(RealtimeMediaSourceSettings&& settings) { m_settings = WTF::move(settings); }
-    void initializeCapabilities(RealtimeMediaSourceCapabilities&& capabilities) { m_capabilities = WTF::move(capabilities); }
+    void initializeSettings(RealtimeMediaSourceSettings&& settings) { m_data.settings = WTF::move(settings); }
+    void initializeCapabilities(RealtimeMediaSourceCapabilities&& capabilities) { m_data.capabilities = WTF::move(capabilities); }
 
-    enum class ShouldClone : bool { No, Yes };
+    using ShouldClone = MediaStreamTrackData::ShouldUpdateId;
     UniqueRef<MediaStreamTrackDataHolder> toDataHolder(ShouldClone = ShouldClone::No);
 
     void updateLabelIfRemoteTrack();
 
     MediaStreamTrackPrivateSourceObserver& sourceObserver() { return m_sourceObserver; }
+    size_t settingsCapabilitiesUpdateCount() const { return m_data.settingsCapabilitiesUpdateCount; }
 
 private:
     MediaStreamTrackPrivate(Ref<const Logger>&&, Ref<RealtimeMediaSource>&&, String&& id, std::function<void(Function<void()>&&)>&&);
@@ -197,8 +199,8 @@ private:
 
     void sourceStopped(bool captureDidFail);
     void sourceMutedChanged(bool interrupted, bool muted);
-    void sourceSettingsChanged(RealtimeMediaSourceSettings&&, RealtimeMediaSourceCapabilities&&);
-    void sourceConfigurationChanged(String&&, RealtimeMediaSourceSettings&&, RealtimeMediaSourceCapabilities&&);
+    void sourceSettingsChanged(RealtimeMediaSourceSettings&&, RealtimeMediaSourceCapabilities&&, size_t);
+    void sourceConfigurationChanged(String&&, RealtimeMediaSourceSettings&&, RealtimeMediaSourceCapabilities&&, size_t);
 
     void updateReadyState();
 
@@ -216,26 +218,15 @@ private:
     WeakHashSet<MediaStreamTrackPrivateObserver> m_observers;
     const Ref<MediaStreamTrackPrivateSourceObserver> m_sourceObserver;
 
-    String m_id;
-    String m_label;
-    RealtimeMediaSource::Type m_type;
-    CaptureDevice::DeviceType m_deviceType;
+    MediaStreamTrackData m_data;
     ReadyState m_readyState { ReadyState::None };
     bool m_isCaptureTrack { false };
-    bool m_isEnabled { true };
-    bool m_isEnded { false };
     bool m_captureDidFail { false };
     bool m_hasStartedProducingData { false };
-    MediaStreamTrackHintValue m_contentHint { MediaStreamTrackHintValue::Empty };
     const Ref<const Logger> m_logger;
 #if !RELEASE_LOG_DISABLED
     const uint64_t m_logIdentifier;
 #endif
-    bool m_isProducingData { false };
-    bool m_isMuted { false };
-    bool m_isInterrupted { false };
-    RealtimeMediaSourceSettings m_settings;
-    RealtimeMediaSourceCapabilities m_capabilities;
 #if ASSERT_ENABLED
     uint32_t m_creationThreadId { 0 };
 #endif

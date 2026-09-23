@@ -29,7 +29,7 @@
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-#include <JavaScriptCore/JSCast.h>
+#include <JavaScriptCore/WeakInlinesLight.h>
 #include <JavaScriptCore/WeakSetInlines.h>
 #include <wtf/Assertions.h>
 
@@ -108,15 +108,6 @@ template<typename T> inline T* Weak<T>::get() const
 template<typename T> inline bool Weak<T>::was(T* other) const
 {
     return static_cast<T*>(m_impl->jsValue().asCell()) == other;
-}
-
-template<typename T> inline void Weak<T>::clear()
-{
-    auto* pointer = impl();
-    if (!pointer)
-        return;
-    pointer->clear();
-    m_impl = nullptr;
 }
 
 template<typename T> inline bool Weak<T>::operator!() const

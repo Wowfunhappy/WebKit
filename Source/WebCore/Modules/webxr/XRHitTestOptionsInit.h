@@ -37,7 +37,7 @@ namespace WebCore {
 
 // https://immersive-web.github.io/hit-test/#hit-test-options-dictionary
 struct XRHitTestOptionsInit {
-    RefPtr<WebXRSpace> space;
+    Ref<WebXRSpace> space;
     Vector<XRHitTestTrackableType> entityTypes;
     RefPtr<WebXRRay> offsetRay;
 };

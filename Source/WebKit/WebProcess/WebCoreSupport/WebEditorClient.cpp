@@ -454,7 +454,7 @@ void WebEditorClient::textFieldDidEndEditing(Element& element)
     if (!inputElement)
         return;
 
-    RefPtr webFrame = WebFrame::fromCoreFrame(*protect(protect(element.document())->frame()));
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
     if (RefPtr page = m_page.get())
@@ -469,7 +469,7 @@ void WebEditorClient::textDidChangeInTextField(Element& element)
 
     bool initiatedByUserTyping = UserTypingGestureIndicator::processingUserTypingGesture() && UserTypingGestureIndicator::focusedElementAtGestureStart() == inputElement;
 
-    RefPtr webFrame = WebFrame::fromCoreFrame(*protect(protect(element.document())->frame()));
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
     if (RefPtr page = m_page.get())
@@ -485,7 +485,7 @@ void WebEditorClient::textDidChangeInTextArea(Element& element)
     if (!textAreaElement)
         return;
 
-    RefPtr webFrame = WebFrame::fromCoreFrame(*protect(protect(element.document())->frame()));
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
     if (RefPtr page = m_page.get())
@@ -572,7 +572,7 @@ bool WebEditorClient::doTextFieldCommandFromEvent(Element& element, KeyboardEven
     if (!getActionTypeForKeyEvent(event, actionType))
         return false;
 
-    RefPtr webFrame = WebFrame::fromCoreFrame(*protect(protect(element.document())->frame()));
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
     RefPtr page = m_page.get();
@@ -585,7 +585,7 @@ void WebEditorClient::textWillBeDeletedInTextField(Element& element)
     if (!inputElement)
         return;
 
-    RefPtr webFrame = WebFrame::fromCoreFrame(*protect(protect(element.document())->frame()));
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
     if (RefPtr page = m_page.get())

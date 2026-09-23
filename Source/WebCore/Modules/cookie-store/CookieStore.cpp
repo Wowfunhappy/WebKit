@@ -38,7 +38,6 @@
 #include "DocumentPage.h"
 #include "EventNames.h"
 #include "EventTargetInterfaces.h"
-#include "EventTargetInlines.h"
 #include "ExceptionOr.h"
 #include "JSCookieListItem.h"
 #include "JSDOMConvertDictionary.h"
@@ -265,7 +264,7 @@ void CookieStore::getShared(GetType getType, CookieStoreGetOptions&& options, Re
 
     auto url = context->cookieURL();
     if (!options.url.isNull()) {
-        auto parsed = context->completeURL(options.url);
+        auto parsed = context->parseURL(options.url);
         if (context->isDocument() && !equalIgnoringFragmentIdentifier(parsed, url)) {
             promise->reject(Exception { ExceptionCode::TypeError, "URL must match the document URL"_s });
             return;
@@ -342,7 +341,6 @@ void CookieStore::set(CookieInit&& options, Ref<DeferredPromise>&& promise)
     static constexpr auto maximumAttributeValueSize = 1024;
 
     auto url = context->cookieURL();
-    auto host = url.host();
     auto domain = origin->domain();
 
     Cookie cookie;
@@ -407,19 +405,14 @@ void CookieStore::set(CookieInit&& options, Ref<DeferredPromise>&& promise)
             return;
         }
 
-        if (!host.endsWith(cookie.domain) || (host.length() > cookie.domain.length() && !host.substring(0, host.length() - cookie.domain.length()).endsWith('.'))) {
-            promise->reject(Exception { ExceptionCode::TypeError, "The domain must domain-match current host"_s });
+        if (!SecurityOrigin::create(url)->isMatchingRegistrableDomainSuffix(cookie.domain)) {
+            promise->reject(Exception { ExceptionCode::TypeError, "The domain must be a registrable domain suffix of or be equal to the current host"_s });
             return;
         }
 
         // FIXME: <rdar://85515842> Obtain the encoded length without allocating and encoding.
         if (cookie.domain.utf8().length() > maximumAttributeValueSize) {
             promise->reject(Exception { ExceptionCode::TypeError, makeString("The size of the domain must not be greater than "_s, maximumAttributeValueSize, " bytes"_s) });
-            return;
-        }
-
-        if (PublicSuffixStore::singleton().isPublicSuffix(cookie.domain)) {
-            promise->reject(Exception { ExceptionCode::TypeError, "The domain must not be a public suffix"_s });
             return;
         }
 
@@ -452,20 +445,30 @@ void CookieStore::set(CookieInit&& options, Ref<DeferredPromise>&& promise)
     }
 
     if (options.expires) {
+        if (options.maxAge) {
+            promise->reject(Exception { ExceptionCode::TypeError, "Only one of 'expires' or 'maxAge' may be specified"_s });
+            return;
+        }
+
         // When this cookie is converted to an NSHTTPCookie, the creation and expiration
-        // times will first be converted to seconds and then CFNetwork will floor these times.
-        // If the creation and expiration differ by less than 1 second, flooring them may
-        // reduce the difference to 0 seconds. This can cause the onchange event to wrongly
-        // fire as a deletion instead of a change. In such cases, account for this flooring by
-        // adding 1 second to the expiration.
+        // times will first be converted from milliseconds to seconds and then CFNetwork will
+        // floor these times. If the creation and expiration differ by less than 1 second,
+        // flooring them may reduce the difference to 0 seconds. This can cause the onchange
+        // event to wrongly fire as a deletion instead of a change. In such cases, account for
+        // this flooring by adding 1 second to the expiration.
 
         auto expires = *options.expires;
-        bool equalAfterConversion = floor(expires / 1000.0) == floor(cookie.created / 1000.0);
+
+        auto expiresConverted = floor(Seconds::fromMilliseconds(expires).value());
+        auto createdConverted = floor(Seconds::fromMilliseconds(cookie.created).value());
+        bool equalAfterConversion = expiresConverted == createdConverted;
+
         if (equalAfterConversion && (expires > cookie.created))
-            expires += 1000.0;
+            expires += Seconds(1).milliseconds();
 
         cookie.expires = expires;
-    }
+    } else if (options.maxAge)
+        cookie.expires = cookie.created + Seconds(*options.maxAge).milliseconds();
 
     switch (options.sameSite) {
     case CookieSameSite::Strict:
@@ -588,18 +591,13 @@ void CookieStore::stop()
     if (!m_hasChangeEventListener)
         return;
 
-    WeakPtr page = document->page();
-    if (!page)
-        return;
-
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    auto host = document->url().host().toString();
-    if (host.isEmpty())
-        return;
-
-    protect(page->cookieJar())->removeChangeListener(host, *this);
+    if (RefPtr cookieJar = m_cookieJar)
+        cookieJar->removeChangeListener(m_host, *this);
 #endif
     m_hasChangeEventListener = false;
+    m_host = { };
+    m_cookieJar = nullptr;
 }
 
 bool CookieStore::virtualHasPendingActivity() const
@@ -624,26 +622,31 @@ void CookieStore::eventListenersDidChange()
     if (!document)
         return;
 
-    auto host = document->url().host().toString();
-    if (host.isEmpty())
-        return;
-
     bool hadChangeEventListener = m_hasChangeEventListener;
     m_hasChangeEventListener = hasEventListeners(eventNames().changeEvent);
 
     if (hadChangeEventListener == m_hasChangeEventListener)
         return;
 
-    WeakPtr page = document->page();
-    if (!page)
-        return;
-
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    Ref cookieJar = page->cookieJar();
-    if (m_hasChangeEventListener)
+    if (m_hasChangeEventListener) {
+        auto host = document->url().host().toString();
+        RefPtr page = document->page();
+        if (host.isEmpty() || !page) {
+            m_hasChangeEventListener = false;
+            return;
+        }
+
+        Ref cookieJar = page->cookieJar();
         cookieJar->addChangeListener(*document, *this);
-    else
-        cookieJar->removeChangeListener(host, *this);
+        m_host = WTF::move(host);
+        m_cookieJar = cookieJar;
+    } else {
+        if (RefPtr cookieJar = m_cookieJar)
+            cookieJar->removeChangeListener(m_host, *this);
+        m_host = { };
+        m_cookieJar = nullptr;
+    }
 #endif
 }
 

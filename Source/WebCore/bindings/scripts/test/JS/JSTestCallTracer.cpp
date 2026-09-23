@@ -28,6 +28,7 @@
 #include "IDLTypes.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertBase.h"
 #include "JSDOMConvertBoolean.h"
@@ -50,7 +51,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -102,10 +102,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestCallTracerPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestCallTracerPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -166,11 +163,16 @@ static const std::array<HashTableValue, 14> JSTestCallTracerPrototypeTableValues
 
 const ClassInfo JSTestCallTracerPrototype::s_info = { "TestCallTracer"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestCallTracerPrototype) };
 
+JSC::Structure* JSTestCallTracerPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestCallTracerPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestCallTracer::info(), JSTestCallTracerPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestCallTracer::s_info = { "TestCallTracer"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestCallTracer) };
@@ -181,6 +183,19 @@ JSTestCallTracer::JSTestCallTracer(Structure* structure, JSDOMGlobalObject& glob
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestCallTracer>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestCallTracer* JSTestCallTracer::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestCallTracer>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestCallTracer* ptr = new (NotNull, JSC::allocateCell<JSTestCallTracer>(vm)) JSTestCallTracer(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestCallTracer::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestCallTracer::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -196,7 +211,7 @@ JSObject* JSTestCallTracer::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestCallTracer::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestCallTracerDOMConstructor, DOMConstructorID::TestCallTracer>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestCallTracerDOMConstructor, DOMConstructorID::TestCallTracer>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestCallTracer::destroy(JSC::JSCell* cell)
@@ -209,10 +224,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCallTracerConstructor, (JSGlobalObject* lexicalGl
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestCallTracerPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestCallTracerPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestCallTracer::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestCallTracer::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestCallTracer_testAttributeInterfaceGetter(JSGlobalObject& lexicalGlobalObject, JSTestCallTracer& thisObject)
@@ -296,7 +311,7 @@ static inline JSValue jsTestCallTracer_testAttributeWithVariantGetter(JSGlobalOb
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testAttributeWithVariant"_s);
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLUnion<IDLBoolean, IDLFloat, IDLDOMString>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, impl.testAttributeWithVariant())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLUnion<IDLBoolean, IDLFloat, IDLDOMString>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.testAttributeWithVariant())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestCallTracer_testAttributeWithVariant, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -348,7 +363,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationInterface"_s);
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationInterface(); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationInterface(); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationInterface, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -365,7 +380,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     if (impl.hasActiveTestOperationCallTracer()) [[unlikely]]
         TestOperationCallTracer::recordAction(impl, "testOperationSpecified"_s);
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationSpecified(); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationSpecified(); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationSpecified, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -396,7 +411,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
        return encodedJSValue();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationWithArguments"_s, { TestInterfaceCallTracer::processArgument<IDLBoolean>(impl, aConversionResult.returnValue()), TestInterfaceCallTracer::processArgument<IDLFloat>(impl, bConversionResult.returnValue()), TestInterfaceCallTracer::processArgument<IDLDOMString>(impl, cConversionResult.returnValue()) });
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationWithArguments(aConversionResult.releaseReturnValue(), bConversionResult.releaseReturnValue(), cConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationWithArguments(aConversionResult.releaseReturnValue(), bConversionResult.releaseReturnValue(), cConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationWithArguments, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -419,7 +434,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
        return encodedJSValue();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationWithNullableArgument"_s, { TestInterfaceCallTracer::processArgument<IDLNullable<IDLInterface<Node>>>(impl, nodeNullableArgConversionResult.returnValue()) });
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationWithNullableArgument(nodeNullableArgConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationWithNullableArgument(nodeNullableArgConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationWithNullableArgument, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -442,7 +457,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
        return encodedJSValue();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationWithVariantArgument"_s, { TestInterfaceCallTracer::processArgument<IDLUnion<IDLBoolean, IDLFloat, IDLDOMString>>(impl, variantArgConversionResult.returnValue()) });
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationWithVariantArgument(variantArgConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationWithVariantArgument(variantArgConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationWithVariantArgument, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -465,7 +480,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
        return encodedJSValue();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationWithNullableVariantArgument"_s, { TestInterfaceCallTracer::processArgument<IDLNullable<IDLUnion<IDLBoolean, IDLFloat, IDLDOMString>>>(impl, variantNullableArgConversionResult.returnValue()) });
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationWithNullableVariantArgument(variantNullableArgConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationWithNullableVariantArgument(variantNullableArgConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationWithNullableVariantArgument, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -486,7 +501,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
        return encodedJSValue();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationWithOptionalVariantArgument"_s, { TestInterfaceCallTracer::processArgument<IDLOptional<IDLUnion<IDLBoolean, IDLFloat, IDLDOMString>>>(impl, variantOptionalArgConversionResult.returnValue()) });
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationWithOptionalVariantArgument(variantOptionalArgConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationWithOptionalVariantArgument(variantOptionalArgConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationWithOptionalVariantArgument, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -507,7 +522,7 @@ static inline JSC::EncodedJSValue jsTestCallTracerPrototypeFunction_testOperatio
        return encodedJSValue();
     if (impl.hasActiveTestInterfaceCallTracer()) [[unlikely]]
         TestInterfaceCallTracer::recordAction(impl, "testOperationWithDefaultVariantArgument"_s, { TestInterfaceCallTracer::processArgument<IDLUnion<IDLBoolean, IDLFloat, IDLDOMString>>(impl, variantDefaultArgConversionResult.returnValue()) });
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.testOperationWithDefaultVariantArgument(variantDefaultArgConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.testOperationWithDefaultVariantArgument(variantDefaultArgConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestCallTracerPrototypeFunction_testOperationWithDefaultVariantArgument, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -527,12 +542,14 @@ JSC::GCClient::IsoSubspace* JSTestCallTracer::subspaceForImpl(JSC::VM& vm)
 
 void JSTestCallTracer::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestCallTracer*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestCallTracer>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestCallTracerOwner::JSTestCallTracerOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestCallTracerOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -546,7 +563,7 @@ void JSTestCallTracerOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* con
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestCallTracer = static_cast<JSTestCallTracer*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestCallTracer->wrapped()).ptr(), jsTestCallTracer);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestCallTracer->wrapped(), jsTestCallTracer);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -594,7 +611,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestCallTracer* JSTestCallTracer::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestCallTracer*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestCallTracer>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

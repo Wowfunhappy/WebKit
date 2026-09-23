@@ -74,17 +74,7 @@ public:
         return m_totalLength;
     }
     
-    uint32_t length(JSGlobalObject* globalObject) const
-    {
-        VM& vm = getVM(globalObject);
-        auto scope = DECLARE_THROW_SCOPE(vm);
-        if (m_overrodeThings) [[unlikely]] {
-            auto value = get(globalObject, vm.propertyNames->length);
-            RETURN_IF_EXCEPTION(scope, 0);
-            RELEASE_AND_RETURN(scope, value.toUInt32(globalObject));
-        }
-        return internalLength();
-    }
+    uint32_t length(JSGlobalObject*) const;
     
     bool isMappedArgument(uint32_t i) const
     {
@@ -157,7 +147,7 @@ public:
 
     static JSArray* fastSlice(JSGlobalObject*, ScopedArguments*, uint64_t startIndex, uint64_t count);
 
-    JS_EXPORT_PRIVATE bool isIteratorProtocolFastAndNonObservable();
+    JS_EXPORT_PRIVATE bool NODELETE isIteratorProtocolFastAndNonObservable();
 
     DECLARE_INFO;
     

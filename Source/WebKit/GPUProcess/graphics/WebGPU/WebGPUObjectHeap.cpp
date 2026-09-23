@@ -103,163 +103,163 @@ ObjectHeap::~ObjectHeap() = default;
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteAdapter& adapter)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteAdapter> { Ref { adapter } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteAdapter> { protect(adapter) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteBindGroup& bindGroup)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteBindGroup> { Ref { bindGroup } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteBindGroup> { protect(bindGroup) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteBindGroupLayout& bindGroupLayout)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteBindGroupLayout> { Ref { bindGroupLayout } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteBindGroupLayout> { protect(bindGroupLayout) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteBuffer& buffer)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteBuffer> { Ref { buffer } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteBuffer> { protect(buffer) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteCommandBuffer& commandBuffer)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteCommandBuffer> { Ref { commandBuffer } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteCommandBuffer> { protect(commandBuffer) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteCommandEncoder& commandEncoder)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteCommandEncoder> { Ref { commandEncoder } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteCommandEncoder> { protect(commandEncoder) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteCompositorIntegration& querySet)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteCompositorIntegration> { Ref { querySet } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteCompositorIntegration> { protect(querySet) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteComputePassEncoder& computePassEncoder)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteComputePassEncoder> { Ref { computePassEncoder } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteComputePassEncoder> { protect(computePassEncoder) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteComputePipeline& computePipeline)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteComputePipeline> { Ref { computePipeline } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteComputePipeline> { protect(computePipeline) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteDevice& device)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteDevice> { Ref { device } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteDevice> { protect(device) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteExternalTexture& externalTexture)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteExternalTexture> { Ref { externalTexture } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteExternalTexture> { protect(externalTexture) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemotePipelineLayout& pipelineLayout)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemotePipelineLayout> { Ref { pipelineLayout } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemotePipelineLayout> { protect(pipelineLayout) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemotePresentationContext& presentationContext)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemotePresentationContext> { Ref { presentationContext } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemotePresentationContext> { protect(presentationContext) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteQuerySet& querySet)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteQuerySet> { Ref { querySet } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteQuerySet> { protect(querySet) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteQueue& queue)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteQueue> { Ref { queue } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteQueue> { protect(queue) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteRenderBundleEncoder& renderBundleEncoder)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderBundleEncoder> { Ref { renderBundleEncoder } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderBundleEncoder> { protect(renderBundleEncoder) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteRenderBundle& renderBundle)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderBundle> { Ref { renderBundle } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderBundle> { protect(renderBundle) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteRenderPassEncoder& renderPassEncoder)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderPassEncoder> { Ref { renderPassEncoder } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderPassEncoder> { protect(renderPassEncoder) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteRenderPipeline& renderPipeline)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderPipeline> { Ref { renderPipeline } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteRenderPipeline> { protect(renderPipeline) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteSampler& sampler)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteSampler> { Ref { sampler } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteSampler> { protect(sampler) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteShaderModule& shaderModule)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteShaderModule> { Ref { shaderModule } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteShaderModule> { protect(shaderModule) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteTexture& texture)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteTexture> { Ref { texture } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteTexture> { protect(texture) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteTextureView& textureView)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView> { Ref { textureView } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView> { protect(textureView) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRBinding& xrBinding)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRBinding> { Ref { xrBinding } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRBinding> { protect(xrBinding) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRSubImage& xrSubImage)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRSubImage> { Ref { xrSubImage } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRSubImage> { protect(xrSubImage) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRProjectionLayer& layer)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRProjectionLayer> { Ref { layer } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRProjectionLayer> { protect(layer) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRView& view)
 {
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRView> { Ref { view } } });
+    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRView> { protect(view) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 

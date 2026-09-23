@@ -3,7 +3,7 @@
 #
 # Copyright (C) 2005 Nikolas Zimmermann <wildfox@kde.org>
 # Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
-# Copyright (C) 2007, 2008, 2009, 2010 Apple Inc. All rights reserved.
+# Copyright (C) 2007-2026 Apple Inc. All rights reserved.
 # Copyright (C) 2009 Cameron McCormack <cam@mcc.id.au>
 # Copyright (C) Research In Motion Limited 2010. All rights reserved.
 # Copyright (C) 2013 Samsung Electronics. All rights reserved.
@@ -30,19 +30,20 @@ use strict;
 
 use File::Basename;
 use Carp qw<longmess>;
+use Storable qw(dclone);
 use Data::Dumper;
 
 my $useDocument = "";
 my $useGenerator = "";
 my $useOutputDir = "";
 my $useOutputHeadersDir = "";
-my $preprocessor;
 my $idlAttributes;
 my $writeDependencies = 0;
 my $defines = "";
 my $targetIdlFilePath = "";
 my $supplementalDependencies;
 my $idlFileNamesList;
+my $ignoreStandaloneConstructorAttributes = 0;
 
 my $codeGenerator = 0;
 
@@ -126,6 +127,7 @@ my $cachedExtendedAttributes = {};
 my $cachedExternalDictionaries = {};
 my $cachedExternalEnumerations = {};
 my $cachedTypes = {};
+my %cachedParsedDocuments;
 
 sub assert
 {
@@ -146,16 +148,21 @@ sub new
     $useGenerator = shift;
     $useOutputDir = shift;
     $useOutputHeadersDir = shift;
-    $preprocessor = shift;
     $writeDependencies = shift;
     $verbose = shift;
     $targetIdlFilePath = shift;
     $idlAttributes = shift;
     $supplementalDependencies = shift;
     $idlFileNamesList = shift;
+    $ignoreStandaloneConstructorAttributes = shift // 0;
 
     bless($reference, $object);
     return $reference;
+}
+
+sub IgnoreStandaloneConstructorAttributes
+{
+    return $ignoreStandaloneConstructorAttributes;
 }
 
 sub ProcessDocument
@@ -399,8 +406,13 @@ sub ProcessInterfaceSupplementalDependencies
         next if fileparse($idlFile) eq $targetFileName;
 
         my $interfaceName = fileparse($idlFile, ".idl");
-        my $parser = IDLParser->new(!$verbose);
-        my $document = $parser->Parse($idlFile, $defines, $preprocessor, $idlAttributes);
+        my $document;
+        if (exists $cachedParsedDocuments{$idlFile}) {
+            $document = dclone($cachedParsedDocuments{$idlFile});
+        } else {
+            $document = IDLParser->new(!$verbose)->Parse($idlFile, $defines, $idlAttributes);
+            $cachedParsedDocuments{$idlFile} = dclone($document);
+        }
 
         foreach my $interface (@{$document->interfaces}) {
             next unless $object->IsValidSupplementalInterface($interface, $targetInterface, \%includesMap);
@@ -477,8 +489,13 @@ sub ProcessDictionarySupplementalDependencies
         next if fileparse($idlFile) eq $targetFileName;
 
         my $dictionaryName = fileparse($idlFile, ".idl");
-        my $parser = IDLParser->new(!$verbose);
-        my $document = $parser->Parse($idlFile, $defines, $preprocessor, $idlAttributes);
+        my $document;
+        if (exists $cachedParsedDocuments{$idlFile}) {
+            $document = dclone($cachedParsedDocuments{$idlFile});
+        } else {
+            $document = IDLParser->new(!$verbose)->Parse($idlFile, $defines, $idlAttributes);
+            $cachedParsedDocuments{$idlFile} = dclone($document);
+        }
 
         foreach my $dictionary (@{$document->dictionaries}) {
             next unless $object->IsValidSupplementalDictionary($dictionary, $targetDictionary);
@@ -529,8 +546,6 @@ sub UpdateFile
     my $fileName = shift;
     my $contents = shift;
 
-    # FIXME: We should only write content if it is different from what is in the file.
-    # But that would mean running more often the binding generator, see https://bugs.webkit.org/show_bug.cgi?id=131756
     open FH, ">", $fileName or die "Couldn't open $fileName: $!\n";
     print FH $contents;
     close FH;
@@ -657,7 +672,7 @@ sub ParseInterface
 
     # Step #2: Parse the found IDL file (in quiet mode).
     my $parser = IDLParser->new(1);
-    my $document = $parser->Parse($filename, $defines, $preprocessor, $idlAttributes);
+    my $document = $parser->Parse($filename, $defines, $idlAttributes);
 
     foreach my $interface (@{$document->interfaces}) {
         if ($interface->type->name eq $interfaceName) {
@@ -782,7 +797,7 @@ sub GetEnumByType
     if ($fileContents =~ /\benum\s+$name/gs) {
         # Parse the IDL.
         my $parser = IDLParser->new(1);
-        my $document = $parser->Parse($filename, $defines, $preprocessor, $idlAttributes);
+        my $document = $parser->Parse($filename, $defines, $idlAttributes);
 
         foreach my $enumeration (@{$document->enumerations}) {
             next unless $enumeration->type->name eq $name;
@@ -850,7 +865,7 @@ sub GetDictionaryByType
     if ($fileContents =~ /\bdictionary\s+$name/gs) {
         # Parse the IDL.
         my $parser = IDLParser->new(1);
-        my $document = $parser->Parse($filename, $defines, $preprocessor, $idlAttributes);
+        my $document = $parser->Parse($filename, $defines, $idlAttributes);
 
         foreach my $dictionary (@{$document->dictionaries}) {
             if ($dictionary->type->name eq $name) {
@@ -1501,12 +1516,16 @@ sub ConditionalComparator
     ($a =~ s/^(!?)(.+)/$2$1/r) cmp ($b =~ s/^(!?)(.+)/$2$1/r)
 }
 
+my %conditionalStringCache;
+
 sub GenerateConditionalStringFromAttributeValue
 {
     my ($generator, $conditional) = @_;
 
     # Unquote string literals if needed.
     $conditional = UnquoteStringLiteral($generator, $conditional) if $conditional =~ /^['"]/;
+
+    return $conditionalStringCache{$conditional} if exists $conditionalStringCache{$conditional};
 
     my %disjunction = map {
         my %conjunction = map {
@@ -1518,9 +1537,12 @@ sub GenerateConditionalStringFromAttributeValue
         join(" && ", sort ConditionalComparator keys %conjunction) => 1
     } split(/\|/, $conditional);
 
-    return "1" if %disjunction == 0;
-    return (keys %disjunction)[0] if %disjunction == 1;
-    return join(" || ", map { / / ? "($_)" : $_ } sort ConditionalComparator keys %disjunction);
+    my $result;
+    $result = "1" if %disjunction == 0;
+    $result = (keys %disjunction)[0] if !defined($result) && %disjunction == 1;
+    $result = join(" || ", map { / / ? "($_)" : $_ } sort ConditionalComparator keys %disjunction) if !defined($result);
+    $conditionalStringCache{$conditional} = $result;
+    return $result;
 }
 
 sub GenerateCompileTimeCheckForEnumsIfNeeded

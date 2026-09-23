@@ -26,6 +26,7 @@
 #pragma once
 
 #include "Element.h"
+#include "PseudoClassChangeInvalidation.h"
 #include "StyleInvalidator.h"
 #include "StyleScope.h"
 #include <wtf/HashSet.h>
@@ -46,13 +47,15 @@ private:
     void invalidateAfterChange();
     void checkForSiblingStyleChanges();
     using MatchingHasSelectors = HashSet<const CSSSelector*>;
-    enum class ChangedElementRelation : uint8_t { SelfOrDescendant, Sibling };
+    enum class ChangedElementRelation : uint8_t { SelfOrDescendant, Sibling, FirstOrLastChild };
+    enum class MutationPhase : bool { Before, After };
     void invalidateForChangedElement(Element&, MatchingHasSelectors&, ChangedElementRelation);
-    void invalidateForChangeOutsideHasScope();
+    void invalidateForHasSiblings(MatchingHasSelectors&, MutationPhase);
+
+    bool emptyStateMayChange() const;
 
     template<typename Function> void traverseRemovedElements(Function&&);
     template<typename Function> void traverseAddedElements(Function&&);
-    template<typename Function> void traverseRemainingExistingSiblings(Function&&);
 
     Element& parentElement() { return *m_parentElement; }
 
@@ -61,7 +64,8 @@ private:
 
     const bool m_isEnabled;
     const bool m_needsHasInvalidation;
-    const bool m_wasEmpty;
+
+    std::optional<PseudoClassChangeInvalidation> m_emptyInvalidation;
 };
 
 inline ChildChangeInvalidation::ChildChangeInvalidation(ContainerNode& container, const ContainerNode::ChildChange& childChange)
@@ -69,10 +73,12 @@ inline ChildChangeInvalidation::ChildChangeInvalidation(ContainerNode& container
     , m_childChange(childChange)
     , m_isEnabled(m_parentElement && m_parentElement->needsStyleInvalidation())
     , m_needsHasInvalidation(m_isEnabled && Scope::forNode(*m_parentElement).usesHasPseudoClass())
-    , m_wasEmpty(!container.firstChild())
 {
     if (!m_isEnabled)
         return;
+
+    if (m_parentElement->styleAffectedByEmpty() && emptyStateMayChange())
+        m_emptyInvalidation.emplace(*m_parentElement, CSSSelector::PseudoClass::Empty, PseudoClassChangeInvalidation::AnyValue);
 
     if (m_needsHasInvalidation)
         invalidateForHasBeforeMutation();

@@ -324,7 +324,7 @@ void InspectorFrontendClientLocal::openURLExternally(const String& url)
     page->setOpenedByDOMWithOpener(true);
 
     // FIXME: Why do we compute the absolute URL with respect to |frame| instead of |mainFrame|?
-    ResourceRequest resourceRequest { protect(localFrame->document())->completeURL(url) };
+    ResourceRequest resourceRequest { protect(localFrame->document())->encodingParseURL(url) };
     FrameLoadRequest frameLoadRequest2 { *mainFrameDocument, mainFrameDocument->securityOrigin(), WTF::move(resourceRequest), selfTargetFrameName(), InitiatedByMainFrame::Unknown };
     localFrame->loader().changeLocation(WTF::move(frameLoadRequest2));
 }

@@ -28,7 +28,7 @@
 #include <WebCore/AnimationFrameRate.h>
 #include "AnimationFrameRatePreset.h"
 #include <WebCore/AnimationTimeline.h>
-#include <WebCore/CSSKeywordValue.h>
+#include <WebCore/CSSOMKeywordValue.h>
 #include <WebCore/KeyframeEffectOptions.h>
 #include <WebCore/TimelineRangeValue.h>
 

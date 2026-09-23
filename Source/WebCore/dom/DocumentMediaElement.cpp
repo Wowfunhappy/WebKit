@@ -32,6 +32,7 @@
 #include "DOMWrapperWorld.h"
 #include "Document.h"
 #include "FrameDestructionObserverInlines.h"
+#include "PlatformRenderTheme.h"
 #include "RenderTheme.h"
 #include "ScriptController.h"
 #include "ScriptSourceCode.h"
@@ -75,7 +76,26 @@ bool DocumentMediaElement::setupAndCallMediaControlsJS(NOESCAPE const JSSetupFun
     if (!ensureMediaControlsScript())
         return false;
 
-    return setupAndCallJS(task);
+    Ref world = ensureIsolatedWorld();
+    return setupAndCallJS(task, world);
+}
+
+bool DocumentMediaElement::setupAndCallYouTubeQuirkJS(NOESCAPE const JSSetupFunction& task)
+{
+    if (!ensureYouTubeQuirkScript())
+        return false;
+
+    Ref world = mainThreadNormalWorldSingleton();
+    return setupAndCallJS(task, world);
+}
+
+bool DocumentMediaElement::setupAndCallCNNQuirkJS(NOESCAPE const JSSetupFunction& task)
+{
+    if (!ensureCNNQuirkScript())
+        return false;
+
+    Ref world = mainThreadNormalWorldSingleton();
+    return setupAndCallJS(task, world);
 }
 
 DOMWrapperWorld& DocumentMediaElement::ensureIsolatedWorld()
@@ -97,6 +117,7 @@ bool DocumentMediaElement::ensureMediaControlsScript()
     if (mediaControlsScripts.isEmpty() || document->activeDOMObjectsAreSuspended() || document->activeDOMObjectsAreStopped())
         return false;
 
+    Ref world = ensureIsolatedWorld();
     m_haveParsedMediaControlsScript = setupAndCallJS([mediaControlsScripts = WTF::move(mediaControlsScripts)](JSDOMGlobalObject& globalObject, JSC::JSGlobalObject&, ScriptController& scriptController, DOMWrapperWorld& world) {
         auto& vm = globalObject.vm();
         auto scope = DECLARE_THROW_SCOPE(vm);
@@ -109,19 +130,64 @@ bool DocumentMediaElement::ensureMediaControlsScript()
         }
 
         return true;
-    });
+    }, world);
     return m_haveParsedMediaControlsScript;
 }
 
-bool DocumentMediaElement::setupAndCallJS(NOESCAPE const JSSetupFunction& task)
+bool DocumentMediaElement::ensureYouTubeQuirkScript()
 {
-    Ref world = ensureIsolatedWorld();
+    if (m_haveParsedYouTubeQuirkScript)
+        return true;
+
+    Ref document = this->document();
+    auto youTubeQuirkScript = RenderTheme::singleton().youTubeQuirkScript();
+    if (youTubeQuirkScript.isEmpty() || document->activeDOMObjectsAreSuspended() || document->activeDOMObjectsAreStopped())
+        return false;
+
+    Ref world = mainThreadNormalWorldSingleton();
+    m_haveParsedYouTubeQuirkScript = setupAndCallJS([youTubeQuirkScript = WTF::move(youTubeQuirkScript)](JSDOMGlobalObject& globalObject, JSC::JSGlobalObject&, ScriptController& scriptController, DOMWrapperWorld& world) {
+        auto& vm = globalObject.vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
+
+        scriptController.evaluateInWorldIgnoringException(ScriptSourceCode(youTubeQuirkScript, JSC::SourceTaintedOrigin::Untainted), world);
+        RETURN_IF_EXCEPTION(scope, false);
+
+        return true;
+    }, world);
+    return m_haveParsedYouTubeQuirkScript;
+}
+
+bool DocumentMediaElement::ensureCNNQuirkScript()
+{
+    if (m_haveParsedCNNQuirkScript)
+        return true;
+
+    Ref document = this->document();
+    auto cnnQuirkScript = RenderTheme::singleton().cnnQuirkScript();
+    if (cnnQuirkScript.isEmpty() || document->activeDOMObjectsAreSuspended() || document->activeDOMObjectsAreStopped())
+        return false;
+
+    Ref world = mainThreadNormalWorldSingleton();
+    m_haveParsedCNNQuirkScript = setupAndCallJS([cnnQuirkScript = WTF::move(cnnQuirkScript)](JSDOMGlobalObject& globalObject, JSC::JSGlobalObject&, ScriptController& scriptController, DOMWrapperWorld& world) {
+        auto& vm = globalObject.vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
+
+        scriptController.evaluateInWorldIgnoringException(ScriptSourceCode(cnnQuirkScript, JSC::SourceTaintedOrigin::Untainted), world);
+        RETURN_IF_EXCEPTION(scope, false);
+
+        return true;
+    }, world);
+    return m_haveParsedCNNQuirkScript;
+}
+
+bool DocumentMediaElement::setupAndCallJS(NOESCAPE const JSSetupFunction& task, DOMWrapperWorld& world)
+{
     Ref protectedDocument = this->document();
     RefPtr protectedFrame = protectedDocument->frame();
     if (!protectedFrame)
         return false;
     CheckedRef scriptController = protectedFrame->script();
-    auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(scriptController->globalObject(world));
+    auto* globalObject = scriptController->globalObject(world);
     if (!globalObject)
         return false;
     auto& vm = globalObject->vm();

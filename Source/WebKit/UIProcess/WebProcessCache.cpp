@@ -199,7 +199,7 @@ bool WebProcessCache::addProcess(Ref<CachedProcess>&& cachedProcess)
 
     evictAtRandomIfNeeded();
 
-    WEBPROCESSCACHE_RELEASE_LOG("addProcess: Added process to WebProcess cache (size=%u, capacity=%u, isolatedProcessType=%d) %" SENSITIVE_LOG_STRING ", mainFrameSite: %" SENSITIVE_LOG_STRING, cachedProcess->process().processID(), size() + 1, capacity(), isolatedProcessType, site.toString().utf8().data(), mainFrameSite.toString().utf8().data());
+    WEBPROCESSCACHE_RELEASE_LOG("addProcess: Added process to WebProcess cache (size=%u, capacity=%u, isolatedProcessType=%d) %" SENSITIVE_LOG_STRING ", mainFrameSite: %" SENSITIVE_LOG_STRING, cachedProcess->process().processID(), size() + 1, capacity(), static_cast<int>(isolatedProcessType), site.loggingString().utf8().data(), mainFrameSite.loggingString().utf8().data());
     m_processesPerSite.add({ site, mainFrameSite }, WTF::move(cachedProcess));
 
     return true;
@@ -236,7 +236,7 @@ RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::Site& site, 
 
     auto it = m_processesPerSite.find({ site, mainFrameSite });
     if (it == m_processesPerSite.end()) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: did not find %" SENSITIVE_LOG_STRING ", mainFrameSite: %" SENSITIVE_LOG_STRING, 0, site.toString().utf8().data(), mainFrameSite.toString().utf8().data());
+        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: did not find %" SENSITIVE_LOG_STRING ", mainFrameSite: %" SENSITIVE_LOG_STRING, 0, site.loggingString().utf8().data(), mainFrameSite.loggingString().utf8().data());
         return nullptr;
     }
 
@@ -261,7 +261,7 @@ RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::Site& site, 
     }
 
     Ref process = m_processesPerSite.take(it)->takeProcess();
-    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d, isolatedProcessType=%d) %" SENSITIVE_LOG_STRING ", mainFrameSite %" SENSITIVE_LOG_STRING, process->processID(), size(), capacity(), process->wasTerminated(), isolatedProcessType, site.toString().utf8().data(), mainFrameSite.toString().utf8().data());
+    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d, isolatedProcessType=%d) %" SENSITIVE_LOG_STRING ", mainFrameSite %" SENSITIVE_LOG_STRING, process->processID(), size(), capacity(), process->wasTerminated(), static_cast<int>(isolatedProcessType), site.loggingString().utf8().data(), mainFrameSite.loggingString().utf8().data());
 
     ASSERT(!process->pageCount());
     ASSERT(!process->provisionalPageCount());
@@ -279,7 +279,7 @@ RefPtr<WebProcessProxy> WebProcessCache::takeSharedProcess(const WebCore::Site& 
 {
     auto it = m_sharedProcessesPerSite.find(mainFrameSite);
     if (it == m_sharedProcessesPerSite.end()) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeSharedProcess: did not find %" SENSITIVE_LOG_STRING, 0, mainFrameSite.toString().utf8().data());
+        WEBPROCESSCACHE_RELEASE_LOG("takeSharedProcess: did not find %" SENSITIVE_LOG_STRING, 0, mainFrameSite.loggingString().utf8().data());
         return nullptr;
     }
 
@@ -304,7 +304,7 @@ RefPtr<WebProcessProxy> WebProcessCache::takeSharedProcess(const WebCore::Site& 
     }
 
     Ref process = m_sharedProcessesPerSite.take(it)->takeProcess();
-    WEBPROCESSCACHE_RELEASE_LOG("takeSharedProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d) %" SENSITIVE_LOG_STRING, process->processID(), size(), capacity(), process->wasTerminated(), mainFrameSite.toString().utf8().data());
+    WEBPROCESSCACHE_RELEASE_LOG("takeSharedProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d) %" SENSITIVE_LOG_STRING, process->processID(), size(), capacity(), process->wasTerminated(), mainFrameSite.loggingString().utf8().data());
 
     ASSERT(!process->pageCount());
     ASSERT(!process->provisionalPageCount());

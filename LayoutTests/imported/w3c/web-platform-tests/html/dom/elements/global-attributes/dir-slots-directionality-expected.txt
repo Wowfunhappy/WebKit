@@ -2,8 +2,6 @@
 Text
 اختبر
 
-     abc
-
 PASS Slots: Directionality: dir=rtl on slot
 PASS Slots: Directionality: dir=rtl on host
 PASS Slots: Directionality: dir=auto on host with Arabic shadow tree content
@@ -15,8 +13,8 @@ PASS children with dir attribute are skipped by dir=auto
 PASS slot with dir attribute is skipped by dir=auto
 FAIL dir=auto slot ignores assigned nodes with dir attribute assert_equals: expected "ltr" but got "rtl"
 FAIL dir=auto slot ignores text in bdi assigned nodes assert_equals: expected "ltr" but got "rtl"
-FAIL dir=auto slot ignores text in value of input element children assert_equals: expected "ltr" but got "rtl"
-FAIL dir=auto slot is not affected by value of auto-directionality form associated elements assert_equals: expected "ltr" but got "rtl"
+PASS dir=auto slot ignores text in value of input element children
+PASS dir=auto slot is not affected by value of auto-directionality form associated elements
 PASS inner slot is given directionality from slotted content
 PASS dir=auto slot is not affected by content inside inner slot (version 1)
 PASS dir=auto slot is not affected by content inside inner slot (version 2)

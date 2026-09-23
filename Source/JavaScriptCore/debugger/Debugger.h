@@ -22,28 +22,33 @@
 #pragma once
 
 #include <JavaScriptCore/Breakpoint.h>
-#include <JavaScriptCore/CallData.h>
-#include <JavaScriptCore/DebuggerCallFrame.h>
 #include <JavaScriptCore/DebuggerParseData.h>
 #include <JavaScriptCore/DebuggerPrimitives.h>
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/JSRunLoopTimer.h>
+#include <JavaScriptCore/Microtask.h>
 #include <JavaScriptCore/Weak.h>
 #include <wtf/DoublyLinkedList.h>
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/text/TextPosition.h>
 
 namespace JSC {
 
 class CallFrame;
 class CodeBlock;
+class DebuggerCallFrame;
 class Exception;
-class JSGenerator;
+class InternalFunction;
+class JSAsyncFunctionGenerator;
 class JSGlobalObject;
 class Microtask;
+class NativeExecutable;
 class SourceProvider;
 class VM;
+
+enum class ProfilingReason : uint8_t;
 
 class Debugger : public DoublyLinkedListNode<Debugger> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(Debugger, JS_EXPORT_PRIVATE);
@@ -62,7 +67,7 @@ public:
     };
     JS_EXPORT_PRIVATE void attach(JSGlobalObject*);
     JS_EXPORT_PRIVATE void detach(JSGlobalObject*, ReasonForDetach);
-    JS_EXPORT_PRIVATE bool isAttached(JSGlobalObject*);
+    JS_EXPORT_PRIVATE bool NODELETE isAttached(JSGlobalObject*);
 
     void forEachBreakpointLocation(SourceID, SourceProvider*, int startLine, int startColumn, int endLine, int endColumn, Function<void(int, int)>&&);
 
@@ -113,7 +118,7 @@ public:
     BreakpointID pausingBreakpointID() const { return m_pausingBreakpointID; }
 
     void schedulePauseAtNextOpportunity();
-    void cancelPauseAtNextOpportunity();
+    void NODELETE cancelPauseAtNextOpportunity();
     bool schedulePauseForSpecialBreakpoint(Breakpoint&);
     bool cancelPauseForSpecialBreakpoint(Breakpoint&);
     void breakProgram(RefPtr<Breakpoint>&& specialBreakpoint = nullptr);
@@ -131,7 +136,7 @@ public:
     using BlackboxFlags = OptionSet<BlackboxFlag>;
     using BlackboxConfiguration = UncheckedKeyHashMap<BlackboxRange, BlackboxFlags>;
     void setBlackboxConfiguration(SourceID, BlackboxConfiguration&&);
-    void setBlackboxBreakpointEvaluations(bool);
+    void NODELETE setBlackboxBreakpointEvaluations(bool);
     void clearBlackbox();
 
     bool isPaused() const { return m_isPaused; }
@@ -163,6 +168,8 @@ public:
 
     void didCreateNativeExecutable(NativeExecutable&);
     void willCallNativeExecutable(CallFrame*);
+    void didCreateInternalFunction(InternalFunction&);
+    void willCallInternalFunction(InternalFunction&);
 
     class Client {
     public:
@@ -176,7 +183,7 @@ public:
     };
 
     Client* client() const { return m_client; }
-    void setClient(Client*);
+    void NODELETE setClient(Client*);
 
     // FIXME: <https://webkit.org/b/162773> Web Inspector: Simplify Debugger::Script to use SourceProvider
     struct Script {
@@ -201,6 +208,8 @@ public:
 
         virtual void didCreateNativeExecutable(NativeExecutable&) { }
         virtual void willCallNativeExecutable(CallFrame*) { }
+        virtual void didCreateInternalFunction(InternalFunction&) { }
+        virtual void willCallInternalFunction(InternalFunction&) { }
 
         virtual void willEnter(CallFrame*) { }
 
@@ -229,7 +238,7 @@ public:
         virtual void didEvaluateScript(Seconds startTime, ProfilingReason) = 0;
     };
 
-    void setProfilingClient(ProfilingClient*);
+    void NODELETE setProfilingClient(ProfilingClient*);
     bool hasProfilingClient() const { return m_profilingClient != nullptr; }
     bool isAlreadyProfiling() const { return m_profilingClient && m_profilingClient->isAlreadyProfiling(); }
     JS_EXPORT_PRIVATE Seconds willEvaluateScript();
@@ -290,7 +299,7 @@ private:
     void updateCallFrameInternal(JSC::CallFrame*);
     void pauseIfNeeded(JSC::JSGlobalObject*);
     void resetImmediatePauseState();
-    void resetEventualPauseState();
+    void NODELETE resetEventualPauseState();
     void resetAsyncPauseState();
 
     enum SteppingMode {
@@ -311,7 +320,7 @@ private:
     void clearDebuggerRequests(JSGlobalObject*);
     void clearParsedData();
 
-    bool canDispatchFunctionToObservers() const;
+    bool NODELETE canDispatchFunctionToObservers() const;
     void dispatchFunctionToObservers(Function<void(Observer&)>);
 
     VM& m_vm;
@@ -334,7 +343,7 @@ private:
     JSValue m_currentException;
     CallFrame* m_pauseOnCallFrame { nullptr };
     CallFrame* m_currentCallFrame { nullptr };
-    Weak<JSGenerator> m_pauseForAwaitInGenerator;
+    Weak<JSAsyncFunctionGenerator> m_pauseForAwaitInGenerator;
     bool m_didPauseInAwait { false };
     unsigned m_lastExecutedLine;
     SourceID m_lastExecutedSourceID;

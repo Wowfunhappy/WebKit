@@ -26,6 +26,7 @@
 #include "config.h"
 #include <JavaScriptCore/DisallowVMEntry.h>
 #include <JavaScriptCore/InitializeThreading.h>
+#include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/VM.h>
 
 namespace TestWebKitAPI {

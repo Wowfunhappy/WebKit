@@ -36,7 +36,7 @@ namespace WebCore {
 AXAttributeCacheScope::AXAttributeCacheScope(AXObjectCache* cache)
     : m_cache(cache)
 {
-    if (CheckedPtr protectedCache = m_cache.get()) {
+    if (CheckedPtr protectedCache = m_cache) {
         if (protectedCache->computedObjectAttributeCache())
             m_wasAlreadyCaching = true;
         else
@@ -46,7 +46,7 @@ AXAttributeCacheScope::AXAttributeCacheScope(AXObjectCache* cache)
 
 AXAttributeCacheScope::~AXAttributeCacheScope()
 {
-    if (CheckedPtr protectedCache = m_cache.get(); protectedCache && !m_wasAlreadyCaching)
+    if (CheckedPtr protectedCache = m_cache; protectedCache && !m_wasAlreadyCaching)
         protectedCache->stopCachingComputedObjectAttributes();
 }
 

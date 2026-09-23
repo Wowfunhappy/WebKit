@@ -24,9 +24,9 @@
 
 #pragma once
 
+#include <WebCore/CSSString.h>
 #include <WebCore/CSSValueTypes.h>
 #include <WebCore/LoadedFromOpaqueSource.h>
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 

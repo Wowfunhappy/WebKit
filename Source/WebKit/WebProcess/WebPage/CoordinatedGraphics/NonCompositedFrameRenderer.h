@@ -78,6 +78,8 @@ private:
     void commitTransientZoom(double, WebCore::FloatPoint, WebCore::FloatPoint) override;
 #endif
 
+    void releaseMemory(WTF::Critical) override;
+
     const WeakRef<WebPage> m_webPage;
     Ref<AcceleratedSurface> m_surface;
     std::unique_ptr<WebCore::GLContext> m_context;

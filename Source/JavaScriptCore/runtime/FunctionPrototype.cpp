@@ -37,6 +37,7 @@ const ClassInfo FunctionPrototype::s_info = { "Function"_s, &Base::s_info, nullp
 
 static JSC_DECLARE_HOST_FUNCTION(functionProtoFuncToString);
 static JSC_DECLARE_HOST_FUNCTION(functionProtoFuncBind);
+static JSC_DECLARE_HOST_FUNCTION(functionProtoFuncSymbolHasInstance);
 static JSC_DECLARE_HOST_FUNCTION(callFunctionPrototype);
 
 static JSC_DECLARE_CUSTOM_GETTER(argumentsGetter);
@@ -71,7 +72,7 @@ void FunctionPrototype::addFunctionProperties(VM& vm, JSGlobalObject* globalObje
     putDirectCustomGetterSetterWithoutTransition(vm, vm.propertyNames->arguments, CustomGetterSetter::create(vm, argumentsGetter, callerAndArgumentsSetter), PropertyAttribute::DontEnum | PropertyAttribute::CustomAccessor);
     putDirectCustomGetterSetterWithoutTransition(vm, vm.propertyNames->caller, CustomGetterSetter::create(vm, callerGetter, callerAndArgumentsSetter), PropertyAttribute::DontEnum | PropertyAttribute::CustomAccessor);
 
-    *hasInstanceSymbolFunction = JSFunction::create(vm, globalObject, functionPrototypeSymbolHasInstanceCodeGenerator(vm), globalObject);
+    *hasInstanceSymbolFunction = JSFunction::create(vm, globalObject, 1, "[Symbol.hasInstance]"_s, functionProtoFuncSymbolHasInstance, ImplementationVisibility::Public);
     putDirectWithoutTransition(vm, vm.propertyNames->hasInstanceSymbol, *hasInstanceSymbolFunction, PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
 }
 
@@ -82,13 +83,13 @@ JSC_DEFINE_HOST_FUNCTION(functionProtoFuncToString, (JSGlobalObject* globalObjec
 
     JSValue thisValue = callFrame->thisValue();
     if (thisValue.inherits<JSFunction>()) {
-        JSFunction* function = jsCast<JSFunction*>(thisValue);
+        JSFunction* function = uncheckedDowncast<JSFunction>(thisValue);
         Integrity::auditStructureID(function->structureID());
         RELEASE_AND_RETURN(scope, JSValue::encode(function->toString(globalObject)));
     }
 
     if (thisValue.inherits<InternalFunction>()) {
-        InternalFunction* function = jsCast<InternalFunction*>(thisValue);
+        InternalFunction* function = uncheckedDowncast<InternalFunction>(thisValue);
         Integrity::auditStructureID(function->structureID());
         RELEASE_AND_RETURN(scope, JSValue::encode(jsMakeNontrivialString(globalObject, "function "_s, function->name(), "() {\n    [native code]\n}"_s)));
     }
@@ -101,6 +102,38 @@ JSC_DEFINE_HOST_FUNCTION(functionProtoFuncToString, (JSGlobalObject* globalObjec
     }
 
     return throwVMTypeError(globalObject, scope);
+}
+
+// https://tc39.es/ecma262/#sec-function.prototype-@@hasinstance
+JSC_DEFINE_HOST_FUNCTION(functionProtoFuncSymbolHasInstance, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue thisValue = callFrame->thisValue();
+
+    // 1. If IsCallable(constructor) is false, return false.
+    if (!thisValue.isCallable())
+        return JSValue::encode(jsBoolean(false));
+
+    JSValue instance = callFrame->argument(0);
+
+    // 2. If constructor has a [[BoundTargetFunction]] internal slot, then
+    if (auto* boundFunction = dynamicDowncast<JSBoundFunction>(thisValue)) {
+        // 2.a. Let boundConstructor be constructor.[[BoundTargetFunction]].
+        // 2.b. Return ? InstanceofOperator(instance, boundConstructor).
+        RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(boundFunction->targetFunction()->hasInstance(globalObject, instance))));
+    }
+
+    // 3. If instance is not an Object, return false.
+    if (!instance.isObject())
+        return JSValue::encode(jsBoolean(false));
+
+    JSObject* thisObject = asObject(thisValue);
+    JSValue prototype = thisObject->get(globalObject, vm.propertyNames->prototype);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(JSObject::defaultHasInstance(globalObject, instance, prototype))));
 }
 
 JSC_DEFINE_HOST_FUNCTION(functionProtoFuncBind, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -128,7 +161,7 @@ JSC_DEFINE_HOST_FUNCTION(functionProtoFuncBind, (JSGlobalObject* globalObject, C
 
     double length = 0;
     JSString* name = nullptr;
-    JSFunction* function = jsDynamicCast<JSFunction*>(target);
+    JSFunction* function = dynamicDowncast<JSFunction>(target);
     if (function && function->canAssumeNameAndLengthAreOriginal(vm)) [[likely]] {
         // Do nothing! 'length' and 'name' computation are lazily done.
         // And this is totally OK since we know that wrapped functions have canAssumeNameAndLengthAreOriginal condition
@@ -163,7 +196,7 @@ JSC_DEFINE_HOST_FUNCTION(functionProtoFuncBind, (JSGlobalObject* globalObject, C
 }
 
 // https://github.com/claudepache/es-legacy-function-reflection/blob/master/spec.md#isallowedreceiverfunctionforcallerandargumentsfunc-expectedrealm (except step 3)
-static ALWAYS_INLINE bool isAllowedReceiverFunctionForCallerAndArguments(JSFunction* function)
+static ALWAYS_INLINE bool NODELETE isAllowedReceiverFunctionForCallerAndArguments(JSFunction* function)
 {
     if (function->isHostOrBuiltinFunction())
         return false;
@@ -183,7 +216,7 @@ public:
     {
     }
 
-    JSValue result() const { return m_result; }
+    JSValue NODELETE result() const { return m_result; }
 
     IterationStatus operator()(StackVisitor& visitor) const
     {
@@ -218,7 +251,7 @@ JSC_DEFINE_CUSTOM_GETTER(argumentsGetter, (JSGlobalObject* globalObject, Encoded
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSFunction* thisObj = jsDynamicCast<JSFunction*>(JSValue::decode(thisValue));
+    JSFunction* thisObj = dynamicDowncast<JSFunction>(JSValue::decode(thisValue));
     if (!thisObj || !isAllowedReceiverFunctionForCallerAndArguments(thisObj))
         return throwVMTypeError(globalObject, scope, RestrictedPropertyAccessError);
 
@@ -237,9 +270,9 @@ public:
     {
     }
 
-    JSValue result() const { return m_result; }
+    JSValue NODELETE result() const { return m_result; }
 
-    IterationStatus operator()(StackVisitor& visitor) const
+    IterationStatus NODELETE operator()(StackVisitor& visitor) const
     {
         if (!visitor->callee().isCell())
             return IterationStatus::Continue;
@@ -259,7 +292,7 @@ public:
             if (callee->inherits<JSBoundFunction>() || callee->inherits<JSRemoteFunction>() || callee->type() == ProxyObjectType)
                 return IterationStatus::Continue;
             if (callee->inherits<JSFunction>()) {
-                if (jsCast<JSFunction*>(callee)->executable()->implementationVisibility() != ImplementationVisibility::Public)
+                if (uncheckedDowncast<JSFunction>(callee)->executable()->implementationVisibility() != ImplementationVisibility::Public)
                     return IterationStatus::Continue;
             }
 
@@ -289,7 +322,7 @@ JSC_DEFINE_CUSTOM_GETTER(callerGetter, (JSGlobalObject* globalObject, EncodedJSV
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSFunction* thisObj = jsDynamicCast<JSFunction*>(JSValue::decode(thisValue));
+    JSFunction* thisObj = dynamicDowncast<JSFunction>(JSValue::decode(thisValue));
     if (!thisObj || !isAllowedReceiverFunctionForCallerAndArguments(thisObj))
         return throwVMTypeError(globalObject, scope, RestrictedPropertyAccessError);
 
@@ -298,7 +331,7 @@ JSC_DEFINE_CUSTOM_GETTER(callerGetter, (JSGlobalObject* globalObject, EncodedJSV
         return JSValue::encode(jsNull());
 
     // 11. If caller is not an ECMAScript function object, return null.
-    JSFunction* function = jsDynamicCast<JSFunction*>(caller);
+    JSFunction* function = dynamicDowncast<JSFunction>(caller);
     if (!function || function->isHostOrBuiltinFunction())
         return JSValue::encode(jsNull());
 
@@ -321,7 +354,7 @@ JSC_DEFINE_CUSTOM_SETTER(callerAndArgumentsSetter, (JSGlobalObject* globalObject
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSFunction* thisObj = jsDynamicCast<JSFunction*>(JSValue::decode(thisValue));
+    JSFunction* thisObj = dynamicDowncast<JSFunction>(JSValue::decode(thisValue));
     if (!thisObj || !isAllowedReceiverFunctionForCallerAndArguments(thisObj))
         throwTypeError(globalObject, scope, RestrictedPropertyAccessError);
 

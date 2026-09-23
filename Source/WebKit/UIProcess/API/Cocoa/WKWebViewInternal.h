@@ -77,6 +77,8 @@
 
 #endif // !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
+#import "ScrollPerfIntervalState.h"
+
 NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 
 #if PLATFORM(IOS_FAMILY)
@@ -130,6 +132,7 @@ struct AppHighlight;
 struct ExceptionData;
 struct ExceptionDetails;
 struct TextAnimationData;
+struct TextEffectData;
 enum class BoxSide : uint8_t;
 enum class WheelScrollGestureState : uint8_t;
 
@@ -144,6 +147,9 @@ struct MobileDocumentRequest;
 
 struct NodeIdentifierType;
 using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
+
+struct FrameIdentifierType;
+using FrameIdentifier = ObjectIdentifier<FrameIdentifierType>;
 } // namespace WebCore
 
 namespace WebKit {
@@ -174,6 +180,12 @@ enum class PreferSolidColorHardPocketReason : uint8_t {
     AttachedInspector   = 1 << 0,
     RequestedByClient   = 1 << 1,
 };
+
+enum class AdjustedColorExtensionsForBannerViewOverlaysEnablement : uint8_t {
+    EnabledIfHorizontalBannerViewPresent      = 1 << 0,
+    ForcedOnForTesting                        = 1 << 1,
+    ForcedOffForTesting                       = 1 << 2,
+};
 }
 
 @class NSScrollPocket;
@@ -186,6 +198,7 @@ enum class PreferSolidColorHardPocketReason : uint8_t {
 @class WKTextExtractionItem;
 @class WKWebViewContentProviderRegistry;
 @class _WKFrameHandle;
+@class _WKJSHandle;
 @class _WKWarningView;
 
 #if ENABLE(WEB_AUTHN)
@@ -220,7 +233,8 @@ enum class PreferSolidColorHardPocketReason : uint8_t {
 @protocol _WKAppHighlightDelegate;
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-@protocol _WKImmersiveEnvironmentDelegate;
+@protocol WKImmersiveEnvironmentDelegate;
+@class WKImmersiveEnvironment;
 #endif
 
 enum class SimilarToOriginalTextTag : uint8_t { Value };
@@ -229,7 +243,7 @@ using TextValidationMapValue = Variant<String, SimilarToOriginalTextTag>;
 #if PLATFORM(IOS_FAMILY)
 struct LiveResizeParameters {
     CGFloat viewWidth;
-    CGPoint initialScrollPosition;
+    CGPoint initialScrollOffset;
 };
 
 struct OverriddenLayoutParameters {
@@ -276,6 +290,7 @@ struct PerWebProcessState {
     BOOL viewportMetaTagWidthWasExplicit { NO };
     BOOL viewportMetaTagCameFromImageDocument { NO };
     BOOL lastTransactionWasInStableState { NO };
+    BOOL hasMainThreadScrollDrivenAnimations { NO };
 
     std::optional<WebCore::FloatSize> lastSentViewLayoutSize;
     std::optional<WebCore::IntDegrees> lastSentDeviceOrientation;
@@ -296,7 +311,23 @@ struct PerWebProcessState {
     std::optional<LiveResizeParameters> liveResizeParameters;
 
     std::optional<WebKit::TransactionID> firstTransactionIDAfterObscuredInsetChange;
+
+#if ENABLE(RESPONSIVE_LIVE_RESIZE_UPDATE)
+    std::optional<CGFloat> lastResizedViewWidth;
+    RetainPtr<NSDate> lastResizeTimestamp;
+    std::optional<WebKit::TransactionID> transactionIDForEndLiveResize;
+    BOOL waitingForEndLiveResizePresentationUpdate { NO };
+    BOOL resizeAnimationViewIsUpdating { NO };
+#endif
 };
+
+#if ENABLE(RESPONSIVE_LIVE_RESIZE_UPDATE)
+struct LiveResizeSnapshotState {
+    RetainPtr<UIView> snapshotView;
+    CGFloat initialWidth { 0 };
+    BOOL didForceEndLiveResize { NO };
+};
+#endif
 
 #endif // PLATFORM(IOS_FAMILY)
 
@@ -320,7 +351,8 @@ struct PerWebProcessState {
     WeakObjCPtr<id <_WKAppHighlightDelegate>> _appHighlightDelegate;
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    WeakObjCPtr<id <_WKImmersiveEnvironmentDelegate>> _immersiveEnvironmentDelegate;
+    WeakObjCPtr<id <WKImmersiveEnvironmentDelegate>> _immersiveEnvironmentDelegate;
+    RetainPtr<WKImmersiveEnvironment> _currentImmersiveEnvironment;
 #endif
 
     RetainPtr<_WKWarningView> _warningView;
@@ -332,6 +364,7 @@ struct PerWebProcessState {
     BOOL _usePlatformFindUI;
     BOOL _usesAutomaticContentInsetBackgroundFill;
     BOOL _shouldSuppressTopColorExtensionView;
+    BOOL _shouldSuppressFormValidationBubble;
 #if PLATFORM(MAC)
     OptionSet<WebKit::PreferSolidColorHardPocketReason> _preferSolidColorHardPocketReasons;
     BOOL _isGettingAdjustedColorForTopContentInsetColorFromDelegate;
@@ -350,6 +383,8 @@ struct PerWebProcessState {
     NSUInteger _partialIntelligenceTextAnimationCount;
     BOOL _writingToolsTextReplacementsFinished;
     BOOL _activeWritingToolsSessionIsForProofreadingReview;
+
+    RetainPtr<NSMutableArray<_WKJSHandle *>> _writingToolsPreservedNodes;
 #endif
 
 #if ENABLE(SCREEN_TIME)
@@ -436,6 +471,9 @@ struct PerWebProcessState {
     WebCore::IntDegrees _animatedResizeOldOrientation;
     UIEdgeInsets _animatedResizeOldObscuredInsets;
     RetainPtr<UIView> _resizeAnimationView;
+#if ENABLE(RESPONSIVE_LIVE_RESIZE_UPDATE)
+    std::optional<std::pair<WebKit::TransactionID, LiveResizeSnapshotState>> _liveResizeSnapshotState;
+#endif
     CGFloat _lastAdjustmentForScroller;
 
     std::pair<CGSize, UIInterfaceOrientation> _lastKnownWindowSizeAndOrientation;
@@ -502,10 +540,6 @@ struct PerWebProcessState {
     String _defaultSTSLabel;
 #endif
 
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    RetainPtr<_WKSpatialBackdropSource> _cachedSpatialBackdropSource;
-#endif
-
     BOOL _didAccessBackForwardList;
     BOOL _dontResetTransientActivationAfterRunJavaScript;
 
@@ -522,9 +556,14 @@ struct PerWebProcessState {
     BOOL _isScrollingWithOverlayRegion;
 #endif
 
+    ScrollPerfIntervalState _scrollPerfIntervalState;
+    BOOL _scrollPerfRubberbandingNotified;
+
     WebCore::FixedContainerEdges _fixedContainerEdges;
 
     RetainPtr<WKScrollGeometry> _currentScrollGeometry;
+
+    std::pair<String, RetainPtr<NSURL>> _cachedActiveNSURL;
 
     BOOL _allowsMagnification;
 
@@ -539,11 +578,17 @@ struct PerWebProcessState {
     BOOL _shouldUpdateNeedsTopScrollPocketDueToVisibleContentInset;
 #endif
 
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    WebCore::RectEdges<RetainPtr<WKColorExtensionView>> _systemBackgroundColorExtensionViews;
+    WebKit::AdjustedColorExtensionsForBannerViewOverlaysEnablement _adjustedColorExtensionsForBannerViewOverlaysEnablement;
+#endif
+
 #if ENABLE(TEXT_EXTRACTION_FILTER)
     HashMap<unsigned /* string hash */, TextValidationMapValue> _textValidationCache;
     std::optional<HashSet<String>> _textExtractionRecognizedWords;
 #endif
     RefPtr<WebKit::TextExtractionURLCache> _textExtractionURLCache;
+    Vector<std::pair<String, String>> _lastTextExtractionReplacementStrings;
 
 #if ENABLE(SYSTEM_TEXT_EXTRACTION)
     std::optional<WTF::UUID> _textExtractionIdentifier;
@@ -557,13 +602,9 @@ struct PerWebProcessState {
 - (void)_invalidateWindowSnapshotReadinessHandler;
 #endif
 
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-- (void)_spatialBackdropSourceDidChange;
-#endif
-
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-- (void)_allowImmersiveElementFromURL:(const URL&)url completion:(CompletionHandler<void(bool)>&&)completion;
-- (void)_presentImmersiveElement:(const WebCore::LayerHostingContextIdentifier)contextID completion:(CompletionHandler<void(bool)>&&)completion;
+- (void)_allowImmersiveElement:(WKFrameInfo *)frameInfo completion:(CompletionHandler<void(bool)>&&)completion;
+- (void)_presentImmersiveElement:(const WebCore::LayerHostingContextIdentifier)contextID frameInfo:(WKFrameInfo *)frameInfo completion:(CompletionHandler<void(bool)>&&)completion;
 - (void)_dismissImmersiveElement:(CompletionHandler<void()>&&)completion;
 #endif
 
@@ -598,6 +639,13 @@ struct PerWebProcessState {
 - (void)_addTextAnimationForAnimationID:(NSUUID *)uuid withData:(const WebCore::TextAnimationData&)styleData;
 - (void)_removeTextAnimationForAnimationID:(NSUUID *)uuid;
 
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+- (void)_addTextEffectForID:(NSUUID *)uuid withData:(const WebCore::TextEffectData&)data;
+- (void)_removeTextEffectForID:(NSUUID *)uuid;
+#endif
+
+- (void)_clearWritingToolsPreservedNodes;
+
 #endif
 
 - (void)_internalDoAfterNextPresentationUpdate:(void (^)(void))updateBlock withoutWaitingForPainting:(BOOL)withoutWaitingForPainting withoutWaitingForAnimatedResize:(BOOL)withoutWaitingForAnimatedResize;
@@ -618,8 +666,8 @@ struct PerWebProcessState {
 - (void)_didAccessBackForwardList NS_DIRECT;
 
 #if ENABLE(WEB_AUTHN)
-- (void)_showDigitalCredentialsPicker:(const WebCore::DigitalCredentialsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&)completionHandler;
-- (void)_dismissDigitalCredentialsPicker:(WTF::CompletionHandler<void(bool)>&&)completionHandler;
+- (void)_showDigitalCredentialsChooser:(const WebCore::DigitalCredentialsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&)completionHandler;
+- (void)_dismissDigitalCredentialsChooser:(WTF::CompletionHandler<void(bool)>&&)completionHandler;
 #endif
 
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
@@ -641,6 +689,13 @@ struct PerWebProcessState {
 - (void)_removeReasonToPreferSolidColorHardPocket:(WebKit::PreferSolidColorHardPocketReason)reason;
 #endif
 
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+- (BOOL)_hasDetectedHorizontalBannerViewOverlays;
+- (void)_updateAppearanceForSystemBackgroundColorExtensionViews;
+#endif
+
+- (BOOL)_shouldAdjustColorExtensionsForHorizontalBannerViewOverlays;
+
 #if ENABLE(GAMEPAD)
 - (void)_setGamepadsRecentlyAccessed:(BOOL)gamepadsRecentlyAccessed;
 
@@ -652,11 +707,15 @@ struct PerWebProcessState {
 #endif
 #endif
 
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+- (void)_updateRefreshControlAppearance;
+#endif
+
 - (void)_updateFixedContainerEdges:(const WebCore::FixedContainerEdges&)edges;
 - (void)_updateScrollGeometryWithContentOffset:(CGPoint)contentOffset contentSize:(CGSize)contentSize;
 
-#if ENABLE(SCROLL_STRETCH_NOTIFICATIONS)
-- (void)_topScrollStretchDidChange:(NSUInteger)topScrollStretch;
+#if HAVE(NSREFRESHCONTROLLER)
+- (void)_topScrollStretchDidChange:(CGFloat)topScrollStretch;
 #endif
 
 - (WKPageRef)_pageForTesting;
@@ -693,8 +752,8 @@ struct PerWebProcessState {
 
 - (void)_setContentOffsetX:(nullable NSNumber *)x y:(nullable NSNumber *)y animated:(BOOL)animated NS_SWIFT_NAME(_setContentOffset(x:y:animated:));
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-@property (nonatomic, readonly) CGFloat _bannerViewOverlayHeight;
+#if HAVE(NSREFRESHCONTROLLER)
+@property (nonatomic, readonly) CGFloat _refreshControlVisibleHeight;
 #endif
 #endif // PLATFORM(MAC)
 
@@ -703,6 +762,8 @@ struct PerWebProcessState {
 - (void)_setNeedsScrollGeometryUpdates:(BOOL)needsScrollGeometryUpdates;
 
 - (void)_scrollToEdge:(_WKRectEdge)edge animated:(BOOL)animated;
+
+- (BOOL)_scrollPocketInFullscreenEnabled;
 
 @end
 
@@ -714,6 +775,7 @@ struct PerWebProcessState {
 
 - (void)_requestJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
 - (void)_requestContainerJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
+- (void)_requestContainerJSHandleForSearchTexts:(NSArray<NSString *> *)searchTexts nodeIdentifier:(NSString *)nodeIdentifier completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
 
 #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
@@ -727,6 +789,7 @@ struct PerWebProcessState {
 
 - (void)_requestTextExtraction:(nullable _WKTextExtractionConfiguration *)configuration completionHandler:(NS_SWIFT_UI_ACTOR void (^)(WKTextExtractionItem * _Nullable))completionHandler;
 - (void)_describeInteraction:(nullable _WKTextExtractionInteraction *)interaction completionHandler:(NS_SWIFT_UI_ACTOR void (^)(NSString * _Nullable_result, NSError * _Nullable))completionHandler;
+@property (nonatomic, readonly, nullable) NSString *_activeContextMenuTargetNodeIdentifier;
 
 @end
 
@@ -762,6 +825,17 @@ WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::FixedContai
 - (BOOL)_isPotentialTapInProgress;
 - (void)_disableDoubleTapGesturesDuringTapIfNecessary:(WebKit::TapIdentifier)requestID;
 - (void)_handleSmartMagnificationInformationForPotentialTap:(WebKit::TapIdentifier)requestID renderRect:(const WebCore::FloatRect&)renderRect fitEntireRect:(BOOL)fitEntireRect viewportMinimumScale:(double)viewportMinimumScale viewportMaximumScale:(double)viewportMaximumScale nodeIsRootLevel:(BOOL)nodeIsRootLevel nodeIsPluginElement:(BOOL)nodeIsPluginElement;
+@end
+
+#endif
+
+#if ENABLE(PDF_HUD)
+
+@interface WKWebView (WKPDFHUD)
+- (void)_pdfZoomIn:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier;
+- (void)_pdfZoomOut:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier;
+- (void)_pdfOpenWithPreview:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier;
+- (void)_pdfSaveToPDF:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameIdentifier;
 @end
 
 #endif

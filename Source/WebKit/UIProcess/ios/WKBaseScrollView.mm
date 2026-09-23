@@ -280,7 +280,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     NSString *groupName = [self _lookToScrollGroupName];
     for (auto layerID : relatedLayers) {
-        if (auto* layer = host.layerForID(layerID)) {
+        if (RetainPtr layer = host.layerForID(layerID)) {
             CARemoteEffectGroup *group = [CARemoteEffectGroup groupWithEffects:@[]];
             group.groupName = groupName;
             group.matched = YES;

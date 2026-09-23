@@ -6,11 +6,8 @@
 // TestSuite_unittest.cpp: Unit tests for ANGLE's test harness.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
 #include "../angle_test_instantiate.h"
 #include "TestSuite.h"
@@ -82,7 +79,7 @@ class TestSuiteTest : public testing::Test
             printf("Test arguments:\n");
             for (const char *arg : args)
             {
-                printf("%s ", arg);
+                ANGLE_UNSAFE_TODO(printf("%s ", arg));
             }
             printf("\n");
         }
@@ -182,6 +179,38 @@ TEST_F(TestSuiteTest, RunCrashingTests)
     EXPECT_EQ(expectedResults, actual.results);
 }
 
+// Verifies that the standard GTest --gtest_output flag is preserved by the harness
+// and GTest successfully writes the results JSON file.
+TEST_F(TestSuiteTest, GTestOutputPreserved)
+{
+    const Optional<std::string> tempDirName = GetTempDirectory();
+    ASSERT_TRUE(tempDirName.valid());
+    Optional<std::string> tempFile = CreateTemporaryFileInDirectory(tempDirName.value());
+    ASSERT_TRUE(tempFile.valid());
+    std::string gtestOutputPath = tempFile.value();
+
+    std::vector<std::string> extraArgs = {"--gtest_filter=MockTestSuiteTest.DISABLED_Pass",
+                                          "--gtest_output=json:" + gtestOutputPath};
+
+    TestResults actual;
+    ASSERT_TRUE(runTestSuite(extraArgs, &actual, false));
+
+    // Verify GTest successfully wrote the file (file exists and is readable)
+    std::string content;
+    ASSERT_TRUE(ReadEntireFileToString(gtestOutputPath.c_str(), &content));
+    ASSERT_FALSE(content.empty());
+
+    // Verify it is valid JSON by parsing it
+    js::Document doc;
+    doc.Parse(content.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    ASSERT_TRUE(doc.IsObject());
+    EXPECT_TRUE(doc.HasMember("tests"));
+
+    // Clean up
+    angle::DeleteSystemFile(gtestOutputPath.c_str());
+}
+
 // Normal passing test.
 TEST(MockTestSuiteTest, DISABLED_Pass)
 {
@@ -221,7 +250,7 @@ TEST(MockFlakyTestSuiteTest, DISABLED_Flaky)
         FILE *fp = fopen(tempFileName.c_str(), "r");
         if (fp)
         {
-            ASSERT_EQ(fscanf(fp, "%d", &fails), 1);
+            ANGLE_UNSAFE_TODO(ASSERT_EQ(fscanf(fp, "%d", &fails), 1));
             fclose(fp);
         }
     }

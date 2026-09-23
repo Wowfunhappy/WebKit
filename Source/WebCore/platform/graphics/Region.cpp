@@ -44,9 +44,7 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(Region);
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Region::Shape);
 
-Region::Region()
-{
-}
+Region::Region() = default;
 
 Region::Region(const IntRect& rect)
     : m_bounds(rect)
@@ -59,15 +57,9 @@ Region::Region(const Region& other)
 {
 }
 
-Region::Region(Region&& other)
-    : m_bounds(WTF::move(other.m_bounds))
-    , m_shape(WTF::move(other.m_shape))
-{
-}
+Region::Region(Region&&) = default;
 
-Region::~Region()
-{
-}
+Region::~Region() = default;
 
 Region& Region::operator=(const Region& other)
 {
@@ -76,12 +68,7 @@ Region& Region::operator=(const Region& other)
     return *this;
 }
 
-Region& Region::operator=(Region&& other)
-{
-    m_bounds = WTF::move(other.m_bounds);
-    m_shape = WTF::move(other.m_shape);
-    return *this;
-}
+Region& Region::operator=(Region&&) = default;
 
 Vector<IntRect, 1> Region::rects() const
 {
@@ -166,7 +153,7 @@ uint64_t Region::totalArea() const
     uint64_t totalArea = 0;
 
     for (auto& rect : rects())
-        totalArea += (rect.width() * rect.height());
+        totalArea += static_cast<uint64_t>(rect.width()) * rect.height();
 
     return totalArea;
 }
@@ -404,6 +391,9 @@ Region::Shape Region::Shape::shapeOperation(const Shape& shape1, const Shape& sh
     Shape result;
     if (Operation::trySimpleOperation(shape1, shape2, result))
         return result;
+
+    result.m_segments.reserveInitialCapacity(shape1.m_segments.size() + shape2.m_segments.size());
+    result.m_spans.reserveInitialCapacity(shape1.m_spans.size() + shape2.m_spans.size());
 
     auto spans1 = shape1.spans();
     auto spans2 = shape2.spans();

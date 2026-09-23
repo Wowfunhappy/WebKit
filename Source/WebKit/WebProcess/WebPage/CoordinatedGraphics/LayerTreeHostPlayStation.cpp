@@ -111,7 +111,7 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage, WebCore::PlatformDisplayID displa
         if (settings.useDamagingInformationForCompositing())
             damagePropagationFlags->add(ThreadedCompositor::DamagePropagationFlags::UseForCompositing);
     }
-    m_compositor->setDamagePropagationFlags(damagePropagationFlags);
+    m_compositor->setDamagePropagationSettings(damagePropagationFlags, settings.damageRectangleThreshold());
 #endif
     m_layerTreeContext.contextID = m_compositor->surfaceID();
 }
@@ -123,13 +123,14 @@ LayerTreeHost::~LayerTreeHost()
 
     cancelRenderingUpdate();
 
-    m_sceneState->invalidate();
-
 #if USE(SKIA)
     m_skiaPaintingEngine = nullptr;
 #endif
 
+    // ThreadedCompositor must be invalidated before invalidating CoordinatedSceneState
+    // to invalidate pending layers in the compositor thread.
     m_compositor->invalidate();
+    m_sceneState->invalidate();
 }
 
 void LayerTreeHost::setLayerTreeStateIsFrozen(bool isFrozen)
@@ -408,6 +409,7 @@ void LayerTreeHost::requestComposition(CompositionReason)
 {
 #if ENABLE(SCROLLING_THREAD)
     if (ScrollingThread::isCurrentThread()) {
+        m_sceneState->flushPendingState();
         if (!m_compositionRequiredInScrollingThread)
             return;
         m_compositionRequiredInScrollingThread = false;

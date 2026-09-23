@@ -28,12 +28,20 @@
 #include "FunctionExecutable.h"
 #include "InferredValueInlines.h"
 #include "ScriptExecutableInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 
 inline Structure* FunctionExecutable::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
 {
     return Structure::create(vm, globalObject, proto, TypeInfo(FunctionExecutableType, StructureFlags), info());
+}
+
+inline void FunctionExecutable::notifyCreation(VM& vm, JSFunction* function, const char* reason)
+{
+    m_singleton.notifyWrite(vm, this, function, reason);
+    if (m_singleton.hasBeenInvalidated())
+        m_unlinkedExecutable->setSingletonHasBeenInvalidated();
 }
 
 inline void FunctionExecutable::finalizeUnconditionally(VM& vm, CollectionScope collectionScope)

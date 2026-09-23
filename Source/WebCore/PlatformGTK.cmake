@@ -48,6 +48,9 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/glib/SelectionData.h
     platform/glib/SystemSettings.h
 
+    platform/graphics/DMABufBuffer.h
+    platform/graphics/DMABufBufferAttributes.h
+
     platform/graphics/egl/PlatformDisplayDefault.h
     platform/graphics/egl/PlatformDisplaySurfaceless.h
 
@@ -175,4 +178,18 @@ endif ()
 
 if (USE_LIBSECRET)
     list(APPEND WebCore_PRIVATE_LIBRARIES Secret::Secret)
+endif ()
+
+if (USE_VULKAN)
+    list(APPEND WebCore_PRIVATE_LIBRARIES volk::volk)
+    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+        "${WEBCORE_DIR}/platform/graphics/vulkan"
+    )
+    list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+        platform/graphics/vulkan/VulkanHandle.h
+        platform/graphics/vulkan/VulkanStructure.h
+        platform/graphics/vulkan/VulkanTypes.h
+        platform/graphics/vulkan/VulkanUtilities.h
+        platform/graphics/vulkan/VulkanVolk.h
+    )
 endif ()

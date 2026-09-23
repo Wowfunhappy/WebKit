@@ -36,7 +36,7 @@
 #include "Element.h"
 #include "HTMLParserIdioms.h"
 #include <ranges>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/URL.h>
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
@@ -217,7 +217,7 @@ Vector<ImageCandidate> parseImageCandidatesFromSrcsetAttribute(StringView attrib
         return parseImageCandidatesFromSrcsetAttribute<char16_t>(attribute.span16());
 }
 
-void getURLsFromSrcsetAttribute(const Element& element, StringView attribute, ListHashSet<URL>& urls)
+void getURLsFromSrcsetAttribute(const Element& element, StringView attribute, OrderedHashSet<URL>& urls)
 {
     if (attribute.isEmpty())
         return;
@@ -242,12 +242,13 @@ String replaceURLsInSrcsetAttribute(const Element& element, StringView attribute
         if (&candidate != &imageCandidates[0])
             result.append(", "_s);
 
-        auto resolvedURLString = element.resolveURLStringIfNeeded(candidate.string.toString());
+        auto candidateString = candidate.string.toString();
+        auto resolvedURLString = element.resolveURLStringIfNeeded(candidateString);
         auto replacementURLString = context.replacementURLStrings.get(resolvedURLString);
         if (!replacementURLString.isEmpty())
             result.append(replacementURLString);
         else
-            result.append(candidate.string.toString());
+            result.append(WTF::move(candidateString));
         if (candidate.density != UninitializedDescriptor)
             result.append(' ', candidate.density, 'x');
         if (candidate.resourceWidth != UninitializedDescriptor)
@@ -257,7 +258,7 @@ String replaceURLsInSrcsetAttribute(const Element& element, StringView attribute
     return result.toString();
 }
 
-static ImageCandidate pickBestImageCandidate(float deviceScaleFactor, Vector<ImageCandidate>& imageCandidates, float sourceSize)
+static ImageCandidate pickBestImageCandidate(float deviceScaleFactor, Vector<ImageCandidate>& imageCandidates, std::optional<float> sourceSize)
 {
     bool ignoreSrc = false;
     if (imageCandidates.isEmpty())
@@ -266,7 +267,9 @@ static ImageCandidate pickBestImageCandidate(float deviceScaleFactor, Vector<Ima
     // http://picture.responsiveimages.org/#normalize-source-densities
     for (auto& candidate : imageCandidates) {
         if (candidate.resourceWidth > 0) {
-            candidate.density = static_cast<float>(candidate.resourceWidth) / sourceSize;
+            candidate.density = sourceSize
+                ? static_cast<float>(candidate.resourceWidth) / *sourceSize
+                : DefaultDensityValue;
             ignoreSrc = true;
         } else if (candidate.density < 0)
             candidate.density = DefaultDensityValue;
@@ -295,7 +298,7 @@ static ImageCandidate pickBestImageCandidate(float deviceScaleFactor, Vector<Ima
     return imageCandidates[winner];
 }
 
-ImageCandidate bestFitSourceForImageAttributes(float deviceScaleFactor, const AtomString& srcAttribute, StringView srcsetAttribute, float sourceSize, NOESCAPE const Function<bool(const ImageCandidate&)>& shouldIgnoreCandidateCallback)
+ImageCandidate bestFitSourceForImageAttributes(float deviceScaleFactor, const String& srcAttribute, StringView srcsetAttribute, std::optional<float> sourceSize, NOESCAPE const Function<bool(const ImageCandidate&)>& shouldIgnoreCandidateCallback)
 {
     if (srcsetAttribute.isNull()) {
         if (srcAttribute.isNull())

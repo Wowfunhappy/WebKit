@@ -98,16 +98,16 @@ protected:
 
     virtual bool useFallbackContent() const { return false; }
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode& parentOfInsertedTree) override;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode& parentOfInsertedTree) override;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
 
     void defaultEventHandler(Event&) final;
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
 
     bool requestObject(const String& url, const String& mimeType, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isReplaced(const RenderStyle* = nullptr) const final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
     void didAddUserAgentShadowRoot(ShadowRoot&) final;
 
     // This will load the plugin if necessary.
@@ -138,7 +138,7 @@ private:
     bool canLoadPlugInContent(const String& relativeURL, const String& mimeType) const;
     bool canLoadURL(const URL&) const;
 
-    RenderPtr<RenderElement> createPluginRenderer(RenderStyle&&, const RenderTreePosition&);
+    RenderPtr<RenderElement> createPluginRenderer(Style::ComputedStyle&&, const RenderTreePosition&);
     bool childShouldCreateRenderer(const Node&) const override;
     void willRecalcStyle(OptionSet<Style::Change>) final;
     void didRecalcStyle(OptionSet<Style::Change>) final;

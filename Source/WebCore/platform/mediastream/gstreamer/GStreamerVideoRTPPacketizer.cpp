@@ -87,7 +87,7 @@ RefPtr<GStreamerVideoRTPPacketizer> GStreamerVideoRTPPacketizer::create(RefPtr<U
 
         auto profileLevelID = gstStructureGetString(codecParameters.get(), "profile-level-id"_s);
         if (!profileLevelID.isEmpty()) {
-            codec = makeString("avc1."_s, profileLevelID.span());
+            codec = makeString("avc1."_s, profileLevelID);
             gst_structure_remove_field(codecParameters.get(), "profile-level-id");
         } else {
             auto profileValue = gstStructureGetString(codecParameters.get(), "profile"_s);
@@ -143,7 +143,7 @@ RefPtr<GStreamerVideoRTPPacketizer> GStreamerVideoRTPPacketizer::create(RefPtr<U
     if (ssrc != std::numeric_limits<uint32_t>::max())
         gst_structure_set(codecParameters.get(), "ssrc", G_TYPE_UINT, ssrc, nullptr);
 
-    auto rtpCaps = adoptGRef(gst_caps_new_empty());
+    GRefPtr rtpCaps = adoptGRef(gst_caps_new_empty());
     gst_caps_append_structure(rtpCaps.get(), codecParameters.release());
     return adoptRef(*new GStreamerVideoRTPPacketizer(WTF::move(encoder), WTF::move(payloader), WTF::move(encodingParameters), WTF::move(rtpCaps), WTF::move(payloadType)));
 }
@@ -166,14 +166,14 @@ GStreamerVideoRTPPacketizer::GStreamerVideoRTPPacketizer(GRefPtr<GstElement>&& e
     auto rtpStreamId = this->rtpStreamId();
     if (!rtpStreamId.isEmpty()) {
         GST_DEBUG_OBJECT(m_bin.get(), "Configuring rtp-stream-id extension for rid: %s", rtpStreamId.ascii().data());
-        auto extension = adoptGRef(gst_rtp_header_extension_create_from_uri(GST_RTP_HDREXT_BASE "sdes:rtp-stream-id"));
+        GRefPtr extension = adoptGRef(gst_rtp_header_extension_create_from_uri(GST_RTP_HDREXT_BASE "sdes:rtp-stream-id"));
         lastIdentifier++;
         gst_rtp_header_extension_set_id(extension.get(), lastIdentifier);
         g_object_set(extension.get(), "rid", rtpStreamId.ascii().data(), nullptr);
         g_signal_emit_by_name(m_payloader.get(), "add-extension", extension.get());
     }
 
-    auto extension = adoptGRef(gst_rtp_header_extension_create_from_uri(GST_RTP_HDREXT_BASE "sdes:mid"));
+    GRefPtr extension = adoptGRef(gst_rtp_header_extension_create_from_uri(GST_RTP_HDREXT_BASE "sdes:mid"));
     lastIdentifier++;
     gst_rtp_header_extension_set_id(extension.get(), lastIdentifier);
     g_signal_emit_by_name(m_payloader.get(), "add-extension", extension.get());
@@ -203,7 +203,7 @@ void GStreamerVideoRTPPacketizer::configure(const GstStructure* encodingParamete
             int numerator, denominator;
             gst_util_double_to_fraction(maxFrameRate, &numerator, &denominator);
 
-            auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "framerate", GST_TYPE_FRACTION, numerator, denominator, nullptr));
+            GRefPtr caps = adoptGRef(gst_caps_new_simple("video/x-raw", "framerate", GST_TYPE_FRACTION, numerator, denominator, nullptr));
             g_object_set(m_frameRateCapsFilter.get(), "caps", caps.get(), nullptr);
         }
     }
@@ -232,8 +232,8 @@ void GStreamerVideoRTPPacketizer::updateStats()
     g_object_get(m_encoder.get(), "bitrate", &bitrate, nullptr);
     gst_structure_set(m_stats.get(), "bitrate", G_TYPE_DOUBLE, static_cast<double>(bitrate * 1000), nullptr);
 
-    auto pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
-    auto caps = adoptGRef(gst_pad_get_current_caps(pad.get()));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(m_encoder.get(), "src"));
+    GRefPtr caps = adoptGRef(gst_pad_get_current_caps(pad.get()));
     if (caps && !gst_caps_is_empty(caps.get())) {
         auto structure = gst_caps_get_structure(caps.get(), 0);
         if (auto width = gstStructureGet<int>(structure, "width"_s))

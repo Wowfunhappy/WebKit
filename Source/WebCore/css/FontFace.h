@@ -55,7 +55,7 @@ public:
     };
     
     using Source = Variant<String, Ref<JSC::ArrayBuffer>, Ref<JSC::ArrayBufferView>>;
-    static Ref<FontFace> create(ScriptExecutionContext&, const String& family, Source&&, const Descriptors&);
+    static Ref<FontFace> create(ScriptExecutionContext&, const AtomString& family, Source&&, const Descriptors&);
     static Ref<FontFace> create(ScriptExecutionContext*, CSSFontFace&);
     virtual ~FontFace();
 
@@ -64,7 +64,7 @@ public:
     void deref() const final { RefCounted::deref(); }
     USING_CAN_MAKE_WEAKPTR(CSSFontFaceClient);
 
-    ExceptionOr<void> setFamily(const String&);
+    ExceptionOr<void> setFamily(ScriptExecutionContext&, const AtomString&);
     ExceptionOr<void> setStyle(ScriptExecutionContext&, const String&);
     ExceptionOr<void> setWeight(ScriptExecutionContext&, const String&);
     ExceptionOr<void> setWidth(ScriptExecutionContext&, const String&);
@@ -73,7 +73,7 @@ public:
     ExceptionOr<void> setDisplay(ScriptExecutionContext&, const String&);
     ExceptionOr<void> setSizeAdjust(ScriptExecutionContext&, const String&);
 
-    String family() const;
+    AtomString family() const;
     String style() const;
     String weight() const;
     String width() const;
@@ -109,6 +109,7 @@ private:
     Ref<CSSFontFace> m_backing;
     const UniqueRef<LoadedPromise> m_loadedPromise;
     bool m_mayLoadedPromiseBeScriptObservable { false };
+    bool m_sourceIsImmediateBuffer { false };
 };
 
 }

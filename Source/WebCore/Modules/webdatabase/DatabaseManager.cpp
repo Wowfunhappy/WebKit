@@ -261,7 +261,7 @@ DatabaseDetails DatabaseManager::detailsForNameAndOrigin(const String& name, Sec
         Locker locker { m_proposedDatabasesLock };
         for (auto* proposedDatabase : m_proposedDatabases) {
             if (proposedDatabase->details().name() == name && proposedDatabase->origin().equal(origin)) {
-                ASSERT(&proposedDatabase->details().thread() == &Thread::currentSingleton() || isMainThread());
+                ASSERT(proposedDatabase->details().threadID() == currentThreadID() || isMainThread());
                 return proposedDatabase->details();
             }
         }

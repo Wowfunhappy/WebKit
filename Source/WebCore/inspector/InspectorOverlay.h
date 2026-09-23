@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #include <WebCore/FloatLine.h>
 #include <WebCore/FloatQuad.h>
 #include <WebCore/FloatRect.h>
+#include <WebCore/InspectorBackendClient.h>
 #include <WebCore/InspectorOverlayLabel.h>
 #include <WebCore/Path.h>
 #include <WebCore/Timer.h>
@@ -59,7 +60,6 @@ class WeakPtrImplWithEventTargetData;
 class FontCascade;
 class FloatPoint;
 class GraphicsContext;
-class InspectorBackendClient;
 class Node;
 class NodeList;
 class Page;
@@ -82,8 +82,8 @@ struct InspectorOverlayHighlight {
         Color padding;
         Color border;
         Color margin;
-        bool showInfo;
-        bool usePageCoordinates;
+        bool showInfo { false };
+        bool usePageCoordinates { false };
     };
 
     struct GridHighlightOverlay {
@@ -158,12 +158,12 @@ public:
             WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(Config);
 
             Color gridColor;
-            bool showLineNames;
-            bool showLineNumbers;
-            bool showExtendedGridLines;
-            bool showTrackSizes;
-            bool showAreaNames;
-            bool showOrderNumbers;
+            bool showLineNames { false };
+            bool showLineNumbers { false };
+            bool showExtendedGridLines { false };
+            bool showTrackSizes { false };
+            bool showAreaNames { false };
+            bool showOrderNumbers { false };
         };
 
         WeakPtr<Node, WeakPtrImplWithEventTargetData> gridNode;
@@ -177,7 +177,7 @@ public:
             WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(Config);
 
             Color flexColor;
-            bool showOrderNumbers;
+            bool showOrderNumbers { false };
         };
 
         WeakPtr<Node, WeakPtrImplWithEventTargetData> flexNode;

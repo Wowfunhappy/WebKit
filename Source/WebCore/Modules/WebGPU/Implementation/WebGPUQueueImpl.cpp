@@ -51,7 +51,7 @@ QueueImpl::~QueueImpl() = default;
 void QueueImpl::submit(Vector<Ref<WebGPU::CommandBuffer>>&& commandBuffers)
 {
     auto backingCommandBuffers = commandBuffers.map([&](auto commandBuffer) {
-        return Ref { m_convertToBackingContext }->convertToBacking(commandBuffer);
+        return protect(m_convertToBackingContext)->convertToBacking(commandBuffer);
     });
 
     wgpuQueueSubmit(m_backing.get(), backingCommandBuffers.size(), backingCommandBuffers.span().data());
@@ -98,7 +98,7 @@ void QueueImpl::writeBufferNoCopy(
     Size64 dataOffset,
     std::optional<Size64> size)
 {
-    wgpuQueueWriteBuffer(m_backing.get(), Ref { m_convertToBackingContext }->convertToBacking(buffer), bufferOffset, source.subspan(dataOffset, size.value_or(source.size() - dataOffset)));
+    wgpuQueueWriteBuffer(m_backing.get(), protect(m_convertToBackingContext)->convertToBacking(buffer), bufferOffset, source.subspan(dataOffset, size.value_or(source.size() - dataOffset)));
 }
 
 void QueueImpl::writeTexture(
@@ -110,7 +110,7 @@ void QueueImpl::writeTexture(
     Ref convertToBackingContext = m_convertToBackingContext;
 
     WGPUImageCopyTexture backingDestination {
-        .texture = convertToBackingContext->convertToBacking(protect(destination.texture).get()),
+        .texture = convertToBackingContext->convertToBacking(protect(destination.texture)),
         .mipLevel = destination.mipLevel,
         .origin = destination.origin ? convertToBackingContext->convertToBacking(*destination.origin) : WGPUOrigin3D { 0, 0, 0 },
         .aspect = convertToBackingContext->convertToBacking(destination.aspect),

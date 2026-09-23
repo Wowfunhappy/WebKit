@@ -125,48 +125,48 @@ PASS Web Animations: property <max-width> from [none] to [20px] at (0.5) should 
 PASS Web Animations: property <max-width> from [none] to [20px] at (0.6) should be [20px]
 PASS Web Animations: property <max-width> from [none] to [20px] at (1) should be [20px]
 PASS Web Animations: property <max-width> from [none] to [20px] at (1.5) should be [20px]
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0.6) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (1) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (1.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0.6) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (1) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (1.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (-0.3) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (0) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (0.3) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (0.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (0.6) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (1) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions: property <max-width> from [stretch] to [none] at (1.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (-0.3) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0.3) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0.6) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (1) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (1.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (0.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (0.6) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (1) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL CSS Animations: property <max-width> from [stretch] to [none] at (1.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (0) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (0.3) should be [stretch] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (0.5) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (0.6) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (1) should be [none] assert_true: 'from' value should be supported expected true got false
-FAIL Web Animations: property <max-width> from [stretch] to [none] at (1.5) should be [none] assert_true: 'from' value should be supported expected true got false
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0) should be [stretch]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0.3) should be [stretch]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0.5) should be [none]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (0.6) should be [none]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (1) should be [none]
+PASS CSS Transitions with transition-behavior:allow-discrete: property <max-width> from [stretch] to [none] at (1.5) should be [none]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0) should be [stretch]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0.3) should be [stretch]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0.5) should be [none]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (0.6) should be [none]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (1) should be [none]
+PASS CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <max-width> from [stretch] to [none] at (1.5) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (-0.3) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (0) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (0.3) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (0.5) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (0.6) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (1) should be [none]
+PASS CSS Transitions: property <max-width> from [stretch] to [none] at (1.5) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (-0.3) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0.3) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0.5) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (0.6) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (1) should be [none]
+PASS CSS Transitions with transition: all: property <max-width> from [stretch] to [none] at (1.5) should be [none]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (0) should be [stretch]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (0.3) should be [stretch]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (0.5) should be [none]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (0.6) should be [none]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (1) should be [none]
+PASS CSS Animations: property <max-width> from [stretch] to [none] at (1.5) should be [none]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (-0.3) should be [stretch]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (0) should be [stretch]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (0.3) should be [stretch]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (0.5) should be [none]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (0.6) should be [none]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (1) should be [none]
+PASS Web Animations: property <max-width> from [stretch] to [none] at (1.5) should be [none]
 FAIL CSS Transitions: property <max-width> from [fit-content] to [50px] at (-0.3) should be [calc-size(fit-content, -15px + size * 1.3)] assert_equals: expected "150px " but got "50px "
 FAIL CSS Transitions: property <max-width> from [fit-content] to [50px] at (0) should be [calc-size(fit-content, 0px + size * 1)] assert_equals: expected "150px " but got "50px "
 FAIL CSS Transitions: property <max-width> from [fit-content] to [50px] at (0.3) should be [calc-size(fit-content, 15px + size * 0.7)] assert_equals: expected "150px " but got "50px "

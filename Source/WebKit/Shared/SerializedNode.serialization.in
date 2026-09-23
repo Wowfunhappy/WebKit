@@ -43,6 +43,7 @@
     Variant<String, URL> documentURI;
     String contentType;
 };
+header: <WebCore/Document.h>
 [Nested] enum class WebCore::ClonedDocumentType : uint8_t {
     XMLDocument,
     XHTMLDocument,

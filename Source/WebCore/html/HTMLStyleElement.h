@@ -59,8 +59,8 @@ private:
     HTMLStyleElement(const QualifiedName&, Document&, bool createdByParser);
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void childrenChanged(const ChildChange&) final;
 
     bool isLoading() const { return m_styleSheetOwner.isLoading(); }
@@ -68,7 +68,7 @@ private:
     void notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred) final;
     void startLoadingDynamicSheet() final { m_styleSheetOwner.startLoadingDynamicSheet(*this); }
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     InlineStyleSheetOwner m_styleSheetOwner;
     const std::unique_ptr<DOMTokenList> m_blockingList;

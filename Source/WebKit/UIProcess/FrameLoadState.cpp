@@ -28,9 +28,7 @@
 
 namespace WebKit {
 
-FrameLoadState::~FrameLoadState()
-{
-}
+FrameLoadState::~FrameLoadState() = default;
 
 void FrameLoadState::addObserver(FrameLoadStateObserver& observer)
 {

@@ -28,6 +28,9 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "JSCellInlines.h"
+#include "StructureInlines.h"
+
 namespace JSC {
 
 const ClassInfo WebAssemblySuspendingPrototype::s_info = { "WebAssembly.Suspending"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WebAssemblySuspendingPrototype) };

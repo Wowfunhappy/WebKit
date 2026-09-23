@@ -109,18 +109,18 @@
 
     debug(''); 
 
-    shouldBe('document.querySelectorAll(":lang(fr-x)").length', '0');
+    shouldBe('document.querySelectorAll(":lang(fr-x)").length', '2');
     shouldBe('document.querySelectorAll(":lang(fr-xenomorph)").length', '1');
 
     debug('');
 
-    shouldBe('document.querySelectorAll(":lang(cocoa-1)").length', '0');
-    shouldBe('document.querySelectorAll(":lang(cocoa-a)").length', '0');
+    shouldBe('document.querySelectorAll(":lang(cocoa-1)").length', '1');
+    shouldBe('document.querySelectorAll(":lang(cocoa-a)").length', '1');
     shouldBe('document.querySelectorAll(":lang(cocoa-bar)").length', '0');
 
-    shouldBe('document.querySelectorAll(":lang(cocoa-1, cocoa-bar)").length', '0');
-    shouldBe('document.querySelectorAll(":lang(cocoa-a, cocoa-bar)").length', '0');
-    shouldBe('document.querySelectorAll(":lang(cocoa-1, cocoa-a)").length', '0');
+    shouldBe('document.querySelectorAll(":lang(cocoa-1, cocoa-bar)").length', '1');
+    shouldBe('document.querySelectorAll(":lang(cocoa-a, cocoa-bar)").length', '1');
+    shouldBe('document.querySelectorAll(":lang(cocoa-1, cocoa-a)").length', '2');
 
     debug('');
 

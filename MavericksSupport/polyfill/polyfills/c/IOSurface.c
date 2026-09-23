@@ -15,6 +15,7 @@
 // IOSurfaceCreate ignores unknown keys on 10.9, so a valid CFString key restores creation with no
 // behavioural change. The value matches the modern constant.
 WK_POLYFILL_CONST("IOSurface", CFStringRef, kIOSurfaceName, CFSTR("IOSurfaceName"));
+WK_POLYFILL_CONST("IOSurface", CFStringRef, kIOSurfaceContentHeadroom, CFSTR("IOSurfaceContentHeadroom"));
 
 // IOSurfaceSetOwnershipIdentity (macOS 14.4) attributes an IOSurface's pages to another task's
 // phys_footprint ledger. 10.9's IOSurface has no ledger-ownership call and no ledger to move pages

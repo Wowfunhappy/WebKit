@@ -13,6 +13,7 @@ partial interface TestGlobalObject {
     attribute TestDefaultToJSONInheritFinalConstructor TestDefaultToJSONInheritFinal;
     attribute TestDelegateToSharedSyntheticAttributeConstructor TestDelegateToSharedSyntheticAttribute;
     attribute TestDomainSecurityConstructor TestDomainSecurity;
+    attribute TestEmbedderArrayLikeConstructor TestEmbedderArrayLike;
     attribute TestEventConstructorConstructor TestEventConstructor;
     attribute TestEventTargetConstructor TestEventTarget;
     attribute TestExceptionConstructor TestException;

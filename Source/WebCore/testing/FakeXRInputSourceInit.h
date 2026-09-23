@@ -48,7 +48,7 @@ struct FakeXRInputSourceInit {
     bool selectionStarted { false };
     bool selectionClicked { false };
     Vector<FakeXRButtonStateInit> supportedButtons;
-    FakeXRRigidTransformInit gripOrigin;
+    std::optional<FakeXRRigidTransformInit> gripOrigin;
 #if ENABLE(WEBXR_HANDS)
     Vector<FakeXRJointStateInit> handJoints;
 #endif

@@ -42,8 +42,6 @@ WebScriptMessageHandler::WebScriptMessageHandler(std::unique_ptr<Client> client,
 {
 }
 
-WebScriptMessageHandler::~WebScriptMessageHandler()
-{
-}
+WebScriptMessageHandler::~WebScriptMessageHandler() = default;
 
 } // namespace WebKit

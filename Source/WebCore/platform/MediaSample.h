@@ -107,6 +107,19 @@ public:
     }
     virtual Ref<MediaSample> createNonDisplayingCopy() const = 0;
 
+    // Return a new sample whose presentation time, decode time, and duration have been adjusted by
+    // shifting start forward by `offset` while keeping presentationEndTime() unchanged:
+    // pts' = pts + offset, dts' = dts + offset, duration' = duration - offset. `offset` is clamped
+    // to duration; if offset == duration the shifted copy has zero duration (callers should prefer
+    // removal in that case). Payload, format description, and attachments are copied unchanged.
+    // Callers use this instead of mutating an existing sample, which would alter an object
+    // already referenced by SampleMap keys / enqueued decoders.
+    virtual Ref<MediaSample> createCopyWithAdjustedStartTime(const MediaTime& /*offset*/) const
+    {
+        ASSERT_NOT_REACHED();
+        return const_cast<MediaSample&>(*this);
+    }
+
     enum SampleFlags {
         None = 0,
         IsSync = 1 << 0,

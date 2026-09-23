@@ -26,11 +26,13 @@
 #include "config.h"
 #include "WorkerFileSystemStorageConnection.h"
 
+#include "ClientOrigin.h"
 #include "ExceptionOr.h"
 #include "FileSystemHandleCloseScope.h"
 #include "FileSystemSyncAccessHandle.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerLoaderProxy.h"
+#include "WorkerSTWParticipation.h"
 #include "WorkerThread.h"
 #include <wtf/Scope.h>
 
@@ -81,6 +83,10 @@ void WorkerFileSystemStorageConnection::scopeClosed()
 
     auto stringCallbacks = std::exchange(m_stringCallbacks, { });
     for (auto& callback : stringCallbacks.values())
+        callback(Exception { ExceptionCode::InvalidStateError });
+
+    auto resolveGlobalIdentifierCallbacks = std::exchange(m_resolveGlobalIdentifierCallbacks, { });
+    for (auto& callback : resolveGlobalIdentifierCallbacks.values())
         callback(Exception { ExceptionCode::InvalidStateError });
 
     auto streamCallbacks = std::exchange(m_streamCallbacks, { });
@@ -215,7 +221,7 @@ void WorkerFileSystemStorageConnection::resolve(FileSystemHandleIdentifier ident
     });
 }
 
-void WorkerFileSystemStorageConnection::didResolve(CallbackIdentifier callbackIdentifier, ExceptionOr<Vector<String>>&& result)
+void WorkerFileSystemStorageConnection::didResolve(CallbackIdentifier callbackIdentifier, ExceptionOr<std::optional<Vector<String>>>&& result)
 {
     if (auto callback = m_resolveCallbacks.take(callbackIdentifier))
         callback(WTF::move(result));
@@ -245,6 +251,12 @@ void WorkerFileSystemStorageConnection::getFile(FileSystemHandleIdentifier ident
 void WorkerFileSystemStorageConnection::completeStringCallback(CallbackIdentifier callbackIdentifier, ExceptionOr<String>&& result)
 {
     if (auto callback = m_stringCallbacks.take(callbackIdentifier))
+        callback(WTF::move(result));
+}
+
+void WorkerFileSystemStorageConnection::didResolveGlobalIdentifier(CallbackIdentifier callbackIdentifier, ExceptionOr<FileSystemHandleIdentifier>&& result)
+{
+    if (auto callback = m_resolveGlobalIdentifierCallbacks.take(callbackIdentifier))
         callback(WTF::move(result));
 }
 
@@ -283,7 +295,8 @@ void WorkerFileSystemStorageConnection::createSyncAccessHandle(FileSystemHandleI
 
 void WorkerFileSystemStorageConnection::closeSyncAccessHandle(FileSystemHandleIdentifier identifier, FileSystemSyncAccessHandleIdentifier accessHandleIdentifier)
 {
-    if (!m_scope)
+    RefPtr scope = m_scope.get();
+    if (!scope)
         return;
 
     BinarySemaphore semaphore;
@@ -292,7 +305,7 @@ void WorkerFileSystemStorageConnection::closeSyncAccessHandle(FileSystemHandleId
             semaphore.signal();
         });
     });
-    semaphore.wait();
+    waitWithSTWParticipation(semaphore, scope->vm());
 }
 
 void WorkerFileSystemStorageConnection::closeSyncAccessHandle(FileSystemHandleIdentifier, FileSystemSyncAccessHandleIdentifier, EmptyCallback&&)
@@ -463,7 +476,8 @@ void WorkerFileSystemStorageConnection::move(FileSystemHandleIdentifier identifi
 
 std::optional<uint64_t> WorkerFileSystemStorageConnection::requestNewCapacityForSyncAccessHandle(FileSystemHandleIdentifier identifier, FileSystemSyncAccessHandleIdentifier accessHandleIdentifier, uint64_t newCapacity)
 {
-    if (!m_scope)
+    RefPtr scope = m_scope.get();
+    if (!scope)
         return std::nullopt;
 
     if (!m_mainThreadConnection)
@@ -478,7 +492,7 @@ std::optional<uint64_t> WorkerFileSystemStorageConnection::requestNewCapacityFor
         };
         mainThreadConnection->requestNewCapacityForSyncAccessHandle(identifier, accessHandleIdentifier, newCapacity, WTF::move(mainThreadCallback));
     });
-    semaphore.wait();
+    waitWithSTWParticipation(semaphore, scope->vm());
     return grantedCapacity;
 }
 
@@ -486,6 +500,41 @@ void WorkerFileSystemStorageConnection::requestNewCapacityForSyncAccessHandle(Fi
 {
     ASSERT_NOT_REACHED();
     return callback(std::nullopt);
+}
+
+void WorkerFileSystemStorageConnection::addGlobalIdentifierReference(ClientOrigin&& origin, FileSystemHandleGlobalIdentifier globalIdentifier)
+{
+    callOnMainThread([mainThreadConnection = m_mainThreadConnection, origin = crossThreadCopy(WTF::move(origin)), globalIdentifier] mutable {
+        mainThreadConnection->addGlobalIdentifierReference(WTF::move(origin), globalIdentifier);
+    });
+}
+
+void WorkerFileSystemStorageConnection::removeGlobalIdentifierReferences(ClientOrigin&& origin, Vector<FileSystemHandleGlobalIdentifier>&& globalIdentifiers)
+{
+    callOnMainThread([mainThreadConnection = m_mainThreadConnection, origin = crossThreadCopy(WTF::move(origin)), globalIdentifiers = WTF::move(globalIdentifiers)] mutable {
+        mainThreadConnection->removeGlobalIdentifierReferences(WTF::move(origin), WTF::move(globalIdentifiers));
+    });
+}
+
+void WorkerFileSystemStorageConnection::resolveGlobalIdentifier(ClientOrigin&& origin, FileSystemHandleGlobalIdentifier globalIdentifier, ResolveGlobalIdentifierCallback&& callback)
+{
+    RefPtr scope = m_scope.get();
+    if (!scope)
+        return callback(Exception { ExceptionCode::InvalidStateError });
+
+    auto callbackIdentifier = CallbackIdentifier::generate();
+    m_resolveGlobalIdentifierCallbacks.add(callbackIdentifier, WTF::move(callback));
+
+    callOnMainThread([callbackIdentifier, workerThread = Ref { scope->thread() }, mainThreadConnection = m_mainThreadConnection, origin = crossThreadCopy(WTF::move(origin)), globalIdentifier] mutable {
+        auto mainThreadCallback = [callbackIdentifier, workerThread = WTF::move(workerThread)](auto&& result) mutable {
+            workerThread->runLoop().postTaskForMode([callbackIdentifier, result = crossThreadCopy(WTF::move(result))](auto& scope) mutable {
+                if (auto connection = downcast<WorkerGlobalScope>(scope).fileSystemStorageConnection())
+                    connection->didResolveGlobalIdentifier(callbackIdentifier, WTF::move(result));
+            }, WorkerRunLoop::defaultMode());
+        };
+
+        mainThreadConnection->resolveGlobalIdentifier(WTF::move(origin), globalIdentifier, WTF::move(mainThreadCallback));
+    });
 }
 
 } // namespace WebCore

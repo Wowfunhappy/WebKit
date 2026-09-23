@@ -26,7 +26,8 @@
 #include "config.h"
 #include "JSDOMConvertBoolean.h"
 
-#include <JavaScriptCore/JSCJSValueCellInlines.h>
+#include <JavaScriptCore/JSCJSValueStructure.h>
+#include <JavaScriptCore/JSCellInlines.h>
 
 namespace WebCore {
 

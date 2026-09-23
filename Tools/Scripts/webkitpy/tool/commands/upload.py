@@ -159,7 +159,6 @@ class Upload(AbstractPatchUploadingCommand):
         steps.PostDiff,
         steps.AddRadar,
         steps.SubmitToEWS,
-        steps.WPTChangeExport,
     ]
     long_help = """upload uploads the current diff to bugs.webkit.org.
     If no bug id is provided, upload will create a bug.

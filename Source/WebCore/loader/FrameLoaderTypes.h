@@ -86,8 +86,12 @@ enum class FrameLoadType : uint8_t {
 enum class IsMetaRefresh : bool { No, Yes };
 enum class WillContinueLoading : bool { No, Yes };
 enum class WillInternallyHandleFailure : bool { No, Yes };
+enum class IsInitialAboutBlank : bool { No, Yes };
 
 enum class ShouldContinuePolicyCheck : bool { No, Yes };
+
+enum class ShouldRestoreFromBackForwardCache : uint8_t { Yes, No, Unspecified };
+enum class RestoredFromBackForwardCache : bool { No, Yes };
 
 enum class NewFrameOpenerPolicy : uint8_t {
     Suppress,
@@ -153,6 +157,11 @@ enum class BrowsingContextGroupSwitchDecision : uint8_t {
     NewIsolatedGroup,
 };
 
+enum class NavigationResponseProcessSwapReason : uint8_t {
+    COOP,
+    EnhancedSecurity,
+};
+
 // Passed to FrameLoader::urlSelected() and ScriptController::executeIfJavaScriptURL()
 // to control whether, in the case of a JavaScript URL, executeIfJavaScriptURL() should
 // replace the document. It is a FIXME to eliminate this extra parameter from
@@ -177,12 +186,6 @@ enum class LoadCompletionType : bool {
 enum class AllowsContentJavaScript : bool {
     No,
     Yes,
-};
-
-enum class WindowProxyProperty : uint8_t {
-    Other = 1 << 0,
-    Closed = 1 << 1,
-    PostMessage = 1 << 2,
 };
 
 } // namespace WebCore

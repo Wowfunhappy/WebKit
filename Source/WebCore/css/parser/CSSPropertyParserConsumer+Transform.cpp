@@ -27,6 +27,7 @@
 #include "CSSPropertyParserConsumer+Transform.h"
 
 #include "CSSFunctionValue.h"
+#include "CSSKeywordValue.h"
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
 #include "CSSPrimitiveValue.h"
@@ -43,8 +44,8 @@
 #include "CSSPropertyParsing.h"
 #include "CSSValueList.h"
 #include "CSSValuePool.h"
-#include "RenderStyle.h"
 #include "StyleBuilderState.h"
+#include "StyleComputedStyle.h"
 #include "StyleTransform.h"
 #include "StyleValueTypes+CSSValueConversion.h"
 
@@ -243,7 +244,7 @@ RefPtr<CSSValue> consumeTranslate(CSSParserTokenRange& range, CSS::PropertyParse
         return nullptr;
 
     // If the z value is a zero value and not a percent value, we have nothing left to add to the list.
-    bool haveNonZeroZ = z && (z->isCalculated() || z->isPercentage() || !*z->isZero());
+    bool haveNonZeroZ = z->isCalculated() || z->isPercentage() || !*z->isZero();
 
     if (!haveNonZeroY && !haveNonZeroZ)
         return CSSValueList::createSpaceSeparated(x.releaseNonNull());
@@ -273,39 +274,37 @@ RefPtr<CSSValue> consumeRotate(CSSParserTokenRange& range, CSS::PropertyParserSt
 
     CSSValueListBuilder list;
     RefPtr<CSSPrimitiveValue> angle;
-    RefPtr<CSSPrimitiveValue> axisIdentifier;
+    RefPtr<CSSKeywordValue> axisIdentifier;
 
     while (!range.atEnd()) {
         // First, attempt to parse a number, which might be in a series of 3 specifying the rotation axis.
-        auto parsedValue = CSSPrimitiveValueResolver<CSS::Number<>>::consumeAndResolve(range, state);
-        if (parsedValue) {
+        if (auto parsedNumber = CSSPrimitiveValueResolver<CSS::Number<>>::consumeAndResolve(range, state)) {
             // If we've encountered an axis identifier, then this value is invalid.
             if (axisIdentifier)
                 return nullptr;
-            list.append(parsedValue.releaseNonNull());
+            list.append(parsedNumber.releaseNonNull());
             range.consumeWhitespace();
             continue;
         }
 
         // Then, attempt to parse an angle. We try this as a fallback rather than the first option because
         // a unitless 0 angle would be consumed as an angle.
-        parsedValue = CSSPrimitiveValueResolver<CSS::Angle<>>::consumeAndResolve(range, state);
-        if (parsedValue) {
+        if (auto parsedAngle = CSSPrimitiveValueResolver<CSS::Angle<>>::consumeAndResolve(range, state)) {
             // If we had already parsed an angle or numbers but not 3 in a row, this value is invalid.
             if (angle || (!list.isEmpty() && list.size() != 3))
                 return nullptr;
-            angle = WTF::move(parsedValue);
+            angle = WTF::move(parsedAngle);
             range.consumeWhitespace();
             continue;
         }
 
         // Finally, attempt to parse one of the axis identifiers.
-        parsedValue = consumeIdent<CSSValueX, CSSValueY, CSSValueZ>(range);
+        auto parsedIdent = consumeIdent<CSSValueX, CSSValueY, CSSValueZ>(range);
         // If we failed to find one of those identifiers or one was already specified, or we'd previously
         // encountered numbers to specify a rotation axis, then this value is invalid.
-        if (!parsedValue || axisIdentifier || !list.isEmpty())
+        if (!parsedIdent || axisIdentifier || !list.isEmpty())
             return nullptr;
-        axisIdentifier = WTF::move(parsedValue);
+        axisIdentifier = WTF::move(parsedIdent);
         range.consumeWhitespace();
     }
 
@@ -333,9 +332,9 @@ RefPtr<CSSValue> consumeRotate(CSSParserTokenRange& range, CSS::PropertyParserSt
         auto zIsZero = downcast<CSSPrimitiveValue>(list[2].get()).isZero();
 
         if (knownToBeNotZero(xIsZero) && knownToBeZero(yIsZero) && knownToBeZero(zIsZero))
-            return CSSValueList::createSpaceSeparated(CSSPrimitiveValue::create(CSSValueX), angle.releaseNonNull());
+            return CSSValueList::createSpaceSeparated(CSSKeywordValue::create(CSSValueX), angle.releaseNonNull());
         if (knownToBeZero(xIsZero) && knownToBeNotZero(yIsZero) && knownToBeZero(zIsZero))
-            return CSSValueList::createSpaceSeparated(CSSPrimitiveValue::create(CSSValueY), angle.releaseNonNull());
+            return CSSValueList::createSpaceSeparated(CSSKeywordValue::create(CSSValueY), angle.releaseNonNull());
         if (knownToBeZero(xIsZero) && knownToBeZero(yIsZero) && knownToBeNotZero(zIsZero))
             return CSSValueList::createSpaceSeparated(angle.releaseNonNull());
 
@@ -386,11 +385,11 @@ RefPtr<CSSValue> consumeScale(CSSParserTokenRange& range, CSS::PropertyParserSta
 
     range.consumeWhitespace();
 
-    auto xValue = x->resolveAsNumberIfNotCalculated();
-    auto yValue = y->resolveAsNumberIfNotCalculated();
+    auto xRaw = x->raw();
+    auto yRaw = y->raw();
 
     if (range.atEnd()) {
-        if (!xValue || !yValue || *xValue != *yValue)
+        if (!xRaw || !yRaw || *xRaw != *yRaw)
             return CSSValueList::createSpaceSeparated(x.releaseNonNull(), y.releaseNonNull());
 
         return CSSValueList::createSpaceSeparated(x.releaseNonNull());
@@ -400,12 +399,12 @@ RefPtr<CSSValue> consumeScale(CSSParserTokenRange& range, CSS::PropertyParserSta
     if (!z)
         return nullptr;
 
-    auto zValue = z->resolveAsNumberIfNotCalculated();
+    auto zRaw = z->raw();
 
-    if (zValue != 1.0)
+    if (!zRaw || zRaw->value != 1.0)
         return CSSValueList::createSpaceSeparated(x.releaseNonNull(), y.releaseNonNull(), z.releaseNonNull());
 
-    if (!xValue || !yValue || *xValue != *yValue)
+    if (!xRaw || !yRaw || *xRaw != *yRaw)
         return CSSValueList::createSpaceSeparated(x.releaseNonNull(), y.releaseNonNull());
 
     return CSSValueList::createSpaceSeparated(x.releaseNonNull());
@@ -419,7 +418,7 @@ std::optional<Style::Transform> parseTransformRaw(const String& string, const CS
     // Handle leading whitespace.
     range.consumeWhitespace();
 
-    auto state = CSS::PropertyParserState { .context = context };
+    auto state = CSS::PropertyParserState { .context = context, .absoluteLengthUnitsOnly = true };
     auto parsedValue = CSSPropertyParsing::consumeTransform(range, state);
     if (!parsedValue)
         return { };
@@ -430,11 +429,10 @@ std::optional<Style::Transform> parseTransformRaw(const String& string, const CS
     if (!range.atEnd())
         return { };
 
-    auto dummyStyle = RenderStyle::create();
+    auto dummyStyle = Style::ComputedStyle::create();
     auto dummyState = Style::BuilderState::create(dummyStyle);
 
-    if (!parsedValue->canResolveDependenciesWithConversionData(dummyState->cssToLengthConversionData()))
-        return { };
+    ASSERT(parsedValue->canResolveDependenciesWithConversionData(dummyState->cssToLengthConversionData()));
 
     return Style::toStyleFromCSSValue<Style::Transform>(*CheckedPtr { dummyState.ptr() }, *parsedValue);
 }

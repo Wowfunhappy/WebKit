@@ -31,8 +31,12 @@
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/Threading.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
@@ -44,7 +48,7 @@ class CurlRequestScheduler {
     friend NeverDestroyed<CurlRequestScheduler>;
 public:
     CurlRequestScheduler(long maxConnects, long maxTotalConnections, long maxHostConnections);
-    ~CurlRequestScheduler() { stopThread(); }
+    ~CurlRequestScheduler();
 
     bool add(CurlRequestSchedulerClient*);
     void cancel(CurlRequestSchedulerClient*);
@@ -67,7 +71,7 @@ private:
     void finalizeTransfer(CurlRequestSchedulerClient*, Function<void()>);
 
     Lock m_mutex;
-    RefPtr<Thread> m_thread;
+    RefPtr<WTF::Thread> m_thread;
     bool m_runThread { false };
 
     Vector<Function<void()>> m_taskQueue;

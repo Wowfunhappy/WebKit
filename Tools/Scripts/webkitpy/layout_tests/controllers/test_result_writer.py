@@ -30,6 +30,7 @@ import re
 import logging
 
 from webkitpy.common.wavediff import WaveDiff
+from webkitpy.port import Port
 
 
 _log = logging.getLogger(__name__)
@@ -65,11 +66,7 @@ class TestResultWriter(object):
 
     @classmethod
     def _modified_filename(cls, test_name, filesystem, modifier):
-        variant = ''
-        if '?' in test_name:
-            (test_name, variant) = test_name.split('?', 1)
-        if '#' in test_name:
-            (test_name, variant) = test_name.split('#', 1)
+        (test_name, variant) = Port.test_name_and_variant(test_name)
 
         # Test names that are actually process names are treated like they don't have any extension
         if cls.PROCESS_NAME_RE.match(filesystem.basename(test_name)):
@@ -79,7 +76,7 @@ class TestResultWriter(object):
         output_basename = ext_parts[0]
 
         if len(variant):
-            output_basename += "_" + re.sub(r'[|* <>:]', '_', variant)
+            output_basename += "_" + Port.sanitized_variant(variant[1:])
 
         return output_basename + modifier
 
@@ -133,7 +130,8 @@ class TestResultWriter(object):
 
     def _output_testname(self, modifier):
         fs = self._filesystem
-        return fs.splitext(fs.basename(self._test_name))[0] + modifier
+        file_name = self._modified_filename(self._test_name, fs, modifier)
+        return fs.splitext(fs.basename(file_name))[0] + modifier
 
     def write_output_files(self, file_type, output, expected):
         """Writes the test output, the expected output in the results directory.

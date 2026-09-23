@@ -54,10 +54,10 @@ CustomPropertyData::CustomPropertyData(const CustomPropertyData& other)
 
     // If there are mutations on multiple levels this constructs a linked list of property data objects.
     if (shouldReferenceAsParentValues)
-        lazyInitialize(m_parentValues, Ref { other });
+        lazyInitialize(m_parentValues, protect(other));
     else {
-        if (RefPtr otherParentValues = other.m_parentValues)
-            lazyInitialize(m_parentValues, otherParentValues.releaseNonNull());
+        if (other.m_parentValues)
+            lazyInitialize(m_parentValues, protect(*other.m_parentValues));
         m_ownValues = other.m_ownValues;
     }
 

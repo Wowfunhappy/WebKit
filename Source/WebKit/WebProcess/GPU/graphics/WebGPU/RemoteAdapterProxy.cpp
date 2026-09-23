@@ -96,7 +96,6 @@ void RemoteAdapterProxy::requestDevice(const WebCore::WebGPU::DeviceDescriptor& 
         supportedLimits.maxBufferSize,
         supportedLimits.maxVertexAttributes,
         supportedLimits.maxVertexBufferArrayStride,
-        supportedLimits.maxInterStageShaderComponents,
         supportedLimits.maxInterStageShaderVariables,
         supportedLimits.maxColorAttachments,
         supportedLimits.maxColorAttachmentBytesPerSample,

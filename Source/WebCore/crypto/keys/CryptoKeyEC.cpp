@@ -32,13 +32,8 @@
 #include <wtf/text/Base64.h>
 
 #if OS(DARWIN) && !PLATFORM(GTK)
-#include <pal/PALSwift.h>
-#if !defined(CLANG_WEBKIT_BRANCH)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
-#include "PALSwift-Generated.h"
-#pragma clang diagnostic pop
-#endif // !defined(CLANG_WEBKIT_BRANCH)
+#include <pal/crypto/CryptoTypes.h>
+#include <pal/crypto/PlatformECKey.h>
 #endif
 
 namespace WebCore {

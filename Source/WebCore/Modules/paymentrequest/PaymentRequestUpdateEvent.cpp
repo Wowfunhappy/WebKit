@@ -31,6 +31,7 @@
 #include "EventNames.h"
 #include "PaymentRequest.h"
 #include <wtf/TZoneMallocInlines.h>
+#include "EventTargetInlines.h"
 
 namespace WebCore {
 

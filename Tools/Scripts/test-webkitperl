@@ -40,6 +40,8 @@ use Getopt::Long qw(:config pass_through no_auto_abbrev);
 use lib $FindBin::Bin;
 use webkitdirs;
 
+maybeEnterWebKitContainerSDK();
+
 use File::Spec;
 use FindBin;
 use Test::Harness;

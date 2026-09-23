@@ -37,8 +37,8 @@ namespace Style {
 template<typename ValueType>
 const ValueType* requiredDowncast(BuilderState&, const CSSValue&);
 
-template<typename ValueType>
-std::optional<std::pair<Ref<const ValueType>, Ref<const ValueType>>> requiredPairDowncast(BuilderState&, const CSSValue&);
+template<typename ValueType1, typename ValueType2 = ValueType1>
+std::optional<std::pair<Ref<const ValueType1>, Ref<const ValueType2>>> requiredPairDowncast(BuilderState&, const CSSValue&);
 
 template<typename ValueType> struct TypedRequiredListIterator {
     using iterator_category = std::forward_iterator_tag;
@@ -90,16 +90,16 @@ inline const ValueType* requiredDowncast(BuilderState& builderState, const CSSVa
     return typedValue;
 }
 
-template<typename ValueType>
-inline std::optional<std::pair<Ref<const ValueType>, Ref<const ValueType>>> requiredPairDowncast(BuilderState& builderState, const CSSValue& value)
+template<typename ValueType1, typename ValueType2>
+inline std::optional<std::pair<Ref<const ValueType1>, Ref<const ValueType2>>> requiredPairDowncast(BuilderState& builderState, const CSSValue& value)
 {
     RefPtr pairValue = requiredDowncast<CSSValuePair>(builderState, value);
     if (!pairValue) [[unlikely]]
         return { };
-    RefPtr firstValue = requiredDowncast<ValueType>(builderState, pairValue->first());
+    RefPtr firstValue = requiredDowncast<ValueType1>(builderState, pairValue->first());
     if (!firstValue) [[unlikely]]
         return { };
-    RefPtr secondValue = requiredDowncast<ValueType>(builderState, pairValue->second());
+    RefPtr secondValue = requiredDowncast<ValueType2>(builderState, pairValue->second());
     if (!secondValue) [[unlikely]]
         return { };
     return { { firstValue.releaseNonNull(), secondValue.releaseNonNull() } };

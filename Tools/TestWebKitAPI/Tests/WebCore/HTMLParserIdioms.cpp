@@ -25,8 +25,9 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <WebCore/DocumentFragment.h>
+#include <WebCore/Element.h>
 #include <WebCore/ExceptionOr.h>
 #include <WebCore/HTMLBodyElement.h>
 #include <WebCore/HTMLDivElement.h>
@@ -34,6 +35,7 @@
 #include <WebCore/HTMLDocumentParserFastPath.h>
 #include <WebCore/HTMLHtmlElement.h>
 #include <WebCore/HTMLInputElement.h>
+#include <WebCore/HTMLNames.h>
 #include <WebCore/HTMLParserIdioms.h>
 #include <WebCore/NodeInlines.h>
 #include <WebCore/ParserContentPolicy.h>
@@ -403,6 +405,137 @@ TEST(WebCoreHTMLParser, FastPathFailsWithNestedLi)
     auto fragment = DocumentFragment::create(document);
     bool result = tryFastParsingHTMLFragment("<li><li></li></li>"_s, document, fragment, div, { ParserContentPolicy::AllowScriptingContent });
     EXPECT_FALSE(result);
+}
+
+TEST(WebCoreHTMLParser, FastPathAttributeNameWithUnderscore)
+{
+    ProcessWarming::initializeNames();
+
+    auto settings = Settings::create(nullptr);
+    auto document = HTMLDocument::create(nullptr, settings.get(), aboutBlankURL());
+    auto documentElement = HTMLHtmlElement::create(document);
+    document->appendChild(documentElement);
+    auto body = HTMLBodyElement::create(document);
+    documentElement->appendChild(body);
+
+    auto div = HTMLDivElement::create(document);
+    document->body()->appendChild(div);
+
+    // Underscore is valid in HTML attribute names but isValidAttributeNameChar() rejects it,
+    // causing an unnecessary fallback to the slow parser.
+    auto fragment = DocumentFragment::create(document);
+    bool result = tryFastParsingHTMLFragment("<span data_value=\"test\"></span>"_s, document, fragment, div, { ParserContentPolicy::AllowScriptingContent });
+    EXPECT_TRUE(result);
+}
+
+TEST(WebCoreHTMLParser, FastPathEscapedAttributeValues)
+{
+    ProcessWarming::initializeNames();
+
+    auto settings = Settings::create(nullptr);
+    auto document = HTMLDocument::create(nullptr, settings.get(), aboutBlankURL());
+    auto documentElement = HTMLHtmlElement::create(document);
+    document->appendChild(documentElement);
+    auto body = HTMLBodyElement::create(document);
+    documentElement->appendChild(body);
+
+    auto div = HTMLDivElement::create(document);
+    document->body()->appendChild(div);
+
+    auto testFastParserAttribute = [&](const String& input) -> String {
+        auto fragment = DocumentFragment::create(document);
+        bool result = tryFastParsingHTMLFragment(input, document, fragment, div, { ParserContentPolicy::AllowScriptingContent });
+        EXPECT_TRUE(result);
+        if (!result)
+            return String();
+        auto* element = dynamicDowncast<Element>(fragment->firstChild());
+        EXPECT_TRUE(element);
+        return element ? element->getAttribute(HTMLNames::titleAttr) : String();
+    };
+
+    // Single entity (this works today).
+    EXPECT_STREQ("&", testFastParserAttribute("<span title=\"&amp;\"></span>"_s).utf8().data());
+
+    // Entity followed by more text — exercises the missing while loop in scanEscapedAttributeValue().
+    EXPECT_STREQ("&b", testFastParserAttribute("<span title=\"&amp;b\"></span>"_s).utf8().data());
+
+    // Text before and after an entity.
+    EXPECT_STREQ("a&b", testFastParserAttribute("<span title=\"a&amp;b\"></span>"_s).utf8().data());
+
+    // Multiple entities in a single attribute value.
+    EXPECT_STREQ("<&>", testFastParserAttribute("<span title=\"&lt;&amp;&gt;\"></span>"_s).utf8().data());
+
+    // Entity with trailing text and single-quote delimiter.
+    EXPECT_STREQ("a&b", testFastParserAttribute("<span title='a&amp;b'></span>"_s).utf8().data());
+}
+
+TEST(WebCoreHTMLParser, FastPathRejectsNullInEscapedAttributeValue)
+{
+    ProcessWarming::initializeNames();
+
+    auto settings = Settings::create(nullptr);
+    auto document = HTMLDocument::create(nullptr, settings.get(), aboutBlankURL());
+    auto documentElement = HTMLHtmlElement::create(document);
+    document->appendChild(documentElement);
+    auto body = HTMLBodyElement::create(document);
+    documentElement->appendChild(body);
+
+    auto div = HTMLDivElement::create(document);
+    document->body()->appendChild(div);
+
+    // A \0 after an entity reaches scanEscapedAttributeValue's loop body.
+    // The entity forces the SIMD fast scan to hand off to the escaped path,
+    // and the \0 must be rejected there.
+    auto fragment = DocumentFragment::create(document);
+    bool result = tryFastParsingHTMLFragment("<span title=\"&amp;\0\"></span>"_s, document, fragment, div, { ParserContentPolicy::AllowScriptingContent });
+    EXPECT_FALSE(result);
+}
+
+TEST(WebCoreHTMLParser, FastPathEntityWithoutSemicolonInAttributeValue)
+{
+    ProcessWarming::initializeNames();
+
+    auto settings = Settings::create(nullptr);
+    auto document = HTMLDocument::create(nullptr, settings.get(), aboutBlankURL());
+    auto documentElement = HTMLHtmlElement::create(document);
+    document->appendChild(documentElement);
+    auto body = HTMLBodyElement::create(document);
+    documentElement->appendChild(body);
+
+    auto div = HTMLDivElement::create(document);
+    document->body()->appendChild(div);
+
+    auto testFastParserAttribute = [&](const String& input) -> String {
+        auto fragment = DocumentFragment::create(document);
+        bool result = tryFastParsingHTMLFragment(input, document, fragment, div, { ParserContentPolicy::AllowScriptingContent });
+        EXPECT_TRUE(result);
+        if (!result)
+            return String();
+        auto* element = dynamicDowncast<Element>(fragment->firstChild());
+        EXPECT_TRUE(element);
+        return element ? element->getAttribute(HTMLNames::titleAttr) : String();
+    };
+
+    // Per the HTML spec, named entities without a trailing semicolon followed by
+    // an alphanumeric character must NOT be consumed in attribute values.
+    // e.g. &ampX in an attribute should remain as literal "&ampX", not become "&X".
+    EXPECT_STREQ("&ampX", testFastParserAttribute("<span title=\"&ampX\"></span>"_s).utf8().data());
+    EXPECT_STREQ("&ampX", testFastParserAttribute("<span title='&ampX'></span>"_s).utf8().data());
+
+    // Entity without semicolon followed by '=' should also not be consumed.
+    EXPECT_STREQ("&amp=1", testFastParserAttribute("<span title=\"&amp=1\"></span>"_s).utf8().data());
+
+    // Entity WITH semicolon followed by alphanumeric should still be consumed.
+    EXPECT_STREQ("&X", testFastParserAttribute("<span title=\"&amp;X\"></span>"_s).utf8().data());
+
+    // Entity without semicolon NOT followed by alphanumeric should be consumed.
+    EXPECT_STREQ("& ", testFastParserAttribute("<span title=\"&amp \"></span>"_s).utf8().data());
+
+    // Named entity without semicolon (e.g. &AElig followed by alphanumeric).
+    EXPECT_STREQ("&AEligX", testFastParserAttribute("<span title=\"&AEligX\"></span>"_s).utf8().data());
+
+    // Named entity with semicolon (e.g. &AElig; followed by text).
+    EXPECT_STREQ("\xC3\x86X", testFastParserAttribute("<span title=\"&AElig;X\"></span>"_s).utf8().data());
 }
 
 } // namespace TestWebKitAPI

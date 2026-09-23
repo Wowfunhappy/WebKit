@@ -29,6 +29,7 @@
 #include "GetVM.h"
 #include "Identifier.h"
 #include "JSCJSValue.h"
+#include "Strong.h"
 #include <array>
 #include <wtf/Range.h>
 #include <wtf/text/MakeString.h>
@@ -57,7 +58,7 @@ enum ParserState : uint8_t {
 
 enum TokenType : uint8_t {
     TokLBracket, TokRBracket, TokLBrace, TokRBrace,
-    TokString, TokIdentifier, TokNumber, TokColon,
+    TokString, TokIdentifier, TokNumber, TokNumberInt32, TokColon,
     TokLParen, TokRParen, TokComma, TokTrue, TokFalse,
     TokNull, TokEnd, TokDot, TokAssign, TokSemi, TokError, TokErrorSpace };
 
@@ -116,6 +117,7 @@ template<typename CharacterType> struct LiteralParserToken {
     unsigned stringOrIdentifierLength : 31;
     union {
         double numberToken; // Only used for TokNumber.
+        int32_t int32Token; // Only used for TokNumberInt32.
         const CharacterType* identifierStart;
         const Latin1Character* stringStart8;
         const char16_t* stringStart16;
@@ -127,7 +129,7 @@ template<typename CharacterType> struct LiteralParserToken {
 };
 
 template <typename CharType>
-ALWAYS_INLINE void setParserTokenString(LiteralParserToken<CharType>&, const CharType* string);
+ALWAYS_INLINE void NODELETE setParserTokenString(LiteralParserToken<CharType>&, const CharType* string);
 
 template <typename CharType, JSONReviverMode reviverMode>
 class LiteralParser {
@@ -257,8 +259,8 @@ private:
 
         const CharType* ptr() const { return m_ptr; }
         const CharType* start() const { return m_start; }
-        inline const CharType* currentTokenStart() const;
-        inline const CharType* currentTokenEnd() const;
+        inline const CharType* NODELETE currentTokenStart() const;
+        inline const CharType* NODELETE currentTokenEnd() const;
         
     private:
         template<JSONIdentifierHint>

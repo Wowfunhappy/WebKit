@@ -55,6 +55,18 @@
 #define BMALLOC_USE_MADV_ZERO 0
 #endif
 
+#if BOS(LINUX)
+#include <sys/prctl.h>
+
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_SET_VMA_ANON_NAME
+#define PR_SET_VMA_ANON_NAME 0
+#endif
+#endif
+
 BALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace bmalloc {
@@ -248,9 +260,12 @@ inline size_t vmPageSizePhysical()
 inline void* tryVMAllocate(size_t vmSize, VMTag usage)
 {
     vmValidate(vmSize);
-    void* result = mmap(0, vmSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | BMALLOC_NORESERVE, static_cast<int>(usage), 0);
+    void* result = mmap(0, vmSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | BMALLOC_NORESERVE, vmTagFd(usage), 0);
     if (result == MAP_FAILED)
         return nullptr;
+#if BOS(LINUX)
+    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result, vmSize, vmTagName(usage));
+#endif
     return result;
 }
 
@@ -274,7 +289,7 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
 {
     vmValidate(p, vmSize);
     int flags = MAP_PRIVATE | MAP_ANON | MAP_FIXED | BMALLOC_NORESERVE;
-    int tag = static_cast<int>(usage);
+    int tag = vmTagFd(usage);
 #if BMALLOC_USE_MADV_ZERO
     if (isMadvZeroSupported()) {
         int rc = madvise(p, vmSize, MADV_ZERO);
@@ -287,10 +302,18 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
     if (tryVmZeroAndPurgeMTECase(p, vmSize, usage))
         return;
 #endif // BENABLE(MTE) && BOS(DARWIN)
+
+#if BOS(LINUX)
+    BUNUSED(flags);
+    BUNUSED(tag);
+    int result = madvise(p, vmSize, MADV_DONTNEED);
+    RELEASE_BASSERT(!result);
+#else
     // MAP_ANON guarantees the memory is zeroed. This will also cause
     // page faults on accesses to this range following this call.
     void* result = mmap(p, vmSize, PROT_READ | PROT_WRITE, flags, tag, 0);
     RELEASE_BASSERT(result == p);
+#endif
 }
 
 inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)

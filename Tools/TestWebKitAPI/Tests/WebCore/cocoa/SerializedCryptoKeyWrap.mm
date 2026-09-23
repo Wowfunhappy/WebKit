@@ -73,7 +73,7 @@ TEST_F(SerializedCryptoKeyWrapTest, SerializedCryptoKeyWrapUnwrap)
     auto masterKey = WebCore::defaultWebCryptoMasterKey();
     EXPECT_TRUE(masterKey);
 
-    Vector<uint8_t> cryptoKey(16, 1);
+    Vector<uint8_t> cryptoKey(FillWith { }, 16, 1);
     Vector<uint8_t> wrappedKey;
     EXPECT_TRUE(WebCore::wrapSerializedCryptoKey(*masterKey, cryptoKey, wrappedKey));
     EXPECT_TRUE(cryptoKey != wrappedKey);

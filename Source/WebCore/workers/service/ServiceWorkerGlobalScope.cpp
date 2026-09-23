@@ -29,7 +29,6 @@
 #include "Document.h"
 #include "EventLoop.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "EventTargetInterfaces.h"
 #include "ExtendableEvent.h"
 #include "FetchEvent.h"
@@ -182,7 +181,7 @@ void ServiceWorkerGlobalScope::prepareForDestruction()
 
     auto ongoingFetchTasks = std::exchange(m_ongoingFetchTasks, { });
     for (auto& task : ongoingFetchTasks.values())
-        RefPtr { task.client }->contextIsStopping();
+        protect(task.client)->contextIsStopping();
 
     WorkerGlobalScope::prepareForDestruction();
 }

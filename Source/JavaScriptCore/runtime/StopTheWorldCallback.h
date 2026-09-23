@@ -28,10 +28,19 @@
 #include <cstdint>
 #include <utility>
 #include <wtf/IterationStatus.h>
+#include <wtf/Seconds.h>
 
 namespace JSC {
 
 class VM;
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+// How often a VM blocked in a non-JSC operation (memory.atomic.wait, sync XHR, etc.)
+// wakes to check NeedStopTheWorld and participate in STW.
+// 50 ms is chosen to be as long as possible while remaining below the ~100 ms threshold
+// for human perception of responsiveness in a debugger driven by human interaction.
+inline constexpr Seconds DebuggerSTWCheckInterval { 0.05 };
+#endif
 
 using StopTheWorldStatus = std::pair<IterationStatus, VM*>;
 
@@ -45,11 +54,25 @@ using StopTheWorldStatus = std::pair<IterationStatus, VM*>;
 #define STW_RESUME() StopTheWorldStatus(IterationStatus::Done, nullptr)
 
 enum class StopTheWorldEvent : uint8_t {
+    // Common STW events.
+    //
+    // The WASM debugger treats all three as interrupt stops.
     VMCreated,
     VMActivated,
     VMStopped,
-    BreakpointHit,
-    StepIntoSiteReached,
+
+    // WASM-debugger-only events below.
+    //
+    // The WASM program itself triggered a stop (breakpoint hit, trap, or dynamic module load).
+    WasmProgramStop,
+    // A thread blocked in memory.atomic.wait32/64 cooperatively participating in STW.
+    // Unlike WasmProgramStop, clearStop() is skipped on resume so the stop data persists
+    // across multiple STW cycles while the wait is still in progress.
+    WasmAtomicsWaitBlocked,
+    // Not a real stop: fired when the mutator reaches a call/throw site during step-into.
+    // Signals the debugger thread to check whether a callee entry breakpoint was installed;
+    // the mutator does not pause and wait for a debugger command.
+    WasmStepIntoSiteReached,
 };
 
 // The VMManager Stop the World (STW) mechanism will call handlers of this shape once the world

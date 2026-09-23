@@ -29,6 +29,7 @@
 #import <wtf/EnumeratedArray.h>
 #import <wtf/FastMalloc.h>
 #import <wtf/HashMap.h>
+#import <wtf/HashSet.h>
 #import <wtf/HashTraits.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
@@ -66,17 +67,10 @@ public:
     };
     using EntriesContainer = HashMap<uint32_t, Entry, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 
-#if USE(METAL_ARGUMENT_ACCESS_ENUMS)
-    using BindingAccess = MTLArgumentAccess;
-    static constexpr auto BindingAccessReadOnly = MTLArgumentAccessReadOnly;
-    static constexpr auto BindingAccessReadWrite = MTLArgumentAccessReadWrite;
-    static constexpr auto BindingAccessWriteOnly = MTLArgumentAccessWriteOnly;
-#else
     using BindingAccess = MTLBindingAccess;
     static constexpr auto BindingAccessReadOnly = MTLBindingAccessReadOnly;
     static constexpr auto BindingAccessReadWrite = MTLBindingAccessReadWrite;
     static constexpr auto BindingAccessWriteOnly = MTLBindingAccessWriteOnly;
-#endif
     using StageMapValue = BindingAccess;
     using StageMapTable = HashMap<uint64_t, StageMapValue, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
     using ArgumentIndices = HashSet<uint32_t, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
@@ -103,8 +97,8 @@ public:
     id<MTLArgumentEncoder> computeArgumentEncoder() const { return m_computeArgumentEncoder; }
 
     std::optional<StageMapValue> NODELETE bindingAccessForBindingIndex(uint32_t bindingIndex, ShaderStage renderStage) const;
-    NSUInteger argumentBufferIndexForEntryIndex(uint32_t bindingIndex, ShaderStage renderStage) const;
-    std::optional<uint32_t> bufferSizeIndexForEntryIndex(uint32_t bindingIndex, ShaderStage renderStage) const;
+    NSUInteger NODELETE argumentBufferIndexForEntryIndex(uint32_t bindingIndex, ShaderStage renderStage) const;
+    std::optional<uint32_t> NODELETE bufferSizeIndexForEntryIndex(uint32_t bindingIndex, ShaderStage renderStage) const;
 
     static bool NODELETE isPresent(const WGPUBufferBindingLayout&);
     static bool isPresent(const WGPUSamplerBindingLayout&);

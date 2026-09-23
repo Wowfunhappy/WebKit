@@ -137,9 +137,7 @@ WebKeyboardEvent::WebKeyboardEvent(WebEvent&& event, const String& text, const S
 
 #endif
 
-WebKeyboardEvent::~WebKeyboardEvent()
-{
-}
+WebKeyboardEvent::~WebKeyboardEvent() = default;
 
 bool WebKeyboardEvent::isKeyboardEventType(WebEventType type)
 {

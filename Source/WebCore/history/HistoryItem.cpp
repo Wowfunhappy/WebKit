@@ -61,7 +61,6 @@ HistoryItem::HistoryItem(Client& client, const String& urlString, const String& 
     , m_displayTitle(alternateTitle)
     , m_itemID(itemID ? *itemID : BackForwardItemIdentifier::generate())
     , m_frameItemID(frameItemID ? *frameItemID : BackForwardFrameItemIdentifier::generate())
-    , m_uuidIdentifier(WTF::UUID::createVersion4Weak())
     , m_client(client)
 {
 }
@@ -83,7 +82,8 @@ HistoryItem::HistoryItem(const HistoryItem& item)
     , m_isTargetItem(item.m_isTargetItem)
     , m_itemSequenceNumber(item.m_itemSequenceNumber)
     , m_documentSequenceNumber(item.m_documentSequenceNumber)
-    , m_formData(item.m_formData ? RefPtr<FormData> { RefPtr { item.m_formData }->copy() } : nullptr)
+    , m_navigationAPIKey(item.m_navigationAPIKey)
+    , m_formData(item.m_formData ? RefPtr { protect(item.m_formData)->copy() } : nullptr)
     , m_formContentType(item.m_formContentType)
 #if PLATFORM(IOS_FAMILY)
     , m_obscuredInsets(item.m_obscuredInsets)
@@ -92,7 +92,6 @@ HistoryItem::HistoryItem(const HistoryItem& item)
 #endif
     , m_itemID(item.m_itemID)
     , m_frameItemID(item.m_frameItemID)
-    , m_uuidIdentifier(WTF::UUID::createVersion4Weak())
     , m_client(item.m_client)
 {
 }
@@ -116,17 +115,17 @@ void HistoryItem::reset()
     m_isTargetItem = false;
 
     m_itemSequenceNumber = generateSequenceNumber();
+    m_documentSequenceNumber = generateSequenceNumber();
 
     m_stateObject = nullptr;
+
     m_navigationAPIStateObject = nullptr;
-    m_documentSequenceNumber = generateSequenceNumber();
+    m_navigationAPIKey = WTF::UUID::createVersion4();
 
     m_formData = nullptr;
     m_formContentType = String();
 
     clearChildren();
-
-    m_uuidIdentifier = WTF::UUID::createVersion4Weak();
 }
 
 const String& HistoryItem::urlString() const
@@ -343,16 +342,6 @@ HistoryItem* HistoryItem::childItemWithFrameID(FrameIdentifier frameID)
     return nullptr;
 }
 
-HistoryItem* HistoryItem::childItemWithDocumentSequenceNumber(long long number)
-{
-    unsigned size = m_children.size();
-    for (unsigned i = 0; i < size; ++i) {
-        if (m_children[i]->documentSequenceNumber() == number)
-            return m_children[i].ptr();
-    }
-    return nullptr;
-}
-
 const Vector<Ref<HistoryItem>>& HistoryItem::children() const
 {
     return m_children;
@@ -371,7 +360,6 @@ bool HistoryItem::shouldDoSameDocumentNavigationTo(HistoryItem& otherItem) const
     if (m_itemID == otherItem.itemID())
         return false;
 
-    // The following logic must be kept in sync with WebKit::WebBackForwardListItem::itemIsInSameDocument().
     return documentSequenceNumber() == otherItem.documentSequenceNumber();
 }
 
@@ -419,6 +407,15 @@ bool HistoryItem::isCurrentDocument(Document& document) const
 void HistoryItem::notifyChanged()
 {
     m_client->historyItemChanged(*this);
+}
+
+void HistoryItem::setWasCreatedByJSWithoutUserInteraction(bool wasCreatedByJSWithoutUserInteraction)
+{
+    if (m_wasCreatedByJSWithoutUserInteraction == wasCreatedByJSWithoutUserInteraction)
+        return;
+
+    m_wasCreatedByJSWithoutUserInteraction = wasCreatedByJSWithoutUserInteraction;
+    notifyChanged();
 }
 
 #ifndef NDEBUG

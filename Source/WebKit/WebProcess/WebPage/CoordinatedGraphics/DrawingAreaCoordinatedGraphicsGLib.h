@@ -69,6 +69,8 @@ private:
     bool enterAcceleratedCompositingModeIfNeeded() override;
     void backgroundColorDidChange() override;
 
+    void releaseMemory(WTF::Critical) override;
+
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM) && (USE(GBM)|| OS(ANDROID))
     void preferredBufferFormatsDidChange() override;
 #endif

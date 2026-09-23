@@ -59,7 +59,7 @@ void IdChangeInvalidation::invalidateStyle(const AtomString& changedId)
 
     m_element->invalidateStyle();
 
-    auto collect = [&](auto& ruleSets, std::optional<MatchElement> onlyMatchElement = { }) {
+    auto collect = [&](auto& ruleSets, std::optional<MatchElement::Relation> onlyRelation = { }) {
         // This could be easily optimized for fine-grained descendant invalidation similar to ClassChangeInvalidation.
         // However using ids for dynamic styling is rare and this is probably not worth the memory cost of the required data structures.
         bool mayAffectDescendantStyle = ruleSets.features().idsMatchingAncestorsInRules.contains(changedId);
@@ -71,7 +71,7 @@ void IdChangeInvalidation::invalidateStyle(const AtomString& changedId)
         // Invalidation rulesets exist for :has() / :nth-child() / :nth-last-child.
         if (auto* invalidationRuleSets = ruleSets.idInvalidationRuleSets(changedId)) {
             for (auto& invalidationRuleSet : *invalidationRuleSets) {
-                if (onlyMatchElement && invalidationRuleSet.matchElement != onlyMatchElement)
+                if (onlyRelation && invalidationRuleSet.matchElement.relation != onlyRelation)
                     continue;
 
                 Invalidator::addToMatchElementRuleSets(m_matchElementRuleSets, invalidationRuleSet);
@@ -82,7 +82,7 @@ void IdChangeInvalidation::invalidateStyle(const AtomString& changedId)
     collect(m_element->styleResolver().ruleSets());
 
     if (RefPtr shadowRoot = m_element->shadowRoot())
-        collect(protect(shadowRoot->styleScope())->resolver().ruleSets(), MatchElement::Host);
+        collect(protect(shadowRoot->styleScope())->resolver().ruleSets(), MatchElement::Relation::Host);
 
 }
 

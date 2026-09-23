@@ -26,13 +26,9 @@
 #ifndef PAS_TRY_ALLOCATE_PRIMITIVE_H
 #define PAS_TRY_ALLOCATE_PRIMITIVE_H
 
-#include "pas_allocator_counts.h"
 #include "pas_heap.h"
 #include "pas_heap_config.h"
-#include "pas_heap_lock.h"
 #include "pas_allocation_result.h"
-#include "pas_local_allocator_inlines.h"
-#include "pas_physical_memory_transaction.h"
 #include "pas_primitive_heap_ref.h"
 #include "pas_try_allocate_common.h"
 

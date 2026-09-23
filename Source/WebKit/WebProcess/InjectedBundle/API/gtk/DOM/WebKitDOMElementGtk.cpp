@@ -940,15 +940,8 @@ void webkit_dom_element_insert_adjacent_text(WebKitDOMElement* self, const gchar
 
 void webkit_dom_element_request_pointer_lock(WebKitDOMElement* self)
 {
-#if ENABLE(POINTER_LOCK)
-    WebCore::JSMainThreadNullState state;
-    g_return_if_fail(WEBKIT_DOM_IS_ELEMENT(self));
-    WebCore::Element* item = WebKit::core(self);
-    item->requestPointerLock();
-#else
     UNUSED_PARAM(self);
     WEBKIT_WARN_FEATURE_NOT_PRESENT("Pointer Lock")
-#endif /* ENABLE(POINTER_LOCK) */
 }
 
 void webkit_dom_element_remove(WebKitDOMElement* self, GError** error)

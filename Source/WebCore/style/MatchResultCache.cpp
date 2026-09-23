@@ -27,8 +27,8 @@
 #include "MatchResultCache.h"
 
 #include "MatchResult.h"
-#include "RenderStyle+SettersInlines.h"
 #include "ResolvedStyle.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleProperties.h"
 #include "StyledElement.h"
 #include <wtf/BitSet.h>
@@ -46,6 +46,7 @@ namespace Style {
 
 struct OriginalInlineProperty {
     CSSPropertyID propertyID;
+    bool wasImportant { false };
     RefPtr<const CSSValue> valueIfUnchanged;
 };
 
@@ -62,6 +63,7 @@ struct MatchResultCache::Entry : CanMakeCheckedPtr<MatchResultCache::Entry> {
         for (auto property : inlineStyle) {
             originalInlineProperties.append({
                 .propertyID = property.id(),
+                .wasImportant = property.isImportant(),
                 .valueIfUnchanged = property.value()
             });
         }
@@ -76,9 +78,10 @@ MatchResultCache::~MatchResultCache() = default;
 
 inline UnadjustedStyle copy(const UnadjustedStyle& other)
 {
+    // Relations hold raw Element pointers valid only for a single style resolution. They should not be cached.
     return {
-        .style = RenderStyle::clonePtr(*other.style),
-        .relations = other.relations ? makeUnique<Relations>(*other.relations) : std::unique_ptr<Relations> { },
+        .style = ComputedStyle::clonePtr(*other.style),
+        .relations = { },
         .matchResult = other.matchResult
     };
 }
@@ -90,7 +93,7 @@ bool MatchResultCache::isUsableAfterInlineStyleChange(const MatchResultCache::En
 
     auto& inlineStyle = entry.inlineStyle;
 
-    // Only allow the same exact properties after a change. This way the previous values in RenderStyle are guranteed to get overwritten.
+    // Only allow the same exact properties after a change. This way the previous values in ComputedStyle are guaranteed to get overwritten.
     // Adding properties could be allowed without other changes. Removal would require resetting the removed property to initial
     // value in the style builder.
 
@@ -108,21 +111,22 @@ bool MatchResultCache::isUsableAfterInlineStyleChange(const MatchResultCache::En
 PropertyCascade::IncludedProperties MatchResultCache::computeAndUpdateChangedProperties(MatchResultCache::Entry& entry)
 {
     auto& originalProperties = entry.originalInlineProperties;
-    auto& inlineStyle = entry.inlineStyle.get();
+    Ref inlineStyle = entry.inlineStyle.get();
 
     PropertyCascade::IncludedProperties result;
 
     auto size = originalProperties.size();
     for (size_t index = 0; index < size; ++index) {
-        auto currentProperty = inlineStyle.propertyAt(index);
+        auto currentProperty = inlineStyle->propertyAt(index);
         auto propertyID = currentProperty.id();
 
         ASSERT(originalProperties[index].propertyID == propertyID);
 
-        if (originalProperties[index].valueIfUnchanged == currentProperty.value())
+        if (originalProperties[index].valueIfUnchanged == currentProperty.value()
+            && originalProperties[index].wasImportant == currentProperty.isImportant())
             continue;
 
-        // Assume that if a value changes ones then it will change more. Don't track changes anymore.
+        // Assume that if a value or priority changes once then it will change more. Don't track changes anymore.
         originalProperties[index].valueIfUnchanged = nullptr;
 
         // FIXME: Support custom properties.
@@ -166,12 +170,12 @@ const std::optional<CachedMatchResult> MatchResultCache::resultWithCurrentInline
     };
 }
 
-void MatchResultCache::update(CachedMatchResult& result, const RenderStyle& style)
+void MatchResultCache::update(CachedMatchResult& result, const Style::ComputedStyle& style)
 {
-    result.styleToUpdate.get() = RenderStyle::clone(style);
+    result.styleToUpdate.get() = ComputedStyle::clone(style);
 }
 
-void MatchResultCache::updateForFastPathInherit(const Element& element, const RenderStyle& parentStyle)
+void MatchResultCache::updateForFastPathInherit(const Element& element, const Style::ComputedStyle& parentStyle)
 {
     CheckedPtr entry = m_entries.get(element);
     if (!entry)
@@ -184,7 +188,7 @@ void MatchResultCache::set(const Element& element, const UnadjustedStyle& unadju
     // For now we cache match results if there is mutable inline style. This way we can avoid
     // selector matching when it gets mutated again.
     auto* styledElement = dynamicDowncast<StyledElement>(element);
-    auto* inlineStyle = styledElement ? dynamicDowncast<MutableStyleProperties>(styledElement->inlineStyle()) : nullptr;
+    RefPtr inlineStyle = styledElement ? dynamicDowncast<MutableStyleProperties>(styledElement->inlineStyle()) : nullptr;
 
     if (inlineStyle)
         m_entries.set(element, makeUniqueRef<Entry>(copy(unadjustedStyle), *inlineStyle));

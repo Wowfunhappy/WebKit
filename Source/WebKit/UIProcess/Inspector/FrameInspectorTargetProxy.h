@@ -27,25 +27,23 @@
 
 #include "InspectorTargetProxy.h"
 #include <JavaScriptCore/InspectorTarget.h>
+#include <WebCore/FrameIdentifier.h>
 #include <memory>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
-class ProvisionalFrameProxy;
-class WebFrameProxy;
+class WebProcessProxy;
 
 class FrameInspectorTargetProxy final : public InspectorTargetProxy {
     WTF_MAKE_TZONE_ALLOCATED(FrameInspectorTargetProxy);
     WTF_MAKE_NONCOPYABLE(FrameInspectorTargetProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FrameInspectorTargetProxy);
 public:
-    static std::unique_ptr<FrameInspectorTargetProxy> create(WebFrameProxy&, const String& targetId);
-    static std::unique_ptr<FrameInspectorTargetProxy> create(ProvisionalFrameProxy&, const String& targetId);
-    FrameInspectorTargetProxy(WebFrameProxy&, const String& targetId);
+    FrameInspectorTargetProxy(WebCore::FrameIdentifier, WebProcessProxy&, bool isProvisional);
     ~FrameInspectorTargetProxy();
 
     void didCommitProvisionalTarget() override;
@@ -56,8 +54,9 @@ public:
     void sendMessageToTargetBackend(const String&) override;
 
 private:
-    WeakRef<WebFrameProxy> m_frame;
-    WeakPtr<ProvisionalFrameProxy> m_provisionalFrame;
+    WeakRef<WebProcessProxy> m_targetProcess;
+    WebCore::FrameIdentifier m_frameID;
+    bool m_isProvisional { false };
 };
 
 } // namespace WebKit

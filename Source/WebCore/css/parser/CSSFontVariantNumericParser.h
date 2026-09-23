@@ -80,7 +80,7 @@ public:
     RefPtr<CSSValue> finalizeValue()
     {
         if (m_result.isEmpty())
-            return CSSPrimitiveValue::create(CSSValueNormal);
+            return CSSKeywordValue::create(CSSValueNormal);
         return CSSValueList::createSpaceSeparated(WTF::move(m_result));
     }
 

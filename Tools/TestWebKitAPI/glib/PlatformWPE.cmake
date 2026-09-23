@@ -26,3 +26,7 @@ endif ()
 if (ENABLE_WPE_PLATFORM)
     add_subdirectory(WPEPlatform)
 endif ()
+
+if (ENABLE_2022_GLIB_API)
+    ADD_WK2_TEST(TestWebKitFaviconDatabase ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKit/WKPage/glib/TestWebKitFaviconDatabase.cpp)
+endif ()

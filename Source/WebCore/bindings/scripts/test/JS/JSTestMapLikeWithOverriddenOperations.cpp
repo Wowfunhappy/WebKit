@@ -28,6 +28,7 @@
 #include "IDLTypes.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMConvertBase.h"
@@ -43,7 +44,6 @@
 #include <JavaScriptCore/BuiltinNames.h>
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
@@ -90,10 +90,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestMapLikeWithOverriddenOperationsPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestMapLikeWithOverriddenOperationsPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -142,12 +139,17 @@ static const std::array<HashTableValue, 11> JSTestMapLikeWithOverriddenOperation
 
 const ClassInfo JSTestMapLikeWithOverriddenOperationsPrototype::s_info = { "TestMapLikeWithOverriddenOperations"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestMapLikeWithOverriddenOperationsPrototype) };
 
+JSC::Structure* JSTestMapLikeWithOverriddenOperationsPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestMapLikeWithOverriddenOperationsPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestMapLikeWithOverriddenOperations::info(), JSTestMapLikeWithOverriddenOperationsPrototypeTableValues, *this);
-    putDirect(vm, vm.propertyNames->iteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    putDirect(vm, vm.propertyNames->iteratorSymbol, WebCore::getDirect(this, vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestMapLikeWithOverriddenOperations::s_info = { "TestMapLikeWithOverriddenOperations"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestMapLikeWithOverriddenOperations) };
@@ -158,6 +160,19 @@ JSTestMapLikeWithOverriddenOperations::JSTestMapLikeWithOverriddenOperations(Str
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestMapLikeWithOverriddenOperations>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestMapLikeWithOverriddenOperations* JSTestMapLikeWithOverriddenOperations::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestMapLikeWithOverriddenOperations>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestMapLikeWithOverriddenOperations* ptr = new (NotNull, JSC::allocateCell<JSTestMapLikeWithOverriddenOperations>(vm)) JSTestMapLikeWithOverriddenOperations(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestMapLikeWithOverriddenOperations::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSTestMapLikeWithOverriddenOperations::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -173,7 +188,7 @@ JSObject* JSTestMapLikeWithOverriddenOperations::prototype(VM& vm, JSDOMGlobalOb
 
 JSValue JSTestMapLikeWithOverriddenOperations::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestMapLikeWithOverriddenOperationsDOMConstructor, DOMConstructorID::TestMapLikeWithOverriddenOperations>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestMapLikeWithOverriddenOperationsDOMConstructor, DOMConstructorID::TestMapLikeWithOverriddenOperations>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestMapLikeWithOverriddenOperations::destroy(JSC::JSCell* cell)
@@ -186,10 +201,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestMapLikeWithOverriddenOperationsConstructor, (JSGl
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestMapLikeWithOverriddenOperationsPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestMapLikeWithOverriddenOperationsPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestMapLikeWithOverriddenOperations::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestMapLikeWithOverriddenOperations::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestMapLikeWithOverriddenOperations_setGetter(JSGlobalObject& lexicalGlobalObject, JSTestMapLikeWithOverriddenOperations& thisObject)
@@ -244,7 +259,7 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.clear(); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return impl.clear(); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_clear, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -386,12 +401,14 @@ JSC::GCClient::IsoSubspace* JSTestMapLikeWithOverriddenOperations::subspaceForIm
 
 void JSTestMapLikeWithOverriddenOperations::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestMapLikeWithOverriddenOperations*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestMapLikeWithOverriddenOperations>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestMapLikeWithOverriddenOperationsOwner::JSTestMapLikeWithOverriddenOperationsOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestMapLikeWithOverriddenOperationsOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -405,7 +422,7 @@ void JSTestMapLikeWithOverriddenOperationsOwner::finalize(JSC::Handle<JSC::Unkno
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestMapLikeWithOverriddenOperations = static_cast<JSTestMapLikeWithOverriddenOperations*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestMapLikeWithOverriddenOperations->wrapped()).ptr(), jsTestMapLikeWithOverriddenOperations);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestMapLikeWithOverriddenOperations->wrapped(), jsTestMapLikeWithOverriddenOperations);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -453,7 +470,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestMapLikeWithOverriddenOperations* JSTestMapLikeWithOverriddenOperations::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestMapLikeWithOverriddenOperations*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestMapLikeWithOverriddenOperations>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

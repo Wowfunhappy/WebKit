@@ -42,8 +42,11 @@ LibWebRTCRtpReceiverTransformBackend::LibWebRTCRtpReceiverTransformBackend(Ref<w
 {
 }
 
-LibWebRTCRtpReceiverTransformBackend::~LibWebRTCRtpReceiverTransformBackend()
+LibWebRTCRtpReceiverTransformBackend::~LibWebRTCRtpReceiverTransformBackend() = default;
+
+void LibWebRTCRtpReceiverTransformBackend::detachFromOwningBackend()
 {
+    m_rtcReceiver->SetFrameTransformer(nullptr);
 }
 
 void LibWebRTCRtpReceiverTransformBackend::setTransformableFrameCallback(Callback&& callback)

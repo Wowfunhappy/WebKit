@@ -90,12 +90,17 @@ IntlNumberFormat::IntlNumberFormat(VM& vm, Structure* structure)
 template<typename Visitor>
 void IntlNumberFormat::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    IntlNumberFormat* thisObject = jsCast<IntlNumberFormat*>(cell);
+    IntlNumberFormat* thisObject = uncheckedDowncast<IntlNumberFormat>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
 
     visitor.append(thisObject->m_boundFormat);
+
+    if (thisObject->m_numberFormatter)
+        visitor.reportExtraMemoryVisited(estimatedUNumberFormatterSize);
+    if (thisObject->m_numberRangeFormatter)
+        visitor.reportExtraMemoryVisited(estimatedUNumberRangeFormatterSize);
 }
 
 DEFINE_VISIT_CHILDREN(IntlNumberFormat);
@@ -321,6 +326,7 @@ void IntlNumberFormat::initializeNumberFormat(JSGlobalObject* globalObject, JSVa
     }
 
     m_numberingSystem = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Nu)];
+    m_dataLocale = resolved.dataLocale;
 
     m_style = intlOption<Style>(globalObject, options, vm.propertyNames->style, { { "decimal"_s, Style::Decimal }, { "percent"_s, Style::Percent }, { "currency"_s, Style::Currency }, { "unit"_s, Style::Unit } }, "style must be either \"decimal\", \"percent\", \"currency\", or \"unit\""_s, Style::Decimal);
     RETURN_IF_EXCEPTION(scope, void());
@@ -402,7 +408,7 @@ void IntlNumberFormat::initializeNumberFormat(JSGlobalObject* globalObject, JSVa
     m_signDisplay = intlOption<SignDisplay>(globalObject, options, Identifier::fromString(vm, "signDisplay"_s), { { "auto"_s, SignDisplay::Auto }, { "never"_s, SignDisplay::Never }, { "always"_s, SignDisplay::Always }, { "exceptZero"_s, SignDisplay::ExceptZero }, { "negative"_s, SignDisplay::Negative } }, "signDisplay must be either \"auto\", \"never\", \"always\", \"exceptZero\", or \"negative\""_s, SignDisplay::Auto);
     RETURN_IF_EXCEPTION(scope, void());
 
-    CString dataLocaleWithExtensions = makeString(resolved.dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
+    CString dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.utf8() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
     dataLogLnIf(IntlNumberFormatInternal::verbose, "dataLocaleWithExtensions:(", dataLocaleWithExtensions , ")");
 
     // Options are obtained. Configure formatter here.
@@ -451,12 +457,11 @@ void IntlNumberFormat::initializeNumberFormat(JSGlobalObject* globalObject, JSVa
         // The measure-unit stem takes one required option: the unit identifier of the unit to be formatted.
         // The full unit identifier is required: both the type and the subtype (for example, length-meter).
         // https://github.com/unicode-org/icu/blob/master/docs/userguide/format_parse/numbers/skeletons.md#unit
-        skeletonBuilder.append(" measure-unit/"_s);
         auto numeratorUnit = wellFormedUnit->numerator;
-        skeletonBuilder.append(numeratorUnit.type, '-', numeratorUnit.subType);
+        skeletonBuilder.append(" unit/"_s, numeratorUnit.subType);
         if (auto denominatorUnitValue = wellFormedUnit->denominator) {
             auto denominatorUnit = denominatorUnitValue.value();
-            skeletonBuilder.append(" per-measure-unit/"_s, denominatorUnit.type, '-', denominatorUnit.subType);
+            skeletonBuilder.append("-per-"_s, denominatorUnit.subType);
         }
 
         // https://github.com/unicode-org/icu/blob/master/docs/userguide/format_parse/numbers/skeletons.md#unit-width
@@ -540,11 +545,35 @@ void IntlNumberFormat::initializeNumberFormat(JSGlobalObject* globalObject, JSVa
         return;
     }
 
-    m_numberRangeFormatter = std::unique_ptr<UNumberRangeFormatter, UNumberRangeFormatterDeleter>(unumrf_openForSkeletonWithCollapseAndIdentityFallback(upconverted.get(), skeletonView.length(), UNUM_RANGE_COLLAPSE_AUTO, UNUM_IDENTITY_FALLBACK_APPROXIMATELY, dataLocaleWithExtensions.data(), nullptr, &status));
+    vm.heap.reportExtraMemoryAllocated(this, estimatedUNumberFormatterSize);
+
+    // Defer creation of the range formatter; it is only needed for formatRange / formatRangeToParts.
+    m_numberFormatterSkeleton = WTF::move(skeleton);
+    m_dataLocaleWithExtensions = WTF::move(dataLocaleWithExtensions);
+}
+
+UNumberRangeFormatter* IntlNumberFormat::createNumberRangeFormatterIfNecessary(JSGlobalObject* globalObject)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    ASSERT(m_numberFormatter);
+    if (m_numberRangeFormatter)
+        return m_numberRangeFormatter.get();
+
+    StringView skeletonView(m_numberFormatterSkeleton);
+    auto upconverted = skeletonView.upconvertedCharacters();
+
+    UErrorCode status = U_ZERO_ERROR;
+    m_numberRangeFormatter = std::unique_ptr<UNumberRangeFormatter, UNumberRangeFormatterDeleter>(unumrf_openForSkeletonWithCollapseAndIdentityFallback(upconverted.get(), skeletonView.length(), UNUM_RANGE_COLLAPSE_AUTO, UNUM_IDENTITY_FALLBACK_APPROXIMATELY, m_dataLocaleWithExtensions.data(), nullptr, &status));
     if (U_FAILURE(status)) {
         throwTypeError(globalObject, scope, "failed to initialize NumberFormat"_s);
-        return;
+        return nullptr;
     }
+
+    vm.heap.reportExtraMemoryAllocated(this, estimatedUNumberRangeFormatterSize);
+
+    return m_numberRangeFormatter.get();
 }
 
 // https://tc39.es/ecma402/#sec-formatnumber
@@ -594,22 +623,23 @@ JSValue IntlNumberFormat::format(JSGlobalObject* globalObject, IntlMathematicalV
     return jsString(vm, String(WTF::move(buffer)));
 }
 
-JSValue IntlNumberFormat::formatRange(JSGlobalObject* globalObject, double start, double end) const
+JSValue IntlNumberFormat::formatRange(JSGlobalObject* globalObject, double start, double end)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    ASSERT(m_numberRangeFormatter);
-
     if (std::isnan(start) || std::isnan(end))
         return throwRangeError(globalObject, scope, "Passed numbers are out of range"_s);
+
+    auto* rangeFormatter = createNumberRangeFormatterIfNecessary(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
 
     UErrorCode status = U_ZERO_ERROR;
     auto range = std::unique_ptr<UFormattedNumberRange, ICUDeleter<unumrf_closeResult>>(unumrf_openResult(&status));
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
-    unumrf_formatDoubleRange(m_numberRangeFormatter.get(), start, end, range.get(), &status);
+    unumrf_formatDoubleRange(rangeFormatter, start, end, range.get(), &status);
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
@@ -625,15 +655,16 @@ JSValue IntlNumberFormat::formatRange(JSGlobalObject* globalObject, double start
     return jsString(vm, String({ string, static_cast<size_t>(length) }));
 }
 
-JSValue IntlNumberFormat::formatRange(JSGlobalObject* globalObject, IntlMathematicalValue&& start, IntlMathematicalValue&& end) const
+JSValue IntlNumberFormat::formatRange(JSGlobalObject* globalObject, IntlMathematicalValue&& start, IntlMathematicalValue&& end)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    ASSERT(m_numberRangeFormatter);
-
     if (start.numberType() == IntlMathematicalValue::NumberType::NaN || end.numberType() == IntlMathematicalValue::NumberType::NaN)
         return throwRangeError(globalObject, scope, "Passed numbers are out of range"_s);
+
+    auto* rangeFormatter = createNumberRangeFormatterIfNecessary(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
 
     start.ensureNonDouble();
     const auto& startString = start.getString();
@@ -646,7 +677,7 @@ JSValue IntlNumberFormat::formatRange(JSGlobalObject* globalObject, IntlMathemat
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
-    unumrf_formatDecimalRange(m_numberRangeFormatter.get(), startString.data(), startString.length(), endString.data(), endString.length(), range.get(), &status);
+    unumrf_formatDecimalRange(rangeFormatter, startString.data(), startString.length(), endString.data(), endString.length(), range.get(), &status);
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
@@ -907,22 +938,23 @@ void IntlNumberFormat::formatRangeToPartsInternal(JSGlobalObject* globalObject, 
     }
 }
 
-JSValue IntlNumberFormat::formatRangeToParts(JSGlobalObject* globalObject, double start, double end) const
+JSValue IntlNumberFormat::formatRangeToParts(JSGlobalObject* globalObject, double start, double end)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    ASSERT(m_numberRangeFormatter);
-
     if (std::isnan(start) || std::isnan(end))
         return throwRangeError(globalObject, scope, "Passed numbers are out of range"_s);
+
+    auto* rangeFormatter = createNumberRangeFormatterIfNecessary(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
 
     UErrorCode status = U_ZERO_ERROR;
     auto range = std::unique_ptr<UFormattedNumberRange, ICUDeleter<unumrf_closeResult>>(unumrf_openResult(&status));
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
-    unumrf_formatDoubleRange(m_numberRangeFormatter.get(), start, end, range.get(), &status);
+    unumrf_formatDoubleRange(rangeFormatter, start, end, range.get(), &status);
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
@@ -954,15 +986,16 @@ JSValue IntlNumberFormat::formatRangeToParts(JSGlobalObject* globalObject, doubl
     return parts;
 }
 
-JSValue IntlNumberFormat::formatRangeToParts(JSGlobalObject* globalObject, IntlMathematicalValue&& start, IntlMathematicalValue&& end) const
+JSValue IntlNumberFormat::formatRangeToParts(JSGlobalObject* globalObject, IntlMathematicalValue&& start, IntlMathematicalValue&& end)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    ASSERT(m_numberRangeFormatter);
-
     if (start.numberType() == IntlMathematicalValue::NumberType::NaN || end.numberType() == IntlMathematicalValue::NumberType::NaN)
         return throwRangeError(globalObject, scope, "Passed numbers are out of range"_s);
+
+    auto* rangeFormatter = createNumberRangeFormatterIfNecessary(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
 
     start.ensureNonDouble();
     const auto& startString = start.getString();
@@ -975,7 +1008,7 @@ JSValue IntlNumberFormat::formatRangeToParts(JSGlobalObject* globalObject, IntlM
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
-    unumrf_formatDecimalRange(m_numberRangeFormatter.get(), startString.data(), startString.length(), endString.data(), endString.length(), range.get(), &status);
+    unumrf_formatDecimalRange(rangeFormatter, startString.data(), startString.length(), endString.data(), endString.length(), range.get(), &status);
     if (U_FAILURE(status))
         return throwTypeError(globalObject, scope, "failed to format a range"_s);
 
@@ -1189,6 +1222,8 @@ JSValue IntlNumberFormat::useGroupingValue(VM& vm, UseGrouping useGrouping)
 JSObject* IntlNumberFormat::resolvedOptions(JSGlobalObject* globalObject) const
 {
     VM& vm = globalObject->vm();
+    if (m_numberingSystem.isNull())
+        m_numberingSystem = defaultNumberingSystemForLocale(m_dataLocale);
     JSObject* options = constructEmptyObject(globalObject);
     options->putDirect(vm, vm.propertyNames->locale, jsString(vm, m_locale));
     options->putDirect(vm, vm.propertyNames->numberingSystem, jsString(vm, m_numberingSystem));

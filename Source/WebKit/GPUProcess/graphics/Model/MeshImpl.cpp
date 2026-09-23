@@ -31,6 +31,8 @@
 #include "ModelTypes.h"
 #include "WebKitMesh.h"
 #include <WebCore/IOSurface.h>
+#include <WebCore/NativeImage.h>
+#include <pal/spi/cg/CoreGraphicsSPI.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -51,24 +53,24 @@ void MeshImpl::setLabelInternal(const String&)
     // FIXME: Implement this.
 }
 
-void MeshImpl::update(const WebModel::UpdateMeshDescriptor& descriptor)
+void MeshImpl::update(Vector<WebModel::UpdateMeshDescriptor>&& descriptor)
 {
-    m_backing->update(descriptor);
+    m_backing->update(WTF::move(descriptor));
 }
 
-void MeshImpl::updateTexture(const WebModel::UpdateTextureDescriptor& descriptor)
+void MeshImpl::updateTexture(Vector<WebModel::UpdateTextureDescriptor>&& descriptor)
 {
-    m_backing->updateTexture(descriptor);
+    m_backing->updateTexture(WTF::move(descriptor));
 }
 
-void MeshImpl::updateMaterial(const WebModel::UpdateMaterialDescriptor& descriptor)
+void MeshImpl::updateMaterial(Vector<WebModel::UpdateMaterialDescriptor>&& descriptor)
 {
-    m_backing->updateMaterial(descriptor);
+    m_backing->updateMaterial(WTF::move(descriptor));
 }
 
-void MeshImpl::render()
+void MeshImpl::render(uint32_t textureIndex, Function<void(bool)>&& completionHandler)
 {
-    m_backing->render();
+    m_backing->render(textureIndex, WTF::move(completionHandler));
 }
 
 void MeshImpl::setEntityTransform(const WebModel::Float4x4& transform)
@@ -83,14 +85,9 @@ std::optional<WebModel::Float4x4> MeshImpl::entityTransform() const
 }
 #endif
 
-void MeshImpl::setCameraDistance(float distance)
+void MeshImpl::setFOV(float fovY)
 {
-    m_backing->setCameraDistance(distance);
-}
-
-void MeshImpl::setBackgroundColor(const WebModel::Float3& color)
-{
-    m_backing->setBackgroundColor(color);
+    m_backing->setFOV(fovY);
 }
 
 void MeshImpl::play(bool play)
@@ -98,9 +95,19 @@ void MeshImpl::play(bool play)
     m_backing->play(play);
 }
 
-void MeshImpl::setEnvironmentMap(const WebModel::ImageAsset& imageAsset)
+void MeshImpl::setEnvironmentMap(WebModel::UpdateTextureDescriptor&& imageAsset)
 {
-    m_backing->setEnvironmentMap(imageAsset);
+    m_backing->setEnvironmentMap(WTF::move(imageAsset));
+}
+
+void MeshImpl::updateContentsHeadroom(float headroom)
+{
+#if HAVE(SUPPORT_HDR_DISPLAY) && PLATFORM(COCOA)
+    for (auto& renderBuffer : m_renderBuffers)
+        renderBuffer->setContentEDRHeadroom(headroom);
+#else
+    UNUSED_PARAM(headroom);
+#endif
 }
 
 #if PLATFORM(COCOA)
@@ -110,7 +117,31 @@ Vector<MachSendRight> MeshImpl::ioSurfaceHandles()
         return renderBuffer->createSendRight();
     });
 }
+
+void MeshImpl::updateRenderBuffers(WebModel::ResizeMeshDescriptor&& descriptor)
+{
+    m_backing->updateRenderBuffers(descriptor);
+    m_renderBuffers = WTF::move(descriptor.renderBuffers);
+}
+
+RefPtr<WebCore::NativeImage> MeshImpl::getCurrentFrameAsNativeImage(uint32_t bufferIndex)
+{
+    if (bufferIndex >= m_renderBuffers.size())
+        return nullptr;
+
+    RefPtr nativeImage { m_renderBuffers[bufferIndex]->createNativeImage() };
+    if (!nativeImage)
+        return nullptr;
+
+    CGImageSetCachingFlags(nativeImage->platformImage().get(), kCGImageCachingTransient);
+    return nativeImage;
+}
 #endif
+
+void MeshImpl::processRemovals(Vector<WebModel::TypedResourceId>&& meshRemovals, Vector<WebModel::TypedResourceId>&& materialRemovals, Vector<WebModel::TypedResourceId>&& textureRemovals, CompletionHandler<void(bool)>&& completion)
+{
+    m_backing->processRemovals(WTF::move(meshRemovals), WTF::move(materialRemovals), WTF::move(textureRemovals), WTF::move(completion));
+}
 
 }
 

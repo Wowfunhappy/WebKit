@@ -133,7 +133,7 @@ public:
 
     bool hasDebugIndicator() const { return !!m_debugIndicatorLayerTreeHost; }
 
-    CALayer *layerWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
+    RetainPtr<CALayer> layerWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
 
     void viewWillStartLiveResize() final;
     void viewWillEndLiveResize() final;

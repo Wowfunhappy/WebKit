@@ -51,6 +51,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-auto-min-content-ref-1.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-auto-min-content-ref-2.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-auto-min-content.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-auto-wordbreak-breakall-crash.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-character-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-character.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-manual-010-expected.html
@@ -107,5 +108,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-vs-float-clearance-001.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-vs-float-clearance-002-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/hyphens-vs-float-clearance-002.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/lang-tag-case-insensitive-expected.html
+/LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/lang-tag-case-insensitive.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/shy-styling-001-expected.html
 /LayoutTests/imported/w3c/web-platform-tests/css/css-text/hyphens/shy-styling-001.html

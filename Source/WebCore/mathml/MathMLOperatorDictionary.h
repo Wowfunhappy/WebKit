@@ -27,6 +27,7 @@
 
 #if ENABLE(MATHML)
 
+#include <array>
 #include <optional>
 #include <unicode/utypes.h>
 #include <wtf/Forward.h>
@@ -54,6 +55,7 @@ struct Property {
     unsigned short flags { 0 };
 };
 std::optional<Property> search(char32_t, Form, bool explicitForm);
+std::optional<Property> search(std::array<char16_t, 2>, Form, bool explicitForm);
 bool isVertical(char32_t);
 }
 

@@ -31,6 +31,7 @@
 #include <WebCore/MediaPlaybackTarget.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/ProcessID.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
@@ -84,6 +85,10 @@ public:
 
     void startMonitoringWirelessRoutes();
     void stopMonitoringWirelessRoutes();
+
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+    virtual void ensureMediaDeviceRouteControllerMonitoring() { }
+#endif
 
     virtual std::optional<ProcessID> presentedApplicationPID() const;
     virtual void providePresentingApplicationPID(ProcessID);

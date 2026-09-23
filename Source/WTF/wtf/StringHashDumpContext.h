@@ -101,7 +101,7 @@ public:
         }
     }
     
-public:
+private:
     static CString brief(const T* value, const CString& string)
     {
         StringPrintStream out;

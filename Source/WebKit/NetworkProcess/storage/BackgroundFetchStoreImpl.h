@@ -28,6 +28,7 @@
 #include <WebCore/ClientOrigin.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WTF {
 class WorkQueue;

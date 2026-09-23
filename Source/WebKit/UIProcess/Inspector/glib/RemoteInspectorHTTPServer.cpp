@@ -34,6 +34,7 @@
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CStringView.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
 

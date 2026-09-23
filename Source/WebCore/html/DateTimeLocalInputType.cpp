@@ -81,10 +81,13 @@ StepRange DateTimeLocalInputType::createStepRange(AnyStepHandling anyStepHandlin
     ASSERT(element());
     Ref element = *this->element();
     const Decimal stepBase = findStepBase(dateTimeLocalDefaultStepBase);
-    const Decimal minimum = parseToNumber(element->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumDateTime()));
-    const Decimal maximum = parseToNumber(element->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumDateTime()));
+
+    RangeLimitations rangeLimitations = RangeLimitations::Invalid;
+    const Decimal minimum = extractStepRangeBound(minAttr, Decimal::fromDouble(DateComponents::minimumDateTime()), rangeLimitations);
+    const Decimal maximum = extractStepRangeBound(maxAttr, Decimal::fromDouble(DateComponents::maximumDateTime()), rangeLimitations);
+
     const Decimal step = StepRange::parseStep(anyStepHandling, dateTimeLocalStepDescription, element->attributeWithoutSynchronization(stepAttr));
-    return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, dateTimeLocalStepDescription);
+    return StepRange(stepBase, rangeLimitations, minimum, maximum, step, dateTimeLocalStepDescription);
 }
 
 std::optional<DateComponents> DateTimeLocalInputType::parseToDateComponents(StringView source) const

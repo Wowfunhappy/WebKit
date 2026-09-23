@@ -1,3 +1,4 @@
+<!-- webkit-test-runner [ StorageBlockingPolicy=1 ] -->
 <html>
 <head>
 <script>
@@ -5,7 +6,6 @@ if (window.testRunner) {
     testRunner.dumpAsText();
     testRunner.dumpChildFramesAsText();
     testRunner.waitUntilDone();
-    internals.settings.setStorageBlockingPolicy('BlockThirdParty');
 }
 
 document.location = "http://localhost:8000/cache/resources/partitioned-cache-loader.html";

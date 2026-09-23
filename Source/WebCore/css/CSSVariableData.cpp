@@ -33,7 +33,8 @@
 #include "CSSCustomPropertyValue.h"
 #include "CSSParserTokenRange.h"
 #include "CSSValuePool.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
+#include "StyleCustomProperty.h"
 #include <wtf/text/AtomStringHash.h>
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
@@ -56,12 +57,19 @@ template<typename CharacterType> void CSSVariableData::updateBackingStringsInTok
 
 bool CSSVariableData::operator==(const CSSVariableData& other) const
 {
+    // Attr-taint is not compared here. It is tracked separately in CustomProperty where it affects equality.
     return tokens() == other.tokens();
 }
 
 CSSVariableData::CSSVariableData(const CSSParserTokenRange& range, const CSSParserContext& context)
+    : CSSVariableData(range, Style::IsAttrTainted::No, context)
+{
+}
+
+CSSVariableData::CSSVariableData(const CSSParserTokenRange& range, Style::IsAttrTainted isAttrTainted, const CSSParserContext& context)
     : m_tokens(range.span())
     , m_context(context)
+    , m_isAttrTainted(isAttrTainted)
 {
     StringBuilder stringBuilder;
     for (auto& token : m_tokens) {

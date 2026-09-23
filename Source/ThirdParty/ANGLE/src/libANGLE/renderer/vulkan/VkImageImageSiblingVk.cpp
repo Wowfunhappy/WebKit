@@ -45,15 +45,10 @@ angle::Result VkImageImageSiblingVk::initImpl(DisplayVk *displayVk)
 {
     vk::Renderer *renderer = displayVk->getRenderer();
 
-    const angle::FormatID formatID = vk::GetFormatIDFromVkFormat(mVkImageInfo.format);
+    angle::FormatID formatID = vk::GetFormatIDFromVkFormat(mVkImageInfo.format);
     ANGLE_VK_CHECK(displayVk, formatID != angle::FormatID::NONE, VK_ERROR_FORMAT_NOT_SUPPORTED);
 
-    const vk::Format &vkFormat = renderer->getFormat(formatID);
-    const vk::ImageFormatSupport formatSupport = isRenderable(nullptr)
-                                                     ? vk::ImageFormatSupport::Renderable
-                                                     : vk::ImageFormatSupport::SampleOnly;
-    const angle::FormatID actualImageFormatID  = vkFormat.getActualImageFormatID(formatSupport);
-    const angle::Format &format               = angle::Format::Get(actualImageFormatID);
+    const angle::Format &format = angle::Format::Get(formatID);
 
     angle::FormatID intendedFormatID;
     if (mInternalFormat != GL_NONE)
@@ -66,16 +61,18 @@ angle::Result VkImageImageSiblingVk::initImpl(DisplayVk *displayVk)
     }
     else
     {
+        const vk::Format &vkFormat = renderer->getFormat(formatID);
         intendedFormatID = vkFormat.getIntendedFormatID();
         mFormat          = gl::Format(format.glInternalFormat);
     }
 
     // Create the image
     constexpr bool kIsRobustInitEnabled = false;
+    vk::ImageHelper::ImageFormats imageFormats = {vk::GetVkFormatFromFormatID(renderer, formatID)};
     mImage                              = new vk::ImageHelper();
     mImage->init2DWeakReference(displayVk, mVkImage.release(), getSize(), false, intendedFormatID,
-                                actualImageFormatID, mVkImageInfo.flags, mVkImageInfo.usage, 1,
-                                kIsRobustInitEnabled);
+                                formatID, mVkImageInfo.flags, mVkImageInfo.usage, 1,
+                                kIsRobustInitEnabled, imageFormats);
 
     return angle::Result::Continue;
 }

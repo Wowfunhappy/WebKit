@@ -153,7 +153,7 @@ public:
     static void addInterruptionObserver(AudioSessionInterruptionObserver&);
     static void removeInterruptionObserver(AudioSessionInterruptionObserver&);
 
-    virtual bool isActive() const { return m_active; }
+    bool isActive() const { return m_active; }
 
     void setRoutingArbitrationClient(AudioSessionRoutingArbitrationClient& client) { m_routingArbitrationClient = client; }
 
@@ -177,6 +177,7 @@ protected:
     AudioSession();
 
     virtual bool tryToSetActiveInternal(bool);
+    void setActive(bool);
     void activeStateChanged();
 
     Logger& logger();

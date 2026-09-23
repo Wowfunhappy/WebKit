@@ -1,4 +1,5 @@
 
 PASS IntersectionObserver in a single document using the implicit root.
-FAIL First rAF. assert_equals: No initial notification while in detached document. expected 0 but got 1
+PASS First rAF.
+PASS Adopt target.
 

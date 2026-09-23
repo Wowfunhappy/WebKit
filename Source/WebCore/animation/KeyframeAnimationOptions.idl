@@ -32,8 +32,8 @@ dictionary KeyframeAnimationOptions : KeyframeEffectOptions {
     DOMString id = "";
     AnimationTimeline? timeline;
     [EnabledBySetting=WebAnimationsCustomFrameRateEnabled] (FramesPerSecond or AnimationFrameRatePreset) frameRate = "auto";
-    (TimelineRangeOffset or CSSNumericValue or CSSKeywordValue or DOMString) rangeStart = "normal";
-    (TimelineRangeOffset or CSSNumericValue or CSSKeywordValue or DOMString) rangeEnd = "normal";
+    (TimelineRangeOffset or CSSNumericValue or CSSOMKeywordValue or DOMString) rangeStart = "normal";
+    (TimelineRangeOffset or CSSNumericValue or CSSOMKeywordValue or DOMString) rangeEnd = "normal";
     // FIXME: Add support for `trigger`.
     // AnimationTrigger? trigger;
 };

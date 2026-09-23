@@ -22,6 +22,8 @@
 
 #include "WebKitWebFormManagerPrivate.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSObjectRef.h>
 #include <WebCore/HTMLInputElement.h>
 #include <WebCore/HTMLTextAreaElement.h>
 #include <WebCore/JSNode.h>

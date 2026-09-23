@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <WebCore/CSSNamespacePrefixMap.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -47,12 +48,13 @@ struct PropertyParserState;
 namespace Style {
 class BuilderState;
 class CustomProperty;
+enum class IsAttrTainted : bool;
 }
 
 class CSSPropertyParser {
 public:
     // Parses any CSS property or descriptor. If successful, the result will be appended to the `result` Vector and the function will return true, otherwise, the function will return false and the `result` Vector will be unmodified.
-    static bool parseValue(CSSPropertyID, IsImportant, CSSParserTokenRange, const CSSParserContext&, Vector<CSSProperty, 256>& result, StyleRuleType);
+    static bool parseValue(CSSPropertyID, IsImportant, CSSParserTokenRange, const CSSParserContext&, Vector<CSSProperty, 256>& result, StyleRuleType, const CSSNamespacePrefixMap& = { });
 
     // Parses a longhand style property.
     static RefPtr<CSSValue> parseStylePropertyLonghand(CSSPropertyID, const String&, const CSSParserContext&);
@@ -62,12 +64,11 @@ public:
     static RefPtr<CSSValue> parseCounterStyleDescriptor(CSSPropertyID, const String&, const CSSParserContext&);
 
     static RefPtr<const Style::CustomProperty> parseTypedCustomPropertyInitialValue(const AtomString&, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&);
-    static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> parseTypedCustomPropertyValue(const AtomString& name, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&);
+    static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> parseTypedCustomPropertyValue(const AtomString& name, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&, Style::IsAttrTainted);
 
     static ComputedStyleDependencies collectParsedCustomPropertyValueDependencies(const CSSCustomPropertySyntax&, CSSParserTokenRange, const CSSParserContext&);
     static bool isValidCustomPropertyValueForSyntax(const CSSCustomPropertySyntax&, CSSParserTokenRange, const CSSParserContext&);
-
-    static std::optional<CSSWideKeyword> parseCSSWideKeyword(CSSParserTokenRange);
+    static RefPtr<CSSValue> parseWithSyntax(const CSSCustomPropertySyntax&, CSSParserTokenRange, const CSSParserContext&);
 };
 
 // MARK: - CSSPropertyID parsing

@@ -55,7 +55,7 @@ public:
         return adoptRef(*new CheckboxInputType(element));
     }
 
-    bool valueMissing(const String&) const final;
+    bool valueMissing(StringView) const final;
     float switchAnimationVisuallyOnProgress() const;
     bool NODELETE isSwitchVisuallyOn() const;
     float switchAnimationHeldProgress() const;

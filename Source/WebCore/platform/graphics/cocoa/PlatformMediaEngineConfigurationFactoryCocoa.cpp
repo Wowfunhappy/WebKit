@@ -77,7 +77,10 @@ static std::optional<PlatformMediaCapabilitiesInfo> computeMediaCapabilitiesInfo
             .allowedMediaCodecTypes = configuration.allowedMediaCodecTypes
         };
 
-        if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsSupported)
+        MediaPlayerEngineSelection selection {
+            .scope = MediaPlayerScope::Supports,
+        };
+        if (MediaPlayer::supportsType(parameters, selection) != MediaPlayer::SupportsType::IsSupported)
             return std::nullopt;
 
         auto codecs = parameters.type.codecs();
@@ -164,7 +167,10 @@ static std::optional<PlatformMediaCapabilitiesInfo> computeMediaCapabilitiesInfo
         .allowedMediaCodecTypes = configuration.allowedMediaCodecTypes,
     };
 
-    if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsSupported)
+    MediaPlayerEngineSelection audioSelection {
+        .scope = MediaPlayerScope::Supports,
+    };
+    if (MediaPlayer::supportsType(parameters, audioSelection) != MediaPlayer::SupportsType::IsSupported)
         return std::nullopt;
 
     info.supported = true;

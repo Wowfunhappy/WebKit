@@ -42,7 +42,7 @@ static RefPtr<cairo_t> createCairoContextWithHDC(HDC hdc)
     // Put the HDC In advanced mode so it will honor affine transforms.
     SetGraphicsMode(hdc, GM_ADVANCED);
 
-    cairo_surface_t* surface = 0;
+    cairo_surface_t* surface = nullptr;
 
     HBITMAP bitmap = static_cast<HBITMAP>(GetCurrentObject(hdc, OBJ_BITMAP));
 

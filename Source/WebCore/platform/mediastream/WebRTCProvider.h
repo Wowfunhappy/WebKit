@@ -94,7 +94,7 @@ protected:
     std::optional<RTCRtpCapabilities>& audioEncodingCapabilities();
     std::optional<RTCRtpCapabilities>& videoEncodingCapabilities();
 
-    std::optional<RTCRtpCodecCapability> codecCapability(const ContentType&, const std::optional<RTCRtpCapabilities>&);
+    std::optional<RTCRtpCodec> codecCapability(const ContentType&, const std::optional<RTCRtpCapabilities>&);
 
     std::optional<RTCRtpCapabilities> m_audioDecodingCapabilities;
     std::optional<RTCRtpCapabilities> m_videoDecodingCapabilities;

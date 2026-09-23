@@ -311,7 +311,7 @@ std::unique_ptr<GLContext> GLContext::createSharing(PlatformDisplay& platformDis
     return GLContext::create(platformDisplay.glDisplay(), targetForPlatformDisplay(platformDisplay));
 }
 
-#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+#if !RELEASE_LOG_DISABLED
 static void logGLDebugMessage(GLenum source, GLenum type, GLuint identifier, GLenum severity, GLsizei, const GLchar* message, const void*)
 {
     static constexpr auto sourceName = [](GLenum source) -> const char* {
@@ -370,7 +370,7 @@ static void logGLDebugMessage(GLenum source, GLenum type, GLuint identifier, GLe
         }
     };
 
-    RELEASE_LOG_WITH_LEVEL(GLContext, logLevel(severity), "%s (%s) [id=%ld]: %s", sourceName(source), typeName(type), identifier, message);
+    RELEASE_LOG_WITH_LEVEL(GLContext, logLevel(severity), "%s (%s) [id=%u]: %s", sourceName(source), typeName(type), identifier, message);
     if (type == GL_DEBUG_TYPE_ERROR_KHR && LOG_CHANNEL(GLContext).level >= WTFLogLevel::Debug) {
         WTF::StringPrintStream backtraceStream;
         WTFReportBacktraceWithPrefixAndPrintStream(backtraceStream, "#");
@@ -411,7 +411,7 @@ static inline bool shouldEnableDebugLogging()
 {
     return LOG_CHANNEL(GLContext).state != WTFLogChannelState::Off;
 }
-#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
+#endif // !RELEASE_LOG_DISABLED
 
 GLContext::GLContext(GLDisplay& display, EGLContext context, EGLSurface surface, EGLConfig config)
     : m_display(display)
@@ -421,7 +421,7 @@ GLContext::GLContext(GLDisplay& display, EGLContext context, EGLSurface surface,
 {
     RELEASE_ASSERT(context != EGL_NO_CONTEXT);
 
-#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+#if !RELEASE_LOG_DISABLED
     if (shouldEnableDebugLogging()) [[unlikely]] {
         GLContext* previousContext = nullptr;
         if (!isCurrent()) {
@@ -439,7 +439,7 @@ GLContext::GLContext(GLDisplay& display, EGLContext context, EGLSurface surface,
         if (previousContext)
             previousContext->makeContextCurrent();
     }
-#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
+#endif // !RELEASE_LOG_DISABLED
 
 #if ENABLE(MEDIA_TELEMETRY)
     if (m_surface != EGL_NO_SURFACE) {
@@ -485,7 +485,7 @@ EGLContext GLContext::createEGLContext(GLDisplay& display, EGLConfig config, EGL
         EGL_CONTEXT_CLIENT_VERSION, 2,
     };
 
-#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+#if !RELEASE_LOG_DISABLED
     if (shouldEnableDebugLogging()) {
         if (display.checkVersion(1, 5)) {
             contextAttributes.append(EGL_CONTEXT_OPENGL_DEBUG);
@@ -592,12 +592,12 @@ bool GLContext::isExtensionSupported(const char* extensionList, const char* exte
     int extensionLen = strlen(extension);
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib / Windows ports.
     const char* extensionListPtr = extensionList;
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     while ((extensionListPtr = strstr(extensionListPtr, extension))) {
         if (extensionListPtr[extensionLen] == ' ' || extensionListPtr[extensionLen] == '\0')
             return true;
         extensionListPtr += extensionLen;
     }
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     return false;
 }
 IGNORE_CLANG_WARNINGS_END
@@ -642,6 +642,9 @@ const GLContext::GLExtensions& GLContext::glExtensions() const
         m_glExtensions.APPLE_sync = isExtensionSupported(extensionsString, "GL_APPLE_sync");
         m_glExtensions.OES_packed_depth_stencil = isExtensionSupported(extensionsString, "GL_OES_packed_depth_stencil");
         m_glExtensions.EXT_YUV_target = isExtensionSupported(extensionsString, "GL_EXT_YUV_target");
+#if USE(VULKAN)
+        m_glExtensions.EXT_memory_object = isExtensionSupported(extensionsString, "GL_EXT_memory_object");
+#endif
     });
     return m_glExtensions;
 }

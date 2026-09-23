@@ -19,17 +19,12 @@
 // PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
 // OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 GCC_ENABLE_OBJC_EXCEPTIONS = YES;
 
-GCC_PREPROCESSOR_DEFINITIONS = $(inherited) GTEST_API_=
-
-SYSTEM_FRAMEWORK_SEARCH_PATHS = $(inherited) $(SYSTEM_FRAMEWORK_SEARCH_PATHS_$(WK_COCOA_TOUCH));
-SYSTEM_FRAMEWORK_SEARCH_PATHS_ = $(SYSTEM_LIBRARY_DIR)/Frameworks/WebKit.framework/Versions/A/Frameworks;
-
-PROJECT_HEADER_SEARCH_PATHS = $(SRCROOT)/../../Source/WebKit/Platform $(SRCROOT)/../../Source/WebKit/Platform/IPC $(SRCROOT)/../../Source/WebKit/Platform/IPC/darwin $(SRCROOT)/../../Source/WebKit/Platform/IPC/cocoa $(SRCROOT)/../../Source/WebKit/Shared $(SRCROOT)/../../Source/WebKit/Shared/Cocoa $(SRCROOT)/../../Source/WebKit/Shared/cf $(SRCROOT)/../../Source/WebKit/Shared/API/C $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC $(inherited);
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited);
 
 WK_APPSERVERSUPPORT_LDFLAGS[sdk=iphone*] = -framework AppServerSupport
 WK_APPSERVERSUPPORT_LDFLAGS[sdk=xr*] = -framework AppServerSupport
@@ -48,12 +43,10 @@ WK_BROWSERENGINEKIT_LDFLAGS[sdk=watch*] =
 WK_BROWSERENGINEKIT_LDFLAGS[sdk=xr*] =
 
 WK_REVEAL_LDFLAGS = $(WK_REVEAL_LDFLAGS_$(WK_PLATFORM_NAME));
-WK_REVEAL_LDFLAGS_macosx = $(WK_REVEAL_LDFLAGS$(WK_MACOS_1015));
-WK_REVEAL_LDFLAGS_MACOS_SINCE_1015 = -framework Reveal;
+WK_REVEAL_LDFLAGS_macosx = -framework Reveal;
 
 WK_HID_LDFLAGS = $(WK_HID_LDFLAGS_$(WK_PLATFORM_NAME));
-WK_HID_LDFLAGS_macosx = $(WK_HID_LDFLAGS$(WK_MACOS_1015));
-WK_HID_LDFLAGS_MACOS_SINCE_1015 = -framework HID;
+WK_HID_LDFLAGS_macosx = -framework HID;
 
 WK_VISIONKITCORE_LDFLAGS = $(WK_VISIONKITCORE_LDFLAGS_$(WK_PLATFORM_NAME));
 WK_VISIONKITCORE_LDFLAGS_iphoneos = -framework VisionKitCore;
@@ -80,9 +73,6 @@ WK_PDFKIT_LDFLAGS_appletvsimulator = -weak_framework PDFKit;
 
 WK_SYSTEM_LDFLAGS = $(WK_SYSTEM_LDFLAGS_$(WK_PLATFORM_NAME));
 WK_SYSTEM_LDFLAGS_macosx = -framework System;
-WK_SYSTEM_LDFLAGS_iphoneos = $(WK_SYSTEM_LDFLAGS_$(WK_IOS_15));
-WK_SYSTEM_LDFLAGS_iphonesimulator = $(WK_SYSTEM_LDFLAGS_$(WK_IOS_15));
-WK_SYSTEM_LDFLAGS_IOS_SINCE_15 = -framework System;
 
 WK_UIKITMACHELPER_LDFLAGS = $(WK_UIKITMACHELPER_LDFLAGS_$(WK_PLATFORM_NAME));
 WK_UIKITMACHELPER_LDFLAGS_maccatalyst = -framework UIKitMacHelper;
@@ -103,35 +93,20 @@ WK_IMAGEIO_LDFLAGS_appletvos = -framework ImageIO
 WK_IMAGEIO_LDFLAGS_appletvsimulator = -framework ImageIO
 WK_IMAGEIO_LDFLAGS_watchos = -framework ImageIO
 WK_IMAGEIO_LDFLAGS_watchsimulator = -framework ImageIO
-WK_IMAGEIO_LDFLAGS_macosx = $(WK_IMAGEIO_LDFLAGS$(WK_MACOS_1300));
-WK_IMAGEIO_LDFLAGS_MACOS_SINCE_1300 = -framework ImageIO;
+WK_IMAGEIO_LDFLAGS_macosx = -framework ImageIO;
 
 WK_WRITING_TOOLS_LDFLAGS = $(WK_WRITING_TOOLS_LDFLAGS_$(WK_PLATFORM_NAME));
-WK_WRITING_TOOLS_LDFLAGS_iphoneos = $(WK_WRITING_TOOLS_LDFLAGS$(WK_IOS_18));
-WK_WRITING_TOOLS_LDFLAGS_iphonesimulator = $(WK_WRITING_TOOLS_LDFLAGS$(WK_IOS_18));
-WK_WRITING_TOOLS_LDFLAGS_IOS_SINCE_18 = -weak_framework WritingTools;
-WK_WRITING_TOOLS_LDFLAGS_maccatalyst = $(WK_WRITING_TOOLS_LDFLAGS_maccatalyst$(WK_MACOS_1500));
-WK_WRITING_TOOLS_LDFLAGS_maccatalyst_MACOS_SINCE_1500 = -weak_framework WritingTools;
-WK_WRITING_TOOLS_LDFLAGS_macosx = $(WK_WRITING_TOOLS_LDFLAGS$(WK_MACOS_1500));
-WK_WRITING_TOOLS_LDFLAGS_MACOS_SINCE_1500 = -weak_framework WritingTools;
+WK_WRITING_TOOLS_LDFLAGS_iphoneos = -weak_framework WritingTools;
+WK_WRITING_TOOLS_LDFLAGS_iphonesimulator = -weak_framework WritingTools;
+WK_WRITING_TOOLS_LDFLAGS_maccatalyst = -weak_framework WritingTools;
+WK_WRITING_TOOLS_LDFLAGS_macosx = -weak_framework WritingTools;
 WK_WRITING_TOOLS_LDFLAGS[sdk=xr*] = -weak_framework WritingTools;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xros2.0*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xros2.1*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xros2.2*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xros2.3*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xrsimulator2.0*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xrsimulator2.1*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xrsimulator2.2*] = ;
-WK_WRITING_TOOLS_LDFLAGS[sdk=xrsimulator2.3*] = ;
 
 WK_WRITING_TOOLS_UI_LDFLAGS = $(WK_WRITING_TOOLS_UI_LDFLAGS_$(WK_PLATFORM_NAME));
-WK_WRITING_TOOLS_UI_LDFLAGS_iphoneos = $(WK_WRITING_TOOLS_UI_LDFLAGS$(WK_IOS_18));
+WK_WRITING_TOOLS_UI_LDFLAGS_iphoneos = -weak_framework WritingToolsUI;
 WK_WRITING_TOOLS_UI_LDFLAGS_iphonesimulator = ;
-WK_WRITING_TOOLS_UI_LDFLAGS_IOS_SINCE_18 = -weak_framework WritingToolsUI;
-WK_WRITING_TOOLS_UI_LDFLAGS_maccatalyst = $(WK_WRITING_TOOLS_UI_LDFLAGS_maccatalyst$(WK_MACOS_1500));
-WK_WRITING_TOOLS_UI_LDFLAGS_maccatalyst_MACOS_SINCE_1500 = -weak_framework WritingToolsUI;
-WK_WRITING_TOOLS_UI_LDFLAGS_macosx = $(WK_WRITING_TOOLS_UI_LDFLAGS$(WK_MACOS_1500));
-WK_WRITING_TOOLS_UI_LDFLAGS_MACOS_SINCE_1500 = -weak_framework WritingToolsUI;
+WK_WRITING_TOOLS_UI_LDFLAGS_maccatalyst = -weak_framework WritingToolsUI;
+WK_WRITING_TOOLS_UI_LDFLAGS_macosx = -weak_framework WritingToolsUI;
 
 WK_GAMECONTROLLER_LDFLAGS = $(WK_GAMECONTROLLER_LDFLAGS_$(WK_PLATFORM_NAME))
 WK_GAMECONTROLLER_LDFLAGS_iphoneos = -framework GameController
@@ -139,10 +114,16 @@ WK_GAMECONTROLLER_LDFLAGS_iphonesimulator = -framework GameController
 WK_GAMECONTROLLER_LDFLAGS_xros = -framework GameController
 WK_GAMECONTROLLER_LDFLAGS_xrsimulator = -framework GameController
 
-OTHER_LDFLAGS = $(inherited) $(GTEST_LDFLAGS) -lxml2 -force_load $(BUILT_PRODUCTS_DIR)/libTestWebKitAPI.a -framework JavaScriptCore -framework WebCore -framework WebKit -lWebCoreTestSupport -framework Metal -framework IOSurface $(WK_APPSERVERSUPPORT_LDFLAGS) $(WK_AUTHKIT_LDFLAGS) -framework Network -framework UniformTypeIdentifiers -framework CoreFoundation -framework CoreServices -framework CFNetwork -framework CoreGraphics -framework CoreLocation -framework CoreText -framework IOKit -lboringssl -licucore -framework LocalAuthentication -framework QuartzCore -framework Security -framework AVKit $(WK_BROWSERENGINEKIT_LDFLAGS) $(WK_HID_LDFLAGS) $(WK_IMAGEIO_LDFLAGS) $(WK_OPENGL_LDFLAGS) $(WK_PDFKIT_LDFLAGS) $(WK_SYSTEM_LDFLAGS) $(WK_UIKITMACHELPER_LDFLAGS) $(WK_VISIONKITCORE_LDFLAGS) $(WK_WEBCORE_LDFLAGS) $(WK_REVEAL_LDFLAGS) $(WK_WRITING_TOOLS_LDFLAGS) $(WK_WRITING_TOOLS_UI_LDFLAGS) $(WK_GAMECONTROLLER_LDFLAGS) $(OTHER_LDFLAGS_DELAY_INIT) $(OTHER_LDFLAGS_PLATFORM_$(WK_COCOA_TOUCH)) $(OTHER_LDFLAGS_ENTITLEMENTS);
+WK_LIBWEBRTC_LDFLAGS = $(WK_LIBWEBRTC_LDFLAGS_$(WK_PLATFORM_NAME))
+WK_LIBWEBRTC_LDFLAGS_iphoneos = -weak-lwebrtc
+WK_LIBWEBRTC_LDFLAGS_iphonesimulator = -weak-lwebrtc
+WK_LIBWEBRTC_LDFLAGS_macosx = -weak-lwebrtc
+WK_LIBWEBRTC_LDFLAGS_xros = -weak-lwebrtc
+WK_LIBWEBRTC_LDFLAGS_xrsimulator = -weak-lwebrtc
+
+OTHER_LDFLAGS = $(inherited) $(GTEST_LDFLAGS) -lxml2 -force_load $(BUILT_PRODUCTS_DIR)/libTestWebKitAPI.a -framework JavaScriptCore -framework WebCore -framework WebKit -lWebCoreTestSupport -framework Metal -framework IOSurface $(WK_APPSERVERSUPPORT_LDFLAGS) $(WK_AUTHKIT_LDFLAGS) -framework Network -framework UniformTypeIdentifiers -framework CoreFoundation -framework CoreServices -framework CFNetwork -framework CoreGraphics -framework CoreLocation -framework CoreText -framework IOKit -lboringssl -licucore -framework LocalAuthentication -framework QuartzCore -framework Security -framework AVKit $(WK_BROWSERENGINEKIT_LDFLAGS) $(WK_HID_LDFLAGS) $(WK_IMAGEIO_LDFLAGS) $(WK_OPENGL_LDFLAGS) $(WK_PDFKIT_LDFLAGS) $(WK_SYSTEM_LDFLAGS) $(WK_UIKITMACHELPER_LDFLAGS) $(WK_VISIONKITCORE_LDFLAGS) $(WK_WEBCORE_LDFLAGS) $(WK_REVEAL_LDFLAGS) $(WK_WRITING_TOOLS_LDFLAGS) $(WK_WRITING_TOOLS_UI_LDFLAGS) $(WK_GAMECONTROLLER_LDFLAGS) $(WK_LIBWEBRTC_LDFLAGS) $(OTHER_LDFLAGS_DELAY_INIT) $(OTHER_LDFLAGS_PLATFORM_$(WK_COCOA_TOUCH)) $(OTHER_LDFLAGS_ENTITLEMENTS) -Xlinker --no-demangle;
 
 OTHER_LDFLAGS_DELAY_INIT[sdk=iphone*] = -Wl,-delay_framework,CoreTelephony;
-OTHER_LDFLAGS_DELAY_INIT[sdk=iphone*17.*] = ;
 OTHER_LDFLAGS_DELAY_INIT[sdk=appletv*] = ;
 OTHER_LDFLAGS_DELAY_INIT[sdk=watch*] = ;
 OTHER_LDFLAGS_DELAY_INIT[sdk=xr*] = ;

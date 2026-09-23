@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPIMenus.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -49,47 +50,9 @@
 #import <WebCore/LocalFrameInlines.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
-static NSString * const checkedKey = @"checked";
-static NSString * const contextsKey = @"contexts";
-static NSString * const commandKey = @"command";
-static NSString * const documentURLPatternsKey = @"documentUrlPatterns";
-static NSString * const enabledKey = @"enabled";
-static NSString * const iconsKey = @"icons";
-static NSString * const idKey = @"id";
-static NSString * const onclickKey = @"onclick";
-static NSString * const parentIdKey = @"parentId";
-static NSString * const targetURLPatternsKey = @"targetUrlPatterns";
-static NSString * const titleKey = @"title";
-static NSString * const visibleKey = @"visible";
-
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
-static NSString * const iconVariantsKey = @"iconVariants";
 // FIXME: <https://webkit.org/b/300927> Deprecate `icon_variants` key.
-static NSString * const deprecatedIconVariantsKey = @"icon_variants";
 #endif
-
-static NSString * const normalKey = @"normal";
-static NSString * const checkboxKey = @"checkbox";
-static NSString * const radioKey = @"radio";
-static NSString * const separatorKey = @"separator";
-
-static NSString * const allKey = @"all";
-
-static NSString * const editableKey = @"editable";
-static NSString * const frameIDKey = @"frameId";
-static NSString * const linkTextKey = @"linkText";
-static NSString * const linkURLKey = @"linkUrl";
-static NSString * const mediaTypeKey = @"mediaType";
-static NSString * const menuItemIDKey = @"menuItemId";
-static NSString * const pageURLKey = @"pageUrl";
-static NSString * const parentMenuItemIDKey = @"parentMenuItemId";
-static NSString * const selectionTextKey = @"selectionText";
-static NSString * const srcURLKey = @"srcUrl";
-static NSString * const wasCheckedKey = @"wasChecked";
-
-static NSString * const imageKey = @"image";
-static NSString * const audioKey = @"audio";
-static NSString * const videoKey = @"video";
 
 namespace WebKit {
 
@@ -180,12 +143,12 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
 
             RefPtr extensionContext = this->extensionContext();
             if ([context isEqualToString:@"action"] && !extensionContext->supportsManifestVersion(3)) {
-                *outExceptionString = toErrorString(nullString(), contextsKey, @"'%@' is not a valid context", context).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), contextsKey, makeString("'"_s, String(context), "' is not a valid context"_s)).createNSString().autorelease();
                 return false;
             }
 
             if (([context isEqualToString:@"browser_action"] || [context isEqualToString:@"page_action"]) && extensionContext->supportsManifestVersion(3)) {
-                *outExceptionString = toErrorString(nullString(), contextsKey, @"'%@' is not a valid context", context).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), contextsKey, makeString("'"_s, String(context), "' is not a valid context"_s)).createNSString().autorelease();
                 return false;
             }
 
@@ -197,7 +160,7 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
         for (NSString *patternString in documentPatterns) {
             auto pattern = WebExtensionMatchPattern::getOrCreate(patternString);
             if (!pattern || !pattern->isSupported()) {
-                *outExceptionString = toErrorString(nullString(), documentURLPatternsKey, @"'%@' is not a valid pattern", patternString).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), documentURLPatternsKey, makeString("'"_s, String(patternString), "' is not a valid pattern"_s)).createNSString().autorelease();
                 return false;
             }
         }
@@ -211,7 +174,7 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
 
             // Any valid pattern is allowed, not just supported schemes.
             if (!pattern || !pattern->isValid()) {
-                *outExceptionString = toErrorString(nullString(), targetURLPatternsKey, @"'%@' is not a valid pattern", patternString).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), targetURLPatternsKey, makeString("'"_s, String(patternString), "' is not a valid pattern"_s)).createNSString().autorelease();
                 return false;
             }
         }

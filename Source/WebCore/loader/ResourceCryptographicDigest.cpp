@@ -134,30 +134,30 @@ std::optional<ResourceCryptographicDigest> decodeEncodedResourceCryptographicDig
     return std::nullopt;
 }
 
-static PAL::CryptoDigest::Algorithm NODELETE toCryptoDigestAlgorithm(ResourceCryptographicDigest::Algorithm algorithm)
+static PAL::Crypto::CryptoDigest::Algorithm NODELETE toCryptoDigestAlgorithm(ResourceCryptographicDigest::Algorithm algorithm)
 {
     switch (algorithm) {
     case ResourceCryptographicDigest::Algorithm::SHA256:
-        return PAL::CryptoDigest::Algorithm::SHA_256;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_256;
     case ResourceCryptographicDigest::Algorithm::SHA384:
-        return PAL::CryptoDigest::Algorithm::SHA_384;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_384;
     case ResourceCryptographicDigest::Algorithm::SHA512:
-        return PAL::CryptoDigest::Algorithm::SHA_512;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_512;
     }
     ASSERT_NOT_REACHED();
-    return PAL::CryptoDigest::Algorithm::SHA_512;
+    return PAL::Crypto::CryptoDigest::Algorithm::SHA_512;
 }
 
 ResourceCryptographicDigest cryptographicDigestForBytes(ResourceCryptographicDigest::Algorithm algorithm, std::span<const uint8_t> bytes)
 {
-    auto cryptoDigest = PAL::CryptoDigest::create(toCryptoDigestAlgorithm(algorithm));
+    auto cryptoDigest = PAL::Crypto::CryptoDigest::create(toCryptoDigestAlgorithm(algorithm));
     cryptoDigest->addBytes(bytes);
     return { algorithm, cryptoDigest->computeHash() };
 }
 
 ResourceCryptographicDigest cryptographicDigestForSharedBuffer(ResourceCryptographicDigest::Algorithm algorithm, const FragmentedSharedBuffer* buffer)
 {
-    auto cryptoDigest = PAL::CryptoDigest::create(toCryptoDigestAlgorithm(algorithm));
+    auto cryptoDigest = PAL::Crypto::CryptoDigest::create(toCryptoDigestAlgorithm(algorithm));
     if (buffer) {
         buffer->forEachSegment([&](auto segment) {
             cryptoDigest->addBytes(segment);

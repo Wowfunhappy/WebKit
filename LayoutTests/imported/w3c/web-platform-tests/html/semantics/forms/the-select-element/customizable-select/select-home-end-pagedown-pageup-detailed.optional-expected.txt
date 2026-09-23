@@ -1000,8 +1000,8 @@ Option #998
 Option #999
 Option #1000
 
-FAIL Behavior of Home and End for customizable-<select> assert_equals: Selected option should not change expected "Option #500" but got "Option #1"
+PASS Behavior of Home and End for customizable-<select>
 PASS Behavior of Home and End for customizable-<select>, starting at the top
-FAIL Behavior of Home and End for customizable-<select>, starting at the bottom assert_equals: Selected option should not change expected "Option #1000" but got "Option #1"
-FAIL Behavior of PageUp and PageDown for customizable-<select> assert_not_equals: Second page down should scroll down by one page got disallowed value 11977
+PASS Behavior of Home and End for customizable-<select>, starting at the bottom
+FAIL Behavior of PageUp and PageDown for customizable-<select> assert_true: First page down should not scroll expected true got false
 

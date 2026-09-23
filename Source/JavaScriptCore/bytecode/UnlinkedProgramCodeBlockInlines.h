@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 #include "UnlinkedProgramCodeBlock.h"
 
 namespace JSC {

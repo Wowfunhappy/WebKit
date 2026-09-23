@@ -26,7 +26,6 @@
 #ifndef PAS_DESIGNATED_INTRINSIC_HEAP_H
 #define PAS_DESIGNATED_INTRINSIC_HEAP_H
 
-#include "pas_allocator_index.h"
 #include "pas_heap_config.h"
 
 PAS_BEGIN_EXTERN_C;

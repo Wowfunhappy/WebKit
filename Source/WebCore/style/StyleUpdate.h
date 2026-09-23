@@ -28,7 +28,7 @@
 #include "Node.h"
 #include "StyleChange.h"
 #include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -37,14 +37,20 @@ class ContainerNode;
 class Document;
 class Element;
 class Node;
-class RenderStyle;
 class SVGElement;
 class Text;
 
 namespace Style {
 
+class ComputedStyle;
+
+enum class SVGRendererUpdateType : bool {
+    Default, // Routes through Style::Update -> RenderTreeUpdater::updateSVGRenderer.
+    TransformAttributeOnly // LBSE in-place transform refresh, bypasses Style::Update.
+};
+
 struct ElementUpdate {
-    std::unique_ptr<RenderStyle> style;
+    std::unique_ptr<Style::ComputedStyle> style;
     OptionSet<Change> changes { };
     bool recompositeLayer { false };
     bool mayNeedRebuildRoot { false };
@@ -53,7 +59,7 @@ struct ElementUpdate {
 struct TextUpdate {
     unsigned offset { 0 };
     unsigned length { std::numeric_limits<unsigned>::max() };
-    std::optional<std::unique_ptr<RenderStyle>> inheritedDisplayContentsStyle;
+    std::optional<std::unique_ptr<Style::ComputedStyle>> inheritedDisplayContentsStyle;
 };
 
 class Update final : public CanMakeCheckedPtr<Update, WTF::DefaultedOperatorEqual::No, WTF::CheckedPtrDeleteCheckException::Yes> {
@@ -63,18 +69,18 @@ public:
     Update(Document&);
     ~Update();
 
-    const ListHashSet<Ref<ContainerNode>>& roots() const LIFETIME_BOUND { return m_roots; }
-    ListHashSet<Ref<Element>> takeRebuildRoots() { return WTF::move(m_rebuildRoots); }
+    const OrderedHashSet<Ref<ContainerNode>>& roots() const LIFETIME_BOUND { return m_roots; }
+    OrderedHashSet<Ref<Element>> takeRebuildRoots() { return WTF::move(m_rebuildRoots); }
 
     const ElementUpdate* NODELETE elementUpdate(const Element&) const;
     ElementUpdate* NODELETE elementUpdate(const Element&);
 
     const TextUpdate* NODELETE textUpdate(const Text&) const;
 
-    const RenderStyle* initialContainingBlockUpdate() const LIFETIME_BOUND { return m_initialContainingBlockUpdate.get(); }
+    const Style::ComputedStyle* initialContainingBlockUpdate() const LIFETIME_BOUND { return m_initialContainingBlockUpdate.get(); }
 
-    const RenderStyle* NODELETE elementStyle(const Element&) const;
-    RenderStyle* NODELETE elementStyle(const Element&);
+    const Style::ComputedStyle* NODELETE elementStyle(const Element&) const;
+    Style::ComputedStyle* NODELETE elementStyle(const Element&);
 
     const Document& document() const { return m_document; }
 
@@ -85,18 +91,18 @@ public:
     void addText(Text&, Element* parent, TextUpdate&&);
     void addText(Text&, TextUpdate&&);
     void addSVGRendererUpdate(SVGElement&);
-    void addInitialContainingBlockUpdate(std::unique_ptr<RenderStyle>);
+    void addInitialContainingBlockUpdate(std::unique_ptr<Style::ComputedStyle>);
 
 private:
     void addPossibleRoot(Element*);
     void addPossibleRebuildRoot(Element&, Element* parent);
 
     const Ref<Document> m_document;
-    ListHashSet<Ref<ContainerNode>> m_roots;
-    ListHashSet<Ref<Element>> m_rebuildRoots;
+    OrderedHashSet<Ref<ContainerNode>> m_roots;
+    OrderedHashSet<Ref<Element>> m_rebuildRoots;
     HashMap<Ref<const Element>, ElementUpdate> m_elements;
     HashMap<Ref<const Text>, TextUpdate> m_texts;
-    std::unique_ptr<RenderStyle> m_initialContainingBlockUpdate;
+    std::unique_ptr<Style::ComputedStyle> m_initialContainingBlockUpdate;
 };
 
 }

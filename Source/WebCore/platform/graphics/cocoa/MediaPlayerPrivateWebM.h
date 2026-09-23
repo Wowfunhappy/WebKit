@@ -62,6 +62,7 @@ class MediaSample;
 class MediaSampleAVFObjC;
 class PixelBufferConformerCV;
 class ResourceError;
+class SecurityOrigin;
 class SharedBuffer;
 class TextTrackRepresentation;
 class TrackBuffer;
@@ -103,6 +104,8 @@ private:
     
     // WebMResourceClientParent
     friend class WebMResourceClient;
+    void responseReceived(PlatformMediaResource&, const ResourceResponse&) final;
+    void redirectReceived(PlatformMediaResource&, const ResourceResponse&) final;
     void dataLengthReceived(size_t) final;
     void dataReceived(const SharedBuffer&) final;
     void loadFailed(const ResourceError&) final;
@@ -127,24 +130,24 @@ private:
     bool playAtHostTime(const MonotonicTime&) final;
     bool pauseAtHostTime(const MonotonicTime&) final;
 
-    FloatSize naturalSize() const final { return m_naturalSize; }
+    FloatSize naturalSize() const final;
 
     bool performTaskAtTime(Function<void(const MediaTime&)>&&, const MediaTime&) final;
     void audioOutputDeviceChanged() final;
 
-    bool hasVideo() const final { return m_hasVideo; }
-    bool hasAudio() const final { return m_hasAudio; }
+    bool hasVideo() const final { return m_hasVideo.load(std::memory_order_relaxed); }
+    bool hasAudio() const final { return m_hasAudio.load(std::memory_order_relaxed); }
 
     void setPageIsVisible(bool) final;
 
     MediaTime timeFudgeFactor() const { return { 1, 10 }; }
     MediaTime currentTime() const final;
-    MediaTime duration() const final { return m_duration; }
+    MediaTime duration() const final;
     MediaTime startTime() const final { return MediaTime::zeroTime(); }
     MediaTime initialTime() const final { return MediaTime::zeroTime(); }
 
     void setRateDouble(double) final;
-    double rate() const final { return m_rate; }
+    double rate() const final;
     double effectiveRate() const final;
 
     void setVolume(float) final;
@@ -178,7 +181,7 @@ private:
     void setHasAudio(bool);
     void setHasVideo(bool);
     void setHasAvailableVideoFrame(bool);
-    bool hasAvailableVideoFrame() const final { return m_hasAvailableVideoFrame; }
+    bool hasAvailableVideoFrame() const final;
     void setDuration(MediaTime);
     void setNetworkState(MediaPlayer::NetworkState);
     void setReadyState(MediaPlayer::ReadyState);
@@ -205,7 +208,10 @@ private:
         
     String engineDescription() const final;
     MediaPlayer::MovieLoadType movieLoadType() const final { return MediaPlayer::MovieLoadType::Download; }
-        
+
+    bool didPassCORSAccessCheck() const final { return m_didPassCORSAccessCheck; }
+    std::optional<bool> isCrossOrigin(const SecurityOrigin&) const final;
+
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     bool isCurrentPlaybackTargetWireless() const final;
     void setWirelessPlaybackTarget(Ref<MediaPlaybackTarget>&&) final;
@@ -239,17 +245,16 @@ private:
     void didProvideMediaDataForTrackId(Ref<MediaSampleAVFObjC>&&, TrackID, const String& mediaType);
     void didUpdateFormatDescriptionForTrackId(Ref<TrackInfo>&&, TrackID);
 
-    void flush();
     void flushTrack(TrackID);
     void flushVideoIfNeeded();
 
     void addTrackBuffer(TrackID, RefPtr<MediaDescription>&&);
 
-    void clearTracks();
+    void clearTracks(); // Called from destructor (main thread) or running queue
 
     void startVideoFrameMetadataGathering() final;
     void stopVideoFrameMetadataGathering() final;
-    std::optional<VideoFrameMetadata> videoFrameMetadata() final { return std::exchange(m_videoFrameMetadata, { }); }
+    std::optional<VideoFrameMetadata> videoFrameMetadata() final;
     void setResourceOwner(const ProcessIdentity&) final;
 
     void checkNewVideoFrameMetadata(const MediaTime& presentationTime, double displayTime);
@@ -258,7 +263,7 @@ private:
     void setPlatformDynamicRangeLimit(PlatformDynamicRangeLimit) final;
     void playerContentBoxRectChanged(const LayoutRect&) final;
     void setShouldMaintainAspectRatio(bool) final;
-    bool m_shouldMaintainAspectRatio { true };
+    bool m_shouldMaintainAspectRatio WTF_GUARDED_BY_CAPABILITY(mainThread) { true };
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
     String defaultSpatialTrackingLabel() const final;
@@ -298,6 +303,7 @@ private:
 
     // Remote layer support
     WebCore::HostingContext hostingContext() const final;
+    void requestHostingContext(LayerHostingContextCallback&&) final;
     void setVideoLayerSizeFenced(const WebCore::FloatSize&, WTF::MachSendRightAnnotated&&) final;
     std::optional<MediaPlayerIdentifier> identifier() const final { return m_playerIdentifier; }
 
@@ -318,88 +324,100 @@ private:
 
     static Ref<AudioVideoRenderer> createRenderer(LoggerHelper&, HTMLMediaElementIdentifier, MediaPlayerIdentifier);
 
-    URL m_assetURL;
-    MediaPlayer::Preload m_preload { MediaPlayer::Preload::Auto };
+    URL m_assetURL WTF_GUARDED_BY_CAPABILITY(mainThread);
+    std::atomic<MediaPlayer::Preload> m_preload { MediaPlayer::Preload::Auto };
     ThreadSafeWeakPtr<MediaPlayer> m_player;
-    RefPtr<VideoFrame> m_lastVideoFrame;
-    RefPtr<NativeImage> m_lastImage;
-    RefPtr<WebMResourceClient> m_resourceClient;
-    bool m_needsResourceClient { true };
+    RefPtr<VideoFrame> m_lastVideoFrame WTF_GUARDED_BY_CAPABILITY(mainThread);
+    RefPtr<NativeImage> m_lastImage WTF_GUARDED_BY_CAPABILITY(mainThread);
+    RefPtr<WebMResourceClient> m_resourceClient WTF_GUARDED_BY_CAPABILITY(mainThread);
+    bool m_needsResourceClient WTF_GUARDED_BY_CAPABILITY(mainThread) { true };
 
-    Vector<RefPtr<VideoTrackPrivateWebM>> m_videoTracks;
-    Vector<RefPtr<AudioTrackPrivateWebM>> m_audioTracks;
-    StdUnorderedMap<TrackID, TrackIdentifier> m_trackIdentifiers;
-    StdUnorderedMap<TrackID, UniqueRef<TrackBuffer>> m_trackBufferMap;
-    StdUnorderedMap<TrackID, bool> m_readyForMoreSamplesMap;
-    StdUnorderedMap<TrackID, bool> m_requestReadyForMoreSamplesSetMap;
-    PlatformTimeRanges m_buffered;
+    Vector<RefPtr<VideoTrackPrivateWebM>> m_videoTracks WTF_GUARDED_BY_CAPABILITY(runningQueue()); // or in destructor
+    Vector<RefPtr<AudioTrackPrivateWebM>> m_audioTracks WTF_GUARDED_BY_CAPABILITY(runningQueue()); // or in destructor
+    StdUnorderedMap<TrackID, TrackIdentifier> m_trackIdentifiers WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    StdUnorderedMap<TrackID, UniqueRef<TrackBuffer>> m_trackBufferMap WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    StdUnorderedMap<TrackID, bool> m_readyForMoreSamplesMap WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    StdUnorderedMap<TrackID, bool> m_requestReadyForMoreSamplesSetMap WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    PlatformTimeRanges m_buffered WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    PlatformTimeRanges m_bufferedMainThread WTF_GUARDED_BY_CAPABILITY(mainThread);
 
     const Ref<SourceBufferParserWebM> m_parser;
     const Ref<WTF::WorkQueue> m_appendQueue;
 
-    MediaPlayer::NetworkState m_networkState { MediaPlayer::NetworkState::Empty };
-    MediaPlayer::ReadyState m_readyState { MediaPlayer::ReadyState::HaveNothing };
+    std::atomic<MediaPlayer::NetworkState> m_networkState { MediaPlayer::NetworkState::Empty };
+    std::atomic<MediaPlayer::ReadyState> m_readyState { MediaPlayer::ReadyState::HaveNothing };
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
-    RefPtr<MediaPlaybackTarget> m_playbackTarget;
-    bool m_shouldPlayToTarget { false };
+    RefPtr<MediaPlaybackTarget> m_playbackTarget WTF_GUARDED_BY_CAPABILITY(mainThread);
+    bool m_shouldPlayToTarget WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
 #endif
     const Ref<const Logger> m_logger;
     const uint64_t m_logIdentifier;
 
-    bool m_isGatheringVideoFrameMetadata { false };
-    std::optional<VideoFrameMetadata> m_videoFrameMetadata;
-    uint64_t m_lastConvertedSampleCount { 0 };
+    bool m_isGatheringVideoFrameMetadata WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    std::optional<VideoFrameMetadata> m_videoFrameMetadata WTF_GUARDED_BY_CAPABILITY(mainThread);
+    uint64_t m_lastConvertedSampleCount WTF_GUARDED_BY_CAPABILITY(mainThread) { 0 };
 
-    FloatSize m_naturalSize;
-    MediaTime m_currentTime;
-    MediaTime m_duration { MediaTime::indefiniteTime() };
-    double m_rate { 1 };
+    FloatSize m_naturalSize WTF_GUARDED_BY_CAPABILITY(mainThread);
+    MediaTime m_duration WTF_GUARDED_BY_CAPABILITY(runningQueue()) { MediaTime::indefiniteTime() };
+    MediaTime m_durationMainThread WTF_GUARDED_BY_CAPABILITY(mainThread) { MediaTime::indefiniteTime() };
+    double m_rate WTF_GUARDED_BY_CAPABILITY(mainThread) { 1 };
 
     bool NODELETE isEnabledVideoTrackID(TrackID) const;
     bool NODELETE hasSelectedVideo() const;
-    std::optional<TrackID> m_enabledVideoTrackID;
-    std::atomic<uint32_t> m_abortCalled { 0 };
-    size_t m_contentLength { 0 };
-    size_t m_contentReceived { 0 };
-    uint32_t m_pendingAppends { 0 };
-    bool m_layerRequiresFlush { false };
+    std::optional<TrackID> m_enabledVideoTrackID WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    size_t m_contentLength WTF_GUARDED_BY_CAPABILITY(mainThread) { 0 };
+    size_t m_contentReceived WTF_GUARDED_BY_CAPABILITY(mainThread) { 0 };
+    uint32_t m_pendingAppends WTF_GUARDED_BY_CAPABILITY(runningQueue()) { 0 };
+    bool m_layerRequiresFlush WTF_GUARDED_BY_CAPABILITY(runningQueue()) { false };
 #if PLATFORM(IOS_FAMILY)
-    bool m_applicationIsActive { true };
+    std::atomic<bool> m_applicationIsActive { true };
 #endif
-    bool m_hasAudio { false };
-    bool m_hasVideo { false };
-    bool m_hasAvailableVideoFrame { false };
-    bool m_readyStateIsWaitingForAvailableFrame { true };
-    bool m_visible { false };
-    mutable bool m_loadingProgressed { false };
-    bool m_loadFinished { false };
-    bool m_errored { false };
-    bool m_processingInitializationSegment { false };
+    std::atomic<bool> m_hasAudio { false };
+    std::atomic<bool> m_hasVideo { false };
+    bool m_hasAvailableVideoFrame WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    bool m_readyStateIsWaitingForAvailableFrame WTF_GUARDED_BY_CAPABILITY(mainThread) { true };
+    bool m_visible WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    mutable std::atomic<bool> m_loadingProgressed { false };
+    bool m_loadFinished WTF_GUARDED_BY_CAPABILITY(runningQueue()) { false };
+    std::atomic<bool> m_errored { false };
+    std::atomic<bool> m_processingInitializationSegment { false };
+
+    void addSecurityOrigin(const ResourceResponse&);
+    HashSet<Ref<WebCore::SecurityOrigin>> m_origins;
+    bool m_didPassCORSAccessCheck { true };
 
     // Seek logic support
-    void seekToTarget(const SeekTarget&) final;
-    bool seeking() const final;
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final;
+    bool seeking() const;
     void seekInternal();
-    void cancelPendingSeek();
-    void startSeek(const MediaTime&);
+    void cancelPendingSeek(); // Called from destructor or running queue
     void completeSeek(const MediaTime&);
     Ref<GenericPromise> waitForTimeBuffered(const MediaTime&);
+    void resolveWaitForTimeBufferedPromiseIfPossible();
     bool shouldBePlaying() const;
 
-    bool m_isPlaying { false };
-    Timer m_seekTimer;
-    MediaTime m_lastSeekTime;
-    std::optional<SeekTarget> m_pendingSeek;
-    std::optional<GenericPromise::Producer> m_waitForTimeBufferedPromise;
-    const Ref<NativePromiseRequest> m_rendererSeekRequest;
-    bool m_seeking { false };
+    // WorkQueue on which the player is running.
+    WorkQueue& runningQueue() const { return m_runningQueue.get(); }
+    void ensureOnRunningQueue(Function<void()>&&);
+    MediaTime NODELETE durationOnRunningQueue() const;
+
+    Timer m_seekTimer WTF_GUARDED_BY_CAPABILITY(mainThread);
+    MediaTime m_lastSeekTime WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    std::optional<SeekTarget> m_pendingSeek WTF_GUARDED_BY_CAPABILITY(mainThread);
+    std::atomic<bool> m_hasPendingSeek { false };
+    std::optional<GenericPromise::AutoRejectProducer> m_waitForTimeBufferedPromise WTF_GUARDED_BY_CAPABILITY(runningQueue());
+    Ref<NativePromiseRequest> m_rendererSeekRequest;
+    Ref<NativePromiseRequest> m_stallRequest;
+    std::atomic<bool> m_seeking { false };
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise WTF_GUARDED_BY_CAPABILITY(mainThread);
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    String m_defaultSpatialTrackingLabel;
-    String m_spatialTrackingLabel;
+    String m_defaultSpatialTrackingLabel WTF_GUARDED_BY_CAPABILITY(mainThread);
+    String m_spatialTrackingLabel WTF_GUARDED_BY_CAPABILITY(mainThread);
 #endif
     const MediaPlayerIdentifier m_playerIdentifier;
     const Ref<AudioVideoRenderer> m_renderer;
+    const Ref<WorkQueue> m_runningQueue;
 };
 
 } // namespace WebCore

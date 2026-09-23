@@ -27,6 +27,7 @@
 #import "CoreIPCNSURLRequest.h"
 
 #import "GeneratedSerializers.h"
+#import "Logging.h"
 #import <WebCore/ResourceLoadPriority.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -85,6 +86,104 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCNSURLRequest);
 
+
+// [NSURLProtocol setProperty:forKey:inRequest] allows tagging a request with app-provided
+// data that can be used to track specific requests across time
+//
+// The mechanism is meant for stashing small bits of metadata, not large or complicated blobs.
+// So we restrict the size of keys and properties that can be stashed, as well as not allowing
+// collections like dictionaries or arrays.
+//
+// We also don't allow keys with prefixes that are likely (or even guaranteed) to collide
+// with Apple internal keys.
+
+static constexpr size_t maxAppPropertyKeyLength = 256;
+static constexpr size_t maxAppPropertyStringLength = 64 * 1024;
+static constexpr size_t maxAppPropertyDataLength = 64 * 1024;
+
+static bool isReservedProtocolPropertyKeyPrefix(NSString *key)
+{
+    static NSArray<NSString *> *prefixes = @[
+        @"_kCF",
+        @"kCF",
+        @"WK",
+        @"NS",
+        @"com.apple.",
+    ];
+    for (NSString *prefix in prefixes) {
+        if ([key hasPrefix:prefix])
+            return true;
+    }
+    return false;
+}
+
+static bool isTypedAllowlistKey(NSString *key)
+{
+    static NSSet<NSString *> *allowlist = [[NSSet alloc] initWithArray:@[
+        @"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation",
+        @"kCFURLRequestAllowAllPOSTCaching",
+        @"_kCFHTTPCookiePolicyPropertySiteForCookies",
+        @"_kCFURLCachePartitionKey",
+        @"WKVeryLowLoadPriority",
+        @"NSURLRequestFileProtocolExpectedDevice",
+        @"_kCFURLConnectionPropertyShouldSniff",
+        @"kCFURLRequestContentDecoderSkipURLCheck",
+        @"adIdentifier",
+        @"maximumRequestCount",
+        @"com.apple.ap.pc.proxy-is-recursive",
+        @"requestType",
+    ]];
+    return [allowlist containsObject:key];
+}
+
+static void populateAppProperties(NSDictionary *protocolPropertiesDict, ProtocolProperties& props)
+{
+    for (id rawKey in protocolPropertiesDict) {
+        RetainPtr key = dynamic_objc_cast<NSString>(rawKey);
+        if (!key)
+            continue;
+
+        // Keys represented in the typed fields are handled elsewhere.
+        // Encountering them here is expected, and skipping them prevents errant logging.
+        if (isTypedAllowlistKey(key.get()))
+            continue;
+
+        if (isReservedProtocolPropertyKeyPrefix(key.get())) {
+            RELEASE_LOG_INFO_FORWARDABLE(API, CoreIpcNsurlRequestPropertyKeyNotAllowed, String(key.get()).utf8().data());
+            continue;
+        }
+
+        if ([key length] > maxAppPropertyKeyLength) {
+            RELEASE_LOG_ERROR(API, "NSURLRequest property key '%@' is longer than the allowable %zu characters. Skipping this property.", key.get(), maxAppPropertyKeyLength);
+            continue;
+        }
+
+        RetainPtr<id> value = [protocolPropertiesDict objectForKey:key.get()];
+        if (RetainPtr number = dynamic_objc_cast<NSNumber>(value.get())) {
+            if (CFGetTypeID((__bridge CFTypeRef)number.get()) == CFBooleanGetTypeID()) {
+                props.appProperties.set(String(key.get()), ProtocolProperties::AppPropertyValue { static_cast<bool>([number boolValue]) });
+                continue;
+            }
+            props.appProperties.set(String(key.get()), ProtocolProperties::AppPropertyValue { CoreIPCNumber(number.get()) });
+            continue;
+        }
+        if (RetainPtr string = dynamic_objc_cast<NSString>(value.get())) {
+            if ([string length] > maxAppPropertyStringLength)
+                continue;
+            props.appProperties.set(String(key.get()), ProtocolProperties::AppPropertyValue { CoreIPCString(string.get()) });
+            continue;
+        }
+        if (RetainPtr data = dynamic_objc_cast<NSData>(value.get())) {
+            if ([data length] > maxAppPropertyDataLength)
+                continue;
+            props.appProperties.set(String(key.get()), ProtocolProperties::AppPropertyValue { CoreIPCData(data.get()) });
+            continue;
+        }
+
+        RELEASE_LOG_ERROR(API, "NSURLRequest property value of type '%@' is not allowed. Skipping this property.", NSStringFromClass([value class]));
+    }
+}
+
 CoreIPCNSURLRequest::CoreIPCNSURLRequest(NSURLRequest *request)
 {
     RetainPtr dict = [request _webKitPropertyListData];
@@ -99,6 +198,15 @@ CoreIPCNSURLRequest::CoreIPCNSURLRequest(NSURLRequest *request)
         SET_PROTOCOL_PROPERTY(protocolPropertiesDict, @"NSURLRequestFileProtocolExpectedDevice", NSNumber, CoreIPCNumber, props.fileProtocolExpectedDevice);
         SET_PROTOCOL_PROPERTY_BOOL(protocolPropertiesDict, @"_kCFURLConnectionPropertyShouldSniff", props.shouldSniff);
         SET_PROTOCOL_PROPERTY_BOOL(protocolPropertiesDict, @"kCFURLRequestContentDecoderSkipURLCheck", props.contentDecoderSkipURLCheck);
+        SET_PROTOCOL_PROPERTY(protocolPropertiesDict, @"adIdentifier", NSString, CoreIPCString, props.adIdentifier);
+        SET_PROTOCOL_PROPERTY(protocolPropertiesDict, @"maximumRequestCount", NSNumber, CoreIPCNumber, props.maximumRequestCount);
+        SET_PROTOCOL_PROPERTY_BOOL(protocolPropertiesDict, @"com.apple.ap.pc.proxy-is-recursive", props.apProxyIsRecursive);
+        if (RetainPtr value = dynamic_objc_cast<NSNumber>([protocolPropertiesDict objectForKey:@"requestType"])) {
+            if (auto integerValue = [value integerValue]; isValidEnum<APProxyRequestType>(integerValue))
+                props.requestType = static_cast<APProxyRequestType>(integerValue);
+        }
+
+        populateAppProperties(protocolPropertiesDict.get(), props);
 
         m_data.protocolProperties = WTF::move(props);
     }
@@ -169,25 +277,12 @@ CoreIPCNSURLRequest::CoreIPCNSURLRequest(NSURLRequest *request)
         m_data.headerFields = WTF::move(vector);
     }
 
-    SET_NSURLREQUESTDATA(body, NSData, CoreIPCData);
-
-    RetainPtr<NSArray> bodyParts = dict.get()[@"bodyParts"];
-    if ([bodyParts isKindOfClass:[NSArray class]]) {
-        Vector<CoreIPCNSURLRequestData::BodyParts> vector;
-        vector.reserveInitialCapacity(bodyParts.get().count);
-        for (id element in bodyParts.get()) {
-            if ([element isKindOfClass:[NSString class]]) {
-                CoreIPCString tooAdd(element);
-                vector.append(WTF::move(tooAdd));
-            }
-            if ([element isKindOfClass:[NSData class]]) {
-                CoreIPCData tooAdd(element);
-                vector.append(WTF::move(tooAdd));
-            }
-        }
-        vector.shrinkToFit();
-        m_data.bodyParts = WTF::move(vector);
-    }
+    // Security: body and bodyParts are intentionally not extracted. The HTTP
+    // body is carried separately via WebCore::FormData. The legitimate sender
+    // already clears the body before encoding (setHTTPBody:nil /
+    // setHTTPBodyStream:nil). In CFNetwork, NSString entries in bodyParts are
+    // interpreted as POSIX file paths, so forwarding them would let a
+    // compromised WebContent process exfiltrate NetworkProcess-readable files.
 
     SET_NSURLREQUESTDATA_PRIMITIVE(startTimeoutTime, NSNumber, double);
     SET_NSURLREQUESTDATA_PRIMITIVE(requiresShortConnectionTimeout, NSNumber, bool);
@@ -209,7 +304,7 @@ CoreIPCNSURLRequest::CoreIPCNSURLRequest(NSURLRequest *request)
 
     RetainPtr<id> attribution = dict.get()[@"attribution"];
     if ([attribution isKindOfClass:[NSNumber class]]) {
-        auto val = [allowedProtocolTypes unsignedCharValue];
+        auto val = [attribution unsignedCharValue];
         if (isValidEnum<NSURLRequestAttribution>(val))
             m_data.attribution = static_cast<NSURLRequestAttribution>(val);
     }
@@ -255,7 +350,7 @@ RetainPtr<id> CoreIPCNSURLRequest::toID() const
     RetainPtr dict = adoptNS([[NSMutableDictionary alloc] initWithCapacity:CoreIPCNSURLRequestData::numberOfFields]);
 
     if (m_data.protocolProperties) {
-        RetainPtr protocolPropertiesDict = adoptNS([[NSMutableDictionary alloc] initWithCapacity:8]);
+        RetainPtr protocolPropertiesDict = adoptNS([[NSMutableDictionary alloc] initWithCapacity:12]);
         SET_PROTOCOL_DICT_BOOL(protocolPropertiesDict, @"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation", m_data.protocolProperties->isTopLevelNavigation);
         SET_PROTOCOL_DICT_BOOL(protocolPropertiesDict, @"kCFURLRequestAllowAllPOSTCaching", m_data.protocolProperties->allowAllPOSTCaching);
         SET_PROTOCOL_DICT_MEMBER(protocolPropertiesDict, @"_kCFHTTPCookiePolicyPropertySiteForCookies", m_data.protocolProperties->siteForCookies);
@@ -264,6 +359,30 @@ RetainPtr<id> CoreIPCNSURLRequest::toID() const
         SET_PROTOCOL_DICT_MEMBER(protocolPropertiesDict, @"NSURLRequestFileProtocolExpectedDevice", m_data.protocolProperties->fileProtocolExpectedDevice);
         SET_PROTOCOL_DICT_BOOL(protocolPropertiesDict, @"_kCFURLConnectionPropertyShouldSniff", m_data.protocolProperties->shouldSniff);
         SET_PROTOCOL_DICT_BOOL(protocolPropertiesDict, @"kCFURLRequestContentDecoderSkipURLCheck", m_data.protocolProperties->contentDecoderSkipURLCheck);
+        SET_PROTOCOL_DICT_MEMBER(protocolPropertiesDict, @"adIdentifier", m_data.protocolProperties->adIdentifier);
+        SET_PROTOCOL_DICT_MEMBER(protocolPropertiesDict, @"maximumRequestCount", m_data.protocolProperties->maximumRequestCount);
+        SET_PROTOCOL_DICT_BOOL(protocolPropertiesDict, @"com.apple.ap.pc.proxy-is-recursive", m_data.protocolProperties->apProxyIsRecursive);
+        if (m_data.protocolProperties->requestType)
+            [protocolPropertiesDict setObject:[NSNumber numberWithInteger:static_cast<NSInteger>(*m_data.protocolProperties->requestType)] forKey:@"requestType"];
+
+        for (auto& entry : m_data.protocolProperties->appProperties) {
+            RetainPtr key = entry.key.createNSString();
+            if (!key)
+                continue;
+
+            // Prevent re-materialzing any key that might conflict with an Apple internal key.
+            if (isTypedAllowlistKey(key.get()) || isReservedProtocolPropertyKeyPrefix(key.get()))
+                continue;
+
+            RetainPtr<id> value = WTF::switchOn(entry.value,
+                [] (bool b) -> RetainPtr<id> { return [NSNumber numberWithBool:b]; },
+                [] (const CoreIPCNumber& n) -> RetainPtr<id> { return n.toID(); },
+                [] (const CoreIPCString& s) -> RetainPtr<id> { return s.toID(); },
+                [] (const CoreIPCData& d) -> RetainPtr<id> { return d.toID(); }
+            );
+            if (value)
+                [protocolPropertiesDict setObject:value.get() forKey:key.get()];
+        }
 
         [dict setObject:protocolPropertiesDict.get() forKey:@"protocolProperties"];
     }
@@ -319,20 +438,22 @@ RetainPtr<id> CoreIPCNSURLRequest::toID() const
         [dict setObject:headerFields.get() forKey:@"headerFields"];
     }
 
-    SET_DICT_FROM_OPTIONAL_MEMBER(body);
+    // Security: body is intentionally not forwarded to
+    // _initWithWebKitPropertyListData:. The HTTP body is carried separately
+    // via WebCore::FormData and validated through that path. A compromised
+    // WebContent process could use this field to inject arbitrary data.
+    ASSERT(!m_data.body);
 
-    if (m_data.bodyParts) {
-        auto array = adoptNS([[NSMutableArray alloc] initWithCapacity:(*m_data.bodyParts).size()]);
-        for (auto& value : *m_data.bodyParts) {
-            WTF::switchOn(value,
-                [&] (const auto& d) {
-                    if (auto obj = d.toID())
-                        [array addObject:obj.get()];
-                }
-            );
-        }
-        [dict setObject:array.get() forKey:@"bodyParts"];
-    }
+    // Security: bodyParts is intentionally not forwarded to
+    // _initWithWebKitPropertyListData:. In CFNetwork, NSString entries in
+    // bodyParts are interpreted as POSIX file paths and opened via
+    // CFReadStreamCreateWithFile inside NetworkProcess. A compromised
+    // WebContent process could exfiltrate any NetworkProcess-readable file
+    // by supplying arbitrary file paths in bodyParts. The legitimate sender
+    // already clears the HTTP body before encoding (setHTTPBody:nil /
+    // setHTTPBodyStream:nil), so bodyParts is always empty in legitimate IPC.
+    // The HTTP body is carried separately via WebCore::FormData.
+    ASSERT(!m_data.bodyParts);
 
     SET_DICT_FROM_PRIMITIVE(startTimeoutTime, NSInteger, Double);
     SET_DICT_FROM_PRIMITIVE(requiresShortConnectionTimeout, NSInteger, Bool);

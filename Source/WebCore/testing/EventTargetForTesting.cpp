@@ -30,6 +30,9 @@
 #include "CustomEvent.h"
 #include "MessageForTesting.h"
 #include "MessageTargetForTesting.h"
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSString.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -62,7 +65,11 @@ void EventTargetForTesting::sendInternalMessage(const MessageForTesting& message
 
     JSC::JSValue detail = jsNontrivialString(scriptExecutionContext->vm(), message.data);
 
-    dispatchEvent(CustomEvent::create(message.type, CustomEvent::Init {
+    auto* globalObject = scriptExecutionContext->globalObject();
+    if (!globalObject)
+        return;
+
+    dispatchEvent(CustomEvent::create(*globalObject, message.type, CustomEvent::Init {
         { },
         detail,
     }));

@@ -30,6 +30,6 @@
 [
     EnabledBySetting=WebGPUEnabled,
 ] dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
-    GPUPredefinedColorSpace colorSpace = "srgb";
+    PredefinedColorSpace colorSpace = "srgb";
     boolean premultipliedAlpha = false;
 };

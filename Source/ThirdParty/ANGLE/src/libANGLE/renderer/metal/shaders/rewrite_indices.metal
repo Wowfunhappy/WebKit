@@ -18,12 +18,12 @@ constant bool outIndexBufferIsUint16 = (((fixIndexBufferKey >> MtlFixIndexBuffer
 constant bool outIndexBufferIsUint32 = (((fixIndexBufferKey >> MtlFixIndexBufferKeyOutShift) & MtlFixIndexBufferKeyTypeMask) == MtlFixIndexBufferKeyUint32);
 constant bool doPrimRestart = (fixIndexBufferKey & MtlFixIndexBufferKeyPrimRestart);
 constant uint fixIndexBufferMode = (fixIndexBufferKey >> MtlFixIndexBufferKeyModeShift) & MtlFixIndexBufferKeyModeMask;
+constant uint restartIndex = indexBufferIsUint16 ? 0xFFFF : 0xFFFFFFFF;
 
 
 static inline uint readIdx(
                            const device ushort *indexBufferUint16,
                            const device uint   *indexBufferUint32,
-                           const uint restartIndex,
                            const uint indexCount,
                            uint idx,
                            thread bool &foundRestart,
@@ -60,7 +60,6 @@ static inline void outputPrimitive(
                                    const device uint   *indexBufferUint32,
                                    device ushort *outIndexBufferUint16,
                                    device uint   *outIndexBufferUint32,
-                                   const uint restartIndex,
                                    const uint indexCount,
                                    thread uint &baseIndex,
                                    uint onIndex,
@@ -70,7 +69,7 @@ static inline void outputPrimitive(
     if(baseIndex > onIndex) return; // skipped indices while processing
     bool foundRestart = false;
     uint indexThatRestartedFirst = 0;
-#define READ_IDX(_idx) readIdx(indexBufferUint16, indexBufferUint32, restartIndex, indexCount, _idx, foundRestart, indexThatRestartedFirst)
+#define READ_IDX(_idx) readIdx(indexBufferUint16, indexBufferUint32, indexCount, _idx, foundRestart, indexThatRestartedFirst)
 #define WRITE_IDX(_idx, _val) \
 ({ \
     if(outIndexBufferIsUint16) \
@@ -91,6 +90,7 @@ static inline void outputPrimitive(
             if(foundRestart)
             {
                 baseIndex = indexThatRestartedFirst + 1;
+                WRITE_IDX(onOutIndex, restartIndex);
                 return;
             }
 
@@ -104,9 +104,16 @@ static inline void outputPrimitive(
             if(foundRestart)
             {
                 baseIndex = indexThatRestartedFirst + 1;
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
                 return;
             }
-            if((onIndex - baseIndex) & 1) return; // skip this index...
+            if((onIndex - baseIndex) & 1)
+            {
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
+                return;
+            }
 
             if(fixIndexBufferKey & MtlFixIndexBufferKeyProvokingVertexLast)
             {
@@ -127,6 +134,8 @@ static inline void outputPrimitive(
             if(foundRestart)
             {
                 baseIndex = indexThatRestartedFirst + 1;
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
                 return;
             }
 
@@ -150,9 +159,18 @@ static inline void outputPrimitive(
             if(foundRestart)
             {
                 baseIndex = indexThatRestartedFirst + 1;
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
                 return;
             }
-            if(((onIndex - baseIndex) % 3) != 0) return; // skip this index...
+            if(((onIndex - baseIndex) % 3) != 0)
+            {
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
+                return;
+            }
 
             if(fixIndexBufferKey & MtlFixIndexBufferKeyProvokingVertexLast)
             {
@@ -177,6 +195,9 @@ static inline void outputPrimitive(
             if(foundRestart)
             {
                 baseIndex = indexThatRestartedFirst + 1;
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
+                WRITE_IDX(onOutIndex, restartIndex);
                 return;
             }
 
@@ -222,10 +243,9 @@ kernel void fixIndexBuffer(
                            constant uint &primCount [[ buffer(3) ]],
                            uint prim [[thread_position_in_grid]])
 {
-    constexpr uint restartIndex = 0xFFFFFFFF; // unused
     uint baseIndex = 0;
-    uint onIndex = onIndex;
-    uint onOutIndex = onOutIndex;
+    uint onIndex = 0;
+    uint onOutIndex = 0;
     if(prim < primCount)
     {
         switch(fixIndexBufferMode)
@@ -251,7 +271,7 @@ kernel void fixIndexBuffer(
                 onOutIndex = prim * 3;
                 break;
         }
-        outputPrimitive(indexBufferUint16, indexBufferUint32, outIndexBufferUint16, outIndexBufferUint32, restartIndex, indexCount, baseIndex, onIndex, onOutIndex);
+        outputPrimitive(indexBufferUint16, indexBufferUint32, outIndexBufferUint16, outIndexBufferUint32, indexCount, baseIndex, onIndex, onOutIndex);
     }
 }
 
@@ -423,8 +443,8 @@ kernel void genIndexBuffer(
                            uint prim [[thread_position_in_grid]])
 {
     uint baseIndex = 0;
-    uint onIndex = onIndex;
-    uint onOutIndex = onOutIndex;
+    uint onIndex = 0;
+    uint onOutIndex = 0;
     if(prim < primCount)
     {
         switch(fixIndexBufferMode)

@@ -320,7 +320,7 @@ String HeapSnapshotBuilder::descriptionForNode(const HeapSnapshotNode& node)
     Structure* structure = cell->structure();
 
     if (structure->classInfoForCells()->isSubClassOf(Structure::info())) {
-        Structure* cellAsStructure = jsCast<Structure*>(cell);
+        Structure* cellAsStructure = uncheckedDowncast<Structure>(cell);
         String className = cellAsStructure->classInfoForCells()->className;
         if (m_client)
             className = m_client->heapSnapshotBuilderOverrideClassName(*this, cell, className);
@@ -387,7 +387,7 @@ void HeapSnapshotBuilder::dumpToStream(PrintStream& out)
             // These cases are typically F.prototype objects and we want to treat these as
             // "Object" in snapshots and not get the name of the prototype's parent.
             JSObject* object = asObject(node.cell);
-            if (JSGlobalObject* globalObject = object->globalObject()) {
+            if (JSGlobalObject* globalObject = object->realmMayBeNull()) {
                 PropertySlot slot(object, PropertySlot::InternalMethodType::VMInquiry, &vm);
                 if (!object->getOwnPropertySlot(object, globalObject, vm.propertyNames->constructor, slot))
                     className = JSObject::calculatedClassName(object);
@@ -406,7 +406,7 @@ void HeapSnapshotBuilder::dumpToStream(PrintStream& out)
         unsigned labelIndex = 0;
         if (!node.cell->isString() && !node.cell->isHeapBigInt()) {
             Structure* structure = node.cell->structure();
-            if (!structure || !structure->globalObject())
+            if (!structure || !structure->realm())
                 flags |= static_cast<unsigned>(NodeFlags::Internal);
 
             if (m_snapshotType == SnapshotType::GCDebuggingSnapshot) {
@@ -416,8 +416,8 @@ void HeapSnapshotBuilder::dumpToStream(PrintStream& out)
                     nodeLabel.append(it->value);
 
                 if (nodeLabel.isEmpty()) {
-                    if (auto* object = jsDynamicCast<JSObject*>(node.cell)) {
-                        if (auto* function = jsDynamicCast<JSFunction*>(object))
+                    if (auto* object = dynamicDowncast<JSObject>(node.cell)) {
+                        if (auto* function = dynamicDowncast<JSFunction>(object))
                             nodeLabel.append(function->calculatedDisplayName(vm));
                     }
                 }

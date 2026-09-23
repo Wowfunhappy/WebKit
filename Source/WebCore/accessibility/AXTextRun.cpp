@@ -125,6 +125,46 @@ unsigned AXTextRuns::domOffset(unsigned renderedTextOffset) const
 
 FloatRect AXTextRuns::localRect(unsigned start, unsigned end, FontOrientation orientation) const
 {
+    auto perLineRects = localRectsPerLine(start, end, orientation);
+    if (!perLineRects.isEmpty()) {
+        auto result = perLineRects[0];
+        for (size_t i = 1; i < perLineRects.size(); ++i)
+            result.unite(perLineRects[i]);
+        return result;
+    }
+
+    // localRectsPerLine returns empty for collapsed ranges (start == end). For these,
+    // return a caret-width rect at the offset position, matching
+    // CaretRectComputation::caretWidth.
+    if (start == end) {
+        unsigned offset = start;
+        size_t runIndex = indexForOffset(offset, Affinity::Downstream);
+        if (runIndex == notFound)
+            return { };
+
+        const auto& run = at(runIndex);
+        float heightBeforeRun = 0;
+        for (size_t i = 0; i < runIndex; ++i)
+            heightBeforeRun += at(i).lineHeight;
+
+        unsigned offsetOfFirstCharacterInRun = !runIndex ? 0 : runLengthSumTo(runIndex - 1);
+        float xPosition = run.distanceFromBoundsInDirection;
+        const auto& advances = run.advances();
+        unsigned startInRun = offset - offsetOfFirstCharacterInRun;
+        for (unsigned i = 0; i < startInRun && i < advances.size(); ++i)
+            xPosition += static_cast<float>(advances[i]);
+
+        static constexpr float caretWidth = 2;
+        if (orientation == FontOrientation::Horizontal)
+            return { xPosition, heightBeforeRun, caretWidth, run.lineHeight };
+        return { heightBeforeRun, xPosition, run.lineHeight, caretWidth };
+    }
+
+    return { };
+}
+
+Vector<FloatRect> AXTextRuns::localRectsPerLine(unsigned start, unsigned end, FontOrientation orientation) const
+{
     unsigned smallerOffset = start;
     unsigned largerOffset = end;
     if (smallerOffset > largerOffset)
@@ -147,97 +187,6 @@ FloatRect AXTextRuns::localRect(unsigned start, unsigned end, FontOrientation or
         return totalAdvance;
     };
 
-    // FIXME: Probably want a special case for hard linebreaks (<br>s). Investigate how the main-thread does this.
-    // FIXME: We'll need to flip the result rect based on writing mode.
-    unsigned offsetFromOriginInDirection = 0;
-    unsigned maxWidthInDirection = 0;
-    float measuredHeightInDirection = 0.0f;
-    float heightBeforeRuns = 0.0f;
-    for (unsigned i = 0; i <= runIndexOfLargerOffset; i++) {
-        const auto& run = at(i);
-        if (i < runIndexOfSmallerOffset) {
-            // Each text run represents a line, so count up the height of lines prior to our range start.
-            heightBeforeRuns += run.lineHeight;
-        } else {
-            unsigned measuredWidthInDirection = 0;
-            if (i == runIndexOfSmallerOffset) {
-                unsigned offsetOfFirstCharacterInRun = !i ? 0 : runLengthSumTo(i - 1);
-                AX_ASSERT(smallerOffset >= offsetOfFirstCharacterInRun);
-                if (smallerOffset < offsetOfFirstCharacterInRun)
-                    smallerOffset = offsetOfFirstCharacterInRun;
-                // Measure the characters in this run (accomplished by smallerOffset - offsetOfFirstCharacterInRun)
-                // prior to the offset.
-                unsigned widthPriorToStart = 0;
-                if (smallerOffset - offsetOfFirstCharacterInRun > 0)
-                    widthPriorToStart = computeAdvance(run, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun, smallerOffset);
-
-                // If the larger offset goes beyond this line, use the end of the current line to for computing this run's bounds.
-                unsigned endOffsetInLine = runIndexOfSmallerOffset == runIndexOfLargerOffset
-                    ? largerOffset
-                    : !i ? run.length() : runLengthSumTo(i - 1) + run.length();
-
-                if (endOffsetInLine - smallerOffset > 0)
-                    measuredWidthInDirection = computeAdvance(run, offsetOfFirstCharacterInRun, smallerOffset, endOffsetInLine);
-
-                if (!measuredWidthInDirection) {
-                    bool isCollapsedRange = (runIndexOfSmallerOffset == runIndexOfLargerOffset && smallerOffset == largerOffset);
-
-                    if (isCollapsedRange) {
-                        // If this is a collapsed range (start.offset == end.offset), we want to return the width of a cursor.
-                        // Use 2px for this, matching CaretRectComputation::caretWidth. This overall behavior for collapsed
-                        // ranges matches that of CaretRectComputation::computeLocalCaretRect, which is downstream of
-                        // the main-thread-text-implementation equivalent of this function, AXObjectCache::boundsForRange.
-                        measuredWidthInDirection = 2;
-                    } else {
-                        // There was no measured width in this run, so we should count this as a line before the actual rect starts.
-                        heightBeforeRuns += run.lineHeight;
-                    }
-                }
-
-                if (measuredWidthInDirection)
-                    offsetFromOriginInDirection = widthPriorToStart + run.distanceFromBoundsInDirection;
-            } else if (i == runIndexOfLargerOffset) {
-                // We're measuring the end of the range, so measure from the first character in the run up to largerOffset.
-                unsigned offsetOfFirstCharacterInRun = !i ? 0 : runLengthSumTo(i - 1);
-                AX_ASSERT(largerOffset >= offsetOfFirstCharacterInRun);
-                if (largerOffset < offsetOfFirstCharacterInRun)
-                    largerOffset = offsetOfFirstCharacterInRun;
-
-                measuredWidthInDirection = computeAdvance(run, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun, largerOffset);
-                if (measuredWidthInDirection) {
-                    // If we have an offset from origin at this point, that means this range has wrapped from the previous line. We need
-                    // to adjust the width to now encompass the whole line, since the origin will be shifted left to 0.
-                    if (offsetFromOriginInDirection)
-                        measuredWidthInDirection = offsetFromOriginInDirection + maxWidthInDirection;
-                    // Because our rect now includes the beginning of a run, set |x| to be 0, indicating the rect is not
-                    // offset from its container.
-                    offsetFromOriginInDirection = 0;
-                }
-            } else {
-                // We're in some run between runIndexOfSmallerOffset and runIndexOfLargerOffset, so measure the whole run.
-                // For example, this could be the "bbb" runs:
-                // a|aa
-                // bbb
-                // cc|c
-                unsigned offsetOfFirstCharacterInRun = !i ? 0 : runLengthSumTo(i - 1);
-                measuredWidthInDirection = computeAdvance(run, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun + run.length());
-                if (measuredWidthInDirection) {
-                    // Since we are measuring from the beginning of a run, x should be 0.
-                    offsetFromOriginInDirection = 0;
-                }
-            }
-
-            if (measuredWidthInDirection) {
-                // This run is within the range specified by |start| and |end|, so if we measured a width for it,
-                // also add to the height. It's important to only do this if we actually measured a width, as an
-                // offset pointing past the last character in a run will not add any width and thus should not
-                // contribute any height.
-                measuredHeightInDirection += run.lineHeight;
-            }
-            maxWidthInDirection = std::max(maxWidthInDirection, measuredWidthInDirection);
-        }
-    }
-
     // Compared to the main-thread implementation, we regularly produce rects that are 1-3px smaller due to the various
     // levels of float rounding that happen to get here. It's better to be a bit wider to ensure AT cursors capture the
     // entire range of text than it is to be too small. Concretely, too-wide is better than too-small for low-vision
@@ -245,11 +194,64 @@ FloatRect AXTextRuns::localRect(unsigned start, unsigned end, FontOrientation or
     // a bit too large, even favoring too-wide sizes, so only bump by 1px. This is especially impactful when navigating
     // character-by-character in small text.
     static constexpr unsigned sizeBump = 1;
+    // FIXME: Probably want a special case for hard linebreaks (<br>s). Investigate how the main-thread does this.
+    // FIXME: We'll need to flip the result rect based on writing mode.
+    Vector<FloatRect> result;
+    float heightBeforeRuns = 0;
 
-    if (orientation == FontOrientation::Horizontal)
-        return { static_cast<float>(offsetFromOriginInDirection), heightBeforeRuns, static_cast<float>(maxWidthInDirection) + sizeBump, measuredHeightInDirection };
+    for (unsigned i = 0; i <= runIndexOfLargerOffset; i++) {
+        const auto& run = at(i);
+        if (i < runIndexOfSmallerOffset) {
+            heightBeforeRuns += run.lineHeight;
+            continue;
+        }
 
-    return { heightBeforeRuns, static_cast<float>(offsetFromOriginInDirection), measuredHeightInDirection + sizeBump, static_cast<float>(maxWidthInDirection) };
+        float measuredWidth = 0;
+        float xOffset = 0;
+
+        if (i == runIndexOfSmallerOffset) {
+            unsigned offsetOfFirstCharacterInRun = !i ? 0 : runLengthSumTo(i - 1);
+            AX_ASSERT(smallerOffset >= offsetOfFirstCharacterInRun);
+            if (smallerOffset < offsetOfFirstCharacterInRun)
+                smallerOffset = offsetOfFirstCharacterInRun;
+
+            float widthPriorToStart = 0;
+            if (smallerOffset - offsetOfFirstCharacterInRun > 0)
+                widthPriorToStart = computeAdvance(run, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun, smallerOffset);
+
+            unsigned endOffsetInLine = runIndexOfSmallerOffset == runIndexOfLargerOffset
+                ? largerOffset
+                : !i ? run.length() : runLengthSumTo(i - 1) + run.length();
+
+            if (endOffsetInLine - smallerOffset > 0)
+                measuredWidth = computeAdvance(run, offsetOfFirstCharacterInRun, smallerOffset, endOffsetInLine);
+
+            if (measuredWidth)
+                xOffset = widthPriorToStart + run.distanceFromBoundsInDirection;
+        } else if (i == runIndexOfLargerOffset) {
+            unsigned offsetOfFirstCharacterInRun = !i ? 0 : runLengthSumTo(i - 1);
+            AX_ASSERT(largerOffset >= offsetOfFirstCharacterInRun);
+            if (largerOffset < offsetOfFirstCharacterInRun)
+                largerOffset = offsetOfFirstCharacterInRun;
+
+            measuredWidth = computeAdvance(run, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun, largerOffset);
+            xOffset = run.distanceFromBoundsInDirection;
+        } else {
+            unsigned offsetOfFirstCharacterInRun = !i ? 0 : runLengthSumTo(i - 1);
+            measuredWidth = computeAdvance(run, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun, offsetOfFirstCharacterInRun + run.length());
+            xOffset = run.distanceFromBoundsInDirection;
+        }
+
+        if (measuredWidth) {
+            if (orientation == FontOrientation::Horizontal)
+                result.append({ xOffset, heightBeforeRuns, measuredWidth + sizeBump, run.lineHeight });
+            else
+                result.append({ heightBeforeRuns, xOffset, run.lineHeight + sizeBump, measuredWidth });
+        }
+        heightBeforeRuns += run.lineHeight;
+    }
+
+    return result;
 }
 
 } // namespace WebCore

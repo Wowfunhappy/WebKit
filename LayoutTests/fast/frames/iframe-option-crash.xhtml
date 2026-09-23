@@ -9,13 +9,15 @@ function test()
 
     var frame = document.getElementsByTagName("iframe")[0];
     var body = document.getElementById("body");
+    var dataFrame = document.getElementsByTagName("iframe")[1];
+    dataFrame.addEventListener("load", () => {
+        document.getElementById("result").appendChild(document.createTextNode("If no crash while painting, the test passed (requires pixel test mode)."));
+        if (window.testRunner)
+            testRunner.notifyDone();
+    }, { once: true });
+
     body.appendChild(document.getElementById("option"));
     body.appendChild(frame);
-
-    document.getElementById("result").appendChild(document.createTextNode("If no crash while painting, the test passed (requires pixel test mode)."));
-
-    if (window.testRunner)
-        testRunner.notifyDone();
 }
 </script>
 

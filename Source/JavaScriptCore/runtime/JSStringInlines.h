@@ -25,8 +25,10 @@
 
 #pragma once
 
+#include <JavaScriptCore/ExceptionHelpers.h>
+#include <JavaScriptCore/GetVM.h>
 #include <JavaScriptCore/HeapCellInlines.h>
-#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/KeyAtomStringCacheInlines.h>
 #include <JavaScriptCore/MarkedBlockInlines.h>
@@ -221,6 +223,116 @@ std::optional<size_t> JSString::tryFindOneChar(JSGlobalObject*, char16_t charact
     return WTF::notFound;
 }
 
+std::optional<size_t> JSString::tryFindLastOneChar(JSGlobalObject*, char16_t character, unsigned& startPosition) const
+{
+    ASSERT(isRope());
+
+    // Reverse counterpart of tryFindOneChar: walk the rope structure without resolving it
+    // and return the last occurrence of `character` at or before `startPosition` (inclusive).
+    // nullopt means the rope structure is too complex to walk; in that case `startPosition`
+    // is updated to mark the latest position known not to contain the character (so the
+    // caller can resolve only the remaining prefix).
+
+    auto scanSubstring = [&](const JSRopeString* substringRope, unsigned fiberLength, unsigned offset) -> std::optional<size_t> {
+        JSString* base = substringRope->substringBase();
+        ASSERT(!base->isRope());
+        ASSERT(startPosition >= offset);
+        if (!fiberLength)
+            return std::nullopt;
+        unsigned localStart = startPosition >= offset + fiberLength ? fiberLength - 1 : startPosition - offset;
+        StringView view = StringView(base->valueInternal()).substring(substringRope->substringOffset(), fiberLength);
+        size_t result = view.reverseFind(character, localStart);
+        if (result != WTF::notFound)
+            return offset + result;
+        return std::nullopt;
+    };
+
+    if (isSubstring()) {
+        auto result = scanSubstring(static_cast<const JSRopeString*>(this), length(), 0);
+        return result ? result : std::optional<size_t>(WTF::notFound);
+    }
+
+    const JSRopeString* rope = static_cast<const JSRopeString*>(this);
+    unsigned fiberLengths[JSRopeString::s_maxInternalRopeLength] { };
+    JSString* fibers[JSRopeString::s_maxInternalRopeLength] { };
+    unsigned fiberCount = 0;
+    for (unsigned i = 0; i < JSRopeString::s_maxInternalRopeLength; ++i) {
+        JSString* fiber = rope->fiber(i);
+        if (!fiber)
+            break;
+        fibers[fiberCount] = fiber;
+        fiberLengths[fiberCount] = fiber->length();
+        ++fiberCount;
+    }
+
+    unsigned totalLength = length();
+
+    // Walk fibers in reverse order so we return the largest matching index.
+    unsigned offset = totalLength;
+    for (unsigned i = fiberCount; i-- > 0;) {
+        unsigned fiberLength = fiberLengths[i];
+        offset -= fiberLength;
+
+        if (!fiberLength)
+            continue;
+        if (offset > startPosition)
+            continue; // fiber is entirely past `startPosition`.
+
+        JSString* fiber = fibers[i];
+        if (!fiber->isRope()) {
+            unsigned localStart = startPosition >= offset + fiberLength ? fiberLength - 1 : startPosition - offset;
+            size_t result = StringView(fiber->valueInternal()).reverseFind(character, localStart);
+            if (result != WTF::notFound)
+                return offset + result;
+        } else if (fiber->isSubstring()) {
+            if (auto result = scanSubstring(static_cast<const JSRopeString*>(fiber), fiberLength, offset))
+                return result;
+        } else {
+            // Bail out but update startPosition so the caller only needs to scan
+            // [0, offset + fiberLength - 1].
+            startPosition = std::min(startPosition, offset + fiberLength - 1);
+            return std::nullopt;
+        }
+    }
+
+    return WTF::notFound;
+}
+
+ALWAYS_INLINE std::optional<char16_t> JSString::tryGetCharAt(JSGlobalObject*, unsigned index) const
+{
+    ASSERT(isRope());
+    ASSERT(index < length());
+
+    if (isSubstring()) {
+        const JSRopeString* substringRope = static_cast<const JSRopeString*>(this);
+        return StringView(substringRope->substringBase()->valueInternal())[substringRope->substringOffset() + index];
+    }
+
+    const JSRopeString* rope = static_cast<const JSRopeString*>(this);
+    unsigned offset = 0;
+    for (unsigned i = 0; i < JSRopeString::s_maxInternalRopeLength; ++i) {
+        JSString* fiber = rope->fiber(i);
+        ASSERT(fiber);
+        unsigned fiberLength = fiber->length();
+        if (index >= offset + fiberLength) {
+            offset += fiberLength;
+            continue;
+        }
+
+        unsigned localIndex = index - offset;
+        if (!fiber->isRope())
+            return StringView(fiber->valueInternal())[localIndex];
+        if (fiber->isSubstring()) {
+            const JSRopeString* substringFiber = static_cast<const JSRopeString*>(fiber);
+            return StringView(substringFiber->substringBase()->valueInternal())[substringFiber->substringOffset() + localIndex];
+        }
+        return std::nullopt;
+    }
+
+    RELEASE_ASSERT_NOT_REACHED();
+    return std::nullopt;
+}
+
 template<typename StringType>
 inline JSValue jsMakeNontrivialString(VM& vm, StringType&& string)
 {
@@ -278,31 +390,6 @@ inline void JSRopeString::convertToNonRope(String&& string) const
     // We do not clear the trailing fibers and length information (fiber1 and fiber2) because we could be reading the length concurrently.
     ASSERT(!JSString::isRope());
     notifyNeedsDestruction();
-}
-
-inline StringImpl* JSRopeString::tryGetLHS(ASCIILiteral rhs) const
-{
-    if (isSubstring())
-        return nullptr;
-
-    JSString* fiber2 = this->fiber2();
-    if (fiber2)
-        return nullptr;
-
-    JSString* fiber1 = this->fiber1();
-    ASSERT(fiber1);
-    if (fiber1->isRope())
-        return nullptr;
-
-    JSString* fiber0 = this->fiber0();
-    ASSERT(fiber0);
-    if (fiber0->isRope())
-        return nullptr;
-
-    if (fiber1->valueInternal() != rhs)
-        return nullptr;
-
-    return fiber0->valueInternal().impl();
 }
 
 // Overview: These functions convert a JSString from holding a string in rope form
@@ -407,29 +494,66 @@ inline void JSRopeString::resolveToBuffer(JSString* fiber0, JSString* fiber1, JS
 
                 auto* rope0 = static_cast<const JSRopeString*>(fiber0);
                 auto rope0Length = rope0->length();
-                if (rope0->isSubstring()) {
-                    StringView view0 = *rope0->substringBase()->valueInternal().impl();
-                    unsigned offset = rope0->substringOffset();
-                    view0.substring(offset, rope0Length).getCharacters(buffer);
-                } else
-                    resolveToBuffer(rope0->fiber0(), rope0->fiber1(), rope0->fiber2(), buffer.first(rope0Length), stackLimit);
-
-                // Both ropes are the same fibers! Then we can just copy the previously generated characters.
-                if (fiber0 == fiber1) {
-                    memcpySpan(buffer.subspan(rope0Length, rope0Length), buffer.first(rope0Length));
-                    return;
-                }
-                skip(buffer, rope0Length);
 
                 auto* rope1 = static_cast<const JSRopeString*>(fiber1);
                 auto rope1Length = rope1->length();
+
+                auto rope0Buffer = buffer.first(rope0Length);
+                auto rope1Buffer = buffer.subspan(rope0Length);
+
+                bool rope0Resolved = false;
+                if (rope0->isSubstring()) {
+                    {
+                        StringView view = *rope0->substringBase()->valueInternal().impl();
+                        unsigned offset = rope0->substringOffset();
+                        view.substring(offset, rope0Length).getCharacters(rope0Buffer);
+                    }
+                    if (rope0 == rope1) {
+                        memcpySpan(rope1Buffer, rope0Buffer);
+                        return;
+                    }
+                    rope0Resolved = true;
+                }
+
                 if (rope1->isSubstring()) {
-                    StringView view1 = *rope1->substringBase()->valueInternal().impl();
-                    unsigned offset = rope1->substringOffset();
-                    view1.substring(offset, rope1Length).getCharacters(buffer);
+                    {
+                        StringView view = *rope1->substringBase()->valueInternal().impl();
+                        unsigned offset = rope1->substringOffset();
+                        view.substring(offset, rope1Length).getCharacters(rope1Buffer);
+                    }
+                    if (rope0Resolved)
+                        return;
+                    MUST_TAIL_CALL return resolveToBuffer(rope0->fiber0(), rope0->fiber1(), rope0->fiber2(), rope0Buffer, stackLimit);
+                }
+
+                if (rope0Resolved)
+                    MUST_TAIL_CALL return resolveToBuffer(rope1->fiber0(), rope1->fiber1(), rope1->fiber2(), rope1Buffer, stackLimit);
+
+                // We resolve short rope first. Our heuristic is that longer rope can potentially have deeper nestings.
+                // Thus we would like to resolve that nestings in a tail-call form to avoid deeply nested call stacks.
+                const JSRopeString* shortRope;
+                const JSRopeString* longRope;
+                std::span<CharacterType> shortBuffer;
+                std::span<CharacterType> longBuffer;
+
+                if (rope0Length < rope1Length) {
+                    shortRope = rope0;
+                    longRope = rope1;
+                    shortBuffer = rope0Buffer;
+                    longBuffer = rope1Buffer;
+                } else {
+                    shortRope = rope1;
+                    longRope = rope0;
+                    shortBuffer = rope1Buffer;
+                    longBuffer = rope0Buffer;
+                }
+
+                resolveToBuffer(shortRope->fiber0(), shortRope->fiber1(), shortRope->fiber2(), shortBuffer, stackLimit);
+                if (rope0 == rope1) {
+                    memcpySpan(longBuffer, shortBuffer);
                     return;
                 }
-                MUST_TAIL_CALL return resolveToBuffer(rope1->fiber0(), rope1->fiber1(), rope1->fiber2(), buffer.first(rope1Length), stackLimit);
+                MUST_TAIL_CALL return resolveToBuffer(longRope->fiber0(), longRope->fiber1(), longRope->fiber2(), longBuffer, stackLimit);
             }
 
             auto* rope0 = static_cast<const JSRopeString*>(fiber0);
@@ -521,7 +645,7 @@ inline JSString* jsAtomString(JSGlobalObject* globalObject, VM& vm, JSString* st
         return vm.keyAtomStringCache.make(vm, buffer, createFromNonRope);
     }
 
-    JSRopeString* ropeString = jsCast<JSRopeString*>(string);
+    JSRopeString* ropeString = uncheckedDowncast<JSRopeString>(string);
 
     auto createFromRope = [&](VM& vm, auto& buffer) {
         auto impl = AtomStringImpl::add(buffer);
@@ -706,7 +830,7 @@ inline JSString* jsSubstringOfResolved(VM& vm, GCDeferralContext* deferralContex
         return vm.smallStrings.emptyString();
 
     if (s->isSubstring()) {
-        JSRopeString* baseRope = jsCast<JSRopeString*>(s);
+        JSRopeString* baseRope = uncheckedDowncast<JSRopeString>(s);
         ASSERT(!baseRope->substringBase()->isRope());
         s = baseRope->substringBase();
         offset += baseRope->substringOffset();
@@ -718,11 +842,11 @@ inline JSString* jsSubstringOfResolved(VM& vm, GCDeferralContext* deferralContex
         return s;
 
     if (length == 1) {
-        if (auto c = base.characterAt(offset); c <= maxSingleCharacterString)
+        if (auto c = base.codeUnitAt(offset); c <= maxSingleCharacterString)
             return vm.smallStrings.singleCharacterString(c);
     } else if (length == 2) {
-        char16_t first = base.characterAt(offset);
-        char16_t second = base.characterAt(offset + 1);
+        char16_t first = base.codeUnitAt(offset);
+        char16_t second = base.codeUnitAt(offset + 1);
         if ((first | second) < 0x80) {
             auto createFromSubstring = [&](VM& vm, auto& buffer) {
                 auto impl = AtomStringImpl::add(buffer);
@@ -740,7 +864,7 @@ template<typename CharacterType>
 void JSString::resolveToBuffer(std::span<CharacterType> destination)
 {
     if (isRope()) {
-        auto* rope = jsCast<JSRopeString*>(this);
+        auto* rope = uncheckedDowncast<JSRopeString>(this);
         if (rope->isSubstring()) {
             StringView view = *rope->substringBase()->valueInternal().impl();
             unsigned offset = rope->substringOffset();

@@ -46,12 +46,24 @@ struct Extents
     Extents(const Extents &other)            = default;
     Extents &operator=(const Extents &other) = default;
 
-    bool empty() const { return (width * height * depth) == 0; }
+    constexpr bool empty() const { return width == 0 || height == 0 || depth == 0; }
 
     T width;
     T height;
     T depth;
 };
+
+static_assert(Extents(0, 0, 0).empty());
+static_assert(Extents(0, 1, 1).empty());
+static_assert(Extents(1, 0, 1).empty());
+static_assert(Extents(1, 1, 0).empty());
+static_assert(!Extents(1, 1, 1).empty());
+static_assert(!Extents<int32_t>(1, 65536, 65536).empty());
+static_assert(!Extents<int32_t>(65536, 1, 65536).empty());
+static_assert(!Extents<int32_t>(65536, 65536, 1).empty());
+static_assert(!Extents<uint32_t>(1, 65536, 65536).empty());
+static_assert(!Extents<uint32_t>(65536, 1, 65536).empty());
+static_assert(!Extents<uint32_t>(65536, 65536, 1).empty());
 
 template <typename T>
 struct Offset
@@ -254,6 +266,9 @@ struct Box
     size_t volume() const;
     void extend(const Box &other);
 
+    Offset getOffset() const { return Offset(x, y, z); }
+    Extents getExtents() const { return Extents(width, height, depth); }
+
     int x;
     int y;
     int z;
@@ -304,29 +319,6 @@ struct RasterizerState final
 
 bool operator==(const RasterizerState &a, const RasterizerState &b);
 bool operator!=(const RasterizerState &a, const RasterizerState &b);
-
-struct BlendState final
-{
-    // This will zero-initialize the struct, including padding.
-    BlendState();
-    BlendState(const BlendState &other);
-
-    bool blend;
-    GLenum sourceBlendRGB;
-    GLenum destBlendRGB;
-    GLenum sourceBlendAlpha;
-    GLenum destBlendAlpha;
-    GLenum blendEquationRGB;
-    GLenum blendEquationAlpha;
-
-    bool colorMaskRed;
-    bool colorMaskGreen;
-    bool colorMaskBlue;
-    bool colorMaskAlpha;
-};
-
-bool operator==(const BlendState &a, const BlendState &b);
-bool operator!=(const BlendState &a, const BlendState &b);
 
 struct DepthStencilState final
 {
@@ -435,6 +427,10 @@ class SamplerState final
 
     bool setMaxLod(GLfloat maxLod);
 
+    GLfloat getLodBias() const { return mSampleLodBias; }
+
+    bool setLodBias(GLfloat lodBias);
+
     GLenum getCompareMode() const { return mCompareMode; }
 
     bool setCompareMode(GLenum compareMode);
@@ -471,6 +467,7 @@ class SamplerState final
 
     GLfloat mMinLod;
     GLfloat mMaxLod;
+    GLfloat mSampleLodBias;
 
     GLenum mCompareMode;
     GLenum mCompareFunc;
@@ -1348,10 +1345,19 @@ struct FeatureOverrides
     bool allDisabled = false;
 };
 
-// 160-bit SHA-1 hash key used for hasing a program.  BlobCache opts in using fixed keys for
-// simplicity and efficiency.
+#if defined ANGLE_USE_CRYPTO_HASHER
+// Key is a 160-bit SHA-1 hash. Using fixed keys for simplicity and efficiency.
 static constexpr size_t kBlobCacheKeyLength = angle::base::kSHA1Length;
-using BlobCacheKey                          = std::array<uint8_t, kBlobCacheKeyLength>;
+// The hasher used is a SHA-1 hasher.
+using BlobCacheHasher = angle::base::SecureHashAlgorithm;
+#else
+// Key is a 128-bit XXH3 hash. Using fixed keys for simplicity and efficiency.
+static constexpr size_t kBlobCacheKeyLength = angle::StreamingHasher::kHashSize;
+// The hasher used is an XXH3 streaming hasher.
+using BlobCacheHasher = angle::StreamingHasher;
+#endif  // ANGLE_USE_CRYPTO_HASHER
+
+using BlobCacheKey = std::array<uint8_t, kBlobCacheKeyLength>;
 class BlobCacheValue  // To be replaced with std::span when C++20 is required
 {
   public:
@@ -1626,6 +1632,14 @@ enum class BufferStorage : bool
     Mutable,
     // The buffer storage is immutable
     Immutable,
+};
+
+enum class ZeroFillRequired : bool
+{
+    // The buffer should remain unchanged after initialization if there is no specified data.
+    No,
+    // The buffer should be zero-filled after initialization if there is no specified data.
+    Yes,
 };
 
 }  // namespace gl

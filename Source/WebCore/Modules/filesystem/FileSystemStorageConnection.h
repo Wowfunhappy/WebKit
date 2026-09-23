@@ -25,7 +25,10 @@
 
 #pragma once
 
+#include <WebCore/ClientOrigin.h>
+#include <WebCore/FileSystemHandleGlobalIdentifier.h>
 #include <WebCore/FileSystemHandleIdentifier.h>
+#include <WebCore/FileSystemHandleKind.h>
 #include <WebCore/FileSystemSyncAccessHandleIdentifier.h>
 #include <WebCore/FileSystemWritableFileStreamIdentifier.h>
 #include <WebCore/FileSystemWriteCloseReason.h>
@@ -44,6 +47,7 @@ class FileSystemFileHandle;
 class FileSystemHandleCloseScope;
 class FileSystemSyncAccessHandle;
 class FileSystemWritableFileStream;
+class ScriptExecutionContext;
 template<typename> class ExceptionOr;
 
 class FileSystemStorageConnection : public ThreadSafeRefCounted<FileSystemStorageConnection> {
@@ -52,7 +56,7 @@ public:
 
     using SameEntryCallback = CompletionHandler<void(ExceptionOr<bool>&&)>;
     using GetHandleCallback = CompletionHandler<void(ExceptionOr<Ref<FileSystemHandleCloseScope>>&&)>;
-    using ResolveCallback = CompletionHandler<void(ExceptionOr<Vector<String>>&&)>;
+    using ResolveCallback = CompletionHandler<void(ExceptionOr<std::optional<Vector<String>>>&&)>;
     struct SyncAccessHandleInfo {
         FileSystemSyncAccessHandleIdentifier identifier;
         FileSystem::FileHandle file;
@@ -66,6 +70,7 @@ public:
     using StringCallback = CompletionHandler<void(ExceptionOr<String>&&)>;
     using StreamCallback = CompletionHandler<void(ExceptionOr<FileSystemWritableFileStreamIdentifier>&&)>;
     using RequestCapacityCallback = CompletionHandler<void(std::optional<uint64_t>&&)>;
+    using ResolveGlobalIdentifierCallback = CompletionHandler<void(ExceptionOr<FileSystemHandleIdentifier>&&)>;
 
     virtual bool isWorker() const { return false; }
     virtual void closeHandle(FileSystemHandleIdentifier) = 0;
@@ -87,6 +92,9 @@ public:
     virtual void executeCommandForWritable(FileSystemHandleIdentifier, FileSystemWritableFileStreamIdentifier, FileSystemWriteCommandType, std::optional<uint64_t> position, std::optional<uint64_t> size, std::span<const uint8_t> dataBytes, bool hasDataError, VoidCallback&&) = 0;
     virtual void getHandleNames(FileSystemHandleIdentifier, GetHandleNamesCallback&&) = 0;
     virtual void getHandle(FileSystemHandleIdentifier, const String& name, GetHandleCallback&&) = 0;
+    virtual void addGlobalIdentifierReference(ClientOrigin&&, FileSystemHandleGlobalIdentifier) = 0;
+    virtual void removeGlobalIdentifierReferences(ClientOrigin&&, Vector<FileSystemHandleGlobalIdentifier>&&) = 0;
+    virtual void resolveGlobalIdentifier(ClientOrigin&&, FileSystemHandleGlobalIdentifier, ResolveGlobalIdentifierCallback&&) = 0;
 
     WEBCORE_EXPORT bool errorFileSystemWritable(FileSystemWritableFileStreamIdentifier);
     void registerFileSystemWritable(FileSystemWritableFileStreamIdentifier, FileSystemWritableFileStream&);
@@ -97,5 +105,30 @@ public:
 private:
     HashMap<FileSystemWritableFileStreamIdentifier, WeakPtr<FileSystemWritableFileStream>> m_writables;
 };
+
+class FileSystemHandleKeepAlive {
+public:
+    FileSystemHandleKeepAlive() = default;
+    FileSystemHandleKeepAlive(ClientOrigin&&, FileSystemHandleGlobalIdentifier, Ref<FileSystemStorageConnection>&&);
+    WEBCORE_EXPORT ~FileSystemHandleKeepAlive();
+
+    FileSystemHandleKeepAlive(FileSystemHandleKeepAlive&&) = default;
+    FileSystemHandleKeepAlive& operator=(FileSystemHandleKeepAlive&&);
+
+    FileSystemHandleKeepAlive(const FileSystemHandleKeepAlive&) = delete;
+    FileSystemHandleKeepAlive& operator=(const FileSystemHandleKeepAlive&) = delete;
+
+    WEBCORE_EXPORT FileSystemHandleKeepAlive copy() const;
+
+    Markable<FileSystemHandleGlobalIdentifier> globalIdentifier() const { return m_globalIdentifier; }
+
+private:
+    Markable<FileSystemHandleGlobalIdentifier> m_globalIdentifier;
+    ClientOrigin m_origin;
+    RefPtr<FileSystemStorageConnection> m_connection;
+};
+
+RefPtr<FileSystemStorageConnection> fileSystemStorageConnectionForContext(ScriptExecutionContext&);
+ClientOrigin clientOriginForContext(ScriptExecutionContext&);
 
 } // namespace WebCore

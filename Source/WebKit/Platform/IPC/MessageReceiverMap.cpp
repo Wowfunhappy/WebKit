@@ -27,17 +27,15 @@
 #include "MessageReceiverMap.h"
 
 #include "Decoder.h"
+#include "Logging.h"
 #include "MessageReceiver.h"
+#include <wtf/EnumTraits.h>
 
 namespace IPC {
 
-MessageReceiverMap::MessageReceiverMap()
-{
-}
+MessageReceiverMap::MessageReceiverMap() = default;
 
-MessageReceiverMap::~MessageReceiverMap()
-{
-}
+MessageReceiverMap::~MessageReceiverMap() = default;
 
 void MessageReceiverMap::addMessageReceiver(ReceiverName messageReceiverName, MessageReceiver& messageReceiver)
 {
@@ -106,13 +104,24 @@ void MessageReceiverMap::removeMessageReceiver(MessageReceiver& messageReceiver)
 
 void MessageReceiverMap::invalidate()
 {
-    for (auto& messageReceiver : m_globalMessageReceivers.values())
-        messageReceiver->willBeRemovedFromMessageReceiverMap();
+    for (auto& [name, messageReceiver] : m_globalMessageReceivers) {
+        if (messageReceiver)
+            messageReceiver->willBeRemovedFromMessageReceiverMap();
+        else {
+            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s failed to remove itself from the map before its destruction", WTF::String(WTF::enumName(name)).utf8().data());
+            ASSERT_NOT_REACHED();
+        }
+    }
     m_globalMessageReceivers.clear();
 
-
-    for (auto& messageReceiver : m_messageReceivers.values())
-        messageReceiver->willBeRemovedFromMessageReceiverMap();
+    for (auto& [nameAndDestinationID, messageReceiver] : m_messageReceivers) {
+        if (messageReceiver)
+            messageReceiver->willBeRemovedFromMessageReceiverMap();
+        else {
+            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s (destinationID=%" PRIu64 ") failed to remove itself from the map before its destruction", WTF::String(WTF::enumName(nameAndDestinationID.first)).utf8().data(), nameAndDestinationID.second);
+            ASSERT_NOT_REACHED();
+        }
+    }
     m_messageReceivers.clear();
 }
 

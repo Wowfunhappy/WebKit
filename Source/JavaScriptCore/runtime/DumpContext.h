@@ -37,7 +37,7 @@ struct DumpContext {
     DumpContext();
     ~DumpContext();
     
-    bool isEmpty() const;
+    bool NODELETE isEmpty() const;
     
     void dump(PrintStream&, const char* prefix = "") const;
     

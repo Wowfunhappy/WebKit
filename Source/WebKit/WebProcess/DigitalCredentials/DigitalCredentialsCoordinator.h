@@ -59,8 +59,8 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
-    void showDigitalCredentialsPicker(WebCore::DigitalCredentialsRawRequests&&, const WebCore::DigitalCredentialsRequestData&, CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) final;
-    void dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&&) final;
+    void showDigitalCredentialsChooser(std::optional<WebCore::FrameIdentifier>, WebCore::DigitalCredentialsRawRequests&&, const WebCore::DigitalCredentialsRequestData&, CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) final;
+    void dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&&) final;
     WebCore::ExceptionOr<Vector<WebCore::ValidatedDigitalCredentialRequest>> validateAndParseDigitalCredentialRequests(const WebCore::SecurityOrigin&, const WebCore::Document&, const Vector<WebCore::UnvalidatedDigitalCredentialRequest>&) final;
     void provideRawDigitalCredentialRequests(CompletionHandler<void(WebCore::DigitalCredentialsRawRequests&&)>&&);
 

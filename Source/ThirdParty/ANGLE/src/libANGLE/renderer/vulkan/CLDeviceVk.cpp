@@ -16,11 +16,106 @@
 #include "libANGLE/renderer/vulkan/vk_renderer.h"
 
 #include "libANGLE/renderer/cl_types.h"
+#include "libANGLE/renderer/driver_utils.h"
 
 #include "libANGLE/cl_utils.h"
 
+#include "common/mathutil.h"
+
 namespace rx
 {
+
+uint32_t CLDeviceVk::getNumComputeUnits() const
+{
+    if (mRenderer->getFeatures().supportsAmdShaderCoreProperties.enabled)
+    {
+        auto shaderCoreProperties = getRenderer()->getPhysicalDeviceShaderCorePropertiesAMD();
+        // There are two modes of operations possible for RDNA - WGP and CU. WGP mode uses 2'CUs as
+        // a single unit. Samsung configures the GPU in WGP mode by default.
+        uint32_t workGroupFactor =
+            IsSamsung(getRenderer()->getPhysicalDeviceProperties().vendorID) ? 2 : 1;
+        return shaderCoreProperties.shaderEngineCount *
+               shaderCoreProperties.shaderArraysPerEngineCount *
+               shaderCoreProperties.computeUnitsPerShaderArray / workGroupFactor;
+    }
+
+    return cl::IMPLEMENATION_NUM_COMPUTE_UNITS;
+}
+
+uint32_t CLDeviceVk::getWorkGroupSizeMultiple() const
+{
+    if (mRenderer->getFeatures().supportsAmdShaderCoreProperties.enabled)
+    {
+        return getRenderer()->getPhysicalDeviceShaderCorePropertiesAMD().wavefrontSize;
+    }
+
+    return cl::IMPLEMENATION_PREFERRED_WORKGROUP_SIZE_MULTIPLE;
+}
+
+cl_ulong CLDeviceVk::getSingleFpConfig() const
+{
+    // The spec requires these as bare minimum
+    cl_ulong singleFpConfig = CL_FP_INF_NAN | CL_FP_ROUND_TO_NEAREST;
+    if (mRenderer->getFeatures().supportsRoundingModeRtzFp32.enabled)
+    {
+        singleFpConfig |= CL_FP_ROUND_TO_ZERO;
+    }
+
+    if (mRenderer->getFeatures().supportsAmdShaderCoreProperties.enabled)
+    {
+        // The below are known to be supported
+        // TODO(http://anglebug.com/472472687) need to find appropriate query
+        singleFpConfig |= CL_FP_ROUND_TO_INF | CL_FP_FMA;
+    }
+
+    return singleFpConfig;
+}
+
+cl_ulong CLDeviceVk::getHalfFpConfig() const
+{
+    cl_ulong halfFpConfig = 0;
+    if (mRenderer->getFeatures().supportsShaderFloat16.enabled)
+    {
+        halfFpConfig |= CL_FP_INF_NAN;
+        if (mRenderer->getFeatures().supportsRoundingModeRteFp16.enabled)
+        {
+            halfFpConfig |= CL_FP_ROUND_TO_NEAREST;
+        }
+        if (mRenderer->getFeatures().supportsRoundingModeRtzFp16.enabled)
+        {
+            halfFpConfig |= CL_FP_ROUND_TO_ZERO;
+        }
+
+        if (mRenderer->getFeatures().supportsAmdShaderCoreProperties.enabled)
+        {
+            // The below are known to be supported
+            // TODO(http://anglebug.com/472472687) need to find appropriate query
+            halfFpConfig |= CL_FP_ROUND_TO_INF | CL_FP_FMA;
+        }
+    }
+    return halfFpConfig;
+}
+
+cl_ulong CLDeviceVk::getDoubleFpConfig() const
+{
+    cl_ulong doubleFpConfig = 0;
+    if (mRenderer->getFeatures().supportsShaderFloat64.enabled)
+    {
+        doubleFpConfig |=
+            CL_FP_INF_NAN | CL_FP_ROUND_TO_NEAREST | CL_FP_ROUND_TO_ZERO | CL_FP_DENORM;
+
+        // The below are required
+        // TODO(http://anglebug.com/472472687) need to find appropriate query
+        doubleFpConfig |= CL_FP_ROUND_TO_INF | CL_FP_FMA;
+    }
+    return doubleFpConfig;
+}
+
+cl_ulong CLDeviceVk::getCacheSize() const
+{
+    // TODO(http://anglebug.com/472472687) need to find appropriate query
+    return 1024 * 1024ULL;
+}
 
 CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
     : CLDeviceImpl(device), mRenderer(renderer), mSpirvVersion(ClspvGetSpirvVersion(renderer))
@@ -40,7 +135,7 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::LatestConformanceVersionPassed, std::string("FIXME")}};
     mInfoSizeT = {
         {cl::DeviceInfo::MaxWorkGroupSize, props.limits.maxComputeWorkGroupInvocations},
-        {cl::DeviceInfo::MaxGlobalVariableSize, 0},
+        {cl::DeviceInfo::MaxGlobalVariableSize, 1024 * 1024 * 1024},
         {cl::DeviceInfo::GlobalVariablePreferredTotalSize, 0},
 
         // TODO(aannestrand) Update these hardcoded platform/device queries
@@ -48,41 +143,26 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::MaxParameterSize, 1024},
         {cl::DeviceInfo::ProfilingTimerResolution, 1},
         {cl::DeviceInfo::PrintfBufferSize, 1024 * 1024},
-        {cl::DeviceInfo::PreferredWorkGroupSizeMultiple, 16},
+        {cl::DeviceInfo::PreferredWorkGroupSizeMultiple, getWorkGroupSizeMultiple()},
     };
-
-    // Minimum float configs/support required
-    cl_ulong halfFPConfig   = 0;
-    cl_ulong singleFPConfig = CL_FP_ROUND_TO_NEAREST | CL_FP_INF_NAN | CL_FP_FMA;
-    cl_ulong doubleFPConfig = 0;
-
-    if (mRenderer->getFeatures().supportsShaderFloat16.enabled)
-    {
-        halfFPConfig |= CL_FP_ROUND_TO_NEAREST | CL_FP_INF_NAN;
-    }
-
-    if (mRenderer->getFeatures().supportsShaderFloat64.enabled)
-    {
-        doubleFPConfig |= CL_FP_FMA | CL_FP_ROUND_TO_NEAREST | CL_FP_ROUND_TO_ZERO |
-                          CL_FP_ROUND_TO_INF | CL_FP_INF_NAN | CL_FP_DENORM;
-    }
 
     mInfoULong = {
         {cl::DeviceInfo::LocalMemSize, props.limits.maxComputeSharedMemorySize},
-        {cl::DeviceInfo::SVM_Capabilities, 0},
-        {cl::DeviceInfo::QueueOnDeviceProperties, 0},
-        {cl::DeviceInfo::PartitionAffinityDomain, 0},
-        {cl::DeviceInfo::DeviceEnqueueCapabilities, 0},
+        {cl::DeviceInfo::SVM_Capabilities, 0ULL},
+        {cl::DeviceInfo::QueueOnDeviceProperties, 0ULL},
+        {cl::DeviceInfo::PartitionAffinityDomain, 0ULL},
+        {cl::DeviceInfo::DeviceEnqueueCapabilities, 0ULL},
         {cl::DeviceInfo::QueueOnHostProperties, CL_QUEUE_PROFILING_ENABLE},
 
         // TODO(aannestrand) Update these hardcoded platform/device queries
         // http://anglebug.com/42266935
-        {cl::DeviceInfo::HalfFpConfig, halfFPConfig},
-        {cl::DeviceInfo::DoubleFpConfig, doubleFPConfig},
-        {cl::DeviceInfo::GlobalMemCacheSize, 0},
-        {cl::DeviceInfo::GlobalMemSize, 1024 * 1024 * 1024},
-        {cl::DeviceInfo::MaxConstantBufferSize, 64 * 1024},
-        {cl::DeviceInfo::SingleFpConfig, singleFPConfig},
+        {cl::DeviceInfo::HalfFpConfig, getHalfFpConfig()},
+        {cl::DeviceInfo::DoubleFpConfig, getDoubleFpConfig()},
+        {cl::DeviceInfo::GlobalMemCacheSize, getCacheSize()},
+        {cl::DeviceInfo::GlobalMemSize, 4 * 1024 * 1024 * 1024ULL},
+        // Constant buffer size is same as global variable size in SGPU
+        {cl::DeviceInfo::MaxConstantBufferSize, 1024 * 1024 * 1024ULL},
+        {cl::DeviceInfo::SingleFpConfig, getSingleFpConfig()},
         {cl::DeviceInfo::AtomicMemoryCapabilities,
          CL_DEVICE_ATOMIC_ORDER_RELAXED | CL_DEVICE_ATOMIC_SCOPE_WORK_GROUP |
              CL_DEVICE_ATOMIC_ORDER_ACQ_REL | CL_DEVICE_ATOMIC_SCOPE_DEVICE |
@@ -94,6 +174,16 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
                                                       // non-mandatory
                                                       CL_DEVICE_ATOMIC_SCOPE_WORK_ITEM},
     };
+
+    cl_uint maxNumSubGroups = 0u;
+    if (mRenderer->getFeatures().supportsClKhrSubgroups.enabled)
+    {
+        const uint32_t subgroupSize = mRenderer->getPhysicalDeviceSubgroupProperties().subgroupSize;
+        ASSERT(subgroupSize > 0);
+        maxNumSubGroups =
+            static_cast<uint32_t>(mInfoSizeT[cl::DeviceInfo::MaxWorkGroupSize]) / subgroupSize;
+    }
+
     mInfoUInt = {
         {cl::DeviceInfo::VendorID, props.vendorID},
         {cl::DeviceInfo::MaxReadImageArgs, cl::IMPLEMENATION_MAX_READ_IMAGES},
@@ -126,12 +216,13 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         // need that many and set it to minimum req for now.
         {cl::DeviceInfo::MaxSamplers, 16u},
         {cl::DeviceInfo::MaxConstantArgs, 8},
-        {cl::DeviceInfo::MaxNumSubGroups, 0},
-        {cl::DeviceInfo::MaxComputeUnits, 4},
+        {cl::DeviceInfo::MaxNumSubGroups, maxNumSubGroups},
+        {cl::DeviceInfo::MaxComputeUnits, getNumComputeUnits()},
+        // Frequency is reported in MHz
         {cl::DeviceInfo::MaxClockFrequency, 555},
         {cl::DeviceInfo::MaxWorkItemDimensions, 3},
         {cl::DeviceInfo::MinDataTypeAlignSize, 128},
-        {cl::DeviceInfo::GlobalMemCacheType, CL_NONE},
+        {cl::DeviceInfo::GlobalMemCacheType, CL_READ_WRITE_CACHE},
         {cl::DeviceInfo::HostUnifiedMemory, CL_TRUE},
         {cl::DeviceInfo::NativeVectorWidthChar, 4},
         {cl::DeviceInfo::NativeVectorWidthShort, 2},
@@ -140,7 +231,8 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::NativeVectorWidthFloat, 1},
         {cl::DeviceInfo::NativeVectorWidthDouble, mRenderer->getNativeVectorWidthDouble()},
         {cl::DeviceInfo::NativeVectorWidthHalf, mRenderer->getNativeVectorWidthHalf()},
-        {cl::DeviceInfo::PartitionMaxSubDevices, 0},
+        // Report the number of CU's as max sub devices for now
+        {cl::DeviceInfo::PartitionMaxSubDevices, getNumComputeUnits()},
         {cl::DeviceInfo::PreferredVectorWidthChar, 4},
         {cl::DeviceInfo::PreferredVectorWidthShort, 8},
         {cl::DeviceInfo::PreferredVectorWidthInt, 1},
@@ -153,7 +245,8 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::PreferredPlatformAtomicAlignment, 0},
         {cl::DeviceInfo::NonUniformWorkGroupSupport, CL_TRUE},
         {cl::DeviceInfo::GenericAddressSpaceSupport, CL_FALSE},
-        {cl::DeviceInfo::SubGroupIndependentForwardProgress, CL_FALSE},
+        {cl::DeviceInfo::SubGroupIndependentForwardProgress,
+         maxNumSubGroups > 0 ? CL_TRUE : CL_FALSE},
         {cl::DeviceInfo::WorkGroupCollectiveFunctionsSupport, CL_FALSE},
     };
 }
@@ -183,10 +276,12 @@ CLDeviceImpl::Info CLDeviceVk::createInfo(cl::DeviceType type) const
     info.image3D_MaxHeight = properties.limits.maxImageDimension3D;
     info.image3D_MaxDepth  = properties.limits.maxImageDimension3D;
     // Max number of pixels for a 1D image created from a buffer object.
-    info.imageMaxBufferSize        = properties.limits.maxTexelBufferElements;
-    info.imageMaxArraySize         = properties.limits.maxImageArrayLayers;
-    info.imagePitchAlignment       = 0u;
-    info.imageBaseAddressAlignment = 0u;
+    info.imageMaxBufferSize = properties.limits.maxTexelBufferElements;
+    info.imageMaxArraySize  = properties.limits.maxImageArrayLayers;
+    // The following are queried when image2d is created from buffer. We mimic its support for now
+    // by doing a copy and as such dont have alignment requirements.
+    info.imagePitchAlignment       = 1u;
+    info.imageBaseAddressAlignment = 1u;
 
     info.execCapabilities     = CL_EXEC_KERNEL;
     info.queueOnDeviceMaxSize = 0u;
@@ -201,9 +296,10 @@ CLDeviceImpl::Info CLDeviceVk::createInfo(cl::DeviceType type) const
     info.OpenCL_C_Features         = {};
     info.ILsWithVersion            = {};
     info.builtInKernelsWithVersion = {};
-    info.partitionProperties       = {};
-    info.partitionType             = {};
-    info.IL_Version                = "";
+    // Device partition is not supported for now
+    info.partitionProperties = {CL_NONE};
+    info.partitionType       = {CL_NONE};
+    info.IL_Version          = "";
 
     // Below extensions are required as of OpenCL 1.1, add their versioned strings
     NameVersionVector versionedExtensionList = {
@@ -293,6 +389,20 @@ CLDeviceImpl::Info CLDeviceVk::createInfo(cl::DeviceType type) const
             cl_name_version{.version = CL_MAKE_VERSION(1, 0, 0), .name = "cl_khr_depth_images"});
     }
 
+    // cl_khr_image2d_from_buffer
+    if (info.version >= CL_MAKE_VERSION(3, 0, 0) && info.imageSupport)
+    {
+        versionedExtensionList.push_back(cl_name_version{.version = CL_MAKE_VERSION(1, 0, 0),
+                                                         .name    = "cl_khr_image2d_from_buffer"});
+    }
+
+    // cl_khr_subgroups
+    if (mRenderer->getFeatures().supportsClKhrSubgroups.enabled)
+    {
+        versionedExtensionList.push_back(
+            cl_name_version{.version = CL_MAKE_VERSION(1, 0, 0), .name = "cl_khr_subgroups"});
+    }
+
     info.initializeVersionedExtensions(std::move(versionedExtensionList));
 
     if (!mRenderer->getFeatures().supportsUniformBufferStandardLayout.enabled)
@@ -333,6 +443,12 @@ CLDeviceImpl::Info CLDeviceVk::createInfo(cl::DeviceType type) const
                                                      .name    = "__opencl_c_atomic_order_seq_cst"});
     info.OpenCL_C_Features.push_back(cl_name_version{.version = CL_MAKE_VERSION(3, 0, 0),
                                                      .name    = "__opencl_c_atomic_scope_device"});
+
+    if (mRenderer->getFeatures().supportsClKhrSubgroups.enabled)
+    {
+        info.OpenCL_C_Features.push_back(
+            cl_name_version{.version = CL_MAKE_VERSION(1, 0, 0), .name = "__opencl_c_subgroups"});
+    }
 
     return info;
 }
@@ -408,28 +524,109 @@ angle::Result CLDeviceVk::createSubDevices(const cl_device_partition_property *p
 
 cl::WorkgroupSize CLDeviceVk::selectWorkGroupSize(const cl::NDRange &ndrange) const
 {
-    // Limit total work-group size to the Vulkan device's limit
-    uint32_t maxSize = static_cast<uint32_t>(mInfoSizeT.at(cl::DeviceInfo::MaxWorkGroupSize));
-    maxSize          = std::min(maxSize, 64u);
+    uint32_t subgroupSize = 0;
+    uint32_t maxSize      = static_cast<uint32_t>(mInfoSizeT.at(cl::DeviceInfo::MaxWorkGroupSize));
+    if (mRenderer->getFeatures().supportsClKhrSubgroups.enabled)
+    {
+        // query the renderer SIMD width
+        subgroupSize = mRenderer->getPhysicalDeviceSubgroupProperties().subgroupSize;
+    }
+    // adjust max to be at least one full subgroup
+    maxSize = std::max(subgroupSize, std::min(64u, maxSize));
 
+    if (getRenderer()->getFeatures().clBestUniformFitWGS.enabled)
+    {
+        return CalculateUniformFitWGS(ndrange, maxSize);
+    }
+    else
+    {
+        return CalculateSimplePow2WGS(ndrange, maxSize);
+    }
+}
+
+cl::WorkgroupSize CLDeviceVk::CalculateSimplePow2WGS(const cl::NDRange &ndrange,
+                                                     const uint32_t maxSize)
+{
+    // simplest strategy - start with always-valid GWS, increase by power-of-two until limits
     bool keepIncreasing         = false;
     cl::WorkgroupSize localSize = {1, 1, 1};
     do
     {
         keepIncreasing = false;
-        for (cl_uint i = 0; i < ndrange.workDimensions; i++)
+        for (uint32_t dim = 0; dim < ndrange.workDimensions; dim++)
         {
             cl::WorkgroupSize newLocalSize = localSize;
-            newLocalSize[i] *= 2;
+            newLocalSize[dim] *= 2;
 
-            if (newLocalSize[i] <= ndrange.globalWorkSize[i] &&
-                newLocalSize[0] * newLocalSize[1] * newLocalSize[2] <= maxSize)
+            uint32_t threadsInWorkgroup = newLocalSize[0] * newLocalSize[1] * newLocalSize[2];
+            if (newLocalSize[dim] <= ndrange.globalWorkSize[dim] && threadsInWorkgroup <= maxSize)
             {
                 localSize      = newLocalSize;
                 keepIncreasing = true;
             }
         }
     } while (keepIncreasing);
+    return localSize;
+}
+
+cl::WorkgroupSize CLDeviceVk::CalculateUniformFitWGS(const cl::NDRange &ndrange,
+                                                     const uint32_t maxSize)
+{
+    // uniform-fit strategy: prioritizes on ensuring calculated WGS is uniform to the given GWS.
+    // this tries to avoid non-uniform case which can be costly due to "chunking" dispatches into
+    // uniform regions where each new/unique WGS leads to a creation of a new compute pipeline
+    // (i.e. due to WGS being treated as a VK spec-constant)
+    cl::WorkgroupSize localSize = {std::min(ndrange.globalWorkSize[0], maxSize),
+                                   std::min(ndrange.globalWorkSize[1], maxSize),
+                                   std::min(ndrange.globalWorkSize[2], maxSize)};
+    uint32_t threadsInWorkgroup = localSize[2] * localSize[1] * localSize[0];
+
+    // 1st-pass: iterate the WGS (each dim) to ensure they each evenly divide into their GWS
+    while (threadsInWorkgroup > maxSize)
+    {
+        // check for dim with largest WGS on each try
+        uint32_t maxDim = 0;
+        for (uint32_t dim = 1; dim < ndrange.workDimensions; ++dim)
+        {
+            if (localSize[dim] > localSize[maxDim])
+            {
+                maxDim = dim;
+            }
+        }
+
+        if (localSize[maxDim] > 1)
+        {
+            --localSize[maxDim];  // back-off by one initially
+            while (localSize[maxDim] > 1 &&
+                   (ndrange.globalWorkSize[maxDim] % localSize[maxDim]) != 0)
+            {
+                --localSize[maxDim];
+            }
+        }
+        threadsInWorkgroup = localSize[2] * localSize[1] * localSize[0];
+    }
+
+    // 2nd-pass: if nothing worked so far, try pinning dim with the most threads (ignore others)
+    if (localSize == cl::WorkgroupSize{1, 1, 1})
+    {
+        uint32_t dimWithMostThreads = 0, currentSize = 1;
+        for (uint32_t dim = 0; dim < ndrange.workDimensions; ++dim)
+        {
+            if (currentSize < ndrange.globalWorkSize[dim])
+            {
+                currentSize        = ndrange.globalWorkSize[dim];
+                dimWithMostThreads = dim;
+            }
+        }
+        if (currentSize > maxSize)
+        {
+            // we tried our best to fit our WGS evenly into GWS, but it's not feasible - fall
+            // back to simpler pow2 generator
+            WARN() << "could not perform even-fit for WGS, falling back to simple pow2 WGS";
+            return CalculateSimplePow2WGS(ndrange, maxSize);
+        }
+        localSize[dimWithMostThreads] = currentSize;
+    }
 
     return localSize;
 }

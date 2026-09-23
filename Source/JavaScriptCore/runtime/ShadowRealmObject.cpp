@@ -30,7 +30,6 @@
 #include "AuxiliaryBarrierInlines.h"
 #include "GlobalObjectMethodTable.h"
 #include "JSObjectInlines.h"
-#include "StructureInlines.h"
 
 namespace JSC {
 
@@ -50,7 +49,7 @@ ShadowRealmObject::ShadowRealmObject(VM& vm, Structure* structure)
 template<typename Visitor>
 void ShadowRealmObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    ShadowRealmObject* thisObject = jsCast<ShadowRealmObject*>(cell);
+    ShadowRealmObject* thisObject = uncheckedDowncast<ShadowRealmObject>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 

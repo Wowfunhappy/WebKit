@@ -1,7 +1,9 @@
-<script src="/js-test-resources/js-test-pre.js"></script>
+<script src="/js-test-resources/js-test.js"></script>
+<script>
+description("Test that HTTP redirect to a data URL is blocked for subresources.");
+self.redirectedScriptExecuted = false;
+</script>
 <script src=resources/redirect-to-data.py></script>
 <script>
-description("Test that HTTP redirect to a data URL does not crash or assert in the network process.");
-shouldBeTrue("success");
+shouldBeFalse("self.redirectedScriptExecuted");
 </script>
-<script src="/js-test-resources/js-test-post.js"></script>

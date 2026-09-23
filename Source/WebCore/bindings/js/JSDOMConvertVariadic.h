@@ -27,6 +27,7 @@
 
 #include "IDLTypes.h"
 #include "JSDOMConvertBase.h"
+#include <JavaScriptCore/CallFrame.h>
 #include <wtf/FixedVector.h>
 
 namespace WebCore {

@@ -26,6 +26,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructor.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertOptional.h"
@@ -39,7 +40,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -78,7 +78,7 @@ template<> ConversionResult<IDLDictionary<ExposedToWorkerAndWindow::Dict>> conve
     if (isNullOrUndefined)
         objValue = jsUndefined();
     else {
-        objValue = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "obj"_s));
+        objValue = WebCore::get(object, &lexicalGlobalObject, Identifier::fromString(vm, "obj"_s));
         RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
     }
     auto objConversionResult = convert<IDLOptional<IDLInterface<TestObj>>>(lexicalGlobalObject, objValue);
@@ -94,7 +94,7 @@ JSC::JSObject* convertDictionaryToJS(JSC::JSGlobalObject& lexicalGlobalObject, J
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    auto result = constructEmptyObject(&lexicalGlobalObject, globalObject.objectPrototype());
+    auto result = WebCore::constructEmptyObject(&lexicalGlobalObject, globalObject.objectPrototype());
 
     if (!IDLInterface<TestObj>::isNullValue(dictionary.obj)) {
         auto objValue = toJS<IDLInterface<TestObj>>(lexicalGlobalObject, globalObject, throwScope, IDLInterface<TestObj>::extractValueFromNullable(dictionary.obj));
@@ -129,10 +129,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSExposedToWorkerAndWindowPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSExposedToWorkerAndWindowPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -150,13 +147,13 @@ template<> EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSExposedToWorkerAndWindowDOM
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = lexicalGlobalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* castedThis = jsCast<JSExposedToWorkerAndWindowDOMConstructor*>(callFrame->jsCallee());
+    auto* castedThis = uncheckedDowncast<JSExposedToWorkerAndWindowDOMConstructor>(callFrame->jsCallee());
     ASSERT(castedThis);
     auto object = ExposedToWorkerAndWindow::create();
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     static_assert(TypeOrExceptionOrUnderlyingType<decltype(object)>::isRef);
-    auto jsValue = toJSNewlyCreated<IDLInterface<ExposedToWorkerAndWindow>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, WTF::move(object));
+    auto jsValue = toJSNewlyCreated<IDLInterface<ExposedToWorkerAndWindow>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, WTF::move(object));
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     setSubclassStructureIfNeeded<ExposedToWorkerAndWindow>(lexicalGlobalObject, callFrame, asObject(jsValue));
@@ -191,11 +188,16 @@ static const std::array<HashTableValue, 2> JSExposedToWorkerAndWindowPrototypeTa
 
 const ClassInfo JSExposedToWorkerAndWindowPrototype::s_info = { "ExposedToWorkerAndWindow"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSExposedToWorkerAndWindowPrototype) };
 
+JSC::Structure* JSExposedToWorkerAndWindowPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSExposedToWorkerAndWindowPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSExposedToWorkerAndWindow::info(), JSExposedToWorkerAndWindowPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSExposedToWorkerAndWindow::s_info = { "ExposedToWorkerAndWindow"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSExposedToWorkerAndWindow) };
@@ -206,6 +208,19 @@ JSExposedToWorkerAndWindow::JSExposedToWorkerAndWindow(Structure* structure, JSD
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, ExposedToWorkerAndWindow>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSExposedToWorkerAndWindow* JSExposedToWorkerAndWindow::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<ExposedToWorkerAndWindow>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSExposedToWorkerAndWindow* ptr = new (NotNull, JSC::allocateCell<JSExposedToWorkerAndWindow>(vm)) JSExposedToWorkerAndWindow(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSExposedToWorkerAndWindow::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
 
 JSObject* JSExposedToWorkerAndWindow::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -221,7 +236,7 @@ JSObject* JSExposedToWorkerAndWindow::prototype(VM& vm, JSDOMGlobalObject& globa
 
 JSValue JSExposedToWorkerAndWindow::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSExposedToWorkerAndWindowDOMConstructor, DOMConstructorID::ExposedToWorkerAndWindow>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSExposedToWorkerAndWindowDOMConstructor, DOMConstructorID::ExposedToWorkerAndWindow>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSExposedToWorkerAndWindow::destroy(JSC::JSCell* cell)
@@ -234,10 +249,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsExposedToWorkerAndWindowConstructor, (JSGlobalObject*
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSExposedToWorkerAndWindowPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSExposedToWorkerAndWindowPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSExposedToWorkerAndWindow::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSExposedToWorkerAndWindow::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSC::EncodedJSValue jsExposedToWorkerAndWindowPrototypeFunction_doSomethingBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSExposedToWorkerAndWindow>::ClassParameter castedThis)
@@ -247,7 +262,7 @@ static inline JSC::EncodedJSValue jsExposedToWorkerAndWindowPrototypeFunction_do
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLDictionary<ExposedToWorkerAndWindow::Dict>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.doSomething())));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLDictionary<ExposedToWorkerAndWindow::Dict>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.doSomething())));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsExposedToWorkerAndWindowPrototypeFunction_doSomething, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -267,12 +282,14 @@ JSC::GCClient::IsoSubspace* JSExposedToWorkerAndWindow::subspaceForImpl(JSC::VM&
 
 void JSExposedToWorkerAndWindow::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSExposedToWorkerAndWindow*>(cell);
+    auto* thisObject = uncheckedDowncast<JSExposedToWorkerAndWindow>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSExposedToWorkerAndWindowOwner::JSExposedToWorkerAndWindowOwner(ClangVTableWorkaroundTag) { }
 
 bool JSExposedToWorkerAndWindowOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -286,7 +303,7 @@ void JSExposedToWorkerAndWindowOwner::finalize(JSC::Handle<JSC::Unknown> handle,
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsExposedToWorkerAndWindow = static_cast<JSExposedToWorkerAndWindow*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsExposedToWorkerAndWindow->wrapped()).ptr(), jsExposedToWorkerAndWindow);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsExposedToWorkerAndWindow->wrapped(), jsExposedToWorkerAndWindow);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -334,7 +351,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 ExposedToWorkerAndWindow* JSExposedToWorkerAndWindow::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSExposedToWorkerAndWindow*>(value))
+    if (auto* wrapper = dynamicDowncast<JSExposedToWorkerAndWindow>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

@@ -50,7 +50,7 @@ struct QuadraticBezier {
         return distanceLine(start, control) + distanceLine(control, end);
     }
     
-    bool split(QuadraticBezier& left, QuadraticBezier& right) const
+    bool NODELETE split(QuadraticBezier& left, QuadraticBezier& right) const
     {
         left.control = midPoint(start, control);
         right.control = midPoint(control, end);
@@ -87,7 +87,7 @@ struct CubicBezier {
         return distanceLine(start, control1) + distanceLine(control1, control2) + distanceLine(control2, end);
     }
         
-    bool split(CubicBezier& left, CubicBezier& right) const
+    bool NODELETE split(CubicBezier& left, CubicBezier& right) const
     {    
         FloatPoint startToControl1 = midPoint(control1, control2);
         

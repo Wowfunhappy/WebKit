@@ -37,6 +37,7 @@ public:
     static Ref<HTMLOptGroupElement> create(const QualifiedName&, Document&);
 
     bool isDisabledFormControl() const final;
+    bool isActuallyDisabled() const final;
     WEBCORE_EXPORT HTMLSelectElement* NODELETE ownerSelectElement() const;
     
     WEBCORE_EXPORT String groupLabelText() const;
@@ -49,8 +50,8 @@ public:
 private:
     HTMLOptGroupElement(const QualifiedName&, Document&);
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
 
     const AtomString& formControlType() const;
     bool isFocusable() const final;

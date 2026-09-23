@@ -2037,6 +2037,7 @@
   cmd: defaultRunMozillaTest :normal, "../shell.js"
 - path: js1_5/Array/regress-157652.js
   cmd: |
+      exclusive!
       if ($memoryLimited || $buildType == "debug")
           skip
       else
@@ -2134,6 +2135,7 @@
   cmd: defaultRunMozillaTest :normal, "../shell.js"
 - path: js1_5/Regress/regress-159334.js
   cmd: |
+      exclusive!
       if ($architecture !~ /x86/i and $hostOS == "darwin") or ($architecture == "arm64" and $hostOS == "linux") or $memoryLimited
           skip
       else

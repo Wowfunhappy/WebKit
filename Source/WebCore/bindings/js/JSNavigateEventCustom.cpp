@@ -25,6 +25,9 @@
 
 #include "config.h"
 #include "JSNavigateEvent.h"
+#include "WebCoreOpaqueRootInlines.h"
+
+#include "JSValueInWrappedObjectInlines.h"
 
 namespace WebCore {
 

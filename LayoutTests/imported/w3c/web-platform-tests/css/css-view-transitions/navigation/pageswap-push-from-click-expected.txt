@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT pageswap on navigation from user click Test timed out
+PASS pageswap on navigation from user click
 

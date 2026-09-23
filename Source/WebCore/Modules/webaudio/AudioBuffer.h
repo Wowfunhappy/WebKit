@@ -34,12 +34,13 @@
 #include "ScriptWrappable.h"
 #include <JavaScriptCore/Forward.h>
 #include <JavaScriptCore/TypedArrayAdaptersForwardDeclarations.h>
+#include <wtf/FixedVector.h>
 #include <wtf/Lock.h>
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class AudioBus;
+class JSDOMGlobalObject;
 class WebCoreOpaqueRoot;
 template<typename> class ExceptionOr;
 

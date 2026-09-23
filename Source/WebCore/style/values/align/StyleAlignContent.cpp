@@ -26,6 +26,7 @@
 #include "config.h"
 #include "StyleAlignContent.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
@@ -79,8 +80,8 @@ StyleContentAlignmentData AlignContent::resolve(std::optional<StyleContentAlignm
 
 auto CSSValueConversion<AlignContent>::operator()(BuilderState& state, const CSSValue& value) -> AlignContent
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         // <normal>
         case CSSValueNormal:
             return CSS::Keyword::Normal { };
@@ -113,7 +114,7 @@ auto CSSValueConversion<AlignContent>::operator()(BuilderState& state, const CSS
         }
     }
 
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
     if (!pair)
         return CSS::Keyword::Normal { };
 

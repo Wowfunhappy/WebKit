@@ -30,7 +30,6 @@
 #include "pas_heap_lock.h"
 #include "pas_large_free_heap_config.h"
 #include "pas_large_free_inlines.h"
-#include "pas_page_malloc.h"
 #include <stdio.h>
 
 PAS_BEGIN_EXTERN_C;

@@ -30,7 +30,6 @@
 #include "HTTPStatusCodes.h"
 #include "IPAddressSpace.h"
 #include "Logging.h"
-#include "PublicSuffixStore.h"
 #include "RegistrableDomain.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
@@ -73,7 +72,7 @@ void ResourceRequestBase::setAsIsolatedCopy(const ResourceRequest& other)
     setPriority(other.priority());
     setRequester(other.requester());
     setInitiatorIdentifier(other.initiatorIdentifier().isolatedCopy());
-    setCachePartition(other.cachePartition().isolatedCopy());
+    setShouldBlockThirdPartyStorage(other.shouldBlockThirdPartyStorage());
 
     if (auto inspectorInitiatorNodeIdentifier = other.inspectorInitiatorNodeIdentifier())
         setInspectorInitiatorNodeIdentifier(*inspectorInitiatorNodeIdentifier);
@@ -148,17 +147,13 @@ static bool shouldUseGet(const ResourceRequestBase& request, const ResourceRespo
     return redirectResponse.httpStatusCode() == httpStatus303SeeOther;
 }
 
-// https://fetch.spec.whatwg.org/#concept-http-redirect-fetch Step 11
+// https://fetch.spec.whatwg.org/#concept-http-redirect-fetch
 void ResourceRequestBase::redirectAsGETIfNeeded(const ResourceRequestBase &redirectRequest, const ResourceResponse& redirectResponse)
 {
     if (shouldUseGet(redirectRequest, redirectResponse)) {
         setHTTPMethod("GET"_s);
         setHTTPBody(nullptr);
-        m_requestData.m_httpHeaderFields.remove(HTTPHeaderName::ContentLength);
-        m_requestData.m_httpHeaderFields.remove(HTTPHeaderName::ContentLanguage);
-        m_requestData.m_httpHeaderFields.remove(HTTPHeaderName::ContentEncoding);
-        m_requestData.m_httpHeaderFields.remove(HTTPHeaderName::ContentLocation);
-        clearHTTPContentType();
+        m_requestData.m_httpHeaderFields.removeRequestBodyHeaders();
     }
 }
 
@@ -864,25 +859,18 @@ unsigned initializeMaximumHTTPConnectionCountPerHost()
 }
 #endif
 
-void ResourceRequestBase::setCachePartition(const String& cachePartition)
+String ResourceRequestBase::cachePartition() const
 {
 #if ENABLE(CACHE_PARTITIONING)
-    ASSERT(!cachePartition.isNull());
-    ASSERT(cachePartition == partitionName(cachePartition));
-    m_cachePartition = cachePartition;
+    if (!m_shouldBlockThirdPartyStorage)
+        return emptyString();
+    RegistrableDomain domain(firstPartyForCookies());
+    if (domain.isEmpty())
+        return emptyString();
+    return domain.string();
 #else
-    UNUSED_PARAM(cachePartition);
+    return emptyString();
 #endif
-}
-
-String ResourceRequestBase::partitionName(const String& domain)
-{
-    if (domain.isNull())
-        return emptyString();
-    auto highLevel = PublicSuffixStore::singleton().topPrivatelyControlledDomain(domain);
-    if (highLevel.isNull())
-        return emptyString();
-    return highLevel;
 }
 
 bool ResourceRequestBase::isThirdParty() const

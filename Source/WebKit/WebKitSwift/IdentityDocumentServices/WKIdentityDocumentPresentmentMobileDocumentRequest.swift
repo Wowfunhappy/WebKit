@@ -58,10 +58,16 @@ extension WKIdentityDocumentPresentmentMobileDocumentPresentmentRequest {
 extension WKIdentityDocumentPresentmentMobileDocumentIndividualDocumentRequest {
     var documentType: String
     var namespaces: [String: [String: WKIdentityDocumentPresentmentMobileDocumentElementInfo]]
+    var issuerIdentifiers: [Data]?
 
-    init(documentType: String, namespaces: [String: [String: WKIdentityDocumentPresentmentMobileDocumentElementInfo]]) {
+    init(
+        documentType: String,
+        namespaces: [String: [String: WKIdentityDocumentPresentmentMobileDocumentElementInfo]],
+        issuerIdentifiers: [Data]?
+    ) {
         self.documentType = documentType
         self.namespaces = namespaces
+        self.issuerIdentifiers = issuerIdentifiers
     }
 }
 

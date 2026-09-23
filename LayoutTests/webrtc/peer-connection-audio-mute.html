@@ -11,9 +11,6 @@
     <script>
     var context = new AudioContext();
     promise_test((test) => {
-        if (window.testRunner)
-            testRunner.setUserMediaPermission(true);
-
         var remoteStream;
         async function checkForSound(expected, message, count)
         {
@@ -32,6 +29,7 @@
 
         var localTrack;
         return navigator.mediaDevices.getUserMedia({audio: { echoCancellation : false}}).then((localStream) => {
+            test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
             localTrack = localStream.getAudioTracks()[0];
             return new Promise((resolve, reject) => {
                 createConnections((firstConnection) => {

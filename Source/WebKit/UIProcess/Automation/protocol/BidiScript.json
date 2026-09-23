@@ -187,6 +187,31 @@
     ],
     "commands": [
         {
+            "name": "addPreloadScript",
+            "description": "Adds a preload script to be evaluated on new document creation.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-script-addPreloadScript",
+            "async": true,
+            "parameters": [
+                { "name": "functionDeclaration", "type": "string" },
+                { "name": "arguments", "type": "array", "items": { "$ref": "BidiScript.LocalValue" }, "optional": true },
+                { "name": "contexts", "type": "array", "items": { "$ref": "BidiBrowsingContext.BrowsingContext" }, "optional": true },
+                { "name": "sandbox", "type": "string", "optional": true },
+                { "name": "userContexts", "type": "array", "items": { "$ref": "BidiBrowser.UserContext" }, "optional": true }
+            ],
+            "returns": [
+                { "name": "script", "type": "string" }
+            ]
+        },
+        {
+            "name": "removePreloadScript",
+            "description": "Removes a preload script.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-script-removePreloadScript",
+            "async": true,
+            "parameters": [
+                { "name": "script", "type": "string" }
+            ]
+        },
+        {
             "name": "callFunction",
             "description": "Calls a provided function with given arguments in a given realm.",
             "spec": "https://w3c.github.io/webdriver-bidi/#command-script-callFunction",
@@ -231,6 +256,19 @@
             ]
         },
         {
+            "name": "disown",
+            "description": "Disowns the given handles. This removes the handles from the realm, allowing the garbage collector to reclaim the associated objects.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-script-disown",
+            "wpt": "https://github.com/web-platform-tests/wpt/tree/master/webdriver/tests/bidi/script/disown",
+            "bug": "https://bugs.webkit.org/show_bug.cgi?id=288059",
+            "async": true,
+            "parameters": [
+                { "name": "handles", "type": "array", "items": { "$ref": "BidiScript.Handle" }, "description": "The handles to disown." },
+                { "name": "target", "$ref": "BidiScript.Target", "description": "The target realm or context where the handles are located." }
+            ],
+            "returns": []
+        },
+        {
             "name": "getRealms",
             "description": "Returns a list of all realms.",
             "spec": "https://w3c.github.io/webdriver-bidi/#command-script-getRealms",
@@ -242,6 +280,28 @@
             ],
             "returns": [
                 { "name": "realms", "type": "array", "items": { "$ref": "BidiScript.RealmInfo" }, "description": "List of realms." }
+            ]
+        }
+    ],
+    "events": [
+        {
+            "name": "realmCreated",
+            "description": "Event fired when a script realm is created.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#event-script-realmCreated",
+            "parameters": [
+                { "name": "realm", "$ref": "BidiScript.Realm", "description": "Unique identifier of the realm." },
+                { "name": "origin", "type": "string", "description": "The serialized origin of the realm." },
+                { "name": "type", "$ref": "BidiScript.RealmType", "description": "The type of the realm." },
+                { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "optional": true, "description": "Browsing context of the realm. Not present for worklet/worker realms." }
+            ]
+        },
+        {
+            "name": "realmDestroyed",
+            "description": "Event fired when a script realm is destroyed.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#event-script-realmDestroyed",
+            "parameters": [
+                { "name": "realm", "$ref": "BidiScript.Realm", "description": "Unique identifier of the destroyed realm." },
+                { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "optional": true, "description": "Browsing context of the realm. Not present for worklet/worker realms." }
             ]
         }
     ]

@@ -175,12 +175,7 @@ void PasteboardCustomData::clear(const String& type)
     });
 }
 
-PasteboardCustomData& PasteboardCustomData::operator=(const PasteboardCustomData& other)
-{
-    m_origin = other.origin();
-    m_data = other.m_data;
-    return *this;
-}
+PasteboardCustomData& PasteboardCustomData::operator=(const PasteboardCustomData&) = default;
 
 Vector<String> PasteboardCustomData::orderedTypes() const
 {

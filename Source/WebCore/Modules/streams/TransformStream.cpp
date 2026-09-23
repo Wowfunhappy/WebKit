@@ -30,11 +30,13 @@
 #include "JSDOMConvertSequences.h"
 #include "JSReadableStream.h"
 #include "JSTransformStream.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "JSWritableStream.h"
 #include "MessagePort.h"
 #include "StreamTransferUtilities.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 
 namespace WebCore {
 
@@ -60,21 +62,27 @@ ExceptionOr<Ref<TransformStream>> TransformStream::create(JSC::JSGlobalObject& g
     if (readableStrategy)
         readableStrategyValue = readableStrategy.get();
 
-    auto result = createInternalTransformStream(*JSC::jsCast<JSDOMGlobalObject*>(&globalObject), transformerValue, writableStrategyValue, readableStrategyValue);
+    auto result = createInternalTransformStream(downcast<JSDOMGlobalObject>(globalObject), transformerValue, writableStrategyValue, readableStrategyValue);
     if (result.hasException())
         return result.releaseException();
 
     auto transformResult = result.releaseReturnValue();
-    return adoptRef(*new TransformStream(transformResult.transform, WTF::move(transformResult.readable), WTF::move(transformResult.writable)));
+    return adoptRef(*new TransformStream(downcast<JSDOMGlobalObject>(globalObject), transformResult.transform, WTF::move(transformResult.readable), WTF::move(transformResult.writable)));
 }
 
 Ref<TransformStream> TransformStream::create(Ref<ReadableStream>&& readable, Ref<WritableStream>&& writable)
 {
-    return adoptRef(*new TransformStream(JSC::jsUndefined(), WTF::move(readable), WTF::move(writable)));
+    return adoptRef(*new TransformStream(WTF::move(readable), WTF::move(writable)));
 }
 
-TransformStream::TransformStream(JSC::JSValue internalTransformStream, Ref<ReadableStream>&& readable, Ref<WritableStream>&& writable)
-    : m_internalTransformStream(internalTransformStream)
+TransformStream::TransformStream(Ref<ReadableStream>&& readable, Ref<WritableStream>&& writable)
+    : m_readable(WTF::move(readable))
+    , m_writable(WTF::move(writable))
+{
+}
+
+TransformStream::TransformStream(JSC::JSGlobalObject& globalObject, JSC::JSValue internalTransformStream, Ref<ReadableStream>&& readable, Ref<WritableStream>&& writable)
+    : m_internalTransformStream(globalObject, internalTransformStream)
     , m_readable(WTF::move(readable))
     , m_writable(WTF::move(writable))
 {
@@ -158,9 +166,15 @@ ExceptionOr<CreateInternalTransformStreamResult> createInternalTransformStream(J
         return Exception { ExceptionCode::ExistingExceptionError };
 
     auto results = resultsConversionResult.releaseReturnValue();
-    ASSERT(results.size() == 3);
+    if (results.size() != 3) [[unlikely]]
+        return Exception { ExceptionCode::TypeError, "Internal TransformStream creation returned an unexpected number of values"_s };
 
-    return CreateInternalTransformStreamResult { results[0].get(), JSC::jsDynamicCast<JSReadableStream*>(results[1].get())->wrapped(), JSC::jsDynamicCast<JSWritableStream*>(results[2].get())->wrapped() };
+    auto* readable = dynamicDowncast<JSReadableStream>(results[1].get());
+    auto* writable = dynamicDowncast<JSWritableStream>(results[2].get());
+    if (!readable || !writable) [[unlikely]]
+        return Exception { ExceptionCode::TypeError, "Internal TransformStream creation returned values of unexpected types"_s };
+
+    return CreateInternalTransformStreamResult { results[0].get(), readable->wrapped(), writable->wrapped() };
 }
 
 template<typename Visitor>

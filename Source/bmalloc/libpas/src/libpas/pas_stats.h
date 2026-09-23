@@ -158,8 +158,6 @@
 
 #include "pas_config.h"
 
-#include "pas_allocation_mode.h"
-#include "pas_lock.h"
 #include "pas_internal_config.h"
 #include "pas_utils.h"
 #include <stdbool.h>

@@ -33,7 +33,7 @@
 #include "WebProcessCreationParameters.h"
 #include <WebCore/FontRenderOptions.h>
 #include <WebCore/Page.h>
-#include <WebCore/RenderTheme.h>
+#include <WebCore/PlatformRenderTheme.h>
 #include <WebCore/ScrollbarTheme.h>
 
 namespace WebKit {

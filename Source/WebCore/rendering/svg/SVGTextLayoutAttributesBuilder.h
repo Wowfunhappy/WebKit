@@ -40,8 +40,8 @@ class RenderSVGText;
 class SVGTextLayoutAttributesBuilder {
     WTF_MAKE_NONCOPYABLE(SVGTextLayoutAttributesBuilder);
 public:
-    SVGTextLayoutAttributesBuilder();
-    bool buildLayoutAttributesForForSubtree(RenderSVGText&);
+    SVGTextLayoutAttributesBuilder() = default;
+    bool buildLayoutAttributesForSubtree(RenderSVGText&);
     void buildLayoutAttributesForTextRenderer(RenderSVGInlineText&);
 
     void rebuildMetricsForSubtree(RenderSVGText&);
@@ -69,7 +69,7 @@ private:
     void fillCharacterDataMap(const TextPosition&);
 
 private:
-    unsigned m_textLength;
+    unsigned m_textLength { 0 };
     Vector<TextPosition> m_textPositions;
     SVGCharacterDataMap m_characterDataMap;
     SVGTextMetricsBuilder m_metricsBuilder;

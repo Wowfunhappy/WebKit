@@ -86,6 +86,7 @@
 #import <WebCore/TreeWalker.h>
 #import <WebCore/VisibilityState.h>
 #import <WebCore/WebScriptObjectPrivate.h>
+#import <WebCore/WindowProxy.h>
 #import <WebCore/XPathExpression.h>
 #import <WebCore/XPathNSResolver.h>
 #import <WebCore/XPathResult.h>

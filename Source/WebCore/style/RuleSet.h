@@ -29,6 +29,7 @@
 #include "StyleRule.h"
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
@@ -54,6 +55,9 @@ using CascadeLayerPriority = uint16_t;
 struct RuleSetAndNegation {
     RefPtr<const RuleSet> ruleSet;
     IsNegation isNegation { IsNegation::No };
+    // Selector for the :has() scope element, used to bound invalidation traversal.
+    // Null means scope-breaking (no scope element can be identified).
+    RefPtr<const RefCountedCSSSelectorList> scopeSelector { };
 };
 using InvalidationRuleSetVector = Vector<RuleSetAndNegation, 1>;
 
@@ -72,7 +76,7 @@ struct DynamicMediaQueryEvaluationChanges {
     };
 };
 
-class RuleSet : public RefCounted<RuleSet> {
+class RuleSet : public ThreadSafeRefCounted<RuleSet> {
     WTF_MAKE_NONCOPYABLE(RuleSet);
 public:
     static Ref<RuleSet> create() { return adoptRef(*new RuleSet); }
@@ -136,7 +140,7 @@ public:
     CascadeLayerPriority cascadeLayerPriorityFor(const RuleData&) const;
 
     bool hasContainerQueries() const { return !m_containerQueries.isEmpty(); }
-    Vector<const CQ::ContainerQuery*> containerQueriesFor(const RuleData&) const;
+    Vector<Ref<const StyleRuleContainer>> containerQueriesFor(const RuleData&) const;
     Vector<Ref<const StyleRuleContainer>> containerQueryRules() const;
 
     bool hasScopeRules() const { return !m_scopeRules.isEmpty(); }
@@ -144,7 +148,7 @@ public:
 
     const RefPtr<const StyleRulePositionTry> NODELETE positionTryRuleForName(const AtomString&) const;
 
-    String selectorsForDebugging() const;
+    WTF::String selectorsForDebugging() const;
 
 private:
     friend class RuleSetBuilder;
@@ -156,6 +160,7 @@ private:
     using ScopeRuleIdentifier = unsigned;
 
     void addRule(RuleData&&, CascadeLayerIdentifier, ContainerQueryIdentifier, ScopeRuleIdentifier, RuleFeatureSet::CollectionContext*);
+    void addRuleToBucket(RuleData&);
 
     struct ResolverMutatingRule {
         Ref<StyleRuleBase> rule;
@@ -190,6 +195,8 @@ private:
         Ref<const StyleRuleContainer> containerRule;
         ContainerQueryIdentifier parent;
     };
+    const ContainerQueryAndParent& containerQueryForIdentifier(ContainerQueryIdentifier identifier) const LIFETIME_BOUND { return m_containerQueries[identifier - 1]; }
+    Vector<Ref<const StyleRuleContainer>> containerQueryChainFor(ContainerQueryIdentifier) const;
 
     struct DynamicMediaQueryRules {
         Vector<MQ::MediaQueryList> mediaQueries;
@@ -255,6 +262,9 @@ private:
     bool m_hasHostPseudoClassRulesMatchingInShadowTree { false };
     bool m_hasViewportDependentMediaQueries { false };
     bool m_hasHostOrScopePseudoClassRulesInUniversalBucket { false };
+
+    // For checking against re-entrancy.
+    bool m_isBuilding { false };
 };
 
 inline const RuleSet::RuleDataVector* RuleSet::attributeRules(const AtomString& key, bool isHTMLName) const
@@ -284,21 +294,23 @@ inline CascadeLayerPriority RuleSet::cascadeLayerPriorityFor(const RuleData& rul
     return cascadeLayerPriorityForIdentifier(identifier);
 }
 
-inline Vector<const CQ::ContainerQuery*> RuleSet::containerQueriesFor(const RuleData& ruleData) const
+inline Vector<Ref<const StyleRuleContainer>> RuleSet::containerQueryChainFor(ContainerQueryIdentifier identifier) const
+{
+    Vector<Ref<const StyleRuleContainer>> chain;
+    while (identifier) {
+        auto& query = containerQueryForIdentifier(identifier);
+        chain.append(query.containerRule);
+        identifier = query.parent;
+    }
+    return chain;
+}
+
+inline Vector<Ref<const StyleRuleContainer>> RuleSet::containerQueriesFor(const RuleData& ruleData) const
 {
     if (m_containerQueryIdentifierForRulePosition.size() <= ruleData.position())
         return { };
 
-    Vector<const CQ::ContainerQuery*> queries;
-
-    auto identifier = m_containerQueryIdentifierForRulePosition[ruleData.position()];
-    while (identifier) {
-        auto& query = m_containerQueries[identifier - 1];
-        queries.append(&query.containerRule->containerQuery());
-        identifier = query.parent;
-    };
-
-    return queries;
+    return containerQueryChainFor(m_containerQueryIdentifierForRulePosition[ruleData.position()]);
 }
 
 } // namespace Style

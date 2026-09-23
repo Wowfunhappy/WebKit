@@ -13,6 +13,11 @@ EXPECTED (access.getConfiguration().sessionTypes[0] == 'temporary') OK
 EXPECTED (access.getConfiguration().distinctiveIdentifier == 'not-allowed') OK
 EXPECTED (access.getConfiguration().persistentState == 'not-allowed') OK
 
+SET capabilities = '[ { "initDataTypes": [ "mock" ], "videoCapabilities": [ { "contentType": "video/mock; codecs=\"unknown\"" } ] } ]'
+RUN(promise = navigator.requestMediaKeySystemAccess("org.webkit.mock", capabilities))
+Promise rejected correctly OK
+EXPECTED (exceptionCode.name == 'NotSupportedError') OK
+
 SET capabilities = '[ { "initDataTypes": [ "mock" ], "videoCapabilities": [ { "contentType": "unknown/mime; codecs=\"unknown\"" } ] } ]'
 RUN(promise = navigator.requestMediaKeySystemAccess("org.webkit.mock", capabilities))
 Promise rejected correctly OK

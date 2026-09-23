@@ -520,8 +520,6 @@ EXPORTS
     ; GL_ANGLE_logic_op
     glLogicOpANGLE
 
-    ; GL_ANGLE_lossy_etc_decode
-
     ; GL_ANGLE_memory_object_flags
     glTexStorageMemFlags2DANGLE
     glTexStorageMemFlags2DMultisampleANGLE
@@ -556,35 +554,27 @@ EXPORTS
     ; GL_ANGLE_renderability_validation
 
     ; GL_ANGLE_request_extension
-    glDisableExtensionANGLE
     glRequestExtensionANGLE
 
     ; GL_ANGLE_rgbx_internal_format
 
     ; GL_ANGLE_robust_client_memory
-    glCompressedTexImage2DRobustANGLE
-    glCompressedTexImage3DRobustANGLE
-    glCompressedTexSubImage2DRobustANGLE
-    glCompressedTexSubImage3DRobustANGLE
     glGetActiveUniformBlockivRobustANGLE
-    glGetBooleani_vRobustANGLE
     glGetBooleanvRobustANGLE
     glGetBufferParameteri64vRobustANGLE
     glGetBufferParameterivRobustANGLE
     glGetBufferPointervRobustANGLE
     glGetFloatvRobustANGLE
     glGetFramebufferAttachmentParameterivRobustANGLE
-    glGetFramebufferParameterivRobustANGLE
     glGetFramebufferPixelLocalStorageParameterfvRobustANGLE
     glGetFramebufferPixelLocalStorageParameterivRobustANGLE
+    glGetFramebufferPixelLocalStorageParameteruivRobustANGLE
     glGetInteger64i_vRobustANGLE
     glGetInteger64vRobustANGLE
     glGetIntegeri_vRobustANGLE
     glGetIntegervRobustANGLE
     glGetInternalformativRobustANGLE
     glGetMultisamplefvRobustANGLE
-    glGetPointervRobustANGLERobustANGLE
-    glGetProgramInterfaceivRobustANGLE
     glGetProgramivRobustANGLE
     glGetQueryObjecti64vRobustANGLE
     glGetQueryObjectivRobustANGLE
@@ -592,15 +582,11 @@ EXPORTS
     glGetQueryObjectuivRobustANGLE
     glGetQueryivRobustANGLE
     glGetRenderbufferParameterivRobustANGLE
-    glGetSamplerParameterIivRobustANGLE
-    glGetSamplerParameterIuivRobustANGLE
     glGetSamplerParameterfvRobustANGLE
     glGetSamplerParameterivRobustANGLE
     glGetShaderivRobustANGLE
     glGetTexLevelParameterfvRobustANGLE
     glGetTexLevelParameterivRobustANGLE
-    glGetTexParameterIivRobustANGLE
-    glGetTexParameterIuivRobustANGLE
     glGetTexParameterfvRobustANGLE
     glGetTexParameterivRobustANGLE
     glGetUniformfvRobustANGLE
@@ -611,19 +597,11 @@ EXPORTS
     glGetVertexAttribPointervRobustANGLE
     glGetVertexAttribfvRobustANGLE
     glGetVertexAttribivRobustANGLE
-    glGetnUniformfvRobustANGLE
-    glGetnUniformivRobustANGLE
-    glGetnUniformuivRobustANGLE
     glReadPixelsRobustANGLE
-    glReadnPixelsRobustANGLE
-    glSamplerParameterIivRobustANGLE
-    glSamplerParameterIuivRobustANGLE
     glSamplerParameterfvRobustANGLE
     glSamplerParameterivRobustANGLE
     glTexImage2DRobustANGLE
     glTexImage3DRobustANGLE
-    glTexParameterIivRobustANGLE
-    glTexParameterIuivRobustANGLE
     glTexParameterfvRobustANGLE
     glTexParameterivRobustANGLE
     glTexSubImage2DRobustANGLE
@@ -641,6 +619,7 @@ EXPORTS
     ; GL_ANGLE_shader_pixel_local_storage
     glBeginPixelLocalStorageANGLE
     glEndPixelLocalStorageANGLE
+    glEndPixelLocalStorageImplicitANGLE
     glFramebufferMemorylessPixelLocalStorageANGLE
     glFramebufferPixelLocalClearValuefvANGLE
     glFramebufferPixelLocalClearValueivANGLE
@@ -650,6 +629,7 @@ EXPORTS
     glFramebufferTexturePixelLocalStorageANGLE
     glGetFramebufferPixelLocalStorageParameterfvANGLE
     glGetFramebufferPixelLocalStorageParameterivANGLE
+    glGetFramebufferPixelLocalStorageParameteruivANGLE
     glPixelLocalStorageBarrierANGLE
 
     ; GL_ANGLE_stencil_texturing
@@ -657,10 +637,6 @@ EXPORTS
     ; GL_ANGLE_texture_compression_dxt3
 
     ; GL_ANGLE_texture_compression_dxt5
-
-    ; GL_ANGLE_texture_external_update
-    glInvalidateTextureANGLE
-    glTexImage2DExternalANGLE
 
     ; GL_ANGLE_texture_multisample
     glGetMultisamplefvANGLE
@@ -995,6 +971,8 @@ EXPORTS
 
     ; GL_EXT_texture_format_sRGB_override
 
+    ; GL_EXT_texture_lod_bias
+
     ; GL_EXT_texture_mirror_clamp_to_edge
 
     ; GL_EXT_texture_norm16
@@ -1306,6 +1284,8 @@ EXPORTS
 
     ; GL_QCOM_texture_foveated
     glTextureFoveationParametersQCOM
+
+    ; GL_QCOM_texture_lod_bias
 
     ; GL_QCOM_tiled_rendering
     glEndTilingQCOM

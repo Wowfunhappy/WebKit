@@ -50,7 +50,7 @@ static ALWAYS_INLINE int NODELETE Fls128(UInt128Impl n) {
 // Long division/modulo for UInt128Impl implemented using the shift-subtract
 // division algorithm adapted from:
 // https://stackoverflow.com/questions/5386377/division-without-using
-static inline void DivModImpl(UInt128Impl dividend, UInt128Impl divisor, UInt128Impl* quotient_ret, UInt128Impl* remainder_ret) {
+static inline void NODELETE DivModImpl(UInt128Impl dividend, UInt128Impl divisor, UInt128Impl* quotient_ret, UInt128Impl* remainder_ret) {
   assert(divisor != 0);
 
   if (divisor > dividend) {

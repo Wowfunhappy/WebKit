@@ -83,15 +83,15 @@ layer at (0,0) size 800x1009
           text run at (0,0) width 510: "This sentence should be purple, and it doesn't have a terminating paragraph tag."
       RenderBlock {OL} at (0,411) size 784x60
         RenderListItem {LI} at (40,0) size 744x20
-          RenderListMarker at (-21,0) size 16x20: "1"
+          RenderListMarker at (-16,0) size 16x20: "1"
           RenderText {#text} at (0,0) size 204x20
             text run at (0,0) width 204: "This list should NOT be purple."
         RenderListItem {LI} at (40,20) size 744x20
-          RenderListMarker at (-21,0) size 16x20: "2"
+          RenderListMarker at (-16,0) size 16x20: "2"
           RenderText {#text} at (0,0) size 176x20
             text run at (0,0) width 176: "It should, instead, be black."
         RenderListItem {LI} at (40,40) size 744x20
-          RenderListMarker at (-21,0) size 16x20: "3"
+          RenderListMarker at (-16,0) size 16x20: "3"
           RenderText {#text} at (0,0) size 512x20
             text run at (0,0) width 512: "If it IS purple, then the browser hasn't correctly parsed the preceding paragraph."
       RenderBlock {P} at (0,487) size 784x40
@@ -179,15 +179,15 @@ layer at (0,0) size 800x1009
                   text run at (0,0) width 510: "This sentence should be purple, and it doesn't have a terminating paragraph tag."
               RenderBlock {OL} at (4,228) size 762x60
                 RenderListItem {LI} at (40,0) size 722x20
-                  RenderListMarker at (-21,0) size 16x20: "1"
+                  RenderListMarker at (-16,0) size 16x20: "1"
                   RenderText {#text} at (0,0) size 204x20
                     text run at (0,0) width 204: "This list should NOT be purple."
                 RenderListItem {LI} at (40,20) size 722x20
-                  RenderListMarker at (-21,0) size 16x20: "2"
+                  RenderListMarker at (-16,0) size 16x20: "2"
                   RenderText {#text} at (0,0) size 176x20
                     text run at (0,0) width 176: "It should, instead, be black."
                 RenderListItem {LI} at (40,40) size 722x20
-                  RenderListMarker at (-21,0) size 16x20: "3"
+                  RenderListMarker at (-16,0) size 16x20: "3"
                   RenderText {#text} at (0,0) size 512x20
                     text run at (0,0) width 512: "If it IS purple, then the browser hasn't correctly parsed the preceding paragraph."
               RenderBlock {P} at (4,304) size 762x40

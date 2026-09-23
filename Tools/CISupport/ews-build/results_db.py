@@ -76,13 +76,13 @@ class ResultsDatabase(object):
 
         if not response:
             logger(f'No response from {cls.HOSTNAME}\n')
-        elif response.status_code == 200:
+            defer.returnValue(None)
+            return
+        if response.status_code == 200:
             defer.returnValue(response.json())
             return
-        else:
-            logger(f'Failed to query results summary with status code {response.status_code}\n')
-
-        defer.returnValue({})
+        logger(f'Failed to query results summary with status code {response.status_code}\n')
+        defer.returnValue(None)
 
     @classmethod
     @defer.inlineCallbacks
@@ -105,6 +105,8 @@ class ResultsDatabase(object):
     def is_test_pre_existing_failure(cls, test, commit=None, configuration=None, suite=None):
         logs = []
         data = yield cls.get_results_summary(test, commit, configuration, logger=lambda log: logs.append(log), suite=suite)
+        request_failed = data is None
+        data = data or {}
         pass_rate = data.get('pass', 100) + data.get('warning', 0)
         is_existing_failure = (pass_rate <= cls.PERCENT_SUCCESS_RATE_FOR_PRE_EXISTING_FAILURE)
         output = {
@@ -112,6 +114,7 @@ class ResultsDatabase(object):
             'pass_rate': data.get('pass', 'Unknown'),
             'raw_data': data,
             'logs': ''.join(logs),
+            'request_failed': request_failed,
         }
         defer.returnValue(output)
 
@@ -120,6 +123,9 @@ class ResultsDatabase(object):
     def does_result_match(cls, test, result_type=None, commit=None, configuration=None, suite=None, default=None):
         logs = []
         data = yield cls.get_results(suite, test, commit, configuration, logger=lambda log: logs.append(log))
+        if data is None:
+            defer.returnValue(None)
+            return
         if not data:
             if not default:
                 defer.returnValue(None)

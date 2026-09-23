@@ -13,6 +13,7 @@ var imports = {
 var instance = new WebAssembly.Instance(wasm_module, imports);
 let main = instance.exports.main;
 
+print("DEBUGGER_READY");
 let iteration = 0;
 for (; ;) {
     main();

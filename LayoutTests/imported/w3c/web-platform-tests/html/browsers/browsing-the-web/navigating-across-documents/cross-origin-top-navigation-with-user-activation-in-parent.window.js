@@ -1,5 +1,5 @@
-// META: script=/resources/testharness.js
-// META: script=/resources/testharnessreport.js
+// META: script=/resources/testdriver.js
+// META: script=/resources/testdriver-vendor.js
 
 async_test(t => {
   addEventListener('message', t.step_func_done(e => {

@@ -42,7 +42,7 @@ public:
     {
     }
 
-    bool canMergeBlocks(BasicBlock* block, BasicBlock* targetBlock)
+    bool NODELETE canMergeBlocks(BasicBlock* block, BasicBlock* targetBlock)
     {
         return targetBlock->predecessors.size() == 1 && targetBlock != block;
     }
@@ -303,7 +303,7 @@ private:
         jettisonedBlock->removePredecessor(block);
     }
 
-    Vector<BasicBlock*, 1> noBlocks()
+    Vector<BasicBlock*, 1> NODELETE noBlocks()
     {
         return Vector<BasicBlock*, 1>();
     }

@@ -128,6 +128,25 @@ static std::optional<double> axCopyAttributeValueAsNumber(uint64_t elementToken,
     return value;
 }
 
+static std::optional<bool> axCopyAttributeValueAsBoolean(uint64_t elementToken, const char* attributeName)
+{
+    WKRetainPtr dictionary = adoptWK(WKMutableDictionaryCreate());
+    setValue(dictionary, "elementToken", elementToken);
+    setValue(dictionary, "attributeName", attributeName);
+
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKTypeRef returnData = nullptr;
+    WKBundlePostSynchronousMessage(InjectedBundle::singleton().bundle(), toWK("AXCopyAttributeValueAsBoolean").get(), dictionary.get(), &returnData);
+    ALLOW_DEPRECATED_DECLARATIONS_END
+
+    if (!returnData || WKGetTypeID(returnData) != WKBooleanGetTypeID())
+        return std::nullopt;
+
+    bool value = WKBooleanGetValue(static_cast<WKBooleanRef>(returnData));
+    WKRelease(returnData);
+    return value;
+}
+
 static std::pair<double, double> axCopyAttributeValueAsPoint(uint64_t elementToken, const char* attributeName)
 {
     WKRetainPtr dictionary = adoptWK(WKMutableDictionaryCreate());
@@ -168,6 +187,18 @@ static std::pair<double, double> axCopyAttributeValueAsSize(uint64_t elementToke
     double height = doubleValue(resultDict, "height");
     WKRelease(returnData);
     return { width, height };
+}
+
+static void axPerformAction(uint64_t elementToken, const char* actionName)
+{
+    WKRetainPtr dictionary = adoptWK(WKMutableDictionaryCreate());
+    setValue(dictionary, "elementToken", elementToken);
+    setValue(dictionary, "actionName", actionName);
+
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKTypeRef returnData = nullptr;
+    WKBundlePostSynchronousMessage(InjectedBundle::singleton().bundle(), toWK("AXPerformAction").get(), dictionary.get(), &returnData);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 Ref<AccessibilityUIElementClientMac> AccessibilityUIElementClientMac::create(uint64_t elementToken)
@@ -368,6 +399,11 @@ RefPtr<AccessibilityUIElement> AccessibilityUIElementClientMac::parentElement()
     return token ? create(*token).ptr() : nullptr;
 }
 
+bool AccessibilityUIElementClientMac::isIgnored() const
+{
+    return axCopyAttributeValueAsBoolean(m_elementToken, "_AXIsIgnoredForTesting").value_or(false);
+}
+
 unsigned AccessibilityUIElementClientMac::childrenCount()
 {
     return getChildren().size();
@@ -377,6 +413,14 @@ RefPtr<AccessibilityUIElement> AccessibilityUIElementClientMac::childAtIndex(uns
 {
     Vector children = getChildrenInRange(index, 1);
     return children.size() == 1 ? children[0] : nullptr;
+}
+
+void AccessibilityUIElementClientMac::showMenu()
+{
+    if (!isValid())
+        return;
+
+    axPerformAction(m_elementToken, "AXShowMenu");
 }
 
 JSValueRef AccessibilityUIElementClientMac::uiElementsForSearchPredicate(JSContextRef context, AccessibilityUIElement* startElement, bool isDirectionNext, JSValueRef searchKey, JSStringRef searchText, bool visibleOnly, bool immediateDescendantsOnly, unsigned resultsLimit)

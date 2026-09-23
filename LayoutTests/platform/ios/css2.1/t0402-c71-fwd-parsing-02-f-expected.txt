@@ -17,7 +17,7 @@ layer at (0,0) size 800x592
           text run at (0,0) width 166: "This line should be green."
       RenderBlock {OL} at (0,144) size 784x20
         RenderListItem {LI} at (40,0) size 744x20
-          RenderListMarker at (-21,0) size 16x20: "1"
+          RenderListMarker at (-16,0) size 16x20: "1"
           RenderText {#text} at (0,0) size 166x20
             text run at (0,0) width 166: "This line should be green."
       RenderBlock {P} at (0,180) size 784x20

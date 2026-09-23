@@ -39,11 +39,11 @@ public:
     virtual ~NavigatorWebDriver();
 
     static NavigatorWebDriver* from(Navigator*);
-    static bool webdriver(const Navigator&);
+    static bool NODELETE webdriver(const Navigator&);
 private:
     static ASCIILiteral supplementName() { return "NavigatorWebDriver"_s; }
     bool isNavigatorWebDriver() const final { return true; }
-    static bool isControlledByAutomation(const Navigator&);
+    static bool NODELETE isControlledByAutomation(const Navigator&);
 };
 
 } // namespace WebCore

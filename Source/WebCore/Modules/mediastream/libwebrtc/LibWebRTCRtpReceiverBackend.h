@@ -29,24 +29,33 @@
 #include "LibWebRTCMacros.h"
 #include "LibWebRTCRefWrappers.h"
 #include "RTCRtpReceiverBackend.h"
+#include "RealtimeMediaSource.h"
 #include <webrtc/api/scoped_refptr.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class Document;
+class LibWebRTCRtpReceiverBackend;
 class RealtimeMediaSource;
 
-class LibWebRTCRtpReceiverBackend final : public RTCRtpReceiverBackend {
+struct LibWebRTCRtpReceiverBackendAndSource {
+    UniqueRef<LibWebRTCRtpReceiverBackend> backend;
+    Ref<RealtimeMediaSource> source;
+};
+
+class LibWebRTCRtpReceiverBackend final : public RTCRtpReceiverBackend, public webrtc::RtpReceiverObserverInterface {
     WTF_MAKE_TZONE_ALLOCATED(LibWebRTCRtpReceiverBackend);
 public:
-    explicit LibWebRTCRtpReceiverBackend(Ref<webrtc::RtpReceiverInterface>&&);
+    static LibWebRTCRtpReceiverBackendAndSource create(Document&, Ref<webrtc::RtpReceiverInterface>&&);
+
+    LibWebRTCRtpReceiverBackend(Ref<webrtc::RtpReceiverInterface>&&, RealtimeMediaSource&);
     ~LibWebRTCRtpReceiverBackend();
 
     webrtc::RtpReceiverInterface& rtcReceiver() { return m_rtcReceiver.get(); }
 
-    Ref<RealtimeMediaSource> createSource(Document&);
-
 private:
+
+    // RTCRtpReceiverBackend
     bool isLibWebRTCRtpReceiverBackend() const final { return true; }
 
     RTCRtpParameters getParameters() final;
@@ -54,10 +63,16 @@ private:
     Vector<RTCRtpSynchronizationSource> getSynchronizationSources() const final;
     Ref<RTCRtpTransformBackend> rtcRtpTransformBackend() final;
     std::unique_ptr<RTCDtlsTransportBackend> dtlsTransportBackend() final;
+    void setJitterBufferTarget(std::optional<double>) final;
+
+    // webrtc::RtpReceiverObserverInterface
+    void OnFirstPacketReceived(webrtc::MediaType) final { }
+    void OnFirstPacketReceivedAfterReceptiveChange(webrtc::MediaType) final;
 
     double webrtcToWallTimeOffset() const;
 
     const Ref<webrtc::RtpReceiverInterface> m_rtcReceiver;
+    const ThreadSafeWeakPtr<RealtimeMediaSource> m_source;
     const RefPtr<RTCRtpTransformBackend> m_transformBackend;
     mutable std::optional<double> m_webrtcToWallTimeOffset;
 };

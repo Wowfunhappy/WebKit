@@ -36,6 +36,8 @@ namespace ContentExtensions {
 
 template <typename CharacterType>
 struct ImmutableRange {
+    ImmutableRange() { zeroBytes(*this); }
+
     uint32_t targetStart;
     uint32_t targetEnd;
     CharacterType first;

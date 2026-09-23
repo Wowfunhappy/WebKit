@@ -31,10 +31,10 @@
 #include "WebExtensionEventListenerType.h"
 #include "WebExtensionTabIdentifier.h"
 #include "WebPageProxyIdentifier.h"
-#include <wtf/Forward.h>
 #include <wtf/Identified.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 #if PLATFORM(COCOA)
 #include "CocoaImage.h"
 #include <wtf/WeakObjCPtr.h>

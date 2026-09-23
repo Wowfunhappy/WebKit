@@ -113,7 +113,7 @@ foreach my $framework (@publicFrameworks) {
 foreach my $extension (@extensions) {
     print "Copying extension $extension from $productDir ...\n";
     system 'cp', '-LpR', $productDir . "/$extension.appex", "$stagingExtensionsPath/";
-    die "Check to see that you have built $extension for $configuration-$platform" if $?;
+    die "Check to see that you have built $extension for $configuration-$platform $?" if $? and $platform eq 'iphoneos';
 }
 
 system 'ditto', "$productDir/usr", "$stagingRoot" . "$packagedRootBasePath" . "usr";

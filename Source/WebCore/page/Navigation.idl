@@ -40,12 +40,12 @@
   readonly attribute boolean canGoBack;
   readonly attribute boolean canGoForward;
 
-  [ReturnsPromisePair] NavigationResult navigate(USVString url, optional NavigationNavigateOptions options = {});
-  [ReturnsPromisePair] NavigationResult reload(optional NavigationReloadOptions options = {});
+  [CallWith=CurrentGlobalObject, ReturnsPromisePair] NavigationResult navigate(USVString url, optional NavigationNavigateOptions options = {});
+  [CallWith=CurrentGlobalObject, ReturnsPromisePair] NavigationResult reload(optional NavigationReloadOptions options = {});
 
-  [ReturnsPromisePair] NavigationResult traverseTo(DOMString key, optional NavigationOptions options = {});
-  [ReturnsPromisePair] NavigationResult back(optional NavigationOptions options = {});
-  [ReturnsPromisePair] NavigationResult forward(optional NavigationOptions options = {});
+  [CallWith=CurrentGlobalObject, ReturnsPromisePair] NavigationResult traverseTo(DOMString key, optional NavigationOptions options = {});
+  [CallWith=CurrentGlobalObject, ReturnsPromisePair] NavigationResult back(optional NavigationOptions options = {});
+  [CallWith=CurrentGlobalObject, ReturnsPromisePair] NavigationResult forward(optional NavigationOptions options = {});
 
   attribute EventHandler onnavigate;
   attribute EventHandler onnavigatesuccess;

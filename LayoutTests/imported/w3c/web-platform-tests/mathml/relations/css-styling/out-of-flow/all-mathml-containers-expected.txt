@@ -1,4 +1,5 @@
 
+PASS position: absolute; children in a
 FAIL position: absolute; children in maction assert_approx_equals: expected 300 +/- 1 but got -8
 PASS position: absolute; children in menclose
 PASS position: absolute; children in merror
@@ -23,6 +24,7 @@ PASS position: absolute; children in mtext
 PASS position: absolute; children in munder
 PASS position: absolute; children in munderover
 FAIL position: absolute; children in semantics assert_approx_equals: expected 300 +/- 1 but got -8
+PASS position: fixed; children in a
 FAIL position: fixed; children in maction assert_approx_equals: expected 300 +/- 1 but got 0
 PASS position: fixed; children in menclose
 PASS position: fixed; children in merror

@@ -147,6 +147,7 @@ promise_test((test) => {
 }, "If disabled, black frames should still be coming");
 
 promise_test((test) => {
+    test.add_cleanup(() => track.stop());
     track.enabled = true;
     return checkVideoBlack(false, canvas2, video);
 }, "Track is enabled, video should not be black 2");

@@ -26,7 +26,6 @@
 #import "config.h"
 #import "NetworkRTCUtilitiesCocoa.h"
 
-#if USE(LIBWEBRTC)
 
 #import <WebCore/RegistrableDomain.h>
 #import <pal/spi/cocoa/NetworkSPI.h>
@@ -40,7 +39,9 @@ SOFT_LINK_CLASS(libnetworkextension, NEHelperTrackerAppInfoRef)
 SOFT_LINK_CLASS(libnetworkextension, NEHelperTrackerDomainContextRef)
 SOFT_LINK(libnetworkextension, NEHelperTrackerGetDisposition, NEHelperTrackerDisposition_t*, (NEHelperTrackerAppInfoRef *app_info_ref, CFArrayRef domains, NEHelperTrackerDomainContextRef *trackerDomainContextRef, CFIndex *trackerDomainIndex), (app_info_ref, domains, trackerDomainContextRef, trackerDomainIndex))
 
+#ifndef WebKit_libnetworkLibrary_SoftLinked
 SOFT_LINK_LIBRARY_OPTIONAL(libnetwork)
+#endif
 SOFT_LINK_OPTIONAL(libnetwork, nw_parameters_set_attributed_bundle_identifier, void, __cdecl, (nw_parameters_t, const char*))
 
 namespace WebKit {
@@ -56,9 +57,10 @@ void setNWParametersApplicationIdentifiers(nw_parameters_t parameters, const cha
         nw_parameters_set_attributed_bundle_identifierPtr()(parameters, attributedBundleIdentifier.utf8().data());
 }
 
-void setNWParametersTrackerOptions(nw_parameters_t parameters, bool shouldBypassRelay, bool isFirstParty, bool isKnownTracker)
+void setNWParametersTrackerOptions(nw_parameters_t parameters, bool shouldBypassRelay, bool isFirstParty, bool isKnownTracker, IsRTC isRTC)
 {
-    if (shouldBypassRelay)
+    // This function is used by other protocols, do not set this account id by default.
+    if (shouldBypassRelay && isRTC == IsRTC::Yes)
         nw_parameters_set_account_id(parameters, "com.apple.safari.peertopeer");
     nw_parameters_set_is_third_party_web_content(parameters, !isFirstParty);
     nw_parameters_set_is_known_tracker(parameters, isKnownTracker);
@@ -72,6 +74,7 @@ bool isKnownTracker(const WebCore::RegistrableDomain& domain)
     return !!NEHelperTrackerGetDisposition(nullptr, bridge_cast(domains.get()), context, &index);
 }
 
+#if USE(LIBWEBRTC)
 std::optional<uint32_t> trafficClassFromDSCP(webrtc::DiffServCodePoint dscpValue, bool enableServiceClass)
 {
     if (enableServiceClass)
@@ -110,7 +113,7 @@ std::optional<uint32_t> trafficClassFromDSCP(webrtc::DiffServCodePoint dscpValue
     };
     return { };
 }
+#endif // USE(LIBWEBRTC)
 
 } // namespace WebKit
 
-#endif // USE(LIBWEBRTC)

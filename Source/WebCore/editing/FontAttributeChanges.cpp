@@ -70,7 +70,7 @@ Ref<MutableStyleProperties> FontChanges::createStyleProperties() const
     if (!m_fontFamily.isNull()) {
         AtomString familyNameForCSS { platformFontFamilyNameForCSS() };
         if (!familyNameForCSS.isNull())
-            style->setProperty(CSSPropertyFontFamily, CSSValuePool::singleton().createFontFamilyValue(familyNameForCSS));
+            style->setProperty(CSSPropertyFontFamily, CSSValuePool::singleton().createFontFamilyNameValue(familyNameForCSS));
     }
 
     if (m_italic)

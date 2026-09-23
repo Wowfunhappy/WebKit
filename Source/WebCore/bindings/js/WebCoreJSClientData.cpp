@@ -45,6 +45,7 @@
 #include "JSWindowProxy.h"
 #include "JSWorkerGlobalScope.h"
 #include "JSWorkletGlobalScope.h"
+#include <JavaScriptCore/CodeBlock.h>
 #include <JavaScriptCore/FastMallocAlignedMemoryAllocator.h>
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/IsoHeapCellType.h>
@@ -199,6 +200,17 @@ void JSVMClientData::initNormalWorld(VM* vm, WorkerThreadType type)
     vm->m_typedArrayController = adoptRef(new WebCoreTypedArrayController(type == WorkerThreadType::DedicatedWorker || type == WorkerThreadType::Worklet));
 }
 
+String unmaskedSourceURLFromException(const JSC::Exception& exception, JSC::VM& vm)
+{
+    for (auto& frame : exception.stack()) {
+        String url = frame.sourceURL(vm, JSC::AllowURLOverride::No);
+        if (!url.isEmpty() && url != "[native code]"_s)
+            return url;
+    }
+
+    return emptyString();
+}
+
 String JSVMClientData::overrideSourceURL(const JSC::StackFrame& frame, const String& originalSourceURL) const
 {
     if (originalSourceURL.isEmpty())
@@ -207,14 +219,14 @@ String JSVMClientData::overrideSourceURL(const JSC::StackFrame& frame, const Str
     JSGlobalObject* globalObject = nullptr;
     if (auto* codeBlock = frame.codeBlock())
         globalObject = codeBlock->globalObject();
-    else if (auto* callee = jsDynamicCast<JSObject*>(frame.callee()))
-        globalObject = callee->globalObject();
+    else if (auto* callee = dynamicDowncast<JSObject>(frame.callee()))
+        globalObject = callee->realm();
     RELEASE_ASSERT(globalObject);
 
     if (!globalObject->inherits<JSDOMWindowBase>())
         return nullString();
 
-    RefPtr document = jsCast<const JSDOMWindowBase*>(globalObject)->wrapped().documentIfLocal();
+    RefPtr document = downcast<JSDOMWindowBase>(globalObject)->wrapped().documentIfLocal();
     if (!document)
         return nullString();
 

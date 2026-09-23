@@ -25,7 +25,11 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Timer.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-common.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-create-common.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-creation-happens-in-parallel.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-creation-happens-in-parallel.js.headers
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-messageport.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-postMessage-happens-in-parallel.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-postMessage-happens-in-parallel.js.headers
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-run-forever-during-dynamic-import.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-run-forever-during-importScripts.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/Worker-run-forever-during-nested-importScripts.js
@@ -67,6 +71,10 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/postMessage_block_worker.js.headers
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/sandboxed-tests.html
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/shared-name.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/shared-worker-echo-cookies.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/shared-worker-partitioned-cookies-3p-frame.html
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/shared-worker-partitioned-cookies-3p-window.html
+/LayoutTests/imported/w3c/web-platform-tests/workers/support/shared-worker-partitioned-cookies-helper.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/sync_xhr.js
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/sync_xhr_target.xml
 /LayoutTests/imported/w3c/web-platform-tests/workers/support/throw-on-message-Worker.js

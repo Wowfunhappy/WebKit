@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/fetch/api/abort/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/abort/cache.https.any.js
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/abort/destroyed-context.html
 /LayoutTests/imported/w3c/web-platform-tests/fetch/api/abort/general.any.js

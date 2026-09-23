@@ -62,6 +62,8 @@ extension WKWebpagePreferences {
 
         self.alternateRequest = wrapped.alternateRequest
         self.overrideReferrer = wrapped.overrideReferrer
+        self.globalPrivacyControlEnabled = wrapped.isGlobalPrivacyControlEnabled
+        self.allowsJSHandleCreationInPageWorld = wrapped.allowsJSHandleCreationInPageWorld
     }
 }
 

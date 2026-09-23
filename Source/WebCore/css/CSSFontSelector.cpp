@@ -210,7 +210,7 @@ void CSSFontSelector::addFontFaceRule(StyleRuleFontFace& fontFaceRule, bool isIn
     if (featureSettings)
         fontFace->setFeatureSettings(*featureSettings);
     if (display)
-        fontFace->setDisplay(downcast<CSSPrimitiveValue>(*display));
+        fontFace->setDisplay(*display);
     if (sizeAdjust)
         fontFace->setSizeAdjust(*sizeAdjust);
 
@@ -428,10 +428,12 @@ static const MathFontList& mathFontList()
     return list;
 }
 
-FontRanges CSSFontSelector::fontRangesForFamily(const FontDescription& fontDescription, const AtomString& familyName)
+FontRanges CSSFontSelector::fontRangesForFamily(const FontDescription& fontDescription, const FontFamily& fontFamily)
 {
     // If this ASSERT() fires, it usually means you forgot a document.updateStyleIfNeeded() somewhere.
     ASSERT(!m_buildIsUnderway || m_computingRootStyleFontCount);
+
+    const auto& familyName = fontFamily.name;
 
     // FIXME: The spec (and Firefox) says user specified generic families (sans-serif etc.) should be resolved before the @font-face lookup too.
     bool resolveGenericFamilyFirst = familyName == m_fontFamilyNames.at(FamilyNamesIndex::StandardFamily);
@@ -440,6 +442,8 @@ FontRanges CSSFontSelector::fontRangesForFamily(const FontDescription& fontDescr
     auto isGenericFontFamily = IsGenericFontFamily::No;
     const FontDescription* fontDescriptionForLookup = &fontDescription;
     auto resolveAndAssignGenericFamily = [&] {
+        if (!fontFamily.isGeneric())
+            return;
         if (auto genericFamilyOptional = resolveGenericFamily(fontDescription, familyName)) {
             familyForLookup = *genericFamilyOptional;
             isGenericFontFamily = IsGenericFontFamily::Yes;
@@ -450,19 +454,19 @@ FontRanges CSSFontSelector::fontRangesForFamily(const FontDescription& fontDescr
     auto fontFeatureValues = lookupFontFeatureValues(familyName);
 
     // Handle the generic math font family a bit differently.
-    if (familyName == m_fontFamilyNames.at(FamilyNamesIndex::MathFamily)) {
+    if (fontFamily.isGeneric() && familyName == m_fontFamilyNames.at(FamilyNamesIndex::MathFamily)) {
         // First check if the user has defined a preference.
         const auto& settings = protect(scriptExecutionContext())->settingsValues();
         const String& preferredMathFamily = settings.fontGenericFamilies.mathFontFamily(fontDescription.script());
         if (!preferredMathFamily.isEmpty() && familyName != preferredMathFamily) {
-            auto ranges = fontRangesForFamily(fontDescription, AtomString(preferredMathFamily));
+            auto ranges = fontRangesForFamily(fontDescription, FontFamily { AtomString(preferredMathFamily), FontFamilyKind::Specified });
             if (!ranges.isNull())
                 return { WTF::move(ranges), IsGenericFontFamily::Yes };
         }
 
         // Otherwise, iterate through the font list to find a valid fallback.
         for (auto& family : mathFontList()) {
-            auto ranges = fontRangesForFamily(fontDescription, family);
+            auto ranges = fontRangesForFamily(fontDescription, FontFamily { family, FontFamilyKind::Specified });
             if (!ranges.isNull())
                 return { WTF::move(ranges), IsGenericFontFamily::Yes };
         }

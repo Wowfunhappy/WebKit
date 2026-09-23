@@ -49,13 +49,13 @@ protected:
     static Length parseMathMLLength(const String&, bool acceptLegacyMathMLLengths);
     const Length& cachedMathMLLength(const QualifiedName&, std::optional<Length>&);
 
-    virtual bool acceptsMathVariantAttribute() { return false; }
+    virtual bool acceptsLegacyMathVariantAttribute() { return false; }
     std::optional<MathVariant> specifiedMathVariant() final;
 
     std::optional<MathVariant> m_mathVariant;
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     bool isPresentationMathML() const override { return true; }
 
     static Length parseNumberAndUnit(StringView, bool acceptLegacyMathMLLengths);

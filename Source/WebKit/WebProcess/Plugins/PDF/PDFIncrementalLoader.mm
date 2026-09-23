@@ -35,6 +35,7 @@
 #import <WebCore/NetscapePlugInStreamLoader.h>
 #import <WebCore/SharedBuffer.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
+#import <wtf/Borrow.h>
 #import <wtf/CallbackAggregator.h>
 #import <wtf/Identified.h>
 #import <wtf/ObjectIdentifier.h>
@@ -112,7 +113,8 @@ void ByteRangeRequest::completeWithAccumulatedData(PDFIncrementalLoader& loader)
 {
     ASSERT(isMainRunLoop());
 
-    auto data = m_accumulatedData.span();
+    Borrow accumulatedData = m_accumulatedData;
+    auto data = accumulatedData->span();
     if (data.size() > m_count) {
         RELEASE_LOG_ERROR(IncrementalPDF, "PDF byte range request got more bytes back from the server than requested. This is likely due to a misconfigured server. Capping result at the requested number of bytes.");
         data = data.first(m_count);

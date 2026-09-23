@@ -28,6 +28,7 @@
 ]
 messages -> WasmDebuggerDispatcher {
     DispatchMessage(String message)
+    ResetServer()
 }
 
 #endif

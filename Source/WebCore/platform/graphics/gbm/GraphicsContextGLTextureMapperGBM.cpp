@@ -112,6 +112,11 @@ bool GraphicsContextGLTextureMapperGBM::platformInitializeExtensions()
     if (!enableExtensionsImpl({ "GL_OES_EGL_image"_s }))
         return false;
 
+#if ENABLE(WEBXR)
+    if (contextAttributes().xrCompatible && !enableRequiredWebXRExtensionsImpl())
+        return false;
+#endif
+
     const auto& eglExtensions = PlatformDisplay::sharedDisplay().eglExtensions();
     return eglExtensions.KHR_image_base && eglExtensions.EXT_image_dma_buf_import;
 }
@@ -124,65 +129,33 @@ GraphicsContextGLTextureMapperGBM::DrawingBuffer GraphicsContextGLTextureMapperG
 
     const auto size = getInternalFramebufferSize();
     struct gbm_bo* bo = nullptr;
-    bool disableModifiers = m_drawingBufferFormat.modifiers.size() == 1 && m_drawingBufferFormat.modifiers[0] == DRM_FORMAT_MOD_INVALID;
-    if (!disableModifiers && !m_drawingBufferFormat.modifiers.isEmpty())
+    auto enableModifiers = m_drawingBufferFormat.modifiers.size() == 1 && m_drawingBufferFormat.modifiers[0] == DRM_FORMAT_MOD_INVALID
+        ? DMABufBufferAttributes::EnableModifiers::No : DMABufBufferAttributes::EnableModifiers::Yes;
+    if (enableModifiers == DMABufBufferAttributes::EnableModifiers::Yes && !m_drawingBufferFormat.modifiers.isEmpty())
         bo = gbm_bo_create_with_modifiers2(gbmDevice->device(), size.width(), size.height(), m_drawingBufferFormat.fourcc, m_drawingBufferFormat.modifiers.span().data(), m_drawingBufferFormat.modifiers.size(), GBM_BO_USE_RENDERING);
     if (!bo)
         bo = gbm_bo_create(gbmDevice->device(), size.width(), size.height(), m_drawingBufferFormat.fourcc, GBM_BO_USE_RENDERING);
     if (!bo)
         return { };
 
-    Vector<UnixFileDescriptor> fds;
-    Vector<uint32_t> offsets;
-    Vector<uint32_t> strides;
-    uint32_t format = gbm_bo_get_format(bo);
-    int planeCount = gbm_bo_get_plane_count(bo);
-    uint64_t modifier = disableModifiers ? DRM_FORMAT_MOD_INVALID : gbm_bo_get_modifier(bo);
-
-    Vector<EGLint> attributes = {
-        EGL_WIDTH, size.width(),
-        EGL_HEIGHT, size.height(),
-        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLint>(format),
-    };
-
-#define ADD_PLANE_ATTRIBUTES(planeIndex) { \
-    fds.append(UnixFileDescriptor { gbm_bo_get_fd_for_plane(bo, planeIndex), UnixFileDescriptor::Adopt }); \
-    offsets.append(gbm_bo_get_offset(bo, planeIndex)); \
-    strides.append(gbm_bo_get_stride_for_plane(bo, planeIndex)); \
-    std::array<EGLint, 6> planeAttributes { \
-        EGL_DMA_BUF_PLANE##planeIndex##_FD_EXT, fds.last().value(), \
-        EGL_DMA_BUF_PLANE##planeIndex##_OFFSET_EXT, static_cast<EGLint>(offsets.last()), \
-        EGL_DMA_BUF_PLANE##planeIndex##_PITCH_EXT, static_cast<EGLint>(strides.last()) \
-    }; \
-    attributes.append(std::span<const EGLint> { planeAttributes }); \
-    if (modifier != DRM_FORMAT_MOD_INVALID) { \
-        std::array<EGLint, 4> modifierAttributes { \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_HI_EXT, static_cast<EGLint>(modifier >> 32), \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_LO_EXT, static_cast<EGLint>(modifier & 0xffffffff) \
-        }; \
-        attributes.append(std::span<const EGLint> { modifierAttributes }); \
-    } \
+    auto dmaBufAttributes = DMABufBufferAttributes::fromGBMBufferObject(bo, enableModifiers);
+    if (!dmaBufAttributes) {
+        gbm_bo_destroy(bo);
+        return { };
     }
 
-    if (planeCount > 0)
-        ADD_PLANE_ATTRIBUTES(0);
-    if (planeCount > 1)
-        ADD_PLANE_ATTRIBUTES(1);
-    if (planeCount > 2)
-        ADD_PLANE_ATTRIBUTES(2);
-    if (planeCount > 3)
-        ADD_PLANE_ATTRIBUTES(3);
-
-#undef ADD_PLANE_ATTRIBUTES
-
-    attributes.append(EGL_NONE);
-
-    auto* image = EGL_CreateImageKHR(m_displayObj, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.span().data());
+    Ref dmaBuf = DMABufBuffer::create(WTF::move(*dmaBufAttributes));
+    auto eglAttributes = DMABufBuffer::buildEGLImageAttributes(dmaBuf->attributes());
     gbm_bo_destroy(bo);
+
+    if (!eglAttributes)
+        return { };
+
+    auto image = EGL_CreateImageKHR(m_displayObj, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, eglAttributes->span().data());
     if (!image)
         return { };
 
-    return { DMABufBuffer::create(size, format, WTF::move(fds), WTF::move(offsets), WTF::move(strides), modifier), image };
+    return { WTF::move(dmaBuf), image };
 }
 
 void GraphicsContextGLTextureMapperGBM::freeDrawingBuffers()
@@ -211,10 +184,9 @@ bool GraphicsContextGLTextureMapperGBM::bindNextDrawingBuffer()
         m_drawingBuffer = WTF::move(buffer);
     }
 
-    auto [textureTarget, textureBinding] = drawingBufferTextureBindingPoint();
-    ScopedRestoreTextureBinding restoreBinding(textureBinding, textureTarget, textureTarget != TEXTURE_RECTANGLE_ARB);
-    GL_BindTexture(textureTarget, m_texture);
-    GL_EGLImageTargetTexture2DOES(textureTarget, m_drawingBuffer.image);
+    ScopedRestoreTextureBinding restoreBinding(TEXTURE_BINDING_2D, TEXTURE_2D);
+    GL_BindTexture(GL_TEXTURE_2D, m_texture);
+    GL_EGLImageTargetTexture2DOES(GL_TEXTURE_2D, m_drawingBuffer.image);
     return true;
 }
 
@@ -261,9 +233,9 @@ void GraphicsContextGLTextureMapperGBM::prepareForDisplay()
         flags.add(TextureMapperFlags::ShouldBlend);
     std::unique_ptr<CoordinatedPlatformLayerBuffer> buffer;
     if (fenceFD)
-        buffer = CoordinatedPlatformLayerBufferDMABuf::create(Ref { *m_displayBuffer.dmabuf }, flags, WTF::move(fenceFD));
+        buffer = CoordinatedPlatformLayerBufferDMABuf::create(protect(*m_displayBuffer.dmabuf), flags, WTF::move(fenceFD));
     else
-        buffer = CoordinatedPlatformLayerBufferDMABuf::create(Ref { *m_displayBuffer.dmabuf }, flags, WTF::move(fence));
+        buffer = CoordinatedPlatformLayerBufferDMABuf::create(protect(*m_displayBuffer.dmabuf), flags, WTF::move(fence));
     m_layerContentsDisplayDelegate->setDisplayBuffer(WTF::move(buffer));
 }
 
@@ -288,40 +260,6 @@ void GraphicsContextGLTextureMapperGBM::prepareForDisplayWithFinishedSignal(Func
 GCGLExternalImage GraphicsContextGLTextureMapperGBM::createExternalImage(ExternalImageSource&& source, GCGLenum, GCGLint)
 {
     GraphicsContextGLExternalImageSource imageSource = WTF::move(source);
-    Vector<EGLint> attributes = {
-        EGL_WIDTH, imageSource.size.width(),
-        EGL_HEIGHT, imageSource.size.height(),
-        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLint>(imageSource.fourcc)
-    };
-
-#define ADD_PLANE_ATTRIBUTES(planeIndex) { \
-    std::array<EGLAttrib, 6> planeAttributes { \
-        EGL_DMA_BUF_PLANE##planeIndex##_FD_EXT, imageSource.fds[planeIndex].value(), \
-        EGL_DMA_BUF_PLANE##planeIndex##_OFFSET_EXT, static_cast<EGLint>(imageSource.offsets[planeIndex]), \
-        EGL_DMA_BUF_PLANE##planeIndex##_PITCH_EXT, static_cast<EGLint>(imageSource.strides[planeIndex]) \
-    }; \
-    attributes.append(std::span<const EGLAttrib> { planeAttributes }); \
-    if (imageSource.modifier != DRM_FORMAT_MOD_INVALID && PlatformDisplay::sharedDisplay().eglExtensions().EXT_image_dma_buf_import_modifiers) { \
-        std::array<EGLint, 4> modifierAttributes { \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_HI_EXT, static_cast<EGLint>(imageSource.modifier >> 32), \
-            EGL_DMA_BUF_PLANE##planeIndex##_MODIFIER_LO_EXT, static_cast<EGLint>(imageSource.modifier & 0xffffffff) \
-        }; \
-        attributes.append(std::span<const EGLint> { modifierAttributes }); \
-    } \
-    };
-    auto planeCount = imageSource.fds.size();
-    if (planeCount > 0)
-        ADD_PLANE_ATTRIBUTES(0);
-    if (planeCount > 1)
-        ADD_PLANE_ATTRIBUTES(1);
-    if (planeCount > 2)
-        ADD_PLANE_ATTRIBUTES(2);
-    if (planeCount > 3)
-        ADD_PLANE_ATTRIBUTES(3);
-
-#undef ADD_PLANE_ATTRIBUTES
-
-    attributes.append(EGL_NONE);
 
     if (m_displayObj == EGL_NO_DISPLAY) {
         addError(GCGLErrorCode::InvalidOperation);
@@ -329,7 +267,15 @@ GCGLExternalImage GraphicsContextGLTextureMapperGBM::createExternalImage(Externa
         return { };
     }
 
-    auto eglImage = EGL_CreateImageKHR(m_displayObj, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.span().data());
+    DMABufBufferAttributes dmaBufAttributes { imageSource.size, imageSource.fourcc, WTF::move(imageSource.fds), WTF::move(imageSource.offsets), WTF::move(imageSource.strides), imageSource.modifier };
+    auto enableModifiers = PlatformDisplay::sharedDisplay().eglExtensions().EXT_image_dma_buf_import_modifiers
+        ? DMABufBufferAttributes::EnableModifiers::Yes : DMABufBufferAttributes::EnableModifiers::No;
+    auto eglAttributes = DMABufBuffer::buildEGLImageAttributes(dmaBufAttributes, enableModifiers);
+    if (!eglAttributes) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return { };
+    }
+    auto eglImage = EGL_CreateImageKHR(m_displayObj, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, eglAttributes->span().data());
     if (!eglImage) {
         LOG(XR, "invalid operation importing the image %d", EGL_GetError());
         addError(GCGLErrorCode::InvalidOperation);
@@ -363,6 +309,11 @@ bool GraphicsContextGLTextureMapperGBM::enableRequiredWebXRExtensions()
     if (!makeContextCurrent())
         return false;
 
+    return enableRequiredWebXRExtensionsImpl();
+}
+
+bool GraphicsContextGLTextureMapperGBM::enableRequiredWebXRExtensionsImpl()
+{
     return enableExtensionsImpl({
         "GL_OES_EGL_image"_s,
         "GL_OES_EGL_image_external"_s

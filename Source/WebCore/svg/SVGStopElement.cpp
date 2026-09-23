@@ -26,10 +26,11 @@
 #include "Document.h"
 #include "LegacyRenderSVGResource.h"
 #include "RenderSVGGradientStop.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGGradientElement.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -87,12 +88,12 @@ void SVGStopElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGStopElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGStopElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderSVGGradientStop>(*this, WTF::move(style));
 }
 
-bool SVGStopElement::rendererIsNeeded(const RenderStyle&)
+bool SVGStopElement::rendererIsNeeded(const Style::ComputedStyle&)
 {
     return true;
 }
@@ -106,7 +107,7 @@ Color SVGStopElement::stopColorIncludingOpacity() const
 
     CheckedRef style = renderer()->style();
     auto stopColor = style->stopColorResolvingCurrentColor();
-    return stopColor.colorWithAlphaMultipliedBy(style->stopOpacity().value.value);
+    return stopColor.colorWithAlphaMultipliedBy(Style::evaluate<float>(style->stopOpacity()));
 }
 
-}
+} // namespace WebCore

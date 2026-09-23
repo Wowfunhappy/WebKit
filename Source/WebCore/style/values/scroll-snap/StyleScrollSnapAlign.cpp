@@ -26,17 +26,17 @@
 #include "StyleScrollSnapAlign.h"
 
 #include "StyleBuilderChecking.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
 auto CSSValueConversion<ScrollSnapAlign>::operator()(BuilderState& state, const CSSValue& value) -> ScrollSnapAlign
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
-        return { toStyleFromCSSValue<ScrollSnapAxisAlignType>(state, *primitiveValue) };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value))
+        return toStyleFromCSSValue<ScrollSnapAxisAlignType>(state, *keywordValue);
 
-    auto pair = requiredPairDowncast<CSSPrimitiveValue>(state, value);
+    auto pair = requiredPairDowncast<CSSKeywordValue>(state, value);
     if (!pair)
         return CSS::Keyword::None { };
 

@@ -28,7 +28,6 @@
 typedef USVString CSSOMString;
 
 [
-    EnabledBySetting=CrossDocumentViewTransitionsEnabled,
     Exposed=Window
 ] interface CSSViewTransitionRule : CSSRule {
   readonly attribute [AtomString] CSSOMString navigation;

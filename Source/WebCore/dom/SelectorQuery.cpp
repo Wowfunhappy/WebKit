@@ -35,6 +35,7 @@
 #include "HTMLDocument.h"
 #include "HTMLNames.h"
 #include "SVGElement.h"
+#include "SecurityOrigin.h"
 #include "SelectorChecker.h"
 #include "StaticNodeList.h"
 #include "StyledElement.h"
@@ -50,17 +51,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(SelectorQueryCache);
 #if ASSERT_ENABLED
 static bool isSingleTagNameSelector(const CSSSelector& selector)
 {
-    return selector.isFirstInComplexSelector() && selector.match() == CSSSelector::Match::Tag;
+    return !selector.precedingInComplexSelector() && selector.match() == CSSSelector::Match::Tag;
 }
 
 static bool isSingleClassNameSelector(const CSSSelector& selector)
 {
-    return selector.isFirstInComplexSelector() && selector.match() == CSSSelector::Match::Class;
+    return !selector.precedingInComplexSelector() && selector.match() == CSSSelector::Match::Class;
 }
 
 static bool isSingleAttributeExactSelector(const CSSSelector& selector)
 {
-    return selector.isFirstInComplexSelector() && selector.match() == CSSSelector::Match::Exact;
+    return !selector.precedingInComplexSelector() && selector.match() == CSSSelector::Match::Exact;
 }
 
 #endif // ASSERT_ENABLED
@@ -83,7 +84,7 @@ template<typename Output> static ALWAYS_INLINE void appendOutputForElement(Outpu
 static bool NODELETE canBeUsedForIdFastPath(const CSSSelector& selector)
 {
     return selector.match() == CSSSelector::Match::Id
-        || (selector.match() == CSSSelector::Match::Exact && selector.attribute() == HTMLNames::idAttr && !selector.attributeValueMatchingIsCaseInsensitive());
+        || (selector.match() == CSSSelector::Match::Exact && selector.attribute() == HTMLNames::idAttr && selector.attributeMatchType() != CSSSelector::AttributeMatchType::CaseInsensitive);
 }
 
 static IdMatchingType NODELETE findIdMatchingType(const CSSSelector& firstSelector)
@@ -104,7 +105,7 @@ static IdMatchingType NODELETE findIdMatchingType(const CSSSelector& firstSelect
 static bool canOptimizeSingleAttributeExactMatch(const CSSSelector& selector)
 {
     // Bailout if attribute name needs to be definitely case-insensitive.
-    if (selector.attributeValueMatchingIsCaseInsensitive())
+    if (selector.attributeMatchType() == CSSSelector::AttributeMatchType::CaseInsensitive)
         return false;
 
     const auto& attribute = selector.attribute();
@@ -130,7 +131,7 @@ SelectorDataList::SelectorDataList(const CSSSelectorList& selectorList)
 
     if (m_selectors.size() == 1) {
         const CSSSelector& selector = m_selectors.first().selector;
-        if (selector.isFirstInComplexSelector()) {
+        if (!selector.precedingInComplexSelector()) {
             switch (selector.match()) {
             case CSSSelector::Match::Tag:
                 m_matchType = TagNameMatch;
@@ -181,19 +182,6 @@ inline bool SelectorDataList::selectorMatches(const SelectorData& selectorData, 
     return selectorChecker.match(selectorData.selector, element, selectorCheckingContext);
 }
 
-inline Element* SelectorDataList::selectorClosest(const SelectorData& selectorData, Element& element, const ContainerNode& rootNode, Style::SelectorMatchingState* selectorMatchingState) const
-{
-    SelectorChecker selectorChecker(element.document());
-    SelectorChecker::CheckingContext selectorCheckingContext(SelectorChecker::Mode::QueryingRules);
-    selectorCheckingContext.scope = rootNode.isDocumentNode() ? nullptr : &rootNode;
-    // Providing SelectorMatchingState allows cross-element optimizations like caching for :has() matches.
-    selectorCheckingContext.selectorMatchingState = selectorMatchingState;
-
-    if (!selectorChecker.match(selectorData.selector, element, selectorCheckingContext))
-        return nullptr;
-    return &element;
-}
-
 bool SelectorDataList::matches(Element& targetElement) const
 {
     for (auto& selector : m_selectors) {
@@ -203,14 +191,14 @@ bool SelectorDataList::matches(Element& targetElement) const
     return false;
 }
 
-Element* SelectorDataList::closest(Element& targetElement) const
+RefPtr<Element> SelectorDataList::closest(Element& targetElement) const
 {
     Style::SelectorMatchingState selectorMatchingState;
 
     for (Ref currentElement : lineageOfType<Element>(targetElement)) {
         for (auto& selector : m_selectors) {
-            if (auto* candidateElement = selectorClosest(selector, currentElement, targetElement, &selectorMatchingState))
-                return candidateElement;
+            if (selectorMatches(selector, currentElement, targetElement, &selectorMatchingState))
+                return currentElement;
         }
     }
     return nullptr;
@@ -237,11 +225,9 @@ static const CSSSelector* NODELETE selectorForIdLookup(const ContainerNode& root
     if (rootNode.document().inQuirksMode())
         return nullptr;
 
-    for (const CSSSelector* selector = &firstSelector; selector; selector = selector->precedingInComplexSelector()) {
+    for (const CSSSelector* selector = &firstSelector; selector; selector = selector->followingInCompound()) {
         if (canBeUsedForIdFastPath(*selector))
             return selector;
-        if (selector->relation() != CSSSelector::Relation::Subselector)
-            break;
     }
 
     return nullptr;
@@ -255,12 +241,12 @@ ALWAYS_INLINE void SelectorDataList::executeFastPathForIdSelector(const Containe
 
     const AtomString& idToMatch = idSelector->value();
     if (rootNode.treeScope().containsMultipleElementsWithId(idToMatch)) [[unlikely]] {
-        auto* elements = rootNode.treeScope().getAllElementsById(idToMatch);
+        auto* elements = protect(rootNode.treeScope())->getAllElementsById(idToMatch);
         ASSERT(elements);
         bool rootNodeIsTreeScopeRoot = rootNode.isTreeScope();
         for (auto& element : *elements) {
-            if ((rootNodeIsTreeScopeRoot || element->isDescendantOf(rootNode)) && selectorMatches(selectorData, element, rootNode)) {
-                appendOutputForElement(output, element);
+            if ((rootNodeIsTreeScopeRoot || element->isDescendantOf(rootNode)) && selectorMatches(selectorData, protect(element), rootNode)) {
+                appendOutputForElement(output, protect(element));
                 if constexpr (std::is_same_v<OutputType, Element*>)
                     return;
             }
@@ -268,7 +254,7 @@ ALWAYS_INLINE void SelectorDataList::executeFastPathForIdSelector(const Containe
         return;
     }
 
-    RefPtr element = rootNode.treeScope().getElementById(idToMatch);
+    RefPtr element = protect(rootNode.treeScope())->getElementById(idToMatch);
     if (!element || !(rootNode.isTreeScope() || element->isDescendantOf(rootNode)))
         return;
     if (selectorMatches(selectorData, *element, rootNode))
@@ -296,7 +282,7 @@ static Ref<ContainerNode> filterRootById(ContainerNode& rootNode, const CSSSelec
     for (; selector; selector = selector->precedingInComplexSelector()) {
         if (canBeUsedForIdFastPath(*selector)) {
             const AtomString& idToMatch = selector->value();
-            if (RefPtr<ContainerNode> searchRoot = rootNode.treeScope().getElementById(idToMatch)) {
+            if (RefPtr<ContainerNode> searchRoot = protect(rootNode.treeScope())->getElementById(idToMatch)) {
                 if (!rootNode.treeScope().containsMultipleElementsWithId(idToMatch)) [[likely]] {
                     if (inAdjacentChain)
                         searchRoot = searchRoot->parentNode();
@@ -454,7 +440,7 @@ ALWAYS_INLINE void SelectorDataList::executeSingleAttributeExactSelectorData(con
 
             if (!foundFirstMatch && rootNode.isDocumentNode()) {
                 foundFirstMatch = true;
-                rootNode.document().setCachedFirstElementWithAttribute(selectorAttribute, element);
+                protect(rootNode.document())->setCachedFirstElementWithAttribute(selectorAttribute, element);
             }
 
             if (selectorValue == attribute.value()) {
@@ -713,14 +699,10 @@ SelectorQuery* SelectorQueryCache::add(const String& selectors, const Document& 
 {
     ASSERT(!selectors.isEmpty());
 
-    constexpr auto maximumSelectorQueryCacheSize = 512;
-    if (m_entries.size() == maximumSelectorQueryCacheSize)
-        m_entries.remove(m_entries.random());
-
     auto context = CSSSelectorParserContext { document };
     auto key = Key { selectors, context, document.securityOrigin().data() };
 
-    return m_entries.ensure(key, [&]() -> std::unique_ptr<SelectorQuery> {
+    auto result = m_entries.ensure(key, [&] -> std::unique_ptr<SelectorQuery> {
         auto tokenizer = CSSTokenizer { selectors };
         auto selectorList = parseCSSSelectorList(tokenizer.tokenRange(), context);
 
@@ -731,7 +713,17 @@ SelectorQuery* SelectorQueryCache::add(const String& selectors, const Document& 
             selectorList = CSSSelectorParser::resolveNestingParent(WTF::move(*selectorList), nullptr);
 
         return makeUnique<SelectorQuery>(WTF::move(*selectorList));
-    }).iterator->value.get();
+    });
+
+    auto* query = result.iterator->value.get();
+    constexpr auto maximumSelectorQueryCacheSize = 512;
+    while (m_entries.size() > maximumSelectorQueryCacheSize) {
+        auto it = m_entries.random();
+        if (it->key != result.iterator->key)
+            m_entries.remove(it);
+    }
+
+    return query;
 }
 
 void SelectorQueryCache::clear()

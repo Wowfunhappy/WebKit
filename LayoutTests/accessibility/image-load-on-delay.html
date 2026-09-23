@@ -2,6 +2,7 @@
 <html>
 <head>
 <script src="../resources/js-test-pre.js"></script>
+<script src="../resources/accessibility-helper.js"></script>
 </head>
 <body id="body">
 
@@ -23,16 +24,17 @@
           var content = accessibilityController.accessibleElementById("content");
           debug("BEFORE: Group count: " + content.childrenCount);
 
-          document.getElementById("image").onload = function() {
+          document.getElementById("image").onload = async function() {
               document.body.offsetHeight;
-              setTimeout(function() {
-                  debug("AFTER: Group count: " + content.childrenCount);
-                  finishJSTest();
-              }, 0);
+              await waitFor(() => {
+                  return content.childrenCount === 3;
+              });
+              debug("AFTER: Group count: " + content.childrenCount);
+              finishJSTest();
           };
 
-          setTimeout(function() { 
-              document.getElementById("image").src = "resources/cake.png"; 
+          setTimeout(function() {
+              document.getElementById("image").src = "resources/cake.png";
           }, 100);
     }
 

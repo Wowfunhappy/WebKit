@@ -35,4 +35,6 @@ struct WebKit::RenderProcessInfo {
     unsigned gpuPaintingThreadsCount;
     unsigned msaaSampleCount;
     Vector<WebKit::RendererBufferFormat::Format> supportedBufferFormats;
+    String dmabufExportStrategy;
+    bool memoryMappedGPUBufferSupported;
 }

@@ -56,13 +56,13 @@ using namespace HTMLNames;
 
 static JSValue createNewElementWrapper(JSDOMGlobalObject* globalObject, Ref<Element>&& element)
 {
-    if (auto* htmlElement = dynamicDowncast<HTMLElement>(element.get()))
-        return createJSHTMLWrapper(globalObject, *htmlElement);
-    if (auto* svgElement = dynamicDowncast<SVGElement>(element.get()))
-        return createJSSVGWrapper(globalObject, *svgElement);
+    if (is<HTMLElement>(element))
+        return createJSHTMLWrapper(globalObject, uncheckedDowncast<HTMLElement>(WTF::move(element)));
+    if (is<SVGElement>(element))
+        return createJSSVGWrapper(globalObject, uncheckedDowncast<SVGElement>(WTF::move(element)));
 #if ENABLE(MATHML)
-    if (auto* mathmlElement = dynamicDowncast<MathMLElement>(element.get()))
-        return createJSMathMLWrapper(globalObject, *mathmlElement);
+    if (is<MathMLElement>(element))
+        return createJSMathMLWrapper(globalObject, uncheckedDowncast<MathMLElement>(WTF::move(element)));
 #endif
     return createWrapper<Element>(globalObject, WTF::move(element));
 }
@@ -96,11 +96,11 @@ static JSValue getElementsArrayAttribute(JSGlobalObject& lexicalGlobalObject, co
     if (cachedObjectValue)
         cachedObject = asObject(cachedObjectValue);
     else {
-        cachedObject = constructEmptyObject(vm, thisObject.globalObject()->nullPrototypeObjectStructure());
+        cachedObject = JSC::constructEmptyObject(vm, thisObject.realm()->nullPrototypeObjectStructure());
         const_cast<JSElement&>(thisObject).putDirect(vm, builtinNames(vm).cachedAttrAssociatedElementsPrivateName(), cachedObject);
     }
 
-    std::optional<Vector<Ref<Element>>> elements = thisObject.wrapped().getElementsArrayAttributeForBindings(attributeName);
+    std::optional<Vector<Ref<Element>>> elements = protect(thisObject.wrapped())->getElementsArrayAttributeForBindings(attributeName);
     auto propertyName = PropertyName(Identifier::fromString(vm, attributeName.toString()));
     JSValue cachedValue = cachedObject->getDirect(vm, propertyName);
     if (!cachedValue.isEmpty()) {
@@ -109,7 +109,7 @@ static JSValue getElementsArrayAttribute(JSGlobalObject& lexicalGlobalObject, co
             return cachedValue;
     }
 
-    JSValue elementsValue = toJS<IDLNullable<IDLFrozenArray<IDLInterface<Element>>>>(lexicalGlobalObject, *thisObject.globalObject(), throwScope, elements);
+    JSValue elementsValue = toJS<IDLNullable<IDLFrozenArray<IDLInterface<Element>>>>(lexicalGlobalObject, *thisObject.realm(), throwScope, elements);
     cachedObject->putDirect(vm, propertyName, elementsValue);
     return elementsValue;
 }

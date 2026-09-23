@@ -25,6 +25,7 @@
 #include "config.h"
 #include "StyleSVGPaintOrder.h"
 
+#include "CSSKeywordValue.h"
 #include "StyleBuilderChecking.h"
 
 namespace WebCore {
@@ -61,8 +62,8 @@ std::span<const PaintType, 3> SVGPaintOrder::paintTypes() const
 
 auto CSSValueConversion<SVGPaintOrder>::operator()(BuilderState& state, const CSSValue& value) -> SVGPaintOrder
 {
-    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        switch (primitiveValue->valueID()) {
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
         case CSSValueNormal:
             return CSS::Keyword::Normal { };
         case CSSValueFill:
@@ -77,7 +78,7 @@ auto CSSValueConversion<SVGPaintOrder>::operator()(BuilderState& state, const CS
         }
     }
 
-    auto list = requiredListDowncast<CSSValueList, CSSPrimitiveValue, 1>(state, value);
+    auto list = requiredListDowncast<CSSValueList, CSSKeywordValue, 1>(state, value);
     if (!list)
         return CSS::Keyword::Normal { };
 

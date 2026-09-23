@@ -26,6 +26,7 @@
 #include "StyleZIndex.h"
 
 #include "AnimationUtilities.h"
+#include "CSSKeywordValue.h"
 #include "StylePrimitiveNumericTypes+Blending.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 
@@ -36,8 +37,16 @@ namespace Style {
 
 auto CSSValueConversion<ZIndex>::operator()(BuilderState& state, const CSSValue& value) -> ZIndex
 {
-    if (value.valueID() == CSSValueAuto)
-        return CSS::Keyword::Auto { };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueAuto:
+            return CSS::Keyword::Auto { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::Auto { };
+        }
+    }
+
     return toStyleFromCSSValue<ZIndex::Value>(state, value);
 }
 

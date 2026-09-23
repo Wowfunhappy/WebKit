@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 this.g ??= createGlobalObject();
 function f1(a2) {
   function f3() {

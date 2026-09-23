@@ -56,11 +56,12 @@ AllowedSPI*.toml @emw-apple
 /Tools/TestWebKitAPI/Tests/WebKitGtk/ @WebKit/glib-reviewers
 /Tools/TestWebKitAPI/WebKitGLib/ @WebKit/glib-reviewers
 /Tools/TestWebKitAPI/WebKitGtk/ @WebKit/glib-reviewers
+/Tools/TestWebKitAPI/Tests/WebKit/WKWebView/ScreenTime.mm @jesxilin
 
 /Tools/gstreamer/ @WebKit/glib-reviewers
 /Tools/jhbuild/ @WebKit/glib-reviewers
 
-/Tools/WebKitTestRunner/InjectedBundle/Accessibility* @twilco @hoffmanjoshua @minorninth @fleizach @AndresGonzalezApple
+/Tools/WebKitTestRunner/InjectedBundle/Accessibility* @twilco @minorninth @fleizach @AndresGonzalezApple
 
 # ================================================================================
 # bmalloc
@@ -90,18 +91,16 @@ AllowedSPI*.toml @emw-apple
 # ================================================================================
 # WebCore
 
-/Source/WebCore/accessibility @twilco @hoffmanjoshua @minorninth @fleizach @AndresGonzalezApple
+/Source/WebCore/accessibility @twilco @minorninth @fleizach @AndresGonzalezApple
 /Source/WebCore/dom @rniwa @cdumez
-/LayoutTests/accessibility @twilco @hoffmanjoshua @minorninth @fleizach @AndresGonzalezApple
-/LayoutTests/accessibility-isolated-tree @twilco @hoffmanjoshua @minorninth @fleizach @AndresGonzalezApple
+/LayoutTests/accessibility @twilco @minorninth @fleizach @AndresGonzalezApple
+/LayoutTests/accessibility-isolated-tree @twilco @minorninth @fleizach @AndresGonzalezApple
 /LayoutTests/fast/dom @rniwa
 /LayoutTests/fast/events @rniwa
 
 /Source/WebCore/editing @rniwa
 /LayoutTests/editing @rniwa
 
-/Source/WebCore/Modules/applepay @aprotyas
-/Source/WebCore/Modules/applepay-ams-ui @aprotyas
 /Source/WebCore/Modules/applicationmanifest/ @marcoscaceres
 /Source/WebCore/Modules/beacon @cdumez
 /Source/WebCore/Modules/contact-picker @marcoscaceres
@@ -109,7 +108,7 @@ AllowedSPI*.toml @emw-apple
 /Source/WebCore/Modules/geolocation @cdumez @marcoscaceres
 /Source/WebCore/Modules/model-element @mwyrzykowski @etiennesegonzac
 /Source/WebCore/Modules/notifications @cdumez
-/Source/WebCore/Modules/paymentrequest @aprotyas @marcoscaceres
+/Source/WebCore/Modules/paymentrequest @marcoscaceres
 /Source/WebCore/Modules/permissions @marcoscaceres
 /Source/WebCore/Modules/credentialmanagement @marcoscaceres
 /Source/WebCore/Modules/gamepad @marcoscaceres
@@ -128,21 +127,21 @@ AllowedSPI*.toml @emw-apple
 /Source/WebCore/worklets @cdumez
 /Source/WebCore/xml @cdumez
 /Source/WebCore/page @cdumez
+/Source/WebCore/page/PointerCaptureController.cpp @lilyspiniolas
+/Source/WebCore/page/PointerCaptureController.h @lilyspiniolas
 ./Source/WebCore/page/Navigator.* @marcoscaceres
 
 /Source/WebCore/animation @graouts
 
-/LayoutTests/http/tests/paymentrequest @aprotyas @marcoscaceres
+/LayoutTests/http/tests/paymentrequest @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/badging @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/contenteditable @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/digital-credentials @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/gamepad @marcoscaceres
-/LayoutTests/http/tests/ssl/applepay @aprotyas
-/LayoutTests/http/tests/ssl/applepay-ams-ui @aprotyas
 /LayoutTests/imported/w3c/web-platform-tests/geolocation @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/html/user-activation @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/merchant-validation @marcoscaceres
-/LayoutTests/imported/w3c/web-platform-tests/payment-request @aprotyas @marcoscaceres
+/LayoutTests/imported/w3c/web-platform-tests/payment-request @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/permissions @marcoscaceres
 /LayoutTests/imported/w3c/web-platform-tests/resources @gsnedders
 /LayoutTests/imported/w3c/web-platform-tests/screen-orientation @marcoscaceres
@@ -162,19 +161,17 @@ AllowedSPI*.toml @emw-apple
 /Source/WebKit/NetworkProcess @cdumez
 /Source/WebKit/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in @brentfulgham @pvollan
 /Source/WebKit/Platform @cdumez
-/Source/WebKit/Platform/*/Payment* @aprotyas
 /Source/WebKit/Resources/SandboxProfiles @brentfulgham @pvollan
-/Source/WebKit/Shared/ApplePay @aprotyas
 /Source/WebKit/Shared/Sandbox @brentfulgham @pvollan
 /Source/WebKit/UIProcess @cdumez
 /Source/WebKit/UIProcess/Extensions @b-weinstein @xeenon
 /Source/WebKit/UIProcess/Inspector @dcrousso @patrickangle @burg
 /Source/WebKit/WebKitSwift @rr-codes
 /Source/WebKit/UIProcess/DigitalCredentials @marcoscaceres
+/Source/WebKit/UIProcess/WebsiteData/Cocoa/ScreenTimeWebsiteDataSupport.* @jesxilin
 /Source/WebKit/WebProcess @cdumez
 /Source/WebKit/WebProcess/DigitalCredentials @marcoscaceres
 /Source/WebKit/WebKitSwift/IdentityDocumentServices @marcoscaceres
-/Source/WebKit/WebProcess/ApplePay @aprotyas
 /Source/WebKit/WebProcess/Extensions @b-weinstein @xeenon
 /Source/WebKit/WebProcess/Inspector @dcrousso @patrickangle @burg
 /Source/WebKit/WebProcess/com.apple.WebProcess.sb.in  @brentfulgham @pvollan
@@ -189,12 +186,18 @@ AllowedSPI*.toml @emw-apple
 # ================================================================================
 # CMake
 
+/Source/cmake/OptionsCommon.cmake @mcatanzaro
 /Source/cmake/WebKitCompilerFlags.cmake @mcatanzaro
 
 # ================================================================================
 # Xcode
 
-*.xcconfig @emw-apple
+*.xcconfig @emw-apple @rr-codes
+
+# ================================================================================
+# Module Map
+
+*.modulemap @rr-codes
 
 # ================================================================================
 # Swift
@@ -223,7 +226,7 @@ gstreamer/ @philn
 # WPE WebKit and WebKitGTK
 
 /Source/ThirdParty/xdgmime/ @WebKit/glib-reviewers
-/Source/cmake/OptionsGTK.cmake @WebKit/glib-reviewers
+/Source/cmake/OptionsGTK.cmake @WebKit/glib-reviewers @mcatanzaro
 /Source/cmake/OptionsWPE.cmake @WebKit/glib-reviewers
 
 adwaita/ @WebKit/glib-reviewers

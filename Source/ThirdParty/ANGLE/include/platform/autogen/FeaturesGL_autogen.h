@@ -164,6 +164,12 @@ struct FeaturesGL : FeatureSetBase
         &members,
     };
 
+    FeatureInfo dontInvalidateIncompleteFBOs = {
+        "dontInvalidateIncompleteFBOs",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
     FeatureInfo dontUseLoopsToInitializeVariables = {
         "dontUseLoopsToInitializeVariables",
         FeatureCategory::OpenGLWorkarounds,
@@ -352,6 +358,12 @@ struct FeaturesGL : FeatureSetBase
 
     FeatureInfo emulateCopyTexImage2DFromRenderbuffers = {
         "emulateCopyTexImage2DFromRenderbuffers",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo forceLumaWorkaroundForSameTextureCopyTexImage2D = {
+        "forceLumaWorkaroundForSameTextureCopyTexImage2D",
         FeatureCategory::OpenGLWorkarounds,
         &members,
     };
@@ -652,6 +664,48 @@ struct FeaturesGL : FeatureSetBase
 
     FeatureInfo disableClearTexImageForRobustInit = {
         "disableClearTexImageForRobustInit",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo multiviewViaViewportArray = {
+        "multiviewViaViewportArray",
+        FeatureCategory::OpenGLFeatures,
+        &members,
+    };
+
+    FeatureInfo validateMaxPerStageUniformBlocksAtCompileTime = {
+        "validateMaxPerStageUniformBlocksAtCompileTime",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo expandFragmentOutputsToVec4 = {
+        "expandFragmentOutputsToVec4",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo recreateMipmapLevelsBeforeGenerate = {
+        "recreateMipmapLevelsBeforeGenerate",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo limitMaxBufferSizeTo1gb = {
+        "limitMaxBufferSizeTo1gb",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo reattachFboDepthStencilOnReallocation = {
+        "reattachFboDepthStencilOnReallocation",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo disableClearTexture = {
+        "disableClearTexture",
         FeatureCategory::OpenGLWorkarounds,
         &members,
     };

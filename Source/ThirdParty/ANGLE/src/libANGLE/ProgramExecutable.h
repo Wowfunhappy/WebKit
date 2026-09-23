@@ -381,9 +381,9 @@ class ProgramExecutable final : public angle::Subject
         return mSamplerBoundTextureUnits;
     }
     const std::vector<ImageBinding> &getImageBindings() const { return mImageBindings; }
-    const std::vector<ShPixelLocalStorageFormat> &getPixelLocalStorageFormats() const
+    const std::vector<ShPixelLocalStorageLayout> &getPixelLocalStorageLayouts() const
     {
-        return mPixelLocalStorageFormats;
+        return mPixelLocalStorageLayouts;
     }
     std::vector<ImageBinding> *getImageBindings() { return &mImageBindings; }
     const RangeUI &getDefaultUniformRange() const { return mPod.defaultUniformRange; }
@@ -393,6 +393,7 @@ class ProgramExecutable final : public angle::Subject
     DrawBufferMask getFragmentInoutIndices() const { return mPod.fragmentInoutIndices; }
     bool hasClipDistance() const { return mPod.hasClipDistance; }
     bool hasDiscard() const { return mPod.hasDiscard; }
+    bool hasFragCoord() const { return mPod.hasFragCoord; }
     bool hasDepthInputAttachment() const { return mPod.hasDepthInputAttachment; }
     bool hasStencilInputAttachment() const { return mPod.hasStencilInputAttachment; }
     bool enablesPerSampleShading() const { return mPod.enablesPerSampleShading; }
@@ -530,8 +531,6 @@ class ProgramExecutable final : public angle::Subject
 
     int getNumViews() const { return mPod.numViews; }
     bool usesMultiview() const { return mPod.numViews != -1; }
-
-    rx::SpecConstUsageBits getSpecConstUsageBits() const { return mPod.specConstUsageBits; }
 
     int getDrawIDLocation() const { return mPod.drawIDLocation; }
     int getBaseVertexLocation() const { return mPod.baseVertexLocation; }
@@ -907,8 +906,11 @@ class ProgramExecutable final : public angle::Subject
         // 1 byte.  Bitset of which input attachments have been declared
         DrawBufferMask fragmentInoutIndices;
 
+        // 1 byte
+        uint8_t hasFragCoord : 1;
+        uint8_t pad : 7;
+
         // GL_EXT_geometry_shader.
-        uint8_t pad0;
         PrimitiveMode geometryShaderInputPrimitiveType;
         PrimitiveMode geometryShaderOutputPrimitiveType;
         int32_t geometryShaderInvocations;
@@ -932,11 +934,11 @@ class ProgramExecutable final : public angle::Subject
         GLenum tessGenVertexOrder;
         GLenum tessGenPointMode;
 
-        // 4 bytes
-        rx::SpecConstUsageBits specConstUsageBits;
-
         // 24 bytes
         ShaderMap<int> linkedShaderVersions;
+
+        // 4 bytes
+        uint32_t padding;
     } mPod;
     ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 
@@ -1009,7 +1011,7 @@ class ProgramExecutable final : public angle::Subject
 
     // ANGLE_shader_pixel_local_storage: A mapping from binding index to the PLS uniform format at
     // that index.
-    std::vector<ShPixelLocalStorageFormat> mPixelLocalStorageFormats;
+    std::vector<ShPixelLocalStorageLayout> mPixelLocalStorageLayouts;
 
     ShaderMap<std::vector<sh::ShaderVariable>> mLinkedOutputVaryings;
     ShaderMap<std::vector<sh::ShaderVariable>> mLinkedInputVaryings;

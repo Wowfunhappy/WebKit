@@ -19,4 +19,6 @@ PASS sec-fetch-mode - init: mode=no-cors
 PASS sec-fetch-mode - init: mode=same-origin
 PASS sec-fetch-dest - no init
 PASS sec-fetch-user - no init
+FAIL sec-fetch-storage-access - Cross-site, init: mode=no-cors, credentials=include assert_own_property: expected property "sec-fetch-storage-access" missing
+PASS sec-fetch-storage-access - Same site, init: mode=no-cors, credentials=include
 

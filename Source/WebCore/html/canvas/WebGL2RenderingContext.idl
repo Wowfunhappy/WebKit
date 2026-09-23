@@ -63,6 +63,7 @@ typedef (ImageBitmap or ImageData or HTMLImageElement or HTMLCanvasElement
     GenerateIsReachable=ImplCanvasBase,
     JSCustomMarkFunction,
     DoNotCheckConstants,
+    ExportMacro=WEBCORE_EXPORT,
     ReportExtraMemoryCost,
     ReportExternalMemoryCost,
     Exposed=(Window,Worker),
@@ -423,7 +424,7 @@ typedef (ImageBitmap or ImageData or HTMLImageElement or HTMLCanvasElement
     undefined deleteQuery(WebGLQuery? query);
     GLboolean isQuery(WebGLQuery? query);
     undefined beginQuery(GLenum target, WebGLQuery query);
-    undefined endQuery(GLenum target);
+    [CallWith=CurrentScriptExecutionContext] undefined endQuery(GLenum target);
     [OverrideIDLType=IDLWebGLAny] any getQuery(GLenum target, GLenum pname);
     [OverrideIDLType=IDLWebGLAny] any getQueryParameter(WebGLQuery query, GLenum pname);
 

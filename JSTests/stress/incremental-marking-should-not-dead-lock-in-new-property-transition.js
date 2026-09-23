@@ -1,3 +1,4 @@
+//@ exclusive!
 //@ skip if $hostOS == "playstation" || ($memoryLimited and not ["arm"].include?($architecture))
 //@ runDefault("--gcIncrementScale=100", "--gcIncrementBytes=10", "--numberOfGCMarkers=1")
 

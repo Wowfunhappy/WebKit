@@ -1,5 +1,3 @@
 
-FAIL [data-expected-height], [data-expected-width] 1 assert_equals:
-<canvas width="50" height="50" style="min-height: stretch; background: teal" data-expected-height="200" data-expected-width="200"></canvas>
-width expected 200 but got 50
+PASS [data-expected-height], [data-expected-width] 1
 

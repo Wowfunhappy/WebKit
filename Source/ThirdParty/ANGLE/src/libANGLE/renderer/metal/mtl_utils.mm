@@ -391,7 +391,7 @@ static angle::Result InitializeCompressedTextureContents(const gl::Context *cont
     else
     {
         mtl::BufferRef zeroBuffer;
-        ANGLE_TRY(mtl::Buffer::MakeBuffer(contextMtl, bytesPerImage, nullptr, &zeroBuffer));
+        ANGLE_TRY(mtl::Buffer::MakeBuffer(contextMtl, bytesPerImage, &zeroBuffer));
         mtl::BlitCommandEncoder *blitEncoder = contextMtl->getBlitCommandEncoder();
         for (NSUInteger d = 0; d < static_cast<NSUInteger>(extents.depth); ++d)
         {
@@ -412,19 +412,17 @@ bool PreferStagedTextureUploads(const gl::Context *context,
                                 const Format &textureObjFormat,
                                 StagingPurpose purpose)
 {
-    // The simulator MUST upload all textures as staged.
-    if (TARGET_OS_SIMULATOR)
-    {
-        return true;
-    }
-
-    ContextMtl *contextMtl             = mtl::GetImpl(context);
-    const angle::FeaturesMtl &features = contextMtl->getDisplay()->getFeatures();
-
+    // Compressed textures cannot be uploaded from staging textures.
     const gl::InternalFormat &intendedInternalFormat = textureObjFormat.intendedInternalFormat();
     if (intendedInternalFormat.compressed || textureObjFormat.actualAngleFormat().isBlock)
     {
         return false;
+    }
+
+    // The simulator MUST upload all non-compressed textures as staged.
+    if (TARGET_OS_SIMULATOR)
+    {
+        return true;
     }
 
     // If the intended internal format is luminance, we can still
@@ -438,6 +436,9 @@ bool PreferStagedTextureUploads(const gl::Context *context,
     {
         return (purpose == StagingPurpose::Initialization);
     }
+
+    ContextMtl *contextMtl             = mtl::GetImpl(context);
+    const angle::FeaturesMtl &features = contextMtl->getDisplay()->getFeatures();
 
     if (features.disableStagedInitializationOfPackedTextureFormats.enabled)
     {
@@ -459,7 +460,8 @@ bool PreferStagedTextureUploads(const gl::Context *context,
 angle::Result InitializeTextureContents(const gl::Context *context,
                                         const TextureRef &texture,
                                         const Format &textureObjFormat,
-                                        const ImageNativeIndex &index)
+                                        const ImageNativeIndex &index,
+                                        bool toNonZero)
 {
     ASSERT(texture && texture->valid());
     // Only one slice can be initialized at a time.
@@ -520,7 +522,8 @@ angle::Result InitializeTextureContents(const gl::Context *context,
             const size_t srcRowPitch = srcFormat.pixelBytes * size.width;
             angle::MemoryBuffer srcRow;
             ANGLE_CHECK_GL_ALLOC(contextMtl, srcRow.resize(srcRowPitch));
-            memset(srcRow.data(), 0, srcRowPitch);
+            uint8_t fillValue = toNonZero ? 0x55 : 0;
+            memset(srcRow.data(), fillValue, srcRowPitch);
 
             CopyImageCHROMIUM(srcRow.data(), srcRowPitch, srcFormat.pixelBytes, 0,
                               srcFormat.pixelReadFunction, conversionRow.data(), dstRowPitch,
@@ -547,7 +550,7 @@ angle::Result InitializeTextureContents(const gl::Context *context,
     else
     {
         ANGLE_TRY(InitializeTextureContentsGPU(context, texture, textureObjFormat, index,
-                                               MTLColorWriteMaskAll));
+                                               MTLColorWriteMaskAll, toNonZero));
     }
 
     return angle::Result::Continue;
@@ -557,7 +560,8 @@ angle::Result InitializeTextureContentsGPU(const gl::Context *context,
                                            const TextureRef &texture,
                                            const Format &textureObjFormat,
                                            const ImageNativeIndex &index,
-                                           MTLColorWriteMask channelsToInit)
+                                           MTLColorWriteMask channelsToInit,
+                                           bool toNonZero)
 {
     // Only one slice can be initialized at a time.
     ASSERT(!index.isLayered() || index.getType() == gl::TextureType::_3D);
@@ -569,7 +573,8 @@ angle::Result InitializeTextureContentsGPU(const gl::Context *context,
         {
             ImageNativeIndex depthLayerIndex = ite.next();
             ANGLE_TRY(InitializeTextureContentsGPU(context, texture, textureObjFormat,
-                                                   depthLayerIndex, MTLColorWriteMaskAll));
+                                                   depthLayerIndex, MTLColorWriteMaskAll,
+                                                   toNonZero));
         }
 
         return angle::Result::Continue;
@@ -578,7 +583,8 @@ angle::Result InitializeTextureContentsGPU(const gl::Context *context,
     if (textureObjFormat.hasDepthOrStencilBits())
     {
         // Depth stencil texture needs dedicated function.
-        return InitializeDepthStencilTextureContentsGPU(context, texture, textureObjFormat, index);
+        return InitializeDepthStencilTextureContentsGPU(context, texture, textureObjFormat, index,
+                                                        toNonZero);
     }
 
     ContextMtl *contextMtl = mtl::GetImpl(context);
@@ -599,8 +605,10 @@ angle::Result InitializeTextureContentsGPU(const gl::Context *context,
     if (channelsToInit == MTLColorWriteMaskAll)
     {
         // If all channels will be initialized, use clear loadOp.
-        Optional<MTLClearColor> blackColor = MTLClearColorMake(0, 0, 0, clearAlpha);
-        encoder = contextMtl->getRenderTargetCommandEncoderWithClear(tempRtt, blackColor);
+        double fillValue = toNonZero ? 0.5 : 0.0;
+        Optional<MTLClearColor> clearColor =
+            MTLClearColorMake(fillValue, fillValue, fillValue, clearAlpha);
+        encoder = contextMtl->getRenderTargetCommandEncoderWithClear(tempRtt, clearColor);
     }
     else
     {
@@ -616,17 +624,25 @@ angle::Result InitializeTextureContentsGPU(const gl::Context *context,
 
         ClearRectParams clearParams;
         ClearColorValue clearColor;
+        GLint fillValueInt   = toNonZero ? 85 : 0;  // 0x55
+        GLuint fillValueUInt = toNonZero ? 85 : 0;
+        float fillValueFloat = toNonZero ? 0.5f : 0.0f;
+
+        GLint alphaInt   = clearAlpha;
+        GLuint alphaUInt = clearAlpha;
+        float alphaFloat = static_cast<float>(clearAlpha);
+
         if (angleFormat.isSint())
         {
-            clearColor.setAsInt(0, 0, 0, clearAlpha);
+            clearColor.setAsInt(fillValueInt, fillValueInt, fillValueInt, alphaInt);
         }
         else if (angleFormat.isUint())
         {
-            clearColor.setAsUInt(0, 0, 0, clearAlpha);
+            clearColor.setAsUInt(fillValueUInt, fillValueUInt, fillValueUInt, alphaUInt);
         }
         else
         {
-            clearColor.setAsFloat(0, 0, 0, clearAlpha);
+            clearColor.setAsFloat(fillValueFloat, fillValueFloat, fillValueFloat, alphaFloat);
         }
         clearParams.clearColor     = clearColor;
         clearParams.dstTextureSize = texture->sizeAt0();
@@ -647,7 +663,8 @@ angle::Result InitializeTextureContentsGPU(const gl::Context *context,
 angle::Result InitializeDepthStencilTextureContentsGPU(const gl::Context *context,
                                                        const TextureRef &texture,
                                                        const Format &textureObjFormat,
-                                                       const ImageNativeIndex &index)
+                                                       const ImageNativeIndex &index,
+                                                       bool toNonZero)
 {
     const MipmapNativeLevel &level = index.getNativeLevel();
     // Use clear operation
@@ -662,11 +679,13 @@ angle::Result InitializeDepthStencilTextureContentsGPU(const gl::Context *contex
     {
         rtMTL.toRenderPassAttachmentDesc(&rpDesc.depthAttachment);
         rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
+        rpDesc.depthAttachment.clearDepth = toNonZero ? 0.5 : 1.0;
     }
     if (angleFormat.stencilBits)
     {
         rtMTL.toRenderPassAttachmentDesc(&rpDesc.stencilAttachment);
         rpDesc.stencilAttachment.loadAction = MTLLoadActionClear;
+        rpDesc.stencilAttachment.clearStencil = toNonZero ? 0x55 : 0;
     }
     rpDesc.rasterSampleCount = texture->samples();
 
@@ -685,7 +704,7 @@ angle::Result ReadTexturePerSliceBytes(const gl::Context *context,
                                        const gl::Rectangle &fromRegion,
                                        const MipmapNativeLevel &mipLevel,
                                        uint32_t sliceOrDepth,
-                                       uint8_t *dataOut)
+                                       angle::Span<uint8_t> dataOut)
 {
     ASSERT(texture && texture->valid());
     ContextMtl *contextMtl = mtl::GetImpl(context);
@@ -913,7 +932,18 @@ angle::ObjCPtr<id<MTLLibrary>> CreateShaderLibrary(
         else
 #endif
         {
+            // Suppress `fastMathEnabled` deprecation warnings. The
+            // `fastMathEnabled` property must be used as a fallback in
+            // case the user is running an OS that is less than MacOS15.0
+            // or iOS18.0. There is no way to use compile-time guards to
+            // both avoid suppressing the warning and provide the API as
+            // a fallback.
+            // TODO (crbug.com/383994655): Remove deprecation supression
+            // once `fastMathEnabled` is no longer needed as a fallback.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             options.get().fastMathEnabled = !disableFastMath;
+#pragma clang diagnostic pop
         }
 
         options.get().languageVersion =
@@ -947,28 +977,9 @@ angle::ObjCPtr<id<MTLLibrary>> CreateShaderLibrary(
     return result;
 }
 
-angle::ObjCPtr<id<MTLLibrary>> CreateShaderLibraryFromBinary(id<MTLDevice> metalDevice,
-                                                             const uint8_t *data,
-                                                             size_t length,
-                                                             angle::ObjCPtr<NSError> *errorOut)
-{
-    angle::ObjCPtr<id<MTLLibrary>> result;
-    ANGLE_MTL_OBJC_SCOPE
-    {
-        NSError *nsError = nil;
-        angle::ObjCPtr binaryData = angle::adoptObjCPtr(
-            dispatch_data_create(data, length, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT));
-        result    = angle::adoptObjCPtr([metalDevice newLibraryWithData:binaryData.get()
-                                                               error:&nsError]);
-        *errorOut = std::move(nsError);
-    }
-    return result;
-}
-
 angle::ObjCPtr<id<MTLLibrary>> CreateShaderLibraryFromStaticBinary(
     id<MTLDevice> metalDevice,
-    const uint8_t *data,
-    size_t length,
+    angle::Span<const uint8_t> data,
     angle::ObjCPtr<NSError> *errorOut)
 {
     angle::ObjCPtr<id<MTLLibrary>> result;
@@ -976,9 +987,10 @@ angle::ObjCPtr<id<MTLLibrary>> CreateShaderLibraryFromStaticBinary(
     {
         NSError *nsError = nil;
         dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0);
-        angle::ObjCPtr binaryData = angle::adoptObjCPtr(dispatch_data_create(data, length, queue,
-                                                                             ^{
-                                                                             }));
+        angle::ObjCPtr binaryData =
+            angle::adoptObjCPtr(dispatch_data_create(data.data(), data.size_bytes(), queue,
+                                                     ^{
+                                                     }));
         result    = angle::adoptObjCPtr([metalDevice newLibraryWithData:binaryData.get()
                                                                error:&nsError]);
         *errorOut = std::move(nsError);
@@ -1345,22 +1357,6 @@ MTLClearColor EmulatedAlphaClearColor(MTLClearColor color, MTLColorWriteMask col
     return re;
 }
 
-NSUInteger GetMaxRenderTargetSizeForDeviceInBytes(const mtl::ContextDevice &device)
-{
-    if (SupportsAppleGPUFamily(device, 4))
-    {
-        return 64;
-    }
-    else if (SupportsAppleGPUFamily(device, 2))
-    {
-        return 32;
-    }
-    else
-    {
-        return 16;
-    }
-}
-
 NSUInteger GetMaxNumberOfRenderTargetsForDevice(const mtl::ContextDevice &device)
 {
     if (SupportsAppleGPUFamily(device, 2) || SupportsMacGPUFamily(device, 1))
@@ -1371,11 +1367,6 @@ NSUInteger GetMaxNumberOfRenderTargetsForDevice(const mtl::ContextDevice &device
     {
         return 4;
     }
-}
-
-bool DeviceHasMaximumRenderTargetSize(id<MTLDevice> device)
-{
-    return !SupportsMacGPUFamily(device, 1);
 }
 
 bool SupportsAppleGPUFamily(id<MTLDevice> device, uint8_t appleFamily)
@@ -1478,7 +1469,7 @@ static NSUInteger getNextLocationForAttachment(const mtl::RenderPassAttachmentDe
     if (texture)
     {
         MTLPixelFormat pixelFormat = texture->pixelFormat();
-        bool isMsaa                = texture->samples();
+        bool isMsaa                = texture->samples() > 1;
         const FormatCaps &caps     = context->getDisplay()->getNativeFormatCaps(pixelFormat);
         currentRenderTargetSize = getNextLocationForFormat(caps, isMsaa, currentRenderTargetSize);
     }
@@ -1496,19 +1487,6 @@ NSUInteger ComputeTotalSizeUsedForMTLRenderPassDescriptor(const mtl::RenderPassD
         currentRenderTargetSize = getNextLocationForAttachment(descriptor.colorAttachments[i],
                                                                context, currentRenderTargetSize);
     }
-    if (descriptor.depthAttachment.texture == descriptor.stencilAttachment.texture)
-    {
-        currentRenderTargetSize = getNextLocationForAttachment(descriptor.depthAttachment, context,
-                                                               currentRenderTargetSize);
-    }
-    else
-    {
-        currentRenderTargetSize = getNextLocationForAttachment(descriptor.depthAttachment, context,
-                                                               currentRenderTargetSize);
-        currentRenderTargetSize = getNextLocationForAttachment(descriptor.stencilAttachment,
-                                                               context, currentRenderTargetSize);
-    }
-
     return currentRenderTargetSize;
 }
 
@@ -1529,34 +1507,33 @@ NSUInteger ComputeTotalSizeUsedForMTLRenderPipelineDescriptor(
                 getNextLocationForFormat(caps, isMsaa, currentRenderTargetSize);
         }
     }
-    if (descriptor.depthAttachmentPixelFormat == descriptor.stencilAttachmentPixelFormat)
-    {
-        if (descriptor.depthAttachmentPixelFormat != MTLPixelFormatInvalid)
-        {
-            const FormatCaps &caps =
-                context->getDisplay()->getNativeFormatCaps(descriptor.depthAttachmentPixelFormat);
-            currentRenderTargetSize =
-                getNextLocationForFormat(caps, isMsaa, currentRenderTargetSize);
-        }
-    }
-    else
-    {
-        if (descriptor.depthAttachmentPixelFormat != MTLPixelFormatInvalid)
-        {
-            const FormatCaps &caps =
-                context->getDisplay()->getNativeFormatCaps(descriptor.depthAttachmentPixelFormat);
-            currentRenderTargetSize =
-                getNextLocationForFormat(caps, isMsaa, currentRenderTargetSize);
-        }
-        if (descriptor.stencilAttachmentPixelFormat != MTLPixelFormatInvalid)
-        {
-            const FormatCaps &caps =
-                context->getDisplay()->getNativeFormatCaps(descriptor.stencilAttachmentPixelFormat);
-            currentRenderTargetSize =
-                getNextLocationForFormat(caps, isMsaa, currentRenderTargetSize);
-        }
-    }
     return currentRenderTargetSize;
+}
+
+std::optional<NSUInteger> GetMaxRenderPassColorSizeBytes(const angle::FeaturesMtl &features,
+                                                         const mtl::ContextDevice &device)
+{
+    if (features.limitMaxColorTargetBitsForTesting.enabled)
+    {
+        return 32;
+    }
+    if (SupportsMacGPUFamily(device, 1))
+    {
+        return std::nullopt;
+    }
+    if (SupportsAppleGPUFamily(device, 7))
+    {
+        return 128;
+    }
+    if (SupportsAppleGPUFamily(device, 4))
+    {
+        return 64;
+    }
+    if (SupportsAppleGPUFamily(device, 2))
+    {
+        return 32;
+    }
+    return 16;
 }
 
 gl::Rectangle MTLRegionToGLRect(const MTLRegion &mtlRegion)

@@ -51,7 +51,16 @@
 
 - (void)_getPaymentServicesMerchantURL:(void(^)(NSURL *, NSError *))completion
 {
+#if HAVE(PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED)
+#if HAVE(PASSKIT_DELEGATED_REQUEST)
+    BOOL isDelegated = [_request isDelegatedRequest];
+#else
+    BOOL isDelegated = NO;
+#endif
+    [PAL::getPKPaymentAuthorizationViewControllerClassSingleton() paymentServicesMerchantURLForAPIType:[_request APIType] isDelegated:isDelegated completion:completion];
+#else
     [PAL::getPKPaymentAuthorizationViewControllerClassSingleton() paymentServicesMerchantURLForAPIType:[_request APIType] completion:completion];
+#endif
 }
 
 #pragma mark PKPaymentAuthorizationViewControllerDelegate

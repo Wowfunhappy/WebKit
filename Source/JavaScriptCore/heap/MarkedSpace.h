@@ -26,11 +26,9 @@
 #include <JavaScriptCore/MarkedBlockSet.h>
 #include <JavaScriptCore/PreciseAllocation.h>
 #include <array>
-#include <wtf/Bag.h>
 #include <wtf/HashSet.h>
 #include <wtf/IterationStatus.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/RetainPtr.h>
 #include <wtf/SentinelLinkedList.h>
 #include <wtf/SinglyLinkedListWithTail.h>
 #include <wtf/Vector.h>
@@ -120,7 +118,7 @@ public:
     void stopAllocatingForGood();
     void resumeAllocating(); // If we just stopped allocation but we didn't do a collection, we need to resume allocation.
     
-    void prepareForMarking();
+    void NODELETE prepareForMarking();
     
     void prepareForConservativeScan();
 
@@ -136,7 +134,7 @@ public:
 
     void didAddBlock(MarkedBlock::Handle*);
     void didConsumeFreeList(MarkedBlock::Handle*);
-    void didAllocateInBlock(MarkedBlock::Handle*);
+    void NODELETE didAllocateInBlock(MarkedBlock::Handle*);
 
     // FIXME: rdar://139998916
     MarkedBlock::Handle* findMarkedBlockHandleDebug(MarkedBlock*);
@@ -150,7 +148,7 @@ public:
     void assertNoUnswept();
     size_t objectCount();
     size_t size();
-    size_t capacity();
+    size_t NODELETE capacity();
 
     bool isPagedOut();
     
@@ -202,7 +200,7 @@ private:
 
     template<typename Functor> inline void forEachDirectory(const Functor&);
     
-    void addActiveWeakSet(WeakSet*);
+    void NODELETE addActiveWeakSet(WeakSet*);
 
     Vector<Subspace*> m_subspaces;
 
@@ -221,6 +219,7 @@ private:
     HeapVersion m_edenVersion { initialVersion };
     bool m_isIterating { false };
     bool m_isMarking { false };
+    bool m_conservativeScanIsPrepared { false };
     Lock m_directoryLock;
     MarkedBlockSet m_blocks;
     

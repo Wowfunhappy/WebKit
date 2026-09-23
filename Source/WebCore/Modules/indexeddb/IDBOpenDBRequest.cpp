@@ -138,8 +138,13 @@ void IDBOpenDBRequest::dispatchEvent(Event& event)
 
     IDBRequest::dispatchEvent(event);
 
-    if (RefPtr transaction = m_transaction; transaction && transaction->isVersionChange() && (event.type() == eventNames().errorEvent || event.type() == eventNames().successEvent))
+    if (RefPtr transaction = m_transaction; transaction && transaction->isVersionChange() && (event.type() == eventNames().errorEvent || event.type() == eventNames().successEvent)) {
+        if (!transaction->isFinishedOrFinishing()) {
+            RELEASE_LOG_FAULT(IndexedDB, "IDBOpenDBRequest::dispatchEvent: version change transaction %" PUBLIC_LOG_STRING " is not finishing or finished", transaction->info().identifier().loggingString().utf8().data());
+            return;
+        }
         transaction->database().connectionProxy().didFinishHandlingVersionChangeTransaction(transaction->database().databaseConnectionIdentifier(), *transaction);
+    }
 }
 
 void IDBOpenDBRequest::onSuccess(const IDBResultData& resultData)

@@ -15,4 +15,5 @@ None
 ------------------------------------------------------------------------
 List of files:
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/DedicatedWorkerGlobalScope/EventTarget.worker.js
+/LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/DedicatedWorkerGlobalScope/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/workers/interfaces/DedicatedWorkerGlobalScope/onmessage.worker.js

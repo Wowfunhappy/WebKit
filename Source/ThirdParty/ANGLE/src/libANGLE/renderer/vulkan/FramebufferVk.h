@@ -162,6 +162,16 @@ class FramebufferVk : public FramebufferImpl
 
     bool isFoveationEnabled() { return mFoveationState.isFoveated(); }
 
+    const vk::ImageHelper *getImageWithTileMemory() const;
+    void onTileMemoryFallback(ContextVk *contextVk)
+    {
+        // Invalidate cached objects associated with depth/stencil attachment. They will gets
+        // recreated from Framebuffer::startNewRenderPass.
+        mCachedAttachmentsInfo.clear();
+        releaseCurrentFramebuffer(contextVk);
+        updateDepthStencilAttachmentSerial(contextVk);
+    }
+
   private:
     enum class ClearWithCommand
     {
@@ -264,6 +274,7 @@ class FramebufferVk : public FramebufferImpl
     void restageDeferredClearsImpl(ContextVk *contextVk);
     angle::Result flushDeferredClears(ContextVk *contextVk);
     void clearWithCommand(ContextVk *contextVk,
+                          const bool scissoredClear,
                           const gl::Rectangle &scissoredRenderArea,
                           ClearWithCommand behavior,
                           vk::ClearValuesArray *clears);
@@ -324,7 +335,7 @@ class FramebufferVk : public FramebufferImpl
 
     void insertCache(ContextVk *contextVk,
                      const vk::FramebufferDesc &desc,
-                     vk::FramebufferHelper &&newFramebuffer);
+                     vk::Framebuffer &&newFramebuffer);
 
     WindowSurfaceVk *mBackbuffer;
 
@@ -340,6 +351,9 @@ class FramebufferVk : public FramebufferImpl
     // the framebuffer does not, we need to mask out the alpha channel. This DrawBufferMask will
     // contain the mask to apply to the alpha channel when drawing.
     gl::DrawBufferMask mEmulatedAlphaAttachmentMask;
+
+    // The attachment bit is set if it has color space override
+    gl::DrawBufferMask mAttachmentWithColorSpaceOverrideMask;
 
     // mCurrentFramebufferDesc is used to detect framebuffer changes using its serials. Therefore,
     // it must be maintained even when using the imageless framebuffer extension.

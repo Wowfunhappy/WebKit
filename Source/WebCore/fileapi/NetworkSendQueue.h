@@ -27,12 +27,10 @@
 
 #include <WebCore/ContextDestructionObserver.h>
 #include <WebCore/ExceptionCode.h>
-#include <span>
 #include <wtf/Deque.h>
 #include <wtf/Function.h>
 #include <wtf/RefCounted.h>
 #include <wtf/UniqueRef.h>
-#include <wtf/WeakPtr.h>
 #include <wtf/text/CString.h>
 
 namespace JSC {

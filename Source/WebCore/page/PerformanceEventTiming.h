@@ -30,6 +30,7 @@
 #include "EventTarget.h"
 #include "EventTimingInteractionID.h"
 #include "PerformanceEntry.h"
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -61,8 +62,8 @@ private:
 
     bool m_isFirst;
     bool m_cancelable;
-    Seconds m_processingStart;
-    Seconds m_processingEnd;
+    ReducedResolutionSeconds m_processingStart;
+    ReducedResolutionSeconds m_processingEnd;
     EventTimingInteractionID m_interactionID;
     WeakPtr<EventTarget, EventTarget::WeakPtrImplType> m_target;
 };

@@ -27,6 +27,7 @@
 
 #include "APIObject.h"
 #include "GeolocationIdentifier.h"
+#include <WebCore/RegistrableDomain.h>
 #include <wtf/Function.h>
 #include <wtf/WeakPtr.h>
 
@@ -37,24 +38,26 @@ class WebProcessProxy;
 
 class GeolocationPermissionRequestProxy : public RefCounted<GeolocationPermissionRequestProxy> {
 public:
-    static Ref<GeolocationPermissionRequestProxy> create(GeolocationPermissionRequestManagerProxy& manager, GeolocationIdentifier geolocationID, WebProcessProxy& process)
+    static Ref<GeolocationPermissionRequestProxy> create(GeolocationPermissionRequestManagerProxy& manager, GeolocationIdentifier geolocationID, WebProcessProxy& process, WebCore::RegistrableDomain&& registrableDomain)
     {
-        return adoptRef(*new GeolocationPermissionRequestProxy(manager, geolocationID, process));
+        return adoptRef(*new GeolocationPermissionRequestProxy(manager, geolocationID, process, WTF::move(registrableDomain)));
     }
 
     void allow();
     void deny();
-    
+
     void NODELETE invalidate();
 
     WebProcessProxy* NODELETE process() const;
+    const WebCore::RegistrableDomain& registrableDomain() const LIFETIME_BOUND { return m_registrableDomain; }
 
 private:
-    GeolocationPermissionRequestProxy(GeolocationPermissionRequestManagerProxy&, GeolocationIdentifier, WebProcessProxy&);
+    GeolocationPermissionRequestProxy(GeolocationPermissionRequestManagerProxy&, GeolocationIdentifier, WebProcessProxy&, WebCore::RegistrableDomain&&);
 
     WeakPtr<GeolocationPermissionRequestManagerProxy> m_manager;
     GeolocationIdentifier m_geolocationID;
     WeakPtr<WebProcessProxy> m_process;
+    WebCore::RegistrableDomain m_registrableDomain;
 };
 
 class GeolocationPermissionRequest : public API::ObjectImpl<API::Object::Type::GeolocationPermissionRequest> {

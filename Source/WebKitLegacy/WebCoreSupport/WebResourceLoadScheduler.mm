@@ -57,6 +57,11 @@ WebCore::ResourceError WebResourceLoadScheduler::blockedErrorFromRequest(const W
     return [NSError _webKitErrorWithDomain:WebKitErrorDomain code:WebKitErrorCannotUseRestrictedPort URL:request.url().createNSURL().get()];
 }
 
+bool WebResourceLoadScheduler::isBlockedError(const WebCore::ResourceError& error) const
+{
+    return error.domain() == String(WebKitErrorDomain) && error.errorCode() == WebKitErrorCannotUseRestrictedPort;
+}
+
 WebCore::ResourceError WebResourceLoadScheduler::blockedByContentBlockerError(const WebCore::ResourceRequest& request) const
 {
     RELEASE_ASSERT_NOT_REACHED(); // Content blockers are not enabled in WebKit1.
@@ -95,6 +100,11 @@ WebCore::ResourceError WebResourceLoadScheduler::httpsUpgradeRedirectLoopError(c
 }
 
 WebCore::ResourceError WebResourceLoadScheduler::httpNavigationWithHTTPSOnlyError(const WebCore::ResourceRequest&) const
+{
+    RELEASE_ASSERT_NOT_REACHED(); // This error should never be created in WebKit1 because HTTPSOnly/First aren't available.
+}
+
+bool WebResourceLoadScheduler::isHttpNavigationWithHTTPSOnlyError(const WebCore::ResourceError& error) const
 {
     RELEASE_ASSERT_NOT_REACHED(); // This error should never be created in WebKit1 because HTTPSOnly/First aren't available.
 }

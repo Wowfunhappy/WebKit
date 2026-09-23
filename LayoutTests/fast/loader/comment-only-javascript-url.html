@@ -13,52 +13,46 @@ var count = 0;
 </head>
 <body>
 <script>
-function filtered(url){
-    var parser = document.createElement('a');
+function maybeClick(url) {
+    const parser = document.createElement('a');
     parser.href = url;
-    if (parser.protocol.indexOf("javascript") == -1) {
-  	    parser.click();
-    }
-}
-
-function unfiltered(url){
-    var parser = document.createElement('a');
-    parser.href = url;
-    if (parser.protocol === "javascript:") {
-  	    parser.click();
-    };
+    parser.click();
 }
 
 description("Tests that we properly handle JavaScript URLs containing comment characters, newlines, and carriage returns.");
 
-let cases = [ "javascript:alert(count); ++count;",
+const ignoreCases = [
     "javascript:// A fun test%0aalert(count); ++count;",
     "javascript://:%0aalert(count); ++count;",
     "javascript://:%0dalert(count); ++count;",
-    "javascript://:%0a%0dalert(count); ++count;",
+    "javascript://:%0a%0dalert(count); ++count;"
+];
+
+const executeCases = [
+    "javascript:alert(count); ++count;",
     "javascript://%0a://%0dalert(count); ++count;",
     "javascript://%0d//:%0aalert(count); ++count;"
 ];
 
-for (var c in cases)
-    filtered(cases[c]);
+for (const c of ignoreCases)
+    maybeClick(c);
 
 setTimeout(function () {
-    if (!count)
-        testPassed("No JavaScript URLs executed.");
+    if (count)
+        testFailed("A to be ignored JavaScript URL was executed.");
     else
-        testFailed("JavaScript URLs were executed.")
+        testPassed("Ignorable JavaScript URLs were ignored.");
 
-    for (var c in cases)
-        unfiltered(cases[c]);
+    for (const c of executeCases)
+        maybeClick(c);
 
-    setTimeout(function() {
-        if (count == cases.length)
-            testPassed("JavaScript URLs were executed.")
+    setTimeout(() => {
+        if (count != executeCases.length)
+            testFailed("An executable JavaScript URLs was ignored.");
         else
-            testFailed("No JavaScript URLs executed.");
+            testPassed("All executable JavaScript URLs were executed.");
 
-    	finishJSTest();        
+        finishJSTest();
     }, 0);
 }, 0);
 </script>

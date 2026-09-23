@@ -30,7 +30,9 @@
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
 
 #include <JavaScriptCore/JSExportMacros.h>
+#include <JavaScriptCore/WasmModuleInformation.h>
 #include <cstdint>
+#include <optional>
 #include <wtf/DataLog.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
@@ -42,11 +44,10 @@ namespace JSC {
 namespace Wasm {
 
 struct Type;
-struct ModuleInformation;
 class FunctionCodeIndex;
 
 struct FunctionDebugInfo {
-    JS_EXPORT_PRIVATE UncheckedKeyHashSet<uint32_t>* findNextInstructions(uint32_t offset);
+    JS_EXPORT_PRIVATE UncheckedKeyHashSet<uint32_t>* NODELETE findNextInstructions(uint32_t offset);
     void addNextInstruction(uint32_t offset, uint32_t nextInstruction);
     void addLocalType(Type);
 
@@ -67,11 +68,18 @@ public:
     void takeSource(Vector<uint8_t>&& source) { this->source = WTF::move(source); }
     FunctionDebugInfo& ensureFunctionDebugInfo(FunctionCodeIndex);
 
+    // Lazily computed and cached; not thread-safe — must only be called from the debugger thread.
+    JS_EXPORT_PRIVATE String debugName() const;
+
     Ref<ModuleInformation> moduleInfo;
     uint32_t id { 0 };
     Vector<uint8_t> source;
+    String sourceURL;
     using FunctionIndexToData = UncheckedKeyHashMap<size_t, FunctionDebugInfo, DefaultHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>>;
     FunctionIndexToData functionIndexToData;
+
+private:
+    mutable std::optional<String> m_cachedDebugName;
 };
 
 } // namespace Wasm

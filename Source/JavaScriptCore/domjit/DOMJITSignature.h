@@ -27,10 +27,13 @@
 
 #include <JavaScriptCore/ClassInfo.h>
 #include <JavaScriptCore/DOMJITEffect.h>
-#include <JavaScriptCore/SpeculatedType.h>
 #include <wtf/CodePtr.h>
 
-namespace JSC { namespace DOMJIT {
+namespace JSC {
+
+using SpeculatedType = uint64_t;
+
+namespace DOMJIT {
 
 // FIXME: Currently, we only support functions which arguments are up to 2.
 // Eventually, we should extend this. But possibly, 2 or 3 can cover typical use cases.
@@ -63,4 +66,5 @@ public:
     const Effect effect;
 };
 
-} }
+} // namespace DOMJIT
+} // namespace JSC

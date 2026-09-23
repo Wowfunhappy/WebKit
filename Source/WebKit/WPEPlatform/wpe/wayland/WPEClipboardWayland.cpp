@@ -28,6 +28,7 @@
 
 #include "WPEClipboardWaylandPrivate.h"
 #include "WPEDisplayWaylandPrivate.h"
+#include <array>
 #include <gio/gunixinputstream.h>
 #include <gio/gunixoutputstream.h>
 #include <glib-unix.h>
@@ -39,6 +40,11 @@
 /**
  * WPEClipboardWayland:
  *
+ * A [class@WPEPlatform.Clipboard] implementation for Wayland.
+ *
+ * [class@ClipboardWayland] is the [class@WPEPlatform.Clipboard] implementation
+ * used by [class@DisplayWayland]. It integrates with the Wayland data device
+ * protocol to share clipboard contents with other Wayland clients.
  */
 struct _WPEClipboardWaylandPrivate {
     struct wl_data_device* wlDataDevice;
@@ -185,8 +191,8 @@ static GBytes* wpeClipboardWaylandRead(WPEClipboard* clipboard, const char* form
     if (!priv->offer)
         return nullptr;
 
-    int pipeFD[2];
-    if (!g_unix_open_pipe(pipeFD, O_CLOEXEC, nullptr))
+    std::array<int, 2> pipeFD;
+    if (!g_unix_open_pipe(pipeFD.data(), O_CLOEXEC, nullptr))
         return nullptr;
 
     wl_data_offer_receive(priv->offer, format, pipeFD[1]);

@@ -49,7 +49,7 @@ public:
     FloatRect objectBoundingBox() const final { return m_objectBoundingBox.value_or(FloatRect()); }
 
 protected:
-    LegacyRenderSVGContainer(Type, SVGElement&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    LegacyRenderSVGContainer(Type, SVGElement&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
 
     ASCIILiteral renderName() const override { return "RenderSVGContainer"_s; }
 
@@ -57,7 +57,7 @@ protected:
 
     void layout() override;
 
-    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = 0) const final;
+    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = nullptr) const final;
 
     FloatRect strokeBoundingBox() const final;
     FloatRect repaintRectInLocalCoordinates(RepaintRectCalculation = RepaintRectCalculation::Fast) const final;

@@ -170,6 +170,9 @@ class VersionTestCase(unittest.TestCase):
         self.assertEqual(str(Version(0, 0, 3)), '0.0.3')
         self.assertEqual(str(Version(0, 3)), '0.3')
         self.assertEqual(str(Version(0)), '0')
+        # Regression: non-zero nano caused parts[:-0] == [] and str() returned ''
+        self.assertEqual(str(Version(623, 2, 7, 10, 3)), '623.2.7.10.3')
+        self.assertEqual(str(Version(1, 0, 0, 0, 1)), '1.0.0.0.1')
 
     def test_representation(self):
         self.assertEqual(repr(Version(1, 2, 3)), 'Version(1, 2, 3)')
@@ -179,6 +182,9 @@ class VersionTestCase(unittest.TestCase):
         self.assertEqual(repr(Version(0, 0, 3)), 'Version(0, 0, 3)')
         self.assertEqual(repr(Version(0, 3)), 'Version(0, 3)')
         self.assertEqual(repr(Version(0)), 'Version(0)')
+        # Regression: non-zero nano caused parts[:-0] == [] and repr() returned 'Version()'
+        self.assertEqual(repr(Version(623, 2, 7, 10, 3)), 'Version(623, 2, 7, 10, 3)')
+        self.assertEqual(repr(Version(1, 0, 0, 0, 1)), 'Version(1, 0, 0, 0, 1)')
 
     def test_hash(self):
         self.assertEqual(Version(1).__hash__(), Version(1, 0, 0).__hash__())

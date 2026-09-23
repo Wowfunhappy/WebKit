@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ if $buildType == "release" then runDefault else skip end
 
 function shouldThrowStackOverflow(fn) {

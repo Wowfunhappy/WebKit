@@ -43,9 +43,7 @@ AudioSampleDataConverter::AudioSampleDataConverter()
 {
 }
 
-AudioSampleDataConverter::~AudioSampleDataConverter()
-{
-}
+AudioSampleDataConverter::~AudioSampleDataConverter() = default;
 
 OSStatus AudioSampleDataConverter::setFormats(const CAAudioStreamDescription& inputDescription, const CAAudioStreamDescription& outputDescription)
 {

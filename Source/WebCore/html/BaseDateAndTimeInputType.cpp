@@ -187,7 +187,7 @@ ExceptionOr<void> BaseDateAndTimeInputType::setValueAsDecimal(const Decimal& new
     return { };
 }
 
-bool BaseDateAndTimeInputType::typeMismatchFor(const String& value) const
+bool BaseDateAndTimeInputType::typeMismatchFor(StringView value) const
 {
     return !value.isEmpty() && !parseToDateComponents(value);
 }
@@ -211,7 +211,7 @@ Decimal BaseDateAndTimeInputType::defaultValueForStepUp() const
     return Decimal::fromDouble(ms + (offset * msPerMinute));
 }
 
-Decimal BaseDateAndTimeInputType::parseToNumber(const String& source, const Decimal& defaultValue) const
+Decimal BaseDateAndTimeInputType::parseToNumber(StringView source, const Decimal& defaultValue) const
 {
     auto date = parseToDateComponents(source);
     if (!date)
@@ -271,7 +271,7 @@ ValueOrReference<String> BaseDateAndTimeInputType::sanitizeValue(const String& p
     return proposedValue;
 }
 
-bool BaseDateAndTimeInputType::valueMissing(const String& value) const
+bool BaseDateAndTimeInputType::valueMissing(StringView value) const
 {
     ASSERT(element());
     return protect(element())->isMutable() && element()->isRequired() && value.isEmpty();
@@ -650,9 +650,10 @@ void BaseDateAndTimeInputType::didEndChooser()
 
 bool BaseDateAndTimeInputType::setupDateTimeChooserParameters(DateTimeChooserParameters& parameters)
 {
-    ASSERT(element());
+    RefPtr element = this->element();
+    if (!element)
+        return false;
 
-    Ref element = *this->element();
     Ref document = element->document();
 
     if (!document->view())
@@ -683,7 +684,7 @@ bool BaseDateAndTimeInputType::setupDateTimeChooserParameters(DateTimeChooserPar
         parameters.anchorRectInRootView = protect(document->view())->contentsToRootView(renderer->absoluteBoundingBoxRect());
     else
         parameters.anchorRectInRootView = IntRect();
-    parameters.rootFrameID = protect(document->view())->rootFrameID();
+    parameters.rootFrameID = document->view()->rootFrameID();
     parameters.currentValue = element->value();
 
     CheckedRef computedStyle = *element->computedStyle();

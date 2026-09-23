@@ -15,9 +15,7 @@
 
             description("Test the case where an RTCRtpTransceiver gets a remotely assigned mid and also unmute the associated source");
 
-            if (window.testRunner)
-                testRunner.setUserMediaPermission(true);
-            else {
+            if (!window.testRunner) {
                 debug("This test can not be run without the testRunner");
                 finishJSTest();
             }
@@ -37,6 +35,7 @@
 
                 event.track.onunmute = function () {
                     testPassed("B: remote track unmute event");
+                    stream.getTracks().forEach(t => t.stop());
                     finishJSTest();
                 };
             };

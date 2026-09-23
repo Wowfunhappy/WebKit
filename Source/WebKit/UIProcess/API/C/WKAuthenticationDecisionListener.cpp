@@ -41,7 +41,7 @@ WKTypeID WKAuthenticationDecisionListenerGetTypeID()
 
 void WKAuthenticationDecisionListenerUseCredential(WKAuthenticationDecisionListenerRef authenticationListener, WKCredentialRef credential)
 {
-    protect(WebKit::toImpl(authenticationListener))->completeChallenge(AuthenticationChallengeDisposition::UseCredential, credential ? protect(WebKit::toImpl(credential))->credential() : WebCore::Credential());
+    protect(WebKit::toImpl(authenticationListener))->completeChallenge(AuthenticationChallengeDisposition::UseCredential, credential ? WebKit::toImpl(credential)->credential() : WebCore::Credential());
 }
 
 void WKAuthenticationDecisionListenerCancel(WKAuthenticationDecisionListenerRef authenticationListener)

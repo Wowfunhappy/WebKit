@@ -54,7 +54,7 @@
 
             function finish()
             {
-                video.srcObject.getVideoTracks()[0].stop();
+                video.srcObject.getTracks().forEach(t => t.stop());
                 video.srcObject = null;
                 endTest();
             }

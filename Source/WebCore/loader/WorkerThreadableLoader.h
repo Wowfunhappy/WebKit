@@ -129,7 +129,6 @@ private:
         // For use on the main thread.
         String m_taskMode;
         ResourceLoaderIdentifier m_workerRequestIdentifier;
-        NetworkLoadMetrics m_networkLoadMetrics;
         ScriptExecutionContextIdentifier m_contextIdentifier;
     };
 

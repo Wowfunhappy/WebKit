@@ -29,6 +29,7 @@
 
 #include <WebCore/CSSColorScheme.h>
 #include <WebCore/RenderStyleConstants.h>
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleValueTypes.h>
 #include <wtf/OptionSet.h>
 
@@ -39,9 +40,9 @@ namespace Style {
 
 struct ColorScheme {
     ColorScheme(CSS::Keyword::Normal) : schemes { }, only { std::nullopt } { }
-    ColorScheme(SpaceSeparatedVector<CustomIdentifier>&& schemes, std::optional<CSS::Keyword::Only> only) : schemes { WTF::move(schemes) }, only { only } { }
+    ColorScheme(SpaceSeparatedVector<CustomIdent>&& schemes, std::optional<CSS::Keyword::Only> only) : schemes { WTF::move(schemes) }, only { only } { }
 
-    SpaceSeparatedVector<CustomIdentifier> schemes;
+    SpaceSeparatedVector<CustomIdent> schemes;
     std::optional<CSS::Keyword::Only> only;
 
     // As an optimization, if `schemes` is empty, that indicates the
@@ -66,12 +67,12 @@ DEFINE_TYPE_MAPPING(CSS::ColorScheme, ColorScheme)
 // MARK: - Conversion
 
 // `ColorScheme` is special-cased to return a `CSSColorSchemeValue`.
-template<> struct CSSValueCreation<ColorScheme> { Ref<CSSValue> operator()(CSSValuePool&, const RenderStyle&, const ColorScheme&); };
+template<> struct CSSValueCreation<ColorScheme> { Ref<CSSValue> operator()(CSSValuePool&, const Style::ComputedStyle&, const ColorScheme&); };
 template<> struct CSSValueConversion<ColorScheme> { auto operator()(BuilderState&, const CSSValue&) -> ColorScheme; };
 
 // MARK: - Serialization
 
-template<> struct Serialize<ColorScheme> { void operator()(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&, const ColorScheme&); };
+template<> struct Serialize<ColorScheme> { void operator()(StringBuilder&, const CSS::SerializationContext&, const Style::ComputedStyle&, const ColorScheme&); };
 
 // MARK: - Logging
 

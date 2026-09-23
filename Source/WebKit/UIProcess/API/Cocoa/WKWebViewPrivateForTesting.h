@@ -112,12 +112,15 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 - (STWebpageController *)_screenTimeWebpageController;
 - (_WKPlatformVisualEffectView *)_screenTimeBlurredSnapshot;
 
-- (void)_getRenderTreeAsStringWithCompletionHandler:(NS_SWIFT_UI_ACTOR void (^)(NSString * NS_NULLABLE_RESULT, NSError * _Nullable error))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+- (void)_getRenderTreeAsStringWithCompletionHandler:(NS_SWIFT_UI_ACTOR void (^)(NSString * NS_NULLABLE_RESULT, NSError * _Nullable error))completionHandler WK_API_AVAILABLE(macos(26.4), ios(26.4), visionos(26.4));
 
 @property (nonatomic, setter=_setScrollingUpdatesDisabledForTesting:) BOOL _scrollingUpdatesDisabledForTesting;
 @property (nonatomic, readonly) NSString *_scrollingTreeAsText;
+@property (nonatomic, readonly) double _rubberbandHyperbolicCoefficientForTesting;
 
 @property (nonatomic, readonly) pid_t _networkProcessIdentifier;
+
+@property (nonatomic, readonly) uint64_t _webPageProxyIdentifierForTesting;
 
 @property (nonatomic, readonly) unsigned long _countOfUpdatesWithLayerChanges;
 
@@ -157,6 +160,8 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 - (void)_gpuToWebProcessConnectionCountForTesting:(void(^)(NSUInteger))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
 - (void)_isLayerTreeFrozenForTesting:(void (^)(BOOL frozen))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+- (void)_numberOfLiveDocumentsForTesting:(void (^)(NSUInteger count))completionHandler;
 
 - (void)_computePagesForPrinting:(_WKFrameHandle *)handle completionHandler:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
@@ -203,6 +208,18 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 - (NSString *)_progressBasedTimelinesForScrollingNodeID:(uint64_t)scrollingNodeID processID:(uint64_t)processID;
 #endif
 - (bool)_displayLinkWantsHighFrameRate;
+
+- (void)_lastPageLoadNetworkActivityCompletionCodeForTesting:(void(^)(NSNumber * _Nullable completionCode))completionHandler;
+
+#if TARGET_OS_IPHONE
++ (void)_setVisibilityEndowmentForTesting:(BOOL)isVisible;
+#endif
+
+#if defined(ENABLE_HORIZONTAL_BANNER_VIEW_OVERLAYS) && ENABLE_HORIZONTAL_BANNER_VIEW_OVERLAYS
+- (void)_enableColorExtensionBehaviorForHorizontalBannerViewOverlaysForTesting;
+- (void)_disableColorExtensionBehaviorForHorizontalBannerViewOverlaysForTesting;
+- (void)_clearColorExtensionBehaviorOverridesForHorizontalBannerViewOverlaysForTesting;
+#endif
 
 @end
 

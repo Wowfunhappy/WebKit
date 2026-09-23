@@ -350,6 +350,8 @@ bulk "$WORK/binaries.nul" "$NM" -m -arch all | awk -v bins="$WORK/binaries" -v a
     }
     !keep { next }
     {
+        # nm places this visibility qualifier before the symbol name.
+        sub(/ external automatically hidden /, " external ")
         if ((p = index($0, "(undefined) weak external ")) > 0) {
             n = substr($0, p + 26); sub(/ .*/, "", n)
             if (n !~ /^_OBJC_(META)?CLASS_\$_/) print cur "\tWEAK\t" n

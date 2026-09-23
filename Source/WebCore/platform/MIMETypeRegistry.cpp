@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -79,7 +79,7 @@ static String normalizedImageMIMEType(const String&);
 // supported (should be image/tiff). This can be removed when Mail addresses:
 // <rdar://problem/7879510> Mail should use standard image mimetypes
 // and we fix sniffing so that it corrects items such as image/jpg -> image/jpeg.
-constexpr SortedArraySet supportedImageMIMETypeSet { std::to_array<ComparableCaseFoldingASCIILiteral>({
+constexpr SortedArraySet supportedImageMIMETypeSet { WTF::toArray<ComparableCaseFoldingASCIILiteral>({
 #if PLATFORM(IOS_FAMILY)
     "application/bmp"_s,
     "application/jpg"_s,
@@ -197,7 +197,7 @@ HashSet<String, ASCIICaseInsensitiveHash>& MIMETypeRegistry::additionalSupported
 }
 
 // https://html.spec.whatwg.org/multipage/scripting.html#javascript-mime-type
-constexpr SortedArraySet supportedJavaScriptMIMETypes { std::to_array<ComparableLettersLiteral>({
+constexpr SortedArraySet supportedJavaScriptMIMETypes { WTF::toArray<ComparableLettersLiteral>({
     "application/ecmascript"_s,
     "application/javascript"_s,
     "application/x-ecmascript"_s,
@@ -234,9 +234,6 @@ HashSet<String, ASCIICaseInsensitiveHash>& MIMETypeRegistry::supportedNonImageMI
 #endif
             "application/json"_s,
             "image/svg+xml"_s,
-#if ENABLE(FTPDIR)
-            "application/x-ftp-directory"_s,
-#endif
             "multipart/x-mixed-replace"_s,
         // Note: Adding a new type here will probably render it as HTML.
         // This can result in cross-site scripting vulnerabilities.
@@ -263,7 +260,7 @@ const HashSet<String>& MIMETypeRegistry::supportedMediaMIMETypes()
     return types;
 }
 
-static constexpr SortedArraySet pdfMIMETypeSet { std::to_array<ComparableLettersLiteral>({
+static constexpr SortedArraySet pdfMIMETypeSet { WTF::toArray<ComparableLettersLiteral>({
     "application/pdf"_s,
     "text/pdf"_s,
 }) };
@@ -273,7 +270,7 @@ FixedVector<ASCIILiteral> MIMETypeRegistry::pdfMIMETypes()
     return makeFixedVector(pdfMIMETypeSet.array());
 }
 
-static constexpr SortedArraySet unsupportedTextMIMETypesSet { std::to_array<ComparableLettersLiteral>({
+static constexpr SortedArraySet unsupportedTextMIMETypesSet { WTF::toArray<ComparableLettersLiteral>({
     "text/calendar"_s,
     "text/directory"_s,
     "text/ldif"_s,
@@ -306,7 +303,7 @@ static const HashMap<String, Vector<String>, ASCIICaseInsensitiveHash>& commonMi
         HashMap<String, Vector<String>, ASCIICaseInsensitiveHash> map;
         // A table of common media MIME types and file extensions used when a platform's
         // specific MIME type lookup doesn't have a match for a media file extension.
-        static constexpr auto commonMediaTypes = std::to_array<TypeExtensionPair>({
+        static constexpr auto commonMediaTypes = WTF::toArray<TypeExtensionPair>({
             // Ogg
             { "application/ogg"_s, "ogx"_s },
             { "audio/ogg"_s, "ogg"_s },
@@ -492,18 +489,11 @@ std::unique_ptr<MIMETypeRegistryThreadGlobalData> MIMETypeRegistry::createMIMETy
         "image/png"_s,
         "image/jpeg"_s,
         "image/gif"_s,
-#elif PLATFORM(GTK)
-        "image/png"_s,
-        "image/jpeg"_s,
-        "image/tiff"_s,
-        "image/bmp"_s,
-        "image/ico"_s,
 #elif USE(CAIRO)
         "image/png"_s,
 #elif USE(SKIA)
         "image/png"_s,
         "image/jpeg"_s,
-        "image/jpg"_s,
         "image/webp"_s,
 #endif
     };
@@ -518,7 +508,7 @@ bool MIMETypeRegistry::isSupportedImageMIMETypeForEncoding(const String& mimeTyp
     return threadGlobalDataSingleton().mimeTypeRegistryThreadGlobalData().supportedImageMIMETypesForEncoding().contains(mimeType);
 }
 
-bool MIMETypeRegistry::isSupportedJavaScriptMIMEType(const String& mimeType)
+bool MIMETypeRegistry::isSupportedJavaScriptMIMEType(StringView mimeType)
 {
     return supportedJavaScriptMIMETypes.contains(mimeType);
 }
@@ -585,6 +575,9 @@ bool MIMETypeRegistry::isSupportedNonImageMIMEType(const String& mimeType)
 bool MIMETypeRegistry::isSupportedMediaMIMEType(const String& mimeType)
 {
     if (mimeType.isEmpty())
+        return false;
+    auto lowercaseType = mimeType.convertToASCIILowercase();
+    if (!lowercaseType.startsWith("video/"_s) && !lowercaseType.startsWith("audio/"_s) && !lowercaseType.startsWith("application/"_s))
         return false;
     return supportedMediaMIMETypes().contains(mimeType);
 }
@@ -659,14 +652,14 @@ const String& defaultMIMEType()
     return defaultMIMEType;
 }
 
-constexpr SortedArraySet usdMIMETypeSet { std::to_array<ComparableLettersLiteral>({
+constexpr SortedArraySet usdMIMETypeSet { WTF::toArray<ComparableLettersLiteral>({
     "model/usd"_s, // Unofficial, but supported because we documented this.
     "model/vnd.pixar.usd"_s, // Unofficial, but supported because we documented this.
     "model/vnd.reality"_s,
     "model/vnd.usdz+zip"_s, // The official type: https://www.iana.org/assignments/media-types/model/vnd.usdz+zip
 }) };
 
-static constexpr SortedArraySet gltfMIMETypeSet { std::to_array<ComparableLettersLiteral>({
+static constexpr SortedArraySet gltfMIMETypeSet { WTF::toArray<ComparableLettersLiteral>({
     "model/gltf-binary"_s, // The official glTF binary (.glb) format: https://www.iana.org/assignments/media-types/model/gltf-binary
 }) };
 
@@ -700,7 +693,7 @@ static String NODELETE normalizedImageMIMEType(const String& mimeType)
 {
 #if USE(CURL)
     // FIXME: Since this is only used in isSupportedImageMIMEType, we should consider removing the non-image types below.
-    static constexpr SortedArrayMap associationMap { std::to_array<std::pair<ComparableLettersLiteral, ASCIILiteral>>({
+    static constexpr SortedArrayMap associationMap { WTF::toArray<std::pair<ComparableLettersLiteral, ASCIILiteral>>({
         { "application/ico"_s, "image/vnd.microsoft.icon"_s },
         { "application/java"_s, "application/java-archive"_s },
         { "application/x-java-archive"_s, "application/java-archive"_s },
@@ -755,6 +748,32 @@ static String NODELETE normalizedImageMIMEType(const String& mimeType)
 #endif
 }
 
+static String canonicalMIMEType(const String& mimeType)
+{
+    static constexpr SortedArrayMap aliasMap { WTF::toArray<std::pair<ComparableLettersLiteral, ASCIILiteral>>({
+        { "application/x-gzip"_s, "application/gzip"_s },
+        { "application/x-zip-compressed"_s, "application/zip"_s },
+    }) };
+    auto canonical = aliasMap.tryGet(mimeType);
+    return canonical ? *canonical : mimeType;
+}
+
+static bool isArchiveMIMEType(const String& canonicalizedMIMEType)
+{
+    static constexpr SortedArraySet archiveMIMETypes { WTF::toArray<ComparableLettersLiteral>({
+        "application/gzip"_s,
+        "application/java-archive"_s,
+        "application/vnd.rar"_s,
+        "application/x-7z-compressed"_s,
+        "application/x-bzip2"_s,
+        "application/x-compressed-tar"_s,
+        "application/x-tar"_s,
+        "application/x-xz"_s,
+        "application/zip"_s,
+    }) };
+    return archiveMIMETypes.contains(canonicalizedMIMEType);
+}
+
 String MIMETypeRegistry::appendFileExtensionIfNecessary(const String& filename, const String& mimeType)
 {
     if (filename.isEmpty() || filename.contains('.') || equalIgnoringASCIICase(mimeType, defaultMIMEType()))
@@ -765,6 +784,47 @@ String MIMETypeRegistry::appendFileExtensionIfNecessary(const String& filename, 
         return filename;
 
     return makeString(filename, '.', preferredExtension);
+}
+
+String MIMETypeRegistry::correctExtensionForMIMEType(const String& suggestedFilename, const String& mimeType)
+{
+    if (suggestedFilename.isEmpty() || mimeType.isEmpty()
+        || mimeType == defaultMIMEType() || mimeType == "text/plain"_s)
+        return suggestedFilename;
+
+    auto preferredExtension = preferredExtensionForMIMEType(mimeType);
+    if (preferredExtension.isEmpty())
+        return suggestedFilename;
+
+    auto dotPosition = suggestedFilename.reverseFind('.');
+    if (dotPosition == notFound)
+        return makeString(suggestedFilename, '.', preferredExtension);
+
+    auto currentExtension = suggestedFilename.substring(dotPosition + 1);
+    auto extensionMIMEType = canonicalMIMEType(mimeTypeForExtension(currentExtension));
+    auto responseMIMEType = canonicalMIMEType(mimeType);
+    if (!equalIgnoringASCIICase(extensionMIMEType, responseMIMEType)) {
+        if (isArchiveMIMEType(extensionMIMEType) && isArchiveMIMEType(responseMIMEType))
+            return suggestedFilename;
+        return makeString(suggestedFilename.left(dotPosition), '.', preferredExtension);
+    }
+
+    // Only strip the middle extension if it belongs to a different major MIME type to preserve compound extensions (e.g. ".tar.gz").
+    auto basePart = suggestedFilename.left(dotPosition);
+    auto secondDotPosition = basePart.reverseFind('.');
+    if (secondDotPosition == notFound)
+        return suggestedFilename;
+
+    auto middleMIMEType = mimeTypeForExtension(basePart.substring(secondDotPosition + 1));
+    if (!middleMIMEType.isEmpty()) {
+        auto slashPosition = mimeType.find('/');
+        auto middleSlashPosition = middleMIMEType.find('/');
+        if (slashPosition != notFound && middleSlashPosition != notFound
+            && mimeType.left(slashPosition) != middleMIMEType.left(middleSlashPosition))
+            return makeString(basePart.left(secondDotPosition), '.', preferredExtension);
+    }
+
+    return suggestedFilename;
 }
 
 static inline String trimmedExtension(const String& extension)

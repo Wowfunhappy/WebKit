@@ -26,6 +26,8 @@
 #include "config.h"
 #include "StyleGridTrackSizes.h"
 
+#include "CSSGridTrackSizesValue.h"
+#include "StyleBuilderChecking.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -35,6 +37,41 @@ auto GridTrackSizeDefaulter::operator()() const -> const GridTrackSize&
 {
     static NeverDestroyed staticValue = GridTrackSize { CSS::Keyword::Auto { } };
     return staticValue.get();
+}
+
+// MARK: - Conversion
+
+auto ToCSS<GridTrackSizes>::operator()(const GridTrackSizes& value, const Style::ComputedStyle& style) -> CSS::GridTrackSizes
+{
+    return { CSS::GridTrackSizeList::map(value, [&](auto& trackSize) -> CSS::GridTrackSize {
+        return toCSS(trackSize, style);
+    }) };
+}
+
+auto ToStyle<CSS::GridTrackSizes>::operator()(const CSS::GridTrackSizes& value, const BuilderState& state) -> GridTrackSizes
+{
+    return { GridTrackSizeList::map(value, [&](auto& trackSize) -> GridTrackSize {
+        return toStyle(trackSize, state);
+    }) };
+}
+
+auto CSSValueConversion<GridTrackSizes>::operator()(BuilderState& state, const CSSValue& value) -> GridTrackSizes
+{
+    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
+        return GridTrackSizes { GridTrackSize { toStyleFromCSSValue<GridTrackSize::Breadth>(state, *primitiveValue) } };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value))
+        return GridTrackSizes { GridTrackSize { toStyleFromCSSValue<GridTrackSize::Breadth>(state, *keywordValue) } };
+
+    RefPtr gridTrackSizesValue = requiredDowncast<CSSGridTrackSizesValue>(state, value);
+    if (!gridTrackSizesValue)
+        return CSS::Keyword::Auto { };
+
+    return GridTrackSizes { toStyle(gridTrackSizesValue->list(), state) };
+}
+
+auto CSSValueCreation<GridTrackSizes>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const GridTrackSizes& value) -> Ref<CSSValue>
+{
+    return CSSGridTrackSizesValue::create(toCSS(value, style));
 }
 
 } // namespace Style

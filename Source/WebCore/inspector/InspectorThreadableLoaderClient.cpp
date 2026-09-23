@@ -26,7 +26,10 @@
 #include "config.h"
 #include "InspectorThreadableLoaderClient.h"
 
+#include "ResourceError.h"
+#include "TextResourceDecoder.h"
 #include "ThreadableLoader.h"
+#include <pal/text/TextEncoding.h>
 
 namespace Inspector {
 

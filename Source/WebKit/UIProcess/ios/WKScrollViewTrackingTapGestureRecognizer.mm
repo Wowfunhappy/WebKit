@@ -29,6 +29,7 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "UIKitUtilities.h"
+#import <wtf/RetainPtr.h>
 
 @implementation WKScrollViewTrackingTapGestureRecognizer
 

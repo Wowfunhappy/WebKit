@@ -45,7 +45,7 @@
 namespace WebCore {
 
 class RTCPeerConnection;
-struct RTCRtpCodecCapability;
+struct RTCRtpCodec;
 
 class RTCRtpTransceiver final : public RefCounted<RTCRtpTransceiver>, public ScriptWrappable {
     WTF_MAKE_TZONE_ALLOCATED(RTCRtpTransceiver);
@@ -63,7 +63,7 @@ public:
 
     bool stopped() const;
     ExceptionOr<void> stop();
-    ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodecCapability>&);
+    ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodec>&);
     
     RTCRtpTransceiverBackend& backend() LIFETIME_BOUND { return m_backend.get(); }
     void setConnection(RTCPeerConnection&);

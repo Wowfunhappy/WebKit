@@ -26,8 +26,11 @@
 #include "config.h"
 #include "ServiceWorkerInternals.h"
 
+#include "DestinationColorSpace.h"
 #include "FetchEvent.h"
 #include "FetchRequest.h"
+#include "GraphicsClient.h"
+#include "ImageBuffer.h"
 #include "JSDOMConvertBoolean.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
@@ -39,6 +42,7 @@
 #include "ServiceWorkerClient.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "ServiceWorkerRegistration.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/ProcessID.h>
 
 namespace WebCore {
@@ -209,6 +213,25 @@ void ServiceWorkerInternals::enableConsoleMessageReporting(ScriptExecutionContex
 void ServiceWorkerInternals:: logReportedConsoleMessage(ScriptExecutionContext& context, const String& value)
 {
     downcast<ServiceWorkerGlobalScope>(context).addConsoleMessage(MessageSource::Storage, MessageLevel::Info, value, 0);
+}
+
+String ServiceWorkerInternals::effectiveRenderingModeOfNewlyCreatedAcceleratedCanvasBuffer(ScriptExecutionContext& context)
+{
+    // Mirrors Internals::getEffectiveRenderingModeOfNewlyCreatedAcceleratedImageBuffer, but uses the worker's
+    // own GraphicsClient and RenderingPurpose::Canvas.
+    auto* graphicsClient = context.graphicsClient();
+    if (!graphicsClient)
+        return "no-client"_s;
+
+    RefPtr imageBuffer = ImageBuffer::create({ 100, 100 }, RenderingMode::Accelerated, RenderingPurpose::Canvas, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8, graphicsClient);
+    if (!imageBuffer)
+        return "none"_s;
+    imageBuffer->ensureBackendCreated();
+    if (!imageBuffer->hasBackend())
+        return "none"_s;
+    if (imageBuffer->renderingMode() != RenderingMode::Accelerated)
+        return "unaccelerated"_s;
+    return imageBuffer->isRemoteImageBufferProxy() ? "remote"_s : "local-iosurface"_s;
 }
 
 } // namespace WebCore

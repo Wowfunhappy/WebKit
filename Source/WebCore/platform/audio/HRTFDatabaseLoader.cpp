@@ -36,6 +36,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/Threading.h>
 
 namespace WebCore {
 

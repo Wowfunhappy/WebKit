@@ -28,11 +28,15 @@
 
 #include "AXUtilities.h"
 #include "AccessibilityNodeObject.h"
+#include "ContainerNodeInlines.h"
 #include "Element.h"
+#include "EventNames.h"
 #include "HTMLLabelElement.h"
 #include "HTMLTableCellElement.h"
 #include "RenderElementInlines.h"
-#include "RenderStyle.h"
+#include "RenderLineBreak.h"
+#include "RenderObjectStyle.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/Scope.h>
 
 namespace WebCore {
@@ -50,7 +54,7 @@ static bool hasStitchBreakingRole(Element& element)
 {
     return hasAnyRole(element, {
         // Cell roles
-        "gridcell"_s, "cell"_s, "columnheader"_s, "rowheader"_s
+        "gridcell"_s, "cell"_s, "columnheader"_s, "rowheader"_s,
         // Miscellaneous roles
         "suggestion"_s, "insertion"_s, "deletion"_s
     });
@@ -67,24 +71,63 @@ static bool NODELETE hasStitchBreakingTag(Element& element)
     }
 }
 
+static bool isClickTarget(Element& element)
+{
+    auto elementName = element.elementName();
+    if (elementName == ElementName::HTML_body || elementName == ElementName::HTML_main) {
+        // Mirror the criteria in AXCoreObject::supportsPressAction, which does not
+        // currently expose clickability for main / body to avoid considering everything
+        // clickable in event-delegate patterns.
+        return false;
+    }
+
+    if (element.hasAnyEventListeners(std::array { eventNames().clickEvent, eventNames().mousedownEvent, eventNames().mouseupEvent }))
+        return true;
+
+    // cursor:pointer is a good signal that this element is a click target.
+    CheckedPtr renderer = element.renderer();
+    if (!renderer)
+        return false;
+
+    CheckedRef style = renderer->style();
+    if (style->cursorType() != CursorType::Pointer || style->pointerEvents() == PointerEvents::None)
+        return false;
+
+    // CSS `cursor` inherits, so an interactive ancestor's pointer cursor appears on every
+    // descendant's computed style. Treat the element as a boundary only when it *introduces*
+    // the pointer cursor. Otherwise every descendant of an interactive ancestor would falsely
+    // register as its own boundary, fragmenting text that should stitch as one unit.
+    if (CheckedPtr parentRenderer = renderer->parent()) {
+        if (parentRenderer->style().cursorType() == CursorType::Pointer)
+            return false;
+    }
+    return true;
+}
+
 static bool isStitchBreakingElement(Element& element)
 {
     return is<HTMLTableCellElement>(element)
     || is<HTMLLabelElement>(element)
     || element.isLink()
     || hasStitchBreakingRole(element)
-    || hasStitchBreakingTag(element);
+    || hasStitchBreakingTag(element)
+    || isClickTarget(element);
 }
 
-bool shouldStopStitchingAt(const RenderObject& renderer, const AccessibilityObject& object, StitchingContext& context)
+StitchAction stitchActionFor(const RenderObject& renderer, const AccessibilityObject& object, StitchingContext& context)
 {
+    if (CheckedPtr lineBreak = dynamicDowncast<RenderLineBreak>(renderer); lineBreak && lineBreak->isBR()) {
+        // A <br> visually separates the text around it, so don't stitch across it.
+        return StitchAction::BreakAndSkip;
+    }
+
     auto isInsideLink = [] (const RenderObject& renderer) {
         return renderer.style().insideLink() != InsideLink::NotInside;
     };
 
     if (context.lastRenderer && isInsideLink(renderer) && !isInsideLink(*context.lastRenderer)) {
         // Stop the current stitch when entering a link.
-        return true;
+        return StitchAction::BreakAndSkip;
     }
 
     if (renderer.parent() && (renderer.parent()->isBeforeOrAfterContent() || renderer.parent()->isFirstLetter())) {
@@ -92,14 +135,14 @@ bool shouldStopStitchingAt(const RenderObject& renderer, const AccessibilityObje
         // some of our code that handles stitched text (e.g. stringValue) assumes
         // the presence of a Node. For now, stop stitching at generated content.
         // Ideally we remove this restriction in the future.
-        return true;
+        return StitchAction::BreakAndSkip;
     }
 
     if (hasEnclosingInputElement(renderer.node())) {
         // Don't stitch within text inputs. One example of why we want to avoid
         // this is otherwise the number values of the chosen dates will get stitched
         // with the "/"s that surround them, which is a poor user experience.
-        return true;
+        return StitchAction::BreakAndSkip;
     }
 
     RefPtr node = renderer.node();
@@ -128,7 +171,7 @@ bool shouldStopStitchingAt(const RenderObject& renderer, const AccessibilityObje
     while (currentAncestor) {
         if (currentAncestor->owners().size()) {
             stitchBreakingAncestor = nullptr;
-            return true;
+            return StitchAction::BreakAndSkip;
         }
 
         if (currentAncestor == context.containingBlockFlowObject) {
@@ -146,12 +189,13 @@ bool shouldStopStitchingAt(const RenderObject& renderer, const AccessibilityObje
         }
     });
 
-    if (node && context.lastStitchBreakingAncestor && context.lastStitchBreakingAncestor != stitchBreakingAncestor) {
-        // Breaking stitching across semantic boundaries, like cells, controls, etc.
-        return true;
+    if (node && context.lastStitchBreakingAncestor != stitchBreakingAncestor) {
+        // Breaking stitching across semantic boundaries, like cells, controls, click handlers, etc.
+        // The current text is on the other side of the boundary and can start a new group.
+        return StitchAction::BreakAndAdd;
     }
 
-    return false;
+    return StitchAction::Continue;
 }
 
 } // namespace WebCore

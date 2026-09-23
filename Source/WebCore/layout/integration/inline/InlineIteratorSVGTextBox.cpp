@@ -28,6 +28,7 @@
 
 #include "FontCascadeInlines.h"
 #include "LayoutIntegrationLineLayout.h"
+#include "RenderBlockFlowInlines.h"
 #include "RenderSVGText.h"
 #include "SVGInlineTextBox.h"
 #include "SVGRootInlineBox.h"

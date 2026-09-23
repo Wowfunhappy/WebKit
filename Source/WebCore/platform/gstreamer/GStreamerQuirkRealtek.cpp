@@ -49,7 +49,7 @@ GStreamerQuirkRealtek::GStreamerQuirkRealtek()
 
 bool GStreamerQuirkRealtek::isPlatformSupported() const
 {
-    auto realtekFactory = adoptGRef(gst_element_factory_find("rtkaudiosink"));
+    GRefPtr realtekFactory = adoptGRef(gst_element_factory_find("rtkaudiosink"));
     return realtekFactory;
 }
 

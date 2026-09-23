@@ -13,11 +13,15 @@
         .display-toggle {
             display: -internal-auto-base(none, block);
         }
-        /* Test argument parsing with braces */
+        /* Test a shorthand property */
+        .border-toggle {
+            border: -internal-auto-base(1px solid red, 2px dashed blue);
+        }
+        /* Test comma-containing values with brace syntax */
         .position-try-fallbacks {
             position-try-fallbacks: -internal-auto-base({block-start span-inline-end, block-end span-inline-start}, {
-                block-end span-inline-end,   /* First try above and span-right. */
-                block-start span-inline-start,   /* Then below but span-left. */
+                block-end span-inline-end,
+                block-start span-inline-start,
                 block-start span-inline-start });
         }
         select {
@@ -37,6 +41,9 @@
     <div class="display-toggle">This should be hidden.</div>
     <div class="display-toggle" style="appearance: base-select">This should be hidden (base-select on non-select).</div>
     <div class="display-toggle" style="appearance: base">This should be visible (base).</div>
+
+    <div class="border-toggle">This should have 1px solid red border (default).</div>
+    <div class="border-toggle" style="appearance: base">This should have 2px dashed blue border (base).</div>
 
     <div class="position-try-fallbacks"></div>
     <div class="position-try-fallbacks" style="appearance: base"></div>

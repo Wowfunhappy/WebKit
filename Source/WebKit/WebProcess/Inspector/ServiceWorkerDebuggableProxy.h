@@ -50,6 +50,9 @@ public:
     String url() const final { return m_scopeURL; }
     bool hasLocalDebugger() const final { return false; }
 
+    const String& nameOverride() const LIFETIME_BOUND final { return m_nameOverride; }
+    void setNameOverride(const String& name) { m_nameOverride = name; }
+
     void connect(Inspector::FrontendChannel&, bool isAutomaticConnection = false, bool immediatelyPause = false) final;
     void disconnect(Inspector::FrontendChannel&) final;
     void dispatchMessageFromRemote(String&& message) final;
@@ -66,6 +69,7 @@ private:
     ServiceWorkerDebuggableProxy(const String& url, WebCore::ServiceWorkerIdentifier, WebProcessProxy&);
 
     String m_scopeURL;
+    String m_nameOverride;
     WebCore::ServiceWorkerIdentifier m_identifier;
     WeakPtr<WebProcessProxy> m_webProcessProxy;
 };

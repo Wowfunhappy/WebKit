@@ -64,8 +64,6 @@ private:
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 
 protected:
-    template<typename Options>
-    bool performCommonChecks(const Options&, CredentialPromise&);
     const Document* document() const { return m_document.get(); }
 };
 

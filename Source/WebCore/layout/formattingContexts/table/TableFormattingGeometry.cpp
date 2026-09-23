@@ -30,7 +30,7 @@
 #include "LayoutContext.h"
 #include "LayoutDescendantIterator.h"
 #include "LayoutInitialContainingBlock.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TableFormattingContext.h"
 #include "TableFormattingQuirks.h"
 
@@ -135,13 +135,13 @@ InlineLayoutUnit TableFormattingGeometry::usedBaselineForCell(const ElementBox& 
         ASSERT_NOT_IMPLEMENTED_YET();
         return { };
     }
-    for (CheckedRef cellDescendant : descendantsOfType<ElementBox>(cellBox)) {
-        if (cellDescendant->establishesInlineFormattingContext()) {
+    for (auto& cellDescendant : descendantsOfType<ElementBox>(cellBox)) {
+        if (cellDescendant.establishesInlineFormattingContext()) {
             // FIXME: Check for baseline value based on display content.
             ASSERT_NOT_IMPLEMENTED_YET();
             return { };
         }
-        if (cellDescendant->establishesTableFormattingContext())
+        if (cellDescendant.establishesTableFormattingContext())
             return layoutState().formattingStateForTableFormattingContext(cellDescendant).tableGrid().rows().list()[0].baseline();
     }
     return formattingContext().geometryForBox(cellBox).contentBoxBottom();

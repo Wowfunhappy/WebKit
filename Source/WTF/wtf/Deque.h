@@ -214,7 +214,7 @@ public:
     Iterator& operator--() { Base::decrement(); return *this; }
     // postfix -- intentionally omitted
 
-    // Only forwarding + unsigned is supported.
+    // Only forwarding + size_t is supported.
     Iterator& operator+=(size_t count) { Base::increment(count); return *this; }
     Iterator operator+(size_t count) const { Iterator result(*this); result += count; return result; }
 };
@@ -252,7 +252,7 @@ public:
     Iterator& operator--() { Base::decrement(); return *this; }
     // postfix -- intentionally omitted
 
-    // Only forwarding + unsigned is supported.
+    // Only forwarding + size_t is supported.
     Iterator& operator+=(size_t count) { Base::increment(count); return *this; }
     Iterator operator+(size_t count) const { Iterator result(*this); result += count; return result; }
 };
@@ -395,6 +395,7 @@ inline void Deque<T, inlineCapacity>::swap(Deque<T, inlineCapacity>& other)
     checkValidity();
     other.checkValidity();
     invalidateIterators();
+    other.invalidateIterators();
     std::swap(m_start, other.m_start);
     std::swap(m_end, other.m_end);
     std::swap(m_capacityMask, other.m_capacityMask);
@@ -574,7 +575,7 @@ inline size_t Deque<T, inlineCapacity>::removeAllMatching(const Predicate& predi
         if (!predicate(value))
             append(WTF::move(value));
     }
-    return size() - oldSize;
+    return oldSize - size();
 }
 
 template<typename T, size_t inlineCapacity>
@@ -612,38 +613,26 @@ template<typename T, size_t inlineCapacity>
 template<std::predicate<T&> Predicate>
 inline T Deque<T, inlineCapacity>::takeFirst(NOESCAPE const Predicate& predicate)
 {
-    unsigned count = 0;
-    unsigned size = this->size();
-    while (count < size) {
-        T candidate = takeFirst();
-        if (predicate(candidate)) {
-            while (count--)
-                prepend(takeLast());
-            return candidate;
-        }
-        count++;
-        append(WTF::move(candidate));
-    }
-    return T();
+    auto it = findIf(predicate);
+    if (it == end())
+        return T();
+    T result = WTF::move(*it);
+    remove(it);
+    return result;
 }
 
 template<typename T, size_t inlineCapacity>
 template<std::predicate<T&> Predicate>
 inline T Deque<T, inlineCapacity>::takeLast(NOESCAPE const Predicate& predicate)
 {
-    unsigned count = 0;
-    unsigned size = this->size();
-    while (count < size) {
-        T candidate = takeLast();
-        if (predicate(candidate)) {
-            while (count--)
-                append(takeFirst());
-            return candidate;
-        }
-        count++;
-        prepend(WTF::move(candidate));
-    }
-    return T();
+    auto reverseIt = std::find_if(rbegin(), rend(), predicate);
+    if (reverseIt == rend())
+        return T();
+    T result = WTF::move(*reverseIt);
+    // Convert reverse iterator to forward iterator pointing to the same element.
+    auto it = std::prev(reverseIt.base());
+    remove(it);
+    return result;
 }
 
 #ifdef NDEBUG

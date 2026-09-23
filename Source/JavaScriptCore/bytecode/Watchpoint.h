@@ -54,7 +54,7 @@ public:
     virtual void dump(PrintStream&) const { }
 };
 
-class StringFireDetail final : public FireDetail {
+class JS_EXPORT_PRIVATE StringFireDetail final : public FireDetail {
 public:
     StringFireDetail(const char* string)
         : m_string(string)
@@ -64,6 +64,8 @@ public:
     void dump(PrintStream& out) const final;
 
 private:
+    explicit StringFireDetail(ClangVTableWorkaroundTag);
+
     const char* m_string;
 };
 
@@ -203,7 +205,7 @@ public:
     // As a convenience, this will ignore 0. That's because code paths in the DFG
     // that create speculation watchpoints may choose to bail out if speculation
     // had already been terminated.
-    void add(Watchpoint*);
+    void NODELETE add(Watchpoint*);
     
     // Force the watchpoint set to behave as if it was being watched even if no
     // watchpoints have been installed. This will result in invalidation if the
@@ -269,7 +271,7 @@ protected:
 
 private:
     void fireAllWatchpoints(VM&, const FireDetail&);
-    void take(WatchpointSet* other);
+    void NODELETE take(WatchpointSet* other);
     
     friend class InlineWatchpointSet;
 
@@ -483,7 +485,7 @@ private:
     }
 
     JS_EXPORT_PRIVATE WatchpointSet* inflateSlow();
-    JS_EXPORT_PRIVATE void freeFat();
+    JS_EXPORT_PRIVATE void NODELETE freeFat();
     
     uintptr_t m_data;
 };
@@ -496,7 +498,7 @@ public:
     {
     }
 
-    JS_EXPORT_PRIVATE void takeWatchpointsToFire(WatchpointSet*);
+    JS_EXPORT_PRIVATE void NODELETE takeWatchpointsToFire(WatchpointSet*);
 
 protected:
     WatchpointSet& watchpointsToFire() { return m_watchpointsToFire; }

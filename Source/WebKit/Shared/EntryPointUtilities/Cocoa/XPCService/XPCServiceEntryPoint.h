@@ -32,6 +32,7 @@
 #import <JavaScriptCore/ExecutableAllocator.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/OSObjectPtr.h>
+#import <wtf/Threading.h>
 #import <wtf/WTFProcess.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 

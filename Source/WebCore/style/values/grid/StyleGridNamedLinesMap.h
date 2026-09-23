@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <WebCore/StyleCustomIdent.h>
 #include <wtf/HashMap.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -32,7 +33,7 @@ namespace WebCore {
 namespace Style {
 
 struct GridNamedLinesMap {
-    HashMap<String, Vector<unsigned>> map;
+    HashMap<CustomIdent, Vector<unsigned>> map;
 
     bool operator==(const GridNamedLinesMap&) const = default;
 };

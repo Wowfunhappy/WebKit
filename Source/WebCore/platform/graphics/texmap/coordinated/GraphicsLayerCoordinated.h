@@ -30,6 +30,7 @@
 #include "GraphicsLayer.h"
 #include "GraphicsLayerTransform.h"
 #include "TextureMapperAnimation.h"
+#include <wtf/EnumSet.h>
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
@@ -71,6 +72,7 @@ private:
     void setPreserves3D(bool) override;
     void setBackfaceVisibility(bool) override;
     void setOpacity(float) override;
+    void setBlendMode(BlendMode) override;
     void setContentsVisible(bool) override;
     void setContentsOpaque(bool) override;
     void setContentsRect(const FloatRect&) override;
@@ -97,6 +99,9 @@ private:
 
     void setEventRegion(EventRegion&&) override;
 
+    void setShapeLayerPath(const Path&) override;
+    void setShapeLayerWindRule(WindRule) override;
+
     void deviceOrPageScaleFactorChanged() override;
 
     float rootRelativeScaleFactor() const { return m_rootRelativeScaleFactor; }
@@ -108,6 +113,7 @@ private:
     void setReplicatedByLayer(RefPtr<GraphicsLayer>&&) override;
     bool setBackdropFilters(const FilterOperations&) override;
     void setBackdropFiltersRect(const FloatRoundedRect&) override;
+    void setIsBackdropRoot(bool) override;
 
     bool addAnimation(const GraphicsLayerKeyframeValueList&, const GraphicsLayerAnimation*, const String&, double) override;
     void removeAnimation(const String&, std::optional<AnimatedProperty>) override;
@@ -129,44 +135,47 @@ private:
     void setShowRepaintCounter(bool) override;
     void dumpAdditionalProperties(TextStream&, OptionSet<LayerTreeAsTextOptions>) const override;
 
-    enum class Change : uint32_t {
-        Geometry                     = 1 << 0,
-        Transform                    = 1 << 1,
-        ChildrenTransform            = 1 << 2,
-        DrawsContent                 = 1 << 3,
-        MasksToBounds                = 1 << 4,
-        Preserves3D                  = 1 << 5,
-        BackfaceVisibility           = 1 << 6,
-        Opacity                      = 1 << 7,
-        Children                     = 1 << 8,
-        ContentsVisible              = 1 << 9,
-        ContentsOpaque               = 1 << 10,
-        ContentsRect                 = 1 << 11,
-        ContentsRectClipsDescendants = 1 << 12,
-        ContentsClippingRect         = 1 << 13,
-        ContentsScale                = 1 << 14,
-        ContentsTiling               = 1 << 15,
-        ContentsBuffer               = 1 << 16,
-        ContentsBufferNeedsDisplay   = 1 << 17,
-        ContentsImage                = 1 << 18,
-        ContentsColor                = 1 << 19,
-        DirtyRegion                  = 1 << 20,
-        EventRegion                  = 1 << 21,
-        Filters                      = 1 << 22,
-        Mask                         = 1 << 23,
-        Replica                      = 1 << 24,
-        Backdrop                     = 1 << 25,
-        BackdropRect                 = 1 << 26,
-        Animations                   = 1 << 27,
-        TileCoverage                 = 1 << 28,
-        DebugIndicators              = 1 << 29,
+    enum class Change : uint8_t {
+        Animations,
+        Backdrop,
+        BackdropRect,
+        BackdropRoot,
+        BackfaceVisibility,
+        BlendMode,
+        Children,
+        ChildrenTransform,
+        ContentsBuffer,
+        ContentsBufferNeedsDisplay,
+        ContentsClippingRect,
+        ContentsColor,
+        ContentsImage,
+        ContentsOpaque,
+        ContentsRect,
+        ContentsRectClipsDescendants,
+        ContentsScale,
+        ContentsTiling,
+        ContentsVisible,
+        DebugIndicators,
+        DirtyRegion,
+        DrawsContent,
+        EventRegion,
+        Filters,
+        Geometry,
+        Mask,
+        MasksToBounds,
+        Opacity,
+        Preserves3D,
+        Replica,
 #if ENABLE(SCROLLING_THREAD)
-        ScrollingNode                = 1 << 30
+        ScrollingNode,
 #endif
+        Shape,
+        TileCoverage,
+        Transform,
     };
 
     enum class ScheduleFlush : bool { No, Yes };
-    void noteLayerPropertyChanged(OptionSet<Change>, ScheduleFlush);
+    void noteLayerPropertyChanged(EnumSet<Change>, ScheduleFlush);
     void setNeedsUpdateLayerTransform();
     std::pair<FloatPoint, float> computePositionRelativeToBase() const;
     void computePixelAlignmentIfNeeded(float pageScaleFactor, const FloatPoint& positionRelativeToBase, FloatPoint& adjustedPosition, FloatPoint& adjustedBoundsOrigin, FloatPoint3D& adjustedAnchorPoint, FloatSize& adjustedSize);
@@ -195,7 +204,7 @@ private:
     bool updateBackingStoreIfNeeded();
 
     const Ref<CoordinatedPlatformLayer> m_platformLayer;
-    OptionSet<Change> m_pendingChanges;
+    EnumSet<Change> m_pendingChanges;
     bool m_hasDescendantsWithPendingChanges { false };
     bool m_hasDescendantsWithPendingTilesCreation { false };
     bool m_hasDescendantsWithRunningTransformAnimations { false };

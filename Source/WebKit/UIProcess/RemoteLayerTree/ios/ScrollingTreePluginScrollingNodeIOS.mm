@@ -46,9 +46,7 @@ ScrollingTreePluginScrollingNodeIOS::ScrollingTreePluginScrollingNodeIOS(WebCore
     m_delegate = makeUnique<ScrollingTreeScrollingNodeDelegateIOS>(*this);
 }
 
-ScrollingTreePluginScrollingNodeIOS::~ScrollingTreePluginScrollingNodeIOS()
-{
-}
+ScrollingTreePluginScrollingNodeIOS::~ScrollingTreePluginScrollingNodeIOS() = default;
 
 ScrollingTreeScrollingNodeDelegateIOS& ScrollingTreePluginScrollingNodeIOS::delegate() const
 {

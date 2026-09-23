@@ -68,6 +68,8 @@ public:
         void appendUpdate(Vector<uint32_t>&&, Vector<TileUpdate>&&, Vector<uint32_t>&&);
         void waitUntilPaintingComplete();
 
+        bool isEmpty() const { return m_tilesToCreate.isEmpty() && m_tilesToUpdate.isEmpty() && m_tilesToRemove.isEmpty(); }
+
     private:
         Vector<uint32_t> m_tilesToCreate;
         Vector<TileUpdate> m_tilesToUpdate;

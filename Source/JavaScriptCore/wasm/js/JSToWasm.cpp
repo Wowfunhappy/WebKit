@@ -26,8 +26,6 @@
 #include "config.h"
 #include "JSToWasm.h"
 #include "WasmCallee.h"
-#include <wtf/Gigacage.h>
-#include <wtf/WTFConfig.h>
 
 #if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
 
@@ -45,7 +43,7 @@
 namespace JSC {
 namespace Wasm {
 
-static void marshallJSResult(CCallHelpers& jit, const FunctionSignature& signature, const CallInformation& wasmFrameConvention, const RegisterAtOffsetList& savedResultRegisters, CCallHelpers::JumpList& exceptionChecks)
+static void marshallJSResult(CCallHelpers& jit, const RTT& signature, const CallInformation& wasmFrameConvention, const RegisterAtOffsetList& savedResultRegisters, CCallHelpers::JumpList& exceptionChecks, int32_t stackResultReadOffset = 0)
 {
     auto boxNativeCalleeResult = [](CCallHelpers& jit, Type type, ValueLocation src, JSValueRegs dst) {
         JIT_COMMENT(jit, "boxNativeCalleeResult ", type);
@@ -143,28 +141,29 @@ static void marshallJSResult(CCallHelpers& jit, const FunctionSignature& signatu
                 }
             } else {
                 if (!type.isI64()) {
-                    auto location = CCallHelpers::Address(CCallHelpers::stackPointerRegister, loc.offsetFromSP());
+                    auto readLocation = CCallHelpers::Address(CCallHelpers::stackPointerRegister, loc.offsetFromSP() + stackResultReadOffset);
+                    auto writeLocation = CCallHelpers::Address(CCallHelpers::stackPointerRegister, loc.offsetFromSP());
                     ValueLocation tmp;
                     switch (type.kind) {
                     case TypeKind::F32:
                         tmp = ValueLocation { fprScratch };
-                        jit.loadFloat(location, fprScratch);
+                        jit.loadFloat(readLocation, fprScratch);
                         break;
                     case TypeKind::F64:
                         tmp = ValueLocation { fprScratch };
-                        jit.loadDouble(location, fprScratch);
+                        jit.loadDouble(readLocation, fprScratch);
                         break;
                     case TypeKind::I32:
                         tmp = ValueLocation { scratchJSR };
-                        jit.load32(location, scratchJSR.payloadGPR());
+                        jit.load32(readLocation, scratchJSR.payloadGPR());
                         break;
                     default:
                         tmp = ValueLocation { scratchJSR };
-                        jit.loadValue(location, scratchJSR);
+                        jit.loadValue(readLocation, scratchJSR);
                         break;
                     }
                     boxNativeCalleeResult(jit, type, tmp, scratchJSR);
-                    jit.storeValue(scratchJSR, location);
+                    jit.storeValue(scratchJSR, writeLocation);
                 }
             }
 
@@ -193,16 +192,21 @@ static void marshallJSResult(CCallHelpers& jit, const FunctionSignature& signatu
 
                 constexpr JSValueRegs valueJSR = preferredArgumentJSR<decltype(operationConvertToBigInt), 1>();
 
-                CCallHelpers::Address address { CCallHelpers::stackPointerRegister };
+                CCallHelpers::Address readAddress { CCallHelpers::stackPointerRegister };
+                CCallHelpers::Address writeAddress { CCallHelpers::stackPointerRegister };
                 if (loc.isGPR() || loc.isFPR()) {
 #if USE(JSVALUE32_64)
                     ASSERT(savedResultRegisters.find(loc.jsr().payloadGPR())->offset() + 4 == savedResultRegisters.find(loc.jsr().tagGPR())->offset());
 #endif
-                    address = address.withOffset(savedResultRegisters.find(loc.jsr().payloadGPR())->offset() + wasmFrameConvention.headerAndArgumentStackSizeInBytes);
-                } else
-                    address = address.withOffset(loc.offsetFromSP());
+                    auto offset = savedResultRegisters.find(loc.jsr().payloadGPR())->offset() + wasmFrameConvention.headerAndArgumentStackSizeInBytes;
+                    readAddress = readAddress.withOffset(offset);
+                    writeAddress = writeAddress.withOffset(offset);
+                } else {
+                    readAddress = readAddress.withOffset(loc.offsetFromSP() + stackResultReadOffset);
+                    writeAddress = writeAddress.withOffset(loc.offsetFromSP());
+                }
 
-                jit.loadValue(address, valueJSR);
+                jit.loadValue(readAddress, valueJSR);
                 jit.prepareWasmCallOperation(GPRInfo::wasmContextInstancePointer);
                 jit.setupArguments<decltype(operationConvertToBigInt)>(GPRInfo::wasmContextInstancePointer, valueJSR);
                 jit.callOperation<OperationPtrTag>(operationConvertToBigInt);
@@ -213,7 +217,7 @@ static void marshallJSResult(CCallHelpers& jit, const FunctionSignature& signatu
                 jit.loadPtr(CCallHelpers::Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfVM()), GPRInfo::nonPreservedNonReturnGPR);
                 exceptionChecks.append(jit.branchTestPtr(CCallHelpers::NonZero, CCallHelpers::Address(GPRInfo::nonPreservedNonReturnGPR, VM::exceptionOffset())));
 #endif
-                jit.storeValue(JSRInfo::returnValueJSR, address);
+                jit.storeValue(JSRInfo::returnValueJSR, writeAddress);
             }
         }
 
@@ -307,7 +311,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> createJSToWasmJITShared()
 
         // Memory
 #if USE(JSVALUE64)
-        jit.loadPair64(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemory()), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
+        jit.loadPair64(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
         jit.cageConditionally(Gigacage::Primitive, GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister, GPRInfo::regWA0);
 #endif
 
@@ -390,20 +394,11 @@ MacroAssemblerCodeRef<JITThunkPtrTag> createJSToWasmJITShared()
 
         jit.call(GPRInfo::regWS0, WasmEntryPtrTag);
 
-        // Restore SP
-
-        // Callee[cfr]
-        jit.loadPtr(CCallHelpers::addressFor(CallFrameSlot::callee), GPRInfo::regWS0);
-        jit.unboxNativeCallee(GPRInfo::regWS0, GPRInfo::regWS0);
-
-        jit.load32(CCallHelpers::Address(GPRInfo::regWS0, JSToWasmCallee::offsetOfFrameSize()), GPRInfo::regWS1);
-        jit.addPtr(CCallHelpers::TrustedImmPtr(JSToWasmCallee::SpillStackSpaceAligned), GPRInfo::regWS1);
-#if CPU(ARM64)
-        jit.subPtr(GPRInfo::callFrameRegister, GPRInfo::regWS1, CCallHelpers::stackPointerRegister);
-#else
-        jit.subPtr(GPRInfo::callFrameRegister, GPRInfo::regWS1, GPRInfo::regWS1);
-        jit.move(GPRInfo::regWS1, CCallHelpers::stackPointerRegister);
-#endif
+        // Don't restore SP to original position — stack results are above calleeSP.
+        // After a tail call the callee's frame may differ, so derive from actual SP.
+        // Just allocate register spill space below the callee's actual SP.
+        jit.subPtr(CCallHelpers::TrustedImmPtr(JSToWasmCallee::RegisterStackSpaceAligned),
+            CCallHelpers::stackPointerRegister);
 
         // Save return registers
 #if CPU(ARM64)
@@ -518,7 +513,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> wasmFunctionThunkGenerator(VM&)
     return createJSToWasmJITShared();
 }
 
-static size_t trampolineReservedStackSize()
+static size_t NODELETE trampolineReservedStackSize()
 {
     // If we are jumping to the function which can have stack-overflow check,
     // then, trampoline does not need to do the check again if it is smaller than a threshold.
@@ -529,7 +524,7 @@ static size_t trampolineReservedStackSize()
     return (Options::softReservedZoneSize() - Options::reservedZoneSize()) / 2;
 }
 
-static RegisterAtOffsetList usedCalleeSaveRegisters(const Wasm::FunctionSignature& signature)
+static RegisterAtOffsetList usedCalleeSaveRegisters(const Wasm::RTT& signature)
 {
     // Pessimistically save callee saves in BoundsChecking mode since the IPInt always bounds checks
     RegisterSet calleeSaves = RegisterSet::wasmPinnedRegisters();
@@ -542,8 +537,9 @@ static RegisterAtOffsetList usedCalleeSaveRegisters(const Wasm::FunctionSignatur
     return RegisterAtOffsetList { calleeSaves, RegisterAtOffsetList::OffsetBaseType::FramePointerBased };
 }
 
-CodePtr<JSEntryPtrTag> FunctionSignature::jsToWasmICEntrypoint() const
+CodePtr<JSEntryPtrTag> RTT::jsToWasmICEntrypoint() const
 {
+    ASSERT(kind() == RTTKind::Function);
     if (m_jsToWasmICCallee) [[likely]] {
         ASSERT(m_jsToWasmICCallee->jsToWasm());
         return m_jsToWasmICCallee->jsToWasm();
@@ -572,10 +568,12 @@ CodePtr<JSEntryPtrTag> FunctionSignature::jsToWasmICEntrypoint() const
     Wasm::CallInformation jsCallInfo = Wasm::jsCallingConvention().callInformationFor(*this, Wasm::CallRole::Callee);
     RegisterAtOffsetList savedResultRegisters = wasmCallInfo.computeResultsOffsetList();
 
+    unsigned resultAreaSize = wasmCallInfo.headerAndArgumentStackSizeInBytes + savedResultRegisters.sizeOfAreaInBytes();
+    unsigned resultAreaSizeAligned = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(resultAreaSize);
+
     unsigned totalFrameSize = registersToSpill.sizeOfAreaInBytes();
     totalFrameSize += sizeof(CPURegister); // Slot for the VM's previous wasm instance.
     totalFrameSize += wasmCallInfo.headerAndArgumentStackSizeInBytes;
-    totalFrameSize += savedResultRegisters.sizeOfAreaInBytes();
     totalFrameSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(totalFrameSize);
 
 #if USE(JSVALUE32_64)
@@ -686,7 +684,7 @@ CodePtr<JSEntryPtrTag> FunctionSignature::jsToWasmICEntrypoint() const
         case Wasm::TypeKind::RefNull:
         case Wasm::TypeKind::Funcref:
         case Wasm::TypeKind::Externref: {
-            if (Wasm::isFuncref(type) || (Wasm::isRefWithTypeIndex(type) && Wasm::TypeInformation::get(type.index).is<Wasm::FunctionSignature>())) {
+            if (Wasm::isFuncref(type) || (Wasm::isRefWithTypeIndex(type) && Wasm::TypeInformation::tryGetRTT(type.index) && Wasm::TypeInformation::tryGetRTT(type.index)->kind() == Wasm::RTTKind::Function)) {
                 // Ensure we have a WASM exported function.
                 jit.loadValue(jsParam, scratchJSR);
                 auto isNull = jit.branchIfNull(scratchJSR);
@@ -781,7 +779,7 @@ CodePtr<JSEntryPtrTag> FunctionSignature::jsToWasmICEntrypoint() const
     // At this point, we're committed to doing a fast call.
 #if !CPU(ARM) // ARM has no pinned registers for Wasm Memory, so no need to set them up
     // We don't know what memory mode we're about to call into but it's always valid to fill both bounds checking and base memory.
-    jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemory()), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
+    jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
     jit.cageConditionally(Gigacage::Primitive, GPRInfo::wasmBaseMemoryPointer, stackLimitGPR, scratchJSR.payloadGPR());
 #endif
 
@@ -803,13 +801,18 @@ CodePtr<JSEntryPtrTag> FunctionSignature::jsToWasmICEntrypoint() const
     JIT_COMMENT(jit, "Make the call");
     jit.call(stackLimitGPR, WasmEntryPtrTag);
 
-    // Restore stack pointer after call. We want to do this before marshalling results since stack results are stored at the top of the frame we created.
-    jit.addPtr(MacroAssembler::TrustedImm32(-static_cast<int32_t>(totalFrameSize)), MacroAssembler::framePointerRegister, MacroAssembler::stackPointerRegister);
+    jit.subPtr(CCallHelpers::TrustedImm32(resultAreaSizeAligned),
+        CCallHelpers::stackPointerRegister);
 
     CCallHelpers::JumpList exceptionChecks;
 
+    // Read results before restoring SP. Results are at the bottom of the arg/result
+    // area (at callee's SP + headerSize), so we must read them before restoring SP.
     // FIXME: This assumes we don't have tag registers but we could just rematerialize them here since we already saved them.
-    marshallJSResult(jit, *this, wasmCallInfo, savedResultRegisters, exceptionChecks);
+    marshallJSResult(jit, *this, wasmCallInfo, savedResultRegisters, exceptionChecks, resultAreaSizeAligned);
+
+    // Restore stack pointer after call.
+    jit.addPtr(MacroAssembler::TrustedImm32(-static_cast<int32_t>(totalFrameSize)), MacroAssembler::framePointerRegister, MacroAssembler::stackPointerRegister);
 
     ASSERT(!RegisterSet::runtimeTagRegisters().contains(GPRInfo::nonPreservedNonReturnGPR, IgnoreVectors));
 

@@ -83,9 +83,9 @@ bool AccessibilityTableColumn::computeIsIgnored() const
 {
 #if PLATFORM(IOS_FAMILY) || USE(ATSPI)
     return true;
-#endif
-
+#else
     return !m_parent || RefPtr { *m_parent }->isIgnored();
+#endif
 }
 
 void AccessibilityTableColumn::addChildren()
@@ -110,7 +110,7 @@ void AccessibilityTableColumn::addChildren()
         addChild(*cell);
     }
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     verifyChildrenIndexInParent();
 #endif
 }

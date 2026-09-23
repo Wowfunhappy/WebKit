@@ -63,6 +63,19 @@ DECLARE_SYSTEM_HEADER
 #import <AppKit/NSTextSelectionManager.h>
 #endif
 
+#if HAVE(LIQUID_GLASS)
+#import <AppKit/NSGlassEffectView_Private.h>
+#endif
+
+#if HAVE(APPKIT_SIRI_AFFORDANCE)
+#import <AppKit/NSCampoLightweightUIController.h>
+#endif
+
+#if HAVE(NSREFRESHCONTROLLER)
+#import <AppKit/NSRefreshControl_Private.h>
+#import <AppKit/NSRefreshController_Private.h>
+#endif
+
 #else
 
 @interface NSInspectorBar : NSObject
@@ -153,6 +166,8 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 + (_NSCornerRadius *)fixedRadius:(CGFloat)radius;
 @end
 
+// FIXME: Drop these and clean up the call sites once the supported configurations allow it.
+#if !defined(__has_include) || !__has_include(<AppKit/NSViewCornerRadii.h>)
 @interface NSViewCornerRadii : NSObject
 @property CGFloat topLeft;
 @property CGFloat topRight;
@@ -160,11 +175,14 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 @property CGFloat bottomRight;
 @property (copy) CALayerCornerCurve cornerCurve;
 @end
+#endif
 
+#if !defined(__has_include) || !__has_include(<AppKit/NSViewCornerConfiguration.h>)
 @interface NSViewCornerConfiguration : NSObject
 + (NSViewCornerConfiguration *)configurationWithRadius:(_NSCornerRadius *)radius;
 + (instancetype)configurationWithTopLeftRadius:(nullable _NSCornerRadius *)topLeftRadius topRightRadius:(nullable _NSCornerRadius *)topRightRadius bottomLeftRadius:(nullable _NSCornerRadius *)bottomLeftRadius bottomRightRadius:(nullable _NSCornerRadius *)bottomRightRadius;
 @end
+#endif
 
 @interface NSPressGestureRecognizer (SPI)
 @property BOOL cancelPastAllowableMovement;
@@ -179,11 +197,12 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 
 #endif
 
-#if !HAVE(NSGESTURERECOGNIZER_MODIFIER_FLAGS)
 @interface NSGestureRecognizer (SPI)
+@property (readwrite) BOOL shouldBeArchived;
+#if !HAVE(NSGESTURERECOGNIZER_MODIFIER_FLAGS)
 - (NSEventModifierFlags)modifierFlags;
-@end
 #endif
+@end
 
 @protocol NSGestureRecognizerDelegatePrivate <NSGestureRecognizerDelegate>
 
@@ -192,6 +211,30 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 - (BOOL)_gestureRecognizer:(NSGestureRecognizer *)preventingGestureRecognizer canPreventGestureRecognizer:(NSGestureRecognizer *)preventedGestureRecognizer;
 
 @end
+
+#if HAVE(LIQUID_GLASS)
+
+typedef NS_ENUM(NSInteger, _NSGlassEffectViewAdaptiveAppearance) {
+    _NSGlassEffectViewAdaptiveAppearanceAutomatic,
+    _NSGlassEffectViewAdaptiveAppearanceOff,
+    _NSGlassEffectViewAdaptiveAppearanceOn,
+} NS_REFINED_FOR_SWIFT;
+
+@interface NSGlassEffectView (SPI)
+@property _NSGlassEffectViewAdaptiveAppearance _adaptiveAppearance;
+@end
+
+#endif
+
+#if HAVE(APPKIT_SIRI_AFFORDANCE)
+
+@interface NSCampoLightweightUIController : NSObject
++ (instancetype)sharedInstance;
+- (void)dismiss;
+@property (nonatomic, readonly) BOOL isVisible;
+@end
+
+#endif
 
 #endif
 
@@ -231,5 +274,37 @@ NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 NS_HEADER_AUDIT_END(nullability, sendability)
 
 #endif // HAVE(APPKIT_GESTURES_SUPPORT)
+
+#if HAVE(NSREFRESHCONTROLLER)
+
+#if !defined(__has_include) || !__has_include(<AppKit/NSRefreshControl_Private.h>)
+@interface NSRefreshControl : NSView
+@end
+#endif
+
+@interface NSRefreshController (Staging_171939017)
+@property (strong, nonatomic, readonly) NSRefreshControl *refreshControl;
+@end
+
+@interface NSRefreshControl (Staging_170009747)
+- (void)update;
+@end
+
+// FIXME: <rdar://172142161> This should be SPI.
+@interface NSRefreshControl (IPI)
+@property (nonatomic, readonly) CGFloat refreshControlDynamicDampeningThreshold;
+@end
+
+// We need to spell out the protocol here for Swift/C++ interop support in WebKit-Swift-Generated.h
+@protocol NSRefreshControlHosting <NSObject>
+@required
+@property (nonatomic, readonly) CGFloat refreshControlVisibleHeight;
+@property (nonatomic, readonly) NSRect refreshControlHostBounds;
+
+- (void)applyWithVerticalInset:(CGFloat)verticalInset animated:(BOOL)animated completion:(void (^ _Nullable)(void))completion;
+- (void)removeWithVerticalInset:(CGFloat)verticalInset animated:(BOOL)animated completion:(void (^ _Nullable)(void))completion;
+@end
+
+#endif
 
 #endif // PLATFORM(MAC)

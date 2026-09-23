@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google, Inc. All rights reserved.
- * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -72,8 +72,9 @@ public:
     const ContentSecurityPolicyDirective* violatedDirectiveForManifest(const URL&, bool didReceiveRedirectResponse) const LIFETIME_BOUND;
 #endif
     const ContentSecurityPolicyDirective* violatedDirectiveForMedia(const URL&, bool didReceiveRedirectResponse) const LIFETIME_BOUND;
-    const ContentSecurityPolicyDirective* violatedDirectiveForObjectSource(const URL&, bool didReceiveRedirectResponse, ContentSecurityPolicySourceListDirective::ShouldAllowEmptyURLIfSourceListIsNotNone) const LIFETIME_BOUND;
+    const ContentSecurityPolicyDirective* violatedDirectiveForObjectSource(const URL&, bool didReceiveRedirectResponse) const LIFETIME_BOUND;
     const ContentSecurityPolicyDirective* violatedDirectiveForPluginType(const String& type, const String& typeAttribute) const LIFETIME_BOUND;
+    bool hasPluginTypesDirective() const { return !!m_pluginTypes; }
     const ContentSecurityPolicyDirective* violatedDirectiveForScript(const URL&, bool didReceiveRedirectResponse, const Vector<ResourceCryptographicDigest>&, const String&) const LIFETIME_BOUND;
     const ContentSecurityPolicyDirective* violatedDirectiveForStyle(const URL&, bool didReceiveRedirectResponse, const String&) const LIFETIME_BOUND;
     const ContentSecurityPolicyDirective* violatedDirectiveForWorker(const URL&, bool didReceiveRedirectResponse) LIFETIME_BOUND;

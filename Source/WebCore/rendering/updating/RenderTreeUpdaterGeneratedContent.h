@@ -32,6 +32,7 @@
 namespace WebCore {
 
 class Element;
+class RenderElement;
 class RenderQuote;
 
 class RenderTreeUpdater::GeneratedContent {
@@ -48,16 +49,23 @@ public:
     static void removeBeforePseudoElement(Element&, RenderTreeBuilder&);
     static void removeAfterPseudoElement(Element&, RenderTreeBuilder&);
 
-    static void createContentRenderers(RenderTreeBuilder&, RenderElement&, const RenderStyle&, PseudoElementType);
-    static void updateStyleForContentRenderers(RenderElement&, const RenderStyle&);
+    static void createContentRenderers(RenderTreeBuilder&, RenderElement&, const Style::ComputedStyle&, PseudoElementType);
+    static void updateStyleForContentRenderers(RenderElement&, const Style::ComputedStyle&);
 
 private:
     void updateQuotesUpTo(RenderQuote*);
+    RenderElement* popExitedQuoteScopes(const RenderQuote&);
 
-    bool needsPseudoElement(const RenderStyle*);
+    bool needsPseudoElement(const Style::ComputedStyle*);
+
+    struct QuoteScopeEntry {
+        SingleThreadWeakPtr<RenderElement> scopeRoot;
+        SingleThreadWeakPtr<RenderQuote> lastQuote;
+    };
 
     RenderTreeUpdater& m_updater;
     SingleThreadWeakPtr<RenderQuote> m_previousUpdatedQuote;
+    Vector<QuoteScopeEntry, 4> m_quoteScopeStack;
 };
 
 } // namespace WebCore

@@ -35,11 +35,12 @@ namespace WebCore {
 using GPUTextureUsageFlags = uint32_t;
 class GPUTextureUsage : public RefCounted<GPUTextureUsage> {
 public:
-    static constexpr GPUFlagsConstant COPY_SRC          = 0x01;
-    static constexpr GPUFlagsConstant COPY_DST          = 0x02;
-    static constexpr GPUFlagsConstant TEXTURE_BINDING   = 0x04;
-    static constexpr GPUFlagsConstant STORAGE_BINDING   = 0x08;
-    static constexpr GPUFlagsConstant RENDER_ATTACHMENT = 0x10;
+    static constexpr GPUFlagsConstant COPY_SRC             = 0x01;
+    static constexpr GPUFlagsConstant COPY_DST             = 0x02;
+    static constexpr GPUFlagsConstant TEXTURE_BINDING      = 0x04;
+    static constexpr GPUFlagsConstant STORAGE_BINDING      = 0x08;
+    static constexpr GPUFlagsConstant RENDER_ATTACHMENT    = 0x10;
+    static constexpr GPUFlagsConstant TRANSIENT_ATTACHMENT = 0x20;
 };
 
 inline WebGPU::TextureUsageFlags convertTextureUsageFlagsToBacking(GPUTextureUsageFlags textureUsageFlags)
@@ -55,6 +56,8 @@ inline WebGPU::TextureUsageFlags convertTextureUsageFlagsToBacking(GPUTextureUsa
         result.add(WebGPU::TextureUsage::StorageBinding);
     if (textureUsageFlags & GPUTextureUsage::RENDER_ATTACHMENT)
         result.add(WebGPU::TextureUsage::RenderAttachment);
+    if (textureUsageFlags & GPUTextureUsage::TRANSIENT_ATTACHMENT)
+        result.add(WebGPU::TextureUsage::Transient);
     return result;
 }
 

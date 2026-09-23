@@ -81,13 +81,15 @@ enum class ClearSiteDataValue : uint8_t {
 enum class RangeAllowWhitespace : bool { No, Yes };
 
 bool NODELETE isValidReasonPhrase(const String&);
-bool NODELETE isValidHTTPHeaderValue(const String&);
-bool isValidAcceptHeaderValue(const String&);
+// bool NODELETE isValidHTTPHeaderValue(const String&);
+WEBCORE_EXPORT bool NODELETE isValidHTTPHeaderValue(const String&); // MAVERICKS_BACKPORT: The Cocoa curl multipart loader validates response headers.
+bool NODELETE isValidAcceptHeaderValue(const String&);
 bool NODELETE isValidLanguageHeaderValue(const String&);
 #if USE(GLIB)
 WEBCORE_EXPORT bool isValidUserAgentHeaderValue(const String&);
 #endif
-bool isValidHTTPToken(const String&);
+// bool NODELETE isValidHTTPToken(const String&);
+WEBCORE_EXPORT bool NODELETE isValidHTTPToken(const String&); // MAVERICKS_BACKPORT: The Cocoa curl multipart loader validates header names.
 bool isValidHTTPToken(StringView);
 std::optional<WallTime> parseHTTPDate(const String&);
 StringView filenameFromHTTPContentDisposition(StringView value LIFETIME_BOUND);

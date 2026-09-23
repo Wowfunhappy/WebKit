@@ -35,7 +35,7 @@ String GPUCommandBuffer::label() const
 
 void GPUCommandBuffer::setLabel(String&& label)
 {
-    Ref { m_backing }->setLabel(WTF::move(label));
+    protect(m_backing)->setLabel(WTF::move(label));
 }
 
 void GPUCommandBuffer::setOverrideLabel(String&& label)

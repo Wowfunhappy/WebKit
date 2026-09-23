@@ -46,6 +46,7 @@
 42264743 : VulkanExternalImageTest.WaitSemaphoresRetainsContentOpaqueFd/* = TIMEOUT
 
 42264785 : WebGLCompatibilityTest.MultiContextNoRenderingFeedbackLoops/* = SKIP_FOR_CAPTURE
+507736512 : HardenedContextTest.InitUninitializedLocals/* = FAIL
 
 42264706 WIN : WebGLCompatibilityTest.DrawElementsBufferOutOfBoundsInVertexBuffer/* = FLAKY
 
@@ -80,6 +81,9 @@
 42264831 : FramebufferTest_ES3.AttachmentsWithUnequalDimensions/* = SKIP_FOR_CAPTURE
 42264831 : FramebufferTest_ES3.ChangeAttachmentThenInvalidateAndDraw/* = SKIP_FOR_CAPTURE
 42264831 : FramebufferTest_ES3.RenderAndInvalidateImmutableTextureWithBeyondMaxLevel/* = SKIP_FOR_CAPTURE
+490170083 : CopyTextureTestES3.SRGBWithPackParameters/* = SKIP_FOR_CAPTURE
+498904293 : CopyTextureTestES3.PBOSynchronization/* = SKIP_FOR_CAPTURE
+42264706 : VertexAttributeTestES3.LargeAttribPointerOffsetNoCrash/* = SKIP_FOR_CAPTURE
 
 # The following tests fail with forceRobustResourceInit
 # They were accidentally passing until http://crrev/c/5588816
@@ -92,6 +96,8 @@
 42264913 : Texture2DTestES3.TexStorage2DLargeYuvTextureCount/* = SKIP_FOR_CAPTURE
 42264854 DEBUG : VulkanExternalImageTest.ShouldImportSemaphoreOpaqueFd/* = SKIP_FOR_CAPTURE
 
+524775154 : PbufferTestES3.ImportImageThenBindTexImageShouldOrphan/* = SKIP_FOR_CAPTURE
+524775154 : PbufferTestES3.ImportImageThenBindTexImageSourceShouldOrphan/* = SKIP_FOR_CAPTURE
 
 # Skip because Timeout
 
@@ -114,6 +120,7 @@
 42264706 : GLSLTest_ES31.InterpolateAtWithSwizzle/* = NOT_RUN
 
 42265236 : VulkanImageTest.* = SKIP_FOR_CAPTURE
+42265236 : VulkanRGB565Test.* = SKIP_FOR_CAPTURE
 42265236 : VulkanMemoryTest.* = SKIP_FOR_CAPTURE
 
 42265418 : Texture2DTestES3RobustInit.TextureCOMPRESSEDRGB8A1ETC2/* = NOT_RUN
@@ -192,6 +199,10 @@
 42266040 : ImageTestES3.SourceCubeTargetExternalESSL3_Colorspace/* = SKIP_FOR_CAPTURE
 42266040 : ImageTestES3.SourceRenderbufferTargetTextureExternalESSL3_Colorspace/* = SKIP_FOR_CAPTURE
 
+# Mishandling of EGL image level in glGetTexImage
+525079760 : ImageTestES3.MipLevelsNonZeroBaseLevel/* = SKIP_FOR_CAPTURE
+525079760 : ImageTestES3.NonZeroLevel*/* = SKIP_FOR_CAPTURE
+
 353538491 : ImageTest.TargetTexture2DDeletedWhileInUse/* = SKIP_FOR_CAPTURE
 353538491 : ImageTest.TargetTexture2DDeletedWhileInUse2/* = SKIP_FOR_CAPTURE
 353538491 : ImageTest.TargetRenderbufferDeletedWhileInUse/* = SKIP_FOR_CAPTURE
@@ -246,6 +257,7 @@
 
 # VVL error
 42264614 LINUX : VulkanExternalImageTestES31.UninitializedOnGLImportAndStorageWrite/* = SKIP_FOR_CAPTURE
+42264614 LINUX : VulkanExternalImageTest.NonRenderableWithFlags/* = SKIP_FOR_CAPTURE
 
 # CoherentBufferTracker deadlocks and flaky crashes
 42266529 LINUX : BufferDataTestES3.* = SKIP_FOR_CAPTURE
@@ -266,9 +278,8 @@
 454830637 : WebGL2GLSLValidation*Test* = SKIP_FOR_CAPTURE
 454830637 : GLSLOutput*Test* = SKIP_FOR_CAPTURE
 
+# Missing support for glGetTransformFeedbackVarying
+522887762 : TransformFeedbackTest.QueryVaryingZeroBufferSize/* = SKIP_FOR_CAPTURE
+
 # Crashes on win and linux trace bots
 372059358 : MultisampleTestES3.CopyTexImage2DFromMsaaDefaultFbo/* = SKIP_FOR_CAPTURE
-
-# Test failure on win and linux trace
-400584608 : BlitFramebufferTest.BlitLargeColorSmallDepthAttachments/* = SKIP_FOR_CAPTURE
-400584608 : BlitFramebufferTest.BlitSmallColorLargeDepthAttachments/* = SKIP_FOR_CAPTURE

@@ -1,48 +1,26 @@
-from lib.core.base import BaseTestCase, PatternMatchMode
 
 
-class CWasmTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class CWasmTestCase:
+    test_file = "resources/c-wasm/add/main.js"
 
     def execute(self):
-
-        self.setup_debugging_session_or_raise("resources/c-wasm/add/main.js")
-
-        try:
-            for _ in range(1):
-                self.continueInterruptTest()
-                self.breakpointTest()
-                self.inspectionTest()
-                self.stepTest()
-                self.memoryTest()
-                self.detachTest()
-                self.quitTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def continueInterruptTest(self):
-        cycles = 10
-        for cycle in range(1, cycles + 1):
-            try:
-                self.send_lldb_command_or_raise("c")
-                self.send_lldb_command_or_raise("process interrupt")
-            except Exception as e:
-                raise Exception(f"Cycle {cycle} failed: {e}")
+        self.breakpointTest()
+        self.inspectionTest()
+        self.stepTest()
+        self.memoryTest()
+        self.memoryReadWriteTest()
+        self.detachTest()
+        self.quitTest()
 
     def breakpointTest(self):
-        self.send_lldb_command_or_raise(f"b add")
+        self.session.cmd("b add")
 
         for _ in range(10):
-            self.send_lldb_command_or_raise(
-                "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
-            )
+            self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "add.c:2"])
 
-        self.send_lldb_command_or_raise("b main")
+        self.session.cmd("b main")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br list",
             patterns=[
                 "Current breakpoints:",
@@ -51,26 +29,14 @@ class CWasmTestCase(BaseTestCase):
             ],
         )
 
-        for _ in range(10):
-            self.send_lldb_command_or_raise(
-                "c",
-                patterns=[
-                    "add.c:7:9",
-                    "add.c:2:18",
-                ],
-                mode=PatternMatchMode.ANY,
-            )
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "add.c:7"])
 
-        self.send_lldb_command_or_raise(
-            "br del -f", patterns=["All breakpoints removed. (2 breakpoints)"]
-        )
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (2 breakpoints)"])
 
     def inspectionTest(self):
-        self.send_lldb_command_or_raise(
-            "target modules list", patterns=["(0x4000000000000000)"]
-        )
+        self.session.cmd("target modules list", patterns=["(0x4000000000000000)"])
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "list 1",
             patterns=[
                 "add(int a, int b)",
@@ -78,15 +44,10 @@ class CWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(f"b add")
-        self.send_lldb_command_or_raise(
-            "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
-        )
-        self.send_lldb_command_or_raise(
-            "dis", patterns=["->  0x400000000000018b <+28>: local.get 2"]
-        )
+        self.session.cmd("b add")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "add.c:2"])
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "bt",
             patterns=[
                 "frame #0: 0x400000000000018b",
@@ -95,7 +56,7 @@ class CWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "var",
             patterns=[
                 "a =",
@@ -104,7 +65,7 @@ class CWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "thread list",
             patterns=[
                 "0x400000000000018b",
@@ -112,19 +73,18 @@ class CWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
     def stepTest(self):
-
-        self.send_lldb_command_or_raise("b main")
+        self.session.cmd("b main")
 
         # Step over
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
         )
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "dis", patterns=["->  0x40000000000001c0 <+29>: local.get 0"]
         )
 
@@ -138,14 +98,14 @@ class CWasmTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("n")
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
+                self.session.cmd("n")
+                self.session.cmd("dis", patterns=pattern)
 
         # Step Into
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
         )
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "dis", patterns=["->  0x40000000000001c0 <+29>: local.get 0"]
         )
 
@@ -163,35 +123,35 @@ class CWasmTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("s")
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
+                self.session.cmd("s")
+                self.session.cmd("dis", patterns=pattern)
 
         # Step Out
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
-        self.send_lldb_command_or_raise("b add")
+        self.session.cmd("b add")
 
         for _ in range(10):
-            self.send_lldb_command_or_raise(
+            self.session.cmd(
                 "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
             )
-            self.send_lldb_command_or_raise(
+            self.session.cmd(
                 "dis", patterns=["->  0x400000000000018b <+28>: local.get 2"]
             )
 
-            self.send_lldb_command_or_raise("fin")
-            self.send_lldb_command_or_raise(
+            self.session.cmd("fin")
+            self.session.cmd(
                 "dis", patterns=["->  0x40000000000001e0 <+61>: i32.store 0"]
             )
 
         # Step Instruction
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "dis", patterns=["->  0x400000000000018b <+28>: local.get 2"]
         )
 
@@ -221,15 +181,15 @@ class CWasmTestCase(BaseTestCase):
             ]
 
         for pattern in patterns:
-            self.send_lldb_command_or_raise("si")
-            self.send_lldb_command_or_raise("dis", patterns=pattern)
+            self.session.cmd("si")
+            self.session.cmd("dis", patterns=pattern)
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
     def memoryTest(self):
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "mem reg --all",
             patterns=[
                 "[0x0000000000000000-0x0000000001010000) rw- wasm_memory_0_0",
@@ -239,18 +199,29 @@ class CWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "mem reg 0x4000000000000000",
             patterns=["[0x4000000000000000-0x40000000000014e0) r-x wasm_module_0"],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "mem reg 0x0000000000000000",
             patterns=["[0x0000000000000000-0x0000000001010000) rw- wasm_memory_0_0"],
         )
 
+    def memoryReadWriteTest(self):
+        self.session.cmd("memory write 0x1000 0x42 0x43 0x44 0x45", [])
+        self.session.cmd("memory read -c 4 0x1000", patterns=["0x00001000: 42 43 44 45"])
+
+        self.session.cmd("memory write 0x0000000001000000 0x46", [])
+        self.session.cmd("memory read -c 1 0x0000000001000000", patterns=["0x01000000: 46"])
+
+        self.session.cmd("memory write 0x0000000001010000 0x00", patterns=["error:"])
+        self.session.cmd("memory write 0x4000000000000000 0x00", patterns=["error:"])
+        self.session.cmd("memory write 0x40000000000014e0 0x00", patterns=["error:"])
+
     def detachTest(self):
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "detach",
             patterns=[
                 "Process 1 detached",
@@ -258,47 +229,29 @@ class CWasmTestCase(BaseTestCase):
         )
 
     def quitTest(self):
-        self.send_lldb_command_or_raise("quit", patterns=[])
+        self.session.cmd("quit", [])
 
-class SwiftWasmTestCase(BaseTestCase):
 
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class SwiftWasmTestCase:
+    test_file = "resources/swift-wasm/test/main.js"
 
     def execute(self):
-
-        self.setup_debugging_session_or_raise("resources/swift-wasm/test/main.js")
-
-        try:
-            for _ in range(1):
-                self.continueInterruptTest()
-                self.breakpointTest()
-                self.inspectionTest()
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def continueInterruptTest(self):
-        cycles = 10
-        for cycle in range(1, cycles + 1):
-            try:
-                self.send_lldb_command_or_raise("c")
-                self.send_lldb_command_or_raise("process interrupt")
-            except Exception as e:
-                raise Exception(f"Cycle {cycle} failed: {e}")
+        self.breakpointTest()
+        self.inspectionTest()
+        self.stepTest()
+        self.memoryTest()
+        self.memoryReadWriteTest()
+        self.variableTest()
 
     def breakpointTest(self):
-        self.send_lldb_command_or_raise(f"b processNumber")
+        self.session.cmd("b processNumber")
 
         for _ in range(10):
-            self.send_lldb_command_or_raise(
-                "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
-            )
+            self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint"])
 
-        self.send_lldb_command_or_raise("b test.swift:17")
+        self.session.cmd("b test.swift:17")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br list",
             patterns=[
                 "Current breakpoints:",
@@ -307,26 +260,14 @@ class SwiftWasmTestCase(BaseTestCase):
             ],
         )
 
-        for _ in range(10):
-            self.send_lldb_command_or_raise(
-                "c",
-                patterns=[
-                    "test.swift:15",
-                    "test.swift:17",
-                ],
-                mode=PatternMatchMode.ANY,
-            )
-
-        self.send_lldb_command_or_raise(
-            "br del -f", patterns=["All breakpoints removed. (2 breakpoints)"]
-        )
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (2 breakpoints)"])
 
     def inspectionTest(self):
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "target modules list", patterns=["(0x4000000000000000)"]
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "list 1",
             patterns=[
                 "func doubleValue(_ x: Int32) -> Int32",
@@ -335,26 +276,27 @@ class SwiftWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(f"b isEven")
-        self.send_lldb_command_or_raise(
+        self.session.cmd("b isEven")
+        self.session.cmd(
             "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
         )
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "dis", patterns=["->  0x4000000000010960 <+28>: block"]
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "bt",
             patterns=[
                 "frame #0: 0x4000000000010960",
                 "frame #1: 0x4000000000010a05",
                 "frame #2: 0x400000000001098f",
+                "frame #3: 0xc000000000000000",
             ],
         )
 
-        self.send_lldb_command_or_raise("var", patterns=["n ="])
+        self.session.cmd("var", patterns=["n ="])
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "thread list",
             patterns=[
                 "0x4000000000010960",
@@ -362,20 +304,20 @@ class SwiftWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
     def stepTest(self):
-        self.send_lldb_command_or_raise("b processNumber")
+        self.session.cmd("b processNumber")
 
         # FIXME: Step over - Current Swift LLDB is problematic with step over
 
         # Step Into
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
         )
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "dis", patterns=["->  0x40000000000109cb <+56>:  call   18"]
         )
 
@@ -397,39 +339,39 @@ class SwiftWasmTestCase(BaseTestCase):
         ]
 
         for pattern in patterns:
-            self.send_lldb_command_or_raise("s")
-            self.send_lldb_command_or_raise("dis", patterns=pattern)
+            self.session.cmd("s")
+            self.session.cmd("dis", patterns=pattern)
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
         # Step Out
-        self.send_lldb_command_or_raise("b addNumbers")
+        self.session.cmd("b addNumbers")
 
         for _ in range(10):
-            self.send_lldb_command_or_raise(
+            self.session.cmd(
                 "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
             )
-            self.send_lldb_command_or_raise(
+            self.session.cmd(
                 "dis", patterns=["->  0x4000000000010924 <+46>: i32.lt_s"]
             )
 
-            self.send_lldb_command_or_raise("fin")
-            self.send_lldb_command_or_raise(
+            self.session.cmd("fin")
+            self.session.cmd(
                 "dis", patterns=["->  0x40000000000109e8 <+85>:  local.set 5"]
             )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
         # Step Instruction
-        self.send_lldb_command_or_raise("b processNumber")
-        self.send_lldb_command_or_raise(
+        self.session.cmd("b processNumber")
+        self.session.cmd(
             "c", patterns=["Process 1 stopped", "stop reason = breakpoint"]
         )
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "dis", patterns=["->  0x40000000000109cb <+56>:  call   18"]
         )
 
@@ -467,15 +409,15 @@ class SwiftWasmTestCase(BaseTestCase):
         ]
 
         for pattern in patterns:
-            self.send_lldb_command_or_raise("si")
-            self.send_lldb_command_or_raise("dis", patterns=pattern)
+            self.session.cmd("si")
+            self.session.cmd("dis", patterns=pattern)
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
     def memoryTest(self):
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "mem reg --all",
             patterns=[
                 "[0x0000000000000000-0x0000000000130000) rw- wasm_memory_0_0",
@@ -485,35 +427,72 @@ class SwiftWasmTestCase(BaseTestCase):
             ],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "mem reg 0x4000000000000000",
             patterns=["[0x4000000000000000-0x40000000006b1239) r-x wasm_module_0"],
         )
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "mem reg 0x0000000000000000",
             patterns=["[0x0000000000000000-0x0000000000130000) rw- wasm_memory_0_0"],
         )
 
+    def memoryReadWriteTest(self):
+        self.session.cmd("memory write 0x1000 0xde 0xad 0xbe 0xef", [])
+        self.session.cmd("memory read -c 4 0x1000", patterns=["0x00001000: de ad be ef"])
 
-class NopDropSelectEndTestCase(BaseTestCase):
+        self.session.cmd("memory write 0x0000000000120000 0xab", [])
+        self.session.cmd("memory read -c 1 0x0000000000120000", patterns=["0x00120000: ab"])
 
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+        self.session.cmd("memory write 0x0000000000130000 0x00", patterns=["error:"])
+        self.session.cmd("memory write 0x4000000000000000 0x00", patterns=["error:"])
+        self.session.cmd("memory write 0x40000000006b1239 0x00", patterns=["error:"])
+
+    def variableTest(self):
+        self.session.cmd("b isEven")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint"])
+        self.session.cmd("v", patterns=["(Int32) n ="])
+        self.session.cmd("up", patterns=["-> 17  \t    guard isEven(sum) else {"])
+        self.session.cmd("v", patterns=[
+            "(Int32) input =",
+            "(Int32) doubled =",
+            "(Int32) sum =",
+        ])
+
+
+class SwiftWasmGlobalTestCase:
+    test_file = "resources/swift-wasm/globals-test/main.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/nop-drop-select-end.js")
+        self.session.cmd("b helper")
+        self.session.cmd(
+            "c",
+            patterns=[
+                "Process 1 stopped",
+                "stop reason = breakpoint",
+                "-> 7   \t    globalCounter2 = 2",
+            ],
+        )
 
-        try:
-            for _ in range(1):
-                self.stepTest()
+        self.session.cmd("n", patterns=["-> 8   \t    globalCounter3 = 3"])
+        self.session.cmd("n", patterns=["-> 9   \t}"])
 
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
+        self.session.cmd("p globalCounter2", patterns=["(Int32) 2"])
+        self.session.cmd("p globalCounter3", patterns=["(Int32) 3"])
 
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000021")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("up", patterns=["-> 14  \t    helper()"])
+
+        self.session.cmd("p globalCounter1", patterns=["(Int32) 1"])
+
+        self.session.cmd("br del -f", patterns=["All breakpoints removed."])
+
+
+class NopDropSelectEndTestCase:
+    test_file = "resources/wasm/nop-drop-select-end.js"
+
+    def execute(self):
+        self.session.cmd("b 0x4000000000000021")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000021: nop"])
 
         patterns = [
             ["->  0x4000000000000021: nop"],
@@ -533,32 +512,20 @@ class NopDropSelectEndTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("si")
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class CallTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class CallTestCase:
+    test_file = "resources/wasm/call.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/call.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000036")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x4000000000000036")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000036: call   2"])
 
         patterns = [
             ["->  0x4000000000000036: call   2"],
@@ -572,32 +539,20 @@ class CallTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class CallIndirectTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class CallIndirectTestCase:
+    test_file = "resources/wasm/call-indirect.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/call-indirect.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000046")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x4000000000000046")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000046: i32.const 0"])
 
         patterns = [
             ["->  0x4000000000000046: i32.const 0"],
@@ -613,32 +568,20 @@ class CallIndirectTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class CallRefTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class CallRefTestCase:
+    test_file = "resources/wasm/call-ref.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/call-ref.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000043")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x4000000000000043")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000043"])
 
         patterns = [
             ["->  0x4000000000000043"],
@@ -654,32 +597,20 @@ class CallRefTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("si")
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class ReturnCallTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class ReturnCallTestCase:
+    test_file = "resources/wasm/return-call.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/return-call.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000035")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x4000000000000035")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000035: call   2"])
 
         patterns = [
             ["->  0x4000000000000035: call   2"],
@@ -696,32 +627,20 @@ class ReturnCallTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class ReturnCallIndirectTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class ReturnCallIndirectTestCase:
+    test_file = "resources/wasm/return-call-indirect.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/return-call-indirect.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000045")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x4000000000000045")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000045: call   2"])
 
         patterns = [
             ["->  0x4000000000000045: call   2"],
@@ -740,33 +659,21 @@ class ReturnCallIndirectTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class ReturnCallRefTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class ReturnCallRefTestCase:
+    test_file = "resources/wasm/return-call-ref.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/return-call-ref.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
         for _ in range(10):
-            self.send_lldb_command_or_raise("b 0x400000000000003e")
-            self.send_lldb_command_or_raise("c")
+            self.session.cmd("b 0x400000000000003e")
+            self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x400000000000003e: call   2"])
 
             patterns = [
                 ["->  0x400000000000003e: call   2"],
@@ -784,32 +691,20 @@ class ReturnCallRefTestCase(BaseTestCase):
             ]
 
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-            self.send_lldb_command_or_raise(
+            self.session.cmd(
                 "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
             )
 
 
-class ThrowCatchTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class ThrowCatchTestCase:
+    test_file = "resources/wasm/throw-catch.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/throw-catch.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x4000000000000071")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x4000000000000071")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000071: call   1"])
 
         patterns = [
             ["->  0x4000000000000071: call   1"],
@@ -850,31 +745,20 @@ class ThrowCatchTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class ThrowCatchAllTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class ThrowCatchAllTestCase:
+    test_file = "resources/wasm/throw-catch-all.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/throw-catch-all.js")
-
-        try:
-            self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x400000000000006e")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x400000000000006e")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x400000000000006e: call   1"])
 
         patterns = [
             ["->  0x400000000000006e: call   1"],
@@ -915,31 +799,20 @@ class ThrowCatchAllTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class DelegateTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class DelegateTestCase:
+    test_file = "resources/wasm/delegate.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/delegate.js")
-
-        try:
-            self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x40000000000000c6")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x40000000000000c6")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x40000000000000c6: call   1"])
 
         patterns = [
             # Test function entry
@@ -1026,31 +899,20 @@ class DelegateTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class RethrowTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class RethrowTestCase:
+    test_file = "resources/wasm/rethrow.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/rethrow.js")
-
-        try:
-            self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Rethrow test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x40000000000000b8")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x40000000000000b8")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x40000000000000b8: call   0"])
 
         patterns = [
             # Test function entry
@@ -1145,59 +1007,18 @@ class RethrowTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class ThrowRefTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class ThrowRefTestCase:
+    test_file = "resources/wasm/throw-ref.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/throw-ref.js")
-
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Throw_ref test failed: {e}")
-
-    def test_function_iteration(self, patterns):
-        for pattern in patterns:
-            self.send_lldb_command_or_raise("si")
-            self.send_lldb_command_or_raise("dis", patterns=[pattern])
-
-    def test_function_with_breakpoint(self, entry_address, iterations):
-        # Set breakpoint at function entry
-        self.send_lldb_command_or_raise(f"b {entry_address}")
-        self.send_lldb_command_or_raise("c")
-
-        # Verify we're at function entry
-        entry_pattern = f"->  {entry_address}: block  exnref"
-        self.send_lldb_command_or_raise("dis", patterns=[entry_pattern])
-
-        # Run each iteration
-        for i, patterns in enumerate(iterations):
-            if i > 0:
-                # Continue to next iteration and verify we're at entry
-                self.send_lldb_command_or_raise("c")
-                self.send_lldb_command_or_raise("dis", patterns=[entry_pattern])
-
-            # Step through all patterns for this iteration
-            self.test_function_iteration(patterns)
-
-        # Remove breakpoint
-        self.send_lldb_command_or_raise(
-            "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
-        )
-
-    def stepTest(self):
         # Define all test patterns at the top for clarity
         # Function 0: catch-throw_ref-0 - basic throw_ref
         func0_iter1 = [
@@ -1350,24 +1171,42 @@ class ThrowRefTestCase(BaseTestCase):
         )
         self.test_function_with_breakpoint("0x40000000000001bb", [func6_iter1])
 
+    def test_function_iteration(self, patterns):
+        for pattern in patterns:
+            self.session.cmd("si")
+            self.session.cmd("dis", patterns=[pattern])
 
-class TryTableTestCase(BaseTestCase):
+    def test_function_with_breakpoint(self, entry_address, iterations):
+        # Set breakpoint at function entry
+        self.session.cmd(f"b {entry_address}")
+        entry_pattern = f"->  {entry_address}: block  exnref"
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", entry_pattern])
 
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+        # Verify we're at function entry
+        self.session.cmd("dis", patterns=[entry_pattern])
+
+        # Run each iteration
+        for i, patterns in enumerate(iterations):
+            if i > 0:
+                # Continue to next iteration and verify we're at entry
+                self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", entry_pattern])
+                self.session.cmd("dis", patterns=[entry_pattern])
+
+            # Step through all patterns for this iteration
+            self.test_function_iteration(patterns)
+
+        # Remove breakpoint
+        self.session.cmd(
+            "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
+        )
+
+
+class TryTableTestCase:
+    test_file = "resources/wasm/try-table.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/try-table.js")
-
-        try:
-            self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b 0x40000000000000aa")
-        self.send_lldb_command_or_raise("c")
+        self.session.cmd("b 0x40000000000000aa")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x40000000000000aa: call   1"])
 
         patterns = [
             ["->  0x40000000000000aa: call   1"],
@@ -1425,128 +1264,484 @@ class TryTableTestCase(BaseTestCase):
 
         for _ in range(10):
             for pattern in patterns:
-                self.send_lldb_command_or_raise("dis", patterns=pattern)
-                self.send_lldb_command_or_raise("si")
+                self.session.cmd("dis", patterns=pattern)
+                self.session.cmd("si")
 
-        self.send_lldb_command_or_raise(
+        self.session.cmd(
             "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
 
-class SystemCallTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class SystemCallTestCase:
+    test_file = "resources/wasm/system-call.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/wasm/system-call.js")
-
-        try:
-            for _ in range(1):
-                self.continueInterruptTest()
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def continueInterruptTest(self):
-        cycles = 5
-        for cycle in range(1, cycles + 1):
-            try:
-                self.send_lldb_command_or_raise("c")
-                self.send_lldb_command_or_raise("process interrupt")
-            except Exception as e:
-                raise Exception(f"Cycle {cycle} failed: {e}")
-
-    def stepTest(self):
-        self.send_lldb_command_or_raise("si", patterns=[])
-        self.send_lldb_command_or_raise("process interrupt")
-
-        self.send_lldb_command_or_raise("s", patterns=[])
-        self.send_lldb_command_or_raise("process interrupt")
-
-        self.send_lldb_command_or_raise("n", patterns=[])
-        self.send_lldb_command_or_raise("process interrupt")
-
-        # FIXME: `dis` hangs LLDB when stop in the system call.
+        self.session.cmd("dis", patterns=["error: read memory from 0x8000000000000000 failed"])
 
 
-class MultiVMSameModuleSameFunctionTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class MultiVMSameModuleSameFunctionTestCase:
+    test_file = "resources/wasm/multi-vm-same-module-same-func.js"
 
     def execute(self):
-        self.setup_debugging_session_or_raise(
-            "resources/wasm/multi-vm-same-module-same-func.js"
+        self.session.cmd("th list", patterns=["thread #1", "thread #2", "thread #3"])
+        self.session.cmd("b 0x4000000100000024")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000100000024: nop"])
+        patterns = [
+            ["->  0x4000000100000025: i32.const 42"],
+            ["->  0x4000000100000027: drop"],
+            ["->  0x4000000100000028: nop"],
+            ["->  0x4000000100000029: end"],
+        ]
+        for pattern in patterns:
+            self.session.cmd("si", patterns=pattern)
+
+
+class MultiVMSameModuleDifferentFunctionsTestCase:
+    test_file = "resources/wasm/multi-vm-same-module-different-funcs.js"
+
+    def execute(self):
+        self.session.cmd("th list", patterns=["thread #1", "thread #2"])
+
+        self.session.cmd("b 0x4000000000000034")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x4000000000000034"])
+        patterns = [
+            ["->  0x4000000000000035: i32.const 10"],
+            ["->  0x4000000000000037: drop"],
+            ["->  0x4000000000000038: nop"],
+            ["->  0x4000000000000039: i32.const 20"],
+            ["->  0x400000000000003b: drop"],
+            ["->  0x400000000000003c: end"],
+        ]
+        for pattern in patterns:
+            self.session.cmd("si", patterns=pattern)
+        self.session.cmd(
+            "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
-        try:
-            for _ in range(1):
-                self.stepTest()
-
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        # FIXME: Add tests when thread select is full supported
-        return
-
-
-class MultiVMSameModuleDifferentFunctionsTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
-
-    def execute(self):
-        self.setup_debugging_session_or_raise(
-            "resources/wasm/multi-vm-same-module-different-funcs.js"
+        self.session.cmd("b 0x400000010000003f")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "->  0x400000010000003f"])
+        patterns = [
+            ["->  0x4000000100000040: i32.const 30"],
+            ["->  0x4000000100000042: drop"],
+            ["->  0x4000000100000043: nop"],
+            ["->  0x4000000100000044: i32.const 40"],
+            ["->  0x4000000100000046: drop"],
+            ["->  0x4000000100000047: end"],
+        ]
+        for pattern in patterns:
+            self.session.cmd("si", patterns=pattern)
+        self.session.cmd(
+            "br del -f", patterns=["All breakpoints removed. (1 breakpoint)"]
         )
 
-        try:
-            for _ in range(1):
-                self.stepTest()
 
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
-
-    def stepTest(self):
-        # FIXME: Add tests when thread select is full supported
-        return
-
-
-class DoCatchThrowTestCase(BaseTestCase):
-
-    def __init__(self, build_config: str = None, port: int = None):
-        super().__init__(build_config, port)
+class MemoryAtomicWaitTestCase:
+    test_file = "resources/wasm/memory-atomic-wait.js"
+    extra_jsc_options = ["--useDollarVM=1"]
 
     def execute(self):
-        self.setup_debugging_session_or_raise("resources/swift-wasm/do-catch-throw/main.js")
+        self.session.cmd("th list", patterns=["thread #1", "thread #2"])
 
-        try:
-            for _ in range(1):
-                self.stepTest()
+        self.session.cmd("b 0x4000000000000030")
+        self.session.cmd(
+            "c",
+            patterns=[
+                "Process 1 stopped",
+                "stop reason = breakpoint",
+                "->  0x4000000000000030",
+            ],
+        )
 
-        except Exception as e:
-            raise Exception(f"Test failed: {e}")
+        self.session.cmd("si", patterns=["->  0x4000000000000034: end"])
 
-    def stepTest(self):
-        self.send_lldb_command_or_raise("b testDoThrowCatch")
-        self.send_lldb_command_or_raise("c", patterns=["-> 14"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 15"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 18"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 19"])
-        self.send_lldb_command_or_raise("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+        self.session.cmd(
+            "c",
+            patterns=[
+                "Process 1 stopped",
+                "stop reason = breakpoint",
+                "->  0x4000000000000030: memory.atomic.wait32",
+            ],
+        )
 
-        self.send_lldb_command_or_raise("b testDoThrowCatchNested")
-        self.send_lldb_command_or_raise("c", patterns=["-> 26"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 31"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 32"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 37"])
-        self.send_lldb_command_or_raise("n", patterns=["-> 42"])
-        self.send_lldb_command_or_raise("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+
+
+class MemoryAtomicWaitNoTimeoutTestCase:
+    test_file = "resources/wasm/memory-atomic-wait-no-timeout.js"
+    extra_jsc_options = ["--useDollarVM=1"]
+
+    def execute(self):
+        self.session.cmd("th list", patterns=["thread #1", "thread #2"])
+        self.session.cmd("dis", patterns=["->  0x4000000000000030: memory.atomic.wait32 0"])
+
+
+class DoCatchThrowTestCase:
+    test_file = "resources/swift-wasm/do-catch-throw/main.js"
+
+    def execute(self):
+        self.session.cmd("b testDoThrowCatch")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "-> 14"])
+        self.session.cmd("n", patterns=["-> 15"])
+        self.session.cmd("n", patterns=["-> 18"])
+        self.session.cmd("n", patterns=["-> 19"])
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+
+        self.session.cmd("b testDoThrowCatchNested")
+        self.session.cmd("c", patterns=["Process 1 stopped", "stop reason = breakpoint", "-> 26"])
+        self.session.cmd("n", patterns=["-> 31"])
+        self.session.cmd("n", patterns=["-> 32"])
+        self.session.cmd("n", patterns=["-> 37"])
+        self.session.cmd("n", patterns=["-> 42"])
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
 
         # FIXME: Swift WASM Compiler Bug Incorrect DWARF Line Numbers rdar://169306069
-        # self.send_lldb_command_or_raise("b testDoThrowCatch")
-        # self.send_lldb_command_or_raise("b testDoThrowFuncCatchNested")
-        return
+        # self.session.cmd("b testDoThrowCatch")
+        # self.session.cmd("b testDoThrowFuncCatchNested")
+
+
+class WasmWasmWasmCallStackTestCase:
+    test_file = "resources/wasm/wasm-wasm-wasm.js"
+
+    def execute(self):
+        self.session.cmd("b 0x400000000000003a")
+        self.session.cmd("c", patterns=["stop reason = breakpoint", "0x400000000000003a"])
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x400000000000003a",  # wasm_inner (nop)
+                "frame #1: 0x4000000000000037",  # wasm_middle return PC (after call wasm_inner)
+                "frame #2: 0x4000000000000032",  # test return PC (after call wasm_middle)
+                "frame #3: 0xc000000000000000",  # JS main loop
+            ],
+        )
+
+
+class JsWasmJsWasmCallStackTestCase:
+    test_file = "resources/wasm/js-wasm-js-wasm.js"
+
+    def execute(self):
+        self.session.cmd("b 0x4000000000000045")
+        self.session.cmd("c", patterns=["stop reason = breakpoint", "0x4000000000000045"])
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000000045",  # wasm_inner (nop)
+                "frame #1: 0xc000000000000000",  # JS callback
+                "frame #2: 0x4000000000000042",  # test call-site return PC (after 'call 0' at 0x40)
+                "frame #3: 0xc000000000000000",  # JS main loop
+            ],
+        )
+
+
+class JsJsWasmJsJsWasmCallStackTestCase:
+    test_file = "resources/wasm/js-js-wasm-js-js-wasm.js"
+
+    def execute(self):
+        self.session.cmd("b 0x4000000000000045")
+        self.session.cmd("c", patterns=["stop reason = breakpoint", "0x4000000000000045"])
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000000045",  # wasm_inner (nop)
+                "frame #1: 0xc000000000000000",  # js_c
+                "frame #2: 0xc000000000000000",  # callback
+                "frame #3: 0x4000000000000042",  # test call-site return PC (after 'call 0' at 0x40)
+                "frame #4: 0xc000000000000000",  # js_b
+                "frame #5: 0xc000000000000000",  # js_a
+                "frame #6: 0xc000000000000000",  # JS main loop
+            ],
+        )
+
+
+class WasmWasmJsWasmWasmCallStackTestCase:
+    test_file = "resources/wasm/wasm-wasm-js-wasm-wasm.js"
+
+    def execute(self):
+        self.session.cmd("b 0x400000000000005f")
+        self.session.cmd("c", patterns=["stop reason = breakpoint", "0x400000000000005f"])
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x400000000000005f",  # wasm_leaf nop
+                "frame #1: 0x400000000000005c",  # test_c return PC (after call wasm_leaf at 0x5a)
+                "frame #2: 0xc000000000000000",  # mid_callback JS frame
+                "frame #3: 0x4000000000000057",  # test_b return PC (after call mid_callback at 0x55, from WasmToJSIPIntReturnPCSlot)
+                "frame #4: 0x4000000000000052",  # test_a return PC (after call test_b at 0x50, from test_b cfr−8)
+                "frame #5: 0xc000000000000000",  # JS main loop
+            ],
+        )
+
+
+class WasmJsWasmJsWasmCallStackTestCase:
+    test_file = "resources/wasm/wasm-js-wasm-js-wasm.js"
+
+    def execute(self):
+        self.session.cmd("b 0x400000000000006c")
+        self.session.cmd("c", patterns=["stop reason = breakpoint", "0x400000000000006c"])
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x400000000000006c",  # wasm_inner nop
+                "frame #1: 0xc000000000000000",  # js_mid_inner JS frame
+                "frame #2: 0x4000000000000069",  # test_mid return PC (after call mid_inner at 0x67, from WasmToJSIPIntReturnPCSlot)
+                "frame #3: 0xc000000000000000",  # js_mid_outer JS frame
+                "frame #4: 0x4000000000000064",  # test_outer return PC (after call mid_outer at 0x62, from WasmToJSIPIntReturnPCSlot)
+                "frame #5: 0xc000000000000000",  # JS main loop
+            ],
+        )
+
+
+class SwiftWasmCrashTestCase:
+    test_file = "resources/swift-wasm/crash-test/main.js"
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped"])
+            self.session.cmd("dis", patterns=["->  0x4000000000010a43 <+1>: unreachable"])
+
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000010a43",
+                "frame #1: 0x4000000000010a43",
+                "frame #2: 0x4000000000010a6a",
+                "frame #3: 0x4000000000010a46",
+                "frame #4: 0xc000000000000000",
+            ]
+        )
+
+
+class WasmUnreachableFaultTestCase:
+    test_file = "resources/wasm/unreachable.js"
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped"])
+            self.session.cmd("dis", patterns=["->  0x4000000000000024: unreachable"])
+
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000000024",
+                "frame #1: 0xc000000000000000",
+            ]
+        )
+
+
+class WasmDivByZeroTrapTestCase:
+    test_file = "resources/wasm/trap-div-by-zero.js"
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped", "Division by zero"])
+            self.session.cmd("dis", patterns=["->  0x400000000000002d: i32.div_s"])
+
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x400000000000002d",
+                "frame #1: 0xc000000000000000",
+            ]
+        )
+
+
+class WasmOutOfBoundsCallIndirectTrapTestCase:
+    test_file = "resources/wasm/trap-out-of-bounds-call-indirect.js"
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped", "Out of bounds call_indirect"])
+            self.session.cmd("dis", patterns=["->  0x4000000000000031: call_indirect 0"])
+
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000000031",
+                "frame #1: 0xc000000000000000",
+            ]
+        )
+
+
+class WasmStackOverflowTrapTestCase:
+    test_file = "resources/wasm/trap-stack-overflow.js"
+    extra_jsc_options = ["--maxPerThreadStackUsage=524288"]
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped", "Stack overflow", "->  0x4000000000000028: call"])
+
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000000028",
+                "frame #1: 0x400000000000002a",
+                "frame #99: 0x400000000000002a",
+            ]
+        )
+
+
+class WasmOobMemoryTrapTestCase:
+    test_file = "resources/wasm/trap-oob-memory.js"
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped", "Out of bounds memory access"])
+            self.session.cmd("dis", patterns=["->  0x4000000000000032: i32.load"])
+
+        self.session.cmd(
+            "bt",
+            patterns=[
+                "frame #0: 0x4000000000000032",
+                "frame #1: 0xc000000000000000",
+            ]
+        )
+
+
+class DynamicModuleLoadTestCase:
+    test_file = "resources/wasm/dynamic-module-load.js"
+    extra_jsc_options = ["--useDollarVM=1"]
+
+    def execute(self):
+        # Set a breakpoint at the 'end' instruction of func_a in module 1 (virtual address
+        # 0x4000000000000023).  Module 1 is already loaded, so the breakpoint resolves immediately.
+        self.session.cmd("b 0x4000000000000023", patterns=["Breakpoint 1"])
+
+        # Resume: stops at the func_a breakpoint in module 1.
+        # Disassembly confirms the stopped instruction is 'end' at the expected address.
+        self.session.cmd("c", patterns=["Process 1 stopped", "->  0x4000000000000023: end"])
+
+        # Resume: stops for the module-load notification (library:; T-packet) when module 2 is
+        # instantiated.  LLDB re-queries qXfer:libraries:read and loads module 2.
+        self.session.cmd("c", patterns=["Process 1 stopped", "loaded new wasm module with ids: 1"])
+
+        # Set a breakpoint at the 'end' instruction of func_b in module 2 (virtual address
+        # 0x4000000100000023).  Module 2 is now loaded, so the breakpoint resolves immediately.
+        self.session.cmd("b 0x4000000100000023", patterns=["Breakpoint 2"])
+
+        # Resume: stops at the func_b breakpoint in module 2.
+        # Disassembly confirms the stopped instruction is 'end' at the expected address.
+        self.session.cmd("c", patterns=["Process 1 stopped", "->  0x4000000100000023: end"])
+
+
+class SwiftWasmDynamicModuleLoadTestCase:
+    test_file = "resources/swift-wasm/dynamic-module-load/main.js"
+    extra_jsc_options = ["--useDollarVM=1"]
+
+    def execute(self):
+        # Module A is loaded at the start, so this breakpoint is resolved immediately.
+        self.session.cmd("b func_a", patterns=["Breakpoint 1", "func_a"])
+
+        # Module B is loaded dynamically later, so this breakpoint is pending at the start.
+        self.session.cmd("b func_b", patterns=["pending"])
+
+        # Resume: stops at the func_a breakpoint (module A), confirming that the breakpoint is set and hit correctly.
+        self.session.cmd("c", patterns=["Process 1 stopped", "func_a"])
+
+        # Resume: stops at when Module B is loaded and the associated instance is created. This stop trigger
+        # LLDB re-querying debug info and resolving the pending breakpoint for func_b, confirming that dynamic
+        # module load triggers pending breakpoint resolution.
+        self.session.cmd("c", patterns=["Process 1 stopped", "loaded new wasm module with ids: 1"])
+        self.session.cmd("br list", patterns=["func_a", "func_b"])
+
+        # Resume: stops at the func_b breakpoint (module B) on the first call, confirming that the pending breakpoint was resolved via debug info.
+        self.session.cmd("c", patterns=["Process 1 stopped", "func_b"])
+
+
+class ModuleNamingFromNameSectionTestCase:
+    test_file = "resources/wasm/named-streaming-module.js"
+    extra_jsc_options = ["--useDollarVM=1"]
+
+    def execute(self):
+        self.session.cmd("image list", patterns=["mymodule"])
+
+        # Set a breakpoint at func_a's 'end' instruction by virtual address.
+        self.session.cmd("b 0x4000000000000023", patterns=["Breakpoint 1"])
+
+        # Resume: stops at the breakpoint; disassembly confirms the module name in the frame.
+        self.session.cmd("c", patterns=["Process 1 stopped", "->  0x4000000000000023: end"])
+
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+
+
+class StreamingModuleSourceURLTestCase:
+    test_file = "resources/wasm/url-named-streaming-module.js"
+    extra_jsc_options = ["--useDollarVM=1"]
+
+    def execute(self):
+        self.session.cmd("image list", patterns=["cdn.example.com/path/canvaskit.wasm"])
+
+        # Set a breakpoint at func_b's 'end' instruction by virtual address.
+        self.session.cmd("b 0x4000000000000023", patterns=["Breakpoint 1"])
+
+        # Resume: stops at the breakpoint in the URL-named streaming-compiled module.
+        self.session.cmd("c", patterns=["Process 1 stopped", "->  0x4000000000000023: end"])
+
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+
+
+class StreamingModuleLoadTestCase:
+    test_file = "resources/wasm/streaming-module-load.js"
+    extra_jsc_options = ["--useDollarVM=1"]
+
+    def execute(self):
+        # The streaming module is already loaded, so the breakpoint resolves immediately.
+        self.session.cmd("b 0x4000000000000023", patterns=["Breakpoint 1"])
+
+        # Resume: stops at the func_a breakpoint in the streaming-compiled module.
+        # Disassembly confirms the stopped instruction is 'end' at the expected address.
+        self.session.cmd("c", patterns=["Process 1 stopped", "->  0x4000000000000023: end"])
+
+        self.session.cmd("br del -f", patterns=["All breakpoints removed. (1 breakpoint)"])
+
+
+class SwiftWasmFatalErrorTestCase:
+    test_file = "resources/swift-wasm/fatal-error-test/main.js"
+
+    def execute(self):
+        for _ in range(10):
+            self.session.cmd("c", patterns=["Process 1 stopped"])
+
+        self.session.cmd("bt", patterns=["main.swift:4"])
+
+
+ALL_TESTS = [
+    CWasmTestCase,
+    SwiftWasmTestCase,
+    SwiftWasmGlobalTestCase,
+    NopDropSelectEndTestCase,
+    CallTestCase,
+    CallIndirectTestCase,
+    CallRefTestCase,
+    ReturnCallTestCase,
+    ReturnCallIndirectTestCase,
+    ReturnCallRefTestCase,
+    ThrowCatchTestCase,
+    ThrowCatchAllTestCase,
+    DelegateTestCase,
+    RethrowTestCase,
+    ThrowRefTestCase,
+    TryTableTestCase,
+    SystemCallTestCase,
+    MultiVMSameModuleSameFunctionTestCase,
+    MultiVMSameModuleDifferentFunctionsTestCase,
+    MemoryAtomicWaitTestCase,
+    MemoryAtomicWaitNoTimeoutTestCase,
+    DoCatchThrowTestCase,
+    WasmWasmWasmCallStackTestCase,
+    JsWasmJsWasmCallStackTestCase,
+    JsJsWasmJsJsWasmCallStackTestCase,
+    WasmWasmJsWasmWasmCallStackTestCase,
+    WasmJsWasmJsWasmCallStackTestCase,
+    SwiftWasmCrashTestCase,
+    WasmUnreachableFaultTestCase,
+    WasmDivByZeroTrapTestCase,
+    WasmOutOfBoundsCallIndirectTrapTestCase,
+    WasmStackOverflowTrapTestCase,
+    WasmOobMemoryTrapTestCase,
+    DynamicModuleLoadTestCase,
+    SwiftWasmDynamicModuleLoadTestCase,
+    ModuleNamingFromNameSectionTestCase,
+    StreamingModuleSourceURLTestCase,
+    StreamingModuleLoadTestCase,
+    SwiftWasmFatalErrorTestCase,
+]

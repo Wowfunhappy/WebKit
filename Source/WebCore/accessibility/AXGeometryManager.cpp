@@ -27,16 +27,18 @@
 #include "AXGeometryManager.h"
 
 #include "AXLoggerBase.h"
+#include "AXObjectCache.h"
 #include "DocumentPage.h"
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 #include "AXIsolatedTree.h"
-#include "AXObjectCache.h"
 #include "Page.h"
 #include <array>
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 #if PLATFORM(MAC)
 #include "PlatformScreen.h"
+#include "AXTreeStoreInlines.h"
 #endif
 
 namespace WebCore {
@@ -44,23 +46,29 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AXGeometryManager);
 
 AXGeometryManager::AXGeometryManager(AXObjectCache& owningCache)
     : m_cache(owningCache)
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     , m_updateObjectRegionsTimer(*this, &AXGeometryManager::updateObjectRegionsTimerFired)
+#endif
 {
 }
 
 AXGeometryManager::AXGeometryManager()
     : m_cache(nullptr)
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     , m_updateObjectRegionsTimer(*this, &AXGeometryManager::updateObjectRegionsTimerFired)
+#endif
 {
 }
 
 AXGeometryManager::~AXGeometryManager()
 {
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     if (m_updateObjectRegionsTimer.isActive())
         m_updateObjectRegionsTimer.stop();
+#endif
 }
 
-std::optional<IntRect> AXGeometryManager::cachedRectForID(AXID axID)
+std::optional<IntRect> AXGeometryManager::cachedRectForID(AXID axID) const
 {
     auto rectIterator = m_cachedRects.find(axID);
     if (rectIterator != m_cachedRects.end())
@@ -70,8 +78,6 @@ std::optional<IntRect> AXGeometryManager::cachedRectForID(AXID axID)
 
 bool AXGeometryManager::cacheRectIfNeeded(AXID axID, IntRect&& rect)
 {
-    AX_ASSERT(AXObjectCache::isIsolatedTreeEnabled());
-
     auto rectIterator = m_cachedRects.find(axID);
 
     bool rectChanged = false;
@@ -87,14 +93,44 @@ bool AXGeometryManager::cacheRectIfNeeded(AXID axID, IntRect&& rect)
     if (!rectChanged)
         return false;
 
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     invalidateHitTestCacheForID(axID);
 
-    RefPtr tree = AXIsolatedTree::treeForFrameID(m_cache->frameID());
+    CheckedPtr cache = m_cache;
+    if (!cache)
+        return false;
+
+    RefPtr tree = AXIsolatedTree::treeForFrameID(cache->frameID());
     if (!tree)
         return false;
     tree->updateFrame(axID, WTF::move(rect));
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     return true;
 }
+
+void AXGeometryManager::cachePathForID(AXID axID, std::unique_ptr<Path>&& path)
+{
+    Locker locker { m_cachedPathsLock };
+    m_cachedPaths.set(axID, WTF::move(path));
+}
+
+std::optional<Path> AXGeometryManager::cachedPathForID(AXID axID)
+{
+    Locker locker { m_cachedPathsLock };
+    auto iterator = m_cachedPaths.find(axID);
+    if (iterator != m_cachedPaths.end())
+        return *iterator->value;
+    return std::nullopt;
+}
+
+void AXGeometryManager::remove(AXID axID)
+{
+    m_cachedRects.remove(axID);
+    Locker locker { m_cachedPathsLock };
+    m_cachedPaths.remove(axID);
+}
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 void AXGeometryManager::scheduleObjectRegionsUpdate(bool scheduleImmediately)
 {
@@ -116,35 +152,27 @@ void AXGeometryManager::willUpdateObjectRegions()
     if (m_updateObjectRegionsTimer.isActive())
         m_updateObjectRegionsTimer.stop();
 
-    if (!m_cache)
+    CheckedPtr cache = m_cache;
+    if (!cache)
         return;
 
-    if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_cache->frameID()))
+    if (RefPtr tree = AXIsolatedTree::treeForFrameID(cache->frameID()))
         tree->updateRootScreenRelativePosition();
 }
 
 void AXGeometryManager::scheduleRenderingUpdate()
 {
-    if (!m_cache || !m_cache->document())
+    CheckedPtr cache = m_cache;
+    if (!cache)
         return;
 
-    if (RefPtr page = m_cache->document()->page())
+    RefPtr document = cache->document();
+    if (!document)
+        return;
+
+    if (RefPtr page = document->page())
         page->scheduleRenderingUpdate(RenderingUpdateStep::AccessibilityRegionUpdate);
 }
-
-#if PLATFORM(MAC)
-void AXGeometryManager::initializePrimaryScreenRect()
-{
-    Locker locker { m_primaryScreenRectLock };
-    m_primaryScreenRect = screenRectForPrimaryScreen();
-}
-
-FloatRect AXGeometryManager::primaryScreenRect()
-{
-    Locker locker { m_primaryScreenRectLock };
-    return m_primaryScreenRect;
-}
-#endif
 
 std::optional<AXID> AXGeometryManager::cachedHitTestResult(const IntPoint& screenPoint)
 {
@@ -168,7 +196,7 @@ std::optional<AXID> AXGeometryManager::cachedHitTestResult(const IntPoint& scree
     // e.g., if the |screenPoint| is 3px off in the x-coordinate, and 4px off in the y-coordinate:
     //   3² + 4² = 25 — Less than or equal to MaxCacheRadiusSquared, and thus is acceptably close.
     // But take the case where the hit-point is 4px off in both x and y:
-    //   4² + 4² = 32 — Too far from MaxCacheRadiusSquared, so not a match.
+    //   4² + 4² = 32 — Too far from MaxCacheRadiusSquared, so not a match.
     for (auto& entry : m_hitTestCache) {
         if (now > entry.expirationTime)
             continue;
@@ -276,6 +304,20 @@ void AXGeometryManager::clearHitTestCache()
     m_hitTestCache.clear();
 }
 
-} // namespace WebCore
-
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+
+#if PLATFORM(MAC)
+void AXGeometryManager::initializePrimaryScreenRect()
+{
+    Locker locker { m_primaryScreenRectLock };
+    m_primaryScreenRect = screenRectForPrimaryScreen();
+}
+
+FloatRect AXGeometryManager::primaryScreenRect()
+{
+    Locker locker { m_primaryScreenRectLock };
+    return m_primaryScreenRect;
+}
+#endif // PLATFORM(MAC)
+
+} // namespace WebCore

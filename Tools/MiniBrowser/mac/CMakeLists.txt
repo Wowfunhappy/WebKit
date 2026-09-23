@@ -11,6 +11,7 @@ set(MiniBrowser_SOURCES
     ${MINIBROWSER_DIR}/AppDelegate.m
     ${MINIBROWSER_DIR}/BrowserWindowController.m
     ${MINIBROWSER_DIR}/ExtensionManagerWindowController.m
+    ${MINIBROWSER_DIR}/HistoryButton.m
     ${MINIBROWSER_DIR}/SettingsController.m
     ${MINIBROWSER_DIR}/WK1BrowserWindowController.m
     ${MINIBROWSER_DIR}/WK2BrowserWindowController.m
@@ -19,15 +20,22 @@ set(MiniBrowser_SOURCES
 )
 
 set(MiniBrowser_INCLUDE_DIRECTORIES
-    ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}
-    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy
+    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    ${WTF_FRAMEWORK_HEADERS_DIR}
     ${CMAKE_SOURCE_DIR}/Source
     ${MINIBROWSER_DIR}
 )
 
 set(MiniBrowser_LIBRARIES
     ${SECURITYINTERFACE_LIBRARY}
-    WebKit
+    "-framework PDFKit"
+    "-framework QuartzCore"
+    "-framework UniformTypeIdentifiers"
+    "-framework UserNotifications"
+    WebKit::WebKit
+    WebKit::WebKitLegacy
 )
 
 set(CMAKE_EXE_LINKER_FLAGS "-framework Cocoa")
@@ -51,6 +59,31 @@ add_custom_target(MiniBrowserNibs ALL DEPENDS
 
 include_directories(${MiniBrowser_INCLUDE_DIRECTORIES})
 add_executable(MiniBrowser MACOSX_BUNDLE ${MiniBrowser_SOURCES})
+target_compile_options(MiniBrowser PRIVATE -fobjc-arc)
+# FIXME: Remove once source files are fixed. https://bugs.webkit.org/show_bug.cgi?id=312034
+WEBKIT_ADD_TARGET_CXX_FLAGS(MiniBrowser -Wno-unused-parameter)
 set_target_properties(MiniBrowser PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${MINIBROWSER_DIR}/Info.plist)
 target_link_libraries(MiniBrowser ${MiniBrowser_LIBRARIES})
 add_dependencies(MiniBrowser MiniBrowserNibs)
+set(MiniBrowser_XPC_SERVICES WebProcess NetworkProcess GPUProcess)
+if (TARGET WebProcessEnhancedSecurity)
+    list(APPEND MiniBrowser_XPC_SERVICES WebProcessEnhancedSecurity WebProcessCaptivePortal)
+endif ()
+foreach (_service IN LISTS MiniBrowser_XPC_SERVICES)
+    set_property(TARGET MiniBrowser APPEND PROPERTY LINK_DEPENDS $<TARGET_FILE:${_service}>)
+endforeach ()
+
+# SIP strips DYLD_* for XPC children, so they load system WebKit -> version mismatch crash.
+# Set __XPC_DYLD_FRAMEWORK_PATH so XPC services find this build's frameworks.
+# Mirrors Tools/Scripts/webkitdirs.pm:setupMacWebKitEnvironment().
+file(WRITE ${CMAKE_BINARY_DIR}/run-minibrowser
+"#!/bin/bash
+DIR=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
+export DYLD_FRAMEWORK_PATH=\"\$DIR\${DYLD_FRAMEWORK_PATH:+:\$DYLD_FRAMEWORK_PATH}\"
+export __XPC_DYLD_FRAMEWORK_PATH=\"\$DIR\"
+export DYLD_LIBRARY_PATH=\"\$DIR\${DYLD_LIBRARY_PATH:+:\$DYLD_LIBRARY_PATH}\"
+export __XPC_DYLD_LIBRARY_PATH=\"\$DIR\"
+exec \"\$DIR/MiniBrowser.app/Contents/MacOS/MiniBrowser\" \"\$@\"
+")
+file(CHMOD ${CMAKE_BINARY_DIR}/run-minibrowser PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)

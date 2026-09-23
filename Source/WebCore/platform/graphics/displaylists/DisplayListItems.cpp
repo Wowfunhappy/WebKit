@@ -83,9 +83,9 @@ void Scale::dump(TextStream& ts, OptionSet<AsTextFlag>) const
     ts.dumpProperty("size"_s, amount());
 }
 
-void SetCTM::apply(GraphicsContext& context) const
+void SetCTM::apply(GraphicsContext& context, const AffineTransform& baseTransform) const
 {
-    context.setCTM(m_transform);
+    context.setCTM(baseTransform * m_transform);
 }
 
 void SetCTM::dump(TextStream& ts, OptionSet<AsTextFlag>) const
@@ -318,9 +318,9 @@ Ref<const DisplayList> DrawDisplayList::displayList() const
     return m_displayList;
 }
 
-void DrawDisplayList::apply(GraphicsContext& context) const
+void DrawDisplayList::apply(GraphicsContext& context, ControlFactory& controlFactory) const
 {
-    return context.drawDisplayList(m_displayList);
+    return context.drawDisplayList(m_displayList, controlFactory);
 }
 
 void DrawDisplayList::dump(TextStream& ts, OptionSet<AsTextFlag>) const
@@ -493,7 +493,7 @@ void DrawPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 
 void DrawFocusRingPath::apply(GraphicsContext& context) const
 {
-    context.drawFocusRing(m_path, m_outlineWidth, m_color);
+    context.drawFocusRing(m_path, m_outlineWidth, m_color, m_zoomFactor);
 }
 
 void DrawFocusRingPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
@@ -501,19 +501,20 @@ void DrawFocusRingPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
     ts.dumpProperty("path"_s, path());
     ts.dumpProperty("outline-width"_s, outlineWidth());
     ts.dumpProperty("color"_s, color());
+    ts.dumpProperty("zoom-factor"_s, zoomFactor());
 }
 
 void DrawFocusRingRects::apply(GraphicsContext& context) const
 {
-    context.drawFocusRing(m_rects, m_outlineOffset, m_outlineWidth, m_color);
+    context.drawFocusRing(m_rects, m_outlineWidth, m_color, m_zoomFactor);
 }
 
 void DrawFocusRingRects::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
     ts.dumpProperty("rects"_s, rects());
-    ts.dumpProperty("outline-offset"_s, outlineOffset());
     ts.dumpProperty("outline-width"_s, outlineWidth());
     ts.dumpProperty("color"_s, color());
+    ts.dumpProperty("zoom-factor"_s, zoomFactor());
 }
 
 void FillRect::apply(GraphicsContext& context) const

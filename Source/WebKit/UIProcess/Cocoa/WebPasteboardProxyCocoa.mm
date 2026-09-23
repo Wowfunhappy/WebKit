@@ -40,6 +40,7 @@
 #import "WebPreferences.h"
 #import "WebProcessMessages.h"
 #import "WebProcessProxy.h"
+#import "WriteWebArchiveToPasteBoardResult.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/Color.h>
 #import <WebCore/DataOwnerType.h>
@@ -49,6 +50,7 @@
 #import <WebCore/Pasteboard.h>
 #import <WebCore/PasteboardItemInfo.h>
 #import <WebCore/PlatformPasteboard.h>
+#import <WebCore/Quirks.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/UTIUtilities.h>
 #import <wtf/URL.h>
@@ -65,11 +67,41 @@ static PasteboardDataLifetime determineDataLifetime(std::optional<WebPageProxyId
     if (!pageID)
         return PasteboardDataLifetime::Persistent;
 
-    if (RefPtr page = WebProcessProxy::webPage(*pageID))
+    if (auto* page = WebProcessProxy::webPage(*pageID))
         return page->sessionID().isEphemeral() ? PasteboardDataLifetime::Ephemeral : PasteboardDataLifetime::Persistent;
 
     return PasteboardDataLifetime::Persistent;
 }
+
+static bool shouldTranscodeHEICImagesForPage(std::optional<WebPageProxyIdentifier> pageID)
+{
+    if (!pageID)
+        return false;
+
+    RefPtr page = WebProcessProxy::webPage(*pageID);
+    if (!page)
+        return false;
+
+    return protect(page->preferences())->needsSiteSpecificQuirks() && Quirks::shouldTranscodeHeicImagesForURL(URL { page->currentURL() });
+}
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+
+static void addAllowedAttachmentFilePaths(const IPC::Connection& connection, std::optional<WebPageProxyIdentifier> pageID, const Vector<String>& paths)
+{
+    if (!pageID)
+        return;
+
+    RefPtr page = WebProcessProxy::webPage(*pageID);
+    if (!page)
+        return;
+
+    for (auto& path : paths)
+        WebProcessProxy::fromConnection(connection)->addAllowedAttachmentFilePath(path);
+}
+
+#endif // ENABLE(ATTACHMENT_ELEMENT)
+
 
 void WebPasteboardProxy::grantAccessToCurrentTypes(WebProcessProxy& process, const String& pasteboardName)
 {
@@ -206,8 +238,7 @@ void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connecti
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), connection, completionHandler({ }, { }));
 
-    // FIXME: This should consult canAccessPasteboardData() instead, and avoid responding with file paths if it returns false.
-    if (!canAccessPasteboardTypes(connection, pasteboardName))
+    if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ }, { });
 
     auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
@@ -225,10 +256,12 @@ void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connecti
 
 #if PLATFORM(MAC)
         Vector<size_t> indicesToTranscode;
-        for (size_t i = 0; i < pathnames.size(); ++i) {
-            auto mimeType = WebCore::MIMETypeRegistry::mimeTypeForPath(pathnames[i]);
-            if (mimeType == "image/heic"_s || mimeType == "image/heif"_s)
-                indicesToTranscode.append(i);
+        if (shouldTranscodeHEICImagesForPage(pageID)) {
+            for (size_t i = 0; i < pathnames.size(); ++i) {
+                auto mimeType = WebCore::MIMETypeRegistry::mimeTypeForPath(pathnames[i]);
+                if (mimeType == "image/heic"_s || mimeType == "image/heif"_s)
+                    indicesToTranscode.append(i);
+            }
         }
 
         if (indicesToTranscode.isEmpty()) {
@@ -238,6 +271,9 @@ void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connecti
                     return SandboxExtension::Handle { };
                 return valueOrDefault(SandboxExtension::createHandle(filename, SandboxExtension::Type::ReadOnly));
             });
+#if ENABLE(ATTACHMENT_ELEMENT)
+            addAllowedAttachmentFilePaths(connection, pageID, pathnames);
+#endif
             completionHandler(WTF::move(pathnames), WTF::move(sandboxExtensions));
             return;
         }
@@ -587,9 +623,12 @@ static void notifyNetworkProcessOfTranscodedFiles(RefPtr<WebProcessProxy>& proce
         protect(protect(process->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::AllowFilesAccessFromWebProcess(process->coreProcessIdentifier(), nonEmptyPaths), [] { });
 }
 
-static Vector<HEICTranscodingInfo> findHEICPathsForTranscoding(Vector<PasteboardItemInfo>& allInfo)
+static Vector<HEICTranscodingInfo> findHEICPathsForTranscoding(Vector<PasteboardItemInfo>& allInfo, std::optional<WebPageProxyIdentifier> pageID)
 {
     Vector<HEICTranscodingInfo> transcodingInfo;
+    if (!shouldTranscodeHEICImagesForPage(pageID))
+        return transcodingInfo;
+
     for (size_t infoIndex = 0; infoIndex < allInfo.size(); ++infoIndex) {
         auto& info = allInfo[infoIndex];
         for (size_t pathIndex = 0; pathIndex < info.pathsForFileUpload.size(); ++pathIndex) {
@@ -604,10 +643,10 @@ static Vector<HEICTranscodingInfo> findHEICPathsForTranscoding(Vector<Pasteboard
     return transcodingInfo;
 }
 
-static Vector<HEICTranscodingInfo> findHEICPathsForTranscoding(PasteboardItemInfo& info)
+static Vector<HEICTranscodingInfo> findHEICPathsForTranscoding(PasteboardItemInfo& info, std::optional<WebPageProxyIdentifier> pageID)
 {
     Vector<PasteboardItemInfo> items { info };
-    return findHEICPathsForTranscoding(items);
+    return findHEICPathsForTranscoding(items, pageID);
 }
 #endif
 
@@ -626,12 +665,22 @@ void WebPasteboardProxy::allPasteboardItemInfo(IPC::Connection& connection, cons
 
 #if PLATFORM(IOS_FAMILY)
         if (!allInfo || !process) {
+#if ENABLE(ATTACHMENT_ELEMENT)
+            if (allInfo) {
+                for (auto& info : *allInfo)
+                    addAllowedAttachmentFilePaths(connection, pageID, info.pathsForFileUpload);
+            }
+#endif
             completionHandler(WTF::move(allInfo));
             return;
         }
 
-        auto transcodingInfo = findHEICPathsForTranscoding(*allInfo);
+        auto transcodingInfo = findHEICPathsForTranscoding(*allInfo, pageID);
         if (transcodingInfo.isEmpty()) {
+#if ENABLE(ATTACHMENT_ELEMENT)
+            for (auto& info : *allInfo)
+                addAllowedAttachmentFilePaths(connection, pageID, info.pathsForFileUpload);
+#endif
             completionHandler(WTF::move(allInfo));
             return;
         }
@@ -639,12 +688,12 @@ void WebPasteboardProxy::allPasteboardItemInfo(IPC::Connection& connection, cons
         auto pathsToTranscode = extractPathsToTranscode(transcodingInfo);
         auto [transcodingUTI, transcodingExtension] = heicTranscodingParameters();
 
-        sharedImageTranscodingQueueSingleton().dispatch([process = WTF::move(process), allInfo = WTF::move(*allInfo), pathsToTranscode = crossThreadCopy(WTF::move(pathsToTranscode)), transcodingInfo = WTF::move(transcodingInfo), transcodingUTI = crossThreadCopy(WTF::move(transcodingUTI)), transcodingExtension = crossThreadCopy(WTF::move(transcodingExtension)), completionHandler = WTF::move(completionHandler)] mutable {
+        sharedImageTranscodingQueueSingleton().dispatch([protectedConnection = Ref { connection }, pageID, process = WTF::move(process), allInfo = WTF::move(*allInfo), pathsToTranscode = crossThreadCopy(WTF::move(pathsToTranscode)), transcodingInfo = WTF::move(transcodingInfo), transcodingUTI = crossThreadCopy(WTF::move(transcodingUTI)), transcodingExtension = crossThreadCopy(WTF::move(transcodingExtension)), completionHandler = WTF::move(completionHandler)] mutable {
             ASSERT(!RunLoop::isMain());
 
             auto transcodedPaths = transcodeImages(pathsToTranscode, transcodingUTI, transcodingExtension);
 
-            RunLoop::mainSingleton().dispatch([process = WTF::move(process), allInfo = WTF::move(allInfo), transcodedPaths = crossThreadCopy(WTF::move(transcodedPaths)), transcodingInfo = WTF::move(transcodingInfo), completionHandler = WTF::move(completionHandler)] mutable {
+            RunLoop::mainSingleton().dispatch([protectedConnection = WTF::move(protectedConnection), pageID, process = WTF::move(process), allInfo = WTF::move(allInfo), transcodedPaths = crossThreadCopy(WTF::move(transcodedPaths)), transcodingInfo = WTF::move(transcodingInfo), completionHandler = WTF::move(completionHandler)] mutable {
                 for (size_t i = 0; i < transcodingInfo.size(); ++i) {
                     if (!transcodedPaths[i].isEmpty())
                         allInfo[transcodingInfo[i].infoIndex].pathsForFileUpload[transcodingInfo[i].pathIndex] = transcodedPaths[i];
@@ -652,10 +701,21 @@ void WebPasteboardProxy::allPasteboardItemInfo(IPC::Connection& connection, cons
 
                 notifyNetworkProcessOfTranscodedFiles(process, transcodedPaths);
 
+#if ENABLE(ATTACHMENT_ELEMENT)
+                for (auto& info : allInfo)
+                    addAllowedAttachmentFilePaths(protectedConnection.get(), pageID, info.pathsForFileUpload);
+#endif
+
                 completionHandler(WTF::move(allInfo));
             });
         });
 #else
+#if ENABLE(ATTACHMENT_ELEMENT)
+        if (allInfo) {
+            for (auto& info : *allInfo)
+                addAllowedAttachmentFilePaths(connection, pageID, info.pathsForFileUpload);
+        }
+#endif
         completionHandler(WTF::move(allInfo));
 #endif
     });
@@ -676,12 +736,19 @@ void WebPasteboardProxy::informationForItemAtIndex(IPC::Connection& connection, 
 
 #if PLATFORM(IOS_FAMILY)
         if (!info || !process) {
+#if ENABLE(ATTACHMENT_ELEMENT)
+            if (info)
+                addAllowedAttachmentFilePaths(connection, pageID, info->pathsForFileUpload);
+#endif
             completionHandler(WTF::move(info));
             return;
         }
 
-        auto transcodingInfo = findHEICPathsForTranscoding(*info);
+        auto transcodingInfo = findHEICPathsForTranscoding(*info, pageID);
         if (transcodingInfo.isEmpty()) {
+#if ENABLE(ATTACHMENT_ELEMENT)
+            addAllowedAttachmentFilePaths(connection, pageID, info->pathsForFileUpload);
+#endif
             completionHandler(WTF::move(info));
             return;
         }
@@ -689,12 +756,12 @@ void WebPasteboardProxy::informationForItemAtIndex(IPC::Connection& connection, 
         auto pathsToTranscode = extractPathsToTranscode(transcodingInfo);
         auto [transcodingUTI, transcodingExtension] = heicTranscodingParameters();
 
-        sharedImageTranscodingQueueSingleton().dispatch([process = WTF::move(process), info = WTF::move(*info), pathsToTranscode = crossThreadCopy(WTF::move(pathsToTranscode)), transcodingInfo = WTF::move(transcodingInfo), transcodingUTI = crossThreadCopy(WTF::move(transcodingUTI)), transcodingExtension = crossThreadCopy(WTF::move(transcodingExtension)), completionHandler = WTF::move(completionHandler)] mutable {
+        sharedImageTranscodingQueueSingleton().dispatch([protectedConnection = Ref { connection }, pageID, process = WTF::move(process), info = WTF::move(*info), pathsToTranscode = crossThreadCopy(WTF::move(pathsToTranscode)), transcodingInfo = WTF::move(transcodingInfo), transcodingUTI = crossThreadCopy(WTF::move(transcodingUTI)), transcodingExtension = crossThreadCopy(WTF::move(transcodingExtension)), completionHandler = WTF::move(completionHandler)] mutable {
             ASSERT(!RunLoop::isMain());
 
             auto transcodedPaths = transcodeImages(pathsToTranscode, transcodingUTI, transcodingExtension);
 
-            RunLoop::mainSingleton().dispatch([process = WTF::move(process), info = WTF::move(info), transcodedPaths = crossThreadCopy(WTF::move(transcodedPaths)), transcodingInfo = WTF::move(transcodingInfo), completionHandler = WTF::move(completionHandler)] mutable {
+            RunLoop::mainSingleton().dispatch([protectedConnection = WTF::move(protectedConnection), pageID, process = WTF::move(process), info = WTF::move(info), transcodedPaths = crossThreadCopy(WTF::move(transcodedPaths)), transcodingInfo = WTF::move(transcodingInfo), completionHandler = WTF::move(completionHandler)] mutable {
                 for (size_t i = 0; i < transcodingInfo.size(); ++i) {
                     if (!transcodedPaths[i].isEmpty())
                         info.pathsForFileUpload[transcodingInfo[i].pathIndex] = transcodedPaths[i];
@@ -702,10 +769,18 @@ void WebPasteboardProxy::informationForItemAtIndex(IPC::Connection& connection, 
 
                 notifyNetworkProcessOfTranscodedFiles(process, transcodedPaths);
 
+#if ENABLE(ATTACHMENT_ELEMENT)
+                addAllowedAttachmentFilePaths(protectedConnection.get(), pageID, info.pathsForFileUpload);
+#endif
+
                 completionHandler(WTF::move(info));
             });
         });
 #else
+#if ENABLE(ATTACHMENT_ELEMENT)
+        if (info)
+            addAllowedAttachmentFilePaths(connection, pageID, info->pathsForFileUpload);
+#endif
         completionHandler(WTF::move(info));
 #endif
     });
@@ -782,6 +857,44 @@ void WebPasteboardProxy::containsStringSafeForDOMToReadForType(IPC::Connection& 
     });
 }
 
+// Only allow exploring frames that descend from the provided root frame.
+static bool validateFrameIdentifiers(FrameIdentifier rootFrameIdentifier, const HashMap<FrameIdentifier, Ref<WebCore::LegacyWebArchive>>& localFrameArchives, const Vector<FrameIdentifier>& remoteFrameIdentifiers)
+{
+    auto isInSubtree = [&](WebFrameProxy& frame) {
+        for (RefPtr ancestor = &frame; ancestor; ancestor = ancestor->parentFrame()) {
+            if (ancestor->frameID() == rootFrameIdentifier)
+                return true;
+        }
+        return false;
+    };
+
+    auto isAllowed = [&](FrameIdentifier identifier) {
+        if (identifier == rootFrameIdentifier)
+            return true;
+        RefPtr frame = WebFrameProxy::webFrame(identifier);
+        return !frame || isInSubtree(*frame);
+    };
+
+    for (auto& [frameIdentifier, archive] : localFrameArchives) {
+        if (!isAllowed(frameIdentifier))
+            return false;
+        Ref protectedArchive = archive;
+        if (auto archiveFrameIdentifier = protectedArchive->frameIdentifier(); archiveFrameIdentifier && !isAllowed(*archiveFrameIdentifier))
+            return false;
+        for (auto subframeIdentifier : protectedArchive->subframeIdentifiers()) {
+            if (!isAllowed(subframeIdentifier))
+                return false;
+        }
+    }
+
+    for (auto identifier : remoteFrameIdentifiers) {
+        if (!isAllowed(identifier))
+            return false;
+    }
+
+    return true;
+}
+
 #if PLATFORM(IOS_FAMILY)
 
 void WebPasteboardProxy::writeURLToPasteboard(IPC::Connection& connection, const PasteboardURL& url, const String& pasteboardName, std::optional<WebPageProxyIdentifier> pageID)
@@ -829,6 +942,8 @@ void WebPasteboardProxy::writeWebContentToPasteboard(IPC::Connection& connection
         writeWebContentToPasteboardInternal(connection, content, pasteboardName, pageID);
         return;
     }
+
+    MESSAGE_CHECK(validateFrameIdentifiers(*rootFrameIdentifier, content.localFrameArchives, content.remoteFrameIdentifiers), connection);
 
     Ref senderProcess = WebProcessProxy::fromConnection(connection);
     auto localFrameArchives = content.localFrameArchives;
@@ -940,30 +1055,33 @@ std::optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::Past
     return processes[matchIndex].second;
 }
 
-void WebPasteboardProxy::writeWebArchiveToPasteBoard(IPC::Connection& connection, const String& pasteboardName, WebCore::FrameIdentifier rootFrameIdentifier, HashMap<FrameIdentifier, Ref<LegacyWebArchive>>&& localFrameArchives, const Vector<FrameIdentifier>& remoteFrameIdentifiers, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::writeWebArchiveToPasteBoard(IPC::Connection& connection, const String& pasteboardName, WebCore::FrameIdentifier rootFrameIdentifier, HashMap<FrameIdentifier, Ref<LegacyWebArchive>>&& localFrameArchives, const Vector<FrameIdentifier>& remoteFrameIdentifiers, CompletionHandler<void(WriteWebArchiveToPasteBoardResult, int64_t)>&& completionHandler)
 {
-    MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), connection, completionHandler(0));
+    MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), connection, completionHandler(WriteWebArchiveToPasteBoardResult::FailureOther, 0));
+    MESSAGE_CHECK_COMPLETION(validateFrameIdentifiers(rootFrameIdentifier, localFrameArchives, remoteFrameIdentifiers), connection, completionHandler(WriteWebArchiveToPasteBoardResult::FailureDueToInvalidFrameIdentifiers, 0));
 
     Ref senderProcess = WebProcessProxy::fromConnection(connection);
     RefPtr webFrame = WebFrameProxy::webFrame(rootFrameIdentifier);
     if (!webFrame)
-        return completionHandler(0);
+        return completionHandler(WriteWebArchiveToPasteBoardResult::FailureOther, 0);
 
     RefPtr webPage = webFrame->page();
     if (!webPage)
-        return completionHandler(0);
+        return completionHandler(WriteWebArchiveToPasteBoardResult::FailureOther, 0);
 
     createOneWebArchiveFromFrames(senderProcess.get(), rootFrameIdentifier, WTF::move(localFrameArchives), remoteFrameIdentifiers, [connection = Ref { connection }, pasteboardName, pageIdentifier = webPage->identifier(), completionHandler = WTF::move(completionHandler)](auto result) mutable {
         if (!result)
-            return completionHandler(0);
+            return completionHandler(WriteWebArchiveToPasteBoardResult::FailureOther, 0);
 
         RetainPtr data = result->rawDataRepresentation();
         if (!data)
-            return completionHandler(0);
+            return completionHandler(WriteWebArchiveToPasteBoardResult::FailureOther, 0);
 
         RefPtr buffer = SharedBuffer::create(data.get());
         WebPasteboardProxy::singleton().setPasteboardBufferForType(connection.get(), pasteboardName, String { WebCore::WebArchivePboardType }, RefPtr { buffer }, pageIdentifier, [connection, pasteboardName, pageIdentifier, buffer, completionHandler = WTF::move(completionHandler)](auto) mutable {
-            WebPasteboardProxy::singleton().setPasteboardBufferForType(connection.get(), pasteboardName, UTTypeWebArchive.identifier, WTF::move(buffer), pageIdentifier, WTF::move(completionHandler));
+            WebPasteboardProxy::singleton().setPasteboardBufferForType(connection.get(), pasteboardName, UTTypeWebArchive.identifier, WTF::move(buffer), pageIdentifier, [completionHandler = WTF::move(completionHandler)](int64_t changeCount) mutable {
+                completionHandler(WriteWebArchiveToPasteBoardResult::Success, changeCount);
+            });
         });
     });
 }

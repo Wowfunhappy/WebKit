@@ -30,6 +30,7 @@
 #include "IDLTypes.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructor.h"
 #include "JSDOMConvertBase.h"
 #include "JSDOMConvertBoolean.h"
@@ -49,7 +50,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/BuiltinNames.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -99,10 +99,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestNodePrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestNodePrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -120,13 +117,13 @@ template<> EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSTestNodeDOMConstructor::con
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = lexicalGlobalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* castedThis = jsCast<JSTestNodeDOMConstructor*>(callFrame->jsCallee());
+    auto* castedThis = uncheckedDowncast<JSTestNodeDOMConstructor>(callFrame->jsCallee());
     ASSERT(castedThis);
     auto object = TestNode::create();
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     static_assert(TypeOrExceptionOrUnderlyingType<decltype(object)>::isRef);
-    auto jsValue = toJSNewlyCreated<IDLInterface<TestNode>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, WTF::move(object));
+    auto jsValue = toJSNewlyCreated<IDLInterface<TestNode>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, WTF::move(object));
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     setSubclassStructureIfNeeded<TestNode>(lexicalGlobalObject, callFrame, asObject(jsValue));
@@ -173,32 +170,37 @@ static const std::array<HashTableValue, 11> JSTestNodePrototypeTableValues {
 
 const ClassInfo JSTestNodePrototype::s_info = { "TestNode"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNodePrototype) };
 
+JSC::Structure* JSTestNodePrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestNodePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestNode::info(), JSTestNodePrototypeTableValues, *this);
     bool hasDisabledRuntimeProperties = false;
-    if (!jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext()->isSecureContext()) {
+    if (!uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext()->isSecureContext()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "calculateSecretResult"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
-    if (!jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext()->isSecureContext()) {
+    if (!uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext()->isSecureContext()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "getSecretBoolean"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
 #if ENABLE(TEST_FEATURE)
-    if (!(jsCast<JSDOMGlobalObject*>(globalObject())->scriptExecutionContext()->isSecureContext() && DeprecatedGlobalSettings::testFeatureEnabled())) {
+    if (!(uncheckedDowncast<JSDOMGlobalObject>(realm())->scriptExecutionContext()->isSecureContext() && DeprecatedGlobalSettings::testFeatureEnabled())) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "testFeatureGetSecretBoolean"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
 #endif
     if (!DeprecatedGlobalSettings::domIteratorEnabled()) {
@@ -206,33 +208,33 @@ void JSTestNodePrototype::finishCreation(VM& vm)
         auto propertyName = Identifier::fromString(vm, "entries"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (!DeprecatedGlobalSettings::domIteratorEnabled()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "keys"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (!DeprecatedGlobalSettings::domIteratorEnabled()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "values"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (!DeprecatedGlobalSettings::domIteratorEnabled()) {
         hasDisabledRuntimeProperties = true;
         auto propertyName = Identifier::fromString(vm, "forEach"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
-        JSObject::deleteProperty(this, globalObject(), propertyName, slot);
+        JSObject::deleteProperty(this, realm(), propertyName, slot);
     }
     if (hasDisabledRuntimeProperties && structure()->isDictionary())
         flattenDictionaryObject(vm);
-    putDirect(vm, vm.propertyNames->iteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    putDirect(vm, vm.propertyNames->iteratorSymbol, WebCore::getDirect(this, vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestNode::s_info = { "TestNode"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNode) };
@@ -240,6 +242,19 @@ const ClassInfo JSTestNode::s_info = { "TestNode"_s, &Base::s_info, nullptr, nul
 JSTestNode::JSTestNode(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestNode>&& impl)
     : JSNode(structure, globalObject, WTF::move(impl))
 {
+}
+
+JSTestNode* JSTestNode::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestNode>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestNode* ptr = new (NotNull, JSC::allocateCell<JSTestNode>(vm)) JSTestNode(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestNode::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::JSType(JSNodeType), StructureFlags), info(), JSC::NonArray);
 }
 
 JSObject* JSTestNode::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
@@ -256,17 +271,17 @@ JSObject* JSTestNode::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestNode::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestNodeDOMConstructor, DOMConstructorID::TestNode>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestNodeDOMConstructor, DOMConstructorID::TestNode>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestNodeConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestNodePrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestNodePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestNode::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestNode::getConstructor(vm, prototype->realm()));
 }
 
 static inline JSValue jsTestNode_nameGetter(JSGlobalObject& lexicalGlobalObject, JSTestNode& thisObject)
@@ -309,7 +324,7 @@ static inline JSC::EncodedJSValue jsTestNodePrototypeFunction_testWorkerPromiseB
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLPromise<IDLUndefined>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, [&]() -> decltype(auto) { return impl.testWorkerPromise(WTF::move(promise)); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLPromise<IDLUndefined>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.testWorkerPromise(WTF::move(promise)); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestNodePrototypeFunction_testWorkerPromise, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -324,7 +339,7 @@ static inline JSC::EncodedJSValue jsTestNodePrototypeFunction_calculateSecretRes
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLPromise<IDLDouble>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, [&]() -> decltype(auto) { return impl.calculateSecretResult(WTF::move(promise)); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLPromise<IDLDouble>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.calculateSecretResult(WTF::move(promise)); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestNodePrototypeFunction_calculateSecretResult, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -371,7 +386,7 @@ static inline EncodedJSValue jsTestNodePrototypeFunction_toJSONBody(JSGlobalObje
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
-    auto* result = constructEmptyObject(lexicalGlobalObject);
+    auto* result = WebCore::constructEmptyObject(lexicalGlobalObject);
     auto nameValue = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, impl.name());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "name"_s), nameValue);
@@ -409,7 +424,7 @@ public:
 
     static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
     {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
+        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
     }
 
     static TestNodeIterator* create(JSC::VM& vm, JSC::Structure* structure, JSTestNode& iteratedObject, IterationKind kind, InternalIterator&& iterator)
@@ -499,7 +514,7 @@ JSC::GCClient::IsoSubspace* JSTestNode::subspaceForImpl(JSC::VM& vm)
 
 void JSTestNode::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestNode*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestNode>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));

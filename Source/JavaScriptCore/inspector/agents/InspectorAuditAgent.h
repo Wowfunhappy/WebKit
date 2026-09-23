@@ -57,7 +57,7 @@ public:
     Protocol::ErrorStringOr<std::tuple<Ref<Protocol::Runtime::RemoteObject>, std::optional<bool> /* wasThrown */>> run(const String& test, std::optional<Protocol::Runtime::ExecutionContextId>&&) final;
     Protocol::ErrorStringOr<void> teardown() final;
 
-    bool hasActiveAudit() const;
+    bool NODELETE hasActiveAudit() const;
 
 protected:
     InspectorAuditAgent(AgentContext&);
@@ -74,7 +74,7 @@ protected:
 private:
     const Ref<AuditBackendDispatcher> m_backendDispatcher;
     const CheckedRef<InjectedScriptManager> m_injectedScriptManager;
-    JSC::Debugger& m_debugger;
+    JSC::Debugger* m_debugger { nullptr };
 
     JSC::Strong<JSC::JSObject> m_injectedWebInspectorAuditValue;
 };

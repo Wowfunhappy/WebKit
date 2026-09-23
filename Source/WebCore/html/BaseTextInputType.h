@@ -41,7 +41,7 @@ class BaseTextInputType : public TextFieldInputType {
     WTF_MAKE_TZONE_ALLOCATED(BaseTextInputType);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(BaseTextInputType);
 public:
-    bool patternMismatch(const String&) const final;
+    bool patternMismatch(StringView) const final;
 
 protected:
     explicit BaseTextInputType(Type type, HTMLInputElement& element)

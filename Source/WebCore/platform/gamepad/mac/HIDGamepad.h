@@ -32,6 +32,7 @@
 #include <WebCore/HIDDevice.h>
 #include <WebCore/HIDGamepadElement.h>
 #include <WebCore/PlatformGamepad.h>
+#include <WebCore/SharedGamepadValue.h>
 #include <wtf/HashMap.h>
 #include <wtf/TZoneMalloc.h>
 

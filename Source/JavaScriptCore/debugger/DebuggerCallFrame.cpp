@@ -32,6 +32,7 @@
 #include "CodeBlock.h"
 #include "DebuggerEvalEnabler.h"
 #include "DebuggerScope.h"
+#include "DirectEvalExecutable.h"
 #include "Interpreter.h"
 #include "JSFunction.h"
 #include "JSWithScope.h"
@@ -113,7 +114,7 @@ RefPtr<DebuggerCallFrame> DebuggerCallFrame::callerFrame()
 
 JSGlobalObject* DebuggerCallFrame::globalObject(VM& vm)
 {
-    return scope(vm)->globalObject();
+    return scope(vm)->realm();
 }
 
 SourceID DebuggerCallFrame::sourceID() const
@@ -133,7 +134,7 @@ String DebuggerCallFrame::functionName(VM& vm) const
         return String();
 
     if (isTailDeleted()) {
-        if (JSFunction* func = jsDynamicCast<JSFunction*>(m_shadowChickenFrame.callee))
+        if (JSFunction* func = dynamicDowncast<JSFunction>(m_shadowChickenFrame.callee))
             return func->calculatedDisplayName(vm);
         return String::fromLatin1(m_shadowChickenFrame.codeBlock->inferredName().data());
     }
@@ -154,7 +155,7 @@ DebuggerScope* DebuggerCallFrame::scope(VM& vm)
             scope = m_shadowChickenFrame.scope;
         else if (codeBlock && codeBlock->scopeRegister().isValid())
             scope = m_validMachineFrame->scope(codeBlock->scopeRegister().offset());
-        else if (JSCallee* callee = jsDynamicCast<JSCallee*>(m_validMachineFrame->jsCallee()))
+        else if (JSCallee* callee = dynamicDowncast<JSCallee>(m_validMachineFrame->jsCallee()))
             scope = callee->scope();
         else
             scope = m_validMachineFrame->lexicalGlobalObject(vm)->globalLexicalEnvironment();
@@ -173,7 +174,7 @@ DebuggerCallFrame::Type DebuggerCallFrame::type(VM&) const
     if (isTailDeleted())
         return FunctionType;
 
-    if (jsDynamicCast<JSFunction*>(m_validMachineFrame->jsCallee()))
+    if (is<JSFunction>(m_validMachineFrame->jsCallee()))
         return FunctionType;
 
     return ProgramType;
@@ -266,7 +267,7 @@ JSValue DebuggerCallFrame::evaluateWithScopeExtension(VM& vm, const String& scri
     JSValue result;
     {
         auto* jsScope = debuggerCallFrame->scope(vm)->jsScope();
-        VMEntryScope entryScope(vm, jsScope->globalObject());
+        VMEntryScope entryScope(vm, jsScope->realm());
         if (vm.disallowVMEntryCount) [[unlikely]]
             result = VM::checkVMEntryPermission();
         else

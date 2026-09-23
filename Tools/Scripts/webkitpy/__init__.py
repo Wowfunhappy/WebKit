@@ -90,14 +90,15 @@ AutoInstall.set_directory(os.path.join(autoinstall_base, 'python-{}-{}'.format(s
 
 AutoInstall.register(Package('pylint', Version(2, 13, 9)))
 AutoInstall.register(
-    Package("pytest", Version(7, 2, 0),
-            implicit_deps=["attr", "pluggy", "iniconfig"]
+    Package("pytest", Version(8, 4, 2),
+            implicit_deps=["pluggy", "iniconfig"]
             + (["exceptiongroup"] if sys.version_info < (3, 11) else []),
-            aliases=["_pytest"]  # Technically also a stub "py" module, but this conflicts with the py project.
+            aliases=["_pytest"],
+            wheel=True,
             )
 )
-AutoInstall.register(Package('pytest_asyncio', Version(0, 18, 3), pypi_name='pytest-asyncio', implicit_deps=['pytest'], wheel=True))
-AutoInstall.register(Package('pytest_timeout', Version(2, 1, 0), pypi_name='pytest-timeout', implicit_deps=['pytest'], wheel=True))
+AutoInstall.register(Package('pytest_asyncio', Version(1, 1, 1), pypi_name='pytest-asyncio', implicit_deps=['pytest'], wheel=True))
+AutoInstall.register(Package('pytest_timeout', Version(2, 4, 0), pypi_name='pytest-timeout', implicit_deps=['pytest'], wheel=True))
 AutoInstall.register(Package('websockets', Version(12, 0), wheel=True))
 
 if sys.version_info < (3, 11):
@@ -110,7 +111,7 @@ AutoInstall.register(Package('attrs', Version(21, 3, 0), aliases=['attr']))
 AutoInstall.register(Package('bs4', Version(4, 12, 0), pypi_name='beautifulsoup4'))
 AutoInstall.register(Package('configparser', Version(4, 0, 2), implicit_deps=['pyparsing'], aliases=['backports.configparser']))
 AutoInstall.register(Package('contextlib2', Version(0, 6, 0)))
-AutoInstall.register(Package('coverage', Version(7, 6, 1), wheel=True))
+AutoInstall.register(Package('coverage', Version(7, 10, 7), wheel=True))
 AutoInstall.register(Package('dnslib', Version(0, 9, 26)))
 AutoInstall.register(Package('funcsigs', Version(1, 0, 2)))
 AutoInstall.register(Package('html5lib', Version(1, 1)))
@@ -120,9 +121,9 @@ AutoInstall.register(Package('more_itertools', Version(4, 2, 0), pypi_name='more
 AutoInstall.register(Package('mozprocess', Version(1, 3, 0)))
 AutoInstall.register(Package('mozlog', Version(7, 1, 0), wheel=True))
 AutoInstall.register(Package('mozterm', Version(1, 0, 0)))
-AutoInstall.register(Package('pluggy', Version(0, 13, 1)))
+AutoInstall.register(Package('pluggy', Version(1, 5, 0)))
 AutoInstall.register(Package('pycodestyle', Version(2, 14, 0)))
-AutoInstall.register(Package('pyfakefs', Version(5, 7, 3)))
+AutoInstall.register(Package('pyfakefs', Version(5, 10, 2)))
 AutoInstall.register(Package('soupsieve', Version(2, 2, 1)))
 
 if sys.platform == 'linux':
@@ -130,6 +131,7 @@ if sys.platform == 'linux':
     AutoInstall.register(Package('websocket', Version(1, 8, 0), pypi_name='websocket-client'))
     AutoInstall.register(Package('selenium', Version(4, 24, 0), wheel=True, implicit_deps=['websocket']))
     AutoInstall.register(Package('filetype', Version(1, 2, 0), wheel=True))
+    AutoInstall.register(Package('inotify_simple', Version(2, 0, 1), wheel=True))
 else:
     AutoInstall.register(Package('selenium', Version(4, 12, 0), wheel=True))
 
@@ -137,10 +139,14 @@ AutoInstall.register(Package('toml', Version(0, 10, 1), implicit_deps=['pyparsin
 AutoInstall.register(Package('wcwidth', Version(0, 2, 5)))
 AutoInstall.register(Package('webencodings', Version(0, 5, 1)))
 AutoInstall.register(Package('zipp', Version(1, 2, 0)))
-AutoInstall.register(Package('zope.interface', Version(7, 0, 1), aliases=['zope'], pypi_name='zope-interface', wheel=True))
+if sys.version_info >= (3, 10):
+    AutoInstall.register(Package('zope.interface', Version(8, 1, 1), aliases=['zope'], pypi_name='zope-interface', wheel=True))
+else:
+    AutoInstall.register(Package('zope.interface', Version(7, 0, 1), aliases=['zope'], pypi_name='zope-interface', wheel=True))
 AutoInstall.register(Package('webkitscmpy', Version(4, 0, 0)), local=True)
 AutoInstall.register(Package('webkitbugspy', Version(0, 3, 1)), local=True)
-AutoInstall.register(Package('yaml', Version(6, 0, 2), pypi_name='PyYAML'))
+AutoInstall.register(Package('webkitexpectationspy', Version(1, 0, 0)), local=True)
+AutoInstall.register(Package('yaml', Version(6, 0, 3), pypi_name='PyYAML', wheel=True))
 
 import webkitscmpy
 

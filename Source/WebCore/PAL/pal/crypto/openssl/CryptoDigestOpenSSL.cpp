@@ -57,7 +57,7 @@ struct SHA512Functions {
 };
 }
 
-namespace PAL {
+namespace PAL::Crypto {
 
 struct CryptoDigestContext {
     virtual ~CryptoDigestContext() = default;
@@ -136,4 +136,4 @@ Vector<uint8_t> CryptoDigest::computeHash()
     return m_context->computeHash();
 }
 
-} // namespace PAL
+} // namespace PAL::Crypto

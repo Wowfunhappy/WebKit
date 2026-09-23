@@ -32,10 +32,14 @@
 #include "MessageSenderInlines.h"
 #include "SpeechRecognitionRealtimeMediaSourceManagerMessages.h"
 #include "SpeechRecognitionRemoteRealtimeMediaSourceManagerMessages.h"
+#include "WebPage.h"
 #include "WebProcess.h"
+#include <WebCore/MediaSessionManagerInterface.h>
+#include <WebCore/Page.h>
+#include <WebCore/PlatformMediaSessionTypes.h>
 #include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/SpeechRecognitionCaptureSource.h>
-#include <wtf/CheckedRef.h>
+#include <WebCore/SpeechRecognitionConnection.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
@@ -56,54 +60,104 @@ namespace WebKit {
 using namespace WebCore;
 
 class SpeechRecognitionRealtimeMediaSourceManager::Source final
-    : private RealtimeMediaSourceObserver
+    : public ThreadSafeRefCounted<SpeechRecognitionRealtimeMediaSourceManager::Source, WTF::DestructionThread::Main>
+    , public AudioCaptureSource
+    , private RealtimeMediaSourceObserver
     , private RealtimeMediaSource::AudioSampleObserver
     , public CanMakeCheckedPtr<SpeechRecognitionRealtimeMediaSourceManager::Source>
 {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(SpeechRecognitionRealtimeMediaSourceManager);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Source);
 public:
-    Source(RealtimeMediaSourceIdentifier identifier, Ref<RealtimeMediaSource>&& source, Ref<IPC::Connection>&& connection)
-        : m_identifier(identifier)
-        , m_source(WTF::move(source))
-        , m_connection(WTF::move(connection))
+    static Ref<Source> create(RealtimeMediaSourceIdentifier identifier, Ref<RealtimeMediaSource>&& source, Ref<IPC::Connection>&& connection, PageIdentifier pageIdentifier, SpeechRecognitionConnectionClientIdentifier clientIdentifier)
     {
-        m_source->addObserver(*this);
-        m_source->addAudioSampleObserver(*this);
+        return adoptRef(*new Source(identifier, WTF::move(source), WTF::move(connection), pageIdentifier, clientIdentifier));
     }
 
     ~Source()
     {
+        bool wasProducing = m_source->isProducingData();
+        if (wasProducing)
+            m_source->stop();
+
+        if (RefPtr manager = mediaSessionManager()) {
+            if (wasProducing)
+                manager->audioCaptureSourceStateChanged(MediaSessionManagerInterface::IsCaptureStarting::No);
+            manager->removeAudioCaptureSource(*this);
+        }
+
         m_source->removeAudioSampleObserver(*this);
         m_source->removeObserver(*this);
     }
 
     void start()
     {
+        if (m_source->isProducingData())
+            return;
         m_source->start();
+        if (RefPtr manager = mediaSessionManager())
+            manager->audioCaptureSourceStateChanged(MediaSessionManagerInterface::IsCaptureStarting::Yes);
     }
 
     void stop()
     {
+        if (!m_source->isProducingData())
+            return;
         m_source->stop();
+        if (RefPtr manager = mediaSessionManager())
+            manager->audioCaptureSourceStateChanged(MediaSessionManagerInterface::IsCaptureStarting::No);
     }
 
-    // CheckedPtr interface
-    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
-    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
-    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
-    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
-    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
 
 private:
+    Source(RealtimeMediaSourceIdentifier identifier, Ref<RealtimeMediaSource>&& source, Ref<IPC::Connection>&& connection, PageIdentifier pageIdentifier, SpeechRecognitionConnectionClientIdentifier clientIdentifier)
+        : m_identifier(identifier)
+        , m_source(WTF::move(source))
+        , m_connection(WTF::move(connection))
+        , m_pageIdentifier(pageIdentifier)
+        , m_clientIdentifier(clientIdentifier)
+    {
+        m_source->addObserver(*this);
+        m_source->addAudioSampleObserver(*this);
+
+        if (RefPtr manager = mediaSessionManager())
+            manager->addAudioCaptureSource(*this);
+
+        RefPtr webPage = WebProcess::singleton().webPage(m_pageIdentifier);
+        if (!webPage)
+            return;
+        if (RefPtr corePage = webPage->corePage())
+            protect(corePage->speechRecognitionConnection())->dispatchCaptureSourceCreated(m_clientIdentifier, m_source.get());
+    }
+
+    RefPtr<MediaSessionManagerInterface> mediaSessionManager() const
+    {
+        RefPtr webPage = WebProcess::singleton().webPage(m_pageIdentifier);
+        if (!webPage)
+            return nullptr;
+        RefPtr corePage = webPage->corePage();
+        if (!corePage)
+            return nullptr;
+        return corePage->mediaSessionManager();
+    }
 
     void sourceStopped() final
     {
-        if (m_source->captureDidFail()) {
+        if (m_source->captureDidFail())
             m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::RemoteCaptureFailed(m_identifier), 0);
-            return;
-        }
-        m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::RemoteSourceStopped(m_identifier), 0);
+        else
+            m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::RemoteSourceStopped(m_identifier), 0);
+
+        if (RefPtr manager = mediaSessionManager())
+            manager->audioCaptureSourceStateChanged(MediaSessionManagerInterface::IsCaptureStarting::No);
+    }
+
+    void sourceMutedChanged() final
+    {
+        if (RefPtr manager = mediaSessionManager())
+            manager->audioCaptureSourceStateChanged(m_source->muted() ? MediaSessionManagerInterface::IsCaptureStarting::No : MediaSessionManagerInterface::IsCaptureStarting::Yes);
     }
 
     void audioSamplesAvailable(const MediaTime& time, const PlatformAudioData& audioData, const AudioStreamDescription& description, size_t numberOfFrames) final
@@ -135,6 +189,7 @@ private:
     void audioUnitWillStart() final
     {
 #if USE(AUDIO_SESSION)
+        // FIXME: We should be able to remove this call.
         auto& audioSessionSingleton = AudioSession::singleton();
         auto bufferSize = audioSessionSingleton.sampleRate() / 50;
         if (audioSessionSingleton.preferredBufferSize() > bufferSize)
@@ -143,9 +198,22 @@ private:
 #endif
     }
 
+    // AudioCaptureSource
+    bool isCapturingAudio() const final { return m_source->isProducingData() && !m_source->muted(); }
+    bool wantsToCaptureAudio() const final { return m_source->isProducingData() && !m_source->muted(); }
+
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
     RealtimeMediaSourceIdentifier m_identifier;
     const Ref<RealtimeMediaSource> m_source;
     const Ref<IPC::Connection> m_connection;
+    PageIdentifier m_pageIdentifier;
+    SpeechRecognitionConnectionClientIdentifier m_clientIdentifier;
 
 #if PLATFORM(COCOA)
     std::unique_ptr<ProducerSharedCARingBuffer> m_ringBuffer;
@@ -163,7 +231,7 @@ SpeechRecognitionRealtimeMediaSourceManager::SpeechRecognitionRealtimeMediaSourc
 
 SpeechRecognitionRealtimeMediaSourceManager::~SpeechRecognitionRealtimeMediaSourceManager()
 {
-    CheckedRef { m_process.get() }->removeMessageReceiver(*this);
+    CheckedRef { m_process }->removeMessageReceiver(*this);
 }
 
 IPC::Connection& SpeechRecognitionRealtimeMediaSourceManager::connection() const
@@ -181,7 +249,7 @@ void SpeechRecognitionRealtimeMediaSourceManager::deref() const
     m_process->deref();
 }
 
-void SpeechRecognitionRealtimeMediaSourceManager::createSource(RealtimeMediaSourceIdentifier identifier, const CaptureDevice& device, PageIdentifier pageIdentifier)
+void SpeechRecognitionRealtimeMediaSourceManager::createSource(RealtimeMediaSourceIdentifier identifier, const CaptureDevice& device, PageIdentifier pageIdentifier, SpeechRecognitionConnectionClientIdentifier clientIdentifier)
 {
     auto result = SpeechRecognitionCaptureSource::createRealtimeMediaSource(device, pageIdentifier);
     if (!result) {
@@ -191,7 +259,7 @@ void SpeechRecognitionRealtimeMediaSourceManager::createSource(RealtimeMediaSour
     }
 
     ASSERT(!m_sources.contains(identifier));
-    m_sources.add(identifier, makeUnique<Source>(identifier, result.source(), protect(connection())));
+    m_sources.add(identifier, Source::create(identifier, result.source(), protect(connection()), pageIdentifier, clientIdentifier));
 }
 
 void SpeechRecognitionRealtimeMediaSourceManager::deleteSource(RealtimeMediaSourceIdentifier identifier)
@@ -201,13 +269,13 @@ void SpeechRecognitionRealtimeMediaSourceManager::deleteSource(RealtimeMediaSour
 
 void SpeechRecognitionRealtimeMediaSourceManager::start(RealtimeMediaSourceIdentifier identifier)
 {
-    if (CheckedPtr source = m_sources.get(identifier))
+    if (RefPtr source = m_sources.get(identifier))
         source->start();
 }
 
 void SpeechRecognitionRealtimeMediaSourceManager::stop(RealtimeMediaSourceIdentifier identifier)
 {
-    if (CheckedPtr source = m_sources.get(identifier))
+    if (RefPtr source = m_sources.get(identifier))
         source->stop();
 }
 

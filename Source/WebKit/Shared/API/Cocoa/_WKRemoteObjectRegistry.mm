@@ -36,6 +36,7 @@
 #import "WKRemoteObjectCoder.h"
 #import "WKSharedAPICast.h"
 #import "WebPage.h"
+#import "WebPageProxy.h"
 #import "WebRemoteObjectRegistry.h"
 #import "_WKRemoteObjectInterface.h"
 #import <objc/runtime.h>

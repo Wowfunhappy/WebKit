@@ -104,6 +104,8 @@ public:
     bool usesSampleMaskInInput(const String&) const;
     bool usesSampleMaskInOutput(const String&) const;
     bool usesFragDepth(const String&) const;
+    bool usesPrimitiveIndexInInput(const String&) const;
+    uint32_t clipDistancesCount(const String&) const;
 
 private:
     ShaderModule(Variant<WGSL::SuccessfulCheck, WGSL::FailedCheck>&&, HashMap<String, Ref<PipelineLayout>>&&, HashMap<String, WGSL::Reflection::EntryPointInformation>&&, id<MTLLibrary>, Device&);
@@ -116,14 +118,12 @@ private:
     const HashMap<String, WGSL::Reflection::EntryPointInformation> m_entryPointInformation;
     const id<MTLLibrary> m_library { nil }; // This is only non-null if we could compile the module early.
     void populateFragmentInputs(const WGSL::Type&, ShaderModule::FragmentInputs&, const String&);
-    FragmentInputs parseFragmentInputs(const WGSL::AST::Function&);
+    FragmentInputs parseFragmentInputs(const WGSL::AST::Function&, const String& entryPointName);
     void populateOutputState(const String&, WGSL::Builtin);
 
     ShaderModule::FragmentOutputs parseFragmentReturnType(const WGSL::Type&, const WGSL::CallGraph::EntryPoint&);
 
     const Ref<Device> m_device;
-    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=250441 - this needs to be populated from the compiler
-    HashMap<String, String> m_constantIdentifiersToNames;
     HashMap<String, FragmentOutputs> m_fragmentReturnTypeForEntryPoint;
     HashMap<String, FragmentInputs> m_fragmentInputsForEntryPoint;
     HashMap<String, VertexOutputs> m_vertexReturnTypeForEntryPoint;
@@ -139,6 +139,8 @@ private:
         bool usesSampleMaskInInput { false };
         bool usesSampleMaskInOutput { false };
         bool usesFragDepth { false };
+        bool usesPrimitiveIndexInInput { false };
+        uint32_t clipDistancesCount { 0 }; // Number of clip distances (0 if not used)
     };
     const ShaderModuleState* shaderModuleState(const String&) const;
     ShaderModuleState& populateShaderModuleState(const String&);

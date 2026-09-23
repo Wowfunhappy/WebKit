@@ -58,6 +58,8 @@ WK_EXPORT void _WKBundleFrameGenerateTestReport(WKBundleFrameRef, WKStringRef me
 
 WK_EXPORT void* _WKAccessibilityRootObjectForTesting(WKBundleFrameRef frame);
 
+WK_EXPORT void _WKAccessibilityAllowAuthenticationForTesting(bool allow);
+
 #ifdef __cplusplus
 }
 #endif

@@ -29,6 +29,7 @@
 
 #import "config.h"
 #import "WebExtensionAPIWindows.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
@@ -43,34 +44,6 @@
 #import "WebExtensionUtilities.h"
 #import "WebExtensionWindowIdentifier.h"
 #import "WebProcess.h"
-
-static NSString * const populateKey = @"populate";
-
-static NSString * const windowTypesKey = @"windowTypes";
-static NSString * const normalKey = @"normal";
-static NSString * const popupKey = @"popup";
-
-static NSString * const minimizedKey = @"minimized";
-static NSString * const maximizedKey = @"maximized";
-static NSString * const fullscreenKey = @"fullscreen";
-
-static NSString * const focusedKey = @"focused";
-static NSString * const incognitoKey = @"incognito";
-static NSString * const stateKey = @"state";
-static NSString * const typeKey = @"type";
-
-static NSString * const topKey = @"top";
-static NSString * const leftKey = @"left";
-static NSString * const widthKey = @"width";
-static NSString * const heightKey = @"height";
-
-static NSString * const tabsKey = @"tabs";
-
-static NSString * const idKey = @"id";
-static NSString * const alwaysOnTopKey = @"alwaysOnTop";
-
-static NSString * const urlKey = @"url";
-static NSString * const tabIdKey = @"tabId";
 
 namespace WebKit {
 
@@ -275,7 +248,7 @@ bool WebExtensionAPIWindows::parseWindowCreateOptions(NSDictionary *options, Web
         tabParameters.url = URL { extensionContext().baseURL(), url };
 
         if (!tabParameters.url.value().isValid()) {
-            *outExceptionString = toErrorString(nullString(), urlKey, @"'%@' is not a valid URL", url).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), urlKey, makeString("'"_s, String(url), "' is not a valid URL"_s)).createNSString().autorelease();
             return false;
         }
 
@@ -289,7 +262,7 @@ bool WebExtensionAPIWindows::parseWindowCreateOptions(NSDictionary *options, Web
             tabParameters.url = URL { extensionContext().baseURL(), url };
 
             if (!tabParameters.url.value().isValid()) {
-                *outExceptionString = toErrorString(nullString(), urlKey, @"'%@' is not a valid URL", url).createNSString().autorelease();
+                *outExceptionString = toErrorString(nullString(), urlKey, makeString("'"_s, String(url), "' is not a valid URL"_s)).createNSString().autorelease();
                 return false;
             }
 
@@ -367,7 +340,7 @@ bool isValid(std::optional<WebExtensionWindowIdentifier> identifier, NSString **
         if (isNone(identifier))
             *outExceptionString = toErrorString(nullString(), @"windowId", @"'windows.WINDOW_ID_NONE' is not allowed").createNSString().autorelease();
         else if (identifier)
-            *outExceptionString = toErrorString(nullString(), @"windowId", @"'%llu' is not a window identifier", identifier.value().toUInt64()).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), @"windowId", makeString("'"_s, identifier.value().toUInt64(), "' is not a window identifier"_s)).createNSString().autorelease();
         else
             *outExceptionString = toErrorString(nullString(), @"windowId", @"it is not a window identifier").createNSString().autorelease();
         return false;

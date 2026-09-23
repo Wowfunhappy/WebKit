@@ -152,7 +152,7 @@ RetainPtr<NSArray> supportedAttributes(id element)
 
     BEGIN_AX_OBJC_EXCEPTIONS
     AccessibilityUIElementMac::s_controller->executeOnAXThreadAndWait([&attributes, &element] {
-        attributes = [[element accessibilityAttributeNames] mutableCopy];
+        attributes = adoptNS([[element accessibilityAttributeNames] mutableCopy]);
         // Exposing this in tests is not valuable, so remove it to decrease test maintenance burden.
         [attributes removeObject:@"AXPerformsOwnTextStitching"];
         [attributes removeObject:@"AXPostsOwnLiveRegionAnnouncements"];
@@ -215,6 +215,7 @@ static id attributeValue(id element, NSString *attribute)
         @"AXIsMultiSelectable",
         @"AXIsOnScreen",
         @"AXIsRemoteFrame",
+        @"AXImageDataSize",
         @"AXLabelFor",
         @"AXLabelledBy",
         @"AXLineRectsAndText",
@@ -231,6 +232,7 @@ static id attributeValue(id element, NSString *attribute)
         @"AXOwns",
         @"AXPopupValue",
         @"AXRelativeFrame", // Continue to support this for testing purposes with ENABLE(ACCESSIBILITY_LOCAL_FRAME).
+        @"_AXFrameGeometryInitialized",
         @"AXValue",
     ];
 
@@ -736,7 +738,7 @@ RefPtr<AccessibilityUIElement> AccessibilityUIElementMac::ariaLabelledByElementA
 
 RefPtr<AccessibilityUIElement> AccessibilityUIElementMac::labelForElementAtIndex(unsigned index)
 {
-    return elementForAttributeAtIndex(@"AXLabelFor", index);
+    return elementForAttributeAtIndex(@"AXServesAsTitleForUIElements", index);
 }
 
 RefPtr<AccessibilityUIElement> AccessibilityUIElementMac::ownerElementAtIndex(unsigned index)
@@ -2156,6 +2158,61 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementMac::embeddedImageDescription() c
     return nullptr;
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementMac::imageDataSize() const
+{
+    BEGIN_AX_OBJC_EXCEPTIONS
+    auto value = descriptionOfValue(attributeValue(@"AXImageDataSize").get());
+    return concatenateAttributeAndValue(@"AXImageDataSize", value.get());
+    END_AX_OBJC_EXCEPTIONS
+    return nullptr;
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElementMac::imageDataForParameters(int resizeWidth, int resizeHeight) const
+{
+    return imageDataForParametersWithFormat(resizeWidth, resizeHeight, nullptr);
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElementMac::imageDataForParametersWithFormat(int resizeWidth, int resizeHeight, JSStringRef format) const
+{
+    BEGIN_AX_OBJC_EXCEPTIONS
+    NSString *formatString = format ? [NSString stringWithJSStringRef:format] : @"RGBA";
+    NSDictionary *dictionary = @{
+        @"AXImageDataResizeWidth" : @(resizeWidth),
+        @"AXImageDataResizeHeight" : @(resizeHeight),
+        @"AXImageDataFormat" : formatString
+    };
+    auto value = attributeValueForParameter(@"AXImageData", dictionary);
+    if (!value)
+        return adopt(JSStringCreateWithUTF8CString("(null)"));
+    NSData *data = (NSData *)value.get();
+    RetainPtr description = adoptNS([[NSString alloc] initWithFormat:@"AXImageData: %lu bytes", (unsigned long)[data length]]);
+    return adopt(JSStringCreateWithCFString((__bridge CFStringRef)description.get()));
+    END_AX_OBJC_EXCEPTIONS
+    return nullptr;
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElementMac::imageDataForSubrect(int resizeWidth, int resizeHeight, int left, int top, int width, int height) const
+{
+    BEGIN_AX_OBJC_EXCEPTIONS
+    NSDictionary *dictionary = @{
+        @"AXImageDataResizeWidth" : @(resizeWidth),
+        @"AXImageDataResizeHeight" : @(resizeHeight),
+        @"AXImageDataFormat" : @"RGBA",
+        @"AXImageDataLeft" : @(left),
+        @"AXImageDataTop" : @(top),
+        @"AXImageDataWidth" : @(width),
+        @"AXImageDataHeight" : @(height)
+    };
+    auto value = attributeValueForParameter(@"AXImageData", dictionary);
+    if (!value)
+        return adopt(JSStringCreateWithUTF8CString("(null)"));
+    NSData *data = (NSData *)value.get();
+    RetainPtr description = adoptNS([[NSString alloc] initWithFormat:@"AXImageData: %lu bytes", (unsigned long)[data length]]);
+    return adopt(JSStringCreateWithCFString((__bridge CFStringRef)description.get()));
+    END_AX_OBJC_EXCEPTIONS
+    return nullptr;
+}
+
 JSValueRef AccessibilityUIElementMac::imageOverlayElements(JSContextRef context)
 {
     BEGIN_AX_OBJC_EXCEPTIONS
@@ -2810,6 +2867,19 @@ int AccessibilityUIElementMac::indexForTextMarker(AccessibilityTextMarker* marke
     return -1;
 }
 
+int AccessibilityUIElementMac::relativeIndexForTextMarker(AccessibilityTextMarker* marker)
+{
+    if (!marker)
+        return -1;
+
+    BEGIN_AX_OBJC_EXCEPTIONS
+    auto indexNumber = attributeValueForParameter(@"AXRelativeIndexForTextMarker", marker->platformTextMarker());
+    return [indexNumber intValue];
+    END_AX_OBJC_EXCEPTIONS
+
+    return -1;
+}
+
 bool AccessibilityUIElementMac::isTextMarkerNull(AccessibilityTextMarker* textMarker)
 {
     if (!textMarker)
@@ -3134,6 +3204,20 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementMac::pathDescription() const
     return nullptr;
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElementMac::pathAsBounds() const
+{
+    BEGIN_AX_OBJC_EXCEPTIONS
+    auto bezierPath = attributeValue(NSAccessibilityPathAttribute);
+    if (!bezierPath)
+        return nullptr;
+
+    NSRect bounds = [bezierPath bounds];
+    return [[NSString stringWithFormat:@"{{%f, %f}, {%f, %f}}", bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height] createJSStringRef];
+    END_AX_OBJC_EXCEPTIONS
+
+    return nullptr;
+}
+
 NSArray *AccessibilityUIElementMac::actionNames() const
 {
     NSArray *actions = nil;
@@ -3159,9 +3243,19 @@ JSRetainPtr<JSStringRef> AccessibilityUIElementMac::supportedActions() const
 bool AccessibilityUIElementMac::performAction(NSString *actionName) const
 {
     BEGIN_AX_OBJC_EXCEPTIONS
-    s_controller->executeOnAXThread([actionName, this] {
-        [m_element accessibilityPerformAction:actionName];
-    });
+    if ([actionName hasPrefix:@"AXSync"]) {
+        // Sync actions (e.g. AXSyncIncrementAction) use AXIsolatedObject::syncIncrement(),
+        // which waits for the main thread to complete the action. We must also wait here
+        // for the AX thread to finish, otherwise the calling JS would read stale values
+        // because the AX thread hasn't even begun executing the action yet.
+        s_controller->executeOnAXThreadAndWait([actionName, this] {
+            [m_element accessibilityPerformAction:actionName];
+        });
+    } else {
+        s_controller->executeOnAXThread([actionName, this] {
+            [m_element accessibilityPerformAction:actionName];
+        });
+    }
     END_AX_OBJC_EXCEPTIONS
 
     // macOS actions don't return a value.
@@ -3203,6 +3297,11 @@ bool AccessibilityUIElementMac::isRemotePlatformElement() const
     BEGIN_AX_OBJC_EXCEPTIONS
     return [m_element isKindOfClass:NSAccessibilityRemoteUIElement.class];
     END_AX_OBJC_EXCEPTIONS
+}
+
+bool AccessibilityUIElementMac::isFrameGeometryInitialized() const
+{
+    return boolAttributeValueNS(@"_AXFrameGeometryInitialized");
 }
 
 } // namespace WTR

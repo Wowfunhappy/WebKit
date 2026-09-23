@@ -50,7 +50,8 @@ public:
         return bitSetSize;
     }
 
-    constexpr bool get(size_t, Dependency = Dependency()) const;
+    constexpr bool get(size_t) const;
+    constexpr bool concurrentGet(size_t, Dependency = Dependency()) const;
     constexpr void set(size_t);
     constexpr void set(size_t, bool);
     constexpr bool testAndSet(size_t); // Returns the previous bit value.
@@ -140,7 +141,7 @@ public:
     std::span<WordType> storage() LIFETIME_BOUND { return bits; }
     std::span<const WordType> storage() const LIFETIME_BOUND { return bits; }
 
-    constexpr size_t storageLengthInBytes() { return sizeof(bits); }
+    constexpr size_t storageLengthInBytes() const { return sizeof(bits); }
 
     std::span<uint8_t> storageBytes() LIFETIME_BOUND { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(bits.data()), storageLengthInBytes()); }
     std::span<const uint8_t> storageBytes() const LIFETIME_BOUND { return unsafeMakeSpan(reinterpret_cast<const uint8_t*>(bits.data()), storageLengthInBytes()); }
@@ -162,9 +163,16 @@ private:
 };
 
 template<size_t bitSetSize, typename WordType>
-inline constexpr bool BitSet<bitSetSize, WordType>::get(size_t n, Dependency dependency) const
+inline constexpr bool BitSet<bitSetSize, WordType>::get(size_t n) const
 {
-    return !!(dependency.consume(this)->bits[n / wordSize] & (one << (n % wordSize)));
+    return !!(bits[n / wordSize] & (one << (n % wordSize)));
+}
+
+template<size_t bitSetSize, typename WordType>
+ALWAYS_INLINE constexpr bool BitSet<bitSetSize, WordType>::concurrentGet(size_t n, Dependency dependency) const
+{
+    const WordType* data = dependency.consume(&bits[n / wordSize]);
+    return !!(std::bit_cast<const Atomic<WordType>*>(data)->loadRelaxed() & (one << (n % wordSize)));
 }
 
 template<size_t bitSetSize, typename WordType>
@@ -317,7 +325,7 @@ inline constexpr size_t BitSet<bitSetSize, WordType>::count(size_t start) const
             ++result;
     }
     for (size_t i = start / wordSize; i < words; ++i)
-        result += WTF::bitCount(bits[i]);
+        result += std::popcount(bits[i]);
     return result;
 }
 

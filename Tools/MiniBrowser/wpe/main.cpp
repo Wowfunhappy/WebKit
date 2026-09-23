@@ -26,6 +26,7 @@
 #include "cmakeconfig.h"
 
 #include "BuildRevision.h"
+#include <glib-unix.h>
 #include <memory>
 #include <wpe/webkit.h>
 #include <wtf/Compiler.h>
@@ -53,6 +54,7 @@ static const char** uriArguments;
 static const char** ignoreHosts;
 static gboolean headlessMode;
 static gboolean privateMode;
+static const char* profileDirectory;
 static gboolean automationMode;
 static gboolean ignoreTLSErrors;
 static const char* contentFilter;
@@ -118,6 +120,7 @@ static const GOptionEntry commandLineOptions[] =
 {
     { "headless", 'h', 0, G_OPTION_ARG_NONE, &headlessMode, "Run in headless mode", nullptr },
     { "private", 'p', 0, G_OPTION_ARG_NONE, &privateMode, "Run in private browsing mode", nullptr },
+    { "profile-dir", 0, 0, G_OPTION_ARG_FILENAME, &profileDirectory, "Custom profile directory to store session data", "DIR" },
     { "automation", 0, 0, G_OPTION_ARG_NONE, &automationMode, "Run in automation mode", nullptr },
     { "cookies-file", 'c', 0, G_OPTION_ARG_FILENAME, &cookiesFile, "Persistent cookie storage database file", "FILE" },
     { "cookies-policy", 0, 0, G_OPTION_ARG_STRING, &cookiesPolicy, "Cookies accept policy (always, never, no-third-party). Default: no-third-party", "POLICY" },
@@ -475,7 +478,15 @@ static void activate(GApplication* application, gpointer)
 #if ENABLE_2022_GLIB_API
     WebKitNetworkSession* networkSession = nullptr;
     if (!automationMode) {
-        networkSession = privateMode ? webkit_network_session_new_ephemeral() : webkit_network_session_new(nullptr, nullptr);
+        if (privateMode)
+            networkSession = webkit_network_session_new_ephemeral();
+        else if (profileDirectory) {
+            g_autofree char* dataDirectory = g_build_filename(profileDirectory, "data", nullptr);
+            g_autofree char* cacheDirectory = g_build_filename(profileDirectory, "cache", nullptr);
+            networkSession = webkit_network_session_new(dataDirectory, cacheDirectory);
+        } else
+            networkSession = webkit_network_session_new(nullptr, nullptr);
+
         webkit_network_session_set_itp_enabled(networkSession, enableITP);
 
         if (proxy) {
@@ -505,7 +516,16 @@ static void activate(GApplication* application, gpointer)
 
     auto* webContext = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "time-zone-override", timeZone, nullptr));
 #else
-    auto* manager = (privateMode || automationMode) ? webkit_website_data_manager_new_ephemeral() : webkit_website_data_manager_new(nullptr);
+    WebKitWebsiteDataManager* manager;
+    if (privateMode || automationMode)
+        manager = webkit_website_data_manager_new_ephemeral();
+    else if (profileDirectory) {
+        g_autofree char* dataDirectory = g_build_filename(profileDirectory, "data", nullptr);
+        g_autofree char* cacheDirectory = g_build_filename(profileDirectory, "cache", nullptr);
+        webkit_website_data_manager_new("base-data-directory", dataDirectory, "base-cache-directory", cacheDirectory, nullptr);
+    } else
+        webkit_website_data_manager_new(nullptr);
+
     webkit_website_data_manager_set_itp_enabled(manager, enableITP);
 
     if (proxy) {
@@ -803,6 +823,12 @@ int main(int argc, char *argv[])
 #else
     g_signal_connect(application, "activate", G_CALLBACK(activate), nullptr);
 #endif
+    GSourceFunc quitOnSignal = [](gpointer app) -> gboolean {
+        g_application_quit(G_APPLICATION(app));
+        return G_SOURCE_REMOVE;
+    };
+    g_unix_signal_add(SIGINT, quitOnSignal, application);
+    g_unix_signal_add(SIGTERM, quitOnSignal, application);
     g_application_run(application, 0, nullptr);
     g_object_unref(application);
 

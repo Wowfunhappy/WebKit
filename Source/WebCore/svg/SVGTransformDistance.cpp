@@ -20,21 +20,12 @@
 #include "config.h"
 #include "SVGTransformDistance.h"
 
-#include "FloatConversion.h"
 #include "FloatPoint.h"
 #include "FloatSize.h"
 #include "SVGTransformValue.h"
 
 namespace WebCore {
     
-SVGTransformDistance::SVGTransformDistance()
-    : m_type(SVGTransformValue::SVG_TRANSFORM_UNKNOWN)
-    , m_angle(0)
-    , m_cx(0)
-    , m_cy(0)
-{
-}
-
 SVGTransformDistance::SVGTransformDistance(SVGTransformValue::SVGTransformType type, float angle, float cx, float cy, const AffineTransform& transform)
     : m_type(type)
     , m_angle(angle)
@@ -46,9 +37,6 @@ SVGTransformDistance::SVGTransformDistance(SVGTransformValue::SVGTransformType t
 
 SVGTransformDistance::SVGTransformDistance(const SVGTransformValue& fromSVGTransform, const SVGTransformValue& toSVGTransform)
     : m_type(fromSVGTransform.type())
-    , m_angle(0)
-    , m_cx(0)
-    , m_cy(0)
 {
     ASSERT(m_type == toSVGTransform.type());
     

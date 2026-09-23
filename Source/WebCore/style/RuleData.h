@@ -81,7 +81,7 @@ private:
     unsigned m_matchBasedOnRuleHash : 3;
     unsigned m_canMatchPseudoElement : 1;
     unsigned m_linkMatchType : 2; //  SelectorChecker::LinkMatchMask
-    unsigned m_propertyAllowlist : 2;
+    unsigned m_propertyAllowlist : 3;
     unsigned m_isStartingStyle : 1;
     unsigned m_isEnabled : 1;
     // If we have more rules than 2^bitcount here we'll get confused about rule order.

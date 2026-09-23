@@ -43,9 +43,7 @@ SWServerToContextConnection::SWServerToContextConnection(SWServer& server, Site&
 {
 }
 
-SWServerToContextConnection::~SWServerToContextConnection()
-{
-}
+SWServerToContextConnection::~SWServerToContextConnection() = default;
 
 SWServer* SWServerToContextConnection::server() const
 {

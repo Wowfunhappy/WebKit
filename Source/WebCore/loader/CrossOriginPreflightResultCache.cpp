@@ -42,9 +42,7 @@ namespace WebCore {
 static const auto defaultPreflightCacheTimeout = 5_s;
 static const auto maxPreflightCacheTimeout = 600_s; // Should be short enough to minimize the risk of using a poisoned cache after switching to a secure network.
 
-CrossOriginPreflightResultCache::CrossOriginPreflightResultCache()
-{
-}
+CrossOriginPreflightResultCache::CrossOriginPreflightResultCache() = default;
 
 static bool parseAccessControlMaxAge(const String& string, Seconds& expiryDelta)
 {

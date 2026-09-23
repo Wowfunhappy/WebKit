@@ -270,9 +270,6 @@ using WebKit::PageData::TransactionCallbackID = IPC::AsyncReplyID;
     Markable<WebCore::PlatformLayerIdentifier> pageScalingLayerID;
     Markable<WebCore::PlatformLayerIdentifier> scrolledContentsLayerID;
     Markable<WebCore::PlatformLayerIdentifier> mainFrameClipLayerID;
-#if ENABLE(SCROLL_STRETCH_NOTIFICATIONS)
-    uint64_t topScrollStretch;
-#endif
 #endif
 
     double pageScaleFactor;
@@ -288,9 +285,9 @@ using WebKit::PageData::TransactionCallbackID = IPC::AsyncReplyID;
     bool viewportMetaTagWidthWasExplicit;
     bool viewportMetaTagCameFromImageDocument;
     bool isInStableState;
+    bool hasMainThreadScrollDrivenAnimations;
     WebCore::InteractiveWidget viewportMetaTagInteractiveWidget;
 
-    std::optional<WebKit::EditorState> editorState;
 #if PLATFORM(IOS_FAMILY)
     std::optional<uint64_t> dynamicViewportSizeUpdateID;
 #endif
@@ -302,6 +299,8 @@ struct WebKit::RemoteLayerTreeCommitBundle {
     Vector<WebKit::RemoteLayerTreeCommitBundle::RootFrameData> transactions;
     WebKit::PageData pageData;
     std::optional<WebKit::MainFrameData> mainFrameData;
+
+    std::optional<WebKit::EditorState> editorState;
     
     WebKit::TransactionID transactionID;
     MonotonicTime startTime;

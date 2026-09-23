@@ -126,6 +126,7 @@ static HbUniquePtr<hb_face_t> createHarfBuzzFace(SkTypeface& typeface)
 
 SkiaHarfBuzzFont::SkiaHarfBuzzFont(SkTypeface& typeface)
     : m_uniqueID(typeface.uniqueID())
+    , m_isColorBitmapFont(FontPlatformData::skiaTypefaceHasAnySupportedColorTable(typeface))
 {
     auto hbFace = createHarfBuzzFace(typeface);
     HbUniquePtr<hb_font_t> hbFont(hb_font_create(hbFace.get()));

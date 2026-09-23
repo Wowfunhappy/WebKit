@@ -47,6 +47,7 @@
 #import <WebCore/PathUtilities.h>
 #import <WebCore/ResolvedCaptionDisplaySettingsOptions.h>
 #import <WebCore/UIViewControllerUtilities.h>
+#import <pal/spi/ios/ManagedConfigurationSPI.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/Markable.h>
 #import <wtf/SoftLinking.h>
@@ -69,6 +70,7 @@ SOFT_LINK_CLASS(SafariServices, SSReadingList)
 #endif
 
 #import "TCCSoftLink.h"
+#import <pal/ios/ManagedConfigurationSoftLink.h>
 #import <pal/spi/ios/DataDetectorsUISoftLink.h>
 
 OBJC_CLASS DDAction;
@@ -586,7 +588,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
     if ([elementInfo imageURL]) {
-        if (TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotosSingleton(), NULL) != kTCCAccessPreflightDenied)
+        if ([self _canShowSaveImageActionForImageURL:elementInfo.imageURL])
             [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeSaveImage info:elementInfo assistant:self]];
     }
 
@@ -613,6 +615,28 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return defaultActions;
 }
 
+// Extracted to a method so tests can swizzle the TCC check
+- (BOOL)_isPhotoLibraryAccessDenied
+{
+    return TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotosSingleton(), NULL) == kTCCAccessPreflightDenied;
+}
+
+- (BOOL)_canShowSaveImageActionForImageURL:(NSURL *)imageURL
+{
+    if ([self _isPhotoLibraryAccessDenied])
+        return NO;
+
+#if !PLATFORM(MACCATALYST)
+    RetainPtr pageURL = [_delegate.get() currentPageURLForActionSheetAssistant:self];
+    RetainPtr profileConnection = [PAL::getMCProfileConnectionClassSingleton() sharedConnection];
+
+    if ((pageURL && [profileConnection isURLManaged:pageURL]) || (imageURL && [profileConnection isURLManaged:imageURL]))
+        return NO;
+#endif
+
+    return YES;
+}
+
 - (RetainPtr<NSArray<_WKElementAction *>>)defaultActionsForImageSheet:(_WKActivatedElementInfo *)elementInfo
 {
     NSURL *targetURL = [elementInfo URL];
@@ -628,7 +652,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([getSSReadingListClassSingleton() supportsURL:targetURL])
         [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeAddToReadingList info:elementInfo assistant:self]];
 #endif
-    if (TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotosSingleton(), NULL) != kTCCAccessPreflightDenied)
+    if ([self _canShowSaveImageActionForImageURL:elementInfo.imageURL])
         [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeSaveImage info:elementInfo assistant:self]];
 
     [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeCopy info:elementInfo assistant:self]];

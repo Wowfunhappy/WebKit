@@ -27,7 +27,7 @@
 
 #if HAVE(UIWEBVIEW)
 
-#import "PlatformUtilities.h"
+#import "Helpers/PlatformUtilities.h"
 #import <JavaScriptCore/JSVirtualMachine.h>
 #import <JavaScriptCore/JSVirtualMachineInternal.h>
 #import <UIKit/UIKit.h>
@@ -46,7 +46,7 @@ bool didFinishLoad;
 bool didFinishTest;
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-class SetContextCGL {
+struct SetContextCGL {
     SetContextCGL()
     {
         // TODO: implement properly. Skipped due to complicated instantiation.
@@ -59,7 +59,7 @@ class SetContextCGL {
     }
 };
 #else
-class SetContextCGL {
+struct SetContextCGL {
 
 };
 #endif

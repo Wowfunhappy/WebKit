@@ -46,14 +46,28 @@ class TrackBuffer final
 {
     WTF_MAKE_TZONE_ALLOCATED(TrackBuffer);
 public:
-    static UniqueRef<TrackBuffer> NODELETE create(RefPtr<MediaDescription>&&);
-    static UniqueRef<TrackBuffer> create(RefPtr<MediaDescription>&&, const MediaTime&);
+    // Returns true if the timestamp gap between `fromTime` and `toTime`
+    // is acceptable per the gap-skipping policy. Used both with DTS gaps
+    // (between adjacent samples in nextSample) and with PTS gaps
+    // (between a seek target and the next available sample in
+    // reenqueueMediaForTime). Only consulted when the gap exceeds
+    // PlatformTimeRanges::timeFudgeFactor() — gaps below that threshold
+    // are treated as contiguous (matching how the buffered range itself
+    // is reported to clients) and never reach the lambda.
+    using IsAcceptableEnqueueGapFn = Function<bool(const MediaTime& fromTime, const MediaTime& toTime)>;
 
-    MediaTime maximumBufferedTime() const;
+    static UniqueRef<TrackBuffer> create(RefPtr<MediaDescription>&&, IsAcceptableEnqueueGapFn&& = nullptr);
+
+    MediaTime NODELETE maximumBufferedTime() const;
     void addBufferedRange(const MediaTime& start, const MediaTime& end, AddTimeRangeOption = AddTimeRangeOption::None);
     void addSample(MediaSample&);
+    // Replace an already-buffered sample with a copy whose presentation and
+    // decode timestamps are shifted forward by `offset` (duration shrinks
+    // accordingly; presentationEndTime is preserved). Updates both the
+    // SampleMap and m_decodeQueue, and adjusts m_buffered to match.
+    void adjustSampleStartTime(MediaSample& original, const MediaTime& offset);
 
-    bool reenqueueMediaForTime(const MediaTime&, const MediaTime& timeFudgeFactor, bool isEnded = false);
+    bool reenqueueMediaForTime(const MediaTime&, bool isEnded = false);
     MediaTime findSeekTimeForTargetTime(const MediaTime& targetTime, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold);
     int64_t removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime);
     PlatformTimeRanges removeSamples(const DecodeOrderSampleMap::MapType&, ASCIILiteral);
@@ -80,6 +94,11 @@ public:
     const MediaTime& highestEnqueuedPresentationTime() const LIFETIME_BOUND { return m_highestEnqueuedPresentationTime; }
     void setHighestEnqueuedPresentationTime(MediaTime timestamp) { m_highestEnqueuedPresentationTime = WTF::move(timestamp); }
     const MediaTime& minimumEnqueuedPresentationTime() const LIFETIME_BOUND { return m_minimumEnqueuedPresentationTime; }
+
+    // Raises the tracked reorder depth. Call once per init segment with the
+    // codec-declared max_num_reorder_frames / sps_max_num_reorder_pics when
+    // available. The running observation in addSample() can only grow it further.
+    void setInitialReorderDepth(size_t depth) { m_maxObservedReorderDepth = std::max(m_maxObservedReorderDepth, depth); }
 
     const DecodeOrderSampleMap::KeyType& lastEnqueuedDecodeKey() const LIFETIME_BOUND { return m_lastEnqueuedDecodeKey; }
     void setLastEnqueuedDecodeKey(DecodeOrderSampleMap::KeyType key) { m_lastEnqueuedDecodeKey = WTF::move(key); }
@@ -115,13 +134,35 @@ public:
 #endif
 
 private:
-    friend UniqueRef<TrackBuffer> WTF::makeUniqueRefWithoutFastMallocCheck<TrackBuffer>(RefPtr<WebCore::MediaDescription>&&, const WTF::MediaTime&);
-    TrackBuffer(RefPtr<MediaDescription>&&, const MediaTime&);
+    friend UniqueRef<TrackBuffer> WTF::makeUniqueRefWithoutFastMallocCheck<TrackBuffer>(RefPtr<WebCore::MediaDescription>&&, IsAcceptableEnqueueGapFn&&);
+    TrackBuffer(RefPtr<MediaDescription>&&, IsAcceptableEnqueueGapFn&&);
+
+    // Returns true if the DTS gap from `fromTime` to `toTime` is small
+    // enough to enqueue across. Gaps within
+    // PlatformTimeRanges::timeFudgeFactor() are always accepted (the
+    // buffered range itself would be reported as contiguous); larger
+    // gaps consult the constructor-supplied callback (when set —
+    // currently MSE only).
+    bool isAcceptableEnqueueGap(const MediaTime& fromTime, const MediaTime& toTime) const;
 
     const DecodeOrderSampleMap::MapType& decodeQueue() const LIFETIME_BOUND { return m_decodeQueue; }
     DecodeOrderSampleMap::MapType& decodeQueue() LIFETIME_BOUND { return m_decodeQueue; }
     void updateMinimumUpcomingPresentationTime();
     void clearDecodeQueue();
+
+    // Result of attempting to split the sample whose presentation range contains a given time.
+    struct DivideResult {
+        // Presentation timestamp of the "after" piece (the piece whose range starts at the split
+        // point). Invalid if no split happened (no containing sample, not divisible, or
+        // MediaSample::divide returned null halves).
+        MediaTime afterSplitPresentationTime { MediaTime::invalidTime() };
+        // Byte sizes of the pieces produced by the split, valid only when
+        // afterSplitPresentationTime is valid.
+        int64_t beforeSplitSize { 0 };
+        int64_t afterSplitSize { 0 };
+    };
+    enum class ApplyDivide : bool { No, Yes };
+    DivideResult tryDivideSampleAtTime(const MediaTime&, ApplyDivide);
 
     SampleMap m_samples;
     DecodeOrderSampleMap::MapType m_decodeQueue;
@@ -138,10 +179,19 @@ private:
     MediaTime m_highestEnqueuedPresentationTime { MediaTime::invalidTime() };
     MediaTime m_minimumEnqueuedPresentationTime { MediaTime::invalidTime() };
 
+    // Running observation of decode-order reorder depth. Seeded by
+    // setInitialReorderDepth; grown when a deeper reorder is seen. Gates
+    // publication of m_minimumEnqueuedPresentationTime so a yet-to-arrive
+    // B-frame can't invalidate the value handed to the renderer.
+    MediaTime m_maxPresentationTimeSeenInDecodeOrder { MediaTime::invalidTime() };
+    size_t m_samplesSinceMaxPresentationTime { 0 };
+    size_t m_maxObservedReorderDepth { 3 };
+
     DecodeOrderSampleMap::KeyType m_lastEnqueuedDecodeKey { MediaTime::invalidTime(), MediaTime::invalidTime() };
 
     MediaTime m_enqueueDiscontinuityBoundary;
-    MediaTime m_discontinuityTolerance;
+    MediaTime m_lastEnqueueDecodeEnd;
+    IsAcceptableEnqueueGapFn m_isAcceptableEnqueueGap;
 
     MediaTime m_roundedTimestampOffset { MediaTime::invalidTime() };
 

@@ -25,6 +25,7 @@
 #pragma once
 
 #include <WebCore/StyleProperties.h>
+#include <wtf/Packed.h>
 
 namespace WebCore {
 

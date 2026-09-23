@@ -37,6 +37,7 @@ namespace WebKit {
 
 WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&);
 WebCore::ResourceError blockedError(const WebCore::ResourceRequest&);
+bool isBlockedError(const WebCore::ResourceError&);
 WebCore::ResourceError blockedByContentBlockerError(const WebCore::ResourceRequest&);
 WebCore::ResourceError cannotShowURLError(const WebCore::ResourceRequest&);
 WebCore::ResourceError wasBlockedByRestrictionsError(const WebCore::ResourceRequest&);
@@ -51,6 +52,7 @@ WebCore::ResourceError cannotShowMIMETypeError(const WebCore::ResourceResponse&)
 WebCore::ResourceError fileDoesNotExistError(const WebCore::ResourceResponse&);
 WebCore::ResourceError httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&);
 WebCore::ResourceError httpNavigationWithHTTPSOnlyError(const WebCore::ResourceRequest&);
+bool isHttpNavigationWithHTTPSOnlyError(const WebCore::ResourceError&);
 WebCore::ResourceError pluginWillHandleLoadError(const WebCore::ResourceResponse&);
 
 #if USE(SOUP)

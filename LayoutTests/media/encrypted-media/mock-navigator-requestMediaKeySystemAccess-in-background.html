@@ -7,7 +7,7 @@
     var promise;
     var capabilities = {};
 
-    function runTest()
+    async function runTest()
     {
         if (!window.internals) {
             failTest("Internals is required for this test.")
@@ -24,16 +24,16 @@
         consoleWrite("Call navigator.requestMediaKeySystemAccess() in a background tab");
         internals.settings.setCanStartMedia(false);
         run('promise = navigator.requestMediaKeySystemAccess("org.webkit.mock", [capabilities])');
-
-        setTimeout(() => {
-            consoleWrite("");
-            consoleWrite("Switch the tab to foreground");
-            internals.settings.setCanStartMedia(true);
-            shouldResolve(promise).then(endTest, failTest);
-        }, 200);
+        await shouldResolve(promise);
+        internals.settings.setCanStartMedia(true);
+        mock.unregister();
     }
+
+    window.addEventListener('load', event => {
+        runTest().then(endTest).catch(failTest);
+    });
     </script>
 </head>
-<body onload="runTest()">
+<body>
 </body>
 </html>

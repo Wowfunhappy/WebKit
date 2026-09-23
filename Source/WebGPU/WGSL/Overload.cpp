@@ -82,12 +82,12 @@ private:
     bool unify(const TypeVariable*, const Type*);
     bool unify(const AbstractType&, const Type*);
     bool assign(TypeVariable, const Type*);
-    const Type* resolve(TypeVariable) const;
+    const Type* NODELETE resolve(TypeVariable) const;
     const Type* materialize(const AbstractType&) const;
 
     bool unify(const AbstractValue&, unsigned);
     void assign(ValueVariable, unsigned);
-    std::optional<unsigned> resolve(ValueVariable) const;
+    std::optional<unsigned> NODELETE resolve(ValueVariable) const;
     unsigned materialize(const AbstractValue&) const;
 
     TypeStore& m_types;
@@ -111,7 +111,7 @@ OverloadResolver::OverloadResolver(TypeStore& types, const Vector<OverloadCandid
 std::optional<SelectedOverload> OverloadResolver::resolve()
 {
     auto candidates = considerCandidates();
-    std::optional<ViableOverload> selectedCandidate = std::nullopt;
+    std::optional<ViableOverload> selectedCandidate;
 
     for (auto& candidate : candidates) {
         if (!candidate.has_value())

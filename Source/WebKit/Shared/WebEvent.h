@@ -46,6 +46,8 @@ class Encoder;
 
 namespace WebKit {
 
+enum class WebEventInputSource : uint8_t { UserDriven, Automation };
+
 class WebEvent : public CanMakeThreadSafeCheckedPtr<WebEvent, WTF::DefaultedOperatorEqual::No, WTF::CheckedPtrDeleteCheckException::Yes> {
     WTF_MAKE_TZONE_ALLOCATED(WebEvent);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebEvent);

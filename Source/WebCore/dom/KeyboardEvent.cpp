@@ -239,7 +239,7 @@ int KeyboardEvent::charCode() const
 
     if (!m_underlyingPlatformEvent || (type() != eventNames().keypressEvent && !backwardCompatibilityMode))
         return 0;
-    return m_underlyingPlatformEvent->text().characterStartingAt(0);
+    return m_underlyingPlatformEvent->text().codePointAt(0);
 }
 
 unsigned KeyboardEvent::which() const

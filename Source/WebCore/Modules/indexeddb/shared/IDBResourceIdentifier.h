@@ -65,7 +65,7 @@ public:
 
     WEBCORE_EXPORT IDBResourceIdentifier NODELETE isolatedCopy() const;
 
-    String loggingString() const;
+    WEBCORE_EXPORT String loggingString() const;
 
     WEBCORE_EXPORT IDBResourceIdentifier();
 private:

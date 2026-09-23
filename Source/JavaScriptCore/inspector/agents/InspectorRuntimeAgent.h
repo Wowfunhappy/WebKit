@@ -98,7 +98,7 @@ private:
     void setControlFlowProfilerEnabledState(bool);
 
     const CheckedRef<InjectedScriptManager> m_injectedScriptManager;
-    JSC::Debugger& m_debugger;
+    JSC::Debugger* m_debugger { nullptr };
     JSC::VM& m_vm;
     bool m_enabled {false};
     bool m_isTypeProfilingEnabled {false};

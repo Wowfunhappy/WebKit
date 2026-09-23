@@ -249,6 +249,7 @@ public:
     JSRetainPtr<JSStringRef> mathPrescriptsDescription() const override;
 
     JSRetainPtr<JSStringRef> pathDescription() const override;
+    JSRetainPtr<JSStringRef> pathAsBounds() const override;
 
     bool addNotificationListener(JSContextRef, JSValueRef functionCallback) override;
     bool removeNotificationListener() override;

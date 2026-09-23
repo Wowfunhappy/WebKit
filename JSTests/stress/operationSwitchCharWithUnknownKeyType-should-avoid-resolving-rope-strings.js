@@ -1,4 +1,5 @@
-//@ if $memoryLimited then skip else runDefault("--useConcurrentJIT=false") end
+//@ memoryHog!
+//@ runDefault("--useConcurrentJIT=false")
 //@ slow!
 
 var o = (-1).toLocaleString().padEnd(2 ** 31 - 1, "a");

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WorkerOrWorkletGlobalScope.h"
 
+#include "ContentSecurityPolicy.h"
 #include "NoiseInjectionPolicy.h"
 #include "ScriptModuleLoader.h"
 #include "ServiceWorkerGlobalScope.h"
@@ -142,14 +143,18 @@ bool WorkerOrWorkletGlobalScope::isEventLoopGroupStoppedPermanently() const
 
 void WorkerOrWorkletGlobalScope::postTask(Task&& task)
 {
-    ASSERT(workerOrWorkletThread());
-    workerOrWorkletThread()->runLoop().postTask(WTF::move(task));
+    RefPtr thread = workerOrWorkletThread();
+    ASSERT(thread);
+    if (thread)
+        thread->runLoop().postTask(WTF::move(task));
 }
 
 void WorkerOrWorkletGlobalScope::postTaskForMode(Task&& task, const String& mode)
 {
-    ASSERT(workerOrWorkletThread());
-    workerOrWorkletThread()->runLoop().postTaskForMode(WTF::move(task), mode);
+    RefPtr thread = workerOrWorkletThread();
+    ASSERT(thread);
+    if (thread)
+        thread->runLoop().postTaskForMode(WTF::move(task), mode);
 }
 
 OptionSet<NoiseInjectionPolicy> WorkerOrWorkletGlobalScope::noiseInjectionPolicies() const
@@ -165,6 +170,11 @@ OptionSet<NoiseInjectionPolicy> WorkerOrWorkletGlobalScope::noiseInjectionPolici
 RefPtr<WorkerOrWorkletThread> WorkerOrWorkletGlobalScope::workerOrWorkletThread() const
 {
     return m_thread.get();
+}
+
+void WorkerOrWorkletGlobalScope::applyContentSecurityPolicyResponseHeaders(const ContentSecurityPolicyResponseHeaders& contentSecurityPolicyResponseHeaders)
+{
+    protect(contentSecurityPolicy())->didReceiveHeaders(contentSecurityPolicyResponseHeaders, String { });
 }
 
 } // namespace WebCore

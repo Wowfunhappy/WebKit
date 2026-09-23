@@ -24,6 +24,7 @@
 #include "NowPlayingManager.h"
 #include "PlatformMediaSessionManager.h"
 #include <wtf/TZoneMalloc.h>
+#include <wtf/TypeCasts.h>
 #include <wtf/glib/GRefPtr.h>
 
 namespace WebCore {
@@ -62,6 +63,8 @@ public:
 
     void setDBusNotificationsEnabled(bool dbusNotificationsEnabled) { m_dbusNotificationsEnabled = dbusNotificationsEnabled; }
     bool areDBusNotificationsEnabled() const { return m_dbusNotificationsEnabled; }
+
+    bool isMediaSessionManagerGLib() const final { return true; }
 
 protected:
     MediaSessionManagerGLib(GRefPtr<GDBusNodeInfo>&&, PageIdentifier);
@@ -116,5 +119,9 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaSessionManagerGLib)
+static bool isType(const WebCore::MediaSessionManagerInterface& manager) { return manager.isMediaSessionManagerGLib(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // USE(GLIB) && ENABLE(MEDIA_SESSION)

@@ -59,7 +59,7 @@ public:
     HTMLFormElement& NODELETE ownerNode() const;
 
     // For CachedHTMLCollection.
-    HTMLElement* customElementAfter(Element*) const;
+    HTMLElement* NODELETE customElementAfter(Element*) const;
 
 private:
     explicit HTMLFormControlsCollection(ContainerNode&);

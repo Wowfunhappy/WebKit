@@ -39,13 +39,14 @@ HTMLEntitySearch::HTMLEntitySearch()
 
 HTMLEntitySearch::CompareResult HTMLEntitySearch::compare(const HTMLEntityTableEntry* entry, char16_t nextCharacter) const
 {
+    auto name = entry->nameCharacters();
     char16_t entryNextCharacter;
-    if (entry->nameLengthExcludingSemicolon < m_currentLength + 1) {
-        if (!entry->nameIncludesTrailingSemicolon || entry->nameLengthExcludingSemicolon < m_currentLength)
+    if (m_currentLength >= name.size()) {
+        if (!entry->nameIncludesTrailingSemicolon || m_currentLength > name.size())
             return Before;
         entryNextCharacter = ';';
     } else
-        entryNextCharacter = entry->nameCharacters()[m_currentLength];
+        entryNextCharacter = name[m_currentLength];
     if (entryNextCharacter == nextCharacter)
         return Prefix;
     return entryNextCharacter < nextCharacter ? Before : After;

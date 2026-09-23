@@ -27,17 +27,21 @@
 #include "JSDeprecatedCSSOMValue.h"
 
 #include "JSCSSStyleDeclarationCustom.h"
+#include "JSDOMWrapperCache.h"
 #include "JSDeprecatedCSSOMPrimitiveValue.h"
 #include "JSDeprecatedCSSOMValueList.h"
 #include "JSNode.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/HeapCellInlines.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
 bool JSDeprecatedCSSOMValueOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    JSDeprecatedCSSOMValue* jsCSSValue = jsCast<JSDeprecatedCSSOMValue*>(handle.slot()->asCell());
+    JSDeprecatedCSSOMValue* jsCSSValue = downcast<JSDeprecatedCSSOMValue>(handle.slot()->asCell());
     if (!jsCSSValue->hasCustomProperties())
         return false;
 

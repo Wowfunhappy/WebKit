@@ -25,7 +25,9 @@
 
 #pragma once
 
-#include "CertificateInfo.h"
+// MAVERICKS_BACKPORT: the port's forwarding header selects Cocoa's certificate representation.
+// #include "CertificateInfo.h"
+#include <WebCore/CertificateInfo.h>
 #include "NetworkLoadMetrics.h"
 #include <wtf/URL.h>
 

@@ -33,8 +33,8 @@
 #include "LayoutBoxGeometry.h"
 #include "LayoutBoxInlines.h"
 #include "LayoutInitialContainingBlock.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RubyFormattingContext.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextUtil.h"
 #include <ranges>
 #include <wtf/ListHashSet.h>
@@ -143,22 +143,23 @@ InlineDisplay::Boxes InlineDisplayContentBuilder::buildTextOnlyContent(const Lin
     return boxes;
 }
 
-static inline bool computeInkOverflowForInlineLevelBox(const RenderStyle& style, FloatRect& inkOverflow)
+static inline bool computeInkOverflowForInlineLevelBox(const Style::ComputedStyle& style, FloatRect& inkOverflow)
 {
     auto hasInkOverflow = false;
+    auto zoom = style.usedZoomForLength();
 
     auto inflateWithOutline = [&] {
         if (!style.hasOutlineInVisualOverflow())
             return;
-        inkOverflow.inflate(style.usedOutlineSize());
+        inkOverflow.inflate(style.usedOutlineSize(zoom, style.deviceScaleFactor()));
         hasInkOverflow = true;
     };
     inflateWithOutline();
 
     auto inflateWithBoxShadow = [&] {
         // FIXME: Use `Style::shadowOutsetExtent` to get all 4 extents at once after static cast to `int` in `shadowVerticalExtent` is understood.
-        auto [topBoxShadow, bottomBoxShadow] = Style::shadowVerticalExtent(style.boxShadow(), style.usedZoomForLength());
-        auto [leftBoxShadow, rightBoxShadow] = Style::shadowHorizontalExtent(style.boxShadow(), style.usedZoomForLength());
+        auto [topBoxShadow, bottomBoxShadow] = Style::shadowVerticalExtent(style.boxShadow(), zoom);
+        auto [leftBoxShadow, rightBoxShadow] = Style::shadowHorizontalExtent(style.boxShadow(), zoom);
         if (!topBoxShadow && !bottomBoxShadow && !leftBoxShadow && !rightBoxShadow)
             return;
         inkOverflow.inflate(-leftBoxShadow.toFloat(), -topBoxShadow.toFloat(), rightBoxShadow.toFloat(), bottomBoxShadow.toFloat());
@@ -169,20 +170,27 @@ static inline bool computeInkOverflowForInlineLevelBox(const RenderStyle& style,
     return hasInkOverflow;
 }
 
-static inline bool computeInkOverflowForInlineBox(const InlineLevelBox& inlineBox, const RenderStyle& style, FloatRect& inkOverflow)
+static inline bool hasInlineBoxInkOverflow(const InlineLevelBox& inlineBox, const Style::ComputedStyle& style)
 {
     ASSERT(inlineBox.isInlineBox());
-    auto hasInkOverflow = computeInkOverflowForInlineLevelBox(style, inkOverflow);
+    return style.hasOutlineInVisualOverflow() || !style.boxShadow().isNone() || inlineBox.hasTextEmphasis();
+}
 
-    auto inflateWithAnnotation = [&] {
-        if (!inlineBox.hasTextEmphasis())
-            return;
-        inkOverflow.inflate(0.f, inlineBox.textEmphasisAbove().value_or(0.f), 0.f, inlineBox.textEmphasisBelow().value_or(0.f));
-        hasInkOverflow = true;
-    };
-    inflateWithAnnotation();
+static inline void adjustInkOverflowForInlineBox(const Box& layoutBox, const ElementBox& rootBox, const Style::ComputedStyle& style, FloatRect& inkOverflow)
+{
+    if (style.hasOutlineInVisualOverflow())
+        inkOverflow.inflate(style.usedOutlineSize(style.usedZoomForLength(), style.deviceScaleFactor()));
 
-    return hasInkOverflow;
+    if (!style.boxShadow().isNone()) {
+        auto [topBoxShadow, bottomBoxShadow] = Style::shadowVerticalExtent(style.boxShadow(), style.usedZoomForLength());
+        auto [leftBoxShadow, rightBoxShadow] = Style::shadowHorizontalExtent(style.boxShadow(), style.usedZoomForLength());
+        if (topBoxShadow || bottomBoxShadow || leftBoxShadow || rightBoxShadow)
+            inkOverflow.inflate(-leftBoxShadow.toFloat(), -topBoxShadow.toFloat(), rightBoxShadow.toFloat(), bottomBoxShadow.toFloat());
+    }
+
+    auto [textEmphasisAbove, textEmphasisBelow] = InlineFormattingUtils::textEmphasisForInlineBox(layoutBox, rootBox);
+    if (textEmphasisAbove || textEmphasisBelow)
+        inkOverflow.inflate(0.f, textEmphasisAbove, 0.f, textEmphasisBelow);
 }
 
 void InlineDisplayContentBuilder::appendTextDisplayBox(const Line::Run& lineRun, const InlineRect& textRunRect, InlineDisplay::Boxes& boxes)
@@ -420,7 +428,7 @@ void InlineDisplayContentBuilder::appendInlineBoxDisplayBox(const Line::Run& lin
     auto inkOverflow = [&] {
         CheckedRef style = isFirstFormattedLine() ? layoutBox->firstLineStyle() : layoutBox->style();
         auto inkOverflow = FloatRect { inlineBoxBorderBox };
-        m_contentHasInkOverflow = computeInkOverflowForInlineBox(inlineBox, style, inkOverflow) || m_contentHasInkOverflow;
+        m_contentHasInkOverflow |= hasInlineBoxInkOverflow(inlineBox, style);
         return inkOverflow;
     };
 
@@ -802,7 +810,7 @@ void InlineDisplayContentBuilder::adjustVisualGeometryForDisplayBox(size_t displ
     ASSERT(inlineBox);
     auto computeInkOverflow = [&] {
         auto inkOverflow = FloatRect { displayBox.visualRectIgnoringBlockDirection() };
-        m_contentHasInkOverflow = computeInkOverflowForInlineBox(*inlineBox, isFirstFormattedLine() ? layoutBox->firstLineStyle() : layoutBox->style(), inkOverflow) || m_contentHasInkOverflow;
+        m_contentHasInkOverflow |= hasInlineBoxInkOverflow(*inlineBox, isFirstFormattedLine() ? layoutBox->firstLineStyle() : layoutBox->style());
         displayBox.adjustInkOverflow(inkOverflow);
     };
     computeInkOverflow();
@@ -1090,8 +1098,14 @@ void InlineDisplayContentBuilder::collectInkOverflowForInlineBoxes(std::span<Inl
         auto mayHaveInkOverflow = displayBox.isText() || displayBox.isAtomicInlineBox() || displayBox.isGenericInlineLevelBox() || displayBox.isNonRootInlineBox();
         if (!mayHaveInkOverflow)
             continue;
-        if (displayBox.isNonRootInlineBox() && !accumulatedInkOverflowRect.isEmpty())
-            displayBox.adjustInkOverflow(accumulatedInkOverflowRect);
+        if (displayBox.isNonRootInlineBox()) {
+            if (!accumulatedInkOverflowRect.isEmpty())
+                displayBox.adjustInkOverflow(accumulatedInkOverflowRect);
+            auto& layoutBox = displayBox.layoutBox();
+            auto inkOverflowRect = displayBox.inkOverflow();
+            adjustInkOverflowForInlineBox(layoutBox, root(), layoutBox.style(), inkOverflowRect);
+            displayBox.adjustInkOverflow(inkOverflowRect);
+        }
 
         // We stop collecting ink overflow for at root inline box (i.e. don't inflate the root inline box with the inline content here).
         auto parentBoxIsRoot = &displayBox.layoutBox().parent() == &root();
@@ -1322,7 +1336,7 @@ size_t InlineDisplayContentBuilder::processRubyBase(size_t rubyBaseStart, std::s
 Vector<size_t> InlineDisplayContentBuilder::processRubyContent(std::span<InlineDisplay::Box> displayBoxes, const LineLayoutResult& lineLayoutResult)
 {
     if (root().isRubyAnnotationBox())
-        RubyFormattingContext::applyAnnotationAlignmentOffset(displayBoxes, lineLayoutResult.ruby.annotationAlignmentOffset, formattingContext());
+        RubyFormattingContext::adjustAnnotationContentWithAlignmentOffset(displayBoxes, lineLayoutResult.ruby.annotationAlignmentOffset, formattingContext());
 
     if (!m_hasSeenRubyBase)
         return { };
@@ -1333,8 +1347,7 @@ Vector<size_t> InlineDisplayContentBuilder::processRubyContent(std::span<InlineD
             lineSpanningRubyBaseList.add(&lineRun.layoutBox());
     }
 
-    auto rubyBasesMayHaveCollapsed = !lineLayoutResult.directionality.visualOrderList.isEmpty();
-    RubyFormattingContext::applyAlignmentOffsetList(displayBoxes, lineLayoutResult.ruby.baseAlignmentOffsetList, rubyBasesMayHaveCollapsed ? RubyFormattingContext::RubyBasesMayNeedResizing::Yes : RubyFormattingContext::RubyBasesMayNeedResizing::No, formattingContext());
+    RubyFormattingContext::adjustRubyBaseContentWithAlignmentOffset(displayBoxes, lineLayoutResult.ruby.baseAlignmentOffsetList, formattingContext());
 
     Vector<WTF::Range<size_t>> interlinearRubyColumnRangeList;
     Vector<size_t> rubyBaseStartIndexListWithAnnotation;

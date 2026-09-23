@@ -64,9 +64,9 @@ private:
     Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) const override;
     SerializedNode serializeNode(CloningOperation) const override;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void didFinishInsertingNode() override;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void postConnectionSteps() override;
+    void removingSteps(RemovalType, ContainerNode&) override;
 
     void checkStyleSheet();
     void setCSSStyleSheet(const String& href, const URL& baseURL, ASCIILiteral charset, const CachedCSSStyleSheet*) override;
@@ -77,7 +77,7 @@ private:
     bool isLoading() const;
     bool sheetLoaded() override;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const override;
 
     void parseStyleSheet(const String& sheet);
 

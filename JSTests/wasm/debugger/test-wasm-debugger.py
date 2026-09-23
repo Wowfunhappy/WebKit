@@ -1,178 +1,146 @@
 #!/usr/bin/env python3
 """
-WebAssembly Debugger Test Framework
+WebAssembly Debugger Test Runner
 """
 
-import sys
-import os
 import argparse
-from lib.core.utils import Logger
-from lib.runners.parallel import ParallelWebAssemblyDebuggerTestRunner
-from lib.discovery.auto_discovery import (
-    create_auto_registered_runner,
-    TestCaseDiscovery,
-)
+import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-# Prevent creation of __pycache__ directories
-sys.dont_write_bytecode = True
+from lib.session import DebugSession
+from lib.environment import WebKitEnvironment
+from lib.utils import log_pass, log_fail, log_info, log_header, set_verbose
+from tests.tests import ALL_TESTS
+from tests.jsc import JavaScriptCoreTestCase
 
 
 def get_optimal_worker_count():
-    """Calculate optimal number of workers based on system capabilities"""
-    try:
-        # Get CPU count
-        cpu_count = os.cpu_count() or 4
-
-        # For I/O-bound WebAssembly debugging tests, we can use more workers than CPU cores
-        # But not too many to avoid resource contention
-        if cpu_count <= 2:
-            return cpu_count
-        elif cpu_count <= 4:
-            return cpu_count + 1  # 3-5 workers
-        elif cpu_count <= 8:
-            return cpu_count + 2  # 6-10 workers
-        else:
-            return min(cpu_count + 4, 16)  # Cap at 16 workers max
-    except Exception:
-        return 4  # Safe fallback
-
-
-def calculate_smart_workers(test_count, requested_workers=None):
-    """Calculate smart worker count based on tests and system"""
-    if requested_workers is not None:
-        return requested_workers
-
-    optimal_workers = get_optimal_worker_count()
-    # Don't use more workers than tests (no point in having idle workers)
-    return min(test_count, optimal_workers)
-
-
-def create_test_runner(
-    verbose=False, build_config=None, parallel=False, workers=None, test_names=None, verbose_wasm_debugger=False
-):
-    """Create test runner with auto-discovered test cases and smart worker calculation"""
-    if parallel:
-        # First create a temporary runner to get test count
-        temp_runner = create_auto_registered_runner(
-            build_config=build_config, verbose_wasm_debugger=verbose_wasm_debugger
-        )
-
-        # Calculate test count
-        if test_names:
-            test_count = len(
-                [
-                    name
-                    for name in test_names
-                    if temp_runner.registry.get_test_class(name)
-                ]
-            )
-        else:
-            test_count = len(temp_runner.registry.get_all_test_names())
-
-        # Calculate smart worker count
-        smart_workers = calculate_smart_workers(test_count, workers)
-
-        if verbose:
-            Logger.info(
-                f"Smart parallel execution: {test_count} tests, {smart_workers} workers (CPU cores: {os.cpu_count()})"
-            )
-
-        runner = ParallelWebAssemblyDebuggerTestRunner(
-            build_config=build_config,
-            verbose_wasm_debugger=verbose_wasm_debugger,
-            max_workers=smart_workers,
-            verbose_parallel=verbose,
-        )
-        discovery = TestCaseDiscovery()
-        discovery.auto_register_tests(runner.registry)
+    cpu = os.cpu_count() or 4
+    if cpu <= 2:
+        return cpu
+    elif cpu <= 4:
+        return cpu + 1
+    elif cpu <= 8:
+        return cpu + 2
     else:
-        runner = create_auto_registered_runner(
-            build_config=build_config, verbose_wasm_debugger=verbose_wasm_debugger
-        )
-    return runner
+        return min(cpu + 4, 16)
+
+
+def calculate_smart_workers(test_count, requested=None):
+    if requested is not None:
+        return requested
+    return min(test_count, get_optimal_worker_count())
+
+
+def run_one(cls, port, env, verbose, verbose_wasm_debugger):
+    """Run a single test class. Returns True on pass, False on fail."""
+    start = time.monotonic()
+
+    # JavaScriptCoreTestCase runs a subprocess directly — no DebugSession.
+    if getattr(cls, "test_file", None) is None:
+        try:
+            cls(env).execute()
+            log_pass(cls.__name__, time.monotonic() - start)
+            return True
+        except Exception as e:
+            log_fail(cls.__name__, time.monotonic() - start, e)
+            return False
+
+    extra = list(getattr(cls, "extra_jsc_options", None) or [])
+    if verbose_wasm_debugger:
+        extra.append("--verboseWasmDebugger=1")
+
+    try:
+        with DebugSession(
+            cls.test_file, port,
+            str(env.jsc_path), env.lldb_path, env.env,
+            extra, verbose, cls.__name__,
+        ) as session:
+            instance = cls()
+            instance.session = session
+            instance.execute()
+        log_pass(cls.__name__, time.monotonic() - start)
+        return True
+    except Exception as e:
+        log_fail(cls.__name__, time.monotonic() - start, e)
+        return False
 
 
 def main():
-    """Main entry point"""
-    parser = argparse.ArgumentParser(description="WebAssembly Debugger Test Framework")
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose logging"
-    )
-    parser.add_argument(
-        "--verbose-wasm-debugger", action="store_true", help="Enable verbose WebAssembly debugger logging (--verboseWasmDebugger=1)"
-    )
-    parser.add_argument(
-        "--pid-tid", action="store_true", help="Enable PID/TID prefixes"
-    )
-    parser.add_argument(
-        "--test", "-t", action="append", help="Run specific test case(s)"
-    )
-    parser.add_argument(
-        "--list", "-l", action="store_true", help="List available test cases"
-    )
-    parser.add_argument(
-        "--parallel",
-        "-p",
-        type=int,
-        nargs="?",
-        const=-1,
-        metavar="N",
-        help="Enable parallel execution with N workers (default: auto-detect based on tests and CPU)",
-    )
+    parser = argparse.ArgumentParser(description="WebAssembly Debugger Test Runner")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Print all LLDB/JSC output")
+    parser.add_argument("--verbose-wasm-debugger", action="store_true",
+                        help="Pass --verboseWasmDebugger=1 to JSC")
+    parser.add_argument("--pid-tid", action="store_true",
+                        help="Prefix output with [TestName] (implied by --verbose)")
+    parser.add_argument("--test", "-t", action="append", metavar="NAME",
+                        help="Run specific test(s); may be repeated")
+    parser.add_argument("--list", "-l", action="store_true",
+                        help="List available test cases and exit")
+    parser.add_argument("--parallel", "-p", type=int, nargs="?", const=-1, metavar="N",
+                        help="Parallel workers (omit N for auto-detect)")
 
     build_group = parser.add_mutually_exclusive_group()
-    build_group.add_argument("--debug", action="store_true", help="Use Debug build")
+    build_group.add_argument("--debug",   action="store_true", help="Use Debug build")
     build_group.add_argument("--release", action="store_true", help="Use Release build")
 
     args = parser.parse_args()
 
+    # --pid-tid and --verbose-wasm-debugger both imply verbose output
+    verbose = args.verbose or args.pid_tid or args.verbose_wasm_debugger
+    set_verbose(verbose)
+
     build_config = "Debug" if args.debug else "Release" if args.release else None
-    parallel = args.parallel is not None
-    # Use -1 as sentinel for auto-detect, otherwise use specified value
-    workers = None if args.parallel == -1 else args.parallel
+    env = WebKitEnvironment(Path(__file__), build_config)
 
-    if args.verbose_wasm_debugger:
-        args.verbose = True
-
-    if args.verbose:
-        Logger.set_verbose(True)
-
-    if args.pid_tid or parallel:
-        Logger.set_pid_tid_logging(True)
-
-    runner = create_test_runner(
-        args.verbose, build_config, parallel, workers, args.test, args.verbose_wasm_debugger
-    )
+    all_tests = list(ALL_TESTS) + [JavaScriptCoreTestCase]
 
     if args.list:
-        print("Available test cases:")
-        for name in runner.registry.get_all_test_names():
-            print(f"  {name}")
+        for cls in all_tests:
+            print(cls.__name__)
         return
 
-    try:
-        if args.test:
-            results = (
-                runner.run_specific_tests_parallel(args.test)
-                if parallel
-                else runner.run_specific_tests(args.test)
-            )
-        else:
-            results = (
-                runner.run_all_tests_parallel() if parallel else runner.run_all_tests()
-            )
+    # Filter by --test names if given
+    if args.test:
+        requested = set(args.test)
+        tests = [cls for cls in all_tests if cls.__name__ in requested]
+        missing = requested - {cls.__name__ for cls in tests}
+        for name in sorted(missing):
+            log_info(f"Unknown test: {name}")
+        if not tests:
+            log_info("No matching tests found.")
+            sys.exit(1)
+    else:
+        tests = all_tests
 
-        sys.exit(1 if runner.get_failed_count() > 0 else 0)
+    # Assign stable ports: index in all_tests (not filtered list) so ports
+    # don't shift when --test filters a subset.
+    port_map = {cls: 12340 + i for i, cls in enumerate(all_tests)}
+    tasks = [(cls, port_map[cls], env, verbose, args.verbose_wasm_debugger)
+             for cls in tests]
 
-    except KeyboardInterrupt:
-        Logger.info("Test interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        Logger.error(f"Test suite failed: {e}")
-        sys.exit(1)
-    finally:
-        runner.cleanup()
-        Logger.cleanup_interception()
+    parallel = args.parallel is not None
+    requested_workers = None if args.parallel == -1 else args.parallel
+
+    log_header(f"Running {len(tests)} test(s)" +
+               (f" — parallel={calculate_smart_workers(len(tests), requested_workers)}"
+                if parallel else " — sequential"))
+
+    if parallel:
+        workers = calculate_smart_workers(len(tests), requested_workers)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(lambda a: run_one(*a), tasks))
+    else:
+        results = [run_one(*a) for a in tasks]
+
+    passed = sum(results)
+    failed = len(results) - passed
+    log_header(f"{passed}/{len(results)} passed" + (f", {failed} failed" if failed else ""))
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":

@@ -313,9 +313,9 @@ bool ScrollingCoordinator::hasVisibleSlowRepaintViewportConstrainedObjects(const
         auto* viewportConstrainedBoxModelObject = dynamicDowncast<RenderBoxModelObject>(viewportConstrainedObject.get());
         if (!viewportConstrainedBoxModelObject || !viewportConstrainedBoxModelObject->hasLayer())
             return true;
-        CheckedRef layer = *viewportConstrainedBoxModelObject->layer();
+        auto& layer = *viewportConstrainedBoxModelObject->layer();
         // Any explicit reason that a fixed position element is not composited shouldn't cause slow scrolling.
-        if (!layer->isComposited() && layer->viewportConstrainedNotCompositedReason() == RenderLayer::NoNotCompositedReason)
+        if (!layer.isComposited() && layer.viewportConstrainedNotCompositedReason() == RenderLayer::NoNotCompositedReason)
             return true;
     }
     return false;

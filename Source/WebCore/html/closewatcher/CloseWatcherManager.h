@@ -39,7 +39,7 @@ public:
     void NODELETE notifyAboutUserActivation();
     bool NODELETE canPreventClose();
 
-    void escapeKeyHandler(KeyboardEvent&);
+    void processCloseWatchers();
 private:
     Vector<Vector<Ref<CloseWatcher>>> m_groups;
     uint32_t m_allowedNumberOfGroups { 1 };

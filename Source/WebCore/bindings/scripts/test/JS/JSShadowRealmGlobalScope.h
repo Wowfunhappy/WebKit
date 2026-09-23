@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <WebCore/JSDOMBindingFacade.h>
 #include <WebCore/JSDOMWrapper.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -30,23 +31,14 @@ class ShadowRealmGlobalScope;
 class JSShadowRealmGlobalScope : public JSDOMWrapper<ShadowRealmGlobalScope> {
 public:
     using Base = JSDOMWrapper<ShadowRealmGlobalScope>;
-    static JSShadowRealmGlobalScope* create(JSC::VM& vm, JSC::Structure* structure, Ref<ShadowRealmGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
-    {
-        JSShadowRealmGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSShadowRealmGlobalScope>(vm)) JSShadowRealmGlobalScope(vm, structure, WTF::move(impl));
-        ptr->finishCreation(vm, proxy);
-        return ptr;
-    }
+    static JSShadowRealmGlobalScope* create(JSC::VM&, JSC::Structure*, Ref<ShadowRealmGlobalScope>&&, JSC::JSGlobalProxy*);
 
     static ShadowRealmGlobalScope* toWrapped(JSC::VM&, JSC::JSValue);
     static void destroy(JSC::JSCell*);
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info(), JSC::NonArray);
-    }
-
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
     template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
@@ -65,8 +57,12 @@ protected:
 
 class JSShadowRealmGlobalScopeOwner final : public JSC::WeakHandleOwner {
 public:
+    JSShadowRealmGlobalScopeOwner() = default;
     bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
     void finalize(JSC::Handle<JSC::Unknown>, void* context) final;
+
+private:
+    explicit JSShadowRealmGlobalScopeOwner(ClangVTableWorkaroundTag);
 };
 
 inline JSC::WeakHandleOwner* wrapperOwner(DOMWrapperWorld&, ShadowRealmGlobalScope*)

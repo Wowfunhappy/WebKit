@@ -30,6 +30,9 @@
 #include <WebCore/GraphicsLayer.h>
 #include <WebCore/ScrollingCoordinator.h>
 #include <WebCore/ScrollingPlatformLayer.h>
+#if USE(COORDINATED_GRAPHICS)
+#include <WebCore/CoordinatedPlatformLayer.h>
+#endif
 #include <stdint.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -55,144 +58,103 @@ class ScrollingStateTree;
 class LayerRepresentation {
 public:
     enum Type {
-        EmptyRepresentation,
         GraphicsLayerRepresentation,
         PlatformLayerRepresentation,
         PlatformLayerIDRepresentation
     };
 
+#if PLATFORM(COCOA)
+    using PlatformLayerHolder = PlatformLayerContainer;
+#elif USE(COORDINATED_GRAPHICS)
+    using PlatformLayerHolder = RefPtr<CoordinatedPlatformLayer>;
+#endif
+
     LayerRepresentation() = default;
 
     LayerRepresentation(GraphicsLayer* graphicsLayer)
-        : m_graphicsLayer(graphicsLayer)
-        , m_layerID(graphicsLayer ? std::optional { graphicsLayer->primaryLayerID() } : std::nullopt)
-        , m_representation(GraphicsLayerRepresentation)
+        : m_data(GraphicsLayerData { graphicsLayer, graphicsLayer ? std::optional { graphicsLayer->primaryLayerID() } : std::nullopt })
     { }
 
     LayerRepresentation(ScrollingPlatformLayer* platformLayer)
-        : m_typelessPlatformLayer(makePlatformLayerTypeless(platformLayer))
-        , m_representation(PlatformLayerRepresentation)
-    {
-        retainPlatformLayer(m_typelessPlatformLayer);
-    }
+        : m_data(PlatformLayerHolder { platformLayer })
+    { }
 
     LayerRepresentation(std::optional<PlatformLayerIdentifier> layerID)
-        : m_layerID(layerID)
-        , m_representation(PlatformLayerIDRepresentation)
-    {
-    }
-
-    LayerRepresentation(const LayerRepresentation& other)
-        : m_typelessPlatformLayer(other.m_typelessPlatformLayer)
-        , m_layerID(other.m_layerID)
-        , m_representation(other.m_representation)
-    {
-        if (m_representation == PlatformLayerRepresentation)
-            retainPlatformLayer(m_typelessPlatformLayer);
-    }
-
-    ~LayerRepresentation()
-    {
-        if (m_representation == PlatformLayerRepresentation)
-            releasePlatformLayer(m_typelessPlatformLayer);
-    }
+        : m_data(Markable<PlatformLayerIdentifier> { layerID })
+    { }
 
     explicit operator GraphicsLayer*() const
     {
-        ASSERT(m_representation == GraphicsLayerRepresentation);
-        return m_graphicsLayer.get();
+        ASSERT(std::holds_alternative<GraphicsLayerData>(m_data));
+        return std::get<GraphicsLayerData>(m_data).graphicsLayer.get();
     }
 
     explicit operator ScrollingPlatformLayer*() const
     {
-        ASSERT(m_representation == PlatformLayerRepresentation);
-        return makePlatformLayerTyped(m_typelessPlatformLayer);
+        ASSERT(std::holds_alternative<PlatformLayerHolder>(m_data)); // Somehow we can get here without a platform layer: rdar://178173007.
+        if (auto* holder = std::get_if<PlatformLayerHolder>(&m_data))
+            return holder->get();
+        return nullptr;
     }
-    
+
     std::optional<PlatformLayerIdentifier> layerID() const
     {
-        return m_layerID.asOptional();
-    }
-
-    LayerRepresentation& operator=(const LayerRepresentation& other)
-    {
-        m_graphicsLayer = other.m_graphicsLayer;
-        m_typelessPlatformLayer = other.m_typelessPlatformLayer;
-        m_layerID = other.m_layerID;
-        m_representation = other.m_representation;
-
-        if (m_representation == PlatformLayerRepresentation)
-            retainPlatformLayer(m_typelessPlatformLayer);
-
-        return *this;
+        return WTF::switchOn(m_data,
+            [](const GraphicsLayerData& data) -> std::optional<PlatformLayerIdentifier> { return data.layerID.asOptional(); },
+            [](const Markable<PlatformLayerIdentifier>& layerID) -> std::optional<PlatformLayerIdentifier> { return layerID.asOptional(); },
+            [](const auto&) -> std::optional<PlatformLayerIdentifier> { return std::nullopt; }
+        );
     }
 
     explicit operator bool() const
     {
-        switch (m_representation) {
-        case EmptyRepresentation:
-            return false;
-        case GraphicsLayerRepresentation:
-            return !!m_graphicsLayer;
-        case PlatformLayerRepresentation:
-            return !!m_typelessPlatformLayer;
-        case PlatformLayerIDRepresentation:
-            return !!m_layerID;
-        }
-        ASSERT_NOT_REACHED();
-        return false;
+        return WTF::switchOn(m_data,
+            [](std::monostate) { return false; },
+            [](const GraphicsLayerData& data) { return !!data.graphicsLayer; },
+            [](const PlatformLayerHolder& holder) { return !!holder; },
+            [](const Markable<PlatformLayerIdentifier>& layerID) { return !!layerID; }
+        );
     }
 
-    bool operator==(const LayerRepresentation& other) const
-    {
-        if (m_representation != other.m_representation)
-            return false;
-        switch (m_representation) {
-        case EmptyRepresentation:
-            return true;
-        case GraphicsLayerRepresentation:
-            return m_graphicsLayer == other.m_graphicsLayer
-                && m_layerID == other.m_layerID;
-        case PlatformLayerRepresentation:
-            return m_typelessPlatformLayer == other.m_typelessPlatformLayer;
-        case PlatformLayerIDRepresentation:
-            return m_layerID == other.m_layerID;
-        }
-        ASSERT_NOT_REACHED();
-        return true;
-    }
-    
+    bool operator==(const LayerRepresentation& other) const = default;
+
     LayerRepresentation toRepresentation(Type representation) const
     {
         switch (representation) {
-        case EmptyRepresentation:
-            return LayerRepresentation();
-        case GraphicsLayerRepresentation:
-            ASSERT(m_representation == GraphicsLayerRepresentation);
-            return LayerRepresentation(m_graphicsLayer.get());
-        case PlatformLayerRepresentation:
-            return m_graphicsLayer ? platformLayerFromGraphicsLayer(Ref { *m_graphicsLayer }) : nullptr;
+        case GraphicsLayerRepresentation: {
+            ASSERT(std::holds_alternative<GraphicsLayerData>(m_data));
+            auto& data = std::get<GraphicsLayerData>(m_data);
+            return LayerRepresentation(data.graphicsLayer.get());
+        }
+        case PlatformLayerRepresentation: {
+            if (std::holds_alternative<GraphicsLayerData>(m_data)) {
+                auto& data = std::get<GraphicsLayerData>(m_data);
+                if (data.graphicsLayer)
+                    return platformLayerFromGraphicsLayer(Ref { *data.graphicsLayer });
+            }
+            return static_cast<ScrollingPlatformLayer*>(nullptr);
+        }
         case PlatformLayerIDRepresentation:
-            return LayerRepresentation(m_layerID);
+            return LayerRepresentation(layerID());
         }
         ASSERT_NOT_REACHED();
         return LayerRepresentation();
     }
 
-    bool representsGraphicsLayer() const { return m_representation == GraphicsLayerRepresentation; }
-    bool representsPlatformLayerID() const { return m_representation == PlatformLayerIDRepresentation; }
-    
+    bool representsGraphicsLayer() const { return std::holds_alternative<GraphicsLayerData>(m_data); }
+    bool representsPlatformLayerID() const { return std::holds_alternative<Markable<PlatformLayerIdentifier>>(m_data); }
+
 private:
-    WEBCORE_EXPORT static void retainPlatformLayer(void* typelessPlatformLayer);
-    WEBCORE_EXPORT static void releasePlatformLayer(void* typelessPlatformLayer);
-    WEBCORE_EXPORT static ScrollingPlatformLayer* makePlatformLayerTyped(void* typelessPlatformLayer);
-    WEBCORE_EXPORT static void* makePlatformLayerTypeless(ScrollingPlatformLayer*);
+    struct GraphicsLayerData {
+        RefPtr<GraphicsLayer> graphicsLayer;
+        Markable<PlatformLayerIdentifier> layerID;
+
+        friend bool operator==(const GraphicsLayerData&, const GraphicsLayerData&) = default;
+    };
+
     WEBCORE_EXPORT static ScrollingPlatformLayer* platformLayerFromGraphicsLayer(GraphicsLayer&);
 
-    RefPtr<GraphicsLayer> m_graphicsLayer;
-    void* m_typelessPlatformLayer { nullptr };
-    Markable<PlatformLayerIdentifier> m_layerID;
-    Type m_representation { EmptyRepresentation };
+    Variant<std::monostate, GraphicsLayerData, PlatformLayerHolder, Markable<PlatformLayerIdentifier>> m_data;
 };
 
 enum class ScrollingStateNodeProperty : uint64_t {
@@ -239,9 +201,9 @@ enum class ScrollingStateNodeProperty : uint64_t {
     FooterHeight                                = HeaderHeight << 1,
     BehaviorForFixedElements                    = FooterHeight << 1,
     ObscuredContentInsets                       = BehaviorForFixedElements << 1,
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    BannerViewHeight                            = ObscuredContentInsets << 1,
-    VisualViewportIsSmallerThanLayoutViewport   = BannerViewHeight << 1,
+#if HAVE(NSREFRESHCONTROLLER)
+    TopScrollStretchForRefreshController        = ObscuredContentInsets << 1,
+    VisualViewportIsSmallerThanLayoutViewport   = TopScrollStretchForRefreshController << 1,
 #else
     VisualViewportIsSmallerThanLayoutViewport   = ObscuredContentInsets << 1,
 #endif

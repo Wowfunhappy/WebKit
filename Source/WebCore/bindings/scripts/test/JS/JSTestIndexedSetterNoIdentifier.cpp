@@ -27,6 +27,7 @@
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMExceptionHandling.h"
@@ -36,7 +37,6 @@
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
 #include <JavaScriptCore/HeapAnalyzer.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/PropertyNameArray.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -70,10 +70,7 @@ public:
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestIndexedSetterNoIdentifierPrototype, Base);
         return &vm.plainObjectSpace();
     }
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
 private:
     JSTestIndexedSetterNoIdentifierPrototype(JSC::VM& vm, JSC::JSGlobalObject*, JSC::Structure* structure)
@@ -112,11 +109,16 @@ static const std::array<HashTableValue, 1> JSTestIndexedSetterNoIdentifierProtot
 
 const ClassInfo JSTestIndexedSetterNoIdentifierPrototype::s_info = { "TestIndexedSetterNoIdentifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIndexedSetterNoIdentifierPrototype) };
 
+JSC::Structure* JSTestIndexedSetterNoIdentifierPrototype::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 void JSTestIndexedSetterNoIdentifierPrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestIndexedSetterNoIdentifier::info(), JSTestIndexedSetterNoIdentifierPrototypeTableValues, *this);
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
 }
 
 const ClassInfo JSTestIndexedSetterNoIdentifier::s_info = { "TestIndexedSetterNoIdentifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIndexedSetterNoIdentifier) };
@@ -127,6 +129,19 @@ JSTestIndexedSetterNoIdentifier::JSTestIndexedSetterNoIdentifier(Structure* stru
 }
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestIndexedSetterNoIdentifier>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
+
+JSTestIndexedSetterNoIdentifier* JSTestIndexedSetterNoIdentifier::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestIndexedSetterNoIdentifier>&& impl)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestIndexedSetterNoIdentifier* ptr = new (NotNull, JSC::allocateCell<JSTestIndexedSetterNoIdentifier>(vm)) JSTestIndexedSetterNoIdentifier(structure, *globalObject, WTF::move(impl));
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestIndexedSetterNoIdentifier::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::MayHaveIndexedAccessors);
+}
 
 JSObject* JSTestIndexedSetterNoIdentifier::createPrototype(VM& vm, JSDOMGlobalObject& globalObject)
 {
@@ -142,7 +157,7 @@ JSObject* JSTestIndexedSetterNoIdentifier::prototype(VM& vm, JSDOMGlobalObject& 
 
 JSValue JSTestIndexedSetterNoIdentifier::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestIndexedSetterNoIdentifierDOMConstructor, DOMConstructorID::TestIndexedSetterNoIdentifier>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestIndexedSetterNoIdentifierDOMConstructor, DOMConstructorID::TestIndexedSetterNoIdentifier>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestIndexedSetterNoIdentifier::destroy(JSC::JSCell* cell)
@@ -155,7 +170,7 @@ bool JSTestIndexedSetterNoIdentifier::legacyPlatformObjectGetOwnProperty(JSObjec
 {
     UNUSED_PARAM(ignoreNamedProperties);
     auto throwScope = DECLARE_THROW_SCOPE(JSC::getVM(lexicalGlobalObject));
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(object);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (auto index = parseIndex(propertyName)) {
         if (auto item = thisObject->wrapped().item(index.value()); !!item) [[likely]] {
@@ -165,7 +180,7 @@ bool JSTestIndexedSetterNoIdentifier::legacyPlatformObjectGetOwnProperty(JSObjec
             return true;
         }
     }
-    return JSObject::getOwnPropertySlot(object, lexicalGlobalObject, propertyName, slot);
+    return WebCore::getOwnPropertySlot(object, lexicalGlobalObject, propertyName, slot);
 }
 
 bool JSTestIndexedSetterNoIdentifier::getOwnPropertySlot(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot)
@@ -178,7 +193,7 @@ bool JSTestIndexedSetterNoIdentifier::getOwnPropertySlotByIndex(JSObject* object
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(object);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (index <= MAX_ARRAY_INDEX) [[likely]] {
         if (auto item = thisObject->wrapped().item(index); !!item) [[likely]] {
@@ -194,7 +209,7 @@ bool JSTestIndexedSetterNoIdentifier::getOwnPropertySlotByIndex(JSObject* object
 void JSTestIndexedSetterNoIdentifier::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(object);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(object);
     ASSERT_GC_OBJECT_INHERITS(object, info());
     for (unsigned i = 0, count = thisObject->wrapped().length(); i < count; ++i)
         propertyNames.add(Identifier::from(vm, i));
@@ -203,7 +218,7 @@ void JSTestIndexedSetterNoIdentifier::getOwnPropertyNames(JSObject* object, JSGl
 
 bool JSTestIndexedSetterNoIdentifier::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, JSValue value, PutPropertySlot& putPropertySlot)
 {
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     if (thisObject != putPropertySlot.thisValue()) [[unlikely]]
@@ -224,7 +239,7 @@ bool JSTestIndexedSetterNoIdentifier::put(JSCell* cell, JSGlobalObject* lexicalG
 
 bool JSTestIndexedSetterNoIdentifier::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool shouldThrow)
 {
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
@@ -246,7 +261,7 @@ bool JSTestIndexedSetterNoIdentifier::putByIndex(JSCell* cell, JSGlobalObject* l
 
 bool JSTestIndexedSetterNoIdentifier::defineOwnProperty(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, const PropertyDescriptor& propertyDescriptor, bool shouldThrow)
 {
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(object);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject->vm());
@@ -268,11 +283,11 @@ bool JSTestIndexedSetterNoIdentifier::defineOwnProperty(JSObject* object, JSGlob
 
 bool JSTestIndexedSetterNoIdentifier::deleteProperty(JSCell* cell, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, DeletePropertySlot& slot)
 {
-    auto& thisObject = *jsCast<JSTestIndexedSetterNoIdentifier*>(cell);
+    auto& thisObject = *uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(cell);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(jsDynamicCast<JSDOMGlobalObject*>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deleteProperty(cell, lexicalGlobalObject, propertyName, slot);
     }
@@ -285,11 +300,11 @@ bool JSTestIndexedSetterNoIdentifier::deleteProperty(JSCell* cell, JSGlobalObjec
 bool JSTestIndexedSetterNoIdentifier::deletePropertyByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index)
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    auto& thisObject = *jsCast<JSTestIndexedSetterNoIdentifier*>(cell);
+    auto& thisObject = *uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(cell);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(jsDynamicCast<JSDOMGlobalObject*>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deletePropertyByIndex(cell, lexicalGlobalObject, index);
     }
@@ -301,10 +316,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestIndexedSetterNoIdentifierConstructor, (JSGlobalOb
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestIndexedSetterNoIdentifierPrototype*>(JSValue::decode(thisValue));
+    auto* prototype = dynamicDowncast<JSTestIndexedSetterNoIdentifierPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
         return throwVMTypeError(lexicalGlobalObject, throwScope);
-    return JSValue::encode(JSTestIndexedSetterNoIdentifier::getConstructor(vm, prototype->globalObject()));
+    return JSValue::encode(JSTestIndexedSetterNoIdentifier::getConstructor(vm, prototype->realm()));
 }
 
 JSC::GCClient::IsoSubspace* JSTestIndexedSetterNoIdentifier::subspaceForImpl(JSC::VM& vm)
@@ -319,12 +334,14 @@ JSC::GCClient::IsoSubspace* JSTestIndexedSetterNoIdentifier::subspaceForImpl(JSC
 
 void JSTestIndexedSetterNoIdentifier::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    auto* thisObject = jsCast<JSTestIndexedSetterNoIdentifier*>(cell);
+    auto* thisObject = uncheckedDowncast<JSTestIndexedSetterNoIdentifier>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
+
+JSTestIndexedSetterNoIdentifierOwner::JSTestIndexedSetterNoIdentifierOwner(ClangVTableWorkaroundTag) { }
 
 bool JSTestIndexedSetterNoIdentifierOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
@@ -338,7 +355,7 @@ void JSTestIndexedSetterNoIdentifierOwner::finalize(JSC::Handle<JSC::Unknown> ha
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestIndexedSetterNoIdentifier = static_cast<JSTestIndexedSetterNoIdentifier*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestIndexedSetterNoIdentifier->wrapped()).ptr(), jsTestIndexedSetterNoIdentifier);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestIndexedSetterNoIdentifier->wrapped(), jsTestIndexedSetterNoIdentifier);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -386,7 +403,7 @@ JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* g
 
 TestIndexedSetterNoIdentifier* JSTestIndexedSetterNoIdentifier::toWrapped(JSC::VM&, JSC::JSValue value)
 {
-    if (auto* wrapper = jsDynamicCast<JSTestIndexedSetterNoIdentifier*>(value))
+    if (auto* wrapper = dynamicDowncast<JSTestIndexedSetterNoIdentifier>(value))
         return &wrapper->wrapped();
     return nullptr;
 }

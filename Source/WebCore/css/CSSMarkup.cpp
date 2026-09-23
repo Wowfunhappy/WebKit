@@ -28,6 +28,7 @@
 #include "CSSMarkup.h"
 
 #include "CSSParserIdioms.h"
+#include "CSSPropertyParser.h"
 #include <wtf/HexNumber.h>
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
@@ -52,7 +53,7 @@ static inline bool NODELETE isCSSTokenizerIdentifier(std::span<const CharacterTy
 }
 
 // "ident" from the CSS tokenizer, minus backslash-escape sequences
-static bool NODELETE isCSSTokenizerIdentifier(const String& string)
+static bool NODELETE isCSSTokenizerIdentifier(StringView string)
 {
     if (string.isEmpty())
         return false;
@@ -62,41 +63,43 @@ static bool NODELETE isCSSTokenizerIdentifier(const String& string)
     return isCSSTokenizerIdentifier(string.span16());
 }
 
-static void serializeCharacter(char32_t c, StringBuilder& appendTo)
+// https://drafts.csswg.org/css-syntax-3/#non-printable-code-point
+static bool isNonPrintableCodePoint(char32_t c)
+{
+    return c <= 0x08 || c == 0x0b || (c >= 0x0e && c <= 0x1f) || c == deleteCharacter;
+}
+
+static void serializeCharacter(StringBuilder& appendTo, char32_t c)
 {
     appendTo.append('\\', c);
 }
 
-static void serializeCharacterAsCodePoint(char32_t c, StringBuilder& appendTo)
+static void serializeCharacterAsEscapeSequence(StringBuilder& appendTo, char32_t c)
 {
     appendTo.append('\\', hex(c, Lowercase), ' ');
 }
 
-void serializeIdentifier(const String& identifier, StringBuilder& appendTo, bool skipStartChecks)
+void serializeIdentifier(StringBuilder& appendTo, StringView identifier, ShouldSkipStartChecks skipStartChecks)
 {
-    bool isFirst = !skipStartChecks;
+    bool isFirst = skipStartChecks == ShouldSkipStartChecks::No;
     bool isSecond = false;
     bool isFirstCharHyphen = false;
     unsigned index = 0;
     while (index < identifier.length()) {
-        char32_t c = identifier.characterStartingAt(index);
-        if (!c) {
-            // Check for lone surrogate which characterStartingAt does not return.
-            c = identifier[index];
-        }
+        char32_t c = identifier.codePointAt(index);
 
         index += U16_LENGTH(c);
 
         if (!c)
             appendTo.append(replacementCharacter);
         else if (c <= 0x1f || c == deleteCharacter || (0x30 <= c && c <= 0x39 && (isFirst || (isSecond && isFirstCharHyphen))))
-            serializeCharacterAsCodePoint(c, appendTo);
+            serializeCharacterAsEscapeSequence(appendTo, c);
         else if (c == hyphenMinus && isFirst && index == identifier.length())
-            serializeCharacter(c, appendTo);
+            serializeCharacter(appendTo, c);
         else if (0x80 <= c || c == hyphenMinus || c == lowLine || (0x30 <= c && c <= 0x39) || (0x41 <= c && c <= 0x5a) || (0x61 <= c && c <= 0x7a))
             appendTo.append(c);
         else
-            serializeCharacter(c, appendTo);
+            serializeCharacter(appendTo, c);
 
         if (isFirst) {
             isFirst = false;
@@ -107,19 +110,19 @@ void serializeIdentifier(const String& identifier, StringBuilder& appendTo, bool
     }
 }
 
-void serializeString(const String& string, StringBuilder& appendTo)
+void serializeString(StringBuilder& appendTo, StringView string)
 {
     appendTo.append('"');
 
     unsigned index = 0;
     while (index < string.length()) {
-        char32_t c = string.characterStartingAt(index);
+        char32_t c = string.codePointAt(index);
         index += U16_LENGTH(c);
 
         if (c <= 0x1f || c == deleteCharacter)
-            serializeCharacterAsCodePoint(c, appendTo);
+            serializeCharacterAsEscapeSequence(appendTo, c);
         else if (c == quotationMark || c == reverseSolidus)
-            serializeCharacter(c, appendTo);
+            serializeCharacter(appendTo, c);
         else
             appendTo.append(c);
     }
@@ -127,25 +130,85 @@ void serializeString(const String& string, StringBuilder& appendTo)
     appendTo.append('"');
 }
 
-String serializeString(const String& string)
+// https://drafts.csswg.org/css-syntax-3/#consume-url-token
+void serializeURLTokenValue(StringBuilder& appendTo, StringView string)
+{
+    for (auto c : string.codePoints()) {
+        if (!c)
+            appendTo.append(replacementCharacter);
+        else if (isNonPrintableCodePoint(c) || isCSSNewline(c))
+            serializeCharacterAsEscapeSequence(appendTo, c);
+        else if (c == '"' || c == '\'' || c == '(' || c == ')' || c == reverseSolidus || isASCIIWhitespace(c))
+            serializeCharacter(appendTo, c);
+        else
+            appendTo.append(c);
+    }
+}
+
+String serializeString(StringView string)
 {
     StringBuilder builder;
-    serializeString(string, builder);
+    serializeString(builder, string);
     return builder.toString();
 }
 
-String serializeURL(const String& string)
+static bool shouldQuoteFontFamily(StringView string)
 {
-    StringBuilder builder;
-    builder.append("url("_s);
-    serializeString(string, builder);
-    builder.append(')');
-    return builder.toString();
+    // Font family names that match CSS-wide keywords, 'default', or generic
+    // family keywords must be quoted to prevent confusion with the keywords
+    // of the same names.
+    // https://www.w3.org/TR/css-fonts-4/#family-name-syntax
+    //
+    // FIXME: We also quote when the first word of a multi-word name is a
+    // generic keyword, matching parser behavior. See webkit.org/b/314837.
+    //
+    // Note: system-ui is excluded from quoting because the parser always
+    // stores it as a CSS_FONT_FAMILY string (not a CSSValueID), even when
+    // used as a generic keyword. Since we cannot distinguish the generic
+    // keyword from a quoted family name at this point, and the generic
+    // keyword is the common case, we leave it unquoted.
+    auto stringID = cssValueKeywordID(string);
+    if (stringID == CSSValueSystemUi)
+        return false;
+    if (isGenericFontFamilyKeyword(stringID))
+        return true;
+
+    // Leading, trailing, or consecutive spaces are collapsed on re-parse,
+    // so names containing them must be quoted to round-trip.
+    if (string.startsWith(' ') || string.endsWith(' ') || string.contains("  "_s))
+        return true;
+
+    bool isFirstWord = true;
+    bool hasWord = false;
+    for (auto word : string.split(' ')) {
+        if (!isCSSTokenizerIdentifier(word))
+            return true;
+        auto valueID = cssValueKeywordID(word);
+        if (!isValidCustomIdentifier(valueID))
+            return true;
+        if (isFirstWord && isGenericFontFamilyKeyword(valueID))
+            return true;
+        hasWord = true;
+        isFirstWord = false;
+    }
+    return !hasWord;
+}
+
+void serializeFontFamily(StringBuilder& builder, StringView string)
+{
+    if (shouldQuoteFontFamily(string)) {
+        serializeString(builder, string);
+        return;
+    }
+
+    builder.append(string);
 }
 
 String serializeFontFamily(const String& string)
 {
-    return isCSSTokenizerIdentifier(string) ? string : serializeString(string);
+    if (shouldQuoteFontFamily(string))
+        return serializeString(string);
+    return string;
 }
 
 } // namespace WebCore

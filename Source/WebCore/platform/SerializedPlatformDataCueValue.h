@@ -28,6 +28,7 @@
 #include <wtf/Platform.h>
 #if ENABLE(VIDEO)
 
+#include <wtf/HashMap.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>

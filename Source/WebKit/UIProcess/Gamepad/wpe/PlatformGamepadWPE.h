@@ -28,6 +28,7 @@
 #if ENABLE(GAMEPAD) && ENABLE(WPE_PLATFORM)
 #include <WebCore/GamepadEffectParameters.h>
 #include <WebCore/PlatformGamepad.h>
+#include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
 
@@ -45,7 +46,7 @@ public:
 private:
     const Vector<WebCore::SharedGamepadValue>& buttonValues() const LIFETIME_BOUND final { return m_buttonValues; }
     const Vector<WebCore::SharedGamepadValue>& axisValues() const LIFETIME_BOUND final { return m_axisValues; }
-    void playEffect(GamepadHapticEffectType, const GamepadEffectParameters&, CompletionHandler<void(bool)>&&) final;
+    void playEffect(WebCore::GamepadHapticEffectType, const WebCore::GamepadEffectParameters&, CompletionHandler<void(bool)>&&) final;
     void stopEffects(CompletionHandler<void()>&&) final;
 
     void buttonEvent(size_t button, bool isPressed);
@@ -53,7 +54,7 @@ private:
 
     void effectDelayTimerFired();
     void effectDurationTimerFired();
-    void startRumble(const GamepadEffectParameters&);
+    void startRumble(const WebCore::GamepadEffectParameters&);
 
     GRefPtr<WPEGamepad> m_gamepad;
     Vector<WebCore::SharedGamepadValue> m_buttonValues;
@@ -61,7 +62,7 @@ private:
     RunLoop::Timer m_effectDelayTimer;
     RunLoop::Timer m_effectDurationTimer;
     CompletionHandler<void(bool)> m_effectCompletionHandler;
-    GamepadEffectParameters m_pendingEffectParameters;
+    WebCore::GamepadEffectParameters m_pendingEffectParameters;
 };
 
 } // namespace WebKit

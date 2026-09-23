@@ -116,6 +116,13 @@ bool ScrollbarThemeAdwaita::paint(Scrollbar& scrollbar, GraphicsContext& graphic
         }
     }
 #endif
+
+    std::optional<ScrollbarColor> scrollbarColor;
+    auto thumbColor = scrollbar.scrollableArea().scrollbarThumbColorStyle();
+    auto trackColor = scrollbar.scrollableArea().scrollbarTrackColorStyle();
+    if (thumbColor.isValid() && trackColor.isValid())
+        scrollbarColor = ScrollbarColor { thumbColor, trackColor };
+
     State state {
         .enabled = scrollbar.enabled(),
         .useDarkAppearanceForScrollbars = scrollbar.scrollableArea().useDarkAppearanceForScrollbars(),
@@ -128,6 +135,7 @@ bool ScrollbarThemeAdwaita::paint(Scrollbar& scrollbar, GraphicsContext& graphic
         .thumbLength = thumbLength(scrollbar),
         .frameRect = scrollbar.frameRect(),
         .opacity = scrollbar.opacity(),
+        .scrollbarColor = scrollbarColor,
     };
     AdwaitaScrollbarPainter::paint(graphicsContext, damageRect, state);
     return true;
@@ -138,8 +146,8 @@ void ScrollbarThemeAdwaita::paintScrollCorner(ScrollableArea& scrollableArea, Gr
     if (graphicsContext.paintingDisabled())
         return;
 
-    SRGBA<uint8_t> scrollbarBackgroundColor;
-    SRGBA<uint8_t> scrollbarBorderColor;
+    Color scrollbarBackgroundColor;
+    Color scrollbarBorderColor;
 
     if (scrollableArea.useDarkAppearanceForScrollbars()) {
         scrollbarBackgroundColor = scrollbarBackgroundColorDark;
@@ -147,6 +155,12 @@ void ScrollbarThemeAdwaita::paintScrollCorner(ScrollableArea& scrollableArea, Gr
     } else {
         scrollbarBackgroundColor = scrollbarBackgroundColorLight;
         scrollbarBorderColor = scrollbarBorderColorLight;
+    }
+
+    auto customTrackColor = scrollableArea.scrollbarTrackColorStyle();
+    if (customTrackColor.isValid()) {
+        scrollbarBackgroundColor = customTrackColor;
+        scrollbarBorderColor = customTrackColor;
     }
 
     IntRect borderRect = IntRect(cornerRect.location(), IntSize(scrollbarBorderSize, scrollbarBorderSize));

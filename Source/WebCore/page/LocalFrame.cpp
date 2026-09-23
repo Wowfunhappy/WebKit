@@ -41,9 +41,11 @@
 #include "CachedCSSStyleSheet.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "ComposedTreeIterator.h"
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
 #include "DocumentLoader.h"
+#include "DocumentPrefetcher.h"
 #include "DocumentQuirks.h"
 #include "DocumentResourceLoader.h"
 #include "DocumentSecurityPolicy.h"
@@ -61,6 +63,7 @@
 #include "FocusController.h"
 #include "FrameConsoleClient.h"
 #include "FrameDestructionObserver.h"
+#include "FrameInlines.h"
 #include "FrameInspectorController.h"
 #include "FrameLoader.h"
 #include "FrameSelection.h"
@@ -87,6 +90,7 @@
 #include "LocalFrameView.h"
 #include "LocalizedStrings.h"
 #include "Logging.h"
+#include "MixedContentChecker.h"
 #include "Navigator.h"
 #include "NodeList.h"
 #include "NodeTraversal.h"
@@ -96,7 +100,6 @@
 #include "RemoteFrame.h"
 #include "RenderLayerCompositor.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTableCell.h"
 #include "RenderText.h"
 #include "RenderTextControl.h"
@@ -113,8 +116,9 @@
 #include "SecurityOrigin.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleDocumentScope.h"
 #include "StyleProperties.h"
-#include "StyleScope.h"
 #include "TextNodeTraversal.h"
 #include "TextResourceDecoder.h"
 #include "UserContentController.h"
@@ -123,9 +127,11 @@
 #include "UserScript.h"
 #include "UserTypingGestureIndicator.h"
 #include "VisibleUnits.h"
+#include "WindowProxy.h"
 #include "markup.h"
 #include "runtime_root.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/HexNumber.h>
 #include <wtf/StdLibExtras.h>
@@ -247,7 +253,11 @@ LocalFrame::~LocalFrame()
 
     m_inspectorController->inspectedFrameDestroyed();
 
+    // Clear prefetched resources before the FrameLoader is torn down. In-flight
+    // prefetch loads trigger a cancel chain (allClientsRemoved -> cancelLoad ->
+    // activeDocumentLoader) that requires a fully valid FrameLoader.
     Ref loader = this->loader();
+    loader->documentPrefetcher().clear();
     if (!loader->isComplete())
         loader->closeURL();
 
@@ -367,10 +377,6 @@ void LocalFrame::setDocument(RefPtr<Document>&& newDocument)
 
     InspectorInstrumentation::frameDocumentUpdated(*this);
 
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    m_accessedWindowProxyPropertiesViaOpener = { };
-#endif
-
     m_documentIsBeingReplaced = false;
 }
 
@@ -383,7 +389,7 @@ bool LocalFrame::preventsParentFromBeingComplete() const
 {
     if (loader().isWaitingForAsyncBackForwardNavigation())
         return true;
-    return !loader().isComplete() && (!ownerElement() || !ownerElement()->isLazyLoadObserverActive());
+    return !loader().isComplete() && (!ownerElement() || !protect(ownerElement())->isLazyLoadObserverActive());
 }
 
 void LocalFrame::changeLocation(FrameLoadRequest&& request)
@@ -412,12 +418,13 @@ void LocalFrame::invalidateContentEventRegionsIfNeeded(InvalidateContentEventReg
     bool needsUpdateForEditableElements = false;
     bool needsUpdateForInteractionRegions = false;
 #if ENABLE(WHEEL_EVENT_REGIONS)
-    needsUpdateForWheelEventHandlers = m_doc->hasWheelEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
+    needsUpdateForWheelEventHandlers = protect(m_doc)->hasWheelEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
 #else
     UNUSED_PARAM(reason);
 #endif
 #if ENABLE(TOUCH_EVENT_REGIONS)
-    needsUpdateForTouchEventHandlers = m_doc->hasTouchEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
+    if (m_doc->shouldUseTouchEventRegions())
+        needsUpdateForTouchEventHandlers = m_doc->hasTouchEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
 #else
     UNUSED_PARAM(reason);
 #endif
@@ -428,7 +435,7 @@ void LocalFrame::invalidateContentEventRegionsIfNeeded(InvalidateContentEventReg
 #endif
 #if ENABLE(EDITABLE_REGION)
     // Document::mayHaveEditableElements never changes from true to false currently.
-    needsUpdateForEditableElements = m_doc->mayHaveEditableElements() && page()->shouldBuildEditableRegion();
+    needsUpdateForEditableElements = m_doc->mayHaveEditableElements() && protect(page())->shouldBuildEditableRegion();
 #endif
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
     needsUpdateForInteractionRegions = page()->shouldBuildInteractionRegions();
@@ -671,7 +678,7 @@ bool LocalFrame::requestDOMPasteAccess(DOMPasteAccessCategory pasteAccessCategor
         if (!client)
             return false;
 
-        auto response = client->requestDOMPasteAccess(pasteAccessCategory, frameID(), m_doc->originIdentifierForPasteboard());
+        auto response = client->requestDOMPasteAccess(pasteAccessCategory, frameID(), protect(m_doc)->originIdentifierForPasteboard());
         gestureToken->didRequestDOMPasteAccess(response);
         switch (response) {
         case DOMPasteAccessResponse::GrantedForCommand:
@@ -708,7 +715,14 @@ void LocalFrame::setPrinting(bool printing, FloatSize pageSize, FloatSize origin
         return;
 
     Ref frameView = *view();
-    if (shouldUsePrintingLayout())
+    // A zero pageSize.width() means the caller is entering printing state without a known
+    // page geometry (e.g. WebKitLegacy's -[WebHTMLView adjustPageHeightNew:...] path used
+    // when the view participates in a larger enclosing NSPrintOperation). In that case we
+    // must not run pagination layout, since forceLayoutForPagination -> resizePageRectsKeepingRatio
+    // asserts on a zero original width (and in release produces a degenerate layout that
+    // drops text runs). Height may legitimately be zero here (e.g. the render-tree dump path
+    // in RenderTreeAsText passes only a width), so don't treat that as "no geometry".
+    if (shouldUsePrintingLayout() && pageSize.width() > 0)
         frameView->forceLayoutForPagination(pageSize, originalPageSize, maximumShrinkRatio, shouldAdjustViewSize);
     else {
         frameView->forceLayout();
@@ -910,7 +924,7 @@ void LocalFrame::willDetachPage()
 
 String LocalFrame::displayStringModifiedByEncoding(const String& str) const
 {
-    return document() ? document()->displayStringModifiedByEncoding(str) : str;
+    return document() ? protect(document())->displayStringModifiedByEncoding(str) : str;
 }
 
 VisiblePosition LocalFrame::visiblePositionForPoint(const IntPoint& framePoint) const
@@ -1040,12 +1054,12 @@ FrameLoaderClient& LocalFrame::loaderClient()
     return loader().client();
 }
 
-void LocalFrame::documentURLForConsoleLog(CompletionHandler<void(const URL&)>&& completionHandler)
+URL LocalFrame::urlForConsoleLog() const
 {
     RefPtr document = this->document();
     if (!document)
-        return completionHandler({ });
-    completionHandler(document->url());
+        return { };
+    return document->url();
 }
 
 String LocalFrame::trackedRepaintRectsAsText() const
@@ -1095,6 +1109,10 @@ void LocalFrame::setPageAndTextZoomFactors(float pageZoomFactor, float textZoomF
     }
     m_pageZoomFactor = pageZoomFactor;
     m_textZoomFactor = textZoomFactor;
+
+    // The Style::ComputedStyle cached on Document for initial value fallback must be invalidated on
+    // text zoom changes to ensure default font sizes are updated appropriately.
+    document->invalidateCachedInitialStyle();
 
     document->resolveStyle(Document::ResolveStyleType::Rebuild);
 
@@ -1254,7 +1272,7 @@ TextStream& operator<<(TextStream& ts, const LocalFrame& frame)
 void LocalFrame::resetScript()
 {
     ASSERT(windowProxy().frame() == this);
-    windowProxy().detachFromFrame();
+    protect(windowProxy())->detachFromFrame();
     resetWindowProxy();
     m_script = makeUniqueRef<ScriptController>(*this);
 }
@@ -1262,10 +1280,10 @@ void LocalFrame::resetScript()
 LocalFrame* LocalFrame::fromJSContext(JSContextRef context)
 {
     JSC::JSGlobalObject* globalObjectObj = toJS(context);
-    if (auto* window = JSC::jsDynamicCast<JSDOMWindow*>(globalObjectObj))
+    if (auto* window = dynamicDowncast<JSDOMWindow>(globalObjectObj))
         return dynamicDowncast<LocalFrame>(window->wrapped().frame());
-    if (auto* serviceWorkerGlobalScope = JSC::jsDynamicCast<JSServiceWorkerGlobalScope*>(globalObjectObj))
-        return serviceWorkerGlobalScope->wrapped().serviceWorkerPage() ? dynamicDowncast<LocalFrame>(serviceWorkerGlobalScope->wrapped().serviceWorkerPage()->mainFrame()) : nullptr;
+    if (auto* serviceWorkerGlobalScope = dynamicDowncast<JSServiceWorkerGlobalScope>(globalObjectObj))
+        return protect(serviceWorkerGlobalScope->wrapped())->serviceWorkerPage() ? dynamicDowncast<LocalFrame>(protect(serviceWorkerGlobalScope->wrapped())->serviceWorkerPage()->mainFrame()) : nullptr;
     return nullptr;
 }
 
@@ -1280,7 +1298,7 @@ LocalFrame* LocalFrame::contentFrameFromWindowOrFrameElement(JSContextRef contex
     if (RefPtr window = JSDOMWindow::toWrapped(globalObject->vm(), value))
         return dynamicDowncast<LocalFrame>(window->frame());
 
-    auto* jsNode = JSC::jsDynamicCast<JSNode*>(value);
+    auto* jsNode = dynamicDowncast<JSNode>(value);
     if (!jsNode)
         return nullptr;
 
@@ -1323,6 +1341,11 @@ void LocalFrame::frameWasDisconnectedFromOwner() const
     if (!m_doc)
         return;
 
+    for (auto& jsWindowProxy : windowProxy().jsWindowProxiesAsVector()) {
+        if (auto* jsDOMWindow = dynamicDowncast<JSDOMWindowBase>(jsWindowProxy->window()))
+            jsDOMWindow->setAssociatedContextIsFullyActive(false);
+    }
+
     protect(document())->willBeRemovedFromFrame();
 }
 
@@ -1346,39 +1369,6 @@ bool LocalFrame::requestSkipUserActivationCheckForStorageAccess(const Registrabl
     m_storageAccessExceptionDomains->remove(iter);
     return true;
 }
-
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-
-void LocalFrame::didAccessWindowProxyPropertyViaOpener(WindowProxyProperty property)
-{
-    // FIXME: until we support restricted openers, report all property accesses as "other" to reduce
-    // the number of events logged.
-    property = WindowProxyProperty::Other;
-
-    if (m_accessedWindowProxyPropertiesViaOpener.contains(property))
-        return;
-
-    auto origin = SecurityOriginData::fromLocalFrame(this);
-    if (origin.isNull() || origin.isOpaque())
-        return;
-
-    if (!opener() || !opener()->page())
-        return;
-
-    auto openerMainFrameOrigin = opener()->page()->mainFrameOrigin().data();
-    if (openerMainFrameOrigin.isNull() || openerMainFrameOrigin.isOpaque())
-        return;
-
-    auto site = RegistrableDomain(origin);
-    auto openerMainFrameSite = RegistrableDomain(openerMainFrameOrigin);
-    if (site == openerMainFrameSite)
-        return;
-
-    m_accessedWindowProxyPropertiesViaOpener.add(property);
-    loader().client().didAccessWindowProxyPropertyViaOpener(WTF::move(openerMainFrameOrigin), property);
-}
-
-#endif
 
 String LocalFrame::customUserAgent() const
 {
@@ -1406,6 +1396,13 @@ OptionSet<AdvancedPrivacyProtections> LocalFrame::advancedPrivacyProtections() c
     if (auto* documentLoader = loader().activeDocumentLoader())
         return documentLoader->advancedPrivacyProtections();
     return { };
+}
+
+bool LocalFrame::allowPrivacyProxy() const
+{
+    if (RefPtr documentLoader = loader().activeDocumentLoader())
+        return documentLoader->allowPrivacyProxy();
+    return true;
 }
 
 AutoplayPolicy LocalFrame::autoplayPolicy() const
@@ -1448,7 +1445,7 @@ void LocalFrame::updateScrollingMode()
 {
     if (!ownerElement())
         return;
-    m_scrollingMode = ownerElement()->scrollingMode();
+    m_scrollingMode = protect(ownerElement())->scrollingMode();
     if (RefPtr view = this->view())
         view->setCanHaveScrollbars(m_scrollingMode != ScrollbarMode::AlwaysOff);
 }
@@ -1466,16 +1463,7 @@ void LocalFrame::reportMixedContentViolation(bool blocked, const URL& target) co
     if (!document)
         return;
 
-    auto isUpgradingLocalhostDisabled = !document->settings().iPAddressAndLocalhostMixedContentUpgradeTestingEnabled() && shouldTreatAsPotentiallyTrustworthy(target);
-    ASCIILiteral errorString = [&] {
-        if (blocked)
-            return "blocked and must"_s;
-        if (isUpgradingLocalhostDisabled)
-            return "not upgraded to HTTPS and must be served from the local host."_s;
-        return "automatically upgraded and should"_s;
-    }();
-
-    auto message = makeString((!blocked ? ""_s : "[blocked] "_s), "The page at "_s, document->url().stringCenterEllipsizedToLength(), " requested insecure content from "_s, target.stringCenterEllipsizedToLength(), ". This content was "_s, errorString, !isUpgradingLocalhostDisabled ? " be served over HTTPS.\n"_s : "\n"_s);
+    auto message = MixedContentChecker::mixedContentViolationMessage(document->settings().iPAddressAndLocalhostMixedContentUpgradeTestingEnabled(), blocked, document->url(), target);
 
     document->addConsoleMessage(MessageSource::Security, MessageLevel::Warning, message);
 }
@@ -1529,17 +1517,26 @@ static DiagnosticLoggingClient::ValueDictionary valueDictionaryForResult(bool un
     return dictionary;
 }
 
+void LocalFrame::applyResourceMonitorErrorToIFrameElement(HTMLIFrameElement& iframeElement)
+{
+    OptionSet<ColorScheme> colorScheme { ColorScheme::Light };
+
+#if ENABLE(DARK_MODE_CSS)
+    if (CheckedPtr style = iframeElement.existingComputedStyle())
+        colorScheme = iframeElement.document().resolvedColorScheme(style);
+#endif
+
+    iframeElement.setSrcdoc(generateResourceMonitorErrorHTML(colorScheme), SubstituteData::SessionHistoryVisibility::Hidden);
+}
+
 void LocalFrame::showResourceMonitoringError()
 {
-    RefPtr iframeElement = dynamicDowncast<HTMLIFrameElement>(ownerElement());
     RefPtr document = this->document();
-    if (!iframeElement || !document)
+    if (!document)
         return;
 
-    URL url;
+    URL url = document->url();
     URL mainFrameURL;
-    if (document)
-        url = document->url();
     if (RefPtr page = this->page()) {
         mainFrameURL = page->mainFrameURL();
         page->diagnosticLoggingClient().logDiagnosticMessageWithValueDictionary(DiagnosticLoggingKeys::iframeResourceMonitoringKey(), "IFrame ResourceMonitoring Unloaded"_s, valueDictionaryForResult(true), ShouldSample::No);
@@ -1556,14 +1553,13 @@ void LocalFrame::showResourceMonitoringError()
         }
     }
 
-    OptionSet<ColorScheme> colorScheme { ColorScheme::Light };
+    if (RefPtr iframeElement = dynamicDowncast<HTMLIFrameElement>(ownerElement())) {
+        applyResourceMonitorErrorToIFrameElement(*iframeElement);
+        return;
+    }
 
-#if ENABLE(DARK_MODE_CSS)
-    if (CheckedPtr style = iframeElement->existingComputedStyle())
-        colorScheme = document->resolvedColorScheme(&style->computedStyle());
-#endif
-
-    iframeElement->setSrcdoc(generateResourceMonitorErrorHTML(colorScheme), SubstituteData::SessionHistoryVisibility::Hidden);
+    // Owner element lives in another process under site isolation; route the unload via the loader client.
+    loader().client().applyMonitorUnloadToOwnerFrame(IFrameUnloadReason::ResourceMonitor);
 }
 
 void LocalFrame::reportResourceMonitoringWarning()
@@ -1614,11 +1610,21 @@ static String generateFrameMemoryMonitorErrorHTML(OptionSet<ColorScheme> colorSc
     );
 }
 
+void LocalFrame::applyMemoryMonitorErrorToIFrameElement(HTMLIFrameElement& iframeElement)
+{
+    OptionSet<ColorScheme> colorScheme { ColorScheme::Light };
+
+#if ENABLE(DARK_MODE_CSS)
+    if (CheckedPtr style = iframeElement.existingComputedStyle())
+        colorScheme = iframeElement.document().resolvedColorScheme(style);
+#endif
+
+    iframeElement.setSrcdoc(generateFrameMemoryMonitorErrorHTML(colorScheme), SubstituteData::SessionHistoryVisibility::Hidden);
+}
+
 void LocalFrame::showMemoryMonitorError()
 {
-    RefPtr iframeElement = dynamicDowncast<HTMLIFrameElement>(ownerElement());
-    RefPtr document = this->document();
-    if (!iframeElement || !document)
+    if (!this->document())
         return;
 
     for (RefPtr<Frame> frame = this; frame; frame = frame->tree().traverseNext()) {
@@ -1628,14 +1634,13 @@ void LocalFrame::showMemoryMonitorError()
         }
     }
 
-    OptionSet<ColorScheme> colorScheme { ColorScheme::Light };
+    if (RefPtr iframeElement = dynamicDowncast<HTMLIFrameElement>(ownerElement())) {
+        applyMemoryMonitorErrorToIFrameElement(*iframeElement);
+        return;
+    }
 
-#if ENABLE(DARK_MODE_CSS)
-    if (CheckedPtr style = iframeElement->existingComputedStyle())
-        colorScheme = document->resolvedColorScheme(&style->computedStyle());
-#endif
-
-    iframeElement->setSrcdoc(generateFrameMemoryMonitorErrorHTML(colorScheme), SubstituteData::SessionHistoryVisibility::Hidden);
+    // Owner element lives in another process under site isolation; route the unload via the loader client.
+    loader().client().applyMonitorUnloadToOwnerFrame(IFrameUnloadReason::MemoryMonitor);
 }
 
 bool LocalFrame::frameCanCreatePaymentSession() const
@@ -1880,7 +1885,7 @@ RefPtr<Node> LocalFrame::qualifyingNodeAtViewportLocation(const FloatPoint& view
     }
 
     if (approximateNode) {
-        IntPoint p = m_view->contentsToWindow(bestPoint);
+        IntPoint p = protect(m_view)->contentsToWindow(bestPoint);
         adjustedViewportLocation = p;
         if (shouldFindRootEditableElement == ShouldFindRootEditableElement::Yes && approximateNode->isContentEditable()) {
             // When in editable content, look for the root editable node again,
@@ -1910,7 +1915,7 @@ RefPtr<Node> LocalFrame::nodeRespondingToDoubleClickEvent(const FloatPoint& view
         for (; node && node != terminationNode; node = node->parentInComposedTree()) {
             if (!node->hasEventListeners(eventNames().dblclickEvent))
                 continue;
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TWO_PHASE_CLICKS)
             if (!node->allowsDoubleTapGesture())
                 continue;
 #endif

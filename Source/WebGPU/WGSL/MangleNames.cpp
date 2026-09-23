@@ -54,7 +54,7 @@ struct MangledName {
 
     String toString() const
     {
-        static const auto prefixes = std::to_array<ASCIILiteral>({
+        static const auto prefixes = WTF::toArray<ASCIILiteral>({
             "type"_s,
             "local"_s,
             "global"_s,
@@ -92,7 +92,7 @@ private:
     void introduceVariable(AST::Identifier&, MangledName::Kind);
     void readVariable(AST::Identifier&) const;
 
-    MangledName makeMangledName(const String&, MangledName::Kind);
+    MangledName NODELETE makeMangledName(const String&, MangledName::Kind);
 
     void visitVariableDeclaration(AST::Variable&, MangledName::Kind);
 

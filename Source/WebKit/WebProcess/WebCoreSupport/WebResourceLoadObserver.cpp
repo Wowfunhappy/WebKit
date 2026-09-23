@@ -35,6 +35,7 @@
 #include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/HTMLFrameOwnerElement.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameLoaderClient.h>
 #include <WebCore/Settings.h>
@@ -57,7 +58,7 @@ void WebResourceLoadObserver::setShouldLogUserInteraction(bool value)
 
 static bool is3xxRedirect(const ResourceResponse& response)
 {
-    return response.httpStatusCode() >= 300 && response.httpStatusCode() <= 399;
+    return response.httpStatusCode() >= httpStatus300MultipleChoices && response.httpStatusCode() < httpStatus400BadRequest;
 }
 
 WebResourceLoadObserver::WebResourceLoadObserver(ResourceLoadStatistics::IsEphemeral isEphemeral)
@@ -287,12 +288,11 @@ void WebResourceLoadObserver::logSubresourceLoading(const LocalFrame* frame, con
     if (isEphemeral())
         return;
 
-    ASSERT(frame->page());
-
     if (!frame)
         return;
 
     RefPtr page = frame->page();
+    ASSERT(page);
     if (!page)
         return;
     const URL& topFrameURL = page->mainFrameURL();
@@ -368,7 +368,11 @@ void WebResourceLoadObserver::logWebSocketLoading(const URL& targetURL, const UR
 
 void WebResourceLoadObserver::logUserInteractionWithReducedTimeResolution(const Document& document)
 {
-    auto& url = document.url();
+    RefPtr page = document.page();
+    if (!page)
+        return;
+
+    auto& url = page->mainFrameURL();
     if (url.protocolIsAbout() || url.protocolIsFile() || url.isEmpty())
         return;
 
@@ -387,13 +391,15 @@ void WebResourceLoadObserver::logUserInteractionWithReducedTimeResolution(const 
         statistics.mostRecentUserInteractionTime = newTime;
     }
 
-    if (RefPtr frame = document.frame()) {
-        if (RefPtr opener = dynamicDowncast<LocalFrame>(frame->opener())) {
-            if (RefPtr openerDocument = opener->document()) {
-                if (RefPtr openerPage = openerDocument->page())
-                    requestStorageAccessUnderOpener(topFrameDomain, Ref { *WebPage::fromCorePage(*openerPage) }, *openerDocument);
-            }
+    if (RefPtr mainFrameDocument = document.mainFrameDocument()) {
+        RefPtr frame = mainFrameDocument->frame();
+        if (RefPtr opener = frame ? dynamicDowncast<LocalFrame>(frame->opener()) : nullptr) {
+            RefPtr openerDocument = opener->document();
+            if (RefPtr openerPage = openerDocument ? openerDocument->page() : nullptr)
+                requestStorageAccessUnderOpener(topFrameDomain, Ref { *WebPage::fromCorePage(*openerPage) }, *openerDocument);
         }
+    } else {
+        LOG_ONCE(SiteIsolation, "Unable to request storage access under opener when logging user interation without access to the main frame document ");
     }
 
     // We notify right away in case of a user interaction instead of waiting the usual 5 seconds because we want

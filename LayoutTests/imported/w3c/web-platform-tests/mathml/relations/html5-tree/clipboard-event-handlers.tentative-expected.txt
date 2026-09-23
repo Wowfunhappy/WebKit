@@ -8,5 +8,5 @@ PASS oncut: dynamic changes on the attribute
 PASS paste: dispatching an Event at a <math> element must trigger element.onpaste
 PASS onpaste: the content attribute must be compiled into a function as the corresponding property
 PASS onpaste: dynamic changes on the attribute
-E
+𝐸
 

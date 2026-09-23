@@ -57,23 +57,23 @@ struct Blur {
 
     IntOutsets calculateOutsets(ZoomFactor) const;
 
-    bool operator==(const Blur&) const = default;
+    bool NODELETE operator==(const Blur&) const = default;
 };
 using BlurFunction = FunctionNotation<CSSValueBlur, Blur>;
 DEFINE_TYPE_WRAPPER_GET(Blur, value);
 
 // MARK: - Conversion
 
-template<> struct ToCSS<Blur> { auto operator()(const Blur&, const RenderStyle&) -> CSS::Blur; };
+template<> struct ToCSS<Blur> { auto operator()(const Blur&, const Style::ComputedStyle&) -> CSS::Blur; };
 template<> struct ToStyle<CSS::Blur> { auto operator()(const CSS::Blur&, const BuilderState&) -> Blur; };
 
 // MARK: - Evaluation
 
-template<> struct Evaluation<Blur, Ref<FilterEffect>> { auto operator()(const Blur&, const RenderStyle&) -> Ref<FilterEffect>; };
+template<> struct Evaluation<Blur, Ref<FilterEffect>> { auto operator()(const Blur&, const Style::ComputedStyle&) -> Ref<FilterEffect>; };
 
 // MARK: - Platform
 
-template<> struct ToPlatform<Blur> { auto operator()(const Blur&, const RenderStyle&) -> Ref<FilterOperation>; };
+template<> struct ToPlatform<Blur> { auto operator()(const Blur&, const Style::ComputedStyle&) -> Ref<FilterOperation>; };
 
 } // namespace Style
 } // namespace WebCore

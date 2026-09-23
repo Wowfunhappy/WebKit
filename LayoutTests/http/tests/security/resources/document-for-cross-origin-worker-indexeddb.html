@@ -6,10 +6,8 @@ var frames = 2;
 
 function decrement() {
     --frames;
-    if (!frames && window.testRunner) {
-        internals.settings.setStorageBlockingPolicy('AllowAll');
+    if (!frames && window.testRunner)
         testRunner.notifyDone();
-    }
 }
 
 window.onmessage = decrement;

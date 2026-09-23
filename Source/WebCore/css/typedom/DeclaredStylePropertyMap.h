@@ -55,7 +55,7 @@ private:
     void removeCustomProperty(const AtomString&) final;
     bool setShorthandProperty(CSSPropertyID, const String&) final;
     bool setProperty(CSSPropertyID, Ref<CSSValue>&&) final;
-    bool setCustomProperty(Document&, const AtomString&, Ref<CSSVariableReferenceValue>&&) final;
+    bool setCustomProperty(Document&, const AtomString&, Ref<CSSSubstitutionValue>&&) final;
 
     WeakPtr<CSSStyleRule> m_ownerRule;
 };

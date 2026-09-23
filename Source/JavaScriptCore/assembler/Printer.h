@@ -27,6 +27,7 @@
 
 #include <JavaScriptCore/CPU.h>
 
+#include <wtf/EnumTraits.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/Vector.h>
@@ -196,6 +197,21 @@ void setPrinter(PrintRecord& record, T value, intptr_t = 0)
         record.printer = printIntptr;
     else
         record.printer = printUintptr;
+}
+
+template<typename T>
+    requires (std::is_enum_v<T>)
+void printEnumValue(PrintStream& out, Context& context)
+{
+    out.print(static_cast<T>(context.data.value));
+}
+
+template<typename T>
+    requires (std::is_enum_v<T>)
+void setPrinter(PrintRecord& record, T value)
+{
+    record.data.value = static_cast<uintptr_t>(value);
+    record.printer = printEnumValue<T>;
 }
 
 template<typename T>

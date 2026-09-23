@@ -13,13 +13,13 @@ PASS document.getElementById('preSpaceFirst').innerText is document.getElementBy
 PASS document.getElementById('collapsedSpaceDivFirst').innerText is document.getElementById('collapsedSpaceDivNormal').innerText
 PASS document.getElementById('firstCollapsedDivFirst').innerText is document.getElementById('firstCollapsedDivNormal').innerText
 PASS document.getElementById('collapsedSpaceCollapsedDivFirst').innerText is document.getElementById('collapsedSpaceCollapsedDivNormal').innerText
-PASS document.getElementById('collapsedSpaceCollapsedDivFirst').innerText is 'foo\nabc\n'
+PASS document.getElementById('collapsedSpaceCollapsedDivFirst').innerText is 'foo\nabc'
 PASS document.getElementById('collapsedSpacePunctDivFirst').innerText is document.getElementById('collapsedSpacePunctDivNormal').innerText
-PASS document.getElementById('collapsedSpacePunctDivFirst').innerText is 'foo\n| abc\n'
+PASS document.getElementById('collapsedSpacePunctDivFirst').innerText is 'foo\n| abc'
 PASS document.getElementById('divSpanFirst').innerText is document.getElementById('divSpanNormal').innerText
 PASS document.getElementById('invisiblePre').innerText is ''
-PASS document.getElementById('invisiblePreFirst').innerText is 't\n'
-PASS document.getElementById('invisible').innerText is 'test\n'
+PASS document.getElementById('invisiblePreFirst').innerText is 't'
+PASS document.getElementById('invisible').innerText is 'test'
 PASS document.getElementById('floatDt').innerText is 'Ab Cd E'
 PASS successfullyParsed is true
 

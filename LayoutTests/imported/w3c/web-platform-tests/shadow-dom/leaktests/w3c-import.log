@@ -14,6 +14,8 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/leaktests/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/leaktests/get-elements.html
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/leaktests/html-collection.html
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/leaktests/selection.html
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/leaktests/window-frames.html

@@ -34,6 +34,7 @@
 
 #include "JSCInlines.h"
 #include "JSLock.h"
+#include "TopExceptionScope.h"
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -101,6 +102,8 @@ ScriptFunctionCall::ScriptFunctionCall(JSC::JSGlobalObject* globalObject, JSC::J
     , m_name(name)
 {
 }
+
+ScriptFunctionCall::~ScriptFunctionCall() = default;
 
 Expected<JSValue, NakedPtr<Exception>> ScriptFunctionCall::call()
 {

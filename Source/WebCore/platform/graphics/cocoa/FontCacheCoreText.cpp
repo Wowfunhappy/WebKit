@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,6 +41,7 @@
 #include "SystemFontDatabaseCoreText.h"
 #include "UnrealizedCoreTextFont.h"
 #include <CoreText/SFNTLayoutTypes.h>
+#include <array>
 #include <pal/spi/cf/CoreTextSPI.h>
 #include <pal/spi/cocoa/AccessibilitySupportSPI.h>
 #include <wtf/HashSet.h>
@@ -53,6 +54,7 @@
 #include <wtf/cf/NotificationCenterCF.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
@@ -158,7 +160,7 @@ RefPtr<Font> FontCache::similarFont(const FontDescription& description, const St
         return fontForFamily(description, "verdana"_s);
 #endif
 
-    static constexpr ASCIILiteral matchWords[] = { "Arabic"_s, "Pashto"_s, "Urdu"_s };
+    static constexpr auto matchWords = WTF::toArray<ASCIILiteral>({ "Arabic"_s, "Pashto"_s, "Urdu"_s });
     auto familyMatcher = StringView(family);
     for (auto matchWord : matchWords) {
         if (equalIgnoringASCIICase(familyMatcher, matchWord))
@@ -229,7 +231,7 @@ bool FontCache::isSystemFontForbiddenForEditing(const String& fontFamily)
     return isSystemFont(fontFamily);
 }
 
-static CTFontSymbolicTraits computeTraits(const FontDescription& fontDescription)
+static CTFontSymbolicTraits NODELETE computeTraits(const FontDescription& fontDescription)
 {
     CTFontSymbolicTraits traits = 0;
     if (fontDescription.fontStyleSlope())
@@ -249,8 +251,7 @@ SynthesisPair computeNecessarySynthesis(CTFontRef font, const FontDescription& f
 
     bool needsSyntheticBold = fontDescription.hasAutoFontSynthesisWeight()
         && !synthesisOptions.contains(FontLookupOptions::DisallowBoldSynthesis);
-    bool needsSyntheticOblique = fontDescription.hasAutoFontSynthesisStyle()
-        && !synthesisOptions.contains(FontLookupOptions::DisallowObliqueSynthesis);
+    bool needsSyntheticOblique = fontDescription.allowsItalicOrObliqueFontSynthesisStyle() && !synthesisOptions.contains(FontLookupOptions::DisallowObliqueSynthesis);
 
     if (!needsSyntheticBold && !needsSyntheticOblique)
         return SynthesisPair(false, false);
@@ -351,11 +352,11 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
         uint32_t rawAxisIdentifier = 0;
         Boolean success = CFNumberGetValue(axisIdentifier.get(), kCFNumberSInt32Type, &rawAxisIdentifier);
         ASSERT_UNUSED(success, success);
-        if (rawAxisIdentifier == 0x77676874) // 'wght'
+        if (rawAxisIdentifier == fontVariationAxisTagValue(FontVariationAxisTag::wght))
             result.weight = extractVariationBounds(axis.get());
-        else if (rawAxisIdentifier == 0x77647468) // 'wdth'
+        else if (rawAxisIdentifier == fontVariationAxisTagValue(FontVariationAxisTag::wdth))
             result.width = extractVariationBounds(axis.get());
-        else if (rawAxisIdentifier == 0x736C6E74) // 'slnt'
+        else if (rawAxisIdentifier == fontVariationAxisTagValue(FontVariationAxisTag::slnt))
             result.slope = extractVariationBounds(axis.get());
     }
 
@@ -670,14 +671,14 @@ static void autoActivateFont(const String& name, CGFloat size)
 static void registerFontIfNeeded(const String& family) WTF_REQUIRES_LOCK(userInstalledFontMapLock())
 {
     if (auto fontURL = userInstalledFontMap().getOptional(family)) {
-        RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_FONT, family.utf8(), fontURL->string().utf8());
+        RELEASE_LOG_FORWARDABLE(Fonts, FontCacheCoreTextRegisterFont, family.utf8(), fontURL->string().utf8());
         RetainPtr cfURL = fontURL->createCFURL();
 
         CFErrorRef error = nullptr;
         if (!CTFontManagerRegisterFontsForURL(cfURL.get(), kCTFontManagerScopeProcess, &error)) {
             RetainPtr descriptionCF = adoptCF(CFErrorCopyDescription(error));
             String error(descriptionCF.get());
-            RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_ERROR, family.utf8(), error.utf8());
+            RELEASE_LOG_FORWARDABLE(Fonts, FontCacheCoreTextRegisterError, family.utf8(), error.utf8());
         }
 
         userInstalledFontMap().removeIf([&](auto& keyAndValue) {
@@ -686,21 +687,31 @@ static void registerFontIfNeeded(const String& family) WTF_REQUIRES_LOCK(userIns
     }
 }
 
-std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext, OptionSet<FontLookupOptions> options)
+static void registerFontsInFamilyIfNeeded(const String& family)
 {
-    {
-        Locker locker(userInstalledFontMapLock());
-        if (!userInstalledFontMap().isEmpty()) {
-            auto fontFamily = family.string().convertToASCIILowercase();
-            registerFontIfNeeded(fontFamily);
-            auto fontNames = userInstalledFontFamilyMap().find(fontFamily);
-            if (fontNames != userInstalledFontFamilyMap().end()) {
-                for (auto& fontName : fontNames->value)
-                    registerFontIfNeeded(fontName);
-                userInstalledFontFamilyMap().remove(fontNames);
-            }
+    Locker locker(userInstalledFontMapLock());
+    if (!userInstalledFontMap().isEmpty()) {
+        if (equalLettersIgnoringASCIICase(family, "helvetica"_s)) {
+            // Helvetica is a system font with several variants, so we choose not to register additional fonts in this family.
+            // This is because it can affect font matching. See rdar://172261885.
+            return;
+        }
+
+        auto fontFamily = family.convertToASCIILowercase();
+
+        registerFontIfNeeded(fontFamily);
+        auto fontNames = userInstalledFontFamilyMap().find(fontFamily);
+        if (fontNames != userInstalledFontFamilyMap().end()) {
+            for (auto& fontName : fontNames->value)
+                registerFontIfNeeded(fontName);
+            userInstalledFontFamilyMap().remove(fontNames);
         }
     }
+}
+
+std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext, OptionSet<FontLookupOptions> options)
+{
+    registerFontsInFamilyIfNeeded(family);
 
     auto size = fontDescription.adjustedSizeForFontFace(fontCreationContext.sizeAdjust());
     auto& fontDatabase = database(fontDescription.shouldAllowUserInstalledFonts());
@@ -981,7 +992,7 @@ void FontCache::prewarm(PrewarmInformation&& prewarmInformation)
             if (auto warmingFont = adoptCF(CTFontCreateWithName(cfFontName.get(), 0, nullptr))) {
                 // This is sufficient to warm CoreText caches for language and character specific fallbacks.
                 CFIndex coveredLength = 0;
-                UniChar character = ' ';
+                UniChar character = space;
 
                 auto fallbackWarmingFont = adoptCF(CTFontCreateForCharactersWithLanguageAndOption(warmingFont.get(), &character, 1, nullptr, kCTFontFallbackOptionSystem, &coveredLength));
             }

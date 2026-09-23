@@ -21,10 +21,12 @@ import argparse
 import socket
 import errno
 
+from webkitpy.port.linux_container_sdk_utils import maybe_enter_webkit_container_sdk, maybe_use_container_sdk_root_dir
+maybe_enter_webkit_container_sdk()
+
 from webkitpy.common.host import Host
 from webkitpy.port import configuration_options, platform_options, factory
 from webkitcorepy.string_utils import decode
-from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
 maybe_use_container_sdk_root_dir()
 
 def system_has_ipv6():

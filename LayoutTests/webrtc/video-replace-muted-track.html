@@ -18,6 +18,8 @@ promise_test((test) => {
 
     var sender;
     var firstTrack;
+    var frontStream;
+    var backStream;
     return navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: ["user"] } } }).then((stream) => {
         frontStream = stream;
         return new Promise((resolve, reject) => {
@@ -40,11 +42,15 @@ promise_test((test) => {
     }).then(() => {
         return navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: ["environment"] } } });
     }).then((stream) => {
+        backStream = stream;
         return sender.replaceTrack(stream.getVideoTracks()[0]);
     }).then(() => {
         return checkVideoBlack(false, canvas, video, "Check we receive some non black frames");
     }).then(() => {
         return checkVideoBlack(true, canvas, video, "Check we do not receive any black frame", 40).then(assert_unreached, () => { });
+    }).then(() => {
+        frontStream.getTracks().forEach(t => t.stop());
+        backStream.getTracks().forEach(t => t.stop());
     });
 }, "Switching from disabled to enabled track");
         </script>

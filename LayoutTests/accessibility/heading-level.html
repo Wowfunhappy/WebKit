@@ -7,36 +7,36 @@
 <body>
 
 <!-- implicit level of tag -->
-<h1 class="ex" data-expected="1">X</h1>
-<h2 class="ex" data-expected="2">X</h2>
-<h3 class="ex" data-expected="3">X</h3>
-<h4 class="ex" data-expected="4">X</h4>
-<h5 class="ex" data-expected="5">X</h5>
-<h6 class="ex" data-expected="6">X</h6>
+<h1 id="ex0" class="ex" data-expected="1">X</h1>
+<h2 id="ex1" class="ex" data-expected="2">X</h2>
+<h3 id="ex2" class="ex" data-expected="3">X</h3>
+<h4 id="ex3" class="ex" data-expected="4">X</h4>
+<h5 id="ex4" class="ex" data-expected="5">X</h5>
+<h6 id="ex5" class="ex" data-expected="6">X</h6>
 
 <!-- explicit aria-level overrides on h1-h6 (withOUT explicit heading role declaration) -->
-<h6 class="ex" data-expected="1" aria-level="1">X</h6>
-<h5 class="ex" data-expected="2" aria-level="2">X</h5>
-<h4 class="ex" data-expected="3" aria-level="3">X</h4>
-<h3 class="ex" data-expected="4" aria-level="4">X</h3>
-<h2 class="ex" data-expected="5" aria-level="5">X</h2>
-<h1 class="ex" data-expected="6" aria-level="6">X</h1>
+<h6 id="ex6" class="ex" data-expected="1" aria-level="1">X</h6>
+<h5 id="ex7" class="ex" data-expected="2" aria-level="2">X</h5>
+<h4 id="ex8" class="ex" data-expected="3" aria-level="3">X</h4>
+<h3 id="ex9" class="ex" data-expected="4" aria-level="4">X</h3>
+<h2 id="ex10" class="ex" data-expected="5" aria-level="5">X</h2>
+<h1 id="ex11" class="ex" data-expected="6" aria-level="6">X</h1>
 
 <!-- explicit aria-level overrides on h1-h6 (with explicit heading role declaration) -->
-<h6 class="ex" role="heading" data-expected="1" aria-level="1">X</h6>
-<h5 class="ex" role="heading" data-expected="2" aria-level="2">X</h5>
-<h4 class="ex" role="heading" data-expected="3" aria-level="3">X</h4>
-<h3 class="ex" role="heading" data-expected="4" aria-level="4">X</h3>
-<h2 class="ex" role="heading" data-expected="5" aria-level="5">X</h2>
-<h1 class="ex" role="heading" data-expected="6" aria-level="6">X</h1>
+<h6 id="ex12" class="ex" role="heading" data-expected="1" aria-level="1">X</h6>
+<h5 id="ex13" class="ex" role="heading" data-expected="2" aria-level="2">X</h5>
+<h4 id="ex14" class="ex" role="heading" data-expected="3" aria-level="3">X</h4>
+<h3 id="ex15" class="ex" role="heading" data-expected="4" aria-level="4">X</h3>
+<h2 id="ex16" class="ex" role="heading" data-expected="5" aria-level="5">X</h2>
+<h1 id="ex17" class="ex" role="heading" data-expected="6" aria-level="6">X</h1>
 
 <!-- explicit aria-level set on div with explicit heading role declaration -->
-<div class="ex" role="heading" data-expected="1" aria-level="1">X</div>
-<div class="ex" role="heading" data-expected="2" aria-level="2">X</div>
-<div class="ex" role="heading" data-expected="3" aria-level="3">X</div>
-<div class="ex" role="heading" data-expected="4" aria-level="4">X</div>
-<div class="ex" role="heading" data-expected="5" aria-level="5">X</div>
-<div class="ex" role="heading" data-expected="6" aria-level="6">X</div>
+<div id="ex18" class="ex" role="heading" data-expected="1" aria-level="1">X</div>
+<div id="ex19" class="ex" role="heading" data-expected="2" aria-level="2">X</div>
+<div id="ex20" class="ex" role="heading" data-expected="3" aria-level="3">X</div>
+<div id="ex21" class="ex" role="heading" data-expected="4" aria-level="4">X</div>
+<div id="ex22" class="ex" role="heading" data-expected="5" aria-level="5">X</div>
+<div id="ex23" class="ex" role="heading" data-expected="6" aria-level="6">X</div>
 
 <div id="dynamic-aria-heading" role="heading" aria-level="1">X</div>
 
@@ -53,7 +53,6 @@
             const examples = document.querySelectorAll('.ex');
             for (let i = 0; i < examples.length; ++i) {
                 el = examples[i];
-                el.id = `ex${i}`;
 
                 axElement = await waitForElementById(el.id);
 

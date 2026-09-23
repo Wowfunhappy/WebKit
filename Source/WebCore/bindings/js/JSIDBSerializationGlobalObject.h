@@ -45,10 +45,7 @@ public:
     static JSC::GCClient::IsoSubspace* NODELETE subspaceForImpl(JSC::VM&);
 
     DECLARE_INFO;
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSValue prototype);
     static void destroy(JSC::JSCell*);
 
     ScriptExecutionContext& scriptExecutionContext() const { return m_scriptExecutionContext; }

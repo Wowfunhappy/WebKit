@@ -38,7 +38,7 @@ namespace CSSPropertyParserHelpers {
 
 static std::optional<HueInterpolationMethod> consumeHueInterpolationMethod(CSSParserTokenRange& range)
 {
-    static constexpr SortedArrayMap hueInterpolationMethodMap { std::to_array<std::pair<CSSValueID, HueInterpolationMethod>>({
+    static constexpr SortedArrayMap hueInterpolationMethodMap { WTF::toArray<std::pair<CSSValueID, HueInterpolationMethod>>({
         { CSSValueShorter, HueInterpolationMethod::Shorter },
         { CSSValueLonger, HueInterpolationMethod::Longer },
         { CSSValueIncreasing, HueInterpolationMethod::Increasing },

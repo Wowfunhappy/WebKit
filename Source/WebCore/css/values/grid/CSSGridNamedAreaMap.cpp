@@ -89,7 +89,7 @@ bool addRow(GridNamedAreaMap& gridAreaMap, const GridNamedAreaMapRow& row)
 
 static void serializeGridNamedAreaMapPosition(StringBuilder& builder, const GridNamedAreaMap::Map& map, size_t row, size_t column)
 {
-    HashSet<String> candidates;
+    HashSet<WTF::String> candidates;
     for (auto& [name, area] : map) {
         if (row >= area.rows.startLine() && row < area.rows.endLine())
             candidates.add(name);

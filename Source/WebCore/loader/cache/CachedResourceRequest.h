@@ -97,10 +97,10 @@ public:
 #if ENABLE(CONTENT_EXTENSIONS)
     void applyResults(ContentRuleListResults&&, Page*);
 #endif
-    void setDomainForCachePartition(Document&);
-    void setDomainForCachePartition(const String&);
     bool isLinkPreload() const { return m_isLinkPreload; }
     void setIsLinkPreload() { m_isLinkPreload = true; }
+    bool isLinkModulePreload() const { return m_isLinkModulePreload; }
+    void setIsLinkModulePreload() { m_isLinkModulePreload = true; }
 
     void setOrigin(Ref<SecurityOrigin>&& origin) { m_origin = WTF::move(origin); }
     RefPtr<SecurityOrigin> releaseOrigin() { return WTF::move(m_origin); }
@@ -128,6 +128,7 @@ private:
     RefPtr<SecurityOrigin> m_origin;
     String m_fragmentIdentifier;
     bool m_isLinkPreload { false };
+    bool m_isLinkModulePreload { false };
     bool m_ignoreForRequestCount { false };
 };
 

@@ -26,6 +26,8 @@
 #include "config.h"
 #include "MockContentFilterManager.h"
 
+#include <wtf/NeverDestroyed.h>
+
 namespace WebCore {
 
 MockContentFilterManager& MockContentFilterManager::singleton()

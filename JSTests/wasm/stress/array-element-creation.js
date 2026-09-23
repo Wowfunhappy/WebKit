@@ -1,4 +1,4 @@
-//@ skip if $memoryLimited
+//@ memoryHog!
 //@ runDefaultWasm("--useConcurrentJIT=0")
 
 function main() {

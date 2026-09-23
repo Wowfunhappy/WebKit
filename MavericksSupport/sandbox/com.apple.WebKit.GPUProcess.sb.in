@@ -111,6 +111,18 @@
        (global-name "com.apple.coreservices.launchservicesd")
        (global-name "com.apple.window_proxies"))
 
+;; The Launch Services database's change seed, CarbonCore's per-user segment, which check-in
+;; (AuxiliaryProcess::launchServicesCheckIn()) opens beside the coreservicesd copy granted below; 10.9's
+;; own application profile grants the same read.
+(allow ipc-posix-shm-read*
+    (ipc-posix-name-regex #"^/tmp/com\.apple\.csseed\."))
+
+;; Power sources. GPUProcess::updateGPUProcessPreferences() asks systemHasBattery() before registering
+;; the software VP9 decoder, and on this OS IOPSCopyPowerSourcesInfo() reads the power sources from
+;; configd's dynamic store.
+(allow mach-lookup
+    (global-name "com.apple.SystemConfiguration.configd"))
+
 ;; ColorSync's shared memory, named as 10.9 names it.
 (allow ipc-posix-shm*
     (ipc-posix-name "_CS_GSHMEMLOCK"))

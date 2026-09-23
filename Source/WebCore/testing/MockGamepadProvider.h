@@ -31,6 +31,7 @@
 #include <WebCore/MockGamepad.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/WeakHashMap.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {

@@ -56,7 +56,6 @@ public:
         uint64_t maxBufferSize,
         uint32_t maxVertexAttributes,
         uint32_t maxVertexBufferArrayStride,
-        uint32_t maxInterStageShaderComponents,
         uint32_t maxInterStageShaderVariables,
         uint32_t maxColorAttachments,
         uint32_t maxColorAttachmentBytesPerSample,
@@ -94,7 +93,6 @@ public:
             maxBufferSize,
             maxVertexAttributes,
             maxVertexBufferArrayStride,
-            maxInterStageShaderComponents,
             maxInterStageShaderVariables,
             maxColorAttachments,
             maxColorAttachmentBytesPerSample,
@@ -135,7 +133,6 @@ public:
             limits.maxBufferSize(),
             limits.maxVertexAttributes(),
             limits.maxVertexBufferArrayStride(),
-            limits.maxInterStageShaderComponents(),
             limits.maxInterStageShaderVariables(),
             limits.maxColorAttachments(),
             limits.maxColorAttachmentBytesPerSample(),
@@ -173,7 +170,6 @@ public:
     uint64_t maxBufferSize() const { return m_maxBufferSize; }
     uint32_t maxVertexAttributes() const { return m_maxVertexAttributes; }
     uint32_t maxVertexBufferArrayStride() const { return m_maxVertexBufferArrayStride; }
-    uint32_t maxInterStageShaderComponents() const { return m_maxInterStageShaderComponents; }
     uint32_t maxInterStageShaderVariables() const { return m_maxInterStageShaderVariables; }
     uint32_t maxColorAttachments() const { return m_maxColorAttachments; }
     uint32_t maxColorAttachmentBytesPerSample() const { return m_maxColorAttachmentBytesPerSample; }
@@ -212,7 +208,6 @@ private:
         uint64_t maxBufferSize,
         uint32_t maxVertexAttributes,
         uint32_t maxVertexBufferArrayStride,
-        uint32_t maxInterStageShaderComponents,
         uint32_t maxInterStageShaderVariables,
         uint32_t maxColorAttachments,
         uint32_t maxColorAttachmentBytesPerSample,
@@ -248,7 +243,6 @@ private:
             , m_maxBufferSize(maxBufferSize)
             , m_maxVertexAttributes(maxVertexAttributes)
             , m_maxVertexBufferArrayStride(maxVertexBufferArrayStride)
-            , m_maxInterStageShaderComponents(maxInterStageShaderComponents)
             , m_maxInterStageShaderVariables(maxInterStageShaderVariables)
             , m_maxColorAttachments(maxColorAttachments)
             , m_maxColorAttachmentBytesPerSample(maxColorAttachmentBytesPerSample)
@@ -292,7 +286,6 @@ private:
     uint64_t m_maxBufferSize { 0 };
     uint32_t m_maxVertexAttributes { 0 };
     uint32_t m_maxVertexBufferArrayStride { 0 };
-    uint32_t m_maxInterStageShaderComponents { 0 };
     uint32_t m_maxInterStageShaderVariables { 0 };
     uint32_t m_maxColorAttachments { 0 };
     uint32_t m_maxColorAttachmentBytesPerSample { 0 };

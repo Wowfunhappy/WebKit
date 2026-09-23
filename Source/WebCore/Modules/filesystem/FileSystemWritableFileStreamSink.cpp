@@ -33,8 +33,10 @@
 #include "FileSystemWriteCloseReason.h"
 #include "JSBlob.h"
 #include "JSDOMConvertBufferSource.h"
+#include "JSDOMConvertDictionary.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertUnion.h"
+#include "JSDOMPromiseDeferred.h"
 #include <JavaScriptCore/ArrayBufferView.h>
 #include <JavaScriptCore/JSArrayBuffer.h>
 #include <JavaScriptCore/JSArrayBufferView.h>

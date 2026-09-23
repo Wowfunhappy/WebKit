@@ -48,7 +48,9 @@
     HasActiveSystemAudioCaptureDevice,
     HasMutedSystemAudioCaptureDevice,
     HasInterruptedSystemAudioCaptureDevice,
-    HasStreamingActivity
+    HasStreamingActivity,
+    IsPromptingForWindowCapture,
+    IsPromptingForScreenCapture,
 }
 
 [OptionSet] enum class WebCore::MediaProducerMutedState : uint8_t {

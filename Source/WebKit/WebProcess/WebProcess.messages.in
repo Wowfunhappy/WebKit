@@ -86,6 +86,7 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
     BindAccessibilityFrameWithData(WebCore::FrameIdentifier frameID, std::span<const uint8_t> data);
 
     GarbageCollectJavaScriptObjects()
+    GetStorageAreaMapCountForTesting() -> (uint64_t storageAreaMapCount)
     SetJavaScriptGarbageCollectorTimerEnabled(bool enable)
 
     SetInjectedBundleParameter(String parameter, std::span<const uint8_t> value);
@@ -121,7 +122,7 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
     GamepadDisconnected(unsigned index)
 #endif
 
-    EstablishRemoteWorkerContextConnectionToNetworkProcess(enum:uint8_t WebKit::RemoteWorkerType workerType, WebKit::PageGroupIdentifier pageGroupID, WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, struct WebKit::WebPreferencesStore store, WebCore::Site site, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, struct WebKit::RemoteWorkerInitializationData initializationData) -> ()
+    EstablishRemoteWorkerContextConnectionToNetworkProcess(enum:uint8_t WebKit::RemoteWorkerType workerType, WebKit::PageGroupIdentifier pageGroupID, WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, struct WebKit::WebPreferencesStore store, WebCore::Site site, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, struct WebKit::RemoteWorkerInitializationData initializationData, enum:bool WebCore::CrossOriginEmbedderPolicyValue workerCrossOriginEmbedderPolicy) -> ()
 
     RegisterServiceWorkerClients() -> (bool isSuccess)
 
@@ -194,8 +195,9 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
 
     GrantAccessToAssetServices(Vector<WebKit::SandboxExtensionHandle> assetServicesHandles)
     RevokeAccessToAssetServices()
+#if !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
     SwitchFromStaticFontRegistryToUserFontRegistry(Vector<WebKit::SandboxExtensionHandle> fontMachExtensionHandles)
-
+#endif
 #if PLATFORM(COCOA)
     DisableURLSchemeCheckInDataDetectors()
     UnblockServicesRequiredByAccessibility(Vector<WebKit::SandboxExtensionHandle> handleArray)
@@ -226,6 +228,8 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
     SetMediaAccessibilityPreferences(enum:uint8_t WebCore::CaptionUserPreferencesDisplayMode displayMode, Vector<String> languages)
+    SetMediaAccessibilityPreferredLanguages(Vector<String> languages)
+    SetMediaAccessibilityPreferredCaptionDisplayMode(enum:uint8_t WebCore::CaptionUserPreferencesDisplayMode displayMode)
 #endif
 
 #if PLATFORM(MAC)

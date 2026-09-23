@@ -202,6 +202,7 @@ String TextCodecCJK::decodeCommon(std::span<const uint8_t> bytes, bool flush, bo
             result.append(replacementCharacter);
             if (stopOnError) {
                 m_lead = 0x00;
+                m_prependedByte = std::nullopt;
                 return result.toString();
             }
         }
@@ -237,7 +238,7 @@ static std::optional<char16_t> codePointJIS0212(uint16_t pointer)
 // https://encoding.spec.whatwg.org/#euc-jp-decoder
 String TextCodecCJK::eucJPDecode(std::span<const uint8_t> bytes, bool flush, bool stopOnError, bool& sawError)
 {
-    return decodeCommon(bytes, flush, stopOnError, sawError, [this] (uint8_t byte, StringBuilder& result) {
+    auto result = decodeCommon(bytes, flush, stopOnError, sawError, [this](uint8_t byte, StringBuilder& result) {
         if (uint8_t lead = std::exchange(m_lead, 0x00)) {
             if (lead == 0x8E && byte >= 0xA1 && byte <= 0xDF) {
                 result.append(static_cast<char32_t>(0xFF61 - 0xA1 + byte));
@@ -248,9 +249,10 @@ String TextCodecCJK::eucJPDecode(std::span<const uint8_t> bytes, bool flush, boo
                 m_lead = byte;
                 return SawError::No;
             }
+            bool jis0212 = std::exchange(m_jis0212, false);
             if (lead >= 0xA1 && lead <= 0xFE && byte >= 0xA1 && byte <= 0xFE) {
                 uint16_t pointer = (lead - 0xA1) * 94 + byte - 0xA1;
-                if (auto codePoint = std::exchange(m_jis0212, false) ? codePointJIS0212(pointer) : codePointJIS0208(pointer)) {
+                if (auto codePoint = jis0212 ? codePointJIS0212(pointer) : codePointJIS0208(pointer)) {
                     result.append(*codePoint);
                     return SawError::No;
                 }
@@ -269,6 +271,9 @@ String TextCodecCJK::eucJPDecode(std::span<const uint8_t> bytes, bool flush, boo
         }
         return SawError::Yes;
     });
+    if (flush)
+        m_jis0212 = false;
+    return result;
 }
 
 // https://encoding.spec.whatwg.org/#euc-jp-encoder
@@ -440,7 +445,7 @@ String TextCodecCJK::iso2022JPDecode(std::span<const uint8_t> bytes, bool flush,
             return result.toString();
         }
     }
-    if (m_iso2022JPSecondPrependedByte && byteParser(*std::exchange(m_iso2022JPSecondPrependedByte, std::nullopt), result) == SawError::Yes && stopOnError) {
+    if (m_iso2022JPSecondPrependedByte && byteParser(*std::exchange(m_iso2022JPSecondPrependedByte, std::nullopt), result) == SawError::Yes) {
         sawError = true;
         result.append(replacementCharacter);
         if (stopOnError) {
@@ -465,7 +470,7 @@ String TextCodecCJK::iso2022JPDecode(std::span<const uint8_t> bytes, bool flush,
                 return result.toString();
             }
         }
-        if (m_iso2022JPSecondPrependedByte && byteParser(*std::exchange(m_iso2022JPSecondPrependedByte, std::nullopt), result) == SawError::Yes && stopOnError) {
+        if (m_iso2022JPSecondPrependedByte && byteParser(*std::exchange(m_iso2022JPSecondPrependedByte, std::nullopt), result) == SawError::Yes) {
             sawError = true;
             result.append(replacementCharacter);
             if (stopOnError) {
@@ -483,21 +488,32 @@ String TextCodecCJK::iso2022JPDecode(std::span<const uint8_t> bytes, bool flush,
         case ISO2022JPDecoderState::LeadByte:
             break;
         case ISO2022JPDecoderState::TrailByte:
-            m_iso2022JPDecoderState = ISO2022JPDecoderState::LeadByte;
-            [[fallthrough]];
         case ISO2022JPDecoderState::EscapeStart:
             sawError = true;
             result.append(replacementCharacter);
             break;
-        case ISO2022JPDecoderState::Escape:
+        case ISO2022JPDecoderState::Escape: {
+            uint8_t lead = std::exchange(m_lead, 0x00);
+            // Set output state before calling byteParser, which reads these.
+            m_iso2022JPOutput = false;
+            m_iso2022JPDecoderState = m_iso2022JPDecoderOutputState;
             sawError = true;
             result.append(replacementCharacter);
-            if (m_lead) {
-                ASSERT(isASCII(m_lead));
-                result.append(std::exchange(m_lead, 0x00));
+            // Reprocess lead byte (always 0x24 or 0x28) in output state.
+            if (!stopOnError && lead) {
+                byteParser(lead, result);
+                if (m_iso2022JPDecoderState == ISO2022JPDecoderState::TrailByte)
+                    result.append(replacementCharacter);
             }
             break;
         }
+        }
+        m_iso2022JPDecoderState = ISO2022JPDecoderState::ASCII;
+        m_iso2022JPDecoderOutputState = ISO2022JPDecoderState::ASCII;
+        m_iso2022JPOutput = false;
+        m_lead = 0x00;
+        m_prependedByte = std::nullopt;
+        m_iso2022JPSecondPrependedByte = std::nullopt;
     }
 
     return result.toString();

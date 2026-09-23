@@ -26,8 +26,10 @@
 #import "config.h"
 #import "ScrollingTreeOverflowScrollProxyNodeCocoa.h"
 
+#import "Logging.h"
 #import "ScrollingStateOverflowScrollProxyNode.h"
 #import "ScrollingStateTree.h"
+#import "ScrollingTree.h"
 #import "WebCoreCALayerExtras.h"
 #import <wtf/TZoneMallocInlines.h>
 

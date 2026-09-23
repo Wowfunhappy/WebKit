@@ -179,7 +179,7 @@ ExceptionOr<Ref<WebSocket>> WebSocket::create(ScriptExecutionContext& context, c
     auto socket = adoptRef(*new WebSocket(context));
     socket->suspendIfNeeded();
 
-    auto result = socket->connect(context.completeURL(url, ScriptExecutionContext::ForceUTF8::Yes).string(), protocols);
+    auto result = socket->connect(context.parseURL(url).string(), protocols);
     if (result.hasException())
         return result.releaseException();
 
@@ -188,7 +188,7 @@ ExceptionOr<Ref<WebSocket>> WebSocket::create(ScriptExecutionContext& context, c
 
 ExceptionOr<Ref<WebSocket>> WebSocket::create(ScriptExecutionContext& context, const String& url, const String& protocol)
 {
-    return create(context, url, Vector<String> { 1, protocol });
+    return create(context, url, Vector<String> { FillWith { }, 1, protocol });
 }
 
 HashSet<CheckedPtr<WebSocket>>& WebSocket::allActiveWebSockets()
@@ -209,7 +209,7 @@ ExceptionOr<void> WebSocket::connect(const String& url)
 
 ExceptionOr<void> WebSocket::connect(const String& url, const String& protocol)
 {
-    return connect(url, Vector<String> { 1, protocol });
+    return connect(url, Vector<String> { FillWith { }, 1, protocol });
 }
 
 void WebSocket::failAsynchronously()
@@ -273,7 +273,11 @@ ExceptionOr<void> WebSocket::connect(const String& url, const Vector<String>& pr
     }
 
     // FIXME: Convert this to check the isolated world's Content Security Policy once webkit.org/b/104520 is solved.
-    if (!context->shouldBypassMainWorldContentSecurityPolicy() && !contentSecurityPolicy->allowConnectToSource(m_url)) {
+    std::optional<TextPosition> sourcePosition;
+    if (RefPtr document = dynamicDowncast<Document>(context))
+        sourcePosition = document->currentParserSourcePosition();
+
+    if (!context->shouldBypassMainWorldContentSecurityPolicy() && !contentSecurityPolicy->allowConnectToSource(m_url, WTF::move(sourcePosition))) {
         m_state = CLOSED;
 
         // FIXME: Should this be throwing an exception?

@@ -29,6 +29,7 @@
 #include "BridgeJSC.h"
 #include "runtime_object.h"
 #include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/Weak.h>
 #include <JavaScriptCore/WeakInlines.h>
@@ -59,7 +60,7 @@ RootObject* findProtectingRootObject(JSObject* jsObject)
 {
     RootObjectSet::const_iterator end = rootObjectSet().end();
     for (RootObjectSet::const_iterator it = rootObjectSet().begin(); it != end; ++it) {
-        if ((*it)->gcIsProtected(jsObject))
+        if (protect((*it))->gcIsProtected(jsObject))
             return *it;
     }
     return 0;
@@ -195,7 +196,8 @@ void RootObject::removeRuntimeObject(RuntimeObject* object)
 
 void RootObject::finalize(JSC::Handle<JSC::Unknown> handle, void*)
 {
-    auto* object = jsCast<RuntimeObject*>(handle.slot()->asCell());
+    // Cannot call jsCast() during weak reference finalization.
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* object = static_cast<RuntimeObject*>(handle.slot()->asCell());
 
     Ref<RootObject> protectedThis(*this);
     object->invalidate();

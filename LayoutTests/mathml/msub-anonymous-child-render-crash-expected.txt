@@ -1,9 +1,9 @@
 This test passes if it does not crash.
 
-X
-Y
-X
+𝑋
+𝑌
+𝑋
 2
-Y
+𝑌
 2
 

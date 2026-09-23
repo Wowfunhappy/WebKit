@@ -76,11 +76,11 @@ public:
     void resetHitCount() { m_hitCount = 0; }
 
     // Associates this breakpoint with a position in a specific source code.
-    bool link(SourceID, unsigned lineNumber, unsigned columnNumber);
+    bool NODELETE link(SourceID, unsigned lineNumber, unsigned columnNumber);
     bool isLinked() const { return m_sourceID != noSourceID; }
 
     // Adjust the previously associated position to the next pause opportunity.
-    bool resolve(unsigned lineNumber, unsigned columnNumber);
+    bool NODELETE resolve(unsigned lineNumber, unsigned columnNumber);
     bool isResolved() const { return m_resolved; }
 
     bool shouldPause(Debugger&, JSGlobalObject*);

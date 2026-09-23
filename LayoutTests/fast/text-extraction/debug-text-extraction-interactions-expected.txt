@@ -17,7 +17,7 @@ PASS childScrollerScrollTopAfterScrollToReveal is > 0
 PASS scrollToRevealInPageError is ""
 PASS pageScrollTopAfterScrollToReveal is > 100
 PASS scrollToRevealNotFoundError is "'Nonexistent text' not found inside the target node"
-PASS invalidActionError is "Failed to resolve nodeIdentifier 4294967293"
+PASS invalidActionError is "Failed to resolve stale uid=4294967293"
 PASS clickDisabledError is "Click target is disabled"
 PASS textInputReadonlyError is "Target is readonly"
 PASS selectDisabledMenuItemError is "Select is disabled"

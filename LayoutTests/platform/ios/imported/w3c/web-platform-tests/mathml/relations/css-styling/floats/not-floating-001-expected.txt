@@ -1,9 +1,10 @@
 
+FAIL float child ignored in a assert_approx_equals: inline size expected 83.0625 +/- 1 but got 27.6875
 FAIL float child ignored in maction assert_approx_equals: inline size expected 20 +/- 1 but got 0
 FAIL float child ignored in menclose assert_approx_equals: inline size expected 94.21875 +/- 1 but got 38.84375
 FAIL float child ignored in merror assert_approx_equals: inline size expected 85.0625 +/- 1 but got 29.6875
 FAIL float child ignored in mfrac assert_approx_equals: inline size expected 22 +/- 1 but got 2
-FAIL float child ignored in mi assert_approx_equals: block size expected 37 +/- 1 but got 27.859375
+FAIL float child ignored in mi assert_approx_equals: block size expected 37 +/- 1 but got 27.84375
 FAIL float child ignored in mmultiscripts assert_approx_equals: inline size expected 40.625 +/- 1 but got 20
 FAIL float child ignored in mn assert_approx_equals: block size expected 37 +/- 1 but got 27.859375
 FAIL float child ignored in mo assert_approx_equals: block size expected 37 +/- 1 but got 27.859375

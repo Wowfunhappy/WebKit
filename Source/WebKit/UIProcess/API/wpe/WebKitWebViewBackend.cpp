@@ -17,11 +17,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include "config.h"
+
 #if USE(LIBWPE)
 
-#include "config.h"
 #include "WebKitWebViewBackend.h"
-
 #include "WebKitWebViewBackendPrivate.h"
 
 /**

@@ -42,7 +42,7 @@ TextDecoder::~TextDecoder() = default;
 
 ExceptionOr<Ref<TextDecoder>> TextDecoder::create(const String& label, Options options)
 {
-    auto trimmedLabel = label.trim(isASCIIWhitespace);
+    auto trimmedLabel = StringView(label).trim(isASCIIWhitespace);
     const char16_t nullCharacter = '\0';
     if (trimmedLabel.contains(nullCharacter))
         return Exception { ExceptionCode::RangeError };

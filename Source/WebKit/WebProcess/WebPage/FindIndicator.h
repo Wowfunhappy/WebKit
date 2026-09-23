@@ -47,7 +47,6 @@ public:
     virtual ~FindIndicator() = default;
     virtual bool update(WebCore::LocalFrame* selectedFrame, bool isShowingOverlay, bool shouldAnimate = true);
     virtual void hide();
-    virtual void willFindString() { }
     virtual void didFindString(WebCore::LocalFrame* selectedFrame);
     constexpr virtual bool shouldHideOnScroll() const { return true; }
     bool isShowing() const { return m_isShowingFindIndicator; }
@@ -73,7 +72,6 @@ public:
         : FindIndicator(webPage) { };
     bool update(WebCore::LocalFrame* selectedFrame, bool isShowingOverlay, bool shouldAnimate = true) override;
     void hide() override;
-    void willFindString() override;
     void didFindString(WebCore::LocalFrame* selectedFrame) override;
     constexpr bool shouldHideOnScroll() const override { return false; }
 private:

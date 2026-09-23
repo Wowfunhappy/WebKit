@@ -1,4 +1,9 @@
 
+PASS e.style['text-autospace'] = "punctuation normal" should not set the property value
+PASS e.style['text-autospace'] = "punctuation normal insert" should not set the property value
+PASS e.style['text-autospace'] = "insert punctuation normal" should not set the property value
+PASS e.style['text-autospace'] = "punctuation normal replace" should not set the property value
+PASS e.style['text-autospace'] = "replace punctuation normal" should not set the property value
 PASS e.style['text-autospace'] = "normal ideograph-alpha" should not set the property value
 PASS e.style['text-autospace'] = "normal ideograph-alpha ideograph-numeric" should not set the property value
 PASS e.style['text-autospace'] = "normal punctuation" should not set the property value

@@ -72,7 +72,6 @@ class RenderGeometryMap;
 class RenderLayer;
 class RenderLayerModelObject;
 class RenderFragmentContainer;
-class RenderStyle;
 class RenderTheme;
 class RenderTreeBuilder;
 class RenderView;
@@ -96,6 +95,7 @@ class Box;
 }
 
 namespace Style {
+class ComputedStyle;
 class PseudoElementRequest;
 enum class MarginTrimSide : uint8_t;
 }
@@ -179,7 +179,6 @@ public:
         Replica,
         ScrollbarPart,
         SearchField,
-        SelectFallbackButton,
         Slider,
         SliderContainer,
         Table,
@@ -498,7 +497,6 @@ public:
     bool isRenderTextControlMultiLine() const { return type() == Type::TextControlMultiLine; }
     bool isRenderTextControlSingleLine() const { return isRenderTextControl() && !isRenderTextControlMultiLine(); }
     bool isRenderSearchField() const { return type() == Type::SearchField; }
-    bool isRenderSelectFallbackButton() const { return type() == Type::SelectFallbackButton; }
     bool isRenderTextControlInnerBlock() const { return type() == Type::TextControlInnerBlock; }
     bool isRenderTextControlInnerContainer() const { return type() == Type::TextControlInnerContainer; }
     bool isRenderVideo() const { return type() == Type::Video; }
@@ -587,6 +585,7 @@ public:
     bool isRenderSVGShape() const { return isRenderSVGModelObject() && m_typeSpecificFlags.svgFlags().contains(SVGModelObjectFlag::IsShape); }
     bool isLegacyRenderSVGShape() const { return isLegacyRenderSVGModelObject() && m_typeSpecificFlags.svgFlags().contains(SVGModelObjectFlag::IsShape); }
     bool isLegacyRenderSVGRect() const { return type() == Type::LegacySVGRect; }
+    bool isRenderSVGRect() const { return type() == Type::SVGRect; }
     bool isRenderSVGText() const { return type() == Type::SVGText; }
     bool isRenderSVGTextPath() const { return type() == Type::SVGTextPath; }
     bool isRenderSVGTSpan() const { return type() == Type::SVGTSpan; }
@@ -617,6 +616,7 @@ public:
     bool isRenderOrLegacyRenderSVGShape() const { return isRenderSVGShape() || isLegacyRenderSVGShape(); }
     bool isRenderOrLegacyRenderSVGPath() const { return isRenderSVGPath() || isLegacyRenderSVGPath(); }
     bool isRenderOrLegacyRenderSVGImage() const { return isRenderSVGImage() || isLegacyRenderSVGImage(); }
+    bool isRenderOrLegacyRenderSVGRect() const { return isRenderSVGRect() || isLegacyRenderSVGRect(); }
     bool isRenderOrLegacyRenderSVGForeignObject() const { return isRenderSVGForeignObject() || isLegacyRenderSVGForeignObject(); }
     bool isRenderOrLegacyRenderSVGModelObject() const { return isRenderSVGModelObject() || isLegacyRenderSVGModelObject(); }
     bool isRenderOrLegacyRenderSVGResourceFilterPrimitive() const { return isRenderSVGResourceFilterPrimitive() || isLegacyRenderSVGResourceFilterPrimitive(); }
@@ -626,19 +626,20 @@ public:
     // FIXME: Those belong into a SVG specific base-class for all renderers (see above)
     // Unfortunately we don't have such a class yet, because it's not possible for all renderers
     // to inherit from RenderSVGObject -> RenderObject (some need RenderBlock inheritance for instance)
-    void invalidateCachedBoundaries();
+    void NODELETE invalidateCachedBoundaries();
     bool usesBoundaryCaching() const;
     virtual void NODELETE setNeedsBoundariesUpdate();
     virtual void setNeedsTransformUpdate() { }
 
     // Per SVG 1.1 objectBoundingBox ignores clipping, masking, filter effects, opacity and stroke-width.
-    // This is used for all computation of objectBoundingBox relative units and by SVGLocatable::getBBox().
+    // This is used for all computation of objectBoundingBox relative units and by SVGGraphicsElement::getBBox().
     // NOTE: Markers are not specifically ignored here by SVG 1.1 spec, but we ignore them
     // since stroke-width is ignored (and marker size can depend on stroke-width).
     // objectBoundingBox is returned local coordinates.
     // The name objectBoundingBox is taken from the SVG 1.1 spec.
     virtual FloatRect objectBoundingBox() const;
     virtual FloatRect strokeBoundingBox() const;
+    virtual bool objectBoundingBoxIsEmpty() const { return false; }
 
     // The objectBoundingBox of a SVG container is affected by the transformations applied on its children -- the container
     // bounding box is a union of all child bounding boxes, mapped through their transformation matrices.
@@ -721,7 +722,7 @@ public:
     bool hasVisibleBoxDecorations() const { return boxDecorationState() != BoxDecorationState::None; }
 
     bool needsLayout() const;
-    bool needsPreferredLogicalWidthsUpdate() const { return m_stateBitfields.hasFlag(StateFlag::PreferredLogicalWidthsNeedUpdate); }
+    bool hasInvalidContentLogicalWidths() const { return m_stateBitfields.hasFlag(StateFlag::ContentLogicalWidthsInvalidated); }
 
     bool selfNeedsLayout() const { return m_stateBitfields.hasFlag(StateFlag::NeedsLayout); }
     bool needsOutOfFlowMovementLayout() const { return m_stateBitfields.hasFlag(StateFlag::NeedsOutOfFlowMovementLayout); }
@@ -761,9 +762,9 @@ public:
 
     inline Node* nonPseudoNode() const; // Defined in RenderObjectNode.h
 
-    inline Document& document() const; // Defined in RenderObjectDocument.h
+    inline Document& NODELETE document() const; // Defined in RenderObjectDocument.h
     inline TreeScope& treeScopeForSVGReferences() const; // Defined in RenderObjectInlines.h
-    inline LocalFrame& frame() const; // Defined in RenderObjectInlines.h
+    inline LocalFrame& frame() const; // Defined in RenderObjectDocument.h
     inline Page& page() const; // Defined in RenderObjectInlines.h
     inline const Settings& settings() const; // Defined in RenderObjectDocument.h
 
@@ -772,15 +773,16 @@ public:
     // is true if the renderer returned is an ancestor of repaintContainer.
     RenderElement* container() const;
     RenderElement* container(const RenderLayerModelObject* repaintContainer, bool& repaintContainerSkipped) const;
+    bool isAncestorContainerOfRenderer(const RenderObject&) const;
 
     RenderElement* markContainingBlocksForLayout(RenderElement* layoutRoot = nullptr);
-    inline void setNeedsLayout(MarkingBehavior = MarkContainingBlockChain);
+    inline void setNeedsLayout(MarkingBehavior = MarkingBehavior::MarkContainingBlockChain);
     enum class HadSkippedLayout { No, Yes };
     void clearNeedsLayout(HadSkippedLayout = HadSkippedLayout::No);
-    void setNeedsPreferredWidthsUpdate(MarkingBehavior = MarkContainingBlockChain);
-    void clearNeedsPreferredWidthsUpdate() { m_stateBitfields.setFlag(StateFlag::PreferredLogicalWidthsNeedUpdate, { }); }
+    void invalidateContentLogicalWidths(MarkingBehavior = MarkingBehavior::MarkContainingBlockChain, const RenderBlock* ancestorUpdateBoundary = nullptr);
+    void clearContentLogicalWidthsInvalidation() { m_stateBitfields.setFlag(StateFlag::ContentLogicalWidthsInvalidated, { }); }
     
-    inline void setNeedsLayoutAndPreferredWidthsUpdate();
+    inline void setNeedsLayoutAndInvalidateContentLogicalWidths();
 
     void setPositionState(PositionType);
     void clearPositionedState() { m_stateBitfields.clearPositionedState(); }
@@ -808,7 +810,7 @@ public:
 
     bool NODELETE isComposited() const;
 
-    bool hitTest(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestFilter = HitTestAll);
+    bool hitTest(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestFilter = HitTestFilter::All);
     virtual Node* nodeForHitTest() const;
     virtual void updateHitTestResult(HitTestResult&, const LayoutPoint&) const;
 
@@ -831,13 +833,13 @@ public:
     FloatPoint absoluteToLocal(const DoublePoint&, OptionSet<MapCoordinatesMode> = { }) const;
 
     // Convert a local quad to absolute coordinates, taking transforms into account.
-    inline FloatQuad localToAbsoluteQuad(const FloatQuad&, OptionSet<MapCoordinatesMode> = UseTransforms, bool* wasFixed = nullptr) const; // Defined in RenderObjectInlines.h
+    inline FloatQuad localToAbsoluteQuad(const FloatQuad&, OptionSet<MapCoordinatesMode> = MapCoordinatesMode::UseTransforms, bool* wasFixed = nullptr) const; // Defined in RenderObjectInlines.h
     // Convert an absolute quad to local coordinates.
-    FloatQuad absoluteToLocalQuad(const FloatQuad&, OptionSet<MapCoordinatesMode> = UseTransforms) const;
+    FloatQuad absoluteToLocalQuad(const FloatQuad&, OptionSet<MapCoordinatesMode> = MapCoordinatesMode::UseTransforms) const;
 
     // Convert a local quad into the coordinate system of container, taking transforms into account.
-    WEBCORE_EXPORT FloatQuad localToContainerQuad(const FloatQuad&, const RenderLayerModelObject* container, OptionSet<MapCoordinatesMode> = UseTransforms, bool* wasFixed = nullptr) const;
-    WEBCORE_EXPORT FloatPoint localToContainerPoint(const FloatPoint&, const RenderLayerModelObject* container, OptionSet<MapCoordinatesMode> = UseTransforms, bool* wasFixed = nullptr) const;
+    WEBCORE_EXPORT FloatQuad localToContainerQuad(const FloatQuad&, const RenderLayerModelObject* container, OptionSet<MapCoordinatesMode> = MapCoordinatesMode::UseTransforms, bool* wasFixed = nullptr) const;
+    WEBCORE_EXPORT FloatPoint localToContainerPoint(const FloatPoint&, const RenderLayerModelObject* container, OptionSet<MapCoordinatesMode> = MapCoordinatesMode::UseTransforms, bool* wasFixed = nullptr) const;
 
     // Return the offset from the container() renderer (excluding transforms). In multi-column layout,
     // different offsets apply at different points, so return the offset that applies to the given point.
@@ -882,17 +884,16 @@ public:
     WEBCORE_EXPORT static Vector<FloatRect> absoluteBorderAndTextRects(const SimpleRange&, OptionSet<BoundingRectBehavior> = { });
     static Vector<FloatRect> clientBorderAndTextRects(const SimpleRange&);
 
-    // the rect that will be painted if this object is passed as the paintingRoot
-    WEBCORE_EXPORT LayoutRect paintingRootRect(LayoutRect& topLevelRect);
+    // the rect that will be painted if this object is passed as the subtree paint root
+    enum class RespectTransforms : bool { No, Yes };
+    WEBCORE_EXPORT LayoutRect subtreePaintRootRect(LayoutRect& topLevelRect, RespectTransforms = RespectTransforms::No);
 
-    inline const RenderStyle& style() const LIFETIME_BOUND; // Defined in RenderObjectStyle.h.
-    inline CheckedRef<const RenderStyle> firstLineStyle() const LIFETIME_BOUND;
+    inline const Style::ComputedStyle& style() const LIFETIME_BOUND; // Defined in RenderObjectStyle.h.
+    inline CheckedRef<const Style::ComputedStyle> firstLineStyle() const LIFETIME_BOUND;
     inline WritingMode writingMode() const; // Defined in RenderObjectStyle.h.
     // writingMode().isHorizontal() is cached by isHorizontalWritingMode() above.
 
-    // Anonymous blocks that are part of of a continuation chain will return their inline continuation's outline style instead.
-    // This is typically only relevant when repainting.
-    virtual const RenderStyle& outlineStyleForRepaint() const LIFETIME_BOUND;
+    virtual const Style::ComputedStyle& outlineStyleForRepaint() const LIFETIME_BOUND;
 
     virtual CursorDirective getCursor(const LayoutPoint&, Cursor&) const;
 
@@ -1178,6 +1179,7 @@ private:
         void didRemoveCachedImageClient(CachedImage&) final;
         void imageContentChanged(CachedImage&) final;
         void scheduleRenderingUpdateForImage(CachedImage&) final;
+        bool isRendererClient() const final { return true; }
 
         explicit CachedImageListener(RenderObject&);
 
@@ -1186,11 +1188,11 @@ private:
 
     virtual RepaintRects localRectsForRepaint(RepaintOutlineBounds) const;
 
-    void addAbsoluteRectForLayer(LayoutRect& result);
-    void setLayerNeedsFullRepaint();
-    void setLayerNeedsFullRepaintForOutOfFlowMovementLayout();
+    void addAbsoluteRectForLayer(LayoutRect& result, RespectTransforms = RespectTransforms::No);
+    void NODELETE setLayerNeedsFullRepaint();
+    void NODELETE setLayerNeedsFullRepaintForOutOfFlowMovementLayout();
 
-    void invalidateContainerPreferredLogicalWidths();
+    void invalidateContainerContentLogicalWidths(const RenderBlock* ancestorUpdateBoundary = nullptr);
 
     struct SelectionGeometriesInternal {
         Vector<SelectionGeometry> geometries;
@@ -1226,7 +1228,7 @@ private:
         IsExcludedFromNormalLayout                          = 1 << 10,
         Floating                                            = 1 << 11,
         VerticalWritingMode                                 = 1 << 12,
-        PreferredLogicalWidthsNeedUpdate                    = 1 << 13,
+        ContentLogicalWidthsInvalidated                    = 1 << 13,
         HasRareData                                         = 1 << 14,
         HasLayer                                            = 1 << 15,
         HasNonVisibleOverflow                               = 1 << 16,
@@ -1312,7 +1314,7 @@ private:
         bool hasReflection { false };
         bool hasOutlineAutoAncestor { false };
         // Dirty bit was set with MarkingBehavior::MarkOnlyThis
-        bool preferredLogicalWidthsNeedUpdateIsMarkOnlyThis { false };
+        bool contentLogicalWidthsInvalidationIsMarkOnlyThis { false };
         bool isYouTubeReplacement { false };
         EnumSet<Style::MarginTrimSide> trimmedMargins;
 
@@ -1502,8 +1504,17 @@ inline CachedImageClient& RenderObject::cachedImageClient() const
     return *m_cachedImageClient.get();
 }
 
+std::partial_ordering renderTreeOrder(const RenderObject&, const RenderObject&);
+
 WTF::TextStream& operator<<(WTF::TextStream&, const RenderObject&);
 WTF::TextStream& operator<<(WTF::TextStream&, const RenderObject::RepaintRects&);
+
+enum class ScrollbarWidth : uint8_t;
+WEBCORE_EXPORT IntRect absoluteInteractionBounds(const RenderObject&);
+WEBCORE_EXPORT ScrollbarWidth scrollbarWidth(const RenderObject&);
+#if ENABLE(CSS_TAP_HIGHLIGHT_COLOR)
+WEBCORE_EXPORT Color tapHighlightColor(const RenderObject&);
+#endif
 
 #if ENABLE(TREE_DEBUGGING)
 void printAccessibilityTreeForLiveDocuments();

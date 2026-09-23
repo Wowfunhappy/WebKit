@@ -103,13 +103,16 @@ bool LibWebRTCResolver::GetResolvedAddress(int family, webrtc::SocketAddress* ad
 void LibWebRTCResolver::setResolvedAddress(Vector<webrtc::IPAddress>&& addresses)
 {
     m_addresses = WTF::move(addresses);
-    m_callback();
 }
 
 void LibWebRTCResolver::setError(int error)
 {
     m_error = error;
-    m_callback();
+}
+
+Function<void()> LibWebRTCResolver::takeCallback()
+{
+    return std::exchange(m_callback, { });
 }
 
 } // namespace WebKit

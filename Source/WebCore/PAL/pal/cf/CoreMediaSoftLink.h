@@ -126,7 +126,6 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTimeIndefinite, CMTime)
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms, CFStringRef)
 #define kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms get_CoreMedia_kCMFormatDescriptionExtension_SampleDescriptionExtensionAtomsSingleton()
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_ColorPrimaries, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_BitsPerComponent, CFStringRef)
 #define kCMFormatDescriptionExtension_BitsPerComponent get_CoreMedia_kCMFormatDescriptionExtension_BitsPerComponentSingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_DCI_P3, CFStringRef)
@@ -149,18 +148,6 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionTransferFuncti
 #define kCMFormatDescriptionTransferFunction_SMPTE_ST_428_1 get_CoreMedia_kCMFormatDescriptionTransferFunction_SMPTE_ST_428_1Singleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionYCbCrMatrix_ITU_R_2020, CFStringRef)
 #define kCMFormatDescriptionYCbCrMatrix_ITU_R_2020 get_CoreMedia_kCMFormatDescriptionYCbCrMatrix_ITU_R_2020Singleton()
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_ITU_R_709_2, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_EBU_3213, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionColorPrimaries_SMPTE_C, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_TransferFunction, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_ITU_R_709_2, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_YCbCrMatrix, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCVImageBufferYCbCrMatrix_ITU_R_709_2, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCVImageBufferYCbCrMatrix_ITU_R_601_4, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_PixelAspectRatio, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing, CFStringRef)
-SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing, CFStringRef)
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAlignmentType_End, CFStringRef)
 #define kCMTextMarkupAlignmentType_End get_CoreMedia_kCMTextMarkupAlignmentType_EndSingleton()
@@ -186,6 +173,8 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAttribute_ItalicStyle
 #define kCMTextMarkupAttribute_ItalicStyle get_CoreMedia_kCMTextMarkupAttribute_ItalicStyleSingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAttribute_OrthogonalLinePositionPercentageRelativeToWritingDirection, CFStringRef)
 #define kCMTextMarkupAttribute_OrthogonalLinePositionPercentageRelativeToWritingDirection get_CoreMedia_kCMTextMarkupAttribute_OrthogonalLinePositionPercentageRelativeToWritingDirectionSingleton()
+SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAttribute_PreventLineWrapping, CFStringRef)
+#define kCMTextMarkupAttribute_PreventLineWrapping get_CoreMedia_kCMTextMarkupAttribute_PreventLineWrappingSingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAttribute_RelativeFontSize, CFStringRef)
 #define kCMTextMarkupAttribute_RelativeFontSize get_CoreMedia_kCMTextMarkupAttribute_RelativeFontSizeSingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAttribute_TextPositionPercentageRelativeToWritingDirection, CFStringRef)
@@ -254,8 +243,8 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMSetAttachment, void, (CMAttachme
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMRemoveAttachment, void, (CMAttachmentBearerRef target, CFStringRef key), (target, key))
 #define CMRemoveAttachment softLink_CoreMedia_CMRemoveAttachment
 
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimebaseCreateWithMasterClock, OSStatus, (CFAllocatorRef allocator, CMClockRef masterClock, CMTimebaseRef* timebaseOut), (allocator, masterClock, timebaseOut))
-#define CMTimebaseCreateWithMasterClock softLink_CoreMedia_CMTimebaseCreateWithMasterClock
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimebaseCreateWithSourceClock, OSStatus, (CFAllocatorRef allocator, CMClockRef masterClock, CMTimebaseRef* timebaseOut), (allocator, masterClock, timebaseOut))
+#define CMTimebaseCreateWithSourceClock softLink_CoreMedia_CMTimebaseCreateWithSourceClock
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimebaseGetTime, CMTime, (CMTimebaseRef timebase), (timebase))
 #define CMTimebaseGetTime softLink_CoreMedia_CMTimebaseGetTime
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimebaseGetRate, Float64, (CMTimebaseRef timebase), (timebase))
@@ -424,7 +413,7 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, FigThreadRegisterAbortAction, OSSt
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, FigThreadUnregisterAbortAction, void, (FigThreadAbortActionToken token), (token))
 #define FigThreadUnregisterAbortAction softLink_CoreMedia_FigThreadUnregisterAbortAction
 
-SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_sRGB, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionTransferFunction_sRGB, CFStringRef)
 #define kCMFormatDescriptionTransferFunction_sRGB get_CoreMedia_kCMFormatDescriptionTransferFunction_sRGBSingleton()
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection, CFStringRef)
@@ -576,6 +565,10 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMDerivedObjectCreate, OSStatus, (
 #define CMDerivedObjectCreate softLink_CoreMedia_CMDerivedObjectCreate
 
 #endif // PLATFORM(MAC)
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/CoreMediaSoftLinkAdditions.h>)
+#import <WebKitAdditions/CoreMediaSoftLinkAdditions.h>
+#endif
 
 #endif // USE(AVFOUNDATION)
 

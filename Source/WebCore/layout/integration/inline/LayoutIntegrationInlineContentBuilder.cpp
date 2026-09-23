@@ -35,8 +35,8 @@
 #include "LayoutState.h"
 #include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "StringTruncator.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 namespace LayoutIntegration {
@@ -47,7 +47,7 @@ inline static float endPaddingQuirkValue(const RenderBlockFlow& flow)
     auto endPadding = flow.hasNonVisibleOverflow() ? flow.paddingEnd() : 0_lu;
     if (!endPadding)
         endPadding = flow.endPaddingWidthForCaret();
-    if (flow.hasNonVisibleOverflow() && !endPadding && flow.element() && flow.element()->isRootEditableElement() && flow.style().writingMode().deprecatedIsLeftToRightDirection())
+    if (flow.hasNonVisibleOverflow() && !endPadding && flow.element() && protect(flow.element())->isRootEditableElement() && flow.style().writingMode().deprecatedIsLeftToRightDirection())
         endPadding = 1;
     return endPadding;
 }
@@ -339,15 +339,22 @@ FloatRect InlineContentBuilder::handlePartialDisplayContentUpdate(Layout::Inline
         return { boxCount };
     }();
 
+    auto damagedRect = FloatRect { };
+
     if (!firstDamagedLineIndex || !numberOfDamagedLines || !firstDamagedBoxIndex || !numberOfDamagedBoxes) {
         ASSERT_NOT_REACHED();
-        return { };
+        // We failed to compute the damaged range. The existing display content may still hold references to
+        // layout boxes that were detached (see InlineDamage::m_detachedLayoutBoxes) and will be destroyed as
+        // soon as line damage is released. Do not leave those stale display boxes in place.
+        for (auto& line : inlineContent.displayContent().lines)
+            damagedRect.unite(line.inkOverflow());
+        inlineContent.displayContent().clear();
+        return damagedRect;
     }
 
     auto numberOfNewLines = layoutResult.displayContent.lines.size();
     auto numberOfNewBoxes = layoutResult.displayContent.boxes.size();
 
-    auto damagedRect = FloatRect { };
     auto adjustDamagedRectWithLineRange = [&](size_t firstLineIndex, size_t lineCount) {
         auto& lines = inlineContent.displayContent().lines;
         ASSERT(firstLineIndex + lineCount <= lines.size());

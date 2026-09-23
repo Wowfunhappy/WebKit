@@ -12,6 +12,10 @@
 promise_test(async (test) => {
     const localStream = await navigator.mediaDevices.getUserMedia({video: {width:640, height:360 }});
     const localStream2 = localStream.clone();
+    test.add_cleanup(() => {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream2.getTracks().forEach(t => t.stop());
+    });
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             const sender = firstConnection.addTrack(localStream2.getVideoTracks()[0], localStream2);

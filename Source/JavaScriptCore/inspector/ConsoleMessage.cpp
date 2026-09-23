@@ -35,10 +35,14 @@
 #include "InjectedScript.h"
 #include "InjectedScriptManager.h"
 #include "InspectorFrontendDispatchers.h"
+#include "JSCellInlines.h"
+#include "JSGlobalObject.h"
+#include "JSString.h"
 #include "ScriptArguments.h"
 #include "ScriptCallFrame.h"
 #include "ScriptCallStack.h"
 #include "ScriptCallStackFactory.h"
+#include "StrongInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {
@@ -181,7 +185,7 @@ void ConsoleMessage::autogenerateMetadata(JSC::JSGlobalObject* globalObject)
     }
 }
 
-static Protocol::Console::ChannelSource messageSourceValue(MessageSource source)
+static Protocol::Console::ChannelSource NODELETE messageSourceValue(MessageSource source)
 {
     switch (source) {
     case MessageSource::XML: return Protocol::Console::ChannelSource::XML;
@@ -205,7 +209,7 @@ static Protocol::Console::ChannelSource messageSourceValue(MessageSource source)
     return Protocol::Console::ChannelSource::Other;
 }
 
-static Protocol::Console::ConsoleMessage::Type messageTypeValue(MessageType type)
+static Protocol::Console::ConsoleMessage::Type NODELETE messageTypeValue(MessageType type)
 {
     switch (type) {
     case MessageType::Log: return Protocol::Console::ConsoleMessage::Type::Log;
@@ -226,7 +230,7 @@ static Protocol::Console::ConsoleMessage::Type messageTypeValue(MessageType type
     return Protocol::Console::ConsoleMessage::Type::Log;
 }
 
-static Protocol::Console::ConsoleMessage::Level messageLevelValue(MessageLevel level)
+static Protocol::Console::ConsoleMessage::Level NODELETE messageLevelValue(MessageLevel level)
 {
     switch (level) {
     case MessageLevel::Log: return Protocol::Console::ConsoleMessage::Level::Log;
@@ -338,7 +342,7 @@ void ConsoleMessage::updateRepeatCountInConsole(ConsoleFrontendDispatcher& conso
     consoleFrontendDispatcher.messageRepeatCountUpdated(m_repeatCount, timestamp.secondsSinceEpoch().value());
 }
 
-static bool isGroupMessage(MessageType type)
+static bool NODELETE isGroupMessage(MessageType type)
 {
     return type == MessageType::StartGroup
         || type == MessageType::StartGroupCollapsed

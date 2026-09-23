@@ -40,9 +40,9 @@ unsigned FontCascadeDescription::effectiveFamilyCount() const
     // FIXME: Move all the other system font keywords from fontDescriptorWithFamilySpecialCase() to here.
     unsigned result = 0;
     for (unsigned i = 0; i < familyCount(); ++i) {
-        const auto& cssFamily = familyAt(i);
-        if (auto use = SystemFontDatabaseCoreText::forCurrentThread().matchSystemFontUse(cssFamily))
-            result += systemFontCascadeList(*this, cssFamily, *use, shouldAllowUserInstalledFonts()).size();
+        const auto& family = familyAt(i);
+        if (auto use = SystemFontDatabaseCoreText::forCurrentThread().matchSystemFontUse(family.name))
+            result += systemFontCascadeList(*this, family.name, *use, shouldAllowUserInstalledFonts()).size();
         else
             ++result;
     }
@@ -58,20 +58,20 @@ FontFamilySpecification FontCascadeDescription::effectiveFamilyAt(unsigned index
     // means that "src:local(system-ui)" can't follow the Core Text cascade list (the way it does for regular lookups).
     // These two behaviors should be unified, which would hopefully allow us to delete this duplicate code.
     for (unsigned i = 0; i < familyCount(); ++i) {
-        const auto& cssFamily = familyAt(i);
-        if (auto use = SystemFontDatabaseCoreText::forCurrentThread().matchSystemFontUse(cssFamily)) {
-            auto cascadeList = systemFontCascadeList(*this, cssFamily, *use, shouldAllowUserInstalledFonts());
+        const auto& family = familyAt(i);
+        if (auto use = SystemFontDatabaseCoreText::forCurrentThread().matchSystemFontUse(family.name)) {
+            auto cascadeList = systemFontCascadeList(*this, family.name, *use, shouldAllowUserInstalledFonts());
             if (index < cascadeList.size())
                 return FontFamilySpecification(cascadeList[index].get());
             index -= cascadeList.size();
         }
         else if (!index)
-            return cssFamily;
+            return family;
         else
             --index;
     }
     ASSERT_NOT_REACHED();
-    return nullAtom();
+    return FontFamily { nullAtom(), FontFamilyKind::Specified };
 }
 
 AtomString FontDescription::platformResolveGenericFamily(UScriptCode script, const AtomString& locale, const AtomString& familyName)

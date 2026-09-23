@@ -2,10 +2,8 @@
 FAIL The document root element should be focusable. assert_equals: expected Element node <svg xmlns="http://www.w3.org/2000/svg" xmlns:h="http://w... but got null
 PASS rect should not be focusable.
 PASS svg should not be focusable.
-FAIL rect[focusable=true] should be focusable. assert_equals: expected Element node <rect focusable="true"></rect> but got null
 PASS a should not be focusable.
 PASS a[href] should be focusable.
-FAIL a[focusable=false] should not be focusable. assert_not_equals: got disallowed value Element node <a href="" focusable="false"></a>
 PASS iframe should be focusable.
 PASS audio[controls] should be focusable.
 PASS video[controls] should be focusable.
@@ -30,7 +28,6 @@ PASS use[tabindex] should be focusable.
 PASS clipPath[tabindex] should not be focusable.
 PASS defs[tabindex] should not be focusable.
 PASS desc[tabindex] should not be focusable.
-FAIL hatch[tabindex] should not be focusable. assert_not_equals: got disallowed value Element node <hatch tabindex="0"></hatch>
 PASS linearGradient[tabindex] should not be focusable.
 PASS marker[tabindex] should not be focusable.
 PASS mask[tabindex] should not be focusable.

@@ -210,9 +210,7 @@ ScrollbarThemeMac::ScrollbarThemeMac()
     }
 }
 
-ScrollbarThemeMac::~ScrollbarThemeMac()
-{
-}
+ScrollbarThemeMac::~ScrollbarThemeMac() = default;
 
 void ScrollbarThemeMac::preferencesChanged()
 {

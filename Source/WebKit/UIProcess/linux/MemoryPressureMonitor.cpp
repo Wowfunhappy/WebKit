@@ -26,7 +26,7 @@
 #include "config.h"
 #include "MemoryPressureMonitor.h"
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
 
 #include "WebProcessPool.h"
 #include <mutex>

@@ -29,6 +29,7 @@
 #include "JSDOMWindow.h"
 #include "LocalDOMWindow.h"
 #include "ScriptExecutionContext.h"
+#include "WebCoreJSClientData.h"
 #include <JavaScriptCore/ErrorHandlingScope.h>
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/ExceptionHelpers.h>
@@ -43,7 +44,7 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSValue exceptionValue
 {
     VM& vm = lexicalGlobalObject->vm();
     RELEASE_ASSERT(vm.currentThreadIsHoldingAPILock());
-    auto* exception = jsDynamicCast<JSC::Exception*>(exceptionValue);
+    auto* exception = dynamicDowncast<JSC::Exception>(exceptionValue);
     if (!exception) {
         exception = vm.lastException();
         if (!exception)
@@ -67,9 +68,9 @@ String retrieveErrorMessageWithoutName(JSGlobalObject& lexicalGlobalObject, VM& 
     // FIXME: <http://webkit.org/b/115087> Web Inspector: WebCore::reportException should not evaluate JavaScript handling exceptions
     // If this is a custom exception object, call toString on it to try and get a nice string representation for the exception.
     String errorMessage;
-    if (auto* error = jsDynamicCast<ErrorInstance*>(exception))
+    if (auto* error = dynamicDowncast<ErrorInstance>(exception))
         errorMessage = error->sanitizedMessageString(&lexicalGlobalObject);
-    else if (auto* error = jsDynamicCast<JSDOMException*>(exception))
+    else if (auto* error = dynamicDowncast<JSDOMException>(exception))
         errorMessage = error->wrapped().message();
     else
         errorMessage = exception.toWTFString(&lexicalGlobalObject);
@@ -86,7 +87,7 @@ String retrieveErrorMessage(JSGlobalObject& lexicalGlobalObject, VM& vm, JSValue
     // FIXME: <http://webkit.org/b/115087> Web Inspector: WebCore::reportException should not evaluate JavaScript handling exceptions
     // If this is a custom exception object, call toString on it to try and get a nice string representation for the exception.
     String errorMessage;
-    if (auto* error = jsDynamicCast<ErrorInstance*>(exception))
+    if (auto* error = dynamicDowncast<ErrorInstance>(exception))
         errorMessage = error->sanitizedToString(&lexicalGlobalObject);
     else
         errorMessage = exception.toWTFString(&lexicalGlobalObject);
@@ -116,8 +117,8 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
     scope.clearException();
     vm.clearLastException();
 
-    auto* globalObject = jsCast<JSDOMGlobalObject*>(lexicalGlobalObject);
-    if (auto* window = jsDynamicCast<JSDOMWindow*>(globalObject)) {
+    auto* globalObject = downcast<JSDOMGlobalObject>(lexicalGlobalObject);
+    if (auto* window = dynamicDowncast<JSDOMWindow>(globalObject)) {
         RefPtr localDOMWindow = dynamicDowncast<LocalDOMWindow>(window->wrapped());
         if (!localDOMWindow || !localDOMWindow->isCurrentlyDisplayedInFrame())
             return;
@@ -133,6 +134,18 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
     }
 
     auto errorMessage = retrieveErrorMessage(*lexicalGlobalObject, vm, exception->value(), scope);
+
+    if (globalObject->hasScriptErrorCallbacks()) {
+        // The call stack may contain masked URLs (e.g. webkit-masked-url://hidden/) for scripts
+        // whose origin is hidden from the page (e.g. extension content scripts in the main world).
+        // Use the unmasked URL from the exception's code blocks for internal reporting.
+        auto unmaskedSourceURL = exceptionSourceURL;
+        if (auto url = unmaskedSourceURLFromException(*exception, vm); !url.isEmpty())
+            unmaskedSourceURL = url;
+
+        globalObject->invokeScriptErrorCallbacks(errorMessage, unmaskedSourceURL, lineNumber, columnNumber);
+    }
+
     protect(globalObject->scriptExecutionContext())->reportException(errorMessage, lineNumber, columnNumber, exceptionSourceURL, exception, callStack->size() ? callStack.ptr() : nullptr, cachedScript, fromModule);
 
     if (exceptionDetails) {

@@ -31,6 +31,7 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebsiteDataStore.h"
+#include <wtf/Borrow.h>
 #include <wtf/Vector.h>
 
 namespace WebKit {
@@ -55,7 +56,7 @@ BidiUserContext::~BidiUserContext() = default;
 Vector<Ref<WebPageProxy>> BidiUserContext::allPages() const
 {
     Vector<Ref<WebPageProxy>> pages;
-    for (Ref process : m_processPool->processes()) {
+    for (Ref process : borrow(m_processPool->processes()).get()) {
         for (Ref page : process->pages()) {
             if (page->websiteDataStore() == m_dataStore.get())
                 pages.append(WTF::move(page));

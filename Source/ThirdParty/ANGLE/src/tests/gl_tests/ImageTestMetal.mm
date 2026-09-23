@@ -7,13 +7,10 @@
 //   Tests the correctness of eglImage with native Metal texture extensions.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "test_utils/ANGLETest.h"
 
 #include "common/mathutil.h"
+#include "common/unsafe_buffers.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
 
@@ -122,10 +119,14 @@ bool IsDepthOrStencil(MTLPixelFormat format)
         case MTLPixelFormatDepth16Unorm:
         case MTLPixelFormatDepth32Float:
         case MTLPixelFormatStencil8:
+#if TARGET_OS_OSX || TARGET_OS_MACCATALYST
         case MTLPixelFormatDepth24Unorm_Stencil8:
+#endif
         case MTLPixelFormatDepth32Float_Stencil8:
         case MTLPixelFormatX32_Stencil8:
+#if TARGET_OS_OSX || TARGET_OS_MACCATALYST
         case MTLPixelFormatX24_Stencil8:
+#endif
             return true;
 
         default:
@@ -301,7 +302,8 @@ class ImageTestMetal : public ANGLETest<>
             [blitEncoder endEncoding];
             [commandBuffer commit];
             [commandBuffer waitUntilCompleted];
-            memcpy(sliceImage.data(), readBuffer.get().contents, sliceImage.size());
+            ANGLE_UNSAFE_TODO(
+                memcpy(sliceImage.data(), readBuffer.get().contents, sliceImage.size()));
         }
     }
     void sourceMetalTarget2D_helper(GLubyte data[4],
@@ -323,7 +325,7 @@ class ImageTestMetal : public ANGLETest<>
         drawQuad(program, "position", 0.5f);
 
         // Expect that the rendered quad has the same color as the source texture
-        EXPECT_PIXEL_NEAR(0, 0, data[0], data[1], data[2], data[3], 1.0);
+        ANGLE_UNSAFE_TODO(EXPECT_PIXEL_NEAR(0, 0, data[0], data[1], data[2], data[3], 1.0));
     }
 
     void verifyResults2D(GLuint texture, const GLubyte data[4])
@@ -346,8 +348,12 @@ class ImageTestMetal : public ANGLETest<>
 
     bool hasDepth24Stencil8PixelFormat()
     {
+    #if TARGET_OS_OSX || TARGET_OS_MACCATALYST
         id<MTLDevice> device = getMtlDevice();
         return device.depth24Stencil8PixelFormatSupported;
+    #else
+        return false;
+    #endif
     }
 
     bool hasImageNativeMetalTextureExt() const
@@ -364,7 +370,7 @@ class ImageTestMetal : public ANGLETest<>
         }
         auto extensionString = static_cast<const char *>(
             eglQueryDeviceStringEXT(reinterpret_cast<EGLDeviceEXT>(angleDevice), EGL_EXTENSIONS));
-        if (strstr(extensionString, kDeviceMtlExt) == nullptr)
+        if (ANGLE_UNSAFE_TODO(strstr(extensionString, kDeviceMtlExt)) == nullptr)
         {
             return false;
         }
@@ -1225,11 +1231,13 @@ TEST_P(ImageClearTestMetal, ClearUnsizedRGBAF16)
 
 TEST_P(ImageClearTestMetal, ClearUnsizedR16)
 {
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_texture_norm16"));
     RunUnsizedClearTest(MTLPixelFormatR16Unorm);
 }
 
 TEST_P(ImageClearTestMetal, ClearUnsizedRG16)
 {
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_texture_norm16"));
     RunUnsizedClearTest(MTLPixelFormatRG16Unorm);
 }
 

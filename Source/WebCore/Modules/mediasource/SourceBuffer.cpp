@@ -58,6 +58,7 @@
 #include "SourceBufferPrivate.h"
 #include "TextTrackList.h"
 #include "TimeRanges.h"
+#include "TrackOpaqueRoot.h"
 #include "VideoTrack.h"
 #include "VideoTrackList.h"
 #include "VideoTrackPrivate.h"
@@ -179,7 +180,7 @@ SourceBuffer::SourceBuffer(Ref<SourceBufferPrivate>&& sourceBufferPrivate, Media
     , m_private(WTF::move(sourceBufferPrivate))
     , m_client(SourceBufferClientImpl::create(*this))
     , m_source(&source)
-    , m_opaqueRootProvider(Observer<WebCoreOpaqueRoot()>::create([opaqueRoot = WebCoreOpaqueRoot { this }] { return opaqueRoot; }))
+    , m_trackOpaqueRoot(TrackOpaqueRoot::create(opaqueRoot()))
     , m_appendWindowStart(MediaTime::zeroTime())
     , m_appendWindowEnd(MediaTime::positiveInfiniteTime())
     , m_appendState(WaitingForSegment)
@@ -199,6 +200,7 @@ SourceBuffer::~SourceBuffer()
 {
     ASSERT(isRemoved());
     ALWAYS_LOG(LOGIDENTIFIER);
+    m_trackOpaqueRoot->clear();
 }
 
 ExceptionOr<Ref<TimeRanges>> SourceBuffer::buffered()
@@ -566,12 +568,6 @@ void SourceBuffer::removedFromMediaSource()
     m_extraMemoryCost = 0;
 }
 
-Ref<SourceBuffer::ComputeSeekPromise> SourceBuffer::computeSeekTime(const SeekTarget& target)
-{
-    ALWAYS_LOG(LOGIDENTIFIER, target);
-    return m_private->computeSeekTime(target);
-}
-
 bool SourceBuffer::virtualHasPendingActivity() const
 {
     return !!m_source;
@@ -738,7 +734,7 @@ VideoTrackList& SourceBuffer::videoTracks()
     if (!m_videoTracks) {
         Ref videoTracks = VideoTrackList::create(protect(scriptExecutionContext()).get());
         m_videoTracks = videoTracks.copyRef();
-        videoTracks->setOpaqueRootObserver(m_opaqueRootProvider);
+        videoTracks->setOpaqueRoot(m_trackOpaqueRoot);
     }
     return *m_videoTracks;
 }
@@ -748,7 +744,7 @@ AudioTrackList& SourceBuffer::audioTracks()
     if (!m_audioTracks) {
         Ref audioTracks = AudioTrackList::create(protect(scriptExecutionContext()).get());
         m_audioTracks = audioTracks.copyRef();
-        audioTracks->setOpaqueRootObserver(m_opaqueRootProvider);
+        audioTracks->setOpaqueRoot(m_trackOpaqueRoot);
     }
     return *m_audioTracks;
 }
@@ -758,7 +754,7 @@ TextTrackList& SourceBuffer::textTracks()
     if (!m_textTracks) {
         Ref textTracks = TextTrackList::create(protect(scriptExecutionContext()).get());
         m_textTracks = textTracks.copyRef();
-        textTracks->setOpaqueRootObserver(m_opaqueRootProvider);
+        textTracks->setOpaqueRoot(m_trackOpaqueRoot);
     }
     return *m_textTracks;
 }
@@ -1081,7 +1077,7 @@ bool SourceBuffer::validateInitializationSegment(const SourceBufferPrivateClient
     //   * The number of audio, video, and text tracks match what was in the first initialization segment.
     return segment.audioTracks.size() == audioTracksIfExists()->length()
         && segment.videoTracks.size() == videoTracksIfExists()->length()
-        && segment.textTracks.size() == protect(textTracksIfExists())->length();
+        && segment.textTracks.size() == textTracksIfExists()->length();
 }
 
 void SourceBuffer::appendError(bool decodeError)
@@ -1397,44 +1393,13 @@ void SourceBuffer::updateBuffered()
             protect(m_source)->monitorSourceBuffers();
     });
 
-    // 3.1 Attributes, buffered
-    // https://rawgit.com/w3c/media-source/45627646344eea0170dd1cbc5a3d508ca751abb8/media-source-respec.html#dom-sourcebuffer-buffered
-    // 2. Let highest end time be the largest track buffer ranges end time across all the track buffers managed by this SourceBuffer object.
-    MediaTime highestEndTime = MediaTime::negativeInfiniteTime();
-    for (auto& trackBuffer : m_trackBuffers) {
-        if (!trackBuffer.length())
-            continue;
-        highestEndTime = std::max(highestEndTime, trackBuffer.maximumBufferedTime());
-    }
+    // 5.1 Attributes - buffered
+    // https://w3c.github.io/media-source/#dom-sourcebuffer-buffered
+    auto intersectionRanges = SourceBufferPrivate::computeBufferedRanges(m_trackBuffers, m_mediaSourceEnded);
 
-    // NOTE: Short circuit the following if none of the TrackBuffers have buffered ranges to avoid generating
-    // a single range of {0, 0}.
-    if (highestEndTime.isNegativeInfinite()) {
-        m_buffered = TimeRanges::create();
-        return;
-    }
-
-    // 3. Let intersection ranges equal a TimeRange object containing a single range from 0 to highest end time.
-    PlatformTimeRanges intersectionRanges { MediaTime::zeroTime(), highestEndTime };
-
-    // 4. For each audio and video track buffer managed by this SourceBuffer, run the following steps:
-    for (auto& trackBuffer : m_trackBuffers) {
-        if (!trackBuffer.length())
-            continue;
-
-        // 4.1 Let track ranges equal the track buffer ranges for the current track buffer.
-        auto trackRanges = trackBuffer;
-
-        // 4.2 If readyState is "ended", then set the end time on the last range in track ranges to highest end time.
-        if (m_mediaSourceEnded)
-            trackRanges.add(trackRanges.maximumBufferedTime(), highestEndTime);
-
-        // 4.3 Let new intersection ranges equal the intersection between the intersection ranges and the track ranges.
-        // 4.4 Replace the ranges in intersection ranges with the new intersection ranges.
-        intersectionRanges.intersectWith(trackRanges);
-    }
-    // 5. If intersection ranges does not contain the exact same range information as the current value of this attribute,
-    //    then update the current value of this attribute to intersection ranges.
+    // 5. If intersection ranges does not contain the exact same range information
+    //    as the current value of this attribute, then update the current value
+    //    of this attribute to intersection ranges.
     if (oldRanges != intersectionRanges) {
         m_buffered = TimeRanges::create(intersectionRanges);
         LOG(Media, "SourceBuffer::updateBuffered(%p) - buffered = %s", this, toString(intersectionRanges).utf8().data());
@@ -1469,9 +1434,9 @@ size_t SourceBuffer::memoryCost() const
     return sizeof(SourceBuffer) + m_extraMemoryCost;
 }
 
-WebCoreOpaqueRoot SourceBuffer::opaqueRoot()
+WebCoreOpaqueRoot SourceBuffer::opaqueRoot() const
 {
-    return WebCoreOpaqueRoot { this };
+    return WebCoreOpaqueRoot { const_cast<SourceBuffer*>(this) };
 }
 
 void SourceBuffer::memoryPressure()

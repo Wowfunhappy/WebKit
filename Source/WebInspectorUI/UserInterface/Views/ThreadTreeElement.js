@@ -40,15 +40,18 @@ WI.ThreadTreeElement = class ThreadTreeElement extends WI.GeneralTreeElement
 
     refresh()
     {
+        let treeOutline = this.treeOutline;
+        if (treeOutline) {
+            let selectedTreeElement = treeOutline.selectedTreeElement;
+            if (selectedTreeElement && selectedTreeElement.parent === this)
+                selectedTreeElement.deselect(true);
+        }
+
         this.removeChildren();
 
         this._updateStatus();
 
         let targetData = WI.debuggerManager.dataForTarget(this._target);
-
-        // FIXME <https://webkit.org/b/298909> Remove this null-check after implementing the Debugger domain for frame targets.
-        if (!targetData)
-            return;
 
         if (targetData.pausing || !targetData.stackTrace?.callFrames.length) {
             this.appendChild(this._idleTreeElement);

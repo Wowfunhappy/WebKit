@@ -42,18 +42,18 @@ layer at (0,0) size 500x600
             text run at (40,73) width 5: "."
         RenderBlock {OL} at (188,0) size 280x351
           RenderListItem {LI} at (0,40) size 40x311
-            RenderListMarker at (0,-21) size 20x16: "1"
+            RenderListMarker at (0,-16) size 20x16: "1"
             RenderText {#text} at (0,0) size 40x304
               text run at (0,0) width 160: "New larger PowerBook. "
               text run at (0,158) width 146: "Still 1 GHz, but with a"
               text run at (20,0) width 147: "17-inch screen. $3299."
           RenderListItem {LI} at (40,40) size 40x311
-            RenderListMarker at (0,-21) size 20x16: "2"
+            RenderListMarker at (0,-16) size 20x16: "2"
             RenderText {#text} at (0,0) size 40x311
               text run at (0,0) width 311: "New smaller PowerBook, with a 12-inch screen."
               text run at (20,0) width 45: "$1799."
           RenderListItem {LI} at (80,40) size 100x311
-            RenderListMarker at (0,-21) size 20x16: "3"
+            RenderListMarker at (0,-16) size 20x16: "3"
             RenderText {#text} at (0,0) size 20x95
               text run at (0,0) width 95: "New browser: "
             RenderInline {A} at (0,94) size 20x39 [color=#0000EE]
@@ -83,13 +83,13 @@ layer at (0,0) size 500x600
               text run at (60,180) width 123: "Currently in public"
               text run at (80,0) width 32: "beta."
           RenderListItem {LI} at (180,40) size 40x311
-            RenderListMarker at (0,-21) size 20x16: "4"
+            RenderListMarker at (0,-16) size 20x16: "4"
             RenderText {#text} at (0,0) size 40x268
               text run at (0,0) width 243: "New presentation software: Keynote. "
               text run at (0,242) width 26: "The"
               text run at (20,0) width 164: "software Steve Jobs uses."
           RenderListItem {LI} at (220,40) size 40x311
-            RenderListMarker at (0,-21) size 20x16: "5"
+            RenderListMarker at (0,-16) size 20x16: "5"
             RenderText {#text} at (0,0) size 20x109
               text run at (0,0) width 110: "New versions of "
             RenderInline {A} at (0,108) size 20x48 [color=#0000EE]
@@ -114,7 +114,7 @@ layer at (0,0) size 500x600
             RenderText {#text} at (20,199) size 20x60
               text run at (20,199) width 60: ", for $49."
           RenderListItem {LI} at (260,40) size 20x311
-            RenderListMarker at (0,-21) size 20x16: "6"
+            RenderListMarker at (0,-16) size 20x16: "6"
             RenderInline {A} at (0,0) size 20x115 [color=#0000EE]
               RenderText {#text} at (0,0) size 20x115
                 text run at (0,0) width 116: "Final Cut Express"

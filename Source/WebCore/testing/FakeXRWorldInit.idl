@@ -35,7 +35,6 @@
 [
     Conditional=WEBXR_HIT_TEST,
     EnabledBySetting=WebXRHitTestModuleEnabled,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary FakeXRTriangleInit {
     required sequence<DOMPointInit> vertices;
 };
@@ -43,7 +42,6 @@
 [
     Conditional=WEBXR_HIT_TEST,
     EnabledBySetting=WebXRHitTestModuleEnabled,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary FakeXRRegionInit {
     required sequence<FakeXRTriangleInit> faces;
     required FakeXRRegionType type;
@@ -52,7 +50,6 @@
 [
     Conditional=WEBXR_HIT_TEST,
     EnabledBySetting=WebXRHitTestModuleEnabled,
-    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary FakeXRWorldInit {
     required sequence<FakeXRRegionInit> hitTestRegions;
 };

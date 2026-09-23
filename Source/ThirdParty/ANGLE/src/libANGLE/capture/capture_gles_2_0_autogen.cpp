@@ -1177,19 +1177,20 @@ CallCapture CaptureGetBooleanv(const State &glState,
 CallCapture CaptureGetBufferParameteriv(const State &glState,
                                         bool isCallValid,
                                         BufferBinding targetPacked,
-                                        GLenum pname,
+                                        BufferParam pnamePacked,
                                         GLint *params)
 {
     ParamBuffer paramBuffer;
 
     paramBuffer.addValueParam("targetPacked", ParamType::TBufferBinding, targetPacked);
-    paramBuffer.addEnumParam("pname", GLESEnum::AllEnums, ParamType::TGLenum, pname);
+    paramBuffer.addValueParam("pnamePacked", ParamType::TBufferParam, pnamePacked);
 
     ParamCapture paramsParam("params", ParamType::TGLintPointer);
     if (isCallValid)
     {
         InitParamValue(ParamType::TGLintPointer, params, &paramsParam.value);
-        CaptureGetBufferParameteriv_params(glState, targetPacked, pname, params, &paramsParam);
+        CaptureGetBufferParameteriv_params(glState, targetPacked, pnamePacked, params,
+                                           &paramsParam);
     }
     else
     {
@@ -1512,19 +1513,19 @@ CallCapture CaptureGetShaderSource(const State &glState,
 CallCapture CaptureGetShaderiv(const State &glState,
                                bool isCallValid,
                                ShaderProgramID shaderPacked,
-                               GLenum pname,
+                               ShaderParameter pnamePacked,
                                GLint *params)
 {
     ParamBuffer paramBuffer;
 
     paramBuffer.addValueParam("shaderPacked", ParamType::TShaderProgramID, shaderPacked);
-    paramBuffer.addEnumParam("pname", GLESEnum::ShaderParameterName, ParamType::TGLenum, pname);
+    paramBuffer.addValueParam("pnamePacked", ParamType::TShaderParameter, pnamePacked);
 
     ParamCapture paramsParam("params", ParamType::TGLintPointer);
     if (isCallValid)
     {
         InitParamValue(ParamType::TGLintPointer, params, &paramsParam.value);
-        CaptureGetShaderiv_params(glState, shaderPacked, pname, params, &paramsParam);
+        CaptureGetShaderiv_params(glState, shaderPacked, pnamePacked, params, &paramsParam);
     }
     else
     {
@@ -1909,11 +1910,14 @@ CallCapture CaptureLinkProgram(const State &glState,
     return CallCapture(angle::EntryPoint::GLLinkProgram, std::move(paramBuffer));
 }
 
-CallCapture CapturePixelStorei(const State &glState, bool isCallValid, GLenum pname, GLint param)
+CallCapture CapturePixelStorei(const State &glState,
+                               bool isCallValid,
+                               PackUnpackParameter pnamePacked,
+                               GLint param)
 {
     ParamBuffer paramBuffer;
 
-    paramBuffer.addEnumParam("pname", GLESEnum::PixelStoreParameter, ParamType::TGLenum, pname);
+    paramBuffer.addValueParam("pnamePacked", ParamType::TPackUnpackParameter, pnamePacked);
     paramBuffer.addValueParam("param", ParamType::TGLint, param);
 
     return CallCapture(angle::EntryPoint::GLPixelStorei, std::move(paramBuffer));

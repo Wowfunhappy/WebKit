@@ -32,6 +32,7 @@
 #include "MarkedBlockInlines.h"
 #include "SweepingScope.h"
 #include "VMManager.h"
+#include "WeakSetInlines.h"
 #include <wtf/CommaPrinter.h>
 
 #if PLATFORM(COCOA)
@@ -560,6 +561,21 @@ void MarkedBlock::Handle::sweep(FreeList* freeList)
 
 NO_RETURN_DUE_TO_CRASH NEVER_INLINE static void crashDueToGarbageCollectorClientDanglingReference_CheckRootsAndBarriers(HeapCell* heapCell, uint64_t cellFirst8Bytes, uint64_t zeroCounts, uint64_t bitfield, uint64_t subspaceHash, VM* blockVM, VM* actualVM)
 {
+#if PLATFORM(COCOA)
+    StringPrintStream out;
+    out.printf("JavaScriptCore garbage collector detected a dangling reference to cell %p. "
+        "The referenced object was collected because it was not properly kept alive. "
+        "JSC API clients: do not call JSValueUnprotect on values still in use, "
+        "do not store JSValueRef in heap-allocated memory without calling JSValueProtect, "
+        "do not use values after their JSContext has been destroyed, "
+        "and do not use values across different JSContextGroups (JSVirtualMachines). "
+        "WebKit developers: check for missing write barriers, incomplete visitChildren implementations, "
+        "or unrooted GC objects.",
+        heapCell);
+    auto message = out.toCString();
+    WTF::setCrashLogMessage(message.data());
+    dataLogLn(message.data());
+#endif
     CRASH_WITH_INFO(heapCell, cellFirst8Bytes, zeroCounts, bitfield, subspaceHash, blockVM, actualVM);
 }
 
@@ -590,7 +606,7 @@ NO_RETURN_DUE_TO_CRASH NEVER_INLINE void MarkedBlock::analyzeInvalidHandleAndCra
     auto updateCrashLogMsg = [&](int line) {
 #if PLATFORM(COCOA)
         StringPrintStream out;
-        out.printf("INVALID HANDLE [%d]: markedBlock=%p; heapCell=%p; cellFirst8Bytes=%#llx; subspaceHash=%#x; contiguousZeros=%lu; totalZeros=%lu; blockVM=%p; actualVM=%p; isBlockVMValid=%d; isBlockInSet=%d; isBlockInDir=%d; foundInBlockVM=%d;",
+        out.printf("Suspected memory corruption: invalid handle [line=%d]: markedBlock=%p; heapCell=%p; cellFirst8Bytes=%#llx; subspaceHash=%#x; contiguousZeros=%lu; totalZeros=%lu; blockVM=%p; actualVM=%p; isBlockVMValid=%d; isBlockInSet=%d; isBlockInDir=%d; foundInBlockVM=%d;",
             line, this, heapCell, cellFirst8Bytes, subspaceHash, contiguousZeroBytesHeadOfBlock, totalZeroBytesInBlock, blockVM, actualVM, isBlockVMValid, isBlockInSet, isBlockInDirectory, foundInBlockVM);
         auto message = out.toCString();
         WTF::setCrashLogMessage(message.data());

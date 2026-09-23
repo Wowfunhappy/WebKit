@@ -955,7 +955,7 @@ void PlatformCALayerCocoa::setContents(CFTypeRef value)
 
 void PlatformCALayerCocoa::setDelegatedContents(const PlatformCALayerInProcessDelegatedContents& contents)
 {
-    if (!contents.finishedFence || contents.finishedFence->waitFor(delegatedContentsFinishedTimeout))
+    if (!contents.finishedFence || protect(contents.finishedFence)->waitFor(delegatedContentsFinishedTimeout))
         setContents(contents.surface.asLayerContents());
 }
 
@@ -1435,16 +1435,20 @@ void PlatformCALayer::drawLayerContents(GraphicsContext& graphicsContext, WebCor
         // against the stock frameworks, opaque layers (page tiles, opaque composited elements,
         // tiled or not) subpixel-smooth and non-opaque ones (e.g. a composited <body> whose
         // background propagates to the viewport) render grayscale, matching this predicate.
-        // One knowing residual: text in composited overflow scrollers renders grayscale even when
-        // the scroller background is opaque — the background paints in the scroll container layer,
-        // not the scrolled-contents layer that draws the text (RenderLayerBacking painting-phase
-        // split), so the glyph backdrop there is transparent by construction; stock fringed only
-        // because 2013 WebKit painted scroller content directly into the page tiles.
+        // A layer whose own opaque background color sits under its contents (an overflow scroller's
+        // scrolled contents, see RenderLayerBacking::updateAfterDescendants) paints that color into its backing
+        // first, so its text smooths over opaque pixels as page tiles' text does.
         // FontSmoothingMode::Auto in FontCascade::drawGlyphs adopts this context flag rather than
         // forcing smoothing on.
         if (!layerContents->platformCALayerContentsOpaque()) {
-            // Turn off font smoothing to improve the appearance of text rendered onto a transparent background.
-            graphicsContext.setShouldSmoothFonts(false);
+            if (auto backgroundColor = platformCALayer->backgroundColor(); backgroundColor.isOpaque()) {
+                for (auto& rect : dirtyRects)
+                    graphicsContext.fillRect(rect, backgroundColor);
+                graphicsContext.setShouldSmoothFonts(true);
+            } else {
+                // Turn off font smoothing to improve the appearance of text rendered onto a transparent background.
+                graphicsContext.setShouldSmoothFonts(false);
+            }
         }
 
         {

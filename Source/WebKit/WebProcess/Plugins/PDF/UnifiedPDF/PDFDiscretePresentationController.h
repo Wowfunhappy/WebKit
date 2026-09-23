@@ -59,8 +59,8 @@ public:
 
 
 private:
-    bool supportsDisplayMode(PDFDisplayMode) const override;
-    void willChangeDisplayMode(PDFDisplayMode) override;
+    bool supportsDisplayMode(PDFPluginDisplayMode) const override;
+    void willChangeDisplayMode(PDFPluginDisplayMode) override;
 
     void teardown() override;
 
@@ -105,7 +105,7 @@ private:
 
     bool handleDiscreteWheelEvent(const WebCore::PlatformWheelEvent&);
 
-    bool eventCanStartPageTransition(const PlatformWheelEvent&) const;
+    bool eventCanStartPageTransition(const WebCore::PlatformWheelEvent&) const;
 
     bool NODELETE canTransitionOnSide(WebCore::BoxSide) const;
 
@@ -144,7 +144,7 @@ private:
     void updateLayerVisibilityForTransitionState(PageTransitionState previousState);
     void updateLayersForTransitionState();
 
-    void applyWheelEventDelta(FloatSize);
+    void applyWheelEventDelta(WebCore::FloatSize);
 
     std::optional<PDFDocumentLayout::PageIndex> pageIndexForCurrentView(AnchorPoint) const override;
     void restorePDFPosition(const VisiblePDFPosition&) override;
@@ -157,7 +157,7 @@ private:
     float deviceScaleFactor() const override;
     std::optional<float> customContentsScale(const WebCore::GraphicsLayer&) const override;
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
-    bool layerAllowsDynamicContentScaling(const GraphicsLayer*) const override;
+    bool layerAllowsDynamicContentScaling(const WebCore::GraphicsLayer*) const override;
 #endif
     void tiledBackingUsageChanged(const WebCore::GraphicsLayer*, bool /*usingTiledBacking*/) override;
     void paintContents(const WebCore::GraphicsLayer&, WebCore::GraphicsContext&, const WebCore::FloatRect&, OptionSet<WebCore::GraphicsLayerPaintBehavior>) override;
@@ -200,7 +200,7 @@ private:
         RefPtr<WebCore::GraphicsLayer> contentsLayer;
         RefPtr<WebCore::GraphicsLayer> selectionLayer;
 
-        bool isPageBackgroundLayer(const GraphicsLayer*) const;
+        bool isPageBackgroundLayer(const WebCore::GraphicsLayer*) const;
 
         Ref<WebCore::GraphicsLayer> leftPageBackgroundLayer() const;
         RefPtr<WebCore::GraphicsLayer> rightPageBackgroundLayer() const;
@@ -216,7 +216,7 @@ private:
     Vector<RowData> m_rows;
 
     WeakHashMap<WebCore::GraphicsLayer, unsigned> m_layerToRowIndexMap;
-    std::optional<PDFDisplayMode> m_displayModeAtLastLayerSetup;
+    std::optional<PDFPluginDisplayMode> m_displayModeAtLastLayerSetup;
 
     unsigned m_visibleRowIndex { 0 };
 

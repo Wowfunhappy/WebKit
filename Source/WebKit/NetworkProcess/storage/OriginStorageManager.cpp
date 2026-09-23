@@ -73,7 +73,7 @@ public:
     void NODELETE setMode(StorageBucketMode mode) { m_mode = mode; }
     void connectionClosed(IPC::Connection::UniqueID);
     String typeStoragePath(StorageType) const;
-    FileSystemStorageManager& fileSystemStorageManager(FileSystemStorageHandleRegistry&, FileSystemStorageManager::QuotaCheckFunction&&);
+    FileSystemStorageManager& fileSystemStorageManager(FileSystemStorageHandleRegistry&, const WebCore::ClientOrigin&, FileSystemStorageManager::QuotaCheckFunction&&);
     FileSystemStorageManager* NODELETE existingFileSystemStorageManager() { return m_fileSystemStorageManager.get(); }
     LocalStorageManager& localStorageManager(StorageAreaRegistry&);
     LocalStorageManager* NODELETE existingLocalStorageManager() { return m_localStorageManager.get(); }
@@ -125,6 +125,7 @@ private:
     String m_resolvedCacheStoragePath;
     UnifiedOriginStorageLevel m_level;
     RefPtr<BackgroundFetchStoreManager> m_backgroundFetchManager;
+    String m_resolvedBackgroundFetchStoragePath;
     std::unique_ptr<ServiceWorkerStorageManager> m_serviceWorkerStorageManager;
 };
 
@@ -155,7 +156,7 @@ void OriginStorageManager::StorageBucket::connectionClosed(IPC::Connection::Uniq
         manager->connectionClosed(connection);
 }
 
-std::optional<OriginStorageManager::StorageBucket::StorageType> OriginStorageManager::StorageBucket::toStorageType(WebsiteDataType websiteDataType) const
+std::optional<OriginStorageManager::StorageBucket::StorageType> NODELETE OriginStorageManager::StorageBucket::toStorageType(WebsiteDataType websiteDataType) const
 {
     switch (websiteDataType) {
     case WebsiteDataType::FileSystem:
@@ -213,10 +214,10 @@ String OriginStorageManager::StorageBucket::typeStoragePath(StorageType type) co
     return FileSystem::pathByAppendingComponent(m_rootPath, storageIdentifier);
 }
 
-FileSystemStorageManager& OriginStorageManager::StorageBucket::fileSystemStorageManager(FileSystemStorageHandleRegistry& registry, FileSystemStorageManager::QuotaCheckFunction&& quotaCheckFunction)
+FileSystemStorageManager& OriginStorageManager::StorageBucket::fileSystemStorageManager(FileSystemStorageHandleRegistry& registry, const WebCore::ClientOrigin& origin, FileSystemStorageManager::QuotaCheckFunction&& quotaCheckFunction)
 {
     if (!m_fileSystemStorageManager)
-        m_fileSystemStorageManager = FileSystemStorageManager::create(typeStoragePath(StorageType::FileSystem), registry, WTF::move(quotaCheckFunction));
+        m_fileSystemStorageManager = FileSystemStorageManager::create(typeStoragePath(StorageType::FileSystem), registry, origin, WTF::move(quotaCheckFunction));
 
     return *m_fileSystemStorageManager;
 }
@@ -247,10 +248,8 @@ IDBStorageManager& OriginStorageManager::StorageBucket::idbStorageManager(IDBSto
 CacheStorageManager& OriginStorageManager::StorageBucket::cacheStorageManager(CacheStorageRegistry& registry, const WebCore::ClientOrigin& origin, CacheStorageManager::QuotaCheckFunction&& quotaCheckFunction, Ref<WorkQueue>&& queue)
 {
     if (!m_cacheStorageManager) {
-        std::optional<WebCore::ClientOrigin> optionalOrigin;
-        if (m_level < UnifiedOriginStorageLevel::Standard)
-            optionalOrigin = origin;
-        m_cacheStorageManager = CacheStorageManager::create(resolvedCacheStoragePath(), registry, optionalOrigin, WTF::move(quotaCheckFunction), WTF::move(queue));
+        auto shouldWriteOriginFile = m_level < UnifiedOriginStorageLevel::Standard ? ShouldWriteOriginFile::Yes : ShouldWriteOriginFile::No;
+        m_cacheStorageManager = CacheStorageManager::create(resolvedCacheStoragePath(), registry, origin, shouldWriteOriginFile, WTF::move(quotaCheckFunction), WTF::move(queue));
     }
 
     return *m_cacheStorageManager;
@@ -410,6 +409,9 @@ void OriginStorageManager::StorageBucket::deleteData(OptionSet<WebsiteDataType> 
 
     if (types.contains(WebsiteDataType::DOMCache))
         deleteCacheStorageData(modifiedSinceTime);
+
+    if (types.contains(WebsiteDataType::ServiceWorkerRegistrations) && m_level >= UnifiedOriginStorageLevel::Standard)
+        serviceWorkerStorageManager().clearAllRegistrations();
 }
 
 void OriginStorageManager::StorageBucket::deleteFileSystemStorageData(WallTime modifiedSinceTime)
@@ -586,10 +588,10 @@ String OriginStorageManager::StorageBucket::resolvedCacheStoragePath()
 
 String OriginStorageManager::StorageBucket::resolvedBackgroundFetchStoragePath()
 {
-    if (m_resolvedCacheStoragePath.isNull())
-        m_resolvedCacheStoragePath = typeStoragePath(StorageType::BackgroundFetchStorage);
+    if (m_resolvedBackgroundFetchStoragePath.isNull())
+        m_resolvedBackgroundFetchStoragePath = typeStoragePath(StorageType::BackgroundFetchStorage);
 
-    return m_resolvedCacheStoragePath;
+    return m_resolvedBackgroundFetchStoragePath;
 }
 
 String OriginStorageManager::StorageBucket::resolvedPath(WebsiteDataType webisteDataType)
@@ -680,9 +682,9 @@ OriginQuotaManager& OriginStorageManager::quotaManager()
     return m_quotaManager.get();
 }
 
-FileSystemStorageManager& OriginStorageManager::fileSystemStorageManager(FileSystemStorageHandleRegistry& registry)
+FileSystemStorageManager& OriginStorageManager::fileSystemStorageManager(FileSystemStorageHandleRegistry& registry, const WebCore::ClientOrigin& origin)
 {
-    return defaultBucket().fileSystemStorageManager(registry, [quotaManager = ThreadSafeWeakPtr { this->quotaManager() }](uint64_t spaceRequested, CompletionHandler<void(bool)>&& completionHandler) mutable {
+    return defaultBucket().fileSystemStorageManager(registry, origin, [quotaManager = ThreadSafeWeakPtr { this->quotaManager() }](uint64_t spaceRequested, CompletionHandler<void(bool)>&& completionHandler) mutable {
         auto strongReference = quotaManager.get();
         if (!strongReference)
             return completionHandler(false);
@@ -743,11 +745,12 @@ CacheStorageManager* OriginStorageManager::existingCacheStorageManager()
 
 CacheStorageManager& OriginStorageManager::cacheStorageManager(CacheStorageRegistry& registry, const WebCore::ClientOrigin& origin, Ref<WorkQueue>&& queue)
 {
-    return defaultBucket().cacheStorageManager(registry, origin, [quotaManager = ThreadSafeWeakPtr { this->quotaManager() }](uint64_t spaceRequested, CompletionHandler<void(bool)>&& completionHandler) mutable {
-        if (!quotaManager.get())
+    return defaultBucket().cacheStorageManager(registry, origin, [weakQuotaManager = ThreadSafeWeakPtr { this->quotaManager() }](uint64_t spaceRequested, CompletionHandler<void(bool)>&& completionHandler) mutable {
+        RefPtr quotaManager = weakQuotaManager;
+        if (!quotaManager)
             return completionHandler(false);
 
-        quotaManager.get()->requestSpace(spaceRequested, [completionHandler = WTF::move(completionHandler)](auto decision) mutable {
+        quotaManager->requestSpace(spaceRequested, [completionHandler = WTF::move(completionHandler)](auto decision) mutable {
             completionHandler(decision == OriginQuotaManager::Decision::Grant);
         });
     }, WTF::move(queue));
@@ -755,11 +758,12 @@ CacheStorageManager& OriginStorageManager::cacheStorageManager(CacheStorageRegis
 
 BackgroundFetchStoreManager& OriginStorageManager::backgroundFetchManager(Ref<WorkQueue>&& queue)
 {
-    return defaultBucket().backgroundFetchManager(WTF::move(queue), [quotaManager = ThreadSafeWeakPtr { this->quotaManager() }](uint64_t spaceRequested, CompletionHandler<void(bool)>&& completionHandler) mutable {
-        if (!quotaManager.get())
+    return defaultBucket().backgroundFetchManager(WTF::move(queue), [weakQuotaManager = ThreadSafeWeakPtr { this->quotaManager() }](uint64_t spaceRequested, CompletionHandler<void(bool)>&& completionHandler) mutable {
+        RefPtr quotaManager = weakQuotaManager;
+        if (!quotaManager)
             return completionHandler(false);
 
-        quotaManager.get()->requestSpace(spaceRequested, [completionHandler = WTF::move(completionHandler)](auto decision) mutable {
+        quotaManager->requestSpace(spaceRequested, [completionHandler = WTF::move(completionHandler)](auto decision) mutable {
             completionHandler(decision == OriginQuotaManager::Decision::Grant);
         });
     });

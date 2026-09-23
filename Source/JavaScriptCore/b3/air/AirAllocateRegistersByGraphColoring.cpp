@@ -64,7 +64,7 @@ public:
     AbstractColoringAllocator(Code& code, const Vector<Reg>& regsInPriorityOrder, IndexType lastPrecoloredRegisterIndex, unsigned tmpArraySize, const BitVector& unspillableTmps, const UseCounts& useCounts)
         : m_regsInPriorityOrder(regsInPriorityOrder)
         , m_lastPrecoloredRegisterIndex(lastPrecoloredRegisterIndex)
-        , m_coalescedTmps(tmpArraySize, 0)
+        , m_coalescedTmps(FillWith { }, tmpArraySize, 0)
         , m_unspillableTmps(unspillableTmps)
         , m_useCounts(useCounts)
         , m_code(code)
@@ -87,16 +87,16 @@ public:
 protected:
     using TmpMapper = AbsoluteTmpMapper<bank>;
 
-    IndexType tmpToIndex(Tmp tmp) const
+    IndexType NODELETE tmpToIndex(Tmp tmp) const
     {
         unsigned index = TmpMapper::absoluteIndex(tmp);
         ASSERT(std::numeric_limits<IndexType>::max() > index);
         return static_cast<IndexType>(index);
     }
 
-    unsigned registerCount() const { return m_regsInPriorityOrder.size(); }
+    unsigned NODELETE registerCount() const { return m_regsInPriorityOrder.size(); }
 
-    IndexType getAlias(IndexType tmpIndex) const
+    IndexType NODELETE getAlias(IndexType tmpIndex) const
     {
         IndexType alias = tmpIndex;
         while (IndexType nextAlias = m_coalescedTmps[alias])
@@ -119,7 +119,7 @@ protected:
         m_spillWorklist.add(toSpill);
     }
 
-    bool isPrecolored(IndexType tmpIndex)
+    bool NODELETE isPrecolored(IndexType tmpIndex)
     {
         return tmpIndex <= m_lastPrecoloredRegisterIndex;
     }
@@ -183,7 +183,7 @@ protected:
         }
     }
 
-    bool hasBeenSimplified(IndexType tmpIndex)
+    bool NODELETE hasBeenSimplified(IndexType tmpIndex)
     {
         if (ASSERT_ENABLED) {
             if (!!m_coalescedTmps[tmpIndex])
@@ -201,7 +201,7 @@ protected:
         return conservativeHeuristic(u, v);
     }
 
-    bool conservativeHeuristic(IndexType u, IndexType v)
+    bool NODELETE conservativeHeuristic(IndexType u, IndexType v)
     {
         // This is using the Briggs' conservative coalescing rule:
         // If the number of combined adjacent node with a degree >= K is less than K,
@@ -443,7 +443,7 @@ protected:
         return m_interferenceEdges.addAndReturnIsNewEntry(u, v);
     }
 
-    bool hasInterferenceEdge(IndexType u, IndexType v)
+    bool NODELETE hasInterferenceEdge(IndexType u, IndexType v)
     {
         return m_interferenceEdges.contains(u, v);
     }
@@ -805,7 +805,7 @@ protected:
             return nextIndex;
         }
 
-        void startAddingLowPriorityMoves()
+        void NODELETE startAddingLowPriorityMoves()
         {
             ASSERT(m_lowPriorityMoveList.isEmpty());
         }
@@ -852,7 +852,7 @@ protected:
         Vector<unsigned, 0, UnsafeVectorOverflow> m_lowPriorityMoveList;
     };
 
-    void decrementDegree(IndexType tmpIndex)
+    void NODELETE decrementDegree(IndexType tmpIndex)
     {
         ASSERT(m_degrees[tmpIndex]);
         --m_degrees[tmpIndex];
@@ -1149,7 +1149,7 @@ protected:
     }
 
 
-    bool isMoveRelated(IndexType tmpIndex)
+    bool NODELETE isMoveRelated(IndexType tmpIndex)
     {
         for (unsigned moveIndex : m_moveList[tmpIndex]) {
             if (m_activeMoves.quickGet(moveIndex) || m_worklistMoves.contains(moveIndex))
@@ -1203,7 +1203,7 @@ protected:
             return nextIndex;
         }
 
-        void startAddingLowPriorityMoves()
+        void NODELETE startAddingLowPriorityMoves()
         {
             ASSERT(m_lowPriorityMoveList.isEmpty());
             m_firstLowPriorityMoveIndex = m_moveList.size();
@@ -1223,17 +1223,17 @@ protected:
             return nextIndex;
         }
 
-        bool isEmpty() const
+        bool NODELETE isEmpty() const
         {
             return m_moveList.isEmpty() && m_lowPriorityMoveList.isEmpty();
         }
 
-        bool contains(unsigned index)
+        bool NODELETE contains(unsigned index)
         {
             return m_positionInMoveList[index] != std::numeric_limits<unsigned>::max();
         }
 
-        void takeMove(unsigned moveIndex)
+        void NODELETE takeMove(unsigned moveIndex)
         {
             unsigned positionInMoveList = m_positionInMoveList[moveIndex];
             if (positionInMoveList == std::numeric_limits<unsigned>::max())
@@ -1258,7 +1258,7 @@ protected:
             ASSERT(!contains(moveIndex));
         }
 
-        unsigned takeLastMove()
+        unsigned NODELETE takeLastMove()
         {
             ASSERT(!isEmpty());
 
@@ -1303,7 +1303,7 @@ protected:
             m_lowPriorityMoveList.clear();
         }
 
-        unsigned totalNumberOfMoves()
+        unsigned NODELETE totalNumberOfMoves()
         {
             return m_moveList.size() + m_lowPriorityMoveList.size();
         }
@@ -1402,7 +1402,7 @@ public:
         }
     }
 
-    Tmp getAlias(Tmp tmp) const
+    Tmp NODELETE getAlias(Tmp tmp) const
     {
         return TmpMapper::tmpFromAbsoluteIndex(getAlias(tmpToIndex(tmp)));
     }
@@ -1410,17 +1410,17 @@ public:
     // This tells you if a Move will be coalescable if the src and dst end up matching. This method
     // relies on an analysis that is invalidated by register allocation, so you it's only meaningful to
     // call this *before* replacing the Tmp's in this Inst with registers or spill slots.
-    bool mayBeCoalescable(const Inst& inst) const
+    bool NODELETE mayBeCoalescable(const Inst& inst) const
     {
         return mayBeCoalescableImpl(inst, &m_tmpWidth);
     }
 
-    bool isUselessMove(const Inst& inst) const
+    bool NODELETE isUselessMove(const Inst& inst) const
     {
-        return mayBeCoalescableImpl(inst, nullptr) && inst.args[0].tmp() == inst.args[1].tmp();
+        return mayBeCoalescableImpl(inst, nullptr) && inst.args()[0].tmp() == inst.args()[1].tmp();
     }
 
-    Tmp getAliasWhenSpilling(Tmp tmp) const
+    Tmp NODELETE getAliasWhenSpilling(Tmp tmp) const
     {
         ASSERT_WITH_MESSAGE(!m_spilledTmps.isEmpty(), "This function is only valid for coalescing during spilling.");
 
@@ -1446,10 +1446,10 @@ public:
         {
         }
 
-        Tmp operator*() const { return TmpMapper::tmpFromAbsoluteIndex(*m_indexIterator); }
-        IndexToTmpIteratorAdaptor& operator++() { ++m_indexIterator; return *this; }
+        Tmp NODELETE operator*() const { return TmpMapper::tmpFromAbsoluteIndex(*m_indexIterator); }
+        IndexToTmpIteratorAdaptor& NODELETE operator++() { ++m_indexIterator; return *this; }
 
-        friend bool operator==(const IndexToTmpIteratorAdaptor&, const IndexToTmpIteratorAdaptor&) = default;
+        friend bool NODELETE operator==(const IndexToTmpIteratorAdaptor&, const IndexToTmpIteratorAdaptor&) = default;
 
     private:
         IndexIterator m_indexIterator;
@@ -1463,12 +1463,12 @@ public:
         {
         }
 
-        IndexToTmpIteratorAdaptor<typename Collection::const_iterator> begin() const
+        IndexToTmpIteratorAdaptor<typename Collection::const_iterator> NODELETE begin() const
         {
             return m_collection.begin();
         }
 
-        IndexToTmpIteratorAdaptor<typename Collection::const_iterator> end() const
+        IndexToTmpIteratorAdaptor<typename Collection::const_iterator> NODELETE end() const
         {
             return m_collection.end();
         }
@@ -1477,9 +1477,9 @@ public:
         const Collection& m_collection;
     };
 
-    IndexToTmpIterableAdaptor<Vector<IndexType>> spilledTmps() const { return m_spilledTmps; }
+    IndexToTmpIterableAdaptor<Vector<IndexType>> NODELETE spilledTmps() const { return m_spilledTmps; }
 
-    bool requiresSpilling() const { return !m_spilledTmps.isEmpty(); }
+    bool NODELETE requiresSpilling() const { return !m_spilledTmps.isEmpty(); }
 
     Reg allocatedReg(Tmp tmp) const
     {
@@ -1498,7 +1498,7 @@ public:
     }
 
 protected:
-    static unsigned tmpArraySize(Code& code)
+    static unsigned NODELETE tmpArraySize(Code& code)
     {
         unsigned numTmps = code.numTmps(bank);
         return TmpMapper::absoluteIndex(numTmps);
@@ -1514,7 +1514,7 @@ protected:
         }
     }
 
-    bool mayBeCoalesced(Arg left, Arg right)
+    bool NODELETE mayBeCoalesced(Arg left, Arg right)
     {
         if (!left.isTmp() || !right.isTmp())
             return false;
@@ -1636,7 +1636,7 @@ protected:
             unsigned newIndexInWorklist = m_worklistMoves.addMove();
             ASSERT_UNUSED(newIndexInWorklist, newIndexInWorklist == nextMoveIndex);
 
-            for (const Arg& arg : prevInst->args) {
+            for (const Arg& arg : prevInst->args()) {
                 auto& list = m_moveList[TmpMapper::absoluteIndex(arg.tmp())];
                 list.add(nextMoveIndex);
             }
@@ -1670,9 +1670,9 @@ protected:
         for (BasicBlock* block : m_code) {
             for (Inst& inst : *block) {
                 if (std::optional<unsigned> defArgIndex = inst.shouldTryAliasingDef()) {
-                    Arg op1 = inst.args[*defArgIndex - 2];
-                    Arg op2 = inst.args[*defArgIndex - 1];
-                    Arg dest = inst.args[*defArgIndex];
+                    Arg op1 = inst.args()[*defArgIndex - 2];
+                    Arg op2 = inst.args()[*defArgIndex - 1];
+                    Arg dest = inst.args()[*defArgIndex];
 
                     if (op1 == dest || op2 == dest)
                         continue;
@@ -1722,7 +1722,7 @@ protected:
 
     // Calling this without a tmpWidth will perform a more conservative coalescing analysis that assumes
     // that Move32's are not coalescable.
-    static bool mayBeCoalescableImpl(const Inst& inst, TmpWidth* tmpWidth)
+    static bool NODELETE mayBeCoalescableImpl(const Inst& inst, TmpWidth* tmpWidth)
     {
         switch (bank) {
         case GP:
@@ -1747,14 +1747,14 @@ protected:
         }
 
         // Avoid the three-argument coalescable spill moves.
-        if (inst.args.size() != 2)
+        if (inst.args().size() != 2)
             return false;
 
-        if (!inst.args[0].isTmp() || !inst.args[1].isTmp())
+        if (!inst.args()[0].isTmp() || !inst.args()[1].isTmp())
             return false;
 
-        ASSERT(inst.args[0].bank() == bank);
-        ASSERT(inst.args[1].bank() == bank);
+        ASSERT(inst.args()[0].bank() == bank);
+        ASSERT(inst.args()[1].bank() == bank);
 
         // We can coalesce a Move32 so long as either of the following holds:
         // - The input is already zero-filled.
@@ -1767,7 +1767,7 @@ protected:
             if (!tmpWidth)
                 return false;
 
-            if (tmpWidth->defWidth(inst.args[0].tmp()) > Width32)
+            if (tmpWidth->defWidth(inst.args()[0].tmp()) > Width32)
                 return false;
         }
         
@@ -1902,7 +1902,7 @@ private:
         unsigned numTmps = m_code.numTmps(bank);
         unsigned arraySize = AbsoluteTmpMapper<bank>::absoluteIndex(numTmps);
 
-        Vector<Range, 0, UnsafeVectorOverflow> ranges(arraySize, Range());
+        Vector<Range, 0, UnsafeVectorOverflow> ranges(FillWith { }, arraySize, Range());
 
         unsigned globalIndex = 0;
         for (BasicBlock* block : m_code) {
@@ -1982,8 +1982,8 @@ private:
                     // Move32 is cheaper if we know that it's equivalent to a Move in x86_64. It's
                     // equivalent if the destination's high bits are not observable or if the source's high
                     // bits are all zero.
-                    if (bank == GP && inst.kind.opcode == Move && inst.args[0].isTmp() && inst.args[1].isTmp()) {
-                        if (m_tmpWidth.useWidth(inst.args[1].tmp()) <= Width32 || m_tmpWidth.defWidth(inst.args[0].tmp()) <= Width32)
+                    if (bank == GP && inst.kind.opcode == Move && inst.args()[0].isTmp() && inst.args()[1].isTmp()) {
+                        if (m_tmpWidth.useWidth(inst.args()[1].tmp()) <= Width32 || m_tmpWidth.defWidth(inst.args()[0].tmp()) <= Width32)
                             inst.kind.opcode = Move32;
                     }
                 }
@@ -1991,8 +1991,8 @@ private:
                     // On the other hand, on ARM64, Move is cheaper than Move32. We would like to use Move instead of Move32.
                     // Move32 on ARM64 is explicitly selected in B3LowerToAir for ZExt32 for example. But using ZDef information
                     // here can optimize it from Move32 to Move.
-                    if (bank == GP && inst.kind.opcode == Move32 && inst.args[0].isTmp() && inst.args[1].isTmp()) {
-                        if (m_tmpWidth.defWidth(inst.args[0].tmp()) <= Width32)
+                    if (bank == GP && inst.kind.opcode == Move32 && inst.args()[0].isTmp() && inst.args()[1].isTmp()) {
+                        if (m_tmpWidth.defWidth(inst.args()[0].tmp()) <= Width32)
                             inst.kind.opcode = Move;
                     }
                 }
@@ -2014,8 +2014,8 @@ private:
                     tmp = assignedTmp;
                 });
 
-                if (mayBeCoalescable && inst.args[0].isTmp() && inst.args[1].isTmp()
-                    && inst.args[0].tmp() == inst.args[1].tmp())
+                if (mayBeCoalescable && inst.args()[0].isTmp() && inst.args()[1].isTmp()
+                    && inst.args()[0].tmp() == inst.args()[1].tmp())
                     inst = Inst();
             }
 
@@ -2026,7 +2026,7 @@ private:
         }
     }
 
-    static unsigned stackSlotMinimumWidth(Width width)
+    static unsigned NODELETE stackSlotMinimumWidth(Width width)
     {
         if (width <= Width32)
             return 4;
@@ -2070,8 +2070,8 @@ private:
                 bool didSpill = false;
                 bool needScratch = false;
                 if (bank == GP && inst.kind.opcode == Move) {
-                    if ((inst.args[0].isTmp() && m_tmpWidth.width(inst.args[0].tmp()) <= Width32)
-                        || (inst.args[1].isTmp() && m_tmpWidth.width(inst.args[1].tmp()) <= Width32))
+                    if ((inst.args()[0].isTmp() && m_tmpWidth.width(inst.args()[0].tmp()) <= Width32)
+                        || (inst.args()[1].isTmp() && m_tmpWidth.width(inst.args()[1].tmp()) <= Width32))
                         canUseMove32IfDidSpill = true;
                 }
 
@@ -2097,10 +2097,10 @@ private:
                             case MoveDouble:
                             case MoveFloat:
                             case Move32: {
-                                unsigned argIndex = &arg - &inst.args[0];
+                                unsigned argIndex = &arg - &inst.args()[0];
                                 unsigned otherArgIndex = argIndex ^ 1;
-                                Arg otherArg = inst.args[otherArgIndex];
-                                if (inst.args.size() == 2
+                                Arg otherArg = inst.args()[otherArgIndex];
+                                if (inst.args().size() == 2
                                     && otherArg.isStack()
                                     && otherArg.stackSlot()->isSpill()) {
                                     needScratchIfSpilledInPlace = true;
@@ -2174,8 +2174,9 @@ private:
                     m_stats[bank].numSpillTmps++;
                     dataLogLnIf(traceDebug, "Add unspillable tmp (scratch) since we introduce it during spill: ", tmp);
                     unspillableTmps.set(AbsoluteTmpMapper<bank>::absoluteIndex(tmp));
-                    inst.args.append(tmp);
-                    RELEASE_ASSERT(inst.args.size() == 3);
+                    ASSERT(inst.args().size() == 2);
+                    inst.setArgs(inst.args()[0], inst.args()[1], tmp);
+                    RELEASE_ASSERT(inst.args().size() == 3);
                     
                     // Without this, a chain of spill moves would need two registers, not one, because
                     // the scratch registers of successive moves would appear to interfere with each

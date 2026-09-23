@@ -299,6 +299,16 @@ public:
         add64AndSetFlags(imm, dest, dest);
     }
 
+    void add64AndSetFlags(RegisterID a, RegisterID b, RegisterID dest)
+    {
+        m_assembler.add<64, S>(dest, a, b);
+    }
+
+    void addCarry64(RegisterID a, RegisterID b, RegisterID dest)
+    {
+        m_assembler.adc<64>(dest, a, b);
+    }
+
     void add64(TrustedImm64 imm, RegisterID dest)
     {
         add64(imm, dest, dest);
@@ -1597,6 +1607,16 @@ public:
         }
     }
 
+    void sub64AndSetFlags(RegisterID a, RegisterID b, RegisterID dest)
+    {
+        m_assembler.sub<64, S>(dest, a, b);
+    }
+
+    void subBorrow64(RegisterID a, RegisterID b, RegisterID dest)
+    {
+        m_assembler.sbc<64>(dest, a, b);
+    }
+
     void urshift32(RegisterID src, RegisterID shiftAmount, RegisterID dest)
     {
         m_assembler.lsr<32>(dest, src, shiftAmount);
@@ -2386,6 +2406,11 @@ public:
         store64(dataTempRegister, address);
     }
 
+    void store64(TrustedImm32 imm, BaseIndex address)
+    {
+        store64(TrustedImm64(imm.m_value), address);
+    }
+
     void store64(TrustedImm64 imm, BaseIndex address)
     {
         if (!imm.m_value) {
@@ -2444,6 +2469,21 @@ public:
 
         load64(src, getCachedDataTempRegisterIDAndInvalidate());
         store64(getCachedDataTempRegisterIDAndInvalidate(), dest);
+    }
+
+    void transfer64(PostIndexAddress src, PostIndexAddress dest)
+    {
+        auto temp = getCachedDataTempRegisterIDAndInvalidate();
+        load64(src, temp);
+        store64(temp, dest);
+    }
+
+    void transferPair64(PostIndexAddress src, PostIndexAddress dest)
+    {
+        auto temp1 = getCachedDataTempRegisterIDAndInvalidate();
+        auto temp2 = getCachedMemoryTempRegisterIDAndInvalidate();
+        loadPair64(src, temp1, temp2);
+        storePair64(temp1, temp2, dest);
     }
 
     void transferPtr(auto src, auto dest) { transfer64(src, dest); }
@@ -4982,9 +5022,9 @@ public:
         move(TrustedImmPtr(reinterpret_cast<void*>(address.offset)), getCachedMemoryTempRegisterIDAndInvalidate());
 
         if (MacroAssemblerHelpers::isUnsigned<MacroAssemblerARM64>(cond))
-            m_assembler.ldrb(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrb(memoryTempRegister, memoryTempRegister, address.base);
         else
-            m_assembler.ldrsb<32>(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrsb<32>(memoryTempRegister, memoryTempRegister, address.base);
 
         return branchTest32(cond, memoryTempRegister, mask8);
     }
@@ -5016,9 +5056,9 @@ public:
         move(TrustedImmPtr(reinterpret_cast<void*>(address.offset)), getCachedMemoryTempRegisterIDAndInvalidate());
 
         if (MacroAssemblerHelpers::isUnsigned<MacroAssemblerARM64>(cond))
-            m_assembler.ldrh(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrh(memoryTempRegister, memoryTempRegister, address.base);
         else
-            m_assembler.ldrsh<32>(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrsh<32>(memoryTempRegister, memoryTempRegister, address.base);
 
         return branchTest32(cond, memoryTempRegister, mask16);
     }
@@ -6298,6 +6338,14 @@ public:
 #endif
     }
 
+    ALWAYS_INLINE static bool supportsDotProd()
+    {
+        if (s_dotProdCheckState == CPUIDCheckState::NotChecked)
+            collectCPUFeatures();
+
+        return s_dotProdCheckState == CPUIDCheckState::Set;
+    }
+
     ALWAYS_INLINE static bool supportsLSE()
     {
 #if HAVE(LSE_INSTRUCTION)
@@ -6603,6 +6651,26 @@ public:
             m_assembler.umullv(dest, left, right, narrowedLane(simdInfo.lane));
     }
 
+    void vectorMulAddLow(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID srcDest)
+    {
+        ASSERT(!scalarTypeIsFloatingPoint(simdInfo.lane));
+        ASSERT(simdInfo.signMode != SIMDSignMode::None);
+        if (simdInfo.signMode == SIMDSignMode::Signed)
+            m_assembler.smlalv(srcDest, left, right, narrowedLane(simdInfo.lane));
+        else
+            m_assembler.umlalv(srcDest, left, right, narrowedLane(simdInfo.lane));
+    }
+
+    void vectorMulAddHigh(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID srcDest)
+    {
+        ASSERT(!scalarTypeIsFloatingPoint(simdInfo.lane));
+        ASSERT(simdInfo.signMode != SIMDSignMode::None);
+        if (simdInfo.signMode == SIMDSignMode::Signed)
+            m_assembler.smlal2v(srcDest, left, right, narrowedLane(simdInfo.lane));
+        else
+            m_assembler.umlal2v(srcDest, left, right, narrowedLane(simdInfo.lane));
+    }
+
     void vectorFusedMulAdd(SIMDInfo simdInfo, FPRegisterID mul1, FPRegisterID mul2, FPRegisterID addend, FPRegisterID dest, FPRegisterID scratch)
     {
         ASSERT(scalarTypeIsFloatingPoint(simdInfo.lane));
@@ -6617,6 +6685,80 @@ public:
         moveVector(addend, scratch);
         m_assembler.vectorFmls(scratch, mul1, mul2, simdInfo.lane);
         moveVector(scratch, dest);
+    }
+
+    void vectorRelaxedMin(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID dest)
+    {
+        // Relaxed min allows implementation-defined NaN behavior
+        // ARM64 fmin returns the non-NaN operand if one is NaN, or NaN if both are NaN
+        ASSERT(scalarTypeIsFloatingPoint(simdInfo.lane));
+        m_assembler.vectorFmin(dest, left, right, simdInfo.lane);
+    }
+
+    void vectorRelaxedMax(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID dest)
+    {
+        // Relaxed max allows implementation-defined NaN behavior
+        // ARM64 fmax returns the non-NaN operand if one is NaN, or NaN if both are NaN
+        ASSERT(scalarTypeIsFloatingPoint(simdInfo.lane));
+        m_assembler.vectorFmax(dest, left, right, simdInfo.lane);
+    }
+
+    void vectorRelaxedQ15Mulr(FPRegisterID a, FPRegisterID b, FPRegisterID dest)
+    {
+        // Same as vectorMulSat - saturating rounding Q15 multiply
+        m_assembler.sqrdmulhv(dest, a, b, SIMDLane::i16x8);
+    }
+
+    void vectorRelaxedDotI8x16I7x16(FPRegisterID a, FPRegisterID b, FPRegisterID dest, FPRegisterID scratch)
+    {
+        // Dot product of i8x16 vectors producing i16x8
+        // Each pair of i8 values from a and b are multiplied and added
+        ASSERT(scratch != dest);
+        ASSERT(scratch != a);
+        ASSERT(scratch != b);
+        // smull: multiply low halves (lanes 0-7) -> 8 i16 values
+        m_assembler.smullv(scratch, a, b, SIMDLane::i8x16);
+        // smull2: multiply high halves (lanes 8-15) -> 8 i16 values
+        m_assembler.smull2v(dest, a, b, SIMDLane::i8x16);
+        // addp: add adjacent pairs
+        m_assembler.addpv(dest, scratch, dest, SIMDLane::i16x8);
+    }
+
+    void vectorRelaxedDotI8x16I7x16Add(FPRegisterID a, FPRegisterID b, FPRegisterID addend, FPRegisterID dest, FPRegisterID scratch1, FPRegisterID scratch2)
+    {
+        if (supportsDotProd()) {
+            // SDOT Vd.4S, Vn.16B, Vm.16B: for each i32 lane, accumulate sum of 4 signed 8-bit products.
+            // SDOT accumulates into Vd, so we need addend in dest before the instruction.
+            // Handle cases where dest overlaps with a or b to avoid clobbering inputs.
+            if (dest == a) {
+                moveVector(a, scratch1);
+                moveVector(addend, dest);
+                m_assembler.sdotv(dest, scratch1, b);
+            } else if (dest == b) {
+                moveVector(b, scratch1);
+                moveVector(addend, dest);
+                m_assembler.sdotv(dest, a, scratch1);
+            } else {
+                moveVector(addend, dest);
+                m_assembler.sdotv(dest, a, b);
+            }
+        } else {
+            // Fallback: 5-instruction sequence for base ARMv8 without DotProd
+            ASSERT(scratch1 != scratch2);
+            ASSERT(scratch1 != a);
+            ASSERT(scratch1 != b);
+            ASSERT(scratch1 != addend);
+            ASSERT(scratch1 != dest);
+            ASSERT(scratch2 != a);
+            ASSERT(scratch2 != b);
+            ASSERT(scratch2 != addend);
+            ASSERT(scratch2 != dest);
+            m_assembler.smullv(scratch1, a, b, SIMDLane::i8x16);
+            m_assembler.smull2v(scratch2, a, b, SIMDLane::i8x16);
+            m_assembler.addpv(scratch1, scratch1, scratch2, SIMDLane::i16x8);
+            m_assembler.vectorSaddlp(scratch1, scratch1, SIMDLane::i16x8);
+            m_assembler.vectorAdd(dest, scratch1, addend, SIMDLane::i32x4);
+        }
     }
 
     void vectorDiv(SIMDInfo simdInfo, FPRegisterID left, FPRegisterID right, FPRegisterID dest)
@@ -8107,6 +8249,7 @@ protected:
     JS_EXPORT_PRIVATE static CPUIDCheckState s_float16CheckState;
     JS_EXPORT_PRIVATE static CPUIDCheckState s_frintCheckState;
     JS_EXPORT_PRIVATE static CPUIDCheckState s_sha3CheckState;
+    JS_EXPORT_PRIVATE static CPUIDCheckState s_dotProdCheckState;
 
     CachedTempRegister m_dataMemoryTempRegister;
     CachedTempRegister m_cachedMemoryTempRegister;

@@ -26,7 +26,6 @@
 #pragma once
 
 #include <JavaScriptCore/AbstractSlotVisitor.h>
-#include <JavaScriptCore/HandleTypes.h>
 #include <wtf/Forward.h>
 #include <wtf/IterationStatus.h>
 #include <wtf/MonotonicTime.h>
@@ -125,8 +124,8 @@ public:
     bool isMarked(MarkedBlock&, HeapCell*) const final;
     bool isMarked(PreciseAllocation&, HeapCell*) const final;
 
-    void didStartMarking();
-    void reset();
+    void NODELETE didStartMarking();
+    void NODELETE reset();
     void clearMarkStacks();
 
     size_t bytesVisited() const { return m_bytesVisited; }
@@ -167,16 +166,16 @@ public:
     
     Lock& rightToRun() LIFETIME_BOUND WTF_RETURNS_LOCK(m_rightToRun) { return m_rightToRun; }
     
-    void updateMutatorIsStopped(const AbstractLocker&);
+    void NODELETE updateMutatorIsStopped(const AbstractLocker&);
     void updateMutatorIsStopped();
     
-    bool hasAcknowledgedThatTheMutatorIsResumed() const;
-    bool mutatorIsStoppedIsUpToDate() const;
+    bool NODELETE hasAcknowledgedThatTheMutatorIsResumed() const;
+    bool NODELETE mutatorIsStoppedIsUpToDate() const;
     
-    void optimizeForStoppedMutator();
+    void NODELETE optimizeForStoppedMutator();
     
     void didRace(const VisitRaceKey&) final;
-    void didRace(JSCell* cell, const char* reason) { didRace(VisitRaceKey(cell, reason)); }
+    inline void didRace(JSCell* cell, const char* reason); // Defined in SlotVisitorInlines.h
     
     void visitAsConstraint(const JSCell*) final;
     
@@ -216,13 +215,13 @@ private:
 
     void donateAll(const AbstractLocker&);
 
-    bool hasWork(const AbstractLocker&);
+    bool NODELETE hasWork(const AbstractLocker&);
     bool didReachTermination(const AbstractLocker&);
 
     template<typename Func>
     IterationStatus forEachMarkStack(const Func&);
 
-    MarkStackArray& correspondingGlobalStack(MarkStackArray&);
+    MarkStackArray& NODELETE correspondingGlobalStack(MarkStackArray&);
 
     HeapVersion m_markingVersion;
 

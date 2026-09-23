@@ -37,6 +37,7 @@
 
 namespace WebCore {
 
+enum class EventHandlerRemovalReason : bool;
 class HTMLInputElement;
 class TouchEvent;
 
@@ -75,7 +76,7 @@ private:
 #endif
     void willDetachRenderers() final;
 
-    std::optional<Style::UnadjustedStyle> resolveCustomStyle(const Style::ResolutionContext&, const RenderStyle*) final;
+    std::optional<Style::UnadjustedStyle> resolveCustomStyle(const Style::ResolutionContext&, const Style::ComputedStyle*) final;
 
     void startDragging();
     void stopDragging();
@@ -90,7 +91,8 @@ private:
     void handleTouchEndAndCancel(TouchEvent&);
 
     void registerForTouchEvents();
-    void unregisterForTouchEvents(EventHandlerRemovalReason = EventHandlerRemovalReason::Other);
+    void unregisterForTouchEvents(); // EventHandlerRemovalReason::Other
+    void unregisterForTouchEvents(EventHandlerRemovalReason);
 #endif
 
     bool m_inDragMode { false };
@@ -114,7 +116,7 @@ public:
 
 private:
     explicit SliderContainerElement(Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     bool NODELETE isSliderContainerElement() const final { return true; }
 };
 

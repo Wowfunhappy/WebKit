@@ -56,6 +56,7 @@ class PlatformTimeRanges;
 class SourceBufferPrivate;
 class TextTrackList;
 class TimeRanges;
+class TrackOpaqueRoot;
 class VideoTrackList;
 class WebCoreOpaqueRoot;
 template<typename> class ExceptionOr;
@@ -110,10 +111,8 @@ public:
 
     void abortIfUpdating();
     void removedFromMediaSource();
-    using ComputeSeekPromise = SourceBufferPrivate::ComputeSeekPromise;
-    Ref<ComputeSeekPromise> computeSeekTime(const SeekTarget&);
 
-    bool hasVideo() const;
+    bool NODELETE hasVideo() const;
 
     bool active() const { return m_active; }
 
@@ -143,7 +142,7 @@ public:
     WTFLogChannel& NODELETE logChannel() const final;
 #endif
 
-    WebCoreOpaqueRoot NODELETE opaqueRoot();
+    WebCoreOpaqueRoot NODELETE opaqueRoot() const final;
 
     virtual bool isManaged() const { return false; }
     void memoryPressure();
@@ -208,7 +207,7 @@ private:
 
     void appendError(bool);
 
-    bool hasAudio() const;
+    bool NODELETE hasAudio() const;
 
     void rangeRemoval(const MediaTime&, const MediaTime&);
 
@@ -229,7 +228,7 @@ private:
     WeakPtr<MediaSource> m_source;
     AppendMode m_mode { AppendMode::Segments };
 
-    const Ref<WTF::Observer<WebCoreOpaqueRoot()>> m_opaqueRootProvider;
+    const Ref<TrackOpaqueRoot> m_trackOpaqueRoot;
 
     RefPtr<SharedBuffer> m_pendingAppendData;
 

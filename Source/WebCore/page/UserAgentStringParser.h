@@ -24,9 +24,12 @@
  */
 
 #pragma once
+#include <WebCore/PlatformExportMacros.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Variant.h>
+#include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 struct UserAgentStringData;
@@ -35,8 +38,8 @@ struct UserAgentStringData;
  */
 class UserAgentStringParser : public RefCountedAndCanMakeWeakPtr<UserAgentStringParser> {
 public:
-    static Ref<UserAgentStringParser> create(const String& userAgentString);
-    std::optional<Ref<UserAgentStringData>> parse();
+    WEBCORE_EXPORT static Ref<UserAgentStringParser> create(const String& userAgentString);
+    WEBCORE_EXPORT std::optional<Ref<UserAgentStringData>> parse();
 
 private:
     UserAgentStringParser(const String& userAgentString);
@@ -44,8 +47,8 @@ private:
     void consumeProduct();
     void consumeComment();
     void NODELETE consumeRWS();
-    void consumeToken();
-    void consumeQuotedPair();
+    void NODELETE consumeToken();
+    void NODELETE consumeQuotedPair();
 
     void populateUserAgentData();
 

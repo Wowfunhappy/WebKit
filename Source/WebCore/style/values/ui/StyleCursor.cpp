@@ -27,11 +27,12 @@
 #include "StyleCursor.h"
 
 #include "CSSCursorImageValue.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSValueList.h"
 #include "StyleBuilderChecking.h"
 #include "StyleCursorImage.h"
 #include "StyleInvalidImage.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
 namespace Style {
@@ -40,8 +41,8 @@ namespace Style {
 
 auto CSSValueConversion<Cursor>::operator()(BuilderState& state, const CSSValue& value) -> Cursor
 {
-    if (is<CSSPrimitiveValue>(value))
-        return Cursor { fromCSSValue<CursorType>(value) };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value))
+        return toStyleFromCSSValue<CursorType>(state, *keywordValue);
 
     auto list = requiredListDowncast<CSSValueList, CSSValue, 2>(state, value);
     if (!list)
@@ -51,24 +52,22 @@ auto CSSValueConversion<Cursor>::operator()(BuilderState& state, const CSSValue&
         Ref item = list->item(index);
         RefPtr image = requiredDowncast<CSSCursorImageValue>(state, item);
         if (!image)
-            return CursorImageAndHotSpot { InvalidImage::create() };
+            return CursorImageAndHotSpot { InvalidImage::create(), std::nullopt };
 
         auto styleImage = image->createStyleImage(state);
         if (!styleImage) {
             state.setCurrentPropertyInvalidAtComputedValueTime();
-            return CursorImageAndHotSpot { InvalidImage::create() };
+            return CursorImageAndHotSpot { InvalidImage::create(), std::nullopt };
         }
 
-        // Point outside the image is how we tell the cursor machinery there is no hot spot, and it should generate one (done in the Cursor class).
-        // FIXME: Would it be better to extend the concept of "no hot spot" deeper, into CursorImage and beyond, rather than using -1/-1 for it?
-        auto hotSpot = styleImage->hotSpot().value_or(IntPoint { -1, -1 });
-        return CursorImageAndHotSpot { styleImage.releaseNonNull(), hotSpot };
+        auto hotSpot = styleImage->hotSpot();
+        return CursorImageAndHotSpot { styleImage.releaseNonNull(), WTF::move(hotSpot) };
     });
 
-    return { WTF::move(images), fromCSSValue<CursorType>(list->item(list->size() - 1)) };
+    return { WTF::move(images), toStyleFromCSSValue<CursorType>(state, list->item(list->size() - 1)) };
 }
 
-Ref<CSSValue> CSSValueCreation<CursorImageAndHotSpot>::operator()(CSSValuePool&, const RenderStyle& style, const CursorImageAndHotSpot& value)
+Ref<CSSValue> CSSValueCreation<CursorImageAndHotSpot>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const CursorImageAndHotSpot& value)
 {
     Ref image = value.image;
     return image->computedStyleValue(style);
@@ -76,7 +75,7 @@ Ref<CSSValue> CSSValueCreation<CursorImageAndHotSpot>::operator()(CSSValuePool&,
 
 // MARK: - Serialization
 
-void Serialize<CursorImageAndHotSpot>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const CursorImageAndHotSpot& value)
+void Serialize<CursorImageAndHotSpot>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const CursorImageAndHotSpot& value)
 {
     Ref image = value.image;
     Ref computedValue = image->computedStyleValue(style);

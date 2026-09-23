@@ -38,7 +38,7 @@ GStreamerQuirkOpenMAX::GStreamerQuirkOpenMAX()
 bool GStreamerQuirkOpenMAX::isPlatformSupported() const
 {
     auto registry = gst_registry_get();
-    auto feature = adoptGRef(gst_registry_lookup_feature(registry, "omx"));
+    GRefPtr feature = adoptGRef(gst_registry_lookup_feature(registry, "omx"));
     return feature;
 }
 

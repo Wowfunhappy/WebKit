@@ -80,7 +80,7 @@ public:
 
     static void dispatchOperationInWorkQueue(WorkQueue&, ScriptExecutionContext&, VectorCallback&&, ExceptionCallback&&, Function<ExceptionOr<Vector<uint8_t>>()>&&);
     static void dispatchOperationInWorkQueue(WorkQueue&, ScriptExecutionContext&, BoolCallback&&, ExceptionCallback&&, Function<ExceptionOr<bool>()>&&);
-    static void dispatchDigest(WorkQueue&, ScriptExecutionContext&, VectorCallback&&, ExceptionCallback&&, Vector<uint8_t>&& message, PAL::CryptoDigest::Algorithm);
+    static void dispatchDigest(WorkQueue&, ScriptExecutionContext&, VectorCallback&&, ExceptionCallback&&, Vector<uint8_t>&& message, PAL::Crypto::CryptoDigest::Algorithm);
 };
 
 } // namespace WebCore

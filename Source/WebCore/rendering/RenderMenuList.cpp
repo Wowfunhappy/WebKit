@@ -34,13 +34,14 @@
 #include "HTMLSelectElement.h"
 #include "LayoutIntegrationLineLayout.h"
 #include "NodeRenderStyle.h"
+#include "PlatformRenderTheme.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderElementInlines.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+SettersInlines.h"
 #include "RenderTheme.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "TextRun.h"
 #include <math.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -49,7 +50,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMenuList);
 
-RenderMenuList::RenderMenuList(HTMLSelectElement& element, RenderStyle&& style)
+RenderMenuList::RenderMenuList(HTMLSelectElement& element, Style::ComputedStyle&& style)
     : RenderFlexibleBox(Type::MenuList, element, WTF::move(style))
     , m_needsOptionsWidthUpdate(true)
     , m_optionsWidth(0)
@@ -64,7 +65,7 @@ HTMLSelectElement& NODELETE RenderMenuList::selectElement() const
     return downcast<HTMLSelectElement>(nodeForNonAnonymous());
 }
 
-void RenderMenuList::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderMenuList::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderBlock::styleDidChange(diff, oldStyle);
 
@@ -78,8 +79,9 @@ void RenderMenuList::styleDidChange(Style::Difference diff, const RenderStyle* o
 void RenderMenuList::updateOptionsWidth()
 {
     float maxOptionWidth = 0;
-    const auto& listItems = selectElement().listItems();
-    int size = listItems.size();    
+    Ref protectedSelect = selectElement();
+    const auto& listItems = protectedSelect->listItems();
+    int size = listItems.size();
 
     for (int i = 0; i < size; ++i) {
         RefPtr option = dynamicDowncast<HTMLOptionElement>(listItems[i].get());
@@ -101,7 +103,7 @@ void RenderMenuList::updateOptionsWidth()
 
     m_optionsWidth = width;
     if (parent())
-        setNeedsLayoutAndPreferredWidthsUpdate();
+        setNeedsLayoutAndInvalidateContentLogicalWidths();
 }
 
 void RenderMenuList::updateFromElement()
@@ -142,54 +144,60 @@ LayoutRect RenderMenuList::controlClipRect(const LayoutPoint& additionalOffset) 
     return clipRect;
 }
 
-void RenderMenuList::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
+std::pair<LayoutUnit, LayoutUnit> RenderMenuList::computeIntrinsicLogicalWidths() const
 {
     if (style().fieldSizing() == FieldSizing::Content)
-        return RenderFlexibleBox::computeIntrinsicLogicalWidths(minLogicalWidth, maxLogicalWidth);
+        return RenderFlexibleBox::computeIntrinsicLogicalWidths();
 
-    LayoutUnit minimumSize = theme().minimumMenuListSize(style());
-    maxLogicalWidth = shouldApplySizeContainment() ? minimumSize : std::max(LayoutUnit(m_optionsWidth), minimumSize);
+    auto minimumSize = LayoutUnit { theme().minimumMenuListSize(style()) };
+    auto maxLogicalWidth = shouldApplySizeContainment() ? minimumSize : std::max(LayoutUnit { m_optionsWidth }, minimumSize);
 
     auto internalPadding = theme().popupInternalPaddingBox(style());
-    if (auto left = internalPadding.left().tryFixed())
-        maxLogicalWidth += LayoutUnit(left->resolveZoom(style().usedZoomForLength()));
-    if (auto right = internalPadding.right().tryFixed())
-        maxLogicalWidth += LayoutUnit(right->resolveZoom(style().usedZoomForLength()));
+    if (auto start = internalPadding.start(writingMode()).tryFixed())
+        maxLogicalWidth += LayoutUnit(start->resolveZoom(style().usedZoomForLength()));
+    if (auto end = internalPadding.end(writingMode()).tryFixed())
+        maxLogicalWidth += LayoutUnit(end->resolveZoom(style().usedZoomForLength()));
 
     if (shouldApplySizeOrInlineSizeContainment()) {
         if (auto logicalWidth = explicitIntrinsicInnerLogicalWidth())
             maxLogicalWidth = logicalWidth.value();
     }
+
     auto& logicalWidth = style().logicalWidth();
+    auto minLogicalWidth = LayoutUnit { };
     if (logicalWidth.isCalculated())
         minLogicalWidth = std::max(0_lu, Style::evaluate<LayoutUnit>(logicalWidth, 0_lu, style().usedZoomForLength()));
     else if (!logicalWidth.isPercent())
         minLogicalWidth = maxLogicalWidth;
+
+    return { minLogicalWidth, maxLogicalWidth };
 }
 
-void RenderMenuList::computePreferredLogicalWidths()
+void RenderMenuList::computeIntrinsicLogicalWidthContributions()
 {
     if (style().fieldSizing() == FieldSizing::Content) {
-        RenderFlexibleBox::computePreferredLogicalWidths();
+        RenderFlexibleBox::computeIntrinsicLogicalWidthContributions();
         return;
     }
 
-    m_minPreferredLogicalWidth = 0;
-    m_maxPreferredLogicalWidth = 0;
+    m_minContentLogicalWidthContribution = 0_lu;
+    m_maxContentLogicalWidthContribution = 0_lu;
     
-    if (auto fixedLogicalWidth = style().logicalWidth().tryFixed(); fixedLogicalWidth && fixedLogicalWidth->isPositive())
-        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(*fixedLogicalWidth);
-    else
-        computeIntrinsicLogicalWidths(m_minPreferredLogicalWidth, m_maxPreferredLogicalWidth);
+    if (auto fixedLogicalWidth = style().logicalWidth().tryFixed(); fixedLogicalWidth && fixedLogicalWidth->isPositive()) {
+        m_maxContentLogicalWidthContribution = adjustContentBoxLogicalWidthForBoxSizing(*fixedLogicalWidth);
+        m_minContentLogicalWidthContribution = m_maxContentLogicalWidthContribution;
+    } else
+        std::tie(m_minContentLogicalWidthContribution, m_maxContentLogicalWidthContribution) = computeIntrinsicLogicalWidths();
 
-    RenderBox::computePreferredLogicalWidths(style().logicalMinWidth(), style().logicalMaxWidth(), writingMode().isHorizontal() ? horizontalBorderAndPaddingExtent() : verticalBorderAndPaddingExtent());
+    constrainIntrinsicLogicalWidthsByMinMax(m_minContentLogicalWidthContribution, m_maxContentLogicalWidthContribution);
 
-    clearNeedsPreferredWidthsUpdate();
+    clearContentLogicalWidthsInvalidation();
 }
 
 void RenderMenuList::getItemBackgroundColor(unsigned listIndex, Color& itemBackgroundColor, bool& itemHasCustomBackgroundColor) const
 {
-    const auto& listItems = selectElement().listItems();
+    Ref protectedSelect = selectElement();
+    const auto& listItems = protectedSelect->listItems();
     if (listIndex >= listItems.size()) {
         itemBackgroundColor = style().visitedDependentBackgroundColorApplyingColorFilter();
         itemHasCustomBackgroundColor = false;

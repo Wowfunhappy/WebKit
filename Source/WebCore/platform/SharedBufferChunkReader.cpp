@@ -135,9 +135,9 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // Glib ports only.
     requestedSize -= readBytesCount;
 
     auto currentSegment = m_iteratorCurrent;
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     while (requestedSize && ++currentSegment != m_iteratorEnd) {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         size_t lengthInSegment = std::min(currentSegment->segment->size(), requestedSize);
         data.append(currentSegment->segment->span().first(lengthInSegment));
         readBytesCount += lengthInSegment;

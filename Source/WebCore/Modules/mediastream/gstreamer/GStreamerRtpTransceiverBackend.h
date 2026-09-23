@@ -49,7 +49,7 @@ public:
     String mid() final;
     void stop() final;
     bool stopped() const final;
-    ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodecCapability>&) final;
+    ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodec>&) final;
 
 private:
     GRefPtr<GstWebRTCRTPTransceiver> m_rtcTransceiver;

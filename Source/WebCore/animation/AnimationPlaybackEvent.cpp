@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AnimationPlaybackEvent.h"
 
+#include "WebAnimation.h"
 #include "WebAnimationUtilities.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -34,7 +35,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(AnimationPlaybackEvent);
 
 AnimationPlaybackEvent::AnimationPlaybackEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
-    : AnimationEventBase(EventInterfaceType::AnimationPlaybackEvent, type, WTF::move(initializer), isTrusted)
+    : AnimationEventBase(EventInterfaceType::AnimationPlaybackEvent, type, WTF::move(initializer), isTrusted, nullptr)
     , m_timelineTime(initializer.timelineTime)
     , m_currentTime(initializer.currentTime)
 {

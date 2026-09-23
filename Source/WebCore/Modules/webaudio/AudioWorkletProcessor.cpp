@@ -37,10 +37,14 @@
 #include "AudioWorkletProcessorConstructionData.h"
 #include "JSCallbackData.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "MessagePort.h"
 #include "ScriptWrappableInlines.h"
 #include "WebCoreOpaqueRoot.h"
+#include <JavaScriptCore/JSArray.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/JSTypedArrays.h>
+#include <JavaScriptCore/ObjectConstructor.h>
 #include <wtf/GetPtr.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -63,7 +67,7 @@ static ArrayType* getArrayAtIndex(JSArray& jsArray, JSGlobalObject& globalObject
     // We call getDirectIndex() instead of getIndex() since we only want to consider the values
     // we populated the array with, not the ones the worklet might have set on the Array prototype.
     auto item = jsArray.getDirectIndex(&globalObject, index);
-    return item ? jsDynamicCast<ArrayType*>(item) : nullptr;
+    return item ? dynamicDowncast<ArrayType>(item) : nullptr;
 }
 
 static unsigned NODELETE busChannelCount(const AudioBus* bus)
@@ -73,12 +77,12 @@ static unsigned NODELETE busChannelCount(const AudioBus* bus)
 
 static JSArray* NODELETE toJSArray(JSValueInWrappedObject& wrapper)
 {
-    return wrapper ? jsDynamicCast<JSArray*>(wrapper.getValue()) : nullptr;
+    return wrapper ? dynamicDowncast<JSArray>(wrapper.getValue()) : nullptr;
 }
 
 static JSObject* NODELETE toJSObject(JSValueInWrappedObject& wrapper)
 {
-    return wrapper ? jsDynamicCast<JSObject*>(wrapper.getValue()) : nullptr;
+    return wrapper ? dynamicDowncast<JSObject>(wrapper.getValue()) : nullptr;
 }
 
 static JSFloat32Array* constructJSFloat32Array(VM& vm, JSGlobalObject& globalObject, unsigned length, std::span<const float> data = { })
@@ -206,7 +210,7 @@ static bool copyDataFromParameterMapToJSObject(VM& vm, JSGlobalObject& globalObj
         return false;
 
     for (auto& pair : paramValuesMap) {
-        auto* jsTypedArray = jsDynamicCast<JSFloat32Array*>(jsObject->get(&globalObject, Identifier::fromString(vm, pair.key)));
+        auto* jsTypedArray = dynamicDowncast<JSFloat32Array>(jsObject->get(&globalObject, Identifier::fromString(vm, pair.key)));
         RETURN_IF_EXCEPTION(scope, false);
         if (!jsTypedArray)
             return false;
@@ -273,7 +277,7 @@ void AudioWorkletProcessor::buildJSArguments(VM& vm, JSGlobalObject& globalObjec
     if (!success) {
         auto* array = constructFrozenJSArray(vm, globalObject, inputs, ShouldPopulateWithBusData::Yes);
         RETURN_IF_EXCEPTION(scope, void());
-        m_jsInputs.setWeakly(array);
+        m_jsInputs.set(globalObject, wrapper(), array);
     }
     args.append(m_jsInputs.getValue());
 
@@ -282,14 +286,14 @@ void AudioWorkletProcessor::buildJSArguments(VM& vm, JSGlobalObject& globalObjec
     if (!success) {
         auto* array = constructFrozenJSArray(vm, globalObject, outputs, ShouldPopulateWithBusData::No);
         RETURN_IF_EXCEPTION(scope, void());
-        m_jsOutputs.setWeakly(array);
+        m_jsOutputs.set(globalObject, wrapper(), array);
     }
     args.append(m_jsOutputs.getValue());
 
     success = copyDataFromParameterMapToJSObject(vm, globalObject, paramValuesMap, toJSObject(m_jsParamValues));
     RETURN_IF_EXCEPTION(scope, void());
     if (!success)
-        m_jsParamValues.setWeakly(constructFrozenKeyValueObject(vm, globalObject, paramValuesMap));
+        m_jsParamValues.set(globalObject, wrapper(), constructFrozenKeyValueObject(vm, globalObject, paramValuesMap));
 
     args.append(m_jsParamValues.getValue());
 }
@@ -301,7 +305,7 @@ bool AudioWorkletProcessor::process(const Vector<RefPtr<AudioBus>>& inputs, Vect
     DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
 
     ASSERT(wrapper());
-    auto* globalObject = jsDynamicCast<JSDOMGlobalObject*>(m_globalScope->globalObject());
+    auto* globalObject = dynamicDowncast<JSDOMGlobalObject>(m_globalScope->globalObject());
     if (!globalObject) [[unlikely]]
         return false;
 

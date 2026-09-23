@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,6 +45,15 @@ TextTrackList::TextTrackList(ScriptExecutionContext* context)
 }
 
 TextTrackList::~TextTrackList() = default;
+
+void TextTrackList::setOpaqueRoot(TrackOpaqueRoot& trackOpaqueRoot)
+{
+    TrackListBase::setOpaqueRoot(trackOpaqueRoot);
+    for (Ref track : m_addTrackTracks)
+        track->setOpaqueRoot(trackOpaqueRoot);
+    for (Ref track : m_elementTracks)
+        track->setOpaqueRoot(trackOpaqueRoot);
+}
 
 unsigned TextTrackList::length() const
 {
@@ -176,8 +185,8 @@ void TextTrackList::invalidateTrackIndexesAfterTrack(TextTrack& track)
     if (index == notFound)
         return;
 
-    for (size_t i = index; i < tracks->size(); ++i)
-        downcast<TextTrack>(tracks->at(index).get()).invalidateTrackIndex();
+    for (auto& trackToInvalidate : tracks->subspan(index))
+        downcast<TextTrack>(trackToInvalidate.get()).invalidateTrackIndex();
 }
 
 void TextTrackList::append(Ref<TextTrack>&& track)

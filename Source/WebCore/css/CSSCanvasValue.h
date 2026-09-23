@@ -25,8 +25,8 @@
 
 #pragma once
 
+#include "CSSCustomIdent.h"
 #include "CSSValue.h"
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -37,7 +37,7 @@ class Image;
 
 class CSSCanvasValue final : public CSSValue {
 public:
-    static Ref<CSSCanvasValue> create(String name) { return adoptRef(*new CSSCanvasValue(WTF::move(name))); }
+    static Ref<CSSCanvasValue> create(CSS::CustomIdent&& name) { return adoptRef(*new CSSCanvasValue(WTF::move(name))); }
     ~CSSCanvasValue();
 
     String customCSSText(const CSS::SerializationContext&) const;
@@ -46,9 +46,9 @@ public:
     RefPtr<Style::Image> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    explicit CSSCanvasValue(String&&);
+    explicit CSSCanvasValue(CSS::CustomIdent&&);
 
-    String m_name;
+    CSS::CustomIdent m_name;
     mutable RefPtr<Style::Image> m_cachedStyleImage;
 };
 

@@ -37,11 +37,13 @@
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ReferrerPolicy.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/ProcessID.h>
-#include <wtf/RetainReleaseSwift.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -64,10 +66,10 @@ class Decoder;
 }
 
 namespace WebCore {
+class FloatRect;
 class FrameTreeSyncData;
 class ResourceRequest;
 class SecurityOrigin;
-class SecurityOriginData;
 class ShareableBitmapHandle;
 class TextIndicator;
 
@@ -75,6 +77,7 @@ struct FocusEventData;
 struct FrameIdentifierType;
 struct JSHandleIdentifierType;
 struct NavigationIdentifierType;
+struct NodeIdentifierType;
 
 enum class FocusDirection : uint8_t;
 enum class FoundElementInRemoteFrame : bool;
@@ -94,6 +97,7 @@ struct Result;
 
 using FrameIdentifier = ObjectIdentifier<FrameIdentifierType>;
 using NavigationIdentifier = ObjectIdentifier<NavigationIdentifierType, uint64_t>;
+using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
 using SandboxFlags = OptionSet<SandboxFlag>;
 using WebProcessJSHandleIdentifier = ObjectIdentifier<JSHandleIdentifierType>;
 using JSHandleIdentifier = ProcessQualified<WebProcessJSHandleIdentifier>;
@@ -103,6 +107,7 @@ namespace WebKit {
 
 class BrowsingContextGroup;
 class FrameProcess;
+class FrameState;
 class ProvisionalFrameProxy;
 class BrowsingWarning;
 class UserData;
@@ -175,10 +180,18 @@ public:
 
     const String& title() const LIFETIME_BOUND { return m_title; }
 
+    void setSpecifiedName(const String& name) { m_frameName = name; }
+    const String& frameName() const LIFETIME_BOUND { return m_frameName; }
+    const ListHashSet<Ref<WebFrameProxy>>& childFrames() const LIFETIME_BOUND { return m_childFrames; }
+    WebCore::SecurityOriginData documentSecurityOriginData() const;
+
     const WebCore::CertificateInfo& certificateInfo() const LIFETIME_BOUND { return m_certificateInfo; }
     // MAVERICKS_BACKPORT: WKFrameGetCertificateInfo has Get (borrowed) semantics — Safari 7
     // never releases the returned object — so the frame owns the API wrapper (#103).
     API::CertificateInfo& apiCertificateInfo();
+
+    void commitCertificateInfo(const URL&);
+    void receivedMainResourceResponseWithCertificateInfo(String&&, WebCore::CertificateInfo&&);
 
     bool canProvideSource() const;
 
@@ -197,7 +210,7 @@ public:
     void didExplicitOpen(URL&&, String&& mimeType);
     void didReceiveServerRedirectForProvisionalLoad(URL&&);
     void didFailProvisionalLoad();
-    void didCommitLoad(const String& contentType, const WebCore::CertificateInfo&, bool containsPluginDocument, WebCore::DocumentSecurityPolicy&&);
+    void didCommitLoad(const String& contentType, bool containsPluginDocument, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations);
     void didFinishLoad();
     void didFailLoad();
     void didSameDocumentNavigation(URL&&); // eg. anchor navigation, session state change.
@@ -220,10 +233,13 @@ public:
     void disconnect();
     bool isConnected() const;
     void didCreateSubframe(WebCore::FrameIdentifier, String&& frameName, WebCore::SandboxFlags, WebCore::ReferrerPolicy, WebCore::ScrollbarMode);
+
+    Vector<Ref<WebFrameProxy>> takeChildFrames();
+    void adoptChildFrames(Vector<Ref<WebFrameProxy>>&&);
     ProcessID NODELETE processID() const;
     void prepareForProvisionalLoadInProcess(WebProcessProxy&, API::Navigation&, BrowsingContextGroup&, std::optional<WebCore::SecurityOriginData>, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&&);
 
-    void commitProvisionalFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, const WebCore::CertificateInfo&, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, const UserData&);
+    void commitProvisionalFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
 
     void getFrameTree(CompletionHandler<void(std::optional<FrameTreeNodeData>&&)>&&);
     void getFrameInfo(CompletionHandler<void(std::optional<FrameInfoData>&&)>&&);
@@ -232,7 +248,15 @@ public:
     WebFrameProxy* parentFrame() const { return m_parentFrame; }
     Ref<WebFrameProxy> rootFrame();
     RefPtr<WebFrameProxy> childFrame(uint64_t index) const;
-    std::optional<uint64_t> indexInFrameTreeSiblings() const;
+    std::optional<uint64_t> NODELETE indexInFrameTreeSiblings() const;
+
+    // https://html.spec.whatwg.org/multipage/interaction.html#activation-notification
+    // Mirrors LocalDOMWindow::notifyActivated, propagating activation to ancestor frames
+    // (any origin) and same-origin descendant frames.
+    void notifyActivated(MonotonicTime activationTime);
+
+    // https://html.spec.whatwg.org/multipage/interaction.html#transient-activation
+    bool hasTransientActivation() const;
 
     WebProcessProxy& NODELETE process() const;
     void setProcess(FrameProcess&);
@@ -241,8 +265,8 @@ public:
     void removeChildFrames();
     ProvisionalFrameProxy* provisionalFrame() { return m_provisionalFrame.get(); }
     RefPtr<ProvisionalFrameProxy> takeProvisionalFrame();
-    WebProcessProxy& provisionalLoadProcess();
-    std::optional<WebCore::PageIdentifier> webPageIDInCurrentProcess();
+    WebProcessProxy& NODELETE provisionalLoadProcess();
+    std::optional<WebCore::PageIdentifier> webPageIDInCurrentProcess() const;
     void notifyParentOfLoadCompletion(WebProcessProxy&);
 
     enum class ClearFrameTreeSyncData : bool {
@@ -265,13 +289,17 @@ public:
     };
     TraversalResult traverseNext() const;
     TraversalResult traverseNext(CanWrap) const;
+    WebFrameProxy* NODELETE traverseNext(const WebFrameProxy* stayWithin) const;
     TraversalResult traversePrevious(CanWrap);
 
     void setIsPendingInitialHistoryItem(bool isPending) { m_isPendingInitialHistoryItem = isPending; }
     bool isPendingInitialHistoryItem() const { return m_isPendingInitialHistoryItem; }
 
+    bool isShowingInitialAboutBlank() const { return m_isShowingInitialAboutBlank; }
+
     WebCore::LayerHostingContextIdentifier layerHostingContextIdentifier() const { return m_layerHostingContextIdentifier; }
     void setAppBadge(const WebCore::SecurityOriginData&, std::optional<uint64_t> badge);
+    void didChangeCSPOriginsThatUpgradeInsecureNavigations(HashSet<WebCore::SecurityOriginData>&&);
     void findFocusableElementDescendingIntoRemoteFrame(WebCore::FocusDirection, const WebCore::FocusEventData&, WebCore::ShouldFocusElement, CompletionHandler<void(WebCore::FoundElementInRemoteFrame)>&&);
     void findFocusableElementContinuingFromFrame(WebCore::FocusDirection, WebCore::FrameIdentifier, const WebCore::FocusEventData&, WebCore::ShouldFocusElement);
 
@@ -285,6 +313,9 @@ public:
 
     WebCore::ScrollbarMode scrollingMode() const { return m_scrollingMode; }
     void updateScrollingMode(WebCore::ScrollbarMode);
+
+    const HashSet<WebCore::SecurityOriginData>& cspOriginsThatUpgradeInsecureNavigations() const { return m_cspOriginsThatUpgradeInsecureNavigations; }
+    void setCSPOriginsThatUpgradeInsecureNavigations(HashSet<WebCore::SecurityOriginData>&& origins) { m_cspOriginsThatUpgradeInsecureNavigations = WTF::move(origins); }
 
     void updateOpener(std::optional<WebCore::FrameIdentifier>);
     WebFrameProxy* opener() const { return m_opener; }
@@ -304,30 +335,38 @@ public:
     void sendMessageToInspectorFrontend(const String& targetId, const String& message);
 
     void requestTextExtraction(WebCore::TextExtraction::Request&&, CompletionHandler<void(WebCore::TextExtraction::Result&&)>&&);
-    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&)>&&);
+    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&, WebCore::FloatRect)>&&);
     void describeTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(WebCore::TextExtraction::InteractionDescription&&)>&&);
     void takeSnapshotOfExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
     void requestJSHandleForExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
     void requestContainerJSHandleForExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
+    void requestContainerJSHandleForSearchTexts(Vector<String>&&, std::optional<WebCore::NodeIdentifier>&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
 
     void getSelectorPathsForNode(JSHandleInfo&&, CompletionHandler<void(Vector<HashSet<String>>&&)>&&);
     void getNodeForSelectorPaths(Vector<HashSet<String>>&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
 
     ProvisionalFrameCreationParameters NODELETE provisionalFrameCreationParameters(std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::LayerHostingContextIdentifier>, CommitTiming);
+
+    Ref<WebCore::SecurityOrigin> NODELETE securityOrigin() const;
+
 private:
     WebFrameProxy(WebPageProxy&, FrameProcess&, WebCore::FrameIdentifier, WebCore::SandboxFlags, WebCore::ReferrerPolicy, WebCore::ScrollbarMode, WebFrameProxy*, WebFrameProxy*, IsMainFrame, std::optional<URL>&&);
 
     std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
+    void waitForCertificateInfoFromNetworkProcess(const String& hostAndPort);
 
     std::optional<WebCore::PageIdentifier> NODELETE pageIdentifier() const;
-    Ref<WebCore::SecurityOrigin> securityOrigin() const;
-    void updateDocumentSecurityOrigin(WebFrameProxy*);
+
+    enum class ForInitialization : bool { No, Yes };
+    void updateDocumentSecurityOrigin(WebFrameProxy*, ForInitialization = ForInitialization::No);
 
     RefPtr<WebFrameProxy> deepLastChild();
     WebFrameProxy* NODELETE firstChild() const;
     WebFrameProxy* NODELETE lastChild() const;
     WebFrameProxy* NODELETE nextSibling() const;
     WebFrameProxy* NODELETE previousSibling() const;
+
+    void propagateActivationToSameOriginDescendants(const WebCore::SecurityOriginData& rootOrigin, MonotonicTime);
 
     WeakPtr<WebPageProxy> m_page;
     Ref<FrameProcess> m_frameProcess;
@@ -343,6 +382,7 @@ private:
     WebCore::CertificateInfo m_certificateInfo;
     // MAVERICKS_BACKPORT: lazily-built C API wrapper for m_certificateInfo, reset on each commit (#103).
     RefPtr<API::CertificateInfo> m_apiCertificateInfo;
+    HashMap<String, WebCore::CertificateInfo> m_hostAndPortToCertificateInfo;
     RefPtr<WebFramePolicyListenerProxy> m_activeListener;
     WebCore::FrameIdentifier m_frameID;
     ListHashSet<Ref<WebFrameProxy>> m_childFrames;
@@ -354,24 +394,27 @@ private:
     CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)> m_navigateCallback;
     const WebCore::LayerHostingContextIdentifier m_layerHostingContextIdentifier;
     bool m_isPendingInitialHistoryItem { false };
+    bool m_isShowingInitialAboutBlank { true };
     std::optional<WebCore::IntRect> m_remoteFrameRect;
     WebCore::SandboxFlags m_effectiveSandboxFlags;
+    MonotonicTime m_lastActivationTimestamp { -MonotonicTime::infinity() };
     WebCore::ReferrerPolicy m_effectiveReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
     WebCore::ScrollbarMode m_scrollingMode;
     std::optional<WebCore::DocumentSecurityPolicy> m_documentSecurityPolicy;
     RefPtr<WebCore::SecurityOrigin> m_documentSecurityOrigin;
-} SWIFT_SHARED_REFERENCE(refWebFrameProxy, derefWebFrameProxy);
+    HashSet<WebCore::SecurityOriginData> m_cspOriginsThatUpgradeInsecureNavigations;
+} SWIFT_SHARED_REFERENCE(refWebFrameProxy, derefWebFrameProxy) SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
 
 } // namespace WebKit
 
 inline void refWebFrameProxy(WebKit::WebFrameProxy* WTF_NONNULL obj)
 {
-    WTF::ref(obj);
+    obj->ref();
 }
 
 inline void derefWebFrameProxy(WebKit::WebFrameProxy* WTF_NONNULL obj)
 {
-    WTF::deref(obj);
+    obj->deref();
 }
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebFrameProxy)

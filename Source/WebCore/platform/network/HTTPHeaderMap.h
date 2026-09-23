@@ -168,7 +168,7 @@ public:
     WEBCORE_EXPORT bool remove(const String&);
 
 #if USE(CF)
-    void set(CFStringRef name, const String& value);
+    WEBCORE_EXPORT void set(CFStringRef name, const String& value);
 #ifdef __OBJC__
     void set(NSString *name, const String& value) { set((__bridge CFStringRef)name, value); }
 #endif
@@ -180,6 +180,18 @@ public:
     bool addIfNotPresent(HTTPHeaderName, const String&);
     WEBCORE_EXPORT bool contains(HTTPHeaderName) const;
     WEBCORE_EXPORT bool remove(HTTPHeaderName);
+
+    // https://fetch.spec.whatwg.org/#request-body-header-name
+    // Content-Length is not a request-body-header name per spec, but is included
+    // here since in practice the body is always nulled alongside this call.
+    void removeRequestBodyHeaders()
+    {
+        remove(HTTPHeaderName::ContentEncoding);
+        remove(HTTPHeaderName::ContentLanguage);
+        remove(HTTPHeaderName::ContentLength);
+        remove(HTTPHeaderName::ContentLocation);
+        remove(HTTPHeaderName::ContentType);
+    }
 
     // Instead of passing a string literal to any of these functions, just use a HTTPHeaderName instead.
     template<size_t length> String get(ASCIILiteral) const = delete;

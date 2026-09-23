@@ -28,7 +28,6 @@
 
 #include <mutex>
 #include <span>
-#include <unicode/uvernum.h>
 
 namespace WTF {
 namespace ICU {

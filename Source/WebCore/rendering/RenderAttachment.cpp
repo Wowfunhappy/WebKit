@@ -33,12 +33,11 @@
 #include "FloatRoundedRect.h"
 #include "FrameSelection.h"
 #include "HTMLAttachmentElement.h"
-#include "NodeInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderChildIterator.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+SettersInlines.h"
 #include "RenderTheme.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
@@ -48,7 +47,7 @@ using namespace HTMLNames;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderAttachment);
 
-RenderAttachment::RenderAttachment(HTMLAttachmentElement& element, RenderStyle&& style)
+RenderAttachment::RenderAttachment(HTMLAttachmentElement& element, Style::ComputedStyle&& style)
     : RenderReplaced(Type::Attachment, element, WTF::move(style), LayoutSize())
     , m_isWideLayout(element.isWideLayout())
 {
@@ -72,7 +71,7 @@ LayoutSize RenderAttachment::layoutWideLayoutAttachmentOnly()
             if (wideLayoutShadowRenderer->needsLayout())
                 wideLayoutShadowRenderer->layout();
             ASSERT(!wideLayoutShadowRenderer->needsLayout());
-            return wideLayoutShadowRenderer->size();
+            return wideLayoutShadowRenderer->borderBoxSize();
         }
     }
     return { };
@@ -120,7 +119,7 @@ void RenderAttachment::setSelectionState(HighlightState state)
     static_assert(uint8_t(HTMLAttachmentElement::HighlightState::Inside) == uint8_t(RenderObject::HighlightState::Inside));
     static_assert(uint8_t(HTMLAttachmentElement::HighlightState::End) == uint8_t(RenderObject::HighlightState::End));
     static_assert(uint8_t(HTMLAttachmentElement::HighlightState::Both) == uint8_t(RenderObject::HighlightState::Both));
-    attachmentElement().addSelectionClasses(HTMLAttachmentElement::HighlightState(uint8_t(state)));
+    protect(attachmentElement())->addSelectionClasses(HTMLAttachmentElement::HighlightState(uint8_t(state)));
 }
 
 void RenderAttachment::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& offset)
@@ -141,7 +140,7 @@ void RenderAttachment::layoutShadowContent(const LayoutSize& size)
     for (auto& renderBox : childrenOfType<RenderBox>(*this)) {
         renderBox.mutableStyle().setHeight(Style::PreferredSize::Fixed { size.height() });
         renderBox.mutableStyle().setWidth(Style::PreferredSize::Fixed { size.width() });
-        renderBox.setNeedsLayout(MarkOnlyThis);
+        renderBox.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         renderBox.layout();
     }
 }
@@ -160,7 +159,7 @@ bool RenderAttachment::paintWideLayoutAttachmentOnly(const PaintInfo& paintInfo,
             }
         }
 
-        attachmentElement().requestWideLayoutIconIfNeeded();
+        protect(attachmentElement())->requestWideLayoutIconIfNeeded();
         return true;
     }
     return false;

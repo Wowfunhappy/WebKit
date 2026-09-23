@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/CachedFrame.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/MonotonicTime.h>
@@ -65,12 +66,19 @@ public:
 
     void markForContentsSizeChanged() { m_needsUpdateContentsSize = true; }
 
+    // Bound by callers that go through the explicit-IPC same-site BFCache path
+    // so that eviction signals from BackForwardCache can carry a
+    // BackForwardItemIdentifier (the key UIProcess uses).
+    void setItemID(BackForwardItemIdentifier itemID) { m_itemID = itemID; }
+    std::optional<BackForwardItemIdentifier> itemID() const { return m_itemID; }
+
 private:
     void restoreNavigationAPIHistoryItems(LocalFrame&, BackForwardController*);
 
     WeakRef<Page> m_page;
     MonotonicTime m_expirationTime;
     std::unique_ptr<CachedFrame> m_cachedMainFrame;
+    std::optional<BackForwardItemIdentifier> m_itemID;
 #if ENABLE(VIDEO)
     bool m_needsCaptionPreferencesChanged { false };
 #endif

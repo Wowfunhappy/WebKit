@@ -35,6 +35,7 @@
 #include "MediaPlayer.h"
 #include "NotImplemented.h"
 #include "ParsedContentType.h"
+#include "PlatformStrategies.h"
 #include "SharedBuffer.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
@@ -422,7 +423,7 @@ std::optional<Vector<CDMMediaCapability>> CDMPrivate::getSupportedCapabilitiesFo
         // 3.13. If the user agent and implementation definitely support playback of encrypted media data for the
         //       combination of container, media types, robustness and local accumulated configuration in combination
         //       with restrictions:
-        MediaEngineSupportParameters parameters { .type = ContentType(contentType->mimeType()) };
+        MediaEngineSupportParameters parameters { .type = ContentType(contentType->contentType()) };
         if (MediaPlayer::supportsType(parameters) == MediaPlayer::SupportsType::IsNotSupported) {
             // Try with Media Source:
             parameters.platformType = PlatformMediaDecodingType::MediaSource;
@@ -430,7 +431,13 @@ std::optional<Vector<CDMMediaCapability>> CDMPrivate::getSupportedCapabilitiesFo
                 continue;
         }
 
-        if (!supportsConfigurationWithRestrictions(accumulatedConfiguration, restrictions))
+        // NOTE: step 3.13 evaluates the combination including the requested capability.
+        CDMKeySystemConfiguration probeConfiguration = accumulatedConfiguration;
+        if (type == AudioVideoType::Video)
+            probeConfiguration.videoCapabilities.append(requestedCapability);
+        else
+            probeConfiguration.audioCapabilities.append(requestedCapability);
+        if (!supportsConfigurationWithRestrictions(probeConfiguration, restrictions))
             continue;
 
         // 3.13.1. Add requested media capability to supported media capabilities.

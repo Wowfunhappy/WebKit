@@ -27,6 +27,7 @@
 #include <WebCore/FrameInlines.h>
 #include <WebCore/KeyboardEvent.h>
 #include <WebCore/LocalFrameInlines.h>
+#include <WebCore/NodeDocument.h>
 #include <WebCore/PagePasteboardContext.h>
 #include <WebCore/Pasteboard.h>
 #include <WebCore/PlatformKeyboardEvent.h>

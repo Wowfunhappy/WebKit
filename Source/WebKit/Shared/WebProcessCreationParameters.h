@@ -55,7 +55,8 @@
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-#include <WebCore/RenderThemeIOS.h>
+#include <WebCore/CSSValueKey.h>
+#include <WebCore/ColorHash.h>
 #include <pal/system/ios/UserInterfaceIdiom.h>
 #endif
 
@@ -73,6 +74,12 @@
 namespace API {
 class Data;
 }
+
+#if PLATFORM(IOS_FAMILY)
+namespace WebCore {
+using CSSValueToSystemColorMap = HashMap<CSSValueKey, Color>;
+}
+#endif
 
 namespace WebKit {
 
@@ -184,6 +191,7 @@ struct WebProcessCreationParameters {
 
 #if PLATFORM(COCOA)
     Vector<String> mediaMIMETypes;
+    HashMap<String, bool> mediaSourceTypesSupported;
 #endif
 
 #if PLATFORM(COCOA) || PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
@@ -206,10 +214,12 @@ struct WebProcessCreationParameters {
 
     std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;
 
-    std::optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
+#if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && !ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     std::optional<SandboxExtension::Handle> launchServicesExtensionHandle;
+#endif
+
 #if HAVE(VIDEO_RESTRICTED_DECODING)
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+#if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && !ENABLE(TRUSTD_BLOCKING_IN_WEBCONTENT)
     SandboxExtension::Handle trustdExtensionHandle;
 #endif
     bool enableDecodingHEIC { false };
@@ -229,7 +239,7 @@ struct WebProcessCreationParameters {
 #if PLATFORM(IOS_FAMILY)
     PAL::UserInterfaceIdiom currentUserInterfaceIdiom { PAL::UserInterfaceIdiom::Default };
     bool supportsPictureInPicture { false };
-    WebCore::RenderThemeIOS::CSSValueToSystemColorMap cssValueToSystemColorMap;
+    WebCore::CSSValueToSystemColorMap cssValueToSystemColorMap;
     WebCore::Color focusRingColor;
     String localizedDeviceModel;
     String contentSizeCategory;
@@ -286,6 +296,8 @@ struct WebProcessCreationParameters {
 
     Seconds memoryFootprintPollIntervalForTesting;
     Vector<uint64_t> memoryFootprintNotificationThresholds;
+
+    std::optional<Seconds> overridePersistentNotificationMinimumLifetime;
 
 #if ENABLE(NOTIFY_BLOCKING)
     Vector<std::pair<String, uint64_t>> notifyState;

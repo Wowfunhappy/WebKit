@@ -32,6 +32,7 @@
 #include "RenderMultiColumnFlow.h"
 #include "RenderObjectStyle.h"
 #include "RenderTable.h"
+#include "RenderText.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -56,9 +57,15 @@ static LineBoxParentSearchResult findParentOfEmptyOrFirstLineBox(RenderBlock& bl
             continue;
 
         if (child.isInline()) {
-            if (!is<RenderInline>(child) || !isEmptyInline(downcast<RenderInline>(child)))
-                return { &blockContainer, { }, false };
-            fallbackParent = &blockContainer;
+            // Continue searching past empty inlines (e.g., <a id="anchor"></a>) — the remaining checks below
+            // assume block-level children, and an inline falling through would falsely trigger failedDueToBlockification.
+            if (is<RenderInline>(child) && isEmptyInline(downcast<RenderInline>(child))) {
+                fallbackParent = &blockContainer;
+                continue;
+            }
+            if (is<RenderText>(child) && downcast<RenderText>(child).containsOnlyCollapsibleWhitespace())
+                continue;
+            return { &blockContainer, { }, false };
         }
 
         if (child.isFloating() || child.isOutOfFlowPositioned() || is<RenderMenuList>(child))
@@ -70,10 +77,8 @@ static LineBoxParentSearchResult findParentOfEmptyOrFirstLineBox(RenderBlock& bl
         if (is<RenderListItem>(blockContainer) && inQuirksMode && child.node() && isHTMLListElement(*child.node()))
             break;
 
-        if (!is<RenderBlock>(child) || is<RenderTable>(child)) {
-            // FIXME: handle all block level children, not just replaced elements that got blockified.
-            if (!child.isInline() && child.style().originalDisplay().isInlineType())
-                failedDueToBlockification = true;
+        if (!is<RenderBlock>(child) || is<RenderTable>(child) || child.style().display() == Style::DisplayType::BlockRuby) {
+            failedDueToBlockification = true;
             break;
         }
 
@@ -178,9 +183,13 @@ void RenderTreeBuilder::List::updateItemMarker(RenderListItem& listItemRenderer)
             return;
 
         m_builder.attach(*searchResult.parent, m_builder.detach(*currentParent, *markerRenderer, WillBeDestroyed::No, RenderTreeBuilder::CanCollapseAnonymousBlock::No), firstNonMarkerChild(*searchResult.parent));
+
         // If current parent is an anonymous block that has lost all its children, destroy it.
-        if (currentParent->isAnonymousBlock() && !currentParent->firstChild() && !downcast<RenderBlock>(*currentParent).continuation())
+        if (currentParent->isAnonymousBlock() && !currentParent->firstChild()) {
+            // Clear the CheckedPtr first because m_builder.destroy may delete the block that searchResult.parent points to.
+            searchResult.parent = nullptr;
             m_builder.destroy(*currentParent);
+        }
         return;
     }
 
@@ -197,8 +206,7 @@ void RenderTreeBuilder::List::updateItemMarker(RenderListItem& listItemRenderer)
     m_builder.attach(*searchResult.parent, WTF::move(newMarkerRenderer), firstNonMarkerChild(*searchResult.parent));
     // For outside markers, if the search failed because a flex/grid container blockified a replaced
     // child (e.g., <img>), we should collapse the anonymous block's height so it doesn't inflate the list item.
-    if (shouldCollapseAnonymousBlockParent)
-        listItemRenderer.markerRenderer()->setShouldCollapseAnonymousBlockParent(true);
+    listItemRenderer.markerRenderer()->setShouldCollapseAnonymousBlockParent(shouldCollapseAnonymousBlockParent);
 }
 
 }

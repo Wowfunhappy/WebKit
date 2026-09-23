@@ -134,7 +134,7 @@ static inline ConversionResult<IDL> toSmallerInt(JSGlobalObject& lexicalGlobalOb
     } else if constexpr (configuration == IntegerConversionConfiguration::EnforceRange)
         return enforceRange<IDL>(lexicalGlobalObject, x, LimitsTrait::minValue, LimitsTrait::maxValue);
     else if constexpr (configuration == IntegerConversionConfiguration::Clamp)
-        return std::isnan(x) ? ConversionResult<IDL> { 0 } : ConversionResult<IDL> { clampTo<T>(x) };
+        return std::isnan(x) ? ConversionResult<IDL> { 0 } : ConversionResult<IDL> { clampTo<T>(roundeven(x)) };
 }
 
 template<typename IDL, IntegerConversionConfiguration configuration>
@@ -176,7 +176,7 @@ static inline ConversionResult<IDL> toSmallerUInt(JSGlobalObject& lexicalGlobalO
     } else if constexpr (configuration == IntegerConversionConfiguration::EnforceRange)
         return enforceRange<IDL>(lexicalGlobalObject, x, 0, LimitsTrait::maxValue);
     else if constexpr (configuration == IntegerConversionConfiguration::Clamp)
-        return std::isnan(x) ? 0 : clampTo<T>(x);
+        return std::isnan(x) ? 0 : clampTo<T>(roundeven(x));
 }
 
 template<> ConversionResult<IDLByte> convertToIntegerEnforceRange<IDLByte>(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
@@ -281,7 +281,7 @@ template<> ConversionResult<IDLLong> convertToIntegerClamp<IDLLong>(JSC::JSGloba
 
     RETURN_IF_EXCEPTION(scope, ConversionResult<IDLLong>::exception());
 
-    return std::isnan(x) ? 0 : clampTo<int32_t>(x);
+    return std::isnan(x) ? 0 : clampTo<int32_t>(roundeven(x));
 }
 
 template<> ConversionResult<IDLUnsignedLong> convertToIntegerClamp<IDLUnsignedLong>(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
@@ -296,7 +296,7 @@ template<> ConversionResult<IDLUnsignedLong> convertToIntegerClamp<IDLUnsignedLo
 
     RETURN_IF_EXCEPTION(scope, ConversionResult<IDLUnsignedLong>::exception());
 
-    return std::isnan(x) ? 0 : clampTo<uint32_t>(x);
+    return std::isnan(x) ? 0 : clampTo<uint32_t>(roundeven(x));
 }
 
 template<> ConversionResult<IDLLong> convertToInteger<IDLLong>(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
@@ -365,7 +365,7 @@ template<> ConversionResult<IDLLongLong> convertToIntegerClamp<IDLLongLong>(JSC:
 
     RETURN_IF_EXCEPTION(scope, ConversionResult<IDLLongLong>::exception());
 
-    return std::isnan(x) ? 0 : static_cast<int64_t>(std::min<double>(std::max<double>(x, -kJSMaxInteger), kJSMaxInteger));
+    return std::isnan(x) ? 0 : static_cast<int64_t>(roundeven(std::min<double>(std::max<double>(x, -kJSMaxInteger), kJSMaxInteger)));
 }
 
 template<> ConversionResult<IDLUnsignedLongLong> convertToIntegerClamp<IDLUnsignedLongLong>(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
@@ -380,7 +380,7 @@ template<> ConversionResult<IDLUnsignedLongLong> convertToIntegerClamp<IDLUnsign
 
     RETURN_IF_EXCEPTION(scope, ConversionResult<IDLUnsignedLongLong>::exception());
 
-    return std::isnan(x) ? 0 : static_cast<uint64_t>(std::min<double>(std::max<double>(x, 0), kJSMaxInteger));
+    return std::isnan(x) ? 0 : static_cast<uint64_t>(roundeven(std::min<double>(std::max<double>(x, 0), kJSMaxInteger)));
 }
 
 template<> ConversionResult<IDLLongLong> convertToInteger<IDLLongLong>(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
@@ -417,6 +417,22 @@ template<> ConversionResult<IDLUnsignedLongLong> convertToInteger<IDLUnsignedLon
     unsigned long long n;
     doubleToInteger(x, n);
     return n;
+}
+
+JSC::JSValue JSConverter<IDLDouble>::convert(Type value)
+{
+    ASSERT(!std::isnan(value));
+    return JSC::jsNumber(value);
+}
+
+JSC::JSValue JSConverter<IDLUnrestrictedDouble>::convert(Type value)
+{
+    return JSC::jsNumber(JSC::purifyNaN(value));
+}
+
+JSC::JSValue JSConverter<IDLUnrestrictedDouble>::convert(const MediaTime& value)
+{
+    return JSC::jsNumber(JSC::purifyNaN(value.toDouble()));
 }
 
 } // namespace WebCore

@@ -32,6 +32,7 @@
 #include <JavaScriptCore/InspectorTargetAgent.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/PageIdentifier.h>
+#include <WebCore/ProcessIdentifier.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
@@ -42,6 +43,8 @@ namespace Inspector {
 class BackendDispatcher;
 class FrontendChannel;
 class FrontendRouter;
+class ProxyingNetworkAgent;
+class ProxyingPageAgent;
 }
 
 namespace WebKit {
@@ -74,23 +77,28 @@ public:
 
     void sendMessageToInspectorFrontend(const String& targetId, const String& message);
 
-    bool shouldPauseLoading(const ProvisionalPageProxy&) const;
-    void setContinueLoadingCallback(const ProvisionalPageProxy&, WTF::Function<void()>&&);
+    bool shouldPauseLoadingForPage(const ProvisionalPageProxy&) const;
+    void setContinueLoadingCallbackForPage(const ProvisionalPageProxy&, WTF::Function<void()>&&);
+    bool shouldPauseLoadingForFrame(const ProvisionalFrameProxy&) const;
+    void setContinueLoadingCallbackForFrame(const ProvisionalFrameProxy&, WTF::Function<void()>&&);
 
-    void didCreateProvisionalPage(ProvisionalPageProxy&);
-    void willDestroyProvisionalPage(const ProvisionalPageProxy&);
-    void didCommitProvisionalPage(WebCore::PageIdentifier oldWebPageID, WebCore::PageIdentifier newWebPageID);
+    void didCreateProvisionalPage(ProvisionalPageProxy&, WebCore::FrameIdentifier mainFrameID, WebProcessProxy& mainFrameProcess);
+    void willDestroyProvisionalPage(const ProvisionalPageProxy&, WebCore::FrameIdentifier mainFrameID, WebCore::ProcessIdentifier mainFrameProcessID);
+    void didCommitProvisionalPage(std::optional<WebCore::FrameIdentifier> oldMainFrameID, WebCore::ProcessIdentifier oldProcessID, WebCore::PageIdentifier oldWebPageID, WebCore::PageIdentifier newWebPageID);
     void didCreateFrame(WebFrameProxy&);
     void willDestroyFrame(const WebFrameProxy&);
     void didCreateProvisionalFrame(ProvisionalFrameProxy&);
     void willDestroyProvisionalFrame(const ProvisionalFrameProxy&);
-    void didCommitProvisionalFrame(WebFrameProxy&, WebCore::ProcessIdentifier oldProcessID, WebCore::ProcessIdentifier newProcessID);
+    void didCommitProvisionalFrame(WebFrameProxy&, WebCore::ProcessIdentifier oldProcessID, std::optional<WebCore::PageIdentifier> oldPageID, WebCore::ProcessIdentifier newProcessID);
 
     InspectorBrowserAgent* NODELETE enabledBrowserAgent() const;
     void setEnabledBrowserAgent(InspectorBrowserAgent*);
 
     void browserExtensionsEnabled(HashMap<String, String>&&);
     void browserExtensionsDisabled(HashSet<String>&&);
+
+    bool isNetworkInstrumentationEnabled() const;
+    bool isPageInstrumentationEnabled() const;
 
 private:
     WebPageAgentContext NODELETE webPageAgentContext();
@@ -111,6 +119,8 @@ private:
     HashMap<String, std::unique_ptr<InspectorTargetProxy>> m_targets;
 
     CheckedPtr<InspectorBrowserAgent> m_enabledBrowserAgent;
+    RefPtr<Inspector::ProxyingNetworkAgent> m_networkAgent;
+    RefPtr<Inspector::ProxyingPageAgent> m_pageAgent;
 
     bool m_didCreateLazyAgents { false };
 };

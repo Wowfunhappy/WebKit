@@ -14,6 +14,7 @@ Property values requiring vendor prefixes:
 None
 ------------------------------------------------------------------------
 List of files:
+/LayoutTests/imported/w3c/web-platform-tests/shadow-dom/focus-navigation/WEB_FEATURES.yml
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/focus-navigation/delegatesFocus-highlight-sibling.html
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/focus-navigation/focus-navigation-slot-fallback-default-tabindex.html
 /LayoutTests/imported/w3c/web-platform-tests/shadow-dom/focus-navigation/focus-navigation-slot-fallback.html

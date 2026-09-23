@@ -26,6 +26,7 @@
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotCallable.h"
 #include "JSDOMConvertAny.h"
 #include "JSDOMConvertBoolean.h"
@@ -43,7 +44,6 @@
 #include "Settings.h"
 #include "TestNamespaceObject.h"
 #include "WebCoreJSClientData.h"
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/ObjectPrototype.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
@@ -105,24 +105,24 @@ template<> JSValue JSTestNamespaceObjectDOMConstructor::prototypeForStructure(JS
 
 template<> void JSTestNamespaceObjectDOMConstructor::initializeProperties(VM& vm, JSDOMGlobalObject& globalObject)
 {
-    JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    WebCore::putDirectWithoutTransition(this, vm, vm.propertyNames->toStringTagSymbol, jsNontrivialString(vm, info()->className), JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::ReadOnly);
     reifyStaticProperties(vm, JSTestNamespaceObject::info(), JSTestNamespaceObjectConstructorTableValues, *this);
 #if ENABLE(Condition1)
-    if (!jsCast<JSDOMGlobalObject*>(&globalObject)->scriptExecutionContext()->settingsValues().testSetting1Enabled) {
+    if (!(&globalObject)->scriptExecutionContext()->settingsValues().testSetting1Enabled) {
         auto propertyName = Identifier::fromString(vm, "namespaceAttributeFromPartial"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
         JSObject::deleteProperty(this, &globalObject, propertyName, slot);
     }
 #endif
-    if (!jsCast<JSDOMGlobalObject*>(&globalObject)->scriptExecutionContext()->settingsValues().testSetting2Enabled) {
+    if (!(&globalObject)->scriptExecutionContext()->settingsValues().testSetting2Enabled) {
         auto propertyName = Identifier::fromString(vm, "enabledBySettingNamespaceOperation"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
         JSObject::deleteProperty(this, &globalObject, propertyName, slot);
     }
 #if ENABLE(Condition1)
-    if (!jsCast<JSDOMGlobalObject*>(&globalObject)->scriptExecutionContext()->settingsValues().testSetting1Enabled) {
+    if (!(&globalObject)->scriptExecutionContext()->settingsValues().testSetting1Enabled) {
         auto propertyName = Identifier::fromString(vm, "namespaceOperationFromPartial"_s);
         VM::DeletePropertyModeScope scope(vm, VM::DeletePropertyMode::IgnoreConfigurable);
         DeletePropertySlot slot;
@@ -138,9 +138,22 @@ JSTestNamespaceObject::JSTestNamespaceObject(Structure* structure, JSDOMGlobalOb
 
 static_assert(!std::is_base_of<ActiveDOMObject, TestNamespaceObject>::value, "Interface is not marked as [ActiveDOMObject] even though implementation class subclasses ActiveDOMObject.");
 
+JSTestNamespaceObject* JSTestNamespaceObject::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject)
+{
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    JSTestNamespaceObject* ptr = new (NotNull, JSC::allocateCell<JSTestNamespaceObject>(vm)) JSTestNamespaceObject(structure, *globalObject);
+    ptr->finishCreation(vm);
+    return ptr;
+}
+
+JSC::Structure* JSTestNamespaceObject::createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+}
+
 JSValue JSTestNamespaceObject::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestNamespaceObjectDOMConstructor, DOMConstructorID::TestNamespaceObject>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestNamespaceObjectDOMConstructor, DOMConstructorID::TestNamespaceObject>(vm, *uncheckedDowncast<JSDOMGlobalObject>(globalObject));
 }
 
 void JSTestNamespaceObject::destroy(JSC::JSCell* cell)
@@ -261,7 +274,7 @@ static inline JSC::EncodedJSValue jsTestNamespaceObjectConstructorFunction_names
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return WebCore::TestNamespaceObjectImpl::operationFromPartialImpl(); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&] -> decltype(auto) { return WebCore::TestNamespaceObjectImpl::operationFromPartialImpl(); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestNamespaceObjectConstructorFunction_namespaceOperationFromPartial, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))

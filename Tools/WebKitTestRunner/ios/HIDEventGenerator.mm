@@ -139,19 +139,15 @@ static const NSTimeInterval multiTapInterval = 0.15;
 static const NSTimeInterval fingerMoveInterval = 0.016;
 static const NSTimeInterval longPressHoldDelay = 2.0;
 static const IOHIDFloat defaultMajorRadius = 5;
+static const IOHIDFloat defaultMajorRadiusTolerance = 0;
 static const IOHIDFloat defaultPathPressure = 0;
 static const long nanosecondsPerSecond = 1e9;
 
 NSUInteger const HIDMaxTouchCount = 5;
 
-
-
 static int fingerIdentifiers[HIDMaxTouchCount] = { 2, 3, 4, 5, 1 };
 
-typedef enum {
-    InterpolationTypeLinear,
-    InterpolationTypeSimpleCurve,
-} InterpolationType;
+enum class InterpolationType : uint8_t { Linear, SimpleCurve };
 
 typedef enum {
     HandEventNull,
@@ -169,6 +165,7 @@ typedef struct {
     int identifier;
     CGPoint point;
     IOHIDFloat pathMajorRadius;
+    IOHIDFloat pathMajorRadiusTolerance;
     IOHIDFloat pathPressure;
     UInt8 pathProximity;
     BOOL isStylus;
@@ -181,27 +178,37 @@ static CFTimeInterval secondsSinceAbsoluteTime(CFAbsoluteTime startTime)
     return (CFAbsoluteTimeGetCurrent() - startTime);
 }
 
-static double linearInterpolation(double a, double b, double t)
-{
-    return (a + (b - a) * t );
-}
+using PressureInterpolationFunction = Function<double(double, double, CFTimeInterval)>;
 
-static double simpleCurveInterpolation(double a, double b, double t)
-{
-    return (a + (b - a) * sin(sin(t * std::numbers::pi / 2) * t * std::numbers::pi / 2));
-}
+static const PressureInterpolationFunction linearInterpolation {
+    [](double a, double b, double t) {
+        return std::lerp(a, b, t);
+    }
+};
 
+static const PressureInterpolationFunction simpleCurveInterpolation {
+    [](double a, double b, double t) {
+        return (a + (b - a) * sin(sin(t * std::numbers::pi / 2) * t * std::numbers::pi / 2));
+    }
+};
 
 static CGPoint calculateNextCurveLocation(CGPoint a, CGPoint b, CFTimeInterval t)
 {
     return CGPointMake(simpleCurveInterpolation(a.x, b.x, t), simpleCurveInterpolation(a.y, b.y, t));
 }
 
-typedef double(*pressureInterpolationFunction)(double, double, CFTimeInterval);
-static pressureInterpolationFunction interpolations[] = {
-    linearInterpolation,
-    simpleCurveInterpolation,
-};
+static const PressureInterpolationFunction& interpolationFunctor(InterpolationType type)
+{
+    using enum InterpolationType;
+    switch (type) {
+    case Linear:
+        return linearInterpolation;
+    case SimpleCurve:
+        return simpleCurveInterpolation;
+    }
+    ASSERT_NOT_REACHED();
+    return linearInterpolation;
+}
 
 static void delayBetweenMove(int eventIndex, double elapsed)
 {
@@ -275,8 +282,8 @@ static IOHIDDigitizerTransducerType transducerTypeFromString(NSString * transduc
 
     if ([transducerTypeString isEqualToString:HIDEventInputTypeStylus])
         return kIOHIDDigitizerTransducerTypeStylus;
-    
-    ASSERT_NOT_REACHED();
+
+    NSLog(@"Unsupported transducer type %@", transducerTypeString);
     return 0;
 }
 
@@ -302,13 +309,14 @@ static UITouchPhase phaseFromString(NSString *string)
 
 static InterpolationType interpolationFromString(NSString *string)
 {
+    using enum InterpolationType;
     if ([string isEqualToString:HIDEventInterpolationTypeLinear])
-        return InterpolationTypeLinear;
-    
+        return Linear;
+
     if ([string isEqualToString:HIDEventInterpolationTypeSimpleCurve])
-        return InterpolationTypeSimpleCurve;
-    
-    return InterpolationTypeLinear;
+        return SimpleCurve;
+
+    return Linear;
 }
 
 - (IOHIDDigitizerEventMask)eventMaskFromEventInfo:(NSDictionary *)info
@@ -352,8 +360,14 @@ static InterpolationType interpolationFromString(NSString *string)
     // touch is 1 if a finger is down.
     CFIndex touch = [self touchFromEventInfo:info];
 
+    NSString *inputType = info[HIDEventInputType];
+    if (!inputType) {
+        NSLog(@"Failed to find `%@` in event info %@", HIDEventInputType, info);
+        return nullptr;
+    }
+
     IOHIDEventRef eventRef = IOHIDEventCreateDigitizerEvent(kCFAllocatorDefault, machTime,
-        transducerTypeFromString(info[HIDEventInputType]),  // transducerType
+        transducerTypeFromString(inputType),                // transducerType
         0,                                                  // index
         0,                                                  // identifier
         eventMask,                                          // event mask
@@ -447,6 +461,8 @@ static InterpolationType interpolationFromString(NSString *string)
         if (eventType == HandEventTouched) {
             if (!pointInfo->pathMajorRadius)
                 pointInfo->pathMajorRadius = defaultMajorRadius;
+            if (!pointInfo->pathMajorRadiusTolerance)
+                pointInfo->pathMajorRadiusTolerance = defaultMajorRadiusTolerance;
             if (!pointInfo->pathPressure)
                 pointInfo->pathPressure = defaultPathPressure;
             if (!pointInfo->pathProximity)
@@ -506,6 +522,7 @@ static InterpolationType interpolationFromString(NSString *string)
 
         IOHIDEventSetFloatValue(subEvent.get(), kIOHIDEventFieldDigitizerMajorRadius, pointInfo->pathMajorRadius);
         IOHIDEventSetFloatValue(subEvent.get(), kIOHIDEventFieldDigitizerMinorRadius, pointInfo->pathMajorRadius);
+        IOHIDEventSetFloatValue(subEvent.get(), kIOHIDEventFieldDigitizerQualityRadiiAccuracy, pointInfo->pathMajorRadiusTolerance);
 
         IOHIDEventAppendEvent(eventRef.get(), subEvent.get(), 0);
     }
@@ -625,6 +642,26 @@ static InterpolationType interpolationFromString(NSString *string)
 - (void)touchDown:(CGPoint)location
 {
     [self touchDownAtPoints:&location touchCount:1];
+}
+
+- (void)touchDown:(CGPoint)location majorRadius:(CGFloat)majorRadius majorRadiusTolerance:(CGFloat)majorRadiusTolerance
+{
+    _activePointCount = 1;
+    _activePoints[0].point = location;
+    _activePoints[0].isStylus = NO;
+    _activePoints[0].pathMajorRadius = majorRadius;
+    _activePoints[0].pathMajorRadiusTolerance = majorRadiusTolerance;
+
+    [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] updateDebugIndicatorForTouch:0 withPointInWindowCoordinates:location isTouching:YES];
+
+    RetainPtr eventRef = adoptCF([self _createIOHIDEventType:HandEventTouched]);
+    [self _sendHIDEvent:eventRef.get()];
+}
+
+- (void)touchDown:(CGPoint)location majorRadius:(CGFloat)majorRadius majorRadiusTolerance:(CGFloat)majorRadiusTolerance completionBlock:(void (^)(void))completionBlock
+{
+    [self touchDown:location majorRadius:majorRadius majorRadiusTolerance:majorRadiusTolerance];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
 - (void)liftUpAtPoints:(CGPoint*)locations touchCount:(NSUInteger)touchCount
@@ -1099,6 +1136,9 @@ RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *character, uint64_t timesta
     ASSERT([NSThread isMainThread]);
 
     auto eventRef = adoptCF([self _createIOHIDEventWithInfo:eventInfo]);
+    if (!eventRef)
+        return;
+
     [self _sendHIDEvent:eventRef.get()];
 }
 
@@ -1107,8 +1147,8 @@ RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *character, uint64_t timesta
     NSDictionary *startEvent = interpolationsDictionary[HIDEventStartEventKey];
     NSDictionary *endEvent = interpolationsDictionary[HIDEventEndEventKey];
     NSTimeInterval timeStep = [interpolationsDictionary[HIDEventTimestepKey] doubleValue];
-    InterpolationType interpolationType = interpolationFromString(interpolationsDictionary[HIDEventInterpolateKey]);
-    
+    auto interpolationType = interpolationFromString(interpolationsDictionary[HIDEventInterpolateKey]);
+
     NSMutableArray *interpolatedEvents = [NSMutableArray arrayWithObject:startEvent];
     
     NSTimeInterval startTime = [startEvent[HIDEventTimeOffsetKey] doubleValue];
@@ -1138,14 +1178,14 @@ RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *character, uint64_t timesta
                 auto newTouch = adoptNS([endTouch mutableCopy]);
                 
                 if (newTouch.get()[HIDEventXKey] != startTouch[HIDEventXKey])
-                    newTouch.get()[HIDEventXKey] = @(interpolations[interpolationType]([startTouch[HIDEventXKey] doubleValue], [endTouch[HIDEventXKey] doubleValue], timeRatio));
-                
+                    newTouch.get()[HIDEventXKey] = @(interpolationFunctor(interpolationType)([startTouch[HIDEventXKey] doubleValue], [endTouch[HIDEventXKey] doubleValue], timeRatio));
+
                 if (newTouch.get()[HIDEventYKey] != startTouch[HIDEventYKey])
-                    newTouch.get()[HIDEventYKey] = @(interpolations[interpolationType]([startTouch[HIDEventYKey] doubleValue], [endTouch[HIDEventYKey] doubleValue], timeRatio));
-                
+                    newTouch.get()[HIDEventYKey] = @(interpolationFunctor(interpolationType)([startTouch[HIDEventYKey] doubleValue], [endTouch[HIDEventYKey] doubleValue], timeRatio));
+
                 if (newTouch.get()[HIDEventPressureKey] != startTouch[HIDEventPressureKey])
-                    newTouch.get()[HIDEventPressureKey] = @(interpolations[interpolationType]([startTouch[HIDEventPressureKey] doubleValue], [endTouch[HIDEventPressureKey] doubleValue], timeRatio));
-                
+                    newTouch.get()[HIDEventPressureKey] = @(interpolationFunctor(interpolationType)([startTouch[HIDEventPressureKey] doubleValue], [endTouch[HIDEventPressureKey] doubleValue], timeRatio));
+
                 [newTouches addObject:newTouch.get()];
             } else
                 NSLog(@"Missing End Touch with ID: %ld", (long)startTouchID);

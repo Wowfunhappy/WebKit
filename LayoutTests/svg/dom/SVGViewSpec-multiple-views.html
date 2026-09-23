@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<script src="../../resources/js-test-pre.js"></script>
+<script src="../../resources/js-test.js"></script>
 </head>
 <body>
 <p id="description"></p>
@@ -29,11 +29,6 @@ function testFirstViewElement() {
     debug("Check transform value");
     shouldBeEmptyString("currentView.transformString");
     shouldBe("currentView.transform.numberOfItems", "0");
-
-    debug("");
-    debug("Check viewTarget value");
-    shouldBeEmptyString("currentView.viewTargetString");
-    shouldBeNull("currentView.viewTarget");
 
     debug("");
     debug("Check zoomAndPan value");
@@ -74,11 +69,6 @@ function testSecondViewElement() {
     debug("Check transform value");
     shouldBeEmptyString("currentView.transformString");
     shouldBe("currentView.transform.numberOfItems", "0");
-
-    debug("");
-    debug("Check viewTarget value");
-    shouldBeEmptyString("currentView.viewTargetString");
-    shouldBeNull("currentView.viewTarget");
 
     debug("");
     debug("Check zoomAndPan value");
@@ -137,11 +127,6 @@ function testCustomViewSpec() {
     shouldBeEqualToString("matrixToString(currentView.transform.getItem(0).matrix)", "[2.00 0.00 0.00 2.00 0.00 0.00]");
 
     debug("");
-    debug("Check viewTarget value");
-    shouldBeEmptyString("currentView.viewTargetString");
-    shouldBeNull("currentView.viewTarget");
-
-    debug("");
     debug("Check zoomAndPan value");
     shouldBe("currentView.zoomAndPan", "SVGViewElement.SVG_ZOOMANDPAN_MAGNIFY");
 
@@ -177,6 +162,5 @@ document.getElementById("console").appendChild(iframeElement);
 
 successfullyParsed = true;
 </script>
-<script src="../../resources/js-test-post.js"></script>
 </body>
 </html>

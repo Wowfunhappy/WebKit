@@ -36,7 +36,7 @@ namespace WebCore {
 
 // https://immersive-web.github.io/layers/#xrlayerinittype
 struct XRLayerInit {
-    RefPtr<WebXRSpace> space;
+    Ref<WebXRSpace> space;
     XRTextureType textureType;
     GCGLenum colorFormat;
     std::optional<GCGLenum> depthFormat;

@@ -93,16 +93,27 @@ static HashMap<LoadTaskIdentifier, RetainPtr<NSURLSessionDataTask>>& NODELETE ta
     return map.get();
 }
 
-static NSURLSession *statelessSessionWithoutRedirectsSingleton()
+static NSURLSession *statelessSessionWithoutRedirectsSingleton(const ApplicationBundleIdentifiersOrAuditToken& applicationBundleIdentifier)
 {
     static NeverDestroyed<RetainPtr<WKNetworkSessionDelegateAllowingOnlyNonRedirectedJSON>> delegate = adoptNS([WKNetworkSessionDelegateAllowingOnlyNonRedirectedJSON new]);
     static NeverDestroyed<RetainPtr<NSURLSession>> session = [&] {
         RetainPtr configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+
         configuration.get().HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
         configuration.get().URLCredentialStorage = nil;
         configuration.get().URLCache = nil;
         configuration.get().HTTPCookieStorage = nil;
         configuration.get()._shouldSkipPreferredClientCertificateLookup = YES;
+
+        WTF::switchOn(applicationBundleIdentifier,
+            [&] (const std::pair<String, String>& bundleIdentifiers) {
+                configuration.get()._sourceApplicationBundleIdentifier = bundleIdentifiers.first.createNSString().get();
+                configuration.get()._sourceApplicationSecondaryIdentifier = bundleIdentifiers.second.createNSString().get();
+            }, [&] (const Vector<uint8_t>& auditToken) {
+                configuration.get()._sourceApplicationAuditTokenData = [NSData dataWithBytes:auditToken.span().data() length:auditToken.size()];
+            }
+        );
+
         return [NSURLSession sessionWithConfiguration:configuration.get() delegate:delegate.get().get() delegateQueue:[NSOperationQueue mainQueue]];
     }();
     return session.get().get();
@@ -115,7 +126,7 @@ void NetworkLoader::allowTLSCertificateChainForLocalPCMTesting(const WebCore::Ce
     allowedLocalTestServerTrust() = certificateInfo.trust();
 }
 
-void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore::PrivateClickMeasurement::PcmDataCarried pcmDataCarried, Callback&& callback)
+void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore::PrivateClickMeasurement::PcmDataCarried pcmDataCarried, const ApplicationBundleIdentifiersOrAuditToken& applicationBundleIdentifier, Callback&& callback)
 {
     // Prevent contacting non-local servers when a test certificate chain is used for 127.0.0.1.
     // FIXME: Use a proxy server to have tests cover the reports sent to the destination, too.
@@ -125,6 +136,14 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     auto request = adoptNS([[NSMutableURLRequest alloc] initWithURL:url.createNSURL().get()]);
     [request setValue:WebCore::HTTPHeaderValues::maxAge0().createNSString().get() forHTTPHeaderField:@"Cache-Control"];
     [request setValue:WebCore::standardUserAgentWithApplicationName({ }).createNSString().get() forHTTPHeaderField:@"User-Agent"];
+    RetainPtr crossSiteMainDocument = [NSURLComponents componentsWithURL:request.get().URL resolvingAgainstBaseURL:NO];
+    crossSiteMainDocument.get().host = [NSString stringWithFormat:@"not-%@", crossSiteMainDocument.get().host];
+    [request setMainDocumentURL:crossSiteMainDocument.get().URL];
+    // MAVERICKS_BACKPORT: NSURLRequest attribution uses the App Privacy Report capability gate.
+#if ENABLE(APP_PRIVACY_REPORT)
+    [request setAttribution:NSURLRequestAttributionUser];
+#endif // MAVERICKS_BACKPORT: closes the App Privacy Report capability gate.
+
     if (jsonPayload) {
         request.get().HTTPMethod = @"POST";
         [request setValue:WebCore::HTTPHeaderValues::applicationJSONContentType().createNSString().get() forHTTPHeaderField:@"Content-Type"];
@@ -137,7 +156,7 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     // MAVERICKS_BACKPORT: startCurlLoadTask sends the request in place of the NSURLSession task.
 #if 0
     auto identifier = LoadTaskIdentifier::generate();
-    RetainPtr task = [statelessSessionWithoutRedirectsSingleton() dataTaskWithRequest:request.get() completionHandler:makeBlockPtr([callback = WTF::move(callback), identifier](NSData *data, NSURLResponse *response, NSError *error) mutable {
+    RetainPtr task = [statelessSessionWithoutRedirectsSingleton(applicationBundleIdentifier) dataTaskWithRequest:request.get() completionHandler:makeBlockPtr([callback = WTF::move(callback), identifier](NSData *data, NSURLResponse *response, NSError *error) mutable {
         taskMap().remove(identifier);
         if (error)
             return callback(error.localizedDescription, { });

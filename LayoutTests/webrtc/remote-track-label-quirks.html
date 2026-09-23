@@ -15,6 +15,7 @@ promise_test(async (test) => {
     window.internals.setTopDocumentURLForQuirks("https://www.facebook.com");
 
     const localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+    test.add_cleanup(() => localStream.getTracks().forEach(track => track.stop()));
     const stream = await new Promise((resolve, reject) => {
         createConnections((firstConnection) => {
             firstConnection.addTrack(localStream.getAudioTracks()[0], localStream);

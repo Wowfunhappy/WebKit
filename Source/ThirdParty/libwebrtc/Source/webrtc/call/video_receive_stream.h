@@ -85,7 +85,8 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
   struct Stats {
     Stats();
     ~Stats();
-    std::string ToString(int64_t time_ms) const;
+    std::string ToString(int64_t time_ms,
+                         std::optional<Stats> previous_stats) const;
 
     int network_frame_rate = 0;
     int decode_frame_rate = 0;
@@ -348,7 +349,7 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
   virtual void UpdateRtxSsrc(uint32_t ssrc) = 0;
 
  protected:
-  virtual ~VideoReceiveStreamInterface() {}
+  ~VideoReceiveStreamInterface() override {}
 };
 
 }  // namespace webrtc

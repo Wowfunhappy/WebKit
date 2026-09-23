@@ -46,9 +46,7 @@ LibWebRTCRtpTransformableFrame::LibWebRTCRtpTransformableFrame(std::unique_ptr<w
 {
 }
 
-LibWebRTCRtpTransformableFrame::~LibWebRTCRtpTransformableFrame()
-{
-}
+LibWebRTCRtpTransformableFrame::~LibWebRTCRtpTransformableFrame() = default;
 
 std::unique_ptr<webrtc::TransformableFrameInterface> LibWebRTCRtpTransformableFrame::takeRTCFrame()
 {
@@ -59,14 +57,13 @@ std::span<const uint8_t> LibWebRTCRtpTransformableFrame::data() const
 {
     if (!m_rtcFrame)
         return { };
-    auto data = m_rtcFrame->GetData();
-    return unsafeMakeSpan(data.begin(), data.size());
+    return m_rtcFrame->GetData();
 }
 
 void LibWebRTCRtpTransformableFrame::setData(std::span<const uint8_t> data)
 {
     if (m_rtcFrame)
-        m_rtcFrame->SetData({ data.data(), data.size() });
+        m_rtcFrame->SetData(data);
 }
 
 bool LibWebRTCRtpTransformableFrame::isKeyFrame() const
@@ -153,25 +150,18 @@ void LibWebRTCRtpTransformableFrame::setOptions(const RTCEncodedVideoFrameMetada
 
     if (newMetadata.frameId)
         rtcMetadata.SetFrameId(*newMetadata.frameId);
-    if (newMetadata.dependencies)
-        rtcMetadata.SetFrameDependencies({ newMetadata.dependencies->span().data(), newMetadata.dependencies->size() });
+    // FIXME: newMetadata.dependencies
     if (newMetadata.width)
         rtcMetadata.SetWidth(*newMetadata.width);
     if (newMetadata.height)
         rtcMetadata.SetHeight(*newMetadata.height);
-    if (newMetadata.spatialIndex)
-        rtcMetadata.SetSpatialIndex(*newMetadata.spatialIndex);
+    // FIXME: newMetadata.spatialIndex
     if (newMetadata.temporalIndex)
         rtcMetadata.SetTemporalIndex(*newMetadata.temporalIndex);
     if (newMetadata.synchronizationSource)
         rtcMetadata.SetSsrc(*newMetadata.synchronizationSource);
     // FIXME: newMetadata.payloadType
-    if (newMetadata.contributingSources) {
-        std::vector<uint32_t> csrcs(newMetadata.contributingSources->size());
-        for (auto& csrc : *newMetadata.contributingSources)
-            csrcs.push_back(csrc);
-        rtcMetadata.SetCsrcs(WTF::move(csrcs));
-    }
+    // FIXME: newMetadata.contributingSources
     if (newMetadata.rtpTimestamp)
         m_rtcFrame->SetRTPTimestamp(*newMetadata.rtpTimestamp);
     // FIXME: newMetadata.mimeType

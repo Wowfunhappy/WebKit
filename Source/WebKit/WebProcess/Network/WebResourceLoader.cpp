@@ -59,6 +59,7 @@
 #include <WebCore/SubstituteData.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/PageBlock.h>
 #include <wtf/text/MakeString.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -81,7 +82,7 @@ WebResourceLoader::WebResourceLoader(Ref<WebCore::ResourceLoader>&& coreLoader, 
     , m_trackingParameters(trackingParameters)
     , m_loadStart(MonotonicTime::now())
 {
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_CONSTRUCTOR);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderConstructor);
 }
 
 WebResourceLoader::~WebResourceLoader() = default;
@@ -129,7 +130,7 @@ void WebResourceLoader::willSendRequest(ResourceRequest&& proposedRequest, IPC::
     proposedRequest.setHTTPBody(proposedRequestBody.takeData());
 
     LOG(Network, "(WebProcess) WebResourceLoader::willSendRequest to '%s'", proposedRequest.url().string().latin1().data());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_WILLSENDREQUEST);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderWillSendRequest);
     
     if (RefPtr frame = coreLoader->frame()) {
         if (RefPtr page = frame->page()) {
@@ -141,11 +142,11 @@ void WebResourceLoader::willSendRequest(ResourceRequest&& proposedRequest, IPC::
     coreLoader->willSendRequest(WTF::move(proposedRequest), redirectResponse, [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (ResourceRequest&& request) mutable {
         RefPtr coreLoader = m_coreLoader;
         if (!m_coreLoader || !coreLoader->identifier()) {
-            WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_WILLSENDREQUEST_NO_CORELOADER);
+            WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderWillSendRequestNoCoreLoader);
             return completionHandler({ }, false);
         }
 
-        WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_WILLSENDREQUEST_CONTINUE);
+        WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderWillSendRequestContinue);
         completionHandler(WTF::move(request), coreLoader->isAllowedToAskUserForCredentials());
     });
 }
@@ -192,7 +193,7 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
 {
     RefPtr coreLoader = m_coreLoader;
     LOG(Network, "(WebProcess) WebResourceLoader::didReceiveResponse for '%s'. Status %d.", coreLoader->url().string().latin1().data(), response.httpStatusCode());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE, response.httpStatusCode());
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidReceiveResponse, response.httpStatusCode());
 
     Ref<WebResourceLoader> protectedThis(*this);
 
@@ -218,7 +219,7 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
             if (m_coreLoader && coreLoader->identifier())
                 send(Messages::NetworkResourceLoader::ContinueDidReceiveResponse());
             else
-                WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE_NOT_CONTINUING_LOAD);
+                WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidReceiveResponseNotContinuingLoad);
         };
     }
 
@@ -229,7 +230,7 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
         InspectorInstrumentationWebKit::interceptResponse(frame.get(), response, interceptedRequestIdentifier, [this, protectedThis = Ref { *this }, interceptedRequestIdentifier, policyDecisionCompletionHandler = WTF::move(policyDecisionCompletionHandler)](const ResourceResponse& inspectorResponse, RefPtr<FragmentedSharedBuffer> overrideData) mutable {
             RefPtr coreLoader = m_coreLoader;
             if (!m_coreLoader || !coreLoader->identifier()) {
-                WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE_NOT_CONTINUING_INTERCEPT_LOAD);
+                WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidReceiveResponseNotContinuingInterceptLoad);
                 m_interceptController.continueResponse(interceptedRequestIdentifier);
                 return;
             }
@@ -277,7 +278,7 @@ void WebResourceLoader::didReceiveData(IPC::SharedBufferReference&& data, uint64
 
     bool isFirstDidReceiveData = !m_numBytesReceived;
     if (isFirstDidReceiveData)
-        WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVEDATA);
+        WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidReceiveData);
     m_numBytesReceived += data.size();
 
     auto delta = calculateBytesTransferredOverNetworkDelta(bytesTransferredOverNetwork);
@@ -310,7 +311,7 @@ void WebResourceLoader::didFinishResourceLoad(NetworkLoadMetrics&& networkLoadMe
 {
     RefPtr coreLoader = m_coreLoader;
     LOG(Network, "(WebProcess) WebResourceLoader::didFinishResourceLoad for '%s'", coreLoader->url().string().latin1().data());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDFINISHRESOURCELOAD, static_cast<uint64_t>(m_numBytesReceived));
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidFinishResourceLoad, static_cast<uint64_t>(m_numBytesReceived));
 
     if (m_interceptController.isIntercepting(*coreLoader->identifier())) [[unlikely]] {
         m_interceptController.defer(*coreLoader->identifier(), [this, protectedThis = Ref { *this }, networkLoadMetrics = WTF::move(networkLoadMetrics)]() mutable {
@@ -353,7 +354,7 @@ void WebResourceLoader::didFailServiceWorkerLoad(const ResourceError& error)
 void WebResourceLoader::serviceWorkerDidNotHandle()
 {
     RefPtr coreLoader = m_coreLoader;
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_SERVICEWORKERDIDNOTHANDLE);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderServiceWorkerDidNotHandle);
 
     ASSERT(coreLoader->options().serviceWorkersMode == ServiceWorkersMode::Only);
     auto error = internalError(coreLoader->request().url());
@@ -371,7 +372,7 @@ void WebResourceLoader::didFailResourceLoad(const ResourceError& error)
 {
     RefPtr coreLoader = m_coreLoader;
     LOG(Network, "(WebProcess) WebResourceLoader::didFailResourceLoad for '%s'", coreLoader->url().string().latin1().data());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDFAILRESOURCELOAD);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidFailResourceLoad);
 
     if (m_interceptController.isIntercepting(*coreLoader->identifier())) [[unlikely]] {
         m_interceptController.defer(*coreLoader->identifier(), [this, protectedThis = Ref { *this }, error]() mutable {
@@ -390,7 +391,7 @@ void WebResourceLoader::didBlockAuthenticationChallenge()
 {
     RefPtr coreLoader = m_coreLoader;
     LOG(Network, "(WebProcess) WebResourceLoader::didBlockAuthenticationChallenge for '%s'", coreLoader->url().string().latin1().data());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDBLOCKAUTHENTICATIONCHALLENGE);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidBlockAuthenticationChallenge);
 
     coreLoader->didBlockAuthenticationChallenge();
 }
@@ -399,7 +400,7 @@ void WebResourceLoader::stopLoadingAfterXFrameOptionsOrContentSecurityPolicyDeni
 {
     RefPtr coreLoader = m_coreLoader;
     LOG(Network, "(WebProcess) WebResourceLoader::stopLoadingAfterXFrameOptionsOrContentSecurityPolicyDenied for '%s'", coreLoader->url().string().latin1().data());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_STOPLOADINGAFTERSECURITYPOLICYDENIED);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderStopLoadingAfterSecurityPolicyDenied);
 
     protect(coreLoader->documentLoader())->stopLoadingAfterXFrameOptionsOrContentSecurityPolicyDenied(*coreLoader->identifier(), response);
 }
@@ -409,13 +410,13 @@ void WebResourceLoader::didReceiveResource(ShareableResource::Handle&& handle)
 {
     RefPtr coreLoader = m_coreLoader;
     LOG(Network, "(WebProcess) WebResourceLoader::didReceiveResource for '%s'", coreLoader->url().string().latin1().data());
-    WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESOURCE);
+    WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidReceiveResource);
 
     RefPtr<SharedBuffer> buffer = WTF::move(handle).tryWrapInSharedBuffer();
 
     if (!buffer) {
         LOG_ERROR("Unable to create buffer from ShareableResource sent from the network process.");
-        WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESOURCE_UNABLE_TO_CREATE_FRAGMENTEDSHAREDBUFFER);
+        WEBRESOURCELOADER_RELEASE_LOG(WebResourceLoaderDidReceiveResourceUnableToCreateFragmentedSharedBuffer);
         if (RefPtr frame = coreLoader->frame()) {
             if (RefPtr page = frame->page())
                 protect(page->diagnosticLoggingClient())->logDiagnosticMessage(WebCore::DiagnosticLoggingKeys::internalErrorKey(), WebCore::DiagnosticLoggingKeys::createSharedBufferFailedKey(), WebCore::ShouldSample::No);

@@ -17,7 +17,7 @@ function runTest() {
     let path = location.pathname.split("/");
     let filename = path[path.length - 1];
     let targetFileName = internals.createTemporaryFile(`${filename}`, "");
-    let targetDirectory = targetFileName.substring(0, targetFileName.length - filename);
+    let targetDirectory = targetFileName.split("/").slice(0, -1).join("/");
 
     let input = document.createElement("input");
     input.type = "file";
@@ -31,21 +31,22 @@ function runTest() {
     input.files = dataTransfer.files;
 
     let resultCount = 0;
+    const expectedResultCount = 4;
 
     var functionOnSuccess = function (file)
     {
         testFailed("Received file");
-        if (resultCount == 2)
-            finishJSTest()
         resultCount++;
+        if (resultCount == expectedResultCount)
+            finishJSTest();
     }
 
     var functionOnError = function (value)
     {
         testPassed("Should not receive file");
-        if (resultCount == 2)
-            finishJSTest()
         resultCount++;
+        if (resultCount == expectedResultCount)
+            finishJSTest();
     }
 
     input.webkitEntries.forEach((entry) => {

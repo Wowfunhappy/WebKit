@@ -36,8 +36,8 @@ namespace JSC {
 
 CallFrameShuffler::CallFrameShuffler(CCallHelpers& jit, const CallFrameShuffleData& data)
     : m_jit(jit)
-    , m_oldFrame(data.numLocals + CallerFrameAndPC::sizeInRegisters, nullptr)
-    , m_newFrame(data.args.size() + CallFrame::headerSizeInRegisters, nullptr)
+    , m_oldFrame(FillWith { }, data.numLocals + CallerFrameAndPC::sizeInRegisters, nullptr)
+    , m_newFrame(FillWith { }, data.args.size() + CallFrame::headerSizeInRegisters, nullptr)
     , m_alignedOldFrameSize(CallFrame::headerSizeInRegisters + roundArgumentCountToAlignFrame(data.numParameters))
     , m_alignedNewFrameSize(CallFrame::headerSizeInRegisters
         + roundArgumentCountToAlignFrame(data.args.size()))

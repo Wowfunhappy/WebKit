@@ -108,7 +108,8 @@ std::optional<String> TransferString::release(size_t maxCopySizeInBytes) && // N
             if (!memory)
                 return std::nullopt;
             if (memory->size() > maxCopySizeInBytes) {
-                Ref<StringImpl> impl = ExternalStringImpl::create(byteCast<Latin1Character>(memory->span()), [memory = memory.releaseNonNull()] (auto...) mutable { });
+                auto span = byteCast<Latin1Character>(memory->span());
+                Ref<StringImpl> impl = ExternalStringImpl::create(span, [memory = memory.releaseNonNull()] (auto...) mutable { });
                 return std::optional<String> { std::in_place, String { WTF::move(impl) } };
             }
             return std::optional<String> { std::in_place, String { byteCast<Latin1Character>(memory->span()) } };
@@ -118,7 +119,8 @@ std::optional<String> TransferString::release(size_t maxCopySizeInBytes) && // N
             if (!memory || (memory->size() % sizeof(char16_t)))
                 return std::nullopt;
             if (memory->size() > maxCopySizeInBytes) {
-                Ref<StringImpl> impl = ExternalStringImpl::create(spanReinterpretCast<const char16_t>(memory->span()), [memory = memory.releaseNonNull()] (auto...) mutable { });
+                auto span = spanReinterpretCast<const char16_t>(memory->span());
+                Ref<StringImpl> impl = ExternalStringImpl::create(span, [memory = memory.releaseNonNull()] (auto...) mutable { });
                 return std::optional<String> { std::in_place, String { WTF::move(impl) } };
             }
             return std::optional<String> { std::in_place, String { spanReinterpretCast<const char16_t>(memory->span()) } };
@@ -138,6 +140,8 @@ TransferString::IPCData TransferString::toIPCData() const LIFETIME_BOUND
         },
 #if USE(CF)
         [](const RetainPtr<CFStringRef>& string) {
+            if (!string)
+                return IPCData { std::monostate { } };
             if (auto span8 = CFStringGetLatin1CStringSpan(string.get()); !span8.empty())
                 return IPCData { span8 };
             return IPCData { CFStringGetCharactersSpan(string.get()) };
@@ -149,6 +153,45 @@ TransferString::IPCData TransferString::toIPCData() const LIFETIME_BOUND
         [](const SharedSpan16& handle) -> IPCData {
             return IPCData { SharedSpan16 { WebCore::SharedMemoryHandle { handle.dataHandle } } };
         }
+    );
+}
+
+TransferString::TransferString(const TransferString& other)
+{
+    WTF::switchOn(other.m_storage,
+        [&](const String& string) {
+            m_storage = string;
+        },
+#if USE(CF)
+        [&](const RetainPtr<CFStringRef>& string) {
+            m_storage = string;
+        },
+#endif
+        [&](const SharedSpan8& handle) {
+            m_storage = SharedSpan8 { WebCore::SharedMemoryHandle { handle.dataHandle } };
+        },
+        [&](const SharedSpan16& handle) {
+            m_storage = SharedSpan16 { WebCore::SharedMemoryHandle { handle.dataHandle } };
+        }
+    );
+}
+
+TransferString& TransferString::operator=(const TransferString& other)
+{
+    if (this != &other)
+        *this = TransferString { other };
+    return *this;
+}
+
+bool TransferString::shouldCache() const
+{
+    return WTF::switchOn(m_storage,
+        [](const String&) { return false; },
+#if USE(CF)
+        [](const RetainPtr<CFStringRef>& string) { return false; },
+#endif
+        [](const SharedSpan8& handle) { return true; },
+        [](const SharedSpan16& handle) { return true; }
     );
 }
 

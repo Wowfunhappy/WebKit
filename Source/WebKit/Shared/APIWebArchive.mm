@@ -92,9 +92,7 @@ WebArchive::WebArchive(RefPtr<LegacyWebArchive>&& legacyWebArchive)
 {
 }
 
-WebArchive::~WebArchive()
-{
-}
+WebArchive::~WebArchive() = default;
 
 WebArchiveResource* WebArchive::mainResource()
 {
